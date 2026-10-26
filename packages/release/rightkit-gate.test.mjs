@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -9,9 +10,8 @@ import * as ci from "../../scripts/ci/select.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { HOOK_MARKER, renderPreCommitHook } from "./ownership-hooks.mjs";
 import { digestScanSet } from "./scan-digest.mjs";
-import {
-  DEFER_OPT_OUT_ENV, EXTERNAL_INPUT_FILE_LIMIT, PROTECTED_BRANCHES, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, deferredBlock, defaultBranchNames, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, hookText, isDeferrableRef, lockScope, main, manifestChangeIsLockReflected, manifestTables, manifestWorkspaceMetadata, parsePushLines, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustDeferral, rustUnitName, rustUnitOfScanId, tomlString, tomlStrings, tomlValue, trampolineText, unmatchedManifests, withoutScans, workspaceExcludes,
-} from "./bin/rightkit-gate.mjs";
+import { PINNED_SCAN_TOOLS } from "./deterministic-scans.mjs";
+import { EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, hookText, lockScope, main, manifestChangeIsLockReflected, PARTIAL_EXIT, manifestTables, parsePushLines, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustUnitName, rustUnitOfScanId, tomlString, tomlStrings, tomlValue, trampolineText, workspaceExcludes } from "./bin/rightkit-gate.mjs";
 import * as gateModule from "./bin/rightkit-gate.mjs";
 
 // Read off the module so a test of a function that does not exist yet fails on its own, not with an import error for the whole file.
@@ -43,6 +43,82 @@ const fnSource = (text, name) => {
   const start = text.indexOf(`export function ${name}(`);
   assert.ok(start >= 0, `${name} found`);
   return text.slice(start, text.indexOf("\n}\n", start) + 3);
+};
+
+
+// ---- shared fixtures (kept from the removed deferral section) ----
+
+
+
+// Git forbids an ASCII space in a ref name and allows every other non-control character, Unicode whitespace included.
+const UNICODE_SPACES = [["U+00A0 no-break space", " "], ["U+2003 em space", " "], ["U+3000 ideographic space", "　"], ["U+2028 line separator", " "], ["U+FEFF zero-width no-break space", "﻿"]];
+
+// A repository as a file map: tracked(name) lists the files with that name, as `git ls-files :(glob)**/name` would.
+const pnpmFixture = (files) => {
+  const map = new Map(Object.entries(files).map(([k, v]) => [norm(path.join("/r", k)), v]));
+  return {
+    root: "/r", exists: (p) => map.has(norm(p)), readFile: (p) => map.get(norm(p)),
+    tracked: (name) => [...map.keys()].map((k) => k.slice("/r/".length)).filter((k) => path.posix.basename(k) === name),
+  };
+};
+
+
+const gitLine = (localRef, remoteRef, { sha = HEAD, remote = ZEROS } = {}) => `${localRef} ${sha} ${remoteRef} ${remote}\n`;
+
+
+const benignLine = (name = "benign") => pushLine(`refs/heads/claude/${name}`);
+
+
+// A real git repository with the installed hook, a bare remote and a PATH of symlinks to just what the hook and the gate need, so a
+// rustright or cargo on the developer's PATH cannot change the outcome. The app check is a shim that passes. `origin/main` is the parent
+// commit, so the gate has a base to diff against; `files` are committed with `message`. Returns null (after t.skip) when a tool is missing.
+function realHookRepo(t, { files, message = "app" }) {
+  const tools = mkRepo({}, t);
+  const exec = spawnSync("git", ["--exec-path"], { encoding: "utf8" });
+  // On Windows sh answers MSYS paths and an MSYS tool needs its runtime DLL beside it, so PATH is the Git for Windows directories that
+  // hold the tools (cygpath -w), which carry no rustright or cargo; elsewhere it is a directory of symlinks to just these tools.
+  const toolDirs = new Set();
+  for (const name of ["git", "which", "awk", "mktemp", "cat", "rm", "tar"]) {
+    const found = spawnSync("sh", ["-c", `command -v ${name}`], { encoding: "utf8" }).stdout.trim();
+    if (!found) { t.skip(`no ${name} on this host`); return null; }
+    if (process.platform !== "win32") { fs.symlinkSync(found, path.join(tools, name)); continue; }
+    const dir = spawnSync("sh", ["-c", 'cygpath -w "$(dirname "$1")"', "sh", found], { encoding: "utf8" }).stdout.trim();
+    if (!dir) { t.skip(`cannot map ${found} to a Windows path`); return null; }
+    toolDirs.add(dir);
+  }
+  const toolPath = process.platform === "win32" ? [...toolDirs].join(path.delimiter) : tools;
+  const tmp = mkRepo({}, t);
+  const gateCli = path.join(path.dirname(fileURLToPath(import.meta.url)), "bin", "rightkit-gate.mjs").replaceAll("\\", "/");
+  const shim = `#!/bin/sh\nif [ "$1" = check ]; then exit 0; fi\nexec "${process.execPath.replaceAll("\\", "/")}" "${gateCli}" "$@"\n`;
+  const root = hookRepo(t, {
+    ".githooks/pre-push": hookText(gateCli),
+    "node_modules/.bin/rightkit-gate": shim, ".gitignore": "node_modules/\n", "README.md": "# app\n",
+  });
+  // Windows spells it Path; a second PATH key beside it would leave which one wins to the platform.
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== "PATH"));
+  const env = { ...inherited, PATH: toolPath, GIT_EXEC_PATH: exec.stdout.trim(), CI: "", GITHUB_ACTIONS: "", GIT_TERMINAL_PROMPT: "0" };
+  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8", env });
+  for (const [k, v] of [["user.email", "t@example.test"], ["user.name", "t"], ["core.autocrlf", "false"], ["core.hooksPath", ".githooks"]]) git("config", k, v);
+  const remote = path.join(tmp, "remote.git");
+  assert.equal(spawnSync("git", ["init", "-q", "--bare", remote], { encoding: "utf8", env }).status, 0);
+  git("remote", "add", "origin", remote);
+  git("add", "-A");
+  assert.equal(git("commit", "-q", "-m", "base").status, 0);
+  git("update-ref", "refs/remotes/origin/main", "HEAD");
+  for (const [name, body] of Object.entries(files)) { const file = path.join(root, name); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, body); }
+  git("add", "-A");
+  assert.equal(git("commit", "-q", "-m", message).status, 0);
+  return { root, git, remoteRefs: () => git("ls-remote", "origin").stdout.trim() };
+}
+
+
+const lock = "lockfileVersion: '9.0'\n";
+
+
+const codeRight = {
+  "apps/coderight-tauri/package.json": '{"name":"coderight-tauri","scripts":{"test":"vitest run"}}', "apps/coderight-tauri/pnpm-lock.yaml": lock,
+  "apps/coderight-web/package.json": '{"name":"coderight-web","scripts":{"test":"vitest run"}}', "apps/coderight-web/pnpm-lock.yaml": lock,
+  "src-tauri/Cargo.toml": pkg("coderight"), "README.md": "x",
 };
 
 test("lock-graph.mjs is identical to scripts/ci/select.mjs: same source, same results on a fixture", () => {
@@ -197,6 +273,19 @@ test("install-hook writes the hook, sets core.hooksPath, and refuses to overwrit
   assert.deepEqual(state.sets, [".githooks"]);
 });
 
+test("install-hook registers the one-door agent hook in .claude/settings.json once, keeping the settings already there", async (t) => {
+  const root = mkRepo({ "node_modules/@rightkit/release/bin/rightkit-gate.mjs": "", "node_modules/@rightkit/release/bin/rightkit-agent-hook.mjs": "", ".claude/settings.json": JSON.stringify({ permissions: { allow: ["Bash(ls)"] } }) }, t);
+  const run = async () => { const c = capture(); const code = await main(["install-hook"], { ...c.io, spawn: hookSpawn(root, { hooksPath: "", sets: [] }), cwd: root }); return { code, out: c.out.join("\n") }; };
+  const first = await run();
+  assert.equal(first.code, 0);
+  const settings = JSON.parse(fs.readFileSync(path.join(root, ".claude", "settings.json"), "utf8"));
+  assert.deepEqual(settings.permissions, { allow: ["Bash(ls)"] }, "existing settings are kept");
+  assert.deepEqual(settings.hooks.PreToolUse, [{ matcher: "Bash", hooks: [{ type: "command", command: "node node_modules/@rightkit/release/bin/rightkit-agent-hook.mjs" }] }]);
+  const second = await run();
+  assert.match(second.out, /agent hook already present/);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root, ".claude", "settings.json"), "utf8")).hooks.PreToolUse.length, 1, "never added twice");
+});
+
 test("install-hook points node at the installed package when it is in node_modules", async (t) => {
   const root = mkRepo({ "node_modules/@rightkit/release/bin/rightkit-gate.mjs": "" }, t);
   const c = capture();
@@ -205,6 +294,16 @@ test("install-hook points node at the installed package when it is in node_modul
 });
 
 // ---- the gate with injected spawn ------------------------------------------------------------------------------
+
+// The snapshot listing the gate asks for (`git ls-tree -r --name-only -z <rev>`, or `git ls-files -z --cached` for the working tree):
+// the harness's own tracked Cargo manifests and locks, plus every other file of the fixture on disk.
+const fullListing = (root, manifests, locks = null) => {
+  const disk = fs.readdirSync(root, { recursive: true }).map(String).map((f) => f.replaceAll("\\", "/")).filter((f) => !f.startsWith(".git/") && f !== ".git" && fs.statSync(path.join(root, f)).isFile());
+  const other = disk.filter((f) => !/(^|\/)Cargo\.(toml|lock)$/.test(f));
+  const lockFiles = locks ?? disk.filter((f) => /(^|\/)Cargo\.lock$/.test(f));
+  return [...new Set([...manifests, ...lockFiles, ...other])].map((f) => `${f}\0`).join("");
+};
+const wholeListing = (args) => args[0] === "ls-tree" || (args[0] === "ls-files" && !args.some((a) => String(a).startsWith(":(glob)")) && !args.includes("--others"));
 
 const HEAD = "a".repeat(40);
 function repoSpawn(root, { log = [], diff = "crates/a/src/lib.rs\n", cargoLines = "/bin/rustright\n" } = {}) {
@@ -215,6 +314,7 @@ function repoSpawn(root, { log = [], diff = "crates/a/src/lib.rs\n", cargoLines 
     if (cmd === "git") {
       if (line === "rev-parse --show-toplevel") return ok(root);
       if (line === "rev-parse HEAD") return ok(HEAD);
+      if (wholeListing(args)) return ok(fullListing(root, ["Cargo.toml", "crates/a/Cargo.toml", "crates/b/Cargo.toml"]));
       if (args[0] === "ls-files") return ok(args.at(-1).endsWith("Cargo.toml") ? "Cargo.toml\0crates/a/Cargo.toml\0crates/b/Cargo.toml\0" : "");
       if (args[0] === "diff") return ok(diff);
     }
@@ -274,24 +374,30 @@ test("--plan prints the plan for a fake repo from its own units and runs nothing
   assert.doesNotMatch(out, /clippy:b|cargo-package-list:b/);
   assert.doesNotMatch(out, /deferred/, "the compile grant is present");
   assert.ok(!log.some((l) => l[0] === "rustright" && l[1] === "cargo" && l[2] !== "metadata"), "only discovery ran through cargo");
-  assert.ok(!log.some((l) => l.includes("archive") || l.includes("status") || l.includes("tar")), "a plan exports and checks nothing");
+  assert.ok(!log.some((l) => l.includes("archive") || l.includes("read-tree") || l.includes("checkout-index") || l.includes("status") || l.includes("tar")), "a plan exports and checks nothing");
 });
 
-test("the gate blocks without a local compile grant: Rust units cannot be discovered through the broker", async (t) => {
+test("no local compile grant file is needed: the broker (or the gate on a direct host) admits compiles, not a file in the repository", async (t) => {
   const { ".rightkit-local-build.json": _grant, ...files } = gateFiles();
   const root = mkRepo(files, t);
   const c = capture();
-  assert.equal(await main(["--plan"], { ...c.io, spawn: repoSpawn(root), cwd: root, env: {} }), 1);
-  assert.match(c.err.join("\n"), /BLOCKED: no local compile grant/);
+  assert.equal(await main(["--plan"], { ...c.io, spawn: repoSpawn(root), cwd: root, env: {} }), 0, c.err.join("\n"));
+  assert.doesNotMatch(c.out.join("\n"), /deferred: no local compile grant/);
 });
 
-test("the gate blocks when neither rustright nor the managed cargo shim resolves", async (t) => {
+test("executor: a broker-managed machine without a reachable broker is refused; any other host runs cargo directly through the same plan", async (t) => {
   const root = mkRepo(gateFiles(), t);
-  const c = capture();
-  const code = await main(["--plan"], { ...c.io, spawn: repoSpawn(root, { cargoLines: "" }), cwd: root, env: {} });
-  // `where rustright` answers nothing: the only fallback is a cargo shim, and `where cargo` fails here.
-  assert.equal(code, 1);
-  assert.match(c.err.join("\n"), /neither `rustright` nor the managed cargo shim/);
+  // A broker-managed machine (the broker socket is configured) where `rustright` does not resolve: refused, nothing planned or run.
+  const managed = capture();
+  assert.equal(await main(["--plan"], { ...managed.io, spawn: repoSpawn(root, { cargoLines: "" }), cwd: root, env: { RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/broker.sock" } }), 1);
+  assert.match(managed.err.join("\n"), /BLOCKED: this machine is broker-managed \(RustRight\) but `rustright` is not reachable from this shell/);
+  // An unmanaged host (a cloud container, a CI runner): direct cargo, the same scans.
+  const metadata = meta(root, ".", [["a", "crates/a"], ["b", "crates/b", []]]);
+  const base = repoSpawn(root, { cargoLines: "" });
+  const direct = capture();
+  const spawn = (cmd, args, opts) => (cmd === "cargo" && args[0] === "metadata" ? ok(metadata) : base(cmd, args, opts));
+  assert.equal(await main(["--plan"], { ...direct.io, spawn, cwd: root, env: {} }), 0, direct.err.join("\n"));
+  assert.match(direct.out.join("\n"), /\[B\] clippy:a :: cargo clippy -p a /, "the same compile scans, through plain cargo");
 });
 
 test("pre-push: the pushed commit must be the checked-out HEAD, before anything else runs", async (t) => {
@@ -779,6 +885,7 @@ function multiSpawn(root, { log = [], diff = "hub/src-tauri/src/lib.rs\n", untra
     if (cmd === "git") {
       if (line === "rev-parse --show-toplevel") return ok(root);
       if (line === "rev-parse HEAD") return ok(HEAD);
+      if (wholeListing(args)) return ok(fullListing(root, tracked, locks));
       if (args[0] === "ls-files" && args.includes("--others")) return ok(untracked);
       if (args[0] === "ls-files") return ok(args.at(-1).endsWith("Cargo.toml") ? `${tracked.join("\0")}\0` : args.at(-1).endsWith("Cargo.lock") ? `${locks.join("\0")}\0` : "");
       if (args[0] === "diff") return ok(diff);
@@ -832,7 +939,7 @@ function hookEnv(root, state, { listed = null } = {}) {
     if (cmd === "git" && line === "rev-parse --git-dir") return ok(".git\n");
     if (cmd === "git" && line === "config --get core.hooksPath") return state.hooksPath ? ok(`${state.hooksPath}\n`) : no();
     if (cmd === "git" && args[0] === "config" && args[1] === "core.hooksPath") { state.hooksPath = args[2]; state.sets.push(args[2]); return ok(); }
-    if (cmd === "git" && args[0] === "ls-files") return listed === null ? no("not listed") : ok(listed.map((f) => `${f}\0`).join(""));
+    if (cmd === "git" && (args[0] === "ls-files" || args[0] === "ls-tree")) return listed === null ? no("not listed") : ok(listed.map((f) => `${f}\0`).join(""));
     return no(`unexpected ${cmd} ${line}`);
   };
 }
@@ -1078,14 +1185,108 @@ test("quietLeaseLane: acquires through rustright with the gate pid, hands the le
 
 // ---- the check subcommand ----------------------------------------------------------------------------------------------------
 
-test("check delegates to the app check with its own arguments, label and cwd, reads no stdin and runs no git of its own", async () => {
+test("check is the full deterministic stage: a class A finding (here a broken package.json committed long ago) makes it red even when the app check is green", async (t) => {
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-classa-")));
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.mkdirSync(path.join(repo, "conf"));
+  fs.writeFileSync(path.join(repo, "conf/settings.json"), "{ not json");
+  git("add", "-A"); git("commit", "-q", "-m", "old broken file");
+  fs.writeFileSync(path.join(repo, "README.md"), "later change\n");
+  git("add", "-A"); git("commit", "-q", "-m", "unrelated");
+  const appCheck = async () => 0;
+  const red = capture();
+  assert.equal(await main(["check", "--repo", repo, "--commit", "HEAD"], { ...red.io, appCheck }), 1, red.out.join("\n"));
+  assert.match(red.out.join("\n"), /fail +json-parse/, "the whole tree is scanned, not the last commit's diff");
+  assert.match(red.err.join("\n"), /Class A is red: nothing compiles until it is green\./);
+  fs.writeFileSync(path.join(repo, "conf/settings.json"), "{}\n");
+  git("commit", "-q", "-am", "fixed");
+  const green = capture();
+  assert.equal(await main(["check", "--repo", repo, "--commit", "HEAD"], { ...green.io, appCheck }), 0, green.err.join("\n"));
+  assert.match(green.out.at(-1), /class A pass/);
+});
+
+// ---- class A ShellCheck: SellRight's own scripts through the real check, and a refused analyzer version ----------------------
+// fixtures/shellcheck-sellright/README.md: the original bytes (git blob ids below), their licence and provenance.
+const SC_FIXTURES = new URL("./fixtures/shellcheck-sellright/", import.meta.url);
+const SC_CASES = [
+  { file: "sellright-a09236e-parent.sh.fixture", at: "deploy/sellright.sh", blob: "e856d8c974fa35a44c5173baa1ffa3df2c5b576c", red: ["SC2030", "SC2031", "SC2154"] },
+  { file: "sellright-a09236e.sh.fixture", at: "deploy/sellright.sh", blob: "234308df35d076032a7cf2df04f986e153736d50", red: [] },
+  { file: "sellright-6c3faed-parent.sh.fixture", at: "deploy/sellright.sh", blob: "07af9d2a39fa54241aca9e0c4e4684f1a108e074", red: ["SC2016"] },
+  { file: "sellright-6c3faed.sh.fixture", at: "deploy/sellright.sh", blob: "9fa44bf81ee74de9edb34869b3cd2c6450052d27", red: [] },
+  { file: "test-installer-image-binding-059fe34-parent.sh.fixture", at: "deploy/tests/test-installer-image-binding.sh", blob: "3811ed592b1de00dea9a19dc001ea52a1d6ee362", red: ["SC2016", "SC2329"] },
+  { file: "test-installer-image-binding-059fe34.sh.fixture", at: "deploy/tests/test-installer-image-binding.sh", blob: "a5db74a35654e22673d6515a57fdd0af04087197", red: [] },
+];
+const scBytes = (c) => fs.readFileSync(new URL(c.file, SC_FIXTURES));
+const SC_PIN = PINNED_SCAN_TOOLS.shellcheck;
+const SC_FOUND = (() => { const r = spawnSync("shellcheck", ["--version"], { encoding: "utf8" }); return r.status === 0 ? (/^version:\s*(\S+)/m.exec(String(r.stdout))?.[1] ?? "unreadable") : null; })();
+// One commit holding one script at its SellRight path, checked by `rightkit-gate check` (real class A, real runScans) with
+// `binDir` first on PATH. The app check is not under test here.
+async function checkScript(t, bytes, at, binDir = null) {
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-sc-")));
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.mkdirSync(path.join(repo, path.dirname(at)), { recursive: true });
+  fs.writeFileSync(path.join(repo, at), bytes);
+  git("add", "-A"); git("commit", "-q", "-m", "script");
+  const saved = process.env.PATH;
+  if (binDir) process.env.PATH = `${binDir}${path.delimiter}${saved}`;
+  try {
+    const c = capture();
+    const code = await main(["check", "--repo", repo, "--commit", "HEAD"], { ...c.io, appCheck: async () => 0 });
+    return { code, out: c.out.join("\n"), err: c.err.join("\n") };
+  } finally { process.env.PATH = saved; }
+}
+
+test("class A ShellCheck fixtures are SellRight's committed bytes (git blob ids), not rewrites", () => {
+  for (const c of SC_CASES) {
+    const bytes = scBytes(c);
+    assert.equal(crypto.createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex"), c.blob, c.file);
+  }
+});
+
+test("class A ShellCheck (the pinned analyzer): SellRight's original negatives are red, its repairs and the disable-comment positive control are green", { skip: SC_FOUND !== SC_PIN && `the pinned ShellCheck ${SC_PIN} is not on PATH (found ${SC_FOUND ?? "none"}); the version refusal test below still runs` }, async (t) => {
+  for (const c of SC_CASES) {
+    const r = await checkScript(t, scBytes(c), c.at);
+    // The progress line keeps 300 characters of the finding; the BLOCKED list carries all of it.
+    const found = [...new Set(`${r.out}\n${r.err}`.match(/SC\d{4}/g) ?? [])].sort();
+    if (c.red.length) {
+      assert.equal(r.code, 1, `${c.file} is red\n${r.out}\n${r.err}`);
+      assert.match(r.out, /fail +shellcheck/, c.file);
+      for (const code of c.red) assert.ok(found.includes(code), `${c.file} reports ${code} (found ${found.join(",")})`);
+    } else {
+      assert.equal(r.code, 0, `${c.file} is green\n${r.out}\n${r.err}`);
+      assert.match(r.out, /pass +shellcheck/, c.file);
+      assert.deepEqual(found, [], c.file);
+    }
+  }
+});
+
+test("class A ShellCheck refuses another analyzer version (TOOL_VERSION, found and required named), even one that would pass every script", { skip: process.platform === "win32" && "a POSIX shell script stands in for shellcheck" }, async (t) => {
+  const bin = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-fake-shellcheck-")));
+  t.after(() => fs.rmSync(bin, { recursive: true, force: true }));
+  // Answers --version as ShellCheck 0.10.0 does and finds nothing in any script: a pass from it would be a pass the pin forbids.
+  fs.writeFileSync(path.join(bin, "shellcheck"), '#!/bin/sh\nif [ "$1" = "--version" ]; then printf \'ShellCheck - shell script analysis tool\\nversion: 0.10.0\\nlicense: GNU General Public License, version 3\\n\'; fi\nexit 0\n');
+  fs.chmodSync(path.join(bin, "shellcheck"), 0o755);
+  for (const c of [SC_CASES[1], SC_CASES[5], SC_CASES[0]]) {
+    const r = await checkScript(t, scBytes(c), c.at, bin);
+    assert.equal(r.code, 1, `${c.file} is refused\n${r.out}\n${r.err}`);
+    assert.match(r.out, /fail +shellcheck .*TOOL_VERSION: shellcheck found "shellcheck 0\.10\.0", class A requires shellcheck 0\.11\.0/, c.file);
+    assert.match(r.err, /Class A is red: nothing compiles until it is green\./);
+    assert.doesNotMatch(r.out, /pass +shellcheck|deferred +shellcheck/);
+  }
+});
+
+test("check delegates to the app check with its own arguments, label and cwd and reads no stdin (class A stubbed off)", async () => {
   const seen = [];
   const appCheck = async (argv, io) => { seen.push({ argv, label: io.label, cwd: io.cwd, hasOut: typeof io.out === "function" && typeof io.err === "function" }); return seen.length === 1 ? 1 : 2; };
   const spawn = () => { throw new Error("check must not spawn anything itself"); };
   const readStdin = () => { throw new Error("check must not read stdin"); };
   const c = capture();
   assert.equal(await main(["check", "--repo", "/r", "--commit", "abc", "--only", "qa-platform,skip-checks", "--print-baseline"], { ...c.io, appCheck, spawn, readStdin, cwd: "/work" }), 1);
-  assert.equal(await main(["check", "--worktree"], { ...c.io, appCheck, spawn, readStdin, cwd: "/work" }), 2);
+  assert.equal(await main(["check", "--worktree"], { ...c.io, appCheck, spawn, readStdin, cwd: "/work", classA: false }), 2);
   assert.deepEqual(seen, [
     { argv: ["--repo", "/r", "--commit", "abc", "--only", "qa-platform,skip-checks", "--print-baseline"], label: "check", cwd: "/work", hasOut: true },
     { argv: ["--worktree"], label: "check", cwd: "/work", hasOut: true },
@@ -1097,17 +1298,20 @@ test("check runs the real app check: findings on stdout, exit 0 green and 1 red,
   t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
   const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
   git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
-  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ scripts: { ship: "right-release build --skip-checks" } }));
+  // A valid package (licence and lockfile): class A, which check now runs too, is green, so only the app check decides.
+  fs.writeFileSync(path.join(repo, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\nimporters:\n\n  .: {}\n");
+  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT", scripts: { ship: "right-release build --skip-checks" } }));
   git("add", "-A"); git("commit", "-q", "-m", "red");
   const red = capture();
   assert.equal(await main(["check", "--repo", repo, "--commit", "HEAD"], red.io), 1);
   assert.match(red.out.join("\n"), /^FAIL skip-checks \(G17\): package\.json:1 script "ship" runs right-release with --skip-checks$/m);
-  assert.match(red.out.at(-1), /^check: 1 problem\(s\) in \w{12} \(27 rules, /);
-  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ scripts: { ship: "right-release build" } }));
+  assert.match(red.out.join("\n"), /^check: 1 problem\(s\) in \w{12} \(27 rules, /m);
+  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT", scripts: { ship: "right-release build" } }));
   git("commit", "-q", "-am", "green");
   const green = capture();
   assert.equal(await main(["check"], { ...green.io, cwd: repo }), 0, green.err.join("\n"));
-  assert.match(green.out.at(-1), /^check: \w{12} passed 27 rules in [\d.]+s$/, "no --repo: the git top-level of the working directory");
+  assert.match(green.out.join("\n"), /^check: \w{12} passed 27 rules in [\d.]+s$/m, "no --repo: the git top-level of the working directory");
+  assert.match(green.out.at(-1), /^rightkit-gate: class A pass: \d+ deterministic scan\(s\) over \d+ file\(s\) of HEAD$/, "then every class A scan over the whole commit");
   const unknown = capture();
   assert.equal(await main(["bogus"], unknown.io), 2);
   assert.match(unknown.err.join("\n"), /rightkit-gate check \[--repo <dir>\] \[--commit <rev> \| --worktree\] \[--only <rule,\.\.\.>\] \[--list\] \[--print-baseline\] \[--baseline <file>\]/);
@@ -1251,7 +1455,8 @@ test("a scratch repository with a red tree rejects git push through the installe
   // The gate binary is the real one for `check` and a recorder for the scans, which need a broker.
   const shim = `#!/bin/sh\nif [ "$1" = check ]; then exec "${process.execPath.replaceAll("\\", "/")}" "${gateCli}" "$@"; fi\ncat >/dev/null\necho "gate $*" >> "${log}"\nexit 0\n`;
   const root = hookRepo(t, {
-    "package.json": JSON.stringify({ name: "app", devDependencies: { "@rightkit/release": "0.6.5" }, scripts: { ship: "right-release build --skip-checks" } }),
+    "package.json": JSON.stringify({ name: "app", license: "MIT", devDependencies: { "@rightkit/release": "0.6.5" }, scripts: { ship: "right-release build --skip-checks" } }),
+    "pnpm-lock.yaml": "lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\nimporters:\n\n  .:\n    devDependencies:\n      '@rightkit/release':\n        specifier: 0.6.5\n        version: 0.6.5\n\npackages:\n\n  '@rightkit/release@0.6.5':\n    resolution: {integrity: sha512-s2PA4qjj6q13RpWaRW4r12///Mj34IR+8DqXwCOVuqbQcZ3MsX7Zlyb6u/VWlVnwfKIwpt7/jN4yzOvPvyd+pA==}\n    hasBin: true\n\n  smol-toml@1.9.1:\n    resolution: {integrity: sha512-j7WyPdf0CJoutMzMoPLF/bVXHtKZIT9Rb4eGeEbWw8X2t5oirjPgpL+OpaENZrILYaXqYwnVH+qgUwVbl+pUJQ==}\n    engines: {node: '>= 18'}\n\nsnapshots:\n\n  '@rightkit/release@0.6.5':\n    dependencies:\n      smol-toml: 1.9.1\n\n  smol-toml@1.9.1: {}\n",
     "node_modules/.bin/rightkit-gate": shim,
   });
   const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
@@ -1269,7 +1474,7 @@ test("a scratch repository with a red tree rejects git push through the installe
   assert.match(red.stderr, /fix: drop --skip-checks/);
   assert.equal(fs.existsSync(log), false, "the gate never started");
   assert.notEqual(git("ls-remote", "origin").stdout.trim(), git("rev-parse", "HEAD").stdout.trim(), "nothing reached the remote");
-  fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "app", devDependencies: { "@rightkit/release": "0.6.5" }, scripts: { ship: "right-release build" } }));
+  fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "app", license: "MIT", devDependencies: { "@rightkit/release": "0.6.5" }, scripts: { ship: "right-release build" } }));
   assert.equal(git("commit", "-q", "-am", "green tree").status, 0);
   const green = git("push", "origin", "HEAD:refs/heads/main");
   assert.equal(green.status, 0, green.stderr);
@@ -1304,12 +1509,14 @@ function pushSpawn(root, { log = [], diff = "crates/a/src/lib.rs\n", broker = fa
     if (cmd === "git") {
       if (line === "rev-parse --show-toplevel") return ok(root);
       if (line === "rev-parse HEAD") return ok(HEAD);
+      if (wholeListing(args)) return ok(fullListing(root, [...manifests, ...Object.values(tracked).flat()]));
       if (args[0] === "ls-files") {
         const named = tracked[path.posix.basename(args.at(-1))]; // `tracked`: other tracked files by name ({ "package.json": [...] })
         return ok(named ? `${named.join("\0")}\0` : args.at(-1).endsWith("Cargo.toml") ? `${manifests.join("\0")}\0` : "");
       }
       if (args[0] === "diff") return ok(diff);
-      if (args[0] === "status" || args[0] === "archive") return ok();
+      if (args[0] === "status" || args[0] === "archive" || args[0] === "read-tree") return ok();
+      if (args[0] === "checkout-index") { const prefix = args.find((x) => x.startsWith("--prefix=")).slice("--prefix=".length); fs.cpSync(root, prefix, { recursive: true }); return ok(); }
       if (args[0] === "show") return shows[args[1]] === undefined ? no("fatal: path does not exist") : ok(shows[args[1]]);
       if (args[0] === "symbolic-ref") return originHead ? ok(`${originHead}\n`) : no("fatal: ref refs/remotes/origin/HEAD is not a symbolic ref");
       return no(`unexpected ${cmd} ${line}`);
@@ -1348,262 +1555,6 @@ async function pushGate(t, { stdin = pushLine("refs/heads/claude/port"), env = {
   return { code, log, seen, root, before, after: snapshot(root), out: c.out.join("\n"), err: c.err.join("\n") };
 }
 
-test("deferral: a claude/* push from a host without the broker runs the non-Rust scans, names the deferred Rust units and scans, exits 0 and writes nothing", async (t) => {
-  const r = await pushGate(t);
-  assert.equal(r.code, 0, r.err);
-  assert.equal(r.seen.length, 1, "the scan runner ran once");
-  const ids = r.seen[0].plan.scans.map((s) => s.id);
-  for (const id of ["rustfmt:2021", "license", "secret-scan"]) assert.ok(ids.includes(id), `${id} still runs: ${ids}`);
-  assert.ok(r.seen[0].plan.scans.every((s) => s.tool !== "rustright" && s.tool !== "cargo"), "no scan goes through the broker");
-  assert.ok(!r.log.some((l) => l[0] === "rustright" || l[0] === "cargo"), "neither the broker nor plain cargo was asked anything");
-  assert.doesNotMatch(r.err, /BLOCKED/);
-  const block = r.err.split("\n").filter((l) => /DEFERRED/.test(l));
-  assert.equal(block.length, 1, "one headline");
-  assert.match(block[0], /^rightkit-gate: rust gate DEFERRED to host qualification \(no RustRight broker on this host\): rust units a, b; scans not run [^;]+; the pull request needs a HOST RECEIPT before merge$/);
-  for (const id of ["cargo-metadata", "cargo-package-list:a", "check-features:a:0", "clippy:a", "doc:a", "test:rust:a"]) assert.ok(block[0].includes(id), `${id} named as not run`);
-  assert.ok(!block[0].includes("license") && !block[0].includes("secret-scan") && !block[0].includes("rustfmt"), "scans that ran are not listed as deferred");
-  assert.match(r.err, /pushed refs\/heads\/claude\/port \(non-protected, not CI\)\. The HOST RECEIPT .* stays the merge gate; RIGHTKIT_GATE_NO_DEFER=1 keeps the refusal/);
-  assert.match(r.out, /note: no RustRight broker on this host: 6 Rust scan\(s\) are deferred to host qualification, not run and not passed/);
-  assert.match(r.out, /the scans that could run here passed/);
-  assert.deepEqual(r.after, r.before, "the tree is byte for byte what it was");
-  assert.deepEqual(r.seen[0].plan.deferred, [], "nothing is left in the plan as deferred");
-  assert.equal(r.seen[0].plan.scanSetDigest, digestScanSet(r.seen[0].plan.scans), "the plan digest describes what runs");
-});
-
-test("deferral: the units come from the tracked manifests, not cargo, and a Rust-free diff still prints the block with no scan named", async (t) => {
-  const r = await pushGate(t, { spawnOptions: { diff: "README.md\n" } });
-  assert.equal(r.code, 0, r.err);
-  assert.deepEqual(r.seen[0].plan.scans, []);
-  assert.match(r.err, /DEFERRED to host qualification \(no RustRight broker on this host\): rust units a, b; scans not run none \(no Rust scan was due for this diff\); the pull request needs a HOST RECEIPT before merge/);
-});
-
-test("deferral: every deferrable shape - several non-protected branches, a branch named like a protected one below another name, the deletion of one", async (t) => {
-  for (const [name, stdin] of [
-    ["two branches", pushLine("refs/heads/claude/a") + pushLine("refs/heads/feature/b")],
-    ["claude/main", pushLine("refs/heads/claude/main")],
-    ["a release-like name that is not release/*", pushLine("refs/heads/releases")],
-    ["a deletion of a feature branch", pushLine("refs/heads/claude/gone", { sha: ZEROS })],
-  ]) {
-    const r = await pushGate(t, { stdin });
-    assert.equal(r.code, 0, `${name}: ${r.err}`);
-    assert.match(r.err, /rust gate DEFERRED/, name);
-  }
-});
-
-test("deferral refused: a protected branch in the push keeps today's refusal, before any scan, export or git work", async (t) => {
-  for (const [name, stdin] of [
-    ["main", pushLine("refs/heads/main")], ["master", pushLine("refs/heads/master")], ["trunk", pushLine("refs/heads/trunk")],
-    ["release/1.2", pushLine("refs/heads/release/1.2")], ["release/x/y", pushLine("refs/heads/release/x/y")], ["Main (case)", pushLine("refs/heads/Main")],
-    ["a protected branch among others", pushLine("refs/heads/claude/a") + pushLine("refs/heads/main")],
-    ["the deletion of main", pushLine("refs/heads/main", { sha: ZEROS })],
-    ["a tag", pushLine("refs/tags/v1")], ["a ref outside refs/heads", pushLine("refs/for/claude/a")],
-  ]) {
-    const r = await pushGate(t, { stdin });
-    assert.equal(r.code, 1, name);
-    assert.match(r.err, NO_BROKER, name);
-    assert.equal(r.seen.length, 0, `${name}: no scan ran`);
-    assert.ok(!r.log.some((l) => l[0] === "tar" || (l[0] === "git" && (l[1] === "archive" || l[1] === "status"))), `${name}: nothing was exported or checked`);
-    assert.doesNotMatch(r.err, /DEFERRED/, name);
-  }
-});
-
-test("deferral refused: CI, the opt-out, no pushed refs and a plan keep the refusal", async (t) => {
-  for (const [name, o] of [
-    ["CI=1", { env: { CI: "1" } }], ["CI=true", { env: { CI: "true" } }], ["GITHUB_ACTIONS=true", { env: { GITHUB_ACTIONS: "true" } }],
-    ["RIGHTKIT_GATE_NO_DEFER=1", { env: { [DEFER_OPT_OUT_ENV]: "1" } }],
-    ["CI with the opt-out unset", { env: { CI: "1", [DEFER_OPT_OUT_ENV]: "0" } }],
-    ["no stdin (a manual run)", { stdin: "" }], ["a --plan (reads no stdin)", { args: ["--plan"] }],
-  ]) {
-    const r = await pushGate(t, o);
-    assert.equal(r.code, 1, name);
-    assert.match(r.err, NO_BROKER, name);
-    assert.equal(r.seen.length, 0, name);
-  }
-  assert.equal(DEFER_OPT_OUT_ENV, "RIGHTKIT_GATE_NO_DEFER");
-  // CI=false and CI=0 are not CI; the gate defers there.
-  for (const value of ["false", "0", ""]) assert.equal((await pushGate(t, { env: { CI: value } })).code, 0, `CI=${JSON.stringify(value)}`);
-});
-
-test("deferral: the repository's own default branch (.rightgit.json defaultBranch) is protected too", async (t) => {
-  const files = gateFiles({ ".rightgit.json": JSON.stringify({ schemaVersion: 1, defaultBranch: "develop" }) });
-  const dev = await pushGate(t, { files, stdin: pushLine("refs/heads/develop") });
-  assert.equal(dev.code, 1);
-  assert.match(dev.err, NO_BROKER);
-  assert.equal((await pushGate(t, { files, stdin: pushLine("refs/heads/claude/port") })).code, 0);
-  assert.equal((await pushGate(t, { files: gateFiles({ ".rightgit.json": "{not json" }), stdin: pushLine("refs/heads/claude/port") })).code, 0, "an unreadable manifest adds nothing and removes nothing");
-});
-
-test("deferral unchanged: a host with the broker or the managed shim runs the Rust gate whatever the branch, CI or the opt-out", async (t) => {
-  for (const [name, o] of [
-    ["rustright, claude/*", { spawnOptions: { broker: true } }],
-    ["rustright, main", { spawnOptions: { broker: true }, stdin: pushLine("refs/heads/main") }],
-    ["rustright, CI", { spawnOptions: { broker: true }, env: { CI: "1", GITHUB_ACTIONS: "true" } }],
-    ["rustright, opt-out", { spawnOptions: { broker: true }, env: { [DEFER_OPT_OUT_ENV]: "1" } }],
-    ["the managed shim, claude/*", { spawnOptions: { shim: true }, readFile: shimRead }],
-  ]) {
-    const r = await pushGate(t, o);
-    assert.equal(r.code, 0, `${name}: ${r.err}`);
-    const ids = r.seen[0].plan.scans.map((s) => s.id);
-    for (const id of ["clippy:a", "test:rust:a", "cargo-metadata", "cargo-package-list:a"]) assert.ok(ids.includes(id), `${name}: ${id} runs`);
-    assert.ok(r.log.some((l) => (l[0] === "rustright" && l[2] === "metadata") || (l[0] === "cargo" && l[1] === "metadata")), `${name}: cargo metadata ran through the broker`);
-    assert.doesNotMatch(r.err, /DEFERRED/, name);
-    assert.match(r.out, /pass \(1 changed file\(s\) vs origin\/main\); 0 scan\(s\) deferred, not passed/, name);
-    assert.doesNotMatch(r.out, /no RustRight broker/, name);
-  }
-  // A broker without its compile grant still refuses on a claude/* branch: the host has the broker, so nothing defers.
-  const { ".rightkit-local-build.json": _grant, ...noGrant } = gateFiles();
-  const r = await pushGate(t, { files: noGrant, spawnOptions: { broker: true } });
-  assert.equal(r.code, 1);
-  assert.match(r.err, /BLOCKED: no local compile grant/);
-  assert.equal(r.seen.length, 0);
-});
-
-test("deferral: a failing scan that needs no broker still blocks the push, with no deferral block, and a deferred non-broker scan still blocks", async (t) => {
-  const failed = await pushGate(t, { rows: { license: { status: "fail", detail: "no license field" } } });
-  assert.equal(failed.code, 1);
-  assert.match(failed.err, /BLOCKED \(1\)\n  - license: no license field/);
-  assert.doesNotMatch(failed.err, /rust gate DEFERRED/);
-  const waiting = await pushGate(t, { rows: { "secret-scan": { status: "deferred", detail: "needs a trusted root" } } });
-  assert.equal(waiting.code, 1);
-  assert.match(waiting.err, /DEFERRED secret-scan: deferred, not passed \(needs a trusted root\)/);
-});
-
-test("deferral: without rustfmt on the host the rustfmt scan is named as not run; with it the scan runs and is not named", async (t) => {
-  const without = await pushGate(t, { rustfmt: null });
-  assert.equal(without.code, 0, without.err);
-  assert.ok(!without.seen[0].plan.scans.some((s) => s.tool === "rustfmt"));
-  assert.match(without.err, /scans not run [^;]*rustfmt:2021/);
-  assert.match(without.out, /7 Rust scan\(s\) are deferred .*\(rustfmt is not usable on this host either\)/);
-  const withIt = await pushGate(t);
-  assert.ok(withIt.seen[0].plan.scans.some((s) => s.id === "rustfmt:2021" && s.tool === "rustfmt"));
-  assert.doesNotMatch(withIt.err, /rustfmt:2021/);
-});
-
-test("deferral: the default rustfmt lookup needs the found rustfmt to answer --version; a rustup proxy without a toolchain counts as none", async (t) => {
-  // $RUSTFMT wins in findRustfmt; the fake host has that file and answers (or refuses) its --version.
-  const io = { exists: (p) => norm(p) === "/x/rustfmt" || fs.existsSync(p) };
-  const answers = await pushGate(t, { rustfmt: false, env: { RUSTFMT: "/x/rustfmt" }, io });
-  assert.equal(answers.code, 0, answers.err);
-  assert.ok(answers.seen[0].plan.scans.some((s) => s.id === "rustfmt:2021"));
-  assert.ok(answers.log.some((l) => l[0] === "/x/rustfmt" && l[1] === "--version"));
-  assert.doesNotMatch(answers.err, /rustfmt:2021/);
-  const refuses = await pushGate(t, { rustfmt: false, env: { RUSTFMT: "/x/rustfmt" }, io, spawnOptions: { rustfmtAnswers: false } });
-  assert.equal(refuses.code, 0, refuses.err);
-  assert.ok(!refuses.seen[0].plan.scans.some((s) => s.tool === "rustfmt"));
-  assert.match(refuses.err, /scans not run [^;]*rustfmt:2021/);
-});
-
-test("deferral: a workspace below the root and the lock scope are read from the tracked manifests; the pre-push plan keeps its class A scans", async (t) => {
-  const files = { ...gateFiles(), "hub/src-tauri/Cargo.toml": pkg("app", "\n[workspace]\n"), "hub/src-tauri/src/lib.rs": "pub fn f() {}\n", "hub/src-tauri/Cargo.lock": "version = 4\n" };
-  const root = mkRepo(files, t);
-  const log = []; const seen = []; const c = capture();
-  const base = pushSpawn(root, { log, diff: "hub/src-tauri/src/lib.rs\n" });
-  const spawn = (cmd, args, opts) => {
-    if (cmd === "git" && args[0] === "ls-files" && args.at(-1).endsWith("Cargo.toml")) return ok("Cargo.toml\0crates/a/Cargo.toml\0crates/b/Cargo.toml\0hub/src-tauri/Cargo.toml\0");
-    if (cmd === "git" && args[0] === "ls-files" && args.at(-1).endsWith("Cargo.lock")) return ok("Cargo.lock\0hub/src-tauri/Cargo.lock\0");
-    return base(cmd, args, opts);
-  };
-  const code = await main(["--pre-push", "--base", "origin/main"], { ...c.io, ...noWrites, spawn, cwd: root, env: {}, readStdin: () => pushLine("refs/heads/claude/port"), runScans: fakeRun(seen), findRustfmt: () => "/x/rustfmt" });
-  assert.equal(code, 0, c.err.join("\n"));
-  assert.match(c.err.join("\n"), /rust units a, b, hub\/src-tauri:app; scans not run /);
-  assert.ok(seen[0].plan.scans.every((s) => s.class === "A" || ["test:scripts-ci", "generated-docs"].includes(s.id)), "the pre-push selection still applies");
-  assert.ok(seen[0].plan.scans.some((s) => s.id === "license"));
-  assert.match(c.err.join("\n"), /cargo-package-list:hub\/src-tauri:app/);
-  assert.ok(!log.some((l) => l[0] === "rustright" || l[0] === "cargo"));
-});
-
-test("isDeferrableRef and rustDeferral: protected names, case, non-branch refs, CI and the opt-out", () => {
-  assert.deepEqual([...PROTECTED_BRANCHES], ["main", "master", "trunk"]);
-  for (const ref of ["refs/heads/claude/x", "refs/heads/feature", "refs/heads/claude/main", "refs/heads/releases", "refs/heads/mainline"]) assert.equal(isDeferrableRef(ref), true, ref);
-  for (const ref of ["refs/heads/main", "refs/heads/MASTER", "refs/heads/trunk", "refs/heads/release/1", "refs/heads/Release/2.0/rc", "refs/tags/v1", "refs/for/main", "HEAD", "", undefined]) assert.equal(isDeferrableRef(ref), false, String(ref));
-  assert.equal(isDeferrableRef("refs/heads/develop", ["develop"]), false);
-  assert.equal(isDeferrableRef("refs/heads/develop", ["Develop"]), false);
-  const refs = ["refs/heads/claude/x"];
-  assert.equal(rustDeferral({ refs, env: {} }).defer, true);
-  assert.equal(rustDeferral({ refs: [], env: {} }).defer, false);
-  assert.equal(rustDeferral({ refs, env: { CI: "1" } }).defer, false);
-  assert.equal(rustDeferral({ refs, env: { GITHUB_ACTIONS: "true" } }).defer, false);
-  assert.equal(rustDeferral({ refs, env: { [DEFER_OPT_OUT_ENV]: "1" } }).defer, false);
-  assert.match(rustDeferral({ refs, env: { [DEFER_OPT_OUT_ENV]: "1" } }).why, /RIGHTKIT_GATE_NO_DEFER/);
-  assert.equal(rustDeferral({ refs: [...refs, "refs/heads/main"], env: {} }).defer, false);
-  assert.match(rustDeferral({ refs: [...refs, "refs/heads/main"], env: {} }).why, /refs\/heads\/main/);
-  assert.equal(rustDeferral({ refs, env: { CI: "false", GITHUB_ACTIONS: "0", [DEFER_OPT_OUT_ENV]: "false" } }).defer, true);
-});
-
-test("deferredBlock and withoutScans: the lines name units, scans and the pushed refs; the plan keeps its other scans and digests them", () => {
-  const lines = deferredBlock({ units: ["a", "hub:app"], notRun: ["clippy:a", "test:rust:a"], refs: ["refs/heads/claude/x", "refs/heads/claude/y"] });
-  assert.equal(lines.length, 2);
-  assert.equal(lines[0], "rightkit-gate: rust gate DEFERRED to host qualification (no RustRight broker on this host): rust units a, hub:app; scans not run clippy:a, test:rust:a; the pull request needs a HOST RECEIPT before merge");
-  assert.match(lines[1], /pushed refs\/heads\/claude\/x, refs\/heads\/claude\/y .*HOST RECEIPT.*merge gate/);
-  assert.match(deferredBlock({ units: [], notRun: [], refs: ["refs/heads/x"] })[0], /rust units none found; scans not run none \(no Rust scan was due for this diff\); the pull request needs a HOST RECEIPT before merge/);
-  const scans = [{ id: "license", class: "A" }, { id: "cargo-deny", class: "A" }, { id: "clippy:a", class: "B" }, { id: "test:scripts-ci", class: "B" }];
-  const plan = { scans, deferred: ["clippy:a", "generated-docs"], notes: ["n"], inputDigest: "d" };
-  const next = withoutScans(plan, scans.filter((s) => s.id === "cargo-deny" || s.id === "clippy:a"), "dropped");
-  assert.deepEqual(next.scans.map((s) => s.id), ["license", "test:scripts-ci"]);
-  assert.deepEqual(next.deferred, ["generated-docs"]);
-  assert.deepEqual(next.notes, ["n", "dropped"]);
-  assert.equal(next.scanSetDigest, digestScanSet(next.scans));
-  assert.equal(next.classDigests.A, digestScanSet([scans[0]]));
-  assert.equal(next.classDigests.B, digestScanSet([scans[3]]));
-  assert.equal(next.inputDigest, "d");
-  assert.equal(plan.scans.length, 4, "the original plan is untouched");
-  assert.deepEqual(withoutScans(plan, [], "").notes, ["n"]);
-});
-
-test("manifestWorkspaceMetadata: members by glob and exclude, the root package, publish = false; a nested manifest under a workspace is refused as cargo would", (t) => {
-  const root = mkRepo({
-    "Cargo.toml": '[package]\nname = "rootpkg"\nversion = "1.0.0"\n\n[workspace]\nmembers = [\n  "crates/*", # all of them\n  "tools/b",\n]\nexclude = ["crates/old"]\n',
-    "crates/a/Cargo.toml": pkg("a"), "crates/old/Cargo.toml": pkg("old"), "tools/b/Cargo.toml": pkg("b", "publish = false\n"), "tools/c/Cargo.toml": pkg("c"),
-    "crates/a/vendored/Cargo.toml": pkg("deep"),
-    "hub/src-tauri/Cargo.toml": pkg("app"), "virtual/Cargo.toml": "[profile.release]\nlto = true\n",
-  }, t);
-  const all = ["Cargo.toml", "crates/a/Cargo.toml", "crates/a/vendored/Cargo.toml", "crates/old/Cargo.toml", "tools/b/Cargo.toml", "tools/c/Cargo.toml", "hub/src-tauri/Cargo.toml", "virtual/Cargo.toml"];
-  const tracked = (n) => (n === "Cargo.toml" ? all : []);
-  const readFile = (f) => fs.readFileSync(f, "utf8");
-  const found = manifestWorkspaceMetadata({ root, dir: ".", tracked, readFile });
-  assert.equal(found.cargoDir, ".");
-  assert.deepEqual(found.members, [
-    { name: "a", dir: "crates/a", manifest: "crates/a/Cargo.toml", publish: true },
-    { name: "b", dir: "tools/b", manifest: "tools/b/Cargo.toml", publish: false },
-    { name: "rootpkg", dir: ".", manifest: "Cargo.toml", publish: true },
-  ], "crates/old is excluded, crates/a/vendored is not a one-segment match, tools/c is not listed");
-  assert.throws(() => manifestWorkspaceMetadata({ root, dir: "tools/c", tracked, readFile }), /believes it's in a workspace when it's not/);
-  assert.throws(() => manifestWorkspaceMetadata({ root, dir: "virtual", tracked, readFile }), /believes it's in a workspace/);
-  const alone = mkRepo({ "src-tauri/Cargo.toml": pkg("app"), "empty/Cargo.toml": "[profile.dev]\n" }, t);
-  assert.deepEqual(manifestWorkspaceMetadata({ root: alone, dir: "src-tauri", tracked: () => ["src-tauri/Cargo.toml", "empty/Cargo.toml"], readFile }), { cargoDir: "src-tauri", members: [{ name: "app", dir: "src-tauri", manifest: "src-tauri/Cargo.toml", publish: true }], unplaced: [] });
-  assert.throws(() => manifestWorkspaceMetadata({ root: alone, dir: "empty", tracked: () => ["src-tauri/Cargo.toml", "empty/Cargo.toml"], readFile }), /neither a \[package\] with a name nor a \[workspace\]/);
-});
-
-test("discoverRustWorkspaces with a metadata reader never asks cargo, and skips what cargo would refuse the way it does with the broker", (t) => {
-  const files = {
-    "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\nexclude = ["crates/old"]\n', "Cargo.lock": "version = 4\n",
-    "crates/a/Cargo.toml": pkg("a"), "crates/old/Cargo.toml": pkg("old"),
-    "hub/src-tauri/Cargo.toml": pkg("app", "\n[workspace]\n"), "hub/src-tauri/Cargo.lock": "version = 4\n",
-    "apps/x/Cargo.toml": pkg("x"), "apps/x/Cargo.lock": "version = 4\n", "fixtures/f/Cargo.toml": pkg("f"),
-  };
-  const root = mkRepo(files, t);
-  const names = Object.keys(files).filter((f) => f.endsWith("Cargo.toml") || f.endsWith("Cargo.lock"));
-  const tracked = (n) => names.filter((f) => f === n || f.endsWith(`/${n}`));
-  const readFile = (f) => fs.readFileSync(f, "utf8");
-  const found = discoverRustWorkspaces({
-    root, spawn: () => assert.fail("cargo was asked"), cargoCommand: ["rustright", "cargo"], tracked, readFile, fixtures: ["fixtures"],
-    metadata: (dir) => manifestWorkspaceMetadata({ root, dir, tracked, readFile }),
-  });
-  assert.deepEqual(found.workspaces.map((w) => w.cargoDir), [".", "hub/src-tauri"]);
-  assert.deepEqual(found.units.map((u) => u.name), ["a", "hub/src-tauri:app"]);
-  const why = (m) => found.skipped.find((k) => k.manifest === m)?.why ?? "";
-  assert.match(why("crates/old/Cargo.toml"), /excluded from the Cargo workspace \./);
-  assert.match(why("fixtures/f/Cargo.toml"), /fixture directory fixtures/);
-  assert.match(why("apps/x/Cargo.toml"), /below the Cargo workspace \. but not one of its members, and cargo refuses it on its own \(current package believes it's in a workspace when it's not/);
-});
-
-// ---- review fixes: git's real stdin shape, every pushed ref, the default branch from the remote's side, the reason, the reader ------------
-
-// Git forbids an ASCII space in a ref name and allows every other non-control character, Unicode whitespace included.
-const UNICODE_SPACES = [["U+00A0 no-break space", " "], ["U+2003 em space", " "], ["U+3000 ideographic space", "　"], ["U+2028 line separator", " "], ["U+FEFF zero-width no-break space", "﻿"]];
-const gitLine = (localRef, remoteRef, { sha = HEAD, remote = ZEROS } = {}) => `${localRef} ${sha} ${remoteRef} ${remote}\n`;
-const benignLine = (name = "benign") => pushLine(`refs/heads/claude/${name}`);
-
 test("parsePushLines: git's four fields split on single ASCII spaces only, so a Unicode space in a ref name stays inside its field; nothing is dropped", () => {
   for (const [name, space] of UNICODE_SPACES) {
     const local = `refs/heads/a${space}b`; const remote = `refs/heads/ma${space}in`;
@@ -1622,259 +1573,19 @@ test("parsePushLines: git's four fields split on single ASCII spaces only, so a 
   assert.deepEqual(parsePushLines(undefined), { lines: [], malformed: [] });
 });
 
-test("deferral refused (HIGH): a local ref name with Unicode whitespace cannot hide a protected ref, a tag or a release branch behind a benign one", async (t) => {
-  for (const [spaceName, space] of UNICODE_SPACES) {
-    const local = `refs/heads/a${space}b`;
-    for (const [name, remoteRef] of [["main", "refs/heads/main"], ["a tag", "refs/tags/v1"], ["release/*", "refs/heads/release/1.0"], ["a ref outside refs/heads", "refs/for/claude/a"]]) {
-      for (const [order, stdin] of [["alone", gitLine(local, remoteRef)], ["before a benign ref", gitLine(local, remoteRef) + benignLine()], ["after a benign ref", benignLine() + gitLine(local, remoteRef)]]) {
-        const r = await pushGate(t, { stdin });
-        assert.equal(r.code, 1, `${spaceName}, ${name}, ${order}`);
-        assert.match(r.err, NO_BROKER, `${spaceName}, ${name}, ${order}`);
-        assert.equal(r.seen.length, 0, `${spaceName}, ${name}, ${order}: no scan ran`);
-        assert.doesNotMatch(r.err, /DEFERRED/, `${spaceName}, ${name}, ${order}`);
-      }
-    }
-  }
-  // The dropped line also skipped the check that the pushed commit is the checked-out HEAD.
-  const elsewhere = await pushGate(t, { stdin: gitLine("refs/heads/a b", "refs/heads/claude/x", { sha: "c".repeat(40) }) });
-  assert.equal(elsewhere.code, 1);
-  assert.match(elsewhere.err, /BLOCKED: pushing cccccccccc to refs\/heads\/claude\/x, but HEAD is aaaaaaaaaa/);
-  assert.equal(elsewhere.seen.length, 0);
-  // A Unicode space in the remote ref is part of its name: that ref is no protected one, and the push defers like any branch.
-  const ok1 = await pushGate(t, { stdin: gitLine("HEAD", "refs/heads/claude/a b") });
-  assert.equal(ok1.code, 0, ok1.err);
-  assert.match(ok1.err, /pushed refs\/heads\/claude\/a b \(non-protected, not CI\)/, "the block names the ref as git sent it");
-  // And a local ref with a Unicode space going to a benign branch still defers: the line is read, not refused.
-  const ok2 = await pushGate(t, { stdin: gitLine("refs/heads/a b", "refs/heads/claude/benign") });
-  assert.equal(ok2.code, 0, ok2.err);
-  assert.match(ok2.err, /pushed refs\/heads\/claude\/benign \(non-protected, not CI\)/);
-});
-
-test("a stdin line that does not read as four fields refuses the push on every host and in every repository, and the refusal says why", async (t) => {
-  // git hands the local field over verbatim, so a rev expression with a space (`HEAD@{1 minute ago}`, `HEAD^{/one thing}`) is not four
-  // fields. The line used to be dropped outside the deferral path, which also skipped the pushed-commit-is-HEAD check.
-  const bad = [
-    ["three fields", `refs/heads/main ${HEAD} refs/heads/main\n${benignLine()}`, 1],
-    ["five fields", `${benignLine()}refs/heads/main ${HEAD} x refs/heads/main ${ZEROS}\n`, 2],
-    ["a doubled space", `refs/heads/x ${HEAD}  refs/heads/main ${ZEROS}\n${benignLine()}`, 1],
-    ["tabs", `refs/heads/x\t${HEAD}\trefs/heads/main\t${ZEROS}\n${benignLine()}`, 1],
-    ["a rev expression with a space, another commit", gitLine("HEAD@{1 minute ago}", "refs/heads/claude/x", { sha: "c".repeat(40) }), 1],
-    ["a rev expression with a space after a benign line", benignLine() + gitLine("HEAD^{/one thing}", "refs/heads/claude/x"), 2],
-  ];
-  const hosts = [
-    ["no broker, a Rust repository", {}],
-    ["a broker host", { spawnOptions: { broker: true } }],
-    ["a repository with no Cargo.toml", { spawnOptions: { manifests: [] } }],
-    ["a broker host and no Cargo.toml", { spawnOptions: { broker: true, manifests: [] } }],
-  ];
-  for (const [name, stdin, number] of bad) {
-    for (const [host, o] of hosts) {
-      const label = `${name}, ${host}`;
-      const r = await pushGate(t, { stdin, ...o });
-      assert.equal(r.code, 1, label);
-      assert.match(r.err, new RegExp(`BLOCKED: pre-push stdin line ${number} is not "<local ref> <local sha> <remote ref> <remote sha>" \\(four fields separated by single spaces\\), so the pushed refs cannot all be read`), label);
-      assert.equal(r.seen.length, 0, `${label}: no scan ran`);
-      assert.doesNotMatch(r.err, /DEFERRED/, label);
-      assert.deepEqual(r.after, r.before, `${label}: nothing was written`);
-    }
-  }
-  // The same four fields are read, not refused, once they are four fields, wherever the host stands.
-  for (const [host, o] of hosts.slice(1)) assert.equal((await pushGate(t, { stdin: benignLine(), ...o })).code, 0, host);
-  // rustDeferral keeps its own lock for a caller that hands it unparsed lines.
-  assert.equal(rustDeferral({ refs: ["refs/heads/claude/x"], env: {}, unparsed: [{ number: 3, line: "x" }] }).defer, false);
-  assert.match(rustDeferral({ refs: ["refs/heads/claude/x"], env: {}, unparsed: [{ number: 3, line: "x" }] }).why, /line 3/);
-  assert.equal(rustDeferral({ refs: ["refs/heads/claude/x"], env: {}, unparsed: [] }).defer, true);
-});
-
-test("deferral refused: every pushed ref is judged, whichever place a protected one has in the push", async (t) => {
-  const protectedRefs = [["main", "refs/heads/main"], ["a tag", "refs/tags/v1"], ["release/2", "refs/heads/release/2"]];
-  for (const [name, ref] of protectedRefs) {
-    for (const [place, stdin] of [
-      ["first of two", pushLine(ref) + benignLine("a")],
-      ["last of two", benignLine("a") + pushLine(ref)],
-      ["middle of three", benignLine("a") + pushLine(ref) + benignLine("b")],
-      ["first of three", pushLine(ref) + benignLine("a") + benignLine("b")],
-      ["last of three", benignLine("a") + benignLine("b") + pushLine(ref)],
-    ]) {
-      const r = await pushGate(t, { stdin });
-      assert.equal(r.code, 1, `${name}, ${place}`);
-      assert.match(r.err, NO_BROKER, `${name}, ${place}`);
-      assert.match(r.err, new RegExp(`not deferred to host qualification: ${ref.replaceAll("/", "\\/")} is not a plain non-protected branch`), `${name}, ${place}`);
-      assert.equal(r.seen.length, 0, `${name}, ${place}`);
-    }
-  }
-});
-
-test("deferral does not need the local compile grant a cloud host never has, and names the same scans as not run with or without it", async (t) => {
-  const { ".rightkit-local-build.json": _grant, ...noGrant } = gateFiles();
-  const without = await pushGate(t, { files: noGrant });
-  assert.equal(without.code, 0, without.err);
-  assert.doesNotMatch(without.out + without.err, /no local compile grant/);
-  assert.ok(!without.seen[0].plan.notes.some((n) => /grant/.test(n)), `no grant note in the plan: ${without.seen[0].plan.notes}`);
-  assert.deepEqual(without.seen[0].plan.deferred, [], "nothing is left deferred for want of the grant");
-  const withIt = await pushGate(t);
-  const notRun = (r) => /scans not run ([^;]+);/.exec(r.err)?.[1];
-  assert.ok(notRun(withIt)?.includes("clippy:a"));
-  assert.equal(notRun(without), notRun(withIt), "the grant changes nothing about what is named as not run");
-  assert.deepEqual(without.seen[0].plan.scans.map((s) => s.id), withIt.seen[0].plan.scans.map((s) => s.id), "or about what runs");
-});
-
-test("deferral: a refusal prints the old message first and the reason on a second line", async (t) => {
-  for (const [name, o, reason] of [
-    ["main", { stdin: pushLine("refs/heads/main") }, /refs\/heads\/main is not a plain non-protected branch \(main, master, trunk, release\/\*, the repository's default branch and tags are never deferred\)$/],
-    ["a tag", { stdin: pushLine("refs/tags/v1") }, /refs\/tags\/v1 is not a plain non-protected branch/],
-    ["--tags with a branch", { stdin: benignLine() + pushLine("refs/tags/v2") }, /refs\/tags\/v2 is not a plain non-protected branch/],
-    ["release/1", { stdin: pushLine("refs/heads/release/1") }, /refs\/heads\/release\/1 is not a plain non-protected branch/],
-    ["CI", { env: { CI: "1" } }, /running in CI$/],
-    ["GITHUB_ACTIONS", { env: { GITHUB_ACTIONS: "true" } }, /running in CI$/],
-    ["the opt-out", { env: { [DEFER_OPT_OUT_ENV]: "1" } }, /RIGHTKIT_GATE_NO_DEFER is set$/],
-    ["no stdin", { stdin: "" }, /no pushed refs on stdin: not a git pre-push run$/],
-    ["--plan", { args: ["--plan"] }, /no pushed refs on stdin: not a git pre-push run$/],
-  ]) {
-    const r = await pushGate(t, o);
-    assert.equal(r.code, 1, name);
-    const lines = r.err.split("\n");
-    assert.equal(lines.length, 2, `${name}: ${r.err}`);
-    assert.equal(lines[0], "rightkit-gate: BLOCKED: neither `rustright` nor the managed cargo shim (cargo-guard.mjs) is first on PATH; plain cargo is never used", `${name}: the old message, verbatim`);
-    assert.match(lines[1], /^rightkit-gate: {3}not deferred to host qualification: /, name);
-    assert.match(lines[1], reason, name);
-  }
-});
-
-test("deferral: the default branch is read from the base, the remote commit being replaced and origin/HEAD, so a commit cannot unprotect it by editing .rightgit.json", async (t) => {
-  const manifest = (defaultBranch) => JSON.stringify({ schemaVersion: 1, defaultBranch });
-  const edited = gateFiles({ ".rightgit.json": manifest("other") });
-  const REMOTE = "d".repeat(40);
-  const refused = (r, why) => { assert.equal(r.code, 1, r.err); assert.match(r.err, NO_BROKER); assert.match(r.err, why); assert.equal(r.seen.length, 0); };
-  // 1. The pushed commit renames the default branch away; the base ref (origin/main) still names develop.
-  refused(await pushGate(t, { files: edited, stdin: pushLine("refs/heads/develop"), spawnOptions: { shows: { "origin/main:.rightgit.json": manifest("develop") } } }), /refs\/heads\/develop is not a plain non-protected branch/);
-  // 2. The remote commit being replaced (an existing develop) names it, with no base available.
-  refused(await pushGate(t, { files: edited, stdin: pushLine("refs/heads/develop", { remote: REMOTE }), spawnOptions: { shows: { [`${REMOTE}:.rightgit.json`]: manifest("develop") } } }), /refs\/heads\/develop is not a plain non-protected branch/);
-  // 3. origin/HEAD's manifest names it: a new branch push has neither a base nor a remote commit.
-  refused(await pushGate(t, { files: edited, stdin: pushLine("refs/heads/develop"), spawnOptions: { shows: { "origin/HEAD:.rightgit.json": manifest("develop") } } }), /refs\/heads\/develop is not a plain non-protected branch/);
-  // 4. origin/HEAD itself names the default branch, and no .rightgit.json exists anywhere.
-  refused(await pushGate(t, { stdin: pushLine("refs/heads/develop"), spawnOptions: { originHead: "refs/remotes/origin/develop" } }), /refs\/heads\/develop is not a plain non-protected branch/);
-  // 5. The checkout's own value still counts (the earlier behaviour), alongside the others, and the case does not matter.
-  refused(await pushGate(t, { files: gateFiles({ ".rightgit.json": manifest("Develop") }), stdin: pushLine("refs/heads/develop") }), /refs\/heads\/develop is not a plain non-protected branch/);
-  // Nothing else changes: a claude/* branch defers under every one of those setups, and an unreadable remote manifest adds nothing.
-  for (const spawnOptions of [
-    { shows: { "origin/main:.rightgit.json": manifest("develop") } }, { originHead: "refs/remotes/origin/develop" },
-    { shows: { "origin/main:.rightgit.json": "{not json", "origin/HEAD:.rightgit.json": manifest(42) } },
-  ]) {
-    const r = await pushGate(t, { files: edited, stdin: benignLine(), spawnOptions });
-    assert.equal(r.code, 0, r.err);
-    assert.match(r.err, /rust gate DEFERRED/);
-  }
-});
-
-test("defaultBranchNames: the union of the checkout, origin/HEAD, each revision and the branch origin/HEAD names; a revision git cannot show adds nothing", () => {
-  const manifest = (defaultBranch) => JSON.stringify({ defaultBranch });
-  const shown = { "origin/HEAD:.rightgit.json": manifest("trunk2"), "base:.rightgit.json": `﻿${manifest("develop")}`, "r1:.rightgit.json": manifest("stable") };
-  const asked = [];
-  const git = (...a) => {
-    asked.push(a.join(" "));
-    if (a[0] === "show") return shown[a[1]] === undefined ? no("fatal") : ok(shown[a[1]]);
-    if (a[0] === "symbolic-ref") return ok("refs/remotes/origin/main-line\n");
-    return no();
-  };
-  const names = defaultBranchNames({ git, readCheckout: () => manifest("mine"), revisions: ["base", "r1", "gone", "base"] });
-  assert.deepEqual([...names].sort(), ["develop", "main-line", "mine", "stable", "trunk2"]);
-  assert.equal(asked.filter((a) => a === "show base:.rightgit.json").length, 1, "a revision is shown once");
-  defaultBranchNames({ git, readCheckout: () => "{}", revisions: ["--output=/x", "-p", "", undefined] });
-  assert.ok(!asked.some((a) => /^show -/.test(a)), "a revision that git would read as an option is never passed to it");
-  assert.deepEqual(defaultBranchNames({ git: () => no(), readCheckout: () => { throw new Error("ENOENT"); } }), []);
-  assert.deepEqual(defaultBranchNames({ git: () => no(), readCheckout: () => "[]" }), []);
-  assert.deepEqual(defaultBranchNames({ git: (...a) => (a[0] === "symbolic-ref" ? ok("refs/heads/odd\n") : no()), readCheckout: () => "{}" }), [], "only a refs/remotes/origin/ target names a branch");
-});
-
-// A real git repository with the installed hook, a bare remote and a PATH of symlinks to just what the hook and the gate need, so a
-// rustright or cargo on the developer's PATH cannot change the outcome. The app check is a shim that passes. `origin/main` is the parent
-// commit, so the gate has a base to diff against; `files` are committed with `message`. Returns null (after t.skip) when a tool is missing.
-function realHookRepo(t, { files, message = "app" }) {
-  const tools = mkRepo({}, t);
-  const exec = spawnSync("git", ["--exec-path"], { encoding: "utf8" });
-  // On Windows sh answers MSYS paths and an MSYS tool needs its runtime DLL beside it, so PATH is the Git for Windows directories that
-  // hold the tools (cygpath -w), which carry no rustright or cargo; elsewhere it is a directory of symlinks to just these tools.
-  const toolDirs = new Set();
-  for (const name of ["git", "which", "awk", "mktemp", "cat", "rm", "tar"]) {
-    const found = spawnSync("sh", ["-c", `command -v ${name}`], { encoding: "utf8" }).stdout.trim();
-    if (!found) { t.skip(`no ${name} on this host`); return null; }
-    if (process.platform !== "win32") { fs.symlinkSync(found, path.join(tools, name)); continue; }
-    const dir = spawnSync("sh", ["-c", 'cygpath -w "$(dirname "$1")"', "sh", found], { encoding: "utf8" }).stdout.trim();
-    if (!dir) { t.skip(`cannot map ${found} to a Windows path`); return null; }
-    toolDirs.add(dir);
-  }
-  const toolPath = process.platform === "win32" ? [...toolDirs].join(path.delimiter) : tools;
-  const tmp = mkRepo({}, t);
-  const gateCli = path.join(path.dirname(fileURLToPath(import.meta.url)), "bin", "rightkit-gate.mjs").replaceAll("\\", "/");
-  const shim = `#!/bin/sh\nif [ "$1" = check ]; then exit 0; fi\nexec "${process.execPath.replaceAll("\\", "/")}" "${gateCli}" "$@"\n`;
-  const root = hookRepo(t, {
-    ".githooks/pre-push": hookText(gateCli),
-    "node_modules/.bin/rightkit-gate": shim, ".gitignore": "node_modules/\n", "README.md": "# app\n",
-  });
-  // Windows spells it Path; a second PATH key beside it would leave which one wins to the platform.
-  const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== "PATH"));
-  const env = { ...inherited, PATH: toolPath, GIT_EXEC_PATH: exec.stdout.trim(), CI: "", GITHUB_ACTIONS: "", [DEFER_OPT_OUT_ENV]: "", GIT_TERMINAL_PROMPT: "0" };
-  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8", env });
-  for (const [k, v] of [["user.email", "t@example.test"], ["user.name", "t"], ["core.autocrlf", "false"], ["core.hooksPath", ".githooks"]]) git("config", k, v);
-  const remote = path.join(tmp, "remote.git");
-  assert.equal(spawnSync("git", ["init", "-q", "--bare", remote], { encoding: "utf8", env }).status, 0);
-  git("remote", "add", "origin", remote);
-  git("add", "-A");
-  assert.equal(git("commit", "-q", "-m", "base").status, 0);
-  git("update-ref", "refs/remotes/origin/main", "HEAD");
-  for (const [name, body] of Object.entries(files)) { const file = path.join(root, name); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, body); }
-  git("add", "-A");
-  assert.equal(git("commit", "-q", "-m", message).status, 0);
-  return { root, git, remoteRefs: () => git("ls-remote", "origin").stdout.trim() };
-}
-
-test("the installed pre-push hook with real git: a local ref name with Unicode whitespace cannot push main, a tag or release/* past the deferral", { skip: !shAvailable && "no sh" }, async (t) => {
-  const repo = realHookRepo(t, { files: { "Cargo.toml": pkg("app"), "src/lib.rs": "pub fn f() {}\n" } });
-  if (!repo) return;
-  const { git, remoteRefs } = repo;
-  const odd = "a\u00a0b";
-  assert.equal(git("branch", odd, "HEAD").status, 0, "git accepts a branch name holding U+00A0");
-  for (const [name, refspec] of [["main", "refs/heads/main"], ["a tag", "refs/tags/v1"], ["release/9", "refs/heads/release/9"]]) {
-    const pushed = git("push", "origin", `${odd}:${refspec}`, "HEAD:refs/heads/claude/benign");
-    assert.notEqual(pushed.status, 0, `${name}: the push is refused`);
-    assert.match(pushed.stderr, NO_BROKER, name);
-    assert.match(pushed.stderr, new RegExp(`not deferred to host qualification: ${refspec.replaceAll("/", "\\/")} is not a plain non-protected branch`), name);
-    assert.doesNotMatch(pushed.stderr, /DEFERRED/, name);
-    assert.equal(remoteRefs(), "", `${name}: nothing reached the remote`);
-  }
-  // The same split hid it when the odd ref was the only line, too: still refused.
-  assert.notEqual(git("push", "origin", `${odd}:refs/heads/main`).status, 0);
-  assert.equal(remoteRefs(), "");
-});
-
-test("the installed pre-push hook with real git: a standalone package (no [workspace]) pushed to a claude/* branch defers", { skip: !shAvailable && "no sh" }, async (t) => {
-  for (const [name, files, units] of [
-    ["a single crate", { "Cargo.toml": pkg("app"), "Cargo.lock": "version = 4\n", "src/lib.rs": "pub fn f() {}\n" }, "app"],
-    ["a Tauri src-tauri", { "src-tauri/Cargo.toml": pkg("tauri-app"), "src-tauri/Cargo.lock": "version = 4\n", "src-tauri/src/lib.rs": "pub fn f() {}\n" }, "src-tauri:tauri-app"],
-  ]) {
-    const repo = realHookRepo(t, { files });
-    if (!repo) return;
-    const pushed = repo.git("push", "origin", "HEAD:refs/heads/claude/ok");
-    assert.equal(pushed.status, 0, `${name}: ${pushed.stderr}`);
-    assert.doesNotMatch(pushed.stderr, /cannot discover the repository's units|not iterable/, name);
-    assert.match(pushed.stderr, new RegExp(`rust gate DEFERRED to host qualification \\(no RustRight broker on this host\\): rust units ${units};`), name);
-    assert.match(repo.remoteRefs(), /refs\/heads\/claude\/ok$/m, `${name}: the branch reached the remote`);
-    const main = repo.git("push", "origin", "HEAD:refs/heads/main");
-    assert.notEqual(main.status, 0, `${name}: main is still refused`);
-    assert.match(main.stderr, NO_BROKER, name);
-    assert.doesNotMatch(repo.remoteRefs(), /refs\/heads\/main$/m, name);
-  }
-});
-
 test("the installed pre-push hook with real git: a rev expression holding a space is refused whether or not the repository has Rust", { skip: !shAvailable && "no sh" }, async (t) => {
   // git sends the local field as typed: `HEAD^{/one thing}` and `HEAD@{1 minute ago}` make a line of more than four fields, which was
-  // dropped (and its pushed-commit-is-HEAD check with it) everywhere but on the deferral path.
+  // dropped (and its pushed-commit-is-HEAD check with it).
   for (const [name, files] of [["a Rust repository", { "Cargo.toml": pkg("app"), "Cargo.lock": "version = 4\n", "src/lib.rs": "pub fn f() {}\n" }], ["a repository with no Cargo.toml", { "docs/a.md": "# a\n" }]]) {
     const repo = realHookRepo(t, { files, message: "one thing" });
     if (!repo) return;
-    const plain = repo.git("push", "origin", "HEAD:refs/heads/claude/plain");
-    assert.equal(plain.status, 0, `${name}: ${plain.stderr}`);
+    // A well-formed push passes; on a host without the broker a Rust repository now compiles directly (it no longer defers), which
+    // needs the whole toolchain, so the well-formed push is shown on the repository with no Cargo.toml. The refusal below happens
+    // before any cargo runs, for both.
+    if (!name.startsWith("a Rust")) {
+      const plain = repo.git("push", "origin", "HEAD:refs/heads/claude/plain");
+      assert.equal(plain.status, 0, `${name}: ${plain.stderr}`);
+    }
     for (const rev of ["HEAD^{/one thing}", "HEAD@{1 minute ago}"]) {
       const pushed = repo.git("push", "origin", `${rev}:refs/heads/claude/spaced`);
       assert.notEqual(pushed.status, 0, `${name}, ${rev}: the push is refused`);
@@ -1882,34 +1593,6 @@ test("the installed pre-push hook with real git: a rev expression holding a spac
       assert.doesNotMatch(repo.remoteRefs(), /claude\/spaced/, `${name}, ${rev}: nothing reached the remote`);
     }
   }
-});
-
-test("manifestWorkspaceMetadata reads what cargo accepts: single-quoted strings, a ] in a comment, dotted keys, path dependencies that cargo makes members", (t) => {
-  const readFile = (f) => fs.readFileSync(f, "utf8");
-  const members = (files, dir = ".") => {
-    const root = mkRepo(files, t);
-    const all = Object.keys(files).filter((f) => f.endsWith("Cargo.toml"));
-    return manifestWorkspaceMetadata({ root, dir, tracked: (n) => (n === "Cargo.toml" ? all : []), readFile }).members;
-  };
-  const names = (m) => m.map((x) => x.name);
-  assert.deepEqual(names(members({ "Cargo.toml": "[workspace]\nmembers = ['crates/*']\n", "crates/a/Cargo.toml": "[package]\nname = 'a'\nversion = '1.0.0'\n" })), ["a"], "single-quoted members and name");
-  assert.deepEqual(names(members({ "Cargo.toml": '[workspace]\nmembers = [\n  "crates/a", # the a crate ]\n  "crates/b",\n]\n', "crates/a/Cargo.toml": pkg("a"), "crates/b/Cargo.toml": pkg("b") })), ["a", "b"], "a ] in a comment does not end the array");
-  assert.deepEqual(names(members({ "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\nexclude = [\n  \'crates/old\', # ] vendored\n  "crates/older",\n]\n', "crates/a/Cargo.toml": pkg("a"), "crates/old/Cargo.toml": pkg("old"), "crates/older/Cargo.toml": pkg("older") })), ["a"], "exclude reads the same way");
-  assert.deepEqual(names(members({ "Cargo.toml": 'package.name = "rootpkg"\npackage.version = "1.0.0"\n' })), ["rootpkg"], "dotted package keys in a standalone manifest");
-  assert.deepEqual(names(members({ "Cargo.toml": 'workspace.members = [\n  "crates/*", # ]\n]\nworkspace.exclude = ["crates/old"]\n', "crates/a/Cargo.toml": 'package.name = "a"\n', "crates/old/Cargo.toml": pkg("old") })), ["a"], "dotted workspace keys, multi-line, with a dotted package name in the member");
-  assert.deepEqual(names(members({ "Cargo.toml": '[workspace.package]\nversion = "1"\n[workspace.dependencies]\nserde = "1"\n', "crates/a/Cargo.toml": pkg("a") })), [], "a workspace table without members lists no member and does not throw");
-  assert.equal(members({ "Cargo.toml": "[workspace]\nmembers = [\"a\", \"b\", \"c\", \"d\"]\n", "a/Cargo.toml": pkg("a", "publish = false # not on crates.io\n"), "b/Cargo.toml": pkg("b", "publish = []\n"), "c/Cargo.toml": pkg("c", "publish = ['internal']\n"), "d/Cargo.toml": pkg("d") })
-    .map((m) => `${m.name}:${m.publish}`).join(" "), "a:false b:false c:true d:true", "publish = false or [] is private; a registry list or nothing is publishable");
-  // A path dependency below the workspace root is a member cargo adds on its own, transitively; exclude and the outside of the workspace are not.
-  const deps = members({
-    "Cargo.toml": '[package]\nname = "rootpkg"\n[workspace]\nexclude = ["vendor/skip"]\n[dependencies]\ndep = { path = "crates/dep", version = "1" }\nskip = { path = "vendor/skip" }\n[build-dependencies.tool]\npath = \'tools/tool\'\n[target.\'cfg(unix)\'.dependencies]\nunixy = { path = "crates/unixy" }\n',
-    "crates/dep/Cargo.toml": '[package]\nname = "dep"\n[dev-dependencies]\ninner.path = "../inner"\n',
-    "crates/inner/Cargo.toml": pkg("inner"), "crates/unixy/Cargo.toml": pkg("unixy"), "tools/tool/Cargo.toml": pkg("tool"),
-    "vendor/skip/Cargo.toml": pkg("skip"), "crates/unrelated/Cargo.toml": pkg("unrelated"),
-  });
-  assert.deepEqual(names(deps), ["dep", "inner", "rootpkg", "tool", "unixy"], "dep, inner (through dep), tool and unixy are members; skip is excluded; unrelated is reached by nobody");
-  assert.deepEqual(names(members({ "Cargo.toml": '[workspace]\n[workspace.dependencies]\nlib = { path = "libs/lib" }\nweb = "1"\n', "libs/lib/Cargo.toml": pkg("lib") })), ["lib"], "a virtual workspace's [workspace.dependencies] path");
-  assert.deepEqual(names(members({ "Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n', "crates/a/Cargo.toml": '[package]\nname = "a"\n[dependencies]\nelsewhere = { path = "../../outside" }\nme = { path = "." }\n' })), ["a"], "a path outside the workspace, or the package itself, adds nothing");
 });
 
 test("tomlValue, tomlString, tomlStrings and hasTomlTable: the manifest reader's pieces", () => {
@@ -1942,111 +1625,6 @@ test("workspaceExcludes reads single-quoted, commented and dotted exclude lists"
   assert.deepEqual(workspaceExcludes(readFile, root, "ws"), ["ws/x"]);
   assert.deepEqual(workspaceExcludes(readFile, root, "missing"), []);
 });
-
-test("deferredBlock: with tracked manifests and no unit found it says so instead of claiming no Rust scan was due; unmatched manifests get a line", () => {
-  const none = deferredBlock({ units: [], notRun: [], refs: ["refs/heads/x"], manifests: 3 });
-  assert.match(none[0], /rust units none found among the 3 tracked Cargo\.toml \(read without cargo\); scans not run unknown \(no unit was found, so no Rust scan could be planned\); the pull request needs a HOST RECEIPT before merge$/);
-  assert.doesNotMatch(none.join("\n"), /no Rust scan was due/);
-  assert.equal(none.length, 2);
-  assert.match(deferredBlock({ units: [], notRun: [], refs: ["refs/heads/x"] })[0], /rust units none found; scans not run none \(no Rust scan was due for this diff\)/, "no manifest at all keeps the old words");
-  assert.match(deferredBlock({ units: ["a"], notRun: [], refs: ["refs/heads/x"], manifests: 2 })[0], /rust units a; scans not run none \(no Rust scan was due for this diff\)/, "a unit found and nothing due is the old words too");
-  const some = deferredBlock({ units: ["a"], notRun: ["clippy:a"], refs: ["refs/heads/x"], manifests: 3, unmatched: ["crates/z/Cargo.toml", "crates/y/Cargo.toml"] });
-  assert.equal(some.length, 3);
-  assert.equal(some.filter((l) => /DEFERRED/.test(l)).length, 1, "still one headline");
-  assert.match(some[2], /tracked Cargo\.toml with a package that matched no unit .*: crates\/z\/Cargo\.toml, crates\/y\/Cargo\.toml$/);
-});
-
-test("deferral: a manifest the reader cannot place is named in the block, and no unit found at all is not reported as nothing due", async (t) => {
-  // A triple-quoted name is valid TOML the reader does not read: the workspace has a member it cannot see.
-  const files = { "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n', "Cargo.lock": "version = 4\n", "crates/a/Cargo.toml": '[package]\nname = """a"""\nversion = "1.0.0"\n', "crates/a/src/lib.rs": "pub fn a() {}\n", ".rightkit-local-build.json": "{}" };
-  const r = await pushGate(t, { files, spawnOptions: { manifests: ["Cargo.toml", "crates/a/Cargo.toml"] } });
-  assert.equal(r.code, 0, r.err);
-  assert.match(r.err, /rust units none found among the 2 tracked Cargo\.toml \(read without cargo\); scans not run unknown \(no unit was found, so no Rust scan could be planned\)/);
-  assert.doesNotMatch(r.err, /no Rust scan was due/);
-  assert.match(r.err, /matched no unit .*: crates\/a\/Cargo\.toml$/m, "named although discoverRustWorkspaces also skips it, for want of a lock");
-  // The same repository with a name the reader can read finds the unit and has no such line.
-  const fine = await pushGate(t, { files: { ...files, "crates/a/Cargo.toml": pkg("a") }, spawnOptions: { manifests: ["Cargo.toml", "crates/a/Cargo.toml"] } });
-  assert.equal(fine.code, 0, fine.err);
-  assert.match(fine.err, /rust units a; scans not run [^;]*clippy:a/);
-  assert.doesNotMatch(fine.err, /matched no unit/);
-});
-
-test("deferral discovers single-quoted, dotted and path-dependency members from the tracked manifests", async (t) => {
-  const files = {
-    "Cargo.toml": "package.name = 'rootpkg'\npackage.version = '1.0.0'\nworkspace.members = ['crates/*'] # ]\n[dependencies]\nviapath = { path = 'tools/viapath' }\n", "Cargo.lock": "version = 4\n",
-    "crates/a/Cargo.toml": pkg("a").replace('"a"', "'a'"), "crates/a/src/lib.rs": "pub fn a() {}\n", "tools/viapath/Cargo.toml": pkg("viapath"),
-  };
-  const r = await pushGate(t, { files, spawnOptions: { manifests: ["Cargo.toml", "crates/a/Cargo.toml", "tools/viapath/Cargo.toml"] } });
-  assert.equal(r.code, 0, r.err);
-  assert.match(r.err, /rust units a, rootpkg, viapath; scans not run /);
-  assert.doesNotMatch(r.err, /matched no unit/);
-  const gone = unmatchedManifests({ root: mkRepo(files, t), manifests: ["Cargo.toml", "crates/a/Cargo.toml", "tools/viapath/Cargo.toml"], rust: { units: [{ dir: "." }, { dir: "crates/a" }], skipped: [] }, readFile: (f) => fs.readFileSync(f, "utf8") });
-  assert.deepEqual(gone, ["tools/viapath/Cargo.toml"], "a package no unit covers is unmatched; a unit's manifest is not");
-  assert.deepEqual(unmatchedManifests({ root: "/nowhere", manifests: ["x/Cargo.toml"], rust: { units: [], skipped: [{ manifest: "x/Cargo.toml" }] }, readFile: () => { throw new Error("never read"); } }), [], "a skipped manifest is accounted for");
-  assert.deepEqual(unmatchedManifests({ root: "/nowhere", manifests: ["x/Cargo.toml"], rust: { units: [], skipped: [] }, readFile: () => { throw new Error("unreadable"); } }), ["x/Cargo.toml"], "an unreadable one is not");
-});
-
-test("manifestWorkspaceMetadata: a standalone package has nothing unplaced, and says so", (t) => {
-  const files = { "Cargo.toml": pkg("app"), "src/lib.rs": "pub fn f() {}\n" };
-  const root = mkRepo(files, t);
-  const found = manifestWorkspaceMetadata({ root, dir: ".", tracked: () => ["Cargo.toml"], readFile: (f) => fs.readFileSync(f, "utf8") });
-  assert.deepEqual(found, { cargoDir: ".", members: [{ name: "app", dir: ".", manifest: "Cargo.toml", publish: true }], unplaced: [] });
-  const nested = mkRepo({ "src-tauri/Cargo.toml": pkg("tauri-app", "publish = false\n") }, t);
-  const inner = manifestWorkspaceMetadata({ root: nested, dir: "src-tauri", tracked: () => ["src-tauri/Cargo.toml"], readFile: (f) => fs.readFileSync(f, "utf8") });
-  assert.deepEqual(inner.unplaced, []);
-  assert.deepEqual(inner.members.map((m) => `${m.name}:${m.publish}`), ["tauri-app:false"]);
-});
-
-test("deferral: a repository of standalone packages (no [workspace]) defers like a workspace: a single crate, a Tauri src-tauri, several packages", async (t) => {
-  // main() added `read.unplaced` to its list for every repository; the standalone branch returned none, so the spread of undefined threw
-  // and every such push was refused with "cannot discover the repository's units: read.unplaced is not iterable".
-  const lib = "pub fn f() {}\n";
-  const layouts = [
-    ["a single crate", { "Cargo.toml": pkg("app"), "Cargo.lock": "version = 4\n", "src/lib.rs": lib }, ["Cargo.toml"], "src/lib.rs", ["app"]],
-    ["a Tauri src-tauri", { "package.json": "{}", "src-tauri/Cargo.toml": pkg("tauri-app"), "src-tauri/Cargo.lock": "version = 4\n", "src-tauri/src/lib.rs": lib }, ["src-tauri/Cargo.toml"], "src-tauri/src/lib.rs", ["src-tauri:tauri-app"]],
-    ["two standalone packages", { "tools/one/Cargo.toml": pkg("one"), "tools/one/Cargo.lock": "version = 4\n", "tools/one/src/lib.rs": lib, "tools/two/Cargo.toml": pkg("two"), "tools/two/Cargo.lock": "version = 4\n", "tools/two/src/lib.rs": lib }, ["tools/one/Cargo.toml", "tools/two/Cargo.toml"], "tools/one/src/lib.rs", ["tools/one:one", "tools/two:two"]],
-    ["a workspace beside a standalone package", { "core/Cargo.toml": "[workspace]\nmembers = [\"crates/*\"]\n", "core/Cargo.lock": "version = 4\n", "core/crates/a/Cargo.toml": pkg("a"), "core/crates/a/src/lib.rs": lib, "tools/solo/Cargo.toml": pkg("solo"), "tools/solo/Cargo.lock": "version = 4\n", "tools/solo/src/lib.rs": lib }, ["core/Cargo.toml", "core/crates/a/Cargo.toml", "tools/solo/Cargo.toml"], "tools/solo/src/lib.rs", ["core:a", "tools/solo:solo"]],
-  ];
-  for (const [name, files, manifests, changed, units] of layouts) {
-    const r = await pushGate(t, { files: { ...files, ".rightkit-local-build.json": "{}" }, spawnOptions: { manifests, diff: `${changed}\n` } });
-    assert.equal(r.code, 0, `${name}: ${r.err}`);
-    assert.doesNotMatch(r.err, /cannot discover the repository's units|not iterable/, name);
-    assert.match(r.err, new RegExp(`rust gate DEFERRED to host qualification \\(no RustRight broker on this host\\): rust units ${units.join(", ")};`), name);
-    assert.doesNotMatch(r.err, /matched no unit/, name);
-    assert.deepEqual(r.after, r.before, `${name}: nothing was written`);
-    // The refusals are unchanged: the same layout pushing main is still refused.
-    const refused = await pushGate(t, { files: { ...files, ".rightkit-local-build.json": "{}" }, stdin: pushLine("refs/heads/main"), spawnOptions: { manifests, diff: `${changed}\n` } });
-    assert.equal(refused.code, 1, name);
-    assert.match(refused.err, NO_BROKER, name);
-  }
-});
-
-test("manifestWorkspaceMetadata returns the manifests a glob or a path dependency reaches but whose package name it cannot read", (t) => {
-  const files = { "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n[workspace.dependencies]\nviadep = { path = "libs/viadep" }\n', "crates/a/Cargo.toml": pkg("a"), "crates/odd/Cargo.toml": '[package]\nname = """odd"""\n', "libs/viadep/Cargo.toml": '[package]\nversion = "1.0.0"\n' };
-  const root = mkRepo(files, t);
-  const all = Object.keys(files);
-  const found = manifestWorkspaceMetadata({ root, dir: ".", tracked: (n) => (n === "Cargo.toml" ? all : []), readFile: (f) => fs.readFileSync(f, "utf8") });
-  assert.deepEqual(found.members.map((m) => m.name), ["a"]);
-  assert.deepEqual(found.unplaced, ["crates/odd/Cargo.toml", "libs/viadep/Cargo.toml"]);
-});
-
-// ---- gate false positives found by full-gate dry runs on real app branches (0.6.6) ----------------------------------------------------------
-// FP3 several independent pnpm roots (CodeRight); FP2 an npm test script that runs the broker, on a host without it (ViewRight, PostRight).
-
-// A repository as a file map: tracked(name) lists the files with that name, as `git ls-files :(glob)**/name` would.
-const pnpmFixture = (files) => {
-  const map = new Map(Object.entries(files).map(([k, v]) => [norm(path.join("/r", k)), v]));
-  return {
-    root: "/r", exists: (p) => map.has(norm(p)), readFile: (p) => map.get(norm(p)),
-    tracked: (name) => [...map.keys()].map((k) => k.slice("/r/".length)).filter((k) => path.posix.basename(k) === name),
-  };
-};
-const lock = "lockfileVersion: '9.0'\n";
-const codeRight = {
-  "apps/coderight-tauri/package.json": '{"name":"coderight-tauri","scripts":{"test":"vitest run"}}', "apps/coderight-tauri/pnpm-lock.yaml": lock,
-  "apps/coderight-web/package.json": '{"name":"coderight-web","scripts":{"test":"vitest run"}}', "apps/coderight-web/pnpm-lock.yaml": lock,
-  "src-tauri/Cargo.toml": pkg("coderight"), "README.md": "x",
-};
 
 test("pnpm roots: CodeRight's two independent roots are found, the repository root is not one, and each root's package is a unit named from its directory", () => {
   const fixture = pnpmFixture(codeRight);
@@ -2199,71 +1777,548 @@ const viewrightFiles = (scripts = viewright.scripts) => gateFiles({ "package.jso
 const viewrightSpawn = { tracked: { "package.json": ["package.json"] }, diff: "package.json\ncrates/a/src/lib.rs\n" };
 const E2E_COMMAND = "rustright storage run --app viewright -- right-release test";
 
-test("deferral: an npm test scan whose script chain runs rustright is deferred with the Rust gate, named with its reason, and never reported as passed", async (t) => {
-  const r = await pushGate(t, { files: viewrightFiles(), spawnOptions: viewrightSpawn });
-  assert.equal(r.code, 0, r.err);
-  const ids = r.seen[0].plan.scans.map((s) => s.id);
-  assert.ok(!ids.includes("test:npm:viewright"), "it is not run (pnpm run test would end in: command not found: rustright)");
-  assert.ok(ids.includes("license") && ids.includes("json-parse"), "the other scans still run");
-  const headline = r.err.split("\n").find((l) => /rust gate DEFERRED/.test(l));
-  assert.match(headline, /scans not run [^;]*test:npm:viewright/, "listed by name in the DEFERRED block");
-  assert.match(r.err, new RegExp(`npm test scan\\(s\\) deferred with the Rust gate, never run and never passed, because the package script runs rustright and this host has no broker: test:npm:viewright \\(script test -> test:e2e: ${E2E_COMMAND.replaceAll(".", "\\.")}\\)`));
-  assert.match(r.out, /note: no RustRight broker on this host: 6 Rust scan\(s\) are deferred to host qualification, not run and not passed; 1 npm test scan\(s\) whose script runs the broker or cargo are deferred with them, not run and not passed: test:npm:viewright/);
-  assert.doesNotMatch(r.out, /\[\d+\/\d+\] pass +test:npm:viewright/, "never reported as passed");
-  assert.deepEqual(r.seen[0].plan.deferred, [], "nothing is left in the plan as deferred");
-  assert.equal(r.seen[0].plan.scanSetDigest, digestScanSet(r.seen[0].plan.scans), "the plan digest describes what runs");
-  assert.deepEqual(r.after, r.before, "the tree is byte for byte what it was");
+
+// ---- the one door: rightkit-gate --to <stage> ----------------------------------------------------------------------------------
+
+import { requireDoorRun, stagesTo, STAGES } from "./gate-stages.mjs";
+
+function stageRepo(t) {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-stages-")));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.writeFileSync(path.join(root, "Cargo.lock"), "version = 4\n");
+  git("add", "-A"); git("commit", "-q", "-m", "app");
+  return { root, head: git("rev-parse", "HEAD").stdout.trim() };
+}
+const directExecutor = () => ({ kind: "direct", cargo: ["cargo"] });
+
+test("--to runs every stage up to the target in order, class A first, and stops at the first failure with nothing after it", async (t) => {
+  assert.deepEqual(STAGES, ["check", "compile", "package", "qualify", "release"]);
+  assert.deepEqual(stagesTo("compile"), ["check", "compile"]);
+  assert.equal(stagesTo("deploy"), null);
+  const { root } = stageRepo(t);
+  const ran = [];
+  const c = capture();
+  const code = await main(["--to", "compile"], { ...c.io, cwd: root, resolveExecutor: directExecutor, runCheck: async () => { ran.push("check"); return 1; }, runCompile: async () => { ran.push("compile"); return 0; } });
+  assert.equal(code, 1);
+  assert.deepEqual(ran, ["check"], "a red class A stops the run: compile never starts");
+  assert.match(c.err.join("\n"), /--to compile stopped at check: nothing after it ran/);
 });
 
-test("deferral: plain cargo in a test script chain is the unmanaged toolchain on such a host, and is deferred the same way (PostRight's test:rust)", async (t) => {
-  const scripts = { test: "pnpm run test:rust && pnpm run test:e2e", "test:rust": "rustright cargo build -p x && rustright cargo test --workspace", "test:e2e": "cargo test -p e2e" };
-  const r = await pushGate(t, { files: viewrightFiles(scripts), spawnOptions: viewrightSpawn });
-  assert.equal(r.code, 0, r.err);
-  assert.ok(!r.seen[0].plan.scans.some((s) => s.id === "test:npm:viewright"));
-  assert.match(r.err, /because the package script runs rustright and this host has no broker: test:npm:viewright \(script test -> test:rust: rustright cargo build -p x\)/);
-  const cargoOnly = await pushGate(t, { files: viewrightFiles({ test: "cargo test" }), spawnOptions: viewrightSpawn });
-  assert.match(cargoOnly.err, /the package script runs cargo and this host has no broker: test:npm:viewright \(script test: cargo test\)/);
+test("--to reuses check and compile only for the exact same inputs, and needs --platform / --tier where they matter", async (t) => {
+  const { root } = stageRepo(t);
+  const ran = [];
+  const io = { resolveExecutor: directExecutor, runCheck: async () => { ran.push("check"); return 0; }, runCompile: async () => { ran.push("compile"); return 0; } };
+  const first = capture();
+  assert.equal(await main(["--to", "compile"], { ...first.io, cwd: root, ...io }), 0, first.err.join("\n"));
+  const again = capture();
+  assert.equal(await main(["--to", "compile"], { ...again.io, cwd: root, ...io }), 0);
+  assert.deepEqual(ran, ["check", "compile"], "the second run reuses both: same commit, tree, lockfiles, gate and toolchain");
+  assert.match(again.out.join("\n"), /\[check\] already passed for this exact input/);
+  fs.writeFileSync(path.join(root, "Cargo.lock"), "version = 4\n# changed\n");
+  spawnSync("git", ["commit", "-qam", "lock change"], { cwd: root });
+  assert.equal(await main(["--to", "compile"], { ...capture().io, cwd: root, ...io }), 0);
+  assert.deepEqual(ran, ["check", "compile", "check", "compile"], "a new commit (here a lockfile change) runs both again");
+  const noPlatform = capture();
+  assert.equal(await main(["--to", "package"], { ...noPlatform.io, cwd: root, ...io }), 2);
+  assert.match(noPlatform.err.join("\n"), /--to package needs --platform mac\|win/);
+  const noTier = capture();
+  assert.equal(await main(["--to", "release", "--platform", "win"], { ...noTier.io, cwd: root, ...io }), 2);
+  assert.match(noTier.err.join("\n"), /--to release needs --tier patch\|update \(chosen explicitly, never defaulted\)/);
+  const dirty = capture();
+  fs.writeFileSync(path.join(root, "Cargo.lock"), "edited\n");
+  assert.equal(await main(["--to", "check"], { ...dirty.io, cwd: root, ...io }), 1);
+  assert.match(dirty.err.join("\n"), /the checkout differs from HEAD; every stage works on the commit/);
 });
 
-test("deferral: an npm test script that never reaches the broker still runs on a host without it", async (t) => {
-  const r = await pushGate(t, { files: viewrightFiles({ test: "pnpm test:edge", "test:edge": "vitest run" }), spawnOptions: viewrightSpawn });
-  assert.equal(r.code, 0, r.err);
-  assert.ok(r.seen[0].plan.scans.some((s) => s.id === "test:npm:viewright"), "it runs");
-  assert.doesNotMatch(r.err, /npm test scan\(s\) deferred/);
-  assert.match(r.err, /scans not run [^;]*cargo-metadata/, "the Rust scans are still deferred");
-  assert.doesNotMatch(r.out, /npm test scan\(s\) whose script/);
+test("--to release: package seals, qualify and release use exactly that sealed set, under a live door run; a changed seal blocks", async (t) => {
+  const { root, head } = stageRepo(t);
+  const calls = []; let sealedDigest = "d".repeat(64);
+  const io = {
+    resolveExecutor: directExecutor, runCheck: async () => 0, runCompile: async () => 0,
+    sealedFor: () => ({ id: `app-1.0.0-${head.slice(0, 8)}`, manifest: "m", digest: sealedDigest }),
+    spawnInherit: (cmd, a, opts) => {
+      const door = requireDoorRun({ env: opts.env, commonDir: path.join(root, ".git"), commit: head, command: "x" });
+      calls.push({ args: a.slice(1).join(" "), door });
+      return { status: 0 };
+    },
+  };
+  const publisher = { ...process.env, GITHUB_ACTIONS: "true", RIGHTKIT_PUBLISHER: "github-environment" };
+  // The publisher only uploads: with nothing qualified yet it refuses, running no stage at all.
+  const early = capture();
+  assert.equal(await main(["--to", "release", "--platform", "win", "--tier", "patch"], { ...early.io, cwd: root, ...io, env: publisher }), 1);
+  assert.match(early.err.join("\n"), /--to release only uploads/);
+  assert.deepEqual(calls, [], "no build or QA ran in the publisher");
+  const host = capture();
+  assert.equal(await main(["--to", "qualify", "--platform", "win"], { ...host.io, cwd: root, ...io }), 0, host.err.join("\n"));
+  const c = capture();
+  assert.equal(await main(["--to", "release", "--platform", "win", "--tier", "patch"], { ...c.io, cwd: root, ...io, env: publisher }), 0, c.err.join("\n"));
+  assert.deepEqual(calls.map((x) => x.args), [
+    "qa --stage source --platform win", "build --platform win",
+    `qa --stage installed --platform win --release app-1.0.0-${head.slice(0, 8)}`,
+    `upload --release app-1.0.0-${head.slice(0, 8)} --platform win --tier patch`,
+  ]);
+  assert.ok(calls.every((x) => x.door === null), "each right-release stage ran inside a live door run for HEAD");
+  assert.equal(requireDoorRun({ env: { RK_GATE_RUN: "0".repeat(32) }, commonDir: path.join(root, ".git"), commit: head })?.includes("names no live door run"), true, "the run file is gone after the stage");
+  const receipt = JSON.parse(fs.readFileSync(path.join(root, ".git", "rightkit-gate", "receipts", `${head}.json`), "utf8"));
+  assert.deepEqual(Object.keys(receipt.stages), ["check", "compile", "package", "qualify", "release"]);
+  assert.equal(receipt.stages.release.manifestSha256, "d".repeat(64), "the released set is the packaged and qualified one");
+  // The sealed set changes after qualification: the publisher refuses it rather than rebuild or requalify.
+  sealedDigest = "e".repeat(64); calls.length = 0;
+  const swapped = capture();
+  assert.equal(await main(["--to", "release", "--platform", "win", "--tier", "patch"], { ...swapped.io, cwd: root, ...io, env: publisher }), 1);
+  assert.match(swapped.err.join("\n"), /--to release only uploads/);
+  assert.deepEqual(calls, [], "nothing rebuilt, requalified or uploaded");
+  // On the host, a changed sealed set is packaged again before it is qualified.
+  const changed = capture();
+  assert.equal(await main(["--to", "qualify", "--platform", "win"], { ...changed.io, cwd: root, ...io, sealedFor: () => ({ id: `app-1.0.0-${head.slice(0, 8)}`, manifest: "m", digest: sealedDigest }), spawnInherit: () => ({ status: 0 }) }), 0, "package runs again and binds the new seal");
 });
 
-test("deferral unchanged for the npm test scan: a host with the broker, CI, a protected ref and the opt-out run it as before", async (t) => {
-  const withBroker = await pushGate(t, { files: viewrightFiles(), spawnOptions: { ...viewrightSpawn, broker: true } });
-  assert.equal(withBroker.code, 0, withBroker.err);
-  const brokerScan = withBroker.seen[0].plan.scans.find((s) => s.id === "test:npm:viewright");
-  assert.ok(brokerScan, "a host that has the broker runs the test scan");
-  assert.equal(brokerScan.brokerCall.tool, "rustright");
-  assert.doesNotMatch(withBroker.err, /DEFERRED|npm test scan\(s\) deferred/);
-  assert.doesNotMatch(withBroker.out, /npm test scan\(s\) whose script/);
-  const shim = await pushGate(t, { files: viewrightFiles(), spawnOptions: { ...viewrightSpawn, shim: true }, readFile: shimRead });
-  assert.ok(shim.seen[0].plan.scans.some((s) => s.id === "test:npm:viewright"), "the managed shim counts as the broker");
-  for (const [name, o] of [
-    ["CI", { env: { CI: "1" } }], ["GITHUB_ACTIONS", { env: { GITHUB_ACTIONS: "true" } }], ["the opt-out", { env: { [DEFER_OPT_OUT_ENV]: "1" } }],
-    ["a protected ref", { stdin: pushLine("refs/heads/main") }], ["a release branch", { stdin: pushLine("refs/heads/release/1.0") }],
-  ]) {
-    const r = await pushGate(t, { files: viewrightFiles(), spawnOptions: viewrightSpawn, ...o });
-    assert.equal(r.code, 1, name);
-    assert.match(r.err, NO_BROKER, `${name}: it refuses as before, nothing is deferred`);
-    assert.equal(r.seen.length, 0, `${name}: nothing ran, so the npm test scan is neither skipped nor reported passed`);
-    assert.doesNotMatch(r.err, /npm test scan\(s\) deferred/, name);
+test("--to release refuses outside the trusted publisher: a host or agent never writes R2", async (t) => {
+  const { root } = stageRepo(t);
+  const ran = [];
+  const io = { resolveExecutor: directExecutor, runCheck: async () => { ran.push("check"); return 0; }, runCompile: async () => 0, spawnInherit: () => { ran.push("right-release"); return { status: 0 }; } };
+  for (const env of [{ ...process.env, GITHUB_ACTIONS: undefined, RIGHTKIT_PUBLISHER: undefined }, { ...process.env, GITHUB_ACTIONS: "true", RIGHTKIT_PUBLISHER: undefined }, { ...process.env, GITHUB_ACTIONS: undefined, RIGHTKIT_PUBLISHER: "github-environment" }]) {
+    const c = capture();
+    assert.equal(await main(["--to", "release", "--platform", "win", "--tier", "patch"], { ...c.io, cwd: root, ...io, env }), 1);
+    assert.match(c.err.join("\n"), /runs only in the trusted publisher/);
+  }
+  assert.deepEqual(ran, [], "nothing ran before the refusal");
+});
+
+test("--receipt-out / --receipt-in: a later job on another runner takes the sealed stages and does not rebuild; a foreign receipt is refused", async (t) => {
+  const { root, head } = stageRepo(t);
+  const id = `app-1.0.0-${head.slice(0, 8)}`;
+  const calls = [];
+  const io = (executor) => ({
+    resolveExecutor: () => ({ kind: executor, cargo: ["cargo"] }), runCheck: async () => { calls.push("check"); return 0; }, runCompile: async () => { calls.push("compile"); return 0; },
+    sealedFor: () => ({ id, manifest: "m", digest: "d".repeat(64) }),
+    spawnInherit: (cmd, a) => { calls.push(a.slice(1).join(" ")); return { status: 0 }; },
+  });
+  const out = path.join(root, "..", `receipt-${path.basename(root)}.json`);
+  t.after(() => fs.rmSync(out, { force: true }));
+  const pack = capture();
+  assert.equal(await main(["--to", "package", "--platform", "win", "--receipt-out", out], { ...pack.io, cwd: root, ...io("direct") }), 0, pack.err.join("\n"));
+  assert.deepEqual(calls, ["check", "compile", "qa --stage source --platform win", "build --platform win"]);
+  // The qualification runner: a fresh receipt store, another executor; the imported receipt binds the same source and sealed bytes.
+  fs.rmSync(path.join(root, ".git", "rightkit-gate"), { recursive: true, force: true });
+  calls.length = 0;
+  const qual = capture();
+  assert.equal(await main(["--to", "qualify", "--platform", "win", "--receipt-in", out], { ...qual.io, cwd: root, ...io("broker") }), 0, qual.err.join("\n"));
+  assert.deepEqual(calls, [`qa --stage installed --platform win --release ${id}`], "check, compile and package stand on the sealed set; only qualify runs");
+  // The publisher: another runner again (ubuntu, no installer can run there); qualify is taken from the receipt for these bytes.
+  const qualified = path.join(root, "..", `receipt-q-${path.basename(root)}.json`);
+  t.after(() => fs.rmSync(qualified, { force: true }));
+  fs.copyFileSync(path.join(root, ".git", "rightkit-gate", "receipts", `${head}.json`), qualified);
+  fs.rmSync(path.join(root, ".git", "rightkit-gate"), { recursive: true, force: true });
+  calls.length = 0;
+  const pub = capture();
+  assert.equal(await main(["--to", "release", "--platform", "win", "--tier", "patch", "--receipt-in", qualified], { ...pub.io, cwd: root, ...io("direct"), env: { ...process.env, GITHUB_ACTIONS: "true", RIGHTKIT_PUBLISHER: "github-environment" } }), 0, pub.err.join("\n"));
+  assert.deepEqual(calls, [`upload --release ${id} --platform win --tier patch`], "the publisher only uploads the qualified sealed set");
+  // A receipt for another commit, or with another gate, is not taken.
+  const foreign = JSON.parse(fs.readFileSync(out, "utf8"));
+  fs.writeFileSync(out, JSON.stringify({ ...foreign, binding: { ...foreign.binding, gate: "0".repeat(64) } }));
+  const bad = capture();
+  assert.equal(await main(["--to", "qualify", "--platform", "win", "--receipt-in", out], { ...bad.io, cwd: root, ...io("broker") }), 1);
+  assert.match(bad.err.join("\n"), /is not a rightkit\.gate-receipt\/1 receipt/);
+});
+
+test("stage hands only a qualified, unchanged sealed set to the publisher's draft release, then dispatches release.yml", async (t) => {
+  const { root, head } = stageRepo(t);
+  const id = `app-1.0.0-${head.slice(0, 8)}`;
+  let digest = "d".repeat(64);
+  const external = [];
+  const spawn = (cmd, a, opts) => {
+    if (cmd === "gh" || cmd === "tar") { external.push(`${cmd} ${a[0]} ${a[1]}`); return { status: cmd === "gh" && a[0] === "release" && a[1] === "view" ? 1 : 0, stdout: a[0] === "repo" ? "bogusyogi/app\n" : "", stderr: "" }; }
+    return spawnSync(cmd, a, { ...opts, encoding: "utf8" });
+  };
+  const io = { spawn, resolveExecutor: directExecutor, runCheck: async () => 0, runCompile: async () => 0, sealedFor: () => ({ id, manifest: "m", digest }), spawnInherit: () => ({ status: 0 }) };
+  const early = capture();
+  assert.equal(await main(["stage", "--platform", "win"], { ...early.io, cwd: root, ...io }), 1, "nothing qualified yet");
+  assert.match(early.err.join("\n"), /run rightkit-gate --to qualify --platform win first/);
+  assert.equal(await main(["--to", "qualify", "--platform", "win"], { ...capture().io, cwd: root, ...io }), 0);
+  const ok = capture();
+  assert.equal(await main(["stage", "--platform", "win", "--tier", "patch"], { ...ok.io, cwd: root, ...io }), 0, ok.err.join("\n"));
+  assert.deepEqual(external, [`tar -czf ${external[0].split(" ")[2]}`, `gh release view`, `gh release create`, `gh release upload`, `gh repo view`, `gh workflow run`]);
+  // The sealed bytes change after qualification: nothing is staged.
+  digest = "e".repeat(64); external.length = 0;
+  assert.equal(await main(["stage", "--platform", "win"], { ...capture().io, cwd: root, ...io }), 1);
+  assert.deepEqual(external, []);
+});
+
+test("--to dev|test: class A on the working tree first, then right-release dev|test under a live door run with the passed arguments", async (t) => {
+  const { root, head } = stageRepo(t);
+  fs.writeFileSync(path.join(root, "uncommitted.txt"), "work in progress\n");
+  const calls = [];
+  const io = (checkCode) => ({
+    resolveExecutor: directExecutor, runCheck: async () => { calls.push("check"); return checkCode; },
+    spawnInherit: (cmd, a, opts) => { calls.push({ args: a.slice(1).join(" "), door: requireDoorRun({ env: opts.env, commonDir: path.join(root, ".git"), commit: head, command: "x" }) }); return { status: 0 }; },
+  });
+  const red = capture();
+  assert.equal(await main(["--to", "dev", "--", "--platform", "mac"], { ...red.io, cwd: root, ...io(1) }), 1);
+  assert.deepEqual(calls, ["check"], "class A red: nothing compiles");
+  calls.length = 0;
+  const green = capture();
+  assert.equal(await main(["--to", "dev", "--", "--platform", "mac"], { ...green.io, cwd: root, ...io(0) }), 0, green.err.join("\n"));
+  assert.deepEqual(calls, ["check", { args: "dev --platform mac", door: null }], "a dirty tree is fine for dev; it ran inside a live door run");
+  calls.length = 0;
+  assert.equal(await main(["--to", "test"], { ...capture().io, cwd: root, ...io(0) }), 0);
+  assert.deepEqual(calls.map((c) => c.args ?? c), ["check", "test"]);
+});
+
+test("class A of a commit scans every file of that commit: export-ignore hides nothing, and a live edit is never what is checked", async (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-snapshot-")));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.writeFileSync(path.join(root, ".gitattributes"), "hidden.json export-ignore\n");
+  fs.writeFileSync(path.join(root, "hidden.json"), "{ not json\n");
+  fs.writeFileSync(path.join(root, "good.json"), "{}\n");
+  git("add", "-A"); git("commit", "-q", "-m", "x");
+  const run = async (args) => { const c = capture(); const code = await main(args, { ...c.io, cwd: root, resolveExecutor: directExecutor }); return { code, out: [...c.out, ...c.err].join("\n") }; };
+  const committed = await run(["--class-a", "--commit", "HEAD"]);
+  assert.equal(committed.code, 1, committed.out);
+  assert.match(committed.out, /hidden\.json/, "a file marked export-ignore is still scanned");
+  // Fix it in the commit, then break it only in the live checkout: the commit is what is checked.
+  fs.writeFileSync(path.join(root, "hidden.json"), "{}\n"); git("commit", "-q", "-am", "fix");
+  fs.writeFileSync(path.join(root, "good.json"), "{ broken live edit\n");
+  const clean = await run(["--class-a", "--commit", "HEAD"]);
+  assert.equal(clean.code, 0, clean.out);
+  assert.doesNotMatch(clean.out, /good\.json/);
+});
+
+// ---- B5: the clean-checkout check covers every linter config the scans can read ---------------------------------------------------------------------------
+
+// git status answers from a fixed list of dirty files, filtered by the pathspecs it is given as git would: a spec names a file or a directory.
+const dirtyAware = (base, dirty) => (cmd, args, opts) => {
+  if (cmd === "git" && args[0] === "status") {
+    const specs = args.slice(args.indexOf("--") + 1);
+    return ok(dirty.filter((f) => specs.some((s) => f === s || f.startsWith(`${s}/`))).map((f) => ` M ${f}\n`).join(""));
+  }
+  return base(cmd, args, opts);
+};
+async function dirtyGate(t, dirty, files = {}) {
+  const root = mkRepo(stripUndefined(jsRepo(files)), t);
+  const seen = []; const c = capture();
+  const code = await main(["--base", "origin/main"], {
+    ...c.io, ...noWrites, cwd: root, env: {}, readStdin: () => pushLine("refs/heads/claude/port"), runScans: fakeRun(seen), findRustfmt: () => "/x/rustfmt",
+    spawn: dirtyAware(pushSpawn(root, { manifests: [], tracked: trackedJs, diff: "apps/coderight-web/src/b.ts\napps/coderight-tauri/src/a.ts\n" }), dirty),
+  });
+  return { code, seen, out: c.out.join("\n"), err: c.err.join("\n") };
+}
+
+// ---- B1: an app declares that a unit's test needs the broker (ci/gate.config.json npm.<unit>.requiresBroker) -----------------------------------------------------
+
+// HeardRight's root test is `node -e` over `verify`, which is `pnpm --dir tauri-app-next run verify`, which is `node ./scripts/verify-local.mjs`, which runs
+// `rustright cargo test`: no part of package.json says so, and scriptBrokerCall reads package.json only.
+// The module name is joined, not written: background-process.test.mjs forbids a quoted child_process token in any release source or test, and this fixture is only text for a script field.
+const OPAQUE_TEST = `node -e "const{spawnSync}=require('${["node:child", "process"].join("_")}');process.exit(spawnSync('pnpm',['run','verify'],{stdio:'inherit'}).status)"`;
+const opaque = { name: "viewright", license: "MIT", scripts: { test: OPAQUE_TEST, verify: "pnpm --dir tauri-app-next run verify" } };
+const REASON = "the root test runs tauri-app-next/scripts/verify-local.mjs, which spawns rustright cargo test";
+const declaring = (requiresBroker, scripts = opaque.scripts) => gateFiles({
+  "package.json": JSON.stringify({ ...opaque, scripts }), "src/app.ts": "",
+  "ci/gate.config.json": JSON.stringify({ npm: { viewright: { requiresBroker } } }),
+});
+
+// ---- B2: install-hook in a repository whose root does not install @rightkit/release ---------------------------------------------------------------------------
+
+// CutRight's apps/cutright and HeardRight's tauri-app-next declare and install the package; the root declares nothing. The hook's last resort used to be the path
+// of the gate that wrote it: `../../../../../../home/user/rightkit-exports/packages/release/bin/rightkit-gate.mjs` from an exports checkout, and
+// `apps/cutright/node_modules/.pnpm/@rightkit+release@0.6.4/node_modules/@rightkit/release/bin/rightkit-gate.mjs` from the install (stale at the next bump).
+const LINK = "node_modules/@rightkit/release/bin/rightkit-gate.mjs";
+const declares = (extra = {}) => JSON.stringify({ name: "x", devDependencies: { "@rightkit/release": "0.6.5" }, ...extra });
+const sha256Hex = (text) => crypto.createHash("sha256").update(text).digest("hex");
+const PUBLISHED_HOOK_DIGESTS = JSON.parse(fs.readFileSync(new URL("./fixtures/published-gate-hooks.json", import.meta.url), "utf8")).releases;
+
+async function installFrom(t, files, gateFile, listed = Object.keys(files).filter((f) => f.endsWith("package.json"))) {
+  const root = mkRepo(files, t);
+  const state = { hooksPath: "", sets: [] };
+  const c = capture();
+  const code = await main(["install-hook"], { ...c.io, spawn: hookEnv(root, state, { listed }), cwd: root, gateFile: typeof gateFile === "function" ? gateFile(root) : gateFile });
+  return { code, root, out: c.out.join("\n"), err: c.err.join("\n"), hook: fs.readFileSync(path.join(root, ".githooks", "pre-push"), "utf8") };
+}
+
+test("hookGatePlan: a stable repository-relative path for the gate, from what the package.json files declare and never from what is installed", () => {
+  const { hookGatePlan } = gateModule;
+  const root = norm(path.resolve("/work/app"));
+  const outside = norm(path.resolve("/elsewhere/exports/packages/release/bin/rightkit-gate.mjs"));
+  const store = norm(path.join(root, "apps/cutright", "node_modules/.pnpm/@rightkit+release@0.6.4/node_modules/@rightkit/release/bin/rightkit-gate.mjs"));
+  // Install state is not an input: a plan that reads it fails here.
+  const exists = () => { throw new Error("hookGatePlan must not look at what is installed"); };
+  const plan = (declaring, gateFile) => hookGatePlan({ root, gateFile, declaring, exists });
+  // 1. the root declares it: its link and no extra packages, whatever else declares it (Pulse: the root and hub/; RightKit itself: the root)
+  assert.deepEqual(plan(["."], outside), { nodePath: LINK, packages: [], unsafe: [] });
+  assert.deepEqual(plan([".", "hub"], outside), { nodePath: LINK, packages: [], unsafe: [] }, "Pulse: the root form, the 0.6.4 and 0.6.5 hook");
+  assert.deepEqual(plan([".", "apps/cutright"], outside), { nodePath: LINK, packages: [], unsafe: [] });
+  assert.deepEqual(plan([".", "apps/cutright"], store), { nodePath: LINK, packages: [], unsafe: [] }, "run from a store copy: still the link");
+  assert.deepEqual(plan(["."], norm(path.join(root, "packages/release/bin/rightkit-gate.mjs"))), { nodePath: LINK, packages: [], unsafe: [] }, "run from inside the repository: the root declares it, so its link");
+  // 2. only packages declare it (CutRight's apps/cutright, HeardRight's tauri-app-next): the first of them in sorted order, every one searched
+  assert.deepEqual(plan(["apps/cutright"], outside), { nodePath: `apps/cutright/${LINK}`, packages: ["apps/cutright"], unsafe: [] });
+  assert.deepEqual(plan(["apps/cutright"], store), { nodePath: `apps/cutright/${LINK}`, packages: ["apps/cutright"], unsafe: [] }, "a store path is never written");
+  assert.deepEqual(plan(["apps/cutright", "tauri-app-next"], outside), { nodePath: `apps/cutright/${LINK}`, packages: ["apps/cutright", "tauri-app-next"], unsafe: [] }, "the first declaring package, not whichever is installed");
+  // 3. nothing declares it: the gate's own path when it runs from inside the repository and not from a node_modules (a checkout of the package), else the root's link
+  assert.deepEqual(plan([], norm(path.join(root, "packages/release/bin/rightkit-gate.mjs"))), { nodePath: "packages/release/bin/rightkit-gate.mjs", packages: [], unsafe: [] });
+  assert.deepEqual(plan([], outside), { nodePath: LINK, packages: [], unsafe: [] }, "never a path outside the repository");
+  assert.deepEqual(plan([], store), { nodePath: LINK, packages: [], unsafe: [] }, "never a store path");
+  // a directory that cannot be written into a shell script is named, never written
+  const odd = plan(["apps/my app", "apps/$(x)", "-x", "apps/../up", "apps/a;b", "apps/ok"], outside);
+  assert.deepEqual([odd.packages, odd.unsafe.sort()], [["apps/ok"], ["-x", "apps/$(x)", "apps/../up", "apps/a;b", "apps/my app"]]);
+  assert.deepEqual(plan([".", "apps/a;b"], outside), { nodePath: LINK, packages: [], unsafe: ["apps/a;b"] }, "the root form still names the directories it leaves out");
+  for (const bad of ["apps/$(x)", "a b", "a\"b", "a`b", "a;b", "-x", "", "..", "a/../b", "./a", "a//b", "/abs", "C:\\x", "a\nb"]) assert.equal(gateModule.hookPathIsPlain(bad), false, JSON.stringify(bad));
+  for (const good of ["apps/cutright", "tauri-app-next", "packages/@scope/x.y", ".tools/app", "a+b/c_d-e"]) assert.equal(gateModule.hookPathIsPlain(good), true, good);
+});
+
+test("install-hook: with the install in a nested package, the hook finds the gate through that package's stable path, never one outside the repository or in the pnpm store", async (t) => {
+  const { hookGatePlan } = gateModule;
+  assert.equal(typeof hookGatePlan, "function");
+  const files = { "apps/cutright/package.json": declares(), [`apps/cutright/${LINK}`]: "", "README.md": "x" };
+  const store = (root) => path.join(root, "apps/cutright", "node_modules/.pnpm/@rightkit+release@0.6.4/node_modules/@rightkit/release/bin/rightkit-gate.mjs");
+  const wanted = hookText(`apps/cutright/${LINK}`, ["apps/cutright"]);
+  for (const [name, gateFile] of [["an exports checkout beside the repository", path.resolve("/home/user/rightkit-exports/packages/release/bin/rightkit-gate.mjs")], ["the pnpm store copy of the install", store], ["a relative symlink target", path.resolve("/x/node_modules/@rightkit/release/bin/rightkit-gate.mjs")]]) {
+    const r = await installFrom(t, files, gateFile);
+    assert.equal(r.code, 0, `${name}: ${r.err}`);
+    assert.equal(r.hook, wanted, name);
+    assert.doesNotMatch(r.hook, /\.\.\//, `${name}: nothing outside the repository`);
+    assert.doesNotMatch(r.hook, /\.pnpm|@rightkit\+release@/, `${name}: no version-pinned store path`);
+    assert.ok(!r.hook.includes(r.root) && !/[A-Za-z]:[\\/]/.test(r.hook), `${name}: no absolute path`);
+    assert.match(r.hook, /^for bin in node_modules\/\.bin\/rightkit-gate apps\/cutright\/node_modules\/\.bin\/rightkit-gate \*\//m, name);
+    assert.match(r.hook, /pnpm --dir apps\/cutright exec rightkit-gate "\$@"/, name);
+    assert.match(r.hook, /node "apps\/cutright\/node_modules\/@rightkit\/release\/bin\/rightkit-gate\.mjs" "\$@"/, name);
+    assert.match(r.out, /else of apps\/cutright \(the packages that declare @rightkit\/release\), else of any workspace package, else through `pnpm --dir apps\/cutright exec`/, name);
+    assert.match(r.out, /@rightkit\/release is declared in apps\/cutright\/package\.json/, name);
+  }
+  // Running it again from the same checkout changes nothing; run from the other place it is the same hook, so still current.
+  const first = await installFrom(t, files, path.resolve("/home/user/rightkit-exports/packages/release/bin/rightkit-gate.mjs"));
+  const state = { hooksPath: ".githooks", sets: [] };
+  const c = capture();
+  assert.equal(await main(["install-hook"], { ...c.io, spawn: hookEnv(first.root, state, { listed: ["apps/cutright/package.json"] }), cwd: first.root, gateFile: store(first.root) }), 0);
+  assert.ok(c.out.some((l) => /\.githooks\/pre-push already current/.test(l)), c.out.join("\n"));
+  // Not installed yet (a fresh clone, pnpm install --ignore-scripts): the link the package will have.
+  const fresh = await installFrom(t, { "apps/cutright/package.json": declares() }, path.resolve("/home/user/rightkit-exports/packages/release/bin/rightkit-gate.mjs"));
+  assert.equal(fresh.hook, wanted);
+  // Several packages declare it: all are searched, the first one is the last resort and runs under pnpm, whichever of them is installed.
+  const declaringBoth = { "apps/cutright/package.json": declares(), "tauri-app-next/package.json": declares() };
+  const manyWanted = hookText(`apps/cutright/${LINK}`, ["apps/cutright", "tauri-app-next"]);
+  for (const [name, installed] of [["nothing installed", []], ["the second one installed", [`tauri-app-next/${LINK}`]], ["the first one installed", [`apps/cutright/${LINK}`]], ["both installed", [`apps/cutright/${LINK}`, `tauri-app-next/${LINK}`]]]) {
+    const many = await installFrom(t, { ...declaringBoth, ...Object.fromEntries(installed.map((f) => [f, ""])) }, path.resolve("/elsewhere/rightkit-gate.mjs"));
+    assert.equal(many.hook, manyWanted, name);
   }
 });
 
-test("deferredBlock: npm test scans get a line of their own with the tool, the script chain and the command; without them the block is what it was", () => {
-  const base = { units: ["a"], notRun: ["clippy:a", "test:npm:viewright"], refs: ["refs/heads/claude/x"] };
-  const plain = deferredBlock({ ...base, npmCalls: [] });
-  assert.deepEqual(plain, deferredBlock(base));
-  assert.equal(plain.length, 2);
-  const withNpm = deferredBlock({ ...base, npmCalls: [{ id: "test:npm:viewright", tool: "rustright", via: ["test", "test:e2e"], command: E2E_COMMAND }, { id: "test:npm:other", tool: "cargo", via: ["test"], command: "cargo test" }] });
-  assert.deepEqual(withNpm.slice(0, 2), plain);
-  assert.equal(withNpm.length, 3);
-  assert.equal(withNpm[2], `rightkit-gate:   npm test scan(s) deferred with the Rust gate, never run and never passed, because the package script runs rustright or cargo and this host has no broker: test:npm:viewright (script test -> test:e2e: ${E2E_COMMAND}); test:npm:other (script test: cargo test)`);
-  assert.match(withNpm[0], /scans not run clippy:a, test:npm:viewright;/, "named in the headline too");
+test("install-hook: a root that installs the package keeps getting the published hook byte for byte, and RightKit's own checkout keeps its path", async (t) => {
+  const outside = path.resolve("/home/user/rightkit-exports/packages/release/bin/rightkit-gate.mjs");
+  for (const [name, files] of [
+    ["the root installs it", { "package.json": declares(), [LINK]: "" }],
+    ["the root installs it and a package declares it too", { "package.json": declares(), "apps/cutright/package.json": declares(), [LINK]: "", [`apps/cutright/${LINK}`]: "" }],
+  ]) {
+    const r = await installFrom(t, files, outside);
+    assert.equal(r.hook, hookText(LINK), name);
+    assert.equal(sha256Hex(r.hook), PUBLISHED_HOOK_DIGESTS["0.6.5"], `${name}: the hook the published 0.6.5 wrote, so the template's committed hook is still "already current"`);
+  }
+  const own = await installFrom(t, { "packages/release/package.json": '{"name":"@rightkit/release"}' }, (root) => path.join(root, "packages/release/bin/rightkit-gate.mjs"));
+  assert.equal(own.hook, hookText("packages/release/bin/rightkit-gate.mjs"), "RightKit's own hook points at its checkout, as before");
+  const none = await installFrom(t, { "package.json": '{"name":"app"}' }, outside);
+  assert.equal(none.hook, hookText(LINK), "nothing declares it: the root's link, not a path outside the repository");
+  assert.match(none.err, /WARNING: no package\.json in this repository depends on @rightkit\/release/);
+});
+
+test("install-hook: the hook depends on what package.json files declare, not on what is installed, so a prepare script never meets a hook it wrote", async (t) => {
+  const outside = path.resolve("/home/user/rightkit-exports/packages/release/bin/rightkit-gate.mjs");
+  const store = (root) => path.join(root, "node_modules/.pnpm/@rightkit+release@0.6.4/node_modules/@rightkit/release/bin/rightkit-gate.mjs");
+  const shapes = [
+    // Pulse: the root and hub/ both declare it
+    ["the root and hub", { "package.json": declares(), "hub/package.json": declares() }, [LINK, `hub/${LINK}`], hookText(LINK)],
+    ["the root and a package two levels down", { "package.json": declares(), "apps/cutright/package.json": declares() }, [LINK, `apps/cutright/${LINK}`], hookText(LINK)],
+    // CodeRight: two packages, neither the root
+    ["two packages, neither the root", { "apps/coderight-web/package.json": declares(), "apps/coderight-tauri/package.json": declares() }, [`apps/coderight-web/${LINK}`, `apps/coderight-tauri/${LINK}`], hookText(`apps/coderight-tauri/${LINK}`, ["apps/coderight-tauri", "apps/coderight-web"])],
+    ["one package (CutRight)", { "apps/cutright/package.json": declares() }, [`apps/cutright/${LINK}`], hookText(`apps/cutright/${LINK}`, ["apps/cutright"])],
+  ];
+  for (const [name, declared, links, wanted] of shapes) {
+    // Every subset of the links that can exist, from a fresh clone to everything installed, and every place the gate can run from, writes one hook.
+    const states = [[], ...links.map((link) => [link]), links];
+    for (const [where, gateFile] of [["an exports checkout", outside], ["a store copy", store]]) {
+      for (const installed of states) {
+        const r = await installFrom(t, { ...declared, ...Object.fromEntries(installed.map((f) => [f, ""])) }, gateFile);
+        assert.equal(r.code, 0, `${name}, ${where}, installed ${JSON.stringify(installed)}: ${r.err}`);
+        assert.equal(r.hook, wanted, `${name}, ${where}, installed ${JSON.stringify(installed)}`);
+      }
+    }
+    // A hook written before the install is current after it: `install-hook` as a prepare script succeeds without --force.
+    const first = await installFrom(t, declared, outside);
+    for (const link of links) { fs.mkdirSync(path.dirname(path.join(first.root, link)), { recursive: true }); fs.writeFileSync(path.join(first.root, link), ""); }
+    const again = capture();
+    assert.equal(await main(["install-hook"], { ...again.io, spawn: hookEnv(first.root, { hooksPath: ".githooks", sets: [] }, { listed: Object.keys(declared) }), cwd: first.root, gateFile: outside }), 0, `${name}: ${again.err.join("\n")}`);
+    assert.ok(again.out.some((l) => /\.githooks\/pre-push already current/.test(l)), `${name}: ${again.out.join("\n")}`);
+    assert.doesNotMatch(again.err.join("\n"), /already exists and differs/, name);
+  }
+  assert.equal(sha256Hex(hookText(LINK)), PUBLISHED_HOOK_DIGESTS["0.6.5"], "the root form is the published 0.6.5 hook");
+});
+
+test("install-hook: a declaring package whose directory is not a plain name is reported and never written into the hook", async (t) => {
+  const r = await installFrom(t, { "apps/my app/package.json": declares(), "apps/$(touch x)/package.json": declares(), "apps/ok/package.json": declares() }, path.resolve("/elsewhere/rightkit-gate.mjs"));
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.err, /WARNING: the pre-push hook does not look for the gate in apps\/\$\(touch x\), apps\/my app: not a plain directory name/);
+  assert.equal(r.hook, hookText(`apps/ok/${LINK}`, ["apps/ok"]));
+  assert.ok(!r.hook.includes("touch") && !r.hook.includes("my app"));
+});
+
+test("the multi-root pre-push hook (real sh): a package deeper than the glob, the pnpm fallback in the declaring package, then node at the package's link", { skip: !shAvailable && "no sh" }, (t) => {
+  const tmp = mkRepo({}, t);
+  const log = path.join(tmp, "calls.log");
+  const hook = (packages, nodePath) => ({ ".githooks/pre-push": hookText(nodePath, packages) });
+  // 1. beyond the three levels the glob covers: found through the explicit entry
+  const deep = hookRepo(t, { ...hook(["apps/a/b/c"], `apps/a/b/c/${LINK}`), "apps/a/b/c/node_modules/.bin/rightkit-gate": recorder(log, "deep") });
+  const ran = runHook(deep, "in\n");
+  assert.equal(ran.status, 0, ran.stderr);
+  assert.equal(fs.readFileSync(log, "utf8"), "deep check --commit HEAD\n--\ndeep --base origin/main\nin\n--\n");
+  assert.match(ran.stderr, /rightkit-gate: using apps\/a\/b\/c\/node_modules\/\.bin\/rightkit-gate/);
+  // 2. nothing installed, pnpm present: it runs in the declaring package (at the repository root it has no rightkit-gate to run)
+  fs.rmSync(log, { force: true });
+  const bin = mkRepo({ pnpm: recorder(log, "pnpm") }, t);
+  fs.chmodSync(path.join(bin, "pnpm"), 0o755);
+  const viaPnpm = runHook(hookRepo(t, hook(["apps/cutright"], `apps/cutright/${LINK}`)), "in\n", { path: [bin] });
+  assert.equal(viaPnpm.status, 0, viaPnpm.stderr);
+  assert.equal(fs.readFileSync(log, "utf8"), "pnpm --dir apps/cutright exec rightkit-gate check --commit HEAD\n--\npnpm --dir apps/cutright exec rightkit-gate --base origin/main\nin\n--\n");
+  assert.match(viaPnpm.stderr, /rightkit-gate: using pnpm --dir apps\/cutright exec rightkit-gate/);
+  // 3. no pnpm: node at the package's link, a path in the repository
+  fs.rmSync(log, { force: true });
+  const shim = mkRepo({}, t);
+  fs.symlinkSync(process.execPath, path.join(shim, "node"));
+  const noPnpmPath = [shim, "/usr/bin", "/bin"].join(path.delimiter);
+  const lastResort = hookRepo(t, { ...hook(["apps/cutright"], `apps/cutright/${LINK}`), [`apps/cutright/${LINK}`]: `import fs from "node:fs";\nfs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(" ") + "\\n");\nfs.readFileSync(0);\n` });
+  const viaNode = spawnSync("sh", [".githooks/pre-push", "origin", "https://example.test/r.git"], { cwd: lastResort, input: "in\n", encoding: "utf8", env: { ...process.env, PATH: noPnpmPath } });
+  assert.equal(viaNode.status, 0, viaNode.stderr);
+  assert.equal(fs.readFileSync(log, "utf8"), "check --commit HEAD\n--base origin/main\n");
+  assert.match(viaNode.stderr, /rightkit-gate: using node apps\/cutright\/node_modules\/@rightkit\/release\/bin\/rightkit-gate\.mjs/);
+});
+
+test("--to compile stages every declared sidecar first, under the door run, and compiles nothing when staging fails", async (t) => {
+  const { root, head } = stageRepo(t);
+  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
+  fs.mkdirSync(path.join(root, "app"), { recursive: true });
+  fs.writeFileSync(path.join(root, "app", "right-release.config.mjs"), "export default { sidecars: [] };\n");
+  fs.writeFileSync(path.join(root, "right-release.config.mjs"), "export default {};\n");
+  git("add", "-A"); git("commit", "-q", "-m", "configs");
+  const commit = git("rev-parse", "HEAD").stdout.trim();
+  const calls = [];
+  const io = (status) => ({
+    resolveExecutor: directExecutor, runCheck: async () => 0, runCompile: async () => { calls.push("compile"); return 0; },
+    spawnInherit: (cmd, a, opts) => { calls.push({ args: a.slice(1).join(" "), door: requireDoorRun({ env: opts.env, commonDir: path.join(root, ".git"), commit, command: "x" }) }); return { status }; },
+  });
+  assert.equal(await main(["--to", "compile"], { ...capture().io, cwd: root, ...io(0) }), 0);
+  assert.deepEqual(calls, [{ args: "stage-sidecar --config app/right-release.config.mjs", door: null }, "compile"], "only the config that declares sidecars is staged, inside a live door run, before the compile");
+  fs.rmSync(path.join(root, ".git", "rightkit-gate"), { recursive: true, force: true }); calls.length = 0;
+  assert.equal(await main(["--to", "compile"], { ...capture().io, cwd: root, ...io(1) }), 1);
+  assert.deepEqual(calls.map((c) => c.args ?? c), ["stage-sidecar --config app/right-release.config.mjs"], "a failed staging compiles nothing");
+  assert.ok(head);
+});
+
+test("RightKit self-check: the door runs RightKit's own rules for the requested selector only after app rules and class A pass, and never proves another commit with HEAD's imports", async (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-self-")));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.mkdirSync(path.join(root, "scripts", "ci"), { recursive: true });
+  fs.writeFileSync(path.join(root, "scripts", "preflight.mjs"), "");
+  fs.writeFileSync(path.join(root, "scripts", "ci", "exports-import-effects.mjs"), "");
+  fs.writeFileSync(path.join(root, "good.json"), "{}\n");
+  git("add", "-A"); git("commit", "-q", "-m", "one");
+  const first = git("rev-parse", "HEAD").stdout.trim();
+  fs.writeFileSync(path.join(root, "more.json"), "{}\n"); git("add", "-A"); git("commit", "-q", "-m", "two");
+  const selfPath = path.join(root, "packages", "release", "bin", "rightkit-gate.mjs");
+  const run = async ({ appCheck = 0, args, status = 0 }) => {
+    const launched = []; const c = capture();
+    const code = await main(["check", ...args], { ...c.io, cwd: root, selfPath, resolveExecutor: directExecutor, appCheck: async () => appCheck, spawnInherit: (cmd, a) => { launched.push(a.map((x) => (x === root ? "." : x.startsWith(`${root}${path.sep}`) ? path.relative(root, x) : x)).join(" ")); return { status }; } });
+    return { code, launched, err: c.err.join("\n") };
+  };
+  // Positive control: green app rules and class A on HEAD run RightKit's rules for HEAD, then the import check.
+  const green = await run({ args: ["--commit", "HEAD"] });
+  assert.equal(green.code, 0, green.err);
+  assert.deepEqual(green.launched, ["scripts/preflight.mjs --repo . --commit HEAD", "scripts/ci/exports-import-effects.mjs --report .git/rightkit-gate/import-effects/report.json"]);
+  // Negative: a red app rule or a red class A scan executes none of the repository's own scripts.
+  const redApp = await run({ appCheck: 1, args: ["--commit", "HEAD"] });
+  assert.equal(redApp.code, 1); assert.deepEqual(redApp.launched, []);
+  fs.writeFileSync(path.join(root, "bad.json"), "{ not json\n"); git("add", "-A"); git("commit", "-q", "-m", "bad");
+  const redA = await run({ args: ["--commit", "HEAD"] });
+  assert.equal(redA.code, 1); assert.deepEqual(redA.launched, [], "a red class A runs no candidate code");
+  // Negative: an older requested commit is checked by its own rules, and the HEAD-bound import check refuses instead of proving it.
+  const older = await run({ args: ["--commit", first] });
+  assert.equal(older.code, 1, older.err);
+  assert.match(older.launched[0], new RegExp(`--commit ${first}$`));
+  assert.equal(older.launched.length, 1, "no import probe of HEAD for another commit");
+  assert.match(older.err, /probes the checkout's HEAD/);
+  // A red RightKit rule stops before the import check.
+  git("rm", "-q", "bad.json"); git("commit", "-q", "-m", "fix");
+  const redRules = await run({ args: ["--commit", "HEAD"], status: 1 });
+  assert.equal(redRules.code, 1); assert.equal(redRules.launched.length, 1);
+  // --worktree: a clean tree equals HEAD, so the HEAD-bound import probe runs (positive control) ...
+  const clean = await run({ args: ["--worktree"] });
+  assert.equal(clean.code, 0, clean.err);
+  assert.deepEqual(clean.launched, ["scripts/preflight.mjs --repo . --worktree", "scripts/ci/exports-import-effects.mjs --report .git/rightkit-gate/import-effects/report.json"]);
+  // ... but a tracked edit or an untracked file makes the tree differ from HEAD, and the probe refuses instead of proving other bytes.
+  fs.writeFileSync(path.join(root, "good.json"), "{\"edited\":true}\n");
+  const dirtyTracked = await run({ args: ["--worktree"] });
+  assert.equal(dirtyTracked.code, 1, dirtyTracked.err);
+  assert.deepEqual(dirtyTracked.launched, ["scripts/preflight.mjs --repo . --worktree"], "no import probe of HEAD for a modified tree");
+  assert.match(dirtyTracked.err, /working tree differs from it/);
+  git("checkout", "--", "good.json");
+  fs.writeFileSync(path.join(root, "extra.json"), "{}\n");
+  const dirtyUntracked = await run({ args: ["--worktree"] });
+  assert.equal(dirtyUntracked.code, 1, dirtyUntracked.err);
+  assert.equal(dirtyUntracked.launched.length, 1, "an untracked file also refuses the probe");
+});
+
+test("class A of an older commit runs cargo's scans on that commit's Cargo files, never the live checkout's", async (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-cargo-snap-")));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.mkdirSync(path.join(root, "src"));
+  fs.writeFileSync(path.join(root, "src", "lib.rs"), "");
+  fs.writeFileSync(path.join(root, "Cargo.toml"), '[package]\nname = "old"\nversion = "0.1.0"\nedition = "2021"\nlicense = "MIT"\n');
+  fs.writeFileSync(path.join(root, "Cargo.lock"), "version = 4\n");
+  git("add", "-A"); git("commit", "-q", "-m", "old");
+  const old = git("rev-parse", "HEAD").stdout.trim();
+  // HEAD and the live checkout move on: a different crate name in HEAD, and a live edit no commit holds.
+  fs.writeFileSync(path.join(root, "Cargo.toml"), '[package]\nname = "new"\nversion = "0.2.0"\nedition = "2021"\nlicense = "MIT"\n');
+  git("commit", "-q", "-am", "new");
+  fs.writeFileSync(path.join(root, "Cargo.toml"), "[package]\nname = \"live-only\"\n");
+  const seen = [];
+  const runScans = async (plan, opts) => {
+    for (const s of plan.scans.filter((x) => x.class === "A" && (x.tool === "cargo" || x.tool === "rustright"))) {
+      const dir = path.join(s.root === "content" ? plan.roots.contentRoot : plan.roots.liveRoot, s.cwd ?? "");
+      seen.push(fs.readFileSync(path.join(dir, "Cargo.toml"), "utf8"));
+    }
+    return { schema: "rightkit.deterministic-scans/1", ok: true, complete: true, classes: ["A"], scans: [], toolVersions: {}, cacheHits: [], notes: [], deferred: [] };
+  };
+  const c = capture();
+  await main(["--class-a", "--commit", old], { ...c.io, cwd: root, resolveExecutor: directExecutor, runScans });
+  assert.ok(seen.length > 0, `cargo scans were planned: ${c.err.join("\n")}`);
+  for (const text of seen) assert.match(text, /name = "old"/, "the scan reads the requested commit's manifest, not HEAD's or the live edit");
+  // Positive control: HEAD's own check reads HEAD's manifest.
+  seen.length = 0;
+  await main(["--class-a", "--commit", "HEAD"], { ...capture().io, cwd: root, resolveExecutor: directExecutor, runScans });
+  for (const text of seen) assert.match(text, /name = "new"/);
+});
+
+test("a partial check (--only) says it is not a class A result, and the door and the broker always run the full check", async () => {
+  const c = capture();
+  assert.equal(await main(["check", "--only", "release-config"], { ...c.io, cwd: process.cwd(), appCheck: async () => 0 }), PARTIAL_EXIT);
+  assert.notEqual(PARTIAL_EXIT, 0);
+  assert.match(c.err.join("\n"), /PARTIAL: app rules only/);
+  assert.equal(await main(["check", "--only", "release-config"], { ...capture().io, cwd: process.cwd(), appCheck: async () => 1 }), 1, "a red partial stays red");
+  assert.equal(await main(["check", "--list"], { ...capture().io, cwd: process.cwd(), appCheck: async () => 0 }), 0, "a listing is not a verdict");
+  // Real process: a consumer that admits only exit status 0 (the broker, the --to check stage, CI `run:`) rejects a green partial view.
+  const bin = fileURLToPath(new URL("./bin/rightkit-gate.mjs", import.meta.url));
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-partial-")));
+  try {
+    for (const a of [["init", "-q"], ["config", "user.email", "t@example.test"], ["config", "user.name", "t"], ["commit", "-q", "--allow-empty", "-m", "one"]]) spawnSync("git", a, { cwd: repo });
+    const real = spawnSync(process.execPath, [bin, "check", "--only", "release-config"], { cwd: repo, encoding: "utf8" });
+    assert.equal(real.status, PARTIAL_EXIT, real.stderr);
+    assert.match(real.stderr, /PARTIAL/);
+  } finally { fs.rmSync(repo, { recursive: true, force: true }); }
+  // The door's check stage and the broker's admission call the full form.
+  const src = fs.readFileSync(new URL("./bin/rightkit-gate.mjs", import.meta.url), "utf8");
+  assert.match(src, /main\(\["check", "--commit", "HEAD"\]/, "--to check runs the full check");
 });

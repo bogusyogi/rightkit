@@ -1,7 +1,7 @@
 {
   "scan": {
     "inputs": {
-      "contentDigest": "118371d2e55cff852da6f908ae1797669535e0ff89b8da1b26caf62b46f14dda",
+      "contentDigest": "b9f4f5e56d67ade170e172b476ceac93cefc43834fccd835adecce77b404b64a",
       "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
       "trustDigest": "bd19568e09221702f4e0e560cba624190aece45e629667f0ec6ba7f230808f86",
       "approvalsDigest": "2349177ab7a26466f5ff6e9cdba843d8e1b2059cdea201c3615c1ead5cba321d",
@@ -51,8 +51,8 @@
           "lineText": "    http_fetch();",
           "ordinal": 0,
           "text": "http_fetch();",
-          "file": "src/main.rs",
-          "occurrenceHash": "02876c51233ce72057c7acd6796ef10db9a1b4496fc1f9e0aa1af01b8555d517"
+          "file": "src/MAIN.RS",
+          "occurrenceHash": "a590d6b3dee22d83a3cbe689822558b2a9509b742012fb13447eb470fd71ed2c"
         }
       ],
       "violations": [
@@ -66,8 +66,8 @@
           "lineText": "    http_fetch();",
           "ordinal": 0,
           "text": "http_fetch();",
-          "file": "src/main.rs",
-          "occurrenceHash": "02876c51233ce72057c7acd6796ef10db9a1b4496fc1f9e0aa1af01b8555d517"
+          "file": "src/MAIN.RS",
+          "occurrenceHash": "a590d6b3dee22d83a3cbe689822558b2a9509b742012fb13447eb470fd71ed2c"
         }
       ],
       "problems": [],
@@ -109,8 +109,8 @@
       "coverage": [],
       "metadata": {
         "repositoryIdentity": "https://github.com/test/repo",
-        "commit": "90790634c8b437c053aeadf074d3d6e800e51adb",
-        "tree": "e76dd4d466415fea027be29964de2ede0117267f",
+        "commit": "59515012da4da7de5d0b3d0c2ea9b88f295caac2",
+        "tree": "eb7e65d4bdf14877f07883afc80689790ddc850f",
         "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
         "contentDigests": [
           {
@@ -122,7 +122,7 @@
             "digest": "git:dddd8b1f8db379a7a22f47719b48333ce1c14f56"
           },
           {
-            "path": "src/main.rs",
+            "path": "src/MAIN.RS",
             "digest": "git:56a8244d3f4a662d3ed0e753ecc566572bf6551b"
           }
         ],
@@ -134,8 +134,8 @@
             "root": ".",
             "metadata": {
               "repositoryIdentity": "https://github.com/test/repo",
-              "commit": "90790634c8b437c053aeadf074d3d6e800e51adb",
-              "tree": "e76dd4d466415fea027be29964de2ede0117267f",
+              "commit": "59515012da4da7de5d0b3d0c2ea9b88f295caac2",
+              "tree": "eb7e65d4bdf14877f07883afc80689790ddc850f",
               "host": "fixture-host/fixture-os",
               "scannedAt": "2026-10-09T00:00:00.000Z",
               "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
@@ -151,7 +151,7 @@
                   "digest": "git:dddd8b1f8db379a7a22f47719b48333ce1c14f56"
                 },
                 {
-                  "path": "src/main.rs",
+                  "path": "src/MAIN.RS",
                   "digest": "git:56a8244d3f4a662d3ed0e753ecc566572bf6551b"
                 }
               ],
@@ -173,15 +173,15 @@
       "admit": false,
       "code": "RK_OWNERSHIP_VIOLATION",
       "problems": [
-        "http-client (http.fetch-call in src/main.rs) is owned by rightkit-http"
+        "http-client (http.fetch-call in src/MAIN.RS) is owned by rightkit-http"
       ]
     },
     "evidence": {
       "schema": 1,
       "repositoryIdentity": "https://github.com/test/repo",
       "source": "committed-git-tree",
-      "commit": "90790634c8b437c053aeadf074d3d6e800e51adb",
-      "tree": "e76dd4d466415fea027be29964de2ede0117267f",
+      "commit": "59515012da4da7de5d0b3d0c2ea9b88f295caac2",
+      "tree": "eb7e65d4bdf14877f07883afc80689790ddc850f",
       "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
       "catalogVersion": "1",
       "scannerVersion": "2.6.0",
@@ -193,13 +193,13 @@
       "registeredRoots": [
         "."
       ],
-      "contentDigest": "8f700f3bdd16652a58b1bb32c8b4a783246221a1a7ce8484ab295659ed290d75",
+      "contentDigest": "baa85e80b1dbd10a3a4ded3c2fdf3a0b77e0009f8453f274475b0e0384d9d3bf",
       "checkedAt": "2026-10-09T00:00:00.000Z"
     }
   },
   "inputsMode": {
     "inputs": {
-      "contentDigest": "118371d2e55cff852da6f908ae1797669535e0ff89b8da1b26caf62b46f14dda",
+      "contentDigest": "b9f4f5e56d67ade170e172b476ceac93cefc43834fccd835adecce77b404b64a",
       "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
       "trustDigest": "bd19568e09221702f4e0e560cba624190aece45e629667f0ec6ba7f230808f86",
       "approvalsDigest": "2349177ab7a26466f5ff6e9cdba843d8e1b2059cdea201c3615c1ead5cba321d",
@@ -251,5 +251,5 @@
       ]
     }
   },
-  "cacheKey": "54182127bff17e0009dadeb33a2f8dea67e8caa5a79a05d12a29a6ac915ec36f"
+  "cacheKey": "ab077270bcb96e1714ab68c4a6576dcadec65d56f427a329da9be5e67758d44a"
 }

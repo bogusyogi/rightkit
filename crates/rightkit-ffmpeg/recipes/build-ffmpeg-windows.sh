@@ -84,6 +84,7 @@ fi
 
 test "$cmd" = build || { echo "usage: $0 fetch|build ..." >&2; exit 2; }
 case "$tool" in ffmpeg|ffprobe) ;; *) echo "--tool ffmpeg|ffprobe" >&2; exit 2 ;; esac
+# shellcheck disable=SC2015  # each A && B is a test, so the || branch runs exactly when a requirement is missing
 test -n "$work" && test -n "$out" || { echo "--work and --out are required" >&2; exit 2; }
 test "${MSYSTEM:-}" = MINGW64 || { echo "run inside the MSYS2 MINGW64 shell (MSYSTEM=MINGW64)" >&2; exit 1; }
 test "$(gcc -dumpmachine)" = x86_64-w64-mingw32 || { echo "x86_64-w64-mingw32 gcc required" >&2; exit 1; }
@@ -107,7 +108,8 @@ prefix="$(cygpath -m "$root/prefix")"
 unpack() {
   # The top-level directory comes from the tarball itself (GitHub tag archives are not
   # named <name>-<version>).
-  local file="$sources/$(field "$1" file)"
+  local file
+  file="$sources/$(field "$1" file)"
   tar -xf "$file" -C "$root/src"
   echo "$root/src/$(tar -tf "$file" | awk -F/ 'NR==1{print $1}')"
 }
@@ -122,6 +124,7 @@ notices=()
 tools="$(gcc --version | head -1); $(nasm -v); $(make --version | head -1)"
 if [ "$variant" = export-ass-zimg ]; then
   for v in MESON NINJA PKG_CONFIG; do
+    # shellcheck disable=SC2015  # each A && B is a test, so the || branch runs exactly when a requirement is missing
     test -n "${!v:-}" && test -x "${!v}" || { echo "$v must name an executable (see header)" >&2; exit 1; }
   done
   for t in autoconf automake libtoolize; do
@@ -131,10 +134,12 @@ if [ "$variant" = export-ass-zimg ]; then
   # native one without putting a host path into FFmpeg's configuration string.
   cp "$PKG_CONFIG" "$root/tools/pkg-config.exe"
   export PATH="$root/tools:$PATH"
-  export PKG_CONFIG="$(cygpath -m "$root/tools/pkg-config.exe")"
+  PKG_CONFIG="$(cygpath -m "$root/tools/pkg-config.exe")"
+  export PKG_CONFIG
   export PKG_CONFIG_LIBDIR="$prefix/lib/pkgconfig"
   export PKG_CONFIG_PATH="$PKG_CONFIG_LIBDIR"
-  export NINJA="$(cygpath -m "$NINJA")"
+  NINJA="$(cygpath -m "$NINJA")"
+  export NINJA
   autotools=(--host="$host" --build="$host" --prefix="$prefix" --disable-shared --enable-static)
   cat > "$root/meson-native.ini" <<EOF
 [binaries]
@@ -231,8 +236,11 @@ licenses=/mingw64/share/licenses
 toolchain_notice() {
   # Package directory names vary between MSYS2 snapshots (crt or crt-git, winpthreads or
   # libwinpthread, gcc or gcc-libs), so each file is found by pattern.
-  local found; found="$(ls $1 2>/dev/null | awk 'NR==1' || true)"
+  local found
+  # shellcheck disable=SC2012,SC2086  # ls over build-output names this script controls (no spaces); the order of the listing is what is wanted; unquoted on purpose: the argument is a glob or a word list
+  found="$(ls $1 2>/dev/null | awk 'NR==1' || true)"
   if [ -z "$found" ]; then
+    # shellcheck disable=SC2012  # ls over build-output names this script controls (no spaces); the order of the listing is what is wanted
     echo "toolchain licence file not found: $1; $licenses holds: $(ls "$licenses" 2>/dev/null | tr '
 ' ' ')" >&2
     exit 1
@@ -248,6 +256,7 @@ imports="$(objdump -p "$artifact" | sed -n 's/^[[:space:]]*DLL Name: //p' | tr -
 system32="$(cygpath -u "$SYSTEMROOT")/System32"
 for dll in $imports; do
   test -f "$system32/$dll" || { echo "non-system import $dll in $artifact" >&2; exit 1; }
+  # shellcheck disable=SC2018,SC2019  # ASCII case mapping on purpose: DLL names are ASCII
   case "$(echo "$dll" | tr 'A-Z' 'a-z')" in
     libwinpthread*|libgcc*|libstdc*|msys-*|libiconv*|zlib1*) echo "toolchain DLL import $dll" >&2; exit 1 ;;
   esac
@@ -255,6 +264,7 @@ done
 configuration="$(grep -m1 '^#define FFMPEG_CONFIGURATION' "$src/config.h" | sed 's/^#define FFMPEG_CONFIGURATION "//; s/"$//')"
 case " $configuration " in *" --enable-gpl "*|*" --enable-nonfree "*|*" --enable-version3 "*) echo "GPL/nonfree/version3 configuration" >&2; exit 1 ;; esac
 grep -q '"LGPL version 2.1 or later"' "$src/config.h" || { echo "configure did not report LGPL 2.1 or later" >&2; exit 1; }
+# shellcheck disable=SC2015  # each A && B is a test, so the || branch runs exactly when a requirement is missing
 grep -q '^#define CONFIG_GPL 0' "$src/config.h" && grep -q '^#define CONFIG_NONFREE 0' "$src/config.h" \
   || { echo "CONFIG_GPL/CONFIG_NONFREE not 0" >&2; exit 1; }
 

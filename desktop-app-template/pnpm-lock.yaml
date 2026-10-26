@@ -13,7 +13,7 @@ importers:
         version: 0.4.2(react@19.3.0)
       '@rightkit/legal':
         specifier: 0.6.3
-        version: 0.6.3(@rightkit/release@0.6.5)
+        version: 0.6.3(@rightkit/release@0.6.6)
       '@rightkit/legal-ui':
         specifier: 0.4.1
         version: 0.4.1(react@19.3.0)
@@ -70,8 +70,8 @@ importers:
         specifier: 0.1.11
         version: 0.1.11
       '@rightkit/release':
-        specifier: 0.6.5
-        version: 0.6.5
+        specifier: 0.6.6
+        version: 0.6.6
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(vite@8.3.4(jiti@2.7.0))
@@ -126,6 +126,10 @@ packages:
       react:
         optional: true
 
+  '@rightkit/ci@0.2.49':
+    resolution: {integrity: sha512-Uzjhw3ZeDTagKzSaODFmymXFHsamq4Waw9F4iraQev+xdgp4wopbHlcYICPXjswDL9mptEIBXEG4YOxISmXFpg==}
+    hasBin: true
+
   '@rightkit/legal-ui@0.4.1':
     resolution: {integrity: sha512-PIaQtGT6fvN4wD5Y4tcOuhUcuKGK5RWNZhLcWW/DxWVGaYZCfTQlikAQuYYjirZxr0TfJ6nQrAc2Zo4bX9PY7g==}
     peerDependencies:
@@ -156,6 +160,11 @@ packages:
       '@rightkit/react-shell': '>=0.2.0 <1'
       react: '>=18 <21'
 
+  '@rightkit/outdated@0.2.0':
+    resolution: {integrity: sha512-qN7BNReZ16y8o4Sd76T4EyImEFilFLREn1qtzIprdLCdwrn+9MkX3GS3OKsJf2stADkB6EcNgqAqL86DMrDiVw==}
+    engines: {node: '>=26.8.0'}
+    hasBin: true
+
   '@rightkit/platform-ui@0.4.0':
     resolution: {integrity: sha512-5Z9RqMaaZB7dUAanL2c5HKzgSOfD3JDGVI/C+8lglkv9YGzBqiEZHli3sSJ4fsy0kRvyM1xr/eG8TUu0hivs1Q==}
     peerDependencies:
@@ -184,8 +193,8 @@ packages:
       '@tauri-apps/plugin-os':
         optional: true
 
-  '@rightkit/release@0.6.5':
-    resolution: {integrity: sha512-s2PA4qjj6q13RpWaRW4r12///Mj34IR+8DqXwCOVuqbQcZ3MsX7Zlyb6u/VWlVnwfKIwpt7/jN4yzOvPvyd+pA==}
+  '@rightkit/release@0.6.6':
+    resolution: {integrity: sha512-0kRCVSqNc4jXFS5I1dbxXWOpq1/y2zJMEHBcOFpYElF0Jptabjn6bDJW4DTody3159sBORTesj2ttO8Tk9+m/g==}
     hasBin: true
 
   '@rightkit/settings-ui@0.7.0':
@@ -744,6 +753,10 @@ packages:
   scheduler@0.28.0:
     resolution: {integrity: sha512-juorfCmIkIw8tT+p5BXSm6PJjQF/ycEYmKyzURCIt/RaZIhL+PulbQ9Yu2z1HdOJDdqDTlxA1+xKBmHXJsczAw==}
 
+  smol-toml@1.9.0:
+    resolution: {integrity: sha512-hpd+HLON7HdZXqYchMM/+LaTTbdK0AU3NngIJ4KVyWbY9bfQqdL9cD+4yf6dUoU2Ap4VsU0JkQi6FxAI1B2mXQ==}
+    engines: {node: '>= 18'}
+
   smol-toml@1.9.1:
     resolution: {integrity: sha512-j7WyPdf0CJoutMzMoPLF/bVXHtKZIT9Rb4eGeEbWw8X2t5oirjPgpL+OpaENZrILYaXqYwnVH+qgUwVbl+pUJQ==}
     engines: {node: '>= 18'}
@@ -838,13 +851,15 @@ snapshots:
     optionalDependencies:
       react: 19.3.0
 
+  '@rightkit/ci@0.2.49': {}
+
   '@rightkit/legal-ui@0.4.1(react@19.3.0)':
     dependencies:
       react: 19.3.0
 
-  '@rightkit/legal@0.6.3(@rightkit/release@0.6.5)':
+  '@rightkit/legal@0.6.3(@rightkit/release@0.6.6)':
     optionalDependencies:
-      '@rightkit/release': 0.6.5
+      '@rightkit/release': 0.6.6
 
   '@rightkit/license@0.3.0': {}
 
@@ -857,6 +872,11 @@ snapshots:
       '@rightkit/legal-ui': 0.4.1(react@19.3.0)
       '@rightkit/react-shell': 0.7.2(@rightkit/platform-ui@0.4.0(@tauri-apps/plugin-os@2.4.0)(react@19.3.0))(@tauri-apps/plugin-os@2.4.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       react: 19.3.0
+
+  '@rightkit/outdated@0.2.0':
+    dependencies:
+      '@rightkit/ci': 0.2.49
+      smol-toml: 1.9.0
 
   '@rightkit/platform-ui@0.4.0(@tauri-apps/plugin-os@2.4.0)(react@19.3.0)':
     dependencies:
@@ -878,8 +898,9 @@ snapshots:
     optionalDependencies:
       '@tauri-apps/plugin-os': 2.4.0
 
-  '@rightkit/release@0.6.5':
+  '@rightkit/release@0.6.6':
     dependencies:
+      '@rightkit/outdated': 0.2.0
       smol-toml: 1.9.1
 
   '@rightkit/settings-ui@0.7.0(@rightkit/app-update@0.4.2(react@19.3.0))(@rightkit/license@0.3.0)(@rightkit/logs@0.1.6)(@rightkit/react-shell@0.7.2(@rightkit/platform-ui@0.4.0(@tauri-apps/plugin-os@2.4.0)(react@19.3.0))(@tauri-apps/plugin-os@2.4.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@rightkit/theme@0.3.1)(react@19.3.0)':
@@ -1253,6 +1274,8 @@ snapshots:
       '@rolldown/binding-win32-x64-msvc': 1.2.13
 
   scheduler@0.28.0: {}
+
+  smol-toml@1.9.0: {}
 
   smol-toml@1.9.1: {}
 

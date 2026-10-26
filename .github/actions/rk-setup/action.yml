@@ -46,6 +46,14 @@ runs:
       id: pnpm-store
       if: ${{ inputs.install-dependencies == 'true' }}
       shell: bash
+      # A probe of the store, before the protected install: run with pnpmfile hooks, scripts and corepack auto-pinning off, like
+      # every other pnpm call ahead of class A.
+      env:
+        npm_config_ignore_scripts: "true"
+        npm_config_ignore_pnpmfile: "true"
+        pnpm_config_ignore_scripts: "true"
+        pnpm_config_ignore_pnpmfile: "true"
+        COREPACK_ENABLE_AUTO_PIN: "0"
       run: echo "path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
     - name: Cache pnpm store
       if: ${{ inputs.install-dependencies == 'true' }}
@@ -65,7 +73,12 @@ runs:
           read -r -a filter_args <<< "$RK_INSTALL_FILTER"
           args+=("${filter_args[@]}")
         fi
-        if [[ "$RK_IGNORE_INSTALL_SCRIPTS" == "true" ]]; then args+=(--ignore-scripts); fi
+        # No candidate code during setup: with scripts off, the repository's pnpmfile hooks are off too (flag and environment, so
+        # no project .npmrc can turn them back on before class A has run).
+        if [[ "$RK_IGNORE_INSTALL_SCRIPTS" == "true" ]]; then
+          args+=(--ignore-scripts --ignore-pnpmfile)
+          export npm_config_ignore_scripts=true npm_config_ignore_pnpmfile=true pnpm_config_ignore_scripts=true pnpm_config_ignore_pnpmfile=true
+        fi
         pnpm "${args[@]}"
     - name: Print pnpm-lock.yaml patch when the lockfile is stale
       if: ${{ failure() && inputs.install-dependencies == 'true' }}
@@ -79,7 +92,12 @@ runs:
           read -r -a filter_args <<< "$RK_INSTALL_FILTER"
           args+=("${filter_args[@]}")
         fi
-        if [[ "$RK_IGNORE_INSTALL_SCRIPTS" == "true" ]]; then args+=(--ignore-scripts); fi
+        # No candidate code during setup: with scripts off, the repository's pnpmfile hooks are off too (flag and environment, so
+        # no project .npmrc can turn them back on before class A has run).
+        if [[ "$RK_IGNORE_INSTALL_SCRIPTS" == "true" ]]; then
+          args+=(--ignore-scripts --ignore-pnpmfile)
+          export npm_config_ignore_scripts=true npm_config_ignore_pnpmfile=true pnpm_config_ignore_scripts=true pnpm_config_ignore_pnpmfile=true
+        fi
         if pnpm "${args[@]}"; then
           if git diff --quiet -- pnpm-lock.yaml; then
             echo "::notice::pnpm-lock.yaml already matches package.json; the frozen install failed for another reason."
