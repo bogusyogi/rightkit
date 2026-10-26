@@ -357,7 +357,7 @@ test("preflight checks an app with its own .rightkit/app-check-baseline.json the
   const result = await preflight(["--repo", repo, "--commit", "HEAD"], { now: new Date(`${addDays("2026-10-24", 7)}T12:00:00Z`) });
   assert.equal(result.code, 0, result.text);
   assert.match(result.text, /^KNOWN qa-platform: tests\/q\.rs:1 /m);
-  assert.match(result.text, /passed 44 rules .*\(1 known finding\(s\) in \.rightkit\/app-check-baseline\.json/);
+  assert.match(result.text, /passed 47 rules .*\(1 known finding\(s\) in \.rightkit\/app-check-baseline\.json/);
 });
 
 // ---- the shell contract (packages/release/shell-contract.mjs) runs here and is ratcheted like G13-G21 -----------------------
@@ -368,9 +368,9 @@ const SHELL_ID = "shell-window-hidden|src-tauri/tauri.conf.json|base:main";
 test("shell contract: --list shows the nine rules after speech-link, in order, with their SC-R gap ids", async () => {
   const listed = await preflight(["--list"]);
   assert.equal(listed.code, 0);
-  // The sealed source-closure rule (SF-01) and the two ownership class rules (OW-05, OW-06) follow the consumer contracts (CA-xx), which follow the shell contract.
-  assert.deepEqual(listed.lines.slice(-18, -9), SHELL_RULES.map((id, i) => `${id} (SC-R${i + 1})`));
-  assert.deepEqual(RULES.slice(-18, -9).map((r) => r.id), SHELL_RULES);
+  // The sealed source-closure rule (SF-01) and the two ownership class rules (OW-05, OW-06) follow the consumer contracts (CA-xx, then the input contracts CA-07/09/11), which follow the shell contract.
+  assert.deepEqual(listed.lines.slice(-21, -12), SHELL_RULES.map((id, i) => `${id} (SC-R${i + 1})`));
+  assert.deepEqual(RULES.slice(-21, -12).map((r) => r.id), SHELL_RULES);
 });
 
 test("shell contract: a finding FAILs, is KNOWN when its identity is in the baseline, and is STALE once the app is fixed", async (t) => {
@@ -408,6 +408,7 @@ test("preflight keeps its rule order: the app rules sit where they always did am
     "qa-platform (G13)", "test-harness (G14)", "scenario-skip (G15)", "release-config (G16)", "skip-checks (G17)", "qa-dev-server (G18)", "ffmpeg-release-escape (G19)", "switches-inventory (G20)", "speech-link (G21)", "e2e-under-cargo-test (G22)", "suite-key-literal (C3-04)", "suite-updater-key (C3-14)", "engine-record-store (C3-05)",
     "shell-window-hidden (SC-R1)", "shell-plugin-order (SC-R2)", "shell-handler (SC-R3)", "shell-csp (SC-R4)", "shell-grants (SC-R5)", "qa-window-label (SC-R6)", "devtools-declaration (SC-R7)", "shell-lifecycle-external (SC-R8)", "legal-receipt-native (SC-R9)",
     "release-config-identity (CA-01)", "pnpm-node-floor (CA-05)", "rust-dependency-msrv (CA-05)", "release-age (CA-06)", "notice-lock-digest (CA-14)", "doc-comment-bare-cr (CA-15)",
+    "checkout-step-input (CA-07)", "source-relation (CA-09)", "checkout-longpaths (CA-11)",
     "source-closure (SF-01)", "mandatory-foundation (OW-05)", "ownership-exceptions (OW-06)",
   ]);
 });

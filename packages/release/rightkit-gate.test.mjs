@@ -1305,12 +1305,12 @@ test("check runs the real app check: findings on stdout, exit 0 green and 1 red,
   const red = capture();
   assert.equal(await main(["check", "--repo", repo, "--commit", "HEAD"], red.io), 1);
   assert.match(red.out.join("\n"), /^FAIL skip-checks \(G17\): package\.json:1 script "ship" runs right-release with --skip-checks$/m);
-  assert.match(red.out.join("\n"), /^check: 1 problem\(s\) in \w{12} \(34 rules, /m);
+  assert.match(red.out.join("\n"), /^check: 1 problem\(s\) in \w{12} \(37 rules, /m);
   fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT", scripts: { ship: "right-release build" } }));
   git("commit", "-q", "-am", "green");
   const green = capture();
   assert.equal(await main(["check"], { ...green.io, cwd: repo }), 0, green.err.join("\n"));
-  assert.match(green.out.join("\n"), /^check: \w{12} passed 34 rules in [\d.]+s$/m, "no --repo: the git top-level of the working directory");
+  assert.match(green.out.join("\n"), /^check: \w{12} passed 37 rules in [\d.]+s$/m, "no --repo: the git top-level of the working directory");
   assert.match(green.out.at(-1), /^rightkit-gate: class A pass: \d+ deterministic scan\(s\) over \d+ file\(s\) of HEAD$/, "then every class A scan over the whole commit");
   const unknown = capture();
   assert.equal(await main(["bogus"], unknown.io), 2);
