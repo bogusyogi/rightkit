@@ -12,6 +12,9 @@
 //
 // A step is `{ cmd | node, args?, cwd?, env?, nodeFlags?, nodeOptions? }` (see command-spec.mjs). `--dry-run` prints the
 // resolved commands and runs nothing. Exit code: 0, or the failing step's exit code.
+//
+// The door (gate-stages.mjs requireDoorRun) is checked before the config is imported: a .mjs config is code, so even a dry run
+// runs only under a live door run. The exported runner checks it again, so no in-process caller spawns a step around it.
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
@@ -43,8 +46,26 @@ export function planWebBuild(config) {
   return steps.map((step, index) => validateStep(step, `web.build[${index}]`));
 }
 
-/** Run the steps in order; `spawnSyncFn` and `log` are injectable. Returns the exit code. */
-export function runWebBuild(steps, { appRoot, env = process.env, dryRun = false, spawnSyncFn = spawnSync, log = console.log } = {}) {
+/**
+ * The door refusal for a web build of the app at `appRoot`, or null under a live door run. Outside a git repository nothing can be
+ * bound to a commit: refused. `spawnSyncFn` runs git; `requireDoor` is gate-stages.mjs requireDoorRun.
+ */
+export function webBuildDoorRefusal({ appRoot, env = process.env, spawnSyncFn = spawnSync, requireDoor = requireDoorRun }) {
+  const gitOut = (a) => { const r = spawnSyncFn("git", a, { cwd: appRoot, encoding: "utf8" }); return r.status === 0 ? String(r.stdout).trim() : ""; };
+  const common = gitOut(["rev-parse", "--git-common-dir"]);
+  if (!common) return "right-release web-build runs only inside a git repository, under a door run";
+  return requireDoor({ env, commonDir: path.resolve(appRoot, common), commit: gitOut(["rev-parse", "HEAD"]), command: "right-release web-build" });
+}
+
+function doorError(refusal) { const error = new Error(refusal); error.code = "RK_DOOR"; return error; }
+
+/**
+ * Run the steps in order under a live door run; `spawnSyncFn`, `requireDoor` and `log` are injectable. Returns the exit code. The
+ * door is checked here as well as in main: this is the only place a step is spawned.
+ */
+export function runWebBuild(steps, { appRoot, env = process.env, dryRun = false, spawnSyncFn = spawnSync, requireDoor = requireDoorRun, log = console.log } = {}) {
+  const refusal = webBuildDoorRefusal({ appRoot, env, spawnSyncFn, requireDoor });
+  if (refusal) throw doorError(refusal);
   for (const step of steps) {
     const invocation = resolveInvocation(step, { appRoot, baseEnv: env });
     log(`${dryRun ? "[dry-run] " : ""}${[invocation.cmd, ...invocation.args].join(" ")}`);
@@ -56,18 +77,15 @@ export function runWebBuild(steps, { appRoot, env = process.env, dryRun = false,
   return 0;
 }
 
-export async function main(argv = process.argv.slice(2), { requireDoor = requireDoorRun, spawnSyncFn = spawnSync } = {}) {
+export async function main(argv = process.argv.slice(2), { env = process.env, requireDoor = requireDoorRun, spawnSyncFn = spawnSync, loadConfig = loadAppConfig, log = console.log } = {}) {
   const opts = parseWebBuildArgs(argv);
-  const { config, appRoot } = await loadAppConfig(opts.config);
   // A web build is a compile: like right-release build, the direct entry runs only under a door run (rightkit-gate --to compile runs
-  // class A first). A dry run plans and runs nothing. Outside a git repository nothing can be bound to a commit: refused.
-  if (!opts.dryRun) {
-    const gitOut = (a) => { const r = spawnSyncFn("git", a, { cwd: appRoot, encoding: "utf8" }); return r.status === 0 ? String(r.stdout).trim() : ""; };
-    const common = gitOut(["rev-parse", "--git-common-dir"]);
-    const refusal = common ? requireDoor({ commonDir: path.resolve(appRoot, common), commit: gitOut(["rev-parse", "HEAD"]), command: "right-release web-build" }) : "right-release web-build runs only inside a git repository, under a door run";
-    if (refusal) { const error = new Error(refusal); error.code = "RK_DOOR"; throw error; }
-  }
-  return runWebBuild(planWebBuild(config), { appRoot, dryRun: opts.dryRun });
+  // class A first). The door is checked before the config is imported, since a .mjs config is code; a dry run is no exception.
+  const appRoot = path.dirname(path.resolve(opts.config));
+  const refusal = webBuildDoorRefusal({ appRoot, env, spawnSyncFn, requireDoor });
+  if (refusal) throw doorError(refusal);
+  const { config } = await loadConfig(opts.config);
+  return runWebBuild(planWebBuild(config), { appRoot, env, dryRun: opts.dryRun, spawnSyncFn, requireDoor, log });
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {

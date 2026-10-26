@@ -1171,7 +1171,7 @@ async function runStages(o, args, root, git, io) {
   const tag = "rightkit-gate:";
   const { appRoot, appDir } = appRootOf({ root, cwd: o.cwd, exists: o.exists });
   const to = option("--to");
-  if (to === "dev" || to === "test") return await runWorktreeCompile(o, args, root, git, io, to);
+  if (to === "dev" || to === "test") return await runWorktreeCompile(o, args, root, git, io, to, appRoot);
   let stages = stagesTo(to);
   if (!stages) { o.err(`${tag} --to must be one of ${STAGES.join(", ")}`); return 2; }
   const platform = option("--platform");
@@ -1381,7 +1381,7 @@ function stageForPublisher(o, args, root, git) {
  * run, the only way it runs at all. The executor is the same as every other stage: the broker where there is one (its own admission
  * checks again), plain cargo on an unmanaged host, never around a managed host's broker.
  */
-async function runWorktreeCompile(o, args, root, git, io, to) {
+async function runWorktreeCompile(o, args, root, git, io, to, appRoot = root) {
   const tag = "rightkit-gate:";
   const passthrough = args.includes("--") ? args.slice(args.indexOf("--") + 1) : [];
   const commit = text(git("rev-parse", "HEAD")).trim();
@@ -1398,7 +1398,9 @@ async function runWorktreeCompile(o, args, root, git, io, to) {
   const run = startRun({ commonDir, commit, tree, stage: to });
   try {
     const cli = fileURLToPath(new URL("../cli/right-release.mjs", import.meta.url));
-    const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, to, ...passthrough], { cwd: o.cwd, env: { ...o.env, ...run.env } });
+    // right-release reads its config from its cwd: the resolved app root (appRootOf), not the directory the command was typed in
+    // (apps/foo/src is apps/foo; Astra, third pass).
+    const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, to, ...passthrough], { cwd: appRoot, env: { ...o.env, ...run.env } });
     return r.status === 0 ? 0 : 1;
   } finally { endRun(run); }
 }
@@ -1532,12 +1534,13 @@ export async function main(argv, io = {}) {
   if (!planOnly && !classAOnly) {
     const head = text(git("rev-parse", "HEAD")).trim();
     const parsed = parsePushLines(o.readStdin());
-    deletionsOnly = parsed.lines.length > 0 && parsed.lines.every((l) => ZERO.test(l.localSha));
-    if (deletionsOnly) { o.out(`${tag} only deletions are pushed; nothing to check, nothing planned`); return 0; }
+    // Every line is read before any shortcut: a malformed line hides what is pushed, so it blocks even beside deletions (Astra, third pass).
     if (parsed.malformed.length) {
       o.err(`${tag} BLOCKED: pre-push stdin line ${parsed.malformed[0].number} is not "<local ref> <local sha> <remote ref> <remote sha>" (four fields separated by single spaces), so the pushed refs cannot all be read and the pushed commit cannot be compared with HEAD; push a plain ref (git push <remote> HEAD:<branch>)`);
       return 1;
     }
+    deletionsOnly = parsed.lines.length > 0 && parsed.lines.every((l) => ZERO.test(l.localSha));
+    if (deletionsOnly) { o.out(`${tag} only deletions are pushed; nothing to check, nothing planned`); return 0; }
     for (const { localSha, remoteRef, remoteSha } of parsed.lines) {
       if (ZERO.test(localSha)) continue; // a delete pushes no content
       if (localSha !== head) {

@@ -1771,6 +1771,15 @@ test("a push of ref deletions alone runs no app rules and plans nothing: it carr
   assert.equal(mixed.code, 1);
   assert.match(mixed.err, /BLOCKED: the app rules are red/);
   assert.equal(mixed.seen.length, 0);
+  // A malformed line beside a deletion is read before the shortcut: the push is blocked, not waved through (Astra, third pass).
+  const bad = await pushGate(t, {
+    stdin: pushLine("refs/heads/old", { sha: ZEROS, remote: HEAD }) + "refs/heads/x not-a-sha\n", files: stripUndefined(jsRepo()),
+    spawnOptions: { manifests: [], tracked: trackedJs, diff: "apps/coderight-web/src/b.ts\n" },
+    io: { appCheck: async () => 0, resolveExecutor: directExecutor },
+  });
+  assert.equal(bad.code, 1);
+  assert.match(bad.err, /BLOCKED: pre-push stdin line 2 is not/);
+  assert.equal(bad.seen.length, 0);
 });
 
 test("gate --plan: lists the pnpm roots' units with their root-carrying names and the per-root scans", async (t) => {
@@ -2023,6 +2032,16 @@ test("--to dev|test: class A on the working tree first, then right-release dev|t
   calls.length = 0;
   assert.equal(await main(["--to", "test"], { ...capture().io, cwd: root, ...io(0) }), 0);
   assert.deepEqual(calls.map((c) => c.args ?? c), ["check", "test"]);
+  // A cwd below a nested app belongs to that app: right-release dev runs in the app root, where its config is (Astra, third pass).
+  fs.mkdirSync(path.join(root, "apps/one/src/lib"), { recursive: true });
+  fs.writeFileSync(path.join(root, "apps/one/right-release.config.mjs"), "export default {};\n");
+  const cwds = [];
+  const nested = { ...io(0), spawnInherit: (cmd, a, opts) => { cwds.push(opts.cwd); return { status: 0 }; } };
+  assert.equal(await main(["--to", "dev"], { ...capture().io, cwd: path.join(root, "apps/one/src/lib"), ...nested }), 0);
+  assert.deepEqual(cwds, [path.join(root, "apps/one")]);
+  cwds.length = 0;
+  assert.equal(await main(["--to", "test"], { ...capture().io, cwd: path.join(root, "apps/one"), ...nested }), 0);
+  assert.deepEqual(cwds, [path.join(root, "apps/one")]);
 });
 
 test("class A of a commit scans every file of that commit: export-ignore hides nothing, and a live edit is never what is checked", async (t) => {

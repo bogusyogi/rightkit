@@ -1600,8 +1600,9 @@ test("an installed copy of the package, with no RightKit checkout, prints the sa
   assert.match(gate.stdout, /^check: 7 problem\(s\) in \w{12} \(48 rules, release tier, [\d.]+s, 1 known\)\./m);
   assert.match(preflightRun.stdout, /^preflight: 7 problem\(s\) in \w{12} \(58 rules, release tier, [\d.]+s, 1 known\)\./m);
   assert.deepEqual(spawnSync(process.execPath, [path.join(installed, "bin", "rightkit-gate.mjs"), "check", "--list"], { cwd: path.dirname(installed), encoding: "utf8" }).stdout.trim().split("\n"), RULES.map((r) => `${r.id} (${r.gap}) ${tierOf(r)}`));
-  // The same installed copy through the right-release command, and green once the app is fixed.
-  const cli = spawnSync(process.execPath, [path.join(installed, "cli", "right-release.mjs"), "check", "--repo", repo, "--commit", "HEAD"], { cwd: path.dirname(installed), encoding: "utf8" });
+  // The same installed copy through the right-release command, at the same (release) tier: `right-release check` owes the compile
+  // tier by default like `rightkit-gate check` (TIERS), so the tier is asked for.
+  const cli = spawnSync(process.execPath, [path.join(installed, "cli", "right-release.mjs"), "check", "--repo", repo, "--commit", "HEAD", "--rule-tier", "release"], { cwd: path.dirname(installed), encoding: "utf8" });
   assert.equal(cli.status, 1);
   assert.deepEqual(findingLines(cli.stdout), lines);
 });
