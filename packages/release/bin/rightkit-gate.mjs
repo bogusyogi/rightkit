@@ -1476,6 +1476,16 @@ export async function main(argv, io = {}) {
       fs.mkdirSync(repo, { recursive: true });
       const x = failed(made) ? made : o.spawn("git", ["checkout-index", "--all", "--force", `--prefix=${repo.split(path.sep).join("/")}/`], { cwd: root, env: indexEnv });
       if (failed(made) || failed(x)) { o.err(`${tag} cannot export ${snapshot}: ${why(made) || why(x)}`); return 2; }
+      // rustright binds the tracked .rightkit-local-build.json grant to the origin URL in .git/config (rustright-policy local_build.rs),
+      // and the export has no .git, so cargo metadata in it was refused on every broker host and no push passed the hook (rightkit#1215).
+      // A config-only .git carries exactly the source checkout's origin and is not a repository to git (no HEAD, no objects), so nothing
+      // can run git against the export. No origin (a checkout without a remote): nothing is written and rustright decides as before.
+      const origin = o.spawn("git", ["config", "--get", "remote.origin.url"], { cwd: root });
+      const originUrl = failed(origin) ? "" : text(origin).trim();
+      if (originUrl) {
+        o.mkdir(path.join(repo, ".git"), { recursive: true });
+        o.writeFile(path.join(repo, ".git", "config"), `[remote "origin"]\n\turl = ${originUrl}\n`);
+      }
     }
     // Every file of the snapshot, once: units, manifests, lockfiles and the changed set are all read from what is scanned, never from
     // the live checkout (a live edit cannot change what gets planned).

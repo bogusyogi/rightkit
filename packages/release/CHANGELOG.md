@@ -2,6 +2,7 @@
 
 ## 0.6.8
 
+- **The snapshot export carries the checkout's origin.** `rightkit-gate` exports the gated commit without `.git`, and rustright binds the tracked `.rightkit-local-build.json` grant to the origin URL in `.git/config`, so `cargo metadata` in the export was refused on every broker host and no push passed the pre-push hook since 2026-10-22 (rightkit#1215). The export now holds a config-only `.git` naming the source checkout's `remote.origin.url`; it is not a repository to git, and a checkout without a remote exports none.
 - `door.mjs` (public): `requireDoor(command)` / `doorRefusal()` let an app's own config-declared build step (a payload assembler, an installer packager) refuse unless a live `rightkit-gate --to` run for HEAD launched it, the same door check `right-release` makes for itself. Apps restore their assembly steps behind it instead of keeping side doors around class A.
 
 ## 0.6.7

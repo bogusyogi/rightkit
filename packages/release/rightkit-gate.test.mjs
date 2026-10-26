@@ -1988,6 +1988,47 @@ test("class A of a commit scans every file of that commit: export-ignore hides n
   assert.doesNotMatch(clean.out, /good\.json/);
 });
 
+test("the snapshot export carries the checkout's origin in a config-only .git, so rustright can bind the local-build grant to it (rightkit#1215)", async (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-origin-")));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.writeFileSync(path.join(root, "good.json"), "{}\n");
+  fs.writeFileSync(path.join(root, ".rightkit-local-build.json"), JSON.stringify({ repository: "Orthic-Labs/x", allow: "build-test-publish" }));
+  git("add", "-A"); git("commit", "-q", "-m", "x");
+  const writes = [];
+  const run = async () => {
+    const c = capture();
+    const io = { ...c.io, cwd: root, resolveExecutor: directExecutor, writeFile: (f, d) => { writes.push([norm(f), d]); fs.writeFileSync(f, d); } };
+    const code = await main(["--class-a", "--commit", "HEAD"], io);
+    return { code, out: [...c.out, ...c.err].join("\n") };
+  };
+  // No remote: nothing is written into the export.
+  const bare = await run();
+  assert.equal(bare.code, 0, bare.out);
+  assert.ok(!writes.some(([f]) => f.endsWith("/repo/.git/config")), "a checkout without an origin exports no .git");
+  // With a remote: the export's .git holds only a config naming that origin, and git does not see a repository there.
+  git("remote", "add", "origin", "git@github.com:Orthic-Labs/x.git");
+  const seen = { dir: null, isRepo: null };
+  const withOrigin = await (async () => {
+    const c = capture();
+    const io = { ...c.io, cwd: root, resolveExecutor: directExecutor, writeFile: (f, d) => {
+      fs.writeFileSync(f, d);
+      if (norm(f).endsWith("/repo/.git/config")) {
+        seen.dir = fs.readdirSync(path.dirname(f));
+        seen.config = d;
+        seen.isRepo = spawnSync("git", ["rev-parse", "--git-dir"], { cwd: path.dirname(path.dirname(f)), encoding: "utf8", env: { ...process.env, GIT_CEILING_DIRECTORIES: os.tmpdir() } }).status === 0;
+      }
+    } };
+    const code = await main(["--class-a", "--commit", "HEAD"], io);
+    return { code, out: [...c.out, ...c.err].join("\n") };
+  })();
+  assert.equal(withOrigin.code, 0, withOrigin.out);
+  assert.deepEqual(seen.dir, ["config"], "the export's .git holds only the config");
+  assert.equal(seen.config, '[remote "origin"]\n\turl = git@github.com:Orthic-Labs/x.git\n');
+  assert.equal(seen.isRepo, false, "a config-only .git is not a repository to git");
+});
+
 // ---- B5: the clean-checkout check covers every linter config the scans can read ---------------------------------------------------------------------------
 
 // git status answers from a fixed list of dirty files, filtered by the pathspecs it is given as git would: a spec names a file or a directory.
