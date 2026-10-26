@@ -4,7 +4,7 @@
 // name); long-paths.3561a4722.txt is every tracked path of 3561a4722 (the tree run 38363145934 checked out) that the rule
 // reports, 829 of them, the count SwiftRight's docs/sr0-status.md recorded for that run.
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

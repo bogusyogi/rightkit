@@ -3,7 +3,7 @@
 // legitimate shape the rule must keep accepting. The early-invocation tests run the shared entry points: `rightkit-gate check` and the
 // right-release guard that refuses before any build command starts.
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

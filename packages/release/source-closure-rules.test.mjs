@@ -7,7 +7,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { RULES, runRules } from "./app-check.mjs";
 import { canonicalJson, readDeclaration, safeRelative, SOURCE_CLOSURE_RULES, sourceClosure, transformedDigest } from "./source-closure-rules.mjs";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 
 // The Legion source-closure failure (Orthic-Labs/legion run 40158717069 job 121065535787, run 40149636641 job 121038474276:
 // "AssertionError: source closure stale/incomplete" from scripts/ci/audit-qualification-records.py, after the Windows build).

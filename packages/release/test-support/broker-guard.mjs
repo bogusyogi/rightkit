@@ -196,10 +196,18 @@ function resolvePython() {
   throw new Error("RightKit broker guard: no Python 3.11+ (tomllib) found to compute stub Cargo metadata; install one or put it on PATH.");
 }
 
+function nearestManifest(start) {
+  for (let dir = path.resolve(start); ; dir = path.dirname(dir)) {
+    try { if (statSync(path.join(dir, "Cargo.toml")).isFile()) return path.join(dir, "Cargo.toml"); } catch { /* keep looking */ }
+    if (path.dirname(dir) === dir) return undefined;
+  }
+}
+
 function stubMetadata(cargoArgv, cwd) {
   const index = cargoArgv.indexOf("--manifest-path");
-  const manifest = index >= 0 ? cargoArgv[index + 1] : undefined;
-  if (!manifest) return { status: 101, stdout: "", stderr: "error: stub Cargo metadata requires --manifest-path" };
+  // Without --manifest-path cargo reads the nearest Cargo.toml at or above the working directory; the stub does the same.
+  const manifest = index >= 0 ? cargoArgv[index + 1] : nearestManifest(cwd ?? process.cwd());
+  if (!manifest) return { status: 101, stdout: "", stderr: "error: could not find `Cargo.toml` in the working directory or any parent directory" };
   const python = resolvePython();
   return original.spawnSync(
     python.command,
