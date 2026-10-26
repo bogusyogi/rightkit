@@ -94,10 +94,20 @@ test("patch step runs only after a failed install, never masks it, and prints th
   assert.doesNotMatch(body, /\bexit\b/, "the step must not choose the job result");
 });
 
+// The rendered step runs under bash on every runner, Windows included (Git for Windows' bash). Here too: on Windows the bash next
+// to git (Git\bin\bash.exe), never `bash` from PATH, which can be WSL's; the pnpm stand-in is a #!/bin/sh script that bash runs.
+const bashFor = () => {
+  if (process.platform !== "win32") return "bash";
+  const git = spawnSync("where", ["git"], { encoding: "utf8" }).stdout.split(/\r?\n/).map((l) => l.trim()).find(Boolean);
+  const candidate = git && path.join(path.dirname(path.dirname(git)), "bin", "bash.exe");
+  assert.ok(candidate && fs.existsSync(candidate), `Git for Windows' bash not found next to ${git}`);
+  return candidate;
+};
+
 test("patch step behaves on a real stale, fresh and failing lockfile", (t) => {
-  if (process.platform === "win32") return t.skip("POSIX shell behaviour");
   const git = spawnSync("git", ["--version"], { encoding: "utf8" });
   if (git.error) return t.skip("git not installed");
+  const bash = bashFor();
   const body = runBody(lockfilePatchStep(manifestFor("node", "pnpm@11.25.0")));
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "right-git-pnpm-lock-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -124,7 +134,7 @@ test("patch step behaves on a real stale, fresh and failing lockfile", (t) => {
   gitRun(["add", "pnpm-lock.yaml"]);
   gitRun(["-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "-qm", "init"]);
 
-  const runStep = (env) => spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", path.join(root, "step.sh")], {
+  const runStep = (env) => spawnSync(bash, ["--noprofile", "--norc", "-eo", "pipefail", path.join(root, "step.sh")], {
     cwd: repo,
     encoding: "utf8",
     env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, ...env },
