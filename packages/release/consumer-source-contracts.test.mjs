@@ -376,13 +376,15 @@ test("the consumer rules are app-check rules: rightkit-gate check reports them a
   fs.mkdirSync(path.join(repo, ".github/workflows"), { recursive: true });
   fs.writeFileSync(path.join(repo, ".github/workflows/codeql.yml"), codeql(V4390, V4383));
   git("add", "-A"); git("commit", "-q", "-m", "dependabot #263");
-  const gate = spawnSync(process.execPath, [path.join(PACKAGE, "bin", "rightkit-gate.mjs"), "check", "--repo", repo, "--commit", "HEAD"], { encoding: "utf8" });
+  // The consumer contracts are release tier (app-check.mjs TIERS): the release tier reports them, and the shipping commands refuse on them.
+  const gate = spawnSync(process.execPath, [path.join(PACKAGE, "bin", "rightkit-gate.mjs"), "check", "--repo", repo, "--commit", "HEAD", "--rule-tier", "release"], { encoding: "utf8" });
   assert.equal(gate.status, 1, gate.stderr);
   assert.match(gate.stdout, /^FAIL workflow-action-pair \(CA-04\): \.github\/workflows\/codeql\.yml:20 job analyze runs github\/codeql-action\/analyze@24c54180a607 \(v4\.38\.3\) but github\/codeql-action\/init@6f2ac81f5cd8 \(v4\.39\.0\)/m);
-  const refused = guardCommand({ args: ["build"], cwd: repo });
+  assert.equal(guardCommand({ args: ["build"], cwd: repo }), null, "build owes the compile tier: a consumer-contract finding does not stop it");
+  const refused = guardCommand({ args: ["release"], cwd: repo });
   assert.equal(refused?.exitCode, 1);
   assert.ok(refused.lines.some((l) => l.startsWith("FAIL workflow-action-pair (CA-04)")), refused.lines.join("\n"));
-  assert.match(refused.lines.at(-1), /^right-release build: the app check found problems in .*; nothing was started/);
+  assert.match(refused.lines.at(-1), /^right-release release: the app check found problems in .*; nothing was started/);
   fs.writeFileSync(path.join(repo, ".github/workflows/codeql.yml"), codeql(V4390, V4390));
   git("commit", "-q", "-am", "bump both");
   const green = spawnSync(process.execPath, [path.join(PACKAGE, "bin", "rightkit-gate.mjs"), "check", "--repo", repo, "--commit", "HEAD", "--only", CONSUMER_SOURCE_RULES.map((r) => r.id).join(",")], { encoding: "utf8" });

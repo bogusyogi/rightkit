@@ -327,7 +327,7 @@ test("check: the same findings as rightkit-gate check, exit 1 red and 0 green, -
   const red = runCheck(repo, ["check", "--commit", "HEAD"]);
   assert.equal(red.status, 1);
   assert.match(red.stdout, /^FAIL skip-checks \(G17\): package\.json:1 /m);
-  assert.match(red.stdout, /^check: 1 problem\(s\) in \w{12} \(48 rules, /m);
+  assert.match(red.stdout, /^check: 1 problem\(s\) in \w{12} \(13 rules, compile tier, /m);
   assert.deepEqual(red.calls, [], "check spawns nothing");
   const gate = spawnSync(process.execPath, [path.join(PACKAGE, "bin", "rightkit-gate.mjs"), "check", "--commit", "HEAD"], { cwd: repo, encoding: "utf8" });
   assert.equal(gate.stdout.replace(/[\d.]+s/, "Ns"), red.stdout.replace(/[\d.]+s/, "Ns"), "right-release check and rightkit-gate check print the same");
@@ -340,7 +340,7 @@ test("check: the same findings as rightkit-gate check, exit 1 red and 0 green, -
   assert.equal(runCheck(repo, ["check", "--commit", "HEAD"]).status, 1, "the committed HEAD is still red");
   const list = runCheck(repo, ["check", "--list"]);
   assert.equal(list.status, 0);
-  assert.match(list.stdout, /^qa-platform \(G13\)$/m);
+  assert.match(list.stdout, /^qa-platform \(G13\) compile$/m);
   assert.equal(list.stdout.trim().split("\n").length, 48);
 });
 

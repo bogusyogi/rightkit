@@ -1330,15 +1330,18 @@ function loadBaseline({ explicit, root, central, repoKey, today }) {
  * `refuse` lists rules whose findings the baseline cannot excuse here, because the build refuses them whatever the baseline says
  * (BUILD_REFUSES); a listed one fails like a new one.
  */
-export function runAppCheck({ repo, mode = "commit", commit, only = null, baseline, printBaseline = false, rules = RULES, tier = "compile", label = "check", repoKey, central = rightkitCheckout(), now = new Date(), refuse = [] } = {}) {
+export function runAppCheck({ repo, mode = "commit", commit, only = null, baseline, printBaseline = false, rules = RULES, tier = null, label = "check", repoKey, central = rightkitCheckout(), now = new Date(), refuse = [] } = {}) {
   const lines = [];
   const errLines = [];
-  if (!TIERS.includes(tier)) { errLines.push(`${label}: --rule-tier must be compile or release, not ${JSON.stringify(tier)}`); return { findings: [], known: [], stale: [], expired: [], found: [], exitCode: 2, lines, text: "", errLines, errText: errLines.join("\n") }; }
+  if (tier !== null && !TIERS.includes(tier)) { errLines.push(`${label}: --rule-tier must be compile or release, not ${JSON.stringify(tier)}`); return { findings: [], known: [], stale: [], expired: [], found: [], exitCode: 2, lines, text: "", errLines, errText: errLines.join("\n") }; }
   const finish = (exitCode, extra = {}) => ({ findings: [], known: [], stale: [], expired: [], found: [], ...extra, exitCode, lines, text: lines.join("\n"), errLines, errText: errLines.join("\n") });
   const unknown = only?.filter((id) => !rules.some((r) => r.id === id)) ?? [];
   if (unknown.length) { errLines.push(`${label}: unknown rule(s): ${unknown.join(", ")} (see --list)`); return finish(2); }
-  // --only is a view over the whole set; without it, the tier decides which rules run.
-  if (!only) rules = rulesForTier(tier, rules);
+  // --only is a view over the whole set. Otherwise the tier decides which rules run: the compile tier by default over the registry, or
+  // the tier the caller named over any list; a caller-supplied rule list with no tier runs as given (tests, custom seams), labelled "selected".
+  const tiered = !only && (tier !== null || rules === RULES);
+  if (tiered) rules = rulesForTier(tier ?? "compile", rules);
+  const tierLabel = tiered ? `${tier ?? "compile"} tier` : "selected";
   if (mode !== "commit" && mode !== "worktree") { errLines.push(`${label}: mode must be commit or worktree, not ${JSON.stringify(mode)}`); return finish(2); }
   if (mode === "worktree" && commit) { errLines.push(`${label}: --worktree and --commit are exclusive`); return finish(2); }
   repo = path.resolve(repo ?? process.cwd());
@@ -1393,10 +1396,10 @@ export function runAppCheck({ repo, mode = "commit", commit, only = null, baseli
     const problems = fresh.length + stale.length + expired.length;
     const result = { findings: fresh, known, stale, expired, found };
     if (problems) {
-      lines.push(`${label}: ${problems} problem(s) in ${checked.slice(0, 12)} (${ruleCount} rules, ${only ? "selected" : `${tier} tier`}, ${seconds}s${known.length ? `, ${known.length} known` : ""}). Each would refuse later in CI or publication; fix and commit, then push.`);
+      lines.push(`${label}: ${problems} problem(s) in ${checked.slice(0, 12)} (${ruleCount} rules, ${tierLabel}, ${seconds}s${known.length ? `, ${known.length} known` : ""}). Each would refuse later in CI or publication; fix and commit, then push.`);
       return finish(1, result);
     }
-    lines.push(`${label}: ${checked.slice(0, 12)} passed ${ruleCount} rules (${only ? "selected" : `${tier} tier`}) in ${seconds}s${known.length ? ` (${known.length} known finding(s) in ${listed.listedFile}; fix them, then remove their entries)` : ""}`);
+    lines.push(`${label}: ${checked.slice(0, 12)} passed ${ruleCount} rules (${tierLabel}) in ${seconds}s${known.length ? ` (${known.length} known finding(s) in ${listed.listedFile}; fix them, then remove their entries)` : ""}`);
     return finish(0, result);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

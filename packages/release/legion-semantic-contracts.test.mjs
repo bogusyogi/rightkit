@@ -51,13 +51,13 @@ function check(dir, rule) {
   const r = spawnSync(process.execPath, [GATE, "check", "--repo", dir, "--commit", "HEAD", "--only", rule], { encoding: "utf8", env: env() });
   return { status: r.status, out: r.stdout, err: r.stderr, fails: r.stdout.split("\n").filter((l) => l.startsWith("FAIL ")) };
 }
-const green = (r) => { assert.equal(r.status, PARTIAL_EXIT, r.out + r.err); assert.match(r.out, /^check: \w{12} passed 1 rules in/m); };
+const green = (r) => { assert.equal(r.status, PARTIAL_EXIT, r.out + r.err); assert.match(r.out, /^check: \w{12} passed 1 rules \(selected\) in/m); };
 
 test("legion semantic contracts: four LG rules, registered in the app check after the shell contract, anchored to Legion's own files", () => {
   assert.deepEqual(LEGION_SEMANTIC_RULES.map((r) => [r.id, r.gap]), [["legion-schema-projection", "LG-02"], ["legion-legacy-tokens", "LG-03"], ["legion-retirement-ledger", "LG-04"], ["legion-authority-body", "LG-05"]]);
   assert.deepEqual(RULES.slice(-11, -7).map((r) => r.id), LEGION_SEMANTIC_RULES.map((r) => r.id));
   const list = spawnSync(process.execPath, [GATE, "check", "--list"], { encoding: "utf8" });
-  for (const r of LEGION_SEMANTIC_RULES) assert.match(list.stdout, new RegExp(`^${r.id} \\(${r.gap}\\)$`, "m"));
+  for (const r of LEGION_SEMANTIC_RULES) assert.match(list.stdout, new RegExp(`^${r.id} \\(${r.gap}\\) release$`, "m"), "Legion's rules are release tier");
   for (const anchors of Object.values(ANCHORS)) assert.ok(anchors.every((a) => !a.startsWith("/") && !a.includes("*")), "anchors are exact paths");
 });
 
@@ -219,7 +219,7 @@ function seamCheck(dir, baseline) {
   const r = runAppCheck({ repo: dir, rules, central: null });
   return { status: r.exitCode, out: r.text, err: r.errText, fails: r.lines.filter((l) => l.startsWith("FAIL ")) };
 }
-const seamGreen = (r) => { assert.equal(r.status, 0, r.out + r.err); assert.match(r.out, /^check: \w{12} passed 1 rules in/m); };
+const seamGreen = (r) => { assert.equal(r.status, 0, r.out + r.err); assert.match(r.out, /^check: \w{12} passed 1 rules \(selected\) in/m); };
 const ledgerLine = (p, b) => `FAIL legion-retirement-ledger (LG-04): ${p}: deleted since ${b.slice(0, 8)} with no row in docs/provenance/retirements.md`;
 
 test("LG-04 original negative [fixture seam]: 3c11aa76 deleted eight fixtures with no ledger row, and the check names each", (t) => {
