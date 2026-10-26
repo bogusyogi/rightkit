@@ -1893,15 +1893,29 @@ test("cargoLiveRoot: cargo scans take the cargoLive root, the plan records it an
   assert.equal(without.roots.cargoLiveRoot, undefined);
 });
 
-test("deferred package list: on a broker host (cargoLiveRoot) every cargo-package-list scan is deferred for rightkit#1216 and reports deferred; without cargoLiveRoot it has no deferral and passes", async () => {
+test("locked package listings run through the broker from the primary checkout and through cargo on direct hosts", async () => {
   const broker = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { cargoLiveRoot: "/primary/checkout", tier: "release" });
   const packageLists = broker.plan.scans.filter((s) => s.id.startsWith("cargo-package-list"));
   assert.ok(packageLists.length > 0, "the plan has a package-list scan");
-  for (const s of packageLists) assert.match(s.deferred, /rightkit#1216/, s.id);
-  const result = await runScans(broker.plan, deps({ ...broker.fs }), { classes: ["A"] });
+  for (const s of packageLists) {
+    assert.equal(s.deferred, undefined, s.id);
+    assert.equal(s.root, "cargoLive");
+    assert.equal(s.tool, "rustright");
+    assert.ok(s.args.includes("--locked"));
+  }
+  const calls = [];
+  const base = fakeSpawn();
+  const spawn = (command, args, options = {}) => { calls.push({ command, args, cwd: options.cwd }); return base(command, args, options); };
+  const result = await runScans(broker.plan, deps({ ...broker.fs, spawn }), { classes: ["A"] });
   const row = result.scans.find((s) => s.id === "cargo-package-list:foo");
-  assert.equal(row.status, "deferred");
-  assert.match(row.detail, /rightkit#1216/);
+  assert.equal(row.status, "pass");
+  const listing = calls.find((c) => c.args.includes("package") && c.args.includes("--list"));
+  assert.ok(listing, "the package listing was executed, not deferred");
+  assert.equal(path.basename(listing.command), "rustright");
+  assert.equal(listing.cwd, "/primary/checkout");
+  const refused = await runScans(broker.plan, deps({ ...broker.fs, spawn: fakeSpawn({ failing: ["package"] }) }), { classes: ["A"] });
+  assert.equal(refused.ok, false);
+  assert.equal(refused.scans.find((s) => s.id === "cargo-package-list:foo").status, "fail", "a broker refusal blocks instead of becoming a deferral or a pass");
   const direct = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { tier: "release" });
   const plain = direct.plan.scans.find((s) => s.id === "cargo-package-list:foo");
   assert.equal(plain.deferred, undefined, "a direct host runs the package list");

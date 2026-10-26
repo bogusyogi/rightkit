@@ -7,7 +7,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   APP_BASELINE_MAX_DAYS, APP_BASELINE_RULE, BUILD_REFUSES, CHECKED_COMMANDS, COMPILE_TIER_IDS, RELEASE_TIER_COMMANDS, RULES, TIERS, UNCHECKED_COMMANDS, UNCHECKED_PROOF, addDays, appBaselineEntries, appDirectory, applyBaseline, baselineKnown, cargoTestTargets, checkModeFor,
-  e2eCrates, exportCommit, exportTarget, exportWorktree, guardCommand, hasNoCommit, main, repoRoot, retireAliasText, rightkitCheckout, rulesForTier, runAppCheck, runRules, tierForCommand, tierOf,
+  e2eCrates, exportCommit, exportTarget, exportWorktree, guardCommand, hasNoCommit, main, repoRoot, resolveCommit, retireAliasText, rightkitCheckout, rulesForTier, runAppCheck, runRules, tierForCommand, tierOf,
 } from "./app-check.mjs";
 
 // The app rules, the export, the ratchet and the commands that run the check (packages/release/app-check.mjs). The rule tests moved
@@ -948,6 +948,67 @@ const exportTo = (t, repo, commit = "HEAD", options) => {
   return { dest: path.join(dest, "tree"), files };
 };
 const posixOnly = process.platform === "win32" && "no POSIX mode bits or symlinks on win32";
+
+test("resolveCommit accepts only verified commits or trees, preserving commit and annotated-tag identities", (t) => {
+  const { repo } = appRepo(t, { "source.txt": "committed bytes\n" });
+  const head = git(repo, "rev-parse", "HEAD").trim();
+  const root = git(repo, "rev-parse", "HEAD^{tree}").trim();
+  const blob = git(repo, "rev-parse", "HEAD:source.txt").trim();
+  git(repo, "tag", "-a", "commit-tag", "-m", "commit", head);
+  git(repo, "tag", "-a", "tree-tag", "-m", "tree", root);
+  assert.equal(resolveCommit(repo, "HEAD"), head);
+  assert.equal(resolveCommit(repo, head), head, "a commit must not become its tree id");
+  assert.equal(resolveCommit(repo, "commit-tag"), head);
+  assert.equal(resolveCommit(repo, root), root);
+  assert.equal(resolveCommit(repo, "HEAD^{tree}"), root);
+  assert.equal(resolveCommit(repo, "tree-tag"), root);
+  for (const rev of [blob, "HEAD:source.txt"]) {
+    assert.throws(() => resolveCommit(repo, rev), /not a commit or tree \(got blob\)/);
+    assert.equal(runAppCheck({ repo, central: null, commit: rev }).exitCode, 2, "blob refs fail closed");
+  }
+  for (const rev of ["no-such-rev", ""]) assert.throws(() => resolveCommit(repo, rev), /git rev-parse/);
+  for (const rev of ["--upload-pack=x", "--output=source.txt", "--verify", "--"]) {
+    assert.throws(() => resolveCommit(repo, rev), /is not a revision/);
+    assert.equal(runAppCheck({ repo, central: null, commit: rev }).exitCode, 2, "options never become revisions");
+  }
+  assert.equal(fs.readFileSync(path.join(repo, "source.txt"), "utf8"), "committed bytes\n");
+});
+
+test("runAppCheck judges captured dirty red and repaired green trees from exact bytes, independently of HEAD and later edits", (t) => {
+  const file = "tests/q.rs";
+  const committed = Buffer.from('let r = ["platform:windows"];\n');
+  const redBytes = Buffer.from('let r = ["platform:macos"];\r\n');
+  const greenBytes = Buffer.from('let r = ["platform:darwin"];\n');
+  const { repo, parent } = appRepo(t, { [file]: committed });
+  const head = git(repo, "rev-parse", "HEAD").trim();
+  const headTree = git(repo, "rev-parse", "HEAD^{tree}").trim();
+  fs.writeFileSync(path.join(repo, file), redBytes);
+  const redTree = exportWorktree(repo, path.join(parent, "red-capture")).tree;
+  fs.writeFileSync(path.join(repo, file), greenBytes);
+  const greenTree = exportWorktree(repo, path.join(parent, "green-capture")).tree;
+  assert.notEqual(redTree, headTree);
+  assert.notEqual(greenTree, headTree);
+  assert.notEqual(redTree, greenTree);
+  fs.writeFileSync(path.join(repo, file), 'let r = ["platform:linux"];\n');
+  const observed = [];
+  const qa = RULES.find((rule) => rule.id === "qa-platform");
+  const rules = [{ ...qa, run: (context) => {
+    observed.push({ commit: context.commit, bytes: fs.readFileSync(path.join(context.root, file)) });
+    return qa.run(context);
+  } }];
+  const check = (commit) => runAppCheck({ repo, central: null, commit, rules });
+  const red = check(redTree);
+  assert.equal(red.exitCode, 1, red.errText);
+  assert.deepEqual(red.findings.map((finding) => finding.identity), ["qa-platform|tests/q.rs|platform:macos"]);
+  const green = check(greenTree);
+  assert.equal(green.exitCode, 0, green.errText);
+  assert.match(green.text, new RegExp(greenTree.slice(0, 12)));
+  assert.deepEqual(observed, [{ commit: redTree, bytes: redBytes }, { commit: greenTree, bytes: greenBytes }]);
+  assert.equal(guardCommand({ args: ["build"], cwd: repo, run: (options) => runAppCheck({ ...options, central: null, rules }) }), null, "release guards keep checking committed HEAD");
+  assert.deepEqual(observed[2], { commit: head, bytes: committed });
+  assert.equal(git(repo, "rev-parse", "HEAD").trim(), head);
+  assert.equal(fs.readFileSync(path.join(repo, file), "utf8"), 'let r = ["platform:linux"];\n');
+});
 
 test("exportCommit writes the committed blobs exactly: raw bytes, no eol conversion, export-ignore kept, executable bit, nested paths", (t) => {
   const binary = Buffer.from(Array.from({ length: 256 }, (_, i) => i));

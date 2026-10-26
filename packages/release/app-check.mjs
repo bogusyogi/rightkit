@@ -3,7 +3,7 @@
 // right-release command that builds or ships; see CHECKED_COMMANDS). RightKit's own scripts/preflight.mjs imports these rules and
 // adds the ones that police RightKit itself.
 //
-// It reads the committed files of one commit (or, for a compile, the tree on disk: `--worktree`), exported by git alone (ls-tree and
+// It reads one commit or captured tree (or, for a compile, the tree on disk: `--worktree`), exported by git alone (ls-tree and
 // cat-file, no tar and no archive, so Windows depends on no tar on PATH), and reports every finding in one run, each with rule,
 // file, reason and fix. No network, no cargo, no pnpm, no compile, no broker, no environment, no repository code. A rule that throws
 // is a FAIL, never a pass. Nothing is written to the repository.
@@ -1199,10 +1199,16 @@ export function hasNoCommit(repo) {
   return !branch.error && branch.status === 0;
 }
 
-/** The commit id `rev` names in `repo`. */
+/** The commit or tree id `rev` names in `repo`; commit refs keep their commit identity. */
 export function resolveCommit(repo, rev) {
   if (String(rev).startsWith("-")) throw new Error(`${JSON.stringify(rev)} is not a revision`);
-  return git(["rev-parse", "--verify", `${rev}^{commit}`], { cwd: repo }).trim();
+  // Admission can name a dirty, captured tree with no commit. Peel tags without converting a commit to its tree: release
+  // callers still check HEAD's commit, while the broker checks exactly its captured tree, never a live or HEAD fallback.
+  const resolved = git(["rev-parse", "--verify", "--end-of-options", String(rev)], { cwd: repo }).trim();
+  const object = git(["rev-parse", "--verify", `${resolved}^{}`], { cwd: repo }).trim();
+  const type = git(["cat-file", "-t", object], { cwd: repo }).trim();
+  if (type !== "commit" && type !== "tree") throw new Error(`${JSON.stringify(rev)} is not a commit or tree (got ${type})`);
+  return object;
 }
 
 /** Run the selected rules over an exported tree. Returns { failures: [{ rule, gap, problem, fix, file?, subject?, identity? }], timings }. */
@@ -1322,7 +1328,7 @@ function loadBaseline({ explicit, root, central, repoKey, today }) {
 // ---- the check ---------------------------------------------------------------------------------------------------------------------
 
 /**
- * Check one repository. `mode` is "commit" (the committed files of `commit`, default HEAD) or "worktree" (what a compile would
+ * Check one repository. `mode` is "commit" (the commit or captured tree named by `commit`, default HEAD) or "worktree" (what a compile would
  * see). Returns { findings (failing), known (tolerated by the baseline), stale (identities), expired ([{ id, issue, added, sunset }]),
  * found (every finding), exitCode, lines, text (stdout), errLines, errText (stderr) }; nothing is printed.
  * `rules` is the rule list (this module's, or RightKit's preflight adds its own), `label` prefixes the summary, `central` is the

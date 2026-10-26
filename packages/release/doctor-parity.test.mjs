@@ -17,6 +17,7 @@ import { sccacheRefusal } from "./admission-host.mjs";
 import { resolveMacosDeveloperIdIdentity } from "./macos-signing-identity.mjs";
 import { cargoFfmpegCrate } from "./media-sidecar-catalog.mjs";
 import { notarytoolAuthArgs } from "./notary-auth.mjs";
+import { isManagedHost } from "./managed-host-secrets.mjs";
 import { execWithUpdaterCredential } from "./protected-credentials.mjs";
 import { evaluatePrebuildGates } from "./prebuild-gates.mjs";
 import { assertNativeIosPrepareHasManifest } from "./release-invocation.mjs";
@@ -170,7 +171,7 @@ export const PARITY_CASES = [
   // ---- network tier
   { id: "rightkit-registry: a stale pin", rows: ["rightkit-registry"], platform: "mac", options: { macSigning: true }, env: { RK_TEST_LATEST: "@rightkit/license@@99.0.0" }, text: `fixture RightKit pins are behind the latest published version (build admission refused):\n- @rightkit/license pinned ${versions.npm["@rightkit/license"]} -> latest 99.0.0` },
   // ---- host tier, the doctor and the build
-  { id: "host-secret-env: TAURI_SIGNING_PRIVATE_KEY in the shell", rows: ["host-secret-env"], platform: "win", env: { TAURI_SIGNING_PRIVATE_KEY: "value-7f3a1" }, text: "updater signing key/password must come from the OS credential provider" },
+  { id: "host-secret-env: TAURI_SIGNING_PRIVATE_KEY in the shell", rows: ["host-secret-env"], platform: "win", env: { TAURI_SIGNING_PRIVATE_KEY: "value-7f3a1" }, text: () => isManagedHost(process.env) ? "TAURI_SIGNING_PRIVATE_KEY is refused on a managed RightKit host; load the secret from the provisioned OS credential store" : "updater signing key/password must come from the OS credential provider" },
   { id: "host-tools: the pnpm on this host is not the pin", rows: ["host-tools"], platform: "mac", options: { macSigning: true }, env: () => ({ PATH: `${fakeTools({ pnpm: "10.0.0" })}${delimiter}${process.env.PATH}` }), text: `pnpm 10.0.0 is installed but package.json packageManager pins ${versions.packageManager}; install the pinned version (corepack prepare ${versions.packageManager} --activate)` },
   { id: "host-preflight-env", rows: ["host-preflight-env"], platform: "mac", options: { macSigning: true }, edit: (v) => { v.targets.mac.preflight = { env: ["RIGHT_RELEASE_TEST_ABSENT_VARIABLE"] }; }, text: "missing required environment variable: RIGHT_RELEASE_TEST_ABSENT_VARIABLE" },
   // ---- doctor only

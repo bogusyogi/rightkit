@@ -24,6 +24,10 @@ import { loadReleaseConfigSync } from "./release-config.mjs";
 import { parseInventory, sourceSwitchFindings } from "./release-switch-scan.mjs";
 import { checkApp } from "./ownership-mandatory-set.mjs";
 import { tempRoot } from "./test-support/temp-roots.mjs";
+import { managedEnv } from "./test-support/fixture.mjs";
+import { collectPreflight, preflightFailures } from "./preflight.mjs";
+import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
+import { resolveProjectType } from "./project-type.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(here, "..", "..");
@@ -70,11 +74,21 @@ let instanceRoot;
 function instance() {
   if (instanceRoot) return instanceRoot;
   const dest = path.join(SCRATCH, "playright");
-  cpSync(TEMPLATE, dest, { recursive: true, filter: (src) => !/(^|[\\/])(node_modules|target|dist|\.right-release)([\\/]|$)/.test(path.relative(TEMPLATE, src)) });
+  const listed = git(TEMPLATE, "ls-files", "-z");
+  assert.equal(listed.status, 0, listed.stderr);
+  const tracked = new Set(listed.stdout.split("\0").filter(Boolean));
+  cpSync(TEMPLATE, dest, { recursive: true, filter: (src) => {
+    const relative = path.relative(TEMPLATE, src).split(path.sep).join("/");
+    if (!relative) return true;
+    if (/(^|\/)(node_modules|target|dist|\.right-release)(\/|$)/.test(relative)) return false;
+    if (tracked.has(relative)) return true;
+    return statSync(src).isDirectory() && [...tracked].some((file) => file.startsWith(`${relative}/`));
+  } });
   initTemplate(dest, { name: "PlayRight", id: "app.orthiclabs.playright" });
   assert.equal(git(dest, "init", "-q", "-b", "main").status, 0);
   assert.equal(git(dest, "add", "-A").status, 0);
   assert.equal(git(dest, "commit", "-q", "-m", "instance").status, 0);
+  assert.equal(git(dest, "remote", "add", "origin", "https://github.com/example/template-contract-fixture.git").status, 0);
   instanceRoot = dest;
   return dest;
 }
@@ -83,6 +97,8 @@ function instance() {
 
 test("init renames the whole template identity and leaves a Cargo.lock that --locked accepts", () => {
   const root = instance();
+  assert.equal(existsSync(path.join(root, "src-tauri", "gen", "schemas", "capabilities.json")), false,
+    "the fixture copies tracked template source, not generated Tauri schema output from the live checkout");
   const leftovers = walk(root, (f) => /\.(json|toml|mjs|ts|tsx|rs|md|html|css|yaml|yml|sh|lock)$/.test(f) && !f.endsWith("pnpm-lock.yaml"))
     .flatMap((f) => readFileSync(f, "utf8").split("\n").map((line, i) => ({ f: path.relative(root, f), line: i + 1, text: line })))
     // `r2-rightapps` is the RightApps distribution service, not the template identity: init keeps it (renameText).
@@ -207,13 +223,46 @@ test("`rightkit-gate check` and RightKit's own preflight pass on the instance wi
   assert.deepEqual(failLines(result.stdout).map((line, i) => line.startsWith(`FAIL ${TEMPLATE_M22[i]}`)), [true, true], result.stdout);
 });
 
-test("right-release doctor passes every files and host row on both platforms (only this machine's disk and tools may fail)", () => {
+test("template preflight checks required host rows with explicit enrolled ownership evidence", () => {
+  const root = instance();
+  const configPath = path.join(root, "right-release.config.json");
+  const { config } = loadReleaseConfigSync(configPath, { registry: loadGeneratorRegistry() });
+  const nativeLayout = resolveNativeCargoLayout({ appRoot: root, config });
   for (const platform of ["win", "mac"]) {
-    const result = spawnSync(process.execPath, [path.join(here, "cli", "right-release.mjs"), "doctor", "--platform", platform], { cwd: instance(), encoding: "utf8" });
-    const failed = (result.stdout + result.stderr).split("\n").filter((line) => /^\s*\[FAIL\s*\]/.test(line)).map((line) => line.replace(/^\s*\[FAIL\s*\]\s*/, "").split(":")[0]);
-    // disk is a property of the machine running the test, not of the template; every other row is a file or a host contract.
-    assert.deepEqual(failed.filter((row) => row !== "disk"), [], `doctor --platform ${platform}:\n${result.stdout}\n${result.stderr}`);
+    const env = managedEnv(configPath, { platform });
+    const checks = collectPreflight({
+      platform, appRoot: root, repoRoot: root, app: config.app, version: config.version, configPath, nativeLayout,
+      projectType: resolveProjectType({ appRoot: root, config, target: config.targets[platform] }),
+      env, isBrokerManagedHost: () => true, versionProbe: () => "fixture tool", freeDisk: () => 500,
+      findSdkTool: () => ({ version: "fixture SDK" }), runtimeBudgetAdoption: () => null,
+      ownershipEvidenceFactory: () => ({
+        ok: true, enrollmentPending: false,
+        result: { problems: [], violations: [], covered: [], coverage: [] },
+        floor: { ok: true, problems: [] },
+        evidence: { source: "template-preflight-fixture", trustEnrolled: true },
+      }),
+    });
+    const byName = new Map(checks.map((check) => [check.name, check]));
+    for (const name of ["target-bridge", "version", "compiler-cache", "disk", "ownership"]) {
+      assert.equal(byName.get(name)?.status, "ok", `${platform} ${name}: ${byName.get(name)?.detail}`);
+    }
+    if (platform === "win") assert.equal(byName.get("signtool")?.status, "ok", byName.get("signtool")?.detail);
+    assert.deepEqual(preflightFailures(checks).map((check) => check.name), [], `${platform}: ${checks.map((check) => `${check.name}=${check.status}: ${check.detail}`).join("; ")}`);
   }
+});
+
+test("real doctor refuses this unregistered fresh-template identity", () => {
+  const root = instance();
+  const config = path.join(root, "right-release.config.json");
+  const result = spawnSync(process.execPath, [path.join(here, "cli", "right-release.mjs"), "doctor", "--platform", "win"], {
+    cwd: root, encoding: "utf8", env: managedEnv(config, {
+      platform: "win",
+      env: { RK_TEST_LATEST: "", RK_TEST_UNPUBLISHED: "", RK_TEST_YANKED: "" },
+    }),
+  });
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stdout + result.stderr, /\[FAIL\] ownership:/,
+    "the real doctor must continue to require protected ownership registration for a fresh identity");
 });
 
 // ---- the template files the evaluators do not see ----------------------------------------------------------------------------

@@ -673,6 +673,7 @@ for (const app of apps) {
   test(`${app.key} follows the signed tiered Right Release contract`, { skip: checkoutSkip([path.join(workspace, app.root, "package.json")], `${app.key} product checkout`) }, async () => {
     const root = path.join(workspace, app.root);
     const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
+    const scripts = pkg.scripts ?? {};
     const rightKitDeps = { ...pkg.dependencies, ...pkg.devDependencies };
     for (const [name, specifier] of Object.entries(rightKitDeps).filter(([name]) => name.startsWith("@rightkit/"))) {
       assert.doesNotMatch(specifier, /^(?:git|file|link|workspace):|github/i, `${app.key} ${name} must come from the published npm package`);
@@ -711,20 +712,24 @@ for (const app of apps) {
     assert(!JSON.stringify(pkg).includes("github:adrdsouza/claude#main&path:/tools/right-release"));
     assert(!JSON.stringify(pkg).includes("github:adrdsouza/claude#main&path:/rightkit/packages/release"));
     assert(!JSON.stringify(pkg).includes("git+https://github.com/adrdsouza/rightkit.git"));
-    assert.equal(pkg.scripts["release:doctor"], "right-release doctor");
-    assert.equal(pkg.scripts["release:mac"], undefined, "tierless release entry points are forbidden");
-    assert.equal(pkg.scripts["release:win"], undefined, "tierless release entry points are forbidden");
-    assertReleasePackageScripts(pkg.scripts, app.key, "r2-rightapps");
-    assert.equal(pkg.scripts["deps:check"], "right-release deps --check");
-    assert.equal(pkg.scripts["deps:update"], "right-release deps --update");
-    assert.ok(!Object.entries(pkg.scripts).some(([name, command]) => /^(?:release|publish):/i.test(name) && /unsigned|--no-sign/i.test(command)), `${app.key} release/publish commands must not expose an unsigned macOS DMG mode`);
-    assert.ok(!JSON.stringify(pkg.scripts).includes("../tools/right-release"), `${app.key} scripts must not depend on the parent Claude workspace`);
-    assert.ok(!JSON.stringify(pkg.scripts).includes("../rightkit/packages/release"), `${app.key} scripts must not depend on the parent Claude workspace`);
+    assert.equal(scripts["release:mac"], undefined, "tierless release entry points are forbidden");
+    assert.equal(scripts["release:win"], undefined, "tierless release entry points are forbidden");
+    assert.ok(!Object.entries(scripts).some(([name, command]) => /^(?:release|publish):/i.test(name) && /unsigned|--no-sign/i.test(command)), `${app.key} release/publish commands must not expose an unsigned macOS DMG mode`);
+    assert.ok(!JSON.stringify(scripts).includes("../tools/right-release"), `${app.key} scripts must not depend on the parent Claude workspace`);
+    assert.ok(!JSON.stringify(scripts).includes("../rightkit/packages/release"), `${app.key} scripts must not depend on the parent Claude workspace`);
 
     const config = (await import(`${pathToFileURL(path.join(root, "right-release.config.mjs"))}?contract=${Date.now()}`)).default;
     assert.equal(config.app, app.key);
     assert.ok(config.version);
     assert.equal(config.distribution?.provider, "r2-rightapps", `${app.key} private release config must select R2 + RightApps explicitly`);
+    if (pkg.scripts) {
+      assert.equal(scripts["release:doctor"], "right-release doctor");
+      assertReleasePackageScripts(scripts, app.key, "r2-rightapps");
+      assert.equal(scripts["deps:check"], "right-release deps --check");
+      assert.equal(scripts["deps:update"], "right-release deps --update");
+    } else {
+      assert.ok(usesRecipeLane(config), `${app.key} has no package scripts; its release must be declared through RightKit recipes`);
+    }
     for (const platform of ["mac", "win"]) {
       const target = config.targets[platform];
       assertBuildInputs(config, target, `${app.key} ${platform}`);
@@ -746,7 +751,7 @@ for (const app of apps) {
       assertMacPackageRecipe(config.targets.mac, app.key);
       assertWinPackageRecipe(config.targets.win, app.key);
     } else {
-      assertMacPackageEntry(config.targets.mac.package, pkg.scripts, app.key);
+      assertMacPackageEntry(config.targets.mac.package, scripts, app.key);
     }
     for (const installer of config.targets.mac.installer.artifacts) {
       assert.equal(path.dirname(installer.file), ".", `${app.key} macOS installer must be copied to the app package root before upload`);
@@ -976,9 +981,20 @@ const cargoTargetRootHelpers = [
   "coderight/apps/coderight-tauri/scripts/lib/target-root.mjs",
   "heardright/tauri-app-next/scripts/lib/target-root.mjs",
   "orthic/scripts/lib/target-root.mjs",
-  "viewright/scripts/lib/target-root.mjs",
   "membrane/apps/membrane-hub/scripts/lib/target-root.mjs",
 ];
+
+test("ViewRight uses RightKit's declarative Cargo target-root resolver", async (t) => {
+  const root = path.join(workspace, "viewright");
+  if (!existsSync(path.join(root, "right-release.config.mjs"))) {
+    if (process.env.RIGHTKIT_REQUIRE_ASSETS === "1") assert.fail("viewright/right-release.config.mjs is missing");
+    t.skip("viewright is not checked out beside rightkit");
+    return;
+  }
+  const config = (await import(`${pathToFileURL(path.join(root, "right-release.config.mjs"))}?target-root-contract=${Date.now()}`)).default;
+  assert.equal(config.targets?.mac?.macPackage?.cargoTargetRoot, true);
+  assert.equal(config.targets?.win?.winPackage?.cargoTargetRoot, true);
+});
 
 for (const app of ["genright", "mailright"]) test(`${app} delegates target resolution to shared recipes and sidecar staging`, { skip: checkoutSkip([
   path.join(workspace, app, "package.json"),
@@ -989,12 +1005,13 @@ for (const app of ["genright", "mailright"]) test(`${app} delegates target resol
   const config = (await import(pathToFileURL(path.join(root, "right-release.config.mjs")).href)).default;
   // These shared owners resolve actual target_directory; no unused local shim is required.
   assert.ok(config.targets?.mac?.macPackage && config.targets?.win?.winPackage);
-  const packageStage = pkg.scripts["build:engine"] === "right-release stage-sidecar --config right-release.config.mjs";
+  const packageStage = pkg.scripts?.["build:engine"] === "right-release stage-sidecar --config right-release.config.mjs";
   const recipeStages = [config.targets.mac, config.targets.win].every((target) =>
     target.externalBin?.stage?.cmd === "right-release"
     && JSON.stringify(target.externalBin.stage.args) === JSON.stringify(["stage-sidecar", "--config", "right-release.config.mjs"]));
-  assert.ok(packageStage || recipeStages, `${app} must delegate sidecar staging to RightKit`);
-  const sidecars = Array.isArray(config.sidecars) ? config.sidecars : config.sidecars?.sidecars;
+  const sidecars = Array.isArray(config.sidecars) ? config.sidecars : config.sidecars?.sidecars ?? [];
+  const declarativeSidecars = sidecars.some((sidecar) => sidecar.kind === "cargo-bin" && sidecar.package === `${app}-engine`);
+  assert.ok(packageStage || recipeStages || declarativeSidecars, `${app} must delegate sidecar staging to RightKit`);
   assert.ok(sidecars?.some((entry) => entry.kind === "cargo-bin"));
   for (const source of findCargoTargetDirGuardFiles(root)) {
     if (CARGO_TARGET_DIR_GUARD_SKIP_BASENAME.test(path.basename(source))) continue;

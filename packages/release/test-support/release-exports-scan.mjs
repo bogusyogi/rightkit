@@ -16,7 +16,7 @@ export const SCAN_EXTENSIONS = new Set([
   ".mjs", ".cjs", ".js", ".jsx", ".mts", ".cts", ".ts", ".tsx", ".sh", ".ps1", ".rs", ".yml", ".yaml", ".py",
 ]);
 export const SKIP_DIRECTORIES = new Set([
-  "node_modules", ".git", "target", "dist", "build", ".audit", ".cache", ".pnpm-store", ".vite", ".next", ".turbo",
+  "node_modules", ".git", "target", "dist", "build", ".build", "DerivedData", ".audit", ".cache", ".pnpm-store", ".vite", ".next", ".turbo",
 ]);
 const MAX_BYTES = 2 * 1024 * 1024;
 const SPECIFIER = /(["'`])@rightkit\/release\/([A-Za-z0-9_][A-Za-z0-9_./-]*)\1/g;

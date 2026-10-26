@@ -350,18 +350,20 @@ test("purge: only tool-created, date-named holding dirs a full 3 days past their
 
 test("run purges old holding dirs after sweeping (the dir's own mtime is old too)", async () => {
   const { root, policy } = fixture();
+  const now = Date.now();
   const pf = path.join(root, "policy.json");
   writeFileSync(pf, JSON.stringify(policy));
   const base = path.join(root, "hold");
   mkdirSync(path.join(base, "2020-01-01"), { recursive: true });
-  utimesSync(path.join(base, "2020-01-01"), OLD / 1000, OLD / 1000);
+  utimesSync(path.join(base, "2020-01-01"), (now - 30 * DAY) / 1000, (now - 30 * DAY) / 1000);
   writeFileSync(path.join(base, HOLDING_MARKER), "");
   const lines = [];
-  const r = await runDiskCommand(["run", "--policy", pf], { platform: "darwin", stdout: (l) => lines.push(l), deps: { openPaths: [], plan: { size: () => 10 }, check: { size: () => 0, space: () => ({ freeBytes: 5000, totalBytes: 10000 }) }, purge: { bases: [base] } } });
+  const r = await runDiskCommand(["run", "--policy", pf], { platform: "darwin", stdout: (l) => lines.push(l), deps: { now, selfCheck: () => ({ ok: true, problems: [] }), openPaths: [], plan: { size: () => 10 }, check: { size: () => 0, space: () => ({ freeBytes: 5000, totalBytes: 10000 }) }, purge: { bases: [base], now, days: 3 } } });
+  assert.equal(r.pass, "full");
   assert.equal(existsSync(path.join(base, "2020-01-01")), false);
   assert.equal(r.purged.results.length, 1);
   assert.ok(lines.some((l) => /purged 1 holding dir/.test(l)));
-  const standalone = await runDiskCommand(["purge", "--dry-run", "--policy", pf], { platform: "darwin", stdout: () => {}, deps: { purge: { bases: [base] } } });
+  const standalone = await runDiskCommand(["purge", "--dry-run", "--policy", pf], { platform: "darwin", stdout: () => {}, deps: { purge: { bases: [base], now, days: 3 } } });
   assert.equal(standalone.exitCode, 0);
 });
 
