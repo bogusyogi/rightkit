@@ -65,7 +65,7 @@ test("initTemplate carries the renamed Cargo.lock's digest into every notice tha
   assert.ok(result.changed.includes("legal/THIRD_PARTY_NOTICES.md") && result.changed.includes("legal/THIRD_PARTY_RUST_LICENSES.html"));
 });
 
-test("initTemplate moves only the lock's provenance field: the same digest anywhere else is left alone", async () => {
+test("initTemplate moves only the lock's provenance field in a notice CA-14 judges: the same digest, or the same formatted field, anywhere else is left alone", async () => {
   const { createHash } = await import("node:crypto");
   const sha = (text) => createHash("sha256").update(text).digest("hex");
   const root = fixture();
@@ -80,13 +80,17 @@ test("initTemplate moves only the lock's provenance field: the same digest anywh
     "evidence/run.json": `{"input":"${old}","lock":"Cargo.lock"}\n`,
     "src-tauri/fixture.rs": `const PINNED: &str = "${old}"; // Cargo.lock\n`,
     "legal/other.md": `Cargo.toml sha256 ${old}\n`,
+    // The exact field format, outside any notice CA-14 judges: an archived report, a source literal, an archived notice.
+    "reports/archive/run.md": `Cargo.lock sha256 ${old}\n`,
+    "src-tauri/src/fixture.rs": `const NOTE: &str = "Cargo.lock sha256 ${old}";\n`,
+    "evidence/THIRD_PARTY_NOTICES.md": `inputs: Cargo.lock sha256 ${old}\n`,
   };
-  for (const [file, text] of Object.entries(unrelated)) writeFileSync(path.join(root, file), text);
+  for (const [file, text] of Object.entries(unrelated)) { mkdirSync(path.dirname(path.join(root, file)), { recursive: true }); writeFileSync(path.join(root, file), text); }
   initTemplate(root, { name: "Heard Right", id: "app.orthiclabs.heardright" });
   const now = sha(readFileSync(path.join(root, "Cargo.lock"), "utf8"));
   assert.notEqual(now, old);
   assert.equal(readFileSync(path.join(root, "legal", "THIRD_PARTY_NOTICES.md"), "utf8"), `inputs: pnpm-lock.yaml sha256 ${old}; Cargo.lock sha256 ${now}\n`, "the pnpm-lock field keeps its value; only the Cargo.lock field moves");
-  for (const file of ["evidence/run.json", "src-tauri/fixture.rs", "legal/other.md"]) assert.equal(readFileSync(path.join(root, file), "utf8"), unrelated[file], `${file} is not a Cargo.lock provenance field`);
+  for (const file of ["evidence/run.json", "src-tauri/fixture.rs", "legal/other.md", "reports/archive/run.md", "src-tauri/src/fixture.rs", "evidence/THIRD_PARTY_NOTICES.md"]) assert.equal(readFileSync(path.join(root, file), "utf8"), unrelated[file], `${file} is not a Cargo.lock provenance field`);
 });
 
 test("renameText leaves the RightApps distribution service alone: only the template identity renames", () => {
