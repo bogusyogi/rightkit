@@ -20,7 +20,7 @@ const V1 = {
   ".github/workflows/ci.yml": "on: push\n",
   "scripts/ci/audit-qualification-records.py": "print('gate v1')\n",
   "scripts/ci/tests/test_audit_qualification_records.py": "def test(): pass\n",
-  "src/registry/providers.json": "{\"providers\":[{\"id\":\"a\",\"benchmark\":1}]}\n",
+  "src/registry/providers.json": "{\"providers\":[{\"id\":\"a\",\"benchmark\":{\"status\":\"qualified\",\"requiredForCleanClaim\":true}}]}\n",
   "engine/crates/legion-audit/src/native_providers/code/go.rs": "pub fn go() {}\n",
 };
 const closureOf = (files, paths) => seal(Object.fromEntries(paths.map((p) => [p, sha(files[p])])));
@@ -86,61 +86,86 @@ test("source-closure: an unsafe or malformed source is a finding and is never re
 });
 
 const GATE = path.join(path.dirname(fileURLToPath(import.meta.url)), "bin", "rightkit-gate.mjs");
-const DROP_BENCHMARK = { kind: "json-drop", drop: ["/providers/*/benchmark"] };
-const benchmarkFree = (text) => sha(canonicalJson((({ providers }) => ({ providers: providers.map(({ benchmark: _b, ...p }) => p) }))(JSON.parse(text))));
-// A record sealed the way Legion's mobile/compatibility producers seal providers.json: over the registry without benchmark metadata.
+const MOBILE_ID = "legion-provider-registry/without-qualification-metadata/v1";
+// A record sealed the way Legion's mobile producer seals providers.json (audit-mobile-native-enrollment.py:74-89): benchmark without
+// status, qualificationDigest and qualification.
+const projected = (text) => sha(canonicalJson((({ providers, ...rest }) => ({ ...rest, providers: providers.map(({ benchmark: { status: _s, qualificationDigest: _d, qualification: _q, ...b }, ...p }) => ({ ...p, benchmark: b })) }))(JSON.parse(text))));
 const mobileProjected = (files) => {
   const entry = mobile(files);
-  const sources = { ...entry.sourceClosure.sources, "src/registry/providers.json": benchmarkFree(files["src/registry/providers.json"]) };
-  return { ...entry, sourceClosure: seal(sources) };
+  return { ...entry, sourceClosure: seal({ ...entry.sourceClosure.sources, "src/registry/providers.json": projected(files["src/registry/providers.json"]) }) };
 };
 const declare = (normalized) => ({ schema: 1, normalized });
-
-test("source-closure: red, through rightkit-gate check: a mutated source declared normalised with only a reason keeps its old digest and is refused", (t) => {
-  // The bypass: list a changed source as "normalised" with a plausible reason and leave the sealed map and digest untouched.
-  const mutated = { ...V1, "src/registry/providers.json": "{\"providers\":[{\"id\":\"b\",\"benchmark\":1}]}\n" };
-  const declaration = declare([{ file: INDEX, where: { family: "code-mobile-sdk" }, paths: ["src/registry/providers.json"], reason: "the producer digests a projection of providers.json" }]);
-  const { root } = tree(t, { ...mutated, ".rightkit/source-closures.json": declaration, [INDEX]: index([mobile(V1)]) });
+const MOBILE_DECLARATION = declare([{ file: INDEX, transform: MOBILE_ID }]);
+const providers = (value) => `${JSON.stringify(value)}\n`;
+const gateCheck = (t, files) => {
+  const { root } = tree(t, files);
   const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
   git("init", "-q"); git("add", "-A"); git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "fixture");
-  const run = spawnSync(process.execPath, [GATE, "check", "--repo", root, "--commit", "HEAD", "--only", "source-closure"], { encoding: "utf8" });
+  return spawnSync(process.execPath, [GATE, "check", "--repo", root, "--commit", "HEAD", "--only", "source-closure"], { encoding: "utf8" });
+};
+
+test("source-closure: red, through rightkit-gate check: a mutated source declared normalised with only a reason keeps its old digest and is refused", (t) => {
+  const mutated = { ...V1, "src/registry/providers.json": providers({ providers: [{ id: "b", benchmark: { status: "qualified", requiredForCleanClaim: true } }] }) };
+  const declaration = declare([{ file: INDEX, where: { family: "code-mobile-sdk" }, paths: ["src/registry/providers.json"], reason: "the producer digests a projection of providers.json" }]);
+  const run = gateCheck(t, { ...mutated, ".rightkit/source-closures.json": declaration, [INDEX]: index([mobile(V1)]) });
   assert.equal(run.status, 1, run.stdout + run.stderr);
-  assert.match(run.stdout, /FAIL source-closure \(SF-01\): \.rightkit\/source-closures\.json normalized #0: transform must be one of lf, json-drop .*a reason alone exempts nothing/);
+  assert.match(run.stdout, /FAIL source-closure \(SF-01\): \.rightkit\/source-closures\.json normalized #0: transform must name an approved RightKit identity .*a repository never supplies its own transform or pointers/);
   assert.match(run.stdout, /FAIL source-closure \(SF-01\): qualification\/provider-accuracy\/index\.json code\.mobile \(\/entries\/0\): sealed source closure stale\/incomplete: 1 source\(s\) changed since the record was sealed: src\/registry\/providers\.json/);
 });
 
-test("source-closure: red: a declared transform never excuses a deleted source or a change outside what it discards", (t) => {
-  const declaration = declare([{ file: INDEX, where: { family: "code-mobile-sdk" }, paths: ["src/registry/providers.json"], transform: DROP_BENCHMARK, reason: "the producer digests providers.json without providers[].benchmark" }]);
+test("source-closure: red, through rightkit-gate check: repository-chosen json-drop pointers cannot drop a new consumed field", (t) => {
+  // The audit counterexample on d45185a (exit 0 there): seal {"id":"p"}, add a field, declare json-drop of that field.
+  const sources = { "src/p.json": sha(canonicalJson({ id: "p" })) };
+  const run = gateCheck(t, {
+    "src/p.json": JSON.stringify({ id: "p", newConsumedField: true }),
+    "index.json": { entries: [{ provider: "p", family: "f", sourceClosure: seal(sources) }] },
+    ".rightkit/source-closures.json": declare([{ file: "index.json", paths: ["src/p.json"], transform: { kind: "json-drop", drop: ["/newConsumedField"] }, reason: "the producer ignores this field entirely" }]),
+  });
+  assert.equal(run.status, 1, run.stdout + run.stderr);
+  assert.match(run.stdout, /FAIL source-closure \(SF-01\): \.rightkit\/source-closures\.json normalized #0: transform must name an approved RightKit identity/);
+  assert.match(run.stdout, /FAIL source-closure \(SF-01\): index\.json p \(\/entries\/0\): sealed source closure stale\/incomplete: 1 source\(s\) changed since the record was sealed: src\/p\.json/);
+});
+
+test("source-closure: red: an approved identity never excuses a deleted source", (t) => {
   const { "src/registry/providers.json": _gone, ...deleted } = V1;
-  const gone = sourceClosure(tree(t, { ...deleted, ".rightkit/source-closures.json": declaration, [INDEX]: index([mobileProjected(V1)]) }));
-  assert.match(gone[0].problem, /1 source\(s\) no longer in the tree: src\/registry\/providers\.json/);
-  const renamed = { ...V1, "src/registry/providers.json": "{\"providers\":[{\"id\":\"b\",\"benchmark\":1}]}\n" };
-  const changed = sourceClosure(tree(t, { ...renamed, ".rightkit/source-closures.json": declaration, [INDEX]: index([mobileProjected(V1)]) }));
-  assert.match(changed[0].problem, /changed since the record was sealed: src\/registry\/providers\.json/);
+  const found = sourceClosure(tree(t, { ...deleted, ".rightkit/source-closures.json": MOBILE_DECLARATION, [INDEX]: index([mobileProjected(V1)]) }));
+  assert.match(found[0].problem, /1 source\(s\) no longer in the tree: src\/registry\/providers\.json/);
 });
 
-test("source-closure: positive control: a change only inside the declared transform passes, for the declared family only", (t) => {
-  const benchmarkOnly = { ...V1, "src/registry/providers.json": "{\"providers\":[{\"id\":\"a\",\"benchmark\":{\"status\":\"qualified\"}}]}\n" };
-  const declaration = declare([{ file: INDEX, where: { family: "code-mobile-sdk" }, paths: ["src/registry/providers.json"], transform: DROP_BENCHMARK, reason: "the producer digests providers.json without providers[].benchmark" }]);
+test("source-closure: red: an approved identity keeps every field it does not drop (a provider id, a new provider field)", (t) => {
+  for (const changed of [{ id: "b", benchmark: { status: "qualified", requiredForCleanClaim: true } }, { id: "a", newConsumedField: true, benchmark: { status: "qualified", requiredForCleanClaim: true } }]) {
+    const found = sourceClosure(tree(t, { ...V1, "src/registry/providers.json": providers({ providers: [changed] }), ".rightkit/source-closures.json": MOBILE_DECLARATION, [INDEX]: index([mobileProjected(V1)]) }));
+    assert.match(found[0].problem, /changed since the record was sealed: src\/registry\/providers\.json \(under legion-provider-registry\/without-qualification-metadata\/v1\)/);
+  }
+});
+
+test("source-closure: red: a field the identity's schema does not know is refused, not dropped", (t) => {
+  const found = sourceClosure(tree(t, { ...V1, "src/registry/providers.json": providers({ providers: [{ id: "a", benchmark: { status: "qualified", requiredForCleanClaim: true, newConsumedField: true } }] }), ".rightkit/source-closures.json": MOBILE_DECLARATION, [INDEX]: index([mobileProjected(V1)]) }));
+  assert.match(found[0].problem, /outside their approved transform: src\/registry\/providers\.json providers\[0\]\.benchmark has key\(s\) newConsumedField the approved projection does not know/);
+});
+
+test("source-closure: red: a declaration may only name an identity; paths, where or an unknown identity are findings and exempt nothing", (t) => {
+  const changed = { ...V1, "src/registry/providers.json": providers({ providers: [{ id: "a", benchmark: { status: "x", requiredForCleanClaim: true } }] }) };
+  const declaration = declare([{ file: INDEX, transform: MOBILE_ID, paths: ["src/registry/providers.json"] }, { file: INDEX, transform: "my-own/v1" }]);
+  const found = sourceClosure(tree(t, { ...changed, ".rightkit/source-closures.json": declaration, [INDEX]: index([mobileProjected(V1)]) }));
+  assert.deepEqual(found.map((f) => f.subject).sort(), ["code.mobile (/entries/0)", "declaration", "declaration"]);
+  assert.equal(readDeclaration("{").problems.length, 1);
+  assert.match(transformedDigest(Buffer.from("not json"), MOBILE_ID).problem, /is not JSON/);
+  assert.match(transformedDigest(Buffer.from('{"providers":[{"benchmark":{"status":1.5}}]}'), MOBILE_ID).problem, /non-integer number/);
+});
+
+test("source-closure: positive control: a change only inside what the identity drops passes, and only for the identity's families", (t) => {
+  const benchmarkOnly = { ...V1, "src/registry/providers.json": providers({ providers: [{ id: "a", benchmark: { status: "candidate", qualificationDigest: "sha256:0", requiredForCleanClaim: true } }] }) };
   const otherFamily = { ...mobileProjected(V1), provider: "code.other", family: "file" };
-  const found = sourceClosure(tree(t, { ...benchmarkOnly, ".rightkit/source-closures.json": declaration, [INDEX]: index([mobileProjected(V1), otherFamily]) }));
-  assert.deepEqual(found.map((f) => f.subject), ["code.other (/entries/1)"], "the transform is scoped to its family; another family is compared on raw bytes");
+  const found = sourceClosure(tree(t, { ...benchmarkOnly, ".rightkit/source-closures.json": MOBILE_DECLARATION, [INDEX]: index([mobileProjected(V1), otherFamily]) }));
+  assert.deepEqual(found.map((f) => f.subject), ["code.other (/entries/1)"], "the identity binds its families; another family is compared on raw bytes");
 });
 
-test("source-closure: positive control: line-ending normalisation (lf) accepts a CRLF checkout of the sealed LF bytes, and nothing else", (t) => {
+test("source-closure: positive control: text-lf/v1 accepts a CRLF checkout of the sealed LF bytes, and nothing else", (t) => {
   const lf = { provider: "docs", family: "file", sourceClosure: closureOf(V1, [".github/workflows/ci.yml"]) };
-  const declaration = declare([{ file: INDEX, paths: [".github/workflows/ci.yml"], transform: { kind: "lf" }, reason: "sealed on Linux; Windows checkouts write CRLF" }]);
+  const declaration = declare([{ file: INDEX, transform: "text-lf/v1", paths: [".github/workflows/ci.yml"] }]);
   assert.deepEqual(sourceClosure(tree(t, { ...V1, ".github/workflows/ci.yml": "on: push\r\n", ".rightkit/source-closures.json": declaration, [INDEX]: index([lf]) })), []);
   assert.equal(sourceClosure(tree(t, { ...V1, ".github/workflows/ci.yml": "on: pull_request\r\n", ".rightkit/source-closures.json": declaration, [INDEX]: index([lf]) })).length, 1);
-});
-
-test("source-closure: a malformed declaration is a finding and exempts nothing", (t) => {
-  const changedRegistry = { ...V1, "src/registry/providers.json": "{}\n" };
-  const declaration = { normalized: [{ file: INDEX, paths: ["src/registry/providers.json"], transform: { kind: "semantic" }, reason: "short" }] };
-  const found = sourceClosure(tree(t, { ...changedRegistry, ".rightkit/source-closures.json": declaration, [INDEX]: index([mobile(V1)]) }));
-  assert.deepEqual(found.map((f) => f.subject).sort(), ["code.mobile (/entries/0)", "declaration"]);
-  assert.deepEqual(readDeclaration("{").problems.length, 1);
-  assert.equal(transformedDigest(Buffer.from("not json"), DROP_BENCHMARK), null);
 });
 
 test("source-closure: JSON without a sealed record, and vendored trees, are not read", (t) => {
