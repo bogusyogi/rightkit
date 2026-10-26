@@ -54,9 +54,16 @@ async function published(registry, unit, version, fetchImpl) {
   const response = await fetchImpl(url, { headers: { accept: "application/json", "user-agent": "rightkit-publish-admission (github.com/bogusyogi/rightkit)" }, redirect: "error", signal: AbortSignal.timeout(60_000) });
   if (response.status === 404) return false;
   requireThat(response.ok, `${registry} registry returned ${response.status} for ${unit}`);
-  if (registry === "crates") return true;
-  const doc = await response.json();
-  return Boolean(doc?.versions && Object.hasOwn(doc.versions, version));
+  // A 200 is evidence only when it is this package's own record: malformed or foreign metadata is unreadable, never "absent".
+  let doc;
+  try { doc = await response.json(); } catch { refuse(`${registry} registry answered 200 for ${unit} with no JSON record`); }
+  const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+  if (registry === "crates") {
+    requireThat(record(doc) && record(doc.version) && doc.version.crate === unit && doc.version.num === version, `crates.io answered 200 for ${unit}@${version} with a record of another or no crate version`);
+    return true;
+  }
+  requireThat(record(doc) && doc.name === unit && record(doc.versions), `npm answered 200 for ${unit} with a malformed or foreign packument`);
+  return Object.hasOwn(doc.versions, version);
 }
 
 /** The committed version of one unit at `sha`: the one workspace package named `unit` (npm) or crates/<unit>/Cargo.toml (crates). */
