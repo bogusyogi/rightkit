@@ -65,7 +65,7 @@ export async function runCandidateScans({ contentRoot, liveRoot, outDir, env = p
   const selection = publicationContent({ registry: env.PUBLISH_REGISTRY, units: env.PUBLISH_UNITS, files, crateFeatures,
     workspace: env.PUBLISH_REGISTRY === "crates" ? readCrateWorkspace(contentRoot, spawn) : readNpmWorkspace(contentRoot),
     readBlob: (f) => fs.readFileSync(path.join(contentRoot, f), "utf8") });
-  const plan = planScans({ changed: selection.files, rustUnits: selection.rustUnits, npmUnits: selection.npmUnits, contentRoot, liveRoot, includeTests: false, localCompile: true, cargoCommand: ["cargo"], crateFeatures, readBytes: (f) => fs.readFileSync(f) });
+  const plan = planScans({ changed: selection.files, rustUnits: selection.rustUnits, npmUnits: selection.npmUnits, contentRoot, liveRoot, includeTests: false, localCompile: true, tier: "release", cargoCommand: ["cargo"], crateFeatures, readBytes: (f) => fs.readFileSync(f) });
   const plannedClassA = plan.scans.filter((x) => x.class === "A");
   console.log(`scans: ${plannedClassA.length} class A scans planned over ${selection.files.length} tracked files for ${selection.scope.registry}:${selection.scope.units.join(",")} (class B runs in the native verify jobs)`);
   const observedTools = observeToolVersions(spawn);

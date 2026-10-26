@@ -1522,11 +1522,13 @@ export async function main(argv, io = {}) {
   // (git hands the local field over verbatim, so a rev expression such as `HEAD@{1 minute ago}` or `HEAD^{/one thing}` holds spaces)
   // refuses the push on every host and in every repository, never a line that disappears: its pushed commit could not be compared with
   // HEAD and its remote ref could not be judged. `pushedRemoteShas` are the remote commits being replaced.
-  let deletionsOnly = false; // a push of ref deletions alone carries no content: nothing to check, nothing to plan
+  // A push of ref deletions alone carries no content: nothing to check, nothing to plan (the hook skips its check the same way).
+  let deletionsOnly = false;
   if (!planOnly && !classAOnly) {
     const head = text(git("rev-parse", "HEAD")).trim();
     const parsed = parsePushLines(o.readStdin());
     deletionsOnly = parsed.lines.length > 0 && parsed.lines.every((l) => ZERO.test(l.localSha));
+    if (deletionsOnly) { o.out(`${tag} only deletions are pushed; nothing to check, nothing planned`); return 0; }
     if (parsed.malformed.length) {
       o.err(`${tag} BLOCKED: pre-push stdin line ${parsed.malformed[0].number} is not "<local ref> <local sha> <remote ref> <remote sha>" (four fields separated by single spaces), so the pushed refs cannot all be read and the pushed commit cannot be compared with HEAD; push a plain ref (git push <remote> HEAD:<branch>)`);
       return 1;
@@ -1555,7 +1557,7 @@ export async function main(argv, io = {}) {
   // Every effectful gate entry owes the app rules, not only `check` (Astra, 2026-10-26): a bare, --all or pre-push run on HEAD runs them
   // first, in the tier asked for (compile by default), and plans nothing while they are red. --plan and --class-a (which runs them in
   // `check`) are untouched.
-  if (snapshot && !classAOnly && !deletionsOnly) {
+  if (snapshot && !classAOnly) {
     const appRules = await (o.appCheck ?? (await import("../app-check.mjs")).main)(["--repo", root, "--commit", snapshot, "--rule-tier", option("--rule-tier") ?? "compile"], { out: o.out, err: o.err, label: "check", cwd: o.cwd });
     if (appRules !== 0) { const id = git("rev-parse", String(snapshot)); o.err(`${tag} BLOCKED: the app rules are red for ${(failed(id) ? String(snapshot) : text(id).trim()).slice(0, 12)}; no scan was planned or run`); return appRules; }
   }

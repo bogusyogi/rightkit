@@ -50,7 +50,7 @@ const ids = (plan, cls) => plan.scans.filter((s) => !cls || s.class === cls).map
 test("plan: a changed crate selects class A and class B scans, through rustright cargo", () => {
   const { plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
   const a = ids(plan, "A"); const b = ids(plan, "B");
-  for (const id of ["rustfmt:2024", "toml-parse", "cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo", "changelog-version:foo", "license", "secret-scan"]) assert.ok(a.includes(id), `class A has ${id}`);
+  for (const id of ["rustfmt:2024", "toml-parse", "cargo-metadata", "cargo-deny", "cargo-audit", "changelog-version:foo", "license", "secret-scan"]) assert.ok(a.includes(id), `class A has ${id}`);
   for (const id of ["check-features:foo:0", "clippy:foo", "doc:foo", "test:rust:foo"]) assert.ok(b.includes(id), `class B has ${id}`);
   assert.ok(!b.includes("check:foo"), "default clippy already type-checks every target: no separate default check");
   for (const s of plan.scans.filter((s) => s.tool === "rustright")) assert.equal(s.args[0], "cargo", `${s.id} runs through rustright cargo`);
@@ -314,14 +314,14 @@ test("secret-scan: the gate admits an env template and a fixture only by the rec
 
 test("no local compile grant: every broker scan is deferred by name, never passed and never run outside the broker", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { localCompile: false });
-  const broker = ["cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo", "check-features:foo:0", "clippy:foo", "doc:foo", "test:rust:foo"];
+  const broker = ["cargo-metadata", "cargo-deny", "cargo-audit", "check-features:foo:0", "clippy:foo", "doc:foo", "test:rust:foo"];
   assert.deepEqual([...plan.deferred].sort(), [...broker].sort());
   for (const id of broker) assert.ok(plan.scans.find((x) => x.id === id)?.deferred, `${id} stays in the plan, deferred`);
   const log = [];
   const result = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ log }) }));
   assert.equal(result.ok, false, "a deferred scan is not a pass");
   assert.equal(result.complete, false);
-  const classA = ["cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo"];
+  const classA = ["cargo-metadata", "cargo-deny", "cargo-audit"];
   for (const id of classA) assert.equal(result.scans.find((s) => s.id === id).status, "deferred");
   // A deferred class A scan is not a class A pass: no class B scan runs after it.
   for (const s of result.scans.filter((x) => x.class === "B")) assert.equal(s.status, "not-run", s.id);
@@ -511,7 +511,7 @@ test("runner: class B alone is refused without valid class A evidence, and runs 
 test("plan: cargoCommand selects the cargo prefix (rustright cargo locally, plain cargo in CI)", () => {
   const ci = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { cargoCommand: ["cargo"] }).plan;
   const cargoScans = ci.scans.filter((s) => s.tool === "cargo");
-  assert.ok(["cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo", "clippy:foo"].every((id) => cargoScans.some((s) => s.id === id)));
+  assert.ok(["cargo-metadata", "cargo-deny", "cargo-audit", "clippy:foo"].every((id) => cargoScans.some((s) => s.id === id)));
   assert.ok(cargoScans.every((s) => s.args[0] !== "cargo"));
   const PIN = "21d909e4c8bd4e14c7aea58bf980c881a0053ab1";
   assert.equal(cargoScans.find((s) => s.id === "cargo-deny").command, `RK_ADVISORY_DB_COMMIT=${PIN} cargo deny --offline --metadata-path {advisoryMetadata} --config {advisoryDenyConfig} check`);
@@ -847,7 +847,6 @@ test("rustUnits: a changed file maps to the unit whose directory holds it, and e
   assert.deepEqual(scanOf(plan, "license").files, ["core/Cargo.toml"]);
   assert.deepEqual(scanOf(plan, "changelog-version:app-core").files, ["core/Cargo.toml", "core/CHANGELOG.md"]);
   assert.deepEqual(scanOf(plan, "secret-scan").dirs, ["core"]);
-  assert.ok(scanOf(plan, "cargo-package-list:app-core"));
 });
 
 test("rustUnits: a workspace-wide change uses the full list, narrowed by rustScope", () => {
@@ -873,8 +872,10 @@ test("rustUnits: the deepest directory wins; a root unit takes only what no othe
 });
 
 test("rustUnits: publish false skips only the package list; a bad directory is a path-policy refusal; malformed input throws", () => {
-  const p = planFor(["core/src/lib.rs"], unitFiles, { rustUnits: [{ name: "app-core", dir: "core", publish: false }], npmUnits: [] }).plan;
-  assert.ok(!p.scans.some((s) => s.id.startsWith("cargo-package-list")));
+  const p = planFor(["core/src/lib.rs"], unitFiles, { rustUnits: [{ name: "app-core", dir: "core", publish: false }], npmUnits: [], tier: "release" }).plan;
+  assert.ok(!p.scans.some((s) => s.id.startsWith("cargo-package-list")), "publish: false plans no package list even in the release tier");
+  const published = planFor(["core/src/lib.rs"], unitFiles, { rustUnits: [{ name: "app-core", dir: "core" }], npmUnits: [], tier: "release" }).plan;
+  assert.ok(published.scans.some((s) => s.id === "cargo-package-list:app-core"), "a published crate plans it in the release tier");
   assert.ok(p.scans.some((s) => s.id === "license") && p.scans.some((s) => s.id === "clippy:app-core"));
   for (const dir of ["a b", "../x", "/abs", "a/../../b", "a&b"]) {
     const bad = planFor(["README.md"], { "README.md": "x" }, { rustUnits: [{ name: "x", dir }], npmUnits: [] }).plan;
@@ -1179,7 +1180,7 @@ test("requiredScanIds: every id it requires is planned by planScans, and the per
     };
     if (!withLib) delete all["crates/foo/src/lib.rs"];
     const fs = fakeFs(all, all);
-    const plan = planScans({ changed: Object.keys(all), contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "win32", includeTests: true, crateFeatures, localCompile: true, cargoCommand: ["rustright", "cargo"] });
+    const plan = planScans({ changed: Object.keys(all), contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "win32", includeTests: true, crateFeatures, localCompile: true, tier: "release", cargoCommand: ["rustright", "cargo"] });
     const planned = new Set(ids(plan));
     const required = requiredScanIds({ units: ["foo", "bar"], crateFeatures, exists: (p) => fs.exists(path.join(CONTENT, p)), includeTests: true });
     for (const id of required) assert.ok(planned.has(id), id + " is required but not planned (lib=" + withLib + ", " + JSON.stringify(crateFeatures) + ")");
@@ -1223,7 +1224,7 @@ test("workspaces: a unit of a nested workspace runs in that workspace with its c
   assert.ok(clippy, ids(p).join(","));
   assert.equal(clippy.cwd, "hub/src-tauri");
   assert.deepEqual(clippy.args.slice(0, 5), ["cargo", "clippy", "-p", "app", "--no-deps"], "-p takes the crate, not the unit name");
-  for (const id of ["check-features:hub/src-tauri:app:0", "doc:hub/src-tauri:app", "test:rust:hub/src-tauri:app", "cargo-metadata:hub/src-tauri", "cargo-package-list:hub/src-tauri:app"]) {
+  for (const id of ["check-features:hub/src-tauri:app:0", "doc:hub/src-tauri:app", "test:rust:hub/src-tauri:app", "cargo-metadata:hub/src-tauri"]) {
     const s = scanOf(p, id); assert.ok(s, id); assert.equal(s.cwd, "hub/src-tauri", id);
   }
   assert.ok(!ids(p).some((i) => /clippy:core|engine/.test(i)), "no unit of another workspace");
@@ -1893,7 +1894,7 @@ test("cargoLiveRoot: cargo scans take the cargoLive root, the plan records it an
 });
 
 test("deferred package list: on a broker host (cargoLiveRoot) every cargo-package-list scan is deferred for rightkit#1216 and reports deferred; without cargoLiveRoot it has no deferral and passes", async () => {
-  const broker = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { cargoLiveRoot: "/primary/checkout" });
+  const broker = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { cargoLiveRoot: "/primary/checkout", tier: "release" });
   const packageLists = broker.plan.scans.filter((s) => s.id.startsWith("cargo-package-list"));
   assert.ok(packageLists.length > 0, "the plan has a package-list scan");
   for (const s of packageLists) assert.match(s.deferred, /rightkit#1216/, s.id);
@@ -1901,11 +1902,14 @@ test("deferred package list: on a broker host (cargoLiveRoot) every cargo-packag
   const row = result.scans.find((s) => s.id === "cargo-package-list:foo");
   assert.equal(row.status, "deferred");
   assert.match(row.detail, /rightkit#1216/);
-  const direct = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
+  const direct = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { tier: "release" });
   const plain = direct.plan.scans.find((s) => s.id === "cargo-package-list:foo");
   assert.equal(plain.deferred, undefined, "a direct host runs the package list");
   const plainResult = await runScans(direct.plan, deps({ ...direct.fs }), { classes: ["A"] });
   assert.equal(plainResult.scans.find((s) => s.id === "cargo-package-list:foo").status, "pass");
+  // The compile tier (no tier) plans no package list at all, broker host or not.
+  const compile = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { cargoLiveRoot: "/primary/checkout" });
+  assert.deepEqual(compile.plan.scans.filter((s) => s.id.startsWith("cargo-package-list")).map((s) => s.id), []);
 });
 
 test("rule tiers: the compile tier (the default) plans no shellcheck and no shellcheck requirement for actionlint; the release tier plans both; an unknown tier throws", () => {

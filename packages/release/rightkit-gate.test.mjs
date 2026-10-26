@@ -353,7 +353,8 @@ test("repository pre-push selects every class A & only focused CI tests/generate
 test("--pre-push --plan excludes native checks while default CLI retains them", async (t) => {
   const root = mkRepo(gateFiles(), t);
   const selected = capture(); const full = capture();
-  for (const [args, c] of [[["--plan", "--pre-push"], selected], [["--plan"], full]]) {
+  // The package-list row is release tier (what a published crate carries): the plan is asked for that tier.
+  for (const [args, c] of [[["--plan", "--pre-push", "--rule-tier", "release"], selected], [["--plan", "--rule-tier", "release"], full]]) {
     assert.equal(await main(args, { ...c.io, spawn: repoSpawn(root), cwd: root, env: {} }), 0, c.err.join("\n"));
   }
   assert.match(selected.out.join("\n"), /\[A\] cargo-package-list:a /);
@@ -367,7 +368,7 @@ test("--pre-push --plan excludes native checks while default CLI retains them", 
 test("--plan prints the plan for a fake repo from its own units and runs nothing", async (t) => {
   const root = mkRepo(gateFiles(), t);
   const log = []; const c = capture();
-  const code = await main(["--plan", "--base", "origin/main"], { ...c.io, spawn: repoSpawn(root, { log }), cwd: root, env: {} });
+  const code = await main(["--plan", "--base", "origin/main", "--rule-tier", "release"], { ...c.io, spawn: repoSpawn(root, { log }), cwd: root, env: {} });
   assert.equal(code, 0, c.err.join("\n"));
   const out = c.out.join("\n");
   assert.match(out, /rust units: a=crates\/a, b=crates\/b; npm units: none/);
@@ -384,7 +385,7 @@ test("no local compile grant file is needed: the broker (or the gate on a direct
   const { ".rightkit-local-build.json": _grant, ...files } = gateFiles();
   const root = mkRepo(files, t);
   const c = capture();
-  assert.equal(await main(["--plan"], { ...c.io, spawn: repoSpawn(root), cwd: root, env: {} }), 0, c.err.join("\n"));
+  assert.equal(await main(["--plan", "--rule-tier", "release"], { ...c.io, spawn: repoSpawn(root), cwd: root, env: {} }), 0, c.err.join("\n"));
   assert.doesNotMatch(c.out.join("\n"), /deferred: no local compile grant/);
 });
 
@@ -910,7 +911,7 @@ test("--plan with several workspaces: each unit runs in its own workspace, the f
   const files = multiGateFiles();
   const root = mkRepo(files, t);
   const log = []; const c = capture();
-  const code = await main(["--plan", "--base", "origin/main"], { ...c.io, spawn: multiSpawn(root, { log, untracked: "scratch/Cargo.toml\0" }), cwd: root, env: {} });
+  const code = await main(["--plan", "--base", "origin/main", "--rule-tier", "release"], { ...c.io, spawn: multiSpawn(root, { log, untracked: "scratch/Cargo.toml\0" }), cwd: root, env: {} });
   assert.equal(code, 0, c.err.join("\n"));
   const out = c.out.join("\n");
   assert.match(out, /rust units: a=crates\/a, hub\/src-tauri:app=hub\/src-tauri \(workspaces \., hub\/src-tauri\)/);
@@ -1747,6 +1748,28 @@ test("bare gate run: the app rules run first on HEAD; a red result stops the run
   assert.deepEqual(seenRules[0].slice(0, 1), ["--repo"]);
   assert.deepEqual(seenRules[0].slice(2), ["--commit", "HEAD", "--rule-tier", "compile"]);
   assert.equal(green.seen.length, 1, "a green app rules result proceeds to the scans");
+});
+
+test("a push of ref deletions alone runs no app rules and plans nothing: it carries no content (the hook skips its check the same way)", async (t) => {
+  const seenRules = [];
+  const r = await pushGate(t, {
+    stdin: pushLine("refs/heads/claude/port", { sha: ZEROS, remote: HEAD }), files: stripUndefined(jsRepo()),
+    spawnOptions: { manifests: [], tracked: trackedJs, diff: "apps/coderight-web/src/b.ts\n" },
+    io: { appCheck: async (argv) => { seenRules.push(argv); return 1; }, resolveExecutor: directExecutor },
+  });
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /only deletions are pushed; nothing to check, nothing planned/);
+  assert.equal(seenRules.length, 0, "the app rules did not run");
+  assert.equal(r.seen.length, 0, "runScans was never called");
+  // A mixed push (one deletion, one update of HEAD) is a push of content: the app rules run and a red result blocks it.
+  const mixed = await pushGate(t, {
+    stdin: pushLine("refs/heads/old", { sha: ZEROS, remote: HEAD }) + pushLine("refs/heads/claude/port"), files: stripUndefined(jsRepo()),
+    spawnOptions: { manifests: [], tracked: trackedJs, diff: "apps/coderight-web/src/b.ts\n" },
+    io: { appCheck: async () => 1, resolveExecutor: directExecutor },
+  });
+  assert.equal(mixed.code, 1);
+  assert.match(mixed.err, /BLOCKED: the app rules are red/);
+  assert.equal(mixed.seen.length, 0);
 });
 
 test("gate --plan: lists the pnpm roots' units with their root-carrying names and the per-root scans", async (t) => {

@@ -724,10 +724,11 @@ export function planScans({
   if (files.some((f) => SUITE_API_INPUT.test(f)) && exists(path.join(contentRoot, "contracts/right-suite-api.v1.json"))) add({ id: "suite-api", class: A, internal: "suite-api" });
   if (rustTouched) {
     for (const ws of touchedWs) add({ id: `cargo-metadata${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, ...metadataArgs()) });
-    // rustright classifies `cargo package` as a build (command_policy.rs), so from the primary checkout it re-enters broker admission,
-    // which is running this very check: on a broker host the package-list scan is deferred, named, never passed; the release tier runs it
-    // on a direct host (CI). rightkit#1216 asks rustright to classify a locked `package --list` as an observation.
-    for (const name of crateNames.filter((n) => rustMap?.get(n).publish !== false)) add({ id: rustScanId.packageList(name), class: A, ...(cargoLiveRoot ? { deferred: "rustright classifies cargo package as a build, so on a broker host this scan would re-enter the admission that runs it (rightkit#1216); it runs in the release tier on a direct host" } : {}), ...cargoIn(wsOf(name), "package", "-p", crateOf(name), "--list", "--allow-dirty", "--locked") });
+    // What a published crate would carry is a release concern: the package-list scan is release tier. rustright classifies the listing
+    // as a build (command_policy.rs), so from the primary checkout it would re-enter the broker admission running this very check: on a
+    // broker host the release tier defers it, named, never passed (rightkit#1216 asks rustright to treat a locked `package --list` as an
+    // observation; the deferral goes when both brokers carry that). A direct host (CI) runs it.
+    if (tier === "release") for (const name of crateNames.filter((n) => rustMap?.get(n).publish !== false)) add({ id: rustScanId.packageList(name), class: A, tier: "release", ...(cargoLiveRoot ? { deferred: "rustright classifies the crate package listing as a build, so on a broker host this scan would re-enter the admission that runs it (rightkit#1216); a direct host (CI) runs it" } : {}), ...cargoIn(wsOf(name), "package", "-p", crateOf(name), "--list", "--allow-dirty", "--locked") });
   }
   for (const ws of [...configWs].sort()) {
     // Offline against the pinned database. The pin commit is part of the command (env), so a pin change is a different scan, and the
