@@ -912,10 +912,21 @@ export function readRecentEvents(logFile, { maxBytes = 1 << 22 } = {}) {
  * windows (EVENT_SCAN_WINDOWS) until a match turns up or the whole file has been read. A log that does not exist has no event (null:
  * the job never ran); any other read error (EIO, ENOTDIR, a volume that went away) is thrown, because "nothing found" would then
  * be a guess. `maxBytes` limits the scan to one window of that size. */
+/** Windows reports ENOENT, not ENOTDIR, for a path that runs through a file; POSIX reports ENOTDIR. Rebuild that distinction: the nearest
+ * existing ancestor being anything but a directory means the log path is broken, not that the log is missing. */
+function throughFile(logFile) {
+  for (let dir = path.dirname(path.resolve(logFile)); ; dir = path.dirname(dir)) {
+    let stats;
+    try { stats = statSync(dir); } catch (error) { if (error?.code === "ENOENT" && path.dirname(dir) !== dir) continue; return false; }
+    if (stats.isDirectory()) return false;
+    throw Object.assign(new Error(`ENOTDIR: not a directory, open '${logFile}'`), { code: "ENOTDIR", path: logFile });
+  }
+}
+
 export function lastEvent(logFile, names, { maxBytes, accept = () => true, windows = EVENT_SCAN_WINDOWS } = {}) {
   for (const window of maxBytes ? [maxBytes] : windows) {
     let tail;
-    try { tail = readLogTail(logFile, window); } catch (error) { if (error?.code === "ENOENT") return null; throw error; }
+    try { tail = readLogTail(logFile, window); } catch (error) { if (error?.code === "ENOENT" && !throughFile(logFile)) return null; throw error; }
     for (let i = tail.events.length - 1; i >= 0; i -= 1) if (names.includes(tail.events[i].event) && accept(tail.events[i])) return tail.events[i];
     if (tail.whole) return null;
   }

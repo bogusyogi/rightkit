@@ -2184,8 +2184,12 @@ test("the multi-root pre-push hook (real sh): a package deeper than the glob, th
   // 3. no pnpm: node at the package's link, a path in the repository
   fs.rmSync(log, { force: true });
   const shim = mkRepo({}, t);
-  fs.symlinkSync(process.execPath, path.join(shim, "node"));
-  const noPnpmPath = [shim, "/usr/bin", "/bin"].join(path.delimiter);
+  fs.symlinkSync(process.execPath, path.join(shim, process.platform === "win32" ? "node.exe" : "node"));
+  // PATH: the node link and the directory sh itself lives in (Git for Windows' usr\bin, or /usr/bin and /bin), never pnpm.
+  const shDirs = process.platform === "win32"
+    ? [path.dirname(spawnSync("where", ["sh"], { encoding: "utf8" }).stdout.split(/\r?\n/)[0].trim())]
+    : ["/usr/bin", "/bin"];
+  const noPnpmPath = [shim, ...shDirs].join(path.delimiter);
   const lastResort = hookRepo(t, { ...hook(["apps/cutright"], `apps/cutright/${LINK}`), [`apps/cutright/${LINK}`]: `import fs from "node:fs";\nfs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(" ") + "\\n");\nfs.readFileSync(0);\n` });
   const viaNode = spawnSync("sh", [".githooks/pre-push", "origin", "https://example.test/r.git"], { cwd: lastResort, input: "in\n", encoding: "utf8", env: { ...process.env, PATH: noPnpmPath } });
   assert.equal(viaNode.status, 0, viaNode.stderr);
@@ -2321,4 +2325,27 @@ test("a partial check (--only) says it is not a class A result, and the door and
   // The door's check stage and the broker's admission call the full form.
   const src = fs.readFileSync(new URL("./bin/rightkit-gate.mjs", import.meta.url), "utf8");
   assert.match(src, /main\(\["check", "--commit", "HEAD"\]/, "--to check runs the full check");
+});
+
+test("class A export: the export root exists before checkout-index and the prefix uses \"/\" (Windows refused a missing, backslashed prefix: publish run 40282215043)", async (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-export-")));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...a], { cwd: root, encoding: "utf8" });
+  git("init", "-q"); fs.mkdirSync(path.join(root, ".github"), { recursive: true });
+  fs.writeFileSync(path.join(root, ".github", "x.json"), "{}\n"); fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "x", license: "MIT" }));
+  git("add", "-A"); git("commit", "-q", "-m", "x");
+  const seen = [];
+  const spawn = (cmd, args, opts) => {
+    if (cmd === "git" && args[0] === "checkout-index") {
+      const prefix = args.find((a) => a.startsWith("--prefix=")).slice("--prefix=".length);
+      seen.push({ prefix, existed: fs.existsSync(prefix.slice(0, -1)) });
+    }
+    return spawnSync(cmd, args, { ...opts, encoding: "utf8" });
+  };
+  const c = capture();
+  await main(["check", "--repo", root, "--commit", "HEAD"], { ...c.io, cwd: root, spawn });
+  assert.equal(seen.length, 1, c.err.join("\n"));
+  assert.ok(seen[0].prefix.endsWith("/") && !seen[0].prefix.includes("\\"), seen[0].prefix);
+  assert.ok(seen[0].existed, "the export root exists before git writes into it");
+  assert.doesNotMatch(c.err.join("\n"), /cannot export/);
 });
