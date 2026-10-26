@@ -169,3 +169,7 @@ test('the real repository passes', () => {
   const root = path.resolve(import.meta.dirname, '..', '..');
   assert.deepEqual(checkAdvisoryExceptions({ root, now: NOW }), []);
 });
+
+test("parseToml reads hex, octal and binary integers (cargo-deny's licence clarify hashes)", () => {
+  assert.deepEqual(parseToml("a = 0xb3480ca8\nb = 0o17\nc = 0b101\n"), { a: 0xb3480ca8, b: 15, c: 5 });
+});

@@ -5,7 +5,7 @@
 # Output: <evidence>/owner-dep-graphs/<crate>-<mode>.txt and summary.tsv (plus an ASSERT row for optional storage).
 # Never fails the gate. cargo tree only resolves; --locked keeps it from rewriting Cargo.lock.
 set -uo pipefail
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/../.." || exit 1
 
 EVIDENCE="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/rightkit-ci"
 OUT="$EVIDENCE/owner-dep-graphs"

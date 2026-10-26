@@ -77,6 +77,7 @@ fi
 test "$cmd" = build || { echo "usage: $0 fetch|build ..." >&2; exit 2; }
 case "$arch" in arm64) family=aarch64 ;; x86_64) family=x86_64 ;; *) echo "--arch arm64|x86_64" >&2; exit 2 ;; esac
 case "$tool" in ffmpeg|ffprobe) ;; *) echo "--tool ffmpeg|ffprobe" >&2; exit 2 ;; esac
+# shellcheck disable=SC2015  # each A && B is a test, so the || branch runs exactly when a requirement is missing
 test -n "$work" && test -n "$out" || { echo "--work and --out are required" >&2; exit 2; }
 test "$(uname -s)" = Darwin || { echo "macOS host required" >&2; exit 1; }
 
@@ -119,7 +120,8 @@ if [ "$variant" != decode ]; then
   meson="${MESON:-meson}" ninja="${NINJA:-ninja}"
   command -v "$meson" >/dev/null || { echo "meson is required (harfbuzz, fribidi); set MESON" >&2; exit 1; }
   command -v "$ninja" >/dev/null || { echo "ninja is required (harfbuzz, fribidi); set NINJA" >&2; exit 1; }
-  export NINJA="$(command -v "$ninja")"
+  NINJA="$(command -v "$ninja")"
+  export NINJA
   command -v pkg-config >/dev/null || { echo "pkg-config is required" >&2; exit 1; }
   export PKG_CONFIG_LIBDIR="$prefix/lib/pkgconfig"
   unset PKG_CONFIG_PATH
