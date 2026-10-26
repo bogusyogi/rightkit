@@ -6,10 +6,16 @@
 // RightKit issue that moves it. These two rules run wherever the app check runs (`rightkit-gate check`, `right-release check`, the
 // pre-push hook, the start of every checked right-release command and RightKit's own preflight):
 //
-//   mandatory-foundation  OW-05  an app (a repository whose root holds its declaration, rightkit-mandatory.json) whose profile
-//                                requires a foundation owner the app does not declare as a dependency (missing, or dev-only), or
-//                                that selects an unknown or unratified profile. A row the app declares not applicable, with a reason,
-//                                in rightkit-mandatory.json is not required; owner-pending rows never fail. Below-required versions
+//   mandatory-foundation  OW-05  an app whose profile requires a foundation owner the app does not declare as a dependency (missing,
+//                                or dev-only), or that selects an unknown or unratified profile. An app is a repository whose root
+//                                holds its declaration, rightkit-mandatory.json, or that ships a desktop app: a root
+//                                right-release.config.(mjs|json), or one beside a src-tauri/tauri.conf.json; when that directory
+//                                holds its own declaration (RightKit's desktop-app-template), its rulings are checked here and its
+//                                owners when the directory is checked as its own root (no TOML parser is needed before install). An app without the
+//                                declaration is a finding, so a missing declaration is never an exemption. A row the app declares not applicable is
+//                                excused only by a ratified ruling: appAmendments.<app>.notApplicable.<row> for the `app` the
+//                                declaration names and its profile, with the reason copied verbatim; any other not-applicable row is
+//                                a finding and the row still applies (rightkit#1140). Owner-pending rows never fail. Below-required versions
 //                                and path/git overrides stay with `right-release ownership-mandatory --enforce` (versions move with
 //                                every publish). Findings carry an identity, so an app may ratchet them in its baseline.
 //   ownership-exceptions  OW-06  every committed .rightkit/ownership-exceptions.json: { schema?: 1, generated?, exceptions: [...] };
@@ -17,7 +23,11 @@
 //                                approvedBy, a real `date` not later than today, a real `expires` not before `date`, and `issue`, a
 //                                RightKit issue (`<owner>/rightkit#<n>` or https://github.com/<owner>/rightkit/issues/<n>). Schema
 //                                findings carry an identity (an adoption ratchet, bounded by the baseline's 90-day sunset); an entry
-//                                past its `expires` date is a finding with no identity, so no baseline can silence an expiry.
+//                                past its `expires` date is a finding with no identity, so no baseline can silence an expiry. Each
+//                                entry must also match a ratified ruling, appAmendments.<app>.exceptions in ownership-mandatory-set.json
+//                                for the `app` the root rightkit-mandatory.json names: same capability, package (or crate), path when
+//                                the ruling names one, and RightKit issue, expiring no later than the ruling. `approvedBy` alone is
+//                                text the app writes; an entry no ruling covers is a finding.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -31,6 +41,12 @@ let mandatorySetError = null;
 try { mandatorySet = await import("./ownership-mandatory-set.mjs"); } catch (error) { mandatorySetError = error; }
 
 export const APP_MARKERS = Object.freeze(["rightkit-mandatory.json"]);
+export const APP_DECLARATION_FILE = "rightkit-mandatory.json";
+const RELEASE_CONFIG = /^(?:(.+)\/)?right-release\.config\.(?:mjs|json)$/;
+const SKIPPED_TREE = /(^|\/)(node_modules|vendor|target)\//;
+const MANDATORY_DATA = new URL("./ownership-mandatory-set.json", import.meta.url);
+/** The mandatory-set data, read as JSON (no TOML parser needed), or null when it cannot be read. */
+export function mandatoryData() { try { return JSON.parse(fs.readFileSync(MANDATORY_DATA, "utf8")); } catch { return null; } }
 export const OWNERSHIP_LEDGER_FILE = ".rightkit/ownership-exceptions.json";
 export const LEDGER_TOP_KEYS = Object.freeze(["schema", "generated", "exceptions"]);
 export const LEDGER_ENTRY_KEYS = Object.freeze(["capability", "package", "crate", "path", "fingerprint", "reason", "owner", "approvedBy", "date", "expires", "issue"]);
@@ -96,9 +112,38 @@ export function validateLedger(doc, { today = todayOf() } = {}) {
   return out;
 }
 
+/**
+ * The ratified ruling that covers a ledger entry, or null. `rulings` is appAmendments.<app>.exceptions: [{ capability, package | crate,
+ * path?, issue, expires }]. A ruling with no `path` covers every path of its capability and package.
+ */
+export function rulingFor(entry, rulings) {
+  if (!entry || typeof entry !== "object" || !Array.isArray(rulings)) return null;
+  const issue = rightkitIssue(entry.issue);
+  return rulings.find((r) => r && r.capability === entry.capability && (r.package ?? r.crate) === (entry.package ?? entry.crate)
+    && (r.path === undefined || r.path === entry.path) && issue !== null && rightkitIssue(r.issue)?.toLowerCase() === issue.toLowerCase()
+    && isRealDate(r.expires) && isRealDate(entry.expires) && entry.expires <= r.expires) ?? null;
+}
+
+/** The declaration as ownership-mandatory-set.mjs reads it (profile and not-applicable rows of 10+ characters), without its TOML parser. */
+function declarationOf(appRoot, data) {
+  const doc = readJson(appRoot, data.appDeclarationFile) ?? {};
+  const notApplicable = {};
+  for (const [id, reason] of Object.entries(doc.notApplicable ?? {})) if (typeof reason === "string" && reason.trim().length >= 10) notApplicable[id] = reason.trim();
+  return { profile: doc.profile ?? data.defaultProfile, notApplicable, records: {}, problems: [] };
+}
+
+/** The `app` a root declaration names, or null. */
+export function declaredApp(root) {
+  const doc = readJson(root, APP_DECLARATION_FILE);
+  return doc && typeof doc === "object" && typeof doc.app === "string" && doc.app.trim() ? doc.app.trim() : null;
+}
+
 /** The ownership-exceptions rule: every committed ledger in the tree. */
-export function ownershipExceptions({ root, files, now }) {
+export function ownershipExceptions({ root, files, now }, { data = mandatoryData() } = {}) {
   const today = todayOf(now);
+  const app = declaredApp(root);
+  const amendment = app && data?.appAmendments ? data.appAmendments[app] : undefined;
+  const rulings = amendment && Array.isArray(amendment.exceptions) ? amendment.exceptions : [];
   const ledgers = (files ?? []).filter((file) => file === OWNERSHIP_LEDGER_FILE || file.endsWith(`/${OWNERSHIP_LEDGER_FILE}`)).sort();
   const out = [];
   for (const file of ledgers) {
@@ -112,6 +157,15 @@ export function ownershipExceptions({ root, files, now }) {
       const { subject, expired, ...rest } = finding;
       out.push({ ...rest, problem: `${file}: ${rest.problem}`, ...(expired ? {} : { file, subject }) });
     }
+    (Array.isArray(doc?.exceptions) ? doc.exceptions : []).forEach((entry, index) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry) || rulingFor(entry, rulings)) return;
+      const label = `${entry.capability ?? "?"}/${entry.package ?? entry.crate ?? "?"}${entry.path ? ` ${entry.path}` : ""}`;
+      out.push({
+        file, subject: `#${index} ${label} ruling`,
+        problem: `${file}: entry #${index} (${label}) matches no ratified ruling: ${app ? `appAmendments.${app}.exceptions in ownership-mandatory-set.json has none with this capability, ${entry.crate !== undefined ? "crate" : "package"}, path, issue and an expiry no earlier than ${entry.expires}` : `${APP_DECLARATION_FILE} names no "app", so no ruling can apply`}`,
+        fix: `ratify the exception in RightKit (appAmendments.<app>.exceptions, with its issue and expiry) and name the app in ${APP_DECLARATION_FILE}, or move the code into RightKit and remove the entry`,
+      });
+    });
   }
   return out;
 }
@@ -121,23 +175,58 @@ export function appMarkers(root) {
   return APP_MARKERS.filter((name) => readText(root, name) !== null);
 }
 
-/** The mandatory-foundation rule: the app's profile rows against the dependencies it declares. */
-export function mandatoryFoundation({ root }, { evaluator = mandatorySet } = {}) {
-  const markers = appMarkers(root);
-  if (!markers.length) return [];
-  if (!evaluator) throw new Error(`ownership-mandatory-set.mjs could not be loaded: ${mandatorySetError?.message ?? "unknown error"}`);
-  const data = evaluator.loadData();
+/**
+ * The release configs that make a tree an app even without its declaration: a root right-release.config.(mjs|json), or one whose
+ * directory also holds src-tauri/tauri.conf.json (a packaged desktop app).
+ */
+export function releaseAppMarkers(files) {
+  const tracked = new Set(files ?? []);
+  return [...tracked].filter((file) => {
+    const m = RELEASE_CONFIG.exec(file);
+    if (!m || SKIPPED_TREE.test(file)) return false;
+    return m[1] === undefined || tracked.has(`${m[1]}/src-tauri/tauri.conf.json`);
+  }).sort();
+}
+
+/** Split declared not-applicable rows into those a ratified ruling covers and those it does not. */
+export function ratifiedNotApplicable(declared, { app, profile, data }) {
+  const amendment = app && data?.appAmendments ? data.appAmendments[app] : undefined;
+  const rulings = amendment && amendment.profile === profile && amendment.notApplicable && typeof amendment.notApplicable === "object" ? amendment.notApplicable : {};
+  const ratified = {}, unratified = {};
+  for (const [id, reason] of Object.entries(declared ?? {})) {
+    if (typeof rulings[id] === "string" && rulings[id].trim() === reason.trim()) ratified[id] = reason;
+    else unratified[id] = reason;
+  }
+  return { ratified, unratified, ruled: Boolean(amendment) };
+}
+
+/**
+ * The findings of one app root (`dir` relative to the checked root, "" for the root itself). `owners: false` runs only the checks
+ * that need no TOML parser (the declaration parses; every not-applicable row is ratified): a nested app's foundation owners are
+ * checked when its own directory is checked, so RightKit's preflight, which runs before any install, can still see the rulings.
+ */
+function checkAppRoot({ root, dir, evaluator, data, owners = true }) {
+  const appRoot = dir ? path.join(root, dir) : root;
   const declarationFile = data.appDeclarationFile;
-  const file = markers.includes(declarationFile) ? declarationFile : markers[0];
+  const file = dir ? `${dir}/${declarationFile}` : declarationFile;
   const out = [];
-  if (markers.includes(declarationFile) && readJson(root, declarationFile) === null) {
-    out.push({ file, subject: "declaration", problem: `${declarationFile} is not valid JSON, so the app's profile and not-applicable rows cannot be read`, fix: `repair ${declarationFile}` });
+  if (readJson(appRoot, declarationFile) === null) {
+    out.push({ file, subject: "declaration", problem: `${file} is not valid JSON, so the app's profile and not-applicable rows cannot be read`, fix: `repair ${file}` });
     return out;
   }
-  const report = evaluator.checkApp(root, { data });
+  const declaration = (evaluator ?? { loadAppDeclaration: declarationOf }).loadAppDeclaration(appRoot, data);
+  const app = declaredApp(appRoot);
+  const { ratified, unratified, ruled } = ratifiedNotApplicable(declaration.notApplicable, { app, profile: declaration.profile, data });
+  for (const [row, reason] of Object.entries(unratified)) out.push({
+    file, subject: `notApplicable:${row}`,
+    problem: `notApplicable.${row} ("${reason.slice(0, 80)}${reason.length > 80 ? "..." : ""}") is not a ratified ruling: ${!app ? `${file} names no "app"` : !ruled ? `appAmendments has no entry for "${app}"` : `appAmendments.${app} (profile ${data.appAmendments[app].profile}) has no ruling for ${row} with this reason verbatim for profile ${declaration.profile}`}; the row still applies`,
+    fix: `ratify the ruling in RightKit (appAmendments.${app ?? "<app>"}.notApplicable.${row}, rightkit#1140) and copy its reason verbatim, or adopt the row's owner`,
+  });
+  if (!owners) return out;
+  const report = evaluator.checkApp(appRoot, { data, declaration: { ...declaration, notApplicable: ratified } });
   for (const owner of report.owners) {
     if (owner.status === "unknown-profile" || owner.status === "unratified") {
-      out.push({ file, subject: owner.owner, problem: `profile "${report.profile}" is ${owner.status === "unknown-profile" ? "not a profile of ownership-mandatory-set.json" : "not ratified (or has no rows)"}, so no foundation set can be checked`, fix: `select a ratified profile (${Object.entries(data.profiles).filter(([, p]) => p.ratified !== false).map(([name]) => name).join(", ")}) in ${declarationFile}` });
+      out.push({ file, subject: owner.owner, problem: `profile "${report.profile}" is ${owner.status === "unknown-profile" ? "not a profile of ownership-mandatory-set.json" : "not ratified (or has no rows)"}, so no foundation set can be checked`, fix: `select a ratified profile (${Object.entries(data.profiles).filter(([, p]) => p.ratified !== false).map(([name]) => name).join(", ")}) in ${file}` });
       continue;
     }
     if (owner.status !== "missing") continue;
@@ -145,9 +234,40 @@ export function mandatoryFoundation({ root }, { evaluator = mandatorySet } = {})
     out.push({
       file, subject: owner.owner,
       problem: `profile "${report.profile}" requires the foundation owner ${owner.owner} (${owner.ecosystem}, row${owner.rows.length > 1 ? "s" : ""} ${owner.rows.join(", ")}) and the app does not use it${devOnly ? " (declared only as a dev dependency)" : ""}`,
-      fix: `depend on ${owner.owner} >= ${owner.required} from the registry and use it, or, when the row truly does not apply, declare it under notApplicable in ${declarationFile} with its reason`,
+      fix: `depend on ${owner.owner} >= ${owner.required} from the registry and use it, or, when the row truly does not apply, declare it under notApplicable in ${file} with the reason RightKit ratified for the app`,
     });
   }
+  return out;
+}
+
+/**
+ * The mandatory-foundation rule. The root declaration makes the whole tree one app. Without it, every release config that ships a
+ * desktop app (releaseAppMarkers) is an app: one whose own directory holds a declaration is checked from there; the others are one
+ * finding, the missing declaration (no profile is chosen for the app, so none of its rows can be excused or checked).
+ */
+export function mandatoryFoundation({ root, files }, { evaluator = mandatorySet } = {}) {
+  const markers = appMarkers(root);
+  const releaseMarkers = markers.length ? [] : releaseAppMarkers(files);
+  if (!markers.length && !releaseMarkers.length) return [];
+  const out = [];
+  const declared = [], undeclared = [];
+  for (const marker of releaseMarkers) {
+    const dir = marker.includes("/") ? marker.slice(0, marker.lastIndexOf("/")) : "";
+    (dir && readText(root, `${dir}/${APP_DECLARATION_FILE}`) !== null ? declared : undeclared).push(dir || marker);
+  }
+  if (undeclared.length) out.push({
+    file: APP_DECLARATION_FILE, subject: "declaration",
+    problem: `${undeclared.join(", ")} ships a desktop app, and the repository has no ${APP_DECLARATION_FILE}: an app without its declaration is never exempt from the mandatory foundation set`,
+    fix: `commit ${APP_DECLARATION_FILE} at the root (or beside the app's release config) with the app's "app" name, its "profile" and only the not-applicable rows ratified for it in appAmendments`,
+  });
+  if (!markers.length && !declared.length) return out;
+  if (markers.length) {
+    if (!evaluator) throw new Error(`ownership-mandatory-set.mjs could not be loaded: ${mandatorySetError?.message ?? "unknown error"}`);
+    return checkAppRoot({ root, dir: "", evaluator, data: evaluator.loadData() });
+  }
+  const data = mandatoryData();
+  if (!data) throw new Error("ownership-mandatory-set.json could not be read");
+  for (const dir of declared) out.push(...checkAppRoot({ root, dir, evaluator: null, data, owners: false }));
   return out;
 }
 
