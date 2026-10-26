@@ -30,18 +30,16 @@
       "with": "reviewed privacy notice text for what the app actually receives, then `pnpm exec legal-snapshot`"
     },
     {
+      "file": "src-tauri/src/services.rs",
+      "marker": "pub const LICENSE: Option<LicenseRegistration> = None;",
+      "with": "the app's registered appKey, licence host and Ed25519 public key (bogusyogi/rightkit#272) for a licensed app; a free app keeps None"
+    },
+    {
       "file": "assets/brand/brand.json",
       "with": "the approved palette from /brand <code>, then `pnpm brand:sync`"
     }
   ],
   "declaredOnly": [
-    { "owner": "rightkit-db", "ecosystem": "cargo", "rows": ["M9"], "manifest": "crates/engine/Cargo.toml", "source": "crates/engine/src", "blockedOn": "the engine opens no database until the app has product state" },
-    { "owner": "rightkit-app-settings", "ecosystem": "cargo", "rows": ["M10"], "manifest": "src-tauri/Cargo.toml", "source": "src-tauri/src", "blockedOn": "bogusyogi/rightkit#1147" },
-    { "owner": "@rightkit/settings-ui", "ecosystem": "npm", "rows": ["M10"], "manifest": "package.json", "source": "src", "blockedOn": "bogusyogi/rightkit#1147" },
-    { "owner": "rightkit-license", "ecosystem": "cargo", "rows": ["M12", "M13"], "manifest": "src-tauri/Cargo.toml", "source": "src-tauri/src", "blockedOn": "a registered appKey, host and key per app (bogusyogi/rightkit#1147)" },
-    { "owner": "@rightkit/license", "ecosystem": "npm", "rows": ["M12"], "manifest": "package.json", "source": "src", "blockedOn": "a registered appKey, host and key per app (bogusyogi/rightkit#1147)" },
-    { "owner": "@rightkit/legal-ui", "ecosystem": "npm", "rows": ["M14"], "manifest": "package.json", "source": "src", "blockedOn": "the legal receipt and its trust roots (bogusyogi/rightkit#1147)" },
-    { "owner": "@rightkit/onboarding", "ecosystem": "npm", "rows": ["M14"], "manifest": "package.json", "source": "src", "blockedOn": "the legal receipt and its trust roots (bogusyogi/rightkit#1147)" },
-    { "owner": "rightkit-http", "ecosystem": "cargo", "rows": ["M17"], "manifest": "src-tauri/Cargo.toml", "source": "src-tauri/src", "blockedOn": "the licence exchange (bogusyogi/rightkit#1147)" }
+    { "owner": "rightkit-db", "ecosystem": "cargo", "rows": ["M9"], "manifest": "crates/engine/Cargo.toml", "source": "crates/engine/src", "blockedOn": "the engine opens no database until the app has product state" }
   ]
 }

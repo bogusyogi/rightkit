@@ -6,9 +6,11 @@
   "type": "module",
   "bin": {
     "right-release": "cli/right-release.mjs",
-    "rightkit-gate": "bin/rightkit-gate.mjs"
+    "rightkit-gate": "bin/rightkit-gate.mjs",
+    "rightkit-agent-hook": "bin/rightkit-agent-hook.mjs"
   },
   "exports": {
+    "./bin/rightkit-agent-hook.mjs": "./bin/rightkit-agent-hook.mjs",
     "./bin/rightkit-gate.mjs": "./bin/rightkit-gate.mjs",
     "./cargo-contract.mjs": "./cargo-contract.mjs",
     "./cargo-target.mjs": "./cargo-target.mjs",
@@ -61,6 +63,7 @@
     "templates",
     "*.mjs",
     "*.json",
+    "deny-default.toml",
     "*.sh",
     "msix-repair-guard.ps1",
     "bin/darwin/rightkit-swap",

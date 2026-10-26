@@ -14,6 +14,7 @@ Plan item 2.10 (gaps C4-16, C4-17). `@rightkit/release` had no `exports` map, so
 
 | Subpath | Class | Public because |
 |---|---|---|
+| `./bin/rightkit-agent-hook.mjs` | bin | target of the `rightkit-agent-hook` bin; the agent PreToolUse hook install-hook registers |
 | `./bin/rightkit-gate.mjs` | bin | target of the `rightkit-gate` bin; hooks and docs name the installed path |
 | `./cargo-contract.mjs` | app-import | imported by heardright |
 | `./cargo-target.mjs` | app-import | imported by coderight, cutright, heardright, postright, pulse, scraperight, viewright |

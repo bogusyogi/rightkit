@@ -9,6 +9,8 @@ preferWorkspacePackages: true
 
 overrides:
   '@wdio/native-utils': 2.5.0
+  # GHSA-238p-pmpm-9mq7 (katex <0.18.2): micromark-extension-math 3.1.0 still asks for ^0.16.
+  katex: ^0.18.2
 
 allowBuilds:
   # Transitive WDIO browser drivers. The native lane drives Tauri's own WebDriver,

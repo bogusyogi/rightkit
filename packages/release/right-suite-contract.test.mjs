@@ -1128,6 +1128,8 @@ const RIGHTKIT_EXCEPTION_WORKFLOWS = ["ffmpeg-windows.yml"];
 const RIGHTKIT_EVIDENCE_WORKFLOWS = ["qualify-fs.yml", "qualify-runtime.yml", "qualify-existing-swift.yml", "registry-readback.yml", "reviewed-registry-readback.yml", "supplement-archive-scan.yml", "chrome-native-diagnostic.yml", "repair-hygiene.yml"];
 // Owner-authorized registry administration (yank / deprecate) with registry readback; never publishes.
 const RIGHTKIT_ADMIN_WORKFLOWS = ["registry-admin.yml"];
+// The trusted publisher for every app (Adrian, 2026-10-25: one door, publication only from the protected environment).
+const RIGHTKIT_APP_PUBLISHING_WORKFLOWS = ["publish-app.yml"];
 const RIGHTKIT_QUALIFICATION_WORKFLOWS = ["publish.yml"];
 const RIGHTKIT_PUBLISHING_WORKFLOWS = ["publish-reviewed.yml"];
 // Direct publication (Adrian, 2026-10-22): a green publish.yml qualification run on main uploads its own sealed bytes.
@@ -1201,6 +1203,24 @@ function assertEvidenceWorkflow(text, name) {
   assert.doesNotMatch(text, /pull_request_target/, `${name} must not use pull_request_target`);
   pinnedActionLines(text, name);
 }
+// publish-app: dispatch only; one job in the protected app-publication environment; class A before publication; the staged archive
+// unpacked outside the checkout with links and foreign paths refused; release only through the door; secrets only in that job.
+function assertAppPublishWorkflow(text, name) {
+  const doc = parseYaml(text);
+  assert.deepEqual(Object.keys(doc.on ?? {}), ["workflow_dispatch"], `${name}: dispatch only`);
+  assert.deepEqual(doc.permissions, { contents: "read" }, `${name}: read-only token`);
+  assert.deepEqual(Object.keys(doc.jobs), ["publish"], `${name}: one job`);
+  const job = doc.jobs.publish;
+  assert.equal(job.environment, "app-publication", `${name}: protected environment`);
+  const runs = job.steps.map((step) => step.run ?? "").join("\n");
+  assert.ok(runs.indexOf("rightkit-gate check --commit HEAD") >= 0 && runs.indexOf("rightkit-gate check --commit HEAD") < runs.indexOf("rightkit-gate --to release"), `${name}: class A before release`);
+  assert.match(runs, /unpack="\$RUNNER_TEMP\/unpack-\$platform"/, `${name}: unpacked outside the checkout`);
+  assert.match(runs, /! -type f ! -type d/, `${name}: links and special files refused`);
+  assert.match(runs, /RIGHTKIT_PUBLISHER|--to release/, name);
+  assert.doesNotMatch(runs, /right-release (upload|build|publish)/, `${name}: nothing reaches right-release around the door`);
+  assert.equal(job.steps.find((step) => /--to release/.test(step.run ?? ""))?.env?.RIGHTKIT_PUBLISHER, "github-environment", name);
+}
+
 function assertAdminWorkflow(text, name) {
   assert.match(text, /^on:\n  workflow_dispatch:/m, `${name} must be manually dispatched`);
   assert.doesNotMatch(text, /^  (?:push|pull_request|pull_request_target|schedule|workflow_run|release):/m, `${name} must have no automatic trigger`);
@@ -1221,7 +1241,7 @@ test("Right Suite hosts no hosted workflow except rightkit's reviewed workflows"
       assert.deepEqual(workflows, [], `${root} must not contain hosted workflow files`);
       continue;
     }
-    const allowed = [...RIGHTKIT_VERIFICATION_WORKFLOWS, ...RIGHTKIT_EVIDENCE_WORKFLOWS, ...RIGHTKIT_EXCEPTION_WORKFLOWS, ...RIGHTKIT_QUALIFICATION_WORKFLOWS, ...RIGHTKIT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_DIRECT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_ADMIN_WORKFLOWS];
+    const allowed = [...RIGHTKIT_VERIFICATION_WORKFLOWS, ...RIGHTKIT_EVIDENCE_WORKFLOWS, ...RIGHTKIT_EXCEPTION_WORKFLOWS, ...RIGHTKIT_QUALIFICATION_WORKFLOWS, ...RIGHTKIT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_DIRECT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_ADMIN_WORKFLOWS, ...RIGHTKIT_APP_PUBLISHING_WORKFLOWS];
     assert.deepEqual(workflows.filter((name) => !allowed.includes(name)), [], `rightkit may host only ${allowed.join(", ")}; any other hosted workflow needs an explicit decision`);
     for (const name of workflows) {
       const text = readFileSync(path.join(workflowDir, name), "utf8").replace(/\r\n/g, "\n");
@@ -1229,6 +1249,7 @@ test("Right Suite hosts no hosted workflow except rightkit's reviewed workflows"
       if (RIGHTKIT_PUBLISHING_WORKFLOWS.includes(name)) { assertReviewedWorkflow(text, name); continue; }
       if (RIGHTKIT_DIRECT_PUBLISHING_WORKFLOWS.includes(name)) { assertDirectPublishWorkflow(text, name); continue; }
       if (RIGHTKIT_ADMIN_WORKFLOWS.includes(name)) { assertAdminWorkflow(text, name); continue; }
+      if (RIGHTKIT_APP_PUBLISHING_WORKFLOWS.includes(name)) { assertAppPublishWorkflow(text, name); continue; }
       if (RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS.includes(name)) {
         const doc = parseYaml(text);
         assertSwiftDoc(doc);

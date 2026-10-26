@@ -27,12 +27,16 @@ support-bundle = ["dep:zip"]
 # Renderer/webview error capture: `record_window_error`, `WindowErrorGate`, `WindowErrorReport`.
 # Off by default; adds no dependency.
 window-errors = []
+# One-call process diagnostics: `init_diagnostics` installs the crash hook and rightkit-logs' daily-rolling
+# `tracing` file logs under one data root, and writes each crash report to the log. Off by default.
+diagnostics = ["dep:tracing", "rightkit-logs/tracing"]
 
 [dependencies]
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 rightkit-logs = { version = "0.3.4", path = "../rightkit-logs", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tracing = { version = "0.1", default-features = false, features = ["std"], optional = true }
 zip = { version = "9", default-features = false, features = ["deflate"], optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -47,6 +51,8 @@ windows-sys = { version = "0.61.2", features = [
 
 [dev-dependencies]
 rightkit-logs = { version = "0.3.4", path = "../rightkit-logs", features = ["testing"] }
+# Emits events in the `diagnostics` integration test.
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 
 [package.metadata.rightkit]
 continuous = "held-resource"

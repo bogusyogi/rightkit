@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
-import { __testOnly as approval, canonicalJson } from "./ownership-approval.mjs";
+import { __testOnly as approval, canonicalJson, DEFAULT_TRUST_PATH } from "./ownership-approval.mjs";
 import { __testOnly as command } from "./ownership-key-command.mjs";
 import { keyFingerprint } from "./ownership-key-log.mjs";
 
@@ -102,15 +102,23 @@ test("elevation refuses missing request, malformed or mismatched digest & linked
     writeFileSync(original, "linked target\n");
     try { symlinkSync(original, linked, "file"); }
     catch { t.skip("file symlink creation unavailable"); return; }
-    assert.throws(() => elevate(), (error) => typedRefusal(error) && /non-linked file/.test(error.message));
+    // A host with no protected trust location (Linux: CI admission runners, never an approval host by design) refuses before the
+    // sibling check is reached; that typed refusal is the Linux expectation, the sibling refusal the macOS/Windows one.
+    if (!DEFAULT_TRUST_PATH[process.platform]) assert.throws(() => elevate(), (error) => typedRefusal(error) && new RegExp(`trust path is unavailable for ${process.platform}`).test(error.message));
+    else assert.throws(() => elevate(), (error) => typedRefusal(error) && /non-linked file/.test(error.message));
     assert.equal(calls, 0);
   } finally { rmSync(fixture.directory, { recursive: true, force: true }); }
 });
 
-test("checkout elevation dispatches both trust updater & authority wrapper", () => {
+test("checkout elevation dispatches both trust updater & authority wrapper; a host without a protected trust location launches nothing", () => {
   const fixture = checkoutFixture();
   const calls = [];
   try {
+    if (!DEFAULT_TRUST_PATH[process.platform]) {
+      assert.throws(() => command.elevate((exe, args, options) => { calls.push({ exe, args, options }); return { status: 0 }; }, fixture.requestPath, fixture.digest, { ...fixture.options, tty: true }), (error) => typedRefusal(error) && new RegExp(`trust path is unavailable for ${process.platform}`).test(error.message));
+      assert.equal(calls.length, 0, "no elevation, no updater, no wrapper is ever launched on such a host");
+      return;
+    }
     command.elevate((exe, args, options) => { calls.push({ exe, args, options }); return { status: 0 }; }, fixture.requestPath, fixture.digest, { ...fixture.options, tty: true });
     const elevation = calls.find(({ exe, args }) => exe === "/usr/bin/sudo" ? args[0] === "-k" : /powershell\.exe$/i.test(exe));
     assert.ok(elevation);
