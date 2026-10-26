@@ -23,7 +23,7 @@ const git = (packages = PACKAGES) => (...args) => {
 };
 const greenGate = (sha = SHA) => () => ({ status: 0, stdout: `check: ${sha.slice(0, 12)} passed 58 rules in 7.1s\nrightkit-gate: class A pass: 12 deterministic scan(s) over 900 file(s) of ${sha}\n` });
 const GATE = { command: `rightkit-gate check --commit ${SHA}`, exit: 0, rules: 58, classAScans: 12, classAFiles: 900 };
-const npm = (versions) => async (url) => (versions === null ? { status: 404, ok: false } : { status: 200, ok: true, json: async () => ({ versions: Object.fromEntries(versions.map((v) => [v, {}])) }) });
+const npm = (versions, name) => async (url) => (versions === null ? { status: 404, ok: false } : { status: 200, ok: true, json: async () => ({ name: name ?? decodeURIComponent(url.split("/").pop()), versions: Object.fromEntries(versions.map((v) => [v, {}])) }) });
 
 test("hosted admission: one unpublished @rightkit/* package at the run's commit, with exactly the committed policy, is admitted", async () => {
   const receipt = await admit({ env: hostedEnv(), git: git(), runGate: greenGate(), fetchImpl: npm(["0.6.6"]), policy: policy() });
@@ -59,8 +59,41 @@ test("hosted admission refuses wrong SHA, wrong scope, a request id, a published
   await assert.rejects(admit({ env: hostedEnv(), runGate: greenGate(), git: git({ release: { name: "@rightkit/release" } }), fetchImpl: npm([]), policy: policy() }), /no publishable version/);
 });
 
+test("the registry answer fails closed: only a 404 is absence, and a 200 must be this package's own record", async () => {
+  const answer = (body, status = 200) => async () => ({ status, ok: status >= 200 && status < 300, json: async () => { if (body instanceof Error) throw body; return body; } });
+  const run = (fetchImpl) => admit({ env: hostedEnv(), git: git(), runGate: greenGate(), fetchImpl, policy: policy() });
+  // Positives: a valid packument without this version, and a 404 (never published).
+  assert.deepEqual((await run(answer({ name: "@rightkit/release", versions: { "0.6.6": {} } }))).versions, { "@rightkit/release": "0.6.7" });
+  assert.deepEqual((await run(answer(null, 404))).versions, { "@rightkit/release": "0.6.7" });
+  // A valid packument holding this version is a published version (replay).
+  await assert.rejects(run(answer({ name: "@rightkit/release", versions: { "0.6.7": {} } })), /already on npm/);
+  // Malformed or foreign 200 answers are unreadable, never absence.
+  for (const [name, body] of [
+    ["empty object", {}],
+    ["no versions", { name: "@rightkit/release" }],
+    ["versions not an object", { name: "@rightkit/release", versions: "0.6.7" }],
+    ["versions an array", { name: "@rightkit/release", versions: ["0.6.6"] }],
+    ["versions null", { name: "@rightkit/release", versions: null }],
+    ["another package's packument", { name: "@rightkit/ci", versions: {} }],
+    ["no name", { versions: {} }],
+    ["a JSON array", []],
+    ["JSON null", null],
+    ["not JSON", new SyntaxError("Unexpected token")],
+  ]) await assert.rejects(run(answer(body)), /malformed or foreign packument|no JSON record/, name);
+  await assert.rejects(run(answer({}, 500)), /npm registry returned 500/);
+  // crates.io: a 200 must be exactly this crate's version record.
+  const crateEnv = { ...ACTIONS, ADMISSION: "broker", REQUEST_ID: "job-1", EXPECTED_SHA: SHA, REGISTRY: "crates", UNITS: "rightkit-qa", ALLOW_HOST_EXCLUSION: "", ALLOW_NO_TEST: "", ALLOW_IGNORED: "", ALLOW_MISSING_ASSETS: "" };
+  const crateGit = (...args) => (args[0] === "show" && args[1] === `${SHA}:crates/rightkit-qa/Cargo.toml` ? '[package]\nname = "rightkit-qa"\nversion = "0.9.2"\n' : git()(...args));
+  const runCrate = (fetchImpl) => admit({ env: crateEnv, git: crateGit, runGate: greenGate(), fetchImpl, policy: policy() });
+  assert.deepEqual((await runCrate(answer(null, 404))).versions, { "rightkit-qa": "0.9.2" });
+  await assert.rejects(runCrate(answer({ version: { crate: "rightkit-qa", num: "0.9.2" } })), /already on crates/);
+  for (const [name, body] of [["empty object", {}], ["another crate", { version: { crate: "rightkit-qb", num: "0.9.2" } }], ["another version", { version: { crate: "rightkit-qa", num: "0.9.1" } }], ["errors body", { errors: [{ detail: "Not Found" }] }]]) {
+    await assert.rejects(runCrate(answer(body)), /record of another or no crate version/, name);
+  }
+});
+
 test("broker mode grants nothing: an invented request id gets the same gate, version and policy checks as hosted", async () => {
-  const crate = (versions) => async (url) => { assert.match(url, /^https:\/\/crates\.io\/api\/v1\/crates\/rightkit-qa\/0\.9\.2$/); return versions.includes("0.9.2") ? { status: 200, ok: true } : { status: 404, ok: false }; };
+  const crate = (versions) => async (url) => { assert.match(url, /^https:\/\/crates\.io\/api\/v1\/crates\/rightkit-qa\/0\.9\.2$/); return versions.includes("0.9.2") ? { status: 200, ok: true, json: async () => ({ version: { crate: "rightkit-qa", num: "0.9.2" } }) } : { status: 404, ok: false }; };
   const crates = (...args) => (args[0] === "show" && args[1] === `${SHA}:crates/rightkit-qa/Cargo.toml` ? '[package]\nname = "rightkit-qa"\nversion = "0.9.2"\n\n[dependencies]\nx = { version = "1" }\n' : git()(...args));
   const env = { ...ACTIONS, ADMISSION: "broker", REQUEST_ID: "invented-by-a-raw-dispatch", EXPECTED_SHA: SHA, REGISTRY: "crates", UNITS: "rightkit-qa", ALLOW_HOST_EXCLUSION: "", ALLOW_NO_TEST: "", ALLOW_IGNORED: "", ALLOW_MISSING_ASSETS: "rightkit-qa" };
   const granted = () => ({ ...NONE, allow_missing_assets: ["rightkit-qa"] });
