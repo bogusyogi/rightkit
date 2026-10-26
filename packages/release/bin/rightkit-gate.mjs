@@ -47,17 +47,10 @@
 // From the pre-push hook, git's ref lines arrive on stdin: the commit being pushed must be the checked-out HEAD (broker scans
 // read the live checkout), and the remote's current commit is the diff base. To push an earlier commit of the local stack,
 // check it out first (a detached HEAD is fine), push HEAD:<branch>, return.
-// A host with neither `rustright` nor the managed cargo shim (a cloud session) refuses the Rust gate, with one exception: when git's
-// stdin names only non-protected branches (not main, master, trunk, release/*, the .rightgit.json defaultBranch, or a tag) and the
-// process is not in CI (no CI or GITHUB_ACTIONS), the gate defers the Rust gate to host qualification. It reads the Rust units from the
-// tracked manifests (no cargo), runs every scan that needs no broker, prints "rust gate DEFERRED to host qualification" with the Rust
-// units and scans it did not run, exits 0 and writes nothing into the tree. An npm test scan whose package script chain runs `rustright` or
-// `cargo` (planScans marks it `brokerCall`), or a unit whose ci/gate.config.json `npm.<unit>.requiresBroker` declares that its test needs the
-// broker, cannot run there either and is deferred the same way, named with its reason. The pull request then
-// needs a HOST RECEIPT before merge; that receipt stays the merge gate. RIGHTKIT_GATE_NO_DEFER=1 keeps the refusal on such a host. Every pushed ref is judged, whatever its place
-// in the push; git's stdin is split on single ASCII spaces (a ref name may hold Unicode whitespace) and a line that is not four fields defers
-// nothing. The default branch is named by the checkout, the base ref, the remote commits being replaced and origin/HEAD, so a commit cannot
-// unprotect it by editing .rightgit.json. A refusal prints the old message and, on a second line, why nothing was deferred.
+// The executor is chosen by the gate, never the caller (gate-executor.mjs resolveExecutor): the RustRight broker where this machine
+// has it (`rustright` on PATH, or its managed cargo shim), a refusal on a broker-managed machine whose broker is unreachable, and
+// direct cargo on any other host (a cloud container, a CI runner). Every host runs the same gates in the same order (app rules, class A,
+// the compile scans); an unmanaged host is never told to find a broker. The pre-push hook judges every pushed ref.
 // ci/gate.config.json `rust` (optional) sets per-crate feature sets, exactly as CI's gate reads it; `npm.<unit>` sets `quietTests` and
 // `requiresBroker: { "reason": "..." }` (a test the package scripts do not show reaching the broker: node -e, node scripts, sh -c, pnpm --dir).
 // Result cache: a passing class B scan is reused only when its scan id, command, tool version, environment and input digest
@@ -1430,8 +1423,7 @@ export async function main(argv, io = {}) {
   const tag = "rightkit-gate:";
 
   // git pre-push: "<local ref> <local sha> <remote ref> <remote sha>" per pushed ref. A plan reads no stdin.
-  // `pushedRefs` is every remote ref named, deletions included: it decides whether the Rust gate may defer (rustDeferral). The fields are
-  // split on single ASCII spaces only (parsePushLines): a ref name may hold Unicode whitespace. A line that does not read as four fields
+  // git's push lines are split on single ASCII spaces only (parsePushLines): a ref name may hold Unicode whitespace. A line that does not read as four fields
   // (git hands the local field over verbatim, so a rev expression such as `HEAD@{1 minute ago}` or `HEAD^{/one thing}` holds spaces)
   // refuses the push on every host and in every repository, never a line that disappears: its pushed commit could not be compared with
   // HEAD and its remote ref could not be judged. `pushedRemoteShas` are the remote commits being replaced.

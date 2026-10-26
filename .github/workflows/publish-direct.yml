@@ -42,6 +42,7 @@ jobs:
             scripts/ci/upload.mjs
             scripts/ci/registry-spec.mjs
             scripts/ci/reviewed-candidate.mjs
+            scripts/ci/publish-admission.mjs
             scripts/ci/supplemental-proof.mjs
             ci/linux-required.json
           sparse-checkout-cone-mode: false

@@ -43,6 +43,8 @@ export const PUBLISH_ENV = {
   PUBLISH_REGISTRY: PLAN_OUT("registry"), PUBLISH_UNITS: PLAN_OUT("units"), PUBLISH_ALLOW_HOST_EXCLUSION: PLAN_OUT("allow_host_exclusion"),
   PUBLISH_ALLOW_NO_TEST: PLAN_OUT("allow_no_test"), PUBLISH_ALLOW_IGNORED: PLAN_OUT("allow_ignored"), PUBLISH_ALLOW_MISSING_ASSETS: PLAN_OUT("allow_missing_assets"),
 };
+export const GUARD_CORRELATION_RUN = 'set -euo pipefail\n[[ "$RK_EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]\ntest "$RK_EXPECTED_SHA" = "$GITHUB_SHA"\ncase "$RK_ADMISSION" in\n  broker) [[ "$RK_REQUEST_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]] ;;\n  hosted) test -z "$RK_REQUEST_ID" ;;\n  *) exit 1 ;;\nesac\n';
+export const ADMISSION_ENV = { ADMISSION: "${{ inputs.admission }}", REQUEST_ID: "${{ inputs.request_id }}", EXPECTED_SHA: "${{ inputs.expected_sha }}", REGISTRY: "${{ inputs.registry }}", UNITS: "${{ inputs.units }}", ALLOW_HOST_EXCLUSION: "${{ inputs.allow_host_exclusion }}", ALLOW_NO_TEST: "${{ inputs.allow_no_test }}", ALLOW_IGNORED: "${{ inputs.allow_ignored }}", ALLOW_MISSING_ASSETS: "${{ inputs.allow_missing_assets }}" };
 export const ALL_JOBS = ["guard", "scans", "plan", "build-swap", "sign-swap", "build-credentials-helper", "sign-credentials-helper", "pack", "verify", "verify-linux", "qualified"];
 export const QUALIFIED_RUN = 'test "$GUARD_RESULT" = success\ntest "$PLAN_RESULT" = success\ntest "$PACK_RESULT" = success\ntest "$VERIFY_RESULT" = success\ntest "$UNIT_COUNT" -gt 0\ntest "$LINUX_COUNT" -ge 0\ntest "$VERIFY_LINUX_RESULT" = "$LINUX_EXPECTED_RESULT"\n';
 export const QUALIFIED_ENV = { GUARD_RESULT: "${{ needs.guard.result }}", PLAN_RESULT: "${{ needs.plan.result }}", PACK_RESULT: "${{ needs.pack.result }}", VERIFY_RESULT: "${{ needs.verify.result }}", VERIFY_LINUX_RESULT: "${{ needs.verify-linux.result }}", UNIT_COUNT: "${{ needs.plan.outputs.count }}", LINUX_COUNT: "${{ needs.plan.outputs.linux_count }}", LINUX_EXPECTED_RESULT: "${{ needs.plan.outputs.linux_count != '0' && 'success' || 'skipped' }}" };
@@ -322,10 +324,13 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   const admissionStep = stepsOf(guard)[0];
   const guardStep = stepsOf(guard)[1];
   check(guard && stepsOf(guard).length === 2 && guard.if === undefined && admissionStep?.if === undefined && guardStep?.if === undefined, "guard must have unconditional correlation then repository steps");
-  check(admissionStep?.env?.RK_REQUEST_ID === "${{ inputs.request_id }}" && admissionStep?.env?.RK_EXPECTED_SHA === "${{ inputs.expected_sha }}", "guard must read correlation inputs through env");
-  check(admissionStep?.run === 'set -euo pipefail\n[[ "$RK_REQUEST_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]]\n[[ "$RK_EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]\ntest "$RK_EXPECTED_SHA" = "$GITHUB_SHA"\n', "guard must validate request ID and match exact dispatch SHA before work");
-  for (const input of ["request_id", "expected_sha"]) check(doc?.on?.workflow_dispatch?.inputs?.[input]?.required === "true" && doc.on.workflow_dispatch.inputs[input].type === "string", `${input} must be a required string`);
-  check(doc?.["run-name"] === "publish ${{ inputs.request_id }}", "qualification run name must correlate request ID");
+  check(same(admissionStep?.env, { RK_ADMISSION: "${{ inputs.admission }}", RK_REQUEST_ID: "${{ inputs.request_id }}", RK_EXPECTED_SHA: "${{ inputs.expected_sha }}" }), "guard must read admission and correlation inputs through env");
+  check(admissionStep?.run === GUARD_CORRELATION_RUN, "guard must match the exact dispatch SHA, then a broker request ID, or no request ID for hosted admission, before work");
+  const inputs = doc?.on?.workflow_dispatch?.inputs ?? {};
+  check(inputs.expected_sha?.required === "true" && inputs.expected_sha.type === "string", "expected_sha must be a required string");
+  check(inputs.request_id?.required === "false" && inputs.request_id.type === "string" && inputs.request_id.default === "", "request_id must be an optional string, empty by default");
+  check(inputs.admission?.required === "true" && inputs.admission.type === "choice" && same(inputs.admission.options, ["broker", "hosted"]) && inputs.admission.default === "broker", "admission must be a required choice of broker or hosted, broker by default");
+  check(doc?.["run-name"] === "publish ${{ inputs.admission }} ${{ inputs.request_id }}", "qualification run name must carry the admission mode and request ID");
   check(guardStep?.env?.REF === "${{ github.ref }}" && guardStep?.env?.PRIVATE === "${{ github.event.repository.private }}", "guard must read the ref and repository visibility from the event");
   check(/if \[ "\$REF" != "refs\/heads\/main" \]; then\s+echo [^\n]*\s+exit 1\s+fi/.test(guardStep?.run ?? ""), "guard must exit 1 unless the ref is refs/heads/main");
   check(/if \[ "\$PRIVATE" != "false" \]; then\s+echo [^\n]*\s+exit 1\s+fi/.test(guardStep?.run ?? ""), "guard must exit 1 unless the repository is public");
@@ -341,6 +346,12 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   const scanSteps = stepsOf(scans);
   const scanCheckouts = scanSteps.filter((s) => /^actions\/checkout@/.test(s.uses ?? ""));
   check(scanCheckouts.length === 2 && scanCheckouts.every((s) => s.with?.ref === "${{ github.sha }}" && s.with?.submodules === "false") && same(sorted(scanCheckouts.map((s) => s.with?.path)), ["live", "source"]), "scans must check out the exact dispatched commit twice (source & live), without submodules");
+  // Publication admission: after the class A scans and the scan receipt, the last two steps of scans, unconditional.
+  const admitAt = scanSteps.findIndex((step) => step.run === 'node scripts/ci/publish-admission.mjs admit --out "$RUNNER_TEMP/publish-admission"');
+  const scanReceiptAt = scanSteps.findIndex((step) => step.with?.name === "scan-receipt-${{ github.run_attempt }}");
+  check(admitAt > scanReceiptAt && scanReceiptAt >= 0 && admitAt === scanSteps.length - 2 && scanSteps[admitAt].if === undefined && scanSteps[admitAt]["working-directory"] === "live" && same(scanSteps[admitAt].env, ADMISSION_ENV), "scans must end by admitting the request (publish-admission.mjs admit in live, the dispatch inputs through env) after its scan receipt");
+  const keep = scanSteps[scanSteps.length - 1];
+  check(/^actions\/upload-artifact@/.test(keep?.uses ?? "") && keep.if === undefined && keep.with?.name === "publish-admission-${{ github.run_attempt }}" && keep.with?.path === `${RT}/publish-admission` && keep.with?.["retention-days"] === "90" && keep.with?.["if-no-files-found"] === "error" && keep.with?.overwrite === "false", "scans must keep the admission receipt as this attempt's artifact");
   const scanInstall = scanSteps.filter((s) => (s.uses ?? "").startsWith("taiki-e/install-action@"));
   check(scanInstall.length === 1 && same(Object.keys(scanInstall[0].with ?? {}), ["tool"]) && scanInstall[0].with.tool === SCANS_TOOLS && scanInstall[0].if === undefined && scanInstall[0].env === undefined, `scans must install exactly ${SCANS_TOOLS} (pinned action, only the tool input, unconditional)`);
   const lintInstall = scanSteps.filter((s) => /actionlint/.test(s.run ?? "") && /sha256sum --check --strict/.test(s.run ?? ""));
@@ -360,8 +371,8 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   const uploads = scanSteps.filter((s) => /^actions\/upload-artifact@/.test(s.uses ?? ""));
   const reportUpload = uploads.find((s) => s.with?.name === IMPORT_EFFECTS_ARTIFACT);
   check(reportUpload && scanSteps.indexOf(reportUpload) === probeAt + 1 && reportUpload.if === undefined && reportUpload.with?.path === `${RT}/import-effects` && reportUpload.with?.["if-no-files-found"] === "error" && reportUpload.with?.["retention-days"] === "90" && reportUpload.with?.overwrite === "false", `scans must upload the import-effects report as ${IMPORT_EFFECTS_ARTIFACT} right after the probe, retained 90 days`);
-  const scanUpload = uploads.filter((s) => s !== reportUpload);
-  check(uploads.length === 2 && scanUpload.length === 1 && scanSteps.indexOf(scanUpload[0]) === scanSteps.length - 1 && scanSteps.indexOf(scanUpload[0]) > scanRunAt && scanUpload[0].if === undefined && scanUpload[0].with?.name === SCANS_ARTIFACT && scanUpload[0].with?.path === `${RT}/scan-receipt` && scanUpload[0].with?.["if-no-files-found"] === "error" && scanUpload[0].with?.["retention-days"] === "90" && scanUpload[0].with?.overwrite === "false", "scans must upload its receipt as its last step, only after a passing scan run, retained 90 days");
+  const scanUpload = uploads.filter((s) => s !== reportUpload && s.with?.name !== "publish-admission-${{ github.run_attempt }}");
+  check(uploads.length === 3 && scanUpload.length === 1 && scanSteps.indexOf(scanUpload[0]) === scanSteps.length - 3 && scanSteps.indexOf(scanUpload[0]) > scanRunAt && scanUpload[0].if === undefined && scanUpload[0].with?.name === SCANS_ARTIFACT && scanUpload[0].with?.path === `${RT}/scan-receipt` && scanUpload[0].with?.["if-no-files-found"] === "error" && scanUpload[0].with?.["retention-days"] === "90" && scanUpload[0].with?.overwrite === "false", "scans must upload its receipt right before admission, only after a passing scan run, retained 90 days");
   for (const [jobName, job] of Object.entries(jobs)) {
     check((job["timeout-minutes"] ?? "") !== "", `${jobName} must set timeout-minutes`);
   }

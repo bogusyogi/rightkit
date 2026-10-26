@@ -261,8 +261,17 @@ Two routes, one uploader (`scripts/ci/upload.mjs`), and registry uploads exist o
   RustRight broker, an approval commit, then `publish-reviewed.yml`). This is the route for bytes GitHub did not qualify
   and for every runtime-proof owner.
 
-Dispatch `publish.yml` through broker adapter with registry, units, broker request ID & admitted full SHA.
-Guard rejects missing correlation or mismatched commit before scans; direct sealed-byte publication stays unchanged.
+Dispatch `publish.yml` through broker adapter with registry, units, broker request ID & admitted full SHA (`admission: broker`),
+or, where no broker exists (a cloud session), with `node scripts/ci/publish-admission.mjs dispatch --unit <@rightkit/name>`
+(`admission: hosted`, no request ID, one `@rightkit/*` npm package; it runs `rightkit-gate check` at origin main first).
+Guard rejects a mismatched commit, a broker dispatch without a request ID and a hosted one with one, before scans.
+Admission is established in the run, the same for both modes: the scans job ends with `publish-admission.mjs admit`, which runs
+the full `rightkit-gate check --commit <sha>` (app rules, class A, RightKit's own rules; exit 0 with its pass lines), then requires
+each unit's committed version, absent from its registry, and only allowsets the committed exception policy grants. A broker
+request ID is correlation only: this run cannot verify the broker, so an invented one grants nothing. The receipt is the
+`publish-admission-<attempt>` artifact; publish-direct refuses an upload whose receipt does not bind this run, attempt, commit,
+units, sealed versions, verify allowsets and a passed gate. Deciding who may dispatch at all (any repository writer today) is
+a repository setting, not this file's.
 
 `units` is a space-separated, dependency-first list; one registry per qualification run.
 Native publication checks cover exactly those units & their configured standalone consumers; reverse workspace

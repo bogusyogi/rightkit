@@ -713,7 +713,7 @@ export async function runReviewed({ env, dryRun = false, verifyAdmission = false
 // publish-direct.yml runs on every completed publish.yml run of main. Its only input is that run (id, attempt, head
 // commit from the workflow_run event); registry, units and allowsets are read from the run's own sealed manifest and
 // verify receipts, never from a dispatch input, a committed candidate or ci/approved-artifacts.json. Provenance: the run
-// is a workflow_dispatch of publish.yml on main of this repository, completed and successful, with guard, plan, pack,
+// is a workflow_dispatch of publish.yml on main of this repository, completed and successful, with guard, admission, plan, pack,
 // qualified, both native verify jobs and verify-linux (exactly when the plan requires Linux) successful in the named
 // attempt, and this workflow's checkout is that commit or a descendant of it on main. The packed artifact and every
 // required receipt are taken from the run's own artifact listing by name, bound to the run and commit, and re-hashed
@@ -804,6 +804,13 @@ export async function prepareQualified({ env, fetchImpl = fetch, spawn = spawnSy
   const candidate = { id: `qualified-${runId}-${runAttempt}`, source: "qualified", sourceSha, runId, runAttempt, workflowId: String(workflow.id), manifestSha256: sealed.manifestSha256, registry, units, allow, artifacts, runtimeBudgetUnproven: runtimeOwned };
   const { verifyOriginalScanReceipt } = await import("./scan-receipt.mjs");
   await verifyOriginalScanReceipt({ candidate, repository, env, candidateDir: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.."), fetchImpl, workDir: root, api, artifactMatches, unpack: (options) => unpackArtifact({ ...options, spawn }) });
+  // The run's own admission receipt (publish-admission.mjs): broker correlation, or hosted admission of exactly this package and
+  // version with exactly these allowsets, written by this run and attempt.
+  // Imported here: publish-reviewed.yml's sparse checkout carries no publish-admission.mjs.
+  const { verifyRunAdmission } = await import("./publish-admission.mjs");
+  try {
+    await verifyRunAdmission({ repository, sourceSha, runId, runAttempt, registry, units: sealed.manifest.units, allow, jobs: rows, listing, env, fetchImpl, api, artifactMatches, unpack: (options) => unpackArtifact({ ...options, spawn }), workDir: root });
+  } catch (error) { requireThat(false, error.message); }
   const context = JSON.parse(JSON.stringify({ candidate })); freezeDeep(context);
   contexts.set(context, { env: { ...env }, packDir, receiptsDir, approvedFile, manifest: sealed.manifest, manifestSha256: sealed.manifestSha256, repository, admitted: true, ciProof: null });
   return { context, packDir, receiptsDir, approvedFile };
