@@ -149,6 +149,8 @@ The rules (`right-release check --list` prints their ids and gaps; `scripts/pref
 | `devtools-declaration` | SC-R7 | the five sites (release config `devtools: "content-only"`, `devtools-policy.json`, `content-devtools` feature, `build.rs` ACL manifest, `.devtools_policy(ContentOnly)`) disagree once any of the declaration, the feature or the policy is present |
 | `shell-lifecycle-external` | SC-R8 | `lifecycle_only` / `lifecycle_plugin` beside a `WebviewUrl::External` window; `host_windows()` keeps hardening and the navigation policy |
 | `legal-receipt-native` | SC-R9 | `<Onboarding>` (`legalMode` not `none`/`notice`) with no `legalReceipt` or a hand-written one, or a `LegalGate` that stamps the acceptance with the webview clock while the app has no `createNativeLegalReceiptPort` |
+| `mandatory-foundation` | OW-05 | an app (root `rightkit-mandatory.json`) whose profile requires a foundation owner of `ownership-mandatory-set.json` that it does not declare as a dependency (missing or dev-only), or that selects an unknown or unratified profile; a row declared `notApplicable` with a reason is not required and owner-pending rows never fail |
+| `ownership-exceptions` | OW-06 | a `.rightkit/ownership-exceptions.json` with an unknown key, or an entry without `capability`, `package`, `reason`, `owner`, `approvedBy`, a real `date`, a real `expires` and an `issue` naming a RightKit issue; an entry past its `expires` date fails with no identity, so no baseline silences it |
 
 `e2e-under-cargo-test` (G22): the broker compiles; it does not run end-to-end tests. An end-to-end crate is a Cargo package that depends on
 `rightkit-qa` not optionally (the optional dependency is an app's in-app control server) and has a `.rs` file outside `examples/` that names

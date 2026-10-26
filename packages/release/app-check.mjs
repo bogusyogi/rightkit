@@ -47,6 +47,12 @@
 //   devtools-declaration     SC-R7  the five DevTools declaration sites (config, allow-list, Cargo feature, ACL manifest, runtime policy) disagree
 //   shell-lifecycle-external SC-R8  lifecycle_only() in an app that also opens an external webview (hardening and navigation policy are off)
 //   legal-receipt-native     SC-R9  an Onboarding legal gate whose receipt is not the native service
+// The ownership class rules (ownership-class-rules.mjs, OWNERSHIP_CLASS_RULES, appended last; code is placed by class, never by
+// consumer count):
+//   mandatory-foundation     OW-05  an app (root rightkit-mandatory.json) whose profile requires a foundation owner (ownership-mandatory-set.json) it does not use,
+//                                   or that selects an unknown or unratified profile
+//   ownership-exceptions     OW-06  a .rightkit/ownership-exceptions.json entry without capability, package, reason, owner, approvedBy,
+//                                   date, expires and a RightKit issue, or past its expires date (never baselineable)
 //
 // Ratchet: findings that exist today may be listed so they print as KNOWN and do not fail; an unlisted finding fails; a listed
 // identity (`${rule}|${file}|${subject}`, no line numbers) that is gone fails as STALE, so the list only shrinks. The baseline is
@@ -67,6 +73,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { OWNERSHIP_CLASS_RULES } from "./ownership-class-rules.mjs";
 import { SHELL_CONTRACT_RULES } from "./shell-contract.mjs";
 import { engineRecordStore, suiteKeyLiteral, suiteUpdaterKey } from "./suite-trust-roots.mjs";
 
@@ -1049,6 +1056,7 @@ export const RULES = Object.freeze([
   { id: "suite-updater-key", gap: "C3-14", run: ({ root, files }) => suiteUpdaterKey(root, files) },
   { id: "engine-record-store", gap: "C3-05", run: ({ root, files }) => engineRecordStore(root, files) },
   ...SHELL_CONTRACT_RULES,
+  ...OWNERSHIP_CLASS_RULES,
 ]);
 
 // ---- export: the committed files, by git alone ----------------------------------------------------------------------------------
@@ -1143,14 +1151,14 @@ export function resolveCommit(repo, rev) {
 }
 
 /** Run the selected rules over an exported tree. Returns { failures: [{ rule, gap, problem, fix, file?, subject?, identity? }], timings }. */
-export function runRules({ root, commit, files, repo = process.cwd(), only = null, rules = RULES }) {
+export function runRules({ root, commit, files, repo = process.cwd(), only = null, rules = RULES, now = new Date() }) {
   const failures = [];
   const timings = [];
   for (const rule of rules) {
     if (only && !only.includes(rule.id)) continue;
     const started = Date.now();
     let found;
-    try { found = rule.run({ root, commit, files, repo }); }
+    try { found = rule.run({ root, commit, files, repo, now }); }
     catch (error) { found = [{ problem: `the rule itself failed: ${error.message}` }]; }
     timings.push({ rule: rule.id, ms: Date.now() - started, failures: found.length });
     for (const f of found) failures.push({ rule: rule.id, gap: rule.gap, ...f, ...(f.file && f.subject !== undefined ? { identity: `${rule.id}|${f.file}|${f.subject}` } : {}) });
@@ -1292,7 +1300,7 @@ export function runAppCheck({ repo, mode = "commit", commit, only = null, baseli
     return finish(2);
   }
   try {
-    const { failures: found } = runRules({ root, commit: checked, files, repo, only, rules });
+    const { failures: found } = runRules({ root, commit: checked, files, repo, only, rules, now });
     if (printBaseline) {
       lines.push(JSON.stringify([...new Set(found.map((f) => f.identity).filter(Boolean))].sort(), null, 2));
       const unkeyed = found.filter((f) => !f.identity).length;
