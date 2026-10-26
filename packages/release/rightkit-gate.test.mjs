@@ -11,7 +11,7 @@ import { spawnSync } from "./background-process.mjs";
 import { HOOK_MARKER, renderPreCommitHook } from "./ownership-hooks.mjs";
 import { digestScanSet } from "./scan-digest.mjs";
 import { PINNED_SCAN_TOOLS } from "./deterministic-scans.mjs";
-import { EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, hookText, lockScope, main, manifestChangeIsLockReflected, PARTIAL_EXIT, manifestTables, parsePushLines, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustUnitName, rustUnitOfScanId, tomlString, tomlStrings, tomlValue, trampolineText, workspaceExcludes } from "./bin/rightkit-gate.mjs";
+import { EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, hookText, lockScope, main, manifestChangeIsLockReflected, PARTIAL_EXIT, manifestTables, parsePushLines, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustUnitName, rustUnitOfScanId, tomlString, tomlStrings, tomlValue, trampolineText, workspaceExcludes, exportTmpRoot } from "./bin/rightkit-gate.mjs";
 import * as gateModule from "./bin/rightkit-gate.mjs";
 
 // Read off the module so a test of a function that does not exist yet fails on its own, not with an import error for the whole file.
@@ -1986,6 +1986,14 @@ test("class A of a commit scans every file of that commit: export-ignore hides n
   const clean = await run(["--class-a", "--commit", "HEAD"]);
   assert.equal(clean.code, 0, clean.out);
   assert.doesNotMatch(clean.out, /good\.json/);
+});
+
+test("the snapshot export lives on a disk-policy scratch root where one exists: RK_GATE_TMPDIR wins, os.tmpdir() is the fallback (rightkit#1215)", () => {
+  const policy = { scratchRoots: { mac: ["/Volumes/D/scratch"], win: ["D:\\scratch"] } };
+  assert.equal(exportTmpRoot({ env: { RK_GATE_TMPDIR: "/x/override" }, platform: "darwin", exists: () => true, policy }), "/x/override");
+  assert.equal(exportTmpRoot({ env: {}, platform: "darwin", exists: (p) => p === "/Volumes/D/scratch", policy }), "/Volumes/D/scratch");
+  assert.equal(exportTmpRoot({ env: {}, platform: "win32", exists: (p) => p === "D:\\scratch", policy }), "D:\\scratch");
+  assert.equal(exportTmpRoot({ env: {}, platform: "darwin", exists: () => false, policy }), os.tmpdir(), "no scratch root: the system temp dir");
 });
 
 test("the snapshot export carries the checkout's origin in a config-only .git, so rustright can bind the local-build grant to it (rightkit#1215)", async (t) => {

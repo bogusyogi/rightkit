@@ -72,6 +72,7 @@ import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
 import { bindingOf, endRun, readReceipt, RECEIPT_SCHEMA, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, writeReceipt } from "../gate-stages.mjs";
 import { spawnSync as spawnInherit } from "../background-process.mjs";
+import { readDiskPolicy, scratchRoots } from "../disk-policy.mjs";
 
 const ZERO = /^0+$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -234,6 +235,23 @@ function workspaceMetadata({ root, spawn, cargoCommand, dir, realpath }) {
  * here. The gate itself uses discoverRustWorkspaces, which handles every workspace of the repository. Returns
  * { present, units: [{ name, dir, publish }], cargoDir, uncovered }.
  */
+/**
+ * Where the snapshot export lives. The RustRight broker refuses a job whose workspace is on the system volume
+ * (RK_INTERNAL_DRIVE_REFUSED: agents never write to the internal drive), and os.tmpdir() is on it on every Mac and Dell, so on a
+ * host with a disk-policy scratch root (/Volumes/D/scratch, D:\scratch) the export goes there. RK_GATE_TMPDIR overrides; os.tmpdir()
+ * is the fallback where no scratch root exists (CI runners, cloud containers), where plain cargo runs and nothing refuses the system
+ * volume. (rightkit#1215)
+ */
+export function exportTmpRoot({ env = process.env, platform = process.platform, exists = fs.existsSync, policy = null } = {}) {
+  if (env.RK_GATE_TMPDIR) return env.RK_GATE_TMPDIR;
+  try {
+    const roots = scratchRoots(policy ?? readDiskPolicy(), { platform, env });
+    const found = roots.find((root) => exists(root));
+    if (found) return found;
+  } catch { /* no readable policy: the system temp dir */ }
+  return os.tmpdir();
+}
+
 export function discoverRustUnits({ root, spawn, cargoCommand, tracked, readFile, realpath = fs.realpathSync }) {
   const manifests = tracked("Cargo.toml");
   if (!manifests.length) return { present: false, units: [], cargoDir: ".", uncovered: [] };
@@ -1464,7 +1482,7 @@ export async function main(argv, io = {}) {
   try {
     let repo = root;
     if (snapshot) {
-      exportRoot = fs.mkdtempSync(path.join(o.env.RK_GATE_TMPDIR || os.tmpdir(), "rk-gate-"));
+      exportRoot = fs.mkdtempSync(path.join(exportTmpRoot({ env: o.env, platform: o.platform, exists: o.exists }), "rk-gate-"));
       repo = path.join(exportRoot, "repo");
       // Every file of the commit or tree: read-tree into a private index, then checkout-index. `git archive` would leave out files
       // marked export-ignore in .gitattributes, so they would never be scanned; this export has no such exclusion.
