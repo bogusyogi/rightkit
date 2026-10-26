@@ -149,6 +149,15 @@ The rules (`right-release check --list` prints their ids and gaps; `scripts/pref
 | `devtools-declaration` | SC-R7 | the five sites (release config `devtools: "content-only"`, `devtools-policy.json`, `content-devtools` feature, `build.rs` ACL manifest, `.devtools_policy(ContentOnly)`) disagree once any of the declaration, the feature or the policy is present |
 | `shell-lifecycle-external` | SC-R8 | `lifecycle_only` / `lifecycle_plugin` beside a `WebviewUrl::External` window; `host_windows()` keeps hardening and the navigation policy |
 | `legal-receipt-native` | SC-R9 | `<Onboarding>` (`legalMode` not `none`/`notice`) with no `legalReceipt` or a hand-written one, or a `LegalGate` that stamps the acceptance with the webview clock while the app has no `createNativeLegalReceiptPort` |
+| `retired-token` | CA-13 | a token the app retired (declared in `.rightkit/consumer-policy.json` `retiredTokens`: tokens, scoped globs, extensions) in a scoped file, outside a whole-file (`allowFiles`) or exact-fragment (`allowFragments`: text, `identifier` or `string`) exception, each with a reason |
+| `route-deny-policy` | CA-13 | the app's declared deny set (`routeDenyPolicies`: a policy JSON of `denied`, `exceptions` and `irreversible` segments and fragments) disagrees with its committed route table or OpenAPI document: a denied or excepted route that is not a route, a DELETE not denied, an irreversible-looking mutation neither denied nor excepted, a route both denied and excepted, or a denied route the irreversible marks do not cover |
+| `layer-reach` | CA-13 | a value import chain (read lexically, never run) from a declared `from` file reaches a `forbid` file of the same `layerBoundaries` entry; a `stop` file is a reviewed API, accepted and not walked; a load with a non-literal specifier is a finding |
+| `spec-route-parity` | CA-13 | the committed API spec and the committed route table disagree (`specRouteParity`): a documented route the spec lacks, a spec operation that is not a route, or a declared undocumented route the spec documents |
+
+The CA-13 rules check contracts an app declares about itself in `.rightkit/consumer-policy.json` (schema 1; the shape is in the
+header of `consumer-policy.mjs`). An app without the file has nothing to check. They read JSON and source text only: no repository
+script, generator or config runs, so a contract that can only be judged by running the app's code (an OpenAPI body generated at
+runtime, for one) stays with the app's own test.
 
 `e2e-under-cargo-test` (G22): the broker compiles; it does not run end-to-end tests. An end-to-end crate is a Cargo package that depends on
 `rightkit-qa` not optionally (the optional dependency is an app's in-app control server) and has a `.rs` file outside `examples/` that names

@@ -47,6 +47,8 @@
 //   devtools-declaration     SC-R7  the five DevTools declaration sites (config, allow-list, Cargo feature, ACL manifest, runtime policy) disagree
 //   shell-lifecycle-external SC-R8  lifecycle_only() in an app that also opens an external webview (hardening and navigation policy are off)
 //   legal-receipt-native     SC-R9  an Onboarding legal gate whose receipt is not the native service
+// Consumer semantic policy (consumer-policy.mjs, CONSUMER_POLICY_RULES, appended last) reads an app's own declared contracts from
+// .rightkit/consumer-policy.json, as data: retired-token, route-deny-policy, layer-reach and spec-route-parity (CA-13).
 //
 // Ratchet: findings that exist today may be listed so they print as KNOWN and do not fail; an unlisted finding fails; a listed
 // identity (`${rule}|${file}|${subject}`, no line numbers) that is gone fails as STALE, so the list only shrinks. The baseline is
@@ -68,6 +70,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { SHELL_CONTRACT_RULES } from "./shell-contract.mjs";
+import { CONSUMER_POLICY_RULES } from "./consumer-policy.mjs";
 import { engineRecordStore, suiteKeyLiteral, suiteUpdaterKey } from "./suite-trust-roots.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -964,6 +967,7 @@ export const RULES = Object.freeze([
   { id: "suite-updater-key", gap: "C3-14", run: ({ root, files }) => suiteUpdaterKey(root, files) },
   { id: "engine-record-store", gap: "C3-05", run: ({ root, files }) => engineRecordStore(root, files) },
   ...SHELL_CONTRACT_RULES,
+  ...CONSUMER_POLICY_RULES,
 ]);
 
 // ---- export: the committed files, by git alone ----------------------------------------------------------------------------------

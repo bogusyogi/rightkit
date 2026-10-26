@@ -256,7 +256,7 @@ test("preflight checks an app with its own .rightkit/app-check-baseline.json the
   const result = await preflight(["--repo", repo, "--commit", "HEAD"], { now: new Date(`${addDays("2026-10-24", 7)}T12:00:00Z`) });
   assert.equal(result.code, 0, result.text);
   assert.match(result.text, /^KNOWN qa-platform: tests\/q\.rs:1 /m);
-  assert.match(result.text, /passed 32 rules .*\(1 known finding\(s\) in \.rightkit\/app-check-baseline\.json/);
+  assert.match(result.text, /passed 36 rules .*\(1 known finding\(s\) in \.rightkit\/app-check-baseline\.json/);
 });
 
 // ---- the shell contract (packages/release/shell-contract.mjs) runs here and is ratcheted like G13-G21 -----------------------
