@@ -93,6 +93,13 @@
         ],
         "reason": "ci/asset-gated.json npm: sibling product checkouts (coderight, heardright, scraperight, ...) beside rightkit; the hosted runner has none, so the sibling contract tests skip there and the package's own tests still qualify it. The local pre-flight runs its test row with RIGHTKIT_ISOLATED_CHECKOUT=1 for the same scope."
       },
+      "@rightkit/ci": {
+        "version": "0.3.2",
+        "allow": [
+          "allow_missing_assets"
+        ],
+        "reason": "ci/asset-gated.json npm: actionlint is not provisioned on the verify runners, so the five render/lint tests skip hosted and are recorded in the receipts; four tests are win32-skipped by design (POSIX shell behaviour). The package's remaining tests run on both hosts, and class A (actionlint included) runs in scans."
+      },
       "@rightkit/legal": {
         "version": "0.6.3",
         "allow": [
