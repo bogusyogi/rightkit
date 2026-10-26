@@ -83,6 +83,25 @@ test("LG-02 repair: Legion's `* -text` .gitattributes passes", (t) => {
   green(check(repoWith(t, { ...at8c275f0c(), ".gitattributes": "* -text\n" }, "schema-green"), "legion-schema-projection"));
 });
 
+test("LG-02 negative: attributes outside the checked commit (an uncommitted .git/info/attributes, a global attributes file) do not pin it", (t) => {
+  const dir = repoWith(t, at8c275f0c(), "schema-outside");
+  fs.writeFileSync(path.join(dir, ".git", "info", "attributes"), "* -text\n");
+  const home = tmp(t, "schema-home");
+  fs.mkdirSync(path.join(home, "git"));
+  fs.writeFileSync(path.join(home, "git", "attributes"), "* -text\n");
+  writeFiles(dir, { ".gitattributes": "* -text\n" }); // on disk, never committed
+  const r = spawnSync(process.execPath, [GATE, "check", "--repo", dir, "--commit", "HEAD", "--only", "legion-schema-projection"], { encoding: "utf8", env: { ...env(), XDG_CONFIG_HOME: home } });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.equal(r.stdout.split("\n").filter((l) => l.startsWith("FAIL ")).length, 3);
+});
+
+test("LG-02 negative: a later, more specific `text` line in the committed .gitattributes unpins one schema", (t) => {
+  const r = check(repoWith(t, { ...at8c275f0c(), ".gitattributes": "* -text\nschemas/provider-result-v1.schema.json text\n" }, "schema-override"), "legion-schema-projection");
+  assert.equal(r.status, 1);
+  assert.equal(r.fails.length, 1);
+  assert.match(r.fails[0], /^FAIL legion-schema-projection \(LG-02\): schemas\/provider-result-v1\.schema\.json is byte-compared .*\(text: set, eol: unspecified\)/);
+});
+
 const ENUMS_RS = `/// stand-in for engine/crates/legion-contracts/src/enums.rs
 pub const PROVIDER_STATUS: &[&str] = &[
     "pass",
@@ -192,15 +211,15 @@ test("LG-03 negative: an evidence look-alike outside the ratified prefix and a l
 // object is not reproduced, and no prefix-colliding stand-in is made). The red, repair and positive replays below therefore run
 // runAppCheck (the function `rightkit-gate check` calls, same export, baseline, ratchet and report) with the LG-04 rule bound to the
 // fixture's own baseline through retirementLedgerFor(); they are fixture-seam evidence, not production-entrypoint evidence. The
-// shipped rule stays bound to c1d80c9d with its object-only, single-commit identity check; the two negatives after these run the
+// shipped rule stays bound to the full id c1d80c9d190e0f45dfd630d4d65e8bed748381ce; the two negatives after these run the
 // real bin against that production binding. The eight deleted paths are the job's; their contents are stand-ins.
 function seamCheck(dir, baseline) {
-  const rules = [{ id: "legion-retirement-ledger", gap: "LG-04", run: retirementLedgerFor(baseline.slice(0, 12)) }];
+  const rules = [{ id: "legion-retirement-ledger", gap: "LG-04", run: retirementLedgerFor(baseline) }];
   const r = runAppCheck({ repo: dir, rules, central: null });
   return { status: r.exitCode, out: r.text, err: r.errText, fails: r.lines.filter((l) => l.startsWith("FAIL ")) };
 }
 const seamGreen = (r) => { assert.equal(r.status, 0, r.out + r.err); assert.match(r.out, /^check: \w{12} passed 1 rules in/m); };
-const ledgerLine = (p, b) => `FAIL legion-retirement-ledger (LG-04): ${p}: deleted since ${b.slice(0, 12)} with no row in docs/provenance/retirements.md`;
+const ledgerLine = (p, b) => `FAIL legion-retirement-ledger (LG-04): ${p}: deleted since ${b.slice(0, 8)} with no row in docs/provenance/retirements.md`;
 
 test("LG-04 original negative [fixture seam]: 3c11aa76 deleted eight fixtures with no ledger row, and the check names each", (t) => {
   const dir = tmp(t, "ledger-red");
@@ -234,6 +253,17 @@ test("LG-04 positive control [fixture seam]: parent and glob rows, the derived-m
   assert.ok(ledgerCovers("scripts/tools/x.mjs/inner", ["scripts/tools/*.mjs"]), "and covers anything below what it matches");
 });
 
+test("LG-04 negative [fixture seam]: a different object id that shares the baseline's first digits, or the bare prefix, is refused", (t) => {
+  const dir = tmp(t, "ledger-prefix");
+  const { baseline } = legionHistory(dir);
+  commitChange(dir, { remove: HISTORICAL_DELETIONS });
+  const lookalike = baseline.slice(0, 8) + (baseline.slice(8, 9) === "0" ? "1" : "0").repeat(32);
+  assert.notEqual(lookalike, baseline);
+  const refuse = (id) => runAppCheck({ repo: dir, rules: [{ id: "legion-retirement-ledger", gap: "LG-04", run: retirementLedgerFor(id) }], central: null }).lines.filter((l) => l.startsWith("FAIL "));
+  assert.deepEqual(refuse(lookalike), [`FAIL legion-retirement-ledger (LG-04): cannot enumerate files deleted since ${baseline.slice(0, 8)}: ${lookalike} is not a commit here; a ledger that is not checked is not clean`]);
+  assert.deepEqual(refuse(baseline.slice(0, 8)), [`FAIL legion-retirement-ledger (LG-04): cannot enumerate files deleted since ${baseline.slice(0, 8)}: the baseline ${baseline.slice(0, 8)} is not a full object id; a ledger that is not checked is not clean`]);
+});
+
 test("LG-04 negative [fixture seam]: a tag named after the baseline prefix at HEAD does not empty the range", (t) => {
   const dir = tmp(t, "ledger-ref2");
   const { baseline } = legionHistory(dir);
@@ -261,7 +291,7 @@ test("LG-04 negative [production entrypoint]: a branch named c1d80c9d is not the
   commitChange(dir, { remove: ["scripts/a.sh"] });
   const r = check(dir, "legion-retirement-ledger");
   assert.equal(r.status, 1);
-  assert.match(r.fails.join("\n"), /cannot enumerate files deleted since c1d80c9d: c1d80c9d is not a commit here/);
+  assert.match(r.fails.join("\n"), /cannot enumerate files deleted since c1d80c9d: c1d80c9d190e0f45dfd630d4d65e8bed748381ce is not a commit here/);
 });
 
 // ---- contract 5: authority-body parity (job 117161756781/757149 at 515ccd46) -------------------------------------------------------

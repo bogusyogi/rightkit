@@ -22,6 +22,7 @@
 // catalogs and manifests: canonical regeneration runs `legion-dev`, class B), and the naming check's semantic half (authority sets
 // read from Rust and README), which is not this ledger.
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 
@@ -103,17 +104,32 @@ export function rustStrList(source, name) {
 const pointerGet = (value, pointer) => pointer.split("/").slice(1).map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~"))
   .reduce((node, key) => (node !== null && typeof node === "object" && Object.hasOwn(node, key) ? node[key] : undefined), value);
 
-/** git's text and eol attributes of `rels`, as the exported tree's .gitattributes (and the repository's info/attributes) set them. */
-function attributesOf(repo, root, rels) {
-  const r = git(repo, ["--work-tree", root, "check-attr", "-z", "--stdin", "text", "eol"], { input: rels.join("\0") });
-  if (!r.ok) throw new Error(`git check-attr failed: ${r.err}`);
-  const fields = r.out.split("\0");
-  const seen = new Map();
-  for (let i = 0; i + 2 < fields.length; i += 3) seen.set(fields[i], { ...seen.get(fields[i]), [fields[i + 1]]: fields[i + 2] });
-  return seen;
+/**
+ * git's text and eol attributes of `rels` as the checked commit alone sets them: `check-attr --source <commit>` reads only the
+ * .gitattributes files of that tree, run from an empty scratch repository that borrows the checked repository's objects (so its
+ * $GIT_DIR/info/attributes and index are the scratch's, empty), with HOME and XDG_CONFIG_HOME isolated, no global or system
+ * config and no system attributes. Nothing outside the committed tree can pin, or unpin, a path.
+ */
+function attributesOf(repo, commit, rels) {
+  const objects = git(repo, ["rev-parse", "--path-format=absolute", "--git-path", "objects"]);
+  if (!objects.ok) throw new Error(`cannot locate the object store: ${objects.err}`);
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "rk-attr-"));
+  try {
+    const env = { ...gitEnv(), HOME: scratch, XDG_CONFIG_HOME: scratch, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: path.join(scratch, "no-global-config"), GIT_ATTR_NOSYSTEM: "1", GIT_ALTERNATE_OBJECT_DIRECTORIES: objects.out.trim() };
+    const run = (args, input) => {
+      const r = spawnSync("git", args, { cwd: scratch, env, encoding: "utf8", input, maxBuffer: 64 * 1024 * 1024 });
+      if (r.error || r.status !== 0) throw new Error(`git ${args[0]} failed: ${r.error?.message ?? String(r.stderr).trim()}`);
+      return String(r.stdout);
+    };
+    run(["init", "-q"]);
+    const fields = run(["check-attr", "--source", commit, "-z", "--stdin", "text", "eol"], rels.join("\0")).split("\0");
+    const seen = new Map();
+    for (let i = 0; i + 2 < fields.length; i += 3) seen.set(fields[i], { ...seen.get(fields[i]), [fields[i + 1]]: fields[i + 2] });
+    return seen;
+  } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
 }
 
-export function legionSchemaProjection({ root, files, repo = process.cwd() }) {
+export function legionSchemaProjection({ root, commit, files, repo = process.cwd() }) {
   const tracked = new Set(files ?? []);
   if (!applies("legion-schema-projection", tracked)) return [];
   const out = [];
@@ -123,7 +139,8 @@ export function legionSchemaProjection({ root, files, repo = process.cwd() }) {
     for (const target of projection.targets.filter((t) => !tracked.has(t))) {
       out.push({ file: target, subject: "missing", problem: `${target} is missing: ${projection.producer} generates it and its --check reads it`, fix: `regenerate it with Legion's schema generator and commit it` });
     }
-    const attrs = present.length ? attributesOf(repo, root, present) : new Map();
+    if (present.length && !commit) throw new Error("no checked commit or tree to read .gitattributes from");
+    const attrs = present.length ? attributesOf(repo, commit, present) : new Map();
     for (const target of present) {
       const { text = "unspecified", eol = "unspecified" } = attrs.get(target) ?? {};
       if (text === "unset" || eol === "lf") continue;
@@ -269,12 +286,12 @@ export function legionLegacyTokens({ root, files }) {
 
 // ---- LG-04 retirement ledger ------------------------------------------------------------------------------------------------------
 
-// engine/bins/legion-dev/src/checks/retirements.rs: BASELINE :20 (c1d80c9d190e0f45dfd630d4d65e8bed748381ce), LEDGER :21,
+// engine/bins/legion-dev/src/checks/retirements.rs: BASELINE :20 (Legion writes "c1d80c9d"; RightKit binds the full id
+// c1d80c9d190e0f45dfd630d4d65e8bed748381ce, Orthic-Labs/legion 2026-10-08), LEDGER :21,
 // EXEMPT_PREFIXES :22, is_ledger_surface :25-40, deleted_paths :44-54 (still absent at HEAD), ledger_entries :58-77, glob_matches
 // :80-100, is_covered :102-111, the history read :160-178 (`git log -M --diff-filter=D --name-only --format= BASELINE..HEAD`).
 // Legion skips locally when history is shallow and fails in CI; a class A rule cannot tell, so it always fails: unverified is not clean.
-export const RETIREMENT_BASELINE = "c1d80c9d";
-const RETIREMENT_BASELINE_DEFAULT = RETIREMENT_BASELINE;
+export const RETIREMENT_BASELINE = "c1d80c9d190e0f45dfd630d4d65e8bed748381ce";
 export const RETIREMENT_LEDGER = "docs/provenance/retirements.md";
 const RETIREMENT_EXEMPT = Object.freeze(["skills/manifests/"]);
 
@@ -315,25 +332,25 @@ export const ledgerCovers = (rel, entries) => entries.some((entry) => {
   return rel === e || rel.startsWith(`${e}/`);
 });
 
-/** The LG-04 rule bound to a baseline prefix: RETIREMENT_BASELINE in the app check; a fixture's own baseline in tests. */
+/** The LG-04 rule bound to a full baseline object id: RETIREMENT_BASELINE in the app check; a fixture's own commit in tests only. */
 export const retirementLedgerFor = (baseline) => ({ root, commit, files, repo }) => legionRetirementLedger({ root, commit, files, repo, baseline });
 
-export function legionRetirementLedger({ root, commit, files, repo = process.cwd(), baseline: RETIREMENT_BASELINE = RETIREMENT_BASELINE_DEFAULT }) {
+export function legionRetirementLedger({ root, commit, files, repo = process.cwd(), baseline = RETIREMENT_BASELINE }) {
   const tracked = new Set(files ?? []);
   if (!applies("legion-retirement-ledger", tracked)) return [];
-  const unverified = (why) => [{ file: RETIREMENT_LEDGER, subject: "history", problem: `cannot enumerate files deleted since ${RETIREMENT_BASELINE}: ${why}; a ledger that is not checked is not clean`, fix: `check with full history (actions/checkout fetch-depth: 0, or git fetch --unshallow)` }];
+  const shown = String(baseline).slice(0, 8); // how Legion names it in its messages
+  const unverified = (why) => [{ file: RETIREMENT_LEDGER, subject: "history", problem: `cannot enumerate files deleted since ${shown}: ${why}; a ledger that is not checked is not clean`, fix: `check with full history (actions/checkout fetch-depth: 0, or git fetch --unshallow)` }];
   const shallow = git(repo, ["rev-parse", "--is-shallow-repository"]);
   if (!shallow.ok) return unverified(`not a git repository (${shallow.err})`);
   if (shallow.out.trim() !== "false") return unverified("the clone is shallow");
-  // The baseline is the one commit object whose id starts with c1d80c9d, looked up among objects only: a ref someone names
-  // c1d80c9d (which git would otherwise prefer) never moves the range.
-  const candidates = git(repo, ["rev-parse", `--disambiguate=${RETIREMENT_BASELINE}`]).out.split("\n").map((l) => l.trim())
-    .filter((oid) => /^[0-9a-f]{40,64}$/.test(oid) && git(repo, ["cat-file", "-t", oid]).out.trim() === "commit");
-  if (candidates.length !== 1) return unverified(candidates.length ? `${RETIREMENT_BASELINE} names ${candidates.length} commits here` : `${RETIREMENT_BASELINE} is not a commit here`);
-  const base = { out: candidates[0] };
+  // The baseline is exactly one object id, never a prefix and never a ref: that object must be a commit here and an ancestor of what
+  // is checked. A different commit that merely shares its first digits is not the baseline.
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(String(baseline))) return unverified(`the baseline ${baseline} is not a full object id`);
+  if (git(repo, ["cat-file", "-t", baseline]).out.trim() !== "commit") return unverified(`${baseline} is not a commit here`);
+  const base = { out: baseline };
   const isCommit = commit && git(repo, ["cat-file", "-t", commit]).out.trim() === "commit";
   const end = isCommit ? commit : "HEAD";
-  if (!git(repo, ["merge-base", "--is-ancestor", base.out.trim(), end]).ok) return unverified(`${RETIREMENT_BASELINE} is not an ancestor of ${end === "HEAD" ? "HEAD" : end.slice(0, 12)}`);
+  if (!git(repo, ["merge-base", "--is-ancestor", base.out.trim(), end]).ok) return unverified(`${baseline} is not an ancestor of ${end === "HEAD" ? "HEAD" : end.slice(0, 12)}`);
   const log = git(repo, ["log", "-M", "--diff-filter=D", "--name-only", "--format=", `${base.out.trim()}..${end}`]);
   if (!log.ok) throw new Error(`git log failed: ${log.err}`);
   let names = log.out;
@@ -349,11 +366,11 @@ export function legionRetirementLedger({ root, commit, files, repo = process.cwd
   const deleted = [...new Set(names.split("\n").map((l) => l.trim()).filter((l) => l && onLedgerSurface(l) && !exists(l)))].sort();
   if (!deleted.length) return [];
   const ledger = tracked.has(RETIREMENT_LEDGER) ? readText(root, RETIREMENT_LEDGER) : null;
-  if (ledger === null) return [{ file: RETIREMENT_LEDGER, subject: "ledger", problem: `${RETIREMENT_LEDGER} is missing or not UTF-8 text, and ${deleted.length} path(s) were deleted since ${RETIREMENT_BASELINE}`, fix: "restore the ledger" }];
+  if (ledger === null) return [{ file: RETIREMENT_LEDGER, subject: "ledger", problem: `${RETIREMENT_LEDGER} is missing or not UTF-8 text, and ${deleted.length} path(s) were deleted since ${shown}`, fix: "restore the ledger" }];
   const entries = ledgerEntries(ledger);
   return deleted.filter((rel) => !ledgerCovers(rel, entries)).map((rel) => ({
     file: rel, subject: "row",
-    problem: `${rel}: deleted since ${RETIREMENT_BASELINE} with no row in ${RETIREMENT_LEDGER}`,
+    problem: `${rel}: deleted since ${shown} with no row in ${RETIREMENT_LEDGER}`,
     fix: `add a row whose first column names the path, a parent directory or a glob that matches it, with its successor or why it was dropped`,
   }));
 }
