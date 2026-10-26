@@ -1,17 +1,24 @@
 # Qualification only: pack once, verify exact archives on Windows & macOS (and on Linux for units whose plan requires it, ci/linux-required.json), retain provenance.
 # publish-reviewed.yml alone promotes approved archives without rebuilding.
 name: publish
-run-name: publish ${{ inputs.request_id }}
+run-name: publish ${{ inputs.admission }} ${{ inputs.request_id }}
 
 on:
   workflow_dispatch:
     inputs:
-      request_id:
-        description: Broker request correlation ID (not signed authority)
-        type: string
+      admission:
+        description: Who admitted this request; broker (RustRight rightkit-dispatch on a managed host) or hosted (this run's admission job, one @rightkit/* npm package)
+        type: choice
+        options: [broker, hosted]
+        default: broker
         required: true
+      request_id:
+        description: Broker request correlation ID (not signed authority); empty for hosted admission
+        type: string
+        default: ""
+        required: false
       expected_sha:
-        description: Full commit SHA admitted by broker
+        description: Full commit SHA admitted by broker, or for hosted admission the main commit the gate checked
         type: string
         required: true
       registry:
@@ -53,16 +60,21 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Validate broker dispatch correlation
+      - name: Validate dispatch correlation
         shell: bash
         env:
+          RK_ADMISSION: ${{ inputs.admission }}
           RK_REQUEST_ID: ${{ inputs.request_id }}
           RK_EXPECTED_SHA: ${{ inputs.expected_sha }}
         run: |
           set -euo pipefail
-          [[ "$RK_REQUEST_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]]
           [[ "$RK_EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$RK_EXPECTED_SHA" = "$GITHUB_SHA"
+          case "$RK_ADMISSION" in
+            broker) [[ "$RK_REQUEST_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]] ;;
+            hosted) test -z "$RK_REQUEST_ID" ;;
+            *) exit 1 ;;
+          esac
       - name: Refuse anything but main of a public repository
         env:
           REF: ${{ github.ref }}
@@ -178,6 +190,32 @@ jobs:
         with:
           name: scan-receipt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/scan-receipt
+          retention-days: 90
+          overwrite: false
+          if-no-files-found: error
+      # Publication admission (scripts/ci/publish-admission.mjs), here so the pinned class A tools above are on PATH and before plan,
+      # pack or any build lane: the full gate (rightkit-gate check --commit <sha>) on this commit, then every unit's committed version,
+      # not yet on its registry, with only the allowsets the committed exception policy grants. It runs the same for every dispatch;
+      # `admission` only says who asked (a broker's request id is correlation, never authority). publish-direct refuses an upload
+      # without this attempt's receipt.
+      - name: Admit this request (the full gate on this commit, then scope, version and allowsets)
+        working-directory: live
+        env:
+          ADMISSION: ${{ inputs.admission }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          REGISTRY: ${{ inputs.registry }}
+          UNITS: ${{ inputs.units }}
+          ALLOW_HOST_EXCLUSION: ${{ inputs.allow_host_exclusion }}
+          ALLOW_NO_TEST: ${{ inputs.allow_no_test }}
+          ALLOW_IGNORED: ${{ inputs.allow_ignored }}
+          ALLOW_MISSING_ASSETS: ${{ inputs.allow_missing_assets }}
+        run: node scripts/ci/publish-admission.mjs admit --out "$RUNNER_TEMP/publish-admission"
+      - name: Keep the admission receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: publish-admission-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/publish-admission
           retention-days: 90
           overwrite: false
           if-no-files-found: error

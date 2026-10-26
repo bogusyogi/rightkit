@@ -101,7 +101,7 @@ function fixture(t, mutate = () => {}, supplemental = false) {
       else if (route === `compare/${PROMOTION}...${PROMOTION}`) doc = { status: "identical", merge_base_commit: { sha: PROMOTION } };
       else if (route.startsWith("compare/")) doc = provenance.comparison;
       else if (/^actions\/artifacts\/\d+$/.test(route)) doc = artifacts[route.split("/")[2]];
-      else if (/^actions\/artifacts\/\d+\/zip$/.test(route)) { const host = route.includes("/500/") ? "scan-receipt" : route.includes("/300/") ? "qa-macos" : route.includes("/301/") ? "qa-windows" : route.includes("/400/") ? "admission" : route.includes("/200/") ? "supplement" : Object.keys(candidate.artifacts).find((h) => candidate.artifacts[h].id === route.split("/")[2]); return { ok: true, status: 200, arrayBuffer: async () => archives[host] }; }
+      else if (/^actions\/artifacts\/\d+\/zip$/.test(route)) { const host = route.includes("/500/") ? "scan-receipt" : route.includes("/600/") ? "publish-admission" : route.includes("/300/") ? "qa-macos" : route.includes("/301/") ? "qa-windows" : route.includes("/400/") ? "admission" : route.includes("/200/") ? "supplement" : Object.keys(candidate.artifacts).find((h) => candidate.artifacts[h].id === route.split("/")[2]); return { ok: true, status: 200, arrayBuffer: async () => archives[host] }; }
       else throw new Error(`unexpected API route ${route}`);
       return { ok: true, status: 200, json: async () => doc };
     }
@@ -790,8 +790,50 @@ function green(f) {
   f.provenance.jobs.total_count += 1;
   for (const host of ["packed", "macos", "windows"]) f.qaListing.artifacts.push(f.artifacts[f.candidate.artifacts[host].id]);
   f.qaListing.total_count += 3;
+  setRunAdmission(f, { schema: "rk-publish-admission.v2", mode: "broker", requestId: "broker-job-1", repository: "bogusyogi/rightkit", sourceSha: SOURCE, runId: "77", runAttempt: "1", registry: "crates", units: ["rightkit-a"], versions: { "rightkit-a": "0.1.0" }, allow: { hostExclusion: [], noTest: [], ignored: [], missingAssets: [] }, gate: { command: `rightkit-gate check --commit ${SOURCE}`, exit: 0, rules: 58, classAScans: 12, classAFiles: 900 } });
+  f.qaListing.artifacts.push(f.artifacts[600]);
+  f.qaListing.total_count += 1;
   return f;
 }
+/** The run's own publish-admission-<attempt> artifact (publish.yml job `admission`), holding exactly one admission.json. */
+function setRunAdmission(f, receipt, { name = "publish-admission-1", files } = {}) {
+  f.files["publish-admission"] = files ?? { "admission.json": Buffer.from(JSON.stringify(receipt)) };
+  f.archives["publish-admission"] = proofArchive(f.files["publish-admission"]);
+  const listed = f.artifacts[600];
+  f.artifacts[600] = Object.assign(listed ?? {}, { id: 600, name, expired: false, digest: `sha256:${sha("sha256", f.archives["publish-admission"])}`, workflow_run: { id: 77, head_sha: SOURCE, head_branch: "main", repository_id: 99, head_repository_id: 99 } });
+}
+const runAdmission = (f) => JSON.parse(f.files["publish-admission"]["admission.json"]);
+
+test("direct publication requires the run's own admission receipt for this run, attempt, commit, scope and allowsets", async (t) => {
+  const cases = [
+    ["the scans job (gate and admission) failed", (g) => { g.provenance.jobs.jobs.find((j) => j.name === "scans").conclusion = "failure"; }, /refused/],
+    ["a red or missing gate", (g) => setRunAdmission(g, { ...runAdmission(g), gate: { ...runAdmission(g).gate, exit: 1 } }), /no passed gate for this commit/],
+    ["a gate of another commit", (g) => setRunAdmission(g, { ...runAdmission(g), gate: { ...runAdmission(g).gate, command: `rightkit-gate check --commit ${PROMOTION}` } }), /no passed gate for this commit/],
+    ["a partial gate (no class A)", (g) => setRunAdmission(g, { ...runAdmission(g), gate: { ...runAdmission(g).gate, classAScans: 0 } }), /no passed gate for this commit/],
+    ["a version other than the sealed one", (g) => setRunAdmission(g, { ...runAdmission(g), versions: { "rightkit-a": "0.1.1" } }), /versions differ from the sealed versions/],
+    ["broker mode without versions (the old shape)", (g) => setRunAdmission(g, { ...runAdmission(g), versions: {} }), /versions differ/],
+    ["the v1 schema", (g) => setRunAdmission(g, { ...runAdmission(g), schema: "rk-publish-admission.v1" }), /unknown receipt schema/],
+    ["receipt artifact missing", (g) => { g.qaListing.artifacts = g.qaListing.artifacts.filter((a) => a.id !== 600); g.qaListing.total_count -= 1; }, /publish-admission-1 must exist exactly once/],
+    ["replay: an earlier attempt's receipt", (g) => setRunAdmission(g, { ...runAdmission(g), runAttempt: "2" }), /another run or attempt/],
+    ["replay: another run's receipt", (g) => setRunAdmission(g, { ...runAdmission(g), runId: "76" }), /another run or attempt/],
+    ["replay: receipt artifact owned by another run", (g) => { g.artifacts[600].workflow_run.id = 76; }, /must exist exactly once/],
+    ["wrong SHA", (g) => setRunAdmission(g, { ...runAdmission(g), sourceSha: PROMOTION }), /another repository or commit/],
+    ["wrong scope: other units", (g) => setRunAdmission(g, { ...runAdmission(g), units: ["rightkit-b"] }), /units differ/],
+    ["wrong scope: other registry", (g) => setRunAdmission(g, { ...runAdmission(g), registry: "npm" }), /registry differs/],
+    ["wrong scope: hosted admission of a crate", (g) => setRunAdmission(g, { ...runAdmission(g), mode: "hosted", requestId: "" }), /exactly one @rightkit\/\* npm package/],
+    ["allowsets wider than the verify receipts", (g) => setRunAdmission(g, { ...runAdmission(g), allow: { ...runAdmission(g).allow, ignored: ["rightkit-a"] } }), /ignored differs/],
+    ["partial receipt: a key missing", (g) => { const r = runAdmission(g); delete r.allow; setRunAdmission(g, r); }, /unexpected or missing keys/],
+    ["partial receipt: allowsets incomplete", (g) => { const r = runAdmission(g); delete r.allow.noTest; setRunAdmission(g, r); }, /allowsets are incomplete/],
+    ["partial receipt: broker without request id", (g) => setRunAdmission(g, { ...runAdmission(g), requestId: "" }), /no valid request id/],
+    ["receipt is not JSON", (g) => setRunAdmission(g, null, { files: { "admission.json": Buffer.from("{") } }), /not valid JSON/],
+    ["artifact carries a second file", (g) => setRunAdmission(g, null, { files: { "admission.json": Buffer.from(JSON.stringify(runAdmission(g))), "extra.json": Buffer.from("{}") } }), /not exactly one admission.json/],
+  ];
+  for (const [name, mutate, pattern] of cases) {
+    const g = green(fixture(t)); mutate(g);
+    await assert.rejects(runQualified({ env: directEnv(g), identify: true, fetchImpl: g.fetchImpl, spawn: g.spawn }), pattern, name);
+    assert.equal(g.puts.length, 0, name);
+  }
+});
 
 test("direct publication refuses missing, failed or differently scoped deterministic proof before registry access", async (t) => {
   for (const change of [
