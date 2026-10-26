@@ -232,7 +232,8 @@
       "0.6.2",
       "0.6.3",
       "0.6.4",
-      "0.6.5"
+      "0.6.5",
+      "0.6.6"
     ],
     "@rightkit/qa": [
       "0.1.0",
@@ -630,7 +631,7 @@
       "@rightkit/qa": "0.6.1",
       "@rightkit/qa-chrome": "0.1.11",
       "@rightkit/react-shell": "0.7.2",
-      "@rightkit/release": "0.6.5",
+      "@rightkit/release": "0.6.6",
       "@rightkit/settings-ui": "0.7.0",
       "@rightkit/shell": "0.1.1",
       "@rightkit/tauri": "0.3.0",

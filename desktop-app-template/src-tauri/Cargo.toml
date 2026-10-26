@@ -29,10 +29,11 @@ tauri-plugin-updater = "=2.10.1"
 
 # RightKit shared crates: exact registry pins only (no path/git/vendored copies), equal to
 # packages/release/rightkit-versions.json `registry` (the published set). The mandatory owners (ownership-mandatory-set.json,
-# profile desktop) are all declared in this workspace; the three marked "declared" are not wired yet, see README "Foundation owners".
-# M1 window host: rightkit-tauri-shell hosts the window (hardened webview, window state, single instance, watchdog) and, with
-# `logs`, registers the renderer log commands @rightkit/logs invokes (M15). Its default `wv2-0_39` matches Tauri 2.12.
-rightkit-tauri-shell = { version = "=0.6.0", features = ["logs"] }
+# profile desktop) are all declared in this workspace and wired by the shell, see README "Foundation owners".
+# M1 window host: rightkit-tauri-shell hosts the window (hardened webview, window state, single instance, watchdog). `logs`
+# registers the renderer log commands @rightkit/logs invokes (M15); `license` (with `host-services`) registers the settings,
+# legal-receipt and licence commands under one caller policy (src/services.rs). Its default `wv2-0_39` matches Tauri 2.12.
+rightkit-tauri-shell = { version = "=0.6.0", features = ["logs", "license"] }
 # M1 device identity (rightkit-device `credentials` keeps it in the OS credential store, M11).
 rightkit-device = { version = "=0.4.0", features = ["credentials"] }
 rightkit-credentials = "=0.4.2"
@@ -46,11 +47,12 @@ rightkit-fs = { version = "=0.4.7", features = ["fs"] }
 rightkit-crash = { version = "=0.3.6", default-features = false }
 # M15 logging (the shell's `logs` feature brings it in; declared so the owner is visible here).
 rightkit-logs = { version = "=0.3.5", default-features = false }
-# Declared, not wired yet: M10 settings, M12/M13 licence and entitlement, M17 HTTP. An app adds the wiring when it has the
-# feature (README "Foundation owners"); the declarations keep the mandatory set complete from the first commit.
+# M10 settings: the settings document and the legal receipt's document (src/services.rs).
 rightkit-app-settings = { version = "=0.3.0", default-features = false }
-rightkit-license = { version = "=0.2.5", default-features = false }
-rightkit-http = "=0.3.8"
+# M12/M13 licence: the native licence client (`client`), disabled until the app registers its appKey, host and key.
+rightkit-license = { version = "=0.2.5", default-features = false, features = ["client"] }
+# M17 HTTP: the app's first-party client, pinned to the licence host.
+rightkit-http = { version = "=0.3.8", default-features = false }
 # M20 QA: the in-app control server, compiled only by the off-by-default `qa-native` feature below.
 rightkit-qa = { version = "=0.9.0", default-features = false, optional = true }
 

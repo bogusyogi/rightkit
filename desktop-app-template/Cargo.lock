@@ -3519,8 +3519,12 @@ checksum = "cf03922f49f72ae08868d54df3e89419ed8e4fa8021b735636a3fb3db80a91b4"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
+ "rightkit-credentials",
+ "rightkit-http",
  "serde",
  "serde_json",
+ "url",
+ "zeroize",
 ]
 
 [[package]]
@@ -3583,8 +3587,10 @@ dependencies = [
  "objc2-app-kit",
  "objc2-foundation",
  "objc2-user-notifications",
+ "rightkit-app-settings",
  "rightkit-child-process",
  "rightkit-daemon",
+ "rightkit-license",
  "rightkit-logs",
  "serde",
  "serde_json",
