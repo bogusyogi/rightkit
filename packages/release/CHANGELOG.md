@@ -15,6 +15,7 @@
 - Nested apps, second Astra pass: sidecar configs are handed to right-release as absolute paths (it runs in the app root); the staging draft is `rightkit-staging-<commit>--<app key>` per app and the publisher unpacks the sealed set under the app root; the receipt and staging key encodes `_` as `_u` before `/` as `__`, so apps/a__b and apps/a/b never share one; a cwd below an app (apps/foo/src) belongs to that app.
 - `--plan` takes no `--to` stage (it planned and then compiled). A broker-managed host whose broker is unreachable runs no class B scan even with no Cargo manifest in the snapshot: npm tests and scripts can compile native code. `right-release web-build`'s direct entry runs only under a door run (a dry run plans and runs nothing).
 - Third Astra pass: `right-release web-build` checks the door before it imports the config (a `.mjs` config is code), dry run included, and the exported runner checks it again, so no in-process caller spawns a step around it; `--to dev|test` run right-release in the resolved app root (a cwd below apps/foo is apps/foo); a malformed pre-push line blocks the push before the deletion-only shortcut. The installed-copy test asks `right-release check` for the release tier it compares against.
+- Gate tests never reach the host: rightkit-gate.test.mjs runs git for its fixture repositories and a stubbed cargo metadata read, nothing else, under the package's broker guard as well as standalone; the template instance check skips, with its reason, on a broker-managed host (CI runs it).
 
 ## 0.6.8
 

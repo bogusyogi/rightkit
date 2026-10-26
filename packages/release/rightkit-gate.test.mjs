@@ -11,7 +11,7 @@ import { spawnSync } from "./background-process.mjs";
 import { HOOK_MARKER, renderPreCommitHook } from "./ownership-hooks.mjs";
 import { digestScanSet } from "./scan-digest.mjs";
 import { PINNED_SCAN_TOOLS } from "./deterministic-scans.mjs";
-import { EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, cargoInputsDiffer, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, hookText, lockScope, main, manifestChangeIsLockReflected, PARTIAL_EXIT, manifestTables, parsePushLines, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustUnitName, rustUnitOfScanId, tomlString, tomlStrings, tomlValue, trampolineText, workspaceExcludes, exportTmpRoot, appRootOf } from "./bin/rightkit-gate.mjs";
+import { EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, cargoInputsDiffer, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, hookText, lockScope, main as gateMain, manifestChangeIsLockReflected, PARTIAL_EXIT, manifestTables, parsePushLines, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustUnitName, rustUnitOfScanId, tomlString, tomlStrings, tomlValue, trampolineText, workspaceExcludes, exportTmpRoot, appRootOf } from "./bin/rightkit-gate.mjs";
 import * as gateModule from "./bin/rightkit-gate.mjs";
 
 // Read off the module so a test of a function that does not exist yet fails on its own, not with an import error for the whole file.
@@ -231,6 +231,12 @@ function hookSpawn(root, state) {
 // `exists` for a host with no RustRight install: the real file system, minus the managed client the Mac and the Dell carry.
 const unmanagedHost = (p) => !/RustRight|RightKit|\.rightkit-managed/.test(String(p)) && fs.existsSync(p);
 
+/** A real git for the fixture repository, nothing else: toolchain probes (rustc -V, cargo-deny --version, ...) never reach the host. */
+const gitOnly = (cmd, args, opts) => cmd === "git" || (cmd === "rustright" && args[0] === "cargo" && args[1] === "metadata") || (cmd === "cargo" && args[0] === "metadata")
+  ? spawnSync(cmd, args, { ...opts, encoding: "utf8" }) // a metadata read is the one cargo call a test may make: the broker guard answers it with stub metadata
+  : { status: 127, stdout: "", stderr: `${cmd}: not run in tests` };
+// Every test speaks to the host through gitOnly unless it injects its own spawn (repoSpawn, hookSpawn, ...), whatever the spread order.
+const main = (args, io = {}) => gateMain(args, { spawn: gitOnly, ...io });
 const capture = () => { const out = []; const err = []; return { out, err, io: { out: (m) => out.push(m), err: (m) => err.push(m) } }; };
 
 test("install-hook writes the hook, sets core.hooksPath, and refuses to overwrite a different hook without --force", async (t) => {
@@ -1437,7 +1443,7 @@ test("the installed pre-commit hook: the repository's own hook runs first and ca
   });
   const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
   git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
-  assert.equal(await main(["install-hook"], { ...capture().io, cwd: root, spawn: (cmd, args, opts) => spawnSync(cmd, args, { ...opts, encoding: "utf8" }) }), 0);
+  assert.equal(await main(["install-hook"], { ...capture().io, cwd: root, spawn: gitOnly }), 0);
   assert.equal(git("config", "--get", "core.hooksPath").stdout.trim(), ".githooks");
   fs.writeFileSync(path.join(root, "a.txt"), "x\n");
   git("add", "a.txt");
@@ -1477,7 +1483,7 @@ test("a scratch repository with a red tree rejects git push through the installe
   // The last push deletes main; a bare repository whose HEAD names main refuses that by default (receive.denyDeleteCurrent).
   spawnSync("git", ["-C", remote, "config", "receive.denyDeleteCurrent", "ignore"], { encoding: "utf8" });
   git("remote", "add", "origin", remote);
-  assert.equal(await main(["install-hook"], { ...capture().io, cwd: root, spawn: (cmd, args, opts) => spawnSync(cmd, args, { ...opts, encoding: "utf8" }) }), 0);
+  assert.equal(await main(["install-hook"], { ...capture().io, cwd: root, spawn: gitOnly }), 0);
   git("add", "-A"); git("add", "--chmod=+x", ".githooks/pre-push");
   assert.equal(git("commit", "-q", "-m", "red tree").status, 0);
   const red = git("push", "origin", "HEAD:refs/heads/main");
@@ -1998,7 +2004,7 @@ test("stage hands only a qualified, unchanged sealed set to the publisher's draf
   const external = [];
   const spawn = (cmd, a, opts) => {
     if (cmd === "gh" || cmd === "tar") { external.push(`${cmd} ${a[0]} ${a[1]}`); return { status: cmd === "gh" && a[0] === "release" && a[1] === "view" ? 1 : 0, stdout: a[0] === "repo" ? "bogusyogi/app\n" : "", stderr: "" }; }
-    return spawnSync(cmd, a, { ...opts, encoding: "utf8" });
+    return gitOnly(cmd, a, opts);
   };
   const io = { spawn, resolveExecutor: directExecutor, runCheck: async () => 0, runReleaseCheck: async () => 0, runCompile: async () => 0, sealedFor: () => ({ id, manifest: "m", digest }), spawnInherit: () => ({ status: 0 }) };
   const early = capture();
@@ -2681,7 +2687,7 @@ test("class A export: the export root exists before checkout-index and the prefi
       const prefix = args.find((a) => a.startsWith("--prefix=")).slice("--prefix=".length);
       seen.push({ prefix, existed: fs.existsSync(prefix.slice(0, -1)) });
     }
-    return spawnSync(cmd, args, { ...opts, encoding: "utf8" });
+    return gitOnly(cmd, args, opts);
   };
   const c = capture();
   await main(["check", "--repo", root, "--commit", "HEAD"], { ...c.io, cwd: root, spawn });

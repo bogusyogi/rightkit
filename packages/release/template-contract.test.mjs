@@ -11,6 +11,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { hookText } from "./bin/rightkit-gate.mjs";
+import { brokerManagedHost } from "./cargo-contract.mjs";
 import { assertNoRightKitCargoOverrides } from "./cargo-contract.mjs";
 import { assertCargoProfileContract } from "./cargo-profile-contract.mjs";
 import { initTemplate, sortCargoLock } from "./init-command.mjs";
@@ -194,7 +195,9 @@ test("every journey and scenario the app declares exists, and every Rust test is
 // and these are its only two findings. Ratifying the row (or adopting rightkit-agent-tools) makes the instance clean again.
 const TEMPLATE_M22 = ["mandatory-foundation (OW-05): notApplicable.M22", "mandatory-foundation (OW-05): profile \"desktop\" requires the foundation owner rightkit-agent-tools"];
 const failLines = (text) => text.split("\n").filter((line) => line.startsWith("FAIL "));
-test("`rightkit-gate check` and RightKit's own preflight pass on the instance with an empty baseline, but for the unratified M22 row", () => {
+// On a broker-managed host the class A cargo scans of the instance go through the live broker, which tests never reach
+// (test-support/broker-guard.mjs); CI (direct executor) runs this one.
+test("`rightkit-gate check` and RightKit's own preflight pass on the instance with an empty baseline, but for the unratified M22 row", { skip: brokerManagedHost(process.env) && "the class A cargo scans need the live broker on this managed host; CI runs it" }, () => {
   const check = spawnSync(process.execPath, [path.join(here, "bin", "rightkit-gate.mjs"), "check", "--repo", instance(), "--commit", "HEAD"], { cwd: instance(), encoding: "utf8" });
   assert.equal(check.status, 1, `${check.stdout}\n${check.stderr}`);
   assert.deepEqual(failLines(check.stdout).map((line, i) => line.startsWith(`FAIL ${TEMPLATE_M22[i]}`)), [true, true], check.stdout);
