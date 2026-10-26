@@ -83,7 +83,10 @@ const why = (r) => String(r?.error?.message ?? r?.stderr ?? "").trim().split(/\r
 
 // A green `check --only` view: app rules passed but no class A scan ran. Distinct from 0 so no caller can admit it as a full check.
 export const PARTIAL_EXIT = 3;
-const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to dev|test [-- <right-release args>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | --version`;
+/** The platforms a door run can package: desktop (signed, sealed, installed QA, publisher upload) and mobile (signed, sealed, store test track). */
+export const PLATFORMS = Object.freeze(["mac", "win", "ios", "android"]);
+export const MOBILE_PLATFORMS = Object.freeze(new Set(["ios", "android"]));
+const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to dev|test [-- <right-release args>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | --version`;
 
 // ---- pure helpers (exported for tests) ----------------------------------------------------------------------
 
@@ -1149,12 +1152,18 @@ async function runStages(o, args, root, git, io) {
   const tag = "rightkit-gate:";
   const to = option("--to");
   if (to === "dev" || to === "test") return await runWorktreeCompile(o, args, root, git, io, to);
-  const stages = stagesTo(to);
+  let stages = stagesTo(to);
   if (!stages) { o.err(`${tag} --to must be one of ${STAGES.join(", ")}`); return 2; }
   const platform = option("--platform");
   const tier = option("--tier");
-  if (stages.includes("package") && !["mac", "win"].includes(platform)) { o.err(`${tag} --to ${to} needs --platform mac|win`); return 2; }
-  if (stages.includes("release") && !["patch", "update"].includes(tier)) { o.err(`${tag} --to release needs --tier patch|update (chosen explicitly, never defaulted)`); return 2; }
+  if (stages.includes("package") && !PLATFORMS.includes(platform)) { o.err(`${tag} --to ${to} needs --platform ${PLATFORMS.join("|")}`); return 2; }
+  // iOS and Android (Adrian, 2026-10-26: every app build goes through the door, class A first): check, compile and package run here as
+  // for desktop; there is no installed-QA lane for them, so the qualify stage does not exist for a mobile platform and is never
+  // recorded as passed. Qualification is the store's test track, after the release stage uploads the sealed build from this host
+  // (TestFlight, Play internal track; right-release upload --apply, no patch/update tier).
+  const mobile = MOBILE_PLATFORMS.has(platform);
+  if (mobile) stages = stages.filter((s) => s !== "qualify");
+  if (stages.includes("release") && !mobile && !["patch", "update"].includes(tier)) { o.err(`${tag} --to release needs --tier patch|update (chosen explicitly, never defaulted)`); return 2; }
   const commit = text(git("rev-parse", "HEAD")).trim();
   const tree = text(git("rev-parse", "HEAD^{tree}")).trim();
   const common = text(git("rev-parse", "--git-common-dir")).trim();
@@ -1179,7 +1188,7 @@ async function runStages(o, args, root, git, io) {
   // Release writes to R2. The write credential lives only in the trusted publisher: a GitHub Actions job in the protected
   // publication environment, which sets RIGHTKIT_PUBLISHER=github-environment. Hosts and agents never hold it, so the door refuses the
   // stage anywhere else rather than fail half way through an upload.
-  if (stages.includes("release") && !(o.env.GITHUB_ACTIONS === "true" && o.env.RIGHTKIT_PUBLISHER === "github-environment")) {
+  if (stages.includes("release") && !mobile && !(o.env.GITHUB_ACTIONS === "true" && o.env.RIGHTKIT_PUBLISHER === "github-environment")) {
     o.err(`${tag} BLOCKED: --to release runs only in the trusted publisher (the release workflow's protected publication job). Run --to qualify here, then dispatch the release workflow for ${commit.slice(0, 12)}`);
     return 1;
   }
@@ -1235,7 +1244,7 @@ async function runStages(o, args, root, git, io) {
     }
     // The publisher only uploads. It never checks out a build environment, signs or runs installed QA, so every earlier stage must
     // already stand in its receipt for exactly the sealed bytes on disk; anything else is refused, never rebuilt or requalified here.
-    if (to === "release" && stage !== "release") {
+    if (to === "release" && !mobile && stage !== "release") {
       o.err(`${tag} BLOCKED: [${stage}] --to release only uploads: the receipt must already record ${stage} for the sealed bytes on disk (${sealedNow ? `manifest ${sealedNow.digest.slice(0, 12)}` : "none found"}); run --to qualify on the host and stage again`);
       return 1;
     }
@@ -1252,7 +1261,8 @@ async function runStages(o, args, root, git, io) {
       if (ok) ok = (await (o.runCompile ?? (() => main(["--all"], { ...io, cwd: root, readStdin: () => "" })))()) === 0;
     }
     else if (stage === "package") {
-      ok = rightRelease(stage, ["qa", "--stage", "source", "--platform", platform]) && rightRelease(stage, ["build", "--platform", platform]);
+      // Source QA (right-release qa --stage source) exists for mac and win only; a mobile package is the signed build alone.
+      ok = (mobile || rightRelease(stage, ["qa", "--stage", "source", "--platform", platform])) && rightRelease(stage, ["build", "--platform", platform]);
       const sealed = ok ? (o.sealedFor ?? sealedFor)({ root, commit, platform }) : null;
       if (ok && !sealed) { o.err(`${tag} [package] the build reported success but sealed nothing for ${commit.slice(0, 8)} on ${platform}`); ok = false; }
       if (sealed) extra = { platform, sealed: sealed.id, manifestSha256: sealed.digest };
@@ -1262,6 +1272,13 @@ async function runStages(o, args, root, git, io) {
       if (!sealed || !current || current.id !== sealed.sealed || current.digest !== sealed.manifestSha256) {
         o.err(`${tag} BLOCKED: [${stage}] needs the sealed set the package stage produced for this commit, unchanged (sealed manifest digest)`);
         ok = false;
+      } else if (stage === "release" && mobile) {
+        // The host uploads the sealed mobile build to the store's test track itself (the credentials live in the host's credential
+        // store); the release tier is owed first, as for desktop qualification.
+        const releaseTier = await (o.runReleaseCheck ?? (() => main(["check", "--commit", "HEAD", "--rule-tier", "release"], { ...io, cwd: root })))();
+        if (releaseTier !== 0) { o.err(`${tag} [release] the release tier (every rule and scan) is red for ${commit.slice(0, 12)}; nothing was uploaded`); ok = false; }
+        else ok = rightRelease(stage, ["upload", "--platform", platform, "--release", sealed.sealed, "--apply"]);
+        extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, track: platform === "ios" ? "testflight" : "play-internal", ruleTier: "release" };
       } else if (stage === "qualify") {
         // Qualification owes the release tier: every rule and scan, the ones held out of compile admission included (app-check.mjs TIERS).
         const releaseTier = await (o.runReleaseCheck ?? (() => main(["check", "--commit", "HEAD", "--rule-tier", "release"], { ...io, cwd: root })))();

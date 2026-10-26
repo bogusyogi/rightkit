@@ -201,6 +201,12 @@ it. Past its sunset an entry stops tolerating its finding (the finding fails wit
 `EXPIRED`; a listed identity that no finding has any more is `STALE` and fails, so the list only shrinks. A rule the build refuses
 whatever a baseline says (`switches-inventory`) fails even when listed.
 
+## Every build tool is a door
+
+The agent hook (`door-policy.mjs`, installed by `rightkit-gate install-hook`) denies an agent's shell command that builds an app any way but the door: cargo's compiling subcommands, `tauri build|dev|bundle|android|ios`, `right-release` stages, `xcodebuild` (every action; a bare call builds), `xcrun` wrapping them, `swift build|test|run`, `swiftc`, Gradle tasks other than the read-only reports, `vite build` and the bundlers, and a package script whose name says it builds. `rustright cargo …` stays allowed: the broker runs class A before it admits a compile. The denial names the stage and platform to run.
+
+`--platform ios|android` are door platforms: check, compile, package (`right-release build`, the signed sealed IPA or AAB), then `--to release` uploads to the store's test track from the host (`right-release upload --apply`; TestFlight, Play internal) after the release tier passes. No mobile qualify stage exists or is recorded; the test track is the qualification.
+
 ## Rule tiers: compile and release
 
 Adrian, 2026-10-26: the apps lost every build route on 2026-10-25 and build again through the one door on the rule set they were last green on, before any newer rule is asked of them. `app-check.mjs` `TIERS`:

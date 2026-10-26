@@ -129,7 +129,9 @@
         "version": "0.6.3",
         "reason": "Hosted 39930510044: windows-2025 verify passed; xcode-27 failed only in 'Fetch the sealed artifacts' (09:17:49-09:21:11Z) and its job log is unreadable because GitHub storage answered 'ServerBusy: Egress is over the account limit' (HTTP 503) at 09:23Z. That is artifact-storage throttling, not the package; one re-dispatch."
       }
-    }
+    },
+    "maxInFlightRuns": 2,
+    "runnerPolicy": "Each hosted qualification takes one macOS and one Windows runner. The dispatcher counts queued, waiting and running publish.yml and publish-app.yml runs and holds (exit 3) at maxInFlightRuns; a hold sends nothing."
   },
   "attestation": {
     "darwin": {

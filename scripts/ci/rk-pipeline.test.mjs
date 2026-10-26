@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 import test from "node:test";
 import { packageRows } from "./rk-npm-preflight.mjs";
-import { openClaim, needsReconcile, acquireLock, releaseLock, closureOf, dispatchRefusal, holdReason, satisfiesAny, readiness, allowsetsFor, cmdCanary, cmdDispatch, cmdLoop, cmdPreflight, cmdWatch, matchingUploadRuns, uploadRunsQuery, parseArgs, registryVersion, satisfies, stateKey, waves } from "./rk-pipeline.mjs";
+import { openClaim, needsReconcile, acquireLock, releaseLock, closureOf, dispatchRefusal, holdReason, satisfiesAny, readiness, allowsetsFor, cmdCanary, cmdDispatch, cmdLoop, cmdPreflight, cmdWatch, matchingUploadRuns, uploadRunsQuery, parseArgs, registryVersion, satisfies, stateKey, waves, hostedRunsInFlight } from "./rk-pipeline.mjs";
 const SHA = "f".repeat(40);
 const index = (...versions) => new Map(versions.map((v) => [v, { yanked: false, cksum: "0".repeat(64) }]));
 
@@ -576,6 +576,26 @@ test("P1: a direct canary runs the check first and starts no canary when it is r
   assert.deepEqual(canaried, []);
   assert.equal(await cmdCanary({ units: ["@rightkit/release"] }, { head: () => "c".repeat(40), check: async () => ({ code: 0 }), canary }), 0);
   assert.deepEqual(canaried, ["@rightkit/release"]);
+});
+
+test("runner-aware dispatch: at maxInFlightRuns hosted runs the dispatcher holds (exit 3) and sends nothing; a count gh cannot give refuses (exit 2)", async () => {
+  let planned = false;
+  const planFn = async () => { planned = true; return { units: [] }; };
+  const green = async () => ({ code: 0, out: "" });
+  const pipeline = { dispatch: { maxInFlightRuns: 2 } };
+  assert.equal(await cmdDispatch({ registry: "npm", units: ["@rightkit/release"] }, { head: () => "c".repeat(40), check: green, planFn, pipeline, inFlight: async () => 2 }), 3);
+  assert.equal(planned, false, "a hold reaches no plan or dispatch");
+  assert.equal(await cmdDispatch({ registry: "npm", units: ["@rightkit/release"] }, { head: () => "c".repeat(40), check: green, planFn, pipeline, inFlight: async () => null }), 2);
+  assert.equal(planned, false);
+  // Below the limit the dispatcher goes on to the tree checks (git state, origin/main), which this unit test does not own.
+});
+
+test("hostedRunsInFlight counts queued, waiting and running publish and publish-app runs, and is null when gh fails", async () => {
+  const calls = [];
+  const gh = (n) => async (cmd, args) => { calls.push(args.join(" ")); return { code: 0, out: JSON.stringify(Array.from({ length: n }, (_, i) => ({ databaseId: i }))) }; };
+  assert.equal(await hostedRunsInFlight(gh(1)), 6, "one run per workflow per status");
+  assert.ok(calls.every((c) => /^run list -R bogusyogi\/rightkit --workflow publish(-app)?\.yml --status (queued|in_progress|waiting) /.test(c)), calls.join("\n"));
+  assert.equal(await hostedRunsInFlight(async () => ({ code: 1, out: "" })), null);
 });
 
 test("P1: a direct dispatch runs the check first and dispatches nothing when it is red", async () => {

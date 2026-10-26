@@ -1989,6 +1989,49 @@ test("class A of a commit scans every file of that commit: export-ignore hides n
   assert.doesNotMatch(clean.out, /good\.json/);
 });
 
+test("ios and android are door platforms: check, compile, package (build only), then release uploads to the store's test track from the host; no qualify stage exists or is recorded (Adrian, 2026-10-26)", async (t) => {
+  for (const [platform, track] of [["android", "play-internal"], ["ios", "testflight"]]) {
+    const { root, head } = stageRepo(t);
+    const calls = [];
+    const io = {
+      resolveExecutor: directExecutor, runCheck: async () => 0, runCompile: async () => 0, runReleaseCheck: async () => 0,
+      sealedFor: () => ({ id: `app-1.0.0-${head.slice(0, 8)}`, manifest: "m", digest: "d".repeat(64) }),
+      spawnInherit: (cmd, a) => { calls.push(a.slice(1).join(" ")); return { status: 0 }; },
+    };
+    const pkg = capture();
+    assert.equal(await main(["--to", "package", "--platform", platform], { ...pkg.io, cwd: root, ...io }), 0, pkg.err.join("\n"));
+    assert.deepEqual(calls, [`build --platform ${platform}`], "no source QA lane for a mobile platform: the package is the signed build");
+    assert.match(pkg.out.join("\n"), new RegExp(`--to package for \\w{12}: check -> compile -> package; executor`));
+    // --to qualify: there is no mobile qualify stage; the run ends at package and records none.
+    const qual = capture();
+    assert.equal(await main(["--to", "qualify", "--platform", platform], { ...qual.io, cwd: root, ...io }), 0, qual.err.join("\n"));
+    let receipt = JSON.parse(fs.readFileSync(path.join(root, ".git", "rightkit-gate", "receipts", `${head}.json`), "utf8"));
+    assert.equal(receipt.stages.qualify, undefined, "a mobile platform never records a qualify pass");
+    // --to release: on the host, no publisher environment and no patch|update tier; the upload goes to the store's test track with --apply.
+    calls.length = 0;
+    const rel = capture();
+    assert.equal(await main(["--to", "release", "--platform", platform], { ...rel.io, cwd: root, ...io }), 0, rel.err.join("\n"));
+    assert.deepEqual(calls, [`upload --platform ${platform} --release app-1.0.0-${head.slice(0, 8)} --apply`]);
+    receipt = JSON.parse(fs.readFileSync(path.join(root, ".git", "rightkit-gate", "receipts", `${head}.json`), "utf8"));
+    assert.deepEqual(Object.keys(receipt.stages), ["check", "compile", "package", "release"]);
+    assert.deepEqual([receipt.stages.release.ok, receipt.stages.release.track, receipt.stages.release.ruleTier], [true, track, "release"]);
+    // A red release tier blocks the upload.
+    calls.length = 0;
+    const red = capture();
+    const redIo = { ...io, runReleaseCheck: async () => 1, sealedFor: () => ({ id: `app-1.0.1-${head.slice(0, 8)}`, manifest: "m", digest: "e".repeat(64) }) };
+    await main(["--to", "release", "--platform", platform], { ...red.io, cwd: root, ...redIo });
+    assert.ok(!calls.some((c) => c.startsWith("upload")), `nothing uploaded on a red release tier: ${calls.join(" | ")}`);
+  }
+  // Desktop is unchanged: release still needs the tier and the publisher.
+  const { root } = stageRepo(t);
+  const c = capture();
+  assert.equal(await main(["--to", "release", "--platform", "mac"], { ...c.io, cwd: root, resolveExecutor: directExecutor }), 2);
+  assert.match(c.err.join("\n"), /--to release needs --tier patch\|update/);
+  const d = capture();
+  assert.equal(await main(["--to", "package", "--platform", "linux"], { ...d.io, cwd: root, resolveExecutor: directExecutor }), 2);
+  assert.match(d.err.join("\n"), /needs --platform mac\|win\|ios\|android/);
+});
+
 test("--to qualify runs the release tier first (every rule and scan): red refuses installed QA, green proceeds (app-check.mjs TIERS)", async (t) => {
   const { root, head } = stageRepo(t);
   const calls = []; let releaseTier = 1; const tiers = [];

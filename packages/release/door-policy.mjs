@@ -17,7 +17,17 @@ const WRAPPERS = new Set(["env", "command", "exec", "time", "nice", "nohup", "su
 // Shell reserved words and grouping that can precede a command in the same simple command (`if true; then cargo build; fi`,
 // `{ cargo build; }`, `f() { cargo build; }`, `! cargo test`): they are skipped, never taken for the command.
 const KEYWORDS = new Set(["if", "then", "elif", "else", "fi", "do", "done", "while", "until", "{", "}", "!", "function"]);
-const DOOR_TOOLS = new Set(["cargo", "tauri", "right-release"]);
+// Adrian, 2026-10-26: every native and frontend build tool an app can be built with, not only cargo. xcodebuild's actions, swift's
+// compiling subcommands, Gradle tasks, the frontend bundlers, and a package script whose name says it builds.
+const XCODE_ACTIONS = new Set(["build", "archive", "test", "build-for-testing", "test-without-building", "analyze", "install", "installsrc", "clean"]);
+const XCODE_READONLY = new Set(["-version", "-list", "-showsdks", "-showBuildSettings", "-showdestinations", "-showTestPlans", "-help", "-usage", "-checkFirstLaunchStatus", "-exportLocalizations"]);
+const SWIFT_COMPILES = new Set(["build", "test", "run"]);
+const GRADLE_READONLY = new Set(["--version", "-v", "-version", "--help", "-h", "-?", "help", "tasks", "dependencies", "projects", "properties", "--stop", "--status"]);
+const FRONTEND_BUNDLERS = new Set(["webpack", "rollup", "esbuild", "tsup", "parcel"]);
+// A package script whose name says it builds (`pnpm build`, `pnpm run build:mac`, `npm run tauri`): the apps have no scripts, and a
+// script that builds would be a second door even if they did.
+const SCRIPT_BUILDS = /^(build|bundle|package|dist|compile|release|tauri|android|ios|xcode|gradle)(:|$)/;
+const DOOR_TOOLS = new Set(["cargo", "tauri", "right-release", "xcodebuild", "swift", "swiftc", "gradle", "gradlew", "vite", ...FRONTEND_BUNDLERS]);
 
 /** Splits a shell command into simple commands (on ; && || | and newlines), each an argv of words. Quotes are respected. */
 export function simpleCommands(command) {
@@ -115,12 +125,38 @@ function argvViolation(argv, depth = 0, stdin = null) {
   if (RUNNERS.has(tool)) {
     let rest = a.slice(1).filter((w, i, all) => !(w.startsWith("-") || (i > 0 && ["--filter", "-F", "--dir", "-C", "--prefix"].includes(all[i - 1]))));
     if (["exec", "dlx", "x"].includes(rest[0])) rest = rest.slice(1);
-    if (rest[0] === "run" || rest[0] === "run-script") return null; // the apps have no scripts; a script name is not a tool
+    const script = rest[0] === "run" || rest[0] === "run-script";
+    if (script) rest = rest.slice(1);
     if (!rest.length) return null;
-    a = rest; tool = base(a[0]);
+    // A script whose name says it builds is denied as the runner's script (`pnpm build`, `npm run tauri`); any other script name is
+    // not a tool (the apps have none). Without `run`, the word is judged as the tool it names (`pnpm tauri build`, `pnpm exec vite build`).
+    if (!script && DOOR_TOOLS.has(base(rest[0]))) { a = rest; tool = base(a[0]); }
+    else if (SCRIPT_BUILDS.test(rest[0])) return `${tool} ${rest[0]}`;
+    else if (script) return null;
+    else { a = rest; tool = base(a[0]); }
   }
   if (tool === "rightkit-gate" || tool === "rustright") return null;
   if (tool === "tauri" && TAURI_BUILDS.has(a[1])) return `tauri ${a[1]}`;
+  // Apple: xcrun wraps the tool it names; xcodebuild builds by default (no action word is `build`); swift build|test|run and swiftc compile.
+  if (tool === "xcrun" && a.length > 1) return argvViolation(a.slice(1), depth + 1, stdin);
+  if (tool === "xcodebuild") {
+    const words = a.slice(1);
+    const action = words.find((w) => XCODE_ACTIONS.has(w));
+    if (action) return `xcodebuild ${action}`;
+    return words.some((w) => XCODE_READONLY.has(w)) ? null : "xcodebuild build";
+  }
+  if (tool === "swift" && SWIFT_COMPILES.has(a[1])) return `swift ${a[1]}`;
+  if (tool === "swiftc") return "swiftc";
+  // Android: a Gradle task that is not one of the read-only reports.
+  if (tool === "gradle" || tool === "gradlew") {
+    const task = a.slice(1).find((w) => !w.startsWith("-"));
+    if (task && !GRADLE_READONLY.has(task)) return `gradle ${task}`;
+    if (!task && !a.slice(1).some((w) => GRADLE_READONLY.has(w))) return null; // bare gradle prints help
+    return null;
+  }
+  // Frontend: a production bundle is the compile stage's frontend build.
+  if (tool === "vite" && a[1] === "build") return "vite build";
+  if (FRONTEND_BUNDLERS.has(tool)) return tool;
   if (tool === "cargo") {
     let sub = null;
     for (let i = 1; i < a.length; i++) {
@@ -213,9 +249,14 @@ export function doorViolation(command, depth = 0) {
 }
 
 export function doorDenial(violation) {
+  const mobile = /^(cargo )?tauri (android|ios)$|^xcodebuild (archive|install)|^gradle (assemble|bundle|build|publish|install)/.test(violation) ? (/ios|xcodebuild/.test(violation) ? "ios" : "android") : null;
   const stage = /^right-release (dev|test)$/.test(violation) ? violation.slice("right-release ".length) : /^(cargo )?tauri dev$/.test(violation) ? "dev"
-    : /^right-release (upload|publish|publish-update|github)$/.test(violation) ? "release" : /^right-release qa$/.test(violation) ? "qualify" : /^right-release /.test(violation) || /^(cargo )?tauri (build|bundle|android|ios)$/.test(violation) ? "package" : "compile";
-  return `[HOOK:one-door:block]\nWhy: \`${violation}\` builds outside the one door. Every check, compile, test, package and release goes through rightkit-gate, class A first.\nRequired: rightkit-gate --to ${stage}${stage === "package" || stage === "qualify" || stage === "release" ? " --platform mac|win" : ""}${stage === "dev" || stage === "test" ? " -- <arguments>" : ""}${stage === "release" ? " --tier patch|update" : ""} (on a machine with the RustRight broker, \`rustright cargo ...\` is also admitted: the broker runs class A first).`;
+    : /^right-release (upload|publish|publish-update|github)$/.test(violation) ? "release" : /^right-release qa$/.test(violation) ? "qualify"
+    : /^right-release /.test(violation) || /^(cargo )?tauri (build|bundle|android|ios)$/.test(violation) || /^xcodebuild (archive|install)/.test(violation) || /^gradle /.test(violation) ? "package"
+    : "compile";
+  const platform = mobile ?? "mac|win";
+  const tail = stage === "package" || stage === "qualify" ? ` --platform ${platform}` : stage === "release" ? ` --platform ${platform}${mobile ? "" : " --tier patch|update"}` : stage === "dev" || stage === "test" ? " -- <arguments>" : "";
+  return `[HOOK:one-door:block]\nWhy: \`${violation}\` builds outside the one door. Every check, compile, test, package and release goes through rightkit-gate, class A first.\nRequired: rightkit-gate --to ${stage}${tail} (or rustright cargo ... on a broker host, which runs class A first).`;
 }
 
 /** Claude Code PreToolUse decision for one hook input. */

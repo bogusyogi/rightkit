@@ -359,6 +359,15 @@ export async function cmdDispatch(opts, deps = {}) {
   const sha = head();
   // P1: a dispatch starts hosted runners; the check runs first, on the commit it dispatches, whatever pre-flight receipts say.
   if (!(await checkPasses(deps.check ?? runCheckChild, sha, head))) return 1;
+  // Runner-aware (Adrian, 2026-10-26: "managed properly with how many runners are available"): every hosted qualification takes one
+  // macOS and one Windows runner for its native verify. The dispatcher counts the publish runs GitHub already has queued or running
+  // (publish.yml and publish-app.yml) and holds, exit 3, while that count is at the limit (ci/rk-pipeline.json dispatch.maxInFlightRuns,
+  // default 2), one dispatch at a time as the count allows. A hold is not a failure: nothing was sent, run it again when a run ends.
+  const pipeline = deps.pipeline ?? readJson(path.join(ROOT, "ci", "rk-pipeline.json"), {});
+  const maxInFlight = Number(pipeline.dispatch?.maxInFlightRuns ?? 2);
+  let inFlight = await (deps.inFlight ?? hostedRunsInFlight)();
+  if (inFlight === null) { fail("cannot count the hosted runs in flight (gh run list failed); not dispatching blind"); return 2; }
+  if (inFlight >= maxInFlight) { fail(`hold: ${inFlight} hosted publish run(s) queued or running, limit ${maxInFlight}; nothing dispatched, run again when one ends`); return 3; }
   if (git("status", "--porcelain", "--untracked-files=no")) throw new Error("tracked files changed before dispatch");
   const remote = git("ls-remote", "origin", "refs/heads/main").split(/\s+/)[0];
   if (remote !== sha) {
@@ -392,6 +401,7 @@ export async function cmdDispatch(opts, deps = {}) {
     // Persist intent before external effect. Ambiguous POST/discovery failures must never auto-retry.
     state.dispatches[key] = { unit, registry: opts.registry, sha, version: planned.version, status: "dispatching", ownerPid: process.pid, attempts: 1, dispatchedAt: new Date().toISOString() };
     writeState(state);
+    if (inFlight >= maxInFlight) { fail(`hold: ${unit} not dispatched, ${inFlight} hosted publish run(s) in flight, limit ${maxInFlight}; run again when one ends`); exit = exit || 3; const held = readState(); delete held.dispatches[key]; writeState(held); break; }
     const nonce = crypto.randomBytes(32).toString("hex");
     const args = ["run", "rightkit-dispatch", "--", "--workflow", "publish", "--registry", opts.registry, "--unit", unit, "--sha", sha];
     for (const [key, list] of Object.entries(allow)) if (list.includes(unit)) args.push(`--${key.replaceAll("_", "-")}`, unit);
@@ -415,8 +425,22 @@ export async function cmdDispatch(opts, deps = {}) {
     current.dispatches[key] = { unit, version: planned.version, runAttempt: record.runAttempt, registry: opts.registry, sha, runId: record.runId, runUrl: record.runUrl, requestId: record.requestId, brokerRequest: request, nonce, attempts: prior + 1, dispatchedAt: record.dispatchedAt, status: "dispatched" };
     writeState(current);
     log(`dispatched ${unit}: run ${record.runId} (${record.runUrl ?? "no url"}), broker request ${request}, attempt ${prior + 1}`);
+    inFlight += 1;
   }
   return exit;
+}
+
+/** The hosted publish runs GitHub has queued, waiting or in progress (publish.yml and publish-app.yml), or null when gh cannot say. */
+export async function hostedRunsInFlight(run = runChild) {
+  let total = 0;
+  for (const workflow of ["publish.yml", "publish-app.yml"]) {
+    for (const status of ["queued", "in_progress", "waiting"]) {
+      const r = await run("gh", ["run", "list", "-R", "bogusyogi/rightkit", "--workflow", workflow, "--status", status, "--limit", "50", "--json", "databaseId"]);
+      if (r.code !== 0) return null;
+      try { total += JSON.parse(r.out || "[]").length; } catch { return null; }
+    }
+  }
+  return total;
 }
 
 function runState(runId) {

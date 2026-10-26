@@ -11,6 +11,12 @@ test("one door: every way an agent could build an app outside rightkit-gate is n
     "RUSTFLAGS=-D cargo run": "cargo run", "env CI=1 cargo bench": "cargo bench", "cd app && cargo b": "cargo b", "timeout 600 cargo t": "cargo t",
     "pnpm tauri build": "tauri build", "pnpm exec tauri dev": "tauri dev", "npx tauri build --debug": "tauri build", "yarn tauri bundle": "tauri bundle",
     "pnpm --filter app exec tauri build": "tauri build", "cargo tauri build": "cargo tauri build",
+    // Adrian, 2026-10-26: Apple, Android, frontend bundlers and build-named scripts are doors too.
+    "xcodebuild -scheme App -configuration Release archive": "xcodebuild archive", "xcodebuild -project A.xcodeproj -scheme A": "xcodebuild build",
+    "xcrun xcodebuild test -scheme A": "xcodebuild test", "swift build -c release": "swift build", "swift test": "swift test", "swiftc main.swift": "swiftc",
+    "./gradlew assembleRelease": "gradle assembleRelease", "gradle bundleRelease": "gradle bundleRelease", "cd android && ./gradlew.bat build": "gradle build",
+    "pnpm build": "pnpm build", "pnpm run build:mac": "pnpm build:mac", "npm run tauri": "npm tauri", "pnpm exec vite build": "vite build", "npx webpack --mode production": "webpack",
+    "cargo tauri android build": "cargo tauri android", "pnpm tauri ios build": "tauri ios",
     "right-release build --platform win": "right-release build", "npx right-release upload --release r --platform win --tier patch": "right-release upload",
     "node node_modules/@rightkit/release/cli/right-release.mjs qa --stage installed": "right-release qa", "echo hi; right-release package": "right-release package",
   };
@@ -23,6 +29,8 @@ test("one door: the door itself, the broker, read-only cargo and ordinary comman
     "rustright cargo build", "rustright cargo test -p a", "cargo fmt --all -- --check", "cargo metadata --no-deps --format-version 1",
     "cargo update -p serde --precise 1.0.1", "cargo tree", "cargo --version", "right-release check",
     "git commit -m 'cargo build fixed'", "echo \"pnpm tauri build\"", "grep -rn 'cargo test' docs", "pnpm install --frozen-lockfile", "pnpm run lint", "",
+    "xcodebuild -version", "xcodebuild -list -project A.xcodeproj", "xcodebuild -showsdks", "swift package resolve", "swift --version", "./gradlew --version", "gradle tasks", "gradlew dependencies",
+    "pnpm run lint:fix", "pnpm test", "pnpm exec tsc --noEmit", "vite --version",
   ]) assert.equal(doorViolation(command), null, command);
 });
 
@@ -31,6 +39,11 @@ test("one door: the denial names the stage to run, and the Claude hook denies th
   assert.match(doorDenial("tauri build"), /rightkit-gate --to package --platform mac\|win/);
   assert.match(doorDenial("right-release qa"), /--to qualify --platform mac\|win/);
   assert.match(doorDenial("right-release upload"), /--to release --platform mac\|win --tier patch\|update/);
+  assert.match(doorDenial("xcodebuild archive"), /--to package --platform ios/);
+  assert.match(doorDenial("gradle assembleRelease"), /--to package --platform android/);
+  assert.match(doorDenial("swift build"), /--to compile /);
+  assert.match(doorDenial("pnpm build"), /--to compile /);
+  assert.match(doorDenial("cargo tauri android"), /--to package --platform android/);
   const deny = claudeDoorDecision({ tool_name: "Bash", tool_input: { command: "cargo build" } });
   assert.equal(deny.hookSpecificOutput.permissionDecision, "deny");
   assert.match(deny.hookSpecificOutput.permissionDecisionReason, /^\[HOOK:one-door:block\]/);
