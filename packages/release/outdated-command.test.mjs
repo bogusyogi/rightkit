@@ -28,7 +28,7 @@ const tempDir = (t) => {
 const write = (file, text) => { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, text); };
 
 // The files of this package the CLI needs to run `update`: the CLI, its three small imports and the command module.
-const CLI_FILES = ["cli/right-release.mjs", "execution-policy.mjs", "host-upload-refusal.mjs", "background-process.mjs", "outdated-command.mjs", "app-check.mjs", "shell-contract.mjs", "suite-trust-roots.mjs", "suite-api.generated.mjs"];
+const CLI_FILES = ["cli/right-release.mjs", "execution-policy.mjs", "host-upload-refusal.mjs", "background-process.mjs", "outdated-command.mjs", "app-check.mjs", "legion-semantic-contracts.mjs", "shell-contract.mjs", "suite-trust-roots.mjs", "suite-api.generated.mjs"];
 function installRelease(dir) {
   for (const file of CLI_FILES) { mkdirSync(path.dirname(path.join(dir, file)), { recursive: true }); cpSync(path.join(here, file), path.join(dir, file)); }
   write(path.join(dir, "package.json"), JSON.stringify({ name: "@rightkit/release", version: "9.9.9", type: "module", bin: { "right-release": "cli/right-release.mjs" } }));

@@ -47,6 +47,14 @@
 //   devtools-declaration     SC-R7  the five DevTools declaration sites (config, allow-list, Cargo feature, ACL manifest, runtime policy) disagree
 //   shell-lifecycle-external SC-R8  lifecycle_only() in an app that also opens an external webview (hardening and navigation policy are off)
 //   legal-receipt-native     SC-R9  an Onboarding legal gate whose receipt is not the native service
+// Legion's semantic catalog and provenance contracts (legion-semantic-contracts.mjs, LEGION_SEMANTIC_RULES, appended last; each
+// applies only to a tree holding its Legion producer or data file):
+//   legion-schema-projection LG-02  a schema Legion's generator byte-compares that .gitattributes leaves to eol conversion, or whose
+//                                   enum is not the code-owned Rust list it projects
+//   legion-legacy-tokens     LG-03  a legacy token in a path or file that src/config/naming-legacy-allowlist.json does not classify
+//                                   with its exact occurrence count
+//   legion-retirement-ledger LG-04  a ledger-surface file deleted after c1d80c9d with no docs/provenance/retirements.md row
+//   legion-authority-body    LG-05  an agent card without its doctrine (and, for a variant, roster) body verbatim
 //
 // Ratchet: findings that exist today may be listed so they print as KNOWN and do not fail; an unlisted finding fails; a listed
 // identity (`${rule}|${file}|${subject}`, no line numbers) that is gone fails as STALE, so the list only shrinks. The baseline is
@@ -67,6 +75,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { LEGION_SEMANTIC_RULES } from "./legion-semantic-contracts.mjs";
 import { SHELL_CONTRACT_RULES } from "./shell-contract.mjs";
 import { engineRecordStore, suiteKeyLiteral, suiteUpdaterKey } from "./suite-trust-roots.mjs";
 
@@ -964,6 +973,7 @@ export const RULES = Object.freeze([
   { id: "suite-updater-key", gap: "C3-14", run: ({ root, files }) => suiteUpdaterKey(root, files) },
   { id: "engine-record-store", gap: "C3-05", run: ({ root, files }) => engineRecordStore(root, files) },
   ...SHELL_CONTRACT_RULES,
+  ...LEGION_SEMANTIC_RULES,
 ]);
 
 // ---- export: the committed files, by git alone ----------------------------------------------------------------------------------
