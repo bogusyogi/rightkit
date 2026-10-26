@@ -47,12 +47,18 @@
 //   devtools-declaration     SC-R7  the five DevTools declaration sites (config, allow-list, Cargo feature, ACL manifest, runtime policy) disagree
 //   shell-lifecycle-external SC-R8  lifecycle_only() in an app that also opens an external webview (hardening and navigation policy are off)
 //   legal-receipt-native     SC-R9  an Onboarding legal gate whose receipt is not the native service
+// Sealed source closures (source-closure-rules.mjs, SOURCE_CLOSURE_RULES, after the shell contract):
+//   source-closure           SF-01  a committed JSON record { sourceClosure: { sources: { path: sha256 }, digest } } whose sources are
+//                                   missing or changed since sealing, or whose digest does not cover them (normalised digests are
+//                                   declared in .rightkit/source-closures.json)
 // The ownership class rules (ownership-class-rules.mjs, OWNERSHIP_CLASS_RULES, appended last; code is placed by class, never by
 // consumer count):
-//   mandatory-foundation     OW-05  an app (root rightkit-mandatory.json) whose profile requires a foundation owner (ownership-mandatory-set.json) it does not use,
-//                                   or that selects an unknown or unratified profile
+//   mandatory-foundation     OW-05  an app (root rightkit-mandatory.json, or a release config that ships a desktop app) whose profile
+//                                   requires a foundation owner (ownership-mandatory-set.json) it does not use, that selects an unknown
+//                                   or unratified profile, that has no declaration, or that excuses a row without a ratified ruling
 //   ownership-exceptions     OW-06  a .rightkit/ownership-exceptions.json entry without capability, package, reason, owner, approvedBy,
-//                                   date, expires and a RightKit issue, or past its expires date (never baselineable)
+//                                   date, expires and a RightKit issue, past its expires date (never baselineable), or that no
+//                                   ratified ruling (appAmendments.<app>.exceptions) covers
 //
 // Ratchet: findings that exist today may be listed so they print as KNOWN and do not fail; an unlisted finding fails; a listed
 // identity (`${rule}|${file}|${subject}`, no line numbers) that is gone fails as STALE, so the list only shrinks. The baseline is
@@ -74,6 +80,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { OWNERSHIP_CLASS_RULES } from "./ownership-class-rules.mjs";
+import { SOURCE_CLOSURE_RULES } from "./source-closure-rules.mjs";
 import { SHELL_CONTRACT_RULES } from "./shell-contract.mjs";
 import { engineRecordStore, suiteKeyLiteral, suiteUpdaterKey } from "./suite-trust-roots.mjs";
 
@@ -971,6 +978,7 @@ export const RULES = Object.freeze([
   { id: "suite-updater-key", gap: "C3-14", run: ({ root, files }) => suiteUpdaterKey(root, files) },
   { id: "engine-record-store", gap: "C3-05", run: ({ root, files }) => engineRecordStore(root, files) },
   ...SHELL_CONTRACT_RULES,
+  ...SOURCE_CLOSURE_RULES,
   ...OWNERSHIP_CLASS_RULES,
 ]);
 

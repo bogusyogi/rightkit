@@ -301,10 +301,11 @@ export function pendingAppliesTo(row, active) {
   return row.profile === "all" || (Array.isArray(row.profile) ? row.profile.includes(active) : row.profile === active);
 }
 
-export function checkApp(root, { data = loadData(), profile, amendments = [] } = {}) {
+// `declaration` replaces the one read from root (the app check passes the declaration with its unratified not-applicable rows removed).
+export function checkApp(root, { data = loadData(), profile, amendments = [], declaration: override = null } = {}) {
   const name = path.basename(root);
   if (!existsSync(root) || !statSync(root).isDirectory()) return { app: name, root, scanned: false, profile: profile ?? data.defaultProfile, owners: [], pending: [], notApplicable: [], problems: ["app root missing"], violations: 0 };
-  const declaration = loadAppDeclaration(root, data);
+  const declaration = override ?? loadAppDeclaration(root, data);
   const active = profile ?? declaration.profile;
   const problems = [...declaration.problems];
   if (!data.profiles[active]) problems.push(`unknown profile "${active}"`);
