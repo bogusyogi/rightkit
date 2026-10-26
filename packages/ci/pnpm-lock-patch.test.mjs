@@ -98,10 +98,14 @@ test("patch step runs only after a failed install, never masks it, and prints th
 // to git (Git\bin\bash.exe), never `bash` from PATH, which can be WSL's; the pnpm stand-in is a #!/bin/sh script that bash runs.
 const bashFor = () => {
   if (process.platform !== "win32") return "bash";
+  // git.exe can sit in Git\cmd, Git\bin, Git\mingw64\bin or Git\ucrt64\bin (windows-2025: ucrt64): look for bin\bash.exe and
+  // usr\bin\bash.exe in each ancestor of git.exe, nearest first.
   const git = spawnSync("where", ["git"], { encoding: "utf8" }).stdout.split(/\r?\n/).map((l) => l.trim()).find(Boolean);
-  const candidate = git && path.join(path.dirname(path.dirname(git)), "bin", "bash.exe");
-  assert.ok(candidate && fs.existsSync(candidate), `Git for Windows' bash not found next to ${git}`);
-  return candidate;
+  const candidates = [];
+  for (let dir = git && path.dirname(git); dir && path.dirname(dir) !== dir; dir = path.dirname(dir)) candidates.push(path.join(dir, "bin", "bash.exe"), path.join(dir, "usr", "bin", "bash.exe"));
+  const found = candidates.find((file) => fs.existsSync(file));
+  assert.ok(found, `Git for Windows' bash not found near ${git}`);
+  return found;
 };
 
 test("patch step behaves on a real stale, fresh and failing lockfile", (t) => {

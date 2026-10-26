@@ -2463,6 +2463,18 @@ test("lastEvent: a missing log means the job never ran (null); any other read er
   assert.throws(() => lastEvent(path.join(dir, "plain", "disk-hygiene.jsonl"), ["disk.run.ok"]), (error) => error.code === "ENOTDIR");
 });
 
+test("throughFile: a missing path is missing; an ancestor that is a file is ENOTDIR; any other ancestor error propagates (never 'never ran')", async () => {
+  const { throughFile } = await import("./disk-policy.mjs");
+  const dir = mkdtempSync(path.join(os.tmpdir(), "rk-through-"));
+  assert.equal(throughFile(path.join(dir, "a", "b", "disk-hygiene.jsonl")), false, "missing directories below an existing one: missing");
+  writeFileSync(path.join(dir, "plain"), "x");
+  assert.throws(() => throughFile(path.join(dir, "plain", "disk-hygiene.jsonl")), (error) => error.code === "ENOTDIR");
+  for (const code of ["EACCES", "EIO"]) {
+    const stat = (p) => { if (p === dir) throw Object.assign(new Error(code), { code }); throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); };
+    assert.throws(() => throughFile(path.join(dir, "gone", "disk-hygiene.jsonl"), stat), (error) => error.code === code, code);
+  }
+});
+
 test("lastEvent: a directory that reports size 0 is a read error, not an empty log (Windows reports 0 for directories; /proc does here)", { skip: !existsSync("/proc/self/task") || statSync("/proc/self/task").size !== 0 }, () => {
   assert.throws(() => lastEvent("/proc/self/task", ["disk.run.ok"]), (error) => error.code === "EISDIR");
   assert.deepEqual(readRecentEvents("/proc/self/task"), [], "the lenient reader still returns an empty list");
