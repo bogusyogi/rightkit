@@ -16,7 +16,7 @@ import { formatPreflight, PREFLIGHT_FAIL } from "./preflight.mjs";
 import { cargoManifestState } from "./cargo-manifest-text.mjs";
 
 const FORBIDDEN_PACKAGE_PATH = /(^|\/)(?:\.env(?:\.[^/]*)?|target(?:\/.*)?|node_modules(?:\/.*)?|[^/]+\.(?:p8|p12|pem|key))$/i;
-const SECRET_PATTERNS = [
+export const SECRET_PATTERNS = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
   /\bAKIA[0-9A-Z]{16}\b/,
   /\bgh[pousr]_[A-Za-z0-9_]{20,}\b/,
@@ -360,7 +360,10 @@ function scanRepositoryForSecrets(dir, repoRoot) {
       violations.push(`${relative}: refused by name (an .env file, a key or certificate file, or build output); it is never committed and cannot be recorded`);
       continue;
     }
-    const bytes = fs.readFileSync(file);
+    // A file that vanished between the walk and the read was a tool's temporary file (pnpm writes `_tmp_<pid>_*` next to a
+    // lockfile it reads), never committed content.
+    let bytes;
+    try { bytes = fs.readFileSync(file); } catch (e) { if (e.code === "ENOENT") continue; throw e; }
     violations.push(...(ENV_TEMPLATE.test(inDir) ? envTemplateViolations(relative, file, bytes, records, repoRoot) : fileViolations(relative, bytes, records)));
   }
   return [...new Set(violations)].sort();

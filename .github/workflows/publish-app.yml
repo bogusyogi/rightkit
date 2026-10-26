@@ -1,0 +1,139 @@
+# The trusted publisher for every Right Suite app: the last stage of the one door (rightkit-gate).
+# A native host signs, seals and installed-QAs an app through `rightkit-gate --to qualify`; then
+# `rightkit-gate stage` puts the sealed set and its receipt in the app repository's draft release
+# rightkit-staging-<commit> and dispatches this workflow. App repositories are private and run no
+# Actions, so publication runs here, once, for all of them. Only the publish job, in the protected
+# app-publication environment, holds the publication credentials (APP_REPO_TOKEN for the app
+# repository's draft release and GitHub Releases; CLOUDFLARE_* for R2). It re-runs class A on the
+# exact commit, then `rightkit-gate --to release --receipt-in` takes the receipt only for that commit,
+# tree, lockfiles and gate, refuses bytes that differ from the sealed digest or were never qualified,
+# and uploads exactly them through the app's own distribution provider.
+name: publish-app
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: App repository (owner/name)
+        required: true
+        type: choice
+        options:
+          - bogusyogi/coderight
+          - bogusyogi/cutright
+          - bogusyogi/genright
+          - bogusyogi/heardright
+          - bogusyogi/mailright
+          - bogusyogi/postright
+          - bogusyogi/pulse
+          - bogusyogi/scraperight
+          - bogusyogi/viewright
+          - Orthic-Labs/ember
+      app_dir:
+        description: Directory of the app's package.json inside the repository (. for the root)
+        required: true
+        type: string
+      source_revision:
+        description: Full commit sha the host staged (40 lowercase hex characters)
+        required: true
+        type: string
+      tier:
+        description: Update tier, chosen explicitly
+        required: true
+        type: choice
+        options: [patch, update]
+      platforms:
+        description: Staged platforms to publish, space separated (mac, win)
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: publish-app-${{ inputs.app }}
+  cancel-in-progress: false
+jobs:
+  publish:
+    environment: app-publication
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Refuse a malformed request
+        shell: bash
+        env:
+          SOURCE_REVISION: ${{ inputs.source_revision }}
+          PLATFORMS: ${{ inputs.platforms }}
+          APP_DIR: ${{ inputs.app_dir }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::source_revision must be a full lowercase commit sha"; exit 1; }
+          [[ "$PLATFORMS" =~ ^(mac|win)( (mac|win))?$ ]] || { echo "::error::platforms must be mac, win or both"; exit 1; }
+          [[ "$APP_DIR" =~ ^(\.|[A-Za-z0-9][A-Za-z0-9._/-]*)$ && "$APP_DIR" != *..* ]] || { echo "::error::app_dir must be . or a safe relative path"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.app }}
+          ref: ${{ inputs.source_revision }}
+          token: ${{ secrets.APP_REPO_TOKEN }}
+          path: app
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Install the app's pinned package manager and dependencies (no lifecycle scripts)
+        shell: bash
+        working-directory: app/${{ inputs.app_dir }}
+        run: |
+          set -euo pipefail
+          corepack enable
+          pnpm install --frozen-lockfile --ignore-scripts
+      - name: Install the pinned class A scan tools
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-deny@0.20.2,cargo-audit@0.22.2,shellcheck@0.11.0
+      - name: Install the pinned workflow linter
+        env:
+          ACTIONLINT_VERSION: "1.7.12"
+          ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/actionlint.tar.gz"
+          curl --fail --silent --show-error --location --output "$archive" "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/actionlint_""$ACTIONLINT_VERSION""_linux_amd64.tar.gz"
+          echo "$ACTIONLINT_SHA256  $archive" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/actionlint-bin"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/actionlint-bin" actionlint
+          echo "$RUNNER_TEMP/actionlint-bin" >> "$GITHUB_PATH"
+      - name: Class A on the staged commit
+        working-directory: app/${{ inputs.app_dir }}
+        run: pnpm exec rightkit-gate check --commit HEAD
+      - name: Publish each staged platform through the door
+        shell: bash
+        working-directory: app/${{ inputs.app_dir }}
+        env:
+          GH_TOKEN: ${{ secrets.APP_REPO_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.APP_REPO_TOKEN }}
+          RIGHTKIT_PUBLISHER: github-environment
+          APP: ${{ inputs.app }}
+          SOURCE_REVISION: ${{ inputs.source_revision }}
+          TIER: ${{ inputs.tier }}
+          PLATFORMS: ${{ inputs.platforms }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          staging="rightkit-staging-$SOURCE_REVISION"
+          staged="$RUNNER_TEMP/staged"
+          root="$(git rev-parse --show-toplevel)"
+          for platform in $PLATFORMS; do
+            gh release download "$staging" -R "$APP" --pattern "sealed-$platform.tar.gz" --pattern "receipt-$platform.json" --dir "$staged" --clobber
+            # The archive is host-supplied: unpack it outside the checkout, accept only regular files and directories under
+            # .right-release/sealed/<id>/<platform>/ (no links, nothing else), and copy just that into the checkout.
+            unpack="$RUNNER_TEMP/unpack-$platform"
+            rm -rf "$unpack" && mkdir -p "$unpack"
+            tar -xzf "$staged/sealed-$platform.tar.gz" -C "$unpack" --no-same-owner --no-same-permissions
+            [ -z "$(find "$unpack" ! -type f ! -type d -print -quit)" ] || { echo "::error::staged archive holds a link or special file"; exit 1; }
+            stray="$(find "$unpack" -mindepth 1 \( -type f -o -type d \) -print | sed "s#^$unpack#.#" | { grep -Ev "^\./\.right-release(/sealed(/[A-Za-z0-9._-]+(/$platform(/.*)?)?)?)?$" || true; })"
+            [ -z "$stray" ] || { echo "::error::staged archive holds paths outside .right-release/sealed/<id>/$platform: $stray"; exit 1; }
+            mkdir -p "$root/.right-release/sealed"
+            cp -R "$unpack/.right-release/sealed/." "$root/.right-release/sealed/"
+            pnpm exec rightkit-gate --to release --platform "$platform" --tier "$TIER" --receipt-in "$staged/receipt-$platform.json"
+          done
+          gh release delete "$staging" -R "$APP" --yes --cleanup-tag
