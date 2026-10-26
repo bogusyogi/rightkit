@@ -1160,7 +1160,9 @@ async function installHook(o, root, force) {
 export function appRootOf({ root, cwd, exists = fs.existsSync }) {
   const inside = cwd && (cwd === root || cwd.startsWith(root + path.sep));
   const hasConfig = (d) => ["right-release.config.json", "right-release.config.mjs"].some((f) => exists(path.join(d, f)));
-  const appRoot = inside && cwd !== root && hasConfig(cwd) ? cwd : root;
+  // The nearest directory at or above cwd (below the root) that carries a release config is the app; a deeper cwd (apps/foo/src) is apps/foo.
+  let appRoot = root;
+  for (let d = path.resolve(cwd); d.startsWith(root) && d !== root; d = path.dirname(d)) { if (hasConfig(d)) { appRoot = d; break; } }
   return { appRoot, appDir: path.relative(root, appRoot).split(path.sep).join("/") || "." };
 }
 
@@ -1276,7 +1278,8 @@ async function runStages(o, args, root, git, io) {
       const sidecarConfigs = (failed(listedConfigs) ? [] : text(listedConfigs).split("\0").filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)).filter((f) => appDir === "." || f.startsWith(`${appDir}/`)))
         .filter((f) => { try { return /\bsidecars\b/.test(o.readFile(path.join(root, f))); } catch { return false; } });
       ok = true;
-      for (const config of sidecarConfigs) if (!rightRelease(stage, ["stage-sidecar", "--config", config])) { ok = false; break; }
+      // right-release runs in appRoot (nested apps), so the repository-relative config is handed over absolute (Astra, second pass).
+      for (const config of sidecarConfigs) if (!rightRelease(stage, ["stage-sidecar", "--config", path.join(root, config)])) { ok = false; break; }
       if (ok) ok = (await (o.runCompile ?? (() => main(["--all"], { ...io, cwd: root, readStdin: () => "" })))()) === 0;
     }
     else if (stage === "package") {
@@ -1344,7 +1347,8 @@ function stageForPublisher(o, args, root, git) {
     o.err(`${tag} BLOCKED: stage needs this host's receipt for ${commit.slice(0, 12)} with package and qualify passed on ${platform} and the sealed set unchanged; run rightkit-gate --to qualify --platform ${platform} first`);
     return 1;
   }
-  const releaseTag = `rightkit-staging-${commit}`;
+  // One draft per commit and app (receiptKey): two apps of one repository staged at one commit never clobber each other's assets.
+  const releaseTag = `rightkit-staging-${receiptKey(commit, appDir)}`;
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "rightkit-stage-"));
   try {
     const receiptFile = path.join(work, `receipt-${platform}.json`);
@@ -1510,6 +1514,7 @@ export async function main(argv, io = {}) {
   const root = path.resolve(text(top).trim());
   const git = (...a) => o.spawn("git", a, { cwd: root });
   if (sub === "install-hook") return await installHook(o, root, args.includes("--force"));
+  if (args.includes("--plan") && option("--to") !== undefined) { o.err("rightkit-gate: --plan plans the class A scans and runs nothing; it takes no --to stage (Astra, second pass)"); return 2; }
   if (option("--to") !== undefined) return await runStages(o, args, root, git, io);
   if (sub === "stage") return stageForPublisher(o, args, root, git);
 
@@ -1675,7 +1680,8 @@ export async function main(argv, io = {}) {
       }
       cargoLiveRoot = root;
     }
-    const fullPlan = planScans({
+    let fullPlan;
+    fullPlan = planScans({
       // Class A of a commit or tree reads only that snapshot: every scan, cargo's included, runs in the export, never in the live
       // checkout (which may hold other bytes). Compiles (class B) use the live checkout, whose tree the dirty check pinned to HEAD.
       changed, contentRoot: repo, liveRoot: classAOnly && snapshot ? repo : root, includeTests: true, rustScope, cargoCommand,
@@ -1688,6 +1694,9 @@ export async function main(argv, io = {}) {
       localCompile: true,
       exists: o.exists, readFile: o.readFile, platform: o.platform,
     });
+    // A broker-managed host whose broker is unreachable runs no class B scan: npm tests and scripts can compile native code the
+    // snapshot lists no manifest for (Astra, second pass); the class A scans never compile and still run.
+    if (executor.kind === "refuse" && fullPlan.scans.some((x) => x.class === "B")) { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
     let plan = args.includes("--pre-push") ? prePushPlan(fullPlan) : fullPlan;
     const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? 4) || 4);
     const testJobs = Math.max(1, Number(o.env.RK_GATE_TEST_JOBS ?? jobs) || jobs);

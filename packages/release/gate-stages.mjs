@@ -66,10 +66,11 @@ function pidAlive(pid) {
 /**
  * The receipt file for `commit` and the app it was run for: a repository with one app at its root keeps `<commit>.json`; an app in a
  * nested directory (CodeRight's apps/coderight-tauri and apps/coderight-ios, CutRight's apps/cutright, HeardRight's tauri-app-next)
- * gets `<commit>--<dir with / as __>.json`, so two apps of one repository never share or overwrite a receipt (Astra, 2026-10-26).
+ * gets `<commit>--<dir, _ as _u, / as __>.json`, so two apps of one repository never share or overwrite a receipt (Astra, 2026-10-26).
  */
 export function receiptKey(commit, app = ".") {
-  return app && app !== "." ? `${commit}--${app.replaceAll("/", "__")}` : commit;
+  // Reversible: "_" becomes "_u" before "/" becomes "__", so apps/a__b (apps__a_u_ub) and apps/a/b (apps__a__b) never share a key.
+  return app && app !== "." ? `${commit}--${app.replaceAll("_", "_u").replaceAll("/", "__")}` : commit;
 }
 
 /** Reads the receipt for `commit` (and `app`), or null. */

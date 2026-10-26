@@ -11,7 +11,7 @@ import { spawnSync } from "./background-process.mjs";
 import { HOOK_MARKER, renderPreCommitHook } from "./ownership-hooks.mjs";
 import { digestScanSet } from "./scan-digest.mjs";
 import { PINNED_SCAN_TOOLS } from "./deterministic-scans.mjs";
-import { EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, cargoInputsDiffer, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, hookText, lockScope, main, manifestChangeIsLockReflected, PARTIAL_EXIT, manifestTables, parsePushLines, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustUnitName, rustUnitOfScanId, tomlString, tomlStrings, tomlValue, trampolineText, workspaceExcludes, exportTmpRoot } from "./bin/rightkit-gate.mjs";
+import { EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, cargoInputsDiffer, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, hookText, lockScope, main, manifestChangeIsLockReflected, PARTIAL_EXIT, manifestTables, parsePushLines, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustUnitName, rustUnitOfScanId, tomlString, tomlStrings, tomlValue, trampolineText, workspaceExcludes, exportTmpRoot, appRootOf } from "./bin/rightkit-gate.mjs";
 import * as gateModule from "./bin/rightkit-gate.mjs";
 
 // Read off the module so a test of a function that does not exist yet fails on its own, not with an import error for the whole file.
@@ -395,10 +395,11 @@ test("executor: a broker-managed machine without a reachable broker is refused; 
   const managed = capture();
   assert.equal(await main(["--plan"], { ...managed.io, spawn: repoSpawn(root, { cargoLines: "" }), cwd: root, env: { RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/broker.sock" } }), 1);
   assert.match(managed.err.join("\n"), /BLOCKED: this machine is broker-managed \(RustRight\) but `rustright` is not reachable from this shell/);
-  // The same host, a repository with no Cargo manifest (a JS-only app, a git hook's minimal PATH): nothing owes the broker, the check runs.
+  // The same host, a repository with no Cargo manifest but class B scans (npm tests): still refused, those scripts can compile (Astra, second pass).
   const noRust = mkRepo(stripUndefined(jsRepo()), t);
   const n = capture();
-  assert.equal(await main(["--plan"], { ...n.io, spawn: pushSpawn(noRust, { manifests: [], tracked: trackedJs, diff: "apps/coderight-web/src/b.ts\n" }), cwd: noRust, env: { RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/broker.sock" } }), 0, n.err.join("\n"));
+  assert.equal(await main(["--plan"], { ...n.io, spawn: pushSpawn(noRust, { manifests: [], tracked: trackedJs, diff: "apps/coderight-web/src/b.ts\n" }), cwd: noRust, env: { RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/broker.sock" } }), 1);
+  assert.match(n.err.join("\n"), /BLOCKED: this machine is broker-managed/);
   // An unmanaged host (a cloud container, a CI runner): direct cargo, the same scans.
   const metadata = meta(root, ".", [["a", "crates/a"], ["b", "crates/b", []]]);
   const base = repoSpawn(root, { cargoLines: "" });
@@ -1563,7 +1564,7 @@ async function pushGate(t, { stdin = pushLine("refs/heads/claude/port"), env = {
   const code = await main(args, {
     ...c.io, ...noWrites, spawn: pushSpawn(root, { log, ...spawnOptions }), cwd: root, env, readStdin: () => stdin,
     // Every bare run owes the app rules first (Astra, 2026-10-26): green unless a test says otherwise.
-    appCheck: async () => 0,
+    appCheck: async () => 0, exists: unmanagedHost,
     runScans: fakeRun(seen, { rows }), ...(rustfmt === false ? {} : { findRustfmt: () => rustfmt }), ...(readFile ? { readFile } : {}), ...io,
   });
   return { code, log, seen, root, before, after: snapshot(root), out: c.out.join("\n"), err: c.err.join("\n") };
@@ -1775,7 +1776,7 @@ test("a push of ref deletions alone runs no app rules and plans nothing: it carr
 test("gate --plan: lists the pnpm roots' units with their root-carrying names and the per-root scans", async (t) => {
   const root = mkRepo(stripUndefined(jsRepo()), t);
   const c = capture();
-  const code = await main(["--plan", "--base", "origin/main"], { ...c.io, spawn: pushSpawn(root, { manifests: [], tracked: trackedJs, diff: "apps/coderight-web/src/b.ts\n" }), cwd: root, env: {} });
+  const code = await main(["--plan", "--base", "origin/main"], { ...c.io, spawn: pushSpawn(root, { manifests: [], tracked: trackedJs, diff: "apps/coderight-web/src/b.ts\n" }), cwd: root, env: {}, exists: unmanagedHost });
   assert.equal(code, 0, c.err.join("\n"));
   const out = c.out.join("\n");
   assert.match(out, /npm units: apps-coderight-tauri=apps\/coderight-tauri, apps-coderight-web=apps\/coderight-web/);
@@ -1837,7 +1838,7 @@ const E2E_COMMAND = "rustright storage run --app viewright -- right-release test
 
 // ---- the one door: rightkit-gate --to <stage> ----------------------------------------------------------------------------------
 
-import { requireDoorRun, stagesTo, STAGES } from "./gate-stages.mjs";
+import { requireDoorRun, stagesTo, STAGES, receiptKey } from "./gate-stages.mjs";
 
 function stageRepo(t) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-stages-")));
@@ -2081,6 +2082,51 @@ test("a nested app goes through the door: a run from apps/<app> keys its receipt
   await main(["--to", "check"], { ...e.io, cwd: root, ...io });
   assert.ok(fs.existsSync(path.join(receipts, `${commit}.json`)), fs.readdirSync(receipts).join(", "));
   assert.equal(JSON.parse(fs.readFileSync(path.join(receipts, `${commit}.json`), "utf8")).app, ".");
+});
+
+test("--plan takes no stage: --plan --to compile is refused before any stage runs (Astra, second pass)", async (t) => {
+  const root = mkRepo(gateFiles(), t);
+  const ran = [];
+  const c = capture();
+  const code = await main(["--plan", "--to", "compile"], { ...c.io, cwd: root, spawn: repoSpawn(root), resolveExecutor: directExecutor, runCheck: async () => { ran.push("check"); return 0; }, runCompile: async () => { ran.push("compile"); return 0; } });
+  assert.equal(code, 2);
+  assert.match(c.err.join("\n"), /--plan plans the class A scans and runs nothing; it takes no --to stage/);
+  assert.deepEqual(ran, []);
+});
+
+test("a broker-managed host whose broker is unreachable runs no class B scan even with no Cargo manifest: an npm test script can compile native code (Astra, second pass)", async (t) => {
+  // The JS repository plans tests (class B): refused. The same host, a repository whose plan is class A only: proceeds.
+  const r = await pushGate(t, {
+    stdin: pushLine("refs/heads/claude/port"), files: stripUndefined(jsRepo()),
+    spawnOptions: { manifests: [], tracked: trackedJs, diff: "apps/coderight-web/src/b.ts\n" },
+    env: { RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/broker.sock" },
+  });
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.err, /BLOCKED: this machine is broker-managed \(RustRight\) but `rustright` is not reachable/);
+  assert.equal(r.seen.length, 0, "no scan ran");
+  const docs = await pushGate(t, {
+    stdin: pushLine("refs/heads/claude/port"), files: stripUndefined({ "docs/site/package.json": '{"name":"site"}', "README.md": "x" }),
+    spawnOptions: { manifests: [], tracked: { "package.json": ["docs/site/package.json"] }, diff: "README.md\n" },
+    env: { RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/broker.sock" },
+  });
+  assert.equal(docs.code, 0, docs.err);
+});
+
+test("receiptKey is reversible: apps/a__b and apps/a/b never share a key; the root is the bare commit (Astra, second pass)", () => {
+  const c = "c".repeat(40);
+  assert.equal(receiptKey(c), c);
+  assert.equal(receiptKey(c, "."), c);
+  assert.equal(receiptKey(c, "apps/a/b"), `${c}--apps__a__b`);
+  assert.equal(receiptKey(c, "apps/a__b"), `${c}--apps__a_u_ub`);
+  assert.notEqual(receiptKey(c, "apps/a/b"), receiptKey(c, "apps/a__b"));
+});
+
+test("appRootOf: a deeper cwd belongs to the nearest app above it; the root is the app when no config is between (Astra, second pass)", () => {
+  const root = "/r"; const exists = (p) => p === "/r/apps/one/right-release.config.mjs";
+  assert.deepEqual(appRootOf({ root, cwd: "/r/apps/one/src/lib", exists }), { appRoot: "/r/apps/one", appDir: "apps/one" });
+  assert.deepEqual(appRootOf({ root, cwd: "/r/apps/one", exists }), { appRoot: "/r/apps/one", appDir: "apps/one" });
+  assert.deepEqual(appRootOf({ root, cwd: "/r/apps/two/src", exists }), { appRoot: "/r", appDir: "." });
+  assert.deepEqual(appRootOf({ root, cwd: "/r", exists }), { appRoot: "/r", appDir: "." });
 });
 
 test("ios and android are door platforms: check, compile, package (build only), then release uploads to the store's test track from the host; no qualify stage exists or is recorded (Adrian, 2026-10-26)", async (t) => {
@@ -2423,10 +2469,10 @@ test("--to compile stages every declared sidecar first, under the door run, and 
     spawnInherit: (cmd, a, opts) => { calls.push({ args: a.slice(1).join(" "), door: requireDoorRun({ env: opts.env, commonDir: path.join(root, ".git"), commit, command: "x" }) }); return { status }; },
   });
   assert.equal(await main(["--to", "compile"], { ...capture().io, cwd: root, ...io(0) }), 0);
-  assert.deepEqual(calls, [{ args: "stage-sidecar --config app/right-release.config.mjs", door: null }, "compile"], "only the config that declares sidecars is staged, inside a live door run, before the compile");
+  assert.deepEqual(calls, [{ args: `stage-sidecar --config ${path.join(root, "app/right-release.config.mjs")}`, door: null }, "compile"], "only the config that declares sidecars is staged, inside a live door run, before the compile");
   fs.rmSync(path.join(root, ".git", "rightkit-gate"), { recursive: true, force: true }); calls.length = 0;
   assert.equal(await main(["--to", "compile"], { ...capture().io, cwd: root, ...io(1) }), 1);
-  assert.deepEqual(calls.map((c) => c.args ?? c), ["stage-sidecar --config app/right-release.config.mjs"], "a failed staging compiles nothing");
+  assert.deepEqual(calls.map((c) => c.args ?? c), [`stage-sidecar --config ${path.join(root, "app/right-release.config.mjs")}`], "a failed staging compiles nothing");
   assert.ok(head);
 });
 

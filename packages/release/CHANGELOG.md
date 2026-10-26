@@ -12,6 +12,8 @@
 - The gate refuses a broker-managed host whose broker is unreachable only when the snapshot carries a Cargo manifest: a JS-only app, or a git hook's minimal PATH, owes the broker nothing and the class A scans never compile. A push of ref deletions alone runs no app rules and plans nothing, as the hook already skipped the check for it.
 - The crate package-list scan (`cargo-package-list:<crate>`, what a published crate would carry) is release tier: it is not planned at compile admission. On a broker host the release tier defers it, named, never passed, until both brokers classify a locked `package --list` as an observation (rightkit#1216); a direct host (CI) runs it. Before this, the deferral landed in the gate's failures and blocked every push of an app with a publishable crate on a broker host (Astra, second pass).
 - A push of ref deletions alone returns before the app rules and before any plan: it carries no content. A mixed push (a deletion and an update) is a push of content.
+- Nested apps, second Astra pass: sidecar configs are handed to right-release as absolute paths (it runs in the app root); the staging draft is `rightkit-staging-<commit>--<app key>` per app and the publisher unpacks the sealed set under the app root; the receipt and staging key encodes `_` as `_u` before `/` as `__`, so apps/a__b and apps/a/b never share one; a cwd below an app (apps/foo/src) belongs to that app.
+- `--plan` takes no `--to` stage (it planned and then compiled). A broker-managed host whose broker is unreachable runs no class B scan even with no Cargo manifest in the snapshot: npm tests and scripts can compile native code. `right-release web-build`'s direct entry runs only under a door run (a dry run plans and runs nothing).
 
 ## 0.6.8
 

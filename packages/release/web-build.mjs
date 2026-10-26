@@ -12,10 +12,12 @@
 //
 // A step is `{ cmd | node, args?, cwd?, env?, nodeFlags?, nodeOptions? }` (see command-spec.mjs). `--dry-run` prints the
 // resolved commands and runs nothing. Exit code: 0, or the failing step's exit code.
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { CommandSpecError, loadAppConfig, resolveInvocation, validateStep } from "./command-spec.mjs";
 import { defaultReleaseConfigFile } from "./release-config.mjs";
+import { requireDoorRun } from "./gate-stages.mjs";
 
 export function parseWebBuildArgs(argv) {
   const opts = { config: defaultReleaseConfigFile(), dryRun: false };
@@ -54,9 +56,17 @@ export function runWebBuild(steps, { appRoot, env = process.env, dryRun = false,
   return 0;
 }
 
-export async function main(argv = process.argv.slice(2)) {
+export async function main(argv = process.argv.slice(2), { requireDoor = requireDoorRun, spawnSyncFn = spawnSync } = {}) {
   const opts = parseWebBuildArgs(argv);
   const { config, appRoot } = await loadAppConfig(opts.config);
+  // A web build is a compile: like right-release build, the direct entry runs only under a door run (rightkit-gate --to compile runs
+  // class A first). A dry run plans and runs nothing. Outside a git repository nothing can be bound to a commit: refused.
+  if (!opts.dryRun) {
+    const gitOut = (a) => { const r = spawnSyncFn("git", a, { cwd: appRoot, encoding: "utf8" }); return r.status === 0 ? String(r.stdout).trim() : ""; };
+    const common = gitOut(["rev-parse", "--git-common-dir"]);
+    const refusal = common ? requireDoor({ commonDir: path.resolve(appRoot, common), commit: gitOut(["rev-parse", "HEAD"]), command: "right-release web-build" }) : "right-release web-build runs only inside a git repository, under a door run";
+    if (refusal) { const error = new Error(refusal); error.code = "RK_DOOR"; throw error; }
+  }
   return runWebBuild(planWebBuild(config), { appRoot, dryRun: opts.dryRun });
 }
 

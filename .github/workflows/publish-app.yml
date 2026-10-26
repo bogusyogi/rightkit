@@ -116,13 +116,16 @@ jobs:
           SOURCE_REVISION: ${{ inputs.source_revision }}
           TIER: ${{ inputs.tier }}
           PLATFORMS: ${{ inputs.platforms }}
+          APP_DIR: ${{ inputs.app_dir }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
+          # The draft is per commit and app (gate-stages.mjs receiptKey: "_" -> "_u", then "/" -> "__"); the sealed set lands under the app root.
           staging="rightkit-staging-$SOURCE_REVISION"
+          if [ "$APP_DIR" != "." ]; then key="${APP_DIR//_/_u}"; staging="$staging--${key//\//__}"; fi
           staged="$RUNNER_TEMP/staged"
-          root="$(git rev-parse --show-toplevel)"
+          root="$PWD"
           for platform in $PLATFORMS; do
             gh release download "$staging" -R "$APP" --pattern "sealed-$platform.tar.gz" --pattern "receipt-$platform.json" --dir "$staged" --clobber
             # The archive is host-supplied: unpack it outside the checkout, accept only regular files and directories under
