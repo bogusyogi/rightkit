@@ -53,6 +53,16 @@
 //   source-relation          CA-09  a value in one committed file names a row another committed file does not have (SOURCE_RELATIONS
 //                                   plus an app's .rightkit/source-relations.json)
 //   checkout-longpaths       CA-11  a GitHub-hosted Windows job checks out tracked paths over the Win32 limit without Git long paths
+// Legion's semantic catalog and provenance contracts (legion-semantic-contracts.mjs, LEGION_SEMANTIC_RULES, after the consumer source contracts; each
+// applies only to a tree holding its Legion producer or data file):
+//   legion-schema-projection LG-02  a schema Legion's generator byte-compares that .gitattributes leaves to eol conversion, or whose
+//                                   enum is not the code-owned Rust list it projects
+//   legion-legacy-tokens     LG-03  a legacy token in a path or file that src/config/naming-legacy-allowlist.json does not classify
+//                                   with its exact occurrence count
+//   legion-retirement-ledger LG-04  a ledger-surface file deleted after c1d80c9d with no docs/provenance/retirements.md row
+//   legion-authority-body    LG-05  an agent card without its doctrine (and, for a variant, roster) body verbatim
+// Consumer semantic policy (consumer-policy.mjs, CONSUMER_POLICY_RULES, after Legion's semantic contracts) reads an app's own declared contracts from
+// .rightkit/consumer-policy.json, as data: retired-token, route-deny-policy, layer-reach and spec-route-parity (CA-13).
 // Sealed source closures (source-closure-rules.mjs, SOURCE_CLOSURE_RULES, after the shell contract):
 //   source-closure           SF-01  a committed JSON record { sourceClosure: { sources: { path: sha256 }, digest } } whose sources are
 //                                   missing or changed since sealing, or whose digest does not cover them (normalised digests are
@@ -85,11 +95,14 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { LEGION_SEMANTIC_RULES } from "./legion-semantic-contracts.mjs";
 import { CONSUMER_INPUT_RULES } from "./consumer-input-contracts.mjs";
 import { CONSUMER_CONTRACT_RULES } from "./consumer-contracts.mjs";
 import { OWNERSHIP_CLASS_RULES } from "./ownership-class-rules.mjs";
 import { SOURCE_CLOSURE_RULES } from "./source-closure-rules.mjs";
 import { SHELL_CONTRACT_RULES } from "./shell-contract.mjs";
+import { CONSUMER_SOURCE_RULES } from "./consumer-source-contracts.mjs";
+import { CONSUMER_POLICY_RULES } from "./consumer-policy.mjs";
 import { engineRecordStore, suiteKeyLiteral, suiteUpdaterKey } from "./suite-trust-roots.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -1073,6 +1086,9 @@ export const RULES = Object.freeze([
   ...SHELL_CONTRACT_RULES,
   ...CONSUMER_CONTRACT_RULES,
   ...CONSUMER_INPUT_RULES,
+  ...CONSUMER_SOURCE_RULES,
+  ...LEGION_SEMANTIC_RULES,
+  ...CONSUMER_POLICY_RULES,
   ...SOURCE_CLOSURE_RULES,
   ...OWNERSHIP_CLASS_RULES,
 ]);

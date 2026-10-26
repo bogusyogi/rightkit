@@ -67,7 +67,7 @@ test("a rule that throws is a FAIL, never a pass", (t) => {
 });
 
 test("every rule names its scan-gap family or the invariant it enforces", () => {
-  for (const rule of RULES) assert.match(rule.gap, /^(G\d{2}|P\d+|SC-R\d|C3-\d{2}|SF-\d{2}|OW-\d{2}|CA-\d{2})$/, rule.id);
+  for (const rule of RULES) assert.match(rule.gap, /^(G\d{2}|P\d+|SC-R\d|C3-\d{2}|SF-\d{2}|OW-\d{2}|CA-\d{2}|LG-\d{2})$/, rule.id);
 });
 
 // ---- regression fixtures from tonight's refusals, built from this checkout's real recipe data -----------------------------
@@ -357,7 +357,7 @@ test("preflight checks an app with its own .rightkit/app-check-baseline.json the
   const result = await preflight(["--repo", repo, "--commit", "HEAD"], { now: new Date(`${addDays("2026-10-24", 7)}T12:00:00Z`) });
   assert.equal(result.code, 0, result.text);
   assert.match(result.text, /^KNOWN qa-platform: tests\/q\.rs:1 /m);
-  assert.match(result.text, /passed 47 rules .*\(1 known finding\(s\) in \.rightkit\/app-check-baseline\.json/);
+  assert.match(result.text, /passed 58 rules .*\(1 known finding\(s\) in \.rightkit\/app-check-baseline\.json/);
 });
 
 // ---- the shell contract (packages/release/shell-contract.mjs) runs here and is ratcheted like G13-G21 -----------------------
@@ -368,9 +368,10 @@ const SHELL_ID = "shell-window-hidden|src-tauri/tauri.conf.json|base:main";
 test("shell contract: --list shows the nine rules after speech-link, in order, with their SC-R gap ids", async () => {
   const listed = await preflight(["--list"]);
   assert.equal(listed.code, 0);
-  // The sealed source-closure rule (SF-01) and the two ownership class rules (OW-05, OW-06) follow the consumer contracts (CA-xx, then the input contracts CA-07/09/11), which follow the shell contract.
-  assert.deepEqual(listed.lines.slice(-21, -12), SHELL_RULES.map((id, i) => `${id} (SC-R${i + 1})`));
-  assert.deepEqual(RULES.slice(-21, -12).map((r) => r.id), SHELL_RULES);
+  // The sealed source-closure rule (SF-01) and the two ownership class rules (OW-05, OW-06) follow the consumer contracts (CA-xx, then the input contracts CA-07/09/11, then the source contracts CA-04/07/08, then Legion's semantic contracts LG-02..05, then the consumer policy rules CA-13), which follow the shell contract.
+  assert.deepEqual(listed.lines.slice(-32, -23), SHELL_RULES.map((id, i) => `${id} (SC-R${i + 1})`));
+  assert.deepEqual(RULES.slice(-32, -23).map((r) => r.id), SHELL_RULES);
+  assert.deepEqual(listed.lines.slice(-11, -7), ["legion-schema-projection (LG-02)", "legion-legacy-tokens (LG-03)", "legion-retirement-ledger (LG-04)", "legion-authority-body (LG-05)"]);
 });
 
 test("shell contract: a finding FAILs, is KNOWN when its identity is in the baseline, and is STALE once the app is fixed", async (t) => {
@@ -409,6 +410,9 @@ test("preflight keeps its rule order: the app rules sit where they always did am
     "shell-window-hidden (SC-R1)", "shell-plugin-order (SC-R2)", "shell-handler (SC-R3)", "shell-csp (SC-R4)", "shell-grants (SC-R5)", "qa-window-label (SC-R6)", "devtools-declaration (SC-R7)", "shell-lifecycle-external (SC-R8)", "legal-receipt-native (SC-R9)",
     "release-config-identity (CA-01)", "pnpm-node-floor (CA-05)", "rust-dependency-msrv (CA-05)", "release-age (CA-06)", "notice-lock-digest (CA-14)", "doc-comment-bare-cr (CA-15)",
     "checkout-step-input (CA-07)", "source-relation (CA-09)", "checkout-longpaths (CA-11)",
+    "workflow-action-pair (CA-04)", "referenced-input (CA-07)", "caddy-global-options (CA-08)",
+    "legion-schema-projection (LG-02)", "legion-legacy-tokens (LG-03)", "legion-retirement-ledger (LG-04)", "legion-authority-body (LG-05)",
+    "retired-token (CA-13)", "route-deny-policy (CA-13)", "layer-reach (CA-13)", "spec-route-parity (CA-13)",
     "source-closure (SF-01)", "mandatory-foundation (OW-05)", "ownership-exceptions (OW-06)",
   ]);
 });
