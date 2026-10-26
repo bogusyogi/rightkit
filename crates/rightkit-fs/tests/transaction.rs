@@ -2156,7 +2156,12 @@ fn without_a_retry_a_refused_removal_of_the_transaction_directory_is_reported() 
         commit_with_refused_directory(&f, TransactionOptions::default().retry(None), 1);
     let txn_dir = left.expect("the refused directory is still there");
     assert_eq!(retained.len(), 1, "{retained:?}");
-    assert_eq!(retained[0].path, txn_dir);
+    // The report names the canonical path (macOS `/private/var`, Windows long names); the listing
+    // walks the fixture's temp path, so compare the canonical forms.
+    assert_eq!(
+        retained[0].path,
+        rightkit_fs::canonicalize_plain(&txn_dir).unwrap()
+    );
     assert!(
         retained[0].reason.contains("injected sharing failure"),
         "{retained:?}"
@@ -2181,6 +2186,7 @@ fn the_directory_removal_retries_exactly_as_often_as_the_transaction_policy_allo
     let f = fixture();
     let (retained, left) = commit_with_refused_directory(&f, policy(), 3);
     assert_eq!(retained.len(), 1, "{retained:?}");
+    let left = left.map(|dir| rightkit_fs::canonicalize_plain(dir).unwrap());
     assert_eq!(Some(retained[0].path.clone()), left);
     assert!(
         retained[0].reason.contains("injected sharing failure"),

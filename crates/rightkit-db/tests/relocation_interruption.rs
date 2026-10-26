@@ -861,6 +861,9 @@ fn retained_cleanup_carries_the_error_that_kept_it() {
                 .is_some_and(|name| name.to_string_lossy().starts_with(".rkdb-relocate-"))
         })
         .expect("the relocation workspace exists until committed settlement");
+    // The report names paths without the Windows verbatim prefix that `fs::canonicalize` gave the
+    // fixture root, so compare the plain form.
+    let workspace = rightkit_fs::plain_path(workspace);
     // A stray file keeps the workspace from being removed: an OS error on every platform.
     fs::write(workspace.join("stray"), b"x").unwrap();
     let report = session.settle(RelocationSettlement::Committed).unwrap();
