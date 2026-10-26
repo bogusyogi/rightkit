@@ -28,7 +28,7 @@ function tree(t, name, contents, extra = []) {
   const root = path.join(parent, name);
   for (const [rel, text] of Object.entries(contents)) { fs.mkdirSync(path.join(root, path.dirname(rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); }
   fs.mkdirSync(root, { recursive: true });
-  return { root, repo: root, files: [...new Set([...Object.keys(contents), ...extra])].sort() };
+  return { root, repo: root, repositoryName: name, files: [...new Set([...Object.keys(contents), ...extra])].sort() };
 }
 const run = (id, input) => rule(id).run(input);
 
@@ -202,9 +202,33 @@ test("CA-11 distinct negative: core.longpaths enabled only after the checkout do
 
 // ---- the gate runs them -----------------------------------------------------------------------------------------------------------
 
+/** Commit `contents` in a fresh repository in a directory named `dir` with remote origin `origin` (null: none), run
+ * `rightkit-gate check --commit HEAD --only <rules>` on it, and return { status, stdout }. */
+function gate(t, dir, contents, rules, origin = "https://github.com/Orthic-Labs/swiftright.git") {
+  const { root } = tree(t, dir, contents);
+  const git = (...args) => spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.longpaths=true", ...args], { cwd: root, encoding: "utf8" });
+  assert.equal(git("init", "-q").status, 0);
+  if (origin) assert.equal(git("remote", "add", "origin", origin).status, 0);
+  assert.equal(git("add", "-A").status, 0);
+  assert.equal(git("commit", "-q", "-m", "fixture").status, 0);
+  const r = spawnSync(process.execPath, [path.join(HERE, "bin", "rightkit-gate.mjs"), "check", "--repo", root, "--commit", "HEAD", "--only", rules.join(",")], { encoding: "utf8" });
+  return { status: r.status, stdout: r.stdout + r.stderr };
+}
+const longFile = (length) => `deep/${"x".repeat(length - 5)}`;
+/** A windows-2025 job: optional job env lines, steps before the checkout, then a plain checkout. */
+const windowsJob = ({ env = "", before = "" } = {}) => `on: push
+jobs:
+  ci:
+    runs-on: windows-2025
+${env}    steps:
+${before}      - uses: actions/checkout@v7
+      - run: echo built
+`;
+const LONGPATHS_ONLY = ["checkout-longpaths"];
+
 test("rightkit-gate check runs the three rules on a committed app tree and reports each original failure", (t) => {
   assert.deepEqual(RULES.filter((r) => r.gap.startsWith("CA-")).map((r) => `${r.id} (${r.gap})`), ["checkout-step-input (CA-07)", "source-relation (CA-09)", "checkout-longpaths (CA-11)"]);
-  const { root } = tree(t, "swiftright", {
+  const result = gate(t, "swiftright", {
     ".github/workflows/factory-pairs.yml": fixture("factory-pairs.80c9be45d.yml"),
     ".github/workflows/ci.yml": PLAIN,
     [HAND]: fixture("hand-entries.7655d1d87.json"),
@@ -212,14 +236,48 @@ test("rightkit-gate check runs the three rules on a committed app tree and repor
     [WGC]: "// recorder\n",
     "factory/tools/ci_pair.py": "# planner\n",
     [LONG[0]]: "x\n",
-  });
-  const git = (...args) => spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.longpaths=true", ...args], { cwd: root, encoding: "utf8" });
-  assert.equal(git("init", "-q").status, 0);
-  assert.equal(git("add", "-A").status, 0);
-  assert.equal(git("commit", "-q", "-m", "fixture").status, 0);
-  const gate = spawnSync(process.execPath, [path.join(HERE, "bin", "rightkit-gate.mjs"), "check", "--repo", root, "--commit", "HEAD", "--only", "checkout-step-input,source-relation,checkout-longpaths"], { encoding: "utf8" });
-  assert.equal(gate.status, 1, gate.stdout + gate.stderr);
-  assert.match(gate.stdout, /^FAIL checkout-step-input \(CA-07\): .*reads factory\/native\/windows\/wgc-record\/wgc-record\.cpp/m);
-  assert.match(gate.stdout, /^FAIL source-relation \(CA-09\): .*names row "I2", which docs\/sr1-status\.md does not have/m);
-  assert.match(gate.stdout, /^FAIL checkout-longpaths \(CA-11\): .*checks out 1 tracked file path\(s\) longer than 259 characters/m);
+  }, ["checkout-step-input", "source-relation", "checkout-longpaths"]);
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stdout, /^FAIL checkout-step-input \(CA-07\): .*reads factory\/native\/windows\/wgc-record\/wgc-record\.cpp/m);
+  assert.match(result.stdout, /^FAIL source-relation \(CA-09\): .*names row "I2", which docs\/sr1-status\.md does not have/m);
+  assert.match(result.stdout, /^FAIL checkout-longpaths \(CA-11\): \.github\/workflows\/ci\.yml job ci .*checks out 1 tracked file path\(s\) longer than 259 characters under D:\\a\\swiftright\\swiftright\\/m);
+});
+
+test("CA-11 through the gate: a step counts only when it provably runs the git config line; if: false and echo are UNSUPPORTED", (t) => {
+  const file = longFile(240);
+  const red = (before) => gate(t, "swiftright", { ".github/workflows/ci.yml": windowsJob({ before }), [file]: "x\n" }, LONGPATHS_ONLY);
+  const ifFalse = red("      - if: false\n        run: git config --system core.longpaths true\n");
+  assert.equal(ifFalse.status, 1, ifFalse.stdout);
+  assert.match(ifFalse.stdout, /^FAIL checkout-longpaths \(CA-11\): UNSUPPORTED: \.github\/workflows\/ci\.yml job ci .*without provable Git long paths/m);
+  const echoOnly = red("      - run: echo \"git config --global core.longpaths true\"\n");
+  assert.equal(echoOnly.status, 1, echoOnly.stdout);
+  assert.match(echoOnly.stdout, /^FAIL checkout-longpaths \(CA-11\): UNSUPPORTED: /m);
+  const real = red("      - run: git config --system core.longpaths true\n");
+  assert.equal(real.status, 0, real.stdout);
+});
+
+test("CA-11 through the gate: GIT_CONFIG_* counts only when GIT_CONFIG_COUNT is a positive integer above the pair's index", (t) => {
+  const file = longFile(240);
+  const run = (vars) => gate(t, "swiftright", { ".github/workflows/ci.yml": windowsJob({ env: `    env:\n${Object.entries(vars).map(([k, v]) => `      ${k}: "${v}"\n`).join("")}` }), [file]: "x\n" }, LONGPATHS_ONLY);
+  const pair = { GIT_CONFIG_KEY_0: "core.longpaths", GIT_CONFIG_VALUE_0: "true" };
+  for (const [label, vars] of [["COUNT absent", pair], ["COUNT 0", { GIT_CONFIG_COUNT: "0", ...pair }], ["index at COUNT", { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_1: "core.longpaths", GIT_CONFIG_VALUE_1: "true" }], ["non-integer COUNT", { GIT_CONFIG_COUNT: "1.0", ...pair }]]) {
+    const r = run(vars);
+    assert.equal(r.status, 1, `${label}: ${r.stdout}`);
+    assert.match(r.stdout, /^FAIL checkout-longpaths \(CA-11\): /m, label);
+  }
+  const ok = run({ GIT_CONFIG_COUNT: "1", ...pair });
+  assert.equal(ok.status, 0, ok.stdout);
+});
+
+test("CA-11 through the gate: the budget is the runner workspace of the GitHub repository, not the checker's directory", (t) => {
+  // D:\a\swiftright\swiftright\ is 27 characters: a 240-character path is 267 there, but 249 under a checker directory named "a".
+  const wf = { ".github/workflows/ci.yml": windowsJob() };
+  const over = gate(t, "a", { ...wf, [longFile(240)]: "x\n" }, LONGPATHS_ONLY);
+  assert.equal(over.status, 1, over.stdout);
+  assert.match(over.stdout, /^FAIL checkout-longpaths \(CA-11\): .*under D:\\a\\swiftright\\swiftright\\ \(longest: 267 characters/m);
+  const under = gate(t, "a", { ...wf, [longFile(230)]: "x\n" }, LONGPATHS_ONLY);
+  assert.equal(under.status, 0, under.stdout);
+  const unknown = gate(t, "swiftright", { ...wf, [longFile(240)]: "x\n" }, LONGPATHS_ONLY, null);
+  assert.equal(unknown.status, 1, unknown.stdout);
+  assert.match(unknown.stdout, /^FAIL checkout-longpaths \(CA-11\): UNSUPPORTED: .*the repository name is unknown/m);
 });

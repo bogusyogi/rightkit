@@ -16,15 +16,19 @@
 //   checkout-longpaths   CA-11  a job on a GitHub-hosted Windows runner checks out tracked paths that exceed the Win32 path limit
 //                         under the runner workspace (D:\a\<repo>\<repo>\) without enabling Git long paths before the checkout.
 //                         SwiftRight run 38363145934 (windows-2025, plain actions/checkout): "Filename too long", 829 tracked paths
-//                         over the limit. Long paths are legitimate: a job passes when a step before its checkout runs
-//                         `git config --system|--global core.longpaths true` (or sets it through GIT_CONFIG_KEY_n), or when its
+//                         over the limit. Long paths are legitimate: a job passes when a step before its checkout provably runs
+//                         `git config --system|--global core.longpaths true` (or GIT_CONFIG_COUNT covers a KEY_n/VALUE_n pair), or when its
 //                         sparse checkout leaves every long path out, or when it runs on a non-Windows runner.
 //
 // Known limits, deliberate for an offline check: a non-cone sparse checkout (sparse-checkout-cone-mode: false) is not modelled, a
 // job with more than one checkout of its own repository is skipped, a path assembled from variables is matched on its literal
 // text only, and a self-hosted Windows runner (label self-hosted) is skipped because its system Git configuration is not in the
-// tree. The workspace name is the checked repository directory's basename. A workflow the strict parser refuses is a finding only
+// tree. The workspace name is the GitHub repository name from the checked repository's remote origin (git config, no network),
+// never the checker's own directory; with no GitHub origin, paths that fail under any name fail and the rest are UNSUPPORTED.
+// A pre-checkout step counts only when it provably runs and its whole script is the git config line; any other step or
+// environment that touches core.longpaths is reported as UNSUPPORTED, never passed. A workflow the strict parser refuses is a finding only
 // when it mentions a sparse checkout or a Windows runner (the two things these rules read); any other is left alone.
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { parseYaml } from "./workflow-yaml.mjs";
@@ -169,19 +173,65 @@ function checkoutStepInput({ root, files }) {
 export const WIN_MAX_FILE = 259;
 export const WIN_MAX_DIR = 247;
 const HOSTED_WINDOWS = /^windows-(?:latest|\d{4}|11-arm|\d+[a-z0-9-]*)$/i;
-const ENABLE_LONGPATHS = /\bgit\s+config\s+(?:--system|--global)\s+(?:--(?:add|replace-all)\s+)?core\.longpaths\s+(?:true|1|yes|on)\b/i;
+const TRUE_VALUE = /^(?:true|1|yes|on)$/i;
+// The one script line that enables long paths: the whole line is the command (no echo, no condition, no substitution).
+const ENABLE_LINE = /^git\s+config\s+(?:--system|--global)\s+(?:--(?:add|replace-all)\s+)?core\.longpaths\s+(?:true|1|yes|on)\s*;?$/i;
+// Lines a step may carry beside it without changing whether it runs: blank lines, comments, strict-mode preambles.
+const NEUTRAL_LINE = /^(?:$|#|set\s+-[euxo]+(?:\s+pipefail)?\s*$|\$ErrorActionPreference\s*=\s*['"]Stop['"]\s*;?$)/i;
+const STANDARD_SHELLS = new Set(["bash", "pwsh", "powershell", "sh", "cmd"]);
+const MENTIONS_LONGPATHS = /core\.longpaths/i;
 
-/** Whether an env map sets core.longpaths through GIT_CONFIG_COUNT / GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n. */
-function envLongpaths(env) {
+/** Whether git, given this merged environment, sets core.longpaths=true through GIT_CONFIG_COUNT / GIT_CONFIG_KEY_n / VALUE_n:
+ * true, false, or "unknown" when a value is an expression. Git reads pair n only when COUNT is a positive integer above n. */
+export function envLongpaths(env) {
   if (!env || typeof env !== "object") return false;
-  return Object.entries(env).some(([k, v]) => {
-    const m = /^GIT_CONFIG_KEY_(\d+)$/.exec(k);
-    return m && String(v).toLowerCase() === "core.longpaths" && /^(?:true|1|yes|on)$/i.test(String(env[`GIT_CONFIG_VALUE_${m[1]}`] ?? ""));
-  });
+  const values = Object.entries(env).filter(([k]) => /^GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)$/.test(k));
+  if (values.some(([, v]) => /\$\{\{/.test(String(v)))) return "unknown";
+  const count = String(env.GIT_CONFIG_COUNT ?? "").trim();
+  if (!/^[1-9]\d*$/.test(count)) return false;
+  const n = Number(count);
+  for (let i = 0; i < n; i += 1) {
+    if (String(env[`GIT_CONFIG_KEY_${i}`] ?? "").toLowerCase() === "core.longpaths" && TRUE_VALUE.test(String(env[`GIT_CONFIG_VALUE_${i}`] ?? ""))) return true;
+  }
+  return false;
+}
+
+/** Whether a step's `if:` provably lets it run on the Windows legs this rule judges: none, `true`, `always()`, `success()`, or
+ * `runner.os == 'Windows'` (true on exactly those legs). Anything else cannot be judged from the file. */
+function alwaysRuns(condition) {
+  if (condition === undefined) return true;
+  const text = String(condition).trim().replace(/^\$\{\{\s*([\s\S]*?)\s*\}\}$/, "$1").trim();
+  if (/^(?:true|always\(\)|success\(\))$/.test(text)) return true;
+  if (/^runner\.os\s*==\s*['"]Windows['"]$/.test(text)) return true;
+  return false;
+}
+
+/** A pre-checkout step judged for long paths: "enables", "unsupported" (it touches long paths in a way this check cannot prove
+ * runs: a condition, echo or other shell text, a custom shell, an action) or "none". */
+function judgeStep(step) {
+  if (!step || typeof step !== "object") return "none";
+  const text = JSON.stringify(step);
+  if (typeof step.uses === "string") return MENTIONS_LONGPATHS.test(text) ? "unsupported" : "none";
+  if (typeof step.run !== "string") return "none";
+  if (!MENTIONS_LONGPATHS.test(step.run)) return "none";
+  const shell = step.shell === undefined ? "bash" : String(step.shell).trim();
+  const lines = step.run.split("\n").map((l) => l.trim());
+  const proven = alwaysRuns(step.if) && STANDARD_SHELLS.has(shell) && step["continue-on-error"] === undefined
+    && lines.every((l) => NEUTRAL_LINE.test(l) || ENABLE_LINE.test(l)) && lines.some((l) => ENABLE_LINE.test(l));
+  return proven ? "enables" : "unsupported";
 }
 
 /** The workspace prefix a GitHub-hosted Windows runner checks a repository out under: D:\a\<name>\<name>\ (plus with.path). */
 export const windowsWorkspace = (name, checkoutPath = "") => `D:\\a\\${name}\\${name}\\${checkoutPath ? `${checkoutPath.replace(/\//g, "\\")}\\` : ""}`;
+
+/** The GitHub repository name the runner names its workspace after, from the checked repository's remote `origin` URL (read with
+ * git config, no network); null when there is none or it is not a GitHub URL. Never the checker's own directory name. */
+export function repositoryName(repo) {
+  if (!repo) return null;
+  const r = spawnSync("git", ["-C", String(repo), "config", "--get", "remote.origin.url"], { encoding: "utf8", windowsHide: true });
+  const m = /github\.com[:/]+[^/\s]+\/([^/\s]+?)(?:\.git)?\/?$/i.exec(String(r.stdout ?? "").trim());
+  return r.status === 0 && m ? m[1] : null;
+}
 
 /** The tracked paths a checkout materializes that are too long for Win32 under `prefix`: { files, dirs, longest }. */
 export function overLongPaths(files, prefix, sparse = null) {
@@ -196,33 +246,41 @@ export function overLongPaths(files, prefix, sparse = null) {
   return { files: tooLong, dirs: [...dirs], longest };
 }
 
-function checkoutLongpaths({ root, files, repo }) {
+function checkoutLongpaths({ root, files, repo, repositoryName: given }) {
   const out = [];
-  const name = path.basename(path.resolve(String(repo ?? root)));
+  const name = given !== undefined ? given : repositoryName(repo);
   for (const wf of workflows(root, files)) {
     if (wf.error) {
-      if (/windows/i.test(wf.text) && /actions\/checkout@/.test(wf.text)) out.push({ file: wf.file, subject: "parse", problem: `${wf.file} checks out on a Windows runner but cannot be read by the strict workflow parser (${wf.error}), so its long-path capability cannot be checked`, fix: "write the workflow in the YAML subset packages/release/workflow-yaml.mjs reads" });
+      if (/windows/i.test(wf.text) && /actions\/checkout@/.test(wf.text)) out.push({ file: wf.file, subject: "parse", problem: `UNSUPPORTED: ${wf.file} checks out on a Windows runner but cannot be read by the strict workflow parser (${wf.error}), so its long-path capability cannot be checked`, fix: "write the workflow in the YAML subset packages/release/workflow-yaml.mjs reads" });
       continue;
     }
     for (const [jobId, job] of Object.entries(wf.doc?.jobs ?? {})) {
       const labels = runnerLabels(job);
       if (labels.some((l) => /^self-hosted$/i.test(l))) continue;
-      if (!labels.some((l) => HOSTED_WINDOWS.test(l.trim()))) continue;
+      const windows = labels.filter((l) => HOSTED_WINDOWS.test(l.trim()));
+      if (!windows.length) continue;
       const checkout = selfCheckout(job);
       if (!checkout || (checkout.sparse !== null && !checkout.cone)) continue;
-      const prefix = windowsWorkspace(name, checkout.path);
+      // Unknown repository: judge with the shortest possible name (one character); what fails there fails under any name, and
+      // what fails only under a longer one is reported as UNSUPPORTED rather than passed.
+      const prefix = windowsWorkspace(name ?? "x", checkout.path);
       const long = overLongPaths(files, prefix, checkout.sparse);
-      if (!long.longest) continue;
-      const before = job.steps.slice(0, checkout.index);
-      const enabled = envLongpaths(wf.doc.env) || envLongpaths(job.env) || envLongpaths(checkout.step.env)
-        || before.some((s) => s && typeof s === "object" && typeof s.run === "string" && s.run.split("\n").some((l) => !SCRIPT_COMMENT.test(l) && ENABLE_LONGPATHS.test(l)));
-      if (enabled) continue;
-      const after = job.steps.slice(checkout.index + 1).some((s) => s && typeof s.run === "string" && ENABLE_LONGPATHS.test(s.run));
-      const count = long.files.length;
+      const unknownWide = name ? null : overLongPaths(files, windowsWorkspace("x".repeat(100), checkout.path), checkout.sparse);
+      if (!long.longest && !unknownWide?.longest) continue;
+      const env = { ...(wf.doc.env ?? {}), ...(job.env ?? {}), ...(checkout.step.env ?? {}) };
+      const viaEnv = envLongpaths(env);
+      const judged = job.steps.slice(0, checkout.index).map((s) => judgeStep(s));
+      if (viaEnv === true || judged.includes("enables")) continue;
+      const unsupported = viaEnv === "unknown" || judged.includes("unsupported");
+      const after = job.steps.slice(checkout.index + 1).some((s) => s && typeof s.run === "string" && MENTIONS_LONGPATHS.test(s.run));
+      if (!long.longest) {
+        out.push({ file: wf.file, subject: jobId, problem: `UNSUPPORTED: ${wf.file} job ${jobId} (${windows.join(", ")}) checks out ${unknownWide.files.length} tracked path(s) that exceed the Win32 limit under D:\\a\\<repo>\\<repo>\\ for a long enough repository name, and the repository name is unknown (no GitHub remote origin), without proven Git long paths`, fix: "enable core.longpaths before the checkout, or check a clone whose origin names the GitHub repository" });
+        continue;
+      }
       out.push({
         file: wf.file, subject: jobId,
-        problem: `${wf.file} job ${jobId} (${labels.filter((l) => HOSTED_WINDOWS.test(l.trim())).join(", ")}) checks out ${count} tracked file path(s) longer than ${WIN_MAX_FILE} characters under ${prefix} (longest: ${prefix.length + long.longest.length} characters, ${long.longest}) without Git long paths${after ? " (core.longpaths is enabled only after the checkout)" : ""}: git fails with "Filename too long"`,
-        fix: `add a step before the checkout that runs \`git config --system core.longpaths true\`, or leave the long paths out of the job's sparse checkout`,
+        problem: `${unsupported ? "UNSUPPORTED: " : ""}${wf.file} job ${jobId} (${windows.join(", ")}) checks out ${long.files.length} tracked file path(s) longer than ${WIN_MAX_FILE} characters under ${prefix}${name ? "" : " (repository name unknown; shortest possible)"} (longest: ${prefix.length + long.longest.length} characters, ${long.longest}) without ${unsupported ? "provable " : ""}Git long paths${unsupported ? " (a step or environment before the checkout touches core.longpaths in a way this check cannot prove runs: a condition, echo or other shell text, a custom shell, an action, an expression, or GIT_CONFIG_* without a COUNT that covers it)" : ""}${after ? " (core.longpaths is enabled only after the checkout)" : ""}: git fails with "Filename too long"`,
+        fix: "add an unconditional step before the checkout whose whole script is `git config --system core.longpaths true`, or leave the long paths out of the job's sparse checkout",
       });
     }
   }
