@@ -11,6 +11,10 @@
       "linkage": "dynamic-library",
       "artifactFileName": "libonnxruntime.dylib",
       "sha256": "4b2fb26f1d4f78ef8492e2f5dadfe77d810e6cbe1364465ff33c44d189e93110",
+      "contentSha256ByArch": {
+        "aarch64": "32089eb76b8d0170f92511cce0d0163f9c72b99ba6645134103492f3d5d8b277",
+        "x86_64": "0ffa3b3200e79fb5c531e4252c18f9045dd3f9f259e12f7b5db345252dc98912"
+      },
       "archive": {
         "url": "https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.30.0/onnxruntime-osx-universal2-1.30.0.zip",
         "sha256": "826f3a5f157b5cba769249b2c7f2215bb430c4fc8d0b31e29c9c573becad10b2"
@@ -23,7 +27,7 @@
       ],
       "verification": {
         "method": "file-sha256",
-        "evidence": "release asset sha256 measured 2026-10-22; lipo x86_64 arm64; leak fix verified by HeardRight on 1.28.3 against the KWS corpus (heardright#292); 1.30.0 verified by HeardRight on a Mac M6 on 2026-10-22 against this exact dylib: kws_idle_memory flat at 71-73 MB over 900 s (1.26.0: 114 to 356 MB), locked KWS corpus 14/14 positives, 238 negatives, 0 false actions (heardright#292)"
+        "evidence": "release asset sha256 measured 2026-10-22; lipo x86_64 arm64; leak fix verified by HeardRight on 1.28.3 against the KWS corpus (heardright#292); 1.30.0 verified by HeardRight on a Mac M6 on 2026-10-22 against this exact dylib: kws_idle_memory flat at 71-73 MB over 900 s (1.26.0: 114 to 356 MB), locked KWS corpus 14/14 positives, 238 negatives, 0 false actions (heardright#292). contentSha256ByArch: the signature-independent digest of each slice (content_digest), measured 2026-10-24 from the same archive (re-downloaded, archive sha256 equal to the pin, dylib sha256 equal to this row), so a copy re-signed inside an app bundle still verifies at load"
       }
     },
     {
@@ -71,19 +75,23 @@
       "linkage": "dynamic-library",
       "artifactFileName": "onnxruntime.dll",
       "sha256": "e7eedec6a6f26dc39dc948276a75ef6d2bee3fff944d874ceed0bbd3b97bff40",
+      "contentSha256": "a1e9b9553d9f251b3369e29cfd0c5153c07b7de760a2856822731f8c24eb8f90",
       "archive": {
         "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.directml/1.24.4/microsoft.ml.onnxruntime.directml.1.24.4.nupkg",
-        "sha256": "57e9f11b73437bef7a309496135d4c1f96b1a8e9ddba60013fa27bfc1d788681"
+        "sha256": "57e9f11b73437bef7a309496135d4c1f96b1a8e9ddba60013fa27bfc1d788681",
+        "member": "runtimes/win-x64/native/onnxruntime.dll"
       },
+      "companions": ["directml-1.15.4-windows-x64"],
       "sourceUrl": "https://www.nuget.org/packages/Microsoft.ML.OnnxRuntime.DirectML/1.24.4",
       "licenseSpdx": "MIT",
       "noticeFiles": [
         "third-party/ONNXRuntime-MIT.txt",
         "third-party/ONNXRuntime-1.24.4-ThirdPartyNotices.txt"
       ],
+      "hostProof": "never-run",
       "verification": {
         "method": "file-sha256",
-        "evidence": "Microsoft.ML.OnnxRuntime.DirectML 1.24.4 from nuget.org: the nupkg (12458649 bytes) hashes to the SHA-512 nuget.org publishes (ZjOyv495vhfVXoTJp2utRyn8ir1TFIvCj0B9JP8QZGBXS0oFx+lY7ZCZqSdnVShQX6EtxYi2T3VOtYXcmBTV4A==); sha256 is runtimes/win-x64/native/onnxruntime.dll (17328152 bytes) extracted from it. Not loaded or run by rightkit-onnx here yet, so it stays pinned. The DirectML execution provider also needs DirectML.dll from Microsoft.AI.DirectML (the package declares >= 1.15.4); that file is the separate record directml-1.15.4-windows-x64, under Microsoft's DirectML licence terms."
+        "evidence": "Microsoft.ML.OnnxRuntime.DirectML 1.24.4 from nuget.org: the nupkg (12458649 bytes) hashes to the SHA-512 nuget.org publishes (ZjOyv495vhfVXoTJp2utRyn8ir1TFIvCj0B9JP8QZGBXS0oFx+lY7ZCZqSdnVShQX6EtxYi2T3VOtYXcmBTV4A==); sha256 is runtimes/win-x64/native/onnxruntime.dll (17328152 bytes) extracted from it. Not loaded or run by rightkit-onnx here yet, so it stays pinned. The DirectML execution provider also needs DirectML.dll from Microsoft.AI.DirectML (the package declares >= 1.15.4); that file is the separate record directml-1.15.4-windows-x64, under Microsoft's DirectML licence terms, listed as this row's companion. 2026-10-24 (cloud session, no Windows host): the nupkg re-downloaded, sha256 equal to the pin; the member path runtimes/win-x64/native/onnxruntime.dll recorded as archive.member (the package also holds runtimes/win-arm64/native/onnxruntime.dll, so the base name alone is ambiguous); contentSha256 is the Authenticode-rule digest (content_digest) of that member. Never loaded on a Windows host: hostProof never-run."
       }
     },
     {
@@ -96,9 +104,11 @@
       "linkage": "dynamic-library",
       "artifactFileName": "DirectML.dll",
       "sha256": "9c9e6d822561c6c41b90e6994b3e8857cf1d66dbfb1e0c4c799c7c89b4e92da1",
+      "contentSha256": "476745192b2b9c21d41acdb54dc34a8afb9b8bfebf71281986eb144a41026df5",
       "archive": {
         "url": "https://api.nuget.org/v3-flatcontainer/microsoft.ai.directml/1.15.4/microsoft.ai.directml.1.15.4.nupkg",
-        "sha256": "4e7cb7ddce8cf837a7a75dc029209b520ca0101470fcdf275c1f49736a3615b9"
+        "sha256": "4e7cb7ddce8cf837a7a75dc029209b520ca0101470fcdf275c1f49736a3615b9",
+        "member": "bin/x64-win/DirectML.dll"
       },
       "sourceUrl": "https://www.nuget.org/packages/Microsoft.AI.DirectML/1.15.4",
       "licenseSpdx": "LicenseRef-Microsoft-DirectML",
@@ -106,9 +116,10 @@
         "third-party/DirectML-1.15.4-LICENSE.txt",
         "third-party/DirectML-1.15.4-ThirdPartyNotices.txt"
       ],
+      "hostProof": "never-run",
       "verification": {
         "method": "file-sha256",
-        "evidence": "Microsoft.AI.DirectML 1.15.4 from nuget.org, the version Microsoft.ML.OnnxRuntime.DirectML 1.24.4 declares as its minimum: the nupkg (202292617 bytes) hashes to the SHA-512 nuget.org publishes (/edn9WkEq8kP1T9l2HKckYq39uPF4ezdR5kI/AK0U1zysIYPerKsubcx1suAm3LD1dTQKFP7j16gIqR7xE7yhQ==); sha256 is bin/x64-win/DirectML.dll (18527776 bytes) extracted from it. Redistributable only with an application under the package's Microsoft Software License Terms, shipped as the first notice file. Not loaded through rightkit-onnx here yet, so it stays pinned."
+        "evidence": "Microsoft.AI.DirectML 1.15.4 from nuget.org, the version Microsoft.ML.OnnxRuntime.DirectML 1.24.4 declares as its minimum: the nupkg (202292617 bytes) hashes to the SHA-512 nuget.org publishes (/edn9WkEq8kP1T9l2HKckYq39uPF4ezdR5kI/AK0U1zysIYPerKsubcx1suAm3LD1dTQKFP7j16gIqR7xE7yhQ==); sha256 is bin/x64-win/DirectML.dll (18527776 bytes) extracted from it. Redistributable only with an application under the package's Microsoft Software License Terms, shipped as the first notice file. Not loaded through rightkit-onnx here yet, so it stays pinned. 2026-10-24 (cloud session, no Windows host): the nupkg re-downloaded, sha256 equal to the pin; the member path bin/x64-win/DirectML.dll recorded as archive.member (the package holds eight DirectML.dll builds: arm, arm64, arm64ec, x86, x64 and three Xbox ones); contentSha256 is the Authenticode-rule digest (content_digest) of that member. Never loaded on a Windows host: hostProof never-run."
       }
     },
     {
@@ -120,14 +131,16 @@
       "status": "pinned",
       "linkage": "dynamic-library",
       "artifactFileName": "libpdfium.dylib",
+      "sha256": "0363f510f07c0e5c66db8419a3da197f8511d790824b37356e5ff33f8a6ed16b",
       "archive": {
         "url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F8021/pdfium-mac-arm64.tgz",
-        "sha256": "994600fa28974ce09a1c51c35039e808a6bc8ea3839050322c101ab229ad5c96"
+        "sha256": "994600fa28974ce09a1c51c35039e808a6bc8ea3839050322c101ab229ad5c96",
+        "member": "lib/libpdfium.dylib"
       },
       "sourceUrl": "https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F8021",
       "licenseSpdx": "BSD-3-Clause",
-      "noticeFiles": ["third-party/PDFium-BSD-3-Clause.txt"],
-      "verification": { "method": "archive-sha256", "evidence": "ScrapeRight scripts/package-macos-helpers.sh ensure_pdfium pin (archive not re-downloaded here)" }
+      "noticeFiles": ["third-party/PDFium-BSD-3-Clause.txt", "third-party/PDFium-chromium-8021-ThirdPartyNotices.txt"],
+      "verification": { "method": "file-sha256", "evidence": "ScrapeRight scripts/package-macos-helpers.sh ensure_pdfium pin. 2026-10-24 (cloud session): the archive re-downloaded, sha256 equal to the pin; sha256 is lib/libpdfium.dylib (7203136 bytes) extracted from it. This row is pinned and carries no hostProof because ScrapeRight ships this archive in production but this repository has not loaded it. No contentSha256: the content-digest parser refuses this dylib (__LINKEDIT does not run to the end of the file), so a copy re-signed inside an app bundle cannot verify at load until the row carries a digest that survives signing." }
     },
     {
       "id": "pdfium-chromium-8021-macos-x86_64",
@@ -138,14 +151,16 @@
       "status": "pinned",
       "linkage": "dynamic-library",
       "artifactFileName": "libpdfium.dylib",
+      "sha256": "ea881717c387328d26a4e9e4de2f4e2c2c2eb8f514f2d528aa4b7647d5e63a10",
       "archive": {
         "url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F8021/pdfium-mac-x64.tgz",
-        "sha256": "0e770fda56c6726a08fab84c6306ad91eceb10589020ce3a407fad3ebcbe7bb2"
+        "sha256": "0e770fda56c6726a08fab84c6306ad91eceb10589020ce3a407fad3ebcbe7bb2",
+        "member": "lib/libpdfium.dylib"
       },
       "sourceUrl": "https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F8021",
       "licenseSpdx": "BSD-3-Clause",
-      "noticeFiles": ["third-party/PDFium-BSD-3-Clause.txt"],
-      "verification": { "method": "archive-sha256", "evidence": "ScrapeRight scripts/package-macos-helpers.sh ensure_pdfium pin (archive not re-downloaded here)" }
+      "noticeFiles": ["third-party/PDFium-BSD-3-Clause.txt", "third-party/PDFium-chromium-8021-ThirdPartyNotices.txt"],
+      "verification": { "method": "file-sha256", "evidence": "ScrapeRight scripts/package-macos-helpers.sh ensure_pdfium pin. 2026-10-24 (cloud session): the archive re-downloaded, sha256 equal to the pin; sha256 is lib/libpdfium.dylib (7506120 bytes) extracted from it. This row is pinned and carries no hostProof because ScrapeRight ships this archive in production but this repository has not loaded it. No contentSha256: the content-digest parser refuses this dylib (__LINKEDIT does not run to the end of the file), so a copy re-signed inside an app bundle cannot verify at load until the row carries a digest that survives signing." }
     },
     {
       "id": "pdfium-chromium-8021-windows-x64",
@@ -153,13 +168,21 @@
       "version": "chromium/8021",
       "os": "windows",
       "arch": "x86_64",
-      "status": "planned",
+      "status": "pinned",
       "linkage": "dynamic-library",
       "artifactFileName": "pdfium.dll",
+      "sha256": "2a9031fa88f412147c3bc7115054550048c724db6ea70298b6c6b0d13e513882",
+      "contentSha256": "23b11defcd68df20180c7e29f33ccd7314f80cc7193b0f9c88dc31bc9de24f7d",
+      "archive": {
+        "url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F8021/pdfium-win-x64.tgz",
+        "sha256": "adac8ce034015427b5daa81f8eeddfcc8e84bc2a9f036f007890ff18bd4388c4",
+        "member": "bin/pdfium.dll"
+      },
       "sourceUrl": "https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F8021",
       "licenseSpdx": "BSD-3-Clause",
-      "noticeFiles": ["third-party/PDFium-BSD-3-Clause.txt"],
-      "verification": { "method": "none", "evidence": "ScrapeRight Windows pin is chromium/7920; unify to 8021 on the Windows host" }
+      "noticeFiles": ["third-party/PDFium-BSD-3-Clause.txt", "third-party/PDFium-chromium-8021-ThirdPartyNotices.txt"],
+      "hostProof": "never-run",
+      "verification": { "method": "file-sha256", "evidence": "ScrapeRight's Windows archive pin (adac8ce0, chromium/8021). 2026-10-24 (cloud session, no Windows host): the archive downloaded, sha256 adac8ce0...88c4 (the pin ScrapeRight carries); sha256 is bin/pdfium.dll (7262720 bytes) extracted from it; contentSha256 is its Authenticode-rule digest (content_digest). Never loaded on a Windows host: hostProof never-run." }
     },
     {
       "id": "sherpa-onnx-1.13.4-macos-universal",
@@ -338,6 +361,96 @@
         "method": "file-sha256",
         "evidence": "whisper.cpp 1.9.3 Metal build retained at /Volumes/D/rightkit-publish/artifacts/whisper-cpp-1.9.3/macos-arm64/libggml-blas.0.20.2.dylib (58528 bytes; also /Volumes/D/.cache/whisper-cpp-1.9.3-metal-rk); contentSha256 is signature-independent; the unversioned install-name symlinks (libwhisper.1.dylib, libggml.0.dylib, ...) point at this file"
       }
+    },
+    {
+      "id": "whisper-cpp-1.9.3-windows-x64",
+      "library": "whisper-cpp",
+      "version": "1.9.3",
+      "os": "windows",
+      "arch": "x86_64",
+      "status": "planned",
+      "linkage": "dynamic-library",
+      "artifactFileName": "whisper.dll",
+      "sourceUrl": "https://github.com/ggml-org/whisper.cpp",
+      "licenseSpdx": "MIT",
+      "noticeFiles": ["third-party/whisper.cpp-MIT.txt"],
+      "hostProof": "never-run",
+      "verification": { "method": "none", "evidence": "planned (lane C5-17): the Windows whisper.cpp 1.9.3 set with the Vulkan backend is to be built by RightKit CI (the ffmpeg-windows.yml pattern) and qualified on the Dell; HeardRight ships its Windows whisper runtime from a gitignored directory checked for presence only. No digest until that build exists, so the row never resolves." }
+    },
+    {
+      "id": "ggml-0.20.2-windows-x64",
+      "library": "ggml",
+      "version": "0.20.2",
+      "os": "windows",
+      "arch": "x86_64",
+      "status": "planned",
+      "linkage": "dynamic-library",
+      "artifactFileName": "ggml.dll",
+      "sourceUrl": "https://github.com/ggml-org/whisper.cpp",
+      "licenseSpdx": "MIT",
+      "noticeFiles": ["third-party/whisper.cpp-MIT.txt"],
+      "hostProof": "never-run",
+      "verification": { "method": "none", "evidence": "planned (lane C5-17): the Windows whisper.cpp 1.9.3 set with the Vulkan backend is to be built by RightKit CI (the ffmpeg-windows.yml pattern) and qualified on the Dell; HeardRight ships its Windows whisper runtime from a gitignored directory checked for presence only. No digest until that build exists, so the row never resolves." }
+    },
+    {
+      "id": "ggml-base-0.20.2-windows-x64",
+      "library": "ggml",
+      "version": "0.20.2",
+      "os": "windows",
+      "arch": "x86_64",
+      "status": "planned",
+      "linkage": "dynamic-library",
+      "artifactFileName": "ggml-base.dll",
+      "sourceUrl": "https://github.com/ggml-org/whisper.cpp",
+      "licenseSpdx": "MIT",
+      "noticeFiles": ["third-party/whisper.cpp-MIT.txt"],
+      "hostProof": "never-run",
+      "verification": { "method": "none", "evidence": "planned (lane C5-17): the Windows whisper.cpp 1.9.3 set with the Vulkan backend is to be built by RightKit CI (the ffmpeg-windows.yml pattern) and qualified on the Dell; HeardRight ships its Windows whisper runtime from a gitignored directory checked for presence only. No digest until that build exists, so the row never resolves." }
+    },
+    {
+      "id": "ggml-cpu-0.20.2-windows-x64",
+      "library": "ggml",
+      "version": "0.20.2",
+      "os": "windows",
+      "arch": "x86_64",
+      "status": "planned",
+      "linkage": "dynamic-library",
+      "artifactFileName": "ggml-cpu.dll",
+      "sourceUrl": "https://github.com/ggml-org/whisper.cpp",
+      "licenseSpdx": "MIT",
+      "noticeFiles": ["third-party/whisper.cpp-MIT.txt"],
+      "hostProof": "never-run",
+      "verification": { "method": "none", "evidence": "planned (lane C5-17): the Windows whisper.cpp 1.9.3 set with the Vulkan backend is to be built by RightKit CI (the ffmpeg-windows.yml pattern) and qualified on the Dell; HeardRight ships its Windows whisper runtime from a gitignored directory checked for presence only. No digest until that build exists, so the row never resolves." }
+    },
+    {
+      "id": "ggml-vulkan-0.20.2-windows-x64",
+      "library": "ggml",
+      "version": "0.20.2",
+      "os": "windows",
+      "arch": "x86_64",
+      "status": "planned",
+      "linkage": "dynamic-library",
+      "artifactFileName": "ggml-vulkan.dll",
+      "sourceUrl": "https://github.com/ggml-org/whisper.cpp",
+      "licenseSpdx": "MIT",
+      "noticeFiles": ["third-party/whisper.cpp-MIT.txt"],
+      "hostProof": "never-run",
+      "verification": { "method": "none", "evidence": "planned (lane C5-17): the Windows whisper.cpp 1.9.3 set with the Vulkan backend is to be built by RightKit CI (the ffmpeg-windows.yml pattern) and qualified on the Dell; HeardRight ships its Windows whisper runtime from a gitignored directory checked for presence only. No digest until that build exists, so the row never resolves." }
+    },
+    {
+      "id": "sherpa-onnx-1.13.4-windows-x64",
+      "library": "sherpa-onnx",
+      "version": "1.13.4",
+      "os": "windows",
+      "arch": "x86_64",
+      "status": "planned",
+      "linkage": "dynamic-library",
+      "artifactFileName": "sherpa-onnx-c-api.dll",
+      "sourceUrl": "https://github.com/k2-fsa/sherpa-onnx/releases/tag/v1.13.4",
+      "licenseSpdx": "Apache-2.0",
+      "noticeFiles": ["third-party/Apache-2.0.txt"],
+      "hostProof": "never-run",
+      "verification": { "method": "none", "evidence": "planned (lane C5-13): HeardRight ships a Windows sherpa-onnx C API DLL whose digest is not catalogued; the row gets that file's digest and provenance after host proof on the Dell. No digest yet, so the row never resolves." }
     }
   ]
 }

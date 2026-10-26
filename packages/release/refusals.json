@@ -1191,11 +1191,6 @@
       "reason": "needs the sealed release or the upload tier chosen at upload time"
     },
     {
-      "key": "publish-update.mjs::<module>::1acd0fdb",
-      "class": "runtime-only",
-      "reason": "needs the sealed release or the upload tier chosen at upload time"
-    },
-    {
       "key": "publish-update.mjs::<module>::574980b1#2",
       "class": "runtime-only",
       "reason": "an upload step (repository, token, signature, registration) failed against the sealed release or the service"
@@ -1250,6 +1245,11 @@
       "key": "publish-update.mjs::fail::cbde29b1",
       "class": "runtime-only",
       "reason": "an upload step failed against the service, or plumbing"
+    },
+    {
+      "key": "publish-update.mjs::<module>::cd871fc4",
+      "class": "runtime-only",
+      "reason": "decided by the invocation (the config path), which the doctor and the build load with the same statement first"
     },
     {
       "key": "sign-updater.mjs::runSignUpdater::ecb9ace3",
@@ -1738,6 +1738,26 @@
       "key": "release-state.mjs::validateUploadRoutes::797ed97c",
       "class": "runtime-only",
       "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::21687e4d",
+      "class": "runtime-only",
+      "reason": "decided by the Right Suite contract's key list and the clock at seal time; the doctor's updater-key-id and updater public key rows check the part that is in the config"
+    },
+    {
+      "key": "sign-updater.mjs::runSignUpdater::02af4c7f",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "sign-updater.mjs::runSignUpdater::311e593d",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "sign-updater.mjs::assertSignedByExpectedKey::0b34abec",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
     }
   ]
 }

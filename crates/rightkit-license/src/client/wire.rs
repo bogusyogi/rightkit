@@ -17,7 +17,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 use super::types::LicenseClientConfig;
 use super::view::LicenseError;
-use crate::{RefreshRequest, RefreshResponse, RefreshTransport, TransportError};
+use crate::{suite_api, RefreshRequest, RefreshResponse, RefreshTransport, TransportError};
 
 /// A response: the status and the body, which can hold tokens and so is zeroed on drop.
 pub(crate) struct Reply {
@@ -90,7 +90,7 @@ impl Transport {
             "licenseKey": key,
             "version": self.app_version,
         });
-        let reply = self.post("/v1/licenses/activate", &body, &[key])?;
+        let reply = self.post(suite_api::LICENSE_ACTIVATE_PATH, &body, &[key])?;
         Ok(license_answer(&reply))
     }
 
@@ -105,7 +105,7 @@ impl Transport {
             "activationToken": activation_token,
             "deviceId": device_id,
         });
-        let reply = self.post("/v1/licenses/refresh", &body, &[activation_token])?;
+        let reply = self.post(suite_api::LICENSE_REFRESH_PATH, &body, &[activation_token])?;
         Ok(license_answer(&reply))
     }
 
@@ -113,7 +113,7 @@ impl Transport {
     pub(crate) fn deactivate(&self, activation_token: &str) -> bool {
         let body = json!({ "app": self.app, "activationToken": activation_token });
         matches!(
-            self.post("/v1/licenses/deactivate", &body, &[activation_token]),
+            self.post(suite_api::LICENSE_DEACTIVATE_PATH, &body, &[activation_token]),
             Ok(reply) if (200..300).contains(&reply.status)
         )
     }
@@ -121,7 +121,7 @@ impl Transport {
     /// `POST /v1/licenses/trial`. Issues no credential; the key arrives by e-mail.
     pub(crate) fn trial(&self, email: &str) -> Result<TrialAnswer, LicenseError> {
         let body = json!({ "app": self.app, "email": email });
-        let reply = self.post("/v1/licenses/trial", &body, &[])?;
+        let reply = self.post(suite_api::LICENSE_TRIAL_PATH, &body, &[])?;
         if reply.status == 429 {
             return Ok(TrialAnswer::RateLimited);
         }
@@ -156,7 +156,7 @@ impl Transport {
             body["deviceLabel"] = json!(label);
         }
         self.post(
-            &format!("/v1/pro/{}/devices/lease", self.app),
+            &suite_api::fill_app(suite_api::LEASE_ISSUE_PATH, &self.app),
             &body,
             &[key],
         )
@@ -170,7 +170,7 @@ impl Transport {
     ) -> Result<Reply, LicenseError> {
         let body = json!({ "deviceIdHash": device_id_hash, "leaseId": lease_id });
         self.post(
-            &format!("/v1/pro/{}/devices/lease/renew", self.app),
+            &suite_api::fill_app(suite_api::LEASE_RENEW_PATH, &self.app),
             &body,
             &[],
         )
@@ -190,7 +190,7 @@ impl Transport {
             "version": self.app_version,
         });
         self.post(
-            "/v1/licenses/bridge/from-activation",
+            suite_api::BRIDGE_FROM_ACTIVATION_PATH,
             &body,
             &[activation_token],
         )
@@ -214,7 +214,7 @@ impl Transport {
             "platform": platform,
             "deviceClass": device_class,
         });
-        self.post("/v1/licenses/bridge/exchange", &body, &[bridge_token])
+        self.post(suite_api::BRIDGE_EXCHANGE_PATH, &body, &[bridge_token])
     }
 
     /// `POST /v1/pro/{app}/devices/windows-link/request`: a link code, proven by this device's
@@ -231,7 +231,7 @@ impl Transport {
             "deviceIdHash": device_id_hash,
         });
         self.post(
-            &format!("/v1/pro/{}/devices/windows-link/request", self.app),
+            &suite_api::fill_app(suite_api::WINDOWS_LINK_REQUEST_PATH, &self.app),
             &body,
             &[activation_token],
         )
@@ -250,7 +250,7 @@ impl Transport {
             body["deviceLabel"] = json!(label);
         }
         self.post(
-            &format!("/v1/pro/{}/devices/windows-link/redeem", self.app),
+            &suite_api::fill_app(suite_api::WINDOWS_LINK_REDEEM_PATH, &self.app),
             &body,
             &[code],
         )
@@ -261,7 +261,7 @@ impl Transport {
         let body = json!({ "deviceIdHash": device_id_hash, "leaseId": lease_id });
         matches!(
             self.post(
-                &format!("/v1/pro/{}/devices/lease/remove", self.app),
+                &suite_api::fill_app(suite_api::LEASE_REMOVE_PATH, &self.app),
                 &body,
                 &[],
             ),

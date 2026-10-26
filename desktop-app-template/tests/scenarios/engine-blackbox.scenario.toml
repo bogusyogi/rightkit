@@ -44,5 +44,17 @@ allow_error = true
   path = "json.error.code"
   eq = "unknown_command"
 
+# The one-shot CLI is a process on purpose (its exit codes are the contract); everything above is served by the persistent
+# --stdio sidecar, so the two surfaces are held to the same command table.
+[[step]]
+kind = "cold_cli"
+label = "malformed input is a usage error with a stable exit code"
+cold_reason = "cli-entry"
+args = ["echo", "--input", "{not json"]
+allow_error = true
+  [[step.expect]]
+  path = "code"
+  eq = 2
+
 [[step]]
 kind = "assert_no_orphans"

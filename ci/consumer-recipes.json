@@ -319,22 +319,51 @@
       "pkId": "PK24",
       "id": "ci/consumers/npm/release/consumer.mjs",
       "recipeId": "release-cli-version-smoke-consumer",
-      "scenarios": 3,
-      "surface": [],
-      "bin": {
-        "right-release": "cli/right-release.mjs",
-        "rightkit-gate": "bin/rightkit-gate.mjs"
-      },
+      "scenarios": 5,
+      "surface": [
+        "./bin/rightkit-gate.mjs",
+        "./cargo-contract.mjs",
+        "./cargo-target.mjs",
+        "./cli/right-release.mjs",
+        "./development.mjs",
+        "./direct-bootstrap.mjs",
+        "./disk-policy.mjs",
+        "./dmg-build.mjs",
+        "./engine-locator.mjs",
+        "./github-release.mjs",
+        "./legal-contract.mjs",
+        "./macos-file-evidence.mjs",
+        "./macos-notarization.mjs",
+        "./macos-signing-identity.mjs",
+        "./macos-signing-session.mjs",
+        "./managed-cargo.mjs",
+        "./native-release-finalization.mjs",
+        "./notary-auth.mjs",
+        "./package.json",
+        "./packaged-app-identity.mjs",
+        "./pe-content.mjs",
+        "./publication-gate.mjs",
+        "./qa-build-features.mjs",
+        "./release-dependencies.mjs",
+        "./sign-windows.mjs",
+        "./signing-agent-client.mjs",
+        "./stage-binary.mjs",
+        "./stage-sidecar.mjs",
+        "./supply-chain-evidence.mjs",
+        "./tauri-bundle-marker.mjs"
+      ],
       "closure": {
         "install": {
+          "@rightkit/ci": "0.2.49",
+          "@rightkit/outdated": "0.2.0",
           "smol-toml": "1.9.1"
         },
         "declaredOnly": []
       },
       "files": {
-        "ci/consumers/npm/release/README.md": "227287d33bc244d26cc037577febcd801bcce225f41f7804cef667a89de0eda9",
-        "ci/consumers/npm/release/consumer.mjs": "ab8a2db2674d2012c3d4e1f9c76157d525c60abc434e03d3830e5ad9dd935372",
-        "ci/consumers/npm/release/package.json": "af01377a06862e873b9ea78b367049a15111c32a393153ae9272281c14d6cadd",
+        "ci/consumers/npm/release/README.md": "e804e8d3e234141d2d6c55475fdd417022d09bd8e7d8b9f1426da046a271a014",
+        "ci/consumers/npm/release/consumer.mjs": "8cc59531bbc001dde122d97973689b4ecfdf12136bc2ea185a66177b9e7684f7",
+        "ci/consumers/npm/release/package.json": "1b7c05b64845ef27d63390b7d2ea5c765540dcabc5ae19631cf8c82e92d9491d",
         "ci/consumers/npm/release/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
       }
@@ -845,7 +874,7 @@
       "gateEvidence": "ffmpeg is never resolved, verified or run; no assets needed; the embedded catalog is parsed only. Default feature native stays on (no extra gate row needed for pure items)",
       "consumes": "motion dependency (PK19 proposal; rightkit-motion encode feature uses rightkit-ffmpeg =0.2.9 per PROPOSAL.txt:157); rightkit-ffmpeg public items used: lib.rs pcm_s16le_16khz_mono_args (src/lib.rs ~1136), command::extract_args and command::transcode_audio_command (src/command.rs:220,276), encoders::EncoderInventory::parse and pick_h264 (src/encoders.rs:115,203), ArtifactCatalog::embedded and parse (src/lib.rs:237-245), MediaError (src/lib.rs:628)",
       "files": {
-        "Cargo.toml": "25c593f4ceff4450caaa38e6094fedc83a1037324bbe3aeb9711ca279c90a1a7",
+        "Cargo.toml": "cb61ae1a08982ae9697550c6ca9e6865ff1faf53ce0d54d48bb2b8bed5a9901d",
         "README.md": "6c8c8889252efa82ac7ee302918bb288591aac87b52e9ca808910e699ac42dfd",
         "src/main.rs": "fcd2cf237f28083e92e235c0682df4a8cabe260a57df6320c65e707c2da38820"
       },
@@ -1023,7 +1052,7 @@
         }
       ],
       "files": {
-        "Cargo.toml": "beb4916039ae229b60d2dc5a5d275484b956926fcbcb576dd07a74a427c94a9f",
+        "Cargo.toml": "5aa3e7e12eefe735c6734dbb3d1b9f637c99e675db6bcc727cab872c4dd536f6",
         "README.md": "bd1826337aebd775d5a4c55cc14a144a0319c1a95f98e0d671c3ee576d603f2e",
         "src/main.rs": "5b993d0703b4f770c327d04248c450b989ccb6475eb7f115e65dd903cc7e8d28"
       },
@@ -1040,7 +1069,7 @@
         "serde_json = \"1\""
       ],
       "files": {
-        "Cargo.toml": "c3da9800f10461cc970f266d9262a0c15a60d13abd5667b5009ab6571175809a",
+        "Cargo.toml": "815a781abdceb31955210f9edcf53a2a285e938ddbf92143d76cf61f8fac3288",
         "README.md": "5e12707d11b0b88c7f82541808ee5260136e5aad4ec3a74bfb958568988e73e0",
         "src/main.rs": "77a1fdae68ad0faca0ff96168d26c4a24ebcc33100724b4db7443408ecbae07e"
       },
@@ -1094,18 +1123,18 @@
     "rightkit-qa": {
       "pkId": "PK14",
       "id": "ci/consumers/rightkit-qa/src/main.rs",
-      "dependency": "rightkit-qa = { version = \"=0.9.0\" }",
+      "dependency": "rightkit-qa = { version = \"=0.9.1\" }",
       "extraDependencies": [
         "serde_json = \"1\""
       ],
       "gateEvidence": "no assets needed; in-memory values only; default features only; no ci/asset-gated.json entry needed",
       "consumes": "PK14-4 named QA glue consumers per 01-packages.md: MailRight tauri_run.rs:109 QA registration, HeardRight and ScrapeRight journey runners; exercised modules: scenario, config, settings, check, storage, util (crates/rightkit-qa/src/lib.rs)",
       "files": {
-        "Cargo.toml": "b8bca8d2cbb43570132529b97de08b86470487b02351b2ded99c4eccf10c7f4c",
-        "README.md": "8000b33fdbbff98ab5788c6b0d68de681c057b1fbb6b681d5227ca4b30a01750",
-        "src/main.rs": "a76e393f405c5f496ea260bfb07536419d272bb6217967e05381faeccdda976a"
+        "Cargo.toml": "c0ed1aca22e2cb2691b364c6c22feccf4e03253d0e9a6e200d3f23f5bf4ef5da",
+        "README.md": "37075a31dd2a849b5151a20a4a0120d7c92d41bba9718cdb8b60751ef112bbe1",
+        "src/main.rs": "486e9e6e6d45392e26350631bb762f3c628254ac21a7292c009655a4a0779f39"
       },
-      "aggregateSha256": "7bfac0dc711711e620b98af0e5444411388904cfae94ca81045c68cad468f6f7"
+      "aggregateSha256": "c8db73b9f479158d41b7220f7d65b12a50702d7eedbd71ca891b2bb8cbeef7f2"
     },
     "rightkit-sandbox": {
       "pkId": "PK12",

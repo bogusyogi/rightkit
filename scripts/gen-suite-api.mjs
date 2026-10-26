@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-// Generates the Right Suite API host projections from contracts/right-suite-api.v1.json. Do not hand-edit the outputs.
+// Generates the Right Suite API host and trust-root projections from contracts/right-suite-api.v1.json. Do not hand-edit the outputs.
 //   crates/rightkit-license/src/suite_api_generated.rs            Rust constants (rightkit-license suite_api)
 //   packages/app-update/src/suite-api.generated.ts                TypeScript constants (@rightkit/app-update ./suite-api)
 //   packages/release/suite-api.generated.mjs                      ESM constants (@rightkit/release)
+//   swift/RightKitSwift/Sources/RightKitLicense/RightSuiteAPI.generated.swift  Swift constants (RightKitLicense)
 //   crates/rightkit-license/test-vectors/right-suite-api.v1.json  byte copy of the contract
 // The client projections never carry legacyHosts outside their LEGACY_HOSTS / RIGHT_SUITE_LEGACY_HOSTS constant:
 // legacy hosts are for the gate and the server, never for a client allowlist. _comment is not projected.
-// Run:   node scripts/gen-suite-api.mjs           (writes the four files)
+// Run:   node scripts/gen-suite-api.mjs           (writes the five files)
 //        node scripts/gen-suite-api.mjs --check   (writes nothing; exit 1 listing each projection that differs)
 // Test-only option: --root <rightkit dir>
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -18,6 +19,7 @@ export const CONTRACT_PATH = "contracts/right-suite-api.v1.json";
 export const RUST_PATH = "crates/rightkit-license/src/suite_api_generated.rs";
 export const TS_PATH = "packages/app-update/src/suite-api.generated.ts";
 export const MJS_PATH = "packages/release/suite-api.generated.mjs";
+export const SWIFT_PATH = "swift/RightKitSwift/Sources/RightKitLicense/RightSuiteAPI.generated.swift";
 export const TEST_VECTOR_PATH = "crates/rightkit-license/test-vectors/right-suite-api.v1.json";
 
 const SCHEMA = "right-suite-api.v1";
@@ -32,8 +34,56 @@ const RUST_PATH_CONST = {
   adminReleases: "ADMIN_RELEASES_PATH", adminRuntimeArtifacts: "ADMIN_RUNTIME_ARTIFACTS_PATH",
 };
 const SET_CONST = { gated: "GATED_ARTIFACT_HOST", public: "PUBLIC_ARTIFACT_HOST" };
+// Every route the native licence client calls (rightkit-license client/wire.rs, account.rs, subject.rs).
+export const CLIENT_PATH_CONST = {
+  licenseActivate: "LICENSE_ACTIVATE_PATH", licenseRefresh: "LICENSE_REFRESH_PATH", licenseDeactivate: "LICENSE_DEACTIVATE_PATH",
+  licenseTrial: "LICENSE_TRIAL_PATH", bridgeFromActivation: "BRIDGE_FROM_ACTIVATION_PATH", bridgeExchange: "BRIDGE_EXCHANGE_PATH",
+  bridgeFromPlay: "BRIDGE_FROM_PLAY_PATH", bridgeFromStorekit: "BRIDGE_FROM_STOREKIT_PATH", leaseIssue: "LEASE_ISSUE_PATH",
+  leaseRenew: "LEASE_RENEW_PATH", leaseRemove: "LEASE_REMOVE_PATH", windowsLinkRequest: "WINDOWS_LINK_REQUEST_PATH",
+  windowsLinkRedeem: "WINDOWS_LINK_REDEEM_PATH", accountMagicLinkRequest: "ACCOUNT_MAGIC_LINK_REQUEST_PATH",
+  accountMagicLinkConsume: "ACCOUNT_MAGIC_LINK_CONSUME_PATH", accountMe: "ACCOUNT_ME_PATH", accountLogout: "ACCOUNT_LOGOUT_PATH",
+  accountDevices: "ACCOUNT_DEVICES_PATH", accountDelete: "ACCOUNT_DELETE_PATH", entitlement: "ENTITLEMENT_PATH",
+};
+const CLIENT_PATH_KEYS = Object.keys(CLIENT_PATH_CONST);
+const APP_KEYS_ALLOWED = ["artifactHosts", "licenseHost"];
+const UPDATER_KEY_KEYS = ["kid", "publicKey", "notAfter"];
+const LICENSE_KEY_RE = /^[0-9a-f]{64}$/;
+const KID_RE = /^[0-9A-F]{16}$/;
+const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 const q = (value) => JSON.stringify(value);
+
+function decodeBase64(text) {
+  if (typeof text !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(text)) return null;
+  const bytes = Buffer.from(text, "base64");
+  return bytes.toString("base64") === text ? bytes : null;
+}
+
+/**
+ * The key id (16 upper-case hex digits) of a minisign public key written the way tauri.conf.json carries it, which is
+ * base64 of "untrusted comment: minisign public key: <KID>\n<base64 of 'Ed' + key id + 32 key bytes>\n". Null when the
+ * text is anything else, or when the key id in the comment is not the key id inside the key.
+ */
+export function minisignPublicKeyId(publicKeyText) {
+  const outer = decodeBase64(publicKeyText);
+  if (!outer) return null;
+  const match = /^untrusted comment: minisign public key: ([0-9A-F]{16})\n([A-Za-z0-9+/]+={0,2})\n$/.exec(outer.toString("utf8"));
+  if (!match) return null;
+  const raw = decodeBase64(match[2]);
+  if (!raw || raw.length !== 42 || raw[0] !== 0x45 || raw[1] !== 0x64) return null;
+  const id = Buffer.from(raw.subarray(2, 10)).reverse().toString("hex").toUpperCase();
+  return id === match[1] ? id : null;
+}
+
+/** The first unix second at which a key whose last accepted UTC day is `date` (YYYY-MM-DD) is refused; null for a bad date. */
+export function notAfterUnix(date) {
+  const match = typeof date === "string" ? DATE_RE.exec(date) : null;
+  if (!match) return null;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const start = Date.UTC(year, month - 1, day);
+  if (year < 2026 || year > 2100 || new Date(start).toISOString().slice(0, 10) !== date) return null;
+  return (start + 86_400_000) / 1000;
+}
 
 function sortKeys(value) {
   if (Array.isArray(value)) return value.map(sortKeys);
@@ -61,23 +111,70 @@ export function parseContract(text) {
     isSafe(c.paths[k], `paths.${k}`);
     if (!c.paths[k].startsWith("/")) fail(`paths.${k} must start with /`);
   }
+  if (!isObject(c.clientPaths) || JSON.stringify(Object.keys(c.clientPaths).sort()) !== JSON.stringify([...CLIENT_PATH_KEYS].sort())) fail(`clientPaths must have exactly: ${CLIENT_PATH_KEYS.join(", ")}`);
+  for (const k of CLIENT_PATH_KEYS) {
+    isSafe(c.clientPaths[k], `clientPaths.${k}`);
+    if (!/^\/v1\/[a-z0-9/{}-]+$/.test(c.clientPaths[k]) || c.clientPaths[k].replace("{app}", "").includes("{")) fail(`clientPaths.${k} must be a /v1/ path with at most {app} as a placeholder`);
+  }
+  if (new Set(Object.values(c.clientPaths)).size !== CLIENT_PATH_KEYS.length) fail("clientPaths must not repeat a path");
   if (!isObject(c.artifactHostSets) || JSON.stringify(Object.keys(c.artifactHostSets).sort()) !== '["gated","public"]') fail("artifactHostSets must have exactly gated and public");
   if (!isHost(c.artifactHostSets.gated) || !isHost(c.artifactHostSets.public)) fail("artifactHostSets values must be bare hostnames");
   if (typeof c.publicInstallerBase !== "string" || !/^https:\/\/[a-z0-9.-]+$/.test(c.publicInstallerBase)) fail("publicInstallerBase must be an https origin without a path");
   isSafe(c.artifactPathPrefix, "artifactPathPrefix");
   if (!c.artifactPathPrefix.startsWith("/") || !c.artifactPathPrefix.includes("{app}")) fail("artifactPathPrefix must start with / and contain {app}");
   if (!isObject(c.apps) || Object.keys(c.apps).length === 0) fail("apps must be a non-empty object");
+  const apiHosts = [c.host, ...c.legacyHosts, c.artifactHostSets.gated, c.artifactHostSets.public];
   for (const [key, app] of Object.entries(c.apps)) {
     if (!APP_RE.test(key)) fail(`app key "${key}" must match ${APP_RE}`);
-    if (!isObject(app) || !Array.isArray(app.artifactHosts) || app.artifactHosts.length === 0) fail(`apps.${key}.artifactHosts must be a non-empty array`);
-    if (app.artifactHosts.some((s) => !Object.hasOwn(SET_CONST, s)) || new Set(app.artifactHosts).size !== app.artifactHosts.length) fail(`apps.${key}.artifactHosts must be gated and/or public, without duplicates`);
+    if (!isObject(app) || Object.keys(app).some((k) => !APP_KEYS_ALLOWED.includes(k))) fail(`apps.${key} may only have ${APP_KEYS_ALLOWED.join(" and ")}`);
+    if (app.artifactHosts !== undefined) {
+      if (!Array.isArray(app.artifactHosts) || app.artifactHosts.length === 0) fail(`apps.${key}.artifactHosts must be a non-empty array when present`);
+      if (app.artifactHosts.some((s) => !Object.hasOwn(SET_CONST, s)) || new Set(app.artifactHosts).size !== app.artifactHosts.length) fail(`apps.${key}.artifactHosts must be gated and/or public, without duplicates`);
+    }
+    if (app.licenseHost !== undefined && (!isHost(app.licenseHost) || apiHosts.includes(app.licenseHost))) fail(`apps.${key}.licenseHost must be a bare brand hostname that is not an API or artifact host`);
   }
-  if (!Array.isArray(c.pendingNativeUpdater) || c.pendingNativeUpdater.some((k) => !Object.hasOwn(c.apps, k))) fail("pendingNativeUpdater must name apps");
+  if (!Array.isArray(c.pendingNativeUpdater) || c.pendingNativeUpdater.some((k) => !Object.hasOwn(c.apps, k)) || new Set(c.pendingNativeUpdater).size !== c.pendingNativeUpdater.length) fail("pendingNativeUpdater must name apps, without duplicates");
+  if (typeof c.licensePublicKeyHex !== "string" || !LICENSE_KEY_RE.test(c.licensePublicKeyHex) || /^0+$/.test(c.licensePublicKeyHex)) fail("licensePublicKeyHex must be 64 lower-case hex digits and not all zero");
+  if (!Array.isArray(c.updaterPublicKeys) || c.updaterPublicKeys.length === 0) fail("updaterPublicKeys must be a non-empty array");
+  const kids = new Set();
+  c.updaterPublicKeys.forEach((entry, index) => {
+    const where = `updaterPublicKeys[${index}]`;
+    if (!isObject(entry) || Object.keys(entry).some((k) => !UPDATER_KEY_KEYS.includes(k))) fail(`${where} may only have ${UPDATER_KEY_KEYS.join(", ")}`);
+    if (typeof entry.kid !== "string" || !KID_RE.test(entry.kid)) fail(`${where}.kid must be 16 upper-case hex digits`);
+    if (kids.has(entry.kid)) fail(`${where}.kid ${entry.kid} is listed twice`);
+    kids.add(entry.kid);
+    isSafe(entry.publicKey, `${where}.publicKey`);
+    if (minisignPublicKeyId(entry.publicKey) !== entry.kid) fail(`${where}.publicKey is not a minisign public key (as tauri.conf.json carries it) with key id ${entry.kid}`);
+    if (entry.notAfter !== undefined && notAfterUnix(entry.notAfter) === null) fail(`${where}.notAfter must be a UTC date YYYY-MM-DD between 2026 and 2100`);
+  });
+  if (typeof c.updaterSigningKeyId !== "string" || !kids.has(c.updaterSigningKeyId)) fail("updaterSigningKeyId must be the kid of one of updaterPublicKeys");
+  if (c.updaterPublicKeys.find((entry) => entry.kid === c.updaterSigningKeyId).notAfter !== undefined) fail("the updater signing key must not have a notAfter date");
   return c;
 }
 
+// rustfmt keeps `&[a, b]` on one line while the array is at most 60 wide and the whole statement at most 100; a short array in
+// a long statement moves below the `=`; a wider array gets one element per line. The generated file must be what rustfmt
+// writes (CI's fmt gate checks it); scripts/gen-suite-api.test.mjs runs rustfmt over it when rustfmt is installed.
+function rustList(name, type, items) {
+  const array = `&[${items.join(", ")}]`;
+  const head = `pub const ${name}: ${type} =`;
+  if (items.join(", ").length <= 60) {
+    if (`${head} ${array};`.length <= 100) return [`${head} ${array};`];
+    if (`    ${array};`.length <= 100) return [head, `    ${array};`];
+  }
+  return [`${head} &[`, ...items.map((item) => `    ${item},`), "];"];
+}
+
+function rustString(name, value) {
+  const single = `pub const ${name}: &str = ${q(value)};`;
+  return single.length <= 100 ? [single] : [`pub const ${name}: &str =`, `    ${q(value)};`];
+}
+
+const sortedApps = (c) => Object.keys(c.apps).sort();
+const appsWith = (c, field) => sortedApps(c).filter((a) => c.apps[a][field] !== undefined);
+
 function rustProjection(c) {
-  const appKeys = Object.keys(c.apps).sort();
+  const appKeys = appsWith(c, "artifactHosts");
   return [
     `// ${HEADER}`,
     "//! Right Suite API host constants (contract right-suite-api.v1). Constants only.",
@@ -90,18 +187,28 @@ function rustProjection(c) {
     `pub const PUBLIC_ARTIFACT_HOST: &str = ${q(c.artifactHostSets.public)};`,
     `pub const PUBLIC_INSTALLER_BASE: &str = ${q(c.publicInstallerBase)};`,
     `pub const ARTIFACT_PATH_PREFIX: &str = ${q(c.artifactPathPrefix)};`,
-    "pub const APP_ARTIFACT_HOSTS: &[(&str, &[&str])] = &[",
-    ...appKeys.map((a) => `    (${q(a)}, &[${c.apps[a].artifactHosts.map((s) => SET_CONST[s]).join(", ")}]),`),
+    ...rustList("APP_ARTIFACT_HOSTS", "&[(&str, &[&str])]", appKeys.map((a) => `(${q(a)}, &[${c.apps[a].artifactHosts.map((s) => SET_CONST[s]).join(", ")}])`)),
+    ...rustString("LICENSE_PUBLIC_KEY_HEX", c.licensePublicKeyHex),
+    ...rustString("UPDATER_SIGNING_KEY_ID", c.updaterSigningKeyId),
+    "pub const UPDATER_PUBLIC_KEYS: &[(&str, &str, Option<i64>)] = &[",
+    ...c.updaterPublicKeys.map((k) => `    (${q(k.kid)}, ${q(k.publicKey)}, ${k.notAfter === undefined ? "None" : `Some(${notAfterUnix(k.notAfter)})`}),`),
     "];",
+    ...CLIENT_PATH_KEYS.flatMap((k) => rustString(CLIENT_PATH_CONST[k], c.clientPaths[k])),
+    ...rustList("APP_KEYS", "&[&str]", sortedApps(c).map(q)),
+    ...rustList("APP_LICENSE_HOSTS", "&[(&str, &str)]", appsWith(c, "licenseHost").map((a) => `(${q(a)}, ${q(c.apps[a].licenseHost)})`)),
+    ...rustList("PENDING_NATIVE_UPDATER", "&[&str]", [...c.pendingNativeUpdater].sort().map(q)),
     "",
   ].join("\n");
 }
 
 // Shared by the TypeScript and ESM projections. legacyHosts is excluded from the contract object (see header).
 function jsBody(c, { typed }) {
-  const appHosts = Object.fromEntries(Object.keys(c.apps).sort().map((a) => [a, c.apps[a].artifactHosts.map((s) => c.artifactHostSets[s])]));
+  const appHosts = Object.fromEntries(appsWith(c, "artifactHosts").map((a) => [a, c.apps[a].artifactHosts.map((s) => c.artifactHostSets[s])]));
+  const licenseHosts = Object.fromEntries(appsWith(c, "licenseHost").map((a) => [a, c.apps[a].licenseHost]));
+  const updaterKeys = c.updaterPublicKeys.map((k) => ({ kid: k.kid, publicKey: k.publicKey, notAfter: k.notAfter ?? null, notAfterUnix: k.notAfter === undefined ? null : notAfterUnix(k.notAfter) }));
   const { _comment, legacyHosts, ...rest } = c;
   const konst = (name, value) => `export const ${name} = ${value};`;
+  const asConst = typed ? " as const" : "";
   return [
     konst("RIGHT_SUITE_API_HOST", q(c.host)),
     konst("RIGHT_SUITE_API_ORIGIN", q(c.origin)),
@@ -111,10 +218,59 @@ function jsBody(c, { typed }) {
     konst("RIGHT_SUITE_PUBLIC_ARTIFACT_HOST", q(c.artifactHostSets.public)),
     konst("RIGHT_SUITE_PUBLIC_INSTALLER_BASE", q(c.publicInstallerBase)),
     konst("RIGHT_SUITE_ARTIFACT_PATH_PREFIX", q(c.artifactPathPrefix)),
-    konst("APP_ARTIFACT_HOSTS", `${JSON.stringify(appHosts, null, 2)}${typed ? " as const" : ""}`),
-    konst("RIGHT_SUITE_API_CONTRACT", `${JSON.stringify(sortKeys(rest), null, 2)}${typed ? " as const" : ""}`),
+    konst("RIGHT_SUITE_LICENSE_PUBLIC_KEY_HEX", q(c.licensePublicKeyHex)),
+    konst("RIGHT_SUITE_UPDATER_SIGNING_KEY_ID", q(c.updaterSigningKeyId)),
+    konst("RIGHT_SUITE_UPDATER_PUBLIC_KEYS", `${JSON.stringify(updaterKeys, null, 2)}${asConst}`),
+    konst("RIGHT_SUITE_CLIENT_PATHS", `${JSON.stringify(c.clientPaths, null, 2)}${asConst}`),
+    konst("RIGHT_SUITE_APP_KEYS", `${JSON.stringify(sortedApps(c))}${asConst}`),
+    konst("RIGHT_SUITE_APP_LICENSE_HOSTS", `${JSON.stringify(licenseHosts, null, 2)}${asConst}`),
+    konst("RIGHT_SUITE_PENDING_NATIVE_UPDATER", `${JSON.stringify([...c.pendingNativeUpdater].sort())}${asConst}`),
+    konst("APP_ARTIFACT_HOSTS", `${JSON.stringify(appHosts, null, 2)}${asConst}`),
+    konst("RIGHT_SUITE_API_CONTRACT", `${JSON.stringify(sortKeys(rest), null, 2)}${asConst}`),
     "",
   ];
+}
+
+function swiftProjection(c) {
+  const base64url = Buffer.from(c.licensePublicKeyHex, "hex").toString("base64url");
+  const strings = (items) => items.map((item) => `        ${q(item)},`);
+  return [
+    `// ${HEADER}`,
+    "// Right Suite API host and trust-root constants (contract right-suite-api.v1) for RightKitLicense. Constants only.",
+    "",
+    "public struct RightSuiteUpdaterPublicKey: Equatable, Sendable {",
+    "    /// The 16 upper-case hex digit minisign key id.",
+    "    public let keyId: String",
+    "    /// The key as tauri.conf.json carries it: base64 of the two-line minisign public key text.",
+    "    public let publicKey: String",
+    "    /// The first unix second at which the key is no longer accepted; nil when it never expires.",
+    "    public let notAfterUnix: Int?",
+    "}",
+    "",
+    "public enum RightSuiteAPI {",
+    `    public static let apiHost = ${q(c.host)}`,
+    `    public static let apiOrigin = ${q(c.origin)}`,
+    "    /// The Ed25519 key that verifies every suite licence token, as 64 hex digits.",
+    `    public static let licensePublicKeyHex = ${q(c.licensePublicKeyHex)}`,
+    "    /// The same key as unpadded base64url, the form LicenseVerifier(publicKeyBase64url:) takes.",
+    `    public static let licensePublicKeyBase64url = ${q(base64url)}`,
+    `    public static let updaterSigningKeyId = ${q(c.updaterSigningKeyId)}`,
+    "    public static let updaterPublicKeys: [RightSuiteUpdaterPublicKey] = [",
+    ...c.updaterPublicKeys.map((k) => `        RightSuiteUpdaterPublicKey(keyId: ${q(k.kid)}, publicKey: ${q(k.publicKey)}, notAfterUnix: ${k.notAfter === undefined ? "nil" : notAfterUnix(k.notAfter)}),`),
+    "    ]",
+    "    public static let appKeys: [String] = [",
+    ...strings(sortedApps(c)),
+    "    ]",
+    "    /// The licence host of each app that declares one; an app missing here has not declared a host yet.",
+    "    public static let licenseHosts: [String: String] = [",
+    ...appsWith(c, "licenseHost").map((a) => `        ${q(a)}: ${q(c.apps[a].licenseHost)},`),
+    "    ]",
+    "    public static let pendingNativeUpdater: [String] = [",
+    ...strings([...c.pendingNativeUpdater].sort()),
+    "    ]",
+    "}",
+    "",
+  ].join("\n");
 }
 
 function tsProjection(c) {
@@ -132,6 +288,7 @@ export function renderProjections(text) {
     [RUST_PATH, rustProjection(c)],
     [TS_PATH, tsProjection(c)],
     [MJS_PATH, mjsProjection(c)],
+    [SWIFT_PATH, swiftProjection(c)],
     [TEST_VECTOR_PATH, text],
   ]);
 }

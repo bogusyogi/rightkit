@@ -4,12 +4,17 @@
 //! Everything runs on `LogsRuntime`, which has no Tauri types; the command wrappers only add the
 //! caller check and the `unsupported` answer.
 
+use std::io;
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
-use rightkit_logs::LOGS_DROPPED_EVENT;
+use rightkit_logs::{install_tracing, TracingFileConfig, LOGS_DROPPED_EVENT};
 use rightkit_tauri_shell::logs_commands::{
-    prepare_batch, require_registered, sanitize_strings, valid_event_name, CollectOptions,
-    LogsConfig, LogsRuntime, MAX_EVENT_BYTES, SUITE_KEY_FRAGMENTS,
+    prepare_batch, require_registered, sanitize_strings, valid_event_name, ClearSource,
+    CollectOptions, LogsConfig, LogsRuntime, SettingsSnapshot, MAX_EVENT_BYTES,
+    SUITE_KEY_FRAGMENTS,
 };
 use rightkit_tauri_shell::ShellError;
 use serde_json::{json, Value};
@@ -18,8 +23,12 @@ fn event(n: i64, level: &str, name: &str) -> Value {
     json!({"schema_version": 1, "ts_ms": n, "level": level, "event": name})
 }
 
-fn runtime(dir: &std::path::Path, batch_cap: usize) -> LogsRuntime {
-    let mut config = LogsConfig::new("DemoApp", "1.2.3", dir.join("logs").join("events.jsonl"));
+fn config(dir: &Path) -> LogsConfig {
+    LogsConfig::new("DemoApp", "1.2.3", dir.join("logs").join("events.jsonl"))
+}
+
+fn runtime(dir: &Path, batch_cap: usize) -> LogsRuntime {
+    let mut config = config(dir);
     config.batch_cap = batch_cap;
     LogsRuntime::new(config).unwrap()
 }
@@ -243,6 +252,70 @@ fn the_support_bundle_is_bounded_scrubbed_and_carries_the_native_metadata() {
 }
 
 #[test]
+fn the_support_bundle_carries_the_settings_snapshot_redacted_and_scrubbed() {
+    let dir = tempfile::tempdir().unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut config = config(dir.path());
+    config.settings = Some(SettingsSnapshot::new({
+        let calls = Arc::clone(&calls);
+        move || {
+            json!({
+                "theme": "dark",
+                "collects": calls.fetch_add(1, Ordering::SeqCst) + 1,
+                "api_key": "sk-abcdefghijklmnopqrstuvwxyz",
+                "log_path": "/Users/ada/private/events.jsonl",
+                "endpoint": "https://example.test/cb?code=ZZZ999",
+                "nested": {"auth_token": "tok-123", "retries": 3}
+            })
+        }
+    }));
+    let rt = LogsRuntime::new(config).unwrap();
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        0,
+        "taken at collect, not at build"
+    );
+
+    let settings = rt.collect(None).metadata.settings;
+    assert_eq!(settings["theme"], "dark");
+    assert_eq!(settings["collects"], 1);
+    assert_eq!(settings["nested"]["retries"], 3);
+    let text = settings.to_string();
+    for leaked in ["sk-abcdef", "/Users/ada", "ZZZ999", "tok-123"] {
+        assert!(!text.contains(leaked), "{leaked} in {text}");
+    }
+    assert_ne!(settings["api_key"], "sk-abcdefghijklmnopqrstuvwxyz");
+    assert_ne!(settings["log_path"], "/Users/ada/private/events.jsonl");
+    // Every collect asks again, so the bundle shows the settings as they are then.
+    assert_eq!(rt.collect(None).metadata.settings["collects"], 2);
+}
+
+#[test]
+fn a_panicking_settings_snapshot_yields_the_error_object_and_the_bundle_still_builds() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = config(dir.path());
+    config.settings = Some(SettingsSnapshot::new(|| panic!("settings are locked")));
+    let rt = LogsRuntime::new(config).unwrap();
+    rt.write(vec![event(1, "info", "a")]);
+    assert!(rt.flush(Duration::from_secs(5)));
+
+    let bundle = rt.collect(None);
+
+    assert_eq!(
+        bundle.metadata.settings,
+        json!({"error": "settings snapshot unavailable"})
+    );
+    assert_eq!(bundle.sources[0].events.len(), 1);
+}
+
+#[test]
+fn a_runtime_without_a_settings_snapshot_keeps_an_empty_object() {
+    let dir = tempfile::tempdir().unwrap();
+    let rt = runtime(dir.path(), 500);
+    assert_eq!(rt.collect(None).metadata.settings, json!({}));
+}
+
+#[test]
 fn collect_options_carry_no_path_or_url() {
     let ok: CollectOptions = serde_json::from_str(r#"{"maxEvents":3}"#).unwrap();
     assert_eq!(ok.max_events, Some(3));
@@ -269,9 +342,144 @@ fn clear_removes_the_log() {
     rt.write(vec![event(1, "info", "a"), event(2, "error", "b")]);
     assert!(rt.flush(Duration::from_secs(5)));
     assert!(rt.store().path().exists());
-    rt.clear().unwrap();
+    let report = rt.clear();
+    assert_eq!(report.cleared, ["renderer"]);
+    assert!(report.is_complete());
     assert!(!rt.store().path().exists());
     assert!(lines(&rt).is_empty());
+}
+
+/// Seed a JSONL log and its rotated predecessor.
+fn seed_jsonl(path: &Path) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, "{\"event\":\"now\"}\n").unwrap();
+    let mut rotated = path.as_os_str().to_owned();
+    rotated.push(".1");
+    std::fs::write(rotated, "{\"event\":\"before\"}\n").unwrap();
+}
+
+#[test]
+fn clear_removes_the_renderer_log_two_jsonl_sources_and_a_tracing_family() {
+    let dir = tempfile::tempdir().unwrap();
+    let logs = dir.path().join("logs");
+    std::fs::create_dir_all(&logs).unwrap();
+    let engine = logs.join("engine.jsonl");
+    let sidecar = logs.join("sidecar.jsonl");
+    seed_jsonl(&engine);
+    seed_jsonl(&sidecar);
+    std::fs::write(logs.join("keep.txt"), "not a log of the app").unwrap();
+
+    // A real TracingGuard: an older daily file and the active one hold lines, and another family
+    // shares the directory.
+    let family = dir.path().join("shell-logs");
+    std::fs::create_dir_all(&family).unwrap();
+    std::fs::write(family.join("shell.2020-01-01.jsonl"), "{}\n").unwrap();
+    std::fs::write(family.join("shell-engine.2020-01-01.jsonl"), "{}\n").unwrap();
+    let guard = Arc::new(install_tracing(TracingFileConfig::new(&family, "shell")).unwrap());
+    let active: Vec<_> = std::fs::read_dir(&family)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            let name = path.file_name().unwrap().to_string_lossy();
+            name.starts_with("shell.") && !name.contains("2020-01-01")
+        })
+        .collect();
+    assert_eq!(active.len(), 1, "one active daily file: {active:?}");
+    std::fs::write(&active[0], "{\"event\":\"traced\"}\n").unwrap();
+
+    let mut config = config(dir.path());
+    config.clear_sources = vec![
+        ClearSource::jsonl("engine", &engine),
+        ClearSource::jsonl("sidecar", &sidecar),
+        ClearSource::new("shell", {
+            let guard = Arc::clone(&guard);
+            move || guard.clear()
+        }),
+    ];
+    let rt = LogsRuntime::new(config).unwrap();
+    rt.write(vec![event(1, "info", "a"), event(2, "error", "b")]);
+    assert!(rt.flush(Duration::from_secs(5)));
+    assert!(rt.store().path().exists());
+
+    let report = rt.clear();
+
+    assert_eq!(report.cleared, ["renderer", "engine", "sidecar", "shell"]);
+    assert!(report.failed.is_empty());
+    assert!(report.is_complete());
+    assert_eq!(
+        serde_json::to_value(&report).unwrap(),
+        json!({"cleared": ["renderer", "engine", "sidecar", "shell"], "failed": []})
+    );
+    assert!(!rt.store().path().exists());
+    for log in [&engine, &sidecar] {
+        assert!(!log.exists(), "{log:?}");
+        let mut rotated = log.as_os_str().to_owned();
+        rotated.push(".1");
+        assert!(!Path::new(&rotated).exists(), "{rotated:?}");
+    }
+    assert_eq!(std::fs::metadata(&active[0]).unwrap().len(), 0);
+    assert!(!family.join("shell.2020-01-01.jsonl").exists());
+    assert!(family.join("shell-engine.2020-01-01.jsonl").exists());
+    assert!(logs.join("keep.txt").exists());
+    assert!(report.into_result().is_ok());
+}
+
+#[test]
+fn an_absent_jsonl_source_clears_successfully() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = config(dir.path());
+    config.clear_sources = vec![ClearSource::jsonl("engine", dir.path().join("none.jsonl"))];
+    let report = LogsRuntime::new(config).unwrap().clear();
+    assert_eq!(report.cleared, ["renderer", "engine"]);
+    assert!(report.is_complete());
+}
+
+#[test]
+fn a_failing_source_is_reported_and_does_not_stop_the_sources_after_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let ran_last = Arc::new(AtomicBool::new(false));
+    let mut config = config(dir.path());
+    config.clear_sources = vec![
+        ClearSource::new("first", || Ok(())),
+        ClearSource::new("broken", || {
+            Err(io::Error::other(
+                "cannot remove /Users/ada/private/plan.jsonl: https://example.test/x?token=ABC123",
+            ))
+        }),
+        ClearSource::new("panics", || panic!("clear source exploded")),
+        ClearSource::new("last", {
+            let ran_last = Arc::clone(&ran_last);
+            move || {
+                ran_last.store(true, Ordering::SeqCst);
+                Ok(())
+            }
+        }),
+    ];
+    let rt = LogsRuntime::new(config).unwrap();
+
+    let report = rt.clear();
+
+    assert!(ran_last.load(Ordering::SeqCst), "a later source still ran");
+    assert_eq!(report.cleared, ["renderer", "first", "last"]);
+    let failed: Vec<&str> = report.failed.iter().map(|f| f.source.as_str()).collect();
+    assert_eq!(failed, ["broken", "panics"]);
+    assert!(!report.is_complete());
+    // The scrubbers remove the user name and the URL secret from the report and the rejection.
+    let wire = serde_json::to_string(&report).unwrap();
+    for leaked in ["/Users/ada", "ABC123", "exploded"] {
+        assert!(!wire.contains(leaked), "{leaked} in {wire}");
+    }
+    match report.into_result() {
+        Err(ShellError::Other(message)) => {
+            assert!(
+                message.starts_with("clear failed for: broken ("),
+                "{message}"
+            );
+            assert!(message.contains("), panics (clear panicked)"), "{message}");
+            assert!(!message.contains("ABC123"), "{message}");
+        }
+        other => panic!("a partial clear must be an error, got {other:?}"),
+    }
 }
 
 #[test]
@@ -281,4 +489,31 @@ fn a_command_without_registered_state_is_unsupported() {
         Err(ShellError::Unsupported(message)) => assert!(message.contains("not configured")),
         other => panic!("expected unsupported, got {other:?}"),
     }
+}
+
+#[test]
+fn a_jsonl_source_with_more_generations_clears_every_rotated_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let log = dir.path().join("engine.jsonl");
+    seed_jsonl(&log);
+    for n in 2..=3 {
+        let mut rotated = log.as_os_str().to_owned();
+        rotated.push(format!(".{n}"));
+        std::fs::write(rotated, "{\"event\":\"older\"}\n").unwrap();
+    }
+    let mut config = LogsConfig::new(
+        "DemoApp",
+        "1.2.3",
+        dir.path().join("logs").join("events.jsonl"),
+    );
+    config.clear_sources = vec![ClearSource::jsonl_generations("engine", &log, 3)];
+    let report = LogsRuntime::new(config).unwrap().clear();
+    assert!(report.is_complete(), "{report:?}");
+    let left: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("engine.jsonl"))
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
 }

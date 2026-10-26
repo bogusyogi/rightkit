@@ -54,6 +54,8 @@
 //! the same seam [`UpdateAuthority`] is: this crate adds no updater or signing framework, and the
 //! licence crate is optional (`update-license`).
 
+#[cfg(feature = "update-license")]
+mod accepted_keys;
 pub mod tauri_transport;
 pub use tauri_transport::{TauriUpdateConfig, TauriUpdateTransport};
 

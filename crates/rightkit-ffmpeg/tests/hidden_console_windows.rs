@@ -9,9 +9,11 @@
 
 #![cfg(windows)]
 
+mod common;
+
 use rightkit_ffmpeg::{
     runner::{run_capture_with, RunOptions},
-    CancellationToken, DevFfmpeg, FfmpegCommand,
+    CancellationToken, FfmpegCommand,
 };
 
 const PROBE: &str = r#"Add-Type 'using System; using System.Runtime.InteropServices; public static class ConsoleProbe { [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow(); }'; [Console]::WriteLine([ConsoleProbe]::GetConsoleWindow().ToInt64())"#;
@@ -32,7 +34,7 @@ fn parse_handle(stdout: &[u8], stderr: &str) -> Result<i64, String> {
 
 #[test]
 fn a_child_spawned_through_the_media_runner_has_no_console_window() {
-    let powershell = DevFfmpeg::unverified("powershell.exe");
+    let powershell = common::TestBinary::new("powershell.exe");
     let cmd = FfmpegCommand::raw_args(probe_args());
     let run = RunOptions::unbounded(CancellationToken::new());
     let captured = match run_capture_with(&powershell, &cmd, run) {

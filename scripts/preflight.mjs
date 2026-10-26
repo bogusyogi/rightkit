@@ -8,7 +8,7 @@
 // files. The rules already existed, but as late refusals (rk-preflight, rk-npm-preflight, rightkit-dispatch, the hosted
 // verify) for the one unit being published, minutes in. Preflight runs the same predicates first, for every unit.
 //
-// The rules that read any repository (eol-policy G04, file-url G12, retired-alias P11 and the app defects G13-G21), the export of
+// The rules that read any repository (eol-policy G04, file-url G12, retired-alias P11 and the app defects G13-G22), the export of
 // the checked commit, the ratchet and the command line live in packages/release/app-check.mjs: @rightkit/release ships them as
 // `rightkit-gate check` and `right-release check`, so an app runs the same check without a RightKit checkout. This file adds the
 // rules that police RightKit itself, and is a thin caller of the rest (`--list` shows them in order):
@@ -260,9 +260,10 @@ function dispatchPins({ root }) {
   return out;
 }
 
-// The locks a gate builds with --locked. desktop-app-template, the spikes and the crates' example apps are built by no gate
-// (scripts/ci/gate.mjs "Not covered by this gate") and keep whatever versions they were last locked at.
-const LOCKED_BUILDS = /^(?:Cargo\.lock|ci\/consumers\/.+\/Cargo\.lock)$/;
+// The locks a gate builds with --locked: the root, the consumers and desktop-app-template (its own workspace, discovered by
+// rightkit-gate). The spikes and the crates' example apps are built by no gate (scripts/ci/gate.mjs "Not covered by this gate")
+// and keep whatever versions they were last locked at.
+const LOCKED_BUILDS = /^(?:Cargo\.lock|ci\/consumers\/.+\/Cargo\.lock|desktop-app-template\/Cargo\.lock)$/;
 
 function consumerLocks({ root, files }) {
   const crates = workspaceCrates(root);
@@ -302,7 +303,7 @@ export const RULES = Object.freeze([
   appRule("file-url"),
   { id: "generated-docs", gap: "G10", run: generatedDocs },
   appRule("retired-alias"),
-  // G13-G21, the app defects, in app-check's order.
+  // G13-G22, the app defects, in app-check's order.
   ...APP_RULES.filter((rule) => !APP_RULES_FIRST.includes(rule.id)),
 ]);
 

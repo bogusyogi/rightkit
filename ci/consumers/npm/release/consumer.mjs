@@ -2,7 +2,7 @@ import { validateInstalledArtifact } from './provenance.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -25,9 +25,8 @@ try {
   assert.match(sha256, /^[a-f0-9]{64}$/);
   assert(['packed', 'fetched'].includes(resolution));
   assert.equal(createHash('sha256').update(readFileSync(archive)).digest('hex'), sha256);
-  // @rightkit/release has no `exports` and no `main`: its only public surface is the
-  // `right-release` bin (cli/right-release.mjs). Resolve that installed file directly;
-  // never import the package root.
+  // @rightkit/release has no `main` and no index export: its surface is the two bins plus the explicit `exports` map
+  // (one "./<file>" entry per supported subpath). Resolve the installed bin file directly; never import the package root.
   const fixtureRoot = path.dirname(fileURLToPath(import.meta.url));
   const binPath = path.join(fixtureRoot, 'node_modules', '@rightkit', 'release', 'cli', 'right-release.mjs');
   const binUrl = pathToFileURL(binPath).href;
@@ -43,11 +42,38 @@ try {
   await run('installed-bin-manifest-bound-to-archive', async () => {
     assert.equal(installed.name, '@rightkit/release');
     assert.equal(installed.version, version);
-    assert.equal('exports' in installed, false);
     assert.deepEqual(installed.bin, { 'right-release': 'cli/right-release.mjs', 'rightkit-gate': 'bin/rightkit-gate.mjs' });
     assert.ok(readFileSync(path.join(packageRoot, 'bin', 'rightkit-gate.mjs'), 'utf8').startsWith('#!/usr/bin/env node'));
     assert.ok(readFileSync(path.join(packageRoot, 'cli', 'right-release.mjs'), 'utf8').startsWith('#!/usr/bin/env node'));
-    return { bins: ['right-release', 'rightkit-gate'], binTargets: ['cli/right-release.mjs', 'bin/rightkit-gate.mjs'], exportsPresent: false };
+    return { bins: ['right-release', 'rightkit-gate'], binTargets: ['cli/right-release.mjs', 'bin/rightkit-gate.mjs'], exportsPresent: true };
+  });
+
+  await run('installed-exports-map-explicit-and-enforced', async () => {
+    // The map is explicit: "./<file>" keys mapped to themselves, no index, no wildcard; every bin target and package.json are listed.
+    const map = installed.exports;
+    assert.ok(map && typeof map === 'object' && !Array.isArray(map));
+    const keys = Object.keys(map);
+    assert.ok(keys.length >= 20);
+    assert.equal(Object.hasOwn(map, '.'), false);
+    for (const key of keys) {
+      assert.match(key, /^\.\/[A-Za-z0-9_][A-Za-z0-9_./-]*$/);
+      assert.equal(map[key], key);
+      assert.ok(statSync(path.join(packageRoot, key.slice(2))).isFile());
+    }
+    for (const target of Object.values(installed.bin)) assert.ok(keys.includes(`./${target}`));
+    assert.ok(keys.includes('./package.json'));
+    // Node resolves a listed subpath into the installed package and refuses the internals and the package root.
+    const inside = specifier => { const file = realpathSync(fileURLToPath(import.meta.resolve(specifier))); assert.ok(file.startsWith(`${packageRoot}${path.sep}`)); return file; };
+    assert.ok(inside('@rightkit/release/cargo-target.mjs').endsWith('cargo-target.mjs'));
+    assert.ok(inside('@rightkit/release/cli/right-release.mjs').endsWith('right-release.mjs'));
+    const refused = [];
+    for (const specifier of ['@rightkit/release', '@rightkit/release/release.mjs', '@rightkit/release/build-release.mjs', '@rightkit/release/sign-macos.mjs', '@rightkit/release/ownership.mjs']) {
+      assert.throws(() => import.meta.resolve(specifier), error => error.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED');
+      refused.push(specifier);
+    }
+    const cargoTarget = await import('@rightkit/release/cargo-target.mjs');
+    assert.equal(typeof cargoTarget.resolveTargetRoot, 'function');
+    return { exportedSubpaths: keys.length, resolved: ['@rightkit/release/cargo-target.mjs', '@rightkit/release/cli/right-release.mjs'], refused, importedFunction: 'resolveTargetRoot' };
   });
 
   await run('installed-cli-version-smoke', async () => {
@@ -57,8 +83,22 @@ try {
     return { command: 'right-release --version', exitCode: 0, stdout: version };
   });
 
+  await run('installed-update-command-runs-pinned-updater', async () => {
+    // `right-release update` runs the right-update bin of the @rightkit/outdated this package pins. The pin is an exact version
+    // that is also the consumer's reviewed closure pin; pnpm links no bin of it at the app root, which is why the command exists.
+    const consumerManifest = JSON.parse(readFileSync(path.join(fixtureRoot, 'package.json'), 'utf8'));
+    const pin = installed.dependencies?.['@rightkit/outdated'];
+    assert.match(pin ?? '', /^\d+\.\d+\.\d+$/);
+    assert.equal(pin, consumerManifest.dependencies['@rightkit/outdated']);
+    const smoke = spawnSync(process.execPath, [binPath, 'update', '--version'], { cwd: fixtureRoot, encoding: 'utf8', timeout: 120_000, windowsHide: true });
+    assert.equal(smoke.status, 0);
+    assert.equal(String(smoke.stdout ?? '').trim(), pin);
+    return { command: 'right-release update --version', exitCode: 0, stdout: pin };
+  });
+
   await run('smol-toml-closure-installed-and-loads', async () => {
-    assert.deepEqual(installed.dependencies, { 'smol-toml': '1.9.1' });
+    assert.deepEqual(Object.keys(installed.dependencies).sort(), ['@rightkit/outdated', 'smol-toml']);
+    assert.equal(installed.dependencies['smol-toml'], '1.9.1');
     const releaseRequire = createRequire(pathToFileURL(path.join(packageRoot, 'package.json')));
     // smol-toml exports no ./package.json subpath: read its manifest from the resolved entry instead.
     const tomlRoot = path.resolve(path.dirname(releaseRequire.resolve('smol-toml')), '..');

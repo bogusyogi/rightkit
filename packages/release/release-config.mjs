@@ -1,6 +1,11 @@
 // The release config contract (M24): `right-release.config.json`, a finite, versioned JSON schema read by dev, build, doctor, install
-// and upload alike. It is data. RightKit never imports, evaluates or converts an executable (`.mjs`, `.js`, `.cjs`, `.ts`) config: the
-// file name is judged BEFORE anything is opened or imported, including for `--dry-run`, so a legacy config cannot run a single line.
+// and upload alike. A `.json` config is data: it is never imported or evaluated. `loadReleaseConfigSync` judges the file NAME before
+// anything is opened (an executable name handed to it is refused with RELEASE_CONFIG_LEGACY_EXECUTABLE) and loads the file strictly.
+//
+// Legacy branch: an app that has not moved yet owns only a `right-release.config.mjs`. `defaultReleaseConfigFile` keeps naming it while
+// no `right-release.config.json` sits beside it, and `importReleaseConfig` still imports that module (executable, outside M24; the
+// pipeline scanner reports it as R0-legacy-config). The sunset of the legacy branch is tracked separately. As soon as the JSON file
+// exists it wins by default and an explicit `--config x.json` always takes the strict loader; the module is never read for it.
 //
 // Load order (build, dev, upload): resolve the primary checkout and the config path first, then `loadReleaseConfigSync` parses the JSON
 // strictly (no comments, no trailing commas, no duplicate keys), checks `schema: 1` and the finite top-level key set, expands the
@@ -12,15 +17,19 @@
 //   { "$fromJson": { "file": "src-tauri/tauri.conf.json", "pointer": "/version" } }   a string read from an app-relative JSON file
 //   { "$fromToml": { "file": "src-tauri/Cargo.toml", "path": "package.version" } }    a string read from an app-relative TOML file
 //   { "$json": <value> }                                                              JSON.stringify(<value>), for a JSON argument
-//   "{{app}}" "{{version}}" "{{home}}" "{{localAppData}}"                              replaced inside any string value
+//   "{{app}}" "{{version}}" "{{home}}" "{{localAppData}}"                              replaced inside any string value, `$comment`
+//                                                                                     included (write no token in a comment). localAppData is
+//                                                                                     %LOCALAPPDATA% on Windows and <home>/AppData/Local elsewhere
 // Anything else with braces is left alone, and an unknown {{token}} is an error.
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { parse as parseToml } from "smol-toml";
 import { collectConfigCommands, formatFindings, validateConfigPipeline } from "./pipeline-config.mjs";
 import { loadGeneratorRegistry } from "./pipeline-generators.mjs";
+import { RIGHT_SUITE_APP_KEYS, RIGHT_SUITE_UPDATER_PUBLIC_KEYS } from "./suite-api.generated.mjs";
 
 export const RELEASE_CONFIG_FILE = "right-release.config.json";
 export const LEGACY_RELEASE_CONFIG_FILE = "right-release.config.mjs";
@@ -198,7 +207,7 @@ function expand(node, context, label) {
     return node.replace(/\{\{([A-Za-z][A-Za-z0-9]*)\}\}/g, (_, token) => {
       if (!TEMPLATE_TOKENS.includes(token)) fail("RELEASE_CONFIG_TEMPLATE", `${label}: unknown template token {{${token}}} (allowed: ${TEMPLATE_TOKENS.map((t) => `{{${t}}}`).join(", ")})`);
       const resolved = context.values[token];
-      if (typeof resolved !== "string" || resolved === "") fail("RELEASE_CONFIG_TEMPLATE", `${label}: {{${token}}} is not available${token === "localAppData" ? " (LOCALAPPDATA is not set)" : token === "version" ? " here (version cannot refer to itself)" : ""}`);
+      if (typeof resolved !== "string" || resolved === "") fail("RELEASE_CONFIG_TEMPLATE", `${label}: {{${token}}} is not available${token === "version" ? " here (version cannot refer to itself)" : ""}`);
       return resolved;
     });
   }
@@ -259,16 +268,31 @@ export function validateReleaseConfigShape(config, { file = RELEASE_CONFIG_FILE,
   return config;
 }
 
+// The same rule as UPDATER_KEY_ID_RE in github-updater-release.mjs, kept here because that module's import graph loads the release state
+// machine, which this loader must not depend on.
+const UPDATER_KEY_ID = /^[0-9A-F]{16}$/;
+// A typed template ({ "$fromJson": ... }) is a string only after expansion, so the raw-phase check leaves it to the final one.
+const isTemplateNode = (value) => isObject(value) && Object.keys(value).some((key) => key.startsWith("$"));
+const isBlank = (value) => value === undefined || value === null || (typeof value === "string" && !value.trim());
+
 /**
  * Field-level refusals that need no other part of the config, so a caller (the loader, the doctor) can list them next to every other
- * finding: `[{ name, code, pointer, detail }]`. Today: `targets.<t>.updater.keyFile`. Updater minisign keys come from the OS credential
- * provider (`protected-credentials.mjs`, secret "updater-signing-key", namespace `rightsuite-updater-key`; `sign-updater.mjs` refuses
- * `--key-file`), so a config that names a key file could only fail mid-signing. It is refused up front instead, and never forwarded.
+ * finding: `[{ name, code, pointer, detail }]`.
+ *
+ * `targets.<t>.updater.keyFile`: updater minisign keys come from the OS credential provider (`protected-credentials.mjs`, secret
+ * "updater-signing-key", namespace `rightsuite-updater-key`; `sign-updater.mjs` refuses `--key-file`), so a config that names a key
+ * file could only fail mid-signing. It is refused up front instead, and never forwarded.
+ *
+ * `distribution.updaterKeyId` must be 16 upper-case hex digits and, for a Right Suite app, a key the Right Suite contract accepts; a
+ * Right Suite app must not declare an updater public key of its own (`distribution.updaterPublicKey`, `updaterPubkey`,
+ * `targets.<t>.updater.pubkey` or `publicKey`) unless it is exactly a contract key's text. Publish and seal refuse the same things
+ * (`resolveUpdaterTrust`); here they are found before a build starts.
  */
 export function releaseConfigFieldProblems(config) {
   const problems = [];
-  if (!isObject(config) || !isObject(config.targets)) return problems;
-  for (const [name, target] of Object.entries(config.targets)) {
+  if (!isObject(config)) return problems;
+  const targets = isObject(config.targets) ? Object.entries(config.targets) : [];
+  for (const [name, target] of targets) {
     if (!isObject(target) || !isObject(target.updater) || !Object.prototype.hasOwnProperty.call(target.updater, "keyFile")) continue;
     problems.push({
       name: "updater-key-file",
@@ -276,6 +300,35 @@ export function releaseConfigFieldProblems(config) {
       pointer: `/targets/${pointerKey(name)}/updater/keyFile`,
       detail: `targets.${name}.updater.keyFile is not supported: updater signing keys come from the OS credential provider (rightkit-credentials, namespace rightsuite-updater-key; see protected-credentials.mjs and sign-updater.mjs), never from a key file. Remove updater.keyFile from the release config.`,
     });
+  }
+  const suiteApp = typeof config.app === "string" && RIGHT_SUITE_APP_KEYS.includes(config.app.toLowerCase());
+  const distribution = isObject(config.distribution) ? config.distribution : {};
+  const keyId = distribution.updaterKeyId;
+  if (keyId !== undefined && !isTemplateNode(keyId)) {
+    const accepted = RIGHT_SUITE_UPDATER_PUBLIC_KEYS.map((key) => key.kid);
+    const detail = typeof keyId !== "string" || !UPDATER_KEY_ID.test(keyId)
+      ? `distribution.updaterKeyId must be the 16 upper-case hex digits of a minisign key id, got ${JSON.stringify(keyId)}.`
+      : suiteApp && !accepted.includes(keyId)
+        ? `distribution.updaterKeyId ${keyId} is not an updater key in the Right Suite contract (accepted: ${accepted.join(", ")}). Remove it to sign with the contract's signing key.`
+        : null;
+    if (detail) problems.push({ name: "updater-key-id", code: "RELEASE_CONFIG_UPDATER_KEY_ID", pointer: "/distribution/updaterKeyId", detail });
+  }
+  if (suiteApp) {
+    const contractTexts = RIGHT_SUITE_UPDATER_PUBLIC_KEYS.map((key) => key.publicKey);
+    const declared = (pointer, label, value) => {
+      if (isBlank(value) || isTemplateNode(value) || contractTexts.includes(value)) return;
+      problems.push({
+        name: "updater-public-key",
+        code: "RELEASE_CONFIG_UPDATER_PUBLIC_KEY",
+        pointer,
+        detail: `${label} is not a Right Suite contract key: ${config.app} is a suite app and takes its updater keys from the contract (contracts/right-suite-api.v1.json), so remove ${label}.`,
+      });
+    };
+    for (const field of ["updaterPublicKey", "updaterPubkey"]) declared(`/distribution/${field}`, `distribution.${field}`, distribution[field]);
+    for (const [name, target] of targets) {
+      if (!isObject(target) || !isObject(target.updater)) continue;
+      for (const field of ["pubkey", "publicKey"]) declared(`/targets/${pointerKey(name)}/updater/${field}`, `targets.${name}.updater.${field}`, target.updater[field]);
+    }
   }
   return problems;
 }
@@ -289,7 +342,7 @@ function packageScripts(appRoot, readText) {
 
 /**
  * Load, validate and expand a release config. Returns `{ config, configPath, appRoot, sha256, inputs, lineOf }`. Throws ReleaseConfigError
- * (RELEASE_CONFIG_LEGACY_EXECUTABLE | _NOT_JSON | _NOT_FOUND | _INVALID_JSON | _SCHEMA | _KEY | _UPDATER_KEY_FILE | _TEMPLATE | _M24). `validatePipeline: false`
+ * (RELEASE_CONFIG_LEGACY_EXECUTABLE | _NOT_JSON | _NOT_FOUND | _INVALID_JSON | _SCHEMA | _KEY | _UPDATER_KEY_FILE | _UPDATER_KEY_ID | _UPDATER_PUBLIC_KEY | _TEMPLATE | _M24). `validatePipeline: false`
  * skips only the M24 command admission (the pipeline scanner reports those findings itself); nothing else is optional.
  * File access, the generator registry, the environment and the home directory are injectable for tests.
  */
@@ -313,7 +366,9 @@ export function loadReleaseConfigSync(file, {
   const raw = parsed.value;
   validateReleaseConfigShape(raw, { file: configPath, phase: "raw" });
   const inputs = new Map();
-  const base = { appRoot, inputs, readBytes, lstat, values: { home: homedir(), localAppData: env.LOCALAPPDATA ?? "", app: "", version: "" } };
+  // {{localAppData}} is %LOCALAPPDATA% on Windows. Elsewhere it is the Windows profile default under the home directory (a path
+  // no other host uses), so one config that names a Windows install path loads on every host instead of failing on the Mac.
+  const base = { appRoot, inputs, readBytes, lstat, values: { home: homedir(), localAppData: env.LOCALAPPDATA || path.join(homedir(), "AppData", "Local"), app: "", version: "" } };
   base.values.app = expand(raw.app, { ...base }, "/app");
   if (raw.version !== undefined) base.values.version = expand(raw.version, { ...base, values: { ...base.values, version: "" } }, "/version");
   const config = expand(raw, base, "");
@@ -342,6 +397,27 @@ export function loadReleaseConfigSync(file, {
 /** The config object only (what `(await import(configPath)).default` used to be). */
 export async function loadReleaseConfig(file, options) {
   return loadReleaseConfigSync(file, options).config;
+}
+
+/** True for a `.json` config path: the only extension the strict loader accepts. */
+export const isJsonReleaseConfig = (file) => typeof file === "string" && path.extname(file).toLowerCase() === ".json";
+
+/** The config name a command defaults to: `right-release.config.json` when `dir` holds it, else the legacy module an unmoved app still owns. */
+export function defaultReleaseConfigFile(dir = process.cwd(), { exists = existsSync } = {}) {
+  return exists(path.join(dir, RELEASE_CONFIG_FILE)) ? RELEASE_CONFIG_FILE : LEGACY_RELEASE_CONFIG_FILE;
+}
+
+/**
+ * Load the config at `file` for a command. A `.json` path goes through the strict, M24-validated loader (throws ReleaseConfigError); any
+ * other path is the legacy branch and is imported as before. Legacy-only options: `query` is the cache-busting query a site appends
+ * (`upload=<ts>`, `commit=<sha>`) so a module re-evaluates per run, and `lenient` keeps the `default ?? config ?? module` fallback the
+ * app-root commands accept; every other option goes to `loadReleaseConfigSync`.
+ */
+export async function importReleaseConfig(file, { query, lenient = false, ...loadOptions } = {}) {
+  const absolute = path.resolve(file);
+  if (isJsonReleaseConfig(absolute)) return loadReleaseConfigSync(absolute, loadOptions).config;
+  const loaded = await import(`${pathToFileURL(absolute).href}${query ? `?${query}` : ""}`);
+  return lenient ? loaded.default ?? loaded.config ?? loaded : loaded.default;
 }
 
 /** `{ config, appRoot, configPath }` for the commands that need the app root beside the config. */

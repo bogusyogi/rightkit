@@ -23,7 +23,8 @@ import { spawn, spawnSync } from "./background-process.mjs";
 import { RightKitRegistryError, SNAPSHOT_ENV, SNAPSHOT_FILE, assertManifestRegistryEvidence, loadAdmittedSnapshot, prepareRightKitResolution, registryManifestFields, rightKitLockInventory, writeAdmissionRecord, writeSnapshot } from "./rightkit-registry-resolver.mjs";
 import { formatAdmission, formatNotRun, runAdmission } from "./admission.mjs";
 import { sccacheRefusal } from "./admission-host.mjs";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
+import { fileURLToPath } from "node:url";
 import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
 import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 import { admitSourceQa } from "./release-qa-audit.mjs";
@@ -51,7 +52,7 @@ import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 import { ANDROID_RECEIPT_NAME, androidSealEntry, validateAndroidTarget, verifyAndroidReceipt } from "./android-release.mjs";
 import { IOS_RECEIPT_NAME, iosSealEntry, verifyIosReceipt } from "./ios-package-recipe.mjs";
 import { expandIosPackageTarget } from "./package-recipe-targets.mjs";
-import { assertUpdaterSignature } from "./github-updater-release.mjs";
+import { assertUpdaterKeyId, assertUpdaterSignature, isSuiteUpdaterApp, resolveUpdaterTrust } from "./github-updater-release.mjs";
 
 // The iOS lane's own packaging code, kept out of the win/mac fingerprint for the same reason as the Android one.
 const IOS_PIPELINE_FINGERPRINT = createHash("sha256")
@@ -111,7 +112,7 @@ const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const WORKER = path.join(TOOL_ROOT, "release.mjs");
 const RELEASE_TOOL_VERSION = JSON.parse(readFileSync(path.join(TOOL_ROOT, "package.json"), "utf8")).version;
 const args = process.argv.slice(2);
-let configName = "right-release.config.mjs";
+let configName = defaultReleaseConfigFile();
 let platform = process.platform === "win32" ? "win" : process.platform === "darwin" ? "mac" : process.platform;
 let dryRun = false;
 let skipChecks = false;
@@ -195,7 +196,7 @@ try {
   const shortCommit = commit.slice(0, 8);
   const dirtyConfig = dirtyBuildInputs(repoRoot, { include: [relativeConfig], required: [relativeConfig] }, commit);
   if (dirtyConfig.length > 0) fail(`dirty release config cannot be executed:\n${dirtyConfig.map((file) => `- ${file}`).join("\n")}`);
-  const config = (await import(`${pathToFileURL(configPath).href}?commit=${commit}`)).default;
+  const config = await importReleaseConfig(configPath, { query: `commit=${commit}` });
   if (!config?.app || !config?.version) fail("release config must expose app and version");
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(config.app) || !/^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(config.version)) {
     fail("app and version must be safe release-id components");
@@ -566,7 +567,7 @@ async function admit() {
     commit = git(invocationRoot, ["rev-parse", "HEAD"]);
     const dirtyConfig = dirtyBuildInputs(repoRoot, { include: [relativeConfig], required: [relativeConfig] }, commit);
     if (dirtyConfig.length > 0) fail(`dirty release config cannot be executed:\n${dirtyConfig.map((file) => `- ${file}`).join("\n")}`);
-    try { config = (await import(`${pathToFileURL(configPath).href}?commit=${commit}`)).default; } catch (error) { fail(`release config could not be loaded (${configPath}): ${error instanceof Error ? error.message : String(error)}`); }
+    try { config = await importReleaseConfig(configPath, { query: `commit=${commit}` }); } catch (error) { fail(`release config could not be loaded (${configPath}): ${error instanceof Error ? error.message : String(error)}`); }
   } catch (error) {
     if (error?.reported) process.exit(1);
     throw error;
@@ -630,7 +631,7 @@ function sqlCipherFeatures(text) {
 }
 
 function sealRelease({ configRoot, managedCargoTarget, androidTarget, iosSpec, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot, stateRoot, rightkitRegistryFields }) {
-  // Every app's right-release.config.mjs names installer/updater artifacts
+  // Every app's release config names installer/updater artifacts
   // relative to its resolved native target. On a broker-managed host that
   // directory is never populated (the broker owns CARGO_TARGET_DIR and
   // targetBridge.ensure() deliberately leaves a real local directory alone,
@@ -687,17 +688,24 @@ function sealRelease({ configRoot, managedCargoTarget, androidTarget, iosSpec, n
   }
   if (sources.size === 0) fail(`nothing to seal: declare installer.artifacts, updater.artifacts or artifacts for the ${platform} target`);
   for (const file of sources.keys()) if (!existsSync(file)) fail(`cannot seal missing artifact: ${file}`);
-  // Every minisign updater requires an explicit trust root & full-byte signature
-  // verification before any seal directory or artifact copy is created.
+  // Every minisign updater is checked against a trust root, by key id and over the full bytes, before any seal directory or
+  // artifact copy is created. A Right Suite app's root is the Right Suite contract's; any other app must declare its own key.
   const updaterPublicKey = config.distribution?.updaterPublicKey ?? config.distribution?.updaterPubkey ?? target?.updater?.pubkey ?? target?.updater?.publicKey;
   if ((target.updater?.artifacts?.length ?? 0) > 0 && target.updater?.kind !== "appinstaller") {
-    if (typeof updaterPublicKey !== "string" || !updaterPublicKey.trim()) fail("updater public key is required to verify updater artifacts before sealing");
+    if (!isSuiteUpdaterApp(config.app) && (typeof updaterPublicKey !== "string" || !updaterPublicKey.trim())) fail("updater public key is required to verify updater artifacts before sealing");
+    let trust;
+    try { trust = resolveUpdaterTrust({ app: config.app, configuredPublicKey: updaterPublicKey, configuredKeyId: config.distribution?.updaterKeyId }); }
+    catch (error) { fail(`updater trust rejected at seal: ${error.message}`); }
     for (const artifact of target.updater?.artifacts ?? []) {
       const source = resolveArtifactPath(artifact.file);
       const signature = readFileSync(resolveArtifactPath(artifact.signature), "utf8").trim();
       if (!signature) fail(`updater signature is empty, refusing to seal: ${artifact.signature}`);
-      try { assertUpdaterSignature(readFileSync(source), signature, updaterPublicKey, `signature of ${path.basename(artifact.file)}`); }
-      catch (error) { fail(`updater signature rejected at seal: ${error.message}`); }
+      const label = `signature of ${path.basename(artifact.file)}`;
+      // The id comes first: a signature by another key would otherwise fail verification without saying whose it is.
+      try {
+        assertUpdaterKeyId(signature, trust.keyId, label, { app: config.app });
+        assertUpdaterSignature(readFileSync(source), signature, trust.publicKey, label);
+      } catch (error) { fail(`updater signature rejected at seal: ${error.message}`); }
     }
   }
   // Android: the build receipt must describe exactly the AAB being sealed (bytes re-hashed) and its signer must be the pinned
@@ -1053,7 +1061,7 @@ function writeJson(file, value) {
 }
 
 function usage(code) {
-  console.log("usage: right-release build --platform win|mac|android|ios [--config right-release.config.mjs] [--dry-run]");
+  console.log("usage: right-release build --platform win|mac|android|ios [--config right-release.config.json] [--dry-run]");
   process.exit(code);
 }
 

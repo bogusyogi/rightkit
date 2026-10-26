@@ -296,6 +296,15 @@ export interface ChromeForTestingBrowser {
 
 const MANAGED_FLAGS = /^--(user-data-dir|remote-debugging-port|remote-debugging-pipe)(=|$)/;
 
+/**
+ * Linux: Chrome refuses to start as root with its sandbox ("Running as root without --no-sandbox is not supported"; it checks the
+ * effective uid), which is how containers and cloud hosts run. `['--no-sandbox']` there unless `extra` already carries it, `[]`
+ * everywhere else.
+ */
+export function rootSandboxArgs(platform: NodeJS.Platform, euid: number | undefined, extra: readonly string[] = []): string[] {
+  return platform === 'linux' && euid === 0 && !extra.includes('--no-sandbox') ? ['--no-sandbox'] : [];
+}
+
 /** Launch Chrome for Testing with a fresh temp profile and a DevTools endpoint. */
 export async function launchChromeForTesting(options: LaunchChromeOptions = {}): Promise<ChromeForTestingBrowser> {
   const executablePath = resolveChromeForTesting(options);
@@ -317,6 +326,7 @@ export async function launchChromeForTesting(options: LaunchChromeOptions = {}):
     '--disable-breakpad',
     '--password-store=basic',
     '--use-mock-keychain',
+    ...rootSandboxArgs(process.platform, process.geteuid?.(), extra),
     ...extra,
     `--user-data-dir=${profileDir}`,
     '--remote-debugging-port=0',

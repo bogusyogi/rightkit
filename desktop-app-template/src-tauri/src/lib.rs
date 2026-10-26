@@ -1,20 +1,22 @@
-//! RightApp desktop shell. `rightkit-shell` hosts the window (hardened webview, window state, single
-//! instance, tray and menu hooks). `rightkit-jobs` supervises the `rightapp-engine` sidecar: restart
-//! budget, per-call deadline, no replay of a timed-out call. The product's work lives in `crates/engine`
-//! behind the rightkit-jobs contract. The data root comes from `rightapp_protocol::app_data_root`.
-
-mod diagnostics;
+//! RightApp desktop shell. `rightkit-tauri-shell` hosts the window (hardened webview, window state, single
+//! instance, tray and menu hooks, the renderer log commands). `rightkit-job-queue` supervises the
+//! `rightapp-engine` sidecar: restart budget, per-call deadline, no replay of a timed-out call. The product's
+//! work lives in `crates/engine` behind the rightkit-job-queue contract. The data root comes from
+//! `rightapp_protocol::app_data_root`, which goes through `rightkit_daemon::mode` (nothing in the environment
+//! can move it in a release build).
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use rightapp_protocol::app_data_root;
-use rightkit_jobs::{EngineSupervisor, SupervisorConfig};
-use rightkit_process::{OwnedCommand, RestartMode, RestartPolicy};
-use rightkit_secrets::{Config, Namespace, Store};
-use rightkit_shell::Shell;
-use rightkit_tauri::{DeviceService, SecureStore};
+use rightkit_child_process::{OwnedCommand, RestartMode, RestartPolicy};
+use rightkit_crash::{install_process_hook, CrashConfig, ProcessKind};
+use rightkit_credentials::{Config, Namespace, Store};
+use rightkit_device::{credentials::CredentialStore, DeviceService};
+use rightkit_job_queue::{EngineSupervisor, SupervisorConfig};
+use rightkit_tauri_shell::logs_commands::{self, LogsConfig};
+use rightkit_tauri_shell::Shell;
 use serde_json::Value;
 use tauri::Manager;
 
@@ -43,23 +45,23 @@ pub fn engine_config(engine: PathBuf) -> Result<SupervisorConfig, String> {
     .with_rpc_timeout(Duration::from_secs(30)))
 }
 
-/// Engine path override from `RIGHTAPP_ENGINE_BIN`, honoured only when `allowed`. A release build
-/// passes `false`, so a packaged app never launches an executable named by its environment.
-fn engine_override(value: Option<std::ffi::OsString>, allowed: bool) -> Option<PathBuf> {
-    if allowed {
-        value.map(PathBuf::from)
-    } else {
-        None
-    }
+/// A QA build (`qa-native`) launches the engine named by `RIGHTAPP_ENGINE_BIN`, because a hidden QA run starts the
+/// bare executable, not an installed bundle. The read does not exist in any other build: the name is compiled out
+/// (switches.json, class S3), so a packaged app never launches an executable named by its environment.
+#[cfg(feature = "qa-native")]
+fn engine_override() -> Option<PathBuf> {
+    std::env::var_os("RIGHTAPP_ENGINE_BIN").map(PathBuf::from)
 }
 
-/// Packaged: Tauri places `externalBin` next to the executable (triple suffix stripped). Debug builds
-/// (dev and QA) may override the path with `RIGHTAPP_ENGINE_BIN`; release builds ignore it.
+#[cfg(not(feature = "qa-native"))]
+fn engine_override() -> Option<PathBuf> {
+    None
+}
+
+/// Packaged: Tauri places `externalBin` next to the executable (triple suffix stripped). A QA build may name the
+/// engine through `RIGHTAPP_ENGINE_BIN` (see `engine_override`).
 fn engine_path(app: &tauri::AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    if let Some(p) = engine_override(
-        std::env::var_os("RIGHTAPP_ENGINE_BIN"),
-        cfg!(debug_assertions),
-    ) {
+    if let Some(p) = engine_override() {
         return Ok(p);
     }
     let name = if cfg!(windows) {
@@ -83,56 +85,19 @@ fn engine_path(app: &tauri::AppHandle) -> Result<PathBuf, Box<dyn std::error::Er
 const DEVICE_SERVICE: &str = "app.rightsuite.rightapp";
 const DEVICE_ACCOUNT: &str = "device-id";
 
-/// Device identity lives in the OS credential store through `rightkit-secrets`, so it survives
-/// profile wipes and is not a readable file. Read failures are errors, never absence.
-struct KeyringDeviceStore {
-    store: Store,
-}
-
-impl KeyringDeviceStore {
-    fn new() -> Result<Self, String> {
-        let namespace = Namespace::new(DEVICE_SERVICE).map_err(|e| e.to_string())?;
-        Ok(Self::with_config(Config::new(namespace)))
-    }
-
-    fn with_config(config: Config) -> Self {
-        Self {
-            store: Store::open(config),
-        }
-    }
-}
-
-impl SecureStore<String> for KeyringDeviceStore {
-    fn get(&self) -> Result<Option<String>, String> {
-        match self.store.get(DEVICE_ACCOUNT).map_err(|e| e.to_string())? {
-            Some(secret) => Ok(Some(
-                secret
-                    .expose_str()
-                    .map_err(|e| e.to_string())?
-                    .trim()
-                    .to_string(),
-            )),
-            None => Ok(None),
-        }
-    }
-
-    fn set(&self, value: &String) -> Result<(), String> {
-        self.store
-            .set_str(DEVICE_ACCOUNT, value)
-            .map_err(|e| e.to_string())
-    }
-
-    fn delete(&self) -> Result<(), String> {
-        self.store
-            .delete(DEVICE_ACCOUNT)
-            .map(|_| ())
-            .map_err(|e| e.to_string())
-    }
+/// Device identity lives in the OS credential store through `rightkit-credentials` (adapted by
+/// `rightkit-device`), so it survives profile wipes and is not a readable file. Read failures are errors,
+/// never absence.
+fn device_service() -> Result<DeviceService<CredentialStore>, String> {
+    let namespace = Namespace::new(DEVICE_SERVICE).map_err(|e| e.to_string())?;
+    let store = CredentialStore::new(Store::open(Config::new(namespace)), DEVICE_ACCOUNT)
+        .map_err(|e| e.to_string())?;
+    Ok(DeviceService::new(store))
 }
 
 #[tauri::command]
 fn device_get_or_create(
-    device: tauri::State<'_, DeviceService<KeyringDeviceStore>>,
+    device: tauri::State<'_, DeviceService<CredentialStore>>,
 ) -> Result<String, String> {
     device.get_or_create().map_err(|e| e.to_string())
 }
@@ -154,7 +119,16 @@ async fn engine_call(
 }
 
 pub fn run() {
+    // The release-or-test decision comes first (inside app_data_root), before any store, log or credential opens.
     let data_root = app_data_root().expect("RightApp data root");
+    install_process_hook(
+        ProcessKind::Window,
+        CrashConfig::new(
+            "RightApp",
+            env!("CARGO_PKG_VERSION"),
+            data_root.join("crashes"),
+        ),
+    );
     // The shell plugin goes first so single-instance arbitration runs before any other plugin works.
     let shell = Shell::builder("rightapp")
         .app_name("RightApp")
@@ -162,33 +136,42 @@ pub fn run() {
         .state_dir(data_root.join("shell"))
         .build()
         .plugin();
-    let builder = tauri::Builder::default();
-    // QA control never ships: see the `qa-native` pattern in Cargo.toml. Once adopted, uncomment:
-    // #[cfg(feature = "qa-native")]
-    // let builder = match rightkit_control::embedded::Control::<tauri::Wry>::new().build_if_enabled() {
-    //     Some(control) => builder.plugin(control), // logs "RIGHTKIT QA CONTROL SERVER ACTIVE" when the launcher sets RIGHTKIT_CONTROL_SERVICE
-    //     None => builder,
-    // };
+    let builder = tauri::Builder::default().plugin(shell);
+    // QA control never ships: this registration exists only in a `qa-native` build, which right-release refuses to seal.
+    #[cfg(feature = "qa-native")]
+    let builder = match rightkit_qa::embedded::Control::<tauri::Wry>::new().build_if_enabled() {
+        Some(control) => builder.plugin(control),
+        None => builder,
+    };
     builder
-        .plugin(shell)
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(DeviceService::new(
-            KeyringDeviceStore::new().expect("device identity store"),
-        ))
-        .setup(|app| {
+        .manage(device_service().expect("device identity store"))
+        .setup(move |app| {
+            let mut logs = LogsConfig::new(
+                "RightApp",
+                env!("CARGO_PKG_VERSION"),
+                data_root
+                    .join("logs")
+                    .join("rightkit-renderer.events.jsonl"),
+            );
+            logs.build = if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                "release"
+            }
+            .into();
+            logs_commands::install(app.handle(), logs)?;
             let engine = EngineSupervisor::new(engine_config(engine_path(app.handle())?)?);
             engine.start()?;
             app.manage(Arc::new(engine));
             Ok(())
         })
-        .invoke_handler(rightkit_shell::handler![
+        // The shell's handler! registers its own commands and, with the `logs` feature, rightkit_logs_write/collect/clear.
+        .invoke_handler(rightkit_tauri_shell::handler![
             device_get_or_create,
             engine_call,
-            diagnostics::rightkit_logs_write,
-            diagnostics::rightkit_logs_collect,
-            diagnostics::rightkit_logs_clear,
         ])
         .build(tauri::generate_context!())
         .expect("error while building RightApp")
@@ -201,57 +184,13 @@ pub fn run() {
         });
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "qa-native")))]
 mod engine_override_tests {
     use super::engine_override;
-    use std::ffi::OsString;
-    use std::path::PathBuf;
 
+    // rk-test: pure
     #[test]
-    fn a_release_build_ignores_the_engine_override() {
-        assert_eq!(
-            engine_override(Some(OsString::from("/tmp/evil")), false),
-            None
-        );
-    }
-
-    #[test]
-    fn a_debug_build_honours_the_engine_override() {
-        assert_eq!(
-            engine_override(Some(OsString::from("/tmp/dev-engine")), true),
-            Some(PathBuf::from("/tmp/dev-engine"))
-        );
-        assert_eq!(engine_override(None, true), None);
-    }
-}
-
-#[cfg(test)]
-mod device_store_tests {
-    use super::*;
-    use rightkit_secrets::GuardMode;
-
-    fn memory_store() -> KeyringDeviceStore {
-        let namespace = Namespace::new("app.rightsuite.rightapp.test").unwrap();
-        KeyringDeviceStore::with_config(Config::new(namespace).guard_when(true, GuardMode::Memory))
-    }
-
-    #[test]
-    fn device_identity_round_trips_through_the_secret_store_and_not_a_file() {
-        let store = memory_store();
-        store.delete().unwrap();
-        assert_eq!(store.get().unwrap(), None);
-        store.set(&"device-123".to_string()).unwrap();
-        assert_eq!(store.get().unwrap().as_deref(), Some("device-123"));
-        store.delete().unwrap();
-        assert_eq!(store.get().unwrap(), None);
-    }
-
-    #[test]
-    fn a_denied_secret_store_is_an_error_not_an_absent_identity() {
-        let namespace = Namespace::new("app.rightsuite.rightapp.denied").unwrap();
-        let store = KeyringDeviceStore::with_config(
-            Config::new(namespace).guard_when(true, GuardMode::Deny),
-        );
-        assert!(store.get().is_err());
+    fn a_build_without_qa_native_never_honours_an_engine_override() {
+        assert_eq!(engine_override(), None);
     }
 }

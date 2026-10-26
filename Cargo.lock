@@ -6746,7 +6746,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-asr"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "half",
  "hound",
@@ -6994,7 +6994,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ffmpeg"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -7255,7 +7255,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "flate2",
  "half",
@@ -7353,7 +7353,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "getrandom 0.4.3",
  "png 0.18.1",

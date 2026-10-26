@@ -13,6 +13,12 @@
 //! let plugin = rightkit_tauri_shell::ShellPlugin::builder()
 //!     .shell(rightkit_tauri_shell::Shell::builder("viewright").build())
 //!     .install_state_only();
+//!
+//! // Or: the app owns its windows and keeps the webview policy (hardening and navigation policy).
+//! let plugin = rightkit_tauri_shell::ShellPlugin::builder()
+//!     .shell(rightkit_tauri_shell::Shell::builder("viewright").build())
+//!     .host_windows()
+//!     .build();
 //! ```
 //!
 //! An opted-out command family answers `unsupported` ("module ... is disabled for this app") rather
@@ -26,7 +32,7 @@
 use tauri::plugin::TauriPlugin;
 use tauri::Wry;
 
-use crate::Shell;
+use crate::{Shell, ShellBuilder};
 
 /// A shell module that can be opted out. The comments say what each one controls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -98,6 +104,15 @@ impl Module {
     /// windows: the host turns one back on explicitly (`ShellBuilder::show_on_ready(true)`).
     pub const LIFECYCLE_HOST_OPT_IN: [Module; 1] = [Module::ShowOnReady];
 
+    /// The modules `host_windows` turns off: the app owns its windows, so the shell restores and
+    /// saves no window state, shows nothing on ready, and runs no presence loop or watchdog.
+    pub const HOST_WINDOWS_OFF: [Module; 4] = [
+        Module::WindowState,
+        Module::ShowOnReady,
+        Module::Presence,
+        Module::Watchdog,
+    ];
+
     /// Stable snake_case name, used in diagnostics (`rk_shell_status`).
     pub fn name(self) -> &'static str {
         match self {
@@ -160,10 +175,21 @@ impl ModuleSet {
     /// `ShowOnReady` is also off (`Module::LIFECYCLE_HOST_OPT_IN`): the host owns its windows and
     /// turns it on with `ShellBuilder::show_on_ready(true)` if it wants the shell to show the main
     /// window. `RevealOnReopen` stays on; a host removes it with `ShellBuilder::reveal_on_reopen(false)`.
+    /// Prefer [`ModuleSet::host_windows`]: lifecycle_only also removes JS hardening and the
+    /// navigation policy.
     pub fn lifecycle_only() -> Self {
         Module::LIFECYCLE_OFF
             .iter()
             .chain(Module::LIFECYCLE_HOST_OPT_IN.iter())
+            .fold(Self::all(), |set, m| set.without(*m))
+    }
+
+    /// Everything except `Module::HOST_WINDOWS_OFF`: the app owns its windows, so there is no
+    /// window-state restore or save, no show-on-ready, no presence loop and no watchdog. The webview
+    /// policy stays on: JS hardening, the navigation policy and reveal on reopen.
+    pub fn host_windows() -> Self {
+        Module::HOST_WINDOWS_OFF
+            .iter()
             .fold(Self::all(), |set, m| set.without(*m))
     }
 
@@ -186,6 +212,7 @@ impl ShellPlugin {
         ShellPluginBuilder {
             shell: None,
             modules: ModuleSet::all(),
+            host_owns_windows: false,
         }
     }
 }
@@ -195,6 +222,9 @@ impl ShellPlugin {
 pub struct ShellPluginBuilder {
     shell: Option<Shell>,
     modules: ModuleSet,
+    /// Set by [`ShellPluginBuilder::host_windows`]. `build` then sets the shell's `lifecycle_only`
+    /// switch, which keeps ShowOnReady and the cache repair off unless the host turns them on.
+    host_owns_windows: bool,
 }
 
 impl ShellPluginBuilder {
@@ -210,24 +240,62 @@ impl ShellPluginBuilder {
         self
     }
 
+    /// Re-enable one module. Additive: it adjusts the set a profile or `without` left.
+    pub fn with(mut self, module: Module) -> Self {
+        self.modules = self.modules.with(module);
+        self
+    }
+
+    /// The modules [`ShellPluginBuilder::build`] would install.
+    pub fn modules(&self) -> ModuleSet {
+        self.modules
+    }
+
     /// Install the plugin with the modules that remain enabled.
     ///
     /// # Panics
     /// Panics when [`ShellPluginBuilder::shell`] was never called, which is a programmer error at
     /// startup, the same as an invalid app id.
     pub fn build(self) -> TauriPlugin<Wry> {
+        crate::install(self.into_config())
+    }
+
+    /// The configuration [`ShellPluginBuilder::build`] installs.
+    fn into_config(self) -> ShellBuilder {
+        let (modules, host_owns_windows) = (self.modules, self.host_owns_windows);
         let shell = self.shell.expect(
             "rightkit-tauri-shell: ShellPlugin::builder() needs .shell(Shell::builder(..).build())",
         );
         let mut cfg = shell.cfg;
-        cfg.modules = self.modules;
-        crate::install(cfg)
+        cfg.modules = modules;
+        if host_owns_windows {
+            cfg.lifecycle_only = true;
+        }
+        cfg
+    }
+
+    /// Replace the module set with a profile. `host_owns_windows` belongs to that profile alone, so
+    /// an earlier profile's choice does not carry over.
+    fn profile(mut self, modules: ModuleSet, host_owns_windows: bool) -> Self {
+        self.modules = modules;
+        self.host_owns_windows = host_owns_windows;
+        self
+    }
+
+    /// Use the host-windows profile, [`ModuleSet::host_windows`], for an app that owns its windows.
+    /// The shell keeps JS hardening, the navigation policy and reveal on reopen, and does not
+    /// restore, save, show or watch windows. Unlike [`ShellPluginBuilder::lifecycle_only`], it keeps
+    /// the webview policy. A profile replaces the module set, so earlier `with` and `without` calls
+    /// are dropped; calls after it adjust it.
+    pub fn host_windows(self) -> Self {
+        self.profile(ModuleSet::host_windows(), true)
     }
 
     /// Install the lifecycle without the webview policy: [`ModuleSet::lifecycle_only`]. Besides the
     /// module set, a lifecycle-only install defaults `repair_cache` to off and shows the main window
     /// on ready only when the host called `show_on_ready(true)`; `repair_cache(true)` turns the
-    /// repair back on.
+    /// repair back on. Prefer [`ShellPluginBuilder::host_windows`]: lifecycle_only also removes JS
+    /// hardening and the navigation policy.
     pub fn lifecycle_only(mut self) -> TauriPlugin<Wry> {
         self.modules = ModuleSet::lifecycle_only();
         if let Some(shell) = self.shell.as_mut() {
@@ -239,8 +307,98 @@ impl ShellPluginBuilder {
     /// Install only the state the broker, stream, recovery, frameless and clipboard commands use.
     /// This replaces any earlier `without` calls: hardening, navigation policy, window restore,
     /// show-on-ready, watchdog and presence are all off.
-    pub fn install_state_only(mut self) -> TauriPlugin<Wry> {
-        self.modules = ModuleSet::state_only();
-        self.build()
+    pub fn install_state_only(self) -> TauriPlugin<Wry> {
+        self.profile(ModuleSet::state_only(), false).build()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn builder() -> ShellPluginBuilder {
+        ShellPlugin::builder().shell(Shell::builder("viewright").build())
+    }
+
+    #[test]
+    fn host_windows_keeps_the_webview_policy_and_state_modules() {
+        let set = ModuleSet::host_windows();
+        for module in [
+            Module::JsHardening,
+            Module::NavigationPolicy,
+            Module::RevealOnReopen,
+            Module::Broker,
+            Module::Stream,
+            Module::Recovery,
+            Module::Frameless,
+            Module::Clipboard,
+        ] {
+            assert!(set.contains(module), "{module:?} should stay on");
+        }
+    }
+
+    #[test]
+    fn host_windows_turns_off_the_window_owning_modules() {
+        let set = ModuleSet::host_windows();
+        for module in [
+            Module::WindowState,
+            Module::ShowOnReady,
+            Module::Presence,
+            Module::Watchdog,
+        ] {
+            assert!(!set.contains(module), "{module:?} should be off");
+        }
+    }
+
+    #[test]
+    fn host_windows_names_are_the_expected_list_in_declaration_order() {
+        assert_eq!(
+            ModuleSet::host_windows().names(),
+            vec![
+                "js_hardening",
+                "navigation_policy",
+                "reveal_on_reopen",
+                "broker",
+                "stream",
+                "recovery",
+                "frameless",
+                "clipboard",
+            ]
+        );
+    }
+
+    #[test]
+    fn with_navigation_policy_after_lifecycle_only_re_enables_it() {
+        let set = ModuleSet::lifecycle_only().with(Module::NavigationPolicy);
+        assert!(set.contains(Module::NavigationPolicy));
+    }
+
+    #[test]
+    fn with_after_host_windows_adds_one_module_and_keeps_the_profile() {
+        let set = builder().host_windows().with(Module::WindowState).modules();
+        assert!(set.contains(Module::WindowState));
+        assert!(set.contains(Module::JsHardening));
+    }
+
+    #[test]
+    fn host_windows_replaces_an_earlier_without() {
+        let set = builder().without(Module::Broker).host_windows().modules();
+        assert!(set.contains(Module::Broker));
+    }
+
+    #[test]
+    fn host_windows_builds_a_lifecycle_host_and_other_profiles_do_not() {
+        assert!(builder().host_windows().into_config().lifecycle_only);
+        assert!(!builder().into_config().lifecycle_only);
+    }
+
+    #[test]
+    fn install_state_only_clears_an_earlier_host_windows_choice() {
+        let cfg = builder()
+            .host_windows()
+            .profile(ModuleSet::state_only(), false)
+            .into_config();
+        assert!(!cfg.lifecycle_only);
+        assert_eq!(cfg.modules, ModuleSet::state_only());
     }
 }

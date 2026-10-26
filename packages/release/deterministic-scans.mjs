@@ -2,7 +2,7 @@
 // every scan that applies to a change runs here, before any artifact build, local or CI.
 //
 //   Class A: compile-free, executes no tests and no repository-supplied plugin or generator.
-//   Class B: needs the compiler or runs tests or repository code (clippy, check, doc, tsc, eslint,
+//   Class B: needs the compiler or runs tests or repository code (clippy, check, doc, tsc, eslint, biome,
 //            package tests, the repository's own docs generator).
 //
 // A required tool that is missing FAILS (status "fail", code TOOL_MISSING); a scan is never skipped.
@@ -11,7 +11,7 @@
 // pass (result.ok and result.complete are false while any scan is deferred) and cannot become a SCAN_B receipt.
 // Content scans run on the exported HEAD (contentRoot). Only a scan that inherently needs the live
 // checkout uses liveRoot: `rustright cargo` scans (the broker binds to the registered checkout), the
-// tsc, eslint and package tests (need installed node_modules).
+// tsc, eslint, biome and package tests (need installed node_modules).
 // Class B runs only when every selected class A scan passed (SCAN_B is distinct from SCAN_A and
 // follows it). Rust commands go through `rustright cargo`, JavaScript tools through `pnpm exec`.
 // The runner takes injectable spawn/exists/readFile/readdir so tests execute nothing real. The
@@ -26,6 +26,7 @@ import { spawn as spawnChild, spawnSync } from "./background-process.mjs";
 import { checkAdvisoryExceptions } from "./advisory-exceptions.mjs";
 import { canonicalJson, digestScanSet, requiredScanIds, rustCratePlan, rustScanId } from "./scan-digest.mjs";
 import { reach } from "./lock-graph.mjs";
+import { cargoManifestState } from "./cargo-manifest-text.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
 export const SCAN_CLASS = Object.freeze({ A: "A", B: "B" });
@@ -37,7 +38,7 @@ export const CLASS_A_SCAN_PREFIXES = Object.freeze([
   "changelog-version", "license", "secret-scan", "path-policy", "advisory-exceptions", "suite-api",
 ]);
 export const CLASS_B_SCAN_PREFIXES = Object.freeze([
-  "clippy", "check", "check-all-features", "check-features", "check-dependent", "doc", "tsc", "eslint", "swift-build", "test", "generated-docs",
+  "clippy", "check", "check-all-features", "check-features", "check-dependent", "doc", "tsc", "eslint", "biome", "swift-build", "test", "generated-docs",
 ]);
 
 /**
@@ -202,13 +203,21 @@ export const ancestorConfigChanged = (ws, changed, pattern = ANCESTOR_RUST_CONFI
   return rel !== null && pattern.test(rel);
 }));
 const WORKSPACE_JS_FILE = /^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.npmrc)$/;
-const ESLINT_FILES = ["eslint.config.js", "eslint.config.mjs", ".eslintrc.json"];
-const ROOT_LINT_FILES = [...ESLINT_FILES, "biome.json"];
+// The linter a package has is the one it configures. ESLint reads a flat `eslint.config.*` or a legacy `.eslintrc*` from the package directory or
+// any ancestor of it; Biome reads `biome.json` / `biome.jsonc` the same way. A Biome-only app (ViewRight, ScrapeRight: `"lint": "biome lint ."`)
+// has no ESLint config and no ESLint dependency, so `eslint .` there fails with "couldn't find an eslint.config" (a gate false positive):
+// planScans plans eslint only where an ESLint config exists and biome only where a Biome config exists, both where both do.
+export const ESLINT_CONFIG_FILES = Object.freeze([
+  "eslint.config.js", "eslint.config.mjs", ".eslintrc.json",
+  "eslint.config.cjs", "eslint.config.ts", "eslint.config.mts", "eslint.config.cts",
+  ".eslintrc", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.yaml", ".eslintrc.yml",
+]);
+export const BIOME_CONFIG_FILES = Object.freeze(["biome.json", "biome.jsonc"]);
 // Everything scripts/generate-index.mjs reads or writes (its header and loadInventory): crate and package manifests and
 // READMEs, the root Cargo.toml (workspace version), the versions and ownership data, the ownership-availability helper it imports, itself,
 // the port matrix generator it imports, and its outputs (the port matrix's MD and HTML are checked for consistency with its JSON).
 // The Right Suite API contract and every projection scripts/gen-suite-api.mjs writes from it (the test-vector copy included).
-const SUITE_API_INPUT = /^(contracts\/right-suite-api\.v1\.json|scripts\/gen-suite-api\.mjs|crates\/rightkit-license\/src\/suite_api_generated\.rs|packages\/app-update\/src\/suite-api\.generated\.ts|packages\/release\/suite-api\.generated\.mjs|crates\/rightkit-license\/test-vectors\/right-suite-api\.v1\.json)$/;
+const SUITE_API_INPUT = /^(contracts\/right-suite-api\.v1\.json|scripts\/gen-suite-api\.mjs|crates\/rightkit-license\/src\/suite_api_generated\.rs|packages\/app-update\/src\/suite-api\.generated\.ts|packages\/release\/suite-api\.generated\.mjs|swift\/RightKitSwift\/Sources\/RightKitLicense\/RightSuiteAPI\.generated\.swift|crates\/rightkit-license\/test-vectors\/right-suite-api\.v1\.json)$/;
 const GENERATOR_INPUT = /^(crates\/[^/]+\/(Cargo\.toml|README\.md)|packages\/[^/]+\/(package\.json|README\.md)|Cargo\.toml|packages\/release\/(rightkit-versions\.json|rightkit-ownership\.json|ownership-availability\.mjs)|scripts\/generate-(index|port-matrix)\.mjs|INDEX\.md|docs\/(ADOPTION|CAPABILITY-MAP|PORT-MATRIX)\.md|docs\/port-matrix\.(html|json))$/;
 const PROBES = Object.freeze({
   rustfmt: ["--version"], node: ["--version"], rustright: ["cargo", "--version"], pnpm: ["--version"],
@@ -219,6 +228,121 @@ function commandText(d) {
   if (d.internal) return `internal:${d.internal}`;
   const env = Object.keys(d.env ?? {}).sort().map((k) => `${k}=${d.env[k]} `).join("");
   return `${env}${d.tool} ${d.args.join(" ")}`.trim();
+}
+
+// ---- package scripts that call the broker -----------------------------------------------------------------------------------
+// A package's `test` script may run Rust through the broker (`rustright storage run --app x -- right-release test`, `rustright cargo test`) or
+// through plain cargo, which on a host with no broker means the unmanaged toolchain. On such a host the `test:npm:<unit>` scan cannot pass, and
+// its failure says nothing about the code: rightkit-gate defers it with the Rust gate. scriptBrokerCall only reads the scripts; it runs nothing.
+const SCRIPT_TEXT_LIMIT = 16 * 1024;
+const BROKER_TOOLS = new Set(["rustright", "cargo"]);
+const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+// Words that run the command after them.
+const COMMAND_WRAPPERS = new Set(["cross-env", "env", "time", "exec", "command", "sudo", "nice", "nohup"]);
+const PACKAGE_MANAGERS = new Set(["pnpm", "npm", "yarn"]);
+const PACKAGE_RUNNERS = new Set(["npx", "bunx"]);
+// Package manager options that point the run at another package or at every package: the script that runs is not in this package.json.
+const RETARGET_FLAGS = new Set(["-r", "--recursive", "-w", "--workspace-root", "--workspaces", "-ws", "--include-workspace-root"]);
+const RETARGET_VALUE_OPTIONS = new Set(["-F", "--filter", "--filter-prod", "-C", "--dir", "--prefix", "--workspace"]);
+const SAME_DIR_VALUES = new Set([".", "./"]);
+// Options that take the next word as their value (the rest are flags).
+const VALUE_OPTIONS = new Set(["--reporter", "--loglevel", "--color", "--workspace-concurrency", "--stream", "--shell-emulator", "--test-pattern"]);
+
+/** The simple commands of a shell line, each as its words: split on `&&`, `||`, `;`, `|`, `&`, `(`, `)` and newlines outside quotes. A backslash outside quotes is a path separator (Windows), not an escape. */
+function shellCommands(text) {
+  const commands = []; let words = []; let word = ""; let inWord = false; let quote = null;
+  const endWord = () => { if (inWord) words.push(word); word = ""; inWord = false; };
+  const endCommand = () => { endWord(); if (words.length) commands.push(words); words = []; };
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i];
+    if (quote) {
+      if (c === quote) quote = null;
+      else if (c === "\\" && quote === '"' && i + 1 < text.length) word += text[++i];
+      else word += c;
+      continue;
+    }
+    if (c === '"' || c === "'") { quote = c; inWord = true; continue; }
+    if (c === "&" || c === "|" || c === ";" || c === "\n" || c === "(" || c === ")") { endCommand(); continue; }
+    if (/\s/.test(c)) { endWord(); continue; }
+    word += c; inWord = true;
+  }
+  endCommand();
+  return commands;
+}
+
+/** What `pnpm|npm|yarn <args>` does in this package: { run: <script name> } or {} (another package, a built-in, an unknown word). */
+function inspectPackageManager(args, scripts) {
+  let i = 0;
+  while (i < args.length && args[i].startsWith("-") && args[i] !== "--") {
+    const [name, ...inline] = args[i].split("=");
+    const value = inline.length ? inline.join("=") : undefined;
+    if (RETARGET_FLAGS.has(name)) return {};
+    if (RETARGET_VALUE_OPTIONS.has(name)) {
+      if (!SAME_DIR_VALUES.has(value ?? args[i + 1])) return {};
+      i += value === undefined ? 2 : 1;
+    } else i += VALUE_OPTIONS.has(name) && value === undefined ? 2 : 1;
+  }
+  const sub = args[i];
+  if (sub === undefined || sub === "--") return {};
+  const rest = args.slice(i + 1);
+  if (sub === "exec" || sub === "dlx") return inspectCommand(rest, scripts);
+  if (sub === "run" || sub === "run-script" || sub === "rum" || sub === "urun") {
+    let j = 0;
+    while (j < rest.length && rest[j].startsWith("-") && rest[j] !== "--") j += VALUE_OPTIONS.has(rest[j]) ? 2 : 1;
+    return rest[j] !== undefined && rest[j] !== "--" ? { run: rest[j] } : {};
+  }
+  if (sub === "test" || sub === "t" || sub === "tst") return { run: "test" };
+  return Object.hasOwn(scripts, sub) ? { run: sub } : {};
+}
+
+/** What one simple command does: { call: "rustright" | "cargo" } when it runs the tool (through env words and wrappers), { run: <script> } for a package script, else {}. */
+function inspectCommand(words, scripts) {
+  let i = 0;
+  for (let guard = 0; guard < 16; guard += 1) {
+    while (i < words.length && ENV_ASSIGNMENT.test(words[i])) i += 1;
+    if (i >= words.length) return {};
+    const word = path.posix.basename(words[i].replaceAll("\\", "/")).replace(/\.(exe|cmd|bat)$/i, "");
+    if (BROKER_TOOLS.has(word)) return { call: word };
+    if (PACKAGE_MANAGERS.has(word)) return inspectPackageManager(words.slice(i + 1), scripts);
+    if (COMMAND_WRAPPERS.has(word) || PACKAGE_RUNNERS.has(word)) {
+      i += 1;
+      while (i < words.length && words[i].startsWith("-")) i += 1;
+      continue;
+    }
+    return {};
+  }
+  return {};
+}
+
+/**
+ * Whether the package script `entry` runs `rustright` or `cargo`, directly or through the scripts it starts in the same package.json
+ * (`pnpm <script>`, `pnpm run <script>`, `npm run <script>`, `yarn [run] <script>`, `npm test`), their `pre<script>` and `post<script>` hooks, and
+ * `exec`/`dlx`/`npx` wrappers. A run pointed at another package (`--filter`, `-r`, `--dir` elsewhere) is not followed. Bounded to `maxDepth` nested
+ * scripts and cycle-safe. Returns `{ tool, via, command }` for the first call in execution order (`via` is the scripts walked, `command` the command
+ * line that calls the tool), or null. Reads package.json `scripts` data only.
+ */
+export function scriptBrokerCall(scripts, entry = "test", { maxDepth = 8 } = {}) {
+  if (scripts === null || typeof scripts !== "object" || Array.isArray(scripts)) return null;
+  const textOf = (name) => (Object.hasOwn(scripts, name) && typeof scripts[name] === "string" ? scripts[name].slice(0, SCRIPT_TEXT_LIMIT) : null);
+  const seen = new Set();
+  const visit = (name, via) => {
+    if (via.length >= maxDepth || seen.has(name)) return null;
+    seen.add(name);
+    for (const part of [`pre${name}`, name, `post${name}`]) {
+      const text = textOf(part);
+      if (text === null) continue;
+      for (const words of shellCommands(text)) {
+        const found = inspectCommand(words, scripts);
+        if (found.call) return { tool: found.call, via: [...via, part], command: words.join(" ").slice(0, 200) };
+        if (found.run !== undefined) {
+          const deeper = visit(found.run, [...via, part]);
+          if (deeper) return deeper;
+        }
+      }
+    }
+    return null;
+  };
+  return visit(String(entry), []);
 }
 
 /**
@@ -255,6 +379,12 @@ export function planScans({
   // `crateFeatures` is read by `name` first, then by `crate`. Units of different workspaces never share a lock, a deny/audit run or a
   // `cargo metadata`; a unit that sets no cargoDir belongs to the global `cargoDir` above.
   rustUnits = null, npmUnits = null, cargoDir = ".",
+  // pnpm roots: repository-relative directories ("." for the repository root) that hold their own lock or workspace file. null keeps the single
+  // root "." (every npm unit belongs to it; one pnpm-lockfile and one pnpm-audit scan run there). With a list, each root gets its own
+  // `pnpm-lockfile:<root>` and `pnpm-audit:<root>` scans, run in that directory ("." keeps the unsuffixed ids), planned when one of its units is in
+  // scope or one of its own package.json / pnpm-lock.yaml / pnpm-workspace.yaml changed. An npm unit names its root as `root` (default "."); a
+  // repository with no pnpm root at all (npmRoots: []) plans no pnpm scan (CodeRight: two independent roots and nothing at the repository root).
+  npmRoots = null,
   // Parsed Cargo.lock graph (lock-graph.mjs parseLock). With it, every workspace crate that depends on a crate in scope and is
   // not itself in scope gets a `check-dependent` scan, as CI's rust-check rows do. null plans none.
   rustLock = null,
@@ -320,6 +450,15 @@ export function planScans({
       const dir = cleanDir(u.dir);
       if (!plainDir(dir)) { refuse(`${kind} unit ${JSON.stringify(u.name)} directory ${JSON.stringify(u.dir)}`, "not a plain repository-relative path"); continue; }
       const entry = { dir, publish: u.publish !== false };
+      if (kind === "npm") {
+        entry.root = ".";
+        if (u.root !== undefined) {
+          if (typeof u.root !== "string") throw new TypeError(`planScans: npm unit ${u.name} needs a string root`);
+          const r = cleanDir(u.root);
+          if (!plainDir(r) || !(r === "." || dir === r || dir.startsWith(`${r}/`))) { refuse(`npm unit ${JSON.stringify(u.name)} root ${JSON.stringify(u.root)}`, "not a plain repository-relative directory that holds the unit"); continue; }
+          entry.root = r;
+        }
+      }
       if (kind === "rust") {
         if (u.crate !== undefined && typeof u.crate !== "string") throw new TypeError(`planScans: rust unit ${u.name} needs a string crate`);
         entry.crate = u.crate ?? u.name;
@@ -335,6 +474,24 @@ export function planScans({
     return map;
   };
   const rustMap = unitMap(rustUnits, "rust"); const npmMap = unitMap(npmUnits, "npm");
+  // The pnpm roots (see npmRoots): the listed ones and the roots the units name.
+  let pnpmRoots = ["."];
+  if (npmRoots !== null) {
+    if (!Array.isArray(npmRoots)) throw new TypeError("planScans: npmRoots must be null or an array of repository-relative directories");
+    const set = new Set(npmMap ? [...npmMap.values()].map((u) => u.root) : []);
+    for (const raw of npmRoots) {
+      const r = cleanDir(String(raw));
+      if (plainDir(r)) set.add(r); else refuse(`pnpm root ${JSON.stringify(raw)}`, "not a plain repository-relative path");
+    }
+    pnpmRoots = [...set].sort();
+  }
+  const rootOfUnit = (n) => (npmRoots !== null && npmMap ? npmMap.get(n).root : ".");
+  // The deepest pnpm root that holds a repository-relative file (every file is under "." when "." is a root).
+  const rootOfFile = (f) => {
+    let best = null;
+    for (const r of pnpmRoots) if ((r === "." || f.startsWith(`${r}/`)) && (best === null || r.length > best.length)) best = r;
+    return best;
+  };
   // Units of an explicit-workspace layout (some unit names its cargoDir) get workspace-suffixed ids for the per-workspace scans.
   const perWorkspaceIds = Array.isArray(rustUnits) && rustUnits.some((u) => u?.cargoDir !== undefined);
   const wsIdSuffix = (ws) => (perWorkspaceIds && ws !== "." ? `:${ws}` : "");
@@ -379,21 +536,16 @@ export function planScans({
   };
   const rustFiles = files.filter((f) => f.endsWith(".rs") && !verbatimUpstream(f) && !recordedPatch(f) && !generatedRust(f));
   const byEdition = new Map();
+  const editionOf = rustEditionResolver({ contentRoot, exists, readFile });
+  const refusedEditions = new Set();
   for (const f of rustFiles) {
-    let dir = path.dirname(path.join(contentRoot, f));
-    let edition = "2021";
-    while (dir.startsWith(path.normalize(contentRoot))) {
-      const manifest = path.join(dir, "Cargo.toml");
-      if (exists(manifest)) {
-        const m = readFile(manifest).match(/^edition\s*=\s*"(\d{4})"/m);
-        if (m) edition = m[1];
-        break;
-      }
-      const parent = path.dirname(dir);
-      if (parent === dir) break;
-      dir = parent;
+    const found = editionOf(f);
+    if (found.problem) {
+      // Never guess an edition: a file whose edition cannot be resolved is not rustfmt-checked under a default, the gate fails on it.
+      if (!refusedEditions.has(found.manifest)) { refusedEditions.add(found.manifest); refuse(`rustfmt edition of ${found.manifest}`, found.problem); }
+      continue;
     }
-    byEdition.set(edition, [...(byEdition.get(edition) ?? []), f]);
+    byEdition.set(found.edition, [...(byEdition.get(found.edition) ?? []), f]);
   }
   for (const [edition, group] of [...byEdition].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
     add({ id: `rustfmt:${edition}`, class: A, tool: "rustfmt", args: ["--check", "--edition", edition, ...group.sort()], root: "content" });
@@ -417,7 +569,8 @@ export function planScans({
   // A workspace is also wide when Rust configuration changed in ANY ancestor directory of it (a repository-level .cargo/config.toml,
   // an intermediate apps/.cargo, a root rust-toolchain.toml, clippy.toml, rustfmt.toml or deny.toml reaches every nested workspace).
   const wideWs = new Set(workspaces.filter((ws) => ancestorConfigChanged(ws, files) || files.some((f) => { const r = wsRel(ws, f); return r !== null && WORKSPACE_RUST_FILE.test(r); })));
-  const jsWide = files.some((f) => WORKSPACE_JS_FILE.test(f));
+  // A pnpm root's own install graph (package.json, lock, workspace file, .npmrc) changed: every unit of that root is in scope.
+  const wideJsRoots = new Set(pnpmRoots.filter((r) => files.some((f) => { const rel = wsRel(r, f); return rel !== null && WORKSPACE_JS_FILE.test(rel); })));
   const wideCrates = wideWs.size ? (rustMap ? [...rustMap.keys()].filter((n) => wideWs.has(wsOf(n))) : listDir(path.join(contentRoot, "crates"))).filter((n) => !rustScope || rustScope.has(n)) : [];
   if (wideWs.size && rustScope) notes.push(`workspace Rust change reaches ${wideCrates.length} crate(s) through the lock graph`);
   const crateNames = safeUnits([...new Set([...(rustMap ? files.map((f) => unitOf(rustMap, f)).filter(Boolean) : under("crates/").map((f) => f.split("/")[1])), ...wideCrates])].filter((n) => exists(path.join(contentRoot, rustDir(n), "Cargo.toml"))).sort(), "crate");
@@ -440,8 +593,9 @@ export function planScans({
     if (n !== null && npmMap.get(n).dir === "." && rustMap) { const r = unitOf(rustMap, f); if (r !== null && rustMap.get(r).dir !== ".") return null; }
     return n;
   };
-  const pkgNames = safeUnits([...new Set([...(npmMap ? files.map(npmOwner).filter(Boolean) : under("packages/").map((f) => f.split("/")[1])), ...(jsWide ? (npmMap ? [...npmMap.keys()] : listDir(path.join(contentRoot, "packages"))) : [])])].filter((n) => exists(path.join(contentRoot, npmDir(n), "package.json"))).sort(), "package");
-  const jsTouched = pkgNames.length > 0 || files.some((f) => JS_TOOLING_FILE.test(f));
+  const pkgNames = safeUnits([...new Set([...(npmMap ? files.map(npmOwner).filter(Boolean) : under("packages/").map((f) => f.split("/")[1])), ...(wideJsRoots.size ? (npmMap ? [...npmMap.keys()].filter((n) => wideJsRoots.has(rootOfUnit(n))) : wideJsRoots.has(".") ? listDir(path.join(contentRoot, "packages")) : []) : [])])].filter((n) => exists(path.join(contentRoot, npmDir(n), "package.json"))).sort(), "package");
+  // The pnpm roots with something to check: a unit in scope, or a package.json / lock / workspace file that belongs to the root (the deepest one).
+  const jsRoots = [...new Set([...pkgNames.map(rootOfUnit), ...files.filter((f) => JS_TOOLING_FILE.test(f)).map(rootOfFile).filter((r) => r !== null)])].sort();
 
   // Explicit files: the exported commit has no .git for actionlint's project discovery.
   const workflowFiles = files.filter((f) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(f)).sort();
@@ -463,11 +617,13 @@ export function planScans({
     add({ id: `cargo-deny${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "deny", "check") });
     add({ id: `cargo-audit${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "audit") });
   }
-  if (jsTouched) {
+  for (const r of jsRoots) {
     // Class A runs no repository hooks: `install` accepts --ignore-pnpmfile and --ignore-scripts; `audit` accepts
     // neither flag, so every class A pnpm scan also sets the same two settings through the environment.
-    add({ id: "pnpm-lockfile", class: A, tool: "pnpm", args: ["install", "--frozen-lockfile", "--lockfile-only", "--ignore-pnpmfile", "--ignore-scripts"], env: PNPM_NO_HOOKS_ENV, root: "content" });
-    add({ id: "pnpm-audit", class: A, tool: "pnpm", args: ["audit", "--prod", "--audit-level", "high"], env: PNPM_NO_HOOKS_ENV, root: "content" });
+    // One pair per pnpm root, run in the root's directory; the repository root keeps the unsuffixed ids.
+    const where = r === "." ? {} : { cwd: r }; const suffix = r === "." ? "" : `:${r}`;
+    add({ id: `pnpm-lockfile${suffix}`, class: A, tool: "pnpm", args: ["install", "--frozen-lockfile", "--lockfile-only", "--ignore-pnpmfile", "--ignore-scripts"], env: PNPM_NO_HOOKS_ENV, root: "content", ...where });
+    add({ id: `pnpm-audit${suffix}`, class: A, tool: "pnpm", args: ["audit", "--prod", "--audit-level", "high"], env: PNPM_NO_HOOKS_ENV, root: "content", ...where });
   }
   const crateDirs = crateNames.map(rustDir); const pkgDirs = pkgNames.map(npmDir);
   const withChangelog = crateNames.filter((n) => exists(path.join(contentRoot, rustDir(n), "CHANGELOG.md")) && exists(path.join(contentRoot, rustDir(n), "Cargo.toml")));
@@ -521,11 +677,13 @@ export function planScans({
     const dependents = safeUnits(workspace.filter((n) => !inScope.has(n) && exists(path.join(contentRoot, rustDir(n), "Cargo.toml")) && scoped.some((t) => reach(lock, crateOf(n), memo).has(t))).sort(), "crate");
     for (const name of dependents) add({ id: `check-dependent:${name}`, class: B, ...cargoIn(ws, ...checkArgs(crateOf(name), { locked: true })) });
   }
-  const rootLint = ROOT_LINT_FILES.some((f) => exists(path.join(liveRoot, f)));
+  // A linter config in the unit's directory or any ancestor of it (a repository-level config covers every unit, as the tools look it up).
+  const hasConfig = (dir, names) => ancestorDirsOf(dir).some((d) => names.some((f) => exists(path.join(liveRoot, inDir(d, f)))));
   for (const name of pkgNames) {
     const dir = npmDir(name);
     if (exists(path.join(liveRoot, dir, "tsconfig.json"))) add({ id: `tsc:${name}`, class: B, tool: "pnpm", args: ["exec", "tsc", "--noEmit", "-p", "tsconfig.json"], cwd: dir });
-    if (rootLint || ESLINT_FILES.some((f) => exists(path.join(liveRoot, dir, f)))) add({ id: `eslint:${name}`, class: B, tool: "pnpm", args: ["exec", "eslint", "."], cwd: dir });
+    if (hasConfig(dir, ESLINT_CONFIG_FILES)) add({ id: `eslint:${name}`, class: B, tool: "pnpm", args: ["exec", "eslint", "."], cwd: dir });
+    if (hasConfig(dir, BIOME_CONFIG_FILES)) add({ id: `biome:${name}`, class: B, tool: "pnpm", args: ["exec", "biome", "lint", "."], cwd: dir });
   }
   if (files.some((f) => f.startsWith("swift/") || f === "Package.swift")) {
     if (platform === "darwin") add({ id: "swift-build", class: B, tool: "swift", args: ["build"] });
@@ -558,7 +716,10 @@ export function planScans({
       if (own.quietTests === true && quietTests === "ci") { deferredToCi.push(`test:npm:${name}`); continue; }
       // A gate proves the repository's own content: sibling checkouts beside it (RightKit's suite-contract tests read the app
       // repositories when present) are not inputs, so the package tests run as an isolated checkout, as they do in CI.
-      add({ id: `test:npm:${name}`, class: B, ...(own.quietTests === true ? { quiet: true } : {}), tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { RIGHTKIT_ISOLATED_CHECKOUT: "1" } });
+      // `brokerCall` marks a test script that runs the broker (or cargo) through its script chain: rightkit-gate defers such a scan with the
+      // Rust gate where this host has no broker (scriptBrokerCall).
+      const brokerCall = scriptBrokerCall(manifest.scripts, "test");
+      add({ id: `test:npm:${name}`, class: B, ...(own.quietTests === true ? { quiet: true } : {}), ...(brokerCall ? { brokerCall } : {}), tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { RIGHTKIT_ISOLATED_CHECKOUT: "1" } });
     }
     if (deferredToCi.length) notes.push(`${deferredToCi.length} quiet test scan(s) left to the CI shards (one crate per runner), not run here: ${deferredToCi.join(", ")}`);
     // scripts/ci tests run when scripts/, ci/ or .github/ changed, or a file the scripts/ci sources reference (imports and
@@ -753,6 +914,90 @@ async function defaultScanSecrets() {
   return (await import("./publish-cargo.mjs")).scanCrateForSecrets;
 }
 
+// What rustfmt needs from a Cargo.toml, read by table so an `edition` under [package.metadata.x] or [dependencies.x] is not the
+// package's: `pkg` is the [package] edition (a literal year, or "workspace" for `edition.workspace = true` / `edition = { workspace = true }`),
+// `ws` the [workspace.package] edition literal, `isWorkspace` whether the manifest declares a [workspace]. An `edition` entry in one of
+// those two tables that is none of the recognised spellings (`edition = 2021`, `edition.workspace = false`) is kept as `pkgBad` / `wsBad`
+// (the line), never skipped, so it cannot fall back to a default. Keys before any table header count as [package] keys (the fixtures of
+// this package's tests write manifests that way; cargo itself rejects them).
+export function cargoEditions(text) {
+  const out = { pkg: undefined, ws: undefined, pkgBad: undefined, wsBad: undefined, isWorkspace: false };
+  let table = "";
+  for (const raw of String(text).split(/\r?\n/)) {
+    const header = /^\s*\[\[?([^\]]+)\]\]?\s*(?:#.*)?$/.exec(raw);
+    if (header) {
+      table = header[1].trim();
+      if (table === "workspace" || table.startsWith("workspace.")) out.isWorkspace = true;
+      continue;
+    }
+    if (table !== "" && table !== "package" && table !== "workspace.package") continue;
+    const line = raw.replace(/^(\s*)(["'])edition\2/, "$1edition");
+    if (!/^\s*edition\s*(?:[.=]|$)/.test(line)) continue;
+    let value;
+    if (/^\s*edition\.workspace\s*=\s*true\s*(?:#.*)?$/.test(line) || /^\s*edition\s*=\s*\{\s*workspace\s*=\s*true\s*\}\s*(?:#.*)?$/.test(line)) value = "workspace";
+    else value = (/^\s*edition\s*=\s*(?:"(\d{4})"|'(\d{4})')\s*(?:#.*)?$/.exec(line) || []).slice(1).find(Boolean);
+    if (table === "workspace.package") {
+      if (value !== undefined && value !== "workspace") out.ws = value; else out.wsBad = raw.trim();
+    } else if (value !== undefined) out.pkg = value;
+    else out.pkgBad = raw.trim();
+  }
+  return out;
+}
+
+/**
+ * The edition rustfmt must run a Rust file under: `{ edition }`, or `{ manifest, problem }` when it cannot be resolved.
+ * The nearest Cargo.toml at or above the file decides. A literal `edition = "NNNN"` is that edition; `edition.workspace = true`
+ * (or `edition = { workspace = true }`) is the `[workspace.package] edition` of the owning workspace root, the nearest manifest at or
+ * above it that declares `[workspace]`, which is the manifest itself for a root package. An inheritance that cannot be followed
+ * (no workspace root, an unreadable manifest, or a root with no literal `[workspace.package] edition`) is a `problem`, never a default.
+ * A manifest that names no edition at all, and a file below no manifest, keep rustfmt's "2021" as before.
+ */
+function rustEditionResolver({ contentRoot, exists, readFile }) {
+  const root = path.normalize(contentRoot);
+  const inside = (dir) => { const rel = path.relative(root, dir); return rel === "" || !(rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)); };
+  const rel = (dir) => posix(path.relative(root, path.join(dir, "Cargo.toml")));
+  const parsed = new Map();
+  const manifestAt = (dir) => {
+    if (!parsed.has(dir)) {
+      let value;
+      try { value = cargoEditions(readFile(path.join(dir, "Cargo.toml"))); } catch (e) { value = { unreadable: String(e?.message ?? e).split("\n")[0] }; }
+      parsed.set(dir, value);
+    }
+    return parsed.get(dir);
+  };
+  const ancestors = function* (start) {
+    for (let dir = start; inside(dir); dir = path.dirname(dir)) {
+      yield dir;
+      if (path.dirname(dir) === dir) return;
+    }
+  };
+  return (file) => {
+    const dir = [...ancestors(path.dirname(path.join(root, file)))].find((d) => exists(path.join(d, "Cargo.toml")));
+    if (dir === undefined) return { edition: "2021" };
+    const manifest = rel(dir);
+    const info = manifestAt(dir);
+    if (info.unreadable) return { manifest, problem: `${manifest} cannot be read (${info.unreadable}), so its edition is unknown` };
+    if (info.pkgBad !== undefined) return { manifest, problem: `${manifest} has an edition entry the scan cannot read (${info.pkgBad}); write edition = "NNNN" or edition.workspace = true` };
+    if (info.pkg === undefined) return { edition: info.ws ?? "2021" };
+    if (info.pkg !== "workspace") return { edition: info.pkg };
+    const inherits = `${manifest} sets edition.workspace = true`;
+    for (const up of ancestors(dir)) {
+      if (!exists(path.join(up, "Cargo.toml"))) continue;
+      const w = manifestAt(up);
+      if (w.unreadable) return { manifest, problem: `${inherits}, but ${rel(up)} cannot be read (${w.unreadable}), so its edition is unknown` };
+      if (!w.isWorkspace) continue;
+      if (w.wsBad !== undefined) return { manifest, problem: `${inherits}, but its workspace root ${rel(up)} has a [workspace.package] edition entry the scan cannot read (${w.wsBad})` };
+      if (w.ws === undefined) return { manifest, problem: `${inherits}, but its workspace root ${rel(up)} declares no literal [workspace.package] edition = "NNNN" to inherit` };
+      return { edition: w.ws };
+    }
+    return { manifest, problem: `${inherits}, but no Cargo.toml at or above it declares a [workspace], so there is no [workspace.package] edition to inherit` };
+  };
+}
+
+// A crate that can never be published (`publish = false` or `publish = []` in its [package] table) needs no license key, like a
+// package.json with `"private": true`; cargo-manifest-text.mjs holds the one reading of that rule, which the secret scan shares.
+function cargoUnpublished(text) { return cargoManifestState(text).unpublished; }
+
 const INTERNAL = {
   "json-parse": (s, ctx) => {
     const bad = [];
@@ -797,22 +1042,25 @@ const INTERNAL = {
     for (const f of s.files) {
       const text = ctx.read(f);
       if (f.endsWith("Cargo.toml")) {
-        if (!/^\s*(license|license-file)\s*(=|\.workspace)/m.test(text)) bad.push(`${f}: no license or license-file`);
+        if (!/^\s*(license|license-file)\s*(=|\.workspace)/m.test(text) && !cargoUnpublished(text)) bad.push(`${f}: no license or license-file`);
       } else {
         try { const m = JSON.parse(text); if (m.private !== true && !(typeof m.license === "string" && m.license.trim()) && !m.licenses) bad.push(`${f}: no license field`); } catch (e) { bad.push(`${f}: ${e.message}`); }
       }
     }
     return bad;
   },
+  // The repository gate reads env templates and test vectors against the reviewed records of the gated commit
+  // (.rightkit/secret-scan-records.json, read from the content root by the scanner); crate packaging stays strict.
+  // Each violation names its repository-relative path, so a unit that is both a crate and a package reports a file once.
   "secret-scan": async (s, ctx) => {
     const scan = await ctx.deps.scanSecrets();
-    const bad = [];
+    const bad = new Set();
     for (const dir of s.dirs) {
       const abs = path.join(ctx.contentRoot, dir);
-      if (!ctx.deps.exists(abs)) { bad.push(`${dir}: directory not found`); continue; }
-      for (const v of scan(abs)) bad.push(`${dir}: ${v}`);
+      if (!ctx.deps.exists(abs)) { bad.add(`${dir}: directory not found`); continue; }
+      for (const v of scan(abs, { envTemplates: true, repoRoot: ctx.contentRoot })) bad.add(v);
     }
-    return bad;
+    return [...bad];
   },
 };
 

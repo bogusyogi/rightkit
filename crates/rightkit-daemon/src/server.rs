@@ -23,6 +23,14 @@ pub const DEFAULT_FRAME_LIMIT: usize = 16 * 1024 * 1024;
 /// take before the host closes that connection. Matches the client's default call deadline.
 pub const DEFAULT_WRITE_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// Default for [`HostOptions::handshake_timeout`]: how long a new connection may take to complete
+/// `hello` before the host closes it. A healthy client sends `hello` at once, so this only
+/// ever cuts off a connection that connected and went quiet.
+pub const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Default for [`HostOptions::reserved_slots`].
+pub const DEFAULT_RESERVED_SLOTS: usize = 2;
+
 /// Content-free lifecycle events for the host's journal.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ServiceEvent {
@@ -44,6 +52,25 @@ pub enum ServiceEvent {
     /// never request content.
     PeerRejected {
         reason: String,
+    },
+    /// The Unix connection table ([`HostOptions::max_connections`]) is full and a connection was
+    /// refused. Emitted once per fill: on the first refusal after the table became full, and again
+    /// only after the live count has dropped below the limit and the table has refilled. Counts and
+    /// a pid only, never request content, so a journal can say what was holding the table without
+    /// reading anything from it.
+    ///
+    /// * `limit` is [`HostOptions::max_connections`] and `reserved` is
+    ///   [`HostOptions::reserved_slots`].
+    /// * `pre_handshake` is the admitted connections (reserved slots included) that have not
+    ///   completed `hello`: a table full of these is stalled clients, not load.
+    /// * `attached` is the live connections that completed `hello`.
+    /// * `peer_pid` is the process id the kernel reports for the refused peer, when it does.
+    TableFull {
+        limit: usize,
+        reserved: usize,
+        pre_handshake: usize,
+        attached: usize,
+        peer_pid: Option<u32>,
     },
     Denied {
         conn: u64,
@@ -135,10 +162,22 @@ pub struct HostOptions {
     write_timeout: Option<Duration>,
     max_message: usize,
     max_connections: usize,
+    reserved_slots: usize,
+    supervisor: SupervisorPid,
+    handshake_timeout: Option<Duration>,
 }
 
 /// Default for [`HostOptions::max_connections`].
 pub const DEFAULT_MAX_CONNECTIONS: usize = 64;
+
+/// Which peer may use the reserved connection slots ([`HostOptions::supervisor_pid`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SupervisorPid {
+    /// The host process's parent, read when the host starts (the default).
+    Parent,
+    Pid(u32),
+    Nobody,
+}
 
 impl Default for HostOptions {
     fn default() -> Self {
@@ -147,6 +186,9 @@ impl Default for HostOptions {
             write_timeout: Some(DEFAULT_WRITE_TIMEOUT),
             max_message: crate::chunk::DEFAULT_MAX_MESSAGE,
             max_connections: DEFAULT_MAX_CONNECTIONS,
+            reserved_slots: DEFAULT_RESERVED_SLOTS,
+            supervisor: SupervisorPid::Parent,
+            handshake_timeout: Some(DEFAULT_HANDSHAKE_TIMEOUT),
         }
     }
 }
@@ -228,6 +270,72 @@ impl HostOptions {
     pub fn get_max_connections(&self) -> usize {
         self.max_connections
     }
+
+    /// Connections the host admits beyond [`max_connections`](Self::max_connections) for the
+    /// supervising owner only (see [`supervisor_pid`](Self::supervisor_pid)). A host whose table
+    /// is full of stalled or busy clients would otherwise close the supervisor's own health probe
+    /// and be judged dead while it is alive; these slots keep the probe able to connect. A
+    /// connection from any other peer, or from the supervisor once every reserved slot is in use,
+    /// is refused as before. Default [`DEFAULT_RESERVED_SLOTS`] (2); `0` reserves nothing. The
+    /// peer's pid only decides who may use the spare capacity: `hello`, the allowlist and the
+    /// private secret still gate every connection. Ignored on Windows, where the pipe-instance cap
+    /// bounds the table.
+    #[must_use]
+    pub fn reserved_slots(mut self, n: usize) -> Self {
+        self.reserved_slots = n;
+        self
+    }
+
+    /// The effective number of reserved slots.
+    pub fn get_reserved_slots(&self) -> usize {
+        self.reserved_slots
+    }
+
+    /// The process that may use the reserved slots: the kernel-reported pid of a connecting peer
+    /// must equal it. `Some(pid)` names it, `None` lets nobody use them. When this is never
+    /// called the supervisor is the host process's parent, read when the host starts, which is
+    /// the supervisor of a child it spawned (see the `supervisor` module). Ignored on Windows.
+    #[must_use]
+    pub fn supervisor_pid(mut self, pid: Option<u32>) -> Self {
+        self.supervisor = match pid {
+            Some(pid) => SupervisorPid::Pid(pid),
+            None => SupervisorPid::Nobody,
+        };
+        self
+    }
+
+    /// The pid that may use the reserved slots, as the host would resolve it now. `None` when
+    /// nobody may (or, off Unix, when there is no parent to name).
+    pub fn get_supervisor_pid(&self) -> Option<u32> {
+        match self.supervisor {
+            SupervisorPid::Pid(pid) => Some(pid),
+            SupervisorPid::Nobody => None,
+            #[cfg(unix)]
+            SupervisorPid::Parent => Some(std::os::unix::process::parent_id()),
+            #[cfg(not(unix))]
+            SupervisorPid::Parent => None,
+        }
+    }
+
+    /// Longest a new connection may take to complete `hello`. A connection that connects and then
+    /// sends nothing (or too little) holds a table slot and a thread; when the bound passes the
+    /// host closes it (the client sees the connection close) and records a
+    /// [`ServiceEvent::ConnectionRejected`] with an empty app and the reason
+    /// `handshake deadline <n> ms passed`. The bound ends when `hello` is accepted, so it never
+    /// limits an established connection, whose frames are bounded by
+    /// [`write_timeout`](Self::write_timeout) and the client's own deadline. Default
+    /// [`DEFAULT_HANDSHAKE_TIMEOUT`] (5 s); `None` restores the earlier unbounded wait. A zero
+    /// duration is raised to 1 ms. Applies on Unix and Windows.
+    #[must_use]
+    pub fn handshake_timeout(mut self, bound: Option<Duration>) -> Self {
+        self.handshake_timeout = bound.map(|d| d.max(Duration::from_millis(1)));
+        self
+    }
+
+    /// The effective handshake bound (`None` = unbounded).
+    pub fn get_handshake_timeout(&self) -> Option<Duration> {
+        self.handshake_timeout
+    }
 }
 
 #[derive(Debug)]
@@ -295,8 +403,16 @@ struct Shared {
     write_timeout: Option<Duration>,
     max_message: usize,
     max_connections: usize,
-    /// Connections being served (Unix cap).
+    /// Connections being served (Unix cap). Reserved-slot connections are counted apart.
     live_conns: Arc<AtomicUsize>,
+    /// Slots kept for the supervisor beyond `max_connections`, and the pid that may use them.
+    reserved_slots: usize,
+    supervisor: Option<u32>,
+    /// Connections being served in a reserved slot.
+    reserved_conns: Arc<AtomicUsize>,
+    /// Admitted connections that have not completed `hello`.
+    pre_handshake: Arc<AtomicUsize>,
+    handshake_timeout: Option<Duration>,
     /// Failed-authentication limiter (issue #504), shared by every connection.
     fails: Mutex<crate::fail_limit::FailLimiter>,
 }
@@ -326,33 +442,65 @@ impl Drop for ConnSlot {
     }
 }
 
-/// Bounds each frame write on one connection. The writer calls [`begin`](Self::begin) before and
-/// [`end`](Self::end) after a write+flush; a watcher thread closes the connection through the
-/// transport `shutdown` (which wakes a blocked Unix write and cancels pending Windows pipe I/O)
-/// when one write outlasts `bound`. Only the oldest unfinished write is timed, so a stream of
-/// writes that each finish in time is never cut.
-struct WriteBound {
-    state: Mutex<WriteState>,
+/// Counts a connection as not yet through `hello` from admission until it completes one or ends.
+/// The count goes down exactly once, whichever comes first, so it never drifts.
+struct PreHandshake {
+    count: Arc<AtomicUsize>,
+    pending: bool,
+}
+
+impl PreHandshake {
+    fn enter(count: &Arc<AtomicUsize>) -> Self {
+        count.fetch_add(1, Ordering::SeqCst);
+        Self {
+            count: count.clone(),
+            pending: true,
+        }
+    }
+
+    /// `hello` succeeded. A second call, or the later drop, does nothing.
+    fn settle(&mut self) {
+        if std::mem::take(&mut self.pending) {
+            self.count.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+}
+
+impl Drop for PreHandshake {
+    fn drop(&mut self) {
+        self.settle();
+    }
+}
+
+/// A deadline on one step of a connection, kept by a watcher thread. The step arms it with
+/// [`set`](Self::set) and disarms it when done; if the armed deadline passes, the watcher runs
+/// `expired` once. It bounds the handshake (armed before the `hello` read, disarmed when `hello`
+/// succeeds) and each frame write (armed before a write+flush, disarmed after). Both expire by
+/// closing the connection through the transport `shutdown`, which wakes a blocked Unix read or
+/// write and cancels pending Windows pipe I/O. Only the oldest unfinished write is timed, so a
+/// stream of writes that each finish in time is never cut.
+struct DeadlineWatch {
+    state: Mutex<WatchState>,
     cv: Condvar,
 }
 
-struct WriteState {
-    /// Deadline of the write in progress.
+struct WatchState {
+    /// Deadline of the operation in progress.
     until: Option<Instant>,
     done: bool,
 }
 
-struct FinishOnDrop(Arc<WriteBound>);
+struct FinishOnDrop(Arc<DeadlineWatch>);
 impl Drop for FinishOnDrop {
     fn drop(&mut self) {
         self.0.finish();
     }
 }
 
-impl WriteBound {
-    fn start(shutdown: Arc<dyn Fn() + Send + Sync>) -> Arc<WriteBound> {
-        let w = Arc::new(WriteBound {
-            state: Mutex::new(WriteState {
+impl DeadlineWatch {
+    fn start(expired: Arc<dyn Fn() + Send + Sync>) -> Arc<DeadlineWatch> {
+        let w = Arc::new(DeadlineWatch {
+            state: Mutex::new(WatchState {
                 until: None,
                 done: false,
             }),
@@ -372,7 +520,7 @@ impl WriteBound {
                         if left.is_zero() {
                             g.until = None;
                             drop(g);
-                            shutdown();
+                            expired();
                             return;
                         }
                         g = watcher
@@ -677,6 +825,11 @@ fn start_host(
         max_message: options.max_message,
         max_connections: options.max_connections,
         live_conns: Arc::new(AtomicUsize::new(0)),
+        reserved_slots: options.reserved_slots,
+        supervisor: options.get_supervisor_pid(),
+        reserved_conns: Arc::new(AtomicUsize::new(0)),
+        pre_handshake: Arc::new(AtomicUsize::new(0)),
+        handshake_timeout: options.handshake_timeout,
         fails: Mutex::new(crate::fail_limit::FailLimiter::new()),
     });
     takeover_watch::register(
@@ -714,7 +867,22 @@ pub(crate) fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// A reserved slot for `peer`: only the supervising owner may take one, and only while one is
+/// free. The pid is the kernel's answer for the connecting process, so this decides who gets spare
+/// capacity, not who is authenticated (`hello` and the private secret still decide that).
+fn reserved_slot(s: &Shared, peer: &crate::PeerIdentity) -> Option<ConnSlot> {
+    if !matches!((peer.pid, s.supervisor), (Some(pid), Some(owner)) if pid == owner) {
+        return None;
+    }
+    let slot = ConnSlot(s.reserved_conns.clone());
+    let used = s.reserved_conns.fetch_add(1, Ordering::SeqCst) + 1;
+    (used <= s.reserved_slots).then_some(slot)
+}
+
 fn accept_loop(s: Arc<Shared>) {
+    // Whether `TableFull` was already reported for the table's current fill. Only this thread
+    // admits connections, so only this thread reads or writes it.
+    let mut full_reported = false;
     while !s.stop.load(Ordering::SeqCst) {
         match s.listener.accept() {
             Ok(Accepted::Conn(conn)) => {
@@ -723,22 +891,48 @@ fn accept_loop(s: Arc<Shared>) {
                 }
                 // Count before spawning so a burst cannot overshoot the cap. Windows is bounded
                 // by the pipe-instance cap, so only Unix refuses here.
-                let slot = ConnSlot(s.live_conns.clone());
+                let table = ConnSlot(s.live_conns.clone());
                 let live = s.live_conns.fetch_add(1, Ordering::SeqCst) + 1;
-                if cfg!(unix) && live > s.max_connections {
-                    (conn.shutdown)();
-                    drop(slot);
-                    s.event(ServiceEvent::PeerRejected {
-                        reason: format!("connection limit of {} reached", s.max_connections),
-                    });
-                    continue;
-                }
+                let slot = if !cfg!(unix) || live <= s.max_connections {
+                    // Room again: the next time the table fills is a new episode.
+                    full_reported = false;
+                    table
+                } else {
+                    drop(table);
+                    match reserved_slot(&s, &conn.peer) {
+                        Some(slot) => slot,
+                        None => {
+                            (conn.shutdown)();
+                            s.event(ServiceEvent::PeerRejected {
+                                reason: format!(
+                                    "connection limit of {} reached",
+                                    s.max_connections
+                                ),
+                            });
+                            if !std::mem::replace(&mut full_reported, true) {
+                                s.event(ServiceEvent::TableFull {
+                                    limit: s.max_connections,
+                                    reserved: s.reserved_slots,
+                                    pre_handshake: s.pre_handshake.load(Ordering::SeqCst),
+                                    attached: s
+                                        .conns
+                                        .lock()
+                                        .unwrap_or_else(|e| e.into_inner())
+                                        .len(),
+                                    peer_pid: conn.peer.pid,
+                                });
+                            }
+                            continue;
+                        }
+                    }
+                };
+                let pre = PreHandshake::enter(&s.pre_handshake);
                 let s2 = s.clone();
                 let _ = std::thread::Builder::new()
                     .name("rk-svc-conn".into())
                     .spawn(move || {
                         let _slot = slot;
-                        serve_conn(s2, conn)
+                        serve_conn(s2, conn, pre)
                     });
             }
             // Wrong user (or unidentifiable): already closed unread. Log it, except for the
@@ -871,7 +1065,7 @@ fn frame_err(e: &FrameError) -> ServiceError {
     ServiceError::new("bad_frame", e.to_string())
 }
 
-fn serve_conn(s: Arc<Shared>, conn: Conn) {
+fn serve_conn(s: Arc<Shared>, conn: Conn, mut pre: PreHandshake) {
     let Conn {
         reader,
         writer,
@@ -884,7 +1078,7 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
     let limit = s.cfg.frame_limit;
     let bound = s
         .write_timeout
-        .map(|d| (d, WriteBound::start(shutdown.clone())));
+        .map(|d| (d, DeadlineWatch::start(shutdown.clone())));
     // Ends the watcher on every way out of this function, early returns included.
     let _watcher_ends = bound.as_ref().map(|(_, b)| FinishOnDrop(b.clone()));
     // Write one frame. `false` only when the frame is larger than the limit: nothing was
@@ -925,6 +1119,22 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
         s: s.clone(),
         conn: conn_key,
     };
+    // The handshake deadline, armed before the hello read: a client that connects and then says
+    // nothing is closed through `shutdown`, which wakes the read below. Ended when hello succeeds
+    // and on every other way out of this function, so a probe or garbage leaks no watcher.
+    let handshake = s.handshake_timeout.map(|d| {
+        let (s, shutdown) = (s.clone(), shutdown.clone());
+        let watch = DeadlineWatch::start(Arc::new(move || {
+            s.event(ServiceEvent::ConnectionRejected {
+                app: String::new(),
+                reason: format!("handshake deadline {} ms passed", d.as_millis()),
+            });
+            shutdown();
+        }));
+        watch.set(Some(Instant::now() + d));
+        watch
+    });
+    let _handshake_ends = handshake.as_ref().map(|w| FinishOnDrop(w.clone()));
     // ---- hello
     let hello: Value = match read_json_line(&mut reader, &mut buf, 64 * 1024) {
         Ok(Some(v)) => v,
@@ -1002,6 +1212,12 @@ fn serve_conn(s: Arc<Shared>, conn: Conn) {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .insert(id, shutdown.clone());
+    // Hello succeeded: the connection is attached, so it leaves the pre-handshake count and the
+    // deadline watcher ends now rather than idling for the life of the connection.
+    pre.settle();
+    if let Some(watch) = &handshake {
+        watch.finish();
+    }
     s.event(ServiceEvent::ConnectionOpened {
         conn: id,
         app: app.clone(),
@@ -1300,6 +1516,58 @@ mod options_tests {
                 .get_max_pipe_instances(),
             254
         );
+    }
+
+    #[test]
+    fn handshake_deadline_can_be_removed_and_never_reaches_zero() {
+        assert_eq!(
+            HostOptions::new()
+                .handshake_timeout(None)
+                .get_handshake_timeout(),
+            None
+        );
+        assert_eq!(
+            HostOptions::new()
+                .handshake_timeout(Some(Duration::ZERO))
+                .get_handshake_timeout(),
+            Some(Duration::from_millis(1))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_supervisor_is_the_parent_unless_named_or_removed() {
+        assert_eq!(
+            HostOptions::default().get_supervisor_pid(),
+            Some(std::os::unix::process::parent_id())
+        );
+        assert_eq!(
+            HostOptions::new()
+                .supervisor_pid(Some(7))
+                .get_supervisor_pid(),
+            Some(7)
+        );
+        assert_eq!(
+            HostOptions::new().supervisor_pid(None).get_supervisor_pid(),
+            None
+        );
+    }
+
+    #[test]
+    fn a_connection_leaves_the_pre_handshake_count_exactly_once() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let mut a = PreHandshake::enter(&count);
+        let b = PreHandshake::enter(&count);
+        assert_eq!(count.load(Ordering::SeqCst), 2);
+        // Settling twice, then dropping, still removes `a` only once.
+        a.settle();
+        a.settle();
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        drop(a);
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        // A connection that ends before hello leaves through its drop.
+        drop(b);
+        assert_eq!(count.load(Ordering::SeqCst), 0);
     }
 }
 

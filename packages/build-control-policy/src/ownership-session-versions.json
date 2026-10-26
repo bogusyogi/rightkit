@@ -30,9 +30,9 @@
     "@rightkit/pdf-ui": "0.2.0",
     "@rightkit/platform-ui": "0.4.0",
     "@rightkit/qa": "0.6.1",
-    "@rightkit/qa-chrome": "0.1.11",
+    "@rightkit/qa-chrome": "0.1.12",
     "@rightkit/react-shell": "0.7.2",
-    "@rightkit/release": "0.6.5",
+    "@rightkit/release": "0.6.7",
     "@rightkit/settings-ui": "0.7.0",
     "@rightkit/tauri": "0.3.0",
     "@rightkit/tauri-shell": "0.1.3",
@@ -231,7 +231,8 @@
       "0.6.1",
       "0.6.2",
       "0.6.3",
-      "0.6.4"
+      "0.6.4",
+      "0.6.5"
     ],
     "@rightkit/qa": [
       "0.1.0",
@@ -373,7 +374,8 @@
       "0.1.5",
       "0.1.6",
       "0.1.8",
-      "0.1.10"
+      "0.1.10",
+      "0.1.11"
     ],
     "@rightkit/updates": [
       "0.2.4"
@@ -444,7 +446,7 @@
     "rightkit-agents": "0.2.0",
     "rightkit-android": "0.3.0",
     "rightkit-app-settings": "0.3.0",
-    "rightkit-asr": "0.3.0",
+    "rightkit-asr": "0.3.1",
     "rightkit-audio": "0.3.1",
     "rightkit-automation": "0.6.1",
     "rightkit-browser": "0.3.6",
@@ -461,7 +463,7 @@
     "rightkit-device": "0.4.0",
     "rightkit-docs": "0.1.2",
     "rightkit-embed": "0.6.1",
-    "rightkit-ffmpeg": "0.2.10",
+    "rightkit-ffmpeg": "0.2.11",
     "rightkit-file-watch": "0.4.1",
     "rightkit-fs": "0.4.8",
     "rightkit-fsindex": "0.5.0",
@@ -479,14 +481,14 @@
     "rightkit-motion": "0.2.0",
     "rightkit-oauth": "0.10.0",
     "rightkit-ocr": "0.2.3",
-    "rightkit-onnx": "0.2.7",
+    "rightkit-onnx": "0.2.8",
     "rightkit-overlay": "0.2.0",
     "rightkit-overlay-win": "0.1.0",
     "rightkit-ownership": "0.4.2",
     "rightkit-pdf": "0.3.3",
     "rightkit-platform-rules": "0.1.0",
     "rightkit-playback": "0.3.0",
-    "rightkit-qa": "0.9.0",
+    "rightkit-qa": "0.9.1",
     "rightkit-qa-driver": "0.7.0",
     "rightkit-record": "0.3.3",
     "rightkit-review": "0.4.0",
@@ -763,7 +765,8 @@
       "0.6.4",
       "0.7.0",
       "0.7.1",
-      "0.8.0"
+      "0.8.0",
+      "0.9.0"
     ],
     "rightkit-sandbox": [
       "0.1.0",
@@ -896,7 +899,8 @@
       "0.0.2",
       "0.2.0",
       "0.2.1",
-      "0.2.4"
+      "0.2.4",
+      "0.3.0"
     ],
     "rightkit-logs": [
       "0.2.0",
@@ -1015,7 +1019,8 @@
     ],
     "rightkit-ffmpeg": [
       "0.2.6",
-      "0.2.9"
+      "0.2.9",
+      "0.2.10"
     ],
     "rightkit-license": [
       "0.2.0",
@@ -1044,7 +1049,8 @@
     ],
     "rightkit-onnx": [
       "0.2.3",
-      "0.2.6"
+      "0.2.6",
+      "0.2.7"
     ],
     "rightkit-record": [
       "0.3.0",

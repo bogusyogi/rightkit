@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "app": "rightapp",
+  "switches": [
+    {
+      "name": "RIGHTAPP_ENGINE_BIN",
+      "class": "S3",
+      "channel": "env",
+      "anchor": "src-tauri/src/lib.rs:53",
+      "compiledOut": "feature:qa-native",
+      "note": "QA only: the hidden QA run starts the bare executable and names the engine it launches. The read exists only in a qa-native build; a release build never reads it."
+    },
+    {
+      "name": "CARGO_FEATURE_QA_NATIVE",
+      "class": "S1",
+      "channel": "env",
+      "anchor": "src-tauri/build.rs:4",
+      "compiledOut": "feature:qa-native",
+      "note": "Build script only (Cargo sets it when the qa-native feature is on, so the QA build skips the staged-sidecar check); build scripts are not part of the shipped binary."
+    }
+  ]
+}

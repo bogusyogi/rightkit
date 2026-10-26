@@ -19,6 +19,7 @@ It does not build, sign, publish or upload anything. `@rightkit/release` owns th
 | `@rightkit/app-update/contract-vectors` | `UPDATE_HOST_CONTRACT_VECTORS`, `UpdateHostContractVector`, `UpdateTier` (the main entry re-exports them) |
 | `@rightkit/app-update/react` | `UpdateOverlay`, `UpdateConsentCard` (optional `react` peer; the root entry never imports React) |
 | `@rightkit/app-update/native` | `createNativeUpdateClient(transport)`, `NativeUpdateClientError`, `UPDATE_MESSAGES`; types `NativeUpdateClient`, `NativeUpdateTransport`, `UpdateCheckView`, `UpdateStatusView`, `UpdateProgress`, `UpdateDownloadResult`, `UpdateInstallResult`, `UpdateKind`, `UpdateRefusal`, `UpdateState`, `UpdateErrorCode`, `UpdateMessageCode`, `Unlisten`. The renderer side of the native updater; see [Native bridge](#native-bridge-rightkitnative). |
+| `@rightkit/app-update/suite-api` | Right Suite API host helpers over the generated contract projection: `assertAppKey`, `releaseStatusUrl`, `updaterEndpoint`, `artifactHosts`, `publicInstallerUrl`, the contract constants (`RIGHT_SUITE_*`, `APP_ARTIFACT_HOSTS`) and the updater key helpers `updaterKeys`, `updaterSigningKeyId`, `updaterKeyIdOfSignature`, `selectUpdaterKey`; types `UpdaterKey`, `UpdaterKeyRefusal`. Dependency-free and browser-safe. |
 
 Peer dependencies: none. No runtime dependencies.
 
@@ -51,7 +52,7 @@ Status flow: `checking`, then `available`, then `downloading`, then `ready`. `re
 - `createCheckGate`: check cache and debounce. `resolveChannel` / `validateChannels`: channel endpoint selection. `compareVersions` / `isNewerVersion`: semver compare. `assertSingleUpdatesVersion`: duplicate-copy guard.
 - `@rightkit/app-update/contract-vectors`: test fixtures subpath (the main entry still re-exports them). Four vectors (free and pro, patch and feature update); every app adapter runs them.
 
-## GitHub Releases endpoint and the suite updater public key
+## GitHub Releases endpoint and the suite updater keys
 
 A channel endpoint may be a GitHub Releases static manifest: `validateChannels` and `resolveChannel` accept any https URL, so a public GitHub app configures
 
@@ -61,7 +62,9 @@ const channels = { stable: { endpoints: ["https://github.com/<owner>/<repo>/rele
 
 `right-release publish-update` with `distribution.provider: "github-releases"` uploads that `latest.json` (Tauri v2 static format) with the signed bundles; see the `@rightkit/release` README, "GitHub Releases updater lane". The URL resolves to the newest non-draft, non-prerelease release, so a prerelease channel needs its own endpoint.
 
-There is one updater trust root for every RightKit app: the Right Suite updater key (key id `29395F9FF466261D`), the same key `sign-updater.mjs` signs with for the R2 lane. An app does not provision its own. The app's `tauri.conf.json` carries the key's public half in `plugins.updater.pubkey` (the base64 text of the key's `.pub` file); copy the value from any shipped suite app, or from the `.pub` file beside the updater private key on the release host. Tauri's updater verifies each downloaded artifact against that value; this package does no signature verification itself. Set `distribution.updaterKeyId: "29395F9FF466261D"` in the release config and `publish-update` also refuses to publish a signature made by any other key.
+The suite's updater keys are a list in the Right Suite contract (`contracts/right-suite-api.v1.json`): each entry is a key id, the key and an optional end date, and one of them, `updaterSigningKeyId`, is the key releases are signed with. The native shell host accepts every listed key and picks the one that checks a release by the key id inside the release signature; a key past its end date is refused, and so is a key the list does not carry. An app provisions none of this: for a Right Suite app the release tooling (`publish-update` and the seal step) takes the key and its id from the contract, refuses a declared key that is not the contract's, and refuses a signature made by any other key (`distribution.updaterKeyId` may name another listed key, otherwise the signing key is used). Tauri's updater verifies each downloaded artifact; this package does no signature verification itself. Rotate in this order: add the new key to the contract, ship a release signed by the old key (so installed apps learn both keys), and only then change `updaterSigningKeyId`. See `docs/SUITE-TRUST-ROOTS.md` in the RightKit repository for the runbook.
+
+From `@rightkit/app-update/suite-api`, `updaterKeys()` and `updaterSigningKeyId()` read that list, and `selectUpdaterKey(signature, nowUnix?)` names the listed key a `latest.json` signature was made with, or refuses it as `malformed`, `unknown-key` or `key-expired`. It mirrors the native host's choice and only picks a key: it verifies nothing, so it is not a substitute for the updater plugin. Without `nowUnix`, a key that has an end date is refused.
 
 ## Update overlay model and consent
 

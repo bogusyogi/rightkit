@@ -1,0 +1,34 @@
+#!/bin/sh
+# Mandatory local check and gate before every push (rightkit-gate install-hook). Never bypass with --no-verify.
+cd "$(git rev-parse --show-toplevel)" || exit 1
+stdin=$(mktemp "${TMPDIR:-/tmp}/rightkit-gate.XXXXXX") || exit 1
+trap 'rm -f "$stdin"' EXIT
+cat > "$stdin"
+# core.hooksPath hides .git/hooks: run the repository's own pre-push hook first.
+own="$(git rev-parse --git-dir)/hooks/pre-push"
+if [ -x "$own" ]; then
+  echo "rightkit-gate: running $own" >&2
+  "$own" "$@" < "$stdin" || exit $?
+fi
+# The gate binary: the root install, any workspace package's install, then pnpm exec.
+found=""
+for bin in node_modules/.bin/rightkit-gate */node_modules/.bin/rightkit-gate */*/node_modules/.bin/rightkit-gate */*/*/node_modules/.bin/rightkit-gate; do
+  if [ -x "$bin" ]; then found="$bin"; break; fi
+done
+if [ -n "$found" ]; then
+  echo "rightkit-gate: using $found" >&2
+  rightkit_gate() { "$found" "$@"; }
+elif command -v pnpm >/dev/null 2>&1; then
+  echo "rightkit-gate: using pnpm exec rightkit-gate" >&2
+  rightkit_gate() { pnpm exec rightkit-gate "$@"; }
+else
+  echo "rightkit-gate: using node node_modules/@rightkit/release/bin/rightkit-gate.mjs" >&2
+  rightkit_gate() { node "node_modules/@rightkit/release/bin/rightkit-gate.mjs" "$@"; }
+fi
+# The check first, over the committed files of HEAD; a push that only deletes refs has nothing to check.
+if [ -s "$stdin" ] && ! awk '$2 !~ /^0+$/ { found = 1 } END { exit !found }' "$stdin"; then
+  echo "rightkit-gate: only deletions are pushed; nothing to check" >&2
+else
+  rightkit_gate check --commit HEAD < /dev/null >&2 || exit $?
+fi
+rightkit_gate --base origin/main < "$stdin"; exit $?

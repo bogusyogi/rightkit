@@ -438,6 +438,9 @@ importers:
 
   packages/release:
     dependencies:
+      '@rightkit/outdated':
+        specifier: 0.2.0
+        version: link:../outdated
       smol-toml:
         specifier: 1.9.1
         version: 1.9.1

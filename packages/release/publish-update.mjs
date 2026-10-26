@@ -3,11 +3,12 @@ import { readFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "./background-process.mjs";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { pruneReleaseObjects } from "./prune-r2.mjs";
 import { loadReleaseToken } from "./release-token.mjs";
 import { registerRightAppsRelease } from "./rightapps-register.mjs";
 import { recordPublishedVersion } from "./artifact-storage.mjs";
+import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
 import { verifyPublicationRelease, PublicationError, assertArtifactUnchanged, digestBytes } from "./publication-artifacts.mjs";
@@ -15,7 +16,7 @@ import { uploadVerifiedR2Artifact } from "./r2-verified-upload.mjs";
 import { verifyPlatformTrust } from "./github-release.mjs";
 import { admitInstalledQa } from "./release-qa-audit.mjs";
 import { RIGHT_SUITE_API_ORIGIN, RIGHT_SUITE_GATED_ARTIFACT_HOST, RIGHT_SUITE_PUBLIC_INSTALLER_BASE } from "./suite-api.generated.mjs";
-import { assertAssetName, assertGitHubRepository, assertUpdaterKeyId, assertUpdaterPlatform, assertUpdaterSignature, buildLatestJson, githubAssetUrl, githubTag, publishGitHubUpdaterRelease } from "./github-updater-release.mjs";
+import { assertAssetName, assertGitHubRepository, assertUpdaterKeyId, assertUpdaterPlatform, assertUpdaterSignature, buildLatestJson, githubAssetUrl, githubTag, publishGitHubUpdaterRelease, resolveUpdaterTrust } from "./github-updater-release.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const API_BASE = process.env.RIGHTAPPS_API_URL || RIGHT_SUITE_API_ORIGIN;
@@ -24,7 +25,7 @@ const PUBLIC_BASE = process.env.RIGHTAPPS_PUBLIC_DOWNLOAD_BASE || RIGHT_SUITE_PU
 const PIPELINE_VERSION = JSON.parse(await readFile(path.join(TOOL_ROOT, "package.json"), "utf8")).version;
 let tier = process.env.RIGHT_RELEASE_TIER || "";
 const args = process.argv.slice(2);
-let configName = "right-release.config.mjs";
+let configName = defaultReleaseConfigFile();
 let platform = process.platform === "win32" ? "win" : "mac";
 let dryRun = false;
 let releaseId = "";
@@ -45,7 +46,8 @@ if (tier !== "patch" && tier !== "update") fail("tier is required (--tier patch|
 if (!["win", "mac"].includes(platform)) throw new PublicationError("PUBLICATION_PLATFORM_INVALID", "--platform must be win or mac");
 const configPath = path.resolve(configName);
 const root = path.dirname(configPath);
-const config = (await import(pathToFileURL(configPath))).default;
+let config;
+try { config = await importReleaseConfig(configPath); } catch (error) { fail(`release config could not be loaded (${configPath}): ${error instanceof Error ? error.message : String(error)}`); }
 const provider = config?.distribution?.provider;
 if (provider !== "r2-rightapps" && provider !== "github-releases") {
   fail("release config distribution.provider must be r2-rightapps or github-releases");
@@ -117,18 +119,21 @@ function git(args) {
 if (!githubLane && tier === "patch" && !installers.length) fail(`${config?.app ?? "app"} ${platform} patch has no installer.artifacts`);
 if ((githubLane || tier === "update") && !artifacts.length) fail(`${config?.app ?? "app"} ${platform} update has no updater.artifacts`);
 
-// Cryptographic gate before any upload: every sealed minisign signature must verify over the
-// exact final artifact bytes against the declared public key. No declared key means the
-// signature cannot be verified, so a sealed (real) publish fails closed; key-id pinning is
-// supplementary only. Integrator owns declaring distribution.updaterPublicKey in app configs
-// (suite key already pinned per-app as tauri plugins.updater.pubkey).
+// Cryptographic gate before any upload: every sealed minisign signature must verify over the exact final artifact
+// bytes against the updater trust root. A Right Suite app takes that key, and its key id, from the Right Suite contract
+// (a declared key must be the contract's) and is always pinned to the id; any other app must declare
+// distribution.updaterPublicKey, and without one a sealed (real) publish fails closed.
 const updaterPublicKey = config.distribution?.updaterPublicKey ?? config.distribution?.updaterPubkey ?? target?.updater?.pubkey ?? target?.updater?.publicKey;
+const trust = sealed && artifacts.length && !appInstallerKind
+  ? resolveUpdaterTrust({ app: config.app, configuredPublicKey: updaterPublicKey, configuredKeyId: config.distribution.updaterKeyId })
+  : null;
 if (sealed) for (const artifact of artifacts) {
   const signature = signatureFor(artifact);
-  if (!appInstallerKind) {
-    if (!updaterPublicKey) throw new PublicationError("PUBLICATION_SIGNATURE_UNVERIFIABLE", `no updater public key declared (distribution.updaterPublicKey); refusing to upload ${path.basename(artifact.file)} with an unverified signature`);
-    assertUpdaterSignature(assertArtifactUnchanged(verifiedArtifact(artifact.file)), signature, updaterPublicKey, `signature of ${path.basename(artifact.file)}`);
-    assertUpdaterKeyId(signature, config.distribution.updaterKeyId, `signature of ${path.basename(artifact.file)}`);
+  if (trust) {
+    const label = `signature of ${path.basename(artifact.file)}`;
+    // The id comes first: a signature by another key would otherwise fail verification without saying whose it is.
+    assertUpdaterKeyId(signature, trust.keyId, label, { app: config.app });
+    assertUpdaterSignature(assertArtifactUnchanged(verifiedArtifact(artifact.file)), signature, trust.publicKey, label);
   }
 }
 let releaseToken = null;
@@ -154,7 +159,7 @@ if (githubLane) {
       const name = assertAssetName(path.basename(file));
       // Same signature source and process as the r2 lane: the sealed minisign .sig written by sign-updater.
       const signature = dryRun ? `<signature:${artifact.signature ?? "msix-authenticode"}>` : signatureFor(artifact);
-      if (!dryRun && !appInstallerKind) assertUpdaterKeyId(signature, config.distribution.updaterKeyId, `signature of ${name}`);
+      if (!dryRun && !appInstallerKind) assertUpdaterKeyId(signature, trust.keyId, `signature of ${name}`, { app: config.app });
       platforms[artifact.platform] = { signature, url: githubAssetUrl(githubRepo, tag, name) };
       assets.set(file, { file, evidence: dryRun ? undefined : verifiedArtifact(file) });
       if (!appInstallerKind) {

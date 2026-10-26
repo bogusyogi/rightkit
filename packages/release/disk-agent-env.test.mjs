@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { platformKey, readDiskPolicy, writerCoversPath } from "./disk-policy.mjs";
 import { AGENT_ENV_TABLE, agentEnvMap, checkAgentEnv, defaultExternalRoot, pointsAtInternalDrive, probeDirectory, probeLocations, renderAgentEnv, renderProbe, runDiskCommand, runProbe } from "./disk-command.mjs";
 
 // In-memory fs: `dirs` is the set of existing directories, `files` the live files; `blocked` directories refuse writes.
@@ -263,4 +264,39 @@ test("probe --json emits exactly the v1 schema; exits 0 when sealed and 1 when a
   assert.equal(bad.exitCode, 1);
   assert.equal(bad.report.internalWritable, true);
   assert.equal(openFs.files.size, 0);
+});
+
+// ---- the committed disk policy has a writer for every agent-environment path ----------------------------------------------
+
+const HOSTS = [["darwin", "/Volumes/D"], ["win32", "D:\\"]];
+
+// Names of AGENT_ENV_TABLE variables whose path no writer of that host's policy covers (lexical comparison with the policy text).
+function uncoveredNames(writers, platform, root) {
+  const mine = writers.filter((w) => w.platform === platformKey(platform));
+  return agentEnvMap({ root, platform, includeAgentHomes: true })
+    .filter((m) => !mine.some((w) => writerCoversPath(w, m.value, { platform })))
+    .map((m) => m.name);
+}
+
+test("committed policy: every AGENT_ENV_TABLE path has a covering writer on both hosts", () => {
+  const { writers } = readDiskPolicy();
+  for (const [platform, root] of HOSTS) {
+    assert.equal(agentEnvMap({ root, platform, includeAgentHomes: true }).length, AGENT_ENV_TABLE.length);
+    assert.deepEqual(uncoveredNames(writers, platform, root), [], platform);
+  }
+});
+
+test("the coverage check fails when a writer is missing: dropping agent-cache leaves its variables uncovered", () => {
+  const { writers } = readDiskPolicy();
+  const fromAgentCache = (e) => e.segments[0] === "agent-cache";
+  const names = (rows) => rows.map((e) => e.name);
+  for (const [platform, root] of HOSTS) {
+    // agent-tmp still covers the four temp variables, so only the rest of agent-cache is left over
+    const withoutCache = writers.filter((w) => w.id !== "agent-cache");
+    assert.deepEqual(uncoveredNames(withoutCache, platform, root), names(AGENT_ENV_TABLE.filter((e) => fromAgentCache(e) && e.segments[1] !== "tmp")), platform);
+    const withoutBoth = withoutCache.filter((w) => w.id !== "agent-tmp");
+    assert.deepEqual(uncoveredNames(withoutBoth, platform, root), names(AGENT_ENV_TABLE.filter(fromAgentCache)), platform);
+    assert.deepEqual(uncoveredNames(writers.filter((w) => w.id !== "dev-cache"), platform, root), names(AGENT_ENV_TABLE.filter((e) => e.segments[0] === ".dev-cache")), platform);
+    assert.deepEqual(uncoveredNames(writers.filter((w) => w.id !== "agent-home"), platform, root), names(AGENT_ENV_TABLE.filter((e) => e.agentHome)), platform);
+  }
 });
