@@ -42,10 +42,11 @@ try {
   await run('installed-bin-manifest-bound-to-archive', async () => {
     assert.equal(installed.name, '@rightkit/release');
     assert.equal(installed.version, version);
-    assert.deepEqual(installed.bin, { 'right-release': 'cli/right-release.mjs', 'rightkit-gate': 'bin/rightkit-gate.mjs' });
+    assert.deepEqual(installed.bin, { 'right-release': 'cli/right-release.mjs', 'rightkit-gate': 'bin/rightkit-gate.mjs', 'rightkit-agent-hook': 'bin/rightkit-agent-hook.mjs' });
     assert.ok(readFileSync(path.join(packageRoot, 'bin', 'rightkit-gate.mjs'), 'utf8').startsWith('#!/usr/bin/env node'));
+    assert.ok(readFileSync(path.join(packageRoot, 'bin', 'rightkit-agent-hook.mjs'), 'utf8').startsWith('#!/usr/bin/env node'));
     assert.ok(readFileSync(path.join(packageRoot, 'cli', 'right-release.mjs'), 'utf8').startsWith('#!/usr/bin/env node'));
-    return { bins: ['right-release', 'rightkit-gate'], binTargets: ['cli/right-release.mjs', 'bin/rightkit-gate.mjs'], exportsPresent: true };
+    return { bins: ['right-release', 'rightkit-gate', 'rightkit-agent-hook'], binTargets: ['cli/right-release.mjs', 'bin/rightkit-gate.mjs', 'bin/rightkit-agent-hook.mjs'], exportsPresent: true };
   });
 
   await run('installed-exports-map-explicit-and-enforced', async () => {

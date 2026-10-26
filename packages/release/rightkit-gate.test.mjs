@@ -2234,7 +2234,7 @@ test("RightKit self-check: the door runs RightKit's own rules for the requested 
   const selfPath = path.join(root, "packages", "release", "bin", "rightkit-gate.mjs");
   const run = async ({ appCheck = 0, args, status = 0 }) => {
     const launched = []; const c = capture();
-    const code = await main(["check", ...args], { ...c.io, cwd: root, selfPath, resolveExecutor: directExecutor, appCheck: async () => appCheck, spawnInherit: (cmd, a) => { launched.push(a.map((x) => (x === root ? "." : x.startsWith(`${root}${path.sep}`) ? path.relative(root, x) : x)).join(" ")); return { status }; } });
+    const code = await main(["check", ...args], { ...c.io, cwd: root, selfPath, resolveExecutor: directExecutor, appCheck: async () => appCheck, spawnInherit: (cmd, a) => { launched.push(a.map((x) => (x === root ? "." : x.startsWith(`${root}${path.sep}`) ? path.relative(root, x).split(path.sep).join("/") : x)).join(" ")); return { status }; } });
     return { code, launched, err: c.err.join("\n") };
   };
   // Positive control: green app rules and class A on HEAD run RightKit's rules for HEAD, then the import check.
