@@ -330,6 +330,7 @@
         "./direct-bootstrap.mjs",
         "./disk-policy.mjs",
         "./dmg-build.mjs",
+        "./door.mjs",
         "./engine-locator.mjs",
         "./github-release.mjs",
         "./legal-contract.mjs",
