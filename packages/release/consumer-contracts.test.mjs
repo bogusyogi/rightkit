@@ -31,7 +31,7 @@ test("the consumer contracts are app-check rules, in order, with their gaps", ()
   ]);
   for (const rule of CONSUMER_CONTRACT_RULES) assert.equal(RULES.find((r) => r.id === rule.id), rule, `${rule.id} runs in the app check`);
   const source = fs.readFileSync(new URL("./consumer-contracts.mjs", import.meta.url), "utf8");
-  assert.deepEqual([...source.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]).sort(), ["node:crypto", "node:fs", "node:path"], "builtins only: no repository code, no network");
+  assert.deepEqual([...source.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1]).sort(), ["node:crypto", "node:fs", "node:module", "node:path"], "builtins only (node:module loads the package's own smol-toml): no repository code, no network");
 });
 
 test("the pinned inputs name their source and fetch time", () => {
@@ -124,6 +124,27 @@ test("release-config-identity: literals and top-level const strings are proven; 
   assert.match(check("release-config-identity", { "right-release.config.mjs": "export default { schema: 1, app: 'a b', version: '1' };\n" })[0], /`app: "a b"` is not a safe release-id component/);
   assert.deepEqual(check("release-config-identity", { "node_modules/x/right-release.config.mjs": EMBER_9961562 }), []);
   assert.deepEqual(check("release-config-identity", { "right-release.config.mjs": "export default {};\n", "b/right-release.config.json": "{}" }), [], "a stub without schema is not a release config");
+});
+
+test("release-config-identity: a $fromJson/$fromToml node must select a non-empty string, resolved as release-config.mjs does (audit counterexample)", () => {
+  const cfg = (version) => JSON.stringify({ schema: 1, app: "rightapp", version });
+  const fromJson = { $fromJson: { file: "package.json", pointer: "/version" } };
+  const run = (extra, version = fromJson) => check("release-config-identity", { "right-release.config.json": cfg(version), ...extra });
+  // The audit's false green on 1c990a2: the file is committed but has no version.
+  assert.match(run({ "package.json": "{}" })[0], /^right-release\.config\.json:1 "version" selects \/version, which is not in package\.json/);
+  assert.match(run({ "package.json": '{ "version": null }' })[0], /selects package\.json \/version, which is null \(not a string\)/);
+  assert.match(run({ "package.json": '{ "version": 1 }' })[0], /which is number \(not a string\)/);
+  assert.match(run({ "package.json": '{ "version": { "major": 1 } }' })[0], /which is object \(not a string\)/);
+  assert.match(run({ "package.json": '{ "version": "" }' })[0], /which is an empty string/);
+  assert.match(run({})[0], /reads "package\.json", which is not a committed file/);
+  assert.match(run({ "package.json": "{" })[0], /which is not valid JSON/);
+  assert.match(run({ "x.json": "{}" }, { $fromJson: { file: "../x.json", pointer: "/version" } })[0], /not a relative path inside the app/);
+  // Positives: a real string version, a $fromToml [package] version, and the app root is the config's directory.
+  assert.deepEqual(run({ "package.json": '{ "name": "rightapp", "version": "0.1.0" }' }), []);
+  const fromToml = { $fromToml: { file: "Cargo.toml", path: "package.version" } };
+  assert.deepEqual(run({ "Cargo.toml": '[package]\nname = "rightapp"\nversion = "0.1.0"\n' }, fromToml), []);
+  assert.match(run({ "Cargo.toml": '[package]\nname = "rightapp"\n' }, fromToml)[0], /selects package\.version, which is not in Cargo\.toml/);
+  assert.deepEqual(check("release-config-identity", { "apps/a/right-release.config.json": cfg(fromJson), "apps/a/package.json": '{ "version": "2.0.0" }' }), []);
 });
 
 // ---- CA-05 pnpm-node-floor ---------------------------------------------------------------------------------------------------------

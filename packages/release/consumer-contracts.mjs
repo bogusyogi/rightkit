@@ -21,6 +21,7 @@
 // the check's `now` (runRules passes it; tests pin it).
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 
 const DATA_FILE = new URL("./consumer-contracts.json", import.meta.url);
@@ -192,6 +193,54 @@ export function staticString(skel, text, expr, seen = []) {
   return { unsupported: `\`${name}\`, which has no top-level declaration in this file` };
 }
 
+let tomlParse;
+/** smol-toml's parse (the TOML parser release-config.mjs uses), loaded synchronously from this package's own dependencies, or null. */
+function tomlParser() {
+  if (tomlParse === undefined) { try { tomlParse = createRequire(import.meta.url)("smol-toml").parse; } catch { tomlParse = null; } }
+  return tomlParse;
+}
+
+/**
+ * The string a { $fromJson: { file, pointer } } or { $fromToml: { file, path } } node selects, resolved as release-config.mjs does
+ * (readInside :173-184, jsonPointerGet :186-196, the $fromToml walk :226-239) over the committed file: { value } for a non-empty string,
+ * { bad } for a missing file, pointer or path, or a non-string value, { unsupported } when no TOML parser is installed.
+ */
+export function resolveTyped(root, set, appDir, node) {
+  const json = "$fromJson" in node;
+  const spec = json ? node.$fromJson : node.$fromToml;
+  const kind = json ? "$fromJson" : "$fromToml";
+  if (!spec || typeof spec !== "object" || typeof spec.file !== "string" || (!json && typeof spec.path !== "string")) return { bad: `has a ${kind} that is not { file, ${json ? "pointer" : "path"} }` };
+  const rel = spec.file.replaceAll("\\", "/");
+  if (!rel.trim() || rel.startsWith("/") || /^[A-Za-z]:/.test(rel) || rel.split("/").includes("..")) return { bad: `reads ${JSON.stringify(spec.file)}, which is not a relative path inside the app` };
+  const file = path.posix.normalize(join(appDir, rel));
+  if (!set.has(file)) return { bad: `reads ${JSON.stringify(spec.file)}, which is not a committed file` };
+  const text = readText(root, file);
+  let current;
+  const where = json ? (spec.pointer ?? "") : spec.path;
+  if (json) {
+    try { current = JSON.parse(text); } catch { return { bad: `reads ${spec.file}, which is not valid JSON` }; }
+    if (where !== "") {
+      if (typeof where !== "string" || !where.startsWith("/")) return { bad: `has a pointer ${JSON.stringify(where)} that is not a JSON pointer such as /version` };
+      for (const raw of where.slice(1).split("/")) {
+        const k = raw.replaceAll("~1", "/").replaceAll("~0", "~");
+        if (!current || typeof current !== "object" || !Object.prototype.hasOwnProperty.call(current, k)) return { bad: `selects ${where}, which is not in ${spec.file}` };
+        current = current[k];
+      }
+    }
+  } else {
+    const parse = tomlParser();
+    if (!parse) return { unsupported: `a $fromToml node, and no TOML parser (smol-toml) is installed beside this package` };
+    try { current = parse(text); } catch { return { bad: `reads ${spec.file}, which is not valid TOML` }; }
+    for (const k of where.split(".")) {
+      if (!current || typeof current !== "object" || Array.isArray(current) || !Object.prototype.hasOwnProperty.call(current, k)) return { bad: `selects ${where}, which is not in ${spec.file}` };
+      current = current[k];
+    }
+  }
+  if (typeof current !== "string") return { bad: `selects ${spec.file} ${where || "(the whole file)"}, which is ${current === null ? "null" : Array.isArray(current) ? "an array" : typeof current} (not a string)` };
+  if (!current) return { bad: `selects ${spec.file} ${where}, which is an empty string` };
+  return { value: current };
+}
+
 const UNSUPPORTED_BOUND = "release-config-identity proves a key only from a string literal or a top-level const bound to one in the same file";
 
 function releaseConfigIdentity({ root, files }) {
@@ -214,11 +263,13 @@ function releaseConfigIdentity({ root, files }) {
       if (!config || typeof config !== "object" || Array.isArray(config) || !("schema" in config)) continue;
       for (const key of ["app", "version"]) {
         const value = config[key];
-        // release-config.mjs resolves a { $fromJson } / { $fromToml } node at load; the file it names must be committed.
-        const node = value && typeof value === "object" && !Array.isArray(value) ? (value.$fromJson ?? value.$fromToml) : null;
-        if (node) {
-          const ref = typeof node.file === "string" ? path.posix.normalize(join(dirOf(file), node.file)) : null;
-          if (!ref || !set.has(ref)) add(key, 1, `"${key}" reads ${JSON.stringify(node.file ?? null)}, which is not a committed file`);
+        // release-config.mjs expands a { $fromJson } / { $fromToml } node at load (release-config.mjs:217-239); the value it selects
+        // is resolved here the same way, from the committed bytes, and must be a non-empty string.
+        if (value && typeof value === "object" && !Array.isArray(value) && ("$fromJson" in value || "$fromToml" in value)) {
+          const r = resolveTyped(root, set, dirOf(file), value);
+          if (r.unsupported) unsupported(key, 1, r.unsupported);
+          else if (r.bad) add(key, 1, `"${key}" ${r.bad}`);
+          else if (!(key === "app" ? SAFE_APP : SAFE_VERSION).test(r.value)) add(key, 1, `"${key}" resolves to ${JSON.stringify(r.value)}, which is not a safe release-id component`);
           continue;
         }
         if (typeof value === "string" && value.includes("{{")) continue; // a {{token}} expands from the other values at load
