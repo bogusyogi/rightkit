@@ -67,7 +67,7 @@ test("a rule that throws is a FAIL, never a pass", (t) => {
 });
 
 test("every rule names its scan-gap family or the invariant it enforces", () => {
-  for (const rule of RULES) assert.match(rule.gap, /^(G\d{2}|P\d+|SC-R\d|C3-\d{2})$/, rule.id);
+  for (const rule of RULES) assert.match(rule.gap, /^(G\d{2}|P\d+|SC-R\d|C3-\d{2}|CA-\d{2})$/, rule.id);
 });
 
 // ---- regression fixtures from tonight's refusals, built from this checkout's real recipe data -----------------------------
@@ -256,7 +256,7 @@ test("preflight checks an app with its own .rightkit/app-check-baseline.json the
   const result = await preflight(["--repo", repo, "--commit", "HEAD"], { now: new Date(`${addDays("2026-10-24", 7)}T12:00:00Z`) });
   assert.equal(result.code, 0, result.text);
   assert.match(result.text, /^KNOWN qa-platform: tests\/q\.rs:1 /m);
-  assert.match(result.text, /passed 32 rules .*\(1 known finding\(s\) in \.rightkit\/app-check-baseline\.json/);
+  assert.match(result.text, /passed 35 rules .*\(1 known finding\(s\) in \.rightkit\/app-check-baseline\.json/);
 });
 
 // ---- the shell contract (packages/release/shell-contract.mjs) runs here and is ratcheted like G13-G21 -----------------------
@@ -267,8 +267,9 @@ const SHELL_ID = "shell-window-hidden|src-tauri/tauri.conf.json|base:main";
 test("shell contract: --list shows the nine rules after speech-link, in order, with their SC-R gap ids", async () => {
   const listed = await preflight(["--list"]);
   assert.equal(listed.code, 0);
-  assert.deepEqual(listed.lines.slice(-9), SHELL_RULES.map((id, i) => `${id} (SC-R${i + 1})`));
-  assert.deepEqual(RULES.slice(-9).map((r) => r.id), SHELL_RULES);
+  // The consumer input contracts (CA-07, CA-09, CA-11) follow the shell contract.
+  assert.deepEqual(listed.lines.slice(-12, -3), SHELL_RULES.map((id, i) => `${id} (SC-R${i + 1})`));
+  assert.deepEqual(RULES.slice(-12, -3).map((r) => r.id), SHELL_RULES);
 });
 
 test("shell contract: a finding FAILs, is KNOWN when its identity is in the baseline, and is STALE once the app is fixed", async (t) => {
@@ -305,6 +306,7 @@ test("preflight keeps its rule order: the app rules sit where they always did am
     "eol-policy (G04)", "consumer-recipe (G01)", "npm-recipe (G01)", "npm-surface (G02)", "version-pins (G03)", "dispatch-pins (G05)", "consumer-locks (G08)", "file-url (G12)", "generated-docs (G10)", "retired-alias (P11)",
     "qa-platform (G13)", "test-harness (G14)", "scenario-skip (G15)", "release-config (G16)", "skip-checks (G17)", "qa-dev-server (G18)", "ffmpeg-release-escape (G19)", "switches-inventory (G20)", "speech-link (G21)", "e2e-under-cargo-test (G22)", "suite-key-literal (C3-04)", "suite-updater-key (C3-14)", "engine-record-store (C3-05)",
     "shell-window-hidden (SC-R1)", "shell-plugin-order (SC-R2)", "shell-handler (SC-R3)", "shell-csp (SC-R4)", "shell-grants (SC-R5)", "qa-window-label (SC-R6)", "devtools-declaration (SC-R7)", "shell-lifecycle-external (SC-R8)", "legal-receipt-native (SC-R9)",
+    "checkout-step-input (CA-07)", "source-relation (CA-09)", "checkout-longpaths (CA-11)",
   ]);
 });
 

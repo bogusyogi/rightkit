@@ -47,6 +47,12 @@
 //   devtools-declaration     SC-R7  the five DevTools declaration sites (config, allow-list, Cargo feature, ACL manifest, runtime policy) disagree
 //   shell-lifecycle-external SC-R8  lifecycle_only() in an app that also opens an external webview (hardening and navigation policy are off)
 //   legal-receipt-native     SC-R9  an Onboarding legal gate whose receipt is not the native service
+// The consumer input contracts (consumer-input-contracts.mjs, CONSUMER_INPUT_RULES, appended after the shell contract) read workflow YAML,
+// JSON and Markdown as data for inputs a committed tree declares but a later step cannot reach:
+//   checkout-step-input      CA-07  a workflow step reads a tracked path its job's cone-mode sparse checkout does not materialize
+//   source-relation          CA-09  a value in one committed file names a row another committed file does not have (SOURCE_RELATIONS
+//                                   plus an app's .rightkit/source-relations.json)
+//   checkout-longpaths       CA-11  a GitHub-hosted Windows job checks out tracked paths over the Win32 limit without Git long paths
 //
 // Ratchet: findings that exist today may be listed so they print as KNOWN and do not fail; an unlisted finding fails; a listed
 // identity (`${rule}|${file}|${subject}`, no line numbers) that is gone fails as STALE, so the list only shrinks. The baseline is
@@ -67,6 +73,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { CONSUMER_INPUT_RULES } from "./consumer-input-contracts.mjs";
 import { SHELL_CONTRACT_RULES } from "./shell-contract.mjs";
 import { engineRecordStore, suiteKeyLiteral, suiteUpdaterKey } from "./suite-trust-roots.mjs";
 
@@ -964,6 +971,7 @@ export const RULES = Object.freeze([
   { id: "suite-updater-key", gap: "C3-14", run: ({ root, files }) => suiteUpdaterKey(root, files) },
   { id: "engine-record-store", gap: "C3-05", run: ({ root, files }) => engineRecordStore(root, files) },
   ...SHELL_CONTRACT_RULES,
+  ...CONSUMER_INPUT_RULES,
 ]);
 
 // ---- export: the committed files, by git alone ----------------------------------------------------------------------------------
