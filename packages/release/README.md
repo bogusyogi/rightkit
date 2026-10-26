@@ -419,6 +419,15 @@ macOS and Windows tie privacy grants (mic, screen, Files and Folders, Removable 
 - `right-release dev` (mac) signs with the same Developer ID Application identity as release (an app that needs a provisioning profile uses a Developer ID profile); Apple Development certificates are refused with `DEV_MAC_SIGNING_DEVELOPER_ID_REQUIRED`.
 - **Cargo target folders are not stable paths.** The broker's target tree is `<managed>/rightkit-build-control/ws/<hash>/g/<generation>/target/...` and the generation changes; `cargo-guard` uses a hashed `dev-targets/<project>-<hash>` folder. They are build output only, so nothing may run from them. Dev and QA binaries run from a fixed staged path: list them in `development.targets.<platform>.stage` (`[{ source } | { manifestPath, bin, targetTriple?, profile?, name? }]`) and `right-release dev` copies each in place to `<app root>/.rightkit-dev-bin/<triple-or-host>/<name>` (no backup of the old copy); `rightkit-qa` launches from its `.rightkit-qa-bin` stash on every path.
 
+## The door check for an app's own build steps
+
+An app's payload assembler or installer packager is a step its release config declares and `right-release` runs inside a stage. `door.mjs` (0.6.8) gives that step the check `right-release` makes for itself: `requireDoor(command)` exits 2 with the refusal unless a live `rightkit-gate --to <stage>` run for HEAD launched the process, so `node scripts/release/<step>.mjs` by hand is refused instead of becoming a side door around class A. `doorRefusal(options)` returns the message (or `null`) for a step that wants to report rather than exit. Refused: by hand, an ended run, a run for another commit, a forged nonce, outside a git checkout.
+
+```js
+import { requireDoor } from "@rightkit/release/door.mjs";
+requireDoor("scripts/release/mac-payload.mjs"); // first statement; everything below runs only inside the door
+```
+
 ## Runtime budget gate (crates)
 
 `publish cargo` runs the `runtime budget` step (`runtime-budgets.mjs`) right after the secret scan. Full contract, schema and refusal table: `docs/RUNTIME-BUDGETS.md`.
@@ -475,7 +484,7 @@ enforcement. D4 is ratified; pending activation does not mean pending ratificati
 
 Bins: `right-release` (`cli/right-release.mjs`) and `rightkit-gate` (`bin/rightkit-gate.mjs`). The CLI is the supported surface.
 
-`package.json` carries an explicit `exports` map (plan item 2.10, C4-16): one `"./<file>"` entry per public file, no `"."` index, no wildcard. It lists the two bin files, `./package.json`, the modules this README documents as SDK (`./release-dependencies.mjs`, `./engine-locator.mjs`, `./pe-content.mjs`, `./dmg-build.mjs`) and the modules that product repositories and RightKit's own tooling import by deep path today. Every other file is private: `import "@rightkit/release/release.mjs"` fails with `ERR_PACKAGE_PATH_NOT_EXPORTED`, and so does `import "@rightkit/release"`. `docs/RELEASE-EXPORTS.md` in the RightKit repository is the inventory (every consumer import with file:line) and `release-exports.test.mjs` fails when the map, that inventory or a checked-out product repository disagree. A new public subpath needs an inventory row or a README SDK section in the same commit; the signing, notarization and packaging modules in the map are a shrinking baseline, not an invitation. A file read by path (`node_modules/@rightkit/release/<file>`) is outside the map and is listed in the inventory too.
+`package.json` carries an explicit `exports` map (plan item 2.10, C4-16): one `"./<file>"` entry per public file, no `"."` index, no wildcard. It lists the two bin files, `./package.json`, the modules this README documents as SDK (`./release-dependencies.mjs`, `./engine-locator.mjs`, `./pe-content.mjs`, `./dmg-build.mjs`, `./door.mjs`) and the modules that product repositories and RightKit's own tooling import by deep path today. Every other file is private: `import "@rightkit/release/release.mjs"` fails with `ERR_PACKAGE_PATH_NOT_EXPORTED`, and so does `import "@rightkit/release"`. `docs/RELEASE-EXPORTS.md` in the RightKit repository is the inventory (every consumer import with file:line) and `release-exports.test.mjs` fails when the map, that inventory or a checked-out product repository disagree. A new public subpath needs an inventory row or a README SDK section in the same commit; the signing, notarization and packaging modules in the map are a shrinking baseline, not an invitation. A file read by path (`node_modules/@rightkit/release/<file>`) is outside the map and is listed in the inventory too.
 
 ## Dependencies
 

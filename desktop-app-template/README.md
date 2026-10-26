@@ -14,8 +14,8 @@ the release-switch scan, the Cargo, QA and legal contracts and `right-release ow
 **Pin sequencing.** The pin is the latest published `@rightkit/release`, 0.6.6: the registry check refuses a pin the registry does not
 have, the build refuses one behind its latest, and `template-contract.test.mjs` requires every pin to equal the published set. 0.6.6 has
 the `check` command (`pnpm check`), and the JSON release config is loaded by every command from 0.6.6, so `pnpm release:*` and
-`pnpm dev:build:*` run from the pinned package. This tree stages 0.6.7, which is not published yet. The commit that records 0.6.7 in
-`rightkit-versions.json` also moves this pin to 0.6.7 (with `pnpm-lock.yaml`, `minimumReleaseAgeExclude` and the lock hashes in
+`pnpm dev:build:*` run from the pinned package. This tree stages 0.6.8, which is not published yet. The commit that records 0.6.8 in
+`rightkit-versions.json` also moves this pin to 0.6.8 (with `pnpm-lock.yaml`, `minimumReleaseAgeExclude` and the lock hashes in
 `legal/THIRD_PARTY_NOTICES.md`) and deletes this paragraph.
 
 The committed `.githooks/pre-push` must be byte-identical to what the pinned release's `rightkit-gate install-hook` writes: `prepare`

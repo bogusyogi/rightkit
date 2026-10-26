@@ -23,6 +23,7 @@ Plan item 2.10 (gaps C4-16, C4-17). `@rightkit/release` had no `exports` map, so
 | `./direct-bootstrap.mjs` | app-import | imported by coderight, legion |
 | `./disk-policy.mjs` | app-import | imported by pulse |
 | `./dmg-build.mjs` | app-import | imported by cutright; README documents `buildDmg` as the SDK form of `right-release dmg build` |
+| `./door.mjs` | sdk | README (The door check for an app's own build steps): `requireDoor` and `doorRefusal` are the SDK; no app imports it on `main` yet (ScrapeRight's restore branch will) |
 | `./engine-locator.mjs` | sdk | README (Commands, Engine locator): `locateEngine` is importable from it |
 | `./github-release.mjs` | app-import | imported by legion |
 | `./legal-contract.mjs` | app-import | imported by coderight, heardright, mailright, viewright |
