@@ -318,13 +318,27 @@ const REGEX_AFTER_WORD = new Set(["return", "typeof", "instanceof", "in", "of", 
  * The module specifiers of a JS/TS source, read lexically: comments, strings, templates and regular expressions are skipped, and
  * `import ... from 'x'`, `import 'x'`, `export ... from 'x'`, `import('x')` and `require('x')` are returned as
  * { spec, typeOnly, via, index }; a dynamic import or require whose argument is not one string literal has spec null. A quote
- * string ends at a newline (JSX text such as Don't cannot swallow the file).
+ * string ends at a newline (JSX text such as Don't cannot swallow the file). The `${...}` holes of a template are code and are
+ * read the same way. `import('x').T` and `typeof import('x')` are type-only only in a type position: a `type`, `interface` or
+ * `declare` statement, or right after the annotation colon of a `let`, `const`, `var` or `function` before any `=`; anywhere else
+ * they load the module and are edges.
  */
 export function moduleSpecifiers(text) {
   const out = [];
   const n = text.length;
   let i = 0;
   let prev = ""; // the last significant character, or a word
+  let prev2 = ""; // the one before it
+  const setPrev = (t) => { prev2 = prev; prev = t; };
+  // the statement being read: its first word (`export` skipped), whether its `=` has passed, and whether an enclosing brace
+  // belongs to a type statement
+  let stmtWord = "";
+  let stmtEq = false;
+  const typeStack = [false];
+  const TYPE_STMT = new Set(["type", "interface", "declare"]);
+  const ANNOTATED = new Set(["let", "const", "var", "function"]);
+  const inTypeStatement = () => typeStack[typeStack.length - 1] || TYPE_STMT.has(stmtWord);
+  const typePosition = (before) => inTypeStatement() || (before === ":" && ANNOTATED.has(stmtWord) && !stmtEq);
   const skipWs = (j) => {
     for (;;) {
       while (j < n && /\s/.test(text[j])) j++;
@@ -345,16 +359,18 @@ export function moduleSpecifiers(text) {
     }
     return null;
   };
-  const skipTemplate = (j) => { // j after the opening backtick; returns the index after the closing one
+  // j after the opening backtick; returns the index after the closing one. `holes` collects the [start, end) of each `${...}`.
+  const skipTemplate = (j, holes = null) => {
     let depth = 0;
+    let hole = 0;
     for (let k = j; k < n; k++) {
       const c = text[k];
       if (c === "\\") { k++; continue; }
       if (depth === 0 && c === "`") return k + 1;
-      if (depth === 0 && c === "$" && text[k + 1] === "{") { depth = 1; k++; continue; }
+      if (depth === 0 && c === "$" && text[k + 1] === "{") { depth = 1; k++; hole = k + 1; continue; }
       if (depth > 0) {
         if (c === "{") depth++;
-        else if (c === "}") depth--;
+        else if (c === "}") { depth--; if (depth === 0 && holes) holes.push([hole, k]); }
         else if (c === "'" || c === '"') { const s = readString(k); if (s) k = s.end - 1; }
         else if (c === "`") k = skipTemplate(k + 1) - 1;
       }
@@ -411,8 +427,14 @@ export function moduleSpecifiers(text) {
     const c = text[i];
     if (c === "/" && text[i + 1] === "/") { while (i < n && text[i] !== "\n") i++; continue; }
     if (c === "/" && text[i + 1] === "*") { const e = text.indexOf("*/", i + 2); i = e < 0 ? n : e + 2; continue; }
-    if (c === "'" || c === '"') { const s = readString(i); i = s ? s.end : text.indexOf("\n", i) < 0 ? n : text.indexOf("\n", i); prev = "x"; continue; }
-    if (c === "`") { i = skipTemplate(i + 1); prev = "x"; continue; }
+    if (c === "'" || c === '"') { const s = readString(i); i = s ? s.end : text.indexOf("\n", i) < 0 ? n : text.indexOf("\n", i); setPrev("x"); continue; }
+    if (c === "`") {
+      const holes = [];
+      i = skipTemplate(i + 1, holes);
+      for (const [a, b] of holes) for (const s of moduleSpecifiers(text.slice(a, b))) out.push({ ...s, index: a + s.index });
+      setPrev("x");
+      continue;
+    }
     if (c === "/") {
       if (prev === "" || REGEX_AFTER.has(prev) || REGEX_AFTER_WORD.has(prev)) { // a regular expression literal
         let k = i + 1;
@@ -425,10 +447,10 @@ export function moduleSpecifiers(text) {
         }
         i = k + 1;
         while (i < n && ID_PART.test(text[i])) i++;
-        prev = "x";
+        setPrev("x");
         continue;
       }
-      prev = "/"; i++; continue;
+      setPrev("/"); i++; continue;
     }
     if (ID_START.test(c)) {
       const w = word(i);
@@ -439,13 +461,14 @@ export function moduleSpecifiers(text) {
         const j = skipWs(i);
         if (w === "require" || (w === "import" && text[j] === "(")) {
           if (text[j] === "(") {
-            // import('x').Name (Name not then/catch/finally) and typeof import('x') are types, not loads
+            // import('x').Name (Name not then/catch/finally) and typeof import('x') are types only in a type position
             let typeOnly = false;
             if (w === "import") {
               const close = text.indexOf(")", j);
               const after = close < 0 ? "" : text.slice(close + 1, close + 40);
               const member = /^\s*\.\s*([A-Za-z_$][A-Za-z0-9_$]*)/.exec(after);
-              typeOnly = prev === "typeof" || (!!member && !["then", "catch", "finally"].includes(member[1]));
+              if (prev === "typeof") typeOnly = typePosition(prev2);
+              else if (member && !["then", "catch", "finally"].includes(member[1])) typeOnly = typePosition(prev);
             }
             out.push({ spec: literalArg(j + 1), typeOnly, via: w === "require" ? "require" : "dynamic-import", index: start });
             i = j + 1;
@@ -462,10 +485,15 @@ export function moduleSpecifiers(text) {
           if (r) { out.push({ spec: r.spec, typeOnly: typeOnlyClause(r.clause), via: "export", index: start }); i = r.end; }
         }
       }
-      prev = w;
+      if (stmtWord === "" && w !== "export") stmtWord = w;
+      setPrev(w);
       continue;
     }
-    if (!/\s/.test(c)) prev = c;
+    if (c === ";") { stmtWord = ""; stmtEq = false; }
+    else if (c === "{") { typeStack.push(inTypeStatement()); stmtWord = ""; stmtEq = false; }
+    else if (c === "}") { if (typeStack.length > 1) typeStack.pop(); stmtWord = ""; stmtEq = false; }
+    else if (c === "=" && !"=>".includes(text[i + 1] ?? "") && !"=!<>".includes(prev)) stmtEq = true;
+    if (!/\s/.test(c)) setPrev(c);
     i++;
   }
   return out;

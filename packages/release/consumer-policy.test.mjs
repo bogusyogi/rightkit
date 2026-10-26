@@ -226,6 +226,21 @@ test("the lexer and resolver: what is an import, and where it lands", () => {
   assert.equal(matchGlob("src/routes/[...slug]/index.tsx", "src/routes/[...slug]/index.tsx"), true);
 });
 
+test("layer-reach: a load inside a template hole or a value-position typeof import() is an edge; type positions and plain templates are not", () => {
+  const edges = (src) => moduleSpecifiers(src).filter((s) => !s.typeOnly).map((s) => s.spec);
+  assert.deepEqual(edges("const x = `${require('./forbidden')}`;"), ["./forbidden"], "a require in a template hole");
+  assert.deepEqual(edges("const x = `${`${import('./forbidden')}`}`;"), ["./forbidden"], "a load in a nested hole");
+  assert.deepEqual(edges("const x = typeof import('./forbidden');"), ["./forbidden"], "typeof of a value starts the load");
+  assert.deepEqual(edges("const x = c ? a : typeof import('./forbidden');"), ["./forbidden"]);
+  assert.deepEqual(edges("const y = import('./forbidden').default;"), ["./forbidden"]);
+  for (const typeOnly of ["import type { X } from './x';", "type T = typeof import('./x');", "let v: typeof import('./x');", "export type T = { a: typeof import('./x') };", "export function f(): import('./x').T { return null!; }"]) assert.deepEqual(edges(typeOnly), [], typeOnly);
+  assert.deepEqual(moduleSpecifiers("const z = `plain ${a + b} text`;"), [], "a template with no call");
+  const files = (body) => ({ [CONSUMER_POLICY_FILE]: { schema: 1, layerBoundaries: [{ id: "l2", root: "app", aliases: { "~/": "src/" }, from: { include: ["src/components/**"] }, forbid: { include: ["src/utils/**"] } }] }, "app/src/components/A.ts": body, "app/src/utils/forbidden.ts": "export const v = 1;\n" });
+  assert.equal(run("layer-reach", files("const x = `${require('../utils/forbidden')}`;\n")).length, 1);
+  assert.equal(run("layer-reach", files("const x = typeof import('../utils/forbidden');\n")).length, 1);
+  assert.deepEqual(run("layer-reach", files("type T = typeof import('../utils/forbidden');\nlet v: typeof import('../utils/forbidden');\nconst z = `plain`;\n")), []);
+});
+
 // ---- the real entry point --------------------------------------------------------------------------------------------------------
 
 test("rightkit-gate check runs the four rules over a commit: red on the 13ddad3 deny set, green on 0c47fc3", async () => {
