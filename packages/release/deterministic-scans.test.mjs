@@ -167,6 +167,27 @@ test("runner: missing rustfmt and missing TOML parser fail", async () => {
   assert.equal(result.scans.find((s) => s.id === "toml-parse").code, "TOOL_MISSING");
 });
 
+// publish.yml run 40286333676 (verify, macOS + Windows): the gate runs 4 jobs, so `spawn` is async, and a host whose rustup has only
+// `stable-*` toolchains reaches findRustfmt's `which` fallback, which got a Promise (no status) and called rustfmt missing.
+test("runner: concurrent scans still find rustfmt through `which` on a host with only stable-* toolchains", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
+  const sync = fakeSpawn();
+  const lookups = [];
+  const lookupSpawn = (command, args) => { lookups.push([command, ...args]); return { status: 0, stdout: "/home/u/.cargo/bin/rustfmt\n", stderr: "" }; };
+  const over = { ...fs, findRustfmt: scansModule.findRustfmt, readdir: () => ["stable-x86_64-unknown-linux-gnu"], platform: "linux", spawn: async (c, a) => sync(c, a), jobs: 4 };
+  const result = await runScans(plan, deps({ ...over, lookupSpawn }));
+  const row = result.scans.find((s) => s.id === "rustfmt:2024");
+  assert.equal(row.status, "pass", JSON.stringify(row));
+  assert.deepEqual(lookups, [["which", "rustfmt"]]);
+  // Original: the async spawn answered the lookup.
+  const red = await runScans(plan, deps({ ...over, lookupSpawn: over.spawn }));
+  assert.equal(red.scans.find((s) => s.id === "rustfmt:2024").status, "fail");
+});
+
+test("findRustfmt refuses an async spawn rather than reporting rustfmt missing", () => {
+  assert.throws(() => scansModule.findRustfmt({ env: {}, exists: () => false, platform: "linux", spawn: async () => ({ status: 0, stdout: "/x/rustfmt\n" }) }), /synchronous spawn/);
+});
+
 test("runner: a failed class A scan leaves class B not-run", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
   const log = [];

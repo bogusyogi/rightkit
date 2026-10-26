@@ -1361,7 +1361,9 @@ export async function main(argv, io = {}) {
     const self = o.selfPath ?? fileURLToPath(import.meta.url);
     // RightKit's own scripts are the checked repository's code: they run only after the app rules and every class A scan passed,
     // never after a failure, so a red tree executes nothing of its own.
-    if (root && self.startsWith(root + path.sep) && o.exists(path.join(root, "scripts", "preflight.mjs")) && appCheck === 0 && classA === 0) {
+    // Compared as real, long paths (and case-blind on Windows): git prints the long form of an 8.3 short path such as RUNNER~1.
+    const canon = (p) => { let c; try { c = fs.realpathSync.native(p); } catch { c = path.resolve(p); } return process.platform === "win32" ? c.toLowerCase() : c; };
+    if (root && canon(self).startsWith(canon(root) + path.sep) && o.exists(path.join(root, "scripts", "preflight.mjs")) && appCheck === 0 && classA === 0) {
       const launch = o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" }));
       const selector = args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"];
       const r = launch(process.execPath, [path.join(root, "scripts", "preflight.mjs"), "--repo", root, ...selector], { cwd: root, env: o.env });
