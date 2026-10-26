@@ -505,6 +505,8 @@ function releaseAge({ root, files, now = new Date(), registry = contractData().n
 // ---- CA-14 notice-lock-digest -----------------------------------------------------------------------------------------------------
 
 const NOTICE_FILE = /(^|\/)[^/]*(notice|licen[cs]e|third[-_ ]?party)[^/]*\.(html?|md|txt)$/i;
+/** A notice CA-14 judges (repository-relative, `/`-separated): a notice or licence file outside vendored and history trees. */
+export const isJudgedNotice = (file) => NOTICE_FILE.test(file) && !SKIPPED_TREE.test(file) && !HISTORY_TREE.test(file);
 const LOCK_NAME = String.raw`(?:[\w.-]+\/)*(?:pnpm-lock\.yaml|Cargo\.lock|package-lock\.json|yarn\.lock|bun\.lock)`;
 // The two formats the generators write, both read here:
 //   `<lock> sha256=<hex>`  packages/release/npm-license-notices.mjs:74 and packages/legal/src/tooling.ts:263 (npm appendix); HeardRight's
@@ -538,7 +540,7 @@ function noticeLockDigest({ root, files }) {
     if (!digests.has(file)) { const bytes = readBytes(root, file); digests.set(file, bytes && createHash("sha256").update(bytes).digest("hex")); }
     return digests.get(file);
   };
-  for (const file of files.filter((f) => NOTICE_FILE.test(f) && !SKIPPED_TREE.test(f) && !HISTORY_TREE.test(f))) {
+  for (const file of files.filter(isJudgedNotice)) {
     const text = readText(root, file);
     if (text === null) continue;
     const declared = snapshotHashFiles(root, set, file);

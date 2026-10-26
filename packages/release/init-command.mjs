@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isJudgedNotice } from "./consumer-contracts.mjs";
 
 export const SKIP_DIRS = new Set(["node_modules", "target", ".git", "dist", "gen"]);
 export const TEXT_EXT = new Set(["json", "toml", "mjs", "ts", "tsx", "rs", "md", "html", "css", "yaml", "yml", "sh"]);
@@ -171,6 +172,16 @@ export function rehashLegalManifest(text, read) {
  * The rename changes the bytes of text the legal manifest hashes (the privacy notice and the npm appendix carry the product name), so the
  * manifest's digests are recomputed from the renamed bytes in the same pass.
  */
+/** The lock a notice field names (`prefix` holds the name or path), resolved from `dir` upward to `root` as CA-14 resolves it. */
+function resolveLockUpward(root, dir, prefix) {
+  const ref = /^`?([^`\s(]+)/.exec(prefix)[1];
+  for (let at = path.resolve(dir); ; at = path.dirname(at)) {
+    const candidate = path.resolve(at, ...ref.split("/"));
+    if (existsSync(candidate)) return candidate;
+    if (at === path.resolve(root) || at === path.dirname(at)) return null;
+  }
+}
+
 export function initTemplate(root, options) {
   const identity = resolveIdentity(options);
   const changed = [];
@@ -195,20 +206,24 @@ export function initTemplate(root, options) {
   // The rename changes Cargo.lock's bytes (the app's own crates), so every notice that records the lock's digest
   // (`Cargo.lock sha256 <hex>` / `sha256=<hex>`, checked by notice-lock-digest CA-14) would go stale: carry the new digest.
   // Only the provenance field moves: `<lock> sha256 <hex>` or `<lock> sha256=<hex>` (optionally backticked, optionally with a
-  // parenthesised label), where <lock> names this lock (its file name or its path from the root) and <hex> is its old digest.
-  // The same 64 hex characters anywhere else (another input's digest, archived evidence, a source literal) are left alone.
+  // parenthesised label) in a notice CA-14 judges (isJudgedNotice), where <lock> resolves from the notice's directory upward to
+  // this lock, as CA-14 resolves it, and <hex> is its old digest. The same digest, or the same formatted text, anywhere else
+  // (another input's field, archived reports and evidence, a source literal, a notice in a history tree) is left alone.
   const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const pairs = [...lockDigestsBefore].map(([file, old]) => {
     const names = [...new Set([path.basename(file), path.relative(root, file).split(path.sep).join("/")])].map(escapeRe).join("|");
     const field = new RegExp(`(\`?(?:${names})\`?(?:[ \\t]*\\([^)\\n]*\\))?[ \\t]+sha256(?:=|[ \\t]+)\`?)${old}(?![0-9a-f])`, "g");
-    return { field, now: createHash("sha256").update(renamed.get(file)).digest("hex") };
+    return { lock: file, field, now: createHash("sha256").update(renamed.get(file)).digest("hex") };
   });
   if (pairs.length) {
     for (const file of walkTextFiles(root)) {
       if (path.basename(file) === SELF || path.basename(file) === LOCK_FILE) continue;
+      if (!isJudgedNotice(path.relative(root, file).split(path.sep).join("/"))) continue;
       const before = renamed.get(path.resolve(file)) ?? readFileSync(file, "utf8");
       let after = before;
-      for (const { field, now } of pairs) after = after.replace(field, (_, prefix) => `${prefix}${now}`);
+      for (const { lock, field, now } of pairs) {
+        after = after.replace(field, (whole, prefix) => (resolveLockUpward(root, path.dirname(file), prefix) === lock ? `${prefix}${now}` : whole));
+      }
       if (after === before) continue;
       renamed.set(path.resolve(file), after);
       if (!options.dryRun) writeFileSync(file, after);
