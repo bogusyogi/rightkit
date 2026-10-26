@@ -1468,7 +1468,11 @@ export async function main(argv, io = {}) {
       // marked export-ignore in .gitattributes, so they would never be scanned; this export has no such exclusion.
       const indexEnv = { ...o.env, GIT_INDEX_FILE: path.join(exportRoot, "index") };
       const made = o.spawn("git", ["read-tree", snapshot], { cwd: root, env: indexEnv });
-      const x = failed(made) ? made : o.spawn("git", ["checkout-index", "--all", "--force", `--prefix=${repo}${path.sep}`], { cwd: root, env: indexEnv });
+      // git builds each path as <prefix><index path> with "/" separators and creates only the directories below the prefix, so the
+      // export root must exist and the prefix use "/": a "C:\\...\\repo\\" prefix made checkout-index fail on Windows
+      // (publish run 40282215043: "cannot create directory at ...\\repo\\.github").
+      fs.mkdirSync(repo, { recursive: true });
+      const x = failed(made) ? made : o.spawn("git", ["checkout-index", "--all", "--force", `--prefix=${repo.split(path.sep).join("/")}/`], { cwd: root, env: indexEnv });
       if (failed(made) || failed(x)) { o.err(`${tag} cannot export ${snapshot}: ${why(made) || why(x)}`); return 2; }
     }
     // Every file of the snapshot, once: units, manifests, lockfiles and the changed set are all read from what is scanned, never from

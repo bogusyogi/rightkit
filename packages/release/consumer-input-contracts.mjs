@@ -28,7 +28,7 @@
 // A pre-checkout step counts only when it provably runs and its whole script is the git config line; any other step or
 // environment that touches core.longpaths is reported as UNSUPPORTED, never passed. A workflow the strict parser refuses is a finding only
 // when it mentions a sparse checkout or a Windows runner (the two things these rules read); any other is left alone.
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { parseYaml } from "./workflow-yaml.mjs";

@@ -3,7 +3,7 @@
 // LG-04 rule to this baseline with retirementLedgerFor(); the shipped rule is bound to c1d80c9d.
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../../background-process.mjs";
 
 export const FIXTURE_IDENTITY = { GIT_AUTHOR_NAME: "Fixture", GIT_AUTHOR_EMAIL: "fixture@rightkit.invalid", GIT_AUTHOR_DATE: "1700000000 +0000", GIT_COMMITTER_NAME: "Fixture", GIT_COMMITTER_EMAIL: "fixture@rightkit.invalid", GIT_COMMITTER_DATE: "1700000000 +0000" };
 

@@ -1,7 +1,7 @@
 // Consumer semantic policy (Class A row 13). The negatives are SellRight's own historical failures, from verbatim excerpts of the
 // commits named in each test (Orthic-Labs/sellright); each repair and each legitimate exception is the commit that followed.
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
