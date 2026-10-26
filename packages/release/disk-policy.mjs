@@ -914,10 +914,11 @@ export function readRecentEvents(logFile, { maxBytes = 1 << 22 } = {}) {
  * be a guess. `maxBytes` limits the scan to one window of that size. */
 /** Windows reports ENOENT, not ENOTDIR, for a path that runs through a file; POSIX reports ENOTDIR. Rebuild that distinction: the nearest
  * existing ancestor being anything but a directory means the log path is broken, not that the log is missing. */
-function throughFile(logFile) {
+export function throughFile(logFile, stat = statSync) {
   for (let dir = path.dirname(path.resolve(logFile)); ; dir = path.dirname(dir)) {
     let stats;
-    try { stats = statSync(dir); } catch (error) { if (error?.code === "ENOENT" && path.dirname(dir) !== dir) continue; return false; }
+    // Only a missing ancestor is skipped; any other error on the way up (EACCES, EIO, ...) is the read error itself, never "missing".
+    try { stats = stat(dir); } catch (error) { if (error?.code === "ENOENT" && path.dirname(dir) !== dir) continue; if (error?.code === "ENOENT") return false; throw error; }
     if (stats.isDirectory()) return false;
     throw Object.assign(new Error(`ENOTDIR: not a directory, open '${logFile}'`), { code: "ENOTDIR", path: logFile });
   }

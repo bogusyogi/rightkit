@@ -118,7 +118,9 @@ try {
     assert.match(ci, /^name: widgets-ci$/m);
     assert.match(ci, /^permissions:\n {2}contents: read$/m);
     assert.match(ci, /^ {2}private-repo-guard:$/m);
-    assert.match(ci, /^ {6}- run: bash \.\/scripts\/gate\.sh$/m);
+    // 0.3.2: one door. The ci job runs the gate itself, never the repository's gate script (gate.path only filters Rust changes).
+    assert.match(ci, /^ {6}- run: pnpm exec rightkit-gate --to compile$/m);
+    assert.doesNotMatch(ci, /bash \.\/scripts\/gate\.sh/);
     assert.doesNotMatch(ci, /\$\{[A-Z][A-Z0-9_]*\}/);
     const uses = [...ci.matchAll(/^\s*(?:- )?uses: (\S+)/gm)].map(match => match[1]);
     assert.ok(uses.length > 0);
