@@ -30,6 +30,7 @@ while [ $# -gt 0 ]; do
     *) echo "unknown argument $1" >&2; exit 2 ;;
   esac
 done
+# shellcheck disable=SC2015  # each A && B is a test, so the || branch runs exactly when a requirement is missing
 [ -n "$source" ] && [ -n "$work" ] && [ -n "$out" ] || { echo "--source, --work and --out are required" >&2; exit 2; }
 [ "$(uname -s)-$(uname -m)" = Darwin-arm64 ] || { echo "build on an arm64 Mac" >&2; exit 1; }
 

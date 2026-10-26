@@ -336,6 +336,10 @@
         [
           "--features",
           "window-errors"
+        ],
+        [
+          "--features",
+          "diagnostics"
         ]
       ],
       "quietTests": true

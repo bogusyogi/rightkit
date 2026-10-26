@@ -101,8 +101,8 @@ ${RUST_CACHE_KEY}          cache-workspace-crates: ${CI_CACHE_WORKSPACE_CRATES}
       - uses: Mozilla-Actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
         if: steps.rust-changes.outputs.required == 'true'
         with:
-          version: "v0.16.0"${SWIFT_PRIVATE_CONFIGURE_STEP}
-      - run: bash ./${GATE_PATH}${GATE_ARGS}
+          version: "v0.16.0"${CLASS_A_TOOLS_STEP}${SWIFT_PRIVATE_CONFIGURE_STEP}
+      - run: ${GATE_DOOR}
         env:
           RIGHT_GIT_RUST_CHANGED: ${{ steps.rust-changes.outputs.changed }}
           RIGHT_GIT_RUST_REQUIRED: ${{ steps.rust-changes.outputs.required }}

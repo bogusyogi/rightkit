@@ -57,8 +57,27 @@ const args = process.argv.slice(2);
 const first = args[0];
 // The commands that compile, package, sign, ship or inspect a release run the app check (../app-check.mjs, CHECKED_COMMANDS) in this
 // process before they start a child. A red check prints its findings and exits 1; there is no flag that skips it.
+const WORKTREE_COMPILES = new Set(["dev", "test", "stage-sidecar"]);
 async function requireGreenCheck() {
-  const { guardCommand } = await import("../app-check.mjs");
+  const { guardCommand, checkedCommandOf, checkModeFor, appDirectory } = await import("../app-check.mjs");
+  // One door (Adrian, 2026-10-25): a commit-bound command (build, package, release, qa, upload, publish, signing) runs only when
+  // rightkit-gate --to launched it for HEAD, after class A and the compile stage passed.
+  const checked = checkedCommandOf(args);
+  // dev, test and stage-sidecar work on the uncommitted tree but compile, so they too run only under a door run
+  // (rightkit-gate --to dev|test, class A on the working tree first).
+  // Gate on the mode, not the key: a flag-first call (`right-release --platform mac`) is a build with no command word.
+  if (checkModeFor(args) === "commit" || (checked && WORKTREE_COMPILES.has(checked))) {
+    const { requireDoorRun } = await import("../gate-stages.mjs");
+    const { spawnSync } = await import("../background-process.mjs");
+    const cwd = appDirectory(args, process.cwd());
+    const gitOut = (a) => { const r = spawnSync("git", a, { cwd, encoding: "utf8" }); return r.status === 0 ? r.stdout.trim() : ""; };
+    const common = gitOut(["rev-parse", "--git-common-dir"]);
+    // Outside a git repository the app check below refuses (nothing can be bound to a commit); inside one, only a door run admits.
+    if (common) {
+      const refusal = requireDoorRun({ commonDir: path.resolve(cwd, common), commit: gitOut(["rev-parse", "HEAD"]), command: `right-release ${checked ?? args.join(" ")}`.trim() });
+      if (refusal) { console.error(`right-release: ${refusal}`); process.exit(2); }
+    }
+  }
   const refused = guardCommand({ args });
   if (!refused) return;
   for (const line of refused.lines) console.error(line);
@@ -103,9 +122,11 @@ if (first === "--version" || first === "-v") {
     run("release.mjs", ["--doctor", ...args.slice(1)]);
   }
 } else if (first === "check") {
-  // The same offline check as `rightkit-gate check`; the repository is the git top-level of --config's folder, else the cwd.
-  const { appDirectory, main } = await import("../app-check.mjs");
-  process.exit(await main(args.slice(1), { label: "check", cwd: appDirectory(args, process.cwd()) }));
+  // Exactly `rightkit-gate check` (one door): the app check, then every class A scan over the whole commit. The repository is the git
+  // top-level of --config's folder, else the cwd.
+  const { appDirectory } = await import("../app-check.mjs");
+  const { main } = await import("../bin/rightkit-gate.mjs");
+  process.exit(await main(["check", ...args.slice(1)], { cwd: appDirectory(args, process.cwd()) }));
 } else if (first === "hooks" && args[1] === "install") {
   // One installer: `hooks install` is `rightkit-gate install-hook` (pre-push check and gate, ownership pre-commit step) run in the app.
   const app = args.indexOf("--app");
