@@ -752,6 +752,11 @@ jobs:
         with:
           name: import-effects-${{ github.run_attempt }}
           path: ${{ runner.temp }}/import-effects
+      # @rightkit/ci's five render/lint tests run actionlint and skip without it (ci/asset-gated.json no longer waives them):
+      # the pinned, sha256-checked actionlint of ci/actionlint.json, the same version scans uses.
+      - name: Provision the pinned actionlint for the workflow lint tests
+        if: ${{ needs.plan.outputs.registry == 'npm' && contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/ci ') }}
+        run: node scripts/ci/provision-actionlint.mjs
       - name: Cache the pinned Chrome for Testing
         if: ${{ (needs.plan.outputs.registry == 'npm' && (contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa-chrome ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/react-shell ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/settings-ui ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/onboarding '))) || (needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-browser ')) }}
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4

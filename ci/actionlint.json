@@ -1,0 +1,10 @@
+{
+  "_comment": "The pinned actionlint for the publish verify runners (scripts/ci/provision-actionlint.mjs): @rightkit/ci's five render/lint tests run actionlint and skip without it. Digests are the archives' sha256 from the release's actionlint_1.7.12_checksums.txt; linux matches the scans job's own pin in .github/workflows/publish.yml.",
+  "version": "1.7.12",
+  "platforms": {
+    "linux-x64": { "archive": "actionlint_1.7.12_linux_amd64.tar.gz", "sha256": "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8" },
+    "darwin-arm64": { "archive": "actionlint_1.7.12_darwin_arm64.tar.gz", "sha256": "aba9ced2dee8d27fecca3dc7feb1a7f9a52caefa1eb46f3271ea66b6e0e6953f" },
+    "darwin-x64": { "archive": "actionlint_1.7.12_darwin_amd64.tar.gz", "sha256": "5b44c3bc2255115c9b69e30efc0fecdf498fdb63c5d58e17084fd5f16324c644" },
+    "win32-x64": { "archive": "actionlint_1.7.12_windows_amd64.zip", "sha256": "6e7241b51e6817ea6a047693d8e6fed13b31819c9a0dd6c5a726e1592d22f6e9" }
+  }
+}
