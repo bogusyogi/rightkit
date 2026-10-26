@@ -3,7 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { digestScanSet } from "../../packages/release/deterministic-scans.mjs";
+import { digestScanSet, PINNED_SCAN_TOOLS } from "../../packages/release/deterministic-scans.mjs";
+import { SHELLCHECK_ENV as CI_SHELLCHECK_ENV } from "./ci-scans-contract.mjs";
 import { artifactMatches } from "./reviewed-candidate.mjs";
 import { assertPublishDoc, SCANS_MUTATIONS, SCANS_TOOLS, SCANS_ACTIONLINT_ENV, SCANS_SHELLCHECK_ENV } from "./workflow-contract.mjs";
 import { assertReviewedDoc, REVIEWED_MUTATIONS } from "./reviewed-workflow-contract.mjs";
@@ -29,7 +30,24 @@ const clone = (v) => structuredClone(v);
 test("workflow pins agree with the receipt module's trusted pins", () => {
   assert.equal(SCANS_TOOLS, `cargo-deny@${SCAN_TOOL_PINS["cargo-deny"]},cargo-audit@${SCAN_TOOL_PINS["cargo-audit"]}`);
   assert.deepEqual(SCANS_ACTIONLINT_ENV, { ACTIONLINT_VERSION: SCAN_TOOL_PINS.actionlint, ACTIONLINT_SHA256: ACTIONLINT_SHA256 });
-  assert.deepEqual(SCANS_SHELLCHECK_ENV, { SHELLCHECK_VERSION: "0.10.0", SHELLCHECK_SHA256: "6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87" });
+  assert.deepEqual(SCANS_SHELLCHECK_ENV, { SHELLCHECK_VERSION: PINNED_SCAN_TOOLS.shellcheck, SHELLCHECK_SHA256: "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198" });
+});
+
+test("every ShellCheck installer and managed host path provisions the one version class A accepts", () => {
+  const version = PINNED_SCAN_TOOLS.shellcheck;
+  assert.deepEqual(CI_SHELLCHECK_ENV, SCANS_SHELLCHECK_ENV, "ci.yml hygiene and publish.yml scans install the same ShellCheck build");
+  const root = new URL("../../", import.meta.url);
+  const pipeline = JSON.parse(fs.readFileSync(new URL("ci/rk-pipeline.json", root), "utf8"));
+  const darwin = pipeline.tools.shellcheck.darwin;
+  assert.equal(darwin.version, version);
+  assert.equal(darwin.path, `/Volumes/D/.rightkit-managed/tools/shellcheck-${version}/shellcheck`);
+  assert.equal(darwin.source, `https://github.com/koalaman/shellcheck/releases/download/v${version}/shellcheck-v${version}.darwin.aarch64.tar.xz`);
+  const publishApp = fs.readFileSync(new URL(".github/workflows/publish-app.yml", root), "utf8");
+  assert.deepEqual([...publishApp.matchAll(/\bshellcheck@([0-9.]+)/g)].map((m) => m[1]), [version], "publish-app.yml installs the pinned ShellCheck");
+  for (const wf of ["ci.yml", "publish.yml"]) {
+    const text = fs.readFileSync(new URL(`.github/workflows/${wf}`, root), "utf8");
+    assert.deepEqual([...text.matchAll(/SHELLCHECK_VERSION: "([^"]+)"/g)].map((m) => m[1]), [version], `${wf} installs the pinned ShellCheck`);
+  }
 });
 
 test("a complete, passed, bound receipt verifies", () => {

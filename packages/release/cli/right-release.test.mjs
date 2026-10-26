@@ -4,6 +4,7 @@
 // the package root only); run it with: node --import ./test-support/broker-guard.mjs --test cli/right-release.test.mjs
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "../background-process.mjs";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -53,16 +54,31 @@ function app(t, { red = false } = {}) {
   fs.mkdirSync(path.join(repo, "sub"));
   fs.writeFileSync(path.join(repo, "sub", "right-release.config.mjs"), "export default {};\n");
   fs.writeFileSync(path.join(repo, "sub", "switches.json"), "{}\n"); // G20: a release config needs its switches inventory
-  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ scripts: { ship: red ? "right-release build --skip-checks" : "right-release build" } }));
+  // A valid package (licence, lockfile): `check` runs class A too, and that is green here, so the app check alone decides.
+  fs.writeFileSync(path.join(repo, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\nimporters:\n\n  .: {}\n");
+  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT", scripts: { ship: red ? "right-release build --skip-checks" : "right-release build" } }));
   git(repo, "add", "-A");
   git(repo, "commit", "-q", "-m", "app");
   return repo;
 }
-const makeRed = (repo) => { fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ scripts: { ship: "right-release build --skip-checks" } })); };
-const makeGreen = (repo) => { fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ scripts: { ship: "right-release build" } })); };
+const makeRed = (repo) => { fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT", scripts: { ship: "right-release build --skip-checks" } })); };
+const makeGreen = (repo) => { fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT", scripts: { ship: "right-release build" } })); };
 
 let preload;
-function runCli(t, cwd, args, { spy = true } = {}) {
+// A live door run for the repository at `cwd` (what rightkit-gate --to sets up before it launches a right-release stage): the run file
+// under <git common dir>/rightkit-gate/runs names HEAD and this test process's pid, and RK_GATE_RUN names it. `door: false` leaves it out.
+function doorEnv(cwd) {
+  const git = (a) => spawnSync("git", a, { cwd, encoding: "utf8" });
+  const common = git(["rev-parse", "--git-common-dir"]); const head = git(["rev-parse", "HEAD"]);
+  if (common.status !== 0 || head.status !== 0) return {};
+  const nonce = crypto.randomBytes(16).toString("hex");
+  const dir = path.join(path.resolve(cwd, common.stdout.trim()), "rightkit-gate", "runs");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${nonce}.json`), JSON.stringify({ pid: process.pid, commit: head.stdout.trim(), tree: "", stage: "package" }));
+  return { RK_GATE_RUN: nonce };
+}
+
+function runCli(t, cwd, args, { spy = true, door = true } = {}) {
   if (!preload) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-cli-spy-"));
     process.on("exit", () => fs.rmSync(dir, { recursive: true, force: true }));
@@ -70,7 +86,8 @@ function runCli(t, cwd, args, { spy = true } = {}) {
     fs.writeFileSync(preload, PRELOAD);
   }
   const log = path.join(tmpDir(t, "rk-cli-log-"), "calls.log");
-  const result = spawnSync(process.execPath, [...(spy ? ["--import", pathToFileURL(preload).href] : []), CLI, ...args], { cwd, encoding: "utf8", env: { ...process.env, RK_CLI_SPY_LOG: log } });
+  const appRoot = args.includes("--app-root") ? args[args.indexOf("--app-root") + 1] : cwd;
+  const result = spawnSync(process.execPath, [...(spy ? ["--import", pathToFileURL(preload).href] : []), CLI, ...args], { cwd, encoding: "utf8", env: { ...process.env, RK_CLI_SPY_LOG: log, ...(door ? doorEnv(appRoot) : {}) } });
   const calls = fs.existsSync(log) ? fs.readFileSync(log, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [];
   return { status: result.status, stdout: result.stdout, stderr: result.stderr, spawns: calls.filter((c) => c.spawn).map((c) => c.spawn), developments: calls.filter((c) => c.development).map((c) => c.development), calls };
 }
@@ -163,7 +180,7 @@ test("a baseline entry cannot excuse what the build refuses: switches-inventory 
   fs.writeFileSync(path.join(repo, ".rightkit", "app-check-baseline.json"), JSON.stringify({ schema: 1, known: [{ id: "switches-inventory|sub/right-release.config.mjs|sub", issue: "app#9", added, sunset: addDays(added, 30) }] }));
   git(repo, "add", "-A");
   git(repo, "commit", "-q", "-m", "baseline the missing inventory");
-  const check = runCli(t, repo, ["check"]);
+  const check = runCli(t, repo, ["check"], { spy: false });
   assert.equal(check.status, 0, check.stdout + check.stderr);
   assert.match(check.stdout, /^KNOWN switches-inventory: /m);
   for (const args of [["build", "--platform", "win"], ["doctor", "--platform", "win"]]) {
@@ -286,25 +303,45 @@ test("dmg build has no repository: it dispatches from a directory that is no git
   }
 });
 
+test("one door: every commit-bound command refuses without a live rightkit-gate run for HEAD and starts nothing; dev, test and stage-sidecar compile, so they are locked too", (t) => {
+  const repo = app(t);
+  for (const [name, args] of GUARDED) {
+    if (CHECKED_COMMANDS.get(name) !== "commit") continue;
+    const refused = runCli(t, repo, args, { door: false });
+    assert.equal(refused.status, 2, `${name}: ${refused.stderr}`);
+    assert.match(refused.stderr, /runs only through the one door: rightkit-gate --to/, name);
+    assert.deepEqual([refused.spawns, refused.developments], [[], []], `${name} starts nothing`);
+  }
+  // A run file for another commit, or one whose process has ended, is no door run.
+  const stale = runCli(t, repo, ["build", "--platform", "win"], { door: false });
+  assert.equal(stale.status, 2);
+  const dev = runCli(t, repo, ["dev", "--platform", "win", "--dry-run"], { door: false });
+  assert.equal(dev.status, 2);
+  assert.ok(dev.stderr.includes("runs only through the one door"), "dev compiles, so it runs only under the door (rightkit-gate --to dev)");
+});
+
 test("check: the same findings as rightkit-gate check, exit 1 red and 0 green, --list, and --config picks the repository", (t) => {
   const repo = app(t, { red: true });
-  const red = runCli(t, repo, ["check", "--commit", "HEAD"]);
+  // `right-release check` is `rightkit-gate check`: the app check, then class A (real child processes, so no spawn spy here).
+  const runCheck = (cwd, args) => runCli(t, cwd, args, { spy: false });
+  const red = runCheck(repo, ["check", "--commit", "HEAD"]);
   assert.equal(red.status, 1);
   assert.match(red.stdout, /^FAIL skip-checks \(G17\): package\.json:1 /m);
-  assert.match(red.stdout, /^check: 1 problem\(s\) in \w{12} \(29 rules, /m);
+  assert.match(red.stdout, /^check: 1 problem\(s\) in \w{12} \(48 rules, /m);
   assert.deepEqual(red.calls, [], "check spawns nothing");
   const gate = spawnSync(process.execPath, [path.join(PACKAGE, "bin", "rightkit-gate.mjs"), "check", "--commit", "HEAD"], { cwd: repo, encoding: "utf8" });
   assert.equal(gate.stdout.replace(/[\d.]+s/, "Ns"), red.stdout.replace(/[\d.]+s/, "Ns"), "right-release check and rightkit-gate check print the same");
-  const fromElsewhere = runCli(t, tmpDir(t, "rk-cli-elsewhere-"), ["check", "--config", path.join(repo, "sub", "right-release.config.mjs")]);
+  const fromElsewhere = runCheck(tmpDir(t, "rk-cli-elsewhere-"), ["check", "--config", path.join(repo, "sub", "right-release.config.mjs")]);
   assert.equal(fromElsewhere.status, 1);
   assert.match(fromElsewhere.stdout, /FAIL skip-checks/);
   makeGreen(repo);
-  assert.equal(runCli(t, repo, ["check", "--worktree"]).status, 0, "the green tree on disk passes --worktree");
-  assert.equal(runCli(t, repo, ["check", "--commit", "HEAD"]).status, 1, "the committed HEAD is still red");
-  const list = runCli(t, repo, ["check", "--list"]);
+  const onDisk = runCheck(repo, ["check", "--worktree"]);
+  assert.equal(onDisk.status, 0, `the green tree on disk passes --worktree\n${onDisk.stdout}\n${onDisk.stderr}`);
+  assert.equal(runCheck(repo, ["check", "--commit", "HEAD"]).status, 1, "the committed HEAD is still red");
+  const list = runCheck(repo, ["check", "--list"]);
   assert.equal(list.status, 0);
   assert.match(list.stdout, /^qa-platform \(G13\)$/m);
-  assert.equal(list.stdout.trim().split("\n").length, 29);
+  assert.equal(list.stdout.trim().split("\n").length, 48);
 });
 
 test("hooks install is an alias of rightkit-gate install-hook, run in the app; other hooks forms still reach the ownership module", (t) => {

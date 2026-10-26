@@ -26,7 +26,7 @@ Public-repository-only GitHub Actions workflow layer for Right Suite products. T
 Each lane that compiles or tests renders a `check` job right after `private-repo-guard`, and every other job of that workflow needs it, directly or through a job that does. Nothing builds or qualifies a tree the check refused (pipeline invariant P1, rightkit#833).
 
 - **What it runs.** `actions/checkout` at depth 1 (`persist-credentials: false`), `setup-node` (first `matrix.node`), the package manager, a frozen install without lifecycle scripts (`pnpm install --frozen-lockfile --ignore-scripts`; `npm ci --ignore-scripts`; `yarn install --frozen-lockfile --ignore-scripts`), then `pnpm exec rightkit-gate check --commit HEAD`. Committed files only: no network after the install, no compile, no broker, no secret. The job runs where the workflow's guard runs, times out after 15 minutes and pins its actions like the other jobs of the same file (tags in the node lane files, commits in `swift-check` and the rust-hybrid files).
-- **Dependencies.** It needs only `private-repo-guard`. `test` (node `ci`), `ci` and `quick` (rust-hybrid), `qualification`, `clean-tarball`, `candidate`, `swift-check`, `publish-npm`, the release chain's `admission` and the parallel `dev-artifact-*` jobs list it in `needs`. `ci-summary` still reports `ci` and `quick`; a failed check leaves both skipped, which it reports as failed.
+- **Dependencies.** It needs only `private-repo-guard`. `test` (node `ci`), `ci` (rust-hybrid), `qualification`, `clean-tarball`, `candidate`, `swift-check`, `publish-npm`, the release chain's `admission` and the parallel `dev-artifact-*` jobs list it in `needs`.
 - **The repository must depend on `@rightkit/release` 0.6.5 or later**, the first release with `rightkit-gate check`. Sync the new render only after the app has bumped it, or every run fails at the last step. `right-git sync` and `right-git install` read the pin from `package.json` (`devDependencies`, else `dependencies`) whenever a lane that renders the check job is declared: an exact pin below 0.6.5 is refused at stage `dependency` and nothing is written; a range, a non-registry spec or no `@rightkit/release` dependency prints a `warn:` line to stderr and the sync goes on, because the install may still resolve a new enough version. (`candidate.releaseChain` keeps its own, stricter rule: a direct devDependency pinned to an exact published version.) The install is not filtered to `@rightkit/release`: `pnpm install --filter` selects workspace projects, and in a consumer `@rightkit/release` is a registry dependency, so the filter matches no project, installs nothing and exits 0. npm and yarn call `./node_modules/.bin/rightkit-gate` by path, because `npm exec` fetches an unknown name from the registry in CI.
 - **A release-candidate checks the revision it builds** (`inputs.source_revision`, or the pushed commit in the node lane's tag push). Its checkout is the one shallow checkout among the jobs of an admitted revision: the check only reads the committed files of HEAD and never runs `right-release`, so it has no reachability to prove.
 - **publish-npm checks the release tag it publishes.** The lane checks out `github.event.release.tag_name`, installs, rebuilds the tarball from source (`build-candidate.mjs`), runs `check-release.mjs` and publishes with `id-token: write`, so it builds and tests like the other lanes. Its `check` job checks out the same tag, has no permission beyond the workflow's `contents: read`, no environment and no secret, and the publish job needs it: a tag whose committed files the check refuses never reaches the OIDC token or the registry.
@@ -81,32 +81,9 @@ Set `"ciAllOs": true` to run the rust-hybrid `ci` gate on every `matrix.os` runn
 
 Omit the key, or set it to `false`, and the rendered `ci.yml` keeps one runner, preferring the first `windows-*` entry. `ciAllOs: true` is rejected for other profiles.
 
-## Parallel gate shards (rust-hybrid)
+## One door (rust-hybrid)
 
-A gate that runs everything in one step on each runner is as slow as the sum of its parts. `gate.shards` splits it. The repository compiles locally for a warm cache; this is about running GitHub qualification in parallel.
-
-```json
-{
-  "profile": "rust-hybrid",
-  "ciAllOs": true,
-  "gate": {
-    "path": "scripts/gate.sh",
-    "quick": true,
-    "shards": [{ "id": "workspace" }, { "id": "linters" }, { "id": "rust-tools" }]
-  }
-}
-```
-
-- **Shards.** Each shard is one more `matrix.shard` value, so the gate runs once per shard per runner as `bash <path> --group <id>`. `fail-fast: false` still applies, and all legs share one Rust cache key, so one leg's build warms the others.
-- **Per-leg state.** Each leg keeps its own last-green marker and its own QA evidence artifact (the shard id is in both names). On a default-branch push each leg is its own concurrency slot.
-- **`quick: true`.** Adds a `quick` job (`bash <path> --quick`, on `ubuntu-24.04`, after the check job) for the fast deterministic checks. Every leg needs it, so a formatting or record error stops the run before any shard starts.
-- **`ci-summary`.** Passes only when every leg passed (and `quick`, when set). Use it as the one required status check: matrix job names change with the shard list.
-- **Validation.**
-  - 2 to 16 shards.
-  - Ids are lowercase letters, digits and `-`, at most 32 characters, and unique.
-  - `quick` needs `shards`.
-  - A `devArtifact` must use `parallel: true`, because a dev artifact staged inside the ci job would be built once per shard.
-- **Without `shards`.** The rendered `ci.yml` is byte-identical.
+The `ci` job (and the `regenerate` lane's re-check) runs exactly one build step: `rightkit-gate --to compile` from the installed `@rightkit/release`. The gate runs class A first, then every compile, lint and test scan, on the runner's plain cargo (a CI runner has no broker). `gate.path` only names a file whose change counts as a Rust change; the repository's own script never runs. `gate.shards` and `gate.quick` are gone and are refused.
 
 ## Incremental CI and dev artifacts (rust-hybrid)
 

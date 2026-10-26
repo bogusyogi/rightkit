@@ -190,14 +190,18 @@ test("every journey and scenario the app declares exists, and every Rust test is
   }
 });
 
-test("`rightkit-gate check` and RightKit's own preflight pass on the instance with an empty baseline", () => {
+// The template's notApplicable.M22 is not a ratified ruling (rightkit#994 is undecided), so since rightkit#1140's check M22 applies
+// and these are its only two findings. Ratifying the row (or adopting rightkit-agent-tools) makes the instance clean again.
+const TEMPLATE_M22 = ["mandatory-foundation (OW-05): notApplicable.M22", "mandatory-foundation (OW-05): profile \"desktop\" requires the foundation owner rightkit-agent-tools"];
+const failLines = (text) => text.split("\n").filter((line) => line.startsWith("FAIL "));
+test("`rightkit-gate check` and RightKit's own preflight pass on the instance with an empty baseline, but for the unratified M22 row", () => {
   const check = spawnSync(process.execPath, [path.join(here, "bin", "rightkit-gate.mjs"), "check", "--repo", instance(), "--commit", "HEAD"], { cwd: instance(), encoding: "utf8" });
-  assert.equal(check.status, 0, `${check.stdout}\n${check.stderr}`);
-  assert.match(check.stdout + check.stderr, /passed \d+ rules/);
+  assert.equal(check.status, 1, `${check.stdout}\n${check.stderr}`);
+  assert.deepEqual(failLines(check.stdout).map((line, i) => line.startsWith(`FAIL ${TEMPLATE_M22[i]}`)), [true, true], check.stdout);
   assert.doesNotMatch(check.stdout + check.stderr, /KNOWN|STALE/, "a fresh app carries no baseline");
   const result = spawnSync(process.execPath, [path.join(REPO, "scripts", "preflight.mjs"), "--repo", instance()], { encoding: "utf8" });
-  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-  assert.match(result.stdout + result.stderr, /passed \d+ rules/);
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+  assert.deepEqual(failLines(result.stdout).map((line, i) => line.startsWith(`FAIL ${TEMPLATE_M22[i]}`)), [true, true], result.stdout);
 });
 
 test("right-release doctor passes every files and host row on both platforms (only this machine's disk and tools may fail)", () => {
@@ -413,8 +417,9 @@ test("the JSON release config loader is stated as shipping in the first release 
 test("the template is gated for real: no fixture entry, no baseline entry, and its own advisory policy that mirrors RightKit's exceptions", () => {
   const gate = JSON.parse(readFileSync(path.join(REPO, "ci", "gate.config.json"), "utf8"));
   assert.ok(!gate.fixtures.some((dir) => dir === "desktop-app-template" || "desktop-app-template".startsWith(`${dir}/`)), "desktop-app-template must not be a gate fixture: rightkit-gate would skip its scans");
-  const baseline = readFileSync(path.join(REPO, "ci", "app-check-baseline.json"), "utf8");
-  assert.ok(!baseline.includes("desktop-app-template"), "the template has no baseline: it is clean");
+  const baseline = JSON.parse(readFileSync(path.join(REPO, "ci", "app-check-baseline.json"), "utf8"));
+  const templateEntries = Object.values(baseline.known).flat().filter((id) => id.includes("desktop-app-template"));
+  assert.deepEqual(templateEntries, ["mandatory-foundation|desktop-app-template/rightkit-mandatory.json|notApplicable:M22"], "the template's only baseline entries are its unratified M22 row (rightkit#994)");
   const ledger = JSON.parse(readFileSync(path.join(REPO, "ci", "advisory-exceptions.json"), "utf8"));
   const known = new Map(ledger.exceptions.map((e) => [e.id, e]));
   const deny = read("deny.toml");

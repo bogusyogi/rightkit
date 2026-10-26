@@ -161,6 +161,29 @@ impl CrashConfig {
         self
     }
 
+    /// Keep any sink already set and run `extra` after it on each report (used by
+    /// `init_diagnostics` to also write the report to the log).
+    #[cfg(feature = "diagnostics")]
+    pub(crate) fn then_sink(
+        mut self,
+        extra: impl Fn(&serde_json::Value) + Send + Sync + 'static,
+    ) -> Self {
+        let previous = self.sink.take();
+        self.sink = Some(ReportSink(Arc::new(move |value: serde_json::Value| {
+            if let Some(previous) = &previous {
+                (previous.0)(value.clone());
+            }
+            extra(&value);
+        })));
+        self
+    }
+
+    /// The process boundary declared with [`CrashConfig::process_kind`], if any.
+    #[cfg(all(test, feature = "diagnostics"))]
+    pub(crate) fn declared_kind(&self) -> Option<ProcessKind> {
+        self.process_kind
+    }
+
     /// This configuration without its sink (used by the hang watchdog, which reports through
     /// `HangOptions::on_hang` instead).
     pub(crate) fn without_sink(mut self) -> Self {

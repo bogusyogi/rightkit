@@ -3,7 +3,10 @@
 //! `rightapp-engine` sidecar: restart budget, per-call deadline, no replay of a timed-out call. The product's
 //! work lives in `crates/engine` behind the rightkit-job-queue contract. The data root comes from
 //! `rightapp_protocol::app_data_root`, which goes through `rightkit_daemon::mode` (nothing in the environment
-//! can move it in a release build).
+//! can move it in a release build). `services` registers the settings, legal-receipt, licence and HTTP owners under
+//! the shell's host caller policy.
+
+pub mod services;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -85,19 +88,23 @@ fn engine_path(app: &tauri::AppHandle) -> Result<PathBuf, Box<dyn std::error::Er
 const DEVICE_SERVICE: &str = "app.rightsuite.rightapp";
 const DEVICE_ACCOUNT: &str = "device-id";
 
+/// The app's credential store (namespace = bundle identifier): the device identity and the licence record.
+fn credential_store() -> Result<Store, String> {
+    let namespace = Namespace::new(DEVICE_SERVICE).map_err(|e| e.to_string())?;
+    Ok(Store::open(Config::new(namespace)))
+}
+
 /// Device identity lives in the OS credential store through `rightkit-credentials` (adapted by
 /// `rightkit-device`), so it survives profile wipes and is not a readable file. Read failures are errors,
 /// never absence.
-fn device_service() -> Result<DeviceService<CredentialStore>, String> {
-    let namespace = Namespace::new(DEVICE_SERVICE).map_err(|e| e.to_string())?;
-    let store = CredentialStore::new(Store::open(Config::new(namespace)), DEVICE_ACCOUNT)
-        .map_err(|e| e.to_string())?;
-    Ok(DeviceService::new(store))
+fn device_service(store: Store) -> Result<Arc<DeviceService<CredentialStore>>, String> {
+    let store = CredentialStore::new(store, DEVICE_ACCOUNT).map_err(|e| e.to_string())?;
+    Ok(Arc::new(DeviceService::new(store)))
 }
 
 #[tauri::command]
 fn device_get_or_create(
-    device: tauri::State<'_, DeviceService<CredentialStore>>,
+    device: tauri::State<'_, Arc<DeviceService<CredentialStore>>>,
 ) -> Result<String, String> {
     device.get_or_create().map_err(|e| e.to_string())
 }
@@ -137,6 +144,11 @@ pub fn run() {
         .build()
         .plugin();
     let builder = tauri::Builder::default().plugin(shell);
+    let store = credential_store().expect("credential store");
+    let device = device_service(store.clone()).expect("device identity store");
+    let license = services::license_setup(services::LICENSE.as_ref(), store, &data_root)
+        .and_then(|setup| services::license_client(setup, device.clone()))
+        .expect("licence client");
     // QA control never ships: this registration exists only in a `qa-native` build, which right-release refuses to seal.
     #[cfg(feature = "qa-native")]
     let builder = match rightkit_qa::embedded::Control::<tauri::Wry>::new().build_if_enabled() {
@@ -147,8 +159,14 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(device_service().expect("device identity store"))
+        .manage(device)
         .setup(move |app| {
+            // Settings, legal receipt and licence, under one caller policy (main window only). Installed before
+            // the log commands, which then ask the same policy.
+            services::host_services(&data_root, license)?.install(app.handle())?;
+            if let Some(http) = services::app_http(services::LICENSE.as_ref()) {
+                app.manage(http);
+            }
             let mut logs = LogsConfig::new(
                 "RightApp",
                 env!("CARGO_PKG_VERSION"),

@@ -5,46 +5,46 @@ The starting point of a Right Suite desktop app: a small, buildable skeleton of 
 every RightKit capability it uses is an exact pin from the published set (`packages/release/rightkit-versions.json` `registry`), and the app
 declares the whole desktop mandatory set (`packages/release/ownership-mandatory-set.json`, profile `desktop`) from its first commit.
 
-A freshly instantiated app passes, with an empty baseline: `rightkit-gate check` (the offline app rules; the published `@rightkit/release`
-has carried it since 0.6.5, bogusyogi/rightkit#1148), the files and host rows of `right-release doctor`, the pipeline scan,
+A freshly instantiated app passes, with an empty baseline: `rightkit-gate check` (the offline app rules, `pnpm check`; the published
+`@rightkit/release` has carried it since 0.6.5, bogusyogi/rightkit#1148), the files and host rows of `right-release doctor`, the pipeline scan,
 the release-switch scan, the Cargo, QA and legal contracts and `right-release ownership-mandatory --enforce`.
 `packages/release/template-contract.test.mjs` runs those evaluators on a fresh instance on every change to the template or to
 `right-release init`.
 
-**Pin sequencing.** The pin is the latest published `@rightkit/release`, 0.6.5: the registry check refuses a pin the registry does not
-have, the build refuses one behind its latest, and `template-contract.test.mjs` requires every pin to equal the published set. 0.6.5 has
-the `check` command but reads only `right-release.config.mjs`; the JSON release config is loaded by every command from 0.6.6, which is
-not published yet (this tree stages 0.6.7 on top of it, also unpublished). Until a release with it is published, run `right-release` from a RightKit checkout
-(`node <rightkit checkout>/packages/release/cli/right-release.mjs <command>`) instead of `pnpm release:*` and `pnpm dev:build:*`. The
-commit that records 0.6.7 in `rightkit-versions.json` (0.6.6 is staged under it) also moves this pin to 0.6.7 (with `pnpm-lock.yaml`, the lock hashes in
-`legal/THIRD_PARTY_NOTICES.md` and `legal/legal-manifest.json`) and deletes this paragraph (bogusyogi/rightkit#1148).
+**Pin sequencing.** The pin is the latest published `@rightkit/release`, 0.6.6: the registry check refuses a pin the registry does not
+have, the build refuses one behind its latest, and `template-contract.test.mjs` requires every pin to equal the published set. 0.6.6 has
+the `check` command (`pnpm check`), and the JSON release config is loaded by every command from 0.6.6, so `pnpm release:*` and
+`pnpm dev:build:*` run from the pinned package. This tree stages 0.6.7, which is not published yet. The commit that records 0.6.7 in
+`rightkit-versions.json` also moves this pin to 0.6.7 (with `pnpm-lock.yaml`, `minimumReleaseAgeExclude` and the lock hashes in
+`legal/THIRD_PARTY_NOTICES.md`) and deletes this paragraph.
 
 The committed `.githooks/pre-push` must be byte-identical to what the pinned release's `rightkit-gate install-hook` writes: `prepare`
 runs it, and it refuses to overwrite a differing hook, so a stale hook fails `pnpm install` in every app copied from the template.
 `template-contract.test.mjs` compares the hook with the sha256 recorded for the pin in `packages/release/fixtures/published-gate-hooks.json`
-(computed from the published tarball, so the test needs no network); 0.6.4 and 0.6.5 are recorded. The same commit that moves the pin
-to 0.6.6 adds the published 0.6.6 digest to that record (the file's `about` gives the command), regenerates this hook from the
-published 0.6.6 `hookText` when it differs, and the test then also requires this tree's `hookText` to match the recorded digest.
+(computed from the published tarball, so the test needs no network); 0.6.4, 0.6.5 and 0.6.6 are recorded (0.6.6 writes the same hook as
+0.6.5). A commit that moves the pin adds the new release's digest to that record (the file's `about` gives the command) and regenerates
+this hook from that release's `hookText` when it differs.
 
 **Installing inside the RightKit repository.** This directory sits inside RightKit's own git repository, so `prepare`
 (`rightkit-gate install-hook`) acts on the hooks at that repository's root, not on the template: it finds RightKit's own
 `.githooks/pre-push`, refuses to touch it and fails `pnpm install`. Install here with `pnpm install --ignore-scripts`, and never run
-`rightkit-gate install-hook --force` from this directory: it would replace RightKit's own pre-push hook. An app copied into its own
+`rightkit-gate install-hook --force` from this directory: it would replace RightKit's own pre-push hook. `pnpm check` here likewise checks RightKit's
+committed files, not the template's; `template-contract.test.mjs` runs `rightkit-gate check` on a fresh instance instead. An app copied into its own
 repository installs normally; delete this paragraph there.
 
 ## What is in it
 
 | Area | Files | What it does |
 |---|---|---|
-| Frontend | `src/`, `vite.config.ts`, `index.html` | `@rightkit/react-shell` `AppShell` (titlebar, caption controls, layout), `@rightkit/platform-ui`, `@rightkit/logs` renderer events, `@rightkit/app-update` update tiers, `@rightkit/tauri` + `@rightkit/tauri-shell` host adapters, `@rightkit/theme` brand tokens |
-| Shell (host) | `src-tauri/` | `rightkit-tauri-shell` hosts the window (hardened webview, window state, single instance, tray and menu hooks, renderer log commands); `rightkit-device` keeps the device identity in the OS credential store; `rightkit-crash` installs the process hook first |
+| Frontend | `src/`, `vite.config.ts`, `index.html` | `@rightkit/react-shell` `AppShell` (titlebar, caption controls, layout), `@rightkit/platform-ui`, `@rightkit/logs` renderer events, `@rightkit/app-update` update tiers, `@rightkit/tauri` + `@rightkit/tauri-shell` host adapters, `@rightkit/theme` brand tokens; first run (`src/Setup.tsx`: `@rightkit/onboarding`, `@rightkit/legal-ui`, `@rightkit/legal`), Settings (`@rightkit/settings-ui`), licence (`@rightkit/license`), all over the shell's host services (`src/lib/services.ts`) |
+| Shell (host) | `src-tauri/` | `rightkit-tauri-shell` hosts the window (hardened webview, window state, single instance, tray and menu hooks, renderer log commands) and registers the settings, legal-receipt and licence services under one caller policy (`src/services.rs`); `rightkit-device` keeps the device identity in the OS credential store; `rightkit-crash` installs the process hook first |
 | Supervisor | `src-tauri/src/lib.rs` (`engine_config`, `engine_call`) | `rightkit-job-queue` `EngineSupervisor` owns the engine sidecar: restart budget, per-call deadline, no replay of a timed-out call |
 | Engine + CLI | `crates/engine`, `crates/protocol` | the engine serves the `rightkit-job-queue` contract (one command table for `--stdio` frames and the one-shot CLI); `rightapp-protocol` holds the app id, method names and the data root |
 | Release | `right-release.config.json`, `package.json` scripts | JSON-only release config (M24): declarative `winPackage` / `macPackage` recipes, `sidecars` staging, dev installers, `legal`, `qa`. No script, no `.mjs` config |
 | Legal | `legal/`, `legal-snapshot.config.json`, `src/generated/legal-contract.json` | the six legal documents, the generated manifest and acceptance contract, passing the release legal contract (M12, M14) |
 | QA | `rightkit-qa.toml`, `journeys.toml`, `tests/scenarios/`, `src-tauri/tests/` | declared user journeys run against the real built app on isolated data (M20, M25); every Rust test is tagged `// rk-test: pure` or `contract` |
 | Switches | `switches.json` | the release switch inventory (M23): every environment read in the sources, with the build feature that compiles it out |
-| Gate | `.githooks/pre-push`, `prepare` script | `rightkit-gate` runs before every push; `pnpm install` installs the hook (A-16) |
+| Gate | `.githooks/pre-push`, `prepare` and `check` scripts | `rightkit-gate check` then the gate run before every push; `pnpm install` installs the hook (A-16); `pnpm check` runs the offline app rules on demand |
 | Line endings | `.gitattributes` | LF in every checkout, Windows included: the legal documents are hashed byte for byte, `Cargo.lock` and `pnpm-lock.yaml` are held by `--locked`, and the hook runs under `sh` |
 | Mandatory set | `rightkit-mandatory.json`, `.rightkit/ownership-exceptions.json` | the desktop profile declaration and an empty exception ledger |
 | Advisory policy | `deny.toml`, `.cargo/audit.toml` | cargo-deny and cargo-audit policy; the ignores mirror RightKit's `ci/advisory-exceptions.json` |
@@ -52,9 +52,9 @@ repository installs normally; delete this paragraph there.
 
 ## Foundation owners
 
-Every desktop row of the mandatory set is declared, so a new app starts complete. Most owners are wired in code; five groups are
-**declared only**, because wiring them needs an app decision (a registered licence key and host) or a trust root that does not exist yet.
-They are listed in `placeholders.json` `declaredOnly` with what each is blocked on, and the template contract test fails the moment one of them is wired but still listed.
+Every desktop row of the mandatory set is declared, so a new app starts complete, and every owner except the database is wired in
+code. `rightkit-db` is **declared only** until the engine has product state; it is listed in `placeholders.json` `declaredOnly`, and the
+template contract test fails the moment it is wired but still listed.
 
 | Rows | Owner | State |
 |---|---|---|
@@ -68,14 +68,15 @@ They are listed in `placeholders.json` `declaredOnly` with what each is blocked 
 | M18 | `@rightkit/app-update` | wired (`src/lib/updates.ts`) |
 | M19 | `@rightkit/release` | wired (config, scripts) |
 | M20 | `rightkit-qa`, `@rightkit/qa`, `@rightkit/qa-chrome` | wired (`qa-native` feature, journeys) |
+| M10 | `rightkit-app-settings`, `@rightkit/settings-ui` | wired: the settings document under the data root behind the shell's `rightkit_settings_*` commands (`src-tauri/src/services.rs`), the Settings view (`src/App.tsx`) |
+| M14 | `@rightkit/legal`, `@rightkit/legal-ui`, `@rightkit/onboarding` | wired: the first-run agreement gate (`src/Setup.tsx`) records the acceptance in the shell's native legal receipt, which checks it against the generated manifest and contract compiled into the shell and stamps the time itself |
+| M12, M13 | `rightkit-license`, `@rightkit/license` | wired: the native licence client behind the `rightkit_license_*` commands, the onboarding licence step and the Settings licence section. Disabled (`mode: disabled`, no network) until the app sets `LICENSE` in `src-tauri/src/services.rs` to its registered appKey, host and public key (bogusyogi/rightkit#272) |
+| M17 | `rightkit-http` | wired: `AppHttp`, the app's first-party client pinned to the licence host (HTTPS only); none while licensing is disabled |
 | M9 | `rightkit-db` | **declared only** (the engine opens no database yet) |
-| M10 | `rightkit-app-settings`, `@rightkit/settings-ui` | **declared only** |
-| M12, M13 | `rightkit-license`, `@rightkit/license` | **declared only** (needs a registered appKey, host and key) |
-| M14 | `@rightkit/legal-ui`, `@rightkit/onboarding` | **declared only** (the legal contract is generated and checked; no acceptance UI or receipt yet) |
-| M17 | `rightkit-http` | **declared only** |
 | M22 | `rightkit-agent-tools` | not applicable: the template has no agent surface (`rightkit-mandatory.json`); an app adds it only when it ships agent tools |
 
-Wiring the declared-only owners is tracked in bogusyogi/rightkit#1147; do it per app when the app has the feature.
+Journeys J-002 and J-003 drive the first run (gate, receipt, settings, licence status, relaunch) in the real app; the shell's
+`services` tests hold the receipt, settings and HTTP rules without a window.
 
 ## Who supervises, who hosts
 

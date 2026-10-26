@@ -58,7 +58,7 @@ echo "shot:    $("$CALL" "$T/suite" control-ct right-qa screenshot)"
 assert_hidden_window
 assert_eval 'return !document.hasFocus() && document.visibilityState === "hidden";' HIDDEN_NONFOCUSED_PAGE
 # Repeat from a non-key state to exclude the intermittent key-window success case.
-for run in 1 2 3; do
+for _ in 1 2 3; do
   call eval '{"js":"window.__state.scrubEvents=[];return true;"}' >/dev/null
   coords=$(call eval '{"js":"const r=document.getElementById(\"scrub\").getBoundingClientRect();return [r.x+20,r.y+r.height/2,r.x+340];"}')
   read -r x1 y x2 <<COORDS
@@ -99,12 +99,14 @@ assert_hidden_window
 echo "shot-masked: $("$CALL" "$T/suite" control-ct right-qa screenshot | grep -o '"masked":[0-9]*')"
 echo "restored:    $("$CALL" "$T/suite" control-ct right-qa eval '{"js":"return getComputedStyle(document.getElementById(\"pw\")).visibility;"}')"
 "$CALL" "$T/suite" control-ct right-qa eval '{"js":"window.__state.keys.length=0;document.body.focus();return 1;"}' >/dev/null
-for k in up down left right home end pageup pagedown forwarddelete f1 f12 comma cmd+,; do "$CALL" "$T/suite" control-ct right-qa key "{\"key\":\"$k\"}" >/dev/null; done
+for k in up down left right home end pageup pagedown forwarddelete f1 f12 comma 'cmd+,'; do "$CALL" "$T/suite" control-ct right-qa key "{\"key\":\"$k\"}" >/dev/null; done
 KEYS=$("$CALL" "$T/suite" control-ct right-qa eval '{"js":"return window.__state.keys.join(\" \");"}')
 echo "named keys: $KEYS"
+# shellcheck disable=SC2015  # each A && B is a test, so the || branch runs exactly when a requirement is missing
 echo "$KEYS" | grep -q "ArrowUp ArrowDown ArrowLeft ArrowRight Home End PageUp PageDown Delete F1 F12 , ,+cmd" && echo NAMED_KEYS_OK || { echo NAMED_KEYS_WRONG; exit 1; }
 echo "unlisted app:$("$CALL" "$T/suite" control-ct someone-else health || true)"
 echo "unlisted method: $("$CALL" "$T/suite" control-ct right-qa nope || true)"
+# shellcheck disable=SC2015  # each A && B is a test, so the || branch runs exactly when a requirement is missing
 [ "$FRONT0" = "$("$BIN/rightkit-qa-driver" frontmost)" ] && [ ! -f "$T/frontmost-changed" ] && echo FRONTMOST_UNCHANGED || { echo FRONTMOST_CHANGED; exit 1; }
 kill "$PID"; PID=; sleep 1
 "$CALL" "$T/suite" control-ct right-qa health || true

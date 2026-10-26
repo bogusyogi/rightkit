@@ -27,10 +27,10 @@ const problems = (found) => found.map((f) => f.problem);
 
 // ---- registry ------------------------------------------------------------------------------------------------------------------
 
-test("the four CA-13 rules run last in the app check, and an app without a declaration has nothing to check", () => {
+test("the four CA-13 rules run after Legion's semantic contracts, before source-closure and the ownership rules, and an app without a declaration has nothing to check", () => {
   assert.deepEqual(CONSUMER_POLICY_RULES.map((r) => `${r.id}:${r.gap}`), IDS.map((id) => `${id}:CA-13`));
   assert.ok(Object.isFrozen(CONSUMER_POLICY_RULES));
-  assert.deepEqual(RULES.slice(-4).map((r) => r.id), IDS);
+  assert.deepEqual(RULES.slice(-7, -3).map((r) => r.id), IDS);
   for (const id of IDS) assert.deepEqual(run(id, { "src/a.ts": "export const vendure = 1;\n" }), []);
 });
 

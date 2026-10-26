@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { addDays } from "../packages/release/app-check.mjs";
-import { cargoPackage, lockPathPackages, main, RULES, runRules } from "./preflight.mjs";
+import { cargoPackage, lockPathPackages, looksBinary, main, RULES, runRules } from "./preflight.mjs";
 
 const tree = (t, files) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-preflight-test-"));
@@ -67,7 +67,7 @@ test("a rule that throws is a FAIL, never a pass", (t) => {
 });
 
 test("every rule names its scan-gap family or the invariant it enforces", () => {
-  for (const rule of RULES) assert.match(rule.gap, /^(G\d{2}|P\d+|SC-R\d|C3-\d{2})$/, rule.id);
+  for (const rule of RULES) assert.match(rule.gap, /^(G\d{2}|P\d+|SC-R\d|C3-\d{2}|SF-\d{2}|OW-\d{2}|CA-\d{2}|LG-\d{2})$/, rule.id);
 });
 
 // ---- regression fixtures from tonight's refusals, built from this checkout's real recipe data -----------------------------
@@ -210,6 +210,107 @@ test("G01 recipe rules do not apply to an app: no recipe inventory or version fe
   assert.deepEqual(runRules({ root, files: [], only: ["consumer-recipe", "npm-recipe"] }).failures, []);
 });
 
+// ---- G25 and G26: what only a Windows or a macOS runner showed ---------------------------------------------------------------------
+// Both police RightKit's own tree: they switch on scripts/preflight.mjs being committed, so an app checked from here stays quiet.
+const RIGHTKIT = { "scripts/preflight.mjs": "// the file that makes this tree RightKit's\n" };
+// The Right Suite API projections as .gitattributes pinned them when rightkit#1175 added the Swift one: four of five.
+const SUITE_PINS = ["/contracts/right-suite-api.v1.json", "/crates/rightkit-license/src/suite_api_generated.rs", "/packages/app-update/src/suite-api.generated.ts", "/packages/release/suite-api.generated.mjs"].map((f) => `${f} text eol=lf\n`).join("");
+const SWIFT_PROJECTION = "swift/RightKitSwift/Sources/RightKitLicense/RightSuiteAPI.generated.swift";
+
+test("G25: a text file whose line ending is left to the host is refused (the Swift Right Suite API projection of rightkit#1175); one default pin removes the class", (t) => {
+  const suite = { ...RIGHTKIT, "contracts/right-suite-api.v1.json": "{}\n", "crates/rightkit-license/src/suite_api_generated.rs": "pub const A: u32 = 1;\n", "packages/app-update/src/suite-api.generated.ts": "export const A = 1;\n", "packages/release/suite-api.generated.mjs": "export const A = 1;\n", [SWIFT_PROJECTION]: "// generated\npublic enum RightSuiteAPI {}\n" };
+  // These two lines pin the files the fixture itself needs, so the Swift projection is the only text file left to the host.
+  const historical = tree(t, { ...suite, ".gitattributes": `${SUITE_PINS}/.gitattributes text eol=lf\n/scripts/preflight.mjs text eol=lf\n` });
+  const red = runRules({ ...historical, only: ["eol-pinned"] }).failures;
+  assert.equal(red.length, 1);
+  assert.match(red[0].problem, new RegExp(`^1 tracked text file\\(s\\) have no pinned line ending: .*\\(${SWIFT_PROJECTION.replaceAll(".", "\\.")}\\)$`));
+  assert.match(red[0].fix, /make `\* text=auto eol=lf` the first line of \.gitattributes/);
+  // The repository's answer: one default for every text file, so the next generated file needs no line of its own.
+  const fixed = tree(t, { ...suite, ".gitattributes": `* text=auto eol=lf\n${SUITE_PINS}` });
+  assert.deepEqual(runRules({ ...fixed, only: ["eol-pinned"] }).failures, []);
+});
+
+test("G25: -text, eol=crlf, binary files and files without a line break do not depend on the host; text-set, vendored and unpinned files do", (t) => {
+  const { root, files } = tree(t, {
+    ...RIGHTKIT,
+    ".gitattributes": "/.gitattributes text eol=lf\n/scripts/preflight.mjs text eol=lf\n/kept.txt -text\n/run.cmd text eol=crlf\n/notes.md text\n",
+    "kept.txt": "bytes\r\nkept\r\n", // -text: git converts nothing, on any host
+    "run.cmd": "@echo off\r\n", // eol=crlf: the same conversion on every host
+    "image.bin": "\0\0\u0089PNG\r\n\0", // binary by content
+    "one-line.json": '{"a":1}', // no line break, so nothing to convert
+    "empty.txt": "",
+    "notes.md": "text is set, eol is not\n", // the host decides
+    "vendor/lib/a.txt": "vendored bytes are the ones that get hashed\n",
+    "node_modules/x/b.txt": "installed, not tracked\n",
+  });
+  const [failure, ...rest] = runRules({ root, files, only: ["eol-pinned"] }).failures;
+  assert.equal(rest.length, 0);
+  assert.match(failure.problem, /^2 tracked text file\(s\) have no pinned line ending: .*\(notes\.md, vendor\/lib\/a\.txt\)$/);
+});
+
+test("G25 and G26 stay quiet on a repository that is not RightKit's; looksBinary is git's own test", (t) => {
+  const { root, files } = tree(t, { "src/a.txt": "no attributes at all\n", "src/a.test.mjs": "const app = tempDir(t);\nassert.equal(f(), path.join(app, 'x'));\nrealpathSync(app);\n" });
+  assert.deepEqual(runRules({ root, files, only: ["eol-pinned", "tmpdir-realpath"] }).failures, []);
+  assert.equal(looksBinary(Buffer.from("plain\r\ntext\n")), false);
+  assert.equal(looksBinary(Buffer.from("tab\tand é as utf-8\n")), false);
+  assert.equal(looksBinary(Buffer.from("a\0b")), true, "a NUL");
+  assert.equal(looksBinary(Buffer.from("a\rb")), true, "a lone CR");
+  assert.equal(looksBinary(Buffer.alloc(300, 1)), true, "mostly non-printable bytes");
+});
+
+const OUTDATED_TEST = "packages/release/outdated-command.test.mjs";
+// packages/release/outdated-command.test.mjs at 8e14bf6d (before #1187), its first test verbatim but for how `app` is bound. Every fixture
+// line starts with "|", stripped here, so none of them reads as a test( of this file.
+const outdatedTest = (bind) => `
+|import assert from "node:assert/strict";
+|import { realpathSync } from "node:fs";
+|import path from "node:path";
+|import test from "node:test";
+|import { findOutdatedPackage, resolveOutdatedBin } from "./outdated-command.mjs";
+|
+|test("npm-flat layout: the updater installed beside @rightkit/release is found and run with the caller's arguments and cwd", (t) => {
+|  const app = ${bind};
+|  installRelease(path.join(app, "node_modules", "@rightkit", "release"));
+|  installOutdated(path.join(app, "node_modules", "@rightkit", "outdated"));
+|  const releaseDir = path.join(app, "node_modules", "@rightkit", "release");
+|  assert.equal(findOutdatedPackage(releaseDir), path.join(app, "node_modules", "@rightkit", "outdated"));
+|  assert.equal(resolveOutdatedBin(releaseDir), path.join(app, "node_modules", "@rightkit", "outdated", "dist", "bin.js"));
+|  const ok = runCli(releaseDir, ["update", "run", "--repo", "r with space", "--dry-run"], app);
+|  assert.equal(ok.status, 0, ok.stderr);
+|  assert.deepEqual(JSON.parse(ok.stdout), { args: ["run", "--repo", "r with space", "--dry-run"], cwd: realpathSync(app) });
+|});
+`.replace(/^\|/gm, "");
+
+test("G26: a temp directory passed to realpath and also compared unresolved is refused (outdated-command.test.mjs before #1187); resolving it where it is made passes", (t) => {
+  const source = outdatedTest("tempDir(t)");
+  const line = source.split("\n").findIndex((l) => l.includes("assert.equal(findOutdatedPackage")) + 1;
+  const red = run("tmpdir-realpath", t, { ...RIGHTKIT, [OUTDATED_TEST]: source });
+  assert.equal(red.length, 1);
+  assert.match(red[0].problem, new RegExp(`^${OUTDATED_TEST.replaceAll(".", "\\.")}:${line} compares app, a temp directory this test keeps unresolved, although the same test passes app to realpath`));
+  assert.equal(red[0].identity, `tmpdir-realpath|${OUTDATED_TEST}|app`);
+  assert.match(red[0].fix, /bind app to realpathSync\(\.\.\.\) where the test creates it/);
+  // #1187's fix, and the same thing spelled the other ways it can be spelled.
+  for (const bind of ["realpathSync(tempDir(t))", "fs.realpathSync(mkdtempSync(path.join(os.tmpdir(), 'x-')))", "await realpath(tmp())"]) {
+    assert.deepEqual(run("tmpdir-realpath", t, { ...RIGHTKIT, [OUTDATED_TEST]: outdatedTest(bind) }), [], bind);
+  }
+});
+
+test("G26 reports only the contradiction: a nested call, a derived path, a test that never resolves it and another test's directory are not it", (t) => {
+  const block = (name, ...lines) => [`test("${name}", (t) => {`, ...lines.map((l) => `  ${l}`), "});"].join("\n");
+  const subjects = (...tests) => run("tmpdir-realpath", t, { ...RIGHTKIT, "a.test.mjs": tests.join("\n") }).map((f) => f.subject);
+  // disk-command.test.mjs: the directory is inside existsSync(...), not an operand of the assertion.
+  assert.deepEqual(subjects(block("nested", "const mount = tempDir(t);", "const real = realpathSync(mount);", 'assert.equal(existsSync(path.join(mount, "x")), false);')), []);
+  // disk-command.test.mjs: `target` comes from another call, so it is not known to be an unresolved temp root.
+  assert.deepEqual(subjects(block("derived", "const base = tempDir(t);", "const target = installedPackage(base);", "realpathSync(target);", "assert.equal(resolveInstalledCli(base), target);")), []);
+  // The assertion resolves the expected side too.
+  assert.deepEqual(subjects(block("both sides", "const app = tempDir(t);", 'assert.equal(realpathSync(find(app)), realpathSync(path.join(app, "x")));')), []);
+  // One test resolves its directory; another, with its own binding, compares without resolving.
+  assert.deepEqual(subjects(block("resolves", "const app = tempDir(t);", "realpathSync(app);"), block("echoes", "const app = tempDir(t);", 'assert.equal(echo(app), path.join(app, "x"));')), []);
+  // The contradiction itself, with let, a qualified realpath, a bare operand and an object operand.
+  assert.deepEqual(subjects(block("let", "let dir = tmpDir();", "fs.realpathSync(dir);", "assert.equal(found.dir, dir);")), ["dir"]);
+  assert.deepEqual(subjects(block("object", "const app = mkdtempSync(path.join(os.tmpdir(), 'x-'));", "realpathSync.native(app);", 'assert.deepEqual(result, { dir: path.resolve(app, "y") });')), ["app"]);
+});
+
 // ---- the thin caller: app-check.mjs's rules and ratchet, behind this file's command line and RightKit's own baseline ---------------
 // The rule, export and baseline tests are packages/release/app-check.test.mjs. These run them through scripts/preflight.mjs.
 const appRepo = (t, files) => {
@@ -256,7 +357,7 @@ test("preflight checks an app with its own .rightkit/app-check-baseline.json the
   const result = await preflight(["--repo", repo, "--commit", "HEAD"], { now: new Date(`${addDays("2026-10-24", 7)}T12:00:00Z`) });
   assert.equal(result.code, 0, result.text);
   assert.match(result.text, /^KNOWN qa-platform: tests\/q\.rs:1 /m);
-  assert.match(result.text, /passed 36 rules .*\(1 known finding\(s\) in \.rightkit\/app-check-baseline\.json/);
+  assert.match(result.text, /passed 58 rules .*\(1 known finding\(s\) in \.rightkit\/app-check-baseline\.json/);
 });
 
 // ---- the shell contract (packages/release/shell-contract.mjs) runs here and is ratcheted like G13-G21 -----------------------
@@ -267,8 +368,10 @@ const SHELL_ID = "shell-window-hidden|src-tauri/tauri.conf.json|base:main";
 test("shell contract: --list shows the nine rules after speech-link, in order, with their SC-R gap ids", async () => {
   const listed = await preflight(["--list"]);
   assert.equal(listed.code, 0);
-  assert.deepEqual(listed.lines.slice(-9), SHELL_RULES.map((id, i) => `${id} (SC-R${i + 1})`));
-  assert.deepEqual(RULES.slice(-9).map((r) => r.id), SHELL_RULES);
+  // The sealed source-closure rule (SF-01) and the two ownership class rules (OW-05, OW-06) follow the consumer contracts (CA-xx, then the input contracts CA-07/09/11, then the source contracts CA-04/07/08, then Legion's semantic contracts LG-02..05, then the consumer policy rules CA-13), which follow the shell contract.
+  assert.deepEqual(listed.lines.slice(-32, -23), SHELL_RULES.map((id, i) => `${id} (SC-R${i + 1})`));
+  assert.deepEqual(RULES.slice(-32, -23).map((r) => r.id), SHELL_RULES);
+  assert.deepEqual(listed.lines.slice(-11, -7), ["legion-schema-projection (LG-02)", "legion-legacy-tokens (LG-03)", "legion-retirement-ledger (LG-04)", "legion-authority-body (LG-05)"]);
 });
 
 test("shell contract: a finding FAILs, is KNOWN when its identity is in the baseline, and is STALE once the app is fixed", async (t) => {
@@ -302,16 +405,22 @@ test("shell contract: --print-baseline prints the identities of the shell findin
 
 test("preflight keeps its rule order: the app rules sit where they always did among RightKit's own", () => {
   assert.deepEqual(RULES.map((r) => `${r.id} (${r.gap})`), [
-    "eol-policy (G04)", "consumer-recipe (G01)", "npm-recipe (G01)", "npm-surface (G02)", "version-pins (G03)", "dispatch-pins (G05)", "consumer-locks (G08)", "file-url (G12)", "generated-docs (G10)", "retired-alias (P11)",
+    "eol-policy (G04)", "eol-pinned (G25)", "consumer-recipe (G01)", "npm-recipe (G01)", "npm-surface (G02)", "version-pins (G03)", "feed-legacy (G27)", "dispatch-pins (G05)", "consumer-locks (G08)", "file-url (G12)", "generated-docs (G10)", "tmpdir-realpath (G26)", "retired-alias (P11)",
     "qa-platform (G13)", "test-harness (G14)", "scenario-skip (G15)", "release-config (G16)", "skip-checks (G17)", "qa-dev-server (G18)", "ffmpeg-release-escape (G19)", "switches-inventory (G20)", "speech-link (G21)", "e2e-under-cargo-test (G22)", "suite-key-literal (C3-04)", "suite-updater-key (C3-14)", "engine-record-store (C3-05)",
     "shell-window-hidden (SC-R1)", "shell-plugin-order (SC-R2)", "shell-handler (SC-R3)", "shell-csp (SC-R4)", "shell-grants (SC-R5)", "qa-window-label (SC-R6)", "devtools-declaration (SC-R7)", "shell-lifecycle-external (SC-R8)", "legal-receipt-native (SC-R9)",
+    "release-config-identity (CA-01)", "pnpm-node-floor (CA-05)", "rust-dependency-msrv (CA-05)", "release-age (CA-06)", "notice-lock-digest (CA-14)", "doc-comment-bare-cr (CA-15)",
+    "checkout-step-input (CA-07)", "source-relation (CA-09)", "checkout-longpaths (CA-11)",
+    "workflow-action-pair (CA-04)", "referenced-input (CA-07)", "caddy-global-options (CA-08)",
+    "legion-schema-projection (LG-02)", "legion-legacy-tokens (LG-03)", "legion-retirement-ledger (LG-04)", "legion-authority-body (LG-05)",
+    "retired-token (CA-13)", "route-deny-policy (CA-13)", "layer-reach (CA-13)", "spec-route-parity (CA-13)",
+    "source-closure (SF-01)", "mandatory-foundation (OW-05)", "ownership-exceptions (OW-06)",
   ]);
 });
 
 test("ratchet: this checkout's baseline keys one entry per repository with known debt", () => {
   const baseline = JSON.parse(fs.readFileSync(new URL("../ci/app-check-baseline.json", import.meta.url), "utf8"));
   assert.equal(baseline.schema, 1);
-  assert.deepEqual(Object.keys(baseline.known).sort(), ["coderight", "cutright", "genright", "heardright", "mailright", "postright", "rightkit", "scraperight", "viewright"], "one entry per repository with known debt; apps with none are absent");
+  assert.deepEqual(Object.keys(baseline.known).sort(), ["mailright", "rightkit"], "one entry per repository with known debt and no baseline of its own; apps with none, or with their own .rightkit/app-check-baseline.json, are absent");
 });
 
 test("scripts/retire-rightkit-alias.mjs still finds what it takes from preflight: the exempt list, the generated-file test and the rewrite", async () => {

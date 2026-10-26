@@ -47,8 +47,34 @@
 //   devtools-declaration     SC-R7  the five DevTools declaration sites (config, allow-list, Cargo feature, ACL manifest, runtime policy) disagree
 //   shell-lifecycle-external SC-R8  lifecycle_only() in an app that also opens an external webview (hardening and navigation policy are off)
 //   legal-receipt-native     SC-R9  an Onboarding legal gate whose receipt is not the native service
-// Consumer semantic policy (consumer-policy.mjs, CONSUMER_POLICY_RULES, appended last) reads an app's own declared contracts from
+// The consumer input contracts (consumer-input-contracts.mjs, CONSUMER_INPUT_RULES, appended after the shell contract) read workflow YAML,
+// JSON and Markdown as data for inputs a committed tree declares but a later step cannot reach:
+//   checkout-step-input      CA-07  a workflow step reads a tracked path its job's cone-mode sparse checkout does not materialize
+//   source-relation          CA-09  a value in one committed file names a row another committed file does not have (SOURCE_RELATIONS
+//                                   plus an app's .rightkit/source-relations.json)
+//   checkout-longpaths       CA-11  a GitHub-hosted Windows job checks out tracked paths over the Win32 limit without Git long paths
+// Legion's semantic catalog and provenance contracts (legion-semantic-contracts.mjs, LEGION_SEMANTIC_RULES, after the consumer source contracts; each
+// applies only to a tree holding its Legion producer or data file):
+//   legion-schema-projection LG-02  a schema Legion's generator byte-compares that .gitattributes leaves to eol conversion, or whose
+//                                   enum is not the code-owned Rust list it projects
+//   legion-legacy-tokens     LG-03  a legacy token in a path or file that src/config/naming-legacy-allowlist.json does not classify
+//                                   with its exact occurrence count
+//   legion-retirement-ledger LG-04  a ledger-surface file deleted after c1d80c9d with no docs/provenance/retirements.md row
+//   legion-authority-body    LG-05  an agent card without its doctrine (and, for a variant, roster) body verbatim
+// Consumer semantic policy (consumer-policy.mjs, CONSUMER_POLICY_RULES, after Legion's semantic contracts) reads an app's own declared contracts from
 // .rightkit/consumer-policy.json, as data: retired-token, route-deny-policy, layer-reach and spec-route-parity (CA-13).
+// Sealed source closures (source-closure-rules.mjs, SOURCE_CLOSURE_RULES, after the shell contract):
+//   source-closure           SF-01  a committed JSON record { sourceClosure: { sources: { path: sha256 }, digest } } whose sources are
+//                                   missing or changed since sealing, or whose digest does not cover them (normalised digests are
+//                                   declared in .rightkit/source-closures.json)
+// The ownership class rules (ownership-class-rules.mjs, OWNERSHIP_CLASS_RULES, appended last; code is placed by class, never by
+// consumer count):
+//   mandatory-foundation     OW-05  an app (root rightkit-mandatory.json, or a release config that ships a desktop app) whose profile
+//                                   requires a foundation owner (ownership-mandatory-set.json) it does not use, that selects an unknown
+//                                   or unratified profile, that has no declaration, or that excuses a row without a ratified ruling
+//   ownership-exceptions     OW-06  a .rightkit/ownership-exceptions.json entry without capability, package, reason, owner, approvedBy,
+//                                   date, expires and a RightKit issue, past its expires date (never baselineable), or that no
+//                                   ratified ruling (appAmendments.<app>.exceptions) covers
 //
 // Ratchet: findings that exist today may be listed so they print as KNOWN and do not fail; an unlisted finding fails; a listed
 // identity (`${rule}|${file}|${subject}`, no line numbers) that is gone fails as STALE, so the list only shrinks. The baseline is
@@ -69,7 +95,13 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { LEGION_SEMANTIC_RULES } from "./legion-semantic-contracts.mjs";
+import { CONSUMER_INPUT_RULES } from "./consumer-input-contracts.mjs";
+import { CONSUMER_CONTRACT_RULES } from "./consumer-contracts.mjs";
+import { OWNERSHIP_CLASS_RULES } from "./ownership-class-rules.mjs";
+import { SOURCE_CLOSURE_RULES } from "./source-closure-rules.mjs";
 import { SHELL_CONTRACT_RULES } from "./shell-contract.mjs";
+import { CONSUMER_SOURCE_RULES } from "./consumer-source-contracts.mjs";
 import { CONSUMER_POLICY_RULES } from "./consumer-policy.mjs";
 import { engineRecordStore, suiteKeyLiteral, suiteUpdaterKey } from "./suite-trust-roots.mjs";
 
@@ -535,16 +567,22 @@ function speechLink({ root, files }) {
 // RustRight client as `rustright cargo`, or as `rightkit` while the retired alias lasts) run the test binary or the program inside the
 // broker job, which holds the compile slot for the whole run (Pulse, 2026-10-23: 55 minutes with 15 builds queued) and has no GUI
 // session or unscrubbed environment a real-app test needs. The fix is `--no-run` to compile and `rightkit-qa run-tests` to run
-// outside the broker (crates/rightkit-qa/docs/run-tests.md). Found from files alone, in three steps:
+// outside the broker (crates/rightkit-qa/docs/run-tests.md); for `cargo run`, which has no --no-run, `cargo build --bin` in the broker and the
+// built binary outside it (or `rightkit-qa journeys run`); for a whole-workspace run, also leaving the crate out (--exclude).
+// Found from files alone, in three steps:
 //   1. the end-to-end crates: a Cargo package that depends on rightkit-qa not optionally (the optional dependency is the in-app control
 //      server behind a qa-native / dev-control feature) and has a .rs file, outside examples/, that names a driver module of it;
 //   2. the commands: `cargo test|run|nextest` in a package.json script, a shell, PowerShell, batch, Node or Python script, a Makefile
 //      or justfile recipe, a GitHub workflow `run:` step, a git hook, or a code span of a runbook document;
 //   3. the selection: a command that is not `--no-run` or a rightkit-qa run-tests / journeys run, and names an end-to-end crate by
-//      -p / --package, --manifest-path, --workspace / --all (a member of the workspace in the working directory), --test or --bin.
+//      -p / --package, --manifest-path, --workspace / --all (a member of the workspace in the working directory), --test or --bin, or by
+//      naming nothing in a virtual workspace (`cargo test`, `cargo test --manifest-path Cargo.toml`: every member, or the default-members).
 // Known limits, deliberate for an offline check: no cargo binary (a path dependency that cargo adds to a workspace implicitly is not
 // a member here), a command assembled from variables is matched on its literal text only, a package.json script that calls another
-// script is judged where the cargo text is, a cargo alias (`cargo t`) is not matched, and a bare `cargo test` selects nothing.
+// script is judged where the cargo text is, a cargo alias (`cargo t`) is not matched, and a bare `cargo test` selects nothing unless the
+// directory's manifest is a virtual workspace (a [workspace] with no [package]): there it tests every member, or the default-members.
+// A code span of a runbook that is only the command (no argument) is a mention unless it is told to be run (INSTRUCTION_VERB), and a PowerShell
+// `<# #>` block is a comment: the same command in a fenced block, a script, a package.json script, a recipe, a workflow or a hook is a command line.
 const E2E_DRIVER_MODULES = new Set(["harness", "control", "suite", "scenario", "engine", "in_app", "interactive", "page", "browser", "android"]);
 const E2E_GUARD_TARGET = "qa_surface_guard"; // the one test target of an end-to-end crate that only runs the static guard
 const E2E_NAME_ONLY = /-e2e$|^qa-/; // a name is not evidence: crates that match only this are listed for a reviewer by e2eCrates()
@@ -558,12 +596,12 @@ const uncomment = (line) => line.replace(/^\s*#.*$/, "").replace(/\s+#.*$/, "");
 
 /**
  * What the end-to-end check reads from a Cargo manifest, literal values only: the package name, whether it holds a [workspace] and its
- * members and exclude, the dependencies of [dependencies], [dev-dependencies] and their [target.*] tables (inline, dotted-key and
+ * members, exclude and default-members (null when it declares none), the dependencies of [dependencies], [dev-dependencies] and their [target.*] tables (inline, dotted-key and
  * `[dependencies.name]` forms, each with optional, package and workspace), [workspace.dependencies] as key -> package, and the
  * [[test]] and [[bin]] tables. Build dependencies are not dependencies of the tests.
  */
 function parseCargoManifest(text) {
-  const manifest = { name: null, workspace: false, members: [], exclude: [], dependencies: [], workspaceDependencies: new Map(), tests: [], bins: [] };
+  const manifest = { name: null, workspace: false, members: [], exclude: [], defaultMembers: null, dependencies: [], workspaceDependencies: new Map(), tests: [], bins: [] };
   const entries = new Map();
   const dependency = (table, key) => {
     const id = `${table}\0${key}`;
@@ -613,10 +651,11 @@ function parseCargoManifest(text) {
         if (key === "name" && attribute === undefined) manifest.name = tomlStrings(value)[0] ?? null;
         break;
       case "workspace":
-        if ((key === "members" || key === "exclude") && attribute === undefined) {
+        if ((key === "members" || key === "exclude" || key === "default-members") && attribute === undefined) {
           let list = value;
           if (list.startsWith("[")) while (!list.includes("]") && i + 1 < lines.length) list += ` ${uncomment(lines[++i])}`;
-          manifest[key].push(...tomlStrings(list));
+          if (key === "default-members") manifest.defaultMembers = [...(manifest.defaultMembers ?? []), ...tomlStrings(list)];
+          else manifest[key].push(...tomlStrings(list));
         }
         break;
       case "target":
@@ -733,11 +772,13 @@ export function e2eCrates(root, files) {
   });
   const nameOnly = [...manifests].filter(([dir, m]) => m.name !== null && E2E_NAME_ONLY.test(m.name) && !driving.has(dir)).map(([, m]) => m.name).sort();
   /** The end-to-end crates that are members of the workspace rooted at `wsDir`: its root package, and every crate that matches a
-   * `members` glob, is not under `exclude` and is not a workspace root itself (a nested [workspace] makes a crate its own root). */
-  const membersOf = (wsDir) => {
+   * `members` glob (or, with `defaultOnly`, the `default-members` list when there is one), is not under `exclude` and is not a workspace root
+   * itself (a nested [workspace] makes a crate its own root). */
+  const membersOf = (wsDir, { defaultOnly = false } = {}) => {
     const ws = manifests.get(wsDir);
     if (!ws?.workspace) return [];
-    const included = ws.members.map(memberPattern);
+    // `defaultOnly`: what a bare `cargo test` in a virtual workspace selects, its default-members when it declares them, else every member.
+    const included = (defaultOnly && ws.defaultMembers !== null ? ws.defaultMembers : ws.members).map(memberPattern);
     const excluded = ws.exclude.map((x) => String(x).replace(/^\.\//, "").replace(/\/+$/, ""));
     return crates.filter((c) => {
       if (c.dir === wsDir) return true;
@@ -758,6 +799,40 @@ const HOOK_FILE = /(?:^|\/)(?:\.githooks|\.husky|githooks)\/(?!_\/)[^/]+/;
 const WORKFLOW_FILE = /^\.github\/(?:workflows\/[^/]+|actions\/.+\/action)\.ya?ml$/;
 const BUILD_FILE = /(?:^|\/)(?:Makefile|makefile|GNUmakefile|[Jj]ustfile|\.justfile)$|\.mk$/;
 const SCRIPT_FILE = /\.(?:sh|bash|zsh|ps1|psm1|bat|cmd|mjs|cjs|js|py)$/i;
+// A code span in running text that is only the cargo command (`cargo test`, `rustright cargo test`: no argument) names the command as often as it
+// tells a reader to run it ("`cargo test` unit tests: ...", "`cargo test` would hold the compile slot", "only CI runs `cargo test`", a list item
+// "`cargo test`: Rust unit tests"). It is a command line only where an imperative verb stands right before it in its clause and nothing in that
+// clause negates it: "Run `cargo test` before you push", not "Do not run `cargo test`". With an argument, in a fenced block, a script, a package.json
+// script, a recipe, a workflow step or a hook, the same words are a command line whatever stands around them.
+const INSTRUCTION_VERB = /\b(?:run|use|execute|invoke|call|type)[*_]*\s*$/i;
+const NEGATION = /\b(?:not|never|no longer|avoid|without|instead of|rather than)\b|n't\b/i;
+const instructsToRun = (before) => {
+  const clause = String(before ?? "").split(/[.;!?]\s+|:\s+/).pop();
+  return INSTRUCTION_VERB.test(clause) && !NEGATION.test(clause);
+};
+
+/** The physical lines ({ no, text }) of a PowerShell script with its `<# ... #>` block comments blanked, line numbers kept. A block opens only
+ * where `<#` is the first thing on a line, so a `<#` met after code (in a string, say) never hides what follows it; code after the `#>` that
+ * closes a block on the same line is kept. */
+function withoutPowerShellBlockComments(lines) {
+  let inBlock = false;
+  return lines.map(({ no, text }) => {
+    let rest = text;
+    for (;;) {
+      if (!inBlock) {
+        const open = /^\s*<#/.exec(rest);
+        if (!open) break;
+        inBlock = true;
+        rest = rest.slice(open[0].length);
+      }
+      const end = rest.indexOf("#>");
+      if (end < 0) { rest = ""; break; }
+      inBlock = false;
+      rest = rest.slice(end + 2);
+    }
+    return { no, text: rest };
+  });
+}
 
 /** A script's `cd` / `Set-Location` target applied to `cwd` (a posix path from the repository root). A target that is not a plain
  * relative path (a variable, a substitution, an absolute path, one that leaves the repository) leaves the directory as it was: the
@@ -830,22 +905,22 @@ function workflowSteps(text) {
   return steps;
 }
 
-/** The command-bearing units of a runbook document: each fenced code block (its lines) and each inline code span (one line). Prose
- * outside code is never a command. */
+/** The command-bearing units of a runbook document: each fenced code block ({ lines }) and each inline code span ({ lines: one line, inline, before: the
+ * text before it on its line }). Prose outside code is never a command. */
 function markdownUnits(text) {
   const units = [];
   let fence = null;
   text.split("\n").forEach((raw, i) => {
     if (fence) {
       const close = /^\s*(`{3,}|~{3,})\s*$/.exec(raw);
-      if (close && close[1][0] === fence.char && close[1].length >= fence.length) { units.push(fence.lines); fence = null; } else fence.lines.push({ no: i + 1, text: raw });
+      if (close && close[1][0] === fence.char && close[1].length >= fence.length) { units.push({ lines: fence.lines }); fence = null; } else fence.lines.push({ no: i + 1, text: raw });
       return;
     }
     const open = /^\s*(`{3,}|~{3,})/.exec(raw);
     if (open) { fence = { char: open[1][0], length: open[1].length, lines: [] }; return; }
-    for (const span of raw.matchAll(/(`+)(.+?)\1(?!`)/g)) units.push([{ no: i + 1, text: span[2].trim() }]);
+    for (const span of raw.matchAll(/(`+)(.+?)\1(?!`)/g)) units.push({ lines: [{ no: i + 1, text: span[2].trim() }], inline: true, before: raw.slice(0, span.index) });
   });
-  if (fence) units.push(fence.lines);
+  if (fence) units.push({ lines: fence.lines });
   return units;
 }
 
@@ -866,26 +941,50 @@ function e2eUnderCargoTest({ root, files }) {
     }
     return null;
   };
-  /** The end-to-end crates a cargo command selects, each with the flag that did it: [{ crate, selector }], first rule first. */
-  const selected = (tokens, isRun, cwd) => {
+  /** The nearest directory at or above `cwd` that holds a Cargo.toml, as cargo finds the manifest with no --manifest-path; null when none. */
+  const nearestManifestDirectory = (cwd) => {
+    for (let dir = cwd; ; dir = dirOf(dir)) {
+      if (layout.manifests.has(dir)) return dir;
+      if (dir === "." || dir === "") return null;
+    }
+  };
+  /**
+   * The end-to-end crates a cargo command selects, each with the flag that did it: [{ crate, selector, wide, manifestPath }], first rule first.
+   * `wide` marks a selection of a whole workspace (--workspace / --all, or a bare test run in a virtual workspace), whose fix is to leave the crate
+   * out of the run; `manifestPath` is the --manifest-path the selection went through, if any.
+   */
+  const selected = (tokens, verb, cwd) => {
+    const isRun = verb === "run";
     const picks = new Map();
-    const pick = (crate, selector) => { if (!picks.has(crate)) picks.set(crate, selector); };
+    const pick = (crate, selector, how = {}) => { if (!picks.has(crate)) picks.set(crate, { selector, ...how }); };
     const packages = flagValues(tokens, "--package", "-p");
     const manifestPaths = flagValues(tokens, "--manifest-path");
     const tests = flagValues(tokens, "--test");
     const wholeWorkspace = tokens.includes("--workspace") || tokens.includes("--all");
     const excluded = new Set(flagValues(tokens, "--exclude"));
     const guardOnly = tests.length > 0 && tests.every((t) => t === E2E_GUARD_TARGET); // `--test qa_surface_guard` runs the static guard only
-    const members = (dir) => layout.membersOf(dir).filter((c) => !excluded.has(c.name));
+    const members = (dir, defaultOnly = false) => layout.membersOf(dir, { defaultOnly }).filter((c) => !excluded.has(c.name));
     if (!guardOnly) {
       for (const p of packages) for (const c of layout.crates.filter((crate) => crate.name === p)) pick(c, `-p ${p}`);
       for (const mp of manifestPaths) {
         const dir = manifestDirectory(mp, cwd);
         if (dir === null) continue;
-        for (const c of layout.crates.filter((crate) => crate.dir === dir)) pick(c, `--manifest-path ${mp}`);
-        if (wholeWorkspace) for (const c of members(dir)) pick(c, `--manifest-path ${mp} ${tokens.includes("--workspace") ? "--workspace" : "--all"}`);
+        for (const c of layout.crates.filter((crate) => crate.dir === dir)) pick(c, `--manifest-path ${mp}`, { manifestPath: mp });
+        if (wholeWorkspace) for (const c of members(dir)) pick(c, `--manifest-path ${mp} ${tokens.includes("--workspace") ? "--workspace" : "--all"}`, { wide: true, manifestPath: mp });
       }
-      if (wholeWorkspace && !manifestPaths.length) for (const c of members(cwd)) pick(c, tokens.includes("--workspace") ? "--workspace" : "--all");
+      if (wholeWorkspace && !manifestPaths.length) for (const c of members(cwd)) pick(c, tokens.includes("--workspace") ? "--workspace" : "--all", { wide: true });
+      // No -p, no --workspace, no named target: in a virtual workspace (a [workspace] with no [package]) cargo tests every member, or the
+      // default-members when it declares them. GenRight's `rustright cargo test --manifest-path Cargo.toml`, its root a virtual workspace that holds
+      // genright-e2e, names no crate and no flag, and runs the end-to-end crate in the broker all the same. A root with a package of its own tests
+      // that package only, so it selects nothing here (the limit below). `cargo run` needs a target, which --bin/-p already select.
+      const targeted = tests.length > 0 || flagValues(tokens, "--bin", "--example", "--bench").length > 0;
+      if (!isRun && !packages.length && !wholeWorkspace && !targeted) {
+        for (const [dir, mp] of manifestPaths.length ? manifestPaths.map((m) => [manifestDirectory(m, cwd), m]) : [[nearestManifestDirectory(cwd), null]]) {
+          const manifest = dir === null ? undefined : layout.manifests.get(dir);
+          if (!manifest?.workspace || manifest.name !== null) continue;
+          for (const c of members(dir, true)) pick(c, mp === null ? "" : `--manifest-path ${mp}`, { wide: true, ...(mp === null ? {} : { manifestPath: mp }) });
+        }
+      }
     }
     if (!packages.length && !manifestPaths.length) {
       for (const t of tests) {
@@ -894,10 +993,26 @@ function e2eUnderCargoTest({ root, files }) {
       }
     }
     if (isRun) for (const b of flagValues(tokens, "--bin")) for (const c of layout.crates.filter((crate) => crate.bins.has(b))) pick(c, `--bin ${b}`);
-    return [...picks].map(([crate, selector]) => ({ crate, selector }));
+    return [...picks].map(([crate, how]) => ({ crate, ...how }));
+  };
+  /**
+   * What to do about a finding. The test binary of `cargo test` / `nextest` is compiled with --no-run and run by rightkit-qa outside the broker; a
+   * workspace-wide run must also leave the crate out (a --no-run on the whole workspace compiles it all and tests none). `cargo run` has no --no-run:
+   * the program is built in the broker and the built binary runs outside it.
+   */
+  const fixFor = (crate, verb, tokens, { wide, manifestPath }) => {
+    if (verb === "run") {
+      const named = flagValues(tokens, "--bin").find((b) => crate.bins.has(b));
+      const bin = named ?? (crate.bins.size === 1 ? [...crate.bins][0] : "<bin>");
+      return `build it in the broker (rustright cargo build${manifestPath === undefined ? "" : ` --manifest-path ${manifestPath}`} -p ${crate.name} --bin ${bin}) and run the built binary outside the broker (or rightkit-qa journeys run)`;
+    }
+    const runner = `rightkit-qa run-tests -p ${crate.name} [--test <target>] -- <libtest args>`;
+    return wide
+      ? `leave it out of the workspace run (--workspace --exclude ${crate.name}), compile it with --no-run and run it outside the broker: ${runner}`
+      : `compile it with --no-run and run it outside the broker: ${runner}`;
   };
   /** Scan logical lines ({ no, text }) that run in order from `cwd`; `what` names the place and `subject` overrides the crate name in the identity. */
-  const scan = (file, lines, cwd, what, subject) => {
+  const scan = (file, lines, cwd, what, subject, span = null) => {
     for (const { no, text } of lines) {
       if (!/cargo|\bcd\b|Set-Location/i.test(text)) continue; // a line with neither a command nor a directory change cannot matter
       const events = [...text.matchAll(CD_COMMAND)].map((m) => ({ at: m.index, cd: m[1] })).concat([...text.matchAll(CARGO_COMMAND)].map((m) => ({ at: m.index, m })));
@@ -912,15 +1027,17 @@ function e2eUnderCargoTest({ root, files }) {
         const tokens = (rest.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? []).map((t) => t.replace(/["']/g, "").replace(/\)+$/, ""));
         const ownArguments = tokens.indexOf("--") < 0 ? tokens : tokens.slice(0, tokens.indexOf("--"));
         const segment = text.slice(Math.max(text.lastIndexOf("&", event.at), text.lastIndexOf(";", event.at), text.lastIndexOf("|", event.at), text.lastIndexOf("`", event.at)) + 1, event.at + event.m[0].length);
+        // A code span in running text that is only the command is a mention unless it is told to be run (INSTRUCTION_VERB).
+        if (span && tokens.length === 0 && text.trim() === event.m[0].trim() && !instructsToRun(span.before)) continue;
         if (ownArguments.includes("--no-run") || QA_RUNNER.test(segment)) continue;
         if (ownArguments.some((t) => t === "--help" || t === "-h" || t === "--version" || t === "-V")) continue;
         if (verb === "nextest" && NEXTEST_NO_TESTS.has(tokens[0])) continue;
-        for (const { crate, selector } of selected(ownArguments, verb === "run", cwd)) {
+        for (const { crate, selector, wide, manifestPath } of selected(ownArguments, verb, cwd)) {
           const key = `${file}\0${no}\0${crate.name}`;
           if (seen.has(key)) continue;
           seen.add(key);
-          const via = `${client.replace(/\s+/g, " ")} ${verb} ${selector}`;
-          out.push({ file, subject: subject ?? crate.name, problem: `${file}:${no} ${what} runs the end-to-end crate ${crate.name} under cargo test (${via}): the test binary runs in the broker's context and holds its compile slot for the whole run`, fix: `compile it with --no-run and run it outside the broker: rightkit-qa run-tests -p ${crate.name} [--test <target>] -- <libtest args>` });
+          const via = [client.replace(/\s+/g, " "), verb, selector].filter(Boolean).join(" ");
+          out.push({ file, subject: subject ?? crate.name, problem: `${file}:${no} ${what} runs the end-to-end crate ${crate.name} under cargo test (${via}): the test binary runs in the broker's context and holds its compile slot for the whole run`, fix: fixFor(crate, verb, ownArguments, { wide, manifestPath }) });
         }
       }
     }
@@ -943,8 +1060,8 @@ function e2eUnderCargoTest({ root, files }) {
     const continuation = /\.(?:ps1|psm1)$/i.test(file) ? "`" : /\.(?:bat|cmd)$/i.test(file) ? "^" : "\\";
     const physical = content.split("\n").map((line, i) => ({ no: i + 1, text: line }));
     if (workflow) for (const step of workflowSteps(content)) scan(file, logicalLines(step.lines, continuation), step.cwd, "workflow step");
-    else if (runbook) for (const unit of markdownUnits(content)) scan(file, logicalLines(unit, continuation), ".", "runbook command");
-    else scan(file, logicalLines(physical, continuation), ".", hook ? "git hook" : recipe ? "recipe" : "command");
+    else if (runbook) for (const unit of markdownUnits(content)) scan(file, logicalLines(unit.lines, continuation), ".", "runbook command", undefined, unit.inline ? unit : null);
+    else scan(file, logicalLines(/\.(?:ps1|psm1)$/i.test(file) ? withoutPowerShellBlockComments(physical) : physical, continuation), ".", hook ? "git hook" : recipe ? "recipe" : "command");
   }
   return out;
 }
@@ -967,7 +1084,13 @@ export const RULES = Object.freeze([
   { id: "suite-updater-key", gap: "C3-14", run: ({ root, files }) => suiteUpdaterKey(root, files) },
   { id: "engine-record-store", gap: "C3-05", run: ({ root, files }) => engineRecordStore(root, files) },
   ...SHELL_CONTRACT_RULES,
+  ...CONSUMER_CONTRACT_RULES,
+  ...CONSUMER_INPUT_RULES,
+  ...CONSUMER_SOURCE_RULES,
+  ...LEGION_SEMANTIC_RULES,
   ...CONSUMER_POLICY_RULES,
+  ...SOURCE_CLOSURE_RULES,
+  ...OWNERSHIP_CLASS_RULES,
 ]);
 
 // ---- export: the committed files, by git alone ----------------------------------------------------------------------------------
@@ -1062,14 +1185,14 @@ export function resolveCommit(repo, rev) {
 }
 
 /** Run the selected rules over an exported tree. Returns { failures: [{ rule, gap, problem, fix, file?, subject?, identity? }], timings }. */
-export function runRules({ root, commit, files, repo = process.cwd(), only = null, rules = RULES }) {
+export function runRules({ root, commit, files, repo = process.cwd(), only = null, rules = RULES, now = new Date() }) {
   const failures = [];
   const timings = [];
   for (const rule of rules) {
     if (only && !only.includes(rule.id)) continue;
     const started = Date.now();
     let found;
-    try { found = rule.run({ root, commit, files, repo }); }
+    try { found = rule.run({ root, commit, files, repo, now }); }
     catch (error) { found = [{ problem: `the rule itself failed: ${error.message}` }]; }
     timings.push({ rule: rule.id, ms: Date.now() - started, failures: found.length });
     for (const f of found) failures.push({ rule: rule.id, gap: rule.gap, ...f, ...(f.file && f.subject !== undefined ? { identity: `${rule.id}|${f.file}|${f.subject}` } : {}) });
@@ -1211,7 +1334,7 @@ export function runAppCheck({ repo, mode = "commit", commit, only = null, baseli
     return finish(2);
   }
   try {
-    const { failures: found } = runRules({ root, commit: checked, files, repo, only, rules });
+    const { failures: found } = runRules({ root, commit: checked, files, repo, only, rules, now });
     if (printBaseline) {
       lines.push(JSON.stringify([...new Set(found.map((f) => f.identity).filter(Boolean))].sort(), null, 2));
       const unkeyed = found.filter((f) => !f.identity).length;
