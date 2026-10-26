@@ -8,6 +8,12 @@ nor a gap.
 
 ## 1. The pipeline
 
+One door: `rightkit-gate` (`@rightkit/release`). Every check, compile, test, dev build, package, qualification and
+release runs through it (`rightkit-gate --to check|compile|package|qualify|release`, `--to dev|test`); everything else is
+refused (`right-release` stages without a live door run, the agent hook, the broker's admission). The door picks the
+executor: the RustRight broker where one is reachable (Mac, Dell), a refusal on a broker-managed host whose broker is
+down, plain cargo on any other host (a cloud container, a CI runner) through the same stages. Class A always runs first.
+
 ```
 commit
   │
@@ -23,8 +29,14 @@ commit
   │            e2e journeys run here, built in the broker and run outside it
   ▼
   ④ RELEASE   upload exactly the qualified bytes; nothing is rebuilt
-               RightKit crates and npm packages → registries · apps → right-release upload / publish-update
+               RightKit crates and npm packages → registries
+               apps → rightkit-gate stage → RightKit publish-app.yml (protected app-publication environment, the only
+               holder of R2 / GitHub Releases credentials) → rightkit-gate --to release on the staged sealed bytes
 ```
+
+Receipts (`<git common dir>/rightkit-gate/receipts/<commit>.json`) bind commit, tree, lockfile digests, gate digest,
+toolchain and executor to each stage and to the sealed manifest digest; `--receipt-out` / `--receipt-in` carry them
+between hosts and jobs, accepted only for the same commit, tree, lockfiles and gate with the sealed bytes unchanged.
 
 The only difference between a public and a private repository is where ③ runs. Every step reruns ① first: it costs
 seconds and proves the rules held for exactly the bytes in hand, so no receipt has to carry that proof between steps.
@@ -81,6 +93,11 @@ broker enrollment) are reviewed by a person; no tool writes them.
 | `right-release doctor [--platform mac\|win] [--gates]` | ①+② | The build's own checks for one app, reported as rows. |
 | `right-release build` / `dev` / `qa` / `upload` | ②–④ | Build is upload-free, upload is build-free; upload needs an explicit tier. |
 | `rightkit-qa journeys run` | ③ | Builds through the broker, runs outside it; a qualifying run refuses `--build`, `--build-ui`, `--kill-orphans`. |
+| `rightkit-gate --to check\|compile\|package\|qualify\|release [--platform mac\|win] [--tier patch\|update] [--receipt-in f] [--receipt-out f]` | ①–④ | Every stage up to the target, in order, class A first; stops at the first failure; clean HEAD only. `package` = `right-release qa --stage source` + `build` (sealed); `qualify` = installed QA of that sealed set; `release` only in the trusted publisher (`GITHUB_ACTIONS=true`, `RIGHTKIT_PUBLISHER=github-environment`). |
+| `rightkit-gate --to dev\|test [-- <args>]` | ①+② | Class A on the working tree, then `right-release dev\|test` under a live door run. |
+| `rightkit-gate stage --platform mac\|win [--tier patch\|update]` | ③→④ | Needs this host's receipt with package and qualify passed on the unchanged sealed set; uploads it and the receipt to the app's draft release `rightkit-staging-<commit>`; with `--tier`, dispatches `publish-app.yml`. |
+| `rightkit-gate install-hook` | all | Installs the pre-push hook and the agent hook (`.claude/settings.json` → `rightkit-agent-hook`), which denies cargo/tauri/`right-release` builds outside the door on every host. |
+| `publish-app.yml` | ④ | Dispatch only; one job in `app-publication`; class A on the commit; staged archive unpacked outside the checkout (links and foreign paths refused); `rightkit-gate --to release --receipt-in` per platform. |
 
 ## 5. Invariants
 
@@ -125,7 +142,8 @@ Each item closes a gap in section 5; file each as a GitHub issue in its owning r
 2. `right-release doctor` and the build: every finding in one run, never a crash (P3). In 0.6.4.
 3. Apps fix their full findings from the release-readiness review; repair the Dell's shared elevation path once (P3, P10).
 4. Canary: compatibility, readiness and coverage as separate results (P10); one clean run; publish 0.6.4.
-5. RustRight: the broker refuses a compile of a tree that has not passed the check (P1). An ADR-0002 addendum.
+5. RustRight: the broker refuses a compile of a tree that has not passed the check (P1): bogusyogi/rustright#150 (fail
+   closed, host-pinned `trustedGate`, RightKit apps outside git refused), waiting for merge.
 6. Broker installs carry their own re-enrollment (P9), before any host installs the ADR-0002 broker.
 7. Publish `rightkit-qa` 0.8.0 and `rightkit-child-process` 0.5.5; move each app's journeys to the runner; then switch
    the test-run cap on per repository. The check rule that refuses e2e under `cargo test` is done: G22 (P7), in 0.6.6.
@@ -148,6 +166,18 @@ Each item closes a gap in section 5; file each as a GitHub issue in its owning r
 2. 0.6.4 scope: keep ADR-0001's QA admission (now in `@rightkit/release` "Unreleased" on `main`) in 0.6.4, or move it
    to 0.6.5. Either way the canary reruns on exactly what publishes.
 3. When each repository's test-run cap switches on.
+
+## 10. Install and run (Mac and Dell)
+
+1. RustRight: install per rustright `docs/using-the-broker.md` "Installing and updating", then pin the gate:
+   `buildRules.checkAdmission.trustedGate = { "path": "<non-writable dir>/node_modules/@rightkit/release/bin/rightkit-gate.mjs", "sha256": "<shasum -a 256 | Get-FileHash>" }`.
+2. Each app: pin `@rightkit/release` (exact version), `pnpm install`, then `pnpm exec rightkit-gate install-hook`.
+3. Develop: `pnpm exec rightkit-gate --to dev -- --platform mac` (Dell: `win`); compile and test: `pnpm exec rightkit-gate --to compile`.
+4. Release (private and public apps alike): `pnpm exec rightkit-gate --to qualify --platform mac` on the Mac and
+   `--platform win` on the Dell, then `pnpm exec rightkit-gate stage --platform <p> --tier patch|update` on each.
+5. Publisher prerequisites (once, in `bogusyogi/rightkit` settings): environment `app-publication` with required
+   reviewers and secrets `APP_REPO_TOKEN` (contents read/write on the app repositories), `CLOUDFLARE_API_TOKEN`,
+   `CLOUDFLARE_ACCOUNT_ID`. Hosts hold no publication credential.
 
 ## Changing this document
 

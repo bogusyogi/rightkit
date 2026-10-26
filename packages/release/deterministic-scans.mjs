@@ -27,14 +27,29 @@ import { checkAdvisoryExceptions } from "./advisory-exceptions.mjs";
 import { canonicalJson, digestScanSet, requiredScanIds, rustCratePlan, rustScanId } from "./scan-digest.mjs";
 import { reach } from "./lock-graph.mjs";
 import { cargoManifestState } from "./cargo-manifest-text.mjs";
+import { advisoryCacheRoot, ensureAdvisoryDb, prepareDenyOverlay, readAdvisoryPin } from "./advisory-db.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
+/**
+ * The checker that produced a scan result: `<name>@<version>#<digest>` where the digest covers this module and scan-digest.mjs,
+ * so a changed checker at the same version is a different identity. null when it cannot be computed; prior class A evidence
+ * then never unlocks class B (an unknown checker is not trusted, it is refused).
+ */
+export const CHECKER_IDENTITY = (() => {
+  try {
+    const p = JSON.parse(fs.readFileSync(new URL("./package.json", import.meta.url), "utf8"));
+    const h = crypto.createHash("sha256");
+    for (const f of ["./deterministic-scans.mjs", "./scan-digest.mjs"]) { h.update(f); h.update("\0"); h.update(fs.readFileSync(new URL(f, import.meta.url))); h.update("\0"); }
+    return `${p.name}@${p.version}#${h.digest("hex").slice(0, 16)}`;
+  } catch { return null; }
+})();
+export const CHECKER_VERSION = CHECKER_IDENTITY;
 export const SCAN_CLASS = Object.freeze({ A: "A", B: "B" });
 
 /** Scan id prefixes (the text before the first ":") that belong to each class. */
 export const CLASS_A_SCAN_PREFIXES = Object.freeze([
   "rustfmt", "node-check", "json-parse", "toml-parse", "yaml-parse", "ownership-catalog",
-  "actionlint", "pnpm-lockfile", "pnpm-audit", "cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list",
+  "actionlint", "shellcheck", "pnpm-lockfile", "pnpm-audit", "cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list",
   "changelog-version", "license", "secret-scan", "path-policy", "advisory-exceptions", "suite-api",
 ]);
 export const CLASS_B_SCAN_PREFIXES = Object.freeze([
@@ -53,6 +68,27 @@ export const CLASS_B_SCAN_PREFIXES = Object.freeze([
  */
 export function deterministicScansEnabled(config) {
   return config?.deterministicScans?.enabled === true;
+}
+
+let neutralDir = null;
+/** An empty directory outside every repository, for tool version probes. */
+function probeDir() {
+  if (!neutralDir || !fs.existsSync(neutralDir)) neutralDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-probe-"));
+  return neutralDir;
+}
+
+/** JSONC to JSON: drops line and block comments outside strings, and trailing commas before } or ]. */
+export function stripJsonComments(text) {
+  let out = ""; let i = 0; let inString = false;
+  while (i < text.length) {
+    const c = text[i];
+    if (inString) { out += c; if (c === "\\") { out += text[i + 1] ?? ""; i += 2; continue; } if (c === "\"") inString = false; i++; continue; }
+    if (c === "\"") { inString = true; out += c; i++; continue; }
+    if (c === "/" && text[i + 1] === "/") { while (i < text.length && text[i] !== "\n") i++; continue; }
+    if (c === "/" && text[i + 1] === "*") { i += 2; while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i++; i += 2; continue; }
+    out += c; i++;
+  }
+  return out.replace(/,(\s*[}\]])/g, "$1");
 }
 
 /** "A", "B" or null for an id such as "clippy:rightkit-fs". */
@@ -178,6 +214,16 @@ function containedPath(raw, contentRoot) {
   return { path: norm };
 }
 const PNPM_NO_HOOKS_ENV = Object.freeze({ npm_config_ignore_pnpmfile: "true", npm_config_ignore_scripts: "true", pnpm_config_ignore_pnpmfile: "true", pnpm_config_ignore_scripts: "true" });
+// pnpm 11 checks, before every `pnpm run` and `pnpm exec`, that node_modules matches pnpm-lock.yaml (`verify-deps-before-run`, default
+// `install`) and answers a stale tree by running `pnpm install` in it. That install wants to purge the modules directory and, with no TTY (a
+// gate child has none), aborts: `[ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY] Aborted removal of modules directory due to no TTY` and a
+// stack through runDepsStatusCheck, before the tool or the test runs at all (CodeRight, 2026-10-25: tsc, biome and test:npm failed in 2 s on a
+// tree installed before the last lockfile change). A gate scan must not install into, or purge, the checkout it reads, and the lockfile is
+// verified where it belongs, by `pnpm-lockfile` (`install --frozen-lockfile --lockfile-only`) in the clean export, so the class B pnpm scans
+// turn the check off and run against the tree as installed, as pnpm 10 (default `false`) always did; a tree that is really missing something
+// fails in the tool or the test with its own error. The `pnpm_config_` spelling is the one pnpm 11.25 honours for this setting
+// (`npm_config_verify_deps_before_run=false` still aborted, checked on a stale tree), the lowercase spelling PNPM_NO_HOOKS_ENV uses for its settings.
+const PNPM_RUN_ENV = Object.freeze({ pnpm_config_verify_deps_before_run: "false" });
 const CONFIG_CRATE_FILE = /(^|\/)Cargo\.(toml|lock)$/;
 const JS_TOOLING_FILE = /(^|\/)(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml)$/;
 // Root files that change how EVERY crate (or package) builds: a change to one puts every unit in scope,
@@ -221,8 +267,27 @@ const SUITE_API_INPUT = /^(contracts\/right-suite-api\.v1\.json|scripts\/gen-sui
 const GENERATOR_INPUT = /^(crates\/[^/]+\/(Cargo\.toml|README\.md)|packages\/[^/]+\/(package\.json|README\.md)|Cargo\.toml|packages\/release\/(rightkit-versions\.json|rightkit-ownership\.json|ownership-availability\.mjs)|scripts\/generate-(index|port-matrix)\.mjs|INDEX\.md|docs\/(ADOPTION|CAPABILITY-MAP|PORT-MATRIX)\.md|docs\/port-matrix\.(html|json))$/;
 const PROBES = Object.freeze({
   rustfmt: ["--version"], node: ["--version"], rustright: ["cargo", "--version"], pnpm: ["--version"],
-  actionlint: ["-version"], "right-git": ["--version"], swift: ["--version"],
+  actionlint: ["-version"], shellcheck: ["--version"], "right-git": ["--version"], swift: ["--version"],
 });
+/**
+ * The one version of each analyzer whose verdict class A accepts. A class A finding must not depend on which build of the
+ * analyzer a host happens to have: ShellCheck 0.10.0 fails SellRight's repaired deploy scripts on SC2015 and a documented
+ * `# shellcheck disable=SC2329` on SC2317 (0.11.0 split that code), so the same commit was red on one host and green on another.
+ * A scan (or a scan's `requires`) whose tool answers another version fails with TOOL_VERSION; it is never passed or skipped.
+ * The installers (.github/workflows/publish.yml, publish-app.yml, ci.yml) and the managed host path in ci/rk-pipeline.json
+ * provision exactly this version; scripts/ci/scan-receipt.test.mjs holds them to it.
+ */
+export const PINNED_SCAN_TOOLS = Object.freeze({ shellcheck: "0.11.0" });
+// The version a probe's output names, for a tool whose first line is not its version (`shellcheck --version` opens with a banner).
+const PROBE_VERSION = Object.freeze({
+  shellcheck: (text) => { const m = /^version:\s*(\S+)\s*$/m.exec(text); return m ? `shellcheck ${m[1]}` : null; },
+});
+/** null when `version` (a probe's answer) is the pinned one or the tool has no pin, else the problem. */
+export function pinnedVersionProblem(tool, version) {
+  const required = PINNED_SCAN_TOOLS[tool];
+  if (!required || version === `${tool} ${required}`) return null;
+  return `${tool} found ${version ? `"${version}"` : "with no readable version"}, class A requires ${tool} ${required} (PINNED_SCAN_TOOLS in @rightkit/release deterministic-scans.mjs); another version judges scripts differently, so it is refused, never passed or skipped`;
+}
 
 function commandText(d) {
   if (d.internal) return `internal:${d.internal}`;
@@ -345,6 +410,24 @@ export function scriptBrokerCall(scripts, entry = "test", { maxDepth = 8 } = {})
   return visit(String(entry), []);
 }
 
+// A test script can reach the broker in ways scriptBrokerCall cannot read from package.json alone: `node -e "...spawnSync('pnpm', ['run', n])..."`,
+// `node ./scripts/verify-local.mjs` (a script that spawns `rustright cargo test`), `sh -c`, `pnpm --dir <elsewhere> run verify`, `pnpm --filter`. HeardRight's
+// root `test` is a `node -e` over `verify`, which is `pnpm --dir tauri-app-next run verify`, which is `node ./scripts/verify-local.mjs`, which runs
+// `rustright cargo test`; guessing from the text of such a script would defer tests that merely mention the tool, so the app says it instead.
+// `ci/gate.config.json` `npm.<unit>.requiresBroker` is `{ "reason": "<why this unit's test needs the broker>" }`, committed with the app and reviewed in the
+// diff that adds it. The reason is required: a declaration without one, or of any other shape, is ignored (the test is planned and runs where this host can
+// run it, the way the fail-closed default goes) and planScans says so in a note. `false` and `null` are plain "no declaration". It changes nothing on a host
+// with the broker, in CI, on a protected ref or with the opt-out: the scan runs there exactly as before. Only where rightkit-gate defers the Rust gate does it
+// take the unit's `test:npm:<unit>` scan out, with the Rust scans, named with its reason and never passed.
+const REQUIRES_BROKER_REASON_LIMIT = 400;
+export function declaredBrokerCall(unit, value) {
+  if (value === undefined || value === null || value === false) return {};
+  const reason = typeof value === "object" && !Array.isArray(value) && typeof value.reason === "string" ? value.reason.replace(/\s+/g, " ").trim() : "";
+  if (!reason) return { problem: `ci/gate.config.json npm.${unit}.requiresBroker is ignored: it must be { "reason": "<why this unit's test needs the broker>" } with a non-empty reason; test:npm:${unit} is planned as if it were not there` };
+  const text = reason.length > REQUIRES_BROKER_REASON_LIMIT ? `${reason.slice(0, REQUIRES_BROKER_REASON_LIMIT)}...` : reason;
+  return { call: { tool: "rustright", via: ["test"], command: `ci/gate.config.json npm.${unit}.requiresBroker: ${text}`, declared: true } };
+}
+
 /**
  * The scan plan for a change: derived from the changed files plus the manifests they belong to.
  * `contentRoot` is a clean export of the commit (pure content checks); `liveRoot` is the checkout the
@@ -391,6 +474,8 @@ export function planScans({
   // The same per Cargo workspace: { [cargoDir]: parsedLock }. A workspace without an entry here (and not the global `cargoDir`) plans
   // no reverse dependents.
   rustLocks = null,
+  // The pinned RustSec advisory database ({ url, commit }, advisory-db.json): cargo-deny and cargo-audit read exactly that commit and never fetch.
+  advisoryPin = null,
 } = {}) {
   if (!contentRoot) throw new TypeError("planScans: contentRoot is required");
   if (!Array.isArray(cargoCommand) || cargoCommand.length === 0 || !["rustright", "cargo"].includes(cargoCommand[0]) || cargoCommand.slice(1).some((a) => a !== "cargo")) {
@@ -600,12 +685,30 @@ export function planScans({
   // Explicit files: the exported commit has no .git for actionlint's project discovery.
   const workflowFiles = files.filter((f) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(f)).sort();
   const actionlintConfig = exists(path.join(contentRoot, ".github/actionlint.yaml")) ? ["-config-file", ".github/actionlint.yaml"] : [];
-  if (workflowFiles.length) add({ id: "actionlint", class: A, tool: "actionlint", args: [...actionlintConfig, ...workflowFiles], root: "content" });
+  // actionlint lints every run: script with shellcheck only when shellcheck is found, and otherwise passes silently; class A
+  // requires it (`requires`), so a host without it fails the scan instead of skipping the shell checks.
+  if (workflowFiles.length) add({ id: "actionlint", class: A, tool: "actionlint", requires: ["shellcheck"], args: [...actionlintConfig, ...workflowFiles], root: "content" });
+  // Standalone shell scripts (SellRight's deploy scripts failed SC2154, SC2030/2031 and SC2016 in CI): every tracked .sh/.bash file,
+  // with ShellCheck's own defaults and the repository's .shellcheckrc (data, not code). actionlint covers only workflow run: blocks.
+  // A script whose shebang names another shell (zsh, fish) is not ShellCheck's to judge, so it is left out, never failed.
+  const otherShell = (f) => { try { return /^#!.*\b(zsh|fish|pwsh|powershell)\b/.test(String(readFile(path.join(contentRoot, f))).split("\n", 1)[0]); } catch { return false; } };
+  const shellFiles = files.filter((f) => /\.(sh|bash)$/.test(f) && !/(^|\/)node_modules\//.test(f) && !otherShell(f)).sort();
+  if (shellFiles.length) add({ id: "shellcheck", class: A, tool: "shellcheck", args: ["--format=gcc", "--external-sources", ...shellFiles], root: "content" });
   // No right-git drift scan: the one workflow right-git renders here, ci.yml, is hand-owned (its header;
   // docs/CI.md) and held by scripts/ci/ci-scans-contract.mjs instead, so drift is always reported by design.
 
   // Exceptions expire by date, not by change: checked on every run, whatever changed.
   if (exists(path.join(contentRoot, "ci/advisory-exceptions.json"))) add({ id: "advisory-exceptions", class: A, internal: "advisory-exceptions" });
+  // An app's advisory exceptions follow the same policy as RightKit's own: a Cargo workspace whose deny.toml or .cargo/audit.toml
+  // ignores an advisory needs its ledger, <workspace>/.rightkit/advisory-exceptions.json, with owner, evidence, an unexpired
+  // reviewBy, the exact affected versions and dependents in that workspace's Cargo.lock, and a person's approval; deny.toml and
+  // audit.toml must match it exactly.
+  for (const ws of workspaces) {
+    if (typeof ws !== "string") continue;
+    const dir = ws === "." ? "" : ws;
+    const ignores = ["deny.toml", ".cargo/audit.toml"].some((f) => { try { return /\bignore\s*=\s*\[[^\]]*\S[^\]]*\]/s.test(readFile(path.join(contentRoot, dir, f))); } catch { return false; } });
+    if (ignores && !(dir === "" && exists(path.join(contentRoot, "ci/advisory-exceptions.json")))) add({ id: `advisory-exceptions${dir ? `:${dir}` : ""}`, class: A, internal: "advisory-exceptions", dir, exceptionsFile: ".rightkit/advisory-exceptions.json" });
+  }
   // Like generated-docs, planned only when a changed file is one of the contract's inputs or projections. The generator runs from
   // the trusted scanner checkout (the import below); the exported contract and projections are data it checks.
   if (files.some((f) => SUITE_API_INPUT.test(f)) && exists(path.join(contentRoot, "contracts/right-suite-api.v1.json"))) add({ id: "suite-api", class: A, internal: "suite-api" });
@@ -614,16 +717,43 @@ export function planScans({
     for (const name of crateNames.filter((n) => rustMap?.get(n).publish !== false)) add({ id: rustScanId.packageList(name), class: A, ...cargoIn(wsOf(name), "package", "-p", crateOf(name), "--list", "--allow-dirty", "--locked") });
   }
   for (const ws of [...configWs].sort()) {
-    add({ id: `cargo-deny${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "deny", "check") });
-    add({ id: `cargo-audit${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "audit") });
+    // Offline against the pinned database. The pin commit is part of the command (env), so a pin change is a different scan, and the
+    // placeholders are filled at run time from the materialised checkout (runScans).
+    const pin = advisoryPin ?? (advisoryPin = readAdvisoryPin());
+    const pinEnv = { RK_ADVISORY_DB_COMMIT: pin.commit };
+    add({ id: `cargo-deny${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "deny", "--offline", "--metadata-path", "{advisoryMetadata}", "--config", "{advisoryDenyConfig}", "check"), env: pinEnv, advisoryDb: "deny", advisoryPin: pin });
+    add({ id: `cargo-audit${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "audit", "--db", "{advisoryDb}", "--no-fetch"), env: pinEnv, advisoryDb: "audit", advisoryPin: pin });
   }
+  // The audit policy is the consumer's own: every package.json script that is exactly `pnpm audit <flags>` (only --prod, --dev,
+  // --audit-level <low|moderate|high|critical> are accepted) declares one, and the scan runs the strictest of them all: a dependency
+  // scope only when every declaration names that same scope, and the lowest audit level any declares (one without a level means low).
+  // With none declared, every dependency at every severity. The gate never runs a weaker audit than the repository declares
+  // (RightSites declares `pnpm audit --prod`: production dependencies, all severities).
+  const LEVELS = ["low", "moderate", "high", "critical"];
+  const consumerAuditFlags = (r) => {
+    let scripts = {};
+    try { scripts = JSON.parse(readFile(path.join(contentRoot, r, "package.json"))).scripts ?? {}; } catch { /* none: the strict default */ }
+    const declared = [];
+    for (const cmd of Object.values(scripts)) {
+      const m = /^\s*pnpm\s+audit((?:\s+(?:--prod|--dev|--audit-level(?:=|\s+)(?:low|moderate|high|critical)))*)\s*$/.exec(String(cmd));
+      if (!m) continue;
+      const words = m[1].trim().split(/\s+|=/).filter(Boolean);
+      const at = words.indexOf("--audit-level");
+      const scope = words.includes("--prod") && !words.includes("--dev") ? "--prod" : words.includes("--dev") && !words.includes("--prod") ? "--dev" : null;
+      declared.push({ scope, level: at < 0 ? 0 : LEVELS.indexOf(words[at + 1]) });
+    }
+    if (!declared.length) return [];
+    const scope = declared.every((d) => d.scope === declared[0].scope) ? declared[0].scope : null;
+    const level = Math.min(...declared.map((d) => d.level));
+    return [...(scope ? [scope] : []), ...(level > 0 ? ["--audit-level", LEVELS[level]] : [])];
+  };
   for (const r of jsRoots) {
     // Class A runs no repository hooks: `install` accepts --ignore-pnpmfile and --ignore-scripts; `audit` accepts
     // neither flag, so every class A pnpm scan also sets the same two settings through the environment.
     // One pair per pnpm root, run in the root's directory; the repository root keeps the unsuffixed ids.
     const where = r === "." ? {} : { cwd: r }; const suffix = r === "." ? "" : `:${r}`;
     add({ id: `pnpm-lockfile${suffix}`, class: A, tool: "pnpm", args: ["install", "--frozen-lockfile", "--lockfile-only", "--ignore-pnpmfile", "--ignore-scripts"], env: PNPM_NO_HOOKS_ENV, root: "content", ...where });
-    add({ id: `pnpm-audit${suffix}`, class: A, tool: "pnpm", args: ["audit", "--prod", "--audit-level", "high"], env: PNPM_NO_HOOKS_ENV, root: "content", ...where });
+    add({ id: `pnpm-audit${suffix}`, class: A, tool: "pnpm", args: ["audit", ...consumerAuditFlags(r)], env: PNPM_NO_HOOKS_ENV, root: "content", ...where });
   }
   const crateDirs = crateNames.map(rustDir); const pkgDirs = pkgNames.map(npmDir);
   const withChangelog = crateNames.filter((n) => exists(path.join(contentRoot, rustDir(n), "CHANGELOG.md")) && exists(path.join(contentRoot, rustDir(n), "Cargo.toml")));
@@ -681,9 +811,9 @@ export function planScans({
   const hasConfig = (dir, names) => ancestorDirsOf(dir).some((d) => names.some((f) => exists(path.join(liveRoot, inDir(d, f)))));
   for (const name of pkgNames) {
     const dir = npmDir(name);
-    if (exists(path.join(liveRoot, dir, "tsconfig.json"))) add({ id: `tsc:${name}`, class: B, tool: "pnpm", args: ["exec", "tsc", "--noEmit", "-p", "tsconfig.json"], cwd: dir });
-    if (hasConfig(dir, ESLINT_CONFIG_FILES)) add({ id: `eslint:${name}`, class: B, tool: "pnpm", args: ["exec", "eslint", "."], cwd: dir });
-    if (hasConfig(dir, BIOME_CONFIG_FILES)) add({ id: `biome:${name}`, class: B, tool: "pnpm", args: ["exec", "biome", "lint", "."], cwd: dir });
+    if (exists(path.join(liveRoot, dir, "tsconfig.json"))) add({ id: `tsc:${name}`, class: B, tool: "pnpm", args: ["exec", "tsc", "--noEmit", "-p", "tsconfig.json"], env: PNPM_RUN_ENV, cwd: dir });
+    if (hasConfig(dir, ESLINT_CONFIG_FILES)) add({ id: `eslint:${name}`, class: B, tool: "pnpm", args: ["exec", "eslint", "."], env: PNPM_RUN_ENV, cwd: dir });
+    if (hasConfig(dir, BIOME_CONFIG_FILES)) add({ id: `biome:${name}`, class: B, tool: "pnpm", args: ["exec", "biome", "lint", "."], env: PNPM_RUN_ENV, cwd: dir });
   }
   if (files.some((f) => f.startsWith("swift/") || f === "Package.swift")) {
     if (platform === "darwin") add({ id: "swift-build", class: B, tool: "swift", args: ["build"] });
@@ -716,10 +846,13 @@ export function planScans({
       if (own.quietTests === true && quietTests === "ci") { deferredToCi.push(`test:npm:${name}`); continue; }
       // A gate proves the repository's own content: sibling checkouts beside it (RightKit's suite-contract tests read the app
       // repositories when present) are not inputs, so the package tests run as an isolated checkout, as they do in CI.
-      // `brokerCall` marks a test script that runs the broker (or cargo) through its script chain: rightkit-gate defers such a scan with the
-      // Rust gate where this host has no broker (scriptBrokerCall).
-      const brokerCall = scriptBrokerCall(manifest.scripts, "test");
-      add({ id: `test:npm:${name}`, class: B, ...(own.quietTests === true ? { quiet: true } : {}), ...(brokerCall ? { brokerCall } : {}), tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { RIGHTKIT_ISOLATED_CHECKOUT: "1" } });
+      // `brokerCall` marks a test script that runs the broker (or cargo) through its script chain (scriptBrokerCall), or a unit whose app declares that
+      // its test needs the broker (declaredBrokerCall): rightkit-gate defers such a scan with the Rust gate where this host has no broker.
+      // A declaration (`npm.<unit>.requiresBroker`, declaredBrokerCall) covers what the script text does not show; a call the scripts do show wins.
+      const declared = declaredBrokerCall(name, own.requiresBroker);
+      if (declared.problem) notes.push(declared.problem);
+      const brokerCall = scriptBrokerCall(manifest.scripts, "test") ?? declared.call ?? null;
+      add({ id: `test:npm:${name}`, class: B, ...(own.quietTests === true ? { quiet: true } : {}), ...(brokerCall ? { brokerCall } : {}), tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { ...PNPM_RUN_ENV, RIGHTKIT_ISOLATED_CHECKOUT: "1" } });
     }
     if (deferredToCi.length) notes.push(`${deferredToCi.length} quiet test scan(s) left to the CI shards (one crate per runner), not run here: ${deferredToCi.join(", ")}`);
     // scripts/ci tests run when scripts/, ci/ or .github/ changed, or a file the scripts/ci sources reference (imports and
@@ -831,9 +964,10 @@ export function killProcessTree(child, { platform = process.platform, run = spaw
 /**
  * The same invocation as defaultSpawn without blocking, so scans can run side by side. Keeps the last 4 MiB of each stream.
  * With `options.signal` (an AbortSignal), an abort kills the whole process tree and the result carries `cancelled: true`.
+ * With `options.stdoutFile`, stdout is written to that file whole instead of kept in memory.
  */
 export function defaultSpawnAsync(command, args, options = {}) {
-  const { signal, ...rest } = options;
+  const { signal, stdoutFile, ...rest } = options;
   const inv = resolveInvocation(command, args, { env: rest.env ?? process.env });
   if (inv.error) return Promise.resolve({ status: null, stdout: "", stderr: "", error: inv.error });
   if (signal?.aborted) return Promise.resolve({ status: null, stdout: "", stderr: "", error: new Error("cancelled"), cancelled: true });
@@ -847,10 +981,12 @@ export function defaultSpawnAsync(command, args, options = {}) {
     const onAbort = () => killProcessTree(child);
     signal?.addEventListener("abort", onAbort, { once: true });
     child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (c) => { stdout = keep(stdout, c); });
+    const sink = stdoutFile ? fs.createWriteStream(stdoutFile) : null;
+    if (sink) child.stdout.pipe(sink); else child.stdout.on("data", (c) => { stdout = keep(stdout, c); });
     child.stderr.on("data", (c) => { stderr = keep(stderr, c); });
     child.on("error", (e) => { error = e; });
-    child.on("close", (status) => {
+    child.on("close", async (status) => {
+      if (sink) await new Promise((done) => (sink.writableFinished ? done() : sink.on("finish", done).on("error", done)));
       signal?.removeEventListener("abort", onAbort);
       const cancelled = signal?.aborted === true;
       resolve({ status, stdout, stderr, ...(error ? { error } : cancelled ? { error: new Error("cancelled") } : {}), ...(cancelled ? { cancelled: true } : {}) });
@@ -873,7 +1009,7 @@ export function laneOf(scan) {
 // The lines a reader needs from a failed scan: every line that names a failure (a failed test, a panic, a compiler or tool error,
 // cargo test's `failures:` block header, pnpm's ERR_ codes), at most twelve of them, then the last four lines of stdout and of
 // stderr. cargo test writes results to stdout and "Running ..." to stderr, so a plain tail showed only harness chatter.
-const FAILURE_LINE = /(^|\s)(FAILED|panicked at|error(\[E\d+\])?:|error\[|^failures:|ERR_PNPM_\w+|Error:|assertion `?left|^thread '.*' panicked)/;
+const FAILURE_LINE = /(^|[\s\[])(FAILED|panicked at|error(\[E\d+\])?:|error\[|^failures:|ERR_PNPM_\w+|Error:|assertion `?left|^thread '.*' panicked)/;
 export function failureDetail(r) {
   const lines = (text) => String(text ?? "").split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim());
   const out = lines(r?.stdout); const err = lines(r?.stderr);
@@ -1002,7 +1138,9 @@ const INTERNAL = {
   "json-parse": (s, ctx) => {
     const bad = [];
     for (const f of s.files) {
-      try { JSON.parse(ctx.read(f).replace(/^﻿/, "")); } catch (e) { bad.push(`${f}: ${e.message}`); }
+      // tsconfig/jsconfig and editor settings are JSON with comments by their own spec (TypeScript reads them that way).
+      const jsonc = /(^|\/)(tsconfig|jsconfig)(\.[^/]*)?\.json$|(^|\/)\.vscode\/[^/]+\.json$/.test(f);
+      try { const text = ctx.read(f).replace(/^\uFEFF/, ""); JSON.parse(jsonc ? stripJsonComments(text) : text); } catch (e) { bad.push(`${f}: ${e.message}`); }
     }
     return bad;
   },
@@ -1023,7 +1161,9 @@ const INTERNAL = {
   refuse: (s) => [s.detail],
   // Every RustSec exception is dated, scoped to the locked versions and identical in deny.toml and
   // .cargo/audit.toml (ci/advisory-exceptions.json; Astra 2026-10-22). Expiry fails every run.
-  "advisory-exceptions": (s, ctx) => checkAdvisoryExceptions({ root: ctx.contentRoot, readFile: ctx.read }),
+  "advisory-exceptions": (s, ctx) => (s.dir === undefined
+    ? checkAdvisoryExceptions({ root: ctx.contentRoot, readFile: ctx.read })
+    : checkAdvisoryExceptions({ root: path.join(ctx.contentRoot, s.dir), readFile: (p) => ctx.read(path.join(s.dir, p)), exceptionsFile: s.exceptionsFile }).map((problem) => `${s.dir || "."}: ${problem}`)),
   // Every Right Suite API projection must equal what the generator writes from the contract. The pure check is imported from the
   // scanner's own checkout (scripts/ sits beside packages/release), never from the content root.
   "suite-api": async (s, ctx) => {
@@ -1086,7 +1226,7 @@ export async function runScans(plan, options = {}) {
   const selected = plan.scans.filter((s) => classes.includes(s.class) && !exclude(s));
   const ordered = [...selected.filter((s) => s.class === SCAN_CLASS.A), ...selected.filter((s) => s.class === SCAN_CLASS.B)];
   const ctx = { deps, contentRoot, read: (f) => deps.readFile(path.join(contentRoot, f)) };
-  const toolVersions = {}; const probed = new Map();
+  const toolVersions = {}; const probed = new Map(); const advisoryDbs = new Map();
   const results = [];
   // options.cache = { read(key), write(key, row), digest(scan) => string | null } (null: not cacheable, which is how the live class A checks opt out).
   const cache = options.cache && typeof options.cache.read === "function" && typeof options.cache.write === "function" && typeof options.cache.digest === "function" ? options.cache : null;
@@ -1098,9 +1238,13 @@ export async function runScans(plan, options = {}) {
   const priorRows = Array.isArray(priorA?.scans) ? priorA.scans.filter((r) => r.class === SCAN_CLASS.A) : [];
   // Prior evidence binds to the input content (inputDigest of the changed files), the class A scan set, and a
   // class A run that actually included class A.
+  // ... and to the checker that produced it: evidence from another checker (other version, or same version with changed bytes)
+  // does not unlock class B, and an unknown identity on either side refuses.
+  const checker = CHECKER_IDENTITY;
   const priorClassAValid = Boolean(priorA) && priorA.schema === SCAN_RESULT_SCHEMA && Boolean(plan.classDigests?.A) && Boolean(plan.inputDigest)
     && priorA.inputDigest === plan.inputDigest && Array.isArray(priorA.classes) && priorA.classes.includes(SCAN_CLASS.A)
-    && priorA.classDigests?.A === plan.classDigests.A && digestScanSet(priorRows) === plan.classDigests.A && priorRows.every((r) => r.status === "pass");
+    && priorA.classDigests?.A === plan.classDigests.A && digestScanSet(priorRows) === plan.classDigests.A && priorRows.every((r) => r.status === "pass")
+    && typeof checker === "string" && priorA.checker === checker;
   // Class A ran "in this call" only when it was selected, the plan has class A scans, and none was excluded:
   // excluding every class A scan (or a plan with none) never unlocks class B; explicit prior evidence is needed.
   const planA = plan.scans.filter((x) => x.class === SCAN_CLASS.A);
@@ -1114,9 +1258,15 @@ export async function runScans(plan, options = {}) {
     const command = toolCommand(tool);
     if (!command) outcome = { ok: false, why: "not found" };
     else {
-      const r = await deps.spawn(command, PROBES[tool] ?? ["--version"], { cwd: liveRoot, env: deps.env, ...sig });
+      // A version probe never runs inside the repository: a tool started there reads the repository's own configuration first
+      // (pnpm's .npmrc and pnpmfile, corepack's packageManager pin, cargo's .cargo/config), before any scan's protections apply.
+      const r = await deps.spawn(command, PROBES[tool] ?? ["--version"], { cwd: deps.probeDir ?? probeDir(), env: { ...deps.env, ...PNPM_NO_HOOKS_ENV, COREPACK_ENABLE_AUTO_PIN: "0" }, ...sig });
       if (!r || r.error || r.status !== 0) outcome = { ok: false, why: r?.error?.message ?? `exit ${r?.status}` };
-      else outcome = { ok: true, command, version: String(r.stdout || r.stderr || "").split(/\r?\n/).find((l) => l.trim())?.trim() ?? "unknown" };
+      else {
+        const text = String(r.stdout || r.stderr || "");
+        const version = PROBE_VERSION[tool] ? PROBE_VERSION[tool](text) : text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? "unknown";
+        outcome = { ok: true, command, version: version ?? "unknown", pinProblem: pinnedVersionProblem(tool, version) };
+      }
     }
     toolVersions[tool] = outcome.ok ? outcome.version : null;
     probed.set(tool, outcome);
@@ -1170,6 +1320,29 @@ export async function runScans(plan, options = {}) {
     results.push(...slots);
   }
 
+  // The pinned advisory database, materialised once per run on first use (a failure is remembered and refuses every advisory scan).
+  function prepareAdvisory(s) {
+    const key = s.advisoryPin.commit;
+    if (!advisoryDbs.has(key)) {
+      try {
+        const ensure = deps.ensureAdvisoryDb ?? ensureAdvisoryDb;
+        advisoryDbs.set(key, { dir: ensure({ cacheRoot: deps.advisoryCacheRoot ?? advisoryCacheRoot({ env: deps.env, platform: deps.platform }), pin: s.advisoryPin }) });
+      } catch (e) { advisoryDbs.set(key, { error: e }); }
+    }
+    const db = advisoryDbs.get(key);
+    if (db.error) throw db.error;
+    if (s.advisoryDb !== "deny") return { dbDir: db.dir };
+    const prepare = deps.prepareDenyOverlay ?? prepareDenyOverlay;
+    let denyToml = "";
+    try { denyToml = deps.readFile(path.join(rootDir(s.root), s.cwd ?? "", "deny.toml")); } catch {
+      // No deny.toml in the workspace: RightKit's own policy (deny-default.toml) applies, never cargo-deny's empty default,
+      // which allows no licence at all.
+      denyToml = deps.defaultDenyToml ?? fs.readFileSync(new URL("./deny-default.toml", import.meta.url), "utf8");
+    }
+    const overlay = prepare({ denyToml, dbDir: db.dir, pin: s.advisoryPin });
+    return { dbDir: db.dir, configPath: overlay.configPath, cleanup: overlay.cleanup };
+  }
+
   // `extraEnv` (the quiet lease id) reaches the child but never the cache key: a lease changes nothing a scan proves.
   async function scanRow(s, extraEnv = null) {
     const row = { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: null, status: "fail" };
@@ -1193,13 +1366,25 @@ export async function runScans(plan, options = {}) {
       } else {
         const p = await probe(s.tool);
         row.toolVersion = p.ok ? p.version : null;
+        let missingDep = null; let depVersionProblem = null; const depVersions = [];
+        for (const dep of s.requires ?? []) {
+          const d = await probe(dep);
+          if (!d.ok) { missingDep = `${dep} (${d.why})`; break; }
+          if (d.pinProblem) { depVersionProblem = d.pinProblem; break; }
+          depVersions.push(d.version);
+        }
         if (!p.ok) { status = "fail"; code = "TOOL_MISSING"; detail = `required tool ${s.tool} is missing or not runnable (${p.why}); a required scan is never skipped`; }
+        else if (p.pinProblem) { status = "fail"; code = "TOOL_VERSION"; detail = `TOOL_VERSION: ${p.pinProblem} (at ${p.command})`; }
+        else if (missingDep) { status = "fail"; code = "TOOL_MISSING"; detail = `${s.tool} needs ${missingDep}, which is missing or not runnable; without it the scan would pass unchecked, so it fails`; }
+        else if (depVersionProblem) { status = "fail"; code = "TOOL_VERSION"; detail = `TOOL_VERSION: ${s.tool} runs ${depVersionProblem}`; }
         else {
           let cacheKey = null;
           if (cache) {
             try {
               const digest = cache.digest(s);
-              if (digest) cacheKey = scanCacheKey({ id: s.id, command: s.command, toolVersion: p.version, env: s.env ?? {}, inheritedEnv: inheritedEnvDigest({ ...deps.env, ...s.env }), digest });
+              // The analyzers a scan runs through (actionlint's shellcheck) judge it too, so their versions key it as well.
+              const toolVersion = [p.version, ...depVersions].join(" + ");
+              if (digest) cacheKey = scanCacheKey({ id: s.id, command: s.command, toolVersion, env: s.env ?? {}, inheritedEnv: inheritedEnvDigest({ ...deps.env, ...s.env }), digest });
             } catch { cacheKey = null; }
             const hit = cacheKey ? cache.read(cacheKey) : null;
             if (hit && hit.key === cacheKey && hit.row?.status === "pass" && hit.row.id === s.id && hit.row.command === s.command) {
@@ -1207,7 +1392,29 @@ export async function runScans(plan, options = {}) {
               return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}` };
             }
           }
-          const r = await deps.spawn(p.command, s.args.map((a) => (a === "{contentRoot}" ? contentRoot : a)), { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, ...sig });
+          let advisory = null; let args = s.args;
+          if (s.advisoryDb) {
+            try { advisory = prepareAdvisory(s); } catch (e) { return { ...row, status: "fail", code: "ADVISORY_DB", detail: e.message }; }
+            // cargo-deny --offline must not fetch the advisory database, but its own `cargo metadata` would then be offline too and
+            // fail on a runner whose cargo cache is cold. The workspace's metadata is resolved first, online and --locked (the
+            // lockfile decides every version), and handed to cargo-deny as a file.
+            if (s.advisoryDb === "deny") {
+              const at = args.indexOf("deny");
+              // The whole document is needed (the concurrent spawn keeps only the tail of stdout), so it streams to the file; a
+              // spawn that does not know `stdoutFile` returns stdout, which is written below.
+              const metadataDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-deny-metadata-"));
+              const metadataFile = path.join(metadataDir, "metadata.json");
+              const metadata = await deps.spawn(p.command, [...args.slice(0, at), ...metadataArgs({ noDeps: false })], { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env }, stdoutFile: metadataFile, ...sig });
+              if (!metadata || metadata.error || metadata.status !== 0) { fs.rmSync(metadataDir, { recursive: true, force: true }); advisory.cleanup?.(); return { ...row, status: "fail", code: "EXIT", detail: `cargo metadata for cargo-deny failed: ${metadata?.error?.message ?? (tail(metadata) || `exit ${metadata?.status}`)}` }; }
+              if (!fs.existsSync(metadataFile)) fs.writeFileSync(metadataFile, String(metadata.stdout ?? ""));
+              advisory.metadataPath = metadataFile;
+              const overlayCleanup = advisory.cleanup;
+              advisory.cleanup = () => { fs.rmSync(metadataDir, { recursive: true, force: true }); overlayCleanup?.(); };
+            }
+            args = args.map((a) => (a === "{advisoryDb}" ? advisory.dbDir : a === "{advisoryDenyConfig}" ? advisory.configPath : a === "{advisoryMetadata}" ? advisory.metadataPath : a));
+          }
+          let r;
+          try { r = await deps.spawn(p.command, args.map((a) => (a === "{contentRoot}" ? contentRoot : a)), { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, ...sig }); } finally { advisory?.cleanup?.(); }
           if (signal?.aborted && (!r || r.error || r.status !== 0)) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
           if (!r || r.error) { status = "fail"; code = "SPAWN_ERROR"; detail = r?.error?.message ?? "no result"; }
           else if (r.status !== 0) { status = "fail"; code = "EXIT"; detail = tail(r) || `exit ${r.status}`; }
@@ -1221,7 +1428,7 @@ export async function runScans(plan, options = {}) {
 
   const cancelled = signal?.aborted === true;
   return {
-    schema: SCAN_RESULT_SCHEMA, ok: !cancelled && results.every((r) => r.status === "pass"), complete: !cancelled && results.every((r) => r.status === "pass"), classes, ...(cancelled ? { cancelled: true } : {}),
+    schema: SCAN_RESULT_SCHEMA, ok: !cancelled && results.every((r) => r.status === "pass"), complete: !cancelled && results.every((r) => r.status === "pass"), classes, checker, ...(cancelled ? { cancelled: true } : {}),
     inputDigest: plan.inputDigest ?? null,
     deferred: results.filter((r) => r.status === "deferred").map((r) => r.id),
     scans: results, toolVersions, cacheHits: [...cacheHits].sort(), notes: plan.notes ?? [],

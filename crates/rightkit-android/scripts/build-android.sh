@@ -11,9 +11,9 @@
 
 set -eu
 
-here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-crate_dir=$(CDPATH= cd -- "$here/.." && pwd)
-root=$(CDPATH= cd -- "$crate_dir/../.." && pwd)
+here=$(CDPATH="" cd -- "$(dirname -- "$0")" && pwd)
+crate_dir=$(CDPATH="" cd -- "$here/.." && pwd)
+root=$(CDPATH="" cd -- "$crate_dir/../.." && pwd)
 # One Cargo profile everywhere: the built-in dev profile (never --release). --debug is accepted for compatibility.
 profile=""; profile_name=dev
 crate="rightkit-android"; library="rightkit_android"

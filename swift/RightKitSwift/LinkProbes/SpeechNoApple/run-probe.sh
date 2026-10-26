@@ -30,6 +30,7 @@ case "$platform" in
   *) echo "unknown platform $platform" >&2; exit 2 ;;
 esac
 
+# shellcheck disable=SC2016  # literal on purpose: the pattern matches the mangled symbol text, nothing is expanded
 SYMBOLS='SFSpeech|SpeechAnalyzer|SpeechTranscriber|AssetInventory|\$s6Speech'
 fail=0
 
@@ -60,6 +61,7 @@ symbols_speech() { nm -m "$1" 2>/dev/null | grep -E "$SYMBOLS" || true; }
 
 clean="$products/SpeechNoAppleProbe"
 control="$products/AppleControlProbe"
+# shellcheck disable=SC2015  # each A && B is a test, so the || branch runs exactly when a requirement is missing
 [ -f "$clean" ] && [ -f "$control" ] || { echo "probe binaries missing under $products" >&2; exit 2; }
 
 if loads_speech "$clean"; then echo "FAIL: SpeechNoAppleProbe loads Speech.framework"; fail=1; fi

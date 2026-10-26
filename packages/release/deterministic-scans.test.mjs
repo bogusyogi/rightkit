@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
+import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -8,12 +9,12 @@ import path from "node:path";
 import {
   CLASS_A_SCAN_PREFIXES, CLASS_B_SCAN_PREFIXES, canonicalJson, fileScanCache, inheritedEnvDigest, requiredScanIds, scanCacheKey, checkArgs, clippyArgs, digestScanSet, docArgs, fmtCheckArgs,
   defaultSpawn, deterministicScansEnabled, metadataArgs, planScans, resolveInvocation, runScans, scanClassOf, scanDeferrals, scanFailures,
-} from "./deterministic-scans.mjs";
+  CHECKER_IDENTITY } from "./deterministic-scans.mjs";
 import { requiredScanProblems } from "./scan-digest.mjs";
 import * as scansModule from "./deterministic-scans.mjs";
 
 // Read off the module so a test of a function that does not exist yet fails on its own, not with an import error for the whole file.
-const { scriptBrokerCall } = scansModule;
+const { scriptBrokerCall, PINNED_SCAN_TOOLS = {}, pinnedVersionProblem } = scansModule;
 
 const CONTENT = path.join(path.sep, "c", "rustright");
 const LIVE = path.join(path.sep, "l", "rustright");
@@ -112,18 +113,20 @@ test("builders produce the exact command lines the CI gate and local publish use
 });
 
 // A recording spawn: probes answer a version, every other call is logged and returns `status`.
-function fakeSpawn({ missing = [], failing = [], log = [] } = {}) {
+function fakeSpawn({ missing = [], failing = [], log = [], shellcheckVersion = PINNED_SCAN_TOOLS.shellcheck } = {}) {
   return (command, args) => {
     log.push([command, ...args]);
     const name = path.basename(command).replace(/\.exe$/, "");
     if (missing.includes(name)) return { error: Object.assign(new Error(`spawn ${name} ENOENT`), { code: "ENOENT" }), status: null };
     const isProbe = args.length === 1 && args[0].includes("version") || (args.length === 2 && args[0] === "cargo" && args[1] === "--version");
+    // ShellCheck answers as the real one does (a banner, then its version), at the version class A accepts.
+    if (isProbe && name === "shellcheck") return { status: 0, stdout: `ShellCheck - shell script analysis tool\nversion: ${shellcheckVersion}\nlicense: GNU General Public License, version 3\n`, stderr: "" };
     if (isProbe) return { status: 0, stdout: `${name} 1.0.0\n`, stderr: "" };
     if (failing.some((f) => args.join(" ").includes(f))) return { status: 1, stdout: "", stderr: "boom\n" };
     return { status: 0, stdout: "", stderr: "" };
   };
 }
-const deps = (over = {}) => ({ spawn: fakeSpawn(), ...fakeFs({}), findRustfmt: () => "rustfmt", loadToml: async () => () => ({}), scanSecrets: async () => () => [], env: {}, execPath: "node", ...over });
+const deps = (over = {}) => ({ spawn: fakeSpawn(), ...fakeFs({}), findRustfmt: () => "rustfmt", loadToml: async () => () => ({}), scanSecrets: async () => () => [], env: {}, execPath: "node", ensureAdvisoryDb: () => "/cache/advisory-db/pinned", prepareDenyOverlay: () => ({ configPath: "/tmp/rk-deny/deny.toml", cleanup() {} }), ...over });
 
 test("runner: all scans pass and the result is a plain receipt-ready object", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
@@ -167,7 +170,7 @@ test("runner: missing rustfmt and missing TOML parser fail", async () => {
 test("runner: a failed class A scan leaves class B not-run", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
   const log = [];
-  const result = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ failing: ["deny check"], log }) }));
+  const result = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ failing: ["deny --offline"], log }) }));
   assert.equal(result.scans.find((s) => s.id === "cargo-deny").status, "fail");
   const b = result.scans.filter((s) => s.class === "B");
   assert.ok(b.length > 0 && b.every((s) => s.status === "not-run"));
@@ -463,6 +466,22 @@ test("runner: class B alone is refused without valid class A evidence, and runs 
   assert.equal(await refused({ ...a, classDigests: { ...a.classDigests, A: "0".repeat(64) } }), true);
   assert.equal(await refused({ ...a, scans: a.scans.slice(1) }), true);
   assert.equal(await refused({ ...a, schema: "other/1" }), true);
+  // Evidence produced by another checker never unlocks class B: another version, the same version with other bytes (the
+  // identity carries a content digest), or no/unknown identity. The identity is name@version#digest, never a bare version.
+  assert.match(CHECKER_IDENTITY, /^@rightkit\/release@\d+\.\d+\.\d+(?:[-+][\w.-]+)?#[0-9a-f]{16}$/);
+  assert.equal(a.checker, CHECKER_IDENTITY);
+  assert.equal(await refused({ ...a, checker: "@rightkit/release@0.0.0#0000000000000000" }), true);
+  assert.equal(await refused({ ...a, checker: `${CHECKER_IDENTITY.split("#")[0]}#${"f".repeat(16)}` }), true, "same version, changed checker bytes");
+  assert.equal(await refused({ ...a, checker: CHECKER_IDENTITY.split("#")[0] }), true, "version-only identity");
+  assert.equal(await refused({ ...a, checker: undefined }), true);
+  assert.equal(await refused({ ...a, checker: null }), true);
+  // C-1 on the real runner: the evidence rows must be exactly the plan's class A set — a duplicate row, an unknown rule row,
+  // or a missing row is refused, and excluding even one class A scan in this call never unlocks class B.
+  assert.equal(await refused({ ...a, scans: [...a.scans, a.scans[0]] }), true, "duplicate row");
+  assert.equal(await refused({ ...a, scans: [...a.scans, { ...a.scans[0], id: "unknown-rule", command: "internal:unknown" }] }), true, "unknown rule row");
+  assert.equal(await refused({ ...a, scans: a.scans.filter((_, i) => i !== 0) }), true, "missing row");
+  const oneExcluded = await runScans(plan, deps({ ...fs, exclude: (s) => s.id === plan.scans.find((x) => x.class === "A").id }));
+  assert.ok(oneExcluded.scans.filter((s) => s.class === "B").length > 0 && oneExcluded.scans.filter((s) => s.class === "B").every((s) => s.code === "CLASS_A_REQUIRED"), "one excluded class A scan blocks class B");
   const other = planFor(["crates/foo/Cargo.toml"]).plan;
   assert.notEqual(other.classDigests.A, plan.classDigests.A);
   assert.equal((await runScans(other, deps({ ...fakeFs(crateFiles, crateFiles), classes: ["B"], priorClassA: a }))).scans.every((s) => s.code === "CLASS_A_REQUIRED"), true);
@@ -473,7 +492,9 @@ test("plan: cargoCommand selects the cargo prefix (rustright cargo locally, plai
   const cargoScans = ci.scans.filter((s) => s.tool === "cargo");
   assert.ok(["cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo", "clippy:foo"].every((id) => cargoScans.some((s) => s.id === id)));
   assert.ok(cargoScans.every((s) => s.args[0] !== "cargo"));
-  assert.equal(cargoScans.find((s) => s.id === "cargo-deny").command, "cargo deny check");
+  const PIN = "21d909e4c8bd4e14c7aea58bf980c881a0053ab1";
+  assert.equal(cargoScans.find((s) => s.id === "cargo-deny").command, `RK_ADVISORY_DB_COMMIT=${PIN} cargo deny --offline --metadata-path {advisoryMetadata} --config {advisoryDenyConfig} check`);
+  assert.equal(cargoScans.find((s) => s.id === "cargo-audit").command, `RK_ADVISORY_DB_COMMIT=${PIN} cargo audit --db {advisoryDb} --no-fetch`);
   assert.ok(!ci.scans.some((s) => s.tool === "rustright"));
   assert.throws(() => planFor(["README.md"], { "README.md": "x" }, { cargoCommand: ["sh", "-c"] }), /cargoCommand/);
 });
@@ -1406,7 +1427,7 @@ test("lint: a Biome-only app is planned biome, never eslint (ViewRight and Scrap
     const biome = scanOf(p, "biome:app");
     assert.ok(biome, `${config}: ${ids(p).join(" ")}`);
     assert.deepEqual([biome.tool, biome.args, biome.cwd, biome.class], ["pnpm", ["exec", "biome", "lint", "."], ".", "B"]);
-    assert.equal(biome.command, "pnpm exec biome lint .");
+    assert.equal(biome.command, "pnpm_config_verify_deps_before_run=false pnpm exec biome lint .", "the pnpm dependency check is off for the run (B4)");
     assert.equal(scanClassOf("biome:app"), "B");
     assert.ok(!ids(p).includes("eslint:app"), `${config}: a Biome app has no ESLint config, so eslint . would fail with "couldn't find an eslint.config": ${ids(p).join(" ")}`);
   }
@@ -1587,4 +1608,286 @@ test("pnpm roots: a root that is not a plain repository-relative directory, or a
   assert.ok(ids(outside).some((i) => i.startsWith("path-policy:")), "a unit whose root does not hold it");
   assert.throws(() => rootsPlan(["apps/a/src/x.ts"], rootsFiles, { npmRoots: "apps/a" }), /npmRoots must be/);
   assert.throws(() => rootsPlan(["apps/a/src/x.ts"], rootsFiles, { npmUnits: [{ name: "a", dir: "apps/a", root: 3 }] }), /string root/);
+});
+
+test("advisory scans: cargo-deny and cargo-audit run offline against the pinned database, and a pin change is a different scan", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
+  const log = []; const ensured = [];
+  const result = await runScans(plan, deps({ ...fs, classes: ["A"], spawn: fakeSpawn({ log }), ensureAdvisoryDb: (o) => { ensured.push(o); return "/cache/advisory-db/pinned"; } }));
+  assert.equal(result.ok, true);
+  assert.equal(ensured.length, 1, "materialised once for both scans");
+  assert.equal(ensured[0].pin.commit, "21d909e4c8bd4e14c7aea58bf980c881a0053ab1");
+  const deny = log.find((c) => c.includes("deny") && c.includes("check")).slice(2);
+  assert.deepEqual([...deny.slice(0, 2), ...deny.slice(4)], ["deny", "--offline", "--config", "/tmp/rk-deny/deny.toml", "check"]);
+  assert.equal(deny[2], "--metadata-path");
+  assert.match(deny[3], /rk-deny-metadata-[^/\\]+[/\\]metadata\.json$/, "metadata resolved online & --locked first, so --offline never needs a warm cargo cache");
+  assert.ok(log.some((c) => c.includes("metadata") && c.includes("--locked") && !c.includes("--no-deps")), "the full --locked metadata is resolved before cargo-deny");
+  assert.deepEqual(log.find((c) => c.includes("audit") && c.includes("--db")).slice(2), ["audit", "--db", "/cache/advisory-db/pinned", "--no-fetch"]);
+  const other = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { advisoryPin: { url: "https://github.com/rustsec/advisory-db", commit: "b".repeat(40) } }).plan;
+  assert.notEqual(other.scans.find((s) => s.id === "cargo-deny").command, plan.scans.find((s) => s.id === "cargo-deny").command);
+});
+
+test("advisory scans: an unavailable pinned database fails both scans and no tool runs", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
+  const log = [];
+  const result = await runScans(plan, deps({ ...fs, classes: ["A"], spawn: fakeSpawn({ log }), ensureAdvisoryDb: () => { throw new Error("advisory database x is not available"); } }));
+  for (const id of ["cargo-deny", "cargo-audit"]) {
+    const row = result.scans.find((s) => s.id === id);
+    assert.equal(row.status, "fail"); assert.equal(row.code, "ADVISORY_DB"); assert.match(row.detail, /not available/);
+  }
+  assert.ok(!log.some((c) => c.includes("--offline") || c.includes("--no-fetch")));
+  assert.equal(result.ok, false);
+});
+
+test("advisory scans: a workspace without deny.toml gets RightKit's policy, never cargo-deny's empty default", () => {
+  const text = readFileSync(new URL("./deny-default.toml", import.meta.url), "utf8");
+  assert.match(text, /\[licenses\][\s\S]*allow = \[[\s\S]*"MIT"[\s\S]*"Apache-2\.0"/);
+  assert.match(text, /\[licenses\.private\]\nignore = true/);
+  assert.match(text, /unknown-registry = "deny"/);
+  const src = readFileSync(new URL("./deterministic-scans.mjs", import.meta.url), "utf8");
+  assert.match(src, /deny-default\.toml/);
+});
+
+test("actionlint needs shellcheck: without it the workflow scan fails instead of passing its run: scripts unchecked", async () => {
+  const { fs, plan } = planFor([".github/workflows/ci.yml"], { ".github/workflows/ci.yml": "on: push\njobs: {}\n" }, { all: true });
+  const scan = plan.scans.find((s) => s.id === "actionlint");
+  assert.deepEqual(scan.requires, ["shellcheck"]);
+  const missing = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ missing: ["shellcheck"] }) }));
+  const row = missing.scans.find((s) => s.id === "actionlint");
+  assert.equal(row.status, "fail");
+  assert.equal(row.code, "TOOL_MISSING");
+  assert.match(row.detail, /shellcheck/);
+  const present = await runScans(plan, deps({ ...fs }));
+  assert.equal(present.scans.find((s) => s.id === "actionlint").status, "pass");
+});
+
+test("json-parse reads tsconfig, jsconfig and .vscode settings as JSON with comments; everything else stays strict", async () => {
+  const files = { "tsconfig.json": "{\n  // strict\n  \"compilerOptions\": { /* x */ \"strict\": true, },\n}\n", "app/tsconfig.app.json": "{ \"a\": 1, // c\n}", "package.json": "{ \"a\": 1 // c\n}" };
+  const { fs, plan } = planFor(Object.keys(files), files);
+  const result = await runScans(plan, deps({ ...fs }));
+  const row = result.scans.find((s) => s.id === "json-parse");
+  assert.equal(row.status, "fail");
+  assert.match(row.detail, /package\.json/);
+  assert.doesNotMatch(row.detail, /tsconfig/);
+});
+
+test("advisory exceptions: an app workspace whose deny.toml ignores an advisory needs its own ledger, checked like RightKit's", async () => {
+  const deny = "[advisories]\nignore = [\n  { id = \"RUSTSEC-2024-0429\", reason = \"Linux only\" },\n]\n";
+  // An app: no ci/advisory-exceptions.json (that file is RightKit's own ledger for its root workspace).
+  const appFiles = Object.fromEntries(Object.entries({ ...crateFiles, "deny.toml": deny }).filter(([k]) => k !== "ci/advisory-exceptions.json"));
+  const fs = fakeFs(appFiles, appFiles);
+  const plan = planScans({ changed: ["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "win32" });
+  const scan = plan.scans.find((s) => s.id.startsWith("advisory-exceptions") && s.exceptionsFile);
+  assert.ok(scan, plan.scans.map((s) => s.id).join(" "));
+  assert.equal(scan.exceptionsFile, ".rightkit/advisory-exceptions.json");
+  const result = await runScans(plan, deps({ ...fs }));
+  const row = result.scans.find((s) => s.id === scan.id);
+  assert.equal(row.status, "fail");
+  assert.match(row.detail, /\.rightkit\/advisory-exceptions\.json/);
+});
+
+// ---- B4: pnpm 11's dependency check before `pnpm run` and `pnpm exec` must not abort a gate scan -----------------------------------------------------------
+// CodeRight, 2026-10-25: tsc:, biome: and test:npm: failed in two seconds with a stack through runDepsStatusCheck. pnpm 11 verifies, before every
+// `pnpm run` and `pnpm exec`, that node_modules matches pnpm-lock.yaml and answers a stale tree by running `pnpm install`, which wants to purge the
+// modules directory and aborts with no TTY. The scan never reached tsc, biome or the tests, and the reported error was the tail of a stack.
+
+// What pnpm 11.25.0 printed for `pnpm exec tsc --version` in that tree (stderr, the paths of the host kept).
+const PNPM_ABORT = [
+  "[ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY] Aborted removal of modules directory due to no TTY",
+  "",
+  'If you are running pnpm in CI, set the CI environment variable to "true", or set "confirmModulesPurge" to "false".',
+  "[ERROR] Command failed with exit code 1: pnpm install",
+  "",
+  "pnpm: Command failed with exit code 1: pnpm install",
+  "    at getFinalError (file:///root/.local/share/pnpm/.tools/pnpm/11.25.0_tmp_28750/node_modules/pnpm/dist/pnpm.mjs:89986:14)",
+  "    at makeError (file:///root/.local/share/pnpm/.tools/pnpm/11.25.0_tmp_28750/node_modules/pnpm/dist/pnpm.mjs:92293:21)",
+  "    at boundExeca (file:///root/.local/share/pnpm/.tools/pnpm/11.25.0_tmp_28750/node_modules/pnpm/dist/pnpm.mjs:96532:49)",
+  "    at sync2 (file:///root/.local/share/pnpm/.tools/pnpm/11.25.0_tmp_28750/node_modules/pnpm/dist/pnpm.mjs:96687:14)",
+  "    at runPnpmCli (file:///root/.local/share/pnpm/.tools/pnpm/11.25.0_tmp_28750/node_modules/pnpm/dist/pnpm.mjs:276906:5)",
+  "    at runDepsStatusCheck (file:///root/.local/share/pnpm/.tools/pnpm/11.25.0_tmp_28750/node_modules/pnpm/dist/pnpm.mjs:278122:7)",
+  "",
+].join("\n");
+
+// A stand-in for pnpm 11 on a stale tree: `pnpm run` and `pnpm exec` abort unless pnpm_config_verify_deps_before_run is `false` in the child's
+// environment (the pnpm_config_ spelling; npm_config_ does not turn it off); with it off the tool runs and answers `toolResult`.
+function stalePnpm({ log = [], toolResult = { status: 0, stdout: "", stderr: "" } } = {}) {
+  const base = fakeSpawn();
+  return (command, args, options = {}) => {
+    if (path.basename(command).replace(/\.exe$/, "") !== "pnpm" || args[0] === "--version" || args[0] === "install" || args[0] === "audit") return base(command, args);
+    const flag = options.env?.pnpm_config_verify_deps_before_run;
+    log.push({ args, flag });
+    return flag === "false" ? toolResult : { status: 1, stdout: "", stderr: PNPM_ABORT };
+  };
+}
+const jsApp = { "package.json": '{"name":"app","license":"MIT","scripts":{"test":"node --test"}}', "tsconfig.json": "{}", "eslint.config.js": "", "biome.json": "{}", "src/a.ts": "" };
+const pnpmUnit = { rustUnits: [], npmUnits: [{ name: "app", dir: "." }] };
+
+test("B4: the class B pnpm scans (tsc, eslint, biome, test:npm) turn pnpm's dependency check off; the class A lockfile and audit scans and every other scan are unchanged", () => {
+  const { plan } = planFor(["src/a.ts"], jsApp, pnpmUnit);
+  const ENV = { pnpm_config_verify_deps_before_run: "false" };
+  for (const id of ["tsc:app", "eslint:app", "biome:app"]) assert.deepEqual(scanOf(plan, id).env, ENV, id);
+  assert.deepEqual(scanOf(plan, "test:npm:app").env, { ...ENV, RIGHTKIT_ISOLATED_CHECKOUT: "1" }, "the isolated checkout flag stays");
+  assert.equal(scanOf(plan, "tsc:app").command, "pnpm_config_verify_deps_before_run=false pnpm exec tsc --noEmit -p tsconfig.json");
+  assert.equal(scanOf(plan, "test:npm:app").command, "RIGHTKIT_ISOLATED_CHECKOUT=1 pnpm_config_verify_deps_before_run=false pnpm --dir . run test");
+  for (const id of ["pnpm-lockfile", "pnpm-audit"]) {
+    const scan = scanOf(plan, id);
+    assert.ok(scan, id);
+    assert.equal(scan.env.pnpm_config_verify_deps_before_run, undefined, `${id} installs into no tree and runs no script: no dependency check to turn off`);
+  }
+  assert.ok(plan.scans.filter((s) => s.tool !== "pnpm").every((s) => s.env?.pnpm_config_verify_deps_before_run === undefined), "no other scan gets it");
+});
+
+test("B4: every class B pnpm scan reaches pnpm with the check off, so a stale node_modules runs the tool or the test instead of aborting", async () => {
+  const { fs, plan } = planFor(["src/a.ts"], jsApp, pnpmUnit);
+  const log = [];
+  const result = await runScans(plan, deps({ ...fs, spawn: stalePnpm({ log }) }));
+  assert.equal(result.ok, true, JSON.stringify(scanFailures(result)));
+  assert.deepEqual(log.map((c) => c.args[0] === "--dir" ? "test" : c.args[1]).sort(), ["biome", "eslint", "test", "tsc"], "tsc, eslint, biome and the tests all ran");
+  assert.ok(log.every((c) => c.flag === "false"), "with the check off in each child's environment");
+  // The stand-in does abort when the setting is absent: that is what the unfixed plan hit.
+  const stripped = { ...plan, scans: plan.scans.map((s) => (s.tool === "pnpm" && s.class === "B" ? { ...s, env: Object.fromEntries(Object.entries(s.env ?? {}).filter(([k]) => k !== "pnpm_config_verify_deps_before_run")) } : s)) };
+  const aborted = await runScans(stripped, deps({ ...fs, spawn: stalePnpm() }));
+  assert.equal(aborted.ok, false);
+  assert.match(aborted.scans.find((r) => r.id === "tsc:app").detail, /ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY/);
+});
+
+test("B4: turning the check off masks no real failure: a tool or test that fails still fails the scan with its own output", async () => {
+  const { fs, plan } = planFor(["src/a.ts"], jsApp, pnpmUnit);
+  const toolResult = { status: 2, stdout: "src/a.ts(1,7): error TS2322: Type 'string' is not assignable to type 'number'.\n", stderr: "" };
+  const result = await runScans(plan, deps({ ...fs, spawn: stalePnpm({ toolResult }) }));
+  assert.equal(result.ok, false);
+  for (const id of ["tsc:app", "eslint:app", "biome:app", "test:npm:app"]) {
+    const row = result.scans.find((r) => r.id === id);
+    assert.equal(row.status, "fail", id);
+    assert.match(row.detail, /error TS2322/, `${id} reports the tool's own failure`);
+  }
+});
+
+test("B4: a failed scan's detail leads with pnpm's bracketed [ERR_PNPM_...] line, not the tail of a stack", () => {
+  const detail = scansModule.failureDetail({ status: 1, stdout: "", stderr: PNPM_ABORT });
+  assert.match(detail, /^\[ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY\] Aborted removal of modules directory due to no TTY \|/, detail);
+  assert.match(detail, /runDepsStatusCheck/, "the stack tail is still there after it");
+  // The other shapes it reads are unchanged: a bare code, a failed test, a compiler error, a panic.
+  assert.match(scansModule.failureDetail({ stderr: " ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed\n    at x\n" }), /^ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL/);
+  assert.match(scansModule.failureDetail({ stdout: "x\ntest foo ... FAILED\ny\n" }), /^test foo \.\.\. FAILED/);
+  assert.match(scansModule.failureDetail({ stderr: "noise\nerror[E0308]: mismatched types\n" }), /^error\[E0308\]: mismatched types/);
+});
+
+// ---- B1: ci/gate.config.json npm.<unit>.requiresBroker ---------------------------------------------------------------------------------------------------------
+
+test("B1: declaredBrokerCall reads { reason } only; whitespace is collapsed, a long reason is cut, anything else is a problem or no declaration", () => {
+  const { declaredBrokerCall } = scansModule;
+  assert.deepEqual(declaredBrokerCall("app", { reason: "  runs\n  verify-local.mjs  " }), { call: { tool: "rustright", via: ["test"], command: "ci/gate.config.json npm.app.requiresBroker: runs verify-local.mjs", declared: true } });
+  const long = declaredBrokerCall("app", { reason: "x".repeat(500) }).call.command;
+  assert.equal(long, `ci/gate.config.json npm.app.requiresBroker: ${"x".repeat(400)}...`);
+  for (const none of [undefined, null, false]) assert.deepEqual(declaredBrokerCall("app", none), {}, String(none));
+  for (const bad of [true, 0, "yes", [], {}, { reason: "" }, { reason: "   " }, { reason: 7 }, { reason: null }, [{ reason: "x" }], { Reason: "x" }, { why: "x" }]) {
+    const r = declaredBrokerCall("app", bad);
+    assert.equal(r.call, undefined, JSON.stringify(bad));
+    assert.match(r.problem, /^ci\/gate\.config\.json npm\.app\.requiresBroker is ignored: it must be \{ "reason": /, JSON.stringify(bad));
+  }
+});
+
+test("B1: planScans marks a declared unit's test:npm scan; the script chain's own finding wins; a bad declaration plans the scan unmarked with a note; other settings are unaffected", () => {
+  const files = { "package.json": '{"name":"app","license":"MIT","scripts":{"test":"node -e \\"require(\'./verify-local.mjs\')\\""}}', "src/a.ts": "" };
+  const declare = (requiresBroker, extra = {}) => planFor(["src/a.ts"], files, { ...pnpmUnit, packageFeatures: { app: { requiresBroker, ...extra } } }).plan;
+  const marked = scanOf(declare({ reason: "verify-local.mjs spawns rustright cargo test" }), "test:npm:app");
+  assert.deepEqual(marked.brokerCall, { tool: "rustright", via: ["test"], command: "ci/gate.config.json npm.app.requiresBroker: verify-local.mjs spawns rustright cargo test", declared: true });
+  assert.deepEqual([marked.tool, marked.args], ["pnpm", ["--dir", ".", "run", "test"]], "the scan itself is unchanged");
+  assert.equal(scanOf(planFor(["src/a.ts"], files, pnpmUnit).plan, "test:npm:app").brokerCall, undefined, "no declaration, no script that shows the call: unmarked");
+  const bad = declare({ reason: "" });
+  assert.equal(scanOf(bad, "test:npm:app").brokerCall, undefined);
+  assert.ok(bad.notes.some((n) => /^ci\/gate\.config\.json npm\.app\.requiresBroker is ignored: /.test(n)), bad.notes.join("\n"));
+  assert.ok(!declare({ reason: "x" }).notes.some((n) => /requiresBroker/.test(n)), "a good declaration adds no note");
+  const quiet = declare({ reason: "x" }, { quietTests: true });
+  assert.equal(scanOf(quiet, "test:npm:app").quiet, true, "quietTests still applies");
+  assert.equal(scanOf(quiet, "test:npm:app").brokerCall.declared, true);
+  const shown = planFor(["src/a.ts"], { ...files, "package.json": '{"name":"app","license":"MIT","scripts":{"test":"rustright cargo test"}}' }, { ...pnpmUnit, packageFeatures: { app: { requiresBroker: { reason: "x" } } } }).plan;
+  assert.deepEqual(scanOf(shown, "test:npm:app").brokerCall, { tool: "rustright", via: ["test"], command: "rustright cargo test" }, "what the scripts show is reported as the scripts show it");
+});
+
+test("pnpm-audit runs the consumer's own declared policy, never a weaker one; with none declared, every dependency at every severity", () => {
+  const scanArgs = (pkg) => planFor(["package.json"], { "package.json": JSON.stringify(pkg), "pnpm-lock.yaml": "lockfileVersion: '9.0'\n" }, { rustUnits: [], npmUnits: [{ name: "app", dir: "." }] }).plan.scans.find((s) => s.id === "pnpm-audit")?.args;
+  assert.deepEqual(scanArgs({ name: "app", license: "MIT", scripts: { "deps:audit": "pnpm audit --prod" } }), ["audit", "--prod"], "RightSites' policy: production dependencies, every severity");
+  assert.deepEqual(scanArgs({ name: "app", license: "MIT", scripts: { audit: "pnpm audit --audit-level=moderate" } }), ["audit", "--audit-level", "moderate"]);
+  assert.deepEqual(scanArgs({ name: "app", license: "MIT" }), ["audit"], "no declared policy: all dependencies, all severities");
+  assert.deepEqual(scanArgs({ name: "app", license: "MIT", scripts: { audit: "pnpm audit --prod && curl evil" } }), ["audit"], "anything but plain flags is not a policy");
+  // Several declarations: the strictest wins, whatever their order.
+  assert.deepEqual(scanArgs({ name: "app", license: "MIT", scripts: { quick: "pnpm audit --prod --audit-level high", strict: "pnpm audit" } }), ["audit"], "a later full audit is not hidden by an earlier narrow one");
+  assert.deepEqual(scanArgs({ name: "app", license: "MIT", scripts: { strict: "pnpm audit", quick: "pnpm audit --prod --audit-level high" } }), ["audit"]);
+  assert.deepEqual(scanArgs({ name: "app", license: "MIT", scripts: { a: "pnpm audit --prod --audit-level high", b: "pnpm audit --prod --audit-level moderate" } }), ["audit", "--prod", "--audit-level", "moderate"], "same scope, lowest level");
+  assert.deepEqual(scanArgs({ name: "app", license: "MIT", scripts: { a: "pnpm audit --prod", b: "pnpm audit --dev --audit-level critical" } }), ["audit"], "different scopes: every dependency; one without a level: every severity");
+  assert.deepEqual(scanArgs({ name: "app", license: "MIT", scripts: { a: "pnpm audit --audit-level=critical", b: "pnpm audit --prod && curl evil" } }), ["audit", "--audit-level", "critical"], "a non-policy script declares nothing");
+});
+
+test("tool version probes run outside the repository with pnpm hooks and corepack auto-pinning off; the scans themselves keep their own roots", async () => {
+  const { fs, plan } = planFor(["package.json"], { "package.json": '{"name":"app","license":"MIT"}', "pnpm-lock.yaml": "lockfileVersion: '9.0'\n" }, { rustUnits: [], npmUnits: [{ name: "app", dir: "." }] });
+  const calls = [];
+  const base = fakeSpawn();
+  const spawn = (command, args, options = {}) => { calls.push({ command: path.basename(command), args, cwd: options.cwd, env: options.env ?? {} }); return base(command, args, options); };
+  await runScans(plan, deps({ ...fs, spawn, probeDir: "/neutral/probe" }));
+  const probes = calls.filter((c) => c.args.length === 1 && /version/.test(c.args[0]));
+  assert.ok(probes.some((c) => c.command === "pnpm"), "pnpm was probed");
+  for (const p of probes) {
+    assert.equal(p.cwd, "/neutral/probe", `${p.command} probe runs outside the repository`);
+    assert.equal(p.env.npm_config_ignore_pnpmfile, "true"); assert.equal(p.env.pnpm_config_ignore_pnpmfile, "true");
+    assert.equal(p.env.npm_config_ignore_scripts, "true"); assert.equal(p.env.COREPACK_ENABLE_AUTO_PIN, "0");
+  }
+  // Positive control: the audit scan itself still runs in the repository's content root.
+  const audit = calls.find((c) => c.command === "pnpm" && c.args[0] === "audit");
+  assert.ok(audit && audit.cwd.startsWith(CONTENT), "the scan runs where its lockfile is");
+});
+
+test("shellcheck: every tracked .sh/.bash script is a class A scan; a zsh script is left to its own shell", () => {
+  const files = { "deploy/release.sh": "#!/usr/bin/env bash\necho hi\n", "tools/x.bash": "#!/bin/bash\n", "spikes/run-all.sh": "#!/bin/zsh\necho z\n" };
+  const { plan } = planFor(Object.keys(files), files, { all: true });
+  const scan = plan.scans.find((s) => s.id === "shellcheck");
+  assert.equal(scan.class, "A");
+  assert.deepEqual(scan.args.filter((a) => !a.startsWith("--")), ["deploy/release.sh", "tools/x.bash"]);
+});
+
+// SellRight's own scripts (original bytes, red, repaired and the disable-comment positive control) run through the real
+// rightkit-gate check in rightkit-gate.test.mjs ("class A ShellCheck: ..."); these hold the version pin itself.
+test("shellcheck version pin: class A accepts only PINNED_SCAN_TOOLS.shellcheck, reads it past the banner, and a wrong version fails TOOL_VERSION in the scan and in actionlint, never passing or skipping", async () => {
+  assert.equal(PINNED_SCAN_TOOLS.shellcheck, "0.11.0");
+  assert.equal(pinnedVersionProblem("shellcheck", "shellcheck 0.11.0"), null);
+  assert.match(pinnedVersionProblem("shellcheck", "shellcheck 0.10.0"), /found "shellcheck 0\.10\.0", class A requires shellcheck 0\.11\.0/);
+  assert.match(pinnedVersionProblem("shellcheck", null), /no readable version/);
+  assert.equal(pinnedVersionProblem("actionlint", "1.0.0"), null, "a tool with no pin is not judged here");
+  const files = { "deploy/release.sh": "#!/bin/sh\necho hi\n", ".github/workflows/ci.yml": "on: push\njobs: {}\n" };
+  const { fs, plan } = planFor(Object.keys(files), files, { all: true });
+  const good = await runScans(plan, deps({ ...fs }));
+  assert.equal(good.ok, true, JSON.stringify(scanFailures(good)));
+  assert.equal(good.toolVersions.shellcheck, "shellcheck 0.11.0", "the version, not the banner's first line");
+  for (const [label, version] of [["older", "0.10.0"], ["newer", "0.12.0"], ["a build string", "0.11.0-dirty"]]) {
+    const log = [];
+    const bad = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ log, shellcheckVersion: version }) }));
+    assert.equal(bad.ok, false, label);
+    for (const id of ["shellcheck", "actionlint"]) {
+      const row = bad.scans.find((r) => r.id === id);
+      assert.equal(row.status, "fail", `${label} ${id}`);
+      assert.equal(row.code, "TOOL_VERSION", `${label} ${id}`);
+      assert.match(row.detail, /class A requires shellcheck 0\.11\.0/);
+    }
+    assert.ok(bad.scans.find((r) => r.id === "shellcheck").detail.includes(`found "shellcheck ${version}"`), label);
+    assert.equal(log.filter((l) => /shellcheck|actionlint/.test(l[0]) && !l.some((a) => /version/.test(a))).length, 0, `${label}: neither analyzer ran`);
+  }
+});
+
+test("shellcheck version pin: a cached pass never admits another version, and the version keys the cache (actionlint's by its shellcheck too)", async () => {
+  const files = { "deploy/release.sh": "#!/bin/sh\necho hi\n", ".github/workflows/ci.yml": "on: push\njobs: {}\n" };
+  const { fs, plan } = planFor(Object.keys(files), files, { all: true });
+  const cache = memCache(() => "digest-1");
+  const first = await runScans(plan, deps({ ...fs, cache }));
+  assert.equal(first.ok, true, JSON.stringify(scanFailures(first)));
+  const keys = [...cache.store.keys()];
+  const second = await runScans(plan, deps({ ...fs, cache }));
+  assert.ok(second.cacheHits.includes("shellcheck") && second.cacheHits.includes("actionlint"), "the pinned version hits");
+  const wrong = await runScans(plan, deps({ ...fs, cache, spawn: fakeSpawn({ shellcheckVersion: "0.10.0" }) }));
+  assert.deepEqual(wrong.cacheHits.filter((id) => id === "shellcheck" || id === "actionlint"), [], "a cached pass is not a pass under another analyzer");
+  assert.equal(wrong.scans.find((r) => r.id === "shellcheck").code, "TOOL_VERSION");
+  const key = (id, toolVersion) => scanCacheKey({ id, command: plan.scans.find((s) => s.id === id).command, toolVersion, env: {}, inheritedEnv: inheritedEnvDigest({}), digest: "digest-1" });
+  assert.ok(keys.includes(key("shellcheck", "shellcheck 0.11.0")), "shellcheck's key carries its version");
+  assert.ok(keys.includes(key("actionlint", "actionlint 1.0.0 + shellcheck 0.11.0")), "actionlint's key carries the shellcheck it runs");
+  assert.notEqual(key("shellcheck", "shellcheck 0.11.0"), key("shellcheck", "shellcheck 0.10.0"));
 });
