@@ -2185,10 +2185,10 @@ test("the multi-root pre-push hook (real sh): a package deeper than the glob, th
   fs.rmSync(log, { force: true });
   const shim = mkRepo({}, t);
   fs.symlinkSync(process.execPath, path.join(shim, process.platform === "win32" ? "node.exe" : "node"));
-  // PATH: the node link and the directory sh itself lives in (Git for Windows' usr\bin, or /usr/bin and /bin), never pnpm.
-  const shDirs = process.platform === "win32"
-    ? [path.dirname(spawnSync("where", ["sh"], { encoding: "utf8" }).stdout.split(/\r?\n/)[0].trim())]
-    : ["/usr/bin", "/bin"];
+  // PATH: the node link, the directory sh itself lives in and git's (Git for Windows keeps git.exe in cmd\ or mingw64\bin, not in
+  // sh's usr\bin; /usr/bin and /bin elsewhere), never pnpm. The hook's first line is `git rev-parse --show-toplevel`.
+  const whereDir = (exe) => path.dirname(spawnSync("where", [exe], { encoding: "utf8" }).stdout.split(/\r?\n/)[0].trim());
+  const shDirs = process.platform === "win32" ? [whereDir("sh"), whereDir("git")] : ["/usr/bin", "/bin"];
   const noPnpmPath = [shim, ...shDirs].join(path.delimiter);
   const lastResort = hookRepo(t, { ...hook(["apps/cutright"], `apps/cutright/${LINK}`), [`apps/cutright/${LINK}`]: `import fs from "node:fs";\nfs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(" ") + "\\n");\nfs.readFileSync(0);\n` });
   const viaNode = spawnSync("sh", [".githooks/pre-push", "origin", "https://example.test/r.git"], { cwd: lastResort, input: "in\n", encoding: "utf8", env: { ...process.env, PATH: noPnpmPath } });
@@ -2219,7 +2219,8 @@ test("--to compile stages every declared sidecar first, under the door run, and 
 });
 
 test("RightKit self-check: the door runs RightKit's own rules for the requested selector only after app rules and class A pass, and never proves another commit with HEAD's imports", async (t) => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-self-")));
+  // .native: Windows runners' TEMP is an 8.3 short path (RUNNER~1) that fs.realpathSync keeps and git expands.
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-self-")));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
   git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");

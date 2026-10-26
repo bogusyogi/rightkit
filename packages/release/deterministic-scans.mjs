@@ -1032,6 +1032,8 @@ export function findRustfmt({ env = process.env, exists = fs.existsSync, readdir
     if (found.length) return path.join(toolchains, found[0].d, "bin", exe);
   }
   const which = spawn(platform === "win32" ? "where" : "which", [exe]);
+  // A Promise has no status: an async spawn here would report a present rustfmt as missing.
+  if (typeof which?.then === "function") throw new TypeError("findRustfmt needs a synchronous spawn");
   return which && which.status === 0 ? String(which.stdout).split(/\r?\n/)[0].trim() : null;
 }
 
@@ -1212,7 +1214,9 @@ const INTERNAL = {
 export async function runScans(plan, options = {}) {
   const deps = {
     // Concurrent runs need a spawn that does not block the event loop.
-    spawn: Number(options.jobs ?? 1) > 1 || options.signal ? defaultSpawnAsync : defaultSpawn, exists: fs.existsSync, readFile: (f) => fs.readFileSync(f, "utf8"), readdir: fs.readdirSync,
+    spawn: Number(options.jobs ?? 1) > 1 || options.signal ? defaultSpawnAsync : defaultSpawn,
+    // Locating a tool (rustfmt's `which`/`where` fallback) is synchronous whatever `spawn` is.
+    lookupSpawn: defaultSpawn, exists: fs.existsSync, readFile: (f) => fs.readFileSync(f, "utf8"), readdir: fs.readdirSync,
     env: process.env, platform: process.platform, execPath: process.execPath,
     loadToml: defaultLoadToml, loadYaml: defaultLoadYaml, scanSecrets: defaultScanSecrets, findRustfmt,
     ...options,
@@ -1251,7 +1255,7 @@ export async function runScans(plan, options = {}) {
   const inCallA = classes.includes(SCAN_CLASS.A) && planA.length > 0 && selected.filter((x) => x.class === SCAN_CLASS.A).length === planA.length;
   const classBBlocked = !inCallA && !priorClassAValid;
 
-  const toolCommand = (tool) => (tool === "node" ? deps.execPath : tool === "rustfmt" ? deps.findRustfmt({ env: deps.env, exists: deps.exists, readdir: deps.readdir, platform: deps.platform, spawn: deps.spawn }) : tool);
+  const toolCommand = (tool) => (tool === "node" ? deps.execPath : tool === "rustfmt" ? deps.findRustfmt({ env: deps.env, exists: deps.exists, readdir: deps.readdir, platform: deps.platform, spawn: deps.lookupSpawn }) : tool);
   async function probe(tool) {
     if (probed.has(tool)) return probed.get(tool);
     let outcome;
