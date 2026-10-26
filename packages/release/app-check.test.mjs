@@ -46,7 +46,7 @@ test("a rule that throws is a FAIL, never a pass", (t) => {
 });
 
 test("every rule names its scan-gap family or the invariant it enforces", () => {
-  for (const rule of RULES) assert.match(rule.gap, /^(G\d{2}|P\d+|SC-R\d|C3-\d{2})$/, rule.id);
+  for (const rule of RULES) assert.match(rule.gap, /^(G\d{2}|P\d+|SC-R\d|C3-\d{2}|CA-\d{2})$/, rule.id);
 });
 
 // ---- P11 of docs/PIPELINE-ARCHITECTURE.md: one client name ---------------------------------------------------------------
@@ -902,7 +902,7 @@ test("runAppCheck returns the findings, the tolerated ones, the stale ones and t
   assert.deepEqual(red.findings.map((f) => f.identity).sort(), ["qa-platform|tests/q.rs|platform:macos", "skip-checks|package.json|ship"]);
   assert.deepEqual([red.known, red.stale, red.expired], [[], [], []]);
   assert.match(red.text, /^FAIL qa-platform \(G13\): tests\/q\.rs:1 /m);
-  assert.match(red.text, /^preflight: 2 problem\(s\) in \w{12} \(25 rules, /m);
+  assert.match(red.text, /^preflight: 2 problem\(s\) in \w{12} \(28 rules, /m);
   const baseline = writeBaseline(parent, { apprepo: [KNOWN_ID, "skip-checks|package.json|ship", "qa-platform|tests/gone.rs|platform:macos"] });
   const ratcheted = runAppCheck({ repo, central: null, baseline });
   assert.equal(ratcheted.exitCode, 1);
@@ -1280,7 +1280,7 @@ test("the README states the whole checked set with its modes, the baseline contr
 test("the README's rule table lists every app rule, with its gap, in the order the check runs them, and describes G22", () => {
   const readme = fs.readFileSync(new URL("./README.md", import.meta.url), "utf8");
   const section = /## The app check[^\n]*\n([\s\S]*?)\n## /.exec(readme)?.[1] ?? "";
-  const rows = [...section.matchAll(/^\| `([a-z0-9-]+)` \| ((?:G\d{2}|P\d+|SC-R\d|C3-\d{2})) \| (.+) \|$/gm)].map((m) => [m[1], m[2]]);
+  const rows = [...section.matchAll(/^\| `([a-z0-9-]+)` \| ((?:G\d{2}|P\d+|SC-R\d|C3-\d{2}|CA-\d{2})) \| (.+) \|$/gm)].map((m) => [m[1], m[2]]);
   assert.deepEqual(rows, RULES.map((r) => [r.id, r.gap]), "one row per rule in RULES, so a new rule cannot ship undocumented");
   assert.ok(RULES.some((r) => r.id === "e2e-under-cargo-test" && r.gap === "G22"));
   for (const phrase of ["`--no-run`", "`rightkit-qa run-tests`", "`rightkit-qa journeys run`", "`--test qa_surface_guard`", "`e2e-under-cargo-test|<file>|<script or crate>`"]) assert.ok(section.includes(phrase), `the G22 paragraph names ${phrase}`);
@@ -1374,8 +1374,8 @@ test("an installed copy of the package, with no RightKit checkout, prints the sa
   assert.deepEqual(lines, findingLines(preflightRun.stdout), "the findings are byte-identical");
   assert.ok(lines.some((l) => l.startsWith("FAIL eol-policy (G04):")) && lines.some((l) => l.startsWith("FAIL release-config (G16):")) && lines.some((l) => l.startsWith("FAIL scenario-skip (G15):")) && lines.some((l) => l.startsWith("FAIL qa-platform (G13):")), lines.join("\n"));
   assert.ok(lines.some((l) => l.startsWith("KNOWN skip-checks:")) && lines.some((l) => l.startsWith("STALE baseline entry qa-platform|tests/gone.rs|platform:macos")), "the app's own baseline is read in both");
-  assert.match(gate.stdout, /^check: 6 problem\(s\) in \w{12} \(25 rules, [\d.]+s, 1 known\)\./m);
-  assert.match(preflightRun.stdout, /^preflight: 6 problem\(s\) in \w{12} \(32 rules, [\d.]+s, 1 known\)\./m);
+  assert.match(gate.stdout, /^check: 6 problem\(s\) in \w{12} \(28 rules, [\d.]+s, 1 known\)\./m);
+  assert.match(preflightRun.stdout, /^preflight: 6 problem\(s\) in \w{12} \(35 rules, [\d.]+s, 1 known\)\./m);
   assert.deepEqual(spawnSync(process.execPath, [path.join(installed, "bin", "rightkit-gate.mjs"), "check", "--list"], { cwd: path.dirname(installed), encoding: "utf8" }).stdout.trim().split("\n"), RULES.map((r) => `${r.id} (${r.gap})`));
   // The same installed copy through the right-release command, and green once the app is fixed.
   const cli = spawnSync(process.execPath, [path.join(installed, "cli", "right-release.mjs"), "check", "--repo", repo, "--commit", "HEAD"], { cwd: path.dirname(installed), encoding: "utf8" });

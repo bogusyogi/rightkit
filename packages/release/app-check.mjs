@@ -47,6 +47,11 @@
 //   devtools-declaration     SC-R7  the five DevTools declaration sites (config, allow-list, Cargo feature, ACL manifest, runtime policy) disagree
 //   shell-lifecycle-external SC-R8  lifecycle_only() in an app that also opens an external webview (hardening and navigation policy are off)
 //   legal-receipt-native     SC-R9  an Onboarding legal gate whose receipt is not the native service
+// Consumer source contracts (consumer-source-contracts.mjs, CONSUMER_SOURCE_RULES, appended after the shell contract) read workflow
+// YAML, package.json scripts and Caddyfiles as text:
+//   workflow-action-pair     CA-04  one job runs github/codeql-action init/autobuild/analyze from different refs
+//   referenced-input         CA-07  a script, run: line, working-directory or cache-dependency-path names a path the commit lacks
+//   caddy-global-options     CA-08  site directives (encode, reverse_proxy...) in, or able to fall into, the Caddy global options block
 //
 // Ratchet: findings that exist today may be listed so they print as KNOWN and do not fail; an unlisted finding fails; a listed
 // identity (`${rule}|${file}|${subject}`, no line numbers) that is gone fails as STALE, so the list only shrinks. The baseline is
@@ -68,6 +73,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { SHELL_CONTRACT_RULES } from "./shell-contract.mjs";
+import { CONSUMER_SOURCE_RULES } from "./consumer-source-contracts.mjs";
 import { engineRecordStore, suiteKeyLiteral, suiteUpdaterKey } from "./suite-trust-roots.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -964,6 +970,7 @@ export const RULES = Object.freeze([
   { id: "suite-updater-key", gap: "C3-14", run: ({ root, files }) => suiteUpdaterKey(root, files) },
   { id: "engine-record-store", gap: "C3-05", run: ({ root, files }) => engineRecordStore(root, files) },
   ...SHELL_CONTRACT_RULES,
+  ...CONSUMER_SOURCE_RULES,
 ]);
 
 // ---- export: the committed files, by git alone ----------------------------------------------------------------------------------
