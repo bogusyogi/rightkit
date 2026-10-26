@@ -291,7 +291,7 @@ test("check: the same findings as rightkit-gate check, exit 1 red and 0 green, -
   const red = runCli(t, repo, ["check", "--commit", "HEAD"]);
   assert.equal(red.status, 1);
   assert.match(red.stdout, /^FAIL skip-checks \(G17\): package\.json:1 /m);
-  assert.match(red.stdout, /^check: 1 problem\(s\) in \w{12} \(25 rules, /m);
+  assert.match(red.stdout, /^check: 1 problem\(s\) in \w{12} \(27 rules, /m);
   assert.deepEqual(red.calls, [], "check spawns nothing");
   const gate = spawnSync(process.execPath, [path.join(PACKAGE, "bin", "rightkit-gate.mjs"), "check", "--commit", "HEAD"], { cwd: repo, encoding: "utf8" });
   assert.equal(gate.stdout.replace(/[\d.]+s/, "Ns"), red.stdout.replace(/[\d.]+s/, "Ns"), "right-release check and rightkit-gate check print the same");
@@ -304,7 +304,7 @@ test("check: the same findings as rightkit-gate check, exit 1 red and 0 green, -
   const list = runCli(t, repo, ["check", "--list"]);
   assert.equal(list.status, 0);
   assert.match(list.stdout, /^qa-platform \(G13\)$/m);
-  assert.equal(list.stdout.trim().split("\n").length, 25);
+  assert.equal(list.stdout.trim().split("\n").length, 27);
 });
 
 test("hooks install is an alias of rightkit-gate install-hook, run in the app; other hooks forms still reach the ownership module", (t) => {

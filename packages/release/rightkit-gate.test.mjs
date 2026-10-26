@@ -1102,12 +1102,12 @@ test("check runs the real app check: findings on stdout, exit 0 green and 1 red,
   const red = capture();
   assert.equal(await main(["check", "--repo", repo, "--commit", "HEAD"], red.io), 1);
   assert.match(red.out.join("\n"), /^FAIL skip-checks \(G17\): package\.json:1 script "ship" runs right-release with --skip-checks$/m);
-  assert.match(red.out.at(-1), /^check: 1 problem\(s\) in \w{12} \(25 rules, /);
+  assert.match(red.out.at(-1), /^check: 1 problem\(s\) in \w{12} \(27 rules, /);
   fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ scripts: { ship: "right-release build" } }));
   git("commit", "-q", "-am", "green");
   const green = capture();
   assert.equal(await main(["check"], { ...green.io, cwd: repo }), 0, green.err.join("\n"));
-  assert.match(green.out.at(-1), /^check: \w{12} passed 25 rules in [\d.]+s$/, "no --repo: the git top-level of the working directory");
+  assert.match(green.out.at(-1), /^check: \w{12} passed 27 rules in [\d.]+s$/, "no --repo: the git top-level of the working directory");
   const unknown = capture();
   assert.equal(await main(["bogus"], unknown.io), 2);
   assert.match(unknown.err.join("\n"), /rightkit-gate check \[--repo <dir>\] \[--commit <rev> \| --worktree\] \[--only <rule,\.\.\.>\] \[--list\] \[--print-baseline\] \[--baseline <file>\]/);
