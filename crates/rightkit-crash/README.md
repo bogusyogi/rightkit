@@ -20,7 +20,32 @@ Do not use it to upload reports on its own. Upload goes through the consented ou
 
 ## Cargo features
 
-`support-bundle` (default): `build_support_bundle`, `SupportBundleOptions`, `BundleManifest`, `create_zip` and the `zip` (deflate) dependency. `window-errors` (off): renderer/webview error capture, `record_window_error`, `WindowErrorGate`, `WindowErrorReport`; adds no dependency. Other dependencies: `rightkit-fs` (`fs` feature only), `rightkit-logs` (without its default `http` feature), `serde`, `serde_json`. Windows-only dependencies apply on Windows.
+`support-bundle` (default): `build_support_bundle`, `SupportBundleOptions`, `BundleManifest`, `create_zip` and the `zip` (deflate) dependency. `window-errors` (off): renderer/webview error capture, `record_window_error`, `WindowErrorGate`, `WindowErrorReport`; adds no dependency. `diagnostics` (off): `init_diagnostics`, `DiagnosticsConfig`, `Diagnostics`; adds `tracing` and enables `rightkit-logs/tracing`. Other dependencies: `rightkit-fs` (`fs` feature only), `rightkit-logs` (without its default `http` feature), `serde`, `serde_json`. Windows-only dependencies apply on Windows.
+
+## One-call diagnostics (feature `diagnostics`)
+
+`init_diagnostics` wires a whole process's crash capture and logs in one call, so an app does not hand-wire the panic hook, the `tracing` subscriber, the log directory and retention itself (`src/diagnostics.rs`):
+
+```rust
+use rightkit_crash::{init_diagnostics, DiagnosticsConfig, ProcessKind};
+
+fn main() {
+    let data_root = app_data_root(); // the app's own release-or-test decision comes first
+    let diagnostics = init_diagnostics(DiagnosticsConfig::new(
+        ProcessKind::Engine,
+        "MyApp",
+        env!("CARGO_PKG_VERSION"),
+        &data_root,
+    ));
+    // Hold `diagnostics` for the life of the process; dropping it flushes the log writer.
+}
+```
+
+- Reports go to `<data_root>/crashes`; logs go to `<data_root>/logs/<app slug>-<kind>.YYYY-MM-DD.jsonl` (rightkit-logs' daily JSONL files, 3 kept, `RUST_LOG` or `info`). The window host and the engine of one app write separate families (`myapp-window`, `myapp-engine`).
+- `DiagnosticsConfig` keeps `crash` (`CrashConfig`) and `logs` (`TracingFileConfig`) public, so `redact_values`, `native_capture`, `build`, `max_files` or a filter are set before installing.
+- The panic hook is installed first, then the subscriber. Each recorded report is also one `error` event in the log (target `rightkit_crash`; `kind`, `process_kind`, `location`, `crash_message`, already redacted). `log_crashes: false` turns that off; a sink set on `crash` still runs first.
+- A log setup failure never fails startup: one stderr line, `Diagnostics::log_error()` says why, and crash capture keeps working. `Diagnostics::tracing()` returns the `TracingGuard` (`status`, `clear`) and `crash_config()` the config for `record_report`, `record_helper_exit` or `HangWatchdog::start`.
+- Under `panic = "abort"` the log event may not reach the file before the process ends; the report file is written either way.
 
 ## Usage
 

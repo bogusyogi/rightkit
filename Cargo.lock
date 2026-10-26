@@ -6872,6 +6872,7 @@ dependencies = [
  "rightkit-logs",
  "serde",
  "serde_json",
+ "tracing",
  "windows-sys 0.61.2",
  "zip 9.0.4",
 ]
