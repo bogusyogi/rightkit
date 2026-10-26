@@ -176,6 +176,7 @@ export function initTemplate(root, options) {
   const changed = [];
   const warnings = [...identity.warnings];
   const renamed = new Map();
+  const lockDigestsBefore = new Map();
   for (const file of walkTextFiles(root)) {
     if (path.basename(file) === SELF) continue;
     let before;
@@ -186,9 +187,26 @@ export function initTemplate(root, options) {
     }
     const after = path.basename(file) === LOCK_FILE ? reidentifyCargoLock(before, identity) : renameText(before, identity);
     if (after === before) continue;
+    if (path.basename(file) === LOCK_FILE) lockDigestsBefore.set(path.resolve(file), createHash("sha256").update(before).digest("hex"));
     renamed.set(path.resolve(file), after);
     if (!options.dryRun) writeFileSync(file, after);
     changed.push(path.relative(root, file).split(path.sep).join("/"));
+  }
+  // The rename changes Cargo.lock's bytes (the app's own crates), so every notice that records the lock's digest
+  // (`Cargo.lock sha256 <hex>` / `sha256=<hex>`, checked by notice-lock-digest CA-14) would go stale: carry the new digest.
+  const pairs = [...lockDigestsBefore].map(([file, old]) => ({ old, now: createHash("sha256").update(renamed.get(file)).digest("hex") }));
+  if (pairs.length) {
+    for (const file of walkTextFiles(root)) {
+      if (path.basename(file) === SELF || path.basename(file) === LOCK_FILE) continue;
+      const before = renamed.get(path.resolve(file)) ?? readFileSync(file, "utf8");
+      let after = before;
+      for (const { old, now } of pairs) after = after.split(old).join(now);
+      if (after === before) continue;
+      renamed.set(path.resolve(file), after);
+      if (!options.dryRun) writeFileSync(file, after);
+      const relative = path.relative(root, file).split(path.sep).join("/");
+      if (!changed.includes(relative)) changed.push(relative);
+    }
   }
   const manifestFile = path.join(root, ...LEGAL_MANIFEST.split("/"));
   if (existsSync(manifestFile)) {

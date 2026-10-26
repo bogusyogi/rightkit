@@ -325,8 +325,34 @@ jobs:
           mkdir -p "$RUNNER_TEMP/actionlint-bin"
           tar -xzf "$archive" -C "$RUNNER_TEMP/actionlint-bin" actionlint
           echo "$RUNNER_TEMP/actionlint-bin" >> "$GITHUB_PATH"
+      # Class A accepts one ShellCheck (PINNED_SCAN_TOOLS); the runner image's own build fails the scans with TOOL_VERSION.
+      - name: Install the pinned ShellCheck analyzer
+        env:
+          SHELLCHECK_VERSION: "0.11.0"
+          SHELLCHECK_SHA256: "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/shellcheck.tar.xz"
+          curl --fail --silent --show-error --location --output "$archive" "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          echo "${SHELLCHECK_SHA256}  ${archive}" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/shellcheck-bin"
+          tar -xJf "$archive" -C "$RUNNER_TEMP/shellcheck-bin" --strip-components=1 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
+          chmod +x "$RUNNER_TEMP/shellcheck-bin/shellcheck"
+          "$RUNNER_TEMP/shellcheck-bin/shellcheck" --version | grep -Fx "version: ${SHELLCHECK_VERSION}"
+          echo "$RUNNER_TEMP/shellcheck-bin" >> "$GITHUB_PATH"
       # Class A scans run for EVERY change (Rust, npm, workflow, scripts, docs), never only for crates: with no base they
       # cover every tracked file. Shard and closure jobs need this job and receive its result (RK_SCANS_JOB_RESULT).
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.25.0
+          run_install: false
+      - name: Install workspace dependencies without lifecycle scripts or pnpmfile hooks (for the import-effects check)
+        env:
+          npm_config_ignore_scripts: "true"
+          npm_config_ignore_pnpmfile: "true"
+          pnpm_config_ignore_scripts: "true"
+          pnpm_config_ignore_pnpmfile: "true"
+        run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
       - name: Class A deterministic scans (every change)
         shell: bash
         env:
@@ -346,6 +372,26 @@ jobs:
           SCAN_CRATES: ${{ needs.plan.outputs.scan_crates }}
           SCAN_PACKAGES: ${{ needs.plan.outputs.scan_packages }}
         run: node scripts/ci/secret-scan.mjs --crates "$SCAN_CRATES" --dirs "$SCAN_PACKAGES"
+      # Importing an export executes candidate code: this runs only after every file-only class A step (scans, Cargo.lock/rustfmt, secret scan) passed. Hygiene gates every
+      # native shard, so a module that runs at import stops the run before any runner starts.
+      - name: Fetch every package of the lockfile into the store (the import check installs the exported tree offline from it)
+        env:
+          npm_config_ignore_scripts: "true"
+          npm_config_ignore_pnpmfile: "true"
+          pnpm_config_ignore_scripts: "true"
+          pnpm_config_ignore_pnpmfile: "true"
+        run: pnpm fetch
+      - name: Exported modules import without side effects (after class A)
+        run: node scripts/ci/exports-import-effects.mjs --report "$RUNNER_TEMP/import-effects/report.json"
+      # ci.yml has no sealed-byte stage: the dist/ exports the probe leaves INCOMPLETE are closed only by publish.yml's verify.
+      # The report is kept so the run never reads as a full green on exports it did not import.
+      - name: Keep the import-effects report (INCOMPLETE exports; closed only by publish verify)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: import-effects-hygiene-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/import-effects
+          retention-days: 30
+          if-no-files-found: error
       - name: Upload QA evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

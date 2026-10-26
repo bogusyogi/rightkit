@@ -1,0 +1,42 @@
+# RightKit's cargo-deny policy for an app that ships no deny.toml of its own (rightkit-gate class A).
+# The licence allow list is RightKit's own (repository deny.toml); the app's own unpublished crates are private.
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+unmaintained = "workspace"
+yanked = "deny"
+
+[licenses]
+allow = [
+  "MIT",
+  "MIT-0",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "BSL-1.0",
+  "CC0-1.0",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "OFL-1.1",
+  "MPL-2.0",
+  "Unlicense",
+  "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.9
+unused-allowed-license = "allow"
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

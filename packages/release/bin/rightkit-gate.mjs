@@ -28,13 +28,19 @@
 //                                             run the gate (default base origin/main); --plan prints the scans and runs none;
 //                                             --no-cache (or RK_GATE_CACHE=0) reruns every scan
 //   rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>]
-//                                             the offline app check (../app-check.mjs): committed files only, no network, compile or
-//                                             broker, every finding in one run. Exit 0 pass, 1 findings, 2 could not run
+//                                             the deterministic stage: the app check (../app-check.mjs), then every class A scan
+//                                             (lockfiles, cargo-deny/audit, secrets, licences, manifests, workflow lint, syntax) over the
+//                                             whole tree of the commit, not a diff. Nothing compiles; without a broker class A uses
+//                                             plain cargo for metadata/deny/audit only. The RustRight broker runs this before it admits
+//                                             any compile. --list/--print-baseline/--only show the app check alone. Exit 0 pass,
+//                                             1 findings, 2 could not run
 //   rightkit-gate install-hook [--force]      write .githooks/pre-push and set core.hooksPath. core.hooksPath hides .git/hooks, so the
 //                                             pre-push hook runs the repository's own .git/hooks/pre-push first, then `rightkit-gate
 //                                             check --commit HEAD`, then the gate; every other hook present in .git/hooks gets a
 //                                             .githooks/<name> trampoline that runs it; the hook finds the gate binary in the root
-//                                             node_modules/.bin, then any workspace package's, then pnpm exec. Where @rightkit/release is
+//                                             node_modules/.bin, then any workspace package's (each package that declares @rightkit/release by
+//                                             name when the root does not declare it), then pnpm exec, then node at a stable path inside the
+//                                             repository (hookGatePlan: from the declarations, never from what is installed). Where @rightkit/release is
 //                                             installed it also writes the advisory ownership pre-commit step (`right-release hooks install`
 //                                             is an alias of this command)
 //
@@ -46,12 +52,14 @@
 // process is not in CI (no CI or GITHUB_ACTIONS), the gate defers the Rust gate to host qualification. It reads the Rust units from the
 // tracked manifests (no cargo), runs every scan that needs no broker, prints "rust gate DEFERRED to host qualification" with the Rust
 // units and scans it did not run, exits 0 and writes nothing into the tree. An npm test scan whose package script chain runs `rustright` or
-// `cargo` (planScans marks it `brokerCall`) cannot run there either and is deferred the same way, named with its reason. The pull request then
+// `cargo` (planScans marks it `brokerCall`), or a unit whose ci/gate.config.json `npm.<unit>.requiresBroker` declares that its test needs the
+// broker, cannot run there either and is deferred the same way, named with its reason. The pull request then
 // needs a HOST RECEIPT before merge; that receipt stays the merge gate. RIGHTKIT_GATE_NO_DEFER=1 keeps the refusal on such a host. Every pushed ref is judged, whatever its place
 // in the push; git's stdin is split on single ASCII spaces (a ref name may hold Unicode whitespace) and a line that is not four fields defers
 // nothing. The default branch is named by the checkout, the base ref, the remote commits being replaced and origin/HEAD, so a commit cannot
 // unprotect it by editing .rightgit.json. A refusal prints the old message and, on a second line, why nothing was deferred.
-// ci/gate.config.json `rust` (optional) sets per-crate feature sets, exactly as CI's gate reads it.
+// ci/gate.config.json `rust` (optional) sets per-crate feature sets, exactly as CI's gate reads it; `npm.<unit>` sets `quietTests` and
+// `requiresBroker: { "reason": "..." }` (a test the package scripts do not show reaching the broker: node -e, node scripts, sh -c, pnpm --dir).
 // Result cache: a passing class B scan is reused only when its scan id, command, tool version, environment and input digest
 // (the gated commit's git object ids for the crate's workspace closure, the shared build inputs, ci/gate.config.json and every
 // path the closure's sources include from outside their crate; the whole HEAD tree for Rust tests unless ci/gate.config.json
@@ -68,16 +76,20 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
+import { resolveExecutor } from "../gate-executor.mjs";
+import { bindingOf, endRun, readReceipt, RECEIPT_SCHEMA, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, writeReceipt } from "../gate-stages.mjs";
+import { spawnSync as spawnInherit } from "../background-process.mjs";
 
 const ZERO = /^0+$/;
-const GRANT_FILE = ".rightkit-local-build.json";
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const posix = (p) => String(p).replaceAll("\\", "/");
 const text = (r) => String(r?.stdout ?? "");
 const failed = (r) => !r || Boolean(r.error) || r.status !== 0;
 const why = (r) => String(r?.error?.message ?? r?.stderr ?? "").trim().split(/\r?\n/).slice(-3).join(" | ");
 
-const USAGE = `usage: rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | --version`;
+// A green `check --only` view: app rules passed but no class A scan ran. Distinct from 0 so no caller can admit it as a full check.
+export const PARTIAL_EXIT = 3;
+const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to dev|test [-- <right-release args>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | --version`;
 
 // ---- pure helpers (exported for tests) ----------------------------------------------------------------------
 
@@ -410,47 +422,7 @@ export function discoverRustWorkspaces({ root, spawn, cargoCommand, tracked, unt
   return { present: true, workspaces, units, cargoDir: workspaces[0]?.cargoDir ?? ".", skipped };
 }
 
-// ---- the Rust gate on a host without the broker: deferral to host qualification --------------------------------------
-
-// A push that only carries non-protected branches, from a host that has neither `rustright` nor the managed cargo shim and is not
-// CI, does not refuse on the missing broker: the Rust scans cannot run here, so the gate runs every other scan, names the Rust
-// units and scans it did not run, and exits 0. The pull request then needs a HOST RECEIPT (a host with the broker ran the full gate)
-// before it merges; that receipt, not this hook, is the merge gate. Everything else keeps today's behaviour: a push that includes a
-// protected branch, a host with the broker or the shim, CI, and RIGHTKIT_GATE_NO_DEFER=1 all refuse as before.
-
-/** Branches that never defer (compared case-insensitively); `release/*` and the repository's default branch join them. */
-export const PROTECTED_BRANCHES = Object.freeze(["main", "master", "trunk"]);
-/** Set to anything but ""/0/false to keep the refusal on a broker-less host. */
-export const DEFER_OPT_OUT_ENV = "RIGHTKIT_GATE_NO_DEFER";
-
-const envOn = (v) => v !== undefined && v !== null && !["", "0", "false"].includes(String(v).trim().toLowerCase());
-
-/**
- * True when `ref` (a pushed remote ref) is a plain branch the gate may defer for. A tag, a ref outside refs/heads/, main, master,
- * trunk, release/* and the `extra` names (the repository's own default branch, `.rightgit.json` defaultBranch) are not.
- */
-export function isDeferrableRef(ref, extra = []) {
-  const m = /^refs\/heads\/(.+)$/.exec(String(ref ?? ""));
-  if (!m) return false;
-  const name = m[1].toLowerCase();
-  return !(PROTECTED_BRANCHES.includes(name) || extra.some((x) => String(x).toLowerCase() === name) || name.startsWith("release/"));
-}
-
-/**
- * Whether the Rust gate defers to host qualification. `refs` are the remote refs of a git pre-push's stdin (deletions included); an
- * empty list is not a pre-push run. `unparsed` are the stdin lines parsePushLines could not read as four fields: a push whose refs
- * cannot all be read defers nothing (main refuses such a push before it gets here, on every host; this is the second lock). Every
- * pushed ref is judged, whatever its position. Returns { defer, why }. The caller asks only when no broker or shim resolved.
- */
-export function rustDeferral({ refs = [], env = {}, protectedBranches = [], unparsed = [] }) {
-  if (envOn(env[DEFER_OPT_OUT_ENV])) return { defer: false, why: `${DEFER_OPT_OUT_ENV} is set` };
-  if (envOn(env.CI) || envOn(env.GITHUB_ACTIONS)) return { defer: false, why: "running in CI" };
-  if (unparsed.length) return { defer: false, why: `pre-push stdin line ${unparsed[0].number} is not "<local ref> <local sha> <remote ref> <remote sha>" (four fields separated by single spaces), so the pushed refs cannot all be read` };
-  if (!refs.length) return { defer: false, why: "no pushed refs on stdin: not a git pre-push run" };
-  const blocking = refs.find((r) => !isDeferrableRef(r, protectedBranches));
-  if (blocking) return { defer: false, why: `${blocking} is not a plain non-protected branch (main, master, trunk, release/*, the repository's default branch and tags are never deferred)` };
-  return { defer: true, why: `only non-protected branches are pushed (${refs.join(", ")}) and this is not CI` };
-}
+// ---- pre-push input and lock scope ------------------------------------------------------------------------
 
 /**
  * git's pre-push stdin: one "<local ref> <local sha> <remote ref> <remote sha>" per line, the four fields joined by single ASCII spaces.
@@ -469,151 +441,6 @@ export function parsePushLines(stdin) {
     lines.push({ localRef: f[0], localSha: f[1], remoteRef: f[2], remoteSha: f[3] });
   });
   return { lines, malformed };
-}
-
-const rightgitDefaultBranch = (raw) => { try { const d = JSON.parse(String(raw).replace(/^\uFEFF/, "")).defaultBranch; return typeof d === "string" && d ? d : null; } catch { return null; } };
-
-/**
- * The names this repository calls its default branch, read from every side a push can be judged by, so a commit that edits
- * `.rightgit.json` cannot unprotect the branch it pushes: the manifest in the checkout, the manifest at origin/HEAD and at each of
- * `revisions` (the base ref and the remote commits being replaced), and the branch origin/HEAD names. `git(...args)` answers like
- * spawnSync; a revision git cannot show contributes nothing. Residual, not closable offline: with no origin/HEAD, no manifest at the base
- * and a replaced remote commit that is not in the local object store (a force-push whose tip was never fetched), the only manifest left
- * is the checkout's, which the pushed commit supplies. The union only ever adds names, so a local branch or tag called `origin/HEAD`
- * cannot remove one: the unambiguous `refs/remotes/origin/HEAD` symbolic-ref read still names the real branch.
- */
-export function defaultBranchNames({ git, readCheckout, revisions = [] }) {
-  const names = new Set();
-  const add = (n) => { if (n) names.add(n); };
-  try { add(rightgitDefaultBranch(readCheckout())); } catch { /* no right-git manifest in the checkout */ }
-  // A revision that starts with "-" would be read by git as an option, not a revision.
-  for (const rev of new Set(["origin/HEAD", ...revisions.filter((r) => typeof r === "string" && r && !r.startsWith("-"))])) {
-    const shown = git("show", `${rev}:.rightgit.json`);
-    if (!failed(shown)) add(rightgitDefaultBranch(text(shown)));
-  }
-  const head = git("symbolic-ref", "--quiet", "refs/remotes/origin/HEAD");
-  if (!failed(head)) add(/^refs\/remotes\/origin\/(.+)$/.exec(text(head).trim())?.[1]);
-  return [...names];
-}
-
-// The path dependencies a manifest declares: `path = "..."` in a [dependencies], [dev-dependencies], [build-dependencies],
-// [target.*.dependencies] or [workspace.dependencies] table, inline (`foo = { path = "../foo" }`) or under `[dependencies.foo]`.
-function pathDependencies(tables) {
-  const out = [];
-  for (const [name, body] of tables) {
-    if (!/(?:^|\.)(?:dev-|build-)?dependencies(?:\.|$)/.test(name)) continue;
-    for (const m of body.matchAll(/(?:^|[\s{,.])path[ \t]*=[ \t]*(?:"((?:[^"\\\n]|\\.)*)"|'([^'\n]*)')/gm)) out.push(m[1] ?? m[2]);
-  }
-  return out;
-}
-
-/**
- * A cargo-free stand-in for `cargo metadata --no-deps` in one workspace directory, read from the tracked manifests: the same
- * { cargoDir, members } as workspaceMetadata. A workspace root lists its `[package]` and every tracked manifest below it that its
- * `members` globs name and its `exclude` does not, then (as cargo does) every tracked package below the root that a member, or the root's
- * [workspace.dependencies], reaches by a path dependency and `exclude` does not name. A manifest with no `[workspace]` is a standalone
- * package unless an ancestor workspace owns that directory (cargo refuses it there, so this throws and discoverRustWorkspaces skips it).
- * Strings may be "basic" or 'literal', arrays may carry comments, and `package.name = ...` / `workspace.members = [...]` dotted keys read like
- * their tables. It is a reader, not a TOML parser: a manifest a glob or a path dependency reaches but whose package name it cannot read is
- * returned in `unplaced` (beside { cargoDir, members }; empty for a standalone package, which has nothing to place), any other it cannot place
- * is reported by unmatchedManifests, and the host receipt runs the real metadata.
- */
-export function manifestWorkspaceMetadata({ root, dir, tracked, readFile }) {
-  const manifestOf = (d) => (d === "." ? "Cargo.toml" : `${d}/Cargo.toml`);
-  const cache = new Map();
-  const read = (m) => { if (!cache.has(m)) cache.set(m, manifestTables(readFile(path.join(root, m)))); return cache.get(m); };
-  const hasPackage = (m) => hasTomlTable(read(m), "package");
-  const memberOf = (m) => {
-    const tables = read(m);
-    const name = tomlString(tomlValue(tables, "package", "name"));
-    if (!name) return null;
-    const publish = tomlValue(tables, "package", "publish");
-    return { name, dir: dirOfManifest(m), manifest: m, publish: !(publish !== null && /^(?:false\b|\[\s*\])/.test(publish)) };
-  };
-  const all = tracked("Cargo.toml");
-  const tables = read(manifestOf(dir));
-  const byName = (a, b) => (a.name < b.name ? -1 : 1);
-  if (!hasTomlTable(tables, "workspace")) {
-    for (let up = dir; up !== "."; ) {
-      up = path.posix.dirname(up);
-      if (all.includes(manifestOf(up)) && hasTomlTable(read(manifestOf(up)), "workspace")) throw new Error(`current package believes it's in a workspace when it's not (the workspace root is ${up === "." ? "the repository root" : up})`);
-    }
-    const self = memberOf(manifestOf(dir));
-    if (!self) throw new Error(`${manifestOf(dir)} has neither a [package] with a name nor a [workspace]`);
-    return { cargoDir: dir, members: [self], unplaced: [] };
-  }
-  const patterns = tomlStrings(tomlValue(tables, "workspace", "members")).map((g) => globToRegExp(g));
-  const excluded = workspaceExcludes(readFile, root, dir);
-  const isExcluded = (d) => excluded.some((x) => d === x || d.startsWith(`${x}/`));
-  const rel = (d) => (d === dir ? "." : dir === "." ? d : d.startsWith(`${dir}/`) ? d.slice(dir.length + 1) : null);
-  const found = new Map(); const unplaced = new Set();
-  const add = (m) => {
-    if (found.has(m)) return false;
-    const member = memberOf(m);
-    if (member) found.set(m, member); else unplaced.add(m);
-    return Boolean(member);
-  };
-  for (const m of all) {
-    const d = dirOfManifest(m);
-    const r = rel(d);
-    if (r === null || r === "." || isExcluded(d) || !patterns.some((re) => re.test(r))) continue;
-    add(m);
-  }
-  if (hasPackage(manifestOf(dir))) add(manifestOf(dir));
-  // Path dependencies below the workspace root become members on their own, transitively.
-  const queue = [manifestOf(dir), ...found.keys()];
-  for (let m = queue.pop(); m !== undefined; m = queue.pop()) {
-    for (const p of pathDependencies(read(m))) {
-      const target = path.posix.normalize(path.posix.join(dirOfManifest(m), p)).replace(/\/$/, "");
-      const tm = manifestOf(target);
-      if (rel(target) === null || rel(target) === "." || isExcluded(target) || !all.includes(tm) || found.has(tm) || !hasPackage(tm)) continue;
-      if (add(tm)) queue.push(tm);
-    }
-  }
-  return { cargoDir: dir, members: [...found.values()].sort(byName), unplaced: [...unplaced].sort() };
-}
-
-/**
- * The tracked Cargo.toml with a package that no unit covers and discoverRustWorkspaces did not skip: what the manifest reader could
- * not place (an unreadable name, a shape it does not know). A manifest it cannot read at all is listed too. Sorted.
- */
-export function unmatchedManifests({ root, manifests, rust, readFile }) {
-  const covered = new Set([...rust.units.map((u) => (u.dir === "." ? "Cargo.toml" : `${u.dir}/Cargo.toml`)), ...rust.skipped.map((k) => k.manifest)]);
-  return manifests.filter((m) => {
-    if (covered.has(m)) return false;
-    try { return hasTomlTable(manifestTables(readFile(path.join(root, m))), "package"); } catch { return true; }
-  }).sort();
-}
-
-/** `plan` without the scans in `dropped` (by id), its digests recomputed over what is left, and `note` appended. */
-export function withoutScans(plan, dropped, note) {
-  const gone = new Set(dropped.map((s) => s.id));
-  const scans = plan.scans.filter((s) => !gone.has(s.id));
-  return {
-    ...plan, scans, deferred: plan.deferred.filter((id) => !gone.has(id)),
-    scanSetDigest: digestScanSet(scans),
-    classDigests: { A: digestScanSet(scans.filter((s) => s.class === "A")), B: digestScanSet(scans.filter((s) => s.class === "B")) },
-    notes: note ? [...plan.notes, note] : plan.notes,
-  };
-}
-
-/**
- * The lines the gate prints when it defers: the Rust units and scans that did not run, the pushed refs, and who gates the merge.
- * `manifests` is the number of tracked Cargo.toml: when it is above zero and no unit was found, the block says the reader found none
- * and that the scans cannot be named, instead of claiming no Rust scan was due. `unmatched` lists the tracked manifests with a package
- * that no unit covers (unmatchedManifests); they get a line of their own. `npmCalls` are the npm test scans deferred with the Rust
- * gate because their package script runs `rustright` or `cargo` ([{ id, tool, via, command }]); `notRun` names them too, and a line of their
- * own gives each one's reason.
- */
-export function deferredBlock({ units, notRun, refs, manifests = 0, unmatched = [], tag = "rightkit-gate:", npmCalls = [] }) {
-  const noUnits = units.length === 0 && manifests > 0;
-  const lines = [
-    `${tag} rust gate DEFERRED to host qualification (no RustRight broker on this host): rust units ${units.length ? units.join(", ") : noUnits ? `none found among the ${manifests} tracked Cargo.toml (read without cargo)` : "none found"}; scans not run ${notRun.length ? notRun.join(", ") : noUnits ? "unknown (no unit was found, so no Rust scan could be planned)" : "none (no Rust scan was due for this diff)"}; the pull request needs a HOST RECEIPT before merge`,
-    `${tag}   pushed ${refs.join(", ")} (non-protected, not CI). The HOST RECEIPT (a host with the RustRight broker ran the full gate) stays the merge gate; ${DEFER_OPT_OUT_ENV}=1 keeps the refusal on this host.`,
-  ];
-  if (unmatched.length) lines.push(`${tag}   tracked Cargo.toml with a package that matched no unit (the manifest reader runs no cargo; the HOST RECEIPT does): ${unmatched.join(", ")}`);
-  if (npmCalls.length) lines.push(`${tag}   npm test scan(s) deferred with the Rust gate, never run and never passed, because the package script runs ${[...new Set(npmCalls.map((c) => c.tool))].join(" or ")} and this host has no broker: ${npmCalls.map((c) => `${c.id} (script ${c.via.join(" -> ")}: ${c.command})`).join("; ")}`);
-  return lines;
 }
 
 /**
@@ -661,8 +488,18 @@ export function lockScope({ changed, cargoDir = ".", unitNames, showBase, readLo
  * gate binary is the root node_modules/.bin/rightkit-gate, else any workspace package's (up to three levels down: tauri-app-next,
  * apps/*, packages/*), else `pnpm exec rightkit-gate`, else node with a package-relative path when pnpm is absent; the line it
  * chose is printed once. No absolute path is written: everything is resolved from git at run time.
+ *
+ * `packages` (default none) is the multi-root form: the repository-relative directories of the packages that declare @rightkit/release when the
+ * repository root does not declare it (CutRight's apps/cutright, HeardRight's tauri-app-next). Each one's node_modules/.bin/rightkit-gate is tried
+ * right after the root's (the glob above stops three levels down), and the pnpm fallback runs in the first of them (`pnpm --dir <package> exec`;
+ * pnpm at the root of such a repository has no rightkit-gate to run). With none, the text is exactly what 0.6.4 and 0.6.5 wrote
+ * (fixtures/published-gate-hooks.json holds its digest, and a repository whose root installs the package must keep getting it, byte for byte,
+ * or the committed hook of every app copied from the template stops being "already current"). `nodePath` and every package are written into
+ * a shell script: installHook passes only plain relative paths (hookGatePlan).
  */
-export function hookText(nodePath) {
+export function hookText(nodePath, packages = []) {
+  const bins = packages.map((dir) => ` ${dir}/node_modules/.bin/rightkit-gate`).join("");
+  const pnpmExec = packages.length ? `pnpm --dir ${packages[0]} exec rightkit-gate` : "pnpm exec rightkit-gate";
   return `#!/bin/sh
 # Mandatory local check and gate before every push (rightkit-gate install-hook). Never bypass with --no-verify.
 cd "$(git rev-parse --show-toplevel)" || exit 1
@@ -675,17 +512,17 @@ if [ -x "$own" ]; then
   echo "rightkit-gate: running $own" >&2
   "$own" "$@" < "$stdin" || exit $?
 fi
-# The gate binary: the root install, any workspace package's install, then pnpm exec.
+# The gate binary: the root install, ${packages.length ? "the install of each package that declares @rightkit/release, any other workspace package's install, then pnpm exec in the first of them" : "any workspace package's install, then pnpm exec"}.
 found=""
-for bin in node_modules/.bin/rightkit-gate */node_modules/.bin/rightkit-gate */*/node_modules/.bin/rightkit-gate */*/*/node_modules/.bin/rightkit-gate; do
+for bin in node_modules/.bin/rightkit-gate${bins} */node_modules/.bin/rightkit-gate */*/node_modules/.bin/rightkit-gate */*/*/node_modules/.bin/rightkit-gate; do
   if [ -x "$bin" ]; then found="$bin"; break; fi
 done
 if [ -n "$found" ]; then
   echo "rightkit-gate: using $found" >&2
   rightkit_gate() { "$found" "$@"; }
 elif command -v pnpm >/dev/null 2>&1; then
-  echo "rightkit-gate: using pnpm exec rightkit-gate" >&2
-  rightkit_gate() { pnpm exec rightkit-gate "$@"; }
+  echo "rightkit-gate: using ${pnpmExec}" >&2
+  rightkit_gate() { ${pnpmExec} "$@"; }
 else
   echo "rightkit-gate: using node ${nodePath}" >&2
   rightkit_gate() { node "${nodePath}" "$@"; }
@@ -715,7 +552,6 @@ exit 0
 // names are chained; anything else is reported and skipped, never interpolated.
 const HOOK_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const chainableHook = (name) => !name.endsWith(".sample") && HOOK_FILE_NAME.test(name);
-
 // ---- result cache inputs ------------------------------------------------------------------------------------
 
 // The build inputs that change how every crate compiles, relative to the Cargo workspace root, plus the gate's own config.
@@ -1090,42 +926,67 @@ export function quietLeaseLane(o, { tag = "rightkit-gate:", reason = "rightkit-g
   };
 }
 
-// ---- command resolution -------------------------------------------------------------------------------------
 
-// The rustfmt this host can run: the one findRustfmt names, when it answers `--version` (a rustup proxy with no toolchain does not).
-function usableRustfmt(o) {
-  const found = findRustfmt({ env: o.env, exists: o.exists, readdir: o.readdir, platform: o.platform, spawn: o.spawn });
-  return found && !failed(o.spawn(found, ["--version"], { cwd: o.cwd })) ? found : null;
-}
-
-// Cargo only through the broker: `rustright cargo`, or a `cargo` on PATH that is the managed shim (it runs cargo-guard.mjs).
-function resolveCargoCommand(o) {
-  const which = (cmd) => {
-    const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]);
-    return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  };
-  if (which("rustright").length) return ["rustright", "cargo"];
-  const first = which("cargo")[0];
-  if (first) { try { if (o.readFile(first).includes("cargo-guard.mjs")) return ["cargo"]; } catch { /* unreadable: not the shim */ } }
-  return null;
-}
 
 // ---- install-hook -------------------------------------------------------------------------------------------
 
-/** The first tracked package.json (or the root one when git cannot list) that declares @rightkit/release, or is that package itself. */
-function releaseProvider(o, root, git) {
+/**
+ * The tracked package.json files (the root one when git cannot list) that matter to the hook: `provider` is the first that declares
+ * @rightkit/release or is that package itself, `declaring` the directories of every one that declares it ("." for the root; the package itself is
+ * not one: it installs nothing of itself).
+ */
+function releasePackages(o, root, git) {
   let files = ["package.json"];
   const listed = git("ls-files", "-z", "--", ":(glob)**/package.json");
   if (!failed(listed)) files = text(listed).split("\0").filter(Boolean).map(posix);
+  let provider = null; const declaring = [];
   for (const file of files) {
     const abs = path.join(root, file);
     if (!o.exists(abs)) continue;
     let manifest;
     try { manifest = JSON.parse(o.readFile(abs).replace(/^\uFEFF/, "")); } catch { continue; }
-    if (manifest?.name === "@rightkit/release") return file;
-    for (const section of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) if (manifest?.[section] && Object.hasOwn(manifest[section], "@rightkit/release")) return file;
+    if (manifest?.name === "@rightkit/release") { provider ??= file; continue; }
+    if (["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"].some((section) => manifest?.[section] && Object.hasOwn(manifest[section], "@rightkit/release"))) {
+      provider ??= file;
+      declaring.push(path.posix.dirname(file));
+    }
   }
-  return null;
+  return { provider, declaring: [...new Set(declaring)].sort() };
+}
+
+// Where a package installs the gate, below its own directory. pnpm links it there for a package that declares @rightkit/release, so the path is the
+// same for every version (node_modules/.pnpm/@rightkit+release@x.y.z/... is the store copy it points at, and goes stale with each bump).
+const GATE_IN_PACKAGE = "node_modules/@rightkit/release/bin/rightkit-gate.mjs";
+// What may be written into the committed shell script: a plain relative path of letters, digits and _ - . @ + /, no `..`, no `.` segment, no
+// leading dash (it would read as an option of `pnpm --dir`).
+const HOOK_PATH_SEGMENT = /^(?!\.{1,2}$)[A-Za-z0-9_@.+-]+$/;
+export const hookPathIsPlain = (value) => typeof value === "string" && value !== "" && !value.startsWith("-") && value.split("/").every((segment) => HOOK_PATH_SEGMENT.test(segment));
+
+/**
+ * What the pre-push hook is told about where the gate lives: { nodePath, packages, unsafe }. `nodePath` is the last resort the hook runs with
+ * node, `packages` the extra directories hookText searches (multi-root form), `unsafe` the declaring packages whose directory cannot be written
+ * into a shell script. `declaring` is releasePackages(...).declaring; `gateFile` is where this gate runs from.
+ *
+ * A function of what the repository's package.json files declare, never of what is installed: the same tree gives the same hook on a fresh
+ * clone, an exports checkout, after `pnpm install` and after a version bump, so `install-hook` (a `prepare` script) never meets a hook it
+ * wrote earlier as one that "already exists and differs". It takes no `exists`, so that cannot creep back in. Always a stable,
+ * version-independent path relative to the repository, never one outside it, absolute, or inside the pnpm store:
+ *   1. The root declares @rightkit/release (whatever else does): its link and no extra packages, the hook 0.6.4 and 0.6.5 wrote (Pulse declares
+ *      it at the root and in hub/; RightKit itself at the root).
+ *   2. Only packages declare it (CutRight's apps/cutright, HeardRight's tauri-app-next): the link of the first of them in sorted order, whichever is
+ *      installed, and every one of them is searched.
+ *   3. No package.json declares it (a checkout of the package itself that nothing depends on), or only under a directory the hook cannot name: if
+ *      this gate runs from inside the repository and not from a node_modules, its path from the root, else the root's link, never a path
+ *      outside the repository. This is the one case that reads where the gate runs from, because the repository says nothing.
+ */
+export function hookGatePlan({ root, gateFile, declaring }) {
+  const plain = declaring.filter((d) => d !== "." && hookPathIsPlain(d));
+  const unsafe = declaring.filter((d) => d !== "." && !hookPathIsPlain(d));
+  if (declaring.includes(".")) return { nodePath: GATE_IN_PACKAGE, packages: [], unsafe };
+  if (plain.length) return { nodePath: `${plain[0]}/${GATE_IN_PACKAGE}`, packages: plain, unsafe };
+  const relative = posix(path.relative(root, gateFile));
+  const inside = relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative) && !relative.split("/").includes("node_modules") && hookPathIsPlain(relative);
+  return { nodePath: inside ? relative : GATE_IN_PACKAGE, packages: [], unsafe };
 }
 
 // The advisory ownership pre-commit step (`right-release hooks install`, ownership-hooks.mjs) runs the pinned @rightkit/release, so
@@ -1137,9 +998,10 @@ async function installHook(o, root, force) {
   const git = (...a) => o.spawn("git", a, { cwd: root });
   const hooksDir = path.join(root, ".githooks");
   const hookPath = path.join(hooksDir, "pre-push");
-  const installed = "node_modules/@rightkit/release/bin/rightkit-gate.mjs";
-  const nodePath = o.exists(path.join(root, installed)) ? installed : posix(path.relative(root, fileURLToPath(import.meta.url)));
-  const wanted = hookText(nodePath);
+  const { provider, declaring } = releasePackages(o, root, git);
+  const { nodePath, packages, unsafe } = hookGatePlan({ root, gateFile: o.gateFile, declaring });
+  if (unsafe.length) o.err(`rightkit-gate: WARNING: the pre-push hook does not look for the gate in ${unsafe.join(", ")}: not a plain directory name (letters, digits and _ - . @ + only, with / between); it still finds a root or workspace install by glob.`);
+  const wanted = hookText(nodePath, packages);
   const hasHook = o.exists(hookPath);
   const current = hasHook ? o.readFile(hookPath).replace(/\r\n/g, "\n") : null;
   if (hasHook && current !== wanted && !force) {
@@ -1200,16 +1062,259 @@ async function installHook(o, root, force) {
     if (failed(set)) { o.err(`rightkit-gate: git config core.hooksPath failed: ${why(set)}`); return 2; }
     done.push(`set core.hooksPath to .githooks${existingPath ? ` (was ${existingPath})` : ""}`);
   }
+  // The agent side of the one door: a Claude Code PreToolUse hook in the repository's .claude/settings.json runs door-policy.mjs on every
+  // shell command, on every host (the broker-less cloud included), and denies any build that does not go through rightkit-gate.
+  const agentHookFile = "node_modules/@rightkit/release/bin/rightkit-agent-hook.mjs";
+  const agentHook = o.exists(path.join(root, agentHookFile)) ? agentHookFile : posix(path.relative(root, fileURLToPath(new URL("./rightkit-agent-hook.mjs", import.meta.url))));
+  const settingsPath = path.join(root, ".claude", "settings.json");
+  let settings = {};
+  if (o.exists(settingsPath)) { try { settings = JSON.parse(o.readFile(settingsPath)); } catch { o.err("rightkit-gate: .claude/settings.json is not JSON; the agent hook was not added"); settings = null; } }
+  if (settings) {
+    const command = `node ${agentHook}`;
+    const pre = Array.isArray(settings.hooks?.PreToolUse) ? settings.hooks.PreToolUse : [];
+    const has = pre.some((entry) => (entry.hooks ?? []).some((h) => typeof h.command === "string" && h.command.includes("rightkit-agent-hook")));
+    if (has) done.push(".claude/settings.json agent hook already present");
+    else {
+      settings.hooks = { ...(settings.hooks ?? {}), PreToolUse: [...pre, { matcher: "Bash", hooks: [{ type: "command", command }] }] };
+      try { o.mkdir(path.dirname(settingsPath), { recursive: true }); } catch { /* exists */ }
+      o.writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+      done.push("added the one-door agent hook to .claude/settings.json (commit it)");
+    }
+  }
   for (const line of done) o.out(`rightkit-gate: ${line}`);
   const chained = own.length ? own.map((name) => (name === "pre-push" ? "pre-push (run first, then the gate)" : name)) : [];
   o.out(`rightkit-gate: chained hooks from .git/hooks: ${chained.length ? chained.join(", ") : "none"}${own.includes("pre-push") ? "" : "; the pre-push hook still runs .git/hooks/pre-push first if one appears later"}`);
   if (!ownership) o.out(`rightkit-gate: no ownership pre-commit step: ${PINNED_CLI} is not installed here; install @rightkit/release, then run install-hook again`);
   const files = [".githooks/pre-push", ...trampolines.map((t) => `.githooks/${t.name}`)];
-  o.out(`rightkit-gate: commit the hooks with executable mode (git add --chmod=+x ${files.join(" ")}); the pre-push hook finds rightkit-gate in node_modules/.bin of the repository root, else of any workspace package, else through \`pnpm exec\`.`);
-  const provider = releaseProvider(o, root, git);
+  o.out(`rightkit-gate: commit the hooks with executable mode (git add --chmod=+x ${files.join(" ")}); the pre-push hook finds rightkit-gate in node_modules/.bin of the repository root, ${packages.length ? `else of ${packages.join(", ")} (the packages that declare @rightkit/release), else of any workspace package, else through \`pnpm --dir ${packages[0]} exec\`` : "else of any workspace package, else through \`pnpm exec\`"}.`);
   if (!provider) o.err("rightkit-gate: WARNING: no package.json in this repository depends on @rightkit/release, so the pre-push hook cannot find the rightkit-gate binary; add @rightkit/release as a devDependency of the root or of a workspace package and install.");
   else o.out(`rightkit-gate: @rightkit/release is declared in ${provider}`);
   return 0;
+}
+
+// ---- the stages: rightkit-gate --to <stage> --------------------------------------------------------------------------------
+
+/**
+ * Runs every stage up to `--to`, in order, for HEAD: check (class A), compile (the whole gate over every file), then, through the existing
+ * owners, package (source QA, then `right-release build`, which seals the exact artifact set), qualify (installed QA on that sealed set)
+ * and release (`right-release upload` of that same sealed set). Stops at the first stage that fails. check and compile are reused from
+ * the receipt only when every bound input is unchanged; the right-release stages run under a live door run, so they refuse any other
+ * caller (gate-stages.mjs requireDoorRun).
+ */
+async function runStages(o, args, root, git, io) {
+  const option = (name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
+  const tag = "rightkit-gate:";
+  const to = option("--to");
+  if (to === "dev" || to === "test") return await runWorktreeCompile(o, args, root, git, io, to);
+  const stages = stagesTo(to);
+  if (!stages) { o.err(`${tag} --to must be one of ${STAGES.join(", ")}`); return 2; }
+  const platform = option("--platform");
+  const tier = option("--tier");
+  if (stages.includes("package") && !["mac", "win"].includes(platform)) { o.err(`${tag} --to ${to} needs --platform mac|win`); return 2; }
+  if (stages.includes("release") && !["patch", "update"].includes(tier)) { o.err(`${tag} --to release needs --tier patch|update (chosen explicitly, never defaulted)`); return 2; }
+  const commit = text(git("rev-parse", "HEAD")).trim();
+  const tree = text(git("rev-parse", "HEAD^{tree}")).trim();
+  const common = text(git("rev-parse", "--git-common-dir")).trim();
+  if (!/^[0-9a-f]{40}$/.test(commit) || !tree || !common) { o.err(`${tag} cannot read HEAD and the git directory`); return 2; }
+  const commonDir = path.resolve(root, common);
+  const dirty = git("status", "--porcelain", "--untracked-files=no");
+  if (failed(dirty) || text(dirty).trim()) { o.err(`${tag} BLOCKED: the checkout differs from HEAD; every stage works on the commit, so commit or stash first`); return 1; }
+
+  const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
+  const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
+  if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
+  const version = (cmd, a) => { const r = o.spawn(cmd, a, { cwd: root }); return failed(r) ? null : text(r).trim().split(/\r?\n/)[0]; };
+  const listed = git("ls-tree", "-r", "--name-only", "-z", "HEAD");
+  const lockFiles = {};
+  for (const f of failed(listed) ? [] : text(listed).split("\0").filter((x) => /(^|\/)(Cargo\.lock|pnpm-lock\.yaml)$/.test(x))) {
+    const shown = git("show", `HEAD:${f}`); if (!failed(shown)) lockFiles[f] = text(shown);
+  }
+  const binding = bindingOf({
+    tree, lockFiles, gateFile: fileURLToPath(import.meta.url), executor: executor.kind,
+    toolchain: { classA: { "cargo-deny": version("cargo-deny", ["--version"]), "cargo-audit": version("cargo-audit", ["--version"]), actionlint: version("actionlint", ["-version"]), shellcheck: version("shellcheck", ["--version"]) }, node: process.version, rustc: version(executor.kind === "broker" && executor.cargo[0] === "rustright" ? "rustright" : "rustc", executor.kind === "broker" && executor.cargo[0] === "rustright" ? ["rustc", "-V"] : ["-V"]), pnpm: version("pnpm", ["--version"]) },
+  });
+  // Release writes to R2. The write credential lives only in the trusted publisher: a GitHub Actions job in the protected
+  // publication environment, which sets RIGHTKIT_PUBLISHER=github-environment. Hosts and agents never hold it, so the door refuses the
+  // stage anywhere else rather than fail half way through an upload.
+  if (stages.includes("release") && !(o.env.GITHUB_ACTIONS === "true" && o.env.RIGHTKIT_PUBLISHER === "github-environment")) {
+    o.err(`${tag} BLOCKED: --to release runs only in the trusted publisher (the release workflow's protected publication job). Run --to qualify here, then dispatch the release workflow for ${commit.slice(0, 12)}`);
+    return 1;
+  }
+  // --receipt-in <file>: the receipt an earlier job of the same pipeline wrote (another runner: CI's package job, then its qualify and
+  // publish jobs). It is taken only for this commit and the same source binding (tree, lockfiles, gate); it then stands in for the
+  // stages it records, and the sealed bytes on disk must still hash to its manifest digest before anything uses them.
+  const receiptIn = option("--receipt-in");
+  if (receiptIn !== undefined) {
+    let imported = null;
+    try { imported = JSON.parse(o.readFile(path.resolve(o.cwd, receiptIn))); } catch { /* refused below */ }
+    if (!imported || imported.schema !== RECEIPT_SCHEMA || imported.commit !== commit || !sameSource(imported.binding, binding)) {
+      o.err(`${tag} BLOCKED: --receipt-in ${receiptIn} is not a ${RECEIPT_SCHEMA} receipt for ${commit.slice(0, 12)} with this tree, these lockfiles and this gate`);
+      return 1;
+    }
+    (o.writeReceipt ?? writeReceipt)({ commonDir, receipt: imported });
+  }
+  const previous = (o.readReceipt ?? readReceipt)({ commonDir, commit });
+  // Same host and inputs: every recorded stage counts. Same source on another host: only the stages bound to sealed bytes (package and
+  // later) carry over; check and compile run again here.
+  const receipt = previous && sameBinding(previous.binding, binding) ? previous
+    : previous && sameSource(previous.binding, binding) ? { ...previous, binding, stages: Object.fromEntries(Object.entries(previous.stages ?? {}).filter(([k]) => k !== "check" && k !== "compile")) }
+      : { schema: RECEIPT_SCHEMA, commit, binding, stages: {} };
+  const receiptOut = option("--receipt-out");
+  const save = () => {
+    (o.writeReceipt ?? writeReceipt)({ commonDir, receipt });
+    if (receiptOut !== undefined) o.writeFile(path.resolve(o.cwd, receiptOut), `${JSON.stringify(receipt, null, 2)}\n`);
+  };
+
+  const cli = fileURLToPath(new URL("../cli/right-release.mjs", import.meta.url));
+  const rightRelease = (stage, cliArgs) => {
+    const run = startRun({ commonDir, commit, tree, stage });
+    try {
+      o.out(`${tag} [${stage}] right-release ${cliArgs.join(" ")}`);
+      const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, ...cliArgs], { cwd: root, env: { ...o.env, ...run.env } });
+      return r.status === 0;
+    } finally { endRun(run); }
+  };
+
+  o.out(`${tag} --to ${to} for ${commit.slice(0, 12)}: ${stages.join(" -> ")}; executor ${executor.kind}`);
+  // A later stage on the sealed bytes: check, compile and package already passed for them (in this receipt) and the bytes on disk are
+  // the ones they sealed, so they are not run again.
+  const sealedNow = receipt.stages.package?.ok ? (o.sealedFor ?? sealedFor)({ root, commit, platform }) : null;
+  const sealedIntact = Boolean(sealedNow && sealedNow.id === receipt.stages.package.sealed && sealedNow.digest === receipt.stages.package.manifestSha256);
+  for (const stage of stages) {
+    if ((stage === "check" || stage === "compile") && receipt.stages[stage]?.ok) { o.out(`${tag} [${stage}] already passed for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
+    if ((stage === "check" || stage === "compile" || stage === "package") && sealedIntact) {
+      o.out(`${tag} [${stage}] already passed for the sealed set ${sealedNow.id} (manifest ${sealedNow.digest.slice(0, 12)})`); continue;
+    }
+    // The publisher (another runner, often another OS) cannot repeat installed QA; it takes the qualify result recorded for exactly
+    // these sealed bytes. --to qualify itself always runs it.
+    if (stage === "qualify" && to !== "qualify" && sealedIntact && receipt.stages.qualify?.ok && receipt.stages.qualify.manifestSha256 === sealedNow.digest) {
+      o.out(`${tag} [qualify] already passed for the sealed set ${sealedNow.id} (manifest ${sealedNow.digest.slice(0, 12)})`); continue;
+    }
+    // The publisher only uploads. It never checks out a build environment, signs or runs installed QA, so every earlier stage must
+    // already stand in its receipt for exactly the sealed bytes on disk; anything else is refused, never rebuilt or requalified here.
+    if (to === "release" && stage !== "release") {
+      o.err(`${tag} BLOCKED: [${stage}] --to release only uploads: the receipt must already record ${stage} for the sealed bytes on disk (${sealedNow ? `manifest ${sealedNow.digest.slice(0, 12)}` : "none found"}); run --to qualify on the host and stage again`);
+      return 1;
+    }
+    let ok = false; const at = new Date().toISOString(); let extra = {};
+    if (stage === "check") ok = (await (o.runCheck ?? (() => main(["check", "--commit", "HEAD"], { ...io, cwd: root })))()) === 0;
+    else if (stage === "compile") {
+      // A Tauri crate with externalBin needs its sidecars in src-tauri/binaries before it compiles (its build script refuses
+      // otherwise), so every release config that declares `sidecars` is staged first, through right-release under this door run.
+      const listedConfigs = git("ls-tree", "-r", "--name-only", "-z", "HEAD");
+      const sidecarConfigs = (failed(listedConfigs) ? [] : text(listedConfigs).split("\0").filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)))
+        .filter((f) => { try { return /\bsidecars\b/.test(o.readFile(path.join(root, f))); } catch { return false; } });
+      ok = true;
+      for (const config of sidecarConfigs) if (!rightRelease(stage, ["stage-sidecar", "--config", config])) { ok = false; break; }
+      if (ok) ok = (await (o.runCompile ?? (() => main(["--all"], { ...io, cwd: root, readStdin: () => "" })))()) === 0;
+    }
+    else if (stage === "package") {
+      ok = rightRelease(stage, ["qa", "--stage", "source", "--platform", platform]) && rightRelease(stage, ["build", "--platform", platform]);
+      const sealed = ok ? (o.sealedFor ?? sealedFor)({ root, commit, platform }) : null;
+      if (ok && !sealed) { o.err(`${tag} [package] the build reported success but sealed nothing for ${commit.slice(0, 8)} on ${platform}`); ok = false; }
+      if (sealed) extra = { platform, sealed: sealed.id, manifestSha256: sealed.digest };
+    } else {
+      const sealed = receipt.stages.package?.ok ? receipt.stages.package : null;
+      const current = sealed ? (o.sealedFor ?? sealedFor)({ root, commit, platform }) : null;
+      if (!sealed || !current || current.id !== sealed.sealed || current.digest !== sealed.manifestSha256) {
+        o.err(`${tag} BLOCKED: [${stage}] needs the sealed set the package stage produced for this commit, unchanged (sealed manifest digest)`);
+        ok = false;
+      } else if (stage === "qualify") {
+        ok = rightRelease(stage, ["qa", "--stage", "installed", "--platform", platform, "--release", sealed.sealed]);
+        extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256 };
+      } else {
+        if (!receipt.stages.qualify?.ok || receipt.stages.qualify.manifestSha256 !== sealed.manifestSha256) { o.err(`${tag} BLOCKED: [release] the sealed set was not qualified (installed QA) in this door run's receipt`); ok = false; }
+        else { ok = rightRelease(stage, ["upload", "--release", sealed.sealed, "--platform", platform, "--tier", tier]); extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, tier }; }
+      }
+    }
+    receipt.stages[stage] = { ok, at, ...extra };
+    save();
+    if (!ok) { o.err(`${tag} --to ${to} stopped at ${stage}: nothing after it ran`); return 1; }
+  }
+  o.out(`${tag} --to ${to} passed: ${stages.join(", ")}`);
+  return 0;
+}
+
+/**
+ * rightkit-gate stage --platform mac|win [--tier patch|update]: hands a qualified sealed set to the trusted publisher. The host signed,
+ * sealed and qualified it (--to qualify); only the publisher holds the R2 write credential. Requires this host's receipt for HEAD with
+ * package and qualify passed on the sealed bytes as they are now. Packs the sealed directory and the receipt into the draft GitHub
+ * release `rightkit-staging-<commit>` (replacing that platform's asset), then, with --tier, dispatches RightKit's publish-app workflow
+ * (the one trusted publisher for every app) for HEAD.
+ */
+const PUBLISHER_REPO = "bogusyogi/rightkit";
+function stageForPublisher(o, args, root, git) {
+  const option = (name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
+  const tag = "rightkit-gate:";
+  const platform = option("--platform");
+  const tier = option("--tier");
+  if (!["mac", "win"].includes(platform)) { o.err(`${tag} stage needs --platform mac|win`); return 2; }
+  if (tier !== undefined && !["patch", "update"].includes(tier)) { o.err(`${tag} stage --tier must be patch or update`); return 2; }
+  const commit = text(git("rev-parse", "HEAD")).trim();
+  const common = text(git("rev-parse", "--git-common-dir")).trim();
+  if (!/^[0-9a-f]{40}$/.test(commit) || !common) { o.err(`${tag} cannot read HEAD and the git directory`); return 2; }
+  const commonDir = path.resolve(root, common);
+  const receipt = (o.readReceipt ?? readReceipt)({ commonDir, commit });
+  const pack = receipt?.stages?.package; const qual = receipt?.stages?.qualify;
+  const sealed = pack?.ok ? (o.sealedFor ?? sealedFor)({ root, commit, platform }) : null;
+  if (!pack?.ok || !qual?.ok || pack.platform !== platform || qual.manifestSha256 !== pack.manifestSha256 || !sealed || sealed.id !== pack.sealed || sealed.digest !== pack.manifestSha256) {
+    o.err(`${tag} BLOCKED: stage needs this host's receipt for ${commit.slice(0, 12)} with package and qualify passed on ${platform} and the sealed set unchanged; run rightkit-gate --to qualify --platform ${platform} first`);
+    return 1;
+  }
+  const releaseTag = `rightkit-staging-${commit}`;
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), "rightkit-stage-"));
+  try {
+    const receiptFile = path.join(work, `receipt-${platform}.json`);
+    fs.writeFileSync(receiptFile, `${JSON.stringify(receipt, null, 2)}\n`);
+    const archive = path.join(work, `sealed-${platform}.tar.gz`);
+    const tar = o.spawn("tar", ["-czf", archive, "-C", root, path.join(".right-release", "sealed", sealed.id, platform)]);
+    if (failed(tar)) { o.err(`${tag} could not pack ${sealed.id}/${platform}`); return 1; }
+    const gh = (...a) => o.spawn("gh", a, { cwd: root });
+    if (failed(gh("release", "view", releaseTag))) {
+      const made = gh("release", "create", releaseTag, "--draft", "--target", commit, "--title", `staging ${commit.slice(0, 12)}`, "--notes", "Sealed and qualified sets for the trusted publisher; not a release.");
+      if (failed(made)) { o.err(`${tag} could not create the draft ${releaseTag}: ${text(made).trim()}`); return 1; }
+    }
+    const up = gh("release", "upload", releaseTag, archive, receiptFile, "--clobber");
+    if (failed(up)) { o.err(`${tag} could not upload to ${releaseTag}: ${text(up).trim()}`); return 1; }
+    o.out(`${tag} staged ${sealed.id}/${platform} (manifest ${sealed.digest.slice(0, 12)}) in draft ${releaseTag}`);
+    if (tier) {
+      // The trusted publisher is RightKit's publish-app workflow: app repositories are private and run no Actions.
+      const slug = text(gh("repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner")).trim();
+      const appDir = path.relative(root, o.cwd).replaceAll("\\", "/") || ".";
+      const run = gh("workflow", "run", "publish-app.yml", "-R", PUBLISHER_REPO, "-f", `app=${slug}`, "-f", `app_dir=${appDir}`, "-f", `source_revision=${commit}`, "-f", `tier=${tier}`, "-f", `platforms=${platform}`);
+      if (!slug || failed(run)) { o.err(`${tag} staged, but could not dispatch ${PUBLISHER_REPO} publish-app.yml: ${text(run).trim()}`); return 1; }
+      o.out(`${tag} dispatched ${PUBLISHER_REPO} publish-app.yml for ${slug}@${commit.slice(0, 12)} (${platform}, ${tier}); the publisher re-runs class A, verifies the receipt and the bytes, then uploads`);
+    }
+    return 0;
+  } finally { fs.rmSync(work, { recursive: true, force: true }); }
+}
+
+/**
+ * rightkit-gate --to dev|test [-- <right-release dev|test arguments>]: the door for the local compiles that work on the uncommitted tree.
+ * Class A runs over the working tree first (nothing compiles while it is red), then `right-release dev|test` runs under a live door
+ * run, the only way it runs at all. The executor is the same as every other stage: the broker where there is one (its own admission
+ * checks again), plain cargo on an unmanaged host, never around a managed host's broker.
+ */
+async function runWorktreeCompile(o, args, root, git, io, to) {
+  const tag = "rightkit-gate:";
+  const passthrough = args.includes("--") ? args.slice(args.indexOf("--") + 1) : [];
+  const commit = text(git("rev-parse", "HEAD")).trim();
+  const tree = text(git("rev-parse", "HEAD^{tree}")).trim();
+  const common = text(git("rev-parse", "--git-common-dir")).trim();
+  if (!/^[0-9a-f]{40}$/.test(commit) || !common) { o.err(`${tag} cannot read HEAD and the git directory`); return 2; }
+  const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
+  const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
+  if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
+  o.out(`${tag} --to ${to} on the working tree of ${commit.slice(0, 12)}: check (class A) -> right-release ${to}; executor ${executor.kind}`);
+  const checked = await (o.runCheck ?? (() => main(["check", "--worktree"], { ...io, cwd: root })))();
+  if (checked !== 0) { o.err(`${tag} --to ${to} stopped at check: nothing compiled`); return 1; }
+  const commonDir = path.resolve(root, common);
+  const run = startRun({ commonDir, commit, tree, stage: to });
+  try {
+    const cli = fileURLToPath(new URL("../cli/right-release.mjs", import.meta.url));
+    const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, to, ...passthrough], { cwd: o.cwd, env: { ...o.env, ...run.env } });
+    return r.status === 0 ? 0 : 1;
+  } finally { endRun(run); }
 }
 
 // ---- main ---------------------------------------------------------------------------------------------------
@@ -1224,7 +1329,9 @@ export async function main(argv, io = {}) {
   const o = {
     spawn: defaultSpawn, exists: fs.existsSync, readFile: (f) => fs.readFileSync(f, "utf8"), writeFile: fs.writeFileSync, mkdir: fs.mkdirSync, chmod: fs.chmodSync, readdir: fs.readdirSync,
     readStdin: () => { try { return process.stdin.isTTY ? "" : fs.readFileSync(0, "utf8"); } catch { return ""; } },
-    out: (m) => console.log(m), err: (m) => console.error(m), cwd: process.cwd(), env: process.env, platform: process.platform, ...io,
+    out: (m) => console.log(m), err: (m) => console.error(m), cwd: process.cwd(), env: process.env, platform: process.platform,
+    // Where this gate runs from (install-hook writes a path to it only when it is a plain path inside the repository: hookGatePlan).
+    gateFile: fileURLToPath(import.meta.url), ...io,
   };
   const args = [...argv];
   const option = (name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
@@ -1234,9 +1341,80 @@ export async function main(argv, io = {}) {
   }
   if (args.includes("--help") || args.includes("-h")) { o.out(USAGE); return 0; }
   const sub = args[0] && !args[0].startsWith("-") ? args[0] : null;
-  if (sub && sub !== "install-hook" && sub !== "check") { o.err(`rightkit-gate: unknown command ${JSON.stringify(sub)}\n${USAGE}`); return 2; }
-  // The app check has its own export and reads no gate state: it needs neither the base ref nor the pushed refs on stdin.
-  if (sub === "check") return (o.appCheck ?? (await import("../app-check.mjs")).main)(args.slice(1), { out: o.out, err: o.err, label: "check", cwd: o.cwd });
+  if (sub && sub !== "install-hook" && sub !== "check" && sub !== "stage") { o.err(`rightkit-gate: unknown command ${JSON.stringify(sub)}\n${USAGE}`); return 2; }
+  // `check` is the deterministic stage (Adrian, 2026-10-25: deterministic always first, one door): the app-check rules, then every
+  // class A scan (lockfiles, cargo-deny, cargo-audit, secrets, licences, manifests, workflow lint, syntax...) over the whole tree of the
+  // commit, never a diff. Nothing compiles. The RustRight broker runs exactly this before it admits any compile. `--list`,
+  // `--print-baseline` and `--only` stay app-check-only views.
+  if (sub === "check") {
+    const appCheck = await (o.appCheck ?? (await import("../app-check.mjs")).main)(args.slice(1), { out: o.out, err: o.err, label: "check", cwd: o.cwd });
+    if (args.includes("--list") || args.includes("--print-baseline") || args.includes("--only") || o.classA === false) {
+      // A view of the app rules, never a class A verdict: say so, so no caller can take its exit 0 for a full check.
+      // A green partial view exits PARTIAL_EXIT (3), never 0, so a caller that admits only exit 0 rejects it by status alone.
+      if (args.includes("--list") || args.includes("--print-baseline")) return appCheck;
+      o.err("rightkit-gate: PARTIAL: app rules only (--only); no class A scan ran, so this is not a class A result");
+      return appCheck === 0 ? PARTIAL_EXIT : appCheck;
+    }
+    const repoArg = option("--repo");
+    const checkCwd = repoArg ? path.resolve(o.cwd, repoArg) : o.cwd;
+    const classA = await main(["--class-a", ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"])], { ...io, cwd: checkCwd });
+    // RightKit checking itself: its own rules (line endings, consumer recipes, npm surface, version copies and the version feed, dispatcher
+    // pins, consumer locks, generated docs, temp paths: scripts/preflight.mjs) and its exports' import safety are class A for the RightKit repository. They run only when this gate is that
+    // repository's own in-tree copy, so a gate checking any other repository (the broker's pinned one included) never runs
+    // that repository's code.
+    let selfRules = 0;
+    const top = o.spawn("git", ["rev-parse", "--show-toplevel"], { cwd: checkCwd });
+    const root = failed(top) ? null : path.resolve(text(top).trim());
+    const self = o.selfPath ?? fileURLToPath(import.meta.url);
+    // RightKit's own scripts are the checked repository's code: they run only after the app rules and every class A scan passed,
+    // never after a failure, so a red tree executes nothing of its own.
+    if (root && self.startsWith(root + path.sep) && o.exists(path.join(root, "scripts", "preflight.mjs")) && appCheck === 0 && classA === 0) {
+      const launch = o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" }));
+      const selector = args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"];
+      const r = launch(process.execPath, [path.join(root, "scripts", "preflight.mjs"), "--repo", root, ...selector], { cwd: root, env: o.env });
+      selfRules = r.status === 0 ? 0 : 1;
+      // And its exports import cleanly (scripts/ci/exports-import-effects.mjs: every exported module imported in a fresh, permission-
+      // limited process; an import that prints, exits or reads its argv fails), which publish.yml's scans job ran alone before. That
+      // check probes the checkout's HEAD, so it runs only when HEAD is the requested commit (or the working tree was asked for);
+      // any other commit is refused rather than proven by other bytes.
+      const effects = path.join(root, "scripts", "ci", "exports-import-effects.mjs");
+      if (selfRules === 0 && o.exists(effects)) {
+        const requested = args.includes("--worktree") ? null : option("--commit") ?? "HEAD";
+        const at = (rev) => { const v = o.spawn("git", ["rev-parse", "--verify", "--quiet", `${rev}^{commit}`], { cwd: root }); return failed(v) ? null : text(v).trim(); };
+        // The probe exports HEAD, so a working tree whose tracked or untracked (unignored) files differ from HEAD is refused too.
+        const dirty = () => { const st = o.spawn("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: root }); return failed(st) || text(st).trim() !== ""; };
+        if (requested !== null && at(requested) !== at("HEAD")) {
+          o.err(`rightkit-gate: BLOCKED: the exports import check probes the checkout's HEAD (${String(at("HEAD")).slice(0, 12)}), not the requested ${requested}; check out that commit to check it`);
+          selfRules = 1;
+        } else if (requested === null && dirty()) {
+          o.err("rightkit-gate: BLOCKED: the exports import check probes the checkout's HEAD, and the working tree differs from it; commit or stash the changes, or check --commit HEAD");
+          selfRules = 1;
+        } else {
+          // Like CI's scans job: exports that resolve to build output are INCOMPLETE here and handed, through --report, to the
+          // sealed-byte check that publication runs; without --report the probe exits 3 and a green tree could never pass.
+          const common = o.spawn("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: root });
+          const report = path.join(failed(common) ? path.join(root, ".git") : text(common).trim(), "rightkit-gate", "import-effects", "report.json");
+          const e = launch(process.execPath, [effects, "--report", report], { cwd: root, env: o.env });
+          if (e.status !== 0) selfRules = 1;
+        }
+      }
+    }
+    // A RustRight broker's check names the tree it captured for the compile: the declared inputs there (ignored files the
+    // commit does not hold) are judged too, as the bytes the compile will read.
+    let inputs = 0;
+    const captured = o.env.RIGHTKIT_COMPILE_INPUTS;
+    if (captured) {
+      const { judgeCompileInputs } = await import("../compile-inputs.mjs");
+      const judged = judgeCompileInputs(path.resolve(captured));
+      for (const i of judged.inputs) o.out(`rightkit-gate: compile input ${i.path}: ${i.files} file(s), sha256 ${i.sha256}`);
+      for (const f of judged.findings) o.err(`rightkit-gate: compile input FAIL ${f}`);
+      if (!judged.inputs.length && !judged.findings.length) o.out("rightkit-gate: no declared compile inputs in the captured tree");
+      inputs = judged.findings.length ? 1 : 0;
+    }
+    return Math.max(appCheck, classA, selfRules, inputs);
+  }
+  const classAOnly = args.includes("--class-a");
+  const classACommit = classAOnly && !args.includes("--worktree") ? (option("--commit") ?? "HEAD") : null;
   if (args.includes("--base") && (!option("--base") || option("--base").startsWith("--"))) { o.err("rightkit-gate: --base needs a ref"); return 2; }
 
   const top = o.spawn("git", ["rev-parse", "--show-toplevel"], { cwd: o.cwd });
@@ -1244,6 +1422,8 @@ export async function main(argv, io = {}) {
   const root = path.resolve(text(top).trim());
   const git = (...a) => o.spawn("git", a, { cwd: root });
   if (sub === "install-hook") return await installHook(o, root, args.includes("--force"));
+  if (option("--to") !== undefined) return await runStages(o, args, root, git, io);
+  if (sub === "stage") return stageForPublisher(o, args, root, git);
 
   const planOnly = args.includes("--plan");
   let base = option("--base") ?? "origin/main";
@@ -1255,9 +1435,7 @@ export async function main(argv, io = {}) {
   // (git hands the local field over verbatim, so a rev expression such as `HEAD@{1 minute ago}` or `HEAD^{/one thing}` holds spaces)
   // refuses the push on every host and in every repository, never a line that disappears: its pushed commit could not be compared with
   // HEAD and its remote ref could not be judged. `pushedRemoteShas` are the remote commits being replaced.
-  const pushedRefs = []; const pushedRemoteShas = [];
-  const askedBase = base;
-  if (!planOnly) {
+  if (!planOnly && !classAOnly) {
     const head = text(git("rev-parse", "HEAD")).trim();
     const parsed = parsePushLines(o.readStdin());
     if (parsed.malformed.length) {
@@ -1265,8 +1443,6 @@ export async function main(argv, io = {}) {
       return 1;
     }
     for (const { localSha, remoteRef, remoteSha } of parsed.lines) {
-      pushedRefs.push(remoteRef);
-      if (!ZERO.test(remoteSha)) pushedRemoteShas.push(remoteSha);
       if (ZERO.test(localSha)) continue; // a delete pushes no content
       if (localSha !== head) {
         o.err(`${tag} BLOCKED: pushing ${localSha.slice(0, 10)} to ${remoteRef}, but HEAD is ${head.slice(0, 10)}; broker scans read the checkout, so check the pushed commit out first (git checkout --detach ${localSha.slice(0, 10)}), push HEAD:<branch>, then return`);
@@ -1276,70 +1452,16 @@ export async function main(argv, io = {}) {
     }
   }
 
-  const tracked = (name) => {
-    const r = git("ls-files", "-z", "--", `:(glob)**/${name}`);
-    if (failed(r)) throw new Error(`git ls-files failed: ${why(r)}`);
-    return text(r).split("\0").filter(Boolean).map(posix);
-  };
-  const readLive = (f) => o.readFile(f);
-
-  // Units come from the live checkout (cargo reads it); a dirty checkout then blocks below.
-  let rust; let npm; let npmRoots = []; let cargoCommand = ["rustright", "cargo"]; let deferral = null; let manifests = []; const unplaced = [];
-  try {
-    manifests = tracked("Cargo.toml");
-    if (manifests.length) {
-      cargoCommand = resolveCargoCommand(o);
-      if (!cargoCommand) {
-        // No broker and no shim. A pre-push of non-protected branches outside CI defers the Rust gate to host qualification; anything
-        // else refuses exactly as before. The cargo command is then only the text of the argv the deferred scans would have had.
-        // The default branch is named by the checkout, the base, the remote commits being replaced and origin/HEAD, never by the pushed commit alone.
-        const configured = defaultBranchNames({ git, readCheckout: () => o.readFile(path.join(root, ".rightgit.json")), revisions: [askedBase, ...pushedRemoteShas] });
-        const decision = rustDeferral({ refs: pushedRefs, env: o.env, protectedBranches: configured });
-        if (!decision.defer) {
-          o.err(`${tag} BLOCKED: neither \`rustright\` nor the managed cargo shim (cargo-guard.mjs) is first on PATH; plain cargo is never used`);
-          o.err(`${tag}   not deferred to host qualification: ${decision.why}`);
-          return 1;
-        }
-        deferral = decision;
-        cargoCommand = ["rustright", "cargo"];
-      } else if (!o.exists(path.join(root, GRANT_FILE))) { o.err(`${tag} BLOCKED: no local compile grant (${GRANT_FILE}); the broker refuses cargo, so the Rust units cannot be discovered or scanned`); return 1; }
-    }
-    // Untracked (not ignored) manifests only: git does not descend into ignored directories, so this stays cheap. A member of a
-    // workspace that is untracked or ignored is dropped by discoverRustWorkspaces itself.
-    const untracked = () => {
-      const r = git("ls-files", "-z", "--others", "--exclude-standard", "--", ":(glob)**/Cargo.toml");
-      return failed(r) ? [] : text(r).split("\0").filter(Boolean).map(posix);
-    };
-    // ci/gate.config.json `fixtures` (optional): directories whose manifests are consumer or sample crates, gated through the
-    // consumer rows of the crates they exercise (CI treats them the same: scripts/ci/gate.mjs consumerRowInvocations), never as units.
-    let fixtures = [];
-    try { const f = JSON.parse(o.readFile(path.join(root, GATE_CONFIG))).fixtures; if (Array.isArray(f)) fixtures = f.filter((d) => typeof d === "string"); } catch { /* no config: no fixtures */ }
-    rust = discoverRustWorkspaces({
-      root, spawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, tracked, untracked, fixtures, readFile: readLive,
-      ...(deferral ? { metadata: (dir) => { const read = manifestWorkspaceMetadata({ root, dir, tracked, readFile: readLive }); unplaced.push(...(read.unplaced ?? [])); return read; } } : {}),
-    });
-    npm = discoverNpmUnits({ root, tracked, readFile: readLive, exists: o.exists });
-    npmRoots = discoverPnpmRoots({ root, tracked, exists: o.exists });
-  } catch (e) { o.err(`${tag} BLOCKED: cannot discover the repository's units: ${e.message}`); return 1; }
-  for (const k of rust.skipped) o.out(`${tag} note: ${k.manifest} is skipped, not scanned: ${k.why}`);
-
-  // Broker scans (cargo, pnpm) read the live checkout, so it must equal HEAD where they read it: an uncommitted fix could
-  // otherwise hide a committed failure. Any change or untracked file under those paths blocks the gate.
-  if (!planOnly) {
-    // The install graph and linter configuration of a pnpm root: the repository root's, and those of every other root (its units' directories
-    // hold only the units, and a workspace member's lock sits above it).
-    const npmRootFiles = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc", ...ESLINT_CONFIG_FILES, ...BIOME_CONFIG_FILES];
-    const inputs = [...new Set([...rust.units.map((u) => u.dir), ...npm.map((u) => u.dir), ...rust.workspaces.map((w) => w.cargoDir), "ci", "scripts", "vendor", "Cargo.toml", "Cargo.lock", ".cargo", "rust-toolchain.toml", "rust-toolchain",
-      "deny.toml", "clippy.toml", "rustfmt.toml", ...npmRootFiles, ...npmRoots.filter((r) => r !== ".").flatMap((r) => npmRootFiles.map((f) => `${r}/${f}`))])];
-    const dirty = git("status", "--porcelain", "--untracked-files=all", "--", ...inputs);
-    const dirtyFiles = failed(dirty) ? [`git status failed: ${why(dirty)}`]
-      : text(dirty).split(/\r?\n/).filter(Boolean).filter((l) => !l.includes("node_modules") && !l.includes(GRANT_FILE));
-    if (dirtyFiles.length) {
-      o.err(`${tag} BLOCKED: the checkout differs from HEAD where broker scans read it; commit or stash first:`);
-      for (const l of dirtyFiles.slice(0, 20)) o.err(`  ${l}`);
-      return 1;
-    }
-  }
+  // ---- one door: the executor, then the exact snapshot every scan plans from and reads -----------------------------------
+  // The executor is chosen here, never by the caller (Adrian, 2026-10-25): the RustRight broker where this machine has it, a refusal
+  // on a broker-managed machine whose broker cannot be reached, direct cargo on any other host (a cloud container, a CI runner).
+  const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
+  const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
+  if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
+  const cargoCommand = executor.cargo;
+  // The snapshot: the commit or tree being checked (check --commit), HEAD for the gate, or the working tree (check --worktree, --plan).
+  const allFilesMode = classAOnly || args.includes("--all");
+  const snapshot = planOnly ? null : classAOnly ? classACommit : "HEAD";
 
   const ac = o.abort ?? new AbortController();
   let exportRoot = null;
@@ -1347,16 +1469,62 @@ export async function main(argv, io = {}) {
   const signals = [];
   try {
     let repo = root;
-    if (!planOnly) {
+    if (snapshot) {
       exportRoot = fs.mkdtempSync(path.join(o.env.RK_GATE_TMPDIR || os.tmpdir(), "rk-gate-"));
       repo = path.join(exportRoot, "repo");
-      const made = o.spawn("git", ["archive", "--format=tar", "--prefix=repo/", "-o", path.join(exportRoot, "head.tar"), "HEAD"], { cwd: root });
-      const x = failed(made) ? made : o.spawn("tar", ["-xf", "head.tar"], { cwd: exportRoot });
-      if (failed(made) || failed(x)) { o.err(`${tag} cannot export HEAD: ${why(made) || why(x)}`); return 2; }
+      // Every file of the commit or tree: read-tree into a private index, then checkout-index. `git archive` would leave out files
+      // marked export-ignore in .gitattributes, so they would never be scanned; this export has no such exclusion.
+      const indexEnv = { ...o.env, GIT_INDEX_FILE: path.join(exportRoot, "index") };
+      const made = o.spawn("git", ["read-tree", snapshot], { cwd: root, env: indexEnv });
+      const x = failed(made) ? made : o.spawn("git", ["checkout-index", "--all", "--force", `--prefix=${repo}${path.sep}`], { cwd: root, env: indexEnv });
+      if (failed(made) || failed(x)) { o.err(`${tag} cannot export ${snapshot}: ${why(made) || why(x)}`); return 2; }
     }
-    const diff = git("diff", "--name-only", "--diff-filter=ACMR", `${base}...HEAD`);
-    if (failed(diff)) { o.err(`${tag} cannot diff against ${base}: ${why(diff)}; pass --base <ref>`); return 2; }
-    const changed = [...new Set(text(diff).split(/\r?\n/).map((f) => f.trim()).filter(Boolean))].filter((f) => o.exists(path.join(repo, f)));
+    // Every file of the snapshot, once: units, manifests, lockfiles and the changed set are all read from what is scanned, never from
+    // the live checkout (a live edit cannot change what gets planned).
+    const listed = snapshot ? git("ls-tree", "-r", "--name-only", "-z", snapshot) : git("ls-files", "-z", "--cached", ...(classAOnly ? ["--others", "--exclude-standard"] : []));
+    if (failed(listed)) { o.err(`${tag} cannot list the files of ${snapshot ?? "the working tree"}: ${why(listed)}`); return 2; }
+    const files = text(listed).split("\0").filter(Boolean).map(posix);
+    const tracked = (name) => files.filter((f) => f === name || f.endsWith(`/${name}`));
+    const readSnap = (f) => o.readFile(f);
+
+    let rust; let npm; let npmRoots = []; let manifests = [];
+    try {
+      manifests = tracked("Cargo.toml");
+      // ci/gate.config.json `fixtures` (optional): directories whose manifests are consumer or sample crates, gated through the
+      // consumer rows of the crates they exercise (CI treats them the same), never as units.
+      let fixtures = [];
+      try { const f = JSON.parse(o.readFile(path.join(repo, GATE_CONFIG))).fixtures; if (Array.isArray(f)) fixtures = f.filter((d) => typeof d === "string"); } catch { /* no config: no fixtures */ }
+      // A snapshot has nothing untracked; the working tree (--plan, check --worktree) names its untracked manifests as skipped.
+      const untracked = () => {
+        if (snapshot) return [];
+        const r = git("ls-files", "-z", "--others", "--exclude-standard", "--", ":(glob)**/Cargo.toml");
+        return failed(r) ? [] : text(r).split("\0").filter(Boolean).map(posix);
+      };
+      rust = discoverRustWorkspaces({ root: repo, spawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, tracked, untracked, fixtures, readFile: readSnap });
+      npm = discoverNpmUnits({ root: repo, tracked, readFile: readSnap, exists: o.exists });
+      npmRoots = discoverPnpmRoots({ root: repo, tracked, exists: o.exists });
+    } catch (e) { o.err(`${tag} BLOCKED: cannot discover the repository's units: ${e.message}`); return 1; }
+    for (const k of rust.skipped) o.out(`${tag} note: ${k.manifest} is skipped, not scanned: ${k.why}`);
+
+    // Class B scans (compile, lint, tests) run in the live checkout, so it must equal HEAD where they read it: an uncommitted fix could
+    // otherwise hide a committed failure. Class A reads only the snapshot.
+    if (!planOnly && !classAOnly) {
+      const npmRootFiles = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc", ...ESLINT_CONFIG_FILES, ...BIOME_CONFIG_FILES];
+      const inputs = [...new Set([...rust.units.map((u) => u.dir), ...npm.map((u) => u.dir), ...rust.workspaces.map((w) => w.cargoDir), "ci", "scripts", "vendor", "Cargo.toml", "Cargo.lock", ".cargo", "rust-toolchain.toml", "rust-toolchain",
+        "deny.toml", "clippy.toml", "rustfmt.toml", ...npmRootFiles, ...npmRoots.filter((r) => r !== ".").flatMap((r) => npmRootFiles.map((f) => `${r}/${f}`))])];
+      const dirty = git("status", "--porcelain", "--untracked-files=all", "--", ...inputs);
+      const dirtyFiles = failed(dirty) ? [`git status failed: ${why(dirty)}`] : text(dirty).split(/\r?\n/).filter(Boolean).filter((l) => !l.includes("node_modules"));
+      if (dirtyFiles.length) {
+        o.err(`${tag} BLOCKED: the checkout differs from HEAD where compile scans read it; commit or stash first:`);
+        for (const l of dirtyFiles.slice(0, 20)) o.err(`  ${l}`);
+        return 1;
+      }
+    }
+
+    const diff = allFilesMode ? null : git("diff", "--name-only", "--diff-filter=ACMR", `${base}...HEAD`);
+    if (diff && failed(diff)) { o.err(`${tag} cannot diff against ${base}: ${why(diff)}; pass --base <ref> or --all`); return 2; }
+    const changed = allFilesMode ? files : [...new Set(text(diff).split(/\r?\n/).map((f) => f.trim()).filter(Boolean))].filter((f) => o.exists(path.join(repo, f)));
+    if (allFilesMode) base = snapshot ?? "the working tree";
 
     let crateFeatures = {}; let packageFeatures = {};
     try { const gateConfig = JSON.parse(o.readFile(path.join(repo, "ci/gate.config.json"))); crateFeatures = gateConfig.rust ?? {}; packageFeatures = gateConfig.npm ?? {}; } catch { /* no config: default feature sets */ }
@@ -1380,31 +1548,18 @@ export async function main(argv, io = {}) {
     const rustScope = restricted ? scopeNames : null;
 
     const fullPlan = planScans({
-      changed, contentRoot: repo, liveRoot: root, includeTests: true, rustScope, cargoCommand,
+      // Class A of a commit or tree reads only that snapshot: every scan, cargo's included, runs in the export, never in the live
+      // checkout (which may hold other bytes). Compiles (class B) use the live checkout, whose tree the dirty check pinned to HEAD.
+      changed, contentRoot: repo, liveRoot: classAOnly && snapshot ? repo : root, includeTests: true, rustScope, cargoCommand,
       // The quiet tests (port, pipe, desktop and wall-clock bound) are proven by the CI shards, one crate per runner, unless
       // RK_GATE_QUIET_TESTS=local asks for the serial quiet lane here (no CI, or a CI outage).
       quietTests: o.env.RK_GATE_QUIET_TESTS === "local" ? "local" : "ci", packageFeatures,
       rustUnits: rust.units, npmUnits: npm, npmRoots, cargoDir: ".", rustLocks, crateFeatures,
-      localCompile: deferral ? true : o.exists(path.join(root, GRANT_FILE)),
+      // The broker (or, on a direct host, the gate itself) admits compiles; no separate grant file decides it here.
+      localCompile: true,
       exists: o.exists, readFile: o.readFile, platform: o.platform,
     });
     let plan = args.includes("--pre-push") ? prePushPlan(fullPlan) : fullPlan;
-    // Deferred Rust gate: every scan that goes through the broker is taken out of the plan and named; rustfmt too when this host has
-    // none (it is a Rust-toolchain scan, not a content scan, on such a host). Every other scan stays exactly as planned.
-    let notRun = []; let deferNote = null; let npmCalls = [];
-    if (deferral) {
-      const rustfmt = (o.findRustfmt ?? usableRustfmt)(o);
-      const dropped = plan.scans.filter((s) => s.tool === "rustright" || (s.tool === "rustfmt" && !rustfmt));
-      // An npm test scan whose script runs `rustright` or `cargo` through its package script chain (planScans marks it `brokerCall`: ViewRight's
-      // test:e2e is `rustright storage run ... -- right-release test`) cannot run on this host either. It goes the way of the Rust scans, named
-      // with its reason and never passed. On a host with the broker, in CI, on a protected ref or with the opt-out there is no deferral and it runs.
-      const npmDropped = plan.scans.filter((s) => s.brokerCall && s.tool === "pnpm" && !dropped.includes(s));
-      npmCalls = npmDropped.map((s) => ({ id: s.id, ...s.brokerCall }));
-      notRun = [...dropped, ...npmDropped].map((s) => s.id);
-      plan = withoutScans(plan, [...dropped, ...npmDropped]);
-      deferNote = `no RustRight broker on this host: ${dropped.length} Rust scan(s) are deferred to host qualification, not run and not passed${rustfmt ? "" : " (rustfmt is not usable on this host either)"}`
-        + (npmDropped.length ? `; ${npmDropped.length} npm test scan(s) whose script runs the broker or cargo are deferred with them, not run and not passed: ${npmDropped.map((s) => s.id).join(", ")}` : "");
-    }
     const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? 4) || 4);
     const testJobs = Math.max(1, Number(o.env.RK_GATE_TEST_JOBS ?? jobs) || jobs);
 
@@ -1419,7 +1574,7 @@ export async function main(argv, io = {}) {
     }
 
     for (const n of plan.notes) o.out(`${tag} note: ${n}`);
-    if (deferNote) o.out(`${tag} note: ${deferNote}`);
+    o.out(`${tag} executor: ${executor.kind}${executor.kind === "broker" ? ` (${cargoCommand.join(" ")})` : " (no broker on this host: cargo runs directly, through the same gates)"}`);
     const quietCount = plan.scans.filter((s) => s.quiet === true).length;
     o.out(`${tag} ${plan.scans.length} scan(s) for ${changed.length} changed file(s) vs ${base.slice(0, 12)}; compile scans ${jobs} at a time, tests ${testJobs} at a time${quietCount ? `, ${quietCount} quiet test scan(s) last under the broker's quiet lease` : ""}`);
     let signalCode = 0;
@@ -1434,7 +1589,7 @@ export async function main(argv, io = {}) {
     }
     // The result cache keys on the gated commit's object ids; the pre-push check above made HEAD the pushed commit.
     let cache = null;
-    if (!args.includes("--no-cache") && o.env.RK_GATE_CACHE !== "0") {
+    if (!classAOnly && !args.includes("--no-cache") && o.env.RK_GATE_CACHE !== "0") {
       try {
         const headSha = text(git("rev-parse", "HEAD")).trim();
         const treeId = text(git("rev-parse", `${headSha}^{tree}`)).trim();
@@ -1462,7 +1617,7 @@ export async function main(argv, io = {}) {
       } catch { cache = null; }
     }
     const scanResult = await (o.runScans ?? runScans)(plan, {
-      classes: ["A", "B"], jobs, testJobs, signal: ac.signal, ...(cache ? { cache } : {}),
+      classes: classAOnly ? ["A"] : ["A", "B"], jobs, testJobs, signal: ac.signal, ...(cache ? { cache } : {}),
       quietLane: quietLeaseLane(o, { tag, reason: `rightkit-gate-quiet-tests@${text(git("rev-parse", "--short", "HEAD")).trim()}` }),
       onResult: (row, p) => o.out(`${tag} [${p.done}/${p.total}] ${(row.cached ? "cached" : row.status).padEnd(7)} ${row.id} (${p.seconds}s)${row.status === "fail" ? ` :: ${String(row.detail ?? "").slice(0, 300)}` : ""}`),
     });
@@ -1480,13 +1635,11 @@ export async function main(argv, io = {}) {
     if (failures.length) {
       o.err(`${tag} BLOCKED (${failures.length})`);
       for (const f of failures) o.err(`  - ${f}`);
-      o.err("Fix and push again. Never bypass with --no-verify.");
+      o.err(classAOnly ? "Class A is red: nothing compiles until it is green." : "Fix and push again. Never bypass with --no-verify.");
       return 1;
     }
-    if (deferral) {
-      o.out(`${tag} the scans that could run here passed (${changed.length} changed file(s) vs ${base}${scanResult.cacheHits.length ? `; ${scanResult.cacheHits.length} reused from the result cache` : ""})`);
-      const unmatched = [...new Set([...unplaced, ...unmatchedManifests({ root, manifests, rust, readFile: readLive })])].sort();
-      for (const line of deferredBlock({ units: rust.units.map((u) => u.name), notRun, refs: pushedRefs, manifests: manifests.length, unmatched, npmCalls, tag })) o.err(line);
+    if (classAOnly) {
+      o.out(`${tag} class A pass: ${scanResult.scans.length} deterministic scan(s) over ${changed.length} file(s) of ${base}`);
       return 0;
     }
     o.out(`${tag} pass (${changed.length} changed file(s) vs ${base}); ${deferrals.length} scan(s) deferred, not passed${scanResult.cacheHits.length ? `; ${scanResult.cacheHits.length} reused from the result cache` : ""}`);

@@ -132,31 +132,13 @@ try {
     return { rustHybridLanes: 1, nodeLanes: node.length, actionsPinnedToCommit: uses.length, deterministic: true };
   });
 
-  await run('gate-shards-render-matrix-group-and-summary', async () => {
+  await run('gate-shards-refused-ci-runs-one-door', async () => {
     const { validateManifest } = await load('@rightkit/ci/manifest.mjs');
-    const { renderLanes } = await load('@rightkit/ci/sync.mjs');
-    const sharded = rustHybrid({ ciAllOs: true, gate: { path: 'scripts/gate.sh', quick: true, shards } });
-    assert.deepEqual(validateManifest(sharded), { valid: true, errors: [] });
-    const ci = renderLanes(sharded, repoPath)[0].content;
-    assert.match(ci, /^ {8}shard: \["workspace", "linters", "rust-tools"\]$/m);
-    assert.match(ci, /^ {6}- run: bash \.\/scripts\/gate\.sh --group \$\{\{ matrix\.shard \}\}$/m);
-    assert.match(ci, /^ {2}quick:\n {4}# [^\n]*\n {4}needs: \[private-repo-guard, check\]\n/m);
-    assert.match(ci, /^ {6}- run: bash \.\/scripts\/gate\.sh --quick$/m);
-    assert.match(ci, /^ {2}ci:\n {4}needs: \[private-repo-guard, check, quick\]$/m);
-    assert.equal((ci.match(/last-green-\$\{\{ matrix\.os \}\}-\$\{\{ matrix\.node \}\}-\$\{\{ matrix\.shard \}\}-/g) ?? []).length, 3);
-    const summary = ci.slice(ci.indexOf('\n  ci-summary:\n'));
-    assert.match(summary, /needs: \[ci, quick\]\n {4}if: \$\{\{ always\(\) \}\}/);
-    assert.match(summary, /test "\$CI_RESULT" = success\n {10}test "\$QUICK_RESULT" = success\n/);
-    const withoutQuick = renderLanes(rustHybrid({ gate: { path: 'scripts/gate.sh', shards } }), repoPath)[0].content;
-    assert.doesNotMatch(withoutQuick, /^ {2}quick:|QUICK_RESULT|--quick/m);
-    assert.match(withoutQuick, /^ {2}ci:\n {4}needs: \[private-repo-guard, check\]$/m);
-    assert.match(withoutQuick, /^ {4}needs: \[ci\]$/m);
     const errors = gate => validateManifest(rustHybrid({ gate })).errors.join('\n');
-    assert.match(errors({ path: 'scripts/gate.sh', shards: [{ id: 'one' }] }), /gate\.shards must list 2 to 16 shards/);
-    assert.match(errors({ path: 'scripts/gate.sh', shards: [{ id: 'a' }, { id: 'a' }] }), /is listed twice/);
-    assert.match(errors({ path: 'scripts/gate.sh', shards: [{ id: 'a' }, { id: 'B ad' }] }), /gate\.shards\[1\] must be \{ id \}/);
-    assert.match(errors({ path: 'scripts/gate.sh', quick: true }), /gate\.quick requires gate\.shards/);
-    return { shards: shards.length, groupArgument: true, quickJob: true, ciSummary: true, perLegState: true, validationRefusals: 4 };
+    assert.match(errors({ path: 'scripts/gate.sh', quick: true, shards }), /gate\.shards and gate\.quick are gone/);
+    assert.match(errors({ path: 'scripts/gate.sh', shards }), /gate\.shards and gate\.quick are gone/);
+    assert.match(errors({ path: 'scripts/gate.sh', quick: true }), /gate\.shards and gate\.quick are gone/);
+    return { validationRefusals: 3 };
   });
 
   await run('gate-without-shards-renders-no-shard-tokens', async () => {
@@ -164,7 +146,8 @@ try {
     for (const extra of [{}, { ciAllOs: true }, { ciAllOs: true, qaEvidencePath: 'qa-out' }]) {
       const ci = renderLanes(rustHybrid(extra), repoPath)[0].content;
       assert.doesNotMatch(ci, shardTokens);
-      assert.match(ci, /^ {6}- run: bash \.\/scripts\/gate\.sh$/m);
+      assert.match(ci, /^ {6}- run: pnpm exec rightkit-gate --to compile$/m);
+      assert.doesNotMatch(ci, /bash \.\/scripts\/gate\.sh/);
     }
     return { manifests: 3, shardTokens: 0 };
   });

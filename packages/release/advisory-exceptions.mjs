@@ -108,6 +108,9 @@ export function parseToml(text) {
     if (raw === 'true') return true;
     if (raw === 'false') return false;
     if (/^[+-]?\d[\d_]*(\.\d+)?$/.test(raw)) return Number(raw.replace(/_/g, ''));
+    if (/^0x[0-9a-fA-F_]+$/.test(raw)) return parseInt(raw.slice(2).replace(/_/g, ''), 16);
+    if (/^0o[0-7_]+$/.test(raw)) return parseInt(raw.slice(2).replace(/_/g, ''), 8);
+    if (/^0b[01_]+$/.test(raw)) return parseInt(raw.slice(2).replace(/_/g, ''), 2);
     return fail(`unsupported value ${raw}`);
   };
   for (;;) {
@@ -224,14 +227,14 @@ function dateProblem(entryLabel, value, now) {
   return null;
 }
 
-export function checkAdvisoryExceptions({ root = process.cwd(), now = new Date(), readFile, allowPending = false } = {}) {
+export function checkAdvisoryExceptions({ root = process.cwd(), now = new Date(), readFile, allowPending = false, exceptionsFile = EXCEPTIONS_FILE } = {}) {
   const read = readFile ?? (p => fs.readFileSync(path.join(root, p), 'utf8'));
   const problems = [];
   const load = (file, parse) => {
     try { return parse(read(file)); } catch (err) { problems.push(`${file}: cannot read or parse (${err.message})`); return null; }
   };
 
-  const doc = load(EXCEPTIONS_FILE, JSON.parse);
+  const doc = load(exceptionsFile, JSON.parse);
   const deny = load(DENY_FILE, parseToml);
   const audit = load(AUDIT_FILE, parseToml);
   const lockPair = load(LOCK_FILE, t => ({ versions: lockedVersions(t), ...lockedGraph(t) }));
@@ -240,9 +243,9 @@ export function checkAdvisoryExceptions({ root = process.cwd(), now = new Date()
   const { graph } = lockPair;
   for (const u of lockPair.unresolved) problems.push(`${LOCK_FILE}: dependency ${u} does not resolve to exactly one locked package`);
 
-  if (doc.schema !== 1) problems.push(`${EXCEPTIONS_FILE}: schema must be 1`);
+  if (doc.schema !== 1) problems.push(`${exceptionsFile}: schema must be 1`);
   if (!Array.isArray(doc.exceptions)) {
-    problems.push(`${EXCEPTIONS_FILE}: exceptions must be an array`);
+    problems.push(`${exceptionsFile}: exceptions must be an array`);
     return problems;
   }
 
@@ -250,7 +253,7 @@ export function checkAdvisoryExceptions({ root = process.cwd(), now = new Date()
   const byId = new Map();
   const valid = [];
   doc.exceptions.forEach((e, idx) => {
-    const label = `${EXCEPTIONS_FILE} entry ${e?.id ?? `#${idx}`}`;
+    const label = `${exceptionsFile} entry ${e?.id ?? `#${idx}`}`;
     if (!e || typeof e !== 'object' || Array.isArray(e)) { problems.push(`${label}: not an object`); return; }
     let ok = true;
     for (const f of REQUIRED) {
@@ -329,10 +332,10 @@ export function checkAdvisoryExceptions({ root = process.cwd(), now = new Date()
       if (seen.has(id)) problems.push(`${DENY_FILE}: duplicate ignore ${id}`);
       seen.add(id);
       const entry = byId.get(id);
-      if (!entry) { problems.push(`${DENY_FILE}: ignore ${id} has no entry in ${EXCEPTIONS_FILE}`); continue; }
-      if (reason !== entry.rationale) problems.push(`${DENY_FILE}: ignore ${id} reason differs from the rationale in ${EXCEPTIONS_FILE}`);
+      if (!entry) { problems.push(`${DENY_FILE}: ignore ${id} has no entry in ${exceptionsFile}`); continue; }
+      if (reason !== entry.rationale) problems.push(`${DENY_FILE}: ignore ${id} reason differs from the rationale in ${exceptionsFile}`);
     }
-    for (const id of byId.keys()) if (!seen.has(id)) problems.push(`${EXCEPTIONS_FILE}: entry ${id} has no ignore in ${DENY_FILE}`);
+    for (const id of byId.keys()) if (!seen.has(id)) problems.push(`${exceptionsFile}: entry ${id} has no ignore in ${DENY_FILE}`);
   }
   if (adv) {
     if (adv.yanked !== 'deny') problems.push(`${DENY_FILE}: [advisories] yanked must be "deny"`);
@@ -348,9 +351,9 @@ export function checkAdvisoryExceptions({ root = process.cwd(), now = new Date()
     for (const id of auditIgnore) {
       if (set.has(id)) problems.push(`${AUDIT_FILE}: duplicate ignore ${id}`);
       set.add(id);
-      if (!byId.has(id)) problems.push(`${AUDIT_FILE}: ignore ${id} has no entry in ${EXCEPTIONS_FILE}`);
+      if (!byId.has(id)) problems.push(`${AUDIT_FILE}: ignore ${id} has no entry in ${exceptionsFile}`);
     }
-    for (const id of byId.keys()) if (!set.has(id)) problems.push(`${AUDIT_FILE}: entry ${id} from ${EXCEPTIONS_FILE} is not ignored here (sets differ)`);
+    for (const id of byId.keys()) if (!set.has(id)) problems.push(`${AUDIT_FILE}: entry ${id} from ${exceptionsFile} is not ignored here (sets differ)`);
   }
 
   return problems;
