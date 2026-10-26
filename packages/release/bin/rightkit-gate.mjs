@@ -1399,7 +1399,19 @@ export async function main(argv, io = {}) {
         }
       }
     }
-    return Math.max(appCheck, classA, selfRules);
+    // A RustRight broker's check names the tree it captured for the compile: the declared inputs there (ignored files the
+    // commit does not hold) are judged too, as the bytes the compile will read.
+    let inputs = 0;
+    const captured = o.env.RIGHTKIT_COMPILE_INPUTS;
+    if (captured) {
+      const { judgeCompileInputs } = await import("../compile-inputs.mjs");
+      const judged = judgeCompileInputs(path.resolve(captured));
+      for (const i of judged.inputs) o.out(`rightkit-gate: compile input ${i.path}: ${i.files} file(s), sha256 ${i.sha256}`);
+      for (const f of judged.findings) o.err(`rightkit-gate: compile input FAIL ${f}`);
+      if (!judged.inputs.length && !judged.findings.length) o.out("rightkit-gate: no declared compile inputs in the captured tree");
+      inputs = judged.findings.length ? 1 : 0;
+    }
+    return Math.max(appCheck, classA, selfRules, inputs);
   }
   const classAOnly = args.includes("--class-a");
   const classACommit = classAOnly && !args.includes("--worktree") ? (option("--commit") ?? "HEAD") : null;

@@ -16,7 +16,7 @@ import { formatPreflight, PREFLIGHT_FAIL } from "./preflight.mjs";
 import { cargoManifestState } from "./cargo-manifest-text.mjs";
 
 const FORBIDDEN_PACKAGE_PATH = /(^|\/)(?:\.env(?:\.[^/]*)?|target(?:\/.*)?|node_modules(?:\/.*)?|[^/]+\.(?:p8|p12|pem|key))$/i;
-const SECRET_PATTERNS = [
+export const SECRET_PATTERNS = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
   /\bAKIA[0-9A-Z]{16}\b/,
   /\bgh[pousr]_[A-Za-z0-9_]{20,}\b/,
