@@ -1370,10 +1370,12 @@ export function runAppCheck({ repo, mode = "commit", commit, only = null, baseli
     let listed;
     try { listed = loadBaseline({ explicit: baseline, root, central, repoKey: key, today }); }
     catch (error) { errLines.push(`${label}: cannot read the baseline ${error.file}: ${error.message}`); return finish(2); }
-    const ran = (id) => !only || only.includes(id.split("|")[0]);
+    const ranIds = new Set(only ?? rules.map((r) => r.id));
+    const ran = (id) => ranIds.has(id.split("|")[0]);
     const pastSunset = (entry) => entry.sunset !== undefined && entry.sunset < today;
     const expired = listed.entries.filter((entry) => pastSunset(entry) && ran(entry.id));
-    const applied = applyBaseline(found, listed.entries.filter((entry) => !pastSunset(entry)).map((entry) => entry.id), only);
+    // A baseline entry of a rule this tier did not run is neither known nor stale here: the release tier judges it.
+    const applied = applyBaseline(found, listed.entries.filter((entry) => !pastSunset(entry)).map((entry) => entry.id), [...ranIds]);
     const refused = applied.known.filter((f) => refuse.includes(f.rule)).map((f) => ({ ...f, problem: `${f.problem} (the baseline lists it, but the build refuses it)` }));
     const lapsed = new Map(expired.map((entry) => [entry.id, entry]));
     const fresh = [...applied.fresh.map((f) => (f.identity && lapsed.has(f.identity) ? { ...f, problem: `${f.problem} (its baseline entry expired: sunset ${lapsed.get(f.identity).sunset}; ${APP_BASELINE_EXPIRY_RULE})` } : f)), ...refused];

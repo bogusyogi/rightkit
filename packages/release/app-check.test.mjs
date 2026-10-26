@@ -1136,6 +1136,13 @@ test("rule tiers: the compile tier is exactly the 0.6.6 set, every other rule is
   assert.match(release.text, /^FAIL mandatory-foundation \(OW-05\)/m, release.text);
   assert.match(release.text, /\(\d+ rules, release tier, /);
   assert.equal(runAppCheck({ repo, central: null, tier: "patch", now: NOW }).exitCode, 2, "an unknown tier cannot run");
+  // A baseline entry for a release-tier finding is not STALE in a compile-tier run (that tier never looked), and is KNOWN in the release tier.
+  const listed = appRepo(t, { "right-release.config.mjs": "export default {};\n", "switches.json": "{}\n", ".rightkit/app-check-baseline.json": JSON.stringify({ schema: 1, known: [appEntry("mandatory-foundation|rightkit-mandatory.json|declaration", "app#1")] }) }).repo;
+  const compileListed = runAppCheck({ repo: listed, central: null, now: NOW });
+  assert.equal(compileListed.exitCode, 0, compileListed.text);
+  assert.deepEqual(compileListed.stale, [], "a release-tier entry is not judged by the compile tier");
+  const releaseListed = runAppCheck({ repo: listed, central: null, tier: "release", now: NOW });
+  assert.ok(releaseListed.known.some((k) => k.rule === "mandatory-foundation"), releaseListed.text);
   // --only is a view over the whole set: a release-tier rule can be asked for by name.
   const only = runAppCheck({ repo, central: null, only: ["mandatory-foundation"], now: NOW });
   assert.match(only.text, /^FAIL mandatory-foundation/m);
