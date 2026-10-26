@@ -419,7 +419,7 @@ test("the template is gated for real: no fixture entry, no baseline entry, and i
   assert.ok(!gate.fixtures.some((dir) => dir === "desktop-app-template" || "desktop-app-template".startsWith(`${dir}/`)), "desktop-app-template must not be a gate fixture: rightkit-gate would skip its scans");
   const baseline = JSON.parse(readFileSync(path.join(REPO, "ci", "app-check-baseline.json"), "utf8"));
   const templateEntries = Object.values(baseline.known).flat().filter((id) => id.includes("desktop-app-template"));
-  assert.deepEqual(templateEntries, ["mandatory-foundation|desktop-app-template/rightkit-mandatory.json|notApplicable:M22", "mandatory-foundation|desktop-app-template/rightkit-mandatory.json|rightkit-agent-tools"], "the template's only baseline entries are its unratified M22 row (rightkit#994)");
+  assert.deepEqual(templateEntries, ["mandatory-foundation|desktop-app-template/rightkit-mandatory.json|notApplicable:M22"], "the template's only baseline entries are its unratified M22 row (rightkit#994)");
   const ledger = JSON.parse(readFileSync(path.join(REPO, "ci", "advisory-exceptions.json"), "utf8"));
   const known = new Map(ledger.exceptions.map((e) => [e.id, e]));
   const deny = read("deny.toml");

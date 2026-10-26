@@ -9,8 +9,9 @@
 //   mandatory-foundation  OW-05  an app whose profile requires a foundation owner the app does not declare as a dependency (missing,
 //                                or dev-only), or that selects an unknown or unratified profile. An app is a repository whose root
 //                                holds its declaration, rightkit-mandatory.json, or that ships a desktop app: a root
-//                                right-release.config.(mjs|json), or one beside a src-tauri/tauri.conf.json, checked from its own
-//                                directory when that holds a declaration (RightKit's desktop-app-template). An app without the
+//                                right-release.config.(mjs|json), or one beside a src-tauri/tauri.conf.json; when that directory
+//                                holds its own declaration (RightKit's desktop-app-template), its rulings are checked here and its
+//                                owners when the directory is checked as its own root (no TOML parser is needed before install). An app without the
 //                                declaration is a finding, so a missing declaration is never an exemption. A row the app declares not applicable is
 //                                excused only by a ratified ruling: appAmendments.<app>.notApplicable.<row> for the `app` the
 //                                declaration names and its profile, with the reason copied verbatim; any other not-applicable row is
@@ -123,6 +124,14 @@ export function rulingFor(entry, rulings) {
     && isRealDate(r.expires) && isRealDate(entry.expires) && entry.expires <= r.expires) ?? null;
 }
 
+/** The declaration as ownership-mandatory-set.mjs reads it (profile and not-applicable rows of 10+ characters), without its TOML parser. */
+function declarationOf(appRoot, data) {
+  const doc = readJson(appRoot, data.appDeclarationFile) ?? {};
+  const notApplicable = {};
+  for (const [id, reason] of Object.entries(doc.notApplicable ?? {})) if (typeof reason === "string" && reason.trim().length >= 10) notApplicable[id] = reason.trim();
+  return { profile: doc.profile ?? data.defaultProfile, notApplicable, records: {}, problems: [] };
+}
+
 /** The `app` a root declaration names, or null. */
 export function declaredApp(root) {
   const doc = readJson(root, APP_DECLARATION_FILE);
@@ -191,8 +200,12 @@ export function ratifiedNotApplicable(declared, { app, profile, data }) {
   return { ratified, unratified, ruled: Boolean(amendment) };
 }
 
-/** The findings of one app root (`dir` relative to the checked root, "" for the root itself). */
-function checkAppRoot({ root, dir, evaluator, data }) {
+/**
+ * The findings of one app root (`dir` relative to the checked root, "" for the root itself). `owners: false` runs only the checks
+ * that need no TOML parser (the declaration parses; every not-applicable row is ratified): a nested app's foundation owners are
+ * checked when its own directory is checked, so RightKit's preflight, which runs before any install, can still see the rulings.
+ */
+function checkAppRoot({ root, dir, evaluator, data, owners = true }) {
   const appRoot = dir ? path.join(root, dir) : root;
   const declarationFile = data.appDeclarationFile;
   const file = dir ? `${dir}/${declarationFile}` : declarationFile;
@@ -201,7 +214,7 @@ function checkAppRoot({ root, dir, evaluator, data }) {
     out.push({ file, subject: "declaration", problem: `${file} is not valid JSON, so the app's profile and not-applicable rows cannot be read`, fix: `repair ${file}` });
     return out;
   }
-  const declaration = evaluator.loadAppDeclaration(appRoot, data);
+  const declaration = (evaluator ?? { loadAppDeclaration: declarationOf }).loadAppDeclaration(appRoot, data);
   const app = declaredApp(appRoot);
   const { ratified, unratified, ruled } = ratifiedNotApplicable(declaration.notApplicable, { app, profile: declaration.profile, data });
   for (const [row, reason] of Object.entries(unratified)) out.push({
@@ -209,6 +222,7 @@ function checkAppRoot({ root, dir, evaluator, data }) {
     problem: `notApplicable.${row} ("${reason.slice(0, 80)}${reason.length > 80 ? "..." : ""}") is not a ratified ruling: ${!app ? `${file} names no "app"` : !ruled ? `appAmendments has no entry for "${app}"` : `appAmendments.${app} (profile ${data.appAmendments[app].profile}) has no ruling for ${row} with this reason verbatim for profile ${declaration.profile}`}; the row still applies`,
     fix: `ratify the ruling in RightKit (appAmendments.${app ?? "<app>"}.notApplicable.${row}, rightkit#1140) and copy its reason verbatim, or adopt the row's owner`,
   });
+  if (!owners) return out;
   const report = evaluator.checkApp(appRoot, { data, declaration: { ...declaration, notApplicable: ratified } });
   for (const owner of report.owners) {
     if (owner.status === "unknown-profile" || owner.status === "unratified") {
@@ -247,10 +261,13 @@ export function mandatoryFoundation({ root, files }, { evaluator = mandatorySet 
     fix: `commit ${APP_DECLARATION_FILE} at the root (or beside the app's release config) with the app's "app" name, its "profile" and only the not-applicable rows ratified for it in appAmendments`,
   });
   if (!markers.length && !declared.length) return out;
-  if (!evaluator) throw new Error(`ownership-mandatory-set.mjs could not be loaded: ${mandatorySetError?.message ?? "unknown error"}`);
-  const data = evaluator.loadData();
-  if (markers.length) return checkAppRoot({ root, dir: "", evaluator, data });
-  for (const dir of declared) out.push(...checkAppRoot({ root, dir, evaluator, data }));
+  if (markers.length) {
+    if (!evaluator) throw new Error(`ownership-mandatory-set.mjs could not be loaded: ${mandatorySetError?.message ?? "unknown error"}`);
+    return checkAppRoot({ root, dir: "", evaluator, data: evaluator.loadData() });
+  }
+  const data = mandatoryData();
+  if (!data) throw new Error("ownership-mandatory-set.json could not be read");
+  for (const dir of declared) out.push(...checkAppRoot({ root, dir, evaluator: null, data, owners: false }));
   return out;
 }
 

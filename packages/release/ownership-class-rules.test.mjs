@@ -116,7 +116,12 @@ test("mandatory-foundation: repaired: the same app with its declaration and ever
   const nested = Object.fromEntries(Object.entries(app({ declaration: { profile: "desktop" } })).map(([file, body]) => [`apps/cut/${file}`, body]));
   assert.deepEqual(run("mandatory-foundation", t, { ...nested, "apps/cut/right-release.config.mjs": "export default {};\n", "apps/cut/src-tauri/tauri.conf.json": {} }), []);
   const nestedMissing = Object.fromEntries(Object.entries(app({ drop: ["rightkit-http"], declaration: { profile: "desktop" } })).map(([file, body]) => [`apps/cut/${file}`, body]));
-  assert.deepEqual(run("mandatory-foundation", t, { ...nestedMissing, "apps/cut/right-release.config.mjs": "", "apps/cut/src-tauri/tauri.conf.json": {} }).map((f) => f.identity), ["mandatory-foundation|apps/cut/rightkit-mandatory.json|rightkit-http"]);
+  // From the outer root a nested app's owners are not evaluated (that needs the TOML parser; its own root's check does it), but its
+  // rulings are, with no parser at all.
+  assert.deepEqual(run("mandatory-foundation", t, { ...nestedMissing, "apps/cut/right-release.config.mjs": "", "apps/cut/src-tauri/tauri.conf.json": {} }), []);
+  const { root: outer, files: outerFiles } = tree(t, { "apps/cut/rightkit-mandatory.json": { profile: "desktop", notApplicable: { M9: "No SQLite app state in this app at all." } }, "apps/cut/right-release.config.mjs": "", "apps/cut/src-tauri/tauri.conf.json": {} });
+  assert.deepEqual(mandatoryFoundation({ root: outer, files: outerFiles }, { evaluator: null }).map((f) => f.subject), ["notApplicable:M9"]);
+  assert.deepEqual(run("mandatory-foundation", t, nestedMissing.constructor === Object ? Object.fromEntries(Object.entries(nestedMissing).map(([f, b]) => [f.slice("apps/cut/".length), b])) : {}).map((f) => f.subject), ["rightkit-http"], "checked as its own root, the owners are evaluated");
 });
 
 test("mandatory-foundation: positive control: a library, a fixture Tauri app and a nested release config without src-tauri are not apps", (t) => {
@@ -233,6 +238,6 @@ test("the desktop template passes both rules as committed, except its unratified
   if (!fs.existsSync(template)) return t.skip("no RightKit checkout beside the package");
   const files = [".rightkit/ownership-exceptions.json", "rightkit-mandatory.json"];
   const result = runRules({ root: template, files, only: ["mandatory-foundation", "ownership-exceptions"], now: NOW });
-  // The template's M22 not-applicable row is not ratified yet (rightkit#994), so M22 applies: two findings, listed KNOWN for RightKit.
+  // The template's M22 not-applicable row is not ratified yet (rightkit#994), so M22 applies: two findings when checked as its own root.
   assert.deepEqual(result.failures.map((f) => f.identity), ["mandatory-foundation|rightkit-mandatory.json|notApplicable:M22", "mandatory-foundation|rightkit-mandatory.json|rightkit-agent-tools"]);
 });

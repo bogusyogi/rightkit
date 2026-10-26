@@ -4,7 +4,6 @@
   "known": {
     "rightkit": [
       "mandatory-foundation|desktop-app-template/rightkit-mandatory.json|notApplicable:M22",
-      "mandatory-foundation|desktop-app-template/rightkit-mandatory.json|rightkit-agent-tools",
       "qa-platform|crates/rightkit-qa/src/scenario.rs|platform:macos",
       "qa-platform|crates/rightkit-qa/src/scenario.rs|platform:macosx",
       "qa-platform|crates/rightkit-qa/src/scenario.rs|platform:typo",
