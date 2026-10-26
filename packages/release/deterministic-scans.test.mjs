@@ -1670,7 +1670,7 @@ test("advisory scans: a workspace without deny.toml gets RightKit's policy, neve
 });
 
 test("actionlint needs shellcheck: without it the workflow scan fails instead of passing its run: scripts unchecked", async () => {
-  const { fs, plan } = planFor([".github/workflows/ci.yml"], { ".github/workflows/ci.yml": "on: push\njobs: {}\n" }, { all: true });
+  const { fs, plan } = planFor([".github/workflows/ci.yml"], { ".github/workflows/ci.yml": "on: push\njobs: {}\n" }, { all: true, tier: "release" });
   const scan = plan.scans.find((s) => s.id === "actionlint");
   assert.deepEqual(scan.requires, ["shellcheck"]);
   const missing = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ missing: ["shellcheck"] }) }));
@@ -1859,9 +1859,51 @@ test("tool version probes run outside the repository with pnpm hooks and corepac
   assert.ok(audit && audit.cwd.startsWith(CONTENT), "the scan runs where its lockfile is");
 });
 
+test("cargoLiveRoot: cargo scans take the cargoLive root, the plan records it and says why, and runScans resolves it to that directory for the command and the rustright probe", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { cargoLiveRoot: "/primary/checkout" });
+  for (const s of plan.scans.filter((x) => x.tool === "rustright")) assert.equal(s.root, "cargoLive", s.id);
+  assert.equal(plan.roots.cargoLiveRoot, "/primary/checkout");
+  assert.ok(plan.notes.some((n) => /broker host: cargo scans run in the primary checkout \/primary\/checkout/.test(n)), plan.notes.join(" | "));
+  const calls = [];
+  const base = fakeSpawn();
+  const spawn = (command, args, options = {}) => { calls.push({ command: path.basename(command), args, cwd: options.cwd }); return base(command, args, options); };
+  await runScans(plan, deps({ ...fs, spawn, probeDir: "/neutral/probe" }), { classes: ["A"] });
+  const cargoCalls = calls.filter((c) => c.command === "rustright");
+  assert.ok(cargoCalls.length > 0, "rustright ran");
+  for (const c of cargoCalls) assert.ok(c.cwd === "/primary/checkout" || c.cwd.startsWith("/primary/checkout" + path.sep), `${c.args.join(" ")} ran in ${c.cwd}`);
+  const without = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]).plan;
+  for (const s of without.scans.filter((x) => x.tool === "rustright")) assert.equal(s.root, "live", s.id);
+  assert.equal(without.roots.cargoLiveRoot, undefined);
+});
+
+test("rule tiers: the compile tier (the default) plans no shellcheck and no shellcheck requirement for actionlint; the release tier plans both; an unknown tier throws", () => {
+  const files = { "deploy/release.sh": "#!/bin/sh\necho hi\n", ".github/workflows/ci.yml": "on: push\njobs: {}\n" };
+  const compile = planFor(Object.keys(files), files, { all: true }).plan;
+  assert.equal(compile.scans.find((s) => s.id === "shellcheck"), undefined, "shellcheck was added after 0.6.6: release tier only");
+  assert.deepEqual(compile.scans.find((s) => s.id === "actionlint").requires, []);
+  assert.ok(compile.notes.some((n) => /compile tier: shellcheck .* release tier/.test(n)), compile.notes.join(" | "));
+  const release = planFor(Object.keys(files), files, { all: true, tier: "release" }).plan;
+  assert.equal(release.scans.find((s) => s.id === "shellcheck").tier, "release");
+  assert.deepEqual(release.scans.find((s) => s.id === "actionlint").requires, ["shellcheck"]);
+  assert.throws(() => planFor(Object.keys(files), files, { all: true, tier: "patch" }), /tier must be compile or release/);
+});
+
+test("the rustright probe runs where its scan runs (the client refuses a directory outside a Cargo workspace in a repository); every other probe stays outside the repository (rightkit#1215)", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml", "package.json"], { "package.json": '{"name":"app","license":"MIT"}', "pnpm-lock.yaml": "lockfileVersion: '9.0'\n" }, { npmUnits: [{ name: "app", dir: "." }] });
+  const calls = [];
+  const base = fakeSpawn();
+  const spawn = (command, args, options = {}) => { calls.push({ command: path.basename(command), args, cwd: options.cwd }); return base(command, args, options); };
+  await runScans(plan, deps({ ...fs, spawn, probeDir: "/neutral/probe" }));
+  const rustright = calls.find((c) => c.command === "rustright" && c.args.join(" ") === "cargo --version");
+  assert.ok(rustright, "rustright was probed");
+  assert.notEqual(rustright.cwd, "/neutral/probe");
+  assert.ok(rustright.cwd === LIVE || rustright.cwd.startsWith(LIVE + path.sep) || rustright.cwd === CONTENT || rustright.cwd.startsWith(CONTENT + path.sep), `the probe ran in the scanned tree, not ${rustright.cwd}`);
+  for (const p of calls.filter((c) => c.command !== "rustright" && c.args.length === 1 && /version/.test(c.args[0]))) assert.equal(p.cwd, "/neutral/probe", `${p.command} probe stays outside the repository`);
+});
+
 test("shellcheck: every tracked .sh/.bash script is a class A scan; a zsh script is left to its own shell", () => {
   const files = { "deploy/release.sh": "#!/usr/bin/env bash\necho hi\n", "tools/x.bash": "#!/bin/bash\n", "spikes/run-all.sh": "#!/bin/zsh\necho z\n" };
-  const { plan } = planFor(Object.keys(files), files, { all: true });
+  const { plan } = planFor(Object.keys(files), files, { all: true, tier: "release" });
   const scan = plan.scans.find((s) => s.id === "shellcheck");
   assert.equal(scan.class, "A");
   assert.deepEqual(scan.args.filter((a) => !a.startsWith("--")), ["deploy/release.sh", "tools/x.bash"]);
@@ -1876,7 +1918,7 @@ test("shellcheck version pin: class A accepts only PINNED_SCAN_TOOLS.shellcheck,
   assert.match(pinnedVersionProblem("shellcheck", null), /no readable version/);
   assert.equal(pinnedVersionProblem("actionlint", "1.0.0"), null, "a tool with no pin is not judged here");
   const files = { "deploy/release.sh": "#!/bin/sh\necho hi\n", ".github/workflows/ci.yml": "on: push\njobs: {}\n" };
-  const { fs, plan } = planFor(Object.keys(files), files, { all: true });
+  const { fs, plan } = planFor(Object.keys(files), files, { all: true, tier: "release" });
   const good = await runScans(plan, deps({ ...fs }));
   assert.equal(good.ok, true, JSON.stringify(scanFailures(good)));
   assert.equal(good.toolVersions.shellcheck, "shellcheck 0.11.0", "the version, not the banner's first line");
@@ -1897,7 +1939,7 @@ test("shellcheck version pin: class A accepts only PINNED_SCAN_TOOLS.shellcheck,
 
 test("shellcheck version pin: a cached pass never admits another version, and the version keys the cache (actionlint's by its shellcheck too)", async () => {
   const files = { "deploy/release.sh": "#!/bin/sh\necho hi\n", ".github/workflows/ci.yml": "on: push\njobs: {}\n" };
-  const { fs, plan } = planFor(Object.keys(files), files, { all: true });
+  const { fs, plan } = planFor(Object.keys(files), files, { all: true, tier: "release" });
   const cache = memCache(() => "digest-1");
   const first = await runScans(plan, deps({ ...fs, cache }));
   assert.equal(first.ok, true, JSON.stringify(scanFailures(first)));

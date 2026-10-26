@@ -27,7 +27,7 @@
 //   rightkit-gate [--base <ref>] [--plan] [--no-cache]
 //                                             run the gate (default base origin/main); --plan prints the scans and runs none;
 //                                             --no-cache (or RK_GATE_CACHE=0) reruns every scan
-//   rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>]
+//   rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>]
 //                                             the deterministic stage: the app check (../app-check.mjs), then every class A scan
 //                                             (lockfiles, cargo-deny/audit, secrets, licences, manifests, workflow lint, syntax) over the
 //                                             whole tree of the commit, not a diff. Nothing compiles; without a broker class A uses
@@ -83,7 +83,7 @@ const why = (r) => String(r?.error?.message ?? r?.stderr ?? "").trim().split(/\r
 
 // A green `check --only` view: app rules passed but no class A scan ran. Distinct from 0 so no caller can admit it as a full check.
 export const PARTIAL_EXIT = 3;
-const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to dev|test [-- <right-release args>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | --version`;
+const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to dev|test [-- <right-release args>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | --version`;
 
 // ---- pure helpers (exported for tests) ----------------------------------------------------------------------
 
@@ -250,6 +250,38 @@ export function exportTmpRoot({ env = process.env, platform = process.platform, 
     if (found) return found;
   } catch { /* no readable policy: the system temp dir */ }
   return os.tmpdir();
+}
+
+/** The files cargo metadata, deny and audit read, in the repository root and in every workspace that has a manifest. */
+export const CARGO_INPUT_NAMES = Object.freeze(["Cargo.toml", "Cargo.lock", "deny.toml", "rust-toolchain.toml", "rust-toolchain", ".cargo"]);
+
+/**
+ * The Cargo inputs of the live checkout `root` that are not blob-identical to `snapshot`'s (a commit or tree): a changed or deleted
+ * tracked input, or any untracked file (ignored ones included, cargo reads them) under those paths. Empty means the broker may scan
+ * the primary checkout for exactly the snapshot's result. `manifests` are the snapshot's tracked Cargo.toml paths (posix).
+ */
+export function cargoInputsDiffer({ root, snapshot, manifests, spawn = defaultSpawn }) {
+  const git = (...a) => spawn("git", a, { cwd: root });
+  const dirs = [...new Set(["", ...manifests.map((m) => { const d = path.posix.dirname(m); return d === "." ? "" : d; })])];
+  const paths = dirs.flatMap((d) => CARGO_INPUT_NAMES.map((n) => (d ? `${d}/${n}` : n)));
+  const listed = git("ls-tree", "-r", "-z", snapshot, "--", ...paths);
+  if (failed(listed)) return [`(cannot list ${snapshot}: ${why(listed)})`];
+  const snap = new Map();
+  for (const entry of text(listed).split("\0").filter(Boolean)) { const tab = entry.indexOf("\t"); const [, , id] = entry.slice(0, tab).split(" "); snap.set(entry.slice(tab + 1), id); }
+  const differ = new Set();
+  for (const [p, id] of snap) {
+    const live = path.join(root, ...p.split("/"));
+    let liveId = null;
+    try { if (fs.statSync(live).isFile()) { const h = git("hash-object", "--", live); liveId = failed(h) ? null : text(h).trim(); } } catch { liveId = null; }
+    if (liveId !== id) differ.add(p);
+  }
+  // Untracked under the input paths, ignored files included: cargo reads a .cargo/config.toml or a deny.toml whether or not git tracks it.
+  const others = git("ls-files", "-z", "--others", "--", ...paths);
+  if (!failed(others)) for (const p of text(others).split("\0").filter(Boolean)) if (!snap.has(p)) differ.add(p);
+  // A tracked input the snapshot lacks (added in HEAD after the snapshot, say) is live-only too.
+  const tracked = git("ls-files", "-z", "--", ...paths);
+  if (!failed(tracked)) for (const p of text(tracked).split("\0").filter(Boolean)) if (!snap.has(p)) differ.add(p);
+  return [...differ].sort();
 }
 
 export function discoverRustUnits({ root, spawn, cargoCommand, tracked, readFile, realpath = fs.realpathSync }) {
@@ -1231,8 +1263,11 @@ async function runStages(o, args, root, git, io) {
         o.err(`${tag} BLOCKED: [${stage}] needs the sealed set the package stage produced for this commit, unchanged (sealed manifest digest)`);
         ok = false;
       } else if (stage === "qualify") {
-        ok = rightRelease(stage, ["qa", "--stage", "installed", "--platform", platform, "--release", sealed.sealed]);
-        extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256 };
+        // Qualification owes the release tier: every rule and scan, the ones held out of compile admission included (app-check.mjs TIERS).
+        const releaseTier = await (o.runReleaseCheck ?? (() => main(["check", "--commit", "HEAD", "--rule-tier", "release"], { ...io, cwd: root })))();
+        if (releaseTier !== 0) { o.err(`${tag} [qualify] the release tier (every rule and scan) is red for ${commit.slice(0, 12)}; nothing was qualified`); ok = false; }
+        else ok = rightRelease(stage, ["qa", "--stage", "installed", "--platform", platform, "--release", sealed.sealed]);
+        extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, ruleTier: "release" };
       } else {
         if (!receipt.stages.qualify?.ok || receipt.stages.qualify.manifestSha256 !== sealed.manifestSha256) { o.err(`${tag} BLOCKED: [release] the sealed set was not qualified (installed QA) in this door run's receipt`); ok = false; }
         else { ok = rightRelease(stage, ["upload", "--release", sealed.sealed, "--platform", platform, "--tier", tier]); extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, tier }; }
@@ -1368,7 +1403,11 @@ export async function main(argv, io = {}) {
     }
     const repoArg = option("--repo");
     const checkCwd = repoArg ? path.resolve(o.cwd, repoArg) : o.cwd;
-    const classA = await main(["--class-a", ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"])], { ...io, cwd: checkCwd });
+    // The rule tier (app-check.mjs TIERS): compile is what admission, the hook and --to compile|package owe; release is the whole set,
+    // owed by --to qualify|release. The app rules above read the same flag; the class A scans read it here. (--tier is the upload tier.)
+    const ruleTier = option("--rule-tier") ?? "compile";
+    if (!["compile", "release"].includes(ruleTier)) { o.err(`rightkit-gate: check --rule-tier must be compile or release, not ${JSON.stringify(ruleTier)}`); return 2; }
+    const classA = await main(["--class-a", "--rule-tier", ruleTier, ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"])], { ...io, cwd: checkCwd });
     // RightKit checking itself: its own rules (line endings, consumer recipes, npm surface, version copies and the version feed, dispatcher
     // pins, consumer locks, generated docs, temp paths: scripts/preflight.mjs) and its exports' import safety are class A for the RightKit repository. They run only when this gate is that
     // repository's own in-tree copy, so a gate checking any other repository (the broker's pinned one included) never runs
@@ -1573,10 +1612,25 @@ export async function main(argv, io = {}) {
     }
     const rustScope = restricted ? scopeNames : null;
 
+    // A broker host: rustright refuses every cargo command but a locked metadata outside the app's primary checkout
+    // (RK_NOT_PRIMARY_CHECKOUT), so class A's cargo scans cannot read the export there. They run in the primary checkout, allowed only
+    // when every Cargo input in it is blob-identical to the snapshot's; a live edit to a manifest, lock, deny.toml or .cargo/ refuses
+    // the check with the paths named. A direct host (cloud, CI) keeps reading the export. (rightkit#1215, third cause)
+    let cargoLiveRoot = null;
+    if (classAOnly && snapshot && executor.kind === "broker" && manifests.length) {
+      const differing = cargoInputsDiffer({ root, snapshot, manifests, spawn: (c, a, opts) => o.spawn(c, a, opts) });
+      if (differing.length) {
+        const resolved = git("rev-parse", "--verify", String(snapshot));
+        o.err(`${tag} BLOCKED: the broker scans Cargo inputs in the primary checkout, and these differ from ${(failed(resolved) ? String(snapshot) : text(resolved).trim()).slice(0, 12)}: ${differing.join(", ")}; commit or restore them, then run the check again`);
+        return 1;
+      }
+      cargoLiveRoot = root;
+    }
     const fullPlan = planScans({
       // Class A of a commit or tree reads only that snapshot: every scan, cargo's included, runs in the export, never in the live
       // checkout (which may hold other bytes). Compiles (class B) use the live checkout, whose tree the dirty check pinned to HEAD.
       changed, contentRoot: repo, liveRoot: classAOnly && snapshot ? repo : root, includeTests: true, rustScope, cargoCommand,
+      tier: option("--rule-tier") ?? "compile", cargoLiveRoot,
       // The quiet tests (port, pipe, desktop and wall-clock bound) are proven by the CI shards, one crate per runner, unless
       // RK_GATE_QUIET_TESTS=local asks for the serial quiet lane here (no CI, or a CI outage).
       quietTests: o.env.RK_GATE_QUIET_TESTS === "local" ? "local" : "ci", packageFeatures,

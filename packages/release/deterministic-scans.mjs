@@ -440,6 +440,13 @@ export function planScans({
   // CI shards (one crate per runner, where the port, pipe, desktop and wall-clock conflicts that force the serial lane do not exist)
   // and records a note naming them (Adrian 2026-10-22: compile locally on the warm cache, qualify the conflicting tests on VMs).
   quietTests = "local",
+  // Which scans this plan owes (Adrian, 2026-10-26; app-check.mjs TIERS): "compile" leaves out the scans added after @rightkit/release
+  // 0.6.6 (shellcheck, and actionlint's shellcheck requirement) until every app builds through the door again; "release" plans everything.
+  tier = "compile",
+  // A broker host (rustright): cargo scans run in this primary checkout instead of the content root, because the RustRight client refuses
+  // every cargo command but a locked metadata outside the app's primary checkout (RK_NOT_PRIMARY_CHECKOUT). The gate sets it only after
+  // proving the checkout's Cargo inputs are blob-identical to the snapshot's (cargoInputsDiffer); null keeps the content/live roots.
+  cargoLiveRoot = null,
   // The command prefix every cargo scan runs through: `rustright cargo` on a managed host, plain `cargo` in CI.
   cargoCommand = ["rustright", "cargo"],
   // Physical containment: a changed path whose real path leaves the real content root (a symlink) is refused.
@@ -503,7 +510,9 @@ export function planScans({
   const bytesDigest = (f) => { try { return sha256(readBytes(path.join(contentRoot, f))); } catch { return "unreadable"; } };
   const inputDigest = sha256(canonicalJson({ files: [...files].sort().map((f) => [f, bytesDigest(f)]), refused: refusals.map((r) => r.raw).sort() }));
   const under = (prefix) => files.filter((f) => f.startsWith(prefix));
+  if (!["compile", "release"].includes(tier)) throw new Error(`planScans: tier must be compile or release, not ${JSON.stringify(tier)}`);
   let scans = []; const notes = [];
+  if (cargoLiveRoot) notes.push(`broker host: cargo scans run in the primary checkout ${cargoLiveRoot}, whose Cargo inputs match the checked snapshot (rustright refuses cargo outside the primary checkout)`);
   const add = (d) => {
     const entry = { root: "live", env: {}, args: [], ...d };
     entry.command = commandText(entry);
@@ -524,7 +533,7 @@ export function planScans({
   const plainDir = (d) => !ABSOLUTE_PATH.test(d) && !d.split("/").includes("..") && SAFE_UNIT_DIR.test(d);
   const cargoWs = cleanDir(cargoDir);
   if (!plainDir(cargoWs)) throw new TypeError("planScans: cargoDir must be a plain repository-relative directory");
-  const cargoIn = (ws, ...args) => ({ tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...args], ...(ws !== "." ? { cwd: ws } : {}) });
+  const cargoIn = (ws, ...args) => ({ tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...args], ...(ws !== "." ? { cwd: ws } : {}), ...(cargoLiveRoot ? { root: "cargoLive" } : {}) });
   const unitMap = (units, kind) => {
     if (units === null) return null;
     if (!Array.isArray(units)) throw new TypeError(`planScans: ${kind}Units must be an array of { name, dir }`);
@@ -687,13 +696,14 @@ export function planScans({
   const actionlintConfig = exists(path.join(contentRoot, ".github/actionlint.yaml")) ? ["-config-file", ".github/actionlint.yaml"] : [];
   // actionlint lints every run: script with shellcheck only when shellcheck is found, and otherwise passes silently; class A
   // requires it (`requires`), so a host without it fails the scan instead of skipping the shell checks.
-  if (workflowFiles.length) add({ id: "actionlint", class: A, tool: "actionlint", requires: ["shellcheck"], args: [...actionlintConfig, ...workflowFiles], root: "content" });
+  if (workflowFiles.length) add({ id: "actionlint", class: A, tool: "actionlint", requires: tier === "release" ? ["shellcheck"] : [], args: [...actionlintConfig, ...workflowFiles], root: "content" });
   // Standalone shell scripts (SellRight's deploy scripts failed SC2154, SC2030/2031 and SC2016 in CI): every tracked .sh/.bash file,
   // with ShellCheck's own defaults and the repository's .shellcheckrc (data, not code). actionlint covers only workflow run: blocks.
   // A script whose shebang names another shell (zsh, fish) is not ShellCheck's to judge, so it is left out, never failed.
   const otherShell = (f) => { try { return /^#!.*\b(zsh|fish|pwsh|powershell)\b/.test(String(readFile(path.join(contentRoot, f))).split("\n", 1)[0]); } catch { return false; } };
   const shellFiles = files.filter((f) => /\.(sh|bash)$/.test(f) && !/(^|\/)node_modules\//.test(f) && !otherShell(f)).sort();
-  if (shellFiles.length) add({ id: "shellcheck", class: A, tool: "shellcheck", args: ["--format=gcc", "--external-sources", ...shellFiles], root: "content" });
+  if (shellFiles.length && tier !== "release") notes.push("compile tier: shellcheck (added after 0.6.6) is not planned; it runs in the release tier (--to qualify|release)");
+  if (shellFiles.length && tier === "release") add({ id: "shellcheck", class: A, tool: "shellcheck", tier: "release", args: ["--format=gcc", "--external-sources", ...shellFiles], root: "content" });
   // No right-git drift scan: the one workflow right-git renders here, ci.yml, is hand-owned (its header;
   // docs/CI.md) and held by scripts/ci/ci-scans-contract.mjs instead, so drift is always reported by design.
 
@@ -904,7 +914,7 @@ export function planScans({
   if (dup) throw new Error(`planScans: duplicate scan id ${dup}`);
   const classDigest = (cls) => digestScanSet(scans.filter((s) => s.class === cls));
   return {
-    schema: SCAN_RESULT_SCHEMA, roots: { contentRoot, liveRoot }, changed: files, inputDigest, scans, notes, deferred,
+    schema: SCAN_RESULT_SCHEMA, roots: { contentRoot, liveRoot, ...(cargoLiveRoot ? { cargoLiveRoot } : {}) }, changed: files, inputDigest, scans, notes, deferred,
     scanSetDigest: digestScanSet(scans), classDigests: { A: classDigest(A), B: classDigest(B) },
   };
 }
@@ -1225,8 +1235,8 @@ export async function runScans(plan, options = {}) {
   const exclude = options.exclude ?? (() => false);
   // An AbortSignal: once aborted, no further scan starts, running children are killed (process tree) and every unfinished scan is "not-run" with code CANCELLED.
   const signal = options.signal; const sig = signal ? { signal } : {};
-  const { contentRoot, liveRoot } = plan.roots;
-  const rootDir = (r) => (r === "content" ? contentRoot : r === "parent" ? path.dirname(contentRoot) : liveRoot);
+  const { contentRoot, liveRoot, cargoLiveRoot = null } = plan.roots;
+  const rootDir = (r) => (r === "content" ? contentRoot : r === "parent" ? path.dirname(contentRoot) : r === "cargoLive" ? (cargoLiveRoot ?? liveRoot) : liveRoot);
   const selected = plan.scans.filter((s) => classes.includes(s.class) && !exclude(s));
   const ordered = [...selected.filter((s) => s.class === SCAN_CLASS.A), ...selected.filter((s) => s.class === SCAN_CLASS.B)];
   const ctx = { deps, contentRoot, read: (f) => deps.readFile(path.join(contentRoot, f)) };
@@ -1256,7 +1266,7 @@ export async function runScans(plan, options = {}) {
   const classBBlocked = !inCallA && !priorClassAValid;
 
   const toolCommand = (tool) => (tool === "node" ? deps.execPath : tool === "rustfmt" ? deps.findRustfmt({ env: deps.env, exists: deps.exists, readdir: deps.readdir, platform: deps.platform, spawn: deps.lookupSpawn }) : tool);
-  async function probe(tool) {
+  async function probe(tool, scanDir = null) {
     if (probed.has(tool)) return probed.get(tool);
     let outcome;
     const command = toolCommand(tool);
@@ -1264,7 +1274,11 @@ export async function runScans(plan, options = {}) {
     else {
       // A version probe never runs inside the repository: a tool started there reads the repository's own configuration first
       // (pnpm's .npmrc and pnpmfile, corepack's packageManager pin, cargo's .cargo/config), before any scan's protections apply.
-      const r = await deps.spawn(command, PROBES[tool] ?? ["--version"], { cwd: deps.probeDir ?? probeDir(), env: { ...deps.env, ...PNPM_NO_HOOKS_ENV, COREPACK_ENABLE_AUTO_PIN: "0" }, ...sig });
+      // rustright is the one exception: the RustRight client refuses to run anywhere that is not a Cargo workspace inside a repository
+      // (RK_NOT_PRIMARY_CHECKOUT, "workspace discovery failed"), so from a neutral directory every cargo scan read as TOOL_MISSING on
+      // every broker host (rightkit#1215). Its probe runs where the scan itself will run; `cargo --version` reads no repository config.
+      const cwd = tool === "rustright" && scanDir ? scanDir : (deps.probeDir ?? probeDir());
+      const r = await deps.spawn(command, PROBES[tool] ?? ["--version"], { cwd, env: { ...deps.env, ...PNPM_NO_HOOKS_ENV, COREPACK_ENABLE_AUTO_PIN: "0" }, ...sig });
       if (!r || r.error || r.status !== 0) outcome = { ok: false, why: r?.error?.message ?? `exit ${r?.status}` };
       else {
         const text = String(r.stdout || r.stderr || "");
@@ -1368,11 +1382,12 @@ export async function runScans(plan, options = {}) {
         if (out && out.missing) { status = "fail"; code = "TOOL_MISSING"; detail = out.missing; }
         else if (out.length) { status = "fail"; detail = out.join("; "); }
       } else {
-        const p = await probe(s.tool);
+        const scanDir = path.join(rootDir(s.root), s.cwd ?? "");
+        const p = await probe(s.tool, scanDir);
         row.toolVersion = p.ok ? p.version : null;
         let missingDep = null; let depVersionProblem = null; const depVersions = [];
         for (const dep of s.requires ?? []) {
-          const d = await probe(dep);
+          const d = await probe(dep, scanDir);
           if (!d.ok) { missingDep = `${dep} (${d.why})`; break; }
           if (d.pinProblem) { depVersionProblem = d.pinProblem; break; }
           depVersions.push(d.version);

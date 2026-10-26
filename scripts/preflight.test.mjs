@@ -369,9 +369,9 @@ test("shell contract: --list shows the nine rules after speech-link, in order, w
   const listed = await preflight(["--list"]);
   assert.equal(listed.code, 0);
   // The sealed source-closure rule (SF-01) and the two ownership class rules (OW-05, OW-06) follow the consumer contracts (CA-xx, then the input contracts CA-07/09/11, then the source contracts CA-04/07/08, then Legion's semantic contracts LG-02..05, then the consumer policy rules CA-13), which follow the shell contract.
-  assert.deepEqual(listed.lines.slice(-32, -23), SHELL_RULES.map((id, i) => `${id} (SC-R${i + 1})`));
+  assert.deepEqual(listed.lines.slice(-32, -23), SHELL_RULES.map((id, i) => `${id} (SC-R${i + 1}) release`), "every rule added after 0.6.6 is release tier (app-check.mjs TIERS)");
   assert.deepEqual(RULES.slice(-32, -23).map((r) => r.id), SHELL_RULES);
-  assert.deepEqual(listed.lines.slice(-11, -7), ["legion-schema-projection (LG-02)", "legion-legacy-tokens (LG-03)", "legion-retirement-ledger (LG-04)", "legion-authority-body (LG-05)"]);
+  assert.deepEqual(listed.lines.slice(-11, -7), ["legion-schema-projection (LG-02) release", "legion-legacy-tokens (LG-03) release", "legion-retirement-ledger (LG-04) release", "legion-authority-body (LG-05) release"]);
 });
 
 test("shell contract: a finding FAILs, is KNOWN when its identity is in the baseline, and is STALE once the app is fixed", async (t) => {

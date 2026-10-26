@@ -521,7 +521,8 @@ export function runRules({ repo = REPO, ...options }) {
 }
 
 export function main(argv, io = {}) {
-  return appCheckMain(argv, { defaultRepo: REPO, rules: RULES, label: "preflight", central: REPO, ...io });
+  // RightKit checks itself with every rule: the compile/release tiers (app-check.mjs TIERS) exist for the apps, not for the owner.
+  return appCheckMain(argv.includes("--rule-tier") ? argv : [...argv, "--rule-tier", "release"], { defaultRepo: REPO, rules: RULES, label: "preflight", central: REPO, ...io });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

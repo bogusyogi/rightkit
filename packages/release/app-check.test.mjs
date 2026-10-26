@@ -6,8 +6,8 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
-  APP_BASELINE_MAX_DAYS, APP_BASELINE_RULE, BUILD_REFUSES, CHECKED_COMMANDS, RULES, UNCHECKED_COMMANDS, UNCHECKED_PROOF, addDays, appBaselineEntries, appDirectory, applyBaseline, baselineKnown, cargoTestTargets, checkModeFor,
-  e2eCrates, exportCommit, exportTarget, exportWorktree, guardCommand, hasNoCommit, main, repoRoot, retireAliasText, rightkitCheckout, runAppCheck, runRules,
+  APP_BASELINE_MAX_DAYS, APP_BASELINE_RULE, BUILD_REFUSES, CHECKED_COMMANDS, COMPILE_TIER_IDS, RELEASE_TIER_COMMANDS, RULES, TIERS, UNCHECKED_COMMANDS, UNCHECKED_PROOF, addDays, appBaselineEntries, appDirectory, applyBaseline, baselineKnown, cargoTestTargets, checkModeFor,
+  e2eCrates, exportCommit, exportTarget, exportWorktree, guardCommand, hasNoCommit, main, repoRoot, retireAliasText, rightkitCheckout, rulesForTier, runAppCheck, runRules, tierOf,
 } from "./app-check.mjs";
 
 // The app rules, the export, the ratchet and the commands that run the check (packages/release/app-check.mjs). The rule tests moved
@@ -1069,7 +1069,7 @@ test("runAppCheck returns the findings, the tolerated ones, the stale ones and t
   assert.deepEqual(red.findings.map((f) => f.identity).sort(), ["qa-platform|tests/q.rs|platform:macos", "skip-checks|package.json|ship"]);
   assert.deepEqual([red.known, red.stale, red.expired], [[], [], []]);
   assert.match(red.text, /^FAIL qa-platform \(G13\): tests\/q\.rs:1 /m);
-  assert.match(red.text, /^preflight: 2 problem\(s\) in \w{12} \(48 rules, /m);
+  assert.match(red.text, /^preflight: 2 problem\(s\) in \w{12} \(13 rules, compile tier, /m);
   const baseline = writeBaseline(parent, { apprepo: [KNOWN_ID, "skip-checks|package.json|ship", "qa-platform|tests/gone.rs|platform:macos"] });
   const ratcheted = runAppCheck({ repo, central: null, baseline });
   assert.equal(ratcheted.exitCode, 1);
@@ -1117,10 +1117,51 @@ test("a repository with no commit yet says to commit first, in every mode, and t
   assert.equal(runAppCheck({ repo, central: null, mode: "worktree", only: ["skip-checks"] }).exitCode, 0);
 });
 
+test("rule tiers: the compile tier is exactly the 0.6.6 set, every other rule is release tier, and the tiers select without a baseline (Adrian, 2026-10-26)", async (t) => {
+  assert.deepEqual(TIERS, ["compile", "release"]);
+  const compile = rulesForTier("compile");
+  assert.deepEqual(compile.map((r) => r.id), [...COMPILE_TIER_IDS], "the compile tier is the 0.6.6 rule set, in registry order");
+  assert.equal(compile.length, 13);
+  for (const id of COMPILE_TIER_IDS) assert.ok(RULES.some((r) => r.id === id), `${id} is a registered rule`);
+  assert.deepEqual(rulesForTier("release"), RULES, "the release tier is every rule");
+  assert.ok(RULES.length > compile.length, "rules added since 0.6.6 exist and are release tier");
+  for (const r of RULES) assert.equal(tierOf(r), COMPILE_TIER_IDS.has(r.id) ? "compile" : "release");
+  assert.throws(() => rulesForTier("patch"), /tier must be compile or release/);
+  // A fixture with no rightkit-mandatory.json: OW-05 (release tier) finds it; the compile tier never sees it.
+  const { repo } = appRepo(t, { "right-release.config.mjs": "export default {};\n", "switches.json": "{}\n" });
+  const byDefault = runAppCheck({ repo, central: null, now: NOW });
+  assert.doesNotMatch(byDefault.text, /mandatory-foundation/, byDefault.text);
+  assert.match(byDefault.text, /passed 13 rules \(compile tier\) in /);
+  const release = runAppCheck({ repo, central: null, tier: "release", now: NOW });
+  assert.match(release.text, /^FAIL mandatory-foundation \(OW-05\)/m, release.text);
+  assert.match(release.text, /\(\d+ rules, release tier, /);
+  assert.equal(runAppCheck({ repo, central: null, tier: "patch", now: NOW }).exitCode, 2, "an unknown tier cannot run");
+  // --only is a view over the whole set: a release-tier rule can be asked for by name.
+  const only = runAppCheck({ repo, central: null, only: ["mandatory-foundation"], now: NOW });
+  assert.match(only.text, /^FAIL mandatory-foundation/m);
+  assert.match(only.text, /\(1 rules, selected, /);
+  // The command line: --rule-tier, and --list names every rule with its tier.
+  const lines = [], errs = [];
+  assert.equal(await main(["--repo", repo, "--rule-tier", "release"], { out: (l) => lines.push(l), err: (l) => errs.push(l) }), 1);
+  assert.ok(lines.some((l) => /^FAIL mandatory-foundation/.test(l)));
+  assert.equal(await main(["--repo", repo, "--rule-tier", "update"], { out: () => {}, err: (l) => errs.push(l) }), 2);
+  assert.match(errs.join("\n"), /--rule-tier must be compile or release/);
+});
+
+test("guardCommand: commands that qualify, sign, ship or upload owe the release tier; build, dev, package and test owe the compile tier", (t) => {
+  const { repo } = appRepo(t, { "right-release.config.mjs": "export default {};\n" });
+  const seen = [];
+  const run = (opts) => { seen.push([opts.mode, opts.tier]); return { exitCode: 0, lines: [], errLines: [] }; };
+  for (const args of [["build"], ["dev"], ["package"], ["test"], ["doctor"], ["web-build"]]) guardCommand({ args, cwd: repo, run });
+  for (const args of [["release"], ["qa", "--stage", "installed"], ["upload"], ["publish-update"], ["github"], ["sign-windows"], ["sign-updater"], ["create-mac-updater"], ["sign-candidate"]]) guardCommand({ args, cwd: repo, run });
+  assert.deepEqual(seen.map(([, tier]) => tier), ["compile", "compile", "compile", "compile", "compile", "compile", "release", "release", "release", "release", "release", "release", "release", "release", "release"]);
+  for (const name of RELEASE_TIER_COMMANDS) assert.ok(CHECKED_COMMANDS.has(name), `${name} is a checked command`);
+});
+
 test("main: --list, a repository outside git, unknown rules and exclusive flags", async (t) => {
   const listed = await preflight(["--list"]);
   assert.equal(listed.code, 0);
-  assert.deepEqual(listed.lines, RULES.map((r) => `${r.id} (${r.gap})`));
+  assert.deepEqual(listed.lines, RULES.map((r) => `${r.id} (${r.gap}) ${tierOf(r)}`));
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "rk-check-nogit-"));
   t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
   const lines = [], errs = [];
@@ -1187,15 +1228,15 @@ test("baseline: a finding the baseline lists still fails where the build refuses
   const declaration = "mandatory-foundation|rightkit-mandatory.json|declaration";
   const { repo } = appRepo(t, { "right-release.config.mjs": "export default {};\n", ".rightkit/app-check-baseline.json": JSON.stringify({ schema: 1, known: [appEntry(id, "app#9"), appEntry(declaration, "app#10")] }) });
   assert.deepEqual(BUILD_REFUSES, ["switches-inventory"]);
-  const tolerated = runAppCheck({ repo, central: null, now: NOW });
+  const tolerated = runAppCheck({ repo, central: null, tier: "release", now: NOW });
   assert.equal(tolerated.exitCode, 0, tolerated.text);
   assert.match(tolerated.text, /^KNOWN switches-inventory: right-release\.config\.mjs:1 has no switches inventory/m);
-  const refused = runAppCheck({ repo, central: null, refuse: BUILD_REFUSES, now: NOW });
+  const refused = runAppCheck({ repo, central: null, tier: "release", refuse: BUILD_REFUSES, now: NOW });
   assert.equal(refused.exitCode, 1);
   assert.match(refused.text, /^FAIL switches-inventory \(G20\): right-release\.config\.mjs:1 has no switches inventory \(switches\.json does not exist\) \(the baseline lists it, but the build refuses it\)$/m);
   assert.doesNotMatch(refused.text, /^KNOWN switches-inventory|^STALE /m, "it is not stale either: the finding is there");
   assert.deepEqual([refused.findings.map((f) => f.identity), refused.known.map((k) => k.identity ?? k)], [[id], [declaration]]);
-  assert.equal(runAppCheck({ repo, central: null, refuse: ["qa-platform"], now: NOW }).exitCode, 0, "only the listed rules");
+  assert.equal(runAppCheck({ repo, central: null, tier: "release", refuse: ["qa-platform"], now: NOW }).exitCode, 0, "only the listed rules");
 });
 
 test("baseline: appBaselineEntries refuses an entry without an id, an issue, a real added date or a real sunset date", () => {
@@ -1535,7 +1576,9 @@ test("an installed copy of the package, with no RightKit checkout, prints the sa
   git(repo, "commit", "-q", "-m", "attributes after the fact");
   const installed = installedCopy(t);
   assert.equal(fs.existsSync(path.join(installed, "..", "..", "..", "ci")), false, "nothing of a RightKit checkout is around the installed copy");
-  const gate = spawnSync(process.execPath, [path.join(installed, "bin", "rightkit-gate.mjs"), "check", "--repo", repo, "--commit", "HEAD"], { cwd: path.dirname(installed), encoding: "utf8" });
+  const gate = spawnSync(process.execPath, [path.join(installed, "bin", "rightkit-gate.mjs"), "check", "--repo", repo, "--commit", "HEAD", "--rule-tier", "release"], { cwd: path.dirname(installed), encoding: "utf8" });
+  const compileTier = spawnSync(process.execPath, [path.join(installed, "bin", "rightkit-gate.mjs"), "check", "--repo", repo, "--commit", "HEAD"], { cwd: path.dirname(installed), encoding: "utf8" });
+  assert.match(compileTier.stdout, /^check: \d+ problem\(s\) in \w{12} \(13 rules, compile tier, /m, "the default is the compile tier: the 0.6.6 rule set");
   const preflightRun = spawnSync(process.execPath, [path.join(REPO_ROOT, "scripts", "preflight.mjs"), "--repo", repo, "--commit", "HEAD"], { encoding: "utf8" });
   assert.equal(gate.status, 1, gate.stdout + gate.stderr);
   assert.equal(preflightRun.status, gate.status);
@@ -1543,9 +1586,9 @@ test("an installed copy of the package, with no RightKit checkout, prints the sa
   assert.deepEqual(lines, findingLines(preflightRun.stdout), "the findings are byte-identical");
   assert.ok(lines.some((l) => l.startsWith("FAIL eol-policy (G04):")) && lines.some((l) => l.startsWith("FAIL release-config (G16):")) && lines.some((l) => l.startsWith("FAIL scenario-skip (G15):")) && lines.some((l) => l.startsWith("FAIL qa-platform (G13):")), lines.join("\n"));
   assert.ok(lines.some((l) => l.startsWith("KNOWN skip-checks:")) && lines.some((l) => l.startsWith("STALE baseline entry qa-platform|tests/gone.rs|platform:macos")), "the app's own baseline is read in both");
-  assert.match(gate.stdout, /^check: 7 problem\(s\) in \w{12} \(48 rules, [\d.]+s, 1 known\)\./m);
-  assert.match(preflightRun.stdout, /^preflight: 7 problem\(s\) in \w{12} \(58 rules, [\d.]+s, 1 known\)\./m);
-  assert.deepEqual(spawnSync(process.execPath, [path.join(installed, "bin", "rightkit-gate.mjs"), "check", "--list"], { cwd: path.dirname(installed), encoding: "utf8" }).stdout.trim().split("\n"), RULES.map((r) => `${r.id} (${r.gap})`));
+  assert.match(gate.stdout, /^check: 7 problem\(s\) in \w{12} \(48 rules, release tier, [\d.]+s, 1 known\)\./m);
+  assert.match(preflightRun.stdout, /^preflight: 7 problem\(s\) in \w{12} \(58 rules, release tier, [\d.]+s, 1 known\)\./m);
+  assert.deepEqual(spawnSync(process.execPath, [path.join(installed, "bin", "rightkit-gate.mjs"), "check", "--list"], { cwd: path.dirname(installed), encoding: "utf8" }).stdout.trim().split("\n"), RULES.map((r) => `${r.id} (${r.gap}) ${tierOf(r)}`));
   // The same installed copy through the right-release command, and green once the app is fixed.
   const cli = spawnSync(process.execPath, [path.join(installed, "cli", "right-release.mjs"), "check", "--repo", repo, "--commit", "HEAD"], { cwd: path.dirname(installed), encoding: "utf8" });
   assert.equal(cli.status, 1);

@@ -1093,6 +1093,27 @@ export const RULES = Object.freeze([
   ...OWNERSHIP_CLASS_RULES,
 ]);
 
+// ---- tiers --------------------------------------------------------------------------------------------------------------------------
+//
+// Adrian, 2026-10-26: the apps lost every build route on 2026-10-25 and must build again through the one door before any new rule is
+// asked of them. The compile tier is the rule set every app was green on when it last built through the gate: the rules @rightkit/release
+// 0.6.6 published. Every rule added since (consumer, shell, Legion, ownership and source-closure contracts) is release-tier until the
+// synthesis waves make it true in every app, and is promoted here, in RightKit, never per app and never through a baseline.
+//   compile  gates compile admission: the RustRight broker, the pre-push hook, rightkit-gate check, --to compile|package, right-release build|dev|test.
+//   release  the whole set: --to qualify|release and every right-release command that qualifies, signs, ships or uploads.
+export const TIERS = Object.freeze(["compile", "release"]);
+export const COMPILE_TIER_IDS = Object.freeze(new Set([
+  "eol-policy", "file-url", "retired-alias", "qa-platform", "test-harness", "scenario-skip", "release-config", "skip-checks",
+  "qa-dev-server", "ffmpeg-release-escape", "switches-inventory", "speech-link", "e2e-under-cargo-test",
+]));
+/** The tier a rule runs from: compile for the 0.6.6 set, release for everything added since. */
+export const tierOf = (rule) => (COMPILE_TIER_IDS.has(rule.id) ? "compile" : "release");
+/** The rules a tier runs: the compile tier is a subset, the release tier is every rule. Unknown tiers throw. */
+export function rulesForTier(tier, rules = RULES) {
+  if (!TIERS.includes(tier)) throw new Error(`tier must be compile or release, not ${JSON.stringify(tier)}`);
+  return tier === "release" ? rules : rules.filter((rule) => tierOf(rule) === "compile");
+}
+
 // ---- export: the committed files, by git alone ----------------------------------------------------------------------------------
 
 /** The path a tree entry is written to. A tree is untrusted bytes: nothing may land outside `dest` or inside a `.git`. */
@@ -1309,12 +1330,15 @@ function loadBaseline({ explicit, root, central, repoKey, today }) {
  * `refuse` lists rules whose findings the baseline cannot excuse here, because the build refuses them whatever the baseline says
  * (BUILD_REFUSES); a listed one fails like a new one.
  */
-export function runAppCheck({ repo, mode = "commit", commit, only = null, baseline, printBaseline = false, rules = RULES, label = "check", repoKey, central = rightkitCheckout(), now = new Date(), refuse = [] } = {}) {
+export function runAppCheck({ repo, mode = "commit", commit, only = null, baseline, printBaseline = false, rules = RULES, tier = "compile", label = "check", repoKey, central = rightkitCheckout(), now = new Date(), refuse = [] } = {}) {
   const lines = [];
   const errLines = [];
+  if (!TIERS.includes(tier)) { errLines.push(`${label}: --rule-tier must be compile or release, not ${JSON.stringify(tier)}`); return { findings: [], known: [], stale: [], expired: [], found: [], exitCode: 2, lines, text: "", errLines, errText: errLines.join("\n") }; }
   const finish = (exitCode, extra = {}) => ({ findings: [], known: [], stale: [], expired: [], found: [], ...extra, exitCode, lines, text: lines.join("\n"), errLines, errText: errLines.join("\n") });
   const unknown = only?.filter((id) => !rules.some((r) => r.id === id)) ?? [];
   if (unknown.length) { errLines.push(`${label}: unknown rule(s): ${unknown.join(", ")} (see --list)`); return finish(2); }
+  // --only is a view over the whole set; without it, the tier decides which rules run.
+  if (!only) rules = rulesForTier(tier, rules);
   if (mode !== "commit" && mode !== "worktree") { errLines.push(`${label}: mode must be commit or worktree, not ${JSON.stringify(mode)}`); return finish(2); }
   if (mode === "worktree" && commit) { errLines.push(`${label}: --worktree and --commit are exclusive`); return finish(2); }
   repo = path.resolve(repo ?? process.cwd());
@@ -1367,10 +1391,10 @@ export function runAppCheck({ repo, mode = "commit", commit, only = null, baseli
     const problems = fresh.length + stale.length + expired.length;
     const result = { findings: fresh, known, stale, expired, found };
     if (problems) {
-      lines.push(`${label}: ${problems} problem(s) in ${checked.slice(0, 12)} (${ruleCount} rules, ${seconds}s${known.length ? `, ${known.length} known` : ""}). Each would refuse later in CI or publication; fix and commit, then push.`);
+      lines.push(`${label}: ${problems} problem(s) in ${checked.slice(0, 12)} (${ruleCount} rules, ${only ? "selected" : `${tier} tier`}, ${seconds}s${known.length ? `, ${known.length} known` : ""}). Each would refuse later in CI or publication; fix and commit, then push.`);
       return finish(1, result);
     }
-    lines.push(`${label}: ${checked.slice(0, 12)} passed ${ruleCount} rules in ${seconds}s${known.length ? ` (${known.length} known finding(s) in ${listed.listedFile}; fix them, then remove their entries)` : ""}`);
+    lines.push(`${label}: ${checked.slice(0, 12)} passed ${ruleCount} rules (${only ? "selected" : `${tier} tier`}) in ${seconds}s${known.length ? ` (${known.length} known finding(s) in ${listed.listedFile}; fix them, then remove their entries)` : ""}`);
     return finish(0, result);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -1410,6 +1434,9 @@ export function checkedCommandOf(args) {
  * says (no switches inventory: the release-switches scan has nothing to prove against), so tolerating one only moves the failure
  * minutes into the build. */
 export const BUILD_REFUSES = Object.freeze(["switches-inventory"]);
+
+/** The checked commands that qualify, sign, ship or upload: they owe the release tier (every rule). The rest owe the compile tier. */
+export const RELEASE_TIER_COMMANDS = Object.freeze(new Set(["release", "qa", "upload", "publish", "publish-update", "github", "sign-windows", "sign-updater", "create-mac-updater", "sign-candidate"]));
 
 /** Every other right-release command, each with why the check does not guard it. A command that is in neither map fails the
  * classification test in app-check.test.mjs, so a new command cannot appear unclassified. */
@@ -1513,7 +1540,7 @@ export function guardCommand({ args, cwd = process.cwd(), run = runAppCheck } = 
   const dir = appDirectory(args, cwd);
   const repo = repoRoot(dir);
   if (!repo) return { exitCode: 1, lines: [`right-release ${name}: the app check needs a git repository and ${dir} is not inside one; nothing was started`] };
-  const result = run({ repo, mode, label: "check", refuse: BUILD_REFUSES });
+  const result = run({ repo, mode, tier: RELEASE_TIER_COMMANDS.has(name) ? "release" : "compile", label: "check", refuse: BUILD_REFUSES });
   if (result.exitCode === 0) return null;
   const why = result.exitCode === 2 ? "could not run" : "found problems";
   return { exitCode: 1, lines: [...result.lines, ...result.errLines, `right-release ${name}: the app check ${why} in ${repo}; nothing was started. Fix the above and commit, then run it again.`] };
@@ -1522,12 +1549,14 @@ export function guardCommand({ args, cwd = process.cwd(), run = runAppCheck } = 
 // ---- command line ---------------------------------------------------------------------------------------------------------------
 
 /**
- * `check [--repo <dir>] [--commit <rev> | --worktree] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>]`.
+ * `check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>]`.
+ * `--rule-tier` defaults to compile (see TIERS); `--list` prints every rule with its tier. (`--tier patch|update` is the upload tier, elsewhere.)
  * `--repo` defaults to the git top-level of `cwd` (or `defaultRepo`). Returns the exit code: 0 pass, 1 findings, 2 could not run.
  */
 export async function main(argv, { out = (s) => process.stdout.write(`${s}\n`), err = (s) => process.stderr.write(`${s}\n`), label = "check", rules = RULES, defaultRepo = null, cwd = process.cwd(), central, now } = {}) {
   const arg = (flag) => { const i = argv.indexOf(flag); return i >= 0 ? argv[i + 1] : undefined; };
-  if (argv.includes("--list")) { for (const r of rules) out(`${r.id} (${r.gap})`); return 0; }
+  if (argv.includes("--list")) { for (const r of rules) out(`${r.id} (${r.gap}) ${tierOf(r)}`); return 0; }
+  const tier = arg("--rule-tier") ?? "compile";
   const repo = arg("--repo") ? path.resolve(arg("--repo")) : defaultRepo ?? repoRoot(cwd);
   if (!repo) { err(`${label}: not inside a git repository (use --repo <dir>)`); return 2; }
   const result = runAppCheck({
@@ -1537,7 +1566,7 @@ export async function main(argv, { out = (s) => process.stdout.write(`${s}\n`), 
     only: arg("--only")?.split(",").filter(Boolean) ?? null,
     baseline: arg("--baseline"),
     printBaseline: argv.includes("--print-baseline"),
-    rules, label, ...(central === undefined ? {} : { central }), ...(now ? { now } : {}),
+    rules, tier, label, ...(central === undefined ? {} : { central }), ...(now ? { now } : {}),
   });
   for (const line of result.lines) out(line);
   for (const line of result.errLines) err(line);

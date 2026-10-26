@@ -201,6 +201,17 @@ it. Past its sunset an entry stops tolerating its finding (the finding fails wit
 `EXPIRED`; a listed identity that no finding has any more is `STALE` and fails, so the list only shrinks. A rule the build refuses
 whatever a baseline says (`switches-inventory`) fails even when listed.
 
+## Rule tiers: compile and release
+
+Adrian, 2026-10-26: the apps lost every build route on 2026-10-25 and build again through the one door on the rule set they were last green on, before any newer rule is asked of them. `app-check.mjs` `TIERS`:
+
+| Tier | Rules | Owed by |
+|---|---|---|
+| `compile` (default) | the 13 rules @rightkit/release 0.6.6 published (`COMPILE_TIER_IDS`) | compile admission: the RustRight broker, the pre-push hook, `rightkit-gate check`, `--to compile\|package`, `right-release build\|dev\|test\|doctor` |
+| `release` | every rule, the ones added since 0.6.6 included (C3, SC, CA, LG, SF-01, OW-05, OW-06), plus the `shellcheck` scan and actionlint's shellcheck requirement | `rightkit-gate --to qualify` (it runs `check --rule-tier release` before installed QA and records `ruleTier` in the receipt) and `right-release release\|qa\|upload\|publish\|publish-update\|github\|sign-*\|create-mac-updater\|sign-candidate` (`RELEASE_TIER_COMMANDS`) |
+
+`rightkit-gate check --rule-tier compile|release` selects the tier (`--tier patch|update` is the upload tier); `--list` names each rule's tier; `--only` is a view over the whole set. A rule is promoted to the compile tier by moving its id into `COMPILE_TIER_IDS` in RightKit, never per app and never through a baseline. RightKit's own preflight runs every rule.
+
 ## The pre-push gate on a host without the broker: the Rust gate is deferred, the HOST RECEIPT gates the merge
 
 The gate chooses its executor itself (`gate-executor.mjs` `resolveExecutor`), never the caller: the RustRight broker where the machine has it (`rustright` on PATH, or its managed cargo shim), a refusal on a broker-managed machine whose broker cannot be reached, and direct `cargo` on any other host (a cloud session, a CI runner). Every host runs the same gates in the same order (app rules, class A, then the compile scans); an unmanaged host is never sent to a broker and nothing is deferred to one. Every pushed ref is judged in any position (git's stdin is split on single ASCII spaces, so a Unicode space in a ref name cannot hide one), and a stdin line that is not four fields refuses the push on every host and in every repository, because git sends the local field as typed and a rev expression such as `HEAD^{/one thing}` holds spaces: such a line is never dropped, so the pushed commit is always compared with HEAD.
