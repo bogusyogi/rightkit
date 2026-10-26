@@ -79,6 +79,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { CONSUMER_CONTRACT_RULES } from "./consumer-contracts.mjs";
 import { OWNERSHIP_CLASS_RULES } from "./ownership-class-rules.mjs";
 import { SOURCE_CLOSURE_RULES } from "./source-closure-rules.mjs";
 import { SHELL_CONTRACT_RULES } from "./shell-contract.mjs";
@@ -1063,6 +1064,7 @@ export const RULES = Object.freeze([
   { id: "suite-updater-key", gap: "C3-14", run: ({ root, files }) => suiteUpdaterKey(root, files) },
   { id: "engine-record-store", gap: "C3-05", run: ({ root, files }) => engineRecordStore(root, files) },
   ...SHELL_CONTRACT_RULES,
+  ...CONSUMER_CONTRACT_RULES,
   ...SOURCE_CLOSURE_RULES,
   ...OWNERSHIP_CLASS_RULES,
 ]);
