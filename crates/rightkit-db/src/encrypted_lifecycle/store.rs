@@ -11,7 +11,7 @@ use super::transition::{
     TransitionKind, TransitionOptions,
 };
 use crate::{
-    lock_recover, online_backup_to, restore_database_locked, DbError, DbOptions, IntegrityCheck,
+    lock_recover, restore_database_locked, DbError, DbOptions, IntegrityCheck,
     PooledReadConnection, ReadPool, ReadPoolOptions, RestoreOptions, RestoreReceipt, StoreLock,
 };
 use rusqlite::{Connection, OpenFlags};
@@ -560,16 +560,18 @@ pub(super) fn establish_relocation(
         .read_primary()
         .map_err(|error| key_store_error("primary", error))?
         .ok_or(LifecycleError::KeyMissing)?;
+    // An identity that cannot be read (after the bounded retry of a transient Windows refusal) is
+    // the error, not "the root changed".
     if expected.file.is_none()
         || primary.as_str() != key.as_str()
-        || RootIdentity::capture(&cfg.db.path) != *expected
+        || RootIdentity::try_capture(&cfg.db.path)? != *expected
     {
         return Err(LifecycleError::RecoveryRequired {
             detail: "selected relocation root or canonical key changed".into(),
         });
     }
     let writer = cfg.keyed(&primary).open_existing_writer()?;
-    if RootIdentity::capture(&cfg.db.path) != *expected {
+    if RootIdentity::try_capture(&cfg.db.path)? != *expected {
         return Err(LifecycleError::RecoveryRequired {
             detail: "selected relocation root changed while reopening".into(),
         });
@@ -792,6 +794,8 @@ pub struct EncryptedStore {
     pub(super) cfg: Mutex<EncryptedStoreConfig>,
     pub(super) live: Mutex<Live>,
     pub(super) pools: Mutex<Vec<Arc<PoolSlot>>>,
+    /// Why the paths the most recent relocation or relocation recovery left behind were kept.
+    pub(super) relocation_cleanup_errors: Mutex<Vec<(PathBuf, String)>>,
 }
 
 impl EncryptedStore {
@@ -814,6 +818,7 @@ impl EncryptedStore {
                 degraded,
             }),
             pools: Mutex::new(Vec::new()),
+            relocation_cleanup_errors: Mutex::new(Vec::new()),
         }
     }
     /// Open the existing encrypted database.
@@ -847,6 +852,7 @@ impl EncryptedStore {
                 degraded,
             }),
             pools: Mutex::new(Vec::new()),
+            relocation_cleanup_errors: Mutex::new(Vec::new()),
         })
     }
 
@@ -857,6 +863,19 @@ impl EncryptedStore {
     /// The database path the store currently serves (it changes after a successful relocation).
     pub fn db_path(&self) -> PathBuf {
         lock_recover(&self.cfg).db.path.clone()
+    }
+
+    /// Why each path the store's most recent relocation (`relocate`, a session's `settle`) or
+    /// relocation recovery left behind was kept, in the same order as the report's
+    /// `cleanup_retained`: the last error of the removal that was given up (it carries the OS
+    /// error text, for example `Access is denied. (os error 5)`), or the identity check that
+    /// stopped it. Empty when nothing was retained, and at the start of every `relocate`.
+    pub fn relocation_cleanup_errors(&self) -> Vec<(PathBuf, String)> {
+        lock_recover(&self.relocation_cleanup_errors).clone()
+    }
+
+    pub(super) fn note_relocation_cleanup_errors(&self, errors: Vec<(PathBuf, String)>) {
+        *lock_recover(&self.relocation_cleanup_errors) = errors;
     }
 
     /// Where the key that opened the store came from.
@@ -1111,7 +1130,7 @@ impl EncryptedStore {
         let Some(conn) = live.writer.as_ref() else {
             return Err(LifecycleError::busy("the writer is not open"));
         };
-        online_backup_to(&db, conn, target, None)?;
+        crate::backup::online_backup_sized(&db, conn, target, None)?;
         Ok(())
     }
 
@@ -1192,6 +1211,8 @@ impl EncryptedStore {
             retain_previous: false,
             pending: None,
             id: next_id(),
+            // Recorded for diagnosis only: no check reads a restore's root identities back (only
+            // relocation compares them), so the infallible snapshot is enough here.
             old_root: RootIdentity::capture(&cfg.db.path),
             new_root: Some(RootIdentity::capture(replacement)),
             relocation: None,

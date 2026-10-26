@@ -1,6 +1,6 @@
 # Native filesystem qualification
 
-`qualify-fs.yml` takes an explicit main `publish.yml` run. Guard, plan, pack & both native verify jobs must succeed; final seal-check may fail for an unapproved candidate. GitHub artifact digests, sealed manifest hashes & host receipts bind every consumed archive. This standalone consumer pins `rightkit-fs =0.4.6`; registry-consumer builds it from those exact sealed bytes through an offline directory registry.
+`qualify-fs.yml` takes an explicit main `publish.yml` run. Guard, plan, pack & both native verify jobs must succeed; final seal-check may fail for an unapproved candidate. GitHub artifact digests, sealed manifest hashes & host receipts bind every consumed archive. This standalone consumer pins `rightkit-fs =0.4.8`; registry-consumer builds it from those exact sealed bytes through an offline directory registry.
 
 Windows requires isolated NTFS & FAT32 VHDs. macOS requires an APFS sparse image. Images & mountpoints live under runner temporary storage outside checkout. Setup fails when native mounting or filesystem identification fails. Always-run cleanup detaches volumes before recursive removal & emits its own receipt.
 

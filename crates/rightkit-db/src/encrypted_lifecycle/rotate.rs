@@ -507,6 +507,8 @@ fn rotate_inner(
         retain_previous: request.retain_previous,
         pending: None,
         id: next_id(),
+        // Recorded for diagnosis only: no check reads a rotation's root identity back (only
+        // relocation compares them), so the infallible snapshot is enough here.
         old_root: RootIdentity::capture(&cfg.db.path),
         new_root: None,
         relocation: None,

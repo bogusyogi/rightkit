@@ -799,14 +799,10 @@ fn remove_if_exists(path: &Path) -> io::Result<()> {
 
 /// A delete that fails because another process still holds the file open without delete sharing
 /// (Windows `ERROR_ACCESS_DENIED` while a delete is pending, `ERROR_SHARING_VIOLATION`,
-/// `ERROR_LOCK_VIOLATION`). Never true off Windows.
+/// `ERROR_LOCK_VIOLATION`). Never true off Windows. The classification is
+/// [`crate::transient::is_transient_refusal`], the crate's one owner of it.
 fn transient_delete_error(error: &io::Error) -> bool {
-    #[cfg(windows)]
-    if let Some(code) = error.raw_os_error() {
-        return matches!(code, 5 | 32 | 33);
-    }
-    let _ = error;
-    false
+    crate::transient::is_transient_refusal(error)
 }
 
 /// A failure worth another attempt when deleting: the Windows classes above, and (with the
@@ -863,6 +859,21 @@ fn remove_while_identical(
     }
     result.map_err(|e| RetainedItem::new(path, e))?;
     sync_parent_strict(path).map_err(|e| RetainedItem::new(path, e))
+}
+
+/// `fs::remove_dir`, retried by [`retry_while`] while the failure is transient (what a Windows
+/// scanner or indexer that still holds the directory looks like), under the transaction's own
+/// policy; `None` makes one attempt. A forced delete failure of the `test-seams` feature applies
+/// here as it does to every identified delete.
+fn remove_dir_with_retry(path: &Path, retry: Option<RetryPolicy>) -> io::Result<()> {
+    retry_while(
+        retry,
+        transient_removal_error,
+        || match forced_delete_failure() {
+            Some(error) => Err(error),
+            None => fs::remove_dir(path),
+        },
+    )
 }
 
 /// [`remove_if_exists`], retried by [`retry_while`] while the failure is transient. `retry` is
@@ -2811,7 +2822,10 @@ fn finish_dir(ctx: &Ctx<'_>) -> Vec<RetainedItem> {
     if let Err(error) = synced {
         return vec![RetainedItem::new(txn_dir, error)];
     }
-    match fs::remove_dir(txn_dir) {
+    // The directory is empty now, but whatever listed it a moment ago (an indexer, a scanner) can
+    // still hold it, and Windows then refuses the removal with a code that clears by itself. A
+    // refusal that outlives the retry bound is retained and reported, not hidden.
+    match remove_dir_with_retry(txn_dir, ctx.options.retry) {
         Ok(()) => {
             if let Err(error) = sync_parent_strict(txn_dir) {
                 retained.push(RetainedItem::new(txn_dir, error));

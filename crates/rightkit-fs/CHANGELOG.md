@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.8 (unpublished)
+
+rightkit#1180: the one bounded retry for a plain delete, rename or open that Windows refuses while a scanner or indexer holds the file, moved here from rightkit-db so the classification and the bound have one owner.
+
+- Added `transient` module (feature `fs`): `TRANSIENT_RETRY` (a `RetryPolicy` of 20 retries, 100 ms apart), `is_transient_refusal(&io::Error)` (Windows `ERROR_ACCESS_DENIED` 5, `ERROR_SHARING_VIOLATION` 32, `ERROR_LOCK_VIOLATION` 33; always `false` off Windows), `retry_transient`, `retry_transient_with(RetryPolicy, ..)` and `retry_transient_fs` (for an operation that returns `FsError`, such as `FileKey::of_path`; transient when it is `FsError::Io` with a transient source). The operation runs once and is repeated only while it fails with a transient refusal, at most the bound; after the bound the last error is returned unchanged, so a true permission failure still fails, only later (at most two seconds with the default bound). Error 5 is also what a real ACL denial returns, which is why the publish step of an atomic write still retries it only on request (`AccessDeniedRetry`); this module is for the calls that are not an atomic write. It repeats only the closure it is given: a caller that deletes or renames a file it identified earlier proves that identity again inside the closure.
+- Changed: `FileTransaction` retries the removal of its own, now empty, transaction directory like every other cleanup delete (under `TransactionOptions::retry`, doubling pauses, `None` makes one attempt). Before, one transient refusal there left the directory and reported it in `CommittedReport::retained`, which rightkit-db's relocation turned into `RelocatedCleanupPending` with its journals retained. The classification of the transaction's deletes is now `transient::is_transient_refusal` (the same three codes; no change in behaviour).
+- Tests: `transient::tests` (classification of the three codes per platform, the bound, the original error returned, other errors and a missing path returned at once, the pause, `FsError`); `tests/transaction.rs`: the directory removal is retried, reported with no retry, and bounded by the transaction's policy (the last two fail on 0.4.7), and a Windows-only case that holds the directory open without delete sharing (not run off Windows).
+
 ## 0.4.7 — unpublished
 
 - `app_dirs::account_home()` (re-exported as `rightkit_fs::account_home`): the real home of the

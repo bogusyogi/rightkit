@@ -1,4 +1,4 @@
-// rightkit-db 0.5.1 registry consumer, outside the workspace.
+// rightkit-db 0.5.3 registry consumer, outside the workspace.
 //
 // Exercises the plain-SQLite public API with the `bundled` feature: DbOptions::open_writer_migrated
 // applies two versioned migrations once and a second open applies none; write_txn commits an insert
@@ -95,6 +95,6 @@ fn exercise(dir: &Path) -> Result<(), Failure> {
     let seven: i64 = memory.query_row("SELECT 7", [], |row| row.get(0))?;
     assert_eq!(seven, 7, "in-memory connection answers a query");
 
-    println!("rightkit-db 0.5.1 registry consumer passed");
+    println!("rightkit-db 0.5.3 registry consumer passed");
     Ok(())
 }
