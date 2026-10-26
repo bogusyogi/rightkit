@@ -173,27 +173,32 @@ function checkoutStepInput({ root, files }) {
 export const WIN_MAX_FILE = 259;
 export const WIN_MAX_DIR = 247;
 const HOSTED_WINDOWS = /^windows-(?:latest|\d{4}|11-arm|\d+[a-z0-9-]*)$/i;
-const TRUE_VALUE = /^(?:true|1|yes|on)$/i;
-// The one script line that enables long paths: the whole line is the command (no echo, no condition, no substitution).
-const ENABLE_LINE = /^git\s+config\s+(?:--system|--global)\s+(?:--(?:add|replace-all)\s+)?core\.longpaths\s+(?:true|1|yes|on)\s*;?$/i;
+/** A git boolean: true, false, or "unknown" for anything git would not read as one plainly. */
+const gitBool = (value) => (/^(?:true|1|yes|on)$/i.test(String(value).trim()) ? true : /^(?:false|0|no|off)$/i.test(String(value).trim()) ? false : "unknown");
+// The one script line that sets long paths: the whole line is the command (no echo, no condition, no substitution).
+const SET_LINE = /^git\s+config\s+(--system|--global)\s+(?:--bool\s+)?(?:--(?:add|replace-all)\s+)?core\.longpaths\s+([A-Za-z0-9]+)\s*;?$/i;
 // Lines a step may carry beside it without changing whether it runs: blank lines, comments, strict-mode preambles.
 const NEUTRAL_LINE = /^(?:$|#|set\s+-[euxo]+(?:\s+pipefail)?\s*$|\$ErrorActionPreference\s*=\s*['"]Stop['"]\s*;?$)/i;
 const STANDARD_SHELLS = new Set(["bash", "pwsh", "powershell", "sh", "cmd"]);
 const MENTIONS_LONGPATHS = /core\.longpaths/i;
 
-/** Whether git, given this merged environment, sets core.longpaths=true through GIT_CONFIG_COUNT / GIT_CONFIG_KEY_n / VALUE_n:
- * true, false, or "unknown" when a value is an expression. Git reads pair n only when COUNT is a positive integer above n. */
+/** The core.longpaths value git takes from the config environment (GIT_CONFIG_COUNT, GIT_CONFIG_KEY_n, GIT_CONFIG_VALUE_n):
+ * null when the environment sets none, true or false for the LAST pair below COUNT that names it (git applies pairs in index
+ * order and the last value wins), or "unknown" for an expression, a COUNT git would refuse, or a value that is not a plain
+ * boolean. Pair n counts only when COUNT is a positive integer above n. */
 export function envLongpaths(env) {
-  if (!env || typeof env !== "object") return false;
+  if (!env || typeof env !== "object") return null;
   const values = Object.entries(env).filter(([k]) => /^GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)$/.test(k));
   if (values.some(([, v]) => /\$\{\{/.test(String(v)))) return "unknown";
-  const count = String(env.GIT_CONFIG_COUNT ?? "").trim();
-  if (!/^[1-9]\d*$/.test(count)) return false;
-  const n = Number(count);
-  for (let i = 0; i < n; i += 1) {
-    if (String(env[`GIT_CONFIG_KEY_${i}`] ?? "").toLowerCase() === "core.longpaths" && TRUE_VALUE.test(String(env[`GIT_CONFIG_VALUE_${i}`] ?? ""))) return true;
+  if (env.GIT_CONFIG_COUNT === undefined) return null;
+  const count = String(env.GIT_CONFIG_COUNT).trim();
+  if (count === "0") return null;
+  if (!/^[1-9]\d*$/.test(count)) return "unknown";
+  let value = null;
+  for (let i = 0; i < Number(count); i += 1) {
+    if (String(env[`GIT_CONFIG_KEY_${i}`] ?? "").trim().toLowerCase() === "core.longpaths") value = gitBool(env[`GIT_CONFIG_VALUE_${i}`] ?? "");
   }
-  return false;
+  return value;
 }
 
 /** Whether a step's `if:` provably lets it run on the Windows legs this rule judges: none, `true`, `always()`, `success()`, or
@@ -206,19 +211,43 @@ function alwaysRuns(condition) {
   return false;
 }
 
-/** A pre-checkout step judged for long paths: "enables", "unsupported" (it touches long paths in a way this check cannot prove
- * runs: a condition, echo or other shell text, a custom shell, an action) or "none". */
+/** A pre-checkout step judged for long paths: "none" (it does not touch them), "unsupported" (it touches them in a way this
+ * check cannot evaluate: a condition, echo or other shell text, a custom shell, an action, a value git would not read plainly),
+ * or { system?, global? } with the value its git config lines leave in each file (the last line for a file wins). */
 function judgeStep(step) {
   if (!step || typeof step !== "object") return "none";
-  const text = JSON.stringify(step);
-  if (typeof step.uses === "string") return MENTIONS_LONGPATHS.test(text) ? "unsupported" : "none";
-  if (typeof step.run !== "string") return "none";
-  if (!MENTIONS_LONGPATHS.test(step.run)) return "none";
+  if (typeof step.uses === "string") return MENTIONS_LONGPATHS.test(JSON.stringify(step)) ? "unsupported" : "none";
+  if (typeof step.run !== "string" || !MENTIONS_LONGPATHS.test(step.run)) return "none";
   const shell = step.shell === undefined ? "bash" : String(step.shell).trim();
-  const lines = step.run.split("\n").map((l) => l.trim());
-  const proven = alwaysRuns(step.if) && STANDARD_SHELLS.has(shell) && step["continue-on-error"] === undefined
-    && lines.every((l) => NEUTRAL_LINE.test(l) || ENABLE_LINE.test(l)) && lines.some((l) => ENABLE_LINE.test(l));
-  return proven ? "enables" : "unsupported";
+  if (!alwaysRuns(step.if) || !STANDARD_SHELLS.has(shell) || step["continue-on-error"] !== undefined) return "unsupported";
+  const sets = {};
+  for (const line of step.run.split("\n").map((l) => l.trim())) {
+    if (NEUTRAL_LINE.test(line)) continue;
+    const m = SET_LINE.exec(line);
+    if (!m) return "unsupported";
+    const value = gitBool(m[2]);
+    if (value === "unknown") return "unsupported";
+    sets[m[1].slice(2).toLowerCase()] = value;
+  }
+  return Object.keys(sets).length ? sets : "unsupported";
+}
+
+/** core.longpaths as git reads it at the checkout step: the config environment overrides the files, the global file overrides
+ * the system file, and within a source the last value wins; Git for Windows on a hosted runner defaults to false. Returns
+ * true, false or "unknown". */
+export function effectiveLongpaths(steps, env) {
+  const files = { system: null, global: null };
+  let unknown = false;
+  for (const step of steps) {
+    const judged = judgeStep(step);
+    if (judged === "unsupported") unknown = true;
+    else if (judged !== "none") Object.assign(files, judged);
+  }
+  const fromEnv = envLongpaths(env);
+  if (fromEnv === "unknown") return "unknown";
+  if (fromEnv !== null) return fromEnv;
+  if (unknown) return "unknown";
+  return files.global ?? files.system ?? false;
 }
 
 /** The workspace prefix a GitHub-hosted Windows runner checks a repository out under: D:\a\<name>\<name>\ (plus with.path). */
@@ -268,10 +297,9 @@ function checkoutLongpaths({ root, files, repo, repositoryName: given }) {
       const unknownWide = name ? null : overLongPaths(files, windowsWorkspace("x".repeat(100), checkout.path), checkout.sparse);
       if (!long.longest && !unknownWide?.longest) continue;
       const env = { ...(wf.doc.env ?? {}), ...(job.env ?? {}), ...(checkout.step.env ?? {}) };
-      const viaEnv = envLongpaths(env);
-      const judged = job.steps.slice(0, checkout.index).map((s) => judgeStep(s));
-      if (viaEnv === true || judged.includes("enables")) continue;
-      const unsupported = viaEnv === "unknown" || judged.includes("unsupported");
+      const effective = effectiveLongpaths(job.steps.slice(0, checkout.index), env);
+      if (effective === true) continue;
+      const unsupported = effective === "unknown";
       const after = job.steps.slice(checkout.index + 1).some((s) => s && typeof s.run === "string" && MENTIONS_LONGPATHS.test(s.run));
       if (!long.longest) {
         out.push({ file: wf.file, subject: jobId, problem: `UNSUPPORTED: ${wf.file} job ${jobId} (${windows.join(", ")}) checks out ${unknownWide.files.length} tracked path(s) that exceed the Win32 limit under D:\\a\\<repo>\\<repo>\\ for a long enough repository name, and the repository name is unknown (no GitHub remote origin), without proven Git long paths`, fix: "enable core.longpaths before the checkout, or check a clone whose origin names the GitHub repository" });
@@ -279,7 +307,7 @@ function checkoutLongpaths({ root, files, repo, repositoryName: given }) {
       }
       out.push({
         file: wf.file, subject: jobId,
-        problem: `${unsupported ? "UNSUPPORTED: " : ""}${wf.file} job ${jobId} (${windows.join(", ")}) checks out ${long.files.length} tracked file path(s) longer than ${WIN_MAX_FILE} characters under ${prefix}${name ? "" : " (repository name unknown; shortest possible)"} (longest: ${prefix.length + long.longest.length} characters, ${long.longest}) without ${unsupported ? "provable " : ""}Git long paths${unsupported ? " (a step or environment before the checkout touches core.longpaths in a way this check cannot prove runs: a condition, echo or other shell text, a custom shell, an action, an expression, or GIT_CONFIG_* without a COUNT that covers it)" : ""}${after ? " (core.longpaths is enabled only after the checkout)" : ""}: git fails with "Filename too long"`,
+        problem: `${unsupported ? "UNSUPPORTED: " : ""}${wf.file} job ${jobId} (${windows.join(", ")}) checks out ${long.files.length} tracked file path(s) longer than ${WIN_MAX_FILE} characters under ${prefix}${name ? "" : " (repository name unknown; shortest possible)"} (longest: ${prefix.length + long.longest.length} characters, ${long.longest}) without ${unsupported ? "provable " : ""}Git long paths${unsupported ? " (a step or environment before the checkout touches core.longpaths in a way this check cannot prove runs: a condition, echo or other shell text, a custom shell, an action, an expression, or a GIT_CONFIG_COUNT git would refuse)" : ""}${after ? " (core.longpaths is enabled only after the checkout)" : ""}: git fails with "Filename too long"`,
         fix: "add an unconditional step before the checkout whose whole script is `git config --system core.longpaths true`, or leave the long paths out of the job's sparse checkout",
       });
     }

@@ -281,3 +281,30 @@ test("CA-11 through the gate: the budget is the runner workspace of the GitHub r
   assert.equal(unknown.status, 1, unknown.stdout);
   assert.match(unknown.stdout, /^FAIL checkout-longpaths \(CA-11\): UNSUPPORTED: .*the repository name is unknown/m);
 });
+
+test("CA-11 through the gate: the last GIT_CONFIG pair below COUNT wins", (t) => {
+  const file = longFile(240);
+  const run = (vars) => gate(t, "swiftright", { ".github/workflows/ci.yml": windowsJob({ env: `    env:\n${Object.entries(vars).map(([k, v]) => `      ${k}: "${v}"\n`).join("")}` }), [file]: "x\n" }, LONGPATHS_ONLY);
+  const pairs = (v0, v1) => ({ GIT_CONFIG_COUNT: "2", GIT_CONFIG_KEY_0: "core.longpaths", GIT_CONFIG_VALUE_0: v0, GIT_CONFIG_KEY_1: "core.longpaths", GIT_CONFIG_VALUE_1: v1 });
+  for (const [label, vars] of [["true then false", pairs("true", "false")], ["1 then 0", pairs("1", "0")]]) {
+    const r = run(vars);
+    assert.equal(r.status, 1, `${label}: ${r.stdout}`);
+    assert.match(r.stdout, /^FAIL checkout-longpaths \(CA-11\): \.github\/workflows\/ci\.yml job ci \(windows-2025\) checks out 1 tracked file path\(s\) .* without Git long paths/m, label);
+  }
+  assert.equal(run(pairs("false", "true")).status, 0, "false then true: the last pair wins");
+  assert.equal(run({ GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.longpaths", GIT_CONFIG_VALUE_0: "true" }).status, 0);
+});
+
+test("CA-11 through the gate: the value in effect at the checkout decides, not any earlier enable", (t) => {
+  const file = longFile(240);
+  const red = (before, checkoutEnv = "") => gate(t, "swiftright", { ".github/workflows/ci.yml": windowsJob({ before }).replace("      - uses: actions/checkout@v7\n", `      - uses: actions/checkout@v7\n${checkoutEnv}`), [file]: "x\n" }, LONGPATHS_ONLY);
+  const enable = "      - run: git config --system core.longpaths true\n";
+  const laterOff = red(`${enable}      - run: git config --global core.longpaths false\n`);
+  assert.equal(laterOff.status, 1, laterOff.stdout);
+  assert.match(laterOff.stdout, /^FAIL checkout-longpaths \(CA-11\): \.github\/workflows\/ci\.yml job ci .* without Git long paths/m);
+  const envOff = red(enable, '        env:\n          GIT_CONFIG_COUNT: "1"\n          GIT_CONFIG_KEY_0: core.longpaths\n          GIT_CONFIG_VALUE_0: "false"\n');
+  assert.equal(envOff.status, 1, envOff.stdout);
+  assert.match(envOff.stdout, /^FAIL checkout-longpaths \(CA-11\): \.github\/workflows\/ci\.yml job ci .* without Git long paths/m);
+  assert.equal(red(`${enable}      - run: echo unrelated\n`).status, 0, "an unrelated step keeps it on");
+  assert.equal(red("      - run: git config --system core.longpaths false\n      - run: git config --system core.longpaths true\n").status, 0, "disable then enable");
+});
