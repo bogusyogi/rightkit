@@ -1,0 +1,5 @@
+factory/native/windows/wgc-record/wgc-record.cpp
+factory/tools/ci_pair.py
+factory/tools/mac-accessibility.sh
+factory/tools/pass_capture_lease.py
+factory/tools/pass_render_scale.py

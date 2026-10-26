@@ -36,11 +36,22 @@ release_critical = true
 
 [[journey]]
 id = "J-002"
-title = "The app launches hidden on isolated data, supervises its engine and answers the doctor call from the window"
+title = "The app launches hidden on isolated data, passes the first-run agreement, supervises its engine and answers the doctor call from the window"
 platforms = ["macos", "windows"]
 surface = "native-ui"
 runner = "scenario"
 entry = "tests/scenarios/app-launch.scenario.toml"
+tier = "fast"
+data = "generated"
+release_critical = true
+
+[[journey]]
+id = "J-003"
+title = "First run records the legal acceptance in the native receipt, keeps the setup progress in the settings document, reports licensing disabled, and is not shown again on relaunch"
+platforms = ["macos", "windows"]
+surface = "native-ui"
+runner = "scenario"
+entry = "tests/scenarios/first-run.scenario.toml"
 tier = "fast"
 data = "generated"
 release_critical = true

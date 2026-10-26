@@ -11,6 +11,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { RULES, guardCommand } from "./app-check.mjs";
 import { CONSUMER_SOURCE_RULES, caddyBlocks, commandInputs, shellCommands, yamlEntries } from "./consumer-source-contracts.mjs";
+import { PARTIAL_EXIT } from "./bin/rightkit-gate.mjs";
 
 const PACKAGE = path.dirname(fileURLToPath(import.meta.url));
 const rule = (id) => CONSUMER_SOURCE_RULES.find((r) => r.id === id);
@@ -385,5 +386,5 @@ test("the consumer rules are app-check rules: rightkit-gate check reports them a
   fs.writeFileSync(path.join(repo, ".github/workflows/codeql.yml"), codeql(V4390, V4390));
   git("commit", "-q", "-am", "bump both");
   const green = spawnSync(process.execPath, [path.join(PACKAGE, "bin", "rightkit-gate.mjs"), "check", "--repo", repo, "--commit", "HEAD", "--only", CONSUMER_SOURCE_RULES.map((r) => r.id).join(",")], { encoding: "utf8" });
-  assert.equal(green.status, 0, green.stdout + green.stderr);
+  assert.equal(green.status, PARTIAL_EXIT, green.stdout + green.stderr);
 });

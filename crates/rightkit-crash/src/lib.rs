@@ -10,6 +10,8 @@
 //!
 //! * `HangWatchdog` notices an event loop or UI thread that stops beating and records a `hang`
 //!   report, an all-threads native capture and the scrubbed tail of the app's logs.
+//! * `init_diagnostics` (feature `diagnostics`) wires one process's crash hook and daily-rolling
+//!   `tracing` file logs under one app data root, so apps stop hand-wiring both.
 //! * `record_android_exits` turns the Android exit history (native crash tombstones and ANRs the OS
 //!   already recorded) into the same redacted reports on the next launch.
 //!
@@ -23,6 +25,8 @@ mod android;
 mod archive;
 #[cfg(feature = "support-bundle")]
 mod bundle;
+#[cfg(feature = "diagnostics")]
+mod diagnostics;
 pub mod dump_helper;
 mod hang;
 mod hook;
@@ -40,6 +44,8 @@ pub use android::{
 pub use archive::create_zip;
 #[cfg(feature = "support-bundle")]
 pub use bundle::{build_support_bundle, BundleManifest, SupportBundleOptions};
+#[cfg(feature = "diagnostics")]
+pub use diagnostics::{init_diagnostics, Diagnostics, DiagnosticsConfig, CRASH_SUBDIR, LOG_SUBDIR};
 pub use hang::{HangEvent, HangOptions, HangWatchdog, Heartbeat};
 pub use hook::{
     capture_native_for_pid, fallback_crash_dir, install_panic_hook, install_process_hook,

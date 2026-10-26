@@ -46,7 +46,7 @@ test("a rule that throws is a FAIL, never a pass", (t) => {
 });
 
 test("every rule names its scan-gap family or the invariant it enforces", () => {
-  for (const rule of RULES) assert.match(rule.gap, /^(G\d{2}|P\d+|SC-R\d|C3-\d{2}|CA-\d{2})$/, rule.id);
+  for (const rule of RULES) assert.match(rule.gap, /^(G\d{2}|P\d+|SC-R\d|C3-\d{2}|SF-\d{2}|OW-\d{2}|CA-\d{2})$/, rule.id);
 });
 
 // ---- P11 of docs/PIPELINE-ARCHITECTURE.md: one client name ---------------------------------------------------------------
@@ -735,6 +735,173 @@ test("G22 e2e-under-cargo-test: a CRLF checkout (Windows) gives the same finding
   assert.deepEqual(identities(run("e2e-under-cargo-test", t, crlf)), expected);
 });
 
+// B3 (a): `cargo run` has no --no-run, so a finding on a program run in the broker says how to build it there and run it outside.
+test("G22 e2e-under-cargo-test: a cargo run finding says to build the binary in the broker and run it outside, never --no-run; test and nextest findings keep --no-run", (t) => {
+  const scripts = {
+    "qa:bin": "rustright cargo run --bin app-qa",
+    "qa:crate": "rustright cargo run -p app-e2e",
+    "qa:native": "rustright cargo run --manifest-path src-tauri/qa-e2e/Cargo.toml --bin app-shell-qa",
+    "qa:test": "rustright cargo test -p app-e2e",
+    "qa:nextest": "cargo nextest run -p app-e2e",
+  };
+  const failures = run("e2e-under-cargo-test", t, e2eApp({
+    "package.json": JSON.stringify({ scripts }, null, 2),
+    // two binaries, and a standalone crate whose only target is a [[bin]] (CodeRight's qa-e2e)
+    "crates/multi-e2e/Cargo.toml": `[package]\nname = "multi-e2e"\n\n[dependencies]\n${QA_DEP}\n`,
+    "crates/multi-e2e/src/bin/one.rs": "use rightkit_qa::harness::Harness;\nfn main() {}\n",
+    "crates/multi-e2e/src/bin/two.rs": "fn main() {}\n",
+    "qa-e2e/Cargo.toml": `[package]\nname = "coderight-qa-e2e"\n\n[workspace]\n\n[dependencies]\n${QA_DEP}\n\n[[bin]]\nname = "coderight-qa"\npath = "src/main.rs"\n`,
+    "qa-e2e/src/main.rs": "use rightkit_qa::suite::run_suite;\nfn main() {}\n",
+    "scripts/other.sh": "rustright cargo run -p multi-e2e --bin two\nrustright cargo run -p multi-e2e\nrustright cargo run --manifest-path qa-e2e/Cargo.toml --bin coderight-qa -- --kind visual\n",
+  }));
+  const fixOf = (file, subject, crate, line) => failures.find((f) => f.file === file && f.subject === subject && f.problem.includes(`end-to-end crate ${crate} `) && (line === undefined || f.problem.startsWith(`${file}:${line} `)))?.fix;
+  const BUILD = (flags) => `build it in the broker (rustright cargo build ${flags}) and run the built binary outside the broker (or rightkit-qa journeys run)`;
+  assert.equal(fixOf("package.json", "qa:bin", "app-e2e"), BUILD("-p app-e2e --bin app-qa"));
+  assert.equal(fixOf("package.json", "qa:crate", "app-e2e"), BUILD("-p app-e2e --bin app-qa"), "-p alone: the crate's one binary");
+  assert.equal(fixOf("package.json", "qa:native", "app-shell-qa"), BUILD("--manifest-path src-tauri/qa-e2e/Cargo.toml -p app-shell-qa --bin app-shell-qa"), "a crate outside the workspace in the working directory is built from its own manifest");
+  assert.equal(failures.find((f) => f.problem.startsWith("scripts/other.sh:1 ")).fix, BUILD("-p multi-e2e --bin two"), "--bin names the binary");
+  assert.equal(failures.find((f) => f.problem.startsWith("scripts/other.sh:2 ")).fix, BUILD("-p multi-e2e --bin <bin>"), "two binaries and none named: a placeholder, not a guess");
+  assert.equal(failures.find((f) => f.problem.startsWith("scripts/other.sh:3 ")).fix, BUILD("--manifest-path qa-e2e/Cargo.toml -p coderight-qa-e2e --bin coderight-qa"));
+  const runs = failures.filter((f) => /cargo run /.test(f.problem));
+  assert.equal(runs.length, 6, "every cargo run finding was checked");
+  for (const f of runs) assert.doesNotMatch(f.fix, /--no-run|run-tests/, `${f.problem}: cargo run has no --no-run`);
+  const RUNNER = "rightkit-qa run-tests -p app-e2e [--test <target>] -- <libtest args>";
+  assert.equal(fixOf("package.json", "qa:test", "app-e2e"), `compile it with --no-run and run it outside the broker: ${RUNNER}`);
+  assert.equal(fixOf("package.json", "qa:nextest", "app-e2e"), `compile it with --no-run and run it outside the broker: ${RUNNER}`);
+});
+
+// B3 (b): a test run that names no crate in a virtual workspace still runs every member, the end-to-end crate included.
+test("G22 e2e-under-cargo-test: cargo test with no -p in a virtual workspace that holds an end-to-end crate is a finding, bare or with --manifest-path Cargo.toml, unless it leaves the crate out", (t) => {
+  const scripts = {
+    "test:rust": "rustright cargo test --manifest-path Cargo.toml",
+    "test:bare": "rustright cargo test",
+    "test:bare-nextest": "cargo nextest run --no-fail-fast",
+    "test:locked": "rustright cargo test --locked --features app-engine/test-mode -- --test-threads=1",
+    // not findings: the crate is left out, nothing runs, another package is named, or the root is not a virtual workspace
+    "test:exclude": "rustright cargo test --workspace --exclude app-e2e",
+    "test:exclude-manifest": "rustright cargo test --manifest-path Cargo.toml --workspace --exclude app-e2e",
+    "test:package": "rustright cargo test -p app-engine",
+    "test:compile": "rustright cargo test --manifest-path Cargo.toml --no-run",
+    "test:build": "rustright cargo build && rustright cargo check",
+    "test:help": "rustright cargo test --help",
+    "test:run": "rustright cargo run",
+    "test:other-manifest": "rustright cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:list": "cargo nextest list",
+    "test:runner": "rightkit-qa run-tests --app app -p app-e2e",
+    "test:guard": "rustright cargo test --test qa_surface_guard",
+  };
+  const failures = run("e2e-under-cargo-test", t, e2eApp({
+    "package.json": JSON.stringify({ scripts }, null, 2),
+    // a package below the root with no Cargo.toml of its own runs cargo in the root workspace; src-tauri is a package that holds its own [workspace]
+    "apps/ui/package.json": JSON.stringify({ scripts: { "test:rust": "rustright cargo test", "test:up": "rustright cargo test --manifest-path ../../Cargo.toml" } }, null, 2),
+    "src-tauri/package.json": JSON.stringify({ scripts: { "test:rust": "rustright cargo test" } }, null, 2),
+    "scripts/ci.sh": "cd src-tauri\nrustright cargo test\ncd ..\nrustright cargo test\n",
+  }));
+  assert.deepEqual(failures.map((f) => `${f.problem.split(" ")[0]} ${f.subject}`).sort(), [
+    "apps/ui/package.json:3 test:rust", "apps/ui/package.json:4 test:up",
+    "package.json:3 test:rust", "package.json:4 test:bare", "package.json:5 test:bare-nextest", "package.json:6 test:locked",
+    "scripts/ci.sh:4 app-e2e",
+  ].sort(), "only the end-to-end member of the virtual root is selected, once per command");
+  assert.ok(failures.every((f) => /end-to-end crate app-e2e under cargo test /.test(f.problem)), "legacy-e2e is excluded from the workspace and name-only-e2e is not end-to-end");
+  const of = (subject) => failures.find((f) => f.subject === subject);
+  assert.match(of("test:rust").problem, /\(rustright cargo test --manifest-path Cargo\.toml\)/);
+  assert.match(of("test:bare").problem, /\(rustright cargo test\)/);
+  assert.match(of("test:bare-nextest").problem, /\(cargo nextest\)/);
+  assert.equal(of("test:bare").fix, "leave it out of the workspace run (--workspace --exclude app-e2e), compile it with --no-run and run it outside the broker: rightkit-qa run-tests -p app-e2e [--test <target>] -- <libtest args>");
+  // CutRight's `--workspace` was caught before and is caught the same way, with the same fix.
+  const wide = run("e2e-under-cargo-test", t, e2eApp({ "package.json": JSON.stringify({ scripts: { w: "rustright cargo test --workspace --features app-engine/test-mode" } }) }));
+  assert.equal(wide.length, 1);
+  assert.match(wide[0].problem, /\(rustright cargo test --workspace\)/);
+  assert.equal(wide[0].fix, of("test:bare").fix);
+});
+
+test("G22 e2e-under-cargo-test: a bare cargo test follows default-members, selects nothing in a root that has a package of its own, and keeps the history-document exemptions", (t) => {
+  const crates = (members) => ({
+    "crates/app-e2e/Cargo.toml": `[package]\nname = "app-e2e"\n\n[dependencies]\n${QA_DEP}\n`,
+    "crates/app-e2e/tests/scenarios.rs": "use rightkit_qa::scenario::Scenario;\n",
+    "crates/app-engine/Cargo.toml": '[package]\nname = "app-engine"\n',
+    "crates/app-engine/src/lib.rs": "",
+    ...members,
+  });
+  const bare = { "package.json": JSON.stringify({ scripts: { test: "rustright cargo test" } }) };
+  const found = (files) => run("e2e-under-cargo-test", t, { ...files, ...bare }).map((f) => `${f.file} ${f.subject}`);
+  // default-members names what a bare run tests; --workspace still tests every member
+  assert.deepEqual(found(crates({ "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\ndefault-members = ["crates/app-engine"]\n' })), [], "default-members without the end-to-end crate");
+  assert.deepEqual(found(crates({ "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\ndefault-members = [\n  "crates/app-engine", # unit\n  "crates/app-e2e",\n]\n' })), ["package.json test"], "default-members with it, over several lines");
+  assert.deepEqual(found(crates({ "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\ndefault-members = ["crates/app-e*"]\n' })), ["package.json test"], "a default-members glob");
+  const withWorkspace = run("e2e-under-cargo-test", t, { ...crates({ "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\ndefault-members = ["crates/app-engine"]\n' }), "package.json": JSON.stringify({ scripts: { test: "rustright cargo test --workspace" } }) });
+  assert.equal(withWorkspace.length, 1, "--workspace ignores default-members");
+  // a root that holds a package tests that package only, so a bare run selects nothing there (the documented limit)
+  assert.deepEqual(found(crates({ "Cargo.toml": '[package]\nname = "root"\n\n[workspace]\nmembers = ["crates/*"]\n', "src/lib.rs": "" })), []);
+  // no workspace at all, a workspace the crate is not a member of
+  assert.deepEqual(found(crates({ "Cargo.toml": '[workspace]\nmembers = ["crates/app-engine"]\n' })), [], "not a member of the workspace in the working directory");
+  assert.deepEqual(found(crates({ "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\nexclude = ["crates/app-e2e"]\n' })), [], "excluded from it");
+  // documents: a runbook's code is a command, a history document's is not, and neither selects anything without an end-to-end crate
+  const docs = crates({
+    "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n',
+    "README.md": "Run `rustright cargo test` before you push.\n", "docs/archive/old.md": "`rustright cargo test`\n", "docs/2026-10-11-notes.md": "`rustright cargo test`\n", "CHANGELOG.md": "`rustright cargo test`\n",
+  });
+  assert.deepEqual(run("e2e-under-cargo-test", t, docs).map((f) => `${f.file} ${f.subject}`), ["README.md app-e2e"]);
+  assert.deepEqual(run("e2e-under-cargo-test", t, { ...docs, "crates/app-e2e/tests/scenarios.rs": "fn t() {}\n" }), [], "no end-to-end crate, nothing to find");
+});
+
+test("G22 e2e-under-cargo-test: a code span that is only the command is a command line when it is told to be run, not when it is mentioned; a PowerShell block comment is a comment", (t) => {
+  // Found running the check on PostRight, ScrapeRight, CutRight, Ember and GenRight: the root is a virtual workspace that holds an end-to-end crate, so a bare
+  // `cargo test` selects it, and each line below is prose that names the command, a label, a negation or a comment, not a command line.
+  const mentions = [
+    "- `cargo test` unit tests: `runtime::credential_store_guard` and `doctor::tests`.",
+    "The end-to-end crate compiles in the broker and runs outside it: `cargo test` would hold the broker's compile slot for the whole run.",
+    "- `cargo test`: Rust unit tests and crate tests.",
+    "`scripts/gate.sh` no longer runs `cargo test`.",
+    "Only FreeBSD runs `cargo test`.",
+    "Put the settings in `.cache/e2e/settings.env` because `rustright cargo test` drops the environment.",
+    "Do not run `cargo test` for the end-to-end crate.",
+    "Never use `rustright cargo test` here; run `rightkit-qa run-tests` instead.",
+    "You don't need to run `cargo test`.",
+    "Running `cargo test` takes 55 minutes.",
+  ];
+  const instructions = [
+    "Run `rustright cargo test` before you push.",
+    "1. Use `cargo test` to check the Rust side.",
+    "- **Run** `cargo test`",
+    "Tip: run `cargo test` when the engine changes.",
+    "Run `cargo test --manifest-path Cargo.toml` for Rust changes.",
+    "The Rust suite is `cargo test --locked`.",
+  ];
+  const readme = ["# App", ...mentions, ...instructions, "", "```sh", "# cargo test in a comment", "cargo test", "```", ""].join("\n");
+  const powershell = [
+    "<#",
+    "Falls back to cargo test --ignored if standalone not present.",
+    "rustright cargo test",
+    "#>",
+    "param()",
+    "rustright cargo test",
+    "<# note #> rustright cargo test",
+    "<# opens here",
+    "rustright cargo test",
+    "closes #>",
+    'Write-Host "<# not a block"',
+    "rustright cargo test",
+    "",
+  ].join("\n");
+  const failures = run("e2e-under-cargo-test", t, e2eApp({ "README.md": readme, "scripts/bench.ps1": powershell, "scripts/bench.psm1": "<#\ncargo test\n#>\n" }));
+  const found = failures.map((f) => `${f.problem.split(" ")[0]} ${f.subject}`).sort();
+  const expected = [
+    ...instructions.map((text) => `README.md:${lineIn(readme, text)} app-e2e`),
+    `README.md:${readme.split("\n").lastIndexOf("cargo test") + 1} app-e2e`, // the bare command in the fenced block
+    "scripts/bench.ps1:6 app-e2e", "scripts/bench.ps1:7 app-e2e", "scripts/bench.ps1:12 app-e2e",
+  ].sort();
+  assert.deepEqual(found, expected);
+  assert.match(failures.find((f) => f.file === "scripts/bench.ps1" && f.problem.startsWith("scripts/bench.ps1:6 ")).problem, /^scripts\/bench\.ps1:6 command runs the end-to-end crate app-e2e under cargo test \(rustright cargo test\)/);
+  // The same bare command in a package.json script, a recipe or a workflow step is a command line whatever stands around it.
+  const elsewhere = run("e2e-under-cargo-test", t, e2eApp({
+    "package.json": JSON.stringify({ scripts: { test: "rustright cargo test" } }),
+    Makefile: "unit:\n\trustright cargo test\n",
+    ".github/workflows/ci.yml": "jobs:\n  t:\n    steps:\n      - run: cargo test\n",
+  })).map((f) => `${f.file} ${f.subject}`).sort();
+  assert.deepEqual(elsewhere, [".github/workflows/ci.yml app-e2e", "Makefile app-e2e", "package.json test"]);
+});
+
 test("G22 e2e-under-cargo-test: ratchet: a baseline entry tolerates the finding, a fixed one is STALE, the build does not refuse it", async (t) => {
   const pkg = (command) => JSON.stringify({ scripts: { "test:e2e": command } }, null, 2);
   const { repo, parent } = appRepo(t, e2eApp({ "package.json": pkg("rustright cargo test -p app-e2e -- --test-threads=1") }));
@@ -902,7 +1069,7 @@ test("runAppCheck returns the findings, the tolerated ones, the stale ones and t
   assert.deepEqual(red.findings.map((f) => f.identity).sort(), ["qa-platform|tests/q.rs|platform:macos", "skip-checks|package.json|ship"]);
   assert.deepEqual([red.known, red.stale, red.expired], [[], [], []]);
   assert.match(red.text, /^FAIL qa-platform \(G13\): tests\/q\.rs:1 /m);
-  assert.match(red.text, /^preflight: 2 problem\(s\) in \w{12} \(28 rules, /m);
+  assert.match(red.text, /^preflight: 2 problem\(s\) in \w{12} \(40 rules, /m);
   const baseline = writeBaseline(parent, { apprepo: [KNOWN_ID, "skip-checks|package.json|ship", "qa-platform|tests/gone.rs|platform:macos"] });
   const ratcheted = runAppCheck({ repo, central: null, baseline });
   assert.equal(ratcheted.exitCode, 1);
@@ -1016,7 +1183,9 @@ test("baseline: an entry past its sunset fails as EXPIRED, with its finding, eve
 
 test("baseline: a finding the baseline lists still fails where the build refuses it (switches-inventory), and passes elsewhere", (t) => {
   const id = "switches-inventory|right-release.config.mjs|.";
-  const { repo } = appRepo(t, { "right-release.config.mjs": "export default {};\n", ".rightkit/app-check-baseline.json": JSON.stringify({ schema: 1, known: [appEntry(id, "app#9")] }) });
+  // The fixture app has no rightkit-mandatory.json; its OW-05 finding is listed too, and the build does not refuse it.
+  const declaration = "mandatory-foundation|rightkit-mandatory.json|declaration";
+  const { repo } = appRepo(t, { "right-release.config.mjs": "export default {};\n", ".rightkit/app-check-baseline.json": JSON.stringify({ schema: 1, known: [appEntry(id, "app#9"), appEntry(declaration, "app#10")] }) });
   assert.deepEqual(BUILD_REFUSES, ["switches-inventory"]);
   const tolerated = runAppCheck({ repo, central: null, now: NOW });
   assert.equal(tolerated.exitCode, 0, tolerated.text);
@@ -1024,8 +1193,8 @@ test("baseline: a finding the baseline lists still fails where the build refuses
   const refused = runAppCheck({ repo, central: null, refuse: BUILD_REFUSES, now: NOW });
   assert.equal(refused.exitCode, 1);
   assert.match(refused.text, /^FAIL switches-inventory \(G20\): right-release\.config\.mjs:1 has no switches inventory \(switches\.json does not exist\) \(the baseline lists it, but the build refuses it\)$/m);
-  assert.doesNotMatch(refused.text, /^KNOWN |^STALE /m, "it is not stale either: the finding is there");
-  assert.deepEqual([refused.findings.map((f) => f.identity), refused.known], [[id], []]);
+  assert.doesNotMatch(refused.text, /^KNOWN switches-inventory|^STALE /m, "it is not stale either: the finding is there");
+  assert.deepEqual([refused.findings.map((f) => f.identity), refused.known.map((k) => k.identity ?? k)], [[id], [declaration]]);
   assert.equal(runAppCheck({ repo, central: null, refuse: ["qa-platform"], now: NOW }).exitCode, 0, "only the listed rules");
 });
 
@@ -1280,7 +1449,7 @@ test("the README states the whole checked set with its modes, the baseline contr
 test("the README's rule table lists every app rule, with its gap, in the order the check runs them, and describes G22", () => {
   const readme = fs.readFileSync(new URL("./README.md", import.meta.url), "utf8");
   const section = /## The app check[^\n]*\n([\s\S]*?)\n## /.exec(readme)?.[1] ?? "";
-  const rows = [...section.matchAll(/^\| `([a-z0-9-]+)` \| ((?:G\d{2}|P\d+|SC-R\d|C3-\d{2}|CA-\d{2})) \| (.+) \|$/gm)].map((m) => [m[1], m[2]]);
+  const rows = [...section.matchAll(/^\| `([a-z0-9-]+)` \| ((?:G\d{2}|P\d+|SC-R\d|C3-\d{2}|SF-\d{2}|OW-\d{2}|CA-\d{2})) \| (.+) \|$/gm)].map((m) => [m[1], m[2]]);
   assert.deepEqual(rows, RULES.map((r) => [r.id, r.gap]), "one row per rule in RULES, so a new rule cannot ship undocumented");
   assert.ok(RULES.some((r) => r.id === "e2e-under-cargo-test" && r.gap === "G22"));
   for (const phrase of ["`--no-run`", "`rightkit-qa run-tests`", "`rightkit-qa journeys run`", "`--test qa_surface_guard`", "`e2e-under-cargo-test|<file>|<script or crate>`"]) assert.ok(section.includes(phrase), `the G22 paragraph names ${phrase}`);
@@ -1374,8 +1543,8 @@ test("an installed copy of the package, with no RightKit checkout, prints the sa
   assert.deepEqual(lines, findingLines(preflightRun.stdout), "the findings are byte-identical");
   assert.ok(lines.some((l) => l.startsWith("FAIL eol-policy (G04):")) && lines.some((l) => l.startsWith("FAIL release-config (G16):")) && lines.some((l) => l.startsWith("FAIL scenario-skip (G15):")) && lines.some((l) => l.startsWith("FAIL qa-platform (G13):")), lines.join("\n"));
   assert.ok(lines.some((l) => l.startsWith("KNOWN skip-checks:")) && lines.some((l) => l.startsWith("STALE baseline entry qa-platform|tests/gone.rs|platform:macos")), "the app's own baseline is read in both");
-  assert.match(gate.stdout, /^check: 6 problem\(s\) in \w{12} \(28 rules, [\d.]+s, 1 known\)\./m);
-  assert.match(preflightRun.stdout, /^preflight: 6 problem\(s\) in \w{12} \(35 rules, [\d.]+s, 1 known\)\./m);
+  assert.match(gate.stdout, /^check: 7 problem\(s\) in \w{12} \(40 rules, [\d.]+s, 1 known\)\./m);
+  assert.match(preflightRun.stdout, /^preflight: 7 problem\(s\) in \w{12} \(50 rules, [\d.]+s, 1 known\)\./m);
   assert.deepEqual(spawnSync(process.execPath, [path.join(installed, "bin", "rightkit-gate.mjs"), "check", "--list"], { cwd: path.dirname(installed), encoding: "utf8" }).stdout.trim().split("\n"), RULES.map((r) => `${r.id} (${r.gap})`));
   // The same installed copy through the right-release command, and green once the app is fixed.
   const cli = spawnSync(process.execPath, [path.join(installed, "cli", "right-release.mjs"), "check", "--repo", repo, "--commit", "HEAD"], { cwd: path.dirname(installed), encoding: "utf8" });
@@ -1403,7 +1572,7 @@ test("the packed tarball ships app-check.mjs and no tests, and its rightkit-gate
   const red = run("--commit", "HEAD");
   assert.equal(red.status, 1, red.stdout + red.stderr);
   assert.deepEqual(findingLines(red.stdout).filter((l) => l.startsWith("FAIL")).map((l) => l.split(":")[0]), ["FAIL qa-platform (G13)", "FAIL skip-checks (G17)"]);
-  assert.equal(run("--commit", "HEAD", "--only", "speech-link").status, 0);
+  assert.equal(run("--commit", "HEAD", "--only", "speech-link").status, 3, "a green partial view exits PARTIAL_EXIT, never 0");
 });
 
 test("app-check.mjs and the commands that use it are outside the import closure of the protected ownership policy bundle", async () => {
@@ -1417,6 +1586,6 @@ test("scripts/preflight.mjs runs the same app rules: its rule list is these rule
   const preflightModule = await import("../../scripts/preflight.mjs");
   const ids = preflightModule.RULES.map((r) => r.id);
   assert.deepEqual(ids.filter((id) => RULES.some((r) => r.id === id)), RULES.map((r) => r.id), "every app rule, in app-check's order");
-  assert.deepEqual(ids.filter((id) => !RULES.some((r) => r.id === id)), ["consumer-recipe", "npm-recipe", "npm-surface", "version-pins", "dispatch-pins", "consumer-locks", "generated-docs"]);
+  assert.deepEqual(ids.filter((id) => !RULES.some((r) => r.id === id)), ["eol-pinned", "consumer-recipe", "npm-recipe", "npm-surface", "version-pins", "feed-legacy", "dispatch-pins", "consumer-locks", "generated-docs", "tmpdir-realpath"]);
   for (const id of RULES.map((r) => r.id)) assert.equal(preflightModule.RULES.find((r) => r.id === id), RULES.find((r) => r.id === id), `${id} is the same rule object`);
 });
