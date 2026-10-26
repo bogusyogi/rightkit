@@ -10,6 +10,7 @@
 //   crates  run each committed PK example against exact sealed bytes through an offline directory
 //           registry, then require locked build & runtime success. Missing recipes fail closed.
 // Nothing here publishes or holds a token; the caller has already refused any.
+import { closeIncomplete, expectedIncomplete } from "./exports-import-effects.mjs";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -182,7 +183,7 @@ export function installedImportClosure({ unit, pkg, dir, scratch, installPins })
  * Install the sealed tarballs together into a scratch project and check each from its installed copy.
  * Returns Map(unit name -> { problems: [], report }). Never throws for a package defect.
  */
-function consumeNpmInstallation({ units, packDir, scratchRoot = os.tmpdir(), spawn = spawnSync, env = process.env, npm = npmCliCommand(), node = process.execPath, installPins, onlySubpaths, requireAllImports = false }) {
+function consumeNpmInstallation({ units, packDir, scratchRoot = os.tmpdir(), spawn = spawnSync, env = process.env, npm = npmCliCommand(), node = process.execPath, installPins, onlySubpaths, requireAllImports = false, incomplete = null }) {
   const results = new Map(units.map((u) => [u.name, { problems: [], report: {} }]));
   const scratch = fs.mkdtempSync(path.join(scratchRoot, "rk-consume-npm-"));
   try {
@@ -256,6 +257,16 @@ function consumeNpmInstallation({ units, packDir, scratchRoot = os.tmpdir(), spa
           else report.resolvedOnly.push(row.spec);
         }
         if (rows.length !== check.items.length) out.problems.push(`${unit.name}: import check covered ${rows.length} of ${check.items.length} entries`);
+      }
+      // The source probe (scripts/ci/exports-import-effects.mjs) could not import build output; it handed those exports here as
+      // INCOMPLETE. Each one must have been imported from the sealed tarball above, or this unit is not verified.
+      if (incomplete) {
+        // A reviewed closure group imports only its subpaths; it closes only the INCOMPLETE rows it covers.
+        const scoped = { ...incomplete, incomplete: incomplete.incomplete.filter((r) => r.package === unit.name && (!onlySubpaths || onlySubpaths.includes(r.key))) };
+        const imported = [...report.imported, ...report.conditionalImports.map((c) => c.spec)];
+        const closure = closeIncomplete({ report: scoped, name: unit.name, importedSpecs: imported, expected: onlySubpaths ? expectedIncomplete(pkg).filter((e) => onlySubpaths.includes(e.key)) : expectedIncomplete(pkg) });
+        out.problems.push(...closure);
+        report.incompleteClosed = scoped.incomplete.length - closure.length;
       }
     }
   } finally { fs.rmSync(scratch, { recursive: true, force: true }); }

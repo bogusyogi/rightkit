@@ -23,6 +23,11 @@
 //                         (cargo --locked refuses a stale one: tauri-shell consumer-0-0, wv2-0_39, 2026-10-23)
 //   generated-docs   G10  scripts/generate-index.mjs --check: INDEX.md and docs/CAPABILITY-MAP.md match the committed sources, and the
 //                         port matrix's MD and HTML are the rendering of its JSON (offline: reads manifests and the version feed only)
+//   eol-pinned       G25  a tracked text file whose .gitattributes entry leaves eol to core.autocrlf: a Windows checkout writes CRLF into it,
+//                         so a test or generator that compares or hashes its bytes fails only there (#1175, #1187). The repository pins
+//                         `* text=auto eol=lf` once; this refuses a file that line no longer reaches
+//   tmpdir-realpath  G26  a test that passes its temp directory to realpath and also compares the unresolved directory: macOS answers
+//                         /private/var/... for /var/... (outdated-command.test.mjs before #1187)
 //
 // Ratchet: ci/app-check-baseline.json (this checkout's) lists, per repository key (lowercased --repo basename; "rightkit" for
 // this one), the identities `${rule}|${file}|${subject}` (no line numbers) of findings that exist today. A listed finding prints
@@ -289,19 +294,222 @@ function generatedDocs({ root, files }) {
   return [{ problem: drift.length ? drift.join("; ") : `scripts/generate-index.mjs --check failed: ${(r.stderr || r.stdout).trim()}`, fix: "node scripts/generate-index.mjs, then commit INDEX.md, docs/CAPABILITY-MAP.md and, for a port matrix drift, docs/PORT-MATRIX.md, docs/port-matrix.html and docs/port-matrix.json" }];
 }
 
+// ---- G25 and G26: bugs that only a Windows or macOS runner showed, found from files alone ----------------------------------------
+// Both police RightKit's own tree (they switch on scripts/preflight.mjs being committed), so an app checked from here stays quiet.
+
+// git's repository-location variables are dropped from the git call (packages/release/app-check.mjs does the same): a hook runs
+// with some of them set, and `--repo` must mean the repository it names.
+const GIT_LOCATION = /^GIT_(?:DIR|WORK_TREE|INDEX_FILE|COMMON_DIR|PREFIX|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|NAMESPACE)$/i;
+const gitEnv = () => Object.fromEntries(Object.entries(process.env).filter(([key]) => !GIT_LOCATION.test(key)));
+const RIGHTKIT_TREE = "scripts/preflight.mjs";
+const VENDORED_OR_INSTALLED = /(^|\/)(node_modules|vendor|target)\//;
+
+/** git's own test for "this is not text" (convert.c convert_is_binary): a NUL, a lone CR, or mostly non-printable bytes. */
+export function looksBinary(bytes) {
+  let printable = 0, nonprintable = 0, nul = 0, loneCr = 0;
+  for (let i = 0; i < bytes.length; i++) {
+    const c = bytes[i];
+    if (c === 13) { if (bytes[i + 1] === 10) i++; else loneCr++; continue; }
+    if (c === 10) continue;
+    if (c === 127) nonprintable++;
+    else if (c < 32) {
+      if (c === 8 || c === 9 || c === 12 || c === 27) printable++;
+      else { if (c === 0) nul++; nonprintable++; }
+    } else printable++;
+  }
+  if (bytes.length > 0 && bytes[bytes.length - 1] === 26) nonprintable--; // a trailing ^Z is not counted
+  return loneCr > 0 || nul > 0 || (printable >> 7) < nonprintable;
+}
+
+/** G25: a Windows checkout (core.autocrlf=true, the default of Git for Windows and of the hosted runners) writes CRLF into every
+ * text file whose .gitattributes entry leaves `eol` unset. A test that compares such a file byte for byte, or a generator that
+ * hashes it, passes on Linux and macOS and fails only there (docs/RELEASE-EXPORTS.md in release-exports.test.mjs, #1187; the Swift
+ * Right Suite API projection of #1175, which scripts/gen-suite-api.mjs compares strictly and .gitattributes did not list). The
+ * repository pins `* text=auto eol=lf` once; this refuses a text file that line no longer reaches. `-text` (bytes kept as
+ * committed) and `eol=crlf` (a .bat or .cmd) are pinned too: git converts nothing on any host, or the same thing on every host. */
+function eolPinned({ root, files, repo = REPO }) {
+  if (!files.includes(RIGHTKIT_TREE)) return [];
+  const paths = files.filter((f) => !/(^|\/)node_modules\//.test(f)); // vendored trees stay in: their bytes are the ones that get hashed
+  const r = spawnSync("git", ["--work-tree", root, "check-attr", "-z", "--stdin", "text", "eol"], { cwd: repo, env: gitEnv(), input: paths.join("\0"), encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  if (r.error || r.status !== 0) throw new Error(`git check-attr failed: ${r.error?.message ?? r.stderr.trim()}`);
+  const fields = r.stdout.split("\0");
+  const seen = new Map();
+  for (let i = 0; i + 2 < fields.length; i += 3) seen.set(fields[i], { ...seen.get(fields[i]), [fields[i + 1]]: fields[i + 2] });
+  const loose = [];
+  for (const [file, a] of seen) {
+    if (a.text === "unset" || a.eol === "lf" || a.eol === "crlf") continue;
+    let bytes;
+    try { bytes = fs.readFileSync(path.join(root, file)); } catch { continue; } // a submodule directory
+    // Nothing to convert in a file without a line break (git's i/none), or in a binary one.
+    if (bytes.includes(10) && !looksBinary(bytes)) loose.push(file);
+  }
+  if (!loose.length) return [];
+  loose.sort();
+  return [{
+    problem: `${loose.length} tracked text file(s) have no pinned line ending: .gitattributes leaves eol to core.autocrlf, so a Windows checkout writes CRLF and a byte-for-byte comparison or hash of them fails there (${loose.slice(0, 5).join(", ")}${loose.length > 5 ? `, and ${loose.length - 5} more` : ""})`,
+    fix: "make `* text=auto eol=lf` the first line of .gitattributes again, or give the file its own entry: `text eol=lf`, `-text` when its bytes must stay as committed, `eol=crlf` for a .bat or .cmd",
+  }];
+}
+
+// G26 reads test files with a small scanner: strings, template literals, comments and regex literals are skipped, and each
+// identifier is reported with the callee of every call that encloses it.
+function skipQuoted(text, at) {
+  const quote = text[at];
+  let i = at + 1;
+  while (i < text.length && text[i] !== quote) {
+    if (text[i] === "\\") i++;
+    else if (quote === "`" && text[i] === "$" && text[i + 1] === "{") {
+      let depth = 1;
+      for (i += 2; i < text.length && depth; i++) {
+        if (text[i] === "{") depth++;
+        else if (text[i] === "}") depth--;
+        else if (text[i] === "`" || text[i] === '"' || text[i] === "'") i = skipQuoted(text, i) - 1;
+      }
+      i--;
+    } else if (quote !== "`" && text[i] === "\n") return i;
+    i++;
+  }
+  return i + 1;
+}
+function skipRegex(text, at) {
+  let i = at + 1, inClass = false;
+  for (; i < text.length && text[i] !== "\n"; i++) {
+    if (text[i] === "\\") i++;
+    else if (text[i] === "[") inClass = true;
+    else if (text[i] === "]") inClass = false;
+    else if (text[i] === "/" && !inClass) return i + 1;
+  }
+  return at + 1;
+}
+function* identifiersWithCallers(text) {
+  const callers = [];
+  let last = "";
+  for (let i = 0; i < text.length;) {
+    const c = text[i];
+    if (c === "/" && text[i + 1] === "/") { while (i < text.length && text[i] !== "\n") i++; continue; }
+    if (c === "/" && text[i + 1] === "*") { const end = text.indexOf("*/", i + 2); i = end < 0 ? text.length : end + 2; continue; }
+    if (c === '"' || c === "'" || c === "`") { i = skipQuoted(text, i); last = '"'; continue; }
+    if (c === "/" && (last === "" || "(,=:[!&|?{};".includes(last))) { i = skipRegex(text, i); last = "/"; continue; }
+    if (/[A-Za-z_$]/.test(c)) {
+      let j = i + 1;
+      while (j < text.length && /[\w$]/.test(text[j])) j++;
+      yield { name: text.slice(i, j), at: i, property: text[i - 1] === "." || /^\s*:/.test(text.slice(j, j + 8)), callers: callers.slice() };
+      last = "a";
+      i = j;
+      continue;
+    }
+    if (c === "(") callers.push(/([\w$.]+)\s*$/.exec(text.slice(Math.max(0, i - 80), i))?.[1] ?? "");
+    else if (c === ")") callers.pop();
+    if (!/\s/.test(c)) last = c;
+    i++;
+  }
+}
+
+const PATH_BUILDERS = new Set(["path.join", "path.resolve", "path.posix.join", "path.win32.join", "join", "resolve"]);
+const ASSERT_EQUALITY = /^assert(?:\.strict)?\.(?:equal|strictEqual|deepEqual|deepStrictEqual|notEqual|notStrictEqual|notDeepEqual|notDeepStrictEqual)$/;
+const TEST_FILE = /\.test\.(?:mjs|cjs|js|mts|ts)$/;
+const TEST_START = /^[ \t]*(?:test|it)(?:\.\w+)?\(/gm;
+const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** G26: macOS puts os.tmpdir() behind the /var -> /private/var symlink, so code that answers real paths (realpathSync, a child's
+ * cwd) answers /private/var/... for a directory the test built as /var/.... A test that already resolves its temp directory in one
+ * place (`realpathSync(app)`, to compare a child's cwd) knows this; if the same test also puts that unresolved directory into an
+ * expected path (`assert.equal(found, path.join(app, ...))`), the comparison fails on the Mac only (outdated-command.test.mjs
+ * before #1187). Decided per test() block from the file alone: an unresolved temp directory in a test that never resolves it, or
+ * one compared only with what the code echoes back, is correct and is not reported. */
+function tmpdirRealpath({ root, files }) {
+  if (!files.includes(RIGHTKIT_TREE)) return [];
+  const out = [];
+  for (const file of files) {
+    if (!TEST_FILE.test(file) || VENDORED_OR_INSTALLED.test(file)) continue;
+    const text = readText(root, file);
+    if (!text || !text.includes("realpath")) continue;
+    const starts = [...text.matchAll(TEST_START)].map((m) => m.index);
+    for (let k = 0; k < starts.length; k++) {
+      const block = text.slice(starts[k], starts[k + 1] ?? text.length);
+      const resolved = new Set([...block.matchAll(/\brealpath(?:Sync)?(?:\.native)?\(\s*([A-Za-z_$][\w$]*)\s*\)/g)].map((m) => m[1]));
+      for (const name of resolved) {
+        // Bound in this test straight from a temp-directory creator (mkdtemp*, tempDir, tmp, scratch...), not already resolved: a path
+        // derived from another call is not a temp root, and whether that call resolves it is not decidable from here.
+        if (!new RegExp(`(?:const|let)\\s+${escapeRegExp(name)}\\s*=\\s*(?=\\S)(?!(?:await\\s+)?(?:\\w+\\.)*realpath)(?:await\\s+)?(?:\\w+\\.)*(?:mkdtemp|temp|tmp|scratch|withTemp)\\w*\\s*\\(`).test(block)) continue;
+        const use = [...identifiersWithCallers(block)].find((u) => {
+          if (u.name !== name || u.property) return false;
+          let depth = u.callers.length - 1;
+          while (depth >= 0 && PATH_BUILDERS.has(u.callers[depth])) depth--;
+          return depth >= 0 && ASSERT_EQUALITY.test(u.callers[depth]);
+        });
+        if (!use) continue;
+        const line = text.slice(0, starts[k] + use.at).split("\n").length;
+        out.push({ file, subject: name, problem: `${file}:${line} compares ${name}, a temp directory this test keeps unresolved, although the same test passes ${name} to realpath: macOS reports os.tmpdir() as /var/..., and the code under test answers its real path /private/var/..., so the comparison fails there`, fix: `bind ${name} to realpathSync(...) where the test creates it, so every path built from it is already a real path` });
+      }
+    }
+  }
+  return out;
+}
+
+// G27: a version the registry already serves stays accepted while a newer one is staged. The feed lists what is published
+// (registry), what is staged and what older published versions installs may still carry (legacy); dropping a published
+// version from legacy while staging its successor fails right-suite-contract inside the full packages/release suite, which
+// first runs minutes into a native verify (rightkit#1188 dropped @rightkit/qa-chrome 0.1.11; #1190). Same rule, files only.
+const semverParts = (v) => String(v).split(/[.+-]/).slice(0, 3).map((n) => Number.parseInt(n, 10) || 0);
+const VERSION = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
+/** Why a version feed is not the shape G27 reads: [] when it is. An empty or array-shaped feed is a problem, never "nothing to check". */
+export function feedShapeProblems(feed) {
+  const out = [];
+  const plain = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+  if (!plain(feed)) return ["the feed is not a JSON object"];
+  if (!plain(feed.registry)) out.push("registry is missing or not an object");
+  else for (const r of ["npm", "cargo"]) {
+    if (!plain(feed.registry[r])) { out.push(`registry.${r} is missing or not an object`); continue; }
+    for (const [n, v] of Object.entries(feed.registry[r])) if (typeof v !== "string" || !VERSION.test(v)) out.push(`registry.${r}["${n}"] is not a version string`);
+  }
+  for (const k of ["stagedNpm", "stagedCargo"]) {
+    if (!plain(feed[k])) { out.push(`${k} is missing or not an object`); continue; }
+    for (const [n, v] of Object.entries(feed[k])) if (typeof v !== "string" || !VERSION.test(v)) out.push(`${k}["${n}"] is not a version string`);
+  }
+  for (const k of ["legacyNpm", "legacyCargo"]) {
+    if (!plain(feed[k])) { out.push(`${k} is missing or not an object`); continue; }
+    for (const [n, v] of Object.entries(feed[k])) if (!Array.isArray(v) || v.some((x) => typeof x !== "string" || !VERSION.test(x))) out.push(`${k}["${n}"] is not an array of version strings`);
+  }
+  return out;
+}
+const olderThan = (a, b) => { const x = semverParts(a), y = semverParts(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i]; return false; };
+function feedLegacy({ root, files = [] }) {
+  const out = [];
+  if (!files.includes(RIGHTKIT_TREE)) return out; // an app has no version feed
+  const feed = readJson(root, "packages/release/rightkit-versions.json");
+  // A feed that cannot be read is not a clean feed: without it no rollout check can run (simulation A4.05 found the silent pass).
+  if (!feed || typeof feed !== "object") return [{ subject: "rightkit-versions.json", problem: "packages/release/rightkit-versions.json is missing or not valid JSON, so the published/staged/legacy rollout check cannot run", fix: "restore the feed (valid JSON with registry, stagedNpm/stagedCargo and legacyNpm/legacyCargo)" }];
+  const shape = feedShapeProblems(feed);
+  if (shape.length) return shape.map((problem) => ({ subject: "rightkit-versions.json", problem: `packages/release/rightkit-versions.json: ${problem}; the rollout check cannot run on this shape`, fix: "restore the feed's shape: registry.npm/registry.cargo (name → version), stagedNpm/stagedCargo (name → version), legacyNpm/legacyCargo (name → [versions])" }));
+  for (const [registry, stagedKey, legacyKey] of [["npm", "stagedNpm", "legacyNpm"], ["cargo", "stagedCargo", "legacyCargo"]]) {
+    for (const [name, published] of Object.entries(feed.registry?.[registry] ?? {})) {
+      const staged = feed[stagedKey]?.[name];
+      if (!staged || !olderThan(published, staged)) continue;
+      if (!(feed[legacyKey]?.[name] ?? []).includes(published)) {
+        out.push({ subject: name, problem: `packages/release/rightkit-versions.json: ${name} ${published} is published (registry.${registry}) and ${staged} is staged (${stagedKey}), but ${legacyKey}["${name}"] does not list ${published}; installs still carrying ${published} would be refused`, fix: `add "${published}" to ${legacyKey}["${name}"] in packages/release/rightkit-versions.json and its byte-identical copy packages/build-control-policy/src/ownership-session-versions.json` });
+      }
+    }
+  }
+  return out;
+}
+
 const appRule = (id) => APP_RULES.find((rule) => rule.id === id) ?? (() => { throw new Error(`packages/release/app-check.mjs has no rule ${id}`); })();
 const APP_RULES_FIRST = ["eol-policy", "file-url", "retired-alias"];
 
 export const RULES = Object.freeze([
   appRule("eol-policy"),
+  { id: "eol-pinned", gap: "G25", run: eolPinned },
   { id: "consumer-recipe", gap: "G01", run: consumerRecipes },
   { id: "npm-recipe", gap: "G01", run: npmRecipes },
   { id: "npm-surface", gap: "G02", run: npmSurface },
   { id: "version-pins", gap: "G03", run: versionPins },
+  { id: "feed-legacy", gap: "G27", run: feedLegacy },
   { id: "dispatch-pins", gap: "G05", run: dispatchPins },
   { id: "consumer-locks", gap: "G08", run: consumerLocks },
   appRule("file-url"),
   { id: "generated-docs", gap: "G10", run: generatedDocs },
+  { id: "tmpdir-realpath", gap: "G26", run: tmpdirRealpath },
   appRule("retired-alias"),
   // G13-G22, the app defects, in app-check's order.
   ...APP_RULES.filter((rule) => !APP_RULES_FIRST.includes(rule.id)),

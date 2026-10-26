@@ -92,42 +92,10 @@ const QA_EVIDENCE_MAX_RETENTION_DAYS = 90;
 // Pinned to the same upload-artifact release the rust-hybrid release-candidate template uses.
 export const UPLOAD_ARTIFACT_PIN = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4";
 const GATE_PATH_RE = /^(?!.*\.\.)(?!.*\s)[A-Za-z0-9][A-Za-z0-9._/-]*$/;
-const GATE_KEYS = new Set(["path", "shards", "quick"]);
-const GATE_SHARD_ID_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
-const GATE_MAX_SHARDS = 16;
-
-// gate.shards (rust-hybrid ci only): the gate runs once per shard per matrix.os runner, as
-// `bash <gate.path> --group <id>`, on one shared Rust cache key, and a ci-summary job passes only when every
-// leg passed. gate.quick: true adds a `quick` job (`bash <gate.path> --quick`) that every leg needs, for the
-// fast deterministic checks. Steps that run inside the ci job once per runner (a non-parallel devArtifact)
-// would run once per shard, so shards require devArtifact.parallel.
-function validateGateShards(manifest, errors) {
-  const { shards, quick } = manifest.gate;
-  if (quick !== undefined && quick !== true) errors.push("gate.quick must be true when set");
-  if (shards === undefined) {
-    if (quick === true) errors.push("gate.quick requires gate.shards");
-    return;
-  }
-  if (!Array.isArray(shards) || shards.length < 2 || shards.length > GATE_MAX_SHARDS) {
-    errors.push(`gate.shards must list 2 to ${GATE_MAX_SHARDS} shards`);
-    return;
-  }
-  const seen = new Set();
-  for (const [index, shard] of shards.entries()) {
-    if (shard === null || typeof shard !== "object" || Array.isArray(shard) || Object.keys(shard).some((key) => key !== "id") || typeof shard.id !== "string" || !GATE_SHARD_ID_RE.test(shard.id)) {
-      errors.push(`gate.shards[${index}] must be { id } with a lowercase id of letters, digits and '-' (at most 32)`);
-    } else if (seen.has(shard.id)) {
-      errors.push(`gate.shards[${index}].id '${shard.id}' is listed twice`);
-    } else {
-      seen.add(shard.id);
-    }
-  }
-  if (manifest.devArtifact !== undefined && manifest.devArtifact?.parallel !== true) {
-    errors.push("gate.shards requires devArtifact.parallel: true (a dev artifact built inside the ci job would be built once per shard)");
-  }
-}
-
-const gateShardIds = (manifest) => (Array.isArray(manifest.gate?.shards) ? manifest.gate.shards.map((shard) => shard.id) : []);
+// gate.path is the paths filter of the Rust-change detector only. The ci job runs the one door, `rightkit-gate --to compile`
+// (class A, then every compile, lint and test scan), never the repository's own script; there are no shards or quick legs.
+const GATE_KEYS = new Set(["path"]);
+const gateShardIds = () => [];
 const RUST_WORKSPACE_PATH_RE = /^(?:\.|(?!.*\.\.)(?!.*\s)[A-Za-z0-9][A-Za-z0-9._/-]*)$/;
 const PACKAGE_SCRIPT_RE = /^[A-Za-z0-9][A-Za-z0-9:_-]*$/;
 const QA_SURFACE_SCRIPT_RE = /qa-native|qa-control|dev-native|dev-inspect|test-mode/i;
@@ -223,13 +191,11 @@ export function validateManifest(manifest) {
       errors.push("profile 'rust-hybrid' requires lane 'ci' and supports optional lanes 'release-candidate', 'regenerate' and 'sign-existing'");
     }
     if (!manifest.gate || typeof manifest.gate !== "object" || Array.isArray(manifest.gate) || Object.keys(manifest.gate).some((key) => !GATE_KEYS.has(key)) || typeof manifest.gate.path !== "string" || !GATE_PATH_RE.test(manifest.gate.path)) {
-      errors.push("profile 'rust-hybrid' requires gate.path with a safe relative path (gate keys: path, shards, quick)");
-    } else {
-      validateGateShards(manifest, errors);
+      errors.push("profile 'rust-hybrid' requires gate.path with a safe relative path (gate keys: path; gate.shards and gate.quick are gone: the ci job runs the one door, rightkit-gate --to compile)");
     }
   } else {
     if (manifest.gate !== undefined) errors.push("gate is only valid for profile 'rust-hybrid'");
-    if (lanes.some((lane) => RUST_HYBRID_ONLY_LANES.includes(lane))) errors.push("lane 'sign-existing' is only valid for profile 'rust-hybrid'");
+    if (lanes.some((lane) => RUST_HYBRID_ONLY_LANES.includes(lane))) errors.push(`lanes ${RUST_HYBRID_ONLY_LANES.map((lane) => `'${lane}'`).join(" and ")} are only valid for profile 'rust-hybrid'`);
   }
 
   validateCheckout(manifest.checkout, errors);
@@ -2214,6 +2180,35 @@ const CHECK_ACTION_PINS = Object.freeze({
 // are admitted by @rightkit/release only in their exact rendered shape (`needs: [private-repo-guard]`), and
 // `publish-package-managers` builds and tests nothing (it installs, syntax-checks the committed formula and opens a tap pull
 // request, or submits a WinGet manifest, for a version that is already released).
+// Class A's scan tools, the same pins RightKit's own CI uses: the check is class A in full (cargo-deny, cargo-audit, actionlint),
+// and a missing tool fails the check rather than skipping the scan.
+const CLASS_A_TOOL_STEPS = Object.freeze([
+  "      - name: Install the pinned class A scan tools",
+  "        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29",
+  "        with:",
+  "          tool: cargo-deny@0.20.2,cargo-audit@0.22.2,shellcheck@0.11.0",
+  "      - name: Install the pinned workflow linter",
+  "        shell: bash",
+  "        env:",
+  "          ACTIONLINT_VERSION: \"1.7.12\"",
+  "        run: |",
+  "          set -euo pipefail",
+  "          case \"$RUNNER_OS-$RUNNER_ARCH\" in",
+  "            Linux-X64) asset=linux_amd64.tar.gz; sum=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 ;;",
+  "            macOS-ARM64) asset=darwin_arm64.tar.gz; sum=aba9ced2dee8d27fecca3dc7feb1a7f9a52caefa1eb46f3271ea66b6e0e6953f ;;",
+  "            macOS-X64) asset=darwin_amd64.tar.gz; sum=5b44c3bc2255115c9b69e30efc0fecdf498fdb63c5d58e17084fd5f16324c644 ;;",
+  "            Windows-X64) asset=windows_amd64.zip; sum=6e7241b51e6817ea6a047693d8e6fed13b31819c9a0dd6c5a726e1592d22f6e9 ;;",
+  "            *) echo \"::error::no pinned actionlint for $RUNNER_OS-$RUNNER_ARCH\"; exit 1 ;;",
+  "          esac",
+  "          archive=\"$RUNNER_TEMP/actionlint-$asset\"",
+  "          curl --fail --silent --show-error --location --output \"$archive\" \"https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/actionlint_\"\"$ACTIONLINT_VERSION\"\"_$asset\"",
+  "          actual=\"$( (sha256sum \"$archive\" 2>/dev/null || shasum -a 256 \"$archive\") | cut -d' ' -f1)\"",
+  "          [ \"$actual\" = \"$sum\" ] || { echo \"::error::actionlint archive checksum mismatch\"; exit 1; }",
+  "          mkdir -p \"$RUNNER_TEMP/actionlint-bin\"",
+  "          case \"$asset\" in *.zip) unzip -o -q \"$archive\" actionlint.exe -d \"$RUNNER_TEMP/actionlint-bin\" ;; *) tar -xzf \"$archive\" -C \"$RUNNER_TEMP/actionlint-bin\" actionlint ;; esac",
+  "          echo \"$RUNNER_TEMP/actionlint-bin\" >> \"$GITHUB_PATH\"",
+]);
+
 export const CHECK_JOB_LANES = Object.freeze(["ci", "qualification", "package-smoke", "release-candidate", "swift-check", "publish-npm"]);
 
 /**
@@ -2247,7 +2242,7 @@ export function checkJob(manifest, lane = "ci") {
   const lockfilePatch = lane === "ci" ? lockfilePatchStep(manifest) : "";
   return [
     "  check:",
-    "    # RightKit check: committed files only, no compile; every finding in one run. Every other job needs it.",
+    "    # RightKit check: class A over committed files only, no compile; every finding in one run. Every other job needs it.",
     "    needs: [private-repo-guard]",
     `    runs-on: ${runner}`,
     "    timeout-minutes: 15",
@@ -2264,6 +2259,7 @@ export function checkJob(manifest, lane = "ci") {
     ...(pm.setup ? [pm.setup] : []),
     `      - run: ${install}`,
     ...(lockfilePatch ? lockfilePatch.slice(1).split("\n") : []),
+    ...CLASS_A_TOOL_STEPS,
     `      - run: ${gate} check --commit HEAD`,
     "",
   ].join("\n");
@@ -2334,67 +2330,10 @@ export function swiftPrivatePackagesCleanupStep(manifest) {
   ].join("\n");
 }
 
-/**
- * gate.shards / gate.quick render values. Without shards the values are the text the template held before the
- * placeholders existed, plus the `check` job every ci-lane job now needs (see checkJob).
- */
-function gateShardContext(manifest, pm, lane) {
-  const shardIds = gateShardIds(manifest);
-  if (lane !== "ci" || shardIds.length === 0) {
-    return { CI_NEEDS: "[private-repo-guard, check]", CI_SHARD_KEY: "", GATE_ARGS: "", CI_QUICK_JOB: "", CI_SUMMARY_JOB: "" };
-  }
-  const quick = manifest.gate.quick === true;
-  const quickJob = quick ? [
-    "  quick:",
-    "    # gate.quick: the fast deterministic checks, before any gate shard starts.",
-    "    needs: [private-repo-guard, check]",
-    "    runs-on: ubuntu-24.04",
-    "    timeout-minutes: 20",
-    "    steps:",
-    "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
-    "        with:",
-    "          fetch-depth: 0",
-    "      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0",
-    "        with:",
-    `          node-version: ${JSON.stringify(String(manifest.matrix.node[0]))}`,
-    "          package-manager-cache: false",
-    ...(pm.setup ? [pm.setup] : []),
-    `      - run: ${pm.installCommand}`,
-    "      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0",
-    "        with:",
-    "          components: rustfmt, clippy",
-    `      - run: bash ./${manifest.gate.path} --quick`,
-    "        env:",
-    "          RIGHT_GIT_GATE_QUICK: \"true\"",
-    "",
-  ].join("\n") : "";
-  const needs = quick ? "[ci, quick]" : "[ci]";
-  const summaryJob = [
-    "",
-    "  ci-summary:",
-    "    # gate.shards: passes only when every shard passed on every runner" + (quick ? " and the quick checks passed." : "."),
-    `    needs: ${needs}`,
-    "    if: ${{ always() }}",
-    "    runs-on: ubuntu-24.04",
-    "    timeout-minutes: 5",
-    "    steps:",
-    "      - name: Every gate shard passed on every runner",
-    "        env:",
-    "          CI_RESULT: ${{ needs.ci.result }}",
-    ...(quick ? ["          QUICK_RESULT: ${{ needs.quick.result }}"] : []),
-    "        run: |",
-    "          set -euo pipefail",
-    "          test \"$CI_RESULT\" = success",
-    ...(quick ? ["          test \"$QUICK_RESULT\" = success"] : []),
-    "",
-  ].join("\n");
-  return {
-    CI_NEEDS: quick ? "[private-repo-guard, check, quick]" : "[private-repo-guard, check]",
-    CI_SHARD_KEY: "-${{ matrix.shard }}",
-    GATE_ARGS: " --group ${{ matrix.shard }}",
-    CI_QUICK_JOB: quickJob,
-    CI_SUMMARY_JOB: summaryJob,
-  };
+/** The ci job's needs and its one door step (rightkit-gate --to compile), run by the repository's package manager. */
+function gateShardContext(manifest, pm) {
+  const door = { pnpm: "pnpm exec rightkit-gate", npm: "./node_modules/.bin/rightkit-gate", yarn: "./node_modules/.bin/rightkit-gate" }[pm.name];
+  return { CI_NEEDS: "[private-repo-guard, check]", CI_SHARD_KEY: "", GATE_DOOR: `${door} --to compile`, CI_QUICK_JOB: "", CI_SUMMARY_JOB: "" };
 }
 
 /**
@@ -2480,9 +2419,11 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
       : "",
     CI_CONCURRENCY_GROUP: manifest.concurrency?.mainPushes === "queue" ? CI_GROUP_PER_REF : CI_GROUP_SUPERSEDE,
     CHECK_JOB: checkJob(manifest, lane),
+    // The door's compile stage runs class A first on the job's own runner, so that runner needs class A's pinned tools too.
+    CLASS_A_TOOLS_STEP: `\n${CLASS_A_TOOL_STEPS.join("\n")}`,
     CI_SUPERSEDE_JOB: manifest.concurrency?.mainPushes === "queue" ? "" : supersedeJob(manifest),
     CI_JOB_CONCURRENCY: manifest.concurrency?.mainPushes === "queue" ? "" : ciJobConcurrency(manifest),
-    ...gateShardContext(manifest, pm, lane),
+    ...gateShardContext(manifest, pm),
     RUST_CACHE_KEY: cacheKeyLine ? `${cacheKeyLine}\n` : "",
   };
 

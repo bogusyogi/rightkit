@@ -8,6 +8,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildCrateUploadMetadata, commandBuild, commandLedger, commandPack, commandVerify, crateIndexPath, crateSourceProblems, crateWorkspaceFromMetadata, ledgerEntries, parseAllowList, parseUnitNames, planPublication, readNpmWorkspace, satisfies, stageSealedHelperEnv } from "./publish.mjs";
 import { APPROVED_ARTIFACTS_FILE, checkReceipts, linuxRequiredFor, requiredHostsFor, buildCratePublishBody, checkNpmTarball, checkUploadPayloads, CRATES_PUBLISH_URL, childEnv, executeUpload as executeUploadRaw, loadApprovedArtifacts, loadSealed, NPM_REGISTRY_URL, parseCratesResponse, repositoryProblems, waitForNpmBytes } from "./upload.mjs";
+import { INSTALL_COMMAND } from "./exports-import-effects.mjs";
 import { consumeCrates, consumeNpm as consumeNpmChecked, declaredEntries, npmCliCommand, skipImportList } from "./consume.mjs";
 // These portability tests use synthetic units without a reviewed PK recipe. Refusal of unreviewed npm units is
 // covered in npm-recipe-consumer.test.mjs, so only that one problem is dropped here.
@@ -468,7 +469,13 @@ function spy(fake = {}) {
   return { spawn, calls };
 }
 
-const actionsEnv = (extra = {}) => ({ GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main", GITHUB_REPOSITORY: "bogusyogi/rightkit", GITHUB_SHA: SHA, GITHUB_RUN_ID: "77", GITHUB_RUN_ATTEMPT: "1", PATH: process.env.PATH ?? "", RUNNER_TEMP: os.tmpdir(), PUBLISH_REGISTRY: "npm", PUBLISH_UNITS: "@rightkit/a", ...extra });
+// The scans job's import-effects report (nothing INCOMPLETE): verify of npm units refuses without one.
+const IMPORT_EFFECTS_REPORT = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "rk-import-effects-")), "report.json");
+// (the test git spy answers SHA to every rev-parse, so the checkout tree is SHA too.)
+const TRUSTED_PROBE = crypto.createHash("sha256").update(fs.readFileSync(new URL("./exports-import-effects.mjs", import.meta.url))).digest("hex");
+const REPORT_OK = { schema: "rightkit.import-effects/1", commit: SHA, tree: SHA, clean: true, dirty: 0, probe: TRUSTED_PROBE, node: process.version, stable: true, closure: { kind: "exported-tree", deps: { lock: "d".repeat(64), installed: "d".repeat(64), store: "d".repeat(64), files: 7, hardlinks: 0, externalLinks: 0, pnpm: "11.25.0", install: INSTALL_COMMAND, pnpmIdentity: { path: "/usr/bin/pnpm", realPath: "/opt/pnpm/bin/pnpm.cjs", sha256: "e".repeat(64), version: "11.25.0", node: process.version }, closureStable: true } }, checked: 0, findings: 0, incomplete: [], covered: [] };
+fs.writeFileSync(IMPORT_EFFECTS_REPORT, JSON.stringify(REPORT_OK));
+const actionsEnv = (extra = {}) => ({ GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main", GITHUB_REPOSITORY: "bogusyogi/rightkit", GITHUB_SHA: SHA, GITHUB_RUN_ID: "77", GITHUB_RUN_ATTEMPT: "1", PATH: process.env.PATH ?? "", RUNNER_TEMP: os.tmpdir(), PUBLISH_REGISTRY: "npm", PUBLISH_UNITS: "@rightkit/a", RK_IMPORT_EFFECTS_REPORT: IMPORT_EFFECTS_REPORT, ...extra });
 
 test("upload payload preflight checks npm semantics through real tar without registry access", () => {
   const cases = [
@@ -1189,9 +1196,31 @@ test("verify re-hashes the sealed bytes, requires gate evidence, and binds the r
   let consumerProblems = [];
   let consumerCalls = 0;
   const scanArchive = (options) => scanArchiveForSecrets({ ...options, scannerOwner: { packageFileViolations: () => [], scanCrateForSecrets: (dir) => fs.readdirSync(dir).filter((file) => fs.readFileSync(path.join(dir, file), "utf8").includes("fixture-sensitive-value")) } });
-  const consume = { npm: ({ units }) => { consumerCalls++; return new Map(units.map((u) => [u.name, { problems: [...consumerProblems], report: { entries: 1, imported: [u.name] } }])); }, crates: () => { throw new Error("not used"); } };
+  let seenIncomplete;
+  const consume = { npm: ({ units, incomplete }) => { consumerCalls++; seenIncomplete = incomplete; return new Map(units.map((u) => [u.name, { problems: [...consumerProblems], report: { entries: 1, imported: [u.name] } }])); }, crates: () => { throw new Error("not used"); } };
   const run = (over = {}, host = "windows") => commandVerify({ env: { ...env, ...over }, spawn: spy({ git: () => ({ status: 0, stdout: `${SHA}\n` }) }).spawn, host, consume, scanArchive });
+  // The source probe's INCOMPLETE set is required and handed to the consume step; without it, or malformed, nothing is verified.
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: "" }), /RK_IMPORT_EFFECTS_REPORT is not set/);
+  const badReport = path.join(runTemp, "bad-report.json"); fs.writeFileSync(badReport, JSON.stringify({ schema: "other", incomplete: [] }));
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: badReport }), /is not rightkit\.import-effects\/1/);
+  const reportWith = (name, patch) => { const f = path.join(runTemp, `${name}.json`); fs.writeFileSync(f, JSON.stringify({ ...REPORT_OK, ...patch })); return f; };
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: reportWith("stale", { commit: "0".repeat(40) }) }), /written for commit 0{40}, not the dispatched/);
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: reportWith("tree", { tree: "1".repeat(40) }) }), /written for tree 1{40}, not this checkout's/);
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: reportWith("red", { findings: 2 }) }), /findings is 2; a red probe is not carried forward/);
+  // A dirty LIVE checkout is recorded, not refused: the probe ran on the exported commit, which the dirt cannot reach.
+  assert.equal((await run({ RK_IMPORT_EFFECTS_REPORT: reportWith("dirty", { clean: false, dirty: 3 }) })).importEffects.liveCheckoutClean, false);
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: reportWith("noprobe", { probe: "x" }) }), /no probe code digest/);
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: reportWith("otherprobe", { probe: "e".repeat(64) }) }), /written by probe eeeeeeeeeeee…, not the trusted/);
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: reportWith("othernode", { node: "v20.0.0" }) }), /written under Node v20\.0\.0, not the qualified/);
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: reportWith("workdir", { closure: { kind: "working-dir", deps: null } }) }), /ran on a working directory/);
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: reportWith("unstable", { stable: false }) }), /HEAD moved while the probe ran/);
   const receipt = await run();
+  assert.equal(seenIncomplete?.schema, "rightkit.import-effects/1");
+  assert.deepEqual(receipt.importEffects, { commit: SHA, tree: SHA, closure: "exported-tree", deps: { lock: "d".repeat(64), installed: "d".repeat(64), store: "d".repeat(64), files: 7, pnpm: "11.25.0", install: INSTALL_COMMAND }, liveCheckoutClean: true, probe: TRUSTED_PROBE, node: process.version, checked: 0, incomplete: 0 }, "the receipt records the source closure the sealed bytes were verified against");
+  // Dependencies that are not private copies, or not installed frozen/offline/scriptless, make the report unusable.
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: reportWith("hardlinks", { closure: { ...REPORT_OK.closure, deps: { ...REPORT_OK.closure.deps, hardlinks: 3 } } }) }), /not private copies \(3 hardlinked/);
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: reportWith("install", { closure: { ...REPORT_OK.closure, deps: { ...REPORT_OK.closure.deps, install: "pnpm install" } } }) }), /not installed frozen, offline, without scripts or pnpm hooks, as private copies/);
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: reportWith("unstable-closure", { closure: { ...REPORT_OK.closure, deps: { ...REPORT_OK.closure.deps, closureStable: false } } }) }), /installed bytes changed between their digest and the end of the probe/);
   assert.equal(receipt.host, "windows");
   assert.equal(receipt.manifestRunId, "77");
   assert.equal(receipt.manifestRunAttempt, "1");
