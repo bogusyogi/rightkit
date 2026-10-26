@@ -281,13 +281,16 @@ function resolveInput(cwd, value, produced = [], ignored = () => false) {
   return { state: "check", path: rel };
 }
 
-function checkInputs({ file, line, cwd, commands, index, produced, ignored, add, where }) {
+function checkInputs({ file, line, cwd, commands, index, produced, ignored, add, where, unsure = () => null }) {
   let dir = cwd;
   for (const words of commands) {
     for (const input of commandInputs(words)) {
       if (input.kind === "cd") {
         const r = resolveInput(dir, input.value, produced, ignored);
-        if (r.state === "check" && index.dirSet.has(r.path)) dir = r.path; else dir = null;
+        if (r.state === "check" && index.dirSet.has(r.path)) { dir = r.path; continue; }
+        const why = r.state === "check" ? unsure(r.path) : null;
+        if (why) add(`cd:${r.path}`, `${file}:${line} ${where} runs ${words.join(" ")}: ${r.path} is not in this commit; UNSUPPORTED: ${why}`, "produce the directory in an unconditional checkout or download-artifact step earlier in the same job, or commit it");
+        dir = null;
         continue;
       }
       if (dir === null) continue;
@@ -298,7 +301,10 @@ function checkInputs({ file, line, cwd, commands, index, produced, ignored, add,
         continue;
       }
       const present = input.kind === "dir" ? index.dirSet.has(r.path) : index.fileSet.has(r.path) || index.dirSet.has(r.path);
-      if (!present) add(`${input.kind}:${r.path}`, `${file}:${line} ${where} runs ${words.join(" ")}: ${r.path} is not in this commit`, `commit ${r.path}, or point the command at the path that exists`);
+      if (!present) {
+        const why = unsure(r.path);
+        add(`${input.kind}:${r.path}`, `${file}:${line} ${where} runs ${words.join(" ")}: ${r.path} is not in this commit${why ? `; UNSUPPORTED: ${why}` : ""}`, why ? "produce it in an unconditional checkout or download-artifact step earlier in the same job, or commit it" : `commit ${r.path}, or point the command at the path that exists`);
+      }
     }
   }
 }
@@ -325,20 +331,37 @@ function referencedInput({ root, files }) {
     if (text === null) continue;
     const entries = yamlEntries(text);
     const { jobs, topDefaultsDir } = workflowJobs(entries);
-    // Directories a step checks out or downloads into exist only at run time.
-    const produced = [];
-    for (const { steps } of jobs.values()) for (const step of steps) {
-      const uses = stepGet(step, "uses")?.value ?? "";
+    // Directories a step checks out or downloads into exist only at run time. Only an unconditional actions/checkout or
+    // actions/download-artifact step earlier in the same job guarantees one; a step with `if:` or `continue-on-error`, an
+    // actions/cache restore (a miss restores nothing), a later step and another job's step do not, and an input under such a
+    // path is reported UNSUPPORTED instead of passing.
+    const producers = [];
+    for (const [job, { steps }] of jobs) steps.forEach((step, i) => {
+      const u = stepGet(step, "uses");
+      const m = u && /^actions\/(checkout|download-artifact|cache)(?:\/(restore))?@/.exec(u.value);
       const p = stepGet(step, "with", "path");
-      if (p && /^actions\/(checkout|download-artifact|cache)(\/|@)/.test(uses)) for (const v of (p.block ? p.block.map((b) => b.text) : [p.value])) {
-        const r = resolveInput(".", v); if (r.state === "check") produced.push(r.path);
+      if (!m || !p) return;
+      const coe = stepGet(step, "continue-on-error");
+      const conditional = stepGet(step, "if") ? "it has an if: condition" : coe && coe.value !== "false" ? "it has continue-on-error" : null;
+      for (const v of (p.block ? p.block.map((b) => b.text).filter(Boolean) : [p.value])) {
+        const r = resolveInput(".", v);
+        if (r.state === "check") producers.push({ job, i, line: u.line, kind: m[1], path: r.path, conditional });
       }
-    }
+    });
+    const covers = (p, rel) => rel === p.path || rel.startsWith(`${p.path}/`);
     const seen = new Set();
     const add = (subject, problem, fix) => { if (!seen.has(subject)) { seen.add(subject); out.push({ file, subject, problem, fix }); } };
     for (const [job, { steps, defaultsDir }] of jobs) {
       const jobDir = defaultsDir ?? topDefaultsDir;
-      for (const step of steps) {
+      for (const [i, step] of steps.entries()) {
+        const guaranteed = (p) => p.job === job && p.i < i && p.kind !== "cache" && !p.conditional;
+        const produced = producers.filter(guaranteed).map((p) => p.path);
+        const unsure = (rel) => {
+          const p = producers.find((x) => !guaranteed(x) && covers(x, rel));
+          if (!p) return null;
+          const why = p.job !== job ? `it is in job ${p.job}, not job ${job}` : p.i >= i ? "it runs after this step" : p.kind === "cache" ? "a cache restore guarantees nothing (a miss restores no files)" : p.conditional;
+          return `only the actions/${p.kind} step at ${file}:${p.line} may produce ${p.path}, and ${why}`;
+        };
         const uses = stepGet(step, "uses")?.value ?? "";
         const wd = stepGet(step, "working-directory") ?? jobDir;
         let cwd = ".";
@@ -346,7 +369,7 @@ function referencedInput({ root, files }) {
           const r = resolveInput(".", wd.value, produced, ignored);
           if (r.state === "outside") { add(`working-directory:${wd.value}`, `${file}:${wd.line} job ${job}: working-directory ${wd.value} is outside the repository`, "use a directory of this repository"); continue; }
           if (r.state === "skip") continue;
-          if (!index.dirSet.has(r.path)) { add(`working-directory:${r.path}`, `${file}:${wd.line} job ${job}: working-directory ${r.path} is not in this commit (the step fails before its command runs)`, `commit ${r.path}, or point working-directory at the directory that exists`); continue; }
+          if (!index.dirSet.has(r.path)) { const why = unsure(r.path); add(`working-directory:${r.path}`, `${file}:${wd.line} job ${job}: working-directory ${r.path} is not in this commit (the step fails before its command runs)${why ? `; UNSUPPORTED: ${why}` : ""}`, `commit ${r.path}, or point working-directory at the directory that exists`); continue; }
           cwd = r.path;
         }
         const cache = stepGet(step, "with", "cache-dependency-path");
@@ -362,7 +385,7 @@ function referencedInput({ root, files }) {
               if (!files.some((f) => glob.test(f))) add(`cache-dependency-path:${v}`, `${file}:${line} job ${job}: cache-dependency-path ${v} matches no file of this commit (setup refuses: the dependency lock is not found)`, "point cache-dependency-path at the lock file that exists");
               continue;
             }
-            if (!index.fileSet.has(r.path)) add(`cache-dependency-path:${r.path}`, `${file}:${line} job ${job}: cache-dependency-path ${r.path} is not in this commit (setup refuses: the dependency lock is not found)`, `commit ${r.path}, or point cache-dependency-path at the lock file that exists`);
+            if (!index.fileSet.has(r.path)) { const why = unsure(r.path); add(`cache-dependency-path:${r.path}`, `${file}:${line} job ${job}: cache-dependency-path ${r.path} is not in this commit (setup refuses: the dependency lock is not found)${why ? `; UNSUPPORTED: ${why}` : ""}`, `commit ${r.path}, or point cache-dependency-path at the lock file that exists`); }
           }
         }
         const run = stepGet(step, "run");
@@ -373,7 +396,7 @@ function referencedInput({ root, files }) {
           for (const { line, text: l } of lines) {
             const commands = shellCommands(l);
             const cds = commands.flatMap(commandInputs).filter((x) => x.kind === "cd");
-            checkInputs({ file, line, cwd: dir, commands, index, produced, ignored, add: (s, p, f) => add(`run:${s}`, p, f), where: `job ${job} step` });
+            checkInputs({ file, line, cwd: dir, commands, index, produced, ignored, unsure, add: (s, p, f) => add(`run:${s}`, p, f), where: `job ${job} step` });
             for (const cd of cds) { if (dir === null) break; const r = resolveInput(dir, cd.value, produced, ignored); dir = r.state === "check" && index.dirSet.has(r.path) ? r.path : null; }
             if (dir === null) break;
           }

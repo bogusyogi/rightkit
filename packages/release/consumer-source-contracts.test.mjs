@@ -242,6 +242,37 @@ test("referenced-input (CA-07) positive controls: ignored outputs, checkout path
   assert.deepEqual(runRule(t, "referenced-input", tree), []);
 });
 
+// A run-time directory hides a missing input only when an unconditional actions/checkout or actions/download-artifact step earlier in
+// the same job creates it. The four shapes below passed before that (audit counterexamples on 1882f5d); now each is UNSUPPORTED.
+const CO = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
+const DL = "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093";
+const CA = "actions/cache@5a3ec84eff668545956fd18022155c47e93e2684";
+const SN = "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020";
+const PRODUCER_CASES = {
+  "other-job": [`jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ${CO}\n        with:\n          path: tools\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ${CO}\n      - run: node tools/scripts/build.mjs\n`, "it is in job a, not job b"],
+  "later-step": [`jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ${CO}\n      - run: node tools/scripts/build.mjs\n      - uses: ${CO}\n        with:\n          path: tools\n`, "it runs after this step"],
+  "if-false": [`jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ${CO}\n      - uses: ${DL}\n        if: false\n        with:\n          path: tools\n      - uses: ${SN}\n        with:\n          cache-dependency-path: tools/pnpm-lock.yaml\n`, "it has an if: condition"],
+  "cache-restore": [`jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ${CO}\n      - uses: ${CA}\n        with:\n          path: tools\n          key: k\n      - run: node tools/scripts/build.mjs\n`, "a cache restore guarantees nothing"],
+};
+
+test("referenced-input (CA-07): a producer in another job, a later step, an if: step or a cache restore never hides a missing input", (t) => {
+  for (const [name, [yaml, why]] of Object.entries(PRODUCER_CASES)) {
+    const found = runRule(t, "referenced-input", { ".github/workflows/ci.yml": yaml });
+    assert.equal(found.length, 1, name);
+    assert.match(found[0].problem, /is not in this commit.*; UNSUPPORTED: only the actions\/\S+ step at \.github\/workflows\/ci\.yml:\d+ may produce tools, and /, name);
+    assert.ok(found[0].problem.includes(why), `${name}: ${found[0].problem}`);
+  }
+  const coe = PRODUCER_CASES["if-false"][0].replace("        if: false\n", "        continue-on-error: true\n");
+  assert.match(runRule(t, "referenced-input", { ".github/workflows/ci.yml": coe })[0].problem, /UNSUPPORTED: .*continue-on-error/);
+});
+
+test("referenced-input (CA-07) positive controls: an earlier unconditional same-job checkout path: or download-artifact provides the input", (t) => {
+  const checkout = `jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ${CO}\n      - uses: ${CO}\n        with:\n          repository: o/tools\n          path: tools\n      - run: node tools/scripts/build.mjs\n`;
+  const download = `jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ${CO}\n      - uses: ${DL}\n        with:\n          name: dist\n          path: tools\n      - uses: ${SN}\n        with:\n          cache-dependency-path: tools/pnpm-lock.yaml\n      - run: |\n          cd tools\n          node scripts/build.mjs\n`;
+  assert.deepEqual(runRule(t, "referenced-input", { ".github/workflows/ci.yml": checkout }), []);
+  assert.deepEqual(runRule(t, "referenced-input", { ".github/workflows/ci.yml": download }), []);
+});
+
 test("shellCommands and commandInputs read only certain paths", () => {
   assert.deepEqual(shellCommands("tsc -p a && node scripts/x.mjs --flag; pnpm --dir packages/a build | cat"), [["tsc", "-p", "a"], ["node", "scripts/x.mjs", "--flag"], ["pnpm", "--dir", "packages/a", "build"], ["cat"]]);
   assert.deepEqual(commandInputs(["node", "--import", "tsx", "src/a.ts"]), [{ kind: "file", value: "src/a.ts" }]);
