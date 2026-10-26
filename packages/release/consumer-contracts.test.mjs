@@ -84,18 +84,43 @@ test("release-config-identity: Ember's config without a version is refused befor
   assert.deepEqual(check("release-config-identity", { "right-release.config.mjs": EMBER_9961562.replace("  schema: 1,\n", "  schema: 1,\n  version: '0.7.0',\n") }), []);
 });
 
-test("release-config-identity: computed, wrapped, named and JSON-derived identities stay green", () => {
-  // Ember today: the version is read from Cargo.toml at load and exported by shorthand.
-  const computed = "import { readFileSync } from 'node:fs';\nconst version = /x/.exec(readFileSync('Cargo.toml', 'utf8'))?.[1];\n// version: in a comment does not count\nexport default {\n  schema: 1,\n  app: 'lightcraft-desktop',\n  version,\n  targets: { mac: { app: 'x', version: '1' } },\n};\n";
-  assert.deepEqual(check("release-config-identity", { "right-release.config.mjs": computed }), []);
-  assert.deepEqual(check("release-config-identity", { "apps/a/right-release.config.mjs": "const config = { schema: 1, app: 'a', 'version': '1.2.3' };\nexport default config;\n" }), []);
-  assert.deepEqual(check("release-config-identity", { "right-release.config.mjs": "export default defineConfig({ schema: 1, app: 'a', version: pkg.version });\n" }), []);
-  assert.deepEqual(check("release-config-identity", { "right-release.config.mjs": "export default { schema: 1, ...shared, app: 'a' };\n" }), [], "a spread may supply version: not judged");
-  assert.deepEqual(check("release-config-identity", { "right-release.config.json": JSON.stringify({ schema: 1, app: "rightapp", version: { $fromJson: { file: "src-tauri/tauri.conf.json", pointer: "/version" } } }) }), []);
-  assert.deepEqual(check("release-config-identity", { "right-release.config.json": JSON.stringify({ schema: 1, app: "a", version: "{{x}}" }) }), []);
-  // A nested `version` is not the release identity; a missing JSON version and an unsafe literal are findings.
-  assert.equal(check("release-config-identity", { "right-release.config.mjs": "export default { schema: 1, app: 'a', targets: { mac: { version: '1' } } };\n" }).length, 1);
+test("release-config-identity: undefined, null, empty and non-string values are refused (audit counterexample)", () => {
+  // The audit's false green on ae94233: keys present, values absent.
+  const found = check("release-config-identity", { "right-release.config.mjs": "export default { schema: 1, app: undefined, version: null };\n" });
+  assert.deepEqual(found.map((p) => p.split(": right-release build")[0]), ["right-release.config.mjs:1 `app` is undefined (not a string)", "right-release.config.mjs:1 `version` is null (not a string)"]);
+  for (const bad of ["''", "0", "true", "void 0", "[]", "{}"]) assert.equal(check("release-config-identity", { "right-release.config.mjs": `export default { schema: 1, app: 'a', version: ${bad} };\n` }).length, 1, bad);
+  const named = "const version = null;\nexport default { schema: 1, app: 'a', version };\n";
+  assert.match(check("release-config-identity", { "right-release.config.mjs": named })[0], /`version` is null \(not a string\)/);
+  assert.match(check("release-config-identity", { "right-release.config.json": '{ "schema": 1, "app": "a", "version": null }' })[0], /has no top-level "version" string \(found null\)/);
   assert.match(check("release-config-identity", { "right-release.config.json": '{ "schema": 1, "app": "a" }' })[0], /has no top-level "version"/);
+  // Repair: real literals.
+  assert.deepEqual(check("release-config-identity", { "right-release.config.mjs": "export default { schema: 1, app: 'rightapp', version: '1.2.3' };\n" }), []);
+});
+
+test("release-config-identity: literals and top-level const strings are proven; anything else is UNSUPPORTED, never a pass", () => {
+  const shorthand = "const app = 'rightapp';\nconst version = \"1.2.3\";\n// version: in a comment does not count\nexport default {\n  schema: 1,\n  app,\n  version,\n  targets: { mac: { app: 'x', version: '1' } },\n};\n";
+  assert.deepEqual(check("release-config-identity", { "right-release.config.mjs": shorthand }), []);
+  assert.deepEqual(check("release-config-identity", { "right-release.config.mjs": "const base = '2.0.0';\nconst version = base;\nexport default { schema: 1, app: `a`, version: version };\n" }), [], "a const chain to a literal");
+  assert.deepEqual(check("release-config-identity", { "apps/a/right-release.config.mjs": "const config = { schema: 1, app: 'a', 'version': '1.2.3' };\nexport default config;\n" }), []);
+  assert.deepEqual(check("release-config-identity", { "right-release.config.json": JSON.stringify({ schema: 1, app: "rightapp", version: { $fromJson: { file: "src-tauri/tauri.conf.json", pointer: "/version" } } }), "src-tauri/tauri.conf.json": '{ "version": "0.1.0" }' }), []);
+  assert.match(check("release-config-identity", { "right-release.config.json": JSON.stringify({ schema: 1, app: "rightapp", version: { $fromToml: { file: "Cargo.toml", path: "package.version" } } }) })[0], /"version" reads "Cargo\.toml", which is not a committed file/);
+  assert.deepEqual(check("release-config-identity", { "right-release.config.json": JSON.stringify({ schema: 1, app: "a", version: "{{x}}" }) }), []);
+  // Ember today reads the version from Cargo.toml at load: computed, so UNSUPPORTED with its bound.
+  const ember = "import { readFileSync } from 'node:fs';\nconst version = /x/.exec(readFileSync('Cargo.toml', 'utf8'))?.[1];\nexport default {\n  schema: 1,\n  app: 'lightcraft-desktop',\n  version,\n};\n";
+  const unsupported = check("release-config-identity", { "right-release.config.mjs": ember });
+  assert.equal(unsupported.length, 1);
+  assert.match(unsupported[0], /^right-release\.config\.mjs:6 UNSUPPORTED: `version` is `version` = the expression `\/x\/\.exec\(readFileSync/);
+  assert.match(unsupported[0], /proves a key only from a string literal or a top-level const bound to one in the same file, so it is not proven present/);
+  for (const [config, what] of [
+    ["export default defineConfig({ schema: 1, app: 'a', version: pkg.version });\n", /`version` is the expression `pkg\.version`/],
+    ["export default { schema: 1, ...shared, app: 'a' };\n", /`version` is absent from the literal, which spreads another object/],
+    ["import { version } from './v.mjs';\nexport default { schema: 1, app: 'a', version };\n", /`version` is `version`, an imported binding/],
+    ["let version = '1';\nexport default { schema: 1, app: 'a', version };\n", /declared with let/],
+    ["export default { schema: 1, app: 'a', version: `${v}` };\n", /the expression `\$\{v\}`|the expression `/],
+    ["export default makeConfig();\nconst x = { schema: 1 };\n", /`default` is exported in a form this reader cannot follow/],
+  ]) assert.match(check("release-config-identity", { "right-release.config.mjs": config })[0] ?? "", what, config);
+  // Not release configs: nested versions, stubs without schema, vendored trees.
+  assert.equal(check("release-config-identity", { "right-release.config.mjs": "export default { schema: 1, app: 'a', targets: { mac: { version: '1' } } };\n" }).length, 1);
   assert.match(check("release-config-identity", { "right-release.config.mjs": "export default { schema: 1, app: 'a b', version: '1' };\n" })[0], /`app: "a b"` is not a safe release-id component/);
   assert.deepEqual(check("release-config-identity", { "node_modules/x/right-release.config.mjs": EMBER_9961562 }), []);
   assert.deepEqual(check("release-config-identity", { "right-release.config.mjs": "export default {};\n", "b/right-release.config.json": "{}" }), [], "a stub without schema is not a release config");
@@ -277,17 +302,39 @@ test("notice-lock-digest: HeardRight's npm appendix generated from a lock that l
   const tree = { "tauri-app-next/pnpm-lock.yaml": LOCK_NEW, "tauri-app-next/legal/THIRD_PARTY_NPM_LICENSES.html": npmNotice(sha(LOCK_OLD)), "tauri-app-next/legal/THIRD_PARTY_NOTICES.md": mdNotice(sha(LOCK_OLD)) };
   const found = check("notice-lock-digest", tree);
   assert.deepEqual(found.map((p) => p.split(" records")[0]), ["tauri-app-next/legal/THIRD_PARTY_NOTICES.md:5", "tauri-app-next/legal/THIRD_PARTY_NPM_LICENSES.html:4"]);
-  assert.match(found[1], new RegExp(`records pnpm-lock\\.yaml sha256=${sha(LOCK_OLD)}, but the committed tauri-app-next/pnpm-lock\\.yaml hashes to ${sha(LOCK_NEW)}`));
+  assert.match(found[1], new RegExp(`records pnpm-lock\\.yaml sha256 ${sha(LOCK_OLD)}, but the committed tauri-app-next/pnpm-lock\\.yaml hashes to ${sha(LOCK_NEW)}`));
   // Repair (dec55223: "rebind the third-party notices to the ... pnpm-lock.yaml").
   assert.deepEqual(check("notice-lock-digest", { ...tree, "tauri-app-next/legal/THIRD_PARTY_NPM_LICENSES.html": npmNotice(sha(LOCK_NEW)), "tauri-app-next/legal/THIRD_PARTY_NOTICES.md": mdNotice(sha(LOCK_NEW)) }), []);
 });
 
-test("notice-lock-digest: recorded history, non-lock digests and locks the tree does not hold are not judged", () => {
+// desktop-app-template/legal/THIRD_PARTY_NOTICES.md line 4 as legal-snapshot renders NOTICES.template.md:4 (packages/legal/src/tooling.ts:142-149).
+const snapshotNotice = (lock, cargo, appendix) => `# RightApp Third-Party Notices\n\nBuild provenance: RightApp 0.1.0, effective 2026-10-24.\ninputs: pnpm-lock.yaml sha256 ${lock}; Cargo.lock sha256 ${cargo}; legal/THIRD_PARTY_NPM_LICENSES.html sha256 ${appendix}.\ngenerated-by=@rightkit/legal legal-snapshot from legal/NOTICES.template.md\n`;
+const CARGO_OLD = "version = 4\n# the Cargo.lock the notice was generated from\n";
+const CARGO_NEW = "version = 4\n# the committed Cargo.lock\n";
+
+test("notice-lock-digest: a stale Cargo.lock digest is refused in both generated formats (audit counterexample)", () => {
+  // `<lock> sha256 <hex>` (legal-snapshot): the audit's false green on ae94233.
+  const tree = { "app/pnpm-lock.yaml": LOCK_NEW, "app/Cargo.lock": CARGO_NEW, "app/legal-snapshot.config.json": JSON.stringify({ notices: { template: "NOTICES.template.md", path: "THIRD_PARTY_NOTICES.md", hashes: { lock: "pnpm-lock.yaml", cargoLock: "Cargo.lock", npmAppendix: "legal/THIRD_PARTY_NPM_LICENSES.html" } } }) };
+  const stale = check("notice-lock-digest", { ...tree, "app/legal/THIRD_PARTY_NOTICES.md": snapshotNotice(sha(LOCK_NEW), sha(CARGO_OLD), sha("appendix")) });
+  assert.deepEqual(stale, [`app/legal/THIRD_PARTY_NOTICES.md:4 records Cargo.lock sha256 ${sha(CARGO_OLD)}, but the committed app/Cargo.lock hashes to ${sha(CARGO_NEW)}: the notice was generated from another lockfile`]);
+  assert.deepEqual(check("notice-lock-digest", { ...tree, "app/legal/THIRD_PARTY_NOTICES.md": snapshotNotice(sha(LOCK_NEW), sha(CARGO_NEW), sha("appendix")) }), [], "current digests, and the appendix digest is not a lock's");
+  // `<lock> sha256=<hex>` (right-release license-notices, @rightkit/legal npm appendix, HeardRight's backticks).
+  const eq = (cargo) => `<p>Build provenance: HeardRight 0.1.230; input: Cargo.lock sha256=${cargo}; generated-by=cargo-about 0.9.1</p>\n`;
+  assert.match(check("notice-lock-digest", { "Cargo.lock": CARGO_NEW, "legal/THIRD_PARTY_RUST_LICENSES.html": eq(sha(CARGO_OLD)) })[0], /^legal\/THIRD_PARTY_RUST_LICENSES\.html:1 records Cargo\.lock sha256 [0-9a-f]{64}, but the committed Cargo\.lock hashes to/);
+  assert.deepEqual(check("notice-lock-digest", { "Cargo.lock": CARGO_NEW, "legal/THIRD_PARTY_RUST_LICENSES.html": eq(sha(CARGO_NEW)) }), []);
+  assert.match(check("notice-lock-digest", { "Cargo.lock": CARGO_NEW, "legal/THIRD_PARTY_NOTICES.md": `- \`Cargo.lock\` sha256=\`${sha(CARGO_OLD)}\`\n` })[0], /records Cargo\.lock sha256/);
+});
+
+test("notice-lock-digest: other digest forms and locks the tree does not hold are UNSUPPORTED, never a silent pass", () => {
+  const colon = check("notice-lock-digest", { "Cargo.lock": CARGO_NEW, "legal/THIRD_PARTY_NOTICES.md": `inputs: Cargo.lock: sha256:${sha(CARGO_OLD)}\n` });
+  assert.deepEqual(colon.map((p) => p.split(" in a form")[0]), ["legal/THIRD_PARTY_NOTICES.md:1 UNSUPPORTED: a sha256-length digest after Cargo.lock"]);
+  // CutRight's labelled form `Cargo.lock` (engine) sha256=`<hex>`.
+  assert.match(check("notice-lock-digest", { "Cargo.lock": CARGO_NEW, "legal/THIRD_PARTY_NOTICES.md": `\`Cargo.lock\` (engine) sha256=\`${sha(CARGO_NEW)}\`\n` })[0], /UNSUPPORTED: a sha256-length digest after Cargo\.lock/);
+  assert.match(check("notice-lock-digest", { "legal/THIRD_PARTY_NOTICES.md": mdNotice(sha(LOCK_OLD)) })[0], /UNSUPPORTED: records pnpm-lock\.yaml sha256 [0-9a-f]{64}, but no committed pnpm-lock\.yaml at or above legal/);
+  // Not lock provenance: history folders, other files' digests, files that are not notices; the nearest lock wins.
   assert.deepEqual(check("notice-lock-digest", { "pnpm-lock.yaml": LOCK_NEW, "docs/evidence/2026-10-07/THIRD_PARTY_NOTICES.md": mdNotice(sha(LOCK_OLD)) }), []);
   assert.deepEqual(check("notice-lock-digest", { "pnpm-lock.yaml": LOCK_NEW, "legal/THIRD_PARTY_BINARY_LICENSES.html": `<p>DirectML.dll sha256=${sha("x")}</p>\n` }), []);
-  assert.deepEqual(check("notice-lock-digest", { "legal/THIRD_PARTY_NOTICES.md": mdNotice(sha(LOCK_OLD)) }), []);
   assert.deepEqual(check("notice-lock-digest", { "README.md": `pnpm-lock.yaml sha256=${sha(LOCK_OLD)}\n`, "pnpm-lock.yaml": LOCK_NEW }), [], "only notice and licence files carry provenance");
-  // The nearest lock wins: an app's own lock, not the repository root's.
   assert.deepEqual(check("notice-lock-digest", { "pnpm-lock.yaml": LOCK_OLD, "app/pnpm-lock.yaml": LOCK_NEW, "app/legal/THIRD_PARTY_NOTICES.md": mdNotice(sha(LOCK_NEW)) }), []);
 });
 

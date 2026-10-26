@@ -140,20 +140,73 @@ function defaultExportObject(skel) {
   return skel[open] === "{" ? { open } : null;
 }
 
-/** The literal string value of key `name` at `offset` in `text` (blanked `skel`), or undefined when it is not a plain string. */
-function literalValue(text, offset) {
-  const m = /^[A-Za-z_$'"][\w$'"-]*\s*:\s*(['"])([^'"\n]*)\1\s*[,}\n]/.exec(text.slice(offset));
-  return m ? m[2] : undefined;
+/** The source text of the value of the property whose key starts at `offset`: { shorthand: name } or { expr, at } (offset of the value). */
+function propertyValue(skel, text, offset) {
+  const key = /^(['"]?)([A-Za-z_$][\w$-]*)\1\s*/.exec(text.slice(offset));
+  if (!key) return null;
+  let i = offset + key[0].length;
+  if (skel[i] !== ":") return { shorthand: key[2] };
+  i += 1;
+  let depth = 0, j = i;
+  for (; j < skel.length; j += 1) {
+    const c = skel[j];
+    if (c === "{" || c === "[" || c === "(") depth += 1;
+    else if (c === "}" || c === "]" || c === ")") { if (depth === 0) break; depth -= 1; }
+    else if (c === "," && depth === 0) break;
+  }
+  const raw = text.slice(i, j), lead = raw.length - raw.trimStart().length;
+  return { expr: raw.trim(), at: i + lead };
 }
+
+const NON_STRING = /^(undefined|null|true|false|void\s+0|NaN|-?\d[\d_]*(\.\d+)?([eE][+-]?\d+)?|\[[^]*\]|\{[^]*\})$/;
+/**
+ * What an expression in the config is, statically: { value } for a string literal (or a top-level `const` bound to one, followed
+ * through at most four names), { bad } for an absent or non-string value, { unsupported } for anything this reader cannot prove
+ * (a call, a member, an interpolated template, an import, a `let`/`var`, a name with no top-level declaration).
+ */
+export function staticString(skel, text, expr, seen = []) {
+  const str = /^(['"])((?:[^'"\\\n]|\\.)*)\1$/.exec(expr) ?? /^(`)([^`$\\]*)`$/.exec(expr);
+  if (str) return { value: str[2] };
+  if (NON_STRING.test(expr)) return { bad: `${expr.length > 40 ? `${expr.slice(0, 40)}…` : expr} (not a string)` };
+  const name = /^[A-Za-z_$][\w$]*$/.exec(expr)?.[0];
+  if (!name) return { unsupported: `the expression \`${expr.length > 60 ? `${expr.slice(0, 60)}…` : expr}\`` };
+  if (seen.includes(name) || seen.length >= 4) return { unsupported: `the name chain ${[...seen, name].join(" -> ")}` };
+  if (new RegExp(`\\bimport\\b[^;]*\\b${name.replace(/\$/g, "\\$")}\\b[^;]*\\bfrom\\b`).test(skel)) return { unsupported: `\`${name}\`, an imported binding` };
+  const decl = new RegExp(`\\b(const|let|var)\\s+${name.replace(/\$/g, "\\$")}\\s*=\\s*`, "g");
+  for (let m; (m = decl.exec(skel));) {
+    const before = skel.slice(0, m.index);
+    const depth = (before.match(/[{([]/g) ?? []).length - (before.match(/[})\]]/g) ?? []).length;
+    if (depth !== 0) continue; // only top-level declarations
+    if (m[1] !== "const") return { unsupported: `\`${name}\`, declared with ${m[1]} (it can be reassigned)` };
+    const at = m.index + m[0].length;
+    let d = 0, j = at;
+    for (; j < skel.length; j += 1) {
+      const c = skel[j];
+      if (c === "{" || c === "[" || c === "(") d += 1;
+      else if (c === "}" || c === "]" || c === ")") d -= 1;
+      else if ((c === ";" || c === "\n") && d === 0) break;
+    }
+    const resolved = staticString(skel, text, text.slice(at, j).trim(), [...seen, name]);
+    return resolved.unsupported && !seen.length ? { unsupported: `\`${name}\` = ${resolved.unsupported}` } : resolved;
+  }
+  return { unsupported: `\`${name}\`, which has no top-level declaration in this file` };
+}
+
+const UNSUPPORTED_BOUND = "release-config-identity proves a key only from a string literal or a top-level const bound to one in the same file";
 
 function releaseConfigIdentity({ root, files }) {
   const out = [];
+  const set = new Set(files);
   for (const file of files.filter((f) => CONFIG_FILE.test(f) && !SKIPPED_TREE.test(f))) {
     const text = readText(root, file);
     if (text === null) continue;
     const add = (key, line, why) => out.push({
       file, subject: key, problem: `${file}:${line} ${why}: right-release build refuses it ("release config must expose app and version", build-release.mjs) after install, before it compiles`,
-      fix: `export a top-level ${key} (a literal or a value computed from a committed file, as Ember's reads [workspace.package] version from Cargo.toml)`,
+      fix: `export a top-level ${key} string (a literal, a top-level const string, or in right-release.config.json a $fromJson/$fromToml node)`,
+    });
+    const unsupported = (key, line, what) => out.push({
+      file, subject: `${key}:unsupported`, problem: `${file}:${line} UNSUPPORTED: \`${key}\` is ${what}; ${UNSUPPORTED_BOUND}, so it is not proven present (right-release build refuses a missing one)`,
+      fix: `make ${key} a string literal or a top-level const string, or move the config to right-release.config.json with { "$fromToml": { "file": ..., "path": ... } }`,
     });
     if (file.endsWith(".json")) {
       let config;
@@ -161,25 +214,40 @@ function releaseConfigIdentity({ root, files }) {
       if (!config || typeof config !== "object" || Array.isArray(config) || !("schema" in config)) continue;
       for (const key of ["app", "version"]) {
         const value = config[key];
-        // release-config.mjs resolves a { $fromJson } / { $fromToml } node or a {{token}} string at load: present, judged there.
-        const derived = (value && typeof value === "object" && !Array.isArray(value) && ("$fromJson" in value || "$fromToml" in value)) || (typeof value === "string" && value.includes("{{"));
-        if (derived) continue;
-        if (typeof value !== "string" || !value) add(key, 1, `has no top-level "${key}" (a string, or a $fromJson/$fromToml node)`);
+        // release-config.mjs resolves a { $fromJson } / { $fromToml } node at load; the file it names must be committed.
+        const node = value && typeof value === "object" && !Array.isArray(value) ? (value.$fromJson ?? value.$fromToml) : null;
+        if (node) {
+          const ref = typeof node.file === "string" ? path.posix.normalize(join(dirOf(file), node.file)) : null;
+          if (!ref || !set.has(ref)) add(key, 1, `"${key}" reads ${JSON.stringify(node.file ?? null)}, which is not a committed file`);
+          continue;
+        }
+        if (typeof value === "string" && value.includes("{{")) continue; // a {{token}} expands from the other values at load
+        if (typeof value !== "string" || !value) add(key, 1, `has no top-level "${key}" string (found ${JSON.stringify(value ?? null)})`);
         else if (!(key === "app" ? SAFE_APP : SAFE_VERSION).test(value)) add(key, 1, `"${key}": ${JSON.stringify(value)} is not a safe release-id component`);
       }
       continue;
     }
     const skel = blankJs(text);
     const target = defaultExportObject(skel);
-    if (!target) continue; // a config this reader cannot follow statically is not judged
+    const declaresSchema = /\bschema\s*:/.test(skel);
+    if (!target) { if (declaresSchema) unsupported("default", 1, "exported in a form this reader cannot follow (not an object literal, a wrapped one, or a const bound to one)"); continue; }
     const literal = objectKeys(skel, text, target.open);
-    if (!literal || literal.spread) continue; // a spread may supply the key
+    if (!literal) continue;
     // Only a config that declares itself a release config (schema) is judged: partial stubs (`export default {}`) are other tools'.
     if (!literal.keys.has("schema")) continue;
     for (const key of ["app", "version"]) {
-      if (!literal.keys.has(key)) { add(key, lineOf(text, target.open), `the default export has no top-level \`${key}\``); continue; }
-      const value = literalValue(text, literal.keys.get(key));
-      if (value !== undefined && !(key === "app" ? SAFE_APP : SAFE_VERSION).test(value)) add(key, lineOf(text, literal.keys.get(key)), `\`${key}: ${JSON.stringify(value)}\` is not a safe release-id component`);
+      if (!literal.keys.has(key)) {
+        if (literal.spread) unsupported(key, lineOf(text, target.open), "absent from the literal, which spreads another object that may or may not supply it");
+        else add(key, lineOf(text, target.open), `the default export has no top-level \`${key}\``);
+        continue;
+      }
+      const at = literal.keys.get(key);
+      const prop = propertyValue(skel, text, at);
+      const resolved = !prop ? { unsupported: "an unreadable property" } : staticString(skel, text, prop.shorthand ?? prop.expr);
+      if (resolved.unsupported) unsupported(key, lineOf(text, at), resolved.unsupported);
+      else if (resolved.bad) add(key, lineOf(text, at), `\`${key}\` is ${resolved.bad}`);
+      else if (!resolved.value) add(key, lineOf(text, at), `\`${key}\` is an empty string`);
+      else if (!(key === "app" ? SAFE_APP : SAFE_VERSION).test(resolved.value)) add(key, lineOf(text, at), `\`${key}: ${JSON.stringify(resolved.value)}\` is not a safe release-id component`);
     }
   }
   return out;
@@ -386,7 +454,30 @@ function releaseAge({ root, files, now = new Date(), registry = contractData().n
 // ---- CA-14 notice-lock-digest -----------------------------------------------------------------------------------------------------
 
 const NOTICE_FILE = /(^|\/)[^/]*(notice|licen[cs]e|third[-_ ]?party)[^/]*\.(html?|md|txt)$/i;
-const LOCK_DIGEST = /`?((?:[\w.-]+\/)*(?:pnpm-lock\.yaml|Cargo\.lock|package-lock\.json|yarn\.lock|bun\.lock))`?\s+sha256=`?([0-9a-f]{64})\b/g;
+const LOCK_NAME = String.raw`(?:[\w.-]+\/)*(?:pnpm-lock\.yaml|Cargo\.lock|package-lock\.json|yarn\.lock|bun\.lock)`;
+// The two formats the generators write, both read here:
+//   `<lock> sha256=<hex>`  packages/release/npm-license-notices.mjs:74 and packages/legal/src/tooling.ts:263 (npm appendix); HeardRight's
+//                          own generator quotes it as `pnpm-lock.yaml` sha256=`<hex>`
+//   `<lock> sha256 <hex>`  packages/legal/src/tooling.ts:142-149 (legal-snapshot fills {{key}} of a notices template with the sha256 of
+//                          notices.hashes[key]); desktop-app-template/legal/NOTICES.template.md:4 `pnpm-lock.yaml sha256 {{lock}}`
+export const LOCK_DIGEST = new RegExp(String.raw`` + "`?(" + LOCK_NAME + ")`?" + String.raw`\s+sha256(?:=|[ \t]+)` + "`?" + String.raw`([0-9a-f]{64})\b`, "g");
+const LOCK_LINE = new RegExp(`(${LOCK_NAME})`);
+const HEX64 = /\b[0-9a-fA-F]{64}\b/g;
+
+/** The lock files a legal-snapshot config hashes into `notice` (packages/legal/src/tooling.ts: notices.hashes, relative to the app root). */
+function snapshotHashFiles(root, set, notice) {
+  for (const dir of upward(dirOf(notice))) {
+    const configFile = join(dir, "legal-snapshot.config.json");
+    if (!set.has(configFile)) continue;
+    try {
+      const config = JSON.parse(readText(root, configFile));
+      const output = config?.notices?.path && path.posix.normalize(join(dir, join(config.legalDir ?? "legal", config.notices.path)));
+      if (output !== notice) return [];
+      return Object.values(config.notices.hashes ?? {}).filter((f) => typeof f === "string").map((f) => path.posix.normalize(join(dir, f)));
+    } catch { return []; }
+  }
+  return [];
+}
 
 function noticeLockDigest({ root, files }) {
   const set = new Set(files);
@@ -399,19 +490,44 @@ function noticeLockDigest({ root, files }) {
   for (const file of files.filter((f) => NOTICE_FILE.test(f) && !SKIPPED_TREE.test(f) && !HISTORY_TREE.test(f))) {
     const text = readText(root, file);
     if (text === null) continue;
+    const declared = snapshotHashFiles(root, set, file);
     const seen = new Set();
+    const consumed = new Set();
     for (const m of text.matchAll(LOCK_DIGEST)) {
       const [, ref, recorded] = m;
-      const lock = upward(dirOf(file)).map((d) => join(d, ref)).find((f) => set.has(f));
-      if (!lock || seen.has(`${lock}|${recorded}`)) continue; // a lock this tree does not hold is not judged
+      consumed.add(m.index + m[0].lastIndexOf(recorded));
+      const line = lineOf(text, m.index);
+      const lock = declared.find((f) => f === ref || f.endsWith(`/${ref}`)) ?? upward(dirOf(file)).map((d) => join(d, ref)).find((f) => set.has(f));
+      if (!lock || !set.has(lock)) {
+        out.push({ file, subject: `${ref}:unresolved`, problem: `${file}:${line} UNSUPPORTED: records ${ref} sha256 ${recorded}, but no committed ${ref} at or above ${dirOf(file) || "."} (nor in a legal-snapshot notices.hashes entry) can be compared, so its freshness is not proven`, fix: `commit the lock the notice was generated from beside the app, or regenerate the notice from the lock that is committed` });
+        continue;
+      }
+      if (seen.has(`${lock}|${recorded}`)) continue;
       seen.add(`${lock}|${recorded}`);
       const actual = digest(lock);
-      if (!actual || actual === recorded) continue;
+      if (actual === recorded) continue;
       out.push({
         file, subject: lock,
-        problem: `${file}:${lineOf(text, m.index)} records ${ref} sha256=${recorded}, but the committed ${lock} hashes to ${actual}: the notice was generated from another lockfile`,
+        problem: `${file}:${line} records ${ref} sha256 ${recorded}, but the committed ${lock} hashes to ${actual}: the notice was generated from another lockfile`,
         fix: `regenerate the notice from the committed ${lock} (the app's notice generator) and commit both together`,
       });
+    }
+    // A digest beside a lockfile name in a format neither generator writes is not silently passed.
+    const lines = text.split("\n");
+    let offset = 0;
+    for (let i = 0; i < lines.length; offset += lines[i].length + 1, i += 1) {
+      if (!LOCK_LINE.test(lines[i])) continue;
+      let previous = 0;
+      for (const hex of lines[i].matchAll(HEX64)) {
+        const segment = lines[i].slice(previous, hex.index);
+        previous = hex.index + hex[0].length;
+        if (consumed.has(offset + hex.index)) continue;
+        // The digest belongs to the last file named before it: judge it only when that file is a lockfile.
+        const owner = [...segment.matchAll(/[\w./-]+\.[A-Za-z]+/g)].at(-1)?.[0] ?? "";
+        if (!LOCK_LINE.test(owner)) continue;
+        out.push({ file, subject: `${owner}:format:${i + 1}`, problem: `${file}:${i + 1} UNSUPPORTED: a sha256-length digest after ${owner} in a form this rule does not read (it reads the generated \`<lock> sha256=<hex>\` and \`<lock> sha256 <hex>\`), so its freshness is not proven`, fix: "write the digest as `<lock> sha256=<hex>` or `<lock> sha256 <hex>` (what @rightkit/legal legal-snapshot and right-release license-notices write), or regenerate the notice with them" });
+        break;
+      }
     }
   }
   return out;
