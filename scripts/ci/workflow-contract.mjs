@@ -219,7 +219,8 @@ export const DENY_RUN = "cargo deny --manifest-path crates/rightkit-typeset/Carg
 // (scan-receipt.test.mjs proves they agree) and the actionlint release checksum.
 export const SCANS_TOOLS = "cargo-deny@0.20.2,cargo-audit@0.22.2";
 export const SCANS_ACTIONLINT_ENV = { ACTIONLINT_VERSION: "1.7.12", ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8" };
-export const SCANS_SHELLCHECK_ENV = { SHELLCHECK_VERSION: "0.10.0", SHELLCHECK_SHA256: "6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87" };
+// The ShellCheck class A accepts (packages/release/deterministic-scans.mjs PINNED_SCAN_TOOLS; scan-receipt.test.mjs proves they agree).
+export const SCANS_SHELLCHECK_ENV = { SHELLCHECK_VERSION: "0.11.0", SHELLCHECK_SHA256: "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198" };
 export const SCANS_RUN = 'node live/scripts/ci/run-deterministic-scans.mjs --content-root "$SCAN_CONTENT_ROOT" --live-root "$SCAN_LIVE_ROOT" --out "$SCAN_OUT"';
 export const SCANS_ENV = { SCAN_CONTENT_ROOT: "${{ github.workspace }}/source", SCAN_LIVE_ROOT: "${{ github.workspace }}/live", SCAN_OUT: `${RT}/scan-receipt`, PUBLISH_REGISTRY: "${{ inputs.registry }}", PUBLISH_UNITS: "${{ inputs.units }}" };
 export const SCANS_ARTIFACT = "scan-receipt-${{ github.run_attempt }}";

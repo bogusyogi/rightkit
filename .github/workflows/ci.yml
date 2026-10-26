@@ -325,6 +325,21 @@ jobs:
           mkdir -p "$RUNNER_TEMP/actionlint-bin"
           tar -xzf "$archive" -C "$RUNNER_TEMP/actionlint-bin" actionlint
           echo "$RUNNER_TEMP/actionlint-bin" >> "$GITHUB_PATH"
+      # Class A accepts one ShellCheck (PINNED_SCAN_TOOLS); the runner image's own build fails the scans with TOOL_VERSION.
+      - name: Install the pinned ShellCheck analyzer
+        env:
+          SHELLCHECK_VERSION: "0.11.0"
+          SHELLCHECK_SHA256: "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/shellcheck.tar.xz"
+          curl --fail --silent --show-error --location --output "$archive" "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          echo "${SHELLCHECK_SHA256}  ${archive}" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/shellcheck-bin"
+          tar -xJf "$archive" -C "$RUNNER_TEMP/shellcheck-bin" --strip-components=1 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
+          chmod +x "$RUNNER_TEMP/shellcheck-bin/shellcheck"
+          "$RUNNER_TEMP/shellcheck-bin/shellcheck" --version | grep -Fx "version: ${SHELLCHECK_VERSION}"
+          echo "$RUNNER_TEMP/shellcheck-bin" >> "$GITHUB_PATH"
       # Class A scans run for EVERY change (Rust, npm, workflow, scripts, docs), never only for crates: with no base they
       # cover every tracked file. Shard and closure jobs need this job and receive its result (RK_SCANS_JOB_RESULT).
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10

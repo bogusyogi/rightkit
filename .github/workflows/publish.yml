@@ -135,8 +135,8 @@ jobs:
           echo "$RUNNER_TEMP/actionlint-bin" >> "$GITHUB_PATH"
       - name: Install the pinned ShellCheck analyzer
         env:
-          SHELLCHECK_VERSION: "0.10.0"
-          SHELLCHECK_SHA256: "6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87"
+          SHELLCHECK_VERSION: "0.11.0"
+          SHELLCHECK_SHA256: "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
         run: |
           set -euo pipefail
           archive="$RUNNER_TEMP/shellcheck.tar.xz"

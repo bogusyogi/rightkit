@@ -269,6 +269,25 @@ const PROBES = Object.freeze({
   rustfmt: ["--version"], node: ["--version"], rustright: ["cargo", "--version"], pnpm: ["--version"],
   actionlint: ["-version"], shellcheck: ["--version"], "right-git": ["--version"], swift: ["--version"],
 });
+/**
+ * The one version of each analyzer whose verdict class A accepts. A class A finding must not depend on which build of the
+ * analyzer a host happens to have: ShellCheck 0.10.0 fails SellRight's repaired deploy scripts on SC2015 and a documented
+ * `# shellcheck disable=SC2329` on SC2317 (0.11.0 split that code), so the same commit was red on one host and green on another.
+ * A scan (or a scan's `requires`) whose tool answers another version fails with TOOL_VERSION; it is never passed or skipped.
+ * The installers (.github/workflows/publish.yml, publish-app.yml, ci.yml) and the managed host path in ci/rk-pipeline.json
+ * provision exactly this version; scripts/ci/scan-receipt.test.mjs holds them to it.
+ */
+export const PINNED_SCAN_TOOLS = Object.freeze({ shellcheck: "0.11.0" });
+// The version a probe's output names, for a tool whose first line is not its version (`shellcheck --version` opens with a banner).
+const PROBE_VERSION = Object.freeze({
+  shellcheck: (text) => { const m = /^version:\s*(\S+)\s*$/m.exec(text); return m ? `shellcheck ${m[1]}` : null; },
+});
+/** null when `version` (a probe's answer) is the pinned one or the tool has no pin, else the problem. */
+export function pinnedVersionProblem(tool, version) {
+  const required = PINNED_SCAN_TOOLS[tool];
+  if (!required || version === `${tool} ${required}`) return null;
+  return `${tool} found ${version ? `"${version}"` : "with no readable version"}, class A requires ${tool} ${required} (PINNED_SCAN_TOOLS in @rightkit/release deterministic-scans.mjs); another version judges scripts differently, so it is refused, never passed or skipped`;
+}
 
 function commandText(d) {
   if (d.internal) return `internal:${d.internal}`;
@@ -1243,7 +1262,11 @@ export async function runScans(plan, options = {}) {
       // (pnpm's .npmrc and pnpmfile, corepack's packageManager pin, cargo's .cargo/config), before any scan's protections apply.
       const r = await deps.spawn(command, PROBES[tool] ?? ["--version"], { cwd: deps.probeDir ?? probeDir(), env: { ...deps.env, ...PNPM_NO_HOOKS_ENV, COREPACK_ENABLE_AUTO_PIN: "0" }, ...sig });
       if (!r || r.error || r.status !== 0) outcome = { ok: false, why: r?.error?.message ?? `exit ${r?.status}` };
-      else outcome = { ok: true, command, version: String(r.stdout || r.stderr || "").split(/\r?\n/).find((l) => l.trim())?.trim() ?? "unknown" };
+      else {
+        const text = String(r.stdout || r.stderr || "");
+        const version = PROBE_VERSION[tool] ? PROBE_VERSION[tool](text) : text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? "unknown";
+        outcome = { ok: true, command, version: version ?? "unknown", pinProblem: pinnedVersionProblem(tool, version) };
+      }
     }
     toolVersions[tool] = outcome.ok ? outcome.version : null;
     probed.set(tool, outcome);
@@ -1343,16 +1366,25 @@ export async function runScans(plan, options = {}) {
       } else {
         const p = await probe(s.tool);
         row.toolVersion = p.ok ? p.version : null;
-        let missingDep = null;
-        for (const dep of s.requires ?? []) { const d = await probe(dep); if (!d.ok) { missingDep = `${dep} (${d.why})`; break; } }
+        let missingDep = null; let depVersionProblem = null; const depVersions = [];
+        for (const dep of s.requires ?? []) {
+          const d = await probe(dep);
+          if (!d.ok) { missingDep = `${dep} (${d.why})`; break; }
+          if (d.pinProblem) { depVersionProblem = d.pinProblem; break; }
+          depVersions.push(d.version);
+        }
         if (!p.ok) { status = "fail"; code = "TOOL_MISSING"; detail = `required tool ${s.tool} is missing or not runnable (${p.why}); a required scan is never skipped`; }
+        else if (p.pinProblem) { status = "fail"; code = "TOOL_VERSION"; detail = `TOOL_VERSION: ${p.pinProblem} (at ${p.command})`; }
         else if (missingDep) { status = "fail"; code = "TOOL_MISSING"; detail = `${s.tool} needs ${missingDep}, which is missing or not runnable; without it the scan would pass unchecked, so it fails`; }
+        else if (depVersionProblem) { status = "fail"; code = "TOOL_VERSION"; detail = `TOOL_VERSION: ${s.tool} runs ${depVersionProblem}`; }
         else {
           let cacheKey = null;
           if (cache) {
             try {
               const digest = cache.digest(s);
-              if (digest) cacheKey = scanCacheKey({ id: s.id, command: s.command, toolVersion: p.version, env: s.env ?? {}, inheritedEnv: inheritedEnvDigest({ ...deps.env, ...s.env }), digest });
+              // The analyzers a scan runs through (actionlint's shellcheck) judge it too, so their versions key it as well.
+              const toolVersion = [p.version, ...depVersions].join(" + ");
+              if (digest) cacheKey = scanCacheKey({ id: s.id, command: s.command, toolVersion, env: s.env ?? {}, inheritedEnv: inheritedEnvDigest({ ...deps.env, ...s.env }), digest });
             } catch { cacheKey = null; }
             const hit = cacheKey ? cache.read(cacheKey) : null;
             if (hit && hit.key === cacheKey && hit.row?.status === "pass" && hit.row.id === s.id && hit.row.command === s.command) {

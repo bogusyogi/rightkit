@@ -14,7 +14,7 @@ import { requiredScanProblems } from "./scan-digest.mjs";
 import * as scansModule from "./deterministic-scans.mjs";
 
 // Read off the module so a test of a function that does not exist yet fails on its own, not with an import error for the whole file.
-const { scriptBrokerCall } = scansModule;
+const { scriptBrokerCall, PINNED_SCAN_TOOLS = {}, pinnedVersionProblem } = scansModule;
 
 const CONTENT = path.join(path.sep, "c", "rustright");
 const LIVE = path.join(path.sep, "l", "rustright");
@@ -113,12 +113,14 @@ test("builders produce the exact command lines the CI gate and local publish use
 });
 
 // A recording spawn: probes answer a version, every other call is logged and returns `status`.
-function fakeSpawn({ missing = [], failing = [], log = [] } = {}) {
+function fakeSpawn({ missing = [], failing = [], log = [], shellcheckVersion = PINNED_SCAN_TOOLS.shellcheck } = {}) {
   return (command, args) => {
     log.push([command, ...args]);
     const name = path.basename(command).replace(/\.exe$/, "");
     if (missing.includes(name)) return { error: Object.assign(new Error(`spawn ${name} ENOENT`), { code: "ENOENT" }), status: null };
     const isProbe = args.length === 1 && args[0].includes("version") || (args.length === 2 && args[0] === "cargo" && args[1] === "--version");
+    // ShellCheck answers as the real one does (a banner, then its version), at the version class A accepts.
+    if (isProbe && name === "shellcheck") return { status: 0, stdout: `ShellCheck - shell script analysis tool\nversion: ${shellcheckVersion}\nlicense: GNU General Public License, version 3\n`, stderr: "" };
     if (isProbe) return { status: 0, stdout: `${name} 1.0.0\n`, stderr: "" };
     if (failing.some((f) => args.join(" ").includes(f))) return { status: 1, stdout: "", stderr: "boom\n" };
     return { status: 0, stdout: "", stderr: "" };
@@ -1844,17 +1846,48 @@ test("shellcheck: every tracked .sh/.bash script is a class A scan; a zsh script
   assert.deepEqual(scan.args.filter((a) => !a.startsWith("--")), ["deploy/release.sh", "tools/x.bash"]);
 });
 
-test("shellcheck (real binary): SellRight's historical findings fail, intentional idioms documented in place pass", { skip: spawnSync("shellcheck", ["--version"]).status !== 0 && "shellcheck is not installed on this host" }, () => {
-  const dir = mkdtempSync(path.join(os.tmpdir(), "rk-shellcheck-"));
-  try {
-    const write = (name, text) => { writeFileSync(path.join(dir, name), text); return name; };
-    const run = (name) => spawnSync("shellcheck", ["--format=gcc", "--external-sources", name], { cwd: dir, encoding: "utf8" });
-    // Negatives: the codes SellRight's CI failed on (job 116846431233: SC2154, SC2030/SC2031; job 108638700363: SC2016).
-    assert.match(run(write("unassigned.sh", "#!/bin/bash\necho \"$deploy_host\"\n")).stdout, /SC2154/);
-    assert.match(run(write("subshell.sh", "#!/bin/bash\nx=1\n( x=2 )\necho \"$x\"\n( x=3; echo \"$x\" ) | cat\necho \"$x\"\n")).stdout, /SC203[01]/);
-    assert.match(run(write("quotes.sh", "#!/bin/bash\necho 'value: $HOME'\n")).stdout, /SC2016/);
-    // Positives: the same idioms written on purpose and said so, and a clean script.
-    assert.equal(run(write("intent.sh", "#!/bin/bash\n# shellcheck disable=SC2016  # literal on purpose: the inner shell expands it\nbash -c 'echo $HOME'\n")).status, 0);
-    assert.equal(run(write("clean.sh", "#!/bin/bash\nset -euo pipefail\nhost=${1:?host}\necho \"$host\"\n")).status, 0);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+// SellRight's own scripts (original bytes, red, repaired and the disable-comment positive control) run through the real
+// rightkit-gate check in rightkit-gate.test.mjs ("class A ShellCheck: ..."); these hold the version pin itself.
+test("shellcheck version pin: class A accepts only PINNED_SCAN_TOOLS.shellcheck, reads it past the banner, and a wrong version fails TOOL_VERSION in the scan and in actionlint, never passing or skipping", async () => {
+  assert.equal(PINNED_SCAN_TOOLS.shellcheck, "0.11.0");
+  assert.equal(pinnedVersionProblem("shellcheck", "shellcheck 0.11.0"), null);
+  assert.match(pinnedVersionProblem("shellcheck", "shellcheck 0.10.0"), /found "shellcheck 0\.10\.0", class A requires shellcheck 0\.11\.0/);
+  assert.match(pinnedVersionProblem("shellcheck", null), /no readable version/);
+  assert.equal(pinnedVersionProblem("actionlint", "1.0.0"), null, "a tool with no pin is not judged here");
+  const files = { "deploy/release.sh": "#!/bin/sh\necho hi\n", ".github/workflows/ci.yml": "on: push\njobs: {}\n" };
+  const { fs, plan } = planFor(Object.keys(files), files, { all: true });
+  const good = await runScans(plan, deps({ ...fs }));
+  assert.equal(good.ok, true, JSON.stringify(scanFailures(good)));
+  assert.equal(good.toolVersions.shellcheck, "shellcheck 0.11.0", "the version, not the banner's first line");
+  for (const [label, version] of [["older", "0.10.0"], ["newer", "0.12.0"], ["a build string", "0.11.0-dirty"]]) {
+    const log = [];
+    const bad = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ log, shellcheckVersion: version }) }));
+    assert.equal(bad.ok, false, label);
+    for (const id of ["shellcheck", "actionlint"]) {
+      const row = bad.scans.find((r) => r.id === id);
+      assert.equal(row.status, "fail", `${label} ${id}`);
+      assert.equal(row.code, "TOOL_VERSION", `${label} ${id}`);
+      assert.match(row.detail, /class A requires shellcheck 0\.11\.0/);
+    }
+    assert.ok(bad.scans.find((r) => r.id === "shellcheck").detail.includes(`found "shellcheck ${version}"`), label);
+    assert.equal(log.filter((l) => /shellcheck|actionlint/.test(l[0]) && !l.some((a) => /version/.test(a))).length, 0, `${label}: neither analyzer ran`);
+  }
+});
+
+test("shellcheck version pin: a cached pass never admits another version, and the version keys the cache (actionlint's by its shellcheck too)", async () => {
+  const files = { "deploy/release.sh": "#!/bin/sh\necho hi\n", ".github/workflows/ci.yml": "on: push\njobs: {}\n" };
+  const { fs, plan } = planFor(Object.keys(files), files, { all: true });
+  const cache = memCache(() => "digest-1");
+  const first = await runScans(plan, deps({ ...fs, cache }));
+  assert.equal(first.ok, true, JSON.stringify(scanFailures(first)));
+  const keys = [...cache.store.keys()];
+  const second = await runScans(plan, deps({ ...fs, cache }));
+  assert.ok(second.cacheHits.includes("shellcheck") && second.cacheHits.includes("actionlint"), "the pinned version hits");
+  const wrong = await runScans(plan, deps({ ...fs, cache, spawn: fakeSpawn({ shellcheckVersion: "0.10.0" }) }));
+  assert.deepEqual(wrong.cacheHits.filter((id) => id === "shellcheck" || id === "actionlint"), [], "a cached pass is not a pass under another analyzer");
+  assert.equal(wrong.scans.find((r) => r.id === "shellcheck").code, "TOOL_VERSION");
+  const key = (id, toolVersion) => scanCacheKey({ id, command: plan.scans.find((s) => s.id === id).command, toolVersion, env: {}, inheritedEnv: inheritedEnvDigest({}), digest: "digest-1" });
+  assert.ok(keys.includes(key("shellcheck", "shellcheck 0.11.0")), "shellcheck's key carries its version");
+  assert.ok(keys.includes(key("actionlint", "actionlint 1.0.0 + shellcheck 0.11.0")), "actionlint's key carries the shellcheck it runs");
+  assert.notEqual(key("shellcheck", "shellcheck 0.11.0"), key("shellcheck", "shellcheck 0.10.0"));
 });

@@ -10,6 +10,7 @@ import * as ci from "../../scripts/ci/select.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { HOOK_MARKER, renderPreCommitHook } from "./ownership-hooks.mjs";
 import { digestScanSet } from "./scan-digest.mjs";
+import { PINNED_SCAN_TOOLS } from "./deterministic-scans.mjs";
 import { EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, hookText, lockScope, main, manifestChangeIsLockReflected, PARTIAL_EXIT, manifestTables, parsePushLines, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustUnitName, rustUnitOfScanId, tomlString, tomlStrings, tomlValue, trampolineText, workspaceExcludes } from "./bin/rightkit-gate.mjs";
 import * as gateModule from "./bin/rightkit-gate.mjs";
 
@@ -1204,6 +1205,78 @@ test("check is the full deterministic stage: a class A finding (here a broken pa
   const green = capture();
   assert.equal(await main(["check", "--repo", repo, "--commit", "HEAD"], { ...green.io, appCheck }), 0, green.err.join("\n"));
   assert.match(green.out.at(-1), /class A pass/);
+});
+
+// ---- class A ShellCheck: SellRight's own scripts through the real check, and a refused analyzer version ----------------------
+// fixtures/shellcheck-sellright/README.md: the original bytes (git blob ids below), their licence and provenance.
+const SC_FIXTURES = new URL("./fixtures/shellcheck-sellright/", import.meta.url);
+const SC_CASES = [
+  { file: "sellright-a09236e-parent.sh.fixture", at: "deploy/sellright.sh", blob: "e856d8c974fa35a44c5173baa1ffa3df2c5b576c", red: ["SC2030", "SC2031", "SC2154"] },
+  { file: "sellright-a09236e.sh.fixture", at: "deploy/sellright.sh", blob: "234308df35d076032a7cf2df04f986e153736d50", red: [] },
+  { file: "sellright-6c3faed-parent.sh.fixture", at: "deploy/sellright.sh", blob: "07af9d2a39fa54241aca9e0c4e4684f1a108e074", red: ["SC2016"] },
+  { file: "sellright-6c3faed.sh.fixture", at: "deploy/sellright.sh", blob: "9fa44bf81ee74de9edb34869b3cd2c6450052d27", red: [] },
+  { file: "test-installer-image-binding-059fe34-parent.sh.fixture", at: "deploy/tests/test-installer-image-binding.sh", blob: "3811ed592b1de00dea9a19dc001ea52a1d6ee362", red: ["SC2016", "SC2329"] },
+  { file: "test-installer-image-binding-059fe34.sh.fixture", at: "deploy/tests/test-installer-image-binding.sh", blob: "a5db74a35654e22673d6515a57fdd0af04087197", red: [] },
+];
+const scBytes = (c) => fs.readFileSync(new URL(c.file, SC_FIXTURES));
+const SC_PIN = PINNED_SCAN_TOOLS.shellcheck;
+const SC_FOUND = (() => { const r = spawnSync("shellcheck", ["--version"], { encoding: "utf8" }); return r.status === 0 ? (/^version:\s*(\S+)/m.exec(String(r.stdout))?.[1] ?? "unreadable") : null; })();
+// One commit holding one script at its SellRight path, checked by `rightkit-gate check` (real class A, real runScans) with
+// `binDir` first on PATH. The app check is not under test here.
+async function checkScript(t, bytes, at, binDir = null) {
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-sc-")));
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.mkdirSync(path.join(repo, path.dirname(at)), { recursive: true });
+  fs.writeFileSync(path.join(repo, at), bytes);
+  git("add", "-A"); git("commit", "-q", "-m", "script");
+  const saved = process.env.PATH;
+  if (binDir) process.env.PATH = `${binDir}${path.delimiter}${saved}`;
+  try {
+    const c = capture();
+    const code = await main(["check", "--repo", repo, "--commit", "HEAD"], { ...c.io, appCheck: async () => 0 });
+    return { code, out: c.out.join("\n"), err: c.err.join("\n") };
+  } finally { process.env.PATH = saved; }
+}
+
+test("class A ShellCheck fixtures are SellRight's committed bytes (git blob ids), not rewrites", () => {
+  for (const c of SC_CASES) {
+    const bytes = scBytes(c);
+    assert.equal(crypto.createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex"), c.blob, c.file);
+  }
+});
+
+test("class A ShellCheck (the pinned analyzer): SellRight's original negatives are red, its repairs and the disable-comment positive control are green", { skip: SC_FOUND !== SC_PIN && `the pinned ShellCheck ${SC_PIN} is not on PATH (found ${SC_FOUND ?? "none"}); the version refusal test below still runs` }, async (t) => {
+  for (const c of SC_CASES) {
+    const r = await checkScript(t, scBytes(c), c.at);
+    // The progress line keeps 300 characters of the finding; the BLOCKED list carries all of it.
+    const found = [...new Set(`${r.out}\n${r.err}`.match(/SC\d{4}/g) ?? [])].sort();
+    if (c.red.length) {
+      assert.equal(r.code, 1, `${c.file} is red\n${r.out}\n${r.err}`);
+      assert.match(r.out, /fail +shellcheck/, c.file);
+      for (const code of c.red) assert.ok(found.includes(code), `${c.file} reports ${code} (found ${found.join(",")})`);
+    } else {
+      assert.equal(r.code, 0, `${c.file} is green\n${r.out}\n${r.err}`);
+      assert.match(r.out, /pass +shellcheck/, c.file);
+      assert.deepEqual(found, [], c.file);
+    }
+  }
+});
+
+test("class A ShellCheck refuses another analyzer version (TOOL_VERSION, found and required named), even one that would pass every script", { skip: process.platform === "win32" && "a POSIX shell script stands in for shellcheck" }, async (t) => {
+  const bin = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-fake-shellcheck-")));
+  t.after(() => fs.rmSync(bin, { recursive: true, force: true }));
+  // Answers --version as ShellCheck 0.10.0 does and finds nothing in any script: a pass from it would be a pass the pin forbids.
+  fs.writeFileSync(path.join(bin, "shellcheck"), '#!/bin/sh\nif [ "$1" = "--version" ]; then printf \'ShellCheck - shell script analysis tool\\nversion: 0.10.0\\nlicense: GNU General Public License, version 3\\n\'; fi\nexit 0\n');
+  fs.chmodSync(path.join(bin, "shellcheck"), 0o755);
+  for (const c of [SC_CASES[1], SC_CASES[5], SC_CASES[0]]) {
+    const r = await checkScript(t, scBytes(c), c.at, bin);
+    assert.equal(r.code, 1, `${c.file} is refused\n${r.out}\n${r.err}`);
+    assert.match(r.out, /fail +shellcheck .*TOOL_VERSION: shellcheck found "shellcheck 0\.10\.0", class A requires shellcheck 0\.11\.0/, c.file);
+    assert.match(r.err, /Class A is red: nothing compiles until it is green\./);
+    assert.doesNotMatch(r.out, /pass +shellcheck|deferred +shellcheck/);
+  }
 });
 
 test("check delegates to the app check with its own arguments, label and cwd and reads no stdin (class A stubbed off)", async () => {
