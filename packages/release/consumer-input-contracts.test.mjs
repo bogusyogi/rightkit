@@ -308,3 +308,23 @@ test("CA-11 through the gate: the value in effect at the checkout decides, not a
   assert.equal(red(`${enable}      - run: echo unrelated\n`).status, 0, "an unrelated step keeps it on");
   assert.equal(red("      - run: git config --system core.longpaths false\n      - run: git config --system core.longpaths true\n").status, 0, "disable then enable");
 });
+
+test("CA-11 through the gate: an incomplete GIT_CONFIG pair set below COUNT refuses; an empty COUNT sets nothing", (t) => {
+  const file = longFile(240);
+  const run = (vars, before = "") => gate(t, "swiftright", { ".github/workflows/ci.yml": windowsJob({ before, env: `    env:\n${Object.entries(vars).map(([k, v]) => `      ${k}: "${v}"\n`).join("")}` }), [file]: "x\n" }, LONGPATHS_ONLY);
+  const first = { GIT_CONFIG_KEY_0: "core.longpaths", GIT_CONFIG_VALUE_0: "true" };
+  for (const [label, vars] of [["KEY_1 missing", { GIT_CONFIG_COUNT: "2", ...first, GIT_CONFIG_VALUE_1: "x" }], ["VALUE_1 missing", { GIT_CONFIG_COUNT: "2", ...first, GIT_CONFIG_KEY_1: "user.name" }]]) {
+    const r = run(vars);
+    assert.equal(r.status, 1, `${label}: ${r.stdout}`);
+    assert.match(r.stdout, /^FAIL checkout-longpaths \(CA-11\): \.github\/workflows\/ci\.yml job ci \(windows-2025\) sets GIT_CONFIG_COUNT with a pair below it missing its GIT_CONFIG_KEY_n or GIT_CONFIG_VALUE_n: git refuses to run/m, label);
+  }
+  assert.equal(run({ GIT_CONFIG_COUNT: "1", ...first }).status, 0, "a complete COUNT=1 pair");
+  assert.equal(run({ GIT_CONFIG_COUNT: "2", GIT_CONFIG_KEY_0: "core.longpaths", GIT_CONFIG_VALUE_0: "false", GIT_CONFIG_KEY_1: "core.longpaths", GIT_CONFIG_VALUE_1: "true" }).status, 0, "a complete COUNT=2 set whose last value is true");
+  // Empty COUNT is 0: the env sets nothing, so the verdict is the files'. A false pair under it does not mask a separate enable,
+  // and without that enable the long path still fails.
+  const off = { GIT_CONFIG_COUNT: "", GIT_CONFIG_KEY_0: "core.longpaths", GIT_CONFIG_VALUE_0: "false" };
+  assert.equal(run(off, "      - run: git config --system core.longpaths true\n").status, 0, "empty COUNT sets nothing; the enable stands");
+  const bare = run(off);
+  assert.equal(bare.status, 1, bare.stdout);
+  assert.match(bare.stdout, /^FAIL checkout-longpaths \(CA-11\): \.github\/workflows\/ci\.yml job ci .* without Git long paths/m);
+});

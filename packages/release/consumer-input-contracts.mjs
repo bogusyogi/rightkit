@@ -185,15 +185,17 @@ const MENTIONS_LONGPATHS = /core\.longpaths/i;
 /** The core.longpaths value git takes from the config environment (GIT_CONFIG_COUNT, GIT_CONFIG_KEY_n, GIT_CONFIG_VALUE_n):
  * null when the environment sets none, true or false for the LAST pair below COUNT that names it (git applies pairs in index
  * order and the last value wins), or "unknown" for an expression, a COUNT git would refuse, or a value that is not a plain
- * boolean. Pair n counts only when COUNT is a positive integer above n. */
+ * boolean, or "error" when a pair below COUNT lacks its KEY_n or VALUE_n (git refuses to run then). Pair n counts only when
+ * COUNT is a positive integer above n; an empty COUNT is 0. */
 export function envLongpaths(env) {
   if (!env || typeof env !== "object") return null;
   const values = Object.entries(env).filter(([k]) => /^GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)$/.test(k));
   if (values.some(([, v]) => /\$\{\{/.test(String(v)))) return "unknown";
   if (env.GIT_CONFIG_COUNT === undefined) return null;
   const count = String(env.GIT_CONFIG_COUNT).trim();
-  if (count === "0") return null;
+  if (count === "" || count === "0") return null;
   if (!/^[1-9]\d*$/.test(count)) return "unknown";
+  for (let i = 0; i < Number(count); i += 1) if (env[`GIT_CONFIG_KEY_${i}`] === undefined || env[`GIT_CONFIG_VALUE_${i}`] === undefined) return "error";
   let value = null;
   for (let i = 0; i < Number(count); i += 1) {
     if (String(env[`GIT_CONFIG_KEY_${i}`] ?? "").trim().toLowerCase() === "core.longpaths") value = gitBool(env[`GIT_CONFIG_VALUE_${i}`] ?? "");
@@ -234,7 +236,7 @@ function judgeStep(step) {
 
 /** core.longpaths as git reads it at the checkout step: the config environment overrides the files, the global file overrides
  * the system file, and within a source the last value wins; Git for Windows on a hosted runner defaults to false. Returns
- * true, false or "unknown". */
+ * true, false, "unknown", or "error" (an incomplete GIT_CONFIG pair set: git refuses to run). */
 export function effectiveLongpaths(steps, env) {
   const files = { system: null, global: null };
   let unknown = false;
@@ -244,7 +246,7 @@ export function effectiveLongpaths(steps, env) {
     else if (judged !== "none") Object.assign(files, judged);
   }
   const fromEnv = envLongpaths(env);
-  if (fromEnv === "unknown") return "unknown";
+  if (fromEnv === "unknown" || fromEnv === "error") return fromEnv;
   if (fromEnv !== null) return fromEnv;
   if (unknown) return "unknown";
   return files.global ?? files.system ?? false;
@@ -300,6 +302,10 @@ function checkoutLongpaths({ root, files, repo, repositoryName: given }) {
       const effective = effectiveLongpaths(job.steps.slice(0, checkout.index), env);
       if (effective === true) continue;
       const unsupported = effective === "unknown";
+      if (effective === "error") {
+        out.push({ file: wf.file, subject: jobId, problem: `${wf.file} job ${jobId} (${windows.join(", ")}) sets GIT_CONFIG_COUNT with a pair below it missing its GIT_CONFIG_KEY_n or GIT_CONFIG_VALUE_n: git refuses to run, so the checkout of ${long.longest ? long.files.length : unknownWide.files.length} over-long tracked path(s) has no Git long paths`, fix: "give every index below GIT_CONFIG_COUNT both a GIT_CONFIG_KEY_n and a GIT_CONFIG_VALUE_n, or lower the count" });
+        continue;
+      }
       const after = job.steps.slice(checkout.index + 1).some((s) => s && typeof s.run === "string" && MENTIONS_LONGPATHS.test(s.run));
       if (!long.longest) {
         out.push({ file: wf.file, subject: jobId, problem: `UNSUPPORTED: ${wf.file} job ${jobId} (${windows.join(", ")}) checks out ${unknownWide.files.length} tracked path(s) that exceed the Win32 limit under D:\\a\\<repo>\\<repo>\\ for a long enough repository name, and the repository name is unknown (no GitHub remote origin), without proven Git long paths`, fix: "enable core.longpaths before the checkout, or check a clone whose origin names the GitHub repository" });
