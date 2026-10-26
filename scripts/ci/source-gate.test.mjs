@@ -374,7 +374,7 @@ test("exports-import-effects: HEAD moving between identity capture and archive i
   assert.match(readIncompleteReport(path.join(repo, "out", "moved.json")).problem, /HEAD moved while the probe ran/);
 });
 
-test("exports-import-effects: edits, restores and a HEAD ABA performed while an import is ACTUALLY blocked (external barrier) never reach the probe; the result equals a quiet run", async (t) => {
+test("exports-import-effects: edits, restores and a HEAD ABA performed while an import is ACTUALLY blocked (external barrier) never reach the probe; the result equals a quiet run", { skip: process.platform !== "linux" && "the blocked grandchild is found through /proc, Linux only; the race below runs everywhere" }, async (t) => {
   const barrier = path.join(tmp(t), "release");
   const waiter = `import fs from "node:fs"; const until = Date.now() + 20000; while (!fs.existsSync(process.env.RK_BARRIER) && Date.now() < until) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250); export const waited = true;\n`;
   const packages = { w: { exports: { ".": "./dist/index.js", "./wait": "./src/wait.mjs" }, files: { "src/wait.mjs": waiter }, deps: { "@rk/z": "workspace:*" } }, z: { exports: { ".": "./src/z.mjs" }, files: { "src/z.mjs": "export const z = 1;\n" } } };
