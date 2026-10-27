@@ -1733,7 +1733,7 @@ export async function main(argv, io = {}) {
     fullPlan = planScans({
       // Class A of a commit or tree reads only that snapshot: every scan, cargo's included, runs in the export, never in the live
       // checkout (which may hold other bytes). Compiles (class B) use the live checkout, whose tree the dirty check pinned to HEAD.
-      changed, contentRoot: repo, liveRoot: classAOnly && snapshot ? repo : root, includeTests: true, rustScope, cargoCommand,
+      changed, contentRoot: repo, liveRoot: classAOnly && snapshot ? repo : root, trustedRoot: root, includeTests: true, rustScope, cargoCommand,
       tier: option("--rule-tier") ?? "compile", cargoLiveRoot,
       // The quiet tests (port, pipe, desktop and wall-clock bound) are proven by the CI shards, one crate per runner, unless
       // RK_GATE_QUIET_TESTS=local asks for the serial quiet lane here (no CI, or a CI outage).

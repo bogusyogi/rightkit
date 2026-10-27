@@ -444,7 +444,7 @@ export function declaredBrokerCall(unit, value) {
  * managed `rustright cargo` and `pnpm` run in. A scan whose files did not change is not planned.
  */
 export function planScans({
-  changed = [], contentRoot, liveRoot = contentRoot, exists = fs.existsSync, readFile = (f) => fs.readFileSync(f, "utf8"),
+  changed = [], contentRoot, liveRoot = contentRoot, trustedRoot = null, exists = fs.existsSync, readFile = (f) => fs.readFileSync(f, "utf8"),
   platform = process.platform, includeTests = true, localCompile = true,
   // Where the quiet test scans (ci/gate.config.json `quietTests`) run: "local" plans them for the quiet lane; "ci" leaves them to the
   // CI shards (one crate per runner, where the port, pipe, desktop and wall-clock conflicts that force the serial lane do not exist)
@@ -743,9 +743,10 @@ export function planScans({
     // RightKit's own generator contract (scripts/gen-suite-api.mjs) is the checked repository's code: like scripts/preflight.mjs it
     // runs only when this gate is that repository's in-tree copy (and in CI), never from a pinned or installed copy checking the
     // repository (the broker's trusted gate refused RightKit's own compile on a module it could not find, 2026-10-27).
-    // The trusted home is the live checkout (liveRoot: a commit check exports the commit to a snapshot and hands that as
-    // contentRoot; the generator is code and runs only from the checkout's own in-tree gate), or contentRoot when they are one.
-    const home = path.resolve(liveRoot) !== path.resolve(contentRoot) ? liveRoot : contentRoot;
+    // The trusted home is the gate's own repository (`trustedRoot`, the checkout rightkit-gate runs for: a commit check exports the
+    // commit to a snapshot and hands that as contentRoot and liveRoot); the generator is code and runs only from that checkout's
+    // in-tree gate, reading the snapshot as data. Without a trusted root (library callers), the live checkout or content root decides.
+    const home = trustedRoot ?? (path.resolve(liveRoot) !== path.resolve(contentRoot) ? liveRoot : contentRoot);
     if (inTreeGate(home, exists)) add({ id: "suite-api", class: A, internal: "suite-api" });
     else notes.push("suite-api: RightKit's own generator contract runs from the in-tree gate and CI, not from this installed copy");
   }

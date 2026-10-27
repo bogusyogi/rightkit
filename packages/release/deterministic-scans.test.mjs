@@ -1798,6 +1798,12 @@ test("suite-api is planned only by the repository's in-tree gate; an installed c
   const commitPlan = planScans({ changed: ["packages/release/suite-api.generated.mjs"], contentRoot: CONTENT, liveRoot: repoRoot, ...fs, exists: (p) => fs.exists(p) || realFs.existsSync(p), platform: "linux", includeTests: false });
   assert.equal(commitPlan.scans.some((s) => s.id === "suite-api"), true, "the in-tree gate checking an exported commit plans suite-api");
   assert.ok(!commitPlan.notes.some((n) => /suite-api:/.test(n)));
+  // rightkit-gate's commit check hands the snapshot as both contentRoot and liveRoot (class A runs in the export) and names the
+  // checkout as trustedRoot: that alone decides.
+  const gatePlan = planScans({ changed: ["packages/release/suite-api.generated.mjs"], contentRoot: CONTENT, liveRoot: CONTENT, trustedRoot: repoRoot, ...fs, exists: (p) => fs.exists(p) || realFs.existsSync(p), platform: "linux", includeTests: false });
+  assert.equal(gatePlan.scans.some((s) => s.id === "suite-api"), true, "trustedRoot = the checkout plans suite-api although the snapshot is foreign");
+  const foreignPlan = planScans({ changed: ["packages/release/suite-api.generated.mjs"], contentRoot: CONTENT, liveRoot: CONTENT, trustedRoot: LIVE, ...fs, platform: "linux", includeTests: false });
+  assert.equal(foreignPlan.scans.some((s) => s.id === "suite-api"), false, "a trusted root that is not this gate's repository notes it");
 });
 
 // ---- B4: pnpm 11's dependency check before `pnpm run` and `pnpm exec` must not abort a gate scan -----------------------------------------------------------
