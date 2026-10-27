@@ -472,6 +472,11 @@
     "rightkit-onboarding": {
       "quietTests": true
     },
+    "rightkit-release": {
+      "afterClassA": {
+        "reason": "The release tests stand in for cargo, rustright, tauri and signing tools with stub scripts written to a temp root (test-support/broker-guard.mjs); stub scripts can run anything, so they cannot run under the class A launch guard."
+      }
+    },
     "rightkit-qa": {
       "quietTests": true
     }

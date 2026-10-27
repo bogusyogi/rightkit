@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { test } from "node:test";
-import { cargoProfileDirectory, DEVELOPMENT_PROFILE, assertInstalledExecutableMatches, assertNativeDevelopmentHost, isWsl, developmentEnvironment, resolveCommand, resolvePnpmCli, resolveTauriArtifact, runDevelopment as runDevelopmentActual, swapInstalledMacosBundle, validateDevelopmentConfig } from "./development.mjs";
+import { cargoProfileDirectory, DEVELOPMENT_PROFILE, assertInstalledExecutableMatches, assertNativeDevelopmentHost, isWsl, isWsl1, developmentEnvironment, resolveCommand, resolvePnpmCli, resolveTauriArtifact, runDevelopment as runDevelopmentActual, swapInstalledMacosBundle, validateDevelopmentConfig } from "./development.mjs";
 import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 
 // Not run on Windows: installs a macOS app bundle through POSIX paths.
@@ -323,8 +323,13 @@ test("linux dev target: build-only, native Linux host only, no install kind acce
   assert.throws(() => validateDevelopmentConfig(withInstall, "linux"), /linux is build-only/);
   assert.throws(() => assertNativeDevelopmentHost("linux", "darwin"), /requires its native host/);
   assert.throws(() => assertNativeDevelopmentHost("linux", "win32"), /requires its native host/);
-  assert.doesNotThrow(() => assertNativeDevelopmentHost("linux", "linux", { wsl: () => false }));
-  assert.throws(() => assertNativeDevelopmentHost("linux", "linux", { wsl: () => true }), /this is WSL/);
+  assert.doesNotThrow(() => assertNativeDevelopmentHost("linux", "linux", { wsl1: () => false }));
+  assert.throws(() => assertNativeDevelopmentHost("linux", "linux", { wsl1: () => true }), /this is WSL1/);
+  const kernel = (release) => (f) => (f.endsWith("osrelease") ? release : "");
+  assert.equal(isWsl1({ env: {}, readFile: kernel("6.6.87.2-microsoft-standard-WSL2") }), false, "WSL2 runs a Linux kernel");
+  assert.equal(isWsl1({ env: {}, readFile: kernel("4.4.0-19041-Microsoft") }), true, "WSL1 does not");
+  assert.equal(isWsl1({ env: { WSL_DISTRO_NAME: "Ubuntu" }, readFile: () => { throw new Error("EACCES"); } }), true, "unknown WSL counts as WSL1");
+  assert.equal(isWsl1({ env: {}, readFile: kernel("6.8.0-45-generic") }), false, "not WSL");
   assert.equal(isWsl({ env: { WSL_DISTRO_NAME: "Ubuntu" }, readFile: () => "" }), true);
   assert.equal(isWsl({ env: {}, readFile: (f) => (f.endsWith("osrelease") ? "5.15.153.1-microsoft-standard-WSL2" : "") }), true);
   assert.equal(isWsl({ env: {}, readFile: () => "6.8.0-45-generic" }), false);

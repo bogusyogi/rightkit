@@ -185,16 +185,26 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
   } finally { if (releaseLease) lease.release(); }
 }
 
-/** WSL reports `linux` as its platform; it is a Linux userspace on a Windows kernel, not a native Linux host. */
+/** WSL reports `linux` as its platform under both generations; which one it is decides whether a Linux kernel runs at all. */
 export function isWsl({ env = process.env, readFile = (f) => readFileSync(f, "utf8") } = {}) {
   if (env.WSL_DISTRO_NAME || env.WSL_INTEROP) return true;
   try { return /microsoft|wsl/i.test(readFile("/proc/sys/kernel/osrelease")) || /microsoft|wsl/i.test(readFile("/proc/version")); } catch { return false; }
 }
 
-export function assertNativeDevelopmentHost(platform, host = process.platform, { wsl = () => isWsl() } = {}) {
-  // Linux builds run on a native Linux host (no cross-compiling, no WSL standing in for one).
+/**
+ * WSL1 translates Linux system calls onto the Windows kernel (osrelease like `4.4.0-19041-Microsoft`), so it is not a Linux host.
+ * WSL2 runs a genuine Linux kernel in a Hyper-V utility VM (osrelease `…-microsoft-standard-WSL2`): a Linux VM, which is what
+ * native Linux builds need (rightkit#1230: "x86_64 on a Linux VM on the Dell"; Astra 2026-10-28). Unknown WSL counts as WSL1.
+ */
+export function isWsl1({ env = process.env, readFile = (f) => readFileSync(f, "utf8") } = {}) {
+  if (!isWsl({ env, readFile })) return false;
+  try { return !/microsoft-standard-WSL2|WSL2/i.test(readFile("/proc/sys/kernel/osrelease")); } catch { return true; }
+}
+
+export function assertNativeDevelopmentHost(platform, host = process.platform, { wsl1 = () => isWsl1() } = {}) {
+  // Linux builds run on a Linux kernel of the target's architecture (no cross-compiling); WSL1 has no Linux kernel.
   if ((platform === "win" && host !== "win32") || ((platform === "mac" || platform === "ios") && host !== "darwin") || (platform === "linux" && host !== "linux")) throw new Error(`development target ${platform} requires its native host`);
-  if (platform === "linux" && wsl()) throw new Error("development target linux requires a native Linux host; this is WSL (a Linux userspace on a Windows kernel)");
+  if (platform === "linux" && wsl1()) throw new Error("development target linux requires a Linux kernel; this is WSL1 (Linux system calls translated onto the Windows kernel). Use WSL2 or a Linux VM");
 }
 
 function install(descriptor, { root, platform, config, env, run, sinceMs = null, serial }) {

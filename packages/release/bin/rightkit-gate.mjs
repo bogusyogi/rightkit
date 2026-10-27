@@ -323,10 +323,35 @@ export function isCrlfCheckoutOf({ git, id, live, readFile = fs.readFileSync }) 
  * the start/end comparison leaves them out, because the run itself writes them. pnpm's task-run state holds only completion
  * markers pnpm reads, never code, and is not bound.
  */
+/** Longest the class A environment waits for `pnpm --version`. */
+export const PNPM_PROBE_TIMEOUT_MS = 60_000;
 export const TOOL_CACHE_DIRS = new Set([".vite", ".vite-temp", ".vitest-cache", ".cache"]);
 export const INSTALL_STATE_NOT_COVERED = new Set([".pnpm-task-run-state-v1"]);
 const nodeModulesDirs = (root, files) => [...new Set(files.filter((f) => /(^|\/)package\.json$/.test(f)).map((f) => path.join(path.dirname(path.join(root, f)), "node_modules")))].sort();
 function isLink(p) { try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; } }
+
+/**
+ * Members of the root pnpm workspace holding their own pnpm virtual store (node_modules/.pnpm) while the root has one, without
+ * being an install root (no pnpm-lock.yaml of their own): leftovers of a standalone install from before the package joined the workspace. Their dependencies resolve to
+ * the root store, but the leftover can still be read, and vitest hashes the nearest lockfile it finds (node_modules/.pnpm/
+ * lock.yaml) for a module cache it shares across the workspace, so one such package makes concurrent vitest runs clear the
+ * shared cache under each other (ENOTEMPTY, fullA-16).
+ */
+export function orphanedPnpmStores({ root, files }) {
+  // Only proven orphans: the repository root is a pnpm workspace with its own virtual store, and the package is a member of it by
+  // the root pnpm-workspace.yaml globs (negations honoured) and not an install root of its own. A standalone nested project is
+  // not judged.
+  const ws = path.join(root, "pnpm-workspace.yaml");
+  if (!fs.existsSync(ws) || !fs.existsSync(path.join(root, "node_modules", ".pnpm"))) return [];
+  const globs = parseWorkspaceGlobs(fs.readFileSync(ws, "utf8"));
+  const include = globs.filter((g) => !g.startsWith("!")).map(globToRegExp);
+  const exclude = globs.filter((g) => g.startsWith("!")).map((g) => globToRegExp(g.slice(1)));
+  return nodeModulesDirs(root, files).filter((nm) => {
+    const pkg = path.dirname(nm); const rel = path.relative(root, pkg).split(path.sep).join("/");
+    if (!rel || !include.some((re) => re.test(rel)) || exclude.some((re) => re.test(rel))) return false;
+    return fs.existsSync(path.join(nm, ".pnpm")) && !fs.existsSync(path.join(pkg, "pnpm-lock.yaml"));
+  }).map((nm) => path.relative(root, path.join(nm, ".pnpm")).split(path.sep).join("/"));
+}
 
 /**
  * Cache files that hold only a tool's own bookkeeping, never code a check executes, at exact paths: vitest's result ordering,
@@ -448,7 +473,14 @@ export function classAEnvironmentDigest({ root, files, spawn = defaultSpawn, inc
   const gatePkg = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const walkGate = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.name === "node_modules" || e.name.startsWith(".") ? [] : e.isDirectory() ? walkGate(path.join(dir, e.name)) : [path.join(dir, e.name)]));
   const gateFiles = walkGate(gatePkg).sort().map((f) => `${path.relative(gatePkg, f)}:${fileDigest(f)}`);
-  const pnpmVersion = (() => { const r = spawn("pnpm", ["--version"], { cwd: root }); if (failed(r) || !text(r).trim()) throw new Error(`cannot identify pnpm for the class A environment (${why(r)})`); return text(r).trim(); })();
+  // Bounded: a pnpm that switches itself to the repository's packageManager version on first use, or waits on the network,
+  // must fail the probe (and its process tree) within PNPM_PROBE_TIMEOUT_MS, never hang an admission.
+  const pnpmVersion = (() => {
+    const r = spawn("pnpm", ["--version"], { cwd: root, boundedMs: PNPM_PROBE_TIMEOUT_MS });
+    if (r?.timedOut) throw new Error(`cannot identify pnpm for the class A environment (pnpm --version timed out after ${PNPM_PROBE_TIMEOUT_MS} ms; run it once in ${root} so pnpm can switch to the packageManager version)`);
+    if (failed(r) || !text(r).trim()) throw new Error(`cannot identify pnpm for the class A environment (${r?.error ? `could not run pnpm: ${r.error.code ?? r.error.message}` : why(r)})`);
+    return text(r).trim();
+  })();
   const installState = files.filter((f) => /(^|\/)package\.json$/.test(f)).map((f) => path.join(path.dirname(path.join(root, f)), "node_modules", ".modules.yaml")).map((m) => `${path.relative(root, m)}:${fileDigest(m, { optional: true })}`);
   return createHash("sha256").update([`node ${process.version}`, `pnpm ${pnpmVersion}`, `platform ${process.platform}-${process.arch}`, ...gateFiles, ...installState, `installed ${installedDependencyDigest({ root, files, includeCaches })}`].join("\n")).digest("hex");
 }
@@ -2026,6 +2058,8 @@ export async function main(argv, io = {}) {
     // carries it next to the env the verdict binds.
     let envAtStart = null; let envStartWithCaches = null; let cachesAtStart = null;
     if (liveFullA) {
+      const orphans = orphanedPnpmStores({ root, files: live.files });
+      if (orphans.length) { o.err(`${tag} BLOCKED: orphaned nested pnpm store(s) ${orphans.join(", ")}: left by a standalone install in a workspace member; they can hold stale dependencies and make concurrent vitest runs clear their shared module cache under each other. Move them aside (or reinstall) and run again.`); return 1; }
       try { envAtStart = classAEnvironmentDigest({ root, files: live.files, spawn: o.spawn, includeCaches: false }); envStartWithCaches = classAEnvironmentDigest({ root, files: live.files, spawn: o.spawn }); cachesAtStart = toolCacheManifest({ root, files: live.files }); }
       catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
     }

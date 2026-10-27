@@ -2333,3 +2333,28 @@ test("a failing scan keeps its complete output in scanLogDir and its row names t
     assert.match(row.detail, /full output: /);
   } finally { fsModule.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("scriptBuildCall finds a test script that builds (emits) before testing; typechecks and plain tests are not builds", async () => {
+  const { scriptBuildCall } = await import("./deterministic-scans.mjs");
+  assert.equal(scriptBuildCall({ test: "pnpm run build && vitest run", build: "tsc -p tsconfig.json" })?.command, "pnpm run build");
+  assert.equal(scriptBuildCall({ test: "pnpm --filter @rightkit/qa-chrome build && vitest run" })?.command, "pnpm --filter @rightkit/qa-chrome build");
+  assert.equal(scriptBuildCall({ pretest: "pnpm --filter \"x^...\" run build", test: "vitest run" })?.via.join(">"), "pretest");
+  assert.equal(scriptBuildCall({ test: "pnpm run verify", verify: "tsc -p . && node --test" })?.via.join(">"), "test>verify");
+  assert.equal(scriptBuildCall({ test: "tsc --noEmit && vitest run" }), null);
+  assert.equal(scriptBuildCall({ test: "vitest run" }), null);
+  assert.equal(scriptBuildCall({ test: "pnpm run lint", lint: "eslint ." }), null);
+  assert.equal(scriptBuildCall({ test: "pnpm run build:types && vitest" })?.command, "pnpm run build:types");
+});
+
+test("a class A test row runs under the launch guard (NODE_OPTIONS appended, switch on); a class B test row does not", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs"], {});
+  const testA = { id: "test:npm:guarded", class: "A", kind: "test", executes: true, tool: "node", args: ["--test"], root: "live", env: {} };
+  const testB = { id: "test:npm:later", class: "B", kind: "test", executes: true, tool: "node", args: ["--test"], root: "live", env: {}, classReason: "x" };
+  const seen = [];
+  const capture = async (command, args, options) => { if (args?.[0] === "--test") seen.push(options.env); return args?.[0] === "--test" ? { status: 0, stdout: "ℹ tests 1\nℹ pass 1\nℹ fail 0\n", stderr: "" } : fakeSpawn()(command, args); };
+  await runScans({ ...plan, scans: [...plan.scans, testA, testB] }, { ...deps({ ...fs, spawn: capture, env: { NODE_OPTIONS: "--max-old-space-size=4096" } }), jobs: 1, testJobs: 1, classBEvidence: undefined });
+  const guarded = seen.filter((e) => e?.RIGHTKIT_CLASS_A_LAUNCH_GUARD === "1");
+  assert.ok(guarded.length >= 1, "the class A test row ran with the guard");
+  assert.equal(guarded.length, 1, "only the class A test row");
+  assert.match(guarded[0].NODE_OPTIONS, /^--max-old-space-size=4096 --import=.*class-a-launch-guard\.mjs$/, "appended, not replaced");
+});

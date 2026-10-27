@@ -27,6 +27,7 @@ import { checkAdvisoryExceptions } from "./advisory-exceptions.mjs";
 import { canonicalJson, digestScanSet, requiredScanIds, rustCratePlan, rustScanId } from "./scan-digest.mjs";
 import { reach } from "./lock-graph.mjs";
 import { cargoManifestState } from "./cargo-manifest-text.mjs";
+import { LAUNCH_GUARD_IMPORT } from "./class-a-launch-guard.mjs";
 import { advisoryCacheRoot, ensureAdvisoryDb, prepareDenyOverlay, readAdvisoryPin } from "./advisory-db.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
@@ -425,6 +426,47 @@ export function scriptBrokerCall(scripts, entry = "test", { maxDepth = 8 } = {})
           const deeper = visit(found.run, [...via, part]);
           if (deeper) return deeper;
         }
+      }
+    }
+    return null;
+  };
+  return visit(String(entry), []);
+}
+
+/**
+ * Whether the package script `entry` builds (emits) code before or while it tests: `tsc` without --noEmit, or a package-manager
+ * run of a `build` / `build:*` script in this package or another (`pnpm run build`, `pnpm --filter <pkg> build`), followed through
+ * the scripts it starts in the same package.json like scriptBrokerCall. Such a test is not a pre-compile check: it runs after
+ * class A, with the compile scans (Codex reviewer 2026-10-28). Returns `{ via, command }` or null.
+ */
+export function scriptBuildCall(scripts, entry = "test", { maxDepth = 8 } = {}) {
+  if (scripts === null || typeof scripts !== "object" || Array.isArray(scripts)) return null;
+  const textOf = (name) => (Object.hasOwn(scripts, name) && typeof scripts[name] === "string" ? scripts[name].slice(0, SCRIPT_TEXT_LIMIT) : null);
+  const builds = (words) => {
+    let i = 0;
+    while (i < words.length && (ENV_ASSIGNMENT.test(words[i]) || COMMAND_WRAPPERS.has(path.posix.basename(words[i])) || PACKAGE_RUNNERS.has(path.posix.basename(words[i])))) i += 1;
+    const word = path.posix.basename(String(words[i] ?? "").replaceAll("\\", "/")).replace(/\.(exe|cmd|bat)$/i, "");
+    if (word === "tsc") return !words.slice(i + 1).some((w) => /^--?noEmit(=true)?$/i.test(w));
+    if (!PACKAGE_MANAGERS.has(word)) return false;
+    const rest = words.slice(i + 1); const values = new Set(["--filter", "-F", "--dir", "-C", "--workspace", "-w"]);
+    for (let j = 0; j < rest.length; j += 1) {
+      if (values.has(rest[j])) { j += 1; continue; }
+      if (rest[j].startsWith("-") || rest[j] === "run" || rest[j] === "run-script") continue;
+      return /^build(:|$)/.test(rest[j]);
+    }
+    return false;
+  };
+  const seen = new Set();
+  const visit = (name, via) => {
+    if (via.length >= maxDepth || seen.has(name)) return null;
+    seen.add(name);
+    for (const part of [`pre${name}`, name, `post${name}`]) {
+      const text = textOf(part);
+      if (text === null) continue;
+      for (const words of shellCommands(text)) {
+        if (builds(words)) return { via: [...via, part], command: words.join(" ").slice(0, 200) };
+        const found = inspectCommand(words, scripts);
+        if (found.run !== undefined) { const deeper = visit(found.run, [...via, part]); if (deeper) return deeper; }
       }
     }
     return null;
@@ -919,11 +961,17 @@ export function planScans({
       // A declaration (`npm.<unit>.requiresBroker`, declaredBrokerCall) covers what the script text does not show; a call the scripts do show wins.
       const declared = declaredBrokerCall(name, own.requiresBroker);
       if (declared.problem) notes.push(declared.problem);
+      // `npm.<unit>.afterClassA.reason` (ci/gate.config.json): the unit's tests launch stand-ins named like compilers (stub scripts,
+      // which can run anything), so they cannot run under the class A launch guard; they run after class A, with the compile scans.
+      // A reason is required.
+      const afterClassA = typeof own.afterClassA?.reason === "string" && own.afterClassA.reason.trim() !== "" ? own.afterClassA.reason.trim() : null;
       const brokerCall = scriptBrokerCall(manifest.scripts, "test") ?? declared.call ?? null;
+      const buildCall = brokerCall ? null : scriptBuildCall(manifest.scripts, "test");
+      const laterReason = brokerCall ? null : buildCall ? `its test script builds before testing (${buildCall.command}); it runs after class A, with the compile scans` : afterClassA ? `declared to run after class A (ci/gate.config.json npm.${name}.afterClassA): ${afterClassA}` : null;
       // Isolated only where the tests run on an export (contentRoot is not the live checkout): there sibling repositories are
       // absent by construction. On the live checkout (full class A, broker admission) the cross-app contract tests run for real.
       const isolatedCheckout = path.resolve(contentRoot) !== path.resolve(liveRoot);
-      add({ id: `test:npm:${name}`, class: brokerCall ? B : A, kind: "test", executes: true, ...(brokerCall ? { classReason: "its test script reaches the broker (compiles); it runs with the compile scans" } : {}), ...(own.quietTests === true ? { quiet: true } : {}), ...(brokerCall ? { brokerCall } : {}), tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { ...PNPM_RUN_ENV, ...(isolatedCheckout ? { RIGHTKIT_ISOLATED_CHECKOUT: "1" } : {}) } });
+      add({ id: `test:npm:${name}`, class: brokerCall || laterReason ? B : A, kind: "test", executes: true, ...(brokerCall ? { classReason: "its test script reaches the broker (compiles); it runs with the compile scans" } : laterReason ? { classReason: laterReason } : {}), ...(own.quietTests === true ? { quiet: true } : {}), ...(brokerCall ? { brokerCall } : {}), tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { ...PNPM_RUN_ENV, ...(isolatedCheckout ? { RIGHTKIT_ISOLATED_CHECKOUT: "1" } : {}) } });
     }
     if (deferredToCi.length) notes.push(`${deferredToCi.length} quiet test scan(s) left to the CI shards (one crate per runner), not run here: ${deferredToCi.join(", ")}`);
     // scripts/ci tests run when scripts/, ci/ or .github/ changed, or a file the scripts/ci sources reference (imports and
@@ -1016,12 +1064,51 @@ export function resolveInvocation(command, args, { platform = process.platform, 
 
 /** Default spawn: synchronous, no console window, never `shell: true`. */
 export function defaultSpawn(command, args, options = {}) {
+  if (options.boundedMs) return boundedSpawn(command, args, options);
   const inv = resolveInvocation(command, args, { env: options.env ?? process.env });
   if (inv.error) return { status: null, stdout: "", stderr: "", error: inv.error };
   return spawnSync(inv.file, inv.args, { encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024, windowsVerbatimArguments: inv.verbatim, ...options, shell: false });
 }
 
 const OUTPUT_KEEP = 4 * 1024 * 1024;
+/**
+ * defaultSpawn with a deadline (`options.boundedMs`), for short identity probes that must never hang the caller: the command runs
+ * in a helper node process through defaultSpawnAsync, which on the deadline kills the command's whole process tree
+ * (killProcessTree) and reports `timedOut: true`. The helper records the command's pid first; if the helper itself overruns its
+ * backstop (`backstopMs`, default deadline + 15 s), it is killed and the command's tree is killed from here by that pid, so no
+ * probe outlives the call. A launch failure keeps its `error` (e.g. ENOENT); a command that ran keeps its `status`.
+ */
+export function boundedSpawn(command, args, { boundedMs, backstopMs = boundedMs + 15000, cwd, env, pidFile = null } = {}) {
+  const dir = pidFile ? null : fs.mkdtempSync(path.join(os.tmpdir(), "rk-probe-"));
+  const pids = pidFile ?? path.join(dir, "pid");
+  const script = `import(${JSON.stringify(new URL(import.meta.url).href)}).then(async (m) => {
+    const [command, args, ms, pidFile] = JSON.parse(process.argv[1]); const fs = await import("node:fs");
+    const ac = new AbortController(); const timer = setTimeout(() => ac.abort(), ms);
+    const r = await m.defaultSpawnAsync(command, args, { signal: ac.signal, onSpawn: (pid) => fs.writeFileSync(pidFile, String(pid)) }); clearTimeout(timer);
+    process.stdout.write(JSON.stringify({ status: r.status, stdout: r.stdout, stderr: r.stderr, timedOut: r.cancelled === true, error: r.cancelled ? null : (r.error ? { code: r.error.code ?? null, message: r.error.message } : null) }));
+  });`;
+  try {
+    const r = spawnSync(process.execPath, ["--input-type=module", "-e", script, JSON.stringify([command, args, boundedMs, pids])], { cwd, env: env ?? process.env, encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "pipe"], timeout: backstopMs, killSignal: "SIGKILL", maxBuffer: 16 * 1024 * 1024 });
+    const timeout = (why) => ({ status: null, stdout: "", stderr: "", timedOut: true, error: Object.assign(new Error(`timed out after ${boundedMs} ms${why}`), { code: "ETIMEDOUT" }) });
+    if (r.error?.code === "ETIMEDOUT") {
+      let pid = null; try { pid = Number(fs.readFileSync(pids, "utf8")) || null; } catch { /* never started */ }
+      if (pid) killProcessTree({ pid });
+      return timeout(" (backstop)");
+    }
+    try {
+      const o = JSON.parse(r.stdout);
+      if (o.timedOut) return timeout("");
+      return { status: o.status, stdout: o.stdout ?? "", stderr: o.stderr ?? "", ...(o.error ? { error: Object.assign(new Error(o.error.message), { code: o.error.code }) } : {}) };
+    } catch { return { status: null, stdout: "", stderr: r.stderr ?? "", error: new Error(`the bounded probe gave no result (${r.error?.message ?? `exit ${r.status}`})`) }; }
+  } finally { if (dir) fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+/** The environment additions that load the class A launch guard into a test row's Node processes (NODE_OPTIONS appended, not replaced). */
+export function launchGuardEnv(env = process.env) {
+  const current = String(env.NODE_OPTIONS ?? "");
+  return { RIGHTKIT_CLASS_A_LAUNCH_GUARD: "1", NODE_OPTIONS: current.includes(LAUNCH_GUARD_IMPORT) ? current : `${current} ${LAUNCH_GUARD_IMPORT}`.trim() };
+}
+
 /** Kill `child` and everything it started: taskkill /T /F on Windows, the whole process group elsewhere (the child leads one when spawned with a signal). */
 export function killProcessTree(child, { platform = process.platform, run = spawnSync, kill = (pid, sig) => process.kill(pid, sig) } = {}) {
   if (!child?.pid) return;
@@ -1038,7 +1125,7 @@ export function killProcessTree(child, { platform = process.platform, run = spaw
  * With `options.stdoutFile`, stdout is written to that file whole instead of kept in memory.
  */
 export function defaultSpawnAsync(command, args, options = {}) {
-  const { signal, stdoutFile, ...rest } = options;
+  const { signal, stdoutFile, onSpawn, ...rest } = options;
   const inv = resolveInvocation(command, args, { env: rest.env ?? process.env });
   if (inv.error) return Promise.resolve({ status: null, stdout: "", stderr: "", error: inv.error });
   if (signal?.aborted) return Promise.resolve({ status: null, stdout: "", stderr: "", error: new Error("cancelled"), cancelled: true });
@@ -1050,6 +1137,7 @@ export function defaultSpawnAsync(command, args, options = {}) {
       // stdin is closed: no scan reads it, and an open pipe nobody writes can block a tool that probes it (Windows).
       child = spawnChild(inv.file, inv.args, { windowsHide: true, windowsVerbatimArguments: inv.verbatim, stdio: ["ignore", "pipe", "pipe"], ...(signal && process.platform !== "win32" ? { detached: true } : {}), ...rest, shell: false, stdio: ["ignore", "pipe", "pipe"] });
     } catch (e) { resolve({ status: null, stdout: "", stderr: "", error: e }); return; }
+    if (onSpawn && child.pid) onSpawn(child.pid);
     const onAbort = () => killProcessTree(child);
     signal?.addEventListener("abort", onAbort, { once: true });
     child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
@@ -1666,7 +1754,9 @@ export async function runScans(plan, options = {}) {
           const timer = new AbortController();
           const clock = setTimeout(() => timer.abort(), limitMs);
           const scanSignal = signal ? AbortSignal.any([signal, timer.signal]) : timer.signal;
-          try { r = await deps.spawn(p.command, args.map((a) => (a === "{contentRoot}" ? contentRoot : a)), { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, signal: scanSignal, timeout: limitMs }); } finally { clearTimeout(clock); advisory?.cleanup?.(); }
+          // A class A test row runs under the launch guard (class-a-launch-guard.mjs): its Node processes may not launch a compile.
+          const guardEnv = s.class === SCAN_CLASS.A && s.kind === "test" ? launchGuardEnv({ ...deps.env, ...s.env, ...(extraEnv ?? {}) }) : {};
+          try { r = await deps.spawn(p.command, args.map((a) => (a === "{contentRoot}" ? contentRoot : a)), { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}), ...guardEnv }, signal: scanSignal, timeout: limitMs }); } finally { clearTimeout(clock); advisory?.cleanup?.(); }
           if (signal?.aborted && (!r || r.error || r.status !== 0)) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
           if ((timer.signal.aborted || r?.error?.code === "ETIMEDOUT") && (!r || r.error || r.status !== 0)) return { ...row, status: "fail", code: "TIMEOUT", detail: `${s.id} ran longer than ${Math.round(limitMs / 60000)} min and was killed with its process tree; a scan that does not finish fails` };
           if (!r || r.error) { status = "fail"; code = "SPAWN_ERROR"; detail = r?.error?.message ?? "no result"; }

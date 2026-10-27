@@ -3009,3 +3009,90 @@ test("full class A blocks when a tool cache file it found changes or vanishes wh
   const startOf = (r) => /env-at-start=([0-9a-f]{64})/.exec(r.out.join("\n"))?.[1];
   assert.ok(startOf(a) && startOf(b) && startOf(a) !== startOf(b), "a pre-run cache change is visible in env-at-start");
 });
+
+test("the pnpm probe is bounded: a hung pnpm and its whole process tree are killed, and launch failure, error and timeout are told apart", async (t) => {
+  const { boundedSpawn } = await import("./deterministic-scans.mjs");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-pnpm-probe-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  // A pnpm that starts a grandchild, records its pid, then hangs (as a first-use version switch waiting on the network does).
+  const hang = path.join(dir, "hang.mjs");
+  fs.writeFileSync(hang, `import { spawn } from "node:child_process"; import fs from "node:fs";
+const c = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" }); fs.writeFileSync(${JSON.stringify(path.join(dir, "grandchild.pid"))}, String(c.pid));
+setInterval(() => {}, 1000);`);
+  const started = Date.now();
+  const r = boundedSpawn(process.execPath, [hang], { boundedMs: 1500 });
+  assert.equal(r.timedOut, true, JSON.stringify(r));
+  assert.equal(r.error?.code, "ETIMEDOUT");
+  assert.ok(Date.now() - started < 15000, "bounded well inside the backstop");
+  const gc = Number(fs.readFileSync(path.join(dir, "grandchild.pid"), "utf8"));
+  const alive = () => { try { process.kill(gc, 0); return true; } catch { return false; } };
+  for (let i = 0; i < 20 && alive(); i++) await new Promise((res) => setTimeout(res, 100));
+  assert.equal(alive(), false, "the grandchild was killed with the tree");
+  // The backstop: if the helper itself overruns (here: its own deadline is far longer than the backstop), it is killed and the
+  // probe's tree is killed by the pid the helper recorded, so nothing outlives the call.
+  fs.rmSync(path.join(dir, "grandchild.pid"), { force: true });
+  const pidFile = path.join(dir, "probe.pid");
+  const backstopped = boundedSpawn(process.execPath, [hang], { boundedMs: 60000, backstopMs: 2500, pidFile });
+  assert.equal(backstopped.timedOut, true); assert.match(backstopped.error.message, /backstop/);
+  const probePid = Number(fs.readFileSync(pidFile, "utf8"));
+  const gc2 = Number(fs.readFileSync(path.join(dir, "grandchild.pid"), "utf8"));
+  const dead = (pid) => { try { process.kill(pid, 0); return false; } catch { return true; } };
+  for (let i = 0; i < 20 && !(dead(probePid) && dead(gc2)); i++) await new Promise((res) => setTimeout(res, 100));
+  assert.ok(dead(probePid), "the probe itself was killed after the backstop");
+  assert.ok(dead(gc2), "and its descendant");
+  // Launch failure keeps its code; a command that ran keeps its status.
+  const missing = boundedSpawn(path.join(dir, "no-such-pnpm"), ["--version"], { boundedMs: 5000 });
+  assert.equal(missing.timedOut, undefined); assert.ok(missing.error, JSON.stringify(missing));
+  const failing = boundedSpawn(process.execPath, ["-e", "process.stderr.write('bad'); process.exit(3)"], { boundedMs: 5000 });
+  assert.equal(failing.status, 3); assert.equal(failing.error, undefined);
+  const ok = boundedSpawn(process.execPath, ["-e", "process.stdout.write('11.25.0\\n')"], { boundedMs: 5000 });
+  assert.equal(ok.status, 0); assert.equal(ok.stdout.trim(), "11.25.0");
+  // env-digest, end to end: the probe is asked for a deadline, and a timed-out probe is a named error, never a placeholder.
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-envdigest-timeout-")));
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  spawnSync("git", ["init", "-q"], { cwd: repo }); fs.writeFileSync(path.join(repo, "package.json"), "{}");
+  let asked = null;
+  const timedOut = (cmd, a, o) => { if (cmd === "pnpm") { asked = o.boundedMs; return { status: null, stdout: "", stderr: "", timedOut: true, error: Object.assign(new Error("timed out"), { code: "ETIMEDOUT" }) }; } return spawnSync(cmd, a, { ...o, encoding: "utf8" }); };
+  const run = capture();
+  assert.equal(await main(["env-digest"], { ...run.io, cwd: repo, spawn: timedOut }), 2);
+  assert.equal(asked, gateModule.PNPM_PROBE_TIMEOUT_MS);
+  assert.match(run.err.join("\n"), /pnpm --version timed out after 60000 ms/);
+  const noPnpm = (cmd, a, o) => (cmd === "pnpm" ? { status: null, stdout: "", stderr: "", error: Object.assign(new Error("spawn pnpm ENOENT"), { code: "ENOENT" }) } : spawnSync(cmd, a, { ...o, encoding: "utf8" }));
+  const run2 = capture();
+  assert.equal(await main(["env-digest"], { ...run2.io, cwd: repo, spawn: noPnpm }), 2);
+  assert.match(run2.err.join("\n"), /could not run pnpm: ENOENT/);
+});
+
+test("full class A refuses an orphaned nested pnpm store in a workspace member (it splits vitest's shared module cache)", async (t) => {
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-orphan-store-")));
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT" }));
+  fs.writeFileSync(path.join(repo, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+  fs.writeFileSync(path.join(repo, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n  - '!packages/parked'\n");
+  fs.mkdirSync(path.join(repo, "packages/parked"), { recursive: true }); fs.writeFileSync(path.join(repo, "packages/parked/package.json"), "{}");
+  fs.mkdirSync(path.join(repo, "standalone"), { recursive: true }); fs.writeFileSync(path.join(repo, "standalone/package.json"), "{}");
+  fs.mkdirSync(path.join(repo, "packages/a"), { recursive: true }); fs.writeFileSync(path.join(repo, "packages/a/package.json"), "{}");
+  fs.mkdirSync(path.join(repo, "tpl"), { recursive: true }); fs.writeFileSync(path.join(repo, "tpl/package.json"), "{}"); fs.writeFileSync(path.join(repo, "tpl/pnpm-lock.yaml"), "x");
+  fs.writeFileSync(path.join(repo, ".gitignore"), "node_modules/\n");
+  git("add", "-A"); git("commit", "-q", "-m", "one");
+  fs.mkdirSync(path.join(repo, "node_modules/.pnpm"), { recursive: true });
+  fs.mkdirSync(path.join(repo, "tpl/node_modules/.pnpm"), { recursive: true });
+  // Not judged: a standalone nested project (not a workspace member), a member excluded by a negated glob.
+  fs.mkdirSync(path.join(repo, "standalone/node_modules/.pnpm"), { recursive: true });
+  fs.mkdirSync(path.join(repo, "packages/parked/node_modules/.pnpm"), { recursive: true });
+  const steady = async () => ({ scans: [], notes: [], cacheHits: [] });
+  const clean = capture();
+  assert.equal(await main(["--class-a", "--full-a", "--worktree", "--no-cache"], { ...clean.io, cwd: repo, runScans: steady, spawn: withPnpm }), 0, `the root store, an install root's own store, a standalone project and an excluded member are fine: ${clean.err.join("\n")}`);
+  fs.mkdirSync(path.join(repo, "packages/a/node_modules/.pnpm"), { recursive: true });
+  let ran = false;
+  const blocked = capture();
+  assert.equal(await main(["--class-a", "--full-a", "--worktree", "--no-cache"], { ...blocked.io, cwd: repo, runScans: async () => { ran = true; return { scans: [], notes: [], cacheHits: [] }; }, spawn: withPnpm }), 1);
+  assert.equal(ran, false, "refused before any check runs");
+  assert.match(blocked.err.join("\n"), /orphaned nested pnpm store\(s\) packages\/a\/node_modules\/\.pnpm:/);
+  // Without a root virtual store nothing is proven orphaned.
+  fs.renameSync(path.join(repo, "node_modules/.pnpm"), path.join(repo, "node_modules/.pnpm-aside"));
+  const noRoot = capture();
+  assert.equal(await main(["--class-a", "--full-a", "--worktree", "--no-cache"], { ...noRoot.io, cwd: repo, runScans: steady, spawn: withPnpm }), 0, noRoot.err.join("\n"));
+});
