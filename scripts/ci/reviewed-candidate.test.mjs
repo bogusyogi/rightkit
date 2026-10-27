@@ -790,7 +790,7 @@ function green(f) {
   f.provenance.jobs.total_count += 1;
   for (const host of ["packed", "macos", "windows"]) f.qaListing.artifacts.push(f.artifacts[f.candidate.artifacts[host].id]);
   f.qaListing.total_count += 3;
-  setRunAdmission(f, { schema: "rk-publish-admission.v2", mode: "broker", requestId: "broker-job-1", repository: "bogusyogi/rightkit", sourceSha: SOURCE, runId: "77", runAttempt: "1", registry: "crates", units: ["rightkit-a"], versions: { "rightkit-a": "0.1.0" }, allow: { hostExclusion: [], noTest: [], ignored: [], missingAssets: [] }, gate: { command: `rightkit-gate check --commit ${SOURCE}`, exit: 0, rules: 58, classAScans: 12, classAFiles: 900 } });
+  setRunAdmission(f, { schema: "rk-publish-admission.v2", mode: "broker", requestId: "broker-job-1", repository: "bogusyogi/rightkit", sourceSha: SOURCE, runId: "77", runAttempt: "1", registry: "crates", units: ["rightkit-a"], versions: { "rightkit-a": "0.1.0" }, allow: { hostExclusion: [], noTest: [], ignored: [], missingAssets: [] }, gate: { command: `rightkit-gate check --commit ${SOURCE} --rule-tier release`, exit: 0, rules: 58, classAScans: 12, classAFiles: 900 } });
   f.qaListing.artifacts.push(f.artifacts[600]);
   f.qaListing.total_count += 1;
   return f;
@@ -808,7 +808,7 @@ test("direct publication requires the run's own admission receipt for this run, 
   const cases = [
     ["the scans job (gate and admission) failed", (g) => { g.provenance.jobs.jobs.find((j) => j.name === "scans").conclusion = "failure"; }, /refused/],
     ["a red or missing gate", (g) => setRunAdmission(g, { ...runAdmission(g), gate: { ...runAdmission(g).gate, exit: 1 } }), /no passed gate for this commit/],
-    ["a gate of another commit", (g) => setRunAdmission(g, { ...runAdmission(g), gate: { ...runAdmission(g).gate, command: `rightkit-gate check --commit ${PROMOTION}` } }), /no passed gate for this commit/],
+    ["a gate of another commit", (g) => setRunAdmission(g, { ...runAdmission(g), gate: { ...runAdmission(g).gate, command: `rightkit-gate check --commit ${PROMOTION} --rule-tier release` } }), /no passed gate for this commit/],
     ["a partial gate (no class A)", (g) => setRunAdmission(g, { ...runAdmission(g), gate: { ...runAdmission(g).gate, classAScans: 0 } }), /no passed gate for this commit/],
     ["a version other than the sealed one", (g) => setRunAdmission(g, { ...runAdmission(g), versions: { "rightkit-a": "0.1.1" } }), /versions differ from the sealed versions/],
     ["broker mode without versions (the old shape)", (g) => setRunAdmission(g, { ...runAdmission(g), versions: {} }), /versions differ/],

@@ -92,16 +92,16 @@ function committedVersion(registry, unit, sha, git) {
 /** The gate's own verdict on the commit: exit 0, the app-check pass line for this commit and the class A pass line for this full commit. */
 export function gateVerdict(result, sha) {
   const out = String(result?.stdout ?? "");
-  const rules = new RegExp(`^check: ${sha.slice(0, 12)} passed (\\d+) rules in`, "m").exec(out);
+  const rules = new RegExp(`^check: ${sha.slice(0, 12)} passed (\\d+) rules \\(release tier\\) in \\d+(?:\\.\\d+)?s(?: \\(.*\\))?$`, "m").exec(out);
   const classA = new RegExp(`^rightkit-gate: class A pass: (\\d+) deterministic scan\\(s\\) over (\\d+) file\\(s\\) of ${sha}$`, "m").exec(out);
-  requireThat(result?.status === 0 && rules && classA, `rightkit-gate check did not pass at ${sha.slice(0, 12)} (exit ${result?.status}); nothing is admitted`);
-  return { command: `rightkit-gate check --commit ${sha}`, exit: 0, rules: Number(rules[1]), classAScans: Number(classA[1]), classAFiles: Number(classA[2]) };
+  requireThat(result?.status === 0 && rules && classA && Number(rules[1]) > 0 && Number(classA[1]) > 0, `rightkit-gate check did not pass at ${sha.slice(0, 12)} (exit ${result?.status}); nothing is admitted`);
+  return { command: `rightkit-gate check --commit ${sha} --rule-tier release`, exit: 0, rules: Number(rules[1]), classAScans: Number(classA[1]), classAFiles: Number(classA[2]) };
 }
 
 /**
  * Admits the dispatched request inside publish.yml and returns the receipt. `env` is the Actions environment plus the dispatch
  * inputs (ADMISSION, REQUEST_ID, EXPECTED_SHA, REGISTRY, UNITS, ALLOW_*); `git(...args)` reads the dispatched commit; `runGate(sha)`
- * runs `rightkit-gate check --commit <sha>` on this checkout and returns { status, stdout }.
+ * runs `rightkit-gate check --commit <sha> --rule-tier release` on this checkout and returns { status, stdout }.
  */
 export async function admit({ env, git, runGate, fetchImpl = fetch, policy }) {
   requireThat(env.GITHUB_ACTIONS === "true" && env.GITHUB_REPOSITORY === REPOSITORY && env.GITHUB_REF === "refs/heads/main", "admission runs only in Actions on main of the repository");
@@ -149,7 +149,7 @@ export function verifyAdmissionReceipt(receipt, { repository, sourceSha, runId, 
   for (const key of Object.keys(ALLOW_INPUTS)) requireThat(Array.isArray(allow[key]) && same(receipt.allow[key], sorted(allow[key])), `receipt ${key} differs from the verify receipts`);
   requireThat(receipt.versions && same(sorted(Object.keys(receipt.versions)), sorted(names)) && units.every((unit) => receipt.versions[unit.name] === unit.version), "receipt versions differ from the sealed versions");
   const gate = receipt.gate;
-  requireThat(gate && same(Object.keys(gate).sort(), ["classAFiles", "classAScans", "command", "exit", "rules"]) && gate.exit === 0 && gate.command === `rightkit-gate check --commit ${sourceSha}` && Number.isInteger(gate.rules) && gate.rules > 0 && Number.isInteger(gate.classAScans) && gate.classAScans > 0, "receipt carries no passed gate for this commit");
+  requireThat(gate && same(Object.keys(gate).sort(), ["classAFiles", "classAScans", "command", "exit", "rules"]) && gate.exit === 0 && gate.command === `rightkit-gate check --commit ${sourceSha} --rule-tier release` && Number.isInteger(gate.rules) && gate.rules > 0 && Number.isInteger(gate.classAScans) && gate.classAScans > 0, "receipt carries no passed gate for this commit");
   if (receipt.mode === "broker") requireThat(REQUEST_ID.test(receipt.requestId), "broker receipt carries no valid request id");
   else {
     requireThat(receipt.mode === "hosted" && receipt.requestId === "", "unknown admission mode");
@@ -189,7 +189,7 @@ export function dispatchHosted({ unit, root, run = spawnSync, out = (line) => pr
   const main = text("gh", ["api", `repos/${REPOSITORY}/commits/main`, "--jq", ".sha"]);
   requireThat(head === main, `HEAD ${head.slice(0, 12)} is not origin main ${main.slice(0, 12)}`);
   const manifest = JSON.parse(text("git", ["show", `${head}:${packageDir(root, head, unit, text)}/package.json`]));
-  const gate = sh(process.execPath, [path.join(root, "packages", "release", "bin", "rightkit-gate.mjs"), "check", "--repo", root, "--commit", head], { stdio: ["ignore", "pipe", "inherit"] });
+  const gate = sh(process.execPath, [path.join(root, "packages", "release", "bin", "rightkit-gate.mjs"), "check", "--repo", root, "--commit", head, "--rule-tier", "release"], { stdio: ["ignore", "pipe", "inherit"] });
   out(String(gate.stdout ?? "").trimEnd());
   gateVerdict(gate, head); // the same verdict the run's admission requires; this one only saves a run that would be refused
 
@@ -226,7 +226,7 @@ if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(file
       requireThat(outDir && rest.length === 2, "usage: publish-admission.mjs admit --out <dir>");
       const git = (...args) => { const r = spawnSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }); if (r.status !== 0) throw new Error(`git ${args[0]} failed`); return r.stdout; };
       const policy = await committedPolicy(root, (file) => git("show", `${process.env.GITHUB_SHA}:${file}`));
-      const runGate = (sha) => spawnSync(process.execPath, [path.join(root, "packages", "release", "bin", "rightkit-gate.mjs"), "check", "--repo", root, "--commit", sha], { cwd: root, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "inherit"] });
+      const runGate = (sha) => spawnSync(process.execPath, [path.join(root, "packages", "release", "bin", "rightkit-gate.mjs"), "check", "--repo", root, "--commit", sha, "--rule-tier", "release"], { cwd: root, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "inherit"] });
       const receipt = await admit({ env: process.env, git, runGate: (sha) => { const r = runGate(sha); process.stdout.write(r.stdout ?? ""); return r; }, policy });
       fs.mkdirSync(outDir, { recursive: true });
       fs.writeFileSync(path.join(outDir, ADMISSION_FILE), `${JSON.stringify(receipt, null, 2)}\n`, { flag: "wx" });

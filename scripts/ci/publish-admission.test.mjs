@@ -21,8 +21,8 @@ const git = (packages = PACKAGES) => (...args) => {
   if (args[0] === "show") { const dir = /:packages\/([^/]+)\/package\.json$/.exec(args[1])?.[1]; if (packages[dir]) return JSON.stringify(packages[dir]); }
   throw new Error(`unexpected git ${args.join(" ")}`);
 };
-const greenGate = (sha = SHA) => () => ({ status: 0, stdout: `check: ${sha.slice(0, 12)} passed 58 rules in 7.1s\nrightkit-gate: class A pass: 12 deterministic scan(s) over 900 file(s) of ${sha}\n` });
-const GATE = { command: `rightkit-gate check --commit ${SHA}`, exit: 0, rules: 58, classAScans: 12, classAFiles: 900 };
+const greenGate = (sha = SHA) => () => ({ status: 0, stdout: `check: ${sha.slice(0, 12)} passed 58 rules (release tier) in 7.1s\nrightkit-gate: class A pass: 12 deterministic scan(s) over 900 file(s) of ${sha}\n` });
+const GATE = { command: `rightkit-gate check --commit ${SHA} --rule-tier release`, exit: 0, rules: 58, classAScans: 12, classAFiles: 900 };
 const npm = (versions, name) => async (url) => (versions === null ? { status: 404, ok: false } : { status: 200, ok: true, json: async () => ({ name: name ?? decodeURIComponent(url.split("/").pop()), versions: Object.fromEntries(versions.map((v) => [v, {}])) }) });
 
 test("hosted admission: one unpublished @rightkit/* package at the run's commit, with exactly the committed policy, is admitted", async () => {
@@ -34,7 +34,11 @@ test("hosted admission: one unpublished @rightkit/* package at the run's commit,
   const granted = { ...NONE, allow_missing_assets: ["@rightkit/release"] };
   assert.deepEqual((await admit({ runGate: greenGate(), env: hostedEnv({ ALLOW_MISSING_ASSETS: "@rightkit/release" }), git: git(), fetchImpl: npm([]), policy: policy(granted) })).allow.missingAssets, ["@rightkit/release"]);
   // And the uploader accepts exactly that receipt against the sealed manifest and verify allowsets.
-  assert.equal(verifyAdmissionReceipt(receipt, { repository: "bogusyogi/rightkit", sourceSha: SHA, runId: "77", runAttempt: "1", registry: "npm", units: [{ name: "@rightkit/release", version: "0.6.7" }], allow: { hostExclusion: [], noTest: [], ignored: [], missingAssets: [] } }), receipt);
+  const expected = { repository: "bogusyogi/rightkit", sourceSha: SHA, runId: "77", runAttempt: "1", registry: "npm", units: [{ name: "@rightkit/release", version: "0.6.7" }], allow: { hostExclusion: [], noTest: [], ignored: [], missingAssets: [] } };
+  assert.equal(verifyAdmissionReceipt(receipt, expected), receipt);
+  for (const suffix of ["", " --rule-tier compile"]) {
+    assert.throws(() => verifyAdmissionReceipt({ ...receipt, gate: { ...receipt.gate, command: `rightkit-gate check --commit ${SHA}${suffix}` } }, expected), /no passed gate for this commit/);
+  }
 });
 
 test("hosted admission refuses wrong SHA, wrong scope, a request id, a published version (replay) and allowsets the policy does not grant", async () => {
@@ -116,12 +120,19 @@ test("broker mode grants nothing: an invented request id gets the same gate, ver
 
 test("the gate verdict needs exit 0, this commit's app-check pass line and the class A pass line", () => {
   assert.deepEqual(gateVerdict(greenGate()(), SHA), GATE);
+  const good = greenGate()();
   for (const [name, result] of [
     ["red", { status: 1, stdout: "rightkit-gate: BLOCKED (1)\n" }],
-    ["partial view (--only exits 3)", { status: 3, stdout: `check: ${SHA.slice(0, 12)} passed 1 rules in 0.1s\n` }],
-    ["exit 0 but no class A line", { status: 0, stdout: `check: ${SHA.slice(0, 12)} passed 58 rules in 0.1s\n` }],
-    ["exit 0 for another commit", { status: 0, stdout: `check: ${OTHER.slice(0, 12)} passed 58 rules in 0.1s\nrightkit-gate: class A pass: 1 deterministic scan(s) over 1 file(s) of ${OTHER}\n` }],
-    ["class A of another commit", { status: 0, stdout: `check: ${SHA.slice(0, 12)} passed 58 rules in 0.1s\nrightkit-gate: class A pass: 1 deterministic scan(s) over 1 file(s) of ${OTHER}\n` }],
+    ["legacy untiered summary", { ...good, stdout: good.stdout.replace(" (release tier)", "") }],
+    ["compile tier", { ...good, stdout: good.stdout.replace("release tier", "compile tier") }],
+    ["selected rules", { ...good, stdout: good.stdout.replace("release tier", "selected") }],
+    ["malformed summary", { ...good, stdout: good.stdout.replace("in 7.1s", "in unknown") }],
+    ["zero rules", { ...good, stdout: good.stdout.replace("58 rules", "0 rules") }],
+    ["zero scans", { ...good, stdout: good.stdout.replace("12 deterministic", "0 deterministic") }],
+    ["partial view (--only exits 3)", { status: 3, stdout: `check: ${SHA.slice(0, 12)} passed 1 rules (release tier) in 0.1s\n` }],
+    ["exit 0 but no class A line", { status: 0, stdout: `check: ${SHA.slice(0, 12)} passed 58 rules (release tier) in 0.1s\n` }],
+    ["exit 0 for another commit", { status: 0, stdout: `check: ${OTHER.slice(0, 12)} passed 58 rules (release tier) in 0.1s\nrightkit-gate: class A pass: 1 deterministic scan(s) over 1 file(s) of ${OTHER}\n` }],
+    ["class A of another commit", { status: 0, stdout: `check: ${SHA.slice(0, 12)} passed 58 rules (release tier) in 0.1s\nrightkit-gate: class A pass: 1 deterministic scan(s) over 1 file(s) of ${OTHER}\n` }],
     ["no result", undefined],
   ]) assert.throws(() => gateVerdict(result, SHA), /rightkit-gate check did not pass/, name);
 });
@@ -138,7 +149,7 @@ function committedTree(t, extra = {}) {
   run("init", "-q"); run("add", "-A"); run("commit", "-q", "-m", "fixture");
   const sha = run("rev-parse", "HEAD").trim();
   const gitRead = (...args) => { const r = spawnSync("git", args, { cwd: root, encoding: "utf8" }); if (r.status !== 0) throw new Error(`git ${args[0]} failed`); return r.stdout; };
-  const runGate = (commit) => spawnSync(process.execPath, [GATE_BIN, "check", "--repo", root, "--commit", commit], { cwd: root, encoding: "utf8", env: { ...process.env, GITHUB_ACTIONS: "", CI: "" } });
+  const runGate = (commit) => spawnSync(process.execPath, [GATE_BIN, "check", "--repo", root, "--commit", commit, "--rule-tier", "release"], { cwd: root, encoding: "utf8", env: { ...process.env, GITHUB_ACTIONS: "", CI: "" } });
   return { root, sha, git: gitRead, runGate };
 }
 const boundaryEnv = (sha, extra = {}) => ({ ...ACTIONS, GITHUB_SHA: sha, EXPECTED_SHA: sha, ADMISSION: "hosted", REQUEST_ID: "", REGISTRY: "npm", UNITS: "@rightkit/foo", ALLOW_HOST_EXCLUSION: "", ALLOW_NO_TEST: "", ALLOW_IGNORED: "", ALLOW_MISSING_ASSETS: "", ...extra });
@@ -155,7 +166,7 @@ test("through the real gate: a red class A tree (broken committed JSON, the orig
 test("through the real gate: the same tree with valid JSON is admitted, gate bound to its commit", async (t) => {
   const green = committedTree(t, { "packages/foo/ok.json": '{"name":"ok"}' });
   const receipt = await admit({ env: boundaryEnv(green.sha), git: green.git, runGate: green.runGate, fetchImpl: npm(null), policy: policy() });
-  assert.equal(receipt.gate.command, `rightkit-gate check --commit ${green.sha}`);
+  assert.equal(receipt.gate.command, `rightkit-gate check --commit ${green.sha} --rule-tier release`);
   assert.equal(receipt.gate.exit, 0); assert.ok(receipt.gate.rules > 0 && receipt.gate.classAScans > 0);
   assert.deepEqual(receipt.versions, { "@rightkit/foo": "1.0.0" });
 });
@@ -191,7 +202,7 @@ test("cloud entry: a green rightkit-gate check at origin main dispatches admissi
   const granted = { ...NONE, allow_missing_assets: ["@rightkit/release"] };
   assert.deepEqual(dispatchHosted({ unit: "@rightkit/release", root: "/repo", run: h.run, out: (l) => lines.push(l), policy: () => granted }), { sha: SHA, unit: "@rightkit/release", version: "0.6.7" });
   const gate = h.calls.findIndex((c) => c[0] === process.execPath);
-  assert.deepEqual(h.calls[gate].slice(1), ["/repo/packages/release/bin/rightkit-gate.mjs", "check", "--repo", "/repo", "--commit", SHA], "the same gate, the full check, on the exact commit");
+  assert.deepEqual(h.calls[gate].slice(1), ["/repo/packages/release/bin/rightkit-gate.mjs", "check", "--repo", "/repo", "--commit", SHA, "--rule-tier", "release"], "the same gate, the full check, on the exact commit");
   assert.ok(gate < h.calls.findIndex((c) => c.includes("POST")), "the gate runs before the dispatch");
   const [post] = h.dispatched();
   assert.equal(h.dispatched().length, 1);
