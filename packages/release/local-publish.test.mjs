@@ -8,9 +8,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import { checkPublicationGate, provenGateSteps, publishGatedTarball } from './publication-gate.mjs';
+import { startRun, endRun } from './gate-stages.mjs';
 import { mintTestCapability } from './test-support/publish-capability-fixture.mjs';
-import { LOCAL_WIN32_HOST_POLICY_REASON, LocalPublishError, batchCargoExecute, batchClippyInvocations, checkCrateLayers, consumerRows, deriveCrateLayers, localTestPlan, parseCrateLayers, parseLocalPublishArgs, runLocalPublishUploadEngine as runLocalPublish } from './local-publish.mjs';
+import { LOCAL_WIN32_HOST_POLICY_REASON, LocalPublishError, batchCargoExecute, batchClippyInvocations, checkCrateLayers, consumerRows, deriveCrateLayers, localTestPlan, parseCrateLayers, parseLocalPublishArgs, runLocalPublishUploadEngine as runLocalPublish, compileLocalUnit, packageLocalUnit, qualifyLocalUnit, closeLocalUnit } from './local-publish.mjs';
 import { runCargoAsync, spawnCollect } from './managed-cargo.mjs';
 
 const HEAD = 'a'.repeat(40);
@@ -770,6 +772,129 @@ test('qualification-only requires an explicit new bundle and one cargo crate', (
   const parsed = parseLocalPublishArgs('cargo', [...base, '--bundle', 'out'], '/scratch');
   assert.equal(parsed.qualifyOnly, true);
   assert.equal(parsed.bundleDir, path.resolve('/scratch', 'out'));
+});
+
+test('npm qualification bundles exact gated bytes without upload or feed mutation', async () => {
+  const root = workspace();
+  const feed = path.join(root, 'packages/release/rightkit-versions.json');
+  fs.mkdirSync(path.dirname(feed), { recursive: true });
+  const feedText = JSON.stringify({ stagedNpm: { '@rightkit/demo': '1.2.3' } });
+  fs.writeFileSync(feed, feedText);
+  const h = harness(root, 'npm', { git: (args) => args[0] === 'rev-parse' ? HEAD : args[0] === 'show' ? feedText : '' });
+  const bundle = path.join(root, 'qualified');
+  const result = await runLocalPublish('npm', ['--local', '--package', '@rightkit/demo', '--workspace', root, '--qualify-only', '--bundle', bundle], h.deps);
+  const bytes = fs.readFileSync(result.artifactFile);
+  const evidence = JSON.parse(fs.readFileSync(result.evidencePath, 'utf8'));
+  assert.equal(result.qualifiedOnly, true);
+  assert.equal(evidence.artifactSha256, crypto.createHash('sha256').update(bytes).digest('hex'));
+  assert.equal(result.artifactSha256, evidence.artifactSha256);
+  assert.equal(fs.readFileSync(feed, 'utf8'), feedText);
+  assert.deepEqual(h.published, []);
+  assert.ok(!h.calls.some(({ command }) => command === 'cargo'));
+});
+
+test('npm qualification refuses an uncommitted or unstaged feed before packing', async () => {
+  const root = workspace();
+  const feed = path.join(root, 'packages/release/rightkit-versions.json');
+  fs.mkdirSync(path.dirname(feed), { recursive: true });
+  const feedText = JSON.stringify({ stagedNpm: { '@rightkit/demo': '1.2.2' } });
+  fs.writeFileSync(feed, feedText);
+  const argv = ['--local', '--package', '@rightkit/demo', '--workspace', root, '--qualify-only', '--bundle', path.join(root, 'qualified')];
+  const h = harness(root, 'npm', { git: (args) => args[0] === 'rev-parse' ? HEAD : args[0] === 'show' ? feedText : '' });
+  await refused(runLocalPublish('npm', argv, h.deps), /stage the version/);
+  h.deps.git = (args) => args[0] === 'rev-parse' ? HEAD : args[0] === 'show' ? '{}' : '';
+  await refused(runLocalPublish('npm', argv, h.deps), /must match the committed HEAD/);
+  assert.equal(h.calls.length, 0);
+});
+
+test('release npm qualification prepares the signed swap helper before packing', async () => {
+  const root = workspace();
+  const unitDir = path.join(root, 'packages/release');
+  fs.mkdirSync(unitDir, { recursive: true });
+  fs.writeFileSync(path.join(unitDir, 'package.json'), JSON.stringify({ name: '@rightkit/release', version: '0.6.9', scripts: { test: 'node --test' } }));
+  const feedText = JSON.stringify({ stagedNpm: { '@rightkit/release': '0.6.9' } });
+  fs.writeFileSync(path.join(unitDir, 'rightkit-versions.json'), feedText);
+  let prepared = false;
+  const h = harness(root, 'npm', {
+    git: (args) => args[0] === 'rev-parse' ? HEAD : args[0] === 'show' ? feedText : '',
+    prepareSwapHelper: ({ packageDir }) => { assert.notEqual(packageDir, unitDir); prepared = true; },
+    run: (command, args) => {
+      if (args.includes('--pack-destination')) {
+        assert.equal(prepared, true);
+        fs.writeFileSync(path.join(args[args.indexOf('--pack-destination') + 1], 'rightkit-release-0.6.9.tgz'), 'release-tarball');
+      }
+      return { status: 0, stdout: args.includes('test') ? LIBTEST : '', stderr: '' };
+    },
+  });
+  const result = await runLocalPublish('npm', ['--local', '--package', '@rightkit/release', '--workspace', root, '--qualify-only', '--bundle', path.join(root, 'qualified')], h.deps);
+  assert.equal(prepared, true);
+  assert.equal(fs.readFileSync(result.artifactFile, 'utf8'), 'release-tarball');
+  assert.deepEqual(h.published, []);
+});
+
+test('unit stages reject forged authority and changed inputs, stop at boundaries, and reject changed archives', { skip: process.platform !== 'darwin' }, async () => {
+  const root = workspace();
+  const bin = tempRoot('rk-unit-bin-');
+  const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+  git('init', '-q');
+  git('config', 'user.email', 'test@example.invalid');
+  git('config', 'user.name', 'Test');
+  git('remote', 'add', 'origin', 'https://github.com/test/unit.git');
+  fs.writeFileSync(path.join(root, '.rightkit-local-build.json'), JSON.stringify({ allow: 'build-test-publish', repository: 'test/unit' }));
+  fs.mkdirSync(path.join(root, 'scripts/ci'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'scripts/ci/test-results.mjs'), `export * from ${JSON.stringify(pathToFileURL(path.resolve(import.meta.dirname, '../../scripts/ci/test-results.mjs')).href)};\n`);
+  fs.writeFileSync(path.join(root, 'scripts/ci/upload.mjs'), 'export const checkNpmTarball = () => ({ problems: [] });\n');
+  git('add', '.'); git('commit', '-qm', 'fixture');
+  fs.writeFileSync(path.join(bin, 'npm'), '#!/bin/sh\necho "404 Not Found" >&2\nexit 1\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, 'pnpm'), `#!/bin/sh\nprintf '%s\\n' "$*" >> "$RK_TEST_UNIT_LOG"\ncase "$*" in *--pack-destination*) while [ "$1" != "--pack-destination" ]; do shift; done; printf '%s' "$2" > "$RK_TEST_UNIT_SCRATCH"; printf tarball > "$2/rightkit-demo-1.2.3.tgz";; *test*) printf '%s\\n' '${LIBTEST.trim()}';; esac\n`, { mode: 0o755 });
+  const oldPath = process.env.PATH;
+  const oldLog = process.env.RK_TEST_UNIT_LOG; const oldScratch = process.env.RK_TEST_UNIT_SCRATCH;
+  process.env.RK_TEST_UNIT_LOG = path.join(bin, 'calls'); process.env.RK_TEST_UNIT_SCRATCH = path.join(bin, 'scratch');
+  process.env.PATH = `${bin}${path.delimiter}${oldPath}`;
+  const commit = git('rev-parse', 'HEAD'); const tree = git('rev-parse', 'HEAD^{tree}');
+  const commonDir = path.resolve(root, git('rev-parse', '--git-common-dir'));
+  const bundle = path.join(tempRoot('rk-unit-bundle-'), 'bundle');
+  const argv = ['--local', '--package', '@rightkit/demo', '--workspace', root, '--qualify-only', '--bundle', bundle];
+  const runs = [];
+  const door = (stage, overrides = {}) => { const run = startRun({ commonDir, commit, tree, stage, ...overrides }); runs.push(run); return { ...process.env, ...run.env }; };
+  try {
+    await assert.rejects(packageLocalUnit({}, { env: door('package') }), /completed compile/);
+    await assert.rejects(compileLocalUnit('npm', argv, { env: {} }), /one door/);
+    await assert.rejects(compileLocalUnit('npm', argv, { env: { RK_GATE_RUN: 'f'.repeat(32) } }), /no live door run/);
+    await assert.rejects(compileLocalUnit('npm', argv, { env: door('package') }), /own live door run/);
+    await assert.rejects(compileLocalUnit('npm', argv, { env: door('compile', { tree: 'b'.repeat(40) }) }), /own live door run/);
+    fs.appendFileSync(path.join(root, 'packages/demo/package.json'), ' ');
+    await assert.rejects(compileLocalUnit('npm', argv, { env: door('compile') }), /clean tracked checkout/);
+    git('checkout', '--', 'packages/demo/package.json');
+    const stale = await compileLocalUnit('npm', argv, { env: door('compile') });
+    git('commit', '--allow-empty', '-qm', 'new head');
+    await assert.rejects(packageLocalUnit(stale, { env: door('package') }), /HEAD or tree changed/);
+    git('reset', '--hard', '-q', commit);
+    const state = await compileLocalUnit('npm', argv, { env: door('compile') });
+    assert.equal(fs.existsSync(bundle), false);
+    const packed = await packageLocalUnit(state, { env: door('package') });
+    assert.equal(fs.readFileSync(packed.artifactFile, 'utf8'), 'tarball');
+    assert.equal(fs.existsSync(path.join(bundle, 'gate.json')), false);
+    fs.writeFileSync(packed.artifactFile, 'changed');
+    await assert.rejects(qualifyLocalUnit(state, { env: door('qualify') }), /archive changed after packaging/);
+    assert.equal(fs.existsSync(fs.readFileSync(process.env.RK_TEST_UNIT_SCRATCH, 'utf8')), false);
+    await assert.rejects(qualifyLocalUnit(state, { env: door('qualify') }), /completed package/);
+    await closeLocalUnit(state);
+    const nextBundle = path.join(tempRoot('rk-unit-bundle-'), 'bundle');
+    const second = await compileLocalUnit('npm', [...argv.slice(0, -1), nextBundle], { env: door('compile') });
+    const beforePack = fs.readFileSync(process.env.RK_TEST_UNIT_LOG, 'utf8').split('\n').filter(Boolean).length;
+    const packedAgain = await packageLocalUnit(second, { env: door('package') });
+    const qualified = await qualifyLocalUnit(second, { env: door('qualify') });
+    assert.equal(qualified.artifactSha256, packedAgain.artifactSha256);
+    assert.equal(JSON.parse(fs.readFileSync(qualified.evidencePath, 'utf8')).artifactSha256, packedAgain.artifactSha256);
+    assert.equal(fs.readFileSync(process.env.RK_TEST_UNIT_LOG, 'utf8').split('\n').filter(Boolean).length, beforePack + 1);
+    assert.equal(fs.existsSync(fs.readFileSync(process.env.RK_TEST_UNIT_SCRATCH, 'utf8')), false);
+  } finally {
+    for (const run of runs) endRun(run);
+    process.env.PATH = oldPath;
+    if (oldLog === undefined) delete process.env.RK_TEST_UNIT_LOG; else process.env.RK_TEST_UNIT_LOG = oldLog;
+    if (oldScratch === undefined) delete process.env.RK_TEST_UNIT_SCRATCH; else process.env.RK_TEST_UNIT_SCRATCH = oldScratch;
+  }
 });
 
 test('Windows qualification verifies package, exports durable bytes and evidence, and uploads nothing', async () => {

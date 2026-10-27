@@ -28,6 +28,7 @@ import { refuseHostUpload } from "./host-upload-refusal.mjs";
 import { pathDependencyDirs, readCargoPackage } from "./crate-graph.mjs";
 import { recordPublished, stageSourceVersions, workspaceFeedOptions } from "./rightkit-sync.mjs";
 import { prepareSwapHelper, SWAP_HELPER_CARGO_ARGS, SWAP_HELPER_PACKAGE } from "./swap-helper-bundle.mjs";
+import { requireDoorRun, gateStateDir } from "./gate-stages.mjs";
 
 export const LOCAL_OPERATOR = "agent (local-build grant)";
 export const LOCAL_HOST_POLICY_REASON = "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run";
@@ -121,8 +122,8 @@ export function parseLocalPublishArgs(kind, argv, cwd = process.cwd()) {
     if (arg === "--local") local = true;
     else if (arg === flag) unit = argv[++i];
     else if (arg === "--workspace") workspace = argv[++i];
-    else if (kind === "cargo" && arg === "--qualify-only") qualifyOnly = true;
-    else if (kind === "cargo" && arg === "--bundle") bundle = argv[++i];
+    else if (arg === "--qualify-only") qualifyOnly = true;
+    else if (arg === "--bundle") bundle = argv[++i];
     // Same meaning as publish.yml's allow_ignored: this unit may have ignored tests; the count is recorded.
     else if (arg === "--allow-ignored") allowIgnored = true;
     else if (kind === "cargo" && arg === "--crates") crates = crateList(argv[++i], "--crates");
@@ -426,6 +427,62 @@ export async function runLocalPublishUploadEngine(kind, argv, deps = {}) {
   return publishUnit(parsed, deps, null);
 }
 
+// Stage state never leaves this process: persisted receipts are reports, not authority to skip unit tests.
+const unitStages = new WeakMap();
+function assertUnitDoor(root, stage, env, identity) {
+  const commit = defaultGit(["rev-parse", "HEAD"], root);
+  const tree = defaultGit(["rev-parse", "HEAD^{tree}"], root);
+  const common = defaultGit(["rev-parse", "--git-common-dir"], root);
+  if (!/^[0-9a-f]{40}$/.test(commit ?? "") || !/^[0-9a-f]{40}$/.test(tree ?? "") || !common) refuse("cannot bind unit stage to HEAD and tree");
+  if (identity && (identity.commit !== commit || identity.tree !== tree)) refuse("unit stage HEAD or tree changed");
+  const dirty = defaultGit(["status", "--porcelain", "--untracked-files=no"], root);
+  if (dirty === null || dirty !== "") refuse("unit stage requires a clean tracked checkout");
+  const commonDir = path.resolve(root, common);
+  const denial = requireDoorRun({ env, commonDir, commit, command: `unit ${stage}` });
+  if (denial) refuse(denial);
+  let run;
+  try { run = JSON.parse(fs.readFileSync(path.join(gateStateDir(commonDir), "runs", `${env.RK_GATE_RUN}.json`), "utf8")); } catch { refuse("cannot read the unit door run"); }
+  if (run.stage !== stage || run.tree !== tree) refuse(`unit ${stage} needs its own live door run for this tree`);
+  return { commit, tree };
+}
+
+export async function compileLocalUnit(kind, argv, { env = process.env } = {}) {
+  const parsed = parseLocalPublishArgs(kind, argv);
+  if (!parsed.qualifyOnly || parsed.batch) refuse("unit stages require one --qualify-only unit and a new bundle");
+  const identity = assertUnitDoor(parsed.workspaceRoot, "compile", env);
+  const runner = publishUnitStages(parsed, { env }, null);
+  try {
+    const step = await runner.next();
+    if (step.done || step.value?.stage !== "compile") refuse("unit compile did not complete");
+    assertUnitDoor(parsed.workspaceRoot, "compile", env, identity);
+    const state = Object.freeze({});
+    unitStages.set(state, { runner, parsed, identity, stage: "compile" });
+    return state;
+  } catch (error) { await runner.return(); throw error; }
+}
+
+async function advanceLocalUnit(state, expected, stage, env) {
+  const entry = unitStages.get(state);
+  if (!entry || entry.stage !== expected) refuse(`unit ${stage} requires this process's completed ${expected} stage`);
+  entry.stage = "running";
+  try {
+    assertUnitDoor(entry.parsed.workspaceRoot, stage, env, entry.identity);
+    const step = await entry.runner.next(env);
+    if (stage === "package" ? step.done || step.value?.stage !== "package" : !step.done || !step.value?.qualifiedOnly) refuse(`unit ${stage} did not complete`);
+    assertUnitDoor(entry.parsed.workspaceRoot, stage, env, entry.identity);
+    entry.stage = stage;
+    if (stage === "qualify") unitStages.delete(state);
+    return step.value;
+  } catch (error) { unitStages.delete(state); await entry.runner.return(); throw error; }
+}
+
+export const packageLocalUnit = (state, { env = process.env } = {}) => advanceLocalUnit(state, "compile", "package", env);
+export const qualifyLocalUnit = (state, { env = process.env } = {}) => advanceLocalUnit(state, "package", "qualify", env);
+export async function closeLocalUnit(state) {
+  const entry = unitStages.get(state);
+  if (entry) { unitStages.delete(state); await entry.runner.return(); }
+}
+
 /**
  * Qualify and publish ONE unit. `batch` (cargo batch mode only) is `{ head, tree, receipt, commands }`: the
  * batch-level fmt, secret scan and clippy already ran at `head`/`tree`, so this unit skips its own clippy and
@@ -433,6 +490,13 @@ export async function runLocalPublishUploadEngine(kind, argv, deps = {}) {
  * publish and the registry readback) runs for this unit exactly as in single mode.
  */
 async function publishUnit(parsed, deps, batch) {
+  const runner = publishUnitStages(parsed, deps, batch);
+  let result;
+  do { result = await runner.next(); } while (!result.done);
+  return result.value;
+}
+
+async function* publishUnitStages(parsed, deps, batch) {
   const log = deps.log ?? ((line) => process.stdout.write(`${line}\n`));
   const { kind, unit, allowIgnored, workspaceRoot } = parsed;
   const git = deps.git ?? defaultGit;
@@ -465,9 +529,21 @@ async function publishUnit(parsed, deps, batch) {
     const tree = git(["rev-parse", "HEAD^{tree}"], workspaceRoot);
     if (tree !== batch.tree) refuse(`${unit}: HEAD tree ${tree} differs from the batch tree ${batch.tree}`);
   }
-  const dirty = git(["status", "--porcelain", "--", dir, ...GATE_CONFIG_FILES, ...(parsed.qualifyOnly ? ["Cargo.toml", "Cargo.lock"] : [])], workspaceRoot);
+  const feedPath = "packages/release/rightkit-versions.json";
+  const guardedPaths = [dir, ...GATE_CONFIG_FILES, ...(parsed.qualifyOnly && kind === "cargo" ? ["Cargo.toml", "Cargo.lock"] : []), ...(parsed.qualifyOnly && kind === "npm" ? [feedPath] : [])];
+  const dirty = git(["status", "--porcelain", "--", ...guardedPaths], workspaceRoot);
   if (dirty === null) refuse(`cannot read git status for ${dir}`);
   if (dirty !== "") refuse(`tree is not clean for ${dir} or the gate config (${GATE_CONFIG_FILES.join(", ")}); commit first:\n${dirty}`);
+  if (parsed.qualifyOnly && kind === "npm") {
+    const feedFile = path.join(workspaceRoot, feedPath);
+    if (unit === "@rightkit/release" && !fs.existsSync(feedFile)) refuse(`${unit}: committed ${feedPath} is required before packing`);
+    if (fs.existsSync(feedFile)) {
+      const committedFeed = git(["show", `HEAD:${feedPath}`], workspaceRoot);
+      if (committedFeed === null || committedFeed !== fs.readFileSync(feedFile, "utf8").trim()) refuse(`${feedPath} must match the committed HEAD before qualification`);
+      const feed = readJson(feedFile) ?? refuse(`cannot read ${feedPath}`);
+      if (feed.stagedNpm?.[unit] !== version && feed.registry?.npm?.[unit] !== version) refuse(`${unit}@${version}: stage the version in ${feedPath} and commit it before qualification`);
+    }
+  }
   if (await (deps.registryHas ?? defaultRegistryHas)({ kind, name: unit, version })) refuse(`${unit}@${version} is already on the ${kind === "npm" ? "npm" : "crates.io"} registry; bump the version`);
   log(`[right-release] local publish ${kind}:${unit}@${version} at ${head.slice(0, 12)} (local-build grant, ${LOCAL_HOST_POLICIES[platform]} policy)`);
 
@@ -484,7 +560,7 @@ async function publishUnit(parsed, deps, batch) {
     if (consumerDirty === null) refuse(`cannot read git status for the consumer rows of ${unit}`);
     if (consumerDirty !== "") refuse(`tree is not clean for the consumer rows of ${unit}; commit first:\n${consumerDirty}`);
   }
-  if (parsed.qualifyOnly) {
+  if (parsed.qualifyOnly && kind === "cargo") {
     const violations = (deps.scanSecrets ?? scanCrateForSecrets)(unitPath);
     if (violations.length) refuse(`qualification secret scan rejected: ${violations.join(", ")}`);
     plan.steps.unshift({ command: "cargo", args: ["fmt", "-p", unit, "--check"], test: false });
@@ -496,7 +572,7 @@ async function publishUnit(parsed, deps, batch) {
   // written reason in ci/gate.config.json (rust.<crate>.allowIgnored). The count stays in the evidence.
   const configReason = kind === "cargo" && typeof gateConfig?.rust?.[unit]?.allowIgnored === "string" ? gateConfig.rust[unit].allowIgnored.trim() : "";
   const ignoredAllowed = Boolean(allowIgnored || parsed.allowIgnoredUnits?.includes(unit) || configReason);
-  const steps = parsed.qualifyOnly ? [{ command: `scanCrateForSecrets ${dir}`, ok: true }] : [];
+  const steps = parsed.qualifyOnly && kind === "cargo" ? [{ command: `scanCrateForSecrets ${dir}`, ok: true }] : [];
   for (const step of plan.steps) {
     const commandText = `${step.command} ${step.args.join(" ")}`;
     log(`[right-release] ${plan.id}: ${commandText}`);
@@ -519,23 +595,31 @@ async function publishUnit(parsed, deps, batch) {
   if (verdict.status === "fail" || steps.some((s) => s.failed > 0)) refuse(`${plan.id} not qualified: ${verdict.problems.join("; ") || "failed tests reported"}`);
   if (!(verdict.executed > 0)) refuse(`${plan.id} executed no test`);
   log(`[right-release] ${plan.id}: ${verdict.executed} passed, 0 failed, ${verdict.skipped} skipped, ${verdict.ignored} ignored${isAssetGated ? " (asset-gated: RIGHTKIT_REQUIRE_ASSETS=0, skips recorded)" : ""}`);
+  const packageEnv = yield { stage: "compile", kind, name: unit, version, commit: head };
+  if (packageEnv) Object.assign(env, testEnv({ env: packageEnv }, isAssetGated));
 
   // 3. Pack the artifact and hash it.
   const scratch = fs.mkdtempSync(path.join(deps.tmpdir ?? os.tmpdir(), "rk-local-publish-"));
   const cleanup = () => fs.rmSync(scratch, { recursive: true, force: true });
   try {
     let artifactFile; const packCommands = [];
+    let packDir = dir;
     if (kind === "npm" && unit === SWAP_HELPER_PACKAGE) {
+      if (parsed.qualifyOnly) {
+        // Signing writes its binary and receipt. Keep both in the pack copy, never the source checkout.
+        packDir = path.join(scratch, "package-source");
+        fs.cpSync(unitPath, packDir, { recursive: true, filter: (source) => path.basename(source) !== "node_modules" });
+      }
       // #258: the package ships a Developer-ID-signed bin/darwin/rightkit-swap; build, sign and verify it before packing (fails closed).
-      try { (deps.prepareSwapHelper ?? prepareSwapHelper)({ workspaceRoot, packageDir: unitPath, platform, run, env, log }); }
+      try { (deps.prepareSwapHelper ?? prepareSwapHelper)({ workspaceRoot, packageDir: parsed.qualifyOnly ? packDir : unitPath, platform, run, env, log }); }
       catch (error) { refuse(`${error.code ? `[${error.code}] ` : ""}${error.message}`); }
       packCommands.push(`rustright cargo ${SWAP_HELPER_CARGO_ARGS.join(" ")} && codesign --verify --strict bin/darwin/rightkit-swap`);
     }
     if (kind === "npm") {
       // The feed a tarball ships must list the version it ships with (#319): stage it before packing.
       const feedFile = path.join(workspaceRoot, "packages", "release", "rightkit-versions.json");
-      if (fs.existsSync(feedFile)) await withVersionsLock(() => (deps.stageSourceVersions ?? stageSourceVersions)([{ registry: "npm", name: unit, version }], { file: feedFile, root: workspaceRoot, log }));
-      const args = ["--dir", dir, "pack", "--pack-destination", scratch];
+      if (!parsed.qualifyOnly && fs.existsSync(feedFile)) await withVersionsLock(() => (deps.stageSourceVersions ?? stageSourceVersions)([{ registry: "npm", name: unit, version }], { file: feedFile, root: workspaceRoot, log }));
+      const args = ["--dir", packDir, "pack", "--pack-destination", scratch];
       packCommands.push(`pnpm ${args.join(" ")}`);
       const packed = await run("pnpm", args, { cwd: workspaceRoot, env });
       if (packed.error || packed.status !== 0) refuse(`pnpm pack failed for ${unit}\n${tail(`${packed.stdout ?? ""}\n${packed.stderr ?? ""}`)}`);
@@ -565,6 +649,16 @@ async function publishUnit(parsed, deps, batch) {
       if (!fs.existsSync(artifactFile)) refuse(`cargo package did not produce ${artifactFile}`);
     }
     const artifactSha256 = sha256(fs.readFileSync(artifactFile));
+    if (parsed.qualifyOnly && (git(["rev-parse", "HEAD"], workspaceRoot) !== head || git(["status", "--porcelain", "--", ...guardedPaths], workspaceRoot) !== "")) refuse("qualification inputs changed while preparing the artifact; no bundle was created");
+    if (parsed.qualifyOnly) {
+      fs.mkdirSync(parsed.bundleDir, { recursive: false });
+      const bundledArtifact = path.join(parsed.bundleDir, path.basename(artifactFile));
+      fs.copyFileSync(artifactFile, bundledArtifact, fs.constants.COPYFILE_EXCL);
+      if (sha256(fs.readFileSync(bundledArtifact)) !== artifactSha256) refuse("qualification archive changed while copying");
+      artifactFile = bundledArtifact;
+      yield { stage: "package", kind, name: unit, version, commit: head, artifactFile, artifactSha256 };
+      if (sha256(fs.readFileSync(artifactFile)) !== artifactSha256) refuse("qualification archive changed after packaging");
+    }
 
     // 4. Evidence in the normal schema, then the EXISTING gate.
     const commands = [...plan.steps.map((s) => `${s.command} ${s.args.join(" ")}`), ...packCommands, ...(batch ? batch.commands : [])];
@@ -587,19 +681,15 @@ async function publishUnit(parsed, deps, batch) {
     fs.mkdirSync(path.dirname(evidencePath), { recursive: true });
     fs.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
     log(`[right-release] wrote ${evidencePath} (artifact sha256 ${artifactSha256})`);
-    const gateOptions = { kind, name: unit, version, packagePath: unitPath, evidencePath };
+    const gateOptions = { kind, name: unit, version, packagePath: unitPath, evidencePath, artifactBytes: fs.readFileSync(artifactFile) };
     (deps.enforceGate ?? enforcePublicationGate)(gateOptions, { write: (line) => log(line.replace(/\n$/, "")) });
 
     if (parsed.qualifyOnly) {
       // Keep bytes and their normal gate evidence together outside the checkout. Never overwrite a bundle.
-      fs.mkdirSync(parsed.bundleDir, { recursive: false });
-      const bundledArtifact = path.join(parsed.bundleDir, path.basename(artifactFile));
       const bundledEvidence = path.join(parsed.bundleDir, "gate.json");
-      fs.copyFileSync(artifactFile, bundledArtifact, fs.constants.COPYFILE_EXCL);
-      if (sha256(fs.readFileSync(bundledArtifact)) !== artifactSha256) refuse("qualification archive changed while copying");
       fs.copyFileSync(evidencePath, bundledEvidence, fs.constants.COPYFILE_EXCL);
-      log(`[right-release] qualified ${unit}@${version}; bundle ${parsed.bundleDir}; publish cargo --crate ${unit} --from-evidence ${bundledEvidence}`);
-      return { kind, name: unit, version, commit: head, artifactSha256, evidencePath: bundledEvidence, artifactFile: bundledArtifact, qualifiedOnly: true };
+      log(`[right-release] qualified ${unit}@${version}; bundle ${parsed.bundleDir}${kind === "cargo" ? `; publish cargo --crate ${unit} --from-evidence ${bundledEvidence}` : ""}`);
+      return { kind, name: unit, version, commit: head, artifactSha256, evidencePath: bundledEvidence, artifactFile, qualifiedOnly: true };
     }
 
     // 5. The EXISTING publish path.

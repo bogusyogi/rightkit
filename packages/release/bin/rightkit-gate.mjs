@@ -70,6 +70,7 @@ import { fileURLToPath } from "node:url";
 import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
+import { runUnitGate } from "../unit-gate.mjs";
 import { bindingOf, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, writeReceipt } from "../gate-stages.mjs";
 import { spawnSync as spawnInherit } from "../background-process.mjs";
 import { readDiskPolicy, scratchRoots } from "../disk-policy.mjs";
@@ -86,7 +87,7 @@ export const PARTIAL_EXIT = 3;
 /** The platforms a door run can package: desktop (signed, sealed, installed QA, publisher upload) and mobile (signed, sealed, store test track). */
 export const PLATFORMS = Object.freeze(["mac", "win", "ios", "android"]);
 export const MOBILE_PLATFORMS = Object.freeze(new Set(["ios", "android"]));
-const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to dev|test [-- <right-release args>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | --version`;
+const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to dev|test [-- <right-release args>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | --version`;
 
 // ---- pure helpers (exported for tests) ----------------------------------------------------------------------
 
@@ -1517,6 +1518,31 @@ export async function main(argv, io = {}) {
   const git = (...a) => o.spawn("git", a, { cwd: root });
   if (sub === "install-hook") return await installHook(o, root, args.includes("--force"));
   if (args.includes("--plan") && option("--to") !== undefined) { o.err("rightkit-gate: --plan plans the class A scans and runs nothing; it takes no --to stage (Astra, second pass)"); return 2; }
+  // `--unit` is a gate flag only before a `--` separator: after it the arguments belong to right-release (an app's `--to dev -- …`).
+  const separator = args.indexOf("--");
+  const unitFlag = args.includes("--unit") && (separator < 0 || args.indexOf("--unit") < separator);
+  if (option("--to") !== undefined && unitFlag) {
+    const selector = option("--unit");
+    const validArgs = args.length % 2 === 0 && args.every((a, i) => i % 2 ? !a.startsWith("--") : ["--to", "--unit", "--receipt-out"].includes(a)) && ["--to", "--unit", "--receipt-out"].every((flag) => args.filter((a) => a === flag).length <= 1);
+    if (!validArgs || !selector) {
+      o.err("rightkit-gate: unit stages take only --to, --unit and optional --receipt-out"); return 2;
+    }
+    const head = git("rev-parse", "HEAD"), treeResult = git("rev-parse", "HEAD^{tree}"), common = git("rev-parse", "--git-common-dir"), dirty = git("status", "--porcelain", "--untracked-files=no");
+    const commit = text(head).trim(), tree = text(treeResult).trim();
+    if (failed(head) || failed(treeResult) || failed(common) || !text(common).trim() || !/^[0-9a-f]{40}$/.test(commit) || !/^[0-9a-f]{40}$/.test(tree) || failed(dirty) || text(dirty).trim()) { o.err("rightkit-gate: BLOCKED: unit stages need clean committed HEAD and tree"); return 1; }
+    const match = /^(?:npm:@rightkit\/([a-z0-9-]+)|cargo:(rightkit-[a-z0-9-]+))$/.exec(selector);
+    const manifest = match && (match[1] ? `packages/${match[1]}/package.json` : `crates/${match[2]}/Cargo.toml`);
+    if (!manifest || failed(git("ls-files", "--error-unmatch", "--", ".rightkit-local-build.json", manifest))) { o.err("rightkit-gate: BLOCKED: unit and local grant must be tracked canonical files"); return 1; }
+    const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
+    const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
+    if (executor.kind === "refuse") { o.err(`rightkit-gate: BLOCKED: ${executor.problem}`); return 1; }
+    const reportOut = option("--receipt-out");
+    return await runUnitGate({ selector, to: option("--to"), root, commonDir: path.resolve(root, text(common).trim()), commit, tree, executor, env: o.env, platform: o.platform,
+      check: (tier) => main(["check", "--commit", "HEAD", "--rule-tier", tier], { ...io, cwd: root }), out: o.out, err: o.err,
+      ...(reportOut ? { writeReport: (report) => o.writeFile(path.resolve(o.cwd, reportOut), `${JSON.stringify(report, null, 2)}\n`) } : {}),
+    });
+  }
+  if (unitFlag) { o.err("rightkit-gate: --unit requires --to"); return 2; }
   if (option("--to") !== undefined) return await runStages(o, args, root, git, io);
   if (sub === "stage") return stageForPublisher(o, args, root, git);
 
