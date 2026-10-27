@@ -18,7 +18,7 @@
     },
     "win32": {
       "workspaceRoot": "D:/claude",
-      "scratchRoot": "D:/scratch",
+      "scratchRoot": "D:/scratch/rk-canary-2",
       "parallel": 2,
       "ssh": "win",
       "node": "C:\\Users\\adrds\\AppData\\Local\\nvm\\v26.8.1\\node.exe",

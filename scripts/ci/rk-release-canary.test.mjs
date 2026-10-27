@@ -360,9 +360,12 @@ test("runLeg(win32) copies the bundle, runs the pinned node on the leg script th
   const leg = await runLeg("win32", { bundleDir: bundle, matrix, sha, run, winCommand: "win" });
   assert.equal(leg.error, undefined);
   const remote = calls.find((c) => c[0] === "win" && c[1].startsWith("& "));
-  assert.ok(remote[1].startsWith("& 'C:\\Users\\adrds\\AppData\\Local\\nvm\\v26.8.1\\node.exe' 'D:\\scratch\\rk-canary\\" + sha + "\\canary-leg.mjs' --manifest 'D:\\scratch\\rk-canary\\" + sha + "\\manifest.json'"), remote[1]);
-  const put = calls.find((c) => c[0] === "scp" && c.includes("win:D:/scratch/rk-canary/" + sha + "/"));
-  assert.ok(put, "bundle goes to win:D:/scratch/rk-canary/<sha>/");
+  // The Windows leg root follows ci/release-canary.json hosts.win32.scratchRoot (D:/scratch/rk-canary-2 since 2026-10-27: the
+  // previous root's directories were left locked on the Dell by an earlier leg's orphaned shells).
+  const winRoot = "D:\\scratch\\rk-canary-2\\rk-canary\\";
+  assert.ok(remote[1].startsWith("& 'C:\\Users\\adrds\\AppData\\Local\\nvm\\v26.8.1\\node.exe' '" + winRoot + sha + "\\canary-leg.mjs' --manifest '" + winRoot + sha + "\\manifest.json'"), remote[1]);
+  const put = calls.find((c) => c[0] === "scp" && c.includes("win:D:/scratch/rk-canary-2/rk-canary/" + sha + "/"));
+  assert.ok(put, "bundle goes to win:D:/scratch/rk-canary-2/rk-canary/<sha>/");
   assert.ok(put.some((a) => a.endsWith("canary-leg.mjs")) && put.some((a) => a.endsWith("smol-toml.tgz")) && put.some((a) => a.endsWith("manifest.json")));
 });
 test("runLeg rejects a leg receipt that does not match the bundle (digest, sha, host) after one retry", async (t) => {
