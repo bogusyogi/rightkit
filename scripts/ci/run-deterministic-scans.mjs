@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { parseUnitNames, readCrateWorkspace, readNpmWorkspace } from "./publish.mjs";
 import { externalInputs } from "../../packages/release/bin/rightkit-gate.mjs";
 import { planScans, runScans, scanDeferrals, scanFailures } from "../../packages/release/deterministic-scans.mjs";
+import { brokerManagedHost } from "../../packages/release/cargo-contract.mjs";
 import { buildScanReceipt, observeToolVersions, resultProblems, SCAN_RECEIPT_FILE, sha256Hex, toolVersionProblems } from "./scan-receipt.mjs";
 
 const git = (cwd, ...args) => {
@@ -65,7 +66,11 @@ export async function runCandidateScans({ contentRoot, liveRoot, outDir, env = p
   const selection = publicationContent({ registry: env.PUBLISH_REGISTRY, units: env.PUBLISH_UNITS, files, crateFeatures,
     workspace: env.PUBLISH_REGISTRY === "crates" ? readCrateWorkspace(contentRoot, spawn) : readNpmWorkspace(contentRoot),
     readBlob: (f) => fs.readFileSync(path.join(contentRoot, f), "utf8") });
-  const plan = planScans({ changed: selection.files, rustUnits: selection.rustUnits, npmUnits: selection.npmUnits, contentRoot, liveRoot, includeTests: false, localCompile: true, tier: "release", cargoCommand: ["cargo"], crateFeatures, readBytes: (f) => fs.readFileSync(f) });
+  // On a broker-managed host the cargo scans and their tool probes run in the live checkout (cargoLiveRoot), as rightkit-gate
+  // plans them: the broker refuses cargo outside the primary checkout, so a probe in a neutral directory read as TOOL_MISSING and
+  // the local pre-flight of RightKit's own release was red on every cargo scan (2026-10-27). A direct host (CI) keeps the export.
+  const cargoLiveRoot = brokerManagedHost(env) ? liveRoot : null;
+  const plan = planScans({ changed: selection.files, rustUnits: selection.rustUnits, npmUnits: selection.npmUnits, contentRoot, liveRoot, cargoLiveRoot, includeTests: false, localCompile: true, tier: "release", cargoCommand: ["cargo"], crateFeatures, readBytes: (f) => fs.readFileSync(f) });
   const plannedClassA = plan.scans.filter((x) => x.class === "A");
   console.log(`scans: ${plannedClassA.length} class A scans planned over ${selection.files.length} tracked files for ${selection.scope.registry}:${selection.scope.units.join(",")} (class B runs in the native verify jobs)`);
   const observedTools = observeToolVersions(spawn);
