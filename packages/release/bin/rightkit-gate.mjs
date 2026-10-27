@@ -1406,9 +1406,21 @@ async function runWorktreeCompile(o, args, root, git, io, to, appRoot = root) {
     const cli = fileURLToPath(new URL("../cli/right-release.mjs", import.meta.url));
     // right-release reads its config from its cwd: the resolved app root (appRootOf), not the directory the command was typed in
     // (apps/foo/src is apps/foo; Astra, third pass).
-    const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, to, ...passthrough], { cwd: appRoot, env: { ...o.env, ...run.env } });
+    // The door's own RightKit runs every sub-step: a dev target's `right-release web-build|stage-sidecar` steps resolve `right-release`
+    // on PATH, which found the app's node_modules copy (HeardRight on the Dell, 2026-10-27: the app's 0.6.8 guard refused what the
+    // door's 0.6.9 admitted). An installed gate (node_modules/@rightkit/release/bin) has its package's bin shims two levels up.
+    const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, to, ...passthrough], { cwd: appRoot, env: { ...o.env, ...run.env, ...doorPath(o) } });
     return r.status === 0 ? 0 : 1;
   } finally { endRun(run); }
+}
+
+/** PATH with the door's own `right-release` shims first (`<node_modules>/.bin` beside an installed gate), or nothing for a checkout. */
+export function doorPath(o, gateFile = o.gateFile ?? fileURLToPath(import.meta.url), platform = o.platform ?? process.platform) {
+  const bin = path.resolve(path.dirname(gateFile), "..", "..", "..", ".bin");
+  const shim = path.join(bin, platform === "win32" ? "right-release.cmd" : "right-release");
+  if (!(o.exists ?? fs.existsSync)(shim)) return {};
+  const key = platform === "win32" ? Object.keys(o.env ?? {}).find((k) => k.toUpperCase() === "PATH") ?? "Path" : "PATH";
+  return { [key]: `${bin}${path.delimiter}${(o.env ?? {})[key] ?? ""}` };
 }
 
 // ---- main ---------------------------------------------------------------------------------------------------

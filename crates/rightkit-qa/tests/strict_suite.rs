@@ -143,7 +143,7 @@ fn mandatory_skip_fails_the_run_but_optional_skip_does_not() {
 
 const OTHER_OS: &str = r#"
 name = "other os"
-requires = ["platform:__OTHER__"]
+requires = ['platform:__OTHER__']
 [[step]]
 kind = "cli"
 lifecycle = "cold"

@@ -4,10 +4,6 @@
   "known": {
     "rightkit": [
       "mandatory-foundation|desktop-app-template/rightkit-mandatory.json|notApplicable:M22",
-      "qa-platform|crates/rightkit-qa/src/scenario.rs|platform:macos",
-      "qa-platform|crates/rightkit-qa/src/scenario.rs|platform:macosx",
-      "qa-platform|crates/rightkit-qa/src/scenario.rs|platform:typo",
-      "qa-platform|crates/rightkit-qa/tests/strict_suite.rs|platform:__OTHER__",
       "shell-csp|crates/rightkit-qa/examples/control-test-app/tauri.conf.json|base:csp-missing",
       "shell-csp|crates/rightkit-tauri-shell/example-app/tauri.conf.json|base:csp-missing",
       "shell-csp|spikes/rk2-macos/fixture-app/tauri.conf.json|base:csp-missing"

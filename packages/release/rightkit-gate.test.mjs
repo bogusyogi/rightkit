@@ -2709,3 +2709,14 @@ test("--to dev --platform mac hands the platform to right-release; a platform af
   assert.equal(await main(["--to", "dev", "--", "--y"], { ...capture().io, cwd: root, ...io }), 0);
   assert.deepEqual(calls.at(-1), ["--y"]);
 });
+
+test("a door run puts the door's own right-release shims first on PATH when the gate is an installed package; a checkout adds nothing", async () => {
+  const { doorPath } = await import("./bin/rightkit-gate.mjs");
+  const installed = path.join(os.tmpdir(), "nm", "node_modules", "@rightkit", "release", "bin", "rightkit-gate.mjs");
+  const bin = path.join(os.tmpdir(), "nm", "node_modules", ".bin");
+  const exists = (p) => p === path.join(bin, "right-release") || p === path.join(bin, "right-release.cmd");
+  assert.deepEqual(doorPath({ env: { PATH: "/usr/bin" }, exists, gateFile: installed, platform: "darwin" }), { PATH: `${bin}${path.delimiter}/usr/bin` });
+  assert.deepEqual(doorPath({ env: { Path: "C:\\w" }, exists, gateFile: installed, platform: "win32" }), { Path: `${bin}${path.delimiter}C:\\w` });
+  assert.deepEqual(doorPath({ env: { PATH: "/usr/bin" }, exists: () => false, gateFile: installed, platform: "darwin" }), {}, "no shims: nothing added");
+  assert.deepEqual(doorPath({ env: { PATH: "/usr/bin" }, exists, gateFile: path.join(os.tmpdir(), "repo", "packages", "release", "bin", "rightkit-gate.mjs"), platform: "darwin" }), {}, "a checkout has no .bin beside it");
+});

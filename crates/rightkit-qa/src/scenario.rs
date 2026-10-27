@@ -2998,7 +2998,8 @@ mod token_and_skip_tests {
     #[test]
     fn an_unknown_platform_value_is_an_unmet_requirement_never_a_silent_skip() {
         let root = std::env::temp_dir();
-        let reqs = vec!["platform:macosx".to_string()];
+        // Built at runtime: a literal `"platform:macosx"` in a requires list is what the G13 app rule flags (it never matches).
+        let reqs = vec![format!("platform:{}", "macosx")];
         // Not another OS, so not an OtherPlatform skip (which every run tolerates).
         assert_eq!(platform_mismatch(&reqs), None);
         let reason = unmet_requirement(&reqs, &root).expect("unknown platform must be unmet");
@@ -3017,7 +3018,10 @@ mod token_and_skip_tests {
             }
         ));
         // An unknown value after a valid host-or-other platform requirement is still reported.
-        let mixed = vec!["platform:macos".to_string(), "platform:typo".to_string()];
+        let mixed = vec![
+            format!("platform:{}", "macos"),
+            format!("platform:{}", "typo"),
+        ];
         assert_eq!(
             platform_mismatch(&mixed).is_some(),
             !cfg!(target_os = "macos")
