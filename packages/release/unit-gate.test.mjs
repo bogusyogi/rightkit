@@ -59,7 +59,8 @@ test("release stage: the gate owns pre-flight, broker dispatch, the wait and the
   const artifact = { artifactSha256: "1".repeat(64) };
   const base = { unit, root: "/repo", commit, executor: { kind: "broker" }, env: { RK_GATE_RUN: "x" }, artifact, platform: "darwin", out: () => {}, scratch: tempRoot("unit-release-") };
   const row = { unit: unit.name, version: unit.version, published: true, registryVerified: true, outcome: "published", sha256: "2".repeat(64), sha1: "s1" };
-  const meta = { schema: 1, registry: "npm", dryRun: false, commit, repository: "bogusyogi/rightkit", runId: 10, runAttempt: 1 };
+  // As upload.mjs writes it: runId/runAttempt are the upload run's; `candidate` names the qualification run it consumed.
+  const meta = { schema: 1, registry: "npm", dryRun: false, commit, repository: "bogusyogi/rightkit", runId: "20", runAttempt: "1", promotionCommit: commit, candidate: { id: "qualified-10-1", source: "qualified", sourceSha: commit, runId: "10", runAttempt: "1" } };
   const make = ({ states, runStatus = {}, receiptRows = [row], served = { shasum: "s1", sha256: "2".repeat(64) }, artifacts = ["publication-receipt-10-1-1"], receiptMeta = meta } = {}) => {
     const calls = [];
     let reads = 0;
@@ -102,7 +103,13 @@ test("release stage: the gate owns pre-flight, broker dispatch, the wait and the
   f = make({ states: [dispatched, published], artifacts: ["publication-receipt-99-1-1"] });
   await assert.rejects(releaseUnit({ ...base, ...f }), /0 publication receipt artifact/);
   f = make({ states: [dispatched, published], receiptMeta: { ...meta, commit: "c".repeat(40) } });
-  await assert.rejects(releaseUnit({ ...base, ...f }), /is not for run 10 attempt 1/);
+  await assert.rejects(releaseUnit({ ...base, ...f }), /is not that run's receipt for qualification run 10 attempt 1/);
+  f = make({ states: [dispatched, published], receiptMeta: { ...meta, runId: "10" } });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /is not that run's receipt/, "a receipt naming the qualification run as its own run is not the upload run's");
+  f = make({ states: [dispatched, published], receiptMeta: { ...meta, candidate: { ...meta.candidate, runId: "11" } } });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /is not that run's receipt/, "a candidate of another qualification run");
+  f = make({ states: [dispatched, published], receiptMeta: { ...meta, candidate: { ...meta.candidate, source: "local" } } });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /is not that run's receipt/, "only a qualified candidate");
   f = make({ states: [dispatched, published], receiptRows: [row, row] });
   await assert.rejects(releaseUnit({ ...base, ...f }), /holds 2 row/);
   // receipt row not verified

@@ -46,9 +46,15 @@ export async function releaseUnit({ unit, root, commit, executor, env, artifact,
   const done = findDispatch();
   if (done?.status !== "published" || done.version !== unit.version || !done.uploadRunId) throw new Error(`${unit.name}: the watch ended without a published record (${done?.status ?? "none"}${done?.conclusion ? `: ${done.conclusion}` : ""}); nothing is claimed`);
   const receipt = readPublicationReceipt({ uploadRunId: done.uploadRunId, runId: done.runId, runAttempt: done.runAttempt, run, env, scratch });
-  // The receipt must be this run's: the qualification run and attempt it consumed, this commit, this registry, this repository.
-  if (String(receipt.runId) !== String(done.runId) || String(receipt.runAttempt) !== String(done.runAttempt) || receipt.commit !== commit || receipt.registry !== registry || receipt.repository !== "bogusyogi/rightkit" || receipt.dryRun === true) {
-    throw new Error(`${unit.name}@${unit.version}: the publication receipt of upload run ${done.uploadRunId} is not for run ${done.runId} attempt ${done.runAttempt} of ${commit.slice(0, 12)} (${registry}); nothing is claimed`);
+  // The receipt is written by the publish-direct UPLOAD run (its runId/runAttempt are that run's: upload.mjs records GITHUB_RUN_ID);
+  // the qualification run it consumed is its `candidate` (reviewed-candidate.mjs prepareQualified: id qualified-<run>-<attempt>,
+  // runId, runAttempt, sourceSha). Both are bound to what rk-pipeline dispatched and watched, plus commit, registry and repository.
+  const candidate = receipt.candidate ?? {};
+  const bound = String(receipt.runId) === String(done.uploadRunId)
+    && receipt.commit === commit && receipt.registry === registry && receipt.repository === "bogusyogi/rightkit" && receipt.dryRun !== true
+    && candidate.source === "qualified" && String(candidate.runId) === String(done.runId) && String(candidate.runAttempt) === String(done.runAttempt) && candidate.sourceSha === commit;
+  if (!bound) {
+    throw new Error(`${unit.name}@${unit.version}: the publication receipt of upload run ${done.uploadRunId} is not that run's receipt for qualification run ${done.runId} attempt ${done.runAttempt} of ${commit.slice(0, 12)} (${registry}); nothing is claimed`);
   }
   const rows = (receipt.receipts ?? []).filter((r) => r.unit === unit.name && r.version === unit.version);
   if (rows.length !== 1) throw new Error(`${unit.name}@${unit.version}: the publication receipt holds ${rows.length} row(s) for this unit; exactly one is required`);
