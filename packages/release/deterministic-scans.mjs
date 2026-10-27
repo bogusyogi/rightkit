@@ -280,6 +280,14 @@ const PROBES = Object.freeze({
 export const PINNED_SCAN_TOOLS = Object.freeze({ shellcheck: "0.11.0" });
 /** Files per rustfmt scan: 120 paths of ~100 bytes stay under Windows' 32 KB command line with the tool and flags. */
 export const RUSTFMT_BATCH = 120;
+
+/** True when this module is the checked repository's own in-tree copy (packages/release of `contentRoot`), where its scripts/ live. */
+export function inTreeGate(contentRoot, exists = fs.existsSync) {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+  const own = real(path.resolve(here, "..", ".."));
+  return own === real(contentRoot) && exists(path.join(own, "scripts", "gen-suite-api.mjs"));
+}
 // The version a probe's output names, for a tool whose first line is not its version (`shellcheck --version` opens with a banner).
 const PROBE_VERSION = Object.freeze({
   shellcheck: (text) => { const m = /^version:\s*(\S+)\s*$/m.exec(text); return m ? `shellcheck ${m[1]}` : null; },
@@ -731,7 +739,13 @@ export function planScans({
   }
   // Like generated-docs, planned only when a changed file is one of the contract's inputs or projections. The generator runs from
   // the trusted scanner checkout (the import below); the exported contract and projections are data it checks.
-  if (files.some((f) => SUITE_API_INPUT.test(f)) && exists(path.join(contentRoot, "contracts/right-suite-api.v1.json"))) add({ id: "suite-api", class: A, internal: "suite-api" });
+  if (files.some((f) => SUITE_API_INPUT.test(f)) && exists(path.join(contentRoot, "contracts/right-suite-api.v1.json"))) {
+    // RightKit's own generator contract (scripts/gen-suite-api.mjs) is the checked repository's code: like scripts/preflight.mjs it
+    // runs only when this gate is that repository's in-tree copy (and in CI), never from a pinned or installed copy checking the
+    // repository (the broker's trusted gate refused RightKit's own compile on a module it could not find, 2026-10-27).
+    if (inTreeGate(contentRoot, exists)) add({ id: "suite-api", class: A, internal: "suite-api" });
+    else notes.push("suite-api: RightKit's own generator contract runs from the in-tree gate and CI, not from this installed copy");
+  }
   if (rustTouched) {
     for (const ws of touchedWs) add({ id: `cargo-metadata${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, ...metadataArgs()) });
     // Locked package listings are observations in RustRight (#1216). They run through the selected executor

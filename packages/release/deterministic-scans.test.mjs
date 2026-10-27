@@ -1780,6 +1780,20 @@ test("rustfmt scans are batched per edition (RUSTFMT_BATCH files each) so a larg
   assert.deepEqual(all, [...all].sort(), "sorted across batches");
 });
 
+test("suite-api is planned only by the repository's in-tree gate; an installed copy notes it and plans nothing (the broker's pinned gate, 2026-10-27)", () => {
+  const { inTreeGate } = scansModule;
+  const files = { "contracts/right-suite-api.v1.json": "{}", "packages/release/suite-api.generated.mjs": "", "scripts/gen-suite-api.mjs": "" };
+  const fs = fakeFs(files, files);
+  // CONTENT is a fake root: this test file's own package is not its in-tree gate.
+  assert.equal(inTreeGate(CONTENT, fs.exists), false);
+  const plan = planScans({ changed: ["packages/release/suite-api.generated.mjs"], contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "linux", includeTests: false });
+  assert.equal(plan.scans.some((s) => s.id === "suite-api"), false);
+  assert.ok(plan.notes.some((n) => /suite-api: RightKit's own generator contract runs from the in-tree gate/.test(n)), plan.notes.join("\n"));
+  // The real repository root is this gate's in-tree home.
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+  assert.equal(inTreeGate(repoRoot), true);
+});
+
 // ---- B4: pnpm 11's dependency check before `pnpm run` and `pnpm exec` must not abort a gate scan -----------------------------------------------------------
 // CodeRight, 2026-10-25: tsc:, biome: and test:npm: failed in two seconds with a stack through runDepsStatusCheck. pnpm 11 verifies, before every
 // `pnpm run` and `pnpm exec`, that node_modules matches pnpm-lock.yaml and answers a stale tree by running `pnpm install`, which wants to purge the
