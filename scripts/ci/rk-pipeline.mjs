@@ -34,6 +34,7 @@ export function parseArgs(argv) {
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i];
     if (arg === "--registry") opts.registry = rest[++i];
+    else if (arg === "--qualification") opts.qualification = rest[++i];
     else if (arg === "--jobs") opts.jobs = Number(rest[++i]);
     else if (arg === "--wait") opts.wait = true;
     else if (arg.startsWith("--")) throw new Error(`unknown argument ${arg}`);
@@ -168,6 +169,23 @@ function changedBetween(from, to, paths) {
 function showAt(sha, file) { return git("show", `${sha}:${file}`); }
 
 // ---------- receipts, allowsets, state ----------
+
+export const QUALIFICATION_SCHEMA = "rightkit.unit-qualification/1";
+/** The gate's qualification receipt for exactly this commit, registry and unit set: schema, commit, unit kind/name/version,
+ * every local stage ok (check, compile, package, qualify) and the qualified artifact's sha256. Anything else refuses. */
+export function readQualification(file, { sha, units, registry, readFile = (f) => fs.readFileSync(f, "utf8") }) {
+  if (!file) throw new Error("dispatch requires --qualification <file>: the rightkit-gate unit qualification receipt (rightkit-gate --to release writes it); a dispatch without one is not gated");
+  let q;
+  try { q = JSON.parse(readFile(file)); } catch (error) { throw new Error(`cannot read the qualification receipt ${file}: ${error.message}`); }
+  const kind = registry === "npm" ? "npm" : "cargo";
+  if (q?.schema !== QUALIFICATION_SCHEMA) throw new Error(`qualification receipt schema is ${JSON.stringify(q?.schema)}, not ${QUALIFICATION_SCHEMA}`);
+  if (q.commit !== sha) throw new Error(`qualification receipt is for ${String(q.commit).slice(0, 12)}, not HEAD ${sha.slice(0, 12)}`);
+  if (q.unit?.kind !== kind || !units.includes(q.unit?.name) || units.length !== 1) throw new Error(`qualification receipt covers ${q.unit?.kind}:${q.unit?.name}; this dispatch names ${registry} ${units.join(" ")}`);
+  if (!/^[0-9a-f]{40}$/.test(q.tree ?? "") || !/^\d+\.\d+\.\d+/.test(q.unit?.version ?? "")) throw new Error("qualification receipt lacks a tree or a version");
+  for (const stage of ["check", "compile", "package", "qualify"]) if (q.stages?.[stage]?.ok !== true) throw new Error(`qualification receipt: stage ${stage} is not ok`);
+  if (!/^[0-9a-f]{64}$/.test(q.artifactSha256 ?? "") || q.stages.qualify.artifactSha256 !== q.artifactSha256 || q.stages.package.artifactSha256 !== q.artifactSha256) throw new Error("qualification receipt does not bind one artifact sha256 across package and qualify");
+  return { file: path.resolve(file), ...q };
+}
 
 export function receiptFor(unit, sha, out = DEFAULT_OUT) {
   const file = path.join(out, sha, `${unit.replaceAll("/", "__")}.json`);
@@ -375,6 +393,11 @@ export async function cmdDispatch(opts, deps = {}) {
     fail(`HEAD ${sha.slice(0, 12)} is not origin/main ${String(remote).slice(0, 12)}; push first, the dispatcher pins the commit`);
     return 2;
   }
+  // The gate's qualification receipt (rightkit-gate --to release writes it after the local check, compile, package and qualify
+  // stages passed): the hosted run is bound to the locally qualified bytes. Without it nothing is dispatched; `loop` has none.
+  let qualification;
+  try { qualification = readQualification(opts.qualification, { sha, units: opts.units, registry: opts.registry }); }
+  catch (error) { fail(`dispatch refused: ${error.message}`); return 2; }
   const refused = [];
   const go = [];
   for (const unit of opts.units) {
@@ -404,7 +427,7 @@ export async function cmdDispatch(opts, deps = {}) {
     writeState(state);
     if (inFlight >= maxInFlight) { fail(`hold: ${unit} not dispatched, ${inFlight} hosted publish run(s) in flight, limit ${maxInFlight}; run again when one ends`); exit = exit || 3; const held = readState(); delete held.dispatches[key]; writeState(held); break; }
     const nonce = crypto.randomBytes(32).toString("hex");
-    const args = ["run", "rightkit-dispatch", "--", "--workflow", "publish", "--registry", opts.registry, "--unit", unit, "--sha", sha];
+    const args = ["run", "rightkit-dispatch", "--", "--workflow", "publish", "--registry", opts.registry, "--unit", unit, "--sha", sha, "--qualification", qualification.file];
     for (const [key, list] of Object.entries(allow)) if (list.includes(unit)) args.push(`--${key.replaceAll("_", "-")}`, unit);
     const r = await runChild(RUSTRIGHT, args, { ...process.env, RIGHTKIT_ATTEST_NONCE: nonce });
     const record = r.out.split("\n").map((l) => l.trim()).filter((l) => l.startsWith("{")).map((l) => {

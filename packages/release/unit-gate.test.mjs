@@ -57,17 +57,21 @@ test("failure, altered artifacts and release never run later stages", async () =
 test("release stage: the gate owns pre-flight, broker dispatch, the wait and the readback; it fails closed at every step", async () => {
   const { releaseUnit } = await import("./unit-gate.mjs");
   const artifact = { artifactSha256: "1".repeat(64) };
-  const base = { unit, root: "/repo", commit, executor: { kind: "broker" }, env: { RK_GATE_RUN: "x" }, artifact, platform: "darwin", out: () => {}, scratch: tempRoot("unit-release-") };
+  const qualification = path.join(tempRoot("unit-qualification-"), "qualification.json");
+  fs.writeFileSync(qualification, "{}");
+  const base = { unit, root: "/repo", commit, executor: { kind: "broker" }, env: { RK_GATE_RUN: "x" }, artifact, qualification, platform: "darwin", out: () => {}, scratch: tempRoot("unit-release-") };
   const row = { unit: unit.name, version: unit.version, published: true, registryVerified: true, outcome: "published", sha256: "2".repeat(64), sha1: "s1" };
   // As upload.mjs writes it: runId/runAttempt are the upload run's; `candidate` names the qualification run it consumed.
   const meta = { schema: 1, registry: "npm", dryRun: false, commit, repository: "bogusyogi/rightkit", runId: "20", runAttempt: "1", promotionCommit: commit, candidate: { id: "qualified-10-1", source: "qualified", sourceSha: commit, runId: "10", runAttempt: "1" } };
   const make = ({ states, runStatus = {}, receiptRows = [row], served = { shasum: "s1", sha256: "2".repeat(64) }, artifacts = ["publication-receipt-10-1-1"], receiptMeta = meta, canaryError = false } = {}) => {
     const calls = [];
-    const f = { canaryError };
+    const dispatches = [];
+    const f = { canaryError, dispatches };
     let reads = 0;
     const run = (cmd, args) => {
       const key = args[0] === "/repo/scripts/ci/rk-pipeline.mjs" ? args[1] : path.basename(cmd) === "gh" ? `gh:${args[0]}` : path.basename(cmd);
       calls.push(key === "gh:run" ? `gh:${args.join(" ")}` : key);
+      if (key === "dispatch") dispatches.push(args.slice(1));
       if (key === "gh:api") return { status: 0, stdout: JSON.stringify({ artifacts: artifacts.map((name) => ({ name })) }) };
       if (key === "gh:run") { const dir = args[args.indexOf("--dir") + 1]; fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, "publication-receipt.json"), JSON.stringify({ ...receiptMeta, receipts: receiptRows })); return { status: 0, stdout: "" }; }
       return { status: runStatus[key] ?? 0, stdout: "", stderr: runStatus[key] === 2 && key === "canary" && !f.canaryError ? `${unit.name}: no pipeline canary for this unit` : `${key} said no` };
@@ -81,6 +85,12 @@ test("release stage: the gate owns pre-flight, broker dispatch, the wait and the
   let f = make({ states: [dispatched, published] });
   const ok = await releaseUnit({ ...base, ...f });
   assert.deepEqual(f.calls.slice(0, 5), ["canary", "preflight", "dispatch", "watch", "gh:api"]);
+  assert.deepEqual(f.dispatches[0], ["dispatch", unit.name, "--registry", "npm", "--qualification", qualification], "the dispatch carries the gate's qualification receipt");
+  // no qualification receipt: nothing runs, not even the canary
+  const g = make({ states: [dispatched, published] });
+  await assert.rejects(releaseUnit({ ...base, ...g, qualification: undefined }), /qualification receipt/);
+  await assert.rejects(releaseUnit({ ...base, ...g, qualification: path.join(path.dirname(qualification), "missing.json") }), /qualification receipt/);
+  assert.deepEqual(g.calls, []);
   assert.match(f.calls[5], /^gh:run download 20 -R bogusyogi\/rightkit --name publication-receipt-10-1-1 --dir /);
   assert.equal(ok.registryVerified, true); assert.equal(ok.hostedSha256, row.sha256); assert.equal(ok.uploadRunId, 20); assert.equal(ok.hostedEqualsLocal, false); assert.equal(ok.localArtifactSha256, artifact.artifactSha256);
   // direct host: refused before anything runs
@@ -169,4 +179,25 @@ test("`--unit` after `--` belongs to right-release, not the gate: an app's dev r
   const code = await main(["--to", "dev", "--", "--unit", "x"], io(devErr));
   assert.ok(!devErr.some((l) => /unit stages take only|--unit requires --to/.test(l)), devErr.join("\n"));
   assert.notEqual(code, 2, devErr.join("\n"));
+});
+
+test("writeQualification binds the passed local stages and the one artifact sha256 into <bundle>/qualification.json; a missing stage refuses", async (t) => {
+  const { writeQualification, QUALIFICATION_SCHEMA } = await import("./unit-gate.mjs");
+  const dir = tempRoot("unit-qualification-write-");
+  const artifact = { artifactFile: path.join(dir, "rightkit-release-0.6.9.tgz"), artifactSha256: "a".repeat(64) };
+  const ok = { ok: true, artifactFile: artifact.artifactFile, artifactSha256: artifact.artifactSha256 };
+  const report = { stages: { check: { ok: true }, compile: { ok: true }, package: ok, qualify: ok } };
+  const written = [];
+  const file = writeQualification({ report, artifact, unit, commit, tree: "b".repeat(40), runtime: "r", executor: { kind: "broker" }, write: (f, text) => written.push([f, JSON.parse(text)]) });
+  assert.equal(file, path.join(dir, "qualification.json"));
+  const [, receipt] = written[0];
+  assert.equal(receipt.schema, QUALIFICATION_SCHEMA);
+  assert.deepEqual(receipt.unit, { kind: unit.kind, name: unit.name, version: unit.version });
+  assert.equal(receipt.commit, commit); assert.equal(receipt.tree, "b".repeat(40)); assert.equal(receipt.executor, "broker");
+  assert.equal(receipt.artifactSha256, "a".repeat(64));
+  assert.deepEqual(Object.keys(receipt.stages), ["check", "compile", "package", "qualify"]);
+  assert.equal(receipt.stages.qualify.artifactSha256, "a".repeat(64));
+  assert.throws(() => writeQualification({ report: { stages: { ...report.stages, qualify: { ok: false } } }, artifact, unit, commit, tree: "b".repeat(40), runtime: "r", executor: { kind: "broker" }, write: () => {} }), /stage qualify ok/);
+  assert.throws(() => writeQualification({ report, artifact: { artifactFile: artifact.artifactFile }, unit, commit, tree: "b".repeat(40), runtime: "r", executor: { kind: "broker" }, write: () => {} }), /qualified artifact/);
+  void t;
 });

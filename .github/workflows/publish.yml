@@ -7,18 +7,22 @@ on:
   workflow_dispatch:
     inputs:
       admission:
-        description: Who admitted this request; broker (RustRight rightkit-dispatch on a managed host) or hosted (this run's admission job, one @rightkit/* npm package)
+        description: Who admitted this request; only broker (RustRight rightkit-dispatch on a managed host, carrying rightkit-gate's qualification receipt). Hosted self-admission is retired.
         type: choice
-        options: [broker, hosted]
+        options: [broker]
         default: broker
         required: true
       request_id:
-        description: Broker request correlation ID (not signed authority); empty for hosted admission
+        description: Broker request correlation ID (not signed authority)
         type: string
         default: ""
-        required: false
+        required: true
       expected_sha:
-        description: Full commit SHA admitted by broker, or for hosted admission the main commit the gate checked
+        description: Full commit SHA admitted by broker
+        type: string
+        required: true
+      qualification:
+        description: rightkit-gate's unit qualification receipt (JSON; schema rightkit.unit-qualification/1) for this commit and unit, as the dispatcher forwarded it; the pack job must reproduce its artifact sha256
         type: string
         required: true
       registry:
@@ -66,15 +70,16 @@ jobs:
           RK_ADMISSION: ${{ inputs.admission }}
           RK_REQUEST_ID: ${{ inputs.request_id }}
           RK_EXPECTED_SHA: ${{ inputs.expected_sha }}
+          RK_QUALIFICATION: ${{ inputs.qualification }}
         run: |
           set -euo pipefail
           [[ "$RK_EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$RK_EXPECTED_SHA" = "$GITHUB_SHA"
           case "$RK_ADMISSION" in
             broker) [[ "$RK_REQUEST_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]] ;;
-            hosted) test -z "$RK_REQUEST_ID" ;;
-            *) exit 1 ;;
+            *) echo "::error::only broker admission (rightkit-gate --to release) publishes; hosted self-admission is retired"; exit 1 ;;
           esac
+          test -n "$RK_QUALIFICATION"
       - name: Refuse anything but main of a public repository
         env:
           REF: ${{ github.ref }}
@@ -204,6 +209,7 @@ jobs:
           ADMISSION: ${{ inputs.admission }}
           REQUEST_ID: ${{ inputs.request_id }}
           EXPECTED_SHA: ${{ inputs.expected_sha }}
+          QUALIFICATION: ${{ inputs.qualification }}
           REGISTRY: ${{ inputs.registry }}
           UNITS: ${{ inputs.units }}
           ALLOW_HOST_EXCLUSION: ${{ inputs.allow_host_exclusion }}
@@ -681,6 +687,15 @@ jobs:
           PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}
           PUBLISH_UNITS: ${{ needs.plan.outputs.units }}
         run: node scripts/ci/publish.mjs pack
+      # One door: the sealed archive must be byte-identical to the one rightkit-gate qualified locally (its sha256 travels in the
+      # qualification input). A mismatch stops the run here with both digests and the hosted listing; nothing is repacked.
+      - name: Bind the sealed archive to the local qualification
+        env:
+          QUALIFICATION: ${{ inputs.qualification }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          REGISTRY: ${{ needs.plan.outputs.registry }}
+          UNITS: ${{ needs.plan.outputs.units }}
+        run: node scripts/ci/publish-admission.mjs bind --packed "$RUNNER_TEMP/rk-pack"
       - name: Keep the sealed artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

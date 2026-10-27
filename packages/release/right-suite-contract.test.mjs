@@ -725,13 +725,21 @@ for (const app of apps) {
     if (app.key === "heardright") {
       assert.deepEqual(config.releaseReadiness, { state: "disabled", reason: "Removed build routes pending shared RightKit recipe migration", owner: "RightKit app adoption" });
       assert.deepEqual(config.targets, {}, `${app.key} disabled release must have no targets`);
-      assert.deepEqual(config.development?.targets, {}, `${app.key} disabled development must have no targets`);
+      // Release stays disabled; development is declared again (heardright 015b1900, 2026-10-27) through shared RightKit owners
+      // only: every build step is `pnpm exec right-release …` or `pnpm --dir <app> exec tauri …`, never an app script.
       assert.equal(pkg.scripts, undefined, `${app.key} disabled app must expose no package scripts`);
       for (const file of ["scripts/mac-dmg.mjs", "scripts/build-windows-nsis.mjs"]) {
         assert.equal(existsSync(path.join(root, file)), false, `${app.key} disabled app must not restore ${file}`);
       }
       for (const platform of ["mac", "win"]) {
-        assert.throws(() => validateDevelopmentConfig(config, platform, { root }), /development\.targets\..*\.build must be a non-empty command array/);
+        const target = config.development?.targets?.[platform];
+        assert.ok(Array.isArray(target?.build) && target.build.length, `${app.key} development.targets.${platform}.build must be declared`);
+        for (const step of target.build) {
+          assert.equal(step.cmd, "pnpm", `${app.key} ${platform} dev step must run through pnpm: ${JSON.stringify(step)}`);
+          const owner = step.args.includes("right-release") ? "right-release" : step.args.includes("tauri") ? "tauri" : null;
+          assert.ok(owner, `${app.key} ${platform} dev step must call a shared owner (right-release or tauri): ${JSON.stringify(step.args)}`);
+        }
+        assert.doesNotThrow(() => validateDevelopmentConfig(config, platform, { root }), `${app.key} ${platform} development target must validate`);
       }
       context.diagnostic(`${app.key} release not ready: ${config.releaseReadiness.reason}`);
     } else {

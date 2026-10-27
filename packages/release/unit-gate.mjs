@@ -22,8 +22,21 @@ const defaultReadJson = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
  * an ambiguous receipt or differing registry bytes is a failure; nothing is retried or re-dispatched here (reconcile rk-pipeline's
  * state by hand). The local bundle's digest is reported beside the hosted one, never equated with it.
  */
-export async function releaseUnit({ unit, root, commit, executor, env, artifact, platform = process.platform, run = defaultRun, readJson = defaultReadJson, out = console.log, scratch = platform === "win32" ? "D:\\scratch" : "/Volumes/D/scratch", registryBytes = defaultRegistryBytes }) {
+export const QUALIFICATION_SCHEMA = "rightkit.unit-qualification/1";
+/** `<bundle>/qualification.json`: the local stages that passed and the one artifact sha256 they bound, for the dispatcher. */
+export function writeQualification({ report, artifact, unit, commit, tree, runtime, executor, write = fs.writeFileSync }) {
+  for (const stage of ["check", "compile", "package", "qualify"]) if (report.stages?.[stage]?.ok !== true) throw new Error(`release needs stage ${stage} ok before it runs`);
+  if (!artifact?.artifactFile || !/^[0-9a-f]{64}$/.test(artifact.artifactSha256 ?? "")) throw new Error("release needs the qualified artifact");
+  const receipt = { schema: QUALIFICATION_SCHEMA, unit: { kind: unit.kind, name: unit.name, version: unit.version }, commit, tree, runtime, executor: executor?.kind ?? null,
+    stages: Object.fromEntries(["check", "compile", "package", "qualify"].map((s) => [s, { ...report.stages[s] }])), artifactSha256: artifact.artifactSha256, writtenAt: new Date().toISOString() };
+  const file = path.join(path.dirname(artifact.artifactFile), "qualification.json");
+  write(file, `${JSON.stringify(receipt, null, 2)}\n`);
+  return file;
+}
+
+export async function releaseUnit({ unit, root, commit, executor, env, artifact, qualification, platform = process.platform, run = defaultRun, readJson = defaultReadJson, out = console.log, scratch = platform === "win32" ? "D:\\scratch" : "/Volumes/D/scratch", registryBytes = defaultRegistryBytes }) {
   if (executor?.kind !== "broker") throw new Error("unit release runs only on a broker-managed host (the hosted qualification is dispatched by the RustRight rightkit-dispatch adapter); a direct host has no gate-owned release route, so no upload was started");
+  if (typeof qualification !== "string" || !fs.existsSync(qualification)) throw new Error("release needs the unit qualification receipt (written by the gate after the qualify stage); nothing is dispatched without it");
   const registry = unit.kind === "npm" ? "npm" : "crates";
   const pipeline = path.join(root, "scripts", "ci", "rk-pipeline.mjs");
   const stateFile = platform === "win32" ? "D:\\scratch\\rk-pipeline\\state.json" : "/Volumes/D/scratch/rk-pipeline/state.json";
@@ -48,7 +61,7 @@ export async function releaseUnit({ unit, root, commit, executor, env, artifact,
   step(`pipeline canary of ${unit.name} (doctor on every app, both hosts, candidate vs registry)`, ["canary", unit.name],
     { accept: [2], acceptWhen: (r) => /no pipeline canary for this unit/.test(`${r.stdout ?? ""}\n${r.stderr ?? ""}`) });
   step(`local pre-flight of ${unit.name} through the broker`, ["preflight", unit.name, "--registry", registry]);
-  step(`broker-admitted hosted qualification dispatch of ${unit.name} at ${commit.slice(0, 12)}`, ["dispatch", unit.name, "--registry", registry]);
+  step(`broker-admitted hosted qualification dispatch of ${unit.name} at ${commit.slice(0, 12)}`, ["dispatch", unit.name, "--registry", registry, "--qualification", qualification]);
   const dispatched = findDispatch();
   if (!dispatched?.runId || !dispatched.runAttempt) throw new Error(`no dispatch record with a run for ${unit.name} at ${commit.slice(0, 12)}; nothing is claimed (reconcile rk-pipeline state before any retry)`);
   step(`waiting for publish.yml run ${dispatched.runId}, its publish-direct upload run and the registry`, ["watch", "--wait"]);
@@ -176,7 +189,9 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
       }
       let released = null;
       if (stage === "release") {
-        released = await stageEnv(stage, (runEnv) => (releaser ?? releaseUnit)({ unit, root, commit, executor, env: runEnv, artifact, platform, out }));
+        // The qualification receipt the dispatcher carries to publish.yml: the hosted run is bound to these bytes and stages.
+        const qualification = writeQualification({ report, artifact, unit, commit, tree, runtime, executor });
+        released = await stageEnv(stage, (runEnv) => (releaser ?? releaseUnit)({ unit, root, commit, executor, env: runEnv, artifact, qualification, platform, out }));
       }
       report.stages[stage] = { ok: true, ...(stage === "package" || stage === "qualify" ? { artifactFile: artifact.artifactFile, artifactSha256: artifact.artifactSha256 } : {}), ...(released ?? {}) };
       save();

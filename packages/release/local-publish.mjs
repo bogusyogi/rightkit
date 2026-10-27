@@ -415,6 +415,19 @@ function assertLocalHost(deps, workspaceRoot, kind) {
 
 // Host uploads are retired: only --qualify-only (no upload) runs. The upload engine below is kept for direct calls in
 // tests; no CLI path reaches it (see host-upload-refusal.mjs).
+/** One door: a publish engine entry (the CLI's `publish <kind> --local`, or a direct call of the engine) runs only inside a
+ * live rightkit-gate door run for the workspace's HEAD (RK_GATE_RUN; gate-stages requireDoorRun). The unit stages
+ * (compileLocalUnit and its successors) never pass through here: they are the gate's own path and carry their own door. */
+export function requireEngineDoor(parsed, { env = process.env, git = defaultGit, command = "right-release publish --local" } = {}) {
+  const root = parsed.workspaceRoot;
+  const common = git(["rev-parse", "--git-common-dir"], root);
+  const commit = git(["rev-parse", "HEAD"], root);
+  if (!common || !/^[0-9a-f]{40}$/.test(commit ?? "")) refuse(`${command} runs only inside a rightkit-gate door run of a git checkout (no HEAD or common dir in ${root})`);
+  const denial = requireDoorRun({ env, commonDir: path.resolve(root, common), commit, command });
+  if (denial) refuse(denial);
+  return { commit, commonDir: path.resolve(root, common) };
+}
+
 export async function runLocalPublish(kind, argv, deps = {}) {
   const parsed = parseLocalPublishArgs(kind, argv, deps.cwd);
   if (!parsed.qualifyOnly) refuseHostUpload(`right-release publish ${kind} --local`);
@@ -423,6 +436,7 @@ export async function runLocalPublish(kind, argv, deps = {}) {
 
 export async function runLocalPublishUploadEngine(kind, argv, deps = {}) {
   const parsed = parseLocalPublishArgs(kind, argv, deps.cwd);
+  (deps.requireDoor ?? requireEngineDoor)(parsed, { env: deps.env ?? process.env, command: `right-release publish ${kind} --local` });
   if (parsed.batch) return runLocalPublishBatch(parsed, deps);
   return publishUnit(parsed, deps, null);
 }

@@ -2,10 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { GH_TIMEOUT_MS, PROBE_TIMEOUT_MS, dispatchInputs, ghEnvironment, main, matchRun, matchingRuns, parseArgs } from "./rightkit-dispatch.mjs";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { GH_TIMEOUT_MS, PROBE_TIMEOUT_MS, QUALIFICATION_SCHEMA, dispatchInputs, ghEnvironment, main, matchRun, matchingRuns, parseArgs, readQualification } from "./rightkit-dispatch.mjs";
 
 const SHA = "a".repeat(40);
 const OTHER = "b".repeat(40);
+/** The gate's qualification receipt for rightkit-daemon at SHA, as rightkit-gate --to release writes it. */
+const QUAL = { schema: "rightkit.unit-qualification/1", unit: { kind: "cargo", name: "rightkit-daemon", version: "0.4.0" }, commit: SHA, tree: "c".repeat(40), runtime: "r".repeat(64), executor: "broker",
+  stages: { check: { ok: true }, compile: { ok: true }, package: { ok: true, artifactSha256: "d".repeat(64) }, qualify: { ok: true, artifactSha256: "d".repeat(64) } }, artifactSha256: "d".repeat(64) };
+const QFILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "rk-dispatch-qual-")), "qualification.json");
+fs.writeFileSync(QFILE, JSON.stringify(QUAL));
+const FORWARDED = { schema: QUAL.schema, commit: SHA, tree: QUAL.tree, runtime: QUAL.runtime, executor: "broker", unit: QUAL.unit, stages: { check: { ok: true }, compile: { ok: true }, package: { ok: true }, qualify: { ok: true } }, artifactSha256: QUAL.artifactSha256 };
 const admitted = async () => {};
 const env = { RIGHTKIT_JOB_ID: "req-123", GH_TOKEN: "not-printed" };
 
@@ -32,8 +41,10 @@ test("argv: publish needs registry, one unit and a full sha; ci takes only sha",
   assert.throws(() => parseArgs(["--workflow", "nope", "--sha", SHA]), /ci or publish/);
   for (const inherited of ["constructor", "toString", "__proto__", "hasOwnProperty"]) assert.throws(() => parseArgs(["--workflow", inherited, "--sha", SHA]), /ci or publish/, `inherited key ${inherited} is not a workflow`);
   assert.throws(() => parseArgs(["--bogus"]), /unknown argument/);
-  const opts = parseArgs(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA, "--allow-ignored", "rightkit-daemon"]);
-  assert.deepEqual(dispatchInputs(opts, "req-123"), { request_id: "req-123", expected_sha: SHA, registry: "crates", units: "rightkit-daemon", allow_host_exclusion: "", allow_no_test: "", allow_ignored: "rightkit-daemon", allow_missing_assets: "" });
+  assert.throws(() => parseArgs(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA]), /--qualification <file> is required/);
+  const opts = parseArgs(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA, "--qualification", QFILE, "--allow-ignored", "rightkit-daemon"]);
+  assert.throws(() => dispatchInputs(opts, "req-123"), /carries the qualification receipt/);
+  assert.deepEqual(dispatchInputs(opts, "req-123", FORWARDED), { request_id: "req-123", expected_sha: SHA, registry: "crates", units: "rightkit-daemon", qualification: JSON.stringify(FORWARDED), allow_host_exclusion: "", allow_no_test: "", allow_ignored: "rightkit-daemon", allow_missing_assets: "" });
   assert.deepEqual(dispatchInputs(parseArgs(["--workflow", "ci", "--sha", SHA]), "req-9"), { request_id: "req-9", expected_sha: SHA });
 });
 
@@ -59,7 +70,7 @@ test("refuses outside the broker: no RIGHTKIT_JOB_ID", async () => {
 test("refuses when main moved after admission, before any dispatch", async () => {
   const { gh, calls } = fakeGh({ mainSha: OTHER });
   const lines = [];
-  const code = await main(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA], { gh, env, admission: admitted, stderr: (l) => lines.push(l), stdout: () => {} });
+  const code = await main(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA, "--qualification", QFILE], { gh, env, admission: admitted, stderr: (l) => lines.push(l), stdout: () => {} });
   assert.equal(code, 2);
   assert.match(lines.join("\n"), /main moved|refused, main is/);
   assert.ok(!calls.some((c) => c.includes("-X")), "no dispatch was posted");
@@ -68,7 +79,7 @@ test("refuses when main moved after admission, before any dispatch", async () =>
 test("dispatches with correlation inputs and discovers the run by its run-name", async () => {
   const { gh, calls } = fakeGh({ runs: [run({ id: 7, display_title: "publish crates rightkit-daemon req-999" }), run()] });
   const out = [];
-  const code = await main(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA], { gh, env, admission: admitted, stdout: (l) => out.push(l), stderr: () => {}, sleep: async () => {}, now: () => 0 });
+  const code = await main(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA, "--qualification", QFILE], { gh, env, admission: admitted, stdout: (l) => out.push(l), stderr: () => {}, sleep: async () => {}, now: () => 0 });
   assert.equal(code, 0);
   const post = calls.find((c) => c.includes("-X"));
   assert.ok(post.includes("inputs[request_id]=req-123") && post.includes(`inputs[expected_sha]=${SHA}`) && post.includes("inputs[units]=rightkit-daemon") && post.includes("ref=main"));
@@ -111,7 +122,7 @@ test("matchRun needs the same file, commit, event and the request id as an exact
 test("an ambiguous discovery is refused with exit 2 and no run id", async () => {
   const { gh } = fakeGh({ runs: [run({ id: 1 }), run({ id: 2 })] });
   const out = [], lines = [];
-  assert.equal(await main(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA], { gh, env, admission: admitted, stdout: (l) => out.push(l), stderr: (l) => lines.push(l), sleep: async () => {}, now: () => 0 }), 2);
+  assert.equal(await main(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA, "--qualification", QFILE], { gh, env, admission: admitted, stdout: (l) => out.push(l), stderr: (l) => lines.push(l), sleep: async () => {}, now: () => 0 }), 2);
   assert.deepEqual(out, []);
   assert.match(lines.join("\n"), /ambiguous, 2 publish.yml runs/);
 });
@@ -150,7 +161,7 @@ test("dispatch-path failures name the step only; gh output never reaches stderr"
 test("default admission refuses direct adapter use before POST when no valid local receipt exists", async () => {
   const { gh, calls } = fakeGh();
   const lines = [];
-  const code = await main(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA], { gh, env, stdout: () => {}, stderr: (l) => lines.push(l) });
+  const code = await main(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA, "--qualification", QFILE], { gh, env, stdout: () => {}, stderr: (l) => lines.push(l) });
   assert.equal(code, 2);
   assert.match(lines.join("\n"), /preflight refused/);
   assert.ok(!calls.some((c) => c.includes("-X")));
@@ -165,7 +176,7 @@ test("production admission refuses broad CI dispatch without scoped local proof"
 
 test("admission rejection never posts even when remote main matches", async () => {
   const { gh, calls } = fakeGh();
-  const code = await main(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA], { gh, env, admission: async () => { throw new Error("missing compile row"); }, stdout: () => {}, stderr: () => {} });
+  const code = await main(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA, "--qualification", QFILE], { gh, env, admission: async () => { throw new Error("missing compile row"); }, stdout: () => {}, stderr: () => {} });
   assert.equal(code, 2);
   assert.ok(!calls.some((c) => c.includes("-X")));
 });
@@ -182,4 +193,19 @@ test("the dispatcher's pinned helper digests match the helper files committed be
   assert.equal(pinned("NPM_SELECT_SHA256"), digest("./select.mjs"));
   assert.equal(pinned("NPM_VERSION_PINS_SHA256"), digest("./release-version-pins.mjs"));
   assert.match(source, /release-version-pins\.mjs"\), NPM_VERSION_PINS_SHA256\]/, "the pins module is checked in the npm admission list");
+});
+
+test("the qualification receipt is re-read by the pinned adapter: commit, unit, every local stage ok, one artifact sha; only facts are forwarded", () => {
+  const read = (over = {}) => readQualification(QFILE, { sha: SHA, unit: "rightkit-daemon", registry: "crates", readFile: () => JSON.stringify({ ...QUAL, ...over }) });
+  assert.deepEqual(read(), FORWARDED);
+  assert.throws(() => readQualification("/nope/qualification.json", { sha: SHA, unit: "rightkit-daemon", registry: "crates" }), /cannot read the qualification receipt/);
+  assert.throws(() => read({ schema: "other" }), /schema/);
+  assert.throws(() => read({ commit: OTHER }), /not the admitted/);
+  assert.throws(() => readQualification(QFILE, { sha: SHA, unit: "rightkit-crash", registry: "crates" }), /covers cargo:rightkit-daemon, not cargo:rightkit-crash/);
+  assert.throws(() => readQualification(QFILE, { sha: SHA, unit: "rightkit-daemon", registry: "npm" }), /not npm:rightkit-daemon/);
+  assert.throws(() => read({ stages: { ...QUAL.stages, qualify: { ok: false } } }), /stage qualify is not ok/);
+  assert.throws(() => read({ stages: { ...QUAL.stages, compile: undefined } }), /stage compile is not ok/);
+  assert.throws(() => read({ artifactSha256: "e".repeat(64) }), /one artifact sha256/);
+  assert.throws(() => read({ tree: "short" }), /lacks a tree/);
+  assert.doesNotMatch(JSON.stringify(read()), /\/Volumes|\/Users|[A-Z]:\\|qualification\.json/, "no host path travels to the workflow");
 });

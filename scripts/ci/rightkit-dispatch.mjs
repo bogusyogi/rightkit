@@ -67,6 +67,7 @@ export function parseArgs(argv) {
     else if (arg === "--registry") opts.registry = take();
     else if (arg === "--unit") opts.unit = take();
     else if (arg === "--sha") opts.sha = take();
+    else if (arg === "--qualification") opts.qualification = take();
     else if (arg.startsWith("--") && ALLOW_FLAGS.includes(arg.slice(2))) opts.allow[arg.slice(2).replaceAll("-", "_")] = take();
     else throw new Error(`unknown argument ${arg}`);
   }
@@ -76,16 +77,36 @@ export function parseArgs(argv) {
   if (opts.workflow === "publish") {
     if (!["crates", "npm"].includes(opts.registry)) throw new Error("--registry must be crates or npm");
     if (!/^[@a-z0-9][a-z0-9._/-]*$/i.test(opts.unit ?? "") || /\s/.test(opts.unit)) throw new Error("--unit names exactly one crate or package");
-  } else if (opts.registry || opts.unit || Object.keys(opts.allow).length) throw new Error("--workflow ci takes only --sha");
+    if (typeof opts.qualification !== "string" || !opts.qualification) throw new Error("--qualification <file> is required: the rightkit-gate unit qualification receipt for this commit and unit");
+  } else if (opts.registry || opts.unit || opts.qualification || Object.keys(opts.allow).length) throw new Error("--workflow ci takes only --sha");
   return opts;
 }
 
 /** The workflow_dispatch inputs for this request: correlation and the admitted commit are always present. */
-export function dispatchInputs(opts, requestId) {
+export const QUALIFICATION_SCHEMA = "rightkit.unit-qualification/1";
+/** The gate's qualification receipt, re-checked here (this adapter is the pinned, broker-run copy): commit, unit, stages, one sha. */
+export function readQualification(file, { sha, unit, registry, readFile = (f) => fs.readFileSync(f, "utf8") }) {
+  let q;
+  try { q = JSON.parse(readFile(file)); } catch (error) { throw new Error(`cannot read the qualification receipt: ${error.message}`); }
+  const kind = registry === "npm" ? "npm" : "cargo";
+  if (q?.schema !== QUALIFICATION_SCHEMA) throw new Error(`qualification receipt schema is ${JSON.stringify(q?.schema)}, not ${QUALIFICATION_SCHEMA}`);
+  if (q.commit !== sha) throw new Error(`qualification receipt is for ${String(q.commit).slice(0, 12)}, not the admitted ${sha.slice(0, 12)}`);
+  if (q.unit?.kind !== kind || q.unit?.name !== unit) throw new Error(`qualification receipt covers ${q.unit?.kind}:${q.unit?.name}, not ${kind}:${unit}`);
+  if (!/^[0-9a-f]{40}$/.test(q.tree ?? "") || !/^\d+\.\d+\.\d+/.test(q.unit?.version ?? "")) throw new Error("qualification receipt lacks a tree or a version");
+  for (const stage of ["check", "compile", "package", "qualify"]) if (q.stages?.[stage]?.ok !== true) throw new Error(`qualification receipt: stage ${stage} is not ok`);
+  if (!/^[0-9a-f]{64}$/.test(q.artifactSha256 ?? "") || q.stages.qualify.artifactSha256 !== q.artifactSha256 || q.stages.package.artifactSha256 !== q.artifactSha256) throw new Error("qualification receipt does not bind one artifact sha256 across package and qualify");
+  // What the workflow receives: the facts it verifies, nothing host-specific (no paths).
+  return { schema: q.schema, commit: q.commit, tree: q.tree, runtime: q.runtime ?? null, executor: q.executor ?? null, unit: { kind: q.unit.kind, name: q.unit.name, version: q.unit.version },
+    stages: Object.fromEntries(["check", "compile", "package", "qualify"].map((s) => [s, { ok: true }])), artifactSha256: q.artifactSha256 };
+}
+
+export function dispatchInputs(opts, requestId, qualification = null) {
   const inputs = { request_id: requestId, expected_sha: opts.sha };
   if (opts.workflow === "publish") {
     inputs.registry = opts.registry;
     inputs.units = opts.unit;
+    if (!qualification) throw new Error("a publish dispatch carries the qualification receipt");
+    inputs.qualification = JSON.stringify(qualification);
     for (const key of ["allow_host_exclusion", "allow_no_test", "allow_ignored", "allow_missing_assets"]) inputs[key] = opts.allow[key] ?? "";
   }
   return inputs;
@@ -246,7 +267,12 @@ export async function main(argv, deps = {}) {
   }
   try { await (deps.admission ?? requirePreflight)(opts); }
   catch (error) { err(`rightkit-dispatch: preflight refused: ${error.message}`); return 2; }
-  const inputs = dispatchInputs(opts, requestId);
+  let qualification = null;
+  if (opts.workflow === "publish") {
+    try { qualification = (deps.readQualification ?? readQualification)(opts.qualification, { sha: opts.sha, unit: opts.unit, registry: opts.registry }); }
+    catch (error) { err(`rightkit-dispatch: refused, ${error.message}`); return 2; }
+  }
+  const inputs = dispatchInputs(opts, requestId, qualification);
   const fields = ["-f", "ref=main"];
   for (const [key, value] of Object.entries(inputs)) fields.push("-f", `inputs[${key}]=${value}`);
   const posted = gh(["api", "-X", "POST", `repos/${REPO}/actions/workflows/${WORKFLOWS[opts.workflow]}/dispatches`, ...fields], env);

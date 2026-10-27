@@ -261,11 +261,14 @@ Two routes, one uploader (`scripts/ci/upload.mjs`), and registry uploads exist o
   RustRight broker, an approval commit, then `publish-reviewed.yml`). This is the route for bytes GitHub did not qualify
   and for every runtime-proof owner.
 
-Dispatch `publish.yml` through broker adapter with registry, units, broker request ID & admitted full SHA (`admission: broker`),
-or, where no broker exists (a cloud session), with `node scripts/ci/publish-admission.mjs dispatch --unit <@rightkit/name>`
-(`admission: hosted`, no request ID, one `@rightkit/*` npm package; it runs `rightkit-gate check` at origin main first).
-Guard rejects a mismatched commit, a broker dispatch without a request ID and a hosted one with one, before scans.
-Admission is established in the run, the same for both modes: the scans job ends with `publish-admission.mjs admit`, which runs
+Dispatch `publish.yml` only through `rightkit-gate --to release --unit <kind:name>` on a broker-managed host: its release stage
+writes the unit's qualification receipt (`<bundle>/qualification.json`, schema `rightkit.unit-qualification/1`: commit, tree,
+unit, the local check/compile/package/qualify stages all ok, one artifact sha256) and hands it to `rk-pipeline dispatch
+--qualification`, which the broker's `rightkit-dispatch` adapter re-reads and forwards as the `qualification` input with the
+registry, unit, request ID and admitted full SHA (`admission: broker`). Hosted self-admission (`admission: hosted`, the
+`publish-admission.mjs dispatch` cloud entry) is retired: it admitted on class A alone, without the local compile and qualify.
+Guard rejects a mismatched commit, a dispatch without a request ID or without a qualification, before scans.
+Admission is established in the run: the scans job ends with `publish-admission.mjs admit`, which runs
 the full `rightkit-gate check --commit <sha>` (app rules, class A, RightKit's own rules; exit 0 with its pass lines), then requires
 each unit's committed version, absent from its registry, and only allowsets the committed exception policy grants. A broker
 request ID is correlation only: this run cannot verify the broker, so an invented one grants nothing. The receipt is the

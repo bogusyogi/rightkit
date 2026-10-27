@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 import test from "node:test";
 import { packageRows } from "./rk-npm-preflight.mjs";
-import { openClaim, needsReconcile, acquireLock, releaseLock, closureOf, dispatchRefusal, holdReason, satisfiesAny, readiness, allowsetsFor, cmdCanary, cmdDispatch, cmdLoop, cmdPreflight, cmdWatch, matchingUploadRuns, uploadRunsQuery, parseArgs, registryVersion, satisfies, stateKey, waves, hostedRunsInFlight } from "./rk-pipeline.mjs";
+import { openClaim, needsReconcile, acquireLock, releaseLock, closureOf, dispatchRefusal, holdReason, satisfiesAny, readiness, allowsetsFor, cmdCanary, cmdDispatch, cmdLoop, cmdPreflight, cmdWatch, matchingUploadRuns, uploadRunsQuery, parseArgs, readQualification, registryVersion, satisfies, stateKey, waves, hostedRunsInFlight } from "./rk-pipeline.mjs";
 const SHA = "f".repeat(40);
 const index = (...versions) => new Map(versions.map((v) => [v, { yanked: false, cksum: "0".repeat(64) }]));
 
@@ -643,4 +643,20 @@ test("P1: pre-flight results from a HEAD that moved while they ran do not count"
   const h = movingHead();
   const many = async (units) => { h.move(); return new Map(units.map((u) => [u, { code: 0, last: "GREEN" }])); };
   assert.equal(await cmdPreflight({ registry: "crates", units: ["rightkit-a"], jobs: 1 }, { head: h.head, check: async () => ({ code: 0 }), preflightMany: many }), 1);
+});
+
+test("dispatch reads the gate's qualification receipt for exactly HEAD and the one unit; without it nothing is dispatched", () => {
+  const q = { schema: "rightkit.unit-qualification/1", unit: { kind: "npm", name: "@rightkit/release", version: "0.6.9" }, commit: SHA, tree: "c".repeat(40), runtime: "r", executor: "broker",
+    stages: { check: { ok: true }, compile: { ok: true }, package: { ok: true, artifactSha256: "d".repeat(64) }, qualify: { ok: true, artifactSha256: "d".repeat(64) } }, artifactSha256: "d".repeat(64) };
+  const read = (over = {}, ctx = {}) => readQualification("/bundle/qualification.json", { sha: SHA, units: ["@rightkit/release"], registry: "npm", readFile: () => JSON.stringify({ ...q, ...over }), ...ctx });
+  assert.equal(read().artifactSha256, "d".repeat(64));
+  assert.equal(read().file, "/bundle/qualification.json");
+  assert.throws(() => readQualification(undefined, { sha: SHA, units: ["@rightkit/release"], registry: "npm" }), /dispatch requires --qualification/);
+  assert.throws(() => read({ commit: "e".repeat(40) }), /not HEAD/);
+  assert.throws(() => read({}, { units: ["@rightkit/ci"] }), /covers npm:@rightkit\/release; this dispatch names npm @rightkit\/ci/);
+  assert.throws(() => read({}, { units: ["@rightkit/release", "@rightkit/ci"] }), /this dispatch names/);
+  assert.throws(() => read({}, { registry: "crates" }), /covers npm:/);
+  assert.throws(() => read({ stages: { ...q.stages, package: { ok: false } } }), /stage package is not ok/);
+  assert.throws(() => read({ stages: { ...q.stages, qualify: { ok: true, artifactSha256: "e".repeat(64) } } }), /one artifact sha256/);
+  assert.throws(() => read({ schema: "x" }), /schema/);
 });

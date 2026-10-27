@@ -37,6 +37,7 @@ function harness(root, kind, over = {}) {
   const argv = kind === 'npm' ? ['--package', unit, '--local', '--workspace', root] : ['--crate', unit, '--local', '--workspace', root];
   const published = [];
   const deps = {
+    requireDoor: () => ({}),
     log: (line) => logs.push(line),
     platform: 'darwin',
     arch: 'arm64',
@@ -449,6 +450,7 @@ function batchHarness(names, { flags = [], listArgs, over = {}, gateConfig = {},
   const gitFor = (args) => (args[0] === 'rev-parse' ? (args[1] === 'HEAD' ? HEAD : TREE) : '');
   const state = { active: 0, max: 0 };
   const deps = {
+    requireDoor: () => ({}),
     log: (line) => logs.push(line), platform: 'darwin', arch: 'arm64', now: () => '2026-10-17T00:00:00.000Z',
     localBuildGranted: () => true, git: gitFor, registryHas: async () => false,
     readCargoPackage: (dir) => ({ name: path.basename(dir), version: '1.0.0' }),

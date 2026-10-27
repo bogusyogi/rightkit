@@ -33,7 +33,7 @@ export const HOSTED_UNIT = /^@rightkit\/[a-z][a-z0-9-]{0,63}$/;
 const REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const ALLOW_INPUTS = { hostExclusion: "ALLOW_HOST_EXCLUSION", noTest: "ALLOW_NO_TEST", ignored: "ALLOW_IGNORED", missingAssets: "ALLOW_MISSING_ASSETS" };
 const POLICY_KEYS = { hostExclusion: "allow_host_exclusion", noTest: "allow_no_test", ignored: "allow_ignored", missingAssets: "allow_missing_assets" };
-const RECEIPT_KEYS = ["schema", "mode", "requestId", "repository", "sourceSha", "runId", "runAttempt", "registry", "units", "versions", "allow", "gate"];
+const RECEIPT_KEYS = ["schema", "mode", "requestId", "repository", "sourceSha", "runId", "runAttempt", "registry", "units", "versions", "allow", "gate", "qualification"];
 const CRATE_NAME = /^[a-z][a-z0-9_-]{0,63}$/;
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -109,13 +109,11 @@ export async function admit({ env, git, runGate, fetchImpl = fetch, policy }) {
   requireThat(/^[1-9][0-9]*$/.test(env.GITHUB_RUN_ID ?? "") && /^[1-9][0-9]*$/.test(env.GITHUB_RUN_ATTEMPT ?? ""), "no run id or attempt");
   const sha = env.GITHUB_SHA, registry = env.REGISTRY, units = words(env.UNITS);
   requireThat(["npm", "crates"].includes(registry) && units.length > 0 && new Set(units).size === units.length, "admission needs a registry and distinct units");
-  if (env.ADMISSION === "broker") requireThat(REQUEST_ID.test(env.REQUEST_ID ?? ""), "broker admission needs the broker's request id (correlation only; it grants nothing)");
-  else {
-    requireThat(env.ADMISSION === "hosted", "admission must be broker or hosted");
-    requireThat(!env.REQUEST_ID, "hosted admission takes no request id: the run is its own correlation");
-    requireThat(registry === "npm", "hosted admission covers npm packages only");
-    requireThat(units.length === 1 && HOSTED_UNIT.test(units[0]), "hosted admission needs exactly one @rightkit/* package");
-  }
+  // One door (Adrian, 2026-10-27): only the broker-admitted dispatch of rightkit-gate --to release is admitted, and only with the
+  // gate's qualification receipt for this commit and unit. Hosted self-admission (class A here, no local compile or qualify) is retired.
+  requireThat(env.ADMISSION === "broker", "admission must be broker: hosted self-admission is retired; publish through rightkit-gate --to release");
+  requireThat(REQUEST_ID.test(env.REQUEST_ID ?? ""), "broker admission needs the broker's request id (correlation only; it grants nothing)");
+  const qualification = readQualificationInput(env.QUALIFICATION, { sha, registry, units });
   if (registry === "npm") requireThat(units.every((unit) => HOSTED_UNIT.test(unit)), "npm units must be @rightkit/* packages");
   // The full gate first: a red or partial check admits nothing, whatever the registry says.
   const gate = gateVerdict(runGate(sha), sha);
@@ -130,7 +128,38 @@ export async function admit({ env, git, runGate, fetchImpl = fetch, policy }) {
   }
   const allow = Object.fromEntries(Object.entries(ALLOW_INPUTS).map(([key, name]) => [key, sorted(words(env[name]))]));
   for (const [key, list] of Object.entries(allow)) for (const item of list) requireThat(granted[key].has(item), `${POLICY_KEYS[key]} names ${item}, which the committed exception policy does not grant`);
-  return { schema: ADMISSION_SCHEMA, mode: env.ADMISSION, requestId: env.ADMISSION === "broker" ? env.REQUEST_ID : "", repository: REPOSITORY, sourceSha: sha, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT, registry, units, versions, allow, gate };
+  requireThat(qualification.unit.version === versions[qualification.unit.name], `the qualification receipt qualified ${qualification.unit.name}@${qualification.unit.version}, the committed version is ${versions[qualification.unit.name]}`);
+  return { schema: ADMISSION_SCHEMA, mode: env.ADMISSION, requestId: env.ADMISSION === "broker" ? env.REQUEST_ID : "", repository: REPOSITORY, sourceSha: sha, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT, qualification, registry, units, versions, allow, gate };
+}
+
+export const QUALIFICATION_SCHEMA = "rightkit.unit-qualification/1";
+/** The dispatcher's `qualification` input: the gate's local receipt, as rightkit-dispatch forwarded it. Every field is checked
+ * against what this run knows (commit, registry, units); the stages must all be ok; one artifact sha256 binds the bytes. */
+export function readQualificationInput(text, { sha, registry, units }) {
+  requireThat(typeof text === "string" && text.trim(), "broker admission needs the gate's qualification receipt (input `qualification`); a dispatch without one is not gated");
+  let q;
+  try { q = JSON.parse(text); } catch { refuse("the qualification input is not JSON"); }
+  requireThat(q?.schema === QUALIFICATION_SCHEMA, `qualification schema ${JSON.stringify(q?.schema)} is not ${QUALIFICATION_SCHEMA}`);
+  requireThat(q.commit === sha, `the qualification receipt is for ${String(q.commit).slice(0, 12)}, not this run's ${sha.slice(0, 12)}`);
+  const kind = registry === "npm" ? "npm" : "cargo";
+  requireThat(q.unit?.kind === kind && units.length === 1 && q.unit?.name === units[0], `the qualification receipt covers ${q.unit?.kind}:${q.unit?.name}; this run publishes ${registry} ${units.join(" ")}`);
+  requireThat(/^[0-9a-f]{40}$/.test(q.tree ?? "") && /^\d+\.\d+\.\d+/.test(q.unit?.version ?? ""), "the qualification receipt lacks a tree or a version");
+  for (const stage of ["check", "compile", "package", "qualify"]) requireThat(q.stages?.[stage]?.ok === true, `the qualification receipt's ${stage} stage is not ok`);
+  requireThat(/^[0-9a-f]{64}$/.test(q.artifactSha256 ?? ""), "the qualification receipt names no artifact sha256");
+  return { schema: q.schema, commit: q.commit, tree: q.tree, runtime: q.runtime ?? null, executor: q.executor ?? null, unit: { kind: q.unit.kind, name: q.unit.name, version: q.unit.version }, artifactSha256: q.artifactSha256 };
+}
+
+/** The hosted pack must reproduce the locally qualified bytes: the sealed manifest's entry for the unit carries the same sha256,
+ * or the run stops here with both digests and the hosted archive's listing; nothing is repacked, nothing proceeds. */
+export function bindPackedToQualification({ manifest, qualification, listing = () => "" }) {
+  requireThat(manifest?.commit === qualification.commit, `the sealed manifest is for ${String(manifest?.commit).slice(0, 12)}, the qualification for ${qualification.commit.slice(0, 12)}`);
+  const entry = (manifest.units ?? []).find((u) => u.name === qualification.unit.name);
+  requireThat(entry, `the sealed manifest has no entry for ${qualification.unit.name}`);
+  requireThat(entry.version === qualification.unit.version, `the sealed ${qualification.unit.name} is ${entry.version}, the qualification is ${qualification.unit.version}`);
+  if (entry.sha256 !== qualification.artifactSha256) {
+    refuse(`the hosted pack of ${qualification.unit.name}@${entry.version} is not the locally qualified archive: hosted sha256 ${entry.sha256}, qualified ${qualification.artifactSha256}; stopped before verify and upload (no repack). Hosted archive listing:\n${listing(entry)}`);
+  }
+  return { unit: qualification.unit.name, version: entry.version, sha256: entry.sha256, file: entry.file };
 }
 
 /**
@@ -150,11 +179,12 @@ export function verifyAdmissionReceipt(receipt, { repository, sourceSha, runId, 
   requireThat(receipt.versions && same(sorted(Object.keys(receipt.versions)), sorted(names)) && units.every((unit) => receipt.versions[unit.name] === unit.version), "receipt versions differ from the sealed versions");
   const gate = receipt.gate;
   requireThat(gate && same(Object.keys(gate).sort(), ["classAFiles", "classAScans", "command", "exit", "rules"]) && gate.exit === 0 && gate.command === `rightkit-gate check --commit ${sourceSha} --rule-tier release` && Number.isInteger(gate.rules) && gate.rules > 0 && Number.isInteger(gate.classAScans) && gate.classAScans > 0, "receipt carries no passed gate for this commit");
-  if (receipt.mode === "broker") requireThat(REQUEST_ID.test(receipt.requestId), "broker receipt carries no valid request id");
-  else {
-    requireThat(receipt.mode === "hosted" && receipt.requestId === "", "unknown admission mode");
-    requireThat(registry === "npm" && names.length === 1 && HOSTED_UNIT.test(names[0]), "hosted admission covers exactly one @rightkit/* npm package");
-  }
+  requireThat(receipt.mode === "broker", "unknown admission mode: only broker admission exists");
+  requireThat(REQUEST_ID.test(receipt.requestId), "broker receipt carries no valid request id");
+  // The qualification the admission checked must name this commit, one of the sealed units and its sealed version.
+  const q = receipt.qualification;
+  requireThat(q && q.schema === QUALIFICATION_SCHEMA && q.commit === sourceSha && /^[0-9a-f]{64}$/.test(q.artifactSha256 ?? ""), "receipt carries no qualification for this commit");
+  requireThat(units.some((unit) => unit.name === q.unit?.name && unit.version === q.unit?.version), "receipt qualification names no sealed unit at its sealed version");
   return receipt;
 }
 
@@ -181,6 +211,10 @@ export async function verifyRunAdmission({ repository, sourceSha, runId, runAtte
  * not the boundary: a raw dispatch skips it, and the run's own admission (scans job) re-runs the gate and every check regardless.
  */
 export function dispatchHosted({ unit, root, run = spawnSync, out = (line) => process.stdout.write(`${line}\n`), policy }) {
+  // Retired (Adrian, 2026-10-27: one door): a hosted self-admission dispatched from a shell skips the local compile and qualify
+  // stages. The only publication entry is rightkit-gate --to release on a broker-managed host.
+  void unit; void root; void run; void out; void policy;
+  refuse("hosted dispatch is retired: publish through rightkit-gate --to release --unit <kind:name> on a broker-managed host");
   requireThat(HOSTED_UNIT.test(unit ?? ""), "--unit names exactly one @rightkit/* package");
   const sh = (cmd, args, options = {}) => run(cmd, args, { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, ...options });
   const text = (cmd, args) => { const r = sh(cmd, args); requireThat(r.status === 0, `${cmd} ${args.join(" ")} failed`); return r.stdout.trim(); };
@@ -231,10 +265,18 @@ if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(file
       fs.mkdirSync(outDir, { recursive: true });
       fs.writeFileSync(path.join(outDir, ADMISSION_FILE), `${JSON.stringify(receipt, null, 2)}\n`, { flag: "wx" });
       process.stdout.write(`admission ${receipt.mode}: ${receipt.registry} ${receipt.units.join(" ")} at ${receipt.sourceSha} (run ${receipt.runId} attempt ${receipt.runAttempt})\n`);
+    } else if (command === "bind") {
+      const packed = flag("--packed");
+      requireThat(packed && rest.length === 2, "usage: publish-admission.mjs bind --packed <dir> (QUALIFICATION, EXPECTED_SHA, REGISTRY, UNITS in the environment)");
+      const manifest = JSON.parse(fs.readFileSync(path.join(packed, "manifest.json"), "utf8"));
+      const qualification = readQualificationInput(process.env.QUALIFICATION, { sha: process.env.EXPECTED_SHA, registry: process.env.REGISTRY, units: words(process.env.UNITS) });
+      const bound = bindPackedToQualification({ manifest, qualification, listing: (entry) => { const r = spawnSync("tar", ["-tzvf", path.join(packed, entry.file)], { encoding: "utf8" }); return r.stdout ?? ""; } });
+      fs.writeFileSync(path.join(packed, "qualification-binding.json"), `${JSON.stringify({ schema: "rk-qualification-binding.v1", ...bound, qualification }, null, 2)}\n`, { flag: "wx" });
+      process.stdout.write(`bound ${bound.unit}@${bound.version} sha256 ${bound.sha256} to the local qualification at ${qualification.commit}\n`);
     } else if (command === "dispatch") {
       requireThat(flag("--unit") && rest.length === 2, "usage: publish-admission.mjs dispatch --unit <@rightkit/name>");
       const policy = await committedPolicy(root, (file) => fs.readFileSync(path.join(root, file), "utf8"));
       dispatchHosted({ unit: flag("--unit"), root, policy });
-    } else refuse("usage: publish-admission.mjs admit --out <dir> | dispatch --unit <@rightkit/name>");
+    } else refuse("usage: publish-admission.mjs admit --out <dir> | bind --packed <dir> | dispatch --unit <@rightkit/name>");
   } catch (error) { process.stderr.write(`${error.message}\n`); process.exitCode = 1; }
 }

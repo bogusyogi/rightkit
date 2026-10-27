@@ -348,7 +348,7 @@ export async function admissionProbe({ sidePrep, candidates, probeRoot }) {
       } catch (error) { problems.push(`${c.repoDir}: ${error.message}`); continue; }
       if (!manifest) { problems.push(`${c.repoDir}: no Cargo.toml`); continue; }
       const cargo = await import(pathToFileURL(path.join(sidePrep.releaseDir, "managed-cargo.mjs")).href);
-      const r = cargo.runCargoSync(["metadata", "--no-deps", "--offline", "--format-version", "1", "--manifest-path", path.join(dir, manifest)], { cwd: dir, encoding: "utf8", timeout: 120_000, windowsHide: true });
+      const r = cargo.runCargoSync(["metadata", "--no-deps", "--offline", "--locked", "--format-version", "1", "--manifest-path", path.join(dir, manifest)], { cwd: dir, encoding: "utf8", timeout: 120_000, windowsHide: true });
       const text = [r?.stdout, r?.stderr, r?.error?.code, r?.error?.message].filter(Boolean).join("\n");
       return { ran: true, app: c.repoDir, manifest, admissionRefused: admissionCodeOf(text) };
     }

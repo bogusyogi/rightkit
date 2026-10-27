@@ -162,6 +162,10 @@ export function compareCells({ candidate: c, baseline: b, expected = [], version
   if (!b) add("incomplete", "baseline-missing", app, "the baseline cell never reported");
   else if (isInfra(b)) add("incomplete", `baseline-${b.status}`, b.status, b.detail ?? "infrastructure failure after one retry");
   if (!hostRepresentative) add("incomplete", "host-not-representative", platform, baselineCompleted ? `baseline completed without broker-managed compiler cache on ${host}` : `no baseline cell completed on ${host}`);
+  // In place, both doctors must have seen the same inputs: the same HEAD, and the candidate's tree exactly as the baseline's
+  // doctor left it. A commit or an edit between the two (another chat in the live checkout) makes the pair incomparable.
+  if (c && b && !isInfra(c) && !isInfra(b) && (c.head ?? null) !== (b.head ?? null)) add("incomplete", "inputs-differ", app, `baseline ran at HEAD ${String(b.head).slice(0, 12)}, candidate at ${String(c.head).slice(0, 12)}: the checkout moved between the two doctors`);
+  else if (c && b && !isInfra(c) && !isInfra(b) && c.treeBefore && b.treeAfter && c.treeBefore !== b.treeAfter) add("incomplete", "inputs-differ", app, "the tree changed between the baseline doctor and the candidate doctor (not by either doctor): the pair is incomparable");
 
   if (c && !isInfra(c)) {
     if (c.status === "crash") add("block", "candidate-crash", c.detail ?? "crash", "the candidate doctor crashed; a crash can never be listed as expected");

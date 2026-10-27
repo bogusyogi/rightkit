@@ -190,6 +190,19 @@ test("compareAll: a missing cell (leg lost) is incomplete, never green; a non-bl
   const soft = full({ "candidate.soft": { status: "timeout" } });
   assert.equal(all(soft).verdict, "green");
 });
+test("compareCells: baseline and candidate must have seen the same inputs (same HEAD, candidate tree = baseline's after-tree); otherwise incomplete", () => {
+  const same = cmp({ head: "a".repeat(40), treeBefore: "t2", treeAfter: "t2" }, { head: "a".repeat(40), treeBefore: "t1", treeAfter: "t2" });
+  assert.equal(same.verdict, "ok");
+  const moved = cmp({ head: "b".repeat(40), treeBefore: "t2", treeAfter: "t2" }, { head: "a".repeat(40), treeBefore: "t1", treeAfter: "t2" });
+  assert.equal(moved.verdict, "incomplete");
+  assert.deepEqual(kinds(moved, "incomplete"), ["inputs-differ:app"]);
+  assert.match(moved.findings.find((f) => f.kind === "inputs-differ").detail, /checkout moved/);
+  const edited = cmp({ head: "a".repeat(40), treeBefore: "t3", treeAfter: "t3" }, { head: "a".repeat(40), treeBefore: "t1", treeAfter: "t2" });
+  assert.equal(edited.verdict, "incomplete");
+  assert.match(edited.findings.find((f) => f.kind === "inputs-differ").detail, /changed between/);
+  assert.equal(cmp({ status: "infra", head: "b".repeat(40) }, { head: "a".repeat(40) }).findings.some((f) => f.kind === "inputs-differ"), false, "an infra cell is already incomplete; no second finding");
+});
+
 test("compareAll: a regression anywhere wins over incomplete, and stale expected entries are listed", () => {
   const cells = full({ "candidate.a.mac": { status: "fail", failNames: ["x"] }, "candidate.ios": { status: "timeout" } });
   const r = all(cells, { expected: { entries: [{ ...ENTRY, version: "0.6.4", app: "gone" }] } });

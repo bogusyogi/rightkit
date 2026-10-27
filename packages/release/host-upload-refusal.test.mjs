@@ -7,7 +7,8 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { HOST_UPLOAD_REFUSED, PUBLISH_REPOSITORY, admissionProblems, assertPublishCapability, createPublishCapability } from "./host-upload-refusal.mjs";
 import { ciEnvironment, fakeAdmission, fakeApproval, mintTestCapability, withEnvironment } from "./test-support/publish-capability-fixture.mjs";
-import { runLocalPublish } from "./local-publish.mjs";
+import { requireEngineDoor, runLocalPublish, runLocalPublishUploadEngine } from "./local-publish.mjs";
+import { startRun, endRun } from "./gate-stages.mjs";
 import { runNpmPreflight } from "./publication-gate.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -151,4 +152,24 @@ test("the fixture's environment is restored: no test leaves CI variables behind"
   const before = { GITHUB_ACTIONS: process.env.GITHUB_ACTIONS, GITHUB_SHA: process.env.GITHUB_SHA, GITHUB_RUN_ID: process.env.GITHUB_RUN_ID };
   mint();
   assert.deepEqual({ GITHUB_ACTIONS: process.env.GITHUB_ACTIONS, GITHUB_SHA: process.env.GITHUB_SHA, GITHUB_RUN_ID: process.env.GITHUB_RUN_ID }, before);
+});
+
+test("the publish engine runs only inside a live rightkit-gate door run; outside one it refuses before any precondition", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-engine-door-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const git = (...args) => spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd: root, encoding: "utf8" });
+  git("init", "-q"); fs.writeFileSync(path.join(root, "a.txt"), "a"); git("add", "-A"); git("commit", "-qm", "one");
+  const commit = git("rev-parse", "HEAD").stdout.trim(), tree = git("rev-parse", "HEAD^{tree}").stdout.trim();
+  const argv = ["--local", "--crate", "rightkit-x", "--workspace", root, "--qualify-only", "--bundle", path.join(root, "bundle")];
+  // no door run: refused with the door message, nothing else ran
+  await assert.rejects(runLocalPublishUploadEngine("cargo", argv, { env: {} }), /one door|door run|RK_GATE_RUN/);
+  await assert.rejects(runLocalPublish("cargo", argv, { env: {} }), /one door|door run|RK_GATE_RUN/);
+  // outside a git checkout: refused too
+  await assert.rejects(runLocalPublishUploadEngine("cargo", ["--local", "--crate", "rightkit-x", "--workspace", os.tmpdir(), "--qualify-only", "--bundle", path.join(os.tmpdir(), "rk-no-bundle")], { env: {} }), /door run/);
+  // a live door run for HEAD admits the engine, which then proceeds to its own preconditions (a missing unit here)
+  const run = startRun({ commonDir: path.join(root, ".git"), commit, tree, stage: "qualify" });
+  try {
+    assert.deepEqual(Object.keys(requireEngineDoor({ workspaceRoot: root }, { env: run.env })).sort(), ["commit", "commonDir"]);
+    await assert.rejects(runLocalPublishUploadEngine("cargo", argv, { env: run.env, localBuildGranted: () => true }), (error) => !/one door|door run|RK_GATE_RUN/.test(error.message));
+  } finally { endRun(run); }
 });
