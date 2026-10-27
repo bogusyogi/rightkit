@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { test } from "node:test";
 import { cargoProfileDirectory, DEVELOPMENT_PROFILE, assertInstalledExecutableMatches, assertNativeDevelopmentHost, developmentEnvironment, resolveCommand, resolvePnpmCli, resolveTauriArtifact, runDevelopment as runDevelopmentActual, swapInstalledMacosBundle, validateDevelopmentConfig } from "./development.mjs";
@@ -305,4 +306,12 @@ test("ios development: config validates on any host, a dry run prints the genera
     assert.equal(dry.plan.install.kind, "simulator");
     if (process.platform !== "darwin") assert.throws(() => runDevelopment({ root, platform: "ios", config, env: {}, run: () => assert.fail("no command off macOS") }), /requires its native host/);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("a dev step naming right-release runs the door's own cli, also through `pnpm exec right-release` and `pnpm right-release` (HeardRight G5 follow-up)", () => {
+  const own = path.join(path.dirname(fileURLToPath(import.meta.url)), "cli", "right-release.mjs");
+  assert.deepEqual(resolveCommand("right-release", ["web-build", "--config", "x"], { root: process.cwd() }), { command: process.execPath, args: [own, "web-build", "--config", "x"] });
+  assert.deepEqual(resolveCommand("pnpm", ["exec", "right-release", "stage-sidecar", "--target", "t"], { root: process.cwd() }), { command: process.execPath, args: [own, "stage-sidecar", "--target", "t"] });
+  assert.deepEqual(resolveCommand("pnpm", ["right-release", "web-build"], { root: process.cwd() }), { command: process.execPath, args: [own, "web-build"] });
+  assert.equal(resolveCommand("pnpm", ["exec", "tauri", "build"], { root: process.cwd() }).args[0].endsWith("pnpm.cjs") || resolveCommand("pnpm", ["exec", "tauri", "build"], { root: process.cwd() }).args[0].endsWith("pnpm.mjs"), true, "other pnpm steps still run pnpm");
 });

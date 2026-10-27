@@ -296,8 +296,17 @@ function execute(command, { root, env, dryRun, run, label }) {
   const result = run(launch.command, launch.args, { cwd, env: launch.env ?? env, stdio: "inherit", windowsHide: true, shell: false, timeout: command.timeoutMs });
   if (result.status !== 0) throw new Error(`development ${label} command failed (${result.status}): ${command.name ?? command.cmd}`);
 }
+/** This package's own right-release entry: the door's RightKit, whatever the app's node_modules holds. */
+const OWN_RIGHT_RELEASE = fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url));
 export function resolveCommand(command, args, { root, env = process.env } = {}) {
   if (command === "node") return { command: process.execPath, args };
+  // A dev target's `right-release …` step runs the door's own right-release (this package), never the app's node_modules copy:
+  // `pnpm exec right-release` puts the app's bin first on PATH, so PATH order cannot decide it (HeardRight on the Dell, 2026-10-27:
+  // the app's older guard refused what the door had admitted). `pnpm exec right-release …` and `pnpm right-release …` are the same step.
+  if (command === "right-release") return { command: process.execPath, args: [OWN_RIGHT_RELEASE, ...args] };
+  if (command === "pnpm" && ((args[0] === "exec" && args[1] === "right-release") || args[0] === "right-release")) {
+    return { command: process.execPath, args: [OWN_RIGHT_RELEASE, ...args.slice(args[0] === "exec" ? 2 : 1)] };
+  }
   if (command === "pnpm") return { command: process.execPath, args: [resolvePnpmCli({ root, env }), ...args] };
   if (command === "rightkit") throw new Error("`rightkit` is the retired name of the RustRight client (rustright#91); use rustright (cmd: \"rustright\")");
   if (command === "rustright") {
