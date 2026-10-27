@@ -86,8 +86,21 @@ test("agent contains cwd, every target & entitlement input with lexical plus rea
   assert.doesNotThrow(() => validateSigningRequest(f.request(["--verify", "contained"]), f.policy));
 });
 
+test("read-only codesign (verify, display) runs the system codesign directly, outside the agent's signing roots", { skip: WINDOWS_SKIP }, async (t) => {
+  const f = fixture(t), env = { SSH_CONNECTION: "fixture" };
+  for (const argv of [["--verify", "--strict", "--deep", "/Applications/App.app"], ["--display", "-r-", "/Applications/App.app"], ["-dvv", "--entitlements", ":-", "App with 'quotes'.app"]]) {
+    const result = await runCodesignShim(argv, { ...f, env, request: () => assert.fail("read-only codesign must not reach the agent"), run(command, args, options) {
+      assert.equal(command, "/usr/bin/codesign"); assert.deepEqual(args, argv); assert.equal(options.cwd, f.cwd); assert.equal(options.env, env);
+      assert.equal(options.shell, false); assert.equal(options.encoding, "utf8"); return { status: 3, stdout: "out", stderr: "err" };
+    } });
+    assert.deepEqual(result, { status: 3, stdout: "out", stderr: "err" });
+  }
+  await assert.rejects(runCodesignShim(["--verify", "app"], { ...f, env, request: () => assert.fail(), run: () => ({ error: new Error("spawn failed") }) }), /spawn failed/);
+  assert.throws(() => parseCodesignArgv(["--verify", "--sign", "id", "app"], f.cwd), { code: "MAC_SIGNING_AGENT_ARGV_DENIED" });
+});
+
 test("codesign-argv relay preserves nonzero exit, cwd, argv & output beyond legacy truncation", { skip: WINDOWS_SKIP }, async (t) => {
-  const f = fixture(t), argv = ["-dvv", "--entitlements", ":-", "App with 'quotes'.app"];
+  const f = fixture(t), argv = ["--sign", "Developer ID Application: Fixture (TEAM)", "--force", "--timestamp", "App with 'quotes'.app"];
   const expected = { status: 36, stdout: " leading\n" + "λ".repeat(9000) + "\n", stderr: "\n denied\r\ntrailing " };
   const result = await runCodesignShim(argv, { ...f, env: { SSH_CONNECTION: "fixture", PRIVATE_SECRET: "never forwarded" },
     run() { assert.fail("SSH detection must not probe keychain"); },

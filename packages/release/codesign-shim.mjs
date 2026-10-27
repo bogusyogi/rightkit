@@ -23,7 +23,17 @@ export async function runCodesignShim(argv, { cwd = process.cwd(), env = process
     privatePath(paths.config, 0o600, { io });
     roots = JSON.parse(io.readFileSync(paths.config, "utf8")).roots;
   }
-  const { targets } = parseCodesignArgv(argv, cwd);
+  const { targets, mode } = parseCodesignArgv(argv, cwd);
+  if (mode !== "sign") {
+    // Verify & display read the code they are given and need no identity, so
+    // they run the system codesign here. The agent's roots are the signing
+    // policy (where the identity may be applied), not a read policy: a dev
+    // install verifies its installed copy under /Applications, which no
+    // signing root contains.
+    const direct = run("/usr/bin/codesign", argv, { cwd, env, encoding: "utf8", shell: false, windowsHide: true });
+    if (direct.error) throw direct.error;
+    return { status: direct.status ?? 1, stdout: String(direct.stdout ?? ""), stderr: String(direct.stderr ?? "") };
+  }
   const report = await request({ schema: 1, type: "codesign-argv", argv, cwd, targets,
     allowedRoots: roots.filter((root) => io.existsSync(root)), timeoutMs: 180000 }, { paths });
   const result = report.results?.[0];
