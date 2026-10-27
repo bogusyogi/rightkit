@@ -27,10 +27,11 @@ export async function releaseUnit({ unit, root, commit, executor, env, artifact,
   const registry = unit.kind === "npm" ? "npm" : "crates";
   const pipeline = path.join(root, "scripts", "ci", "rk-pipeline.mjs");
   const stateFile = platform === "win32" ? "D:\\scratch\\rk-pipeline\\state.json" : "/Volumes/D/scratch/rk-pipeline/state.json";
-  const step = (label, args, { accept = [0] } = {}) => {
+  const step = (label, args, { accept = [0], acceptWhen = null } = {}) => {
     out(`rightkit-gate: [release] ${label}`);
     const r = run(process.execPath, [pipeline, ...args], { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
-    if (!accept.includes(r.status)) {
+    const accepted = r.status === 0 || (accept.includes(r.status) && (!acceptWhen || acceptWhen(r)));
+    if (!accepted) {
       const said = `${String(r.stdout ?? "")}\n${String(r.stderr ?? "")}`.split("\n").map((l) => l.trim()).filter((l) => l && !l.includes("note:")).slice(-4).join(" | ");
       throw new Error(`${label} failed (exit ${r.status}): ${said.slice(0, 600)}`);
     }
@@ -42,8 +43,10 @@ export async function releaseUnit({ unit, root, commit, executor, env, artifact,
     return found[0];
   };
   // The pipeline canary (rk-release-canary: the candidate's `right-release doctor` against every app on both hosts, versus the
-  // registry's version) runs before the pre-flight for the units that have one; rk-pipeline answers 2 for a unit without a canary.
-  step(`pipeline canary of ${unit.name} (doctor on every app, both hosts, candidate vs registry)`, ["canary", unit.name], { accept: [0, 2] });
+  // registry's version) runs before the pre-flight. rk-pipeline exits 2 both for "no pipeline canary for this unit" and for any
+  // internal error, so 2 is accepted only when it says the former (reviewer, 2026-10-27); a canary error never reads as no canary.
+  step(`pipeline canary of ${unit.name} (doctor on every app, both hosts, candidate vs registry)`, ["canary", unit.name],
+    { accept: [2], acceptWhen: (r) => /no pipeline canary for this unit/.test(`${r.stdout ?? ""}\n${r.stderr ?? ""}`) });
   step(`local pre-flight of ${unit.name} through the broker`, ["preflight", unit.name, "--registry", registry]);
   step(`broker-admitted hosted qualification dispatch of ${unit.name} at ${commit.slice(0, 12)}`, ["dispatch", unit.name, "--registry", registry]);
   const dispatched = findDispatch();

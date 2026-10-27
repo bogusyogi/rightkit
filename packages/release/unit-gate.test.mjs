@@ -61,18 +61,19 @@ test("release stage: the gate owns pre-flight, broker dispatch, the wait and the
   const row = { unit: unit.name, version: unit.version, published: true, registryVerified: true, outcome: "published", sha256: "2".repeat(64), sha1: "s1" };
   // As upload.mjs writes it: runId/runAttempt are the upload run's; `candidate` names the qualification run it consumed.
   const meta = { schema: 1, registry: "npm", dryRun: false, commit, repository: "bogusyogi/rightkit", runId: "20", runAttempt: "1", promotionCommit: commit, candidate: { id: "qualified-10-1", source: "qualified", sourceSha: commit, runId: "10", runAttempt: "1" } };
-  const make = ({ states, runStatus = {}, receiptRows = [row], served = { shasum: "s1", sha256: "2".repeat(64) }, artifacts = ["publication-receipt-10-1-1"], receiptMeta = meta } = {}) => {
+  const make = ({ states, runStatus = {}, receiptRows = [row], served = { shasum: "s1", sha256: "2".repeat(64) }, artifacts = ["publication-receipt-10-1-1"], receiptMeta = meta, canaryError = false } = {}) => {
     const calls = [];
+    const f = { canaryError };
     let reads = 0;
     const run = (cmd, args) => {
       const key = args[0] === "/repo/scripts/ci/rk-pipeline.mjs" ? args[1] : path.basename(cmd) === "gh" ? `gh:${args[0]}` : path.basename(cmd);
       calls.push(key === "gh:run" ? `gh:${args.join(" ")}` : key);
       if (key === "gh:api") return { status: 0, stdout: JSON.stringify({ artifacts: artifacts.map((name) => ({ name })) }) };
       if (key === "gh:run") { const dir = args[args.indexOf("--dir") + 1]; fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, "publication-receipt.json"), JSON.stringify({ ...receiptMeta, receipts: receiptRows })); return { status: 0, stdout: "" }; }
-      return { status: runStatus[key] ?? 0, stdout: "", stderr: `${key} said no` };
+      return { status: runStatus[key] ?? 0, stdout: "", stderr: runStatus[key] === 2 && key === "canary" && !f.canaryError ? `${unit.name}: no pipeline canary for this unit` : `${key} said no` };
     };
     const readJson = () => ({ dispatches: { k: states[Math.min(reads++, states.length - 1)] } });
-    return { calls, run, readJson, registryBytes: async () => served };
+    return { ...f, calls, run, readJson, registryBytes: async () => served };
   };
   const dispatched = { unit: unit.name, sha: commit, registry: "npm", runId: 10, runAttempt: 1, requestId: "req" };
   const published = { ...dispatched, status: "published", version: unit.version, uploadRunId: 20 };
@@ -93,6 +94,10 @@ test("release stage: the gate owns pre-flight, broker dispatch, the wait and the
   f = make({ states: [dispatched, published], runStatus: { canary: 2, preflight: 1 } });
   await assert.rejects(releaseUnit({ ...base, ...f }), /pre-flight.*failed/);
   assert.deepEqual(f.calls, ["canary", "preflight"]);
+  // exit 2 from an internal canary error (no "no pipeline canary" answer) is never read as "no canary"
+  f = make({ states: [dispatched, published], runStatus: { canary: 2 }, canaryError: true });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /canary.*failed \(exit 2\)/);
+  assert.deepEqual(f.calls, ["canary"]);
   // pre-flight red: no dispatch
   f = make({ states: [dispatched, published], runStatus: { preflight: 1 } });
   await assert.rejects(releaseUnit({ ...base, ...f }), /pre-flight.*failed/);
