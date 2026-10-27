@@ -44,8 +44,65 @@ test("failure, altered artifacts and release never run later stages", async () =
   assert.equal(await runUnitGate(s.args), 1);
   assert.ok(!s.calls.includes("qualify"));
   s.calls.length = 0;
-  assert.equal(await runUnitGate({ ...s.args, to: "release" }), 1);
-  assert.deepEqual(s.calls, []);
+  // Release on a direct (unbrokered) host refuses inside the release stage, after the local stages, with no upload started.
+  s.owner.packageLocalUnit = async () => { s.calls.push("package"); return { ...unit, commit, artifactFile: s.artifactFile, artifactSha256: createHash("sha256").update("artifact").digest("hex") }; };
+  fs.writeFileSync(s.artifactFile, "artifact");
+  const errs = [];
+  assert.equal(await runUnitGate({ ...s.args, to: "release", executor: { kind: "direct" }, err: (l) => errs.push(l) }), 1);
+  assert.deepEqual(s.calls, ["check:compile", "compile", "package", "check:release", "qualify", "close"]);
+  assert.match(errs.join("\n"), /broker-managed host/);
+  assert.equal(s.reports.at(-1).stages.release.ok, false);
+});
+
+test("release stage: the gate owns pre-flight, broker dispatch, the wait and the readback; it fails closed at every step", async () => {
+  const { releaseUnit } = await import("./unit-gate.mjs");
+  const artifact = { artifactSha256: "1".repeat(64) };
+  const base = { unit, root: "/repo", commit, executor: { kind: "broker" }, env: { RK_GATE_RUN: "x" }, artifact, platform: "darwin", out: () => {}, scratch: tempRoot("unit-release-") };
+  const row = { unit: unit.name, version: unit.version, published: true, registryVerified: true, outcome: "published", sha256: "2".repeat(64), sha1: "s1", integrity: "sha512-abc" };
+  const make = ({ states, runStatus = {}, receiptRows = [row], served = { integrity: "sha512-abc", shasum: "s1" }, artifacts = ["publication-receipt-1-1-1"] } = {}) => {
+    const calls = [];
+    let reads = 0;
+    const run = (cmd, args) => {
+      const key = args[0] === "/repo/scripts/ci/rk-pipeline.mjs" ? args[1] : path.basename(cmd) === "gh" ? `gh:${args[0]}` : path.basename(cmd);
+      calls.push(key === "gh:run" ? `gh:${args.join(" ")}` : key);
+      if (key === "gh:api") return { status: 0, stdout: JSON.stringify({ artifacts: artifacts.map((name) => ({ name })) }) };
+      if (key === "gh:run") { const dir = args[args.indexOf("--dir") + 1]; fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, "publication-receipt.json"), JSON.stringify({ receipts: receiptRows })); return { status: 0, stdout: "" }; }
+      return { status: runStatus[key] ?? 0, stdout: "", stderr: `${key} said no` };
+    };
+    const readJson = () => ({ dispatches: { k: states[Math.min(reads++, states.length - 1)] } });
+    return { calls, run, readJson, registryBytes: async () => served };
+  };
+  const dispatched = { unit: unit.name, sha: commit, registry: "npm", runId: 10, runAttempt: 1, requestId: "req" };
+  const published = { ...dispatched, status: "published", version: unit.version, uploadRunId: 20 };
+  // success: order and the reported record
+  let f = make({ states: [dispatched, published] });
+  const ok = await releaseUnit({ ...base, ...f });
+  assert.deepEqual(f.calls, ["preflight", "dispatch", "watch", "gh:api", "gh:run download 20 -R bogusyogi/rightkit --name publication-receipt-1-1-1 --dir " + path.join(base.scratch, "rk-unit-receipts", "20")]);
+  assert.equal(ok.registryVerified, true); assert.equal(ok.hostedSha256, row.sha256); assert.equal(ok.uploadRunId, 20); assert.equal(ok.hostedEqualsLocal, false); assert.equal(ok.localArtifactSha256, artifact.artifactSha256);
+  // direct host: refused before anything runs
+  f = make({ states: [dispatched, published] });
+  await assert.rejects(releaseUnit({ ...base, ...f, executor: { kind: "direct" } }), /broker-managed host/);
+  assert.deepEqual(f.calls, []);
+  // pre-flight red: no dispatch
+  f = make({ states: [dispatched, published], runStatus: { preflight: 1 } });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /pre-flight.*failed/);
+  assert.deepEqual(f.calls, ["preflight"]);
+  // dispatch recorded no run: stop, nothing claimed
+  f = make({ states: [{ ...dispatched, runId: undefined }] });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /no dispatch record with a run/);
+  assert.deepEqual(f.calls, ["preflight", "dispatch"]);
+  // watch ended without a published record (upload never ran)
+  f = make({ states: [dispatched, { ...dispatched, status: "failed", conclusion: "upload failure" }] });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /without a published record \(failed: upload failure\)/);
+  // ambiguous receipts
+  f = make({ states: [dispatched, published], artifacts: ["publication-receipt-1-1-1", "publication-receipt-1-1-2"] });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /2 publication receipt artifact/);
+  // receipt row not verified
+  f = make({ states: [dispatched, published], receiptRows: [{ ...row, registryVerified: false, outcome: "published-unverified" }] });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /records no verified publication \(published-unverified\)/);
+  // registry serves other bytes
+  f = make({ states: [dispatched, published], served: { integrity: "sha512-other", shasum: "s1" } });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /different bytes/);
 });
 
 test("unit selection requires grant and canonical matching publishable manifest", () => {
