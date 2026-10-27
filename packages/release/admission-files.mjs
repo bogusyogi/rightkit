@@ -46,7 +46,7 @@ export const FILES_ROWS = Object.freeze([
     tier: "files",
     run(ctx) {
       if (ctx.platform === "android" || ctx.platform === "ios") return { na: "android and ios build without a package command" };
-      if (ctx.target.package || packageCommandOptional(ctx.target, ctx.projectType())) return undefined;
+      if (ctx.target.package || packageCommandOptional(ctx.target, ctx.projectType(), { expanded: true })) return undefined;
       return [`${app(ctx)} has no ${ctx.platform} package command`];
     },
   },

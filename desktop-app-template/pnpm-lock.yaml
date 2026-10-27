@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@rightkit/tauri@0.3.0>@rightkit/logs': 0.1.6
+
 importers:
 
   .:
@@ -146,9 +149,6 @@ packages:
 
   '@rightkit/license@0.3.0':
     resolution: {integrity: sha512-5QhkA+xOAKu24/yFOjqhmM+TIgmaPrUajhSxl9tixrQcsBnqDTPidhxRILJM27/+uM6nk1GG1z2ar+iCIc8PGQ==}
-
-  '@rightkit/logs@0.1.4':
-    resolution: {integrity: sha512-nw2QTJLmB4lLZMkD2e6bLhU5Mr+iISNubf9Ht67qEDGjJgzY0Ddldqqr/wVBfyHlNxDMJPJjnJyFSLXJy3UKdg==}
 
   '@rightkit/logs@0.1.6':
     resolution: {integrity: sha512-P/aMaUF7yl3JslpRqmhoDM8Gspiv7grUQHHrjY11fenQ7OCyDamtz6LfHhXCTX4ufag199gTDSjqxDN77jlG+w==}
@@ -863,8 +863,6 @@ snapshots:
 
   '@rightkit/license@0.3.0': {}
 
-  '@rightkit/logs@0.1.4': {}
-
   '@rightkit/logs@0.1.6': {}
 
   '@rightkit/onboarding@0.6.3(@rightkit/legal-ui@0.4.1(react@19.3.0))(@rightkit/react-shell@0.7.2(@rightkit/platform-ui@0.4.0(@tauri-apps/plugin-os@2.4.0)(react@19.3.0))(@tauri-apps/plugin-os@2.4.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)':
@@ -918,7 +916,7 @@ snapshots:
   '@rightkit/tauri@0.3.0(@rightkit/app-update@0.4.2(react@19.3.0))':
     dependencies:
       '@rightkit/app-update': 0.4.2(react@19.3.0)
-      '@rightkit/logs': 0.1.4
+      '@rightkit/logs': 0.1.6
 
   '@rightkit/theme@0.3.1': {}
 

@@ -608,7 +608,7 @@ if (problems.length || prebuildFindings.length) {
 const releaseLock = acquireReleaseLock(root, config.app ?? path.basename(root), opts.platform, opts.tier);
 const mode = "package";
 const command = target.package;
-if (!command && opts.platform !== "android" && opts.platform !== "ios" && !packageCommandOptional(target, resolveProjectType({ appRoot: root, config, target }))) fail(`${config.app ?? "app"} has no ${opts.platform} ${mode} command`);
+if (!command && opts.platform !== "android" && opts.platform !== "ios" && !packageCommandOptional(target, resolveProjectType({ appRoot: root, config, target }), { expanded: true })) fail(`${config.app ?? "app"} has no ${opts.platform} ${mode} command`);
 if (opts.upload && !target.publish && !target.upload) {
   fail(`${config.app ?? "app"} has no ${opts.platform} upload config`);
 }

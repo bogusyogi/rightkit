@@ -41,5 +41,5 @@ export function targetUsesMsix(target) {
   return Boolean(target?.msix) || target?.signingContract === "windows-msix-signed-v1";
 }
 
-/** SwiftPM targets build and package inside prePackage (mac DMG) or the MSIX step; no separate `package` command is required. */
-export const packageCommandOptional = (target, projectType) => targetUsesMsix(target) || Boolean(target?.winPackage || target?.macPackage) || (projectType === "swiftpm" && Boolean(target?.prePackage?.cmd));
+/** Expanded recipes must come from the validator, which strips caller-supplied recipe markers. */
+export const packageCommandOptional = (target, projectType, { expanded = false } = {}) => targetUsesMsix(target) || Boolean(target?.winPackage || target?.macPackage) || (expanded && target?.recipe?.kind === "macPackage") || (projectType === "swiftpm" && Boolean(target?.prePackage?.cmd));

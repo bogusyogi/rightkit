@@ -2,6 +2,12 @@
 
 ## 0.6.9
 
+- Doctor and release accept a validated macPackage recipe after expansion: its signed app and DMG need no separate package command.
+
+- The desktop template selects `@rightkit/logs` 0.1.6 for the `@rightkit/tauri` 0.3.0 dependency, matching its direct pin and avoiding a stale transitive release-admission finding.
+
+- Template coverage exercises the real `right-release doctor` dispatcher on macOS and Windows targets, checking its target bridge, version and unregistered-ownership refusal. Its separate preflight test uses fixture ownership evidence and host probes; it does not prove an enrolled doctor passes or validate real host tooling.
+
 - Captured dirty-tree admission accepts Git tree objects as well as commits, matching RustRight's snapshot protocol. Blob objects and option-like revisions are refused; compile/release stage commit requirements remain unchanged.
 
 - **Rule tiers (Adrian, 2026-10-26): the apps build again on the rule set they were green on.** `app-check.mjs` `TIERS`: the *compile* tier is the 13 rules 0.6.6 published (`COMPILE_TIER_IDS`); every rule added since (C3, SC, CA, LG, SF-01, OW-05, OW-06) is *release* tier until the synthesis waves make it true in every app, and is promoted in RightKit, never per app and never through a baseline. The compile tier is what compile admission owes: the RustRight broker, the pre-push hook, `rightkit-gate check`, `--to compile|package`, `right-release build|dev|test`. The release tier is every rule and scan: `rightkit-gate --to qualify` runs `check --rule-tier release` before installed QA (`receipt.stages.qualify.ruleTier`), and `right-release release|qa|upload|publish|publish-update|github|sign-*|create-mac-updater|sign-candidate` owe it (`RELEASE_TIER_COMMANDS`). `check --rule-tier compile|release` (default compile; `--tier` stays the upload tier); `--list` names each rule's tier; the summary line names the tier. The class A `shellcheck` scan and actionlint's shellcheck requirement, added after 0.6.6, are release tier too. RightKit's own preflight keeps every rule.

@@ -223,7 +223,7 @@ test("`rightkit-gate check` and RightKit's own preflight pass on the instance wi
   assert.deepEqual(failLines(result.stdout).map((line, i) => line.startsWith(`FAIL ${TEMPLATE_M22[i]}`)), [true, true], result.stdout);
 });
 
-test("template preflight checks required host rows with explicit enrolled ownership evidence", () => {
+test("template preflight checks required host rows with fixture ownership and host probes", () => {
   const root = instance();
   const configPath = path.join(root, "right-release.config.json");
   const { config } = loadReleaseConfigSync(configPath, { registry: loadGeneratorRegistry() });
@@ -251,18 +251,32 @@ test("template preflight checks required host rows with explicit enrolled owners
   }
 });
 
-test("real doctor refuses this unregistered fresh-template identity", () => {
+test("real doctor reports template rows and refuses the unregistered identity on both platforms", () => {
   const root = instance();
   const config = path.join(root, "right-release.config.json");
-  const result = spawnSync(process.execPath, [path.join(here, "cli", "right-release.mjs"), "doctor", "--platform", "win"], {
-    cwd: root, encoding: "utf8", env: managedEnv(config, {
-      platform: "win",
-      env: { RK_TEST_LATEST: "", RK_TEST_UNPUBLISHED: "", RK_TEST_YANKED: "" },
-    }),
-  });
-  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
-  assert.match(result.stdout + result.stderr, /\[FAIL\] ownership:/,
-    "the real doctor must continue to require protected ownership registration for a fresh identity");
+  for (const platform of ["win", "mac"]) {
+    const result = spawnSync(process.execPath, [path.join(here, "cli", "right-release.mjs"), "doctor", "--platform", platform], {
+      cwd: root, encoding: "utf8", env: managedEnv(config, {
+        platform,
+        env: { RK_TEST_LATEST: "", RK_TEST_UNPUBLISHED: "", RK_TEST_YANKED: "" },
+      }),
+    });
+    const output = `${result.stdout}\n${result.stderr}`;
+    assert.equal(result.status, 1, `${platform}:\n${output}`);
+    assert.match(output, new RegExp(`platform: ${platform}\\b`), output);
+    for (const row of ["target-bridge", "version"]) {
+      assert.match(output, new RegExp(`\\[ok\\s*\\] ${row}:`), `${platform} ${row}:\n${output}`);
+    }
+    assert.match(output, /\[FAIL\] ownership:/,
+      `${platform}: the real doctor must require protected ownership registration for a fresh identity\n${output}`);
+    // Disk depends on this machine; ownership is expected for this unregistered identity. Every other preflight FAIL remains visible.
+    const failedRows = output.split("\n").filter((line) => /^\s*\[FAIL\]\s/.test(line))
+      .map((line) => line.replace(/^\s*\[FAIL\]\s*/, "").split(":")[0]);
+    assert.deepEqual(failedRows.filter((row) => row !== "ownership" && row !== "disk"), [], `${platform}:\n${output}`);
+    const totals = [...output.matchAll(/right-release: preflight found (\d+) blocking problem\(s\); the build would fail on these/g)];
+    assert.equal(totals.length, 1, `${platform}: expected one doctor summary\n${output}`);
+    assert.equal(Number(totals[0][1]), failedRows.length, `${platform}: unexpected config or admission failures\n${output}`);
+  }
 });
 
 // ---- the template files the evaluators do not see ----------------------------------------------------------------------------
@@ -398,7 +412,7 @@ test("the committed hook is compared with the hook the pinned release publishes:
   assert.match(hookDrift(hook, "0.0.1") ?? "", /has no hook digest for the pinned @rightkit\/release 0\.0\.1/, "an unrecorded pin cannot be checked, so it fails");
 });
 
-test("fixtures/published-gate-hooks.json records every @rightkit/release the registry has served from 0.6.4, and the tree's hook equals the record of the version it is staged as", () => {
+test("fixtures/published-gate-hooks.json covers recorded supported releases and matches the tree's recorded hook", () => {
   assert.equal(PUBLISHED_HOOKS.nodePath, "node_modules/@rightkit/release/bin/rightkit-gate.mjs", "the digests are for the hook an installed app gets");
   const order = (a, b) => { const [x, y] = [a, b].map((v) => v.split(".").map(Number)); return x[0] - y[0] || x[1] - y[1] || x[2] - y[2]; };
   const treeVersion = JSON.parse(readFileSync(path.join(here, "package.json"), "utf8")).version;
@@ -407,11 +421,10 @@ test("fixtures/published-gate-hooks.json records every @rightkit/release the reg
     assert.match(digest, /^[0-9a-f]{64}$/, `${version}: a sha256 hex digest`);
     assert.ok(order(version, treeVersion) <= 0, `${version} is newer than this tree's ${treeVersion}: only published releases are recorded`);
   }
-  // Every release a registry has served from 0.6.4 on (the published one and the superseded ones) has a record: the bookkeeping that
-  // moves registry.npm to a new release adds its digest in the same commit, or this fails.
+  // Check the supported versions recorded in rightkit-versions.json, not an independent inventory of every registry release.
   const served = new Set([...(versions.legacyNpm["@rightkit/release"] ?? []), versions.registry.npm["@rightkit/release"]].filter((v) => order(v, "0.6.4") >= 0));
   assert.ok(served.size >= 2 && served.has("0.6.4"), "0.6.4 and 0.6.5 are the first served releases with a recorded hook");
-  for (const version of served) assert.ok(PUBLISHED_HOOKS.releases[version], `@rightkit/release ${version} is on the registry: add its hook digest to fixtures/published-gate-hooks.json, computed from the published tarball`);
+  for (const version of served) assert.ok(PUBLISHED_HOOKS.releases[version], `@rightkit/release ${version} is recorded as supported: add its hook digest to fixtures/published-gate-hooks.json, computed from the published tarball`);
   // The record of this tree's own version, once it exists, is the hook this tree writes: a published release is immutable, so changing
   // hookText after publishing means a new version, not a new digest.
   const own = PUBLISHED_HOOKS.releases[treeVersion];

@@ -27,6 +27,7 @@ import { assertSwiftDoc, proveSwiftMutations } from "../../scripts/ci/swift-work
 import { parseYaml } from "../../scripts/ci/workflow-yaml.mjs";
 
 import { pendingUpdaterEndpoint, SUITE_API_CONTRACT_HOSTS } from "./suite-api-literal.mjs";
+import { validateDevelopmentConfig } from "./development.mjs";
 
 const workspace = path.resolve(
   process.env.RIGHT_SUITE_CONTRACT_WORKSPACE
@@ -53,9 +54,7 @@ const pubkey = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI5Mzk1RjlG
 const apps = [
   { key: "viewright", root: "viewright", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["scripts/build-mac-notarized.sh"] },
   { key: "scraperight", root: "scraperight", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["package.sh"] },
-  // HeardRight removed its bespoke scripts/publish-release.mjs (78ccc184, 2026-10-21: sign/notarize/updater/DMG/R2 upload
-  // inside a product repository, which the workspace forbids); release is `right-release build` / `publish-update
-  // --tier <patch|update>` from package.json with tauri-app-next/right-release.config.mjs, asserted above.
+  // Build routes were removed in HeardRight 5153c3f5; its config declares the disabled state.
   { key: "heardright", root: "heardright/tauri-app-next", repoRoot: "heardright", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["scripts/mac-dmg.mjs"] },
   // mac-dmg.mjs is the release file, as in HeardRight/CodeRight. build-mac.sh only delegates to it,
   // so asserting the mirror call against the wrapper failed a pipeline that does mirror.
@@ -670,7 +669,7 @@ test("license v2 public vector is identical at every portable consumer boundary"
 });
 
 for (const app of apps) {
-  test(`${app.key} follows the signed tiered Right Release contract`, { skip: checkoutSkip([path.join(workspace, app.root, "package.json")], `${app.key} product checkout`) }, async () => {
+  test(app.key === "heardright" ? `${app.key} declares its disabled release state` : `${app.key} follows the signed tiered Right Release contract`, { skip: checkoutSkip([path.join(workspace, app.root, "package.json")], `${app.key} product checkout`) }, async (context) => {
     const root = path.join(workspace, app.root);
     const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
     const scripts = pkg.scripts ?? {};
@@ -722,43 +721,61 @@ for (const app of apps) {
     assert.equal(config.app, app.key);
     assert.ok(config.version);
     assert.equal(config.distribution?.provider, "r2-rightapps", `${app.key} private release config must select R2 + RightApps explicitly`);
-    if (pkg.scripts) {
+    const disabled = config.releaseReadiness?.state === "disabled";
+    if (app.key === "heardright") {
+      assert.deepEqual(config.releaseReadiness, { state: "disabled", reason: "Removed build routes pending shared RightKit recipe migration", owner: "RightKit app adoption" });
+      assert.deepEqual(config.targets, {}, `${app.key} disabled release must have no targets`);
+      assert.deepEqual(config.development?.targets, {}, `${app.key} disabled development must have no targets`);
+      assert.equal(pkg.scripts, undefined, `${app.key} disabled app must expose no package scripts`);
+      for (const file of ["scripts/mac-dmg.mjs", "scripts/build-windows-nsis.mjs"]) {
+        assert.equal(existsSync(path.join(root, file)), false, `${app.key} disabled app must not restore ${file}`);
+      }
+      for (const platform of ["mac", "win"]) {
+        assert.throws(() => validateDevelopmentConfig(config, platform, { root }), /development\.targets\..*\.build must be a non-empty command array/);
+      }
+      context.diagnostic(`${app.key} release not ready: ${config.releaseReadiness.reason}`);
+    } else {
+      assert.equal(disabled, false, `${app.key} must satisfy the active release contract`);
+    }
+    if (!disabled && pkg.scripts) {
       assert.equal(scripts["release:doctor"], "right-release doctor");
       assertReleasePackageScripts(scripts, app.key, "r2-rightapps");
       assert.equal(scripts["deps:check"], "right-release deps --check");
       assert.equal(scripts["deps:update"], "right-release deps --update");
-    } else {
+    } else if (!disabled) {
       assert.ok(usesRecipeLane(config), `${app.key} has no package scripts; its release must be declared through RightKit recipes`);
     }
-    for (const platform of ["mac", "win"]) {
-      const target = config.targets[platform];
-      assertBuildInputs(config, target, `${app.key} ${platform}`);
-      assert.equal(target.signed, true);
-      assert.equal(target.upload, undefined, "generic uploads bypass tier manifest routing");
-      assert.equal(target.publish.cmd, "right-release");
-      assert.match(target.publish.args.join(" "), /^publish-update\b/);
-      assert.ok(new Set(target.updater.artifacts.map((artifact) => artifact.key)).size <= 1, `${app.key} ${platform} must expose at most one current updater R2 object key`);
-      assert.ok(new Set(target.installer.artifacts.map((artifact) => artifact.key)).size <= 1, `${app.key} ${platform} must expose at most one current installer R2 object key`);
-      for (const installer of target.installer.artifacts) {
-        assert.match(installer.key, /\/installers\/(mac|windows)\/current\//, `${app.key} ${platform} installers must replace the stable current R2 object`);
+    if (!disabled) {
+      for (const platform of ["mac", "win"]) {
+        const target = config.targets[platform];
+        assertBuildInputs(config, target, `${app.key} ${platform}`);
+        assert.equal(target.signed, true);
+        assert.equal(target.upload, undefined, "generic uploads bypass tier manifest routing");
+        assert.equal(target.publish.cmd, "right-release");
+        assert.match(target.publish.args.join(" "), /^publish-update\b/);
+        assert.ok(new Set(target.updater.artifacts.map((artifact) => artifact.key)).size <= 1, `${app.key} ${platform} must expose at most one current updater R2 object key`);
+        assert.ok(new Set(target.installer.artifacts.map((artifact) => artifact.key)).size <= 1, `${app.key} ${platform} must expose at most one current installer R2 object key`);
+        for (const installer of target.installer.artifacts) {
+          assert.match(installer.key, /\/installers\/(mac|windows)\/current\//, `${app.key} ${platform} installers must replace the stable current R2 object`);
+        }
+        for (const updater of target.updater.artifacts) {
+          assert.match(updater.key, /\/updates\/(mac|windows)\/current\//, `${app.key} ${platform} updaters must replace the stable current R2 object`);
+        }
       }
-      for (const updater of target.updater.artifacts) {
-        assert.match(updater.key, /\/updates\/(mac|windows)\/current\//, `${app.key} ${platform} updaters must replace the stable current R2 object`);
+      // Either lane: a declared macPackage object (recipe) or the legacy targets.mac.package entry point.
+      if (usesRecipeLane(config)) {
+        assertMacPackageRecipe(config.targets.mac, app.key);
+        assertWinPackageRecipe(config.targets.win, app.key);
+      } else {
+        assertMacPackageEntry(config.targets.mac.package, scripts, app.key);
       }
+      for (const installer of config.targets.mac.installer.artifacts) {
+        assert.equal(path.dirname(installer.file), ".", `${app.key} macOS installer must be copied to the app package root before upload`);
+      }
+      assert.ok(config.targets.win.sign.files.length);
+      const winUpdaterFiles = new Set(config.targets.win.updater.artifacts.map((artifact) => artifact.file));
+      for (const signed of config.targets.win.sign.files) assert.ok(winUpdaterFiles.has(signed), `${signed} must be both Azure-signed and updater-signed`);
     }
-    // Either lane: a declared macPackage object (recipe) or the legacy targets.mac.package entry point.
-    if (usesRecipeLane(config)) {
-      assertMacPackageRecipe(config.targets.mac, app.key);
-      assertWinPackageRecipe(config.targets.win, app.key);
-    } else {
-      assertMacPackageEntry(config.targets.mac.package, scripts, app.key);
-    }
-    for (const installer of config.targets.mac.installer.artifacts) {
-      assert.equal(path.dirname(installer.file), ".", `${app.key} macOS installer must be copied to the app package root before upload`);
-    }
-    assert.ok(config.targets.win.sign.files.length);
-    const winUpdaterFiles = new Set(config.targets.win.updater.artifacts.map((artifact) => artifact.file));
-    for (const signed of config.targets.win.sign.files) assert.ok(winUpdaterFiles.has(signed), `${signed} must be both Azure-signed and updater-signed`);
 
     const tauri = JSON.parse(readFileSync(path.join(root, app.tauri), "utf8"));
     assert.equal(tauri.plugins.updater.pubkey, pubkey);
@@ -780,6 +797,10 @@ for (const app of apps) {
       }
     }
     assert.equal(tauri.bundle.createUpdaterArtifacts, true);
+    if (disabled) {
+      assert.equal(tauri.build?.beforeBuildCommand, undefined);
+      assert.equal(tauri.build?.beforeDevCommand, undefined);
+    }
 
     const { consumer, canonical } = getCurrentCargoVersionContract();
     // Same allowance as the doctor (release.mjs buildAllowedVersions): published, staged and legacy crates.
@@ -818,6 +839,10 @@ for (const app of apps) {
       assert.doesNotMatch(instruction, /\$env:RIGHTAPPS_ADMIN_TOKEN|pnpm publish:r2/, `${app.key} ${instructionName} documents obsolete release credentials or publishers`);
     }
     for (const releaseFile of app.releaseFiles) {
+      if (disabled) {
+        assert.equal(existsSync(path.join(root, releaseFile)), false, `${app.key} disabled release must not restore ${releaseFile}`);
+        continue;
+      }
       // Recipe lane: the declared macPackage / winPackage replaces the legacy release script, which may be removed.
       if (usesRecipeLane(config) && !existsSync(path.join(root, releaseFile))) continue;
       const source = readFileSync(path.join(root, releaseFile), "utf8");
