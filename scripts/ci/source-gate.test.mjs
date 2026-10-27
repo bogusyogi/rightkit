@@ -195,7 +195,8 @@ test("exports-import-effects: the probe runs on the exported commit with depende
   const io2 = { logs: [], errs: [] };
   let committed = false;
   const commitBetween = () => { if (committed) return; committed = true; write(repo, "packages/a/src/s.mjs", "export const s = 3;\n"); git("add", "-A"); git("commit", "-qm", "moved"); };
-  assert.equal(main(["--root", repo, "--report", reportFile], { log: (m) => io2.logs.push(m), error: (m) => io2.errs.push(m) }, { between: commitBetween }), 0);
+  assert.equal(main(["--root", repo, "--report", reportFile], { log: (m) => io2.logs.push(m), error: (m) => io2.errs.push(m) }, { between: commitBetween }), 1, "a HEAD that moves during the probe fails closed");
+  assert.match(io2.errs.join("\n"), /UNSTABLE: the checkout's HEAD moved/);
   const r2 = JSON.parse(fs.readFileSync(reportFile, "utf8"));
   assert.equal(r2.stable, false); assert.match(readIncompleteReport(reportFile).problem, /HEAD moved while the probe ran/);
   // The exporter refusing (an uninstallable lockfile, a missing commit) is exit 2, never a report.
@@ -363,7 +364,8 @@ test("exports-import-effects: HEAD moving between identity capture and archive i
     let calls = 0;
     const identity = (root, opts) => { const id = checkoutIdentity(root, opts); calls++; if (calls === 1) { write(repo, "packages/a/src/s.mjs", "console.log('after capture, before archive'); export const s = 0;\n"); git("add", "-A"); git("commit", "-qm", "moved"); if (aba) git("reset", "-q", "--hard", base); } return id; };
     const out = path.join(repo, "out", `${aba ? "aba" : "moved"}.json`); const io = { logs: [], errs: [] };
-    assert.equal(main(["--root", repo, "--report", out], { log: (m) => io.logs.push(m), error: (m) => io.errs.push(m) }, { identity }), 0, io.errs.join("\n"));
+    assert.equal(main(["--root", repo, "--report", out], { log: (m) => io.logs.push(m), error: (m) => io.errs.push(m) }, { identity }), aba ? 0 : 1, io.errs.join("\n"));
+    if (!aba) assert.match(io.errs.join("\n"), /UNSTABLE: the checkout's HEAD moved/, "a HEAD that ends elsewhere fails closed");
     if (!aba) git("reset", "-q", "--hard", base);
     return JSON.parse(fs.readFileSync(out, "utf8"));
   };
@@ -513,4 +515,29 @@ test("exports-import-effects: a package hidden by export-ignore is still in the 
   assert.ok(exported.dir, exported.problem);
   assert.ok(fs.existsSync(path.join(exported.dir, "packages", "hidden", "package.json")), "export-ignore does not hide a package from the probe");
   assert.ok(fs.existsSync(path.join(exported.dir, "packages", "a", "package.json")), "positive control: an ordinary package is exported too");
+});
+
+test("exports-import-effects --worktree: the probe exports the working tree's own bytes (a dirty edit that prints at import is a finding while HEAD is clean), the real index is untouched, and an edit during the probe makes it unstable", (t) => {
+  const { repo, git } = gitRepoFixture(t);
+  const indexBefore = fs.readFileSync(path.join(repo, ".git", "index"));
+  // HEAD is clean; the working tree adds an import side effect in a tracked module and an untracked module that the export reaches.
+  write(repo, "packages/a/src/s.mjs", "import { b } from \"@rk/b\"; console.log('dirty side effect'); export const s = b;\n");
+  const reportFile = path.join(repo, "out", "wt.json"); const io = { logs: [], errs: [] };
+  assert.equal(main(["--root", repo, "--worktree", "--report", reportFile], { log: (m) => io.logs.push(m), error: (m) => io.errs.push(m) }), 1, "the dirty side effect is a finding");
+  assert.match(io.errs.join("\n"), /FAIL exports-import-effects/);
+  const r = JSON.parse(fs.readFileSync(reportFile, "utf8"));
+  assert.match(r.closure.worktree, /^[0-9a-f]{40}$/, "the probed bytes are named by the staged tree id");
+  assert.notEqual(r.closure.worktree, git("rev-parse", "HEAD^{tree}").trim(), "it is the working tree, not HEAD");
+  assert.equal(r.stable, true);
+  assert.ok(fs.readFileSync(path.join(repo, ".git", "index")).equals(indexBefore), "the real index is untouched");
+  // The same command without --worktree probes HEAD, which is clean.
+  const head = { logs: [], errs: [] };
+  assert.equal(main(["--root", repo, "--report", reportFile], { log: (m) => head.logs.push(m), error: (m) => head.errs.push(m) }), 0, head.errs.join("\n"));
+  // An edit while the working-tree probe runs: the tree it stages after differs, so the report is unstable.
+  write(repo, "packages/a/src/s.mjs", "import { b } from \"@rk/b\"; export const s = b;\n");
+  const io2 = { logs: [], errs: [] };
+  let edited = false;
+  assert.equal(main(["--root", repo, "--worktree", "--report", reportFile], { log: (m) => io2.logs.push(m), error: (m) => io2.errs.push(m) }, { between: () => { if (!edited) { edited = true; write(repo, "packages/a/src/later.mjs", "export const x = 1;\n"); } } }), 1, "an edit during the probe fails closed");
+  assert.match(io2.errs.join("\n"), /UNSTABLE: the working tree changed/);
+  assert.equal(JSON.parse(fs.readFileSync(reportFile, "utf8")).stable, false, "and the report records it");
 });

@@ -54,7 +54,7 @@ rightkit-license = { version = "=0.2.5", default-features = false, features = ["
 # M17 HTTP: the app's first-party client, pinned to the licence host.
 rightkit-http = { version = "=0.3.8", default-features = false }
 # M20 QA: the in-app control server, compiled only by the off-by-default `qa-native` feature below.
-rightkit-qa = { version = "=0.9.0", default-features = false, optional = true }
+rightkit-qa = { version = "=0.9.1", default-features = false, optional = true }
 
 [features]
 default = []

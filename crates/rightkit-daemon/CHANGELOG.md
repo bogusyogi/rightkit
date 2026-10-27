@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (rightkit#1222)
+
+- Test: no source change. `Suite::resolve` in a `test-mode` build already honours `RIGHTKIT_SUITE_ROOT` and otherwise follows the real HOME/LOCALAPPDATA, and `mode::decide` returns `Mode::Release` when neither selector is set; the refusal was in `rightkit-models`. Release builds still read no selector. Added a test that pins both.
+
 ## 0.5.0 (unpublished)
 
 `ServiceEvent` is exhaustive and gains `TableFull`, so a downstream `match` needs an arm: the next version is 0.5.0 (the registry records 0.4.0).

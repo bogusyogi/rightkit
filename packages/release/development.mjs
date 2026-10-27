@@ -16,7 +16,9 @@ import { assertStableDesignatedRequirement, readBundleExecutable, requestedCiAdh
 import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 import { installTauriDevId, resolveTauriDevIdDescriptor, TAURI_DEVID_KIND } from "./install-tauri-devid.mjs";
 import { ASSEMBLED_APP_KIND, installAssembledMac, installAssembledWindows, resolveAssembledInstall } from "./install-assembled-app.mjs";
-import { assertIosDevelopmentSession, installIosDevelopment, prepareIosDevelopment, validateIosDevelopment } from "./ios-dev.mjs";
+import { assertIosDevelopmentSession, installIosDevelopment, iosUiTestCommands, prepareIosDevelopment, prepareIosUiTests, validateIosDevelopment } from "./ios-dev.mjs";
+import { packLinuxArtifacts, validateLinuxArchive } from "./linux-artifacts.mjs";
+import { buildAndEmbedNativeHelpers, nativeHelpersFromConfig } from "./native-helpers.mjs";
 import { androidDevelopmentNdkCommand, androidDevelopmentSerial, installAndroidDevelopment, validateAndroidDevelopment } from "./android-dev.mjs";
 
 // One standard Cargo profile for every app (templates/cargo-profiles.toml): Cargo's built-in `dev`.
@@ -89,19 +91,27 @@ export function validateDevelopmentConfig(config, platform, { root = process.cwd
   } else if (target.install) throw new Error(`unsupported development installer kind: ${target.install.kind}`);
   // Linux is build-only: its artifacts are the staged sidecars bound in the stage receipt; nothing is installed on a Linux host.
   if (platform === "linux" && target.install) throw new Error("development.targets.linux is build-only: it takes no install (the staged artifacts are the result)");
+  if (target.archive !== undefined && platform !== "linux") throw new Error(`development.targets.${platform}.archive: only the linux target packs an archive`);
+  if (platform === "linux") validateLinuxArchive(target.archive);
   validateStageEntries(target.stage, `development.targets.${platform}.stage`);
   if (platform === "android") return { ...target, ...validateAndroidDevelopment(target, { root }) };
   return target;
 }
 
 export function runDevelopment({ root, platform, config, buildOnly = false, dryRun = false, env = process.env, run = spawnSync,
-  codesignEnvironment = macosCodesignEnvironment, serial }) {
+  codesignEnvironment = macosCodesignEnvironment, serial, uiTests = false }) {
+  // UI test journeys (`right-release test --platform ios`): the declared XCUITest journeys on the dev device, under the same guards.
+  if (uiTests && platform !== "ios") throw new Error("UI test journeys run for --platform ios only");
   if (!new Set(["win", "mac", "linux", "android", "ios"]).has(platform)) throw new Error("--platform must be win, mac, linux, android or ios");
   // iOS: --dry-run validates the config and prints the plan on any host; everything else needs macOS with Xcode.
   if (!(platform === "ios" && dryRun)) assertNativeDevelopmentHost(platform);
   const target = validateDevelopmentConfig(config, platform, { root });
   const repoRoot = git(root, ["rev-parse", "--show-toplevel"]);
   assertPrimaryReleaseCheckout(repoRoot, env);
+  if (dryRun && uiTests) {
+    if (!target.uiTests) throw new Error("development.targets.ios.uiTests is not declared: list the journeys in uiTests.onlyTesting");
+    return { built: false, installed: false, plan: { tests: iosUiTestCommands(target, { root, storage: { derivedData: "<rustright storage xcode-args -derivedDataPath>" }, destinationId: "<device or simulator id>", resultBundle: "<fresh .xcresult per run>" }) } };
+  }
   if (dryRun) return { built: false, installed: false, plan: { ...(target.ndk ? { ndk: androidDevelopmentNdkCommand(target.ndk) } : {}), build: target.build, install: buildOnly ? null : target.install ?? null, profile: DEVELOPMENT_PROFILE } };
   assertReleaseExecutionAllowed({ cwd: repoRoot, environment: env, command: `right-release dev --platform ${platform}` });
   // Refuse an invalid or off-CI ad hoc opt-in before the (long) build, not after it.
@@ -110,7 +120,8 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
   let iosPrepared = null;
   if (platform === "ios") {
     assertIosDevelopmentSession(target, { env, run });
-    iosPrepared = prepareIosDevelopment(target, { root, env, run, serial });
+    if (uiTests && !target.uiTests) throw new Error("development.targets.ios.uiTests is not declared: list the journeys in uiTests.onlyTesting");
+    iosPrepared = uiTests ? prepareIosUiTests(target, { root, env, run, serial }) : prepareIosDevelopment(target, { root, env, run, serial });
   }
   // Android: the device serial is required, so a missing one is refused before the (long) build too.
   if (!buildOnly && platform === "android" && target.install) androidDevelopmentSerial({ descriptor: target.install, serial, env });
@@ -122,16 +133,36 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
     const startedMs = Date.now();
     // Android: cargo-ndk (Cargo dev profile) fills the generated jniLibs, then the Gradle debug build packages it.
     if (target.ndk) { rmSync(target.ndk.jniLibs, { recursive: true, force: true }); execute(androidDevelopmentNdkCommand(target.ndk), { root, env: childEnv, dryRun, run, label: "native build" }); }
+    if (uiTests) {
+      for (const command of iosPrepared.tests) execute(command, { root, env: childEnv, dryRun, run, label: "ui tests" });
+      console.log(`right-release test: ios journeys passed (${target.uiTests.onlyTesting.join(", ")}); result bundle ${iosPrepared.resultBundle}`);
+      return { built: true, installed: false, tested: true, resultBundle: iosPrepared.resultBundle };
+    }
     for (const command of iosPrepared ? iosPrepared.build : target.build) execute(command, { root, env: childEnv, dryRun, run, label: "build" });
     // Dev and QA binaries run from one stable staged path, copied in place (no backup of the old copy), never from the
     // broker's per-generation target folder or a hashed dev-targets folder.
     const staged = target.stage?.length ? stageDevelopmentBinaries(target.stage, { root, platform: platform === "win" ? "win32" : process.platform }) : [];
     for (const file of staged) console.log(`right-release dev: staged ${file}`);
+    // Linux: the declared files become one tarball per architecture plus the digest manifest a guest link pins (rightkit#1230).
+    // Only from a clean checkout: an artifact others install must name the exact commit it was built from.
+    if (platform === "linux" && target.archive && !dryRun) {
+      if (git(repoRoot, ["status", "--porcelain", "--untracked-files=normal"])) throw new Error("linux artifacts are packed only from a clean checkout: commit first, so the manifest names the exact source");
+      let version;
+      try { version = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version; } catch { version = undefined; }
+      packLinuxArtifacts({ root, archive: validateLinuxArchive(target.archive), app: target.archive.name, version, commit: git(repoRoot, ["rev-parse", "HEAD"]), run });
+    }
     if (buildOnly || !target.install) return { built: true, installed: false, ...(staged.length ? { staged } : {}) };
     if (iosPrepared) return { built: true, installed: true, ios: installIosDevelopment(iosPrepared.install, { root, env: childEnv, run }) };
     if (target.install.kind === TAURI_DEVID_KIND) {
       // installTauriDevId is async: the lease is held until it settles, so a broker cutover cannot land mid-install.
       const built = resolveTauriArtifact(target.install, { root, platform, env: childEnv });
+      // Dev = production + QA: the same native helpers the release embeds are built, embedded and signed into the dev .app too.
+      const helpers = platform === "mac" ? nativeHelpersFromConfig(config) : undefined;
+      if (helpers) {
+        let version;
+        try { version = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version; } catch { version = undefined; }
+        buildAndEmbedNativeHelpers({ appRoot: root, app: built, helpers, version, forceArch: String(target.install.targetTriple).startsWith("x86_64") ? "x86_64" : "arm64", configuration: "debug", replaceExisting: true, env: childEnv });
+      }
       releaseLease = false;
       return installTauriDevId({ appRoot: root, config: target.install, releaseConfig: config, built, env: childEnv })
         .then((outcome) => ({ built: true, installed: true, ...(staged.length ? { staged } : {}), devid: outcome }))

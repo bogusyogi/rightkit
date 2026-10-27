@@ -13,6 +13,9 @@
 //   2. every unit is exactly one workspace package (npm) or crate (crates/<unit>) at that commit, with a publishable version;
 //   3. that version is not on the registry yet (a version is published once; an unreadable registry is no proof of absence);
 //   4. every allowset entry is granted by the committed exception policy (rk-preflight.mjs exceptionAllowsets, the broker's own).
+//   5. the qualification is AUTHENTICATED, not asserted: its compile and package stages carry the local broker's signed job receipts
+//      (rustright.provenance.v1), verified here against the attestation pins committed in ci/rk-pipeline.json AT THE DISPATCHED COMMIT,
+//      each bound by its nonce to this commit, its real git tree, the unit and the stage (verifyQualificationReceipts).
 // The receipt (publish-admission-<attempt>) is an artifact of this run and attempt. publish-direct's uploader reads it from the run's
 // own artifact listing and refuses the upload unless it binds this repository, commit, run, attempt, registry, units, versions,
 // allowsets and a passed gate to the sealed manifest and the verify receipts (verifyRunAdmission). Nothing here is signed by a
@@ -25,6 +28,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { ProvenanceError, qualificationNonce, verifyProvenance } from "../../packages/release/provenance-verify.mjs";
+import { assignJobs, describeCommand, expectedStageCommands } from "../../packages/release/stage-commands.mjs";
 
 export const ADMISSION_SCHEMA = "rk-publish-admission.v2";
 export const ADMISSION_FILE = "admission.json";
@@ -93,7 +98,7 @@ function committedVersion(registry, unit, sha, git) {
 export function gateVerdict(result, sha) {
   const out = String(result?.stdout ?? "");
   const rules = new RegExp(`^check: ${sha.slice(0, 12)} passed (\\d+) rules \\(release tier\\) in \\d+(?:\\.\\d+)?s(?: \\(.*\\))?$`, "m").exec(out);
-  const classA = new RegExp(`^rightkit-gate: class A pass: (\\d+) deterministic scan\\(s\\) over (\\d+) file\\(s\\) of ${sha}$`, "m").exec(out);
+  const classA = new RegExp(`^rightkit-gate: class A content pass: (\\d+) deterministic scan\\(s\\) over (\\d+) file\\(s\\) of ${sha}$`, "m").exec(out);
   requireThat(result?.status === 0 && rules && classA && Number(rules[1]) > 0 && Number(classA[1]) > 0, `rightkit-gate check did not pass at ${sha.slice(0, 12)} (exit ${result?.status}); nothing is admitted`);
   return { command: `rightkit-gate check --commit ${sha} --rule-tier release`, exit: 0, rules: Number(rules[1]), classAScans: Number(classA[1]), classAFiles: Number(classA[2]) };
 }
@@ -128,6 +133,12 @@ export async function admit({ env, git, runGate, fetchImpl = fetch, policy }) {
   }
   const allow = Object.fromEntries(Object.entries(ALLOW_INPUTS).map(([key, name]) => [key, sorted(words(env[name]))]));
   for (const [key, list] of Object.entries(allow)) for (const item of list) requireThat(granted[key].has(item), `${POLICY_KEYS[key]} names ${item}, which the committed exception policy does not grant`);
+  // Authenticate it (after the cheap scope and version checks above): unsigned booleans admit nothing.
+  qualification.provenance = verifyQualificationReceipts(env.QUALIFICATION, { sha, git });
+  // The check and qualify stages run in the gate's own process with no broker job, so no signed receipt can exist for them: their `ok`
+  // is the caller's word and is recorded as such. The evidence that remains is this run's own gate (below), its own qualification and
+  // the sealed archive's digest being bound to the qualification's artifactSha256 (bindPackedToQualification).
+  qualification.unattested = ["check", "qualify"];
   requireThat(qualification.unit.version === versions[qualification.unit.name], `the qualification receipt qualified ${qualification.unit.name}@${qualification.unit.version}, the committed version is ${versions[qualification.unit.name]}`);
   return { schema: ADMISSION_SCHEMA, mode: env.ADMISSION, requestId: env.ADMISSION === "broker" ? env.REQUEST_ID : "", repository: REPOSITORY, sourceSha: sha, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT, qualification, registry, units, versions, allow, gate };
 }
@@ -147,6 +158,96 @@ export function readQualificationInput(text, { sha, registry, units }) {
   for (const stage of ["check", "compile", "package", "qualify"]) requireThat(q.stages?.[stage]?.ok === true, `the qualification receipt's ${stage} stage is not ok`);
   requireThat(/^[0-9a-f]{64}$/.test(q.artifactSha256 ?? ""), "the qualification receipt names no artifact sha256");
   return { schema: q.schema, commit: q.commit, tree: q.tree, runtime: q.runtime ?? null, executor: q.executor ?? null, unit: { kind: q.unit.kind, name: q.unit.name, version: q.unit.version }, artifactSha256: q.artifactSha256 };
+}
+
+const ATTESTED_STAGES = ["compile", "package"];
+const MAX_VERIFIED_RECEIPTS = 64;
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+/** The enrolled host pins committed at `sha` (ci/rk-pipeline.json "attestation", one entry per platform) -- never taken from the request. */
+export function enrolledPins(sha, git) {
+  let doc;
+  try { doc = JSON.parse(git("show", `${sha}:ci/rk-pipeline.json`)); } catch { refuse("ci/rk-pipeline.json is unreadable at the dispatched commit; no host is enrolled"); }
+  const pins = Object.entries(doc?.attestation ?? {})
+    .filter(([, p]) => p && typeof p === "object" && ["publicKey", "keyId", "host", "brokerDigest"].every((key) => typeof p[key] === "string" && p[key]))
+    .map(([platform, { publicKey, keyId, host, brokerDigest }]) => ({ publicKey, keyId, host, brokerDigest, platform }));
+  requireThat(pins.length > 0, "ci/rk-pipeline.json enrolls no attestation pins at the dispatched commit");
+  return pins;
+}
+
+/**
+ * The qualification's broker receipts, verified. For each of the compile and package stages: at least one receipt whose signature
+ * verifies against the pins enrolled at the dispatched commit for the receipt's host, whose job id is its own, whose nonce is the one
+ * recomputed for (dispatched commit, its real git tree, unit, stage), and whose signed result is SUCCEEDED with exit code 0 in a
+ * recorded workspace. A receipt of another commit, tree, unit or stage cannot carry the nonce; a job id is used once across stages.
+ * The qualification's tree must equal the dispatched commit's tree. Returns the verified summary the admission receipt records.
+ */
+export function verifyQualificationReceipts(text, { sha, git }) {
+  let q;
+  try { q = JSON.parse(text); } catch { refuse("the qualification input is not JSON"); }
+  const tree = String(git("rev-parse", `${sha}^{tree}`)).trim();
+  requireThat(/^[0-9a-f]{40}$/.test(tree), `cannot read the tree of ${sha.slice(0, 12)}`);
+  requireThat(q?.tree === tree, `the qualification receipt is for tree ${String(q?.tree).slice(0, 12)}, the dispatched commit's tree is ${tree.slice(0, 12)}`);
+  requireThat(typeof q.unit?.kind === "string" && typeof q.unit?.name === "string", "the qualification receipt names no unit");
+  const pins = enrolledPins(sha, git);
+  const unit = `${q.unit.kind}:${q.unit.name}`;
+  // What each stage's signed requests must show, derived by the stages' own command builders from the dispatched commit's files.
+  const expectedByPlatform = new Map();
+  const expectedFor = (platform) => {
+    if (!expectedByPlatform.has(platform)) {
+      let expected;
+      try {
+        const config = JSON.parse(git("show", `${sha}:ci/gate.config.json`));
+        const manifest = q.unit.kind === "npm" ? JSON.parse(git("show", `${sha}:packages/${q.unit.name.slice("@rightkit/".length)}/package.json`)) : undefined;
+        expected = expectedStageCommands({ kind: q.unit.kind, unit: q.unit.name, config, manifest, platform });
+      } catch (error) { refuse(`cannot derive the ${platform} stage commands of ${unit} at ${sha.slice(0, 12)}: ${error.message}`); }
+      expectedByPlatform.set(platform, expected);
+    }
+    return expectedByPlatform.get(platform);
+  };
+  const repoName = REPOSITORY.split("/")[1];
+  let workspace = null, platform = null;
+  const seen = new Set();
+  const verified = {};
+  for (const stage of ATTESTED_STAGES) {
+    const list = q.stages?.[stage]?.receipts;
+    requireThat(Array.isArray(list) && list.length >= 1, `the qualification receipt's ${stage} stage carries no signed broker receipts; an unauthenticated qualification admits nothing`);
+    requireThat(list.length <= MAX_VERIFIED_RECEIPTS, `the qualification receipt's ${stage} stage carries ${list.length} receipts (at most ${MAX_VERIFIED_RECEIPTS})`);
+    const nonce = qualificationNonce({ commit: sha, tree, unit, stage });
+    const jobs = [];
+    verified[stage] = list.map((receipt, index) => {
+      const where = `${stage} receipt ${index + 1}`;
+      requireThat(receipt && typeof receipt === "object" && typeof receipt.id === "string" && receipt.id, `${where} has no job id`);
+      requireThat(!seen.has(receipt.id), `${where}: job ${receipt.id} appears more than once in the qualification`);
+      seen.add(receipt.id);
+      const candidates = pins.filter((p) => p.host === receipt.provenance?.payload?.host);
+      requireThat(candidates.length > 0, `${where}: signed for host ${JSON.stringify(receipt.provenance?.payload?.host)}, which ci/rk-pipeline.json does not enroll`);
+      let payload, failure, pin;
+      for (const candidate of candidates) {
+        try { payload = verifyProvenance(receipt, candidate, { jobId: receipt.id, nonce }); pin = candidate; break; } catch (error) { if (!(error instanceof ProvenanceError)) throw error; failure = error; }
+      }
+      requireThat(payload, `${where} (job ${receipt.id}) does not verify against the enrolled pins at ${sha.slice(0, 12)}: ${failure?.code}: ${failure?.message}`);
+      requireThat(payload.result?.status === "SUCCEEDED" && payload.result.exitCode === 0, `${where} (job ${receipt.id}) did not succeed (${payload.result?.status}, exit ${payload.result?.exitCode})`);
+      requireThat(typeof payload.request?.workspace === "string" && payload.request.workspace !== "", `${where} (job ${receipt.id}) records no workspace`);
+      requireThat(SHA256_HEX.test(payload.requestDigest ?? ""), `${where} (job ${receipt.id}) carries no request digest`);
+      // The signed request must be one of this stage's own commands (kind, adapter and exact argv, as the stage's builders define them),
+      // run in a checkout of this repository on the enrolled host: the same one for every receipt of the qualification.
+      platform ??= pin.platform;
+      requireThat(pin.platform === platform, `${where} (job ${receipt.id}) was signed by the ${pin.platform} host, another host than the qualification's other jobs (${platform})`);
+      jobs.push({ id: receipt.id, payload });
+      const where_ = String(payload.request.workspace).replaceAll("\\", "/").replace(/\/+$/, "");
+      requireThat(where_.split("/").pop() === repoName && (payload.request.workspaceRoot === undefined || String(payload.request.workspaceRoot).replaceAll("\\", "/").replace(/\/+$/, "") === where_), `${where} (job ${receipt.id}) ran in ${payload.request.workspace}, not in a checkout of ${repoName}`);
+      requireThat(workspace === null || workspace === where_, `${where} (job ${receipt.id}) ran in ${payload.request.workspace}, another workspace than the qualification's other jobs (${workspace})`);
+      workspace = where_;
+      return { jobId: receipt.id, host: payload.host, keyId: payload.keyId, requestDigest: payload.requestDigest, requestedArgv: payload.request.requestedArgv };
+    });
+    // EVERY command the stage runs must be covered by a verified receipt of its own job, and every receipt must be one of those commands.
+    const { assigned, unmatched, missing } = assignJobs(expectedFor(platform)[stage], jobs);
+    // Messages are formatted only on failure: on success there is no unmatched job or missing command to describe.
+    if (unmatched.length) requireThat(false, `${stage} job ${unmatched[0]} ran ${JSON.stringify(jobs.find((j) => j.id === unmatched[0])?.payload.request.requestedArgv)}, which is not (or no longer) a command of the ${stage} stage of ${unit}`);
+    if (missing.length) requireThat(false, `the qualification carries no signed receipt of the ${stage} stage's ${missing.length ? describeCommand(missing[0]) : ""} (${missing.length} of ${assigned.size + missing.length} required command(s) missing)`);
+  }
+  return verified;
 }
 
 /** The hosted pack must reproduce the locally qualified bytes: the sealed manifest's entry for the unit carries the same sha256,
@@ -185,6 +286,7 @@ export function verifyAdmissionReceipt(receipt, { repository, sourceSha, runId, 
   const q = receipt.qualification;
   requireThat(q && q.schema === QUALIFICATION_SCHEMA && q.commit === sourceSha && /^[0-9a-f]{64}$/.test(q.artifactSha256 ?? ""), "receipt carries no qualification for this commit");
   requireThat(units.some((unit) => unit.name === q.unit?.name && unit.version === q.unit?.version), "receipt qualification names no sealed unit at its sealed version");
+  requireThat(ATTESTED_STAGES.every((stage) => Array.isArray(q.provenance?.[stage]) && q.provenance[stage].length > 0), "receipt qualification carries no verified broker provenance for its compile and package stages");
   return receipt;
 }
 

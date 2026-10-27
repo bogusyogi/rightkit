@@ -5,7 +5,7 @@ import test from "node:test";
 import { tempRoot } from "./test-support/temp-roots.mjs";
 import {
   IosDevelopmentError, assertIosDevelopmentSession, deviceReadiness, installIosDevelopment, iosDevelopmentBuildCommands, iosDevelopmentDevice,
-  listSimulators, prepareIosDevelopment, productsDirectory, selectDevice, selectSimulator, validateIosDevelopment,
+  iosUiTestCommands, listSimulators, prepareIosDevelopment, productsDirectory, selectDevice, selectSimulator, validateIosDevelopment,
 } from "./ios-dev.mjs";
 
 const SIM_UDID = "A1B2C3D4-0000-4000-8000-1234567890AB";
@@ -236,4 +236,31 @@ test("a paired device whose idle tunnel dropped is woken and read again; only a 
   const quiet = [];
   assert.equal(selectReadyDevice({ list: () => [phone("connected", true)], wake: (id) => quiet.push(id), wanted: "UDID-1" }).identifier, "DEV-1");
   assert.deepEqual(quiet, []);
+});
+
+test("UI test journeys: uiTests validates strictly and generates build-for-testing then test-without-building of exactly the listed journeys on the dev destination", () => {
+  const journeys = ["PulseUITests/PulseScreensJourney", "PulseUITests/PulseLiveJourney"];
+  const dev = validateIosDevelopment(base({ teamId: "6KLGD3LLKF", install: device(), uiTests: { onlyTesting: journeys } }), { root });
+  assert.deepEqual(dev.uiTests, { scheme: "Pulse", onlyTesting: journeys });
+  const [build, run] = iosUiTestCommands(dev, { root, storage: { derivedData: "/dd" }, destinationId: DEVICE_ID, resultBundle: "/r/ui-tests-1.xcresult" });
+  assert.equal(build.args.at(-1), "build-for-testing");
+  assert.equal(run.args.at(-1), "test-without-building");
+  for (const c of [build, run]) {
+    assert.equal(c.cmd, "xcodebuild");
+    assert.equal(c.args[c.args.indexOf("-destination") + 1], `id=${DEVICE_ID}`);
+    assert.equal(c.args[c.args.indexOf("-derivedDataPath") + 1], "/dd");
+    assert.ok(c.args.includes("DEVELOPMENT_TEAM=6KLGD3LLKF"));
+  }
+  assert.deepEqual(run.args.filter((a) => a.startsWith("-only-testing:")), journeys.map((j) => `-only-testing:${j}`));
+  assert.equal(run.args[run.args.indexOf("-resultBundlePath") + 1], "/r/ui-tests-1.xcresult");
+  const sim = validateIosDevelopment(base({ install: simulator(), uiTests: { onlyTesting: ["PulseUITests"], testPlan: "Journeys" } }), { root });
+  const [simBuild] = iosUiTestCommands(sim, { root, storage: { derivedData: "/dd" }, destinationId: SIM_UDID, resultBundle: "/r/x.xcresult" });
+  assert.equal(simBuild.args[simBuild.args.indexOf("-destination") + 1], `platform=iOS Simulator,id=${SIM_UDID}`);
+  assert.equal(simBuild.args[simBuild.args.indexOf("-testPlan") + 1], "Journeys");
+  // Strict: no install, an empty or malformed list, or an unknown key is refused.
+  coded("DEV_IOS_CONFIG_INVALID", () => validateIosDevelopment(base({ uiTests: { onlyTesting: journeys } }), { root }));
+  coded("DEV_IOS_CONFIG_INVALID", () => validateIosDevelopment(base({ install: simulator(), uiTests: { onlyTesting: [] } }), { root }));
+  coded("DEV_IOS_CONFIG_INVALID", () => validateIosDevelopment(base({ install: simulator(), uiTests: { onlyTesting: ["a b"] } }), { root }));
+  coded("DEV_IOS_CONFIG_INVALID", () => validateIosDevelopment(base({ install: simulator(), uiTests: { onlyTesting: journeys, retries: 3 } }), { root }));
+  assert.throws(() => iosUiTestCommands(validateIosDevelopment(base({ install: simulator() }), { root }), { root, storage: { derivedData: "/dd" }, destinationId: SIM_UDID, resultBundle: "/r/x.xcresult" }), /uiTests is not declared/);
 });

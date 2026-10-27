@@ -77,8 +77,9 @@ pub fn version_within(app_version: &str, max_version: &str) -> bool {
 ///
 /// - **With the `test-mode` feature** the override variables `RIGHTKIT_SUITE_ROOT`,
 ///   `RIGHT_SUITE_DIR` and `ORTHIC_SHARED_DIR` are honoured, in that order. A value that is empty
-///   after trimming counts as unset. A relative override, or no override at all with the real
-///   `HOME`, fails closed (panics) instead of resolving to the real per-user folder.
+///   after trimming counts as unset. With no override the root is the real per-user folder, like a
+///   normal launch (isolation is chosen per launch by the QA runner's environment). A relative
+///   override fails closed (panics).
 /// - **Without it** (every release build) no override variable is read: the root is the operating
 ///   system's per-user default from the account database.
 pub fn suite_root() -> PathBuf {
@@ -90,8 +91,8 @@ pub fn suite_root() -> PathBuf {
 
 /// Whether `models_root` is the suite's own models root ([`models_root`]).
 ///
-/// Comparing a path writes nothing, so a test-mode build whose own root would be refused (no
-/// usable override, real `HOME`) answers `false` here instead of panicking: nothing can be the
+/// Comparing a path writes nothing, so a test-mode build whose own root cannot be resolved (a
+/// relative override) answers `false` here instead of panicking: nothing can be the
 /// suite's models root when the suite has none. Store code uses this to decide whether the legacy
 /// registry beside the suite root is also consulted.
 pub fn is_suite_models_root(models_root: &Path) -> bool {
@@ -125,26 +126,16 @@ fn checked_suite_root() -> Result<PathBuf, String> {
             Err(_) => default_suite_root(),
         });
     }
-    // A test-capable build never reaches the real per-user folder: an unresolvable root, or one
-    // that equals the account's real default (no usable override, real HOME), is refused loudly
-    // rather than written to. Resolved fresh on every call, never cached.
-    let root = match resolved {
-        Ok(suite) => suite.root().to_path_buf(),
-        Err(err) => {
-            return Err(format!(
-                "rightkit-models: cannot resolve the suite root in test-mode: {err}"
-            ))
-        }
-    };
-    if let Ok(real) = rightkit_daemon::Suite::per_user_default() {
-        if real.root() == root {
-            return Err(format!(
-                "rightkit-models: refusing the real per-user suite root {} in a test-mode build; set RIGHTKIT_SUITE_ROOT (or redirect HOME) to an isolated directory",
-                root.display()
-            ));
-        }
+    // A test-capable build honours an override when one is set and otherwise resolves the real
+    // folders exactly like a normal launch (dev installs keep their QA control; isolation is chosen
+    // per launch by the runner's environment, never by the build). Only an unresolvable or
+    // relative override is an error. Resolved fresh on every call, never cached.
+    match resolved {
+        Ok(suite) => Ok(suite.root().to_path_buf()),
+        Err(err) => Err(format!(
+            "rightkit-models: cannot resolve the suite root in test-mode: {err}"
+        )),
     }
-    Ok(root)
 }
 
 /// Previous Right Suite registry root retained during compatibility window.

@@ -207,8 +207,8 @@ test("SCAN_A claiming a class B scan is rejected (and SCAN_B carrying class A)",
   const mixed = [...SCAN_A, { id: "clippy:foo", class: "B", command: "rustright cargo clippy", status: "pass" }];
   const result = verify(chainTo("SCAN_A", { mutate: { SCAN_A: (r) => { r.evidence.scans = mixed; r.evidence.scanSetDigest = digestScanSet(mixed); } } }));
   assert.ok(codes(result).includes("SCAN_CLASS_MIX"));
-  // Disguised: labelled class A but the id is a class B scan.
-  const disguised = [...SCAN_A, { id: "tsc:foo", class: "A", command: "pnpm exec tsc", status: "pass" }];
+  // Disguised: labelled class A but the id is a class B (compile) scan. (tsc is class A since 2026-10-27: it does not compile.)
+  const disguised = [...SCAN_A, { id: "check:foo", class: "A", command: "rustright cargo check -p foo", status: "pass" }];
   assert.ok(codes(verify(chainTo("SCAN_A", { mutate: { SCAN_A: (r) => { r.evidence.scans = disguised; r.evidence.scanSetDigest = digestScanSet(disguised); } } }))).includes("SCAN_CLASS_MIX"));
   const withA = [...SCAN_B, SCAN_A[0]];
   assert.ok(codes(verify(chainTo("SCAN_B", { mutate: { SCAN_B: (r) => { r.evidence.scans = withA; r.evidence.scanSetDigest = digestScanSet(withA); } } }))).includes("SCAN_CLASS_MIX"));

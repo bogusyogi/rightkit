@@ -7,6 +7,8 @@ import { localBuildGranted } from "./execution-policy.mjs";
 import { readCargoPackage } from "./crate-graph.mjs";
 import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
 import { endRun, startRun, stagesTo } from "./gate-stages.mjs";
+import { qualificationNonce } from "./provenance-verify.mjs";
+import { assignJobs, describeCommand, expectedStageCommands } from "./stage-commands.mjs";
 
 const GH = process.platform === "win32" ? "C:\\Program Files\\GitHub CLI\\gh.exe" : "/opt/homebrew/bin/gh";
 const defaultRun = (cmd, args, options = {}) => nodeSpawnSync(cmd, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, ...options });
@@ -23,19 +25,52 @@ const defaultReadJson = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
  * state by hand). The local bundle's digest is reported beside the hosted one, never equated with it.
  */
 export const QUALIFICATION_SCHEMA = "rightkit.unit-qualification/1";
+/** The stages whose broker jobs the hosted admission authenticates (their signed receipts ride in the qualification), and how many
+ * receipts one stage may carry (every command of the stage needs its own; the dispatch input is capped at 65535 characters in all and
+ * each signed envelope is ~3 KB, which writeQualification checks). */
+export const ATTESTED_STAGES = ["compile", "package"];
+export const MAX_STAGE_RECEIPTS = 64;
+const MAX_QUALIFICATION_BYTES = 58_000;
+
+/** `rustright status <id>`: the broker's own record of one job, reduced to what a verifier needs (id + signed envelope). A job the
+ * broker cannot report, or one without a signed envelope, fails the stage: an unauthenticated qualification is worth nothing. */
+/** The commands each stage must have run for this unit, from the same builders the stages use, over the checkout's own config. */
+export function defaultStageCommands({ unit, root, platform, readJson = defaultReadJson }) {
+  const manifest = unit.kind === "npm" ? readJson(path.join(root, "packages", unit.name.slice("@rightkit/".length), "package.json")) : undefined;
+  return expectedStageCommands({ kind: unit.kind, unit: unit.name, config: readJson(path.join(root, "ci", "gate.config.json")), manifest, platform });
+}
+
+export function readBrokerReceipt(id, { run = defaultRun } = {}) {
+  const r = run("rustright", ["status", id], { encoding: "utf8", timeout: 60_000 });
+  if (r.error || r.status !== 0) throw new Error(`the broker cannot report job ${id} (rustright status failed)`);
+  let doc;
+  try { doc = JSON.parse(r.stdout); } catch { throw new Error(`the broker's status of job ${id} is not JSON`); }
+  const receipt = doc?.receipt ?? doc;
+  if (receipt?.id !== id || !receipt.provenance?.payload || !receipt.provenance.signature) throw new Error(`job ${id} has no signed provenance receipt`);
+  return { id, provenance: receipt.provenance };
+}
 /** `<bundle>/qualification.json`: the local stages that passed and the one artifact sha256 they bound, for the dispatcher. */
 export function writeQualification({ report, artifact, unit, commit, tree, runtime, executor, write = fs.writeFileSync }) {
   for (const stage of ["check", "compile", "package", "qualify"]) if (report.stages?.[stage]?.ok !== true) throw new Error(`release needs stage ${stage} ok before it runs`);
   if (!artifact?.artifactFile || !/^[0-9a-f]{64}$/.test(artifact.artifactSha256 ?? "")) throw new Error("release needs the qualified artifact");
   const receipt = { schema: QUALIFICATION_SCHEMA, unit: { kind: unit.kind, name: unit.name, version: unit.version }, commit, tree, runtime, executor: executor?.kind ?? null,
     stages: Object.fromEntries(["check", "compile", "package", "qualify"].map((s) => [s, { ...report.stages[s] }])), artifactSha256: artifact.artifactSha256, writtenAt: new Date().toISOString() };
+  // The broker's signed receipts for the compile and package stages are what the hosted admission verifies; without them the
+  // booleans above are only this process's say-so.
+  for (const stage of ATTESTED_STAGES) {
+    const list = report.stages[stage].receipts;
+    if (!Array.isArray(list) || list.length < 1 || list.length > MAX_STAGE_RECEIPTS) throw new Error(`release needs 1 to ${MAX_STAGE_RECEIPTS} signed broker receipts of the ${stage} stage (found ${Array.isArray(list) ? list.length : "none"})`);
+  }
+  if (JSON.stringify(receipt).length > MAX_QUALIFICATION_BYTES) throw new Error("the qualification receipt with its broker receipts exceeds the workflow dispatch input limit");
   const file = path.join(path.dirname(artifact.artifactFile), "qualification.json");
   write(file, `${JSON.stringify(receipt, null, 2)}\n`);
   return file;
 }
 
+const requireBrokerHost = (executor) => { if (executor?.kind !== "broker") throw new Error("unit release runs only on a broker-managed host (the hosted qualification is dispatched by the RustRight rightkit-dispatch adapter); a direct host has no gate-owned release route, so no upload was started"); };
+
 export async function releaseUnit({ unit, root, commit, executor, env, artifact, qualification, platform = process.platform, run = defaultRun, readJson = defaultReadJson, out = console.log, scratch = platform === "win32" ? "D:\\scratch" : "/Volumes/D/scratch", registryBytes = defaultRegistryBytes }) {
-  if (executor?.kind !== "broker") throw new Error("unit release runs only on a broker-managed host (the hosted qualification is dispatched by the RustRight rightkit-dispatch adapter); a direct host has no gate-owned release route, so no upload was started");
+  requireBrokerHost(executor);
   if (typeof qualification !== "string" || !fs.existsSync(qualification)) throw new Error("release needs the unit qualification receipt (written by the gate after the qualify stage); nothing is dispatched without it");
   const registry = unit.kind === "npm" ? "npm" : "crates";
   const pipeline = path.join(root, "scripts", "ci", "rk-pipeline.mjs");
@@ -149,7 +184,7 @@ export function resolveUnit(selector, root, { granted = localBuildGranted, readJ
 }
 
 /** One invocation reruns all owed stages; reports are never read as admission evidence. */
-export async function runUnitGate({ selector, to, root, commonDir, commit, tree, executor, env, platform, check, loadOwner = () => import("./local-publish.mjs"), out = console.log, err = console.error, releaser = null, resolve = resolveUnit, writeReport }) {
+export async function runUnitGate({ selector, to, root, commonDir, commit, tree, executor, env, platform, check, loadOwner = () => import("./local-publish.mjs"), out = console.log, err = console.error, releaser = null, resolve = resolveUnit, writeReport, fetchReceipt = readBrokerReceipt, stageCommands = defaultStageCommands }) {
   const stages = stagesTo(to);
   if (!stages) { err(`rightkit-gate: invalid unit stage ${to}`); return 2; }
   let unit;
@@ -162,10 +197,24 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
   const runtime = hash(runtimeFiles.map((file) => `${path.relative(runtimeDir, file)}\0${hash(fs.readFileSync(file))}`).join("\n"));
   const report = { schema: "rightkit.unit-gate-report/1", unit, commit, tree, runtime, executor: executor.kind, stages: {} };
   const save = () => { if (writeReport) writeReport(report); };
-  let state, owner, artifact, currentStage;
+  let state, owner, artifact, currentStage, checkTier = null;
+  // A run headed to release has its compile and package broker jobs sent with a nonce bound to this commit, tree, unit and stage
+  // (RIGHTKIT_ATTEST_NONCE), so each job's signed receipt can be verified hosted for exactly that and nothing else.
+  const attested = stages.includes("release") && executor?.kind === "broker";
   const stageEnv = async (stage, action) => {
     const run = startRun({ commonDir, commit, tree, stage });
-    try { return await action({ ...env, ...run.env }); } finally { endRun(run); }
+    const nonce = attested && ATTESTED_STAGES.includes(stage) ? { RIGHTKIT_ATTEST_NONCE: qualificationNonce({ commit, tree, unit: `${unit.kind}:${unit.name}`, stage }) } : {};
+    try { return await action({ ...env, ...nonce, ...run.env }); } finally { endRun(run); }
+  };
+  const receipts = {};
+  const collectReceipts = (stage, ids) => {
+    if (!attested || !ATTESTED_STAGES.includes(stage)) return;
+    // Every job of the stage is fetched; the stage owes a signed receipt for EVERY command it runs (hosted admission requires the same),
+    // so a missing one fails here, before any dispatch, naming it. Jobs that are none of the stage's commands are not carried.
+    const fetched = [...new Set(ids ?? [])].map((id) => fetchReceipt(id));
+    const { assigned, missing } = assignJobs(stageCommands({ unit, root, platform })[stage], fetched.map((r) => ({ id: r.id, payload: r.provenance.payload })));
+    if (missing.length) throw new Error(`the ${stage} stage's ${describeCommand(missing[0])} has no broker job receipt (${missing.length} required command(s) missing)`);
+    receipts[stage] = fetched.filter((r) => assigned.has(r.id));
   };
   const verifyArtifact = (result) => {
     if (!result || result.kind !== unit.kind || result.name !== unit.name || result.version !== unit.version || result.commit !== commit || !/^[0-9a-f]{64}$/.test(result.artifactSha256 ?? "") || hash(fs.readFileSync(result.artifactFile)) !== result.artifactSha256) throw new Error("unit artifact identity or digest differs from the completed stage");
@@ -173,15 +222,18 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
   try {
     for (const stage of stages) {
       currentStage = stage;
-      if (stage === "check") { if (await check("compile") !== 0) throw new Error("class A check failed"); }
+      // A unit run headed to qualify or release owes the release tier: it runs here, before the compile, and qualify does not run it again.
+      if (stage === "check") { checkTier = stages.includes("qualify") ? "release" : "compile"; if (await check(checkTier) !== 0) throw new Error(`class A check (${checkTier} tier) failed`); }
       else if (stage === "compile") {
         owner = await loadOwner();
         state = await stageEnv(stage, (runEnv) => owner.compileLocalUnit(unit.kind, argv, { env: runEnv }));
+        collectReceipts(stage, owner.localUnitCompileRequests?.(state));
       } else if (stage === "package") {
         artifact = await stageEnv(stage, (runEnv) => owner.packageLocalUnit(state, { env: runEnv }));
         verifyArtifact(artifact);
+        collectReceipts(stage, artifact.brokerRequests);
       } else if (stage === "qualify") {
-        if (await check("release") !== 0) throw new Error("release-tier check failed");
+        if (checkTier !== "release" && await check("release") !== 0) throw new Error("release-tier check failed");
         const qualified = await stageEnv(stage, (runEnv) => owner.qualifyLocalUnit(state, { env: runEnv }));
         verifyArtifact(qualified);
         if (!qualified.qualifiedOnly || !qualified.evidencePath || qualified.artifactSha256 !== artifact.artifactSha256) throw new Error("qualification did not bind the packaged artifact");
@@ -190,10 +242,11 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
       let released = null;
       if (stage === "release") {
         // The qualification receipt the dispatcher carries to publish.yml: the hosted run is bound to these bytes and stages.
+        requireBrokerHost(executor); // a direct host has no broker receipts to carry: refuse for that reason, not for the missing receipts
         const qualification = writeQualification({ report, artifact, unit, commit, tree, runtime, executor });
         released = await stageEnv(stage, (runEnv) => (releaser ?? releaseUnit)({ unit, root, commit, executor, env: runEnv, artifact, qualification, platform, out }));
       }
-      report.stages[stage] = { ok: true, ...(stage === "package" || stage === "qualify" ? { artifactFile: artifact.artifactFile, artifactSha256: artifact.artifactSha256 } : {}), ...(released ?? {}) };
+      report.stages[stage] = { ok: true, ...(stage === "package" || stage === "qualify" ? { artifactFile: artifact.artifactFile, artifactSha256: artifact.artifactSha256 } : {}), ...(receipts[stage] ? { receipts: receipts[stage] } : {}), ...(released ?? {}) };
       save();
       out(`rightkit-gate: [${stage}] ${unit.kind}:${unit.name} passed`);
     }

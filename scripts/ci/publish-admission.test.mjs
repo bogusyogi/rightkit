@@ -5,7 +5,10 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { ADMISSION_SCHEMA, QUALIFICATION_SCHEMA, admissionArtifactName, admit, bindPackedToQualification, dispatchHosted, gateVerdict, readQualificationInput, verifyAdmissionReceipt } from "./publish-admission.mjs";
+import { qualificationNonce } from "../../packages/release/provenance-verify.mjs";
+import { expectedStageCommands } from "../../packages/release/stage-commands.mjs";
+import { makeSigner } from "../../packages/release/test-support/provenance-signer.mjs";
+import { ADMISSION_SCHEMA, QUALIFICATION_SCHEMA, admissionArtifactName, admit, bindPackedToQualification, dispatchHosted, gateVerdict, readQualificationInput, verifyAdmissionReceipt, verifyQualificationReceipts } from "./publish-admission.mjs";
 import { main as rightkitDispatch } from "./rightkit-dispatch.mjs";
 
 const SHA = "a".repeat(40);
@@ -13,10 +16,27 @@ const OTHER = "b".repeat(40);
 const NONE = { allow_host_exclusion: [], allow_no_test: [], allow_ignored: [], allow_missing_assets: [] };
 const policy = (granted = NONE) => () => granted;
 const ACTIONS = { GITHUB_ACTIONS: "true", GITHUB_REPOSITORY: "bogusyogi/rightkit", GITHUB_REF: "refs/heads/main", GITHUB_SHA: SHA, GITHUB_RUN_ID: "77", GITHUB_RUN_ATTEMPT: "1" };
-/** rightkit-gate's qualification receipt as the dispatcher forwards it (one unit, every local stage ok, one artifact sha). */
-const qual = ({ kind = "npm", name = "@rightkit/release", version = "0.6.7", commit = SHA, ...over } = {}) => ({ schema: QUALIFICATION_SCHEMA, commit, tree: "c".repeat(40), runtime: "r".repeat(64), executor: "broker",
-  unit: { kind, name, version }, stages: { check: { ok: true }, compile: { ok: true }, package: { ok: true }, qualify: { ok: true } }, artifactSha256: "d".repeat(64), ...over });
-const QUAL = { schema: QUALIFICATION_SCHEMA, commit: SHA, tree: "c".repeat(40), runtime: "r".repeat(64), executor: "broker", unit: { kind: "npm", name: "@rightkit/release", version: "0.6.7" }, artifactSha256: "d".repeat(64) };
+/** The enrolled host: a key pair standing in for the Mac broker's, whose pins are committed in ci/rk-pipeline.json at the dispatched commit. */
+const SIGNER = makeSigner();
+const TREE = "c".repeat(40);
+const PIPELINE = JSON.stringify({ attestation: { darwin: SIGNER.pins } });
+/** What each stage's signed requests must show: the stage builders' own commands for the unit (the same derivation the admission uses). */
+const stageRows = ({ kind, name, stage }) => expectedStageCommands({ kind, unit: name, config: {}, manifest: { scripts: { test: "x" } }, platform: "darwin" })[stage];
+const argvOf = (row) => row.argvs[0].map((a) => (typeof a === "string" ? a : "/tmp/scratch"));
+const requestOf = (row, workspace) => ({ kind: row.kind, ...(row.adapter ? { adapter: row.adapter } : {}), shim: row.kind, requestedArgv: argvOf(row), workspace, workspaceRoot: workspace });
+/** The broker's signed receipts for one stage of one unit, as the gate embeds them: one job per command of the stage, nonce bound to
+ * commit, tree, unit and stage, run in a checkout named for the repository. `jobs` overrides the ids (each runs the stage's key command). */
+const stageReceipts = ({ commit = SHA, tree = TREE, kind, name, stage, signer = SIGNER, jobs, workspace = "/work/rightkit", rows, request, requestFor, ...over }) => {
+  const all = rows ?? stageRows({ kind, name, stage });
+  const ids = jobs ?? all.map((_, i) => `${stage}-job-${i + 1}`);
+  return ids.map((jobId, i) => signer.receipt({ jobId, nonce: qualificationNonce({ commit, tree, unit: `${kind}:${name}`, stage }), request: request ?? (requestFor ?? requestOf)(all[i] ?? all[0], workspace, i), ...over }));
+};
+/** rightkit-gate's qualification receipt as the dispatcher forwards it (one unit, every local stage ok, signed broker receipts for compile and package, one artifact sha). */
+const qual = ({ kind = "npm", name = "@rightkit/release", version = "0.6.7", commit = SHA, tree = TREE, receiptFor = {}, ...over } = {}) => ({ schema: QUALIFICATION_SCHEMA, commit, tree, runtime: "r".repeat(64), executor: "broker",
+  unit: { kind, name, version }, stages: { check: { ok: true }, compile: { ok: true, receipts: stageReceipts({ commit, tree, kind, name, stage: "compile", ...receiptFor }) }, package: { ok: true, receipts: stageReceipts({ commit, tree, kind, name, stage: "package", ...receiptFor }) }, qualify: { ok: true } }, artifactSha256: "d".repeat(64), ...over });
+const provenanceOf = ({ kind, name }) => Object.fromEntries(["compile", "package"].map((stage) => [stage, stageRows({ kind, name, stage }).map((row, i) => ({ jobId: `${stage}-job-${i + 1}`, host: SIGNER.pins.host, keyId: SIGNER.pins.keyId, requestDigest: "7".repeat(64), requestedArgv: argvOf(row) }))]));
+const QUAL = { schema: QUALIFICATION_SCHEMA, commit: SHA, tree: TREE, runtime: "r".repeat(64), executor: "broker", unit: { kind: "npm", name: "@rightkit/release", version: "0.6.7" }, artifactSha256: "d".repeat(64),
+  provenance: provenanceOf({ kind: "npm", name: "@rightkit/release" }), unattested: ["check", "qualify"] };
 /** The only admitted shape: the broker's dispatch of rightkit-gate --to release, carrying the qualification for the first unit named. */
 const brokerEnv = (extra = {}) => {
   const env = { ...ACTIONS, ADMISSION: "broker", REQUEST_ID: "req-1", EXPECTED_SHA: SHA, REGISTRY: "npm", UNITS: "@rightkit/release", ALLOW_HOST_EXCLUSION: "", ALLOW_NO_TEST: "", ALLOW_IGNORED: "", ALLOW_MISSING_ASSETS: "", ...extra };
@@ -26,13 +46,16 @@ const brokerEnv = (extra = {}) => {
 };
 const hostedEnv = brokerEnv;
 /** A committed tree with packages/release (@rightkit/release 0.6.7) and packages/ci (@rightkit/ci 0.3.2). */
-const PACKAGES = { release: { name: "@rightkit/release", version: "0.6.7" }, ci: { name: "@rightkit/ci", version: "0.3.2" } };
+const PACKAGES = { release: { name: "@rightkit/release", version: "0.6.7", scripts: { test: "x" } }, ci: { name: "@rightkit/ci", version: "0.3.2", scripts: { test: "x" } } };
 const git = (packages = PACKAGES) => (...args) => {
+  if (args[0] === "rev-parse" && args[1] === `${SHA}^{tree}`) return `${TREE}\n`;
+  if (args[0] === "show" && args[1] === `${SHA}:ci/rk-pipeline.json`) return PIPELINE;
+  if (args[0] === "show" && args[1] === `${SHA}:ci/gate.config.json`) return "{}";
   if (args[0] === "ls-tree") return `${Object.keys(packages).join("\n")}\n`;
   if (args[0] === "show") { const dir = /:packages\/([^/]+)\/package\.json$/.exec(args[1])?.[1]; if (packages[dir]) return JSON.stringify(packages[dir]); }
   throw new Error(`unexpected git ${args.join(" ")}`);
 };
-const greenGate = (sha = SHA) => () => ({ status: 0, stdout: `check: ${sha.slice(0, 12)} passed 58 rules (release tier) in 7.1s\nrightkit-gate: class A pass: 12 deterministic scan(s) over 900 file(s) of ${sha}\n` });
+const greenGate = (sha = SHA) => () => ({ status: 0, stdout: `check: ${sha.slice(0, 12)} passed 58 rules (release tier) in 7.1s\nrightkit-gate: class A content pass: 12 deterministic scan(s) over 900 file(s) of ${sha}\n` });
 const GATE = { command: `rightkit-gate check --commit ${SHA} --rule-tier release`, exit: 0, rules: 58, classAScans: 12, classAFiles: 900 };
 const npm = (versions, name) => async (url) => (versions === null ? { status: 404, ok: false } : { status: 200, ok: true, json: async () => ({ name: name ?? decodeURIComponent(url.split("/").pop()), versions: Object.fromEntries(versions.map((v) => [v, {}])) }) });
 
@@ -147,8 +170,8 @@ test("the gate verdict needs exit 0, this commit's app-check pass line and the c
     ["zero scans", { ...good, stdout: good.stdout.replace("12 deterministic", "0 deterministic") }],
     ["partial view (--only exits 3)", { status: 3, stdout: `check: ${SHA.slice(0, 12)} passed 1 rules (release tier) in 0.1s\n` }],
     ["exit 0 but no class A line", { status: 0, stdout: `check: ${SHA.slice(0, 12)} passed 58 rules (release tier) in 0.1s\n` }],
-    ["exit 0 for another commit", { status: 0, stdout: `check: ${OTHER.slice(0, 12)} passed 58 rules (release tier) in 0.1s\nrightkit-gate: class A pass: 1 deterministic scan(s) over 1 file(s) of ${OTHER}\n` }],
-    ["class A of another commit", { status: 0, stdout: `check: ${SHA.slice(0, 12)} passed 58 rules (release tier) in 0.1s\nrightkit-gate: class A pass: 1 deterministic scan(s) over 1 file(s) of ${OTHER}\n` }],
+    ["exit 0 for another commit", { status: 0, stdout: `check: ${OTHER.slice(0, 12)} passed 58 rules (release tier) in 0.1s\nrightkit-gate: class A content pass: 1 deterministic scan(s) over 1 file(s) of ${OTHER}\n` }],
+    ["class A of another commit", { status: 0, stdout: `check: ${SHA.slice(0, 12)} passed 58 rules (release tier) in 0.1s\nrightkit-gate: class A content pass: 1 deterministic scan(s) over 1 file(s) of ${OTHER}\n` }],
     ["no result", undefined],
   ]) assert.throws(() => gateVerdict(result, SHA), /rightkit-gate check did not pass/, name);
 });
@@ -159,21 +182,25 @@ const GATE_BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "
 function committedTree(t, extra = {}) {
   const root = fs.mkdtempSync(path.join(process.env.RIGHTKIT_TEST_SCRATCH ?? os.tmpdir(), "rk-admission-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const files = { "packages/foo/package.json": JSON.stringify({ name: "@rightkit/foo", version: "1.0.0", license: "MIT" }), ...extra };
+  const files = { "packages/foo/package.json": JSON.stringify({ name: "@rightkit/foo", version: "1.0.0", license: "MIT", scripts: { test: "x" } }), ...extra };
   for (const [file, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true }); fs.writeFileSync(path.join(root, file), text); }
   const run = (...args) => { const r = spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd: root, encoding: "utf8" }); assert.equal(r.status, 0, r.stderr); return r.stdout; };
   run("init", "-q"); run("add", "-A"); run("commit", "-q", "-m", "fixture");
   const sha = run("rev-parse", "HEAD").trim();
-  const gitRead = (...args) => { const r = spawnSync("git", args, { cwd: root, encoding: "utf8" }); if (r.status !== 0) throw new Error(`git ${args[0]} failed`); return r.stdout; };
+  const tree = run("rev-parse", "HEAD^{tree}").trim();
+  const realGit = (...args) => { const r = spawnSync("git", args, { cwd: root, encoding: "utf8" }); if (r.status !== 0) throw new Error(`git ${args[0]} failed`); return r.stdout; };
+  // The enrolled pins are committed at the dispatched commit in the real repository; this fixture keeps ci/ out of the tree the real gate
+  // scans and serves the one file from the test's key, everything else (including the tree id) from real git.
+  const gitRead = (...args) => (args[0] === "show" && args[1] === `${sha}:ci/rk-pipeline.json` ? PIPELINE : args[0] === "show" && args[1] === `${sha}:ci/gate.config.json` ? "{}" : realGit(...args));
   const runGate = (commit) => spawnSync(process.execPath, [GATE_BIN, "check", "--repo", root, "--commit", commit, "--rule-tier", "release"], { cwd: root, encoding: "utf8", env: { ...process.env, GITHUB_ACTIONS: "", CI: "" } });
-  return { root, sha, git: gitRead, runGate };
+  return { root, sha, tree, git: gitRead, runGate };
 }
-const boundaryEnv = (sha, extra = {}) => ({ ...ACTIONS, GITHUB_SHA: sha, EXPECTED_SHA: sha, ADMISSION: "broker", REQUEST_ID: "req-boundary", QUALIFICATION: JSON.stringify(qual({ name: "@rightkit/foo", version: "1.0.0", commit: sha })), REGISTRY: "npm", UNITS: "@rightkit/foo", ALLOW_HOST_EXCLUSION: "", ALLOW_NO_TEST: "", ALLOW_IGNORED: "", ALLOW_MISSING_ASSETS: "", ...extra });
+const boundaryEnv = (sha, tree, extra = {}) => ({ ...ACTIONS, GITHUB_SHA: sha, EXPECTED_SHA: sha, ADMISSION: "broker", REQUEST_ID: "req-boundary", QUALIFICATION: JSON.stringify(qual({ name: "@rightkit/foo", version: "1.0.0", commit: sha, tree })), REGISTRY: "npm", UNITS: "@rightkit/foo", ALLOW_HOST_EXCLUSION: "", ALLOW_NO_TEST: "", ALLOW_IGNORED: "", ALLOW_MISSING_ASSETS: "", ...extra });
 
 test("through the real gate: a red class A tree (broken committed JSON, the original refusal) admits nothing, whatever the request id", async (t) => {
   const red = committedTree(t, { "packages/foo/broken.json": '{"name":' });
   for (const mode of [{}, { REQUEST_ID: "invented-by-a-raw-dispatch" }]) {
-    await assert.rejects(admit({ env: boundaryEnv(red.sha, mode), git: red.git, runGate: red.runGate, fetchImpl: () => assert.fail("a red gate reads no registry"), policy: policy() }), /rightkit-gate check did not pass/, JSON.stringify(mode));
+    await assert.rejects(admit({ env: boundaryEnv(red.sha, red.tree, mode), git: red.git, runGate: red.runGate, fetchImpl: () => assert.fail("a red gate reads no registry"), policy: policy() }), /rightkit-gate check did not pass/, JSON.stringify(mode));
   }
   const verdict = red.runGate(red.sha);
   assert.notEqual(verdict.status, 0); assert.match(verdict.stdout + verdict.stderr, /json-parse/);
@@ -181,7 +208,7 @@ test("through the real gate: a red class A tree (broken committed JSON, the orig
 
 test("through the real gate: the same tree with valid JSON is admitted, gate bound to its commit", async (t) => {
   const green = committedTree(t, { "packages/foo/ok.json": '{"name":"ok"}' });
-  const receipt = await admit({ env: boundaryEnv(green.sha), git: green.git, runGate: green.runGate, fetchImpl: npm(null), policy: policy() });
+  const receipt = await admit({ env: boundaryEnv(green.sha, green.tree), git: green.git, runGate: green.runGate, fetchImpl: npm(null), policy: policy() });
   assert.equal(receipt.gate.command, `rightkit-gate check --commit ${green.sha} --rule-tier release`);
   assert.equal(receipt.gate.exit, 0); assert.ok(receipt.gate.rules > 0 && receipt.gate.classAScans > 0);
   assert.deepEqual(receipt.versions, { "@rightkit/foo": "1.0.0" });
@@ -239,4 +266,119 @@ test("the original denied path stays denied: rightkit-dispatch without a broker 
   const code = await rightkitDispatch(["--workflow", "publish", "--registry", "npm", "--unit", "@rightkit/release", "--sha", SHA, "--qualification", "/nope/qualification.json"], { env: {}, gh: () => assert.fail("no gh call without a broker job"), stderr: (l) => errors.push(l), stdout: () => {} });
   assert.equal(code, 2);
   assert.match(errors.join("\n"), /no RIGHTKIT_JOB_ID; this runs only as the broker's rightkit-dispatch adapter/);
+});
+
+// ---- the qualification is authenticated by the broker's signed receipts, not asserted ------------------------------------------
+test("authenticated qualification: receipts of another key, commit, tree, unit, stage, failed or workspace-less jobs, replays and forged booleans admit nothing", async () => {
+  const admitWith = (q, { gitFn = git(), sha = SHA } = {}) => admit({ env: hostedEnv({ QUALIFICATION: JSON.stringify(q), GITHUB_SHA: sha, EXPECTED_SHA: sha }), git: gitFn, runGate: greenGate(sha), fetchImpl: npm([]), policy: policy() });
+  const base = { kind: "npm", name: "@rightkit/release" };
+  const ok = await admitWith(qual());
+  assert.deepEqual(ok.qualification.provenance, QUAL.provenance);
+  // Forged booleans: the shape the gate used to send, with no signed receipt at all.
+  const bare = qual(); for (const stage of ["compile", "package"]) delete bare.stages[stage].receipts;
+  await assert.rejects(admitWith(bare), /compile stage carries no signed broker receipts; an unauthenticated qualification admits nothing/);
+  const noPackage = qual(); noPackage.stages.package.receipts = [];
+  await assert.rejects(admitWith(noPackage), /package stage carries no signed broker receipts/);
+  // A key the commit does not enrol (same host name, other key), and a host it does not enrol.
+  await assert.rejects(admitWith(qual({ receiptFor: { signer: makeSigner({ host: SIGNER.pins.host, brokerDigest: SIGNER.pins.brokerDigest }) } })), /does not verify against the enrolled pins.*key: the receipt was not signed by the pinned key/);
+  await assert.rejects(admitWith(qual({ receiptFor: { signer: makeSigner({ host: "another-host" }) } })), /signed for host "another-host", which ci\/rk-pipeline\.json does not enroll/);
+  // Pins come from the dispatched commit, never the request: no pins committed there, or another host's pins, admit nothing.
+  const pinned = (pipeline) => (...args) => (args[0] === "show" && args[1] === `${SHA}:ci/rk-pipeline.json` ? pipeline : git()(...args));
+  await assert.rejects(admitWith(qual(), { gitFn: pinned("not json") }), /ci\/rk-pipeline\.json is unreadable/);
+  await assert.rejects(admitWith(qual(), { gitFn: pinned("{}") }), /enrolls no attestation pins/);
+  await assert.rejects(admitWith(qual(), { gitFn: pinned(JSON.stringify({ attestation: { darwin: makeSigner().pins } })) }), /does not verify against the enrolled pins.*pinned key/);
+  // Replay: a receipt whose nonce binds another commit, tree, unit or stage fails naturally.
+  await assert.rejects(admitWith(qual({ receiptFor: { commit: OTHER } })), /nonce: the nonce is not the one this invocation sent/);
+  await assert.rejects(admitWith(qual({ receiptFor: { tree: "e".repeat(40) } })), /nonce: the nonce is not the one this invocation sent/);
+  await assert.rejects(admitWith(qual({ receiptFor: { name: "@rightkit/ci" } })), /nonce: the nonce is not the one this invocation sent/);
+  const crossStage = qual(); crossStage.stages.package.receipts = stageReceipts({ ...base, stage: "compile", jobs: ["stolen-compile-job"] });
+  await assert.rejects(admitWith(crossStage), /package receipt 1 \(job stolen-compile-job\).*nonce/);
+  // The same job twice (within or across stages) is refused before anything else.
+  const twice = qual(); twice.stages.package.receipts = twice.stages.compile.receipts;
+  await assert.rejects(admitWith(twice), /package receipt 1: job compile-job-1 appears more than once/);
+  // The qualification's tree must equal the dispatched commit's real tree (a signed receipt for a forged tree still fails).
+  await assert.rejects(admitWith(qual({ tree: "e".repeat(40) })), /tree eeeeeeeeeeee, the dispatched commit's tree is cccccccccccc/);
+  // A failed job, a job with no workspace, a tampered payload.
+  await assert.rejects(admitWith(qual({ receiptFor: { result: { status: "FAILED", exitCode: 101 } } })), /did not succeed \(FAILED, exit 101\)/);
+  await assert.rejects(admitWith(qual({ receiptFor: { payload: { request: { kind: "cargo" } } } })), /records no workspace/);
+  const tampered = qual(); tampered.stages.compile.receipts[0].provenance.payload.result.exitCode = 0; tampered.stages.compile.receipts[0].provenance.payload.request.workspace = "/forged";
+  await assert.rejects(admitWith(tampered), /signature: signature does not verify/);
+  // A receipt that is not a signed envelope at all.
+  const legacy = qual(); delete legacy.stages.compile.receipts[0].provenance;
+  await assert.rejects(admitWith(legacy), /signed for host undefined/);
+  // The uploader refuses an admission receipt that records no verified provenance.
+  const expected = { repository: "bogusyogi/rightkit", sourceSha: SHA, runId: "77", runAttempt: "1", registry: "npm", units: [{ name: "@rightkit/release", version: "0.6.7" }], allow: { hostExclusion: [], noTest: [], ignored: [], missingAssets: [] } };
+  const { provenance: _dropped, ...unattested } = ok.qualification;
+  assert.throws(() => verifyAdmissionReceipt({ ...ok, qualification: unattested }, expected), /no verified broker provenance/);
+  // Direct unit: any number of receipts up to the cap verify; more is refused.
+  const many = (n) => { const q = qual(); q.stages.compile.receipts = stageReceipts({ ...base, stage: "compile", jobs: Array.from({ length: n }, (_, i) => `many-${i}`) }); return q; };
+  await assert.rejects(admitWith(many(65)), /carries 65 receipts/);
+});
+
+test("a signed, successful job that carries the stage nonce but ran another command, in another workspace, or leaves a required command unproven admits nothing", async () => {
+  const admitWith = (q) => admit({ env: hostedEnv({ QUALIFICATION: JSON.stringify(q) }), git: git(), runGate: greenGate(), fetchImpl: npm([]), policy: policy() });
+  const base = { kind: "npm", name: "@rightkit/release" };
+  const ws = "/work/rightkit";
+  const compile = stageRows({ ...base, stage: "compile" }), pack = stageRows({ ...base, stage: "package" });
+  assert.equal(compile.length, 2, "npm compile: the workspace build and the unit's test");
+  assert.deepEqual(compile.map(argvOf), [["-r", "--workspace-concurrency=1", "run", "build"], ["--dir", "packages/release", "run", "test"]]);
+  // @rightkit/release is the swap helper: it builds and signs a binary, then packs from a scratch copy of its directory.
+  assert.deepEqual(pack.map(argvOf), [["build", "--release", "-p", "rightkit-fs", "--features", "fs", "--bin", "rightkit-swap"], ["metadata", "--format-version", "1", "--no-deps"], ["--dir", "/tmp/scratch", "pack", "--pack-destination", "/tmp/scratch"]]);
+  const put = (stage, receipts) => { const q = qual(); q.stages[stage].receipts = receipts; return q; };
+  // Every command of the stage is proven by its own job: the full set is admitted.
+  assert.deepEqual((await admitWith(qual())).qualification.provenance.compile.map((p) => p.requestedArgv), compile.map(argvOf));
+  // Multi-command omission: one required job missing refuses, naming the command (either one).
+  const [build, test] = stageReceipts({ ...base, stage: "compile" });
+  await assert.rejects(admitWith(put("compile", [test])), /no signed receipt of the compile stage's pnpm -r --workspace-concurrency=1 run build \(1 of 2 required command\(s\) missing\)/);
+  await assert.rejects(admitWith(put("compile", [build])), /no signed receipt of the compile stage's pnpm --dir packages\/release run test \(1 of 2 required command\(s\) missing\)/);
+  // The same job twice, or one command run twice with another left out, is not coverage.
+  const [build2] = stageReceipts({ ...base, stage: "compile", jobs: ["build-again"], rows: [compile[0]] });
+  await assert.rejects(admitWith(put("compile", [build, build2])), /compile job build-again ran .* not \(or no longer\) a command/);
+  // Wrong command with the right nonce, signature and success: another argv, another unit's directory, an extra flag, another adapter or kind.
+  for (const [name, mutate] of [
+    ["another argv", (r) => ({ ...r, requestedArgv: ["--dir", "packages/release", "run", "lint"] })],
+    ["another unit's directory", (r) => ({ ...r, requestedArgv: ["--dir", "packages/ci", "run", "test"] })],
+    ["an extra flag", (r) => ({ ...r, requestedArgv: [...r.requestedArgv, "--ignore-scripts"] })],
+    ["another adapter", (r) => ({ ...r, adapter: "rightkit-node" })],
+    ["another request kind", ({ adapter: _a, ...r }) => ({ ...r, kind: "cargo" })],
+  ]) await assert.rejects(admitWith(put("compile", stageReceipts({ ...base, stage: "compile", requestFor: (row, w, i) => (i === 1 ? mutate(requestOf(row, w)) : requestOf(row, w)) }))), /is not \(or no longer\) a command of the compile stage of npm:@rightkit\/release/, name);
+  const badPack = (requestedArgv) => put("package", stageReceipts({ ...base, stage: "package", requestFor: (row, w, i) => ({ ...requestOf(row, w), ...(i === 2 ? { requestedArgv } : {}) }) }));
+  await assert.rejects(admitWith(badPack(["--dir", "/tmp/scratch", "pack", "--pack-destination", "relative/out"])), /not \(or no longer\) a command of the package stage/, "a pack destination must be an absolute scratch path");
+  // A compile command is not accepted as the package stage's.
+  await assert.rejects(admitWith(put("package", stageReceipts({ ...base, stage: "package", requestFor: (_row, w) => requestOf(compile[1], w) }))), /not \(or no longer\) a command of the package stage/);
+  // Wrong workspace: a checkout of another repository, a different workspaceRoot, or two checkouts within one qualification.
+  await assert.rejects(admitWith(put("package", stageReceipts({ ...base, stage: "package", workspace: "/work/other-repo" }))), /not in a checkout of rightkit/);
+  await assert.rejects(admitWith(put("package", stageReceipts({ ...base, stage: "package", requestFor: (row, w) => ({ ...requestOf(row, w), workspaceRoot: "/work/rightkit/sub" }) }))), /not in a checkout of rightkit/);
+  const split = qual(); split.stages.package.receipts = stageReceipts({ ...base, stage: "package", workspace: "/elsewhere/rightkit" });
+  await assert.rejects(admitWith(split), /another workspace than the qualification's other jobs/);
+  assert.ok((await admitWith(put("package", stageReceipts({ ...base, stage: "package", workspace: "/work/rightkit/" })))).qualification.provenance, "a trailing separator is the same workspace");
+  // A cargo unit owes a receipt for fmt, tests, clippy and checks alike; dropping any one refuses.
+  const cargo = { kind: "cargo", name: "rightkit-qa" };
+  const rows = stageRows({ ...cargo, stage: "compile" });
+  assert.ok(rows.length >= 3 && argvOf(rows[0])[0] === "fmt");
+  const cargoQual = (dropped) => { const q = qual({ ...cargo, version: "0.9.2" }); q.stages.compile.receipts = q.stages.compile.receipts.filter((_, i) => i !== dropped); return q; };
+  const cargoEnv = (q) => ({ ...ACTIONS, ADMISSION: "broker", REQUEST_ID: "job-1", EXPECTED_SHA: SHA, REGISTRY: "crates", UNITS: "rightkit-qa", QUALIFICATION: JSON.stringify(q), ALLOW_HOST_EXCLUSION: "", ALLOW_NO_TEST: "", ALLOW_IGNORED: "", ALLOW_MISSING_ASSETS: "" });
+  const crateGit = (...args) => (args[0] === "show" && args[1] === `${SHA}:crates/rightkit-qa/Cargo.toml` ? '[package]\nname = "rightkit-qa"\nversion = "0.9.2"\n' : git()(...args));
+  const crate = (q) => admit({ env: cargoEnv(q), git: crateGit, runGate: greenGate(), fetchImpl: async () => ({ status: 404, ok: false }), policy: policy() });
+  assert.deepEqual((await crate(cargoQual(-1))).versions, { "rightkit-qa": "0.9.2" });
+  for (let dropped = 0; dropped < rows.length; dropped += 1) await assert.rejects(crate(cargoQual(dropped)), new RegExp(`no signed receipt of the compile stage's cargo ${argvOf(rows[dropped])[0]} .*1 of ${rows.length} required`), `dropped ${dropped}`);
+  // The pack needs its metadata job too (either spelling).
+  const packRows = stageRows({ ...cargo, stage: "package" });
+  assert.equal(packRows.length, 2);
+  const noMeta = qual({ ...cargo, version: "0.9.2" }); noMeta.stages.package.receipts = noMeta.stages.package.receipts.slice(0, 1);
+  await assert.rejects(crate(noMeta), /no signed receipt of the package stage's cargo metadata/);
+  // Artifact: the broker signs no digest of the packed bytes (payload.outputDigest is the SHA-256 of the job's stdout and stderr, and a
+  // declared output's content is listed as unobserved), so artifactSha256 cannot be checked against a signed value. It is bound where
+  // the hosted pack is compared with it: bytes that differ from the qualification's digest stop the run there.
+  const qualification = readQualificationInput(JSON.stringify(qual()), { sha: SHA, registry: "npm", units: ["@rightkit/release"] });
+  const manifest = { commit: SHA, units: [{ name: "@rightkit/release", version: "0.6.7", sha256: "e".repeat(64), file: "r.tgz" }] };
+  assert.throws(() => bindPackedToQualification({ manifest, qualification }), /not the locally qualified archive/);
+  const signedAsArtifact = qual(); signedAsArtifact.stages.package.receipts[0].provenance.payload.outputDigest = "d".repeat(64);
+  await assert.rejects(admitWith(signedAsArtifact), /signature does not verify/, "a digest claimed inside a signed payload cannot be added after signing");
+  // check and qualify: `ok: true` with no evidence is accepted as the caller's word for those two stages only, and the admission says so.
+  const bareCheck = qual(); bareCheck.stages.check = { ok: true }; bareCheck.stages.qualify = { ok: true };
+  assert.deepEqual((await admitWith(bareCheck)).qualification.unattested, ["check", "qualify"]);
+  // ...but it never substitutes for the attested stages: ok:true everywhere with no broker receipts at all admits nothing.
+  const allOk = qual(); for (const stage of ["compile", "package"]) delete allOk.stages[stage].receipts;
+  await assert.rejects(admitWith(allOk), /carries no signed broker receipts/);
 });

@@ -3544,9 +3544,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9bab54840643795c8d33e706069e82555c35da1d887de861b2e2731753fae58f"
+checksum = "71ff9d8d808d7972e6a17437b1f2a17a27808346f51ad1eb2edf663e1da1be88"
 dependencies = [
  "getrandom 0.4.3",
  "png 0.18.1",

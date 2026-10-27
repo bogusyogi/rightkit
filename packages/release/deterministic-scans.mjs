@@ -51,10 +51,16 @@ export const CLASS_A_SCAN_PREFIXES = Object.freeze([
   "rustfmt", "node-check", "json-parse", "toml-parse", "yaml-parse", "ownership-catalog",
   "actionlint", "shellcheck", "pnpm-lockfile", "pnpm-audit", "cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list",
   "changelog-version", "license", "secret-scan", "path-policy", "advisory-exceptions", "suite-api",
+  // Everything mechanical and deterministic that does not compile is class A (Adrian, 2026-10-27): typecheck, lint, generated docs.
+  "tsc", "eslint", "biome", "generated-docs",
 ]);
+// Class B is the compile through the broker (cargo, swift) and only that.
 export const CLASS_B_SCAN_PREFIXES = Object.freeze([
-  "clippy", "check", "check-all-features", "check-features", "check-dependent", "doc", "tsc", "eslint", "biome", "swift-build", "test", "generated-docs",
+  "clippy", "check", "check-all-features", "check-features", "check-dependent", "doc", "swift-build",
 ]);
+// Tests split by what they need: cargo tests compile (class B); node tests do not (class A), unless the test script reaches the
+// broker (`brokerCall`), in which case they compile and run with class B.
+export const TEST_SCAN_CLASS = Object.freeze({ "test:rust": "B", "test:rust-serial": "B", "test:npm": "A", "test:scripts-ci": "A" });
 
 /**
  * Rollout switch for the CI integration (ci/gate.config.json: { "deterministicScans": { "enabled": true } }).
@@ -92,8 +98,14 @@ export function stripJsonComments(text) {
 }
 
 /** "A", "B" or null for an id such as "clippy:rightkit-fs". */
-export function scanClassOf(id) {
-  const prefix = String(id).split(":")[0];
+export function scanClassOf(id, scan = null) {
+  const parts = String(id).split(":");
+  const prefix = parts[0];
+  if (prefix === "test") {
+    const kind = TEST_SCAN_CLASS[`test:${parts[1]}`] ?? null;
+    if (kind === "A" && scan?.brokerCall) return SCAN_CLASS.B;
+    return kind === null ? null : SCAN_CLASS[kind];
+  }
   if (CLASS_A_SCAN_PREFIXES.includes(prefix)) return SCAN_CLASS.A;
   if (CLASS_B_SCAN_PREFIXES.includes(prefix)) return SCAN_CLASS.B;
   return null;
@@ -469,6 +481,8 @@ export function planScans({
   crateFeatures = {},
   // ci/gate.config.json `npm`: per-package gate settings (`quietTests`), read by the package's unit name (packages/<dir> → rightkit-<dir>).
   packageFeatures = {},
+  // True for full class A on the live checkout, which runs the repository's own code anyway (tests, typecheck, lint).
+  liveExecution = false,
   // Crates a workspace-wide Rust change (Cargo.lock, vendor/) actually reaches, computed by the caller from
   // the lock graph (scripts/ci/select.mjs). null keeps every crate in scope.
   rustScope = null,
@@ -810,9 +824,11 @@ export function planScans({
   // requiring a trusted-root run: deferred (never a pass), not run from submitted code.
   // Planned only when a changed file is one of the generator's inputs (GENERATOR_INPUT).
   if (exists(path.join(contentRoot, "scripts/generate-index.mjs")) && files.some((f) => GENERATOR_INPUT.test(f))) {
-    const trusted = path.resolve(liveRoot) !== path.resolve(contentRoot) && exists(path.join(liveRoot, "scripts/generate-index.mjs"));
+    // Full class A on the live checkout (`liveExecution`) already executes the repository's own code (its tests): there the
+    // generator runs from that same checkout. Everywhere else the separation above holds.
+    const trusted = (liveExecution || path.resolve(liveRoot) !== path.resolve(contentRoot)) && exists(path.join(liveRoot, "scripts/generate-index.mjs"));
     add({
-      id: "generated-docs", class: B, tool: "node", args: ["scripts/generate-index.mjs", "--check", "--root", "{contentRoot}"],
+      id: "generated-docs", class: A, executes: true, tool: "node", args: ["scripts/generate-index.mjs", "--check", "--root", "{contentRoot}"],
       ...(trusted ? {} : { deferred: "requires a trusted-root run: the generator is repository code and no separate trusted checkout provides it; the content root's copy is never executed" }),
     });
   }
@@ -851,13 +867,25 @@ export function planScans({
   const hasConfig = (dir, names) => ancestorDirsOf(dir).some((d) => names.some((f) => exists(path.join(liveRoot, inDir(d, f)))));
   for (const name of pkgNames) {
     const dir = npmDir(name);
-    if (exists(path.join(liveRoot, dir, "tsconfig.json"))) add({ id: `tsc:${name}`, class: B, tool: "pnpm", args: ["exec", "tsc", "--noEmit", "-p", "tsconfig.json"], env: PNPM_RUN_ENV, cwd: dir });
-    if (hasConfig(dir, ESLINT_CONFIG_FILES)) add({ id: `eslint:${name}`, class: B, tool: "pnpm", args: ["exec", "eslint", "."], env: PNPM_RUN_ENV, cwd: dir });
-    if (hasConfig(dir, BIOME_CONFIG_FILES)) add({ id: `biome:${name}`, class: B, tool: "pnpm", args: ["exec", "biome", "lint", "."], env: PNPM_RUN_ENV, cwd: dir });
+    if (exists(path.join(liveRoot, dir, "tsconfig.json"))) add({ id: `tsc:${name}`, class: A, executes: true, tool: "pnpm", args: ["exec", "tsc", "--noEmit", "-p", "tsconfig.json"], env: PNPM_RUN_ENV, cwd: dir });
+    if (hasConfig(dir, ESLINT_CONFIG_FILES)) add({ id: `eslint:${name}`, class: A, executes: true, tool: "pnpm", args: ["exec", "eslint", "."], env: PNPM_RUN_ENV, cwd: dir });
+    if (hasConfig(dir, BIOME_CONFIG_FILES)) add({ id: `biome:${name}`, class: A, executes: true, tool: "pnpm", args: ["exec", "biome", "lint", "."], env: PNPM_RUN_ENV, cwd: dir });
   }
-  if (files.some((f) => f.startsWith("swift/") || f === "Package.swift")) {
-    if (platform === "darwin") add({ id: "swift-build", class: B, tool: "swift", args: ["build"] });
-    else notes.push("swift files changed; `swift build` is required on the Mac host before its push");
+  // One `swift build` per Swift package a changed file belongs to: the nearest Package.swift at or above the file, built in its own
+  // directory (rightkit#1229: Pulse's package is swift/RightKitHub, and a root `swift build` found no package and blocked every push).
+  const swiftFiles = files.filter((f) => f.startsWith("swift/") || f === "Package.swift" || f.endsWith("/Package.swift"));
+  if (swiftFiles.length) {
+    const packages = new Set();
+    for (const f of swiftFiles) {
+      const owner = ancestorDirsOf(path.posix.dirname(f)).reverse().find((d) => exists(path.join(contentRoot, inDir(d, "Package.swift"))));
+      if (owner !== undefined) packages.add(owner);
+      else notes.push(`${f}: no Package.swift at or above it, so no Swift package builds it`);
+    }
+    for (const dir of [...packages].sort()) {
+      const id = dir === "" || dir === "." ? "swift-build" : `swift-build:${dir}`;
+      if (platform === "darwin") add({ id, class: B, tool: "swift", args: ["build"], ...(dir === "" || dir === "." ? {} : { cwd: dir }) });
+      else notes.push(`swift files changed in ${dir === "" || dir === "." ? "the root package" : dir}; \`swift build\` is required on the Mac host before its push`);
+    }
   }
   if (includeTests) {
     const deferredToCi = [];
@@ -892,7 +920,10 @@ export function planScans({
       const declared = declaredBrokerCall(name, own.requiresBroker);
       if (declared.problem) notes.push(declared.problem);
       const brokerCall = scriptBrokerCall(manifest.scripts, "test") ?? declared.call ?? null;
-      add({ id: `test:npm:${name}`, class: B, ...(own.quietTests === true ? { quiet: true } : {}), ...(brokerCall ? { brokerCall } : {}), tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { ...PNPM_RUN_ENV, RIGHTKIT_ISOLATED_CHECKOUT: "1" } });
+      // Isolated only where the tests run on an export (contentRoot is not the live checkout): there sibling repositories are
+      // absent by construction. On the live checkout (full class A, broker admission) the cross-app contract tests run for real.
+      const isolatedCheckout = path.resolve(contentRoot) !== path.resolve(liveRoot);
+      add({ id: `test:npm:${name}`, class: brokerCall ? B : A, kind: "test", executes: true, ...(brokerCall ? { classReason: "its test script reaches the broker (compiles); it runs with the compile scans" } : {}), ...(own.quietTests === true ? { quiet: true } : {}), ...(brokerCall ? { brokerCall } : {}), tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { ...PNPM_RUN_ENV, ...(isolatedCheckout ? { RIGHTKIT_ISOLATED_CHECKOUT: "1" } : {}) } });
     }
     if (deferredToCi.length) notes.push(`${deferredToCi.length} quiet test scan(s) left to the CI shards (one crate per runner), not run here: ${deferredToCi.join(", ")}`);
     // scripts/ci tests run when scripts/, ci/ or .github/ changed, or a file the scripts/ci sources reference (imports and
@@ -923,7 +954,7 @@ export function planScans({
       // The suite is the exported commit's test files, named explicitly: an untracked WIP test in the live
       // checkout is never run and can neither block nor pass a push.
       const suite = listDir(path.join(contentRoot, "scripts", "ci")).filter((n) => n.endsWith(".test.mjs")).sort().map((n) => `scripts/ci/${n}`);
-      add({ id: "test:scripts-ci", class: B, tool: "node", args: ["--test", ...(suite.length ? suite : ["scripts/ci/*.test.mjs"])] });
+      add({ id: "test:scripts-ci", class: A, kind: "test", executes: true, tool: "node", args: ["--test", ...(suite.length ? suite : ["scripts/ci/*.test.mjs"])] });
     }
   }
 
@@ -1041,6 +1072,26 @@ export function defaultSpawnAsync(command, args, options = {}) {
 // time; a test scan marked `quiet` (ci/gate.config.json `rust.<crate>.quietTests`: the crate's tests share ports, devices,
 // wall-clock budgets or the broker's own queue, so they fail under load) runs last, one at a time, under the broker's quiet
 // lease when the gate can take one (runScans `quietLane`).
+/** The counts a test runner printed last: node:test's `ℹ tests N` / `ℹ pass` / `ℹ fail` / `ℹ skipped` / `ℹ todo` lines, or vitest's
+ * `Tests  N passed | M skipped | K failed (T)` line. Null when neither is present. Several node:test summaries (a script that runs
+ * the runner more than once) are summed. */
+export function parseTestSummary(text) {
+  const lines = String(text ?? "").split(/\r?\n/);
+  const node = { tests: 0, pass: 0, fail: 0, skipped: 0, todo: 0 }; let sawNode = false;
+  for (const line of lines) {
+    const m = /^[ℹ#]\s+(tests|pass|fail|skipped|todo)\s+(\d+)\s*$/.exec(line.trim());
+    if (m) { node[m[1]] += Number(m[2]); sawNode = true; }
+  }
+  if (sawNode) return { runner: "node:test", ...node };
+  const vt = lines.map((l) => l.replace(/\x1b\[[0-9;]*m/g, "")).reverse().find((l) => /^\s*Tests\s+.*\(\d+\)\s*$/.test(l));
+  if (vt) {
+    const n = (re) => Number((re.exec(vt) ?? [0, 0])[1]);
+    const tests = Number(/\((\d+)\)\s*$/.exec(vt)[1]);
+    return { runner: "vitest", tests, pass: n(/(\d+) passed/), fail: n(/(\d+) failed/), skipped: n(/(\d+) skipped/), todo: n(/(\d+) todo/) };
+  }
+  return null;
+}
+
 /** The largest inline `run:` script a workflow may carry while the pinned actionlint is 1.7.12 (rhysd/actionlint#702). */
 export const RUN_SCRIPT_LIMIT_BYTES = 3800;
 /** Every block `run:` script (`run: |` or `run: >`) of a workflow text larger than `limit` bytes, as "<file>:<line> <bytes> bytes".
@@ -1073,6 +1124,11 @@ export function oversizedRunScripts(text, file, limit = RUN_SCRIPT_LIMIT_BYTES) 
 
 /** The time limit of one scan: its own `timeoutMs`, then the run's `scanTimeoutMs`, else 5 min for actionlint, 30 min for class A and
  * 60 min for class B (a cold compile of the largest crate). */
+/** The broker's quiet lease ceiling (rustright-state quiet.rs QUIET_LEASE_MAX_TTL_MS) and the quiet suite timeout under it. */
+export const QUIET_LEASE_MAX_MS = 30 * 60_000;
+export const QUIET_SCAN_MAX_MS = 26 * 60_000;
+/** A tool version probe's bound; with QUIET_SCAN_MAX_MS it keeps a whole leased quiet suite (probes + run) under the 30 min lease. */
+export const PROBE_TIMEOUT_MS = 60_000;
 export function scanTimeoutMs(scan, options = {}) {
   if (Number.isFinite(scan?.timeoutMs) && scan.timeoutMs > 0) return scan.timeoutMs;
   if (Number.isFinite(options.scanTimeoutMs) && options.scanTimeoutMs > 0) return options.scanTimeoutMs;
@@ -1376,7 +1432,11 @@ export async function runScans(plan, options = {}) {
       // (RK_NOT_PRIMARY_CHECKOUT, "workspace discovery failed"), so from a neutral directory every cargo scan read as TOOL_MISSING on
       // every broker host (rightkit#1215). Its probe runs where the scan itself will run; `cargo --version` reads no repository config.
       const cwd = (tool === "rustright" || (tool === "cargo" && cargoLiveRoot)) && scanDir ? scanDir : (deps.probeDir ?? probeDir());
-      const r = await deps.spawn(command, PROBES[tool] ?? ["--version"], { cwd, env: { ...deps.env, ...PNPM_NO_HOOKS_ENV, COREPACK_ENABLE_AUTO_PIN: "0" }, ...sig });
+      // A version probe is bounded (PROBE_TIMEOUT_MS): a hung tool reads as unavailable instead of holding a lane, or a quiet
+      // lease, open.
+      const probeMs = Number.isFinite(options.probeTimeoutMs) && options.probeTimeoutMs > 0 ? options.probeTimeoutMs : PROBE_TIMEOUT_MS;
+      const probeSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(probeMs)]) : AbortSignal.timeout(probeMs);
+      const r = await deps.spawn(command, PROBES[tool] ?? ["--version"], { cwd, env: { ...deps.env, ...PNPM_NO_HOOKS_ENV, COREPACK_ENABLE_AUTO_PIN: "0" }, signal: probeSignal });
       if (!r || r.error || r.status !== 0) outcome = { ok: false, why: r?.error?.message ?? `exit ${r?.status}` };
       else {
         const text = String(r.stdout || r.stderr || "");
@@ -1420,9 +1480,42 @@ export async function runScans(plan, options = {}) {
   // `classAJobs` at a time (default: `jobs`); the rows keep plan order. Class B starts only once every class A row is in.
   const aJobs = Math.max(1, Number(options.classAJobs ?? jobs) || jobs);
   {
-    const slots = new Array(aScans.length); const queue = aScans.map((_, i) => i);
-    const drain = async () => { while (queue.length) { const i = queue.shift(); slots[i] = await runOne(aScans[i]); } };
-    await Promise.all(Array.from({ length: aJobs }, drain));
+    // Class A is everything mechanical and deterministic that does not compile (Adrian, 2026-10-27): the content checks first,
+    // `classAJobs` at a time, then the class A tests (kind "test"), `testJobs` at a time, then the quiet ones alone under the
+    // broker's quiet lease. A failed content check stops the tests: they run on content class A already judged.
+    const slots = new Array(aScans.length);
+    const content = []; const tests = []; const quietTests = [];
+    aScans.forEach((s, i) => (s.kind === "test" ? (s.quiet === true ? quietTests : tests) : content).push(i));
+    const drain = (queue, extraEnv = null) => async () => {
+      while (queue.length) {
+        const i = queue.shift();
+        slots[i] = aScans[i].kind === "test" && classAFailed
+          ? { id: aScans[i].id, class: aScans[i].class, command: aScans[i].command, tool: aScans[i].tool ?? null, toolVersion: null, status: "not-run", detail: "a class A content check failed; the class A tests start only after it passes" }
+          : await runOne(aScans[i], extraEnv);
+      }
+    };
+    await Promise.all(Array.from({ length: aJobs }, drain(content)));
+    await Promise.all(Array.from({ length: testJobs }, drain(tests)));
+    if (quietTests.length) {
+      // One broker quiet lease per quiet suite (the broker caps a lease at 30 min and has no renewal): each suite runs alone,
+      // under its own lease, with a timeout shorter than the lease, so a lease never expires while its suite still runs.
+      for (const i of quietTests) {
+        if (classAFailed || signal?.aborted) {
+          slots[i] = { id: aScans[i].id, class: aScans[i].class, command: aScans[i].command, tool: aScans[i].tool ?? null, toolVersion: null, status: "not-run", detail: signal?.aborted ? "cancelled" : "a class A check failed; the quiet suites start only on a green class A" };
+          continue;
+        }
+        let lease = null;
+        if (quietLane) { try { lease = (await quietLane.acquire({ ttlMs: QUIET_LEASE_MAX_MS })) ?? null; } catch { lease = null; } }
+        if (!lease && options.requireQuietLease) {
+          slots[i] = { id: aScans[i].id, class: aScans[i].class, command: aScans[i].command, tool: aScans[i].tool ?? null, toolVersion: null, status: "fail", code: "QUIET_LEASE_UNAVAILABLE", detail: "the broker's quiet lease could not be held; this conflict-prone suite does not run alongside other jobs on a managed host. Run again when the broker can grant the lease." };
+          classAFailed = true; // a refused class A suite is a red class A: no class B scan starts after it
+          continue;
+        }
+        try { slots[i] = await runOne({ ...aScans[i], timeoutMs: Math.min(scanTimeoutMs(aScans[i], options), QUIET_SCAN_MAX_MS) }, lease?.env ?? null); } finally {
+          if (lease && typeof quietLane.release === "function") { try { await quietLane.release(lease.id); } catch { /* the lease expires on its own */ } }
+        }
+      }
+    }
     results.push(...slots);
   }
   {
@@ -1433,11 +1526,21 @@ export async function runScans(plan, options = {}) {
     await Promise.all([...Array.from({ length: jobs }, () => drain(lanes.compile)), drain(lanes.doc)]);
     await Promise.all(Array.from({ length: testJobs }, () => drain(lanes.tests)));
     if (lanes.quiet.length) {
-      let lease = null;
-      // No lease when the lane cannot run anyway (class A failed or was not supplied): its rows are not-run without one.
-      if (quietLane && !signal?.aborted && !classAFailed && !classBBlocked) { try { lease = (await quietLane.acquire()) ?? null; } catch { lease = null; } }
-      try { await drain(lanes.quiet, lease?.env ?? null); } finally {
-        if (lease && typeof quietLane.release === "function") { try { await quietLane.release(lease.id); } catch { /* the lease expires on its own */ } }
+      // One lease per quiet suite, as in class A above.
+      for (const i of lanes.quiet) {
+        if (classAFailed || classBBlocked || signal?.aborted) {
+          slots[i] = { id: bScans[i].id, class: bScans[i].class, command: bScans[i].command, tool: bScans[i].tool ?? null, toolVersion: null, status: "not-run", detail: signal?.aborted ? "cancelled" : classAFailed ? "class A is red; nothing in class B starts" : "class B is blocked" };
+          continue;
+        }
+        let lease = null;
+        if (quietLane) { try { lease = (await quietLane.acquire({ ttlMs: QUIET_LEASE_MAX_MS })) ?? null; } catch { lease = null; } }
+        if (!lease && options.requireQuietLease) {
+          slots[i] = { id: bScans[i].id, class: bScans[i].class, command: bScans[i].command, tool: bScans[i].tool ?? null, toolVersion: null, status: "fail", code: "QUIET_LEASE_UNAVAILABLE", detail: "the broker's quiet lease could not be held; this conflict-prone suite does not run alongside other jobs on a managed host. Run again when the broker can grant the lease." };
+          continue;
+        }
+        try { slots[i] = await runOne({ ...bScans[i], timeoutMs: Math.min(scanTimeoutMs(bScans[i], options), QUIET_SCAN_MAX_MS) }, lease?.env ?? null); } finally {
+          if (lease && typeof quietLane.release === "function") { try { await quietLane.release(lease.id); } catch { /* the lease expires on its own */ } }
+        }
       }
     }
     results.push(...slots);
@@ -1511,9 +1614,11 @@ export async function runScans(plan, options = {}) {
               if (digest) cacheKey = scanCacheKey({ id: s.id, command: s.command, toolVersion, env: s.env ?? {}, inheritedEnv: inheritedEnvDigest({ ...deps.env, ...s.env }), digest });
             } catch { cacheKey = null; }
             const hit = cacheKey ? cache.read(cacheKey) : null;
-            if (hit && hit.key === cacheKey && hit.row?.status === "pass" && hit.row.id === s.id && hit.row.command === s.command) {
+            // A cached test pass counts only with the counts it recorded: without them its coverage is unknown, so it runs again.
+            const testEvidence = s.kind !== "test" || (hit?.row?.results && hit.row.results.tests > 0 && hit.row.results.fail === 0);
+            if (hit && hit.key === cacheKey && hit.row?.status === "pass" && hit.row.id === s.id && hit.row.command === s.command && testEvidence) {
               cacheHits.push(s.id);
-              return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}` };
+              return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}`, ...(s.kind === "test" ? { results: hit.row.results } : {}) };
             }
           }
           let advisory = null; let args = s.args;
@@ -1555,7 +1660,15 @@ export async function runScans(plan, options = {}) {
           if ((timer.signal.aborted || r?.error?.code === "ETIMEDOUT") && (!r || r.error || r.status !== 0)) return { ...row, status: "fail", code: "TIMEOUT", detail: `${s.id} ran longer than ${Math.round(limitMs / 60000)} min and was killed with its process tree; a scan that does not finish fails` };
           if (!r || r.error) { status = "fail"; code = "SPAWN_ERROR"; detail = r?.error?.message ?? "no result"; }
           else if (r.status !== 0) { status = "fail"; code = "EXIT"; detail = tail(r) || `exit ${r.status}`; }
-          else if (cacheKey && !signal?.aborted) cache.write(cacheKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass" });
+          if (s.kind === "test" && r && !r.error && r.status === 0) {
+            // What the suite executed and skipped is evidence, not decoration: a later stage reuses this row only with these counts.
+            const counts = parseTestSummary(`${r.stdout ?? ""}\n${r.stderr ?? ""}`);
+            if (counts) row.results = counts;
+            else if (status === "pass") { status = "fail"; code = "NO_TEST_SUMMARY"; detail = "the test scan passed but printed no recognisable summary (node:test or vitest); its coverage cannot be recorded"; }
+            else row.results = null;
+            if (status === "pass" && row.results && !(row.results.tests > 0)) { status = "fail"; code = "NO_TESTS"; detail = "the test scan executed no test"; }
+          }
+          if (status === "pass" && cacheKey && !signal?.aborted) cache.write(cacheKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass", ...(row.results ? { results: row.results } : {}) });
         }
       }
     } catch (e) { status = "fail"; code = "SCAN_ERROR"; detail = e.message; }

@@ -149,6 +149,22 @@
       "pnpmScriptPath": "/Users/adrdsouza/.nvm/versions/node/v26.8.1/lib/node_modules/pnpm/bin/pnpm.mjs",
       "brokerVersion": "rustright-5af765b",
       "brokerSourceRevision": "5af765bd92a52dcc5ceb8eb28bf561546acf7458"
+    },
+    "win32": {
+      "clientPath": "D:\\.rustright\\runtime\\rustright.exe",
+      "host": "BOGUS-DELL",
+      "keyId": "5feb907f576bf36569e336f025623f6710759ee3571da9bd30e6af8be370a0c6",
+      "publicKey": "04404cf79f43f03b8d0d442360f3561d2119c3783eeb6eb09ae566a29da15373ff2a461a50fe9d5317142ccf1305a8072beddecd12a20ce1301a45503fc383cf2e",
+      "brokerDigest": "2fa8b229a56c166df64410b39311eb6505d733487f85cb5532c55556b881ce31",
+      "note": "Enrollment of the Dell's installed broker for receipt verification, read from its control root and runtime manifest by RightBoss D (2026-10-28); host and broker taken verbatim from the broker-signed receipt c81f945d-2d07-4aa9-9244-e6e2efcd3853 (D:\\scratch\\rk-069-accept\\pin8-dell-verify\\attest-status.json).",
+      "cargoSha256": "197c9f582da4994c585b13366abc12e810de2708ce14ddcf0873a8f377f3954e",
+      "cargoPath": "C:\\Users\\adrds\\.rustup\\toolchains\\1.98.0-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+      "nodeSha256": "5c976096e04e5c2c1f091938926234cc9fbebfe9787ddd149351b3b0ecc707b5",
+      "nodePath": "C:\\Users\\adrds\\AppData\\Local\\nvm\\v24.20.0\\node.exe",
+      "pnpmScriptSha256": "ff3224d46b47fbb24a7e9fe15fededef7e00892d07d4e376b6762d4899906bfd",
+      "pnpmScriptPath": "C:\\Users\\adrds\\AppData\\Local\\pnpm\\global\\v11\\111e0-1a10cfc30ad-3ad110e50015eb2b\\node_modules\\pnpm\\bin\\pnpm.mjs",
+      "brokerVersion": "rustright-5af765b",
+      "brokerSourceRevision": "5af765bd92a52dcc5ceb8eb28bf561546acf7458"
     }
   }
 }

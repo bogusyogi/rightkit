@@ -30,9 +30,10 @@
 //              requires the planned target directory before and after it (a temporary bridge until the broker exposes artifacts).
 import { existsSync as nodeExistsSync, readFileSync, readdirSync as nodeReaddirSync, rmSync as nodeRmSync, statSync as nodeStatSync } from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
 import { resolveTargetRoot as cargoResolveTargetRoot } from "./cargo-target.mjs";
+import { buildAndEmbedNativeHelpers, validateNativeHelpers } from "./native-helpers.mjs";
 import { assertTargetDirUnchanged, removeFreshSources, stageArtifacts, verifySameContent } from "./managed-target-stage.mjs";
 
 export const RECIPE_BUILD_PLAN_VERSION = 1;
@@ -50,7 +51,10 @@ export class RecipeBuildError extends Error {
 const fail = (code, message, details) => { throw new RecipeBuildError(code, message, details); };
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const STEP_KEYS = new Set(["phase", "cmd", "args", "cwd", "env"]);
-const PLAN_KEYS = new Set(["version", "steps", "cleanup", "stability", "stage"]);
+const PLAN_KEYS = new Set(["version", "steps", "cleanup", "stability", "stage", "verifySidecars", "nativeHelpers"]);
+const VERIFY_SIDECARS_KEYS = new Set(["receipt", "target"]);
+const NATIVE_HELPERS_KEYS = new Set(["app", "helpers", "version", "forceArch", "configuration"]);
+const UNIVERSAL_TRIPLE = "universal-apple-darwin";
 const STAGE_KEYS = new Set(["pre", "post", "verify", "resolve"]);
 const STAGE_ENTRY_KEYS = new Set(["from", "to", "fresh"]);
 const CLEANUP_KEYS = new Set(["remove", "apps", "dmgVolumes"]);
@@ -154,6 +158,29 @@ function validateStage(value, errors) {
   return out;
 }
 
+function validateVerifySidecars(value, errors) {
+  if (value === undefined) return undefined;
+  if (!isObject(value)) { errors.push("verifySidecars must be { receipt, target }"); return undefined; }
+  unknownKeys(value, VERIFY_SIDECARS_KEYS, "verifySidecars", errors);
+  if (value.target !== UNIVERSAL_TRIPLE) errors.push(`verifySidecars.target must be ${UNIVERSAL_TRIPLE}`);
+  const receipt = insideApp(value.receipt, "verifySidecars.receipt", errors, { strict: true });
+  return receipt ? { receipt, target: UNIVERSAL_TRIPLE } : undefined;
+}
+
+function validateNativeHelpersSection(value, errors) {
+  if (value === undefined) return undefined;
+  if (!isObject(value)) { errors.push("nativeHelpers must be { app, helpers, version?, forceArch?, configuration? }"); return undefined; }
+  unknownKeys(value, NATIVE_HELPERS_KEYS, "nativeHelpers", errors);
+  const app = insideApp(value.app, "nativeHelpers.app", errors, { strict: true });
+  if (app && !app.replace(/\/+$/, "").endsWith(".app")) errors.push("nativeHelpers.app must name the .app bundle");
+  let helpers;
+  try { helpers = validateNativeHelpers(value.helpers, { label: "nativeHelpers.helpers" }); } catch (error) { errors.push(...(error.details?.errors ?? [error.message])); }
+  if (value.forceArch !== undefined && !["arm64", "x86_64"].includes(value.forceArch)) errors.push("nativeHelpers.forceArch must be arm64 or x86_64");
+  if (value.configuration !== undefined && !["release", "debug"].includes(value.configuration)) errors.push("nativeHelpers.configuration must be release or debug");
+  if (value.version !== undefined && (typeof value.version !== "string" || !/^\d+(\.\d+){0,2}$/.test(value.version))) errors.push("nativeHelpers.version must be 1-3 numeric parts");
+  return app && helpers ? { app, helpers, ...(value.version === undefined ? {} : { version: value.version }), ...(value.forceArch ? { forceArch: value.forceArch } : {}), ...(value.configuration ? { configuration: value.configuration } : {}) } : undefined;
+}
+
 /** Validate a plan strictly; every problem is reported at once as RECIPE_BUILD_PLAN_INVALID. Returns the normalized plan. */
 export function validateRecipePlan(plan) {
   const errors = [];
@@ -184,10 +211,14 @@ export function validateRecipePlan(plan) {
   const cleanup = validateCleanup(plan.cleanup, errors);
   const stability = validateStability(plan.stability, errors);
   const stage = validateStage(plan.stage, errors);
+  const verifySidecars = validateVerifySidecars(plan.verifySidecars, errors);
+  const nativeHelpers = validateNativeHelpersSection(plan.nativeHelpers, errors);
   if (errors.length) fail("RECIPE_BUILD_PLAN_INVALID", `invalid recipe plan:\n${errors.map((line) => `- ${line}`).join("\n")}`, { errors });
-  return { version: RECIPE_BUILD_PLAN_VERSION, steps, ...(cleanup ? { cleanup } : {}), ...(stability ? { stability } : {}), ...(stage ? { stage } : {}) };
+  return { version: RECIPE_BUILD_PLAN_VERSION, steps, ...(cleanup ? { cleanup } : {}), ...(stability ? { stability } : {}), ...(stage ? { stage } : {}), ...(verifySidecars ? { verifySidecars } : {}), ...(nativeHelpers ? { nativeHelpers } : {}) };
 }
 
+/** This package's own right-release entry: the door's RightKit, whatever the app's node_modules holds. */
+export const OWN_RIGHT_RELEASE = fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url));
 // cmd.exe would reinterpret these in a shell launch; refuse rather than escape.
 const SHELL_UNSAFE = /[&|<>^%"!\r\n]/;
 
@@ -196,7 +227,11 @@ const SHELL_UNSAFE = /[&|<>^%"!\r\n]/;
  * release runs under pnpm). On Windows a non-.exe command is a .cmd shim that only a shell can start, so it is allowed
  * only when no argument could be reinterpreted by that shell.
  */
-export function resolveLaunch({ cmd, args = [], platform = process.platform, env = process.env, execPath = process.execPath }) {
+export function resolveLaunch({ cmd, args = [], platform = process.platform, env = process.env, execPath = process.execPath, ownRightRelease = OWN_RIGHT_RELEASE }) {
+  // A step's `right-release ...` (also `pnpm exec right-release ...` and `pnpm right-release ...`) runs THIS package's own CLI, never the
+  // app's node_modules copy that `pnpm exec` would put first on PATH (the same rule as development.mjs resolveCommand).
+  if (cmd === "right-release") return { command: execPath, args: [ownRightRelease, ...args], shell: false };
+  if (cmd === "pnpm" && ((args[0] === "exec" && args[1] === "right-release") || args[0] === "right-release")) return { command: execPath, args: [ownRightRelease, ...args.slice(args[0] === "exec" ? 2 : 1)], shell: false };
   if (cmd === "pnpm" && env.npm_execpath) return { command: execPath, args: [env.npm_execpath, ...args], shell: false };
   if (platform === "win32" && !/\.(?:exe|com)$/i.test(cmd)) {
     if ([cmd, ...args].some((value) => SHELL_UNSAFE.test(value))) fail("RECIPE_BUILD_LAUNCH_UNSAFE", `${cmd} needs a shell on Windows and its arguments contain characters a shell would reinterpret; run the release under pnpm (npm_execpath) or name an .exe`, { cmd });
@@ -330,6 +365,7 @@ export function runRecipeBuild(rawPlan, { appRoot, env = process.env, platform =
   const cleaned = runRecipeCleanup(plan.cleanup, { appRoot, platform, log, spawnSync, ...(fs ? { fs } : {}) });
   let stable = [];
   let staged = [];
+  let nativeHelpers = null;
   const stagePost = plan.stage?.post ?? [];
   const resolveEntry = (entry, appKey) => ({ ...entry, [appKey]: path.resolve(appRoot, entry[appKey]) });
   for (const [index, step] of plan.steps.entries()) {
@@ -342,6 +378,7 @@ export function runRecipeBuild(rawPlan, { appRoot, env = process.env, platform =
       // Immediately before the step that embeds the real EXE: it must be exactly the signed in-app copy.
       verifyReal("after the copy-back, before the build step");
     }
+    if (step.phase === "build" && plan.verifySidecars) verifyUniversalSidecars(plan.verifySidecars, { appRoot, spawnSync, env, log, ...(fs?.readFileSync ? { readFile: fs.readFileSync } : {}) });
     const launch = resolveLaunch({ cmd: step.cmd, args: step.args, platform, env });
     const cwd = path.resolve(appRoot, step.cwd ?? ".");
     log(`recipe-build: [${step.phase}] ${step.cmd} ${step.args.join(" ")}`.trimEnd());
@@ -355,8 +392,39 @@ export function runRecipeBuild(rawPlan, { appRoot, env = process.env, platform =
     if (step.phase === "build" && stagePost.length) waitForStableArtifacts({ ...(plan.stability ?? {}), files: stagePost.map((entry) => entry.from).filter((file) => (fs?.existsSync ?? nodeExistsSync)(file)) }, { appRoot, log, ...(sleep ? { sleep } : {}), ...(now ? { now } : {}), ...(statSync ? { statSync } : {}) });
     if (step.phase === "build" && stagePost.length) staged.push(...stageArtifacts(stagePost.map((entry) => resolveEntry(entry, "to")), { ...(fs ? { fs } : {}), log }));
     if (step.phase === "build") stable = waitForStableArtifacts(plan.stability, { appRoot, log, ...(sleep ? { sleep } : {}), ...(now ? { now } : {}), ...(statSync ? { statSync } : {}) });
+    // Native Swift helpers are built and embedded into the built .app AFTER the app exists and BEFORE postBuild and signing.
+    if (step.phase === "build" && plan.nativeHelpers) {
+      const section = plan.nativeHelpers;
+      nativeHelpers = buildAndEmbedNativeHelpers({ appRoot, app: path.resolve(appRoot, section.app), helpers: section.helpers, version: section.version, forceArch: section.forceArch, configuration: section.configuration ?? "release", env, spawn: spawnSync, log, ...(fs ? { fs } : {}) });
+    }
   }
-  return { steps: done, cleaned, stable, staged };
+  return { steps: done, cleaned, stable, staged, nativeHelpers };
+}
+
+/**
+ * After the prepare steps of a universal macOS build: the stage-sidecar receipt must be for universal-apple-darwin and every
+ * externalBin file it lists must be named `<name>-universal-apple-darwin` (the name Tauri's universal build looks for) and hold
+ * exactly arm64 and x86_64 (`lipo -archs`). Anything else throws RECIPE_BUILD_SIDECAR_NOT_UNIVERSAL before the Tauri build starts.
+ * Options: appRoot, spawnSync, readFile, env, log.
+ */
+export function verifyUniversalSidecars(section, { appRoot, spawnSync = nodeSpawnSync, readFile = readFileSync, env = process.env, log = () => {} } = {}) {
+  const receiptFile = path.resolve(appRoot, section.receipt);
+  let receipt;
+  try { receipt = JSON.parse(readFile(receiptFile, "utf8")); } catch (error) { fail("RECIPE_BUILD_SIDECAR_NOT_UNIVERSAL", `cannot read the stage-sidecar receipt ${section.receipt} (${error.message}); stageSidecars must run before the build`); }
+  if (!isObject(receipt) || !Array.isArray(receipt.files)) fail("RECIPE_BUILD_SIDECAR_NOT_UNIVERSAL", `${section.receipt} is not a stage-sidecar receipt`);
+  if (receipt.target !== section.target) fail("RECIPE_BUILD_SIDECAR_NOT_UNIVERSAL", `${section.receipt} was staged for ${receipt.target}, not ${section.target}`);
+  const checked = [];
+  for (const file of receipt.files.filter((item) => item?.externalBin === true)) {
+    if (typeof file.path !== "string" || !file.path.endsWith(`-${UNIVERSAL_TRIPLE}`)) fail("RECIPE_BUILD_SIDECAR_NOT_UNIVERSAL", `externalBin ${file.name} is staged as ${file.path}, not <name>-${UNIVERSAL_TRIPLE}`);
+    const absolute = path.resolve(appRoot, file.path);
+    if (path.relative(appRoot, absolute).startsWith("..")) fail("RECIPE_BUILD_SIDECAR_NOT_UNIVERSAL", `externalBin ${file.name} path escapes the app: ${file.path}`);
+    const result = spawnSync("lipo", ["-archs", absolute], { cwd: appRoot, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    const archs = String(result?.stdout ?? "").trim().split(/\s+/).filter(Boolean).sort();
+    if (result?.error || result?.status !== 0 || archs.join(" ") !== "arm64 x86_64") fail("RECIPE_BUILD_SIDECAR_NOT_UNIVERSAL", `externalBin ${file.path} must hold exactly arm64 and x86_64, lipo -archs reports ${JSON.stringify(archs.join(" "))}${result?.error ? ` (${result.error.message})` : ""}`, { file: file.path, archs });
+    checked.push(file.path);
+  }
+  log(`recipe-build: universal sidecars verified (${checked.length} externalBin file(s))`);
+  return checked;
 }
 
 export function parseRecipeBuildArgs(argv) {

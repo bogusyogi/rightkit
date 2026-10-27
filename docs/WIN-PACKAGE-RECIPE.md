@@ -134,9 +134,14 @@ expansion asks `cargo metadata` for `target_directory` and moves every declared 
 
 - a target directory inside the app (for example `CARGO_TARGET_DIR=.cargo-target`): `sign.prePackageFiles`, `sign.files`, the
   cleanup and the stability poll all use the moved paths;
-- a target directory outside the app (a broker-managed directory): fails closed with a message, because release.mjs and the
-  raw-EXE-to-installer embedding check address declared paths from the app root. Declare the paths yourself or point the target
-  directory inside the app. Paths outside the default `target/` prefix are never changed;
+- a target directory outside the app but under a managed root (`resolveManagedRoots`, the broker-managed target directory on a
+  brokered host; rightkit#924, release 0.6.2): declared paths stay at their default app-relative location under
+  `src-tauri/target/`. The raw EXE is copied there after the build (stale real EXE deleted first, polled until stable); the signed
+  copy goes back into the real target directory before `tauri bundle` (which embeds the EXE it finds there), the real EXE is
+  verified equal to the signed one (sha256) before and after the bundle, and the installer is copied out. Every copy is atomic and
+  sha256-verified; nothing is written outside the app root or the managed target directory;
+- a target directory outside the app and outside every managed root: fails closed with a message. Paths outside the default
+  `target/` prefix are never changed;
 - `RIGHT_RELEASE_ARTIFACT_DIR` is not a build output location: release.mjs only falls back to a declared file's basename there
   when the declared path is missing.
 

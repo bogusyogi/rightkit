@@ -27,7 +27,8 @@ export class IosDevelopmentError extends Error {
 const refuse = (code, message) => { throw new IosDevelopmentError(code, message); };
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 
-const TARGET_KEYS = ["project", "projectSpec", "scheme", "configuration", "teamId", "extraBuildSettings", "prepare", "install"];
+const TARGET_KEYS = ["project", "projectSpec", "scheme", "configuration", "teamId", "extraBuildSettings", "prepare", "install", "uiTests"];
+const UI_TEST_KEYS = ["scheme", "testPlan", "onlyTesting"];
 const INSTALL_KEYS = ["kind", "device", "bundleId", "productName", "boot", "launch", "launchArgs"];
 const UDID = /^[0-9A-Fa-f]{8}-(?:[0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}$/;
 const DEVICE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{3,80}$/;
@@ -101,7 +102,21 @@ export function validateIosDevelopment(target, { root, env = process.env } = {})
     if (descriptor.kind === "device" && !target.teamId) refuse("DEV_IOS_CONFIG_INVALID", "a device build needs development.targets.ios.teamId (there is no built-in default)");
     install = { ...descriptor, productName: descriptor.productName ?? target.scheme, launchArgs: [...(descriptor.launchArgs ?? [])] };
   }
-  const normalized = { project, projectSpec, scheme: target.scheme, configuration, teamId: target.teamId, extraBuildSettings, prepare, install };
+  // UI test journeys (XCUITest) run by `right-release test --platform ios` on the same device or simulator as the dev install.
+  let uiTests = null;
+  if (target.uiTests !== undefined) {
+    const t = target.uiTests;
+    if (!isObject(t)) refuse("DEV_IOS_CONFIG_INVALID", "development.targets.ios.uiTests must be an object");
+    const bad = Object.keys(t).filter((key) => !UI_TEST_KEYS.includes(key));
+    if (bad.length) refuse("DEV_IOS_CONFIG_INVALID", `development.targets.ios.uiTests has unknown key(s): ${bad.join(", ")} (allowed: ${UI_TEST_KEYS.join(", ")})`);
+    if (!install) refuse("DEV_IOS_CONFIG_INVALID", "development.targets.ios.uiTests needs install (the device or simulator the journeys run on)");
+    if (!Array.isArray(t.onlyTesting) || !t.onlyTesting.length || t.onlyTesting.some((x) => typeof x !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*(\/[A-Za-z_][A-Za-z0-9_]*){0,2}$/.test(x))) {
+      refuse("DEV_IOS_CONFIG_INVALID", "development.targets.ios.uiTests.onlyTesting must list Target[/Class[/method]] journeys (an empty list would run nothing)");
+    }
+    for (const key of ["scheme", "testPlan"]) if (t[key] !== undefined && (typeof t[key] !== "string" || !/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,100}$/.test(t[key]))) refuse("DEV_IOS_CONFIG_INVALID", `development.targets.ios.uiTests.${key} must be a name`);
+    uiTests = { scheme: t.scheme ?? target.scheme, ...(t.testPlan ? { testPlan: t.testPlan } : {}), onlyTesting: [...t.onlyTesting] };
+  }
+  const normalized = { project, projectSpec, scheme: target.scheme, configuration, teamId: target.teamId, extraBuildSettings, prepare, install, uiTests };
   return { ...normalized, build: iosDevelopmentBuildCommands(normalized, { root, storage: { derivedData: "<rustright storage xcode-args -derivedDataPath>" }, destinationId: "<device or simulator id>" }) };
 }
 
@@ -224,6 +239,39 @@ export function prepareIosDevelopment(dev, { root, env = process.env, run = spaw
 // App arguments follow a "--" terminator so an argument such as --device or --json-output is passed to the app and can never be
 // read as an option of simctl or devicectl (the standard ArgumentParser terminator; unverified on a live Mac, see the docs).
 const launchTail = (args) => (args.length ? ["--", ...args] : []);
+
+// ---- UI test journeys -------------------------------------------------------------------------------------------
+/**
+ * Pure: `xcodebuild build-for-testing` then `test-without-building` of the declared journeys on the resolved device or simulator,
+ * with the same project, configuration, signing and derived data as the dev build. The result bundle is a fresh path per run.
+ */
+export function iosUiTestCommands(dev, { root, storage, destinationId, resultBundle }) {
+  if (!dev.uiTests) throw new Error("development.targets.ios.uiTests is not declared");
+  const device = dev.install?.kind === "device";
+  const common = [
+    "-project", path.resolve(root, dev.project),
+    "-scheme", dev.uiTests.scheme,
+    ...(dev.uiTests.testPlan ? ["-testPlan", dev.uiTests.testPlan] : []),
+    "-configuration", dev.configuration,
+    "-destination", destinationFor(dev.install, destinationId),
+    "-derivedDataPath", storage.derivedData,
+    ...(dev.teamId ? [`DEVELOPMENT_TEAM=${dev.teamId}`] : []),
+    ...Object.entries(dev.extraBuildSettings).map(([name, value]) => `${name}=${value}`),
+    ...(device ? ["-allowProvisioningUpdates", "-allowProvisioningDeviceRegistration"] : []),
+  ];
+  return [
+    { cmd: "xcodebuild", name: "xcodebuild build-for-testing", args: [...common, "build-for-testing"] },
+    { cmd: "xcodebuild", name: "xcodebuild test-without-building", args: [...common, "-resultBundlePath", resultBundle, ...dev.uiTests.onlyTesting.map((x) => `-only-testing:${x}`), "test-without-building"] },
+  ];
+}
+
+/** Resolve the device (waking a sleeping tunnel), then the UI test commands; the caller runs them under its lease. */
+export function prepareIosUiTests(dev, { root, env = process.env, run = spawnSync, fs = nodeFs, serial, tmpRoot = os.tmpdir(), now = Date.now }) {
+  const prepared = prepareIosDevelopment(dev, { root, env, run, fs, serial, tmpRoot });
+  const base = prepared.storage.resultBundle ? path.dirname(prepared.storage.resultBundle) : path.join(root, ".right-release", "ios-dev");
+  const resultBundle = path.join(base, `ui-tests-${now()}.xcresult`);
+  return { ...prepared, resultBundle, tests: iosUiTestCommands(dev, { root, storage: prepared.storage, destinationId: prepared.install.resolved?.id, resultBundle }) };
+}
 
 // ---- install ------------------------------------------------------------------------------------------------------
 /** `run` is spawnSync-shaped (tests inject a fake). Every step is bounded; the first failure stops and throws. */

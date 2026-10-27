@@ -1,4 +1,5 @@
 import { createHash, X509Certificate } from "node:crypto";
+import { nativeHelperEntitlementMap, nativeHelpersFromConfig } from "./native-helpers.mjs";
 import { closeSync, copyFileSync, existsSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -192,7 +193,9 @@ export function readDevSigningSettings(descriptor = {}, config = {}, { root, exi
   };
   const signMap = typeof sign.entitlements === "object" && sign.entitlements !== null && !Array.isArray(sign.entitlements) ? sign.entitlements : undefined;
   const entitlements = [...compileBundlePathMap(descriptor.entitlements, "install.entitlements", { reject: invalidConfig, value: plistPath }),
-    ...compileBundlePathMap(signMap, "sign.entitlements", { reject: invalidConfig, value: plistPath })];
+    ...compileBundlePathMap(signMap, "sign.entitlements", { reject: invalidConfig, value: plistPath }),
+    // Native helpers embedded in the dev .app carry their own entitlements, exactly as the release lane signs them.
+    ...compileBundlePathMap((() => { const h = nativeHelpersFromConfig(config); return h ? nativeHelperEntitlementMap(h) : undefined; })(), "macPackage.nativeHelpers", { reject: invalidConfig, value: plistPath })];
   if (descriptor.timestamp !== undefined && typeof descriptor.timestamp !== "boolean") invalidConfig("install.timestamp must be true or false");
   if (descriptor.assertTeamSignedNested !== undefined && typeof descriptor.assertTeamSignedNested !== "boolean") invalidConfig("install.assertTeamSignedNested must be true or false");
   const rawAssertions = descriptor.assert ?? [];

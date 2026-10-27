@@ -601,6 +601,30 @@ mod tests {
         }
     }
 
+    /// Test-mode, no override variable named: the root is the real per-user folder like a normal
+    /// launch (the build never refuses it), and a named root wins.
+    #[cfg(all(feature = "test-mode", any(target_os = "macos", target_os = "linux")))]
+    #[test]
+    fn test_mode_resolve_is_the_real_root_when_no_override_and_the_override_otherwise() {
+        let overridden = [ENV_SUITE_ROOT, "RIGHT_SUITE_DIR", "ORTHIC_SHARED_DIR"]
+            .iter()
+            .find_map(|k| env_nonempty(k));
+        let suite = Suite::resolve().unwrap();
+        assert!(suite.env_derived());
+        match overridden {
+            Some(root) => assert_eq!(suite.root(), Path::new(&root)),
+            None => {
+                let home_is_account_home = env_nonempty("HOME")
+                    .map(PathBuf::from)
+                    .zip(passwd_home_dir().ok())
+                    .is_some_and(|(env, account)| env == account);
+                if home_is_account_home && env_nonempty("XDG_DATA_HOME").is_none() {
+                    assert_eq!(suite.root(), Suite::per_user_default().unwrap().root());
+                }
+            }
+        }
+    }
+
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn the_per_user_default_comes_from_the_account_database_under_orthic_labs_shared() {

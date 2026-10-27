@@ -78,7 +78,8 @@
     "!*.test.mjs",
     "!cli/*.test.mjs",
     "!standalone-clone-evidence.json",
-    "!refusals.json"
+    "!refusals.json",
+    "!provenance-real-receipt.fixture.json"
   ],
   "sideEffects": false,
   "scripts": {

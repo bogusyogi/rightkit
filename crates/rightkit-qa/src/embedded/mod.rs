@@ -15,8 +15,8 @@
 //! user-only file once and refuses every order that does not carry it (error `unauthorized`); a
 //! batch is authorized once, on the outer order. Without the variable the server refuses every order
 //! (fail closed, ADR-0001 item 7); with it but with an unusable file the server does not start. The token stops accidental ad-hoc driving, not a same-user process. The suite root is
-//! resolved by `Suite::resolve` (honours `RIGHTKIT_SUITE_ROOT` for isolated
-//! runs) and the server **fails closed**: if no absolute root exists the plugin
+//! resolved from `RIGHTKIT_SUITE_ROOT` when the runner set it (an isolated run), else by
+//! `Suite::resolve` (the real per-user root); this build never enables `rightkit-daemon/test-mode`. The server **fails closed**: if no absolute root exists the plugin
 //! does not start, it never falls back to the working directory.
 //!
 //! Input is delivered inside the process straight to the webview: macOS
@@ -723,6 +723,26 @@ fn ipc_fixture_script(service: Option<&str>) -> Option<&'static str> {
         .map(|_| IPC_FIXTURE_JS)
 }
 
+/// The suite root the control service is hosted under. `RIGHTKIT_SUITE_ROOT` (set by the QA runner
+/// for an isolated launch) is honoured here even though this build does not compile
+/// `rightkit-daemon/test-mode`, so the runner finds the discovery record under the root it chose;
+/// with it unset (a dev install launched normally) the real per-user root is used. Pure over its
+/// input for testing.
+fn suite_from_override(root: Option<&str>) -> Result<Suite, Box<dyn std::error::Error>> {
+    match root.map(str::trim).filter(|v| !v.is_empty()) {
+        Some(root) => Ok(Suite::at(root)?),
+        None => Ok(Suite::resolve()?),
+    }
+}
+
+fn control_suite() -> Result<Suite, Box<dyn std::error::Error>> {
+    suite_from_override(
+        std::env::var(rightkit_daemon::ENV_SUITE_ROOT)
+            .ok()
+            .as_deref(),
+    )
+}
+
 fn service_from_env() -> Option<String> {
     std::env::var(ENV_SERVICE)
         .ok()
@@ -761,7 +781,7 @@ fn serve<R: Runtime>(
     auth: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Fail closed: no absolute suite root means no server, never a cwd-relative one.
-    let suite = Suite::resolve()?;
+    let suite = control_suite()?;
     let shots = suite.private_service_subdir(&service, "shots")?;
     let cfg = ServiceConfig::new(
         &service,
@@ -1592,6 +1612,35 @@ mod tests {
         assert!(!hidden_requested(None));
         assert_eq!(ENV_HIDDEN, "RIGHTKIT_QA_HIDDEN");
     }
+    #[test]
+    fn control_does_not_compile_daemon_test_mode() {
+        assert!(
+            !rightkit_daemon::mode::TEST_CAPABILITY,
+            "the `control` feature must not enable rightkit-daemon/test-mode"
+        );
+    }
+
+    #[test]
+    fn control_suite_honours_the_runner_root_when_set() {
+        let dir = std::env::temp_dir().join(format!("rk-qa-suite-{}", std::process::id()));
+        let suite = suite_from_override(Some(dir.to_str().unwrap())).unwrap();
+        assert_eq!(suite.root(), dir.as_path());
+        let padded = format!("  {}  ", dir.display());
+        assert_eq!(
+            suite_from_override(Some(&padded)).unwrap().root(),
+            dir.as_path()
+        );
+    }
+
+    #[test]
+    fn control_suite_unset_uses_the_real_folders() {
+        let real = Suite::resolve().unwrap();
+        for unset in [None, Some(""), Some("   ")] {
+            assert_eq!(suite_from_override(unset).unwrap().root(), real.root());
+        }
+        assert!(suite_from_override(Some("relative/dir")).is_err());
+    }
+
     #[test]
     fn ipc_fixture_script_only_when_the_service_env_is_set() {
         assert!(ipc_fixture_script(None).is_none());

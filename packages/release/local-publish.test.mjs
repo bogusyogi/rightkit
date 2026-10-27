@@ -12,7 +12,7 @@ import { execFileSync } from './background-process.mjs';
 import { checkPublicationGate, provenGateSteps, publishGatedTarball } from './publication-gate.mjs';
 import { startRun, endRun } from './gate-stages.mjs';
 import { mintTestCapability } from './test-support/publish-capability-fixture.mjs';
-import { LOCAL_WIN32_HOST_POLICY_REASON, LocalPublishError, batchCargoExecute, batchClippyInvocations, checkCrateLayers, consumerRows, deriveCrateLayers, localTestPlan, parseCrateLayers, parseLocalPublishArgs, runLocalPublishUploadEngine as runLocalPublish, compileLocalUnit, packageLocalUnit, qualifyLocalUnit, closeLocalUnit } from './local-publish.mjs';
+import { LOCAL_WIN32_HOST_POLICY_REASON, LocalPublishError, batchCargoExecute, batchClippyInvocations, checkCrateLayers, consumerRows, deriveCrateLayers, localTestPlan, parseCrateLayers, parseLocalPublishArgs, runLocalPublishUploadEngine as runLocalPublish, compileLocalUnit, packageLocalUnit, qualifyLocalUnit, closeLocalUnit, localUnitCompileRequests } from './local-publish.mjs';
 import { runCargoAsync, spawnCollect } from './managed-cargo.mjs';
 
 const HEAD = 'a'.repeat(40);
@@ -848,7 +848,7 @@ test('unit stages reject forged authority and changed inputs, stop at boundaries
   fs.writeFileSync(path.join(root, 'scripts/ci/upload.mjs'), 'export const checkNpmTarball = () => ({ problems: [] });\n');
   git('add', '.'); git('commit', '-qm', 'fixture');
   fs.writeFileSync(path.join(bin, 'npm'), '#!/bin/sh\necho "404 Not Found" >&2\nexit 1\n', { mode: 0o755 });
-  fs.writeFileSync(path.join(bin, 'pnpm'), `#!/bin/sh\nprintf '%s\\n' "$*" >> "$RK_TEST_UNIT_LOG"\ncase "$*" in *--pack-destination*) while [ "$1" != "--pack-destination" ]; do shift; done; printf '%s' "$2" > "$RK_TEST_UNIT_SCRATCH"; printf tarball > "$2/rightkit-demo-1.2.3.tgz";; *test*) printf '%s\\n' '${LIBTEST.trim()}';; esac\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, 'pnpm'), `#!/bin/sh\nprintf '%s\\n' "$*" >> "$RK_TEST_UNIT_LOG"\nprintf 'rustright: request %s-0000-4000-8000-000000000000\\n' "$(printf %08d $$)" >&2\ncase "$*" in *--pack-destination*) while [ "$1" != "--pack-destination" ]; do shift; done; printf '%s' "$2" > "$RK_TEST_UNIT_SCRATCH"; printf tarball > "$2/rightkit-demo-1.2.3.tgz";; *test*) printf '%s\\n' '${LIBTEST.trim()}';; esac\n`, { mode: 0o755 });
   const oldPath = process.env.PATH;
   const oldLog = process.env.RK_TEST_UNIT_LOG; const oldScratch = process.env.RK_TEST_UNIT_SCRATCH;
   process.env.RK_TEST_UNIT_LOG = path.join(bin, 'calls'); process.env.RK_TEST_UNIT_SCRATCH = path.join(bin, 'scratch');
@@ -874,7 +874,13 @@ test('unit stages reject forged authority and changed inputs, stop at boundaries
     git('reset', '--hard', '-q', commit);
     const state = await compileLocalUnit('npm', argv, { env: door('compile') });
     assert.equal(fs.existsSync(bundle), false);
+    // Each stage hands over the broker request ids its own jobs printed (the unit gate fetches their signed receipts): compile's on the
+    // state, package's on its result, never each other's.
+    const compileIds = localUnitCompileRequests(state);
+    assert.ok(compileIds.length >= 1 && compileIds.every((id) => /^[0-9a-f]{8}-0000-4000-8000-000000000000$/.test(id)), compileIds.join());
     const packed = await packageLocalUnit(state, { env: door('package') });
+    assert.equal(packed.brokerRequests.length, 1);
+    assert.ok(!compileIds.includes(packed.brokerRequests[0]));
     assert.equal(fs.readFileSync(packed.artifactFile, 'utf8'), 'tarball');
     assert.equal(fs.existsSync(path.join(bundle, 'gate.json')), false);
     fs.writeFileSync(packed.artifactFile, 'changed');

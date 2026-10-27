@@ -64,7 +64,7 @@ test("plan: a changed crate selects class A and class B scans, through rustright
 
 test("plan: class split is total and every id maps to its class", () => {
   const { plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml", "scripts/x.mjs", "a.json"], { "scripts/x.mjs": "", "a.json": "{}" });
-  for (const s of plan.scans) assert.equal(scanClassOf(s.id), s.class, `${s.id} class`);
+  for (const s of plan.scans) assert.equal(scanClassOf(s.id, s), s.class, `${s.id} class`);
   assert.equal(scanClassOf("clippy:x"), "B");
   assert.equal(scanClassOf("secret-scan"), "A");
   assert.equal(scanClassOf("mystery"), null);
@@ -75,21 +75,30 @@ test("plan: JS packages select lockfile, audit, tsc and eslint when configured; 
   const extra = { "packages/p/package.json": '{"license":"MIT","scripts":{"test":"x"}}', "packages/p/tsconfig.json": "{}", "packages/p/eslint.config.mjs": "" };
   const { plan } = planFor(["packages/p/package.json"], extra);
   assert.deepEqual(ids(plan, "A").filter((i) => i.startsWith("pnpm")), ["pnpm-lockfile", "pnpm-audit"]);
-  assert.ok(ids(plan, "B").includes("tsc:p"));
-  assert.ok(ids(plan, "B").includes("eslint:p"));
-  assert.ok(ids(plan, "B").includes("test:npm:p"));
+  // Typecheck, lint and node tests do not compile: class A (Adrian, 2026-10-27).
+  assert.ok(ids(plan, "A").includes("tsc:p"));
+  assert.ok(ids(plan, "A").includes("eslint:p"));
+  assert.ok(ids(plan, "A").includes("test:npm:p"));
   const quiet = planFor(["README.md"], { "README.md": "x" }).plan;
   assert.equal(ids(quiet).filter((i) => /cargo|pnpm|clippy|tsc/.test(i)).length, 0);
 });
 
 test("plan: tests are omitted when includeTests is false; workflows select actionlint; swift is a note off macOS", () => {
-  const { plan } = planFor(["crates/foo/src/lib.rs", ".github/workflows/ci.yml", "swift/a.swift"], { ".github/workflows/ci.yml": "a: b", "swift/a.swift": "" }, { includeTests: false });
+  const { plan } = planFor(["crates/foo/src/lib.rs", ".github/workflows/ci.yml", "swift/a.swift"], { ".github/workflows/ci.yml": "a: b", "swift/a.swift": "", "Package.swift": "" }, { includeTests: false });
   assert.equal(ids(plan).filter((i) => i.startsWith("test:")).length, 0);
   assert.ok(ids(plan, "A").includes("actionlint"));
   assert.ok(ids(plan, "A").includes("yaml-parse"));
   assert.equal(plan.notes.length, 1);
-  const mac = planFor(["swift/a.swift"], { "swift/a.swift": "" }, { platform: "darwin" }).plan;
+  const mac = planFor(["swift/a.swift"], { "swift/a.swift": "", "Package.swift": "" }, { platform: "darwin" }).plan;
   assert.ok(ids(mac, "B").includes("swift-build"));
+});
+
+test("plan: swift build runs once per nearest Swift package, in its own directory (rightkit#1229)", () => {
+  const files = { "swift/RightKitHub/Package.swift": "", "swift/RightKitHub/Sources/Hub/a.swift": "", "swift/RightKitHub/Sources/Hub/b.swift": "", "swift/Loose/c.swift": "" };
+  const { plan } = planFor(Object.keys(files), files, { platform: "darwin" });
+  const swift = plan.scans.filter((s) => s.tool === "swift");
+  assert.deepEqual(swift.map((s) => [s.id, s.cwd]), [["swift-build:swift/RightKitHub", "swift/RightKitHub"]], "one build of the nested package, none at the root");
+  assert.ok(plan.notes.some((n) => /swift\/Loose\/c\.swift: no Package\.swift/.test(n)), "a file outside any package is named, not silently skipped");
 });
 
 test("plan: scanSetDigest is stable and changes with the scan set", () => {
@@ -124,9 +133,12 @@ function fakeSpawn({ missing = [], failing = [], log = [], shellcheckVersion = P
     if (isProbe && name === "shellcheck") return { status: 0, stdout: `ShellCheck - shell script analysis tool\nversion: ${shellcheckVersion}\nlicense: GNU General Public License, version 3\n`, stderr: "" };
     if (isProbe) return { status: 0, stdout: `${name} 1.0.0\n`, stderr: "" };
     if (failing.some((f) => args.join(" ").includes(f))) return { status: 1, stdout: "", stderr: "boom\n" };
+    // A test run prints its runner's summary, as node:test does; class A test scans record those counts as evidence.
+    if (args.includes("test") || args.includes("--test")) return { status: 0, stdout: TEST_SUMMARY, stderr: "" };
     return { status: 0, stdout: "", stderr: "" };
   };
 }
+const TEST_SUMMARY = "ℹ tests 3\nℹ pass 3\nℹ fail 0\nℹ skipped 0\n";
 const deps = (over = {}) => ({ spawn: fakeSpawn(), ...fakeFs({}), findRustfmt: () => "rustfmt", loadToml: async () => () => ({}), scanSecrets: async () => () => [], env: {}, execPath: "node", ensureAdvisoryDb: () => "/cache/advisory-db/pinned", prepareDenyOverlay: () => ({ configPath: "/tmp/rk-deny/deny.toml", cleanup() {} }), ...over });
 
 test("runner: all scans pass and the result is a plain receipt-ready object", async () => {
@@ -347,18 +359,20 @@ test("a workspace Cargo.lock or toolchain change puts every crate in scope", () 
   }
 });
 
-test("content scans run on the exported commit; generated-docs (repository code) is class B", () => {
+test("content scans run on the exported commit; generated-docs (repository code, no compile) is class A", () => {
   const extra = { ".github/workflows/ci.yml": "a: b", "scripts/generate-index.mjs": "", "packages/p/package.json": '{"license":"MIT"}' };
   const { plan } = planFor([".github/workflows/ci.yml", "packages/p/package.json"], extra);
   const by = (id) => plan.scans.find((s) => s.id === id);
   assert.equal(by("actionlint").root, "content");
   assert.equal(by("pnpm-lockfile").root, "content");
   assert.equal(by("pnpm-audit").root, "content");
-  assert.equal(by("generated-docs").class, "B");
-  assert.equal(scanClassOf("generated-docs"), "B");
-  // Every class A scan is either content-rooted or an internal check, except the one named live check.
-  const live = plan.scans.filter((s) => s.class === "A" && !s.internal && s.root === "live").map((s) => s.id);
-  assert.deepEqual(live, []);
+  assert.equal(by("generated-docs").class, "A");
+  assert.equal(scanClassOf("generated-docs"), "A");
+  // Every class A scan is content-rooted or an internal check, except those that execute the repository's code (tests, typecheck,
+  // lint, generated docs): they read the live checkout, which the gate verifies equals the commit, and `check` never runs them.
+  const live = plan.scans.filter((s) => s.class === "A" && !s.internal && s.root === "live");
+  assert.deepEqual(live.filter((s) => s.executes !== true).map((s) => s.id), []);
+  assert.deepEqual(live.map((s) => s.id), ["generated-docs"]);
 });
 
 test("plan: a crate directory name with shell metacharacters becomes a failing path-policy scan", () => {
@@ -526,7 +540,7 @@ test("plan: the docs generator runs only from the trusted checkout, with the con
   const fs = fakeFs({ ...trusted, "a.json": "{}" }, trusted);
   const plan = planScans({ changed: ["a.json", "scripts/generate-index.mjs"], contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "win32", includeTests: false });
   const docs = plan.scans.find((s) => s.id === "generated-docs");
-  assert.equal(docs.class, "B");
+  assert.equal(docs.class, "A");
   assert.equal(docs.root, "live");
   assert.deepEqual(docs.args, ["scripts/generate-index.mjs", "--check", "--root", "{contentRoot}"]);
   assert.equal(docs.deferred, undefined);
@@ -584,10 +598,10 @@ test("class B evidence binds to the input content and to a real class A run", as
   assert.ok(excluded.scans.filter((s) => s.class === "B").every((s) => s.code === "CLASS_A_REQUIRED"));
   // A plan with zero class A scans needs explicit prior evidence.
   // (No advisory-exception set in this tree: that scan is the one class A scan every run plans.)
-  const swiftOnly = fakeFs({ "swift/a.swift": "" }, { "swift/a.swift": "" });
+  const swiftOnly = fakeFs({ "swift/a.swift": "", "Package.swift": "" }, { "swift/a.swift": "", "Package.swift": "" });
   const swift = planScans({ changed: ["swift/a.swift"], contentRoot: CONTENT, liveRoot: LIVE, ...swiftOnly, platform: "darwin" });
   assert.equal(swift.scans.filter((s) => s.class === "A").length, 0);
-  const swiftFs = fakeFs({ ...crateFiles, "swift/a.swift": "" }, {});
+  const swiftFs = fakeFs({ ...crateFiles, "swift/a.swift": "", "Package.swift": "" }, {});
   const bare = await runScans(swift, deps({ ...swiftFs }));
   assert.ok(bare.scans.length > 0 && bare.scans.every((s) => s.code === "CLASS_A_REQUIRED"));
   const evidence = await runScans(swift, deps({ ...swiftFs, classes: ["A"] }));
@@ -1373,7 +1387,8 @@ test("lanes: tests run testJobs at a time after the compile lanes; quiet test sc
     return fakeSpawn()(command, args);
   };
   const events = [];
-  const quietLane = { acquire: async () => { events.push("acquire"); return { id: "q-1", env: { RUSTRIGHT_QUIET_LEASE: "q-1" } }; }, release: async (id) => events.push(`release ${id}`) };
+  const asked = [];
+  const quietLane = { acquire: async (want) => { asked.push(want?.ttlMs); events.push("acquire"); return { id: "q-1", env: { RUSTRIGHT_QUIET_LEASE: "q-1" } }; }, release: async (id) => events.push(`release ${id}`) };
   const result = await runScans(plan, { ...deps({ ...fs, spawn }), jobs: 2, testJobs: 2, quietLane });
   assert.equal(result.ok, true, scanFailures(result).join("\n"));
   const tests = seen.filter((s) => / test /.test(s.id));
@@ -1381,7 +1396,10 @@ test("lanes: tests run testJobs at a time after the compile lanes; quiet test sc
   assert.equal(tests.at(-1).id.includes("-p foo"), true, "the quiet crate's tests are the last scans");
   assert.equal(tests.at(-1).lease, "q-1", "quiet scans carry the lease id");
   assert.ok(tests.filter((t) => t.id.includes("-p bar")).every((t) => t.lease === null), "other tests never see the lease");
-  assert.deepEqual(events, ["acquire", "release q-1"], "one lease around the quiet lane");
+  const quietCount = plan.scans.filter((x) => x.quiet).length;
+  assert.deepEqual(events, Array.from({ length: quietCount }, () => ["acquire", "release q-1"]).flat(), "one lease per quiet suite, released after it");
+  assert.ok(asked.every((t) => t === 30 * 60_000), "each lease asks for the broker's 30 min ceiling, never more");
+  assert.ok(seen.filter((x) => x.lease === "q-1").length === quietCount, "each quiet suite ran under a lease");
   const firstTestAt = seen.findIndex((s) => / test /.test(s.id));
   assert.ok(seen.slice(0, firstTestAt).every((s) => !/ test /.test(s.id)) && seen.slice(0, firstTestAt).some((s) => /clippy|check/.test(s.id)), "compile scans finish before any test starts");
   // No quietLane, or an acquire that throws: the lane still runs, without the env.
@@ -1389,6 +1407,25 @@ test("lanes: tests run testJobs at a time after the compile lanes; quiet test sc
   const bare = await runScans(plan, { ...deps({ ...fs, spawn }), jobs: 2, quietLane: { acquire: async () => { throw new Error("broker down"); }, release: async () => assert.fail("nothing to release") } });
   assert.equal(bare.ok, true);
   assert.ok(seen.filter((s) => / test /.test(s.id)).every((s) => s.lease === null));
+  // A managed host under full class A requires the lease: without it the quiet suites are refused and never run.
+  seen.length = 0;
+  const leaseless = await runScans(plan, { ...deps({ ...fs, spawn }), jobs: 2, requireQuietLease: true, quietLane: { acquire: async () => null } });
+  assert.equal(leaseless.ok, false);
+  assert.ok(!seen.some((s) => / test /.test(s.id) && s.id.includes("-p foo")), "no quiet test ran without the lease");
+  assert.ok(leaseless.scans.filter((r) => r.code === "QUIET_LEASE_UNAVAILABLE").length >= 1);
+});
+
+test("a class A quiet suite refused for want of the lease is a red class A: no class B scan starts after it", async () => {
+  const pkg = { "package.json": '{"name":"app","license":"MIT","scripts":{"test":"node --test"}}', "src/a.ts": "" };
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml", "src/a.ts"], pkg, { npmUnits: [{ name: "app", dir: "." }], packageFeatures: { app: { quietTests: true } } });
+  const quiet = plan.scans.filter((s) => s.class === "A" && s.quiet);
+  assert.ok(quiet.length >= 1, `the fixture plans a class A quiet suite (${plan.scans.map((s) => s.id).join(", ")})`);
+  assert.ok(plan.scans.some((s) => s.class === "B"), "and class B scans that must not start");
+  const spawned = [];
+  const spawn = async (command, args) => { spawned.push(args.join(" ")); return fakeSpawn()(command, args); };
+  const result = await runScans(plan, { ...deps({ ...fs, spawn }), requireQuietLease: true, quietLane: { acquire: async () => null } });
+  assert.equal(result.ok, false);
+  assert.ok(!spawned.some((a) => /clippy|rustdoc|\btest\b|^check |\bbuild\b/.test(a)), `no class B scan spawned after the refusal: ${spawned.join(" | ")}`);
 });
 
 test("quietTests: 'ci' leaves the quiet crates' test scans to the CI shards with a note naming them; 'local' (default) plans them for the quiet lane", () => {
@@ -1451,9 +1488,9 @@ test("lint: a Biome-only app is planned biome, never eslint (ViewRight and Scrap
     const p = lintPlan({ [config]: "{}" });
     const biome = scanOf(p, "biome:app");
     assert.ok(biome, `${config}: ${ids(p).join(" ")}`);
-    assert.deepEqual([biome.tool, biome.args, biome.cwd, biome.class], ["pnpm", ["exec", "biome", "lint", "."], ".", "B"]);
+    assert.deepEqual([biome.tool, biome.args, biome.cwd, biome.class], ["pnpm", ["exec", "biome", "lint", "."], ".", "A"]);
     assert.equal(biome.command, "pnpm_config_verify_deps_before_run=false pnpm exec biome lint .", "the pnpm dependency check is off for the run (B4)");
-    assert.equal(scanClassOf("biome:app"), "B");
+    assert.equal(scanClassOf("biome:app"), "A");
     assert.ok(!ids(p).includes("eslint:app"), `${config}: a Biome app has no ESLint config, so eslint . would fail with "couldn't find an eslint.config": ${ids(p).join(" ")}`);
   }
 });
@@ -1539,14 +1576,18 @@ test("scriptBrokerCall: bounded in depth and safe against cycles", () => {
   assert.ok(scriptBrokerCall(chain(12, "cargo test"), "test", { maxDepth: 20 }), "the bound is a parameter");
 });
 
-test("test:npm scans carry brokerCall when the test script chain runs the broker, and the plan's commands and digest do not change", () => {
+test("test:npm scans carry brokerCall when the test script chain runs the broker; such a test compiles and is class B, a plain one class A", () => {
   const viewright = { name: "viewright", license: "MIT", scripts: { test: "pnpm test:edge && pnpm test:e2e", "test:edge": "vitest run", "test:e2e": "rustright storage run --app viewright -- right-release test" } };
   const plain = { name: "viewright", license: "MIT", scripts: { test: "vitest run" } };
   const planOf = (manifestJson) => planFor(["package.json"], { "package.json": JSON.stringify(manifestJson) }, { rustUnits: [], npmUnits: [{ name: "viewright", dir: "." }] }).plan;
   const marked = scanOf(planOf(viewright), "test:npm:viewright");
   assert.deepEqual(marked.brokerCall, { tool: "rustright", via: ["test", "test:e2e"], command: "rustright storage run --app viewright -- right-release test" });
   assert.equal(scanOf(planOf(plain), "test:npm:viewright").brokerCall, undefined);
-  assert.equal(planOf(viewright).scanSetDigest, planOf(plain).scanSetDigest, "the marker is not part of the scan set digest");
+  // A test that reaches the broker compiles: it is class B and runs with the compile scans; a plain node test is class A. The class
+  // is part of the plan, so the two plans' digests differ by exactly that (Adrian, 2026-10-27: class A is everything that does not compile).
+  assert.equal(marked.class, "B");
+  assert.match(marked.classReason, /reaches the broker/);
+  assert.equal(scanOf(planOf(plain), "test:npm:viewright").class, "A");
   assert.deepEqual(marked.args, ["--dir", ".", "run", "test"]);
   assert.equal(marked.tool, "pnpm", "the scan itself still runs pnpm; only the gate's deferral reads the marker");
 });
@@ -1838,11 +1879,22 @@ function stalePnpm({ log = [], toolResult = { status: 0, stdout: "", stderr: "" 
     if (path.basename(command).replace(/\.exe$/, "") !== "pnpm" || args[0] === "--version" || args[0] === "install" || args[0] === "audit") return base(command, args);
     const flag = options.env?.pnpm_config_verify_deps_before_run;
     log.push({ args, flag });
-    return flag === "false" ? toolResult : { status: 1, stdout: "", stderr: PNPM_ABORT };
+    // A passing test run prints its runner's summary (class A test scans record it).
+    const testRun = args[0] === "--dir" && args.includes("test");
+    if (flag !== "false") return { status: 1, stdout: "", stderr: PNPM_ABORT };
+    return testRun && toolResult.status === 0 ? { ...toolResult, stdout: `${toolResult.stdout}${TEST_SUMMARY}` } : toolResult;
   };
 }
 const jsApp = { "package.json": '{"name":"app","license":"MIT","scripts":{"test":"node --test"}}', "tsconfig.json": "{}", "eslint.config.js": "", "biome.json": "{}", "src/a.ts": "" };
 const pnpmUnit = { rustUnits: [], npmUnits: [{ name: "app", dir: "." }] };
+
+test("npm tests are isolated only on an export: on the live checkout (full class A, admission) the cross-app contract tests run for real", () => {
+  const exportPlan = planFor(["src/a.ts"], jsApp, pnpmUnit).plan;
+  assert.equal(scanOf(exportPlan, "test:npm:app").env.RIGHTKIT_ISOLATED_CHECKOUT, "1");
+  const fs = fakeFs({ ...crateFiles, ...jsApp }, { ...crateFiles, ...jsApp });
+  const live = planScans({ changed: ["src/a.ts"], contentRoot: LIVE, liveRoot: LIVE, ...fs, platform: "win32", ...pnpmUnit });
+  assert.equal(scanOf(live, "test:npm:app").env.RIGHTKIT_ISOLATED_CHECKOUT, undefined);
+});
 
 test("B4: the class B pnpm scans (tsc, eslint, biome, test:npm) turn pnpm's dependency check off; the class A lockfile and audit scans and every other scan are unchanged", () => {
   const { plan } = planFor(["src/a.ts"], jsApp, pnpmUnit);
@@ -1867,7 +1919,7 @@ test("B4: every class B pnpm scan reaches pnpm with the check off, so a stale no
   assert.deepEqual(log.map((c) => c.args[0] === "--dir" ? "test" : c.args[1]).sort(), ["biome", "eslint", "test", "tsc"], "tsc, eslint, biome and the tests all ran");
   assert.ok(log.every((c) => c.flag === "false"), "with the check off in each child's environment");
   // The stand-in does abort when the setting is absent: that is what the unfixed plan hit.
-  const stripped = { ...plan, scans: plan.scans.map((s) => (s.tool === "pnpm" && s.class === "B" ? { ...s, env: Object.fromEntries(Object.entries(s.env ?? {}).filter(([k]) => k !== "pnpm_config_verify_deps_before_run")) } : s)) };
+  const stripped = { ...plan, scans: plan.scans.map((s) => (s.tool === "pnpm" && Object.hasOwn(s.env ?? {}, "pnpm_config_verify_deps_before_run") ? { ...s, env: Object.fromEntries(Object.entries(s.env ?? {}).filter(([k]) => k !== "pnpm_config_verify_deps_before_run")) } : s)) };
   const aborted = await runScans(stripped, deps({ ...fs, spawn: stalePnpm() }));
   assert.equal(aborted.ok, false);
   assert.match(aborted.scans.find((r) => r.id === "tsc:app").detail, /ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY/);
@@ -1878,11 +1930,18 @@ test("B4: turning the check off masks no real failure: a tool or test that fails
   const toolResult = { status: 2, stdout: "src/a.ts(1,7): error TS2322: Type 'string' is not assignable to type 'number'.\n", stderr: "" };
   const result = await runScans(plan, deps({ ...fs, spawn: stalePnpm({ toolResult }) }));
   assert.equal(result.ok, false);
-  for (const id of ["tsc:app", "eslint:app", "biome:app", "test:npm:app"]) {
+  for (const id of ["tsc:app", "eslint:app", "biome:app"]) {
     const row = result.scans.find((r) => r.id === id);
     assert.equal(row.status, "fail", id);
     assert.match(row.detail, /error TS2322/, `${id} reports the tool's own failure`);
   }
+  // The class A tests run only on content class A already passed: with tsc red they do not start.
+  assert.equal(result.scans.find((r) => r.id === "test:npm:app").status, "not-run");
+  // A failing test with every content check green still fails with its own output.
+  const onlyTest = await runScans(plan, deps({ ...fs, spawn: (command, args, options = {}) => (args[0] === "--dir" && args.includes("test") ? toolResult : stalePnpm()(command, args, options)) }));
+  const testRow = onlyTest.scans.find((r) => r.id === "test:npm:app");
+  assert.equal(testRow.status, "fail");
+  assert.match(testRow.detail, /error TS2322/);
 });
 
 test("B4: a failed scan's detail leads with pnpm's bracketed [ERR_PNPM_...] line, not the tail of a stack", () => {
@@ -2105,6 +2164,57 @@ test("shellcheck version pin: a cached pass never admits another version, and th
   assert.notEqual(key("shellcheck", "shellcheck 0.11.0"), key("shellcheck", "shellcheck 0.10.0"));
 });
 
+// ---- class A order (Adrian, 2026-10-27: class A is everything mechanical and deterministic, before any compile) -----------------------------
+
+test("order, by the actual spawn log: content class A, then class A tests, then the compile; a red class A test starts no compile", async () => {
+  const extra = { "packages/p/package.json": '{"name":"p","license":"MIT","scripts":{"test":"node --test"}}', "packages/p/tsconfig.json": "{}" };
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml", "packages/p/package.json"], extra, { npmUnits: [{ name: "p", dir: "packages/p" }] });
+  const kindOf = (call) => {
+    const text = call.join(" ");
+    // A compile: cargo check / clippy / rustdoc / test. cargo-deny's `check`, cargo-audit and cargo metadata are class A content checks.
+    if (/\b(deny|audit|metadata|package)\b/.test(text)) return null;
+    if (/\bclippy\b|\bcheck\b|\brustdoc\b|cargo(?:\s+\S+)*\s+test\b/.test(text) && /rustright|cargo/.test(call[0] + " " + (call[1] ?? ""))) return "compile";
+    if (/--dir packages\/p run test/.test(text)) return "test";
+    if (/\btsc\b/.test(text)) return "typecheck";
+    return null;
+  };
+  const green = [];
+  const ok = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ log: green }) }));
+  assert.equal(ok.ok, true, JSON.stringify(scanFailures(ok)));
+  const order = green.map(kindOf).filter(Boolean);
+  const firstCompile = order.indexOf("compile");
+  assert.ok(firstCompile > 0, `a compile ran: ${order.join(",")}`);
+  assert.ok(order.lastIndexOf("test") < firstCompile, `every class A test ran before the first compile: ${order.join(",")}`);
+  assert.ok(order.lastIndexOf("typecheck") < firstCompile, `typecheck ran before the first compile: ${order.join(",")}`);
+  assert.ok(order.indexOf("typecheck") < order.indexOf("test"), `content checks ran before the tests: ${order.join(",")}`);
+  assert.deepEqual(ok.scans.find((r) => r.id === "test:npm:p").results, { runner: "node:test", tests: 3, pass: 3, fail: 0, skipped: 0, todo: 0 });
+  // A red class A test: no compile is spawned at all.
+  const red = [];
+  const failed = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ log: red, failing: ["--dir packages/p run test"] }) }));
+  assert.equal(failed.ok, false);
+  assert.deepEqual(red.map(kindOf).filter((k) => k === "compile"), [], "no compile after a red class A test");
+  assert.ok(failed.scans.filter((r) => r.class === "B").every((r) => r.status === "not-run"), "every class B row is not-run");
+});
+
+test("a test scan that passes without a runner summary, or executes no test, fails; a cached test pass without counts runs again", async () => {
+  const extra = { "packages/p/package.json": '{"name":"p","license":"MIT","scripts":{"test":"node --test"}}' };
+  const { fs, plan } = planFor(["packages/p/package.json"], extra, { rustUnits: [], npmUnits: [{ name: "p", dir: "packages/p" }] });
+  const quiet = (stdout) => (command, args) => (args.includes("test") ? { status: 0, stdout, stderr: "" } : fakeSpawn()(command, args));
+  const silent = await runScans(plan, deps({ ...fs, spawn: quiet("") }));
+  assert.equal(silent.scans.find((r) => r.id === "test:npm:p").code, "NO_TEST_SUMMARY");
+  const empty = await runScans(plan, deps({ ...fs, spawn: quiet("ℹ tests 0\nℹ pass 0\nℹ fail 0\nℹ skipped 0\n") }));
+  assert.equal(empty.scans.find((r) => r.id === "test:npm:p").code, "NO_TESTS");
+  const cache = memCache(() => "d");
+  cache.store.set("stale", null);
+  const first = await runScans(plan, deps({ ...fs, cache }));
+  assert.equal(first.ok, true, JSON.stringify(scanFailures(first)));
+  for (const entry of cache.store.values()) if (entry?.row?.id === "test:npm:p") delete entry.row.results;
+  const log = [];
+  const second = await runScans(plan, deps({ ...fs, cache, spawn: fakeSpawn({ log }) }));
+  assert.ok(!second.cacheHits.includes("test:npm:p"), "a cached test pass without its counts is not reused");
+  assert.ok(log.some((c) => c.join(" ").includes("--dir packages/p run test")));
+});
+
 test("a scan that hangs is killed at its time limit and fails closed with its name (actionlint on the Dell, 2026-10-27); spawned children get no stdin", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
   const target = plan.scans.find((s) => s.id === "cargo-deny");
@@ -2151,4 +2261,42 @@ test("an oversized run: script fails actionlint's scan before actionlint starts 
   assert.equal(row.code, "RUN_SCRIPT_TOO_LARGE");
   assert.match(row.detail, /w\.yml:6 \d+ bytes/);
   assert.ok(!log.some((c) => path.basename(c[0]).startsWith("actionlint") && !c.includes("-version")), "actionlint was never started on the oversized workflow");
+});
+
+
+test("after a red class A content check, quiet class A suites never run (not even without a lease)", async () => {
+  const pkg = { "package.json": '{"name":"app","license":"MIT","scripts":{"test":"node --test"}}', "src/a.ts": "" };
+  const { fs, plan } = planFor(["src/a.ts"], pkg, { npmUnits: [{ name: "app", dir: "." }], packageFeatures: { app: { quietTests: true } } });
+  assert.ok(plan.scans.some((s) => s.class === "A" && s.quiet), "the fixture plans a quiet class A suite");
+  const spawned = [];
+  const base = fakeSpawn();
+  const spawn = async (command, args, options) => { spawned.push(args.join(" ")); if (args.includes("audit")) return { status: 1, stdout: "", stderr: "vulnerable" }; return base(command, args, options); };
+  let acquired = 0;
+  const result = await runScans(plan, { ...deps({ ...fs, spawn }), quietLane: { acquire: async () => { acquired += 1; return { id: "q", env: {} }; }, release: async () => {} } });
+  assert.equal(result.ok, false);
+  assert.equal(acquired, 0, "no lease taken for a suite that will not run");
+  assert.ok(!spawned.some((a) => /\brun test\b/.test(a)), `the quiet suite did not run: ${spawned.join(" | ")}`);
+  assert.ok(result.scans.some((r) => r.id.startsWith("test:npm:") && r.status === "not-run"));
+});
+
+test("a hung tool version probe is bounded: it reads as unavailable instead of holding the lane or a quiet lease", async () => {
+  const pkg = { "package.json": '{"name":"app","license":"MIT","scripts":{"test":"node --test"}}', "src/a.ts": "" };
+  const { fs, plan } = planFor(["src/a.ts"], pkg, { npmUnits: [{ name: "app", dir: "." }], packageFeatures: { app: { quietTests: true } } });
+  const base = fakeSpawn();
+  const spawn = (command, args, options) => (args.length === 1 && args[0] === "--version" && /pnpm/.test(String(command))
+    ? new Promise((resolve) => options?.signal?.addEventListener("abort", () => resolve({ status: null, stdout: "", stderr: "", error: new Error("aborted") }), { once: true }))
+    : base(command, args, options));
+  const started = Date.now();
+  const result = await runScans(plan, { ...deps({ ...fs, spawn }), probeTimeoutMs: 200, quietLane: { acquire: async () => ({ id: "q", env: {} }), release: async () => {} } });
+  assert.ok(Date.now() - started < 10_000, "the stalled probe did not hold the run");
+  assert.equal(result.ok, false, "a tool that cannot be probed fails its scans");
+});
+
+test("generated-docs: deferred when only the submitted copy exists, run from the live checkout under full class A (liveExecution)", () => {
+  const files = { "scripts/generate-index.mjs": "", "Cargo.toml": "[workspace]\n" };
+  const fs = fakeFs(files, files);
+  const deferred = planScans({ changed: ["Cargo.toml"], contentRoot: LIVE, liveRoot: LIVE, ...fs, platform: "win32" });
+  assert.match(scanOf(deferred, "generated-docs")?.deferred ?? "", /trusted-root run/);
+  const live = planScans({ changed: ["Cargo.toml"], contentRoot: LIVE, liveRoot: LIVE, ...fs, platform: "win32", liveExecution: true });
+  assert.equal(scanOf(live, "generated-docs")?.deferred, undefined);
 });

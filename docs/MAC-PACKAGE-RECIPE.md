@@ -31,6 +31,8 @@ mac: {
     prepare: [], postBuild: [],            // optional argv commands
     cleanup: { staleApps: true, staleDmgVolumes: true, lsclean: true },// optional built-in pre-build cleanup
     cargoTargetRoot: true,                 // optional, see "Managed Cargo target roots"
+    stageSidecars: true,                   // optional, see "Universal sidecars (externalBin)"
+    nativeHelpers: [/* ... */],            // optional, see "Native Swift helpers"
   },
   notarize: { app: "src-tauri/target/universal-apple-darwin/release/bundle/macos/App.app", file: "dist/App_universal.dmg", profile: "apple-dev-notary" },
   dmg: { volname: "App", background: "assets/dmg.png" },          // DMG settings live HERE
@@ -41,7 +43,7 @@ mac: {
 ```
 
 Unknown `macPackage` keys are refused (`universal, triple, tauriCwd, features, profile, tauriConfig, prepare, postBuild,
-cleanup, cargoTargetRoot`). `prePackage` and `package` must be absent, and `dmg: false` is refused: the target always
+cleanup, cargoTargetRoot, updater, stageSidecars, nativeHelpers`). `prePackage` and `package` must be absent, and `dmg: false` is refused: the target always
 builds a DMG.
 
 ### Where each concern lives
@@ -120,6 +122,92 @@ macPackage: {
 With `prepare`, `postBuild` or `cleanup`, `prePackage` is `node recipe-build.mjs --plan <json>`: cleanup, prepare, the Tauri build,
 postBuild, in order, failing closed on the first non-zero exit. Without them it is the plain `pnpm exec tauri build`.
 
+### `right-release` inside prepare, build and postBuild
+
+A step whose `cmd` is `right-release` (also `pnpm exec right-release ...` and `pnpm right-release ...`) always launches THIS
+package's own CLI (`process.execPath <package>/cli/right-release.mjs <args>`), never the copy in the app's `node_modules`, which
+`pnpm exec` would otherwise put first on PATH. It is the same rule `development.targets.*.build` steps follow. Other `pnpm` steps
+still run through the pinned pnpm CLI.
+
+### Universal sidecars (externalBin): `macPackage.stageSidecars`
+
+Tauri's universal build looks for every `externalBin` as `binaries/<name>-universal-apple-darwin`, one fat Mach-O. The release
+config's declarative `sidecars` (`cargo-bin`, `command`, `prebuilt`, `ffmpeg`, `native-library`, ...) already stage a universal
+target: `right-release stage-sidecar --target universal-apple-darwin` builds the aarch64 and x86_64 slices of each `cargo-bin`
+separately, `lipo -create`s them into `<name>-universal-apple-darwin`, and refuses a result that lacks `arm64` or `x86_64`.
+`stageSidecars` is the declaration that runs it for the release lane:
+
+```js
+macPackage: {
+  universal: true,
+  stageSidecars: true,   // or { config: "right-release.config.mjs", receipt: "src-tauri/binaries/stage-sidecar.json" }
+}
+```
+
+It prepends `right-release stage-sidecar --target <triple> [--config <file>]` as the first `prepare` step (so it runs before your
+own `prepare` steps and before the Tauri build) and, for `universal-apple-darwin`, adds a check that runs right before the build:
+the stage receipt must be for `universal-apple-darwin`, and every `externalBin` file in it must be named
+`<name>-universal-apple-darwin` and report exactly `arm64 x86_64` from `lipo -archs` (a thin file, an extra architecture, an
+unreadable receipt or a failing `lipo` stops the release before `tauri build`). Without `stageSidecars` nothing is staged for
+you and a manual `right-release stage-sidecar` step in `prepare` stays valid. Non-`externalBin` outputs (resource-directory
+dylibs, ffmpeg, onnxruntime) are staged per slice and lipo-merged by stage-sidecar itself and are checked there; the receipt check
+covers `externalBin` only.
+
+### Native Swift helpers: `macPackage.nativeHelpers`
+
+Mac apps that ship Swift helpers inside the .app (menu bar helper, Shortcuts/App Intents helper, CloudKit helper, credentials
+helper) declare them once. The list is shared by the dev lane and the release lane (`nativeHelpersFromConfig(config)` reads
+`targets.mac.macPackage.nativeHelpers`). Each entry:
+
+| Key | Meaning |
+| --- | --- |
+| `name` | unique label |
+| `package` or `sharedPackage` | exactly one. `package`: app-relative SwiftPM package directory. `sharedPackage`: a RightKit shared Swift package key (`cloudkit` = `swift/RightKitCloudKitHelper`), resolved against the RightKit checkout (`RIGHTKIT_SWIFT_ROOT` overrides) |
+| `product` | SwiftPM executable product |
+| `kind` | `app` (wrap the product as a helper .app) or `executable` (embed the bare binary) |
+| `embed` | path inside the .app, under `Contents/Library/`, `Helpers/`, `XPCServices/`, `PlugIns/` or (executables only) `Contents/MacOS/<file>`; kind `app` ends in `.app` |
+| `universal` | required boolean: `arm64` + `x86_64` when true, the host arch when false |
+| `entitlements` | optional app-relative plist, applied to this helper only |
+| `executable` | kind `app` only: file name in `Contents/MacOS` (default `product`), so a product can be renamed |
+| `info` | kind `app` only, required: `{ bundleId, name?, displayName?, uiElement?, minimumSystemVersion? }`; `uiElement` is `LSUIElement`; version comes from the release config |
+| `resources` | kind `app` only: `[{ from: <app-relative>, to: <path in Contents/Resources> }]` |
+| `appIntents` | kind `app` only: `{ moduleName, deploymentTarget? }` runs `appintentsmetadataprocessor` and requires `Metadata.appintents/extract.actionsdata` |
+| `provisioningProfile` | kind `app` only: app-relative profile copied to `<helper>.app/Contents/embedded.provisionprofile` |
+
+```js
+macPackage: {
+  universal: true, stageSidecars: true,
+  nativeHelpers: [
+    { name: "menubar", package: "macos-native/Pkg", product: "MenuBar", kind: "app", embed: "Contents/Library/LoginItems/MenuBar.app", universal: true,
+      info: { bundleId: "com.example.statusbar", uiElement: true }, resources: [{ from: "src-tauri/icons/tray", to: "tray" }] },
+    { name: "cloud", sharedPackage: "cloudkit", product: "rightkit-cloudkit-helper", kind: "app", embed: "Contents/Library/LoginItems/CloudHelper.app", universal: true,
+      executable: "CloudHelper", info: { bundleId: "com.example.next", name: "CloudHelper", uiElement: true },
+      entitlements: "src-tauri/entitlements-cloud.plist", provisioningProfile: "src-tauri/provisioning/App.provisionprofile" },
+  ],
+}
+```
+
+Unknown keys, absolute paths, `..`, backslashes, an `embed` outside the roots above, duplicate names, and nested or overlapping embed
+paths are refused at expansion. On a universal build (`universal-apple-darwin`) every helper must declare `universal: true`; on a thin
+triple every helper is built for that triple's arch.
+
+Order in the release lane: (1) `tauri build` and the managed-target copy make the unsigned .app; (2) recipe-build runs the
+`nativeHelpers` section: per helper in declared order, `swift build -c release --package-path <pkg> --product <product> --arch arm64
+--arch x86_64` (one `--arch` per slice, always explicit, so SwiftPM uses its xcbuild layout and App Intents inputs are found), then
+`swift build ... --show-bin-path`, a `lipo -archs` check that the slices are exactly the expected set, and the embed (Info.plist,
+renamed executable, resources, App Intents metadata, provisioning profile). An embed path that already exists in the .app is an error.
+(3) your `postBuild` steps; (4) release.mjs signs inside-out: the expansion adds each helper to `sign.nestedCode`, so signing walks
+deepest path first (code inside a helper, then the helper .app with its own entitlements and the hardened runtime), then the
+engine/dylibs/other nested code, then the app last; (5) notarization and the DMG as before. The helper's entitlements plist must
+exist when `right-release doctor` validates the signing config, so an app that renders it must do so in an earlier step of its
+own pipeline, not in `prepare`. `sign.nestedCode` / `sign.entitlements` must not redeclare a helper's `embed` path.
+
+Dev lane (not wired into `development.mjs` yet): `native-helpers.mjs` exports `buildAndEmbedNativeHelpers({ appRoot, app,
+helpers, version, forceArch, configuration: "debug", replaceExisting: true })`, `nativeHelperEntitlementMap(helpers)` and
+`nativeHelpersFromConfig(config)`. Call the first between the dev `tauri build` and `installTauriDevId` (it embeds into the freshly
+built .app; the dev signer already signs nested bundles deepest first), and merge the entitlement map into `install.entitlements`
+inside `readDevSigningSettings`.
+
 ### Managed Cargo target roots
 
 Artifact paths in the target are the paths you declare (`notarize.app`, `sign.prePackageFiles`), normally under
@@ -130,9 +218,13 @@ exists, the same lookup runs without the key. What works:
 
 - target directory inside the app (for example `CARGO_TARGET_DIR=.cargo-target`): paths are rewritten, and the build, signing
   set, cleanup bundle dir and `notarize.app` all agree;
-- target directory outside the app (a broker-managed directory): fails closed with a clear message, because release.mjs resolves
-  declared paths from the app root and signing and `lsregister` entries are app-relative. Paths you wrote outside the default
-  `target/` prefix are never touched;
+- target directory outside the app but under a managed root (`resolveManagedRoots`, the broker-managed target directory on a
+  brokered host; rightkit#924, release 0.6.2): declared paths stay at their default app-relative location under
+  `src-tauri/target/`, and the built `.app` is copied there after the build (sha256-verified, stale destination deleted first,
+  atomic rename). The signing set, `notarize.app`, stapling, DMG, updater, cleanup and `lsregister` entries all see that
+  app-relative copy, so nothing is written outside the app root or the managed target directory;
+- target directory outside the app and outside every managed root: fails closed with a clear message. Paths you wrote outside the
+  default `target/` prefix are never touched;
 - `RIGHT_RELEASE_ARTIFACT_DIR` is a separate mechanism: release.mjs falls back to a file's basename there only when the declared
   path does not exist. It is not a build output location.
 

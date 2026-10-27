@@ -1,0 +1,98 @@
+{
+ "id": "36efaa30-4ee7-4f9d-9e27-3d956bd9cffa",
+ "provenance": {
+  "schema": "rustright.provenance.v1",
+  "payload": {
+   "host": "Adrians-Mac-Mini.local",
+   "broker": {
+    "version": "rustright-5af765b",
+    "brokerDigest": "2b0d6c901ccbb1c4dee517d9fbec6bfd72d49aede200fae89a7659b8e141853e",
+    "clientDigest": "8c36f8cc37186509cea9ea0f788acba08bb467604f2b82cee7eba3f9d0811555"
+   },
+   "keyId": "a9eb1ceeaa6b1cec899a7e5d01a97a084308a585c3e2c409510d02774ef7134f",
+   "jobId": "36efaa30-4ee7-4f9d-9e27-3d956bd9cffa",
+   "nonce": "756c38c7d712b6b975678dd64a3f30662e64ce81adb1613552200214c1607dad",
+   "requestDigest": "a0c0b7025f23f5972d75c90f70a9825bbef7348a5be4096192cef596562b57bd",
+   "request": {
+    "kind": "adapter",
+    "shim": "adapter",
+    "adapter": "rightkit-pnpm",
+    "requestedArgv": [
+     "install",
+     "--frozen-lockfile",
+     "--store-dir",
+     "/Volumes/D/.pnpm-store/v11"
+    ],
+    "effectiveArgv": [
+     "/Users/adrdsouza/.nvm/versions/node/v26.8.1/lib/node_modules/pnpm/bin/pnpm.mjs",
+     "install",
+     "--frozen-lockfile",
+     "--store-dir",
+     "/Volumes/D/.pnpm-store/v11"
+    ],
+    "transformations": [
+     {
+      "kind": "adapter-launcher",
+      "reason": "the broker prepends the adapter's registered arguments and script",
+      "added": [
+       "/Users/adrdsouza/.nvm/versions/node/v26.8.1/lib/node_modules/pnpm/bin/pnpm.mjs"
+      ],
+      "removed": [],
+      "before": [
+       "install",
+       "--frozen-lockfile",
+       "--store-dir",
+       "/Volumes/D/.pnpm-store/v11"
+      ],
+      "after": [
+       "/Users/adrdsouza/.nvm/versions/node/v26.8.1/lib/node_modules/pnpm/bin/pnpm.mjs",
+       "install",
+       "--frozen-lockfile",
+       "--store-dir",
+       "/Volumes/D/.pnpm-store/v11"
+      ]
+     }
+    ],
+    "workspace": "/Volumes/D/claude/rightkit",
+    "workspaceRoot": "/Volumes/D/claude/rightkit",
+    "envDigest": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "manifestDigest": null,
+    "outputs": [],
+    "timeoutMs": 1800000
+   },
+   "executable": {
+    "path": "/Users/adrdsouza/.nvm/versions/node/v26.8.1/bin/node",
+    "sha256": "ebd2d552c7bebde593dd0390530963ad28de56bccde6ce387cdbe55fb0b6fb8e",
+    "kind": "interpreter",
+    "script": {
+     "path": "/Users/adrdsouza/.nvm/versions/node/v26.8.1/lib/node_modules/pnpm/bin/pnpm.mjs",
+     "sha256": "ff3224d46b47fbb24a7e9fe15fededef7e00892d07d4e376b6762d4899906bfd"
+    }
+   },
+   "descendants": {
+    "status": "tree-contained"
+   },
+   "result": {
+    "status": "SUCCEEDED",
+    "exitCode": 0,
+    "signal": null,
+    "reap": {
+     "status": "REAPED",
+     "reaped": true,
+     "escalated": false
+    }
+   },
+   "inputBoundary": {
+    "status": "unrequested"
+   },
+   "outputDigest": "e6570968403f5b56c1fca9e6752c5ab57a9c4df355b69e93e9f6fb37a813b3e3",
+   "startedAt": "2026-10-27T16:20:18.041Z",
+   "terminalAt": "2026-10-27T16:20:19.131Z"
+  },
+  "signature": {
+   "alg": "ES256",
+   "keyId": "a9eb1ceeaa6b1cec899a7e5d01a97a084308a585c3e2c409510d02774ef7134f",
+   "value": "4f05547a6a9d3bc65c7f2e3ef8e52cf8f99a503d0e1adf2b45c1aa38cac1af4c1fe1384c6165c939764dd5fc57772838ab84abe82d79874b724e39934a0109e2"
+  }
+ }
+}

@@ -346,7 +346,17 @@ test("LG-05 negative: a card that points at doctrine/ outside its method, and a 
 // Legion's regeneration produced one change: rustfmt re-wrapped a line of engine/crates/legion-audit/src/source_cache.rs. That half of
 // canonical regeneration is the existing class A `rustfmt:<edition>` scan of the gate (deterministic-scans.mjs), which the pre-push
 // hook runs right after `rightkit-gate check`; its generator half (`legion-dev generate-*`) is class B. Replayed through the real gate.
-const RUSTFMT = findRustfmt();
+// A rustfmt the gate under test can RUN with the environment these tests hand it: the rustup proxy on PATH answers "not
+// runnable" under a HOME without rustup (the broker's), and the gate then fails closed, which is right for the gate and
+// wrong as a fixture. Verified here, or the rustfmt cases skip on this host.
+function runnableRustfmt() {
+  const found = findRustfmt();
+  if (!found) return null;
+  const e = env();
+  const probe = spawnSync(found, ["--version"], { encoding: "utf8", env: e, timeout: 30_000 });
+  return !probe.error && probe.status === 0 ? found : null;
+}
+const RUSTFMT = runnableRustfmt();
 const LEGION_CARGO = {
   "engine/Cargo.toml": '[workspace]\nmembers = ["crates/legion-audit"]\nresolver = "2"\n\n[workspace.package]\nedition = "2021"\nlicense = "MIT"\n',
   "engine/crates/legion-audit/Cargo.toml": '[package]\nname = "legion-audit"\nversion = "0.1.0"\nedition.workspace = true\nlicense.workspace = true\n\n[lib]\npath = "src/source_cache.rs"\n',
@@ -355,6 +365,9 @@ function gate(dir) {
   const head = sh(dir, ["rev-parse", "HEAD"]);
   const e = env();
   delete e.CI; delete e.GITHUB_ACTIONS; delete e.RIGHTKIT_GATE_NO_DEFER;
+  // Hermetic: the gate finds rustfmt through $RUSTFMT, the rustup toolchains under HOME, then PATH. The test already located
+  // one on this host; hand it over so a HOME without rustup (the broker's) does not silently leave the scan out.
+  if (RUSTFMT) e.RUSTFMT = RUSTFMT;
   const r = spawnSync(process.execPath, [GATE, "--base", "base", "--no-cache"], { cwd: dir, encoding: "utf8", env: e, input: `refs/heads/legion-fixture ${head} refs/heads/legion-fixture ${"0".repeat(40)}\n` });
   return { ...r, text: `${r.stdout}${r.stderr}` };
 }

@@ -111,8 +111,11 @@ export const INSTALL_COMMAND = "pnpm install --frozen-lockfile --ignore-scripts 
  * The report binds the dependency closure by bytes: a sha256 over every installed file's path and content under node_modules
  * (`deps.store`), plus the lockfile digest, the installed-state file and the pnpm version. Returns { dir, deps } or { problem }.
  */
-export function exportTree(root, { commit, spawn = spawnSync, mkdtemp = () => fs.mkdtempSync(path.join(os.tmpdir(), "rk-import-effects-")) } = {}) {
-  if (!/^[0-9a-f]{40}$/.test(commit ?? "")) return { problem: "exportTree needs the exact commit to archive" };
+export function exportTree(root, { commit, tree = null, spawn = spawnSync, mkdtemp = () => fs.mkdtempSync(path.join(os.tmpdir(), "rk-import-effects-")) } = {}) {
+  // `tree`: an exact tree id instead of a commit (the working tree's bytes, staged into a throwaway index by --worktree).
+  if (tree !== null && !/^[0-9a-f]{40}$/.test(tree)) return { problem: "exportTree needs the exact tree id to export" };
+  if (tree === null && !/^[0-9a-f]{40}$/.test(commit ?? "")) return { problem: "exportTree needs the exact commit to archive" };
+  if (tree !== null) commit = tree;
   const dir = mkdtemp();
   // read-tree into a private index, then checkout-index: every file of the commit, including any marked export-ignore in
   // .gitattributes (`git archive` would drop those, and a hidden package would vanish from the required set unseen).
@@ -285,21 +288,38 @@ const tail = (t, n = 400) => String(t ?? "").trim().split("\n").slice(-6).join("
 
 export function main(argv, io = { log: console.log, error: console.error }, deps = {}) {
   const { spawn = spawnSync, identity = checkoutIdentity, exporter = exportTree, probe = checkPackage, between = null } = deps;
-  let root = REPO; const dirs = []; let reportFile = null; let noExport = false;
+  let root = REPO; const dirs = []; let reportFile = null; let noExport = false; let worktree = false;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--root") root = path.resolve(argv[++i] ?? "");
     else if (argv[i] === "--report") reportFile = path.resolve(argv[++i] ?? "");
     else if (argv[i] === "--no-export") noExport = true;
+    else if (argv[i] === "--worktree") worktree = true;
     else if (argv[i].startsWith("-")) { io.error(`exports-import-effects: unknown option ${argv[i]}`); return 2; }
     else dirs.push(argv[i]);
   }
   // Identity of the checkout before anything runs; a report binds to it only when the same identity holds after the probe.
   const before = identity(root, { spawn });
   let probeRoot = root; let closure = { kind: "working-dir", exported: null, deps: null };
-  if (!noExport && before.commit) {
-    const exported = exporter(root, { commit: before.commit, spawn });
+  // --worktree: the working tree's own bytes (tracked and untracked, not ignored) staged into a throwaway index and written as a
+  // tree; the real index and the checkout are untouched, and the probe exports that tree exactly as it exports a commit.
+  const liveTree = () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rk-import-effects-index-"));
+    try {
+      const env = { ...process.env, GIT_INDEX_FILE: path.join(tmp, "index") };
+      const g = (...a) => spawn("git", ["-C", root, ...a], { encoding: "utf8", windowsHide: true, env, maxBuffer: 64 * 1024 * 1024 });
+      const steps = [g("read-tree", "HEAD"), g("add", "-A")];
+      if (steps.some((r) => r.error || r.status !== 0)) return null;
+      const w = g("write-tree");
+      const id = String(w.stdout ?? "").trim();
+      return w.status === 0 && /^[0-9a-f]{40}$/.test(id) ? id : null;
+    } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+  };
+  const workTree = worktree ? liveTree() : null;
+  if (worktree && !workTree) { io.error("exports-import-effects: cannot stage the working tree's bytes into a throwaway index"); return 2; }
+  if (!noExport && (workTree || before.commit)) {
+    const exported = workTree ? exporter(root, { tree: workTree, spawn }) : exporter(root, { commit: before.commit, spawn });
     if (exported.problem) { io.error(`exports-import-effects: ${exported.problem}`); return 2; }
-    probeRoot = exported.dir; closure = { kind: "exported-tree", exported: exported.dir, deps: exported.deps };
+    probeRoot = exported.dir; closure = { kind: "exported-tree", exported: exported.dir, deps: exported.deps, ...(workTree ? { worktree: workTree } : {}) };
     // Nothing writes the export after its digest: best-effort read-only bits now, and a second digest after the probe below.
     try { spawn("chmod", ["-R", "a-w", exported.dir], { encoding: "utf8", windowsHide: true }); } catch { /* platform without chmod: the re-digest below still binds it */ }
   }
@@ -323,7 +343,8 @@ export function main(argv, io = { log: console.log, error: console.error }, deps
     }
   }
   const after = identity(root, { spawn });
-  const stable = before.commit !== null && before.commit === after.commit && before.tree === after.tree;
+  // A working-tree probe is stable when the working tree still stages to the same tree after the imports ran.
+  const stable = workTree ? liveTree() === workTree : before.commit !== null && before.commit === after.commit && before.tree === after.tree;
   if (reportFile) {
     fs.mkdirSync(path.dirname(reportFile), { recursive: true });
     if (!stable) io.log(`exports-import-effects: the checkout's HEAD moved during the probe (${before.commit ?? "none"} → ${after.commit ?? "none"}); the report records that and no verify will accept it`);
@@ -332,8 +353,13 @@ export function main(argv, io = { log: console.log, error: console.error }, deps
     fs.writeFileSync(reportFile, `${JSON.stringify({ schema: REPORT_SCHEMA, ...before, stable, closure: closureOut, checked, findings, incomplete, covered }, null, 2)}\n`);
   }
   const state = findings ? "RED" : incomplete.length ? (reportFile ? "INCOMPLETE (handed to the sealed-byte check)" : "INCOMPLETE (no --report: nothing downstream can close it)") : "green";
-  io.log(`exports-import-effects: ${state}; ${checked} exported module(s) imported in fresh processes from ${closure.kind === "exported-tree" ? `the exported tree of ${before.commit.slice(0, 12)}` : "the working directory"}; ${incomplete.length} export(s) incomplete; ${findings} finding(s)`);
+  io.log(`exports-import-effects: ${state}; ${checked} exported module(s) imported in fresh processes from ${closure.kind === "exported-tree" ? (closure.worktree ? `the exported working tree ${closure.worktree.slice(0, 12)}` : `the exported tree of ${before.commit.slice(0, 12)}`) : "the working directory"}; ${incomplete.length} export(s) incomplete; ${findings} finding(s)`);
   if (findings) return 1;
+  // Fail closed: a probe whose source (HEAD, or the staged working tree) or dependency closure changed while it ran proves
+  // nothing about any one set of bytes.
+  const closureMoved = closure.kind === "exported-tree" && closure.deps?.closureStable === false;
+  const sourceMoved = closure.kind === "exported-tree" && !stable; // a plain directory (no git, no export) has no source identity to hold
+  if (sourceMoved || closureMoved) { io.error(`exports-import-effects: UNSTABLE: ${sourceMoved ? (workTree ? "the working tree changed while the probe ran" : "the checkout's HEAD moved while the probe ran") : "the exported dependency closure changed while the probe ran"}; run again`); return 1; }
   if (incomplete.length && !reportFile) return EXIT_INCOMPLETE;
   return 0;
 }

@@ -1,5 +1,14 @@
 {
   "schema": 1,
   "apps": {},
-  "approvedRunners": []
+  "approvedRunners": [
+    {
+      "sha256": "3c11788ecb51459cde33c6d98dfad936a6c4c4c409f1d11ef327b0f0781f2986",
+      "version": "0.9.1",
+      "platform": "win",
+      "set_by": "adrian",
+      "since": "2026-10-27",
+      "note": "Dell runner, Adrian's go 2026-10-28, sha256 3c11788e…2986"
+    }
+  ]
 }

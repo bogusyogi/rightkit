@@ -39,10 +39,11 @@ export function parseTestArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--") { opts.passthrough = argv.slice(i + 1); break; }
-    if (arg === "--config" || arg === "--suite" || arg === "--runner") {
+    if (arg === "--config" || arg === "--suite" || arg === "--runner" || arg === "--platform") {
       const value = argv[i + 1];
       if (!value || value.startsWith("--")) throw new Error(`${arg} needs a value`);
       if (arg === "--suite") opts.suites.push(...value.split(",").filter(Boolean));
+      else if (arg === "--platform") opts.platform = value;
       else opts[arg.slice(2)] = value;
       i += 1;
     } else if (arg === "--list") opts.list = true;
@@ -172,6 +173,15 @@ export async function runSuites(plan, { appRoot, prefix = "test", env = process.
 export async function main(argv = process.argv.slice(2)) {
   const opts = parseTestArgs(argv);
   const { config, appRoot } = await loadAppConfig(opts.config);
+  // `--platform ios`: the app's declared XCUITest journeys (development.targets.ios.uiTests) on its dev device or simulator.
+  if (opts.platform !== undefined) {
+    if (opts.platform !== "ios") throw new Error(`--platform ${opts.platform}: only ios has platform UI test journeys; other suites are declared in tests.suites`);
+    if (opts.suites.length || opts.runner || opts.passthrough.length) throw new Error("--platform ios runs the declared journeys; it takes no --suite, --runner or arguments");
+    const { runDevelopment } = await import("./development.mjs");
+    const result = runDevelopment({ root: appRoot, platform: "ios", config, uiTests: true, dryRun: opts.list });
+    if (opts.list) console.log(JSON.stringify(result.plan ?? result, null, 2));
+    return 0;
+  }
   const plan = planTests(config, { suites: opts.suites, runner: opts.runner, passthrough: opts.passthrough, appRoot });
   if (opts.list) {
     const view = plan.map((item) => ({ suite: item.name, ...resolveInvocation(item.step, { appRoot, baseEnv: {}, extraArgs: item.extraArgs }), env: undefined }));

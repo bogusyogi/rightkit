@@ -24,7 +24,10 @@ browser = ["dep:rightkit-browser", "dep:tokio"]
 # refuses to seal or upload a release or update tier build that contains it. On Windows it also needs
 # exactly one `wv2-*` feature (compile_error in `embedded/win_view.rs`); macOS needs none.
 # Tauri 2.11: `features = ["control", "wv2-0_38"]`.
-control = ["dep:tauri", "rightkit-daemon/test-mode"]
+# It does NOT enable `rightkit-daemon/test-mode`: the server compiles into a dev build whose data
+# roots stay the real ones, and listens only when the QA runner's launch environment names
+# `RIGHTKIT_CONTROL_SERVICE` (isolation is chosen per launch by that environment, never by the build).
+control = ["dep:tauri"]
 # Windows: the `windows` + `webview2-com` generation the app's Tauri resolves, so WebView2 types cross the
 # Tauri boundary. Tauri 2.11 (wry 0.55) = wv2-0_38; Tauri 2.12+ = wv2-0_39. Neither is default: enable one with `control`.
 wv2-0_38 = ["dep:windows_061", "dep:webview2_com_038"]

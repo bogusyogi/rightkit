@@ -64,6 +64,7 @@
 // one at a time, under the RustRight quiet lease (`rustright quiet acquire`, RUSTRIGHT_QUIET_LEASE in their environment).
 // SIGINT/SIGTERM stop scheduling, kill every running scan's process tree and exit non-zero listing the scans not run.
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -86,7 +87,7 @@ export const PARTIAL_EXIT = 3;
 /** The platforms a door run can package: desktop (signed, sealed, installed QA, publisher upload) and mobile (signed, sealed, store test track). */
 export const PLATFORMS = Object.freeze(["mac", "win", "ios", "android"]);
 export const MOBILE_PLATFORMS = Object.freeze(new Set(["ios", "android"]));
-const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to dev|test [-- <right-release args>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | --version`;
+const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to dev|test [-- <right-release args>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | rightkit-gate env-digest | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | --version`;
 
 // ---- pure helpers (exported for tests) ----------------------------------------------------------------------
 
@@ -311,6 +312,22 @@ export function isCrlfCheckoutOf({ git, id, live, readFile = fs.readFileSync }) 
     if (committed.includes("\r")) return false;
     return readFile(live, "utf8") === committed.replace(/\n/g, "\r\n");
   } catch { return false; }
+}
+
+/**
+ * What a class A verdict depends on outside the checked tree: every file of this gate package (code at any depth, the advisory
+ * database, contracts, assets), node and pnpm versions, platform/arch, and each package's installed state
+ * (node_modules/.modules.yaml). The broker binds an admission ticket to it and recomputes it when the compile starts
+ * (`rightkit-gate env-digest`), so a dependency or tool change while a compile waits invalidates the ticket.
+ */
+export function classAEnvironmentDigest({ root, files, spawn = defaultSpawn }) {
+  const fileDigest = (f) => { try { return createHash("sha256").update(fs.readFileSync(f)).digest("hex"); } catch { return "absent"; } };
+  const gatePkg = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const walkGate = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.name === "node_modules" || e.name.startsWith(".") ? [] : e.isDirectory() ? walkGate(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+  const gateFiles = walkGate(gatePkg).sort().map((f) => `${path.relative(gatePkg, f)}:${fileDigest(f)}`);
+  const pnpmVersion = (() => { const r = spawn("pnpm", ["--version"], { cwd: root }); return failed(r) ? "unknown" : text(r).trim(); })();
+  const installState = files.filter((f) => /(^|\/)package\.json$/.test(f)).map((f) => path.join(path.dirname(path.join(root, f)), "node_modules", ".modules.yaml")).map((m) => `${path.relative(root, m)}:${fileDigest(m)}`);
+  return createHash("sha256").update([`node ${process.version}`, `pnpm ${pnpmVersion}`, `platform ${process.platform}-${process.arch}`, ...gateFiles, ...installState].join("\n")).digest("hex");
 }
 
 /** Split pathspecs into batches whose joined length stays under `limit` characters (well below Windows' 32767 command line). */
@@ -983,13 +1000,16 @@ export const QUIET_LEASE_WAIT_DRAIN_MS = 2 * 60 * 1000;
  * Without `rustright` on PATH, or when the broker refuses, the lane runs without a lease and the gate says so: the tests still run,
  * their verdict is simply taken on a possibly busy host. `o.spawn` is the gate's synchronous spawner.
  */
-export function quietLeaseLane(o, { tag = "rightkit-gate:", reason = "rightkit-gate-quiet-tests", ttlMs = QUIET_LEASE_TTL_MS, waitDrainMs = QUIET_LEASE_WAIT_DRAIN_MS, pid = process.pid } = {}) {
+export function quietLeaseLane(o, { tag = "rightkit-gate:", reason = "rightkit-gate-quiet-tests", ttlMs: baseTtlMs = QUIET_LEASE_TTL_MS, waitDrainMs = QUIET_LEASE_WAIT_DRAIN_MS, pid = process.pid } = {}) {
   const which = (cmd) => {
     const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]);
     return failed(r) ? null : (text(r).split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? null);
   };
   return {
-    acquire: async () => {
+    // `want.ttlMs` (from the scan runner): the lane's own bound, every quiet scan's timeout plus a margin, so the lease cannot
+    // expire while a quiet suite still runs (each scan is killed at its timeout first).
+    acquire: async (want = {}) => {
+      const ttlMs = Number.isFinite(want.ttlMs) && want.ttlMs > baseTtlMs ? want.ttlMs : baseTtlMs;
       if (!which("rustright")) { o.out(`${tag} note: no rustright on PATH; quiet test scans run without a broker lease`); return null; }
       const started = Date.now();
       const r = o.spawn("rustright", ["quiet", "acquire", "--ttl-ms", String(ttlMs), "--reason", reason, "--wait-drain-ms", String(waitDrainMs), "--holder-pid", String(pid), "--json"]);
@@ -1285,8 +1305,14 @@ async function runStages(o, args, root, git, io) {
   // the ones they sealed, so they are not run again.
   const sealedNow = receipt.stages.package?.ok ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;
   const sealedIntact = Boolean(sealedNow && sealedNow.id === receipt.stages.package.sealed && sealedNow.digest === receipt.stages.package.manifestSha256);
+  // The release tier runs at the start, not after the compile, for a door run headed to qualify or release (reviewer, 2026-10-27:
+  // a cheap known release blocker is found before the expensive work). dev/compile/package keep the compile tier, which is what
+  // compile admission owes; their release-only findings stay for qualify, reported, never dropped.
+  const earlyTier = ["qualify", "release"].includes(to) ? "release" : "compile";
+  const tierAtLeast = (have, need) => have === "release" || need === "compile";
   for (const stage of stages) {
-    if ((stage === "check" || stage === "compile") && receipt.stages[stage]?.ok) { o.out(`${tag} [${stage}] already passed for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
+    if (stage === "check" && receipt.stages.check?.ok && tierAtLeast(receipt.stages.check.ruleTier ?? "compile", earlyTier)) { o.out(`${tag} [check] already passed (${receipt.stages.check.ruleTier ?? "compile"} tier) for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
+    if (stage === "compile" && receipt.stages.compile?.ok) { o.out(`${tag} [${stage}] already passed for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
     if ((stage === "check" || stage === "compile" || stage === "package") && sealedIntact) {
       o.out(`${tag} [${stage}] already passed for the sealed set ${sealedNow.id} (manifest ${sealedNow.digest.slice(0, 12)})`); continue;
     }
@@ -1302,7 +1328,10 @@ async function runStages(o, args, root, git, io) {
       return 1;
     }
     let ok = false; const at = new Date().toISOString(); let extra = {};
-    if (stage === "check") ok = (await (o.runCheck ?? (() => main(["check", "--commit", "HEAD"], { ...io, cwd: root })))()) === 0;
+    if (stage === "check") {
+      ok = (await (o.runCheck ?? (() => main(["check", "--commit", "HEAD", "--full-a", "--rule-tier", earlyTier], { ...io, cwd: root })))(earlyTier)) === 0;
+      extra = { ruleTier: earlyTier };
+    }
     else if (stage === "compile") {
       // A Tauri crate with externalBin needs its sidecars in src-tauri/binaries before it compiles (its build script refuses
       // otherwise), so every release config that declares `sidecars` is staged first, through right-release under this door run.
@@ -1329,13 +1358,17 @@ async function runStages(o, args, root, git, io) {
       } else if (stage === "release" && mobile) {
         // The host uploads the sealed mobile build to the store's test track itself (the credentials live in the host's credential
         // store); the release tier is owed first, as for desktop qualification.
-        const releaseTier = await (o.runReleaseCheck ?? (() => main(["check", "--commit", "HEAD", "--rule-tier", "release"], { ...io, cwd: root })))();
+        const releaseTier = receipt.stages.check?.ok && receipt.stages.check.ruleTier === "release"
+          ? (o.out(`${tag} [release] the release tier already passed at check for this exact input; not run again`), 0)
+          : await (o.runReleaseCheck ?? (() => main(["check", "--commit", "HEAD", "--full-a", "--rule-tier", "release"], { ...io, cwd: root })))();
         if (releaseTier !== 0) { o.err(`${tag} [release] the release tier (every rule and scan) is red for ${commit.slice(0, 12)}; nothing was uploaded`); ok = false; }
         else ok = rightRelease(stage, ["upload", "--platform", platform, "--release", sealed.sealed, "--apply"]);
         extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, track: platform === "ios" ? "testflight" : "play-internal", ruleTier: "release" };
       } else if (stage === "qualify") {
         // Qualification owes the release tier: every rule and scan, the ones held out of compile admission included (app-check.mjs TIERS).
-        const releaseTier = await (o.runReleaseCheck ?? (() => main(["check", "--commit", "HEAD", "--rule-tier", "release"], { ...io, cwd: root })))();
+        const releaseTier = receipt.stages.check?.ok && receipt.stages.check.ruleTier === "release"
+          ? (o.out(`${tag} [qualify] the release tier already passed at check for this exact input; not run again`), 0)
+          : await (o.runReleaseCheck ?? (() => main(["check", "--commit", "HEAD", "--full-a", "--rule-tier", "release"], { ...io, cwd: root })))();
         if (releaseTier !== 0) { o.err(`${tag} [qualify] the release tier (every rule and scan) is red for ${commit.slice(0, 12)}; nothing was qualified`); ok = false; }
         else ok = rightRelease(stage, ["qa", "--stage", "installed", "--platform", platform, "--release", sealed.sealed]);
         extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, ruleTier: "release" };
@@ -1430,7 +1463,8 @@ async function runWorktreeCompile(o, args, root, git, io, to, appRoot = root) {
   const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
   if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
   o.out(`${tag} --to ${to} on the working tree of ${commit.slice(0, 12)}: check (class A) -> right-release ${to}; executor ${executor.kind}`);
-  const checked = await (o.runCheck ?? (() => main(["check", "--worktree"], { ...io, cwd: root })))();
+  // Full class A on the working tree, the checks that execute repository code included, before right-release compiles anything.
+  const checked = await (o.runCheck ?? (() => main(["check", "--worktree", "--full-a"], { ...io, cwd: root })))();
   if (checked !== 0) { o.err(`${tag} --to ${to} stopped at check: nothing compiled`); return 1; }
   const commonDir = path.resolve(root, common);
   const run = startRun({ commonDir, commit, tree, stage: to });
@@ -1479,13 +1513,13 @@ export async function main(argv, io = {}) {
   }
   if (args.includes("--help") || args.includes("-h")) { o.out(USAGE); return 0; }
   const sub = args[0] && !args[0].startsWith("-") ? args[0] : null;
-  if (sub && sub !== "install-hook" && sub !== "check" && sub !== "stage") { o.err(`rightkit-gate: unknown command ${JSON.stringify(sub)}\n${USAGE}`); return 2; }
+  if (sub && sub !== "install-hook" && sub !== "check" && sub !== "stage" && sub !== "env-digest") { o.err(`rightkit-gate: unknown command ${JSON.stringify(sub)}\n${USAGE}`); return 2; }
   // `check` is the deterministic stage (Adrian, 2026-10-25: deterministic always first, one door): the app-check rules, then every
   // class A scan (lockfiles, cargo-deny, cargo-audit, secrets, licences, manifests, workflow lint, syntax...) over the whole tree of the
   // commit, never a diff. Nothing compiles. The RustRight broker runs exactly this before it admits any compile. `--list`,
   // `--print-baseline` and `--only` stay app-check-only views.
   if (sub === "check") {
-    const appCheck = await (o.appCheck ?? (await import("../app-check.mjs")).main)(args.slice(1), { out: o.out, err: o.err, label: "check", cwd: o.cwd });
+    const appCheck = await (o.appCheck ?? (await import("../app-check.mjs")).main)(args.slice(1).filter((a) => a !== "--full-a"), { out: o.out, err: o.err, label: "check", cwd: o.cwd });
     if (args.includes("--list") || args.includes("--print-baseline") || args.includes("--only") || o.classA === false) {
       // A view of the app rules, never a class A verdict: say so, so no caller can take its exit 0 for a full check.
       // A green partial view exits PARTIAL_EXIT (3), never 0, so a caller that admits only exit 0 rejects it by status alone.
@@ -1499,7 +1533,7 @@ export async function main(argv, io = {}) {
     // owed by --to qualify|release. The app rules above read the same flag; the class A scans read it here. (--tier is the upload tier.)
     const ruleTier = option("--rule-tier") ?? "compile";
     if (!["compile", "release"].includes(ruleTier)) { o.err(`rightkit-gate: check --rule-tier must be compile or release, not ${JSON.stringify(ruleTier)}`); return 2; }
-    const classA = await main(["--class-a", "--rule-tier", ruleTier, ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"])], { ...io, cwd: checkCwd });
+    const classA = await main(["--class-a", "--rule-tier", ruleTier, ...(args.includes("--full-a") ? ["--full-a"] : []), ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"])], { ...io, cwd: checkCwd });
     // RightKit checking itself: its own rules (line endings, consumer recipes, npm surface, version copies and the version feed, dispatcher
     // pins, consumer locks, generated docs, temp paths: scripts/preflight.mjs) and its exports' import safety are class A for the RightKit repository. They run only when this gate is that
     // repository's own in-tree copy, so a gate checking any other repository (the broker's pinned one included) never runs
@@ -1530,15 +1564,15 @@ export async function main(argv, io = {}) {
         if (requested !== null && at(requested) !== at("HEAD")) {
           o.err(`rightkit-gate: BLOCKED: the exports import check probes the checkout's HEAD (${String(at("HEAD")).slice(0, 12)}), not the requested ${requested}; check out that commit to check it`);
           selfRules = 1;
-        } else if (requested === null && dirty()) {
-          o.err("rightkit-gate: BLOCKED: the exports import check probes the checkout's HEAD, and the working tree differs from it; commit or stash the changes, or check --commit HEAD");
-          selfRules = 1;
         } else {
+          // A working-tree check of a dirty checkout probes the working tree's own bytes (--worktree: staged into a throwaway index
+          // and exported like a commit), never HEAD's, so local development is checked on what it actually is.
+          const worktreeProbe = requested === null && dirty();
           // Like CI's scans job: exports that resolve to build output are INCOMPLETE here and handed, through --report, to the
           // sealed-byte check that publication runs; without --report the probe exits 3 and a green tree could never pass.
           const common = o.spawn("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: root });
           const report = path.join(failed(common) ? path.join(root, ".git") : text(common).trim(), "rightkit-gate", "import-effects", "report.json");
-          const e = launch(process.execPath, [effects, "--report", report], { cwd: root, env: o.env });
+          const e = launch(process.execPath, [effects, "--report", report, ...(worktreeProbe ? ["--worktree"] : [])], { cwd: root, env: o.env });
           if (e.status !== 0) selfRules = 1;
         }
       }
@@ -1558,6 +1592,21 @@ export async function main(argv, io = {}) {
     return Math.max(appCheck, classA, selfRules, inputs);
   }
   const classAOnly = args.includes("--class-a");
+  // --full-a: every class A check, the ones that execute the repository's code (tests, typecheck, lint, generated docs) included,
+  // on the live working tree, before anything compiles. The door's dev/compile stages require it: a content-only check never
+  // authorizes a build (Adrian: class A is everything mechanical and deterministic; reviewer audit 2026-10-28).
+  const fullA = classAOnly && args.includes("--full-a");
+  if (fullA && !args.includes("--worktree")) {
+    // A commit is checked in full only where its bytes are the live checkout: it is HEAD and nothing tracked or untracked differs
+    // (the unit and app stages already refuse a dirty tree). Then the working tree is that commit, and the checks run there.
+    const at = (...a) => o.spawn("git", a, { cwd: o.cwd });
+    const want = at("rev-parse", "--verify", `${option("--commit") ?? "HEAD"}^{commit}`), head = at("rev-parse", "--verify", "HEAD^{commit}");
+    const dirty = at("status", "--porcelain", "--untracked-files=all");
+    if (failed(want) || failed(head) || text(want).trim() !== text(head).trim()) { o.err("rightkit-gate: --full-a checks a commit only when it is HEAD of this checkout: the repository's checks run on the live tree"); return 2; }
+    if (failed(dirty) || text(dirty).trim()) { o.err("rightkit-gate: --full-a on a commit needs a clean checkout (the live tree must be exactly that commit); commit or remove the changes"); return 2; }
+    const i = args.indexOf("--commit"); if (i >= 0) args.splice(i, 2);
+    args.push("--worktree");
+  }
   const classACommit = classAOnly && !args.includes("--worktree") ? (option("--commit") ?? "HEAD") : null;
   if (args.includes("--base") && (!option("--base") || option("--base").startsWith("--"))) { o.err("rightkit-gate: --base needs a ref"); return 2; }
 
@@ -1566,6 +1615,14 @@ export async function main(argv, io = {}) {
   const root = path.resolve(text(top).trim());
   const git = (...a) => o.spawn("git", a, { cwd: root });
   if (sub === "install-hook") return await installHook(o, root, args.includes("--force"));
+  // `env-digest`: only the environment identity a full class A verdict depends on (classAEnvironmentDigest), no scans. The broker
+  // recomputes it when a queued compile starts and re-runs the check if it changed since the verdict.
+  if (sub === "env-digest") {
+    const listed = git("ls-files", "-z", "--cached", "--others", "--exclude-standard");
+    if (failed(listed)) { o.err(`rightkit-gate: env-digest cannot list the working tree: ${why(listed)}`); return 2; }
+    o.out(`env=${classAEnvironmentDigest({ root, files: text(listed).split("\0").filter(Boolean).map(posix), spawn: o.spawn })}`);
+    return 0;
+  }
   if (args.includes("--plan") && option("--to") !== undefined) { o.err("rightkit-gate: --plan plans the class A scans and runs nothing; it takes no --to stage (Astra, second pass)"); return 2; }
   // `--unit` is a gate flag only before a `--` separator: after it the arguments belong to right-release (an app's `--to dev -- …`).
   const separator = args.indexOf("--");
@@ -1590,7 +1647,7 @@ export async function main(argv, io = {}) {
     // node_modules does not carry; the app paths of this gate must keep loading there (app-check.test: the installed copy).
     const { runUnitGate } = await import("../unit-gate.mjs");
     return await runUnitGate({ selector, to: option("--to"), root, commonDir: path.resolve(root, text(common).trim()), commit, tree, executor, env: o.env, platform: o.platform,
-      check: (tier) => main(["check", "--commit", "HEAD", "--rule-tier", tier], { ...io, cwd: root }), out: o.out, err: o.err,
+      check: (tier) => main(["check", "--commit", "HEAD", "--full-a", "--rule-tier", tier], { ...io, cwd: root }), out: o.out, err: o.err,
       ...(reportOut ? { writeReport: (report) => o.writeFile(path.resolve(o.cwd, reportOut), `${JSON.stringify(report, null, 2)}\n`) } : {}),
     });
   }
@@ -1771,7 +1828,8 @@ export async function main(argv, io = {}) {
       tier: option("--rule-tier") ?? "compile", cargoLiveRoot,
       // The quiet tests (port, pipe, desktop and wall-clock bound) are proven by the CI shards, one crate per runner, unless
       // RK_GATE_QUIET_TESTS=local asks for the serial quiet lane here (no CI, or a CI outage).
-      quietTests: o.env.RK_GATE_QUIET_TESTS === "local" ? "local" : "ci", packageFeatures,
+      // Full class A runs every test before a compile: the quiet suites run here in the quiet lane, never left to CI.
+      quietTests: fullA || o.env.RK_GATE_QUIET_TESTS === "local" ? "local" : "ci", packageFeatures, liveExecution: fullA && args.includes("--worktree"),
       rustUnits: rust.units, npmUnits: npm, npmRoots, cargoDir: ".", rustLocks, crateFeatures,
       // The broker (or, on a direct host, the gate itself) admits compiles; no separate grant file decides it here.
       localCompile: true,
@@ -1779,7 +1837,9 @@ export async function main(argv, io = {}) {
     });
     // A broker-managed host whose broker is unreachable runs no class B scan: npm tests and scripts can compile native code the
     // snapshot lists no manifest for (Astra, second pass); the class A scans never compile and still run.
-    if (executor.kind === "refuse" && fullPlan.scans.some((x) => x.class === "B")) { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
+    // Class A tests run code too (Astra, second pass: a test script can compile native code its text does not show), so a host whose
+    // broker is unreachable runs neither; the gate stops rather than skip them.
+    if (executor.kind === "refuse" && fullPlan.scans.some((x) => x.class === "B" || (x.kind === "test" && (!classAOnly || fullA)))) { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
     let plan = args.includes("--pre-push") ? prePushPlan(fullPlan) : fullPlan;
     const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? 4) || 4);
     const testJobs = Math.max(1, Number(o.env.RK_GATE_TEST_JOBS ?? jobs) || jobs);
@@ -1810,6 +1870,48 @@ export async function main(argv, io = {}) {
     }
     // The result cache keys on the gated commit's object ids; the pre-push check above made HEAD the pushed commit.
     let cache = null;
+    // Full class A on the working tree (the door, and broker admission of the live checkout) caches on the LIVE bytes: every
+    // tracked and untracked (not ignored) file is hashed raw, so the door's run and a repeat admission of the same bytes hit the
+    // cache, and any edit misses it.
+    const liveFullA = fullA && args.includes("--worktree");
+    // The live bytes full class A judges: every tracked and untracked (not ignored) file, hashed raw. Computed whether or not the
+    // cache is used; a failure to compute it blocks (the verdict must name the bytes it covers).
+    const liveTree = () => {
+      const listed = git("ls-files", "-z", "--cached", "--others", "--exclude-standard");
+      if (failed(listed)) throw new Error(`cannot list the working tree: ${why(listed)}`);
+      const files = [...new Set(text(listed).split("\0").filter(Boolean).map(posix))].filter((f) => { try { return fs.statSync(path.join(root, f)).isFile(); } catch { return false; } }).sort();
+      const ids = new Map();
+      for (const batch of pathspecBatches(files, 60000)) {
+        const r = o.spawn("git", ["hash-object", "--no-filters", "--stdin-paths"], { cwd: root, input: `${batch.join("\n")}\n` });
+        if (failed(r)) throw new Error(`git hash-object failed: ${why(r)}`);
+        const out = text(r).split(/\r?\n/).filter(Boolean);
+        if (out.length !== batch.length) throw new Error("git hash-object returned a short list");
+        batch.forEach((f, i) => ids.set(f, out[i]));
+      }
+      const digestOf = (list) => createHash("sha256").update(list.map((f) => `${f}\t${ids.get(f)}\n`).join("")).digest("hex");
+      return { files, ids, digestOf, digest: digestOf(files) };
+    };
+    let live = null;
+    if (liveFullA) {
+      try { live = liveTree(); } catch (error) { o.err(`${tag} BLOCKED: cannot bind full class A to the working tree's bytes (${error.message})`); return 1; }
+    }
+    const liveSnapshot = live?.digest ?? null;
+    if (liveFullA && !args.includes("--no-cache") && o.env.RK_GATE_CACHE !== "0") {
+      try {
+        const common = git("rev-parse", "--git-common-dir");
+        if (failed(common)) throw new Error("no git directory");
+        const { files, ids, digestOf } = live;
+        const under = (dir) => (dir === "." || dir === "" ? files : files.filter((f) => f === dir || f.startsWith(`${dir}/`)));
+        const objectId = (p) => (ids.has(p) ? ids.get(p) : under(p).length ? digestOf(under(p)) : null);
+        const store = fileScanCache(path.join(path.resolve(root, text(common).trim()), "rightkit-gate-cache"));
+        const listFiles = (dir) => under(dir);
+        const readBlob = (p) => fs.readFileSync(path.join(root, p), "utf8");
+        // The verdict also depends on what is not in the tree: the gate's own code and advisory data, the node and pnpm that run
+        // the checks, the installed dependencies (pnpm's install state) and the platform. Any change there is a cache miss.
+        const environment = classAEnvironmentDigest({ root, files, spawn: o.spawn });
+        cache = { ...store, digest: `${buildCacheDigest({ objectId, headTree: digestOf(files), rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures, listFiles, readBlob })}:${environment}` };
+      } catch { cache = null; }
+    }
     if (!classAOnly && !args.includes("--no-cache") && o.env.RK_GATE_CACHE !== "0") {
       try {
         const headSha = text(git("rev-parse", "HEAD")).trim();
@@ -1839,7 +1941,13 @@ export async function main(argv, io = {}) {
     }
     const scanResult = await (o.runScans ?? runScans)(plan, {
       classes: classAOnly ? ["A"] : ["A", "B"], jobs, testJobs, signal: ac.signal, ...(cache ? { cache } : {}),
+      // `check` (and the broker's compile admission, which runs it on a captured copy of the tree without node_modules) judges the
+      // content: it never executes the repository's own code. The class A checks that do (tests, typecheck, lint, generated docs:
+      // `executes`) run in the full gate (--all, the push hook, the door's compile stage), after the content checks and before any compile.
+      ...(classAOnly && !fullA ? { exclude: (s) => s.executes === true } : {}),
       quietLane: quietLeaseLane(o, { tag, reason: `rightkit-gate-quiet-tests@${text(git("rev-parse", "--short", "HEAD")).trim()}` }),
+      // On a broker-managed host the quiet suites need the lease or they are refused (never run unleashed).
+      requireQuietLease: executor.kind === "broker",
       onResult: (row, p) => o.out(`${tag} [${p.done}/${p.total}] ${(row.cached ? "cached" : row.status).padEnd(7)} ${row.id} (${p.seconds}s)${row.status === "fail" ? ` :: ${String(row.detail ?? "").slice(0, 300)}` : ""}`),
     });
     if (ac.signal.aborted) {
@@ -1859,8 +1967,31 @@ export async function main(argv, io = {}) {
       o.err(classAOnly ? "Class A is red: nothing compiles until it is green." : "Fix and push again. Never bypass with --no-verify.");
       return 1;
     }
+    if (fullA) {
+      // The verdict is for the bytes that were checked: a file edited while the checks ran makes it a verdict for nothing.
+      if (liveFullA) {
+        let digestNow = null;
+        try { digestNow = liveTree().digest; } catch { digestNow = null; }
+        if (digestNow !== liveSnapshot) { o.err(`${tag} BLOCKED: the working tree changed while class A ran; the verdict does not cover the current bytes. Run again.`); return 1; }
+      }
+      // The bytes this verdict covers, for the broker to compare with the snapshot it compiles: the tracked files only (what a
+      // captured snapshot holds), and every file including untracked ones. Each is sha256 over sorted "<path>\t<git blob id of the
+      // raw bytes>\n" lines (git hash-object --no-filters), so the broker can recompute it over its snapshot without this gate.
+      if (live) {
+        const trackedList = git("ls-files", "-z", "--cached");
+        if (failed(trackedList)) { o.err(`${tag} BLOCKED: cannot list tracked files to name the checked bytes`); return 1; }
+        const tracked = new Set(text(trackedList).split("\0").filter(Boolean).map(posix));
+        o.out(`${tag} class A bytes tracked=${live.digestOf(live.files.filter((f) => tracked.has(f)))} all=${live.digest} env=${classAEnvironmentDigest({ root, files: live.files, spawn: o.spawn })}`);
+      }
+      o.out(`${tag} class A full pass: ${scanResult.scans.length} deterministic check(s), the ones that execute repository code included, over ${changed.length} file(s) of ${base}`);
+      return 0;
+    }
     if (classAOnly) {
-      o.out(`${tag} class A pass: ${scanResult.scans.length} deterministic scan(s) over ${changed.length} file(s) of ${base}`);
+      // `check` judged the content only: the class A checks that execute the repository's code did not run here, so this is not a
+      // full class A pass, and it says so (reviewer, 2026-10-27). The full gate runs them before any compile.
+      const notRun = plan.scans.filter((s) => s.class === "A" && s.executes === true).map((s) => s.id);
+      if (notRun.length) o.out(`${tag} class A partial: ${notRun.length} check(s) that execute repository code (tests, typecheck, lint, generated docs) run in the full gate, not in check: ${notRun.slice(0, 8).join(", ")}${notRun.length > 8 ? ", …" : ""}`);
+      o.out(`${tag} class A content pass: ${scanResult.scans.length} deterministic scan(s) over ${changed.length} file(s) of ${base}`);
       return 0;
     }
     o.out(`${tag} pass (${changed.length} changed file(s) vs ${base}); ${deferrals.length} scan(s) deferred, not passed${scanResult.cacheHits.length ? `; ${scanResult.cacheHits.length} reused from the result cache` : ""}`);

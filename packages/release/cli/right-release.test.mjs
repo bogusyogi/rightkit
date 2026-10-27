@@ -331,7 +331,9 @@ test("check: the same findings as rightkit-gate check, exit 1 red and 0 green, -
   assert.match(red.stdout, /^check: 1 problem\(s\) in \w{12} \(13 rules, compile tier, /m);
   assert.deepEqual(red.calls, [], "check spawns nothing");
   const gate = spawnSync(process.execPath, [path.join(PACKAGE, "bin", "rightkit-gate.mjs"), "check", "--commit", "HEAD"], { cwd: repo, encoding: "utf8" });
-  assert.equal(gate.stdout.replace(/[\d.]+s/, "Ns"), red.stdout.replace(/[\d.]+s/, "Ns"), "right-release check and rightkit-gate check print the same");
+  // Every duration (the summary and each row) is timing, not output: normalise them all, not only the first.
+  const timeless = (text) => text.replace(/\b[\d.]+s\b/g, "Ns");
+  assert.equal(timeless(gate.stdout), timeless(red.stdout), "right-release check and rightkit-gate check print the same");
   const fromElsewhere = runCheck(tmpDir(t, "rk-cli-elsewhere-"), ["check", "--config", path.join(repo, "sub", "right-release.config.mjs")]);
   assert.equal(fromElsewhere.status, 1);
   assert.match(fromElsewhere.stdout, /FAIL skip-checks/);

@@ -94,10 +94,13 @@ export function readQualification(file, { sha, unit, registry, readFile = (f) =>
   if (q.unit?.kind !== kind || q.unit?.name !== unit) throw new Error(`qualification receipt covers ${q.unit?.kind}:${q.unit?.name}, not ${kind}:${unit}`);
   if (!/^[0-9a-f]{40}$/.test(q.tree ?? "") || !/^\d+\.\d+\.\d+/.test(q.unit?.version ?? "")) throw new Error("qualification receipt lacks a tree or a version");
   for (const stage of ["check", "compile", "package", "qualify"]) if (q.stages?.[stage]?.ok !== true) throw new Error(`qualification receipt: stage ${stage} is not ok`);
+  for (const stage of ["compile", "package"]) if (!Array.isArray(q.stages[stage].receipts) || q.stages[stage].receipts.length < 1) throw new Error(`qualification receipt: stage ${stage} carries no signed broker receipts`);
   if (!/^[0-9a-f]{64}$/.test(q.artifactSha256 ?? "") || q.stages.qualify.artifactSha256 !== q.artifactSha256 || q.stages.package.artifactSha256 !== q.artifactSha256) throw new Error("qualification receipt does not bind one artifact sha256 across package and qualify");
   // What the workflow receives: the facts it verifies, nothing host-specific (no paths).
   return { schema: q.schema, commit: q.commit, tree: q.tree, runtime: q.runtime ?? null, executor: q.executor ?? null, unit: { kind: q.unit.kind, name: q.unit.name, version: q.unit.version },
-    stages: Object.fromEntries(["check", "compile", "package", "qualify"].map((s) => [s, { ok: true }])), artifactSha256: q.artifactSha256 };
+    // The compile and package stages carry the broker's signed job receipts the gate collected; the hosted admission (publish-admission.mjs)
+    // is what verifies them against the committed pins. They are forwarded as written, never trimmed or re-signed here.
+    stages: Object.fromEntries(["check", "compile", "package", "qualify"].map((s) => [s, { ok: true, ...(s === "compile" || s === "package" ? { receipts: q.stages[s].receipts ?? [] } : {}) }])), artifactSha256: q.artifactSha256 };
 }
 
 export function dispatchInputs(opts, requestId, qualification = null) {
@@ -107,6 +110,8 @@ export function dispatchInputs(opts, requestId, qualification = null) {
     inputs.units = opts.unit;
     if (!qualification) throw new Error("a publish dispatch carries the qualification receipt");
     inputs.qualification = JSON.stringify(qualification);
+    // workflow_dispatch refuses inputs over 65535 characters in all; say so here rather than as an opaque 422 after the broker job.
+    if (JSON.stringify(inputs).length > 65_000) throw new Error("the qualification receipt with its broker receipts exceeds the workflow dispatch input limit");
     for (const key of ["allow_host_exclusion", "allow_no_test", "allow_ignored", "allow_missing_assets"]) inputs[key] = opts.allow[key] ?? "";
   }
   return inputs;

@@ -47,6 +47,12 @@ export const DEFAULT_CONCURRENCY = 4;
 const MAX_CONCURRENCY = 8;
 const CRATE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const JOBS_SUBCOMMANDS = new Set(["test", "clippy", "check", "package"]);
+// The argv of the broker jobs a unit's compile and package stages launch. Built here, once, for the stages themselves and for
+// stage-commands.mjs, which derives what a qualification's signed receipts must show (the hosted admission and the gate share it).
+export const qualifyFmtArgs = (unit) => ["fmt", "-p", unit, "--check"];
+export const npmPackArgs = (packDir, scratch) => ["--dir", packDir, "pack", "--pack-destination", scratch];
+export const cargoPackageArgs = (unit, qualifyOnly) => ["package", "--locked", ...(qualifyOnly ? [] : ["--no-verify"]), "-p", unit];
+export const CARGO_METADATA_ARGS = Object.freeze(["metadata", "--offline", "--format-version", "1", "--no-deps"]);
 export function withCargoJobs(args, jobs) {
   return jobs !== undefined && JOBS_SUBCOMMANDS.has(args[0])
     ? [args[0], "--jobs", String(jobs), ...args.slice(1)] : args;
@@ -470,7 +476,7 @@ export async function compileLocalUnit(kind, argv, { env = process.env } = {}) {
     if (step.done || step.value?.stage !== "compile") refuse("unit compile did not complete");
     assertUnitDoor(parsed.workspaceRoot, "compile", env, identity);
     const state = Object.freeze({});
-    unitStages.set(state, { runner, parsed, identity, stage: "compile" });
+    unitStages.set(state, { runner, parsed, identity, stage: "compile", compileRequests: [...(step.value.brokerRequests ?? [])] });
     return state;
   } catch (error) { await runner.return(); throw error; }
 }
@@ -492,6 +498,8 @@ async function advanceLocalUnit(state, expected, stage, env) {
 
 export const packageLocalUnit = (state, { env = process.env } = {}) => advanceLocalUnit(state, "compile", "package", env);
 export const qualifyLocalUnit = (state, { env = process.env } = {}) => advanceLocalUnit(state, "package", "qualify", env);
+/** The broker request ids of this process's completed compile stage (the package stage's ride on its result). */
+export const localUnitCompileRequests = (state) => [...(unitStages.get(state)?.compileRequests ?? [])];
 export async function closeLocalUnit(state) {
   const entry = unitStages.get(state);
   if (entry) { unitStages.delete(state); await entry.runner.return(); }
@@ -515,7 +523,12 @@ async function* publishUnitStages(parsed, deps, batch) {
   const { kind, unit, allowIgnored, workspaceRoot } = parsed;
   const git = deps.git ?? defaultGit;
   const readJson = deps.readJson ?? defaultReadJson;
-  const run = deps.run ?? (batch ? defaultRunAsync : defaultRun);
+  // Every broker job a stage launches prints `rustright: request <id>`; the unit gate fetches those jobs' signed receipts, so the ids
+  // are collected here per stage and handed over at each stage yield (compile, then package). Nothing about what runs changes.
+  const brokerRequests = [];
+  const noteBrokerRequests = (result) => { for (const [, id] of `${result?.stdout ?? ""}\n${result?.stderr ?? ""}`.matchAll(/^rustright: request ([0-9a-f-]{36})/gm)) if (!brokerRequests.includes(id)) brokerRequests.push(id); return result; };
+  const launch = deps.run ?? (batch ? defaultRunAsync : defaultRun);
+  const run = (...args) => { const result = launch(...args); return typeof result?.then === "function" ? result.then(noteBrokerRequests) : noteBrokerRequests(result); };
 
   // 1. Preconditions, fail closed.
   const platform = assertLocalHost(deps, workspaceRoot, kind);
@@ -577,7 +590,7 @@ async function* publishUnitStages(parsed, deps, batch) {
   if (parsed.qualifyOnly && kind === "cargo") {
     const violations = (deps.scanSecrets ?? scanCrateForSecrets)(unitPath);
     if (violations.length) refuse(`qualification secret scan rejected: ${violations.join(", ")}`);
-    plan.steps.unshift({ command: "cargo", args: ["fmt", "-p", unit, "--check"], test: false });
+    plan.steps.unshift({ command: "cargo", args: qualifyFmtArgs(unit), test: false });
   }
   const modules = await (deps.loadWorkspaceModules ?? defaultLoadWorkspaceModules)(workspaceRoot);
   const { ResultScanner, TEST_COMMAND, judgeUnit } = modules.results;
@@ -609,7 +622,7 @@ async function* publishUnitStages(parsed, deps, batch) {
   if (verdict.status === "fail" || steps.some((s) => s.failed > 0)) refuse(`${plan.id} not qualified: ${verdict.problems.join("; ") || "failed tests reported"}`);
   if (!(verdict.executed > 0)) refuse(`${plan.id} executed no test`);
   log(`[right-release] ${plan.id}: ${verdict.executed} passed, 0 failed, ${verdict.skipped} skipped, ${verdict.ignored} ignored${isAssetGated ? " (asset-gated: RIGHTKIT_REQUIRE_ASSETS=0, skips recorded)" : ""}`);
-  const packageEnv = yield { stage: "compile", kind, name: unit, version, commit: head };
+  const packageEnv = yield { stage: "compile", kind, name: unit, version, commit: head, brokerRequests: brokerRequests.splice(0) };
   if (packageEnv) Object.assign(env, testEnv({ env: packageEnv }, isAssetGated));
 
   // 3. Pack the artifact and hash it.
@@ -633,7 +646,7 @@ async function* publishUnitStages(parsed, deps, batch) {
       // The feed a tarball ships must list the version it ships with (#319): stage it before packing.
       const feedFile = path.join(workspaceRoot, "packages", "release", "rightkit-versions.json");
       if (!parsed.qualifyOnly && fs.existsSync(feedFile)) await withVersionsLock(() => (deps.stageSourceVersions ?? stageSourceVersions)([{ registry: "npm", name: unit, version }], { file: feedFile, root: workspaceRoot, log }));
-      const args = ["--dir", packDir, "pack", "--pack-destination", scratch];
+      const args = npmPackArgs(packDir, scratch);
       packCommands.push(`pnpm ${args.join(" ")}`);
       const packed = await run("pnpm", args, { cwd: workspaceRoot, env });
       if (packed.error || packed.status !== 0) refuse(`pnpm pack failed for ${unit}\n${tail(`${packed.stdout ?? ""}\n${packed.stderr ?? ""}`)}`);
@@ -644,12 +657,12 @@ async function* publishUnitStages(parsed, deps, batch) {
     } else {
       // A combined publish verifies once in `cargo publish`; detached qualification verifies here before
       // its evidence leaves this host, so the publishing host can reuse that exact archive's proof.
-      const packageArgs = ["package", "--locked", ...(parsed.qualifyOnly ? [] : ["--no-verify"]), "-p", unit];
+      const packageArgs = cargoPackageArgs(unit, parsed.qualifyOnly);
       packCommands.push(`cargo ${packageArgs.join(" ")}`);
       const packed = await run("cargo", withCargoJobs(packageArgs, parsed.jobs), { cwd: workspaceRoot, env });
       if (packed.error || packed.status !== 0) refuse(`cargo package failed for ${unit}\n${tail(`${packed.stdout ?? ""}\n${packed.stderr ?? ""}`)}`);
       if (parsed.qualifyOnly) steps.push({ command: `cargo ${packageArgs.join(" ")}`, ok: true });
-      const metadataArgs = ["metadata", "--offline", "--format-version", "1", "--no-deps"];
+      const metadataArgs = [...CARGO_METADATA_ARGS];
       const meta = await runCargoReadOnly(metadataArgs, { cwd: workspaceRoot, env }, (_command, args, settings) => run("cargo", args, settings),
         (failed) => log(`[right-release] offline Cargo metadata missed cache; retrying online once\n${failed.stdout ?? ""}${failed.stderr ? `\n${failed.stderr}` : ""}`));
       const actualMetadataArgs = meta.usedOfflineFallback ? metadataArgs.filter((arg) => arg !== "--offline") : metadataArgs;
@@ -670,7 +683,7 @@ async function* publishUnitStages(parsed, deps, batch) {
       fs.copyFileSync(artifactFile, bundledArtifact, fs.constants.COPYFILE_EXCL);
       if (sha256(fs.readFileSync(bundledArtifact)) !== artifactSha256) refuse("qualification archive changed while copying");
       artifactFile = bundledArtifact;
-      yield { stage: "package", kind, name: unit, version, commit: head, artifactFile, artifactSha256 };
+      yield { stage: "package", kind, name: unit, version, commit: head, artifactFile, artifactSha256, brokerRequests: brokerRequests.splice(0) };
       if (sha256(fs.readFileSync(artifactFile)) !== artifactSha256) refuse("qualification archive changed after packaging");
     }
 

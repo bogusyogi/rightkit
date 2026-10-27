@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-10-25T21:10:15Z",
-  "rightkitHead": "e40f2a5",
+  "generatedAt": "2026-10-27T21:31:29Z",
+  "rightkitHead": "d4e3a88",
   "legend": [
     {
       "state": "adopted",
@@ -130,7 +130,7 @@
     {
       "name": "coderight",
       "group": "mandatory-set app",
-      "dir": "/home/user/coderight",
+      "dir": "/Volumes/D/claude/coderight",
       "present": true,
       "head": "35ba894",
       "profile": "desktop",
@@ -162,8 +162,8 @@
           "openRows": [],
           "ownersRequired": 29,
           "ownersPinned": 29,
-          "ownersCurrent": 29,
-          "percent": 100
+          "ownersCurrent": 28,
+          "percent": 97
         },
         "addons": {
           "total": 59,
@@ -180,9 +180,9 @@
           "unmatched": 0
         },
         "releasePin": {
-          "state": "ahead",
+          "state": "adopted",
           "req": "0.6.6",
-          "latest": "0.6.5",
+          "latest": "0.6.6",
           "current": true,
           "dev": true
         },
@@ -492,7 +492,7 @@
           "owners": [
             {
               "name": "@rightkit/release",
-              "state": "ahead"
+              "state": "adopted"
             }
           ],
           "missing": []
@@ -505,7 +505,7 @@
           "owners": [
             {
               "name": "rightkit-qa",
-              "state": "adopted"
+              "state": "stale"
             },
             {
               "name": "@rightkit/qa",
@@ -573,7 +573,7 @@
     {
       "name": "cutright",
       "group": "mandatory-set app",
-      "dir": "/home/user/cutright",
+      "dir": "/Volumes/D/claude/cutright",
       "present": true,
       "head": "a0eefd6",
       "profile": "desktop",
@@ -609,8 +609,8 @@
           "openRows": [],
           "ownersRequired": 28,
           "ownersPinned": 28,
-          "ownersCurrent": 28,
-          "percent": 100
+          "ownersCurrent": 27,
+          "percent": 96
         },
         "addons": {
           "total": 59,
@@ -627,9 +627,9 @@
           "unmatched": 0
         },
         "releasePin": {
-          "state": "ahead",
+          "state": "adopted",
           "req": "0.6.6",
-          "latest": "0.6.5",
+          "latest": "0.6.6",
           "current": true,
           "dev": true
         },
@@ -929,7 +929,7 @@
           "owners": [
             {
               "name": "@rightkit/release",
-              "state": "ahead"
+              "state": "adopted"
             }
           ],
           "missing": []
@@ -942,7 +942,7 @@
           "owners": [
             {
               "name": "rightkit-qa",
-              "state": "adopted"
+              "state": "stale"
             },
             {
               "name": "@rightkit/qa",
@@ -976,9 +976,9 @@
     {
       "name": "ember",
       "group": "mandatory-set app",
-      "dir": "/home/user/ember",
+      "dir": "/Volumes/D/claude/ember",
       "present": true,
-      "head": "cc42ef8",
+      "head": "882f449",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -1021,9 +1021,9 @@
         "ignored": []
       },
       "scan": {
-        "manifests": 41,
+        "manifests": 42,
         "parseErrors": 0,
-        "pins": 52,
+        "pins": 50,
         "vendored": 0
       },
       "progress": {
@@ -1036,27 +1036,27 @@
           "openRows": [],
           "ownersRequired": 23,
           "ownersPinned": 23,
-          "ownersCurrent": 22,
-          "percent": 96
+          "ownersCurrent": 2,
+          "percent": 9
         },
         "addons": {
           "total": 59,
-          "adopted": 11,
-          "current": 10,
-          "stale": 1,
+          "adopted": 9,
+          "current": 2,
+          "stale": 7,
           "local": 0
         },
         "exceptions": {
-          "total": 30,
-          "open": 30,
+          "total": 15,
+          "open": 15,
           "expired": 0,
-          "withoutIssueOrExpiry": 0,
+          "withoutIssueOrExpiry": 15,
           "unmatched": 0
         },
         "releasePin": {
           "state": "stale",
-          "req": "0.6.4",
-          "latest": "0.6.5",
+          "req": "0.4.0",
+          "latest": "0.6.6",
           "current": false,
           "dev": true
         },
@@ -1071,7 +1071,7 @@
       },
       "flags": {
         "prePushHook": "absent",
-        "switches": true,
+        "switches": false,
         "journeys": false,
         "releaseConfig": "code"
       },
@@ -1084,15 +1084,15 @@
           "owners": [
             {
               "name": "rightkit-tauri-shell",
-              "state": "adopted"
+              "state": "stale"
             },
             {
               "name": "rightkit-device",
-              "state": "adopted"
+              "state": "stale"
             },
             {
               "name": "@rightkit/tauri",
-              "state": "adopted"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1105,7 +1105,7 @@
           "owners": [
             {
               "name": "@rightkit/react-shell",
-              "state": "adopted"
+              "state": "stale"
             },
             {
               "name": "@rightkit/platform-ui",
@@ -1142,7 +1142,7 @@
           "owners": [
             {
               "name": "rightkit-child-process",
-              "state": "adopted"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1171,7 +1171,7 @@
           "owners": [
             {
               "name": "rightkit-fs",
-              "state": "adopted"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1192,11 +1192,11 @@
           "owners": [
             {
               "name": "rightkit-app-settings",
-              "state": "adopted"
+              "state": "stale"
             },
             {
               "name": "@rightkit/settings-ui",
-              "state": "adopted"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1209,7 +1209,7 @@
           "owners": [
             {
               "name": "rightkit-credentials",
-              "state": "adopted"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1238,15 +1238,15 @@
           "owners": [
             {
               "name": "@rightkit/legal",
-              "state": "adopted"
+              "state": "stale"
             },
             {
               "name": "@rightkit/legal-ui",
-              "state": "adopted"
+              "state": "stale"
             },
             {
               "name": "@rightkit/onboarding",
-              "state": "adopted"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1259,11 +1259,11 @@
           "owners": [
             {
               "name": "rightkit-logs",
-              "state": "adopted"
+              "state": "stale"
             },
             {
               "name": "@rightkit/logs",
-              "state": "adopted"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1276,7 +1276,7 @@
           "owners": [
             {
               "name": "rightkit-crash",
-              "state": "adopted"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1289,7 +1289,7 @@
           "owners": [
             {
               "name": "rightkit-http",
-              "state": "adopted"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1302,7 +1302,7 @@
           "owners": [
             {
               "name": "@rightkit/app-update",
-              "state": "adopted"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1328,15 +1328,15 @@
           "owners": [
             {
               "name": "rightkit-qa",
-              "state": "adopted"
+              "state": "stale"
             },
             {
               "name": "@rightkit/qa",
-              "state": "adopted"
+              "state": "stale"
             },
             {
               "name": "@rightkit/qa-chrome",
-              "state": "adopted"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1375,7 +1375,7 @@
     {
       "name": "genright",
       "group": "mandatory-set app",
-      "dir": "/home/user/genright",
+      "dir": "/Volumes/D/claude/genright",
       "present": true,
       "head": "818777a",
       "profile": "desktop",
@@ -1402,8 +1402,8 @@
           "openRows": [],
           "ownersRequired": 30,
           "ownersPinned": 30,
-          "ownersCurrent": 30,
-          "percent": 100
+          "ownersCurrent": 29,
+          "percent": 97
         },
         "addons": {
           "total": 59,
@@ -1420,9 +1420,9 @@
           "unmatched": 0
         },
         "releasePin": {
-          "state": "ahead",
+          "state": "adopted",
           "req": "0.6.6",
-          "latest": "0.6.5",
+          "latest": "0.6.6",
           "current": true,
           "dev": true
         },
@@ -1732,7 +1732,7 @@
           "owners": [
             {
               "name": "@rightkit/release",
-              "state": "ahead"
+              "state": "adopted"
             }
           ],
           "missing": []
@@ -1745,7 +1745,7 @@
           "owners": [
             {
               "name": "rightkit-qa",
-              "state": "adopted"
+              "state": "stale"
             },
             {
               "name": "@rightkit/qa",
@@ -1779,9 +1779,9 @@
     {
       "name": "heardright",
       "group": "mandatory-set app",
-      "dir": "/home/user/heardright",
+      "dir": "/Volumes/D/claude/heardright",
       "present": true,
-      "head": "d4ab7d7",
+      "head": "358c6f4",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -1811,8 +1811,8 @@
           "openRows": [],
           "ownersRequired": 29,
           "ownersPinned": 29,
-          "ownersCurrent": 29,
-          "percent": 100
+          "ownersCurrent": 28,
+          "percent": 97
         },
         "addons": {
           "total": 59,
@@ -1822,16 +1822,16 @@
           "local": 0
         },
         "exceptions": {
-          "total": 31,
-          "open": 31,
+          "total": 30,
+          "open": 30,
           "expired": 0,
           "withoutIssueOrExpiry": 0,
           "unmatched": 1
         },
         "releasePin": {
           "state": "ahead",
-          "req": "0.6.6",
-          "latest": "0.6.5",
+          "req": "0.6.8",
+          "latest": "0.6.6",
           "current": true,
           "dev": true
         },
@@ -2154,7 +2154,7 @@
           "owners": [
             {
               "name": "rightkit-qa",
-              "state": "adopted"
+              "state": "stale"
             },
             {
               "name": "@rightkit/qa",
@@ -2224,7 +2224,7 @@
     {
       "name": "mailright",
       "group": "mandatory-set app",
-      "dir": "/home/user/mailright",
+      "dir": "/Volumes/D/claude/mailright",
       "present": true,
       "head": "a45dab0",
       "profile": "desktop",
@@ -2256,8 +2256,8 @@
           "openRows": [],
           "ownersRequired": 29,
           "ownersPinned": 29,
-          "ownersCurrent": 29,
-          "percent": 100
+          "ownersCurrent": 28,
+          "percent": 97
         },
         "addons": {
           "total": 59,
@@ -2275,8 +2275,8 @@
         },
         "releasePin": {
           "state": "ahead",
-          "req": "0.6.6",
-          "latest": "0.6.5",
+          "req": "0.6.8",
+          "latest": "0.6.6",
           "current": true,
           "dev": true
         },
@@ -2290,7 +2290,7 @@
         }
       },
       "flags": {
-        "prePushHook": "absent",
+        "prePushHook": "uncommitted",
         "switches": true,
         "journeys": false,
         "releaseConfig": "code"
@@ -2599,7 +2599,7 @@
           "owners": [
             {
               "name": "rightkit-qa",
-              "state": "adopted"
+              "state": "stale"
             },
             {
               "name": "@rightkit/qa",
@@ -2628,7 +2628,7 @@
     {
       "name": "postright",
       "group": "mandatory-set app",
-      "dir": "/home/user/postright",
+      "dir": "/Volumes/D/claude/postright",
       "present": true,
       "head": "64b60c6",
       "profile": "desktop",
@@ -2660,8 +2660,8 @@
           "openRows": [],
           "ownersRequired": 29,
           "ownersPinned": 29,
-          "ownersCurrent": 29,
-          "percent": 100
+          "ownersCurrent": 28,
+          "percent": 97
         },
         "addons": {
           "total": 59,
@@ -2678,9 +2678,9 @@
           "unmatched": 0
         },
         "releasePin": {
-          "state": "ahead",
+          "state": "adopted",
           "req": "0.6.6",
-          "latest": "0.6.5",
+          "latest": "0.6.6",
           "current": true,
           "dev": true
         },
@@ -2990,7 +2990,7 @@
           "owners": [
             {
               "name": "@rightkit/release",
-              "state": "ahead"
+              "state": "adopted"
             }
           ],
           "missing": []
@@ -3003,7 +3003,7 @@
           "owners": [
             {
               "name": "rightkit-qa",
-              "state": "adopted"
+              "state": "stale"
             },
             {
               "name": "@rightkit/qa",
@@ -3032,9 +3032,9 @@
     {
       "name": "pulse",
       "group": "mandatory-set app",
-      "dir": "/home/user/pulse",
+      "dir": "/Volumes/D/claude/pulse",
       "present": true,
-      "head": "82ba594",
+      "head": "37144d1",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -3059,8 +3059,8 @@
           "openRows": [],
           "ownersRequired": 30,
           "ownersPinned": 30,
-          "ownersCurrent": 30,
-          "percent": 100
+          "ownersCurrent": 29,
+          "percent": 97
         },
         "addons": {
           "total": 59,
@@ -3077,9 +3077,9 @@
           "unmatched": 16
         },
         "releasePin": {
-          "state": "ahead",
+          "state": "adopted",
           "req": "0.6.6",
-          "latest": "0.6.5",
+          "latest": "0.6.6",
           "current": true,
           "dev": true
         },
@@ -3093,7 +3093,7 @@
         }
       },
       "flags": {
-        "prePushHook": "absent",
+        "prePushHook": "committed",
         "switches": true,
         "journeys": false,
         "releaseConfig": "code"
@@ -3389,7 +3389,7 @@
           "owners": [
             {
               "name": "@rightkit/release",
-              "state": "ahead"
+              "state": "adopted"
             }
           ],
           "missing": []
@@ -3402,7 +3402,7 @@
           "owners": [
             {
               "name": "rightkit-qa",
-              "state": "adopted"
+              "state": "stale"
             },
             {
               "name": "@rightkit/qa",
@@ -3546,9 +3546,9 @@
     {
       "name": "scraperight",
       "group": "mandatory-set app",
-      "dir": "/home/user/scraperight",
+      "dir": "/Volumes/D/claude/scraperight",
       "present": true,
-      "head": "2ee5a1a",
+      "head": "ff1e5bb",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -3578,8 +3578,8 @@
           "openRows": [],
           "ownersRequired": 29,
           "ownersPinned": 29,
-          "ownersCurrent": 29,
-          "percent": 100
+          "ownersCurrent": 28,
+          "percent": 97
         },
         "addons": {
           "total": 59,
@@ -3596,9 +3596,9 @@
           "unmatched": 0
         },
         "releasePin": {
-          "state": "ahead",
+          "state": "adopted",
           "req": "0.6.6",
-          "latest": "0.6.5",
+          "latest": "0.6.6",
           "current": true,
           "dev": true
         },
@@ -3908,7 +3908,7 @@
           "owners": [
             {
               "name": "@rightkit/release",
-              "state": "ahead"
+              "state": "adopted"
             }
           ],
           "missing": []
@@ -3921,7 +3921,7 @@
           "owners": [
             {
               "name": "rightkit-qa",
-              "state": "adopted"
+              "state": "stale"
             },
             {
               "name": "@rightkit/qa",
@@ -3988,7 +3988,7 @@
     {
       "name": "viewright",
       "group": "mandatory-set app",
-      "dir": "/home/user/viewright",
+      "dir": "/Volumes/D/claude/viewright",
       "present": true,
       "head": "4f087ad",
       "profile": "desktop",
@@ -4044,8 +4044,8 @@
           ],
           "ownersRequired": 26,
           "ownersPinned": 25,
-          "ownersCurrent": 25,
-          "percent": 96
+          "ownersCurrent": 24,
+          "percent": 92
         },
         "addons": {
           "total": 59,
@@ -4062,9 +4062,9 @@
           "unmatched": 0
         },
         "releasePin": {
-          "state": "ahead",
+          "state": "adopted",
           "req": "0.6.6",
-          "latest": "0.6.5",
+          "latest": "0.6.6",
           "current": true,
           "dev": true
         },
@@ -4348,7 +4348,7 @@
           "owners": [
             {
               "name": "@rightkit/release",
-              "state": "ahead"
+              "state": "adopted"
             }
           ],
           "missing": []
@@ -4361,7 +4361,7 @@
           "owners": [
             {
               "name": "rightkit-qa",
-              "state": "adopted"
+              "state": "stale"
             },
             {
               "name": "@rightkit/qa",
@@ -4390,9 +4390,9 @@
     {
       "name": "sellright",
       "group": "release consumer",
-      "dir": "/home/user/sellright",
+      "dir": "/Volumes/D/claude/sellright",
       "present": true,
-      "head": "0136600",
+      "head": "26a7d1e",
       "profile": null,
       "inMandatorySet": false,
       "declaration": {
@@ -4402,7 +4402,7 @@
         "ignored": []
       },
       "scan": {
-        "manifests": 13,
+        "manifests": 14,
         "parseErrors": 0,
         "pins": 2,
         "vendored": 0
@@ -4437,7 +4437,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.4",
-          "latest": "0.6.5",
+          "latest": "0.6.6",
           "current": false,
           "dev": true
         },
@@ -4481,7 +4481,7 @@
     {
       "name": "legion",
       "group": "tool consumer",
-      "dir": "/home/user/legion",
+      "dir": "/Volumes/D/claude/legion",
       "present": true,
       "head": "26459d5",
       "profile": null,
@@ -4528,7 +4528,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.3.0",
-          "latest": "0.6.5",
+          "latest": "0.6.6",
           "current": false,
           "dev": true
         },
@@ -4609,8 +4609,8 @@
           }
         },
         "ember": {
-          "state": "adopted",
-          "detail": "0.4.2",
+          "state": "stale",
+          "detail": "0.4.0→0.4.2",
           "rows": [
             "M18"
           ]
@@ -4853,7 +4853,7 @@
         },
         "ember": {
           "state": "stale",
-          "detail": "0.3.0→0.3.1 dev"
+          "detail": "0.2.45→0.3.1 dev"
         },
         "genright": {
           "state": "unused",
@@ -5073,18 +5073,8 @@
           "detail": ""
         },
         "ember": {
-          "state": "adopted",
-          "detail": "0.2.0; 2 exceptions: bogusyogi/rightkit#960, expires 2026-11-30",
-          "exceptions": {
-            "count": 2,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#960"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "stale",
+          "detail": "0.1.0→0.2.0"
         },
         "genright": {
           "state": "unused",
@@ -5152,8 +5142,8 @@
           "detail": ""
         },
         "ember": {
-          "state": "adopted",
-          "detail": "0.1.0 dev"
+          "state": "unused",
+          "detail": ""
         },
         "genright": {
           "state": "unused",
@@ -5237,8 +5227,8 @@
           ]
         },
         "ember": {
-          "state": "adopted",
-          "detail": "0.6.3",
+          "state": "stale",
+          "detail": "0.6.1→0.6.3",
           "rows": [
             "M14"
           ]
@@ -5346,8 +5336,8 @@
           ]
         },
         "ember": {
-          "state": "adopted",
-          "detail": "0.4.1",
+          "state": "stale",
+          "detail": "0.4.0→0.4.1",
           "rows": [
             "M14"
           ]
@@ -5468,8 +5458,8 @@
           ]
         },
         "ember": {
-          "state": "adopted",
-          "detail": "0.3.0",
+          "state": "stale",
+          "detail": "0.2.1→0.3.0",
           "rows": [
             "M12"
           ]
@@ -5611,8 +5601,8 @@
           ]
         },
         "ember": {
-          "state": "adopted",
-          "detail": "0.1.6",
+          "state": "stale",
+          "detail": "0.1.5→0.1.6",
           "rows": [
             "M15"
           ]
@@ -5839,8 +5829,8 @@
           }
         },
         "ember": {
-          "state": "adopted",
-          "detail": "0.6.3",
+          "state": "stale",
+          "detail": "0.6.1→0.6.3",
           "rows": [
             "M14"
           ]
@@ -6213,8 +6203,8 @@
           ]
         },
         "ember": {
-          "state": "adopted",
-          "detail": "0.6.1 dev",
+          "state": "stale",
+          "detail": "0.5.1→0.6.1 dev",
           "rows": [
             "M20"
           ]
@@ -6343,8 +6333,8 @@
           ]
         },
         "ember": {
-          "state": "adopted",
-          "detail": "0.1.11 dev",
+          "state": "stale",
+          "detail": "0.1.8→0.1.11 dev",
           "rows": [
             "M20"
           ]
@@ -6473,26 +6463,18 @@
           }
         },
         "ember": {
-          "state": "adopted",
-          "detail": "0.7.2; 9 exceptions: bogusyogi/rightkit#1087/bogusyogi/rightkit#1107+, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.7.1→0.7.2; 9 exceptions: no issue, no expiry",
           "rows": [
             "M2"
           ],
           "exceptions": {
             "count": 9,
             "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1087",
-              "bogusyogi/rightkit#1107",
-              "bogusyogi/rightkit#1151",
-              "bogusyogi/rightkit#1152",
-              "bogusyogi/rightkit#1153",
-              "bogusyogi/rightkit#1154",
-              "bogusyogi/rightkit#729"
-            ],
-            "earliestExpiry": "2026-11-30"
+            "withoutIssue": 9,
+            "withoutExpiry": 9,
+            "issues": [],
+            "earliestExpiry": ""
           }
         },
         "genright": {
@@ -6651,15 +6633,15 @@
         "release-tooling"
       ],
       "private": false,
-      "source": "0.6.7",
-      "registry": "0.6.5",
-      "staged": "0.6.7",
+      "source": "0.6.9",
+      "registry": "0.6.6",
+      "staged": "0.6.9",
       "dir": "packages/release",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "ahead",
-          "detail": "0.6.6 > 0.6.5 dev; 4 exceptions: bogusyogi/rightkit#1135/bogusyogi/rightkit#1136+, expires 2026-11-30",
+          "state": "adopted",
+          "detail": "0.6.6 dev; 4 exceptions: bogusyogi/rightkit#1135/bogusyogi/rightkit#1136+, expires 2026-11-30",
           "rows": [
             "M19"
           ],
@@ -6677,56 +6659,36 @@
           }
         },
         "cutright": {
-          "state": "ahead",
-          "detail": "0.6.6 > 0.6.5 dev",
+          "state": "adopted",
+          "detail": "0.6.6 dev",
           "rows": [
             "M19"
           ]
         },
         "ember": {
           "state": "stale",
-          "detail": "0.6.4→0.6.5 dev; 1 exception: bogusyogi/rightkit#1136, expires 2026-11-30",
+          "detail": "0.4.0→0.6.6 dev",
           "rows": [
             "M19"
-          ],
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1136"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "genright": {
-          "state": "ahead",
-          "detail": "0.6.6 > 0.6.5 dev",
+          "state": "adopted",
+          "detail": "0.6.6 dev",
           "rows": [
             "M19"
           ]
         },
         "heardright": {
           "state": "ahead",
-          "detail": "0.6.6 > 0.6.5 dev; 1 exception: bogusyogi/rightkit#1029, expires 2027-01-22",
+          "detail": "0.6.8 > 0.6.6 dev",
           "rows": [
             "M19"
-          ],
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1029"
-            ],
-            "earliestExpiry": "2027-01-22"
-          }
+          ]
         },
         "mailright": {
           "state": "ahead",
-          "detail": "0.6.6 > 0.6.5 dev; 1 exception: bogusyogi/rightkit#993, expires 2026-11-30",
+          "detail": "0.6.8 > 0.6.6 dev; 1 exception: bogusyogi/rightkit#993, expires 2026-11-30",
           "rows": [
             "M19"
           ],
@@ -6742,15 +6704,15 @@
           }
         },
         "postright": {
-          "state": "ahead",
-          "detail": "0.6.6 > 0.6.5 dev",
+          "state": "adopted",
+          "detail": "0.6.6 dev",
           "rows": [
             "M19"
           ]
         },
         "pulse": {
-          "state": "ahead",
-          "detail": "0.6.6 > 0.6.5 dev; 6 exceptions: bogusyogi/rightkit#1039/bogusyogi/rightkit#428+, expires 2026-11-30",
+          "state": "adopted",
+          "detail": "0.6.6 dev; 6 exceptions: bogusyogi/rightkit#1039/bogusyogi/rightkit#428+, expires 2026-11-30",
           "rows": [
             "M19"
           ],
@@ -6770,8 +6732,8 @@
           }
         },
         "scraperight": {
-          "state": "ahead",
-          "detail": "0.6.6 > 0.6.5 dev; 1 exception: bogusyogi/rightkit#1029, expires 2026-12-31",
+          "state": "adopted",
+          "detail": "0.6.6 dev; 1 exception: bogusyogi/rightkit#1029, expires 2026-12-31",
           "rows": [
             "M19"
           ],
@@ -6787,19 +6749,19 @@
           }
         },
         "viewright": {
-          "state": "ahead",
-          "detail": "0.6.6 > 0.6.5 dev",
+          "state": "adopted",
+          "detail": "0.6.6 dev",
           "rows": [
             "M19"
           ]
         },
         "sellright": {
           "state": "stale",
-          "detail": "0.6.4→0.6.5 dev"
+          "detail": "0.6.4→0.6.6 dev"
         },
         "legion": {
           "state": "stale",
-          "detail": "0.3.0→0.6.5 dev"
+          "detail": "0.3.0→0.6.6 dev"
         }
       }
     },
@@ -6847,8 +6809,8 @@
           ]
         },
         "ember": {
-          "state": "adopted",
-          "detail": "0.7.0",
+          "state": "stale",
+          "detail": "0.6.1→0.7.0",
           "rows": [
             "M10"
           ]
@@ -7045,8 +7007,8 @@
           ]
         },
         "ember": {
-          "state": "adopted",
-          "detail": "0.3.0",
+          "state": "stale",
+          "detail": "0.2.3→0.3.0",
           "rows": [
             "M1"
           ]
@@ -7176,18 +7138,15 @@
           }
         },
         "ember": {
-          "state": "adopted",
-          "detail": "0.1.3; 2 exceptions: bogusyogi/rightkit#1027/bogusyogi/rightkit#1150, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.1.1→0.1.3; 2 exceptions: no issue, no expiry",
           "exceptions": {
             "count": 2,
             "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1027",
-              "bogusyogi/rightkit#1150"
-            ],
-            "earliestExpiry": "2026-11-30"
+            "withoutIssue": 2,
+            "withoutExpiry": 2,
+            "issues": [],
+            "earliestExpiry": ""
           }
         },
         "genright": {
@@ -7355,20 +7314,10 @@
         },
         "ember": {
           "state": "adopted",
-          "detail": "0.3.1; 1 exception: bogusyogi/rightkit#960, expires 2026-11-30",
+          "detail": "0.3.1",
           "rows": [
             "M2"
-          ],
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#960"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "genright": {
           "state": "adopted",
@@ -7981,8 +7930,8 @@
           ]
         },
         "ember": {
-          "state": "adopted",
-          "detail": "=0.3.0",
+          "state": "stale",
+          "detail": "0.2.4→0.3.0",
           "rows": [
             "M10"
           ]
@@ -8415,8 +8364,8 @@
           "detail": "=0.2.3"
         },
         "ember": {
-          "state": "adopted",
-          "detail": "=0.2.3"
+          "state": "stale",
+          "detail": "0.2.2→0.2.3"
         },
         "genright": {
           "state": "unused",
@@ -8572,8 +8521,8 @@
           ]
         },
         "ember": {
-          "state": "adopted",
-          "detail": "=0.5.6, 4 pins",
+          "state": "stale",
+          "detail": "0.5.2→0.5.6, 4 pins",
           "rows": [
             "M3",
             "M5"
@@ -8824,8 +8773,8 @@
           ]
         },
         "ember": {
-          "state": "adopted",
-          "detail": "=0.3.6",
+          "state": "stale",
+          "detail": "0.3.3→0.3.6",
           "rows": [
             "M16"
           ]
@@ -8945,8 +8894,8 @@
           ]
         },
         "ember": {
-          "state": "adopted",
-          "detail": "=0.4.2",
+          "state": "stale",
+          "detail": "0.3.0→0.4.2",
           "rows": [
             "M11"
           ]
@@ -9060,18 +9009,8 @@
           "detail": ""
         },
         "ember": {
-          "state": "adopted",
-          "detail": "=0.1.0; 1 exception: Orthic-Labs/ember#257, expires 2026-11-30",
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "Orthic-Labs/ember#257"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "unused",
+          "detail": ""
         },
         "genright": {
           "state": "adopted",
@@ -9454,8 +9393,8 @@
           ]
         },
         "ember": {
-          "state": "adopted",
-          "detail": "=0.4.0",
+          "state": "stale",
+          "detail": "0.3.1→0.4.0",
           "rows": [
             "M1",
             "M12"
@@ -9721,18 +9660,8 @@
           }
         },
         "ember": {
-          "state": "adopted",
-          "detail": "=0.2.10; 1 exception: Orthic-Labs/ember#267, expires 2026-11-30",
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "Orthic-Labs/ember#267"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "stale",
+          "detail": "0.2.9→0.2.10"
         },
         "genright": {
           "state": "adopted",
@@ -9897,23 +9826,18 @@
           }
         },
         "ember": {
-          "state": "adopted",
-          "detail": "=0.4.7, 11 pins; 4 exceptions: bogusyogi/rightkit#1092/bogusyogi/rightkit#1155+, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.4.4→0.4.7, 11 pins; 4 exceptions: no issue, no expiry",
           "rows": [
             "M8"
           ],
           "exceptions": {
             "count": 4,
             "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1092",
-              "bogusyogi/rightkit#1155",
-              "bogusyogi/rightkit#1156",
-              "bogusyogi/rightkit#1157"
-            ],
-            "earliestExpiry": "2026-11-30"
+            "withoutIssue": 4,
+            "withoutExpiry": 4,
+            "issues": [],
+            "earliestExpiry": ""
           }
         },
         "genright": {
@@ -10361,21 +10285,11 @@
           ]
         },
         "ember": {
-          "state": "adopted",
-          "detail": "=0.3.8; 1 exception: Orthic-Labs/ember#256, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.3.6→0.3.8",
           "rows": [
             "M17"
-          ],
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "Orthic-Labs/ember#256"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "genright": {
           "state": "adopted",
@@ -10864,18 +10778,8 @@
           "detail": "=0.3.1"
         },
         "ember": {
-          "state": "exception",
-          "detail": "2 exceptions: Orthic-Labs/ember#258, expires 2026-11-30",
-          "exceptions": {
-            "count": 2,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "Orthic-Labs/ember#258"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "unused",
+          "detail": ""
         },
         "genright": {
           "state": "exception",
@@ -10959,8 +10863,8 @@
           ]
         },
         "ember": {
-          "state": "adopted",
-          "detail": "=0.3.5, 2 pins",
+          "state": "stale",
+          "detail": "0.3.3→0.3.5, 2 pins",
           "rows": [
             "M15"
           ]
@@ -11102,18 +11006,8 @@
           "detail": ""
         },
         "ember": {
-          "state": "exception",
-          "detail": "2 exceptions: bogusyogi/rightkit#283, expires 2026-11-30",
-          "exceptions": {
-            "count": 2,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#283"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "unused",
+          "detail": ""
         },
         "genright": {
           "state": "unused",
@@ -11179,18 +11073,8 @@
           "detail": "=0.5.1, 2 pins"
         },
         "ember": {
-          "state": "adopted",
-          "detail": "=0.5.1; 1 exception: bogusyogi/rightkit#1164, expires 2026-11-30",
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1164"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "stale",
+          "detail": "0.3.2→0.5.1"
         },
         "genright": {
           "state": "adopted",
@@ -11501,18 +11385,8 @@
           "detail": "=0.2.7, 2 pins"
         },
         "ember": {
-          "state": "adopted",
-          "detail": "=0.2.7; 1 exception: bogusyogi/rightkit#1165, expires 2026-11-30",
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1165"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "stale",
+          "detail": "0.2.3→0.2.7"
         },
         "genright": {
           "state": "adopted",
@@ -12014,21 +11888,21 @@
       ],
       "private": false,
       "source": "0.9.1",
-      "registry": "0.9.0",
-      "staged": "0.9.1",
+      "registry": "0.9.1",
+      "staged": "",
       "dir": "crates/rightkit-qa",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "adopted",
-          "detail": "=0.9.0, 2 pins",
+          "state": "stale",
+          "detail": "0.9.0→0.9.1, 2 pins",
           "rows": [
             "M20"
           ]
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "=0.9.0, 3 pins; 4 exceptions: bogusyogi/rightkit#1005/bogusyogi/rightkit#1007+, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.9.0→0.9.1, 3 pins; 4 exceptions: bogusyogi/rightkit#1005/bogusyogi/rightkit#1007+, expires 2026-11-30",
           "rows": [
             "M20"
           ],
@@ -12047,36 +11921,36 @@
           }
         },
         "ember": {
-          "state": "adopted",
-          "detail": "=0.9.0, 2 pins",
+          "state": "stale",
+          "detail": "0.7.0→0.9.1, 2 pins",
           "rows": [
             "M20"
           ]
         },
         "genright": {
-          "state": "adopted",
-          "detail": "=0.9.0, 3 pins",
+          "state": "stale",
+          "detail": "0.9.0→0.9.1, 3 pins",
           "rows": [
             "M20"
           ]
         },
         "heardright": {
-          "state": "adopted",
-          "detail": "=0.9.0, 2 pins",
+          "state": "stale",
+          "detail": "0.9.0→0.9.1, 2 pins",
           "rows": [
             "M20"
           ]
         },
         "mailright": {
-          "state": "adopted",
-          "detail": "=0.9.0, 2 pins",
+          "state": "stale",
+          "detail": "0.9.0→0.9.1, 2 pins",
           "rows": [
             "M20"
           ]
         },
         "postright": {
-          "state": "adopted",
-          "detail": "=0.9.0, 4 pins; 2 exceptions: bogusyogi/rightkit#382, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.9.0→0.9.1, 4 pins; 2 exceptions: bogusyogi/rightkit#382, expires 2026-11-30",
           "rows": [
             "M20"
           ],
@@ -12092,8 +11966,8 @@
           }
         },
         "pulse": {
-          "state": "adopted",
-          "detail": "=0.9.0, 2 pins; 1 exception: bogusyogi/rightkit#427, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.9.0→0.9.1, 2 pins; 1 exception: bogusyogi/rightkit#427, expires 2026-11-30",
           "rows": [
             "M20"
           ],
@@ -12109,15 +11983,15 @@
           }
         },
         "scraperight": {
-          "state": "adopted",
-          "detail": "=0.9.0, 2 pins",
+          "state": "stale",
+          "detail": "0.9.0→0.9.1, 2 pins",
           "rows": [
             "M20"
           ]
         },
         "viewright": {
-          "state": "adopted",
-          "detail": "=0.9.0, 2 pins; 1 exception: bogusyogi/rightkit#1057, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.9.0→0.9.1, 2 pins; 1 exception: bogusyogi/rightkit#1057, expires 2026-11-30",
           "rows": [
             "M20"
           ],
@@ -13061,21 +12935,18 @@
           }
         },
         "ember": {
-          "state": "adopted",
-          "detail": "=0.6.0; 2 exceptions: bogusyogi/rightkit#1027/bogusyogi/rightkit#1150, expires 2026-11-30",
+          "state": "stale",
+          "detail": "0.4.0→0.6.0; 2 exceptions: no issue, no expiry",
           "rows": [
             "M1"
           ],
           "exceptions": {
             "count": 2,
             "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1027",
-              "bogusyogi/rightkit#1150"
-            ],
-            "earliestExpiry": "2026-11-30"
+            "withoutIssue": 2,
+            "withoutExpiry": 2,
+            "issues": [],
+            "earliestExpiry": ""
           }
         },
         "genright": {

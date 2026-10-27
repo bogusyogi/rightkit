@@ -10,11 +10,13 @@ import { GH_TIMEOUT_MS, PROBE_TIMEOUT_MS, QUALIFICATION_SCHEMA, dispatchInputs, 
 const SHA = "a".repeat(40);
 const OTHER = "b".repeat(40);
 /** The gate's qualification receipt for rightkit-daemon at SHA, as rightkit-gate --to release writes it. */
+/** One broker job receipt as the gate embeds it (id + signed envelope); the adapter forwards it untouched, the hosted admission verifies it. */
+const RECEIPT = (id) => ({ id, provenance: { schema: "rustright.provenance.v1", payload: { jobId: id }, signature: { alg: "ES256", keyId: "k", value: "ab" } } });
 const QUAL = { schema: "rightkit.unit-qualification/1", unit: { kind: "cargo", name: "rightkit-daemon", version: "0.4.0" }, commit: SHA, tree: "c".repeat(40), runtime: "r".repeat(64), executor: "broker",
-  stages: { check: { ok: true }, compile: { ok: true }, package: { ok: true, artifactSha256: "d".repeat(64) }, qualify: { ok: true, artifactSha256: "d".repeat(64) } }, artifactSha256: "d".repeat(64) };
+  stages: { check: { ok: true }, compile: { ok: true, receipts: [RECEIPT("job-compile")] }, package: { ok: true, artifactSha256: "d".repeat(64), receipts: [RECEIPT("job-package")] }, qualify: { ok: true, artifactSha256: "d".repeat(64) } }, artifactSha256: "d".repeat(64) };
 const QFILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "rk-dispatch-qual-")), "qualification.json");
 fs.writeFileSync(QFILE, JSON.stringify(QUAL));
-const FORWARDED = { schema: QUAL.schema, commit: SHA, tree: QUAL.tree, runtime: QUAL.runtime, executor: "broker", unit: QUAL.unit, stages: { check: { ok: true }, compile: { ok: true }, package: { ok: true }, qualify: { ok: true } }, artifactSha256: QUAL.artifactSha256 };
+const FORWARDED = { schema: QUAL.schema, commit: SHA, tree: QUAL.tree, runtime: QUAL.runtime, executor: "broker", unit: QUAL.unit, stages: { check: { ok: true }, compile: { ok: true, receipts: [RECEIPT("job-compile")] }, package: { ok: true, receipts: [RECEIPT("job-package")] }, qualify: { ok: true } }, artifactSha256: QUAL.artifactSha256 };
 const admitted = async () => {};
 const env = { RIGHTKIT_JOB_ID: "req-123", GH_TOKEN: "not-printed" };
 
@@ -205,7 +207,10 @@ test("the qualification receipt is re-read by the pinned adapter: commit, unit, 
   assert.throws(() => readQualification(QFILE, { sha: SHA, unit: "rightkit-daemon", registry: "npm" }), /not npm:rightkit-daemon/);
   assert.throws(() => read({ stages: { ...QUAL.stages, qualify: { ok: false } } }), /stage qualify is not ok/);
   assert.throws(() => read({ stages: { ...QUAL.stages, compile: undefined } }), /stage compile is not ok/);
+  assert.throws(() => read({ stages: { ...QUAL.stages, compile: { ok: true } } }), /stage compile carries no signed broker receipts/);
+  assert.throws(() => read({ stages: { ...QUAL.stages, package: { ...QUAL.stages.package, receipts: [] } } }), /stage package carries no signed broker receipts/);
+  assert.equal(read().stages.compile.receipts[0].provenance.signature.value, "ab", "receipts are forwarded as the gate wrote them");
   assert.throws(() => read({ artifactSha256: "e".repeat(64) }), /one artifact sha256/);
   assert.throws(() => read({ tree: "short" }), /lacks a tree/);
-  assert.doesNotMatch(JSON.stringify(read()), /\/Volumes|\/Users|[A-Z]:\\|qualification\.json/, "no host path travels to the workflow");
+  assert.doesNotMatch(JSON.stringify(read()), /\/Volumes|\/Users|[A-Z]:\\|qualification\.json/, "no host path of the gate's own travels to the workflow (the signed receipts carry the broker's, as signed)");
 });

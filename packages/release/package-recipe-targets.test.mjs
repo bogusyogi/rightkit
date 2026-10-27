@@ -402,3 +402,59 @@ test("a target directory inside the app plans no stage and keeps the existing sh
   assert.equal(out.package.cmd, "pnpm");
   assert.deepEqual(out.sign.prePackageFiles, [".cargo-target/x86_64-pc-windows-msvc/release/demo.exe"]);
 });
+
+
+// ---- stageSidecars and nativeHelpers (Mac release lane) ----
+
+const helperEntry = (extra = {}) => ({ name: "menu", package: "macos-native/Pkg", product: "Menu", kind: "app", embed: "Contents/Library/LoginItems/Menu.app", universal: true, info: { bundleId: "com.example.menu", uiElement: true }, ...extra });
+const cloudEntry = (extra = {}) => ({ name: "cloud", sharedPackage: "cloudkit", product: "rightkit-cloudkit-helper", kind: "app", embed: "Contents/Library/LoginItems/Cloud.app", universal: true, executable: "Cloud", entitlements: "src-tauri/cloud.plist", provisioningProfile: "src-tauri/p.provisionprofile", info: { bundleId: "com.example.next" }, ...extra });
+
+test("macPackage.stageSidecars stages for the build triple first and verifies the universal sidecars before the Tauri build", () => {
+  const out = expandMacPackageTarget(macTarget({ macPackage: { stageSidecars: true, prepare: [{ cmd: "node", args: ["scripts/a.mjs"] }] } }), { appRoot });
+  const plan = planOf(out.prePackage);
+  assert.deepEqual(plan.steps.map((step) => `${step.phase}:${step.cmd}`), ["prepare:right-release", "prepare:node", "build:pnpm"]);
+  assert.deepEqual(plan.steps[0].args, ["stage-sidecar", "--target", "universal-apple-darwin"]);
+  assert.deepEqual(plan.verifySidecars, { receipt: "src-tauri/binaries/stage-sidecar.json", target: "universal-apple-darwin" });
+  const custom = planOf(expandMacPackageTarget(macTarget({ macPackage: { stageSidecars: { config: "release/right-release.config.mjs", receipt: "src-tauri/stage/receipt.json" } } }), { appRoot }).prePackage);
+  assert.deepEqual(custom.steps[0].args, ["stage-sidecar", "--target", "universal-apple-darwin", "--config", "release/right-release.config.mjs"]);
+  assert.equal(custom.verifySidecars.receipt, "src-tauri/stage/receipt.json");
+  // A thin build stages its own triple and has nothing universal to verify.
+  const thin = planOf(expandMacPackageTarget(macTarget({ macPackage: { triple: "aarch64-apple-darwin", stageSidecars: true }, notarize: { app: "src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Demo.app", file: "dist/Demo.dmg" } }), { appRoot }).prePackage);
+  assert.deepEqual(thin.steps[0].args, ["stage-sidecar", "--target", "aarch64-apple-darwin"]);
+  assert.equal(thin.verifySidecars, undefined);
+  assert.throws(() => expandMacPackageTarget(macTarget({ macPackage: { stageSidecars: { receipt: "../x.json" } } }), { appRoot }), /receipt/);
+  assert.throws(() => expandMacPackageTarget(macTarget({ macPackage: { stageSidecars: { nope: 1 } } }), { appRoot }), /unknown key/);
+  assert.throws(() => expandMacPackageTarget(macTarget({ macPackage: { stageSidecars: "yes" } }), { appRoot }), /true or/);
+  // The step is the one `right-release` the recipe launches through this package's own CLI; the scan still sees every step.
+  assert.ok(expandRecipeBuildCommands(out.prePackage, { root: appRoot }).some((step) => step.cmd === "right-release" && step.args[0] === "stage-sidecar"));
+});
+
+test("macPackage.nativeHelpers builds and embeds after the app build and derives the inside-out signing config", () => {
+  const out = expandMacPackageTarget(macTarget({ macPackage: { nativeHelpers: [helperEntry(), cloudEntry()], postBuild: [{ cmd: "ditto", args: ["a", "b"] }] }, sign: { identifiers: { "Contents/MacOS/x": "com.example.x" } } }), { appRoot, config: { version: "1.2.3" } });
+  const plan = planOf(out.prePackage);
+  assert.deepEqual(plan.steps.map((step) => step.phase), ["build", "postBuild"]);
+  assert.equal(plan.nativeHelpers.app, out.notarize.app);
+  assert.equal(plan.nativeHelpers.version, "1.2.3");
+  assert.equal(plan.nativeHelpers.configuration, "release");
+  assert.equal(plan.nativeHelpers.forceArch, undefined);
+  assert.deepEqual(plan.nativeHelpers.helpers.map((helper) => helper.name), ["menu", "cloud"]);
+  assert.deepEqual(out.sign.nestedCode, { "Contents/Library/LoginItems/Menu.app": {}, "Contents/Library/LoginItems/Cloud.app": { entitlements: "src-tauri/cloud.plist" } });
+  assert.deepEqual(out.sign.identifiers, { "Contents/MacOS/x": "com.example.x" }, "other sign keys are kept");
+  assert.equal(out.macPackage, undefined);
+  // Explicit nestedCode entries for other paths are kept; redeclaring a helper path is refused.
+  const merged = expandMacPackageTarget(macTarget({ macPackage: { nativeHelpers: [helperEntry()] }, sign: { nestedCode: { "Contents/Helpers/h": {} } } }), { appRoot, config: { version: "1.0.0" } });
+  assert.deepEqual(Object.keys(merged.sign.nestedCode).sort(), ["Contents/Helpers/h", "Contents/Library/LoginItems/Menu.app"]);
+  assert.throws(() => expandMacPackageTarget(macTarget({ macPackage: { nativeHelpers: [helperEntry()] }, sign: { nestedCode: { "Contents/Library/LoginItems/Menu.app": {} } } }), { appRoot, config: { version: "1.0.0" } }), /must not redeclare/);
+  assert.throws(() => expandMacPackageTarget(macTarget({ macPackage: { nativeHelpers: [helperEntry()] }, sign: { entitlements: { "Contents/Library/LoginItems/Menu.app": "e.plist" } } }), { appRoot, config: { version: "1.0.0" } }), /must not redeclare/);
+});
+
+test("nativeHelpers on a universal app must be universal; a thin triple forces its arch; strict validation and the version are enforced", () => {
+  const cfg = { appRoot, config: { version: "1.0.0" } };
+  assert.throws(() => expandMacPackageTarget(macTarget({ macPackage: { nativeHelpers: [helperEntry({ universal: false })] } }), cfg), /must declare universal: true/);
+  const thin = planOf(expandMacPackageTarget(macTarget({ macPackage: { triple: "x86_64-apple-darwin", nativeHelpers: [helperEntry({ universal: false })] }, notarize: { app: "src-tauri/target/x86_64-apple-darwin/release/bundle/macos/Demo.app", file: "dist/Demo.dmg" } }), cfg).prePackage);
+  assert.equal(thin.nativeHelpers.forceArch, "x86_64");
+  assert.throws(() => expandMacPackageTarget(macTarget({ macPackage: { nativeHelpers: [helperEntry({ package: "../escape" })] } }), cfg), /nativeHelpers\[0\]\.package/);
+  assert.throws(() => expandMacPackageTarget(macTarget({ macPackage: { nativeHelpers: [helperEntry({ bogus: 1 })] } }), cfg), /unknown key "bogus"/);
+  assert.throws(() => expandMacPackageTarget(macTarget({ macPackage: { nativeHelpers: [helperEntry()] } }), { appRoot, config: {} }), /needs the release config version/);
+  assert.throws(() => expandMacPackageTarget(macTarget({ macPackage: { nativeHelpers: [] } }), cfg), /non-empty array/);
+});

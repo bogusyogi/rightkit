@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as shipped from "./lock-graph.mjs";
 import * as ci from "../../scripts/ci/select.mjs";
@@ -1220,7 +1221,7 @@ test("check is the full deterministic stage: a class A finding (here a broken pa
   git("commit", "-q", "-am", "fixed");
   const green = capture();
   assert.equal(await main(["check", "--repo", repo, "--commit", "HEAD"], { ...green.io, appCheck }), 0, green.err.join("\n"));
-  assert.match(green.out.at(-1), /class A pass/);
+  assert.match(green.out.at(-1), /class A content pass/);
 });
 
 // ---- class A ShellCheck: SellRight's own scripts through the real check, and a refused analyzer version ----------------------
@@ -1328,7 +1329,7 @@ test("check runs the real app check: findings on stdout, exit 0 green and 1 red,
   const green = capture();
   assert.equal(await main(["check"], { ...green.io, cwd: repo }), 0, green.err.join("\n"));
   assert.match(green.out.join("\n"), /^check: \w{12} passed 13 rules \(compile tier\) in [\d.]+s$/m, "no --repo: the git top-level of the working directory");
-  assert.match(green.out.at(-1), /^rightkit-gate: class A pass: \d+ deterministic scan\(s\) over \d+ file\(s\) of HEAD$/, "then every class A scan over the whole commit");
+  assert.match(green.out.at(-1), /^rightkit-gate: class A content pass: \d+ deterministic scan\(s\) over \d+ file\(s\) of HEAD$/, "then every class A scan over the whole commit");
   const unknown = capture();
   assert.equal(await main(["bogus"], unknown.io), 2);
   assert.match(unknown.err.join("\n"), /rightkit-gate check \[--repo <dir>\] \[--commit <rev> \| --worktree\] \[--rule-tier compile\|release\] \[--only <rule,\.\.\.>\] \[--list\] \[--print-baseline\] \[--baseline <file>\]/);
@@ -1889,7 +1890,7 @@ test("--to reuses check and compile only for the exact same inputs, and needs --
   const again = capture();
   assert.equal(await main(["--to", "compile"], { ...again.io, cwd: root, ...io }), 0);
   assert.deepEqual(ran, ["check", "compile"], "the second run reuses both: same commit, tree, lockfiles, gate and toolchain");
-  assert.match(again.out.join("\n"), /\[check\] already passed for this exact input/);
+  assert.match(again.out.join("\n"), /\[check\] already passed \((compile|release) tier\) for this exact input/);
   fs.writeFileSync(path.join(root, "Cargo.lock"), "version = 4\n# changed\n");
   spawnSync("git", ["commit", "-qam", "lock change"], { cwd: root });
   assert.equal(await main(["--to", "compile"], { ...capture().io, cwd: root, ...io }), 0);
@@ -2185,7 +2186,8 @@ test("ios and android are door platforms: check, compile, package (build only), 
     // A red release tier blocks the upload.
     calls.length = 0;
     const red = capture();
-    const redIo = { ...io, runReleaseCheck: async () => 1, sealedFor: () => ({ id: `app-1.0.1-${head.slice(0, 8)}`, manifest: "m", digest: "e".repeat(64) }) };
+    // The release tier now runs at check for a --to release run (before any build): a red release tier stops it there.
+    const redIo = { ...io, runCheck: async (tier) => (tier === "release" ? 1 : 0), runReleaseCheck: async () => 1, sealedFor: () => ({ id: `app-1.0.1-${head.slice(0, 8)}`, manifest: "m", digest: "e".repeat(64) }) };
     await main(["--to", "release", "--platform", platform], { ...red.io, cwd: root, ...redIo });
     assert.ok(!calls.some((c) => c.startsWith("upload")), `nothing uploaded on a red release tier: ${calls.join(" | ")}`);
   }
@@ -2199,26 +2201,30 @@ test("ios and android are door platforms: check, compile, package (build only), 
   assert.match(d.err.join("\n"), /needs --platform mac\|win\|ios\|android/);
 });
 
-test("--to qualify runs the release tier first (every rule and scan): red refuses installed QA, green proceeds (app-check.mjs TIERS)", async (t) => {
+test("--to qualify runs the release tier at check, before any build: red stops there, green is not run again at qualify (app-check.mjs TIERS)", async (t) => {
   const { root, head } = stageRepo(t);
   const calls = []; let releaseTier = 1; const tiers = [];
   const io = {
     resolveExecutor: directExecutor, runCheck: async () => 0, runCompile: async () => 0,
     runReleaseCheck: async () => { tiers.push("release"); return releaseTier; },
+    // The door's check stage runs the release tier itself for a --to qualify run (reviewer, 2026-10-27): same verdict source.
+    runCheck: async (tier) => (tier === "release" ? (tiers.push("release"), releaseTier) : 0),
     sealedFor: () => ({ id: `app-1.0.0-${head.slice(0, 8)}`, manifest: "m", digest: "d".repeat(64) }),
     spawnInherit: (cmd, a) => { calls.push(a.slice(1).join(" ")); return { status: 0 }; },
   };
   const red = capture();
   assert.equal(await main(["--to", "qualify", "--platform", "win"], { ...red.io, cwd: root, ...io }), 1);
-  assert.match(red.err.join("\n"), /\[qualify\] the release tier \(every rule and scan\) is red/);
+  // Red at the start: the release tier runs in the check stage, so nothing compiles, packages or qualifies.
+  assert.match(red.err.join("\n"), /--to qualify stopped at check/);
   assert.deepEqual(tiers, ["release"]);
-  assert.ok(!calls.some((c) => c.startsWith("qa --stage installed")), `installed QA never ran: ${calls.join(" | ")}`);
+  assert.ok(!calls.some((c) => c.startsWith("qa --stage") || c.startsWith("build")), `nothing built or qualified: ${calls.join(" | ")}`);
   const receipt = JSON.parse(fs.readFileSync(path.join(root, ".git", "rightkit-gate", "receipts", `${head}.json`), "utf8"));
-  assert.equal(receipt.stages.qualify.ok, false);
+  assert.deepEqual([receipt.stages.check.ok, receipt.stages.check.ruleTier, receipt.stages.qualify], [false, "release", undefined]);
   releaseTier = 0; calls.length = 0;
   const green = capture();
   assert.equal(await main(["--to", "qualify", "--platform", "win"], { ...green.io, cwd: root, ...io }), 0, green.err.join("\n"));
   assert.ok(calls.some((c) => c.startsWith("qa --stage installed")), calls.join(" | "));
+  assert.match(green.out.join("\n"), /\[qualify\] the release tier already passed at check for this exact input; not run again/);
   const after = JSON.parse(fs.readFileSync(path.join(root, ".git", "rightkit-gate", "receipts", `${head}.json`), "utf8"));
   assert.deepEqual([after.stages.qualify.ok, after.stages.qualify.ruleTier], [true, "release"]);
 });
@@ -2518,7 +2524,7 @@ test("RightKit self-check: the door runs RightKit's own rules for the requested 
   const selfPath = path.join(root, "packages", "release", "bin", "rightkit-gate.mjs");
   const run = async ({ appCheck = 0, args, status = 0 }) => {
     const launched = []; const c = capture();
-    const code = await main(["check", ...args], { ...c.io, cwd: root, selfPath, resolveExecutor: directExecutor, appCheck: async () => appCheck, spawnInherit: (cmd, a) => { launched.push(a.map((x) => (x === root ? "." : x.startsWith(`${root}${path.sep}`) ? path.relative(root, x).split(path.sep).join("/") : x)).join(" ")); return { status }; } });
+    const code = await main(["check", ...args], { ...c.io, cwd: root, selfPath, resolveExecutor: directExecutor, appCheck: async () => appCheck, spawnInherit: (cmd, a) => { launched.push(a.map((x) => (x === root ? "." : x.startsWith(`${root}${path.sep}`) ? path.relative(root, x).split(path.sep).join("/") : x)).join(" ")); return { status: typeof status === "function" ? status(a) : status }; } });
     return { code, launched, err: c.err.join("\n") };
   };
   // Positive control: green app rules and class A on HEAD run RightKit's rules for HEAD, then the import check.
@@ -2545,17 +2551,20 @@ test("RightKit self-check: the door runs RightKit's own rules for the requested 
   const clean = await run({ args: ["--worktree"] });
   assert.equal(clean.code, 0, clean.err);
   assert.deepEqual(clean.launched, ["scripts/preflight.mjs --repo . --worktree", "scripts/ci/exports-import-effects.mjs --report .git/rightkit-gate/import-effects/report.json"]);
-  // ... but a tracked edit or an untracked file makes the tree differ from HEAD, and the probe refuses instead of proving other bytes.
+  // ... and a tracked edit or an untracked file makes the tree differ from HEAD: the import probe then runs on the working tree's
+  // own bytes (--worktree), never on HEAD's.
   fs.writeFileSync(path.join(root, "good.json"), "{\"edited\":true}\n");
   const dirtyTracked = await run({ args: ["--worktree"] });
-  assert.equal(dirtyTracked.code, 1, dirtyTracked.err);
-  assert.deepEqual(dirtyTracked.launched, ["scripts/preflight.mjs --repo . --worktree"], "no import probe of HEAD for a modified tree");
-  assert.match(dirtyTracked.err, /working tree differs from it/);
+  assert.equal(dirtyTracked.code, 0, dirtyTracked.err);
+  assert.deepEqual(dirtyTracked.launched, ["scripts/preflight.mjs --repo . --worktree", "scripts/ci/exports-import-effects.mjs --report .git/rightkit-gate/import-effects/report.json --worktree"]);
   git("checkout", "--", "good.json");
   fs.writeFileSync(path.join(root, "extra.json"), "{}\n");
   const dirtyUntracked = await run({ args: ["--worktree"] });
-  assert.equal(dirtyUntracked.code, 1, dirtyUntracked.err);
-  assert.equal(dirtyUntracked.launched.length, 1, "an untracked file also refuses the probe");
+  assert.equal(dirtyUntracked.code, 0, dirtyUntracked.err);
+  assert.match(dirtyUntracked.launched.at(-1), /--worktree$/, "an untracked file also makes it a working-tree probe");
+  // Through the gate entry: a working-tree probe that fails (a finding, or UNSTABLE because the tree changed while it ran) fails the check.
+  const unstable = await run({ args: ["--worktree"], status: (a) => (a.some((x) => String(x).endsWith("exports-import-effects.mjs")) ? 1 : 0) });
+  assert.equal(unstable.code, 1, "a red or unstable working-tree probe fails the self-check");
 });
 
 test("cargoInputsDiffer: blob-identical Cargo inputs are empty; a live edit, an untracked or ignored input, and a snapshot behind HEAD are named (rightkit#1215)", (t) => {
@@ -2672,7 +2681,10 @@ test("a partial check (--only) says it is not a class A result, and the door and
   } finally { fs.rmSync(repo, { recursive: true, force: true }); }
   // The door's check stage and the broker's admission call the full form.
   const src = fs.readFileSync(new URL("./bin/rightkit-gate.mjs", import.meta.url), "utf8");
-  assert.match(src, /main\(\["check", "--commit", "HEAD"\]/, "--to check runs the full check");
+  assert.match(src, /main\(\["check", "--commit", "HEAD", "--full-a", "--rule-tier", earlyTier\]/, "--to check runs the full check with full class A, at the tier the run owes");
+  assert.match(src, /main\(\["check", "--commit", "HEAD", "--full-a", "--rule-tier", tier\]/, "the unit stages run full class A");
+  assert.match(src, /main\(\["check", "--worktree", "--full-a"\]/, "the dev door runs full class A");
+  assert.doesNotMatch(src, /main\(\["check", "--(commit|worktree)"(?![^\]]*--full-a)[^\]]*\]/, "no other entry calls a content-only check");
 });
 
 test("class A export: the export root exists before checkout-index and the prefix uses \"/\" (Windows refused a missing, backslashed prefix: publish run 40282215043)", async (t) => {
@@ -2719,6 +2731,28 @@ test("a door run puts the door's own right-release shims first on PATH when the 
   assert.deepEqual(doorPath({ env: { Path: "C:\\w" }, exists, gateFile: installed, platform: "win32" }), { Path: `${bin}${path.delimiter}C:\\w` });
   assert.deepEqual(doorPath({ env: { PATH: "/usr/bin" }, exists: () => false, gateFile: installed, platform: "darwin" }), {}, "no shims: nothing added");
   assert.deepEqual(doorPath({ env: { PATH: "/usr/bin" }, exists, gateFile: path.join(os.tmpdir(), "repo", "packages", "release", "bin", "rightkit-gate.mjs"), platform: "darwin" }), {}, "a checkout has no .bin beside it");
+});
+
+test("the sealed-set shortcut never skips the release tier: a set sealed under a compile-tier check still runs the release tier at qualify", async (t) => {
+  const { root, head } = stageRepo(t);
+  const calls = []; const tiers = [];
+  const io = {
+    resolveExecutor: directExecutor, runCompile: async () => 0,
+    runCheck: async (tier) => { tiers.push(`check:${tier}`); return 0; },
+    runReleaseCheck: async () => { tiers.push("qualify:release"); return 1; },
+    sealedFor: () => ({ id: `app-1.0.0-${head.slice(0, 8)}`, manifest: "m", digest: "d".repeat(64) }),
+    spawnInherit: (cmd, a) => { calls.push(a.slice(1).join(" ")); return { status: 0 }; },
+  };
+  const pkg = capture();
+  assert.equal(await main(["--to", "package", "--platform", "win"], { ...pkg.io, cwd: root, ...io }), 0, pkg.err.join("\n"));
+  assert.deepEqual(tiers, ["check:compile"]);
+  tiers.length = 0; calls.length = 0;
+  const qual = capture();
+  // check, compile and package are skipped for the intact sealed set; qualify must still owe (and here fail) the release tier.
+  assert.equal(await main(["--to", "qualify", "--platform", "win"], { ...qual.io, cwd: root, ...io }), 1);
+  assert.match(qual.out.join("\n"), /\[check\] already passed for the sealed set/);
+  assert.deepEqual(tiers, ["qualify:release"], "the release tier ran at qualify because check ran only the compile tier");
+  assert.ok(!calls.some((c) => c.startsWith("qa --stage installed")), calls.join(" | "));
 });
 
 test("cargoInputsDiffer batches its pathspecs under the Windows command-line limit: no git argv exceeds the batch size, results merge, and a failed batch fails closed", (t) => {
@@ -2779,4 +2813,87 @@ test("cargoInputsDiffer compares the live bytes cargo reads (D13): raw-identical
   fs.writeFileSync(toml, '[package]\nname = "a"\nversion = "6.6.6"\n');
   assert.equal(git("hash-object", "--path=crates/a/Cargo.toml", "--", toml).trim(), git("rev-parse", "HEAD:crates/a/Cargo.toml").trim(), "the filter really hides the edit from --path hashing");
   assert.deepEqual(cargoInputsDiffer({ root, snapshot: "HEAD", manifests }), manifests, "the raw comparison names it");
+});
+
+test("full class A (--full-a): the checks that execute repository code run too, only on the working tree, and the door's check requires it", async (t) => {
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-full-a-")));
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT" }));
+  git("add", "-A"); git("commit", "-q", "-m", "one");
+  const seen = [];
+  const runScans = async (plan, opts) => { seen.push({ exclude: typeof opts.exclude, classes: opts.classes }); return { scans: [], notes: [], cacheHits: [] }; };
+  const content = capture();
+  assert.equal(await main(["--class-a", "--worktree"], { ...content.io, cwd: repo, runScans }), 0, content.err.join("\n"));
+  const full = capture();
+  assert.equal(await main(["--class-a", "--full-a", "--worktree"], { ...full.io, cwd: repo, runScans }), 0, full.err.join("\n"));
+  assert.deepEqual(seen, [{ exclude: "function", classes: ["A"] }, { exclude: "undefined", classes: ["A"] }], "content-only excludes executing checks; full A excludes nothing and still compiles nothing (class A only)");
+  assert.match(full.out.at(-1), /class A full pass/);
+  assert.doesNotMatch(full.out.join("\n"), /class A partial/);
+  const commit = capture();
+  assert.equal(await main(["--class-a", "--full-a", "--commit", "HEAD"], { ...commit.io, cwd: repo, runScans }), 0, "HEAD of a clean checkout is its working tree: checked in full");
+  assert.equal(seen.at(-1).exclude, "undefined");
+  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT", x: 1 }));
+  const dirty = capture();
+  assert.equal(await main(["--class-a", "--full-a", "--commit", "HEAD"], { ...dirty.io, cwd: repo, runScans }), 2, "a dirty tree is not the commit");
+  assert.match(dirty.err.join("\n"), /needs a clean checkout/);
+  git("commit", "-q", "-am", "two");
+  const older = capture();
+  assert.equal(await main(["--class-a", "--full-a", "--commit", "HEAD~1"], { ...older.io, cwd: repo, runScans }), 2, "a commit other than HEAD has no live tree here");
+  // The door asks check for full class A before right-release runs.
+  const argv = [];
+  const door = capture();
+  await main(["--to", "dev"], { ...door.io, cwd: repo, resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }), runCheck: undefined,
+    spawn: (cmd, a, o) => spawnSync(cmd, a, { ...o, encoding: "utf8" }),
+    runScans: async (plan, opts) => { argv.push(opts.exclude ? "content-only" : "full"); return { scans: [], notes: [], cacheHits: [] }; },
+    appCheck: async () => 0, spawnInherit: () => ({ status: 1 }) });
+  assert.ok(argv.length && argv.every((x) => x === "full"), `the door's check ran full class A (${argv.join(",")})`);
+});
+
+test("full class A binds its verdict to the live bytes: an edit during the run blocks, with or without the cache", async (t) => {
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-full-a-bind-")));
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT" }));
+  git("add", "-A"); git("commit", "-q", "-m", "one");
+  let n = 0;
+  const editing = async () => { fs.writeFileSync(path.join(repo, "edited.txt"), String(++n)); return { scans: [], notes: [], cacheHits: [] }; };
+  const steady = async () => ({ scans: [], notes: [], cacheHits: [] });
+  for (const extra of [[], ["--no-cache"]]) {
+    const edited = capture();
+    assert.equal(await main(["--class-a", "--full-a", "--worktree", ...extra], { ...edited.io, cwd: repo, runScans: editing }), 1, `edit during the run ${extra.join(" ")}`);
+    assert.match(edited.err.join("\n"), /working tree changed while class A ran/);
+    const clean = capture();
+    assert.equal(await main(["--class-a", "--full-a", "--worktree", ...extra], { ...clean.io, cwd: repo, runScans: steady }), 0, clean.err.join("\n"));
+    // The checked bytes are named for the broker: tracked-only and all, each the documented digest over raw blob ids.
+    const bytesLine = clean.out.find((l) => /class A bytes tracked=/.test(l));
+    const [, trackedDigest] = /tracked=([0-9a-f]{64}) all=[0-9a-f]{64}/.exec(bytesLine ?? "") ?? [];
+    const files = git("ls-files", "-z", "--cached").stdout.split("\0").filter(Boolean).sort();
+    const expected = createHash("sha256").update(files.map((f) => `${f}\t${spawnSync("git", ["hash-object", "--no-filters", f], { cwd: repo, encoding: "utf8" }).stdout.trim()}\n`).join("")).digest("hex");
+    assert.equal(trackedDigest, expected, "the broker can recompute the tracked digest over its snapshot");
+  }
+});
+
+test("env-digest prints the environment identity of a full class A verdict, the same value the pass line carries", async (t) => {
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-env-digest-")));
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT" }));
+  git("add", "-A"); git("commit", "-q", "-m", "one");
+  const env = capture();
+  assert.equal(await main(["env-digest"], { ...env.io, cwd: repo }), 0, env.err.join("\n"));
+  const [, digest] = /^env=([0-9a-f]{64})$/.exec(env.out.at(-1) ?? "") ?? [];
+  assert.ok(digest);
+  const pass = capture();
+  assert.equal(await main(["--class-a", "--full-a", "--worktree"], { ...pass.io, cwd: repo, runScans: async () => ({ scans: [], notes: [], cacheHits: [] }) }), 0, pass.err.join("\n"));
+  assert.ok(pass.out.some((l) => l.endsWith(` env=${digest}`)), "the pass line names the same environment");
+  // An installed-dependency change moves it.
+  fs.mkdirSync(path.join(repo, "node_modules"), { recursive: true });
+  fs.writeFileSync(path.join(repo, "node_modules", ".modules.yaml"), "layoutVersion: 5\n");
+  const after = capture();
+  assert.equal(await main(["env-digest"], { ...after.io, cwd: repo }), 0);
+  assert.notEqual(after.out.at(-1), `env=${digest}`);
 });

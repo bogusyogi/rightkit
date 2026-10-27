@@ -28,6 +28,11 @@ const INSTALLED = Symbol.for("rightkit.release.brokerGuard");
 const GUARD_FILE = fileURLToPath(import.meta.url);
 const GUARD_IMPORT = `--import=${pathToFileURL(GUARD_FILE).href}`;
 const BROKER_BINARIES = new Set(["cargo", "rightkit", "rustright"]);
+// Release-only signing credentials of the developer's shell (rightkit#1232): fixtures must never see them, or right-release's
+// host-secret-env refusal leaks into every doctor/parity/build fixture and the result depends on whoever runs the tests.
+// Removed from this process before any test runs; children inherit the scrubbed environment.
+export const RELEASE_ONLY_ENV = Object.freeze(["APPLE_ID", "APPLE_PASSWORD", "APPLE_API_KEY", "APPLE_API_ISSUER", "APPLE_API_KEY_PATH", "APPLE_CERTIFICATE", "APPLE_CERTIFICATE_PASSWORD"]);
+if (process.env[OPT_IN_ENV] !== "1") for (const name of RELEASE_ONLY_ENV) delete process.env[name];
 const MANAGED_SEGMENT = /[\\/](?:agent-bin|runtime-current|build-control|\.rightkit-managed)(?:[\\/]|$)/i;
 const CRATES_IO = "registry+https://github.com/rust-lang/crates.io-index";
 
@@ -315,6 +320,17 @@ function guardedConnect(...args) {
 }
 
 // Installs the guard once per process. With the opt-in set, nothing is patched and real launches pass through.
+/** Names the disk policy protects or the managed roots use: a fixture under one of them changes what the code under test sees. */
+const UNSAFE_TEMP_NAMES = new Set(["Application Support", ".rightkit-managed", "rightkitmanagedagent", "build-control", "agent-cache", ".rustright"]);
+export function hermeticTempBase({ tmpdir = os.tmpdir(), platform = process.platform, env = process.env } = {}) {
+  const clean = (dir) => dir && !dir.split(/[\\/]/).some((seg) => UNSAFE_TEMP_NAMES.has(seg));
+  if (clean(env.RIGHTKIT_TEST_SCRATCH)) return env.RIGHTKIT_TEST_SCRATCH;
+  if (clean(tmpdir)) return tmpdir;
+  const fallback = platform === "win32" ? path.join(env.SystemDrive ?? "C:", "Temp") : "/private/tmp";
+  if (!clean(fallback)) throw new Error(`no hermetic temp base: ${tmpdir} and ${fallback} both sit under a protected or managed name`);
+  return fallback;
+}
+
 export function installBrokerGuard() {
   if (globalThis[INSTALLED]) return globalThis[INSTALLED];
   const state = { enforcing: enforcing(), guardImport: GUARD_IMPORT };
@@ -331,6 +347,12 @@ export function installBrokerGuard() {
   // One throwaway root per test run, shared by child processes (they inherit the marker).
   // Real path: on macOS os.tmpdir() sits behind the /var -> /private/var symlink, which the signing-agent
   // directory checks (ensurePrivateDirectory) reject as a symlink ancestor.
+  // Fixtures are hermetic: they never sit under a protected or managed name, whatever temp directory the host (or the
+  // broker, which points TMPDIR under its managed root) hands this process. A test that wrote a fake `target` under such a
+  // name passed by hand and failed through the broker (2026-10-27). One per-run temp root, free of those names, is set as
+  // TMPDIR/TEMP/TMP so os.tmpdir() in this process and every child answers the same.
+  process.env.RIGHTKIT_TEST_TMP ??= realpathSync(mkdtempSync(path.join(hermeticTempBase(), "rk-hermetic-")));
+  for (const name of ["TMPDIR", "TEMP", "TMP"]) process.env[name] = process.env.RIGHTKIT_TEST_TMP;
   process.env.RIGHTKIT_GUARD_DATA_ROOT ??= realpathSync(mkdtempSync(path.join(os.tmpdir(), "rightkit-release-test-root-")));
   process.env.RIGHTKIT_DATA_ROOT = process.env.RIGHTKIT_GUARD_DATA_ROOT;
   // Child Node processes (release.mjs, build-release.mjs, cargo-target.mjs, fixtures) load the guard too.

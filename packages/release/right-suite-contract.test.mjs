@@ -669,7 +669,7 @@ test("license v2 public vector is identical at every portable consumer boundary"
 });
 
 for (const app of apps) {
-  test(app.key === "heardright" ? `${app.key} declares its disabled release state` : `${app.key} follows the signed tiered Right Release contract`, { skip: checkoutSkip([path.join(workspace, app.root, "package.json")], `${app.key} product checkout`) }, async (context) => {
+  test(`${app.key} follows the signed tiered Right Release contract (or declares its disabled state)`, { skip: checkoutSkip([path.join(workspace, app.root, "package.json")], `${app.key} product checkout`) }, async (context) => {
     const root = path.join(workspace, app.root);
     const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
     const scripts = pkg.scripts ?? {};
@@ -722,7 +722,10 @@ for (const app of apps) {
     assert.ok(config.version);
     assert.equal(config.distribution?.provider, "r2-rightapps", `${app.key} private release config must select R2 + RightApps explicitly`);
     const disabled = config.releaseReadiness?.state === "disabled";
-    if (app.key === "heardright") {
+    // HeardRight's release is re-enabled through the RightKit recipe lane (Adrian, 2026-10-28: HR to R2 through the proper
+    // channel): with no releaseReadiness key it falls to the active release contract below; the disabled shape stays pinned only
+    // while it is disabled.
+    if (app.key === "heardright" && disabled) {
       assert.deepEqual(config.releaseReadiness, { state: "disabled", reason: "Removed build routes pending shared RightKit recipe migration", owner: "RightKit app adoption" });
       assert.deepEqual(config.targets, {}, `${app.key} disabled release must have no targets`);
       // Release stays disabled; development is declared again (heardright 015b1900, 2026-10-27) through shared RightKit owners

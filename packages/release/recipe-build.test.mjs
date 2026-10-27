@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
-import { diskImageMountPoints, parseRecipeBuildArgs, RecipeBuildError, resolveLaunch, runRecipeBuild, runRecipeCleanup, validateRecipePlan, waitForStableArtifacts } from "./recipe-build.mjs";
+import { diskImageMountPoints, OWN_RIGHT_RELEASE, parseRecipeBuildArgs, RecipeBuildError, resolveLaunch, runRecipeBuild, runRecipeCleanup, validateRecipePlan, verifyUniversalSidecars, waitForStableArtifacts } from "./recipe-build.mjs";
 
 const APP = path.resolve("/rk-recipe-app");
 const plan = (extra = []) => ({
@@ -26,7 +26,7 @@ test("runs prepare, build, then postBuild in order, with argv, the app-root cwd 
   const logs = [];
   const result = runRecipeBuild(plan([{ phase: "postBuild", cmd: "ditto", args: ["a.dylib", "b.dylib"] }]), { appRoot: APP, env: { npm_execpath: "/pnpm.cjs", KEEP: "1" }, platform: "linux", spawnSync, log: (line) => logs.push(line) });
   assert.deepEqual(result.steps.map((step) => step.phase), ["prepare", "prepare", "build", "postBuild"]);
-  assert.deepEqual(calls.map((call) => call.command), ["node", "right-release", process.execPath, "ditto"]);
+  assert.deepEqual(calls.map((call) => call.command), ["node", process.execPath, process.execPath, "ditto"]);
   assert.deepEqual(calls[2].args, ["/pnpm.cjs", "exec", "tauri", "build"]);
   assert.equal(calls[2].options.cwd, path.join(APP, "src-tauri"));
   assert.equal(calls[0].options.cwd, APP);
@@ -211,10 +211,80 @@ test("stability runs right after the build step and before postBuild; an unstabl
   const { spawnSync, calls } = fakeSpawn();
   const stat = { size: 5, mtimeMs: 7 };
   const result = runRecipeBuild({ ...plan([{ phase: "postBuild", cmd: "ditto" }]), stability: { files: ["out/demo.exe"] } }, { appRoot: APP, platform: "linux", env: {}, spawnSync, statSync: () => stat, sleep: () => { calls.push({ command: "sleep" }); } });
-  assert.deepEqual(calls.map((call) => call.command), ["node", "right-release", "pnpm", "sleep", "sleep", "ditto"]);
+  assert.deepEqual(calls.map((call) => call.command), ["node", process.execPath, "pnpm", "sleep", "sleep", "ditto"]);
   assert.deepEqual(result.stable, [path.join(APP, "out", "demo.exe")]);
   const clock = { t: 0 };
   const { spawnSync: spawn3, calls: calls3 } = fakeSpawn();
   assert.throws(() => runRecipeBuild({ ...plan([{ phase: "postBuild", cmd: "ditto" }]), stability: { files: ["out/demo.exe"], timeoutMs: 100 } }, { appRoot: APP, platform: "linux", env: {}, spawnSync: spawn3, statSync: () => { throw new Error("gone"); }, sleep: (ms) => { clock.t += ms; }, now: () => clock.t }), { code: "RECIPE_BUILD_ARTIFACT_UNSTABLE" });
   assert.ok(!calls3.some((call) => call.command === "ditto"));
+});
+
+// ---- right-release resolves to this package's own CLI; universal sidecar check; nativeHelpers section ----
+
+test("a step's right-release (bare, `pnpm exec right-release`, `pnpm right-release`) launches this package's own CLI, never the app's copy", () => {
+  const own = OWN_RIGHT_RELEASE;
+  assert.ok(path.isAbsolute(own) && own.endsWith(path.join("cli", "right-release.mjs")));
+  const env = { npm_execpath: "/pnpm.cjs" };
+  for (const platform of ["darwin", "win32"]) {
+    assert.deepEqual(resolveLaunch({ cmd: "right-release", args: ["stage-sidecar", "--target", "x"], platform, env, execPath: "/node" }), { command: "/node", args: [own, "stage-sidecar", "--target", "x"], shell: false });
+    assert.deepEqual(resolveLaunch({ cmd: "pnpm", args: ["exec", "right-release", "stage-sidecar"], platform, env, execPath: "/node" }), { command: "/node", args: [own, "stage-sidecar"], shell: false });
+    assert.deepEqual(resolveLaunch({ cmd: "pnpm", args: ["right-release", "web-build"], platform, env, execPath: "/node" }), { command: "/node", args: [own, "web-build"], shell: false });
+  }
+  // Other pnpm commands are unchanged.
+  assert.deepEqual(resolveLaunch({ cmd: "pnpm", args: ["exec", "tauri", "build"], platform: "darwin", env, execPath: "/node" }), { command: "/node", args: ["/pnpm.cjs", "exec", "tauri", "build"], shell: false });
+  // End to end through the runner, for prepare, build and postBuild steps.
+  const { spawnSync, calls } = fakeSpawn();
+  runRecipeBuild({ version: 1, steps: [
+    { phase: "prepare", cmd: "right-release", args: ["stage-sidecar"] },
+    { phase: "build", cmd: "pnpm", args: ["exec", "right-release", "web-build"] },
+    { phase: "postBuild", cmd: "pnpm", args: ["exec", "right-release", "verify"] },
+  ] }, { appRoot: APP, platform: "linux", env: {}, spawnSync });
+  assert.ok(calls.every((call) => call.command === process.execPath && call.args[0] === OWN_RIGHT_RELEASE));
+  assert.deepEqual(calls.map((call) => call.args[1]), ["stage-sidecar", "web-build", "verify"]);
+});
+
+const sidecarReceipt = (files, target = "universal-apple-darwin") => JSON.stringify({ schema: 1, target, files });
+const verifySection = { receipt: "src-tauri/binaries/stage-sidecar.json", target: "universal-apple-darwin" };
+
+test("verifySidecars runs after prepare and before the build; it needs both archs (and nothing else) in every universal externalBin", () => {
+  const good = { name: "engine", path: "src-tauri/binaries/engine-universal-apple-darwin", externalBin: true };
+  const calls = [];
+  const spawnSync = (command, args) => { calls.push(command === "lipo" ? `lipo ${path.basename(args[1])}` : command); return { status: 0, stdout: "x86_64 arm64\n" }; };
+  const fs = { readFileSync: () => sidecarReceipt([good, { name: "ffmpeg", path: "src-tauri/resources/runtime/ffmpeg", externalBin: false }]) };
+  runRecipeBuild({ ...plan(), verifySidecars: verifySection }, { appRoot: APP, platform: "linux", env: {}, spawnSync, fs });
+  assert.deepEqual(calls, ["node", process.execPath, "lipo engine-universal-apple-darwin", "pnpm"], "prepare, prepare, verify, then the build");
+  const run = (files, lipoOut = "arm64 x86_64", target) => verifyUniversalSidecars(verifySection, { appRoot: APP, readFile: () => sidecarReceipt(files, target), spawnSync: () => ({ status: 0, stdout: lipoOut }) });
+  assert.deepEqual(run([good]), ["src-tauri/binaries/engine-universal-apple-darwin"]);
+  for (const [files, out, target, needle] of [
+    [[good], "arm64", undefined, /exactly arm64 and x86_64/],
+    [[good], "x86_64", undefined, /exactly arm64 and x86_64/],
+    [[good], "arm64 x86_64 arm64e", undefined, /exactly arm64 and x86_64/],
+    [[{ ...good, path: "src-tauri/binaries/engine-aarch64-apple-darwin" }], "arm64 x86_64", undefined, /not <name>-universal-apple-darwin/],
+    [[good], "arm64 x86_64", "aarch64-apple-darwin", /staged for aarch64-apple-darwin/],
+  ]) assert.throws(() => run(files, out, target), (error) => error.code === "RECIPE_BUILD_SIDECAR_NOT_UNIVERSAL" && needle.test(error.message), String(needle));
+  assert.throws(() => verifyUniversalSidecars(verifySection, { appRoot: APP, readFile: () => { throw new Error("ENOENT"); }, spawnSync: () => ({ status: 0 }) }), { code: "RECIPE_BUILD_SIDECAR_NOT_UNIVERSAL", message: /cannot read the stage-sidecar receipt/ });
+  assert.throws(() => verifyUniversalSidecars(verifySection, { appRoot: APP, readFile: () => sidecarReceipt([good]), spawnSync: () => ({ status: 1, stdout: "" }) }), { code: "RECIPE_BUILD_SIDECAR_NOT_UNIVERSAL" });
+  // A failing verification stops before the build step.
+  const seen = [];
+  assert.throws(() => runRecipeBuild({ ...plan(), verifySidecars: verifySection }, { appRoot: APP, platform: "linux", env: {}, spawnSync: (command, args) => { seen.push(args.join(" ")); return { status: 0, stdout: "arm64\n" }; }, fs: { readFileSync: () => sidecarReceipt([good]) } }), { code: "RECIPE_BUILD_SIDECAR_NOT_UNIVERSAL" });
+  assert.ok(!seen.some((line) => line.includes("exec tauri build")));
+  assert.throws(() => validateRecipePlan({ ...plan(), verifySidecars: { receipt: "../x", target: "aarch64-apple-darwin", extra: 1 } }), (error) => /verifySidecars: unknown key "extra"/.test(error.message) && /target must be universal-apple-darwin/.test(error.message));
+});
+
+test("the nativeHelpers section is validated with the shared schema and runs after the build, before postBuild", () => {
+  const helper = { name: "menu", package: "macos-native/Pkg", product: "Menu", kind: "executable", embed: "Contents/MacOS/menu", universal: true };
+  const section = { app: "dist/Demo.app", helpers: [helper], configuration: "release" };
+  assert.throws(() => validateRecipePlan({ ...plan(), nativeHelpers: { ...section, helpers: [{ ...helper, extra: 1 }], app: "/abs/Demo.app", forceArch: "ppc" } }), (error) => error.code === "RECIPE_BUILD_PLAN_INVALID" && /unknown key "extra"/.test(error.message) && /must be relative/.test(error.message) && /forceArch/.test(error.message));
+  const BIN = "/bin-dir";
+  const files = new Map([[`${APP}/dist/Demo.app/Contents/Info.plist`, 1], [`${APP}/macos-native/Pkg/Package.swift`, 1], [`${BIN}/Menu`, 1]]);
+  const fs = { existsSync: (file) => files.has(file), mkdirSync() {}, copyFileSync: (from, to) => files.set(to, 1), chmodSync() {}, readFileSync: () => Buffer.from("x"), rmSync() {}, readFileSyncReceipt: undefined };
+  const order = [];
+  const spawnSync = (command, args) => {
+    const tag = command === "swift" ? (args.includes("--show-bin-path") ? "swift-bin" : "swift-build") : command === "lipo" ? "lipo" : command === "ditto" ? "postBuild" : args.includes("tauri") ? "build" : "prepare";
+    order.push(tag);
+    return { status: 0, stdout: tag === "swift-bin" ? `${BIN}\n` : "arm64 x86_64\n" };
+  };
+  const result = runRecipeBuild({ ...plan([{ phase: "postBuild", cmd: "ditto", args: ["a", "b"] }]), nativeHelpers: section }, { appRoot: APP, platform: "linux", env: { npm_execpath: "/pnpm.cjs" }, spawnSync, fs });
+  assert.deepEqual(order, ["prepare", "prepare", "build", "swift-build", "swift-bin", "lipo", "postBuild"]);
+  assert.deepEqual(result.nativeHelpers.helpers.map((item) => item.name), ["menu"]);
 });

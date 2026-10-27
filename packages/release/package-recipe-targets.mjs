@@ -9,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveTargetRoot as cargoResolveTargetRoot } from "./cargo-target.mjs";
 import { defaultManagedRoots, isUnderManagedRoot } from "./managed-target-stage.mjs";
+import { NativeHelpersError, nativeHelperNestedCode, validateNativeHelpers } from "./native-helpers.mjs";
 import { validateWinPackage, WinPackageConfigError } from "./win-package-recipe.mjs";
 import { IOS_SIGNING_CONTRACT, IosPackageError, validateIosPackageConfig } from "./ios-package-recipe.mjs";
 import { IosUploadError, validateIosDistribution } from "./ios-upload.mjs";
@@ -78,13 +79,13 @@ const configArgs = (extras, appRoot, cwd) => (extras.tauriConfig ? ["--config", 
  * release.mjs runs ONE prePackage command: node recipe-build.mjs runs the built-in cleanup, prepare, the Tauri build,
  * the artifact stability poll and postBuild in order. `cleanup` and `stability` are recipe-build plan sections.
  */
-function recipeBuildCommand({ extras, build, env, cleanup, stability, stage, timeoutMs }) {
+function recipeBuildCommand({ extras, build, env, cleanup, stability, stage, timeoutMs, verifySidecars, nativeHelpers }) {
   const steps = [
     ...extras.prepare.map((step) => ({ phase: "prepare", ...step })),
     { phase: "build", cmd: build.cmd, args: build.args, cwd: build.cwd },
     ...extras.postBuild.map((step) => ({ phase: "postBuild", ...step })),
   ];
-  const plan = { version: 1, steps, ...(cleanup ? { cleanup } : {}), ...(stability ? { stability } : {}), ...(stage && (stage.pre?.length || stage.post?.length) ? { stage } : {}) };
+  const plan = { version: 1, steps, ...(cleanup ? { cleanup } : {}), ...(stability ? { stability } : {}), ...(stage && (stage.pre?.length || stage.post?.length) ? { stage } : {}), ...(verifySidecars ? { verifySidecars } : {}), ...(nativeHelpers ? { nativeHelpers } : {}) };
   return { cmd: process.execPath, args: [RECIPE_BUILD, "--plan", JSON.stringify(plan)], env, ...(timeoutMs ? { timeoutMs } : {}) };
 }
 
@@ -199,7 +200,9 @@ export function expandWinPackageTarget(target, { appRoot, config = {}, env = pro
   };
 }
 
-const MAC_KEYS = new Set(["universal", "triple", "tauriCwd", "features", "profile", "tauriConfig", "prepare", "postBuild", "cleanup", "cargoTargetRoot", "updater"]);
+const MAC_KEYS = new Set(["universal", "triple", "tauriCwd", "features", "profile", "tauriConfig", "prepare", "postBuild", "cleanup", "cargoTargetRoot", "updater", "stageSidecars", "nativeHelpers"]);
+const STAGE_SIDECARS_KEYS = new Set(["config", "receipt"]);
+const DEFAULT_SIDECAR_RECEIPT = "src-tauri/binaries/stage-sidecar.json";
 const MAC_TRIPLES = ["aarch64-apple-darwin", "x86_64-apple-darwin"];
 const MAC_CLEANUP_KEYS = new Set(["staleApps", "staleDmgVolumes", "lsclean"]);
 
@@ -221,7 +224,26 @@ function macCleanupSpec(value) {
  * `updater: true | "<app-relative .tar.gz>"` emits the Tauri updater tarball and its signature from the signed, stapled .app:
  * it prepends a `create-mac-updater` command to `postSign` (default output `<App>.app.tar.gz` beside the app's working root).
  */
-export function expandMacPackageTarget(target, { appRoot, env = process.env, resolveTargetRoot = cargoResolveTargetRoot, managedRoots }) {
+/**
+ * `stageSidecars: true | { config?, receipt? }`: stage the release config's declarative `sidecars` for the build's triple through this
+ * package's own `right-release stage-sidecar --target <triple>` as the first prepare step. For `universal-apple-darwin` stage-sidecar
+ * builds each slice (aarch64 and x86_64), `lipo -create`s them into `<name>-universal-apple-darwin` (the name Tauri's universal
+ * build expects) and refuses a result without both archs; recipe-build then re-checks every externalBin in the receipt
+ * (`receipt`, default src-tauri/binaries/stage-sidecar.json) with `lipo -archs` (exactly arm64 + x86_64) before the Tauri build.
+ */
+function stageSidecarsSpec(value) {
+  if (value === undefined || value === false) return undefined;
+  if (value !== true && !isObject(value)) fail("targets.mac.macPackage.stageSidecars must be true or { config?, receipt? }");
+  const spec = value === true ? {} : value;
+  const unknownKeys = Object.keys(spec).filter((key) => !STAGE_SIDECARS_KEYS.has(key));
+  if (unknownKeys.length) fail(`targets.mac.macPackage.stageSidecars has unknown key(s): ${unknownKeys.join(", ")} (allowed: ${[...STAGE_SIDECARS_KEYS].join(", ")})`);
+  return {
+    ...(spec.config === undefined ? {} : { config: relativeInside(spec.config, "targets.mac.macPackage.stageSidecars.config") }),
+    receipt: spec.receipt === undefined ? DEFAULT_SIDECAR_RECEIPT : relativeInside(spec.receipt, "targets.mac.macPackage.stageSidecars.receipt"),
+  };
+}
+
+export function expandMacPackageTarget(target, { appRoot, config = {}, env = process.env, resolveTargetRoot = cargoResolveTargetRoot, managedRoots }) {
   if (!target?.macPackage) return withoutRecipe(target);
   const spec = target.macPackage;
   if (!isObject(spec)) fail("targets.mac.macPackage must be an object");
@@ -247,6 +269,25 @@ export function expandMacPackageTarget(target, { appRoot, env = process.env, res
   }
   const override = { bundle: { createUpdaterArtifacts: false, macOS: { signingIdentity: null } } };
   const extras = buildExtras(spec, "targets.mac.macPackage", { postBuild: true });
+  const sidecars = stageSidecarsSpec(spec.stageSidecars);
+  if (sidecars) {
+    // First prepare step: stage the declared sidecars for this triple (universal: both slices, lipo, <name>-universal-apple-darwin).
+    extras.prepare = [{ cmd: "right-release", args: ["stage-sidecar", "--target", triple, ...(sidecars.config ? ["--config", sidecars.config] : [])] }, ...extras.prepare];
+  }
+  let helpers;
+  if (spec.nativeHelpers !== undefined) {
+    try { helpers = validateNativeHelpers(spec.nativeHelpers, { label: "targets.mac.macPackage.nativeHelpers" }); } catch (error) {
+      if (error instanceof NativeHelpersError) fail(error.message);
+      throw error;
+    }
+    // A universal app may not carry a thin helper: it would compile, sign and notarize and then fail on half the Macs.
+    const thin = triple === "universal-apple-darwin" ? helpers.filter((helper) => !helper.universal) : [];
+    if (thin.length) fail(`targets.mac.macPackage.nativeHelpers: ${thin.map((helper) => helper.name).join(", ")} must declare universal: true (this build's triple is universal-apple-darwin)`);
+    if (helpers.some((helper) => helper.kind === "app") && (typeof config?.version !== "string" || !/^\d+(\.\d+){0,2}$/.test(config.version))) fail("targets.mac.macPackage.nativeHelpers: a kind \"app\" helper needs the release config version (1-3 numeric parts) for its Info.plist");
+    const collisions = Object.keys(nativeHelperNestedCode(helpers)).filter((key) => isObject(target.sign?.nestedCode) && Object.hasOwn(target.sign.nestedCode, key));
+    if (collisions.length) fail(`targets.mac.macPackage.nativeHelpers: sign.nestedCode must not redeclare ${collisions.join(", ")}; declare entitlements on the helper entry`);
+    if (isObject(target.sign?.entitlements) ? helpers.some((helper) => Object.hasOwn(target.sign.entitlements, helper.embed)) : false) fail("targets.mac.macPackage.nativeHelpers: sign.entitlements must not redeclare a helper's embed path; declare entitlements on the helper entry");
+  }
   const args = ["exec", "tauri", "build", "--target", triple, "--bundles", "app", "--no-sign", ...configArgs(extras, appRoot, cwd), "--config", JSON.stringify(override)];
   if (spec.features?.length) args.push("--features", spec.features.join(","));
   args.push(...profileArgs(extras));
@@ -270,7 +311,10 @@ export function expandMacPackageTarget(target, { appRoot, env = process.env, res
   // An entry inside another staged entry (a file within the .app) is covered by copying the outer one.
   const macEntries = [...mapPath.staged.values()].filter((entry) => ![...mapPath.staged.values()].some((outer) => outer !== entry && entry.to.startsWith(`${outer.to}/`)));
   const macStage = macEntries.length ? { post: macEntries.map((entry) => ({ ...entry, fresh: true })), resolve: mapPath.resolve() } : undefined;
-  const wrapped = extras.prepare.length || extras.postBuild.length || cleanup || macStage;
+  const wrapped = extras.prepare.length || extras.postBuild.length || cleanup || macStage || helpers;
+  const forceArch = helpers && triple !== "universal-apple-darwin" ? (triple === "aarch64-apple-darwin" ? "arm64" : "x86_64") : undefined;
+  const nativeHelpersPlan = helpers ? { app, helpers, ...(config?.version ? { version: config.version } : {}), ...(forceArch ? { forceArch } : {}), configuration: "release" } : undefined;
+  const verifySidecars = sidecars && triple === "universal-apple-darwin" ? { receipt: sidecars.receipt, target: triple } : undefined;
   const { macPackage, recipe: _ignoredMac, ...rest } = target;
   // The updater tarball is made from the signed .app, so it runs in postSign, ahead of any postSign the app declares.
   const updaterOutput = spec.updater === true ? `${productName}.app.tar.gz` : typeof spec.updater === "string" ? relativeInside(spec.updater, "targets.mac.macPackage.updater") : undefined;
@@ -283,8 +327,9 @@ export function expandMacPackageTarget(target, { appRoot, env = process.env, res
   return {
     ...rest,
     ...postSign,
-    prePackage: wrapped ? recipeBuildCommand({ extras, build: { cmd: "pnpm", args, cwd }, env: QUIET_TAURI_ENV, cleanup, stage: macStage }) : { cmd: "pnpm", args, cwd, env: QUIET_TAURI_ENV },
-    sign: { ...(target.sign ?? {}), prePackageFiles },
+    prePackage: wrapped ? recipeBuildCommand({ extras, build: { cmd: "pnpm", args, cwd }, env: QUIET_TAURI_ENV, cleanup, stage: macStage, verifySidecars, nativeHelpers: nativeHelpersPlan }) : { cmd: "pnpm", args, cwd, env: QUIET_TAURI_ENV },
+    // Helpers are signed by release.mjs inside-out through sign.nestedCode (deepest path first, hardened runtime, each helper's own entitlements), then the app.
+    sign: { ...(target.sign ?? {}), ...(helpers ? { nestedCode: { ...nativeHelperNestedCode(helpers), ...(target.sign?.nestedCode ?? {}) } } : {}), prePackageFiles },
     notarize: { ...target.notarize, app, appBeforePackage: true },
     dmg: isObject(target.dmg) ? target.dmg : {},
     recipe: { kind: "macPackage", universal: triple === "universal-apple-darwin" },

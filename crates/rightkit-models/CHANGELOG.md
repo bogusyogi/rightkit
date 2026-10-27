@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (rightkit#1222)
+
+- Changed (behaviour): in a `test-mode` build `suite_root()` no longer refuses the real per-user suite root. With `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR` or `ORTHIC_SHARED_DIR` set it is isolated as before; with none set it resolves the real folders exactly like a normal launch (the earlier panic "refusing the real per-user suite root" crashed dev installs at startup). A relative or unresolvable override still fails closed. Release builds (no `test-mode`) are unchanged. Test: `test_mode_without_override_uses_the_real_folders` in `tests/suite_paths.rs` (replaces the fail-closed test).
+
 ## 0.5.1 — unpublished staging
 
 Additive to the 0.5.0 public API (no renamed or removed item, no changed signature), with the behaviour changes marked below. **Not compiled locally; CI is the compiler** (this repository's local build grant is revoked: only `rustfmt --check` ran on each changed file, and the code and tests were re-read against the real signatures). The new and changed tests have not been run.
