@@ -582,3 +582,11 @@ test("the pinned-digest guard covers NPM_VERSION_PINS_SHA256 (see rightkit-dispa
   const dispatchTest = fs.readFileSync(new URL("./rightkit-dispatch.test.mjs", import.meta.url), "utf8");
   assert.match(dispatchTest, /pinned\("NPM_VERSION_PINS_SHA256"\), digest\("\.\/release-version-pins\.mjs"\)/);
 });
+
+test("tree-write coverage: ignored paths a cell did not observe are reported, never silently certified", () => {
+  const r = cmp({ treeIgnoredNotCovered: ["build/", "node_modules/"] }, {});
+  const f = r.findings.find((x) => x.kind === "tree-write-coverage");
+  assert.ok(f, JSON.stringify(r.findings));
+  assert.equal(f.severity, "report");
+  assert.match(f.detail, /not observed: build\/, node_modules\//);
+});

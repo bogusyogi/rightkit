@@ -65,6 +65,7 @@
 // SIGINT/SIGTERM stop scheduling, kill every running scan's process tree and exit non-zero listing the scans not run.
 import fs from "node:fs";
 import { createHash } from "node:crypto";
+import { resolveManagedRoots } from "../managed-roots.mjs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -321,12 +322,15 @@ export function isCrlfCheckoutOf({ git, id, live, readFile = fs.readFileSync }) 
  * (`rightkit-gate env-digest`), so a dependency or tool change while a compile waits invalidates the ticket.
  */
 export function classAEnvironmentDigest({ root, files, spawn = defaultSpawn }) {
-  const fileDigest = (f) => { try { return createHash("sha256").update(fs.readFileSync(f)).digest("hex"); } catch { return "absent"; } };
+  // Only a file that does not exist is "absent"; any other read failure throws: an input whose bytes cannot be read is never
+  // identified by a placeholder that would match the same failure later.
+  // `optional`: only an install-state file may legitimately not exist; a gate file found by the walk must be readable.
+  const fileDigest = (f, { optional = false } = {}) => { try { return createHash("sha256").update(fs.readFileSync(f)).digest("hex"); } catch (error) { if (optional && (error?.code === "ENOENT" || error?.code === "ENOTDIR")) return "absent"; throw new Error(`cannot read ${f} for the class A environment (${error?.code ?? error?.message})`); } };
   const gatePkg = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const walkGate = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.name === "node_modules" || e.name.startsWith(".") ? [] : e.isDirectory() ? walkGate(path.join(dir, e.name)) : [path.join(dir, e.name)]));
   const gateFiles = walkGate(gatePkg).sort().map((f) => `${path.relative(gatePkg, f)}:${fileDigest(f)}`);
-  const pnpmVersion = (() => { const r = spawn("pnpm", ["--version"], { cwd: root }); return failed(r) ? "unknown" : text(r).trim(); })();
-  const installState = files.filter((f) => /(^|\/)package\.json$/.test(f)).map((f) => path.join(path.dirname(path.join(root, f)), "node_modules", ".modules.yaml")).map((m) => `${path.relative(root, m)}:${fileDigest(m)}`);
+  const pnpmVersion = (() => { const r = spawn("pnpm", ["--version"], { cwd: root }); if (failed(r) || !text(r).trim()) throw new Error(`cannot identify pnpm for the class A environment (${why(r)})`); return text(r).trim(); })();
+  const installState = files.filter((f) => /(^|\/)package\.json$/.test(f)).map((f) => path.join(path.dirname(path.join(root, f)), "node_modules", ".modules.yaml")).map((m) => `${path.relative(root, m)}:${fileDigest(m, { optional: true })}`);
   return createHash("sha256").update([`node ${process.version}`, `pnpm ${pnpmVersion}`, `platform ${process.platform}-${process.arch}`, ...gateFiles, ...installState].join("\n")).digest("hex");
 }
 
@@ -1620,7 +1624,8 @@ export async function main(argv, io = {}) {
   if (sub === "env-digest") {
     const listed = git("ls-files", "-z", "--cached", "--others", "--exclude-standard");
     if (failed(listed)) { o.err(`rightkit-gate: env-digest cannot list the working tree: ${why(listed)}`); return 2; }
-    o.out(`env=${classAEnvironmentDigest({ root, files: text(listed).split("\0").filter(Boolean).map(posix), spawn: o.spawn })}`);
+    try { o.out(`env=${classAEnvironmentDigest({ root, files: text(listed).split("\0").filter(Boolean).map(posix), spawn: o.spawn })}`); }
+    catch (error) { o.err(`rightkit-gate: env-digest: ${error.message}`); return 2; }
     return 0;
   }
   if (args.includes("--plan") && option("--to") !== undefined) { o.err("rightkit-gate: --plan plans the class A scans and runs nothing; it takes no --to stage (Astra, second pass)"); return 2; }
@@ -1948,6 +1953,15 @@ export async function main(argv, io = {}) {
       quietLane: quietLeaseLane(o, { tag, reason: `rightkit-gate-quiet-tests@${text(git("rev-parse", "--short", "HEAD")).trim()}` }),
       // On a broker-managed host the quiet suites need the lease or they are refused (never run unleashed).
       requireQuietLease: executor.kind === "broker",
+      // Failing scans' complete output: never inside the repository, on the host's scratch root (RIGHTKIT_SCRATCH_ROOT, else the
+      // managed data root's runs/), in a folder unique to this run so evidence is never overwritten.
+      scanLogDir: (() => {
+        try {
+          const base = o.env.RIGHTKIT_SCRATCH_ROOT || path.join(resolveManagedRoots({ env: o.env }).dataRoot, "runs");
+          const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+          return path.join(base, "rightkit-gate-scan-logs", `${path.basename(root)}-${stamp}-${process.pid}`);
+        } catch { return null; }
+      })(),
       onResult: (row, p) => o.out(`${tag} [${p.done}/${p.total}] ${(row.cached ? "cached" : row.status).padEnd(7)} ${row.id} (${p.seconds}s)${row.status === "fail" ? ` :: ${String(row.detail ?? "").slice(0, 300)}` : ""}`),
     });
     if (ac.signal.aborted) {
@@ -1981,7 +1995,9 @@ export async function main(argv, io = {}) {
         const trackedList = git("ls-files", "-z", "--cached");
         if (failed(trackedList)) { o.err(`${tag} BLOCKED: cannot list tracked files to name the checked bytes`); return 1; }
         const tracked = new Set(text(trackedList).split("\0").filter(Boolean).map(posix));
-        o.out(`${tag} class A bytes tracked=${live.digestOf(live.files.filter((f) => tracked.has(f)))} all=${live.digest} env=${classAEnvironmentDigest({ root, files: live.files, spawn: o.spawn })}`);
+        let envDigest;
+        try { envDigest = classAEnvironmentDigest({ root, files: live.files, spawn: o.spawn }); } catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
+        o.out(`${tag} class A bytes tracked=${live.digestOf(live.files.filter((f) => tracked.has(f)))} all=${live.digest} env=${envDigest}`);
       }
       o.out(`${tag} class A full pass: ${scanResult.scans.length} deterministic check(s), the ones that execute repository code included, over ${changed.length} file(s) of ${base}`);
       return 0;

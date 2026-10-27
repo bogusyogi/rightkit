@@ -170,6 +170,8 @@ export function compareCells({ candidate: c, baseline: b, expected = [], version
   if (c && !isInfra(c)) {
     if (c.status === "crash") add("block", "candidate-crash", c.detail ?? "crash", "the candidate doctor crashed; a crash can never be listed as expected");
     if (c.treeChanged) add("block", "tree-write", (c.treeDelta ?? []).join(";"), `the candidate doctor changed the app tree: ${(c.treeDelta ?? []).slice(0, 5).join("; ")}`);
+    // The tree-write check sees tracked and untracked files, not ignored ones: the cell says which ignored paths went unobserved.
+    if ((c.treeIgnoredNotCovered ?? []).length) add("report", "tree-write-coverage", c.treeIgnoredNotCovered.join(","), `doctor writes inside these ignored paths are not observed: ${c.treeIgnoredNotCovered.slice(0, 5).join(", ")}`);
     if (c.gatesRun && !b?.gatesRun) for (const name of c.gateFailNames ?? []) add(rowSeverity("gate-row"), "gate-row", name, unevaluable ? `candidate gate row ${name} fails; the baseline was refused at its guard and evaluated nothing (rightkit#1218)` : `candidate gate row ${name} fails and the baseline cannot run --gates`);
 
     if (b && !isInfra(b)) {
@@ -246,13 +248,14 @@ export function compareAll({ matrix, candidateCells, baselineCells, expected, ve
       if (unresolved && !pair.candidate && !pair.baseline) r.findings.unshift({ severity: app.blocking ? "incomplete" : "report", kind: "unresolved-app-commit", match: app.repoDir, detail: unresolved });
       const verdict = r.findings.some((f) => f.severity === "block") ? "regression" : r.findings.some((f) => f.severity === "incomplete") ? "incomplete" : "ok";
       for (const e of r.excused) used.add(e);
-      const summary = (cell) => cell && ({ status: cell.status, refusedAs: cell.refusedAs ?? null, failNames: cell.failNames, gateFailNames: cell.gateFailNames, fatal: cell.fatal?.signature ?? null, treeChanged: cell.treeChanged, head: cell.head ?? null, headMatchesPin: cell.headMatchesPin ?? null, dirty: cell.dirty ?? null, gatesRun: cell.gatesRun ?? false, compilerCache: cell.compilerCache ?? null, normalizedSha256: cell.normalizedSha256 ?? null, noNodeModules: cell.noNodeModules ?? null, seconds: cell.seconds, attempts: cell.attempts ?? 1, detail: cell.detail ?? null, admissionCode: cell.admissionCode ?? null, unnormalizedBlobs: cell.unnormalizedBlobs ?? [] });
+      const summary = (cell) => cell && ({ status: cell.status, refusedAs: cell.refusedAs ?? null, failNames: cell.failNames, gateFailNames: cell.gateFailNames, fatal: cell.fatal?.signature ?? null, treeIgnoredNotCovered: cell.treeIgnoredNotCovered ?? [], treeChanged: cell.treeChanged, head: cell.head ?? null, headMatchesPin: cell.headMatchesPin ?? null, dirty: cell.dirty ?? null, gatesRun: cell.gatesRun ?? false, compilerCache: cell.compilerCache ?? null, normalizedSha256: cell.normalizedSha256 ?? null, noNodeModules: cell.noNodeModules ?? null, seconds: cell.seconds, attempts: cell.attempts ?? 1, detail: cell.detail ?? null, admissionCode: cell.admissionCode ?? null, unnormalizedBlobs: cell.unnormalizedBlobs ?? [] });
       cells.push({ id: app.id, platform, host, blocking: app.blocking, verdict, findings: r.findings, candidate: summary(pair.candidate), baseline: summary(pair.baseline) });
     }
   }
   const blockingCells = cells.filter((c) => c.blocking);
   const verdict = blockingCells.some((c) => c.verdict === "regression") ? "regression" : blockingCells.some((c) => c.verdict === "incomplete") ? "incomplete" : "green";
-  return { verdict, cells, representative, staleExpected: entries.filter((e) => !used.has(e)).map((e) => ({ app: e.app, platform: e.platform, check: e.check, match: e.match, issue: e.issue })) };
+  // A green verdict certifies no write to tracked or untracked files; ignored paths are outside it (per-cell treeIgnoredNotCovered).
+  return { verdict, treeWriteCoverage: "tracked and untracked files; ignored paths are not observed", cells, representative, staleExpected: entries.filter((e) => !used.has(e)).map((e) => ({ app: e.app, platform: e.platform, check: e.check, match: e.match, issue: e.issue })) };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

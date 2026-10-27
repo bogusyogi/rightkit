@@ -1075,6 +1075,16 @@ export function defaultSpawnAsync(command, args, options = {}) {
 /** The counts a test runner printed last: node:test's `ℹ tests N` / `ℹ pass` / `ℹ fail` / `ℹ skipped` / `ℹ todo` lines, or vitest's
  * `Tests  N passed | M skipped | K failed (T)` line. Null when neither is present. Several node:test summaries (a script that runs
  * the runner more than once) are summed. */
+/** null when a test summary is evidence of a pass; otherwise { code, detail }. Used for fresh and cached test rows alike. */
+export function testResultsProblem(results) {
+  if (!results) return { code: "NO_TEST_SUMMARY", detail: "no test counts recorded" };
+  if (!(results.tests > 0)) return { code: "NO_TESTS", detail: "the test scan executed no test" };
+  if (results.fail > 0) return { code: "SUMMARY_FAILED", detail: `the test runner exited 0 but its summary reports ${results.fail} failed test(s)` };
+  // A suite that ran tests but passed none of them (every test skipped or todo) proves nothing (D17, rightkit#1236).
+  if (!(results.pass > 0)) return { code: "ALL_SKIPPED", detail: `the test scan passed no test: ${results.skipped ?? 0} skipped, ${results.todo ?? 0} todo of ${results.tests}` };
+  return null;
+}
+
 export function parseTestSummary(text) {
   const lines = String(text ?? "").split(/\r?\n/);
   const node = { tests: 0, pass: 0, fail: 0, skipped: 0, todo: 0 }; let sawNode = false;
@@ -1615,7 +1625,8 @@ export async function runScans(plan, options = {}) {
             } catch { cacheKey = null; }
             const hit = cacheKey ? cache.read(cacheKey) : null;
             // A cached test pass counts only with the counts it recorded: without them its coverage is unknown, so it runs again.
-            const testEvidence = s.kind !== "test" || (hit?.row?.results && hit.row.results.tests > 0 && hit.row.results.fail === 0);
+            // ...and only if it passed at least one test: a cached all-skipped "pass" (written before D17) runs again (rightkit#1236).
+            const testEvidence = s.kind !== "test" || testResultsProblem(hit?.row?.results) === null;
             if (hit && hit.key === cacheKey && hit.row?.status === "pass" && hit.row.id === s.id && hit.row.command === s.command && testEvidence) {
               cacheHits.push(s.id);
               return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}`, ...(s.kind === "test" ? { results: hit.row.results } : {}) };
@@ -1660,13 +1671,19 @@ export async function runScans(plan, options = {}) {
           if ((timer.signal.aborted || r?.error?.code === "ETIMEDOUT") && (!r || r.error || r.status !== 0)) return { ...row, status: "fail", code: "TIMEOUT", detail: `${s.id} ran longer than ${Math.round(limitMs / 60000)} min and was killed with its process tree; a scan that does not finish fails` };
           if (!r || r.error) { status = "fail"; code = "SPAWN_ERROR"; detail = r?.error?.message ?? "no result"; }
           else if (r.status !== 0) { status = "fail"; code = "EXIT"; detail = tail(r) || `exit ${r.status}`; }
+          // A failing scan's complete output is kept (the row only carries a tail): <scanLogDir>/<id>.log, overwritten per run.
+          if (status === "fail" && options.scanLogDir && r) {
+            try { fs.mkdirSync(options.scanLogDir, { recursive: true }); const file = path.join(options.scanLogDir, `${s.id.replace(/[^A-Za-z0-9._-]+/g, "_")}.log`); fs.writeFileSync(file, `$ ${s.command ?? s.id}\nexit ${r.status}\n--- stdout\n${r.stdout ?? ""}\n--- stderr\n${r.stderr ?? ""}\n`); row.log = file; detail = `${detail} (full output: ${file})`; } catch { /* the tail in the row remains */ }
+          }
           if (s.kind === "test" && r && !r.error && r.status === 0) {
             // What the suite executed and skipped is evidence, not decoration: a later stage reuses this row only with these counts.
             const counts = parseTestSummary(`${r.stdout ?? ""}\n${r.stderr ?? ""}`);
             if (counts) row.results = counts;
             else if (status === "pass") { status = "fail"; code = "NO_TEST_SUMMARY"; detail = "the test scan passed but printed no recognisable summary (node:test or vitest); its coverage cannot be recorded"; }
             else row.results = null;
-            if (status === "pass" && row.results && !(row.results.tests > 0)) { status = "fail"; code = "NO_TESTS"; detail = "the test scan executed no test"; }
+            // One rule for fresh and cached rows (testResultsProblem): tests ran, none failed, at least one passed.
+            const problem = status === "pass" && row.results ? testResultsProblem(row.results) : null;
+            if (problem) { status = "fail"; code = problem.code; detail = problem.detail; }
           }
           if (status === "pass" && cacheKey && !signal?.aborted) cache.write(cacheKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass", ...(row.results ? { results: row.results } : {}) });
         }

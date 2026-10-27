@@ -16,6 +16,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -161,8 +162,8 @@ export function detectGates({ releaseDir, bin, node = process.execPath }) {
 
 const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", GCM_INTERACTIVE: "never" };
 export const GIT_TIMEOUT_MS = 120_000;
-function git(cwd, args, { allowFail = false, timeout = GIT_TIMEOUT_MS } = {}) {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8", env: GIT_ENV, maxBuffer: 64 * 1024 * 1024, windowsHide: true, timeout, killSignal: "SIGKILL" });
+function git(cwd, args, { allowFail = false, timeout = GIT_TIMEOUT_MS, env = GIT_ENV, input } = {}) {
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", env, input, maxBuffer: 64 * 1024 * 1024, windowsHide: true, timeout, killSignal: "SIGKILL" });
   if (r.status !== 0 && !allowFail) {
     const error = new Error(`git ${args.join(" ")}: ${r.error?.code === "ETIMEDOUT" ? `timed out after ${timeout} ms` : (r.stderr || r.error?.message || "").trim().slice(0, 400)}`);
     error.infra = true;
@@ -176,9 +177,50 @@ function git(cwd, args, { allowFail = false, timeout = GIT_TIMEOUT_MS } = {}) {
 export function prepareLive({ live, sha = null }) {
   if (!fs.existsSync(path.join(live, ".git"))) throw Object.assign(new Error(`${live} is not a git checkout on this host`), { infra: true });
   const head = git(live, ["rev-parse", "HEAD"]).stdout.trim();
-  const status = git(live, ["-c", "core.fsmonitor=false", "status", "--porcelain"]).stdout.split(/\r?\n/).filter(Boolean);
+  const status = contentStatus(live).map((e) => e.line);
   const { tolerated, dirt } = classifyStatus(live, status);
   return { live, head, pinned: sha ?? null, headMatchesPin: sha ? head === sha : null, dirty: dirt.length, unnormalizedBlobs: tolerated };
+}
+
+/** Where the throwaway index lives: workspace rule, run output only under scratch, never the internal disk. RIGHTKIT_SCRATCH_ROOT,
+ * else /Volumes/D/scratch (macOS) or D:\scratch (Windows); other hosts (Linux CI) have no such rule and use the OS temp dir. */
+export function scratchRoot(env = process.env, platform = process.platform) {
+  if (env.RIGHTKIT_SCRATCH_ROOT) return env.RIGHTKIT_SCRATCH_ROOT;
+  if (platform === "darwin") return "/Volumes/D/scratch";
+  if (platform === "win32") return "D:\\scratch";
+  return os.tmpdir();
+}
+
+/** `git status` by CONTENT, read-only. A plain `git status` trusts the index's cached stat (size, mtime, inode), so a file
+ * whose cleaned content differs from its index blob but whose stat looks unchanged (an `ident`/eol/filter attribute added
+ * after the commit, a same-size rewrite inside the mtime granularity) reads clean. Here the staged entries (`git ls-files
+ * --stage -z`: mode, blob id, stage, path) are loaded into a THROWAWAY index outside the checkout, with no stat data at all;
+ * git then has nothing to trust and must re-read and re-clean every tracked file (the same attribute-aware conversion `git
+ * add` applies) and compare it with the blob id. One ls-files, one update-index, one status: the cost is one read of the
+ * tracked tree, no per-file process. `git update-index --refresh` is not used: it rewrites the real index. `hash-object
+ * --stdin-paths` takes no per-path `--path`, so a per-file hash-object loop would be one process per file.
+ * Limits: skip-worktree and intent-to-add flags are not carried into the throwaway index.
+ * Returns [{ xy, path, from, line }] from `status --porcelain -z`. */
+export function contentStatus(repoRoot, { ignored = false, untrackedAll = false } = {}) {
+  const root = scratchRoot();
+  fs.mkdirSync(root, { recursive: true });
+  const scratch = fs.mkdtempSync(path.join(root, "rk-leg-idx-"));
+  try {
+    const env = { ...GIT_ENV, GIT_INDEX_FILE: path.join(scratch, "index") };
+    const staged = git(repoRoot, ["ls-files", "--stage", "-z"]).stdout;
+    if (staged) git(repoRoot, ["update-index", "-z", "--index-info"], { env, input: staged });
+    const args = ["-c", "core.fsmonitor=false", "status", "--porcelain", "-z", untrackedAll ? "--untracked-files=all" : "--untracked-files=normal"];
+    if (ignored) args.push("--ignored=matching");
+    const parts = git(repoRoot, args, { env }).stdout.split("\0");
+    const entries = [];
+    for (let i = 0; i < parts.length; i += 1) {
+      const raw = parts[i];
+      if (!raw) continue;
+      const xy = raw.slice(0, 2), p = raw.slice(3);
+      if (xy[0] === "R" || xy[0] === "C" || xy[1] === "R" || xy[1] === "C") { const from = parts[i + 1]; i += 1; entries.push({ xy, path: p, from, line: `${xy} ${from} -> ${p}` }); } else entries.push({ xy, path: p, from: null, line: `${xy} ${p}` });
+    }
+    return entries;
+  } finally { removeTree(scratch); }
 }
 
 /** Split a checkout's status lines. Tolerated: a modified tracked file whose committed blob is CRLF or mixed and whose
@@ -198,11 +240,42 @@ export function classifyStatus(repoRoot, lines) {
   return { tolerated: [...tolerated].sort(), dirt: lines.filter((l) => !(l.startsWith(" M ") && tolerated.has(l.slice(3)))) };
 }
 
-/** `git status --porcelain --ignored=matching` plus the raw content hash of each `extra` path (a missing one hashes as
- * "missing"), sorted, and its digest. Hashing with --no-filters makes a doctor write to a tolerated file visible. */
+/** Raw bytes of one path as sha256: a file by content plus its execute bit, a symlink by its target, anything else by kind. */
+/** sha256 of a file read in fixed 1 MiB chunks (bounded memory whatever the file's size). */
+function streamSha256(file) {
+  const hash = crypto.createHash("sha256"); const buf = Buffer.allocUnsafe(1 << 20);
+  const fd = fs.openSync(file, "r");
+  try { let n; while ((n = fs.readSync(fd, buf, 0, buf.length, null)) > 0) hash.update(buf.subarray(0, n)); } finally { fs.closeSync(fd); }
+  return hash.digest("hex");
+}
+
+function rawFingerprint(repoRoot, rel) {
+  const full = path.join(repoRoot, rel);
+  try { // ENOENT/ENOTDIR is "missing"; any other error fails closed (never reads as clean or missing)
+    const st = fs.lstatSync(full);
+    if (st.isSymbolicLink()) return `link ${sha256(fs.readlinkSync(full))}`;
+    if (st.isFile()) return `file ${streamSha256(full)}${st.mode & 0o111 ? " +x" : " -x"}`;
+    return st.isDirectory() ? "dir" : "other";
+  } catch (error) {
+    if (error?.code === "ENOENT" || error?.code === "ENOTDIR") return "missing";
+    throw Object.assign(new Error(`cannot fingerprint ${full}: ${error?.code ?? ""} ${error?.message ?? error}`), { infra: true });
+  }
+}
+
+/** The content-based status (see contentStatus; ignored output included, collapsed) plus the raw content hash of EVERY
+ * non-ignored path it lists (modified, added, untracked, renamed; untracked directories expanded to files) and of each
+ * `extra` path (a missing one hashes as "missing"), sorted, and its digest. `lines` is the status text and the `extra`
+ * rows; `contentLines` are the per-path content hashes. The digest covers both, so any byte change to an already-dirty
+ * file changes it though its status line does not. Hashing with --no-filters makes a doctor write to a tolerated file visible. */
 export function treeDigest(repoRoot, { extra = [] } = {}) {
-  const r = git(repoRoot, ["-c", "core.fsmonitor=false", "status", "--porcelain", "--ignored=matching"]);
-  const lines = r.stdout.split(/\r?\n/).filter(Boolean);
+  const entries = contentStatus(repoRoot, { ignored: true, untrackedAll: true });
+  const lines = entries.map((e) => e.line);
+  const contentLines = entries.filter((e) => e.xy !== "!!").map((e) => `content ${e.path} ${rawFingerprint(repoRoot, e.path)}`);
+  // The raw bytes of EVERY tracked file too: a change git's conversion hides (LF to CRLF under text normalization, a filter that
+  // cleans it back) leaves status empty but changes what a doctor reads, so it must change the digest.
+  const tracked = git(repoRoot, ["ls-files", "-z"]).stdout.split("\0").filter(Boolean);
+  const reported = new Set(entries.map((e) => e.path));
+  for (const file of tracked) if (!reported.has(file)) contentLines.push(`raw ${file} ${rawFingerprint(repoRoot, file)}`);
   for (const file of extra) {
     const h = git(repoRoot, ["hash-object", "--no-filters", file], { allowFail: true });
     let exec = "";
@@ -210,7 +283,11 @@ export function treeDigest(repoRoot, { extra = [] } = {}) {
     lines.push(`hash ${file} ${h.status === 0 ? h.stdout.trim() : "missing"}${exec}`);
   }
   lines.sort();
-  return { digest: sha256(lines.join("\n")), lines };
+  contentLines.sort();
+  // Ignored paths (build output, node_modules, an ignored directory collapsed to one line) are NOT fingerprinted: a doctor may
+  // write inside them unseen. They are named here so evidence built on this digest states that coverage is incomplete for them.
+  const ignoredNotCovered = entries.filter((e) => e.xy === "!!").map((e) => e.path).sort();
+  return { digest: sha256([...lines, ...contentLines].join("\n")), lines, contentLines, ignoredNotCovered };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -318,7 +395,8 @@ export async function runCell({ side, sidePrep, app, platform, exportDir, node, 
   const parsed = parseDoctor(run);
   // Only the orchestrator decides whether an admission code is infrastructure: it needs the baseline cell and the probe.
   const admissionCode = ["crash", "fail"].includes(parsed.status) ? admissionCodeOf(`${run.stdout}\n${run.stderr}`) : null;
-  const delta = [...before.lines.filter((l) => !after.lines.includes(l)).map((l) => `-${l}`), ...after.lines.filter((l) => !before.lines.includes(l)).map((l) => `+${l}`)];
+  const beforeAll = [...before.lines, ...before.contentLines], afterAll = [...after.lines, ...after.contentLines];
+  const delta = [...beforeAll.filter((l) => !afterAll.includes(l)).map((l) => `-${l}`), ...afterAll.filter((l) => !beforeAll.includes(l)).map((l) => `+${l}`)];
   const combined = normalize(`${run.stdout}\n${run.stderr}`);
   return {
     id: app.id, app: app.id, platform, side, repoDir: app.repoDir, host: process.platform,
@@ -326,6 +404,8 @@ export async function runCell({ side, sidePrep, app, platform, exportDir, node, 
     failNames: parsed.failNames, gateFailNames: parsed.gateFailNames, fatal: parsed.fatal, compilerCache: parsed.compilerCache,
     rows: parsed.rows.map((r) => ({ level: r.level, name: r.name, gate: r.gate })), gatesRun, noNodeModules, args: run.args.slice(1),
     treeChanged: before.digest !== after.digest, treeDelta: delta.slice(0, 50), treeBefore: before.digest, treeAfter: after.digest,
+    // Writes inside ignored paths are not detected; the cell says so instead of implying full coverage.
+    treeIgnoredNotCovered: [...new Set([...(before.ignoredNotCovered ?? []), ...(after.ignoredNotCovered ?? [])])].sort().slice(0, 50),
     normalizedSha256: sha256(combined), normalized: combined.slice(0, 20_000), admissionCode, unnormalizedBlobs: [...unnormalizedBlobs],
     head: checkout?.head ?? null, pinned: checkout?.pinned ?? null, headMatchesPin: checkout?.headMatchesPin ?? null, dirty: checkout?.dirty ?? null,
   };

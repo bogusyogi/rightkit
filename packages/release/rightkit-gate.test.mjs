@@ -2815,6 +2815,9 @@ test("cargoInputsDiffer compares the live bytes cargo reads (D13): raw-identical
   assert.deepEqual(cargoInputsDiffer({ root, snapshot: "HEAD", manifests }), manifests, "the raw comparison names it");
 });
 
+// pnpm is refused inside the test harness; tests that compute the class A environment answer its version probe themselves.
+const withPnpm = (cmd, a, o) => (cmd === "pnpm" && a[0] === "--version" ? { status: 0, stdout: "11.25.0\n", stderr: "" } : spawnSync(cmd, a, { ...o, encoding: "utf8" }));
+
 test("full class A (--full-a): the checks that execute repository code run too, only on the working tree, and the door's check requires it", async (t) => {
   const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-full-a-")));
   t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
@@ -2825,22 +2828,22 @@ test("full class A (--full-a): the checks that execute repository code run too, 
   const seen = [];
   const runScans = async (plan, opts) => { seen.push({ exclude: typeof opts.exclude, classes: opts.classes }); return { scans: [], notes: [], cacheHits: [] }; };
   const content = capture();
-  assert.equal(await main(["--class-a", "--worktree"], { ...content.io, cwd: repo, runScans }), 0, content.err.join("\n"));
+  assert.equal(await main(["--class-a", "--worktree"], { ...content.io, cwd: repo, runScans, spawn: withPnpm }), 0, content.err.join("\n"));
   const full = capture();
-  assert.equal(await main(["--class-a", "--full-a", "--worktree"], { ...full.io, cwd: repo, runScans }), 0, full.err.join("\n"));
+  assert.equal(await main(["--class-a", "--full-a", "--worktree"], { ...full.io, cwd: repo, runScans, spawn: withPnpm }), 0, full.err.join("\n"));
   assert.deepEqual(seen, [{ exclude: "function", classes: ["A"] }, { exclude: "undefined", classes: ["A"] }], "content-only excludes executing checks; full A excludes nothing and still compiles nothing (class A only)");
   assert.match(full.out.at(-1), /class A full pass/);
   assert.doesNotMatch(full.out.join("\n"), /class A partial/);
   const commit = capture();
-  assert.equal(await main(["--class-a", "--full-a", "--commit", "HEAD"], { ...commit.io, cwd: repo, runScans }), 0, "HEAD of a clean checkout is its working tree: checked in full");
+  assert.equal(await main(["--class-a", "--full-a", "--commit", "HEAD"], { ...commit.io, cwd: repo, runScans, spawn: withPnpm }), 0, "HEAD of a clean checkout is its working tree: checked in full");
   assert.equal(seen.at(-1).exclude, "undefined");
   fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT", x: 1 }));
   const dirty = capture();
-  assert.equal(await main(["--class-a", "--full-a", "--commit", "HEAD"], { ...dirty.io, cwd: repo, runScans }), 2, "a dirty tree is not the commit");
+  assert.equal(await main(["--class-a", "--full-a", "--commit", "HEAD"], { ...dirty.io, cwd: repo, runScans, spawn: withPnpm }), 2, "a dirty tree is not the commit");
   assert.match(dirty.err.join("\n"), /needs a clean checkout/);
   git("commit", "-q", "-am", "two");
   const older = capture();
-  assert.equal(await main(["--class-a", "--full-a", "--commit", "HEAD~1"], { ...older.io, cwd: repo, runScans }), 2, "a commit other than HEAD has no live tree here");
+  assert.equal(await main(["--class-a", "--full-a", "--commit", "HEAD~1"], { ...older.io, cwd: repo, runScans, spawn: withPnpm }), 2, "a commit other than HEAD has no live tree here");
   // The door asks check for full class A before right-release runs.
   const argv = [];
   const door = capture();
@@ -2863,10 +2866,10 @@ test("full class A binds its verdict to the live bytes: an edit during the run b
   const steady = async () => ({ scans: [], notes: [], cacheHits: [] });
   for (const extra of [[], ["--no-cache"]]) {
     const edited = capture();
-    assert.equal(await main(["--class-a", "--full-a", "--worktree", ...extra], { ...edited.io, cwd: repo, runScans: editing }), 1, `edit during the run ${extra.join(" ")}`);
+    assert.equal(await main(["--class-a", "--full-a", "--worktree", ...extra], { ...edited.io, cwd: repo, runScans: editing, spawn: withPnpm }), 1, `edit during the run ${extra.join(" ")}`);
     assert.match(edited.err.join("\n"), /working tree changed while class A ran/);
     const clean = capture();
-    assert.equal(await main(["--class-a", "--full-a", "--worktree", ...extra], { ...clean.io, cwd: repo, runScans: steady }), 0, clean.err.join("\n"));
+    assert.equal(await main(["--class-a", "--full-a", "--worktree", ...extra], { ...clean.io, cwd: repo, runScans: steady, spawn: withPnpm }), 0, clean.err.join("\n"));
     // The checked bytes are named for the broker: tracked-only and all, each the documented digest over raw blob ids.
     const bytesLine = clean.out.find((l) => /class A bytes tracked=/.test(l));
     const [, trackedDigest] = /tracked=([0-9a-f]{64}) all=[0-9a-f]{64}/.exec(bytesLine ?? "") ?? [];
@@ -2884,16 +2887,29 @@ test("env-digest prints the environment identity of a full class A verdict, the 
   fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT" }));
   git("add", "-A"); git("commit", "-q", "-m", "one");
   const env = capture();
-  assert.equal(await main(["env-digest"], { ...env.io, cwd: repo }), 0, env.err.join("\n"));
+  assert.equal(await main(["env-digest"], { ...env.io, cwd: repo, spawn: withPnpm }), 0, env.err.join("\n"));
   const [, digest] = /^env=([0-9a-f]{64})$/.exec(env.out.at(-1) ?? "") ?? [];
   assert.ok(digest);
   const pass = capture();
-  assert.equal(await main(["--class-a", "--full-a", "--worktree"], { ...pass.io, cwd: repo, runScans: async () => ({ scans: [], notes: [], cacheHits: [] }) }), 0, pass.err.join("\n"));
+  assert.equal(await main(["--class-a", "--full-a", "--worktree"], { ...pass.io, cwd: repo, spawn: withPnpm, runScans: async () => ({ scans: [], notes: [], cacheHits: [] }) }), 0, pass.err.join("\n"));
   assert.ok(pass.out.some((l) => l.endsWith(` env=${digest}`)), "the pass line names the same environment");
   // An installed-dependency change moves it.
   fs.mkdirSync(path.join(repo, "node_modules"), { recursive: true });
   fs.writeFileSync(path.join(repo, "node_modules", ".modules.yaml"), "layoutVersion: 5\n");
   const after = capture();
-  assert.equal(await main(["env-digest"], { ...after.io, cwd: repo }), 0);
+  assert.equal(await main(["env-digest"], { ...after.io, cwd: repo, spawn: withPnpm }), 0);
   assert.notEqual(after.out.at(-1), `env=${digest}`);
+});
+
+test("env-digest fails closed: a pnpm that cannot be identified is an error, never a placeholder that matches later", async (t) => {
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-env-closed-")));
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT" }));
+  git("add", "-A"); git("commit", "-q", "-m", "one");
+  const spawn = (cmd, a, o) => (cmd === "pnpm" ? { status: 1, stdout: "", stderr: "pnpm: not found" } : spawnSync(cmd, a, { ...o, encoding: "utf8" }));
+  const env = capture();
+  assert.equal(await main(["env-digest"], { ...env.io, cwd: repo, spawn }), 2);
+  assert.match(env.err.join("\n"), /cannot identify pnpm/);
 });

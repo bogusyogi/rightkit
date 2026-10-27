@@ -2204,6 +2204,24 @@ test("a test scan that passes without a runner summary, or executes no test, fai
   assert.equal(silent.scans.find((r) => r.id === "test:npm:p").code, "NO_TEST_SUMMARY");
   const empty = await runScans(plan, deps({ ...fs, spawn: quiet("ℹ tests 0\nℹ pass 0\nℹ fail 0\nℹ skipped 0\n") }));
   assert.equal(empty.scans.find((r) => r.id === "test:npm:p").code, "NO_TESTS");
+  // Every test skipped (D17): ran tests, passed none: a failure, never a pass.
+  const skipped = await runScans(plan, deps({ ...fs, spawn: quiet("ℹ tests 2\nℹ pass 0\nℹ fail 0\nℹ skipped 2\n") }));
+  const row = skipped.scans.find((r) => r.id === "test:npm:p");
+  assert.equal(row.code, "ALL_SKIPPED");
+  assert.match(row.detail, /2 skipped/);
+  // A pre-existing cached all-skipped "pass" is not evidence: the scan runs again and fails.
+  const seeded = memCache(() => "d");
+  const seededFirst = await runScans(plan, deps({ ...fs, cache: seeded }));
+  for (const [key, entry] of seeded.store) if (entry?.row?.id === "test:npm:p") seeded.store.set(key, { ...entry, row: { ...entry.row, results: { runner: "node:test", tests: 2, pass: 0, fail: 0, skipped: 2, todo: 0 } } });
+  assert.equal(seededFirst.ok, true);
+  const again = await runScans(plan, deps({ ...fs, cache: seeded, spawn: quiet("ℹ tests 2\nℹ pass 0\nℹ fail 0\nℹ skipped 2\n") }));
+  const rerun = again.scans.find((r) => r.id === "test:npm:p");
+  assert.notEqual(rerun.cached, true, "the cached all-skipped row was not reused");
+  assert.equal(rerun.code, "ALL_SKIPPED");
+  // A wrapper that exits 0 while its summary reports a failed test fails too, fresh or cached alike.
+  const lying = await runScans(plan, deps({ ...fs, spawn: quiet("ℹ tests 3\nℹ pass 2\nℹ fail 1\nℹ skipped 0\n") }));
+  assert.equal(lying.scans.find((r) => r.id === "test:npm:p").code, "SUMMARY_FAILED");
+
   const cache = memCache(() => "d");
   cache.store.set("stale", null);
   const first = await runScans(plan, deps({ ...fs, cache }));
@@ -2299,4 +2317,19 @@ test("generated-docs: deferred when only the submitted copy exists, run from the
   assert.match(scanOf(deferred, "generated-docs")?.deferred ?? "", /trusted-root run/);
   const live = planScans({ changed: ["Cargo.toml"], contentRoot: LIVE, liveRoot: LIVE, ...fs, platform: "win32", liveExecution: true });
   assert.equal(scanOf(live, "generated-docs")?.deferred, undefined);
+});
+
+test("a failing scan keeps its complete output in scanLogDir and its row names the file", async () => {
+  const extra = { "packages/p/package.json": '{"name":"p","license":"MIT","scripts":{"test":"node --test"}}' };
+  const { fs: ffs, plan } = planFor(["packages/p/package.json"], extra, { rustUnits: [], npmUnits: [{ name: "p", dir: "packages/p" }] });
+  const long = "x".repeat(5000) + "\nTHE REAL ASSERTION: expected 1\n";
+  const spawn = (command, args) => (args.includes("test") ? { status: 1, stdout: long, stderr: "" } : fakeSpawn()(command, args));
+  const dir = fsModule.mkdtempSync(path.join(os.tmpdir(), "rk-scan-logs-"));
+  try {
+    const result = await runScans(plan, { ...deps({ ...ffs, spawn }), scanLogDir: dir });
+    const row = result.scans.find((r) => r.id === "test:npm:p");
+    assert.equal(row.status, "fail");
+    assert.ok(row.log && fsModule.readFileSync(row.log, "utf8").includes("THE REAL ASSERTION: expected 1"), "the full output is on disk");
+    assert.match(row.detail, /full output: /);
+  } finally { fsModule.rmSync(dir, { recursive: true, force: true }); }
 });

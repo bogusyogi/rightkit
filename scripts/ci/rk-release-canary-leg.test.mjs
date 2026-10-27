@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import zlib from "node:zlib";
-import { GATES_REQUIRED_FROM, admissionCodeOf, detectGates, extractTarball, gatesRequired, normalize, parseDoctor, pool, prepareLive, prepareSide, readTarball, runDoctor, runLeg, treeDigest } from "./rk-release-canary-leg.mjs";
+import { GATES_REQUIRED_FROM, contentStatus, scratchRoot, admissionCodeOf, detectGates, extractTarball, gatesRequired, normalize, parseDoctor, pool, prepareLive, prepareSide, readTarball, runDoctor, runLeg, treeDigest } from "./rk-release-canary-leg.mjs";
 
 const tmp = (t, prefix = "rk-leg-") => { const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
 const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
@@ -171,9 +171,96 @@ test("prepareLive: a CRLF blob under a text attribute is tolerated and listed; o
   const dirt = liveRepo(t, { "id.txt": "x $Id: old $\n" });
   fs.writeFileSync(path.join(dirt.repo, ".gitattributes"), "id.txt ident\n");
   git(dirt.repo, "add", ".gitattributes"); git(dirt.repo, "commit", "-qm", "attributes");
+  // Deterministic: move id.txt's mtime past the index's stat entry so git re-reads its content (the ident attribute was added after
+  // the file was committed, so its content IS dirty). Without this, whether git trusts its cached stat and reports it clean depends
+  // on timing (racy-git): under load the row was 0 (fullA-10, 2026-10-28).
+  const later = Date.now() / 1000 + 5; fs.utimesSync(path.join(dirt.repo, "id.txt"), later, later);
   const counted = prepareLive({ live: dirt.repo, sha: git(dirt.repo, "rev-parse", "HEAD") });
   assert.equal(counted.dirty, 1);
   assert.deepEqual(counted.unnormalizedBlobs, []);
+});
+
+test("prepareLive: a file whose cleaned content differs from its index blob is dirt even when its stat says unchanged (stale-stat; ident added after the commit)", (t) => {
+  const dirt = liveRepo(t, { "id.txt": "x $Id: old $\n" });
+  // mtime OLDER than the index entry, and not racy: cache the old stat first, then rewrite the index (the .gitattributes add),
+  // so plain `git status --porcelain` trusts id.txt's cached stat and reads it clean although its cleaned content is not its blob.
+  const old = Date.now() / 1000 - 3600; fs.utimesSync(path.join(dirt.repo, "id.txt"), old, old);
+  git(dirt.repo, "update-index", "--refresh");
+  fs.writeFileSync(path.join(dirt.repo, ".gitattributes"), "id.txt ident\n");
+  git(dirt.repo, "add", ".gitattributes"); git(dirt.repo, "commit", "-qm", "attributes");
+  assert.equal(git(dirt.repo, "status", "--porcelain"), "", "precondition: plain git status trusts the cached stat and reads the tree clean");
+  const indexBefore = sha256(fs.readFileSync(path.join(dirt.repo, ".git", "index")));
+  assert.equal(prepareLive({ live: dirt.repo, sha: dirt.sha }).dirty, 1);
+  assert.equal(sha256(fs.readFileSync(path.join(dirt.repo, ".git", "index"))), indexBefore, "the real index is not rewritten");
+  const clean = liveRepo(t, { "id.txt": "x\n" });
+  fs.utimesSync(path.join(clean.repo, "id.txt"), old, old);
+  assert.equal(prepareLive({ live: clean.repo, sha: clean.sha }).dirty, 0, "an unchanged file stays clean");
+});
+
+test("treeDigest: any byte change to an already-modified (or untracked) file changes the digest though its status line does not", (t) => {
+  const { repo } = liveRepo(t, { "a.txt": "a\n" });
+  fs.writeFileSync(path.join(repo, "a.txt"), "first edit\n");
+  fs.writeFileSync(path.join(repo, "new.txt"), "untracked 1\n");
+  const one = treeDigest(repo);
+  assert.deepEqual(one.lines, [" M a.txt", "?? new.txt"]);
+  fs.writeFileSync(path.join(repo, "a.txt"), "second edit\n");
+  const two = treeDigest(repo);
+  assert.deepEqual(two.lines, one.lines, "same status text");
+  assert.notEqual(two.digest, one.digest, "tracked, already dirty: content changed");
+  fs.writeFileSync(path.join(repo, "new.txt"), "untracked 2\n");
+  assert.notEqual(treeDigest(repo).digest, two.digest, "untracked: content changed");
+  assert.equal(treeDigest(repo).digest, treeDigest(repo).digest, "stable when nothing changes");
+});
+
+test("contentStatus: symlinks are compared by link text (never followed), staged and unmerged entries survive, ignored output stays out of dirt, the real index is untouched", { skip: process.platform === "win32" && "symlinks need privileges on Windows" }, (t) => {
+  const { repo, sha } = liveRepo(t, { ".gitignore": "out/\n", "target.txt": "t\n", "a.txt": "a\n" });
+  fs.symlinkSync("target.txt", path.join(repo, "ln")); git(repo, "add", "ln"); git(repo, "commit", "-qm", "link");
+  const indexOf = () => sha256(fs.readFileSync(path.join(repo, ".git", "index")));
+  const head = git(repo, "rev-parse", "HEAD");
+  assert.equal(prepareLive({ live: repo, sha: head }).dirty, 0, "a clean symlink is clean");
+  fs.writeFileSync(path.join(repo, "target.txt"), "changed target\n");
+  assert.deepEqual(contentStatus(repo).map((e) => e.line), [" M target.txt"], "the link is not followed: only the target file is dirty");
+  fs.rmSync(path.join(repo, "ln")); fs.symlinkSync("a.txt", path.join(repo, "ln"));
+  assert.deepEqual(contentStatus(repo).map((e) => e.line), [" M ln", " M target.txt"], "a retargeted link is dirty by its text");
+  git(repo, "checkout", "-q", "--", "ln", "target.txt");
+  fs.mkdirSync(path.join(repo, "out")); fs.writeFileSync(path.join(repo, "out", "x"), "1");
+  assert.equal(prepareLive({ live: repo, sha: head }).dirty, 0, "ignored output is not dirt");
+  assert.deepEqual(contentStatus(repo, { ignored: true }).map((e) => e.line), ["!! out/"]);
+  fs.writeFileSync(path.join(repo, "a.txt"), "staged\n"); git(repo, "add", "a.txt");
+  fs.writeFileSync(path.join(repo, "a.txt"), "staged then edited\n");
+  assert.deepEqual(contentStatus(repo).map((e) => e.line), ["MM a.txt"], "staged and unstaged changes are both visible");
+  git(repo, "checkout", "-q", "--", "a.txt"); git(repo, "reset", "-q", "--hard");
+  const base = git(repo, "rev-parse", "--abbrev-ref", "HEAD");
+  git(repo, "checkout", "-qb", "side"); fs.writeFileSync(path.join(repo, "a.txt"), "side\n"); git(repo, "commit", "-qam", "side");
+  git(repo, "checkout", "-q", base); fs.writeFileSync(path.join(repo, "a.txt"), "main\n"); git(repo, "commit", "-qam", "main");
+  spawnSync("git", ["merge", "side"], { cwd: repo, encoding: "utf8" });
+  const before = indexOf();
+  assert.deepEqual(contentStatus(repo).map((e) => e.line), ["UU a.txt"], "an unmerged path is reported");
+  assert.equal(prepareLive({ live: repo }).dirty, 1);
+  assert.equal(indexOf(), before, "the real index is not rewritten");
+  void sha;
+});
+
+test("contentStatus: a renamed staged file is one entry, and the throwaway index lives under the scratch root, removed afterwards", (t) => {
+  const { repo } = liveRepo(t, { "a.txt": "aaaaaaaaaaaaaaaaaaaa\nbbbbbbbbbbbbbbbbbbbbbb\n" });
+  const root = tmp(t, "rk-scratch-");
+  const saved = process.env.RIGHTKIT_SCRATCH_ROOT; process.env.RIGHTKIT_SCRATCH_ROOT = path.join(root, "nested");
+  t.after(() => { if (saved === undefined) delete process.env.RIGHTKIT_SCRATCH_ROOT; else process.env.RIGHTKIT_SCRATCH_ROOT = saved; });
+  git(repo, "mv", "a.txt", "b.txt");
+  assert.deepEqual(contentStatus(repo).map((e) => e.line), ["R  a.txt -> b.txt"]);
+  assert.deepEqual(fs.readdirSync(path.join(root, "nested")), [], "no leftover index");
+  assert.equal(scratchRoot({ RIGHTKIT_SCRATCH_ROOT: "/x" }, "linux"), "/x");
+  assert.equal(scratchRoot({}, "darwin"), "/Volumes/D/scratch");
+  assert.equal(scratchRoot({}, "win32"), "D:\\scratch");
+});
+
+test("treeDigest fails closed on a path it cannot read (not 'missing', not clean)", { skip: (process.platform === "win32" || process.getuid?.() === 0) && "needs POSIX permissions as non-root" }, (t) => {
+  const { repo } = liveRepo(t, { "a.txt": "a\n" });
+  const f = path.join(repo, "secret.txt"); fs.writeFileSync(f, "x\n"); fs.chmodSync(f, 0o000);
+  t.after(() => { try { fs.chmodSync(f, 0o644); } catch { /* removed */ } });
+  assert.throws(() => treeDigest(repo), (e) => e.infra === true && /secret\.txt/.test(e.message) && /EACCES/.test(e.message));
+  fs.chmodSync(f, 0o644); fs.rmSync(f, { force: true });
+  assert.doesNotThrow(() => treeDigest(repo));
 });
 
 test("admissionCodeOf finds the three broker admission codes and nothing else", () => {
@@ -267,7 +354,8 @@ test("runLeg: both sides run in place on the live checkout; candidate-only --gat
   const writer = cellOf(receipt, "writer", "baseline");
   assert.equal(writer.status, "pass");
   assert.equal(writer.treeChanged, true);
-  assert.deepEqual(writer.treeDelta, ["+?? sub/stray.txt"]);
+  assert.deepEqual(writer.treeDelta.filter((l) => !l.startsWith("+content ")), ["+?? sub/stray.txt"]);
+  assert.ok(writer.treeDelta.some((l) => /^\+content sub\/stray\.txt file /.test(l)), "the new file's bytes are in the delta");
   assert.equal(writer.dirty, 0, "read before the doctor ran");
   assert.equal(cellOf(receipt, "writer", "candidate").dirty, 1, "the earlier cell's write is now the checkout's dirt");
   assert.equal(cellOf(receipt, "writer", "candidate").treeChanged, false);
@@ -448,4 +536,22 @@ test("removeTree removes a tree holding read-only files (git objects on Windows 
   removeTree(root);
   assert.equal(fs.existsSync(root), false);
   removeTree(root); // absent: no throw
+});
+
+test("treeDigest: every tracked file's raw bytes are hashed (defence in depth for changes git's conversion could hide); ignored paths are named as not covered", (t) => {
+  const r = liveRepo(t, { "notes.txt": "a\nb\n", "keep.txt": "k\n" });
+  fs.writeFileSync(path.join(r.repo, ".gitattributes"), "* text=auto\n");
+  fs.writeFileSync(path.join(r.repo, ".gitignore"), "build/\n");
+  git(r.repo, "add", "-A"); git(r.repo, "commit", "-qm", "attributes");
+  fs.mkdirSync(path.join(r.repo, "build")); fs.writeFileSync(path.join(r.repo, "build", "out.bin"), "1");
+  const before = treeDigest(r.repo);
+  assert.ok(before.contentLines.some((l) => l.startsWith("raw keep.txt file ")), "a clean tracked file is hashed by its raw bytes");
+  fs.writeFileSync(path.join(r.repo, "notes.txt"), "a\r\nb\r\n");
+  const after = treeDigest(r.repo);
+  assert.notEqual(after.digest, before.digest, "a CRLF rewrite changes the digest whatever git's status says");
+  // A write inside an existing ignored directory is not detected, and the digest names that directory as not covered.
+  fs.writeFileSync(path.join(r.repo, "build", "out.bin"), "2");
+  const ignoredWrite = treeDigest(r.repo);
+  assert.equal(ignoredWrite.digest, after.digest, "ignored output is outside the digest");
+  assert.deepEqual(ignoredWrite.ignoredNotCovered, ["build/"], "and the result says so");
 });
