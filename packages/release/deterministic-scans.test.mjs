@@ -1724,6 +1724,47 @@ test("advisory exceptions: an app workspace whose deny.toml ignores an advisory 
   assert.match(row.detail, /\.rightkit\/advisory-exceptions\.json/);
 });
 
+test("advisory-exceptions: `ignore = []` followed by a later table is an empty list, so no ledger is required; a listed id still requires it (Pulse, 2026-10-27)", () => {
+  const crate = { "crates/foo/Cargo.toml": '[package]\nname = "foo"\nversion = "1.0.0"\nlicense = "MIT"\n', "crates/foo/src/lib.rs": "", "Cargo.toml": '[workspace]\nmembers = ["crates/foo"]\n' };
+  const planned = (deny) => {
+    const files = { ...crate, "deny.toml": deny };
+    const fs = fakeFs(files, files);
+    const plan = planScans({ changed: Object.keys(files), contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "linux", includeTests: false });
+    return plan.scans.some((s) => s.id.startsWith("advisory-exceptions"));
+  };
+  assert.equal(planned('[advisories]\nignore = []\n\n[licenses]\nallow = ["MIT"]\n'), false, "an empty list followed by [licenses] is empty");
+  assert.equal(planned('[advisories]\nignore = [\n]\n[licenses]\nallow = ["MIT"]\n'), false, "an empty multi-line list is empty");
+  assert.equal(planned('[advisories]\nignore = ["RUSTSEC-2024-0001"]\n[licenses]\nallow = ["MIT"]\n'), true, "a listed advisory needs the ledger");
+  assert.equal(planned('[advisories]\nignore = [\n  "RUSTSEC-2024-0001",\n]\n'), true, "a multi-line list with an entry needs the ledger");
+});
+
+test("secret-scan: in a live tree (the content root is a git toplevel) git-ignored paths are skipped; in an export nothing is", async () => {
+  const files = { "packages/app/package.json": '{"name":"app","private":true}', "package.json": '{"name":"root","private":true}' };
+  const fs = fakeFs(files, files);
+  const plan = planScans({ changed: Object.keys(files), contentRoot: CONTENT, liveRoot: CONTENT, ...fs, platform: "linux", includeTests: false });
+  const seen = [];
+  const scanSecrets = async () => (dir, opts) => { seen.push(opts.skip ?? null); return []; };
+  const gitLive = (base) => (command, args, options) => {
+    if (command !== "git") return base(command, args, options);
+    if (args[0] === "rev-parse") return { status: 0, stdout: `${CONTENT}\n`, stderr: "" };
+    if (args[0] === "ls-files") return { status: 0, stdout: ".right-release/\0dist/out.js\0", stderr: "" };
+    return { status: 1, stdout: "", stderr: "" };
+  };
+  await runScans(plan, { ...deps({ ...fs, spawn: gitLive(fakeSpawn()) }), classes: ["A"], scanSecrets });
+  const skip = seen.find(Boolean);
+  assert.ok(skip, "a live tree hands the scanner a skip predicate");
+  assert.equal(skip(path.join(CONTENT, ".right-release", "ios", "DerivedData", "x.mjs")), true, "a file under an ignored directory");
+  assert.equal(skip(path.join(CONTENT, ".right-release")), true, "the ignored directory itself");
+  assert.equal(skip(path.join(CONTENT, "dist", "out.js")), true, "an ignored file");
+  assert.equal(skip(path.join(CONTENT, "src", "a.mjs")), false, "a tracked path");
+  assert.equal(skip(path.join(CONTENT, "dist", "other.js")), false, "an unlisted file in a partly ignored directory");
+  // An export is not a git toplevel: git answers another directory (or fails), so nothing is skipped.
+  seen.length = 0;
+  const gitExport = (base) => (command, args, options) => command === "git" ? { status: 0, stdout: "/somewhere/else\n", stderr: "" } : base(command, args, options);
+  await runScans(plan, { ...deps({ ...fs, spawn: gitExport(fakeSpawn()) }), classes: ["A"], scanSecrets });
+  assert.ok(seen.length > 0 && seen.every((s) => s === null), "an export scans every file");
+});
+
 // ---- B4: pnpm 11's dependency check before `pnpm run` and `pnpm exec` must not abort a gate scan -----------------------------------------------------------
 // CodeRight, 2026-10-25: tsc:, biome: and test:npm: failed in two seconds with a stack through runDepsStatusCheck. pnpm 11 verifies, before every
 // `pnpm run` and `pnpm exec`, that node_modules matches pnpm-lock.yaml and answers a stale tree by running `pnpm install`, which wants to purge the

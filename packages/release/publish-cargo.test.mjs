@@ -164,6 +164,20 @@ test("secret scan: a crate package stays strict; it refuses every template by na
     "templates are refused by name and the recorded fixture is still flagged: the records file admits nothing outside the repository gate");
 });
 
+test("secret scan: a skip predicate excludes a directory and a file from the walk, in both the crate and the repository modes", (t) => {
+  const root = tree(t, {
+    "src/lib.rs": "pub fn a() {}\n",
+    "ignored/vendor/vec.rs": `// fake ${SHAPES.ghp()}\n`,
+    "dist/out.js": `// fake ${SHAPES.ghp()}\n`,
+    "src/vector.rs": `// fake ${SHAPES.ghp()}\n`,
+  });
+  const skip = (absolute) => { const rel = path.relative(root, absolute).replaceAll("\\", "/"); return rel === "ignored" || rel.startsWith("ignored/") || rel === "dist/out.js"; };
+  assert.deepEqual(scanCrateForSecrets(root), ["dist/out.js", "ignored/vendor/vec.rs", "src/vector.rs"], "without a skip every file is read");
+  assert.deepEqual(scanCrateForSecrets(root, { skip }), ["src/vector.rs"], "crate mode honours the skip");
+  const repo = scanCrateForSecrets(root, { envTemplates: true, repoRoot: root, skip });
+  assert.ok(repo.some((v) => v.startsWith("src/vector.rs")) && !repo.some((v) => v.includes("ignored/") || v.includes("dist/out.js")), repo.join("; "));
+});
+
 test("secret scan: a record reads CRLF as LF, so the same record holds on an LF host and on a Windows CRLF export", (t) => {
   const lf = "API_URL=http://localhost:3000\nAPI_TOKEN=\n";
   const vector = `// fake ${SHAPES.ghp()}\nfn f() {}\n`;

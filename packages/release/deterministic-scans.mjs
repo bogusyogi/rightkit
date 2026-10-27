@@ -716,7 +716,9 @@ export function planScans({
   for (const ws of workspaces) {
     if (typeof ws !== "string") continue;
     const dir = ws === "." ? "" : ws;
-    const ignores = ["deny.toml", ".cargo/audit.toml"].some((f) => { try { return /\bignore\s*=\s*\[[^\]]*\S[^\]]*\]/s.test(readFile(path.join(contentRoot, dir, f))); } catch { return false; } });
+    // A non-empty list only: `[^\]\s]` is one character that is neither whitespace nor the closing bracket, so `ignore = []` followed by
+    // a later `]` (the next table header) is not an ignore (Pulse, 2026-10-27: `\S` matched the `]` itself).
+    const ignores = ["deny.toml", ".cargo/audit.toml"].some((f) => { try { return /\bignore\s*=\s*\[[^\]]*[^\]\s][^\]]*\]/s.test(readFile(path.join(contentRoot, dir, f))); } catch { return false; } });
     if (ignores && !(dir === "" && exists(path.join(contentRoot, "ci/advisory-exceptions.json")))) add({ id: `advisory-exceptions${dir ? `:${dir}` : ""}`, class: A, internal: "advisory-exceptions", dir, exceptionsFile: ".rightkit/advisory-exceptions.json" });
   }
   // Like generated-docs, planned only when a changed file is one of the contract's inputs or projections. The generator runs from
@@ -1064,6 +1066,30 @@ async function defaultScanSecrets() {
   return (await import("./publish-cargo.mjs")).scanCrateForSecrets;
 }
 
+/**
+ * For a content root that is a git worktree's toplevel: a predicate over absolute paths that is true for every git-ignored file or
+ * directory there (`git ls-files --others --ignored --exclude-standard --directory`, which lists an ignored directory once, with a
+ * trailing slash). Null when the root is not a git toplevel (a committed export) or git cannot answer: then nothing is skipped.
+ */
+export async function ignoredPathSkip(ctx) {
+  const git = async (args) => { try { return await ctx.deps.spawn("git", args, { cwd: ctx.contentRoot, encoding: "utf8", env: ctx.deps.env }); } catch { return null; } };
+  const top = await git(["rev-parse", "--show-toplevel"]);
+  if (!top || top.status !== 0) return null;
+  const same = (a, b) => { try { return fs.realpathSync(a) === fs.realpathSync(b); } catch { return path.resolve(a) === path.resolve(b); } };
+  if (!same(String(top.stdout ?? "").trim(), ctx.contentRoot)) return null;
+  const listed = await git(["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"]);
+  if (!listed || listed.status !== 0) return null;
+  const entries = String(listed.stdout ?? "").split("\0").filter(Boolean);
+  const dirs = entries.filter((e) => e.endsWith("/"));
+  const files = new Set(entries.filter((e) => !e.endsWith("/")));
+  const root = ctx.contentRoot;
+  return (absolute) => {
+    const rel = path.relative(root, absolute).replaceAll("\\", "/");
+    if (!rel || rel.startsWith("..")) return false;
+    return files.has(rel) || dirs.some((d) => rel === d.slice(0, -1) || rel.startsWith(d));
+  };
+}
+
 // What rustfmt needs from a Cargo.toml, read by table so an `edition` under [package.metadata.x] or [dependencies.x] is not the
 // package's: `pkg` is the [package] edition (a literal year, or "workspace" for `edition.workspace = true` / `edition = { workspace = true }`),
 // `ws` the [workspace.package] edition literal, `isWorkspace` whether the manifest declares a [workspace]. An `edition` entry in one of
@@ -1208,11 +1234,15 @@ const INTERNAL = {
   // Each violation names its repository-relative path, so a unit that is both a crate and a package reports a file once.
   "secret-scan": async (s, ctx) => {
     const scan = await ctx.deps.scanSecrets();
+    // A committed export holds only tracked files. A live tree (--to dev|test: the content root is the checkout itself) also holds
+    // git-ignored build output (.right-release/, DerivedData, a vendored checkout under it), which the gate never judges: the scanner
+    // skips what `git ls-files --ignored` names there. Outside a git toplevel nothing is skipped (Pulse, 2026-10-27).
+    const skip = await ignoredPathSkip(ctx);
     const bad = new Set();
     for (const dir of s.dirs) {
       const abs = path.join(ctx.contentRoot, dir);
       if (!ctx.deps.exists(abs)) { bad.add(`${dir}: directory not found`); continue; }
-      for (const v of scan(abs, { envTemplates: true, repoRoot: ctx.contentRoot })) bad.add(v);
+      for (const v of scan(abs, { envTemplates: true, repoRoot: ctx.contentRoot, skip })) bad.add(v);
     }
     return [...bad];
   },

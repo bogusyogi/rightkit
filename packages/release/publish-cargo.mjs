@@ -335,10 +335,10 @@ function fileViolations(relative, bytes, records) {
  * (the repository gate) the reviewed records of `<repoRoot>/.rightkit/secret-scan-records.json` apply and each violation is a
  * `<repo-relative path>[:<line>]: <reason>` line; `repoRoot` (default `crateDir`) is the root those paths and the records are relative to.
  */
-export function scanCrateForSecrets(crateDir, { envTemplates = false, repoRoot = crateDir } = {}) {
-  if (envTemplates) return scanRepositoryForSecrets(crateDir, repoRoot);
+export function scanCrateForSecrets(crateDir, { envTemplates = false, repoRoot = crateDir, skip = null } = {}) {
+  if (envTemplates) return scanRepositoryForSecrets(crateDir, repoRoot, skip);
   const violations = [];
-  for (const file of walkFiles(crateDir)) {
+  for (const file of walkFiles(crateDir, skip)) {
     const relative = path.relative(crateDir, file).replaceAll("\\", "/");
     if (FORBIDDEN_PACKAGE_PATH.test(relative)) {
       violations.push(relative);
@@ -350,10 +350,10 @@ export function scanCrateForSecrets(crateDir, { envTemplates = false, repoRoot =
   return [...new Set(violations)].sort();
 }
 
-function scanRepositoryForSecrets(dir, repoRoot) {
+function scanRepositoryForSecrets(dir, repoRoot, skip = null) {
   const { records = new Map(), problems = [] } = readSecretScanRecords(repoRoot);
   const violations = [...problems];
-  for (const file of walkFiles(dir)) {
+  for (const file of walkFiles(dir, skip)) {
     const inDir = path.relative(dir, file).replaceAll("\\", "/");
     const relative = path.relative(repoRoot, file).replaceAll("\\", "/");
     if (neverRecordable(inDir)) {
@@ -521,7 +521,8 @@ export async function runCargoPublish(options, execute = (_command, args, settin
   return publication ?? { name: options.crate, version: cargoVersion, dryRun: true };
 }
 
-function walkFiles(root) {
+// `skip(absolutePath)`: a caller's exclusion (the gate's git-ignored paths of a live tree); a skipped directory is not descended.
+function walkFiles(root, skip = null) {
   const files = [];
   const pending = [root];
   while (pending.length) {
@@ -529,6 +530,7 @@ function walkFiles(root) {
     for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
       if (entry.isDirectory() && [".git", "target", "node_modules"].includes(entry.name)) continue;
       const absolute = path.join(current, entry.name);
+      if (skip && skip(absolute)) continue;
       if (entry.isDirectory()) pending.push(absolute);
       else if (entry.isFile()) files.push(absolute);
     }
