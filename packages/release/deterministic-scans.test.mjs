@@ -5,6 +5,7 @@ import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import test from "node:test";
+import fsModule from "node:fs";
 import path from "node:path";
 import {
   CLASS_A_SCAN_PREFIXES, CLASS_B_SCAN_PREFIXES, canonicalJson, fileScanCache, inheritedEnvDigest, requiredScanIds, scanCacheKey, checkArgs, clippyArgs, digestScanSet, docArgs, fmtCheckArgs,
@@ -1789,9 +1790,14 @@ test("suite-api is planned only by the repository's in-tree gate; an installed c
   const plan = planScans({ changed: ["packages/release/suite-api.generated.mjs"], contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "linux", includeTests: false });
   assert.equal(plan.scans.some((s) => s.id === "suite-api"), false);
   assert.ok(plan.notes.some((n) => /suite-api: RightKit's own generator contract runs from the in-tree gate/.test(n)), plan.notes.join("\n"));
-  // The real repository root is this gate's in-tree home.
+  // The real repository root is this gate's in-tree home: a commit check (contentRoot = the exported snapshot, liveRoot = the
+  // checkout) still plans the scan, as the in-tree gate on HEAD and CI do (reviewer, 2026-10-27: the snapshot path alone skipped it).
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
   assert.equal(inTreeGate(repoRoot), true);
+  const realFs = fsModule;
+  const commitPlan = planScans({ changed: ["packages/release/suite-api.generated.mjs"], contentRoot: CONTENT, liveRoot: repoRoot, ...fs, exists: (p) => fs.exists(p) || realFs.existsSync(p), platform: "linux", includeTests: false });
+  assert.equal(commitPlan.scans.some((s) => s.id === "suite-api"), true, "the in-tree gate checking an exported commit plans suite-api");
+  assert.ok(!commitPlan.notes.some((n) => /suite-api:/.test(n)));
 });
 
 // ---- B4: pnpm 11's dependency check before `pnpm run` and `pnpm exec` must not abort a gate scan -----------------------------------------------------------

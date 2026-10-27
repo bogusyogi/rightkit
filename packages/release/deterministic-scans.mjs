@@ -743,7 +743,10 @@ export function planScans({
     // RightKit's own generator contract (scripts/gen-suite-api.mjs) is the checked repository's code: like scripts/preflight.mjs it
     // runs only when this gate is that repository's in-tree copy (and in CI), never from a pinned or installed copy checking the
     // repository (the broker's trusted gate refused RightKit's own compile on a module it could not find, 2026-10-27).
-    if (inTreeGate(contentRoot, exists)) add({ id: "suite-api", class: A, internal: "suite-api" });
+    // The trusted home is the live checkout (liveRoot: a commit check exports the commit to a snapshot and hands that as
+    // contentRoot; the generator is code and runs only from the checkout's own in-tree gate), or contentRoot when they are one.
+    const home = path.resolve(liveRoot) !== path.resolve(contentRoot) ? liveRoot : contentRoot;
+    if (inTreeGate(home, exists)) add({ id: "suite-api", class: A, internal: "suite-api" });
     else notes.push("suite-api: RightKit's own generator contract runs from the in-tree gate and CI, not from this installed copy");
   }
   if (rustTouched) {
