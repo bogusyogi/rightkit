@@ -27,10 +27,13 @@ export async function releaseUnit({ unit, root, commit, executor, env, artifact,
   const registry = unit.kind === "npm" ? "npm" : "crates";
   const pipeline = path.join(root, "scripts", "ci", "rk-pipeline.mjs");
   const stateFile = platform === "win32" ? "D:\\scratch\\rk-pipeline\\state.json" : "/Volumes/D/scratch/rk-pipeline/state.json";
-  const step = (label, args) => {
+  const step = (label, args, { accept = [0] } = {}) => {
     out(`rightkit-gate: [release] ${label}`);
     const r = run(process.execPath, [pipeline, ...args], { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
-    if (r.status !== 0) throw new Error(`${label} failed (exit ${r.status}): ${String(r.stderr ?? "").trim().split("\n").slice(-3).join(" | ").slice(0, 400)}`);
+    if (!accept.includes(r.status)) {
+      const said = `${String(r.stdout ?? "")}\n${String(r.stderr ?? "")}`.split("\n").map((l) => l.trim()).filter((l) => l && !l.includes("note:")).slice(-4).join(" | ");
+      throw new Error(`${label} failed (exit ${r.status}): ${said.slice(0, 600)}`);
+    }
     return r;
   };
   const findDispatch = () => {
@@ -38,6 +41,9 @@ export async function releaseUnit({ unit, root, commit, executor, env, artifact,
     if (found.length > 1) throw new Error(`${found.length} dispatch records for ${unit.name} at ${commit.slice(0, 12)} in rk-pipeline state; reconcile before any retry`);
     return found[0];
   };
+  // The pipeline canary (rk-release-canary: the candidate's `right-release doctor` against every app on both hosts, versus the
+  // registry's version) runs before the pre-flight for the units that have one; rk-pipeline answers 2 for a unit without a canary.
+  step(`pipeline canary of ${unit.name} (doctor on every app, both hosts, candidate vs registry)`, ["canary", unit.name], { accept: [0, 2] });
   step(`local pre-flight of ${unit.name} through the broker`, ["preflight", unit.name, "--registry", registry]);
   step(`broker-admitted hosted qualification dispatch of ${unit.name} at ${commit.slice(0, 12)}`, ["dispatch", unit.name, "--registry", registry]);
   const dispatched = findDispatch();

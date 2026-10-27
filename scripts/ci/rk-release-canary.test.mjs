@@ -426,11 +426,13 @@ test("runCanary: green run writes the receipt (schema, SHA, version, script and 
   assert.ok(fs.existsSync(path.join(out, sha, "canary", "manifest.json")));
 });
 test("runCanary: a regression is code 10 and the receipt is not green", async (t) => {
-  const { out, deps } = canaryDeps(t, { cells: matrixCells((id, platform, s) => (id === "mailright" && platform === "mac" && s === "candidate" ? { status: "fail", failNames: ["ownership"] } : {})) });
+  // genright/mac has no expected entry for an `ownership` row (ci/release-canary-expected.json excuses 0.6.9's newly visible rows
+  // per app; mailright/mac's ownership row is one of them, rightkit#1218), so the synthetic row stays a regression.
+  const { out, deps } = canaryDeps(t, { cells: matrixCells((id, platform, s) => (id === "genright" && platform === "mac" && s === "candidate" ? { status: "fail", failNames: ["ownership"] } : {})) });
   const r = await runCanary({ root: REPO, out, deps });
   assert.equal(r.code, EXIT.regression);
   assert.equal(r.receipt.ok, false);
-  assert.ok(r.lines.some((l) => /BLOCK\s+mailright\/mac new-fail-row "ownership"/.test(l)));
+  assert.ok(r.lines.some((l) => /BLOCK\s+genright\/mac new-fail-row "ownership"/.test(l)), r.lines.join("\n"));
 });
 test("runCanary: a lost Dell leg is incomplete (code 11), never green; the Mac leg's findings are kept", async (t) => {
   const { out, deps } = canaryDeps(t, { cells: matrixCells(), legErrors: { win32: "dell: scp bundle: connection refused" } });

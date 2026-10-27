@@ -2,8 +2,14 @@
   "schema": 1,
   "_comment": "Pipeline canary for @rightkit/release (scripts/ci/rk-release-canary.mjs). Each entry names one app config the candidate's `right-release doctor` is run against, beside the registry baseline, on the platforms listed. repoDir is the checkout directory under the host's workspace root; configPath is relative to repoDir (its directory is the app root). Platform ios runs on the Mac leg. blocking:false apps are report-only: their findings never turn the canary red. Matrix changes are reviewed with the canary scripts; the canary receipt binds this file's digest.",
   "unit": "@rightkit/release",
-  "dependency": { "name": "smol-toml", "version": "1.9.1" },
-  "limits": { "cellMinutes": 5, "totalMinutes": 20 },
+  "dependency": {
+    "name": "smol-toml",
+    "version": "1.9.1"
+  },
+  "limits": {
+    "cellMinutes": 5,
+    "totalMinutes": 45
+  },
   "hosts": {
     "darwin": {
       "workspaceRoot": "/Volumes/D/claude",
@@ -21,17 +27,125 @@
     }
   },
   "apps": [
-    { "id": "heardright", "repoDir": "heardright", "configPath": "tauri-app-next/right-release.config.mjs", "platforms": ["mac", "win"], "blocking": true },
-    { "id": "mailright", "repoDir": "mailright", "configPath": "right-release.config.mjs", "platforms": ["mac", "win"], "blocking": true },
-    { "id": "viewright", "repoDir": "viewright", "configPath": "right-release.config.mjs", "platforms": ["mac", "win"], "blocking": true },
-    { "id": "scraperight", "repoDir": "scraperight", "configPath": "right-release.config.mjs", "platforms": ["mac", "win"], "blocking": true },
-    { "id": "cutright", "repoDir": "cutright", "configPath": "apps/cutright/right-release.config.mjs", "platforms": ["mac", "win"], "blocking": true },
-    { "id": "coderight-tauri", "repoDir": "coderight", "configPath": "apps/coderight-tauri/right-release.config.mjs", "platforms": ["mac", "win"], "blocking": true },
-    { "id": "genright", "repoDir": "genright", "configPath": "right-release.config.mjs", "platforms": ["mac", "win"], "blocking": true },
-    { "id": "postright", "repoDir": "postright", "configPath": "right-release.config.mjs", "platforms": ["mac", "win"], "blocking": true },
-    { "id": "pulse", "repoDir": "pulse", "configPath": "right-release.config.mjs", "platforms": ["win", "mac", "ios"], "blocking": true },
-    { "id": "coderight-ios", "repoDir": "coderight", "configPath": "apps/coderight-ios/right-release.config.mjs", "platforms": ["ios"], "blocking": true },
-    { "id": "ember", "repoDir": "ember", "configPath": "right-release.config.mjs", "platforms": ["mac", "win"], "blocking": false },
-    { "id": "legion", "repoDir": "legion", "configPath": "right-release.config.mjs", "platforms": ["mac", "win"], "blocking": false }
+    {
+      "id": "heardright",
+      "repoDir": "heardright",
+      "configPath": "tauri-app-next/right-release.config.mjs",
+      "platforms": [
+        "mac",
+        "win"
+      ],
+      "blocking": true
+    },
+    {
+      "id": "mailright",
+      "repoDir": "mailright",
+      "configPath": "right-release.config.mjs",
+      "platforms": [
+        "mac",
+        "win"
+      ],
+      "blocking": true
+    },
+    {
+      "id": "viewright",
+      "repoDir": "viewright",
+      "configPath": "right-release.config.mjs",
+      "platforms": [
+        "mac",
+        "win"
+      ],
+      "blocking": true
+    },
+    {
+      "id": "scraperight",
+      "repoDir": "scraperight",
+      "configPath": "right-release.config.mjs",
+      "platforms": [
+        "mac",
+        "win"
+      ],
+      "blocking": true
+    },
+    {
+      "id": "cutright",
+      "repoDir": "cutright",
+      "configPath": "apps/cutright/right-release.config.mjs",
+      "platforms": [
+        "mac",
+        "win"
+      ],
+      "blocking": true
+    },
+    {
+      "id": "coderight-tauri",
+      "repoDir": "coderight",
+      "configPath": "apps/coderight-tauri/right-release.config.mjs",
+      "platforms": [
+        "mac",
+        "win"
+      ],
+      "blocking": true
+    },
+    {
+      "id": "genright",
+      "repoDir": "genright",
+      "configPath": "right-release.config.mjs",
+      "platforms": [
+        "mac",
+        "win"
+      ],
+      "blocking": true
+    },
+    {
+      "id": "postright",
+      "repoDir": "postright",
+      "configPath": "right-release.config.mjs",
+      "platforms": [
+        "mac",
+        "win"
+      ],
+      "blocking": true
+    },
+    {
+      "id": "pulse",
+      "repoDir": "pulse",
+      "configPath": "right-release.config.mjs",
+      "platforms": [
+        "win",
+        "mac",
+        "ios"
+      ],
+      "blocking": true
+    },
+    {
+      "id": "coderight-ios",
+      "repoDir": "coderight",
+      "configPath": "apps/coderight-ios/right-release.config.mjs",
+      "platforms": [
+        "ios"
+      ],
+      "blocking": true
+    },
+    {
+      "id": "ember",
+      "repoDir": "ember",
+      "configPath": "right-release.config.mjs",
+      "platforms": [
+        "mac",
+        "win"
+      ],
+      "blocking": false
+    },
+    {
+      "id": "legion",
+      "repoDir": "legion",
+      "configPath": "right-release.config.mjs",
+      "platforms": [
+        "mac",
+        "win"
+      ],
+      "blocking": false
+    }
   ]
 }

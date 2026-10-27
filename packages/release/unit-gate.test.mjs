@@ -79,21 +79,28 @@ test("release stage: the gate owns pre-flight, broker dispatch, the wait and the
   // success: order and the reported record
   let f = make({ states: [dispatched, published] });
   const ok = await releaseUnit({ ...base, ...f });
-  assert.deepEqual(f.calls.slice(0, 4), ["preflight", "dispatch", "watch", "gh:api"]);
-  assert.match(f.calls[4], /^gh:run download 20 -R bogusyogi\/rightkit --name publication-receipt-10-1-1 --dir /);
+  assert.deepEqual(f.calls.slice(0, 5), ["canary", "preflight", "dispatch", "watch", "gh:api"]);
+  assert.match(f.calls[5], /^gh:run download 20 -R bogusyogi\/rightkit --name publication-receipt-10-1-1 --dir /);
   assert.equal(ok.registryVerified, true); assert.equal(ok.hostedSha256, row.sha256); assert.equal(ok.uploadRunId, 20); assert.equal(ok.hostedEqualsLocal, false); assert.equal(ok.localArtifactSha256, artifact.artifactSha256);
   // direct host: refused before anything runs
   f = make({ states: [dispatched, published] });
   await assert.rejects(releaseUnit({ ...base, ...f, executor: { kind: "direct" } }), /broker-managed host/);
   assert.deepEqual(f.calls, []);
+  // canary regression (10) or incomplete (11): no pre-flight; a unit without a canary (2) proceeds
+  f = make({ states: [dispatched, published], runStatus: { canary: 10 } });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /canary.*failed \(exit 10\)/);
+  assert.deepEqual(f.calls, ["canary"]);
+  f = make({ states: [dispatched, published], runStatus: { canary: 2, preflight: 1 } });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /pre-flight.*failed/);
+  assert.deepEqual(f.calls, ["canary", "preflight"]);
   // pre-flight red: no dispatch
   f = make({ states: [dispatched, published], runStatus: { preflight: 1 } });
   await assert.rejects(releaseUnit({ ...base, ...f }), /pre-flight.*failed/);
-  assert.deepEqual(f.calls, ["preflight"]);
+  assert.deepEqual(f.calls, ["canary", "preflight"]);
   // dispatch recorded no run: stop, nothing claimed
   f = make({ states: [{ ...dispatched, runId: undefined }] });
   await assert.rejects(releaseUnit({ ...base, ...f }), /no dispatch record with a run/);
-  assert.deepEqual(f.calls, ["preflight", "dispatch"]);
+  assert.deepEqual(f.calls, ["canary", "preflight", "dispatch"]);
   // watch ended without a published record (upload never ran)
   f = make({ states: [dispatched, { ...dispatched, status: "failed", conclusion: "upload failure" }] });
   await assert.rejects(releaseUnit({ ...base, ...f }), /without a published record \(failed: upload failure\)/);
