@@ -677,17 +677,19 @@ async function* publishUnitStages(parsed, deps, batch) {
         steps: steps.map(({ command, ok, executed, failed, ignored, skipped, binaries }) => ({ command, ok, ...(executed === undefined ? {} : { executed, failed, ignored, skipped, binaries }) })),
       }],
     };
-    const evidencePath = path.resolve(defaultEvidencePath(workspaceRoot, kind, unit));
+    // A qualification writes its evidence beside the bytes, in the bundle: the tracked release-evidence/gate file is the record of a
+    // host publish, and rewriting it would dirty the checkout the unit door guards (the first `--to release --unit` run stopped
+    // there, 2026-10-27). Never overwrite a bundle's evidence.
+    const evidencePath = parsed.qualifyOnly ? path.join(parsed.bundleDir, "gate.json") : path.resolve(defaultEvidencePath(workspaceRoot, kind, unit));
     fs.mkdirSync(path.dirname(evidencePath), { recursive: true });
-    fs.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
+    fs.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, { flag: parsed.qualifyOnly ? "wx" : "w" });
     log(`[right-release] wrote ${evidencePath} (artifact sha256 ${artifactSha256})`);
     const gateOptions = { kind, name: unit, version, packagePath: unitPath, evidencePath, artifactBytes: fs.readFileSync(artifactFile) };
     (deps.enforceGate ?? enforcePublicationGate)(gateOptions, { write: (line) => log(line.replace(/\n$/, "")) });
 
     if (parsed.qualifyOnly) {
-      // Keep bytes and their normal gate evidence together outside the checkout. Never overwrite a bundle.
-      const bundledEvidence = path.join(parsed.bundleDir, "gate.json");
-      fs.copyFileSync(evidencePath, bundledEvidence, fs.constants.COPYFILE_EXCL);
+      // Bytes and evidence stay together outside the checkout.
+      const bundledEvidence = evidencePath;
       log(`[right-release] qualified ${unit}@${version}; bundle ${parsed.bundleDir}${kind === "cargo" ? `; publish cargo --crate ${unit} --from-evidence ${bundledEvidence}` : ""}`);
       return { kind, name: unit, version, commit: head, artifactSha256, evidencePath: bundledEvidence, artifactFile, qualifiedOnly: true };
     }
