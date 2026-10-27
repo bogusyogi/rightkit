@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+const LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
 const SIGTERM_WAIT_MS = 15_000;
 const POLL_MS = 250;
 
@@ -632,12 +633,20 @@ export async function installApp(opts, deps = {}) {
     swap = null;
     event("replaced", { installed, previous: null, swap: swapMode });
 
+    // A dev install from a build folder (--app) leaves that product registered with Launch Services, which then resolves the bundle
+    // id to it instead of the installed copy (rightkit#1225): unregister it so only the installed copy is known.
+    if (opts.app && path.resolve(sourceApp) !== path.resolve(installed)) {
+      try { await run(LSREGISTER, ["-u", sourceApp]); event("unregistered", { path: sourceApp }); }
+      catch (error) { event("unregister-failed", { path: sourceApp, reason: errText(error) }); }
+    }
+
     // Relaunch hidden and in the background only.
     const relaunch = opts.relaunch === null ? wasRunning : opts.relaunch;
     if (relaunch) {
       failedStage = "relaunch";
-      await run("/usr/bin/open", ["-g", "-j", "-b", bundleId]);
-      event("relaunched", { bundleId });
+      // By the installed path, never by bundle id: Launch Services may resolve the id to another registered copy (rightkit#1225).
+      await run("/usr/bin/open", ["-g", "-j", installed]);
+      event("relaunched", { bundleId, installed });
     }
     const result = { ok: true, app: appName, installed, bundleId, teamId: newTeam, previous: null, swap: swapMode, relaunched: relaunch, ...(dev ? { dev: true } : {}) };
     event("done", result);

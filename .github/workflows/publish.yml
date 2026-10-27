@@ -540,16 +540,12 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -k "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
           security list-keychain -d user -s "$keychain_path"
           rm -f "$certificate_path"
-      - name: Embed the qualification profile, Developer ID sign and verify the helper
+      - name: Decode the qualification profile and prove it binds the team, identifier, platform and signing identity
         shell: bash
         env:
-          APPLE_DEVELOPER_ID: ${{ vars.APPLE_DEVELOPER_ID }}
           APPLE_CREDENTIALS_QUAL_PROFILE_BASE64: ${{ secrets.APPLE_CREDENTIALS_QUAL_PROFILE_BASE64 }}
         run: |
           set -euo pipefail
-          in="$RUNNER_TEMP/credentials-helper-unsigned"
-          out="$RUNNER_TEMP/credentials-helper-signed"
-          rm -rf "$out" && mkdir -p "$out"
           profile="$RUNNER_TEMP/credentials-qual.mobileprovision"
           printf '%s' "$APPLE_CREDENTIALS_QUAL_PROFILE_BASE64" | base64 --decode > "$profile"
           identity_hash="$(security find-identity -v -p codesigning "$RUNNER_TEMP/apple-signing.keychain-db" | awk '/Developer ID Application/ {print $2; exit}')"
@@ -595,6 +591,16 @@ jobs:
           if identity_hash not in fingerprints:
               raise SystemExit("profile does not authorize the signing identity")
           PY
+      - name: Embed the qualification profile, Developer ID sign and verify the helper
+        shell: bash
+        env:
+          APPLE_DEVELOPER_ID: ${{ vars.APPLE_DEVELOPER_ID }}
+        run: |
+          set -euo pipefail
+          in="$RUNNER_TEMP/credentials-helper-unsigned"
+          out="$RUNNER_TEMP/credentials-helper-signed"
+          rm -rf "$out" && mkdir -p "$out"
+          profile="$RUNNER_TEMP/credentials-qual.mobileprovision"
           cp -R "$in/RightKitCredentialsQualification.app" "$out/"
           cp "$profile" "$out/RightKitCredentialsQualification.app/Contents/embedded.provisionprofile"
           cp "$in/source-receipt.txt" "$out/unsigned-source-receipt.txt"
@@ -618,6 +624,11 @@ jobs:
           if entitlements != {"keychain-access-groups": ["6KLGD3LLKF.org.rightkit.qualification.credentials"]}:
               raise SystemExit("signed helper must carry only its isolated access group")
           PY
+      - name: Digest and record the signed helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/credentials-helper-signed"
           bin="$out/RightKitCredentialsQualification.app/Contents/MacOS/RightKitCredentialsQualification"
           (cd "$(dirname "$bin")" && shasum -a 256 RightKitCredentialsQualification > "$out/helper.sha256" && cat "$out/helper.sha256")
           printf 'repository=%s\nsource=%s\nrun=%s\nattempt=%s\nworkflow=%s\nhost=%s\narch=%s\njob=sign-credentials-helper\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKFLOW_REF" "$RUNNER_OS" "$RUNNER_ARCH" > "$out/source-receipt.txt"

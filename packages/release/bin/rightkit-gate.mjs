@@ -270,26 +270,58 @@ export function cargoInputsDiffer({ root, snapshot, manifests, spawn = defaultSp
   for (const m of manifests) { const parts = path.posix.dirname(m).split("/").filter((x) => x && x !== "."); for (let i = 1; i <= parts.length; i++) dirs.add(parts.slice(0, i).join("/")); }
   const dirList = [...dirs];
   const paths = dirList.flatMap((d) => CARGO_INPUT_NAMES.map((n) => (d ? `${d}/${n}` : n)));
-  const listed = git("ls-tree", "-r", "-z", snapshot, "--", ...paths);
-  if (failed(listed)) return [`(cannot list ${snapshot}: ${why(listed)})`];
+  // Pathspecs go to git in bounded batches: a repository with many crates (RightKit: ~1000 input paths) overflows Windows' 32767-
+  // character command line in one argv (ENAMETOOLONG on the Dell, 2026-10-27; G4 was the same for rustfmt). Each batch's results
+  // are merged; a failed batch fails the whole listing closed.
+  const batches = pathspecBatches(paths);
+  const listedAll = batches.map((b) => git("ls-tree", "-r", "-z", snapshot, "--", ...b));
+  const badList = listedAll.find((r) => failed(r));
+  if (badList) return [`(cannot list ${snapshot}: ${why(badList)})`];
   const snap = new Map();
-  for (const entry of text(listed).split("\0").filter(Boolean)) { const tab = entry.indexOf("\t"); const [, , id] = entry.slice(0, tab).split(" "); snap.set(entry.slice(tab + 1), id); }
+  for (const listed of listedAll) for (const entry of text(listed).split("\0").filter(Boolean)) { const tab = entry.indexOf("\t"); const [, , id] = entry.slice(0, tab).split(" "); snap.set(entry.slice(tab + 1), id); }
   const differ = new Set();
   for (const [p, id] of snap) {
     const live = path.join(root, ...p.split("/"));
     let liveId = null;
-    try { if (fs.statSync(live).isFile()) { const h = git("hash-object", "--", live); liveId = failed(h) ? null : text(h).trim(); } } catch { liveId = null; }
-    if (liveId !== id) differ.add(p);
+    // Cargo reads the live bytes, so the live bytes are hashed raw (`--no-filters`: no clean filter, eol or text attribute can make
+    // two different byte strings look the same). The one accepted difference is an exact CRLF checkout of an LF blob (D13, Dell
+    // 2026-10-27: core.autocrlf), which every TOML/toolchain reader treats as the same newline; anything else differs.
+    try { if (fs.statSync(live).isFile()) { const h = git("hash-object", "--no-filters", "--", live); liveId = failed(h) ? null : text(h).trim(); } } catch { liveId = null; }
+    if (liveId !== id && !isCrlfCheckoutOf({ git, id, live })) differ.add(p);
   }
   // Untracked under the input paths, ignored files included: cargo reads a .cargo/config.toml or a deny.toml whether or not git tracks it.
-  const others = git("ls-files", "-z", "--others", "--", ...paths);
-  if (failed(others)) differ.add(`(cannot list untracked Cargo inputs: ${why(others)})`); // fail closed: an unlisted input is an unknown input
-  else for (const p of text(others).split("\0").filter(Boolean)) if (!snap.has(p)) differ.add(p);
-  // A tracked input the snapshot lacks (added in HEAD after the snapshot, say) is live-only too.
-  const tracked = git("ls-files", "-z", "--", ...paths);
-  if (failed(tracked)) differ.add(`(cannot list tracked Cargo inputs: ${why(tracked)})`);
-  else for (const p of text(tracked).split("\0").filter(Boolean)) if (!snap.has(p)) differ.add(p);
+  for (const batch of batches) {
+    const others = git("ls-files", "-z", "--others", "--", ...batch);
+    if (failed(others)) differ.add(`(cannot list untracked Cargo inputs: ${why(others)})`); // fail closed: an unlisted input is an unknown input
+    else for (const p of text(others).split("\0").filter(Boolean)) if (!snap.has(p)) differ.add(p);
+    // A tracked input the snapshot lacks (added in HEAD after the snapshot, say) is live-only too.
+    const tracked = git("ls-files", "-z", "--", ...batch);
+    if (failed(tracked)) differ.add(`(cannot list tracked Cargo inputs: ${why(tracked)})`);
+    else for (const p of text(tracked).split("\0").filter(Boolean)) if (!snap.has(p)) differ.add(p);
+  }
   return [...differ].sort();
+}
+
+/** True only when the live file's bytes are exactly blob `id` with every LF written as CRLF (an autocrlf checkout); fails closed. */
+export function isCrlfCheckoutOf({ git, id, live, readFile = fs.readFileSync }) {
+  try {
+    const blob = git("cat-file", "blob", id);
+    if (failed(blob)) return false;
+    const committed = text(blob);
+    if (committed.includes("\r")) return false;
+    return readFile(live, "utf8") === committed.replace(/\n/g, "\r\n");
+  } catch { return false; }
+}
+
+/** Split pathspecs into batches whose joined length stays under `limit` characters (well below Windows' 32767 command line). */
+export function pathspecBatches(paths, limit = 8000) {
+  const batches = []; let current = []; let size = 0;
+  for (const p of paths) {
+    if (current.length && size + p.length + 1 > limit) { batches.push(current); current = []; size = 0; }
+    current.push(p); size += p.length + 1;
+  }
+  if (current.length) batches.push(current);
+  return batches;
 }
 
 export function discoverRustUnits({ root, spawn, cargoCommand, tracked, readFile, realpath = fs.realpathSync }) {
@@ -1680,8 +1712,10 @@ export async function main(argv, io = {}) {
       const npmRootFiles = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc", ...ESLINT_CONFIG_FILES, ...BIOME_CONFIG_FILES];
       const inputs = [...new Set([...rust.units.map((u) => u.dir), ...npm.map((u) => u.dir), ...rust.workspaces.map((w) => w.cargoDir), "ci", "scripts", "vendor", "Cargo.toml", "Cargo.lock", ".cargo", "rust-toolchain.toml", "rust-toolchain",
         "deny.toml", "clippy.toml", "rustfmt.toml", ...npmRootFiles, ...npmRoots.filter((r) => r !== ".").flatMap((r) => npmRootFiles.map((f) => `${r}/${f}`))])];
-      const dirty = git("status", "--porcelain", "--untracked-files=all", "--", ...inputs);
-      const dirtyFiles = failed(dirty) ? [`git status failed: ${why(dirty)}`] : text(dirty).split(/\r?\n/).filter(Boolean).filter((l) => !l.includes("node_modules"));
+      // Batched like cargoInputsDiffer: one argv with every input path overflows Windows' command line in a large repository.
+      const dirtyRuns = pathspecBatches(inputs).map((batch) => git("status", "--porcelain", "--untracked-files=all", "--", ...batch));
+      const dirtyFailed = dirtyRuns.find((r) => failed(r));
+      const dirtyFiles = dirtyFailed ? [`git status failed: ${why(dirtyFailed)}`] : dirtyRuns.flatMap((r) => text(r).split(/\r?\n/)).filter(Boolean).filter((l) => !l.includes("node_modules"));
       if (dirtyFiles.length) {
         o.err(`${tag} BLOCKED: the checkout differs from HEAD where compile scans read it; commit or stash first:`);
         for (const l of dirtyFiles.slice(0, 20)) o.err(`  ${l}`);

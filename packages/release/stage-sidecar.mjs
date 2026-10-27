@@ -111,7 +111,7 @@ const KEYS = Object.freeze({
   "native-library": ["kind", "library", "version", "catalog", "resourceDir", "licenseDir", "cacheDir", "as", "files", "companions", "source", "platforms"],
   resource: ["kind", "from", "to", "sha256", "machO", "clean", "platforms"],
   command: ["kind", "name", "cmd", "args", "cwd", "output", "externalBin", "dest", "clean", "platforms"],
-  remote: ["kind", "name", "url", "sha256", "dest", "to", "size", "extract", "memberSha256", "executable", "clean", "platforms"],
+  remote: ["kind", "name", "url", "sha256", "dest", "to", "size", "extract", "extractKind", "memberSha256", "executable", "clean", "platforms"],
   cmake: ["kind", "name", "repo", "commit", "target", "output", "cmakeArgs", "platformArgs", "generator", "platformGenerators", "architecture", "cmakeBin", "smoke", "sha256", "dest", "clean", "platforms"],
   prebuilt: ["kind", "name", "from", "manifest", "dest", "platforms"],
 });
@@ -476,10 +476,15 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
       if (item.size !== undefined && (!Number.isSafeInteger(item.size) || item.size <= 0)) errors.push(`${where}: size must be a positive integer (bytes)`);
       if (item.extract !== undefined) { const member = normalizeArchiveMember(item.extract); if (member.error || (!member.byPath && !NAME.test(member.value))) errors.push(`${where}: extract must be the bare file name of one archive member or its archive path (posix, no leading /, no .. segment): ${member.error ?? "invalid file name"}`); }
       if (item.memberSha256 !== undefined && (item.extract === undefined || !SHA256.test(item.memberSha256 ?? ""))) errors.push(`${where}: memberSha256 must be a lowercase 64-hex SHA-256 and needs extract`);
+      if (item.extractKind !== undefined && item.extractKind !== "nsis") errors.push(`${where}: extractKind must be "nsis" (omit it for tar-readable zip/tgz/nupkg archives)`);
+      if (item.extractKind === "nsis") {
+        if (item.extract === undefined) errors.push(`${where}: extractKind "nsis" needs extract (the installer member path, e.g. bin/smartctl.exe)`);
+        if (typeof item.memberSha256 !== "string" || !SHA256.test(item.memberSha256)) errors.push(`${where}: extractKind "nsis" requires memberSha256 (the extracted member's lowercase 64-hex SHA-256); an NSIS member is never staged unpinned`);
+      }
       if (item.executable !== undefined && typeof item.executable !== "boolean") errors.push(`${where}: executable must be a boolean`);
       const clean = cleanOf();
       if (dest && !skipped) claim(dest, where);
-      Object.assign(entry, { name, url: item.url, sha256: item.sha256, dest, ...(item.size ? { size: item.size } : {}), ...(item.extract ? { extract: item.extract } : {}), ...(item.memberSha256 ? { memberSha256: item.memberSha256 } : {}), ...(item.executable ? { executable: true } : {}), ...(clean ? { clean } : {}) });
+      Object.assign(entry, { name, url: item.url, sha256: item.sha256, dest, ...(item.extractKind ? { extractKind: item.extractKind } : {}), ...(item.size ? { size: item.size } : {}), ...(item.extract ? { extract: item.extract } : {}), ...(item.memberSha256 ? { memberSha256: item.memberSha256 } : {}), ...(item.executable ? { executable: true } : {}), ...(clean ? { clean } : {}) });
     } else if (item.kind === "cmake") {
       const name = item.name;
       if (typeof name !== "string" || !NAME.test(name) || /\.exe$/i.test(name) || name !== path.basename(name)) errors.push(`${where}: name must be a bare sidecar name (no path, no .exe, no target triple)`);
@@ -608,6 +613,45 @@ export function defaultExtractMember({ archive, fileName, destDir, run = default
   const out = path.join(destDir, ...members[0].split("/"));
   const inside = path.relative(path.resolve(destDir), path.resolve(out));
   if (!inside || inside === ".." || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) fail("STAGE_SIDECAR_EXTRACT_FAILED", `member ${members[0]} of ${archive} resolves outside the extraction directory`);
+  return out;
+}
+
+/** 7-Zip candidates: an explicit path (deps.sevenZip or RIGHTKIT_SEVEN_ZIP), then `7z` on PATH, then 7z.exe under Program Files on win32. */
+export function sevenZipCandidates({ explicit, env = process.env, platform = process.platform } = {}) {
+  const list = [];
+  if (explicit) list.push(explicit);
+  else if (env.RIGHTKIT_SEVEN_ZIP) list.push(env.RIGHTKIT_SEVEN_ZIP);
+  list.push("7z");
+  if (platform === "win32") for (const base of [env.ProgramFiles ?? "C:\\Program Files", env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)"]) list.push(path.win32.join(base, "7-Zip", "7z.exe"));
+  return [...new Set(list)];
+}
+
+/**
+ * Extract one member of an NSIS installer with 7-Zip (`x -y -o<dir> <installer> <member>`; nothing in the installer is run), then
+ * require its SHA-256 to equal the pinned one. Fails closed, naming the installer digest, member, expected and actual digests, on a
+ * missing tool, a failed extraction, a missing member or any mismatch. Returns the extracted file path under destDir.
+ */
+export function defaultExtractNsisMember({ archive, fileName, destDir, expectedSha256, installerSha256, run = defaultRun, sevenZip, env = process.env, platform = process.platform, readFile = nodeFs.readFileSync, exists = nodeFs.existsSync }) {
+  const wanted = normalizeArchiveMember(fileName);
+  const who = `NSIS installer ${installerSha256 ?? archive} member ${JSON.stringify(fileName)}`;
+  if (wanted.error) fail("STAGE_SIDECAR_EXTRACT_FAILED", `${who} ${wanted.error}`);
+  if (!SHA256.test(expectedSha256 ?? "")) fail("STAGE_SIDECAR_EXTRACT_FAILED", `${who}: a pinned member sha256 is required`);
+  let tool;
+  let lastError = "not found";
+  for (const candidate of sevenZipCandidates({ explicit: sevenZip, env, platform })) {
+    const result = run(candidate, ["x", "-y", `-o${destDir}`, archive, wanted.value], { cwd: path.dirname(archive) });
+    if (result.error || result.status === null || result.status === undefined) { lastError = result.error?.message ?? "could not start"; continue; }
+    tool = candidate;
+    if (result.status !== 0) fail("STAGE_SIDECAR_EXTRACT_FAILED", `${who}: ${candidate} exited ${result.status}; nothing staged`);
+    break;
+  }
+  if (!tool) fail("STAGE_SIDECAR_EXTRACT_FAILED", `${who}: 7-Zip is required and was not found (${lastError}); install 7-Zip or set RIGHTKIT_SEVEN_ZIP; nothing staged`);
+  const out = path.join(destDir, ...wanted.value.split("/"));
+  const inside = path.relative(path.resolve(destDir), path.resolve(out));
+  if (!inside || inside === ".." || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) fail("STAGE_SIDECAR_EXTRACT_FAILED", `${who} resolves outside the extraction directory`);
+  if (!exists(out)) fail("STAGE_SIDECAR_EXTRACT_FAILED", `${who}: member not found after extraction; nothing staged`);
+  const actual = sha256Of(readFile(out));
+  if (actual !== expectedSha256) fail("STAGE_SIDECAR_HASH_MISMATCH", `${who}: sha256 is ${actual}, expected ${expectedSha256}; nothing staged`, { expected: expectedSha256, actual });
   return out;
 }
 
@@ -1453,7 +1497,9 @@ async function stageRemote(entry, ctx) {
     let memberSha256;
     if (entry.extract) {
       scratch = ctx.makeTempDir();
-      source = await ctx.extractMember({ archive: cached, fileName: entry.extract, destDir: scratch });
+      source = entry.extractKind === "nsis"
+        ? await ctx.extractNsisMember({ archive: cached, fileName: entry.extract, destDir: scratch, expectedSha256: entry.memberSha256, installerSha256: entry.sha256 })
+        : await ctx.extractMember({ archive: cached, fileName: entry.extract, destDir: scratch });
       memberSha256 = sha256Of(fs.readFileSync(source));
       if (entry.memberSha256 && memberSha256 !== entry.memberSha256) fail("STAGE_SIDECAR_HASH_MISMATCH", `${entry.extract} from ${entry.url} is ${memberSha256}, expected ${entry.memberSha256}; nothing staged`, { expected: entry.memberSha256, actual: memberSha256 });
     }
@@ -1462,7 +1508,7 @@ async function stageRemote(entry, ctx) {
     const copied = copyInto(ctx, source, dest, { executable: entry.executable === true });
     const expected = entry.extract ? entry.memberSha256 : entry.sha256;
     if (expected && copied.sha256 !== expected) fail("STAGE_SIDECAR_HASH_MISMATCH", `staged ${entry.dest} is ${copied.sha256}, expected ${expected}`, { expected, actual: copied.sha256 });
-    return [{ kind: "remote", name: entry.name, path: rel(ctx, dest), ...copied, sourceSha256: memberSha256 ?? entry.sha256, url: entry.url, cached: fromCache, externalBin: false, ...(entry.extract ? { archiveSha256: entry.sha256, member: entry.extract } : {}) }];
+    return [{ kind: "remote", name: entry.name, path: rel(ctx, dest), ...copied, sourceSha256: memberSha256 ?? entry.sha256, url: entry.url, cached: fromCache, externalBin: false, ...(entry.extract ? { archiveSha256: entry.sha256, member: entry.extract, memberSha256 } : {}), ...(entry.extractKind ? { extractKind: entry.extractKind } : {}) }];
   } finally {
     if (scratch) ctx.removeDir(scratch);
   }
@@ -1754,6 +1800,7 @@ export async function stageSidecars({ appRoot, manifest, target, deps = {} } = {
     fetchBytes: deps.fetchBytes ?? defaultFetchBytes,
     fetch: deps.fetch ?? ((...args) => globalThis.fetch(...args)),
     extractMember: deps.extractMember ?? ((args) => defaultExtractMember({ ...args, run })),
+    extractNsisMember: deps.extractNsisMember ?? ((args) => defaultExtractNsisMember({ ...args, run, env, sevenZip: deps.sevenZip, readFile: fs.readFileSync, exists: fs.existsSync })),
     loadMediaCatalog: deps.loadMediaCatalog ?? (() => undefined),
     loadNativeCatalog: deps.loadNativeCatalog ?? (() => undefined),
     makeTempDir: deps.makeTempDir ?? (() => nodeFs.mkdtempSync(path.join(os.tmpdir(), "rightkit-stage-"))),

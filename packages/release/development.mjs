@@ -87,6 +87,8 @@ export function validateDevelopmentConfig(config, platform, { root = process.cwd
   } else if (target.install?.kind === "adb") {
     if (platform !== "android") throw new Error("the adb development installer is for --platform android");
   } else if (target.install) throw new Error(`unsupported development installer kind: ${target.install.kind}`);
+  // Linux is build-only: its artifacts are the staged sidecars bound in the stage receipt; nothing is installed on a Linux host.
+  if (platform === "linux" && target.install) throw new Error("development.targets.linux is build-only: it takes no install (the staged artifacts are the result)");
   validateStageEntries(target.stage, `development.targets.${platform}.stage`);
   if (platform === "android") return { ...target, ...validateAndroidDevelopment(target, { root }) };
   return target;
@@ -94,7 +96,7 @@ export function validateDevelopmentConfig(config, platform, { root = process.cwd
 
 export function runDevelopment({ root, platform, config, buildOnly = false, dryRun = false, env = process.env, run = spawnSync,
   codesignEnvironment = macosCodesignEnvironment, serial }) {
-  if (!new Set(["win", "mac", "android", "ios"]).has(platform)) throw new Error("--platform must be win, mac, android or ios");
+  if (!new Set(["win", "mac", "linux", "android", "ios"]).has(platform)) throw new Error("--platform must be win, mac, linux, android or ios");
   // iOS: --dry-run validates the config and prints the plan on any host; everything else needs macOS with Xcode.
   if (!(platform === "ios" && dryRun)) assertNativeDevelopmentHost(platform);
   const target = validateDevelopmentConfig(config, platform, { root });
@@ -152,8 +154,16 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
   } finally { if (releaseLease) lease.release(); }
 }
 
-export function assertNativeDevelopmentHost(platform, host = process.platform) {
-  if ((platform === "win" && host !== "win32") || ((platform === "mac" || platform === "ios") && host !== "darwin")) throw new Error(`development target ${platform} requires its native host`);
+/** WSL reports `linux` as its platform; it is a Linux userspace on a Windows kernel, not a native Linux host. */
+export function isWsl({ env = process.env, readFile = (f) => readFileSync(f, "utf8") } = {}) {
+  if (env.WSL_DISTRO_NAME || env.WSL_INTEROP) return true;
+  try { return /microsoft|wsl/i.test(readFile("/proc/sys/kernel/osrelease")) || /microsoft|wsl/i.test(readFile("/proc/version")); } catch { return false; }
+}
+
+export function assertNativeDevelopmentHost(platform, host = process.platform, { wsl = () => isWsl() } = {}) {
+  // Linux builds run on a native Linux host (no cross-compiling, no WSL standing in for one).
+  if ((platform === "win" && host !== "win32") || ((platform === "mac" || platform === "ios") && host !== "darwin") || (platform === "linux" && host !== "linux")) throw new Error(`development target ${platform} requires its native host`);
+  if (platform === "linux" && wsl()) throw new Error("development target linux requires a native Linux host; this is WSL (a Linux userspace on a Windows kernel)");
 }
 
 function install(descriptor, { root, platform, config, env, run, sinceMs = null, serial }) {
@@ -377,7 +387,7 @@ function inside(root, child) { const rel = path.relative(path.resolve(root), pat
 export async function main(args = process.argv.slice(2)) {
   let platform, configPath = defaultReleaseConfigFile(), dryRun = false, buildOnly = false, serial;
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "-h" || args[i] === "--help") { console.log("usage: right-release dev --platform win|mac|android|ios [--config right-release.config.json] [--dry-run] [--build-only] [--serial <adb serial | iOS device id>]"); return; }
+    if (args[i] === "-h" || args[i] === "--help") { console.log("usage: right-release dev --platform win|mac|linux|android|ios [--config right-release.config.json] [--dry-run] [--build-only] [--serial <adb serial | iOS device id>]"); return; }
     if (args[i] === "--platform") platform = args[++i];
     else if (args[i] === "--config") configPath = args[++i];
     else if (args[i] === "--dry-run") dryRun = true;
@@ -385,7 +395,7 @@ export async function main(args = process.argv.slice(2)) {
     else if (args[i] === "--serial") serial = args[++i];
     else throw new Error(`unknown dev option: ${args[i]}`);
   }
-  if (!platform) throw new Error("right-release dev requires --platform win|mac|android|ios");
+  if (!platform) throw new Error("right-release dev requires --platform win|mac|linux|android|ios");
   const absoluteConfig = path.resolve(configPath);
   const safeEnv = developmentEnvironment(process.env);
   for (const [key, value] of Object.entries(safeEnv)) process.env[key] = value;

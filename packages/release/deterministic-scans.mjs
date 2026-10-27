@@ -712,7 +712,7 @@ export function planScans({
   const actionlintConfig = exists(path.join(contentRoot, ".github/actionlint.yaml")) ? ["-config-file", ".github/actionlint.yaml"] : [];
   // actionlint lints every run: script with shellcheck only when shellcheck is found, and otherwise passes silently; class A
   // requires it (`requires`), so a host without it fails the scan instead of skipping the shell checks.
-  if (workflowFiles.length) add({ id: "actionlint", class: A, tool: "actionlint", requires: tier === "release" ? ["shellcheck"] : [], args: [...actionlintConfig, ...workflowFiles], root: "content" });
+  if (workflowFiles.length) add({ id: "actionlint", class: A, tool: "actionlint", requires: tier === "release" ? ["shellcheck"] : [], args: [...actionlintConfig, ...workflowFiles], root: "content", runScriptLimit: { files: workflowFiles, bytes: RUN_SCRIPT_LIMIT_BYTES } });
   // Standalone shell scripts (SellRight's deploy scripts failed SC2154, SC2030/2031 and SC2016 in CI): every tracked .sh/.bash file,
   // with ShellCheck's own defaults and the repository's .shellcheckrc (data, not code). actionlint covers only workflow run: blocks.
   // A script whose shebang names another shell (zsh, fish) is not ShellCheck's to judge, so it is left out, never failed.
@@ -1016,7 +1016,8 @@ export function defaultSpawnAsync(command, args, options = {}) {
     const keep = (buf, chunk) => { const next = buf + chunk; return next.length > OUTPUT_KEEP ? next.slice(-OUTPUT_KEEP) : next; };
     let child;
     try {
-      child = spawnChild(inv.file, inv.args, { windowsHide: true, windowsVerbatimArguments: inv.verbatim, ...(signal && process.platform !== "win32" ? { detached: true } : {}), ...rest, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+      // stdin is closed: no scan reads it, and an open pipe nobody writes can block a tool that probes it (Windows).
+      child = spawnChild(inv.file, inv.args, { windowsHide: true, windowsVerbatimArguments: inv.verbatim, stdio: ["ignore", "pipe", "pipe"], ...(signal && process.platform !== "win32" ? { detached: true } : {}), ...rest, shell: false, stdio: ["ignore", "pipe", "pipe"] });
     } catch (e) { resolve({ status: null, stdout: "", stderr: "", error: e }); return; }
     const onAbort = () => killProcessTree(child);
     signal?.addEventListener("abort", onAbort, { once: true });
@@ -1040,6 +1041,45 @@ export function defaultSpawnAsync(command, args, options = {}) {
 // time; a test scan marked `quiet` (ci/gate.config.json `rust.<crate>.quietTests`: the crate's tests share ports, devices,
 // wall-clock budgets or the broker's own queue, so they fail under load) runs last, one at a time, under the broker's quiet
 // lease when the gate can take one (runScans `quietLane`).
+/** The largest inline `run:` script a workflow may carry while the pinned actionlint is 1.7.12 (rhysd/actionlint#702). */
+export const RUN_SCRIPT_LIMIT_BYTES = 3800;
+/** Every block `run:` script (`run: |` or `run: >`) of a workflow text larger than `limit` bytes, as "<file>:<line> <bytes> bytes".
+ * Line-based and conservative: the block is every following line indented deeper than the `run:` key (blank lines included),
+ * with that common indentation removed, as YAML reads a literal block. */
+export function oversizedRunScripts(text, file, limit = RUN_SCRIPT_LIMIT_BYTES) {
+  const lines = String(text).split(/\r?\n/);
+  const out = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const m = /^(\s*)(?:-\s+)?run:\s*[|>][-+0-9]*\s*$/.exec(lines[i]);
+    if (!m) continue;
+    const keyIndent = lines[i].indexOf("run:");
+    const body = [];
+    let j = i + 1;
+    for (; j < lines.length; j += 1) {
+      const line = lines[j];
+      if (line.trim() === "") { body.push(""); continue; }
+      if (line.length - line.trimStart().length <= keyIndent) break;
+      body.push(line);
+    }
+    while (body.length && body[body.length - 1] === "") body.pop();
+    const indent = Math.min(...body.filter(Boolean).map((l) => l.length - l.trimStart().length));
+    const script = body.map((l) => l.slice(Number.isFinite(indent) ? indent : 0)).join("\n") + "\n";
+    const bytes = Buffer.byteLength(script);
+    if (bytes > limit) out.push(`${file}:${i + 1} ${bytes} bytes`);
+    i = j - 1;
+  }
+  return out;
+}
+
+/** The time limit of one scan: its own `timeoutMs`, then the run's `scanTimeoutMs`, else 5 min for actionlint, 30 min for class A and
+ * 60 min for class B (a cold compile of the largest crate). */
+export function scanTimeoutMs(scan, options = {}) {
+  if (Number.isFinite(scan?.timeoutMs) && scan.timeoutMs > 0) return scan.timeoutMs;
+  if (Number.isFinite(options.scanTimeoutMs) && options.scanTimeoutMs > 0) return options.scanTimeoutMs;
+  if (scan?.tool === "actionlint") return 5 * 60_000;
+  return scan?.class === SCAN_CLASS.B ? 60 * 60_000 : 30 * 60_000;
+}
+
 export function laneOf(scan) {
   if (/^(clippy|check|check-features|check-dependent):/.test(scan.id)) return "compile";
   if (/^doc:/.test(scan.id)) return "doc";
@@ -1498,8 +1538,21 @@ export async function runScans(plan, options = {}) {
             args = args.map((a) => (a === "{advisoryDb}" ? advisory.dbDir : a === "{advisoryDenyConfig}" ? advisory.configPath : a === "{advisoryMetadata}" ? advisory.metadataPath : a));
           }
           let r;
-          try { r = await deps.spawn(p.command, args.map((a) => (a === "{contentRoot}" ? contentRoot : a)), { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, ...sig }); } finally { advisory?.cleanup?.(); }
+          // actionlint 1.7.12 writes each run: script to shellcheck's stdin before starting it (rhysd/actionlint#702): a script over the
+          // pipe buffer (~4 KB on Windows) deadlocks. Oversized scripts are refused here, before actionlint starts, so it cannot hang.
+          if (s.runScriptLimit) {
+            const over = s.runScriptLimit.files.flatMap((file) => { try { return oversizedRunScripts(ctx.read(file), file, s.runScriptLimit.bytes); } catch { return [`${file}: unreadable`]; } });
+            if (over.length) return { ...row, status: "fail", code: "RUN_SCRIPT_TOO_LARGE", detail: `run: scripts over ${s.runScriptLimit.bytes} bytes (actionlint 1.7.12 deadlocks on them, rhysd/actionlint#702; split the step): ${over.join("; ")}` };
+          }
+          // Every scan has a time limit (fails closed, names the scan, kills the process tree): a hung tool is a check that never
+          // fails, i.e. a run that never ends (actionlint on the Dell, 2026-10-27).
+          const limitMs = scanTimeoutMs(s, options);
+          const timer = new AbortController();
+          const clock = setTimeout(() => timer.abort(), limitMs);
+          const scanSignal = signal ? AbortSignal.any([signal, timer.signal]) : timer.signal;
+          try { r = await deps.spawn(p.command, args.map((a) => (a === "{contentRoot}" ? contentRoot : a)), { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, signal: scanSignal, timeout: limitMs }); } finally { clearTimeout(clock); advisory?.cleanup?.(); }
           if (signal?.aborted && (!r || r.error || r.status !== 0)) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
+          if ((timer.signal.aborted || r?.error?.code === "ETIMEDOUT") && (!r || r.error || r.status !== 0)) return { ...row, status: "fail", code: "TIMEOUT", detail: `${s.id} ran longer than ${Math.round(limitMs / 60000)} min and was killed with its process tree; a scan that does not finish fails` };
           if (!r || r.error) { status = "fail"; code = "SPAWN_ERROR"; detail = r?.error?.message ?? "no result"; }
           else if (r.status !== 0) { status = "fail"; code = "EXIT"; detail = tail(r) || `exit ${r.status}`; }
           else if (cacheKey && !signal?.aborted) cache.write(cacheKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass" });

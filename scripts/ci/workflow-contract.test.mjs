@@ -9,7 +9,7 @@ import {
   CREDENTIALS_HELPER_SOURCE_COMMIT,
   CREDENTIALS_OK_OR_SKIPPED,
   CREDENTIALS_SEAL_RUN,
-  CREDENTIALS_SIGN_RUN,
+  CREDENTIALS_SIGN_RUN, CREDENTIALS_PROFILE_RUN, CREDENTIALS_RECORD_RUN, CREDENTIALS_SIGNER_RUNS,
   CREDENTIALS_VALIDATE_RUN,
   CREDENTIALS_VERIFY_STEP_IF,
   SIGN_CREDENTIALS_ARTIFACT,
@@ -94,8 +94,25 @@ test("the credentials signing run keeps the swap security bars plus profile bind
     "profile does not authorize the signing identity",
     "job=sign-credentials-helper",
   ]) {
-    assert.ok(CREDENTIALS_SIGN_RUN.includes(line), `signing run must keep ${line}`);
+    assert.ok(CREDENTIALS_SIGNER_RUNS.join("").includes(line), `the signer steps must keep ${line}`);
   }
-  assert.doesNotMatch(CREDENTIALS_SIGN_RUN, /\$\{\{/);
+  for (const run of CREDENTIALS_SIGNER_RUNS) {
+    assert.doesNotMatch(run, /\$\{\{/);
+    assert.ok(run.startsWith("set -euo pipefail\n"), "every split step keeps strict shell settings");
+    // rhysd/actionlint#702: a run script over the ~4 KB Windows pipe buffer deadlocks actionlint's shellcheck integration.
+    assert.ok(Buffer.byteLength(run) < 3800, `a signer step stays under 3800 bytes (${Buffer.byteLength(run)})`);
+  }
+  // Each secret or variable reaches only the step that uses it.
+  assert.ok(CREDENTIALS_PROFILE_RUN.includes("$APPLE_CREDENTIALS_QUAL_PROFILE_BASE64") && !CREDENTIALS_PROFILE_RUN.includes("$APPLE_DEVELOPER_ID"));
+  assert.ok(CREDENTIALS_SIGN_RUN.includes("$APPLE_DEVELOPER_ID") && !CREDENTIALS_SIGN_RUN.includes("$APPLE_CREDENTIALS_QUAL_PROFILE_BASE64"));
+  assert.ok(!/\$APPLE_/.test(CREDENTIALS_RECORD_RUN));
+  // Order kept: profile validated before signing, digest recorded after.
+  assert.ok(CREDENTIALS_SIGN_RUN.includes('cp "$profile" "$out/RightKitCredentialsQualification.app/Contents/embedded.provisionprofile"'));
   assert.ok(CREDENTIALS_CLEANUP_RUN.includes("credentials-qual.mobileprovision"));
+  // The whole profile validation stays in its own step, before any signing: every refusal it had in the single step.
+  for (const refusal of ["profile application-identifier mismatch", "profile keychain-access-groups mismatch", "profile team mismatch", "profile platform mismatch", "profile expiry missing", "profile expired", "profile must disable debugging", "profile does not authorize the signing identity"]) {
+    assert.ok(CREDENTIALS_PROFILE_RUN.includes(`raise SystemExit("${refusal}")`), `the profile step keeps "${refusal}"`);
+  }
+  assert.ok(/\[\[ "\$identity_hash" =~ \^\[0-9A-F\]\{40\}\$ \]\]/.test(CREDENTIALS_PROFILE_RUN), "the profile step requires a real identity hash");
+  assert.doesNotMatch(CREDENTIALS_PROFILE_RUN, /(^|\n)codesign /, "nothing is signed before the profile is validated");
 });

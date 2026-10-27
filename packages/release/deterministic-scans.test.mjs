@@ -990,7 +990,9 @@ test("cancellation: an aborted signal stops scheduling, reaches the running scan
     return fakeSpawn()(command, args);
   };
   const result = await runScans(plan, { ...deps({ ...fs, spawn }), signal: ac.signal });
-  assert.deepEqual(signals, [ac.signal]);
+  // The scan receives a signal that follows the run's (combined with its own time limit), not the run's signal object itself.
+  assert.equal(signals.length, 1);
+  assert.equal(signals[0].aborted, true, "the run's abort reached the running scan");
   assert.equal(result.cancelled, true);
   assert.equal(result.ok, false);
   const row = (id) => result.scans.find((s) => s.id === id);
@@ -2101,4 +2103,52 @@ test("shellcheck version pin: a cached pass never admits another version, and th
   assert.ok(keys.includes(key("shellcheck", "shellcheck 0.11.0")), "shellcheck's key carries its version");
   assert.ok(keys.includes(key("actionlint", "actionlint 1.0.0 + shellcheck 0.11.0")), "actionlint's key carries the shellcheck it runs");
   assert.notEqual(key("shellcheck", "shellcheck 0.11.0"), key("shellcheck", "shellcheck 0.10.0"));
+});
+
+test("a scan that hangs is killed at its time limit and fails closed with its name (actionlint on the Dell, 2026-10-27); spawned children get no stdin", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
+  const target = plan.scans.find((s) => s.id === "cargo-deny");
+  assert.ok(target, "a tool scan to hang");
+  const timed = { ...plan, scans: plan.scans.map((s) => (s.id === target.id ? { ...s, timeoutMs: 50 } : s)) };
+  const hang = (command, args, options = {}) => {
+    if (args.length === 1 && /version/.test(args[0])) return fakeSpawn()(command, args);
+    if (args.includes("deny") && args.includes("check")) {
+      return new Promise((resolve) => options.signal.addEventListener("abort", () => resolve({ status: null, stdout: "", stderr: "", error: new Error("cancelled"), cancelled: true }), { once: true }));
+    }
+    return fakeSpawn()(command, args);
+  };
+  const started = Date.now();
+  const result = await runScans(timed, deps({ ...fs, spawn: hang }));
+  const row = result.scans.find((r) => r.id === target.id);
+  assert.equal(row.status, "fail");
+  assert.equal(row.code, "TIMEOUT");
+  assert.match(row.detail, new RegExp(`${target.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} ran longer than`));
+  assert.ok(Date.now() - started < 5000, "the run ended");
+  assert.equal(result.ok, false);
+  assert.equal(scansModule.scanTimeoutMs({ tool: "actionlint", class: "A" }), 5 * 60_000);
+  assert.equal(scansModule.scanTimeoutMs({ class: "B" }), 60 * 60_000);
+  assert.equal(scansModule.scanTimeoutMs({ class: "A" }, { scanTimeoutMs: 1234 }), 1234);
+});
+
+test("the async spawn gives children a closed stdin: a tool that reads stdin sees end of input instead of blocking", async () => {
+  const r = await scansModule.defaultSpawnAsync(process.execPath, ["-e", "let n=0;process.stdin.on('data',d=>n+=d.length);process.stdin.on('end',()=>{console.log('eof',n)})"], { env: process.env });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /eof 0/);
+});
+
+test("an oversized run: script fails actionlint's scan before actionlint starts (rhysd/actionlint#702: it deadlocks on scripts over the pipe buffer)", async () => {
+  const big = "x".repeat(4000);
+  const wf = `on: push\njobs:\n  a:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: |\n          echo start\n          echo ${big}\n      - name: small\n        run: |\n          echo ok\n`;
+  assert.deepEqual(scansModule.oversizedRunScripts(wf, ".github/workflows/w.yml", 3800), [`.github/workflows/w.yml:6 ${Buffer.byteLength(`echo start\necho ${big}\n`)} bytes`]);
+  assert.deepEqual(scansModule.oversizedRunScripts(wf.replace(big, "short"), ".github/workflows/w.yml", 3800), []);
+  const { fs, plan } = planFor([".github/workflows/w.yml"], { ".github/workflows/w.yml": wf });
+  const scan = plan.scans.find((s) => s.id === "actionlint");
+  assert.equal(scan.runScriptLimit.bytes, 3800);
+  const log = [];
+  const result = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ log }) }));
+  const row = result.scans.find((r) => r.id === "actionlint");
+  assert.equal(row.status, "fail");
+  assert.equal(row.code, "RUN_SCRIPT_TOO_LARGE");
+  assert.match(row.detail, /w\.yml:6 \d+ bytes/);
+  assert.ok(!log.some((c) => path.basename(c[0]).startsWith("actionlint") && !c.includes("-version")), "actionlint was never started on the oversized workflow");
 });

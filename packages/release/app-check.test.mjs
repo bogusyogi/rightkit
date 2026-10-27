@@ -71,6 +71,42 @@ test("P11: retired-alias finds every invocation form and spares history, generat
   assert.match(failures[0].fix, /rustright/);
 });
 
+test("P11: an exception spares one exact match on one unique exact line; another invocation on that line, a copy of the line, another file, or a weak entry does not pass (RustRight's wire-stable snapshot message)", (t) => {
+  const data = `    let message = vec!["${OLD}".into(), "remote".into()];`;
+  const mixed = `    let message = vec!["${OLD}".into()]; let c = Command::new("${OLD}");`;
+  const failures = run("retired-alias", t, {
+    "src/snapshot.rs": `${data}\n${mixed}\n`,
+    "src/dup.rs": `${data}\n${data}\n`,
+    "src/other.rs": `${data}\n`,
+    ".rightkit/retired-alias-exceptions.json": JSON.stringify({ exceptions: [
+      { file: "src/snapshot.rs", line: data, match: `["${OLD}".into()`, reason: "wire-stable snapshot data, digest-bound (rustright#91)" },
+      { file: "src/snapshot.rs", line: mixed, match: `["${OLD}".into()`, reason: "the data half of a line that also invokes the client" },
+      { file: "src/dup.rs", line: data, match: `["${OLD}".into()`, reason: "a line that occurs twice is never spared" },
+      { file: "src/snapshot.rs", line: data, match: "absent", reason: "a match not on the line is malformed" },
+    ] }),
+  });
+  const problems = failures.map((f) => f.problem.split(" ")[0]).sort();
+  assert.deepEqual(problems, [".rightkit/retired-alias-exceptions.json", "src/dup.rs:1,2", "src/other.rs:1", "src/snapshot.rs:2"], "only the listed data match on a unique line is spared; the Command::new on the mixed line is still found");
+});
+
+test("P11: one exception spares exactly one occurrence, and lines stay right after earlier replacements change lengths", (t) => {
+  const twice = `    let a = vec!["${OLD}".into(), "cargo".into()]; let b = vec!["${OLD}".into(), "cargo".into()];`;
+  const failures = run("retired-alias", t, {
+    "src/twice.rs": `${twice}\n`,
+    ".rightkit/retired-alias-exceptions.json": JSON.stringify({ exceptions: [
+      { file: "src/twice.rs", line: twice, match: `["${OLD}".into()`, reason: "one entry must not cover two identical invocations" },
+    ] }),
+  });
+  assert.deepEqual(failures.map((f) => f.problem.split(" ")[0]), ["src/twice.rs:1"], "two identical matches on one line: neither is spared");
+  // Many earlier replacements on line 1 (each one character longer) before a match on line 2: the reported line is the real one.
+  const many = Array.from({ length: 40 }, () => `Command::new("${OLD}");`).join(" ");
+  const text = `${many}\nlet v = vec!["${OLD}".into(), "cargo".into()];\nlet after = 1;\n`;
+  const found = retireAliasText(text).matches;
+  assert.equal(found.filter((m) => m.line === 1).length, 40);
+  assert.deepEqual(found.filter((m) => m.line !== 1).map((m) => m.line), [2], "the vec! on line 2 is reported on line 2");
+  for (const m of retireAliasText(text).matches) assert.ok(text.split("\n")[m.line - 1].includes(m.text.replace(/^[\s(;{`]/, "")), `match ${JSON.stringify(m.text)} is on its reported line ${m.line}`);
+});
+
 test("P11: retired-alias finds the forms the first sweep missed (Astra's review of #945 and its app PRs)", (t) => {
   const failures = run("retired-alias", t, {
     // heardright verify-local.mjs: [command, [args]] pairs, one element per line, a comment between, and a .cmd mapping

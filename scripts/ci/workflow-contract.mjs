@@ -126,7 +126,10 @@ export const CREDENTIALS_BUILD_RUN = [
 ].join("\n") + "\n";
 export const CREDENTIALS_SEAL_RUN = "set -euo pipefail\nout=\"$RUNNER_TEMP/credentials-helper-unsigned\"\nbin=\"$out/RightKitCredentialsQualification.app/Contents/MacOS/RightKitCredentialsQualification\"\ntest -f \"$bin\"\ncp \"$out/stage/source/entitlements.plist\" \"$out/entitlements.plist\"\nrm -rf \"$out/stage\"\nchmod 0755 \"$bin\"\n(cd \"$(dirname \"$bin\")\" && shasum -a 256 RightKitCredentialsQualification > \"$out/helper.sha256\")\nprintf 'repository=%s\\nsource=%s\\nrun=%s\\nattempt=%s\\nworkflow=%s\\nhost=%s\\narch=%s\\njob=build-credentials-helper\\n' \"$GITHUB_REPOSITORY\" \"$GITHUB_SHA\" \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\" \"$GITHUB_WORKFLOW_REF\" \"$RUNNER_OS\" \"$RUNNER_ARCH\" > \"$out/source-receipt.txt\"\ncat \"$out/helper.sha256\" >> \"$out/source-receipt.txt\"\nprintf 'sha256=%s\\n' \"$(cut -d ' ' -f 1 \"$out/helper.sha256\")\" >> \"$GITHUB_OUTPUT\"\n";
 export const CREDENTIALS_VALIDATE_RUN = "set -euo pipefail\nin=\"$RUNNER_TEMP/credentials-helper-unsigned\"\n[[ \"$EXPECTED_SHA256\" =~ ^[0-9a-f]{64}$ ]]\nshopt -s dotglob nullglob\nfiles=(\"$in\"/*)\ntest \"${#files[@]}\" -eq 5\nfor file in RightKitCredentialsQualification.app helper.sha256 source-receipt.txt source-inputs.json entitlements.plist; do\n  test -e \"$in/$file\"\n  test ! -L \"$in/$file\"\ndone\ntest -f \"$in/RightKitCredentialsQualification.app/Contents/MacOS/RightKitCredentialsQualification\"\ntest -f \"$in/RightKitCredentialsQualification.app/Contents/Info.plist\"\ntest ! -e \"$in/RightKitCredentialsQualification.app/Contents/embedded.provisionprofile\"\nprintf '%s  RightKitCredentialsQualification\\n' \"$EXPECTED_SHA256\" > \"$RUNNER_TEMP/expected-credentials-helper.sha256\"\ncmp \"$RUNNER_TEMP/expected-credentials-helper.sha256\" \"$in/helper.sha256\"\nprintf 'repository=%s\\nsource=%s\\nrun=%s\\nattempt=%s\\nworkflow=%s\\nhost=%s\\narch=%s\\njob=build-credentials-helper\\n' \"$GITHUB_REPOSITORY\" \"$GITHUB_SHA\" \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\" \"$GITHUB_WORKFLOW_REF\" \"$RUNNER_OS\" \"$RUNNER_ARCH\" > \"$RUNNER_TEMP/expected-credentials-helper-receipt.txt\"\ncat \"$RUNNER_TEMP/expected-credentials-helper.sha256\" >> \"$RUNNER_TEMP/expected-credentials-helper-receipt.txt\"\ncmp \"$RUNNER_TEMP/expected-credentials-helper-receipt.txt\" \"$in/source-receipt.txt\"\n(cd \"$in/RightKitCredentialsQualification.app/Contents/MacOS\" && shasum -a 256 -c \"$in/helper.sha256\")\n";
-export const CREDENTIALS_SIGN_RUN = [
+// The credentials signer, split into three steps so no inline script exceeds actionlint 1.7.12's pipe deadlock (rhysd/actionlint#702:
+// a run: script over the ~4 KB Windows pipe buffer hangs actionlint's shellcheck integration). The lines are the former single step's,
+// unchanged and in the same order; each step takes only the secret or variable it uses, and state passes through RUNNER_TEMP.
+const CREDENTIALS_SIGN_LINES = [
   "set -euo pipefail",
   "in=\"$RUNNER_TEMP/credentials-helper-unsigned\"",
   "out=\"$RUNNER_TEMP/credentials-helper-signed\"",
@@ -204,7 +207,16 @@ export const CREDENTIALS_SIGN_RUN = [
   "printf 'repository=%s\\nsource=%s\\nrun=%s\\nattempt=%s\\nworkflow=%s\\nhost=%s\\narch=%s\\njob=sign-credentials-helper\\n' \"$GITHUB_REPOSITORY\" \"$GITHUB_SHA\" \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\" \"$GITHUB_WORKFLOW_REF\" \"$RUNNER_OS\" \"$RUNNER_ARCH\" > \"$out/source-receipt.txt\"",
   "cat \"$out/helper.sha256\" >> \"$out/source-receipt.txt\"",
   "{ echo '### RightKitCredentialsQualification (Developer ID signed)'; echo '```'; cat \"$out/helper.sha256\"; echo '```'; } >> \"$GITHUB_STEP_SUMMARY\"",
-].join("\n") + "\n";
+];
+const credsLines = (...ranges) => [CREDENTIALS_SIGN_LINES[0], ...ranges.flatMap(([a, b]) => CREDENTIALS_SIGN_LINES.slice(a, b + 1))].join("\n") + "\n";
+/** Decode the qualification profile and prove it binds this team, identifier, platform and the signing identity (profile secret only). */
+export const CREDENTIALS_PROFILE_RUN = credsLines([4, 48]);
+/** Embed the validated profile, Developer ID sign and verify the helper (identity name only). */
+export const CREDENTIALS_SIGN_RUN = credsLines([1, 4], [49, 71]);
+/** Digest and record the signed helper (no secret). */
+export const CREDENTIALS_RECORD_RUN = credsLines([2, 2], [72, 76]);
+/** The three, in order: what the former single step ran. */
+export const CREDENTIALS_SIGNER_RUNS = Object.freeze([CREDENTIALS_PROFILE_RUN, CREDENTIALS_SIGN_RUN, CREDENTIALS_RECORD_RUN]);
 export const CREDENTIALS_CLEANUP_RUN = "keychain_path=\"$RUNNER_TEMP/apple-signing.keychain-db\"\nsecurity delete-keychain \"$keychain_path\" || true\nrm -f \"$RUNNER_TEMP/apple-signing.p12\" \"$RUNNER_TEMP/credentials-qual.mobileprovision\"\n";
 export const UNSIGNED_CREDENTIALS_ARTIFACT = "rightkit-credentials-helper-unsigned-${{ github.run_attempt }}";
 export const SIGN_CREDENTIALS_SECRETS = {
@@ -518,17 +530,18 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   const signCreds = jobs["sign-credentials-helper"]; const signCredsSteps = stepsOf(signCreds);
   check(same(sorted(Object.keys(signCreds ?? {})), ["environment", "if", "needs", "permissions", "runs-on", "steps", "timeout-minutes"]) && signCreds?.environment === "release" && same(signCreds?.permissions, { contents: "read" }) && signCreds?.["runs-on"] === "xcode-27", "sign-credentials-helper uses only native signing environment with no OIDC");
   check(signCreds?.if === SIGN_CREDENTIALS_IF && same(needsOf(signCreds), ["guard", "plan", "build-credentials-helper"]), "sign-credentials-helper requires successful credentials build, guard & plan");
-  check(signCredsSteps.length === 6, "credentials signer must have exactly download, validation, identity, signing, cleanup & handover steps");
+  check(signCredsSteps.length === 8, "credentials signer must have exactly download, validation, identity, profile, signing, record, cleanup & handover steps");
   check(same(sorted(Object.keys(signCredsSteps[0] ?? {})), ["name", "uses", "with"]) && signCredsSteps[0]?.uses === "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093" && same(signCredsSteps[0]?.with, { name: UNSIGNED_CREDENTIALS_ARTIFACT, path: `${RT}/credentials-helper-unsigned` }), "credentials signer downloads only exact unsigned artifact from same run, with no checkout or foreign run");
-  const credsExpectedRuns = [CREDENTIALS_VALIDATE_RUN, SIGN_IDENTITY_RUN, CREDENTIALS_SIGN_RUN, CREDENTIALS_CLEANUP_RUN];
-  const credsExpectedEnvs = [{ EXPECTED_SHA256: "${{ needs.build-credentials-helper.outputs.sha256 }}" }, SIGN_SWAP_SECRETS, { APPLE_DEVELOPER_ID: "${{ vars.APPLE_DEVELOPER_ID }}", APPLE_CREDENTIALS_QUAL_PROFILE_BASE64: "${{ secrets.APPLE_CREDENTIALS_QUAL_PROFILE_BASE64 }}" }, undefined];
-  for (let i = 1; i <= 4; i++) {
+  const credsExpectedRuns = [CREDENTIALS_VALIDATE_RUN, SIGN_IDENTITY_RUN, ...CREDENTIALS_SIGNER_RUNS, CREDENTIALS_CLEANUP_RUN];
+  const credsExpectedEnvs = [{ EXPECTED_SHA256: "${{ needs.build-credentials-helper.outputs.sha256 }}" }, SIGN_SWAP_SECRETS, { APPLE_CREDENTIALS_QUAL_PROFILE_BASE64: "${{ secrets.APPLE_CREDENTIALS_QUAL_PROFILE_BASE64 }}" }, { APPLE_DEVELOPER_ID: "${{ vars.APPLE_DEVELOPER_ID }}" }, undefined, undefined];
+  for (let i = 1; i <= 6; i++) {
     const step = signCredsSteps[i];
-    const expectedKeys = i === 4 ? ["if", "name", "run", "shell"] : ["env", "name", "run", "shell"];
-    check(same(sorted(Object.keys(step ?? {})), expectedKeys) && step?.run === credsExpectedRuns[i - 1] && same(step?.env, credsExpectedEnvs[i - 1]) && step?.shell === "bash" && step?.if === (i === 4 ? "${{ always() }}" : undefined), `credentials signer step ${i} must match exact validation/signing-only source & authority`);
+    // Step 5 (record) and step 6 (cleanup) take no env; cleanup always runs.
+    const expectedKeys = i === 6 ? ["if", "name", "run", "shell"] : i === 5 ? ["name", "run", "shell"] : ["env", "name", "run", "shell"];
+    check(same(sorted(Object.keys(step ?? {})), expectedKeys) && step?.run === credsExpectedRuns[i - 1] && same(step?.env, credsExpectedEnvs[i - 1]) && step?.shell === "bash" && step?.if === (i === 6 ? "${{ always() }}" : undefined), `credentials signer step ${i} must match exact validation/signing-only source & authority`);
   }
-  check(same(sorted(Object.keys(signCredsSteps[5] ?? {})), ["name", "uses", "with"]) && signCredsSteps[5]?.uses === "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" && same(signCredsSteps[5]?.with, { name: SIGN_CREDENTIALS_ARTIFACT, path: `${RT}/credentials-helper-signed`, "retention-days": "90", overwrite: "true", "if-no-files-found": "error" }), "credentials signer hands over only signed helper & bound source/hash receipts");
-  check(same(findMatches(signCreds, SECRET_PATTERN), [...Object.entries(SIGN_SWAP_SECRETS).map(([key, text]) => ({ path: `.steps[2].env.${key}`, text })), { path: ".steps[3].env.APPLE_CREDENTIALS_QUAL_PROFILE_BASE64", text: "${{ secrets.APPLE_CREDENTIALS_QUAL_PROFILE_BASE64 }}" }]), "sign-credentials-helper secrets context must occur only in exact identity import and profile signing steps");
+  check(same(sorted(Object.keys(signCredsSteps[7] ?? {})), ["name", "uses", "with"]) && signCredsSteps[7]?.uses === "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" && same(signCredsSteps[7]?.with, { name: SIGN_CREDENTIALS_ARTIFACT, path: `${RT}/credentials-helper-signed`, "retention-days": "90", overwrite: "true", "if-no-files-found": "error" }), "credentials signer hands over only signed helper & bound source/hash receipts");
+  check(same(findMatches(signCreds, SECRET_PATTERN), [...Object.entries(SIGN_SWAP_SECRETS).map(([key, text]) => ({ path: `.steps[2].env.${key}`, text })), { path: ".steps[3].env.APPLE_CREDENTIALS_QUAL_PROFILE_BASE64", text: "${{ secrets.APPLE_CREDENTIALS_QUAL_PROFILE_BASE64 }}" }]), "sign-credentials-helper secrets context must occur only in the exact identity import and profile validation steps");
   // pack is secretless and consumes the signed helper only by download.
   const packSwapDownload = stepsOf(pack).filter((s) => /^actions\/download-artifact@/.test(s.uses ?? "") && s.with?.name === SIGN_SWAP_ARTIFACT);
   check(packSwapDownload.length === 1 && packSwapDownload[0].if?.trim() === PACK_SWAP_STEP_IF && same(sorted(Object.keys(packSwapDownload[0].with)), ["name", "path"]) && packSwapDownload[0].with.path === `${RT}/swap-signed`, `pack must download ${SIGN_SWAP_ARTIFACT} into ${RT}/swap-signed with only name and path, only when sign-swap succeeded`);

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { EventEmitter } from "node:events";
 import { createSwapPaths, resolveSwapHelper, recoverApp, recoverInstalls, journalPathFor, installApp, matchPids, mountPointsFromAttach, parseArgs, parseTeamId, parsePlist, trashName, main } from "./install-app.mjs";
 
@@ -67,15 +67,20 @@ test("win32 is rejected", async () => {
 
 // ---- orchestration with stubs ----
 
-function harness({ team = "TEAM1", installedTeam = "TEAM1", fail = {}, running = false, bundleId = "dev.orthic.pulse" } = {}) {
+// Every fixture root is removed when the file's tests end (rightkit#1226: 348 leftover fixture bundles looked like installed copies).
+const fixtureRoots = [];
+after(() => { for (const root of fixtureRoots) fs.rmSync(root, { recursive: true, force: true }); });
+
+function harness({ team = "TEAM1", installedTeam = "TEAM1", fail = {}, running = false, bundleId = "test.rightkit.fixture" } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "install-app-test-"));
+  fixtureRoots.push(root);
   const dest = path.join(root, "Applications");
   const home = path.join(root, "home");
   const mount = path.join(root, "mnt");
-  fs.mkdirSync(path.join(dest, "Pulse.app", "Contents"), { recursive: true });
-  fs.writeFileSync(path.join(dest, "Pulse.app", "Contents", "marker"), "old");
-  fs.mkdirSync(path.join(mount, "Pulse.app", "Contents"), { recursive: true });
-  fs.writeFileSync(path.join(mount, "Pulse.app", "Contents", "marker"), "new");
+  fs.mkdirSync(path.join(dest, "Fixture.app", "Contents"), { recursive: true });
+  fs.writeFileSync(path.join(dest, "Fixture.app", "Contents", "marker"), "old");
+  fs.mkdirSync(path.join(mount, "Fixture.app", "Contents"), { recursive: true });
+  fs.writeFileSync(path.join(mount, "Fixture.app", "Contents", "marker"), "new");
   fs.writeFileSync(path.join(root, "p.dmg"), "");
   fs.writeFileSync(path.join(root, "p.zip"), "");
   const calls = [];
@@ -99,11 +104,11 @@ function harness({ team = "TEAM1", installedTeam = "TEAM1", fail = {}, running =
     if (cmd.endsWith("xcrun") && args[0] === "--find") { fx("nostapler"); return { stdout: "/usr/bin/stapler", stderr: "" }; }
     if (cmd.endsWith("xcrun")) { if (args[2].endsWith(".app")) fx("stapler-app"); else fx("stapler-dmg"); fx("stapler"); return { stdout: "", stderr: "" }; }
     if (cmd.endsWith("plutil")) return { stdout: JSON.stringify({ CFBundleIdentifier: bundleId }), stderr: "" };
-    if (cmd.endsWith("ps")) return { stdout: alive ? `  555 ${dest}/Pulse.app/Contents/MacOS/Pulse\n` : "", stderr: "" };
+    if (cmd.endsWith("ps")) return { stdout: alive ? `  555 ${dest}/Fixture.app/Contents/MacOS/Fixture\n` : "", stderr: "" };
     if (cmd.endsWith("xattr")) { fx("xattr"); return { stdout: "", stderr: "" }; }
     if (cmd.endsWith("ditto") && args[0] === "-x") {
       fx("unzip");
-      fs.cpSync(path.join(mount, "Pulse.app"), path.join(args[3], "Pulse.app"), { recursive: true });
+      fs.cpSync(path.join(mount, "Fixture.app"), path.join(args[3], "Fixture.app"), { recursive: true });
       return { stdout: "", stderr: "" };
     }
     if (cmd.endsWith("ditto")) {
@@ -111,7 +116,7 @@ function harness({ team = "TEAM1", installedTeam = "TEAM1", fail = {}, running =
       fs.cpSync(args[0], args[1], { recursive: true });
       return { stdout: "", stderr: "" };
     }
-    if (cmd.endsWith("open")) return { stdout: "", stderr: "" };
+    if (cmd.endsWith("open") || cmd.endsWith("/lsregister")) return { stdout: "", stderr: "" };
     throw new Error(`unexpected ${cmd}`);
   };
   const events = [];
@@ -121,7 +126,7 @@ function harness({ team = "TEAM1", installedTeam = "TEAM1", fail = {}, running =
   const noHelper = () => { const e = new Error("rightkit-swap helper not found"); e.code = "ENOHELPER"; throw e; };
   const deps = { execFile, swapPaths: noHelper, platform: "darwin", home, tmpdir: root, emit: (e) => events.push(e), sleep: async () => {}, kill: (pid, sig) => { kills.push([pid, sig]); if (sig === "SIGTERM" && !fail.stubborn) alive = false; if (sig === "SIGKILL") alive = false; } };
   const opts = { dmg: path.join(root, "p.dmg"), appName: null, bundleId: null, dest, relaunch: null, json: true };
-  return { root, mount, dest, home, deps, fakeSwap, opts, calls, kills, events, marker: () => fs.readFileSync(path.join(dest, "Pulse.app", "Contents", "marker"), "utf8") };
+  return { root, mount, dest, home, deps, fakeSwap, opts, calls, kills, events, marker: () => fs.readFileSync(path.join(dest, "Fixture.app", "Contents", "marker"), "utf8") };
 }
 
 test("happy path replaces, trashes old, quits with SIGTERM, relaunches hidden because it was running", { skip: WINDOWS_SKIP }, async () => {
@@ -131,10 +136,10 @@ test("happy path replaces, trashes old, quits with SIGTERM, relaunches hidden be
   assert.equal(h.marker(), "new");
   assert.deepEqual(h.kills, [[555, "SIGTERM"]]);
   assert.equal(r.previous, null, "no retained .previous (D01)");
-  assert.ok(!fs.existsSync(path.join(h.dest, "Pulse.app.previous")));
+  assert.ok(!fs.existsSync(path.join(h.dest, "Fixture.app.previous")));
   assert.deepEqual(h.events.map((e) => e.event), ["start", "verified", "quit", "swap-fallback", "replaced", "relaunched", "done"]);
   const open = h.calls.find((c) => c[0] === "/usr/bin/open");
-  assert.deepEqual(open, ["/usr/bin/open", "-g", "-j", "-b", "dev.orthic.pulse"]);
+  assert.deepEqual(open, ["/usr/bin/open", "-g", "-j", path.join(h.dest, "Fixture.app")], "relaunch by the installed path, never by bundle id (rightkit#1225)");
   assert.ok(h.calls.some((c) => c[0].endsWith("hdiutil") && c[1] === "detach"));
   assert.ok(!h.calls.some((c) => /osascript/.test(c[0])));
 });
@@ -185,12 +190,12 @@ test("ditto failure (during staging) leaves the old bundle untouched and no left
   const h = harness({ fail: { ditto: "disk full" } });
   await assert.rejects(installApp(h.opts, h.deps), /previous app untouched/);
   assert.equal(h.marker(), "old");
-  assert.deepEqual(fs.readdirSync(h.dest), ["Pulse.app"]);
+  assert.deepEqual(fs.readdirSync(h.dest), ["Fixture.app"]);
 });
 
 test("fresh install into empty dest works without trash", async () => {
   const h = harness();
-  fs.rmSync(path.join(h.dest, "Pulse.app"), { recursive: true });
+  fs.rmSync(path.join(h.dest, "Fixture.app"), { recursive: true });
   const r = await installApp(h.opts, h.deps);
   assert.equal(r.previous, null);
   assert.equal(h.marker(), "new");
@@ -208,10 +213,10 @@ test("detach retries busy volumes with backoff, then forces", async () => {
 test("parseArgs --dev accepts dmg, zip, or app, exclusively; zip/app need --dev", () => {
   assert.equal(parseArgs(["--dev", "--zip", "a.zip"]).dev, true);
   assert.ok(path.isAbsolute(parseArgs(["--dev", "--zip", "a.zip"]).zip));
-  assert.ok(path.isAbsolute(parseArgs(["--dev", "--app", "x/Pulse.app"]).app));
+  assert.ok(path.isAbsolute(parseArgs(["--dev", "--app", "x/Fixture.app"]).app));
   assert.equal(parseArgs(["--dev", "--dmg", "a.dmg"]).dmg.endsWith("a.dmg"), true);
   assert.throws(() => parseArgs(["--zip", "a.zip"]), /require --dev/);
-  assert.throws(() => parseArgs(["--app", "Pulse.app"]), /require --dev/);
+  assert.throws(() => parseArgs(["--app", "Fixture.app"]), /require --dev/);
   assert.throws(() => parseArgs(["--dev"]), /required/);
   assert.throws(() => parseArgs(["--dev", "--zip", "a.zip", "--dmg", "a.dmg"]), /mutually exclusive/);
   assert.throws(() => parseArgs(["--dev", "--zip", "a.dmg"]), /\.zip/);
@@ -227,13 +232,13 @@ test("--dev zip install: skips spctl/stapler, clears quarantine on the new bundl
   assert.equal(r.dev, true);
   assert.equal(h.marker(), "new");
   assert.equal(r.previous, null, "a dev install keeps no old copy");
-  assert.deepEqual(fs.readdirSync(h.dest), ["Pulse.app"], "no .previous, no staging, no journal beside the dev install");
+  assert.deepEqual(fs.readdirSync(h.dest), ["Fixture.app"], "no .previous, no staging, no journal beside the dev install");
   assert.ok(!h.calls.some((c) => c[0].endsWith("spctl")));
   assert.ok(!h.calls.some((c) => c[0].endsWith("xcrun")));
   assert.ok(!h.calls.some((c) => c[0].endsWith("hdiutil")), "zip input never mounts");
   assert.ok(h.calls.some((c) => c[0].endsWith("codesign") && c[1] === "--verify" && c.includes("--deep") && c.includes("--strict")));
   const xattrs = h.calls.filter((c) => c[0].endsWith("xattr"));
-  assert.deepEqual(xattrs, [["/usr/bin/xattr", "-dr", "com.apple.quarantine", path.join(h.dest, "Pulse.app")]]);
+  assert.deepEqual(xattrs, [["/usr/bin/xattr", "-dr", "com.apple.quarantine", path.join(h.dest, "Fixture.app")]]);
   assert.ok(h.events.every((e) => e.dev === true));
   assert.ok(h.events.some((e) => e.event === "dev-build" && /DEV BUILD \(not notarized\)/.test(e.note)));
   assert.deepEqual(h.kills, [[555, "SIGTERM"]]);
@@ -243,18 +248,22 @@ test("--dev zip install: skips spctl/stapler, clears quarantine on the new bundl
 
 test("--dev app install uses the bundle in place and still enforces team continuity and bundle id", async () => {
   const h = harness();
-  h.opts = { ...h.opts, dmg: null, app: path.join(h.mount, "Pulse.app"), dev: true };
+  h.opts = { ...h.opts, dmg: null, app: path.join(h.mount, "Fixture.app"), dev: true };
   const r = await installApp(h.opts, h.deps);
   assert.equal(r.dev, true);
   assert.equal(h.marker(), "new");
+  // The build product is unregistered after the install, so Launch Services knows only the installed copy (rightkit#1225).
+  const unregister = h.calls.find((c) => c[0].endsWith("/lsregister"));
+  assert.deepEqual(unregister?.slice(1), ["-u", path.join(h.mount, "Fixture.app")]);
+  assert.ok(h.events.some((e) => e.event === "unregistered"));
 
   const t = harness({ team: "NEWTEAM", installedTeam: "OLDTEAM" });
-  t.opts = { ...t.opts, dmg: null, app: path.join(t.mount, "Pulse.app"), dev: true };
+  t.opts = { ...t.opts, dmg: null, app: path.join(t.mount, "Fixture.app"), dev: true };
   await assert.rejects(installApp(t.opts, t.deps), /team change/);
   assert.equal(t.marker(), "old");
 
   const b = harness();
-  b.opts = { ...b.opts, dmg: null, app: path.join(b.mount, "Pulse.app"), dev: true, bundleId: "dev.other.app" };
+  b.opts = { ...b.opts, dmg: null, app: path.join(b.mount, "Fixture.app"), dev: true, bundleId: "dev.other.app" };
   await assert.rejects(installApp(b.opts, b.deps), /bundle id/);
   assert.equal(b.marker(), "old");
 });
@@ -288,7 +297,7 @@ test("app ticket present: verified records app-ticket and skips DMG fallback che
 });
 
 test("DMG-ticket flow: app has no ticket, DMG staple + DMG spctl + app Notarized Developer ID accept", async () => {
-  const h = harness({ fail: { "stapler-app": "Pulse.app does not have a ticket stapled" } });
+  const h = harness({ fail: { "stapler-app": "Fixture.app does not have a ticket stapled" } });
   const r = await installApp(h.opts, h.deps);
   assert.equal(r.ok, true);
   assert.equal(h.marker(), "new");
@@ -350,20 +359,20 @@ function crashing(h, { at = () => null, swapAt = null }) {
 }
 
 const bundles = (h) => fs.readdirSync(h.dest).filter((n) => n.endsWith(".app"));
-const recoverDeps = (h) => ({ dest: h.dest, appName: "Pulse.app", run: (c, a) => h.deps.execFile(c, a), fsImpl: fs, home: h.home, now: () => new Date("2026-10-09T00:00:00Z"), event: (n, d) => h.events.push({ event: n, ...d }), sleep: async () => {}, isAlive: () => false });
+const recoverDeps = (h) => ({ dest: h.dest, appName: "Fixture.app", run: (c, a) => h.deps.execFile(c, a), fsImpl: fs, home: h.home, now: () => new Date("2026-10-09T00:00:00Z"), event: (n, d) => h.events.push({ event: n, ...d }), sleep: async () => {}, isAlive: () => false });
 
 for (const [name, at, expectMarker] of [
   ["after backup rename, before staged rename", (from, to) => (to.endsWith(".app.previous") ? "after" : null), "old"],
-  ["after staged rename, before trash", (from, to) => (to.endsWith("/Pulse.app") && from.includes(".rightkit-install.app") ? "after" : null), "new"],
+  ["after staged rename, before trash", (from, to) => (to.endsWith("/Fixture.app") && from.includes(".rightkit-install.app") ? "after" : null), "new"],
 ]) {
   test(`kill ${name}: recovery leaves exactly one valid bundle, idempotently`, { skip: WINDOWS_SKIP }, async () => {
     const h = harness();
     const c = crashing(h, { at });
     await assert.rejects(installApp(h.opts, c.deps), /kill after rename/);
-    assert.ok(fs.existsSync(journalPathFor(h.dest, "Pulse.app")), "journal survives the kill");
+    assert.ok(fs.existsSync(journalPathFor(h.dest, "Fixture.app")), "journal survives the kill");
     const r1 = await recoverInstalls(recoverDeps(h));
     assert.equal(r1.length, 1);
-    assert.deepEqual(bundles(h), ["Pulse.app"]);
+    assert.deepEqual(bundles(h), ["Fixture.app"]);
     assert.equal(h.marker(), expectMarker);
     assert.deepEqual(fs.readdirSync(h.dest).filter((n) => n.startsWith(".") && n !== ".rightkit-install.lock"), [], "no journal, staging, or backup left");
     assert.deepEqual(await recoverInstalls(recoverDeps(h)), [], "second recovery is a no-op");
@@ -374,21 +383,21 @@ for (const [name, at, expectMarker] of [
 
 test("kill after staged rename with a bad new bundle rolls back to the backup", { skip: WINDOWS_SKIP }, async () => {
   const h = harness();
-  const c = crashing(h, { at: (from, to) => (to.endsWith("/Pulse.app") && from.includes(".rightkit-install.app") ? "after" : null) });
+  const c = crashing(h, { at: (from, to) => (to.endsWith("/Fixture.app") && from.includes(".rightkit-install.app") ? "after" : null) });
   await assert.rejects(installApp(h.opts, c.deps), /kill after rename/);
   h.deps.execFile = ((orig) => async (cmd, args) => { if (cmd.endsWith("codesign") && args[0] === "--verify") throw new Error("broken"); return orig(cmd, args); })(h.deps.execFile);
   const r = await recoverInstalls(recoverDeps(h));
   assert.equal(r[0].action, "rolled-back");
   assert.equal(h.marker(), "old");
-  assert.deepEqual(bundles(h), ["Pulse.app"]);
+  assert.deepEqual(bundles(h), ["Fixture.app"]);
 });
 
 test("kill after backup rename with the destination absent restores the backup (the R7 finding)", async () => {
   const h = harness();
   const c = crashing(h, { at: (from, to) => (to.endsWith(".app.previous") ? "after" : null) });
   await assert.rejects(installApp(h.opts, c.deps), /kill after rename/);
-  assert.ok(!fs.existsSync(path.join(h.dest, "Pulse.app")));
-  const code = await main(["--recover", "--dest", h.dest, "--app-name", "Pulse.app", "--json"], { stdout: () => {}, stderr: () => {}, deps: { ...h.deps, fsImpl: fs } });
+  assert.ok(!fs.existsSync(path.join(h.dest, "Fixture.app")));
+  const code = await main(["--recover", "--dest", h.dest, "--app-name", "Fixture.app", "--json"], { stdout: () => {}, stderr: () => {}, deps: { ...h.deps, fsImpl: fs } });
   assert.equal(code, 0);
   assert.equal(h.marker(), "old");
 });
@@ -408,10 +417,10 @@ test("recovery skips a journal whose installer is still alive", async () => {
   const h = harness();
   const c = crashing(h, { at: (from, to) => (to.endsWith(".app.previous") ? "after" : null) });
   await assert.rejects(installApp(h.opts, c.deps), /kill after rename/);
-  const j = JSON.parse(fs.readFileSync(journalPathFor(h.dest, "Pulse.app"), "utf8"));
+  const j = JSON.parse(fs.readFileSync(journalPathFor(h.dest, "Fixture.app"), "utf8"));
   const r = await recoverInstalls({ ...recoverDeps(h), isAlive: () => true, selfPid: j.pid + 1 });
   assert.deepEqual(r, []);
-  assert.ok(fs.existsSync(journalPathFor(h.dest, "Pulse.app")));
+  assert.ok(fs.existsSync(journalPathFor(h.dest, "Fixture.app")));
 });
 
 test("reverify failure rolls back to the old bundle without trashing it; mount detached", async () => {
@@ -431,11 +440,11 @@ test("dev: SIGTERM mid-install removes the new copy, keeps NO old copy, detaches
   const inner = h.deps.execFile;
   // Signal arrives right after the old bundle was swapped out (during quit's ps call).
   h.deps.execFile = async (cmd, args) => {
-    if (cmd.endsWith("xattr") || (cmd.endsWith("codesign") && args[0] === "--verify" && args[3] === path.join(h.dest, "Pulse.app"))) { sig.emit("SIGTERM"); await exited; }
+    if (cmd.endsWith("xattr") || (cmd.endsWith("codesign") && args[0] === "--verify" && args[3] === path.join(h.dest, "Fixture.app"))) { sig.emit("SIGTERM"); await exited; }
     return inner(cmd, args);
   };
   h.deps.signalTarget = sig;
-  h.opts.dev = true; h.opts.dmg = null; h.opts.app = path.join(h.mount, "Pulse.app");
+  h.opts.dev = true; h.opts.dmg = null; h.opts.app = path.join(h.mount, "Fixture.app");
   const p = installApp(h.opts, h.deps).catch(() => {});
   await exited;
   assert.equal(exitCode, 143);
@@ -465,19 +474,19 @@ test("SIGINT during DMG staging detaches the mount before exit", async () => {
 test("normal path leaves no journal, staging or retained .previous (never the Trash)", async () => {
   const h = harness();
   // A stale retained copy from an older RightKit must not survive either.
-  fs.mkdirSync(path.join(h.dest, "Pulse.app.previous", "Contents"), { recursive: true });
-  fs.writeFileSync(path.join(h.dest, "Pulse.app.previous", "Contents", "marker"), "ancient");
+  fs.mkdirSync(path.join(h.dest, "Fixture.app.previous", "Contents"), { recursive: true });
+  fs.writeFileSync(path.join(h.dest, "Fixture.app.previous", "Contents", "marker"), "ancient");
   const r = await installApp(h.opts, h.deps);
-  assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Pulse.app"]);
+  assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Fixture.app"]);
   assert.equal(r.previous, null);
   assert.ok(!fs.existsSync(path.join(h.home, ".Trash")) || fs.readdirSync(path.join(h.home, ".Trash")).length === 0);
   await installApp(h.opts, h.deps);
-  assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Pulse.app"]);
+  assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Fixture.app"]);
   assert.equal(h.marker(), "new");
 });
 
 test("parseArgs --recover", () => {
-  const o = parseArgs(["--recover", "--dest", "/x", "--app-name", "Pulse.app"]);
+  const o = parseArgs(["--recover", "--dest", "/x", "--app-name", "Fixture.app"]);
   assert.equal(o.recover, true);
   assert.throws(() => parseArgs(["--recover", "--dmg", "a.dmg"]), /--recover only/);
   assert.throws(() => parseArgs(["--recover", "--app-name", "../x.app"]), /app-name/);
@@ -518,19 +527,19 @@ test("atomic swap: installed is never absent, old bundle trashed last, event rec
   const h = harness();
   const swaps = [];
   let seenAbsent = false;
-  h.deps.swapPaths = (a, b) => { swaps.push([path.basename(a), path.basename(b)]); h.fakeSwap(a, b); seenAbsent ||= !fs.existsSync(path.join(h.dest, "Pulse.app")); };
+  h.deps.swapPaths = (a, b) => { swaps.push([path.basename(a), path.basename(b)]); h.fakeSwap(a, b); seenAbsent ||= !fs.existsSync(path.join(h.dest, "Fixture.app")); };
   const renames = [];
   h.deps.fsImpl = new Proxy(fs, { get(t, p) { const v = t[p]; if (p === "renameSync") return (f, to) => { renames.push(path.basename(to)); return v.call(t, f, to); }; return typeof v === "function" ? v.bind(t) : v; } });
   const r = await installApp(h.opts, h.deps);
   assert.equal(r.swap, "atomic");
   assert.equal(swaps.length, 1);
-  assert.match(swaps[0][0], /^\.Pulse\.rightkit-install\.app$/);
-  assert.equal(swaps[0][1], "Pulse.app");
+  assert.match(swaps[0][0], /^\.Fixture\.rightkit-install\.app$/);
+  assert.equal(swaps[0][1], "Fixture.app");
   assert.ok(!renames.some((n) => n.includes("rightkit-backup")), "no backup rename in atomic mode");
   assert.equal(h.marker(), "new");
   assert.equal(r.previous, null, "no retained .previous (D01)");
   assert.equal(h.events.find((e) => e.event === "replaced").swap, "atomic");
-  assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Pulse.app"]);
+  assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Fixture.app"]);
   assert.deepEqual(h.events.map((e) => e.event).filter((n) => n === "swap-fallback"), []);
 });
 
@@ -544,7 +553,7 @@ for (const code of ["ENOTSUP", "EINVAL", "ENOHELPER"]) {
     assert.equal(h.events.find((e) => e.event === "swap-fallback").reason, code);
     assert.equal(h.marker(), "new");
     assert.equal(r.previous, null, "no retained .previous (D01)");
-    assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Pulse.app"]);
+    assert.deepEqual(fs.readdirSync(h.dest).sort(), ["Fixture.app"]);
   });
 }
 
@@ -558,7 +567,7 @@ test("a real swap failure (not unsupported) aborts with the old bundle untouched
 
 test("fresh install with the helper present uses a plain rename and reports swap rename", async () => {
   const h = harness();
-  fs.rmSync(path.join(h.dest, "Pulse.app"), { recursive: true });
+  fs.rmSync(path.join(h.dest, "Fixture.app"), { recursive: true });
   h.deps.swapPaths = () => { throw new Error("must not swap when nothing is installed"); };
   const r = await installApp(h.opts, h.deps);
   assert.equal(r.swap, "rename");
@@ -595,7 +604,7 @@ test("atomic: SIGTERM after the exchange swaps back and exits 143", async () => 
   const inner = h.deps.execFile;
   // Release mode (dev never exchanges: it keeps no old copy): the signal lands during the re-verify of the exchanged-in bundle.
   h.deps.execFile = async (cmd, args) => {
-    if (cmd.endsWith("codesign") && args[0] === "--verify" && args[3] === path.join(h.dest, "Pulse.app")) { sig.emit("SIGTERM"); await exited; }
+    if (cmd.endsWith("codesign") && args[0] === "--verify" && args[3] === path.join(h.dest, "Fixture.app")) { sig.emit("SIGTERM"); await exited; }
     return inner(cmd, args);
   };
   h.deps.signalTarget = sig;
@@ -616,12 +625,12 @@ for (const [name, swapAt, expectMarker] of [
     h.deps.swapPaths = h.fakeSwap;
     const c = crashing(h, { swapAt });
     await assert.rejects(installApp(h.opts, c.deps), /kill (before|after) swap/);
-    assert.ok(fs.existsSync(path.join(h.dest, "Pulse.app")), "destination present at the moment of the kill");
-    assert.ok(fs.existsSync(journalPathFor(h.dest, "Pulse.app")));
+    assert.ok(fs.existsSync(path.join(h.dest, "Fixture.app")), "destination present at the moment of the kill");
+    assert.ok(fs.existsSync(journalPathFor(h.dest, "Fixture.app")));
     const rd = { ...recoverDeps(h), swapPaths: h.fakeSwap };
     const r1 = await recoverInstalls(rd);
     assert.equal(r1.length, 1);
-    assert.deepEqual(bundles(h), ["Pulse.app"]);
+    assert.deepEqual(bundles(h), ["Fixture.app"]);
     assert.equal(h.marker(), expectMarker);
     assert.deepEqual(dotfiles(h), []);
     assert.deepEqual(await recoverInstalls(rd), []);
@@ -639,7 +648,7 @@ test("atomic: kill after the exchange with a bad new bundle rolls back by swappi
   const r = await recoverInstalls({ ...recoverDeps(h), swapPaths: h.fakeSwap });
   assert.equal(r[0].action, "rolled-back");
   assert.equal(h.marker(), "old");
-  assert.deepEqual(bundles(h), ["Pulse.app"]);
+  assert.deepEqual(bundles(h), ["Fixture.app"]);
   assert.deepEqual(dotfiles(h), []);
 });
 
@@ -648,14 +657,14 @@ test("atomic: a verified journal rolls forward deleting the old bundle and any s
   h.deps.swapPaths = h.fakeSwap;
   const c = crashing(h, { swapAt: "after" });
   await assert.rejects(installApp(h.opts, c.deps), /kill after swap/);
-  const journal = journalPathFor(h.dest, "Pulse.app");
+  const journal = journalPathFor(h.dest, "Fixture.app");
   const j = JSON.parse(fs.readFileSync(journal, "utf8"));
   fs.writeFileSync(journal, JSON.stringify({ ...j, phase: "verified" }));
-  fs.mkdirSync(path.join(h.dest, "Pulse.app.previous"));
-  fs.writeFileSync(path.join(h.dest, "Pulse.app.previous", "older"), "an older previous");
+  fs.mkdirSync(path.join(h.dest, "Fixture.app.previous"));
+  fs.writeFileSync(path.join(h.dest, "Fixture.app.previous", "older"), "an older previous");
   const r1 = await recoverInstalls({ ...recoverDeps(h), swapPaths: h.fakeSwap });
   assert.equal(r1[0].action, "rolled-forward");
-  assert.ok(!fs.existsSync(path.join(h.dest, "Pulse.app.previous")), "no .previous is retained after roll-forward");
+  assert.ok(!fs.existsSync(path.join(h.dest, "Fixture.app.previous")), "no .previous is retained after roll-forward");
   assert.equal(h.marker(), "new");
   assert.deepEqual(dotfiles(h), []);
   assert.deepEqual(await recoverInstalls({ ...recoverDeps(h), swapPaths: h.fakeSwap }), []);
@@ -665,7 +674,7 @@ test("mixed-mode recovery: a two-rename journal still recovers when a helper is 
   const h = harness();
   const c = crashing(h, { at: (from, to) => (to.endsWith(".app.previous") ? "after" : null) });
   await assert.rejects(installApp(h.opts, c.deps), /kill after rename/);
-  const j = JSON.parse(fs.readFileSync(journalPathFor(h.dest, "Pulse.app"), "utf8"));
+  const j = JSON.parse(fs.readFileSync(journalPathFor(h.dest, "Fixture.app"), "utf8"));
   assert.equal(j.swap, "two-rename");
   await recoverInstalls({ ...recoverDeps(h), swapPaths: h.fakeSwap });
   assert.equal(h.marker(), "old");
@@ -673,6 +682,7 @@ test("mixed-mode recovery: a two-rename journal still recovers when a helper is 
 
 test("resolveSwapHelper order: RIGHTKIT_SWAP, then shipped bin/darwin, then PATH", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "swap-resolve-"));
+  fixtureRoots.push(root);
   const mk = (p) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, "#!/bin/sh\n"); return p; };
   const envHelper = mk(path.join(root, "env", "rightkit-swap"));
   const shipped = mk(path.join(root, "pkg", "bin", "darwin", "rightkit-swap"));
@@ -723,7 +733,7 @@ for (const dev of [false, true]) {
     assertOnlyBundleCopied(h);
     assert.equal(h.marker(), "new");
     const names = fs.readdirSync(h.dest).sort();
-    assert.deepEqual(names, ["Pulse.app", "coderight.db", "coderight.db-wal", "models"]);
+    assert.deepEqual(names, ["Fixture.app", "coderight.db", "coderight.db-wal", "models"]);
   });
 
   test(`${mode}: data files beside the app are untouched and never copied, on a failed install`, { skip: WINDOWS_SKIP }, async () => {
@@ -735,7 +745,7 @@ for (const dev of [false, true]) {
     assert.deepEqual(readData(h), before);
     assertOnlyBundleCopied(h);
     if (dev) {
-      assert.equal(fs.existsSync(path.join(h.dest, "Pulse.app")), false, "dev: the failed copy is removed and the old app is NOT restored");
+      assert.equal(fs.existsSync(path.join(h.dest, "Fixture.app")), false, "dev: the failed copy is removed and the old app is NOT restored");
       assert.deepEqual(fs.readdirSync(h.dest).sort(), ["coderight.db", "coderight.db-wal", "models"], "no .previous or backup of any kind");
     } else {
       assert.equal(h.marker(), "old", "release: the old bundle is renamed back");
@@ -745,11 +755,11 @@ for (const dev of [false, true]) {
 
 test("dev: a stale .previous left by an older RightKit is removed, and a failed dev install says to reinstall from an older DMG", { skip: WINDOWS_SKIP }, async () => {
   const h = harness();
-  fs.mkdirSync(path.join(h.dest, "Pulse.app.previous", "Contents"), { recursive: true });
-  fs.writeFileSync(path.join(h.dest, "Pulse.app.previous", "Contents", "marker"), "ancient");
+  fs.mkdirSync(path.join(h.dest, "Fixture.app.previous", "Contents"), { recursive: true });
+  fs.writeFileSync(path.join(h.dest, "Fixture.app.previous", "Contents", "marker"), "ancient");
   h.opts = { ...h.opts, dmg: null, zip: path.join(h.root, "p.zip"), dev: true };
   await installApp(h.opts, h.deps);
-  assert.deepEqual(fs.readdirSync(h.dest), ["Pulse.app"]);
+  assert.deepEqual(fs.readdirSync(h.dest), ["Fixture.app"]);
 
   const f = harness({ fail: { reverify: "bad after swap" } });
   f.opts = { ...f.opts, dmg: null, zip: path.join(f.root, "p.zip"), dev: true };
@@ -765,17 +775,17 @@ test("dev never swaps atomically: no exchange helper call, no old bundle parked 
   assert.equal(exchanged, 0);
   assert.equal(r.swap, "replace");
   assert.equal(r.previous, null);
-  assert.deepEqual(fs.readdirSync(h.dest), ["Pulse.app"]);
+  assert.deepEqual(fs.readdirSync(h.dest), ["Fixture.app"]);
 });
 
 test("recovery of a dev journal from an older RightKit never keeps the old bundle as .previous", { skip: WINDOWS_SKIP }, async () => {
   const h = harness();
-  const installed = path.join(h.dest, "Pulse.app");
+  const installed = path.join(h.dest, "Fixture.app");
   const backup = `${installed}.previous`;
   fs.mkdirSync(path.join(backup, "Contents"), { recursive: true });
   fs.writeFileSync(path.join(backup, "Contents", "marker"), "old-parked");
-  fs.writeFileSync(journalPathFor(h.dest, "Pulse.app"), JSON.stringify({ schema: 1, appName: "Pulse.app", pid: 1, phase: "verified", dev: true, installed, backup, staged: path.join(h.dest, ".Pulse.rightkit-install.app"), mount: null, mountRoot: null }));
-  const results = await recoverInstalls({ dest: h.dest, appName: "Pulse.app", run: h.deps.execFile, fsImpl: fs, home: h.home, now: () => new Date(), event: () => {}, sleep: async () => {}, isAlive: () => false, selfPid: 2, swapPaths: h.deps.swapPaths });
+  fs.writeFileSync(journalPathFor(h.dest, "Fixture.app"), JSON.stringify({ schema: 1, appName: "Fixture.app", pid: 1, phase: "verified", dev: true, installed, backup, staged: path.join(h.dest, ".Pulse.rightkit-install.app"), mount: null, mountRoot: null }));
+  const results = await recoverInstalls({ dest: h.dest, appName: "Fixture.app", run: h.deps.execFile, fsImpl: fs, home: h.home, now: () => new Date(), event: () => {}, sleep: async () => {}, isAlive: () => false, selfPid: 2, swapPaths: h.deps.swapPaths });
   assert.equal(results[0].action, "rolled-forward");
   assert.equal(fs.existsSync(backup), false);
 });

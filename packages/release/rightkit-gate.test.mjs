@@ -12,7 +12,7 @@ import { spawnSync } from "./background-process.mjs";
 import { HOOK_MARKER, renderPreCommitHook } from "./ownership-hooks.mjs";
 import { digestScanSet } from "./scan-digest.mjs";
 import { PINNED_SCAN_TOOLS } from "./deterministic-scans.mjs";
-import { EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, cargoInputsDiffer, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, hookText, lockScope, main as gateMain, manifestChangeIsLockReflected, PARTIAL_EXIT, manifestTables, parsePushLines, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustUnitName, rustUnitOfScanId, tomlString, tomlStrings, tomlValue, trampolineText, workspaceExcludes, exportTmpRoot, appRootOf } from "./bin/rightkit-gate.mjs";
+import { pathspecBatches, EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, cargoInputsDiffer, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, hookText, lockScope, main as gateMain, manifestChangeIsLockReflected, PARTIAL_EXIT, manifestTables, parsePushLines, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustUnitName, rustUnitOfScanId, tomlString, tomlStrings, tomlValue, trampolineText, workspaceExcludes, exportTmpRoot, appRootOf } from "./bin/rightkit-gate.mjs";
 import * as gateModule from "./bin/rightkit-gate.mjs";
 
 // Read off the module so a test of a function that does not exist yet fails on its own, not with an import error for the whole file.
@@ -2719,4 +2719,64 @@ test("a door run puts the door's own right-release shims first on PATH when the 
   assert.deepEqual(doorPath({ env: { Path: "C:\\w" }, exists, gateFile: installed, platform: "win32" }), { Path: `${bin}${path.delimiter}C:\\w` });
   assert.deepEqual(doorPath({ env: { PATH: "/usr/bin" }, exists: () => false, gateFile: installed, platform: "darwin" }), {}, "no shims: nothing added");
   assert.deepEqual(doorPath({ env: { PATH: "/usr/bin" }, exists, gateFile: path.join(os.tmpdir(), "repo", "packages", "release", "bin", "rightkit-gate.mjs"), platform: "darwin" }), {}, "a checkout has no .bin beside it");
+});
+
+test("cargoInputsDiffer batches its pathspecs under the Windows command-line limit: no git argv exceeds the batch size, results merge, and a failed batch fails closed", (t) => {
+  const paths = Array.from({ length: 1100 }, (_, i) => `crates/some-fairly-long-crate-name-${i}/.cargo/config.toml`);
+  const batches = pathspecBatches(paths);
+  assert.ok(batches.length > 1);
+  assert.deepEqual(batches.flat(), paths, "every pathspec kept, in order");
+  for (const b of batches) assert.ok(b.join(" ").length < 8000, "each batch fits well under 32767");
+  // Through the function: many manifests, a spawn that records argv length and refuses anything over the Windows limit.
+  const manifests = Array.from({ length: 200 }, (_, i) => `crates/crate-with-a-long-directory-name-${i}/Cargo.toml`);
+  const longest = []; const ok = (stdout = "") => ({ status: 0, stdout, stderr: "" });
+  const spawn = (cmd, args) => { const len = [cmd, ...args].join(" ").length; longest.push(len); return len > 32767 ? { status: null, error: new Error("spawnSync git ENAMETOOLONG") } : ok(); };
+  assert.deepEqual(cargoInputsDiffer({ root: "/r", snapshot: "HEAD", manifests, spawn }), [], "nothing listed, nothing differs, and no argv overflowed");
+  assert.ok(Math.max(...longest) < 32767, `longest argv ${Math.max(...longest)}`);
+  // One failing batch fails the comparison closed.
+  let n = 0;
+  const flaky = (cmd, args) => (args[0] === "ls-tree" && ++n === 2 ? { status: 1, stdout: "", stderr: "boom" } : ok());
+  assert.match(cargoInputsDiffer({ root: "/r", snapshot: "HEAD", manifests, spawn: flaky })[0], /cannot list HEAD/);
+  void t;
+});
+
+test("cargoInputsDiffer compares the live bytes cargo reads (D13): raw-identical and exact CRLF checkouts are unchanged; a clean filter cannot hide an edit", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-d13-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const git = (...a) => { const r = spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.autocrlf=false", ...a], { cwd: root, encoding: "utf8" }); assert.equal(r.status, 0, r.stderr); return r.stdout; };
+  const manifests = ["crates/a/Cargo.toml"];
+  const toml = path.join(root, "crates", "a", "Cargo.toml");
+  git("init", "-q");
+  fs.mkdirSync(path.join(root, "crates", "a"), { recursive: true });
+  // 1. A CRLF blob committed as-is (-text) and checked out byte-identical.
+  fs.writeFileSync(path.join(root, ".gitattributes"), "*.toml -text\n");
+  fs.writeFileSync(toml, '[package]\r\nname = "a"\r\nversion = "0.1.0"\r\n');
+  git("add", "-A"); git("commit", "-qm", "crlf");
+  const calls = [];
+  const spawn = (cmd, args, opts) => { calls.push(args); return spawnSync(cmd, args, { ...opts, encoding: "utf8" }); };
+  assert.deepEqual(cargoInputsDiffer({ root, snapshot: "HEAD", manifests, spawn }), []);
+  const hashCalls = calls.filter((a) => a[0] === "hash-object");
+  assert.ok(hashCalls.length > 0 && hashCalls.every((a) => a.includes("--no-filters") && !a.some((x) => x.startsWith("--path="))), "every live hash is raw");
+  fs.writeFileSync(toml, '[package]\r\nname = "a"\r\nversion = "0.2.0"\r\n');
+  assert.deepEqual(cargoInputsDiffer({ root, snapshot: "HEAD", manifests }), manifests, "a real edit is named");
+  // 2. An LF blob checked out with every LF as CRLF (core.autocrlf on Windows) is the same input; CRLF plus an edit is not.
+  fs.writeFileSync(path.join(root, ".gitattributes"), "");
+  fs.writeFileSync(toml, '[package]\nname = "a"\nversion = "0.1.0"\n');
+  git("add", "-A"); git("commit", "-qm", "lf");
+  fs.writeFileSync(toml, '[package]\r\nname = "a"\r\nversion = "0.1.0"\r\n');
+  assert.deepEqual(cargoInputsDiffer({ root, snapshot: "HEAD", manifests }), [], "an exact CRLF checkout of an LF blob");
+  fs.writeFileSync(toml, '[package]\r\nname = "a"\nversion = "0.1.0"\r\n');
+  assert.deepEqual(cargoInputsDiffer({ root, snapshot: "HEAD", manifests }), manifests, "mixed line endings are not an exact CRLF checkout");
+  fs.writeFileSync(toml, '[package]\r\nname = "a"\r\nversion = "0.9.0"\r\n');
+  assert.deepEqual(cargoInputsDiffer({ root, snapshot: "HEAD", manifests }), manifests, "CRLF plus an edit is named");
+  // 3. Counterexample: a configured clean filter that drops the version line makes two different files hash the same under
+  //    `--path`; the raw comparison still names the live edit cargo would read.
+  git("config", "filter.dropver.clean", "grep -v '^version'");
+  git("config", "filter.dropver.smudge", "cat");
+  fs.writeFileSync(path.join(root, ".gitattributes"), "*.toml filter=dropver\n");
+  fs.writeFileSync(toml, '[package]\nname = "a"\n');
+  git("add", "-A"); git("commit", "-qm", "filtered");
+  fs.writeFileSync(toml, '[package]\nname = "a"\nversion = "6.6.6"\n');
+  assert.equal(git("hash-object", "--path=crates/a/Cargo.toml", "--", toml).trim(), git("rev-parse", "HEAD:crates/a/Cargo.toml").trim(), "the filter really hides the edit from --path hashing");
+  assert.deepEqual(cargoInputsDiffer({ root, snapshot: "HEAD", manifests }), manifests, "the raw comparison names it");
 });

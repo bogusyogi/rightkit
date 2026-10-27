@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { expandInstallDirectory, installAssembledMac, installAssembledWindows, outerBuildCommands, resolveAssembledMacDescriptor } from "./install-assembled-app.mjs";
+import { assertRealWindowsRoot, expandInstallDirectory, installAssembledMac, installAssembledWindows, outerBuildCommands, resolveAssembledMacDescriptor } from "./install-assembled-app.mjs";
 import { validateMacAssembly, validateWindowsAssembly } from "./assembled-app.mjs";
 
 const sha = (text) => createHash("sha256").update(text).digest("hex");
@@ -178,7 +178,7 @@ function winHarness(t, over = {}) {
     launch: () => events.push(state("launch")),
     ...(over.now ? { now: over.now } : {}),
   };
-  const run = () => installAssembledWindows({ root: w.root, config: {}, descriptor: winInstall, spec: winSpec(), env: { LOCALAPPDATA: local }, deps });
+  const run = () => installAssembledWindows({ root: w.root, config: {}, descriptor: winInstall, spec: winSpec(), env: { LOCALAPPDATA: local }, deps: { ...deps, assertProfile: fixtureProfile } });
   return { w, dir, events, run, deps };
 }
 
@@ -237,10 +237,38 @@ test("windows: a live lock refuses, a stale lock is taken over, and an install t
   assert.equal(fs.readFileSync(path.join(half.dir, "Uninstall.exe"), "utf8"), "uninstaller", "the missing install folder got its old copy back, then was replaced");
 });
 
+// Fixture LOCALAPPDATA folders are temp folders, not C:\\Users\\<name>\\AppData\\Local: the profile-shape check (tested on its own below)
+// is replaced for the tests of the other behaviour, which otherwise fail on a real Windows host (Dell native run, 2026-10-27).
+const fixtureProfile = () => {};
+
 test("windows: install directory expansion and descriptor checks", () => {
-  assert.equal(expandInstallDirectory("%LOCALAPPDATA%/Programs/Demo", { LOCALAPPDATA: path.resolve("/u/local") }), path.normalize(path.resolve("/u/local", "Programs/Demo")));
+  assert.equal(expandInstallDirectory("%LOCALAPPDATA%/Programs/Demo", { LOCALAPPDATA: path.resolve("/u/local") }, { assertProfile: fixtureProfile }), path.normalize(path.resolve("/u/local", "Programs/Demo")));
   assert.throws(() => expandInstallDirectory("%APPDATA%/Demo", { APPDATA: "/a" }), /may only expand/);
   assert.throws(() => expandInstallDirectory("%LOCALAPPDATA%/Demo", {}), /is not set/);
   assert.throws(() => expandInstallDirectory("relative/dir", {}), /absolute/);
   assert.throws(() => expandInstallDirectory(path.parse(process.cwd()).root, {}), /non-root/);
+});
+
+test("windows: a redirected or non-standard LOCALAPPDATA is refused, the real one and an absolute installDirectory pass", () => {
+  const real = "C:\\Users\\adrds\\AppData\\Local";
+  assert.doesNotThrow(() => assertRealWindowsRoot("%LOCALAPPDATA%/Programs/Pulse", `${real}\\Programs\\Pulse`, { LOCALAPPDATA: real }));
+  for (const bad of ["C:\\Users\\adrds\\ClaudeProfiles\\x\\AppData\\Local", "D:\\scratch\\profile\\Local", "C:\\Users\\adrds\\AppData\\Local\\Temp"]) {
+    assert.throws(() => expandInstallDirectory("%LOCALAPPDATA%/Programs/Pulse", { LOCALAPPDATA: bad }), (e) => e.message.includes(bad) && /redirected or non-standard/.test(e.message), bad);
+  }
+  assert.throws(() => assertRealWindowsRoot("C:\\Users\\a\\ClaudeProfiles\\p\\Programs\\Pulse", "C:\\Users\\a\\ClaudeProfiles\\p\\Programs\\Pulse", {}), /ClaudeProfiles/);
+});
+
+test("windows: a LOCALAPPDATA root without the running app is refused when another user's Programs<Product> holds it", (t) => {
+  const h = winHarness(t);
+  const peer = "C:\\Users\\adrds\\AppData\\Local\\Programs\\Demo";
+  const attempt = (extra) => installAssembledWindows({ root: h.w.root, config: {}, descriptor: { ...winInstall, installDirectory: "%LOCALAPPDATA%/Programs/Demo" }, spec: winSpec(), env: { LOCALAPPDATA: path.dirname(path.dirname(h.dir)) }, deps: { ...h.deps, assertProfile: fixtureProfile, ...extra } });
+  assert.throws(() => attempt({ peerInstalls: () => [peer], runningDirectories: () => [peer] }), /does not hold the running Demo/);
+  assert.ok(!h.events.some((line) => line.startsWith("end-task") || line.startsWith("stop")), "nothing was stopped");
+  assert.doesNotThrow(() => attempt({ peerInstalls: () => [peer], runningDirectories: () => [h.dir] }));
+  // Unknown is never "no conflict": a discovery that cannot see refuses before anything is stopped.
+  const blind = () => { throw new Error("EACCES"); };
+  const before = h.events.length;
+  assert.throws(() => attempt({ peerInstalls: blind, runningDirectories: () => [] }), (e) => e.code === "ASSEMBLY_INSTALL_FAILED" && /peer install discovery failed/.test(e.message));
+  assert.throws(() => attempt({ peerInstalls: () => [peer], runningDirectories: blind }), (e) => e.code === "ASSEMBLY_INSTALL_FAILED" && /running process discovery failed/.test(e.message));
+  assert.ok(!h.events.slice(before).some((line) => line.startsWith("end-task") || line.startsWith("stop")), "nothing was stopped after a failed discovery");
 });

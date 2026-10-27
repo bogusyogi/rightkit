@@ -193,6 +193,16 @@ development: { targets: { win: {
 } } }
 ```
 
+Install-root safety (G7): in an agent shell on the Dell, LOCALAPPDATA and USERPROFILE point into a Claude profile, so a root derived from
+`%LOCALAPPDATA%` could swap a profile copy and stop the wrong scheduled task while the real install stays. Fail-closed rules (Windows-shaped
+paths, checked before anything is touched):
+- A `%LOCALAPPDATA%`-derived root is refused unless LOCALAPPDATA is exactly `C:\Users\<name>\AppData\Local` with no `ClaudeProfiles` segment; the
+  message names LOCALAPPDATA and the derived path. Give an absolute `installDirectory` (e.g. `C:\Users\<name>\AppData\Local\Programs\Pulse`) to
+  bypass derivation; an absolute path inside a `ClaudeProfiles` profile is refused too.
+- A derived root is also refused when another `C:\Users\*\AppData\Local\Programs\<Product>` exists and either the running `stop.process` image
+  lives there and not in the derived root, or the derived root has no install.
+- Not implemented: resolving the real root from the uninstall registry key. HeardRight's portable path does not use this resolver (no other callers).
+
 Order (Windows): assemble the payload in `<installDirectory>.incoming` -> sign the `sign` files -> prove the incoming copy (every payload file
 present and identical to its source, `sign-windows --verify-only`) -> take the install lock -> stop task/processes -> rename
 `installDirectory` -> `.replaced`, `.incoming` -> `installDirectory` (retried on EBUSY; the old folder is put back on failure) -> carryOver ->

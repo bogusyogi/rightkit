@@ -170,6 +170,25 @@ export function selectDevice(devices, wanted) {
   return { identifier: String(found.identifier ?? found.deviceProperties?.identifier ?? wanted), detail: state.detail };
 }
 
+/** CoreDevice drops an idle tunnel within seconds to minutes and listing does not re-establish it (rightkit#1228): a paired, connected
+ * iPhone reads tunnel=disconnected. A disconnected device is woken (`devicectl device info details` brings the tunnel up) and read
+ * again; it is refused only when it is still not ready. An unavailable device (not reachable) is refused at once. */
+export function selectReadyDevice({ list, wake, wanted }) {
+  const devices = list();
+  const physical = devices.filter((device) => (device.deviceProperties?.name ?? device.name) !== "My Mac" && device.hardwareProperties?.deviceType !== "Mac");
+  const found = physical.find((device) => [device.identifier, device.deviceProperties?.identifier, device.hardwareProperties?.udid, device.deviceProperties?.name, device.name].includes(wanted));
+  if (found && !deviceReadiness(found).ready && found.connectionProperties?.tunnelState === "disconnected") {
+    wake(String(found.identifier ?? found.deviceProperties?.identifier ?? wanted));
+    return selectDevice(list(), wanted);
+  }
+  return selectDevice(devices, wanted);
+}
+
+function wakeTunnel({ run, id }) {
+  // Its result is not trusted: the re-read list decides. A failure here only means the device stays not ready.
+  xcrun(run, ["devicectl", "device", "info", "details", "--device", id, "--timeout", "30"], { timeout: 90_000 });
+}
+
 function listDevices({ run, fs, tmpRoot }) {
   const dir = fs.mkdtempSync(path.join(tmpRoot, "rightkit-ios-dev-"));
   try {
@@ -193,7 +212,7 @@ export function prepareIosDevelopment(dev, { root, env = process.env, run = spaw
       const simulator = selectSimulator(listSimulators(run), wanted);
       resolved = { id: simulator.udid, state: simulator.state, name: simulator.name };
     } else {
-      const device = selectDevice(listDevices({ run, fs, tmpRoot }), wanted);
+      const device = selectReadyDevice({ list: () => listDevices({ run, fs, tmpRoot }), wake: (id) => wakeTunnel({ run, id }), wanted });
       resolved = { id: device.identifier, detail: device.detail };
     }
   }

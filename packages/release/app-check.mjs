@@ -194,6 +194,7 @@ export function retireAliasText(text) {
   let count = 0;
   let out = text;
   const lines = new Set();
+  const matches = [];
   for (const [pattern, replacement, { unlessRetired = false, lineMust = null } = {}] of ALIAS_FORMS) {
     const hits = [];
     out = out.replace(pattern, (...m) => {
@@ -202,23 +203,54 @@ export function retireAliasText(text) {
       const line = lineAt(whole, offset);
       if ((unlessRetired && /retired/i.test(line)) || (lineMust && !lineMust.test(line))) return m[0];
       count += 1;
-      hits.push(offset + m[0].search(/rightkit/));
+      // The line is counted in `whole`, the string this form is replacing in: earlier forms changed lengths, never line breaks,
+      // so a line number there is the line number in the original text, while an offset into `text` would drift.
+      const at = whole.slice(0, Math.max(0, offset + m[0].search(/rightkit/))).split("\n").length;
+      hits.push(at);
+      matches.push({ line: at, text: m[0] });
       return replacement.replace(/\$(\d)/g, (_, i) => m[Number(i)] ?? "");
     });
-    // Offsets are positions in the text before this form's replacements; every replacement keeps its line count.
-    for (const at of hits) lines.add(text.slice(0, Math.max(0, at)).split("\n").length);
+    for (const at of hits) lines.add(at);
   }
-  return { text: out, count, lines: [...lines].sort((a, b) => a - b) };
+  return { text: out, count, lines: [...lines].sort((a, b) => a - b), matches };
+}
+
+/** Exact-line exceptions to P11: `{"exceptions": [{"file", "line", "reason"}]}`; an entry without a reason or that is malformed is a finding. */
+export const RETIRED_ALIAS_EXCEPTIONS = ".rightkit/retired-alias-exceptions.json";
+function readAliasExceptions(root, out) {
+  let raw;
+  try { raw = fs.readFileSync(path.join(root, RETIRED_ALIAS_EXCEPTIONS), "utf8"); } catch { return []; }
+  let list;
+  try { list = JSON.parse(raw).exceptions; } catch (error) { out.push({ problem: `${RETIRED_ALIAS_EXCEPTIONS} is not valid JSON (${error.message})`, fix: "fix the file" }); return []; }
+  if (!Array.isArray(list)) { out.push({ problem: `${RETIRED_ALIAS_EXCEPTIONS} has no "exceptions" array`, fix: "list {file, line, reason} entries" }); return []; }
+  return list.filter((e, i) => {
+    const ok = e && typeof e.file === "string" && typeof e.line === "string" && typeof e.match === "string" && e.match.length > 0 && e.line.includes(e.match) && typeof e.reason === "string" && e.reason.trim().length >= 10;
+    if (!ok) out.push({ problem: `${RETIRED_ALIAS_EXCEPTIONS} entry ${i} needs file, the exact line text, the exact matched text on it and a reason of 10+ characters`, fix: "complete or remove the entry" });
+    return ok;
+  });
 }
 
 function retiredAlias({ root, files }) {
   const out = [];
+  const aliasExceptions = readAliasExceptions(root, out);
   for (const file of files) {
-    if (RETIRED_ALIAS_EXEMPT.test(file)) continue;
+    if (RETIRED_ALIAS_EXEMPT.test(file) || file === RETIRED_ALIAS_EXCEPTIONS) continue; // the exceptions list quotes the lines it spares
     let bytes;
     try { bytes = fs.readFileSync(path.join(root, file)); } catch { continue; }
     if (bytes.includes(0) || !bytes.includes("rightkit") || isGeneratedFile(bytes.toString("utf8"))) continue;
-    const hits = retireAliasText(bytes.toString("utf8")).lines;
+    // A line that must keep the old name (a wire-stable string, a test of the retirement itself) is listed by its exact text in the
+    // checked repository's .rightkit/retired-alias-exceptions.json with a reason; any edit to that line makes it a finding again.
+    const textLines = bytes.toString("utf8").split("\n");
+    // An exception spares one match (`match`, the exact matched text) on one line (`line`, its exact full text) that occurs exactly
+    // once in the file: another match on the same line, a second copy of the line, or any edit stays a finding.
+    const lineOf = (n) => textLines[n - 1]?.replace(/\r$/, "");
+    const mine = aliasExceptions.filter((e) => e.file === file);
+    // One entry spares one occurrence: its line occurs once in the file and that line has exactly one match with that text.
+    const all = retireAliasText(bytes.toString("utf8")).matches;
+    const spared = (m) => mine.some((e) => e.line === lineOf(m.line) && e.match === m.text
+      && textLines.filter((l) => l.replace(/\r$/, "") === e.line).length === 1
+      && all.filter((o) => o.line === m.line && o.text === m.text).length === 1);
+    const hits = [...new Set(all.filter((m) => !spared(m)).map((m) => m.line))].sort((a, b) => a - b);
     if (hits.length) out.push({ problem: `${file}:${hits.slice(0, 8).join(",")}${hits.length > 8 ? ",…" : ""} invokes \`rightkit\`, the retired name of the RustRight client`, fix: "use rustright (node <rightkit>/scripts/retire-rightkit-alias.mjs --repo <this repository> rewrites them all)" });
   }
   return out;

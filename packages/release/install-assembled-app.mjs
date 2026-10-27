@@ -59,9 +59,31 @@ export function resolveAssembledMacDescriptor(descriptor, spec, { config = {} } 
   return { ...descriptor, destination, bundleId: spec.bundleId, verifyBinaries };
 }
 
+const WINDOWS_DRIVE = /^[A-Za-z]:[\\/]/;
+const STANDARD_LOCAL_APPDATA = /^[A-Za-z]:\\Users\\[^\\]+\\AppData\\Local$/i;
+const REDIRECTION_SEGMENT = /^ClaudeProfiles$/i;
+/**
+ * Fail closed when a Windows install root is a redirected profile copy (agent shells on the Dell point LOCALAPPDATA and USERPROFILE at a
+ * Claude profile, so the swap would hit a copy while the running install stays). Applies to Windows-shaped paths only (drive letter):
+ * an installDirectory that is not under %LOCALAPPDATA% must be absolute and free of a ClaudeProfiles segment; one derived from
+ * %LOCALAPPDATA% needs LOCALAPPDATA to be exactly C:\Users\<name>\AppData\Local with no redirection segment.
+ */
+export function assertRealWindowsRoot(template, resolved, env = process.env) {
+  const winPath = (value) => String(value).replace(/\//g, "\\").replace(/\\+$/, "");
+  const segments = (value) => winPath(value).split("\\");
+  const local = env.LOCALAPPDATA;
+  const derived = /%LOCALAPPDATA%/i.test(String(template)) && typeof local === "string" && WINDOWS_DRIVE.test(local);
+  if (derived) {
+    const redirected = segments(local).some((segment) => REDIRECTION_SEGMENT.test(segment));
+    if (redirected || !STANDARD_LOCAL_APPDATA.test(winPath(local))) invalid(`install.installDirectory resolves from LOCALAPPDATA=${winPath(local)}, which is a redirected or non-standard profile (expected C:\\Users\\<name>\\AppData\\Local, no ClaudeProfiles segment), so ${winPath(resolved)} would not be the real install; refusing. Give install.installDirectory as an absolute path to the real install, e.g. C:\\Users\\<name>\\AppData\\Local\\Programs\\<Product>`);
+  } else if (WINDOWS_DRIVE.test(String(resolved)) && segments(resolved).some((segment) => REDIRECTION_SEGMENT.test(segment))) {
+    invalid(`install.installDirectory ${winPath(resolved)} is inside a redirected ClaudeProfiles profile, not the real install; refusing`);
+  }
+}
+
 const WINDOWS_VARS = { LOCALAPPDATA: "LOCALAPPDATA", PROGRAMFILES: "ProgramFiles" };
 /** Expand `%LOCALAPPDATA%` / `%PROGRAMFILES%` in the install folder; the result must be an absolute non-root path. */
-export function expandInstallDirectory(value, env = process.env) {
+export function expandInstallDirectory(value, env = process.env, { assertProfile = assertRealWindowsRoot } = {}) {
   if (typeof value !== "string" || !value.trim()) invalid("install.installDirectory is required");
   const expanded = value.replace(/%([A-Za-z]+)%/g, (whole, name) => {
     const key = WINDOWS_VARS[name.toUpperCase()];
@@ -71,6 +93,7 @@ export function expandInstallDirectory(value, env = process.env) {
     return found;
   });
   const normalized = path.normalize(expanded);
+  assertProfile(value, normalized, env);
   if (!path.isAbsolute(normalized) || path.parse(normalized).root === normalized || normalized.split(/[\\/]/).includes("..")) invalid(`install.installDirectory must be an absolute, non-root folder: ${normalized}`);
   return normalized.replace(/[\\/]+$/, "");
 }
@@ -222,6 +245,30 @@ function windowsDefaults(env) {
     sign: (files) => signTool([], files), verifySigned: (files) => signTool(["--verify-only"], files),
     isRunning: (exe) => ps(`if (@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq ${quoted(exe)} }).Count -gt 0) { exit 0 } else { exit 1 }`).status === 0,
     stopInDirectory: (dir) => ps(`Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith(${quoted(`${dir}\\`)}, [StringComparison]::OrdinalIgnoreCase) } | Stop-Process -Force`),
+    // Discovery fails closed: a profile folder it cannot read, or a running process whose path it cannot see, throws (unknown is
+    // never reported as "no conflict"). The system junctions and Public carry no per-user Programs folder and are skipped.
+    peerInstalls: (product, except) => {
+      if (process.platform !== "win32") return [];
+      const users = "C:\\Users";
+      const found = [];
+      for (const entry of nodeFs.readdirSync(users, { withFileTypes: true })) {
+        if (!entry.isDirectory() || entry.isSymbolicLink() || /^(public|default|default user|all users)$/i.test(entry.name)) continue;
+        const candidate = path.win32.join(users, entry.name, "AppData", "Local", "Programs", product);
+        if (candidate.toLowerCase() === String(except).toLowerCase()) continue;
+        try { nodeFs.statSync(candidate); found.push(candidate); }
+        catch (error) { if (error?.code !== "ENOENT" && error?.code !== "ENOTDIR") throw new Error(`cannot inspect ${candidate} (${error?.code ?? error?.message})`); }
+      }
+      return found;
+    },
+    runningDirectories: (processName) => {
+      if (process.platform !== "win32") return [];
+      const name = quoted(String(processName).replace(/\.exe$/i, ""));
+      const out = ps(`try { foreach ($p in @(Get-Process -Name ${name} -ErrorAction SilentlyContinue)) { if ($p.Path) { Split-Path -Parent $p.Path } else { '?' } }; exit 0 } catch { exit 2 }`);
+      if (out.error || out.status !== 0) throw new Error(`cannot list running ${processName} (${out.error?.message ?? `exit ${out.status}`})`);
+      const dirs = String(out.stdout ?? "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      if (dirs.includes("?")) throw new Error(`a running ${processName} hides its path (another user's or an elevated process)`);
+      return dirs;
+    },
     anyInDirectory: (dir) => ps(`if (@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith(${quoted(`${dir}\\`)}, [StringComparison]::OrdinalIgnoreCase) }).Count -eq 0) { exit 1 } else { exit 0 }`).status === 0,
     endTask: (name) => schtasks(["/end", "/tn", name]), runTask: (name) => schtasks(["/run", "/tn", name]),
     launch: (exe) => { spawn(exe, [], { detached: true, stdio: "ignore", windowsHide: false, shell: false }).unref(); },
@@ -246,7 +293,21 @@ export function installAssembledWindows({ root, config, descriptor: rawDescripto
   const d = { ...windowsDefaults(env), ...deps };
   const descriptor = resolveAssembledWindowsDescriptor(rawDescriptor, spec);
   const fs = d.fs;
-  const dir = expandInstallDirectory(descriptor.installDirectory, env);
+  // The profile-shape check is injectable for tests whose fixture LOCALAPPDATA is a temp folder; production always runs it.
+  const dir = expandInstallDirectory(descriptor.installDirectory, env, { assertProfile: d.assertProfile ?? assertRealWindowsRoot });
+  // A LOCALAPPDATA-derived root must be the real install: another user's Programs\<Product> that holds the running app, or that exists
+  // while this root has no install, means the environment is redirected (an agent-shell profile); refuse before anything is touched.
+  if (/%LOCALAPPDATA%/i.test(descriptor.installDirectory)) {
+    const product = path.win32.basename(dir.replace(/\//g, "\\"));
+    const discover = (what, fn) => { try { return (fn() ?? []).map((item) => String(item).toLowerCase()); } catch (error) { return refuse("ASSEMBLY_INSTALL_FAILED", `cannot verify install root ${dir} is the real install: ${what} discovery failed (${error.message}); nothing was touched`); } };
+    const peers = discover("peer install", () => d.peerInstalls?.(product, dir));
+    if (peers.length) {
+      const running = descriptor.stop.process ? discover("running process", () => d.runningDirectories?.(descriptor.stop.process)) : [];
+      const here = dir.toLowerCase();
+      const elsewhere = running.some((item) => peers.includes(item)) && !running.includes(here);
+      if (elsewhere || !exists(fs, dir)) refuse("ASSEMBLY_INSTALL_FAILED", `install root ${dir} (from LOCALAPPDATA=${env.LOCALAPPDATA}) does not hold the running ${product}, but ${peers.join(", ")} does: the environment is redirected; set install.installDirectory to that absolute path`);
+    }
+  }
   const incoming = `${dir}.incoming`;
   const replaced = `${dir}.replaced`;
   const lockFile = `${dir}.install-lock`;

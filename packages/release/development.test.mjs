@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { test } from "node:test";
-import { cargoProfileDirectory, DEVELOPMENT_PROFILE, assertInstalledExecutableMatches, assertNativeDevelopmentHost, developmentEnvironment, resolveCommand, resolvePnpmCli, resolveTauriArtifact, runDevelopment as runDevelopmentActual, swapInstalledMacosBundle, validateDevelopmentConfig } from "./development.mjs";
+import { cargoProfileDirectory, DEVELOPMENT_PROFILE, assertInstalledExecutableMatches, assertNativeDevelopmentHost, isWsl, developmentEnvironment, resolveCommand, resolvePnpmCli, resolveTauriArtifact, runDevelopment as runDevelopmentActual, swapInstalledMacosBundle, validateDevelopmentConfig } from "./development.mjs";
 import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 
 // Not run on Windows: installs a macOS app bundle through POSIX paths.
@@ -314,4 +314,20 @@ test("a dev step naming right-release runs the door's own cli, also through `pnp
   assert.deepEqual(resolveCommand("pnpm", ["exec", "right-release", "stage-sidecar", "--target", "t"], { root: process.cwd() }), { command: process.execPath, args: [own, "stage-sidecar", "--target", "t"] });
   assert.deepEqual(resolveCommand("pnpm", ["right-release", "web-build"], { root: process.cwd() }), { command: process.execPath, args: [own, "web-build"] });
   assert.equal(resolveCommand("pnpm", ["exec", "tauri", "build"], { root: process.cwd() }).args[0].endsWith("pnpm.cjs") || resolveCommand("pnpm", ["exec", "tauri", "build"], { root: process.cwd() }).args[0].endsWith("pnpm.mjs"), true, "other pnpm steps still run pnpm");
+});
+
+test("linux dev target: build-only, native Linux host only, no install kind accepted", () => {
+  const config = { development: { targets: { linux: { build: [{ cmd: "pnpm", args: ["exec", "right-release", "stage-sidecar", "--target", "x86_64-unknown-linux-gnu"] }] } } } };
+  assert.doesNotThrow(() => validateDevelopmentConfig(config, "linux"));
+  const withInstall = { development: { targets: { linux: { ...config.development.targets.linux, install: { kind: "command", cmd: "true", args: [] } } } } };
+  assert.throws(() => validateDevelopmentConfig(withInstall, "linux"), /linux is build-only/);
+  assert.throws(() => assertNativeDevelopmentHost("linux", "darwin"), /requires its native host/);
+  assert.throws(() => assertNativeDevelopmentHost("linux", "win32"), /requires its native host/);
+  assert.doesNotThrow(() => assertNativeDevelopmentHost("linux", "linux", { wsl: () => false }));
+  assert.throws(() => assertNativeDevelopmentHost("linux", "linux", { wsl: () => true }), /this is WSL/);
+  assert.equal(isWsl({ env: { WSL_DISTRO_NAME: "Ubuntu" }, readFile: () => "" }), true);
+  assert.equal(isWsl({ env: {}, readFile: (f) => (f.endsWith("osrelease") ? "5.15.153.1-microsoft-standard-WSL2" : "") }), true);
+  assert.equal(isWsl({ env: {}, readFile: () => "6.8.0-45-generic" }), false);
+  // The other targets are unchanged.
+  assert.throws(() => assertNativeDevelopmentHost("win", "linux"), /requires its native host/);
 });

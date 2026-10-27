@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
-  StageSidecarError, builtBinaryCandidates, defaultExtractMember, defaultRun, isNestedBrokerContext, normalizeArchiveMember, parseTargetTriple, planSidecarStaging, resolveBuildMode, stageSidecars, validateSidecarManifest, validateStageSidecarReceipt,
+  StageSidecarError, builtBinaryCandidates, defaultExtractMember, defaultExtractNsisMember, sevenZipCandidates, defaultRun, isNestedBrokerContext, normalizeArchiveMember, parseTargetTriple, planSidecarStaging, resolveBuildMode, stageSidecars, validateSidecarManifest, validateStageSidecarReceipt,
 } from "./stage-sidecar.mjs";
 import { formatSidecarPlan, nodeHostTriple, parseStageSidecarArgs } from "./stage-sidecar-command.mjs";
 import { contentIdentity } from "./content-digest.mjs";
@@ -2716,4 +2716,38 @@ test("the alias stages its DirectML companion by default: another entry that wri
   const apart = winOrtFixture();
   apart.files.set(at("vendor", "DirectML.dll"), Buffer.from("vendored directml"));
   assert.equal((await apart.stage([{ kind: "resource", from: "vendor/DirectML.dll", to: "src-tauri/resources/other/DirectML.dll" }, alias])).files.length, 3);
+});
+
+// ---- NSIS installer member (7-Zip)
+
+test("nsis remote row validates, stages the pinned member and records memberSha256", async () => {
+  const installer = "nsis-bytes";
+  const entry = { kind: "remote", name: "smartctl.exe", url: "https://example.test/smartmontools.win32-setup.exe", sha256: sha(installer), extract: "bin/smartctl.exe", extractKind: "nsis", memberSha256: sha("exe"), dest: "dist/stage/smartctl/smartctl.exe", platforms: ["win"] };
+  for (const bad of [{ memberSha256: undefined }, { extractKind: "rar" }, { extract: undefined }]) assert.throws(() => validateSidecarManifest([{ ...entry, ...bad }], { target: WIN }), { code: "STAGE_SIDECAR_CONFIG_INVALID" });
+  const { fs, files } = fakeFs();
+  const { fetch } = fetchOf(installer);
+  const seen = [];
+  const extractNsisMember = ({ archive, fileName, destDir, expectedSha256, installerSha256 }) => { seen.push({ fileName, expectedSha256, installerSha256 }); assert.equal(sha(fs.readFileSync(archive)), sha(installer)); const out = path.join(destDir, "bin", "smartctl.exe"); files.set(out, Buffer.from("exe")); return out; };
+  const result = await stageSidecars({ appRoot: APP, target: WIN, manifest: [entry], deps: deps({ fs, fetch, extractNsisMember, makeTempDir: () => path.resolve("/rk-scratch"), removeDir: () => {} }) });
+  assert.deepEqual(seen, [{ fileName: "bin/smartctl.exe", expectedSha256: sha("exe"), installerSha256: sha(installer) }]);
+  assert.equal(result.files[0].memberSha256, sha("exe"));
+  assert.equal(result.files[0].extractKind, "nsis");
+  assert.equal(result.files[0].archiveSha256, sha(installer));
+});
+
+test("nsis extraction runs 7z x -y -o<dir> installer member and fails closed on mismatch or a missing tool", () => {
+  const destDir = path.resolve("/rk-nsis-dest");
+  const out = path.join(destDir, "bin", "smartctl.exe");
+  const make = (bytes, { status = 0 } = {}) => { const calls = []; return { calls, run: (cmd, args) => { calls.push([cmd, ...args]); return { status, stdout: "", stderr: "" }; }, readFile: () => Buffer.from(bytes), exists: (f) => f === out }; };
+  const base = { archive: path.resolve("/rk-cache/setup.exe"), fileName: "bin/smartctl.exe", destDir, expectedSha256: sha("exe"), installerSha256: "i".repeat(64), env: {}, platform: "linux" };
+  const ok = make("exe");
+  assert.equal(defaultExtractNsisMember({ ...base, ...ok }), out);
+  assert.deepEqual(ok.calls[0], ["7z", "x", "-y", `-o${destDir}`, base.archive, "bin/smartctl.exe"]);
+  assert.throws(() => defaultExtractNsisMember({ ...base, ...make("swapped") }), (e) => e.code === "STAGE_SIDECAR_HASH_MISMATCH" && e.message.includes("i".repeat(64)) && e.message.includes("bin/smartctl.exe") && e.message.includes(sha("exe")) && e.message.includes(sha("swapped")));
+  assert.throws(() => defaultExtractNsisMember({ ...base, ...make("exe"), run: () => ({ status: null, error: new Error("ENOENT") }) }), { code: "STAGE_SIDECAR_EXTRACT_FAILED", message: /7-Zip is required/ });
+  assert.throws(() => defaultExtractNsisMember({ ...base, ...make("exe", { status: 2 }) }), { code: "STAGE_SIDECAR_EXTRACT_FAILED", message: /exited 2/ });
+  assert.throws(() => defaultExtractNsisMember({ ...base, ...make("exe"), exists: () => false }), { code: "STAGE_SIDECAR_EXTRACT_FAILED", message: /member not found/ });
+  assert.throws(() => defaultExtractNsisMember({ ...base, ...make("exe"), fileName: "../x.exe" }), { code: "STAGE_SIDECAR_EXTRACT_FAILED" });
+  assert.deepEqual(sevenZipCandidates({ explicit: "/opt/7zz", env: {}, platform: "linux" }), ["/opt/7zz", "7z"]);
+  assert.ok(sevenZipCandidates({ env: {}, platform: "win32" }).some((c) => c.endsWith("7z.exe")));
 });

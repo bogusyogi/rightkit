@@ -216,3 +216,24 @@ test("a device build needs the GUI signing session; a simulator build does not",
   assert.equal(assertIosDevelopmentSession(sim, { env: {}, detect: () => assert.fail("a simulator build never checks the keychain session") }).skipped, true);
   assert.equal(assertIosDevelopmentSession(dev, { env: {}, detect: () => ({ guiRunner: false, reason: "Aqua" }) }).routed, false);
 });
+
+test("a paired device whose idle tunnel dropped is woken and read again; only a device still not ready, or unavailable, is refused (rightkit#1228)", async () => {
+  const { selectReadyDevice } = await import("./ios-dev.mjs");
+  const phone = (tunnel, ddi) => ({ identifier: "DEV-1", deviceProperties: { name: "Adrian's iPhone", ddiServicesAvailable: ddi, developerModeStatus: "enabled" }, hardwareProperties: { deviceType: "iPhone", productType: "iPhone17,2", udid: "UDID-1" }, connectionProperties: { tunnelState: tunnel } });
+  // idle: disconnected on the first read, connected after the wake
+  const reads = [[phone("disconnected", false)], [phone("connected", true)]]; const woken = [];
+  const got = selectReadyDevice({ list: () => reads.shift(), wake: (id) => woken.push(id), wanted: "UDID-1" });
+  assert.equal(got.identifier, "DEV-1");
+  assert.deepEqual(woken, ["DEV-1"]);
+  // still disconnected after the wake: refused with the device detail
+  const still = [[phone("disconnected", false)], [phone("disconnected", false)]];
+  assert.throws(() => selectReadyDevice({ list: () => still.shift(), wake: () => {}, wanted: "UDID-1" }), (e) => e.code === "DEV_IOS_DEVICE_NOT_READY" && /tunnel=disconnected/.test(e.message));
+  // unavailable (not reachable): refused at once, no wake
+  const none = []; 
+  assert.throws(() => selectReadyDevice({ list: () => [phone("unavailable", false)], wake: (id) => none.push(id), wanted: "UDID-1" }), (e) => e.code === "DEV_IOS_DEVICE_NOT_READY");
+  assert.deepEqual(none, []);
+  // already connected: no wake
+  const quiet = [];
+  assert.equal(selectReadyDevice({ list: () => [phone("connected", true)], wake: (id) => quiet.push(id), wanted: "UDID-1" }).identifier, "DEV-1");
+  assert.deepEqual(quiet, []);
+});
