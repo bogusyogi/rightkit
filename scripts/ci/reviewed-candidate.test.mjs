@@ -790,7 +790,7 @@ function green(f) {
   f.provenance.jobs.total_count += 1;
   for (const host of ["packed", "macos", "windows"]) f.qaListing.artifacts.push(f.artifacts[f.candidate.artifacts[host].id]);
   f.qaListing.total_count += 3;
-  setRunAdmission(f, { schema: "rk-publish-admission.v2", mode: "broker", requestId: "broker-job-1", repository: "bogusyogi/rightkit", sourceSha: SOURCE, runId: "77", runAttempt: "1", registry: "crates", units: ["rightkit-a"], versions: { "rightkit-a": "0.1.0" }, allow: { hostExclusion: [], noTest: [], ignored: [], missingAssets: [] }, gate: { command: `rightkit-gate check --commit ${SOURCE} --rule-tier release`, exit: 0, rules: 58, classAScans: 12, classAFiles: 900 } });
+  setRunAdmission(f, { schema: "rk-publish-admission.v2", mode: "broker", requestId: "broker-job-1", repository: "bogusyogi/rightkit", sourceSha: SOURCE, runId: "77", runAttempt: "1", registry: "crates", units: ["rightkit-a"], versions: { "rightkit-a": "0.1.0" }, allow: { hostExclusion: [], noTest: [], ignored: [], missingAssets: [] }, gate: { command: `rightkit-gate check --commit ${SOURCE} --rule-tier release`, exit: 0, rules: 58, classAScans: 12, classAFiles: 900 }, qualification: { schema: "rightkit.unit-qualification/1", commit: SOURCE, tree: "c".repeat(40), runtime: "r".repeat(64), executor: "broker", unit: { kind: "cargo", name: "rightkit-a", version: "0.1.0" }, artifactSha256: "d".repeat(64) } });
   f.qaListing.artifacts.push(f.artifacts[600]);
   f.qaListing.total_count += 1;
   return f;
@@ -820,7 +820,10 @@ test("direct publication requires the run's own admission receipt for this run, 
     ["wrong SHA", (g) => setRunAdmission(g, { ...runAdmission(g), sourceSha: PROMOTION }), /another repository or commit/],
     ["wrong scope: other units", (g) => setRunAdmission(g, { ...runAdmission(g), units: ["rightkit-b"] }), /units differ/],
     ["wrong scope: other registry", (g) => setRunAdmission(g, { ...runAdmission(g), registry: "npm" }), /registry differs/],
-    ["wrong scope: hosted admission of a crate", (g) => setRunAdmission(g, { ...runAdmission(g), mode: "hosted", requestId: "" }), /exactly one @rightkit\/\* npm package/],
+    ["hosted admission (retired)", (g) => setRunAdmission(g, { ...runAdmission(g), mode: "hosted", requestId: "" }), /only broker admission exists/],
+    ["no qualification receipt", (g) => { const r = runAdmission(g); delete r.qualification; setRunAdmission(g, r); }, /unexpected or missing keys/],
+    ["qualification for another commit", (g) => setRunAdmission(g, { ...runAdmission(g), qualification: { ...runAdmission(g).qualification, commit: PROMOTION } }), /no qualification for this commit/],
+    ["qualification for another unit or version", (g) => setRunAdmission(g, { ...runAdmission(g), qualification: { ...runAdmission(g).qualification, unit: { kind: "cargo", name: "rightkit-a", version: "0.2.0" } } }), /names no sealed unit at its sealed version/],
     ["allowsets wider than the verify receipts", (g) => setRunAdmission(g, { ...runAdmission(g), allow: { ...runAdmission(g).allow, ignored: ["rightkit-a"] } }), /ignored differs/],
     ["partial receipt: a key missing", (g) => { const r = runAdmission(g); delete r.allow; setRunAdmission(g, r); }, /unexpected or missing keys/],
     ["partial receipt: allowsets incomplete", (g) => { const r = runAdmission(g); delete r.allow.noTest; setRunAdmission(g, r); }, /allowsets are incomplete/],

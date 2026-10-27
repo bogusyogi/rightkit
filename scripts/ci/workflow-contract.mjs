@@ -43,8 +43,10 @@ export const PUBLISH_ENV = {
   PUBLISH_REGISTRY: PLAN_OUT("registry"), PUBLISH_UNITS: PLAN_OUT("units"), PUBLISH_ALLOW_HOST_EXCLUSION: PLAN_OUT("allow_host_exclusion"),
   PUBLISH_ALLOW_NO_TEST: PLAN_OUT("allow_no_test"), PUBLISH_ALLOW_IGNORED: PLAN_OUT("allow_ignored"), PUBLISH_ALLOW_MISSING_ASSETS: PLAN_OUT("allow_missing_assets"),
 };
-export const GUARD_CORRELATION_RUN = 'set -euo pipefail\n[[ "$RK_EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]\ntest "$RK_EXPECTED_SHA" = "$GITHUB_SHA"\ncase "$RK_ADMISSION" in\n  broker) [[ "$RK_REQUEST_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]] ;;\n  hosted) test -z "$RK_REQUEST_ID" ;;\n  *) exit 1 ;;\nesac\n';
-export const ADMISSION_ENV = { ADMISSION: "${{ inputs.admission }}", REQUEST_ID: "${{ inputs.request_id }}", EXPECTED_SHA: "${{ inputs.expected_sha }}", REGISTRY: "${{ inputs.registry }}", UNITS: "${{ inputs.units }}", ALLOW_HOST_EXCLUSION: "${{ inputs.allow_host_exclusion }}", ALLOW_NO_TEST: "${{ inputs.allow_no_test }}", ALLOW_IGNORED: "${{ inputs.allow_ignored }}", ALLOW_MISSING_ASSETS: "${{ inputs.allow_missing_assets }}" };
+export const GUARD_CORRELATION_RUN = 'set -euo pipefail\n[[ "$RK_EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]\ntest "$RK_EXPECTED_SHA" = "$GITHUB_SHA"\ncase "$RK_ADMISSION" in\n  broker) [[ "$RK_REQUEST_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]] ;;\n  *) echo "::error::only broker admission (rightkit-gate --to release) publishes; hosted self-admission is retired"; exit 1 ;;\nesac\ntest -n "$RK_QUALIFICATION"\n';
+export const ADMISSION_ENV = { ADMISSION: "${{ inputs.admission }}", REQUEST_ID: "${{ inputs.request_id }}", EXPECTED_SHA: "${{ inputs.expected_sha }}", QUALIFICATION: "${{ inputs.qualification }}", REGISTRY: "${{ inputs.registry }}", UNITS: "${{ inputs.units }}", ALLOW_HOST_EXCLUSION: "${{ inputs.allow_host_exclusion }}", ALLOW_NO_TEST: "${{ inputs.allow_no_test }}", ALLOW_IGNORED: "${{ inputs.allow_ignored }}", ALLOW_MISSING_ASSETS: "${{ inputs.allow_missing_assets }}" };
+export const PACK_BIND_RUN = 'node scripts/ci/publish-admission.mjs bind --packed "$RUNNER_TEMP/rk-pack"';
+export const PACK_BIND_ENV = { QUALIFICATION: "${{ inputs.qualification }}", EXPECTED_SHA: "${{ inputs.expected_sha }}", REGISTRY: "${{ needs.plan.outputs.registry }}", UNITS: "${{ needs.plan.outputs.units }}" };
 export const ALL_JOBS = ["guard", "scans", "plan", "build-swap", "sign-swap", "build-credentials-helper", "sign-credentials-helper", "pack", "verify", "verify-linux", "qualified"];
 export const QUALIFIED_RUN = 'test "$GUARD_RESULT" = success\ntest "$PLAN_RESULT" = success\ntest "$PACK_RESULT" = success\ntest "$VERIFY_RESULT" = success\ntest "$UNIT_COUNT" -gt 0\ntest "$LINUX_COUNT" -ge 0\ntest "$VERIFY_LINUX_RESULT" = "$LINUX_EXPECTED_RESULT"\n';
 export const QUALIFIED_ENV = { GUARD_RESULT: "${{ needs.guard.result }}", PLAN_RESULT: "${{ needs.plan.result }}", PACK_RESULT: "${{ needs.pack.result }}", VERIFY_RESULT: "${{ needs.verify.result }}", VERIFY_LINUX_RESULT: "${{ needs.verify-linux.result }}", UNIT_COUNT: "${{ needs.plan.outputs.count }}", LINUX_COUNT: "${{ needs.plan.outputs.linux_count }}", LINUX_EXPECTED_RESULT: "${{ needs.plan.outputs.linux_count != '0' && 'success' || 'skipped' }}" };
@@ -324,12 +326,13 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   const admissionStep = stepsOf(guard)[0];
   const guardStep = stepsOf(guard)[1];
   check(guard && stepsOf(guard).length === 2 && guard.if === undefined && admissionStep?.if === undefined && guardStep?.if === undefined, "guard must have unconditional correlation then repository steps");
-  check(same(admissionStep?.env, { RK_ADMISSION: "${{ inputs.admission }}", RK_REQUEST_ID: "${{ inputs.request_id }}", RK_EXPECTED_SHA: "${{ inputs.expected_sha }}" }), "guard must read admission and correlation inputs through env");
-  check(admissionStep?.run === GUARD_CORRELATION_RUN, "guard must match the exact dispatch SHA, then a broker request ID, or no request ID for hosted admission, before work");
+  check(same(admissionStep?.env, { RK_ADMISSION: "${{ inputs.admission }}", RK_REQUEST_ID: "${{ inputs.request_id }}", RK_EXPECTED_SHA: "${{ inputs.expected_sha }}", RK_QUALIFICATION: "${{ inputs.qualification }}" }), "guard must read admission, correlation and qualification inputs through env");
+  check(admissionStep?.run === GUARD_CORRELATION_RUN, "guard must match the exact dispatch SHA, then a broker request ID and a non-empty qualification, refusing every other admission, before work");
   const inputs = doc?.on?.workflow_dispatch?.inputs ?? {};
   check(inputs.expected_sha?.required === "true" && inputs.expected_sha.type === "string", "expected_sha must be a required string");
-  check(inputs.request_id?.required === "false" && inputs.request_id.type === "string" && inputs.request_id.default === "", "request_id must be an optional string, empty by default");
-  check(inputs.admission?.required === "true" && inputs.admission.type === "choice" && same(inputs.admission.options, ["broker", "hosted"]) && inputs.admission.default === "broker", "admission must be a required choice of broker or hosted, broker by default");
+  check(inputs.request_id?.required === "true" && inputs.request_id.type === "string" && inputs.request_id.default === "", "request_id must be a required string (the broker's correlation id)");
+  check(inputs.qualification?.required === "true" && inputs.qualification.type === "string" && inputs.qualification.default === undefined, "qualification must be a required string: rightkit-gate's unit qualification receipt");
+  check(inputs.admission?.required === "true" && inputs.admission.type === "choice" && same(inputs.admission.options, ["broker"]) && inputs.admission.default === "broker", "admission must be a required choice of broker alone (hosted self-admission is retired), broker by default");
   check(doc?.["run-name"] === "publish ${{ inputs.admission }} ${{ inputs.request_id }}", "qualification run name must carry the admission mode and request ID");
   check(guardStep?.env?.REF === "${{ github.ref }}" && guardStep?.env?.PRIVATE === "${{ github.event.repository.private }}", "guard must read the ref and repository visibility from the event");
   check(/if \[ "\$REF" != "refs\/heads\/main" \]; then\s+echo [^\n]*\s+exit 1\s+fi/.test(guardStep?.run ?? ""), "guard must exit 1 unless the ref is refs/heads/main");
@@ -431,6 +434,11 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(stepsOf(verify)[receiptAt]?.env?.RK_SOURCE_HELPER_APP === CREDENTIALS_HELPER_ENV.RK_SOURCE_HELPER_APP && stepsOf(verify)[receiptAt]?.env?.RK_CONSUMER_HELPER_NAME === CREDENTIALS_HELPER_ENV.RK_CONSUMER_HELPER_NAME && stepsOf(verify)[receiptAt]?.env?.RK_CONSUMER_HELPER_TEAM_ID === CREDENTIALS_HELPER_ENV.RK_CONSUMER_HELPER_TEAM_ID, "verify receipt must read the signed helper route from the job environment");
   check(stepsOf(verify).some((s) => /actions\/download-artifact@/.test(s.uses ?? "") && s.with?.name === "publish-packed"), "verify must download the sealed publish-packed artifact");
   check(stepsOf(pack).some((s) => /node scripts\/ci\/publish\.mjs pack/.test(s.run ?? "")) && stepsOf(pack).some((s) => /actions\/upload-artifact@/.test(s.uses ?? "") && s.with?.name === "publish-packed"), "pack must seal and upload publish-packed");
+  // One door: the sealed archive is bound to the locally qualified bytes between sealing and upload; a mismatch stops the job.
+  const packBindAt = stepsOf(pack).findIndex((s) => s.run?.trim() === PACK_BIND_RUN);
+  const packSealAt = stepsOf(pack).findIndex((s) => /node scripts\/ci\/publish\.mjs pack/.test(s.run ?? ""));
+  const packUploadAt = stepsOf(pack).findIndex((s) => /actions\/upload-artifact@/.test(s.uses ?? "") && s.with?.name === "publish-packed");
+  check(packBindAt > packSealAt && packSealAt >= 0 && packBindAt < packUploadAt && stepsOf(pack).filter((s) => /publish-admission\.mjs bind/.test(s.run ?? "")).length === 1 && stepsOf(pack)[packBindAt].if === undefined && same(stepsOf(pack)[packBindAt].env, PACK_BIND_ENV), `pack must bind the sealed archive to the qualification receipt (${PACK_BIND_RUN}) after sealing and before uploading publish-packed`);
   check(stepsOf(plan).some((s) => /node scripts\/ci\/workflow-contract\.mjs/.test(s.run ?? "")), "plan must run this contract before planning");
 
   // Linux verification: only the units the plan requires on Linux, only when there are any, through the same gate and receipt.
