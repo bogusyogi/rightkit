@@ -278,6 +278,8 @@ const PROBES = Object.freeze({
  * provision exactly this version; scripts/ci/scan-receipt.test.mjs holds them to it.
  */
 export const PINNED_SCAN_TOOLS = Object.freeze({ shellcheck: "0.11.0" });
+/** Files per rustfmt scan: 120 paths of ~100 bytes stay under Windows' 32 KB command line with the tool and flags. */
+export const RUSTFMT_BATCH = 120;
 // The version a probe's output names, for a tool whose first line is not its version (`shellcheck --version` opens with a banner).
 const PROBE_VERSION = Object.freeze({
   shellcheck: (text) => { const m = /^version:\s*(\S+)\s*$/m.exec(text); return m ? `shellcheck ${m[1]}` : null; },
@@ -641,8 +643,14 @@ export function planScans({
     }
     byEdition.set(found.edition, [...(byEdition.get(found.edition) ?? []), f]);
   }
+  // One rustfmt scan per edition, batched: Windows refuses a command line past ~32 KB (spawn ENAMETOOLONG on a large repository,
+  // HeardRight on the Dell, 2026-10-27), so a batch holds at most RUSTFMT_BATCH files and the first batch keeps the plain id.
   for (const [edition, group] of [...byEdition].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
-    add({ id: `rustfmt:${edition}`, class: A, tool: "rustfmt", args: ["--check", "--edition", edition, ...group.sort()], root: "content" });
+    const sorted = group.sort();
+    for (let i = 0; i < sorted.length; i += RUSTFMT_BATCH) {
+      const batch = sorted.slice(i, i + RUSTFMT_BATCH);
+      add({ id: `rustfmt:${edition}${i ? `:${i / RUSTFMT_BATCH + 1}` : ""}`, class: A, tool: "rustfmt", args: ["--check", "--edition", edition, ...batch], root: "content" });
+    }
   }
   for (const f of files.filter((f) => /\.(mjs|cjs|js)$/.test(f) && !f.includes("node_modules")).sort()) {
     add({ id: `node-check:${f}`, class: A, tool: "node", args: ["--check", f], root: "content" });

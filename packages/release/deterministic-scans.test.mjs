@@ -1765,6 +1765,21 @@ test("secret-scan: in a live tree (the content root is a git toplevel) git-ignor
   assert.ok(seen.length > 0 && seen.every((s) => s === null), "an export scans every file");
 });
 
+test("rustfmt scans are batched per edition (RUSTFMT_BATCH files each) so a large tree never overflows Windows' command line; the first batch keeps the plain id", () => {
+  const { RUSTFMT_BATCH } = scansModule;
+  const n = RUSTFMT_BATCH * 2 + 5;
+  const files = { "Cargo.toml": '[workspace]\nmembers = ["crates/big"]\n', "crates/big/Cargo.toml": '[package]\nname = "big"\nversion = "1.0.0"\nedition = "2021"\nlicense = "MIT"\n' };
+  for (let i = 0; i < n; i += 1) files[`crates/big/src/m${String(i).padStart(4, "0")}.rs`] = "";
+  const fs = fakeFs(files, files);
+  const plan = planScans({ changed: Object.keys(files), contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "win32", includeTests: false });
+  const fmt = plan.scans.filter((s) => s.id.startsWith("rustfmt:2021"));
+  assert.deepEqual(fmt.map((s) => s.id), ["rustfmt:2021", "rustfmt:2021:2", "rustfmt:2021:3"]);
+  assert.deepEqual(fmt.map((s) => s.args.length - 3), [RUSTFMT_BATCH, RUSTFMT_BATCH, 5]);
+  const all = fmt.flatMap((s) => s.args.slice(3));
+  assert.equal(new Set(all).size, n, "every file exactly once");
+  assert.deepEqual(all, [...all].sort(), "sorted across batches");
+});
+
 // ---- B4: pnpm 11's dependency check before `pnpm run` and `pnpm exec` must not abort a gate scan -----------------------------------------------------------
 // CodeRight, 2026-10-25: tsc:, biome: and test:npm: failed in two seconds with a stack through runDepsStatusCheck. pnpm 11 verifies, before every
 // `pnpm run` and `pnpm exec`, that node_modules matches pnpm-lock.yaml and answers a stale tree by running `pnpm install`, which wants to purge the

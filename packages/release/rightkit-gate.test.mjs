@@ -2697,3 +2697,15 @@ test("class A export: the export root exists before checkout-index and the prefi
   assert.ok(seen[0].existed, "the export root exists before git writes into it");
   assert.doesNotMatch(c.err.join("\n"), /cannot export/);
 });
+
+test("--to dev --platform mac hands the platform to right-release; a platform after -- wins (Pulse, 2026-10-27)", async (t) => {
+  const { root } = stageRepo(t);
+  const calls = [];
+  const io = { resolveExecutor: directExecutor, runCheck: async () => 0, runReleaseCheck: async () => 0, spawnInherit: (cmd, a) => { calls.push(a.slice(2)); return { status: 0 }; } };
+  assert.equal(await main(["--to", "dev", "--platform", "mac"], { ...capture().io, cwd: root, ...io }), 0);
+  assert.deepEqual(calls.at(-1), ["--platform", "mac"]);
+  assert.equal(await main(["--to", "dev", "--platform", "mac", "--", "--platform", "win", "--x"], { ...capture().io, cwd: root, ...io }), 0);
+  assert.deepEqual(calls.at(-1), ["--platform", "win", "--x"]);
+  assert.equal(await main(["--to", "dev", "--", "--y"], { ...capture().io, cwd: root, ...io }), 0);
+  assert.deepEqual(calls.at(-1), ["--y"]);
+});

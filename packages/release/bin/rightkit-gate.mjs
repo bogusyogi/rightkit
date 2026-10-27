@@ -1384,7 +1384,13 @@ function stageForPublisher(o, args, root, git) {
  */
 async function runWorktreeCompile(o, args, root, git, io, to, appRoot = root) {
   const tag = "rightkit-gate:";
-  const passthrough = args.includes("--") ? args.slice(args.indexOf("--") + 1) : [];
+  const separator = args.indexOf("--");
+  const passthrough = separator >= 0 ? args.slice(separator + 1) : [];
+  // `--to dev --platform mac` (the documented form) hands the platform to right-release as `--platform mac`; a platform given after
+  // `--` wins (Pulse, 2026-10-27: the flag before `--` was dropped and right-release refused "requires --platform").
+  const gateArgs = separator >= 0 ? args.slice(0, separator) : args;
+  const platformAt = gateArgs.indexOf("--platform");
+  if (platformAt >= 0 && gateArgs[platformAt + 1] && !passthrough.includes("--platform")) passthrough.unshift("--platform", gateArgs[platformAt + 1]);
   const commit = text(git("rev-parse", "HEAD")).trim();
   const tree = text(git("rev-parse", "HEAD^{tree}")).trim();
   const common = text(git("rev-parse", "--git-common-dir")).trim();
