@@ -51,6 +51,24 @@ test("compareCells: a baseline fatal that hid the rows does not excuse the candi
   const r = cmp({ status: "fail", failNames: ["ownership"] }, fatal("old fatal"));
   assert.deepEqual(kinds(r, "block"), ["new-fail-row:ownership"]);
 });
+test("compareCells: a baseline refused at its app-check guard evaluated nothing: the candidate's rows and gate rows are reported, a crash still blocks (rightkit#1218)", () => {
+  const guard = fatal("the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.");
+  let r = cmp({ status: "fail", failNames: ["ownership"], gatesRun: true, gateFailNames: ["gate:release-switches"] }, guard);
+  assert.deepEqual(kinds(r, "block"), []);
+  assert.deepEqual(kinds(r, "report").sort(), ["gate-row", "new-fail-row"]);
+  assert.equal(r.verdict, "ok");
+  r = cmp(fatal("preflight found 4 blocking problem(s); the build would fail on these"), guard);
+  assert.deepEqual(kinds(r, "block"), []);
+  assert.ok(kinds(r, "report").some((k) => k.startsWith("fatal-signature-changed")));
+  r = cmp({ status: "crash", detail: "boom" }, guard);
+  assert.deepEqual(kinds(r, "block"), ["candidate-crash:boom"]);
+  r = cmp({ status: "fail", failNames: ["ownership"], treeChanged: true, treeDelta: ["x"] }, guard);
+  assert.ok(kinds(r, "block").includes("tree-write:x"));
+  // A candidate itself refused at the guard is compared as before (same fatal: reported).
+  r = cmp(guard, guard);
+  assert.deepEqual(kinds(r, "block"), []);
+});
+
 test("compareCells: a tree write is a regression, even if the baseline wrote too", () => {
   const delta = ["+?? sub/stray.txt"];
   assert.deepEqual(kinds(cmp({ treeChanged: true, treeDelta: delta }, {}), "block"), ["tree-write:+?? sub/stray.txt"]);
@@ -224,6 +242,15 @@ test("compareAll: a gate [FAIL] row that carries the code is infrastructure when
   assert.equal(only.verdict, "regression");
   assert.ok(onMac(only).findings.some((f) => f.kind === "gate-row" && f.severity === "block"));
 });
+test("compareAll: a completed candidate cell with the broker-managed compiler cache makes the host representative when no baseline cell could (#1219)", () => {
+  const matrix = { apps: [{ id: "a", repoDir: "a", configPath: "c", platforms: ["mac"], blocking: true }] };
+  const guard = { id: "a", platform: "mac", host: "darwin", status: "fatal", fatal: { signature: "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again." }, compilerCache: false, failNames: [], gateFailNames: [] };
+  const candidate = { id: "a", platform: "mac", host: "darwin", status: "fail", compilerCache: true, failNames: ["ownership"], gateFailNames: [] };
+  const r = compareAll({ matrix, candidateCells: [candidate], baselineCells: [guard], expected: { entries: [] }, version: "1.0.0" });
+  assert.deepEqual(r.representative, { darwin: true });
+  assert.equal(r.verdict, "green", JSON.stringify(r.cells[0].findings));
+});
+
 test("compareAll: host-not-representative says whether no baseline cell completed, or the baseline completed without broker-managed compiler cache", () => {
   const withoutCache = all(full({ "baseline.a.win": { compilerCache: false } }));
   const winCell = withoutCache.cells.find((c) => c.id === "a" && c.platform === "win");

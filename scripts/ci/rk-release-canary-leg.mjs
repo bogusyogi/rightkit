@@ -24,6 +24,21 @@ export const DEFAULT_CELL_MS = 5 * 60_000;
 export const DEFAULT_TOTAL_MS = 20 * 60_000;
 const OUTPUT_CAP = 4 * 1024 * 1024;
 export const INFRA_STATUSES = Object.freeze(["timeout", "recoverable", "infra", "budget"]);
+
+/** rmSync that clears the read-only bit first on Windows: git objects are read-only there and rmSync answers EPERM (#1219). */
+export function removeTree(dir) {
+  if (!fs.existsSync(dir)) return;
+  {
+    // Clear read-only bits on every platform: git objects are read-only, and a non-writable directory refuses unlink anywhere.
+    const walk = (p) => {
+      let st; try { st = fs.lstatSync(p); } catch { return; }
+      try { fs.chmodSync(p, st.isDirectory() ? 0o777 : 0o666); } catch { /* best effort */ }
+      if (st.isDirectory()) for (const e of fs.readdirSync(p)) walk(path.join(p, e));
+    };
+    walk(dir);
+  }
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+}
 /** Broker admission refusals: the build broker's answer that this checkout may not run Cargo. Not a candidate defect. */
 export const ADMISSION_CODES = Object.freeze(["RK_NOT_PRIMARY_CHECKOUT", "RK_BROKER_UNAVAILABLE", "RK_REPOSITORY_BUSY"]);
 const ADMISSION = new RegExp(ADMISSION_CODES.join("|"));
@@ -102,7 +117,7 @@ export function prepareSide({ sideDir, release, dependency, node = process.execP
     if (actual !== t.sha256) throw new Error(`${path.basename(t.file)} digest ${actual} differs from the manifest's ${t.sha256}`);
   }
   const modules = path.join(sideDir, "node_modules");
-  fs.rmSync(modules, { recursive: true, force: true });
+  removeTree(modules);
   const releaseDir = path.join(modules, "@rightkit", "release");
   extractTarball(release.file, releaseDir);
   extractTarball(dependency.file, path.join(modules, "smol-toml"));
@@ -162,7 +177,7 @@ export function prepareExport({ live, origin, sha, dest }) {
   if (!origin) throw Object.assign(new Error("no origin URL for the export"), { infra: true });
   if (!fs.existsSync(path.join(live, ".git"))) throw Object.assign(new Error(`${live} is not a git checkout on this host`), { infra: true });
   const inLive = git(live, ["cat-file", "-e", `${sha}^{commit}`], { allowFail: true }).status === 0;
-  fs.rmSync(dest, { recursive: true, force: true });
+  removeTree(dest);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   git(path.dirname(dest), ["clone", "--local", "--no-checkout", "--quiet", live, dest], { timeout: 300_000 });
   git(dest, ["remote", "set-url", "origin", origin]);
@@ -353,7 +368,7 @@ export async function admissionProbe({ sidePrep, candidates, probeRoot }) {
   } catch (error) {
     return { ran: false, admissionRefused: null, detail: String(error.message ?? error).slice(0, 300) };
   } finally {
-    fs.rmSync(probeRoot, { recursive: true, force: true });
+    removeTree(probeRoot);
   }
 }
 
@@ -382,7 +397,7 @@ export async function runLeg(manifest, { manifestDir, now = Date.now, host = pro
   const cellMs = (manifest.limits?.cellMinutes ?? 5) * 60_000;
   const root = path.join(hostCfg.scratchRoot, "rk-canary");
   const tmpRoot = path.join(root, "tmp");
-  fs.rmSync(tmpRoot, { recursive: true, force: true });
+  removeTree(tmpRoot);
   const resolveFile = (f) => (path.isAbsolute(f) ? f : path.join(manifestDir, f));
   const sides = {};
   const sideErrors = {};
@@ -445,7 +460,7 @@ export async function runLeg(manifest, { manifestDir, now = Date.now, host = pro
       }
     }
   });
-  fs.rmSync(tmpRoot, { recursive: true, force: true });
+  removeTree(tmpRoot);
   cells.sort((a, b) => `${a.id}:${a.platform}:${a.side}`.localeCompare(`${b.id}:${b.platform}:${b.side}`));
   return {
     schema: LEG_SCHEMA, host, node: process.version, sha: manifest.sha, version: manifest.version,

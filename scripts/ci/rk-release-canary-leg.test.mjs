@@ -451,3 +451,16 @@ test("runLeg: deleting or chmod +x on a tolerated CRLF blob flips treeChanged", 
     assert.equal(cellOf(receipt, id, "baseline").treeChanged, false, id);
   }
 });
+
+test("removeTree removes a tree holding read-only files (git objects on Windows answer EPERM to rmSync; #1219)", async () => {
+  const { removeTree } = await import("./rk-release-canary-leg.mjs");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-leg-rm-"));
+  const nested = path.join(root, "objects", "ab");
+  fs.mkdirSync(nested, { recursive: true });
+  fs.writeFileSync(path.join(nested, "cd"), "x");
+  fs.chmodSync(path.join(nested, "cd"), 0o444);
+  fs.chmodSync(nested, 0o555);
+  removeTree(root);
+  assert.equal(fs.existsSync(root), false);
+  removeTree(root); // absent: no throw
+});

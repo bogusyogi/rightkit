@@ -143,10 +143,19 @@ export function admissionInfra(cell, { side, baseline, refused = null }) {
   return { ...cell, refusedAs: cell.status, status: "infra", detail: `broker admission: ${code}` };
 }
 
+/** The doctor's refusal at its own app-check guard: it evaluated nothing of the app, so a baseline cell with this fatal cannot be
+ * compared row by row (rightkit#1218). */
+export const GUARD_REFUSED = /^the app check found problems in .*; nothing was started\./;
+const guardRefused = (cell) => cell?.status === "fatal" && GUARD_REFUSED.test(String(cell.fatal?.signature ?? ""));
+
 export function compareCells({ candidate: c, baseline: b, expected = [], version, app, platform, blocking = true, hostRepresentative = true, baselineCompleted = false }) {
   const findings = [];
   const add = (severity, kind, match, detail) => findings.push({ severity, kind, match, detail });
   const host = HOST_FOR_PLATFORM[platform];
+  // A baseline refused at its guard evaluated nothing: every row the candidate reports is newly visible app state, not a
+  // difference in doctor behaviour. Such rows are reported (never block); a candidate crash or tree write still blocks below.
+  const unevaluable = b && !isInfra(b) && guardRefused(b) && c && !isInfra(c) && !guardRefused(c);
+  const rowSeverity = (kind) => (unevaluable && kind !== "candidate-crash" && kind !== "tree-write" ? "report" : "block");
 
   if (!c) add("incomplete", "candidate-missing", app, "the candidate cell never reported");
   else if (isInfra(c)) add("incomplete", `candidate-${c.status}`, c.status, c.detail ?? "infrastructure failure after one retry");
@@ -157,7 +166,7 @@ export function compareCells({ candidate: c, baseline: b, expected = [], version
   if (c && !isInfra(c)) {
     if (c.status === "crash") add("block", "candidate-crash", c.detail ?? "crash", "the candidate doctor crashed; a crash can never be listed as expected");
     if (c.treeChanged) add("block", "tree-write", (c.treeDelta ?? []).join(";"), `the candidate doctor changed the app tree: ${(c.treeDelta ?? []).slice(0, 5).join("; ")}`);
-    if (c.gatesRun && !b?.gatesRun) for (const name of c.gateFailNames ?? []) add("block", "gate-row", name, `candidate gate row ${name} fails and the baseline cannot run --gates`);
+    if (c.gatesRun && !b?.gatesRun) for (const name of c.gateFailNames ?? []) add(rowSeverity("gate-row"), "gate-row", name, unevaluable ? `candidate gate row ${name} fails; the baseline was refused at its guard and evaluated nothing (rightkit#1218)` : `candidate gate row ${name} fails and the baseline cannot run --gates`);
 
     if (b && !isInfra(b)) {
       if (b.status === "crash") {
@@ -170,11 +179,11 @@ export function compareCells({ candidate: c, baseline: b, expected = [], version
         const known = new Set(b.failNames ?? []);
         for (const name of c.failNames ?? []) {
           if (known.has(name)) add("report", "pre-existing-fail", name, "fails on the baseline too");
-          else add("block", "new-fail-row", name, `new [FAIL] ${name}`);
+          else add(rowSeverity("new-fail-row"), "new-fail-row", name, unevaluable ? `[FAIL] ${name} on the candidate; the baseline was refused at its guard and evaluated nothing (rightkit#1218)` : `new [FAIL] ${name}`);
         }
         if (c.status === "fatal") {
           if (b.status === "fatal" && b.fatal?.signature === c.fatal?.signature) add("report", "pre-existing-fatal", c.fatal.signature, "same fatal on the baseline");
-          else if (b.status !== "pass") add("block", "fatal-signature-changed", c.fatal?.signature ?? "", `fatal changed from ${b.status === "fatal" ? JSON.stringify(b.fatal?.signature) : b.status} to ${JSON.stringify(c.fatal?.signature)}`);
+          else if (b.status !== "pass") add(rowSeverity("fatal-signature-changed"), "fatal-signature-changed", c.fatal?.signature ?? "", `fatal changed from ${b.status === "fatal" ? JSON.stringify(b.fatal?.signature) : b.status} to ${JSON.stringify(c.fatal?.signature)}${unevaluable ? " (the baseline was refused at its guard; rightkit#1218)" : ""}`);
         }
         for (const name of b.failNames ?? []) if (!(c.failNames ?? []).includes(name) && c.status !== "fatal") add("report", "fixed-row", name, "fails on the baseline, not on the candidate");
         if (b.status !== "pass" && c.status === "pass") add("report", "fixed", app, `${b.status} on the baseline, pass on the candidate`);
@@ -204,11 +213,21 @@ export function compareAll({ matrix, candidateCells, baselineCells, expected, ve
   const cand = new Map(candidateCells.map((c) => [key(c), admissionInfra(c, { side: "candidate", baseline: rawBase.get(key(c)), refused: refusedOn(c) })]));
   const representative = {};
   const completed = {};
+  const guardOnly = {};
   for (const c of baseCells) {
     representative[c.host] ??= false;
     completed[c.host] ??= false;
+    guardOnly[c.host] ??= true;
     if (c.compilerCache === true && c.status !== "crash") representative[c.host] = true;
     if (!isInfra(c) && c.status !== "crash") completed[c.host] = true;
+    if (!guardRefused(c)) guardOnly[c.host] = false;
+  }
+  // A baseline refused at its guard on every app of a host evaluated nothing there, so it can never show the broker-managed
+  // compiler cache; a completed candidate cell that ran with it proves the host just as well (#1219). A baseline that ran
+  // (even to a crash) keeps the old rule: only its own cells make the host representative.
+  for (const c of cand.values()) {
+    representative[c.host] ??= false;
+    if (guardOnly[c.host] === true && c.compilerCache === true && c.status !== "crash" && !isInfra(c)) representative[c.host] = true;
   }
   const entries = (expected?.entries ?? []).filter((e) => e.version === version);
   const used = new Set();
