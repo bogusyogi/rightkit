@@ -316,12 +316,131 @@ export function isCrlfCheckoutOf({ git, id, live, readFile = fs.readFileSync }) 
 }
 
 /**
+ * Tool caches inside node_modules that nothing installs: test-result caches (vitest), the vite optimizer and bundled-config temp
+ * files, transpile and other tool caches (.cache). Some hold code a later step executes, so the environment a verdict carries binds
+ * their bytes as they stand when class A ends, and the broker's START recomputes it: a cache edited, added or removed after the
+ * verdict (by a dev server, another tool, or by hand) voids the ticket and class A runs again. Nothing is deleted. Inside one run
+ * the start/end comparison leaves them out, because the run itself writes them. pnpm's task-run state holds only completion
+ * markers pnpm reads, never code, and is not bound.
+ */
+export const TOOL_CACHE_DIRS = new Set([".vite", ".vite-temp", ".vitest-cache", ".cache"]);
+export const INSTALL_STATE_NOT_COVERED = new Set([".pnpm-task-run-state-v1"]);
+const nodeModulesDirs = (root, files) => [...new Set(files.filter((f) => /(^|\/)package\.json$/.test(f)).map((f) => path.join(path.dirname(path.join(root, f)), "node_modules")))].sort();
+function isLink(p) { try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; } }
+
+/**
+ * Cache files that hold only a tool's own bookkeeping, never code a check executes, at exact paths: vitest's result ordering,
+ * node_modules/.vite/vitest/results.json and node_modules/.vite/vitest/<40-hex project hash>/results.json, which vitest reads only
+ * with JSON.parse to order test files (vitest 5.0.5 dist/chunks/cli-api.*.js ResultsCache.readFromCache).
+ */
+export const CACHE_NON_CODE = [/(^|\/)node_modules\/\.vite\/vitest\/([0-9a-f]{40}\/)?results\.json$/];
+/** Every file in the workspace's tool caches (TOOL_CACHE_DIRS, not following links) with its content hash, keyed by path. */
+export function toolCacheManifest({ root, files }) {
+  const out = new Map();
+  const walk = (dir) => {
+    let entries; try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (error) { if (error?.code === "ENOENT") return; throw new Error(`cannot list the tool cache ${path.relative(root, dir)} (${error?.code ?? error?.message})`); }
+    for (const e of entries) {
+      const p = path.join(dir, e.name); const rel = path.relative(root, p).split(path.sep).join("/");
+      if (e.isDirectory()) walk(p);
+      else if (e.isSymbolicLink()) out.set(rel, `link:${fs.readlinkSync(p)}`);
+      else if (e.isFile()) { try { out.set(rel, createHash("sha256").update(fs.readFileSync(p)).digest("hex")); } catch (error) { if (error?.code !== "ENOENT") throw new Error(`cannot read the tool cache file ${rel} (${error?.code ?? error?.message})`); } }
+    }
+  };
+  for (const d of nodeModulesDirs(root, files)) for (const name of TOOL_CACHE_DIRS) walk(path.join(d, name));
+  return out;
+}
+/**
+ * What a run did to the tool caches: a pre-existing cache file that changed or vanished means the checks may have read bytes that
+ * are no longer there (a concurrent writer, an interrupted or partial write), so the verdict cannot name them. Files added while
+ * it ran are listed and bound in env, though another process may have written them. Limits: a file changed and restored between
+ * the two manifests is not observed, and a file added and read by a check is bound only as it stands at the end. CACHE_NON_CODE
+ * files may change.
+ */
+export function toolCacheDrift(before, after) {
+  const changed = []; const added = [];
+  for (const [p, h] of before) if (!CACHE_NON_CODE.some((re) => re.test(p)) && after.get(p) !== h) changed.push(p);
+  for (const p of after.keys()) if (!before.has(p)) added.push(p);
+  return { changed: changed.sort(), added: added.sort() };
+}
+
+/**
+ * The installed dependency bytes a class A verdict executes: every node_modules directory of the workspace (the root one holds
+ * pnpm's virtual store) walked without following links, plus everything a link there resolves to outside those directories (a
+ * workspace package's built and ignored files, a linked package elsewhere on disk), each resolved target hashed once. A real file
+ * is its path, exec bit and content hash; a link is its target (a dangling one is bound as dangling). A cycle is cut by the
+ * resolved-path set; a target that is the root, an ancestor of it or the filesystem root, any other entry type, an unreadable
+ * entry, or more than `maxFiles` files throws. Tool caches (TOOL_CACHE_DIRS) leave no trace. Bytes that change while it hashes are caught by comparing the digest at the start
+ * and end of the run and again at START.
+ */
+export function installedDependencyDigest({ root, files, maxFiles = 400000, includeCaches = true }) {
+  const h = createHash("sha256");
+  const realRoot = fs.realpathSync(root);
+  const walkedRoots = nodeModulesDirs(root, files);
+  const realWalked = walkedRoots.map((d) => { try { return fs.realpathSync(d); } catch (error) { if (error?.code === "ENOENT") return null; throw error; } }).filter(Boolean);
+  const inside = (p, dir) => p === dir || p.startsWith(dir + path.sep);
+  const rel = (p) => (inside(p, realRoot) ? path.relative(realRoot, p).split(path.sep).join("/") : p);
+  const seen = new Set(); const pending = []; let count = 0;
+  const fail = (what, error) => { throw new Error(`cannot read ${what} for the class A environment (${error?.code ?? error?.message ?? error})`); };
+  const entry = (p, name, parentIsNodeModules, fromLink) => {
+    const st = (() => { try { return fs.lstatSync(p); } catch (error) { return fail(rel(p), error); } })();
+    if (st.isSymbolicLink()) {
+      let target; let real;
+      try { target = fs.readlinkSync(p); } catch (error) { return fail(`the link ${rel(p)}`, error); }
+      // A dangling link (pnpm hoists optional packages for other platforms that were never installed) resolves nothing, so it
+      // supplies no bytes; it is bound as dangling, and a target that later appears changes the digest.
+      try { real = fs.realpathSync(p); } catch (error) { if (error?.code === "ENOENT") { h.update(`${rel(p)}\tdangling\t${target}\n`); return; } return fail(`the link ${rel(p)}`, error); }
+      h.update(`${rel(p)}\tlink\t${target}\n`);
+      if (!realWalked.some((d) => inside(real, d))) pending.push(real);
+      return;
+    }
+    // pnpm's task-run state holds only completion markers, never code, and leaves no trace. Tool caches are bound byte for byte
+    // unless `includeCaches` is false (only for the start/end comparison inside one run, which writes them itself).
+    if (parentIsNodeModules && !fromLink && INSTALL_STATE_NOT_COVERED.has(name)) return;
+    if (parentIsNodeModules && !fromLink && TOOL_CACHE_DIRS.has(name) && !includeCaches) return;
+    if (st.isDirectory()) return walk(p, fromLink);
+    if (st.isFile()) {
+      if (++count > maxFiles) throw new Error(`more than ${maxFiles} installed dependency files; refusing an unbounded class A environment`);
+      let bytes; try { bytes = fs.readFileSync(p); } catch (error) { return fail(rel(p), error); }
+      h.update(`${rel(p)}\tfile\t${st.mode & 0o111 ? "x" : "-"}\t${createHash("sha256").update(bytes).digest("hex")}\n`);
+      return;
+    }
+    throw new Error(`unsupported entry ${rel(p)} in the installed dependencies`);
+  };
+  const walk = (dir, fromLink) => {
+    let names; try { names = fs.readdirSync(dir).sort(); } catch (error) { return fail(rel(dir), error); }
+    const nm = path.basename(dir) === "node_modules";
+    for (const name of names) {
+      const p = path.join(dir, name);
+      if (fromLink && (name === ".git" || (name === "node_modules" && walkedRoots.includes(p)))) continue;
+      entry(p, name, nm, fromLink);
+    }
+  };
+  for (const d of walkedRoots) {
+    h.update(`root\t${rel(d)}\n`);
+    try { fs.lstatSync(d); } catch (error) { if (error?.code === "ENOENT" || error?.code === "ENOTDIR") { h.update("absent\n"); continue; } fail(rel(d), error); }
+    walk(d, false);
+  }
+  while (pending.length) {
+    const real = pending.shift();
+    if (seen.has(real)) continue;
+    seen.add(real);
+    if (real === path.parse(real).root || inside(realRoot, real)) throw new Error(`a dependency link resolves to ${real}, the repository or one of its ancestors; refusing to bind it`);
+    h.update(`target\t${rel(real)}\n`);
+    const st = fs.lstatSync(real);
+    // A linked package outside the walked node_modules trees (a workspace package, or one elsewhere on disk) is hashed whole:
+    // any of its files can be executed by a consumer (an ignored dist/, an implicit index.js, a file its entry imports).
+    if (st.isDirectory()) walk(real, true); else entry(real, path.basename(real), false, true);
+  }
+  return h.digest("hex");
+}
+
+/**
  * What a class A verdict depends on outside the checked tree: every file of this gate package (code at any depth, the advisory
  * database, contracts, assets), node and pnpm versions, platform/arch, and each package's installed state
- * (node_modules/.modules.yaml). The broker binds an admission ticket to it and recomputes it when the compile starts
+ * (node_modules/.modules.yaml) and the installed dependency bytes (installedDependencyDigest). The broker binds an admission ticket to it and recomputes it when the compile starts
  * (`rightkit-gate env-digest`), so a dependency or tool change while a compile waits invalidates the ticket.
  */
-export function classAEnvironmentDigest({ root, files, spawn = defaultSpawn }) {
+export function classAEnvironmentDigest({ root, files, spawn = defaultSpawn, includeCaches = true }) {
   // Only a file that does not exist is "absent"; any other read failure throws: an input whose bytes cannot be read is never
   // identified by a placeholder that would match the same failure later.
   // `optional`: only an install-state file may legitimately not exist; a gate file found by the walk must be readable.
@@ -331,7 +450,7 @@ export function classAEnvironmentDigest({ root, files, spawn = defaultSpawn }) {
   const gateFiles = walkGate(gatePkg).sort().map((f) => `${path.relative(gatePkg, f)}:${fileDigest(f)}`);
   const pnpmVersion = (() => { const r = spawn("pnpm", ["--version"], { cwd: root }); if (failed(r) || !text(r).trim()) throw new Error(`cannot identify pnpm for the class A environment (${why(r)})`); return text(r).trim(); })();
   const installState = files.filter((f) => /(^|\/)package\.json$/.test(f)).map((f) => path.join(path.dirname(path.join(root, f)), "node_modules", ".modules.yaml")).map((m) => `${path.relative(root, m)}:${fileDigest(m, { optional: true })}`);
-  return createHash("sha256").update([`node ${process.version}`, `pnpm ${pnpmVersion}`, `platform ${process.platform}-${process.arch}`, ...gateFiles, ...installState].join("\n")).digest("hex");
+  return createHash("sha256").update([`node ${process.version}`, `pnpm ${pnpmVersion}`, `platform ${process.platform}-${process.arch}`, ...gateFiles, ...installState, `installed ${installedDependencyDigest({ root, files, includeCaches })}`].join("\n")).digest("hex");
 }
 
 /** Split pathspecs into batches whose joined length stays under `limit` characters (well below Windows' 32767 command line). */
@@ -1624,7 +1743,7 @@ export async function main(argv, io = {}) {
   if (sub === "env-digest") {
     const listed = git("ls-files", "-z", "--cached", "--others", "--exclude-standard");
     if (failed(listed)) { o.err(`rightkit-gate: env-digest cannot list the working tree: ${why(listed)}`); return 2; }
-    try { o.out(`env=${classAEnvironmentDigest({ root, files: text(listed).split("\0").filter(Boolean).map(posix), spawn: o.spawn })}`); }
+    try { const files = text(listed).split("\0").filter(Boolean).map(posix); o.out(`env=${classAEnvironmentDigest({ root, files, spawn: o.spawn })}`); }
     catch (error) { o.err(`rightkit-gate: env-digest: ${error.message}`); return 2; }
     return 0;
   }
@@ -1901,6 +2020,15 @@ export async function main(argv, io = {}) {
       try { live = liveTree(); } catch (error) { o.err(`${tag} BLOCKED: cannot bind full class A to the working tree's bytes (${error.message})`); return 1; }
     }
     const liveSnapshot = live?.digest ?? null;
+    // The environment, installed dependencies included, is bound at the start and compared at the end, so a dependency that
+    // changes while class A runs voids the verdict.
+    // envStartWithCaches records, for audit, the tool caches as the run found them (what its checks could read); the pass line
+    // carries it next to the env the verdict binds.
+    let envAtStart = null; let envStartWithCaches = null; let cachesAtStart = null;
+    if (liveFullA) {
+      try { envAtStart = classAEnvironmentDigest({ root, files: live.files, spawn: o.spawn, includeCaches: false }); envStartWithCaches = classAEnvironmentDigest({ root, files: live.files, spawn: o.spawn }); cachesAtStart = toolCacheManifest({ root, files: live.files }); }
+      catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
+    }
     if (liveFullA && !args.includes("--no-cache") && o.env.RK_GATE_CACHE !== "0") {
       try {
         const common = git("rev-parse", "--git-common-dir");
@@ -1997,7 +2125,16 @@ export async function main(argv, io = {}) {
         const tracked = new Set(text(trackedList).split("\0").filter(Boolean).map(posix));
         let envDigest;
         try { envDigest = classAEnvironmentDigest({ root, files: live.files, spawn: o.spawn }); } catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
-        o.out(`${tag} class A bytes tracked=${live.digestOf(live.files.filter((f) => tracked.has(f)))} all=${live.digest} env=${envDigest}`);
+        let envNoCaches;
+        try { envNoCaches = classAEnvironmentDigest({ root, files: live.files, spawn: o.spawn, includeCaches: false }); } catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
+        if (cachesAtStart !== null) {
+          let drift;
+          try { drift = toolCacheDrift(cachesAtStart, toolCacheManifest({ root, files: live.files })); } catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
+          if (drift.changed.length) { o.err(`${tag} BLOCKED: ${drift.changed.length} tool cache file(s) that existed when class A started changed or vanished while it ran, so the checks may have read bytes the verdict cannot name: ${drift.changed.slice(0, 5).join(", ")}${drift.changed.length > 5 ? ", …" : ""}. Run again.`); return 1; }
+          if (drift.added.length) o.out(`${tag} note: ${drift.added.length} tool cache file(s) appeared while class A ran (by it or another process), bound in env as they stand: ${drift.added.slice(0, 5).join(", ")}${drift.added.length > 5 ? ", …" : ""}`);
+        }
+        if (envAtStart !== null && envNoCaches !== envAtStart) { o.err(`${tag} BLOCKED: the class A environment (gate, tools or installed dependencies) changed while class A ran; the verdict does not cover it. Run again.`); return 1; }
+        o.out(`${tag} class A bytes tracked=${live.digestOf(live.files.filter((f) => tracked.has(f)))} all=${live.digest}${envStartWithCaches ? ` env-at-start=${envStartWithCaches}` : ""} env=${envDigest}`);
       }
       o.out(`${tag} class A full pass: ${scanResult.scans.length} deterministic check(s), the ones that execute repository code included, over ${changed.length} file(s) of ${base}`);
       return 0;

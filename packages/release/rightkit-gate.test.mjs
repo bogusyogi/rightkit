@@ -2913,3 +2913,99 @@ test("env-digest fails closed: a pnpm that cannot be identified is an error, nev
   assert.equal(await main(["env-digest"], { ...env.io, cwd: repo, spawn }), 2);
   assert.match(env.err.join("\n"), /cannot identify pnpm/);
 });
+
+test("installed dependency bytes are bound: edits through links, linked workspace packages, external targets, dangling links, caches", (t) => {
+  const { installedDependencyDigest, TOOL_CACHE_DIRS } = gateModule;
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "rk-deps-"));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const root = path.join(base, "repo"); const ext = path.join(base, "elsewhere");
+  const w = (p, s) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, s); };
+  w(path.join(root, "package.json"), "{}");
+  w(path.join(root, "packages/lib/package.json"), JSON.stringify({ name: "lib", main: "dist/index.js" }));
+  w(path.join(root, "packages/lib/dist/index.js"), "module.exports = 1;\n");
+  w(path.join(root, "node_modules/.pnpm/dep@1.0.0/node_modules/dep/index.js"), "export default 1;\n");
+  w(path.join(ext, "index.js"), "export default 'ext';\n");
+  fs.symlinkSync(path.join(root, "node_modules/.pnpm/dep@1.0.0/node_modules/dep"), path.join(root, "node_modules/dep"));
+  fs.symlinkSync(path.join(root, "packages/lib"), path.join(root, "node_modules/lib"));
+  fs.symlinkSync(ext, path.join(root, "node_modules/ext"));
+  fs.symlinkSync(path.join(root, "node_modules/.pnpm/missing@1/node_modules/missing"), path.join(root, "node_modules/missing"));
+  const files = ["package.json", "packages/lib/package.json"];
+  const digest = () => installedDependencyDigest({ root, files });
+  const d0 = digest();
+  assert.equal(digest(), d0, "stable");
+  const changes = (label, mutate, undo) => { mutate(); assert.notEqual(digest(), d0, label); undo(); assert.equal(digest(), d0, `${label} undone`); };
+  const store = path.join(root, "node_modules/.pnpm/dep@1.0.0/node_modules/dep/index.js");
+  changes("a store file edited through its link", () => fs.writeFileSync(path.join(root, "node_modules/dep/index.js"), "export default 2;\n"), () => fs.writeFileSync(store, "export default 1;\n"));
+  changes("an ignored dist/ file of a linked workspace package", () => fs.writeFileSync(path.join(root, "packages/lib/dist/index.js"), "x"), () => fs.writeFileSync(path.join(root, "packages/lib/dist/index.js"), "module.exports = 1;\n"));
+  changes("an implicit index.js added to a linked workspace package", () => w(path.join(root, "packages/lib/index.js"), "1"), () => fs.unlinkSync(path.join(root, "packages/lib/index.js")));
+  changes("a file of an external link target", () => fs.writeFileSync(path.join(ext, "index.js"), "x"), () => fs.writeFileSync(path.join(ext, "index.js"), "export default 'ext';\n"));
+  changes("the exec bit of a store file", () => fs.chmodSync(store, 0o755), () => fs.chmodSync(store, 0o644));
+  changes("a relinked dependency", () => { fs.unlinkSync(path.join(root, "node_modules/dep")); fs.symlinkSync(ext, path.join(root, "node_modules/dep")); }, () => { fs.unlinkSync(path.join(root, "node_modules/dep")); fs.symlinkSync(path.join(root, "node_modules/.pnpm/dep@1.0.0/node_modules/dep"), path.join(root, "node_modules/dep")); });
+  changes("a dangling link's target appearing", () => w(path.join(root, "node_modules/.pnpm/missing@1/node_modules/missing/index.js"), "1"), () => fs.rmSync(path.join(root, "node_modules/.pnpm/missing@1"), { recursive: true }));
+  changes("a dependency file removed", () => fs.renameSync(store, `${store}.gone`), () => fs.renameSync(`${store}.gone`, store));
+  // Tool caches are bound byte for byte (a tampered cached chunk changes the ticket's environment) and never deleted; only the
+  // in-run start/end comparison leaves them out.
+  const noCaches = () => installedDependencyDigest({ root, files, includeCaches: false });
+  const n0 = noCaches();
+  for (const name of TOOL_CACHE_DIRS) {
+    const chunk = path.join(root, "node_modules", name, "deps/chunk.js");
+    w(chunk, "cached()"); const withCache = digest();
+    assert.notEqual(withCache, d0, `${name} contents are bound`);
+    fs.writeFileSync(chunk, "tampered()"); assert.notEqual(digest(), withCache, `a tampered ${name} chunk changes the environment`);
+    assert.equal(noCaches(), n0, `${name} is left out of the in-run comparison only`);
+    assert.equal(fs.existsSync(chunk), true, `${name} is never deleted`);
+    fs.rmSync(path.join(root, "node_modules", name), { recursive: true });
+  }
+  w(path.join(root, "node_modules/.pnpm-task-run-state-v1/latest.json"), "{}");
+  assert.equal(digest(), d0, "pnpm task-run state is not bound");
+  fs.rmSync(path.join(root, "node_modules/.pnpm-task-run-state-v1"), { recursive: true });
+  // A cycle is cut; a link to the repository itself or an ancestor is refused; an unreadable entry throws.
+  fs.symlinkSync(path.join(root, "node_modules"), path.join(ext, "loop"));
+  assert.notEqual(digest(), d0);
+  fs.unlinkSync(path.join(ext, "loop"));
+  fs.symlinkSync(base, path.join(root, "node_modules/up"));
+  assert.throws(digest, /the repository or one of its ancestors/);
+  fs.unlinkSync(path.join(root, "node_modules/up"));
+  if (process.platform !== "win32" && process.getuid?.() !== 0) {
+    fs.chmodSync(store, 0o000);
+    try { assert.throws(digest, /cannot read .* for the class A environment/); } finally { fs.chmodSync(store, 0o644); }
+  }
+  assert.equal(digest(), d0);
+  assert.throws(() => installedDependencyDigest({ root, files, maxFiles: 1 }), /refusing an unbounded/);
+});
+
+test("full class A blocks when a tool cache file it found changes or vanishes while it runs; result bookkeeping and new entries do not", async (t) => {
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-full-a-cache-")));
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT" }));
+  fs.writeFileSync(path.join(repo, ".gitignore"), "node_modules/\n");
+  git("add", "-A"); git("commit", "-q", "-m", "one");
+  const entry = path.join(repo, "node_modules/.vitest-cache/abc123");
+  const results = path.join(repo, "node_modules/.vite/vitest/results.json");
+  const reset = () => { fs.mkdirSync(path.dirname(entry), { recursive: true }); fs.writeFileSync(entry, "export const transformed = 1;\n"); fs.writeFileSync(path.join(repo, "node_modules/.vitest-cache/results.json"), "{}"); fs.mkdirSync(path.dirname(results), { recursive: true }); fs.writeFileSync(results, "{}"); fs.rmSync(path.join(repo, "node_modules/.vitest-cache/new1"), { force: true }); };
+  const during = (mutate) => async () => { mutate(); return { scans: [], notes: [], cacheHits: [] }; };
+  const cases = [
+    ["a pre-existing cached module rewritten (concurrent writer)", () => fs.writeFileSync(entry, "export const transformed = 2;\n"), 1],
+    ["a pre-existing cached module truncated (interrupted write)", () => fs.writeFileSync(entry, "export const transf"), 1],
+    ["a pre-existing cached module removed", () => fs.unlinkSync(entry), 1],
+    ["vitest result ordering rewritten", () => fs.writeFileSync(results, "{\"a\":1}"), 0],
+    ["a results.json outside vitest's exact paths rewritten", () => { fs.writeFileSync(path.join(repo, "node_modules/.vitest-cache/results.json"), "evil()"); }, 1],
+    ["a new cache entry written by the run", () => fs.writeFileSync(path.join(repo, "node_modules/.vitest-cache/new1"), "x"), 0],
+  ];
+  for (const [label, mutate, code] of cases) {
+    reset();
+    const run = capture();
+    assert.equal(await main(["--class-a", "--full-a", "--worktree", "--no-cache"], { ...run.io, cwd: repo, runScans: during(mutate), spawn: withPnpm }), code, `${label}: ${run.err.join("\n")}`);
+    if (code === 1) assert.match(run.err.join("\n"), /tool cache file\(s\) that existed when class A started changed or vanished/, label);
+    else assert.ok(run.out.some((l) => /env-at-start=[0-9a-f]{64} env=[0-9a-f]{64}$/.test(l)), label);
+  }
+  // A cache poisoned before the run is named: env-at-start binds the bytes the checks could read.
+  reset();
+  const a = capture(); await main(["--class-a", "--full-a", "--worktree", "--no-cache"], { ...a.io, cwd: repo, runScans: during(() => {}), spawn: withPnpm });
+  fs.writeFileSync(entry, "export const poisoned = 1;\n");
+  const b = capture(); await main(["--class-a", "--full-a", "--worktree", "--no-cache"], { ...b.io, cwd: repo, runScans: during(() => {}), spawn: withPnpm });
+  const startOf = (r) => /env-at-start=([0-9a-f]{64})/.exec(r.out.join("\n"))?.[1];
+  assert.ok(startOf(a) && startOf(b) && startOf(a) !== startOf(b), "a pre-run cache change is visible in env-at-start");
+});
