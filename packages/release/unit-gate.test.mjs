@@ -58,15 +58,16 @@ test("release stage: the gate owns pre-flight, broker dispatch, the wait and the
   const { releaseUnit } = await import("./unit-gate.mjs");
   const artifact = { artifactSha256: "1".repeat(64) };
   const base = { unit, root: "/repo", commit, executor: { kind: "broker" }, env: { RK_GATE_RUN: "x" }, artifact, platform: "darwin", out: () => {}, scratch: tempRoot("unit-release-") };
-  const row = { unit: unit.name, version: unit.version, published: true, registryVerified: true, outcome: "published", sha256: "2".repeat(64), sha1: "s1", integrity: "sha512-abc" };
-  const make = ({ states, runStatus = {}, receiptRows = [row], served = { integrity: "sha512-abc", shasum: "s1" }, artifacts = ["publication-receipt-1-1-1"] } = {}) => {
+  const row = { unit: unit.name, version: unit.version, published: true, registryVerified: true, outcome: "published", sha256: "2".repeat(64), sha1: "s1" };
+  const meta = { schema: 1, registry: "npm", dryRun: false, commit, repository: "bogusyogi/rightkit", runId: 10, runAttempt: 1 };
+  const make = ({ states, runStatus = {}, receiptRows = [row], served = { shasum: "s1", sha256: "2".repeat(64) }, artifacts = ["publication-receipt-10-1-1"], receiptMeta = meta } = {}) => {
     const calls = [];
     let reads = 0;
     const run = (cmd, args) => {
       const key = args[0] === "/repo/scripts/ci/rk-pipeline.mjs" ? args[1] : path.basename(cmd) === "gh" ? `gh:${args[0]}` : path.basename(cmd);
       calls.push(key === "gh:run" ? `gh:${args.join(" ")}` : key);
       if (key === "gh:api") return { status: 0, stdout: JSON.stringify({ artifacts: artifacts.map((name) => ({ name })) }) };
-      if (key === "gh:run") { const dir = args[args.indexOf("--dir") + 1]; fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, "publication-receipt.json"), JSON.stringify({ receipts: receiptRows })); return { status: 0, stdout: "" }; }
+      if (key === "gh:run") { const dir = args[args.indexOf("--dir") + 1]; fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, "publication-receipt.json"), JSON.stringify({ ...receiptMeta, receipts: receiptRows })); return { status: 0, stdout: "" }; }
       return { status: runStatus[key] ?? 0, stdout: "", stderr: `${key} said no` };
     };
     const readJson = () => ({ dispatches: { k: states[Math.min(reads++, states.length - 1)] } });
@@ -77,7 +78,8 @@ test("release stage: the gate owns pre-flight, broker dispatch, the wait and the
   // success: order and the reported record
   let f = make({ states: [dispatched, published] });
   const ok = await releaseUnit({ ...base, ...f });
-  assert.deepEqual(f.calls, ["preflight", "dispatch", "watch", "gh:api", "gh:run download 20 -R bogusyogi/rightkit --name publication-receipt-1-1-1 --dir " + path.join(base.scratch, "rk-unit-receipts", "20")]);
+  assert.deepEqual(f.calls.slice(0, 4), ["preflight", "dispatch", "watch", "gh:api"]);
+  assert.match(f.calls[4], /^gh:run download 20 -R bogusyogi\/rightkit --name publication-receipt-10-1-1 --dir /);
   assert.equal(ok.registryVerified, true); assert.equal(ok.hostedSha256, row.sha256); assert.equal(ok.uploadRunId, 20); assert.equal(ok.hostedEqualsLocal, false); assert.equal(ok.localArtifactSha256, artifact.artifactSha256);
   // direct host: refused before anything runs
   f = make({ states: [dispatched, published] });
@@ -94,15 +96,27 @@ test("release stage: the gate owns pre-flight, broker dispatch, the wait and the
   // watch ended without a published record (upload never ran)
   f = make({ states: [dispatched, { ...dispatched, status: "failed", conclusion: "upload failure" }] });
   await assert.rejects(releaseUnit({ ...base, ...f }), /without a published record \(failed: upload failure\)/);
-  // ambiguous receipts
-  f = make({ states: [dispatched, published], artifacts: ["publication-receipt-1-1-1", "publication-receipt-1-1-2"] });
+  // ambiguous receipts, and a receipt of another qualification run
+  f = make({ states: [dispatched, published], artifacts: ["publication-receipt-10-1-1", "publication-receipt-10-1-2"] });
   await assert.rejects(releaseUnit({ ...base, ...f }), /2 publication receipt artifact/);
+  f = make({ states: [dispatched, published], artifacts: ["publication-receipt-99-1-1"] });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /0 publication receipt artifact/);
+  f = make({ states: [dispatched, published], receiptMeta: { ...meta, commit: "c".repeat(40) } });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /is not for run 10 attempt 1/);
+  f = make({ states: [dispatched, published], receiptRows: [row, row] });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /holds 2 row/);
   // receipt row not verified
   f = make({ states: [dispatched, published], receiptRows: [{ ...row, registryVerified: false, outcome: "published-unverified" }] });
   await assert.rejects(releaseUnit({ ...base, ...f }), /records no verified publication \(published-unverified\)/);
-  // registry serves other bytes
-  f = make({ states: [dispatched, published], served: { integrity: "sha512-other", shasum: "s1" } });
+  // registry serves other bytes (shasum or tarball sha256)
+  f = make({ states: [dispatched, published], served: { shasum: "other", sha256: "2".repeat(64) } });
   await assert.rejects(releaseUnit({ ...base, ...f }), /different bytes/);
+  f = make({ states: [dispatched, published], served: { shasum: "s1", sha256: "3".repeat(64) } });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /different bytes/);
+  // two dispatch records for the same unit and commit are ambiguous
+  f = make({ states: [dispatched, published] });
+  f.readJson = () => ({ dispatches: { a: dispatched, b: dispatched } });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /2 dispatch records/);
 });
 
 test("unit selection requires grant and canonical matching publishable manifest", () => {
@@ -120,7 +134,7 @@ test("`--unit` after `--` belongs to right-release, not the gate: an app's dev r
   const { main } = await import("./bin/rightkit-gate.mjs");
   const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
   const os = await import("node:os");
-  const { spawnSync } = await import("node:child_process");
+  const { spawnSync } = await import("./background-process.mjs");
   const repo = mkdtempSync(path.join(os.tmpdir(), "rk-unit-sep-"));
   t.after(() => rmSync(repo, { recursive: true, force: true }));
   const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });

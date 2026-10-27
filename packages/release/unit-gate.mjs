@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { localBuildGranted } from "./execution-policy.mjs";
 import { readCargoPackage } from "./crate-graph.mjs";
-import { spawnSync as nodeSpawnSync } from "node:child_process";
+import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
 import { endRun, startRun, stagesTo } from "./gate-stages.mjs";
 
 const GH = process.platform === "win32" ? "C:\\Program Files\\GitHub CLI\\gh.exe" : "/opt/homebrew/bin/gh";
@@ -33,7 +33,11 @@ export async function releaseUnit({ unit, root, commit, executor, env, artifact,
     if (r.status !== 0) throw new Error(`${label} failed (exit ${r.status}): ${String(r.stderr ?? "").trim().split("\n").slice(-3).join(" | ").slice(0, 400)}`);
     return r;
   };
-  const findDispatch = () => Object.values(readJson(stateFile).dispatches ?? {}).find((d) => d.unit === unit.name && d.sha === commit && d.registry === registry);
+  const findDispatch = () => {
+    const found = Object.values(readJson(stateFile).dispatches ?? {}).filter((d) => d.unit === unit.name && d.sha === commit && d.registry === registry);
+    if (found.length > 1) throw new Error(`${found.length} dispatch records for ${unit.name} at ${commit.slice(0, 12)} in rk-pipeline state; reconcile before any retry`);
+    return found[0];
+  };
   step(`local pre-flight of ${unit.name} through the broker`, ["preflight", unit.name, "--registry", registry]);
   step(`broker-admitted hosted qualification dispatch of ${unit.name} at ${commit.slice(0, 12)}`, ["dispatch", unit.name, "--registry", registry]);
   const dispatched = findDispatch();
@@ -41,26 +45,37 @@ export async function releaseUnit({ unit, root, commit, executor, env, artifact,
   step(`waiting for publish.yml run ${dispatched.runId}, its publish-direct upload run and the registry`, ["watch", "--wait"]);
   const done = findDispatch();
   if (done?.status !== "published" || done.version !== unit.version || !done.uploadRunId) throw new Error(`${unit.name}: the watch ended without a published record (${done?.status ?? "none"}${done?.conclusion ? `: ${done.conclusion}` : ""}); nothing is claimed`);
-  const receipt = readPublicationReceipt({ uploadRunId: done.uploadRunId, run, env, scratch });
-  const row = (receipt.receipts ?? []).find((r) => r.unit === unit.name && r.version === unit.version);
-  if (!row || row.published !== true || row.registryVerified !== true || row.outcome !== "published") throw new Error(`${unit.name}@${unit.version}: the publication receipt of upload run ${done.uploadRunId} records no verified publication (${row ? row.outcome : "no row"})`);
-  const served = await registryBytes({ unit, registry, run, env, expected: row });
-  const same = registry === "npm" ? served.integrity === row.integrity && served.shasum === row.sha1 : served.cksum === row.sha256;
-  if (!same) throw new Error(`${unit.name}@${unit.version}: the registry serves different bytes from the upload receipt`);
+  const receipt = readPublicationReceipt({ uploadRunId: done.uploadRunId, runId: done.runId, runAttempt: done.runAttempt, run, env, scratch });
+  // The receipt must be this run's: the qualification run and attempt it consumed, this commit, this registry, this repository.
+  if (String(receipt.runId) !== String(done.runId) || String(receipt.runAttempt) !== String(done.runAttempt) || receipt.commit !== commit || receipt.registry !== registry || receipt.repository !== "bogusyogi/rightkit" || receipt.dryRun === true) {
+    throw new Error(`${unit.name}@${unit.version}: the publication receipt of upload run ${done.uploadRunId} is not for run ${done.runId} attempt ${done.runAttempt} of ${commit.slice(0, 12)} (${registry}); nothing is claimed`);
+  }
+  const rows = (receipt.receipts ?? []).filter((r) => r.unit === unit.name && r.version === unit.version);
+  if (rows.length !== 1) throw new Error(`${unit.name}@${unit.version}: the publication receipt holds ${rows.length} row(s) for this unit; exactly one is required`);
+  const [row] = rows;
+  if (row.published !== true || row.registryVerified !== true || row.outcome !== "published" || !/^[0-9a-f]{64}$/.test(row.sha256 ?? "")) throw new Error(`${unit.name}@${unit.version}: the publication receipt of upload run ${done.uploadRunId} records no verified publication (${row.outcome})`);
+  // Read the registry back independently of the upload run: npm's dist.shasum (sha1) and the served tarball's sha256 (the receipt
+  // row carries sha256 + sha1, not the sha512 integrity); crates: the sparse index cksum (sha256).
+  const served = await registryBytes({ unit, registry, run, env, expected: row, scratch });
+  const same = registry === "npm" ? served.shasum === row.sha1 && served.sha256 === row.sha256 : served.cksum === row.sha256;
+  if (!same) throw new Error(`${unit.name}@${unit.version}: the registry serves different bytes from the upload receipt (served sha256 ${served.sha256 ?? served.cksum ?? "?"}, receipt ${row.sha256})`);
   return {
     registry, runId: done.runId, runAttempt: done.runAttempt, requestId: done.requestId ?? null, uploadRunId: done.uploadRunId,
-    hostedSha256: row.sha256, integrity: row.integrity ?? null, registryVerified: true,
+    hostedSha256: row.sha256, hostedSha1: row.sha1 ?? null, registryVerified: true,
     localArtifactSha256: artifact?.artifactSha256 ?? null, hostedEqualsLocal: artifact ? artifact.artifactSha256 === row.sha256 : null,
   };
 }
 
 /** The one `publication-receipt-*` artifact of the upload run, downloaded and parsed. More or fewer than one is ambiguous. */
-export function readPublicationReceipt({ uploadRunId, run, env, scratch }) {
+export function readPublicationReceipt({ uploadRunId, runId, runAttempt, run, env, scratch }) {
   const listed = run(GH, ["api", `repos/bogusyogi/rightkit/actions/runs/${uploadRunId}/artifacts`], { env, encoding: "utf8" });
   if (listed.status !== 0) throw new Error(`cannot list the artifacts of upload run ${uploadRunId}`);
-  const names = (JSON.parse(listed.stdout).artifacts ?? []).map((a) => a.name).filter((n) => n.startsWith("publication-receipt-"));
-  if (names.length !== 1) throw new Error(`upload run ${uploadRunId} has ${names.length} publication receipt artifact(s); exactly one is required`);
-  const dir = path.join(scratch, "rk-unit-receipts", String(uploadRunId));
+  // publish-direct names its receipt `publication-receipt-<qualification run id>-<its attempt>-<upload attempt>`.
+  const pattern = new RegExp(`^publication-receipt-${runId}-${runAttempt}-\\d+$`);
+  const names = (JSON.parse(listed.stdout).artifacts ?? []).map((a) => a.name).filter((n) => pattern.test(n));
+  if (names.length !== 1) throw new Error(`upload run ${uploadRunId} has ${names.length} publication receipt artifact(s) for run ${runId} attempt ${runAttempt}; exactly one is required`);
+  const dir = path.join(scratch, "rk-unit-receipts", `${uploadRunId}-${Date.now()}`);
+  fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
   const fetched = run(GH, ["run", "download", String(uploadRunId), "-R", "bogusyogi/rightkit", "--name", names[0], "--dir", dir], { env, encoding: "utf8" });
   if (fetched.status !== 0) throw new Error(`cannot download ${names[0]} of upload run ${uploadRunId}`);
@@ -70,12 +85,19 @@ export function readPublicationReceipt({ uploadRunId, run, env, scratch }) {
 }
 
 /** What the registry serves for the unit's version: npm dist.integrity + dist.shasum; crates the sparse index cksum. */
-export async function defaultRegistryBytes({ unit, registry, run, env, expected }) {
+export async function defaultRegistryBytes({ unit, registry, run, env, expected, scratch }) {
   if (registry === "npm") {
-    const r = run("npm", ["view", `${unit.name}@${unit.version}`, "dist.integrity", "dist.shasum", "--json", "--prefer-online"], { env, encoding: "utf8" });
+    const r = run("npm", ["view", `${unit.name}@${unit.version}`, "dist.shasum", "--json", "--prefer-online"], { env, encoding: "utf8" });
     if (r.status !== 0) throw new Error(`npm view ${unit.name}@${unit.version} failed`);
-    const dist = JSON.parse(r.stdout);
-    return { integrity: dist["dist.integrity"], shasum: dist["dist.shasum"] };
+    const shasum = JSON.parse(r.stdout);
+    // The served tarball itself, hashed here: `npm pack` downloads exactly what the registry serves for that version.
+    const dir = path.join(scratch, "rk-unit-readback", `${unit.name.replace("/", "__")}-${unit.version}-${Date.now()}`);
+    fs.mkdirSync(dir, { recursive: true });
+    const packed = run("npm", ["pack", `${unit.name}@${unit.version}`, "--pack-destination", dir, "--ignore-scripts"], { env, encoding: "utf8", cwd: dir });
+    if (packed.status !== 0) throw new Error(`npm pack ${unit.name}@${unit.version} failed`);
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".tgz"));
+    if (files.length !== 1) throw new Error(`npm pack of ${unit.name}@${unit.version} produced ${files.length} tarball(s)`);
+    return { shasum: typeof shasum === "string" ? shasum : shasum?.["dist.shasum"], sha256: hash(fs.readFileSync(path.join(dir, files[0]))) };
   }
   // The sparse index must serve exactly the receipt's sha256 (verifyCargoRegistry throws PUBLICATION_REGISTRY_MISMATCH otherwise).
   const { verifyCargoRegistry } = await import("./cargo-registry-readback.mjs");

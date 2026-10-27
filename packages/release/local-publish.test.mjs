@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
-import { execFileSync } from 'node:child_process';
+import { execFileSync } from './background-process.mjs';
 import { checkPublicationGate, provenGateSteps, publishGatedTarball } from './publication-gate.mjs';
 import { startRun, endRun } from './gate-stages.mjs';
 import { mintTestCapability } from './test-support/publish-capability-fixture.mjs';

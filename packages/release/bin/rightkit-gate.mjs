@@ -70,7 +70,6 @@ import { fileURLToPath } from "node:url";
 import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
-import { runUnitGate } from "../unit-gate.mjs";
 import { bindingOf, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, writeReceipt } from "../gate-stages.mjs";
 import { spawnSync as spawnInherit } from "../background-process.mjs";
 import { readDiskPolicy, scratchRoots } from "../disk-policy.mjs";
@@ -1543,6 +1542,9 @@ export async function main(argv, io = {}) {
     const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
     if (executor.kind === "refuse") { o.err(`rightkit-gate: BLOCKED: ${executor.problem}`); return 1; }
     const reportOut = option("--receipt-out");
+    // Loaded here, not at the top: the unit path reads Cargo manifests (smol-toml), which an installed copy of this package without
+    // node_modules does not carry; the app paths of this gate must keep loading there (app-check.test: the installed copy).
+    const { runUnitGate } = await import("../unit-gate.mjs");
     return await runUnitGate({ selector, to: option("--to"), root, commonDir: path.resolve(root, text(common).trim()), commit, tree, executor, env: o.env, platform: o.platform,
       check: (tier) => main(["check", "--commit", "HEAD", "--rule-tier", tier], { ...io, cwd: root }), out: o.out, err: o.err,
       ...(reportOut ? { writeReport: (report) => o.writeFile(path.resolve(o.cwd, reportOut), `${JSON.stringify(report, null, 2)}\n`) } : {}),
