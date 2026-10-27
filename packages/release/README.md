@@ -112,7 +112,7 @@ only change what a command does after the check.
 
 | Mode | Commands |
 |---|---|
-| `commit` (HEAD: what is built, packaged, signed and uploaded) | `release`, `build` (also `build --web` and the direct-flag form `right-release --platform ...`), `package`, `web-build`, `swift-package`, `recipe-build`, `qa`, `upload`, `publish`, `publish-update`, `github`, `sign-windows`, `sign-updater`, `create-mac-updater`, `sign-candidate`, `addon build` |
+| `commit` (HEAD: what is built, packaged, signed and uploaded) | `release`, `build` (also `build --web` and the direct-flag form `right-release --platform ...`), `package`, `web-build`, `swift-package`, `recipe-build`, `assemble-app`, `qa`, `upload`, `publish`, `publish-update`, `github`, `sign-windows`, `sign-updater`, `create-mac-updater`, `sign-candidate`, `addon build` |
 | `worktree` (the tree on disk, as a compile sees it) | `dev`, `doctor`, `test`, `stage-sidecar`, `sign-dev-artifact` |
 
 Not guarded: the report forms of guarded commands (`publish cargo|npm|swift`, `qa audit`, `doctor --all`) and every other command.

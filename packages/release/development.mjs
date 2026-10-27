@@ -15,6 +15,7 @@ import { stageDevelopmentBinaries, validateStageEntries } from "./stage-binary.m
 import { assertStableDesignatedRequirement, readBundleExecutable, requestedCiAdhocSigning, signMacosDevelopmentBundle } from "./development-signing.mjs";
 import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 import { installTauriDevId, resolveTauriDevIdDescriptor, TAURI_DEVID_KIND } from "./install-tauri-devid.mjs";
+import { ASSEMBLED_APP_KIND, installAssembledMac, installAssembledWindows, resolveAssembledInstall } from "./install-assembled-app.mjs";
 import { assertIosDevelopmentSession, installIosDevelopment, prepareIosDevelopment, validateIosDevelopment } from "./ios-dev.mjs";
 import { androidDevelopmentNdkCommand, androidDevelopmentSerial, installAndroidDevelopment, validateAndroidDevelopment } from "./android-dev.mjs";
 
@@ -79,6 +80,10 @@ export function validateDevelopmentConfig(config, platform, { root = process.cwd
     if (platform !== "mac") throw new Error(`the ${TAURI_DEVID_KIND} development installer is for --platform mac`);
     resolveTauriDevIdDescriptor(target.install, { appRoot: root });
     if (!target.install.targetTriple && !target.install.bundleDirectory) throw new Error(`development.targets.${platform}.install requires targetTriple (or bundleDirectory) to find the built .app`);
+  } else if (target.install?.kind === ASSEMBLED_APP_KIND) {
+    if (platform !== "mac" && platform !== "win") throw new Error(`the ${ASSEMBLED_APP_KIND} development installer is for --platform mac or win`);
+    // The assembly (assembly.<platform>) and the install keys are validated together, before any build.
+    resolveAssembledInstall({ config, platform });
   } else if (target.install?.kind === "adb") {
     if (platform !== "android") throw new Error("the adb development installer is for --platform android");
   } else if (target.install) throw new Error(`unsupported development installer kind: ${target.install.kind}`);
@@ -128,6 +133,18 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
       releaseLease = false;
       return installTauriDevId({ appRoot: root, config: target.install, releaseConfig: config, built, env: childEnv })
         .then((outcome) => ({ built: true, installed: true, ...(staged.length ? { staged } : {}), devid: outcome }))
+        .finally(() => lease.release());
+    }
+    if (target.install.kind === ASSEMBLED_APP_KIND) {
+      const { spec, descriptor } = resolveAssembledInstall({ config, platform });
+      if (platform === "win") {
+        const assembled = installAssembledWindows({ root, config, descriptor, spec, env: childEnv });
+        return { built: true, installed: true, ...(staged.length ? { staged } : {}), assembled };
+      }
+      // installAssembledMac is async: the lease is held until it settles, so a broker cutover cannot land mid-install.
+      releaseLease = false;
+      return installAssembledMac({ root, config, descriptor, spec, env: childEnv })
+        .then((outcome) => ({ built: true, installed: true, ...(staged.length ? { staged } : {}), assembled: outcome }))
         .finally(() => lease.release());
     }
     const signing = install(target.install, { root, platform, config, env: childEnv, run, sinceMs: startedMs, serial });

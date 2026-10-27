@@ -41,7 +41,7 @@ export const LEGACY_EXECUTABLE_EXTENSIONS = Object.freeze([".mjs", ".js", ".cjs"
 export const TOP_LEVEL_KEYS = Object.freeze([
   "$schema", "$comment", "schema", "app", "version", "channel", "distribution", "packageManager", "workdir", "targets", "development",
   "deps", "checks", "buildInputs", "hostedWorkflows", "devtools", "releaseSwitches", "qa", "nativeAssembly", "legal", "web", "tests",
-  "sidecars", "releaseDependencies", "appStoreConnect", "storage", "cargoProfileExempt", "runtimeArtifacts",
+  "sidecars", "assembly", "releaseDependencies", "appStoreConnect", "storage", "cargoProfileExempt", "runtimeArtifacts",
 ]);
 export const TEMPLATE_TOKENS = Object.freeze(["app", "version", "home", "localAppData"]);
 

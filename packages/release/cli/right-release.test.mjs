@@ -114,6 +114,7 @@ const GUARDED = [
   ["web-build", ["web-build", "--dry-run"], { spawn: ["web-build.mjs", "--dry-run"] }],
   ["swift-package", ["swift-package", "mac-app", "--config", "swift-package.json"], { spawn: ["swift-package-command.mjs", "mac-app", "--config", "swift-package.json"] }],
   ["recipe-build", ["recipe-build", "--plan-file", "plan.json"], { spawn: ["recipe-build.mjs", "--plan-file", "plan.json"] }],
+  ["assemble-app", ["assemble-app", "--platform", "mac", "--verify-staged"], { spawn: ["assemble-app-command.mjs", "--platform", "mac", "--verify-staged"] }],
   ["stage-sidecar", ["stage-sidecar", "--config", "right-release.config.mjs"], { spawn: ["stage-sidecar-command.mjs", "--config", "right-release.config.mjs"] }],
   ["sign-candidate", ["sign-candidate", "--platform", "win", "--artifact", "a", "--candidate-receipt", "r.json", "--out", "b.json"], { spawn: ["sign-candidate.mjs", "--platform", "win", "--artifact", "a", "--candidate-receipt", "r.json", "--out", "b.json"] }],
   // The two the decision "deterministic first, no escape hatch" added: a signing step over a CI dev artifact (the tree on disk) and the

@@ -1460,7 +1460,7 @@ test("every right-release command is checked or listed unchecked with a reason, 
   assert.ok(["dev", "doctor", "check", "hooks", "qualify"].every((name) => all.includes(name)), "the commands handled outside the map are read too");
   const checked = new Set(CHECKED_COMMANDS.keys());
   assert.deepEqual([...checked].sort(), [
-    "addon build", "build", "create-mac-updater", "dev", "doctor", "github", "package", "publish", "publish-update", "qa", "recipe-build", "release", "sign-candidate", "sign-dev-artifact", "sign-updater", "sign-windows",
+    "addon build", "assemble-app", "build", "create-mac-updater", "dev", "doctor", "github", "package", "publish", "publish-update", "qa", "recipe-build", "release", "sign-candidate", "sign-dev-artifact", "sign-updater", "sign-windows",
     "stage-sidecar", "swift-package", "test", "upload", "web-build",
   ]);
   for (const name of all) assert.ok(checked.has(name) !== UNCHECKED_COMMANDS.has(name), `${name}: must be in exactly one of CHECKED_COMMANDS and UNCHECKED_COMMANDS`);
@@ -1473,7 +1473,7 @@ test("every right-release command is checked or listed unchecked with a reason, 
   }
   for (const [name, reason] of UNCHECKED_COMMANDS) assert.ok(typeof reason === "string" && reason.length > 8, `${name}: says why the check does not guard it`);
   assert.deepEqual([...CHECKED_COMMANDS].filter(([, mode]) => mode === "worktree").map(([name]) => name).sort(), ["dev", "doctor", "sign-dev-artifact", "stage-sidecar", "test"], "the commands a person runs against the tree on disk see what a compile would; the rest check HEAD");
-  assert.deepEqual([...CHECKED_COMMANDS].filter(([, mode]) => mode !== "worktree").map(([, mode]) => mode), Array(16).fill("commit"));
+  assert.deepEqual([...CHECKED_COMMANDS].filter(([, mode]) => mode !== "worktree").map(([, mode]) => mode), Array(17).fill("commit"));
 });
 
 test("the compile, package and sign commands first left out of the check: eight are checked, in the mode of their siblings; dmg is unchecked for facts the source shows", () => {
@@ -1489,7 +1489,7 @@ test("the compile, package and sign commands first left out of the check: eight 
   assert.equal(CHECKED_COMMANDS.get("sign-dev-artifact"), "worktree");
   assert.equal(CHECKED_COMMANDS.get("addon build"), "commit");
   // the arguments each takes make no difference: --check, --list, --dry-run and --help are not ways past it
-  for (const args of [["test"], ["test", "--list"], ["test", "--runner", "vitest", "--", "run"], ["stage-sidecar", "--check"], ["stage-sidecar", "--config", "x.mjs"], ["web-build", "--dry-run"], ["swift-package", "mac-app", "--config", "p.json"], ["recipe-build", "--plan-file", "plan.json"], ["sign-candidate", "--platform", "win", "--dry-run"],
+  for (const args of [["test"], ["test", "--list"], ["test", "--runner", "vitest", "--", "run"], ["stage-sidecar", "--check"], ["stage-sidecar", "--config", "x.mjs"], ["web-build", "--dry-run"], ["swift-package", "mac-app", "--config", "p.json"], ["recipe-build", "--plan-file", "plan.json"], ["assemble-app", "--platform", "mac"], ["sign-candidate", "--platform", "win", "--dry-run"],
     ["sign-dev-artifact", "--artifact", "a", "--manifest", "m.json"], ["sign-dev-artifact", "--dry-run"], ["sign-dev-artifact", "--help"], ["addon", "build", "--config", "a/right-release.config.mjs", "--platform", "win"], ["addon", "build", "--dry-run"]]) {
     assert.ok(checkModeFor(args), args.join(" "));
   }

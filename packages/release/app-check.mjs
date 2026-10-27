@@ -1429,7 +1429,7 @@ export const CHECKED_COMMANDS = new Map([
   ["release", "commit"], ["build", "commit"], ["package", "commit"], ["dev", "worktree"], ["qa", "commit"], ["upload", "commit"],
   ["publish", "commit"], ["publish-update", "commit"], ["github", "commit"], ["doctor", "worktree"],
   ["sign-windows", "commit"], ["sign-updater", "commit"], ["create-mac-updater", "commit"],
-  ["test", "worktree"], ["web-build", "commit"], ["swift-package", "commit"], ["recipe-build", "commit"], ["stage-sidecar", "worktree"], ["sign-candidate", "commit"],
+  ["test", "worktree"], ["web-build", "commit"], ["swift-package", "commit"], ["recipe-build", "commit"], ["assemble-app", "commit"], ["stage-sidecar", "worktree"], ["sign-candidate", "commit"],
   ["addon build", "commit"], ["sign-dev-artifact", "worktree"],
 ]);
 

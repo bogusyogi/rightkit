@@ -25,6 +25,7 @@ const commands = new Map([
   ["sign-candidate", "sign-candidate.mjs"],
   ["engine-locate", "engine-locator.mjs"],
   ["stage-sidecar", "stage-sidecar-command.mjs"],
+  ["assemble-app", "assemble-app-command.mjs"],
   ["init", "init-command.mjs"],
   ["pe", "pe-content.mjs"],
   ["icons", "icon-pack.mjs"],
@@ -269,6 +270,7 @@ Commands:
   icons ico|icns --out <file> --frame <PNG>... [--dir <folder>]  Pack hand-tuned per-size PNG frames into an ICO or ICNS
   init --name <Product Name> --id <reverse.dns.bundle.id> [--slug <lowercase>] [--dir <root>] [--dry-run]  Rename the desktop app template into a real app, in place
   stage-sidecar [--config <file>] [--target <triple>] [--json]  Stage declarative sidecars into src-tauri/binaries (Tauri externalBin naming)
+  assemble-app --platform mac|win [--profile release|dev] [--build] [--out <dir>] | --verify-staged [--signed] | --package  Assemble the declared composite app (assembly.<platform>) for production packaging; the same definition installs through dev
   recipe-build --plan <json> | --plan-file <path> [--app-root <dir>]  Run a package recipe: prepare steps, the Tauri build, postBuild steps (argv, no shell, fail closed)
   dmg build --app <.app> --out <dmg> --volname <name> [--background <png>] [--spec <appdmg.json>]
             [--icon-size N] [--app-position x,y] [--applications-position x,y] [--window w,h] [--window-position x,y]
@@ -360,7 +362,7 @@ Commands:
   signing-agent install|uninstall|status              Manage invisible Aqua-session signing service
   check [--repo <dir>] [--config <file>] [--commit <rev> | --worktree] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>]
                                                       The offline app check, same as rightkit-gate check: committed files only, every finding in one run (exit 0 pass, 1 findings, 2 could not run).
-                                                      Build, package, dev, test, web-build, swift-package, recipe-build, stage-sidecar, qa, upload, publish, publish-update, github, doctor,
+                                                      Build, package, dev, test, web-build, swift-package, recipe-build, assemble-app, stage-sidecar, qa, upload, publish, publish-update, github, doctor,
                                                       sign-windows, sign-updater, sign-candidate, sign-dev-artifact, addon build and create-mac-updater run it first and start nothing when it is red; there is no flag that skips it.
                                                       Baseline: .rightkit/app-check-baseline.json (entries carry issue, added and sunset; the sunset is at most 90 days after added)
   doctor [--platform mac|win] [--gates] [--inspect] [--strict]
