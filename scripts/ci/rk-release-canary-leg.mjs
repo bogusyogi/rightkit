@@ -5,12 +5,14 @@
 //
 //   node rk-release-canary-leg.mjs --manifest <path> [--out <leg receipt path>]
 //
-// For every app cell the manifest assigns to this host it runs `right-release doctor` twice, from the SAME pinned app
-// commit: once with the registry baseline (latest published @rightkit/release) and once with the candidate tarball.
-// It reports facts (status, [FAIL] rows, fatal signature, whether the app tree changed); the coordinator judges them.
-// Hard rules: exports are scratch clones; live repositories are never fetched into or modified (a pin they lack is fetched
-// into the export only); `--admission` is never passed; the doctor must leave the export as checked out (status clean,
-// except tolerated CRLF blobs, whose content hashes must not change either; see classifyStatus and treeDigest).
+// For every app cell the manifest assigns to this host it runs `right-release doctor` twice, IN PLACE on the app's live
+// checkout as it stands (Adrian, 2026-10-27: "why would we clone each app? instead of checking it where it stands?"):
+// once with the registry baseline (latest published @rightkit/release) and once with the candidate tarball. Both sides of
+// one repository run one after another, never at the same time. It reports facts (status, [FAIL] rows, fatal signature,
+// the checkout's HEAD and dirt, whether the doctor changed the tree); the coordinator judges them.
+// Hard rules: no clone, no checkout, no fetch, no install: the live checkout is read, never modified; `--admission` is
+// never passed; the doctor must leave the tree exactly as it found it (git status and the content hashes of tolerated
+// CRLF blobs are compared around the run; see classifyStatus and treeDigest).
 import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -169,33 +171,17 @@ function git(cwd, args, { allowFail = false, timeout = GIT_TIMEOUT_MS } = {}) {
   return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 
-/** A fresh scratch clone of the live repository at exactly `sha`, on an attached `main`, origin = the real remote.
- * `git clone --local` hard-links objects and only reads the live repository. A pin the live repository lacks is fetched
- * from origin into the scratch export only (after its origin is restored); the live repository is never fetched into. */
-export function prepareExport({ live, origin, sha, dest }) {
-  if (!/^[0-9a-f]{40}$/.test(sha ?? "")) throw Object.assign(new Error(`invalid app commit ${JSON.stringify(sha)}`), { infra: true });
-  if (!origin) throw Object.assign(new Error("no origin URL for the export"), { infra: true });
+/** The live checkout as it stands: its HEAD, whether it is the pinned commit, its status lines (dirt is reported, never
+ * refused) and the tolerated CRLF blobs whose content hashes are compared around the doctor. Nothing is written. */
+export function prepareLive({ live, sha = null }) {
   if (!fs.existsSync(path.join(live, ".git"))) throw Object.assign(new Error(`${live} is not a git checkout on this host`), { infra: true });
-  const inLive = git(live, ["cat-file", "-e", `${sha}^{commit}`], { allowFail: true }).status === 0;
-  removeTree(dest);
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-  git(path.dirname(dest), ["clone", "--local", "--no-checkout", "--quiet", live, dest], { timeout: 300_000 });
-  git(dest, ["remote", "set-url", "origin", origin]);
-  if (!inLive) git(dest, ["fetch", "--no-tags", "origin", sha], { timeout: 300_000 });
-  git(dest, ["checkout", "--quiet", "-B", "main", sha]);
-  git(dest, ["update-ref", "refs/remotes/origin/main", sha]);
-  git(dest, ["reset", "--quiet", "--hard"]);
-  git(dest, ["clean", "-ffdxq"]);
-  // Settle the index first, so the verdict does not depend on racy timestamps; then only the lines git itself explains
-  // (see classifyStatus) may remain. --really-refresh exits non-zero whenever it changed anything, hence allowFail.
-  git(dest, ["update-index", "-q", "--really-refresh"], { allowFail: true });
-  const tree = treeDigest(dest);
-  const { tolerated, dirt } = classifyStatus(dest, tree.lines);
-  if (dirt.length) throw Object.assign(new Error(`fresh export is not clean: ${dirt.slice(0, 3).join("; ")}`), { infra: true });
-  return { dest, sha, head: git(dest, ["rev-parse", "HEAD"]).stdout.trim(), unnormalizedBlobs: tolerated };
+  const head = git(live, ["rev-parse", "HEAD"]).stdout.trim();
+  const status = git(live, ["-c", "core.fsmonitor=false", "status", "--porcelain"]).stdout.split(/\r?\n/).filter(Boolean);
+  const { tolerated, dirt } = classifyStatus(live, status);
+  return { live, head, pinned: sha ?? null, headMatchesPin: sha ? head === sha : null, dirty: dirt.length, unnormalizedBlobs: tolerated };
 }
 
-/** Split a fresh export's status lines. Tolerated: a modified tracked file whose committed blob is CRLF or mixed and whose
+/** Split a checkout's status lines. Tolerated: a modified tracked file whose committed blob is CRLF or mixed and whose
  * attributes include text (or eol=): git's line-ending conversion disagrees with the blob, so checkout alone shows it.
  * Every other line is dirt. */
 export function classifyStatus(repoRoot, lines) {
@@ -318,7 +304,7 @@ export function normalize(text) {
 // ---------------------------------------------------------------------------------------------------------------------
 
 /** Run one cell: tree digest, doctor, tree digest, classify. */
-export async function runCell({ side, sidePrep, app, platform, exportDir, node, tmpRoot, timeoutMs = DEFAULT_CELL_MS, gates, unnormalizedBlobs = [] }) {
+export async function runCell({ side, sidePrep, app, platform, exportDir, node, tmpRoot, timeoutMs = DEFAULT_CELL_MS, gates, unnormalizedBlobs = [], checkout = null }) {
   const appRoot = path.join(exportDir, path.dirname(app.configPath));
   const configRel = path.basename(app.configPath);
   if (gates && side === "candidate" && !sidePrep.supportsGates && gatesRequired(sidePrep.version)) {
@@ -341,6 +327,7 @@ export async function runCell({ side, sidePrep, app, platform, exportDir, node, 
     rows: parsed.rows.map((r) => ({ level: r.level, name: r.name, gate: r.gate })), gatesRun, noNodeModules, args: run.args.slice(1),
     treeChanged: before.digest !== after.digest, treeDelta: delta.slice(0, 50), treeBefore: before.digest, treeAfter: after.digest,
     normalizedSha256: sha256(combined), normalized: combined.slice(0, 20_000), admissionCode, unnormalizedBlobs: [...unnormalizedBlobs],
+    head: checkout?.head ?? null, pinned: checkout?.pinned ?? null, headMatchesPin: checkout?.headMatchesPin ?? null, dirty: checkout?.dirty ?? null,
   };
 }
 
@@ -352,10 +339,11 @@ export async function admissionProbe({ sidePrep, candidates, probeRoot }) {
   const problems = [];
   try {
     for (const c of candidates) {
-      const dir = path.join(probeRoot, c.repoDir);
+      // In place, like the cells: `cargo metadata` is read-only and the live checkout is what the broker admits.
+      const dir = c.live;
       let manifest = null;
       try {
-        prepareExport({ live: c.live, origin: c.origin, sha: c.sha, dest: dir });
+        if (!fs.existsSync(path.join(dir, ".git"))) throw new Error(`${dir} is not a git checkout on this host`);
         manifest = cargoManifestIn(dir);
       } catch (error) { problems.push(`${c.repoDir}: ${error.message}`); continue; }
       if (!manifest) { problems.push(`${c.repoDir}: no Cargo.toml`); continue; }
@@ -372,7 +360,7 @@ export async function admissionProbe({ sidePrep, candidates, probeRoot }) {
   }
 }
 
-/** The shallowest tracked Cargo.toml of an export, or null. */
+/** The shallowest tracked Cargo.toml of a checkout, or null. */
 function cargoManifestIn(dir) {
   const found = git(dir, ["ls-files", "--", "*Cargo.toml"]).stdout.split("\n").filter((f) => path.posix.basename(f) === "Cargo.toml");
   return found.sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b))[0] ?? null;
@@ -418,12 +406,13 @@ export async function runLeg(manifest, { manifestDir, now = Date.now, host = pro
     if (!platforms.length) continue;
     for (const side of ["baseline", "candidate"]) units.push({ app, side, platforms });
   }
-  // One work unit per (side, repository): cells that share a repository run one after another in one export, so a tree
-  // write is attributed to the cell that made it. Distinct repositories run in parallel.
+  // One work unit per repository: every cell of a repository, both sides, runs one after another in the live checkout,
+  // so two doctors never share a tree and a tree write is attributed to the cell that made it. Distinct repositories
+  // run in parallel, up to hostCfg.parallel.
   const grouped = new Map();
   for (const u of units) {
-    const key = `${u.side}:${u.app.repoDir}`;
-    if (!grouped.has(key)) grouped.set(key, { side: u.side, repoDir: u.app.repoDir, items: [] });
+    const key = u.app.repoDir;
+    if (!grouped.has(key)) grouped.set(key, { repoDir: u.app.repoDir, items: [] });
     grouped.get(key).items.push(u);
   }
   // Fail fast: one probe, before any cell, says whether the broker admits this host's Cargo at all.
@@ -440,16 +429,16 @@ export async function runLeg(manifest, { manifestDir, now = Date.now, host = pro
       for (const platform of platforms) {
         const fixed = { id: app.id, app: app.id, platform, side, repoDir: app.repoDir, host };
         if (sideErrors[side]) { cells.push({ ...fixed, status: "infra", detail: `side not prepared: ${sideErrors[side]}`, failNames: [], gateFailNames: [], fatal: null, treeChanged: false }); continue; }
-        const meta = manifest.repos?.[app.repoDir];
-        if (!meta || meta.error || !meta.sha) { cells.push({ ...fixed, status: "infra", detail: `no pinned app commit: ${meta?.error ?? "unresolved"}`, failNames: [], gateFailNames: [], fatal: null, treeChanged: false }); continue; }
+        const meta = manifest.repos?.[app.repoDir] ?? {};
         let result = null;
         for (let attempt = 1; attempt <= 2; attempt += 1) {
           if (now() - started > totalMs) { result = { ...fixed, status: "budget", detail: `leg budget of ${manifest.limits?.totalMinutes ?? 20} minutes spent`, failNames: [], gateFailNames: [], fatal: null, treeChanged: false }; break; }
           try {
-            const exportDir = path.join(root, side, app.repoDir);
-            // The export is rebuilt for every cell: a previous cell can never leave state for the next one.
-            const exported = prepareExport({ live: path.join(hostCfg.workspaceRoot, app.repoDir), origin: meta.origin, sha: meta.sha, dest: exportDir });
-            result = await runCell({ side, sidePrep: sides[side], app, platform, exportDir, node, tmpRoot, timeoutMs: cellMs, gates: manifest.gates !== false, unnormalizedBlobs: exported.unnormalizedBlobs });
+            const live = path.join(hostCfg.workspaceRoot, app.repoDir);
+            // Read where the checkout stands right before the doctor; a cell before it may have been written to (that is the
+            // earlier cell's finding, and it stays in the tree: the live checkout is never cleaned).
+            const checkout = prepareLive({ live, sha: meta.sha ?? null });
+            result = await runCell({ side, sidePrep: sides[side], app, platform, exportDir: live, node, tmpRoot, timeoutMs: cellMs, gates: manifest.gates !== false, unnormalizedBlobs: checkout.unnormalizedBlobs, checkout });
           } catch (error) {
             result = { ...fixed, status: "infra", detail: String(error.message ?? error).slice(0, 500), failNames: [], gateFailNames: [], fatal: null, treeChanged: false };
           }

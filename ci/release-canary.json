@@ -14,12 +14,12 @@
     "darwin": {
       "workspaceRoot": "/Volumes/D/claude",
       "scratchRoot": "/Volumes/D/scratch",
-      "parallel": 4
+      "parallel": 2
     },
     "win32": {
       "workspaceRoot": "D:/claude",
       "scratchRoot": "D:/scratch/rk-canary-2",
-      "parallel": 4,
+      "parallel": 2,
       "ssh": "win",
       "node": "C:\\Users\\adrds\\AppData\\Local\\nvm\\v26.8.1\\node.exe",
       "nodeVersion": "v26.8.1",

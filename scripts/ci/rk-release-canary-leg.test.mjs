@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import zlib from "node:zlib";
-import { GATES_REQUIRED_FROM, admissionCodeOf, detectGates, extractTarball, gatesRequired, normalize, parseDoctor, pool, prepareExport, prepareSide, readTarball, runDoctor, runLeg, treeDigest } from "./rk-release-canary-leg.mjs";
+import { GATES_REQUIRED_FROM, admissionCodeOf, detectGates, extractTarball, gatesRequired, normalize, parseDoctor, pool, prepareLive, prepareSide, readTarball, runDoctor, runLeg, treeDigest } from "./rk-release-canary-leg.mjs";
 
 const tmp = (t, prefix = "rk-leg-") => { const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
 const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
@@ -141,68 +141,39 @@ function liveRepo(t, files = { "right-release.config.mjs": "export default {}\n"
   return { dir, repo, sha: git(repo, "rev-parse", "HEAD") };
 }
 
-test("prepareExport: origin rewritten to the real remote, main attached at the pinned commit, primary worktree, clean, live untouched", (t) => {
-  const { dir, repo, sha } = liveRepo(t);
+test("prepareLive: reads the live checkout where it stands (HEAD, pin match, dirt counted, never refused) and writes nothing", (t) => {
+  const { repo, sha } = liveRepo(t);
+  const clean = prepareLive({ live: repo, sha });
+  assert.equal(clean.head, sha);
+  assert.equal(clean.headMatchesPin, true);
+  assert.equal(clean.dirty, 0);
+  assert.deepEqual(clean.unnormalizedBlobs, []);
   fs.writeFileSync(path.join(repo, "later.txt"), "a commit after the pin\n"); git(repo, "add", "-A"); git(repo, "commit", "-qm", "two");
-  const liveHead = git(repo, "rev-parse", "HEAD");
-  const dest = path.join(dir, "scratch", "rk-canary", "candidate", "app");
-  const result = prepareExport({ live: repo, origin: "git@github.com:Org/app.git", sha, dest });
-  assert.equal(result.head, sha);
-  assert.equal(git(dest, "remote", "get-url", "origin"), "git@github.com:Org/app.git");
-  assert.equal(git(dest, "symbolic-ref", "HEAD"), "refs/heads/main");
-  assert.equal(git(dest, "rev-parse", "--git-dir"), ".git");
-  assert.equal(git(dest, "worktree", "list").split("\n").length, 1);
-  assert.equal(git(dest, "rev-parse", "refs/remotes/origin/main"), sha);
-  assert.equal(git(dest, "status", "--porcelain", "--ignored=matching"), "");
-  assert.equal(fs.existsSync(path.join(dest, "later.txt")), false, "pinned to the commit, not the live HEAD");
-  assert.equal(git(repo, "rev-parse", "HEAD"), liveHead);
-  assert.equal(git(repo, "status", "--porcelain"), "");
-  assert.equal(git(repo, "remote", "get-url", "origin"), "/somewhere/local/mirror.git");
-  // stable path: a dirty previous export is replaced, never reused
-  fs.writeFileSync(path.join(dest, "junk.log"), "x"); fs.writeFileSync(path.join(dest, "mode.txt"), "changed");
-  prepareExport({ live: repo, origin: "git@github.com:Org/app.git", sha, dest });
-  assert.equal(git(dest, "status", "--porcelain", "--ignored=matching"), "");
-  assert.throws(() => prepareExport({ live: repo, origin: "x", sha: "a".repeat(40), dest }), /git fetch --no-tags origin/);
+  fs.writeFileSync(path.join(repo, "wip.txt"), "uncommitted work of another chat\n");
+  const before = { refs: git(repo, "for-each-ref"), status: git(repo, "status", "--porcelain") };
+  const moved = prepareLive({ live: repo, sha });
+  assert.equal(moved.head, git(repo, "rev-parse", "HEAD"));
+  assert.equal(moved.headMatchesPin, false, "the live HEAD is not the pinned commit: reported, not refused");
+  assert.equal(moved.dirty, 1);
+  assert.equal(prepareLive({ live: repo }).headMatchesPin, null, "no pin: nothing to compare");
+  assert.deepEqual({ refs: git(repo, "for-each-ref"), status: git(repo, "status", "--porcelain") }, before, "the live checkout is untouched");
+  assert.throws(() => prepareLive({ live: path.join(repo, "nope"), sha }), (e) => e.infra === true && /not a git checkout/.test(e.message));
 });
 
-test("prepareExport: a pin the live repository lacks is fetched into the scratch export only; the live repository is untouched", (t) => {
-  const { dir, repo, sha } = liveRepo(t);
-  const up = path.join(dir, "upstream");
-  git(dir, "clone", "-q", repo, up);
-  git(up, "config", "user.email", "t@example.com"); git(up, "config", "user.name", "t");
-  git(up, "config", "uploadpack.allowAnySHA1InWant", "true");
-  fs.writeFileSync(path.join(up, "later.txt"), "pinned\n"); git(up, "add", "-A"); git(up, "commit", "-qm", "pinned");
-  const pin = git(up, "rev-parse", "HEAD");
-  const liveRefs = git(repo, "for-each-ref");
-  const liveHead = git(repo, "rev-parse", "HEAD");
-  const dest = path.join(dir, "scratch", "candidate", "app");
-  const result = prepareExport({ live: repo, origin: up, sha: pin, dest });
-  assert.equal(result.head, pin);
-  assert.equal(git(dest, "remote", "get-url", "origin"), up);
-  assert.equal(fs.existsSync(path.join(dest, "later.txt")), true);
-  assert.deepEqual(treeDigest(dest).lines, []);
-  assert.equal(git(repo, "for-each-ref"), liveRefs);
-  assert.equal(git(repo, "rev-parse", "HEAD"), liveHead);
-  assert.notEqual(spawnSync("git", ["-C", repo, "cat-file", "-e", `${pin}^{commit}`]).status, 0, "the live repository never received the pin");
-  assert.notEqual(pin, sha);
-});
-
-test("prepareExport: a pin that neither the live repository nor origin has is infrastructure with git's message", (t) => {
-  const { dir, repo } = liveRepo(t);
-  assert.throws(() => prepareExport({ live: repo, origin: repo, sha: "e".repeat(40), dest: path.join(dir, "x") }), (e) => e.infra === true && /git fetch --no-tags origin eeee/.test(e.message));
-});
-
-test("prepareExport: a CRLF blob under a text attribute is tolerated and listed; other dirt (an ident expansion) stays infrastructure", (t) => {
+test("prepareLive: a CRLF blob under a text attribute is tolerated and listed; other dirt is counted, not refused", (t) => {
   const crlf = liveRepo(t, { "doc.md": "a\r\nb\r\n" });
   fs.writeFileSync(path.join(crlf.repo, ".gitattributes"), "*.md text\n");
   git(crlf.repo, "add", ".gitattributes"); git(crlf.repo, "commit", "-qm", "attributes");
-  const ok = prepareExport({ live: crlf.repo, origin: "https://example.com/x.git", sha: git(crlf.repo, "rev-parse", "HEAD"), dest: path.join(crlf.dir, "scratch", "a") });
+  const ok = prepareLive({ live: crlf.repo, sha: git(crlf.repo, "rev-parse", "HEAD") });
   assert.deepEqual(ok.unnormalizedBlobs, ["doc.md"]);
-  assert.deepEqual(treeDigest(ok.dest).lines, [" M doc.md"]);
+  assert.equal(ok.dirty, 0, "a tolerated blob is not dirt");
+  assert.deepEqual(treeDigest(crlf.repo).lines, [" M doc.md"]);
   const dirt = liveRepo(t, { "id.txt": "x $Id: old $\n" });
   fs.writeFileSync(path.join(dirt.repo, ".gitattributes"), "id.txt ident\n");
   git(dirt.repo, "add", ".gitattributes"); git(dirt.repo, "commit", "-qm", "attributes");
-  assert.throws(() => prepareExport({ live: dirt.repo, origin: "https://example.com/y.git", sha: git(dirt.repo, "rev-parse", "HEAD"), dest: path.join(dirt.dir, "scratch", "b") }), (e) => e.infra === true && /fresh export is not clean: +M id\.txt/.test(e.message));
+  const counted = prepareLive({ live: dirt.repo, sha: git(dirt.repo, "rev-parse", "HEAD") });
+  assert.equal(counted.dirty, 1);
+  assert.deepEqual(counted.unnormalizedBlobs, []);
 });
 
 test("admissionCodeOf finds the three broker admission codes and nothing else", () => {
@@ -267,7 +238,7 @@ function manifestFor(t, modes, { candidateBody, baselineBody, hang, files = {}, 
 }
 const cellOf = (receipt, id, side) => receipt.cells.find((c) => c.id === id && c.side === side);
 
-test("runLeg: both sides run from the same pinned commit; candidate-only --gates; --admission never; classification and tree writes", async (t) => {
+test("runLeg: both sides run in place on the live checkout; candidate-only --gates; --admission never; classification and tree writes", async (t) => {
   const { manifest, bundle, platform } = manifestFor(t, { clean: "pass", failing: "fail", fatal: "fatal", boom: "crash", writer: "write" });
   const receipt = await runLeg(manifest, { manifestDir: bundle });
   assert.equal(receipt.cells.length, 10);
@@ -287,10 +258,19 @@ test("runLeg: both sides run from the same pinned commit; candidate-only --gates
   assert.match(cellOf(receipt, "clean", "candidate").normalized, /args: doctor --config right-release\.config\.mjs --platform \w+ --gates/);
   assert.doesNotMatch(cellOf(receipt, "clean", "baseline").normalized, /--gates/);
   for (const c of receipt.cells) assert.doesNotMatch(c.normalized, /--admission/);
-  const writer = cellOf(receipt, "writer", "candidate");
+  for (const c of receipt.cells) {
+    assert.equal(c.head, manifest.repos[c.repoDir].sha, "the live HEAD is recorded");
+    assert.equal(c.headMatchesPin, true);
+  }
+  // The baseline cell runs first in the live tree and its write stays there (never cleaned): the baseline cell carries
+  // the finding, and the candidate cell, which rewrites the same bytes, sees no change.
+  const writer = cellOf(receipt, "writer", "baseline");
   assert.equal(writer.status, "pass");
   assert.equal(writer.treeChanged, true);
   assert.deepEqual(writer.treeDelta, ["+?? sub/stray.txt"]);
+  assert.equal(writer.dirty, 0, "read before the doctor ran");
+  assert.equal(cellOf(receipt, "writer", "candidate").dirty, 1, "the earlier cell's write is now the checkout's dirt");
+  assert.equal(cellOf(receipt, "writer", "candidate").treeChanged, false);
   assert.equal(receipt.sides.candidate.supportsGates, true);
   assert.equal(receipt.sides.baseline.supportsGates, false);
   void platform;
@@ -306,13 +286,18 @@ test("runLeg: a hanging doctor is killed at the cell limit and reported as a tim
   }
 });
 
-test("runLeg: a pin the live repository lacks that origin also lacks is infrastructure with git's message, and a spent budget stops starting cells", async (t) => {
-  const missing = manifestFor(t, { gone: "pass" });
-  missing.manifest.repos["repo-gone"].sha = "e".repeat(40);
-  missing.manifest.repos["repo-gone"].origin = liveRepo(t).repo;
-  const r1 = await runLeg(missing.manifest, { manifestDir: missing.bundle });
-  assert.equal(cellOf(r1, "gone", "candidate").status, "infra");
-  assert.match(cellOf(r1, "gone", "candidate").detail, /git fetch --no-tags origin eeee/);
+test("runLeg: a pin the live checkout does not stand at is reported, not refused; a missing checkout is infrastructure; a spent budget stops starting cells", async (t) => {
+  const moved = manifestFor(t, { gone: "pass" });
+  moved.manifest.repos["repo-gone"].sha = "e".repeat(40);
+  const r1 = await runLeg(moved.manifest, { manifestDir: moved.bundle });
+  assert.equal(cellOf(r1, "gone", "candidate").status, "pass");
+  assert.equal(cellOf(r1, "gone", "candidate").headMatchesPin, false);
+  assert.equal(cellOf(r1, "gone", "candidate").pinned, "e".repeat(40));
+  const absent = manifestFor(t, { nowhere: "pass" });
+  fs.rmSync(path.join(absent.manifest.hosts[process.platform].workspaceRoot, "repo-nowhere"), { recursive: true, force: true });
+  const r0 = await runLeg(absent.manifest, { manifestDir: absent.bundle });
+  assert.equal(cellOf(r0, "nowhere", "candidate").status, "infra");
+  assert.match(cellOf(r0, "nowhere", "candidate").detail, /not a git checkout/);
   const spent = manifestFor(t, { late: "pass" });
   let clock = 0;
   const r2 = await runLeg(spent.manifest, { manifestDir: spent.bundle, now: () => (clock += 10 * 60_000) });
@@ -378,7 +363,7 @@ test("runLeg: a candidate >= 0.6.4 that cannot run --gates makes every candidate
   assert.equal(receipt.sides.candidate.supportsGates, false);
 });
 
-test("runLeg: each cell records whether its export has no node_modules", async (t) => {
+test("runLeg: each cell records whether the checkout has no node_modules", async (t) => {
   const { manifest, bundle } = manifestFor(t, { clean: "pass" });
   const receipt = await runLeg(manifest, { manifestDir: bundle });
   assert.equal(cellOf(receipt, "clean", "candidate").noNodeModules, true);
