@@ -373,3 +373,23 @@ test("coordinator Oracle shape: an obsolete directory replaced by a planted link
   assert.equal(fs.lstatSync(path.join(f.dir, "obsolete"), { throwIfNoEntry: false }), undefined);
   verifySnapshot({ checkout: f.repo, rev: a, root: f.root });
 });
+
+test("exclusion race: two contenders reclaiming the same dead holder's lock never both enter", (t) => {
+  const f = fixture(t);
+  fs.mkdirSync(f.root, { recursive: true });
+  const lock = `${f.dir}.lock`;
+  const dead = JSON.stringify({ pid: 2 ** 22 + 4321, host: os.hostname(), startedAt: "then", token: "dead" });
+  fs.writeFileSync(lock, dead);
+  let a = null;
+  // B reads the dead holder; before B reclaims, A (which saw the same dead holder) reclaims and holds the lock.
+  assert.throws(() => acquireSnapshotLock(lock, { afterStaleRead: () => { a = acquireSnapshotLock(lock); } }), (e) => e.code === "busy" && /reclaimed by another process/.test(e.message));
+  assert.ok(a, "A entered");
+  assert.equal(a.held(), true, "A still holds the lock B moved aside and put back");
+  assert.deepEqual(fs.readdirSync(f.root).filter((n) => n.includes(".stale-")), [], "no stale copies left");
+  assert.throws(() => acquireSnapshotLock(lock), (e) => e.code === "busy");
+  a();
+  assert.equal(fs.existsSync(lock), false);
+  // With A gone, a contender that reads an unreadable fresh lock stays out.
+  fs.writeFileSync(lock, "");
+  assert.throws(() => acquireSnapshotLock(lock), (e) => e.code === "busy" && /being written/.test(e.message));
+});

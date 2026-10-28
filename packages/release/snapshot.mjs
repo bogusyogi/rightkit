@@ -201,30 +201,54 @@ const inside = (child, parent) => { const rel = path.relative(parent, child); re
 const lstat = (p) => { try { return fs.lstatSync(p, { bigint: true }); } catch (e) { if (e.code === "ENOENT" || e.code === "ENOTDIR") return null; throw e; } };
 const statKey = (s) => `${s.size}:${s.mtimeNs}:${s.ctimeNs}:${s.ino}`;
 
-/** Exclusive per-snapshot lock; a lock whose holder process is gone on this host is stale and replaced once. */
-export function acquireSnapshotLock(lockFile) {
+/**
+ * Exclusive per-snapshot lock (`wx` create). A lock whose holder process is gone on this host is stale, and it is reclaimed
+ * atomically: the observed lock is moved aside by rename (only one contender can move that file), and the moved file must be
+ * byte-for-byte the stale lock that was observed. If it is not (another contender already replaced it with a live lock), it is
+ * put back without overwriting anything and this contender is busy: two contenders never both enter. A live holder, another
+ * host's lock, or a just-created unreadable lock is busy. `hooks.afterStaleRead` exists for the deterministic race fixture only.
+ */
+export function acquireSnapshotLock(lockFile, hooks = {}) {
   const body = JSON.stringify({ pid: process.pid, host: os.hostname(), startedAt: new Date().toISOString(), token: crypto.randomUUID() });
   const held = () => { try { return fs.readFileSync(lockFile, "utf8") === body; } catch { return false; } };
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      fs.writeFileSync(lockFile, body, { flag: "wx", mode: 0o600 });
-      if (!held()) throw new SnapshotError("busy", `snapshot lock ${lockFile} was replaced by another process`);
+  const busy = (why) => new SnapshotError("busy", why);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let created = false;
+    try { fs.writeFileSync(lockFile, body, { flag: "wx", mode: 0o600 }); created = true; }
+    catch (e) { if (e.code !== "EEXIST") throw new SnapshotError("error", `cannot create ${lockFile}: ${e.message}`); }
+    if (created) {
+      if (!held()) throw busy(`snapshot lock ${lockFile} was replaced by another process`);
       const release = () => { if (held()) fs.rmSync(lockFile, { force: true }); };
       release.held = held;
       return release;
     }
-    catch (e) {
-      if (e.code !== "EEXIST") throw new SnapshotError("error", `cannot create ${lockFile}: ${e.message}`);
-      let holder = null;
-      try { holder = JSON.parse(fs.readFileSync(lockFile, "utf8")); } catch { holder = null; }
-      // A lock that cannot be read yet may be one another process has just created and not written: busy unless it is old.
-      if (!holder) { let age = 0; try { age = Date.now() - fs.statSync(lockFile).mtimeMs; } catch { age = 0; } if (age < 60_000) throw new SnapshotError("busy", `snapshot lock ${lockFile} is being written by another process`); }
-      const alive = holder && holder.host === os.hostname() && (() => { try { process.kill(holder.pid, 0); return true; } catch (k) { return k.code === "EPERM"; } })();
-      if (alive || attempt > 0 || (holder && holder.host !== os.hostname())) throw new SnapshotError("busy", `snapshot is held by ${holder ? `pid ${holder.pid} on ${holder.host} since ${holder.startedAt}` : `an unreadable lock ${lockFile}`}`);
-      fs.rmSync(lockFile, { force: true });
+    let observed;
+    try { observed = fs.readFileSync(lockFile, "utf8"); } catch (e) { if (e.code === "ENOENT") continue; throw new SnapshotError("error", `cannot read ${lockFile}: ${e.message}`); }
+    let holder = null;
+    try { holder = JSON.parse(observed); } catch { holder = null; }
+    if (!holder) {
+      // Possibly created and not yet written by another process: busy unless it is old.
+      let age = 0; try { age = Date.now() - fs.statSync(lockFile).mtimeMs; } catch { age = 0; }
+      if (age < 60_000) throw busy(`snapshot lock ${lockFile} is being written by another process`);
+    } else {
+      if (holder.host !== os.hostname()) throw busy(`snapshot is held by pid ${holder.pid} on ${holder.host} since ${holder.startedAt}`);
+      const alive = (() => { try { process.kill(holder.pid, 0); return true; } catch (k) { return k.code === "EPERM"; } })();
+      if (alive) throw busy(`snapshot is held by pid ${holder.pid} since ${holder.startedAt}`);
     }
+    hooks.afterStaleRead?.();
+    const aside = `${lockFile}.stale-${crypto.randomUUID()}`;
+    try { fs.renameSync(lockFile, aside); } catch (e) { if (e.code === "ENOENT") continue; throw new SnapshotError("error", `cannot move stale ${lockFile}: ${e.message}`); }
+    let moved = null;
+    try { moved = fs.readFileSync(aside, "utf8"); } catch { moved = null; }
+    if (moved !== observed) {
+      // We moved a lock that replaced the stale one: put it back unless the path is taken again, and never enter.
+      try { fs.linkSync(aside, lockFile); } catch { /* the path is held again; that holder's own checks see the change */ }
+      fs.rmSync(aside, { force: true });
+      throw busy(`snapshot lock ${lockFile} was reclaimed by another process`);
+    }
+    fs.rmSync(aside, { force: true });
   }
-  throw new SnapshotError("busy", `snapshot lock ${lockFile} could not be taken`);
+  throw busy(`snapshot lock ${lockFile} could not be taken`);
 }
 
 function readState(file) {
@@ -315,6 +339,7 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), no
     // 1. A link already here (planted, or from an earlier sync) stays only if it lands inside the snapshot and not in the checkout.
     // This runs before anything is removed or written, so no later step can pass through such a link. Nothing is deleted by a
     // path that crosses a link: stale entries go only in the final walk, which enters real directories alone (Oracle, re-review).
+    assertLockHeld();
     sweepLinks();
 
     // 3. Every tracked file: unchanged ones are left alone (same bytes & mode keep their mtime), the rest are written. Links are
@@ -365,6 +390,7 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), no
           written++;
         }
       }
+      assertLockHeld();
       const linkBlobs = readBlobs(repo.checkout, links.map((e) => e.oid));
       for (const e of links) {
         const target = path.join(dir, ...e.path.split("/"));
@@ -393,6 +419,7 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), no
     }
 
     // 4. Everything the commit does not hold is removed: the snapshot is exactly the commit (§1).
+    assertLockHeld();
     removed += pruneToTree(dir, entries);
 
     assertLockHeld();
