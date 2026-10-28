@@ -1725,6 +1725,25 @@ test("cargo-deny: crate sources are fetched online & --locked before metadata an
   }
 });
 
+test("rightkit#1257: cargo-deny's auxiliary metadata that cannot run or exits non-zero is AUX_METADATA, never a deterministic red", async () => {
+  const { deterministicMarker } = await import("./snapshot-check.mjs");
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
+  const outcomes = {
+    "execution error": () => ({ error: new Error("rustright managed-agent: transport reset"), status: null }),
+    "non-zero exit": () => ({ status: 101, stdout: "", stderr: "error: failed to load manifest\n" }),
+  };
+  for (const [name, result] of Object.entries(outcomes)) {
+    const inner = fakeSpawn({ log: [] });
+    const spawn = (command, args, o) => (args.includes("metadata") && args.includes("--locked") && !args.includes("--no-deps") ? result() : inner(command, args, o));
+    const r = await runScans(plan, deps({ ...fs, classes: ["A"], spawn }));
+    const row = r.scans.find((s) => s.id === "cargo-deny");
+    assert.equal(row.status, "fail", name);
+    assert.equal(row.code, "AUX_METADATA", `${name}: ${row.detail}`);
+    assert.match(row.detail, /cargo metadata for cargo-deny failed/);
+    assert.equal(deterministicMarker({ scans: [row] }, "e".repeat(64)), null, `${name}: no reusable red`);
+  }
+});
+
 test("advisory scans: an unavailable pinned database fails both scans and no tool runs", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
   const log = [];

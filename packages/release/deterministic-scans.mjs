@@ -1752,7 +1752,8 @@ export async function runScans(plan, options = {}) {
               const metadataDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-deny-metadata-"));
               const metadataFile = path.join(metadataDir, "metadata.json");
               const metadata = await deps.spawn(p.command, [...args.slice(0, at), ...metadataArgs({ noDeps: false })], { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env }, stdoutFile: metadataFile, ...sig });
-              if (!metadata || metadata.error || metadata.status !== 0) { fs.rmSync(metadataDir, { recursive: true, force: true }); advisory.cleanup?.(); return { ...row, status: "fail", code: "EXIT", detail: `cargo metadata for cargo-deny failed: ${metadata?.error?.message ?? (tail(metadata) || `exit ${metadata?.status}`)}` }; }
+              // AUX_METADATA: the auxiliary metadata that feeds deny could not be produced; not a deny finding, so never a deterministic red (rightkit#1257).
+              if (!metadata || metadata.error || metadata.status !== 0) { fs.rmSync(metadataDir, { recursive: true, force: true }); advisory.cleanup?.(); return { ...row, status: "fail", code: "AUX_METADATA", detail: `cargo metadata for cargo-deny failed: ${metadata?.error?.message ?? (tail(metadata) || `exit ${metadata?.status}`)}` }; }
               if (!fs.existsSync(metadataFile)) fs.writeFileSync(metadataFile, String(metadata.stdout ?? ""));
               advisory.metadataPath = metadataFile;
               const overlayCleanup = advisory.cleanup;

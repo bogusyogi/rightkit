@@ -2262,31 +2262,58 @@ export async function main(argv, io = {}) {
     const deferrals = scanDeferrals(scanResult);
     for (const line of deferrals) failures.push(`DEFERRED ${line}`);
     for (const note of scanResult.notes) o.out(`${tag} ${note}`);
+    // What a full class A verdict binds, green or red: the bytes it judged, unchanged from start to end, and the environment it judged
+    // in (gate, tools, installed dependencies, tool caches), unchanged too. A verdict whose binding moved covers nothing: a green one is
+    // refused and a red one names no reusable deterministic cause (rightkit#1257). Returns { env, notes } or { prefix, problem, exit }.
+    const judgedBinding = async () => {
+      if (liveFullA) {
+        let digestNow = null;
+        try { digestNow = liveTree().digest; } catch { digestNow = null; }
+        if (digestNow !== liveSnapshot) return { prefix: "BLOCKED", exit: 1, problem: "the working tree changed while class A ran; the verdict does not cover the current bytes. Run again." };
+      }
+      if (snapFullA) {
+        try { (await import("../snapshot-check.mjs")).verifySnapshotDir({ checkout: fs.realpathSync.native(root), dir: snapshotA, ...snapshotCommitId, when: "after class A" }); }
+        catch (error) { return { prefix: "RK_CHECK_ERROR", exit: 2, problem: `${error.message}; the verdict covers no known bytes` }; }
+      }
+      if (!live) return { env: null, notes: [] };
+      let envDigest; let envNoCaches;
+      try { envDigest = classAEnvironmentDigest({ root: liveBase, files: live.files, spawn: o.spawn }); envNoCaches = classAEnvironmentDigest({ root: liveBase, files: live.files, spawn: o.spawn, includeCaches: false }); }
+      catch (error) { return { prefix: "BLOCKED", exit: 1, problem: error.message }; }
+      const notes = [];
+      if (cachesAtStart !== null) {
+        let drift;
+        try { drift = toolCacheDrift(cachesAtStart, toolCacheManifest({ root: liveBase, files: live.files })); } catch (error) { return { prefix: "BLOCKED", exit: 1, problem: error.message }; }
+        if (drift.changed.length) return { prefix: "BLOCKED", exit: 1, problem: `${drift.changed.length} tool cache file(s) that existed when class A started changed or vanished while it ran, so the checks may have read bytes the verdict cannot name: ${drift.changed.slice(0, 5).join(", ")}${drift.changed.length > 5 ? ", …" : ""}. Run again.` };
+        if (drift.added.length) notes.push(`note: ${drift.added.length} tool cache file(s) appeared while class A ran (by it or another process), bound in env as they stand: ${drift.added.slice(0, 5).join(", ")}${drift.added.length > 5 ? ", …" : ""}`);
+      }
+      if (envAtStart !== null && envNoCaches !== envAtStart) return { prefix: "BLOCKED", exit: 1, problem: "the class A environment (gate, tools or installed dependencies) changed while class A ran; the verdict does not cover it. Run again." };
+      return { env: envDigest, notes };
+    };
     if (failures.length) {
       o.err(`${tag} BLOCKED (${failures.length})`);
       for (const f of failures) o.err(`  - ${f}`);
-      // A red full class A names its cause when every failure is one a re-run of the same inputs reproduces, so the broker may reuse
-      // it (rightkit#1257); a live scan, a timeout, a missing tool or anything undecided among the failures names none.
-      if (boundFullA && live) {
-        let envRed = null;
-        try { envRed = classAEnvironmentDigest({ root: liveBase, files: live.files, spawn: o.spawn }); } catch { envRed = null; }
-        const marker = (await import("../snapshot-check.mjs")).deterministicMarker(scanResult, envRed);
-        if (marker) o.out(marker);
+      // A red full class A names its cause when every failure is one a re-run of the same inputs reproduces AND the bytes and
+      // environment it was judged in held from start to end, so the broker may reuse it (rightkit#1257); a live scan, a timeout, a
+      // missing tool, anything undecided, or a binding that moved names none.
+      if (boundFullA) {
+        const binding = await judgedBinding();
+        if (binding.problem) {
+          o.err(`${tag} ${binding.prefix}: ${binding.problem} No deterministic verdict is named.`);
+          if (binding.exit === 2) return 2;
+        } else {
+          for (const n of binding.notes) o.out(`${tag} ${n}`);
+          const marker = (await import("../snapshot-check.mjs")).deterministicMarker(scanResult, binding.env);
+          if (marker) o.out(marker);
+        }
       }
       o.err(classAOnly ? "Class A is red: nothing compiles until it is green." : "Fix and push again. Never bypass with --no-verify.");
       return 1;
     }
     if (fullA) {
-      // The verdict is for the bytes that were checked: a file edited while the checks ran makes it a verdict for nothing.
-      if (liveFullA) {
-        let digestNow = null;
-        try { digestNow = liveTree().digest; } catch { digestNow = null; }
-        if (digestNow !== liveSnapshot) { o.err(`${tag} BLOCKED: the working tree changed while class A ran; the verdict does not cover the current bytes. Run again.`); return 1; }
-      }
-      if (snapFullA) {
-        try { (await import("../snapshot-check.mjs")).verifySnapshotDir({ checkout: fs.realpathSync.native(root), dir: snapshotA, ...snapshotCommitId, when: "after class A" }); }
-        catch (error) { o.err(`${tag} RK_CHECK_ERROR: ${error.message}; the verdict covers no known bytes`); return 2; }
-      }
+      // The verdict is for the bytes that were checked, in the environment that was checked: either moving makes it a verdict for nothing.
+      const binding = await judgedBinding();
+      if (binding.problem) { o.err(`${tag} ${binding.prefix}: ${binding.problem}`); return binding.exit; }
+      for (const n of binding.notes) o.out(`${tag} ${n}`);
       // The bytes this verdict covers, for the broker to compare with the snapshot it compiles: the tracked files only (what a
       // captured snapshot holds), and every file including untracked ones. Each is sha256 over sorted "<path>\t<git blob id of the
       // raw bytes>\n" lines (git hash-object --no-filters), so the broker can recompute it over its snapshot without this gate.
@@ -2295,18 +2322,7 @@ export async function main(argv, io = {}) {
         const trackedList = snapFullA ? null : git("ls-files", "-z", "--cached");
         if (trackedList && failed(trackedList)) { o.err(`${tag} BLOCKED: cannot list tracked files to name the checked bytes`); return 1; }
         const tracked = new Set(snapFullA ? live.files : text(trackedList).split("\0").filter(Boolean).map(posix));
-        let envDigest;
-        try { envDigest = classAEnvironmentDigest({ root: liveBase, files: live.files, spawn: o.spawn }); } catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
-        let envNoCaches;
-        try { envNoCaches = classAEnvironmentDigest({ root: liveBase, files: live.files, spawn: o.spawn, includeCaches: false }); } catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
-        if (cachesAtStart !== null) {
-          let drift;
-          try { drift = toolCacheDrift(cachesAtStart, toolCacheManifest({ root: liveBase, files: live.files })); } catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
-          if (drift.changed.length) { o.err(`${tag} BLOCKED: ${drift.changed.length} tool cache file(s) that existed when class A started changed or vanished while it ran, so the checks may have read bytes the verdict cannot name: ${drift.changed.slice(0, 5).join(", ")}${drift.changed.length > 5 ? ", …" : ""}. Run again.`); return 1; }
-          if (drift.added.length) o.out(`${tag} note: ${drift.added.length} tool cache file(s) appeared while class A ran (by it or another process), bound in env as they stand: ${drift.added.slice(0, 5).join(", ")}${drift.added.length > 5 ? ", …" : ""}`);
-        }
-        if (envAtStart !== null && envNoCaches !== envAtStart) { o.err(`${tag} BLOCKED: the class A environment (gate, tools or installed dependencies) changed while class A ran; the verdict does not cover it. Run again.`); return 1; }
-        o.out(`${tag} class A bytes tracked=${live.digestOf(live.files.filter((f) => tracked.has(f)))} all=${live.digest}${envStartWithCaches ? ` env-at-start=${envStartWithCaches}` : ""} env=${envDigest}`);
+        o.out(`${tag} class A bytes tracked=${live.digestOf(live.files.filter((f) => tracked.has(f)))} all=${live.digest}${envStartWithCaches ? ` env-at-start=${envStartWithCaches}` : ""} env=${binding.env}`);
       }
       o.out(`${tag} class A full pass: ${scanResult.scans.length} deterministic check(s), the ones that execute repository code included, over ${changed.length} file(s) of ${base}`);
       return 0;

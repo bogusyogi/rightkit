@@ -89,10 +89,13 @@ export function commitFiles(checkout, commit, spawn = defaultSpawn) {
   return { files, ids, digestOf, digest: digestOf(files) };
 }
 
-/** `storeDir` from a node_modules/.modules.yaml (pnpm writes it as `"storeDir": "<abs>"` or `storeDir: <abs>`). */
+/** `storeDir` from a node_modules/.modules.yaml: pnpm writes `"storeDir": "<JSON string>"` (Windows paths escaped, `D:\\x`) or `storeDir: <abs>`. */
 export function modulesStoreDir(yamlText) {
-  const m = /^\s*"?storeDir"?\s*:\s*"?([^"\n]+?)"?\s*,?\s*$/m.exec(String(yamlText ?? ""));
-  return m ? m[1].trim() : null;
+  const src = String(yamlText ?? "");
+  const quoted = /^\s*"?storeDir"?\s*:\s*("(?:[^"\\\n]|\\.)*")\s*,?\s*$/m.exec(src);
+  if (quoted) { try { return JSON.parse(quoted[1]); } catch { return null; } }
+  const bare = /^\s*storeDir\s*:\s*([^"'\s][^\n]*?)\s*$/m.exec(src);
+  return bare ? bare[1].trim() : null;
 }
 
 /**
@@ -131,23 +134,55 @@ export function allowedBuilds(dir, { readFile = (f) => fs.readFileSync(f, "utf8"
 }
 
 /**
+ * A dependency whose install script the repository allows but `--ignore-scripts` skipped must be shown usable without it, never
+ * assumed: its own bin runs with `--version`, or, with no bin, the package loads in a fresh node. A package the root does not have
+ * installed is not required. Returns [{ name, version, probe, result }]; throws CheckError naming the package and root when one is
+ * installed but not usable.
+ */
+export function probeSkippedBuilds({ dir, root, names, spawn = defaultSpawn, env = process.env, node = process.execPath }) {
+  const results = [];
+  const store = path.join(dir, "node_modules", ".pnpm");
+  let entries = [];
+  try { entries = fs.readdirSync(store); } catch { entries = []; }
+  for (const name of names) {
+    const flat = name.replace("/", "+");
+    for (const entry of entries.filter((e) => e.startsWith(`${flat}@`)).sort()) {
+      const pkgDir = path.join(store, entry, "node_modules", ...name.split("/"));
+      let manifest;
+      try { manifest = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8")); } catch { continue; }
+      const bins = typeof manifest.bin === "string" ? { [name.split("/").pop()]: manifest.bin } : (manifest.bin ?? {});
+      const binName = Object.keys(bins).find((b) => b === name.split("/").pop()) ?? Object.keys(bins)[0];
+      const probe = binName ? [path.join(pkgDir, bins[binName]), "--version"] : ["-e", `require(${JSON.stringify(pkgDir)})`];
+      const r = spawn(node, probe, { cwd: dir, env, boundedMs: 60_000 });
+      const out = text(r).trim().split(/\r?\n/).pop() ?? "";
+      if (failed(r)) throw new CheckError(`root ${root}: ${name}@${manifest.version} needs its install script (allowed by the repository, not run under --ignore-scripts) and is not usable without it: ${binName ? `${binName} --version` : "require"} failed: ${tail(r) || r?.error?.message || `exit ${r?.status}`}`);
+      results.push({ name, version: manifest.version, probe: binName ? `${binName} --version` : "require", result: out || "loaded" });
+    }
+  }
+  return results;
+}
+
+/**
  * Installs each pnpm root's dependencies into the snapshot from the commit's lockfile and the primary checkout's existing store.
  * Returns one record per root ({ root, storeDir, storeSource, pnpm, lockfileSha256, ms, allowedBuildsNotRun }); throws CheckError on a
  * store miss, a pnpm that is not the pinned one, or any install failure.
  */
-export function installSnapshotDependencies({ checkout, snapshot, roots, env = process.env, spawn = defaultSpawn, now = () => Date.now(), readFile, exists }) {
+export function installSnapshotDependencies({ checkout, snapshot, roots, env = process.env, spawn = defaultSpawn, now = () => Date.now(), readFile, exists, probe = probeSkippedBuilds }) {
   const records = [];
   const versionOf = (cwd) => { const r = spawn("pnpm", ["--version"], { cwd, env: { ...env, COREPACK_ENABLE_AUTO_PIN: "0" } }); return failed(r) ? null : text(r).trim().split(/\r?\n/).pop(); };
   for (const root of roots) {
     const dir = path.join(snapshot, root);
-    if (!fs.existsSync(path.join(dir, "pnpm-lock.yaml"))) throw new CheckError(`pnpm root ${root} of the commit has no pnpm-lock.yaml: dependencies cannot be installed from a lockfile`);
+    // No lockfile: nothing to install from. Not an error here: the pnpm-lockfile scan judges it, and checks that need dependencies fail.
+    if (!fs.existsSync(path.join(dir, "pnpm-lock.yaml"))) { records.push({ root, skipped: "no pnpm-lock.yaml in the commit: nothing to install from (the pnpm-lockfile scan judges it)" }); continue; }
     const { storeDir, source } = resolvePrimaryStore({ checkout, root, env, spawn, ...(readFile ? { readFile } : {}), ...(exists ? { exists } : {}) });
     const pin = pinnedPnpm(dir) ?? pinnedPnpm(snapshot);
     const version = versionOf(path.dirname(snapshot));
     if (!version) throw new CheckError("pnpm is not runnable on this host; the snapshot's dependencies cannot be installed");
     if (pin && version !== pin) throw new CheckError(`pnpm ${version} is on PATH, but root ${root} of the commit pins pnpm@${pin} (packageManager); install the pinned pnpm`);
     const started = now();
-    const r = spawn("pnpm", ["install", "--offline", "--frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile", "--store-dir", storeDir, "--reporter", "append-only"], {
+    // The virtual store is pinned inside the snapshot and the global virtual store off, whatever the host's pnpm config says: the
+    // install writes nowhere but the snapshot (links to the existing store's content are the only reads outside it).
+    const r = spawn("pnpm", ["install", "--offline", "--frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile", "--store-dir", storeDir, "--virtual-store-dir", "node_modules/.pnpm", "--config.enable-global-virtual-store=false", "--reporter", "append-only"], {
       cwd: dir, env: { ...env, COREPACK_ENABLE_AUTO_PIN: "0", CI: "true" }, maxBuffer: 1 << 28,
     });
     const ms = now() - started;
@@ -158,14 +193,16 @@ export function installSnapshotDependencies({ checkout, snapshot, roots, env = p
       throw new CheckError(`root ${root}: offline dependency install failed (store ${storeDir}): ${tail(r) || r?.error?.message || `exit ${r?.status}`}`);
     }
     const lockfileSha256 = crypto.createHash("sha256").update(fs.readFileSync(path.join(dir, "pnpm-lock.yaml"))).digest("hex");
-    records.push({ root, storeDir, storeSource: source, pnpm: version, pinned: pin, lockfileSha256, ms, allowedBuildsNotRun: allowedBuilds(dir) });
+    const skipped = probe ? probe({ dir, root, names: allowedBuilds(dir), spawn, env }) : [];
+    records.push({ root, storeDir, storeSource: source, pnpm: version, pinned: pin, lockfileSha256, ms, allowedBuildsNotRun: skipped });
   }
   return records;
 }
 
 /** One line per installed root, for the check's output and evidence. */
 export function describeInstall(record) {
-  return `snapshot dependencies root=${record.root} pnpm=${record.pnpm}${record.pinned ? ` (pinned ${record.pinned})` : ""} store=${record.storeDir} (from ${record.storeSource}) lockfile=sha256:${record.lockfileSha256} ms=${record.ms}${record.allowedBuildsNotRun.length ? ` build-scripts-not-run=${record.allowedBuildsNotRun.join(",")}` : ""}`;
+  if (record.skipped) return `snapshot dependencies root=${record.root} not installed: ${record.skipped}`;
+  return `snapshot dependencies root=${record.root} pnpm=${record.pnpm}${record.pinned ? ` (pinned ${record.pinned})` : ""} store=${record.storeDir} (from ${record.storeSource}) lockfile=sha256:${record.lockfileSha256} ms=${record.ms}${record.allowedBuildsNotRun.length ? ` build-scripts-not-run=${record.allowedBuildsNotRun.map((b) => `${b.name}@${b.version}(usable: ${b.probe} -> ${b.result})`).join(",")}` : ""}`;
 }
 
 /** The deterministic-red marker for a failed run, or null when any failure is not one a re-run of the same inputs reproduces. */
@@ -184,12 +221,23 @@ export function rootFiles(root, spawn = defaultSpawn) {
     const r = spawn("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: root, maxBuffer: 1 << 30 });
     if (!failed(r)) return text(r).split("\0").filter(Boolean).map((f) => f.split(path.sep).join("/"));
   }
+  // No git (a gate-owned snapshot): list what git would, a link as one entry (never followed into), and only real directories
+  // entered. A link must land, physically, inside the root on a file; one that leaves it (or dangles) stops the listing rather than
+  // silently dropping what it names (a committed apps/web/package.json -> ../../data/web.json is a manifest the audit must see).
+  const realRoot = fs.realpathSync.native(root);
   const out = [];
   const walk = (d, rel) => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       if (e.name === "node_modules" || e.name === ".git") continue;
       const r = rel ? `${rel}/${e.name}` : e.name;
-      if (e.isDirectory()) walk(path.join(d, e.name), r); else if (e.isFile()) out.push(r);
+      const p = path.join(d, e.name);
+      if (e.isSymbolicLink()) {
+        let real = null;
+        try { real = fs.realpathSync.native(p); } catch { real = null; }
+        if (!real || !inside(real, realRoot)) throw new CheckError(`${r} is a link that does not land inside ${root}; the live scans cannot list the tree safely`);
+        if (fs.statSync(real).isFile()) out.push(r);
+      } else if (e.isDirectory()) walk(p, r);
+      else if (e.isFile()) out.push(r);
     }
   };
   walk(root, "");
@@ -213,6 +261,9 @@ export async function liveScansCommand(o, args, { discoverPnpmRoots, discoverNpm
     const npmUnits = discoverNpmUnits({ root, tracked, readFile, exists: o.exists });
     const full = plan({ changed: files, contentRoot: root, liveRoot: root, trustedRoot: root, includeTests: false, rustUnits: [], npmUnits, npmRoots, tier: "release", exists: o.exists, readFile: o.readFile, platform: o.platform });
     const live = { ...full, scans: full.scans.filter((s) => isLiveScan(s.id)), deferred: [] };
+    // A tree with a pnpm lockfile always owes a live audit: planning none there is a listing or planning failure, never an empty pass.
+    const lockfiles = files.filter((f) => /(^|\/)pnpm-lock\.yaml$/.test(f));
+    if (lockfiles.length && !live.scans.length) throw new Error(`the tree holds ${lockfiles.join(", ")} but no live scan was planned; refusing to answer an empty refresh`);
     const result = await run(live, { classes: ["A"], jobs: 2 });
     scans = result.scans.map((r) => ({ id: r.id, status: r.status === "pass" ? "passed" : "failed", ...(r.status === "pass" ? {} : { detail: String(r.detail ?? r.status).slice(0, 300) }) }));
   } catch (e) {

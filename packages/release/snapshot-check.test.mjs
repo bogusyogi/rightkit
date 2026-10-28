@@ -13,7 +13,7 @@ import { spawnSync } from "./background-process.mjs";
 import { defaultSpawn, isLiveScan, LIVE_SCAN_IDS } from "./deterministic-scans.mjs";
 import { repoKey, keyPath, syncSnapshot } from "./snapshot.mjs";
 import {
-  CheckError, DETERMINISTIC_MARKER, LIVE_SCANS_SCHEMA, allowedBuilds, deterministicMarker, installSnapshotDependencies, liveScansCommand,
+  CheckError, DETERMINISTIC_MARKER, probeSkippedBuilds, LIVE_SCANS_SCHEMA, allowedBuilds, deterministicMarker, installSnapshotDependencies, liveScansCommand,
   modulesStoreDir, pinnedPnpm, resolvePrimaryStore, snapshotOption,
 } from "./snapshot-check.mjs";
 import { main, discoverPnpmRoots, discoverNpmUnits } from "./bin/rightkit-gate.mjs";
@@ -38,10 +38,10 @@ function write(root, files) {
 const commitAll = (repo, m = "c") => { git(repo, "add", "-A"); git(repo, "commit", "-q", "--allow-empty", "-m", m); return git(repo, "rev-parse", "HEAD"); };
 
 /** A repository whose selected commit A holds a committed-but-ignored file; HEAD (B) is ahead of A and the checkout is dirty. */
-function scenario(t) {
+function scenario(t, extra = {}) {
   const repo = tmp(t, "rk-sc-repo-");
   git(repo, "init", "-q", "-b", "main");
-  write(repo, { ".gitignore": "*.log\nnode_modules/\n", "README.md": "commit A\n", "src/a.txt": "a\n", "kept.log": "committed despite *.log\n" });
+  write(repo, { ".gitignore": "*.log\nnode_modules/\n", "README.md": "commit A\n", "src/a.txt": "a\n", "kept.log": "committed despite *.log\n", ...extra });
   git(repo, "add", "-A"); git(repo, "add", "-f", "kept.log");
   git(repo, "commit", "-q", "-m", "A");
   const a = git(repo, "rev-parse", "HEAD");
@@ -171,7 +171,7 @@ test("deterministicMarker: unit rules", () => {
   assert.equal(deterministicMarker({ scans: [{ id: "a", status: "pass" }] }, env), null);
   assert.equal(deterministicMarker({ scans: [{ id: "a", status: "fail", code: "EXIT" }] }, null), null);
   assert.equal(deterministicMarker({ scans: [{ id: "a", status: "fail", code: "NO_TESTS" }, { id: "b", status: "pass" }] }, env), `${DETERMINISTIC_MARKER} failed=a env=${env}`);
-  for (const code of ["SPAWN_ERROR", "TOOL_VERSION", "ADVISORY_DB", "FETCH", "QUIET_LEASE_UNAVAILABLE", "SCAN_ERROR", "DENY_ERROR", "CLASS_A_REQUIRED"]) {
+  for (const code of ["SPAWN_ERROR", "TOOL_VERSION", "ADVISORY_DB", "FETCH", "QUIET_LEASE_UNAVAILABLE", "SCAN_ERROR", "DENY_ERROR", "CLASS_A_REQUIRED", "AUX_METADATA"]) {
     assert.equal(deterministicMarker({ scans: [{ id: "a", status: "fail", code }] }, env), null, code);
   }
   assert.deepEqual(LIVE_SCAN_IDS, ["pnpm-audit"]);
@@ -199,6 +199,8 @@ test("store: the storeDir the checkout's own install recorded wins; else `pnpm s
   const dir = tmp(t, "rk-sc-store-");
   assert.equal(modulesStoreDir('{\n  "storeDir": "/Volumes/D/claude/.pnpm-store/v11",\n}'), "/Volumes/D/claude/.pnpm-store/v11");
   assert.equal(modulesStoreDir("storeDir: /srv/pnpm-store/v11\nnodeLinker: isolated"), "/srv/pnpm-store/v11");
+  // Dell 2026-10-29: pnpm records a Windows store as an escaped JSON string.
+  assert.equal(modulesStoreDir('  "storeDir": "D:\\\\.dev-cache\\\\pnpm-store\\\\v11",\n  "virtualStoreDir": "D:\\\\Claude\\\\rightkit\\\\node_modules\\\\.pnpm",'), "D:\\.dev-cache\\pnpm-store\\v11");
   const checkout = tmp(t, "rk-sc-co-");
   write(checkout, { "node_modules/.modules.yaml": `{\n  "storeDir": ${JSON.stringify(dir)},\n}\n` });
   const never = () => { throw new Error("pnpm store path must not run when the install recorded a store"); };
@@ -222,21 +224,24 @@ test("install: pinned pnpm, --offline --frozen-lockfile --ignore-scripts --ignor
   let clock = 1000;
   const [rec] = installSnapshotDependencies({ checkout, snapshot, roots: ["."], spawn: ok, now: () => (clock += 250) });
   const install = calls.find((x) => x.a[0] === "install");
-  assert.deepEqual(install.a, ["install", "--offline", "--frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile", "--store-dir", store, "--reporter", "append-only"]);
+  assert.deepEqual(install.a, ["install", "--offline", "--frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile", "--store-dir", store, "--virtual-store-dir", "node_modules/.pnpm", "--config.enable-global-virtual-store=false", "--reporter", "append-only"]);
   assert.equal(install.cwd, path.join(snapshot, "."));
   assert.equal(rec.storeDir, store);
   assert.equal(rec.pnpm, "11.25.0");
   assert.equal(rec.lockfileSha256, crypto.createHash("sha256").update("lockfileVersion: '9.0'\n").digest("hex"));
   assert.equal(rec.ms, 250);
-  assert.deepEqual(rec.allowedBuildsNotRun, ["esbuild"]);
+  assert.deepEqual(rec.allowedBuildsNotRun, [], "esbuild is allowed to build but not installed here, so nothing is required of it");
   // A pnpm that is not the pinned one refuses.
   assert.throws(() => installSnapshotDependencies({ checkout, snapshot, roots: ["."], spawn: (c, a) => (a[0] === "--version" ? { status: 0, stdout: "10.0.0\n" } : { status: 0 }) }), /pins pnpm@11\.25\.0/);
   // A store miss names the package and the root, never a skip.
   const miss = (c, a) => (a[0] === "--version" ? { status: 0, stdout: "11.25.0\n" } : { status: 1, stdout: "", stderr: "[ERR_PNPM_NO_OFFLINE_TARBALL] A package is missing from the store but cannot download it in offline mode. The missing package may be downloaded from https://registry.npmjs.org/katex/-/katex-0.18.11.tgz." });
   assert.throws(() => installSnapshotDependencies({ checkout, snapshot, roots: ["."], spawn: miss }), (e) => e instanceof CheckError && /root \.: katex-0\.18\.11 is missing from the store/.test(e.message));
-  // No lockfile: nothing to install from.
+  // No lockfile: nothing to install from; recorded as skipped (the pnpm-lockfile scan judges it), never an install.
   fs.rmSync(path.join(snapshot, "pnpm-lock.yaml"));
-  assert.throws(() => installSnapshotDependencies({ checkout, snapshot, roots: ["."], spawn: ok }), /no pnpm-lock\.yaml/);
+  calls.length = 0;
+  const [none] = installSnapshotDependencies({ checkout, snapshot, roots: ["."], spawn: ok });
+  assert.match(none.skipped, /no pnpm-lock\.yaml/);
+  assert.equal(calls.length, 0);
 });
 
 test("pins and allowed builds parse the repository's own forms", (t) => {
@@ -305,4 +310,121 @@ test("rightkit#1215 in snapshot mode: a config-only .git naming the origin exist
   assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], run.io), 0, run.err.join("\n"));
   assert.equal(during, '[remote "origin"]\n\turl = git@github.com:example/repo.git\n');
   assert.equal(fs.existsSync(path.join(s.dir, ".git")), false, "removed when the check ends");
+});
+
+test("skipped build scripts: an installed allowed-build package must prove itself usable (real node), else RK_CHECK_ERROR", (t) => {
+  const dir = tmp(t, "rk-sc-probe-");
+  const pkg = (entry, name, files) => write(dir, Object.fromEntries(Object.entries(files).map(([f, b]) => [`node_modules/.pnpm/${entry}/node_modules/${name}/${f}`, b])));
+  pkg("esbuild@0.28.2", "esbuild", { "package.json": JSON.stringify({ name: "esbuild", version: "0.28.2", bin: { esbuild: "bin/esbuild" } }), "bin/esbuild": "console.log('0.28.2');\n" });
+  pkg("@scope+native@1.0.0", "@scope/native", { "package.json": JSON.stringify({ name: "@scope/native", version: "1.0.0", main: "index.js" }), "index.js": "module.exports = 1;\n" });
+  const ok = probeSkippedBuilds({ dir, root: ".", names: ["esbuild", "@scope/native", "not-installed"] });
+  assert.deepEqual(ok, [
+    { name: "esbuild", version: "0.28.2", probe: "esbuild --version", result: "0.28.2" },
+    { name: "@scope/native", version: "1.0.0", probe: "require", result: "loaded" },
+  ]);
+  pkg("broken@2.0.0", "broken", { "package.json": JSON.stringify({ name: "broken", version: "2.0.0", bin: "cli.js" }), "cli.js": "throw new Error('native binary missing: run the install script');\n" });
+  assert.throws(() => probeSkippedBuilds({ dir, root: "apps/web", names: ["broken"] }), (e) => e instanceof CheckError && /root apps\/web: broken@2\.0\.0 needs its install script .* not usable without it: broken --version failed/.test(e.message));
+});
+
+// Coordinator review of 4cda1824: a red's marker must bind only the environment it was judged in. A dependency that changes while
+// class A runs (installed bytes under the snapshot's node_modules) voids the marker; the same red with nothing moved keeps it.
+test("rightkit#1257: a dependency that changes while class A runs voids the deterministic marker (red) and the verdict (green)", async (t) => {
+  const s = scenario(t, { "package.json": JSON.stringify({ name: "fixture", private: true }) });
+  write(s.dir, { "node_modules/dep/package.json": JSON.stringify({ name: "dep", version: "1.0.0" }), "node_modules/dep/index.js": "module.exports = 1;\n" });
+  const eligible = [{ id: "node-check:a.mjs", class: "A", status: "fail", code: "EXIT", detail: "x" }];
+  const bump = () => write(s.dir, { "node_modules/dep/package.json": JSON.stringify({ name: "dep", version: "2.0.0" }), "node_modules/dep/index.js": "module.exports = 2;\n" });
+  const drifted = io(t, s, { scans: eligible, onScans: bump });
+  assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], drifted.io), 1);
+  assert.equal(drifted.out.find((l) => l.startsWith(DETERMINISTIC_MARKER)), undefined, "no marker for a red judged across a dependency change");
+  assert.ok(drifted.err.some((l) => /environment \(gate, tools or installed dependencies\) changed while class A ran.*No deterministic verdict is named/.test(l)), drifted.err.join("\n"));
+  // The same red with nothing moving keeps its marker, bound to the environment it was judged in (dependency now at 2.0.0).
+  const steady = io(t, s, { scans: eligible });
+  assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], steady.io), 1);
+  assert.match(steady.out.find((l) => l.startsWith(DETERMINISTIC_MARKER)) ?? "", /failed=node-check:a\.mjs env=[0-9a-f]{64}$/);
+  // A green judged across a dependency change is refused.
+  const green = io(t, s, { onScans: () => write(s.dir, { "node_modules/dep/index.js": "module.exports = 3;\n" }) });
+  assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], green.io), 1);
+  assert.equal(bytesLine(green.out), undefined, "no bytes/env line for a green whose environment moved");
+});
+
+test("rightkit#1257: a snapshot changed during a red run is RK_CHECK_ERROR with no marker", async (t) => {
+  const s = scenario(t);
+  const run = io(t, s, { scans: [{ id: "node-check:a.mjs", class: "A", status: "fail", code: "EXIT" }], onScans: () => fs.appendFileSync(path.join(s.dir, "README.md"), "x\n") });
+  assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], run.io), 2);
+  assert.equal(run.out.find((l) => l.startsWith(DETERMINISTIC_MARKER)), undefined);
+  assert.ok(run.err.some((l) => /RK_CHECK_ERROR: snapshot .* after class A.*No deterministic verdict is named/.test(l)), run.err.join("\n"));
+});
+
+// Coordinator review of 4cda1824 (E18): the live-scans listing of a gate-owned snapshot (no git) dropped committed symlinked files, so a
+// linked package.json's root got no audit and the answer was an empty, passing list.
+test("E18 live-scans: a committed linked manifest's root is audited, its failure surfaces; an escaping link or a lockfile with no planned scan refuses", { skip: process.platform === "win32" ? "POSIX links" : false }, async (t) => {
+  const root = tmp(t, "rk-sc-livelink-");
+  write(root, { "data/web-manifest.json": JSON.stringify({ name: "web", private: true }), "apps/web/pnpm-lock.yaml": "lockfileVersion: '9.0'\n" });
+  fs.symlinkSync("../../data/web-manifest.json", path.join(root, "apps", "web", "package.json"));
+  const out = []; const err = [];
+  const o = { cwd: root, spawn: defaultSpawn, readFile: (f) => fs.readFileSync(f, "utf8"), exists: fs.existsSync, platform: process.platform, out: (m) => out.push(m), err: (m) => err.push(m) };
+  const run = async (plan) => ({ scans: plan.scans.map((s) => ({ id: s.id, status: "fail", detail: "GHSA-test advisory" })) });
+  assert.equal(await liveScansCommand(o, ["--repo", root], { discoverPnpmRoots, discoverNpmUnits, run }), 1);
+  assert.deepEqual(parseLiveScans(1, out.join("\n")), [{ id: "pnpm-audit:apps/web", passed: false }]);
+  // A link out of the root stops the listing (exit 2), never an empty answer.
+  const outside = tmp(t, "rk-sc-outside-");
+  write(outside, { "x.json": "{}" });
+  fs.symlinkSync(path.join(outside, "x.json"), path.join(root, "escape.json"));
+  out.length = 0;
+  assert.equal(await liveScansCommand(o, ["--repo", root], { discoverPnpmRoots, discoverNpmUnits, run }), 2);
+  assert.equal(out.length, 0, "no JSON answer");
+  fs.rmSync(path.join(root, "escape.json"));
+  // A lockfile whose root cannot be discovered (no package.json beside it) is a refusal, not scans:[].
+  const bare = tmp(t, "rk-sc-bare-live-");
+  write(bare, { "tools/pnpm-lock.yaml": "lockfileVersion: '9.0'\n" });
+  assert.equal(await liveScansCommand({ ...o, cwd: bare }, ["--repo", bare], { discoverPnpmRoots, discoverNpmUnits, run }), 2);
+});
+
+// Real subprocesses, real snapshot content (no stubbed scans or install): an npm-only repository whose selected commit is clean, while
+// HEAD is ahead with a syntax-broken file committed and the checkout holds an uncommitted syntax error. node --check, the pnpm scans
+// and the offline install run against the snapshot; a leak of HEAD or of the checkout would turn the check red.
+const pnpmUsable = (() => { const r = defaultSpawn("pnpm", ["--version"], { cwd: os.tmpdir() }); return !r.error && r.status === 0; })();
+test("E17 real subprocesses: npm-only dirty checkout with HEAD ahead passes on the selected commit's snapshot", { skip: pnpmUsable ? false : "pnpm is not on PATH" }, async (t) => {
+  const repo = tmp(t, "rk-sc-real-");
+  git(repo, "init", "-q", "-b", "main");
+  const pnpmVersion = String(defaultSpawn("pnpm", ["--version"], { cwd: os.tmpdir() }).stdout).trim();
+  write(repo, {
+    ".gitignore": "node_modules/\n",
+    "package.json": JSON.stringify({ name: "real-fixture", private: true, packageManager: `pnpm@${pnpmVersion}` }, null, 2),
+    "pnpm-lock.yaml": "lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\nimporters:\n\n  .: {}\n",
+    "src/ok.mjs": "export const ok = 1;\n",
+  });
+  const a = commitAll(repo, "A");
+  write(repo, { "src/broken.mjs": "export const = ;\n" });
+  commitAll(repo, "B: committed syntax error, ahead of A");
+  write(repo, { "src/ok.mjs": "export const ok = ;\n", "src/untracked.mjs": "not javascript at all (\n" });
+  // The checkout's own install recorded a store (the primary environment's existing store); this one exists and stays empty.
+  const store = tmp(t, "rk-sc-real-store-");
+  write(repo, { "node_modules/.modules.yaml": `{\n  "storeDir": ${JSON.stringify(store)}\n}\n` });
+  const snap = syncSnapshot({ checkout: repo, rev: a, root: tmp(t, "rk-sc-real-snaps-") });
+  const out = []; const err = [];
+  const code = await main(["check", "--commit", a, "--full-a", "--snapshot", snap.path], {
+    cwd: repo, env: { ...process.env, RK_GATE_CACHE: "0", RIGHTKIT_SCRATCH_ROOT: tmp(t, "rk-sc-real-logs-") }, out: (m) => out.push(m), err: (m) => err.push(m),
+    appCheck: async () => 0, resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }),
+  });
+  const all = [...out, ...err].join("\n");
+  assert.equal(code, 0, all);
+  for (const id of ["node-check:src/ok.mjs", "pnpm-lockfile", "pnpm-audit"]) assert.match(all, new RegExp(`\\] pass +${id.replace(/[./]/g, "\\$&")} \\(`), `${id} ran and passed`);
+  assert.doesNotMatch(all, /broken\.mjs|untracked\.mjs/, "neither HEAD's nor the checkout's files were scanned");
+  assert.match(all, /snapshot dependencies root=\. pnpm=/);
+  assert.match(all, /class A full pass/);
+  assert.match(all, /is still tree [0-9a-f]+ after the check/);
+  // The inverse: selecting B (its committed broken file) is red on that file, with a deterministic marker; the checkout's dirt still never shows.
+  const b = git(repo, "rev-parse", "HEAD");
+  const snapB = syncSnapshot({ checkout: repo, rev: b, root: path.dirname(snap.path) });
+  const outB = []; const errB = [];
+  const codeB = await main(["check", "--commit", b, "--full-a", "--snapshot", snapB.path], {
+    cwd: repo, env: { ...process.env, RK_GATE_CACHE: "0", RIGHTKIT_SCRATCH_ROOT: tmp(t, "rk-sc-real-logs-b-") }, out: (m) => outB.push(m), err: (m) => errB.push(m),
+    appCheck: async () => 0, resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }),
+  });
+  const allB = [...outB, ...errB].join("\n");
+  assert.equal(codeB, 1, allB);
+  assert.match(allB, /\] fail +node-check:src\/broken\.mjs \(/);
+  assert.match(allB, /rightkit-gate: verdict deterministic failed=node-check:src\/broken\.mjs env=[0-9a-f]{64}/);
+  assert.doesNotMatch(allB, /untracked\.mjs/);
 });
