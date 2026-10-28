@@ -1,6 +1,6 @@
 # RightKit pipeline architecture
 
-> **Normative gate contract:** [docs/GATE-CONTRACT.md](GATE-CONTRACT.md) owns current user requirements, matrix, & acceptance status. Conflicting platform/order statements below are historical implementation context pending reconciliation; this document remains reference for owners & interfaces.
+> **Target-state proposal:** [docs/GATE-CONTRACT.md](GATE-CONTRACT.md) records requested behavior, pending Fable signoff. This document & its tests describe current architecture/evidence until that review & reconciliation are complete; the proposal does not waive existing tests or invariants.
 
 The one path from a commit to a shipped package or app, for every repository that uses RightKit. Changed only by Adrian.
 ADR-0001, ADR-0002 and ADR-0003 are decisions under this document: each serves invariants below and none may contradict
