@@ -249,23 +249,29 @@ impl KillOnCloseJob {
     /// (`JobObjectBasicAccountingInformation.ActiveProcesses == 0`). `Ok(false)` on timeout; a
     /// query error is returned, never read as empty. Job termination is asynchronous, so a
     /// leader's exit alone does not show the tree is gone (rightkit#1260).
+    ///
+    /// Deadline-safe: an empty job counts only when the query that saw it returned within
+    /// `timeout`; one seen empty after the deadline (for instance after the last sleep overran
+    /// it) is still `Ok(false)`.
     pub(crate) fn wait_empty(&self, timeout: std::time::Duration) -> io::Result<bool> {
         const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
         let started = std::time::Instant::now();
         loop {
             #[cfg(test)]
-            if crate::owned::cleanup_test_fault::job_never_empties() {
-                std::thread::sleep(timeout);
+            let count = match crate::owned::cleanup_test_fault::job_count() {
+                Some(count) => count,
+                None => crate::windows_job::WindowsJob::active_count_of(raw(&self.0))?,
+            };
+            #[cfg(not(test))]
+            let count = crate::windows_job::WindowsJob::active_count_of(raw(&self.0))?;
+            let elapsed = started.elapsed();
+            if count == 0 {
+                return Ok(elapsed <= timeout);
+            }
+            if elapsed >= timeout {
                 return Ok(false);
             }
-            if crate::windows_job::WindowsJob::active_count_of(raw(&self.0))? == 0 {
-                return Ok(true);
-            }
-            let remaining = timeout.saturating_sub(started.elapsed());
-            if remaining.is_zero() {
-                return Ok(false);
-            }
-            std::thread::sleep(POLL_INTERVAL.min(remaining));
+            std::thread::sleep(POLL_INTERVAL.min(timeout - elapsed));
         }
     }
 
@@ -384,29 +390,43 @@ pub(crate) fn resume(pid: u32) -> io::Result<()> {
     ))
 }
 
+/// How long an unbounded termination waits for a leader that `TerminateProcess` found already
+/// exiting.
+pub(crate) const EXITING_LEADER_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Terminates the job (when there is one) and the leader. `exiting_wait` bounds the wait for a
+/// leader that is already exiting when `TerminateProcess` refuses it: a bounded termination
+/// passes what is left of its own budget so this step never outlasts it (rightkit#1260).
 pub(crate) fn terminate(
     process: &ProcessHandle,
     job: Option<&KillOnCloseJob>,
     code: u32,
+    exiting_wait: std::time::Duration,
 ) -> io::Result<()> {
+    #[cfg(test)]
+    let refused = crate::owned::cleanup_test_fault::termination_refused();
+    #[cfg(not(test))]
+    let refused = false;
     // Do not skip the job when its original parent already exited.
     let job_result = match job {
+        Some(_) if refused => Ok(()),
         Some(job) => unsafe { TerminateJobObject(raw(&job.0), code) }.map_err(os_error),
         None => Ok(()),
     };
     // Even on failed assignment, preserve direct-child termination/reap.
     let direct_result = if process.try_wait()?.is_none() {
-        match unsafe { TerminateProcess(raw(process), code) } {
+        let killed = if refused {
+            Err(windows::core::Error::from_hresult(
+                windows::Win32::Foundation::ERROR_ACCESS_DENIED.to_hresult(),
+            ))
+        } else {
+            unsafe { TerminateProcess(raw(process), code) }
+        };
+        match killed {
             Ok(()) => Ok(()),
             // TerminateProcess fails with ACCESS_DENIED while a process is already exiting
             // (job termination is asynchronous): give that exit a bounded moment to land.
-            Err(_)
-                if process
-                    .wait_timeout(std::time::Duration::from_secs(2))?
-                    .is_some() =>
-            {
-                Ok(())
-            }
+            Err(_) if process.wait_timeout(exiting_wait)?.is_some() => Ok(()),
             Err(error) => Err(os_error(error)),
         }
     } else {

@@ -1084,7 +1084,9 @@ impl OwnedChild {
     ) -> io::Result<ReapOutcome> {
         let started = Instant::now();
         options.grace = options.grace.min(timeout);
-        self.start_termination(options)?;
+        // One absolute budget covers grace, kill, root reap and job emptiness: every step gets
+        // only what is left of it, so no step can wait past it (rightkit#1260).
+        self.start_termination_within(options, timeout)?;
         #[cfg(test)]
         if cleanup_test_fault::refuse(timeout.saturating_sub(started.elapsed())) {
             return Ok(ReapOutcome::TimedOut);
@@ -1152,6 +1154,17 @@ impl OwnedChild {
         })
     }
     fn start_termination(&mut self, options: TerminationOptions) -> io::Result<()> {
+        self.start_termination_within(options, Duration::MAX)
+    }
+    /// [`start_termination`](Self::start_termination) inside `budget`: the grace is already
+    /// clipped by the caller, and on Windows the wait for an exiting leader is clipped to what
+    /// is left of `budget` after the grace.
+    fn start_termination_within(
+        &mut self,
+        options: TerminationOptions,
+        budget: Duration,
+    ) -> io::Result<()> {
+        let started = Instant::now();
         #[cfg(unix)]
         if !self.tree_terminated {
             self.signal(libc::SIGTERM)?;
@@ -1160,7 +1173,10 @@ impl OwnedChild {
             // here: it must keep pinning the group id for the KILL below.
             self.await_tree(options.grace)?;
         }
-        self.force_kill(options.windows_exit_code)
+        self.force_kill_within(
+            options.windows_exit_code,
+            budget.saturating_sub(started.elapsed()),
+        )
     }
     /// Waits, for at most `grace`, until the leader has exited and every other member of its
     /// group has too. The leader is observed without reaping it; then the group is listed
@@ -1188,16 +1204,27 @@ impl OwnedChild {
         signal_shared(&self.child, target, signal).map(|_| ())
     }
     fn force_kill(&mut self, code: u32) -> io::Result<()> {
+        self.force_kill_within(code, Duration::MAX)
+    }
+    /// The kill. Windows: `budget` caps the wait for a leader already exiting when
+    /// `TerminateProcess` refuses it (at most the usual two seconds). Unix sends KILL and waits
+    /// for nothing.
+    fn force_kill_within(&mut self, code: u32, budget: Duration) -> io::Result<()> {
         if self.tree_terminated {
             return Ok(());
         }
         #[cfg(unix)]
         {
-            let _ = code;
+            let _ = (code, budget);
             self.signal(libc::SIGKILL)?;
         }
         #[cfg(windows)]
-        crate::process_windows::terminate(&self.handle, self.job.as_deref(), code)?;
+        crate::process_windows::terminate(
+            &self.handle,
+            self.job.as_deref(),
+            code,
+            budget.min(crate::process_windows::EXITING_LEADER_WAIT),
+        )?;
         self.tree_terminated = true;
         Ok(())
     }
@@ -1507,16 +1534,35 @@ pub(crate) fn cleanup_direct(child: Arc<Mutex<PlatformChild>>, timeout: Option<D
 pub(crate) mod cleanup_test_fault {
     use std::{cell::Cell, time::Duration};
     thread_local! { static REFUSE_REAP: Cell<bool> = const { Cell::new(false) }; }
-    thread_local! { static JOB_NEVER_EMPTIES: Cell<bool> = const { Cell::new(false) }; }
-    /// Test only: the next retained-job emptiness wait never sees the job empty (models a
-    /// descendant that outlives the deadline), so a bounded reap must stay unconfirmed.
+    thread_local! { static JOB_EMPTY_AT: Cell<Option<std::time::Instant>> = const { Cell::new(None) }; }
+    thread_local! { static TERMINATION_REFUSED: Cell<bool> = const { Cell::new(false) }; }
+    /// Test only: on this thread, retained-job emptiness queries report one active process
+    /// until `at` and none from then on (models a descendant that exits at a chosen moment).
     #[allow(dead_code)]
-    pub(crate) fn arm_job_never_empties() {
-        JOB_NEVER_EMPTIES.with(|armed| armed.set(true));
+    pub(crate) fn arm_job_empty_at(at: std::time::Instant) {
+        JOB_EMPTY_AT.with(|armed| armed.set(Some(at)));
     }
     #[allow(dead_code)]
-    pub(crate) fn job_never_empties() -> bool {
-        JOB_NEVER_EMPTIES.with(|armed| armed.replace(false))
+    pub(crate) fn disarm_job_empty_at() {
+        JOB_EMPTY_AT.with(|armed| armed.set(None));
+    }
+    /// The armed active-process count, or `None` to query the job.
+    #[allow(dead_code)]
+    pub(crate) fn job_count() -> Option<u32> {
+        JOB_EMPTY_AT
+            .with(|armed| armed.get())
+            .map(|at| u32::from(std::time::Instant::now() < at))
+    }
+    /// Test only: the next Windows termination on this thread neither terminates the job nor
+    /// the leader, and reports `TerminateProcess` as refused (models a leader that is exiting
+    /// slowly), so the exiting-leader wait runs in full.
+    #[allow(dead_code)]
+    pub(crate) fn arm_termination_refused() {
+        TERMINATION_REFUSED.with(|armed| armed.set(true));
+    }
+    #[allow(dead_code)]
+    pub(crate) fn termination_refused() -> bool {
+        TERMINATION_REFUSED.with(|armed| armed.replace(false))
     }
     pub(crate) fn arm() {
         REFUSE_REAP.with(|armed| armed.set(true));
@@ -2190,7 +2236,7 @@ mod tests {
     }
 
     /// rightkit#1260: a job that is not seen empty within the budget is unconfirmed, even
-    /// though the root itself exited; the budget is not exceeded.
+    /// though the root itself exited, and the call returns at the budget, not later.
     #[cfg(windows)]
     #[test]
     fn bounded_reap_is_unconfirmed_while_the_job_is_not_empty() {
@@ -2198,16 +2244,78 @@ mod tests {
         let pid_file =
             std::env::temp_dir().join(format!("rightkit-1260-timeout-{}.pid", std::process::id()));
         let (mut owned, _) = tree_with_grandchild(&pid_file, true);
-        super::cleanup_test_fault::arm_job_never_empties();
+        let budget = Duration::from_millis(500);
+        super::cleanup_test_fault::arm_job_empty_at(Instant::now() + Duration::from_secs(3600));
         let started = Instant::now();
-        let outcome = owned
-            .terminate_tree_bounded(Duration::from_millis(500))
-            .unwrap();
+        let outcome = owned.terminate_tree_bounded(budget);
+        let elapsed = started.elapsed();
+        super::cleanup_test_fault::disarm_job_empty_at();
         assert!(
-            matches!(outcome, super::ReapOutcome::TimedOut),
+            matches!(outcome, Ok(super::ReapOutcome::TimedOut)),
             "{outcome:?}"
         );
-        assert!(started.elapsed() < Duration::from_secs(3), "budget overrun");
+        assert!(
+            elapsed < budget + Duration::from_millis(250),
+            "budget overrun: {elapsed:?}"
+        );
+        let _ = std::fs::remove_file(&pid_file);
+    }
+
+    /// rightkit#1260 review: an emptiness observed only after the deadline (the last poll's
+    /// sleep overran it) is not success.
+    #[cfg(windows)]
+    #[test]
+    fn job_seen_empty_only_after_the_deadline_is_not_success() {
+        use std::time::{Duration, Instant};
+        let pid_file =
+            std::env::temp_dir().join(format!("rightkit-1260-late-{}.pid", std::process::id()));
+        let (owned, _) = tree_with_grandchild(&pid_file, true);
+        let job = owned.job.clone().expect("private job");
+        let timeout = Duration::from_millis(100);
+        // Empty only from 5 ms after the wait's own deadline.
+        super::cleanup_test_fault::arm_job_empty_at(
+            Instant::now() + timeout + Duration::from_millis(5),
+        );
+        let late = job.wait_empty(timeout);
+        // Control: empty well inside the budget is success.
+        super::cleanup_test_fault::arm_job_empty_at(Instant::now() + Duration::from_millis(20));
+        let early = job.wait_empty(Duration::from_millis(500));
+        super::cleanup_test_fault::disarm_job_empty_at();
+        assert!(
+            !late.unwrap(),
+            "a job seen empty after the deadline was reported empty"
+        );
+        assert!(
+            early.unwrap(),
+            "control: a job empty inside the budget is reported empty"
+        );
+        drop(owned);
+        let _ = std::fs::remove_file(&pid_file);
+    }
+
+    /// rightkit#1260 review: the bounded call's kill step never waits its fixed two seconds for
+    /// an exiting leader when less budget is left.
+    #[cfg(windows)]
+    #[test]
+    fn bounded_reap_never_waits_past_its_budget_for_an_exiting_leader() {
+        use std::time::{Duration, Instant};
+        let pid_file =
+            std::env::temp_dir().join(format!("rightkit-1260-refused-{}.pid", std::process::id()));
+        let (mut owned, _) = tree_with_grandchild(&pid_file, true);
+        let budget = Duration::from_millis(300);
+        super::cleanup_test_fault::arm_termination_refused();
+        let started = Instant::now();
+        let outcome = owned.terminate_tree_bounded(budget);
+        let elapsed = started.elapsed();
+        assert!(
+            !matches!(outcome, Ok(super::ReapOutcome::Exited(_))),
+            "a refused termination was confirmed: {outcome:?}"
+        );
+        assert!(
+            elapsed < budget + Duration::from_millis(250),
+            "the kill step outlasted the budget: {elapsed:?}"
+        );
+        drop(owned);
         let _ = std::fs::remove_file(&pid_file);
     }
 }

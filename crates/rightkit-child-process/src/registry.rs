@@ -223,8 +223,12 @@ fn terminate_all_windows(options: TerminationOptions) -> TerminateAllReport {
             report.already_gone.push(pid);
             continue;
         }
-        match crate::process_windows::terminate(&process, job.as_deref(), options.windows_exit_code)
-        {
+        match crate::process_windows::terminate(
+            &process,
+            job.as_deref(),
+            options.windows_exit_code,
+            crate::process_windows::EXITING_LEADER_WAIT,
+        ) {
             Ok(()) => report.terminated.push(pid),
             Err(error) => report.failed.push((pid, error)),
         }
