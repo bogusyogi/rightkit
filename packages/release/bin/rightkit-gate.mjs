@@ -1407,7 +1407,7 @@ async function runStages(o, args, root, git, io) {
   if (failed(dirty) || text(dirty).trim()) { o.err(`${tag} BLOCKED: the checkout differs from HEAD; every stage works on the commit, so commit or stash first`); return 1; }
 
   const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
-  const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
+  const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile }); applyExecutorEnv(o, executor);
   if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
   const version = (cmd, a) => { const r = o.spawn(cmd, a, { cwd: root }); return failed(r) ? null : text(r).trim().split(/\r?\n/)[0]; };
   const listed = git("ls-tree", "-r", "--name-only", "-z", "HEAD");
@@ -1619,7 +1619,7 @@ async function runWorktreeCompile(o, args, root, git, io, to, appRoot = root) {
   const common = text(git("rev-parse", "--git-common-dir")).trim();
   if (!/^[0-9a-f]{40}$/.test(commit) || !common) { o.err(`${tag} cannot read HEAD and the git directory`); return 2; }
   const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
-  const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
+  const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile }); applyExecutorEnv(o, executor);
   if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
   o.out(`${tag} --to ${to} on the working tree of ${commit.slice(0, 12)}: check (class A) -> right-release ${to}; executor ${executor.kind}`);
   // Full class A on the working tree, the checks that execute repository code included, before right-release compiles anything.
@@ -1637,6 +1637,12 @@ async function runWorktreeCompile(o, args, root, git, io, to, appRoot = root) {
     const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, to, ...passthrough], { cwd: appRoot, env: { ...o.env, ...run.env, ...doorPath(o) } });
     return r.status === 0 ? 0 : 1;
   } finally { endRun(run); }
+}
+
+/** A direct (Linux) executor's environment (PATH without RustRight shim directories) for every child this run starts. */
+function applyExecutorEnv(o, executor) {
+  if (executor?.env && o.env) Object.assign(o.env, executor.env);
+  if (executor?.note && o.out) o.out(`rightkit-gate: ${executor.note}`);
 }
 
 /** PATH with the door's own `right-release` shims first (`<node_modules>/.bin` beside an installed gate), or nothing for a checkout. */
@@ -1883,7 +1889,7 @@ export async function main(argv, io = {}) {
     const manifest = match && (match[1] ? `packages/${match[1]}/package.json` : `crates/${match[2]}/Cargo.toml`);
     if (!manifest || failed(git("ls-files", "--error-unmatch", "--", ".rightkit-local-build.json", manifest))) { o.err("rightkit-gate: BLOCKED: unit and local grant must be tracked canonical files"); return 1; }
     const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
-    const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
+    const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile }); applyExecutorEnv(o, executor);
     if (executor.kind === "refuse") { o.err(`rightkit-gate: BLOCKED: ${executor.problem}`); return 1; }
     const reportOut = option("--receipt-out");
     // Loaded here, not at the top: the unit path reads Cargo manifests (smol-toml), which an installed copy of this package without
@@ -1933,7 +1939,7 @@ export async function main(argv, io = {}) {
   // The executor is chosen here, never by the caller (Adrian, 2026-10-25): the RustRight broker where this machine has it, a refusal
   // on a broker-managed machine whose broker cannot be reached, direct cargo on any other host (a cloud container, a CI runner).
   const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
-  const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
+  const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile }); applyExecutorEnv(o, executor);
   // A broker-managed host whose broker is unreachable refuses the moment a Cargo manifest is in the snapshot (below): a repository
   // with no Rust owes nothing to the broker (a git hook's minimal PATH, a JS-only app), and the class A scans never compile.
   const cargoCommand = executor.cargo ?? ["cargo"];

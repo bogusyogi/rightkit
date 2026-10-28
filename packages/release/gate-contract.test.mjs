@@ -101,13 +101,59 @@ test("[behavior] executor: a Mac or Dell managed host whose broker is unreachabl
   for (const host of ["mac", "dell"]) { const r = route(host, { rustrightOnPath: false }); assert.equal(r.kind, "refuse", host); assert.equal(r.cargo, null); assert.match(r.problem, /never compiles around the broker/); }
 });
 test("[behavior] executor: a Linux host with no broker runs direct", () => {
-  for (const [id, cell] of Object.entries(CELLS)) if (cell.host === "linux") assert.deepEqual(route("linux"), { kind: "direct", cargo: ["cargo"] }, id);
+  const kindOf = (r) => ({ kind: r.kind, cargo: r.cargo });
+  for (const [id, cell] of Object.entries(CELLS)) if (cell.host === "linux") assert.deepEqual(kindOf(route("linux")), { kind: "direct", cargo: ["cargo"] }, id);
 });
 test("[behavior] executor: a Linux host always runs direct, even with RustRight on PATH, a broker socket variable or a managed cargo shim (contract §1 'One entry')", () => {
-  assert.deepEqual(route("linux", { env: { __rustright: "/usr/local/bin/rustright" } }), { kind: "direct", cargo: ["cargo"] });
-  assert.deepEqual(route("linux", { env: { RIGHTKIT_BUILD_BROKER_SOCKET: "/run/rustright.sock" } }), { kind: "direct", cargo: ["cargo"] });
+  const kindOf = (r) => ({ kind: r.kind, cargo: r.cargo });
+  assert.deepEqual(kindOf(route("linux", { env: { __rustright: "/usr/local/bin/rustright" } })), { kind: "direct", cargo: ["cargo"] });
+  assert.deepEqual(kindOf(route("linux", { env: { RIGHTKIT_BUILD_BROKER_SOCKET: "/run/rustright.sock" } })), { kind: "direct", cargo: ["cargo"] });
   const shim = resolveExecutor({ env: { PATH: "/home/a/.rightkit-managed/agent-bin:/usr/bin", RIGHTKIT_DATA_ROOT: "/home/a/.rightkit-managed" }, platform: "linux", exists: () => true, readFile: () => "cargo-guard.mjs", which: (c) => (c === "cargo" ? ["/home/a/.rightkit-managed/agent-bin/cargo"] : []) });
-  assert.deepEqual(shim, { kind: "direct", cargo: ["cargo"] });
+  assert.equal(shim.kind, "direct");
+  assert.deepEqual(shim.cargo, ["cargo"]);
+  assert.equal(shim.env.PATH, "/usr/bin", "the managed shim's directory is taken off PATH, so `cargo` is the real toolchain");
+});
+
+test("[behavior] executor: on Linux the gate launches the real cargo, never a RustRight shim first on PATH (real subprocesses, sentinel fakes)", { skip: process.platform === "win32" ? "POSIX shims" : false }, async (t) => {
+  // A Cargo repository's snapshot check, run in a child (no harness broker guard) as a Linux host: unit discovery runs `cargo metadata`.
+  // PATH holds a fake RustRight shim (in a .rightkit-managed/agent-bin directory) first and a fake direct cargo second; each writes a sentinel.
+  const dir = tmp(t, "rk-gc-linux-");
+  const shimDir = path.join(dir, ".rightkit-managed", "agent-bin"); const directDir = path.join(dir, "toolchain", "bin");
+  const meta = (root) => JSON.stringify({ packages: [{ name: "core", manifest_path: path.join(root, "crates", "core", "Cargo.toml"), publish: null, id: "core", targets: [] }], workspace_members: ["core"], workspace_root: root, target_directory: path.join(root, "target"), version: 1 });
+  const fake = (name) => `#!/bin/sh\necho "$*" >> '${path.join(dir, `${name}-ran`)}'\nif [ "$1" = "metadata" ]; then node -e 'const r=process.cwd();console.log(JSON.stringify({packages:[{name:"core",manifest_path:r+"/crates/core/Cargo.toml",publish:null,id:"core",targets:[]}],workspace_members:["core"],workspace_root:r,target_directory:r+"/target",version:1}))'; fi\n`;
+  write(shimDir, { cargo: fake("shim") }); fs.chmodSync(path.join(shimDir, "cargo"), 0o755);
+  write(directDir, { cargo: fake("direct") }); fs.chmodSync(path.join(directDir, "cargo"), 0o755);
+  void meta;
+  const repo = path.join(dir, "repo");
+  fs.mkdirSync(repo);
+  for (const a of [["init", "-q", "-b", "main"]]) spawnSync("git", a, { cwd: repo });
+  write(repo, { "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n', "Cargo.lock": "version = 4\n", "crates/core/Cargo.toml": '[package]\nname = "core"\nversion = "0.1.0"\nedition = "2021"\n', "crates/core/src/lib.rs": "\n" });
+  spawnSync("git", ["add", "-A"], { cwd: repo }); spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c"], { cwd: repo });
+  const sha = String(spawnSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).stdout).trim();
+  const snapRoot = path.join(dir, "snaps");
+  const runAs = (label, executorStub) => {
+    for (const n of ["shim", "direct"]) fs.rmSync(path.join(dir, `${n}-ran`), { force: true });
+    const driver = path.join(dir, `driver-${label}.mjs`);
+    fs.writeFileSync(driver, `const { main } = await import(${JSON.stringify(pathToFileURL(path.join(HERE, "bin", "rightkit-gate.mjs")).href)});
+const { syncSnapshot } = await import(${JSON.stringify(pathToFileURL(path.join(HERE, "snapshot.mjs")).href)});
+const snap = syncSnapshot({ checkout: ${JSON.stringify(repo)}, rev: ${JSON.stringify(sha)}, root: ${JSON.stringify(snapRoot)} });
+const out = [];
+const code = await main(["check", "--commit", ${JSON.stringify(sha)}, "--full-a", "--snapshot", snap.path], { cwd: ${JSON.stringify(repo)}, platform: "linux", out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0,
+  ${executorStub ? `resolveExecutor: () => (${executorStub}),` : ""}
+  spawn: undefined, runScans: async () => ({ scans: [], notes: [], cacheHits: [] }) });
+console.log(JSON.stringify({ code, out: out.join("\\n").slice(-1500) }));\n`.replace("spawn: undefined, ", ""));
+    const env = { ...process.env, NODE_OPTIONS: "", RK_GATE_CACHE: "0", PATH: `${shimDir}:${directDir}:${process.env.PATH}` };
+    const r = spawnSync(process.execPath, [driver], { env, encoding: "utf8", cwd: repo });
+    let res = {}; try { res = JSON.parse(String(r.stdout).trim().split(/\r?\n/).pop()); } catch { res = { stderr: r.stderr }; }
+    return { ...res, shim: fs.existsSync(path.join(dir, "shim-ran")), direct: fs.existsSync(path.join(dir, "direct-ran")) };
+  };
+  const fixed = runAs("fixed", null);
+  assert.equal(fixed.shim, false, `the RustRight shim was never launched (${JSON.stringify(fixed)})`);
+  assert.equal(fixed.direct, true, `the direct cargo answered cargo metadata (${JSON.stringify(fixed)})`);
+  assert.match(fixed.out ?? "", /RustRight shims taken off PATH for direct cargo/);
+  // Control: the route label alone (direct, bare cargo, PATH unchanged) launches the shim, so the sentinels tell the two apart.
+  const labelOnly = runAs("label-only", `{ kind: "direct", cargo: ["cargo"] }`);
+  assert.equal(labelOnly.shim, true, `control: with PATH unchanged the shim answers (${JSON.stringify(labelOnly)})`);
 });
 test("[behavior] E10: the executor has no caller input, so a human and a managed agent route the same way", () => {
   // resolveExecutor reads only the host (env, platform, PATH, files): an agent marker in the environment changes nothing.
