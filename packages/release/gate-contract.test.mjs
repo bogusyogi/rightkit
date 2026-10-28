@@ -20,6 +20,7 @@ import { STAGES } from "./gate-stages.mjs";
 import { RULES as APP_RULES, COMPILE_TIER_IDS } from "./app-check.mjs";
 import { RULES as PREFLIGHT_RULES } from "../../scripts/preflight.mjs";
 import { main } from "./bin/rightkit-gate.mjs";
+import { GITHUB_ACTIONS_ONLY, GITHUB_ACTIONS_ONLY_ERROR, LOCAL_BUILD_FILE, assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..", "..");
@@ -42,7 +43,7 @@ const CELLS = {
   "A-M": { host: "mac", product: "public" }, "A-D": { host: "dell", product: "public" }, "A-L": { host: "linux", product: "public" },
 };
 const ROWS = {
-  E1: { covered: [["gate-contract.test.mjs", "[behavior] E1: a red class A starts no compile and no later-stage scan (real subprocesses, sentinel fakes)"], ["gate-contract.test.mjs", "[behavior] E1: the door's compile stage never launches right-release after a red check"], ["snapshot-check.test.mjs", "E17: a dirty checkout whose HEAD is ahead still checks the selected commit's snapshot, never reading HEAD or status"], ["gate-contract.test.mjs", "[drift] the class A inventory names every scan prefix and test class the planner can emit, with the class the code gives it"]], pending: [["step 3 (this inventory) -> Sage/Astra + Adrian", "inventory placement decisions marked PROPOSED are not accepted until recorded"]] },
+  E1: { covered: [["gate-contract.test.mjs", "[behavior] E1: a red class A starts no compile and no later-stage scan (real subprocesses, sentinel fakes)"], ["gate-contract.test.mjs", "[behavior] E1: the door's dev and test stages never launch right-release after a red check"], ["rightkit-gate.test.mjs", "--to runs every stage up to the target in order, class A first, and stops at the first failure with nothing after it"], ["snapshot-check.test.mjs", "E17: a dirty checkout whose HEAD is ahead still checks the selected commit's snapshot, never reading HEAD or status"]], pending: [["decisions.md (recorded placement decisions)", "inventory placements marked PROPOSED or PENDING are not applied in the planner until a decision is recorded"], ["step 11", "the complete inventory reconciled to the checks the installed gate executes on Mac, Dell and Linux"]] },
   E2: { covered: [["gate-contract.test.mjs", "[behavior] executor: a Mac or Dell managed host whose broker is unreachable is refused, never routed direct"], ["rightkit-gate.test.mjs", "executor: a broker-managed machine without a reachable broker is refused; any other host runs cargo directly through the same plan"]], pending: [["step 11", "installed shared entry on Mac and Dell refuses before compile (installed-host run)"]] },
   E3: { covered: [["gate-contract.test.mjs", "[behavior] executor: a Linux host with no broker runs direct"]], pending: [["step 4", "Linux with RustRight on PATH or a broker socket variable still runs direct (code picks broker/refuse today)"], ["step 10", "actual Linux/WSL2 local compile through the installed entry, zero broker or browser launches"]] },
   E4: { covered: [], pending: [["step 10", "private Linux hold/resume with and without Linux deliverables"], ["step 11", "hosted Linux qualification of exact sealed bytes on Mac/Dell"]] },
@@ -66,8 +67,10 @@ test("[drift] every row E1-E18 is enumerated, and every covering test named here
   assert.deepEqual(Object.keys(ROWS), Array.from({ length: 18 }, (_, i) => `E${i + 1}`));
   const contract = read("docs/GATE-CONTRACT.md");
   for (const id of Object.keys(ROWS)) assert.match(contract, new RegExp(`^\\| ${id} `, "m"), `${id} is a row of the contract`);
+  // Titles are read from actual `test("...")` calls, never from this file's ROWS literal: a deleted test is missed coverage.
+  const titlesOf = (file) => new Set([...fs.readFileSync(path.join(HERE, file), "utf8").matchAll(/^test\("((?:[^"\\]|\\.)*)"/gm)].map((m) => JSON.parse(`"${m[1]}"`)));
   for (const [id, row] of Object.entries(ROWS)) {
-    for (const [file, title] of row.covered) assert.ok(fs.readFileSync(path.join(HERE, file), "utf8").includes(JSON.stringify(title).slice(1, -1)) || fs.readFileSync(path.join(HERE, file), "utf8").includes(title), `${id}: ${file} has no test "${title}"`);
+    for (const [file, title] of row.covered) assert.ok(titlesOf(file).has(title), `${id}: ${file} has no test "${title}"`);
   }
   for (const id of Object.keys(CELLS)) assert.match(contract, new RegExp(`^\\| ${id} \\|`, "m"), `${id} is a cell of the contract matrix`);
 });
@@ -90,7 +93,7 @@ const route = (host, { rustrightOnPath = true, env = {} } = {}) => {
   return resolveExecutor({ env: { ...h.env, ...env }, platform: h.platform, exists: () => false, readFile: () => "", which: (cmd) => (cmd === "rustright" && rustrightOnPath && (h.rustright || env.__rustright) ? [h.rustright ?? env.__rustright] : []) });
 };
 
-test("[behavior] executor: Mac and Dell route through the broker for every RightKit, private and public cell", () => {
+test("[behavior] executor: Mac and Dell route through the broker (the route half of the six M/D cells; the product does not enter executor selection)", () => {
   for (const [id, cell] of Object.entries(CELLS)) if (cell.host !== "linux") assert.deepEqual(route(cell.host), { kind: "broker", cargo: ["rustright", "cargo"] }, id);
   assert.deepEqual([...EXECUTOR_KINDS].sort(), ["broker", "direct", "refuse"]);
 });
@@ -107,6 +110,36 @@ test("[pending] executor: a Linux host always runs direct, even with RustRight o
 test("[behavior] E10: the executor has no caller input, so a human and a managed agent route the same way", () => {
   // resolveExecutor reads only the host (env, platform, PATH, files): an agent marker in the environment changes nothing.
   for (const host of ["mac", "dell", "linux"]) assert.deepEqual(route(host, { env: { CLAUDECODE: "1", RIGHTKIT_AGENT: "1" } }), route(host), host);
+});
+
+// ---- host policy per product: the execution policy right-release enforces before any local build ----------------------------------------
+// assertReleaseExecutionAllowed (execution-policy.mjs) is what cli/right-release.mjs and development.mjs call before compiling; the
+// build-control hook mirrors it (githubActionsOnlyViolation). A public (Orthic-Labs) app declares compile=github-actions-only in
+// .rightgit.json and may build locally only with a .rightkit-local-build.json grant naming exactly its origin.
+function policyApp(t, { origin, rightgit, grant }) {
+  const root = tmp(t, "rk-gc-policy-");
+  write(root, { ".git/config": origin ? `[remote "origin"]\n\turl = ${origin}\n` : "" });
+  if (rightgit) write(root, { ".rightgit.json": JSON.stringify(rightgit) });
+  if (grant) write(root, { [LOCAL_BUILD_FILE]: JSON.stringify(grant) });
+  return root;
+}
+test("[behavior] host policy: a private app compiles locally; a public app needs its local-build grant or CI; RightKit's grant allows it", (t) => {
+  const local = { GITHUB_ACTIONS: "" };
+  const privateApp = policyApp(t, { origin: "git@github.com:bogusyogi/someapp.git" });
+  assert.equal(assertReleaseExecutionAllowed({ cwd: privateApp, environment: local }).compile, null);
+  const publicApp = policyApp(t, { origin: "git@github.com:Orthic-Labs/someapp.git", rightgit: { compile: GITHUB_ACTIONS_ONLY } });
+  assert.throws(() => assertReleaseExecutionAllowed({ cwd: publicApp, environment: local }), (e) => e.code === GITHUB_ACTIONS_ONLY_ERROR);
+  assert.equal(assertReleaseExecutionAllowed({ cwd: publicApp, environment: { GITHUB_ACTIONS: "true" } }).compile, GITHUB_ACTIONS_ONLY);
+  const granted = policyApp(t, { origin: "git@github.com:Orthic-Labs/someapp.git", rightgit: { compile: GITHUB_ACTIONS_ONLY }, grant: { allow: "build-test-publish", repository: "Orthic-Labs/someapp" } });
+  assert.equal(assertReleaseExecutionAllowed({ cwd: granted, environment: local }).compile, GITHUB_ACTIONS_ONLY);
+  const wrongGrant = policyApp(t, { origin: "git@github.com:Orthic-Labs/someapp.git", rightgit: { compile: GITHUB_ACTIONS_ONLY }, grant: { allow: "build-test-publish", repository: "Orthic-Labs/other" } });
+  assert.throws(() => assertReleaseExecutionAllowed({ cwd: wrongGrant, environment: local }), (e) => e.code === GITHUB_ACTIONS_ONLY_ERROR);
+  // RightKit itself: its committed grant names its own origin.
+  const rk = JSON.parse(read(LOCAL_BUILD_FILE));
+  assert.equal(rk.allow, "build-test-publish");
+});
+test("[pending] A-M, A-D, A-L: a public app's local compile on its origin host (contract §2 requires one for every cell; RK_GITHUB_ACTIONS_ONLY refuses a public app without a local-build grant)", { todo: "owned by Adrian (execution policy: which public apps get a local-build grant) and step 11 (installed runs)" }, () => {
+  assert.fail("a public app without a grant cannot compile locally today");
 });
 
 // ---- E1: class A first, with real subprocesses ----------------------------------------------------------------------------------------
@@ -153,7 +186,7 @@ test("[behavior] E1: a red class A starts no compile and no later-stage scan (re
   assert.equal(green.tested, true, "control: the later-stage test is reachable");
 });
 
-test("[behavior] E1: the door's compile stage never launches right-release after a red check", async (t) => {
+test("[behavior] E1: the door's dev and test stages never launch right-release after a red check", async (t) => {
   const repo = tmp(t, "rk-gc-door-");
   for (const a of [["init", "-q", "-b", "main"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "c"]]) spawnSync("git", a, { cwd: repo });
   const launches = []; const out = []; const err = [];
@@ -199,27 +232,34 @@ test("[drift] the inventory names every app rule and RightKit preflight rule, wi
   for (const r of PREFLIGHT_RULES.filter((p) => !APP_RULES.some((a) => a.id === p.id))) assert.match(rows[r.id], /^A \(RightKit preflight\)/, r.id);
 });
 
-test("[drift] the inventory names every stage, executor kind and entry bin the code declares", () => {
+test("[drift] the inventory names every stage, executor kind, entry bin and execution policy the code declares", () => {
   const rows = inventoryRows("Entries, stages and executors");
   const bins = Object.keys(JSON.parse(read("packages/release/package.json")).bin ?? {});
-  const want = [...STAGES.map((s) => `stage:${s}`), ...EXECUTOR_KINDS.map((k) => `executor:${k}`), ...bins.map((b) => `bin:${b}`)].sort();
+  const want = [...STAGES.map((s) => `stage:${s}`), ...EXECUTOR_KINDS.map((k) => `executor:${k}`), ...bins.map((b) => `bin:${b}`), `policy:${GITHUB_ACTIONS_ONLY}`, `policy:${LOCAL_BUILD_FILE}`].sort();
   assert.deepEqual(Object.keys(rows).sort(), want);
 });
 
-test("[behavior] every scan the planner emits for a repository of every kind has an inventory row with the same class", (t) => {
+test("[behavior] every scan the planner emits for a broad fixture repository has an inventory row with the same class", (t) => {
   const root = tmp(t, "rk-gc-plan-");
   write(root, {
     "package.json": JSON.stringify({ name: "fixture", private: true, scripts: { test: "node --test" } }), "pnpm-lock.yaml": "lockfileVersion: '9.0'\n", "pnpm-workspace.yaml": "packages:\n  - packages/*\n",
     "packages/web/package.json": JSON.stringify({ name: "@fixture/web", scripts: { test: "node --test" } }), "packages/web/tsconfig.json": "{}", "packages/web/eslint.config.mjs": "export default [];\n", "packages/web/src/a.mjs": "export {};\n",
     "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n', "Cargo.lock": "version = 4\n", "deny.toml": "", "crates/core/Cargo.toml": '[package]\nname = "core"\nversion = "0.1.0"\nedition = "2021"\n', "crates/core/src/lib.rs": "\n", "crates/core/CHANGELOG.md": "# Changelog\n",
     ".github/workflows/ci.yml": "on: push\njobs: {}\n", "scripts/run.sh": "#!/bin/sh\necho hi\n", "data/a.json": "{}", "data/b.toml": "a = 1\n", "data/c.yaml": "a: 1\n",
+    "packages/web/biome.json": "{}", "ci/advisory-exceptions.json": "{\"exceptions\":[]}\n", "scripts/ci/a.test.mjs": "\n", "Package.swift": "// swift-tools-version:5.9\n",
+    "packages/release/rightkit-ownership.json": "{}", "crates/rightkit-ownership/catalog/ownership-catalog.json": "{}",
   });
   const files = []; const walk = (d, rel) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const r = rel ? `${rel}/${e.name}` : e.name; if (e.isDirectory()) walk(path.join(d, e.name), r); else files.push(r); } };
   walk(root, "");
   const plan = planScans({ changed: files, contentRoot: root, liveRoot: root, trustedRoot: root, includeTests: true, quietTests: "local", tier: "release", cargoCommand: ["cargo"],
-    rustUnits: [{ name: "core", dir: "crates/core", crate: "core", cargoDir: "." }], npmUnits: [{ name: "web", dir: "packages/web" }], npmRoots: ["."], liveExecution: true });
+    rustUnits: [{ name: "core", dir: "crates/core", crate: "core", cargoDir: "." }], npmUnits: [{ name: "web", dir: "packages/web" }], npmRoots: ["."], liveExecution: true,
+    crateFeatures: { core: { alsoSerial: true } }, platform: "darwin" });
   const rows = inventoryRows("Scans");
-  assert.ok(plan.scans.length > 10, `the fixture plans a broad set (${plan.scans.length})`);
+  // The prefixes this fixture must emit (the rest need inputs a fixture cannot give honestly: path-policy a refused path, suite-api RightKit's
+  // in-tree generator, generated-docs its generator inputs, check/check-dependent/check-features feature or lock layouts, check-all-features no
+  // producer; each is still bound by the [drift] row test).
+  const emitted = new Set(plan.scans.map((s) => prefixOf(s.id)));
+  for (const p of ["rustfmt", "node-check", "json-parse", "toml-parse", "yaml-parse", "ownership-catalog", "actionlint", "shellcheck", "pnpm-lockfile", "pnpm-audit", "cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list", "changelog-version", "license", "secret-scan", "advisory-exceptions", "tsc", "eslint", "biome", "clippy", "doc", "swift-build", "test:rust", "test:rust-serial", "test:npm", "test:scripts-ci"]) assert.ok(emitted.has(p), `the fixture emits ${p} (emitted: ${[...emitted].sort().join(", ")})`);
   for (const s of plan.scans) {
     const p = prefixOf(s.id);
     assert.ok(rows[p], `${s.id}: prefix ${p} has no inventory row`);
