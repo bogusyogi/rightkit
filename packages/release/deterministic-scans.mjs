@@ -290,6 +290,11 @@ const PROBES = Object.freeze({
  * provision exactly this version; scripts/ci/scan-receipt.test.mjs holds them to it.
  */
 export const PINNED_SCAN_TOOLS = Object.freeze({ shellcheck: "0.11.0" });
+/** Scans whose answer depends on a remote service at run time, not only on their inputs: `pnpm-audit` asks the registry's advisory
+ * service. A verdict that includes them is reusable only after they are re-run (`rightkit-gate live-scans`; GATE-CONTRACT §1, E18),
+ * and a red caused by one is never deterministic. Ids are `<prefix>` or `<prefix>:<root>`; rustright's REMOTE_SCANS mirrors this list. */
+export const LIVE_SCAN_IDS = Object.freeze(["pnpm-audit"]);
+export const isLiveScan = (id) => LIVE_SCAN_IDS.some((p) => id === p || String(id).startsWith(`${p}:`));
 /** Files per rustfmt scan: 120 paths of ~100 bytes stay under Windows' 32 KB command line with the tool and flags. */
 export const RUSTFMT_BATCH = 120;
 

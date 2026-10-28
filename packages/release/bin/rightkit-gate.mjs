@@ -88,7 +88,7 @@ export const PARTIAL_EXIT = 3;
 /** The platforms a door run can package: desktop (signed, sealed, installed QA, publisher upload) and mobile (signed, sealed, store test track). */
 export const PLATFORMS = Object.freeze(["mac", "win", "ios", "android"]);
 export const MOBILE_PLATFORMS = Object.freeze(new Set(["ios", "android"]));
-const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to dev|test [-- <right-release args>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | rightkit-gate env-digest | rightkit-gate snapshot [--commit <rev>] [--verify] [--json] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | --version`;
+const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to dev|test [-- <right-release args>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | rightkit-gate env-digest | rightkit-gate snapshot [--commit <rev>] [--verify] [--json] | rightkit-gate live-scans --repo <root> | rightkit-gate env-digest [--snapshot <dir> --commit <sha>] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | rightkit-gate check --commit <sha> --full-a --snapshot <dir> | --version`;
 
 // ---- pure helpers (exported for tests) ----------------------------------------------------------------------
 
@@ -1674,6 +1674,9 @@ export async function main(argv, io = {}) {
   // `snapshot`: sync the selected commit into the gate-owned source directory and verify it is exactly the commit's tree
   // (../snapshot.mjs; docs/GATE-CONTRACT.md §1). Reads the checkout's commits only, never its working files.
   if (args[0] === "snapshot") return (await import("../snapshot.mjs")).snapshotCommand(o, args.slice(1));
+  // `live-scans`: re-run only the live remote scans (pnpm-audit) of a checked tree, answering the broker's verdict-reuse refresh
+  // (../snapshot-check.mjs; GATE-CONTRACT §1, E18; rightkit#1257).
+  if (args[0] === "live-scans") return (await import("../snapshot-check.mjs")).liveScansCommand(o, args.slice(1), { discoverPnpmRoots, discoverNpmUnits });
   const sub = args[0] && !args[0].startsWith("-") ? args[0] : null;
   if (sub && sub !== "install-hook" && sub !== "check" && sub !== "stage" && sub !== "env-digest") { o.err(`rightkit-gate: unknown command ${JSON.stringify(sub)}\n${USAGE}`); return 2; }
   // `check` is the deterministic stage (Adrian, 2026-10-25: deterministic always first, one door): the app-check rules, then every
@@ -1681,6 +1684,23 @@ export async function main(argv, io = {}) {
   // commit, never a diff. Nothing compiles. The RustRight broker runs exactly this before it admits any compile. `--list`,
   // `--print-baseline` and `--only` stay app-check-only views.
   if (sub === "check") {
+    // `--snapshot <dir>`: full class A of the gate-owned snapshot of a selected commit (../snapshot-check.mjs). The checkout is only
+    // where the commit comes from: its HEAD and status are never read, and the snapshot must be exactly the commit's tree before and
+    // after the check, or the check is RK_CHECK_ERROR (exit 2).
+    let snapshotDir = null; let snapshotCommit = null; let snapshotCheckout = null; let sc = null;
+    if (args.includes("--snapshot")) {
+      sc = await import("../snapshot-check.mjs");
+      try {
+        const at = option("--repo") ? path.resolve(o.cwd, option("--repo")) : o.cwd;
+        const top0 = o.spawn("git", ["rev-parse", "--show-toplevel"], { cwd: at });
+        if (failed(top0) || !text(top0).trim()) throw new sc.CheckError(`${at} is not a git checkout`);
+        snapshotCheckout = fs.realpathSync.native(path.resolve(text(top0).trim()));
+        snapshotDir = sc.snapshotOption(args, { checkout: snapshotCheckout });
+        snapshotCommit = sc.commitOf(snapshotCheckout, option("--commit"), o.spawn);
+        sc.verifySnapshotDir({ checkout: snapshotCheckout, dir: snapshotDir, ...snapshotCommit, when: "before the check" });
+        o.out(`rightkit-gate: snapshot ${snapshotDir} is commit ${snapshotCommit.commit} tree ${snapshotCommit.tree} (verified before the check)`);
+      } catch (e) { o.err(`rightkit-gate: ${sc.CHECK_ERROR}: ${e.message}`); return 2; }
+    }
     if (args.filter((arg) => arg === "--rule-tier").length > 1 || (args.includes("--rule-tier") && option("--rule-tier") === undefined)) {
       o.err("rightkit-gate: check requires exactly one value for --rule-tier"); return 2;
     }
@@ -1688,7 +1708,8 @@ export async function main(argv, io = {}) {
     if (!["compile", "release"].includes(requestedTier)) { o.err(`rightkit-gate: check --rule-tier must be compile or release, not ${JSON.stringify(requestedTier)}`); return 2; }
     // Full admission cannot be downgraded by a caller's tier flag. Partial views retain their requested tier.
     const fullAdmission = args.includes("--full-a") && !args.includes("--list") && !args.includes("--print-baseline") && !args.includes("--only");
-    const appArgs = args.slice(1).filter((a) => a !== "--full-a");
+    const stripSnapshot = (list) => { const i = list.indexOf("--snapshot"); return i < 0 ? list : [...list.slice(0, i), ...list.slice(i + 2)]; };
+    const appArgs = stripSnapshot(args.slice(1).filter((a) => a !== "--full-a"));
     if (fullAdmission) {
       const tierIndex = appArgs.indexOf("--rule-tier");
       if (tierIndex >= 0) appArgs.splice(tierIndex, 2);
@@ -1710,7 +1731,7 @@ export async function main(argv, io = {}) {
     const checkCwd = repoArg ? path.resolve(o.cwd, repoArg) : o.cwd;
     // Admission uses the full tier; a partial diagnostic check may choose either tier.
     const ruleTier = fullAdmission ? "release" : requestedTier;
-    const classA = await main(["--class-a", "--rule-tier", ruleTier, ...(args.includes("--full-a") ? ["--full-a"] : []), ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"])], { ...io, cwd: checkCwd });
+    const classA = await main(["--class-a", "--rule-tier", ruleTier, ...(args.includes("--full-a") ? ["--full-a"] : []), ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", snapshotCommit?.commit ?? option("--commit") ?? "HEAD"]), ...(snapshotDir ? ["--snapshot", snapshotDir] : [])], { ...io, cwd: checkCwd });
     // RightKit checking itself: its own rules (line endings, consumer recipes, npm surface, version copies and the version feed, dispatcher
     // pins, consumer locks, generated docs, temp paths: scripts/preflight.mjs) and its exports' import safety are class A for the RightKit repository.
     let selfRules = 0;
@@ -1721,15 +1742,30 @@ export async function main(argv, io = {}) {
     // never after a failure, so a red tree executes nothing of its own.
     // Compared as real, long paths (and case-blind on Windows): git prints the long form of an 8.3 short path such as RUNNER~1.
     const canon = (p) => { let c; try { c = fs.realpathSync.native(p); } catch { c = path.resolve(p); } return process.platform === "win32" ? c.toLowerCase() : c; };
+    // In snapshot mode RightKit's own scripts are the snapshot's (the commit's code), never the live checkout's.
+    const selfRoot = snapshotDir ?? root;
     const rightkitRepository = root && (() => {
-      try { return JSON.parse(o.readFile(path.join(root, "packages", "release", "package.json"))).name === "@rightkit/release"; }
+      try { return JSON.parse(o.readFile(path.join(selfRoot, "packages", "release", "package.json"))).name === "@rightkit/release"; }
       catch { return false; }
     })();
-    if (rightkitRepository && (!o.exists(path.join(root, "scripts", "preflight.mjs")) || !o.exists(path.join(root, "scripts", "ci", "exports-import-effects.mjs")))) {
+    if (rightkitRepository && (!o.exists(path.join(selfRoot, "scripts", "preflight.mjs")) || !o.exists(path.join(selfRoot, "scripts", "ci", "exports-import-effects.mjs")))) {
       o.err("rightkit-gate: BLOCKED: RightKit's preflight or exports check is missing");
       selfRules = 1;
     }
-    if (root && selfRules === 0 && (rightkitRepository || canon(self).startsWith(canon(root) + path.sep)) && o.exists(path.join(root, "scripts", "preflight.mjs")) && appCheck === 0 && classA === 0) {
+    if (root && selfRules === 0 && snapshotDir && rightkitRepository && appCheck === 0 && classA === 0) {
+      // The commit's own preflight reads the commit from the checkout's object database; its exports probe imports from the snapshot,
+      // whose dependencies class A installed, and reports beside (never over) the commit-bound report publication reads.
+      const launch = o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" }));
+      const r = launch(process.execPath, [path.join(snapshotDir, "scripts", "preflight.mjs"), "--repo", root, "--commit", snapshotCommit.commit], { cwd: root, env: o.env });
+      selfRules = r.status === 0 ? 0 : 1;
+      const effects = path.join(snapshotDir, "scripts", "ci", "exports-import-effects.mjs");
+      if (selfRules === 0 && o.exists(effects)) {
+        const common = o.spawn("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: root });
+        const report = path.join(failed(common) ? path.join(root, ".git") : text(common).trim(), "rightkit-gate", "import-effects", `snapshot-${snapshotCommit.commit}.json`);
+        const e = launch(process.execPath, [effects, "--root", snapshotDir, "--no-export", "--report", report], { cwd: snapshotDir, env: o.env });
+        if (e.status !== 0) selfRules = 1;
+      }
+    } else if (root && selfRules === 0 && !snapshotDir && (rightkitRepository || canon(self).startsWith(canon(root) + path.sep)) && o.exists(path.join(root, "scripts", "preflight.mjs")) && appCheck === 0 && classA === 0) {
       const launch = o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" }));
       const selector = args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"];
       const r = launch(process.execPath, [path.join(root, "scripts", "preflight.mjs"), "--repo", root, ...selector], { cwd: root, env: o.env });
@@ -1772,6 +1808,11 @@ export async function main(argv, io = {}) {
       if (!judged.inputs.length && !judged.findings.length) o.out("rightkit-gate: no declared compile inputs in the captured tree");
       inputs = judged.findings.length ? 1 : 0;
     }
+    if (snapshotDir) {
+      try { sc.verifySnapshotDir({ checkout: snapshotCheckout, dir: snapshotDir, ...snapshotCommit, when: "after the check" }); }
+      catch (e) { o.err(`rightkit-gate: ${sc.CHECK_ERROR}: ${e.message}; the result covers no known bytes`); return 2; }
+      o.out(`rightkit-gate: snapshot ${snapshotDir} is still tree ${snapshotCommit.tree} after the check`);
+    }
     return Math.max(appCheck, classA, selfRules, inputs);
   }
   const classAOnly = args.includes("--class-a");
@@ -1779,7 +1820,10 @@ export async function main(argv, io = {}) {
   // on the live working tree, before anything compiles. The door's dev/compile stages require it: a content-only check never
   // authorizes a build (Adrian: class A is everything mechanical and deterministic; reviewer audit 2026-10-28).
   const fullA = classAOnly && args.includes("--full-a");
-  if (fullA && !args.includes("--worktree")) {
+  // Full class A of a gate-owned snapshot (`check --snapshot`, which verified it): the snapshot is the commit's bytes, so neither the
+  // checkout's HEAD nor its cleanliness matters, and the repository's code runs in the snapshot, never in the checkout.
+  const snapshotA = classAOnly ? (option("--snapshot") ?? null) : null;
+  if (fullA && !args.includes("--worktree") && !snapshotA) {
     // A commit is checked in full only where its bytes are the live checkout: it is HEAD and nothing tracked or untracked differs
     // (the unit and app stages already refuse a dirty tree). Then the working tree is that commit, and the checks run there.
     const at = (...a) => o.spawn("git", a, { cwd: o.cwd });
@@ -1801,6 +1845,21 @@ export async function main(argv, io = {}) {
   // `env-digest`: only the environment identity a full class A verdict depends on (classAEnvironmentDigest), no scans. The broker
   // recomputes it when a queued compile starts and re-runs the check if it changed since the verdict.
   if (sub === "env-digest") {
+    // `env-digest --snapshot <dir> --commit <sha>`: the same identity over a verified snapshot (the broker's START recheck of a
+    // snapshot-aware verdict): the commit's files, the snapshot's installed dependencies.
+    if (args.includes("--snapshot")) {
+      const sc = await import("../snapshot-check.mjs");
+      try {
+        const dir = option("--snapshot"); const rev = option("--commit");
+        if (!dir || !path.isAbsolute(dir) || !rev || rev.startsWith("--")) throw new sc.CheckError("env-digest --snapshot needs an absolute directory and --commit <sha>");
+        const checkout = fs.realpathSync.native(root);
+        const { commit, tree } = sc.commitOf(checkout, rev, o.spawn);
+        const real = fs.realpathSync.native(dir);
+        sc.verifySnapshotDir({ checkout, dir: real, commit, tree, when: "for env-digest" });
+        o.out(`env=${classAEnvironmentDigest({ root: real, files: sc.commitFiles(checkout, commit, o.spawn).files, spawn: o.spawn })}`);
+        return 0;
+      } catch (e) { o.err(`rightkit-gate: ${e.code === sc.CHECK_ERROR ? `${sc.CHECK_ERROR}: ` : "env-digest: "}${e.message}`); return 2; }
+    }
     const listed = git("ls-files", "-z", "--cached", "--others", "--exclude-standard");
     if (failed(listed)) { o.err(`rightkit-gate: env-digest cannot list the working tree: ${why(listed)}`); return 2; }
     try { const files = text(listed).split("\0").filter(Boolean).map(posix); o.out(`env=${classAEnvironmentDigest({ root, files, spawn: o.spawn })}`); }
@@ -1895,7 +1954,10 @@ export async function main(argv, io = {}) {
   const signals = [];
   try {
     let repo = root;
-    if (snapshot) {
+    if (snapshot && snapshotA) {
+      // The verified gate-owned snapshot is the commit's bytes: it is scanned in place, no export.
+      repo = snapshotA;
+    } else if (snapshot) {
       exportRoot = fs.mkdtempSync(path.join(exportTmpRoot({ env: o.env, platform: o.platform, exists: o.exists }), "rk-gate-"));
       repo = path.join(exportRoot, "repo");
       // Every file of the commit or tree: read-tree into a private index, then checkout-index. `git archive` would leave out files
@@ -2008,12 +2070,12 @@ export async function main(argv, io = {}) {
     fullPlan = planScans({
       // Class A of a commit or tree reads only that snapshot: every scan, cargo's included, runs in the export, never in the live
       // checkout (which may hold other bytes). Compiles (class B) use the live checkout, whose tree the dirty check pinned to HEAD.
-      changed, contentRoot: repo, liveRoot: classAOnly && snapshot ? repo : root, trustedRoot: root, includeTests: true, rustScope, cargoCommand,
+      changed, contentRoot: repo, liveRoot: classAOnly && snapshot ? repo : root, trustedRoot: snapshotA ?? root, includeTests: true, rustScope, cargoCommand,
       tier: fullA ? "release" : (option("--rule-tier") ?? "compile"), cargoLiveRoot,
       // The quiet tests (port, pipe, desktop and wall-clock bound) are proven by the CI shards, one crate per runner, unless
       // RK_GATE_QUIET_TESTS=local asks for the serial quiet lane here (no CI, or a CI outage).
       // Full class A runs every test before a compile: the quiet suites run here in the quiet lane, never left to CI.
-      quietTests: fullA || o.env.RK_GATE_QUIET_TESTS === "local" ? "local" : "ci", packageFeatures, liveExecution: fullA && args.includes("--worktree"),
+      quietTests: fullA || o.env.RK_GATE_QUIET_TESTS === "local" ? "local" : "ci", packageFeatures, liveExecution: fullA && (args.includes("--worktree") || Boolean(snapshotA)),
       rustUnits: rust.units, npmUnits: npm, npmRoots, cargoDir: ".", rustLocks, crateFeatures,
       // The broker (or, on a direct host, the gate itself) admits compiles; no separate grant file decides it here.
       localCompile: true,
@@ -2058,6 +2120,11 @@ export async function main(argv, io = {}) {
     // tracked and untracked (not ignored) file is hashed raw, so the door's run and a repeat admission of the same bytes hit the
     // cache, and any edit misses it.
     const liveFullA = fullA && args.includes("--worktree");
+    // Full class A of a snapshot binds like the live tree does: its bytes are the commit's (blob ids from the object database), its
+    // environment includes the dependencies installed into it below.
+    const snapFullA = fullA && Boolean(snapshotA);
+    const boundFullA = liveFullA || snapFullA;
+    const liveBase = snapFullA ? snapshotA : root;
     // The live bytes full class A judges: every tracked and untracked (not ignored) file, hashed raw. Computed whether or not the
     // cache is used; a failure to compute it blocks (the verdict must name the bytes it covers).
     const liveTree = () => {
@@ -2079,19 +2146,34 @@ export async function main(argv, io = {}) {
     if (liveFullA) {
       try { live = liveTree(); } catch (error) { o.err(`${tag} BLOCKED: cannot bind full class A to the working tree's bytes (${error.message})`); return 1; }
     }
+    let snapshotCommitId = null;
+    if (snapFullA) {
+      const sc = await import("../snapshot-check.mjs");
+      try {
+        const checkout = fs.realpathSync.native(root);
+        const ct = sc.commitOf(checkout, String(snapshot), o.spawn);
+        snapshotCommitId = ct;
+        sc.verifySnapshotDir({ checkout, dir: snapshotA, ...ct, when: "before class A" });
+        live = sc.commitFiles(checkout, ct.commit, o.spawn);
+        // Dependencies for the checks that execute repository code: installed into the snapshot from the commit's lockfile and the
+        // primary checkout's existing store (coordinator decision A, rightkit#1257). A store miss stops here, naming the package.
+        const installed = sc.installSnapshotDependencies({ checkout, snapshot: snapshotA, roots: npmRoots, env: o.env, spawn: o.spawn });
+        for (const r of installed) o.out(`${tag} ${sc.describeInstall(r)}`);
+      } catch (error) { o.err(`${tag} ${error.code === "RK_CHECK_ERROR" ? "RK_CHECK_ERROR" : "BLOCKED"}: ${error.message}`); return error.code === "RK_CHECK_ERROR" ? 2 : 1; }
+    }
     const liveSnapshot = live?.digest ?? null;
     // The environment, installed dependencies included, is bound at the start and compared at the end, so a dependency that
     // changes while class A runs voids the verdict.
     // envStartWithCaches records, for audit, the tool caches as the run found them (what its checks could read); the pass line
     // carries it next to the env the verdict binds.
     let envAtStart = null; let envStartWithCaches = null; let cachesAtStart = null;
-    if (liveFullA) {
-      const orphans = orphanedPnpmStores({ root, files: live.files });
+    if (boundFullA) {
+      const orphans = orphanedPnpmStores({ root: liveBase, files: live.files });
       if (orphans.length) { o.err(`${tag} BLOCKED: orphaned nested pnpm store(s) ${orphans.join(", ")}: left by a standalone install in a workspace member; they can hold stale dependencies and make concurrent vitest runs clear their shared module cache under each other. Move them aside (or reinstall) and run again.`); return 1; }
-      try { envAtStart = classAEnvironmentDigest({ root, files: live.files, spawn: o.spawn, includeCaches: false }); envStartWithCaches = classAEnvironmentDigest({ root, files: live.files, spawn: o.spawn }); cachesAtStart = toolCacheManifest({ root, files: live.files }); }
+      try { envAtStart = classAEnvironmentDigest({ root: liveBase, files: live.files, spawn: o.spawn, includeCaches: false }); envStartWithCaches = classAEnvironmentDigest({ root: liveBase, files: live.files, spawn: o.spawn }); cachesAtStart = toolCacheManifest({ root: liveBase, files: live.files }); }
       catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
     }
-    if (liveFullA && !args.includes("--no-cache") && o.env.RK_GATE_CACHE !== "0") {
+    if (boundFullA && !args.includes("--no-cache") && o.env.RK_GATE_CACHE !== "0") {
       try {
         const common = git("rev-parse", "--git-common-dir");
         if (failed(common)) throw new Error("no git directory");
@@ -2100,10 +2182,10 @@ export async function main(argv, io = {}) {
         const objectId = (p) => (ids.has(p) ? ids.get(p) : under(p).length ? digestOf(under(p)) : null);
         const store = fileScanCache(path.join(path.resolve(root, text(common).trim()), "rightkit-gate-cache"));
         const listFiles = (dir) => under(dir);
-        const readBlob = (p) => fs.readFileSync(path.join(root, p), "utf8");
+        const readBlob = (p) => fs.readFileSync(path.join(liveBase, p), "utf8");
         // The verdict also depends on what is not in the tree: the gate's own code and advisory data, the node and pnpm that run
         // the checks, the installed dependencies (pnpm's install state) and the platform. Any change there is a cache miss.
-        const environment = classAEnvironmentDigest({ root, files, spawn: o.spawn });
+        const environment = classAEnvironmentDigest({ root: liveBase, files, spawn: o.spawn });
         cache = { ...store, digest: `${buildCacheDigest({ objectId, headTree: digestOf(files), rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures, listFiles, readBlob })}:${environment}` };
       } catch { cache = null; }
     }
@@ -2140,7 +2222,8 @@ export async function main(argv, io = {}) {
       // content: it never executes the repository's own code. The class A checks that do (tests, typecheck, lint, generated docs:
       // `executes`) run in the full gate (--all, the push hook, the door's compile stage), after the content checks and before any compile.
       ...(classAOnly && !fullA ? { exclude: (s) => s.executes === true } : {}),
-      quietLane: quietLeaseLane(o, { tag, reason: `rightkit-gate-quiet-tests@${text(git("rev-parse", "--short", "HEAD")).trim()}` }),
+      // A snapshot check names its commit; it never reads the checkout's HEAD.
+      quietLane: quietLeaseLane(o, { tag, reason: `rightkit-gate-quiet-tests@${snapshotCommitId ? snapshotCommitId.commit.slice(0, 12) : text(git("rev-parse", "--short", "HEAD")).trim()}` }),
       // On a broker-managed host the quiet suites need the lease or they are refused (never run unleashed).
       requireQuietLease: executor.kind === "broker",
       // Failing scans' complete output: never inside the repository, on the host's scratch root (RIGHTKIT_SCRATCH_ROOT, else the
@@ -2168,6 +2251,14 @@ export async function main(argv, io = {}) {
     if (failures.length) {
       o.err(`${tag} BLOCKED (${failures.length})`);
       for (const f of failures) o.err(`  - ${f}`);
+      // A red full class A names its cause when every failure is one a re-run of the same inputs reproduces, so the broker may reuse
+      // it (rightkit#1257); a live scan, a timeout, a missing tool or anything undecided among the failures names none.
+      if (boundFullA && live) {
+        let envRed = null;
+        try { envRed = classAEnvironmentDigest({ root: liveBase, files: live.files, spawn: o.spawn }); } catch { envRed = null; }
+        const marker = (await import("../snapshot-check.mjs")).deterministicMarker(scanResult, envRed);
+        if (marker) o.out(marker);
+      }
       o.err(classAOnly ? "Class A is red: nothing compiles until it is green." : "Fix and push again. Never bypass with --no-verify.");
       return 1;
     }
@@ -2178,20 +2269,25 @@ export async function main(argv, io = {}) {
         try { digestNow = liveTree().digest; } catch { digestNow = null; }
         if (digestNow !== liveSnapshot) { o.err(`${tag} BLOCKED: the working tree changed while class A ran; the verdict does not cover the current bytes. Run again.`); return 1; }
       }
+      if (snapFullA) {
+        try { (await import("../snapshot-check.mjs")).verifySnapshotDir({ checkout: fs.realpathSync.native(root), dir: snapshotA, ...snapshotCommitId, when: "after class A" }); }
+        catch (error) { o.err(`${tag} RK_CHECK_ERROR: ${error.message}; the verdict covers no known bytes`); return 2; }
+      }
       // The bytes this verdict covers, for the broker to compare with the snapshot it compiles: the tracked files only (what a
       // captured snapshot holds), and every file including untracked ones. Each is sha256 over sorted "<path>\t<git blob id of the
       // raw bytes>\n" lines (git hash-object --no-filters), so the broker can recompute it over its snapshot without this gate.
       if (live) {
-        const trackedList = git("ls-files", "-z", "--cached");
-        if (failed(trackedList)) { o.err(`${tag} BLOCKED: cannot list tracked files to name the checked bytes`); return 1; }
-        const tracked = new Set(text(trackedList).split("\0").filter(Boolean).map(posix));
+        // A snapshot holds only the commit's files: every one is tracked.
+        const trackedList = snapFullA ? null : git("ls-files", "-z", "--cached");
+        if (trackedList && failed(trackedList)) { o.err(`${tag} BLOCKED: cannot list tracked files to name the checked bytes`); return 1; }
+        const tracked = new Set(snapFullA ? live.files : text(trackedList).split("\0").filter(Boolean).map(posix));
         let envDigest;
-        try { envDigest = classAEnvironmentDigest({ root, files: live.files, spawn: o.spawn }); } catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
+        try { envDigest = classAEnvironmentDigest({ root: liveBase, files: live.files, spawn: o.spawn }); } catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
         let envNoCaches;
-        try { envNoCaches = classAEnvironmentDigest({ root, files: live.files, spawn: o.spawn, includeCaches: false }); } catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
+        try { envNoCaches = classAEnvironmentDigest({ root: liveBase, files: live.files, spawn: o.spawn, includeCaches: false }); } catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
         if (cachesAtStart !== null) {
           let drift;
-          try { drift = toolCacheDrift(cachesAtStart, toolCacheManifest({ root, files: live.files })); } catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
+          try { drift = toolCacheDrift(cachesAtStart, toolCacheManifest({ root: liveBase, files: live.files })); } catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
           if (drift.changed.length) { o.err(`${tag} BLOCKED: ${drift.changed.length} tool cache file(s) that existed when class A started changed or vanished while it ran, so the checks may have read bytes the verdict cannot name: ${drift.changed.slice(0, 5).join(", ")}${drift.changed.length > 5 ? ", …" : ""}. Run again.`); return 1; }
           if (drift.added.length) o.out(`${tag} note: ${drift.added.length} tool cache file(s) appeared while class A ran (by it or another process), bound in env as they stand: ${drift.added.slice(0, 5).join(", ")}${drift.added.length > 5 ? ", …" : ""}`);
         }
