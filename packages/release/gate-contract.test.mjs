@@ -211,6 +211,10 @@ test("[behavior] Linux direct holds at every launch boundary: quiet lease, sidec
   const tauri = { ...env, TAURI_ENV_PLATFORM: "linux" };
   assert.equal(isNestedBrokerContext(tauri, "linux"), false);
   assert.equal(isNestedBrokerContext(tauri, "darwin"), true, "control: on a Mac it is a nested broker context");
+  const heavy = { PATH: "/usr/bin", TAURI_ENV_PLATFORM: "linux", RIGHTSUITE_HEAVY_WORK_OWNER: "1" };
+  assert.equal(isNestedBrokerContext(heavy, "linux"), false, "heavy-command's owner flag means no broker on Linux either");
+  assert.equal(isNestedBrokerContext(heavy, "darwin"), true, "control: Mac heavy owner inside Tauri is nested");
+  assert.equal(isNestedBrokerContext(heavy, "win32"), true, "control: Windows heavy owner inside Tauri is nested");
   // The one build door: configured rustright cargo runs cargo directly with shims off PATH; plain cargo carries the same env.
   const exists = (p) => fs.existsSync(p);
   const viaDoor = buildLaunch("rustright", ["cargo", "build", "--locked"], { env, platform: "linux", exists });
