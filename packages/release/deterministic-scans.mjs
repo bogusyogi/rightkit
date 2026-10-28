@@ -295,6 +295,11 @@ export const PINNED_SCAN_TOOLS = Object.freeze({ shellcheck: "0.11.0" });
  * and a red caused by one is never deterministic. Ids are `<prefix>` or `<prefix>:<root>`; rustright's REMOTE_SCANS mirrors this list. */
 export const LIVE_SCAN_IDS = Object.freeze(["pnpm-audit"]);
 export const isLiveScan = (id) => LIVE_SCAN_IDS.some((p) => id === p || String(id).startsWith(`${p}:`));
+/** Scans whose FAILURE may come from the registry rather than their inputs: `pnpm-lockfile` (`install --frozen-lockfile --lockfile-only`)
+ * re-verifies lockfile entries against the registry when pnpm's cache is cold, so an outage fails it. Their pass is deterministic, but a
+ * red they cause is never a reusable deterministic verdict (rightkit#1257; Oracle review of 79c4427b). */
+export const REGISTRY_SCAN_IDS = Object.freeze(["pnpm-lockfile"]);
+export const isRegistryScan = (id) => REGISTRY_SCAN_IDS.some((p) => id === p || String(id).startsWith(`${p}:`));
 /** Files per rustfmt scan: 120 paths of ~100 bytes stay under Windows' 32 KB command line with the tool and flags. */
 export const RUSTFMT_BATCH = 120;
 

@@ -2078,6 +2078,24 @@ export async function main(argv, io = {}) {
         o.err(`${tag} BLOCKED: the broker scans Cargo inputs in the primary checkout, and these differ from ${(failed(resolved) ? String(snapshot) : text(resolved).trim()).slice(0, 12)}: ${differing.join(", ")}; commit or restore them, then run the check again`);
         return 1;
       }
+      // A snapshot check's cargo scans then read the checkout's WORKSPACE, which can hold more than its tracked inputs: an untracked
+      // member, or a stray directory a members glob (crates/*) matches. Cargo's own member list there must equal the commit's (from
+      // the snapshot), or the verdict would not be the commit's (Oracle review of 79c4427b). A checkout cargo cannot read refuses too.
+      if (snapshotA) {
+        const memberDiff = [];
+        const membersOf = (base, dir) => workspaceMetadata({ root: base, spawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, dir, realpath: fs.realpathSync }).members.map((m) => m.manifest).sort();
+        for (const ws of rust.workspaces) {
+          let inCommit; let inCheckout;
+          try { inCommit = membersOf(repo, ws.cargoDir); } catch (e) { memberDiff.push(`${ws.cargoDir} (commit): ${e.message}`); continue; }
+          try { inCheckout = membersOf(root, ws.cargoDir); } catch (e) { memberDiff.push(`${ws.cargoDir} (checkout): ${e.message}`); continue; }
+          const extra = inCheckout.filter((m) => !inCommit.includes(m)); const missing = inCommit.filter((m) => !inCheckout.includes(m));
+          if (extra.length || missing.length) memberDiff.push(`${ws.cargoDir}: checkout-only ${extra.join(", ") || "none"}; commit-only ${missing.join(", ") || "none"}`);
+        }
+        if (memberDiff.length) {
+          o.err(`${tag} BLOCKED: the broker scans Cargo in the primary checkout, and cargo's workspace there is not the commit's: ${memberDiff.join("; ")}; remove or commit what differs, then run the check again`);
+          return 1;
+        }
+      }
       cargoLiveRoot = root;
     }
     let fullPlan;

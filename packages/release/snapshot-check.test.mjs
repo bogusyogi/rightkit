@@ -13,7 +13,7 @@ import { spawnSync } from "./background-process.mjs";
 import { defaultSpawn, isLiveScan, LIVE_SCAN_IDS } from "./deterministic-scans.mjs";
 import { repoKey, keyPath, syncSnapshot } from "./snapshot.mjs";
 import {
-  CheckError, DETERMINISTIC_MARKER, probeSkippedBuilds, LIVE_SCANS_SCHEMA, allowedBuilds, deterministicMarker, installSnapshotDependencies, liveScansCommand,
+  CheckError, DETERMINISTIC_MARKER, describeInstall, probeSkippedBuilds, LIVE_SCANS_SCHEMA, allowedBuilds, deterministicMarker, installSnapshotDependencies, liveScansCommand,
   modulesStoreDir, pinnedPnpm, resolvePrimaryStore, snapshotOption,
 } from "./snapshot-check.mjs";
 import { main, discoverPnpmRoots, discoverNpmUnits } from "./bin/rightkit-gate.mjs";
@@ -324,6 +324,9 @@ test("skipped build scripts: an installed allowed-build package must prove itsel
   const ok = probeSkippedBuilds({ dir, root: ".", names: ["esbuild", "nativelib", "@scope/native", "not-installed"] });
   assert.deepEqual(ok.map(({ name, probe }) => [name, probe]), [["esbuild", "none"], ["nativelib", "nativelib --version"], ["@scope/native", "require"]]);
   assert.match(ok[0].result, /^compile tool \(esbuild\): class A never launches it/);
+  const line = describeInstall({ root: ".", pnpm: "11.25.0", pinned: "11.25.0", storeDir: "/s", storeSource: "x", lockfileSha256: "0", ms: 1, allowedBuildsNotRun: ok.slice(0, 2) });
+  assert.match(line, /build-scripts-not-run=esbuild@0\.28\.2\(deferred, not proven here: compile tool/);
+  assert.match(line, /nativelib@3\.1\.0\(usable: nativelib --version -> 3\.1\.0\)/);
   assert.equal(ok[1].result, "3.1.0");
   pkg("broken@2.0.0", "broken", { "package.json": JSON.stringify({ name: "broken", version: "2.0.0", bin: "cli.js" }), "cli.js": "throw new Error('native binary missing: run the install script');\n" });
   assert.throws(() => probeSkippedBuilds({ dir, root: "apps/web", names: ["broken"] }), (e) => e instanceof CheckError && /root apps\/web: broken@2\.0\.0 needs its install script .* not usable without it: broken --version failed/.test(e.message));
@@ -454,4 +457,81 @@ test("E17 real subprocesses: npm-only dirty checkout with HEAD ahead passes on t
   assert.match(allB, /\] fail +node-check:src\/broken\.mjs \(/);
   assert.match(allB, /rightkit-gate: verdict deterministic failed=node-check:src\/broken\.mjs env=[0-9a-f]{64}/);
   assert.doesNotMatch(allB, /untracked\.mjs/);
+});
+
+// Oracle review of 79c4427b, two findings still open at 5450f01d:
+// (1) pnpm-lockfile re-verifies entries against the registry when pnpm's cache is cold, so an outage fails it: never a reusable red.
+test("rightkit#1257: a pnpm-lockfile failure (registry-dependent) never yields a deterministic marker", async (t) => {
+  const env = "e".repeat(64);
+  for (const id of ["pnpm-lockfile", "pnpm-lockfile:apps/web"]) {
+    assert.equal(deterministicMarker({ scans: [{ id, status: "fail", code: "EXIT" }] }, env), null, id);
+    assert.equal(deterministicMarker({ scans: [{ id, status: "fail", code: "EXIT" }, { id: "node-check:a.mjs", status: "fail", code: "EXIT" }] }, env), null, `${id} with a deterministic failure beside it`);
+  }
+  const s = scenario(t);
+  const run = io(t, s, { scans: [{ id: "pnpm-lockfile", class: "A", status: "fail", code: "EXIT", detail: "ERR_PNPM_META_FETCH_FAIL fetch failed" }] });
+  assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], run.io), 1);
+  assert.equal(run.out.find((l) => l.startsWith(DETERMINISTIC_MARKER)), undefined);
+});
+
+// (2) On a broker host the cargo scans read the checkout's workspace: an untracked member or a stray directory a members glob matches
+// must refuse the snapshot check before any cargo scan, never reach the commit's verdict. A fake cargo follows cargo's member rule.
+function cargoScenario(t) {
+  const repo = tmp(t, "rk-sc-cargo-");
+  git(repo, "init", "-q", "-b", "main");
+  write(repo, { ".gitignore": "target/\n", "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\nresolver = "2"\n', "Cargo.lock": "version = 4\n", "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n', "crates/a/src/lib.rs": "\n" });
+  const a = commitAll(repo, "A");
+  const snap = syncSnapshot({ checkout: repo, rev: a, root: tmp(t, "rk-sc-cargo-snaps-") });
+  const bin = tmp(t, "rk-sc-fakecargo-");
+  const sentinel = path.join(bin, "non-metadata-cargo-ran");
+  const fake = path.join(bin, "fake-cargo.mjs");
+  // cargo's rule for `members = ["crates/*"]`: every directory under crates/ is a member; one without a Cargo.toml is an error.
+  fs.writeFileSync(fake, `import fs from "node:fs"; import path from "node:path";
+const args = process.argv.slice(2);
+if (args[0] !== "metadata") { fs.writeFileSync(${JSON.stringify(sentinel)}, args.join(" ")); process.exit(0); }
+const root = process.cwd(); const crates = path.join(root, "crates");
+const packages = [];
+for (const d of fs.existsSync(crates) ? fs.readdirSync(crates, { withFileTypes: true }).filter((e) => e.isDirectory()) : []) {
+  const m = path.join(crates, d.name, "Cargo.toml");
+  if (!fs.existsSync(m)) { console.error("error: failed to load manifest for workspace member \`" + path.join(crates, d.name) + "\`"); process.exit(101); }
+  packages.push({ name: d.name, manifest_path: m, publish: null, id: d.name, targets: [] });
+}
+console.log(JSON.stringify({ packages, workspace_members: packages.map((p) => p.id), workspace_root: root, target_directory: path.join(root, "target"), version: 1 }));
+`);
+  return { repo, a, dir: snap.path, fake, sentinel };
+}
+function brokerIo(t, s) {
+  const out = []; const err = []; const plans = [];
+  return { out, err, plans, io: {
+    cwd: s.repo, env: { ...process.env, RK_GATE_CACHE: "0" }, out: (m) => out.push(m), err: (m) => err.push(m), appCheck: async () => 0,
+    // `cargo` is answered by the fake (never a real cargo, never the broker): metadata per cargo's member rule, anything else a sentinel.
+    spawn: (cmd, args, opts = {}) => (cmd === "pnpm" && args[0] === "--version" ? { status: 0, stdout: "11.25.0\n", stderr: "" }
+      : cmd === "cargo" ? defaultSpawn(process.execPath, [s.fake, ...args], opts) : defaultSpawn(cmd, args, opts)),
+    resolveExecutor: () => ({ kind: "broker", cargo: ["cargo"] }),
+    runScans: async (plan) => { plans.push(plan); return { scans: [], notes: [], cacheHits: [] }; },
+  } };
+}
+
+test("Oracle (79c4427b): an untracked workspace member in the checkout refuses a broker-host snapshot check before any cargo scan", async (t) => {
+  const s = cargoScenario(t);
+  // Control: nothing extra in the checkout, so cargo sees the commit's members in both places and class A proceeds.
+  const ok = brokerIo(t, s);
+  assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], ok.io), 0, ok.err.join("\n"));
+  assert.equal(fs.realpathSync.native(ok.plans[0].roots.cargoLiveRoot), fs.realpathSync.native(s.repo), "cargo scans run in the checkout");
+  write(s.repo, { "crates/b/Cargo.toml": '[package]\nname = "b"\nversion = "0.1.0"\nedition = "2021"\n' });
+  const run = brokerIo(t, s);
+  assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], run.io), 1);
+  assert.ok(run.err.some((l) => /cargo's workspace there is not the commit's: \.: checkout-only crates\/b\/Cargo\.toml; commit-only none/.test(l)), run.err.join("\n"));
+  assert.equal(run.plans.length, 0, "no scan planned or run");
+  assert.equal(fs.existsSync(s.sentinel), false, "only cargo metadata ran");
+});
+
+test("Oracle (79c4427b): a stray directory a members glob matches refuses a broker-host snapshot check (cargo cannot read the checkout)", async (t) => {
+  const s = cargoScenario(t);
+  fs.mkdirSync(path.join(s.repo, "crates", "scratch-dir"), { recursive: true });
+  write(s.repo, { "crates/scratch-dir/notes.txt": "agent scratch\n" });
+  const run = brokerIo(t, s);
+  assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], run.io), 1);
+  assert.ok(run.err.some((l) => /cargo's workspace there is not the commit's: \. \(checkout\): cargo metadata failed: .*failed to load manifest for workspace member/.test(l)), run.err.join("\n"));
+  assert.equal(run.plans.length, 0);
+  assert.equal(fs.existsSync(s.sentinel), false);
 });

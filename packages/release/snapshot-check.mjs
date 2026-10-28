@@ -20,7 +20,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { LIVE_SCAN_IDS, defaultSpawn, isLiveScan, launchGuardEnv, planScans, runScans } from "./deterministic-scans.mjs";
+import { LIVE_SCAN_IDS, defaultSpawn, isLiveScan, isRegistryScan, launchGuardEnv, planScans, runScans } from "./deterministic-scans.mjs";
 import { compileLaunch } from "./class-a-launch-guard.mjs";
 import { SnapshotError, snapshotTree } from "./snapshot.mjs";
 
@@ -214,7 +214,7 @@ export function installSnapshotDependencies({ checkout, snapshot, roots, env = p
 /** One line per installed root, for the check's output and evidence. */
 export function describeInstall(record) {
   if (record.skipped) return `snapshot dependencies root=${record.root} not installed: ${record.skipped}`;
-  return `snapshot dependencies root=${record.root} pnpm=${record.pnpm}${record.pinned ? ` (pinned ${record.pinned})` : ""} store=${record.storeDir} (from ${record.storeSource}) lockfile=sha256:${record.lockfileSha256} ms=${record.ms}${record.allowedBuildsNotRun.length ? ` build-scripts-not-run=${record.allowedBuildsNotRun.map((b) => `${b.name}@${b.version}(usable: ${b.probe} -> ${b.result})`).join(",")}` : ""}`;
+  return `snapshot dependencies root=${record.root} pnpm=${record.pnpm}${record.pinned ? ` (pinned ${record.pinned})` : ""} store=${record.storeDir} (from ${record.storeSource}) lockfile=sha256:${record.lockfileSha256} ms=${record.ms}${record.allowedBuildsNotRun.length ? ` build-scripts-not-run=${record.allowedBuildsNotRun.map((b) => (b.probe === "none" ? `${b.name}@${b.version}(deferred, not proven here: ${b.result})` : `${b.name}@${b.version}(usable: ${b.probe} -> ${b.result})`)).join(",")}` : ""}`;
 }
 
 /** The deterministic-red marker for a failed run, or null when any failure is not one a re-run of the same inputs reproduces. */
@@ -222,7 +222,7 @@ export function deterministicMarker(scanResult, env) {
   const failing = scanResult.scans.filter((r) => r.status !== "pass");
   if (!failing.length || !env) return null;
   // A fail row with no code is a scan's own findings (an internal check's list); every other code names why it could not judge.
-  const eligible = failing.every((r) => r.status === "fail" && !isLiveScan(r.id) && (r.code === undefined || r.code === null || DETERMINISTIC_CODES.has(r.code)));
+  const eligible = failing.every((r) => r.status === "fail" && !isLiveScan(r.id) && !isRegistryScan(r.id) && (r.code === undefined || r.code === null || DETERMINISTIC_CODES.has(r.code)));
   return eligible ? `${DETERMINISTIC_MARKER} failed=${failing.map((r) => r.id).join(",")} env=${env}` : null;
 }
 
