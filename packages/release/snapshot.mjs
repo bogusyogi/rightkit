@@ -110,17 +110,28 @@ export function snapshotTree({ checkout, dir, baseTree, repo = repositoryOf(chec
   }
 }
 
-/** Untracked files under `dir` that no ignore rule excludes, against an index seeded from `baseTree` (what `add -A` would add). */
-function untrackedVisible({ dir, baseTree, repo }) {
-  const index = path.join(repo.gitDir, `rightkit-snapshot-${crypto.randomUUID()}.index`);
-  const env = { GIT_INDEX_FILE: index };
-  const git = (...a) => runGit(dir, [...GIT_SAFE, `--git-dir=${repo.gitDir}`, `--work-tree=${dir}`, ...a], { env });
-  try {
-    git("read-tree", baseTree);
-    return git("ls-files", "-z", "--others", "--exclude-standard").split("\0").filter(Boolean);
-  } finally {
-    for (const f of [index, `${index}.lock`]) fs.rmSync(f, { force: true });
-  }
+/**
+ * Removes every entry under `dir` the commit does not hold: untracked files whether an ignore rule matches them or not, leftover
+ * directories, links that are not committed. §1 makes the snapshot exactly the commit; a stale ignored file is unattested build
+ * input even though the seeded tree id cannot see it. Never follows a link (only real directories are entered); names compare
+ * case-insensitively where the host filesystem does (Mac, Windows; colliding names were refused before this runs).
+ */
+function pruneToTree(dir, entries, platform = process.platform) {
+  const fold = platform === "darwin" || platform === "win32" ? (n) => n.toLowerCase() : (n) => n;
+  const files = new Set(entries.map((e) => fold(e.path)));
+  const dirs = new Set();
+  for (const e of entries) { const parts = e.path.split("/"); for (let i = 1; i < parts.length; i++) dirs.add(fold(parts.slice(0, i).join("/"))); }
+  let removed = 0;
+  const walk = (d, rel) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { if (dirs.has(fold(r))) walk(p, r); else { fs.rmSync(p, { recursive: true, force: true }); removed++; } }
+      else if (!files.has(fold(r))) { fs.unlinkSync(p); removed++; }
+    }
+  };
+  walk(dir, "");
+  return removed;
 }
 
 /** Every entry of the commit's tree: `{ mode, oid, path }`, path in git's `/` form. Gitlinks & unsafe paths refuse. */
@@ -285,14 +296,9 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), no
     const stateFile = `${dir}.state.json`;
     const prior = readState(stateFile);
     const wanted = new Map(entries.map((e) => [e.path, e]));
-    // Before any change, the union of what this snapshot may hold from earlier syncs, so an interrupted sync still prunes.
-    const previous = new Set([...(prior?.paths ?? []), ...(prior?.pending ?? [])]);
-    writeState(stateFile, { ...(prior ?? {}), schema: STATE_SCHEMA, pending: [...new Set([...previous, ...wanted.keys()])] });
     const cache = prior?.stat ?? {};
     let removed = 0, written = 0, modesFixed = 0, unchanged = 0, linksRemoved = 0;
 
-    // 1. Files an earlier commit put here that this commit does not have (ignored ones too: they would be stale build input).
-    for (const p of previous) if (!wanted.has(p) && removeEntry(path.join(dir, ...p.split("/")))) removed++;
     // Where a path physically lands, following every link on the way: `path.resolve` collapses `..` lexically and would miss a
     // chain such as `c/b -> ..` that the operating system follows (Oracle, step 1 review).
     const realDir = fs.realpathSync.native(dir);
@@ -302,8 +308,14 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), no
       if (!landsSafely(path.dirname(target))) throw new SnapshotError("refused", `${path.relative(dir, target)}: its directory resolves out of the snapshot; nothing is written through it`);
     };
 
-    // 2. A link already here (planted, or from an earlier sync) stays only if it lands inside the snapshot and not in the checkout.
-    for (const link of linksUnder(dir)) if (!landsSafely(link)) { removeEntry(link); linksRemoved++; }
+    const sweepLinks = (keep = new Set()) => {
+      for (const link of linksUnder(dir)) if (!keep.has(link) && !landsSafely(link)) { removeEntry(link); linksRemoved++; }
+    };
+
+    // 1. A link already here (planted, or from an earlier sync) stays only if it lands inside the snapshot and not in the checkout.
+    // This runs before anything is removed or written, so no later step can pass through such a link. Nothing is deleted by a
+    // path that crosses a link: stale entries go only in the final walk, which enters real directories alone (Oracle, re-review).
+    sweepLinks();
 
     // 3. Every tracked file: unchanged ones are left alone (same bytes & mode keep their mtime), the rest are written. Links are
     // created only after every file, so creating one can never redirect a later write.
@@ -373,19 +385,15 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), no
         for (const p of unsafe) removeEntry(path.join(dir, ...p.split("/")));
         throw new SnapshotError("refused", `commit ${commit} has links that do not land inside the snapshot: ${unsafe.join(", ")}`);
       }
+      // A planted link can resolve differently once the committed links exist: sweep the others again.
+      sweepLinks(new Set(links.map((e) => path.join(dir, ...e.path.split("/")))));
     } finally {
       fs.rmSync(staging, { recursive: true, force: true });
       try { fs.rmdirSync(stagingRoot); } catch { /* another sync's staging, or not empty */ }
     }
 
-    // 4. Anything else `add -A` would see (a planted or leftover file no ignore rule excludes) is removed, with directories it emptied.
-    for (const rel of untrackedVisible({ dir, baseTree: tree, repo })) {
-      const target = path.join(dir, ...rel.split("/"));
-      if (removeEntry(target)) removed++;
-      for (let d = path.dirname(target); d !== dir && inside(d, dir); d = path.dirname(d)) {
-        try { if (fs.readdirSync(d).length) break; fs.rmdirSync(d); } catch { break; }
-      }
-    }
+    // 4. Everything the commit does not hold is removed: the snapshot is exactly the commit (§1).
+    removed += pruneToTree(dir, entries);
 
     assertLockHeld();
     const actual = snapshotTree({ checkout: repo.checkout, dir, baseTree: tree, repo });

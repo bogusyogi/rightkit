@@ -118,7 +118,7 @@ test("§1 obsolete files: a file the next commit deletes is removed, including o
   assert.equal(fs.existsSync(path.join(f.dir, "old.rs")), false);
 });
 
-test("§1 interrupted sync: paths recorded as pending are pruned by the next sync", (t) => {
+test("§1 interrupted sync: a file an interrupted sync left behind (ignored by the repository) is removed by the next sync", (t) => {
   const f = fixture(t);
   syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
   const state = JSON.parse(fs.readFileSync(`${f.dir}.state.json`, "utf8"));
@@ -310,4 +310,66 @@ test("a dangling committed link refuses and is removed", { skip: posixOnly }, (t
   const commit = commitAll(f.repo);
   assert.throws(() => syncSnapshot({ checkout: f.repo, rev: commit, root: f.root }), (e) => e.code === "refused" && /dangling\.rs/.test(e.message));
   assert.equal(fs.lstatSync(path.join(f.dir, "src", "dangling.rs"), { throwIfNoEntry: false }), undefined);
+});
+
+test("Oracle #3: pruning a stale path never deletes through a planted parent link or junction into the checkout", (t) => {
+  const f = fixture(t);
+  const a = f.commit;
+  write(f.repo, { "src/new.rs": "pub fn new() {}\n" });
+  const b = commitAll(f.repo);
+  syncSnapshot({ checkout: f.repo, rev: b, root: f.root });
+  write(f.repo, { "src/new.rs": "pub fn new() { /* uncommitted work */ }\n" });
+  fs.rmSync(path.join(f.dir, "src"), { recursive: true });
+  fs.symlinkSync(path.join(f.repo, "src"), path.join(f.dir, "src"), process.platform === "win32" ? "junction" : "dir");
+  const r = syncSnapshot({ checkout: f.repo, rev: a, root: f.root });
+  assert.equal(r.linksRemoved, 1);
+  assert.equal(fs.readFileSync(path.join(f.repo, "src/new.rs"), "utf8"), "pub fn new() { /* uncommitted work */ }\n", "the checkout's file survives");
+  assert.equal(fs.lstatSync(path.join(f.dir, "src")).isDirectory(), true);
+  assert.equal(fs.existsSync(path.join(f.dir, "src/new.rs")), false);
+  verifySnapshot({ checkout: f.repo, rev: a, root: f.root });
+});
+
+test("§1 exact: untracked files are removed whether an ignore rule matches them or not, with leftover directories", (t) => {
+  const f = fixture(t);
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  write(f.dir, { "target/debug/stale.o": "old output\n", "notes.log": "ignored\n", "src/extra.rs": "visible\n", ".env": "SECRET=planted\n" });
+  const r = syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  assert.equal(r.removed, 4);
+  for (const p of ["target", "notes.log", "src/extra.rs", ".env"]) assert.equal(fs.existsSync(path.join(f.dir, p)), false, p);
+  assert.deepEqual(fs.readdirSync(f.dir).sort(), [".gitignore", "Cargo.toml", "README.md", "src"]);
+});
+
+test("§1 exact: files matched by .git/info/exclude or the user's global excludes file are removed too", (t) => {
+  const f = fixture(t);
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  fs.mkdirSync(path.join(f.repo, ".git", "info"), { recursive: true });
+  fs.appendFileSync(path.join(f.repo, ".git", "info", "exclude"), "local-only.rs\n");
+  const globalExcludes = path.join(f.root, "..", `global-excludes-${path.basename(f.root)}`);
+  fs.writeFileSync(globalExcludes, "*.cache\n");
+  t.after(() => fs.rmSync(globalExcludes, { force: true }));
+  git(f.repo, "config", "core.excludesFile", globalExcludes);
+  write(f.dir, { "local-only.rs": "stale\n", "src/build.cache": "stale\n" });
+  // The seeded identity cannot see them: the reason the sync, not the verifier, has to remove them.
+  verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  const r = syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  assert.equal(r.removed, 2);
+  assert.equal(fs.existsSync(path.join(f.dir, "local-only.rs")), false);
+  assert.equal(fs.existsSync(path.join(f.dir, "src/build.cache")), false);
+});
+
+test("coordinator Oracle shape: an obsolete directory replaced by a planted link to checkout/src never deletes checkout/src/x", (t) => {
+  const f = fixture(t);
+  const a = f.commit;
+  write(f.repo, { "obsolete/x": "committed in B\n" });
+  const b = commitAll(f.repo);
+  syncSnapshot({ checkout: f.repo, rev: b, root: f.root });
+  write(f.repo, { "src/x": "uncommitted checkout file\n" });
+  fs.rmSync(path.join(f.dir, "obsolete"), { recursive: true });
+  fs.symlinkSync(path.join(f.repo, "src"), path.join(f.dir, "obsolete"), process.platform === "win32" ? "junction" : "dir");
+  const statusBefore = git(f.repo, "status", "--porcelain", "--untracked-files=all");
+  syncSnapshot({ checkout: f.repo, rev: a, root: f.root });
+  assert.equal(fs.readFileSync(path.join(f.repo, "src/x"), "utf8"), "uncommitted checkout file\n");
+  assert.equal(git(f.repo, "status", "--porcelain", "--untracked-files=all"), statusBefore);
+  assert.equal(fs.lstatSync(path.join(f.dir, "obsolete"), { throwIfNoEntry: false }), undefined);
+  verifySnapshot({ checkout: f.repo, rev: a, root: f.root });
 });
