@@ -158,7 +158,11 @@ console.log(JSON.stringify({ code, out: out.join("\\n").slice(-1500) }));\n`.rep
   const labelOnly = runAs("label-only", `{ kind: "direct", cargo: ["cargo"] }`);
   assert.equal(labelOnly.shim, true, `control: with PATH unchanged the shim answers (${JSON.stringify(labelOnly)})`);
 });
-test("[behavior] Linux direct holds in every managed-cargo helper, whatever control root, socket or shim the environment names (Mac control broker-managed)", (t) => {
+// These two simulate a Linux host in-process: a colon-separated PATH of real fixture directories and POSIX paths. On a
+// Windows runner the fixture directories carry a drive letter ("D:\\..."), which a colon PATH cannot hold, so they run
+// on Mac and Linux only; the platform functions they call are pure, so the Windows controls run there too.
+const POSIX_HOST_ONLY = process.platform === "win32" && "simulates a Linux host (colon PATH of real fixture directories)";
+test("[behavior] Linux direct holds in every managed-cargo helper, whatever control root, socket or shim the environment names (Mac control broker-managed)", { skip: POSIX_HOST_ONLY }, (t) => {
   // An environment that makes a Mac broker-managed: a control root holding runtime-current/rustright, a broker socket, the agent-bin shim first.
   const dir = tmp(t, "rk-gc-helpers-");
   const control = path.join(dir, "control"); const agentBin = path.join(dir, ".rightkit-managed", "agent-bin"); const toolchain = path.join(dir, "toolchain");
@@ -184,7 +188,7 @@ test("[behavior] Linux direct holds in every managed-cargo helper, whatever cont
   assert.equal(exec.kind, "direct"); assert.equal(exec.env.PATH, `${toolchain}:/usr/bin`);
 });
 
-test("[behavior] Linux direct holds at every launch boundary: quiet lease, sidecar host probe, nested-broker check, configured rustright commands (Mac/Windows controls)", async (t) => {
+test("[behavior] Linux direct holds at every launch boundary: quiet lease, sidecar host probe, nested-broker check, configured rustright commands (Mac/Windows controls)", { skip: POSIX_HOST_ONLY }, async (t) => {
   const { quietLeaseLane } = await import("./bin/rightkit-gate.mjs");
   const { resolveCommand } = await import("./development.mjs");
   const { isNestedBrokerContext } = await import("./stage-sidecar.mjs");
