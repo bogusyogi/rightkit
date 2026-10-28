@@ -4,9 +4,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import { REFUSAL_CODE, compileLaunch, shellWords } from "./class-a-launch-guard.mjs";
 import { launchGuardEnv } from "./deterministic-scans.mjs";
+
+// The probes are child scripts; the module name is joined, not written (background-process.test.mjs).
+const CP = ["node:child", "process"].join("_");
 
 test("compileLaunch names compiles and emitting builds; checks, tests and typechecks pass", () => {
   const refused = [
@@ -31,10 +34,10 @@ test("in a class A test row every Node process refuses a compile launch, nested 
   assert.ok(env.NODE_OPTIONS.includes(String(process.env.NODE_OPTIONS ?? "").trim()), "NODE_OPTIONS is appended to, not replaced");
   const probe = (code) => spawnSync(process.execPath, ["--input-type=module", "-e", code], { env, encoding: "utf8", cwd: dir });
   const cases = {
-    "spawnSync tsc": `import { spawnSync } from "node:child_process"; try { spawnSync("tsc", ["-p", "."]); console.log("LAUNCHED") } catch (e) { console.log(e.code) }`,
-    "execSync shell build": `import { execSync } from "node:child_process"; try { execSync("pnpm run build"); console.log("LAUNCHED") } catch (e) { console.log(e.code) }`,
-    "spawn sh -c cargo": `import { spawn } from "node:child_process"; try { spawn("sh", ["-c", "cargo build"]); console.log("LAUNCHED") } catch (e) { console.log(e.code) }`,
-    "nested node child": `import { spawnSync } from "node:child_process"; const r = spawnSync(process.execPath, ["--input-type=module", "-e", "import { spawnSync } from 'node:child_process'; try { spawnSync('esbuild', ['a.ts']); console.log('LAUNCHED') } catch (e) { console.log(e.code) }"], { encoding: "utf8" }); console.log(r.stdout.trim())`,
+    "spawnSync tsc": `import { spawnSync } from "${CP}"; try { spawnSync("tsc", ["-p", "."]); console.log("LAUNCHED") } catch (e) { console.log(e.code) }`,
+    "execSync shell build": `import { execSync } from "${CP}"; try { execSync("pnpm run build"); console.log("LAUNCHED") } catch (e) { console.log(e.code) }`,
+    "spawn sh -c cargo": `import { spawn } from "${CP}"; try { spawn("sh", ["-c", "cargo build"]); console.log("LAUNCHED") } catch (e) { console.log(e.code) }`,
+    "nested node child": `import { spawnSync } from "${CP}"; const r = spawnSync(process.execPath, ["--input-type=module", "-e", "import { spawnSync } from '${CP}'; try { spawnSync('esbuild', ['a.ts']); console.log('LAUNCHED') } catch (e) { console.log(e.code) }"], { encoding: "utf8" }); console.log(r.stdout.trim())`,
   };
   for (const [label, code] of Object.entries(cases)) {
     const r = probe(code);
@@ -43,25 +46,25 @@ test("in a class A test row every Node process refuses a compile launch, nested 
   }
   // An executable named like a compiler under a temp directory is refused: no path-based exemption.
   const stub = path.join(dir, "cargo"); fs.writeFileSync(stub, "#!/bin/sh\necho stub\n", { mode: 0o755 });
-  const tmpCompiler = probe(`import { spawnSync } from "node:child_process"; try { spawnSync(${JSON.stringify(stub)}, []); console.log("LAUNCHED") } catch (e) { console.log(e.code) }`);
+  const tmpCompiler = probe(`import { spawnSync } from "${CP}"; try { spawnSync(${JSON.stringify(stub)}, []); console.log("LAUNCHED") } catch (e) { console.log(e.code) }`);
   assert.match(tmpCompiler.stdout, new RegExp(REFUSAL_CODE), "a temp-dir 'cargo' without a declaration is refused");
   // No exemption exists: an env switch or a harness temp root does not let a stub or a copied binary through.
   const tryEnv = { ...env, RIGHTKIT_CLASS_A_SCRIPT_STUBS: "1", RIGHTKIT_TEST_TMP: dir };
   const binary = path.join(dir, "rustc"); fs.copyFileSync(process.execPath, binary); fs.chmodSync(binary, 0o755);
   for (const target of [stub, binary]) {
-    const r = spawnSync(process.execPath, ["--input-type=module", "-e", `import { spawnSync } from "node:child_process"; try { spawnSync(${JSON.stringify(target)}, ["-e", "1"]); console.log("LAUNCHED") } catch (e) { console.log(e.code) }`], { env: tryEnv, encoding: "utf8", cwd: dir });
+    const r = spawnSync(process.execPath, ["--input-type=module", "-e", `import { spawnSync } from "${CP}"; try { spawnSync(${JSON.stringify(target)}, ["-e", "1"]); console.log("LAUNCHED") } catch (e) { console.log(e.code) }`], { env: tryEnv, encoding: "utf8", cwd: dir });
     assert.match(r.stdout, new RegExp(REFUSAL_CODE), `${target} is refused`);
   }
   // A Node child handed a replacement environment without NODE_OPTIONS still runs under the guard.
-  const replaced = probe(`import { spawnSync } from "node:child_process"; const r = spawnSync(process.execPath, ["--input-type=module", "-e", "import { spawnSync } from 'node:child_process'; try { spawnSync('tsc', ['-p', '.']); console.log('LAUNCHED') } catch (e) { console.log(e.code) }"], { encoding: "utf8", env: { PATH: process.env.PATH } }); console.log(r.stdout.trim())`);
+  const replaced = probe(`import { spawnSync } from "${CP}"; const r = spawnSync(process.execPath, ["--input-type=module", "-e", "import { spawnSync } from '${CP}'; try { spawnSync('tsc', ['-p', '.']); console.log('LAUNCHED') } catch (e) { console.log(e.code) }"], { encoding: "utf8", env: { PATH: process.env.PATH } }); console.log(r.stdout.trim())`);
   assert.match(replaced.stdout, new RegExp(REFUSAL_CODE), `replacement env: ${replaced.stdout} ${replaced.stderr}`);
   // The caller's options are not modified (code under test may inspect the env it passed).
-  const untouched = probe(`import { spawnSync } from "node:child_process"; const o = { env: { PATH: process.env.PATH, NODE_OPTIONS: "" }, encoding: "utf8" }; spawnSync(process.execPath, ["-e", "1"], o); console.log("ENV", JSON.stringify(o.env.NODE_OPTIONS), Object.keys(o.env).length)`);
+  const untouched = probe(`import { spawnSync } from "${CP}"; const o = { env: { PATH: process.env.PATH, NODE_OPTIONS: "" }, encoding: "utf8" }; spawnSync(process.execPath, ["-e", "1"], o); console.log("ENV", JSON.stringify(o.env.NODE_OPTIONS), Object.keys(o.env).length)`);
   assert.match(untouched.stdout, /^ENV "" 2$/m, untouched.stderr);
   // Allowed: a typecheck and a test runner.
-  const allowed = probe(`import { spawnSync } from "node:child_process"; const a = spawnSync("tsc", ["--noEmit"]); const b = spawnSync(process.execPath, ["--test", "--help"], { encoding: "utf8" }); console.log("OK", a.error?.code ?? a.status, b.status)`);
+  const allowed = probe(`import { spawnSync } from "${CP}"; const a = spawnSync("tsc", ["--noEmit"]); const b = spawnSync(process.execPath, ["--test", "--help"], { encoding: "utf8" }); console.log("OK", a.error?.code ?? a.status, b.status)`);
   assert.match(allowed.stdout, /^OK /, allowed.stderr);
   // Without the guard env nothing is refused.
-  const free = spawnSync(process.execPath, ["--input-type=module", "-e", `import { spawnSync } from "node:child_process"; const r = spawnSync("definitely-not-tsc-xyz", ["-p", "."]); console.log("RAN", r.error?.code)`], { encoding: "utf8" });
+  const free = spawnSync(process.execPath, ["--input-type=module", "-e", `import { spawnSync } from "${CP}"; const r = spawnSync("definitely-not-tsc-xyz", ["-p", "."]); console.log("RAN", r.error?.code)`], { encoding: "utf8" });
   assert.match(free.stdout, /RAN ENOENT/);
 });

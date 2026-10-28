@@ -16,8 +16,9 @@ test("release sources & tests cannot bypass hidden child launch policy", () => {
       if (entry.isDirectory()) visit(file);
       else if (entry.name.endsWith(".mjs") && !["background-process.mjs", "background-process.test.mjs"].includes(entry.name)) {
         const relative = path.relative(import.meta.dirname, file);
-        // The test-only broker guard patches child_process itself, so it is the one sanctioned importer.
-        if (relative === path.join("test-support", "broker-guard.mjs") || relative === "broker-guard.test.mjs") continue;
+        // The test-only broker guard and the class A launch guard patch child_process itself (they wrap its launchers), so they are
+        // the sanctioned importers.
+        if (relative === path.join("test-support", "broker-guard.mjs") || relative === "broker-guard.test.mjs" || relative === "class-a-launch-guard.mjs") continue;
         if (/["'](?:node:)?child_process["']/.test(readFileSync(file, "utf8"))) violations.push(relative);
       }
     }

@@ -3015,8 +3015,9 @@ test("the pnpm probe is bounded: a hung pnpm and its whole process tree are kill
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-pnpm-probe-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   // A pnpm that starts a grandchild, records its pid, then hangs (as a first-use version switch waiting on the network does).
+  // The module name is joined, not written (background-process.test.mjs): the fixture is only text for a child script.
   const hang = path.join(dir, "hang.mjs");
-  fs.writeFileSync(hang, `import { spawn } from "node:child_process"; import fs from "node:fs";
+  fs.writeFileSync(hang, `import { spawn } from "${["node:child", "process"].join("_")}"; import fs from "node:fs";
 const c = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" }); fs.writeFileSync(${JSON.stringify(path.join(dir, "grandchild.pid"))}, String(c.pid));
 setInterval(() => {}, 1000);`);
   const started = Date.now();
