@@ -67,10 +67,10 @@ function lockFixture() {
         mac: {
           signed: true,
           signingContract: "macos-developer-id-notarized-portable-v1",
-          prePackage: { cmd: "node", args: ["-e", "process.exit(0)"] },
+          prePackage: { cmd: "node", args: ["fixture-hook.mjs"] },
           sign: { prePackageFiles: ["fixture"] },
           notarize: { file: "fixture.zip" },
-          package: { cmd: "node", args: ["-e", "process.exit(0)"] },
+          package: { cmd: "node", args: ["fixture-hook.mjs"] },
           artifacts: [],
           hardening: [],
           installer: { artifacts: [] },
@@ -131,7 +131,7 @@ test("notarization commands default to a bounded 30-minute timeout without chang
   const defaultResult = runRaw(fixture({
     platform: "mac",
     macSigning: true,
-    packageCommand: { cmd: "node", args: ["-e", "process.exit(0)", "--notarize"] },
+    packageCommand: { cmd: "node", args: ["fixture-hook.mjs", "--notarize"] },
   }), "--platform", "mac", "--dry-run");
   assert.equal(defaultResult.status, 0, defaultResult.stderr);
   assert.match(defaultResult.stdout, /timeout=1800000ms/);
@@ -139,7 +139,7 @@ test("notarization commands default to a bounded 30-minute timeout without chang
   const explicitResult = runRaw(fixture({
     platform: "mac",
     macSigning: true,
-    packageCommand: { cmd: "node", args: ["-e", "process.exit(0)", "--notarize"], timeoutMs: 1234 },
+    packageCommand: { cmd: "node", args: ["fixture-hook.mjs", "--notarize"], timeoutMs: 1234 },
   }), "--platform", "mac", "--dry-run");
   assert.equal(explicitResult.status, 0, explicitResult.stderr);
   assert.match(explicitResult.stdout, /timeout=1234ms/);
@@ -217,9 +217,9 @@ test("macOS notarize.staple: false is accepted for a bare-executable archive and
 test("macOS portable contract signs exact pre-package files then notarizes declared archive", () => {
   const result = run(fixture({ platform: "mac", macSigning: true }), "--platform", "mac", "--tier=patch", "--dry-run");
   assert.equal(result.status, 0, result.stderr);
-  const prepareAt = result.stdout.indexOf("node -e process.exit(0)");
+  const prepareAt = result.stdout.indexOf("fixture-hook.mjs");
   const signingAt = result.stdout.indexOf("signing macOS Developer ID files");
-  const packageAt = result.stdout.indexOf("node -e process.exit(0)", prepareAt + 1);
+  const packageAt = result.stdout.indexOf("fixture-hook.mjs", prepareAt + 1);
   const notarizeAt = result.stdout.indexOf("notarizing macOS archive");
   assert.ok(prepareAt >= 0 && signingAt > prepareAt && packageAt > signingAt && notarizeAt > packageAt, result.stdout);
   assert.match(result.stdout, /sign-macos\.mjs/);
@@ -1583,9 +1583,9 @@ test("combined build and upload is rejected before the package step", () => {
 test("Windows tier-neutral build builds raw EXE, signs it, bundles, signs installer, then minisigns updater payload", () => {
   const result = run(fixture({ publish: true }));
   assert.equal(result.status, 0, result.stderr);
-  const rawBuildAt = result.stdout.indexOf("node -e");
+  const rawBuildAt = result.stdout.indexOf("fixture-hook.mjs");
   const rawSignAt = result.stdout.indexOf("signing windows raw-exe");
-  const bundleAt = result.stdout.indexOf("node -e", rawSignAt);
+  const bundleAt = result.stdout.indexOf("fixture-hook.mjs", rawSignAt);
   const installerSignAt = result.stdout.indexOf("signing windows installer");
   const updaterAt = result.stdout.indexOf("sign-updater.mjs");
   assert.ok(rawBuildAt >= 0, result.stdout);

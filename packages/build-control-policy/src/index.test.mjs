@@ -3,7 +3,44 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { claudeHookDecision, clineHookDecision, githubActionsOnlyViolation, managedBuildViolation, rustRightManagedHost } from './index.mjs';
+import { agentDoorViolation, claudeHookDecision, clineHookDecision, githubActionsOnlyViolation, managedBuildViolation, rustRightManagedHost } from './index.mjs';
+
+test('agent door blocks recognized direct builds and permits the managed entries', () => {
+  const options = { platform: 'darwin', home: '/home', hasDoor: () => true, read: () => JSON.stringify({ buildRules: { checkAdmission: { trustedGate: { path: '/pin/rightkit-gate.mjs' } } } }), realpath: (p) => p };
+  for (const command of ['vite build', 'pnpm run build', 'pnpm exec vite build', 'node --test unit.test.mjs', 'tsc', 'node scripts/build.mjs', 'node /app/rightkit-gate.mjs --to dev', 'rightkit-gate --to dev']) {
+    assert.ok(agentDoorViolation(command, options), command);
+  }
+  for (const command of ['rightkit-host-gate --to dev', 'pnpm exec rightkit-host-gate --to dev', 'rustright cargo check', 'pnpm exec rustright cargo check', 'node /pin/rightkit-gate.mjs --to dev', 'node --check scripts/build.mjs']) {
+    assert.equal(agentDoorViolation(command, options), null, command);
+  }
+  assert.equal(agentDoorViolation('vite build', { ...options, platform: 'linux' }), null);
+  assert.equal(agentDoorViolation('vite build', { ...options, hasDoor: () => false }), null);
+  assert.equal(agentDoorViolation('vite build', { ...options, read: () => '{}' }), null);
+});
+
+test('public agent hooks apply the door policy in a managed repository', async () => {
+  const scratch = process.env.RIGHTKIT_SCRATCH_ROOT ?? (process.platform === 'darwin' ? '/Volumes/D/scratch' : process.platform === 'win32' ? 'D:\\scratch' : tmpdir());
+  const root = await mkdtemp(join(scratch, 'rightkit-hook-door-'));
+  try {
+    const repo = join(root, 'repo');
+    const home = join(root, 'home');
+    const configDir = join(home, 'Library', 'Application Support', 'RightKit', 'build-control');
+    await mkdir(join(repo, '.git'), { recursive: true });
+    await mkdir(configDir, { recursive: true });
+    await writeFile(join(repo, 'right-release.config.json'), '{}');
+    const pin = join(root, 'rightkit-gate.mjs');
+    await writeFile(pin, '');
+    await writeFile(join(configDir, 'config.json'), JSON.stringify({ buildRules: { checkAdmission: { trustedGate: { path: pin } } } }));
+    for (const command of ['pnpm run build', 'node --test unit.test.mjs', 'vite build']) {
+      const input = { platform: 'darwin', cwd: repo, environment: { HOME: home }, command };
+      assert.equal(claudeHookDecision(input).hookSpecificOutput?.permissionDecision, 'deny', command);
+      assert.equal(clineHookDecision(input).cancel, true, command);
+    }
+    const safe = { platform: 'darwin', cwd: repo, environment: { HOME: home }, command: `node ${pin} --to dev` };
+    assert.equal(claudeHookDecision(safe).decision, 'allow');
+    assert.equal(clineHookDecision(safe).cancel, false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 async function setOrigin(root, url = 'https://github.com/Orthic-Labs/example.git') {
   await mkdir(join(root, '.git'), { recursive: true });

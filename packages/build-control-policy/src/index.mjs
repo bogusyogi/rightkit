@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { dirname, join, parse, resolve } from 'node:path';
 import { desktopIntrusionViolation, DESKTOP_INTRUSION_REASON } from './desktop-intrusion-policy.mjs';
@@ -415,6 +415,54 @@ export function managedBuildViolation(command) {
   return null;
 }
 
+function repoHasDoor(cwd) {
+  let cursor = directoryFrom(cwd);
+  for (;;) {
+    if (existsSync(join(cursor, '.git'))) break;
+    const parent = dirname(cursor);
+    if (parent === cursor) return false;
+    cursor = parent;
+  }
+  if (existsSync(join(cursor, 'packages/release/bin/rightkit-gate.mjs'))) return true;
+  const hasConfig = (dir) => ['right-release.config.mjs', 'right-release.config.json'].some((name) => existsSync(join(dir, name)));
+  const candidates = [cursor];
+  for (const name of ['apps', 'packages', 'tauri-app-next', 'hub', 'app']) {
+    const dir = join(cursor, name);
+    if (!existsSync(dir)) continue;
+    candidates.push(dir);
+    try { for (const entry of readdirSync(dir, { withFileTypes: true })) if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') candidates.push(join(dir, entry.name)); } catch { /* unavailable directory */ }
+  }
+  return candidates.some(hasConfig);
+}
+
+// Agent guard only: unknown scripts, aliases, unhooked processes, repositories without a door and removable hooks remain paths.
+export function agentDoorViolation(command, { platform = process.platform, home = process.env.HOME ?? '', cwd = process.cwd(), read = readFileSync, realpath = realpathSync, hasDoor = repoHasDoor } = {}) {
+  if (typeof command !== 'string') throw new TypeError('command must be a string');
+  if (!['darwin', 'win32'].includes(platform) || !hasDoor(cwd)) return null;
+  const config = platform === 'darwin' ? join(home, 'Library', 'Application Support', 'RightKit', 'build-control', 'config.json')
+    : platform === 'win32' ? 'D:\\.rightkit-managed\\config.json' : null;
+  let pin = null;
+  try { pin = realpath(JSON.parse(read(config, 'utf8')).buildRules.checkAdmission.trustedGate.path); } catch { /* no configured trusted gate */ }
+  if (!pin) return null;
+  for (const { argv } of executableInvocations(command)) {
+    const name = basename(argv[0] ?? '');
+    if (name === 'rightkit-host-gate' || name === 'rustright') continue;
+    if (['pnpm', 'npm', 'npx', 'yarn'].includes(name)) {
+      const args = skipOptions(argv.slice(1), name === 'pnpm' ? new Set([...packageOptions].filter((option) => option !== '-w')) : packageOptions);
+      if (args[0] === 'exec' && ['rustright', 'rightkit-host-gate'].includes(basename(args[1] ?? ''))) continue;
+    }
+    const gateScript = name === 'rightkit-gate' || name === 'rightkit-gate.mjs' ? argv[0]
+      : ['node', 'nodejs'].includes(name) ? argv.find((arg) => /(?:^|[\\/])rightkit-gate\.mjs$/i.test(arg)) : null;
+    if (gateScript) {
+      try { if (pin && realpath(gateScript) === pin) continue; } catch { /* not the pin */ }
+      return 'untrusted-gate';
+    }
+    const operation = dynamicInvocation(argv);
+    if (operation) return operation;
+  }
+  return null;
+}
+
 // RustRight manages cargo and rustup on Adrian's Mac and Dell only. Every other host (Linux
 // servers, cloud sessions, CI) runs plain cargo. Same platform test as managedControlCandidates
 // in packages/release/managed-roots.mjs, which treats win32 and darwin as the managed hosts.
@@ -428,6 +476,9 @@ function denialMessage(blocked) {
   }
   if (blocked.startsWith('github-actions-only:')) {
     return `[HOOK:rustright-managed-build:block]\nWhy: Local public-repository execution forbidden: ${blocked.slice('github-actions-only:'.length)}\nRequired: Push changes & use managed GitHub Actions (RustRight does not run public-repository builds locally).`;
+  }
+  if (blocked.startsWith('agent-door:')) {
+    return `[HOOK:rightkit-door:block]\nWhy: direct build or test entry is outside the managed door: ${blocked.slice('agent-door:'.length)}\nRequired: run rightkit-host-gate --to dev or --to test.`;
   }
   return `[HOOK:rustright-managed-build:block]\nWhy: RustRight manages local cargo and rustup on this machine; direct local use is forbidden: ${blocked}\nRequired: Run it through RustRight ("rustright cargo ...", "rustright rustc ..." or "rustright rustdoc ..."). Cargo or rustup on another host over ssh is allowed.`;
 }
@@ -449,7 +500,14 @@ export function claudeHookDecision(input) {
     cwd: input?.cwd ?? input?.tool_input?.cwd ?? process.cwd(),
     environment: input?.environment ?? process.env,
     ...(input?.platform ? { platform: input.platform } : {}),
-  }) ?? managedBuildViolation(inspectedCommand ?? '');
+  }) ?? managedBuildViolation(inspectedCommand ?? '') ?? (() => {
+    const violation = agentDoorViolation(inspectedCommand ?? '', {
+      cwd: input?.cwd ?? input?.tool_input?.cwd ?? process.cwd(),
+      home: input?.environment?.HOME ?? process.env.HOME ?? '',
+      ...(input?.platform ? { platform: input.platform } : {}),
+    });
+    return violation ? `agent-door:${violation}` : null;
+  })();
   return blocked ? { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: denialMessage(blocked) } } : { decision: 'allow' };
 }
 
@@ -459,7 +517,14 @@ export function clineHookDecision(input) {
     cwd: input?.cwd ?? input?.preToolUse?.cwd ?? input?.tool_input?.cwd ?? process.cwd(),
     environment: input?.environment ?? process.env,
     ...(input?.platform ? { platform: input.platform } : {}),
-  }) ?? managedBuildViolation(command ?? '');
+  }) ?? managedBuildViolation(command ?? '') ?? (() => {
+    const violation = agentDoorViolation(command ?? '', {
+      cwd: input?.cwd ?? input?.preToolUse?.cwd ?? input?.tool_input?.cwd ?? process.cwd(),
+      home: input?.environment?.HOME ?? process.env.HOME ?? '',
+      ...(input?.platform ? { platform: input.platform } : {}),
+    });
+    return violation ? `agent-door:${violation}` : null;
+  })();
   return blocked
     ? { cancel: true, errorMessage: denialMessage(blocked) }
     : { cancel: false };

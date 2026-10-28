@@ -13,6 +13,7 @@
 // all-features check, packaging, gate, publish and registry readback, and writes its own evidence file. Crates
 // of one dependency layer publish concurrently (bounded); layer N+1 starts only after every layer-N crate is
 // visible in the registry index with the verified checksum.
+import { buildLaunch } from "./build-launch.mjs";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -528,7 +529,15 @@ async function* publishUnitStages(parsed, deps, batch) {
   const brokerRequests = [];
   const noteBrokerRequests = (result) => { for (const [, id] of `${result?.stdout ?? ""}\n${result?.stderr ?? ""}`.matchAll(/^rustright: request ([0-9a-f-]{36})/gm)) if (!brokerRequests.includes(id)) brokerRequests.push(id); return result; };
   const launch = deps.run ?? (batch ? defaultRunAsync : defaultRun);
-  const run = (...args) => { const result = launch(...args); return typeof result?.then === "function" ? result.then(noteBrokerRequests) : noteBrokerRequests(result); };
+  // Every pnpm step goes through the one door for build and test launches (build-launch.mjs): a rightkit-pnpm broker job on a
+  // managed host (refused, never run directly, when the broker is unreachable), direct on a host without one. A run headed to release
+  // then also has the signed receipt each stage owes (stage-commands.mjs). Other commands (cargo is already a broker job) are unchanged.
+  const run = (command, args, options) => {
+    const target = command === "pnpm" ? buildLaunch(command, args, { env: options?.env ?? process.env, platform: deps.platform ?? process.platform, exists: fs.existsSync }) : { command, args };
+    const result = launch(target.command, target.args, options);
+    return typeof result?.then === "function" ? result.then(noteBrokerRequests) : noteBrokerRequests(result);
+  };
+
 
   // 1. Preconditions, fail closed.
   const platform = assertLocalHost(deps, workspaceRoot, kind);
@@ -626,7 +635,10 @@ async function* publishUnitStages(parsed, deps, batch) {
   if (packageEnv) Object.assign(env, testEnv({ env: packageEnv }, isAssetGated));
 
   // 3. Pack the artifact and hash it.
-  const scratch = fs.mkdtempSync(path.join(deps.tmpdir ?? os.tmpdir(), "rk-local-publish-"));
+  // An npm pack is a broker job whose --dir and --pack-destination the adapter accepts only under the host's scratch root, so it
+  // packs there (the workspace rule for run output) rather than in the OS temp directory.
+  const scratchRoot = deps.tmpdir ?? (kind === "npm" ? (platform === "win32" ? "D:\\scratch" : "/Volumes/D/scratch") : os.tmpdir());
+  const scratch = fs.mkdtempSync(path.join(scratchRoot, "rk-local-publish-"));
   const cleanup = () => fs.rmSync(scratch, { recursive: true, force: true });
   try {
     let artifactFile; const packCommands = [];
@@ -646,11 +658,15 @@ async function* publishUnitStages(parsed, deps, batch) {
       // The feed a tarball ships must list the version it ships with (#319): stage it before packing.
       const feedFile = path.join(workspaceRoot, "packages", "release", "rightkit-versions.json");
       if (!parsed.qualifyOnly && fs.existsSync(feedFile)) await withVersionsLock(() => (deps.stageSourceVersions ?? stageSourceVersions)([{ registry: "npm", name: unit, version }], { file: feedFile, root: workspaceRoot, log }));
-      const args = npmPackArgs(packDir, scratch);
+      // The tarball goes to an empty `pack` directory inside the scratch directory: the adapter takes --pack-destination only as a
+      // child of a scratch directory (never the scratch directory itself) and refuses one that already holds a tarball.
+      const packOut = path.join(scratch, "pack");
+      fs.mkdirSync(packOut);
+      const args = npmPackArgs(packDir, packOut);
       packCommands.push(`pnpm ${args.join(" ")}`);
       const packed = await run("pnpm", args, { cwd: workspaceRoot, env });
       if (packed.error || packed.status !== 0) refuse(`pnpm pack failed for ${unit}\n${tail(`${packed.stdout ?? ""}\n${packed.stderr ?? ""}`)}`);
-      artifactFile = path.join(scratch, tarballName(unit, version));
+      artifactFile = path.join(packOut, tarballName(unit, version));
       if (!fs.existsSync(artifactFile)) refuse(`pnpm pack did not produce ${path.basename(artifactFile)}`);
       const checked = modules.checkNpmTarball({ file: artifactFile, name: unit, version, dir, spawn: deps.spawnSync ?? spawnSync });
       if (checked.problems.length) refuse(`${unit}: packed tarball refused:\n  - ${checked.problems.join("\n  - ")}`);

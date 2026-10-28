@@ -98,7 +98,7 @@ function realHookRepo(t, { files, message = "app" }) {
   });
   // Windows spells it Path; a second PATH key beside it would leave which one wins to the platform.
   const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== "PATH"));
-  const env = { ...inherited, PATH: toolPath, GIT_EXEC_PATH: exec.stdout.trim(), CI: "", GITHUB_ACTIONS: "", GIT_TERMINAL_PROMPT: "0" };
+  const env = { ...inherited, HOME: root, PATH: toolPath, GIT_EXEC_PATH: exec.stdout.trim(), CI: "", GITHUB_ACTIONS: "", GIT_TERMINAL_PROMPT: "0" };
   const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8", env });
   for (const [k, v] of [["user.email", "t@example.test"], ["user.name", "t"], ["core.autocrlf", "false"], ["core.hooksPath", ".githooks"]]) git("config", k, v);
   const remote = path.join(tmp, "remote.git");
@@ -1052,7 +1052,29 @@ function hookRepo(t, files) {
 }
 const recorder = (log, label) => `#!/bin/sh\n{ echo "${label} $*"; cat; echo "--"; } >> "${log.replaceAll("\\", "/")}"\n`;
 const runHook = (root, input, { path: extraPath = [], env = {} } = {}) => spawnSync("sh", [".githooks/pre-push", "origin", "https://example.test/r.git"], {
-  cwd: root, input, encoding: "utf8", env: { ...process.env, ...env, PATH: [...extraPath, process.env.PATH].join(path.delimiter) },
+  cwd: root, input, encoding: "utf8", env: { ...process.env, HOME: root, ...env, PATH: [...extraPath, ...String(process.env.PATH ?? "").split(path.delimiter).filter((p) => !fs.existsSync(path.join(p, "rightkit-host-gate")))].join(path.delimiter) },
+});
+
+test("the pre-push hook prefers the host gate over an app's older gate", { skip: !shAvailable && "no sh" }, (t) => {
+  const tmp = mkRepo({}, t);
+  const log = path.join(tmp, "calls.log");
+  const hostBin = path.join(tmp, "host-bin");
+  fs.mkdirSync(hostBin);
+  fs.writeFileSync(path.join(hostBin, "rightkit-host-gate"), recorder(log, "host"), { mode: 0o755 });
+  const root = hookRepo(t, { ".githooks/pre-push": hookText("bin/rightkit-gate.mjs"), "node_modules/.bin/rightkit-gate": recorder(log, "old") });
+  const ran = runHook(root, `refs/heads/main ${"a".repeat(40)} refs/heads/main ${"0".repeat(40)}\n`, { path: [hostBin] });
+  assert.equal(ran.status, 0, ran.stderr);
+  const calls = fs.readFileSync(log, "utf8");
+  assert.match(calls, /host check --commit HEAD/);
+  assert.match(calls, /host --base origin\/main/);
+  assert.doesNotMatch(calls, /old /);
+});
+
+test("the pre-push hook refuses a managed host with no host gate", { skip: !shAvailable && "no sh" }, (t) => {
+  const root = hookRepo(t, { ".githooks/pre-push": hookText("bin/rightkit-gate.mjs"), "node_modules/.bin/rightkit-gate": "#!/bin/sh\nexit 0\n", "Library/Application Support/RightKit/build-control/config.json": "{}" });
+  const ran = runHook(root, `refs/heads/main ${"a".repeat(40)} refs/heads/main ${"0".repeat(40)}\n`);
+  assert.notEqual(ran.status, 0);
+  assert.match(ran.stderr, /managed host is missing rightkit-host-gate/);
 });
 
 test("the pre-push hook: runs .git/hooks/pre-push first, then the check, then the gate; the ref lines reach the own hook and the gate, and the first failure stops the push", { skip: !shAvailable && "no sh" }, (t) => {
@@ -1477,7 +1499,7 @@ test("a scratch repository with a red tree rejects git push through the installe
     "pnpm-lock.yaml": "lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\nimporters:\n\n  .:\n    devDependencies:\n      '@rightkit/release':\n        specifier: 0.6.5\n        version: 0.6.5\n\npackages:\n\n  '@rightkit/release@0.6.5':\n    resolution: {integrity: sha512-s2PA4qjj6q13RpWaRW4r12///Mj34IR+8DqXwCOVuqbQcZ3MsX7Zlyb6u/VWlVnwfKIwpt7/jN4yzOvPvyd+pA==}\n    hasBin: true\n\n  smol-toml@1.9.1:\n    resolution: {integrity: sha512-j7WyPdf0CJoutMzMoPLF/bVXHtKZIT9Rb4eGeEbWw8X2t5oirjPgpL+OpaENZrILYaXqYwnVH+qgUwVbl+pUJQ==}\n    engines: {node: '>= 18'}\n\nsnapshots:\n\n  '@rightkit/release@0.6.5':\n    dependencies:\n      smol-toml: 1.9.1\n\n  smol-toml@1.9.1: {}\n",
     "node_modules/.bin/rightkit-gate": shim,
   });
-  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
+  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8", env: { ...process.env, HOME: root, PATH: String(process.env.PATH ?? "").split(path.delimiter).filter((p) => !fs.existsSync(path.join(p, "rightkit-host-gate"))).join(path.delimiter) } });
   for (const [k, v] of [["user.email", "t@example.test"], ["user.name", "t"], ["core.autocrlf", "false"]]) git("config", k, v);
   fs.writeFileSync(path.join(root, ".gitignore"), "node_modules/\n");
   const remote = path.join(tmp, "remote.git");
@@ -2186,9 +2208,10 @@ test("ios and android are door platforms: check, compile, package (build only), 
     // A red release tier blocks the upload.
     calls.length = 0;
     const red = capture();
+    fs.rmSync(path.join(root, ".git", "rightkit-gate", "receipts", `${head}.json`));
     // The release tier now runs at check for a --to release run (before any build): a red release tier stops it there.
     const redIo = { ...io, runCheck: async (tier) => (tier === "release" ? 1 : 0), runReleaseCheck: async () => 1, sealedFor: () => ({ id: `app-1.0.1-${head.slice(0, 8)}`, manifest: "m", digest: "e".repeat(64) }) };
-    await main(["--to", "release", "--platform", platform], { ...red.io, cwd: root, ...redIo });
+    assert.notEqual(await main(["--to", "release", "--platform", platform], { ...red.io, cwd: root, ...redIo }), 0);
     assert.ok(!calls.some((c) => c.startsWith("upload")), `nothing uploaded on a red release tier: ${calls.join(" | ")}`);
   }
   // Desktop is unchanged: release still needs the tier and the publisher.
@@ -2404,7 +2427,7 @@ test("install-hook: a root that installs the package keeps getting the published
   ]) {
     const r = await installFrom(t, files, outside);
     assert.equal(r.hook, hookText(LINK), name);
-    assert.equal(sha256Hex(r.hook), PUBLISHED_HOOK_DIGESTS["0.6.5"], `${name}: the hook the published 0.6.5 wrote, so the template's committed hook is still "already current"`);
+    assert.equal(sha256Hex(hookText(LINK, [], true)), PUBLISHED_HOOK_DIGESTS["0.6.5"], `${name}: the published legacy hook remains recognizable for upgrades`);
   }
   const own = await installFrom(t, { "packages/release/package.json": '{"name":"@rightkit/release"}' }, (root) => path.join(root, "packages/release/bin/rightkit-gate.mjs"));
   assert.equal(own.hook, hookText("packages/release/bin/rightkit-gate.mjs"), "RightKit's own hook points at its checkout, as before");
@@ -2442,7 +2465,7 @@ test("install-hook: the hook depends on what package.json files declare, not on 
     assert.ok(again.out.some((l) => /\.githooks\/pre-push already current/.test(l)), `${name}: ${again.out.join("\n")}`);
     assert.doesNotMatch(again.err.join("\n"), /already exists and differs/, name);
   }
-  assert.equal(sha256Hex(hookText(LINK)), PUBLISHED_HOOK_DIGESTS["0.6.5"], "the root form is the published 0.6.5 hook");
+  assert.equal(sha256Hex(hookText(LINK, [], true)), PUBLISHED_HOOK_DIGESTS["0.6.5"], "the legacy root form is the published 0.6.5 hook");
 });
 
 test("install-hook: a declaring package whose directory is not a plain name is reported and never written into the hook", async (t) => {
@@ -2481,7 +2504,7 @@ test("the multi-root pre-push hook (real sh): a package deeper than the glob, th
   const shDirs = process.platform === "win32" ? [whereDir("sh"), whereDir("git")] : ["/usr/bin", "/bin"];
   const noPnpmPath = [shim, ...shDirs].join(path.delimiter);
   const lastResort = hookRepo(t, { ...hook(["apps/cutright"], `apps/cutright/${LINK}`), [`apps/cutright/${LINK}`]: `import fs from "node:fs";\nfs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(" ") + "\\n");\nfs.readFileSync(0);\n` });
-  const viaNode = spawnSync("sh", [".githooks/pre-push", "origin", "https://example.test/r.git"], { cwd: lastResort, input: "in\n", encoding: "utf8", env: { ...process.env, PATH: noPnpmPath } });
+  const viaNode = spawnSync("sh", [".githooks/pre-push", "origin", "https://example.test/r.git"], { cwd: lastResort, input: "in\n", encoding: "utf8", env: { ...process.env, HOME: lastResort, PATH: noPnpmPath } });
   assert.equal(viaNode.status, 0, viaNode.stderr);
   assert.equal(fs.readFileSync(log, "utf8"), "check --commit HEAD\n--base origin/main\n");
   assert.match(viaNode.stderr, /rightkit-gate: using node apps\/cutright\/node_modules\/@rightkit\/release\/bin\/rightkit-gate\.mjs/);
@@ -2517,20 +2540,25 @@ test("RightKit self-check: the door runs RightKit's own rules for the requested 
   fs.mkdirSync(path.join(root, "scripts", "ci"), { recursive: true });
   fs.writeFileSync(path.join(root, "scripts", "preflight.mjs"), "");
   fs.writeFileSync(path.join(root, "scripts", "ci", "exports-import-effects.mjs"), "");
+  fs.mkdirSync(path.join(root, "packages", "release"), { recursive: true });
+  fs.writeFileSync(path.join(root, "packages", "release", "package.json"), '{"name":"@rightkit/release"}\n');
   fs.writeFileSync(path.join(root, "good.json"), "{}\n");
   git("add", "-A"); git("commit", "-q", "-m", "one");
   const first = git("rev-parse", "HEAD").stdout.trim();
   fs.writeFileSync(path.join(root, "more.json"), "{}\n"); git("add", "-A"); git("commit", "-q", "-m", "two");
   const selfPath = path.join(root, "packages", "release", "bin", "rightkit-gate.mjs");
-  const run = async ({ appCheck = 0, args, status = 0 }) => {
+  const run = async ({ appCheck = 0, args, status = 0, gatePath = selfPath }) => {
     const launched = []; const c = capture();
-    const code = await main(["check", ...args], { ...c.io, cwd: root, selfPath, resolveExecutor: directExecutor, appCheck: async () => appCheck, spawnInherit: (cmd, a) => { launched.push(a.map((x) => (x === root ? "." : x.startsWith(`${root}${path.sep}`) ? path.relative(root, x).split(path.sep).join("/") : x)).join(" ")); return { status: typeof status === "function" ? status(a) : status }; } });
+    const code = await main(["check", ...args], { ...c.io, cwd: root, selfPath: gatePath, resolveExecutor: directExecutor, appCheck: async () => appCheck, spawnInherit: (cmd, a) => { launched.push(a.map((x) => (x === root ? "." : x.startsWith(`${root}${path.sep}`) ? path.relative(root, x).split(path.sep).join("/") : x)).join(" ")); return { status: typeof status === "function" ? status(a) : status }; } });
     return { code, launched, err: c.err.join("\n") };
   };
   // Positive control: green app rules and class A on HEAD run RightKit's rules for HEAD, then the import check.
   const green = await run({ args: ["--commit", "HEAD"] });
   assert.equal(green.code, 0, green.err);
   assert.deepEqual(green.launched, ["scripts/preflight.mjs --repo . --commit HEAD", "scripts/ci/exports-import-effects.mjs --report .git/rightkit-gate/import-effects/report.json"]);
+  const pinned = await run({ args: ["--commit", "HEAD"], gatePath: path.join(os.tmpdir(), "trusted-gate", "rightkit-gate.mjs") });
+  assert.equal(pinned.code, 0, pinned.err);
+  assert.deepEqual(pinned.launched, green.launched, "a pinned gate runs RightKit's own checks too");
   // Negative: a red app rule or a red class A scan executes none of the repository's own scripts.
   const redApp = await run({ appCheck: 1, args: ["--commit", "HEAD"] });
   assert.equal(redApp.code, 1); assert.deepEqual(redApp.launched, []);
@@ -2565,6 +2593,10 @@ test("RightKit self-check: the door runs RightKit's own rules for the requested 
   // Through the gate entry: a working-tree probe that fails (a finding, or UNSTABLE because the tree changed while it ran) fails the check.
   const unstable = await run({ args: ["--worktree"], status: (a) => (a.some((x) => String(x).endsWith("exports-import-effects.mjs")) ? 1 : 0) });
   assert.equal(unstable.code, 1, "a red or unstable working-tree probe fails the self-check");
+  fs.rmSync(path.join(root, "scripts", "ci", "exports-import-effects.mjs"));
+  const missing = await run({ args: ["--worktree"], gatePath: path.join(os.tmpdir(), "trusted-gate", "rightkit-gate.mjs") });
+  assert.equal(missing.code, 1, "a pinned gate refuses a missing RightKit self-check");
+  assert.match(missing.err, /preflight or exports check is missing/);
 });
 
 test("cargoInputsDiffer: blob-identical Cargo inputs are empty; a live edit, an untracked or ignored input, and a snapshot behind HEAD are named (rightkit#1215)", (t) => {
@@ -2733,7 +2765,26 @@ test("a door run puts the door's own right-release shims first on PATH when the 
   assert.deepEqual(doorPath({ env: { PATH: "/usr/bin" }, exists, gateFile: path.join(os.tmpdir(), "repo", "packages", "release", "bin", "rightkit-gate.mjs"), platform: "darwin" }), {}, "a checkout has no .bin beside it");
 });
 
-test("the sealed-set shortcut never skips the release tier: a set sealed under a compile-tier check still runs the release tier at qualify", async (t) => {
+test("full admission cannot downgrade app rules to compile tier", async () => {
+  for (const args of [["check", "--full-a"], ["check", "--full-a", "--rule-tier", "compile"]]) {
+    const seen = []; const c = capture();
+    await main(args, { ...c.io, classA: false, appCheck: async (argv) => { seen.push(argv); return 0; } });
+    assert.equal(seen.length, 1);
+    assert.deepEqual(seen[0].slice(-2), ["--rule-tier", "release"]);
+    assert.equal(seen[0].filter((arg) => arg === "--rule-tier").length, 1);
+  }
+  const c = capture();
+  assert.equal(await main(["check", "--full-a", "--rule-tier", "compile", "--rule-tier", "compile"], { ...c.io, appCheck: async () => { throw new Error("duplicate tier must refuse first"); } }), 2);
+});
+
+test("a red app rule stops full admission before scans", async () => {
+  const c = capture();
+  const code = await main(["check", "--full-a"], { ...c.io, appCheck: async () => 1, spawn: () => { throw new Error("scan started after a red app rule"); } });
+  assert.equal(code, 1);
+  assert.match(c.err.join("\n"), /app rules failed; no further scans ran/);
+});
+
+test("package checks every rule before compiling and qualify reuses that exact check", async (t) => {
   const { root, head } = stageRepo(t);
   const calls = []; const tiers = [];
   const io = {
@@ -2745,14 +2796,12 @@ test("the sealed-set shortcut never skips the release tier: a set sealed under a
   };
   const pkg = capture();
   assert.equal(await main(["--to", "package", "--platform", "win"], { ...pkg.io, cwd: root, ...io }), 0, pkg.err.join("\n"));
-  assert.deepEqual(tiers, ["check:compile"]);
+  assert.deepEqual(tiers, ["check:release"]);
   tiers.length = 0; calls.length = 0;
   const qual = capture();
-  // check, compile and package are skipped for the intact sealed set; qualify must still owe (and here fail) the release tier.
-  assert.equal(await main(["--to", "qualify", "--platform", "win"], { ...qual.io, cwd: root, ...io }), 1);
-  assert.match(qual.out.join("\n"), /\[check\] already passed for the sealed set/);
-  assert.deepEqual(tiers, ["qualify:release"], "the release tier ran at qualify because check ran only the compile tier");
-  assert.ok(!calls.some((c) => c.startsWith("qa --stage installed")), calls.join(" | "));
+  assert.equal(await main(["--to", "qualify", "--platform", "win"], { ...qual.io, cwd: root, ...io }), 0, qual.err.join("\n"));
+  assert.deepEqual(tiers, [], "the exact release-tier check is reused");
+  assert.ok(calls.some((c) => c.startsWith("qa --stage installed")), calls.join(" | "));
 });
 
 test("cargoInputsDiffer batches its pathspecs under the Windows command-line limit: no git argv exceeds the batch size, results merge, and a failed batch fails closed", (t) => {

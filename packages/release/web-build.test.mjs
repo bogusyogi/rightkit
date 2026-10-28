@@ -18,7 +18,7 @@ test("web.build steps resolve to node invocations from the app root, in order", 
   const calls = [];
   const logs = [];
   const code = runWebBuild(planWebBuild(config), {
-    appRoot, env: {}, requireDoor: () => null, log: (line) => logs.push(line),
+    door: (command, args) => ({ command, args }), appRoot, env: {}, requireDoor: () => null, log: (line) => logs.push(line),
     spawnSyncFn: (cmd, args, options) => { if (cmd === "git") return gitStub()(cmd, args); calls.push({ cmd, args, options }); return { status: 0 }; },
   });
   assert.equal(code, 0);
@@ -33,16 +33,16 @@ test("web.build steps resolve to node invocations from the app root, in order", 
 
 test("a failing step stops the build and its exit code is returned; a spawn error throws", () => {
   const calls = [];
-  const code = runWebBuild(planWebBuild(config), { appRoot, env: {}, requireDoor: () => null, log: () => {}, spawnSyncFn: (...call) => { if (call[0] === "git") return gitStub()(...call); calls.push(call); return { status: 2 }; } });
+  const code = runWebBuild(planWebBuild(config), { door: (command, args) => ({ command, args }), appRoot, env: {}, requireDoor: () => null, log: () => {}, spawnSyncFn: (...call) => { if (call[0] === "git") return gitStub()(...call); calls.push(call); return { status: 2 }; } });
   assert.equal(code, 2);
   assert.equal(calls.length, 1);
-  assert.equal(runWebBuild(planWebBuild(config), { appRoot, env: {}, requireDoor: () => null, log: () => {}, spawnSyncFn: (cmd, args) => cmd === "git" ? gitStub()(cmd, args) : { status: null } }), 1);
-  assert.throws(() => runWebBuild(planWebBuild(config), { appRoot, env: {}, requireDoor: () => null, log: () => {}, spawnSyncFn: (cmd, args) => cmd === "git" ? gitStub()(cmd, args) : { error: new Error("ENOENT") } }), /ENOENT/);
+  assert.equal(runWebBuild(planWebBuild(config), { door: (command, args) => ({ command, args }), appRoot, env: {}, requireDoor: () => null, log: () => {}, spawnSyncFn: (cmd, args) => cmd === "git" ? gitStub()(cmd, args) : { status: null } }), 1);
+  assert.throws(() => runWebBuild(planWebBuild(config), { door: (command, args) => ({ command, args }), appRoot, env: {}, requireDoor: () => null, log: () => {}, spawnSyncFn: (cmd, args) => cmd === "git" ? gitStub()(cmd, args) : { error: new Error("ENOENT") } }), /ENOENT/);
 });
 
 test("--dry-run prints the commands and runs nothing", () => {
   const logs = [];
-  const code = runWebBuild(planWebBuild(config), { appRoot, env: {}, dryRun: true, requireDoor: () => null, log: (line) => logs.push(line), spawnSyncFn: (cmd, args) => { if (cmd === "git") return gitStub()(cmd, args); throw new Error("must not spawn"); } });
+  const code = runWebBuild(planWebBuild(config), { door: (command, args) => ({ command, args }), appRoot, env: {}, dryRun: true, requireDoor: () => null, log: (line) => logs.push(line), spawnSyncFn: (cmd, args) => { if (cmd === "git") return gitStub()(cmd, args); throw new Error("must not spawn"); } });
   assert.equal(code, 0);
   assert.equal(logs.length, 2);
   assert.ok(logs.every((line) => line.startsWith("[dry-run] ")));
@@ -80,9 +80,9 @@ test("the door is checked before the config is imported: a refused web build nev
 });
 
 test("the exported runner refuses outside a door run too: no in-process caller spawns a step around the door (Astra, third pass)", () => {
-  assert.throws(() => runWebBuild(planWebBuild(config), { appRoot, env: {}, spawnSyncFn: gitStub(), log: () => {} }), (e) => e.code === "RK_DOOR" && /one door/.test(e.message));
+  assert.throws(() => runWebBuild(planWebBuild(config), { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnSyncFn: gitStub(), log: () => {} }), (e) => e.code === "RK_DOOR" && /one door/.test(e.message));
   let spawned = 0;
-  assert.throws(() => runWebBuild(planWebBuild(config), { appRoot, env: {}, requireDoor: () => "shut", spawnSyncFn: (cmd) => { if (cmd !== "git") spawned += 1; return { status: 0, stdout: ".git" }; }, log: () => {} }), /shut/);
+  assert.throws(() => runWebBuild(planWebBuild(config), { door: (command, args) => ({ command, args }), appRoot, env: {}, requireDoor: () => "shut", spawnSyncFn: (cmd) => { if (cmd !== "git") spawned += 1; return { status: 0, stdout: ".git" }; }, log: () => {} }), /shut/);
   assert.equal(spawned, 0);
   assert.equal(webBuildDoorRefusal({ appRoot, env: {}, spawnSyncFn: () => ({ status: 128, stdout: "" }) }), "right-release web-build runs only inside a git repository, under a door run");
 });

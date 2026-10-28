@@ -374,7 +374,7 @@ function makeTgz(out, rootName, files) {
     fs.mkdirSync(path.dirname(full), { recursive: true });
     fs.writeFileSync(full, content);
   }
-  const r = spawnSync("tar", ["-czf", path.basename(out), "-C", tarDir(stage), rootName], { cwd: path.dirname(out), encoding: "utf8" });
+  const r = spawnSync("tar", [...(process.platform === "darwin" ? ["--no-xattrs"] : []), "-czf", path.basename(out), "-C", tarDir(stage), rootName], { cwd: path.dirname(out), encoding: "utf8", env: { ...process.env, COPYFILE_DISABLE: "1" } });
   assert.equal(r.status, 0, r.stderr);
   fs.rmSync(stage, { recursive: true, force: true });
 }

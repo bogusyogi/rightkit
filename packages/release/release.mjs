@@ -3,6 +3,7 @@ import { expandPackageRecipeTarget } from "./package-recipe-targets.mjs";
 import { access, readFile, readdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { buildLaunch } from "./build-launch.mjs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -1141,14 +1142,16 @@ function sweepStaleRustArtifacts() {
 }
 
 async function runInstall(pm, cwd) {
-  if (pm === "pnpm") await run("pnpm", ["install", "--frozen-lockfile"], cwd, {}, { install: true });
-  else if (pm === "npm") await run("npm", ["ci"], cwd, {}, { install: true });
+  if (pm === "pnpm") { const t = buildLaunch("pnpm", ["install", "--frozen-lockfile"], { cwd, exists: existsSync }); await run(t.command, t.args, cwd, {}, { install: true }); }
+  else if (pm === "npm") { const t = buildLaunch("npm", ["ci"], { cwd, exists: existsSync }); await run(t.command, t.args, cwd, {}, { install: true }); }
   else fail(`unsupported package manager: ${pm}`);
 }
 
 async function runPackageScript(pm, script, cwd) {
   if (script === false) return;
-  await run(pm, ["run", script], cwd);
+  // A package script (a check or a web build) goes through the one door (build-launch.mjs): a broker job on a managed host.
+  const target = buildLaunch(pm, ["run", script], { cwd, exists: existsSync });
+  await run(target.command, target.args, cwd);
 }
 
 // A hook may be one command object or an ordered array of them (e.g. create-mac-updater then lsclean).
@@ -1162,9 +1165,15 @@ async function runCommands(value, root, options) {
   for (const command of commandList(value)) await runCommand(command, root, options);
 }
 
+// Every configured hook (prePackage, the package command and hook, sidecar stages, gradle, the finalizer, postSign, publish) is
+// arbitrary code that can build, so it goes through the one door (build-launch.mjs): this package's own right-release steps run as
+// they are (their builds come back through the door), node, pnpm, cargo and rightkit-qa are broker jobs, and anything else is refused
+// on a broker-managed host (rightkit#1241).
 async function runCommand(command, root, { env = {}, captureStdout = false } = {}) {
   const cwd = path.resolve(root, command.cwd ?? ".");
-  return run(command.cmd, command.args ?? [], cwd, { ...(await commandEnv(command, root)), ...env }, {
+  const commandEnvironment = { ...(await commandEnv(command, root)), ...env };
+  const target = buildLaunch(command.cmd, command.args ?? [], { env: { ...process.env, ...commandEnvironment }, cwd, exists: existsSync });
+  return run(target.command, target.args, cwd, commandEnvironment, {
     ...command,
     captureStdout,
     timeoutMs: commandTimeoutMs(command),

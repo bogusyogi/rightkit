@@ -122,7 +122,7 @@ test("runSuites runs in order, emits events, stops at the first failure and retu
   const plan = planTests(config, { appRoot });
   const calls = [];
   const logs = [];
-  const ok = await runSuites(plan, { appRoot, prefix: "e2e", env: {}, spawnFn: fakeSpawn([0, 0, 0], calls), log: (line) => logs.push(JSON.parse(line)) });
+  const ok = await runSuites(plan, { door: (command, args) => ({ command, args }), appRoot, prefix: "e2e", env: {}, spawnFn: fakeSpawn([0, 0, 0], calls), log: (line) => logs.push(JSON.parse(line)) });
   assert.equal(ok.exitCode, 0);
   assert.equal(calls.length, 3);
   assert.deepEqual(logs.filter((e) => e.event === "e2e_suite_started").map((e) => e.suite), ["tooling", "runtime-config", "toolbar"]);
@@ -132,14 +132,14 @@ test("runSuites runs in order, emits events, stops at the first failure and retu
 
   const failCalls = [];
   const failLogs = [];
-  const failed = await runSuites(plan, { appRoot, env: {}, spawnFn: fakeSpawn([0, 3], failCalls), log: (line) => failLogs.push(JSON.parse(line)) });
+  const failed = await runSuites(plan, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn([0, 3], failCalls), log: (line) => failLogs.push(JSON.parse(line)) });
   assert.equal(failed.exitCode, 3);
   assert.equal(failCalls.length, 2, "the third suite never starts");
   assert.deepEqual(failed.results.map((r) => r.exitCode), [0, 3]);
   assert.equal(failLogs[0].event, "test_suite_started");
 
-  await assert.rejects(() => runSuites(plan, { appRoot, env: {}, spawnFn: fakeSpawn(["signal"], []), log: () => {} }), /stopped by SIGTERM/);
-  await assert.rejects(() => runSuites(plan, { appRoot, env: {}, spawnFn: fakeSpawn([new Error("ENOENT")], []), log: () => {} }), /ENOENT/);
+  await assert.rejects(() => runSuites(plan, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn(["signal"], []), log: () => {} }), /stopped by SIGTERM/);
+  await assert.rejects(() => runSuites(plan, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn([new Error("ENOENT")], []), log: () => {} }), /ENOENT/);
 });
 
 test("command-spec: loadAppConfig loads right-release.config.json from the working directory and names the app root", async () => {

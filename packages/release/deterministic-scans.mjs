@@ -55,13 +55,12 @@ export const CLASS_A_SCAN_PREFIXES = Object.freeze([
   // Everything mechanical and deterministic that does not compile is class A (Adrian, 2026-10-27): typecheck, lint, generated docs.
   "tsc", "eslint", "biome", "generated-docs",
 ]);
-// Class B is the compile through the broker (cargo, swift) and only that.
+// Class B includes compiles and tests that execute project code.
 export const CLASS_B_SCAN_PREFIXES = Object.freeze([
   "clippy", "check", "check-all-features", "check-features", "check-dependent", "doc", "swift-build",
 ]);
-// Tests split by what they need: cargo tests compile (class B); node tests do not (class A), unless the test script reaches the
-// broker (`brokerCall`), in which case they compile and run with class B.
-export const TEST_SCAN_CLASS = Object.freeze({ "test:rust": "B", "test:rust-serial": "B", "test:npm": "A", "test:scripts-ci": "A" });
+// Test scripts can invoke a compiler indirectly, so all tests run after Class A.
+export const TEST_SCAN_CLASS = Object.freeze({ "test:rust": "B", "test:rust-serial": "B", "test:npm": "B", "test:scripts-ci": "B" });
 
 /**
  * Rollout switch for the CI integration (ci/gate.config.json: { "deterministicScans": { "enabled": true } }).
@@ -971,7 +970,7 @@ export function planScans({
       // Isolated only where the tests run on an export (contentRoot is not the live checkout): there sibling repositories are
       // absent by construction. On the live checkout (full class A, broker admission) the cross-app contract tests run for real.
       const isolatedCheckout = path.resolve(contentRoot) !== path.resolve(liveRoot);
-      add({ id: `test:npm:${name}`, class: brokerCall || laterReason ? B : A, kind: "test", executes: true, ...(brokerCall ? { classReason: "its test script reaches the broker (compiles); it runs with the compile scans" } : laterReason ? { classReason: laterReason } : {}), ...(own.quietTests === true ? { quiet: true } : {}), ...(brokerCall ? { brokerCall } : {}), tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { ...PNPM_RUN_ENV, ...(isolatedCheckout ? { RIGHTKIT_ISOLATED_CHECKOUT: "1" } : {}) } });
+      add({ id: `test:npm:${name}`, class: B, kind: "test", executes: true, classReason: brokerCall ? "its test script reaches the broker (compiles); it runs with the compile scans" : laterReason ?? "test scripts execute project code and run after class A", ...(own.quietTests === true ? { quiet: true } : {}), ...(brokerCall ? { brokerCall } : {}), tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { ...PNPM_RUN_ENV, ...(isolatedCheckout ? { RIGHTKIT_ISOLATED_CHECKOUT: "1" } : {}) } });
     }
     if (deferredToCi.length) notes.push(`${deferredToCi.length} quiet test scan(s) left to the CI shards (one crate per runner), not run here: ${deferredToCi.join(", ")}`);
     // scripts/ci tests run when scripts/, ci/ or .github/ changed, or a file the scripts/ci sources reference (imports and
@@ -1002,7 +1001,7 @@ export function planScans({
       // The suite is the exported commit's test files, named explicitly: an untracked WIP test in the live
       // checkout is never run and can neither block nor pass a push.
       const suite = listDir(path.join(contentRoot, "scripts", "ci")).filter((n) => n.endsWith(".test.mjs")).sort().map((n) => `scripts/ci/${n}`);
-      add({ id: "test:scripts-ci", class: A, kind: "test", executes: true, tool: "node", args: ["--test", ...(suite.length ? suite : ["scripts/ci/*.test.mjs"])] });
+      add({ id: "test:scripts-ci", class: B, kind: "test", executes: true, classReason: "tests execute project code and run after class A", tool: "node", args: ["--test", ...(suite.length ? suite : ["scripts/ci/*.test.mjs"])] });
     }
   }
 
@@ -1570,9 +1569,7 @@ export async function runScans(plan, options = {}) {
     try { onResult(row, { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ }
     return row;
   }
-  // Class A in order (a failure stops class B); then class B by lane: compile lanes (`jobs`) beside the doc lane, then the test
-  // lane (`testJobs`), then the quiet lane one at a time under the broker's quiet lease, so the tests that fail under load run on
-  // an otherwise quiet machine, as CI's shards run tests after their build. With jobs = 1 and testJobs = 1 the order is the same.
+  // Class A may run concurrently. Every class B lane runs serially: tests and docs can compile too, and one checkout gets one build.
   const aScans = ordered.filter((s) => s.class === SCAN_CLASS.A);
   const bScans = ordered.filter((s) => s.class === SCAN_CLASS.B);
   // Class A scans are independent content checks (and short broker calls: metadata, package list, deny, audit): they run
@@ -1622,8 +1619,9 @@ export async function runScans(plan, options = {}) {
     const lanes = { compile: [], doc: [], tests: [], quiet: [] };
     bScans.forEach((s, i) => lanes[laneOf(s)].push(i));
     const drain = async (queue, extraEnv = null) => { while (queue.length) { const i = queue.shift(); slots[i] = await runOne(bScans[i], extraEnv); } };
-    await Promise.all([...Array.from({ length: jobs }, () => drain(lanes.compile)), drain(lanes.doc)]);
-    await Promise.all(Array.from({ length: testJobs }, () => drain(lanes.tests)));
+    await drain(lanes.compile);
+    await drain(lanes.doc);
+    await drain(lanes.tests);
     if (lanes.quiet.length) {
       // One lease per quiet suite, as in class A above.
       for (const i of lanes.quiet) {

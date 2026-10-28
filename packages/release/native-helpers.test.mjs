@@ -107,11 +107,13 @@ test("Info.plist carries the declared bundle fields, LSUIElement and the executa
 test("builds every helper with explicit --arch slices, finds the bin path, verifies archs exactly, then embeds before anything is signed", () => {
   const { fs, log } = memoryFs(baseExisting);
   const { spawn, calls } = fakeSpawn();
-  const result = buildAndEmbedNativeHelpers({ appRoot: ROOT, app: APP, helpers: [menu(), cloud(), tool()], version: "1.2.3", env: {}, spawn, fs, sharedRoot: "/rk-rightkit" });
+  const result = buildAndEmbedNativeHelpers({ appRoot: ROOT, app: APP, helpers: [menu(), cloud(), tool()], version: "1.2.3", env: {}, spawn, fs, sharedRoot: "/rk-rightkit", packageOwner: (pkg) => pkg.startsWith("/rk-rightkit/") ? "/rk-rightkit" : ROOT });
   assert.deepEqual(result.events, ["build:menubar", "embed:menubar", "build:cloud", "embed:cloud", "build:tool", "embed:tool"]);
   const swift = calls.filter((call) => call.cmd === "swift" && !call.args.includes("--show-bin-path"));
-  assert.deepEqual(swift[0].args, ["build", "-c", "release", "--package-path", `${ROOT}/macos-native/Pkg`, "--product", "MenuBar", "--arch", "arm64", "--arch", "x86_64"]);
-  assert.equal(swift[1].args[swift[1].args.indexOf("--package-path") + 1], "/rk-rightkit/swift/RightKitCloudKitHelper");
+  assert.deepEqual(swift[0].args, ["build", "-c", "release", "--package-path", "macos-native/Pkg", "--product", "MenuBar", "--arch", "arm64", "--arch", "x86_64"]);
+  assert.equal(swift[0].options.cwd, ROOT);
+  assert.equal(swift[1].args[swift[1].args.indexOf("--package-path") + 1], "swift/RightKitCloudKitHelper");
+  assert.equal(swift[1].options.cwd, "/rk-rightkit");
   assert.deepEqual(calls.filter((call) => call.cmd === "lipo")[0].args, ["-archs", `${BIN}/MenuBar`]);
   assert.ok(log.includes(`copy:${BIN}/MenuBar->${APP}/${LOGIN}/MenuBar.app/Contents/MacOS/MenuBar`));
   assert.ok(log.includes(`copy:${BIN}/rightkit-cloudkit-helper->${APP}/${LOGIN}/CloudHelper.app/Contents/MacOS/CloudHelper`), "executable renamed");

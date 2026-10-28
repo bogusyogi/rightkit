@@ -18,6 +18,8 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { existsSync } from "node:fs";
+import { buildLaunch } from "./build-launch.mjs";
 import { CommandSpecError, loadAppConfig, resolveInvocation, validateStep } from "./command-spec.mjs";
 import { defaultReleaseConfigFile } from "./release-config.mjs";
 import { requireDoorRun } from "./gate-stages.mjs";
@@ -63,14 +65,16 @@ function doorError(refusal) { const error = new Error(refusal); error.code = "RK
  * Run the steps in order under a live door run; `spawnSyncFn`, `requireDoor` and `log` are injectable. Returns the exit code. The
  * door is checked here as well as in main: this is the only place a step is spawned.
  */
-export function runWebBuild(steps, { appRoot, env = process.env, dryRun = false, spawnSyncFn = spawnSync, requireDoor = requireDoorRun, log = console.log } = {}) {
+export function runWebBuild(steps, { appRoot, env = process.env, dryRun = false, spawnSyncFn = spawnSync, requireDoor = requireDoorRun, log = console.log, door = buildLaunch } = {}) {
   const refusal = webBuildDoorRefusal({ appRoot, env, spawnSyncFn, requireDoor });
   if (refusal) throw doorError(refusal);
   for (const step of steps) {
     const invocation = resolveInvocation(step, { appRoot, baseEnv: env });
     log(`${dryRun ? "[dry-run] " : ""}${[invocation.cmd, ...invocation.args].join(" ")}`);
     if (dryRun) continue;
-    const result = spawnSyncFn(invocation.cmd, invocation.args, { cwd: invocation.cwd, env: invocation.env, stdio: "inherit" });
+    // A web build is a build: through the one door (build-launch.mjs), a broker job on a managed host.
+    const target = door(invocation.cmd, invocation.args, { env: invocation.env, cwd: invocation.cwd, exists: existsSync });
+    const result = spawnSyncFn(target.command, target.args, { cwd: invocation.cwd, env: invocation.env, stdio: "inherit" });
     if (result.error) throw result.error;
     if (result.status !== 0) return result.status ?? 1;
   }

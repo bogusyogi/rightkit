@@ -2,6 +2,7 @@ import { discoverBrokerSocket, resolveManagedRoots } from './managed-roots.mjs';
 import { spawnSync } from "./background-process.mjs";
 import { createHash } from "node:crypto";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, lstatSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
+import { buildLaunch } from "./build-launch.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
@@ -98,7 +99,7 @@ export function validateDevelopmentConfig(config, platform, { root = process.cwd
   return target;
 }
 
-export function runDevelopment({ root, platform, config, buildOnly = false, dryRun = false, env = process.env, run = spawnSync,
+export function runDevelopment({ root, platform, config, buildOnly = false, dryRun = false, env = process.env, run = spawnSync, door = buildLaunch,
   codesignEnvironment = macosCodesignEnvironment, serial, uiTests = false }) {
   // UI test journeys (`right-release test --platform ios`): the declared XCUITest journeys on the dev device, under the same guards.
   if (uiTests && platform !== "ios") throw new Error("UI test journeys run for --platform ios only");
@@ -132,13 +133,13 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
   try {
     const startedMs = Date.now();
     // Android: cargo-ndk (Cargo dev profile) fills the generated jniLibs, then the Gradle debug build packages it.
-    if (target.ndk) { rmSync(target.ndk.jniLibs, { recursive: true, force: true }); execute(androidDevelopmentNdkCommand(target.ndk), { root, env: childEnv, dryRun, run, label: "native build" }); }
+    if (target.ndk) { rmSync(target.ndk.jniLibs, { recursive: true, force: true }); execute(androidDevelopmentNdkCommand(target.ndk), { root, env: childEnv, dryRun, run, door, label: "native build" }); }
     if (uiTests) {
-      for (const command of iosPrepared.tests) execute(command, { root, env: childEnv, dryRun, run, label: "ui tests" });
+      for (const command of iosPrepared.tests) execute(command, { root, env: childEnv, dryRun, run, door, label: "ui tests" });
       console.log(`right-release test: ios journeys passed (${target.uiTests.onlyTesting.join(", ")}); result bundle ${iosPrepared.resultBundle}`);
       return { built: true, installed: false, tested: true, resultBundle: iosPrepared.resultBundle };
     }
-    for (const command of iosPrepared ? iosPrepared.build : target.build) execute(command, { root, env: childEnv, dryRun, run, label: "build" });
+    for (const command of iosPrepared ? iosPrepared.build : target.build) execute(command, { root, env: childEnv, dryRun, run, door, label: "build" });
     // Dev and QA binaries run from one stable staged path, copied in place (no backup of the old copy), never from the
     // broker's per-generation target folder or a hashed dev-targets folder.
     const staged = target.stage?.length ? stageDevelopmentBinaries(target.stage, { root, platform: platform === "win" ? "win32" : process.platform }) : [];
@@ -180,7 +181,7 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
         .then((outcome) => ({ built: true, installed: true, ...(staged.length ? { staged } : {}), assembled: outcome }))
         .finally(() => lease.release());
     }
-    const signing = install(target.install, { root, platform, config, env: childEnv, run, sinceMs: startedMs, serial });
+    const signing = install(target.install, { root, platform, config, env: childEnv, run, door, sinceMs: startedMs, serial });
     return { built: true, installed: true, ...(staged.length ? { staged } : {}), ...(platform === "mac" && target.install.kind === "tauri" ? { signing } : {}) };
   } finally { if (releaseLease) lease.release(); }
 }
@@ -207,9 +208,9 @@ export function assertNativeDevelopmentHost(platform, host = process.platform, {
   if (platform === "linux" && wsl1()) throw new Error("development target linux requires a Linux kernel; this is WSL1 (Linux system calls translated onto the Windows kernel). Use WSL2 or a Linux VM");
 }
 
-function install(descriptor, { root, platform, config, env, run, sinceMs = null, serial }) {
+function install(descriptor, { root, platform, config, env, run, door, sinceMs = null, serial }) {
   if (descriptor.kind === "adb") return installAndroidDevelopment(descriptor, { root, env, run, serial });
-  if (descriptor.kind === "command") return execute(descriptor, { root, env, run, label: "install" });
+  if (descriptor.kind === "command") return execute(descriptor, { root, env, run, door, label: "install" });
   if (descriptor.kind === "portable") return installPortableDevelopment(descriptor, { root, platform: platform === "win" ? "win32" : "darwin", env });
   if (platform === "win") {
     if (!descriptor.expectedInstalledPath) throw new Error("Windows Tauri installer requires expectedInstalledPath for installed verification");
@@ -354,13 +355,18 @@ function resolveBundleRoot(descriptor, { root, env, runCargo }) {
 
 function platformBundleKind(descriptor) { return descriptor.targetTriple.includes("apple") ? "macos" : "nsis"; }
 function validateCommand(command, label) { if (!command || typeof command.cmd !== "string" || !command.cmd.trim() || (command.args !== undefined && !Array.isArray(command.args))) throw new Error(`${label} must declare cmd and args`); }
-function execute(command, { root, env, dryRun, run, label }) {
+function execute(command, { root, env, dryRun, run, label, door = null }) {
   validateCommand(command, `development ${label}`);
   const cwd = path.resolve(root, command.cwd ?? ".");
   if (!inside(root, cwd)) throw new Error(`development ${label} cwd must stay inside app root`);
   const args = (command.args ?? []).map(String);
   if (dryRun) return { cmd: command.cmd, args, cwd };
-  const launch = resolveCommand(command.cmd, args, { root, env });
+  const resolved = resolveCommand(command.cmd, args, { root, env });
+  // Every dev build step goes through the one door (build-launch.mjs): the door's own right-release stays in process order, a pnpm step
+  // is the rightkit-pnpm broker job (by its own name, not the node entry resolveCommand finds), anything else as resolved.
+  // A configured command can run code regardless of its label, so installation commands use the door too.
+  const own = resolved.command === process.execPath && resolved.args[0] === OWN_RIGHT_RELEASE;
+  const launch = own || !door ? resolved : { ...resolved, ...door(command.cmd === "pnpm" ? "pnpm" : resolved.command, command.cmd === "pnpm" ? args : resolved.args, { env: resolved.env ?? env, cwd, exists: existsSync }) };
   const result = run(launch.command, launch.args, { cwd, env: launch.env ?? env, stdio: "inherit", windowsHide: true, shell: false, timeout: command.timeoutMs });
   if (result.status !== 0) throw new Error(`development ${label} command failed (${result.status}): ${command.name ?? command.cmd}`);
 }

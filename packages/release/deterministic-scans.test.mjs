@@ -75,10 +75,10 @@ test("plan: JS packages select lockfile, audit, tsc and eslint when configured; 
   const extra = { "packages/p/package.json": '{"license":"MIT","scripts":{"test":"x"}}', "packages/p/tsconfig.json": "{}", "packages/p/eslint.config.mjs": "" };
   const { plan } = planFor(["packages/p/package.json"], extra);
   assert.deepEqual(ids(plan, "A").filter((i) => i.startsWith("pnpm")), ["pnpm-lockfile", "pnpm-audit"]);
-  // Typecheck, lint and node tests do not compile: class A (Adrian, 2026-10-27).
+  // Typecheck and lint run as class A; project tests run after admission.
   assert.ok(ids(plan, "A").includes("tsc:p"));
   assert.ok(ids(plan, "A").includes("eslint:p"));
-  assert.ok(ids(plan, "A").includes("test:npm:p"));
+  assert.ok(ids(plan, "B").includes("test:npm:p"));
   const quiet = planFor(["README.md"], { "README.md": "x" }).plan;
   assert.equal(ids(quiet).filter((i) => /cargo|pnpm|clippy|tsc/.test(i)).length, 0);
 });
@@ -1367,7 +1367,7 @@ test("root npm package: it is a unit like any other, but a file inside a nested 
   assert.ok(ids(both).includes("tsc:app") && ids(both).includes("tsc:web"));
 });
 
-test("lanes: tests run testJobs at a time after the compile lanes; quiet test scans run last, alone, with the lease env and never in the cache key", async () => {
+test("lanes: class B tests run one at a time after compile; quiet scans run last under the lease", async () => {
   const bar = { "crates/bar/Cargo.toml": 'edition = "2024"\nversion = "1.0.0"\nlicense = "MIT"\n', "crates/bar/CHANGELOG.md": "## 1.0.0\n- x\n", "crates/bar/src/lib.rs": "" };
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/bar/src/lib.rs"], bar, { crateFeatures: { foo: { quietTests: true } } });
   assert.equal(plan.scans.find((s) => s.id === "test:rust:foo").quiet, true);
@@ -1375,14 +1375,17 @@ test("lanes: tests run testJobs at a time after the compile lanes; quiet test sc
   assert.equal(laneOf({ id: "test:rust:foo", quiet: true }), "quiet");
   assert.equal(laneOf({ id: "test:rust:bar" }), "tests");
   assert.equal(laneOf({ id: "tsc:x" }), "tests");
-  const seen = []; let running = 0; let peakTests = 0;
+  const seen = []; let running = 0; let peakTests = 0; let runningBuilds = 0; let peakBuilds = 0; let observedBuilds = 0;
   const spawn = async (command, args, options) => {
     const id = args.join(" ");
+    const builds = /(?:cargo|rustright)(?:\.exe)?$/.test(command) && /^(?:cargo )?(?:check|clippy|rustdoc|test)(?: |$)/.test(id);
+    if (builds) { runningBuilds += 1; observedBuilds += 1; peakBuilds = Math.max(peakBuilds, runningBuilds); }
     if (/ test /.test(id)) {
       running += 1; peakTests = Math.max(peakTests, running);
       await new Promise((r) => setTimeout(r, 15));
       running -= 1;
-    }
+    } else if (builds) await new Promise((r) => setTimeout(r, 15));
+    if (builds) runningBuilds -= 1;
     seen.push({ id, lease: options?.env?.RUSTRIGHT_QUIET_LEASE ?? null });
     return fakeSpawn()(command, args);
   };
@@ -1393,6 +1396,9 @@ test("lanes: tests run testJobs at a time after the compile lanes; quiet test sc
   assert.equal(result.ok, true, scanFailures(result).join("\n"));
   const tests = seen.filter((s) => / test /.test(s.id));
   assert.ok(tests.length >= 2);
+  assert.equal(peakTests, 1, "tests can compile and must never overlap in one checkout");
+  assert.ok(observedBuilds >= 2, "the fixture must exercise multiple build commands");
+  assert.equal(peakBuilds, 1, "compile, documentation and test commands must not overlap");
   assert.equal(tests.at(-1).id.includes("-p foo"), true, "the quiet crate's tests are the last scans");
   assert.equal(tests.at(-1).lease, "q-1", "quiet scans carry the lease id");
   assert.ok(tests.filter((t) => t.id.includes("-p bar")).every((t) => t.lease === null), "other tests never see the lease");
@@ -1415,17 +1421,18 @@ test("lanes: tests run testJobs at a time after the compile lanes; quiet test sc
   assert.ok(leaseless.scans.filter((r) => r.code === "QUIET_LEASE_UNAVAILABLE").length >= 1);
 });
 
-test("a class A quiet suite refused for want of the lease is a red class A: no class B scan starts after it", async () => {
+test("a quiet class B suite is refused without a lease", async () => {
   const pkg = { "package.json": '{"name":"app","license":"MIT","scripts":{"test":"node --test"}}', "src/a.ts": "" };
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml", "src/a.ts"], pkg, { npmUnits: [{ name: "app", dir: "." }], packageFeatures: { app: { quietTests: true } } });
-  const quiet = plan.scans.filter((s) => s.class === "A" && s.quiet);
-  assert.ok(quiet.length >= 1, `the fixture plans a class A quiet suite (${plan.scans.map((s) => s.id).join(", ")})`);
-  assert.ok(plan.scans.some((s) => s.class === "B"), "and class B scans that must not start");
+  const quiet = plan.scans.filter((s) => s.class === "B" && s.quiet);
+  assert.ok(quiet.some((s) => s.id === "test:npm:app"), "the npm test is a quiet class B scan");
+  assert.ok(!plan.scans.some((s) => s.class === "A" && s.quiet), "test scripts do not run in class A");
   const spawned = [];
   const spawn = async (command, args) => { spawned.push(args.join(" ")); return fakeSpawn()(command, args); };
   const result = await runScans(plan, { ...deps({ ...fs, spawn }), requireQuietLease: true, quietLane: { acquire: async () => null } });
   assert.equal(result.ok, false);
-  assert.ok(!spawned.some((a) => /clippy|rustdoc|\btest\b|^check |\bbuild\b/.test(a)), `no class B scan spawned after the refusal: ${spawned.join(" | ")}`);
+  assert.ok(result.scans.some((row) => row.id === "test:npm:app" && row.code === "QUIET_LEASE_UNAVAILABLE"));
+  assert.ok(!spawned.some((a) => /--dir \. run test/.test(a)), `the quiet test never ran without a lease: ${spawned.join(" | ")}`);
 });
 
 test("quietTests: 'ci' leaves the quiet crates' test scans to the CI shards with a note naming them; 'local' (default) plans them for the quiet lane", () => {
@@ -1576,18 +1583,17 @@ test("scriptBrokerCall: bounded in depth and safe against cycles", () => {
   assert.ok(scriptBrokerCall(chain(12, "cargo test"), "test", { maxDepth: 20 }), "the bound is a parameter");
 });
 
-test("test:npm scans carry brokerCall when the test script chain runs the broker; such a test compiles and is class B, a plain one class A", () => {
+test("test:npm scans carry brokerCall when the test script chain runs the broker; all project tests are class B", () => {
   const viewright = { name: "viewright", license: "MIT", scripts: { test: "pnpm test:edge && pnpm test:e2e", "test:edge": "vitest run", "test:e2e": "rustright storage run --app viewright -- right-release test" } };
   const plain = { name: "viewright", license: "MIT", scripts: { test: "vitest run" } };
   const planOf = (manifestJson) => planFor(["package.json"], { "package.json": JSON.stringify(manifestJson) }, { rustUnits: [], npmUnits: [{ name: "viewright", dir: "." }] }).plan;
   const marked = scanOf(planOf(viewright), "test:npm:viewright");
   assert.deepEqual(marked.brokerCall, { tool: "rustright", via: ["test", "test:e2e"], command: "rustright storage run --app viewright -- right-release test" });
   assert.equal(scanOf(planOf(plain), "test:npm:viewright").brokerCall, undefined);
-  // A test that reaches the broker compiles: it is class B and runs with the compile scans; a plain node test is class A. The class
-  // is part of the plan, so the two plans' digests differ by exactly that (Adrian, 2026-10-27: class A is everything that does not compile).
+  // An opaque test can execute a compiler even when its script text does not name one.
   assert.equal(marked.class, "B");
   assert.match(marked.classReason, /reaches the broker/);
-  assert.equal(scanOf(planOf(plain), "test:npm:viewright").class, "A");
+  assert.equal(scanOf(planOf(plain), "test:npm:viewright").class, "B");
   assert.deepEqual(marked.args, ["--dir", ".", "run", "test"]);
   assert.equal(marked.tool, "pnpm", "the scan itself still runs pnpm; only the gate's deferral reads the marker");
 });
@@ -1961,7 +1967,7 @@ test("B4: turning the check off masks no real failure: a tool or test that fails
     assert.equal(row.status, "fail", id);
     assert.match(row.detail, /error TS2322/, `${id} reports the tool's own failure`);
   }
-  // The class A tests run only on content class A already passed: with tsc red they do not start.
+  // Tests run only after class A passes: with tsc red they do not start.
   assert.equal(result.scans.find((r) => r.id === "test:npm:app").status, "not-run");
   // A failing test with every content check green still fails with its own output.
   const onlyTest = await runScans(plan, deps({ ...fs, spawn: (command, args, options = {}) => (args[0] === "--dir" && args.includes("test") ? toolResult : stalePnpm()(command, args, options)) }));
@@ -2192,7 +2198,7 @@ test("shellcheck version pin: a cached pass never admits another version, and th
 
 // ---- class A order (Adrian, 2026-10-27: class A is everything mechanical and deterministic, before any compile) -----------------------------
 
-test("order, by the actual spawn log: content class A, then class A tests, then the compile; a red class A test starts no compile", async () => {
+test("order, by the actual spawn log: class A before compiles and tests; a red class A starts no class B", async () => {
   const extra = { "packages/p/package.json": '{"name":"p","license":"MIT","scripts":{"test":"node --test"}}', "packages/p/tsconfig.json": "{}" };
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml", "packages/p/package.json"], extra, { npmUnits: [{ name: "p", dir: "packages/p" }] });
   const kindOf = (call) => {
@@ -2210,15 +2216,15 @@ test("order, by the actual spawn log: content class A, then class A tests, then 
   const order = green.map(kindOf).filter(Boolean);
   const firstCompile = order.indexOf("compile");
   assert.ok(firstCompile > 0, `a compile ran: ${order.join(",")}`);
-  assert.ok(order.lastIndexOf("test") < firstCompile, `every class A test ran before the first compile: ${order.join(",")}`);
+  assert.ok(order.indexOf("test") > firstCompile, `the class B test ran after compile: ${order.join(",")}`);
   assert.ok(order.lastIndexOf("typecheck") < firstCompile, `typecheck ran before the first compile: ${order.join(",")}`);
   assert.ok(order.indexOf("typecheck") < order.indexOf("test"), `content checks ran before the tests: ${order.join(",")}`);
   assert.deepEqual(ok.scans.find((r) => r.id === "test:npm:p").results, { runner: "node:test", tests: 3, pass: 3, fail: 0, skipped: 0, todo: 0 });
-  // A red class A test: no compile is spawned at all.
+  // A red class A content check: no compile or test is spawned at all.
   const red = [];
-  const failed = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ log: red, failing: ["--dir packages/p run test"] }) }));
+  const failed = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ log: red, failing: ["tsc"] }) }));
   assert.equal(failed.ok, false);
-  assert.deepEqual(red.map(kindOf).filter((k) => k === "compile"), [], "no compile after a red class A test");
+  assert.deepEqual(red.map(kindOf).filter((k) => k === "compile" || k === "test"), [], "no class B work after a red class A check");
   assert.ok(failed.scans.filter((r) => r.class === "B").every((r) => r.status === "not-run"), "every class B row is not-run");
 });
 
@@ -2308,10 +2314,10 @@ test("an oversized run: script fails actionlint's scan before actionlint starts 
 });
 
 
-test("after a red class A content check, quiet class A suites never run (not even without a lease)", async () => {
+test("after a red class A content check, quiet class B suites never run (not even without a lease)", async () => {
   const pkg = { "package.json": '{"name":"app","license":"MIT","scripts":{"test":"node --test"}}', "src/a.ts": "" };
   const { fs, plan } = planFor(["src/a.ts"], pkg, { npmUnits: [{ name: "app", dir: "." }], packageFeatures: { app: { quietTests: true } } });
-  assert.ok(plan.scans.some((s) => s.class === "A" && s.quiet), "the fixture plans a quiet class A suite");
+  assert.ok(plan.scans.some((s) => s.class === "B" && s.quiet), "the fixture plans a quiet class B suite");
   const spawned = [];
   const base = fakeSpawn();
   const spawn = async (command, args, options) => { spawned.push(args.join(" ")); if (args.includes("audit")) return { status: 1, stdout: "", stderr: "vulnerable" }; return base(command, args, options); };

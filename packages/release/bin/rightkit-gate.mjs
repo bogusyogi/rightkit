@@ -59,8 +59,8 @@
 // rust.<crate>.testInputs lists the paths they read, for npm, node and docs scans, and whenever a reference cannot be resolved
 // statically) are all identical. Stored in <git common dir>/rightkit-gate-cache; a hit prints
 // `cached` and is listed in the result's cacheHits. Failures, deferrals and class A scans are never cached.
-// RK_GATE_JOBS (default 4) sets how many compile scans run side by side; RK_GATE_TEST_JOBS (default RK_GATE_JOBS) how many test
-// scans, after the compile lanes drain. A crate whose ci/gate.config.json entry says `quietTests: true` has its test scans run last,
+// RK_GATE_JOBS (default 4) sets class A scan concurrency; class B runs one scan at a time per checkout.
+// A crate whose ci/gate.config.json entry says `quietTests: true` has its test scans run last,
 // one at a time, under the RustRight quiet lease (`rustright quiet acquire`, RUSTRIGHT_QUIET_LEASE in their environment).
 // SIGINT/SIGTERM stop scheduling, kill every running scan's process tree and exit non-zero listing the scans not run.
 import fs from "node:fs";
@@ -752,7 +752,7 @@ export function lockScope({ changed, cargoDir = ".", unitNames, showBase, readLo
  * or the committed hook of every app copied from the template stops being "already current"). `nodePath` and every package are written into
  * a shell script: installHook passes only plain relative paths (hookGatePlan).
  */
-export function hookText(nodePath, packages = []) {
+export function hookText(nodePath, packages = [], legacy = false) {
   const bins = packages.map((dir) => ` ${dir}/node_modules/.bin/rightkit-gate`).join("");
   const pnpmExec = packages.length ? `pnpm --dir ${packages[0]} exec rightkit-gate` : "pnpm exec rightkit-gate";
   return `#!/bin/sh
@@ -772,7 +772,13 @@ found=""
 for bin in node_modules/.bin/rightkit-gate${bins} */node_modules/.bin/rightkit-gate */*/node_modules/.bin/rightkit-gate */*/*/node_modules/.bin/rightkit-gate; do
   if [ -x "$bin" ]; then found="$bin"; break; fi
 done
-if [ -n "$found" ]; then
+${legacy ? "" : `if command -v rightkit-host-gate >/dev/null 2>&1; then
+  echo "rightkit-gate: using host trusted gate" >&2
+  rightkit_gate() { rightkit-host-gate "$@"; }
+elif [ -f "$HOME/Library/Application Support/RightKit/build-control/config.json" ] || [ -f /d/.rightkit-managed/config.json ]; then
+  echo "rightkit-gate: managed host is missing rightkit-host-gate" >&2
+  exit 1
+el`}if [ -n "$found" ]; then
   echo "rightkit-gate: using $found" >&2
   rightkit_gate() { "$found" "$@"; }
 elif command -v pnpm >/dev/null 2>&1; then
@@ -1262,7 +1268,7 @@ async function installHook(o, root, force) {
   const wanted = hookText(nodePath, packages);
   const hasHook = o.exists(hookPath);
   const current = hasHook ? o.readFile(hookPath).replace(/\r\n/g, "\n") : null;
-  if (hasHook && current !== wanted && !force) {
+  if (hasHook && current !== wanted && current !== hookText(nodePath, packages, true) && !force) {
     o.err(`rightkit-gate: ${path.join(".githooks", "pre-push")} already exists and differs; nothing changed. Review it, or run \`rightkit-gate install-hook --force\` to replace it.`);
     return 1;
   }
@@ -1460,10 +1466,8 @@ async function runStages(o, args, root, git, io) {
   // the ones they sealed, so they are not run again.
   const sealedNow = receipt.stages.package?.ok ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;
   const sealedIntact = Boolean(sealedNow && sealedNow.id === receipt.stages.package.sealed && sealedNow.digest === receipt.stages.package.manifestSha256);
-  // The release tier runs at the start, not after the compile, for a door run headed to qualify or release (reviewer, 2026-10-27:
-  // a cheap known release blocker is found before the expensive work). dev/compile/package keep the compile tier, which is what
-  // compile admission owes; their release-only findings stay for qualify, reported, never dropped.
-  const earlyTier = ["qualify", "release"].includes(to) ? "release" : "compile";
+  // Every deterministic rule and scan must run before compilation, for every door stage.
+  const earlyTier = "release";
   const tierAtLeast = (have, need) => have === "release" || need === "compile";
   for (const stage of stages) {
     if (stage === "check" && receipt.stages.check?.ok && tierAtLeast(receipt.stages.check.ruleTier ?? "compile", earlyTier)) { o.out(`${tag} [check] already passed (${receipt.stages.check.ruleTier ?? "compile"} tier) for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
@@ -1674,7 +1678,20 @@ export async function main(argv, io = {}) {
   // commit, never a diff. Nothing compiles. The RustRight broker runs exactly this before it admits any compile. `--list`,
   // `--print-baseline` and `--only` stay app-check-only views.
   if (sub === "check") {
-    const appCheck = await (o.appCheck ?? (await import("../app-check.mjs")).main)(args.slice(1).filter((a) => a !== "--full-a"), { out: o.out, err: o.err, label: "check", cwd: o.cwd });
+    if (args.filter((arg) => arg === "--rule-tier").length > 1 || (args.includes("--rule-tier") && option("--rule-tier") === undefined)) {
+      o.err("rightkit-gate: check requires exactly one value for --rule-tier"); return 2;
+    }
+    const requestedTier = option("--rule-tier") ?? "compile";
+    if (!["compile", "release"].includes(requestedTier)) { o.err(`rightkit-gate: check --rule-tier must be compile or release, not ${JSON.stringify(requestedTier)}`); return 2; }
+    // Full admission cannot be downgraded by a caller's tier flag. Partial views retain their requested tier.
+    const fullAdmission = args.includes("--full-a") && !args.includes("--list") && !args.includes("--print-baseline") && !args.includes("--only");
+    const appArgs = args.slice(1).filter((a) => a !== "--full-a");
+    if (fullAdmission) {
+      const tierIndex = appArgs.indexOf("--rule-tier");
+      if (tierIndex >= 0) appArgs.splice(tierIndex, 2);
+      appArgs.push("--rule-tier", "release");
+    }
+    const appCheck = await (o.appCheck ?? (await import("../app-check.mjs")).main)(appArgs, { out: o.out, err: o.err, label: "check", cwd: o.cwd });
     if (args.includes("--list") || args.includes("--print-baseline") || args.includes("--only") || o.classA === false) {
       // A view of the app rules, never a class A verdict: say so, so no caller can take its exit 0 for a full check.
       // A green partial view exits PARTIAL_EXIT (3), never 0, so a caller that admits only exit 0 rejects it by status alone.
@@ -1682,17 +1699,17 @@ export async function main(argv, io = {}) {
       o.err("rightkit-gate: PARTIAL: app rules only (--only); no class A scan ran, so this is not a class A result");
       return appCheck === 0 ? PARTIAL_EXIT : appCheck;
     }
+    if (appCheck !== 0) {
+      o.err("rightkit-gate: BLOCKED: app rules failed; no further scans ran");
+      return appCheck;
+    }
     const repoArg = option("--repo");
     const checkCwd = repoArg ? path.resolve(o.cwd, repoArg) : o.cwd;
-    // The rule tier (app-check.mjs TIERS): compile is what admission, the hook and --to compile|package owe; release is the whole set,
-    // owed by --to qualify|release. The app rules above read the same flag; the class A scans read it here. (--tier is the upload tier.)
-    const ruleTier = option("--rule-tier") ?? "compile";
-    if (!["compile", "release"].includes(ruleTier)) { o.err(`rightkit-gate: check --rule-tier must be compile or release, not ${JSON.stringify(ruleTier)}`); return 2; }
+    // Admission uses the full tier; a partial diagnostic check may choose either tier.
+    const ruleTier = fullAdmission ? "release" : requestedTier;
     const classA = await main(["--class-a", "--rule-tier", ruleTier, ...(args.includes("--full-a") ? ["--full-a"] : []), ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"])], { ...io, cwd: checkCwd });
     // RightKit checking itself: its own rules (line endings, consumer recipes, npm surface, version copies and the version feed, dispatcher
-    // pins, consumer locks, generated docs, temp paths: scripts/preflight.mjs) and its exports' import safety are class A for the RightKit repository. They run only when this gate is that
-    // repository's own in-tree copy, so a gate checking any other repository (the broker's pinned one included) never runs
-    // that repository's code.
+    // pins, consumer locks, generated docs, temp paths: scripts/preflight.mjs) and its exports' import safety are class A for the RightKit repository.
     let selfRules = 0;
     const top = o.spawn("git", ["rev-parse", "--show-toplevel"], { cwd: checkCwd });
     const root = failed(top) ? null : path.resolve(text(top).trim());
@@ -1701,7 +1718,15 @@ export async function main(argv, io = {}) {
     // never after a failure, so a red tree executes nothing of its own.
     // Compared as real, long paths (and case-blind on Windows): git prints the long form of an 8.3 short path such as RUNNER~1.
     const canon = (p) => { let c; try { c = fs.realpathSync.native(p); } catch { c = path.resolve(p); } return process.platform === "win32" ? c.toLowerCase() : c; };
-    if (root && canon(self).startsWith(canon(root) + path.sep) && o.exists(path.join(root, "scripts", "preflight.mjs")) && appCheck === 0 && classA === 0) {
+    const rightkitRepository = root && (() => {
+      try { return JSON.parse(o.readFile(path.join(root, "packages", "release", "package.json"))).name === "@rightkit/release"; }
+      catch { return false; }
+    })();
+    if (rightkitRepository && (!o.exists(path.join(root, "scripts", "preflight.mjs")) || !o.exists(path.join(root, "scripts", "ci", "exports-import-effects.mjs")))) {
+      o.err("rightkit-gate: BLOCKED: RightKit's preflight or exports check is missing");
+      selfRules = 1;
+    }
+    if (root && selfRules === 0 && (rightkitRepository || canon(self).startsWith(canon(root) + path.sep)) && o.exists(path.join(root, "scripts", "preflight.mjs")) && appCheck === 0 && classA === 0) {
       const launch = o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" }));
       const selector = args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"];
       const r = launch(process.execPath, [path.join(root, "scripts", "preflight.mjs"), "--repo", root, ...selector], { cwd: root, env: o.env });
@@ -1981,7 +2006,7 @@ export async function main(argv, io = {}) {
       // Class A of a commit or tree reads only that snapshot: every scan, cargo's included, runs in the export, never in the live
       // checkout (which may hold other bytes). Compiles (class B) use the live checkout, whose tree the dirty check pinned to HEAD.
       changed, contentRoot: repo, liveRoot: classAOnly && snapshot ? repo : root, trustedRoot: root, includeTests: true, rustScope, cargoCommand,
-      tier: option("--rule-tier") ?? "compile", cargoLiveRoot,
+      tier: fullA ? "release" : (option("--rule-tier") ?? "compile"), cargoLiveRoot,
       // The quiet tests (port, pipe, desktop and wall-clock bound) are proven by the CI shards, one crate per runner, unless
       // RK_GATE_QUIET_TESTS=local asks for the serial quiet lane here (no CI, or a CI outage).
       // Full class A runs every test before a compile: the quiet suites run here in the quiet lane, never left to CI.
@@ -2013,7 +2038,7 @@ export async function main(argv, io = {}) {
     for (const n of plan.notes) o.out(`${tag} note: ${n}`);
     o.out(`${tag} executor: ${executor.kind}${executor.kind === "broker" ? ` (${cargoCommand.join(" ")})` : " (no broker on this host: cargo runs directly, through the same gates)"}`);
     const quietCount = plan.scans.filter((s) => s.quiet === true).length;
-    o.out(`${tag} ${plan.scans.length} scan(s) for ${changed.length} changed file(s) vs ${base.slice(0, 12)}; compile scans ${jobs} at a time, tests ${testJobs} at a time${quietCount ? `, ${quietCount} quiet test scan(s) last under the broker's quiet lease` : ""}`);
+    o.out(`${tag} ${plan.scans.length} scan(s) for ${changed.length} changed file(s) vs ${base.slice(0, 12)}; class A scans ${jobs} at a time, class B scans 1 at a time${quietCount ? `, ${quietCount} quiet test scan(s) last under the broker's quiet lease` : ""}`);
     let signalCode = 0;
     for (const sig of ["SIGINT", "SIGTERM"]) {
       const handler = () => {

@@ -294,7 +294,10 @@ test('npm: writes schema-valid darwin-only evidence the gate accepts and publish
   const root = workspace();
   const h = harness(root, 'npm');
   const result = await h.run();
-  assert.deepEqual(h.calls.map((c) => `${c.command} ${c.args.join(' ')}`).slice(0, 2), ['pnpm -r --workspace-concurrency=1 run build', 'pnpm --dir packages/demo run test']);
+  // Each pnpm step goes through the one door (build-launch.mjs): a rightkit-pnpm broker job on a managed host, direct elsewhere.
+  const { buildLaunch } = await import('./build-launch.mjs');
+  const door = (args) => { const t = buildLaunch('pnpm', args, { exists: fs.existsSync }); return `${path.basename(t.command)} ${t.args.join(' ')}`; };
+  assert.deepEqual(h.calls.map((c) => `${path.basename(c.command)} ${c.args.join(' ')}`).slice(0, 2), [door(['-r', '--workspace-concurrency=1', 'run', 'build']), door(['--dir', 'packages/demo', 'run', 'test'])]);
   assert.equal(h.envs[0].RIGHTKIT_REQUIRE_ASSETS, '1');
   const evidence = JSON.parse(fs.readFileSync(result.evidencePath, 'utf8'));
   assert.equal(result.evidencePath, path.join(root, 'release-evidence', 'gate', 'npm-rightkit-demo.json'));
@@ -849,6 +852,8 @@ test('unit stages reject forged authority and changed inputs, stop at boundaries
   git('add', '.'); git('commit', '-qm', 'fixture');
   fs.writeFileSync(path.join(bin, 'npm'), '#!/bin/sh\necho "404 Not Found" >&2\nexit 1\n', { mode: 0o755 });
   fs.writeFileSync(path.join(bin, 'pnpm'), `#!/bin/sh\nprintf '%s\\n' "$*" >> "$RK_TEST_UNIT_LOG"\nprintf 'rustright: request %s-0000-4000-8000-000000000000\\n' "$(printf %08d $$)" >&2\ncase "$*" in *--pack-destination*) while [ "$1" != "--pack-destination" ]; do shift; done; printf '%s' "$2" > "$RK_TEST_UNIT_SCRATCH"; printf tarball > "$2/rightkit-demo-1.2.3.tgz";; *test*) printf '%s\\n' '${LIBTEST.trim()}';; esac\n`, { mode: 0o755 });
+  // pnpm steps are rightkit-pnpm broker jobs: a fixture rustright client drops `run rightkit-pnpm --` and runs the fixture pnpm.
+  fs.writeFileSync(path.join(bin, 'rustright'), '#!/bin/sh\n[ "$1 $2 $3" = "run rightkit-pnpm --" ] || exit 97\nshift 3\nexec "$(dirname "$0")/pnpm" "$@"\n', { mode: 0o755 });
   const oldPath = process.env.PATH;
   const oldLog = process.env.RK_TEST_UNIT_LOG; const oldScratch = process.env.RK_TEST_UNIT_SCRATCH;
   process.env.RK_TEST_UNIT_LOG = path.join(bin, 'calls'); process.env.RK_TEST_UNIT_SCRATCH = path.join(bin, 'scratch');
@@ -952,4 +957,27 @@ test('jobs bounds preserve qualification-only scope', () => {
   for (const bad of ['0', '-1', '65', '2.5', 'x', '', '1e1']) assert.throws(() => parseLocalPublishArgs('cargo', [...argv, '--jobs', bad]), /--jobs must be/);
   assert.throws(() => parseLocalPublishArgs('cargo', ['--local', '--crate', 'rightkit-demo', '--jobs', '4']), /--jobs requires --qualify-only/);
   assert.equal(parseLocalPublishArgs('cargo', [...argv, '--jobs', '12']).jobs, 12);
+});
+
+test('on a managed host every pnpm step is its rightkit-pnpm broker job, matching the stage commands the receipts are checked against', async () => {
+  const { buildLaunch } = await import('./build-launch.mjs');
+  const { expectedStageCommands, requestIs } = await import('./stage-commands.mjs');
+  const root = path.resolve(import.meta.dirname, '..', '..');
+  const config = JSON.parse(fs.readFileSync(path.join(root, 'ci', 'gate.config.json'), 'utf8'));
+  const manifest = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, 'package.json'), 'utf8'));
+  const rows = expectedStageCommands({ kind: 'npm', unit: '@rightkit/release', config, manifest, platform: 'darwin' });
+  const managed = { env: { PATH: '/managed/agent-bin' }, platform: 'darwin', exists: (p) => p === '/managed/agent-bin/rustright', which: (c) => (c === 'rustright' ? ['/managed/agent-bin/rustright'] : []) };
+  const compileSteps = [['-r', '--workspace-concurrency=1', 'run', 'build'], ['--dir', 'packages/release', 'run', 'test']];
+  // @rightkit/release ships the signed swap helper, so it packs from a scratch copy (absolute --dir); its cargo jobs are broker jobs already.
+  const packStep = ['--dir', '/Volumes/D/scratch/rk-local-publish-x/package-source', 'pack', '--pack-destination', '/Volumes/D/scratch/rk-local-publish-x/pack'];
+  for (const [stage, steps] of [['compile', compileSteps], ['package', [packStep]]]) {
+    for (const [i, args] of steps.entries()) {
+      const target = buildLaunch('pnpm', args, managed);
+      assert.equal(target.command, '/managed/agent-bin/rustright');
+      assert.deepEqual(target.args, ['run', 'rightkit-pnpm', '--', ...args]);
+      // The broker records the adapter's argv after `--` as requestedArgv: the receipt of this job satisfies the stage's row.
+      const pnpmRows = rows[stage].filter((row) => row.kind === 'adapter');
+      assert.ok(requestIs({ request: { kind: 'adapter', adapter: 'rightkit-pnpm', requestedArgv: target.args.slice(3) } }, pnpmRows[i]), `${stage} ${args.join(' ')}`);
+    }
+  }
 });

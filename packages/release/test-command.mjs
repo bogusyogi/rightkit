@@ -21,7 +21,8 @@
 // from the app root. `--suite journeys` selects every chunk of that group. `--runner vitest -- run --project unit` runs
 // the runner once with the arguments after `--` (the watch or one-off case); `-- <args>` after `--suite` is allowed when
 // exactly one suite is selected. Exit code: 0 when every selected suite passed, else the failing suite's exit code.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { buildLaunch } from "./build-launch.mjs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawn } from "./background-process.mjs";
@@ -148,14 +149,16 @@ export function eventPrefix(config) {
  * Run the planned suites in order; stop at the first non-zero exit. `spawnFn` and `log` are injectable.
  * Resolves `{ exitCode, results: [{ suite, exitCode, durationMs }] }`; a spawn error or a signal rejects.
  */
-export async function runSuites(plan, { appRoot, prefix = "test", env = process.env, spawnFn = spawn, log = console.log } = {}) {
+export async function runSuites(plan, { appRoot, prefix = "test", env = process.env, spawnFn = spawn, log = console.log, door = buildLaunch } = {}) {
   const results = [];
   for (const item of plan) {
     const invocation = resolveInvocation(item.step, { appRoot, baseEnv: env, extraArgs: item.extraArgs });
     log(JSON.stringify({ event: `${prefix}_suite_started`, suite: item.name }));
     const started = Date.now();
     const exitCode = await new Promise((resolve, reject) => {
-      const child = spawnFn(invocation.cmd, invocation.args, { cwd: invocation.cwd, env: invocation.env, stdio: "inherit" });
+      // A test suite goes through the one door (build-launch.mjs): a broker job on a managed host, which builds it under the app's claim.
+      const target = door(invocation.cmd, invocation.args, { env: invocation.env, cwd: invocation.cwd, exists: existsSync });
+      const child = spawnFn(target.command, target.args, { cwd: invocation.cwd, env: invocation.env, stdio: "inherit" });
       child.once("error", reject);
       child.once("exit", (code, signal) => {
         if (signal) reject(new Error(`${item.name} stopped by ${signal}`));

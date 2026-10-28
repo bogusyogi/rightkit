@@ -23,6 +23,7 @@
 // inside-out: release.mjs signs the helpers through sign.nestedCode (macPackage expansion derives it), the dev signer signs
 // nested bundles itself, and signNativeHelpers below does the same for any other caller. Every external effect is injectable.
 import { createHash } from "node:crypto";
+import { buildLaunch } from "./build-launch.mjs";
 import * as nodeFs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -199,7 +200,7 @@ function findFile(fs, root, predicate) {
  * sharedRoot, hostArch, tmpdir. Without forceArch a universal helper gets both slices and a thin one the host arch.
  * Returns { helpers: [{ name, embed, path, source, archs, sha256 }], events: [...] }.
  */
-export function buildAndEmbedNativeHelpers({ appRoot, app, helpers: rawHelpers, version, forceArch, configuration = "release", env = process.env, spawn = nodeSpawnSync, fs = nodeFs, log = () => {}, replaceExisting = false, sharedRoot, hostArch = process.arch === "arm64" ? "arm64" : "x86_64", tmpdir = os.tmpdir() } = {}) {
+export function buildAndEmbedNativeHelpers({ appRoot, app, helpers: rawHelpers, version, forceArch, configuration = "release", env = process.env, spawn = nodeSpawnSync, fs = nodeFs, log = () => {}, replaceExisting = false, sharedRoot, hostArch = process.arch === "arm64" ? "arm64" : "x86_64", tmpdir = os.tmpdir(), packageOwner = (pkg) => { const result = nodeSpawnSync("git", ["-C", pkg, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true }); return result.status === 0 ? String(result.stdout).trim() : null; } } = {}) {
   if (typeof appRoot !== "string" || !path.isAbsolute(appRoot)) fail("NATIVE_HELPERS_INVALID", "appRoot must be an absolute path");
   if (typeof app !== "string" || !path.isAbsolute(app) || !app.replace(/\/+$/, "").endsWith(".app")) fail("NATIVE_HELPERS_INVALID", "app must be the absolute path of the .app bundle");
   if (!["release", "debug"].includes(configuration)) fail("NATIVE_HELPERS_INVALID", "configuration must be release or debug");
@@ -212,7 +213,8 @@ export function buildAndEmbedNativeHelpers({ appRoot, app, helpers: rawHelpers, 
   const results = [];
   const run = (what, cmd, args, { capture = false, cwd = appRoot } = {}) => {
     log(`native-helpers: ${what}: ${cmd} ${args.join(" ")}`);
-    const result = spawn(cmd, args, { cwd, env, ...(capture ? { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] } : { stdio: "inherit" }), windowsHide: true });
+    const launch = cmd === "swift" ? buildLaunch(cmd, args, { cwd, env, exists: fs.existsSync }) : { command: cmd, args };
+    const result = spawn(launch.command, launch.args, { cwd, env, ...(capture ? { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] } : { stdio: "inherit" }), windowsHide: true });
     if (!result || result.error || result.status !== 0) fail("NATIVE_HELPERS_STEP_FAILED", `native helper ${what} failed (${result?.error?.message ?? `exit ${result?.status ?? result?.signal ?? "unknown"}`})${capture ? `: ${tail(result?.stderr)}` : ""}`, { cmd, status: result?.status ?? null });
     return result;
   };
@@ -223,10 +225,14 @@ export function buildAndEmbedNativeHelpers({ appRoot, app, helpers: rawHelpers, 
     const entitlements = helper.entitlements ? path.resolve(appRoot, helper.entitlements) : undefined;
     if (entitlements && !fs.existsSync(entitlements)) fail("NATIVE_HELPERS_INPUT_MISSING", `${helper.name}: entitlements file not found: ${entitlements}`);
     const archs = forceArch ? [forceArch] : helper.universal ? [...ARCHS] : [hostArch];
-    const swiftArgs = ["build", "-c", configuration, "--package-path", pkgDir, "--product", helper.product, ...archs.flatMap((arch) => ["--arch", arch])];
-    run(`build ${helper.name}`, "swift", swiftArgs);
+    // Each Swift job is admitted against the checkout that owns its package, including shared RightKit helpers.
+    const packageRoot = packageOwner(pkgDir) || appRoot;
+    const relativePackage = path.relative(packageRoot, pkgDir);
+    const packageArg = relativePackage === "" ? "." : relativePackage;
+    const swiftArgs = ["build", "-c", configuration, "--package-path", packageArg, "--product", helper.product, ...archs.flatMap((arch) => ["--arch", arch])];
+    run(`build ${helper.name}`, "swift", swiftArgs, { cwd: packageRoot });
     events.push(`build:${helper.name}`);
-    const binDir = String(run(`bin path ${helper.name}`, "swift", [...swiftArgs, "--show-bin-path"], { capture: true }).stdout ?? "").trim().split(/\r?\n/).pop();
+    const binDir = String(run(`bin path ${helper.name}`, "swift", [...swiftArgs, "--show-bin-path"], { capture: true, cwd: packageRoot }).stdout ?? "").trim().split(/\r?\n/).pop();
     if (!binDir || !path.isAbsolute(binDir)) fail("NATIVE_HELPERS_STEP_FAILED", `${helper.name}: swift build --show-bin-path returned no absolute path`);
     const source = path.join(binDir, helper.product);
     if (!fs.existsSync(source)) fail("NATIVE_HELPERS_INPUT_MISSING", `${helper.name}: the build did not produce ${source}`);

@@ -45,7 +45,8 @@ function fixture(t, { profile = null, mac = {}, team = "6KLGD3LLKF", signingFail
     if (command === "codesign" && args.includes("-r-")) return { status: 0, stdout: `designated => identifier "app.fixture" and anchor apple generic and certificate leaf[subject.OU] = "${team}"\n` };
     return { status: 0, stdout: "", stderr: "" };
   };
-  return { root, bundle, descriptor: { manifestPath: "src-tauri/Cargo.toml" }, env: {}, run, calls, write };
+  // Build steps run as given (the build door is build-launch.test.mjs's subject; here a stand-in build only produces the bundle).
+  return { root, bundle, descriptor: { manifestPath: "src-tauri/Cargo.toml" }, env: {}, run, door: (command, args) => ({ command, args }), calls, write };
 }
 
 function profile(certificate = developmentCertificate, team = "8757KL989R") {

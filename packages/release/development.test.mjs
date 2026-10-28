@@ -72,11 +72,11 @@ test("public dev dry-run is read-only while actual compilation remains GitHub Ac
     writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ compile: "github-actions-only" }));
     const config = { development: { targets: { [nativePlatform]: { build: [{ cmd: "compile" }] } } } };
     let childCalls = 0;
-    const dryRun = runDevelopment({ root, platform: nativePlatform, config, dryRun: true, env: {}, run: () => { childCalls++; return { status: 0 }; } });
+    const dryRun = runDevelopment({ door: (command, args) => ({ command, args }), root, platform: nativePlatform, config, dryRun: true, env: {}, run: () => { childCalls++; return { status: 0 }; } });
     assert.equal(dryRun.built, false);
     assert.equal(dryRun.plan.build[0].cmd, "compile");
     assert.equal(childCalls, 0);
-    assert.throws(() => runDevelopment({ root, platform: nativePlatform, config, env: {}, run: () => { childCalls++; return { status: 0 }; } }), /GitHub Actions only/);
+    assert.throws(() => runDevelopment({ door: (command, args) => ({ command, args }), root, platform: nativePlatform, config, env: {}, run: () => { childCalls++; return { status: 0 }; } }), /GitHub Actions only/);
     assert.equal(childCalls, 0);
     assert.doesNotThrow(() => assertReleaseExecutionAllowed({ cwd: root, environment: { GITHUB_ACTIONS: "true" }, command: "right-release dev" }));
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -88,8 +88,10 @@ test("install command failure is surfaced after successful dev build", () => {
     git(root, ["init", "-b", "main"]);
     const config = { development: { targets: { [nativePlatform]: { build: [{ cmd: "build" }], install: { kind: "command", cmd: "install", args: [] } } } } };
     const calls = [];
-    assert.throws(() => runDevelopment({ root, platform: nativePlatform, config, env: {}, run: (cmd) => { calls.push(cmd); return { status: cmd === "install" ? 7 : 0, stdout: "", stderr: "" }; } }), /development install command failed \(7\)/);
+    const admitted = [];
+    assert.throws(() => runDevelopment({ door: (command, args) => { admitted.push(command); return { command, args }; }, root, platform: nativePlatform, config, env: {}, run: (cmd) => { calls.push(cmd); return { status: cmd === "install" ? 7 : 0, stdout: "", stderr: "" }; } }), /development install command failed \(7\)/);
     assert.deepEqual(calls, ["build", "install"]);
+    assert.deepEqual(admitted, ["build", "install"]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -110,7 +112,7 @@ test("pnpm subprocess preserves JSON arguments and dev environment without compi
     const code = "process.stdout.write(JSON.stringify({args:process.argv.slice(1),profile:process.env.RIGHTKIT_CARGO_PROFILE,incremental:process.env.CARGO_INCREMENTAL??null}))";
     let output = "";
     runDevelopment({
-      root, platform: nativePlatform, buildOnly: true,
+      door: (command, args) => ({ command, args }), root, platform: nativePlatform, buildOnly: true,
       config: { development: { targets: { [nativePlatform]: { build: [{ cmd: "pnpm", args: ["exec", "node", "-e", code, "a \"quoted\" value"] }] } } } },
       env: { PATH: process.env.PATH ?? "", CARGO_INCREMENTAL: "1", ...suitePnpm },
       run: (command, args, options) => {
@@ -300,11 +302,11 @@ test("ios development: config validates on any host, a dry run prints the genera
     git(root, ["init", "-b", "main"]);
     git(root, ["remote", "add", "origin", "https://github.com/Orthic-Labs/example.git"]);
     writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify({ compile: "github-actions-only" }));
-    const dry = runDevelopment({ root, platform: "ios", config, dryRun: true, env: {}, run: () => assert.fail("a dry run runs nothing") });
+    const dry = runDevelopment({ door: (command, args) => ({ command, args }), root, platform: "ios", config, dryRun: true, env: {}, run: () => assert.fail("a dry run runs nothing") });
     assert.equal(dry.built, false);
     assert.equal(dry.plan.build.at(-1).cmd, "xcodebuild");
     assert.equal(dry.plan.install.kind, "simulator");
-    if (process.platform !== "darwin") assert.throws(() => runDevelopment({ root, platform: "ios", config, env: {}, run: () => assert.fail("no command off macOS") }), /requires its native host/);
+    if (process.platform !== "darwin") assert.throws(() => runDevelopment({ door: (command, args) => ({ command, args }), root, platform: "ios", config, env: {}, run: () => assert.fail("no command off macOS") }), /requires its native host/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -335,4 +337,22 @@ test("linux dev target: build-only, native Linux host only, no install kind acce
   assert.equal(isWsl({ env: {}, readFile: () => "6.8.0-45-generic" }), false);
   // The other targets are unchanged.
   assert.throws(() => assertNativeDevelopmentHost("win", "linux"), /requires its native host/);
+});
+
+test("dev build steps go through the build door", () => {
+  const root = temp();
+  try {
+    git(root, ["init", "-b", "main"]);
+    const seen = [];
+    const door = (command, args) => { seen.push(command); return { command: "door-" + command, args }; };
+    const ran = [];
+    runDevelopment({
+      door, root, platform: nativePlatform, buildOnly: true,
+      config: { development: { targets: { [nativePlatform]: { build: [{ cmd: "pnpm", args: ["run", "build"] }] } } } },
+      env: { PATH: process.env.PATH ?? "" },
+      run: (command) => { ran.push(command); return { status: 0 }; },
+    });
+    assert.deepEqual(seen, ["pnpm"]);
+    assert.deepEqual(ran, ["door-pnpm"]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
