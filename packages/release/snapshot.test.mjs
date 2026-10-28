@@ -374,22 +374,29 @@ test("coordinator Oracle shape: an obsolete directory replaced by a planted link
   verifySnapshot({ checkout: f.repo, rev: a, root: f.root });
 });
 
-test("exclusion race: two contenders reclaiming the same dead holder's lock never both enter", (t) => {
+test("exclusion race: contenders arriving while a dead holder's lock is reclaimed never both hold it", (t) => {
   const f = fixture(t);
   fs.mkdirSync(f.root, { recursive: true });
   const lock = `${f.dir}.lock`;
   const dead = JSON.stringify({ pid: 2 ** 22 + 4321, host: os.hostname(), startedAt: "then", token: "dead" });
   fs.writeFileSync(lock, dead);
-  let a = null;
-  // B reads the dead holder; before B reclaims, A (which saw the same dead holder) reclaims and holds the lock.
-  assert.throws(() => acquireSnapshotLock(lock, { afterStaleRead: () => { a = acquireSnapshotLock(lock); } }), (e) => e.code === "busy" && /reclaimed by another process/.test(e.message));
-  assert.ok(a, "A entered");
-  assert.equal(a.held(), true, "A still holds the lock B moved aside and put back");
-  assert.deepEqual(fs.readdirSync(f.root).filter((n) => n.includes(".stale-")), [], "no stale copies left");
-  assert.throws(() => acquireSnapshotLock(lock), (e) => e.code === "busy");
-  a();
+  const outcomes = {};
+  const attempt = (name, hooks) => { try { outcomes[name] = acquireSnapshotLock(lock, hooks); } catch (e) { outcomes[name] = e.code; } };
+  // B judges the lock stale; A then judges it stale too, before B starts reclaiming (the case that let two enter before).
+  // While B reclaims, C arrives (the put-back gap of the move-aside design).
+  attempt("B", { afterStaleRead: () => attempt("A"), whileReclaiming: () => attempt("C") });
+  const holders = Object.entries(outcomes).filter(([, v]) => typeof v === "function" && v.held());
+  assert.equal(holders.length, 1, `exactly one holder: ${JSON.stringify(Object.fromEntries(Object.entries(outcomes).map(([k, v]) => [k, typeof v === "function" ? (v.held() ? "held" : "lost") : v])))}`);
+  for (const [, v] of Object.entries(outcomes)) if (typeof v !== "function") assert.equal(v, "busy");
+  assert.deepEqual(fs.readdirSync(f.root).filter((n) => n.endsWith(".reclaim")), [], "the reclaim file is removed");
+  holders[0][1]();
   assert.equal(fs.existsSync(lock), false);
-  // With A gone, a contender that reads an unreadable fresh lock stays out.
+  // A reclaim file left by a reclaimer that died fails closed.
+  fs.writeFileSync(lock, dead);
+  fs.writeFileSync(`${lock}.reclaim`, "x");
+  assert.throws(() => acquireSnapshotLock(lock), (e) => e.code === "busy" && /being reclaimed/.test(e.message));
+  fs.rmSync(`${lock}.reclaim`);
+  // An unreadable fresh lock stays busy.
   fs.writeFileSync(lock, "");
   assert.throws(() => acquireSnapshotLock(lock), (e) => e.code === "busy" && /being written/.test(e.message));
 });
