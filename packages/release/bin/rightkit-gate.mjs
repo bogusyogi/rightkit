@@ -1334,11 +1334,7 @@ async function installHook(o, root, force) {
   let settings = {};
   if (o.exists(settingsPath)) { try { settings = JSON.parse(o.readFile(settingsPath)); } catch { o.err("rightkit-gate: .claude/settings.json is not JSON; the agent hook was not added"); settings = null; } }
   if (settings) {
-    // On a managed host the hook runs through the host launcher, which resolves the pinned trusted gate at each call: no pin path is
-    // written into the repository, so a repin never breaks it. Elsewhere (no launcher) the package's own hook file runs.
-    const pathDirs = String(o.env?.PATH ?? o.env?.Path ?? "").split(path.delimiter).filter(Boolean);
-    const hostLauncher = pathDirs.some((dir) => ["rightkit-host-gate", "rightkit-host-gate.cmd"].some((name) => o.exists(path.join(dir, name))));
-    const command = hostLauncher ? "rightkit-host-gate agent-hook" : `node ${agentHook}`;
+    const command = `node ${agentHook}`;
     const pre = Array.isArray(settings.hooks?.PreToolUse) ? settings.hooks.PreToolUse : [];
     const has = pre.some((entry) => (entry.hooks ?? []).some((h) => typeof h.command === "string" && h.command.includes("rightkit-agent-hook")));
     if (has) done.push(".claude/settings.json agent hook already present");
@@ -1470,10 +1466,8 @@ async function runStages(o, args, root, git, io) {
   // the ones they sealed, so they are not run again.
   const sealedNow = receipt.stages.package?.ok ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;
   const sealedIntact = Boolean(sealedNow && sealedNow.id === receipt.stages.package.sealed && sealedNow.digest === receipt.stages.package.manifestSha256);
-  // Every deterministic scan runs before compilation at every door stage (check --full-a runs the scans at the release tier). The app
-  // RULES run at the tier the stage owes: governance rules (ratifications, ownership approvals, release-config shape) are release-tier and
-  // run first for a door run headed to qualify or release; dev/compile/package owe the compile tier.
-  const earlyTier = ["qualify", "release"].includes(to) ? "release" : "compile";
+  // Every deterministic rule and scan must run before compilation, for every door stage.
+  const earlyTier = "release";
   const tierAtLeast = (have, need) => have === "release" || need === "compile";
   for (const stage of stages) {
     if (stage === "check" && receipt.stages.check?.ok && tierAtLeast(receipt.stages.check.ruleTier ?? "compile", earlyTier)) { o.out(`${tag} [check] already passed (${receipt.stages.check.ruleTier ?? "compile"} tier) for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
@@ -1672,14 +1666,6 @@ export async function main(argv, io = {}) {
   };
   const args = [...argv];
   const option = (name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
-  // `agent-hook`: the Claude Code PreToolUse decision of the pinned gate (rightkit-host-gate agent-hook reaches it without a pin path).
-  if (args[0] === "agent-hook") {
-    const { claudeDoorDecision } = await import("../door-policy.mjs");
-    let input = {};
-    try { input = JSON.parse((o.readStdin?.() ?? "") || "{}"); } catch { input = {}; }
-    o.out(JSON.stringify(claudeDoorDecision(input)));
-    return 0;
-  }
   if (args.includes("--version") || args.includes("-v")) {
     o.out(JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version);
     return 0;
@@ -1700,10 +1686,14 @@ export async function main(argv, io = {}) {
     }
     const requestedTier = option("--rule-tier") ?? "compile";
     if (!["compile", "release"].includes(requestedTier)) { o.err(`rightkit-gate: check --rule-tier must be compile or release, not ${JSON.stringify(requestedTier)}`); return 2; }
-    // Full admission runs every deterministic SCAN at the release tier (below); the app RULES run at the requested tier (compile by
-    // default: governance rules are release-tier and owed by qualify/release, not by a dev or compile admission).
+    // Full admission cannot be downgraded by a caller's tier flag. Partial views retain their requested tier.
     const fullAdmission = args.includes("--full-a") && !args.includes("--list") && !args.includes("--print-baseline") && !args.includes("--only");
     const appArgs = args.slice(1).filter((a) => a !== "--full-a");
+    if (fullAdmission) {
+      const tierIndex = appArgs.indexOf("--rule-tier");
+      if (tierIndex >= 0) appArgs.splice(tierIndex, 2);
+      appArgs.push("--rule-tier", "release");
+    }
     const appCheck = await (o.appCheck ?? (await import("../app-check.mjs")).main)(appArgs, { out: o.out, err: o.err, label: "check", cwd: o.cwd });
     if (args.includes("--list") || args.includes("--print-baseline") || args.includes("--only") || o.classA === false) {
       // A view of the app rules, never a class A verdict: say so, so no caller can take its exit 0 for a full check.
@@ -1718,7 +1708,7 @@ export async function main(argv, io = {}) {
     }
     const repoArg = option("--repo");
     const checkCwd = repoArg ? path.resolve(o.cwd, repoArg) : o.cwd;
-    // Full admission runs every deterministic scan (the release tier of scans); a partial diagnostic check may choose either tier.
+    // Admission uses the full tier; a partial diagnostic check may choose either tier.
     const ruleTier = fullAdmission ? "release" : requestedTier;
     const classA = await main(["--class-a", "--rule-tier", ruleTier, ...(args.includes("--full-a") ? ["--full-a"] : []), ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"])], { ...io, cwd: checkCwd });
     // RightKit checking itself: its own rules (line endings, consumer recipes, npm surface, version copies and the version feed, dispatcher
