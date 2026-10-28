@@ -3097,3 +3097,11 @@ test("full class A refuses an orphaned nested pnpm store in a workspace member (
   const noRoot = capture();
   assert.equal(await main(["--class-a", "--full-a", "--worktree", "--no-cache"], { ...noRoot.io, cwd: repo, runScans: steady, spawn: withPnpm }), 0, noRoot.err.join("\n"));
 });
+
+test("the gate names itself to the broker by its own resolved entry path (RIGHTKIT_CALLING_GATE), set for every child of a CLI run", async () => {
+  const { callingGatePath } = await import("./bin/rightkit-gate.mjs");
+  const entry = fs.realpathSync(new URL("./bin/rightkit-gate.mjs", import.meta.url));
+  assert.equal(callingGatePath(), entry);
+  const source = fs.readFileSync(entry, "utf8");
+  assert.match(source, /if \(invokedDirectly\) \{\s*\/\/[^\n]*\n\s*process\.env\.RIGHTKIT_CALLING_GATE = callingGatePath\(\);/);
+});

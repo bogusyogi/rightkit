@@ -2192,6 +2192,11 @@ export async function main(argv, io = {}) {
 const invokedDirectly = (() => {
   try { return fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
 })();
+/** This gate's own resolved entry file: the broker admits a compile only when the request names the pinned trusted gate by this
+ * path (rustright reads it from RIGHTKIT_CALLING_GATE; a missing or different path is refused). */
+export const callingGatePath = () => fs.realpathSync(fileURLToPath(import.meta.url));
 if (invokedDirectly) {
+  // Every child this run starts that can reach rustright (scans, unit stages, right-release dev/test, their builds) inherits it.
+  process.env.RIGHTKIT_CALLING_GATE = callingGatePath();
   main(process.argv.slice(2)).then((code) => process.exit(code), (e) => { console.error(`rightkit-gate: ${e?.stack ?? e}`); process.exit(2); });
 }
