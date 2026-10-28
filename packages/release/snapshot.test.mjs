@@ -397,7 +397,8 @@ test("exclusion race: contenders arriving while a dead holder's lock is reclaime
   assert.throws(() => acquireSnapshotLock(lock), (e) => e.code === "busy" && /being reclaimed/.test(e.message));
   fs.rmSync(`${lock}.reclaim`);
   // An empty or unparseable lock is never reclaimed, however old (Oracle: an empty stale lock equals a lock being created).
-  for (const junk of ["", "{not json", JSON.stringify({ pid: "x" })]) {
+  const lockOf = (pid) => JSON.stringify({ pid, host: os.hostname(), startedAt: "then", token: "t" });
+  for (const junk of ["", "{not json", JSON.stringify({ pid: "x" }), lockOf(1.5), lockOf(0), lockOf(-7), lockOf(2 ** 31), lockOf(Number.MAX_SAFE_INTEGER), JSON.stringify({ pid: 2 ** 22 + 1, host: 7 })]) {
     fs.writeFileSync(lock, junk);
     fs.utimesSync(lock, new Date(0), new Date(0));
     assert.throws(() => acquireSnapshotLock(lock), (e) => e.code === "busy" && /cannot be read as a lock/.test(e.message));
@@ -409,4 +410,14 @@ test("exclusion race: contenders arriving while a dead holder's lock is reclaime
   assert.match(fs.readFileSync(lock, "utf8"), /"token":/);
   assert.deepEqual(fs.readdirSync(f.root).filter((n) => n.endsWith(".tmp")), []);
   release();
+});
+
+test("stale means proven gone: a holder pid that answers EPERM (pid 1) is busy, never reclaimed", { skip: posixOnly || (process.getuid?.() === 0 ? "root can signal pid 1" : false) }, (t) => {
+  const f = fixture(t);
+  fs.mkdirSync(f.root, { recursive: true });
+  const lock = `${f.dir}.lock`;
+  const body = JSON.stringify({ pid: 1, host: os.hostname(), startedAt: "then", token: "init" });
+  fs.writeFileSync(lock, body);
+  assert.throws(() => acquireSnapshotLock(lock), (e) => e.code === "busy" && /held by pid 1|cannot be proven gone \(EPERM\)/.test(e.message));
+  assert.equal(fs.readFileSync(lock, "utf8"), body, "left in place");
 });

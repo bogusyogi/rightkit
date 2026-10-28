@@ -236,10 +236,13 @@ export function acquireSnapshotLock(lockFile, hooks = {}) {
     let holder = null;
     try { holder = JSON.parse(observed); } catch { holder = null; }
     // Locks appear whole, so one that cannot be parsed was not written by this protocol: never reclaimed automatically.
-    if (!holder || typeof holder.pid !== "number" || !holder.host) throw busy(`snapshot lock ${lockFile} cannot be read as a lock; remove it only if no sync is running`);
+    if (!holder || !Number.isInteger(holder.pid) || holder.pid <= 0 || holder.pid > 0x7fffffff || typeof holder.host !== "string" || !holder.host) throw busy(`snapshot lock ${lockFile} cannot be read as a lock; remove it only if no sync is running`);
     if (holder.host !== os.hostname()) throw busy(`snapshot is held by pid ${holder.pid} on ${holder.host} since ${holder.startedAt}`);
-    const alive = (() => { try { process.kill(holder.pid, 0); return true; } catch (k) { return k.code === "EPERM"; } })();
-    if (alive) throw busy(`snapshot is held by pid ${holder.pid} since ${holder.startedAt}`);
+    // Only a holder proven gone (ESRCH) is stale; any other answer, EPERM included, leaves the lock alone.
+    let probe = null;
+    try { process.kill(holder.pid, 0); } catch (k) { probe = k.code ?? String(k); }
+    if (probe === null) throw busy(`snapshot is held by pid ${holder.pid} since ${holder.startedAt}`);
+    if (probe !== "ESRCH") throw busy(`snapshot lock holder pid ${holder.pid} cannot be proven gone (${probe})`);
   };
   const first = create();
   if (first) return first;
