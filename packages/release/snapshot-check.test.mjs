@@ -315,18 +315,42 @@ test("rightkit#1215 in snapshot mode: a config-only .git naming the origin exist
   assert.equal(fs.existsSync(path.join(s.dir, ".git")), false, "removed when the check ends");
 });
 
-test("skipped build scripts: an installed allowed-build package must prove itself usable (real node), else RK_CHECK_ERROR", (t) => {
+test("skipped build scripts: an installed allowed-build package must prove itself usable (real node, under the class A launch guard), else RK_CHECK_ERROR", (t) => {
   const dir = tmp(t, "rk-sc-probe-");
   const pkg = (entry, name, files) => write(dir, Object.fromEntries(Object.entries(files).map(([f, b]) => [`node_modules/.pnpm/${entry}/node_modules/${name}/${f}`, b])));
-  pkg("esbuild@0.28.2", "esbuild", { "package.json": JSON.stringify({ name: "esbuild", version: "0.28.2", bin: { esbuild: "bin/esbuild" } }), "bin/esbuild": "console.log('0.28.2');\n" });
+  pkg("esbuild@0.28.2", "esbuild", { "package.json": JSON.stringify({ name: "esbuild", version: "0.28.2", bin: { esbuild: "bin/esbuild" } }), "bin/esbuild": "throw new Error('a compile tool must never be launched by the probe');\n" });
+  pkg("nativelib@3.1.0", "nativelib", { "package.json": JSON.stringify({ name: "nativelib", version: "3.1.0", bin: { nativelib: "cli.js" } }), "cli.js": "console.log('3.1.0');\n" });
   pkg("@scope+native@1.0.0", "@scope/native", { "package.json": JSON.stringify({ name: "@scope/native", version: "1.0.0", main: "index.js" }), "index.js": "module.exports = 1;\n" });
-  const ok = probeSkippedBuilds({ dir, root: ".", names: ["esbuild", "@scope/native", "not-installed"] });
-  assert.deepEqual(ok, [
-    { name: "esbuild", version: "0.28.2", probe: "esbuild --version", result: "0.28.2" },
-    { name: "@scope/native", version: "1.0.0", probe: "require", result: "loaded" },
-  ]);
+  const ok = probeSkippedBuilds({ dir, root: ".", names: ["esbuild", "nativelib", "@scope/native", "not-installed"] });
+  assert.deepEqual(ok.map(({ name, probe }) => [name, probe]), [["esbuild", "none"], ["nativelib", "nativelib --version"], ["@scope/native", "require"]]);
+  assert.match(ok[0].result, /^compile tool \(esbuild\): class A never launches it/);
+  assert.equal(ok[1].result, "3.1.0");
   pkg("broken@2.0.0", "broken", { "package.json": JSON.stringify({ name: "broken", version: "2.0.0", bin: "cli.js" }), "cli.js": "throw new Error('native binary missing: run the install script');\n" });
   assert.throws(() => probeSkippedBuilds({ dir, root: "apps/web", names: ["broken"] }), (e) => e instanceof CheckError && /root apps\/web: broken@2\.0\.0 needs its install script .* not usable without it: broken --version failed/.test(e.message));
+});
+
+// Coordinator review of 9799b15a: the probe runs before class A is green, so a dependency bin that launches cargo must be refused by the
+// class A launch guard (real subprocesses, a fake cargo that would write a sentinel), and the probe fails with an actionable error.
+test("skipped build scripts: a probed bin that launches cargo is refused by the launch guard; no compile starts; RK_CHECK_ERROR", (t) => {
+  const dir = tmp(t, "rk-sc-guard-");
+  const bin = tmp(t, "rk-sc-fakebin-");
+  const sentinel = path.join(bin, "cargo-ran");
+  if (process.platform === "win32") write(bin, { "cargo.cmd": `@echo ran> "${sentinel}"\r\n` });
+  else { write(bin, { cargo: `#!/bin/sh\necho ran > '${sentinel}'\n` }); fs.chmodSync(path.join(bin, "cargo"), 0o755); }
+  write(dir, {
+    "node_modules/.pnpm/builder@1.0.0/node_modules/builder/package.json": JSON.stringify({ name: "builder", version: "1.0.0", bin: { builder: "cli.js" } }),
+    "node_modules/.pnpm/builder@1.0.0/node_modules/builder/cli.js": "const r = require('node:child_process').spawnSync('cargo', ['build'], { shell: true, stdio: 'inherit' }); process.exit(r.status ?? 0);\n",
+  });
+  // The test harness's broker guard (inherited through NODE_OPTIONS) is dropped for these two children: the control must really launch
+  // the fake cargo, and the probe must be stopped by the class A launch guard alone. The sentinel proves what ran.
+  const env = { ...process.env, NODE_OPTIONS: "", PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+  // Control: without the guard the same bin really launches the fake cargo.
+  const control = spawnSync(process.execPath, [path.join(dir, "node_modules/.pnpm/builder@1.0.0/node_modules/builder/cli.js"), "--version"], { env, encoding: "utf8" });
+  assert.equal(control.status, 0, control.stderr);
+  assert.equal(fs.existsSync(sentinel), true, "the control run launched cargo");
+  fs.rmSync(sentinel);
+  assert.throws(() => probeSkippedBuilds({ dir, root: ".", names: ["builder"], env }), (e) => e instanceof CheckError && /builder@1\.0\.0 needs its install script .* builder --version failed: .*class A refuses a compile\/emit launch \(cargo\)/s.test(e.message));
+  assert.equal(fs.existsSync(sentinel), false, "under the guard no cargo ran");
 });
 
 // Coordinator review of 4cda1824: a red's marker must bind only the environment it was judged in. A dependency that changes while

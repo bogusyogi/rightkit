@@ -20,7 +20,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { LIVE_SCAN_IDS, defaultSpawn, isLiveScan, planScans, runScans } from "./deterministic-scans.mjs";
+import { LIVE_SCAN_IDS, defaultSpawn, isLiveScan, launchGuardEnv, planScans, runScans } from "./deterministic-scans.mjs";
+import { compileLaunch } from "./class-a-launch-guard.mjs";
 import { SnapshotError, snapshotTree } from "./snapshot.mjs";
 
 export const CHECK_ERROR = "RK_CHECK_ERROR";
@@ -135,9 +136,12 @@ export function allowedBuilds(dir, { readFile = (f) => fs.readFileSync(f, "utf8"
 
 /**
  * A dependency whose install script the repository allows but `--ignore-scripts` skipped must be shown usable without it, never
- * assumed: its own bin runs with `--version`, or, with no bin, the package loads in a fresh node. A package the root does not have
- * installed is not required. Returns [{ name, version, probe, result }]; throws CheckError naming the package and root when one is
- * installed but not usable.
+ * assumed: its own bin runs with `--version`, or, with no bin, the package loads in a fresh node. The probe runs before class A is
+ * green, so it runs under the class A launch guard (launchGuardEnv): it can never start a compile; a refused launch fails the probe.
+ * A package that is itself a compile tool the guard lists (esbuild) is never launched here: class A cannot launch it either, so its
+ * usability is proven where it is launched, after class A, and it is recorded as such. A package the root does not have installed is
+ * not required. Returns [{ name, version, probe, result }]; throws CheckError naming the package and root when one is installed but
+ * not usable.
  */
 export function probeSkippedBuilds({ dir, root, names, spawn = defaultSpawn, env = process.env, node = process.execPath }) {
   const results = [];
@@ -152,10 +156,16 @@ export function probeSkippedBuilds({ dir, root, names, spawn = defaultSpawn, env
       try { manifest = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8")); } catch { continue; }
       const bins = typeof manifest.bin === "string" ? { [name.split("/").pop()]: manifest.bin } : (manifest.bin ?? {});
       const binName = Object.keys(bins).find((b) => b === name.split("/").pop()) ?? Object.keys(bins)[0];
+      const compiler = compileLaunch(name.split("/").pop()) ?? (binName ? compileLaunch(binName) : null);
+      if (compiler) { results.push({ name, version: manifest.version, probe: "none", result: `compile tool (${compiler}): class A never launches it; its usability is proven where it is launched, after class A` }); continue; }
       const probe = binName ? [path.join(pkgDir, bins[binName]), "--version"] : ["-e", `require(${JSON.stringify(pkgDir)})`];
-      const r = spawn(node, probe, { cwd: dir, env, boundedMs: 60_000 });
+      const r = spawn(node, probe, { cwd: dir, env: { ...env, ...launchGuardEnv(env) }, boundedMs: 60_000 });
       const out = text(r).trim().split(/\r?\n/).pop() ?? "";
-      if (failed(r)) throw new CheckError(`root ${root}: ${name}@${manifest.version} needs its install script (allowed by the repository, not run under --ignore-scripts) and is not usable without it: ${binName ? `${binName} --version` : "require"} failed: ${tail(r) || r?.error?.message || `exit ${r?.status}`}`);
+      if (failed(r)) {
+        const refused = `${r?.stderr ?? ""}\n${r?.stdout ?? ""}`.split(/\r?\n/).find((l) => l.includes("class A refuses a compile/emit launch"));
+        const why = refused ? `it launched a compile, which the class A launch guard refused: ${refused.replace(/^rightkit-gate: /, "").trim()}` : (tail(r) || r?.error?.message || `exit ${r?.status}`);
+        throw new CheckError(`root ${root}: ${name}@${manifest.version} needs its install script (allowed by the repository, not run under --ignore-scripts) and is not usable without it: ${binName ? `${binName} --version` : "require"} failed: ${why}`);
+      }
       results.push({ name, version: manifest.version, probe: binName ? `${binName} --version` : "require", result: out || "loaded" });
     }
   }
