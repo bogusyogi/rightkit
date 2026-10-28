@@ -20,6 +20,9 @@ import { STAGES } from "./gate-stages.mjs";
 import { RULES as APP_RULES, COMPILE_TIER_IDS } from "./app-check.mjs";
 import { RULES as PREFLIGHT_RULES } from "../../scripts/preflight.mjs";
 import { main } from "./bin/rightkit-gate.mjs";
+import { directPlatform, managedRuntimeClient, runCargoSync } from "./managed-cargo.mjs";
+import { brokerManagedHost, managedCargoShimOnPath } from "./cargo-contract.mjs";
+import { developmentEnvironment } from "./development.mjs";
 import { GITHUB_ACTIONS_ONLY, GITHUB_ACTIONS_ONLY_ERROR, LOCAL_BUILD_FILE, assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -155,6 +158,32 @@ console.log(JSON.stringify({ code, out: out.join("\\n").slice(-1500) }));\n`.rep
   const labelOnly = runAs("label-only", `{ kind: "direct", cargo: ["cargo"] }`);
   assert.equal(labelOnly.shim, true, `control: with PATH unchanged the shim answers (${JSON.stringify(labelOnly)})`);
 });
+test("[behavior] Linux direct holds in every managed-cargo helper, whatever control root, socket or shim the environment names (Mac control broker-managed)", (t) => {
+  // An environment that makes a Mac broker-managed: a control root holding runtime-current/rustright, a broker socket, the agent-bin shim first.
+  const dir = tmp(t, "rk-gc-helpers-");
+  const control = path.join(dir, "control"); const agentBin = path.join(dir, ".rightkit-managed", "agent-bin"); const toolchain = path.join(dir, "toolchain");
+  write(control, { "runtime-current/rustright": "#!/bin/sh\n" }); write(agentBin, { cargo: "#!/bin/sh\n# cargo-guard.mjs\n" }); write(toolchain, { cargo: "#!/bin/sh\n" });
+  const env = { RIGHTKIT_CONTROL_ROOT: control, RIGHTKIT_DATA_ROOT: control, RIGHTKIT_BUILD_BROKER_SOCKET: path.join(control, "broker.sock"), PATH: `${agentBin}:${toolchain}:/usr/bin`, HOME: dir };
+  assert.equal(directPlatform("linux"), true); assert.equal(directPlatform("darwin"), false); assert.equal(directPlatform("win32"), false);
+  assert.equal(managedRuntimeClient(env, "linux"), undefined, "Linux finds no broker client");
+  assert.equal(managedRuntimeClient(env, "darwin"), path.join(control, "runtime-current", "rustright"), "control: the same env on a Mac finds it");
+  assert.equal(brokerManagedHost(env, "linux"), false); assert.equal(brokerManagedHost(env, "darwin"), true);
+  assert.equal(managedCargoShimOnPath(env, "linux"), false); assert.equal(managedCargoShimOnPath(env, "darwin"), true);
+  const launches = [];
+  const record = (command, args, options) => { launches.push({ command, args, PATH: options?.env?.PATH }); return { status: 0, stdout: "", stderr: "" }; };
+  runCargoSync(["metadata", "--format-version", "1"], { env }, { platform: "linux", spawn: record });
+  assert.equal(launches[0].command, "cargo", "Linux runs the real cargo, never the client");
+  assert.deepEqual(launches[0].args, ["metadata", "--format-version", "1"]);
+  assert.equal(launches[0].PATH, `${toolchain}:/usr/bin`, "the agent-bin shim directory is off PATH");
+  runCargoSync(["metadata"], { env }, { platform: "darwin", spawn: record, exists: (p) => p === path.join(control, "runtime-current", "rustright") || p === env.RIGHTKIT_BUILD_BROKER_SOCKET });
+  assert.equal(launches[1].command, path.join(control, "runtime-current", "rustright"), "control: on a Mac the broker client runs");
+  const dev = developmentEnvironment(env, "linux");
+  assert.equal(dev.PATH, `${toolchain}:/usr/bin`, "a Linux dev build never re-adds the agent-bin");
+  assert.equal(dev.RIGHTKIT_BUILD_BROKER_SOCKET, env.RIGHTKIT_BUILD_BROKER_SOCKET, "an inherited variable is left, but nothing on Linux reads it");
+  const exec = resolveExecutor({ env, platform: "linux", exists: fs.existsSync, readFile: (f) => fs.readFileSync(f, "utf8"), which: () => [path.join(agentBin, "cargo")] });
+  assert.equal(exec.kind, "direct"); assert.equal(exec.env.PATH, `${toolchain}:/usr/bin`);
+});
+
 test("[behavior] E10: the executor has no caller input, so a human and a managed agent route the same way", () => {
   // resolveExecutor reads only the host (env, platform, PATH, files): an agent marker in the environment changes nothing.
   for (const host of ["mac", "dell", "linux"]) assert.deepEqual(route(host, { env: { CLAUDECODE: "1", RIGHTKIT_AGENT: "1" } }), route(host), host);

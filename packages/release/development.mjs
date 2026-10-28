@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
-import { acquireManagedRunLease, managedRuntimeClient, managedRuntimeCommand, runCargoSync } from "./managed-cargo.mjs";
+import { acquireManagedRunLease, directCargoEnv, directPlatform, managedRuntimeClient, managedRuntimeCommand, runCargoSync } from "./managed-cargo.mjs";
 import { BUNDLE_MARKERS, bundleMarkerBuffer, readTauriBundleMarkers } from "./tauri-bundle-marker.mjs";
 import { installPortableDevelopment } from "./portable-development.mjs";
 import { previousPathOf, stagingPathOf, swapInPlace } from "./in-place-install.mjs";
@@ -34,9 +34,9 @@ export function cargoProfileDirectory(profile) {
 }
 const RELEASE_ONLY_APPLE_ENV = ["APPLE_ID", "APPLE_PASSWORD", "APPLE_API_KEY", "APPLE_API_ISSUER", "APPLE_API_KEY_PATH", "APPLE_CERTIFICATE", "APPLE_CERTIFICATE_PASSWORD"];
 
-export function developmentEnvironment(env = process.env) {
+export function developmentEnvironment(env = process.env, platform = process.platform) {
   const result = {
-    ...env,
+    ...(directPlatform(platform) ? directCargoEnv(env, platform) : env),
     RIGHTKIT_BUILD_MODE: "dev",
     RIGHTKIT_CARGO_PROFILE: DEVELOPMENT_PROFILE,
     TAURI_SIGNING_PRIVATE_KEY: "",
@@ -383,6 +383,11 @@ export function resolveCommand(command, args, { root, env = process.env } = {}) 
   }
   if (command === "pnpm") return { command: process.execPath, args: [resolvePnpmCli({ root, env }), ...args] };
   if (command === "rightkit") throw new Error("`rightkit` is the retired name of the RustRight client (rustright#91); use rustright (cmd: \"rustright\")");
+  // A direct (Linux) host has no broker: `rustright cargo <args>` runs the real cargo, RustRight shims off PATH (managed-cargo directPlatform).
+  if (command === "rustright" && directPlatform()) {
+    if (args[0] !== "cargo") throw new Error(`\`rustright ${args[0] ?? ""}\` has no direct form on this ${process.platform} host (no broker on Linux); only \`rustright cargo\` maps to cargo`);
+    return { command: "cargo", args: args.slice(1), env: directCargoEnv(env) };
+  }
   if (command === "rustright") {
     const client = managedRuntimeClient(env);
     if (!client) throw new Error("installed RightKit runtime client is unavailable for development command");

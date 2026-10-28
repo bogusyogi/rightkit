@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
-import { managedRuntimeClient, runCargoSync } from "./managed-cargo.mjs";
+import { directPlatform, managedRuntimeClient, runCargoSync } from "./managed-cargo.mjs";
 
 const SKIP_DIRECTORIES = new Set([".audit", ".cache", ".git", ".claude", ".right-release", ".worktrees", "node_modules", "target", "vendor"]);
 const CRATES_IO_SOURCES = new Set([
@@ -12,6 +12,7 @@ const CRATES_IO_SOURCES = new Set([
 const CACHE_V2_ENVIRONMENT = ["CARGO_HOME", "CARGO_TARGET_DIR", "RUSTC_WRAPPER", "SCCACHE_DIR", "SCCACHE_BASEDIRS", "RIGHT_RELEASE_CACHE_OWNER"];
 
 export function managedCargoShimOnPath(env = process.env, platform = process.platform, exists = existsSync) {
+  if (directPlatform(platform)) return false; // Linux never uses a RustRight shim (managed-cargo directPlatform)
   const pathApi = platform === "win32" ? path.win32 : path.posix;
   const delimiter = platform === "win32" ? ";" : ":";
   const extensions = platform === "win32"
@@ -29,6 +30,7 @@ export function managedCargoShimOnPath(env = process.env, platform = process.pla
 }
 
 export function brokerManagedHost(env = process.env, platform = process.platform, exists = existsSync) {
+  if (directPlatform(platform)) return false; // Linux is never broker-managed, whatever socket or control root the env names
   return Boolean(managedRuntimeClient(env, platform, exists)) || Boolean(env.RIGHTKIT_BUILD_BROKER_SOCKET) || managedCargoShimOnPath(env, platform, exists);
 }
 

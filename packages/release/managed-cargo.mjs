@@ -1,11 +1,51 @@
 import { discoverBrokerSocket, managedControlCandidates, resolveManagedRoots } from './managed-roots.mjs';
 import { randomUUID } from "node:crypto";
 import { homedir, userInfo } from "node:os";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { spawn as spawnProcess, spawnSync } from "./background-process.mjs";
 
+/**
+ * Linux, and any host that is neither Mac nor Windows, never uses the RustRight broker: WSL2, a VM, a cloud or CI runner, Linux hosted on
+ * the Dell (GATE-CONTRACT §1 "One entry"; joint plan step 4). Every managed-cargo helper follows this one policy, whatever control-root,
+ * socket or PATH entries the environment carries.
+ */
+export const directPlatform = (platform = process.platform) => platform !== "darwin" && platform !== "win32";
+
+const MANAGED_AGENT_BIN = /(?:^|\/)(?:\.rightkit-managed|rightkitmanagedagent|rightkit\/build-control)\/agent-bin\/?$/i;
+function fileHead(file) {
+  let fd = null;
+  try { fd = openSync(file, "r"); const b = Buffer.alloc(4096); const n = readSync(fd, b, 0, 4096, 0); return b.subarray(0, n).toString("latin1"); }
+  catch { return ""; } finally { if (fd !== null) try { closeSync(fd); } catch { /* closed */ } }
+}
+
+/**
+ * On a direct (Linux) host: PATH without the directories whose `cargo` is a RustRight shim (the managed agent-bin, a configured
+ * RIGHTKIT_MANAGED_AGENT_BIN, or a script that routes through the broker, read 4 KiB at most), and the first real cargo left on it.
+ * Plain `cargo` then can only be a real toolchain; with none, a cargo launch fails as missing, never through a shim.
+ */
+export function directCargoPath({ env = process.env, exists = existsSync, readHead = fileHead } = {}) {
+  const configured = env.RIGHTKIT_MANAGED_AGENT_BIN ? path.posix.resolve(env.RIGHTKIT_MANAGED_AGENT_BIN) : null;
+  const kept = []; const dropped = []; let cargo = null;
+  for (const dir of String(env.PATH ?? "").split(":").filter(Boolean)) {
+    const candidate = path.posix.join(dir, "cargo");
+    const isShim = exists(candidate) && (MANAGED_AGENT_BIN.test(dir) || (configured && path.posix.resolve(dir) === configured) || /cargo-guard\.mjs|rustright/i.test(readHead(candidate)));
+    if (isShim) { dropped.push(dir); continue; }
+    kept.push(dir);
+    if (!cargo && exists(candidate)) cargo = candidate;
+  }
+  return { path: kept.join(":"), dropped, cargo };
+}
+
+/** `env` for a direct host: PATH without RustRight shim directories. Unchanged on Mac and Windows. */
+export function directCargoEnv(env = process.env, platform = process.platform, exists = existsSync) {
+  if (!directPlatform(platform)) return env;
+  const direct = directCargoPath({ env, exists });
+  return direct.dropped.length ? { ...env, PATH: direct.path } : env;
+}
+
 export function managedRuntimeClient(env = process.env, platform = process.platform, exists = existsSync) {
+  if (directPlatform(platform)) return undefined;
   const roots = managedControlCandidates({ env, platform });
   const paths = platform === 'win32' ? path.win32 : path.posix;
   // runtime-current ships the native `rustright` client.
@@ -77,7 +117,8 @@ export function runCargoSync(args, options = {}, { platform = process.platform, 
   // RightKit runtime and use the toolchain's cargo (release-candidate signing jobs).
   const hostedCi = env.GITHUB_ACTIONS === 'true' && !managedHost(env);
   if ((platform === 'darwin' && !hostedCi) || (managedHost(env) && platform === 'win32')) return unavailable('installed RightKit runtime client is unavailable for managed Cargo metadata');
-  return spawn("cargo", args, options);
+  // A direct (Linux) host runs the real toolchain: RustRight shim directories are taken off PATH first.
+  return spawn("cargo", args, directPlatform(platform) ? { ...options, env: directCargoEnv(env, platform, exists) } : options);
 }
 
 function unavailable(message) {
