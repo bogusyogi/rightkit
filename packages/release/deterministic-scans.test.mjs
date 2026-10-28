@@ -204,7 +204,7 @@ test("findRustfmt refuses an async spawn rather than reporting rustfmt missing",
 test("runner: a failed class A scan leaves class B not-run", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
   const log = [];
-  const result = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ failing: ["deny --offline"], log }) }));
+  const result = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ failing: ["deny --frozen"], log }) }));
   assert.equal(result.scans.find((s) => s.id === "cargo-deny").status, "fail");
   const b = result.scans.filter((s) => s.class === "B");
   assert.ok(b.length > 0 && b.every((s) => s.status === "not-run"));
@@ -529,7 +529,7 @@ test("plan: cargoCommand selects the cargo prefix (rustright cargo locally, plai
   assert.ok(["cargo-metadata", "cargo-deny", "cargo-audit", "clippy:foo"].every((id) => cargoScans.some((s) => s.id === id)));
   assert.ok(cargoScans.every((s) => s.args[0] !== "cargo"));
   const PIN = "21d909e4c8bd4e14c7aea58bf980c881a0053ab1";
-  assert.equal(cargoScans.find((s) => s.id === "cargo-deny").command, `RK_ADVISORY_DB_COMMIT=${PIN} cargo deny --offline --metadata-path {advisoryMetadata} --config {advisoryDenyConfig} check`);
+  assert.equal(cargoScans.find((s) => s.id === "cargo-deny").command, `RK_ADVISORY_DB_COMMIT=${PIN} cargo deny --frozen --metadata-path {advisoryMetadata} --config {advisoryDenyConfig} check`);
   assert.equal(cargoScans.find((s) => s.id === "cargo-audit").command, `RK_ADVISORY_DB_COMMIT=${PIN} cargo audit --db {advisoryDb} --no-fetch`);
   assert.ok(!ci.scans.some((s) => s.tool === "rustright"));
   assert.throws(() => planFor(["README.md"], { "README.md": "x" }, { cargoCommand: ["sh", "-c"] }), /cargoCommand/);
@@ -1684,13 +1684,39 @@ test("advisory scans: cargo-deny and cargo-audit run offline against the pinned 
   assert.equal(ensured.length, 1, "materialised once for both scans");
   assert.equal(ensured[0].pin.commit, "21d909e4c8bd4e14c7aea58bf980c881a0053ab1");
   const deny = log.find((c) => c.includes("deny") && c.includes("check")).slice(2);
-  assert.deepEqual([...deny.slice(0, 2), ...deny.slice(4)], ["deny", "--offline", "--config", "/tmp/rk-deny/deny.toml", "check"]);
+  assert.deepEqual([...deny.slice(0, 2), ...deny.slice(4)], ["deny", "--frozen", "--config", "/tmp/rk-deny/deny.toml", "check"]);
   assert.equal(deny[2], "--metadata-path");
-  assert.match(deny[3], /rk-deny-metadata-[^/\\]+[/\\]metadata\.json$/, "metadata resolved online & --locked first, so --offline never needs a warm cargo cache");
+  assert.match(deny[3], /rk-deny-metadata-[^/\\]+[/\\]metadata\.json$/, "metadata resolved online & --locked first, so --frozen never needs a warm cargo cache");
   assert.ok(log.some((c) => c.includes("metadata") && c.includes("--locked") && !c.includes("--no-deps")), "the full --locked metadata is resolved before cargo-deny");
   assert.deepEqual(log.find((c) => c.includes("audit") && c.includes("--db")).slice(2), ["audit", "--db", "/cache/advisory-db/pinned", "--no-fetch"]);
   const other = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { advisoryPin: { url: "https://github.com/rustsec/advisory-db", commit: "b".repeat(40) } }).plan;
   assert.notEqual(other.scans.find((s) => s.id === "cargo-deny").command, plan.scans.find((s) => s.id === "cargo-deny").command);
+});
+
+test("cargo-deny: crate sources are fetched online & --locked before metadata and deny; a failed, refused or timed-out fetch fails the row before either runs", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
+  const log = [];
+  const ok = await runScans(plan, deps({ ...fs, classes: ["A"], spawn: fakeSpawn({ log }) }));
+  assert.equal(ok.scans.find((s) => s.id === "cargo-deny").status, "pass");
+  const at = (pred) => log.findIndex(pred);
+  const fetchAt = at((c) => c.includes("fetch") && c.includes("--locked")), metadataAt = at((c) => c.includes("metadata") && c.includes("--locked") && !c.includes("--no-deps")), denyAt = at((c) => c.includes("deny") && c.includes("check"));
+  assert.ok(fetchAt >= 0 && fetchAt < metadataAt && metadataAt < denyAt, `fetch ${fetchAt} < metadata ${metadataAt} < deny ${denyAt}`);
+  assert.ok(!log[fetchAt].includes("--offline") && !log[fetchAt].includes("--frozen"), "the prefetch is online");
+  const outcomes = {
+    FETCH: () => ({ status: 101, stdout: "", stderr: "error: failed to download `rightkit-qa v0.9.1`\n" }),
+    SPAWN_ERROR: () => ({ error: new Error("rustright managed-agent: request refused"), status: null }),
+    TIMEOUT: () => ({ error: Object.assign(new Error("timed out"), { code: "ETIMEDOUT" }), status: null }),
+  };
+  for (const [want, result] of Object.entries(outcomes)) {
+    const seen = []; const inner = fakeSpawn({ log: seen });
+    const spawn = (command, args, o) => (args.includes("fetch") ? (seen.push([command, ...args]), result()) : inner(command, args, o));
+    const r = await runScans(plan, deps({ ...fs, classes: ["A"], spawn }));
+    const row = r.scans.find((s) => s.id === "cargo-deny");
+    assert.equal(row.status, "fail", want);
+    assert.equal(row.code, want === "SPAWN_ERROR" ? "FETCH" : want, `${want}: ${row.detail}`);
+    assert.ok(!seen.some((c) => c.includes("deny") && c.includes("check")) && !seen.some((c) => c.includes("metadata") && c.includes("--locked") && !c.includes("--no-deps")), `${want}: neither metadata nor deny runs after a failed fetch`);
+    assert.equal(r.ok, false, `${want}: class A is red`);
+  }
 });
 
 test("advisory scans: an unavailable pinned database fails both scans and no tool runs", async () => {
@@ -2357,4 +2383,27 @@ test("a class A test row runs under the launch guard (NODE_OPTIONS appended, swi
   assert.ok(guarded.length >= 1, "the class A test row ran with the guard");
   assert.equal(guarded.length, 1, "only the class A test row");
   assert.match(guarded[0].NODE_OPTIONS, /^--max-old-space-size=4096 --import=.*class-a-launch-guard\.mjs$/, "appended, not replaced");
+});
+
+test("cargo-deny: any [ERROR] line fails the row even with exit 0 (the broker's refused offline fetch included); clean and warning runs pass; cut output fails", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
+  const base = fakeSpawn();
+  const spawnWith = (result) => (command, args) => (args.includes("deny") && args.includes("check") ? { status: 0, stdout: "", ...result } : base(command, args));
+  const run = async (result) => (await runScans(plan, deps({ ...fs, spawn: spawnWith(result) }))).scans.find((s) => s.id === "cargo-deny");
+  const refused = await run({ stderr: "2026-10-28 03:28:34 [ERROR] failed to fetch crates: rustright managed-agent: nested non-control work is rejected\n\nadvisories ok, bans ok, licenses ok, sources ok\n" });
+  assert.equal(refused.status, "fail"); assert.equal(refused.code, "DENY_ERROR"); assert.match(refused.detail, /failed to fetch crates/);
+  const early = await run({ stdout: "[ERROR] advisory database is corrupt\n", stderr: "advisories ok, bans ok, licenses ok, sources ok\n" });
+  assert.equal(early.status, "fail", "an [ERROR] on stdout counts too");
+  const cut = await run({ stderr: "advisories ok, bans ok, licenses ok, sources ok\n", truncated: true });
+  assert.equal(cut.status, "fail"); assert.match(cut.detail, /exceeded the kept tail/);
+  assert.equal((await run({ stderr: "advisories ok, bans ok, licenses ok, sources ok\n" })).status, "pass");
+  assert.equal((await run({ stderr: "[WARN] license-not-encountered\nadvisories ok, bans ok, licenses ok, sources ok\n" })).status, "pass");
+});
+
+test("defaultSpawnAsync marks output cut to the kept tail as truncated", async () => {
+  const { defaultSpawnAsync } = await import("./deterministic-scans.mjs");
+  const big = await defaultSpawnAsync(process.execPath, ["-e", "process.stderr.write('[ERROR] early\\n' + 'x'.repeat(5 * 1024 * 1024))"]);
+  assert.equal(big.status, 0); assert.equal(big.truncated, true); assert.doesNotMatch(big.stderr.slice(0, 20), /\[ERROR\]/, "the early line was cut, which is why truncation itself fails a deny row");
+  const small = await defaultSpawnAsync(process.execPath, ["-e", "process.stderr.write('ok')"]);
+  assert.equal(small.truncated, undefined);
 });

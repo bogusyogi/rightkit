@@ -817,7 +817,7 @@ export function planScans({
     // placeholders are filled at run time from the materialised checkout (runScans).
     const pin = advisoryPin ?? (advisoryPin = readAdvisoryPin());
     const pinEnv = { RK_ADVISORY_DB_COMMIT: pin.commit };
-    add({ id: `cargo-deny${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "deny", "--offline", "--metadata-path", "{advisoryMetadata}", "--config", "{advisoryDenyConfig}", "check"), env: pinEnv, advisoryDb: "deny", advisoryPin: pin });
+    add({ id: `cargo-deny${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "deny", "--frozen", "--metadata-path", "{advisoryMetadata}", "--config", "{advisoryDenyConfig}", "check"), env: pinEnv, advisoryDb: "deny", advisoryPin: pin });
     add({ id: `cargo-audit${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "audit", "--db", "{advisoryDb}", "--no-fetch"), env: pinEnv, advisoryDb: "audit", advisoryPin: pin });
   }
   // The audit policy is the consumer's own: every package.json script that is exactly `pnpm audit <flags>` (only --prod, --dev,
@@ -1131,7 +1131,8 @@ export function defaultSpawnAsync(command, args, options = {}) {
   if (signal?.aborted) return Promise.resolve({ status: null, stdout: "", stderr: "", error: new Error("cancelled"), cancelled: true });
   return new Promise((resolve) => {
     let stdout = ""; let stderr = ""; let error = null;
-    const keep = (buf, chunk) => { const next = buf + chunk; return next.length > OUTPUT_KEEP ? next.slice(-OUTPUT_KEEP) : next; };
+    let truncated = false;
+    const keep = (buf, chunk) => { const next = buf + chunk; if (next.length > OUTPUT_KEEP) { truncated = true; return next.slice(-OUTPUT_KEEP); } return next; };
     let child;
     try {
       // stdin is closed: no scan reads it, and an open pipe nobody writes can block a tool that probes it (Windows).
@@ -1149,7 +1150,7 @@ export function defaultSpawnAsync(command, args, options = {}) {
       if (sink) await new Promise((done) => (sink.writableFinished ? done() : sink.on("finish", done).on("error", done)));
       signal?.removeEventListener("abort", onAbort);
       const cancelled = signal?.aborted === true;
-      resolve({ status, stdout, stderr, ...(error ? { error } : cancelled ? { error: new Error("cancelled") } : {}), ...(cancelled ? { cancelled: true } : {}) });
+      resolve({ status, stdout, stderr, ...(truncated ? { truncated: true } : {}), ...(error ? { error } : cancelled ? { error: new Error("cancelled") } : {}), ...(cancelled ? { cancelled: true } : {}) });
     });
     if (signal?.aborted) onAbort();
   });
@@ -1723,13 +1724,28 @@ export async function runScans(plan, options = {}) {
           let advisory = null; let args = s.args;
           if (s.advisoryDb) {
             try { advisory = prepareAdvisory(s); } catch (e) { return { ...row, status: "fail", code: "ADVISORY_DB", detail: e.message }; }
-            // cargo-deny --offline must not fetch the advisory database, but its own `cargo metadata` would then be offline too and
+            // cargo-deny --frozen (--offline + --locked: the nested `cargo fetch` it runs may not rewrite Cargo.lock, so the broker admits it as analysis) must not fetch the advisory database, but its own `cargo metadata` would then be offline too and
             // fail on a runner whose cargo cache is cold. The workspace's metadata is resolved first, online and --locked (the
             // lockfile decides every version), and handed to cargo-deny as a file.
             if (s.advisoryDb === "deny") {
               const at = args.indexOf("deny");
               // The whole document is needed (the concurrent spawn keeps only the tail of stdout), so it streams to the file; a
               // spawn that does not know `stdoutFile` returns stdout, which is written below.
+              // cargo-deny --frozen reads crate sources only from the local cargo cache, and `cargo metadata` does not download them
+              // (fullA-19: rightkit-qa 0.9.1 was missing). They are fetched first, online and --locked (bound to the lockfile, so the
+              // broker admits it as analysis). A fetch that fails, is refused or times out fails the row before metadata or deny run:
+              // an offline or unreachable registry is red, never green.
+              const fetchLimit = scanTimeoutMs(s, options);
+              const fetchTimer = new AbortController();
+              const fetchClock = setTimeout(() => fetchTimer.abort(), fetchLimit);
+              let fetched;
+              try { fetched = await deps.spawn(p.command, [...args.slice(0, at), "fetch", "--locked"], { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env }, signal: signal ? AbortSignal.any([signal, fetchTimer.signal]) : fetchTimer.signal, timeout: fetchLimit }); } finally { clearTimeout(fetchClock); }
+              if (!fetched || fetched.error || fetched.status !== 0) {
+                advisory.cleanup?.();
+                if (signal?.aborted) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
+                if (fetchTimer.signal.aborted || fetched?.error?.code === "ETIMEDOUT") return { ...row, status: "fail", code: "TIMEOUT", detail: `cargo fetch --locked for cargo-deny ran longer than ${Math.round(fetchLimit / 60000)} min and was killed with its process tree` };
+                return { ...row, status: "fail", code: "FETCH", detail: `cargo fetch --locked for cargo-deny failed (crate sources must be local before deny): ${fetched?.error?.message ?? (tail(fetched) || `exit ${fetched?.status}`)}` };
+              }
               const metadataDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-deny-metadata-"));
               const metadataFile = path.join(metadataDir, "metadata.json");
               const metadata = await deps.spawn(p.command, [...args.slice(0, at), ...metadataArgs({ noDeps: false })], { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env }, stdoutFile: metadataFile, ...sig });
@@ -1761,7 +1777,14 @@ export async function runScans(plan, options = {}) {
           if ((timer.signal.aborted || r?.error?.code === "ETIMEDOUT") && (!r || r.error || r.status !== 0)) return { ...row, status: "fail", code: "TIMEOUT", detail: `${s.id} ran longer than ${Math.round(limitMs / 60000)} min and was killed with its process tree; a scan that does not finish fails` };
           if (!r || r.error) { status = "fail"; code = "SPAWN_ERROR"; detail = r?.error?.message ?? "no result"; }
           else if (r.status !== 0) { status = "fail"; code = "EXIT"; detail = tail(r) || `exit ${r.status}`; }
-          // A failing scan's complete output is kept (the row only carries a tail): <scanLogDir>/<id>.log, overwritten per run.
+          // cargo-deny reports some failures only as an [ERROR] line and still exits 0 (under the broker, its nested offline
+          // `cargo fetch` of crate sources is refused: "failed to fetch crates"). A deny row passes only with no [ERROR] line in
+          // its complete output; output cut to the kept tail cannot prove that, so it fails too (RR, reviewer 2026-10-28).
+          else if (s.advisoryDb === "deny") {
+            const denyError = `${r.stdout ?? ""}\n${r.stderr ?? ""}`.split(/\r?\n/).find((line) => /\[ERROR\]/.test(line));
+            if (r.truncated) { status = "fail"; code = "DENY_ERROR"; detail = "cargo-deny output exceeded the kept tail, so the absence of an [ERROR] line cannot be shown"; }
+            else if (denyError) { status = "fail"; code = "DENY_ERROR"; detail = `cargo-deny exited 0 but reported an error: ${denyError.trim().slice(0, 300)}`; }
+          }
           if (status === "fail" && options.scanLogDir && r) {
             try { fs.mkdirSync(options.scanLogDir, { recursive: true }); const file = path.join(options.scanLogDir, `${s.id.replace(/[^A-Za-z0-9._-]+/g, "_")}.log`); fs.writeFileSync(file, `$ ${s.command ?? s.id}\nexit ${r.status}\n--- stdout\n${r.stdout ?? ""}\n--- stderr\n${r.stderr ?? ""}\n`); row.log = file; detail = `${detail} (full output: ${file})`; } catch { /* the tail in the row remains */ }
           }
