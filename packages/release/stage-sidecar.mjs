@@ -1733,10 +1733,10 @@ function wipeStaleStageDir(ctx, plan, produced) {
  * call can reuse (acquireManagedRunLease records a per-process lease file; no RK_* variable carries it to a child), so
  * the only safe behaviour is to refuse early. RIGHTKIT_STAGE_SIDECAR_ALLOW_NESTED=1 opts out.
  */
-export function isNestedBrokerContext(env = process.env) {
+export function isNestedBrokerContext(env = process.env, platform = process.platform) {
   if (env?.RIGHTKIT_STAGE_SIDECAR_ALLOW_NESTED === "1") return false;
   const insideTauri = Boolean(env?.TAURI_ENV_PLATFORM || env?.TAURI_ENV_TARGET_TRIPLE);
-  return insideTauri && (managedHost(env ?? {}) || env?.RIGHTSUITE_HEAVY_WORK_OWNER === "1");
+  return insideTauri && (managedHost(env ?? {}, platform) || env?.RIGHTSUITE_HEAVY_WORK_OWNER === "1");
 }
 
 /** True when staging would call `rustright cargo` for a non-skipped entry. */

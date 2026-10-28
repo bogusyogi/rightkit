@@ -1142,8 +1142,8 @@ function sweepStaleRustArtifacts() {
 }
 
 async function runInstall(pm, cwd) {
-  if (pm === "pnpm") { const t = buildLaunch("pnpm", ["install", "--frozen-lockfile"], { cwd, exists: existsSync }); await run(t.command, t.args, cwd, {}, { install: true }); }
-  else if (pm === "npm") { const t = buildLaunch("npm", ["ci"], { cwd, exists: existsSync }); await run(t.command, t.args, cwd, {}, { install: true }); }
+  if (pm === "pnpm") { const t = buildLaunch("pnpm", ["install", "--frozen-lockfile"], { cwd, exists: existsSync }); await run(t.command, t.args, cwd, t.env ?? {}, { install: true }); }
+  else if (pm === "npm") { const t = buildLaunch("npm", ["ci"], { cwd, exists: existsSync }); await run(t.command, t.args, cwd, t.env ?? {}, { install: true }); }
   else fail(`unsupported package manager: ${pm}`);
 }
 
@@ -1151,7 +1151,7 @@ async function runPackageScript(pm, script, cwd) {
   if (script === false) return;
   // A package script (a check or a web build) goes through the one door (build-launch.mjs): a broker job on a managed host.
   const target = buildLaunch(pm, ["run", script], { cwd, exists: existsSync });
-  await run(target.command, target.args, cwd);
+  await run(target.command, target.args, cwd, target.env ?? {});
 }
 
 // A hook may be one command object or an ordered array of them (e.g. create-mac-updater then lsclean).
@@ -1173,7 +1173,8 @@ async function runCommand(command, root, { env = {}, captureStdout = false } = {
   const cwd = path.resolve(root, command.cwd ?? ".");
   const commandEnvironment = { ...(await commandEnv(command, root)), ...env };
   const target = buildLaunch(command.cmd, command.args ?? [], { env: { ...process.env, ...commandEnvironment }, cwd, exists: existsSync });
-  return run(target.command, target.args, cwd, commandEnvironment, {
+  // A direct (Linux) launch carries PATH without RustRight shim directories (build-launch `env`).
+  return run(target.command, target.args, cwd, { ...commandEnvironment, ...(target.env ?? {}) }, {
     ...command,
     captureStdout,
     timeoutMs: commandTimeoutMs(command),

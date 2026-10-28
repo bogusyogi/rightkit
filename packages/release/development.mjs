@@ -372,7 +372,9 @@ function execute(command, { root, env, dryRun, run, label, door = null }) {
 }
 /** This package's own right-release entry: the door's RightKit, whatever the app's node_modules holds. */
 const OWN_RIGHT_RELEASE = fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url));
-export function resolveCommand(command, args, { root, env = process.env } = {}) {
+/** `rustright <tool>` forms that map to the real toolchain on a direct (Linux) host. */
+const DIRECT_TOOLS = new Set(["cargo", "rustc", "rustdoc"]);
+export function resolveCommand(command, args, { root, env = process.env, platform = process.platform } = {}) {
   if (command === "node") return { command: process.execPath, args };
   // A dev target's `right-release …` step runs the door's own right-release (this package), never the app's node_modules copy:
   // `pnpm exec right-release` puts the app's bin first on PATH, so PATH order cannot decide it (HeardRight on the Dell, 2026-10-27:
@@ -384,9 +386,9 @@ export function resolveCommand(command, args, { root, env = process.env } = {}) 
   if (command === "pnpm") return { command: process.execPath, args: [resolvePnpmCli({ root, env }), ...args] };
   if (command === "rightkit") throw new Error("`rightkit` is the retired name of the RustRight client (rustright#91); use rustright (cmd: \"rustright\")");
   // A direct (Linux) host has no broker: `rustright cargo <args>` runs the real cargo, RustRight shims off PATH (managed-cargo directPlatform).
-  if (command === "rustright" && directPlatform()) {
-    if (args[0] !== "cargo") throw new Error(`\`rustright ${args[0] ?? ""}\` has no direct form on this ${process.platform} host (no broker on Linux); only \`rustright cargo\` maps to cargo`);
-    return { command: "cargo", args: args.slice(1), env: directCargoEnv(env) };
+  if (command === "rustright" && directPlatform(platform)) {
+    if (!DIRECT_TOOLS.has(args[0])) throw new Error(`\`rustright ${args[0] ?? ""}\` has no direct form on this ${platform} host (no broker on Linux); only \`rustright cargo|rustc|rustdoc\` map to the toolchain`);
+    return { command: args[0], args: args.slice(1), env: directCargoEnv(env, platform) };
   }
   if (command === "rustright") {
     const client = managedRuntimeClient(env);

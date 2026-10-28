@@ -184,6 +184,45 @@ test("[behavior] Linux direct holds in every managed-cargo helper, whatever cont
   assert.equal(exec.kind, "direct"); assert.equal(exec.env.PATH, `${toolchain}:/usr/bin`);
 });
 
+test("[behavior] Linux direct holds at every launch boundary: quiet lease, sidecar host probe, nested-broker check, configured rustright commands (Mac/Windows controls)", async (t) => {
+  const { quietLeaseLane } = await import("./bin/rightkit-gate.mjs");
+  const { resolveCommand } = await import("./development.mjs");
+  const { isNestedBrokerContext } = await import("./stage-sidecar.mjs");
+  const { buildLaunch } = await import("./build-launch.mjs");
+  const dir = tmp(t, "rk-gc-launch-");
+  const agentBin = path.join(dir, ".rightkit-managed", "agent-bin"); const toolchain = path.join(dir, "toolchain");
+  write(agentBin, { cargo: "#!/bin/sh\n# cargo-guard.mjs\n", rustright: "#!/bin/sh\n" }); write(toolchain, { cargo: "#!/bin/sh\n", rustc: "#!/bin/sh\n" });
+  const env = { PATH: `${agentBin}:${toolchain}:/usr/bin`, RIGHTKIT_BUILD_BROKER_SOCKET: path.join(dir, "broker.sock"), HOME: dir };
+  // Quiet lease: a direct host never asks the broker, even with rustright on PATH.
+  const spawned = [];
+  const lane = (platform) => quietLeaseLane({ platform, out: () => {}, spawn: (cmd, args) => { spawned.push([cmd, ...args].join(" ")); return cmd === "which" || cmd === "where" ? { status: 0, stdout: `${agentBin}/rustright\n` } : { status: 1, stdout: "", stderr: "x" }; } });
+  assert.equal(await lane("linux").acquire({}), null);
+  assert.ok(!spawned.some((c) => c.startsWith("rustright quiet")), "no broker quiet lease on Linux");
+  await lane("darwin").acquire({});
+  assert.ok(spawned.some((c) => c.startsWith("rustright quiet acquire")), "control: a Mac asks the broker");
+  // Sidecar host probe and configured commands: rustright cargo|rustc|rustdoc run the real tool on Linux, shims off PATH.
+  for (const tool of ["cargo", "rustc", "rustdoc"]) {
+    const r = resolveCommand("rustright", [tool, "-vV"], { root: dir, env, platform: "linux" });
+    assert.deepEqual([r.command, r.args], [tool, ["-vV"]], tool);
+    assert.equal(r.env.PATH, `${toolchain}:/usr/bin`, `${tool}: agent-bin off PATH`);
+  }
+  assert.throws(() => resolveCommand("rustright", ["quiet", "acquire"], { root: dir, env, platform: "linux" }), /no direct form/);
+  // Nested-broker check: a broker socket variable means nothing on Linux.
+  const tauri = { ...env, TAURI_ENV_PLATFORM: "linux" };
+  assert.equal(isNestedBrokerContext(tauri, "linux"), false);
+  assert.equal(isNestedBrokerContext(tauri, "darwin"), true, "control: on a Mac it is a nested broker context");
+  // The one build door: configured rustright cargo runs cargo directly with shims off PATH; plain cargo carries the same env.
+  const exists = (p) => fs.existsSync(p);
+  const viaDoor = buildLaunch("rustright", ["cargo", "build", "--locked"], { env, platform: "linux", exists });
+  assert.deepEqual([viaDoor.command, viaDoor.args, viaDoor.env?.PATH], ["cargo", ["build", "--locked"], `${toolchain}:/usr/bin`]);
+  const plain = buildLaunch("cargo", ["build"], { env, platform: "linux", exists });
+  assert.deepEqual([plain.command, plain.env?.PATH], ["cargo", `${toolchain}:/usr/bin`]);
+  assert.throws(() => buildLaunch("rustright", ["run", "rightkit-qa"], { env, platform: "linux", exists }), /no broker on this linux host/);
+  const clientDir = path.join(dir, "client"); write(clientDir, { rustright: "#!/bin/sh\n" }); fs.chmodSync(path.join(clientDir, "rustright"), 0o755);
+  const macControl = buildLaunch("cargo", ["build"], { env: { ...env, PATH: `${clientDir}:/usr/bin` }, platform: "darwin", exists });
+  assert.deepEqual([macControl.command, macControl.args[0]], [path.join(clientDir, "rustright"), "cargo"], "control: on a Mac cargo is a broker job");
+});
+
 test("[behavior] E10: the executor has no caller input, so a human and a managed agent route the same way", () => {
   // resolveExecutor reads only the host (env, platform, PATH, files): an agent marker in the environment changes nothing.
   for (const host of ["mac", "dell", "linux"]) assert.deepEqual(route(host, { env: { CLAUDECODE: "1", RIGHTKIT_AGENT: "1" } }), route(host), host);

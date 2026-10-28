@@ -94,7 +94,8 @@ export function acquireManagedRunLease({ command, env = process.env, platform = 
   return { path: file, release() { rmSync(file, { force: true }); } };
 }
 
-export function managedHost(env) {
+export function managedHost(env, platform = process.platform) {
+  if (directPlatform(platform)) return false; // Linux is never broker-managed (directPlatform), whatever the env names
   return Boolean(env.RIGHTKIT_BUILD_BROKER_SOCKET)
     || /(?:^|[;:])[^;:]*[/\\](?:\.rightkit-managed|rightkitmanagedagent|rightkit[/\\]build-control)[/\\]agent-bin(?:[;:]|$)/i.test(String(env.PATH ?? ""));
 }
@@ -115,8 +116,8 @@ export function runCargoSync(args, options = {}, { platform = process.platform, 
   }
   // The Mac never falls back to direct Cargo, except on GitHub Actions runners, which have no
   // RightKit runtime and use the toolchain's cargo (release-candidate signing jobs).
-  const hostedCi = env.GITHUB_ACTIONS === 'true' && !managedHost(env);
-  if ((platform === 'darwin' && !hostedCi) || (managedHost(env) && platform === 'win32')) return unavailable('installed RightKit runtime client is unavailable for managed Cargo metadata');
+  const hostedCi = env.GITHUB_ACTIONS === 'true' && !managedHost(env, platform);
+  if ((platform === 'darwin' && !hostedCi) || (managedHost(env, platform) && platform === 'win32')) return unavailable('installed RightKit runtime client is unavailable for managed Cargo metadata');
   // A direct (Linux) host runs the real toolchain: RustRight shim directories are taken off PATH first.
   return spawn("cargo", args, directPlatform(platform) ? { ...options, env: directCargoEnv(env, platform, exists) } : options);
 }

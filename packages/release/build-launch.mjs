@@ -44,7 +44,16 @@ export function buildLaunch(command, args = [], host = {}) {
   const lookup = (cmd) => { const found = resolveExecutable(cmd, { env, hostPlatform: platform, exists: exists ?? (() => false) }); return found ? [found] : []; };
   const executor = resolveExecutor({ env, platform, exists, which: host.which ?? lookup, readFile: host.readFile ?? ((file) => readFileSync(file, "utf8")) });
   if (executor.kind === "refuse") refuse(`${name(command)} ${args.join(" ")}: ${executor.problem}`);
-  if (executor.kind === "direct") return { command, args };
+  // A direct (Linux) host: the real toolchain, RustRight shim directories off PATH (`env`, to merge into the launch env); a configured
+  // `rustright cargo|rustc|rustdoc …` runs that tool directly; any other `rustright` command has no direct form and is refused.
+  if (executor.kind === "direct") {
+    const extra = executor.env ? { env: executor.env } : {};
+    if (name(command) === "rustright") {
+      if (!["cargo", "rustc", "rustdoc"].includes(String(args[0]))) refuse(`rustright ${args.join(" ")}: no broker on this ${platform} host, and only rustright cargo|rustc|rustdoc map to the toolchain`);
+      return { command: String(args[0]), args: args.slice(1).map(String), ...extra };
+    }
+    return { command, args, ...extra };
+  }
   const program = name(command);
   const client = () => lookup("rustright")[0] ?? refuse(`rustright is not on PATH: on a broker-managed host ${program} runs only as a broker job`);
   if (program === "cargo") return { command: client(), args: ["cargo", ...args.map(String)] };

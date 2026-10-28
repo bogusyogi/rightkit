@@ -206,7 +206,9 @@ test("managed run lease is written under the managed root and removed on release
   try {
     const client = path.join(managed, "runtime-current", "rustright");
     mkdirSync(path.dirname(client), { recursive: true }); writeFileSync(client, "");
-    const lease = acquireManagedRunLease({ command: "right-release dev --platform win", env: { RIGHTKIT_MANAGED_ROOT: managed }, platform: "linux", pid: 4242 });
+    // A broker-managed host (Mac); Linux never finds a broker client and writes no lease (managed-cargo directPlatform, joint plan step 4).
+    assert.equal(acquireManagedRunLease({ command: "right-release dev", env: { RIGHTKIT_MANAGED_ROOT: managed }, platform: "linux", pid: 4242 }).path, null);
+    const lease = acquireManagedRunLease({ command: "right-release dev --platform win", env: { RIGHTKIT_MANAGED_ROOT: managed, HOME: managed }, platform: "darwin", pid: 4242 });
     assert.equal(path.dirname(lease.path), path.join(managed, "rightkit-build-control", "global", "runs"));
     assert.equal(JSON.parse(readFileSync(lease.path, "utf8")).pid, 4242);
     lease.release(); assert.equal(existsSync(lease.path), false);
