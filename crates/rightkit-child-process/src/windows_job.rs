@@ -261,10 +261,17 @@ impl WindowsJob {
     /// How many processes are currently active in the job. Observation only; the count is
     /// a snapshot and can change as soon as it is read.
     pub fn active_process_count(&self) -> std::io::Result<u32> {
+        Self::active_count_of(self.handle)
+    }
+
+    /// The active process count of the job `handle` names (the body of
+    /// [`active_process_count`](Self::active_process_count)), for the owned child's retained
+    /// job, which is not a `WindowsJob`.
+    pub(crate) fn active_count_of(handle: HANDLE) -> std::io::Result<u32> {
         let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
         unsafe {
             QueryInformationJobObject(
-                Some(self.handle),
+                Some(handle),
                 JobObjectBasicAccountingInformation,
                 (&mut accounting as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast(),
                 std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,

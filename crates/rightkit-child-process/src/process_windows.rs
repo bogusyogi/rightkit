@@ -238,7 +238,37 @@ mod tests {
 #[derive(Debug)]
 pub(crate) struct KillOnCloseJob(OwnedHandle);
 
+/// Test only: the raw handle of a retained job, for direct accounting queries.
+#[cfg(test)]
+pub(crate) fn raw_job(job: &KillOnCloseJob) -> HANDLE {
+    raw(&job.0)
+}
+
 impl KillOnCloseJob {
+    /// Waits at most `timeout` until the job holds no active process
+    /// (`JobObjectBasicAccountingInformation.ActiveProcesses == 0`). `Ok(false)` on timeout; a
+    /// query error is returned, never read as empty. Job termination is asynchronous, so a
+    /// leader's exit alone does not show the tree is gone (rightkit#1260).
+    pub(crate) fn wait_empty(&self, timeout: std::time::Duration) -> io::Result<bool> {
+        const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
+        let started = std::time::Instant::now();
+        loop {
+            #[cfg(test)]
+            if crate::owned::cleanup_test_fault::job_never_empties() {
+                std::thread::sleep(timeout);
+                return Ok(false);
+            }
+            if crate::windows_job::WindowsJob::active_count_of(raw(&self.0))? == 0 {
+                return Ok(true);
+            }
+            let remaining = timeout.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                return Ok(false);
+            }
+            std::thread::sleep(POLL_INTERVAL.min(remaining));
+        }
+    }
+
     /// The process ids in the job now (leader included while it is listed), grandchildren
     /// included. A snapshot; see [`crate::WindowsJob::process_ids`].
     pub(crate) fn process_ids(&self) -> io::Result<Vec<u32>> {

@@ -1089,12 +1089,22 @@ impl OwnedChild {
         if cleanup_test_fault::refuse(timeout.saturating_sub(started.elapsed())) {
             return Ok(ReapOutcome::TimedOut);
         }
-        Ok(
-            match self.wait_timeout(timeout.saturating_sub(started.elapsed()))? {
-                Some(status) => ReapOutcome::Exited(status),
-                None => ReapOutcome::TimedOut,
-            },
-        )
+        let status = match self.wait_timeout(timeout.saturating_sub(started.elapsed()))? {
+            Some(status) => status,
+            None => return Ok(ReapOutcome::TimedOut),
+        };
+        // Windows: the leader's exit does not prove the tree is gone (TerminateJobObject is
+        // asynchronous). Exited is reported only once the retained job holds no active process,
+        // within the same deadline; otherwise the outcome stays unconfirmed (rightkit#1260). A
+        // child with no retained job (detached or uncontained) has no tree to prove: its leader's
+        // exit stands, as before.
+        #[cfg(windows)]
+        if let Some(job) = self.job.as_ref() {
+            if !job.wait_empty(timeout.saturating_sub(started.elapsed()))? {
+                return Ok(ReapOutcome::TimedOut);
+            }
+        }
+        Ok(ReapOutcome::Exited(status))
     }
     /// On-demand termination of the whole tree, for a child that is not terminated on drop (a
     /// [`spawn_uncontained_detached`](OwnedCommand::spawn_uncontained_detached) child whose
@@ -1497,6 +1507,17 @@ pub(crate) fn cleanup_direct(child: Arc<Mutex<PlatformChild>>, timeout: Option<D
 pub(crate) mod cleanup_test_fault {
     use std::{cell::Cell, time::Duration};
     thread_local! { static REFUSE_REAP: Cell<bool> = const { Cell::new(false) }; }
+    thread_local! { static JOB_NEVER_EMPTIES: Cell<bool> = const { Cell::new(false) }; }
+    /// Test only: the next retained-job emptiness wait never sees the job empty (models a
+    /// descendant that outlives the deadline), so a bounded reap must stay unconfirmed.
+    #[allow(dead_code)]
+    pub(crate) fn arm_job_never_empties() {
+        JOB_NEVER_EMPTIES.with(|armed| armed.set(true));
+    }
+    #[allow(dead_code)]
+    pub(crate) fn job_never_empties() -> bool {
+        JOB_NEVER_EMPTIES.with(|armed| armed.replace(false))
+    }
     pub(crate) fn arm() {
         REFUSE_REAP.with(|armed| armed.set(true));
     }
@@ -2037,6 +2058,157 @@ mod tests {
             );
             thread::sleep(Duration::from_millis(20));
         }
+    }
+
+    /// An owned tree whose root starts a grandchild (left in the root's private job) and
+    /// records its pid; with `wait` the root then waits on it, else the root exits at once.
+    #[cfg(windows)]
+    fn tree_with_grandchild(pid_file: &std::path::Path, wait: bool) -> (super::OwnedChild, u32) {
+        use std::time::{Duration, Instant};
+        let _ = std::fs::remove_file(pid_file);
+        let quoted = pid_file.display().to_string().replace('\'', "''");
+        let tail = if wait {
+            "; Wait-Process -Id $child.Id"
+        } else {
+            ""
+        };
+        let mut command = std::process::Command::new("powershell.exe");
+        command
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                &format!(
+                    "$child = Start-Process powershell.exe -WindowStyle Hidden -ArgumentList '-NoLogo','-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 60' -PassThru; Set-Content -LiteralPath '{quoted}' -Value $child.Id{tail}"
+                ),
+            ])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        let mut command = super::OwnedCommand::from_command(command);
+        command.windows_hide();
+        let owned = command.spawn().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let grandchild = loop {
+            if let Some(pid) = std::fs::read_to_string(pid_file)
+                .ok()
+                .and_then(|text| text.trim().parse().ok())
+            {
+                break pid;
+            }
+            assert!(Instant::now() < deadline, "grandchild pid was not recorded");
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        (owned, grandchild)
+    }
+
+    #[cfg(windows)]
+    fn job_active(owned: &super::OwnedChild) -> u32 {
+        let job = owned
+            .job
+            .as_ref()
+            .expect("an owned child keeps its private job");
+        crate::windows_job::WindowsJob::active_count_of(crate::process_windows::raw_job(job))
+            .unwrap()
+    }
+
+    /// rightkit#1260: `Exited` means the whole private job is empty, not only that the root
+    /// exited. Read with no wait after the call returns.
+    #[cfg(windows)]
+    #[test]
+    fn bounded_reap_reports_exited_only_once_the_job_is_empty() {
+        use std::time::Duration;
+        let pid_file =
+            std::env::temp_dir().join(format!("rightkit-1260-live-{}.pid", std::process::id()));
+        let (mut owned, grandchild) = tree_with_grandchild(&pid_file, true);
+        let grandchild = super::AdoptedProcess::new(std::num::NonZeroU32::new(grandchild).unwrap());
+        assert!(grandchild.is_running().unwrap());
+        assert!(
+            job_active(&owned) >= 2,
+            "root and grandchild are in the job"
+        );
+
+        let outcome = owned
+            .terminate_tree_bounded(Duration::from_secs(10))
+            .unwrap();
+        assert!(
+            matches!(outcome, super::ReapOutcome::Exited(_)),
+            "{outcome:?}"
+        );
+        assert_eq!(
+            job_active(&owned),
+            0,
+            "Exited while the job still held a process"
+        );
+        assert!(
+            !grandchild.is_running().unwrap_or(false),
+            "grandchild outlived Exited"
+        );
+        let _ = std::fs::remove_file(&pid_file);
+    }
+
+    /// rightkit#1260: a root that already exited (and was reaped) still has its descendants
+    /// swept, and `Exited` still waits for the job to empty.
+    #[cfg(windows)]
+    #[test]
+    fn bounded_reap_sweeps_descendants_of_an_already_exited_root() {
+        use std::time::Duration;
+        let pid_file =
+            std::env::temp_dir().join(format!("rightkit-1260-orphan-{}.pid", std::process::id()));
+        let (mut owned, grandchild) = tree_with_grandchild(&pid_file, false);
+        let grandchild = super::AdoptedProcess::new(std::num::NonZeroU32::new(grandchild).unwrap());
+        assert!(
+            owned
+                .wait_timeout(Duration::from_secs(15))
+                .unwrap()
+                .is_some(),
+            "root must exit on its own"
+        );
+        assert!(
+            grandchild.is_running().unwrap(),
+            "grandchild outlives its root"
+        );
+        assert!(
+            job_active(&owned) >= 1,
+            "grandchild stays in the root's job"
+        );
+
+        let outcome = owned
+            .terminate_tree_bounded(Duration::from_secs(10))
+            .unwrap();
+        assert!(
+            matches!(outcome, super::ReapOutcome::Exited(_)),
+            "{outcome:?}"
+        );
+        assert_eq!(job_active(&owned), 0);
+        assert!(
+            !grandchild.is_running().unwrap_or(false),
+            "descendant was not swept"
+        );
+        let _ = std::fs::remove_file(&pid_file);
+    }
+
+    /// rightkit#1260: a job that is not seen empty within the budget is unconfirmed, even
+    /// though the root itself exited; the budget is not exceeded.
+    #[cfg(windows)]
+    #[test]
+    fn bounded_reap_is_unconfirmed_while_the_job_is_not_empty() {
+        use std::time::{Duration, Instant};
+        let pid_file =
+            std::env::temp_dir().join(format!("rightkit-1260-timeout-{}.pid", std::process::id()));
+        let (mut owned, _) = tree_with_grandchild(&pid_file, true);
+        super::cleanup_test_fault::arm_job_never_empties();
+        let started = Instant::now();
+        let outcome = owned
+            .terminate_tree_bounded(Duration::from_millis(500))
+            .unwrap();
+        assert!(
+            matches!(outcome, super::ReapOutcome::TimedOut),
+            "{outcome:?}"
+        );
+        assert!(started.elapsed() < Duration::from_secs(3), "budget overrun");
+        let _ = std::fs::remove_file(&pid_file);
     }
 }
 
