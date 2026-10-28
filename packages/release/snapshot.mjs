@@ -202,21 +202,30 @@ const lstat = (p) => { try { return fs.lstatSync(p, { bigint: true }); } catch (
 const statKey = (s) => `${s.size}:${s.mtimeNs}:${s.ctimeNs}:${s.ino}`;
 
 /**
- * Exclusive per-snapshot lock. A process holds it only by creating `lockFile` exclusively (`wx`). A lock whose holder process is
- * gone on this host is stale; reclaiming it is serialised by a second exclusive file, `<lockFile>.reclaim`: the one reclaimer
- * re-reads the lock under it, and unlinks it only if it is still byte-for-byte the stale lock it judged (a dead holder cannot
- * release, and no other reclaimer can act), then competes for the lock by the same exclusive create as everyone else. A live
- * lock is never moved or removed by anyone but its holder, so two processes never both hold it. A live holder, another host's
- * lock, a just-created unreadable lock, or a reclaim in progress is busy; a reclaimer that died mid-reclaim leaves the reclaim
- * file and every later sync is busy until it is removed (fail closed). `hooks` exist for the deterministic race fixture only.
+ * Exclusive per-snapshot lock. A process holds it only by publishing `lockFile` exclusively, and the lock appears whole: its body
+ * is written to a private file first and hard-linked into place (`link` fails if the name exists), so no lock is ever observable
+ * empty or partial and every lock carries a random token. A lock whose holder process is gone on this host is stale; reclaiming
+ * it is serialised by a second exclusive file, `<lockFile>.reclaim`: the one reclaimer re-reads the lock under it, and removes it
+ * only if it is still byte-for-byte the stale lock it judged (a dead holder cannot release, no other reclaimer can act, and a
+ * newer lock always differs by its token), then competes for the lock by the same exclusive publish as everyone else. A live
+ * lock is never moved or removed by anyone but its holder, so two processes never both hold it. Busy, never reclaimed: a live
+ * holder, another host's lock, a lock that cannot be parsed (left by a writer of another kind or a damaged disk), a reclaim in
+ * progress. A reclaimer that died mid-reclaim leaves the reclaim file and every later sync is busy until it is removed (fail
+ * closed); so does a dead holder whose pid was reused. `hooks` exist for the deterministic race fixture only.
  */
 export function acquireSnapshotLock(lockFile, hooks = {}) {
   const body = JSON.stringify({ pid: process.pid, host: os.hostname(), startedAt: new Date().toISOString(), token: crypto.randomUUID() });
   const held = () => { try { return fs.readFileSync(lockFile, "utf8") === body; } catch { return false; } };
   const busy = (why) => new SnapshotError("busy", why);
+  const publish = (target, text) => {
+    const tmp = `${target}.${crypto.randomUUID()}.tmp`;
+    fs.writeFileSync(tmp, text, { flag: "wx", mode: 0o600 });
+    try { fs.linkSync(tmp, target); return true; }
+    catch (e) { if (e.code === "EEXIST") return false; throw new SnapshotError("error", `cannot create ${target}: ${e.message}`); }
+    finally { fs.rmSync(tmp, { force: true }); }
+  };
   const create = () => {
-    try { fs.writeFileSync(lockFile, body, { flag: "wx", mode: 0o600 }); }
-    catch (e) { if (e.code === "EEXIST") return false; throw new SnapshotError("error", `cannot create ${lockFile}: ${e.message}`); }
+    if (!publish(lockFile, body)) return false;
     if (!held()) throw busy(`snapshot lock ${lockFile} was replaced by another process`);
     const release = () => { if (held()) fs.rmSync(lockFile, { force: true }); };
     release.held = held;
@@ -226,12 +235,8 @@ export function acquireSnapshotLock(lockFile, hooks = {}) {
   const judgeStale = (observed) => {
     let holder = null;
     try { holder = JSON.parse(observed); } catch { holder = null; }
-    if (!holder) {
-      // Possibly created and not yet written by another process: busy unless it is old.
-      let age = 0; try { age = Date.now() - fs.statSync(lockFile).mtimeMs; } catch { age = 0; }
-      if (age < 60_000) throw busy(`snapshot lock ${lockFile} is being written by another process`);
-      return;
-    }
+    // Locks appear whole, so one that cannot be parsed was not written by this protocol: never reclaimed automatically.
+    if (!holder || typeof holder.pid !== "number" || !holder.host) throw busy(`snapshot lock ${lockFile} cannot be read as a lock; remove it only if no sync is running`);
     if (holder.host !== os.hostname()) throw busy(`snapshot is held by pid ${holder.pid} on ${holder.host} since ${holder.startedAt}`);
     const alive = (() => { try { process.kill(holder.pid, 0); return true; } catch (k) { return k.code === "EPERM"; } })();
     if (alive) throw busy(`snapshot is held by pid ${holder.pid} since ${holder.startedAt}`);
@@ -243,11 +248,7 @@ export function acquireSnapshotLock(lockFile, hooks = {}) {
   judgeStale(observed);
   hooks.afterStaleRead?.();
   const reclaim = `${lockFile}.reclaim`;
-  try { fs.writeFileSync(reclaim, body, { flag: "wx", mode: 0o600 }); }
-  catch (e) {
-    if (e.code === "EEXIST") throw busy(`snapshot lock ${lockFile} is being reclaimed by another process (remove ${reclaim} only if no sync is running)`);
-    throw new SnapshotError("error", `cannot create ${reclaim}: ${e.message}`);
-  }
+  if (!publish(reclaim, body)) throw busy(`snapshot lock ${lockFile} is being reclaimed by another process (remove ${reclaim} only if no sync is running)`);
   try {
     hooks.whileReclaiming?.();
     if (read() !== observed) throw busy(`snapshot lock ${lockFile} changed before it could be reclaimed`);

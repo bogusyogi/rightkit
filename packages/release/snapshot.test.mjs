@@ -396,7 +396,17 @@ test("exclusion race: contenders arriving while a dead holder's lock is reclaime
   fs.writeFileSync(`${lock}.reclaim`, "x");
   assert.throws(() => acquireSnapshotLock(lock), (e) => e.code === "busy" && /being reclaimed/.test(e.message));
   fs.rmSync(`${lock}.reclaim`);
-  // An unreadable fresh lock stays busy.
-  fs.writeFileSync(lock, "");
-  assert.throws(() => acquireSnapshotLock(lock), (e) => e.code === "busy" && /being written/.test(e.message));
+  // An empty or unparseable lock is never reclaimed, however old (Oracle: an empty stale lock equals a lock being created).
+  for (const junk of ["", "{not json", JSON.stringify({ pid: "x" })]) {
+    fs.writeFileSync(lock, junk);
+    fs.utimesSync(lock, new Date(0), new Date(0));
+    assert.throws(() => acquireSnapshotLock(lock), (e) => e.code === "busy" && /cannot be read as a lock/.test(e.message));
+    assert.equal(fs.readFileSync(lock, "utf8"), junk, "left in place");
+  }
+  fs.rmSync(lock);
+  // A lock appears whole: no window in which it exists empty, and no private publish files are left behind.
+  const release = acquireSnapshotLock(lock);
+  assert.match(fs.readFileSync(lock, "utf8"), /"token":/);
+  assert.deepEqual(fs.readdirSync(f.root).filter((n) => n.endsWith(".tmp")), []);
+  release();
 });
