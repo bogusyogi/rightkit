@@ -296,3 +296,13 @@ test("E18 live-scans through the gate entry: dispatch and usage", async (t) => {
   assert.deepEqual(parseLiveScans(0, out.join("\n")), []);
   assert.equal(await main(["live-scans"], { cwd: repo, out: (m) => out.push(m), err: (m) => err.push(m) }), 2);
 });
+
+test("rightkit#1215 in snapshot mode: a config-only .git naming the origin exists while class A runs and is gone after", async (t) => {
+  const s = scenario(t);
+  git(s.repo, "remote", "add", "origin", "git@github.com:example/repo.git");
+  let during = null;
+  const run = io(t, s, { onScans: () => { try { during = fs.readFileSync(path.join(s.dir, ".git", "config"), "utf8"); } catch { during = null; } } });
+  assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], run.io), 0, run.err.join("\n"));
+  assert.equal(during, '[remote "origin"]\n\turl = git@github.com:example/repo.git\n');
+  assert.equal(fs.existsSync(path.join(s.dir, ".git")), false, "removed when the check ends");
+});

@@ -1950,13 +1950,27 @@ export async function main(argv, io = {}) {
 
   const ac = o.abort ?? new AbortController();
   let exportRoot = null;
-  const cleanup = () => { if (exportRoot) fs.rmSync(exportRoot, { recursive: true, force: true }); };
+  let snapshotGitConfig = null;
+  const cleanup = () => {
+    if (exportRoot) fs.rmSync(exportRoot, { recursive: true, force: true });
+    if (snapshotGitConfig) { fs.rmSync(snapshotGitConfig, { force: true }); try { fs.rmdirSync(path.dirname(snapshotGitConfig)); } catch { /* not empty: leave it, the next exact sync prunes it */ } }
+  };
   const signals = [];
   try {
     let repo = root;
     if (snapshot && snapshotA) {
       // The verified gate-owned snapshot is the commit's bytes: it is scanned in place, no export.
       repo = snapshotA;
+      // As for an export (rightkit#1215): rustright binds the tracked .rightkit-local-build.json grant to the origin URL in .git/config,
+      // so a locked cargo metadata in the snapshot needs a config-only .git naming exactly the checkout's origin. It is not a
+      // repository (no HEAD, no objects), the seeded identity never reads .git, and it is removed when the check ends.
+      const origin = o.spawn("git", ["config", "--get", "remote.origin.url"], { cwd: root });
+      const originUrl = failed(origin) ? "" : text(origin).trim();
+      if (originUrl && !o.exists(path.join(repo, ".git"))) {
+        o.mkdir(path.join(repo, ".git"), { recursive: true });
+        snapshotGitConfig = path.join(repo, ".git", "config");
+        o.writeFile(snapshotGitConfig, `[remote "origin"]\n\turl = ${originUrl}\n`);
+      }
     } else if (snapshot) {
       exportRoot = fs.mkdtempSync(path.join(exportTmpRoot({ env: o.env, platform: o.platform, exists: o.exists }), "rk-gate-"));
       repo = path.join(exportRoot, "repo");
