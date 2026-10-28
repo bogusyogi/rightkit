@@ -231,6 +231,9 @@ test("install: pinned pnpm, --offline --frozen-lockfile --ignore-scripts --ignor
   assert.equal(rec.lockfileSha256, crypto.createHash("sha256").update("lockfileVersion: '9.0'\n").digest("hex"));
   assert.equal(rec.ms, 250);
   assert.deepEqual(rec.allowedBuildsNotRun, [], "esbuild is allowed to build but not installed here, so nothing is required of it");
+  // The version is the one pnpm runs in the root (it switches to the packageManager pin there), not a neutral directory's.
+  const switching = (c, a, o) => (a[0] === "--version" ? { status: 0, stdout: o.cwd === path.join(snapshot, ".") ? "11.25.0\n" : "11.24.0\n" } : { status: 0, stdout: "Done\n" });
+  assert.equal(installSnapshotDependencies({ checkout, snapshot, roots: ["."], spawn: switching })[0].pnpm, "11.25.0");
   // A pnpm that is not the pinned one refuses.
   assert.throws(() => installSnapshotDependencies({ checkout, snapshot, roots: ["."], spawn: (c, a) => (a[0] === "--version" ? { status: 0, stdout: "10.0.0\n" } : { status: 0 }) }), /pins pnpm@11\.25\.0/);
   // A store miss names the package and the root, never a skip.

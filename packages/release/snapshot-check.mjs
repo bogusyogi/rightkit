@@ -176,7 +176,9 @@ export function installSnapshotDependencies({ checkout, snapshot, roots, env = p
     if (!fs.existsSync(path.join(dir, "pnpm-lock.yaml"))) { records.push({ root, skipped: "no pnpm-lock.yaml in the commit: nothing to install from (the pnpm-lockfile scan judges it)" }); continue; }
     const { storeDir, source } = resolvePrimaryStore({ checkout, root, env, spawn, ...(readFile ? { readFile } : {}), ...(exists ? { exists } : {}) });
     const pin = pinnedPnpm(dir) ?? pinnedPnpm(snapshot);
-    const version = versionOf(path.dirname(snapshot));
+    // Asked where the install runs: pnpm switches itself to the root's packageManager version there (Dell 2026-10-29: an installed
+    // 11.24.0 answers 11.24.0 in a neutral directory and runs 11.25.0 in the root), so that is the pnpm that will install.
+    const version = versionOf(dir);
     if (!version) throw new CheckError("pnpm is not runnable on this host; the snapshot's dependencies cannot be installed");
     if (pin && version !== pin) throw new CheckError(`pnpm ${version} is on PATH, but root ${root} of the commit pins pnpm@${pin} (packageManager); install the pinned pnpm`);
     const started = now();
