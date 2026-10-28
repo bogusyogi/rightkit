@@ -16,8 +16,9 @@
 // `~/.local/state/rightkit/snapshots/<repo-key>`. `repo-key` = first 16 hex of sha256(canonical repository path), the key
 // `checked-trees` uses. Scratch is never the root: it is disposable.
 //
-// Exclusion: one sync per snapshot at a time (`<root>/<repo-key>.lock`). Host-wide build ownership held from before the sync
-// through the stage is step 4 of the joint plan; this lock never lets two syncs overwrite each other.
+// Exclusion: one sync per snapshot at a time (`<root>/<repo-key>.lock`, re-checked before every write and before the verdict).
+// It narrows, but cannot close, the window in which two processes both replace one stale lock; host-wide build ownership held
+// from before the sync through the stage (joint plan step 4) is the exclusion builds rely on, and the broker re-verifies the tree.
 
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -32,6 +33,7 @@ const FILE_MODES = new Set(["100644", "100755"]);
 const LINK_MODE = "120000";
 const GIT_SAFE = ["-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false"];
 const MAX_BUFFER = 1 << 30;
+const BLOB_CHUNK = 500;
 
 export class SnapshotError extends Error {
   /** `code` is "mismatch" (the snapshot is not the commit's tree), "busy" (another sync holds it), "refused" (the commit cannot be
@@ -42,6 +44,17 @@ export class SnapshotError extends Error {
 /** First 16 hex digits of sha256 over the canonical repository path: the key RustRight's `checked-trees` & journals use. */
 export function repoKey(canonicalRepoPath) {
   return crypto.createHash("sha256").update(String(canonicalRepoPath)).digest("hex").slice(0, 16);
+}
+
+/**
+ * The repository path the key is taken over, spelled as RustRight's `fs::canonicalize` spells it, so the snapshot's key equals
+ * the broker's `checked-trees` key on every host: unchanged on Mac & Linux, the verbatim `\\?\` form on Windows
+ * (Dell 2026-10-29: `checked-trees/226c20f30c489153` = sha256 of `\\?\D:\Claude\rightkit`).
+ */
+export function keyPath(canonicalRepoPath, platform = process.platform) {
+  const p = String(canonicalRepoPath);
+  if (platform !== "win32" || p.startsWith("\\\\?\\")) return p;
+  return p.startsWith("\\\\") ? `\\\\?\\UNC\\${p.slice(2)}` : `\\\\?\\${p}`;
 }
 
 /** The directory every snapshot of this host lives under. */
@@ -68,7 +81,7 @@ export function repositoryOf(checkout) {
   const canonical = fs.realpathSync.native(top);
   const gitDir = runGit(canonical, ["rev-parse", "--absolute-git-dir"]).trim();
   const objectFormat = runGit(canonical, ["rev-parse", "--show-object-format"]).trim() || "sha1";
-  return { checkout: canonical, gitDir, objectFormat, key: repoKey(canonical) };
+  return { checkout: canonical, gitDir, objectFormat, key: repoKey(keyPath(canonical)) };
 }
 
 /** `{ commit, tree }` of a revision; a revision that is not a commit is an error, never a guess. */
@@ -129,6 +142,23 @@ export function treeEntries(checkout, commit) {
   return entries;
 }
 
+/** On Mac & Windows (case-insensitive by default) two tree paths, or a path and a directory, that differ only in case cannot both
+ * exist: one would replace the other, and a link could redirect a write. Refused before anything is written. */
+function refuseCaseCollisions(entries, commit, platform = process.platform) {
+  if (platform !== "darwin" && platform !== "win32") return;
+  const seen = new Map();
+  for (const e of entries) {
+    const parts = e.path.split("/");
+    for (let i = 1; i <= parts.length; i++) {
+      const p = parts.slice(0, i).join("/");
+      const k = p.toLowerCase();
+      const other = seen.get(k);
+      if (other !== undefined && other !== p) throw new SnapshotError("refused", `commit ${commit} has ${JSON.stringify(other)} and ${JSON.stringify(p)}, which differ only in case`);
+      seen.set(k, p);
+    }
+  }
+}
+
 function blobId(content, objectFormat) {
   const h = crypto.createHash(objectFormat === "sha256" ? "sha256" : "sha1");
   h.update(`blob ${content.length}\0`);
@@ -162,13 +192,22 @@ const statKey = (s) => `${s.size}:${s.mtimeNs}:${s.ctimeNs}:${s.ino}`;
 
 /** Exclusive per-snapshot lock; a lock whose holder process is gone on this host is stale and replaced once. */
 export function acquireSnapshotLock(lockFile) {
-  const body = JSON.stringify({ pid: process.pid, host: os.hostname(), startedAt: new Date().toISOString() });
+  const body = JSON.stringify({ pid: process.pid, host: os.hostname(), startedAt: new Date().toISOString(), token: crypto.randomUUID() });
+  const held = () => { try { return fs.readFileSync(lockFile, "utf8") === body; } catch { return false; } };
   for (let attempt = 0; attempt < 2; attempt++) {
-    try { fs.writeFileSync(lockFile, body, { flag: "wx", mode: 0o600 }); return () => fs.rmSync(lockFile, { force: true }); }
+    try {
+      fs.writeFileSync(lockFile, body, { flag: "wx", mode: 0o600 });
+      if (!held()) throw new SnapshotError("busy", `snapshot lock ${lockFile} was replaced by another process`);
+      const release = () => { if (held()) fs.rmSync(lockFile, { force: true }); };
+      release.held = held;
+      return release;
+    }
     catch (e) {
       if (e.code !== "EEXIST") throw new SnapshotError("error", `cannot create ${lockFile}: ${e.message}`);
       let holder = null;
       try { holder = JSON.parse(fs.readFileSync(lockFile, "utf8")); } catch { holder = null; }
+      // A lock that cannot be read yet may be one another process has just created and not written: busy unless it is old.
+      if (!holder) { let age = 0; try { age = Date.now() - fs.statSync(lockFile).mtimeMs; } catch { age = 0; } if (age < 60_000) throw new SnapshotError("busy", `snapshot lock ${lockFile} is being written by another process`); }
       const alive = holder && holder.host === os.hostname() && (() => { try { process.kill(holder.pid, 0); return true; } catch (k) { return k.code === "EPERM"; } })();
       if (alive || attempt > 0 || (holder && holder.host !== os.hostname())) throw new SnapshotError("busy", `snapshot is held by ${holder ? `pid ${holder.pid} on ${holder.host} since ${holder.startedAt}` : `an unreadable lock ${lockFile}`}`);
       fs.rmSync(lockFile, { force: true });
@@ -231,12 +270,14 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), no
   const repo = repositoryOf(checkout);
   const { commit, tree } = resolveCommit(repo.checkout, rev);
   const entries = treeEntries(repo.checkout, commit);
+  refuseCaseCollisions(entries, commit);
   fs.mkdirSync(root, { recursive: true, mode: 0o700 });
   const rootStat = lstat(root);
   if (!rootStat?.isDirectory()) throw new SnapshotError("refused", `snapshot root ${root} is not a directory (a link is never followed)`);
   const dir = path.join(root, repo.key);
   if (inside(dir, repo.checkout) || inside(repo.checkout, dir)) throw new SnapshotError("refused", `snapshot ${dir} and checkout ${repo.checkout} overlap`);
   const release = acquireSnapshotLock(`${dir}.lock`);
+  const assertLockHeld = () => { if (!release.held()) throw new SnapshotError("busy", `snapshot lock ${dir}.lock is no longer held by this sync`); };
   try {
     const existing = lstat(dir);
     if (existing && !existing.isDirectory()) removeEntry(dir);
@@ -252,23 +293,28 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), no
 
     // 1. Files an earlier commit put here that this commit does not have (ignored ones too: they would be stale build input).
     for (const p of previous) if (!wanted.has(p) && removeEntry(path.join(dir, ...p.split("/")))) removed++;
-    // 2. No link may resolve into the checkout or out of the snapshot; a committed link is checked against its committed target.
-    const committedLinks = new Map(entries.filter((e) => e.mode === LINK_MODE).map((e) => [path.join(dir, ...e.path.split("/")), e]));
-    for (const link of linksUnder(dir)) {
-      if (committedLinks.has(link)) continue;
-      let target;
-      try { target = path.resolve(path.dirname(link), fs.readlinkSync(link)); } catch { target = null; }
-      if (!target || inside(target, repo.checkout) || !inside(target, dir)) { removeEntry(link); linksRemoved++; }
-    }
+    // Where a path physically lands, following every link on the way: `path.resolve` collapses `..` lexically and would miss a
+    // chain such as `c/b -> ..` that the operating system follows (Oracle, step 1 review).
+    const realDir = fs.realpathSync.native(dir);
+    if (inside(realDir, repo.checkout) || inside(repo.checkout, realDir)) throw new SnapshotError("refused", `snapshot ${realDir} and checkout ${repo.checkout} overlap`);
+    const landsSafely = (p) => { let real; try { real = fs.realpathSync.native(p); } catch { return false; } return inside(real, realDir) && !inside(real, repo.checkout); };
+    const parentSafe = (target) => {
+      if (!landsSafely(path.dirname(target))) throw new SnapshotError("refused", `${path.relative(dir, target)}: its directory resolves out of the snapshot; nothing is written through it`);
+    };
 
-    // 3. Every tracked file: unchanged ones are left alone (same bytes & mode keep their mtime), the rest are written.
+    // 2. A link already here (planted, or from an earlier sync) stays only if it lands inside the snapshot and not in the checkout.
+    for (const link of linksUnder(dir)) if (!landsSafely(link)) { removeEntry(link); linksRemoved++; }
+
+    // 3. Every tracked file: unchanged ones are left alone (same bytes & mode keep their mtime), the rest are written. Links are
+    // created only after every file, so creating one can never redirect a later write.
     const need = [];
+    const links = [];
     const nextStat = {};
     for (const e of entries) {
       const target = path.join(dir, ...e.path.split("/"));
+      if (e.mode === LINK_MODE) { links.push(e); continue; }
       ensureParents(dir, target);
       const s = lstat(target);
-      if (e.mode === LINK_MODE) { need.push(e); continue; }
       if (s?.isFile()) {
         const known = cache[e.path];
         const same = known && known.oid === e.oid && known.stat === statKey(s) ? true : blobId(fs.readFileSync(target), repo.objectFormat) === e.oid;
@@ -282,38 +328,55 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), no
       }
       need.push(e);
     }
-    const blobs = readBlobs(repo.checkout, need.map((e) => e.oid));
-    // Writes land in a sibling staging directory on the same volume, then rename into place: an interrupted sync never leaves a
-    // half-written or stray file inside the snapshot.
-    const staging = `${dir}.staging`;
-    fs.rmSync(staging, { recursive: true, force: true });
-    fs.mkdirSync(staging, { mode: 0o700 });
-    let serial = 0;
-    for (const e of need) {
-      const target = path.join(dir, ...e.path.split("/"));
-      const body = blobs.get(e.oid);
-      if (e.mode === LINK_MODE) {
-        const to = body.toString("utf8");
-        const resolved = path.resolve(path.dirname(target), to);
-        if (path.isAbsolute(to) || !inside(resolved, dir) || inside(resolved, repo.checkout)) throw new SnapshotError("refused", `commit ${commit} links ${e.path} -> ${to}, which resolves out of the snapshot`);
+    // Writes land in this sync's own staging directory on the same volume, then rename into place: an interrupted sync never
+    // leaves a half-written or stray file inside the snapshot. Blobs are read and written a chunk at a time.
+    const stagingRoot = `${dir}.staging`;
+    const staging = path.join(stagingRoot, crypto.randomUUID());
+    fs.mkdirSync(staging, { recursive: true, mode: 0o700 });
+    try {
+      let serial = 0;
+      for (let i = 0; i < need.length; i += BLOB_CHUNK) {
+        const chunk = need.slice(i, i + BLOB_CHUNK);
+        const blobs = readBlobs(repo.checkout, chunk.map((e) => e.oid));
+        for (const e of chunk) {
+          assertLockHeld();
+          const target = path.join(dir, ...e.path.split("/"));
+          ensureParents(dir, target);
+          parentSafe(target);
+          const s = lstat(target);
+          if (s && !s.isFile()) removeEntry(target);
+          const tmp = path.join(staging, String(serial++));
+          fs.writeFileSync(tmp, blobs.get(e.oid), { mode: e.mode === "100755" ? 0o755 : 0o644 });
+          if (process.platform !== "win32") fs.chmodSync(tmp, e.mode === "100755" ? 0o755 : 0o644);
+          fs.renameSync(tmp, target);
+          nextStat[e.path] = { oid: e.oid, stat: statKey(lstat(target)) };
+          written++;
+        }
+      }
+      const linkBlobs = readBlobs(repo.checkout, links.map((e) => e.oid));
+      for (const e of links) {
+        const target = path.join(dir, ...e.path.split("/"));
+        const to = linkBlobs.get(e.oid).toString("utf8");
+        if (path.isAbsolute(to) || path.win32.isAbsolute(to)) throw new SnapshotError("refused", `commit ${commit} links ${e.path} -> ${to}: an absolute link cannot stay inside the snapshot`);
+        ensureParents(dir, target);
+        parentSafe(target);
         const s = lstat(target);
         if (s?.isSymbolicLink() && fs.readlinkSync(target) === to) { unchanged++; continue; }
         if (s) removeEntry(target);
         fs.symlinkSync(to, target);
         written++;
-        continue;
       }
-      const s = lstat(target);
-      if (s && !s.isFile()) removeEntry(target);
-      const tmp = path.join(staging, String(serial++));
-      fs.writeFileSync(tmp, body, { mode: e.mode === "100755" ? 0o755 : 0o644 });
-      if (process.platform !== "win32") fs.chmodSync(tmp, e.mode === "100755" ? 0o755 : 0o644);
-      fs.renameSync(tmp, target);
-      nextStat[e.path] = { oid: e.oid, stat: statKey(lstat(target)) };
-      written++;
+      // Every committed link must land, physically, on something inside the snapshot that is not in the checkout. One that does
+      // not (an escape through a chain, a dangling or looping link) is removed before the refusal, so it is never left in place.
+      const unsafe = links.map((e) => e.path).filter((p) => !landsSafely(path.join(dir, ...p.split("/"))));
+      if (unsafe.length) {
+        for (const p of unsafe) removeEntry(path.join(dir, ...p.split("/")));
+        throw new SnapshotError("refused", `commit ${commit} has links that do not land inside the snapshot: ${unsafe.join(", ")}`);
+      }
+    } finally {
+      fs.rmSync(staging, { recursive: true, force: true });
+      try { fs.rmdirSync(stagingRoot); } catch { /* another sync's staging, or not empty */ }
     }
-
-    fs.rmSync(staging, { recursive: true, force: true });
 
     // 4. Anything else `add -A` would see (a planted or leftover file no ignore rule excludes) is removed, with directories it emptied.
     for (const rel of untrackedVisible({ dir, baseTree: tree, repo })) {
@@ -324,6 +387,7 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), no
       }
     }
 
+    assertLockHeld();
     const actual = snapshotTree({ checkout: repo.checkout, dir, baseTree: tree, repo });
     if (actual !== tree) throw new SnapshotError("mismatch", `snapshot ${dir} is tree ${actual} after sync, not tree ${tree} of commit ${commit}`);
     writeState(stateFile, { schema: STATE_SCHEMA, repo: repo.checkout, repoKey: repo.key, commit, tree, paths: [...wanted.keys()], stat: nextStat, syncedAt: new Date(now()).toISOString() });
