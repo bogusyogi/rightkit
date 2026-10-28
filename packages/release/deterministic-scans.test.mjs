@@ -2385,6 +2385,39 @@ test("a failing scan keeps its complete output in scanLogDir and its row names t
   } finally { fsModule.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("scriptBuildCall: pnpm's -w is a flag (pnpm -w build builds), npm's -w takes a value (joint plan step 4)", async () => {
+  const { scriptBuildCall } = await import("./deterministic-scans.mjs");
+  assert.equal(scriptBuildCall({ test: "pnpm -w build && node --test" })?.command, "pnpm -w build");
+  assert.equal(scriptBuildCall({ test: "pnpm -w run build:all && vitest run" })?.command, "pnpm -w run build:all");
+  assert.equal(scriptBuildCall({ test: "pnpm -w test" }), null);
+  assert.equal(scriptBuildCall({ test: "npm -w packages/web run build && node --test" })?.command, "npm -w packages/web run build");
+  assert.equal(scriptBuildCall({ test: "npm -w build test" }), null);
+});
+
+test("per-unit class A tests: a unit with recorded evidence plans its tests in class A; a build, broker call or afterClassA keeps them in B with a note", () => {
+  const fs = fsModule;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-ds-classa-"));
+  try {
+    const pkg = (dir, scripts) => { fs.mkdirSync(path.join(root, dir), { recursive: true }); fs.writeFileSync(path.join(root, dir, "package.json"), JSON.stringify({ name: dir, scripts })); fs.writeFileSync(path.join(root, dir, "a.mjs"), "export {};\n"); };
+    pkg("packages/evidenced", { test: "node --test" });
+    pkg("packages/plain", { test: "node --test" });
+    pkg("packages/builds", { test: "pnpm -w build && node --test" });
+    pkg("packages/late", { test: "node --test" });
+    const evidence = { classATests: { evidence: "docs/GATE-CLASS-A-INVENTORY.md (Test units)" } };
+    const plan = planScans({ changed: ["packages/evidenced/a.mjs", "packages/plain/a.mjs", "packages/builds/a.mjs", "packages/late/a.mjs"], contentRoot: root, liveRoot: root, includeTests: true, quietTests: "local",
+      npmUnits: [{ name: "evidenced", dir: "packages/evidenced" }, { name: "plain", dir: "packages/plain" }, { name: "builds", dir: "packages/builds" }, { name: "late", dir: "packages/late" }], npmRoots: [],
+      packageFeatures: { evidenced: evidence, builds: evidence, late: { ...evidence, afterClassA: { reason: "stub compilers" } } } });
+    const row = (n) => plan.scans.find((s) => s.id === `test:npm:${n}`);
+    assert.equal(row("evidenced").class, "A");
+    assert.match(row("evidenced").classReason, /class A on recorded evidence .*launch guard/);
+    assert.equal(row("plain").class, "B", "no evidence: B as before");
+    assert.equal(row("builds").class, "B", "evidence never overrides a build in the script");
+    assert.equal(row("late").class, "B", "evidence never overrides afterClassA");
+    assert.ok(plan.notes.some((n) => /npm\.builds\.classATests is ignored: its test script builds/.test(n)), plan.notes.join("\n"));
+    assert.ok(plan.notes.some((n) => /npm\.late\.classATests is ignored: it is declared afterClassA/.test(n)));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test("scriptBuildCall finds a test script that builds (emits) before testing; typechecks and plain tests are not builds", async () => {
   const { scriptBuildCall } = await import("./deterministic-scans.mjs");
   assert.equal(scriptBuildCall({ test: "pnpm run build && vitest run", build: "tsc -p tsconfig.json" })?.command, "pnpm run build");

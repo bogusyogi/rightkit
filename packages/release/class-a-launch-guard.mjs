@@ -24,7 +24,13 @@ const COMPILERS = new Set(["cargo", "rustc", "rustright", "rightkit", "tauri", "
 const PACKAGE_MANAGERS = new Set(["pnpm", "npm", "yarn", "bun"]);
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "cmd", "powershell", "pwsh"]);
 const WRAPPERS = new Set(["env", "npx", "pnpx", "exec", "time", "nice"]);
-const OPTIONS_WITH_VALUES = new Set(["--filter", "-F", "--dir", "-C", "--workspace", "-w", "--prefix"]);
+// Options that take a value, per package manager: pnpm's `-w` is `--workspace-root` (a flag), npm's `-w` is `--workspace <name>`.
+const OPTIONS_WITH_VALUES = Object.freeze({
+  pnpm: new Set(["--filter", "-F", "--dir", "-C"]),
+  npm: new Set(["--workspace", "-w", "--prefix"]),
+  yarn: new Set(["--cwd"]),
+  bun: new Set(["--cwd", "--filter"]),
+});
 
 const base = (p) => path.basename(String(p ?? "").replaceAll("\\", "/")).replace(/\.(exe|cmd|bat|ps1|js|mjs|cjs)$/i, "").toLowerCase();
 
@@ -65,7 +71,7 @@ export function compileLaunch(program, args = []) {
     if (PACKAGE_MANAGERS.has(name)) {
       let next = null;
       for (let j = 0; j < rest.length; j++) {
-        if (OPTIONS_WITH_VALUES.has(rest[j])) { j++; continue; }
+        if (OPTIONS_WITH_VALUES[name].has(rest[j])) { j++; continue; }
         if (rest[j].startsWith("-") || rest[j] === "run" || rest[j] === "run-script") continue;
         if (/^build(:|$)/.test(rest[j])) return `${name} ${rest[j]}`;
         if (rest[j] === "exec" || rest[j] === "dlx" || rest[j] === "x") next = rest.slice(j + 1);

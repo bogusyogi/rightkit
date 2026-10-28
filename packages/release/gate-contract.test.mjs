@@ -45,7 +45,7 @@ const CELLS = {
 const ROWS = {
   E1: { covered: [["gate-contract.test.mjs", "[behavior] E1: a red class A starts no compile and no later-stage scan (real subprocesses, sentinel fakes)"], ["gate-contract.test.mjs", "[behavior] E1: the door's dev and test stages never launch right-release after a red check"], ["rightkit-gate.test.mjs", "--to runs every stage up to the target in order, class A first, and stops at the first failure with nothing after it"], ["snapshot-check.test.mjs", "E17: a dirty checkout whose HEAD is ahead still checks the selected commit's snapshot, never reading HEAD or status"]], pending: [["decisions.md (recorded placement decisions)", "inventory placements marked PROPOSED or PENDING are not applied in the planner until a decision is recorded"], ["step 11", "the complete inventory reconciled to the checks the installed gate executes on Mac, Dell and Linux"]] },
   E2: { covered: [["gate-contract.test.mjs", "[behavior] executor: a Mac or Dell managed host whose broker is unreachable is refused, never routed direct"], ["rightkit-gate.test.mjs", "executor: a broker-managed machine without a reachable broker is refused; any other host runs cargo directly through the same plan"]], pending: [["step 11", "installed shared entry on Mac and Dell refuses before compile (installed-host run)"]] },
-  E3: { covered: [["gate-contract.test.mjs", "[behavior] executor: a Linux host with no broker runs direct"]], pending: [["step 4", "Linux with RustRight on PATH or a broker socket variable still runs direct (code picks broker/refuse today)"], ["step 10", "actual Linux/WSL2 local compile through the installed entry, zero broker or browser launches"]] },
+  E3: { covered: [["gate-contract.test.mjs", "[behavior] executor: a Linux host with no broker runs direct"], ["gate-contract.test.mjs", "[behavior] executor: a Linux host always runs direct, even with RustRight on PATH, a broker socket variable or a managed cargo shim (contract §1 'One entry')"]], pending: [["step 10", "actual Linux/WSL2 local compile through the installed entry, zero broker or browser launches"]] },
   E4: { covered: [], pending: [["step 10", "private Linux hold/resume with and without Linux deliverables"], ["step 11", "hosted Linux qualification of exact sealed bytes on Mac/Dell"]] },
   E5: { covered: [], pending: [["step 9", "nonpublishing fixtures for each npm/Cargo route; failed qualification never promotes"], ["step 12", "six real R-M/R-D/R-L x npm/Cargo publications with readback"]] },
   E6: { covered: [["snapshot.test.mjs", "E6: a changed byte, a deleted file, a planted visible file refuse verification; the next sync repairs them"], ["snapshot-check.test.mjs", "E17: a snapshot changed while class A runs refuses with RK_CHECK_ERROR, exit 2"]], pending: [["step 4", "checkout edits during a stage and a second request against held build ownership"], ["step 9", "stale or altered output, helper, native output, final artifact, app SHA, run or attempt reject"]] },
@@ -103,9 +103,11 @@ test("[behavior] executor: a Mac or Dell managed host whose broker is unreachabl
 test("[behavior] executor: a Linux host with no broker runs direct", () => {
   for (const [id, cell] of Object.entries(CELLS)) if (cell.host === "linux") assert.deepEqual(route("linux"), { kind: "direct", cargo: ["cargo"] }, id);
 });
-test("[pending] executor: a Linux host always runs direct, even with RustRight on PATH or a broker socket variable set (contract §1 'One entry')", { todo: "owned by step 4: resolveExecutor picks broker when rustright is on PATH and refuse when RIGHTKIT_BUILD_BROKER_SOCKET is set, on Linux too" }, () => {
+test("[behavior] executor: a Linux host always runs direct, even with RustRight on PATH, a broker socket variable or a managed cargo shim (contract §1 'One entry')", () => {
   assert.deepEqual(route("linux", { env: { __rustright: "/usr/local/bin/rustright" } }), { kind: "direct", cargo: ["cargo"] });
   assert.deepEqual(route("linux", { env: { RIGHTKIT_BUILD_BROKER_SOCKET: "/run/rustright.sock" } }), { kind: "direct", cargo: ["cargo"] });
+  const shim = resolveExecutor({ env: { PATH: "/home/a/.rightkit-managed/agent-bin:/usr/bin", RIGHTKIT_DATA_ROOT: "/home/a/.rightkit-managed" }, platform: "linux", exists: () => true, readFile: () => "cargo-guard.mjs", which: (c) => (c === "cargo" ? ["/home/a/.rightkit-managed/agent-bin/cargo"] : []) });
+  assert.deepEqual(shim, { kind: "direct", cargo: ["cargo"] });
 });
 test("[behavior] E10: the executor has no caller input, so a human and a managed agent route the same way", () => {
   // resolveExecutor reads only the host (env, platform, PATH, files): an agent marker in the environment changes nothing.
@@ -201,6 +203,34 @@ test("[behavior] E1: the door's dev and test stages never launch right-release a
   assert.equal(await main(["--to", "dev"], green), 0);
   assert.equal(launches.length, 1);
   assert.match(launches[0].join(" "), /right-release\.mjs dev/);
+});
+
+test("[behavior] E1: a class A row that executes repository code (lint, generator) and launches a compiler is refused by the launch guard", (t) => {
+  // A non-test class A row with executes:true, like eslint or generated-docs, whose code spawns `cargo build`: the guard refuses it before the
+  // fake cargo runs. Real child process, harness broker guard dropped; control: the same row unguarded (class B) does launch the fake.
+  const dir = tmp(t, "rk-gc-exec-");
+  const bin = path.join(dir, "bin"); fs.mkdirSync(bin);
+  const ran = path.join(dir, "compile-ran");
+  if (process.platform === "win32") write(bin, { "cargo.cmd": `@echo %*> "${ran}"\r\n` });
+  else { write(bin, { cargo: `#!/bin/sh\necho "$*" > '${ran}'\n` }); fs.chmodSync(path.join(bin, "cargo"), 0o755); }
+  write(dir, { "content/gen.mjs": "const r = require('node:child_process').spawnSync('cargo', ['build'], { shell: true, stdio: 'inherit' }); process.exit(r.status ?? 1);\n".replace("require('node:child_process')", "(await import('node:child_process'))") });
+  const runWith = (cls) => {
+    const plan = { schema: "fixture", roots: { contentRoot: path.join(dir, "content"), liveRoot: path.join(dir, "content") }, changed: ["gen.mjs"], notes: [], deferred: [],
+      scans: [{ id: "node-check:gen.mjs", class: "A", tool: "node", args: ["--check", "gen.mjs"], root: "content", command: "node --check gen.mjs" },
+        { id: "generated-docs", class: cls, executes: true, tool: "node", args: ["gen.mjs"], root: "live", command: "node gen.mjs" }] };
+    const driver = path.join(dir, `driver-${cls}.mjs`);
+    fs.writeFileSync(driver, `const { runScans } = await import(${JSON.stringify(pathToFileURL(path.join(HERE, "deterministic-scans.mjs")).href)});
+const r = await runScans(${JSON.stringify(plan)}, { classes: ["A", "B"], jobs: 1 });
+console.log(JSON.stringify(r.scans.map((s) => ({ id: s.id, status: s.status, detail: String(s.detail ?? "").slice(0, 400) }))));\n`);
+    const r = spawnSync(process.execPath, [driver], { env: { ...process.env, NODE_OPTIONS: "", PATH: `${bin}${path.delimiter}${process.env.PATH}` }, encoding: "utf8", cwd: dir });
+    return JSON.parse(String(r.stdout).trim().split(/\r?\n/).pop() || "[]").find((s) => s.id === "generated-docs");
+  };
+  const guarded = runWith("A");
+  assert.equal(guarded?.status, "fail");
+  assert.match(guarded.detail, /class A refuses a compile\/emit launch \(cargo\)/);
+  assert.equal(fs.existsSync(ran), false, "no compile launched under class A");
+  const control = runWith("B");
+  assert.equal(fs.existsSync(ran), true, `control: unguarded, the row launches the fake cargo (${JSON.stringify(control)})`);
 });
 
 // ---- the inventory against the canonical enumerations ([drift]) ------------------------------------------------------------------------

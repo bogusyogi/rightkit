@@ -457,7 +457,8 @@ export function scriptBuildCall(scripts, entry = "test", { maxDepth = 8 } = {}) 
     const word = path.posix.basename(String(words[i] ?? "").replaceAll("\\", "/")).replace(/\.(exe|cmd|bat)$/i, "");
     if (word === "tsc") return !words.slice(i + 1).some((w) => /^--?noEmit(=true)?$/i.test(w));
     if (!PACKAGE_MANAGERS.has(word)) return false;
-    const rest = words.slice(i + 1); const values = new Set(["--filter", "-F", "--dir", "-C", "--workspace", "-w"]);
+    // pnpm's `-w` is `--workspace-root` (a flag); npm's `-w` is `--workspace <name>` (takes a value).
+    const rest = words.slice(i + 1); const values = new Set(word === "pnpm" ? ["--filter", "-F", "--dir", "-C"] : word === "npm" ? ["--workspace", "-w", "--prefix"] : ["--cwd", "--filter"]);
     for (let j = 0; j < rest.length; j += 1) {
       if (values.has(rest[j])) { j += 1; continue; }
       if (rest[j].startsWith("-") || rest[j] === "run" || rest[j] === "run-script") continue;
@@ -980,7 +981,13 @@ export function planScans({
       // Isolated only where the tests run on an export (contentRoot is not the live checkout): there sibling repositories are
       // absent by construction. On the live checkout (full class A, broker admission) the cross-app contract tests run for real.
       const isolatedCheckout = path.resolve(contentRoot) !== path.resolve(liveRoot);
-      add({ id: `test:npm:${name}`, class: B, kind: "test", executes: true, classReason: brokerCall ? "its test script reaches the broker (compiles); it runs with the compile scans" : laterReason ?? "test scripts execute project code and run after class A", ...(own.quietTests === true ? { quiet: true } : {}), ...(brokerCall ? { brokerCall } : {}), tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { ...PNPM_RUN_ENV, ...(isolatedCheckout ? { RIGHTKIT_ISOLATED_CHECKOUT: "1" } : {}) } });
+      // `npm.<unit>.classATests.evidence` (ci/gate.config.json): the unit's tests were shown, by import inspection and launch observation
+      // under the class A launch guard, to compile and build nothing (docs/GATE-CLASS-A-INVENTORY.md "Test units"); they run in class A,
+      // still under the guard, which refuses any compile at run time. Never when the script reaches the broker, builds, or is declared after class A.
+      const classAEvidence = typeof own.classATests?.evidence === "string" && own.classATests.evidence.trim() !== "" ? own.classATests.evidence.trim() : null;
+      const inClassA = classAEvidence && !brokerCall && !buildCall && !afterClassA;
+      if (classAEvidence && !inClassA) notes.push(`npm.${name}.classATests is ignored: ${brokerCall ? "its test script reaches the broker" : buildCall ? `its test script builds (${buildCall.command})` : "it is declared afterClassA"}; it runs after class A`);
+      add({ id: `test:npm:${name}`, class: inClassA ? A : B, kind: "test", executes: true, classReason: inClassA ? `class A on recorded evidence (${classAEvidence}); run under the launch guard` : brokerCall ? "its test script reaches the broker (compiles); it runs with the compile scans" : laterReason ?? "test scripts execute project code and run after class A", ...(own.quietTests === true ? { quiet: true } : {}), ...(brokerCall ? { brokerCall } : {}), tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { ...PNPM_RUN_ENV, ...(isolatedCheckout ? { RIGHTKIT_ISOLATED_CHECKOUT: "1" } : {}) } });
     }
     if (deferredToCi.length) notes.push(`${deferredToCi.length} quiet test scan(s) left to the CI shards (one crate per runner), not run here: ${deferredToCi.join(", ")}`);
     // scripts/ci tests run when scripts/, ci/ or .github/ changed, or a file the scripts/ci sources reference (imports and
@@ -1780,7 +1787,9 @@ export async function runScans(plan, options = {}) {
           const clock = setTimeout(() => timer.abort(), limitMs);
           const scanSignal = signal ? AbortSignal.any([signal, timer.signal]) : timer.signal;
           // A class A test row runs under the launch guard (class-a-launch-guard.mjs): its Node processes may not launch a compile.
-          const guardEnv = s.class === SCAN_CLASS.A && s.kind === "test" ? launchGuardEnv({ ...deps.env, ...s.env, ...(extraEnv ?? {}) }) : {};
+          // Every class A row that executes repository code (tests, lint/typecheck with repository config, generators) runs under the
+          // launch guard: class A runs before any compile, so none of them may start one (joint plan step 4; inventory gap 3).
+          const guardEnv = s.class === SCAN_CLASS.A && (s.kind === "test" || s.executes === true) ? launchGuardEnv({ ...deps.env, ...s.env, ...(extraEnv ?? {}) }) : {};
           try { r = await deps.spawn(p.command, args.map((a) => (a === "{contentRoot}" ? contentRoot : a)), { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}), ...guardEnv }, signal: scanSignal, timeout: limitMs }); } finally { clearTimeout(clock); advisory?.cleanup?.(); }
           if (signal?.aborted && (!r || r.error || r.status !== 0)) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
           if ((timer.signal.aborted || r?.error?.code === "ETIMEDOUT") && (!r || r.error || r.status !== 0)) return { ...row, status: "fail", code: "TIMEOUT", detail: `${s.id} ran longer than ${Math.round(limitMs / 60000)} min and was killed with its process tree; a scan that does not finish fails` };

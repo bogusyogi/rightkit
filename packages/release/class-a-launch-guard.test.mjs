@@ -68,3 +68,14 @@ test("in a class A test row every Node process refuses a compile launch, nested 
   const free = spawnSync(process.execPath, ["--input-type=module", "-e", `import { spawnSync } from "${CP}"; const r = spawnSync("definitely-not-tsc-xyz", ["-p", "."]); console.log("RAN", r.error?.code)`], { encoding: "utf8" });
   assert.match(free.stdout, /RAN ENOENT/);
 });
+
+test("compileLaunch: pnpm's -w is --workspace-root (a flag), npm's -w takes a workspace name (joint plan step 4)", async () => {
+  const { compileLaunch } = await import("./class-a-launch-guard.mjs");
+  assert.match(compileLaunch("pnpm", ["-w", "build"]) ?? "", /pnpm build/, "pnpm -w build is a root build");
+  assert.match(compileLaunch("pnpm", ["-w", "run", "build"]) ?? "", /pnpm build/);
+  assert.match(compileLaunch("pnpm", ["--filter", "web", "build:all"]) ?? "", /pnpm build:all/);
+  assert.equal(compileLaunch("pnpm", ["-w", "test"]), null, "pnpm -w test is not a build");
+  assert.match(compileLaunch("npm", ["-w", "packages/web", "run", "build"]) ?? "", /npm build/, "npm -w <name> takes a value");
+  assert.equal(compileLaunch("npm", ["-w", "build", "test"]), null, "npm -w build is the workspace named build, then test");
+  assert.match(compileLaunch("sh", ["-c", "pnpm -w build && node --test"]) ?? "", /pnpm build/);
+});

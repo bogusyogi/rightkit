@@ -2,7 +2,8 @@
 //   broker  - `rustright` is on PATH, or the first `cargo` is the broker's managed shim: every cargo call goes through the broker.
 //   refuse  - a broker-managed machine (Mac/Dell markers, broker socket, managed agent-bin) whose broker cannot be reached from here:
 //             the gate never compiles around it.
-//   direct  - any other host (a throwaway cloud container, a CI runner): cargo runs directly, through the same gates and stages.
+//   direct  - every Linux host (WSL2, VM, cloud, CI, Linux hosted on the Dell) always, and any unmanaged Mac or Windows host: cargo
+//             runs directly, through the same gates and stages.
 import { brokerManagedHost, managedCargoShimOnPath } from "./cargo-contract.mjs";
 
 export const EXECUTOR_KINDS = Object.freeze(["broker", "refuse", "direct"]);
@@ -12,6 +13,10 @@ export const EXECUTOR_KINDS = Object.freeze(["broker", "refuse", "direct"]);
  * @returns {{ kind: "broker" | "refuse" | "direct", cargo: string[] | null, problem?: string }}
  */
 export function resolveExecutor({ env = process.env, platform = process.platform, exists, which, readFile }) {
+  // Every Linux (and any other non-Mac, non-Windows) execution host runs direct, whatever is on PATH or in the environment: WSL2, a VM,
+  // a cloud or CI runner, or Linux hosted on the Dell (GATE-CONTRACT §1 "One entry"; joint plan step 4). Only Adrian's Mac and Windows
+  // hosts use the broker.
+  if (platform !== "darwin" && platform !== "win32") return { kind: "direct", cargo: ["cargo"] };
   if (which("rustright").length) return { kind: "broker", cargo: ["rustright", "cargo"] };
   const first = which("cargo")[0];
   if (first) {

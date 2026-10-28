@@ -479,6 +479,31 @@
     },
     "rightkit-qa": {
       "quietTests": true
+    },
+    "rightkit-ax": {
+      "classATests": {
+        "evidence": "launch-guard run plus launch observer and import inspection, 2026-10-29: docs/GATE-CLASS-A-INVENTORY.md (Test units); decisions.md (Class A placement adjudication)"
+      }
+    },
+    "rightkit-build-control-policy": {
+      "classATests": {
+        "evidence": "launch-guard run plus launch observer and import inspection, 2026-10-29: docs/GATE-CLASS-A-INVENTORY.md (Test units); decisions.md (Class A placement adjudication)"
+      }
+    },
+    "rightkit-ci": {
+      "classATests": {
+        "evidence": "launch-guard run plus launch observer and import inspection, 2026-10-29: docs/GATE-CLASS-A-INVENTORY.md (Test units); decisions.md (Class A placement adjudication)"
+      }
+    },
+    "rightkit-hooks": {
+      "classATests": {
+        "evidence": "launch-guard run plus launch observer and import inspection, 2026-10-29: docs/GATE-CLASS-A-INVENTORY.md (Test units); decisions.md (Class A placement adjudication)"
+      }
+    },
+    "rightkit-issues-tracker": {
+      "classATests": {
+        "evidence": "launch-guard run plus launch observer and import inspection, 2026-10-29: docs/GATE-CLASS-A-INVENTORY.md (Test units); decisions.md (Class A placement adjudication)"
+      }
     }
   }
 }
