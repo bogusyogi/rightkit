@@ -244,7 +244,8 @@ export const TSC_PROJECT = "{tscProject}";
 const DIST_TYPES = /^\.\/dist\/(.+)\.d\.ts$/;
 /**
  * Writes the project a tsc row checks through: it extends the package's own tsconfig (its include, exclude and options, resolved from
- * there), emits nothing, widens rootDir to the checked tree, and maps every exported entry point of each workspace sibling whose types
+ * there), emits nothing, widens rootDir to the checked tree, keeps the package's own @types lookup chain (typeRoots), and maps every
+ * exported entry point of each workspace sibling whose types
  * are built output (`types: ./dist/<x>.d.ts`) to that sibling's committed source (`src/<x>.ts`, `.tsx`, `/index.ts`, `/index.tsx`).
  * `workspace` is the siblings' tree-relative directories. Returns { dir, file }; the caller removes `dir`. Throws when a sibling's
  * manifest cannot be read or an exported entry point has no committed source: such a sibling could only be checked against a build.
@@ -267,9 +268,17 @@ export function writeTscProject({ contentRoot, packageDir, workspace, tmpdir = o
       paths[sub === "." ? manifest.name : `${manifest.name}${sub.slice(1)}`] = [source];
     }
   }
+  // TypeScript looks type libraries up (`types`, and every @types package by default) in node_modules/@types of the CONFIG's directory
+  // and its ancestors. The project lives outside the tree, so it names the chain the package's own tsconfig would have used.
+  const typeRoots = [];
+  for (let d = path.resolve(packageDir); ; d = path.dirname(d)) {
+    const at = path.join(d, "node_modules", "@types");
+    if (fs.existsSync(at)) typeRoots.push(at);
+    if (path.dirname(d) === d) break;
+  }
   const out = fs.mkdtempSync(path.join(tmpdir, "rk-tsc-"));
   const file = path.join(out, "tsconfig.json");
-  fs.writeFileSync(file, `${JSON.stringify({ extends: path.join(packageDir, "tsconfig.json"), compilerOptions: { noEmit: true, rootDir: path.resolve(contentRoot), paths } }, null, 2)}\n`);
+  fs.writeFileSync(file, `${JSON.stringify({ extends: path.join(packageDir, "tsconfig.json"), compilerOptions: { noEmit: true, rootDir: path.resolve(contentRoot), typeRoots, paths } }, null, 2)}\n`);
   return { dir: out, file };
 }
 const CONFIG_CRATE_FILE = /(^|\/)Cargo\.(toml|lock)$/;
@@ -1113,6 +1122,7 @@ export function planScans({
   // check of the committed tree (CI, a commit snapshot) cannot find them, and a checkout with an old build checks against stale types.
   // A package that depends on another workspace package is therefore checked through a generated project that maps each sibling's
   // exported entry points to its committed sources (TSC_PROJECT, built by the runner); every other package keeps its own tsconfig.
+  // `--noEmit` stays on the command line as well as in the project: the class A launch guard judges a tsc launch by its argv alone.
   const workspaceDirs = (npmMap ? [...npmMap.values()].map((u) => u.dir) : listDir(path.join(liveRoot, "packages")).map((n) => `packages/${n}`)).sort();
   const manifestOf = (dir) => { try { return JSON.parse(readFile(path.join(liveRoot, dir, "package.json")).replace(/^﻿/, "")); } catch { return null; } };
   const workspaceNames = new Map(workspaceDirs.map((d) => [manifestOf(d)?.name, d]).filter(([n]) => typeof n === "string"));
@@ -1124,7 +1134,7 @@ export function planScans({
     const dir = npmDir(name);
     if (exists(path.join(liveRoot, dir, "tsconfig.json"))) {
       add(usesWorkspaceSibling(dir)
-        ? { id: `tsc:${name}`, class: A, executes: true, tool: "pnpm", args: ["exec", "tsc", "-p", TSC_PROJECT], tscWorkspace: [...workspaceNames.values()].sort(), env: PNPM_RUN_ENV, cwd: dir }
+        ? { id: `tsc:${name}`, class: A, executes: true, tool: "pnpm", args: ["exec", "tsc", "--noEmit", "-p", TSC_PROJECT], tscWorkspace: [...workspaceNames.values()].sort(), env: PNPM_RUN_ENV, cwd: dir }
         : { id: `tsc:${name}`, class: A, executes: true, tool: "pnpm", args: ["exec", "tsc", "--noEmit", "-p", "tsconfig.json"], env: PNPM_RUN_ENV, cwd: dir });
     }
     if (hasConfig(dir, ESLINT_CONFIG_FILES)) add({ id: `eslint:${name}`, class: A, executes: true, tool: "pnpm", args: ["exec", "eslint", "."], env: PNPM_RUN_ENV, cwd: dir });

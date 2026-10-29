@@ -12,6 +12,7 @@ import {
   defaultSpawn, deterministicScansEnabled, metadataArgs, planScans, resolveInvocation, runScans, scanClassOf, scanDeferrals, scanFailures,
   CHECKER_IDENTITY, TSC_PROJECT, writeTscProject } from "./deterministic-scans.mjs";
 import { requiredScanProblems } from "./scan-digest.mjs";
+import { compileLaunch } from "./class-a-launch-guard.mjs";
 import * as scansModule from "./deterministic-scans.mjs";
 
 // Read off the module so a test of a function that does not exist yet fails on its own, not with an import error for the whole file.
@@ -81,7 +82,8 @@ test("plan: a tsc row whose package depends on a workspace sibling (any spec) ch
   const listDir = (d) => (norm(d).endsWith("/packages") ? ["a", "b", "c"] : []);
   const { plan } = planFor(Object.keys(extra), extra, { listDir });
   const a = scanOf(plan, "tsc:a");
-  assert.deepEqual(a.args, ["exec", "tsc", "-p", TSC_PROJECT]);
+  assert.deepEqual(a.args, ["exec", "tsc", "--noEmit", "-p", TSC_PROJECT]);
+  for (const id of ["tsc:a", "tsc:b", "tsc:c"]) assert.equal(compileLaunch("tsc", scanOf(plan, id).args.slice(2)), null, `${id}: the class A launch guard sees no emitting compile`);
   assert.deepEqual(a.tscWorkspace, ["packages/a", "packages/b", "packages/c"]);
   for (const id of ["tsc:b", "tsc:c"]) {
     assert.deepEqual(scanOf(plan, id).args, ["exec", "tsc", "--noEmit", "-p", "tsconfig.json"], `${id}: no workspace sibling (a self reference is not one)`);
@@ -95,12 +97,15 @@ test("writeTscProject: maps each sibling's dist-typed exports to its committed s
   put("packages/a/package.json", JSON.stringify({ name: "@x/a" })); put("packages/a/tsconfig.json", "{}");
   put("packages/b/package.json", JSON.stringify({ name: "@x/b", exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" }, "./react": { types: "./dist/react.d.ts" }, "./ui": { types: "./dist/ui.d.ts" }, "./b.css": "./b.css", "./raw": { import: "./raw.js" } } }));
   put("packages/b/src/index.ts", ""); put("packages/b/src/react.tsx", ""); put("packages/b/src/ui/index.ts", "");
+  put("node_modules/@types/node/index.d.ts", "");
   const made = writeTscProject({ contentRoot: root, packageDir: path.join(root, "packages/a"), workspace: ["packages/a", "packages/b"], tmpdir: realpathTmp(t, "rk-tscproj-out-") });
   t.after(() => rmSync(made.dir, { recursive: true, force: true }));
   const config = JSON.parse(readFileSync(made.file, "utf8"));
   assert.equal(config.extends, path.join(root, "packages/a", "tsconfig.json"));
   assert.equal(config.compilerOptions.noEmit, true);
   assert.equal(config.compilerOptions.rootDir, root);
+  assert.equal(config.compilerOptions.typeRoots[0], path.join(root, "node_modules", "@types"), "the @types chain starts where the package's own tsconfig would look");
+  assert.ok(config.compilerOptions.typeRoots.every((d) => d.endsWith(path.join("node_modules", "@types"))));
   assert.deepEqual(config.compilerOptions.paths, {
     "@x/b": [path.join(root, "packages/b/src/index.ts")],
     "@x/b/react": [path.join(root, "packages/b/src/react.tsx")],
@@ -120,7 +125,7 @@ test("runner: a tsc row checks through the generated project, which exists while
   put("packages/b/package.json", JSON.stringify({ name: "@x/b", exports: { ".": { types: "./dist/index.d.ts" } } })); put("packages/b/src/index.ts", "");
   const planned = planScans({ changed: ["packages/a/package.json"], contentRoot: root, liveRoot: root, platform: process.platform });
   const plan = { ...planned, scans: planned.scans.filter((s) => s.id === "tsc:a") };
-  assert.deepEqual(plan.scans[0]?.args, ["exec", "tsc", "-p", TSC_PROJECT], "planned from the real tree: a has a workspace sibling");
+  assert.deepEqual(plan.scans[0]?.args, ["exec", "tsc", "--noEmit", "-p", TSC_PROJECT], "planned from the real tree: a has a workspace sibling");
   const seen = [];
   const spawn = (command, args) => {
     if (args.length === 1 && /version/.test(args[0])) return { status: 0, stdout: "pnpm 11.25.0\n", stderr: "" };
