@@ -489,87 +489,118 @@ export function scriptBuildCall(scripts, entry = "test", { maxDepth = 8 } = {}) 
 // Cargo redirections on a reachable command line or script: an explicit manifest or output directory, or a working-directory change.
 const CARGO_REDIRECT = /--manifest-path|--target-dir|(^|[\s;&|(])(CARGO_TARGET_DIR|CARGO_BUILD_TARGET_DIR)=|(^|[\s;&|(])(cd|pushd)\s/;
 
+// The forms a test's path to cargo may take for its target directory to be bound (cargoReachOf). Everything else is unprovable.
+// Tools that run no repository code and start no cargo: any arguments.
+const REACH_SAFE_TOOLS = new Set(["tsc", "eslint", "prettier", "biome", "oxlint", "echo", "true"]);
+// cargo options that move its manifest, workspace or output, or change its configuration.
+const CARGO_REDIRECT_ARG = /^(--manifest-path|--target-dir|--config|-C|-Z)(=|$)|^-[CZ]./;
+// Package-manager options the walk resolves; any other option is unprovable.
+const PM_DIR_OPTIONS = new Set(["--dir", "-C", "--prefix", "--cwd"]);
+const PM_PACKAGE_OPTIONS = new Set(["--filter", "-F", "--filter-prod", "--workspace"]);
+const PM_PLAIN_FLAGS = new Set(["-s", "--silent", "--if-present", "--color", "--no-color", "--stream"]);
+const PM_VALUE_FLAGS = new Set(["--reporter", "--loglevel"]);
+
 /**
  * Where a package's `test` script makes cargo run, for a commit-snapshot compile (joint plan step 4c): `{ none: true }` when it reaches
  * no cargo, `{ dir }` (repository-relative) when every cargo it reaches runs from that one directory, `{ dirs }` when from several (the
- * caller requires them to be one workspace), or `{ unprovable }` with the reason. One CARGO_TARGET_DIR binds the whole test, so every
- * reach counts, not the first (root reviews of 431fbeae and f883d5ca). The walk reads only what the test runs: each command of each
- * script it reaches (with its pre/post hooks), following every package-manager run, `exec`/`dlx` and test, in this package or, through
- * --dir/-C/--prefix/--cwd/--filter/-w, in another package of this repository, whatever the script is called. Whatever it cannot follow
- * is unprovable, never skipped: a retarget it cannot resolve, a recursive run, a script cut at the size limit, the depth limit, and a
- * `cd`/`--manifest-path`/target override on the path to cargo.
+ * caller requires them to be one workspace), or `{ unprovable }` with the reason. One CARGO_TARGET_DIR binds the whole test.
+ *
+ * Fail-closed allowlist (root reviews of 431fbeae, f883d5ca, 15300d82): a test is bound only when every command on every path it
+ * reaches (each script with its pre/post hooks) parses completely into one of these forms:
+ *   - `cargo <args>` or `rustright cargo <args>` with no option that moves the manifest, workspace or output (--manifest-path,
+ *     --target-dir, --config, -C, -Z): cargo runs from the script's package directory;
+ *   - `pnpm|npm|yarn` with only resolvable options in any position before the script (--dir/-C/--prefix/--cwd, --filter/-F/
+ *     --filter-prod/--workspace naming one package of this repository, pnpm -w, npm -w <workspace>, and output flags) running
+ *     `run <script>`, `test`, `<script>` with no further arguments, or `exec <command>` (walked the same way in that package);
+ *   - a tool that runs no repository code (tsc, eslint, prettier, biome, oxlint, echo, true).
+ * Anything else is unprovable: `cd`, an environment assignment, a shell expansion, node or any test runner, an unknown command or
+ * option, a recursive run, an unresolvable package, arguments passed on to a script, a script past the size limit, the depth limit,
+ * and a requiresBroker declaration (the declared path is not in the scripts). Over-refusal is the accepted cost.
  */
 export function cargoReachOf({ unitDir, scripts, declared = null, readScripts = () => null, packageDirOf = () => null, maxDepth = 8 }) {
   const dirs = new Set();
+  // Keyed on package and script alone: the walk refuses everything that could change how a script runs (cd, environment), so a
+  // script reached twice from one package runs the same way both times.
   const seen = new Set();
   const unprovable = (why) => { throw Object.assign(new Error(why), { reach: true }); };
-  const walkScript = (dirScripts, name, dir, via, texts) => {
+  const walkScript = (dirScripts, name, dir, via) => {
     const key = `${dir}\0${name}`;
     if (seen.has(key)) return;
     if (via.length >= maxDepth) unprovable(`the path to ${dir}'s ${name} (${via.join(" -> ")}) is deeper than ${maxDepth} scripts`);
     seen.add(key);
     for (const part of [`pre${name}`, name, `post${name}`]) {
-      if (!Object.hasOwn(dirScripts, part) || typeof dirScripts[part] !== "string") continue;
+      if (!Object.hasOwn(dirScripts, part)) continue;
       const text = dirScripts[part];
+      if (typeof text !== "string") unprovable(`${dir}'s ${part} script is not text`);
       if (text.length > SCRIPT_TEXT_LIMIT) unprovable(`${dir}'s ${part} script is longer than ${SCRIPT_TEXT_LIMIT} characters`);
       const step = [...via, dir === unitDir ? part : `${dir}:${part}`];
-      for (const words of shellCommands(text)) walkCommand(words, dirScripts, dir, step, [...texts, text]);
+      for (const words of shellCommands(text)) walkCommand(words, dirScripts, dir, step);
     }
   };
-  const walkCommand = (words, dirScripts, dir, via, texts) => {
-    let i = 0;
-    for (let guard = 0; guard < 16; guard += 1) {
-      while (i < words.length && ENV_ASSIGNMENT.test(words[i])) i += 1;
-      if (i >= words.length) return;
-      const word = path.posix.basename(words[i].replaceAll("\\", "/")).replace(/\.(exe|cmd|bat)$/i, "");
-      if (BROKER_TOOLS.has(word)) {
-        if ([words.join(" "), ...texts].some((t) => CARGO_REDIRECT.test(t))) unprovable(`the path to cargo (${via.join(" -> ")}) redirects it`);
-        dirs.add(dir); return;
-      }
-      if (PACKAGE_MANAGERS.has(word)) return walkPackageManager(word, words.slice(i + 1), dirScripts, dir, via, texts);
-      if (COMMAND_WRAPPERS.has(word) || PACKAGE_RUNNERS.has(word)) { i += 1; while (i < words.length && words[i].startsWith("-")) i += 1; continue; }
+  const walkCommand = (words, dirScripts, dir, via) => {
+    const where = `${via.join(" -> ")}`;
+    const shown = words.join(" ").slice(0, 120);
+    if (words.some((w) => /[`$]/.test(w))) unprovable(`${where} runs \`${shown}\`, whose shell expansion this check cannot follow`);
+    if (ENV_ASSIGNMENT.test(words[0])) unprovable(`${where} runs \`${shown}\` with its own environment`);
+    const tool = path.posix.basename(words[0].replaceAll("\\", "/")).replace(/\.(exe|cmd|bat)$/i, "");
+    if (tool === "cargo" || tool === "rustright") {
+      const args = tool === "rustright" ? (words[1] === "cargo" ? words.slice(2) : unprovable(`${where} runs \`${shown}\`, a rustright command other than cargo`)) : words.slice(1);
+      const end = args.indexOf("--");
+      if ((end === -1 ? args : args.slice(0, end)).some((w) => CARGO_REDIRECT_ARG.test(w))) unprovable(`the path to cargo (${where}) redirects it`);
+      dirs.add(dir);
       return;
     }
+    if (PACKAGE_MANAGERS.has(tool)) return walkPackageManager(tool, words.slice(1), dirScripts, dir, via, shown);
+    if (REACH_SAFE_TOOLS.has(tool)) return;
+    unprovable(`${where} runs \`${shown}\` (${tool}), which this check cannot follow to cargo`);
   };
-  const walkPackageManager = (tool, args, dirScripts, dir, via, texts) => {
-    const command = `${tool} ${args.join(" ")}`.slice(0, 200);
-    let target = dir; let i = 0;
-    while (i < args.length && args[i].startsWith("-") && args[i] !== "--") {
-      const [name, ...inline] = args[i].split("=");
-      const value = inline.length ? inline.join("=") : args[i + 1];
-      const step = inline.length ? 1 : 2;
-      if (name === "-r" || name === "--recursive" || name === "--workspaces" || name === "-ws" || name === "--include-workspace-root") unprovable(`${command} runs in several packages (${name})`);
-      else if (name === "-w" || name === "--workspace-root") {
-        if (tool === "npm") { const d = packageDirOf(String(value)); if (d === null) unprovable(`${command} runs a workspace (${value}) this repository cannot resolve`); target = d; i += step; continue; }
-        target = "."; i += 1; continue;
-      } else if (name === "--dir" || name === "-C" || name === "--prefix" || name === "--cwd") { if (value === undefined) unprovable(`${command} names no directory`); target = path.posix.normalize(path.posix.join(dir, String(value))); i += step; continue; }
-      else if (name === "--filter" || name === "-F" || name === "--filter-prod" || name === "--workspace") { const d = packageDirOf(String(value)); if (d === null) unprovable(`${command} runs a package (${value}) this repository cannot resolve`); target = d; i += step; continue; }
-      i += VALUE_OPTIONS.has(name) && !inline.length ? 2 : 1;
-    }
-    if (target.startsWith("..")) unprovable(`${command} runs outside this repository (${target})`);
+  const walkPackageManager = (tool, args, dirScripts, dir, via, shown) => {
+    const where = `${via.join(" -> ")}`;
+    let target = dir;
+    let i = 0;
+    // Options, in any position before the script or command: each one resolved, or the command is unprovable.
+    const options = () => {
+      while (i < args.length && args[i].startsWith("-")) {
+        const [name, ...inline] = args[i].split("=");
+        const value = inline.length ? inline.join("=") : args[i + 1];
+        const width = inline.length ? 1 : 2;
+        if (PM_DIR_OPTIONS.has(name)) { if (value === undefined) unprovable(`${where}: \`${shown}\` names no directory`); target = path.posix.normalize(path.posix.join(dir, String(value))); i += width; }
+        else if (PM_PACKAGE_OPTIONS.has(name)) { const d = packageDirOf(String(value)); if (d === null || d === undefined) unprovable(`${where}: \`${shown}\` runs a package (${value}) this repository cannot resolve`); target = d; i += width; }
+        else if ((name === "-w" || name === "--workspace-root") && tool === "pnpm") { target = "."; i += 1; }
+        else if ((name === "-w") && tool === "npm") { const d = packageDirOf(String(value)); if (d === null || d === undefined) unprovable(`${where}: \`${shown}\` runs a workspace (${value}) this repository cannot resolve`); target = d; i += width; }
+        else if (PM_PLAIN_FLAGS.has(name) && !inline.length) i += 1;
+        else if (PM_VALUE_FLAGS.has(name)) i += width;
+        else unprovable(`${where}: \`${shown}\` has an option (${name}) this check does not resolve`);
+      }
+    };
+    options();
+    const sub = args[i++];
+    if (sub === undefined) unprovable(`${where}: \`${shown}\` runs no script`);
+    // Options after `run`/`exec` count as well: the target is known only once every option before the script has been read.
+    if (sub === "run" || sub === "run-script" || (sub === "exec" && tool === "pnpm")) options();
+    if (target.startsWith("..")) unprovable(`${where}: \`${shown}\` runs outside this repository (${target})`);
     const targetScripts = target === dir ? dirScripts : readScripts(target);
-    if (targetScripts === null) unprovable(`${command} runs scripts of ${target}, which has no readable package.json`);
-    const sub = args[i];
-    if (sub === undefined || sub === "--") return;
-    const rest = args.slice(i + 1);
-    const hop = target === dir ? via : [...via, `${command}`];
-    if (sub === "exec" || sub === "dlx") return walkCommand(rest, targetScripts, target, hop, texts);
-    let script = null;
-    if (sub === "run" || sub === "run-script" || sub === "rum" || sub === "urun") {
-      let j = 0;
-      while (j < rest.length && rest[j].startsWith("-") && rest[j] !== "--") j += VALUE_OPTIONS.has(rest[j]) ? 2 : 1;
-      script = rest[j] !== undefined && rest[j] !== "--" ? rest[j] : null;
-    } else if (sub === "test" || sub === "t" || sub === "tst") script = "test";
-    else if (Object.hasOwn(targetScripts, sub)) script = sub;
-    if (script !== null) walkScript(targetScripts, script, target, hop, texts);
+    if (targetScripts === null || targetScripts === undefined) unprovable(`${where}: \`${shown}\` runs scripts of ${target}, which has no readable package.json`);
+    const hop = target === dir ? via : [...via, `${tool} ${args.join(" ")}`.slice(0, 120)];
+    if (sub === "exec" && tool === "pnpm") {
+      if (i >= args.length) unprovable(`${where}: \`${shown}\` executes nothing`);
+      return walkCommand(args.slice(i), targetScripts, target, hop);
+    }
+    let script;
+    if (sub === "run" || sub === "run-script") { script = args[i++]; if (script === undefined) unprovable(`${where}: \`${shown}\` names no script`); }
+    else if (sub === "test" || sub === "t" || sub === "tst") script = "test";
+    else if (!["exec", "dlx", "x", "workspace", "workspaces", "install", "add"].includes(sub) && Object.hasOwn(targetScripts, sub)) script = sub;
+    else unprovable(`${where}: \`${shown}\` is a ${tool} command (${sub}) this check cannot follow`);
+    if (i < args.length) unprovable(`${where}: \`${shown}\` passes arguments to ${target}'s ${script}`);
+    walkScript(targetScripts, script, target, hop);
   };
+  if (declared?.call) return { unprovable: "it is declared to reach the broker in ways its scripts do not show (requiresBroker)" };
   try {
-    walkScript(scripts ?? {}, "test", unitDir, [], []);
+    walkScript(scripts ?? {}, "test", unitDir, []);
   } catch (e) {
     if (e.reach) return { unprovable: e.message };
     throw e;
   }
-  if (!dirs.size && declared?.call) return { unprovable: "it is declared to reach the broker in ways its scripts do not show (requiresBroker)" };
   const list = [...dirs];
   return list.length === 0 ? { none: true } : list.length === 1 ? { dir: list[0] } : { dirs: list };
 }

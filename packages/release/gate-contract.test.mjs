@@ -14,7 +14,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
-import { CLASS_A_SCAN_PREFIXES, CLASS_B_SCAN_PREFIXES, TEST_SCAN_CLASS, LIVE_SCAN_IDS, REGISTRY_SCAN_IDS, planScans } from "./deterministic-scans.mjs";
+import { CLASS_A_SCAN_PREFIXES, CLASS_B_SCAN_PREFIXES, TEST_SCAN_CLASS, LIVE_SCAN_IDS, REGISTRY_SCAN_IDS, cargoReachOf, planScans } from "./deterministic-scans.mjs";
 import { EXECUTOR_KINDS, resolveExecutor } from "./gate-executor.mjs";
 import { STAGES } from "./gate-stages.mjs";
 import { RULES as APP_RULES, COMPILE_TIER_IDS } from "./app-check.mjs";
@@ -625,7 +625,7 @@ test("[behavior] §1 4c review (target binding): only what a test reaches decide
       // B: its test runs cargo directly; an unrelated release script cd's elsewhere and must not block it.
       "packages/rs/package.json": '{"name":"rs","private":true,"scripts":{"test":"cargo test --locked","release":"cd dist && cargo publish"}}\n',
       // C: its test builds the separate native package, whose build runs cargo in the native workspace.
-      "packages/hop/package.json": '{"name":"hop","private":true,"scripts":{"test":"pnpm --dir ../../native run build && node --test"}}\n',
+      "packages/hop/package.json": '{"name":"hop","private":true,"scripts":{"test":"pnpm --dir ../../native run build && tsc --noEmit"}}\n',
       "native/package.json": '{"name":"native","private":true,"scripts":{"build":"cargo build --locked"}}\n',
       "native/Cargo.toml": '[workspace]\nmembers = []\n', "Cargo.toml": '[workspace]\nmembers = ["packages/rs"]\n', "packages/rs/Cargo.toml": '[package]\nname = "rs"\nversion = "0.1.0"\n',
     });
@@ -641,7 +641,8 @@ test("[behavior] §1 4c review (target binding): only what a test reaches decide
     // With Rust: each test binds exactly the workspace it reaches.
     const targets = { ".": "/checkout/target", native: "/checkout/native/target" };
     const p = plan(targets, [{ name: "rs", dir: "packages/rs", crate: "rs", cargoDir: "." }]);
-    assert.equal(row(p, "js")?.env.CARGO_TARGET_DIR, undefined, "a JS build reaches no cargo: no binding, no refusal"); assert.equal(refusedFor(p, "js"), null);
+    // With Rust in the repository, `node --test` may start cargo from test code the scripts do not show: refused (fail-closed allowlist).
+    assert.equal(row(p, "js"), undefined); assert.match(refusedFor(p, "js") ?? "", /runs `node --test` \(node\), which this check cannot follow/);
     assert.equal(row(p, "rs")?.env.CARGO_TARGET_DIR, "/checkout/target", `the unreached release script's cd blocks nothing (${refusedFor(p, "rs")})`);
     assert.equal(row(p, "hop")?.env.CARGO_TARGET_DIR, "/checkout/native/target", `the --dir hop binds the native workspace, not the unit's (${refusedFor(p, "hop")})`);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
@@ -657,7 +658,7 @@ test("[behavior] §1 4c review (mixed reach): a test that reaches cargo in two w
       // Direct cargo in the enclosing workspace, then a build hop into the independent native workspace.
       "packages/mix/package.json": '{"name":"mix","private":true,"scripts":{"test":"cargo test --locked && pnpm --dir ../../native run build"}}\n',
       // Two build hops, each into a different workspace.
-      "packages/twohop/package.json": '{"name":"twohop","private":true,"scripts":{"test":"pnpm --dir ../../native run build && pnpm --dir ../rs run build && node --test"}}\n',
+      "packages/twohop/package.json": '{"name":"twohop","private":true,"scripts":{"test":"pnpm --dir ../../native run build && pnpm --dir ../rs run build && tsc --noEmit"}}\n',
       // Direct cargo and a hop that both land in the enclosing workspace: one workspace, still bound.
       "packages/same/package.json": '{"name":"same","private":true,"scripts":{"test":"cargo test --locked && pnpm --dir ../rs run build"}}\n',
       // The second reach hides behind a same-package script: still read.
@@ -669,12 +670,23 @@ test("[behavior] §1 4c review (mixed reach): a test that reaches cargo in two w
       "packages/yarncwd/package.json": '{"name":"yarncwd","private":true,"scripts":{"test":"cargo test --locked && yarn --cwd ../../native build"}}\n',
       // Limits are refusals, never a silent stop: ten nested scripts, and a script longer than the read limit.
       "packages/deepchain/package.json": JSON.stringify({ name: "deepchain", private: true, scripts: Object.fromEntries([["test", "pnpm run s1"], ...Array.from({ length: 10 }, (_, k) => [`s${k + 1}`, k === 9 ? "cargo test" : `pnpm run s${k + 2}`])]) }) + "\n",
-      "packages/huge/package.json": JSON.stringify({ name: "huge", private: true, scripts: { test: `node --test ${"x".repeat(17000)} && cargo test` } }) + "\n",
+      "packages/huge/package.json": JSON.stringify({ name: "huge", private: true, scripts: { test: `tsc ${"x".repeat(17000)} && cargo test` } }) + "\n",
+      // Root review of 15300d82 (BLOCK3): each of these bound the enclosing workspace alone.
+      // cd moves the build into native; read without the cd, `pnpm run build` looked like this package's own cargo build.
+      "packages/cdhop/package.json": '{"name":"cdhop","private":true,"scripts":{"test":"cd ../../native && pnpm run build","build":"cargo build"}}\n',
+      "packages/runfilter/package.json": '{"name":"runfilter","private":true,"scripts":{"test":"cargo test && pnpm run --filter native build"}}\n',
+      "packages/trailingdir/package.json": '{"name":"trailingdir","private":true,"scripts":{"test":"cargo test && pnpm build --dir ../../native","build":"tsc"}}\n',
+      "packages/envsecond/package.json": '{"name":"envsecond","private":true,"scripts":{"test":"pnpm run a && pnpm run b","a":"cargo test","b":"CARGO_TARGET_DIR=target pnpm run a"}}\n',
+      "packages/yarnws/package.json": '{"name":"yarnws","private":true,"scripts":{"test":"cargo test && yarn workspace native run build"}}\n',
+      "packages/bunrun/package.json": '{"name":"bunrun","private":true,"scripts":{"test":"cargo test && bun run --cwd ../../native build"}}\n',
+      "packages/cargoc/package.json": '{"name":"cargoc","private":true,"scripts":{"test":"cargo -C ../../native build"}}\n',
+      "packages/cargoconfig/package.json": '{"name":"cargoconfig","private":true,"scripts":{"test":"cargo --config build.target-dir=\\"x\\" test"}}\n',
+      "packages/nodeside/package.json": '{"name":"nodeside","private":true,"scripts":{"test":"cargo test && node v.mjs"}}\n',
       "packages/rs/package.json": '{"name":"rs","private":true,"scripts":{"build":"cargo build --locked","test":"cargo test --locked"}}\n',
       "native/package.json": '{"name":"native","private":true,"scripts":{"build":"cargo build --locked","test":"cargo test --locked"}}\n',
       "native/Cargo.toml": '[workspace]\nmembers = []\n', "Cargo.toml": '[workspace]\nmembers = ["packages/rs"]\n', "packages/rs/Cargo.toml": '[package]\nname = "rs"\nversion = "0.1.0"\n',
     });
-    const units = ["mix", "twohop", "same", "deep", "rs", "samehop", "nativetest", "filterexec", "yarncwd", "deepchain", "huge"];
+    const units = ["mix", "twohop", "same", "deep", "rs", "samehop", "nativetest", "filterexec", "yarncwd", "deepchain", "huge", "cdhop", "runfilter", "trailingdir", "envsecond", "yarnws", "bunrun", "cargoc", "cargoconfig", "nodeside"];
     const files = ["package.json", "pnpm-workspace.yaml", ...units.map((n) => `packages/${n}/package.json`), "native/package.json", "native/Cargo.toml", "Cargo.toml", "packages/rs/Cargo.toml"];
     const npmUnits = units.map((n) => ({ name: n, dir: `packages/${n}` })).concat([{ name: "native", dir: "native" }]);
     const p = planScans({ changed: files, contentRoot: dir, liveRoot: dir, trustedRoot: dir, includeTests: true, quietTests: "local", tier: "compile", cargoCommand: ["cargo"],
@@ -688,6 +700,20 @@ test("[behavior] §1 4c review (mixed reach): a test that reaches cargo in two w
     }
     assert.equal(row("deepchain"), undefined); assert.match(refusedFor("deepchain") ?? "", /deeper than 8 scripts/);
     assert.equal(row("huge"), undefined); assert.match(refusedFor("huge") ?? "", /longer than 16384 characters/);
+    for (const [n, why] of [
+      ["cdhop", /runs `cd \.\.\/\.\.\/native` \(cd\)/],
+      ["runfilter", /mixed|more than one workspace \(\., native|more than one workspace \(native, \./],
+      ["trailingdir", /passes arguments to packages\/trailingdir's build/],
+      ["envsecond", /with its own environment/],
+      ["yarnws", /yarn command \(workspace\)/],
+      ["bunrun", /\(bun\), which this check cannot follow/],
+      ["cargoc", /the path to cargo \(test\) redirects it/],
+      ["cargoconfig", /the path to cargo \(test\) redirects it/],
+      ["nodeside", /\(node\), which this check cannot follow/],
+    ]) { assert.equal(row(n), undefined, `${n} is not planned`); assert.match(refusedFor(n) ?? "", why, `${n}: ${refusedFor(n)}`); }
+    // A requiresBroker declaration says the test reaches cargo in a way the scripts do not show: never bound, whatever they show.
+    assert.match(cargoReachOf({ unitDir: "packages/rs", scripts: { test: "cargo test" }, declared: { call: { reason: "x" } } }).unprovable, /requiresBroker/);
+    assert.deepEqual(cargoReachOf({ unitDir: "packages/rs", scripts: { test: "cargo test && pnpm -s run lint", lint: "eslint ." } }), { dir: "packages/rs" }, "allowed forms still bind");
     assert.equal(row("native")?.env.CARGO_TARGET_DIR, "/checkout/native/target", "a single reach into native is unchanged");
     assert.equal(row("same")?.env.CARGO_TARGET_DIR, "/checkout/target", `every reach in the enclosing workspace binds it (${refusedFor("same")})`);
     assert.equal(row("rs")?.env.CARGO_TARGET_DIR, "/checkout/target", "a single direct reach is unchanged");
