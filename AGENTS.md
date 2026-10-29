@@ -97,24 +97,20 @@ Say "done" only when each requested state is proven, and "independently reviewed
 - Check context before substantial work (host measurement, else thread guard). At CRITICAL, show result & preserve continuation state; start a new chat only with express approval from Adrian.
 
 ## Access
-- Read `docs/rules/README.md` and matching runbook before remote, credentialed, or paid work.
-- Reach Hetzner per `docs/rules/ssh-server-access.md`.
+- Read `docs/rules/README.md` & the matching runbook before remote, GitHub, public-CI, Cloudflare, paid or credentialed work.
 - Use `win "<command>"` from Mac & `ssh mac "<command>"` from Windows.
-- Read `docs/rules/github-access.md` before GitHub writes or pushes.
-- Read `docs/rules/public-ci.md` before pushing to a public Orthic-Labs repository, waiting on CI, or installing a dev build.
-- Read `docs/rules/cloudflare-access.md` before Cloudflare, R2, Worker, DNS, or Pages work, & `docs/rules/paid-compute.md` before metered compute.
 - Never print or inspect credentials to discover configuration.
 
 ## Releases, signing & distribution — every product
-- Treat signing, notarization, & publication as solved capabilities; Apple & Azure are provisioned.
-- Read `docs/rules/release-signing.md` before any release, signing, installer, updater, or publication work in any repository.
-- Compile at the origin via the gate; CI qualifies public apps; build natively (`win`, `ssh mac`) only where the origin cannot. Never initiate browser/Azure authentication or cross-compile. Publish public products to GitHub Releases, private to R2.
+- Signing, notarization & publication are solved (Apple & Azure provisioned); read `docs/rules/release-signing.md` before any release, signing, installer, updater or publication work.
+- Compile at origin via the gate; CI qualifies public apps; build natively (`win`, `ssh mac`) only where the origin cannot. Never initiate browser/Azure authentication or cross-compile. Publish public products to GitHub Releases, private to R2.
 - Use `rightkit-gate --to …` on a commit with manifest-pinned pnpm; dev installs replace prod path & id in place, never backed up; never build signing/installer machinery in a product repo.
 - Select explicit `patch` or `update`; keep build or seal separate from upload; QA the exact commit first; publish only the exact build Adrian names (RightKit auto-publishes via CI), & upload no test artifact.
 
 ## RightKit first
 - Before building any app, feature or plan, run `rustright owns <capability>`; integrate owners, build only gaps.
-- Solve every cross-app concern with one shared RightKit owner for all apps, never per-app; strip QA, test, mock & dev-control code from release builds entirely, never behind a flag.
+- Place code by class, never by consumer count (`decisions.md`): foundation = a row of `ownership-mandatory-set.json` for the app's profile; add-on = any other catalogued capability, RightKit-owned from its first consumer; app-specific = product domain logic & presentation only. Non-product code stays in an app only under an approved, expiring `.rightkit/ownership-exceptions.json` entry naming the RightKit issue that moves it; a single-app platform need is a RightKit option plus an app declaration.
+- Strip QA, test, mock & dev-control code from release builds entirely, never behind a flag.
 
 ## Scope & completion
 - Read repository overlay before editing a nested repository; load `/brand <code>` before brand or content work.
