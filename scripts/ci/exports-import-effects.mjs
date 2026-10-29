@@ -144,7 +144,9 @@ export function exportTree(root, { commit, tree = null, spawn = spawnSync, mkdte
     deps.pnpm = deps.pnpmIdentity.version;
     const pinned = packageManagerPin(dir);
     if (pinned && pinned !== deps.pnpm) return { problem: `the exported tree pins pnpm@${pinned} (package.json packageManager) but the pnpm on PATH is ${deps.pnpm} (${deps.pnpmIdentity.path}); the dependency closure would not be the tree's` };
-    const installed = spawn(deps.pnpmIdentity.path, INSTALL, { encoding: "utf8", windowsHide: true, cwd: dir, env, maxBuffer: 64 * 1024 * 1024, timeout: 10 * 60_000 });
+    // The identified bytes run: a JavaScript entry through node (as pnpmIdentity asked it its version), a native pnpm as found.
+    const launch = /\.[cm]?js$/i.test(deps.pnpmIdentity.realPath) ? { command: process.execPath, args: [deps.pnpmIdentity.realPath] } : { command: deps.pnpmIdentity.path, args: [] };
+    const installed = spawn(launch.command, [...launch.args, ...INSTALL], { encoding: "utf8", windowsHide: true, cwd: dir, env, maxBuffer: 64 * 1024 * 1024, timeout: 10 * 60_000 });
     if (installed.error || installed.status !== 0) return { problem: `installing the exported tree's dependencies offline from the lockfile failed (the store must already hold them; run pnpm install in the checkout first): ${tail(installed.stderr || installed.stdout || installed.error?.message)}` };
     // Every node_modules the install produced (the workspace root's and each package's), by bytes. pnpm's `.modules.yaml`
     // carries a prune timestamp, so it is digested separately as installed-state metadata and left out of the byte digest.
@@ -173,6 +175,9 @@ export function pnpmIdentity({ spawn = spawnSync, env = installEnvironment() } =
   // file next to it: the identity is that entry file, not the shim text.
   real = pnpmEntryFile(real);
   const sha256 = crypto.createHash("sha256").update(fs.readFileSync(real)).digest("hex");
+  // What runs is the file whose bytes are bound: a JavaScript entry is started as node + that entry (a shim cannot be started without
+  // a shell on Windows: the extensionless sh shim and pnpm.CMD both fail there, rightkit#1261); a native pnpm runs as found.
+  const launch = /\.[cm]?js$/i.test(real) ? { command: process.execPath, args: [real] } : { command: onPath.trim(), args: [] };
   // pnpm's `manage-package-manager-versions` silently execs ANOTHER pnpm (the tree's `packageManager` pin, fetched into
   // `<pnpm home>/.tools`), so the file on PATH would not be the pnpm that installs. The install environment disables that, and the
   // version the runtime answers is checked against the package.json beside the resolved file: a mismatch means a different
@@ -181,7 +186,7 @@ export function pnpmIdentity({ spawn = spawnSync, env = installEnvironment() } =
   // `.pnpmfile.cjs` (its `updateConfig` hook) even under `--ignore-pnpmfile` (pnpm 10.28 and 11.25, verified): asked inside the
   // export it would run candidate code before class A. It is therefore asked in a fresh, empty directory holding no tree at all.
   let empty; try { empty = fs.mkdtempSync(path.join(os.tmpdir(), "rk-pnpm-id-")); } catch { return { problem: "cannot create an empty directory to query pnpm in" }; }
-  let version; try { version = spawn(onPath.trim(), ["--version"], { encoding: "utf8", windowsHide: true, cwd: empty, env }); } finally { fs.rmSync(empty, { recursive: true, force: true }); }
+  let version; try { version = spawn(launch.command, [...launch.args, "--version"], { encoding: "utf8", windowsHide: true, cwd: empty, env }); } finally { fs.rmSync(empty, { recursive: true, force: true }); }
   if (version.status !== 0) return { problem: `pnpm at ${real} does not report a version` };
   const answered = String(version.stdout).trim();
   const declared = pnpmPackageVersion(real);
