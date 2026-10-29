@@ -28,38 +28,6 @@
       "evidence": "deny.toml [advisories].ignore reason; Cargo.lock reverse dependencies of glib",
       "reviewBy": "2026-11-22",
       "approvedBy": "Astra 2026-10-22, D:/scratch/rk-888/astra-advisories-answer.md (RightKit ci/advisory-exceptions.json, same advisory)"
-    },
-    {
-      "id": "RUSTSEC-2026-0368",
-      "crate": "zip",
-      "affectedVersions": [
-        "4.6.1"
-      ],
-      "dependents": [
-        "tauri-plugin-updater 2.10.1"
-      ],
-      "path": "tauri-plugin-updater -> zip",
-      "owner": "RK Fable",
-      "rationale": "tauri-plugin-updater 2.10.1 requires zip ^4 as an optional Windows-only dependency (2.14.0, the latest, still does); rightkit-tauri-shell installs only bytes returned by the plugin's minisign-verified download, identity-rechecked before install, so no unsigned archive is ever extracted. reviewBy 2026-11-22 (RightKit ci/advisory-exceptions.json).",
-      "evidence": "deny.toml [advisories].ignore reason; Cargo.lock reverse dependencies of zip",
-      "reviewBy": "2026-11-22",
-      "approvedBy": "Astra 2026-10-22 MODIFY (temporary (RightKit ci/advisory-exceptions.json, same advisory)"
-    },
-    {
-      "id": "RUSTSEC-2026-0369",
-      "crate": "zip",
-      "affectedVersions": [
-        "4.6.1"
-      ],
-      "dependents": [
-        "tauri-plugin-updater 2.10.1"
-      ],
-      "path": "tauri-plugin-updater -> zip",
-      "owner": "RK Fable",
-      "rationale": "tauri-plugin-updater 2.10.1 requires zip ^4 as an optional Windows-only dependency (2.14.0, the latest, still does); rightkit-tauri-shell installs only bytes returned by the plugin's minisign-verified download, identity-rechecked before install, so no unsigned archive is ever extracted. reviewBy 2026-11-22 (RightKit ci/advisory-exceptions.json).",
-      "evidence": "deny.toml [advisories].ignore reason; Cargo.lock reverse dependencies of zip",
-      "reviewBy": "2026-11-22",
-      "approvedBy": "Astra 2026-10-22 MODIFY (temporary (RightKit ci/advisory-exceptions.json, same advisory)"
     }
   ]
 }
