@@ -322,7 +322,7 @@ test("loop --registry all: a crate whose preflight fails does not block the npm 
 import { spawnSync as spawnChild } from "node:child_process";
 import { mkdtempSync, writeFileSync as writeFileNow, readFileSync as readFileNow } from "node:fs";
 import { tmpdir } from "node:os";
-import { join as joinPath } from "node:path";
+import { join as joinPath, resolve as resolvePath } from "node:path";
 
 const MODULE_URL = new URL("./rk-pipeline.mjs", import.meta.url).href;
 /** Run cmdLoop in a FRESH Node process at SHA B against a state file on disk written by the "previous" process at SHA A.
@@ -650,7 +650,7 @@ test("dispatch reads the gate's qualification receipt for exactly HEAD and the o
     stages: { check: { ok: true }, compile: { ok: true }, package: { ok: true, artifactSha256: "d".repeat(64) }, qualify: { ok: true, artifactSha256: "d".repeat(64) } }, artifactSha256: "d".repeat(64) };
   const read = (over = {}, ctx = {}) => readQualification("/bundle/qualification.json", { sha: SHA, units: ["@rightkit/release"], registry: "npm", readFile: () => JSON.stringify({ ...q, ...over }), ...ctx });
   assert.equal(read().artifactSha256, "d".repeat(64));
-  assert.equal(read().file, "/bundle/qualification.json");
+  assert.equal(read().file, resolvePath("/bundle/qualification.json"), "the receipt path is reported resolved (on Windows it gains the drive)");
   assert.throws(() => readQualification(undefined, { sha: SHA, units: ["@rightkit/release"], registry: "npm" }), /dispatch requires --qualification/);
   assert.throws(() => read({ commit: "e".repeat(40) }), /not HEAD/);
   assert.throws(() => read({}, { units: ["@rightkit/ci"] }), /covers npm:@rightkit\/release; this dispatch names npm @rightkit\/ci/);
