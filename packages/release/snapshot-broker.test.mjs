@@ -382,6 +382,9 @@ test("[7.20] production hands the door the carrier seam: a broker host takes the
   assert.equal(door({})?.code, "RK_SNAPSHOT_CARRIER_NOT_WIRED");
   assert.equal(door({ snapshotBroker: PRODUCTION_SNAPSHOT_CARRIER, resolveExecutor: () => ({ kind: "refuse", cargo: null, problem: "unreachable" }) })?.code, "RK_SNAPSHOT_BROKER_UNAVAILABLE");
   assert.equal(PRODUCTION_SNAPSHOT_CARRIER.create, createSnapshotBroker); assert.ok(Object.isFrozen(PRODUCTION_SNAPSHOT_CARRIER));
-  // The production entry of the gate passes it: the CLI block hands main() the carrier, so the door is not left refusing every broker host.
-  assert.match(fs.readFileSync(new URL("./bin/rightkit-gate.mjs", import.meta.url), "utf8"), /main\(process\.argv\.slice\(2\), \{ snapshotBroker: PRODUCTION_SNAPSHOT_CARRIER \}\)/);
+  // Interim (decision 2, rightkit#1296): the production entry passes no carrier until row 7.24 is wired, so Mac and Dell keep the
+  // checkout route instead of refusing every dev, test and sidecar build; the cutover commit wires it.
+  const entry = fs.readFileSync(new URL("./bin/rightkit-gate.mjs", import.meta.url), "utf8");
+  assert.match(entry, /Promise\.resolve\(main\(process\.argv\.slice\(2\)\)\)/);
+  assert.doesNotMatch(entry, /snapshotBroker: PRODUCTION_SNAPSHOT_CARRIER/);
 });

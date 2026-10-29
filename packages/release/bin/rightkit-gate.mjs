@@ -2941,7 +2941,9 @@ export const callingGatePath = () => fs.realpathSync(fileURLToPath(import.meta.u
 if (invokedDirectly) {
   // Every child this run starts that can reach rustright (scans, unit stages, right-release dev/test, their builds) inherits it.
   process.env.RIGHTKIT_CALLING_GATE = callingGatePath();
-  // Production carries the RustRight snapshot carrier (`o.snapshotBroker`, item 7 rows 7.20 to 7.24): the door's seam for a broker host.
-  // The per-compile broker (pins, declared inputs, ownership, receipts) is built where the snapshot compile runs. Tests inject their own.
-  import("../snapshot-broker.mjs").then(({ PRODUCTION_SNAPSHOT_CARRIER }) => main(process.argv.slice(2), { snapshotBroker: PRODUCTION_SNAPSHOT_CARRIER })).then((code) => process.exit(code), (e) => { console.error(`rightkit-gate: ${e?.stack ?? e}`); process.exit(2); });
+  // Interim (decision 2): production carries no snapshot carrier until every child that reaches Cargo has one (item 7 row 7.24,
+  // right-release dev and test, is not wired). With it wired early, 0.6.12 refused every dev, test and sidecar package build on the
+  // Mac and the Dell (rightkit#1296, HeardRight 2026-10-30); without it they keep the checkout route, as in 0.6.10. Linux takes the
+  // snapshot route regardless (direct, no carrier). Tests inject a carrier. The cutover commit wires PRODUCTION_SNAPSHOT_CARRIER here.
+  Promise.resolve(main(process.argv.slice(2))).then((code) => process.exit(code), (e) => { console.error(`rightkit-gate: ${e?.stack ?? e}`); process.exit(2); });
 }

@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-10-29T22:08:42Z",
-  "rightkitHead": "cb636d6",
+  "generatedAt": "2026-10-29T22:27:50Z",
+  "rightkitHead": "ce8cd01",
   "legend": [
     {
       "state": "adopted",
@@ -182,7 +182,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.11",
+          "latest": "0.6.12",
           "current": false,
           "dev": true
         },
@@ -629,7 +629,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.11",
+          "latest": "0.6.12",
           "current": false,
           "dev": true
         },
@@ -1056,7 +1056,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.4.0",
-          "latest": "0.6.11",
+          "latest": "0.6.12",
           "current": false,
           "dev": true
         },
@@ -1422,7 +1422,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.11",
+          "latest": "0.6.12",
           "current": false,
           "dev": true
         },
@@ -1831,7 +1831,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.8",
-          "latest": "0.6.11",
+          "latest": "0.6.12",
           "current": false,
           "dev": true
         },
@@ -2276,7 +2276,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.8",
-          "latest": "0.6.11",
+          "latest": "0.6.12",
           "current": false,
           "dev": true
         },
@@ -2680,7 +2680,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.11",
+          "latest": "0.6.12",
           "current": false,
           "dev": true
         },
@@ -3079,7 +3079,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.11",
+          "latest": "0.6.12",
           "current": false,
           "dev": true
         },
@@ -3598,7 +3598,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.11",
+          "latest": "0.6.12",
           "current": false,
           "dev": true
         },
@@ -4064,7 +4064,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.11",
+          "latest": "0.6.12",
           "current": false,
           "dev": true
         },
@@ -4437,7 +4437,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.4",
-          "latest": "0.6.11",
+          "latest": "0.6.12",
           "current": false,
           "dev": true
         },
@@ -4528,7 +4528,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.3.0",
-          "latest": "0.6.11",
+          "latest": "0.6.12",
           "current": false,
           "dev": true
         },
@@ -6633,15 +6633,15 @@
         "release-tooling"
       ],
       "private": false,
-      "source": "0.6.12",
-      "registry": "0.6.11",
-      "staged": "0.6.12",
+      "source": "0.6.13",
+      "registry": "0.6.12",
+      "staged": "0.6.13",
       "dir": "packages/release",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "stale",
-          "detail": "0.6.6→0.6.11 dev; 4 exceptions: bogusyogi/rightkit#1135/bogusyogi/rightkit#1136+, expires 2026-11-30",
+          "detail": "0.6.6→0.6.12 dev; 4 exceptions: bogusyogi/rightkit#1135/bogusyogi/rightkit#1136+, expires 2026-11-30",
           "rows": [
             "M19"
           ],
@@ -6660,35 +6660,35 @@
         },
         "cutright": {
           "state": "stale",
-          "detail": "0.6.6→0.6.11 dev",
+          "detail": "0.6.6→0.6.12 dev",
           "rows": [
             "M19"
           ]
         },
         "ember": {
           "state": "stale",
-          "detail": "0.4.0→0.6.11 dev",
+          "detail": "0.4.0→0.6.12 dev",
           "rows": [
             "M19"
           ]
         },
         "genright": {
           "state": "stale",
-          "detail": "0.6.6→0.6.11 dev",
+          "detail": "0.6.6→0.6.12 dev",
           "rows": [
             "M19"
           ]
         },
         "heardright": {
           "state": "stale",
-          "detail": "0.6.8→0.6.11 dev",
+          "detail": "0.6.8→0.6.12 dev",
           "rows": [
             "M19"
           ]
         },
         "mailright": {
           "state": "stale",
-          "detail": "0.6.8→0.6.11 dev; 1 exception: bogusyogi/rightkit#993, expires 2026-11-30",
+          "detail": "0.6.8→0.6.12 dev; 1 exception: bogusyogi/rightkit#993, expires 2026-11-30",
           "rows": [
             "M19"
           ],
@@ -6705,14 +6705,14 @@
         },
         "postright": {
           "state": "stale",
-          "detail": "0.6.6→0.6.11 dev",
+          "detail": "0.6.6→0.6.12 dev",
           "rows": [
             "M19"
           ]
         },
         "pulse": {
           "state": "stale",
-          "detail": "0.6.6→0.6.11 dev; 6 exceptions: bogusyogi/rightkit#1039/bogusyogi/rightkit#428+, expires 2026-11-30",
+          "detail": "0.6.6→0.6.12 dev; 6 exceptions: bogusyogi/rightkit#1039/bogusyogi/rightkit#428+, expires 2026-11-30",
           "rows": [
             "M19"
           ],
@@ -6733,7 +6733,7 @@
         },
         "scraperight": {
           "state": "stale",
-          "detail": "0.6.6→0.6.11 dev; 1 exception: bogusyogi/rightkit#1029, expires 2026-12-31",
+          "detail": "0.6.6→0.6.12 dev; 1 exception: bogusyogi/rightkit#1029, expires 2026-12-31",
           "rows": [
             "M19"
           ],
@@ -6750,18 +6750,18 @@
         },
         "viewright": {
           "state": "stale",
-          "detail": "0.6.6→0.6.11 dev",
+          "detail": "0.6.6→0.6.12 dev",
           "rows": [
             "M19"
           ]
         },
         "sellright": {
           "state": "stale",
-          "detail": "0.6.4→0.6.11 dev"
+          "detail": "0.6.4→0.6.12 dev"
         },
         "legion": {
           "state": "stale",
-          "detail": "0.3.0→0.6.11 dev"
+          "detail": "0.3.0→0.6.12 dev"
         }
       }
     },

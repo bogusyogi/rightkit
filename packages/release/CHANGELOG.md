@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.6.12 (unpublished)
+## 0.6.13 (unpublished)
+
+- **Mac and Dell build again (rightkit#1296):** the production entry no longer carries the snapshot carrier. 0.6.12 wired it before row 7.24 (right-release dev and test) was, so every dev, test and sidecar package build on a broker host was refused (RK_SNAPSHOT_CARRIER_NOT_WIRED). Broker hosts keep the checkout route (decision 2, Interim) until the cutover commit; Linux keeps the snapshot route.
+
+## 0.6.12 (2026-10-30)
 
 - **Rule tier by stage (rightkit#1296):** dev, test and package run the compile-tier app rules again; qualify and release add the release-only rules. Full class A still runs before every compile. Unblocks HeardRight's dev and test builds.
 
