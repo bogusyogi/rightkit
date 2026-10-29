@@ -30,8 +30,11 @@ export function trustedGate({ platform = process.platform, home = homedir(), rea
   const config = platform === 'darwin' ? join(home, 'Library', 'Application Support', 'RightKit', 'build-control', 'config.json')
     : platform === 'win32' ? 'D:\\.rightkit-managed\\config.json' : null;
   if (!config) throw new Error('host gate is available on managed Mac and Windows hosts only');
-  const pin = JSON.parse(read(config, 'utf8'))?.buildRules?.checkAdmission?.trustedGate;
-  if (typeof pin?.path !== 'string' || !(platform === 'win32' ? win32 : posix).isAbsolute(pin.path) || !/^[a-f0-9]{64}$/.test(pin.sha256 ?? '') || !/^[a-f0-9]{64}$/.test(pin.treeSha256 ?? '')) throw new Error('trusted gate pin is missing or invalid');
+  // The broker's current schema pins `admission.trustedEntry { path, sha256 }`; a host the new broker has not reached yet still
+  // pins `buildRules.checkAdmission.trustedGate { path, sha256, treeSha256 }`. The package digest is checked when the pin names one.
+  const parsed = JSON.parse(read(config, 'utf8'));
+  const pin = parsed?.admission?.trustedEntry ?? parsed?.buildRules?.checkAdmission?.trustedGate;
+  if (typeof pin?.path !== 'string' || !(platform === 'win32' ? win32 : posix).isAbsolute(pin.path) || !/^[a-f0-9]{64}$/.test(pin.sha256 ?? '') || (pin.treeSha256 !== undefined && !/^[a-f0-9]{64}$/.test(pin.treeSha256))) throw new Error('trusted gate pin is missing or invalid');
   const target = realpath(pin.path);
   const digest = createHash('sha256').update(read(target)).digest('hex');
   if (digest !== pin.sha256) throw new Error('trusted gate entry digest does not match host pin');
@@ -40,7 +43,7 @@ export function trustedGate({ platform = process.platform, home = homedir(), rea
   const end = normalized.lastIndexOf(marker);
   if (end < 0) throw new Error('trusted gate is outside its pinned package');
   const packageRoot = normalized.slice(0, end + marker.length - 1);
-  if (treeHash(packageRoot, platform) !== pin.treeSha256) throw new Error('trusted gate package digest does not match host pin');
+  if (pin.treeSha256 !== undefined && treeHash(packageRoot, platform) !== pin.treeSha256) throw new Error('trusted gate package digest does not match host pin');
   return target;
 }
 

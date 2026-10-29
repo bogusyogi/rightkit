@@ -40,3 +40,17 @@ test('package digest binds imported files as well as entry bytes', () => {
     assert.notEqual(packageDigest(root), before);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test('reads the current broker schema admission.trustedEntry { path, sha256 }, and the entry bytes still bind', () => {
+  const gate = Buffer.from('gate');
+  const sha256 = createHash('sha256').update(gate).digest('hex');
+  const gatePath = '/managed/trusted-gates/x/node_modules/@rightkit/release/bin/rightkit-gate.mjs';
+  const config = (pin) => JSON.stringify({ admission: { trustedEntry: pin } });
+  const readWith = (pin, bytes = gate) => (p) => (p.endsWith('config.json') ? config(pin) : bytes);
+  assert.equal(trustedGate({ platform: 'darwin', home: '/user', read: readWith({ path: gatePath, sha256 }), realpath: (p) => p, treeHash: () => { throw new Error('no tree pin, no tree check'); } }), gatePath);
+  assert.throws(() => trustedGate({ platform: 'darwin', home: '/user', read: readWith({ path: gatePath, sha256 }, Buffer.from('changed')), realpath: (p) => p }), /digest does not match/);
+  assert.throws(() => trustedGate({ platform: 'darwin', home: '/user', read: readWith({ path: 'relative.mjs', sha256 }), realpath: (p) => p }), /missing or invalid/);
+  // The new key wins over a stale old one.
+  const both = (p) => (p.endsWith('config.json') ? JSON.stringify({ admission: { trustedEntry: { path: gatePath, sha256 } }, buildRules: { checkAdmission: { trustedGate: { path: '/old/gate.mjs', sha256: 'f'.repeat(64), treeSha256: 'a'.repeat(64) } } } }) : gate);
+  assert.equal(trustedGate({ platform: 'darwin', home: '/user', read: both, realpath: (p) => p }), gatePath);
+});
