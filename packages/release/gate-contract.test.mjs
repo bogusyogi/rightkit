@@ -714,6 +714,29 @@ test("[behavior] §1 4c review (mixed reach): a test that reaches cargo in two w
     // A requiresBroker declaration says the test reaches cargo in a way the scripts do not show: never bound, whatever they show.
     assert.match(cargoReachOf({ unitDir: "packages/rs", scripts: { test: "cargo test" }, declared: { call: { reason: "x" } } }).unprovable, /requiresBroker/);
     assert.deepEqual(cargoReachOf({ unitDir: "packages/rs", scripts: { test: "cargo test && pnpm -s run lint", lint: "eslint ." } }), { dir: "packages/rs" }, "allowed forms still bind");
+    // Root review of cbc63794 (BLOCK3 leaks): unquoted shell syntax, a second package/directory option, cargo commands outside
+    // test/build/check/clippy, option clusters with C or Z, and package-manager built-ins named like scripts.
+    const reach = (scripts) => cargoReachOf({ unitDir: "packages/x", scripts, readScripts: (d) => ({ native: { build: "cargo build" }, "packages/rs": { build: "cargo build" } }[d] ?? null), packageDirOf: (n) => ({ native: "native", rs: "packages/rs" }[n] ?? null) });
+    for (const [scripts, why] of [
+      [{ test: "cargo build --manifest\\-path=../../native/Cargo.toml" }, /unquoted "\\\\"/],
+      [{ test: "cargo test *" }, /unquoted "\*"/],
+      [{ test: "cargo test ~/x" }, /unquoted "~"/],
+      [{ test: "echo [alias] > .cargo/config.toml && cargo test" }, /unquoted "\["/],
+      [{ test: "cargo test > out.txt" }, /unquoted ">"/],
+      [{ test: "cargo test ^&& %CARGO_TARGET_DIR%" }, /unquoted "\^"/],
+      [{ test: "cargo test %X%" }, /unquoted "%"/],
+      [{ test: "cargo test && pnpm --filter native --filter rs run build" }, /names its package or directory more than once/],
+      [{ test: "cargo test && pnpm --dir ../../native --filter rs run build" }, /names its package or directory more than once/],
+      [{ test: "cargo make test" }, /a cargo command \(make\) other than test, build, check, clippy/],
+      [{ test: "cargo xtask dist" }, /a cargo command \(xtask\)/],
+      [{ test: "cargo" }, /a cargo command \(none\)/],
+      [{ test: "cargo -vC../../native build" }, /the path to cargo \(test\) redirects it/],
+      [{ test: "cargo -Zunstable-options build" }, /the path to cargo \(test\) redirects it/],
+      [{ test: "cargo test && npm pack", pack: "tsc" }, /npm command \(pack\)/],
+    ]) assert.match(reach(scripts).unprovable ?? `bound: ${JSON.stringify(reach(scripts))}`, why, JSON.stringify(scripts));
+    // Quoted, the same characters are plain text; allowed cargo forms with flags and a toolchain still bind.
+    assert.deepEqual(reach({ test: "cargo +stable test --locked -q -- --test-threads \"1\" \"*glob*\"" }), { dir: "packages/x" });
+    assert.deepEqual(reach({ test: "cargo clippy --locked && cargo check" }), { dir: "packages/x" });
     assert.equal(row("native")?.env.CARGO_TARGET_DIR, "/checkout/native/target", "a single reach into native is unchanged");
     assert.equal(row("same")?.env.CARGO_TARGET_DIR, "/checkout/target", `every reach in the enclosing workspace binds it (${refusedFor("same")})`);
     assert.equal(row("rs")?.env.CARGO_TARGET_DIR, "/checkout/target", "a single direct reach is unchanged");

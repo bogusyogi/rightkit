@@ -492,8 +492,25 @@ const CARGO_REDIRECT = /--manifest-path|--target-dir|(^|[\s;&|(])(CARGO_TARGET_D
 // The forms a test's path to cargo may take for its target directory to be bound (cargoReachOf). Everything else is unprovable.
 // Tools that run no repository code and start no cargo: any arguments.
 const REACH_SAFE_TOOLS = new Set(["tsc", "eslint", "prettier", "biome", "oxlint", "echo", "true"]);
-// cargo options that move its manifest, workspace or output, or change its configuration.
-const CARGO_REDIRECT_ARG = /^(--manifest-path|--target-dir|--config|-C|-Z)(=|$)|^-[CZ]./;
+// cargo options that move its manifest, workspace or output, or change its configuration (a short-option cluster holding C or Z too).
+const CARGO_REDIRECT_ARG = /^(--manifest-path|--target-dir|--config)(=|$)|^-[A-Za-z]*[CZ]/;
+// The cargo subcommands a bound test may run; anything else (an alias, cargo make, xtask, install, a plugin) is unprovable.
+const CARGO_REACH_SUBCOMMANDS = new Set(["test", "build", "check", "clippy"]);
+// Package-manager built-ins: never one of the package's scripts, whatever its package.json names (npm pack runs pack, not a script).
+const PM_BUILTINS = new Set(["install", "i", "add", "ci", "pack", "publish", "version", "link", "unlink", "rebuild", "prune", "update", "up", "upgrade", "uninstall", "remove", "rm", "init", "create", "exec", "dlx", "x", "workspace", "workspaces", "config", "set", "import", "patch", "deploy", "audit", "outdated", "why", "store", "cache", "env", "setup", "self-update", "fetch"]);
+// Characters a shell gives meaning outside quotes beyond the separators shellCommands splits on: an escape, a glob, a home or
+// redirection, a brace or history expansion, a comment, and cmd.exe's ^ and %VAR%. A script holding one unquoted is unprovable.
+const UNQUOTED_SHELL_META = new Set(["\\", "*", "?", "[", "]", "~", "<", ">", "{", "}", "!", "#", "^", "%"]);
+/** The first character a shell would read specially outside quotes in `text`, or null. */
+function unquotedShellMeta(text) {
+  let quote = null;
+  for (const c of String(text)) {
+    if (quote) { if (c === quote) quote = null; continue; }
+    if (c === '"' || c === "'") { quote = c; continue; }
+    if (UNQUOTED_SHELL_META.has(c)) return c;
+  }
+  return null;
+}
 // Package-manager options the walk resolves; any other option is unprovable.
 const PM_DIR_OPTIONS = new Set(["--dir", "-C", "--prefix", "--cwd"]);
 const PM_PACKAGE_OPTIONS = new Set(["--filter", "-F", "--filter-prod", "--workspace"]);
@@ -533,6 +550,8 @@ export function cargoReachOf({ unitDir, scripts, declared = null, readScripts = 
       const text = dirScripts[part];
       if (typeof text !== "string") unprovable(`${dir}'s ${part} script is not text`);
       if (text.length > SCRIPT_TEXT_LIMIT) unprovable(`${dir}'s ${part} script is longer than ${SCRIPT_TEXT_LIMIT} characters`);
+      const meta = unquotedShellMeta(text);
+      if (meta !== null) unprovable(`${dir}'s ${part} script has an unquoted ${JSON.stringify(meta)}, which a shell would expand or redirect`);
       const step = [...via, dir === unitDir ? part : `${dir}:${part}`];
       for (const words of shellCommands(text)) walkCommand(words, dirScripts, dir, step);
     }
@@ -546,7 +565,10 @@ export function cargoReachOf({ unitDir, scripts, declared = null, readScripts = 
     if (tool === "cargo" || tool === "rustright") {
       const args = tool === "rustright" ? (words[1] === "cargo" ? words.slice(2) : unprovable(`${where} runs \`${shown}\`, a rustright command other than cargo`)) : words.slice(1);
       const end = args.indexOf("--");
-      if ((end === -1 ? args : args.slice(0, end)).some((w) => CARGO_REDIRECT_ARG.test(w))) unprovable(`the path to cargo (${where}) redirects it`);
+      const own = end === -1 ? args : args.slice(0, end);
+      if (own.some((w) => CARGO_REDIRECT_ARG.test(w))) unprovable(`the path to cargo (${where}) redirects it`);
+      const sub = own.find((w) => !w.startsWith("-") && !w.startsWith("+"));
+      if (!CARGO_REACH_SUBCOMMANDS.has(sub)) unprovable(`${where} runs \`${shown}\`, a cargo command (${sub ?? "none"}) other than ${[...CARGO_REACH_SUBCOMMANDS].join(", ")}`);
       dirs.add(dir);
       return;
     }
@@ -558,12 +580,18 @@ export function cargoReachOf({ unitDir, scripts, declared = null, readScripts = 
     const where = `${via.join(" -> ")}`;
     let target = dir;
     let i = 0;
-    // Options, in any position before the script or command: each one resolved, or the command is unprovable.
+    let retargets = 0;
+    // Options, in any position before the script or command: each one resolved, or the command is unprovable. At most one of them
+    // may name the package or directory (two would leave which one wins to the package manager).
     const options = () => {
       while (i < args.length && args[i].startsWith("-")) {
         const [name, ...inline] = args[i].split("=");
         const value = inline.length ? inline.join("=") : args[i + 1];
         const width = inline.length ? 1 : 2;
+        if (PM_DIR_OPTIONS.has(name) || PM_PACKAGE_OPTIONS.has(name) || ((name === "-w" || name === "--workspace-root") && (tool === "pnpm" || tool === "npm"))) {
+          retargets += 1;
+          if (retargets > 1) unprovable(`${where}: \`${shown}\` names its package or directory more than once`);
+        }
         if (PM_DIR_OPTIONS.has(name)) { if (value === undefined) unprovable(`${where}: \`${shown}\` names no directory`); target = path.posix.normalize(path.posix.join(dir, String(value))); i += width; }
         else if (PM_PACKAGE_OPTIONS.has(name)) { const d = packageDirOf(String(value)); if (d === null || d === undefined) unprovable(`${where}: \`${shown}\` runs a package (${value}) this repository cannot resolve`); target = d; i += width; }
         else if ((name === "-w" || name === "--workspace-root") && tool === "pnpm") { target = "."; i += 1; }
@@ -589,7 +617,7 @@ export function cargoReachOf({ unitDir, scripts, declared = null, readScripts = 
     let script;
     if (sub === "run" || sub === "run-script") { script = args[i++]; if (script === undefined) unprovable(`${where}: \`${shown}\` names no script`); }
     else if (sub === "test" || sub === "t" || sub === "tst") script = "test";
-    else if (!["exec", "dlx", "x", "workspace", "workspaces", "install", "add"].includes(sub) && Object.hasOwn(targetScripts, sub)) script = sub;
+    else if (!PM_BUILTINS.has(sub) && Object.hasOwn(targetScripts, sub)) script = sub;
     else unprovable(`${where}: \`${shown}\` is a ${tool} command (${sub}) this check cannot follow`);
     if (i < args.length) unprovable(`${where}: \`${shown}\` passes arguments to ${target}'s ${script}`);
     walkScript(targetScripts, script, target, hop);
