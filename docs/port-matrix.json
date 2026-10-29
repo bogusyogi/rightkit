@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-10-29T19:13:25Z",
-  "rightkitHead": "4f3b2ff",
+  "generatedAt": "2026-10-29T22:08:42Z",
+  "rightkitHead": "cb636d6",
   "legend": [
     {
       "state": "adopted",
@@ -182,7 +182,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.10",
+          "latest": "0.6.11",
           "current": false,
           "dev": true
         },
@@ -196,7 +196,7 @@
         }
       },
       "flags": {
-        "prePushHook": "absent",
+        "prePushHook": "uncommitted",
         "switches": false,
         "journeys": false,
         "releaseConfig": "none"
@@ -629,7 +629,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.10",
+          "latest": "0.6.11",
           "current": false,
           "dev": true
         },
@@ -1056,7 +1056,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.4.0",
-          "latest": "0.6.10",
+          "latest": "0.6.11",
           "current": false,
           "dev": true
         },
@@ -1422,7 +1422,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.10",
+          "latest": "0.6.11",
           "current": false,
           "dev": true
         },
@@ -1781,7 +1781,7 @@
       "group": "mandatory-set app",
       "dir": "/Volumes/D/claude/heardright",
       "present": true,
-      "head": "b712bff",
+      "head": "eb2035f",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -1796,10 +1796,10 @@
         "ignored": []
       },
       "scan": {
-        "manifests": 21,
+        "manifests": 22,
         "parseErrors": 0,
-        "pins": 104,
-        "vendored": 0
+        "pins": 112,
+        "vendored": 1
       },
       "progress": {
         "foundation": {
@@ -1811,14 +1811,14 @@
           "openRows": [],
           "ownersRequired": 29,
           "ownersPinned": 29,
-          "ownersCurrent": 26,
-          "percent": 90
+          "ownersCurrent": 27,
+          "percent": 93
         },
         "addons": {
           "total": 59,
           "adopted": 18,
-          "current": 17,
-          "stale": 1,
+          "current": 18,
+          "stale": 0,
           "local": 0
         },
         "exceptions": {
@@ -1831,7 +1831,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.8",
-          "latest": "0.6.10",
+          "latest": "0.6.11",
           "current": false,
           "dev": true
         },
@@ -1845,7 +1845,7 @@
         }
       },
       "flags": {
-        "prePushHook": "committed",
+        "prePushHook": "absent",
         "switches": false,
         "journeys": false,
         "releaseConfig": "none"
@@ -2154,7 +2154,7 @@
           "owners": [
             {
               "name": "rightkit-qa",
-              "state": "stale"
+              "state": "adopted"
             },
             {
               "name": "@rightkit/qa",
@@ -2182,9 +2182,9 @@
           "system": "xcodegen",
           "name": "HeardRightNative",
           "pinKind": "tag",
-          "pinVersion": "0.8.0",
+          "pinVersion": "0.8.1",
           "pinRef": "",
-          "requirement": "exact 0.8.0",
+          "requirement": "exact 0.8.1",
           "products": [
             "RightKitAppleCredentials",
             "RightKitCloudSync",
@@ -2200,22 +2200,22 @@
             "RightKitUI",
             "RightKitWatchBridge"
           ],
-          "state": "stale",
-          "detail": "0.8.0→0.8.1"
+          "state": "adopted",
+          "detail": "=0.8.1"
         },
         {
           "file": "tauri-app-next/macos-native/HeardRightPillMac/Package.swift",
           "system": "swiftpm",
           "name": "HeardRightPillMac",
           "pinKind": "tag",
-          "pinVersion": "0.8.0",
+          "pinVersion": "0.8.1",
           "pinRef": "",
-          "requirement": "exact 0.8.0",
+          "requirement": "exact 0.8.1",
           "products": [
             "RightKitAppleCredentials"
           ],
-          "state": "stale",
-          "detail": "0.8.0→0.8.1"
+          "state": "adopted",
+          "detail": "=0.8.1"
         }
       ],
       "rkReady": [],
@@ -2276,7 +2276,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.8",
-          "latest": "0.6.10",
+          "latest": "0.6.11",
           "current": false,
           "dev": true
         },
@@ -2680,7 +2680,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.10",
+          "latest": "0.6.11",
           "current": false,
           "dev": true
         },
@@ -2694,7 +2694,7 @@
         }
       },
       "flags": {
-        "prePushHook": "absent",
+        "prePushHook": "uncommitted",
         "switches": true,
         "journeys": true,
         "releaseConfig": "code"
@@ -3079,7 +3079,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.10",
+          "latest": "0.6.11",
           "current": false,
           "dev": true
         },
@@ -3598,7 +3598,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.10",
+          "latest": "0.6.11",
           "current": false,
           "dev": true
         },
@@ -3612,7 +3612,7 @@
         }
       },
       "flags": {
-        "prePushHook": "absent",
+        "prePushHook": "uncommitted",
         "switches": true,
         "journeys": false,
         "releaseConfig": "code"
@@ -4064,7 +4064,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.10",
+          "latest": "0.6.11",
           "current": false,
           "dev": true
         },
@@ -4078,7 +4078,7 @@
         }
       },
       "flags": {
-        "prePushHook": "absent",
+        "prePushHook": "uncommitted",
         "switches": true,
         "journeys": false,
         "releaseConfig": "code"
@@ -4437,7 +4437,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.4",
-          "latest": "0.6.10",
+          "latest": "0.6.11",
           "current": false,
           "dev": true
         },
@@ -4451,7 +4451,7 @@
         }
       },
       "flags": {
-        "prePushHook": "absent",
+        "prePushHook": "uncommitted",
         "switches": true,
         "journeys": false,
         "releaseConfig": "code"
@@ -4483,7 +4483,7 @@
       "group": "tool consumer",
       "dir": "/Volumes/D/claude/legion",
       "present": true,
-      "head": "e3d42ba",
+      "head": "e9b7c9e",
       "profile": null,
       "inMandatorySet": false,
       "declaration": {
@@ -4528,7 +4528,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.3.0",
-          "latest": "0.6.10",
+          "latest": "0.6.11",
           "current": false,
           "dev": true
         },
@@ -6633,15 +6633,15 @@
         "release-tooling"
       ],
       "private": false,
-      "source": "0.6.11",
-      "registry": "0.6.10",
-      "staged": "0.6.11",
+      "source": "0.6.12",
+      "registry": "0.6.11",
+      "staged": "0.6.12",
       "dir": "packages/release",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "stale",
-          "detail": "0.6.6→0.6.10 dev; 4 exceptions: bogusyogi/rightkit#1135/bogusyogi/rightkit#1136+, expires 2026-11-30",
+          "detail": "0.6.6→0.6.11 dev; 4 exceptions: bogusyogi/rightkit#1135/bogusyogi/rightkit#1136+, expires 2026-11-30",
           "rows": [
             "M19"
           ],
@@ -6660,35 +6660,35 @@
         },
         "cutright": {
           "state": "stale",
-          "detail": "0.6.6→0.6.10 dev",
+          "detail": "0.6.6→0.6.11 dev",
           "rows": [
             "M19"
           ]
         },
         "ember": {
           "state": "stale",
-          "detail": "0.4.0→0.6.10 dev",
+          "detail": "0.4.0→0.6.11 dev",
           "rows": [
             "M19"
           ]
         },
         "genright": {
           "state": "stale",
-          "detail": "0.6.6→0.6.10 dev",
+          "detail": "0.6.6→0.6.11 dev",
           "rows": [
             "M19"
           ]
         },
         "heardright": {
           "state": "stale",
-          "detail": "0.6.8→0.6.10 dev",
+          "detail": "0.6.8→0.6.11 dev",
           "rows": [
             "M19"
           ]
         },
         "mailright": {
           "state": "stale",
-          "detail": "0.6.8→0.6.10 dev; 1 exception: bogusyogi/rightkit#993, expires 2026-11-30",
+          "detail": "0.6.8→0.6.11 dev; 1 exception: bogusyogi/rightkit#993, expires 2026-11-30",
           "rows": [
             "M19"
           ],
@@ -6705,14 +6705,14 @@
         },
         "postright": {
           "state": "stale",
-          "detail": "0.6.6→0.6.10 dev",
+          "detail": "0.6.6→0.6.11 dev",
           "rows": [
             "M19"
           ]
         },
         "pulse": {
           "state": "stale",
-          "detail": "0.6.6→0.6.10 dev; 6 exceptions: bogusyogi/rightkit#1039/bogusyogi/rightkit#428+, expires 2026-11-30",
+          "detail": "0.6.6→0.6.11 dev; 6 exceptions: bogusyogi/rightkit#1039/bogusyogi/rightkit#428+, expires 2026-11-30",
           "rows": [
             "M19"
           ],
@@ -6733,7 +6733,7 @@
         },
         "scraperight": {
           "state": "stale",
-          "detail": "0.6.6→0.6.10 dev; 1 exception: bogusyogi/rightkit#1029, expires 2026-12-31",
+          "detail": "0.6.6→0.6.11 dev; 1 exception: bogusyogi/rightkit#1029, expires 2026-12-31",
           "rows": [
             "M19"
           ],
@@ -6750,18 +6750,18 @@
         },
         "viewright": {
           "state": "stale",
-          "detail": "0.6.6→0.6.10 dev",
+          "detail": "0.6.6→0.6.11 dev",
           "rows": [
             "M19"
           ]
         },
         "sellright": {
           "state": "stale",
-          "detail": "0.6.4→0.6.10 dev"
+          "detail": "0.6.4→0.6.11 dev"
         },
         "legion": {
           "state": "stale",
-          "detail": "0.3.0→0.6.10 dev"
+          "detail": "0.3.0→0.6.11 dev"
         }
       }
     },
@@ -7501,8 +7501,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.8.0→0.8.1, 2 pins; 2 exceptions: bogusyogi/rightkit#1071/bogusyogi/rightkit#1072, expires 2027-01-22",
+          "state": "adopted",
+          "detail": "=0.8.1, 2 pins; 2 exceptions: bogusyogi/rightkit#1071/bogusyogi/rightkit#1072, expires 2027-01-22",
           "exceptions": {
             "count": 2,
             "expired": 0,
@@ -8063,7 +8063,7 @@
         },
         "heardright": {
           "state": "adopted",
-          "detail": "=0.3.0, 2 pins"
+          "detail": "=0.3.0, 3 pins"
         },
         "mailright": {
           "state": "unused",
@@ -9668,8 +9668,8 @@
           "detail": "=0.2.10, 4 pins"
         },
         "heardright": {
-          "state": "adopted",
-          "detail": "=0.2.10"
+          "state": "range",
+          "detail": "0.2.3; also 1 adopted"
         },
         "mailright": {
           "state": "unused",
@@ -11393,8 +11393,8 @@
           "detail": "=0.2.7, 4 pins"
         },
         "heardright": {
-          "state": "adopted",
-          "detail": "=0.2.7, 7 pins"
+          "state": "range",
+          "detail": "0.2.6; also 8 adopted"
         },
         "mailright": {
           "state": "adopted",
@@ -11935,8 +11935,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.9.0→0.9.1, 2 pins",
+          "state": "adopted",
+          "detail": "=0.9.1, 2 pins",
           "rows": [
             "M20"
           ]
@@ -12616,8 +12616,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "adopted",
-          "detail": "=0.4.0, 3 pins"
+          "state": "range",
+          "detail": "0.4.0; also 3 adopted"
         },
         "mailright": {
           "state": "unused",
@@ -13212,8 +13212,8 @@
           "detail": "=0.4.0"
         },
         "heardright": {
-          "state": "adopted",
-          "detail": "=0.4.0"
+          "state": "range",
+          "detail": "0.4.0; also 1 adopted"
         },
         "mailright": {
           "state": "unused",
@@ -13557,8 +13557,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "adopted",
-          "detail": "=0.1.2"
+          "state": "range",
+          "detail": "0.1.0, 2 pins; also 1 adopted"
         },
         "mailright": {
           "state": "unused",

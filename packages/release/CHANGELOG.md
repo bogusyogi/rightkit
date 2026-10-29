@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.6.11 (unpublished)
+## 0.6.12 (unpublished)
+
+- **Rule tier by stage (rightkit#1296):** dev, test and package run the compile-tier app rules again; qualify and release add the release-only rules. Full class A still runs before every compile. Unblocks HeardRight's dev and test builds.
+
+## 0.6.11 (2026-10-30)
 
 - **Declared fixture files (rightkit#1291):** `.rightkit/fixture-files.json` lists deliberately malformed files by sha256 and note; while their bytes match they skip rustfmt, `node --check`, json-parse and toml-parse, and nothing else.
 - **Every compile reports every failure (rightkit#1293):** every planned `build`, `check`, `clippy` and `doc` carries `--keep-going`, every `test` and `bench` `--no-fail-fast`. The scan still fails if anything failed.

@@ -2088,6 +2088,8 @@ test("a partial check (--only) says it is not a class A result, and the door and
   } finally { fs.rmSync(repo, { recursive: true, force: true }); }
   // The door's check stage and the broker's admission call the full form.
   const src = fs.readFileSync(new URL("./bin/rightkit-gate.mjs", import.meta.url), "utf8");
+  // Release-only app rules gate qualify and release; dev, test and package run the compile-tier rules (rightkit#1296).
+  assert.match(src, /const earlyTier = \["qualify", "release"\]\.includes\(to\) \? "release" : "compile";/);
   // The door's check is the full check at the tier the run owes; on a direct host it reads the selected commit's snapshot (step 4c).
   assert.match(src, /main\(\["check", "--commit", ds \? commit : "HEAD", "--full-a", \.\.\.\(ds \? \["--snapshot", ds\.path\] : \[\]\), "--rule-tier", earlyTier\]/, "--to check runs the full check with full class A, at the tier the run owes");
   assert.match(src, /main\(\["check", "--commit", "HEAD", "--full-a", "--rule-tier", tier\]/, "the unit stages run full class A");
@@ -2142,26 +2144,19 @@ test("a door run puts the door's own right-release shims first on PATH when the 
   assert.deepEqual(doorPath({ env: { PATH: "/usr/bin" }, exists, gateFile: path.join(os.tmpdir(), "repo", "packages", "release", "bin", "rightkit-gate.mjs"), platform: "darwin" }), {}, "a checkout has no .bin beside it");
 });
 
-test("full admission cannot downgrade app rules to compile tier", async () => {
-  for (const args of [["check", "--full-a"], ["check", "--full-a", "--rule-tier", "compile"]]) {
+test("full admission runs the app rules at the stage's tier: compile unless the stage names release (rightkit#1296)", async () => {
+  for (const [args, tier] of [[["check", "--full-a"], "compile"], [["check", "--full-a", "--rule-tier", "compile"], "compile"], [["check", "--full-a", "--rule-tier", "release"], "release"]]) {
     const seen = []; const c = capture();
     await main(args, { ...c.io, classA: false, appCheck: async (argv) => { seen.push(argv); return 0; } });
     assert.equal(seen.length, 1);
-    assert.deepEqual(seen[0].slice(-2), ["--rule-tier", "release"]);
+    assert.deepEqual(seen[0].slice(-2), ["--rule-tier", tier]);
     assert.equal(seen[0].filter((arg) => arg === "--rule-tier").length, 1);
   }
   const c = capture();
   assert.equal(await main(["check", "--full-a", "--rule-tier", "compile", "--rule-tier", "compile"], { ...c.io, appCheck: async () => { throw new Error("duplicate tier must refuse first"); } }), 2);
 });
 
-test("a red app rule stops full admission before scans", async () => {
-  const c = capture();
-  const code = await main(["check", "--full-a"], { ...c.io, appCheck: async () => 1, spawn: () => { throw new Error("scan started after a red app rule"); } });
-  assert.equal(code, 1);
-  assert.match(c.err.join("\n"), /app rules failed; no further scans ran/);
-});
-
-test("package checks every rule before compiling and qualify reuses that exact check", async (t) => {
+test("package checks the compile-tier rules before compiling; qualify then owes the release tier (rightkit#1296)", async (t) => {
   const { root, head } = stageRepo(t);
   const calls = []; const tiers = [];
   const io = {
@@ -2173,12 +2168,13 @@ test("package checks every rule before compiling and qualify reuses that exact c
   };
   const pkg = capture();
   assert.equal(await main(["--to", "package", "--platform", "win"], { ...pkg.io, cwd: root, ...io }), 0, pkg.err.join("\n"));
-  assert.deepEqual(tiers, ["check:release"]);
+  assert.deepEqual(tiers, ["check:compile"]);
   tiers.length = 0; calls.length = 0;
   const qual = capture();
-  assert.equal(await main(["--to", "qualify", "--platform", "win"], { ...qual.io, cwd: root, ...io }), 0, qual.err.join("\n"));
-  assert.deepEqual(tiers, [], "the exact release-tier check is reused");
-  assert.ok(calls.some((c) => c.startsWith("qa --stage installed")), calls.join(" | "));
+  // Qualify reuses the compile-tier check and owes the release tier itself; a red release tier qualifies nothing.
+  assert.notEqual(await main(["--to", "qualify", "--platform", "win"], { ...qual.io, cwd: root, ...io }), 0);
+  assert.deepEqual(tiers, ["qualify:release"], "qualify runs the release tier");
+  assert.ok(!calls.some((c) => c.startsWith("qa --stage installed")), calls.join(" | "));
 });
 
 test("cargoInputsDiffer batches its pathspecs under the Windows command-line limit: no git argv exceeds the batch size, results merge, and a failed batch fails closed", (t) => {

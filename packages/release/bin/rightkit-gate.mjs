@@ -1394,8 +1394,11 @@ async function runStages(o, args, root, git, io) {
   };
   const sealedNow = receipt.stages.package?.ok ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;
   const sealedIntact = Boolean(sealedNow && sealedNow.id === receipt.stages.package.sealed && sealedNow.digest === receipt.stages.package.manifestSha256);
-  // Every deterministic rule and scan must run before compilation, for every door stage.
-  const earlyTier = "release";
+  // Every deterministic scan (full class A) runs before any compile, for every door stage. The app rules run at the tier the stage
+  // owes: dev, test and package take the compile-tier rules; qualify and release add the release-only rules (approvals, ratified
+  // rulings, notice digests), which are conditions for publishing, not for compiling (Adrian, 2026-10-30, rightkit#1296; the
+  // 2026-10-28 change to release tier everywhere was never his decision and blocked HeardRight's dev and test builds).
+  const earlyTier = ["qualify", "release"].includes(to) ? "release" : "compile";
   const tierAtLeast = (have, need) => have === "release" || need === "compile";
   for (const stage of stages) {
     if (stage === "check" && receipt.stages.check?.ok && tierAtLeast(receipt.stages.check.ruleTier ?? "compile", earlyTier)) { o.out(`${tag} [check] already passed (${receipt.stages.check.ruleTier ?? "compile"} tier) for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
@@ -2084,15 +2087,12 @@ export async function main(argv, io = {}) {
     }
     const requestedTier = option("--rule-tier") ?? "compile";
     if (!["compile", "release"].includes(requestedTier)) { o.err(`rightkit-gate: check --rule-tier must be compile or release, not ${JSON.stringify(requestedTier)}`); return 2; }
-    // Full admission cannot be downgraded by a caller's tier flag. Partial views retain their requested tier.
+    // Full admission runs every deterministic scan; its app rules run at the tier the stage owes (compile unless named): dev, test
+    // and package compile on the compile-tier rules, qualify and release name the release tier (rightkit#1296).
     const fullAdmission = args.includes("--full-a") && !args.includes("--list") && !args.includes("--print-baseline") && !args.includes("--only");
     const stripSnapshot = (list) => { const i = list.indexOf("--snapshot"); return i < 0 ? list : [...list.slice(0, i), ...list.slice(i + 2)]; };
     const appArgs = stripSnapshot(args.slice(1).filter((a) => a !== "--full-a"));
-    if (fullAdmission) {
-      const tierIndex = appArgs.indexOf("--rule-tier");
-      if (tierIndex >= 0) appArgs.splice(tierIndex, 2);
-      appArgs.push("--rule-tier", "release");
-    }
+    if (fullAdmission && !appArgs.includes("--rule-tier")) appArgs.push("--rule-tier", requestedTier);
     const appCheck = await (o.appCheck ?? (await import("../app-check.mjs")).main)(appArgs, { out: o.out, err: o.err, label: "check", cwd: o.cwd });
     if (args.includes("--list") || args.includes("--print-baseline") || args.includes("--only") || o.classA === false) {
       // A view of the app rules, never a class A verdict: say so, so no caller can take its exit 0 for a full check.
@@ -2107,8 +2107,8 @@ export async function main(argv, io = {}) {
     }
     const repoArg = option("--repo");
     const checkCwd = repoArg ? path.resolve(o.cwd, repoArg) : o.cwd;
-    // Admission uses the full tier; a partial diagnostic check may choose either tier.
-    const ruleTier = fullAdmission ? "release" : requestedTier;
+    // The app rules' tier is the stage's (rightkit#1296); class A's deterministic scans are the same at either tier.
+    const ruleTier = requestedTier;
     const classA = await main(["--class-a", "--rule-tier", ruleTier, ...(args.includes("--full-a") ? ["--full-a"] : []), ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", snapshotCommit?.commit ?? option("--commit") ?? "HEAD"]), ...(snapshotDir ? ["--snapshot", snapshotDir] : [])], { ...io, cwd: checkCwd });
     // RightKit checking itself: its own rules (line endings, consumer recipes, npm surface, version copies and the version feed, dispatcher
     // pins, consumer locks, generated docs, temp paths: scripts/preflight.mjs) and its exports' import safety are class A for the RightKit repository.
