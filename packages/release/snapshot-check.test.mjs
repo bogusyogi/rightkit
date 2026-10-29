@@ -14,7 +14,7 @@ import { defaultSpawn, isLiveScan, LIVE_SCAN_IDS } from "./deterministic-scans.m
 import { repoKey, keyPath, syncSnapshot } from "./snapshot.mjs";
 import {
   CheckError, DETERMINISTIC_MARKER, describeInstall, probeSkippedBuilds, LIVE_SCANS_SCHEMA, allowedBuilds, deterministicMarker, installSnapshotDependencies, liveScansCommand,
-  modulesStoreDir, pinnedPnpm, resolvePrimaryStore, snapshotOption,
+  modulesStoreDir, pinnedPnpm, resolvePrimaryStore, snapshotOption, verifySnapshotDir,
 } from "./snapshot-check.mjs";
 import { main, discoverPnpmRoots, discoverNpmUnits } from "./bin/rightkit-gate.mjs";
 
@@ -54,11 +54,15 @@ function scenario(t, extra = {}) {
 }
 
 /** The gate's io for a snapshot check: real git, pnpm --version faked, every git call recorded, app rules and scans stubbed. */
-function io(t, s, { scans = [], onScans = null } = {}) {
+function io(t, s, { scans = [], onScans = null, fakeInstall = false } = {}) {
   const calls = [];
+  const store = fakeInstall ? tmp(t, "rk-sc-fake-store-") : null;
   const spawn = (cmd, args, opts = {}) => {
     if (cmd === "git") calls.push(args.join(" "));
     if (cmd === "pnpm" && args[0] === "--version") return { status: 0, stdout: "11.25.0\n", stderr: "" };
+    // A root with a lockfile is installed into the snapshot; the install itself is faked (no network, no store) so the test owns node_modules.
+    if (fakeInstall && cmd === "pnpm" && args[0] === "store") return { status: 0, stdout: `${store}\n`, stderr: "" };
+    if (fakeInstall && cmd === "pnpm" && args[0] === "install") return { status: 0, stdout: "", stderr: "" };
     return defaultSpawn(cmd, args, opts);
   };
   const out = []; const err = [];
@@ -125,8 +129,57 @@ test("E17: a snapshot that is not the commit's tree refuses before anything runs
   write(s.dir, { "planted.txt": "not in the commit\n" });
   const run = io(t, s);
   assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], run.io), 2);
-  assert.ok(run.err.some((l) => /RK_CHECK_ERROR: snapshot .* before the check, not tree/.test(l)), run.err.join("\n"));
+  assert.ok(run.err.some((l) => /RK_CHECK_ERROR: snapshot .* is not exactly commit [0-9a-f]+ before the check: planted\.txt is not in the commit's tree/.test(l)), run.err.join("\n"));
   assert.equal(run.plans.length, 0, "no scan planned");
+});
+
+// Review item5-r1 finding 1 (E6, GATE-CONTRACT §1): the seeded tree id is blind to ignored files and to links, so the stage refuses on its own walk.
+test("E6: an ignored file planted before the check, or while class A runs, refuses the stage (RK_CHECK_ERROR, exit 2)", async (t) => {
+  const s = scenario(t);
+  write(s.dir, { "target/debug/evil.rs": "ignored? no: target/ is not even an ignore rule here\n", "stale.log": "ignored by *.log\n" });
+  const before = io(t, s);
+  assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], before.io), 2);
+  assert.ok(before.err.some((l) => /RK_CHECK_ERROR: snapshot .* before the check: (target|stale\.log)/.test(l)), before.err.join("\n"));
+  assert.equal(before.plans.length, 0, "no scan planned");
+  fs.rmSync(path.join(s.dir, "target"), { recursive: true }); fs.rmSync(path.join(s.dir, "stale.log"));
+  const during = io(t, s, { onScans: () => write(s.dir, { "build.log": "planted while class A ran; *.log is ignored\n" }) });
+  assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], during.io), 2);
+  assert.ok(during.err.some((l) => /RK_CHECK_ERROR: snapshot .* after class A: build\.log is not in the commit's tree/.test(l)), during.err.join("\n"));
+});
+
+test("E6 verifySnapshotDir: a planted ignored file, a link or junction into the checkout or out of the snapshot, refuse naming the path; the commit's own dir passes", (t) => {
+  const s = scenario(t);
+  const check = () => verifySnapshotDir({ checkout: s.repo, dir: s.dir, commit: s.a, tree: s.tree, when: "unit" });
+  assert.equal(check(), s.tree);
+  const refuses = (name, why) => assert.throws(check, (e) => e instanceof CheckError && e.message.includes(name) && (!why || why.test(e.message)), name);
+  write(s.dir, { "stale.log": "ignored\n" });
+  refuses("stale.log");
+  fs.rmSync(path.join(s.dir, "stale.log"));
+  const linkType = process.platform === "win32" ? "junction" : "dir";
+  const outside = tmp(t, "rk-sc-outside-");
+  fs.mkdirSync(path.join(s.repo, "outputs"));
+  for (const [to, why] of [[path.join(s.repo, "outputs"), /into the editable checkout/], [outside, /outside the snapshot/]]) {
+    fs.symlinkSync(to, path.join(s.dir, "out"), linkType);
+    refuses("out");
+    refuses("out", why);
+    fs.rmSync(path.join(s.dir, "out"), { recursive: true, force: true });
+  }
+  assert.equal(check(), s.tree);
+});
+
+test("E6 verifySnapshotDir: only the named pnpm dependency directories and the config-only .git/config are allowed extras", (t) => {
+  const s = scenario(t, { "package.json": "{\"name\":\"fixture\",\"private\":true}\n", "pnpm-lock.yaml": "lockfileVersion: '9.0'\n" });
+  const check = () => verifySnapshotDir({ checkout: s.repo, dir: s.dir, commit: s.a, tree: s.tree, when: "unit" });
+  write(s.dir, { "node_modules/.pnpm/dep@1.0.0/node_modules/dep/index.js": "x\n", ".git/config": '[remote "origin"]\n\turl = git@example.com:o/r.git\n' });
+  assert.equal(check(), s.tree);
+  write(s.dir, { "node_modules/dep/index.js": "x\n" });
+  assert.equal(check(), s.tree);
+  write(s.dir, { "dist/bundle.js": "a build output inside the snapshot\n" });
+  assert.throws(check, (e) => e instanceof CheckError && /dist/.test(e.message));
+  fs.rmSync(path.join(s.dir, "dist"), { recursive: true });
+  const outside = tmp(t, "rk-sc-outside-");
+  fs.symlinkSync(outside, path.join(s.dir, "node_modules", "leak"), process.platform === "win32" ? "junction" : "dir");
+  assert.throws(check, (e) => e instanceof CheckError && /node_modules\/leak is a link resolving outside the snapshot/.test(e.message));
 });
 
 test("snapshot option: --commit and --full-a required, absolute real directory, no overlap, never with --worktree", (t) => {
@@ -359,20 +412,20 @@ test("skipped build scripts: a probed bin that launches cargo is refused by the 
 // Coordinator review of 4cda1824: a red's marker must bind only the environment it was judged in. A dependency that changes while
 // class A runs (installed bytes under the snapshot's node_modules) voids the marker; the same red with nothing moved keeps it.
 test("rightkit#1257: a dependency that changes while class A runs voids the deterministic marker (red) and the verdict (green)", async (t) => {
-  const s = scenario(t, { "package.json": JSON.stringify({ name: "fixture", private: true }) });
+  const s = scenario(t, { "package.json": JSON.stringify({ name: "fixture", private: true }), "pnpm-lock.yaml": "lockfileVersion: '9.0'\n" });
   write(s.dir, { "node_modules/dep/package.json": JSON.stringify({ name: "dep", version: "1.0.0" }), "node_modules/dep/index.js": "module.exports = 1;\n" });
   const eligible = [{ id: "node-check:a.mjs", class: "A", status: "fail", code: "EXIT", detail: "x" }];
   const bump = () => write(s.dir, { "node_modules/dep/package.json": JSON.stringify({ name: "dep", version: "2.0.0" }), "node_modules/dep/index.js": "module.exports = 2;\n" });
-  const drifted = io(t, s, { scans: eligible, onScans: bump });
+  const drifted = io(t, s, { scans: eligible, onScans: bump, fakeInstall: true });
   assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], drifted.io), 1);
   assert.equal(drifted.out.find((l) => l.startsWith(DETERMINISTIC_MARKER)), undefined, "no marker for a red judged across a dependency change");
   assert.ok(drifted.err.some((l) => /environment \(gate, tools or installed dependencies\) changed while class A ran.*No deterministic verdict is named/.test(l)), drifted.err.join("\n"));
   // The same red with nothing moving keeps its marker, bound to the environment it was judged in (dependency now at 2.0.0).
-  const steady = io(t, s, { scans: eligible });
+  const steady = io(t, s, { scans: eligible, fakeInstall: true });
   assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], steady.io), 1);
   assert.match(steady.out.find((l) => l.startsWith(DETERMINISTIC_MARKER)) ?? "", /failed=node-check:a\.mjs env=[0-9a-f]{64}$/);
   // A green judged across a dependency change is refused.
-  const green = io(t, s, { onScans: () => write(s.dir, { "node_modules/dep/index.js": "module.exports = 3;\n" }) });
+  const green = io(t, s, { fakeInstall: true, onScans: () => write(s.dir, { "node_modules/dep/index.js": "module.exports = 3;\n" }) });
   assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], green.io), 1);
   assert.equal(bytesLine(green.out), undefined, "no bytes/env line for a green whose environment moved");
 });

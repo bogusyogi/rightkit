@@ -157,7 +157,7 @@ test("[behavior] item 7 wrapper: the door's snapshot compile puts the wrapper fi
   const g = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
   g("init", "-q", "-b", "main"); g("add", "-A"); g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c");
   const sha = g("rev-parse", "HEAD").stdout.trim();
-  const env = { ...process.env, RIGHTKIT_SNAPSHOT_ROOT: path.join(dir, "snaps"), RIGHTKIT_DATA_ROOT: dir, XDG_STATE_HOME: dir };
+  const env = { ...process.env, RIGHTKIT_DATA_ROOT: dir, XDG_STATE_HOME: dir };
   delete env.GITHUB_ACTIONS; delete env.RIGHTKIT_BUILD_OWNERSHIP; delete env.RIGHTKIT_BUILD_OWNERSHIP_FILE;
   const checkoutTarget = path.join(repo, "target");
   const fakeCargo = path.join(dir, "toolchain", "cargo");
@@ -170,7 +170,7 @@ test("[behavior] item 7 wrapper: the door's snapshot compile puts the wrapper fi
   const seen = [];
   const out = [];
   const code = await main(["--to", "compile", "--commit", sha], {
-    cwd: repo, platform: "linux", env, spawn, out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0, runCheck: async () => 0, readReceipt: () => null, writeReceipt: () => {},
+    cwd: repo, platform: "linux", snapshotRoot: path.join(dir, "snaps"), env, spawn, out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0, runCheck: async () => 0, readReceipt: () => null, writeReceipt: () => {},
     runScans: async (plan, options) => {
       const bin = options.env?.PATH?.split(path.delimiter)[0];
       seen.push({ plan, bin, shim: bin ? fs.readFileSync(path.join(bin, "cargo"), "utf8") : null, map: bin ? JSON.parse(fs.readFileSync(path.join(path.dirname(bin), "cargo-target-map.json"), "utf8")) : null });

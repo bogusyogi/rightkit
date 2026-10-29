@@ -10,9 +10,9 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "./background-process.mjs";
 import {
-  OWNERSHIP_ENV, OWNERSHIP_SCHEMA, HOLDER_SCHEMA, OwnershipBusy, acquireBuildOwnership, brokerLeaseState, childrenDir, holderFile, holderScript, holderScriptFile, jobName, judgeOwner, ownershipFile, processProbe, queryHolder, readHolder, spawnUnderOwnership, CMD_LINE_LIMIT,
+  OWNERSHIP_ENV, OWNERSHIP_SCHEMA, HOLDER_SCHEMA, OwnershipBusy, acquireBuildOwnership, brokerLeaseState, childrenDir, holderFile, holderScript, holderScriptFile, jobName, judgeOwner, namesDir, ownershipFile, processProbe, queryHolder, readHolder, spawnUnderOwnership, CMD_LINE_LIMIT,
 } from "./build-ownership.mjs";
-import { keyPath, repoKey, snapshotCommand, verifySnapshot } from "./snapshot.mjs";
+import { keyPath, repoKey, snapshotCommand, snapshotRoot, verifySnapshot } from "./snapshot.mjs";
 
 const tmp = (t, prefix) => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix))); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
 const NOW = Date.now();
@@ -26,7 +26,9 @@ function fakeProbe(platform, over = {}) {
     bootTime: () => NOW - 86_400_000,
     groupSnapshot: () => group([]),
     tokenHolders: () => null,
-    cwdHolders: () => null,
+    snapshotUsers: () => null,
+    // The owner's parent: the shell it ran under (a peer of the owner, never its child).
+    ancestors: () => [{ pid: 5000, startedMs: NOW - 9e6 }],
     jobState: () => ({ open: true, active: 1 }),
     contain: ({ file }) => { fs.writeFileSync(file, JSON.stringify({ schema: HOLDER_SCHEMA, state: "holding", active: 1, holder: 1 })); return { state: "holding", contained: true }; },
     // The holder's fresh answer as a live gate's release asks for it: only the gate in its job.
@@ -45,6 +47,7 @@ function deadOwner(file, platform, over = {}) {
   const record = {
     schema: OWNERSHIP_SCHEMA, handle, host: os.hostname(), platform, pid: 999_999, startedMs: NOW - 120_000,
     containment: platform === "win32" ? { kind: "job", name: jobName(handle) } : { kind: "group", group: 777 },
+    ancestors: [{ pid: 5000, startedMs: NOW - 500_000 }],
     stage: "compile", snapshot: "/snap/x", commit: "c".repeat(40), acquiredAt: iso(NOW - 100_000), broker: { submitted: false }, ...over,
   };
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -105,7 +108,7 @@ test("ownership POSIX: a dead owner is reclaimed only when its group has no memb
   assert.throws(() => acquire(file, "darwin", same), /held by pid 999999/);
 });
 
-test("ownership POSIX: every process group a gate started detached must be empty; a half-recorded spawn keeps the host; the environment and working-directory nets each hold it", (t) => {
+test("ownership POSIX: every process group a gate started detached must be empty; a half-recorded spawn keeps the host; the environment and snapshot-use nets each hold it", (t) => {
   const dir = tmp(t, "rk-own-");
   const file = path.join(dir, "owner.json");
   const rec = deadOwner(file, "darwin");
@@ -122,17 +125,18 @@ test("ownership POSIX: every process group a gate started detached must be empty
   // A pid reused by an older process is not the scan's group.
   const reused = { members: [{ pid: 8100, ppid: 1, startedMs: NOW - 500_000 }], byPid: new Map(), own: new Set() };
   assert.throws(() => acquire(file, "darwin", probe({ groupSnapshot: (g) => (g === 8100 ? reused : group([])), tokenHolders: () => [9100] })), /9100 still carry/);
-  assert.throws(() => acquire(file, "darwin", probe({ groupSnapshot: (g) => (g === 8100 ? reused : group([])), cwdHolders: () => [9200] })), /9200 still run inside the snapshot \/snap\/x/);
-  assert.throws(() => acquire(file, "darwin", probe({ groupSnapshot: (g) => (g === 8100 ? reused : group([])), cwdHolders: () => { throw new Error("lsof"); } })), /working directories cannot be listed \(lsof\)/);
-  const own = acquire(file, "darwin", probe({ groupSnapshot: (g) => (g === 8100 ? reused : group([])), tokenHolders: () => [], cwdHolders: () => [] }));
-  assert.match(own.reclaimed.proofs.join("; "), /the 1 detached process group\(s\) it started are empty; no process carries .*; no process runs inside \/snap\/x/);
+  assert.throws(() => acquire(file, "darwin", probe({ groupSnapshot: (g) => (g === 8100 ? reused : group([])), snapshotUsers: () => [{ pid: 9200, how: "open file /snap/x/a.rs" }, { pid: 9201, how: "argument" }] })), /9200 \(open file \/snap\/x\/a.rs\), 9201 \(argument\) still use the snapshot \/snap\/x/);
+  assert.throws(() => acquire(file, "darwin", probe({ groupSnapshot: (g) => (g === 8100 ? reused : group([])), snapshotUsers: () => { throw new Error("lsof"); } })), /processes using the snapshot cannot be listed \(lsof\)/);
+  const own = acquire(file, "darwin", probe({ groupSnapshot: (g) => (g === 8100 ? reused : group([])), tokenHolders: () => [], snapshotUsers: () => [] }));
+  assert.match(own.reclaimed.proofs.join("; "), /the 1 detached process group\(s\) it started are empty; no process carries .*; no process has a working directory, executable, open or mapped file or argument inside or naming \/snap\/x/);
   assert.equal(fs.existsSync(reg), false, "the reclaimed owner's detached-child record goes with it");
 });
 
 test("spawnUnderOwnership: only a detached POSIX spawn under a held ownership is recorded, intent first, then its group", (t) => {
   const dir = tmp(t, "rk-own-");
-  const env = { [OWNERSHIP_ENV]: "h-9", RIGHTKIT_DATA_ROOT: dir, RIGHTKIT_SNAPSHOT_ROOT: path.join(dir, "snapshots") };
-  const reg = childrenDir(ownershipFile({ platform: "darwin", env }), "h-9");
+  const file = path.join(dir, "build-ownership", "owner.json");
+  const env = { [OWNERSHIP_ENV]: "h-9", RIGHTKIT_BUILD_OWNERSHIP_FILE: file };
+  const reg = childrenDir(file, "h-9");
   const seen = [];
   const fake = (cmd, args, opts) => { seen.push(fs.existsSync(reg) ? fs.readdirSync(reg) : []); return { pid: 4321 }; };
   spawnUnderOwnership(fake, "eslint", [], { detached: true }, { env, platform: "darwin" });
@@ -150,7 +154,6 @@ test("spawnUnderOwnership: only a detached POSIX spawn under a held ownership is
   const recorded = JSON.parse(fs.readFileSync(path.join(reg, "group-4400.json"), "utf8"));
   assert.ok(recorded.startedMs <= before, `bound ${recorded.startedMs} is from before the spawn (${before}), not after the 2.5 s pause`);
   // ...so a member that started right at the spawn, 2.5 s before the record was written, is still the scan's group.
-  const file = ownershipFile({ platform: "darwin", env });
   fs.writeFileSync(file, JSON.stringify({ schema: OWNERSHIP_SCHEMA, handle: "h-9", host: os.hostname(), platform: "darwin", pid: 999_999, startedMs: before - 5000, containment: { kind: "group", group: 777 }, snapshot: null, acquiredAt: iso(before - 4000), broker: { submitted: false } }));
   const member = { members: [{ pid: 4400, ppid: 1, startedMs: before }], byPid: new Map(), own: new Set() };
   assert.throws(() => acquire(file, "darwin", fakeProbe("darwin", { groupSnapshot: (g) => (g === 4400 ? member : group([])) })), /detached process group 4400 \(eslint\) still has 1 member/);
@@ -305,14 +308,148 @@ test("Windows holder launch: the script is a file PowerShell runs with -File, so
   assert.ok(Buffer.from(holderScript({ name: jobName("0".repeat(36)), pid: 4242, file }), "utf16le").toString("base64").length > CMD_LINE_LIMIT);
 });
 
-test("probes: a listing that did not finish cleanly is unknown, never a complete answer", { skip: fs.existsSync("/proc/self") && "this host reads /proc, not ps and lsof" }, () => {
-  const probe = (status, stdout) => processProbe({ platform: "darwin", spawn: (cmd) => (cmd === "ps" ? { status: 0, stdout: `${process.pid} 1 ${process.pid} Thu Oct 29 00:00:00 2026\n`, pid: 1 } : { status, stdout, stderr: "lsof: WARNING: can't stat()" }), uid: 501 });
-  assert.throws(() => probe(1, "p123\nfcwd\nn/snap/k\n").cwdHolders("/snap/k"), /lsof: lsof: WARNING/);
-  assert.deepEqual(probe(0, "p123\nfcwd\nn/snap/k/src\np124\nfcwd\nn/elsewhere\n").cwdHolders("/snap/k"), [123]);
+// ---- Injected probes. macOS paths run through a scripted ps/lsof; Linux paths run on a fake /proc tree (`proc`) with injected readers,
+// so both are exercised on any host. The real-/proc and real-lsof paths are covered by the [native] fixtures below. ----
+
+const PS_ROW = (pid, ppid, pgid) => `${pid} ${ppid} ${pgid} Thu Oct 29 00:00:00 2026`;
+/** A scripted `ps`/`lsof`: the process table `rows` (pid, ppid, pgid), `args` the `ps -ww` listing, `lsof` the -F output. */
+function scripted({ rows = [[process.pid, 1, process.pid]], args = [], lsof = "", lsofStatus = 0, eww = "" } = {}) {
+  return (cmd, argv) => {
+    if (cmd === "lsof") return { status: lsofStatus, stdout: lsof, stderr: lsofStatus ? "lsof: WARNING: can't stat()" : "", pid: 61 };
+    if (argv[0] === "eww") return { status: 0, stdout: eww, pid: 62 };
+    if (argv.includes("pgid=")) return { status: 0, stdout: rows.map((r) => PS_ROW(...r)).join("\n"), pid: 60 };
+    return { status: 0, stdout: args.map(([pid, command]) => `${pid} ${command}`).join("\n"), pid: 63 };
+  };
+}
+
+test("probes [injected ps/lsof]: a listing that did not finish cleanly is unknown; the snapshot-use net sees cwd, descriptors, mappings and arguments", () => {
+  const probe = (over) => processProbe({ platform: "darwin", spawn: scripted(over), uid: 501 });
+  assert.throws(() => probe({ lsofStatus: 1, lsof: "p123\nfcwd\nn/snap/k\n" }).snapshotUsers("/snap/k"), /lsof: lsof: WARNING/);
+  const lsof = "p123\nfcwd\nn/snap/k/src\np124\nfcwd\nn/elsewhere\nf7r\nn/snap/k/src/lib.rs\np125\nftxt\nn/usr/bin/cc\nfmem\nn/snap/k/target/x.dylib\np126\nf3u\nn/snap/k2/other\n";
+  assert.deepEqual(probe({ lsof }).snapshotUsers("/snap/k"), [{ pid: 123, how: "working directory" }, { pid: 124, how: "open file /snap/k/src/lib.rs" }, { pid: 125, how: "mapped file /snap/k/target/x.dylib" }], "a sibling snapshot's file is not this snapshot's");
+  // A process that dropped the variable, left the session and runs elsewhere, holding nothing open, is still found by its argument.
+  assert.deepEqual(probe({ args: [[301, "rustc --crate-name a /snap/k/src/lib.rs"], [302, "rustc /snap/k.old/src/lib.rs"], [303, "cargo build --manifest-path=/snap/k/Cargo.toml"]] }).snapshotUsers("/snap/k"), [{ pid: 301, how: "argument" }, { pid: 303, how: "argument" }]);
+  // This gate's own chain is never its own user (a shell whose command line names the snapshot, the ps and lsof it ran).
+  assert.deepEqual(probe({ args: [[process.pid, `node gate --snapshot /snap/k`], [63, "ps -A /snap/k"]], lsof: `p${process.pid}\nfcwd\nn/snap/k\np61\nfcwd\nn/snap/k\n` }).snapshotUsers("/snap/k"), []);
+  assert.throws(() => processProbe({ platform: "darwin", spawn: (cmd, argv) => (cmd === "ps" && !argv.includes("pgid=") ? { status: 1, stdout: "", stderr: "ps: failed" } : scripted()(cmd, argv)) }).snapshotUsers("/snap/k"), /ps arguments: ps: failed/);
   const env = (status) => processProbe({ platform: "darwin", spawn: (cmd, args) => (args[0] === "eww" ? { status, stdout: `77 node RIGHTKIT_BUILD_OWNERSHIP=h1 PATH=/x\n` } : { status: 0, stdout: "", pid: 1 }) });
   assert.throws(() => env(1).tokenHolders("h1"), /ps eww/);
   assert.deepEqual(env(0).tokenHolders("h1"), [77]);
   assert.deepEqual(env(0).tokenHolders("h"), [], "a prefix of the handle is not the handle");
+});
+
+test("namesDir: the directory or a path under it, never a longer sibling", () => {
+  assert.equal(namesDir("rustc /snap/k/src/lib.rs", "/snap/k"), true);
+  assert.equal(namesDir("--manifest-path=/snap/k/Cargo.toml", "/snap/k"), true);
+  assert.equal(namesDir("cd /snap/k", "/snap/k"), true);
+  assert.equal(namesDir("a\0/snap/k\0b", "/snap/k"), true);
+  assert.equal(namesDir("/snap/k.old/x /snap/kk /snap/k-2", "/snap/k"), false);
+  assert.equal(namesDir("/mnt/snap/k/x", "/snap/k"), false, "a longer path that merely ends in the directory's name");
+  assert.equal(namesDir("/snap/k/", "/snap/k/"), true);
+});
+
+/** A fake /proc: `procs` is { pid: { uid, environ, cwd, root, exe, fds: { n: target }, maps, cmdline } }. */
+function fakeProc(t, procs) {
+  const root = tmp(t, "rk-own-proc-");
+  for (const [pid, p] of Object.entries(procs)) {
+    const d = path.join(root, pid); fs.mkdirSync(path.join(d, "fd"), { recursive: true });
+    fs.writeFileSync(path.join(d, "status"), `Name:\tx\nUid:\t${p.uid ?? 1000}\t${p.uid ?? 1000}\t${p.uid ?? 1000}\t${p.uid ?? 1000}\n`);
+    fs.writeFileSync(path.join(d, "environ"), p.environ ?? "A=1\0");
+    fs.writeFileSync(path.join(d, "cmdline"), p.cmdline ?? "sleep\0");
+    fs.writeFileSync(path.join(d, "maps"), p.maps ?? "");
+    for (const link of ["cwd", "root", "exe"]) fs.symlinkSync(p[link] ?? "/", path.join(d, link));
+    for (const [n, target] of Object.entries(p.fds ?? {})) fs.symlinkSync(target, path.join(d, "fd", n));
+  }
+  return root;
+}
+const linuxProbe = (root, over = {}) => processProbe({ platform: "linux", spawn: scripted(), proc: root, uid: 1000, ...over });
+const denied = (what, code = "EACCES") => (file, enc) => { if (what.test(String(file))) throw Object.assign(new Error(`${code}: ${file}`), { code }); return fs.readFileSync(file, enc); };
+
+test("probes [injected /proc]: an unreadable entry of this user's is UNKNOWN (held), never 'not a reader'; gone and other users' entries are skipped", (t) => {
+  const SNAP = "/snap/k";
+  const root = fakeProc(t, { 2001: {}, 2002: { uid: 0 }, 2003: {} });
+  // Environment net.
+  assert.deepEqual(linuxProbe(root).tokenHolders("h1"), []);
+  fs.writeFileSync(path.join(root, "2003", "environ"), "A=1\0RIGHTKIT_BUILD_OWNERSHIP=h1\0");
+  assert.deepEqual(linuxProbe(root).tokenHolders("h1"), [2003]);
+  assert.throws(() => linuxProbe(root, { readFile: denied(/\/2001\/environ$/) }).tokenHolders("h1"), /\(a process of this user\) is unreadable \(EACCES\).*unknown/, "this user's process, environment unreadable");
+  assert.throws(() => linuxProbe(root, { readFile: denied(/\/2001\/environ$/, "EPERM") }).tokenHolders("h1"), /unreadable \(EPERM\)/);
+  assert.deepEqual(linuxProbe(root, { readFile: denied(/\/2002\/environ$/) }).tokenHolders("h1"), [2003], "another user's process is skipped");
+  assert.deepEqual(linuxProbe(root, { readFile: denied(/\/200[12]\/environ$/, "ENOENT") }).tokenHolders("h1"), [2003], "a process that vanished is not a reader");
+  assert.throws(() => linuxProbe(root, { readFile: (f, e) => { if (/\/2001\/(environ|status)$/.test(String(f))) throw Object.assign(new Error("denied"), { code: "EACCES" }); return fs.readFileSync(f, e); } }).tokenHolders("h1"), /is unreadable \(EACCES\) and so is its owner/, "an owner that cannot be read is unknown");
+  assert.throws(() => linuxProbe(root, { readFile: denied(/\/2001\/environ$/, "EIO") }).tokenHolders("h1"), /EIO/, "any other failure is unknown too");
+  // A real Linux host without /proc is unknown (throws); a Linux platform simulated on another host has nothing to read (no net).
+  if (process.platform === "linux") assert.throws(() => linuxProbe(path.join(root, "missing")).tokenHolders("h1"), /no .* on this linux host/);
+  else assert.equal(linuxProbe(path.join(root, "missing")).tokenHolders("h1"), null);
+  // Snapshot-use net: every signal, one process each.
+  const root2 = fakeProc(t, {
+    3001: { cwd: `${SNAP}/src` }, 3002: { root: SNAP }, 3003: { exe: `${SNAP}/bin/tool` }, 3004: { fds: { 0: "/dev/null", 5: `${SNAP}/src/lib.rs` } },
+    3005: { maps: `7f00-7f01 r--p 00000000 fe:01 1234 ${SNAP}/target/x.so\n7f02-7f03 r-xp 0 fe:01 7 /usr/lib/libc.so\n` }, 3006: { cmdline: `rustc\0${SNAP}/src/lib.rs\0` },
+    3007: { cwd: "/snap/k2", fds: { 3: "pipe:[99]", 4: "/snap/k2/x" }, maps: "7f00-7f01 r--p 0 fe:01 1 /snap/k2/y (deleted)\n", cmdline: "x\0/snap/k.old/a\0" }, 3008: { maps: `7f00-7f01 r--p 0 fe:01 1 ${SNAP}/gone.so (deleted)\n` },
+  });
+  const byPid = (a, b) => a.pid - b.pid;
+  assert.deepEqual(linuxProbe(root2).snapshotUsers(SNAP).sort(byPid), [
+    { pid: 3001, how: "working directory" }, { pid: 3002, how: "root directory" }, { pid: 3003, how: "executable" }, { pid: 3004, how: `open file ${SNAP}/src/lib.rs` },
+    { pid: 3005, how: `mapped file ${SNAP}/target/x.so` }, { pid: 3006, how: "argument" }, { pid: 3008, how: `mapped file ${SNAP}/gone.so` },
+  ]);
+  // Unreadable: each reader's failure on this user's process fails the net; another user's is skipped; a vanished entry is no reader.
+  for (const what of [/\/3007\/cwd$/, /\/3007\/exe$/, /\/3007\/fd$/, /\/3007\/fd\/4$/, /\/3007\/maps$/, /\/3007\/cmdline$/]) {
+    const probe = (extra) => linuxProbe(root2, { readFile: denied(what), readlink: (f) => { if (what.test(String(f))) throw Object.assign(new Error("EACCES"), { code: "EACCES" }); return fs.readlinkSync(f); }, readdir: (d) => { if (what.test(String(d))) throw Object.assign(new Error("EACCES"), { code: "EACCES" }); return fs.readdirSync(d); }, ...extra });
+    assert.throws(() => probe().snapshotUsers(SNAP), /3007 \(a process of this user\) is unreadable \(EACCES\)/, String(what));
+    fs.writeFileSync(path.join(root2, "3007", "status"), "Uid:\t0\t0\t0\t0\n");
+    assert.equal(probe().snapshotUsers(SNAP).some((u) => u.pid === 3007), false, `another user's ${what} skipped`);
+    fs.writeFileSync(path.join(root2, "3007", "status"), "Uid:\t1000\t1000\t1000\t1000\n");
+  }
+  assert.throws(() => linuxProbe(root2, { readlink: (f) => { if (/\/3007\/cwd$/.test(String(f))) throw Object.assign(new Error("EIO"), { code: "EIO" }); return fs.readlinkSync(f); } }).snapshotUsers(SNAP), /EIO/);
+  // The gate's own chain is not its own user.
+  assert.equal(linuxProbe(root2, { spawn: scripted({ rows: [[process.pid, 3006, process.pid], [3006, 1, 3006]] }) }).snapshotUsers(SNAP).some((u) => u.pid === 3006), false);
+});
+
+test("ownership POSIX [injected /proc]: an unreadable process keeps the host held and the reclaim message names why", (t) => {
+  const dir = tmp(t, "rk-own-");
+  const file = path.join(dir, "owner.json");
+  const rec = deadOwner(file, "linux", { snapshot: "/snap/k" });
+  const root = fakeProc(t, { 4001: {}, 4002: { cwd: "/snap/k" } });
+  const probe = (over) => linuxProbe(root, over);
+  const asProbe = (p) => fakeProbe("linux", { tokenHolders: (h) => p.tokenHolders(h), snapshotUsers: (d) => p.snapshotUsers(d) });
+  assert.throws(() => acquire(file, "linux", asProbe(probe({ readFile: denied(/\/4001\/environ$/) }))), /owner pid 999999 is gone but processes carrying RIGHTKIT_BUILD_OWNERSHIP cannot be listed \(.*4001 \(a process of this user\) is unreadable \(EACCES\)/);
+  assert.throws(() => acquire(file, "linux", asProbe(probe({ readlink: (f) => { if (/\/4001\/exe$/.test(String(f))) throw Object.assign(new Error("EACCES"), { code: "EACCES" }); return fs.readlinkSync(f); } }))), /processes using the snapshot cannot be listed \(.*4001 \(a process of this user\) is unreadable/);
+  assert.throws(() => acquire(file, "linux", asProbe(probe())), /process\(es\) 4002 \(working directory\) still use the snapshot \/snap\/k/);
+  fs.rmSync(path.join(root, "4002"), { recursive: true });
+  const own = acquire(file, "linux", asProbe(probe()));
+  assert.equal(own.reclaimed.from, rec.handle);
+  assert.match(own.reclaimed.proofs.join("; "), /no process has a working directory, executable, open or mapped file or argument inside or naming \/snap\/k/);
+});
+
+test("ownership POSIX [injected table]: an orphan a subreaper adopted is still the owner's work; only a recorded parent or a group-mate makes a peer", (t) => {
+  const file = path.join(tmp(t, "rk-own-"), "owner.json");
+  const me = { pid: process.pid, ppid: 5000, startedMs: NOW - 1_000 };
+  const shell = { pid: 5000, ppid: 1, startedMs: NOW - 500_000, group: 777 };
+  const subreaper = { pid: 4000, ppid: 1, startedMs: NOW - 900_000, group: 4000 };
+  const orphan = { pid: 5001, ppid: 4000, startedMs: NOW - 50_000, group: 777 };
+  const probe = (rows, own = [process.pid]) => fakeProbe("linux", { groupSnapshot: () => group(rows, own) });
+  const held = (record, rows, own, re) => { deadOwner(file, "linux", record); assert.throws(() => acquire(file, "linux", probe(rows, own)), re); };
+  const clear = (record, rows, own) => { deadOwner(file, "linux", record); return acquire(file, "linux", probe(rows, own)); };
+  // (c) the subreaper (systemd --user, WSL's init) adopted the orphan: its parent predates the ownership and is no peer.
+  held({}, [subreaper, orphan], undefined, /group 777 still has 1 member\(s\) started under this ownership: 5001/);
+  // ...even when the subreaper is also an ancestor of the asking gate (it usually is).
+  held({}, [subreaper, orphan], [process.pid, 4000], /5001/);
+  // ...and when it was started within the ownership's slack, the walk goes on to ITS parent and still ends at a non-peer.
+  held({}, [{ ...subreaper, startedMs: NOW - 100_500, ppid: 3000 }, { pid: 3000, ppid: 1, startedMs: NOW - 800_000 }, orphan], undefined, /5001/);
+  // A peer: the owner's recorded parent (`gate | tee`), or a parent that shares the member's group (a script shell, no job control).
+  const tee = { pid: 5003, ppid: 5000, startedMs: NOW - 1_000, group: 777 };
+  assert.equal(clear({}, [shell, tee]).reclaimed.pid, 999_999);
+  assert.equal(clear({ ancestors: [] }, [shell, tee]).reclaimed.pid, 999_999, "the shell shares the member's group");
+  held({ ancestors: [], }, [{ ...shell, group: 1 }, tee], undefined, /5003/);
+  held({ ancestors: null }, [{ ...shell, group: 1 }, tee], undefined, /5003/);
+  held({ ancestors: [{ pid: 5000, startedMs: NOW - 1_000 }] }, [{ ...shell, group: 1 }, tee], undefined, /5003/);
+  // A record written without ancestors cannot tell a peer from an adopted orphan, so it is covered.
+  held({ ancestors: undefined }, [{ ...shell, group: 1 }, tee], undefined, /5003/);
+  // The asking gate's own children are not the owner's work, whoever adopted whom.
+  const mine = { pid: 5006, ppid: process.pid, startedMs: NOW - 500, group: 777 };
+  assert.equal(clear({}, [shell, me, mine]).reclaimed.pid, 999_999);
+  // An orphan under pid 1, and a grandchild of the owner's orphan, still count.
+  held({}, [{ ...orphan, ppid: 1 }, { pid: 5002, ppid: 5001, startedMs: NOW - 40_000, group: 777 }], undefined, /5001, 5002/);
 });
 
 test("brokerLeaseState: only a well-formed rustright.snapshot-lease-status.v1 answer counts; everything else is UNKNOWN", () => {
@@ -331,8 +468,22 @@ test("brokerLeaseState: only a well-formed rustright.snapshot-lease-status.v1 an
 // ---- Real processes: a gate killed while its child survives. ----
 
 const MODULE = pathToFileURL(path.resolve("build-ownership.mjs")).href;
+// Linux only: a subreaper (PR_SET_CHILD_SUBREAPER = 36; the setting survives nothing but its own process) that starts `sh` in a session
+// of its own, which runs the gate and then sleeps. When the gate is killed, its orphaned children are adopted by THIS process (the
+// subreaper, an ancestor of the gate that predates the ownership), as systemd --user and WSL's init adopt them.
+const SUBREAPER_PY = [
+  "import ctypes, os, subprocess, sys, time",
+  "libc = ctypes.CDLL(None, use_errno=True)",
+  "if libc.prctl(36, 1, 0, 0, 0) != 0: sys.exit(3)",
+  "subprocess.Popen(['sh', '-c', '\"$0\" \"$1\"; exec sleep 600', sys.argv[1], sys.argv[2]], start_new_session=True)",
+  "while True:",
+  "    try: os.waitpid(-1, 0)",
+  "    except ChildProcessError: time.sleep(0.2)",
+].join("\n");
+const HAS_SUBREAPER = process.platform === "linux" && spawnSync("python3", ["-c", "import ctypes"], { stdio: "ignore" }).status === 0;
+
 /** Starts a fake gate that takes ownership of `file` and starts one child that outlives it; resolves with their pids. */
-async function crashingGate(t, file, { detachChild = process.platform === "win32", mode = "plain", snapshot = null, viaNode = false } = {}) {
+async function crashingGate(t, file, { detachChild = process.platform === "win32", mode = "plain", snapshot = null, viaNode = false, subreaper = false } = {}) {
   const script = path.join(path.dirname(file), "fake-gate.mjs");
   const SCANS = pathToFileURL(path.resolve("deterministic-scans.mjs")).href;
   // plain: a child of the gate (detached on request). scan: the real class A spawner (detached, its own group) with the
@@ -347,19 +498,39 @@ if (${JSON.stringify(mode)} === "scan") {
   const { defaultSpawnAsync } = await import(${JSON.stringify(SCANS)});
   const env = { ...process.env }; delete env.${OWNERSHIP_ENV};
   defaultSpawnAsync(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { signal: new AbortController().signal, env, cwd: ${JSON.stringify(os.tmpdir())}, onSpawn: (p) => { pid = p; } });
+} else if (${JSON.stringify(mode)} === "scrubbed") {
+  // Same group as the gate, variable scrubbed, cwd elsewhere: only the group net (and the orphan's ancestry) can see it.
+  const env = { ...process.env }; delete env.${OWNERSHIP_ENV}; delete env.RIGHTKIT_BUILD_OWNERSHIP_FILE;
+  const c = spawn(process.execPath, ["-e", "process.chdir('/'); setInterval(() => {}, 1000)"], { stdio: "ignore", env, cwd: "/" }); c.unref(); pid = c.pid;
+} else if (${JSON.stringify(mode)} === "escaped" || ${JSON.stringify(mode)} === "escaped-argv") {
+  // A descendant that started its own session (detached), dropped the variable, runs at "/" and, in "escaped", holds a file of the
+  // snapshot open (in "escaped-argv", only names the snapshot in an argument). The raw spawn records no group: only the snapshot-use
+  // net sees it. It reports ready once it holds the file.
+  const fs = await import("node:fs");
+  const held = ${JSON.stringify(snapshot)} + "/held.txt"; fs.writeFileSync(held, "x");
+  const ready = ${JSON.stringify(file)} + ".ready"; fs.rmSync(ready, { force: true });
+  const env = { ...process.env, HELD_FILE: held, READY_FILE: ready }; delete env.${OWNERSHIP_ENV}; delete env.RIGHTKIT_BUILD_OWNERSHIP_FILE;
+  const code = ${JSON.stringify(mode)} === "escaped"
+    ? "const fs = require('fs'); process.chdir('/'); fs.openSync(process.env.HELD_FILE, 'r'); fs.writeFileSync(process.env.READY_FILE, '1'); setInterval(() => {}, 1000)"
+    : "process.chdir('/'); require('fs').writeFileSync(process.env.READY_FILE, '1'); setInterval(() => {}, 1000)";
+  const args = ["-e", code]; if (${JSON.stringify(mode)} === "escaped-argv") args.push(${JSON.stringify(snapshot)} + "/src/lib.rs");
+  const c = spawn(process.execPath, args, { stdio: "ignore", detached: true, env, cwd: "/" }); c.unref(); pid = c.pid;
+  while (!fs.existsSync(ready)) await new Promise((r) => setTimeout(r, 50));
 } else if (${JSON.stringify(mode)} === "platform-binary") {
   const c = spawn("/bin/sleep", ["60"], { stdio: "ignore", detached: true, env: {}, cwd: ${JSON.stringify(snapshot)} }); c.unref(); pid = c.pid;
 } else {
   const c = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore", detached: ${detachChild} }); c.unref(); pid = c.pid;
 }
-(await import("node:fs")).writeFileSync(${JSON.stringify(file)} + ".gate-info", JSON.stringify({ handle: own.handle, gate: process.pid, child: pid, contained: own.contained, job: own.owner.containment.name ?? null }));
+(await import("node:fs")).writeFileSync(${JSON.stringify(file)} + ".gate-info", JSON.stringify({ handle: own.handle, gate: process.pid, ppid: process.ppid, child: pid, contained: own.contained, job: own.owner.containment.name ?? null }));
 setInterval(() => {}, 1000);
 `);
   const env = { ...process.env }; delete env[OWNERSHIP_ENV]; delete env.NODE_OPTIONS;
   // POSIX: the fake gate leads its own process group, as a gate started from a shell leads its job's. Windows: started the way a
   // shell starts it (cmd start), outside the kill-on-close job Node keeps for its own children; viaNode starts it from Node.
   const infoFile = `${file}.gate-info`; fs.rmSync(infoFile, { force: true });
-  const gate = process.platform === "win32" && !viaNode
+  const gate = subreaper
+    ? spawn("python3", ["-c", SUBREAPER_PY, process.execPath, script], { stdio: ["ignore", "ignore", "inherit"], env, detached: true })
+    : process.platform === "win32" && !viaNode
     ? spawn("cmd.exe", ["/d", "/c", "start", "\"\"", "/b", "/wait", process.execPath, script], { stdio: "ignore", env })
     : spawn(process.execPath, [script], { stdio: ["ignore", "ignore", "inherit"], env, detached: process.platform !== "win32" });
   let exited = null; gate.on("exit", (code) => { exited = code; });
@@ -367,6 +538,7 @@ setInterval(() => {}, 1000);
   if (!fs.existsSync(infoFile)) throw new Error(`fake gate exited ${exited} before reporting`);
   const info = JSON.parse(fs.readFileSync(infoFile, "utf8"));
   t.after(() => { for (const pid of [info.gate, info.child]) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } } });
+  if (subreaper) t.after(() => { try { gate.kill("SIGKILL"); } catch { /* gone */ } try { process.kill(-info.ppid, "SIGKILL"); } catch { /* gone */ } });
   return { ...info, ownChild: info.child, kill: async (pid) => { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } for (let i = 0; i < 200; i++) { try { process.kill(pid, 0); } catch { return; } await new Promise((r) => setTimeout(r, 50)); } throw new Error(`pid ${pid} survived SIGKILL`); } };
 }
 /**
@@ -563,17 +735,75 @@ test("[native] G1 POSIX: a detached Apple-style platform binary with an empty en
   const g = await crashingGate(t, file, { mode: "platform-binary", snapshot });
   await g.kill(g.gate);
   const env = { ...process.env }; delete env[OWNERSHIP_ENV];
-  assert.throws(() => acquireBuildOwnership({ file, env, exportEnv: false }), new RegExp(`${g.child} still run inside the snapshot`));
+  assert.throws(() => acquireBuildOwnership({ file, env, exportEnv: false }), new RegExp(`${g.child} \\(working directory\\) still use the snapshot`));
+  await g.kill(g.child);
+  assert.equal(acquireBuildOwnership({ file, env, exportEnv: false }).reclaimed.from, g.handle);
+});
+
+test("[native] review item5-r1 #4: a descendant that started its own session, dropped the variable, runs outside the snapshot and holds a file of it open still holds the host (open-file net)", { skip: process.platform === "win32" && "Windows children stay in the gate's job", timeout: 60_000 }, async (t) => {
+  const base = tmp(t, "rk-own-native-");
+  const file = path.join(base, "build-ownership", "owner.json");
+  const snapshot = path.join(base, "snapshots", "k"); fs.mkdirSync(snapshot, { recursive: true });
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const g = await crashingGate(t, file, { mode: "escaped", snapshot });
+  await g.kill(g.gate);
+  const env = { ...process.env }; delete env[OWNERSHIP_ENV];
+  assert.throws(() => acquireBuildOwnership({ file, env, exportEnv: false }), (e) => e instanceof OwnershipBusy && new RegExp(`${g.child} \\(open file [^)]*held\\.txt\\) still use the snapshot ${snapshot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(e.message), "not reclaimed, and the message names why");
+  await g.kill(g.child);
+  const own = acquireBuildOwnership({ file, env, exportEnv: false });
+  assert.equal(own.reclaimed.from, g.handle);
+  assert.match(own.reclaimed.proofs.join("; "), /no process has a working directory, executable, open or mapped file or argument/);
+});
+
+test("[native] review item5-r1 #4: a descendant that started its own session and dropped the variable, outside the snapshot, whose argument names the snapshot still holds the host (argument net)", { skip: process.platform === "win32" && "Windows children stay in the gate's job", timeout: 60_000 }, async (t) => {
+  const base = tmp(t, "rk-own-native-");
+  const file = path.join(base, "build-ownership", "owner.json");
+  const snapshot = path.join(base, "snapshots", "k"); fs.mkdirSync(snapshot, { recursive: true });
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const g = await crashingGate(t, file, { mode: "escaped-argv", snapshot });
+  await g.kill(g.gate);
+  const env = { ...process.env }; delete env[OWNERSHIP_ENV];
+  assert.throws(() => acquireBuildOwnership({ file, env, exportEnv: false }), new RegExp(`${g.child} \\(argument\\) still use the snapshot`));
+  await g.kill(g.child);
+  assert.equal(acquireBuildOwnership({ file, env, exportEnv: false }).reclaimed.from, g.handle);
+});
+
+test("[native] review item5-r1 #4: an orphan of the gate's group with the variable scrubbed and cwd elsewhere holds the host (group net)", { skip: process.platform === "win32" && "Windows children stay in the gate's job", timeout: 60_000 }, async (t) => {
+  const file = path.join(tmp(t, "rk-own-native-"), "build-ownership", "owner.json");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const g = await crashingGate(t, file, { mode: "scrubbed" });
+  await g.kill(g.gate);
+  const env = { ...process.env }; delete env[OWNERSHIP_ENV];
+  assert.throws(() => acquireBuildOwnership({ file, env, exportEnv: false }), new RegExp(`started under this ownership: ${g.child}`));
+  await g.kill(g.child);
+  assert.equal(acquireBuildOwnership({ file, env, exportEnv: false }).reclaimed.from, g.handle);
+});
+
+test("[native, Linux + python3] review item5-r1 #4: an orphan adopted by a subreaper (an ancestor that predates the ownership) is still attributed to the owner", { skip: !HAS_SUBREAPER && "needs Linux and python3 (prctl PR_SET_CHILD_SUBREAPER)", timeout: 60_000 }, async (t) => {
+  const file = path.join(tmp(t, "rk-own-native-"), "build-ownership", "owner.json");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const g = await crashingGate(t, file, { mode: "scrubbed", subreaper: true });
+  await g.kill(g.gate);
+  // The orphan's parent is now the subreaper, not pid 1.
+  const ppid = Number(/^PPid:\s+(\d+)/m.exec(fs.readFileSync(`/proc/${g.child}/status`, "utf8"))[1]);
+  assert.notEqual(ppid, 1, "the subreaper adopted the orphan");
+  const env = { ...process.env }; delete env[OWNERSHIP_ENV];
+  assert.throws(() => acquireBuildOwnership({ file, env, exportEnv: false }), new RegExp(`process group \\d+ still has \\d+ member\\(s\\) started under this ownership: ${g.child}`), "attributed through the subreaper");
   await g.kill(g.child);
   assert.equal(acquireBuildOwnership({ file, env, exportEnv: false }).reclaimed.from, g.handle);
 });
 
 test("[native] E6/G1: a snapshot sync is refused while a crashed gate's child survives, the snapshot keeps its tree, and syncs once the child is gone", { timeout: 120_000 }, async (t) => {
   const git = (cwd, ...args) => { const r = spawnSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" } }); if (r.status !== 0) throw new Error(r.stderr); return r.stdout.trim(); };
-  const repo = tmp(t, "rk-own-repo-"); const root = tmp(t, "rk-own-root-");
+  const repo = tmp(t, "rk-own-repo-");
   git(repo, "init", "-q", "-b", "main"); fs.writeFileSync(path.join(repo, "a.txt"), "one\n"); git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "a");
   const first = git(repo, "rev-parse", "HEAD");
-  const env = { ...process.env, RIGHTKIT_DATA_ROOT: root, RIGHTKIT_SNAPSHOT_ROOT: path.join(root, "snapshots") }; delete env[OWNERSHIP_ENV];
+  // Each gate process of this fixture can only be handed its environment: it names a per-run directory under the host's durable
+  // managed root (<managed root>/test-roots/<id>, snapshotRoot's one test mechanism), removed when the test ends.
+  const env = { ...process.env, RIGHTKIT_SNAPSHOT_TEST_RUN: `own-${process.pid}-${Date.now().toString(36)}` }; delete env[OWNERSHIP_ENV];
+  const snaps = snapshotRoot({ env });
+  assert.equal(path.basename(path.dirname(path.dirname(snaps))), "test-roots", snaps);
+  t.after(() => fs.rmSync(path.dirname(snaps), { recursive: true, force: true }));
   // Each sync is a gate process of its own.
   const sync = (args) => gateStep(t, "snapshot", { cwd: repo, args }, env);
   let step = sync(["--commit", first, "--json"]);
@@ -596,8 +826,8 @@ test("[native] E6/G1: a snapshot sync is refused while a crashed gate's child su
   step = sync(["--commit", second, "--json"]);
   assert.equal(step.code, 1, `busy, not synced: ${JSON.stringify(step)}`);
   assert.match(step.lines.join("\n"), /snapshot busy: build ownership .* is gone but/);
-  const dir = path.join(path.join(root, "snapshots"), repoKey(keyPath(repo)));
-  assert.equal(verifySnapshot({ checkout: repo, rev: first, root: path.join(root, "snapshots"), dir }).commit, first, "the snapshot still holds the first commit");
+  const dir = path.join(snaps, repoKey(keyPath(repo)));
+  assert.equal(verifySnapshot({ checkout: repo, rev: first, root: snaps, dir }).commit, first, "the snapshot still holds the first commit");
   await g.kill(g.child);
   if (process.platform === "win32") await until(() => readHolder(holderFile(file, g.handle))?.state === "drained");
   step = sync(["--commit", second, "--json"]);
@@ -611,7 +841,7 @@ test("check --snapshot: ownership comes first; busy runs nothing (RK_CHECK_ERROR
   const { main } = await import("./bin/rightkit-gate.mjs");
   const dir = tmp(t, "rk-own-check-");
   const calls = [];
-  const io = (acquireOwnership) => ({ cwd: dir, env: { ...process.env, RIGHTKIT_DATA_ROOT: dir, RIGHTKIT_SNAPSHOT_ROOT: path.join(dir, "snapshots") }, out: (m) => calls.push(`out ${m}`), err: (m) => calls.push(`err ${m}`), appCheck: async () => { calls.push("appCheck"); return 0; }, acquireOwnership });
+  const io = (acquireOwnership) => ({ cwd: dir, env: process.env, snapshotRoot: path.join(dir, "snapshots"), out: (m) => calls.push(`out ${m}`), err: (m) => calls.push(`err ${m}`), appCheck: async () => { calls.push("appCheck"); return 0; }, acquireOwnership });
   const busy = () => { calls.push("acquire"); throw new OwnershipBusy("build ownership /x/owner.json: held by pid 4 (compile of abc) since then"); };
   assert.equal(await main(["check", "--commit", "HEAD", "--full-a", "--snapshot", path.join(dir, "snap")], io(busy)), 2);
   assert.deepEqual(calls.slice(0, 1), ["acquire"]);

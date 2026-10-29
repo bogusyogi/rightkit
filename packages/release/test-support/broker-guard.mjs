@@ -14,13 +14,14 @@
 // Child processes inherit the guard through NODE_OPTIONS, which installation appends to.
 // Not shipped: lives under test-support/, outside package.json "files".
 import childProcess from "node:child_process";
-import { appendFileSync, mkdtempSync, realpathSync, statSync } from "node:fs";
+import { appendFileSync, mkdtempSync, realpathSync, rmSync, statSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { resolveManagedRoots } from "../managed-roots.mjs";
 
 export const OPT_IN_ENV = "RIGHTKIT_TEST_REAL_BROKER";
 export const LOG_ENV = "RIGHTKIT_BROKER_GUARD_LOG";
@@ -355,6 +356,18 @@ export function installBrokerGuard() {
   for (const name of ["TMPDIR", "TEMP", "TMP"]) process.env[name] = process.env.RIGHTKIT_TEST_TMP;
   process.env.RIGHTKIT_GUARD_DATA_ROOT ??= realpathSync(mkdtempSync(path.join(os.tmpdir(), "rightkit-release-test-root-")));
   process.env.RIGHTKIT_DATA_ROOT = process.env.RIGHTKIT_GUARD_DATA_ROOT;
+  // Snapshots & the host's build-ownership record live under the host's durable managed root, never an environment-chosen temp
+  // directory (snapshot.mjs snapshotRoot): the run gets its own `<managed root>/test-roots/<id>` and removes it when the run ends,
+  // so no test touches the real `snapshots/` or `build-ownership/`. Child processes inherit the id and leave the cleanup to the creator.
+  if (!process.env.RIGHTKIT_SNAPSHOT_TEST_RUN) {
+    const id = `guard-${process.pid}-${Date.now().toString(36)}`;
+    process.env.RIGHTKIT_SNAPSHOT_TEST_RUN = id;
+    const windows = process.platform === "win32";
+    const base = process.platform === "darwin" || windows ? resolveManagedRoots({ env: {} }).dataRoot
+      : path.join(path.dirname(process.env.RIGHTKIT_SNAPSHOT_ROOT && path.isAbsolute(process.env.RIGHTKIT_SNAPSHOT_ROOT) ? process.env.RIGHTKIT_SNAPSHOT_ROOT
+        : path.join(process.env.XDG_STATE_HOME && path.isAbsolute(process.env.XDG_STATE_HOME) ? process.env.XDG_STATE_HOME : path.join(os.homedir(), ".local", "state"), "rightkit", "snapshots")));
+    process.on("exit", () => { try { rmSync(path.join(base, "test-roots", id), { recursive: true, force: true }); } catch { /* best effort */ } });
+  }
   // Child Node processes (release.mjs, build-release.mjs, cargo-target.mjs, fixtures) load the guard too.
   const current = process.env.NODE_OPTIONS ?? "";
   if (!current.includes(GUARD_IMPORT)) process.env.NODE_OPTIONS = `${current} ${GUARD_IMPORT}`.trim();

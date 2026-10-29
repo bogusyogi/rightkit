@@ -22,7 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { LIVE_SCAN_IDS, defaultSpawn, isLiveScan, isRegistryScan, launchGuardEnv, planScans, runScans } from "./deterministic-scans.mjs";
 import { compileLaunch } from "./class-a-launch-guard.mjs";
-import { SnapshotError, snapshotTree } from "./snapshot.mjs";
+import { SnapshotError, snapshotProblem, snapshotTree, treeEntries } from "./snapshot.mjs";
 
 export const CHECK_ERROR = "RK_CHECK_ERROR";
 export const LIVE_SCANS_SCHEMA = "rightkit.live-scans/1";
@@ -67,8 +67,16 @@ export function commitOf(checkout, rev, spawn = defaultSpawn) {
   return { commit, tree: text(t).trim() };
 }
 
-/** The snapshot holds exactly the commit's tree (seeded identity, the broker's method); otherwise CheckError. */
+/**
+ * The snapshot holds exactly the commit (E6, GATE-CONTRACT §1): no path under it the commit's tree lacks (ignored ones included; the
+ * only allowances are snapshot.mjs's named pnpm dependency directories and the gate's config-only .git/config), no link resolving out
+ * of it or into the checkout, and the seeded tree id (the broker's method) equal to the commit's tree. Otherwise CheckError.
+ */
 export function verifySnapshotDir({ checkout, dir, commit, tree, when }) {
+  let extra;
+  try { extra = snapshotProblem({ dir, entries: treeEntries(checkout, commit), checkout }); }
+  catch (e) { throw new CheckError(`cannot list snapshot ${dir} ${when}: ${e.message}`); }
+  if (extra) throw new CheckError(`snapshot ${dir} is not exactly commit ${commit} ${when}: ${extra}`);
   let actual;
   try { actual = snapshotTree({ checkout, dir, baseTree: tree }); }
   catch (e) { throw new CheckError(`cannot compute the tree of snapshot ${dir} ${when}: ${e.message}`); }

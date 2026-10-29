@@ -11,10 +11,14 @@
 // A committed file an ignore rule also matches stays in the id; untracked files an ignore rule excludes (build outputs) do not.
 // The checkout's own index, HEAD, refs and files are never touched; only objects are written.
 //
-// Roots: Mac & Dell `<managed data root>/snapshots/<repo-key>` (the root follows RIGHTKIT_DATA_ROOT & root migration); Linux
-// `$RIGHTKIT_SNAPSHOT_ROOT/<repo-key>` when configured, else `$XDG_STATE_HOME/rightkit/snapshots/<repo-key>`, else
-// `~/.local/state/rightkit/snapshots/<repo-key>`. `repo-key` = first 16 hex of sha256(canonical repository path), the key
-// `checked-trees` uses. Scratch is never the root: it is disposable.
+// Roots: Mac & Dell `<managed root>/snapshots/<repo-key>` with the managed root the host's fixed one (managed-roots.mjs legacyRoot:
+// `/Volumes/D/.rightkit-managed`, `D:\.rightkit-managed`), never an environment variable; Linux `$RIGHTKIT_SNAPSHOT_ROOT/<repo-key>`
+// when configured, else `$XDG_STATE_HOME/rightkit/snapshots/<repo-key>`, else `~/.local/state/rightkit/snapshots/<repo-key>`.
+// `repo-key` = first 16 hex of sha256(canonical repository path), the key `checked-trees` uses. Scratch & temp are never the root
+// (they are disposable): a resolved root under a disk-policy scratch root or a temp directory is refused on every host. In-process
+// callers inject a root as a parameter (`snapshotRoot` of `snapshotCommand`'s and the gate's `o`); a subprocess that can only pass
+// its environment names a per-run directory with RIGHTKIT_SNAPSHOT_TEST_RUN, which moves the root to
+// `<base>/test-roots/<id>/snapshots` inside the same durable base and is checked like any other root.
 //
 // Exclusion: one sync per snapshot at a time (`<root>/<repo-key>.lock`, re-checked before every write and before the verdict).
 // It narrows, but cannot close, the window in which two processes both replace one stale lock; host-wide build ownership held
@@ -25,6 +29,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
+import { readDiskPolicy, scratchRoots } from "./disk-policy.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { acquireBuildOwnership, OwnershipBusy, ownershipFile } from "./build-ownership.mjs";
 
@@ -58,13 +63,75 @@ export function keyPath(canonicalRepoPath, platform = process.platform) {
   return p.startsWith("\\\\") ? `\\\\?\\UNC\\${p.slice(2)}` : `\\\\?\\${p}`;
 }
 
-/** The directory every snapshot of this host lives under. */
+const TEST_RUN_ENV = "RIGHTKIT_SNAPSHOT_TEST_RUN";
+const TEST_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
+
+/** `p` with every link on its existing part resolved (the rest as written), spelled for `paths` (path.posix or path.win32). */
+function canonicalPath(p, paths) {
+  const rest = [];
+  let at = paths.resolve(p);
+  for (;;) {
+    try { return paths.join(fs.realpathSync.native(at), ...rest.reverse()); }
+    catch {
+      const up = paths.dirname(at);
+      if (up === at) return paths.resolve(p);
+      rest.push(paths.basename(at));
+      at = up;
+    }
+  }
+}
+
+/** Throws SnapshotError("error") when `root` lies under a disk-policy scratch root or a temp directory: a snapshot is durable. */
+function refuseDisposableRoot(root, source, { platform, env }) {
+  const paths = platform === "win32" ? path.win32 : path.posix;
+  const within = (child, parent) => { const rel = paths.relative(parent, child); return rel === "" || (!rel.startsWith("..") && !paths.isAbsolute(rel)); };
+  let scratch;
+  try {
+    const policy = readDiskPolicy();
+    scratch = ["darwin", "win32"].flatMap((p) => scratchRoots(policy, { platform: p, env, home: os.homedir() }));
+  } catch (e) { throw new SnapshotError("error", `cannot read the disk policy that names the scratch roots, so snapshot root ${root} (from ${source}) cannot be checked: ${e.message}`); }
+  const temps = [os.tmpdir(), "/tmp", "/var/tmp", "/private/tmp", "/var/folders", "/private/var/folders", env.TMPDIR, env.TEMP, env.TMP];
+  const real = canonicalPath(root, paths);
+  const candidates = [...scratch.map((d) => ["scratch root", d]), ...temps.filter((d) => typeof d === "string" && d).map((d) => ["temp directory", d])];
+  for (const [kind, dir] of candidates) {
+    const canon = canonicalPath(dir, paths);
+    if (paths.dirname(canon) === canon) continue; // a filesystem root is no scratch or temp directory (a TMPDIR of "/" must not refuse everything)
+    if (within(real, canon) || within(paths.resolve(root), paths.resolve(dir))) throw new SnapshotError("error", `snapshot root ${root} (from ${source}) is under the ${kind} ${dir}: a snapshot is durable, and scratch & temp are disposable (docs/GATE-CONTRACT.md §1)`);
+  }
+}
+
+/**
+ * The directory every snapshot of this host lives under. Mac & Dell: `<managed root>/snapshots` with the host's fixed managed root,
+ * never an environment variable (RIGHTKIT_DATA_ROOT & friends move build outputs, not snapshots). Linux: RIGHTKIT_SNAPSHOT_ROOT when
+ * configured and absolute, else XDG state. RIGHTKIT_SNAPSHOT_TEST_RUN=<id> relocates the root to `<base>/test-roots/<id>/snapshots`
+ * (the base is the managed root, on Linux the configured root's parent) and nothing else. The result is refused when it lies under
+ * scratch or temp, on every host.
+ */
 export function snapshotRoot({ platform = process.platform, env = process.env, home = os.homedir() } = {}) {
   const paths = platform === "win32" ? path.win32 : path.posix;
-  if (platform === "darwin" || platform === "win32") return paths.join(resolveManagedRoots({ env, platform, home }).dataRoot, "snapshots");
-  if (env.RIGHTKIT_SNAPSHOT_ROOT && paths.isAbsolute(env.RIGHTKIT_SNAPSHOT_ROOT)) return env.RIGHTKIT_SNAPSHOT_ROOT;
-  const state = env.XDG_STATE_HOME && paths.isAbsolute(env.XDG_STATE_HOME) ? env.XDG_STATE_HOME : paths.join(home, ".local", "state");
-  return paths.join(state, "rightkit", "snapshots");
+  let root; let base; let source;
+  if (platform === "darwin" || platform === "win32") {
+    base = resolveManagedRoots({ env: {}, platform, home }).dataRoot;
+    root = paths.join(base, "snapshots");
+    source = `the host's managed root ${base}`;
+  } else if (env.RIGHTKIT_SNAPSHOT_ROOT && paths.isAbsolute(env.RIGHTKIT_SNAPSHOT_ROOT)) {
+    root = env.RIGHTKIT_SNAPSHOT_ROOT;
+    base = paths.dirname(root);
+    source = "RIGHTKIT_SNAPSHOT_ROOT";
+  } else {
+    const fromXdg = env.XDG_STATE_HOME && paths.isAbsolute(env.XDG_STATE_HOME);
+    base = paths.join(fromXdg ? env.XDG_STATE_HOME : paths.join(home, ".local", "state"), "rightkit");
+    root = paths.join(base, "snapshots");
+    source = fromXdg ? "XDG_STATE_HOME" : `the home directory ${home}`;
+  }
+  const run = env[TEST_RUN_ENV];
+  if (run !== undefined && run !== "") {
+    if (!TEST_RUN_ID.test(run) || run.includes("..")) throw new SnapshotError("error", `${TEST_RUN_ENV} must be a plain run id (letters, digits, . _ -), not ${JSON.stringify(run)}`);
+    root = paths.join(base, "test-roots", run, "snapshots");
+    source = `${TEST_RUN_ENV} under ${source}`;
+  }
+  refuseDisposableRoot(root, source, { platform, env });
+  return root;
 }
 
 function runGit(cwd, args, { env, input, binary = false } = {}) {
@@ -169,6 +236,88 @@ function refuseCaseCollisions(entries, commit, platform = process.platform) {
       seen.set(k, p);
     }
   }
+}
+
+/**
+ * The ONLY entries a snapshot may hold beyond its commit's tree (GATE-CONTRACT §1 "exact snapshot"; E6 "plant a stale file, a link").
+ * Build outputs are never among them: the snapshot holds no target/, the executor writes to the checkout's own output directory.
+ * Two narrow, named allowances remain, each a thing the gate itself puts there:
+ *   1. pnpm dependency directories: a `node_modules` directly inside a directory that holds a committed `package.json` and sits at or
+ *      under a directory holding a committed `pnpm-lock.yaml` (snapshot-check.mjs installSnapshotDependencies installs only where a
+ *      lockfile exists, into each root and its workspace members). Nothing else ignored by git is allowed, and a link inside such a
+ *      directory is still held to the no-escape rule.
+ *   2. the config-only `.git/config` of `[remote "origin"]\n\turl = <url>\n` that `check --snapshot` writes for rustright's grant
+ *      binding (rightkit#1215) and removes when the check ends: `.git` holding exactly that one file and nothing else.
+ */
+const foldFor = (platform) => (platform === "darwin" || platform === "win32" ? (n) => n.toLowerCase() : (n) => n);
+const GIT_CONFIG_ONLY = /^\[remote "origin"\]\n\turl = [^\r\n]*\n$/;
+
+/** Folded relative paths of the `node_modules` directories allowance 1 admits, derived from the commit's own entries. */
+export function dependencyDirs(entries, platform = process.platform) {
+  const fold = foldFor(platform);
+  const dirOf = (p) => { const i = p.lastIndexOf("/"); return i < 0 ? "" : p.slice(0, i); };
+  const holding = (name) => entries.filter((e) => e.path === name || e.path.endsWith(`/${name}`)).map((e) => dirOf(e.path)).filter((d) => !d.split("/").includes("node_modules"));
+  const lockRoots = holding("pnpm-lock.yaml");
+  const out = new Set();
+  for (const member of holding("package.json")) {
+    if (lockRoots.some((r) => r === "" || member === r || member.startsWith(`${r}/`))) out.add(fold(member ? `${member}/node_modules` : "node_modules"));
+  }
+  return out;
+}
+
+/**
+ * What stops `dir` being exactly the commit's tree that the seeded tree id cannot see (it ignores what an ignore rule matches and
+ * follows no link): the first path under `dir` that is not in `entries` (ignored or not, empty directories included) and not one of
+ * the two allowances above, or the first link (committed or not) that does not resolve, physically, to something inside `dir` and
+ * outside `checkout`. Never follows a link to enter it. Returns a message naming the path, or null.
+ */
+export function snapshotProblem({ dir, entries, checkout, platform = process.platform }) {
+  const fold = foldFor(platform);
+  const files = new Set(entries.map((e) => fold(e.path)));
+  const dirs = new Set();
+  for (const e of entries) { const parts = e.path.split("/"); for (let i = 1; i < parts.length; i++) dirs.add(fold(parts.slice(0, i).join("/"))); }
+  const deps = dependencyDirs(entries, platform);
+  let realDir; let realCheckout = checkout;
+  try { realDir = fs.realpathSync.native(dir); } catch (e) { return `${dir} cannot be resolved: ${e.message}`; }
+  try { realCheckout = fs.realpathSync.native(checkout); } catch { /* the path as given */ }
+  const linkProblem = (rel, p) => {
+    let real;
+    try { real = fs.realpathSync.native(p); } catch { return `${rel} is a link that does not resolve (dangling or looping); it cannot be proven to stay inside the snapshot`; }
+    if (inside(real, realCheckout)) return `${rel} is a link resolving into the editable checkout (${real})`;
+    if (!inside(real, realDir)) return `${rel} is a link resolving outside the snapshot (${real})`;
+    return null;
+  };
+  const gitConfigProblem = (rel, p) => {
+    const names = fs.readdirSync(p);
+    if (names.length !== 1 || names[0] !== "config") return `${rel} is not in the commit's tree (a .git directory may hold only the gate's config-only origin file)`;
+    const config = path.join(p, "config");
+    const s = lstat(config);
+    if (!s?.isFile() || !GIT_CONFIG_ONLY.test(fs.readFileSync(config, "utf8"))) return `${rel}/config is not in the commit's tree (it may hold only the gate's remote "origin" url)`;
+    return null;
+  };
+  const walk = (d, rel, inDeps) => {
+    const names = fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    for (const e of names) {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      const p = path.join(d, e.name);
+      const key = fold(r);
+      let found = null;
+      if (e.isSymbolicLink()) {
+        // The landing is named first when it is the worse news (into the checkout, out of the snapshot); a link the commit lacks is refused either way.
+        found = linkProblem(r, p);
+        if (!found && !inDeps && !files.has(key)) found = `${r} is not in the commit's tree (a link the commit does not have)`;
+      } else if (e.isDirectory()) {
+        if (inDeps) found = walk(p, r, true);
+        else if (deps.has(key)) found = walk(p, r, true);
+        else if (dirs.has(key)) found = walk(p, r, false);
+        else if (key === ".git") found = gitConfigProblem(r, p);
+        else found = `${r} is not in the commit's tree (a directory the commit does not have)`;
+      } else if (!inDeps && !files.has(key)) found = `${r} is not in the commit's tree`;
+      if (found) return found;
+    }
+    return null;
+  };
+  return walk(dir, "", false);
 }
 
 function blobId(content, objectFormat) {
@@ -437,6 +586,8 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), no
     removed += pruneToTree(dir, entries);
 
     assertLockHeld();
+    const extra = snapshotProblem({ dir, entries, checkout: repo.checkout });
+    if (extra) throw new SnapshotError("mismatch", `snapshot ${dir} is not exactly commit ${commit} after sync: ${extra}`);
     const actual = snapshotTree({ checkout: repo.checkout, dir, baseTree: tree, repo });
     if (actual !== tree) throw new SnapshotError("mismatch", `snapshot ${dir} is tree ${actual} after sync, not tree ${tree} of commit ${commit}`);
     writeState(stateFile, { schema: STATE_SCHEMA, repo: repo.checkout, repoKey: repo.key, commit, tree, paths: [...wanted.keys()], stat: nextStat, syncedAt: new Date(now()).toISOString() });
@@ -446,12 +597,16 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), no
   }
 }
 
-/** Verifies, without changing anything, that the snapshot of `checkout` holds exactly the tree of `rev`. */
+/** Verifies, without changing anything, that the snapshot of `checkout` holds exactly the tree of `rev`: its seeded tree id, no path the
+ * commit lacks (ignored files included) and no link resolving out of the snapshot or into the checkout. */
 export function verifySnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), dir } = {}) {
   const repo = repositoryOf(checkout);
   const { commit, tree } = resolveCommit(repo.checkout, rev);
   const at = dir ?? path.join(root, repo.key);
   if (!lstat(at)?.isDirectory()) throw new SnapshotError("mismatch", `no snapshot directory at ${at}`);
+  // The seeded tree id cannot see an ignored file or follow a link, so the directory itself is walked first (E6, §1 exact snapshot).
+  const extra = snapshotProblem({ dir: at, entries: treeEntries(repo.checkout, commit), checkout: repo.checkout });
+  if (extra) throw new SnapshotError("mismatch", `the snapshot at ${at} is not exactly commit ${commit}: ${extra}`);
   const actual = snapshotTree({ checkout: repo.checkout, dir: at, baseTree: tree, repo });
   if (actual !== tree) throw new SnapshotError("mismatch", `the snapshot at ${at} is tree ${actual}, not tree ${tree} of commit ${commit}`);
   return { schema: SNAPSHOT_SCHEMA, path: at, repoKey: repo.key, commit, tree };
@@ -459,7 +614,8 @@ export function verifySnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), 
 
 /**
  * `rightkit-gate snapshot [--commit <rev>] [--verify] [--json]`: sync (or with --verify only check) the commit's snapshot.
- * Exit 0 the snapshot is the commit's tree, 1 mismatch / refused / busy, 2 could not run.
+ * Exit 0 the snapshot is the commit's tree and the build ownership taken for it was released, 1 mismatch / refused / busy or the
+ * ownership record was kept (a survivor may still read the snapshot), 2 could not run.
  */
 export function snapshotCommand(o, args) {
   const allowed = new Set(["--commit", "--verify", "--json"]);
@@ -470,25 +626,31 @@ export function snapshotCommand(o, args) {
   const i = args.indexOf("--commit");
   const rev = i >= 0 ? args[i + 1] : "HEAD";
   let ownership = null;
+  let code = 2;
   try {
-    const root = snapshotRoot({ platform: o.platform, env: o.env });
+    const root = o.snapshotRoot ?? snapshotRoot({ platform: o.platform, env: o.env });
     // A sync replaces snapshot bytes, so it runs only under the host's build ownership, taken before the first write (joined when
     // this gate already holds it); a verify only reads.
     if (!args.includes("--verify")) {
       const repo = repositoryOf(o.cwd);
-      ownership = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, env: o.env }), stage: "snapshot", snapshot: path.join(root, repo.key), commit: resolveCommit(repo.checkout, rev).commit, platform: o.platform, env: o.env });
+      ownership = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, env: o.env, snapshotRoot: root }), stage: "snapshot", snapshot: path.join(root, repo.key), commit: resolveCommit(repo.checkout, rev).commit, platform: o.platform, env: o.env });
     }
     const r = args.includes("--verify") ? verifySnapshot({ checkout: o.cwd, rev, root })
       : syncSnapshot({ checkout: o.cwd, rev, root });
     if (ownership) r.ownership = { handle: ownership.handle, joined: ownership.joined, reclaimed: ownership.reclaimed };
     if (args.includes("--json")) o.out(JSON.stringify(r));
     else o.out(`rightkit-gate: snapshot ${r.path} commit=${r.commit} tree=${r.tree}${"written" in r ? ` written=${r.written} removed=${r.removed} modes=${r.modesFixed} links=${r.linksRemoved} unchanged=${r.unchanged} ms=${r.ms}` : " verified"}`);
-    return 0;
+    code = 0;
   } catch (e) {
     o.err(`rightkit-gate: snapshot ${e.code ?? "error"}: ${e.message}`);
-    return (e instanceof SnapshotError && e.code !== "error") || e instanceof OwnershipBusy ? 1 : 2;
+    code = (e instanceof SnapshotError && e.code !== "error") || e instanceof OwnershipBusy ? 1 : 2;
   } finally {
     const r = ownership?.release();
-    if (r?.released === false && !ownership.joined) o.err(`rightkit-gate: build ownership ${ownership.handle} kept: ${r.why}`);
+    // A kept record means a survivor may still read the snapshot (or the host is not released): never a clean exit for a caller to script on.
+    if (r?.released === false && !ownership.joined) {
+      o.err(`rightkit-gate: snapshot failed: build ownership ${ownership.handle} kept: ${r.why}`);
+      if (code === 0) code = 1;
+    }
   }
+  return code;
 }

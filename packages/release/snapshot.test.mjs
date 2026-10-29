@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
-import { SnapshotError, keyPath, repoKey, snapshotRoot, snapshotTree, syncSnapshot, verifySnapshot, acquireSnapshotLock } from "./snapshot.mjs";
+import { SnapshotError, keyPath, repoKey, snapshotCommand, snapshotRoot, snapshotTree, syncSnapshot, verifySnapshot, acquireSnapshotLock } from "./snapshot.mjs";
 import { main } from "./bin/rightkit-gate.mjs";
 
 const posixOnly = process.platform === "win32" ? "POSIX exec bits and links" : false;
@@ -63,12 +63,65 @@ test("§1 root & repo-key: Mac/Dell under the managed data root, Linux XDG state
   assert.equal(keyPath("\\\\srv\\share\\repo", "win32"), "\\\\?\\UNC\\srv\\share\\repo");
   assert.equal(keyPath("/home/a/repo", "linux"), "/home/a/repo");
   assert.equal(snapshotRoot({ platform: "darwin", env: {}, home: "/Users/a" }), "/Volumes/D/.rightkit-managed/snapshots");
-  assert.equal(snapshotRoot({ platform: "darwin", env: { RIGHTKIT_DATA_ROOT: "/Volumes/E/.rightkit-managed" }, home: "/Users/a" }), "/Volumes/E/.rightkit-managed/snapshots");
+  // Mac & Dell: the host's fixed managed root, never an environment variable (review item5-r1 finding 9).
+  assert.equal(snapshotRoot({ platform: "darwin", env: { RIGHTKIT_DATA_ROOT: "/Volumes/E/.rightkit-managed", RIGHTKIT_MANAGED_ROOT: "/x", RIGHTKIT_SNAPSHOT_ROOT: "/y/snaps", XDG_STATE_HOME: "/s" }, home: "/Users/a" }), "/Volumes/D/.rightkit-managed/snapshots");
+  assert.equal(snapshotRoot({ platform: "win32", env: { RIGHTKIT_DATA_ROOT: "E:\\m", RIGHTKIT_SNAPSHOT_ROOT: "E:\\snaps" }, home: "C:\\Users\\a" }), "D:\\.rightkit-managed\\snapshots");
   assert.equal(snapshotRoot({ platform: "win32", env: {}, home: "C:\\Users\\a" }), "D:\\.rightkit-managed\\snapshots");
   assert.equal(snapshotRoot({ platform: "linux", env: { XDG_STATE_HOME: "/s" }, home: "/home/a" }), "/s/rightkit/snapshots");
   assert.equal(snapshotRoot({ platform: "linux", env: {}, home: "/home/a" }), "/home/a/.local/state/rightkit/snapshots");
   assert.equal(snapshotRoot({ platform: "linux", env: { XDG_STATE_HOME: "relative" }, home: "/home/a" }), "/home/a/.local/state/rightkit/snapshots");
   assert.equal(snapshotRoot({ platform: "linux", env: { RIGHTKIT_SNAPSHOT_ROOT: "/data/snaps", XDG_STATE_HOME: "/s" }, home: "/home/a" }), "/data/snaps");
+});
+
+// Review item5-r1 finding 9 (GATE-CONTRACT §1: the root is durable, "scratch is never the snapshot root because it is disposable").
+const refusesRoot = (opts, source) => assert.throws(() => snapshotRoot(opts), (e) => e instanceof SnapshotError && e.code === "error" && e.message.includes(source) && /durable/.test(e.message), JSON.stringify(opts));
+
+test("§1 root durability: a root under a scratch root or a temp directory is refused on every host, naming where the root came from", () => {
+  const linux = (env) => ({ platform: "linux", env, home: "/home/a" });
+  for (const root of ["/Volumes/D/scratch/snaps", "/Volumes/D/scratch", "/tmp/snaps", "/private/tmp/x/snaps", "/var/tmp/snaps", "/private/var/folders/ab/cd/T/snaps", "/var/folders/ab/cd/T/snaps", path.join(os.tmpdir(), "snaps")]) {
+    refusesRoot(linux({ RIGHTKIT_SNAPSHOT_ROOT: root }), "RIGHTKIT_SNAPSHOT_ROOT");
+  }
+  refusesRoot(linux({ XDG_STATE_HOME: "/Volumes/D/scratch/state" }), "XDG_STATE_HOME");
+  refusesRoot(linux({ XDG_STATE_HOME: "/tmp/state" }), "XDG_STATE_HOME");
+  refusesRoot({ platform: "linux", env: {}, home: "/tmp/home" }, "the home directory /tmp/home");
+  // A temp directory the host names by environment (TMPDIR / TEMP / TMP) counts too, and a root outside every one of them is fine.
+  refusesRoot(linux({ RIGHTKIT_SNAPSHOT_ROOT: "/data/t/snaps", TMPDIR: "/data/t" }), "RIGHTKIT_SNAPSHOT_ROOT");
+  assert.equal(snapshotRoot(linux({ RIGHTKIT_SNAPSHOT_ROOT: "/data/snaps", TMPDIR: "/data/t" })), "/data/snaps");
+  // A TMPDIR of "/" must not turn every root into a refusal.
+  assert.equal(snapshotRoot(linux({ RIGHTKIT_SNAPSHOT_ROOT: "/data/snaps", TMPDIR: "/" })), "/data/snaps");
+  // Windows: the Dell's fixed root is fine; the same check reads %TEMP% & friends, case-insensitively, with Windows paths.
+  assert.equal(snapshotRoot({ platform: "win32", env: { TEMP: "C:\\Users\\a\\AppData\\Local\\Temp" }, home: "C:\\Users\\a" }), "D:\\.rightkit-managed\\snapshots");
+  refusesRoot({ platform: "win32", env: { TEMP: "d:\\.RIGHTKIT-MANAGED" }, home: "C:\\Users\\a" }, "the host's managed root");
+});
+
+test("§1 root: RIGHTKIT_SNAPSHOT_TEST_RUN moves the root only to <base>/test-roots/<id>/snapshots inside the same durable base, and is checked like any root", () => {
+  const run = (platform, env, home) => snapshotRoot({ platform, env: { RIGHTKIT_SNAPSHOT_TEST_RUN: "run-1.a_b", ...env }, home });
+  assert.equal(run("darwin", {}, "/Users/a"), "/Volumes/D/.rightkit-managed/test-roots/run-1.a_b/snapshots");
+  assert.equal(run("win32", {}, "C:\\Users\\a"), "D:\\.rightkit-managed\\test-roots\\run-1.a_b\\snapshots");
+  assert.equal(run("linux", { XDG_STATE_HOME: "/s" }, "/home/a"), "/s/rightkit/test-roots/run-1.a_b/snapshots");
+  assert.equal(run("linux", { RIGHTKIT_SNAPSHOT_ROOT: "/data/rk/snaps" }, "/home/a"), "/data/rk/test-roots/run-1.a_b/snapshots");
+  // No id can name a place outside <base>/test-roots/.
+  for (const id of ["..", "../x", "a/b", "a\\b", "/abs", ".hidden", "a..b", "x".repeat(81), "a b", "a\0b"]) {
+    assert.throws(() => snapshotRoot({ platform: "darwin", env: { RIGHTKIT_SNAPSHOT_TEST_RUN: id }, home: "/Users/a" }), (e) => e instanceof SnapshotError && e.code === "error" && /RIGHTKIT_SNAPSHOT_TEST_RUN/.test(e.message), JSON.stringify(id));
+  }
+  // It does not lift the refusal: a base under scratch or temp stays refused, and the message names the variable and the base's source.
+  refusesRoot({ platform: "linux", env: { RIGHTKIT_SNAPSHOT_TEST_RUN: "r", XDG_STATE_HOME: "/Volumes/D/scratch/s" }, home: "/home/a" }, "RIGHTKIT_SNAPSHOT_TEST_RUN under XDG_STATE_HOME");
+  // It is not a way to name a snapshot root elsewhere: an empty value is ignored, and the other root variables stay ignored on Mac & Dell.
+  assert.equal(snapshotRoot({ platform: "darwin", env: { RIGHTKIT_SNAPSHOT_TEST_RUN: "", RIGHTKIT_SNAPSHOT_ROOT: "/y" }, home: "/Users/a" }), "/Volumes/D/.rightkit-managed/snapshots");
+});
+
+test("snapshot CLI: an injected snapshotRoot is the root, and the environment is not consulted for it", (t) => {
+  const f = fixture(t);
+  const out = [], err = [];
+  // The environment names an invalid run id: were it consulted the command would refuse. The injected root is used as given.
+  const env = { ...process.env, RIGHTKIT_SNAPSHOT_ROOT: "/Volumes/D/scratch/never", RIGHTKIT_SNAPSHOT_TEST_RUN: "x/../y" };
+  const code = snapshotCommand({ cwd: f.repo, env, platform: process.platform, snapshotRoot: f.root, out: (m) => out.push(m), err: (m) => err.push(m), acquireOwnership: (q) => { assert.equal(q.snapshot, f.dir); assert.equal(q.file, path.join(path.dirname(f.root), "build-ownership", "owner.json")); return { handle: "h", joined: false, reclaimed: null, release: () => ({ released: true }) }; } }, ["--commit", f.commit, "--json"]);
+  assert.equal(code, 0, err.join("\n"));
+  assert.equal(JSON.parse(out.at(-1)).path, f.dir);
+  // Without the injection the same environment is refused before anything runs.
+  const refused = [];
+  assert.equal(snapshotCommand({ cwd: f.repo, env, platform: process.platform, out: () => {}, err: (m) => refused.push(m), acquireOwnership: () => { throw new Error("must not acquire"); } }, ["--commit", f.commit]), 2);
+  assert.match(refused.join("\n"), /RIGHTKIT_SNAPSHOT_TEST_RUN must be a plain run id/);
 });
 
 test("§1 commit-only build & E1: the snapshot is the commit's tree; a dirty checkout neither blocks nor leaks; the checkout is untouched", (t) => {
@@ -169,6 +222,176 @@ test("E6: a changed byte, a deleted file, a planted visible file refuse verifica
   verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
 });
 
+// Review item5-r1 finding 1 (E6, GATE-CONTRACT §1 "exact snapshot", "no link inside the snapshot may resolve into the editable
+// checkout"): the seeded tree id ignores what an ignore rule matches and follows no link, so verification also walks the directory.
+const refusesPath = (f, name, rev = f.commit) => assert.throws(() => verifySnapshot({ checkout: f.repo, rev, root: f.root }), (e) => e instanceof SnapshotError && e.code === "mismatch" && e.message.includes(name), `verify refuses ${name}`);
+const dirLinkType = process.platform === "win32" ? "junction" : "dir";
+
+test("E6 exact: a planted ignored file, a planted untracked file and an empty directory refuse verification naming the path; the next sync repairs", (t) => {
+  const f = fixture(t);
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  write(f.dir, { "target/evil.rs": "pub fn evil() {}\n" });
+  refusesPath(f, "target");
+  fs.rmSync(path.join(f.dir, "target"), { recursive: true });
+  write(f.dir, { "planted.log": "ignored by *.log\n" });
+  refusesPath(f, "planted.log");
+  fs.rmSync(path.join(f.dir, "planted.log"));
+  write(f.dir, { "src/planted.rs": "visible\n" });
+  refusesPath(f, "src/planted.rs");
+  fs.rmSync(path.join(f.dir, "src/planted.rs"));
+  fs.mkdirSync(path.join(f.dir, "src", "empty"));
+  refusesPath(f, "src/empty");
+  fs.rmSync(path.join(f.dir, "src", "empty"), { recursive: true });
+  verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  write(f.dir, { "src/nested/deep/build.o": "x\n", "planted.log": "x\n" });
+  const r = syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  assert.equal(r.removed, 2);
+  verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+});
+
+test("E6 exact: a planted directory link or junction (into the checkout, outside the snapshot, or inside it) refuses verification", (t) => {
+  const f = fixture(t);
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  const elsewhere = tmp(t, "rk-snap-elsewhere-");
+  fs.mkdirSync(path.join(f.repo, "outputs"));
+  const link = path.join(f.dir, "target");
+  // Into the editable checkout: ignored by the tree id (target/ is an ignore rule), refused here.
+  fs.symlinkSync(path.join(f.repo, "outputs"), link, dirLinkType);
+  assert.throws(() => verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root }), (e) => e.code === "mismatch" && /target/.test(e.message));
+  fs.rmSync(link, { recursive: true, force: true });
+  // Outside the snapshot, elsewhere on the disk.
+  fs.symlinkSync(elsewhere, link, dirLinkType);
+  assert.throws(() => verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root }), (e) => e.code === "mismatch" && /target/.test(e.message));
+  fs.rmSync(link, { recursive: true, force: true });
+  // Even a link that stays inside the snapshot is not in the commit's tree.
+  fs.symlinkSync(path.join(f.dir, "src"), link, dirLinkType);
+  assert.throws(() => verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root }), (e) => e.code === "mismatch" && /target/.test(e.message));
+  fs.rmSync(link, { recursive: true, force: true });
+  verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+});
+
+test("E6 exact: a planted file link into the checkout or out of the snapshot (an ignored name, a visible name) refuses verification", { skip: posixOnly }, (t) => {
+  const f = fixture(t);
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  write(f.repo, { "secret.rs": "uncommitted\n" });
+  const elsewhere = tmp(t, "rk-snap-elsewhere-");
+  write(elsewhere, { "x.rs": "outside\n" });
+  fs.mkdirSync(path.join(f.dir, "target"));
+  const cases = [["target/escape.rs", path.join(f.repo, "secret.rs")], ["notes.log", path.join(f.repo, "secret.rs")], ["target/outside.rs", path.join(elsewhere, "x.rs")], ["src/alias.rs", "lib.rs"]];
+  for (const [name, to] of cases) {
+    fs.symlinkSync(to, path.join(f.dir, ...name.split("/")));
+    assert.throws(() => verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root }), (e) => e.code === "mismatch" && e.message.includes(name.split("/")[0]), name);
+    fs.rmSync(path.join(f.dir, ...name.split("/")));
+  }
+  fs.rmSync(path.join(f.dir, "target"), { recursive: true });
+  verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+});
+
+test("E6 exact: a committed link that is retargeted, dangles or leaves the snapshot refuses verification naming the link", { skip: posixOnly }, (t) => {
+  const f = fixture(t);
+  fs.symlinkSync("lib.rs", path.join(f.repo, "src", "alias.rs"));
+  const c = commitAll(f.repo);
+  syncSnapshot({ checkout: f.repo, rev: c, root: f.root });
+  const alias = path.join(f.dir, "src", "alias.rs");
+  fs.rmSync(alias);
+  fs.symlinkSync(path.join(f.repo, "src", "lib.rs"), alias);
+  refusesPath(f, "src/alias.rs", c);
+  fs.rmSync(alias);
+  fs.symlinkSync("missing.rs", alias);
+  refusesPath(f, "src/alias.rs", c);
+  fs.rmSync(alias);
+  fs.symlinkSync("lib.rs", alias);
+  verifySnapshot({ checkout: f.repo, rev: c, root: f.root });
+});
+
+const dependencyFixture = (t) => fixture(t, { "package.json": "{\"name\":\"root\",\"private\":true}\n", "pnpm-lock.yaml": "lockfileVersion: '9.0'\n", "apps/web/package.json": "{\"name\":\"web\"}\n", "tools/package.json": "{\"name\":\"tools\"}\n", "src/lib.rs": "x\n", ".gitignore": "target/\nnode_modules/\n" });
+
+test("E6 exact: installed pnpm dependencies are the one allowed extra: named node_modules under a lockfile root only; links in them still may not leave the snapshot", (t) => {
+  const f = dependencyFixture(t);
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  // What installSnapshotDependencies leaves: node_modules at the root and at a workspace member, a link inside the virtual store.
+  write(f.dir, { "node_modules/.pnpm/dep@1.0.0/node_modules/dep/index.js": "module.exports = 1;\n", "node_modules/.modules.yaml": "layoutVersion: 5\n", "apps/web/node_modules/.keep": "x\n" });
+  fs.symlinkSync(path.join(f.dir, "node_modules", ".pnpm", "dep@1.0.0", "node_modules", "dep"), path.join(f.dir, "node_modules", "dep"), dirLinkType);
+  assert.equal(verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root }).commit, f.commit);
+  // Not an allowance for anything else ignored: build outputs, an unrelated ignored file, a node_modules the commit's layout does not host.
+  for (const [name, offender, cleanup] of [["target/debug/x.o", "target", "target"], ["src/node_modules/x.js", "src/node_modules", "src/node_modules"], ["node_modules_extra/x.js", "node_modules_extra", "node_modules_extra"]]) {
+    write(f.dir, { [name]: "x\n" });
+    refusesPath(f, offender);
+    fs.rmSync(path.join(f.dir, ...cleanup.split("/")), { recursive: true, force: true });
+  }
+  verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  // A link inside the dependency directory into the editable checkout, and one out of the snapshot, refuse.
+  const elsewhere = tmp(t, "rk-snap-elsewhere-");
+  fs.mkdirSync(path.join(f.repo, "src-out"));
+  for (const [to, why] of [[path.join(f.repo, "src-out"), /resolving into the editable checkout/], [elsewhere, /resolving outside the snapshot/]]) {
+    const link = path.join(f.dir, "node_modules", "escape");
+    fs.symlinkSync(to, link, dirLinkType);
+    assert.throws(() => verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root }), (e) => e.code === "mismatch" && /node_modules\/escape/.test(e.message) && why.test(e.message));
+    fs.rmSync(link, { recursive: true, force: true });
+  }
+  // A planted link in place of the dependency directory itself is not an installed directory.
+  fs.rmSync(path.join(f.dir, "node_modules"), { recursive: true, force: true });
+  fs.symlinkSync(path.join(f.repo, "src-out"), path.join(f.dir, "node_modules"), dirLinkType);
+  refusesPath(f, "node_modules");
+  fs.rmSync(path.join(f.dir, "node_modules"), { recursive: true, force: true });
+  // The next sync prunes the install ("exact"), and verification then holds with no allowance used.
+  write(f.dir, { "node_modules/x/index.js": "x\n" });
+  const r = syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  assert.equal(r.removed, 2, "node_modules and apps/web/node_modules");
+  assert.equal(fs.existsSync(path.join(f.dir, "node_modules")), false);
+});
+
+test("E6 exact: node_modules where the commit has no pnpm lockfile is refused (nothing would have installed it)", (t) => {
+  const f = fixture(t);
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  write(f.dir, { "node_modules/dep/index.js": "x\n" });
+  refusesPath(f, "node_modules");
+});
+
+test("§1 gate-written .git/config: only the config-only origin file is allowed under .git", (t) => {
+  const f = fixture(t);
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  write(f.dir, { ".git/config": '[remote "origin"]\n\turl = git@github.com:example/repo.git\n' });
+  verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  for (const body of ['[core]\n\tfsmonitor = /bin/sh\n', '[remote "origin"]\n\turl = x\n[core]\n\tfsmonitor = y\n']) {
+    write(f.dir, { ".git/config": body });
+    refusesPath(f, ".git/config");
+  }
+  write(f.dir, { ".git/config": '[remote "origin"]\n\turl = x\n', ".git/HEAD": "ref: refs/heads/main\n" });
+  refusesPath(f, ".git");
+  const r = syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  assert.equal(r.removed, 1);
+  assert.equal(fs.existsSync(path.join(f.dir, ".git")), false);
+});
+
+// Review item5-r1 finding 8: the success exit hid a kept ownership record.
+test("snapshot CLI: a sync whose build ownership release keeps the record exits 1 with an explicit line; a released one exits 0", (t) => {
+  const f = fixture(t);
+  const env = process.env;
+  const run = (release) => {
+    const out = [], err = [];
+    const code = snapshotCommand({ cwd: f.repo, env, snapshotRoot: f.root, platform: process.platform, out: (m) => out.push(m), err: (m) => err.push(m), acquireOwnership: () => ({ handle: "h-keep", joined: false, reclaimed: null, release }) }, ["--commit", f.commit, "--json"]);
+    return { code, out, err };
+  };
+  const kept = run(() => ({ released: false, why: "survivor still reads snapshot" }));
+  assert.equal(kept.code, 1);
+  assert.match(kept.err.join("\n"), /build ownership h-keep kept: survivor still reads snapshot/);
+  const released = run(() => ({ released: true }));
+  assert.equal(released.code, 0, released.err.join("\n"));
+  assert.deepEqual(released.err, []);
+  // A joined ownership (the caller's own, held by an outer gate) is not this command's to release: still exit 0.
+  const out = [], err = [];
+  assert.equal(snapshotCommand({ cwd: f.repo, env, snapshotRoot: f.root, platform: process.platform, out: (m) => out.push(m), err: (m) => err.push(m), acquireOwnership: () => ({ handle: "h-outer", joined: true, reclaimed: null, release: () => ({ released: false, why: "joined" }) }) }, ["--commit", f.commit]), 0, err.join("\n"));
+  // A failed sync keeps its own nonzero code even when the release also keeps the record.
+  fs.mkdirSync(f.root, { recursive: true });
+  fs.writeFileSync(path.join(f.root, `${repoKey(keyPath(f.repo))}.lock`), JSON.stringify({ pid: process.pid, host: os.hostname(), startedAt: "now" }));
+  const failedOut = [];
+  assert.equal(snapshotCommand({ cwd: f.repo, env, snapshotRoot: f.root, platform: process.platform, out: () => {}, err: (m) => failedOut.push(m), acquireOwnership: () => ({ handle: "h-keep", joined: false, reclaimed: null, release: () => ({ released: false, why: "kept" }) }) }, ["--commit", f.commit]), 1);
+  assert.match(failedOut.join("\n"), /snapshot busy/);
+  assert.match(failedOut.join("\n"), /kept: kept/);
+});
+
 test("E6 modes: a changed exec bit refuses; a mode-only commit fixes the mode without rewriting bytes", { skip: posixOnly }, (t) => {
   const f = fixture(t);
   write(f.repo, { "run.sh": "#!/bin/sh\n" });
@@ -242,10 +465,9 @@ test("exclusion: a live holder makes a second sync busy; a dead holder's lock is
 
 test("CLI: rightkit-gate snapshot syncs and --verify checks; exit 0 match, 1 mismatch, 2 usage", async (t) => {
   const f = fixture(t);
-  const env = { ...process.env, RIGHTKIT_DATA_ROOT: path.dirname(f.root), RIGHTKIT_SNAPSHOT_ROOT: f.root };
-  const root = snapshotRoot({ env });
+  const root = f.root;
   const out = [], err = [];
-  const io = { cwd: f.repo, env, out: (m) => out.push(m), err: (m) => err.push(m) };
+  const io = { cwd: f.repo, env: process.env, snapshotRoot: root, out: (m) => out.push(m), err: (m) => err.push(m) };
   assert.equal(await main(["snapshot", "--commit", f.commit, "--json"], io), 0, err.join("\n"));
   const r = JSON.parse(out.at(-1));
   assert.equal(r.path, path.join(root, repoKey(keyPath(f.repo))));
@@ -349,8 +571,8 @@ test("§1 exact: files matched by .git/info/exclude or the user's global exclude
   t.after(() => fs.rmSync(globalExcludes, { force: true }));
   git(f.repo, "config", "core.excludesFile", globalExcludes);
   write(f.dir, { "local-only.rs": "stale\n", "src/build.cache": "stale\n" });
-  // The seeded identity cannot see them: the reason the sync, not the verifier, has to remove them.
-  verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  // The seeded identity alone cannot see them; the verifier walks the directory and refuses (E6), and the sync removes them.
+  assert.throws(() => verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root }), (e) => e.code === "mismatch" && /local-only\.rs/.test(e.message));
   const r = syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
   assert.equal(r.removed, 2);
   assert.equal(fs.existsSync(path.join(f.dir, "local-only.rs")), false);

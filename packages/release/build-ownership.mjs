@@ -18,16 +18,25 @@
 //         active, or it is gone and its holder recorded `drained` (or `failed` before the gate ever ran inside it). A gate whose
 //         launcher's job lets children leave silently (a Node parent) cannot hold its children in the job; a self-check at
 //         acquisition records that (`contained: false`), and such a gate's crash is never cleared except by a reboot.
-//       POSIX, three nets, all of which must be clear: (1) the gate's process group, counting members started after the
-//         ownership whose ancestry leads to the owner or to an orphan (ancestors and peers that share the group are not its
-//         children); (2) no process whose environment carries the handle (RIGHTKIT_BUILD_OWNERSHIP=<handle>), which catches a
-//         descendant that started its own session (Linux /proc/<pid>/environ; macOS `ps eww`, which hides the environment of
-//         Apple platform binaries only); (3) no process whose working directory is inside the snapshot (Linux /proc/<pid>/cwd;
-//         macOS `lsof -d cwd`, platform binaries included); (4) every process group a gate under this ownership started
-//         detached (spawnUnderOwnership records it before the child runs; class A scans, right-release builds and heavy-command
-//         start their children that way) is empty, and no such spawn was left half-recorded. Residual on POSIX: a descendant
-//         that itself starts a new session, drops the variable (or is an Apple platform binary on macOS) AND runs outside the
-//         snapshot directory while reading it.
+//       POSIX, four nets, all of which must be clear: (1) the gate's process group, counting members started after the
+//         ownership whose ancestry leads to the owner, to an orphan (re-parented to pid 1) or to ANY other process that predates
+//         the ownership (an orphan adopted by a subreaper such as systemd --user or WSL's init reads that way; only the owner's
+//         recorded parent, or a process that shares the member's group, is a peer that is not the gate's child); (2) no process
+//         whose environment carries the handle (RIGHTKIT_BUILD_OWNERSHIP=<handle>), which catches a descendant that started its
+//         own session (Linux /proc/<pid>/environ; macOS `ps eww`, which hides the environment of Apple platform binaries only);
+//         (3) no process that uses the snapshot directory in any way that survives a new session, a scrubbed environment and a
+//         working directory elsewhere: its working or root directory, executable, an open file descriptor or a mapped file
+//         inside it (Linux /proc/<pid>/{cwd,root,exe,fd,maps}; macOS `lsof`, platform binaries included), or an argument naming
+//         it (/proc/<pid>/cmdline; macOS `ps -ww`); (4) every process group a gate under this ownership started detached
+//         (spawnUnderOwnership records it before the child runs; class A scans, right-release builds and heavy-command start
+//         their children that way) is empty, and no such spawn was left half-recorded.
+//         Unknown is held: on Linux a /proc entry of this user's that cannot be read (EACCES/EPERM, e.g. a non-dumpable process)
+//         fails the net, never "not a reader"; only an entry that vanished (ENOENT/ESRCH) or belongs to another user (read from
+//         /proc/<pid>/status, which is world-readable) is skipped. Residual on POSIX, stated plainly: a descendant that started a
+//         new session, dropped the variable (or is an Apple platform binary on macOS), runs outside the snapshot directory, names
+//         it in no argument AND holds no file in it open or mapped at the instant the nets sample it (it reads between samples)
+//         is invisible; a sampled net cannot prove such a process will not read next. Another user's unreadable processes are
+//         skipped on the premise that they cannot read this user's managed root.
 //       Any host: a reboot after the record was written ends every process it covered.
 //   - if a broker request may have been submitted, `rustright snapshot-lease status` reports REAPED for that snapshot & handle.
 // Any other answer (alive, a probe that fails or is unsupported, ACTIVE, UNKNOWN, a record or holder state that cannot be read)
@@ -64,9 +73,9 @@ export class OwnershipBusy extends Error {
 }
 
 /** Where the host's owner record lives: beside the snapshot root, never in scratch. */
-export function ownershipFile({ platform = process.platform, env = process.env, home = os.homedir() } = {}) {
+export function ownershipFile({ platform = process.platform, env = process.env, home = os.homedir(), snapshotRoot: root } = {}) {
   const paths = platform === "win32" ? path.win32 : path.posix;
-  return paths.join(paths.dirname(snapshotRoot({ platform, env, home })), "build-ownership", "owner.json");
+  return paths.join(paths.dirname(root ?? snapshotRoot({ platform, env, home })), "build-ownership", "owner.json");
 }
 
 export const jobName = (handle) => `Local\\RightKitBuildOwnership-${handle}`;
@@ -178,11 +187,23 @@ function jobProbeScript(name) {
   ].join("\n");
 }
 
+const PATH_CHAR = /[A-Za-z0-9._@+~-]/;
+/** Whether `text` (an argument list) names the directory `dir`: `dir` itself or a path under it, not a longer sibling name. */
+export function namesDir(text, dir) {
+  const d = dir.length > 1 ? dir.replace(/\/+$/, "") : dir;
+  if (!d) return false;
+  for (let i = text.indexOf(d); i !== -1; i = text.indexOf(d, i + 1)) {
+    const before = i === 0 ? "" : text[i - 1]; const after = text[i + d.length] ?? "";
+    if ((before === "" || !PATH_CHAR.test(before)) && (after === "" || after === "/" || !PATH_CHAR.test(after))) return true;
+  }
+  return false;
+}
+
 /**
  * The host's process facts the ownership rules rely on. Each answer is a fact or a throw; a throw means "unknown" and the
  * caller treats it as busy.
  */
-export function processProbe({ platform = process.platform, spawn = spawnSync, spawnHolder = spawnDetachedDefault, kill = process.kill.bind(process), readFile = fs.readFileSync, readdir = fs.readdirSync, uid = process.getuid?.() } = {}) {
+export function processProbe({ platform = process.platform, spawn = spawnSync, spawnHolder = spawnDetachedDefault, kill = process.kill.bind(process), readFile = fs.readFileSync, readdir = fs.readdirSync, readlink = fs.readlinkSync, proc = "/proc", uid = process.getuid?.() } = {}) {
   const exists = (pid) => {
     try { kill(pid, 0); return true; } catch (e) { if (e.code === "ESRCH") return false; if (e.code === "EPERM") return true; throw e; }
   };
@@ -267,7 +288,29 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
     const byPid = new Map(rows.map((row) => [row.pid, row]));
     const own = new Set(Number.isInteger(r.pid) ? [r.pid] : []);
     for (let pid = process.pid; pid > 1 && !own.has(pid); pid = byPid.get(pid)?.ppid ?? 0) own.add(pid);
-    return { rows, own };
+    return { rows, own, byPid };
+  };
+  // Linux /proc. An entry this gate cannot read is a fact to decide, never a silent skip: gone (ENOENT/ESRCH) is not a reader;
+  // another user's process is skipped (it cannot read this user's managed root; its uid comes from /proc/<pid>/status, readable
+  // by everyone); anything else, including a process of this user (EACCES/EPERM: non-dumpable, hidepid) is UNKNOWN and throws, so
+  // the caller stays busy.
+  const GONE = new Set(["ENOENT", "ESRCH"]);
+  // A real Linux host always has /proc, so its absence there is unknown (throws below); a Linux platform simulated on another host
+  // (gate-contract's linux cases on a Mac) has nothing real to read and falls through to "no net".
+  const procAvailable = () => platform === "linux" && (process.platform === "linux" || fs.existsSync(proc));
+  const procPids = () => {
+    if (!fs.existsSync(proc)) throw new Error(`no ${proc} on this linux host`);
+    return readdir(proc).filter((name) => /^\d+$/.test(name) && Number(name) !== process.pid).map(Number);
+  };
+  const unreadable = (pid, e) => {
+    if (GONE.has(e.code)) return;
+    if (!["EACCES", "EPERM"].includes(e.code)) throw e;
+    let status;
+    try { status = String(readFile(`${proc}/${pid}/status`, "utf8")); } catch (e2) { if (GONE.has(e2.code)) return; throw new Error(`${proc}/${pid} is unreadable (${e.code}) and so is its owner (${e2.code ?? e2.message}), so what it reads is unknown`); }
+    const m = /^Uid:\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/m.exec(status);
+    if (!m) throw new Error(`${proc}/${pid} is unreadable (${e.code}) and its owner cannot be read, so what it reads is unknown`);
+    if (Number.isInteger(uid) && ![1, 2, 3, 4].some((i) => Number(m[i]) === uid)) return;
+    throw new Error(`${proc}/${pid} (a process of this user) is unreadable (${e.code}), so what it reads is unknown`);
   };
   return {
     platform,
@@ -303,19 +346,19 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
     },
     /**
      * Pids of processes whose environment carries `<OWNERSHIP_ENV>=<handle>` (this gate's own chain left out). Linux reads
-     * /proc/<pid>/environ; macOS reads `ps eww`, which shows the environment of every process the user may inspect except Apple
-     * platform binaries (/bin/*, /usr/bin/*), which the working-directory net covers. null where neither exists.
+     * /proc/<pid>/environ (an unreadable entry of this user's throws: unknown); macOS reads `ps eww`, which shows the environment
+     * of every process the user may inspect except Apple platform binaries (/bin/*, /usr/bin/*), which the snapshot-use net
+     * covers. null where neither exists.
      */
     tokenHolders(handle) {
       const token = `${OWNERSHIP_ENV}=${handle}`;
-      if (fs.existsSync("/proc/self/environ")) {
+      if (procAvailable()) {
         const needle = Buffer.from(`${token}\0`);
         const found = [];
-        for (const name of readdir("/proc")) {
-          if (!/^\d+$/.test(name) || Number(name) === process.pid) continue;
+        for (const pid of procPids()) {
           let environ;
-          try { environ = readFile(`/proc/${name}/environ`); } catch (e) { if (["EACCES", "EPERM", "ENOENT", "ESRCH"].includes(e.code)) continue; throw e; }
-          if (Buffer.concat([environ, Buffer.from("\0")]).includes(needle)) found.push(Number(name));
+          try { environ = readFile(`${proc}/${pid}/environ`); } catch (e) { unreadable(pid, e); continue; }
+          if (Buffer.concat([environ, Buffer.from("\0")]).includes(needle)) found.push(pid);
         }
         return found;
       }
@@ -327,33 +370,72 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
       return String(r.stdout ?? "").split(/\r?\n/).map((l) => /^\s*(\d+)\s(.*)$/.exec(l)).filter((m) => m && !own.has(Number(m[1])) && Number(m[1]) !== r.pid && pattern.test(m[2])).map((m) => Number(m[1]));
     },
     /**
-     * Pids of processes whose working directory is `dir` or inside it (this gate's own chain left out): Linux /proc/<pid>/cwd,
-     * macOS `lsof -d cwd` for this user. A reader of the snapshot that left both the group and its environment still runs
-     * there. null where neither exists.
+     * Processes using the snapshot `dir` in a way a new session, a scrubbed environment and a working directory elsewhere do not
+     * hide, as `[{ pid, how }]` (this gate's own chain left out): its working or root directory, its executable, an open file
+     * descriptor or a mapped file inside `dir`, or an argument naming `dir`. Linux: /proc/<pid>/{cwd,root,exe,fd,maps,cmdline}
+     * (an unreadable entry of this user's throws: unknown). macOS: `lsof` for this user (cwd, txt, mem and every descriptor) and
+     * `ps -ww` arguments. null where neither exists.
      */
-    cwdHolders(dir) {
-      const inside = (p) => { const rel = path.relative(dir, p); return rel === "" || (!!rel && !rel.startsWith("..") && !path.isAbsolute(rel)); };
-      if (fs.existsSync("/proc/self/cwd")) {
-        const found = [];
-        for (const name of readdir("/proc")) {
-          if (!/^\d+$/.test(name) || Number(name) === process.pid) continue;
-          let cwd;
-          try { cwd = fs.readlinkSync(`/proc/${name}/cwd`); } catch (e) { if (["EACCES", "EPERM", "ENOENT", "ESRCH"].includes(e.code)) continue; throw e; }
-          if (inside(cwd)) found.push(Number(name));
+    snapshotUsers(dir) {
+      const roots = [path.resolve(dir)];
+      try { const real = fs.realpathSync(dir); if (!roots.includes(real)) roots.push(real); } catch { /* the directory is gone: only its recorded spelling can be named */ }
+      const inside = (p) => path.isAbsolute(p) && roots.some((root) => { const rel = path.relative(root, p); return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel)); });
+      const named = (text) => roots.some((root) => namesDir(text, root));
+      if (!procAvailable() && platform !== "darwin") return null;
+      const { own } = psList();
+      const found = []; const seen = new Set();
+      const add = (pid, how) => { if (own.has(pid) || seen.has(pid)) return; seen.add(pid); found.push({ pid, how }); };
+      if (procAvailable()) {
+        // /proc/<pid>/fd and maps list the files a process holds open or mapped right now; cmdline survives its other changes.
+        const targetOf = (file) => { try { return readlink(file); } catch (e) { if (GONE.has(e.code)) return null; throw e; } };
+        for (const pid of procPids()) {
+          if (own.has(pid)) continue;
+          try {
+            for (const [link, how] of [["cwd", "working directory"], ["root", "root directory"], ["exe", "executable"]]) {
+              const target = targetOf(`${proc}/${pid}/${link}`);
+              if (target !== null && inside(target)) { add(pid, how); break; }
+            }
+            if (!seen.has(pid)) {
+              let fds = []; try { fds = readdir(`${proc}/${pid}/fd`); } catch (e) { if (!GONE.has(e.code)) throw e; }
+              for (const fd of fds) { const target = targetOf(`${proc}/${pid}/fd/${fd}`); if (target !== null && inside(target)) { add(pid, `open file ${target}`); break; } }
+            }
+            if (!seen.has(pid)) {
+              let maps = ""; try { maps = String(readFile(`${proc}/${pid}/maps`, "utf8")); } catch (e) { if (!GONE.has(e.code)) throw e; }
+              for (const line of maps.split("\n")) { const m = /^\S+\s+\S+\s+\S+\s+\S+\s+\d+\s+(\/.*?)(?: \(deleted\))?$/.exec(line); if (m && inside(m[1])) { add(pid, `mapped file ${m[1]}`); break; } }
+            }
+            if (!seen.has(pid)) {
+              let cmdline = ""; try { cmdline = String(readFile(`${proc}/${pid}/cmdline`, "utf8")); } catch (e) { if (!GONE.has(e.code)) throw e; }
+              if (named(cmdline)) add(pid, "argument");
+            }
+          } catch (e) { unreadable(pid, e); }
         }
         return found;
       }
-      if (platform !== "darwin") return null;
-      const { own } = psList();
-      const r = run(spawn, "lsof", ["-a", "-d", "cwd", "-Fpn", "-u", String(uid)]);
+      const r = run(spawn, "lsof", ["-n", "-P", "-a", "-u", String(uid), "-Fpfn"]);
       // Only a clean exit is a complete listing: any other status (even with output) is unknown, so the caller stays busy.
       if (r.error || r.status !== 0) throw new Error(`lsof: ${r.error?.message ?? (String(r.stderr ?? "").trim().split(/\r?\n/).pop() || `exit ${r.status}`)}`);
-      const found = []; let pid = null;
+      if (Number.isInteger(r.pid)) own.add(r.pid);
+      let pid = null; let fd = "";
       for (const line of String(r.stdout ?? "").split(/\r?\n/)) {
-        if (line.startsWith("p")) pid = Number(line.slice(1));
-        else if (line.startsWith("n") && pid && !own.has(pid) && inside(line.slice(1))) found.push(pid);
+        if (line.startsWith("p")) { pid = Number(line.slice(1)); fd = ""; }
+        else if (line.startsWith("f")) fd = line.slice(1);
+        else if (line.startsWith("n") && pid && inside(line.slice(1))) add(pid, fd === "cwd" ? "working directory" : fd === "rtd" ? "root directory" : fd === "txt" ? "executable or text file" : fd === "mem" ? `mapped file ${line.slice(1)}` : `open file ${line.slice(1)}`);
       }
+      const a = run(spawn, "ps", ["-A", "-ww", "-o", "pid=", "-o", "command="], { LC_ALL: "C", LANG: "C" });
+      if (a.error || a.status !== 0) throw new Error(`ps arguments: ${a.error?.message ?? (String(a.stderr ?? "").trim() || `exit ${a.status}`)}`);
+      if (Number.isInteger(a.pid)) own.add(a.pid);
+      for (const line of String(a.stdout ?? "").split(/\r?\n/)) { const m = /^\s*(\d+)\s(.*)$/.exec(line); if (m && named(m[2])) add(Number(m[1]), "argument"); }
       return found;
+    },
+    /** This gate's ancestors, nearest first, as `[{ pid, startedMs }]` (pid 1 and the gate itself left out). */
+    ancestors() {
+      const { byPid } = psList();
+      const chain = [];
+      for (let row = byPid.get(process.pid); row && row.ppid > 1 && chain.length < 64; ) {
+        row = byPid.get(row.ppid);
+        if (row) chain.push({ pid: row.pid, startedMs: Number.isFinite(row.startedMs) ? row.startedMs : null });
+      }
+      return chain;
     },
   };
 }
@@ -412,20 +494,28 @@ const readText = (file) => { try { return fs.readFileSync(file, "utf8"); } catch
 /**
  * Whether group member `m` is work the owner covers. Ancestors and peers share a group without being the gate's children (the
  * shell that started it, `| tee`, a later gate started by the same script), so a member counts only when it started after the
- * ownership began AND its ancestry leads to the owner or to an orphan (re-parented to pid 1 when its parent died), never to a
- * process that existed before the ownership or to the asking gate's own chain. A member whose ancestry cannot be followed counts.
- * On Linux an orphan adopted by a subreaper (systemd --user) reads as rooted elsewhere; the environment net covers it.
+ * ownership began AND its ancestry does not end at a proven peer. The walk covers the member at the owner, at pid 1 (an orphan),
+ * at an unknown parent, and at ANY process that predates the ownership except a peer parent: an orphan adopted by a subreaper
+ * (systemd --user, WSL's init) has that subreaper as its parent now, and a subreaper is an ancestor of the gate as often as not,
+ * so "a pre-existing parent" proves nothing about being the gate's work. A peer parent is the owner's recorded nearest
+ * ancestor (the shell that ran `gate | tee`) or a process that shares the member's own process group (a script shell without job
+ * control); a descendant of the asking gate is its own. Everything else is covered: a peer under another parent is held only
+ * until it exits, never cleared by guesswork.
  */
 function coveredMember(m, owner, { byPid, own }) {
   const since = Date.parse(owner.acquiredAt) - START_SLACK_MS;
   const before = (p) => !Number.isFinite(p.startedMs) || p.startedMs < since;
   if (own.has(m.pid) || before(m)) return false;
+  const parent = Array.isArray(owner.ancestors) ? owner.ancestors[0] : null;
+  const peerParent = (p) => (Number.isInteger(p.group) && p.group === m.group) || (!!parent && p.pid === parent.pid && sameStart(p.startedMs, parent.startedMs));
   const seen = new Set([m.pid]);
   for (let p = byPid.get(m.ppid); p; p = byPid.get(p.ppid)) {
     if (p.pid === owner.pid && sameStart(p.startedMs, owner.startedMs)) return true;
-    if (p.pid <= 1) return true;
-    if (own.has(p.pid) || before(p) || seen.has(p.pid)) return false;
+    if (p.pid <= 1 || seen.has(p.pid)) return true;
     seen.add(p.pid);
+    if (p.pid === process.pid) return false;
+    if (before(p)) return !peerParent(p);
+    if (own.has(p.pid)) return false;
   }
   return true;
 }
@@ -503,12 +593,12 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null }) {
       proofs.push(`no process carries ${OWNERSHIP_ENV}=${owner.handle}`);
     }
     if (owner.snapshot) {
-      let inside;
-      try { inside = probe.cwdHolders(owner.snapshot); } catch (e) { throw new Error(`working directories cannot be listed (${e.message})`); }
-      if (inside) {
-        const others = inside.filter((pid) => pid !== selfPid);
-        if (others.length) throw new Error(`process(es) ${others.join(", ")} still run inside the snapshot ${owner.snapshot}`);
-        proofs.push(`no process runs inside ${owner.snapshot}`);
+      let users;
+      try { users = probe.snapshotUsers(owner.snapshot); } catch (e) { throw new Error(`processes using the snapshot cannot be listed (${e.message})`); }
+      if (users) {
+        const others = users.filter((u) => u.pid !== selfPid);
+        if (others.length) throw new Error(`process(es) ${others.map((u) => `${u.pid} (${u.how})`).join(", ")} still use the snapshot ${owner.snapshot}`);
+        proofs.push(`no process has a working directory, executable, open or mapped file or argument inside or naming ${owner.snapshot}`);
       }
     }
   } else if (!rebooted) {
@@ -575,6 +665,9 @@ export function acquireBuildOwnership({
   try { me = probe.identity(process.pid); } catch (e) { throw new OwnershipBusy(`build ownership ${file}: this gate's own start identity cannot be read (${e.message})`); }
   if (!me.alive || !Number.isFinite(me.startedMs)) throw new OwnershipBusy(`build ownership ${file}: this gate's own start identity cannot be read`);
   if (platform !== "win32" && !(Number.isInteger(me.group) && me.group > 1)) throw new OwnershipBusy(`build ownership ${file}: this gate's process group cannot be read`);
+  // The gate's ancestors, so a later gate can tell a peer of the owner (the shell it ran under) from an orphan a subreaper adopted.
+  let ancestors = null;
+  try { ancestors = probe.ancestors?.() ?? null; } catch { ancestors = null; }
   const handle = crypto.randomUUID();
   const record = {
     schema: OWNERSHIP_SCHEMA,
@@ -583,6 +676,7 @@ export function acquireBuildOwnership({
     platform,
     pid: process.pid,
     startedMs: me.startedMs,
+    ancestors,
     containment: platform === "win32" ? { kind: "job", name: jobName(handle) } : { kind: "group", group: me.group },
     stage: stage ?? null,
     snapshot: snapshot ?? null,

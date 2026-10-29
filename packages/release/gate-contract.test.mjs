@@ -141,12 +141,12 @@ test("[behavior] executor: on Linux the gate launches the real cargo, never a Ru
 const { syncSnapshot } = await import(${JSON.stringify(pathToFileURL(path.join(HERE, "snapshot.mjs")).href)});
 const snap = syncSnapshot({ checkout: ${JSON.stringify(repo)}, rev: ${JSON.stringify(sha)}, root: ${JSON.stringify(snapRoot)} });
 const out = [];
-const code = await main(["check", "--commit", ${JSON.stringify(sha)}, "--full-a", "--snapshot", snap.path], { cwd: ${JSON.stringify(repo)}, platform: "linux", out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0,
+const code = await main(["check", "--commit", ${JSON.stringify(sha)}, "--full-a", "--snapshot", snap.path], { cwd: ${JSON.stringify(repo)}, platform: "linux", snapshotRoot: ${JSON.stringify(snapRoot)}, out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0,
   ${executorStub ? `resolveExecutor: () => (${executorStub}),` : ""}
   spawn: undefined, runScans: async () => ({ scans: [], notes: [], cacheHits: [] }) });
 console.log(JSON.stringify({ code, out: out.join("\\n").slice(-1500) }));\n`.replace("spawn: undefined, ", ""));
     // The host ownership record and snapshots stay in this fixture, never in the real state or data root.
-    const env = { ...process.env, NODE_OPTIONS: "", RK_GATE_CACHE: "0", PATH: `${shimDir}:${directDir}:${process.env.PATH}`, RIGHTKIT_SNAPSHOT_ROOT: path.join(dir, "snaps"), RIGHTKIT_DATA_ROOT: dir, XDG_STATE_HOME: dir };
+    const env = { ...process.env, NODE_OPTIONS: "", RK_GATE_CACHE: "0", PATH: `${shimDir}:${directDir}:${process.env.PATH}`, RIGHTKIT_DATA_ROOT: dir, XDG_STATE_HOME: dir };
     const r = spawnSync(process.execPath, [driver], { env, encoding: "utf8", cwd: repo });
     let res = {}; try { res = JSON.parse(String(r.stdout).trim().split(/\r?\n/).pop()); } catch { res = { stderr: r.stderr }; }
     return { ...res, shim: fs.existsSync(path.join(dir, "shim-ran")), direct: fs.existsSync(path.join(dir, "direct-ran")) };
@@ -440,10 +440,10 @@ test("[behavior] E16/§1: on Linux the door compiles the selected commit's snaps
   fs.writeFileSync(driver, `const { main } = await import(${JSON.stringify(pathToFileURL(path.join(HERE, "bin", "rightkit-gate.mjs")).href)});
 const fs = await import("node:fs");
 const out = []; const plans = [];
-const code = await main(["--to", "compile", "--commit", ${JSON.stringify(sha)}], { cwd: ${JSON.stringify(repo)}, platform: "linux", out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0,
+const code = await main(["--to", "compile", "--commit", ${JSON.stringify(sha)}], { cwd: ${JSON.stringify(repo)}, platform: "linux", snapshotRoot: ${JSON.stringify(path.join(dir, "snaps"))}, out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0,
   runScans: async (plan) => { plans.push(plan.scans.filter((s) => s.tool === "cargo").map((s) => ({ id: s.id, cls: s.class, env: s.env ?? {}, root: plan.roots.liveRoot }))); return { scans: [], notes: [], cacheHits: [] }; } });
 console.log(JSON.stringify({ code, out: out.join("\\n").slice(-40000), plans }));\n`);
-  const env = { ...process.env, NODE_OPTIONS: "", RK_GATE_CACHE: "0", PATH: `${toolDir}:${process.env.PATH}`, RIGHTKIT_SNAPSHOT_ROOT: path.join(dir, "snaps"), RIGHTKIT_DATA_ROOT: dir, XDG_STATE_HOME: dir };
+  const env = { ...process.env, NODE_OPTIONS: "", RK_GATE_CACHE: "0", PATH: `${toolDir}:${process.env.PATH}`, RIGHTKIT_DATA_ROOT: dir, XDG_STATE_HOME: dir };
   delete env.GITHUB_ACTIONS; delete env.RIGHTKIT_BUILD_OWNERSHIP;
   const r = spawnSync(process.execPath, [driver], { env, encoding: "utf8", cwd: repo });
   let res = {}; try { res = JSON.parse(String(r.stdout).trim().split(/\r?\n/).pop()); } catch { res = { stderr: r.stderr, stdout: r.stdout }; }
@@ -486,14 +486,14 @@ test("[behavior] E6/§1: the door builds the commit, not the checkout: a dirty c
   spawnSync("git", ["add", "-A"], { cwd: repo }); spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c"], { cwd: repo });
   const sha = String(spawnSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).stdout).trim();
   fs.writeFileSync(path.join(repo, "README.md"), "dirty\n");
-  const env = { ...process.env, RIGHTKIT_SNAPSHOT_ROOT: path.join(dir, "snaps"), RIGHTKIT_DATA_ROOT: dir, XDG_STATE_HOME: dir };
+  const env = { ...process.env, RIGHTKIT_DATA_ROOT: dir, XDG_STATE_HOME: dir };
   delete env.GITHUB_ACTIONS; delete env.RIGHTKIT_BUILD_OWNERSHIP; delete env.RIGHTKIT_BUILD_OWNERSHIP_FILE;
   const git = (cwd, ...a) => spawnSync("git", a, { cwd, encoding: "utf8" });
   const spawn = (c, a, opts) => (c === "git" ? spawnSync(c, a, { ...opts, encoding: "utf8" }) : { status: 1, stdout: "", stderr: "not in this fixture" });
   const door = async (compile, extra = {}) => {
     const out = [];
     // No receipt carries over between these runs: each one compiles.
-    const code = await main(["--to", "compile", "--commit", sha], { cwd: repo, platform: "linux", env, spawn, out: (m) => out.push(m), err: (m) => out.push(m), runCheck: async () => 0, runCompile: compile, readReceipt: () => null, writeReceipt: () => {}, ...extra });
+    const code = await main(["--to", "compile", "--commit", sha], { cwd: repo, platform: "linux", snapshotRoot: path.join(dir, "snaps"), env, spawn, out: (m) => out.push(m), err: (m) => out.push(m), runCheck: async () => 0, runCompile: compile, readReceipt: () => null, writeReceipt: () => {}, ...extra });
     return { code, out: out.join("\n") };
   };
   const snapReadme = () => { const m = fs.readdirSync(path.join(dir, "snaps")).find((n) => !n.includes(".")); return path.join(dir, "snaps", m, "README.md"); };
@@ -506,7 +506,7 @@ test("[behavior] E6/§1: the door builds the commit, not the checkout: a dirty c
   ok = await door(async () => {
     const before = fs.statSync(snapReadme()).mtimeMs;
     const out = []; const env2 = { ...env }; delete env2.RIGHTKIT_BUILD_OWNERSHIP; delete env2.RIGHTKIT_BUILD_OWNERSHIP_FILE;
-    const code = await main(["--to", "compile", "--commit", sha], { cwd: repo, platform: "linux", env: env2, spawn, out: (m) => out.push(m), err: (m) => out.push(m), runCheck: async () => 0, runCompile: async () => 0, readReceipt: () => null, writeReceipt: () => {} });
+    const code = await main(["--to", "compile", "--commit", sha], { cwd: repo, platform: "linux", snapshotRoot: path.join(dir, "snaps"), env: env2, spawn, out: (m) => out.push(m), err: (m) => out.push(m), runCheck: async () => 0, runCompile: async () => 0, readReceipt: () => null, writeReceipt: () => {} });
     second = { code, out: out.join("\n"), untouched: fs.statSync(snapReadme()).mtimeMs === before };
     return 0;
   });
@@ -531,12 +531,12 @@ function doorFixture(t, files, prefix) {
   write(repo, files);
   spawnSync("git", ["add", "-A"], { cwd: repo }); spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c"], { cwd: repo });
   const sha = String(spawnSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).stdout).trim();
-  const env = { ...process.env, RIGHTKIT_SNAPSHOT_ROOT: path.join(dir, "snaps"), RIGHTKIT_DATA_ROOT: dir, XDG_STATE_HOME: dir };
+  const env = { ...process.env, RIGHTKIT_DATA_ROOT: dir, XDG_STATE_HOME: dir };
   delete env.GITHUB_ACTIONS; delete env.RIGHTKIT_BUILD_OWNERSHIP; delete env.RIGHTKIT_BUILD_OWNERSHIP_FILE;
   const spawn = (c, a, opts) => (c === "git" ? spawnSync(c, a, { ...opts, encoding: "utf8" }) : { status: 1, stdout: "", stderr: "not in this fixture" });
   const door = async (extra = {}) => {
     const out = [];
-    const code = await main(["--to", "compile", "--commit", sha], { cwd: repo, platform: "linux", env, spawn, out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0, runCheck: async () => 0, readReceipt: () => null, writeReceipt: () => {}, ...extra });
+    const code = await main(["--to", "compile", "--commit", sha], { cwd: repo, platform: "linux", snapshotRoot: path.join(dir, "snaps"), env, spawn, out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0, runCheck: async () => 0, readReceipt: () => null, writeReceipt: () => {}, ...extra });
     return { code, out: out.join("\n") };
   };
   return { repo, sha, door };

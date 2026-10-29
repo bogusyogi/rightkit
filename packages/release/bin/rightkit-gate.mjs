@@ -1411,9 +1411,9 @@ async function runStages(o, args, root, git, io) {
     let selected;
     try { selected = snap.resolveCommit(root, option("--commit") ?? "HEAD"); }
     catch (e) { o.err(`${tag} cannot resolve ${option("--commit") ?? "HEAD"} to a commit: ${e.message}`); return 2; }
-    const snapshotsAt = snap.snapshotRoot({ platform: o.platform, env: o.env });
+    const snapshotsAt = o.snapshotRoot ?? snap.snapshotRoot({ platform: o.platform, env: o.env });
     let own;
-    try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, env: o.env }), stage: `door:${to}`, snapshot: path.join(snapshotsAt, snap.repositoryOf(root).key), commit: selected.commit, platform: o.platform, env: o.env }); }
+    try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, env: o.env, snapshotRoot: snapshotsAt }), stage: `door:${to}`, snapshot: path.join(snapshotsAt, snap.repositoryOf(root).key), commit: selected.commit, platform: o.platform, env: o.env }); }
     catch (e) { if (e.code !== "busy") throw e; o.err(`${tag} BLOCKED: ${e.message}; nothing ran`); return 1; }
     o.out(`${tag} build ownership ${own.joined ? "joined" : "held"} ${own.handle}${own.reclaimed ? ` (reclaimed from ${own.reclaimed.from}: ${own.reclaimed.proofs.join("; ")})` : ""}`);
     try {
@@ -1744,7 +1744,7 @@ export async function main(argv, io = {}) {
     // RIGHTKIT_BUILD_OWNERSHIP names the current owner joins it. Busy (or liveness unknown) runs nothing.
     const { acquireBuildOwnership, ownershipFile } = await import("../build-ownership.mjs");
     let own;
-    try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, env: o.env }), stage: sub ?? "compile", snapshot: option("--snapshot") ?? null, commit: option("--commit") ?? null, platform: o.platform, env: o.env }); }
+    try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, env: o.env, snapshotRoot: o.snapshotRoot }), stage: sub ?? "compile", snapshot: option("--snapshot") ?? null, commit: option("--commit") ?? null, platform: o.platform, env: o.env }); }
     catch (e) { if (e.code !== "busy") throw e; o.err(`rightkit-gate: RK_CHECK_ERROR: ${e.message}; nothing ran`); return 2; }
     o.out(`rightkit-gate: build ownership ${own.joined ? "joined" : "held"} ${own.handle}${own.reclaimed ? ` (reclaimed from ${own.reclaimed.from}: ${own.reclaimed.proofs.join("; ")})` : ""}`);
     try { return await main(argv, { ...io, buildOwnership: own }); }
