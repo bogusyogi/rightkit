@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-contracts = { version = "=0.1.7" }
+rightkit-contracts = { version = "=0.1.8" }
 serde_json = "1"

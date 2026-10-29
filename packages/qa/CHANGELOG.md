@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.2
+
+- Depends on @rightkit/qa-chrome 0.1.12 (the published latest), so apps pinning both no longer fail the registry check on a behind-latest transitive pin (#1284).
+
 ## 0.6.1
 
 - Depends on @rightkit/qa-chrome 0.1.11: Chrome for Testing 155.0.8059.39 -> 156.0.8078.47 (current Stable): archive and executable SHA-256 pins recomputed from the official downloads.

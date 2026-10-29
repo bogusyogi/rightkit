@@ -43,14 +43,14 @@ export function trustedRuntimeHelperPaths() {
     // imports, while template interpolations can contain real executable imports.
     const [imports] = parseModule(text, name);
     for (const specifier of imports) {
-      if (specifier.d === -2) continue; // import.meta has no dependency.
-      if (typeof specifier.n !== "string") {
-        need(computed && text.slice(specifier.s, specifier.e) === computed.expression && ++computedCount <= computed.count, `computed helper import cannot prove closure: ${name}`);
+      if (specifier.type === "import-meta" || specifier.dynamicStart === -2) continue; // import.meta (either form es-module-lexer 3 reports) has no dependency.
+      if (typeof specifier.specifier !== "string" || specifier.glob) { // a template import is a glob pattern, not a path.
+        need(computed && text.slice(specifier.start, specifier.end) === computed.expression && ++computedCount <= computed.count, `computed helper import cannot prove closure: ${name}`);
         pending.push(...computed.paths);
         continue;
       }
-      if (!specifier.n.startsWith(".")) continue;
-      const relative = path.posix.normalize(path.posix.join(path.posix.dirname(name), specifier.n));
+      if (!specifier.specifier.startsWith(".")) continue;
+      const relative = path.posix.normalize(path.posix.join(path.posix.dirname(name), specifier.specifier));
       need(safe(relative), "helper import escapes trusted source");
       pending.push(relative);
     }

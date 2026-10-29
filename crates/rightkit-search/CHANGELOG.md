@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 (unpublished)
+
+- Dependency: `rusqlite` 0.40 -> 0.41 (filename index); no source change. (rightkit#1284)
+
 ## 0.4.0 (2026-10-17)
 
 - **Keyset paging (Orthic-Labs/rightkit#598):** `Keyset::range_bound()` (opt-in, no public field added) adds a redundant bound on the first sort column when a cursor is given (`<=` for `desc`, `>=` for `asc`), so an index on that column can seek to the page. It selects no row the cursor predicate would not; without a cursor nothing is added.

@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-pdf = { version = "=0.3.3", features = ["host"] }
+rightkit-pdf = { version = "=0.3.4", features = ["host"] }

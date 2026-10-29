@@ -1,4 +1,4 @@
-// rightkit-embed 0.6.1 consumed by exact registry pin, outside the workspace.
+// rightkit-embed 0.6.2 consumed by exact registry pin, outside the workspace.
 //
 // Proves the model-free public API: reciprocal_rank_fusion and RRF_K, cosine_similarity,
 // truncate_and_normalize, installed_model_dir, the EmbedderConfig builder defaults, bundle_files on an
@@ -127,6 +127,6 @@ fn main() -> Result<(), String> {
     let _ = std::fs::remove_dir_all(&dir);
     outcome?;
 
-    println!("OK rightkit-embed 0.6.1 (registry consumer)");
+    println!("OK rightkit-embed 0.6.2 (registry consumer)");
     Ok(())
 }

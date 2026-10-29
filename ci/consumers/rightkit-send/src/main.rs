@@ -1,4 +1,4 @@
-// rightkit-send 0.2.0 consumed by exact registry pin (default features), outside the workspace.
+// rightkit-send 0.3.0 consumed by exact registry pin (default features), outside the workspace.
 //
 // Proves the receiving side end to end over loopback and the pure public surface, as a host that feeds
 // discovery itself (the iOS configuration: no multicast, no Bonjour) uses it.
@@ -1366,5 +1366,5 @@ fn main() {
     stop_restart_and_port_in_use(&scratch);
     exchanges(&scratch);
     policy_effects(&scratch);
-    println!("OK rightkit-send 0.2.0 (registry consumer)");
+    println!("OK rightkit-send 0.3.0 (registry consumer)");
 }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0 (2026-10-29)
+
+Re-list gate no longer grows without bound (bogusyogi/rightkit#1276, found in Pulse #501: one gate map held 1,305,271 folders, about 286 MB of a 455 MB process after 46 h). Adrian: "those things that are wrong with right kit, can you not fix them? ... make the changes".
+
+- Age pruning: a folder state is dropped once the folder has not been re-listed for 4 x its own interval (at least 60 s), whatever that interval. Before, only states at the floor interval were pruned, so every folder that changed twice and went quiet was kept forever. An idle state with nothing deferred behaves exactly like no state, so nothing is lost; busy folders keep their back-off and the floor and ceiling are unchanged.
+- Excludes first: a changed folder is checked against the exclude rules (and folders flagged excluded in the store) before it reaches the gate, so excluded trees such as build output and package caches never get an entry.
+- Entry cap: the gate holds at most 131,072 folder states. At the cap, settled states are evicted first; if all are live, a new folder is re-listed at once without a state (no back-off for it) instead of growing the map.
+- `Status::gate_entries` (new) reports the folder states held; `Status::backoff_folders` was already there. `Status` gains a field, so this is a minor (0.x breaking) release for code that builds it with a struct literal. The crate has no serde dependency and `Status` has no serde impl; a host that serialises it should give the new field a `#[serde(default)]` in its own mirror type.
+
 ## 0.5.0 (2026-10-22)
 
 Write budget and footprint cap, for the Pulse hub index that reached ~1 GB on disk and wrote 1.4 to 2.2 GB/h during a crawl. Defaults keep today's behaviour: with `Config::write_budget` unset nothing is deferred or refused. Existing `RKFSIX02` stores open without rewriting their header or rollups & retain legacy clone keys through incremental commits. Fresh stores & rewrites use `RKFSIX03` for device-qualified clone keys; column element layouts stay compatible, while name segments may be shorter. Older readers reject `RKFSIX03` & rebuild.

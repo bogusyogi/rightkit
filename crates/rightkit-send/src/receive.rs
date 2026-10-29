@@ -332,6 +332,7 @@ fn prepare_upload(
         files_total: parsed.files.len(),
         files_done: 0,
         current: None,
+        accepted: false,
         saved_to: None,
         saved_files: Vec::new(),
         error: None,

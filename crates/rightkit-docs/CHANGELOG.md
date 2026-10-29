@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3 (unpublished)
+
+- Dependencies: `lopdf` 0.45 -> 0.46 (more lenient loading: damaged xref data is repaired) and `rust_xlsxwriter` 0.101 -> 0.102; no source change. (rightkit#1284)
+
 ## 0.1.2 (2026-10-22)
 
 ### Changed (rightkit#890, security)

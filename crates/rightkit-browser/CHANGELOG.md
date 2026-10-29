@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.7 (unpublished)
+
+- Dependencies (Windows): `async-tungstenite` 0.32.1 -> 0.35 (tungstenite 0.30) and `getrandom` 0.3.4 -> 0.4; no source change. (rightkit#1284)
+
 ## 0.3.6 — unreleased
 
 - **Fixed: the network policy callback now also decides traffic the page never sees (rightkit#925).** Before, the egress proxy decided only with the DNS pin, so workers, SharedWorkers, WebSockets and Chrome's own background fetches ignored a `Deny` from the `allow_request` callback; and a page request allowed to `127.0.0.1:A` approved the whole host, so other loopback ports passed. Now each session records the `(host, port)` pairs the page requests were allowed for, and the proxy asks the callback once for any other pair, as `resource_type = "Connect"` with `https://host:port/` (CONNECT) or the full URL (plain HTTP); the pin and the metadata/link-local block still always run. No API change; sessions without a callback are unchanged.

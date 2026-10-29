@@ -260,9 +260,19 @@ async fn read_release_status(
 
 fn identity(bytes: &[u8]) -> StagedIdentity {
     StagedIdentity {
-        sha256: format!("{:x}", Sha256::digest(bytes)),
+        sha256: lower_hex(&Sha256::digest(bytes)),
         length: bytes.len() as u64,
     }
+}
+
+/// digest 0.11 outputs no longer implement `LowerHex`; format the bytes directly.
+fn lower_hex(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
 }
 
 fn map_plugin_error(error: tauri_plugin_updater::Error) -> TransportError {

@@ -1,6 +1,6 @@
-# rightkit-send 0.2.0 registry consumer
+# rightkit-send 0.3.0 registry consumer
 
-Standalone consumer, outside the workspace, pinning `rightkit-send =0.2.0` exactly with its default features (no `multicast`, no `bonjour`). It installs the crate from the sealed archive through the offline directory registry and runs `src/main.rs`, which exits non-zero on the first failed assertion. `serde_json` is the only other dependency (error codes and wire types are JSON).
+Standalone consumer, outside the workspace, pinning `rightkit-send =0.3.0` exactly with its default features (no `multicast`, no `bonjour`). It installs the crate from the sealed archive through the offline directory registry and runs `src/main.rs`, which exits non-zero on the first failed assertion. `serde_json` is the only other dependency (error codes and wire types are JSON).
 
 Default features are the configuration of a host that feeds discovery itself, which is what the crate's README prescribes for iOS. They are chosen on purpose: `multicast` announces on UDP multicast and sweeps the local networks, `bonjour` talks to the system mDNS responder, and neither belongs in a hermetic run. Pulse enables `multicast` (and `bonjour` on macOS); the code those features add is not run here.
 

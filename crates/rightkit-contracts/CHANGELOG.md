@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.8 (unpublished)
+
+- Dependency: `jsonschema` 0.58 -> 0.60 (the `schema` feature); no source change. (rightkit#1284)
+
 ## 0.1.7
 
 - **`channel-memory` registered (#332).** New `Contract::ChannelMemory` (name `channel-memory`, `$id` `urn:rightkit:contract:channel-memory:v1`, supported version 1.0.0), listed in `Contract::ALL`, with the schema copied into `schemas/` (moved from `contracts-pending/channel-memory/` to `contracts/`) and checked by `tests/schema_copy.rs`. A downstream exhaustive `match` on `Contract` needs the new arm.

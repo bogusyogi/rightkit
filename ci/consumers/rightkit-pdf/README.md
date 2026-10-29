@@ -1,6 +1,6 @@
-# rightkit-pdf 0.3.3 (PK08, draft consumer recipe)
+# rightkit-pdf 0.3.4 (PK08, draft consumer recipe)
 
-Standalone consumer, outside the workspace, pinning `rightkit-pdf =0.3.3` exactly with the `host`
+Standalone consumer, outside the workspace, pinning `rightkit-pdf =0.3.4` exactly with the `host`
 feature (default features stay on: merge, edit, fonts). It exercises a one-page PDF built in code
 with `write::Document`, then `inspect::page_graph_from_bytes` (page 1, no text islands),
 `compose::compose_candidate` with an empty command list, `save::stage_prepared_save` and

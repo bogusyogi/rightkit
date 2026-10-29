@@ -1,4 +1,4 @@
-// rightkit-pdf 0.3.3 consumed by exact registry pin (feature `host`), outside the workspace.
+// rightkit-pdf 0.3.4 consumed by exact registry pin (feature `host`), outside the workspace.
 //
 // Proves: `write::Document` builds a one-page PDF in code; `inspect::page_graph_from_bytes` reads
 // it (page numbers are one-based) and finds no text islands; `compose::compose_candidate` with an
@@ -128,6 +128,6 @@ fn main() -> Result<(), String> {
     let result = run(&dir);
     let _ = fs::remove_dir_all(&dir);
     result?;
-    println!("OK rightkit-pdf 0.3.3 (registry consumer)");
+    println!("OK rightkit-pdf 0.3.4 (registry consumer)");
     Ok(())
 }

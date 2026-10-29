@@ -303,7 +303,7 @@
       ],
       "closure": {
         "install": {
-          "@rightkit/qa-chrome": "0.1.11"
+          "@rightkit/qa-chrome": "0.1.12"
         },
         "declaredOnly": []
       },
@@ -775,7 +775,7 @@
       "pkId": "PK12",
       "id": "ci/consumers/rightkit-browser/src/main.rs",
       "files": {
-        "Cargo.toml": "001499957888de0d32ce2799faf9c73d440a6f4d2b724ba2a0162a60cd971c17",
+        "Cargo.toml": "66f19240a9234d4f80a96278c572334001169febaa6137455e4e18ed3ac5f903",
         "README.md": "8515f8481c8a4fb81582afc0acfa1638aaafe61364656e050bd1e5abb920bc82",
         "src/main.rs": "a719e9badfca191c21ee3491b4f184a342eea93140f514050897cd0af8d520e9"
       },
@@ -843,16 +843,16 @@
     "rightkit-pdf": {
       "pkId": "PK08",
       "id": "ci/consumers/rightkit-pdf/src/main.rs",
-      "dependency": "rightkit-pdf = { version = \"=0.3.3\", features = [\"host\"] }",
+      "dependency": "rightkit-pdf = { version = \"=0.3.4\", features = [\"host\"] }",
       "extraDependencies": [],
       "gateEvidence": "no assets needed; temp directory only, removed on exit; no ffmpeg or PDFKit run off macOS (open answers Unsupported). The host feature compiles on every platform (objc2 deps are macOS-only target deps). Consider a PK17-4 gate row for feature host on macOS before it is claimed",
       "consumes": "PK08-6 names ViewRight pdf_adapter.rs:106 and mac_pdf_view.rs:103 as the PdfHost consumers (per the plan, not re-read here); rightkit-pdf public items used: write::Document (src/write.rs:238,283,357,363), inspect::page_graph_from_bytes (src/inspect.rs:335), compose::compose_candidate (src/compose.rs:146), save::stage_prepared_save (src/save.rs:290), save::PdfSaveTokenStore (src/save.rs:143), commit::commit_pdf_save (src/commit.rs:468), model::document_sha256 (src/model.rs:938), host::PdfHost::new (src/host/mod.rs:720), host::OpenRequest, NativeParent::detached (src/host/mod.rs:452)",
       "files": {
-        "Cargo.toml": "1271b0559a3bf57a49ff7a7c087f030fac054b2b661d00c35a238bc545c39076",
-        "README.md": "ebe4ddbec9df4c91d9b308e2ffe0c6d40fd44494ef443cdd08dad47896a535e1",
-        "src/main.rs": "06e8dc147151d0796ff4c82633cc9f73a903550a47d5d0b141db5f49989040d8"
+        "Cargo.toml": "dcba9a43140b6074bd60dc14028cef883f5e2930c419fc3857cc3a7ee866494f",
+        "README.md": "d62d1c7d2b029ffff2c676606b83395943f3c5f3af1bacc761a00a5450b186fb",
+        "src/main.rs": "7f22b58ebe0a16f84a218d3b76f80d7c8a9cbffb3aa20f80d5ec37571b7d5fc1"
       },
-      "aggregateSha256": "b1cf10c6833bce21f131288719660fe9135ee99e9a6665442ee2988e3826b146"
+      "aggregateSha256": "d6094edb3efd9c0a68b291ec58a4d7b6110fe08c9eab95d743fe6d16b4e071b3"
     },
     "rightkit-overlay": {
       "pkId": "PK08",
@@ -958,7 +958,7 @@
       "pkId": "PK08",
       "id": "ci/consumers/rightkit-tauri-shell/src/main.rs",
       "files": {
-        "Cargo.toml": "fb7a351491f4ae234b80b8c3fb64266881070a6e09ed58a0bdbc8b60e8367faa",
+        "Cargo.toml": "410c6476d1564ddf7bf8b843665379c31087b60a78bb0f6da4d165a5563e7baa",
         "README.md": "6c436494f121266387c34ec66bad6959d92ae9e378fe05f1551f238489e222e6",
         "src/main.rs": "8019c8f4a15fd6d4e0abf44933b074fc0cedffd99231cb5e721620b7c81f28d9"
       }
@@ -1001,11 +1001,11 @@
       "gateEvidence": "no OS keychain or SQLCipher key: bundled SQLite only; temp directory removed on exit; encrypted lifecycle (sqlcipher, ProtectedKeyStore, rotation, relocation) not exercised and needs its own PK03-3..6 gate rows",
       "consumes": "PK03 plan (docs/plans/2026-10-20-rightkit-implementation/01-packages.md:131-146) db 0.5.x surface; public items exercised: DbOptions::new, open_writer_migrated, open_read_pool_with (crates/rightkit-db/src/migrate.rs:788, src/lib.rs:217,383), write_txn (src/lib.rs:735), open_read_only, open_existing_writer, open_in_memory (src/lib.rs:524-534), ReadPoolOptions::with_read_only (src/lib.rs:823), migrate::Migration::sql (src/migrate.rs:31), MigrateOptions (src/migrate.rs:111), user_version (src/migrate.rs:191)",
       "files": {
-        "Cargo.toml": "1385fbf03bd39431b9422c80f1977b08daab931872fe3006569605f5a909024b",
+        "Cargo.toml": "9159c992cbba4aab049caab4559e1032ffed2d0d448f580172f2d905449dc86d",
         "README.md": "fccbf7c8387ccb776090ac2c717edc090af0a0b6d2368c641017849350b96c21",
         "src/main.rs": "af1c9a4987c9179dec7c72c1b63c37b19e6a077465d2152531527265a357622d"
       },
-      "aggregateSha256": "35bb1b2aa4e0cc1ff09dc378a85541e329fcfa513bfc6acbaddbf829191f2999"
+      "aggregateSha256": "e58ded3eaa6599a0dbcf6a994d2d920d328b9a33e22ce10a7876fa55a484c1a7"
     },
     "rightkit-license": {
       "pkId": "PK05",
@@ -1058,7 +1058,7 @@
         "README.md": "bd1826337aebd775d5a4c55cc14a144a0319c1a95f98e0d671c3ee576d603f2e",
         "src/main.rs": "5b993d0703b4f770c327d04248c450b989ccb6475eb7f115e65dd903cc7e8d28"
       },
-      "aggregateSha256": "19696175af4c0d8a0734694f461c1eb1029cc2f3a6c5f55bb3b1b8536700656c"
+      "aggregateSha256": "df3c416f69c4d0533feec7b6ae0d7e0b40c807d98d8e87a37971496e10e3c27d"
     },
     "rightkit-asr": {
       "pkId": "PK18",
@@ -1125,18 +1125,18 @@
     "rightkit-qa": {
       "pkId": "PK14",
       "id": "ci/consumers/rightkit-qa/src/main.rs",
-      "dependency": "rightkit-qa = { version = \"=0.9.1\" }",
+      "dependency": "rightkit-qa = { version = \"=0.9.2\" }",
       "extraDependencies": [
         "serde_json = \"1\""
       ],
       "gateEvidence": "no assets needed; in-memory values only; default features only; no ci/asset-gated.json entry needed",
       "consumes": "PK14-4 named QA glue consumers per 01-packages.md: MailRight tauri_run.rs:109 QA registration, HeardRight and ScrapeRight journey runners; exercised modules: scenario, config, settings, check, storage, util (crates/rightkit-qa/src/lib.rs)",
       "files": {
-        "Cargo.toml": "c0ed1aca22e2cb2691b364c6c22feccf4e03253d0e9a6e200d3f23f5bf4ef5da",
-        "README.md": "37075a31dd2a849b5151a20a4a0120d7c92d41bba9718cdb8b60751ef112bbe1",
-        "src/main.rs": "486e9e6e6d45392e26350631bb762f3c628254ac21a7292c009655a4a0779f39"
+        "Cargo.toml": "aa9ad847f3641163e687b09c49a70ec7d9828e6c200b7d5cb51ac3136f376527",
+        "README.md": "3d6be678710e55ebe61736faeb97359c1ac4effc0c684edfcd6b8735266e8b7c",
+        "src/main.rs": "0554f464c188361d578f4f2e3e2cb6d3467ec2917c4246b6ca41a30a44739834"
       },
-      "aggregateSha256": "c8db73b9f479158d41b7220f7d65b12a50702d7eedbd71ca891b2bb8cbeef7f2"
+      "aggregateSha256": "dbc38563a81c35c3538c25ca56e55cc340de5ccffc749b3da1ddd1f42e1244f1"
     },
     "rightkit-sandbox": {
       "pkId": "PK12",
@@ -1150,48 +1150,48 @@
     "rightkit-embed": {
       "pkId": "PK12",
       "id": "ci/consumers/rightkit-embed/src/main.rs",
-      "dependency": "rightkit-embed = { version = \"=0.6.1\" }",
+      "dependency": "rightkit-embed = { version = \"=0.6.2\" }",
       "extraDependencies": [
         "rightkit-db = { version = \"0.5\", features = [\"bundled\"] }"
       ],
       "gateEvidence": "model-free public API only: no model directory, tokenizer or ONNX Runtime library is read or loaded; Embedder::load is exercised only through its typed refusals (missing directory, invalid dimension) before any model access; VectorStore is not used; default features stay on; one empty temp directory removed at the end",
       "consumes": "PK12 local-inference consumers (PK12 proposal; reviewed recipe, named product consumers not re-read here); rightkit-embed public items used: reciprocal_rank_fusion and RRF_K (src/fusion.rs), cosine_similarity (src/vector.rs), truncate_and_normalize, installed_model_dir, bundle_files, EmbedderConfig builders, ExecutionProvider, EmbedError and Embedder::load refusals (src/embedder.rs)",
       "files": {
-        "Cargo.toml": "c3bb0ad032207f13951bb66f56de70c215527136732ca35f725f759921d3a069",
-        "README.md": "e15d8bc2963ba4feba16751a39f89510d2530ca7611d08826b29f14952ad057f",
-        "src/main.rs": "a5a33dc9989abb59d91a2cb7abc773cdd6273402304bcfdc6ea97aa6a2f8c37a"
+        "Cargo.toml": "987b85a19d2703b84ac3b63f8eef81ae8ed2d411e89dd06ecdf67ce174335d90",
+        "README.md": "97e149fbad4f4ddc9c3d29dd24dfe95f8cf89090cc97a8b6ae3987100b8f7642",
+        "src/main.rs": "97d8d97b94159594a18ec1545642c43a34381d091e8f5eb3961530d8d9180420"
       },
-      "aggregateSha256": "3a81ac2a1b2c9ab0a77ef2c8b00aaf2109f112a97f6c8505f49069fc87d6ca5f"
+      "aggregateSha256": "89840855a7a3883da55c592ea5abf3cbfe5fc3314dff3e7f4fcb3bd5605b3139"
     },
     "rightkit-fsindex": {
       "pkId": "PK01",
       "id": "ci/consumers/rightkit-fsindex/src/main.rs",
-      "dependency": "rightkit-fsindex = { version = \"=0.5.0\" }",
+      "dependency": "rightkit-fsindex = { version = \"=0.6.0\" }",
       "extraDependencies": [],
       "gateEvidence": "no state directory, no watcher, no home directories, no network; macOS opens an Index over a temp tree of three small files, other hosts exercise only pure helpers and typed Unsupported refusals; the Windows live backends (Windows Search, USN journal) are not opened; content feature stays off",
       "consumes": "PK01 filesystem-family consumer (reviewed recipe, named product consumers not re-read here); rightkit-fsindex public items used: Config::new, WriteBudgetConfig::new and with_max_footprint (src/config.rs), Index::open, open_with_backend, search, folder_size, children_sorted_by_size, write_budget_status, would_exceed_write_budget (src/index.rs), escape_sql_literal and like_pattern (src/backend/windows_search.rs), parse_usn_records (src/backend/windows_usn.rs), UnsupportedBackend (src/backend/windows_stub.rs)",
       "files": {
-        "Cargo.toml": "9920b6571e14c13ae6c4dfe51942ca1f81334b836553cdc36ff956b0babb351e",
-        "README.md": "0d702b13a0d3ad250420bf7f71af80ea568575fd5bcf0fe33fd966fa880affeb",
-        "src/main.rs": "003c72a2dfb82c91f516acedb27eda12566a94864b585beccca08e0ee23bf69d"
+        "Cargo.toml": "60b3d519bbfb8c39af868325cf4c309f609b7e1170e5b6cacb88ce82683ebb4b",
+        "README.md": "df58743ef9db42bcd94e4f3bbc0f1ed27500437731aa8ecd1f28b90f065219b9",
+        "src/main.rs": "b01208ce55d837d1186bbf48e67cb1146230350ba6a3f2a95255fc0ad0be77f6"
       },
-      "aggregateSha256": "527ea042fa844af31fa768968f853917f9df6dbbc55f3f687df0f6b342b2db25"
+      "aggregateSha256": "e443d519921a768c997af1547dea959fa598cbde5fdd641c1736eda991d4bf45"
     },
     "rightkit-ownership": {
       "pkId": "PK14",
       "id": "ci/consumers/rightkit-ownership/src/main.rs",
-      "dependency": "rightkit-ownership = { version = \"=0.4.2\" }",
+      "dependency": "rightkit-ownership = { version = \"=0.4.3\" }",
       "extraDependencies": [
         "serde_json = \"1\""
       ],
       "gateEvidence": "embedded catalog only; in-memory trust loader with an unavailable checkpoint authority, so no protected trust file, key, git remote or signature is used; scans one temp directory holding one file, removed at the end; no network",
       "consumes": "PK14 quality-gate consumer (reviewed recipe, named product consumers not re-read here); rightkit-ownership public items used: catalog, catalog_value, scanner_policy_digest, SCANNER_VERSION, ownership_verdict, ownership_cache_key, is_blocking_finding, codes, canonical_repository_identity, Scanner::with_embedded_catalog (inputs, scan), ScanContext, ManualClock, keyauth::AuthorityEnv",
       "files": {
-        "Cargo.toml": "ef0d4d755ece30e51feac371918f000c8f0695dd9ac67851466fdc7e453e004c",
+        "Cargo.toml": "43c62204a8b59b61dcde58c02a7c6b9a0f3fec6eb13149440e01bd0aa03a7c7a",
         "README.md": "ce0f6d0da5c89859187f1a6c3d00ebfe2a1f5cd1f91ed20d92c5ef481512d448",
         "src/main.rs": "4a624a85b992e1acc685765888eae0fd661495cd7fffdd73ed12d0cab488bca1"
       },
-      "aggregateSha256": "d8f21200898579b9503a352d3ca62d64790b10cf0af0f8d628e73887af425535"
+      "aggregateSha256": "eb4998d48cd2f2dc3abf0d1add074dcf358710ad05986c1468c432842f254c83"
     },
     "rightkit-overlay-win": {
       "pkId": "PK08",
@@ -1254,16 +1254,16 @@
     "rightkit-docs": {
       "pkId": "PK16",
       "id": "ci/consumers/rightkit-docs/src/main.rs",
-      "dependency": "rightkit-docs = { version = \"=0.1.2\" }",
+      "dependency": "rightkit-docs = { version = \"=0.1.3\" }",
       "extraDependencies": [],
       "gateEvidence": "no assets needed; deterministic, in-process; no ci/asset-gated.json entry needed",
       "consumes": "no app pins this version yet; publication unblocks adoption (recipe exercises the public API family named in its README)",
       "files": {
-        "Cargo.toml": "1904c4f4f8693f5094e5987dea3d0d17caee153a1e5ecad9241b95f02e5746ae",
-        "README.md": "11e05f18bbe29d30d5bdcda04f5af46c83a92801f4bbbd28c79a94572bb7e87f",
-        "src/main.rs": "3cd251364dc3e335648956e76a7f401046dabb16dad3aad48c21144a7c8986f3"
+        "Cargo.toml": "a2c41f44712c5514e878c4f5e99ea5f8041364e4e8905bb24b78cbaf8bd91e62",
+        "README.md": "22936b5da53124454311c8d2f4ee14ef03704b13b302a55cb7a1ca00e5e58c62",
+        "src/main.rs": "075d73ceb4a21180d830105d88a56428f637e8ef959ac0ba2ee893295f3b529e"
       },
-      "aggregateSha256": "1bdd87f9e772012e88dcb44f601cd5cc6dbf49ae70054673b35cf91d23e6ddf3"
+      "aggregateSha256": "146d68e16e53fb3f2598559d54b9e463835e06a6a67a855d3cb8aa6a41520f57"
     },
     "rightkit-record": {
       "pkId": "PK17",
@@ -1349,9 +1349,9 @@
       "pkId": "PK30",
       "id": "ci/consumers/rightkit-channel-memory/src/main.rs",
       "files": {
-        "Cargo.toml": "fb6d0fe3159ebb0b937e01dc0f6c060d9e84de15340ec515bdeea772940f8b3f",
-        "README.md": "6c31330bb62d20a717d96ff8e931c010f5133c264640b9d7ed9646f54f4c8937",
-        "src/main.rs": "6fe8e5d03a8b2c03f98d1515f9d2b6c07fb37df52f694ee0d42e6d00cf1b986e"
+        "Cargo.toml": "0ea1e4cb30193f6ce25357a2dfb822438bcf0f45e9c05fff6ccdc819d7f853fe",
+        "README.md": "9472a4311ba1ffec4e9b59f5c83c630c948c4e90a1514326c231247d0994f09c",
+        "src/main.rs": "8dcb2c396511ff9818e1655969d6e0d71f176d41494dc864c9fd68b9c5480dfc"
       }
     },
     "rightkit-compose": {
@@ -1367,9 +1367,9 @@
       "pkId": "PK31",
       "id": "ci/consumers/rightkit-contracts/src/main.rs",
       "files": {
-        "Cargo.toml": "476f26941482b7da908d89ae7e11bf334780c6fb6af795722c34ade10b7d362b",
-        "README.md": "f534f4fdce7d602790f1f5d548e86c3f911de2bd4791498429b4fb6f5272ed66",
-        "src/main.rs": "186f617dc8f8714646e4e788a27e13a25ecf3d7a284ad01ec46a9466e4e7a4de"
+        "Cargo.toml": "812559b62d33f04c9c5b09bd070ecfdd6d0ec70c611de95c8f168b6c76bcdd13",
+        "README.md": "fcc7baee43d85a5fc071354c6bc4ca15649875110a467b09ef4a2d5056a5ad38",
+        "src/main.rs": "131e8632982f394c3c65cecd59feb3d48eab890d62b9dc4f8a0af6fed3f9a16e"
       }
     },
     "rightkit-crypto": {
@@ -1457,7 +1457,7 @@
       "pkId": "PK40",
       "id": "ci/consumers/rightkit-search/src/main.rs",
       "files": {
-        "Cargo.toml": "cfc55301ab23f312a30d8c5729d4e06c6bdb1f20116903e2e12c7b618f755ad7",
+        "Cargo.toml": "56582f8553af4e59299ef4e6f656285d730e885a1d92a535d39230e2ea4e6c51",
         "README.md": "0ebdf7d0077620309017a5e663f35d5cdf67a44b1080e62ebccb2428e77a342e",
         "src/main.rs": "4aadf55d19cb48b083d6efa2ee6a6aa5d1c964ae40ead25c4652060218cca4ee"
       }
@@ -1466,9 +1466,9 @@
       "pkId": "PK41",
       "id": "ci/consumers/rightkit-send/src/main.rs",
       "files": {
-        "Cargo.toml": "0a9e29dff43b3050151ee222464bbb177e5c042dfb4c632af828479c74136fe7",
-        "README.md": "4ac2defc64de85b84f5e468b7ec006ad7a4ba9b9fd77250e87a05575ec256849",
-        "src/main.rs": "aec4304118ee9f71aaed65920806fcfcea152651cf3214a75c4ed3e2c98896f7"
+        "Cargo.toml": "022ff7309a99fda57d88b60edf0afa9bd0a5c7490676213400fe98bfb43366f1",
+        "README.md": "195e478eb96eac322cc8a87af2053fb91e10db36ab47b4c937f3268cced192e3",
+        "src/main.rs": "8a4d1ad0f4cf0a99e397bbd907f9ab98d2d114d579bf873542eea86a02db0c08"
       }
     },
     "rightkit-sync": {

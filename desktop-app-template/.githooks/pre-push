@@ -15,7 +15,13 @@ found=""
 for bin in node_modules/.bin/rightkit-gate */node_modules/.bin/rightkit-gate */*/node_modules/.bin/rightkit-gate */*/*/node_modules/.bin/rightkit-gate; do
   if [ -x "$bin" ]; then found="$bin"; break; fi
 done
-if [ -n "$found" ]; then
+if command -v rightkit-host-gate >/dev/null 2>&1; then
+  echo "rightkit-gate: using host trusted gate" >&2
+  rightkit_gate() { rightkit-host-gate "$@"; }
+elif [ -f "$HOME/Library/Application Support/RightKit/build-control/config.json" ] || [ -f /d/.rightkit-managed/config.json ]; then
+  echo "rightkit-gate: managed host is missing rightkit-host-gate" >&2
+  exit 1
+elif [ -n "$found" ]; then
   echo "rightkit-gate: using $found" >&2
   rightkit_gate() { "$found" "$@"; }
 elif command -v pnpm >/dev/null 2>&1; then

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.3 (unpublished)
+
+- Dependencies: `toml` 0.9 -> 1 and `fancy-regex` 0.19 -> 0.20; no source change. (rightkit#1284)
+
 ## 0.4.2 (2026-10-23)
 
 - Catalog: new declaration-only capability `right-suite-api`, owned by `rightkit-license` (the Right Suite API host contract, rightkit#940). No source change.

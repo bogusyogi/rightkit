@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/qa",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Shared QA evidence, ownership, browser helpers, and release-backdoor guards for Right Suite apps.",
   "license": "MIT OR Apache-2.0",
   "packageManager": "pnpm@11.25.0",
@@ -45,7 +45,7 @@
     "test:adoption-contract": "pnpm run build && vitest run --config vitest.adoption.config.ts"
   },
   "dependencies": {
-    "@rightkit/qa-chrome": "0.1.11"
+    "@rightkit/qa-chrome": "0.1.12"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

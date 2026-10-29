@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.4 (unpublished)
+
+- Dependency: `lopdf` 0.45 -> 0.46 (more lenient loading: damaged xref data is repaired, bad `/Annots` tolerated); no source change. (rightkit#1284)
+
 ## 0.3.3
 
 Additive; no existing item changes. Written without compiling or running anything: the macOS build of the PDFKit backend and the CI gate are the verification. Needs the lockfile's `rightkit-pdf` entry moved to 0.3.3 and the new macOS-only optional dependencies added (`objc2`, `objc2-app-kit`, `objc2-foundation`, `objc2-pdf-kit`, `block2`; none is built off macOS or without the feature). Requested by PK08-6 (ViewRight `mac_pdf_view.rs` donor).

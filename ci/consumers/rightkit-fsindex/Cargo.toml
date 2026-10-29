@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-fsindex = { version = "=0.5.0" }
+rightkit-fsindex = { version = "=0.6.0" }

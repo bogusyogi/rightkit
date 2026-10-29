@@ -40,3 +40,27 @@ fn a_burst_on_one_folder_is_relisted_a_bounded_number_of_times() {
     );
     assert!(st.relist_rate_per_s >= 0.0);
 }
+
+#[test]
+fn excluded_folders_never_enter_the_gate_and_status_reports_the_gate() {
+    let t = tree();
+    write(&t.root.join("src/seed.txt"), 1);
+    write(&t.root.join("target/debug/seed.o"), 1);
+    let idx = Index::open(config(&t.root)).unwrap();
+
+    // 40 distinct folders under the default-excluded `target`, then one change in `src`.
+    for i in 0..40 {
+        write(&t.root.join(format!("target/debug/d{i}/f.o")), 8);
+    }
+    write(&t.root.join("src/new.txt"), 8);
+    wait_for(&idx, "src change indexed", |x| {
+        x.folder_size(t.root.join("src")).is_some_and(|s| s.files == 2)
+    });
+    std::thread::sleep(Duration::from_millis(500));
+
+    let st = idx.status();
+    // Only `src` (and possibly its parent) can have been gated; none of the 40 excluded ones.
+    assert!(st.gate_entries >= 1, "gate_entries={}", st.gate_entries);
+    assert!(st.gate_entries <= 3, "gate_entries={}", st.gate_entries);
+    assert!(st.backoff_folders <= st.gate_entries);
+}

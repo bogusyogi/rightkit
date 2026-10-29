@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2 (unpublished)
+
+- Dependency: `jsonschema` 0.58 -> 0.60; no source change. (rightkit#1284)
+
 ## 0.2.1
 
 - **Schema moved to `contracts/` (#332).** The shared source is now `contracts/channel-memory.v1.schema.json` (was `contracts-pending/channel-memory/`), and the fixtures are `contracts/fixtures/channel-memory/`. `schemas/channel-memory.v1.schema.json` in this crate is byte-identical; `tests/schema_copy.rs` compares against the new path. `rightkit-contracts` 0.1.7 registers the contract. No code or schema change; the contract stays `1.0.0`.

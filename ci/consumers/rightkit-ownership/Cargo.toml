@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-ownership = { version = "=0.4.2" }
+rightkit-ownership = { version = "=0.4.3" }
 serde_json = "1"

@@ -10,6 +10,18 @@ use std::time::{Duration, Instant};
 const RATE_WINDOW: Duration = Duration::from_secs(60);
 /// How often quiet folder states are dropped from the map.
 const PRUNE_EVERY: Duration = Duration::from_secs(60);
+/// A folder state is dropped once the folder has not been re-listed for this many of its own
+/// intervals (and never sooner than `PRUNE_EVERY`). An idle state with nothing deferred
+/// behaves exactly like no state once its interval has elapsed (the next change runs at once
+/// and the interval restarts at the floor), so dropping it loses nothing; 4 only adds margin
+/// for the coarse prune cadence and keeps a recently busy folder visible in
+/// `backoff_folders` for a few windows. The horizon follows the interval, so a folder at the
+/// ceiling is held longer than one at the floor, but none is held forever.
+const HORIZON_INTERVALS: u32 = 4;
+/// Most folder states the gate keeps (about 200 B each with a typical path, so ~25 MB).
+/// At the cap, settled states are evicted first; if none are, a new folder runs untracked
+/// (re-listed at once, no back-off) rather than growing the map.
+pub const DEFAULT_MAX_ENTRIES: usize = 131_072;
 
 struct FolderState {
     last: Instant,
@@ -89,10 +101,20 @@ pub struct RelistGate {
     recent: VecDeque<Instant>,
     relists_total: u64,
     last_prune: Instant,
+    max_entries: usize,
 }
 
 impl RelistGate {
     pub fn new(floor: Duration, ceiling: Duration, now: Instant) -> RelistGate {
+        RelistGate::with_max_entries(floor, ceiling, now, DEFAULT_MAX_ENTRIES)
+    }
+
+    pub fn with_max_entries(
+        floor: Duration,
+        ceiling: Duration,
+        now: Instant,
+        max_entries: usize,
+    ) -> RelistGate {
         RelistGate {
             floor,
             ceiling: ceiling.max(floor),
@@ -102,7 +124,13 @@ impl RelistGate {
             recent: VecDeque::new(),
             relists_total: 0,
             last_prune: now,
+            max_entries,
         }
+    }
+
+    /// Folder states currently held (bounded by the entry cap).
+    pub fn entries(&self) -> usize {
+        self.folders.len()
     }
 
     /// Decides whether a change in `path` re-lists it now or waits for its window.
@@ -113,6 +141,14 @@ impl RelistGate {
         }
         let due = match self.folders.get(path) {
             None => {
+                if self.folders.len() >= self.max_entries {
+                    self.evict_settled(now);
+                }
+                if self.folders.len() >= self.max_entries {
+                    // Full of live states: run this folder untracked instead of growing.
+                    self.record_run(now);
+                    return Decision::Run;
+                }
                 self.begin_run(path, now);
                 return Decision::Run;
             }
@@ -231,20 +267,27 @@ impl RelistGate {
         }
     }
 
-    /// Drops states of quiet folders (at the floor, nothing deferred) so the map does not grow
-    /// with every folder ever touched.
+    /// Drops states that no longer carry information: nothing deferred and the folder's own
+    /// interval has elapsed, so a new request would run at once with the floor interval anyway.
+    fn evict_settled(&mut self, now: Instant) {
+        let deferred = &self.deferred;
+        self.folders.retain(|path, s| {
+            s.hits > 0 || deferred.contains_key(path) || now < s.last + s.interval
+        });
+    }
+
+    /// Drops states of folders not re-listed for `HORIZON_INTERVALS` of their own intervals
+    /// (nothing deferred), whatever the interval, so the map does not grow with every folder
+    /// ever touched.
     fn prune(&mut self, now: Instant) {
         if now.duration_since(self.last_prune) < PRUNE_EVERY {
             return;
         }
         self.last_prune = now;
-        let floor = self.floor;
         let deferred = &self.deferred;
         self.folders.retain(|path, s| {
-            s.interval > floor
-                || s.hits > 0
-                || deferred.contains_key(path)
-                || now.duration_since(s.last) < PRUNE_EVERY
+            let horizon = (s.interval * HORIZON_INTERVALS).max(PRUNE_EVERY);
+            s.hits > 0 || deferred.contains_key(path) || now.duration_since(s.last) < horizon
         });
     }
 }
@@ -325,5 +368,62 @@ mod tests {
         assert_eq!(g.request(b"/b", t0), Decision::Run);
         assert_eq!(g.request(b"/a", t0 + ms(1)), Decision::Deferred);
         assert_eq!(g.next_due(), Some(t0 + ms(1000)));
+    }
+
+    #[test]
+    fn idle_gate_forgets_every_folder_after_the_horizon() {
+        let t0 = Instant::now();
+        let mut g = RelistGate::with_max_entries(ms(1000), ms(8000), t0, 200_000);
+        let paths: Vec<Vec<u8>> = (0..100_000)
+            .map(|i| format!("/build/dir{i}").into_bytes())
+            .collect();
+        // Touch each folder twice: the first runs, the second defers and runs when due.
+        for p in &paths {
+            assert_eq!(g.request(p, t0), Decision::Run);
+        }
+        for p in &paths {
+            assert_eq!(g.request(p, t0 + ms(10)), Decision::Deferred);
+        }
+        assert_eq!(g.take_due(t0 + ms(1000)).len(), 100_000);
+        assert_eq!(g.entries(), 100_000);
+        assert_eq!(g.backoff_folders(), 100_000);
+        // Idle: past the horizon (4 x the doubled 2 s interval, at least 60 s) nothing is left.
+        let _ = g.take_due(t0 + Duration::from_secs(200));
+        assert_eq!(g.entries(), 0);
+        assert_eq!(g.backoff_folders(), 0);
+        assert!(!g.has_deferred());
+    }
+
+    #[test]
+    fn a_folder_still_changing_keeps_its_back_off_while_quiet_ones_go() {
+        let t0 = Instant::now();
+        let mut g = RelistGate::new(ms(1000), ms(8000), t0);
+        for i in 0..100 {
+            g.request(format!("/quiet{i}").as_bytes(), t0);
+            g.request(format!("/quiet{i}").as_bytes(), t0 + ms(5));
+        }
+        let mut t = t0;
+        let end = t0 + Duration::from_secs(300);
+        while t <= end {
+            g.request(b"/busy", t);
+            g.take_due(t);
+            t += ms(50);
+        }
+        assert_eq!(g.entries(), 1);
+        assert_eq!(g.backoff_folders(), 1);
+    }
+
+    #[test]
+    fn the_entry_cap_holds_and_settled_states_make_room() {
+        let t0 = Instant::now();
+        let mut g = RelistGate::with_max_entries(ms(1000), ms(8000), t0, 10);
+        for i in 0..50 {
+            assert_eq!(g.request(format!("/f{i}").as_bytes(), t0), Decision::Run);
+        }
+        assert_eq!(g.entries(), 10);
+        assert_eq!(g.relists_total(), 50);
+        // Once their intervals have elapsed the states are settled and a new folder fits.
+        assert_eq!(g.request(b"/new", t0 + ms(1500)), Decision::Run);
+        assert_eq!(g.entries(), 1);
     }
 }

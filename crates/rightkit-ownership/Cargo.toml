@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-ownership"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2021"
 rust-version = "1.98.0"
 description = "RightKit ownership scanner, verdict and admission: the single Rust implementation the RustRight broker links."
@@ -18,8 +18,8 @@ sha2-rsa = { package = "sha2", version = "0.10", features = ["oid"] }
 hex = "0.4"
 url = "2"
 sha1 = "0.11"
-fancy-regex = "0.19"
-toml = { version = "0.9", default-features = false, features = ["parse", "serde", "std", "preserve_order"] }
+fancy-regex = "0.20"
+toml = { version = "1", default-features = false, features = ["parse", "serde", "std", "preserve_order"] }
 p256 = { version = "0.14", default-features = false, features = ["ecdsa", "pem", "std"] }
 rsa = { version = "0.9", default-features = false, features = ["std", "pem", "sha2"] }
 base64 = "0.23"

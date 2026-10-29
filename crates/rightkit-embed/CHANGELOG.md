@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.2 (unpublished)
+
+- Dependency: `rusqlite` 0.40 -> 0.41 (with `rightkit-db` 0.5.3); no source change. (rightkit#1284)
+
 ## 0.6.1 — unpublished staging
 
 - **QA-only runtime binding opt-out (bogusyogi/rightkit#889).** New `EmbedderConfig::with_runtime_binding(rightkit_onnx::RuntimeBindingOptions)` (crate-private field `runtime_binding`, default strict) passed to `configure_runtime_with_options` in `Embedder::load`. Setting `allow_known_bad_runtime: true` binds an ONNX Runtime older than 1.27.0 on an SME2 host (rightkit-onnx 0.2.7 refuses it otherwise). QA reproductions only; production code must not set it. Used by `tests/real_model_e2e.rs`, which runs the real CodeRight model against the bundled ONNX Runtime 1.26.0.

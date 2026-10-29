@@ -219,6 +219,9 @@ pub struct Status {
     /// Folders currently backing off: changing so often that their re-list interval is above
     /// `Config::relist_min_interval`.
     pub backoff_folders: usize,
+    /// Folder states the re-list gate holds right now. Bounded by an entry cap and pruned by
+    /// age, so it tracks recently changed folders only; excluded folders never appear.
+    pub gate_entries: usize,
     /// Dropped-event reports absorbed into an already pending full rescan (not run on their own).
     pub rescans_coalesced: u64,
     /// Cooldown applied after the last full rescan, in milliseconds (0 before any). It doubles
@@ -892,6 +895,7 @@ impl Index {
             st.relists_total = gate.relists_total();
             st.relist_rate_per_s = gate.relists_per_s(now);
             st.backoff_folders = gate.backoff_folders();
+            st.gate_entries = gate.entries();
             gate.heap_bytes()
         };
         {
@@ -1538,6 +1542,10 @@ impl Worker {
             self.run_relists(now);
             self.publish_limits();
             for p in dirs {
+                // Excluded folders never reach the gate, so they never get an entry.
+                if self.is_excluded(&p) {
+                    continue;
+                }
                 if self.gate_request(&p) == Decision::Run {
                     let mut done = HashSet::new();
                     self.sync_path(&p, &mut done);
@@ -1683,6 +1691,13 @@ impl Worker {
             Some(_) => {}
             None => self.maybe_commit(),
         }
+    }
+
+    /// Whether `path` is excluded by a rule or lies below a folder the store holds as excluded
+    /// (the same two checks `sync_path` applies).
+    fn is_excluded(&self, path: &[u8]) -> bool {
+        let sh = &self.shared;
+        sh.excludes.matches(path) || under_excluded_entry(&rd(sh), path)
     }
 
     fn gate_request(&self, path: &[u8]) -> Decision {

@@ -321,7 +321,7 @@ impl SessionOptions {
         self.check_xnnpack(cfg!(target_os = "android"))
             .map_err(SessionError::Runtime)?;
         // No session may exist before the environment carries this crate's options (telemetry
-        // off): ort rc.14 builds sessions from an environment handle, and this crate's is built
+        // off): ort rc.15 builds sessions from an environment handle, and this crate's is built
         // from the committed options (defaults when nothing was initialised).
         let env = environment::ort_environment()
             .map_err(|e| SessionError::Runtime(format!("environment: {e}")))?;
@@ -381,7 +381,7 @@ impl SessionOptions {
         commit(&mut builder).map_err(|e| SessionError::Runtime(format!("load {what}: {e}")))
     }
 
-    /// Register the requested accelerator. ort rc.14 compiles each EP only
+    /// Register the requested accelerator. ort rc.15 compiles each EP only
     /// behind its Cargo feature, which rightkit-onnx enables per OS (CoreML on
     /// Apple, DirectML on Windows); `supported_on_this_os` already rejected
     /// the other combinations, so the non-hosting arms are unreachable.

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-browser"
-version = "0.3.6"
+version = "0.3.7"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks."
@@ -31,8 +31,8 @@ zip = { version = "9", default-features = false, features = ["deflate"], optiona
 rightkit-sandbox = { path = "../rightkit-sandbox", version = "0.6.1", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
-async-tungstenite = { version = "=0.32.1", default-features = false, features = ["tokio-runtime"] }
-getrandom = "=0.3.4"
+async-tungstenite = { version = "0.35", default-features = false, features = ["tokio-runtime"] }
+getrandom = "0.4"
 
 [features]
 default = []

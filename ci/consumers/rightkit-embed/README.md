@@ -1,6 +1,6 @@
-# rightkit-embed 0.6.1 (registry consumer recipe)
+# rightkit-embed 0.6.2 (registry consumer recipe)
 
-Standalone consumer, outside the workspace, pinning `rightkit-embed =0.6.1` exactly with the default
+Standalone consumer, outside the workspace, pinning `rightkit-embed =0.6.2` exactly with the default
 features. It uses only public API that needs no model and no ONNX Runtime: `reciprocal_rank_fusion`
 with `RRF_K` (exact scores, order, tie and invalid-`k` behaviour), `cosine_similarity`,
 `truncate_and_normalize`, `installed_model_dir` (macOS, Windows and other layouts, refusal of a

@@ -1,4 +1,4 @@
-// rightkit-contracts 0.1.7 consumed by exact registry pin (default feature "schema", the set the
+// rightkit-contracts 0.1.8 consumed by exact registry pin (default feature "schema", the set the
 // PostRight engine uses), outside the workspace.
 //
 // Proves, through the public API only:
@@ -62,7 +62,7 @@ fn main() {
     typed_documents();
     schema_and_semantic_failures();
     eyes_gate_rules();
-    println!("OK rightkit-contracts 0.1.7 (registry consumer, schema)");
+    println!("OK rightkit-contracts 0.1.8 (registry consumer, schema)");
 }
 
 fn contract_table() {

@@ -148,7 +148,7 @@ fn directml_library() -> ProviderLibrary {
     ProviderLibrary::Loads
 }
 
-/// `None`: this OS cannot host the provider (ort rc.14 compiles each EP only on
+/// `None`: this OS cannot host the provider (ort rc.15 compiles each EP only on
 /// the OS whose Cargo feature rightkit-onnx enables for it).
 type Probe = Option<Result<bool, String>>;
 

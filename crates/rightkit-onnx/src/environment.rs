@@ -6,7 +6,7 @@
 //! optionally requests one shared global CPU thread pool, and builds the ORT
 //! environment immediately by default. Deferred mode still checks/loads the dylib,
 //! but only stores the options; the environment is built by the first
-//! [`ort_environment`] call (every session build in this crate makes one). ort rc.14
+//! [`ort_environment`] call (every session build in this crate makes one). ort rc.15
 //! allows one environment per process and needs its handle to build any session, so
 //! this crate holds the handle for the life of the process: build sessions through
 //! [`crate::SessionOptions`] or `ort::session::Session::builder(ort_environment()?)`,
@@ -127,7 +127,7 @@ pub struct EnvironmentInitOptions {
     /// Accept an earlier configuration. Repeated successful calls report
     /// AlreadyInitialized; existing options are never replaced. An environment built
     /// outside this crate (`ort::init().build()`) cannot be shared (ort exposes no
-    /// handle to it and allows one per process), so it stays an error under ort rc.14.
+    /// handle to it and allows one per process), so it stays an error under ort rc.15.
     pub tolerate_already_initialized: bool,
     /// Return the loader's Display message exactly, without a path prefix.
     pub verbatim_loader_errors: bool,
@@ -541,7 +541,7 @@ fn init_inner_with(
 
 struct OrtBackend;
 
-/// The process-wide ORT environment. ort rc.14 has no implicit global environment: sessions are
+/// The process-wide ORT environment. ort rc.15 has no implicit global environment: sessions are
 /// built from an [`ort::environment::Environment`] handle, and only one environment may ever be
 /// built per process (a dropped one cannot be rebuilt), so this crate owns the single handle for
 /// the life of the process.
@@ -593,7 +593,7 @@ fn materialize() -> Result<&'static ort::environment::Environment, String> {
 }
 
 /// The process ONNX Runtime environment, for building sessions with the re-exported `ort` crate:
-/// `ort::session::Session::builder(rightkit_onnx::ort_environment()?)?`. ort rc.14 requires an
+/// `ort::session::Session::builder(rightkit_onnx::ort_environment()?)?`. ort rc.15 requires an
 /// environment handle for every session builder; this is the one this crate owns, so the options
 /// committed by [`init_environment`] (selected runtime, telemetry off, optional shared pool) apply
 /// to sessions built through the re-exported `ort` crate too.

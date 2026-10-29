@@ -4,6 +4,7 @@
 
 BREAKING (source), so the next version is 0.7.0 (the registry records 0.6.0): `LogsRuntime::clear` changes its return type, and `rightkit_crash_window_error` moves from `host::crash` to `crash_commands`.
 
+- Dependency: `sha2` 0.10 -> 0.11 (updater feature). Its digest output no longer formats with `{:x}`; the download hash is written through a local lower-hex helper. (rightkit#1284)
 - **New: `ShellPluginBuilder::host_windows()`, `Shell::host_windows_plugin()` and `ModuleSet::host_windows()`.** The profile for an app that owns its windows: it turns off `WindowState`, `ShowOnReady`, `Presence` and `Watchdog` (`Module::HOST_WINDOWS_OFF`) and keeps `JsHardening`, `NavigationPolicy`, `RevealOnReopen` and the state modules. Like `lifecycle_only`, it leaves `ShowOnReady` and the cache repair off by default, but it keeps the webview policy that `lifecycle_only` removes.
 - **New: `ShellPluginBuilder::with(Module)` and `ShellPluginBuilder::modules()`.** `with` re-enables one module after a profile or `without`; `modules()` returns the set `build()` would install.
 - **Docs: `lifecycle_only`, `Shell::lifecycle_plugin` and `ModuleSet::lifecycle_only` now say to prefer `host_windows`,** because `lifecycle_only` also removes JS hardening and the navigation policy. Behaviour is unchanged.

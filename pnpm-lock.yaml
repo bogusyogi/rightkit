@@ -19,8 +19,8 @@ importers:
         specifier: workspace:*
         version: link:packages/release
       es-module-lexer:
-        specifier: 2.3.2
-        version: 2.3.2
+        specifier: 3.0.4
+        version: 3.0.4
 
   packages/app-update:
     devDependencies:
@@ -35,7 +35,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
+        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/ax: {}
 
@@ -102,7 +102,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
+        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/hooks: {}
 
@@ -113,7 +113,7 @@ importers:
         version: 10.4.2
       '@testing-library/jest-dom':
         specifier: ^7.0.1
-        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)))
+        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)))
       '@testing-library/react':
         specifier: ^16.3.3
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -134,7 +134,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
+        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/issues-tracker: {}
 
@@ -152,7 +152,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
+        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/legal-ui:
     devDependencies:
@@ -161,7 +161,7 @@ importers:
         version: 10.4.2
       '@testing-library/jest-dom':
         specifier: ^7.0.1
-        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)))
+        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)))
       '@testing-library/react':
         specifier: ^16.3.3
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -194,7 +194,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
+        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/license:
     devDependencies:
@@ -206,7 +206,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
+        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/logs:
     devDependencies:
@@ -215,7 +215,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
+        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/media-ui:
     devDependencies:
@@ -257,7 +257,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
+        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/onboarding:
     devDependencies:
@@ -275,7 +275,7 @@ importers:
         version: 10.4.2
       '@testing-library/jest-dom':
         specifier: ^7.0.1
-        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)))
+        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)))
       '@testing-library/react':
         specifier: ^16.3.3
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -301,11 +301,11 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
       vite:
-        specifier: ^8.3.4
-        version: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)
+        specifier: ^8.3.5
+        version: 8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
+        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/outdated:
     dependencies:
@@ -324,7 +324,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
+        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/pdf-ui:
     dependencies:
@@ -355,7 +355,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
+        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/platform-ui:
     devDependencies:
@@ -373,13 +373,13 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
+        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/qa:
     dependencies:
       '@rightkit/qa-chrome':
-        specifier: 0.1.11
-        version: 0.1.11
+        specifier: 0.1.12
+        version: link:../qa-chrome
     devDependencies:
       '@types/node':
         specifier: ^26.6.5
@@ -389,7 +389,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
+        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/qa-chrome:
     devDependencies:
@@ -401,7 +401,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
+        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/react-shell:
     dependencies:
@@ -431,11 +431,11 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
       vite:
-        specifier: ^8.3.4
-        version: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)
+        specifier: ^8.3.5
+        version: 8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
+        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/release:
     dependencies:
@@ -472,7 +472,7 @@ importers:
         version: 10.4.2
       '@testing-library/jest-dom':
         specifier: ^7.0.1
-        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)))
+        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)))
       '@testing-library/react':
         specifier: ^16.3.3
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -498,11 +498,11 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
       vite:
-        specifier: ^8.3.4
-        version: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)
+        specifier: ^8.3.5
+        version: 8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
+        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/tauri:
     dependencies:
@@ -521,7 +521,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
+        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/tauri-shell:
     devDependencies:
@@ -542,7 +542,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
+        version: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
 
 packages:
 
@@ -895,10 +895,6 @@ packages:
 
   '@oxc-project/types@0.154.0':
     resolution: {integrity: sha512-KYOUGQFlLWR+s4QMV2Q9ko38TZm7EdO87Qm7rvZLqk/webse/cDjtyxKhg/47l0byCbs/k46LT8qc4PKjAikzA==}
-
-  '@rightkit/qa-chrome@0.1.11':
-    resolution: {integrity: sha512-FLW5wZvF3sjoRTsdYsBtD8lGr+eobVxygyO2skzKu3312B4JZW7kM5qjezcsRUKMReKgSi8tavopCW1o4hxZ0w==}
-    hasBin: true
 
   '@rolldown/binding-android-arm-eabi@1.2.14':
     resolution: {integrity: sha512-aWR+XKH9+rW7m5fWq/5360J3mHycrx/o6xZM2DQFdJnTMdyP7/WzxPjhtLbVWdKo2y612/4U1bWqb3HQhiF7vg==}
@@ -1417,6 +1413,9 @@ packages:
 
   es-module-lexer@2.3.2:
     resolution: {integrity: sha512-poHGpORABojJJucnV9KbOavETW8lBVnphkW77ER5/BQ5Fz7oXSoCNek7IH3vR5nRjdsEz926ibFYX8KtLQmdyw==}
+
+  es-module-lexer@3.0.4:
+    resolution: {integrity: sha512-BldNY5mwkVu+cQ5Ymn3e6hB9Sx8XHx4ZevWbiUyZbfKxJxYO27Hf0wfzkxIaD5CAJMaGl3YspKELj0ff/7nCMA==}
 
   esbuild@0.28.2:
     resolution: {integrity: sha512-HKVLS8dvII+xoKW9kmqxbRKrnWEXfJJr/FZhhJmiqIB0e053QNYFqOBouTMO/k5sID4MvCiUCvv8b9M4h32wIA==}
@@ -2140,13 +2139,13 @@ packages:
   vfile@6.0.3:
     resolution: {integrity: sha512-KzIbH/9tXat2u30jf+smMwFCsno4wHVdNmzFyL+T/L3UGqqk6JKfVqOFOZEpZSHADH1k40ab6NUIXZq422ov3Q==}
 
-  vite@8.3.4:
-    resolution: {integrity: sha512-IftLE8phJhdNRIGNEV4JCCvfNScoZQVfcXaN8TQropWGJtOHcu+iAB9pHcuGvmEb/kddw0LBe/jS8ztdC6xdiQ==}
+  vite@8.3.5:
+    resolution: {integrity: sha512-z1YpjieJ9g0ebTmQpLBv/oq9E3F9EIlOe+7LahW8SrE3LTiG3udBRUXQOlYXP9b+IC2q2phHeVxj9xGlw34OEQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
     peerDependencies:
       '@types/node': ^20.19.0 || >=22.12.0
-      '@vitejs/devtools': ^0.7.1
+      '@vitejs/devtools': ^0.7.1 || ^0.8.0
       esbuild: ^0.27.0 || ^0.28.0
       jiti: '>=1.21.0'
       less: ^4.0.0
@@ -2528,8 +2527,6 @@ snapshots:
 
   '@oxc-project/types@0.154.0': {}
 
-  '@rightkit/qa-chrome@0.1.11': {}
-
   '@rolldown/binding-android-arm-eabi@1.2.14':
     optional: true
 
@@ -2644,7 +2641,7 @@ snapshots:
       picocolors: 1.1.1
       pretty-format: 27.5.1
 
-  '@testing-library/jest-dom@7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)))':
+  '@testing-library/jest-dom@7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)))':
     dependencies:
       '@adobe/css-tools': 4.5.0
       '@testing-library/dom': 10.4.2
@@ -2654,7 +2651,7 @@ snapshots:
       picocolors: 1.1.1
       redent: 3.0.0
     optionalDependencies:
-      vitest: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
+      vitest: 5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
 
   '@testing-library/react@16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
     dependencies:
@@ -2780,14 +2777,14 @@ snapshots:
 
   '@ungap/structured-clone@1.4.0': {}
 
-  '@vitest/mocker@5.0.5(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))':
+  '@vitest/mocker@5.0.5(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
       '@vitest/spy': 5.0.5
       estree-walker: 3.0.3
       magic-string: 1.4.3
     optionalDependencies:
-      vite: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)
+      vite: 8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)
 
   '@vitest/spy@5.0.5': {}
 
@@ -2930,6 +2927,8 @@ snapshots:
   entities@8.1.0: {}
 
   es-module-lexer@2.3.2: {}
+
+  es-module-lexer@3.0.4: {}
 
   esbuild@0.28.2:
     optionalDependencies:
@@ -4045,7 +4044,7 @@ snapshots:
       '@types/unist': 3.0.3
       vfile-message: 4.0.3
 
-  vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0):
+  vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.7
@@ -4060,10 +4059,10 @@ snapshots:
       tsx: 4.23.0
       yaml: 2.9.0
 
-  vitest@5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)):
+  vitest@5.0.5(@types/node@26.6.5)(jsdom@30.1.3(canvas@3.2.3))(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)):
     dependencies:
       '@types/chai': 5.2.3
-      '@vitest/mocker': 5.0.5(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
+      '@vitest/mocker': 5.0.5(vite@8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))
       chai: 6.3.0
       es-module-lexer: 2.3.2
       expect-type: 1.4.0
@@ -4074,7 +4073,7 @@ snapshots:
       tinybench: 6.2.2
       tinyexec: 1.3.1
       tinyglobby: 0.2.17
-      vite: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)
+      vite: 8.3.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0)
       why-is-node-running: 3.2.1
     optionalDependencies:
       '@types/node': 26.6.5

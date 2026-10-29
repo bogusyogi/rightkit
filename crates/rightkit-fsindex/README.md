@@ -83,7 +83,7 @@ its memory.
 
 ## Change handling, excludes, and rate limits (0.2.0)
 
-* A folder is re-listed at most once per `Config::relist_min_interval` (default 5 s). While it keeps changing the interval doubles, up to `relist_max_interval` (60 s), and it returns to the floor once it is quiet. Changes inside the window are deferred to its end, not dropped. `status()` reports `relists_total`, `relist_rate_per_s` (last minute), and `backoff_folders`. Set the floor to zero to disable.
+* A folder is re-listed at most once per `Config::relist_min_interval` (default 5 s). While it keeps changing the interval doubles, up to `relist_max_interval` (60 s), and it returns to the floor once it is quiet. Changes inside the window are deferred to its end, not dropped. `status()` reports `relists_total`, `relist_rate_per_s` (last minute), `backoff_folders` and `gate_entries`. Idle folder states are dropped after 4 x their interval (at least 60 s), excluded folders are never tracked, and the gate holds at most 131,072 folders. Set the floor to zero to disable.
 * Defaults: `watch_latency` 500 ms, `change_coalesce` 1 s.
 * Build and cache folders are excluded by default: `target`, `node_modules`, `DerivedData`, `.build`, `.cache`, `.git/objects`, `Library/Caches`, `node_modules.*`, `.venv`, `__pycache__`, `.gradle`, `Pods`, `.turbo`, `.next`, `sccache`, `.sccache`, `.rightkit-managed`, `.git/logs`, `.git/lfs`, the scratch roots `/Volumes/D/scratch` (macOS) and `D:\scratch` (Windows), and any folder holding a valid `CACHEDIR.TAG`. Excluded folders stay in the index as empty, flagged entries. `Config::exclude_patterns` adds globs over path components (`*`, `?`). `Config::include_build_output` drops the defaults. The exact-path `Config::exclude` still works.
 

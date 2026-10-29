@@ -10,7 +10,10 @@ use std::time::{Duration, Instant};
 
 /// IPv4 addresses of this Mac's network interfaces, loopback excluded.
 pub fn local_ipv4s() -> Vec<Ipv4Addr> {
-    let networks = sysinfo::Networks::new_with_refreshed_list();
+    // An interface list the OS will not give means no addresses to offer.
+    let Ok(networks) = sysinfo::Networks::new_with_refreshed_list() else {
+        return Vec::new();
+    };
     let mut found = Vec::new();
     for data in networks.values() {
         for network in data.ip_networks() {
@@ -344,11 +347,13 @@ fn skips_interface(name: &str) -> bool {
 /// Every host worth probing: the private networks this Mac is on, narrowed to
 /// at most a /24 around its own address, without this Mac's own addresses.
 pub fn sweep_targets() -> Vec<Ipv4Addr> {
-    let networks = sysinfo::Networks::new_with_refreshed_list();
+    let Ok(networks) = sysinfo::Networks::new_with_refreshed_list() else {
+        return Vec::new();
+    };
     let own = local_ipv4s();
     let mut targets: Vec<Ipv4Addr> = Vec::new();
     for (name, data) in networks.iter() {
-        if skips_interface(name) {
+        if skips_interface(&name.to_string_lossy()) {
             continue;
         }
         for network in data.ip_networks() {

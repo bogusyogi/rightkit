@@ -1,6 +1,6 @@
-# rightkit-fsindex 0.5.0 (registry consumer recipe)
+# rightkit-fsindex 0.6.0 (registry consumer recipe)
 
-Standalone consumer, outside the workspace, pinning `rightkit-fsindex =0.5.0` exactly with the default
+Standalone consumer, outside the workspace, pinning `rightkit-fsindex =0.6.0` exactly with the default
 features (`content` stays off). It uses public API only:
 
 - Every platform: `Config::new` defaults, `WriteBudgetConfig::new` and `with_max_footprint`, the pure

@@ -1,6 +1,6 @@
-# rightkit-contracts 0.1.7 registry consumer
+# rightkit-contracts 0.1.8 registry consumer
 
-Standalone consumer, outside the workspace, pinning `rightkit-contracts =0.1.7` exactly with the default feature set (`schema`), the set the PostRight engine uses. It installs the crate from the sealed archive through the offline directory registry and runs `src/main.rs`, which exits non-zero on the first failed assertion.
+Standalone consumer, outside the workspace, pinning `rightkit-contracts =0.1.8` exactly with the default feature set (`schema`), the set the PostRight engine uses. It installs the crate from the sealed archive through the offline directory registry and runs `src/main.rs`, which exits non-zero on the first failed assertion.
 
 ## What it proves
 

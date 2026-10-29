@@ -1,6 +1,6 @@
-# rightkit-channel-memory 0.2.1 registry consumer
+# rightkit-channel-memory 0.2.2 registry consumer
 
-Standalone consumer, outside the workspace, pinning `rightkit-channel-memory =0.2.1` exactly. The crate has no features, so none are selected; this is the dependency the PostRight engine declares. It installs the crate from the sealed archive through the offline directory registry and runs `src/main.rs`, which exits non-zero on the first failed assertion.
+Standalone consumer, outside the workspace, pinning `rightkit-channel-memory =0.2.2` exactly. The crate has no features, so none are selected; this is the dependency the PostRight engine declares. It installs the crate from the sealed archive through the offline directory registry and runs `src/main.rs`, which exits non-zero on the first failed assertion.
 
 The program embeds one `channel-memory.v1` document (revision 2, scope `orthic/legion-notes/main`, four proofs: one approved, two collected, one withdrawn, plus an observation, a lesson and a performance note) and builds every other document it needs from that one in memory.
 

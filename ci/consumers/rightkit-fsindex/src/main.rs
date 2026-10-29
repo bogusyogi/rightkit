@@ -1,4 +1,4 @@
-// rightkit-fsindex 0.5.0 consumed by exact registry pin, outside the workspace.
+// rightkit-fsindex 0.6.0 consumed by exact registry pin, outside the workspace.
 //
 // Proves, on every platform: Config::new defaults, WriteBudgetConfig, the pure Windows Search SQL
 // helpers, parse_usn_records on short buffers, and the stub backend refusing with Error::Unsupported.
@@ -58,7 +58,7 @@ fn main() -> Result<(), String> {
     let _ = std::fs::remove_dir_all(&dir);
     outcome?;
 
-    println!("OK rightkit-fsindex 0.5.0 (registry consumer)");
+    println!("OK rightkit-fsindex 0.6.0 (registry consumer)");
     Ok(())
 }
 

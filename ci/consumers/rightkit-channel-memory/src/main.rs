@@ -1,4 +1,4 @@
-// rightkit-channel-memory 0.2.1 consumed by exact registry pin (no features: the crate has none),
+// rightkit-channel-memory 0.2.2 consumed by exact registry pin (no features: the crate has none),
 // outside the workspace.
 //
 // Proves, through the public API only, on one embedded channel-memory.v1 document (revision 2,
@@ -55,7 +55,7 @@ fn main() {
     controlled_writes();
     record_level_entry_points();
     banned_moves_and_epochs();
-    println!("OK rightkit-channel-memory 0.2.1 (registry consumer)");
+    println!("OK rightkit-channel-memory 0.2.2 (registry consumer)");
 }
 
 // ---- fixtures built in memory -------------------------------------------------------------

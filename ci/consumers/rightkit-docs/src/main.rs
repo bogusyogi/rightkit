@@ -1,4 +1,4 @@
-// rightkit-docs 0.1.2 consumed by exact registry pin, outside the workspace.
+// rightkit-docs 0.1.3 consumed by exact registry pin, outside the workspace.
 //
 // Proves the smallest pure DOCX family: a typed CreateDocx written into a temp directory; a read
 // by content (format from the bytes, text, and the SHA-256 of the exact bytes read); an edit made
@@ -113,6 +113,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(not_office, "unsupported_format");
 
     fs::remove_dir_all(&dir)?;
-    println!("OK rightkit-docs 0.1.2 (registry consumer)");
+    println!("OK rightkit-docs 0.1.3 (registry consumer)");
     Ok(())
 }

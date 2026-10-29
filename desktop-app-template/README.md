@@ -11,17 +11,15 @@ the release-switch scan, the Cargo, QA and legal contracts and `right-release ow
 `packages/release/template-contract.test.mjs` runs those evaluators on a fresh instance on every change to the template or to
 `right-release init`.
 
-**Pin sequencing.** The pin is the latest published `@rightkit/release`, 0.6.6: the registry check refuses a pin the registry does not
-have, the build refuses one behind its latest, and `template-contract.test.mjs` requires every pin to equal the published set. 0.6.6 has
-the `check` command (`pnpm check`), and the JSON release config is loaded by every command from 0.6.6, so `pnpm release:*` and
-`pnpm dev:build:*` run from the pinned package. This tree stages 0.6.10, which is not published yet. The commit that records 0.6.10 in
-`rightkit-versions.json` also moves this pin to 0.6.10 (with `pnpm-lock.yaml`, `minimumReleaseAgeExclude` and the lock hashes in
-`legal/THIRD_PARTY_NOTICES.md`) and deletes this paragraph.
+**Pin.** The pin is the latest published `@rightkit/release`, 0.6.10: the registry check refuses a pin the registry does not have,
+the build refuses one behind its latest, and `template-contract.test.mjs` requires every pin to equal the published set. The `check`
+command (`pnpm check`) ships from 0.6.6, and the JSON release config is loaded by every command from 0.6.6, so `pnpm release:*` and
+`pnpm dev:build:*` run from the pinned package.
 
 The committed `.githooks/pre-push` must be byte-identical to what the pinned release's `rightkit-gate install-hook` writes: `prepare`
 runs it, and it refuses to overwrite a differing hook, so a stale hook fails `pnpm install` in every app copied from the template.
 `template-contract.test.mjs` compares the hook with the sha256 recorded for the pin in `packages/release/fixtures/published-gate-hooks.json`
-(computed from the published tarball, so the test needs no network); 0.6.4, 0.6.5 and 0.6.6 are recorded (0.6.6 writes the same hook as
+(computed from the published tarball, so the test needs no network); 0.6.4 to 0.6.8 and 0.6.10 are recorded (0.6.6 to 0.6.8 write the same hook as
 0.6.5). A commit that moves the pin adds the new release's digest to that record (the file's `about` gives the command) and regenerates
 this hook from that release's `hookText` when it differs.
 

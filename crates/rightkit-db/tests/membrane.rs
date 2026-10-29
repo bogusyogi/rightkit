@@ -426,7 +426,7 @@ fn restore_reads_committed_pages_from_backup_wal() {
 #[cfg(feature = "hooks")]
 #[test]
 fn hooks_allow_cancellation_through_returned_connection() {
-    let conn = open_in_memory().unwrap();
+    let mut conn = open_in_memory().unwrap();
     conn.progress_handler(1, Some(|| true)).unwrap();
     let error = conn
         .query_row(

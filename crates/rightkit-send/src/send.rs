@@ -78,6 +78,9 @@ pub struct Progress {
     pub files_done: usize,
     pub files_total: usize,
     pub current: Option<String>,
+    /// The other device answered `/prepare-upload` with 200 or 204: its owner has said yes. Once
+    /// true it stays true, whatever fails later.
+    pub accepted: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -258,6 +261,7 @@ pub fn deliver(
         files_done: 0,
         files_total: entries.len(),
         current: None,
+        accepted: false,
     };
     on(progress.clone());
 
@@ -302,6 +306,12 @@ pub fn deliver(
         return Ok(Outcome::Cancelled);
     }
     let reply = reply?;
+    if matches!(reply.status, 200 | 204) {
+        // The receiver's owner has said yes. Say so before anything else can fail, so a host
+        // never asks that owner a second time by another route.
+        progress.accepted = true;
+        on(progress.clone());
+    }
     let session = match reply.status {
         200 => serde_json::from_slice::<PrepareUploadResponse>(&reply.body).map_err(|_| {
             Error::PeerReply {

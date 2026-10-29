@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased (rightkit#1222)
+## 0.9.2 (unpublished; rightkit#1222)
+
+- Dependency: `toml` 0.9 -> 1; no source change. (rightkit#1284)
 
 - Fixed: the `control` feature no longer enables `rightkit-daemon/test-mode`. The in-app control server compiles into a dev build whose data roots stay the real ones (a `qa-native` install no longer exits at startup on the real per-user suite root). It still listens only when the launcher sets `RIGHTKIT_CONTROL_SERVICE`, and a launch with `RIGHTKIT_QA_CONTROL_TOKEN_FILE` unset refuses every order. The service is hosted under `RIGHTKIT_SUITE_ROOT` when the runner set it (isolated run), else under the real per-user root. Isolation is chosen per launch by the runner's environment, never by the build. Tests: control without test-mode, runner root honoured, unset root = real folders.
 

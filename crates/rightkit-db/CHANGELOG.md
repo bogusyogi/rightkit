@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.3 (unpublished)
+
+- Dependency: `rusqlite` 0.40 -> 0.41 (libsqlite3-sys 0.39). Hook methods such as `progress_handler` now take `&mut Connection`; the `hooks` test opens a `mut` connection. A consumer that names `rusqlite` types directly moves to 0.41 with this release. (rightkit#1284)
+
 ## 0.5.2 — 2026-10-23
 
 - Fix (rightkit#932, ViewRight): a failed open no longer checkpoints and deletes the `-wal`/`-shm` before quarantine runs. When `open_at` failed (a key check reading page 1, or `check_on_open`), the `?` dropped the connection, and SQLite's close checkpoints and then deletes the `-wal` and `-shm`. Quarantine then found no `-wal`, and a valid-but-corrupt main file had already been rewritten, which broke the "nothing is deleted" promise of `open_writer_recovering`, `open_writer_recovering_unreadable` and `open_writer_migrated_or_degrade`. `open_at` now sets `SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE` right after the handle opens (before keying) and clears it only once the check and sidecar hardening have succeeded, so a successful connection closes exactly as before. Every writer path goes through `open_at`. Damage that first surfaces during migration (`open_writer_migrated`, after `open_at` succeeded) sets the flag again before the connection is dropped, so `open_writer_migrated_or_degrade` also quarantines the original bytes.

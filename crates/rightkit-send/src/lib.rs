@@ -129,6 +129,12 @@ pub struct Transfer {
     pub files_total: usize,
     pub files_done: usize,
     pub current: Option<String>,
+    /// A send only: the receiver answered `/prepare-upload` with 200 or 204, so its owner has been
+    /// asked and said yes. Never cleared, so it stays true through a later failure (an unreachable
+    /// peer, a 5xx, a failed first byte) and a failed transfer with `accepted == false` failed
+    /// before the owner was asked or while they were. Always false for a receive.
+    #[serde(default)]
+    pub accepted: bool,
     pub saved_to: Option<String>,
     pub saved_files: Vec<String>,
     pub error: Option<Error>,
@@ -1041,6 +1047,7 @@ impl Service {
             files_total: 0,
             files_done: 0,
             current: None,
+            accepted: false,
             saved_to: None,
             saved_files: Vec::new(),
             error: None,
@@ -1398,6 +1405,10 @@ fn run_send(
     };
     // A message counts as sent once it is on the other screen.
     let delivered = std::cell::Cell::new(false);
+    // The accepted update and the first sending update are never rate limited: a host reads
+    // them to tell where a failure fell.
+    let accepted_seen = std::cell::Cell::new(false);
+    let sending_seen = std::cell::Cell::new(false);
     let result = send::deliver(
         &inner.me,
         &peer,
@@ -1412,7 +1423,11 @@ fn run_send(
                 return;
             }
             let waiting = p.phase == send::Phase::Waiting;
-            inner.update_transfer(&id, p.total > 0 && p.done >= p.total, |t| {
+            let first_accepted = p.accepted && !accepted_seen.replace(true);
+            let first_sending = p.phase == send::Phase::Sending && !sending_seen.replace(true);
+            let force = first_accepted || first_sending || (p.total > 0 && p.done >= p.total);
+            inner.update_transfer(&id, force, |t| {
+                t.accepted |= p.accepted;
                 t.state = if waiting { "waiting" } else { "active" }.to_string();
                 t.total_bytes = p.total;
                 t.done_bytes = p.done;
@@ -1586,7 +1601,7 @@ fn start_bonjour(
 #[cfg(test)]
 mod lifecycle_tests {
     use super::*;
-    use std::io::{ErrorKind, Read};
+    use std::io::{BufReader, ErrorKind, Read};
     use std::net::SocketAddr;
 
     /// `Service::start` sets the client identity and User-Agent for the whole process, so these
@@ -1708,5 +1723,182 @@ mod lifecycle_tests {
         }
         drop(open);
         assert!(service.shutdown());
+    }
+
+    // ---- accepted: where a failed send fell (#1275) ---------------------------------------
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Script {
+        /// Nothing listens: the first connection is refused.
+        Refuse,
+        /// Answer `/prepare-upload` with 200, then stop listening.
+        AcceptThenGone,
+        /// Answer `/prepare-upload` with 200, then answer the upload with 500.
+        AcceptThen5xx,
+    }
+
+    fn take(tls: &Arc<rustls::ServerConfig>, listener: &TcpListener) -> BufReader<net::Wire> {
+        let (socket, _) = listener.accept().expect("accept");
+        socket
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let mut reader = BufReader::new(net::accept_tls(tls, socket).expect("tls"));
+        let request = net::read_request(&mut reader).expect("request");
+        net::read_body(&mut reader, &request.headers, 1 << 20, &mut |_| Ok(())).expect("body");
+        reader
+    }
+
+    fn reply(reader: &mut BufReader<net::Wire>, status: u16, body: Option<&[u8]>) {
+        let wire = reader.get_mut();
+        net::write_response(wire, status, body).expect("reply");
+        wire.finish();
+    }
+
+    /// A receiver on loopback with its own identity that follows `script`. The sender's file is
+    /// the first entry, so its id is `f0`.
+    fn fake_receiver(script: Script) -> (Peer, thread::JoinHandle<()>) {
+        let identity = Identity::generate("Fake").expect("identity");
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind");
+        let peer = Peer {
+            ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            port: listener.local_addr().unwrap().port(),
+            https: true,
+            fingerprint: identity.fingerprint.clone(),
+            alias: "Fake".into(),
+        };
+        if script == Script::Refuse {
+            drop(listener);
+            return (peer, thread::spawn(|| {}));
+        }
+        let tls = net::server_config(&identity).expect("tls config");
+        let handle = thread::spawn(move || {
+            let mut prepare = take(&tls, &listener);
+            let session = proto::PrepareUploadResponse {
+                session_id: "session-1".into(),
+                files: [("f0".to_string(), "token-1".to_string())].into(),
+            };
+            let json = serde_json::to_vec(&session).unwrap();
+            if script == Script::AcceptThenGone {
+                // Closed before the answer goes out, so the upload connect cannot queue.
+                drop(listener);
+                reply(&mut prepare, 200, Some(&json));
+                return;
+            }
+            reply(&mut prepare, 200, Some(&json));
+            let mut upload = take(&tls, &listener);
+            reply(&mut upload, 500, None);
+        });
+        (peer, handle)
+    }
+
+    /// Run one send to `peer` to its end, returning the transfer and every event heard.
+    fn send_through(peer: Peer, items: Vec<SendItem>, nudge: bool) -> (Transfer, Vec<Event>) {
+        let events: Arc<Mutex<Vec<Event>>> = Arc::new(Mutex::new(Vec::new()));
+        let heard = events.clone();
+        let identity = Identity::generate("Sender").expect("identity");
+        let service = Service::start(
+            config(0),
+            identity,
+            Arc::new(move |event: Event| lock(&heard).push(event)),
+        )
+        .expect("service starts");
+        let id = proto::random_hex(8);
+        service.inner.add_transfer(Transfer {
+            id: id.clone(),
+            direction: "send".into(),
+            peer: peer.alias.clone(),
+            peer_fingerprint: peer.fingerprint.clone(),
+            state: "waiting".into(),
+            total_bytes: 0,
+            done_bytes: 0,
+            files_total: 0,
+            files_done: 0,
+            current: None,
+            accepted: false,
+            saved_to: None,
+            saved_files: Vec::new(),
+            error: None,
+            message: None,
+            clipboard: false,
+            started: now_ms(),
+            finished: None,
+        });
+        let handle = Arc::new(CancelHandle {
+            flag: AtomicBool::new(false),
+            stream: Mutex::new(None),
+        });
+        lock(&service.inner.cancels).insert(id.clone(), handle.clone());
+        if nudge {
+            // Another transfer reported progress an instant ago.
+            *lock(&service.inner.last_progress) = Instant::now();
+        }
+        run_send(service.inner.clone(), id.clone(), peer, items, false, handle);
+        let transfer = lock(&service.inner.transfers)
+            .iter()
+            .find(|t| t.id == id)
+            .cloned()
+            .expect("the transfer is listed");
+        assert!(service.shutdown());
+        let heard = lock(&events).clone();
+        (transfer, heard)
+    }
+
+    #[test]
+    fn a_peer_that_accepts_then_refuses_connections_leaves_accepted_true() {
+        let _serial = serial();
+        let (peer, server) = fake_receiver(Script::AcceptThenGone);
+        let (transfer, _) = send_through(peer, vec![SendItem::Text("hello".into())], false);
+        server.join().unwrap();
+        assert_eq!(transfer.state, "failed");
+        assert!(matches!(transfer.error, Some(Error::PeerUnreachable { .. })));
+        assert!(transfer.accepted, "the owner had said yes");
+    }
+
+    #[test]
+    fn a_peer_that_refuses_the_first_connection_leaves_accepted_false() {
+        let _serial = serial();
+        let (peer, server) = fake_receiver(Script::Refuse);
+        let (transfer, _) = send_through(peer, vec![SendItem::Text("hello".into())], false);
+        server.join().unwrap();
+        assert_eq!(transfer.state, "failed");
+        assert!(matches!(transfer.error, Some(Error::PeerUnreachable { .. })));
+        assert!(!transfer.accepted, "the owner was never asked");
+    }
+
+    #[test]
+    fn a_zero_byte_file_accepted_then_5xx_leaves_accepted_true() {
+        let _serial = serial();
+        let directory =
+            std::env::temp_dir().join(format!("rk-send-zero-{}", proto::random_hex(4)));
+        std::fs::create_dir_all(&directory).unwrap();
+        let empty = directory.join("empty.txt");
+        std::fs::write(&empty, b"").unwrap();
+        let (peer, server) = fake_receiver(Script::AcceptThen5xx);
+        let (transfer, _) = send_through(peer, vec![SendItem::Path(empty)], false);
+        server.join().unwrap();
+        let _ = std::fs::remove_dir_all(&directory);
+        assert_eq!(transfer.state, "failed");
+        assert!(matches!(
+            transfer.error,
+            Some(Error::PeerAnswer { status: 500, .. })
+        ));
+        // Nothing moved, so the counts alone could not say the receiver had accepted.
+        assert_eq!((transfer.done_bytes, transfer.files_done), (0, 0));
+        assert!(transfer.accepted);
+    }
+
+    #[test]
+    fn the_first_sending_event_is_emitted_within_100_ms_of_other_progress() {
+        let _serial = serial();
+        let (peer, server) = fake_receiver(Script::AcceptThenGone);
+        let (_, events) = send_through(peer, vec![SendItem::Text("hello".into())], true);
+        server.join().unwrap();
+        assert!(
+            events.iter().any(|event| matches!(
+                event,
+                Event::Progress(t) if t.state == "active" && t.accepted
+            )),
+            "no progress event reported the sending phase"
+        );
     }
 }
