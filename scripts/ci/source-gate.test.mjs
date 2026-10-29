@@ -212,6 +212,18 @@ test("exports-import-effects: the probe runs on the exported commit with depende
   assert.match(io3.errs.join("\n"), /store lacks the dependencies/);
 });
 
+test("exports-import-effects: installed-state metadata is normalized for the export's path in every form pnpm writes it (JSON-escaped Windows paths included)", () => {
+  const state = (dir) => JSON.stringify({ lastValidatedTimestamp: 1, projects: { [dir]: { name: "root" }, [`${dir}\\packages\\a`]: { name: "a" } }, settings: { virtualStoreDir: `${dir}\\node_modules\\.pnpm` } }, null, 2);
+  const one = "D:\\scratch\\tmp\\rk-import-effects-AAAAAA"; const two = "D:\\scratch\\tmp\\rk-import-effects-BBBBBB";
+  const a = normalizeInstalledMetadata(".pnpm-workspace-state-v1.json", state(one), one); const b = normalizeInstalledMetadata(".pnpm-workspace-state-v1.json", state(two), two);
+  assert.equal(a, b, "two exports of one commit normalize to the same metadata");
+  assert.ok(!a.includes("rk-import-effects-"), a);
+  const modules = (dir) => JSON.stringify({ layoutVersion: 5, prunedAt: "x", virtualStoreDir: `${dir}\\node_modules\\.pnpm` });
+  assert.equal(normalizeInstalledMetadata(".modules.yaml", modules(one), one), normalizeInstalledMetadata(".modules.yaml", modules(two), two));
+  // A semantic difference still shows: another layout version is another closure.
+  assert.notEqual(normalizeInstalledMetadata(".modules.yaml", modules(one), one), normalizeInstalledMetadata(".modules.yaml", modules(one).replace('"layoutVersion":5', '"layoutVersion":6'), one));
+});
+
 test("exports-import-effects: dependency bytes are bound, not metadata: two exports of one commit digest equal; a mutated dependency file inside an export changes the digest while lockfile and installed-state digests stay identical; the live node_modules is never consulted", (t) => {
   const { repo, git } = gitRepoFixture(t);
   const commit = git("rev-parse", "HEAD").trim();
