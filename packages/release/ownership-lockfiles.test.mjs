@@ -139,6 +139,25 @@ for (const [name, content, reason] of [
     assert.ok(found.coverage.some((c) => c.path === name && c.status === "unscanned" && c.reason === reason), json(found.coverage));
   });
 });
+test("a Cargo workspace root never borrows an ancestor's lock; declared gate fixtures are not scanned (rightkit#1285)", () => {
+  // crates/a is its own workspace with no lock of its own: the root lock is not its lock.
+  fixture({ "Cargo.toml": cargoManifest, "Cargo.lock": cargoLock(), "crates/a/Cargo.toml": `${cargoManifest}[workspace]\n` }, (root) => {
+    assert.ok(scanApp(root, catalog, { trust: null }).coverage.some((c) => c.path === "crates/a/Cargo.toml" && c.reason === "lockfile-missing"));
+  });
+  // The same manifest under a declared fixture directory is a harness, never the app's code.
+  fixture({ "ci/gate.config.json": json({ fixtures: ["ci/consumers"] }), "Cargo.toml": cargoManifest, "Cargo.lock": cargoLock(), "ci/consumers/a/Cargo.toml": `${cargoManifest}[workspace]\n` }, (root) => {
+    assert.ok(!scanApp(root, catalog, { trust: null }).coverage.some((c) => c.path.startsWith("ci/consumers/")));
+  });
+});
+test("two declared versions of one Cargo package resolve by their own requirements (rightkit#1285)", () => {
+  const manifest = '[package]\nname="app"\nversion="1.0.0"\n[dependencies]\nwin_old={ package="windows", version="0.61" }\nwin_new={ package="windows", version="0.62" }\n';
+  const lock = 'version=4\n[[package]]\nname="app"\nversion="1.0.0"\ndependencies=["windows 0.61.3","windows 0.62.2"]\n'
+    + '[[package]]\nname="windows"\nversion="0.61.3"\nsource="registry+https://github.com/rust-lang/crates.io-index"\n'
+    + '[[package]]\nname="windows"\nversion="0.62.2"\nsource="registry+https://github.com/rust-lang/crates.io-index"\n';
+  fixture({ "Cargo.toml": manifest, "Cargo.lock": lock }, (root) => {
+    assert.ok(!scanApp(root, catalog, { trust: null }).coverage.some((c) => /ambiguous/.test(c.reason ?? "")), "each declaration resolves by its requirement");
+  });
+});
 test("missing lockfiles & unresolved graph references fail coverage", () => {
   fixture({ "package.json": npmManifest(), "Cargo.toml": cargoManifest }, (root) => assert.equal(scanApp(root, catalog, { trust: null }).coverage.filter((c) => c.reason === "lockfile-missing").length, 2));
   const lock = JSON.parse(npmLock()); delete lock.packages["node_modules/puppeteer-core"];

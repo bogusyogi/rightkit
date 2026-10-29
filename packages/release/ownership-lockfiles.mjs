@@ -322,9 +322,22 @@ export function transitiveDependencies(appRoot, inventory, manifests, catalogOwn
     if (bytes && !contentDigests.some((item) => item.path === rel)) contentDigests.push({ path: rel, digest: sha256(bytes) });
     return bytes;
   };
+  // Directories the repository declares as gate fixtures (ci/gate.config.json `fixtures`: consumer recipes, vendored crates,
+  // spikes) are samples and harnesses, never the app's code: the gate builds none of them as units, and neither are they scanned here.
+  let fixtures = [];
+  try {
+    const rel = "ci/gate.config.json";
+    const config = inventory.snapshotFiles?.get(`${inventory.pathPrefix ?? ""}${rel}`)?.bytes ?? files.get(rel)?.bytes
+      ?? (!inventory.committed && existsSync(path.resolve(appRoot, rel)) ? readFileSync(path.resolve(appRoot, rel)) : undefined);
+    if (config) fixtures = (JSON.parse(config.toString("utf8")).fixtures ?? []).map((d) => String(d).replace(/\/+$/, ""));
+  } catch { fixtures = []; }
+  const underFixture = (rel) => fixtures.some((d) => rel === d || rel.startsWith(`${d}/`));
   for (const manifest of manifests) {
     const base = path.posix.basename(manifest.rel), ecosystem = base === "Cargo.toml" ? "cargo" : base === "package.json" ? "npm" : null;
     if (!ecosystem || !manifest.bytes) continue;
+    if (underFixture(manifest.rel)) continue;
+    // A Cargo manifest with its own [workspace] table is a workspace root: its lock sits beside it and Cargo never looks higher.
+    const workspaceRoot = ecosystem === "cargo" && /^\s*\[workspace\]\s*$/m.test(manifest.bytes.toString("utf8"));
     const names = ecosystem === "cargo" ? ["Cargo.lock"] : OWNERSHIP_LOCKFILES.slice(1);
     let dir = path.posix.dirname(manifest.rel), found = false;
     try {
@@ -337,7 +350,7 @@ export function transitiveDependencies(appRoot, inventory, manifests, catalogOwn
           }
           found = true; break;
         }
-        if (dir === ".") break;
+        if (dir === "." || workspaceRoot) break;
         dir = path.posix.dirname(dir);
       }
       if (!found) diagnostic(manifest.rel, "lockfile-missing", ecosystem);

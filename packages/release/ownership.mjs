@@ -382,6 +382,9 @@ function resolveDependencyVersions(appRoot, inventory, deps, coverage, contentDi
             const refs = lock.package.filter((p) => p.name === owner).flatMap((p) => p.dependencies ?? []);
             candidates = candidates.filter((p) => refs.some((ref) => ref === `${d.name} ${p.version}` || ref.startsWith(`${d.name} ${p.version} (`)));
           }
+          // A crate may declare two versions of one package under different names (windows 0.61 and 0.62 lanes): the declared
+          // requirement picks the resolved one, by Cargo's default caret rule (or an exact `=` pin).
+          if (candidates.length > 1 && typeof d.requirement === "string") candidates = candidates.filter((p) => cargoRequirementMatches(d.requirement, p.version));
           if (candidates.length !== 1 || typeof candidates[0].version !== "string") throw new Error(`Cargo.lock resolution missing or ambiguous: ${d.name}`);
           d.resolvedVersion = candidates[0].version;
         }
@@ -916,4 +919,25 @@ export function checkCommittedApp(appRoot, manifest, options = {}) {
 /** Explicit test-only seam for bounded Git process failures and fixtures. */
 export function checkCommittedAppForTest(appRoot, manifest, options = {}) {
   return checkCommitted(appRoot, manifest, options, options.acquireCommittedSourceForTest ?? acquireCommittedSource, options.readAuthorityForTest);
+}
+
+/** Cargo's default requirement (`0.61`, `^1.2`, `=0.3.4`, `>=2.10.1, <3`) against a resolved version; anything else matches. */
+function cargoRequirementMatches(requirement, version) {
+  const parse = (v) => String(v).split("+")[0].split("-")[0].split(".").map((n) => Number(n));
+  const [x, y = 0, z = 0] = parse(version);
+  const cmp = (a, b) => a[0] - b[0] || (a[1] ?? 0) - (b[1] ?? 0) || (a[2] ?? 0) - (b[2] ?? 0);
+  return requirement.split(",").map((r) => r.trim()).filter(Boolean).every((r) => {
+    const m = /^(=|\^|>=|<=|>|<|~)?\s*(\d+)(?:\.(\d+))?(?:\.(\d+))?/.exec(r);
+    if (!m) return true;
+    const op = m[1] ?? "^"; const want = [Number(m[2]), m[3] === undefined ? undefined : Number(m[3]), m[4] === undefined ? undefined : Number(m[4])];
+    const v = [x, y, z]; const c = cmp(v, want);
+    if (op === "=") return want.every((n, i) => n === undefined || n === v[i]);
+    if (op === ">=") return c >= 0; if (op === ">") return c > 0; if (op === "<=") return c <= 0; if (op === "<") return c < 0;
+    if (op === "~") return c >= 0 && v[0] === want[0] && (want[1] === undefined || v[1] === want[1]);
+    if (c < 0) return false;
+    if (want[0] > 0) return v[0] === want[0];
+    if (want[1] === undefined) return v[0] === 0;
+    if (want[1] > 0) return v[0] === 0 && v[1] === want[1];
+    return v[0] === 0 && v[1] === 0 && (want[2] === undefined || v[2] === want[2]);
+  });
 }
