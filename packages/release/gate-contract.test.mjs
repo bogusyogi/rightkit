@@ -442,7 +442,7 @@ const fs = await import("node:fs");
 const out = []; const plans = [];
 const code = await main(["--to", "compile", "--commit", ${JSON.stringify(sha)}], { cwd: ${JSON.stringify(repo)}, platform: "linux", out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0,
   runScans: async (plan) => { plans.push(plan.scans.filter((s) => s.tool === "cargo").map((s) => ({ id: s.id, cls: s.class, env: s.env ?? {}, root: plan.roots.liveRoot }))); return { scans: [], notes: [], cacheHits: [] }; } });
-console.log(JSON.stringify({ code, out: out.join("\\n").slice(-3000), plans }));\n`);
+console.log(JSON.stringify({ code, out: out.join("\\n").slice(-40000), plans }));\n`);
   const env = { ...process.env, NODE_OPTIONS: "", RK_GATE_CACHE: "0", PATH: `${toolDir}:${process.env.PATH}`, RIGHTKIT_SNAPSHOT_ROOT: path.join(dir, "snaps"), RIGHTKIT_DATA_ROOT: dir, XDG_STATE_HOME: dir };
   delete env.GITHUB_ACTIONS; delete env.RIGHTKIT_BUILD_OWNERSHIP;
   const r = spawnSync(process.execPath, [driver], { env, encoding: "utf8", cwd: repo });
@@ -466,6 +466,16 @@ console.log(JSON.stringify({ code, out: out.join("\\n").slice(-3000), plans }));
   const ran = fs.readFileSync(path.join(dir, "cargo-ran"), "utf8").trim().split("\n");
   for (const line of ran.filter((l) => l.startsWith(`${repo} `))) assert.match(line, /^\S+ metadata --offline --format-version 1 --no-deps --manifest-path /, line);
   assert.equal(fs.existsSync(path.join(dir, "build-ownership", "owner.json")), false, "the door released the host");
+  // The direct host's own receipt (step 4d): broker field names, the commit, trees at start and exit, the ownership and the outputs.
+  const line = res.out.split("\n").find((l) => l.startsWith("rightkit-gate: direct receipt "));
+  assert.ok(line, "the compile printed its direct receipt");
+  const receipt = JSON.parse(line.slice("rightkit-gate: direct receipt ".length));
+  assert.equal(receipt.schema, "rightkit.gate-direct-receipt/1"); assert.equal(receipt.executor, "direct");
+  assert.deepEqual(receipt.commit, { sha, tree: String(spawnSync("git", ["rev-parse", `${sha}^{tree}`], { cwd: repo, encoding: "utf8" }).stdout).trim() });
+  assert.deepEqual(receipt.snapshot, { path: snapDir, treeAtStart: receipt.commit.tree, treeAtExit: receipt.commit.tree });
+  assert.match(receipt.ownership.handle ?? "", /^[0-9a-f-]{36}$/, "the door's ownership handle");
+  assert.equal(receipt.outputDir, path.join(repo, "rk-target")); assert.equal(receipt.exitStatus, 0);
+  assert.match(receipt.requestId, /^[0-9a-f-]{36}$/); assert.ok(Number.isFinite(Date.parse(receipt.issuedAt)));
 });
 
 test("[behavior] E6/§1: the door builds the commit, not the checkout: a dirty checkout neither blocks nor leaks, an edit mid-stage never reaches the snapshot, a tampered snapshot voids the stage (exit 2), a second request waits for the held ownership (exit 1)", { skip: process.platform === "win32" && "simulates a Linux host, whose ownership reads ps" }, async (t) => {

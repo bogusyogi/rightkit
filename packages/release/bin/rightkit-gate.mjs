@@ -64,7 +64,7 @@
 // one at a time, under the RustRight quiet lease (`rustright quiet acquire`, RUSTRIGHT_QUIET_LEASE in their environment).
 // SIGINT/SIGTERM stop scheduling, kill every running scan's process tree and exit non-zero listing the scans not run.
 import fs from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { resolveManagedRoots } from "../managed-roots.mjs";
 import os from "node:os";
 import path from "node:path";
@@ -1518,7 +1518,7 @@ async function runStages(o, args, root, git, io) {
       o.err(`${tag} BLOCKED: [${stage}] --to release only uploads: the receipt must already record ${stage} for the sealed bytes on disk (${sealedNow ? `manifest ${sealedNow.digest.slice(0, 12)}` : "none found"}); run --to qualify on the host and stage again`);
       return 1;
     }
-    let ok = false; const at = new Date().toISOString(); let extra = {};
+    let ok = false; const at = new Date().toISOString(); let extra = {}; let directReceipt = null;
     if (stage === "check") {
       ok = (await (o.runCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), "--rule-tier", earlyTier], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))(earlyTier)) === 0;
       extra = { ruleTier: earlyTier };
@@ -1536,7 +1536,8 @@ async function runStages(o, args, root, git, io) {
       if (ds && sidecarConfigs.length) { o.err(`${tag} BLOCKED: [compile] ${sidecarConfigs.join(", ")} stage sidecars through right-release, which does not build from a commit snapshot yet; nothing compiled`); ok = false; }
       // right-release runs in appRoot (nested apps), so the repository-relative config is handed over absolute (Astra, second pass).
       for (const config of ok && !ds ? sidecarConfigs : []) if (!rightRelease(stage, ["stage-sidecar", "--config", path.join(root, config)])) { ok = false; break; }
-      if (ok) ok = (await (o.runCompile ?? (() => main(ds ? ["--all", "--commit", commit, "--snapshot", ds.path] : ["--all"], { ...io, cwd: root, readStdin: () => "", ...(ds ? { buildOwnership: ds.own } : {}) })))()) === 0;
+      if (ok) ok = (await (o.runCompile ?? (() => main(ds ? ["--all", "--commit", commit, "--snapshot", ds.path] : ["--all"], { ...io, cwd: root, readStdin: () => "", ...(ds ? { buildOwnership: ds.own, onDirectReceipt: (r) => { directReceipt = r; } } : {}) })))()) === 0;
+      if (directReceipt) extra = { ...extra, direct: directReceipt };
     }
     else if (stage === "package" && ds) {
       o.err(`${tag} BLOCKED: [package] right-release builds and seals from the checkout; building from a commit snapshot waits for the right-release source split (joint plan step 4c, second part); nothing was built`);
@@ -2416,6 +2417,20 @@ export async function main(argv, io = {}) {
       try { (await import("../snapshot-check.mjs")).verifySnapshotDir({ checkout: fs.realpathSync.native(root), dir: snapshotB, ...snapshotBCommit, when: "after the compile" }); }
       catch (error) { o.err(`${tag} RK_CHECK_ERROR: ${error.message}; the compile covers no known bytes`); return 2; }
       o.out(`${tag} snapshot ${snapshotB} is still tree ${snapshotBCommit.tree} after the compile`);
+      // The direct host's own receipt (GATE-CONTRACT "Broker interface": the same field names as the broker's evidence, without the
+      // broker-only ones): this run, the commit, the snapshot's tree at start and exit, the ownership, where the outputs went, the
+      // result and when it was issued. Rebuilt units are the freshness census of joint plan step 6, not measured here.
+      const workspaces = Object.keys(targetDirs ?? {});
+      const directReceipt = {
+        schema: "rightkit.gate-direct-receipt/1", requestId: randomUUID(), executor: "direct", issuedAt: new Date().toISOString(),
+        commit: { sha: snapshotBCommit.commit, tree: snapshotBCommit.tree },
+        snapshot: { path: snapshotB, treeAtStart: snapshotBCommit.tree, treeAtExit: snapshotBCommit.tree },
+        ownership: { handle: o.buildOwnership?.handle ?? null },
+        outputDir: workspaces.length === 1 ? targetDirs[workspaces[0]] : null, outputDirs: { ...(targetDirs ?? {}) },
+        exitStatus: failures.length ? 1 : 0, rebuilt: null,
+      };
+      o.onDirectReceipt?.(directReceipt);
+      o.out(`${tag} direct receipt ${JSON.stringify(directReceipt)}`);
     }
     if (failures.length) {
       o.err(`${tag} BLOCKED (${failures.length})`);
