@@ -155,7 +155,7 @@ A standard was designed (`docs/E2E-TESTING-STANDARD.md`) and half built. It was 
      `Skipped` for another platform (suite.rs:420-447). W0-B adds a typed skip kind to `Outcome`, so that
      case is typed rather than inferred. (Sage C5)
    - Isolation is recorded from the actual launch environment and paths, not asserted.
-   - Passing evidence comes only from committed scenario files with a clean tree. The control server
+   - Passing evidence comes only from committed scenario files read from the commit snapshot. The control server
      accepts orders only with a per-run token from the runner (D-e).
    - `explore` mode produces no receipts. Its output is a recorded TOML scenario.
 7. **Speed.**

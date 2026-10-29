@@ -343,7 +343,7 @@ On restart:
 1. Read the simple active-writer marker.
 2. Reap its persisted process group.
 3. On `REAPED`, mark the job abandoned and preserve the warm generation.
-4. On `REAP_PENDING`, retire that generation and advance to a fresh one.
+4. On `REAP_PENDING`, keep the generation and report it. Advance to a fresh generation only on a logged, owner-approved event (docs/GATE-CONTRACT.md; rustright/docs/BROKER-CONTRACT.md).
 5. Admit unrelated work normally.
 6. Never globally wedge the machine because one old tree could not be certified dead.
 
@@ -850,10 +850,11 @@ GC order:
 1. Never delete an active generation.
 2. Prefer retired/suspect generations, oldest first.
 3. When total managed target storage still exceeds `targetCacheCapBytes`,
-   evict **idle current generations** least-recently-used first. Evicting an
-   idle current generation means advancing the workspace to a fresh generation
-   under the same per-workspace write exclusion used by BUILD, then renaming
-   the retired generation to trash. A current generation is never deleted
+   report it. Never evict the current generation automatically: the warm
+   cache is a requirement (docs/GATE-CONTRACT.md). Advancing the workspace to
+   a fresh generation happens only on a logged, owner-approved event, under the
+   same per-workspace write exclusion used by BUILD, then the retired
+   generation is renamed to trash. A current generation is never deleted
    in place without first making a different generation current.
 4. Atomic rename to trash before recursive delete is sufficient.
 

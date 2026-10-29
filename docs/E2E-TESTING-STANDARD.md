@@ -106,7 +106,7 @@ A journey `passed` only if `units.total >= 1`, `units.failed = 0`, `units.skippe
 | `verdict` | `"passed"` \| `"failed"` \| `"incomplete"` | computed only by the rules below |
 | `started_at`, `ended_at` | string | RFC 3339 |
 | `host` | object | `{os: "windows"\|"macos"\|"linux", arch: string, session: "interactive"\|"noninteractive"}` |
-| `source` | object | `{head: 40-hex, tree: 40-hex (git tree of head), dirty: bool, diff_sha256: string\|null}`; `diff_sha256` is required when `dirty`; release signoff requires `dirty=false` |
+| `source` | object | `{head: 40-hex, tree: 40-hex (git tree of head), dirty: bool, diff_sha256: string\|null}`; `diff_sha256` is required when `dirty`; release identity is the commit plus the snapshot tree (`head`, `tree`); checkout dirtiness does not matter (docs/GATE-CONTRACT.md §1, §4) |
 | `manifest` | object | `{path, sha256}` |
 | `mapping` | object\|null | `{path, sha256}` of the D8 mapping file; null while the gate is advisory |
 | `build` | object | `{command: string[], source_tree: 40-hex, tree_after_build: 40-hex, started_at, ended_at, broker_receipt: {id, path, sha256}\|null, artifacts: [{role, path, size: int, sha256, produced_by: "broker_receipt"\|"build_output"}]}` |

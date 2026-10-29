@@ -1,5 +1,7 @@
 # Consumer snapshot 3c917803
 
+> Historical; method not allowed under GATE-CONTRACT §1 (docs/GATE-CONTRACT.md, locked 2026-10-28): no clone, `git archive` export or snapshot outside the gate-owned directory.
+
 Named 2026-10-12 08:05 IST by the RightKit lead. Supersedes snapshot c9f222a1. A further snapshot follows within hours (see "Known defects").
 
 Commit: bogusyogi/rightkit main `3c917803`.

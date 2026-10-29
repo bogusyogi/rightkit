@@ -232,7 +232,7 @@ The dev install does not call the CLI: `development.mjs` dispatches `kind: "asse
 
 ## 8. What the Pulse config can drop
 
-`development.targets.*.install` today is absent; with these keys `pnpm dev:mac`/`dev:win` become `right-release dev --platform <p>`.
+`development.targets.*.install` today is absent; with these keys `pnpm dev:mac`/`dev:win` become the gate's `--to dev` stage (docs/GATE-CONTRACT.md §1).
 The production `prePackage`, `package`, `postSign` hooks stop pointing at the removed `scripts/release/*` files.
 Pulse-specific checks that `candidate.mjs` ran (bundled `pulse scan` smoke, Apple Events entitlement scan, camera/mic entitlement refusal)
 are not part of the shared module; the existing `identity-scan`/`assert` keys cover identity, the rest is Pulse's own check command if wanted.

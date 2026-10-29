@@ -1,6 +1,6 @@
 # RightKit Dual-Host Rust Routing
 
-**Status:** implemented & Pi validated
+**Status:** Superseded by docs/GATE-CONTRACT.md (locked 2026-10-28); kept as history
 **Hosts:** macOS workstation + Windows i9/64 GiB workstation
 **Transport:** existing passwordless `ssh win` bridge
 **Authority:** extends `RIGHTKIT-THIN-BUILD-CONTROL.md`; each host broker remains sole local Cargo executor.

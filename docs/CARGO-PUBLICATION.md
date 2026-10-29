@@ -1,7 +1,7 @@
 # Cargo publication decision
 
 Windows follow-through from `3107b2401ea4852a3316fa039b523424bcacc9f0`.
-Publication runs through `right-release publish cargo` after exact-commit native host receipts, package inspection, clippy & registry dry-run pass.
+Publication is Git-triggered CI publication after a local compile through the gate, CI qualification, package inspection & registry dry-run pass (docs/GATE-CONTRACT.md §1). A local publish command is not the route.
 
 ## Previously disabled crates
 

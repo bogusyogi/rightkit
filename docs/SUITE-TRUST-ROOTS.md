@@ -67,7 +67,7 @@ HeardRight `host_services.rs:45`, ScrapeRight `protocol/src/license.rs:18`, Post
 `main_license.rs:26`, MailRight `pro_gate.rs:77`), a hand-written keychain reader (GenRight `entitlement.rs:67,170`), and none. All of them make
 the engine a second reader of the owner's store, against `rightkit-credentials` README ("only the owner binary reads the OS store").
 
-Re-run the findings on any checkout with `node scripts/preflight.mjs --repo <app> --worktree`: `suite-key-literal` (C3-04),
+Re-run the findings on any commit with `node scripts/preflight.mjs --repo <app> --commit <sha>`: `suite-key-literal` (C3-04),
 `suite-updater-key` (C3-14) and `engine-record-store` (C3-05). `ci/app-check-baseline.json` lists today's findings per app; each app's
 migration removes its entries.
 

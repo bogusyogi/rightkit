@@ -28,7 +28,7 @@ Source: `tasks/reviews/2026-10-08-rightkit-converged-plan.md` (revision 4, both 
 | P1 | Publication binding (Mac): `publish-update` sealing, `.crate` byte binding | in progress | `5cce549c2`, `f1fc82fc0`, `25292c7e5`, `0ba65fa36` | Exit test (every entry rejects bad seals) not recorded. |
 | P1 | D5 crate and package fixes | in progress | `be45aa01f` (secrets lock), `621bfcde2` (jobs, sandbox), `d5076a26f` (mcp, agent-room, hooks), `f1fc82fc0` (updates), `3937acf16` (env fallbacks), `a52f6d076` (db cipher gate) | `rightkit-pdf` `save.rs:414` gate and `sqlcipher-system` commit are open. |
 | P1 | Mac enrollment and HeardRight exception drafts | waiting on Adrian | `b5a1614fa`, `064da06ba` | Regenerate drafts from a fresh scan after the P1 schema lands. Adrian signs. Do not sign before then. |
-| P2 | Advisory gates: pre-commit gate, manifest and `cargo add`/`pnpm add` hook, catalog drift check | in progress | `065888365`, `6316a8491`, `5d3d1da2a` | Pre-commit gate in every app repo, keyword advisory, Legion `RightKit capabilities` block, `workspace-doctor` drift check: not recorded. |
+| P2 | Advisory gates: pre-commit gate, manifest and `cargo add`/`pnpm add` hook, catalog drift check | in progress | `065888365`, `6316a8491`, `5d3d1da2a` | Keyword advisory, Legion `RightKit capabilities` block, `workspace-doctor` drift check: not recorded. |
 | P2 | Full active-feature and production-reachability resolution | not started | (`3ceb71e7a` is stage 1 only) | Qualify before any enforce flip. |
 | P2 | Enforce (block tier, both hosts) | not started | none | Blocked on P1 rows, complete registered-root coverage, validated exceptions, protected policy install, native acceptance. |
 | P3 | Per-app burn-down | waiting on Adrian | see version pins below | App chats resume only when Adrian says so. |
@@ -63,7 +63,7 @@ Source: `rightkit/docs/plans/2026-10-08-content-pipeline-execution-plan.md` (sta
 | RK9 | Composition contract (`rightkit-compose`) | in progress | Model scaffolded (24 tests). Spring easing and click effects not modelled. |
 | RK10 | Daemon host capability | blocked | Waits on RK0 and RK7. |
 
-Plan rules that apply to every row: Rust at runtime (signed Swift capture helper excepted). Build through `rustright cargo`. Hetzner builds through its own broker, never cross-compiled. Every new crate needs a catalog owner declaration before first publish.
+Plan rules that apply to every row: Rust at runtime (signed Swift capture helper excepted). Build through the gate entry: Mac and Dell through the broker, Linux direct with no broker, never cross-compiled. Every new crate needs a catalog owner declaration before first publish.
 
 ## (c) Inventory
 

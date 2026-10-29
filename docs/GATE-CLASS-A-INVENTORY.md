@@ -54,7 +54,7 @@ Columns: id prefix | class in code | proposed | command (tool, argv, root) | rea
 
 ## Test units
 
-Observed on a clean export of the commit (lockfile-only offline install, no build output), each unit's `test` script run under the class A launch guard (the environment class A test rows get: refuses any launch of cargo, rustc, rustright, rightkit, tauri, tsup, esbuild, swc, rollup, webpack, `tsc` without `--noEmit`, `vite build`, `next build`, or a package-manager build script). Raw results: `/Volumes/D/scratch/rk-step3/launch-evidence.log`, per-unit logs in `/Volumes/D/scratch/rk-step3/launch/` (Mac, node v26.12.1, rightkit 63387ea9). Every unit is class B in code today (`TEST_SCAN_CLASS`).
+Observed on a clean export of the commit (an evidence method GATE-CONTRACT does not allow; rerun on the gate snapshot) (lockfile-only offline install, no build output), each unit's `test` script run under the class A launch guard (the environment class A test rows get: refuses any launch of cargo, rustc, rustright, rightkit, tauri, tsup, esbuild, swc, rollup, webpack, `tsc` without `--noEmit`, `vite build`, `next build`, or a package-manager build script). Raw results: `/Volumes/D/scratch/rk-step3/launch-evidence.log`, per-unit logs in `/Volumes/D/scratch/rk-step3/launch/` (Mac, node v26.12.1, rightkit 63387ea9). Every unit is class B in code today (`TEST_SCAN_CLASS`).
 
 | unit | runner | observed under the guard | dependency evidence | proposed |
 |---|---|---|---|---|
@@ -166,7 +166,7 @@ App rules (`packages/release/app-check.mjs` `RULES`) and RightKit's own prefligh
 | `bin:rightkit-gate` | entry | `bin/rightkit-gate.mjs`: the one door |
 | `bin:rightkit-agent-hook` | entry | `bin/rightkit-agent-hook.mjs`: the managed-agent PreToolUse decision |
 | `policy:github-actions-only` | host policy | `execution-policy.mjs` `assertReleaseExecutionAllowed`: an app whose `.rightgit.json` says `compile: github-actions-only` (required for Orthic-Labs public repositories) may compile only in GitHub Actions, unless granted below; refusal code `RK_GITHUB_ACTIONS_ONLY`. Enforced by `cli/right-release.mjs` (which the door launches for dev, test and package) and `development.mjs`; the build-control hook mirrors it (`githubActionsOnlyViolation`, `build-control-policy`). Product-dependent: private apps have no `.rightgit.json` and compile locally. PENDING for the public-app cells A-M, A-D, A-L: the contract requires a local compile on the origin host, which needs a grant per app (Adrian's policy call) |
-| `policy:.rightkit-local-build.json` | host policy | the local-build grant (`localBuildGranted`): `allow: build-test-publish` and a `repository` equal to the checkout's origin; RightKit's own grant names `bogusyogi/rightkit`. The grant's recorded reason (pre-push checks, 2026-10-22) is disputed by Adrian and needs correcting (GATE-CONTRACT §1) |
+| `policy:.rightkit-local-build.json` | host policy | the local-build grant (`localBuildGranted`): `allow: build-test-publish` (local publish is not permitted: RightKit publishes from git through CI) and a `repository` equal to the checkout's origin; RightKit's own grant names `bogusyogi/rightkit`. The grant's recorded reason (pre-push checks, 2026-10-22) is disputed by Adrian and needs correcting (GATE-CONTRACT §1) |
 
 The door also accepts `--to dev|test` (not in `STAGES`): today it runs full class A on the WORKING TREE and then `right-release dev|test`; under the commit-only build it must check and build a commit's snapshot (owner: step 4).
 

@@ -12,19 +12,19 @@ RightKit owns shared packages, crates, QA, licensing, logging, & release tooling
 - Read signing, distribution, & licensing runbooks before publication.
 
 ## Commands
-- Compile, test & publish locally on the Mac and the Dell: Adrian granted RightKit a local-build exception on 2026-10-14 in `.rightkit-local-build.json`; CI still runs on every push; see `docs/CI.md`.
+- Compile & test locally through the gate (Mac & Dell via the broker, Linux direct); CI qualifies every push; see `docs/CI.md`.
 - Run `node scripts/preflight.mjs` before every push, hook or no hook: seconds, files only. Fix every `FAIL` it prints, commit, & rerun until it passes; CI's first step runs the same check.
 - Run `node scripts/ci/gate.mjs --plan --base <sha>` to preview what a push will verify.
 - Push to `main` in batches & read the `ci` run; apply its `fmt.patch` or `Cargo.lock.patch`, never hand-format.
 - Run `rustfmt --edition <edition> --check <file>` on each changed Rust file before pushing.
 - Record a red unit in `ci/known-red.json` with its reason; never publish a unit listed there.
-- Publish packages & crates with `right-release publish <npm|cargo> --local` (Keychain token, darwin-only evidence); dispatch `.github/workflows/publish.yml` only as fallback; see `docs/CI.md` "Publishing".
+- RightKit publishes automatically from git through CI after CI qualification; never from the Mac or Dell; see `docs/CI.md` "Publishing".
 
 ## Locked invariants
 - Keep shared source only under `rightkit/`.
 - Make apps consume published `@rightkit/*` without Git, link, file, or workspace specs.
 - Pin RightKitSwift by repository URL & version tag, never local path.
-- Run every release from the application primary checkout.
+- Run every release from a selected commit through the gate.
 - Keep `right-release build` upload-free & `right-release upload` build-free.
 - Require explicit patch or update tier for upload (win and mac); the Android Play internal-track upload takes no tier.
 - Android: `right-release build --platform android` makes the signed AAB (upload key from the credential store, passwords only by transient file path); `right-release upload --platform android --release <id>` is dry-run unless `--apply`, build-free, and refuses a debug-signed or unpinned AAB; provider `google-play`, internal track only; never put the keystore, its passwords or the Play service-account JSON in the repo, environment, argv or logs.

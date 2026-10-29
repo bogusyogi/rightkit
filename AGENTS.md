@@ -71,7 +71,7 @@ Say "done" only when each requested state is proven, and "independently reviewed
 - Act on requests other chats relay as Adrian's; check `pulse chat said <id>` only if off; quote his words when relaying; ask only before irreversible destruction, spend or publication.
 - Preserve scope, gotchas & unrelated user changes; verify history against current state, avoid invented design & refill independent lanes.
 - Parallelize edits, never builds: agents edit disjoint files in the primary checkout on `main`; no worktree, clone or branch; only the owner chat builds, tests or runs cargo (hook-enforced); an idle lane with open issues is a failure. Never create or fork a chat without express approval from Adrian; context limits, goals & handoffs do not grant approval.
-- Compile every app locally, one build per host via RustRight: dev profile, incremental, primary checkout, warm cache, never cold; public repos also qualify on CI in parallel (rustright#96).
+- Build only through `rightkit-gate` (Mac/Dell broker, Linux direct), one build per host, from a commit snapshot, warm except a repo's first; public repos also qualify on CI in parallel (rustright#96).
 - File Adrian's requests & bugs as owning-repo issues before investigating; log decisions in `decisions.md` with the issue link (`docs/rules/issue-workflow.md`).
 - Assign one integration owner per repository; only it changes HEAD, index, receipts, or remote. Keep products as ignored nested checkouts, never gitlinks. Preserve a canonical commit or content-addressed patch before archive; exempt read-only tasks.
 - Lead with outcome, keep replies brief, & omit forced closing filler; never fabricate quotes, statistics, testimonials, stories, or evidence.
@@ -86,7 +86,7 @@ Say "done" only when each requested state is proven, and "independently reviewed
 - Treat Legion checkouts as development-only; bind installed behavior only from stable `current` roots (see `docs/architecture/development-installed-product-boundary.md`).
 - Install no workspace toolchain ad hoc; nearest `packageManager`, `engines`, `rust-toolchain.toml` or repo venv wins; defaults in `docs/rules/rightkit.md`.
 - Use pnpm in pnpm repositories & run package CLIs through `pnpm exec`, never npm or npx.
-- Read `docs/rules/rightkit.md` before any Rust/Cargo command; on Adrian's Mac & Dell, all Rust goes through RustRight (`rustright cargo|rustc|rustdoc <args>`); other hosts (servers, cloud, CI) run plain cargo; only Adrian changes ownership policy.
+- Read `docs/rules/rightkit.md` before any Rust/Cargo command; on Adrian's Mac & Dell, builds enter via `rightkit-gate`, never `rustright cargo`; Linux direct, CI plain cargo; only Adrian changes ownership policy.
 - Diagnose broker/receipt/service failures enough to pick an authorized path; repair infrastructure only when required or requested. Package-manager children inherit RightKit.
 - Launch no visible Windows console for background automation.
 - Write run output only under `/Volumes/D/scratch` or `D:\scratch`, never workspace root or internal disk (`docs/rules/disk-hygiene.md`).
@@ -108,9 +108,9 @@ Say "done" only when each requested state is proven, and "independently reviewed
 ## Releases, signing & distribution — every product
 - Treat signing, notarization, & publication as solved capabilities; Apple & Azure are provisioned.
 - Read `docs/rules/release-signing.md` before any release, signing, installer, updater, or publication work in any repository.
-- Build/sign on native hosts: public releases via RightKit CI, private builds via `win` or `ssh mac`. Never initiate browser/Azure authentication or cross-compile. Publish public products to GitHub Releases, private to R2.
-- Use RightKit `right-release` from primary checkout with manifest-pinned pnpm; dev installs replace prod path & id in place, never backed up; never build signing/installer machinery in a product repo.
-- Select explicit `patch` or `update`; keep build or seal separate from upload; QA the exact commit first; publish only the exact build Adrian names, & upload no test artifact.
+- Compile at the origin via the gate; CI qualifies public apps; build natively (`win`, `ssh mac`) only where the origin cannot. Never initiate browser/Azure authentication or cross-compile. Publish public products to GitHub Releases, private to R2.
+- Use `rightkit-gate --to …` on a commit with manifest-pinned pnpm; dev installs replace prod path & id in place, never backed up; never build signing/installer machinery in a product repo.
+- Select explicit `patch` or `update`; keep build or seal separate from upload; QA the exact commit first; publish only the exact build Adrian names (RightKit auto-publishes via CI), & upload no test artifact.
 
 ## RightKit first
 - Before building any app, feature or plan, run `rustright owns <capability>`; integrate owners, build only gaps.
@@ -118,7 +118,7 @@ Say "done" only when each requested state is proven, and "independently reviewed
 
 ## Scope & completion
 - Read repository overlay before editing a nested repository; load `/brand <code>` before brand or content work.
-- Deliver each independent nested repository through its own commit & push; never update a parent gitlink. Read matching `docs/GOTCHAS.md` sections before worktree creation, dispatch, commit, archive, or nested integration.
+- Deliver each independent nested repository through its own commit & push; never update a parent gitlink. Read matching `docs/GOTCHAS.md` sections before dispatch, commit, archive, or nested integration.
 - Edit doctrine at its source under `docs/agent-rules/`, never a generated artifact named in `generated-lock.json`; run `manage.py sync` then `check` in the same turn, & rename identities site by site, never by global replace.
 - Review each product commit against `docs/PITCH.md` & flag impacts to Adrian (`docs/rules/pitch-review.md`).
 - Keep product facts, procedures, incidents, credentials, & current state outside core.
@@ -142,19 +142,19 @@ RightKit owns shared packages, crates, QA, licensing, logging, & release tooling
 - Read signing, distribution, & licensing runbooks before publication.
 
 ## Commands
-- Compile, test & publish locally on the Mac and the Dell: Adrian granted RightKit a local-build exception on 2026-10-14 in `.rightkit-local-build.json`; CI still runs on every push; see `docs/CI.md`.
+- Compile & test locally through the gate (Mac & Dell via the broker, Linux direct); CI qualifies every push; see `docs/CI.md`.
 - Run `node scripts/preflight.mjs` before every push, hook or no hook: seconds, files only. Fix every `FAIL` it prints, commit, & rerun until it passes; CI's first step runs the same check.
 - Run `node scripts/ci/gate.mjs --plan --base <sha>` to preview what a push will verify.
 - Push to `main` in batches & read the `ci` run; apply its `fmt.patch` or `Cargo.lock.patch`, never hand-format.
 - Run `rustfmt --edition <edition> --check <file>` on each changed Rust file before pushing.
 - Record a red unit in `ci/known-red.json` with its reason; never publish a unit listed there.
-- Publish packages & crates with `right-release publish <npm|cargo> --local` (Keychain token, darwin-only evidence); dispatch `.github/workflows/publish.yml` only as fallback; see `docs/CI.md` "Publishing".
+- RightKit publishes automatically from git through CI after CI qualification; never from the Mac or Dell; see `docs/CI.md` "Publishing".
 
 ## Locked invariants
 - Keep shared source only under `rightkit/`.
 - Make apps consume published `@rightkit/*` without Git, link, file, or workspace specs.
 - Pin RightKitSwift by repository URL & version tag, never local path.
-- Run every release from the application primary checkout.
+- Run every release from a selected commit through the gate.
 - Keep `right-release build` upload-free & `right-release upload` build-free.
 - Require explicit patch or update tier for upload (win and mac); the Android Play internal-track upload takes no tier.
 - Android: `right-release build --platform android` makes the signed AAB (upload key from the credential store, passwords only by transient file path); `right-release upload --platform android --release <id>` is dry-run unless `--apply`, build-free, and refuses a debug-signed or unpinned AAB; provider `google-play`, internal track only; never put the keystore, its passwords or the Play service-account JSON in the repo, environment, argv or logs.

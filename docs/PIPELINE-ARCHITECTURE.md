@@ -1,6 +1,6 @@
 # RightKit pipeline architecture
 
-> **Target-state proposal:** [docs/GATE-CONTRACT.md](GATE-CONTRACT.md) records requested behavior, pending Fable review under Adrian's execution hold. Fable is designated Oracle contract reviewer, not production/publication authorizer; this creates no additional review gate. This document & its tests describe current architecture/evidence until review & reconciliation are complete; the proposal does not waive existing tests or invariants.
+> **Locked 2026-10-28:** [docs/GATE-CONTRACT.md](GATE-CONTRACT.md) is the locked target-state contract; it changes only on Adrian's explicit reopen. This document & its tests describe current architecture/evidence until reconciliation is complete; the contract does not waive existing tests or invariants.
 
 The one path from a commit to a shipped package or app, for every repository that uses RightKit. Changed only by Adrian.
 ADR-0001, ADR-0002 and ADR-0003 are decisions under this document: each serves invariants below and none may contradict
@@ -22,7 +22,7 @@ commit
   ① CHECK     seconds · committed files only · no network, compile, install, broker or environment
   │            scripts/preflight.mjs (RightKit) → rightkit-gate check in @rightkit/release (every repo, 0.6.5)
   ▼
-  ② BUILD     always local: the Mac and the Dell, warm cache, through the RustRight broker, public or private
+  ② BUILD     always local: the Mac and the Dell, warm cache, through the RustRight broker (Linux direct), public or private
   │            compile everything, compile the tests, run the fast unit tests; machine checks of this host
   ▼
   ③ QUALIFY   the exact artifact that ships, on both OSes
@@ -45,8 +45,8 @@ seconds and proves the rules held for exactly the bytes in hand, so no receipt h
 
 ## 2. The steps
 
-**① Check.** One rule list. Each rule reads the committed files of one commit (or, for a compile, the tree on disk:
-`--worktree`) and reports every finding in one run, each with rule, file, reason and fix. A rule that throws is a
+**① Check.** One rule list. Each rule reads the committed files of one commit (for a compile, the commit snapshot:
+`--snapshot`) and reports every finding in one run, each with rule, file, reason and fix. A rule that throws is a
 FAIL; a question it cannot decide from files is "needs step 2", never a pass. Rules switch on by what the repository
 contains: every repository (line endings vs `.gitattributes`, lockfile path versions, file-URL paths); RightKit
 (consumer recipes G01, npm surface G02, version copies G03, dispatcher pins G05, consumer locks G08, generated docs
@@ -54,7 +54,7 @@ G10); apps (release config, `switches.json`, DevTools declaration, relative path
 project type vs package root, declared host inputs, ownership fingerprints; 0.6.5). The one place it runs repository
 code is RightKit checking itself with its own scripts.
 
-**② Build.** Every compile goes through the broker (`rustright cargo|rustc|rustdoc`; plain cargo is refused). The
+**② Build.** On the Mac and the Dell, every compile goes through the broker (`rustright cargo|rustc|rustdoc`; plain cargo is refused). The
 broker owns build slots per host. `cargo test` compiles the tests and runs only fast tests, under the test-run cap; a
 Cargo lock wait lends its slots (ADR-0002). Machine checks run here, on each host, because one host cannot vouch for
 another: broker attestation, protected trust and elevation, signing identity, notary credentials, host inputs with
@@ -62,7 +62,7 @@ their hashes, disk, feature closure (`cargo tree`), live registry freshness.
 
 **③ Qualify.** RightKit crates and packages: `rk-pipeline dispatch` → `publish.yml`: `scans` (① again, then the
 class A scans) → pack once → verify the sealed archive on Windows and macOS (Linux where `ci/linux-required.json` says)
-→ consumer install → `qualified`. Locally: `right-release qualify cargo` on both hosts → `publish-reviewed.yml`. Apps:
+→ consumer install → `qualified`. Apps:
 `right-release build` on both hosts (signed, sealed) → `right-release qa` (journeys through `rightkit-qa journeys
 run`) → admission. `@rightkit/release` also needs the canary: the old and new doctor against every app on both hosts.
 
@@ -95,8 +95,8 @@ broker enrollment) are reviewed by a person; no tool writes them.
 | `right-release doctor [--platform mac\|win] [--gates]` | ①+② | The build's own checks for one app, reported as rows. |
 | `right-release build` / `dev` / `qa` / `upload` | ②–④ | Build is upload-free, upload is build-free; upload needs an explicit tier. |
 | `rightkit-qa journeys run` | ③ | Builds through the broker, runs outside it; a qualifying run refuses `--build`, `--build-ui`, `--kill-orphans`. |
-| `rightkit-gate --to check\|compile\|package\|qualify\|release [--platform mac\|win] [--tier patch\|update] [--receipt-in f] [--receipt-out f]` | ①–④ | Every stage up to the target, in order, class A first; stops at the first failure; clean HEAD only. `package` = `right-release qa --stage source` + `build` (sealed); `qualify` = installed QA of that sealed set; `release` only in the trusted publisher (`GITHUB_ACTIONS=true`, `RIGHTKIT_PUBLISHER=github-environment`). |
-| `rightkit-gate --to dev\|test [-- <args>]` | ①+② | Class A on the working tree, then `right-release dev\|test` under a live door run. |
+| `rightkit-gate --to check\|compile\|package\|qualify\|release [--platform mac\|win] [--tier patch\|update] [--receipt-in f] [--receipt-out f]` | ①–④ | Every stage up to the target, in order, class A first; stops at the first failure; selected commit, checkout state does not matter. `package` = `right-release qa --stage source` + `build` (sealed); `qualify` = installed QA of that sealed set; `release` only in the trusted publisher (`GITHUB_ACTIONS=true`, `RIGHTKIT_PUBLISHER=github-environment`). |
+| `rightkit-gate --to dev\|test [-- <args>]` | ①+② | Class A on the working tree (interim defect; the contract reads the commit snapshot), then `right-release dev\|test` under a live door run. |
 | `rightkit-gate stage --platform mac\|win [--tier patch\|update]` | ③→④ | Needs this host's receipt with package and qualify passed on the unchanged sealed set; uploads it and the receipt to the app's draft release `rightkit-staging-<commit>`; with `--tier`, dispatches `publish-app.yml`. |
 | `rightkit-gate install-hook` | all | Installs the pre-push hook and the agent hook (`.claude/settings.json` → `rightkit-agent-hook`), which denies cargo/tauri/`right-release` builds outside the door on every host. |
 | `publish-app.yml` | ④ | Dispatch only; one job in `app-publication`; class A on the commit; staged archive unpacked outside the checkout (links and foreign paths refused); `rightkit-gate --to release --receipt-in` per platform. |
@@ -175,8 +175,9 @@ Each item closes a gap in section 5; file each as a GitHub issue in its owning r
    `buildRules.checkAdmission.trustedGate = { "path": "<non-writable dir>/node_modules/@rightkit/release/bin/rightkit-gate.mjs", "sha256": "<shasum -a 256 | Get-FileHash>" }`.
 2. Each app: pin `@rightkit/release` (exact version), `pnpm install`, then `pnpm exec rightkit-gate install-hook`.
 3. Develop: `pnpm exec rightkit-gate --to dev -- --platform mac` (Dell: `win`); compile and test: `pnpm exec rightkit-gate --to compile`.
-4. Release (private and public apps alike): `pnpm exec rightkit-gate --to qualify --platform mac` on the Mac and
+4. Release (private apps): `pnpm exec rightkit-gate --to qualify --platform mac` on the Mac and
    `--platform win` on the Dell, then `pnpm exec rightkit-gate stage --platform <p> --tier patch|update` on each.
+   Public apps qualify on CI.
 5. Publisher prerequisites (once, in `bogusyogi/rightkit` settings): environment `app-publication` with required
    reviewers and secrets `APP_REPO_TOKEN` (contents read/write on the app repositories), `CLOUDFLARE_API_TOKEN`,
    `CLOUDFLARE_ACCOUNT_ID`. Hosts hold no publication credential.

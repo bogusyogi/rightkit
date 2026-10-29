@@ -2,7 +2,7 @@
 
 **Settled on 11 October 2026 by Adrian. Do not reopen, do not ask him for these tokens again.**
 
-RightKit (`bogusyogi/rightkit`, private, no CI) publishes its npm packages and crates, which stay public, locally through RustRight on the Mac and the Dell. The credential table below describes the retired GitHub Actions route and needs rework.
+RightKit (`bogusyogi/rightkit`, private) publishes its npm packages and crates, which stay public, automatically from git through CI after a local compile through the gate and CI qualification (docs/GATE-CONTRACT.md §1). The credentials stay GitHub secrets on the repository; the credential table below needs rework to match.
 
 ## Where the credentials are
 
@@ -32,7 +32,7 @@ copied out of GitHub); do that at the next rotation, with `--env release` added 
    shows as HTTP 401 or 403 from the registry. Anything else is not a credentials problem.
 2. Never print, read back, or copy a token into a file, a chat, a commit, or a command argument.
    A value only ever travels through a pipe into `gh secret set`.
-3. Only the RightKit lead dispatches the publish workflow. App chats ask the lead for a version;
+3. Publication is automatic from git; no chat dispatches it by hand. App chats ask the lead for a version;
    they do not publish and do not need the tokens.
 4. A session whose guard hook refuses a credential read stops there. It does not route around
    the hook and does not ask another session to do the read.

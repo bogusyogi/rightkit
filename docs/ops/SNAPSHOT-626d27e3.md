@@ -1,5 +1,7 @@
 # RightKit consumer snapshot 626d27e3 (11 Oct 2026, 23:45 IST)
 
+> Historical; method not allowed under GATE-CONTRACT §1 (docs/GATE-CONTRACT.md, locked 2026-10-28): no clone, `git archive` export or snapshot outside the gate-owned directory.
+
 Path on the Mac: /Volumes/D/rightkit-publish/snapshots/consumer-626d27e3/claude/rightkit
 Commit: bogusyogi/rightkit main 626d27e3 (Dell chats: `git archive 626d27e3` from the Dell clone).
 

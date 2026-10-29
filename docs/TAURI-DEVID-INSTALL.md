@@ -189,7 +189,7 @@ GenRight's old script gave helpers no entitlements; rightkit's dev signing gives
 
 ## Migrating the apps
 
-Replace each app's `install-macos-development.mjs` / `sign-macos-bundle.mjs` with the descriptor above and `right-release dev --platform mac`.
+Replace each app's `install-macos-development.mjs` / `sign-macos-bundle.mjs` with the descriptor above and the gate's `--to dev` stage (docs/GATE-CONTRACT.md §1).
 
 | App | destination | verifyBinaries | Notes |
 | --- | --- | --- | --- |

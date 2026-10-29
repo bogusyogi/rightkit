@@ -7,6 +7,7 @@ Pushes to `main` & pull requests run static validation. Native Windows & macOS q
 starts through broker-admitted `workflow_dispatch` requests. `publish.yml` qualifies sealed archives;
 `publish-direct.yml` uploads every green qualification run's sealed bytes as soon as it completes;
 `publish-reviewed.yml` promotes committed, reviewed candidates (locally qualified bytes).
+The contract target ([GATE-CONTRACT.md](GATE-CONTRACT.md)) is automatic Git-triggered publication for RightKit after CI qualification; the dispatch routes above are current, not the contract.
 The public-repository guard rejects private forks.
 
 ## Layout
@@ -48,15 +49,14 @@ What is implemented today:
   `.gitattributes` leaves to `core.autocrlf` (the repository pins `* text=auto eol=lf` once, so a byte-compared or hashed
   file cannot gain CRLF on a Windows checkout), and `tmpdir-realpath` (G26) refuses a test that passes its temp directory to
   `realpath` yet compares the unresolved path (macOS answers `/private/var/...` for `/var/...`). Each `FAIL` line names
-  the file and the change. `node scripts/preflight.mjs --list` lists the rules; `--commit <rev>` checks another commit, `--repo <dir>` another repository and `--worktree` what a compile would see.
+  the file and the change. `node scripts/preflight.mjs --list` lists the rules; `--commit <rev>` checks another commit, `--repo <dir>` another repository and `--worktree` the tree on disk for a developer's own run (it never admits a build).
 - `scripts/local-gate.mjs` (the pre-push hook, after preflight) invokes `rightkit-gate --pre-push`: all applicable
   class A scans, focused `scripts/ci` tests & deterministic `generated-docs` checks before each push
   (Adrian 2026-10-22, #911). Native compile, clippy, rustdoc & package tests remain mandatory in
   publication qualification. Direct `rightkit-gate` invocation retains full class A & B coverage;
   generated app hooks also retain that default. Pre-push mode needs the committed local
-  compile grant (`.rightkit-local-build.json`). Cargo runs only through the broker: `rustright cargo`, or
-  the managed `cargo` shim (`cargo-guard.mjs`); plain cargo is refused. A deferred scan fails the gate,
-  and so does a checkout that differs from HEAD where the broker scans read it. A change to a root
+  compile grant (`.rightkit-local-build.json`). On the Mac and the Dell cargo runs only through the broker: `rustright cargo`, or
+  the managed `cargo` shim (`cargo-guard.mjs`); plain cargo is refused. A deferred scan fails the gate. A change to a root
   workspace file (`Cargo.lock`, `Cargo.toml`, toolchain, `.cargo/`, pnpm lock or workspace) puts every
   crate or package in scope.
 - The scans are always on in CI: there is no enable switch and no `deterministicScans` config key.
@@ -227,7 +227,7 @@ gate report names it under "Now green" for removal in next commit.
 
 ## Working method
 
-1. Edit locally. Before pushing CI scripts or workflows, run `node --test "scripts/ci/*.test.mjs"` (Adrian, 2026-10-20). This Node-only preflight is local; Cargo, package test suites, installs & builds remain CI-only.
+1. Edit locally. Before pushing CI scripts or workflows, run `node --test "scripts/ci/*.test.mjs"` (Adrian, 2026-10-20). This Node-only preflight is local; Cargo, package test suites, installs & builds run locally through the gate, and CI qualifies.
 2. Preview selection with `node scripts/ci/gate.mjs --plan --base <sha>`.
 3. Batch reviewed fixes into one push. Active `main` validation finishes; its single pending slot coalesces newer pushes to latest pending commit. Superseded PR validation cancels. Independent qualification runs remain concurrent; promotion uses a separate global queue. Avoid micro-pushes that discard pending validation.
 4. Apply `fmt.patch` and `Cargo.lock.patch` from the evidence with `git apply`, then commit.
@@ -257,7 +257,7 @@ Two routes, one uploader (`scripts/ci/upload.mjs`), and registry uploads exist o
   Hosted qualification enters through RustRight broker `rightkit-dispatch` for `publish.yml`; local warm-cache
   feedback runs separately. `--with-ci` is retired & refuses before effects. A green hosted run publishes its own
   sealed bytes directly; a local candidate cannot replace bytes of an already published version.
-- **Local qualification promotes reviewed candidates** (see "Local qualification", below: both native hosts through the
+- **Local qualification promotes reviewed candidates** (superseded: RightKit qualification is CI; see "Local qualification", below: both native hosts through the
   RustRight broker, an approval commit, then `publish-reviewed.yml`). This is the route for bytes GitHub did not qualify
   and for every runtime-proof owner.
 
@@ -309,21 +309,21 @@ Set `dry_run=false` explicitly for publication. Secretless `seal-check` internal
 `reviewed-candidate.mjs run --dry-run`; credentialed `upload` authenticates its same-run receipt &
 uploads exact approved archives without rebuilding. Dispatch cannot supply paths, URLs, units or wider allowsets.
 
-### Local qualification (default)
+### Local qualification (superseded)
 
-Adrian's design (2026-10-21/22): every crate is qualified on the two native hosts through the RustRight broker, the exact
+Superseded by [GATE-CONTRACT.md](GATE-CONTRACT.md): RightKit qualification runs on CI. Historical design, Adrian's (2026-10-21/22): every crate is qualified on the two native hosts through the RustRight broker, the exact
 bytes are approved by hash in a commit, and `publish-reviewed.yml` uploads exactly those bytes. No GitHub qualification run
-and no rebuild stand between the approval and the upload. `publish.yml` qualification stays as the fallback (below).
+and no rebuild stand between the approval and the upload. `publish.yml` qualification is the current route (above).
 
 ```bash
-# Dell, D:/Claude/rightkit. Clean tree, HEAD pushed to origin/main, the Mac checkout (/Volumes/D/claude/rightkit) at the same HEAD.
+# Dell, D:/Claude/rightkit. HEAD pushed to origin/main, the Mac checkout (/Volumes/D/claude/rightkit) at the same HEAD.
 right-release qualify cargo --crates rightkit-fs,rightkit-child-process
 # without right-release on PATH: node packages/release/cli/right-release.mjs qualify cargo --crates ...
 ```
 
 `--hosts win,mac` is the default and the only set that cuts a candidate (one host alone writes its bundle and stops);
 `--id`, `--allow-ignored-units`, `--jobs`, `--concurrency`, `--runtime-repeats`, `--wait-idle-min`, `--out`, `--win-root`,
-`--mac-root` & `--no-release` are the other options (the two runtime options: "Runtime proof (local)", below). Crates only: `publish cargo --local --qualify-only` is cargo only, so npm packages use `publish.yml`.
+`--mac-root` & `--no-release` are the other options (the two runtime options: "Runtime proof (local)", below). Crates only: npm packages use `publish.yml`.
 
 Any repository that publishes crates this way, not only RightKit: the repository (owner/name) is the `origin` remote, and the host
 checkout roots, the approvals file and the promotion workflow come from a committed `.rightkit-gate.json`:
@@ -346,7 +346,7 @@ What runs, at once on both hosts (Windows on the Dell; macOS on the Mac through 
 `win "<cmd>"`; set `RK_LOCALQ_REMOTE_NODE` when `node` is not on the non-interactive PATH of the other host):
 
 1. `packages/release/local-qualify.mjs host`: the deterministic scans of the units' scope (class A then class B, through the
-   broker, none deferred), then per crate `right-release publish cargo --crate X --local --qualify-only --bundle <dir>` (tests,
+   broker, none deferred), then per crate its qualification (tests,
    clippy, fmt, secret scan, package verify, publication gate), the archive secret scan of the packed `.crate`, and a hashed
    bundle. The macOS host also writes the crates.io upload metadata: its archive is the canonical one, as on CI's macOS packer.
 2. The driver pulls each remote bundle as one hash-checked JSON document (`export`), refuses unless every host packed the SAME
@@ -421,7 +421,7 @@ What runs, per crate, per host:
   --locked --profile release-iterate ... --bench ...` commands, features, trailing arguments, env names, profiles), never the
   candidate's list: `crates/<crate>/benches/workloads.json` must equal that table or the run refuses. Each command runs
   through the broker (`rustright cargo`), after a warm `--no-run` build that is never part of a window.
-- **The measured source.** The checkout is clean and at the candidate commit before and after every run (HEAD is on
+- **The measured source.** The measured source is the candidate commit before and after every run (it is on
   `origin/main`, as for the rest of local qualification). Every file the measurement depends on is hashed from the git
   blobs of that commit into `bindings`, as CI's `bindSource` does, and the whole harness helper closure
   (`trustedRuntimeHelperPaths`) is hashed into `harness.helpers`; admission requires it to equal the promotion checkout's.
