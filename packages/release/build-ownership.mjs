@@ -94,10 +94,18 @@ public static class RkJob {
 const psString = (s) => `'${String(s).replace(/'/g, "''")}'`;
 const encoded = (script) => Buffer.from(script, "utf16le").toString("base64");
 
+/** Where the holder's script is written for PowerShell -File (beside the holder record). */
+export const holderScriptFile = (file) => `${file}.ps1`;
+/** cmd.exe's longest command line; the holder's launch must stay under it. */
+export const CMD_LINE_LIMIT = 8191;
+/** The holder's launch: `cmd /d /c start "" /b powershell -File <script>` (see contain). */
+export const holderLaunchArgs = (script) => ["/d", "/c", "start", "\"\"", "/b", "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script];
+
 /** The holder: creates the gate's job, puts the gate in it, then keeps the only handle until the job is empty. */
-export function holderScript({ name, pid, file }) {
+export function holderScript({ name, pid, file, selfDelete = false }) {
   return [
     "$ErrorActionPreference = 'Stop'",
+    ...(selfDelete ? ["try { Remove-Item -LiteralPath $PSCommandPath -Force } catch { }"] : []),
     JOB_TYPE,
     `$name = ${psString(name)}; $gate = [uint32]${Number(pid)}; $file = ${psString(file)}`,
     `function Put($o) { $o.schema = '${HOLDER_SCHEMA}'; $o.holder = $PID; $o.at = (Get-Date).ToUniversalTime().ToString('o'); $tmp = "$file.$PID.tmp"; [IO.File]::WriteAllText($tmp, ($o | ConvertTo-Json -Compress)); Move-Item -Force -LiteralPath $tmp -Destination $file }`,
@@ -112,8 +120,9 @@ export function holderScript({ name, pid, file }) {
     "} catch { Put @{ state = 'failed'; why = \"$_\" }; exit 1 }",
     // Reports the live count whenever it changes, drained at zero. A release asks for a fresh count by writing `<file>.query`
     // ({nonce}); the holder counts the job after reading it and answers in `<file>.ack` with that nonce (queryHolder).
-    "$last = -1; $query = \"$file.query\"; $ack = \"$file.ack\"",
-    "function Answer { try { $q = [IO.File]::ReadAllText($query) | ConvertFrom-Json; $n = [string]$q.nonce; if ($n -notmatch '^[0-9a-f]{32,128}$') { return }; $c = [RkJob]::Active($h); $o = @{ schema = '" + HOLDER_SCHEMA + "'; nonce = $n; active = $c; holder = $PID; at = (Get-Date).ToUniversalTime().ToString('o') }; $tmp = \"$ack.$PID.tmp\"; [IO.File]::WriteAllText($tmp, ($o | ConvertTo-Json -Compress)); Move-Item -Force -LiteralPath $tmp -Destination $ack } catch { } }",
+    "$last = -1; $query = \"$file.query\"; $ack = \"$file.ack\"; $answered = ''",
+    // Each nonce is answered once (rewriting the ack would contend with the reader removing it).
+    "function Answer { try { $q = [IO.File]::ReadAllText($query) | ConvertFrom-Json; $n = [string]$q.nonce; if ($n -notmatch '^[0-9a-f]{32,128}$' -or $n -eq $script:answered) { return }; $c = [RkJob]::Active($h); $o = @{ schema = '" + HOLDER_SCHEMA + "'; nonce = $n; active = $c; holder = $PID; at = (Get-Date).ToUniversalTime().ToString('o') }; $tmp = \"$ack.$PID.tmp\"; [IO.File]::WriteAllText($tmp, ($o | ConvertTo-Json -Compress)); Move-Item -Force -LiteralPath $tmp -Destination $ack; $script:answered = $n } catch { } }",
     "while ($true) { if ([IO.File]::Exists($query)) { Answer }; $a = [RkJob]::Active($h); if ($a -eq 0) { Put @{ state = 'drained'; job = $name }; exit 0 }; if ($a -gt 0 -and $a -ne $last) { Put @{ state = 'holding'; job = $name; active = $a }; $last = $a }; Start-Sleep -Milliseconds 50 }",
   ].join("\n");
 }
@@ -141,7 +150,11 @@ export function queryHolder(file, { timeoutMs = 5000, nonce = crypto.randomBytes
       if (Date.now() > until) throw new Error(`the job holder did not answer a fresh count within ${timeoutMs} ms`);
       sleep(25);
     }
-  } finally { fs.rmSync(query, { force: true }); fs.rmSync(ack, { force: true }); }
+  } finally {
+    // The holder may hold either file open for a moment (Windows refuses the removal then); a leftover is harmless: the next
+    // query replaces the query and removes the ack before it waits, and only an answer with its own nonce counts.
+    for (const f of [query, ack]) { try { fs.rmSync(f, { force: true }); } catch { /* left for the next query */ } }
+  }
 }
 
 /** Run as a child of the gate (as its work runs): `IN` when this process is in job `name`, `OUT` when not, `ERR:<n>` otherwise. */
@@ -213,17 +226,26 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
        * never starts in a console-less session (measured on the Dell over ssh, 2026-10-29), so `detached` is not used.
        */
       contain({ name, pid, file, timeoutMs = 60_000, sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) }) {
-        const child = spawnHolder("cmd.exe", ["/d", "/c", "start", "\"\"", "/b", "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded(holderScript({ name, pid, file }))], { stdio: "ignore" });
-        child.unref?.();
-        const until = Date.now() + timeoutMs;
-        let holding = null;
-        for (;;) {
-          const state = readHolder(file);
-          if (state?.state === "holding") { holding = state; break; }
-          if (state?.state === "failed") throw new Error(`the job holder could not contain the gate: ${state.why}`);
-          if (Date.now() > until) throw new Error(`the job holder did not report within ${timeoutMs} ms`);
-          sleep(50);
-        }
+        // The script goes in an owner-only file beside the holder record, never on the command line: cmd.exe cuts a command line at
+        // 8191 characters, and the encoded holder passed that once it answered fresh queries (the holder never started; Dell
+        // 2026-10-29, D:\scratch\rk-step4\dell-ev7-build-ownership.log). The holder deletes the file once PowerShell has read it.
+        const script = holderScriptFile(file);
+        fs.rmSync(script, { force: true });
+        fs.writeFileSync(script, holderScript({ name, pid, file, selfDelete: true }), { flag: "wx", mode: 0o600 });
+        const holding = (() => {
+          try {
+            const child = spawnHolder("cmd.exe", holderLaunchArgs(script), { stdio: "ignore" });
+            child.unref?.();
+            const until = Date.now() + timeoutMs;
+            for (;;) {
+              const state = readHolder(file);
+              if (state?.state === "holding") return state;
+              if (state?.state === "failed") throw new Error(`the job holder could not contain the gate: ${state.why}`);
+              if (Date.now() > until) throw new Error(`the job holder did not report within ${timeoutMs} ms`);
+              sleep(50);
+            }
+          } finally { fs.rmSync(script, { force: true }); }
+        })();
         // Self-check: a child of this gate, started as its work is started, asks Windows whether it is in the job. Under a launcher
         // whose own job lets children leave silently (a Node parent: libuv's job sets SILENT_BREAKAWAY_OK, and a job nested under
         // it loses them too) it is not, and nothing then proves this gate's work gone after a crash: the record says so and a dead
@@ -609,6 +631,7 @@ export function acquireBuildOwnership({
     if (readText(file) !== observed) throw new OwnershipBusy(`build ownership ${file} changed before it could be reclaimed`);
     fs.rmSync(file, { force: true });
     fs.rmSync(holderFile(file, judged.owner.handle), { force: true });
+    fs.rmSync(holderScriptFile(holderFile(file, judged.owner.handle)), { force: true });
     fs.rmSync(childrenDir(file, judged.owner.handle), { recursive: true, force: true });
     if (!publish(file, body)) throw new OwnershipBusy(`build ownership ${file} was taken by another process`);
   } finally {

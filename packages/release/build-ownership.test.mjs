@@ -10,7 +10,7 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "./background-process.mjs";
 import {
-  OWNERSHIP_ENV, OWNERSHIP_SCHEMA, HOLDER_SCHEMA, OwnershipBusy, acquireBuildOwnership, brokerLeaseState, childrenDir, holderFile, jobName, judgeOwner, ownershipFile, processProbe, queryHolder, readHolder, spawnUnderOwnership,
+  OWNERSHIP_ENV, OWNERSHIP_SCHEMA, HOLDER_SCHEMA, OwnershipBusy, acquireBuildOwnership, brokerLeaseState, childrenDir, holderFile, holderScript, holderScriptFile, jobName, judgeOwner, ownershipFile, processProbe, queryHolder, readHolder, spawnUnderOwnership, CMD_LINE_LIMIT,
 } from "./build-ownership.mjs";
 import { keyPath, repoKey, snapshotCommand, verifySnapshot } from "./snapshot.mjs";
 
@@ -276,6 +276,35 @@ test("queryHolder: only an answer that echoes this query's nonce, written after 
   assert.equal(fs.existsSync(`${file}.query`), false, "the query is withdrawn once answered");
 });
 
+test("Windows holder launch: the script is a file PowerShell runs with -File, so the command line stays far under cmd.exe's limit", (t) => {
+  // Dell 2026-10-29 (dell-ev7-build-ownership.log): passed inline as -EncodedCommand the holder reached ~9000 characters and
+  // cmd.exe (8191 at most) never started it; every native Windows ownership test then timed out waiting for "holding".
+  const dir = tmp(t, "rk-own-launch-");
+  const file = path.join(dir, "holder-h.json");
+  let seen = null;
+  const probe = processProbe({
+    platform: "win32",
+    spawn: () => ({ status: 0, stdout: "IN\n", stderr: "" }),
+    spawnHolder: (cmd, args) => {
+      const script = args[args.indexOf("-File") + 1];
+      seen = { cmd, args, line: [cmd, ...args].join(" "), script, body: fs.readFileSync(script, "utf8"), mode: fs.statSync(script).mode & 0o777 };
+      fs.writeFileSync(file, JSON.stringify({ schema: HOLDER_SCHEMA, state: "holding", holder: 1 }));
+      return { unref() {} };
+    },
+  });
+  const held = probe.contain({ name: jobName("h"), pid: 4242, file, timeoutMs: 2000 });
+  assert.equal(held.contained, true);
+  assert.equal(seen.cmd, "cmd.exe"); assert.equal(seen.script, holderScriptFile(file));
+  assert.ok(seen.line.length < CMD_LINE_LIMIT / 10, `launch is ${seen.line.length} characters`);
+  assert.ok(!seen.args.includes("-EncodedCommand"), "no inline script");
+  assert.equal(seen.body, holderScript({ name: jobName("h"), pid: 4242, file, selfDelete: true }));
+  assert.match(seen.body, /Remove-Item -LiteralPath \$PSCommandPath/);
+  if (process.platform !== "win32") assert.equal(seen.mode, 0o600);
+  assert.equal(fs.existsSync(holderScriptFile(file)), false, "the script file does not outlive the launch");
+  // Inline, the same script would not fit: the reason it is a file.
+  assert.ok(Buffer.from(holderScript({ name: jobName("0".repeat(36)), pid: 4242, file }), "utf16le").toString("base64").length > CMD_LINE_LIMIT);
+});
+
 test("probes: a listing that did not finish cleanly is unknown, never a complete answer", { skip: fs.existsSync("/proc/self") && "this host reads /proc, not ps and lsof" }, () => {
   const probe = (status, stdout) => processProbe({ platform: "darwin", spawn: (cmd) => (cmd === "ps" ? { status: 0, stdout: `${process.pid} 1 ${process.pid} Thu Oct 29 00:00:00 2026\n`, pid: 1 } : { status, stdout, stderr: "lsof: WARNING: can't stat()" }), uid: 501 });
   assert.throws(() => probe(1, "p123\nfcwd\nn/snap/k\n").cwdHolders("/snap/k"), /lsof: lsof: WARNING/);
@@ -395,6 +424,63 @@ process.exit(0);
   try { return JSON.parse(String(r.stdout).trim().split(/\r?\n/).pop()); } catch { return { stepFailed: true, status: r.status, stdout: r.stdout, stderr: r.stderr }; }
 }
 async function until(fn, ms = 20_000) { const end = Date.now() + ms; for (;;) { if (fn()) return; if (Date.now() > end) throw new Error("timed out"); await new Promise((r) => setTimeout(r, 100)); } }
+
+test("[native] G1 Windows: a live gate's grandchild (node -> long-lived exe) is in the gate's job, and release stays held until it is gone", { skip: process.platform !== "win32" && "Windows job containment", timeout: 180_000 }, async (t) => {
+  // Review of 9565fff9a: if Node's SILENT_BREAKAWAY let a grandchild leave the gate's job, the holder's fresh count would miss it
+  // and release could clear with cargo still running. Measured here on the real holder: gate -> node child -> ping.exe.
+  const dir = tmp(t, "rk-own-grand-");
+  const file = path.join(dir, "build-ownership", "owner.json");
+  const out = path.join(dir, "measure.json");
+  const script = path.join(dir, "grand-gate.mjs");
+  fs.writeFileSync(script, `
+const fs = await import("node:fs");
+const { spawn, spawnSync } = await import("node:child_process");
+const { acquireBuildOwnership } = await import(${JSON.stringify(MODULE)});
+const r = { };
+try {
+  const own = acquireBuildOwnership({ file: ${JSON.stringify(file)}, stage: "fixture" });
+  r.contained = own.contained; r.job = own.owner.containment.name;
+  const child = spawn(process.execPath, ["-e", "const c = require('child_process').spawn('ping.exe', ['-n', '120', '127.0.0.1'], { stdio: 'ignore' }); process.stdout.write(String(c.pid) + '\\n'); setInterval(() => {}, 1000);"], { stdio: ["ignore", "pipe", "ignore"] });
+  r.child = child.pid;
+  r.grandchild = await new Promise((res) => child.stdout.once("data", (d) => res(Number(String(d).trim()))));
+  const ps = [
+    "$ErrorActionPreference = 'Stop'",
+    'Add-Type @"',
+    "using System; using System.Runtime.InteropServices;",
+    "public static class RkJobG {",
+    '  [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)] public static extern IntPtr OpenJobObjectW(uint access, bool inherit, string name);',
+    '  [DllImport("kernel32.dll", SetLastError=true)] public static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);',
+    '  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool IsProcessInJob(IntPtr proc, IntPtr job, out bool result);',
+    "}",
+    '"@',
+    "$j = [RkJobG]::OpenJobObjectW(0x0004, $false, '" + r.job + "'); if ($j -eq [IntPtr]::Zero) { 'ERR:job'; exit 0 }",
+    "foreach ($id in " + r.child + "," + r.grandchild + ") { $p = [RkJobG]::OpenProcess(0x1000, $false, [uint32]$id); $in = $false; if ($p -eq [IntPtr]::Zero -or -not [RkJobG]::IsProcessInJob($p, $j, [ref]$in)) { \"$id=ERR\" } elseif ($in) { \"$id=IN\" } else { \"$id=OUT\" } }",
+  ].join("\\n");
+  const m = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(ps, "utf16le").toString("base64")], { encoding: "utf8", timeout: 60000 });
+  r.inJob = String(m.stdout).trim().split(/\\r?\\n/);
+  r.releaseWhileAlive = own.release();
+  spawnSync("taskkill.exe", ["/T", "/F", "/PID", String(child.pid)], { stdio: "ignore" });
+  for (let i = 0; i < 100; i++) { try { process.kill(r.grandchild, 0); await new Promise((res) => setTimeout(res, 100)); } catch { break; } }
+  r.releaseAfter = own.release();
+} catch (e) { r.error = e.message; }
+fs.writeFileSync(${JSON.stringify(out)}, JSON.stringify(r));
+process.exit(0);
+`);
+  const env = { ...process.env }; delete env[OWNERSHIP_ENV]; delete env.NODE_OPTIONS;
+  // Started the way a shell starts a gate (cmd start), as in crashingGate.
+  const gate = spawn("cmd.exe", ["/d", "/c", "start", "\"\"", "/b", "/wait", process.execPath, script], { stdio: "ignore", env });
+  t.after(() => { try { gate.kill(); } catch { /* gone */ } });
+  await until(() => fs.existsSync(out), 150_000);
+  const r = JSON.parse(fs.readFileSync(out, "utf8"));
+  t.diagnostic(`measurement: ${JSON.stringify(r)}`);
+  assert.equal(r.error, undefined, r.error);
+  assert.equal(r.contained, true);
+  assert.deepEqual(r.inJob, [`${r.child}=IN`, `${r.grandchild}=IN`], "the node child and its long-lived grandchild are both in the gate's job");
+  assert.equal(r.releaseWhileAlive.released, false, "release stays held while the grandchild runs");
+  assert.match(r.releaseWhileAlive.why, /still holds \d+ process\(es\) \(this gate is one\)/);
+  assert.equal(r.releaseAfter.released, true, `released once the grandchild is gone (${r.releaseAfter.why})`);
+  assert.match(r.releaseAfter.proofs.join("; "), /holds only this gate \(holder \d+ counted it at .* for query [0-9a-f]{32}\)/);
+});
 
 test("[native] G1: a gate killed while its child still runs keeps the host owned until the child is gone, then the next gate reclaims it with the proof", { timeout: 120_000 }, async (t) => {
   const file = path.join(tmp(t, "rk-own-native-"), "build-ownership", "owner.json");
