@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.11 (unpublished)
+
+- **Components build in parallel (rightkit#1285):** class B scans of different components (the directory a scan runs in: its own Cargo workspace and output directory) run `RK_GATE_CLASS_B_JOBS` at a time (default 3, the Mac broker's build capacity; the broker queues beyond its own). One component's scans keep plan order and never overlap. Adrian, 2026-10-29: "you build the ones that changed. ... And in parallel."
+
 ## 0.6.10
 
 Published by owner-approved direct publish (Adrian, 2026-10-29: "i approve you doing direct publishing"); 0.6.9 was installed

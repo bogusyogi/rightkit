@@ -1466,6 +1466,32 @@ test("root npm package: it is a unit like any other, but a file inside a nested 
   assert.ok(ids(both).includes("tsc:app") && ids(both).includes("tsc:web"));
 });
 
+test("lanes: class B scans of different components run concurrently; one component's scans never overlap (rightkit#1285)", async () => {
+  const bar = { "crates/bar/Cargo.toml": 'edition = "2024"\nversion = "1.0.0"\nlicense = "MIT"\n', "crates/bar/CHANGELOG.md": "## 1.0.0\n- x\n", "crates/bar/src/lib.rs": "" };
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/bar/src/lib.rs"], bar);
+  // Each crate is its own component: its class B scans run in its own directory.
+  for (const scan of plan.scans) if (scan.class === "B") { const crate = /\bfoo\b/.test(scan.id) ? "foo" : /\bbar\b/.test(scan.id) ? "bar" : null; if (crate) scan.cwd = `crates/${crate}`; }
+  const active = new Map(); let peak = 0; let samePeak = 0;
+  const spawn = async (command, args, options) => {
+    const key = String(options?.cwd ?? "");
+    const builds = /(?:cargo|rustright)(?:\.exe)?$/.test(command);
+    if (builds) {
+      active.set(key, (active.get(key) ?? 0) + 1);
+      samePeak = Math.max(samePeak, active.get(key)); peak = Math.max(peak, [...active.values()].reduce((a, b) => a + b, 0));
+      await new Promise((r) => setTimeout(r, 15));
+      active.set(key, active.get(key) - 1);
+    }
+    return fakeSpawn()(command, args);
+  };
+  const result = await runScans(plan, { ...deps({ ...fs, spawn }), jobs: 2, testJobs: 2, classBJobs: 2 });
+  assert.equal(result.ok, true, scanFailures(result).join("\n"));
+  assert.equal(samePeak, 1, "one component's scans share its output directory and never overlap");
+  assert.equal(peak, 2, "two components build at the same time");
+  const serial = await (async () => { peak = 0; samePeak = 0; active.clear(); return runScans(plan, { ...deps({ ...fs, spawn }), jobs: 2, testJobs: 2 }); })();
+  assert.equal(serial.ok, true);
+  assert.equal(peak, 1, "without classBJobs class B stays one scan at a time");
+});
+
 test("lanes: class B tests run one at a time after compile; quiet scans run last under the lease", async () => {
   const bar = { "crates/bar/Cargo.toml": 'edition = "2024"\nversion = "1.0.0"\nlicense = "MIT"\n', "crates/bar/CHANGELOG.md": "## 1.0.0\n- x\n", "crates/bar/src/lib.rs": "" };
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/bar/src/lib.rs"], bar, { crateFeatures: { foo: { quietTests: true } } });

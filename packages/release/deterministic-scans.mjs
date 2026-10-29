@@ -1879,7 +1879,7 @@ export async function runScans(plan, options = {}) {
     try { onResult(row, { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ }
     return row;
   }
-  // Class A may run concurrently. Every class B lane runs serially: tests and docs can compile too, and one checkout gets one build.
+  // Class A may run concurrently. Class B runs one scan per component at a time, `classBJobs` components at once (below).
   const aScans = ordered.filter((s) => s.class === SCAN_CLASS.A);
   const bScans = ordered.filter((s) => s.class === SCAN_CLASS.B);
   // Class A scans are independent content checks (and short broker calls: metadata, package list, deny, audit): they run
@@ -1928,7 +1928,22 @@ export async function runScans(plan, options = {}) {
     const slots = new Array(bScans.length);
     const lanes = { compile: [], doc: [], tests: [], quiet: [] };
     bScans.forEach((s, i) => lanes[laneOf(s)].push(i));
-    const drain = async (queue, extraEnv = null) => { while (queue.length) { const i = queue.shift(); slots[i] = await runOne(bScans[i], extraEnv); } };
+    // RightKit is many components, never one build (Adrian, 2026-10-29; rightkit#1285): class B scans of different components run
+    // concurrently, `classBJobs` at a time (the broker queues beyond its build capacity). A component is the directory a scan runs in
+    // (`cwd`, its own Cargo workspace and output directory); scans of one component stay in plan order, because they share its
+    // output directory and cargo locks it.
+    const bJobs = Math.max(1, Number(options.classBJobs ?? 1) || 1);
+    const drain = async (queue, extraEnv = null) => {
+      const busy = new Set(); const running = new Set();
+      const keyOf = (i) => bScans[i].cwd ?? ".";
+      while (queue.length || running.size) {
+        const at = running.size < bJobs ? queue.findIndex((i) => !busy.has(keyOf(i))) : -1;
+        if (at === -1) { await Promise.race(running); continue; }
+        const [i] = queue.splice(at, 1); const key = keyOf(i); busy.add(key);
+        const job = runOne(bScans[i], extraEnv).then((row) => { slots[i] = row; }).finally(() => { busy.delete(key); running.delete(job); });
+        running.add(job);
+      }
+    };
     await drain(lanes.compile);
     await drain(lanes.doc);
     await drain(lanes.tests);

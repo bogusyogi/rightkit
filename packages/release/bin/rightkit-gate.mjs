@@ -59,7 +59,8 @@
 // rust.<crate>.testInputs lists the paths they read, for npm, node and docs scans, and whenever a reference cannot be resolved
 // statically) are all identical. Stored in <git common dir>/rightkit-gate-cache; a hit prints
 // `cached` and is listed in the result's cacheHits. Failures, deferrals and class A scans are never cached.
-// RK_GATE_JOBS (default 4) sets class A scan concurrency; class B runs one scan at a time per checkout.
+// RK_GATE_JOBS (default 4) sets class A scan concurrency. RK_GATE_CLASS_B_JOBS (default 3, the Mac broker's build capacity; the
+// broker queues beyond its own) sets how many components' class B scans run at once; one component's scans stay in order (rightkit#1285).
 // A crate whose ci/gate.config.json entry says `quietTests: true` has its test scans run last,
 // one at a time, under the RustRight quiet lease (`rustright quiet acquire`, RUSTRIGHT_QUIET_LEASE in their environment).
 // SIGINT/SIGTERM stop scheduling, kill every running scan's process tree and exit non-zero listing the scans not run.
@@ -2250,6 +2251,7 @@ export async function main(argv, io = {}) {
     let plan = args.includes("--pre-push") ? prePushPlan(fullPlan) : fullPlan;
     const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? 4) || 4);
     const testJobs = Math.max(1, Number(o.env.RK_GATE_TEST_JOBS ?? jobs) || jobs);
+    const classBJobs = Math.max(1, Number(o.env.RK_GATE_CLASS_B_JOBS ?? 3) || 3);
 
     if (planOnly) {
       o.out(`${tag} plan: ${plan.scans.length} scan(s) for ${changed.length} changed file(s) vs ${base.slice(0, 12)} (reads the working tree; nothing runs)`);
@@ -2264,7 +2266,7 @@ export async function main(argv, io = {}) {
     for (const n of plan.notes) o.out(`${tag} note: ${n}`);
     o.out(`${tag} executor: ${executor.kind}${executor.kind === "broker" ? ` (${cargoCommand.join(" ")})` : " (no broker on this host: cargo runs directly, through the same gates)"}`);
     const quietCount = plan.scans.filter((s) => s.quiet === true).length;
-    o.out(`${tag} ${plan.scans.length} scan(s) for ${changed.length} changed file(s) vs ${base.slice(0, 12)}; class A scans ${jobs} at a time, class B scans 1 at a time${quietCount ? `, ${quietCount} quiet test scan(s) last under the broker's quiet lease` : ""}`);
+    o.out(`${tag} ${plan.scans.length} scan(s) for ${changed.length} changed file(s) vs ${base.slice(0, 12)}; class A scans ${jobs} at a time, class B scans ${classBJobs} component(s) at a time${quietCount ? `, ${quietCount} quiet test scan(s) last under the broker's quiet lease` : ""}`);
     let signalCode = 0;
     for (const sig of ["SIGINT", "SIGTERM"]) {
       const handler = () => {
@@ -2378,7 +2380,7 @@ export async function main(argv, io = {}) {
       } catch { cache = null; }
     }
     const scanResult = await (o.runScans ?? runScans)(plan, {
-      classes: classAOnly ? ["A"] : ["A", "B"], jobs, testJobs, signal: ac.signal, ...(cache ? { cache } : {}),
+      classes: classAOnly ? ["A"] : ["A", "B"], jobs, testJobs, classBJobs, signal: ac.signal, ...(cache ? { cache } : {}),
       // The runtime cargo wrapper is first on PATH and named in CARGO for every scan of a snapshot compile; CARGO (a path named by the
       // wrapper's identity) is in every scan's cache key, so no result cached without the wrapper or with another map is reused.
       ...(cargoShim ? { env: cargoShim.scanEnv, ...(cargoShim.sentinel ? { cargoSentinel: cargoShim.sentinel } : {}) } : {}),
