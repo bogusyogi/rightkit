@@ -155,7 +155,9 @@ export function holdReason(unit, sha, state, crates, { pipeline = readJson(path.
   // The reviewed recipe lives at ci/consumers/<crate> or ci/consumers/npm/<package short name>; the inventory that admits
   // it (ci/consumer-recipes.json) is part of what the hosted verify checks, so a refreshed entry releases the hold.
   const recipeDir = unit.startsWith("@rightkit/") ? `ci/consumers/npm/${unit.slice("@rightkit/".length)}` : `ci/consumers/${unit}`;
-  if (changed(last.sha, sha, [...dirs, recipeDir, "ci/consumer-recipes.json", "Cargo.lock"])) return null;
+  // Each crate dir holds its own Cargo.toml and Cargo.lock (#1285); there is no root lock. rightkit-typeset patches citationberg from vendor/.
+  const vendored = dirs.includes("crates/rightkit-typeset") ? ["vendor/citationberg"] : [];
+  if (changed(last.sha, sha, [...dirs, ...vendored, recipeDir, "ci/consumer-recipes.json"])) return null;
   const section = (file, pick) => { try { return JSON.stringify(pick(JSON.parse(show(last.sha, file)))) !== JSON.stringify(pick(JSON.parse(show(sha, file)))); } catch { return true; } };
   if (section("ci/gate.config.json", (j) => j.rust?.[unit]) || section("ci/rk-pipeline.json", (j) => j.dispatch?.exceptions?.[unit])) return null;
   return `held: unchanged since hosted failure at ${last.sha.slice(0, 12)} (run ${last.runId}); its crate closure, consumer recipe and own policy entries are identical, so the same run would repeat`;

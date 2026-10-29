@@ -54,3 +54,39 @@ tempfile = "3"
 [package.metadata.rightkit]
 continuous = false
 continuous_reason = "offline Ed25519 entitlement-token verification per call; no refresh loop or background task in this crate (the native client runs only when the app calls it); resident-static: one empty process-wide Mutex serialises ledger access and holds no data, and with feature client a thread_local lock-level mask of three bits per calling thread (client/order.rs) holds nothing secret; the file-backed clock store takes an OS file lock for the length of one read-compare-write and keeps nothing resident; thread-spawn (feature client only): one write worker per record write or reconcile (client/lock.rs run_fenced) that owns the licence operation lock until its credentials calls have returned and then ends, never resident, and the same worker per account session write (client/account.rs, which owns the account lock the same way); sleep (feature client only): a 5 ms poll of CrossProcessLock::try_acquire bounded by the caller deadline (client/lock.rs, client/clockstore.rs) and a 50 ms poll in the write worker while a timed-out credentials call is still running (client/persist.rs settle), which ends when that call returns; no timer, listener or watcher in non-test src (checked by runtime-budgets.mjs, reviewed 2026-10-19)"
+
+# One Cargo workspace and lock per crate (rightkit#1285).
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

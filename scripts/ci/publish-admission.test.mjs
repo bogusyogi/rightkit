@@ -323,7 +323,7 @@ test("a signed, successful job that carries the stage nonce but ran another comm
   assert.equal(compile.length, 2, "npm compile: the workspace build and the unit's test");
   assert.deepEqual(compile.map(argvOf), [["-r", "--workspace-concurrency=1", "run", "build"], ["--dir", "packages/release", "run", "test"]]);
   // @rightkit/release is the swap helper: it builds and signs a binary, then packs from a scratch copy of its directory.
-  assert.deepEqual(pack.map(argvOf), [["build", "--release", "-p", "rightkit-fs", "--features", "fs", "--bin", "rightkit-swap"], ["metadata", "--format-version", "1", "--no-deps"], ["--dir", "/tmp/scratch", "pack", "--pack-destination", "/tmp/scratch"]]);
+  assert.deepEqual(pack.map(argvOf), [["build", "--manifest-path", "crates/rightkit-fs/Cargo.toml", "--release", "-p", "rightkit-fs", "--features", "fs", "--bin", "rightkit-swap"], ["metadata", "--format-version", "1", "--no-deps", "--manifest-path", "crates/rightkit-fs/Cargo.toml"], ["--dir", "/tmp/scratch", "pack", "--pack-destination", "/tmp/scratch"]]);
   const put = (stage, receipts) => { const q = qual(); q.stages[stage].receipts = receipts; return q; };
   // Every command of the stage is proven by its own job: the full set is admitted.
   assert.deepEqual((await admitWith(qual())).qualification.provenance.compile.map((p) => p.requestedArgv), compile.map(argvOf));

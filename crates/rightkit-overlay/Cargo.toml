@@ -23,3 +23,39 @@ windows-sys = { version = "0.61.2", features = [
 [package.metadata.rightkit]
 continuous = false
 continuous_reason = "no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src: pure geometry and hover models plus, on Windows only, a window-procedure subclass installed on the caller's own window by make_noactivate (lib.rs) that runs only when that window receives a message and holds one map entry per window (reviewed 2026-10-11); resident-static: ORIGINAL_WNDPROCS in src/lib.rs (Windows only) is a OnceLock Mutex HashMap with one entry per subclassed caller window, inserted by install_noactivate_mouse_guard and removed on WM_NCDESTROY, so it holds no more entries than live subclassed windows (reviewed 2026-10-17)"
+
+# One Cargo workspace and lock per crate (rightkit#1285).
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

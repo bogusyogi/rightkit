@@ -56,9 +56,10 @@ What is implemented today:
   publication qualification. Direct `rightkit-gate` invocation retains full class A & B coverage;
   generated app hooks also retain that default. Pre-push mode needs the committed local
   compile grant (`.rightkit-local-build.json`). On the Mac and the Dell cargo runs only through the broker: `rustright cargo`, or
-  the managed `cargo` shim (`cargo-guard.mjs`); plain cargo is refused. A deferred scan fails the gate. A change to a root
-  workspace file (`Cargo.lock`, `Cargo.toml`, toolchain, `.cargo/`, pnpm lock or workspace) puts every
-  crate or package in scope.
+  the managed `cargo` shim (`cargo-guard.mjs`); plain cargo is refused. A deferred scan fails the gate. Each crate is its own
+  Cargo workspace with its own `crates/<x>/Cargo.lock`, `Cargo.toml`, `deny.toml` and `.cargo/audit.toml` (rightkit#1285): a change
+  to one puts that crate and its path dependents in scope. A change to a root workspace file (toolchain, pnpm lock or workspace)
+  puts every crate or package in scope.
 - The scans are always on in CI: there is no enable switch and no `deterministicScans` config key.
   A missing tool, a deferred scan or a failed scan fails the job; none of them is ever scan success.
 - `publish.yml` job 0, `scans`, runs `scripts/ci/run-deterministic-scans.mjs` (class A only, the
@@ -73,7 +74,7 @@ What is implemented today:
   crate/template/vendor Rust is excluded from formatting. Unresolved external source inputs refuse qualification
   (`scripts/ci/run-deterministic-scans.mjs`, `publicationContent`). The receipt binds registry & requested units.
   It uploads the scan receipt (classes `["A"]`), which `publish-reviewed.yml` verifies against the original run (commit,
-  `Cargo.lock` digest, tool versions, every scan passed) before any upload.
+  each crate's `crates/<x>/Cargo.lock` digest, tool versions, every scan passed) before any upload.
 - `ci.yml` runs the class A scans in the `hygiene` job (`gate.mjs --steps scans`) with the same pinned
   tools, before any compile or test step, for every change: Rust, npm, workflow, scripts and docs. The
   plan job passes `scan_base`, the oldest changed-path base of the runners; without a base (a full
@@ -107,12 +108,15 @@ the repository itself and covers all of it; what it cannot scan it names, never 
   a workspace that is not one of its members is tried on its own (an `exclude`d crate is a real workspace); when cargo refuses it there it
   is a fixture or vendored crate, and the run prints it as skipped. A workspace member whose manifest is untracked or ignored, and an untracked
   `Cargo.toml`, are skipped with a note too. A manifest outside every workspace that cargo refuses stops the gate.
-- **Names.** A unit of the root workspace keeps its crate name. A unit of a workspace below the root is `<cargoDir>:<crate>`
-  (`hub/src-tauri:app`): that is its name in scan ids (`clippy:hub/src-tauri:app`), its scans run with that directory as cwd and `-p <crate>`,
-  and `ci/gate.config.json` `rust` may key its feature sets by `<cargoDir>:<crate>` (wins) or by the plain crate name. The per-workspace scans
-  are `cargo-metadata`, `cargo-deny` and `cargo-audit` (suffixed `:<cargoDir>` below the root). Reverse dependents, the lock scope of a
-  lock-only change and the result-cache keys come from each workspace's own `Cargo.lock`; a change to one workspace's root files puts only
-  that workspace's units in scope.
+- **Names.** There is no root Cargo workspace (rightkit#1285). Each crate is its own workspace at `crates/<x>` with its own
+  `Cargo.lock`, `deny.toml`, `.cargo/audit.toml` and target dir `crates/<x>/target`; its unit keeps the plain crate name
+  (`rightkit-fs`), and its scan ids stay plain (`clippy:rightkit-fs`). Its scans run with `crates/<x>` as cwd and `-p <crate>`; no
+  command runs at the repository root or with `--workspace` across crates. A workspace elsewhere (a fixture or vendored crate, an
+  `exclude`d crate) keeps the `<cargoDir>:<crate>` name (`hub/src-tauri:app`), and `ci/gate.config.json` `rust` may key its feature sets
+  by that name (wins) or by the plain crate name. The per-workspace scans are `cargo-metadata`, `cargo-deny` and `cargo-audit`.
+  Reverse dependents (path dependencies on sibling crates, transitively, read from manifests only), the lock scope of a lock-only change
+  and the result-cache keys come from each crate's own `Cargo.lock`; a change to one crate's manifest, lock or source puts that crate and
+  its path dependents in scope, and nothing else.
 - **npm.** The `pnpm-workspace.yaml` globs over tracked `package.json` files. The root `package.json` is a unit as well when that file is
   absent, has no `packages:` or declares `.`; with a `packages:` list that does not name the root, the root is only the workspace manifest.
   A file inside a Rust unit below the root does not put a root package in scope.
@@ -138,9 +142,9 @@ A push to `main` is compared with the last commit the same runner passed on. Wit
 everything runs.
 
 - **Rust.** A crate is tested and linted when its directory, a third-party package it compiles, or
-  its gate config changed. Crates that depend on it are compiled with `cargo check --all-targets`.
-  `Cargo.lock` is refreshed first and `cargo fmt` is applied; a difference fails the `lock` or
-  `fmt` unit and the patch is printed in the log and uploaded as evidence.
+  its gate config changed. Crates that path-depend on it, transitively, are compiled with `cargo check --all-targets`.
+  Each crate's `Cargo.lock` is refreshed first and `cargo fmt --manifest-path crates/<x>/Cargo.toml --all` is applied; a difference fails the `lock` or
+  `fmt` unit and the patch is printed in the log and uploaded as evidence. `Cargo.lock.patch` covers every changed `crates/*/Cargo.lock`.
 - **npm.** A changed package & its dependents are tested after selected packages’ workspace
   dependency closure builds in dependency order.
 - **Swift.** `swift/RightKitSwift` and `swift/RightKitCloudKitHelper` build and test on the macOS
@@ -208,7 +212,7 @@ happen only in Actions. Tokens: `rust:<crate>`, `rust-check:<crate>`, `npm:<dir>
 ## Reading a run
 
 Each job writes a table to its job summary and uploads `qa-evidence-<runner>-<job id>` (`qa-evidence-hygiene-<attempt>` for the hygiene job):
-`summary.md`, `summary.json`, one log per unit, and `fmt.patch` or `Cargo.lock.patch` when produced.
+`summary.md`, `summary.json`, one log per unit, and `fmt.patch` or `Cargo.lock.patch` (covering each changed `crates/*/Cargo.lock`) when produced.
 
 ```bash
 gh run list --workflow ci.yml --limit 5
@@ -230,7 +234,7 @@ gate report names it under "Now green" for removal in next commit.
 1. Edit locally. Cargo, package test suites, installs & builds run locally through the gate, and CI qualifies.
 2. Preview selection with `node scripts/ci/gate.mjs --plan --base <sha>`.
 3. Batch reviewed fixes into one push. Active `main` validation finishes; its single pending slot coalesces newer pushes to latest pending commit. Superseded PR validation cancels. Independent qualification runs remain concurrent; promotion uses a separate global queue. Avoid micro-pushes that discard pending validation.
-4. Apply `fmt.patch` and `Cargo.lock.patch` from the evidence with `git apply`, then commit.
+4. Apply `fmt.patch` and `Cargo.lock.patch` (each changed `crates/*/Cargo.lock`) from the evidence with `git apply`, then commit.
 
 ## Two hosts, one owner
 
@@ -380,11 +384,11 @@ Promotion of a local candidate, with the workflow file unchanged: `identify` rea
 tag (a lightweight tag at `sourceSha`) and the compare against the promotion commit; `run --dry-run` downloads each asset by
 release asset ID through the API, requires its SHA-256 to equal the committed pin, rebuilds the `packed`/`receipts` layout,
 and runs `local-admission.mjs` over the source as data; `scan-receipt.mjs verify` re-checks every host's scan record against
-the candidate's `Cargo.lock`; `upload` repeats every pin, approval and receipt check in the credential job.
+each candidate `crates/<x>/Cargo.lock`; `upload` repeats every pin, approval and receipt check in the credential job.
 
 Binding: a `local-verify` receipt names host and OS, the RustRight client (path and SHA-256), commit and tree (equal to the
 candidate's source), the manifest hash, the archive SHA-256 of every unit (equal on both hosts), the gate evidence of every
-unit, the archive secret scan, a scan record (classes A and B, nothing deferred, bound to `Cargo.lock`) and, for a runtime
+unit, the archive secret scan, a scan record (classes A and B, nothing deferred, bound to that unit's `cargoLock`, `crates/<x>/Cargo.lock` with its SHA-256) and, for a runtime
 owner, its runtime proof (below). Admission also requires each packed file to equal the blob at `sourceSha` and
 `.cargo_vcs_info.json` to name it.
 

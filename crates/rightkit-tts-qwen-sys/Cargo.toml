@@ -32,3 +32,39 @@ cmake = "0.1"
 [package.metadata.rightkit]
 continuous = false
 continuous_reason = "no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src: raw FFI bindings plus statically linked ggml that start nothing by themselves, ggml_graph_compute uses a disposable thread pool created and joined inside each compute call unless the caller builds its own via ggml_threadpool_new, and any resident model belongs to the consumer (rightkit-tts-qwen) (reviewed 2026-10-11)"
+
+# One Cargo workspace and lock per crate (rightkit#1285).
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

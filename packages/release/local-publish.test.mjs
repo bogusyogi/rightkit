@@ -420,7 +420,7 @@ test('crates files and --crates parse; layers are checked or derived from the in
   assert.throws(() => parseLocalPublishArgs('npm', ['--local', '--crates', 'a']), /unknown publish npm --local option/);
 });
 
-test('clippy for a batch keeps every per-crate flag: shared -p list for default features, one invocation per crate otherwise', () => {
+test('clippy for a batch keeps every per-crate flag: one invocation per crate and feature set', () => {
   const features = { 'rightkit-a': [], 'rightkit-b': ['--all-features'], 'rightkit-c': ['--features', 'x'], 'rightkit-d': ['--features', 'x'], 'rightkit-e': [] };
   const invocations = batchClippyInvocations(Object.keys(features), { featuresOf: (unit) => features[unit], assetGatedOf: (unit) => unit === 'rightkit-e' });
   assert.deepEqual(invocations.map((i) => i.args.join(' ')), [
@@ -430,16 +430,22 @@ test('clippy for a batch keeps every per-crate flag: shared -p list for default 
     'clippy -p rightkit-d --message-format=json-render-diagnostics --no-deps --all-targets --features x -- -D warnings',
     'clippy -p rightkit-e --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings',
   ]);
-  // Every feature set of a crate is linted: shared sets still share one -p list, other sets run per crate, duplicates collapse.
+  // Every feature set of a crate is linted, one invocation per crate and set (each crate is its own Cargo workspace, #1285); duplicates collapse.
   const sets = { 'rightkit-a': [[], ['--features', 'x']], 'rightkit-b': [[], ['--all-features']], 'rightkit-c': [['--features', 'x'], ['--features', 'x']] };
-  assert.deepEqual(batchClippyInvocations(Object.keys(sets), { featureSetsOf: (unit) => sets[unit] }).map((i) => i.args.join(' ')), [
-    'clippy -p rightkit-a -p rightkit-b --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings',
+  const perSet = batchClippyInvocations(Object.keys(sets), { featureSetsOf: (unit) => sets[unit] });
+  assert.deepEqual(perSet.map((i) => i.args.join(' ')), [
+    'clippy -p rightkit-a --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings',
     'clippy -p rightkit-a --message-format=json-render-diagnostics --no-deps --all-targets --features x -- -D warnings',
+    'clippy -p rightkit-b --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings',
     'clippy -p rightkit-b --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings',
     'clippy -p rightkit-c --message-format=json-render-diagnostics --no-deps --all-targets --features x -- -D warnings',
   ]);
+  assert.ok(perSet.every((i) => i.crates.length === 1), 'an invocation never names two crates');
   const shared = batchClippyInvocations(['rightkit-a', 'rightkit-f'], {});
-  assert.deepEqual(shared.map((i) => i.args.join(' ')), ['clippy -p rightkit-a -p rightkit-f --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings']);
+  assert.deepEqual(shared.map((i) => i.args.join(' ')), [
+    'clippy -p rightkit-a --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings',
+    'clippy -p rightkit-f --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings',
+  ]);
   assert.deepEqual(localTestPlan({ kind: 'cargo', unit: 'rightkit-a', dir: 'crates/rightkit-a', config: {}, batch: true }).steps.map((s) => s.args[0]), ['test', 'check']);
 });
 
@@ -449,7 +455,7 @@ function batchHarness(names, { flags = [], listArgs, over = {}, gateConfig = {},
   fs.mkdirSync(path.join(root, 'ci'), { recursive: true });
   fs.writeFileSync(path.join(root, 'ci', 'gate.config.json'), JSON.stringify(gateConfig));
   fs.writeFileSync(path.join(root, 'ci', 'asset-gated.json'), '{}');
-  const calls = []; const events = []; const logs = []; const recorded = [];
+  const calls = []; const cwds = []; const events = []; const logs = []; const recorded = [];
   const gitFor = (args) => (args[0] === 'rev-parse' ? (args[1] === 'HEAD' ? HEAD : TREE) : '');
   const state = { active: 0, max: 0 };
   const deps = {
@@ -460,8 +466,9 @@ function batchHarness(names, { flags = [], listArgs, over = {}, gateConfig = {},
     loadWorkspaceModules: async () => ({ results, checkNpmTarball: () => ({ problems: [] }) }),
     scanSecrets: () => [],
     batchDependencies: (unit) => (unit === 'rightkit-c' ? ['rightkit-a'] : []),
-    run: async (command, args) => {
+    run: async (command, args, options) => {
       calls.push(`${command} ${args.join(' ')}`);
+      cwds.push({ call: `${command} ${args.join(' ')}`, cwd: options?.cwd });
       if (args[0] === 'package') {
         const unit = args[args.indexOf('-p') + 1];
         fs.mkdirSync(path.join(root, 'target', 'package'), { recursive: true });
@@ -487,7 +494,7 @@ function batchHarness(names, { flags = [], listArgs, over = {}, gateConfig = {},
     ...over,
   };
   const args = [...(listArgs ? listArgs(root) : ['--crates', names.join(',')]), '--local', '--workspace', root, ...flags];
-  return { run: () => runLocalPublish('cargo', args, deps), root, calls, events, logs, recorded, state };
+  return { run: () => runLocalPublish('cargo', args, deps), root, calls, cwds, events, logs, recorded, state };
 }
 
 const NAMES = ['rightkit-a', 'rightkit-b', 'rightkit-c'];
@@ -499,11 +506,10 @@ test('batch: fmt, clippy and the secret scan run once before any publish; every 
   const result = await h.run();
   assert.deepEqual(result.results.map((r) => r.name).sort(), NAMES);
   assert.equal(h.calls[0], 'cargo fmt --all --check');
-  assert.equal(h.calls.filter((c) => c.includes(' fmt ')).length, 1);
-  assert.deepEqual(h.calls.filter((c) => c.includes(' clippy ')), [
-    'cargo clippy -p rightkit-a -p rightkit-b --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings',
-    'cargo clippy -p rightkit-c --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings',
-  ]);
+  // One recorded fmt check, run once in each crate's own Cargo workspace (#1285).
+  assert.equal(h.calls.filter((c) => c.includes(' fmt ')).length, NAMES.length);
+  assert.deepEqual(h.calls.filter((c) => c.includes(' clippy ')), NAMES.map((name) => `cargo clippy -p ${name} --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings`));
+  assert.deepEqual(h.cwds.filter((entry) => /^cargo (fmt|clippy) /.test(entry.call)).map((entry) => path.relative(h.root, entry.cwd)), [...NAMES, ...NAMES].map((name) => path.join('crates', name)));
   assert.ok(h.logs.findIndex((line) => /batch layer 1\/2/.test(line)) > h.logs.findIndex((line) => /batch secret-scan/.test(line)));
   for (const name of NAMES) {
     assert.equal(h.calls.filter((c) => c.startsWith(`cargo test -p ${name} `)).length, 1);
@@ -514,10 +520,10 @@ test('batch: fmt, clippy and the secret scan run once before any publish; every 
     assert.equal(run.commit, HEAD);
     assert.deepEqual(run.steps.map((s) => s.command.split(' ')[1]), ['test', 'check']);
     assert.deepEqual([run.batch.commit, run.batch.tree, run.batch.crates], [HEAD, TREE, NAMES]);
-    assert.deepEqual(run.batch.checks.map((c) => c.name), ['fmt', 'secret-scan', 'clippy', 'clippy']);
+    assert.deepEqual(run.batch.checks.map((c) => c.name), ['fmt', 'secret-scan', 'clippy', 'clippy', 'clippy']);
     assert.ok(run.batch.checks.every((c) => c.ok === true && c.commit === HEAD && c.tree === TREE));
     assert.match(run.command, /cargo fmt --all --check/);
-    assert.match(run.command, /cargo clippy -p rightkit-a -p rightkit-b/);
+    assert.match(run.command, /cargo clippy -p rightkit-a /);
     // The gate accepts the written evidence, and it proves tests, clippy, fmt and the secret scan for this commit.
     const gate = checkPublicationGate({ kind: 'cargo', name, version: '1.0.0', packagePath: path.join(h.root, 'crates', name), evidencePath: evidencePathOf(h.root, name), git: gitForBatch });
     assert.deepEqual(gate.missing, []);

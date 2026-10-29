@@ -319,19 +319,24 @@ export function checkReceipts({ manifest, manifestSha256, receiptsDir, allow = {
 
 export const LOCAL_RECEIPT_KIND = "local-verify";
 export const LOCAL_HOST_OS = Object.freeze({ macos: "darwin", windows: "win32", linux: "linux" });
-export const LOCAL_SCAN_SCHEMA = "rightkit.local-scan-receipt/1";
+// /2 (rightkit#1285): every crate unit is bound to its own crates/<x>/Cargo.lock through `cargoLocks`; /1 bound one root lock.
+export const LOCAL_SCAN_SCHEMA = "rightkit.local-scan-receipt/2";
 export const LOCAL_SCAN_CLASSES = Object.freeze(["A", "B"]);
 const LOCAL_HOST_POLICY = Object.freeze({ darwin: "darwin-only", win32: "win32-only" });
-const LOCAL_SCAN_KEYS = ["cargoLockSha256", "classDigests", "classes", "deferred", "headCommit", "inputDigest", "passed", "problems", "scanSetDigest", "scans", "schema", "scope", "sourceCommit", "tools"];
+const LOCAL_SCAN_KEYS = ["cargoLocks", "classDigests", "classes", "deferred", "headCommit", "inputDigest", "passed", "problems", "scanSetDigest", "scans", "schema", "scope", "sourceCommit", "tools"];
 
 /** Structural problems with a host's local deterministic-scan record; the digest and tool-pin checks live in scan-receipt.mjs. */
-export function localScanShapeProblems(record, { commit, units }) {
+export function localScanShapeProblems(record, { commit, units, registry }) {
   if (!record || typeof record !== "object" || Array.isArray(record) || JSON.stringify(Object.keys(record).sort()) !== JSON.stringify(LOCAL_SCAN_KEYS)) return ["scans record is missing or has unexpected keys"];
   const problems = [];
   if (record.schema !== LOCAL_SCAN_SCHEMA || record.passed !== true || !Array.isArray(record.problems) || record.problems.length !== 0) problems.push("scans record does not show a passed scan");
   if (!Array.isArray(record.deferred) || record.deferred.length !== 0) problems.push("scans record has a deferred scan");
   if (record.sourceCommit !== commit || record.headCommit !== commit) problems.push("scans record is not bound to the sealed commit");
-  if (!/^[0-9a-f]{64}$/.test(record.cargoLockSha256 ?? "")) problems.push("scans record has no Cargo.lock hash");
+  // Every crate unit is bound to its own crate workspace lock: { "<unit>": { path: "crates/<x>/Cargo.lock", sha256 } }.
+  const locks = record.cargoLocks;
+  const lockOk = (name, lock) => units.includes(name) && lock && typeof lock === "object" && JSON.stringify(Object.keys(lock).sort()) === JSON.stringify(["path", "sha256"]) && /^crates\/[A-Za-z0-9][A-Za-z0-9._-]*\/Cargo\.lock$/.test(lock.path) && /^[0-9a-f]{64}$/.test(lock.sha256);
+  if (!locks || typeof locks !== "object" || Array.isArray(locks) || !Object.entries(locks).every(([name, lock]) => lockOk(name, lock))) problems.push("scans record has no per-crate Cargo.lock bindings");
+  else if (registry === "crates" && !units.every((name) => Object.hasOwn(locks, name))) problems.push("scans record does not bind every crate unit to its Cargo.lock");
   if (JSON.stringify(record.classes) !== JSON.stringify(LOCAL_SCAN_CLASSES)) problems.push(`scans record must cover exactly classes ${LOCAL_SCAN_CLASSES.join(", ")}`);
   if (JSON.stringify([...(record.scope?.units ?? [])].sort()) !== JSON.stringify([...units].sort())) problems.push("scans record scope differs from the sealed units");
   if (!Array.isArray(record.scans) || record.scans.length === 0 || !record.scans.every((row) => row && typeof row.id === "string" && typeof row.command === "string" && LOCAL_SCAN_CLASSES.includes(row.class) && row.status === "pass")) problems.push("scans record rows are not all passed class A or B scans");
@@ -446,7 +451,7 @@ export function checkLocalReceipts({ manifest, manifestSha256, receiptsDir, allo
     if (!sameSet(doc.allowNoTest, allowNoTest)) bad("it ran with different allow_no_test than this request");
     if (!sameSet(doc.allowIgnored, allowIgnored)) bad("it ran with different allow_ignored than this request");
     if (!sameSet(doc.allowMissingAssets, allowAssets)) bad("it ran with different allow_missing_assets than this request");
-    for (const problem of localScanShapeProblems(doc.scans, { commit: manifest.commit, units: manifest.units.map((u) => u.name) })) bad(problem);
+    for (const problem of localScanShapeProblems(doc.scans, { commit: manifest.commit, units: manifest.units.map((u) => u.name), registry: manifest.registry })) bad(problem);
     const byName = new Map((doc.units ?? []).map((u) => [u.name, u]));
     const scope = host === "linux" ? manifest.units.filter((u) => linuxUnits.includes(u.name)) : manifest.units;
     if ((doc.units ?? []).length !== scope.length || (doc.units ?? []).some((u) => !scope.some((s) => s.name === u?.name))) bad(`covers ${(doc.units ?? []).length} units, expected ${scope.length}`);

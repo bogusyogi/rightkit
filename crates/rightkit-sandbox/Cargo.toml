@@ -72,3 +72,39 @@ holds = ["child", "memory"]
 scale = "one confined child process in its own kill-on-close Job Object, its AppContainer profile and its per-command ACL grant leases (plus its loopback lease and, for a piped spawn, one stdin pipe handle), shared with the child so the grants live exactly as long as it does (only when Job setup fails and the suspended child cannot be confirmed dead does Drop deliberately retain its handles and leases, once per such failure); bounded sleeps only retry profile creation (8 x 50 ms) and launch-alias settling per call. ConfinedChild is pub(crate); the public holders are SandboxedChild (spawn.rs) and, for a reusable container whose leases outlive any one child, AppContainerProfile (dropped, with its last child, it releases them)"
 release = "Drop"
 static_note = "lease_registry (a OnceLock<Mutex<HashMap>>) holds one reference-counted entry per live ACL grant and drops it with the last GrantLease; loopback_registry (a OnceLock<Mutex<LoopbackRegistry>>) holds one reference-counted entry per container whose loopback exemption a held child owns, removed with the last LoopbackLease, plus a set of containers whose exemption failed (at most one entry per distinct grant-set profile, never retried); loopback_api is a OnceLock holding two resolved function pointers; ACL_GRANT_LOCK is a Mutex<()> with no data and the SEQUENCE counters are single atomics, so nothing here grows beyond the grants a held child or AppContainerProfile owns and no thread is held"
+
+# One Cargo workspace and lock per crate (rightkit#1285).
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

@@ -10,21 +10,24 @@ import { assertPublishDoc, SCANS_MUTATIONS, SCANS_TOOLS, SCANS_ACTIONLINT_ENV, S
 import { assertReviewedDoc, REVIEWED_MUTATIONS } from "./reviewed-workflow-contract.mjs";
 import { parseYaml } from "./workflow-yaml.mjs";
 import {
-  ACTIONLINT_SHA256, buildScanReceipt, REQUIRED_SCAN_IDS, resultProblems, SCAN_RECEIPT_FILE, SCAN_TOOL_PINS, scanGatePassed, scanReceiptArtifactName,
+  ACTIONLINT_SHA256, buildScanReceipt, cargoLocksFor, cargoLocksMatch, crateScanIds, requiredReceiptScanIds, resultProblems, SCAN_RECEIPT_FILE, SCAN_TOOL_PINS, scanGatePassed, scanReceiptArtifactName,
   sha256Hex, toolVersionProblems, verifyOriginalScanReceipt, verifyScanReceipt,
 } from "./scan-receipt.mjs";
 
 const SOURCE = "a".repeat(40);
 const LOCK = Buffer.from("lock bytes");
 const LOCK_SHA = sha256Hex(LOCK);
+// One Cargo workspace and lock per crate (#1285): every unit is bound to its own lock.
+const LOCKS = { "rightkit-a": { path: "crates/rightkit-a/Cargo.lock", sha256: LOCK_SHA }, "rightkit-b": { path: "crates/rightkit-b/Cargo.lock", sha256: sha256Hex(Buffer.from("other lock")) } };
 const RUN = { repository: "bogusyogi/rightkit", runId: "77", runAttempt: "1" };
 const OBSERVED = { "cargo-deny": "cargo-deny 0.20.2", "cargo-audit": "cargo-audit-audit 0.22.2", actionlint: "1.7.12" };
 // The scans job proves class A only: Ubuntu cannot compile the native crates, so class B runs in the native verify jobs.
-const rows = () => ["cargo-metadata", "cargo-deny", "cargo-audit", "actionlint", "yaml-parse"].map((id) => ({ id, class: "A", command: `cmd ${id}`, status: "pass" }));
+// Per-crate scan ids (#1285): cargo-metadata/deny/audit run once in each bound crate's own workspace.
+const rows = () => [...crateScanIds(Object.keys(LOCKS)), "actionlint", "yaml-parse"].map((id) => ({ id, class: "A", command: `cmd ${id}`, status: "pass" }));
 const B_ROW = { id: "clippy:rightkit-fs", class: "B", command: "cargo clippy", status: "pass" };
 const resultOf = (scans = rows(), classes = ["A"]) => ({ ok: scans.every((r) => r.status === "pass"), complete: scans.every((r) => r.status === "pass"), classes, deferred: scans.filter((r) => r.status === "deferred").map((r) => r.id), scans, toolVersions: {}, inputDigest: "d".repeat(64) });
-const receipt = (over = {}) => ({ ...buildScanReceipt({ result: resultOf(), plannedClassA: rows(), sourceCommit: SOURCE, headCommit: SOURCE, cargoLockSha256: LOCK_SHA, observedTools: OBSERVED, run: RUN }), ...over });
-const expectation = { sourceSha: SOURCE, cargoLockSha256: LOCK_SHA, runId: "77", runAttempt: "1", repository: "bogusyogi/rightkit" };
+const receipt = (over = {}) => ({ ...buildScanReceipt({ result: resultOf(), plannedClassA: rows(), sourceCommit: SOURCE, headCommit: SOURCE, cargoLocks: LOCKS, observedTools: OBSERVED, run: RUN }), ...over });
+const expectation = { sourceSha: SOURCE, cargoLocks: LOCKS, runId: "77", runAttempt: "1", repository: "bogusyogi/rightkit" };
 const clone = (v) => structuredClone(v);
 
 test("workflow pins agree with the receipt module's trusted pins", () => {
@@ -65,7 +68,7 @@ test("scoped receipts bind registry and cover candidates, including a subset aft
   for (const mismatch of [{ registry: "npm", units: ["rightkit-b"] }, { registry: "crates", units: ["rightkit-c"] }, { registry: "crates", units: [] }]) {
     assert.throws(() => verifyScanReceipt(receipt({ scope }), { ...expectation, ...mismatch }), /scan scope does not cover/);
   }
-  const built = buildScanReceipt({ result: resultOf(), plannedClassA: rows(), sourceCommit: SOURCE, headCommit: SOURCE, cargoLockSha256: LOCK_SHA, observedTools: OBSERVED, run: RUN, scope });
+  const built = buildScanReceipt({ result: resultOf(), plannedClassA: rows(), sourceCommit: SOURCE, headCommit: SOURCE, cargoLocks: LOCKS, observedTools: OBSERVED, run: RUN, scope });
   assert.deepEqual(built.scope, scope);
   assert.notEqual(built.scope.units, scope.units);
 });
@@ -76,7 +79,11 @@ test("a receipt is refused unless passed and bound to the candidate source, lock
     "problems recorded": (r) => { r.problems = ["x"]; },
     "other source commit": (r) => { r.sourceCommit = "b".repeat(40); },
     "other head commit": (r) => { r.headCommit = "b".repeat(40); },
-    "other lockfile": (r) => { r.cargoLockSha256 = "0".repeat(64); },
+    "other lockfile": (r) => { r.cargoLocks["rightkit-a"].sha256 = "0".repeat(64); },
+    "lock path moved": (r) => { r.cargoLocks["rightkit-a"].path = "crates/rightkit-b/Cargo.lock"; },
+    "a crate's lock dropped": (r) => { delete r.cargoLocks["rightkit-b"]; },
+    "a lock for another crate added": (r) => { r.cargoLocks["rightkit-c"] = { path: "crates/rightkit-c/Cargo.lock", sha256: LOCK_SHA }; },
+    "legacy single root lock hash": (r) => { delete r.cargoLocks; r.cargoLockSha256 = LOCK_SHA; },
     "other run": (r) => { r.runId = "78"; },
     "other attempt": (r) => { r.runAttempt = "2"; },
     "other repository": (r) => { r.repository = "evil/rightkit"; },
@@ -101,34 +108,34 @@ test("a receipt is refused unless passed and bound to the candidate source, lock
     "tool missing": (r) => { r.tools.observed.actionlint = null; },
   };
   for (const [name, mutate] of Object.entries(bad)) { const r = clone(receipt()); mutate(r); assert.throws(() => verifyScanReceipt(r, expectation), /scan receipt refused/, name); }
-  for (const id of REQUIRED_SCAN_IDS) {
+  for (const id of requiredReceiptScanIds(LOCKS)) {
     const scans = rows().filter((r) => r.id !== id);
     const r = receipt({ scans, scanSetDigest: digestScanSet(scans), classDigests: { A: digestScanSet(scans.filter((s) => s.class === "A")) } });
     assert.throws(() => verifyScanReceipt(r, expectation), new RegExp(`lacks required scan ${id}`), id);
   }
-  for (const [name, expected] of Object.entries({ "other source": { ...expectation, sourceSha: "c".repeat(40) }, "other lock": { ...expectation, cargoLockSha256: "1".repeat(64) } })) assert.throws(() => verifyScanReceipt(receipt(), expected), /scan receipt refused/, name);
+  for (const [name, expected] of Object.entries({ "other source": { ...expectation, sourceSha: "c".repeat(40) }, "other lock": { ...expectation, cargoLocks: { ...LOCKS, "rightkit-b": { ...LOCKS["rightkit-b"], sha256: "1".repeat(64) } } }, "no lock bindings": { ...expectation, cargoLocks: {} } })) assert.throws(() => verifyScanReceipt(receipt(), expected), /scan receipt refused/, name);
   assert.throws(() => verifyScanReceipt(null, expectation), /scan receipt refused/);
 });
 
 test("a scan result is evidence only when complete, passed and undeferred", () => {
   const planned = rows();
-  assert.deepEqual(resultProblems(resultOf(), planned), []);
-  assert.match(resultProblems(resultOf([]), planned)[0], /no scans/);
-  assert.ok(resultProblems(resultOf(), undefined).some((p) => /no planned class A scans/.test(p)), "without a plan nothing is proven");
-  assert.ok(resultProblems(resultOf(), []).some((p) => /no planned class A scans/.test(p)));
-  assert.ok(resultProblems(resultOf(rows().map((r, i) => (i === 0 ? { ...r, status: "deferred" } : r))), planned).some((p) => /deferred/.test(p)));
-  assert.ok(resultProblems(resultOf(rows().map((r, i) => (i === 1 ? { ...r, status: "fail" } : r))), planned).some((p) => /cargo-deny: fail/.test(p)));
-  assert.ok(resultProblems(resultOf(rows().filter((r) => r.id !== "cargo-audit")), planned).some((p) => /cargo-audit is missing/.test(p)));
-  assert.ok(resultProblems(resultOf(rows().filter((r) => r.id !== "cargo-audit")), planned).some((p) => /not every planned class A scan/.test(p)));
-  assert.ok(resultProblems(resultOf(), [...planned, { id: "licence", class: "A" }]).some((p) => /not every planned class A scan/.test(p)), "a planned class A scan with no passing row is refused");
-  assert.ok(resultProblems(resultOf([...rows(), B_ROW]), planned).some((p) => /class B is not proven/.test(p)), "a class B row is not job-0 evidence");
-  assert.ok(resultProblems(resultOf(rows(), ["A", "B"]), planned).some((p) => /exactly class A/.test(p)));
-  assert.ok(resultProblems({ ...resultOf(), classes: undefined }, planned).some((p) => /exactly class A/.test(p)));
+  assert.deepEqual(resultProblems(resultOf(), planned, LOCKS), []);
+  assert.match(resultProblems(resultOf([]), planned, LOCKS)[0], /no scans/);
+  assert.ok(resultProblems(resultOf(), undefined, LOCKS).some((p) => /no planned class A scans/.test(p)), "without a plan nothing is proven");
+  assert.ok(resultProblems(resultOf(), [], LOCKS).some((p) => /no planned class A scans/.test(p)));
+  assert.ok(resultProblems(resultOf(rows().map((r, i) => (i === 0 ? { ...r, status: "deferred" } : r))), planned, LOCKS).some((p) => /deferred/.test(p)));
+  assert.ok(resultProblems(resultOf(rows().map((r, i) => (i === 1 ? { ...r, status: "fail" } : r))), planned, LOCKS).some((p) => /cargo-deny:rightkit-a: fail/.test(p)));
+  assert.ok(resultProblems(resultOf(rows().filter((r) => r.id !== "cargo-audit:rightkit-a")), planned, LOCKS).some((p) => /cargo-audit:rightkit-a is missing/.test(p)));
+  assert.ok(resultProblems(resultOf(rows().filter((r) => r.id !== "cargo-audit:rightkit-a")), planned, LOCKS).some((p) => /not every planned class A scan/.test(p)));
+  assert.ok(resultProblems(resultOf(), [...planned, { id: "licence", class: "A" }], LOCKS).some((p) => /not every planned class A scan/.test(p)), "a planned class A scan with no passing row is refused");
+  assert.ok(resultProblems(resultOf([...rows(), B_ROW]), planned, LOCKS).some((p) => /class B is not proven/.test(p)), "a class B row is not job-0 evidence");
+  assert.ok(resultProblems(resultOf(rows(), ["A", "B"]), planned, LOCKS).some((p) => /exactly class A/.test(p)));
+  assert.ok(resultProblems({ ...resultOf(), classes: undefined }, planned, LOCKS).some((p) => /exactly class A/.test(p)));
   assert.deepEqual(toolVersionProblems(OBSERVED), []);
   assert.equal(toolVersionProblems({ ...OBSERVED, "cargo-deny": "cargo-deny 0.20.20" }).length, 1);
   assert.equal(toolVersionProblems({ ...OBSERVED, actionlint: null }).length, 1);
-  assert.equal(buildScanReceipt({ result: resultOf(rows().slice(1)), plannedClassA: rows(), sourceCommit: SOURCE, headCommit: SOURCE, cargoLockSha256: LOCK_SHA, observedTools: OBSERVED, run: RUN }).passed, false);
-  assert.equal(buildScanReceipt({ result: resultOf(), sourceCommit: SOURCE, headCommit: SOURCE, cargoLockSha256: LOCK_SHA, observedTools: OBSERVED, run: RUN }).passed, false, "no plan, no receipt");
+  assert.equal(buildScanReceipt({ result: resultOf(rows().slice(1)), plannedClassA: rows(), sourceCommit: SOURCE, headCommit: SOURCE, cargoLocks: LOCKS, observedTools: OBSERVED, run: RUN }).passed, false);
+  assert.equal(buildScanReceipt({ result: resultOf(), sourceCommit: SOURCE, headCommit: SOURCE, cargoLocks: LOCKS, observedTools: OBSERVED, run: RUN }).passed, false, "no plan, no receipt");
   assert.deepEqual(receipt().classes, ["A"]);
   assert.equal(receipt().passed, true);
 });
@@ -137,7 +144,7 @@ test("the scans job runs class A only and the native verify jobs keep class B", 
   const runner = fs.readFileSync(new URL("./run-deterministic-scans.mjs", import.meta.url), "utf8");
   assert.match(runner, /runScans\(plan, \{ classes: \["A"\] \}\)/);
   assert.doesNotMatch(runner, /classes: \["A", "B"\]/);
-  assert.match(runner, /resultProblems\(result, plannedClassA\)/);
+  assert.match(runner, /resultProblems\(result, plannedClassA, cargoLocks\)/);
   assert.match(runner, /buildScanReceipt\(\{\s*result, plannedClassA,/);
 });
 
@@ -168,7 +175,7 @@ test("gate.mjs runs the shared scans in CI with no off switch and counts only a 
 // ---- original-run verification with a fake GitHub ---------------------------------------------------------
 
 function world(over = {}) {
-  const candidate = { runId: "77", runAttempt: "1", sourceSha: SOURCE };
+  const candidate = { runId: "77", runAttempt: "1", sourceSha: SOURCE, registry: "crates", units: ["rightkit-a"] };
   const repository = { id: 99, full_name: "bogusyogi/rightkit" };
   const zip = Buffer.from("zip bytes");
   const name = scanReceiptArtifactName(1);
@@ -176,11 +183,14 @@ function world(over = {}) {
   const art = { id: 5, name, digest, expired: false, workflow_run: { id: 77, head_sha: SOURCE, head_branch: "main", repository_id: 99, head_repository_id: 99 } };
   const state = {
     jobs: { total_count: 2, jobs: [{ name: "guard", conclusion: "success" }, { name: "scans", conclusion: "success", run_id: 77, run_attempt: 1, head_sha: SOURCE }] },
-    listing: { total_count: 1, artifacts: [{ id: 5, name, digest }] }, artifact: art, zip, files: [SCAN_RECEIPT_FILE], receipt: receipt(), lock: LOCK, ...over,
+    listing: { total_count: 1, artifacts: [{ id: 5, name, digest }] }, artifact: art, zip, files: [SCAN_RECEIPT_FILE], receipt: receipt({ cargoLocks: { "rightkit-a": LOCKS["rightkit-a"] } }), lock: LOCK, ...over,
   };
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "scan-receipt-"));
   const candidateDir = path.join(dir, "candidate"); fs.mkdirSync(candidateDir);
-  if (state.lock) fs.writeFileSync(path.join(candidateDir, "Cargo.lock"), state.lock);
+  // The candidate's crate is its own Cargo workspace: crates/rightkit-a/Cargo.toml and its own Cargo.lock (#1285).
+  fs.mkdirSync(path.join(candidateDir, "crates", "rightkit-a"), { recursive: true });
+  fs.writeFileSync(path.join(candidateDir, "crates", "rightkit-a", "Cargo.toml"), '[package]\nname = "rightkit-a"\nversion = "0.1.0"\n\n[workspace]\n');
+  if (state.lock) fs.writeFileSync(path.join(candidateDir, "crates", "rightkit-a", "Cargo.lock"), state.lock);
   const api = async (route, _env, _fetch, binary) => {
     if (binary) return state.zip;
     if (route.includes("/jobs?")) return state.jobs;
@@ -218,6 +228,21 @@ test("seal-check fails closed on a missing, failed, foreign or unbound scan rece
     "candidate without Cargo.lock": { lock: null },
   };
   for (const [name, over] of Object.entries(cases)) await assert.rejects(world(over).run(), /scan receipt refused/, name);
+});
+
+test("each crate unit is bound to its own crate workspace lock; npm units bind none; a crate without a lock is refused", () => {
+  const workspaces = [{ name: "rightkit-a", lock: "crates/rightkit-a/Cargo.lock" }, { name: "rightkit-b", lock: "crates/rightkit-b/Cargo.lock" }];
+  const files = { "crates/rightkit-a/Cargo.lock": Buffer.from("a"), "crates/rightkit-b/Cargo.lock": Buffer.from("b") };
+  const read = (file) => files[file] ?? null;
+  const bound = cargoLocksFor({ units: ["rightkit-b", "rightkit-a"], registry: "crates", workspaces, read });
+  assert.deepEqual(Object.keys(bound), ["rightkit-a", "rightkit-b"]);
+  assert.deepEqual(bound["rightkit-a"], { path: "crates/rightkit-a/Cargo.lock", sha256: sha256Hex(Buffer.from("a")) });
+  assert.deepEqual(cargoLocksFor({ units: ["@rightkit/qa"], registry: "npm", workspaces, read }), {});
+  assert.throws(() => cargoLocksFor({ units: ["@rightkit/qa"], registry: "crates", workspaces, read }), /no crates\/<x> workspace/);
+  assert.throws(() => cargoLocksFor({ units: ["rightkit-a"], registry: "crates", workspaces, read: () => null }), /no crates\/rightkit-a\/Cargo\.lock to bind/);
+  assert.equal(cargoLocksMatch(bound, bound), true);
+  assert.equal(cargoLocksMatch({ ...bound, "rightkit-a": { ...bound["rightkit-a"], sha256: "0".repeat(64) } }, bound), false);
+  assert.equal(cargoLocksMatch(undefined, bound), false);
 });
 
 // ---- workflow contracts ------------------------------------------------------------------------------------

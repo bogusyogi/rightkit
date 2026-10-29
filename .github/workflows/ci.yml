@@ -117,12 +117,31 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # rightkit#1285: every crate is its own Cargo workspace (crates/<x>/Cargo.lock, crates/<x>/target). Name this job's crates for the Rust cache
+      # from its gate tokens (rust:<crate> and rust-check:<crate>); a job without Rust tokens names none and restores no Rust cache.
+      - name: Name the crate workspaces of the job
+        id: crate-workspaces
+        shell: bash
+        env:
+          GATE_TOKENS: ${{ matrix.tokens }}
+        run: |
+          set -euo pipefail
+          {
+            echo 'workspaces<<RK_WORKSPACES'
+            for token in $GATE_TOKENS; do
+              case "$token" in
+                rust:*|rust-check:*) printf 'crates/%s -> crates/%s/target\n' "${token#*:}" "${token#*:}" ;;
+              esac
+            done
+            echo 'RK_WORKSPACES'
+          } >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/rk-setup
         with:
           node-version: ${{ env.NODE_VERSION }}
           install-dependencies: ${{ matrix.kind == 'npm' || matrix.kind == 'root' }}
           rust: ${{ matrix.rust }}
           cache-key: ${{ matrix.cacheKey }}
+          rust-workspaces: ${{ steps.crate-workspaces.outputs.workspaces }}
           # Push-triggered runs build without the Rust cache: 61 pushes on 2026-10-23 each restored hundreds of MB per
           # shard and exhausted the account's Actions storage egress (macOS verify of @rightkit/legal 0.6.3 could not fetch its
           # artifact). Broker-requested runs restore and save; pull requests restore only.
@@ -163,12 +182,31 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # rightkit#1285: every crate is its own Cargo workspace (crates/<x>/Cargo.lock, crates/<x>/target). Name this job's crates for the Rust cache
+      # from its gate tokens (rust:<crate> and rust-check:<crate>); a job without Rust tokens names none and restores no Rust cache.
+      - name: Name the crate workspaces of the job
+        id: crate-workspaces
+        shell: bash
+        env:
+          GATE_TOKENS: ${{ matrix.tokens }}
+        run: |
+          set -euo pipefail
+          {
+            echo 'workspaces<<RK_WORKSPACES'
+            for token in $GATE_TOKENS; do
+              case "$token" in
+                rust:*|rust-check:*) printf 'crates/%s -> crates/%s/target\n' "${token#*:}" "${token#*:}" ;;
+              esac
+            done
+            echo 'RK_WORKSPACES'
+          } >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/rk-setup
         with:
           node-version: ${{ env.NODE_VERSION }}
           install-dependencies: ${{ matrix.kind == 'npm' || matrix.kind == 'root' }}
           rust: ${{ matrix.rust }}
           cache-key: ${{ matrix.cacheKey }}
+          rust-workspaces: ${{ steps.crate-workspaces.outputs.workspaces }}
           # Push-triggered runs build without the Rust cache: 61 pushes on 2026-10-23 each restored hundreds of MB per
           # shard and exhausted the account's Actions storage egress (macOS verify of @rightkit/legal 0.6.3 could not fetch its
           # artifact). Broker-requested runs restore and save; pull requests restore only.
@@ -211,12 +249,31 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # rightkit#1285: every crate is its own Cargo workspace (crates/<x>/Cargo.lock, crates/<x>/target). Name this job's crates for the Rust cache
+      # from its gate tokens (rust:<crate> and rust-check:<crate>); a job without Rust tokens names none and restores no Rust cache.
+      - name: Name the crate workspaces of the job
+        id: crate-workspaces
+        shell: bash
+        env:
+          GATE_TOKENS: ${{ matrix.tokens }}
+        run: |
+          set -euo pipefail
+          {
+            echo 'workspaces<<RK_WORKSPACES'
+            for token in $GATE_TOKENS; do
+              case "$token" in
+                rust:*|rust-check:*) printf 'crates/%s -> crates/%s/target\n' "${token#*:}" "${token#*:}" ;;
+              esac
+            done
+            echo 'RK_WORKSPACES'
+          } >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/rk-setup
         with:
           node-version: ${{ env.NODE_VERSION }}
           install-dependencies: "false"
           rust: "true"
           cache-key: ${{ matrix.cacheKey }}
+          rust-workspaces: ${{ steps.crate-workspaces.outputs.workspaces }}
           # Push-triggered runs build without the Rust cache: 61 pushes on 2026-10-23 each restored hundreds of MB per
           # shard and exhausted the account's Actions storage egress (macOS verify of @rightkit/legal 0.6.3 could not fetch its
           # artifact). Broker-requested runs restore and save; pull requests restore only.
@@ -256,12 +313,31 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # rightkit#1285: every crate is its own Cargo workspace (crates/<x>/Cargo.lock, crates/<x>/target). Name this job's crates for the Rust cache
+      # from its gate tokens (rust:<crate> and rust-check:<crate>); a job without Rust tokens names none and restores no Rust cache.
+      - name: Name the crate workspaces of the job
+        id: crate-workspaces
+        shell: bash
+        env:
+          GATE_TOKENS: ${{ matrix.tokens }}
+        run: |
+          set -euo pipefail
+          {
+            echo 'workspaces<<RK_WORKSPACES'
+            for token in $GATE_TOKENS; do
+              case "$token" in
+                rust:*|rust-check:*) printf 'crates/%s -> crates/%s/target\n' "${token#*:}" "${token#*:}" ;;
+              esac
+            done
+            echo 'RK_WORKSPACES'
+          } >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/rk-setup
         with:
           node-version: ${{ env.NODE_VERSION }}
           install-dependencies: "false"
           rust: "true"
           cache-key: ${{ matrix.cacheKey }}
+          rust-workspaces: ${{ steps.crate-workspaces.outputs.workspaces }}
           # Push-triggered runs build without the Rust cache: 61 pushes on 2026-10-23 each restored hundreds of MB per
           # shard and exhausted the account's Actions storage egress (macOS verify of @rightkit/legal 0.6.3 could not fetch its
           # artifact). Broker-requested runs restore and save; pull requests restore only.
@@ -297,6 +373,24 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      # rightkit#1285: every crate is its own Cargo workspace (crates/<x>/Cargo.lock, crates/<x>/target). Name this job's crates for the Rust cache
+      # from its gate tokens (rust:<crate> and rust-check:<crate>); a job without Rust tokens names none and restores no Rust cache.
+      - name: Name the crate workspaces of the job
+        id: crate-workspaces
+        shell: bash
+        env:
+          GATE_TOKENS: ${{ needs.plan.outputs.hygiene_tokens }}
+        run: |
+          set -euo pipefail
+          {
+            echo 'workspaces<<RK_WORKSPACES'
+            for token in $GATE_TOKENS; do
+              case "$token" in
+                rust:*|rust-check:*) printf 'crates/%s -> crates/%s/target\n' "${token#*:}" "${token#*:}" ;;
+              esac
+            done
+            echo 'RK_WORKSPACES'
+          } >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/rk-setup
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -304,6 +398,7 @@ jobs:
           install-filter: --filter @rightkit/release...
           ignore-install-scripts: "true"
           cache-key: rk-ubuntu-hygiene
+          rust-workspaces: ${{ steps.crate-workspaces.outputs.workspaces }}
           # Push-triggered runs build without the Rust cache: 61 pushes on 2026-10-23 each restored hundreds of MB per
           # shard and exhausted the account's Actions storage egress (macOS verify of @rightkit/legal 0.6.3 could not fetch its
           # artifact). Broker-requested runs restore and save; pull requests restore only.

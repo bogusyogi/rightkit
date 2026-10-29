@@ -21,7 +21,7 @@ const TRUST_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 // every byte as well as its expression so a new call cannot extend this closure.
 const COMPUTED_HELPER_IMPORTS = Object.freeze({
   "packages/release/local-publish.mjs": Object.freeze({
-    sha256: "907b0289292ff7c410dd317600c4fb8da783a90a3a28ca43df4349dc87c1f0db",
+    sha256: "cd0ae0117b402d521539d869b846ca4ebcb49b40df193bbe648666c40bd05e6e",
     expression: 'pathToFileURL(path.join(workspaceRoot, "scripts", "ci", file)).href',
     count: 1,
     paths: Object.freeze(["scripts/ci/test-results.mjs", "scripts/ci/upload.mjs"]),
@@ -98,12 +98,14 @@ export function validateRuntimeRecords({ source, sourceSha, unit, budget, record
   const exists = (absolute) => { try { readFile(absolute); return true; } catch { return false; } };
   // readData is an authenticated immutable tree, so owner freshness reads describe
   // this exact SHA snapshot instead of unrelated validator working-tree changes.
-  const git = (args) => {
+  // Each crate is its own Cargo workspace (#1285): the staleness check asks about the crate's own Cargo.lock, git's cwd being its directory.
+  const git = (args, cwd) => {
+    const lockRelative = path.relative(source.root, path.join(cwd ?? crateDir, "Cargo.lock")).split(path.sep).join("/");
     if (args[0] === "cat-file" && args[1] === "-t" && args[2] === sourceSha) return { status: 0, stdout: "commit" };
     if (args[0] === "merge-base" && args[1] === "--is-ancestor" && args[2] === sourceSha) return { status: 0, stdout: "" };
     if (args[0] === "diff" && args[2] === sourceSha || args[0] === "ls-files") return { status: 0, stdout: "" };
-    if (args[0] === "show" && args[1] === `${sourceSha}:./Cargo.lock`) { try { return { status: 0, stdout: readSource("Cargo.lock").toString("utf8") }; } catch { return { status: 1, stdout: "" }; } }
-    if (args[0] === "ls-tree" && args[1] === sourceSha && !exists(path.join(source.root, "Cargo.lock"))) return { status: 0, stdout: "" };
+    if (args[0] === "show" && args[1] === `${sourceSha}:./Cargo.lock`) { try { return { status: 0, stdout: readSource(lockRelative).toString("utf8") }; } catch { return { status: 1, stdout: "" }; } }
+    if (args[0] === "ls-tree" && args[1] === sourceSha && !exists(path.join(source.root, lockRelative))) return { status: 0, stdout: "" };
     return { status: 1, stdout: "unsupported immutable snapshot query" };
   };
   const verdict = evaluateRuntimeBudget({ crate: unit.name, crateDir, version: unit.version }, { readFile, exists, git });
@@ -215,7 +217,7 @@ export async function verifyRuntimeSupplement({ candidate, pin, manifest, manife
           need(hash(command(spawn, "tar", ["-xOzf", path.join(original.packDir, unit.file), member], source.root)) === digest, "sealed source/bench binding mismatch");
         }
       }
-      for (const name of [owner.workloadPrescriptionPath(crate), ...owner.trustedRequiredSources(crate), `crates/${crate}/Cargo.toml`, ...workloads.map((w) => `crates/${crate}/benches/${w.bench}.rs`)]) need(Object.hasOwn(bindings, name), "required sealed binding absent");
+      for (const name of [owner.workloadPrescriptionPath(crate), ...owner.trustedRequiredSources(crate), `crates/${crate}/Cargo.toml`, `crates/${crate}/Cargo.lock`, ...workloads.map((w) => `crates/${crate}/benches/${w.bench}.rs`)]) need(Object.hasOwn(bindings, name), "required sealed binding absent");
       owner.validateWorkloadReceipts(envelope.workloads, context, unit, manifestSha256, bindings, host, pin.producer.sourceSha, budget, { id: pin.producer.runId, attempt: pin.producer.runAttempt });
       for (const receipt of envelope.workloads) {
         for (const name of [`${receipt.workload}-bench.txt`, `${receipt.workload}-evidence.txt`]) {
@@ -294,7 +296,7 @@ export async function verifyLocalRuntimeProof({ candidate, manifest, manifestSha
     const bindings = rows[0]?.bindings;
     need(bindings && typeof bindings === "object" && Object.keys(bindings).length > 0, `${host}: runtime source bindings missing`);
     for (const [name, digest] of Object.entries(bindings)) need(hash(readSource(name)) === digest, "source binding differs from original candidate");
-    for (const name of [owner.workloadPrescriptionPath(crate), ...owner.trustedRequiredSources(crate), `crates/${crate}/Cargo.toml`, ...prescribed.workloads.map((w) => `crates/${crate}/benches/${w.bench}.rs`)]) need(Object.hasOwn(bindings, name), "required sealed binding absent");
+    for (const name of [owner.workloadPrescriptionPath(crate), ...owner.trustedRequiredSources(crate), `crates/${crate}/Cargo.toml`, `crates/${crate}/Cargo.lock`, ...prescribed.workloads.map((w) => `crates/${crate}/benches/${w.bench}.rs`)]) need(Object.hasOwn(bindings, name), "required sealed binding absent");
     try { owner.validateWorkloadReceipts(rows, context, unit, manifestSha256, bindings, host, candidate.sourceSha, budget, qualificationRun); } catch (error) { need(false, `${host}: ${error.message}`); }
     for (const row of rows) {
       const workload = trustedWorkloads.find((item) => item.id === row.workload);

@@ -22,8 +22,9 @@ function virtualTree() {
   const budget = JSON.parse(fs.readFileSync(path.join(ROOT, "crates", CRATE, "runtime-budget.json"), "utf8"));
   budget.status = { api: "status()", file: "src/lib.rs", exposes: ["residentMemoryBytes"] }; budget.measurements = [];
   return {
-    "Cargo.toml": `[workspace]\nmembers = ["crates/${CRATE}"]\n`, "Cargo.lock": `# Cargo.lock\nversion = 3\n\n[[package]]\nname = "${CRATE}"\nversion = "${VERSION}"\n`,
-    [`crates/${CRATE}/Cargo.toml`]: `[package]\nname = "${CRATE}"\nversion = "${VERSION}"\nedition = "2021"\n`, [`crates/${CRATE}/src/lib.rs`]: "pub fn status() {}\n", [`crates/${CRATE}/src/detached.rs`]: "pub struct DetachedLog;\n",
+    // Every crate is its own Cargo workspace with its own Cargo.lock (#1285).
+    [`crates/${CRATE}/Cargo.lock`]: `# Cargo.lock\nversion = 3\n\n[[package]]\nname = "${CRATE}"\nversion = "${VERSION}"\n`,
+    [`crates/${CRATE}/Cargo.toml`]: `[package]\nname = "${CRATE}"\nversion = "${VERSION}"\nedition = "2021"\n\n[workspace]\n`, [`crates/${CRATE}/src/lib.rs`]: "pub fn status() {}\n", [`crates/${CRATE}/src/detached.rs`]: "pub struct DetachedLog;\n",
     [`crates/${CRATE}/README.md`]: "## Runtime budget\n\nfixture\n", [`crates/${CRATE}/runtime-budget.json`]: JSON.stringify(budget), [`crates/${CRATE}/benches/workloads.json`]: JSON.stringify(supportedPrescription(CRATE)),
     [`crates/${CRATE}/benches/budget.rs`]: "// tracing\n", [`crates/${CRATE}/benches/budget_detached.rs`]: "// detached\n",
   };

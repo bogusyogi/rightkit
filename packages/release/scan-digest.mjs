@@ -62,20 +62,28 @@ export const REQUIRED_SCAN_PREFIXES = Object.freeze(["rustfmt:"]);
 /**
  * The scan ids a LOCAL scan record must contain, each with status pass, for these publishable Rust `units` ([names], crates/<name>).
  * `exists(repoPath)` answers from the AUTHENTICATED source (never from the record): src/lib.rs decides `doc`, CHANGELOG.md decides
- * `changelog-version`, and the repository's own ci/advisory-exceptions.json, ownership catalog and docs generator decide theirs.
+ * `changelog-version`, and the repository's own ci/advisory-exceptions.json (or, per crate, crates/<name>/.rightkit/advisory-exceptions.json), ownership catalog and docs generator decide theirs.
  * `crateFeatures` is ci/gate.config.json `rust`. `includeTests` adds the per-feature-set test scans. Extra scans in a record are
  * allowed; a missing one is not. planScans builds its ids from the same helpers, and a test holds the two in agreement.
  */
-export function requiredScanIds({ units, crateFeatures = {}, exists, includeTests = false }) {
+export function requiredScanIds({ units, crateFeatures = {}, exists, includeTests = false, perCrateWorkspaces = undefined }) {
   if (!Array.isArray(units) || units.length === 0 || !units.every((n) => typeof n === "string" && n)) throw new TypeError("requiredScanIds: units must be a non-empty array of names");
   if (typeof exists !== "function") throw new TypeError("requiredScanIds: exists(repoPath) is required");
-  const ids = new Set(WORKSPACE_SCAN_IDS);
-  if (exists("ci/advisory-exceptions.json")) ids.add("advisory-exceptions");
+  // One Cargo workspace and lock per crate (rightkit#1285): every unit has its own crates/<name>/Cargo.lock, so the per-workspace scans
+  // (metadata, deny, audit and the advisory ledger where the crate has one) are required per unit and carry the crate name; there is no
+  // repository-level ledger. A repository with one root workspace has no per-crate lock and keeps the unsuffixed ids.
+  const perCrate = perCrateWorkspaces ?? units.every((n) => exists(`crates/${n}/Cargo.lock`));
+  const ids = new Set(WORKSPACE_SCAN_IDS.filter((id) => !(perCrate && /^cargo-(metadata|deny|audit)$/.test(id))));
+  if (!perCrate && exists("ci/advisory-exceptions.json")) ids.add("advisory-exceptions");
   if (exists("packages/release/rightkit-ownership.json") && exists("crates/rightkit-ownership/catalog/ownership-catalog.json")) ids.add("ownership-catalog");
   if (exists("scripts/generate-index.mjs")) ids.add("generated-docs");
   for (const name of units) {
     const own = crateFeatures?.[name] ?? {};
     const { lintSets, defaultCheck, checkSets } = rustCratePlan(own);
+    if (perCrate) {
+      for (const id of ["cargo-metadata", "cargo-deny", "cargo-audit"]) ids.add(`${id}:${name}`);
+      if (exists(`crates/${name}/.rightkit/advisory-exceptions.json`)) ids.add(`advisory-exceptions:${name}`);
+    }
     ids.add(rustScanId.packageList(name));
     if (exists(`crates/${name}/CHANGELOG.md`)) ids.add(rustScanId.changelog(name));
     if (defaultCheck) ids.add(rustScanId.check(name));

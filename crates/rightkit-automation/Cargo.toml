@@ -62,3 +62,39 @@ harness = false
 [package.metadata.rightkit]
 continuous = false
 continuous_reason = "sleep: fixed settle and key-delay pauses inside one automation action (engine.rs, delivery.rs, macos/events.rs, macos/appkit.rs, win/sys.rs); thread-spawn: FocusWatch sampler (focus.rs) started and joined by finish() around one action, caller-bounded but it has no Drop stop so a forgotten finish() would leak a sampler; element store is capped at STORE_CAP 8; offscreen.rs: resident-static ACTIVE is one Mutex<Option<Active>> holding at most the single current offscreen session (install refuses a second; cleared by end), and launch_offscreen spawns the driven app as a child owned by OffscreenLaunch (killed by end() and on Drop, and on a failed launch) and polls its report file with 50 ms sleeps until the caller timeout; macos/background.rs: waited short-lived lsappinfo, open, pgrep and screencapture children plus fixed event pauses; control/lease_store.rs: one small atomic file write per lease state change; no listener, timer or watcher (reviewed 2026-10-11, moved-in code reviewed 2026-10-15)"
+
+# One Cargo workspace and lock per crate (rightkit#1285).
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

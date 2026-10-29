@@ -238,8 +238,7 @@ function subdirs(dir) {
 
 
 export function loadInventory(root) {
-  const rootWorkspace = existsSync(path.join(root, "Cargo.toml"))
-    ? parseToml(readFileSync(path.join(root, "Cargo.toml"), "utf8"))["workspace.package"]?.version ?? "" : "";
+  // rightkit#1285: each crate is its own Cargo workspace; there is no root [workspace.package] to inherit a version from.
   const crates = [];
   for (const dirName of subdirs(path.join(root, "crates"))) {
     const dir = path.join(root, "crates", dirName);
@@ -248,7 +247,7 @@ export function loadInventory(root) {
     crates.push({
       ecosystem: "cargo",
       name: unquote(pkg.name ?? dirName),
-      version: unquote(pkg.version ?? rootWorkspace),
+      version: unquote(pkg.version ?? ""),
       description: unquote(pkg.description ?? "") || readmeLine(dir),
       isPrivate: /^publish\s*=\s*false/m.test(readFileSync(path.join(dir, "Cargo.toml"), "utf8")),
       bins: "",

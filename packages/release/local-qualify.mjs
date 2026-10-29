@@ -406,14 +406,16 @@ async function localScanRecord({ root, commit, crates, jobs, scratch, deps, log 
     const repo = path.join(exportRoot, "rightkit");
     const tracked = String((deps.git ?? defaultGit)(["ls-files", "-z"], root) ?? "").split("\0").filter(Boolean);
     const unitDirs = crates.map((name) => `crates/${name}/`);
-    // Workspace-level scans (lock, deny, audit, workflows, YAML) plus every scan of the units; other crates and npm packages stay out of scope.
+    // Repository-level scans (workflows, YAML) plus every scan of the units, each in its own crate workspace (lock, deny, audit); other crates and npm packages stay out of scope.
     const files = tracked.filter((file) => (!file.startsWith("crates/") && !file.startsWith("packages/")) || unitDirs.some((dir) => file.startsWith(dir)));
     const crateFeatures = (deps.readJson ?? defaultReadJson)(path.join(repo, "ci", "gate.config.json"))?.rust ?? {};
     const plan = (deps.planScans ?? planScans)({ changed: files, contentRoot: repo, liveRoot: root, includeTests: false, localCompile: true, cargoCommand: detectCargoCommand(deps), crateFeatures, readBytes: (file) => fs.readFileSync(file) });
     const observedTools = modules.observeToolVersions();
     log(`[local-qualify] scans: ${plan.scans.length} planned over ${files.length} files (class A, then class B through the broker)`);
     const result = await (deps.runScans ?? runScans)(plan, { classes: ["A", "B"], jobs: Math.max(1, Number(jobs ?? 4) || 4), onResult: (row, progress) => log(`[local-qualify] scan [${progress.done}/${progress.total}] ${row.status.padEnd(7)} ${row.id}`) });
-    return modules.buildLocalScanRecord({ result, planned: plan.scans, sourceCommit: commit, headCommit: commit, cargoLockSha256: sha256(fs.readFileSync(path.join(root, "Cargo.lock"))), observedTools, units: crates, files: files.length });
+    // Every unit is bound to its own crate workspace lock (#1285): crates/<x>/Cargo.lock, no root lock.
+    const cargoLocks = Object.fromEntries([...crates].sort().map((name) => [name, { path: `crates/${name}/Cargo.lock`, sha256: sha256(fs.readFileSync(path.join(root, "crates", name, "Cargo.lock"))) }]));
+    return modules.buildLocalScanRecord({ result, planned: plan.scans, sourceCommit: commit, headCommit: commit, cargoLocks, observedTools, units: crates, files: files.length });
   } finally { fs.rmSync(exportRoot, { recursive: true, force: true }); }
 }
 

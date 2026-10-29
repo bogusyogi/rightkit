@@ -276,7 +276,7 @@ jobs:
           tool: cargo-deny@0.20.2
       - name: Check rightkit-typeset dependency licences
         if: ${{ inputs.registry == 'crates' && contains(format(' {0} ', steps.plan.outputs.units), ' rightkit-typeset ') }}
-        run: cargo deny --manifest-path crates/rightkit-typeset/Cargo.toml check --config deny.toml licenses
+        run: cargo deny --manifest-path crates/rightkit-typeset/Cargo.toml check --config crates/rightkit-typeset/deny.toml licenses
 
   build-swap:
     needs: [guard, scans, plan]
@@ -293,7 +293,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
       - name: Build unsigned helper on a secretless runner
-        run: cargo build --release --locked -p rightkit-fs --bin rightkit-swap --features fs
+        run: cargo build --manifest-path crates/rightkit-fs/Cargo.toml --release --locked -p rightkit-fs --bin rightkit-swap --features fs
       - name: Seal unsigned helper & bind its native build receipt
         id: seal
         shell: bash
@@ -301,7 +301,7 @@ jobs:
           set -euo pipefail
           out="$RUNNER_TEMP/swap-unsigned"
           mkdir -p "$out"
-          cp target/release/rightkit-swap "$out/rightkit-swap"
+          cp crates/rightkit-fs/target/release/rightkit-swap "$out/rightkit-swap"
           (cd "$out" && shasum -a 256 rightkit-swap > rightkit-swap.sha256)
           printf 'repository=%s\nsource=%s\nrun=%s\nattempt=%s\nworkflow=%s\nhost=%s\narch=%s\njob=build-swap\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKFLOW_REF" "$RUNNER_OS" "$RUNNER_ARCH" > "$out/source-receipt.txt"
           cat "$out/rightkit-swap.sha256" >> "$out/source-receipt.txt"
@@ -759,11 +759,26 @@ jobs:
         if: ${{ needs.plan.outputs.registry == 'crates' && runner.os == 'Windows' }}
         shell: pwsh
         run: '& "$env:GITHUB_WORKSPACE/scripts/ci/locate-native-openssl.ps1"'
+      # rightkit#1285: every crate is its own Cargo workspace (crates/<x>/Cargo.lock, crates/<x>/target); a crates run caches each unit's workspace.
+      - name: Name the crate workspaces of the plan
+        id: crate-workspaces
+        if: ${{ needs.plan.outputs.registry == 'crates' }}
+        shell: bash
+        env:
+          UNITS: ${{ needs.plan.outputs.units }}
+        run: |
+          set -euo pipefail
+          {
+            echo 'workspaces<<RK_WORKSPACES'
+            for unit in $UNITS; do
+              printf 'crates/%s -> crates/%s/target\n' "$unit" "$unit"
+            done
+            echo 'RK_WORKSPACES'
+          } >> "$GITHUB_OUTPUT"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         if: ${{ needs.plan.outputs.registry == 'crates' }}
         with:
-          workspaces: |
-            . -> target
+          workspaces: ${{ steps.crate-workspaces.outputs.workspaces }}
           shared-key: rightkit-shared-rust
           add-job-id-key: false
           cache-workspace-crates: true

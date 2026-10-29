@@ -13,7 +13,7 @@ import { spawnSync } from "./background-process.mjs";
 import { HOOK_MARKER, renderPreCommitHook } from "./ownership-hooks.mjs";
 import { digestScanSet } from "./scan-digest.mjs";
 import { PINNED_SCAN_TOOLS } from "./deterministic-scans.mjs";
-import { pathspecBatches, EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, cargoInputsDiffer, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, hookText, lockScope, main as gateMain, manifestChangeIsLockReflected, PARTIAL_EXIT, manifestTables, parsePushLines, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustUnitName, rustUnitOfScanId, tomlString, tomlStrings, tomlValue, trampolineText, workspaceExcludes, exportTmpRoot, appRootOf } from "./bin/rightkit-gate.mjs";
+import { pathspecBatches, EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, cargoInputsDiffer, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, hookText, lockScope, main as gateMain, manifestChangeIsLockReflected, PARTIAL_EXIT, manifestTables, parsePushLines, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustUnitName, rustUnitOfScanId, vendorOwners, tomlString, tomlStrings, tomlValue, trampolineText, workspaceExcludes, exportTmpRoot, appRootOf } from "./bin/rightkit-gate.mjs";
 import * as gateModule from "./bin/rightkit-gate.mjs";
 
 // Read off the module so a test of a function that does not exist yet fails on its own, not with an import error for the whole file.
@@ -894,6 +894,63 @@ test("cache digest: each workspace keys on its own lock and members, and the roo
   assert.equal(noLock(clippyB), canonicalJsonOfTree("t1"));
 });
 const canonicalJsonOfTree = (tree) => `{"kind":"tree","tree":${JSON.stringify(tree)}}`;
+
+test("rustUnitName: a crate that is its own crates/<crate> workspace keeps its plain name; any other nested workspace is qualified (rightkit#1285 D2)", () => {
+  assert.equal(rustUnitName("crates/rightkit-fs", "rightkit-fs"), "rightkit-fs");
+  assert.equal(rustUnitName("crates/rightkit-fs", "other"), "crates/rightkit-fs:other", "a workspace that is not named for the crate is qualified");
+  assert.equal(rustUnitName("crates/rightkit-fs/sub", "rightkit-fs"), "crates/rightkit-fs/sub:rightkit-fs");
+});
+
+test("discoverRustWorkspaces: one workspace per crates/<crate> gives plain-named units, vendor and the declared fixtures never become units", (t) => {
+  const root = mkRepo({}, t);
+  const manifests = ["crates/rightkit-db/Cargo.toml", "crates/rightkit-fs/Cargo.toml", "vendor/citationberg/Cargo.toml", "swift/RightKitSwift/native/x/Cargo.toml", "packages/release/fixtures/f/Cargo.toml"];
+  const calls = [];
+  const found = discoverRustWorkspaces({
+    root, spawn: () => { throw new Error("cargo must only be asked through metadata()"); }, cargoCommand: ["cargo"], tracked: (n) => (n === "Cargo.toml" ? manifests : []),
+    fixtures: ["vendor", "swift/RightKitSwift/native", "packages/release/fixtures"],
+    metadata: (dir) => { calls.push(dir); const crate = dir.split("/")[1]; return { cargoDir: dir, members: [{ name: crate, dir, manifest: `${dir}/Cargo.toml`, publish: true }] }; },
+  });
+  assert.deepEqual(calls, ["crates/rightkit-db", "crates/rightkit-fs"], "cargo is asked for the crate workspaces only");
+  assert.deepEqual(found.units.map((u) => [u.name, u.crate, u.cargoDir]), [["rightkit-db", "rightkit-db", "crates/rightkit-db"], ["rightkit-fs", "rightkit-fs", "crates/rightkit-fs"]]);
+  assert.deepEqual(found.skipped.map((k) => k.manifest).sort(), ["packages/release/fixtures/f/Cargo.toml", "swift/RightKitSwift/native/x/Cargo.toml", "vendor/citationberg/Cargo.toml"]);
+  const config = JSON.parse(fs.readFileSync(new URL("../../ci/gate.config.json", import.meta.url), "utf8"));
+  for (const dir of ["vendor", "swift/RightKitSwift/native", "packages/release/fixtures"]) assert.ok(config.fixtures.includes(dir), `ci/gate.config.json fixtures lists ${dir}`);
+});
+
+test("vendorOwners: a quoted ../../vendor/<name> path in a crate manifest makes that crate own vendor/<name>", () => {
+  const manifests = {
+    "rightkit-typeset": '[patch.crates-io]\ncitationberg = { path = "../../vendor/citationberg" }\n',
+    "rightkit-pdf": '[dependencies]\nrightkit-typeset = { path = "../rightkit-typeset" }\n# vendor/citationberg is mentioned only in a comment\n',
+    "rightkit-x": "[dependencies]\na = { path = '../../vendor/a/' }\nb = { path = \"../../vendor/b\" }\n",
+  };
+  const units = Object.keys(manifests).map((name) => ({ name }));
+  assert.deepEqual(vendorOwners(units, (u) => manifests[u.name]), { "vendor/citationberg": ["rightkit-typeset"], "vendor/a": ["rightkit-x"], "vendor/b": ["rightkit-x"] });
+  assert.deepEqual(vendorOwners(units, () => { throw new Error("unreadable"); }), {}, "an unreadable manifest owns nothing");
+});
+
+test("cache digest: a crate that is its own workspace keys on the source of the sibling crates its lock holds, whichever workspace they live in", () => {
+  const units = [
+    { name: "rightkit-a", crate: "rightkit-a", dir: "crates/rightkit-a", cargoDir: "crates/rightkit-a" },
+    { name: "rightkit-b", crate: "rightkit-b", dir: "crates/rightkit-b", cargoDir: "crates/rightkit-b" },
+    { name: "rightkit-z", crate: "rightkit-z", dir: "crates/rightkit-z", cargoDir: "crates/rightkit-z" },
+  ];
+  // a path-depends on b, so a's own lock holds b; z is unrelated.
+  const rustLocks = {
+    "crates/rightkit-a": shipped.parseLock(lockPkg("rightkit-a", "1.0.0", ["rightkit-b"]) + lockPkg("rightkit-b", "1.0.0")),
+    "crates/rightkit-b": shipped.parseLock(lockPkg("rightkit-b", "1.0.0")), "crates/rightkit-z": shipped.parseLock(lockPkg("rightkit-z", "1.0.0")),
+  };
+  const ids = { "crates/rightkit-a": "a1", "crates/rightkit-b": "b1", "crates/rightkit-z": "z1", "crates/rightkit-a/Cargo.toml": "am", "crates/rightkit-b/Cargo.lock": "bl" };
+  const sources = { listFiles: (dir) => [`${dir}/src/lib.rs`], readBlob: () => "pub fn f() {}\n" };
+  const digest = (over = {}, tree = "head") => buildCacheDigest({ objectId: (p) => ({ ...ids, ...over })[p] ?? null, headTree: tree, rustUnits: units, cargoDir: ".", rustLocks, ...sources });
+  const clippyA = { id: "clippy:rightkit-a", class: "B" };
+  const base = digest()(clippyA);
+  assert.notEqual(base, null);
+  assert.equal(digest({}, "other-head")(clippyA), base, "not keyed on the whole tree");
+  assert.notEqual(digest({ "crates/rightkit-b": "b2" })(clippyA), base, "a's lock holds b: b's source is an input of a's scans");
+  assert.equal(digest({ "crates/rightkit-z": "z2" })(clippyA), base, "an unrelated crate is not");
+  assert.equal(digest({ "crates/rightkit-a": "a1" })({ id: "clippy:rightkit-b", class: "B" }), digest({ "crates/rightkit-a": "a2" })({ id: "clippy:rightkit-b", class: "B" }), "b does not depend on a");
+  assert.notEqual(digest({ "crates/rightkit-a": "a2" })(clippyA), base, "the unit's own directory, which holds its own Cargo.toml and Cargo.lock");
+});
 
 // ---- the gate with several workspaces ------------------------------------------------------------------------------------
 

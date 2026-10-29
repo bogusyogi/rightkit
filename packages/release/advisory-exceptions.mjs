@@ -1,9 +1,11 @@
-// Advisory exception gate. ci/advisory-exceptions.json is the single source; deny.toml
+// Advisory exception gate. Every crate is its own Cargo workspace (rightkit#1285), and a crate that ignores an advisory keeps its
+// own single source, crates/<crate>/.rightkit/advisory-exceptions.json (CRATE_EXCEPTIONS_FILE): the crate's deny.toml
 // [advisories].ignore and .cargo/audit.toml must match it exactly, every entry needs an owner,
 // evidence and an unexpired absolute reviewBy date, and the entry's versions must match what
-// Cargo.lock actually holds, `dependents` must equal the exact set of direct reverse
-// dependencies of the affected versions in Cargo.lock, and every hop of `path` must be a real
-// dependency edge (scope drift fails in both directions). Policy: Astra 2026-10-22.
+// the crate's Cargo.lock actually holds, `dependents` must equal the exact set of direct reverse
+// dependencies of the affected versions in that Cargo.lock, and every hop of `path` must be a real
+// dependency edge (scope drift fails in both directions). A crate with no ignore needs no ledger.
+// There is no repository-level ledger. Policy: Astra 2026-10-22.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +14,8 @@ export const EXCEPTIONS_FILE = 'ci/advisory-exceptions.json';
 export const DENY_FILE = 'deny.toml';
 export const AUDIT_FILE = '.cargo/audit.toml';
 export const LOCK_FILE = 'Cargo.lock';
+/** The per-workspace ledger, relative to the workspace root (a crate directory). */
+export const CRATE_EXCEPTIONS_FILE = '.rightkit/advisory-exceptions.json';
 
 const REQUIRED = ['id', 'crate', 'path', 'owner', 'rationale', 'evidence', 'reviewBy', 'approvedBy'];
 const ID_RE = /^RUSTSEC-\d{4}-\d{4}$/;
@@ -359,12 +363,44 @@ export function checkAdvisoryExceptions({ root = process.cwd(), now = new Date()
   return problems;
 }
 
+// ---- per crate ----
+
+// A non-empty `ignore = [...]` list (an empty list followed by a later `]` is not one).
+const IGNORE_LIST_RE = /\bignore\s*=\s*\[[^\]]*[^\]\s][^\]]*\]/s;
+
+/**
+ * Every crate workspace of the repository (crates/<x> holding a Cargo.toml) checked against its own ledger. A crate whose deny.toml or
+ * .cargo/audit.toml ignores an advisory must have its ledger; a crate with the ledger is checked in full against its own deny.toml,
+ * .cargo/audit.toml and Cargo.lock; a crate with neither is fine. Problems are prefixed with the crate directory.
+ * `io` = { readFile(absPath), readdir(absDir), exists(absPath) }, for tests.
+ */
+export function checkCrateAdvisoryExceptions({ root = process.cwd(), now = new Date(), allowPending = false, io = {} } = {}) {
+  const readFile = io.readFile ?? (p => fs.readFileSync(p, 'utf8'));
+  const readdir = io.readdir ?? (d => fs.readdirSync(d));
+  const exists = io.exists ?? fs.existsSync;
+  const cratesDir = path.join(root, 'crates');
+  if (!exists(cratesDir)) return [];
+  const problems = [];
+  for (const entry of [...readdir(cratesDir)].map(String).sort()) {
+    const dir = `crates/${entry}`;
+    if (entry.startsWith('.') || !exists(path.join(root, dir, 'Cargo.toml'))) continue;
+    const here = path.join(root, dir);
+    const ignores = [DENY_FILE, AUDIT_FILE].some(f => { try { return IGNORE_LIST_RE.test(readFile(path.join(here, f))); } catch { return false; } });
+    if (!exists(path.join(here, CRATE_EXCEPTIONS_FILE))) {
+      if (ignores) problems.push(`${dir}: ${DENY_FILE} or ${AUDIT_FILE} ignores an advisory but ${CRATE_EXCEPTIONS_FILE} does not exist`);
+      continue;
+    }
+    for (const p of checkAdvisoryExceptions({ root: here, now, allowPending, exceptionsFile: CRATE_EXCEPTIONS_FILE, readFile: f => readFile(path.join(here, f)) })) problems.push(`${dir}: ${p}`);
+  }
+  return problems;
+}
+
 // ---- CLI ----
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   const root = path.resolve(import.meta.dirname, '..', '..');
-  const problems = checkAdvisoryExceptions({ root, allowPending: args.includes('--allow-pending') });
+  const problems = checkCrateAdvisoryExceptions({ root, allowPending: args.includes('--allow-pending') });
   if (problems.length) {
     for (const p of problems) console.error(`advisory-exceptions: ${p}`);
     console.error(`advisory-exceptions: ${problems.length} problem(s)`);

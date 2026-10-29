@@ -52,3 +52,39 @@ rightkit-http = { path = ".", default-features = false, features = ["testing"] }
 [package.metadata.rightkit]
 continuous = false
 continuous_reason = "sleep: cancellation-poll and retry waits inside one request (async_client.rs, cancel.rs), bounded by the request deadline; timer: a 25 ms tokio Sleep re-armed only while a cancellable async BodyStream is polled and pending (async_client.rs), gone when the stream is dropped; thread-spawn: one DNS-lookup thread per resolve with a timeout (netpolicy.rs), ends when getaddrinfo returns; thread-spawn: one body-reader thread per stream while ClientConfig::idle_timeout is set (idle.rs), ends at EOF, error or consumer drop, and no thread exists when it is None; listener: the loopback mock server in the opt-in testing feature, stopped and joined on drop; no free-running timer, watcher or long-lived memory (reviewed 2026-10-11); conn-pool: the reqwest Clients in src/async_client.rs (direct, plus at most one per configured proxy route) are owned by one AsyncClient and keep only idle keep-alive connections that reqwest closes after its default idle timeout, and all of them drop with the client, so the pool is idle when unused and holds no thread of its own beyond the DNS and body-reader threads named above; resident-static: CONNECT_STATE in src/client.rs is a thread_local Cell holding one three-state enum per calling thread (reviewed 2026-10-17)"
+
+# One Cargo workspace and lock per crate (rightkit#1285).
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

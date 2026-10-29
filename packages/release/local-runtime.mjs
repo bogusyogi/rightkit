@@ -163,8 +163,9 @@ export async function measureRuntimeCrate(options, deps = {}) {
   const bindings = {};
   for (const full of [...lsTree([`crates/${crate}/src`]), `crates/${crate}/Cargo.toml`]) bindings[full] = sha256(blob(full));
   Object.assign(bindings, owner.bindHarnessMetadata(crate, prescription, blob));
-  for (const full of lsTree(["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo", `crates/${crate}/benches`, "crates/rightkit-child-process/src", "crates/rightkit-child-process/Cargo.toml"])) bindings[full] = sha256(blob(full));
-  const { specs, problems: scopeProblems = [] } = (deps.measuredPathspecs ?? H.budgets.measuredPathspecs)(crateDir);
+  // Each crate is its own Cargo workspace with its own Cargo.lock (#1285): the same context files scripts/ci/runtime-qualify.mjs binds.
+  for (const full of lsTree([`crates/${crate}/Cargo.toml`, `crates/${crate}/Cargo.lock`, "rust-toolchain.toml", ".cargo", `crates/${crate}/.cargo`, `crates/${crate}/benches`, "crates/rightkit-child-process/src", "crates/rightkit-child-process/Cargo.toml"])) bindings[full] = sha256(blob(full));
+  const { specs, problems: scopeProblems = [] } = (deps.measuredPathspecs ?? H.budgets.measuredPathspecs)(crateDir, { base: root });
   if (scopeProblems.length) throw new Error(`cannot bind the measured dependency scope: ${scopeProblems.join("; ")}`);
   for (const full of lsTree(specs)) bindings[full] = sha256(blob(full));
   const helpers = Object.fromEntries(H.helperPaths().map((name) => [name, sha256(blob(name))]));
@@ -174,9 +175,9 @@ export async function measureRuntimeCrate(options, deps = {}) {
   const socket = discoverBrokerSocket(deps.env ?? process.env, { platform });
   if (socket) brokerEnv.RIGHTKIT_BUILD_BROKER_SOCKET = socket;
   const run = deps.run ?? ((command, args, settings) => spawnCollect(command, args, { maxBuffer: 64 * 1024 * 1024, ...settings }));
-  const invoke = (args, settings) => run(cargoCommand[0], [...cargoCommand.slice(1), ...args], { cwd: root, windowsHide: true, ...settings });
+  const invoke = (args, settings) => run(cargoCommand[0], [...cargoCommand.slice(1), ...args], { cwd: crateDir, windowsHide: true, ...settings });
   const toolchainOf = async () => {
-    const rustc = await run(cargoCommand[0] === "rustright" ? "rustright" : "rustc", cargoCommand[0] === "rustright" ? ["rustc", "-Vv"] : ["-Vv"], { cwd: root, env: { ...baseEnv, ...brokerEnv }, windowsHide: true, timeout: 60_000 });
+    const rustc = await run(cargoCommand[0] === "rustright" ? "rustright" : "rustc", cargoCommand[0] === "rustright" ? ["rustc", "-Vv"] : ["-Vv"], { cwd: crateDir, env: { ...baseEnv, ...brokerEnv }, windowsHide: true, timeout: 60_000 });
     const cargo = await invoke(["-V"], { env: { ...baseEnv, ...brokerEnv }, timeout: 60_000 });
     if (rustc.error || rustc.status !== 0 || cargo.error || cargo.status !== 0) throw new Error("cannot read the toolchain through the broker");
     return { rustc: String(rustc.stdout).trim(), cargo: String(cargo.stdout).trim() };

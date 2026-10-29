@@ -251,10 +251,13 @@ const posix = (p) => p.split(path.sep).join("/");
  * The git pathspecs (relative to the workspace root) whose change makes a measurement stale: the
  * crate's src, benches, Cargo.toml (features) and build.rs, plus src, Cargo.toml and build.rs of every
  * workspace crate it reaches through `path` dependencies (transitively). Returns { root, specs, problems }.
+ * Every crate is its own Cargo workspace (rightkit#1285), so `root` is the crate directory (its own Cargo.toml and Cargo.lock)
+ * and a sibling crate's paths are `../<x>/...`. `deps.base` names the directory the specs are relative to (default: the
+ * workspace root); a caller that runs git at the repository root passes it so the specs read crates/<x>/....
  * Callers must refuse incomplete metadata rather than using a partial dependency scope.
  */
 export function measuredPathspecs(crateDir, deps = {}) {
-  const { exists = existsSync, readFile = readFileSync } = deps;
+  const { exists = existsSync, readFile = readFileSync, base } = deps;
   const problems = [];
   // Workspace discovery deliberately tolerates bad ancestor manifests elsewhere. Freshness cannot:
   // a swallowed read/parse failure could hide inherited dependencies and shrink the measured graph.
@@ -271,7 +274,7 @@ export function measuredPathspecs(crateDir, deps = {}) {
   const checked = { exists, readFile: checkedRead };
   let root = path.resolve(crateDir);
   const specs = [];
-  const add = (dir, names) => { for (const name of names) specs.push(posix(path.relative(root, path.join(dir, name)))); };
+  const add = (dir, names) => { for (const name of names) specs.push(posix(path.relative(base ? path.resolve(base) : root, path.join(dir, name)))); };
   try {
     root = findWorkspaceRoot(crateDir, checked) ?? root;
     add(path.resolve(crateDir), CRATE_PATHS);
@@ -365,6 +368,7 @@ export function measurementStaleness(commit, crateDir, git = defaultGit, deps = 
     }
   } catch (error) { return `cannot resolve Cargo.lock package identity: ${error.message}`; }
   if (name) {
+    // The crate's own workspace lock: root is the crate directory when the crate is its own workspace (#1285).
     const lockPath = path.join(root, "Cargo.lock");
     let now;
     try { now = exists(lockPath) ? readFile(lockPath, "utf8") : null; }

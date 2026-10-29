@@ -234,6 +234,11 @@ test("cargo metadata is the dependency source: quoted keys, inherited and rename
   assert.throws(() => crateWorkspaceFromMetadata({ workspace_root: "/ws", packages: [{ ...metaPkg("x", "1.0.0"), dependencies: [{ name: "y" }] }] }), /without a name or requirement/);
 });
 
+test("a crate that is its own workspace reports its repository-relative dir through the prefix (#1285)", () => {
+  const meta = { workspace_root: "/ws/crates/rightkit-top", workspace_members: ["p"], packages: [{ ...metaPkg("rightkit-top", "0.3.0"), id: "p", manifest_path: "/ws/crates/rightkit-top/Cargo.toml" }] };
+  assert.equal(crateWorkspaceFromMetadata(meta, { prefix: "crates/rightkit-top" }).get("rightkit-top").dir, "crates/rightkit-top");
+});
+
 // ---- planning against a fixture workspace and a fake registry ---------------------------------
 
 function fixture(redKeys = {}, rust = { "rightkit-win": { os: ["windows"] }, "rightkit-maconly": { os: ["macos"] } }) {
@@ -1145,25 +1150,35 @@ test("the build closure arguments filter each named package with its dependencie
   for (const bad of ["--filter", "-r", "!@rightkit/a", "@rightkit/a...", "...@rightkit/a", "[origin/main]", "./packages/a", "a b", "@rightkit/a;x"]) assert.throws(() => pnpmBuildClosureArgs([bad]), /unsafe package name/, bad);
 });
 
-test("pack (crates) runs one cargo package, reads the packaged manifest, and seals metadata beside the crate", () => {
+test("pack (crates) packages each crate from its own workspace, reads the packaged manifest, and seals metadata beside the crate", () => {
+  // Every crate is its own Cargo workspace with its own Cargo.lock and target directory (#1285), so there is one metadata read
+  // and one `cargo package` per crate, run with that crate's directory as the working directory.
   const root = tmp("ws");
-  const target = tmp("target");
   const outRoot = tmp("run");
-  const wsMeta = { workspace_root: root, target_directory: target, workspace_members: ["a", "b"], packages: [
-    metaPkg("rightkit-a", "0.1.0", [], { id: "a", manifest_path: `${root}/crates/rightkit-a/Cargo.toml` }),
-    metaPkg("rightkit-b", "0.1.0", [metaDep("rightkit-a", "^0.1", { source: null })], { id: "b", manifest_path: `${root}/crates/rightkit-b/Cargo.toml` }),
-  ] };
-  const cargo = (args) => {
+  const targets = {};
+  for (const name of ["rightkit-a", "rightkit-b"]) {
+    fs.mkdirSync(path.join(root, "crates", name), { recursive: true });
+    fs.writeFileSync(path.join(root, "crates", name, "Cargo.toml"), `[package]\nname = "${name}"\nversion = "0.1.0"\n\n[workspace]\n`);
+    targets[name] = tmp(`target-${name}`);
+  }
+  const crateOf = (cwd) => path.basename(cwd);
+  const cargo = (args, options) => {
     if (args[0] === "metadata" && args.includes("--manifest-path")) {
       const manifestPath = args[args.indexOf("--manifest-path") + 1];
       const name = path.basename(path.dirname(manifestPath)).replace(/-0\.1\.0$/, "");
       const deps = name === "rightkit-b" ? [metaDep("rightkit-a", "^0.1")] : [];
       return { status: 0, stdout: JSON.stringify({ packages: [{ name, version: "0.1.0", dependencies: deps, features: {}, readme: "README.md", authors: [], keywords: [], categories: [], manifest_path: manifestPath }] }) };
     }
-    if (args[0] === "metadata") return { status: 0, stdout: JSON.stringify(wsMeta) };
+    if (args[0] === "metadata") {
+      const name = crateOf(options.cwd);
+      const dir = path.join(root, "crates", name);
+      const deps = name === "rightkit-b" ? [metaDep("rightkit-a", "^0.1", { source: null })] : [];
+      return { status: 0, stdout: JSON.stringify({ workspace_root: dir, target_directory: targets[name], workspace_members: [name], packages: [metaPkg(name, "0.1.0", deps, { id: name, manifest_path: path.join(dir, "Cargo.toml") })] }) };
+    }
     if (args[0] === "package") {
-      fs.mkdirSync(path.join(target, "package"), { recursive: true });
-      for (const name of ["rightkit-a", "rightkit-b"]) makeTgz(path.join(target, "package", `${name}-0.1.0.crate`), `${name}-0.1.0`, { "Cargo.toml": "x", "README.md": `# ${name}\n`, "src/lib.rs": "" });
+      const name = crateOf(options.cwd);
+      fs.mkdirSync(path.join(targets[name], "package"), { recursive: true });
+      makeTgz(path.join(targets[name], "package", `${name}-0.1.0.crate`), `${name}-0.1.0`, { "Cargo.toml": "x", "README.md": `# ${name}\n`, "src/lib.rs": "" });
       return { status: 0 };
     }
   };
@@ -1171,8 +1186,10 @@ test("pack (crates) runs one cargo package, reads the packaged manifest, and sea
   const env = actionsEnv({ PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: "rightkit-a rightkit-b", RUNNER_TEMP: outRoot });
   const manifest = commandPack({ env, spawn, root });
   const packageCalls = calls.filter((c) => c.command === "cargo" && c.args[0] === "package");
-  assert.equal(packageCalls.length, 1);
-  assert.deepEqual(packageCalls[0].args, ["package", "--locked", "-p", "rightkit-a", "-p", "rightkit-b"]);
+  assert.equal(packageCalls.length, 2);
+  assert.deepEqual(packageCalls.map((c) => c.args), [["package", "--locked", "-p", "rightkit-a"], ["package", "--locked", "-p", "rightkit-b"]]);
+  assert.deepEqual(packageCalls.map((c) => c.options.cwd), [path.join(root, "crates", "rightkit-a"), path.join(root, "crates", "rightkit-b")]);
+  assert.deepEqual(manifest.units.map((u) => u.dir), ["crates/rightkit-a", "crates/rightkit-b"]);
   assert.equal(calls.filter((c) => c.command === "cargo" && c.args[0] === "publish").length, 0, "pack never publishes");
   const upload = JSON.parse(fs.readFileSync(path.join(outRoot, "rk-pack", manifest.units[1].metaFile), "utf8"));
   assert.equal(upload.name, "rightkit-b");

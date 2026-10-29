@@ -16,7 +16,7 @@ const list = (value, label) => {
  * Caller authenticates source bytes, requested units & waivers independently. This adapter
  * neither executes source nor asserts archive/Actions provenance or runtime qualification.
  */
-export function derivePublicationObligations({ registry, units, host, config = {}, lockText = "", memberManifests = [], packageManifests = [], assetGated = {}, allow = {} }) {
+export function derivePublicationObligations({ registry, units, host, config = {}, crateLocks = {}, memberManifests = [], packageManifests = [], assetGated = {}, allow = {} }) {
   if (!["macos", "windows"].includes(host)) throw new Error("publication host must be macos or windows");
   units = list(units, "units");
   const allowHostExclusion = list(allow.allowHostExclusion ?? [], "allowHostExclusion");
@@ -39,12 +39,24 @@ export function derivePublicationObligations({ registry, units, host, config = {
     if (new Set(inventory.map((entry) => entry.name)).size !== inventory.length || new Set(inventory.map((entry) => entry.dir)).size !== inventory.length) throw new Error("duplicate source inventory entry");
     list(inventory.map((entry) => entry.name), "inventory names");
   }
-  const selection = selectUnits({ registry, units, host, config, members, packages, lock: parseLock(lockText), assetGated, allowHostExclusion, allowNoTest, allowIgnored, allowMissingAssets });
+  // rightkit#1285: every crate is its own workspace; its package entry comes from its own crates/<x>/Cargo.lock (candidate data), never a root lock.
+  if (crateLocks === null || typeof crateLocks !== "object" || Array.isArray(crateLocks)) throw new Error("invalid crate lock data");
+  const lock = new Map();
+  for (const member of members) {
+    const lockText = crateLocks[member.dir];
+    if (typeof lockText !== "string") continue;
+    const entry = parseLock(lockText).get(member.name);
+    if (entry) lock.set(member.name, entry);
+  }
+  const selection = selectUnits({ registry, units, host, config, members, packages, lock, assetGated, allowHostExclusion, allowNoTest, allowIgnored, allowMissingAssets });
   const tokens = [...selection.rust.test.map((name) => `rust:${name}`), ...selection.rust.check.map((name) => `rust-check:${name}`), ...selection.npm.test.map((dir) => `npm:${dir}`)].join(" ");
   const commands = [];
-  if (selection.rust.test.length || selection.rust.check.length) commands.push({ unit: "lock", command: "cargo metadata --locked --format-version 1" });
+  // One locked-metadata check per selected crate workspace, matching the gate's lock step label (gate.mjs rustGate).
+  const dirOf = new Map(members.map((member) => [member.name, member.dir]));
+  for (const name of [...new Set([...selection.rust.test, ...selection.rust.check])].sort()) commands.push({ unit: "lock", command: `cargo metadata --manifest-path ${dirOf.get(name)}/Cargo.toml --locked --format-version 1` });
   commands.push(...requiredConsumerLockCommands([...selection.rust.test, ...selection.rust.check].flatMap((name) => config.rust?.[name]?.consumerRows ?? [])).map(({ unit, command }) => ({ unit, command })));
-  for (let index = 0; index < selection.rust.test.length; index += 15) commands.push({ unit: "fmt", command: `cargo fmt ${selection.rust.test.slice(index, index + 15).map((name) => `-p ${name}`).join(" ")}` });
+  // rustfmt runs once per crate workspace (no root workspace exists to batch -p flags in).
+  for (const name of selection.rust.test) commands.push({ unit: "fmt", command: `cargo fmt --manifest-path ${dirOf.get(name)}/Cargo.toml --all` });
   if (tokens) commands.push(...requiredShardCommands(tokens, { config, packages }));
   if (new Set(commands.map(signature)).size !== commands.length) throw new Error("duplicate required publication command");
   const unitPolicies = units.map((name) => ({

@@ -2,10 +2,20 @@
 // of changed paths touches. No process, no filesystem: everything arrives as arguments, so the
 // same functions back the gate, its `--plan` mode and the unit test.
 
-/** Paths that change what every Rust unit means. */
+/**
+ * Paths that change what every Rust unit means. There is no root Cargo.toml or Cargo.lock: every crates/<x> is its own Cargo
+ * workspace with its own lock (rightkit#1285), so a manifest or lock change is a change under that crate's directory.
+ */
 export const RUST_GLOBAL = [
-  /^Cargo\.toml$/, /^rust-toolchain(\.toml)?$/, /^\.cargo\//, /^\.rightgit\.json$/,
+  /^rust-toolchain(\.toml)?$/, /^\.cargo\//, /^\.rightgit\.json$/,
   /^\.github\/workflows\/ci\.yml$/, /^\.github\/actions\/rk-setup\//, /^scripts\/gate\.sh$/, /^scripts\/ci\/(gate|select|ci-plan|ci-summary|shards|secret-scan|test-results|provision-chrome|provision-ort)\.mjs$/, /^ci\/(shards\.json|chrome-for-testing\.json)$/, /^crates\/rightkit-ffmpeg\/catalog\/native-libraries\.json$/,
+];
+/**
+ * Inputs outside crates/<x>/ that one crate (and so its dependents) compiles. Everything else a crate reads is under its own directory
+ * or a `paths` entry of its ci/gate.config.json row. Listed explicitly: a shared input is never inferred.
+ */
+export const RUST_SHARED_INPUTS = [
+  { re: /^vendor\/citationberg\//, crates: ["rightkit-typeset"] }, // [patch.crates-io] citationberg path = "../../vendor/citationberg"
 ];
 /** Paths that change what every npm unit means. */
 export const NPM_GLOBAL = [
@@ -68,25 +78,28 @@ export function reach(lock, name, memo = new Map()) {
 
 /**
  * members: [{ name, dir, extraPaths?: string[] }]. Returns { all, test: name[], check: name[] }.
- * `test`: the crate itself changed, a third-party package it compiles changed, or its gate config
- * changed. `check`: it depends on a `test` crate and must still compile.
+ * Every crate is its own Cargo workspace with its own Cargo.lock, so the lock, the manifest and the third-party packages a crate
+ * compiles all live under its directory: a change there is a change to that crate.
+ * `test`: a file under the crate's directory (or one of its `paths`, or a listed shared input) changed, or its gate config changed.
+ * `check`: `dependents(test)` names it: it path-depends on a `test` crate, transitively, and must still compile. `dependents` comes from
+ * packages/release/crate-workspaces.mjs reverseDependents over the manifests' path dependencies (injected: this file reads nothing).
  */
-export function selectRust({ changedPaths, members, lock, lockChanged = new Set(), configChanged = new Set(), all = false }) {
+export function selectRust({ changedPaths, members, dependents = () => new Set(), configChanged = new Set(), all = false }) {
   const names = members.map((m) => m.name).sort();
   if (all || changedPaths.some((p) => RUST_GLOBAL.some((re) => re.test(p)))) {
     return { all: true, test: names, check: [] };
   }
   const memberNames = new Set(names);
-  const thirdParty = new Set([...lockChanged].filter((n) => !memberNames.has(n)));
-  const memo = new Map();
   const test = new Set();
   for (const member of members) {
     const dirs = [member.dir, ...(member.extraPaths ?? []).map((p) => p.replace(/\/$/, ""))];
     const touched = changedPaths.some((p) => !inert(p) && dirs.some((dir) => under(p, dir)));
-    const closure = reach(lock, member.name, memo);
-    if (touched || configChanged.has(member.name) || [...thirdParty].some((n) => closure.has(n))) test.add(member.name);
+    if (touched || configChanged.has(member.name)) test.add(member.name);
   }
-  const check = names.filter((name) => !test.has(name) && [...test].some((t) => reach(lock, name, memo).has(t)));
+  for (const { re, crates } of RUST_SHARED_INPUTS) {
+    if (changedPaths.some((p) => re.test(p))) for (const name of crates) if (memberNames.has(name)) test.add(name);
+  }
+  const check = [...dependents([...test])].filter((name) => memberNames.has(name) && !test.has(name)).sort();
   return { all: false, test: [...test].sort(), check };
 }
 
@@ -120,7 +133,7 @@ export function changedConfigCrates(previous, next) {
 
 /**
  * Explicit unit selection for a publish verification run: named units are tested in the order
- * given; the parsed Cargo.lock graph must contain each requested crate. Reverse workspace dependents
+ * given; `lock` (name -> entry, built from each crate's own crates/<x>/Cargo.lock) must contain each requested crate. Reverse workspace dependents
  * belong to ordinary CI selection, never this publication request. `registry` is "crates" (units are crate names, `members` as for selectRust) or "npm" (units are package names, `packages` as
  * for selectNpm, each with `scripts`). Returns the shapes selectRust and selectNpm return, so the
  * gate runs them unchanged, plus `excluded` and `noTest`: the units the gate will NOT run on `host`
@@ -145,12 +158,12 @@ export function selectUnits({ registry, units, members = [], packages = [], lock
   const notGated = allowMissingAssets.filter((name) => !Object.hasOwn(gated, name));
   if (notGated.length) throw new Error(`allow_missing_assets names ${notGated.join(", ")}, which ci/asset-gated.json does not list for ${registry}`);
   if (registry === "crates") {
-    if (!(lock instanceof Map)) throw new Error("crates selection requires the parsed Cargo.lock workspace graph to validate requested crates");
+    if (!(lock instanceof Map)) throw new Error("crates selection requires the per-crate lock graph to validate requested crates");
     const known = new Set(members.map((m) => m.name));
     const unknown = unique.filter((name) => !known.has(name));
     if (unknown.length) throw new Error(`unknown crate(s): ${unknown.join(", ")}`);
     const incomplete = unique.filter((name) => !lock.has(name));
-    if (incomplete.length) throw new Error(`Cargo.lock workspace graph is incomplete; missing member(s): ${incomplete.join(", ")}`);
+    if (incomplete.length) throw new Error(`crate lock graph is incomplete; no crates/<x>/Cargo.lock lists member(s): ${incomplete.join(", ")}`);
     if (allowNoTest.length) throw new Error("allow_no_test applies to npm packages only");
     const excluded = []; const refused = [];
     for (const name of unique) {

@@ -45,8 +45,8 @@ function runtimeFixture(t, crate = CRATE) {
   budget.status = { api: "status()", file: "src/lib.rs", exposes: ["residentMemoryBytes"] }; budget.measurements = [];
   if (budget.profiles) for (const profile of Object.values(budget.profiles)) profile.measurements = [];
   const data = shell ? {
-    "Cargo.toml": '[workspace]\nmembers = ["crates/rightkit-tauri-shell"]\n',
-    "crates/rightkit-tauri-shell/Cargo.toml": '[package]\nname = "rightkit-tauri-shell"\nversion = "0.5.0"\nedition = "2021"\n',
+    "crates/rightkit-tauri-shell/Cargo.lock": fs.readFileSync(new URL("../../crates/rightkit-tauri-shell/Cargo.lock", import.meta.url), "utf8"),
+    "crates/rightkit-tauri-shell/Cargo.toml": '[package]\nname = "rightkit-tauri-shell"\nversion = "0.5.0"\nedition = "2021"\n\n[workspace]\n',
     "crates/rightkit-tauri-shell/src/lib.rs": 'pub fn status() {}\n', "crates/rightkit-tauri-shell/src/watchdog.rs": '// watchdog fixture\n',
     "crates/rightkit-tauri-shell/src/host/mod.rs": '// host fixture\n', "crates/rightkit-tauri-shell/src/host/policy.rs": '// policy fixture\n',
     "crates/rightkit-tauri-shell/src/logs_commands.rs": '// logs fixture\n',
@@ -55,8 +55,8 @@ function runtimeFixture(t, crate = CRATE) {
     "crates/rightkit-tauri-shell/benches/workloads.json": JSON.stringify(supportedPrescription(crate)),
     "crates/rightkit-tauri-shell/benches/budget_native.rs": '// native fixture\n',
   } : daemon ? {
-    "Cargo.toml": '[workspace]\nmembers = ["crates/rightkit-daemon"]\n',
-    "crates/rightkit-daemon/Cargo.toml": '[package]\nname = "rightkit-daemon"\nversion = "0.4.0"\nedition = "2021"\n',
+    "crates/rightkit-daemon/Cargo.lock": fs.readFileSync(new URL("../../crates/rightkit-daemon/Cargo.lock", import.meta.url), "utf8"),
+    "crates/rightkit-daemon/Cargo.toml": '[package]\nname = "rightkit-daemon"\nversion = "0.4.0"\nedition = "2021"\n\n[workspace]\n',
     "crates/rightkit-daemon/src/lib.rs": 'pub fn status() {}\n', "crates/rightkit-daemon/src/server.rs": '// server fixture\n',
     "crates/rightkit-daemon/src/remote/http.rs": '// remote fixture\n', "crates/rightkit-daemon/src/loopback/mod.rs": '// loopback fixture\n',
     "crates/rightkit-daemon/README.md": '## Runtime budget\n\nfixture\n',
@@ -64,8 +64,8 @@ function runtimeFixture(t, crate = CRATE) {
     "crates/rightkit-daemon/benches/workloads.json": JSON.stringify(supportedPrescription(crate)),
     "crates/rightkit-daemon/benches/budget.rs": '// local fixture\n', "crates/rightkit-daemon/benches/remote_budget.rs": '// remote fixture\n',
   } : {
-    "Cargo.toml": '[workspace]\nmembers = ["crates/rightkit-logs"]\n',
-    "crates/rightkit-logs/Cargo.toml": '[package]\nname = "rightkit-logs"\nversion = "0.3.4"\nedition = "2021"\n',
+    "crates/rightkit-logs/Cargo.lock": fs.readFileSync(new URL("../../crates/rightkit-logs/Cargo.lock", import.meta.url), "utf8"),
+    "crates/rightkit-logs/Cargo.toml": '[package]\nname = "rightkit-logs"\nversion = "0.3.4"\nedition = "2021"\n\n[workspace]\n',
     "crates/rightkit-logs/src/lib.rs": 'pub fn status() {}\n', "crates/rightkit-logs/src/detached.rs": 'pub struct DetachedLog;\n',
     "crates/rightkit-logs/README.md": '## Runtime budget\n\nfixture\n',
     "crates/rightkit-logs/runtime-budget.json": JSON.stringify(budget),

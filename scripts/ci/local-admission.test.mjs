@@ -45,19 +45,22 @@ test("the packed crate must be this commit's source: every file equals a blob, a
 });
 
 // ---- scan records ----
-const existsInSource = (p) => p === "crates/rightkit-a/src/lib.rs";
+// The crate is its own Cargo workspace with its own lock (#1285), so the per-crate cargo-metadata/deny/audit ids are required.
+const existsInSource = (p) => p === "crates/rightkit-a/src/lib.rs" || p === "crates/rightkit-a/Cargo.lock";
 const REQUIRED = requiredScanIds({ units: ["rightkit-a"], exists: existsInSource });
 const ids = [...REQUIRED, "rustfmt:2021"];
 const classOf = (id) => (/^(check|check-features|clippy|doc|generated-docs|test):/.test(id) ? "B" : "A");
 const tools = { "cargo-deny": `cargo-deny ${SCAN_TOOL_PINS["cargo-deny"]}`, "cargo-audit": `cargo-audit-audit ${SCAN_TOOL_PINS["cargo-audit"]}`, actionlint: SCAN_TOOL_PINS.actionlint };
 const LOCK = Buffer.from("# Cargo.lock\n"); const LOCK_SHA = sha256(LOCK);
+// One Cargo workspace and lock per crate (#1285): the unit is bound to its own crates/<x>/Cargo.lock.
+const LOCKS = { "rightkit-a": { path: "crates/rightkit-a/Cargo.lock", sha256: LOCK_SHA } };
 const scanResult = (mutate = () => {}) => {
   const scans = ids.map((id) => ({ id, class: classOf(id), command: id, status: "pass" }));
   const result = { schema: "rightkit.deterministic-scans/1", ok: true, complete: true, classes: ["A", "B"], inputDigest: "f".repeat(64), deferred: [], scans }; mutate(result);
   return { result, planned: scans.map(({ id }) => ({ id })) };
 };
-const record = (mutate) => { const { result, planned } = scanResult(mutate); return buildLocalScanRecord({ result, planned, sourceCommit: SOURCE, headCommit: SOURCE, cargoLockSha256: LOCK_SHA, observedTools: tools, units: ["rightkit-a"], files: 7 }); };
-const verify = (rec, over = {}) => verifyLocalScanRecord(rec, { sourceSha: SOURCE, cargoLockSha256: LOCK_SHA, units: ["rightkit-a"], requiredIds: REQUIRED, ...over });
+const record = (mutate) => { const { result, planned } = scanResult(mutate); return buildLocalScanRecord({ result, planned, sourceCommit: SOURCE, headCommit: SOURCE, cargoLocks: LOCKS, observedTools: tools, units: ["rightkit-a"], files: 7 }); };
+const verify = (rec, over = {}) => verifyLocalScanRecord(rec, { sourceSha: SOURCE, cargoLocks: LOCKS, units: ["rightkit-a"], requiredIds: REQUIRED, registry: "crates", ...over });
 
 test("a passed local scan record verifies; deferred, failed, missing, rescoped or re-bound records never do", () => {
   const good = record(); assert.equal(good.passed, true); assert.equal(good.schema, LOCAL_SCAN_SCHEMA); assert.equal(verify(good), true);
@@ -74,12 +77,15 @@ test("a passed local scan record verifies; deferred, failed, missing, rescoped o
   const tamper = (mutate) => { const rec = clone(good); mutate(rec); return rec; };
   for (const [name, rec] of Object.entries({
     "row edited": tamper((r) => { r.scans[0].command = "echo ok"; }), "digest edited": tamper((r) => { r.scanSetDigest = "0".repeat(64); }), "class digest": tamper((r) => { r.classDigests.B = "0".repeat(64); }),
-    "scan dropped": tamper((r) => { r.scans = r.scans.filter((s) => s.id !== "cargo-audit"); }), "deferred listed": tamper((r) => { r.deferred = ["clippy"]; }), "not passed": tamper((r) => { r.passed = false; }),
+    "scan dropped": tamper((r) => { r.scans = r.scans.filter((s) => s.id !== "cargo-audit:rightkit-a"); }), "deferred listed": tamper((r) => { r.deferred = ["clippy"]; }), "not passed": tamper((r) => { r.passed = false; }),
     "problems": tamper((r) => { r.problems = ["x"]; }), "other commit": tamper((r) => { r.sourceCommit = "b".repeat(40); }), "head differs": tamper((r) => { r.headCommit = "b".repeat(40); }),
     "tool pin": tamper((r) => { r.tools.pinned["cargo-deny"] = "0.0.1"; }), "tool observed": tamper((r) => { r.tools.observed["cargo-audit"] = "cargo-audit-audit 0.0.1"; }), "extra key": tamper((r) => { r.extra = 1; }),
     "no B": tamper((r) => { r.scans = r.scans.filter((s) => s.class === "A"); r.scanSetDigest = record((x) => { x.scans = x.scans.filter((s) => s.class === "A"); }).scanSetDigest; }),
   })) assert.throws(() => verify(rec), /scan|refused/, name);
-  assert.throws(() => verify(good, { cargoLockSha256: "9".repeat(64) }), /Cargo\.lock/);
+  assert.throws(() => verify(good, { cargoLocks: { "rightkit-a": { ...LOCKS["rightkit-a"], sha256: "9".repeat(64) } } }), /Cargo\.lock/);
+  assert.throws(() => verify(good, { cargoLocks: {} }), /Cargo\.lock/);
+  assert.throws(() => verify({ ...good, cargoLocks: {} }), /per-crate Cargo\.lock|every crate unit/, "a crate unit with no lock binding is refused");
+  assert.throws(() => verify(Object.fromEntries(Object.entries(good).filter(([k]) => k !== "cargoLocks")), {}), /unexpected keys/, "the legacy single-root-lock record shape is refused");
   assert.throws(() => verify(good, { units: ["rightkit-b"] }), /scope/);
   assert.throws(() => verify(null), /scans record/);
 });
@@ -92,22 +98,24 @@ test("a record that quietly omits a required scan, with consistent plan and dige
   }
   const failedRow = record((r) => { r.scans.find((s) => s.id === "clippy:rightkit-a").status = "fail"; r.ok = false; });
   assert.equal(failedRow.passed, false);
-  assert.throws(() => verifyLocalScanRecord(record(), { sourceSha: SOURCE, cargoLockSha256: LOCK_SHA, units: ["rightkit-a"] }), /recomputed/, "a caller that did not recompute the required set is refused");
+  assert.throws(() => verifyLocalScanRecord(record(), { sourceSha: SOURCE, cargoLocks: LOCKS, units: ["rightkit-a"] }), /recomputed/, "a caller that did not recompute the required set is refused");
   assert.throws(() => verify(record(), { requiredIds: [] }), /recomputed/);
   assert.throws(() => verify(record(), { requiredIds: [...REQUIRED, "clippy:rightkit-extra"] }), /clippy:rightkit-extra is missing/);
 });
 
-test("verifyLocalScanReceipts binds every host's record to the candidate checkout's Cargo.lock", (t) => {
+test("verifyLocalScanReceipts binds every host's record to the crate's own Cargo.lock in the candidate checkout", (t) => {
   const temp = fs.mkdtempSync(path.join(process.env.RIGHTKIT_TEST_SCRATCH ?? os.tmpdir(), "rk-scan-")); t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
-  const source = path.join(temp, "candidate"); fs.mkdirSync(source); fs.writeFileSync(path.join(source, "Cargo.lock"), LOCK);
+  const source = path.join(temp, "candidate"); fs.mkdirSync(path.join(source, "crates", "rightkit-a"), { recursive: true });
+  const lockFile = path.join(source, "crates", "rightkit-a", "Cargo.lock"); fs.writeFileSync(lockFile, LOCK);
+  fs.writeFileSync(path.join(source, "crates", "rightkit-a", "Cargo.toml"), '[package]\nname = "rightkit-a"\nversion = "0.1.0"\n\n[workspace]\n');
   const receipts = path.join(temp, "receipts");
   for (const host of ["macos", "windows"]) { fs.mkdirSync(path.join(receipts, host), { recursive: true }); fs.writeFileSync(path.join(receipts, host, `${host}.json`), JSON.stringify({ scans: record() })); }
-  const candidate = { sourceSha: SOURCE, units: ["rightkit-a"], assets: { packed: {}, macos: {}, windows: {} } };
+  const candidate = { sourceSha: SOURCE, units: ["rightkit-a"], registry: "crates", assets: { packed: {}, macos: {}, windows: {} } };
   assert.deepEqual(verifyLocalScanReceipts({ candidate, receiptsDir: receipts, candidateDir: source }), ["macos", "windows"]);
-  fs.writeFileSync(path.join(source, "Cargo.lock"), "# edited\n"); assert.throws(() => verifyLocalScanReceipts({ candidate, receiptsDir: receipts, candidateDir: source }), /Cargo\.lock/);
-  fs.writeFileSync(path.join(source, "Cargo.lock"), LOCK); fs.writeFileSync(path.join(receipts, "windows", "windows.json"), JSON.stringify({ scans: record((r) => { r.deferred = ["x"]; }) }));
+  fs.writeFileSync(lockFile, "# edited\n"); assert.throws(() => verifyLocalScanReceipts({ candidate, receiptsDir: receipts, candidateDir: source }), /Cargo\.lock/);
+  fs.writeFileSync(lockFile, LOCK); fs.writeFileSync(path.join(receipts, "windows", "windows.json"), JSON.stringify({ scans: record((r) => { r.deferred = ["x"]; }) }));
   assert.throws(() => verifyLocalScanReceipts({ candidate, receiptsDir: receipts, candidateDir: source }), /scan/);
-  fs.rmSync(path.join(source, "Cargo.lock")); assert.throws(() => verifyLocalScanReceipts({ candidate, receiptsDir: receipts, candidateDir: source }), /no Cargo\.lock/);
+  fs.rmSync(lockFile); assert.throws(() => verifyLocalScanReceipts({ candidate, receiptsDir: receipts, candidateDir: source }), /no crates\/rightkit-a\/Cargo\.lock/);
 });
 
 // ---- the packaged manifest and upload metadata ----
@@ -234,7 +242,7 @@ function admissionFixture(t, name = "rightkit-a", mutate = () => {}) {
   const crate = tarGz(`${name}-0.1.0`, files);
   const packDir = path.join(temp, "packed"); fs.mkdirSync(packDir); fs.writeFileSync(path.join(packDir, `${name}-0.1.0.crate`), crate);
   fs.writeFileSync(path.join(packDir, `${name}-0.1.0.upload.json`), uploadMetadata(name));
-  const data = { [`crates/${name}/Cargo.toml`]: toml, [`crates/${name}/src/lib.rs`]: lib, "Cargo.lock": LOCK };
+  const data = { [`crates/${name}/Cargo.toml`]: toml, [`crates/${name}/src/lib.rs`]: lib, [`crates/${name}/Cargo.lock`]: LOCK };
   const unitRow = { name, version: "0.1.0", dir: `crates/${name}`, file: `${name}-0.1.0.crate`, sha256: sha256(crate), size: crate.length, metaFile: `${name}-0.1.0.upload.json` };
   const manifest = { schema: 1, registry: "crates", commit: SOURCE, units: [unitRow] };
   const candidate = { id: "local-a", source: "local", sourceSha: SOURCE, registry: "crates", units: [name], allow: { hostExclusion: [], noTest: [], ignored: [], missingAssets: [] }, release: { tag: "candidate-local-a" }, assets: { packed: {}, macos: {}, windows: {} } };
@@ -259,7 +267,7 @@ test("local admission refuses source/archive drift, source policy conflicts, bad
     "receipt tree differs": [(s) => { s.receipts.windows.tree = "d".repeat(40); }, /windows: receipt commit\/tree differ/],
     "receipt commit differs": [(s) => { s.receipts.macos.commit = "b".repeat(40); }, /macos: receipt commit\/tree differ/],
     "scan deferred": [(s) => { s.receipts.macos.scans.deferred = ["clippy"]; }, /macos: .*deferred/],
-    "scan other lock": [(s) => { s.receipts.windows.scans.cargoLockSha256 = "9".repeat(64); }, /windows: .*Cargo\.lock/],
+    "scan other lock": [(s) => { s.receipts.windows.scans.cargoLocks["rightkit-a"].sha256 = "9".repeat(64); }, /windows: .*Cargo\.lock/],
     "explicit source policy": [(s) => { s.source.hosts.windows.unitPolicies = [{ name: "rightkit-a", status: "no-tests" }]; }, /windows: no-tests is explicit source policy/],
     "evidence other archive": [(s) => { s.receipts.macos.units[0].evidence.artifactSha256 = "1".repeat(64); }, /macos: publication gate/],
     "evidence missing": [(s) => { delete s.receipts.windows.units[0].evidence; }, /windows: publication gate: gate evidence must be an object/],

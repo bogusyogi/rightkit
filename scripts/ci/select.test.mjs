@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { changedConfigCrates, changedLockNames, parseLock, pnpmBuildClosureArgs, reach, selectByPaths, selectNpm, selectRust, selectUnits } from "./select.mjs";
+import { reverseDependents } from "../../packages/release/crate-workspaces.mjs";
+import { changedConfigCrates, parseLock, pnpmBuildClosureArgs, reach, selectByPaths, selectNpm, selectRust, selectUnits } from "./select.mjs";
 
 const LOCK = `version = 4
 
@@ -41,42 +42,65 @@ const members = [
   { name: "rightkit-c", dir: "crates/rightkit-c", extraPaths: ["contracts"] },
 ];
 const lock = parseLock(LOCK);
+// Path dependencies between the crates' own workspaces (crate-workspaces.mjs pathDependencies): b -> a.
+const deps = new Map([["rightkit-a", new Set()], ["rightkit-b", new Set(["rightkit-a"])], ["rightkit-c", new Set()]]);
+const dependents = (names) => reverseDependents(names, deps);
 
 test("lock graph reaches transitive dependencies by name", () => {
   assert.deepEqual([...reach(lock, "rightkit-b")].sort(), ["leaf", "other", "rightkit-a"]);
 });
 
 test("a changed crate is tested and its dependents are checked", () => {
-  const picked = selectRust({ changedPaths: ["crates/rightkit-a/src/lib.rs"], members, lock });
+  const picked = selectRust({ changedPaths: ["crates/rightkit-a/src/lib.rs"], members, dependents });
   assert.deepEqual(picked, { all: false, test: ["rightkit-a"], check: ["rightkit-b"] });
+  assert.deepEqual(selectRust({ changedPaths: ["crates/rightkit-b/src/lib.rs"], members, dependents }), { all: false, test: ["rightkit-b"], check: [] }, "a dependency is not reached by its dependent's change");
 });
 
 test("changelog-only and evidence-only edits select nothing", () => {
-  const picked = selectRust({ changedPaths: ["crates/rightkit-a/CHANGELOG.md", "crates/rightkit-a/runtime-budget.evidence/x.txt"], members, lock });
+  const picked = selectRust({ changedPaths: ["crates/rightkit-a/CHANGELOG.md", "crates/rightkit-a/runtime-budget.evidence/x.txt"], members, dependents });
   assert.deepEqual(picked, { all: false, test: [], check: [] });
 });
 
 test("a crate directory that only shares a name prefix is not selected", () => {
-  const picked = selectRust({ changedPaths: ["crates/rightkit-ab/src/lib.rs"], members, lock });
+  const picked = selectRust({ changedPaths: ["crates/rightkit-ab/src/lib.rs"], members, dependents });
   assert.deepEqual(picked.test, []);
 });
 
-test("a changed third-party package selects every crate that compiles it", () => {
-  const next = parseLock(LOCK.replace('checksum = "aa"', 'checksum = "cc"'));
-  const picked = selectRust({ changedPaths: ["Cargo.lock"], members, lock: next, lockChanged: changedLockNames(lock, next) });
-  assert.deepEqual(picked, { all: false, test: ["rightkit-a", "rightkit-b"], check: [] });
+test("each crate has its own lock: a lock or manifest change selects that crate and its path dependents only", () => {
+  // crates/rightkit-a/Cargo.lock holds leaf; rightkit-b's lock is a separate file, so a leaf bump in a's lock never selects b as a test.
+  assert.deepEqual(selectRust({ changedPaths: ["crates/rightkit-a/Cargo.lock"], members, dependents }), { all: false, test: ["rightkit-a"], check: ["rightkit-b"] });
+  assert.deepEqual(selectRust({ changedPaths: ["crates/rightkit-b/Cargo.lock", "crates/rightkit-c/Cargo.toml"], members, dependents }), { all: false, test: ["rightkit-b", "rightkit-c"], check: [] });
+  assert.deepEqual(selectRust({ changedPaths: ["crates/rightkit-c/deny.toml"], members, dependents }), { all: false, test: ["rightkit-c"], check: [] });
+});
+
+test("per-crate selection: transitive path dependents are checked, never tested; no root manifest or lock exists to select everything", () => {
+  const chain = ["rightkit-x", "rightkit-y", "rightkit-z", "rightkit-solo"].map((name) => ({ name, dir: `crates/${name}` }));
+  const chainDeps = new Map([["rightkit-x", new Set()], ["rightkit-y", new Set(["rightkit-x"])], ["rightkit-z", new Set(["rightkit-y"])], ["rightkit-solo", new Set()]]);
+  const reach2 = (names) => reverseDependents(names, chainDeps);
+  assert.deepEqual(selectRust({ changedPaths: ["crates/rightkit-x/src/lib.rs"], members: chain, dependents: reach2 }), { all: false, test: ["rightkit-x"], check: ["rightkit-y", "rightkit-z"] });
+  assert.deepEqual(selectRust({ changedPaths: ["crates/rightkit-x/src/lib.rs", "crates/rightkit-y/src/lib.rs"], members: chain, dependents: reach2 }), { all: false, test: ["rightkit-x", "rightkit-y"], check: ["rightkit-z"] });
+  assert.deepEqual(selectRust({ changedPaths: ["crates/rightkit-solo/src/lib.rs"], members: chain, dependents: reach2 }), { all: false, test: ["rightkit-solo"], check: [] });
+  for (const root of ["Cargo.toml", "Cargo.lock"]) assert.equal(selectRust({ changedPaths: [root], members: chain, dependents: reach2 }).all, false, `${root} is no longer a global input`);
+  assert.deepEqual(selectRust({ changedPaths: ["rust-toolchain.toml"], members: chain, dependents: reach2 }).all, true);
+});
+
+test("vendor/citationberg selects rightkit-typeset and its dependents (shared input listed explicitly)", () => {
+  const typeset = [{ name: "rightkit-typeset", dir: "crates/rightkit-typeset" }, { name: "rightkit-docs", dir: "crates/rightkit-docs" }, { name: "rightkit-fs", dir: "crates/rightkit-fs" }];
+  const typesetDeps = new Map([["rightkit-typeset", new Set()], ["rightkit-docs", new Set(["rightkit-typeset"])], ["rightkit-fs", new Set()]]);
+  assert.deepEqual(selectRust({ changedPaths: ["vendor/citationberg/src/lib.rs"], members: typeset, dependents: (n) => reverseDependents(n, typesetDeps) }), { all: false, test: ["rightkit-typeset"], check: ["rightkit-docs"] });
+  assert.deepEqual(selectRust({ changedPaths: ["vendor/tauri-runtime-wry/src/lib.rs"], members: typeset, dependents: (n) => reverseDependents(n, typesetDeps) }), { all: false, test: [], check: [] });
 });
 
 test("extra paths and config edits select their crate; the workspace manifest selects all", () => {
-  assert.deepEqual(selectRust({ changedPaths: ["contracts/x.schema.json"], members, lock }).test, ["rightkit-c"]);
-  assert.deepEqual(selectRust({ changedPaths: [], members, lock, configChanged: new Set(["rightkit-b"]) }).test, ["rightkit-b"]);
-  assert.equal(selectRust({ changedPaths: ["Cargo.toml"], members, lock }).all, true);
+  assert.deepEqual(selectRust({ changedPaths: ["contracts/x.schema.json"], members, dependents }).test, ["rightkit-c"]);
+  assert.deepEqual(selectRust({ changedPaths: [], members, dependents, configChanged: new Set(["rightkit-b"]) }).test, ["rightkit-b"]);
+  assert.equal(selectRust({ changedPaths: ["rust-toolchain.toml"], members, dependents }).all, true);
   assert.deepEqual([...changedConfigCrates({ rust: { a: { os: ["macos"] } } }, { rust: { a: {}, b: {} } })].sort(), ["a", "b"]);
 });
 
 test("test-result parsers, CI provisioners and their pinned inputs invalidate both registries", () => {
   for (const path of ["scripts/ci/test-results.mjs", "scripts/ci/provision-chrome.mjs", "scripts/ci/provision-ort.mjs", "ci/chrome-for-testing.json", "crates/rightkit-ffmpeg/catalog/native-libraries.json"]) {
-    assert.equal(selectRust({ changedPaths: [path], members, lock }).all, true, `Rust full selection for ${path}`);
+    assert.equal(selectRust({ changedPaths: [path], members, dependents }).all, true, `Rust full selection for ${path}`);
     assert.equal(selectNpm({ changedPaths: [path], packages: [] }).all, true, `npm full selection for ${path}`);
   }
 });
@@ -89,14 +113,14 @@ test("only shared CI workflow and setup action changes fan out globally", () => 
     ".github/workflows/reviewed-registry-readback.yml",
     ".github/workflows/qualify-fs.yml",
   ]) {
-    assert.equal(selectRust({ changedPaths: [path], members, lock }).all, false, `Rust selection for ${path}`);
+    assert.equal(selectRust({ changedPaths: [path], members, dependents }).all, false, `Rust selection for ${path}`);
     assert.equal(selectNpm({ changedPaths: [path], packages }).all, false, `npm selection for ${path}`);
   }
   for (const path of [".github/workflows/ci.yml", ".github/actions/rk-setup/action.yml"]) {
-    assert.equal(selectRust({ changedPaths: [path], members, lock }).all, true, `Rust selection for ${path}`);
+    assert.equal(selectRust({ changedPaths: [path], members, dependents }).all, true, `Rust selection for ${path}`);
     assert.equal(selectNpm({ changedPaths: [path], packages }).all, true, `npm selection for ${path}`);
   }
-  assert.deepEqual(selectRust({ changedPaths: ["crates/rightkit-a/src/lib.rs"], members, lock }), { all: false, test: ["rightkit-a"], check: ["rightkit-b"] });
+  assert.deepEqual(selectRust({ changedPaths: ["crates/rightkit-a/src/lib.rs"], members, dependents }), { all: false, test: ["rightkit-a"], check: ["rightkit-b"] });
   assert.deepEqual(selectNpm({ changedPaths: ["packages/example/src/index.ts"], packages }), { all: false, test: ["packages/example"] });
 });
 
@@ -161,8 +185,8 @@ version = "0.1.0"
 });
 
 test("crate selection validates requested graph entries without blocking on host-restricted dependents", () => {
-  assert.throws(() => selectUnits({ registry: "crates", units: ["rightkit-a"], members, host: "windows" }), /requires the parsed Cargo\.lock workspace graph/);
-  assert.throws(() => selectUnits({ registry: "crates", units: ["rightkit-a"], members, lock: new Map(), host: "windows" }), /Cargo\.lock workspace graph is incomplete; missing member/);
+  assert.throws(() => selectUnits({ registry: "crates", units: ["rightkit-a"], members, host: "windows" }), /requires the per-crate lock graph/);
+  assert.throws(() => selectUnits({ registry: "crates", units: ["rightkit-a"], members, lock: new Map(), host: "windows" }), /crate lock graph is incomplete; no crates\/<x>\/Cargo\.lock lists member/);
 
   const chainLock = parseLock(`
 [[package]]

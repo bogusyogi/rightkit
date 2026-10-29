@@ -9,17 +9,75 @@ import { fileURLToPath } from "node:url";
 import { digestScanSet, requiredScanIds, requiredScanProblems } from "../../packages/release/scan-digest.mjs";
 import { LOCAL_SCAN_CLASSES, LOCAL_SCAN_SCHEMA, localScanShapeProblems } from "./upload.mjs";
 
-export const SCAN_RECEIPT_SCHEMA = "rightkit.scan-receipt/1";
+export const SCAN_RECEIPT_SCHEMA = "rightkit.scan-receipt/2";
 export const SCAN_RECEIPT_FILE = "scan-receipt.json";
 export const scanReceiptArtifactName = (runAttempt) => `scan-receipt-${runAttempt}`;
 // The versions publish.yml installs. The workflow contract proves the workflow pins equal these.
 export const SCAN_TOOL_PINS = Object.freeze({ "cargo-deny": "0.20.2", "cargo-audit": "0.22.2", actionlint: "1.7.12" });
 export const ACTIONLINT_SHA256 = "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8";
-// A full-tree plan always contains these (workspace Cargo.lock, deny config and workflows); a receipt without them is not evidence.
-export const REQUIRED_SCAN_IDS = Object.freeze(["cargo-metadata", "cargo-deny", "cargo-audit", "actionlint", "yaml-parse"]);
+// A plan always contains these, whatever the units (workflows and their YAML); a receipt without them is not evidence.
+export const REQUIRED_SCAN_IDS = Object.freeze(["actionlint", "yaml-parse"]);
+// Every crate is its own Cargo workspace (rightkit#1285), so these three run once per crate unit and carry the crate name
+// (`cargo-metadata:<crate>`, packages/release/scan-digest.mjs requiredScanIds per-crate mode). A candidate's crate units are the keys of its
+// per-crate lock binding, so a receipt must hold each of them for every bound crate and nothing weaker satisfies it.
+export const CRATE_SCAN_PREFIXES = Object.freeze(["cargo-metadata", "cargo-deny", "cargo-audit"]);
+/** The per-crate scan ids of crate `units`, sorted. */
+export const crateScanIds = (units) => [...new Set(units)].sort().flatMap((unit) => CRATE_SCAN_PREFIXES.map((prefix) => `${prefix}:${unit}`));
+/** Every scan id a receipt must hold for a candidate whose crate units are the keys of `cargoLocks`. */
+export const requiredReceiptScanIds = (cargoLocks) => [...REQUIRED_SCAN_IDS, ...crateScanIds(Object.keys(cargoLocks ?? {}))];
 // The scans job runs on Ubuntu and proves class A only. Class B (compile, lint) runs in the native verify jobs on their own
 // hosts, because native crates do not build on Linux. A receipt that records any other class set is not this job's evidence.
 export const SCAN_RECEIPT_CLASSES = Object.freeze(["A"]);
+
+// rightkit#1285: every crate is its own Cargo workspace with its own lock. A receipt binds each crate unit to that lock:
+// cargoLocks = { "<unit>": { path: "crates/<x>/Cargo.lock", sha256 } }. npm units have no Cargo lock and add nothing.
+const sortedLocks = (locks) => JSON.stringify(Object.keys(locks ?? {}).sort().map((name) => [name, locks[name]?.path, locks[name]?.sha256]));
+
+/**
+ * The per-crate lock bindings of `units`: for every unit that is a crate workspace of `workspaces` (crateWorkspaces()), the
+ * lock path and the SHA-256 of `read(lockPath)` (a Buffer; throws or returns null when absent). With registry "crates" every
+ * unit must be a crate workspace with a lock; npm units are skipped.
+ */
+export function cargoLocksFor({ units, registry, workspaces, read }) {
+  const out = {};
+  const byName = new Map(workspaces.map((w) => [w.name, w]));
+  for (const name of [...units].sort()) {
+    const workspace = byName.get(name);
+    if (!workspace) { requireThat(registry !== "crates", `crate unit ${name} has no crates/<x> workspace to bind`); continue; }
+    let bytes = null;
+    try { bytes = read(workspace.lock); } catch { bytes = null; }
+    requireThat(bytes !== null && bytes !== undefined, `crate unit ${name} has no ${workspace.lock} to bind`);
+    out[name] = { path: workspace.lock, sha256: sha256Hex(bytes) };
+  }
+  return out;
+}
+
+/**
+ * `[{ name, dir, lock }]` of every crates/<x>/Cargo.toml in a checked-out candidate. The package name is read with the same
+ * pattern gate.mjs rustMembers uses, not a TOML parser: this module runs in jobs whose sparse checkout holds only the crate
+ * manifests and locks (crates/<x>/Cargo.toml and crates/<x>/Cargo.lock) and installs nothing.
+ */
+export function candidateCrateWorkspaces(candidateDir) {
+  const cratesDir = path.join(candidateDir, "crates");
+  if (!fs.existsSync(cratesDir)) return [];
+  const out = [];
+  for (const entry of fs.readdirSync(cratesDir).map(String).sort()) {
+    if (entry.startsWith(".")) continue;
+    const manifest = path.join(cratesDir, entry, "Cargo.toml");
+    if (!fs.existsSync(manifest)) continue;
+    const name = /^\[package\][^[]*?^name\s*=\s*"([^"]+)"/ms.exec(fs.readFileSync(manifest, "utf8"))?.[1];
+    if (name) out.push({ name, dir: `crates/${entry}`, lock: `crates/${entry}/Cargo.lock` });
+  }
+  return out;
+}
+
+/** cargoLocksFor over a checked-out candidate directory. */
+export function candidateCargoLocks({ candidateDir, units, registry }) {
+  return cargoLocksFor({ units, registry, workspaces: candidateCrateWorkspaces(candidateDir), read: (file) => fs.existsSync(path.join(candidateDir, file)) ? fs.readFileSync(path.join(candidateDir, file)) : null });
+}
+
+/** True when `bound` (a receipt's cargoLocks) is exactly the expected per-crate lock binding. */
+export const cargoLocksMatch = (bound, expected) => Boolean(bound) && typeof bound === "object" && !Array.isArray(bound) && Boolean(expected) && typeof expected === "object" && Object.values(expected).every((l) => HEX64.test(l?.sha256 ?? "")) && sortedLocks(bound) === sortedLocks(expected);
 
 const HEX40 = /^[0-9a-f]{40}$/;
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -58,7 +116,7 @@ export function scanGatePassed(plannedScans, result) {
  * scan list: every planned class A scan must have produced exactly one passing row, and nothing else may have run.
  * Without a non-empty planned list nothing can be proven, so it is a problem (fail closed).
  */
-export function resultProblems(result, plannedClassA) {
+export function resultProblems(result, plannedClassA, cargoLocks = {}) {
   const problems = [];
   if (!result || !Array.isArray(result.scans) || result.scans.length === 0) return ["no scans ran"];
   if (!Array.isArray(plannedClassA) || plannedClassA.length === 0) problems.push("no planned class A scans to prove");
@@ -68,7 +126,7 @@ export function resultProblems(result, plannedClassA) {
   for (const row of result.scans) if (row.status !== "pass") problems.push(`${row.id}: ${row.status}`);
   for (const row of result.scans) if (row.class !== "A") problems.push(`${row.id}: class ${row.class} is not proven by the scans job`);
   const ids = new Set(result.scans.map((row) => row.id));
-  for (const id of REQUIRED_SCAN_IDS) if (!ids.has(id)) problems.push(`required scan ${id} is missing from the plan`);
+  for (const id of requiredReceiptScanIds(cargoLocks)) if (!ids.has(id)) problems.push(`required scan ${id} is missing from the plan`);
   if (Array.isArray(plannedClassA) && plannedClassA.length > 0 && !scanGatePassed(plannedClassA, result)) problems.push("not every planned class A scan ran and passed");
   return problems;
 }
@@ -82,15 +140,15 @@ function validScope(scope) {
     JSON.stringify(scope.units) === JSON.stringify([...new Set(scope.units)].sort());
 }
 
-export function buildScanReceipt({ result, plannedClassA, sourceCommit, headCommit, cargoLockSha256, observedTools, run, scope }) {
+export function buildScanReceipt({ result, plannedClassA, sourceCommit, headCommit, cargoLocks, observedTools, run, scope }) {
   if (scope !== undefined) requireThat(validScope(scope), "malformed scan scope");
-  const problems = [...resultProblems(result, plannedClassA), ...toolVersionProblems(observedTools)];
+  const problems = [...resultProblems(result, plannedClassA, cargoLocks), ...toolVersionProblems(observedTools)];
   const rows = (result?.scans ?? []).map(({ id, class: cls, command, status }) => ({ id, class: cls, command, status }));
   return {
     schema: SCAN_RECEIPT_SCHEMA,
     passed: problems.length === 0,
     problems,
-    sourceCommit, headCommit, cargoLockSha256,
+    sourceCommit, headCommit, cargoLocks,
     ...(scope === undefined ? {} : { scope: { registry: scope.registry, units: [...scope.units] } }),
     repository: run.repository, runId: String(run.runId), runAttempt: String(run.runAttempt),
     tools: { pinned: { ...SCAN_TOOL_PINS }, observed: { ...observedTools }, scanned: { ...(result?.toolVersions ?? {}) } },
@@ -104,7 +162,7 @@ export function buildScanReceipt({ result, plannedClassA, sourceCommit, headComm
 }
 
 /** Throws unless the receipt shows a complete, passed scan of exactly this source commit and lockfile. */
-export function verifyScanReceipt(receipt, { sourceSha, cargoLockSha256, runId, runAttempt, repository, registry, units }) {
+export function verifyScanReceipt(receipt, { sourceSha, cargoLocks, runId, runAttempt, repository, registry, units }) {
   requireThat(receipt && typeof receipt === "object" && !Array.isArray(receipt), "receipt is not an object");
   requireThat(receipt.schema === SCAN_RECEIPT_SCHEMA, "unknown receipt schema");
   if (Object.hasOwn(receipt, "scope")) {
@@ -113,7 +171,7 @@ export function verifyScanReceipt(receipt, { sourceSha, cargoLockSha256, runId, 
   }
   requireThat(receipt.passed === true && Array.isArray(receipt.problems) && receipt.problems.length === 0, "receipt does not show a passed scan");
   requireThat(HEX40.test(sourceSha ?? "") && receipt.sourceCommit === sourceSha && receipt.headCommit === sourceSha, "receipt is not bound to the candidate source commit");
-  requireThat(HEX64.test(cargoLockSha256 ?? "") && receipt.cargoLockSha256 === cargoLockSha256, "receipt is not bound to the candidate Cargo.lock hash");
+  requireThat(cargoLocksMatch(receipt.cargoLocks, cargoLocks), "receipt is not bound to the candidate crate Cargo.lock hashes");
   requireThat(String(receipt.runId) === String(runId) && String(receipt.runAttempt) === String(runAttempt) && receipt.repository === repository, "receipt is not bound to the original run");
   requireThat(Array.isArray(receipt.deferred) && receipt.deferred.length === 0, "receipt records a deferred scan");
   requireThat(Array.isArray(receipt.scans) && receipt.scans.length > 0 && receipt.scans.every((row) => row?.status === "pass" && typeof row.id === "string" && row.class === "A" && typeof row.command === "string"), "receipt scans are not all passed class A scans");
@@ -121,7 +179,7 @@ export function verifyScanReceipt(receipt, { sourceSha, cargoLockSha256, runId, 
   requireThat(HEX64.test(receipt.scanSetDigest ?? "") && digestScanSet(receipt.scans) === receipt.scanSetDigest, "receipt scan set digest does not match its scans");
   requireThat(receipt.classDigests && !("B" in receipt.classDigests) && digestScanSet(receipt.scans.filter((r) => r.class === "A")) === receipt.classDigests.A, "receipt class digests do not match its scans");
   const ids = new Set(receipt.scans.map((row) => row.id));
-  for (const id of REQUIRED_SCAN_IDS) requireThat(ids.has(id), `receipt lacks required scan ${id}`);
+  for (const id of requiredReceiptScanIds(cargoLocks)) requireThat(ids.has(id), `receipt lacks required scan ${id}`);
   requireThat(receipt.tools?.pinned && Object.entries(SCAN_TOOL_PINS).every(([tool, version]) => receipt.tools.pinned[tool] === version), "receipt tool pins differ from the trusted pins");
   const toolProblems = toolVersionProblems(receipt.tools?.observed);
   requireThat(toolProblems.length === 0, `receipt tool versions: ${toolProblems.join("; ")}`);
@@ -131,10 +189,10 @@ export function verifyScanReceipt(receipt, { sourceSha, cargoLockSha256, runId, 
 // ---- local candidates -------------------------------------------------------------------------
 // A local candidate has no Actions `scans` job. Each host runs the same scan module (class A, then class B through the
 // RustRight broker) over the scope of the candidate's units and writes this record into its receipt. Class B is required
-// here because no native verify job follows. The record is bound to the source commit and the candidate's Cargo.lock.
+// here because no native verify job follows. The record is bound to the source commit and each crate unit's own Cargo.lock.
 
 /** Every reason a local scan result cannot be publication evidence. `planned` is the full plan; every planned scan must have passed. */
-export function localResultProblems(result, planned) {
+export function localResultProblems(result, planned, cargoLocks = {}) {
   const problems = [];
   if (!result || !Array.isArray(result.scans) || result.scans.length === 0) return ["no scans ran"];
   if (!Array.isArray(planned) || planned.length === 0) problems.push("no planned scans to prove");
@@ -143,17 +201,17 @@ export function localResultProblems(result, planned) {
   if ((result.deferred ?? []).length) problems.push(`deferred scans are not allowed: ${result.deferred.join(", ")}`);
   for (const row of result.scans) if (row.status !== "pass") problems.push(`${row.id}: ${row.status}`);
   const ids = new Set(result.scans.map((row) => row.id));
-  for (const id of REQUIRED_SCAN_IDS) if (!ids.has(id)) problems.push(`required scan ${id} is missing from the plan`);
+  for (const id of requiredReceiptScanIds(cargoLocks)) if (!ids.has(id)) problems.push(`required scan ${id} is missing from the plan`);
   if (!result.scans.some((row) => row.class === "B")) problems.push("no class B (compile, lint) scan ran");
   if (Array.isArray(planned) && planned.length > 0 && !scanGatePassed(planned, result)) problems.push("not every planned scan ran and passed");
   return problems;
 }
 
-export function buildLocalScanRecord({ result, planned, sourceCommit, headCommit, cargoLockSha256, observedTools, units, files }) {
-  const problems = [...localResultProblems(result, planned), ...toolVersionProblems(observedTools)];
+export function buildLocalScanRecord({ result, planned, sourceCommit, headCommit, cargoLocks, observedTools, units, files }) {
+  const problems = [...localResultProblems(result, planned, cargoLocks), ...toolVersionProblems(observedTools)];
   const rows = (result?.scans ?? []).map(({ id, class: cls, command, status }) => ({ id, class: cls, command, status }));
   return {
-    schema: LOCAL_SCAN_SCHEMA, passed: problems.length === 0, problems, sourceCommit, headCommit, cargoLockSha256,
+    schema: LOCAL_SCAN_SCHEMA, passed: problems.length === 0, problems, sourceCommit, headCommit, cargoLocks,
     scope: { units: [...units], files },
     tools: { pinned: { ...SCAN_TOOL_PINS }, observed: { ...observedTools } },
     classes: [...LOCAL_SCAN_CLASSES], scanSetDigest: digestScanSet(rows),
@@ -178,17 +236,17 @@ export function localRequiredScanIds({ units, readText }) {
 
 /** Throws unless the record shows a complete, passed local scan of exactly this source commit, lockfile and unit set,
  * containing every id in `requiredIds` (see localRequiredScanIds) with status pass. A caller without requiredIds is refused. */
-export function verifyLocalScanRecord(record, { sourceSha, cargoLockSha256, units, requiredIds }) {
+export function verifyLocalScanRecord(record, { sourceSha, cargoLocks, units, requiredIds, registry }) {
   requireThat(Array.isArray(requiredIds) && requiredIds.length > 0, "the required scan set was not recomputed from the authenticated source");
-  const shape = localScanShapeProblems(record, { commit: sourceSha, units });
+  const shape = localScanShapeProblems(record, { commit: sourceSha, units, registry });
   requireThat(shape.length === 0, shape.join("; "));
   const missing = requiredScanProblems(record.scans, requiredIds);
   requireThat(missing.length === 0, `local scan record is incomplete: ${missing.join("; ")}`);
-  requireThat(HEX64.test(cargoLockSha256 ?? "") && record.cargoLockSha256 === cargoLockSha256, "local scan record is not bound to the candidate Cargo.lock hash");
+  requireThat(cargoLocksMatch(record.cargoLocks, cargoLocks), "local scan record is not bound to the candidate crate Cargo.lock hashes");
   requireThat(HEX64.test(record.scanSetDigest ?? "") && digestScanSet(record.scans) === record.scanSetDigest, "local scan set digest does not match its scans");
   requireThat(record.classDigests && digestScanSet(record.scans.filter((r) => r.class === "A")) === record.classDigests.A && digestScanSet(record.scans.filter((r) => r.class === "B")) === record.classDigests.B, "local scan class digests do not match its scans");
   const ids = new Set(record.scans.map((row) => row.id));
-  for (const id of REQUIRED_SCAN_IDS) requireThat(ids.has(id), `local scan record lacks required scan ${id}`);
+  for (const id of requiredReceiptScanIds(cargoLocks)) requireThat(ids.has(id), `local scan record lacks required scan ${id}`);
   requireThat(record.scans.some((row) => row.class === "B"), "local scan record has no class B scan");
   requireThat(record.tools?.pinned && Object.entries(SCAN_TOOL_PINS).every(([tool, version]) => record.tools.pinned[tool] === version), "local scan tool pins differ from the trusted pins");
   const toolProblems = toolVersionProblems(record.tools?.observed);
@@ -198,9 +256,7 @@ export function verifyLocalScanRecord(record, { sourceSha, cargoLockSha256, unit
 
 /** Verify the scan record inside every pinned local receipt of a prepared candidate against the candidate checkout. */
 export function verifyLocalScanReceipts({ candidate, receiptsDir, candidateDir }) {
-  const lock = path.join(candidateDir, "Cargo.lock");
-  requireThat(fs.existsSync(lock), "candidate has no Cargo.lock to bind");
-  const cargoLockSha256 = sha256Hex(fs.readFileSync(lock));
+  const cargoLocks = candidateCargoLocks({ candidateDir, units: candidate.units, registry: candidate.registry });
   const hosts = Object.keys(candidate.assets).filter((key) => key !== "packed");
   const requiredIds = localRequiredScanIds({ units: candidate.units, readText: (name) => fs.readFileSync(path.join(candidateDir, name), "utf8") });
   for (const host of hosts) {
@@ -209,7 +265,7 @@ export function verifyLocalScanReceipts({ candidate, receiptsDir, candidateDir }
     requireThat(files.length === 1, `${host} receipt directory must hold exactly one receipt`);
     let doc;
     try { doc = JSON.parse(fs.readFileSync(path.join(directory, files[0]), "utf8")); } catch { refuse(`${host} receipt is not valid JSON`); }
-    verifyLocalScanRecord(doc?.scans, { sourceSha: candidate.sourceSha, cargoLockSha256, units: candidate.units, requiredIds });
+    verifyLocalScanRecord(doc?.scans, { sourceSha: candidate.sourceSha, cargoLocks, units: candidate.units, requiredIds, registry: candidate.registry });
   }
   return hosts;
 }
@@ -238,9 +294,8 @@ export async function verifyOriginalScanReceipt({ candidate, repository, env, ca
   requireThat(names.length === 1 && names[0] === SCAN_RECEIPT_FILE, "scan receipt artifact is not exactly one scan-receipt.json");
   let receipt;
   try { receipt = JSON.parse(fs.readFileSync(path.join(destination, SCAN_RECEIPT_FILE), "utf8")); } catch { refuse("scan receipt is not valid JSON"); }
-  const lock = path.join(candidateDir, "Cargo.lock");
-  requireThat(fs.existsSync(lock), "candidate has no Cargo.lock to bind");
-  verifyScanReceipt(receipt, { sourceSha: candidate.sourceSha, cargoLockSha256: sha256Hex(fs.readFileSync(lock)), runId: candidate.runId, runAttempt: candidate.runAttempt, repository: repository.full_name, registry: candidate.registry, units: candidate.units });
+  const cargoLocks = candidateCargoLocks({ candidateDir, units: candidate.units, registry: candidate.registry });
+  verifyScanReceipt(receipt, { sourceSha: candidate.sourceSha, cargoLocks, runId: candidate.runId, runAttempt: candidate.runAttempt, repository: repository.full_name, registry: candidate.registry, units: candidate.units });
   return receipt;
 }
 

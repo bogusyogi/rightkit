@@ -35,8 +35,10 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
+          # rightkit#1285: each crate is its own Cargo workspace; the scan receipt binds each unit to its own crates/<x>/Cargo.lock.
           sparse-checkout: |
-            Cargo.lock
+            crates/*/Cargo.toml
+            crates/*/Cargo.lock
             packages/release/scan-digest.mjs
             scripts/ci/scan-receipt.mjs
             scripts/ci/upload.mjs

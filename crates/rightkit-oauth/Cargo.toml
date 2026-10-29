@@ -67,3 +67,39 @@ tempfile = "3"
 [package.metadata.rightkit]
 continuous = false
 continuous_reason = "sleep: device-flow poll wait bounded by the flow deadline and cancel flag (device.rs), 10 ms accept poll and token-store file-lock poll bounded by timeout (lib.rs, server/store.rs, server/lock.rs for the keychain token store and file pending-state store), 10 ms callback-listener poll bounded by the wait timeout and cancel token (callback.rs); listener: one-shot loopback callback listener bound by begin_loopback and closed when finish_loopback returns or the flow drops (lib.rs), single-use CallbackListener closed when wait returns or it drops (callback.rs); thread-spawn: stdout reader joined before the system-credential helper call returns (system.rs); pending-authorization map is capped at 1024 with expiry (reviewed 2026-10-11)"
+
+# One Cargo workspace and lock per crate (rightkit#1285).
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

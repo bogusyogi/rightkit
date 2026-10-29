@@ -449,7 +449,7 @@ function fixture(t, { verifyOnPublish = false } = {}) {
   const evidence = { artifactSha256: digestBytes(bytes) }, events = [];
   const execute = (command, args, settings) => {
     assert.equal(command, "cargo");
-    assert.equal(settings.cwd, root);
+    assert.equal(settings.cwd, crateDir); // each crate is its own Cargo workspace (#1285)
     assert.equal(settings.windowsHide, true);
     if (args[0] === "package" && args.includes("--no-verify")) events.push("package");
     if (args[0] === "publish" && !args.includes("--dry-run")) {
@@ -801,8 +801,8 @@ test('from-evidence refuses differing local archive bytes before upload', async 
 
 test('from-evidence refuses dirty workspace manifests before any command', async (t) => {
   const fx = qualifiedFixture(t);
-  fx.deps.workspaceStatus = () => ({ status: 0, stdout: ' M Cargo.toml\n' });
-  await assert.rejects(runCargoPublish(fx.options, fx.execute, fx.deps), /requires clean workspace/);
+  fx.deps.workspaceStatus = () => ({ status: 0, stdout: ' M crates/rightkit-fixture/Cargo.toml\n' });
+  await assert.rejects(runCargoPublish(fx.options, fx.execute, fx.deps), /requires clean crate/);
   assert.equal(fx.commands.length, 0);
 });
 
@@ -827,11 +827,11 @@ test("from-evidence refuses uncommitted gate config edits, which decide the repl
   const fx = qualifiedFixture(t);
   const seen = [];
   fx.deps.workspaceStatus = (workspaceRoot) => { seen.push(workspaceRoot); return { status: 0, stdout: " M ci/gate.config.json\n" }; };
-  await assert.rejects(runCargoPublish(fx.options, fx.execute, fx.deps), /requires clean workspace Cargo\.toml, Cargo\.lock and ci gate config/);
+  await assert.rejects(runCargoPublish(fx.options, fx.execute, fx.deps), /requires clean crate Cargo\.toml, Cargo\.lock and ci gate config/);
   assert.equal(fx.commands.length, 0);
-  // The default status command names the gate config files beside the workspace manifest and lock.
+  // The default status command names the gate config files beside the crate's own manifest and lock.
   const source = readFileSync(new URL("./publish-cargo.mjs", import.meta.url), "utf8");
-  assert.match(source, /"status", "--porcelain", "--", "Cargo\.toml", "Cargo\.lock", "ci\/gate\.config\.json", "ci\/asset-gated\.json"/);
+  assert.match(source, /"status", "--porcelain", "--", `crates\/\$\{options\.crate\}\/Cargo\.toml`, `crates\/\$\{options\.crate\}\/Cargo\.lock`, "ci\/gate\.config\.json", "ci\/asset-gated\.json"/);
 });
 
 test("from-evidence refuses a batch receipt that lints only some feature sets of the crate, and accepts one row per set (0.4.1 review A2)", async (t) => {

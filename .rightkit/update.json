@@ -15,7 +15,6 @@
     }
   },
   "sources": [
-    { "kind": "cargo", "manifest": "Cargo.toml" },
     { "kind": "cargo", "glob": "crates/*/Cargo.toml" },
     { "kind": "pnpm", "manifest": "package.json" },
     { "kind": "pnpm", "glob": "packages/*/package.json" }

@@ -27,6 +27,7 @@ import { consumeCrates, consumeNpm } from "./consume.mjs";
 import { readIncompleteReport } from "./exports-import-effects.mjs";
 import { NATIVE_HELPER } from "./consumer-recipes.mjs";
 import { stageSourceVersions } from "../../packages/release/rightkit-sync.mjs";
+import { crateWorkspaces } from "../../packages/release/crate-workspaces.mjs";
 import { pnpmBuildClosureArgs } from "./select.mjs";
 import { archiveScanProblems, checkNpmTarball, childEnv, integrity, LINUX_HOST, linuxRequiredFor, loadSealed, PASS_STATUSES, sha, TOKEN_VARS } from "./upload.mjs";
 import { registrySpecProblem } from "./registry-spec.mjs";
@@ -129,7 +130,7 @@ export function readNpmWorkspace(root = ROOT) {
  * is silently dropped. A dependency with a path and no version requirement reports req "*" and no
  * registry source; it becomes spec null (the registry rejects it).
  */
-export function crateWorkspaceFromMetadata(meta) {
+export function crateWorkspaceFromMetadata(meta, { prefix = "" } = {}) {
   if (!meta || !Array.isArray(meta.packages) || typeof meta.workspace_root !== "string") throw new Error("cargo metadata output has no packages/workspace_root");
   const members = new Set(meta.workspace_members ?? []);
   const root = meta.workspace_root.replace(/\\/g, "/").replace(/\/$/, "");
@@ -137,7 +138,12 @@ export function crateWorkspaceFromMetadata(meta) {
   for (const pkg of meta.packages) {
     if (members.size && !members.has(pkg.id)) continue;
     const manifest = String(pkg.manifest_path).replace(/\\/g, "/");
-    const dir = path.posix.dirname(manifest).startsWith(`${root}/`) ? path.posix.dirname(manifest).slice(root.length + 1) : path.posix.dirname(manifest);
+    const manifestDir = path.posix.dirname(manifest);
+    // `prefix` is the workspace root's repository-relative directory (crates/<x>): each crate is its own workspace, so the
+    // package sits at the workspace root and its unit dir is the prefix itself (#1285).
+    const dir = prefix
+      ? (manifestDir.startsWith(`${root}/`) ? `${prefix}/${manifestDir.slice(root.length + 1)}` : prefix)
+      : (manifestDir.startsWith(`${root}/`) ? manifestDir.slice(root.length + 1) : manifestDir);
     const deps = (pkg.dependencies ?? []).map((d) => {
       if (typeof d.name !== "string" || typeof d.req !== "string") throw new Error(`${pkg.name}: cargo metadata dependency without a name or requirement`);
       const pathOnly = (d.source ?? null) === null;
@@ -155,8 +161,22 @@ export function readCargoMetadata(root = ROOT, spawn = spawnSync, args = []) {
   return JSON.parse(result.stdout);
 }
 
+/** `cargo metadata` of every crate workspace (each crates/<x> is its own workspace and lock): Map crate name -> { dir, lock, metadata }. */
+export function readCrateMetadata(root = ROOT, spawn = spawnSync) {
+  const out = new Map();
+  for (const w of crateWorkspaces(root)) out.set(w.name, { dir: w.dir, lock: w.lock, metadata: readCargoMetadata(path.join(root, w.dir), spawn) });
+  return out;
+}
+
+/** The units of every crate workspace: Map crate name -> unit (dir is crates/<x>). */
+export function crateUnitsFromMetadata(perCrate) {
+  const units = new Map();
+  for (const { dir, metadata } of perCrate.values()) for (const [name, unit] of crateWorkspaceFromMetadata(metadata, { prefix: dir })) units.set(name, unit);
+  return units;
+}
+
 export function readCrateWorkspace(root = ROOT, spawn = spawnSync) {
-  return crateWorkspaceFromMetadata(readCargoMetadata(root, spawn));
+  return crateUnitsFromMetadata(readCrateMetadata(root, spawn));
 }
 
 // ---- registries (anonymous HTTPS reads, no token) ---------------------------------------------
@@ -498,16 +518,19 @@ function packNpm({ units, root, outDir, env, spawn }) {
   return entries;
 }
 
-function packCrates({ units, root, outDir, env, spawn, metadata }) {
-  const packed = spawn("cargo", ["package", "--locked", ...units.flatMap((u) => ["-p", u.name])], { cwd: root, stdio: "inherit", env });
-  if (packed.error || packed.status !== 0) throw new Error("cargo package failed; it compiles and verifies each crate without any token");
+function packCrates({ units, root, outDir, env, spawn, perCrate }) {
   const scratch = fs.mkdtempSync(path.join(env.RUNNER_TEMP || os.tmpdir(), "rk-crate-"));
   const entries = [];
   try {
     for (const unit of units) {
       const crate = `${unit.name}-${unit.version}.crate`;
-      const source = path.join(metadata.target_directory, "package", crate);
-      if (!fs.existsSync(source)) throw new Error(`cargo package did not produce ${crate} under ${metadata.target_directory}/package`);
+      const owner = perCrate.get(unit.name);
+      if (!owner) throw new Error(`${unit.name}: no crate workspace metadata`);
+      // Each crate is its own workspace with its own Cargo.lock (#1285): package from that workspace root, into its own target directory.
+      const packed = spawn("cargo", ["package", "--locked", "-p", unit.name], { cwd: path.join(root, owner.dir), stdio: "inherit", env });
+      if (packed.error || packed.status !== 0) throw new Error(`cargo package failed for ${unit.name}; it compiles and verifies the crate without any token`);
+      const source = path.join(owner.metadata.target_directory, "package", crate);
+      if (!fs.existsSync(source)) throw new Error(`cargo package did not produce ${crate} under ${owner.metadata.target_directory}/package`);
       const file = path.join(outDir, crate);
       fs.copyFileSync(source, file);
       const unpack = spawn("tar", ["-xzf", crate, "-C", tarDir(scratch)], { cwd: outDir, encoding: "utf8", env: childEnv(env) });
@@ -556,8 +579,8 @@ export function commandPack({ env = process.env, spawn = spawnSync, root = ROOT 
   let entries;
   if (registry === "npm") entries = packNpm({ units: plannedUnits(env, readNpmWorkspace(root)), root, outDir, env, spawn });
   else if (registry === "crates") {
-    const metadata = readCargoMetadata(root, spawn);
-    entries = packCrates({ units: plannedUnits(env, crateWorkspaceFromMetadata(metadata)), root, outDir, env, spawn, metadata });
+    const perCrate = readCrateMetadata(root, spawn);
+    entries = packCrates({ units: plannedUnits(env, crateUnitsFromMetadata(perCrate)), root, outDir, env, spawn, perCrate });
   } else throw new Error(`registry must be npm or crates, got ${JSON.stringify(registry)}`);
   const manifest = { schema: 1, registry, commit, repository: env.GITHUB_REPOSITORY ?? "", runId: env.GITHUB_RUN_ID ?? "", runAttempt: env.GITHUB_RUN_ATTEMPT ?? "", units: entries };
   fs.writeFileSync(path.join(outDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);

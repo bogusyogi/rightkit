@@ -343,7 +343,10 @@ test("consumer lock repair emits patch while retaining failed locked proof", asy
   const patches = [];
   const gate = vm.runInNewContext(`${source.slice(start, end)}\nrustGate;`, {
     path, HOST: "windows", STEPS: new Set(["lock"]), requiredConsumerLockCommands,
-    run: async (unit, command, args) => { const ok = !args.includes("--manifest-path") || !args.includes("--locked"); actual.push({ unit, command, args: [...args], ok }); return ok; },
+    workspaceOf: (name) => ({ name, dir: `crates/${name}`, manifest: `crates/${name}/Cargo.toml`, lock: `crates/${name}/Cargo.lock` }),
+    crateCwd: (name) => `/repo/crates/${name}`,
+    // Only the standalone consumer's locked metadata fails here; each crate's own lock check passes.
+    run: async (unit, command, args) => { const ok = !args.includes(manifestPath) || !args.includes("--locked"); actual.push({ unit, command, args: [...args], ok }); return ok; },
     savePatch: (name, files) => patches.push({ name, files: [...files] }),
   });
   await gate({ rust: { test: [], check: ["dependent"] } }, {}, new Map([["dependent", [{ manifestPath }, { manifestPath, args: ["--features", "engine"] }]]]));
@@ -351,6 +354,56 @@ test("consumer lock repair emits patch while retaining failed locked proof", asy
   assert.equal(actual.find((step) => step.args.includes(manifestPath) && step.args.includes("--locked")).ok, false);
   assert.deepEqual(actual.at(-1).args, ["update", "--manifest-path", manifestPath, "--workspace"]);
   assert.deepEqual(patches, [{ name: "ci-consumers-native-Cargo.lock.patch", files: ["ci/consumers/native/Cargo.lock"] }]);
+});
+
+test("each selected crate's own lock is checked in its workspace and one patch covers every repaired crate lock", async () => {
+  const source = readFileSync(new URL("./gate.mjs", import.meta.url), "utf8");
+  const start = source.indexOf("async function rustGate");
+  const end = source.indexOf("async function npmGate", start);
+  const actual = [];
+  const patches = [];
+  const stale = new Set(["crates/rightkit-b/Cargo.toml", "crates/rightkit-d/Cargo.toml"]);
+  const build = (steps) => vm.runInNewContext(`${source.slice(start, end)}\nrustGate;`, {
+    path, HOST: "windows", STEPS: new Set(steps), requiredConsumerLockCommands,
+    workspaceOf: (name) => ({ name, dir: `crates/${name}`, manifest: `crates/${name}/Cargo.toml`, lock: `crates/${name}/Cargo.lock` }),
+    crateCwd: (name) => `/repo/crates/${name}`,
+    run: async (unit, command, args, options = {}) => { const manifest = args[args.indexOf("--manifest-path") + 1]; const ok = !(args[0] === "metadata" && stale.has(manifest)); actual.push({ unit, command, args: [...args], ok, cwd: options.cwd }); return ok; },
+    savePatch: (name, files) => patches.push({ name, files: [...files] }),
+  });
+  // Tested crates and closure-only dependents are both locked, once each, in sorted order; no root lock exists.
+  await build(["lock"])({ rust: { test: ["rightkit-d", "rightkit-a"], check: ["rightkit-b", "rightkit-c"] } }, {}, new Map());
+  assert.deepEqual(actual.filter((step) => step.args[0] === "metadata").map((step) => step.args[2]), ["crates/rightkit-a/Cargo.toml", "crates/rightkit-b/Cargo.toml", "crates/rightkit-c/Cargo.toml", "crates/rightkit-d/Cargo.toml"]);
+  assert.ok(actual.every((step) => step.args.includes("--manifest-path")), "no command is rooted at a repository-level workspace");
+  assert.deepEqual(actual.filter((step) => step.args[0] === "update").map((step) => step.args), [["update", "--workspace", "--manifest-path", "crates/rightkit-b/Cargo.toml"], ["update", "--workspace", "--manifest-path", "crates/rightkit-d/Cargo.toml"]]);
+  assert.deepEqual(patches, [{ name: "Cargo.lock.patch", files: ["crates/rightkit-b/Cargo.lock", "crates/rightkit-d/Cargo.lock"] }]);
+  // Nothing stale: no repair, no patch.
+  actual.length = 0; patches.length = 0; stale.clear();
+  await build(["lock"])({ rust: { test: ["rightkit-a"], check: [] } }, {}, new Map());
+  assert.deepEqual(actual.map((step) => step.args[0]), ["metadata"]);
+  assert.deepEqual(patches, []);
+});
+
+test("cargo commands of a crate run in that crate's own workspace directory", async () => {
+  const source = readFileSync(new URL("./gate.mjs", import.meta.url), "utf8");
+  const start = source.indexOf("async function rustGate");
+  const end = source.indexOf("async function npmGate", start);
+  const actual = [];
+  const gate = vm.runInNewContext(`${source.slice(start, end)}\nrustGate;`, {
+    path, HOST: "windows", STEPS: new Set(["test", "closure"]), requiredConsumerLockCommands,
+    results: [], process: { env: {} },
+    workspaceOf: (name) => ({ name, dir: `crates/${name}`, manifest: `crates/${name}/Cargo.toml`, lock: `crates/${name}/Cargo.lock` }),
+    crateCwd: (name) => `/repo/crates/${name}`,
+    assetEnv: () => ({}), ortEnvFor: async () => ({}),
+    clippyArgs: (name) => ["clippy", "-p", name], checkArgs: (name, { features = [] } = {}) => ["check", "-p", name, ...features],
+    consumerRowInvocations: () => [],
+    run: async (unit, command, args, options = {}) => { actual.push({ unit, args: [...args], cwd: options.cwd }); return true; },
+    savePatch: () => false, git: () => ({ stdout: "" }),
+  });
+  await gate({ rust: { test: ["rightkit-a"], check: ["rightkit-b"] } }, {}, new Map());
+  const cargoSteps = actual.filter((step) => step.unit.startsWith("rust:"));
+  assert.ok(cargoSteps.length >= 5);
+  for (const step of cargoSteps) assert.equal(step.cwd, `/repo/crates/${step.unit.slice("rust:".length)}`, `${step.unit} ${step.args.join(" ")}`);
+  assert.ok(cargoSteps.some((step) => step.unit === "rust:rightkit-b" && step.args[0] === "check"), "the dependent compiles in its own directory");
 });
 
 test("scanBase is the oldest runner base, and empty (scan everything) whenever any runner has no base", () => {

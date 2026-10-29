@@ -103,19 +103,23 @@ export function loadCandidateSource({ directory, sourceSha, promotionSha, regist
   const json = (name) => object(JSON.parse(read(name)), name);
   const config = json("ci/gate.config.json");
   const assetGated = json("ci/asset-gated.json");
-  const lockText = read("Cargo.lock");
-  read("Cargo.toml"); read("package.json"); read("pnpm-lock.yaml");
+  read("package.json"); read("pnpm-lock.yaml");
   const workspaceText = read("pnpm-workspace.yaml");
   const workspace = parseYaml(workspaceText);
   // Match gate.mjs exactly, but refuse policy constructs its regex would silently ignore.
   if (!Array.isArray(workspace.packages) || workspace.packages[0] !== "packages/*" || workspace.packages.slice(1).some((item) => typeof item !== "string" || !/^!packages\/[^/\s]+$/.test(item))) throw new Error("unsupported candidate workspace package policy");
   const excluded = new Set([...workspaceText.matchAll(/^\s*-\s*['"]?!packages\/([^'"\s/]+)['"]?\s*$/gm)].map((match) => match[1]));
   if (excluded.size !== new Set(workspace.packages.slice(1)).size) throw new Error("workspace exclusions disagree with gate parser");
-  const memberManifests = []; const packageManifests = []; const packageNames = new Map();
+  // rightkit#1285: every crates/<x> is its own Cargo workspace with its own Cargo.lock; there is no root manifest or lock.
+  const memberManifests = []; const packageManifests = []; const packageNames = new Map(); const crateLocks = {};
   for (const name of [...entries.keys()].sort()) {
     if (/^crates\/[^/]+\/Cargo.toml$/.test(name)) {
       const manifest = read(name);
-      if (/^\[package\][^[]*?^name\s*=\s*"([^"]+)"/ms.test(manifest)) memberManifests.push({ dir: path.posix.dirname(name), text: manifest });
+      if (/^\[package\][^[]*?^name\s*=\s*"([^"]+)"/ms.test(manifest)) {
+        const dir = path.posix.dirname(name);
+        memberManifests.push({ dir, text: manifest });
+        crateLocks[dir] = read(`${dir}/Cargo.lock`);
+      }
     }
     if (/^packages\/[^/]+\/package.json$/.test(name)) {
       const manifest = json(name);
@@ -139,7 +143,7 @@ export function loadCandidateSource({ directory, sourceSha, promotionSha, regist
     const unit = member ? /^\[package\][^[]*?^name\s*=\s*"([^"]+)"/ms.exec(member.text)?.[1] : packageNames.get(dir);
     if (unit && !Object.hasOwn(assetGated[member ? "crates" : "npm"] ?? {}, unit) && !(name.startsWith("packages/") && provisionedNpm.has(unit))) throw new Error(`candidate asset declaration missing for ${unit}`);
   }
-  const data = { registry, units, allow: normalizedAllow, config, assetGated, lockText, memberManifests, packageManifests };
+  const data = { registry, units, allow: normalizedAllow, config, assetGated, crateLocks, memberManifests, packageManifests };
   const hosts = Object.fromEntries(["macos", "windows"].map((host) => [host, derivePublicationObligations({ ...data, host })]));
   // Recheck mutable checkout identity after reading data (all semantic bytes came from blobs).
   if (text(["rev-parse", "--verify", "HEAD^{commit}"]) !== sourceSha || text(["status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none"])) throw new Error("candidate changed during source loading");

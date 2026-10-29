@@ -484,19 +484,23 @@ test("the template is gated for real: no fixture entry, no baseline entry, and i
   const baseline = JSON.parse(readFileSync(path.join(REPO, "ci", "app-check-baseline.json"), "utf8"));
   const templateEntries = Object.values(baseline.known).flat().filter((id) => id.includes("desktop-app-template"));
   assert.deepEqual(templateEntries, [], "the template carries no baseline entry");
-  const ledger = JSON.parse(readFileSync(path.join(REPO, "ci", "advisory-exceptions.json"), "utf8"));
-  const known = new Map(ledger.exceptions.map((e) => [e.id, e]));
+  // rightkit#1285: RightKit's exceptions live in each crate workspace's own ledger (crates/<x>/.rightkit/advisory-exceptions.json); the template's ignores must be reviewed in one of them.
+  const known = new Map();
+  for (const crate of readdirSync(path.join(REPO, "crates"))) {
+    const file = path.join(REPO, "crates", crate, ".rightkit", "advisory-exceptions.json");
+    if (existsSync(file)) for (const e of JSON.parse(readFileSync(file, "utf8")).exceptions ?? []) known.set(e.id, e);
+  }
   const deny = read("deny.toml");
   const audit = read(".cargo", "audit.toml");
   const denyIds = [...deny.matchAll(/\{ id = "(RUSTSEC-\d{4}-\d{4})"/g)].map((m) => m[1]);
   const auditIds = [...audit.matchAll(/"(RUSTSEC-\d{4}-\d{4})"/g)].map((m) => m[1]);
   assert.deepEqual(auditIds, denyIds, "deny.toml [advisories].ignore and .cargo/audit.toml must list the same IDs in the same order");
-  for (const id of denyIds) assert.ok(known.has(id), `${id} is ignored in the template but has no entry in ci/advisory-exceptions.json (owner, evidence, reviewBy)`);
+  for (const id of denyIds) assert.ok(known.has(id), `${id} is ignored in the template but has no entry in any crates/<x>/.rightkit/advisory-exceptions.json (owner, evidence, reviewBy)`);
   assert.match(deny, /private = \{ ignore = true \}/, "the app's own crates are private and carry no licence field");
   assert.match(deny, /^yanked = "deny"$/m);
   assert.match(deny, /^unknown-registry = "deny"$/m);
-  // Same permissive licence list as the RightKit root policy: widening it in one place must widen it in the other.
-  const rootAllow = /allow = \[([^\]]+)\]/.exec(readFileSync(path.join(REPO, "deny.toml"), "utf8"))[1].replace(/\s+/g, "");
+  // Same permissive licence list as RightKit's crate policy (one identical crates/<x>/deny.toml per crate, no root policy): widening it in one place must widen it in the other.
+  const rootAllow = /allow = \[([^\]]+)\]/.exec(readFileSync(path.join(REPO, "crates", "rightkit-fs", "deny.toml"), "utf8"))[1].replace(/\s+/g, "");
   assert.equal(/allow = \[([^\]]+)\]/.exec(deny)[1].replace(/\s+/g, ""), rootAllow);
 });
 

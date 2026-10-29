@@ -302,7 +302,7 @@ function bindSource(source, packed, env = process.env) {
   // not shipped: bind these exact blobs to authenticated candidate sourceSha only.
   // Missing candidate blobs fail closed; never substitute a newer harness checkout.
   Object.assign(bindings, bindHarnessMetadata(crate, prescription, (full) => command("git", ["cat-file", "blob", `${context.sourceSha}:${full}`], source, { encoding: "buffer" })));
-  const contextFiles = command("git", ["ls-tree", "-r", "--name-only", context.sourceSha, "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo", `${unit.dir}/benches`, "crates/rightkit-child-process/src", "crates/rightkit-child-process/Cargo.toml"], source).trim().split(/\r?\n/).filter(Boolean);
+  const contextFiles = command("git", ["ls-tree", "-r", "--name-only", context.sourceSha, `${unit.dir}/Cargo.toml`, `${unit.dir}/Cargo.lock`, "rust-toolchain.toml", ".cargo", `${unit.dir}/.cargo`, `${unit.dir}/benches`, "crates/rightkit-child-process/src", "crates/rightkit-child-process/Cargo.toml"], source).trim().split(/\r?\n/).filter(Boolean);
   for (const full of contextFiles) bindings[full] = hash(command("git", ["cat-file", "blob", `${context.sourceSha}:${full}`], source, { encoding: "buffer" }));
   return { context, unit, manifestSha256: hash(manifestBytes), bindings, workloads };
 }
@@ -334,11 +334,11 @@ async function measure(env) {
   const output = env.RUNTIME_OUT;
   fs.mkdirSync(output, { recursive: true });
   const { recordMeasurement, measuredPathspecs } = await import("../../packages/release/runtime-budgets.mjs");
-  const { specs, problems: sourceProblems = [] } = measuredPathspecs(crateDir);
+  const { specs, problems: sourceProblems = [] } = measuredPathspecs(crateDir, { base: env.RUNTIME_SOURCE });
   if (sourceProblems.length) throw new Error(`cannot bind measured dependency scope: ${sourceProblems.join("; ")}`);
   const measuredPaths = command("git", ["ls-tree", "-r", "--name-only", context.sourceSha, ...specs], env.RUNTIME_SOURCE).trim().split(/\r?\n/).filter(Boolean);
   for (const full of measuredPaths) bindings[full] = hash(command("git", ["cat-file", "blob", `${context.sourceSha}:${full}`], env.RUNTIME_SOURCE, { encoding: "buffer" }));
-  const toolchain = { rustc: command("rustc", ["-Vv"], env.RUNTIME_SOURCE).trim(), cargo: command("cargo", ["-V"], env.RUNTIME_SOURCE).trim() };
+  const toolchain = { rustc: command("rustc", ["-Vv"], env.RUNTIME_SOURCE).trim(), cargo: command("cargo", ["-V"], crateDir).trim() };
   const receipts = [];
   // Separate processes, sequential per host; Cargo reuses this checkout's compiled cache.
   for (const workload of workloads) {
@@ -346,7 +346,7 @@ async function measure(env) {
     let result, provisioned, cleanupProblem = null;
     try {
       provisioned = provisionWorkloadEnv(workload.env);
-      result = spawnSync("cargo", workload.args, { cwd: env.RUNTIME_SOURCE, env: { ...workloadEnvironment(env, workload.env, provisioned.values), CARGO_INCREMENTAL: "1" }, windowsHide: true, encoding: "utf8", timeout: 40 * 60 * 1000, maxBuffer: 64 * 1024 * 1024 });
+      result = spawnSync("cargo", workload.args, { cwd: crateDir, env: { ...workloadEnvironment(env, workload.env, provisioned.values), CARGO_INCREMENTAL: "1" }, windowsHide: true, encoding: "utf8", timeout: 40 * 60 * 1000, maxBuffer: 64 * 1024 * 1024 });
     } catch (error) { result = { error, status: null, signal: null, stdout: "", stderr: `workload environment failed: ${error.message}` }; }
     finally { try { provisioned?.dispose(); } catch (error) { cleanupProblem = error.message; } }
     const raw = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
@@ -426,7 +426,7 @@ async function combine(env) {
   fs.mkdirSync(env.RUNTIME_OUT, { recursive: true });
   // Match dependency binding inventory used by each producer.
   const { measuredPathspecs } = await import("../../packages/release/runtime-budgets.mjs");
-  const { specs, problems = [] } = measuredPathspecs(crateDir);
+  const { specs, problems = [] } = measuredPathspecs(crateDir, { base: env.RUNTIME_SOURCE });
   if (problems.length) throw new Error(problems.join("; "));
   for (const full of command("git", ["ls-tree", "-r", "--name-only", context.sourceSha, ...specs], env.RUNTIME_SOURCE).trim().split(/\r?\n/).filter(Boolean)) bindings[full] = hash(command("git", ["cat-file", "blob", `${context.sourceSha}:${full}`], env.RUNTIME_SOURCE, { encoding: "buffer" }));
   for (const host of REQUIRED_HOSTS) {

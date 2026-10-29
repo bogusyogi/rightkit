@@ -1,0 +1,7 @@
+# Generated from .rightkit/advisory-exceptions.json; cargo-audit takes string IDs only, so the
+# reason, owner and reviewBy live in that file and packages/release/advisory-exceptions.mjs
+# fails when this list differs.
+[advisories]
+ignore = [
+  "RUSTSEC-2023-0071",
+]

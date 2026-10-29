@@ -11,7 +11,7 @@ const ID = "local-a-010-aaaaaa";
 const clone = (x) => structuredClone(x);
 const hex = (n) => n.repeat(64);
 const archiveScan = (unit) => ({ schema: 1, scanner: "publish-cargo/scanCrateForSecrets", archiveSha256: unit.sha256, status: "pass", files: 1, violations: [], problems: [] });
-const scanRecord = (units) => ({ schema: LOCAL_SCAN_SCHEMA, passed: true, problems: [], sourceCommit: SOURCE, headCommit: SOURCE, cargoLockSha256: hex("d"), scope: { units, files: 3 }, tools: { pinned: {}, observed: {} }, classes: ["A", "B"], scanSetDigest: hex("e"), classDigests: { A: hex("e"), B: hex("f") }, inputDigest: null, deferred: [], scans: [{ id: "cargo-metadata", class: "A", command: "cargo metadata", status: "pass" }, { id: "clippy:rightkit-a", class: "B", command: "cargo clippy", status: "pass" }] });
+const scanRecord = (units) => ({ schema: LOCAL_SCAN_SCHEMA, passed: true, problems: [], sourceCommit: SOURCE, headCommit: SOURCE, cargoLocks: Object.fromEntries(units.map((unit) => [unit, { path: `crates/${unit}/Cargo.lock`, sha256: hex("d") }])), scope: { units, files: 3 }, tools: { pinned: {}, observed: {} }, classes: ["A", "B"], scanSetDigest: hex("e"), classDigests: { A: hex("e"), B: hex("f") }, inputDigest: null, deferred: [], scans: [{ id: "cargo-metadata", class: "A", command: "cargo metadata", status: "pass" }, { id: "clippy:rightkit-a", class: "B", command: "cargo clippy", status: "pass" }] });
 const OS = { macos: "darwin", windows: "win32" };
 function receiptFor(host, unit, manifestSha256, overrides = {}) {
   const evidence = { schema: 1, kind: "cargo", name: unit.name, version: unit.version, commit: SOURCE, artifactSha256: unit.sha256, hostPolicy: host === "macos" ? "darwin-only" : "win32-only", hostPolicyReason: "fixture", runs: [{ host: { os: OS[host], arch: "arm64" }, commit: SOURCE, features: ["default"], artifactSha256: unit.sha256, command: "cargo test -p rightkit-a", operator: "agent (local-build grant)", timestamp: "2026-10-22T00:00:00Z", passed: 2, failed: 0, skipped: 0, ignored: 0, steps: [] }] };
@@ -208,7 +208,12 @@ test("local receipts: every deviation from the pinned bytes, commit, hosts, scan
   assert.deepEqual(check(excluded, { allow: { hostExclusion: ["rightkit-a"] } }), []);
   // Linux-required units need a Linux receipt: missing means refused, never skipped.
   assert.match(check(() => {}, { linuxRequired: ["rightkit-a"] }).join("\n"), /exactly one local receipt from linux, found 0/);
-  assert.deepEqual(localScanShapeProblems(scanRecord(["rightkit-a"]), { commit: SOURCE, units: ["rightkit-a"] }), []);
+  assert.deepEqual(localScanShapeProblems(scanRecord(["rightkit-a"]), { commit: SOURCE, units: ["rightkit-a"], registry: "crates" }), []);
+  // Every crate unit is bound to its own crate workspace lock (#1285); the single root-lock hash of /1 is gone.
+  const bound = scanRecord(["rightkit-a"]);
+  assert.match(localScanShapeProblems({ ...bound, cargoLocks: {} }, { commit: SOURCE, units: ["rightkit-a"], registry: "crates" }).join("\n"), /does not bind every crate unit/);
+  assert.match(localScanShapeProblems({ ...bound, cargoLocks: { "rightkit-a": { path: "Cargo.lock", sha256: hex("d") } } }, { commit: SOURCE, units: ["rightkit-a"], registry: "crates" }).join("\n"), /per-crate Cargo\.lock bindings/);
+  assert.match(localScanShapeProblems({ ...bound, cargoLocks: { "rightkit-z": { path: "crates/rightkit-z/Cargo.lock", sha256: hex("d") } } }, { commit: SOURCE, units: ["rightkit-a"], registry: "crates" }).join("\n"), /per-crate Cargo\.lock bindings/);
 });
 
 test("a receipt of another kind, an unreadable file or a foreign host in the receipts directory refuses", async (t) => {

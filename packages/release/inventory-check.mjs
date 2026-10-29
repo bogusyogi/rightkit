@@ -621,8 +621,8 @@ async function checkThirdParty({ repoRoot, records, live, findings }) {
     declarations.get(key).wheres.add(where);
   };
 
-  const rootManifest = await readToml(join(repoRoot, "Cargo.toml"));
-  const cargoSources = [{ where: "Cargo.toml", manifest: rootManifest }];
+  // Every crate is its own Cargo workspace (rightkit#1285): there is no root manifest, each crate declares its own requirements.
+  const cargoSources = [];
   for (const record of records.filter((r) => r.ecosystem === "cargo")) {
     cargoSources.push({ where: relative(repoRoot, join(record.dir, "Cargo.toml")), manifest: record.manifest });
   }
@@ -673,11 +673,14 @@ async function checkThirdParty({ repoRoot, records, live, findings }) {
   });
 
   const lockDuplicates = [];
-  const lockText = await readText(join(repoRoot, "Cargo.lock"));
-  if (lockText !== null) {
+  // One lock per crate workspace: look for duplicate resolutions in each crate's own crates/<x>/Cargo.lock.
+  for (const record of records.filter((r) => r.ecosystem === "cargo").sort((a, b) => a.dir.localeCompare(b.dir))) {
+    const lockFile = relative(repoRoot, join(record.dir, "Cargo.lock"));
+    const lockText = await readText(join(repoRoot, lockFile));
+    if (lockText === null) continue;
     for (const dup of duplicateCargoVersions(lockText)) {
-      lockDuplicates.push(dup);
-      findings.push(issue("thirdParty", `crate ${dup.name}`, "duplicate-lock-versions", `Cargo.lock resolves ${dup.versions.join(", ")}`));
+      lockDuplicates.push({ ...dup, lock: lockFile });
+      findings.push(issue("thirdParty", `crate ${dup.name} (${lockFile})`, "duplicate-lock-versions", `${lockFile} resolves ${dup.versions.join(", ")}`));
     }
   }
   return { declarations: declarations.size, uniquePackages: unique, lockDuplicates };
@@ -914,8 +917,8 @@ export function renderMarkdown(report) {
   section("account");
   lines.push(`## ${SECTIONS.thirdParty}`, "", `Declarations checked: ${report.sections.thirdParty.declarations}. Unique external packages: ${report.sections.thirdParty.uniquePackages}.`, "");
   section("thirdParty");
-  lines.push("Multiple versions in the root Cargo.lock:", "");
-  for (const dup of report.sections.thirdParty.lockDuplicates) lines.push(`- \`${dup.name}\`: ${dup.versions.join(", ")}`);
+  lines.push("Multiple versions in a crate's own Cargo.lock (one per crate workspace):", "");
+  for (const dup of report.sections.thirdParty.lockDuplicates) lines.push(`- \`${dup.name}\` in \`${dup.lock}\`: ${dup.versions.join(", ")}`);
   if (!report.sections.thirdParty.lockDuplicates.length) lines.push("- none");
   lines.push("");
   lines.push(`## ${SECTIONS.apps}`, "", "| App | Present | Duplicate copies in lock files |", "| --- | --- | ---: |");

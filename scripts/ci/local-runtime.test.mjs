@@ -59,7 +59,8 @@ function runtimeFixture(t) {
   budget.status = { api: "status()", file: "src/lib.rs", exposes: ["residentMemoryBytes"] }; budget.measurements = [];
   const cargoToml = `[package]\nname = "${CRATE}"\nversion = "${VERSION}"\nedition = "2021"\n`;
   const data = {
-    "Cargo.toml": `[workspace]\nmembers = ["crates/${CRATE}"]\n`, "Cargo.lock": `# Cargo.lock\nversion = 3\n\n[[package]]\nname = "${CRATE}"\nversion = "${VERSION}"\n`,
+    // Every crate is its own Cargo workspace with its own Cargo.lock (#1285).
+    [`crates/${CRATE}/Cargo.lock`]: `# Cargo.lock\nversion = 3\n\n[[package]]\nname = "${CRATE}"\nversion = "${VERSION}"\n`,
     [`crates/${CRATE}/Cargo.toml`]: cargoToml, [`crates/${CRATE}/src/lib.rs`]: "pub fn status() {}\n", [`crates/${CRATE}/src/detached.rs`]: "pub struct DetachedLog;\n",
     [`crates/${CRATE}/README.md`]: "## Runtime budget\n\nfixture\n", [`crates/${CRATE}/runtime-budget.json`]: JSON.stringify(budget),
     [`crates/${CRATE}/benches/workloads.json`]: JSON.stringify(supportedPrescription(CRATE)),
@@ -93,10 +94,10 @@ function runtimeFixture(t) {
     ];
   };
   // The record carries every scan the verifier requires for this unit from the (fake) authenticated source, plus the formatting row.
-  const scanIds = [...new Set(["cargo-metadata", "cargo-deny", "cargo-audit", "actionlint", "yaml-parse", "rustfmt:2021", `clippy:${CRATE}`, ...localRequiredScanIds({ units: [CRATE], readText: (name) => readData(name).toString("utf8") })])];
+  const scanIds = [...new Set(["actionlint", "yaml-parse", "rustfmt:2021", `clippy:${CRATE}`, ...localRequiredScanIds({ units: [CRATE], readText: (name) => readData(name).toString("utf8") })])];
   const scans = buildLocalScanRecord({
     result: { schema: "rightkit.deterministic-scans/1", ok: true, complete: true, classes: ["A", "B"], inputDigest: "f".repeat(64), deferred: [], scans: scanIds.map((id) => ({ id, class: /^(clippy|check|check-features|doc|test):/.test(id) ? "B" : "A", command: id, status: "pass" })) },
-    planned: scanIds.map((id) => ({ id })), sourceCommit: SOURCE, headCommit: SOURCE, cargoLockSha256: hash(Buffer.from(data["Cargo.lock"])),
+    planned: scanIds.map((id) => ({ id })), sourceCommit: SOURCE, headCommit: SOURCE, cargoLocks: { [CRATE]: { path: `crates/${CRATE}/Cargo.lock`, sha256: hash(Buffer.from(data[`crates/${CRATE}/Cargo.lock`])) } },
     observedTools: { "cargo-deny": `cargo-deny ${SCAN_TOOL_PINS["cargo-deny"]}`, "cargo-audit": `cargo-audit-audit ${SCAN_TOOL_PINS["cargo-audit"]}`, actionlint: SCAN_TOOL_PINS.actionlint }, units: [CRATE], files: 5,
   });
   const receipts = {};

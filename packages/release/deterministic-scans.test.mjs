@@ -1375,6 +1375,121 @@ test("workspaces: a workspace-wide change reaches only its own workspace, narrow
   assert.deepEqual(deny, ["cargo-metadata:engine", "cargo-deny:engine", "cargo-audit:engine"]);
 });
 
+// ---- one Cargo workspace and lock per crate (rightkit#1285) -----------------------------------------------------------------
+
+import { crateWorkspaces, pathDependencies, reverseDependents } from "./crate-workspaces.mjs";
+import { SHARED_RUST_SCOPE_FILE } from "./deterministic-scans.mjs";
+
+// db <- lic <- asr (path dependencies), typeset patches vendor/citationberg, other is unrelated; pdf path-depends on typeset.
+const CRATE_DEPS = { "rightkit-db": [], "rightkit-license": ["rightkit-db"], "rightkit-asr": ["rightkit-license"], "rightkit-other": [], "rightkit-typeset": [], "rightkit-pdf": ["rightkit-typeset"] };
+const crateManifest = (name, deps) => `[package]\nname = "${name}"\nversion = "1.0.0"\nlicense = "MIT"\n\n[workspace]\n\n[dependencies]\n${deps.map((d) => `${d} = { path = "../${d}" }\n`).join("")}`
+  + (name === "rightkit-typeset" ? '\n[patch.crates-io]\ncitationberg = { path = "../../vendor/citationberg" }\n' : "");
+const perCrateFiles = (extra = {}) => ({
+  ...Object.fromEntries(Object.entries(CRATE_DEPS).flatMap(([name, deps]) => [
+    [`crates/${name}/Cargo.toml`, crateManifest(name, deps)], [`crates/${name}/src/lib.rs`, ""], [`crates/${name}/Cargo.lock`, "version = 4\n"],
+    [`crates/${name}/deny.toml`, "[advisories]\nignore = []\n"],
+  ])),
+  "vendor/citationberg/Cargo.toml": '[package]\nname = "citationberg"\nversion = "0.1.0"\n', "vendor/citationberg/src/lib.rs": "",
+  "vendor/upstream-files.json": "{}", "docs/GATE-CONTRACT.md": "x", "ci/gate.config.json": "{}", "ci/rk-pipeline.json": "{}",
+  "packages/release/bin/rightkit-gate.mjs": "", "packages/release/deterministic-scans.mjs": "",
+  ...extra,
+});
+const perCrateUnits = Object.keys(CRATE_DEPS).map((name) => ({ name, crate: name, dir: `crates/${name}`, cargoDir: `crates/${name}` }));
+// The same helper the gate uses, over the manifests above.
+const perCrateReach = (t, files) => {
+  const root = realpathTmp(t, "rk-percrate-");
+  for (const [f, text] of Object.entries(files)) { mkdirSync(path.dirname(path.join(root, f)), { recursive: true }); writeFileSync(path.join(root, f), text); }
+  const deps = pathDependencies(root, {}, crateWorkspaces(root));
+  return (names) => reverseDependents([...names], deps);
+};
+const perCrate = (t, changed, opts = {}) => {
+  const files = perCrateFiles();
+  const fs = fakeFs(files, files);
+  return planScans({ changed, contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "linux", rustUnits: perCrateUnits, npmUnits: [], crateDependents: perCrateReach(t, files), externalInputs: { "vendor/citationberg": ["rightkit-typeset"] }, ...opts });
+};
+const dependentsOf = (plan) => ids(plan).filter((i) => i.startsWith("check-dependent:")).sort();
+
+test("per-crate workspaces: a change in rightkit-db selects db and its reverse dependents only, across workspaces", (t) => {
+  const p = perCrate(t, ["crates/rightkit-db/src/lib.rs"]);
+  assert.deepEqual(ids(p).filter((i) => i.startsWith("clippy:")), ["clippy:rightkit-db"], "plain unit name, unsuffixed id");
+  assert.equal(scanOf(p, "clippy:rightkit-db").cwd, "crates/rightkit-db", "its own workspace is the cwd");
+  assert.deepEqual(dependentsOf(p), ["check-dependent:rightkit-asr", "check-dependent:rightkit-license"], "transitive dependents, none of the unrelated crates");
+  assert.equal(scanOf(p, "check-dependent:rightkit-asr").cwd, "crates/rightkit-asr", "a dependent is checked in its own workspace");
+  assert.ok(!ids(p).some((i) => /rightkit-(other|typeset|pdf)/.test(i)), ids(p).join(","));
+});
+
+test("per-crate workspaces: a change in an unrelated crate does not select db or its dependents", (t) => {
+  const p = perCrate(t, ["crates/rightkit-other/src/lib.rs"]);
+  assert.ok(ids(p).includes("clippy:rightkit-other"));
+  assert.deepEqual(dependentsOf(p), []);
+  assert.ok(!ids(p).some((i) => /rightkit-(db|license|asr|typeset|pdf)/.test(i)), ids(p).join(","));
+  // A dependent is not a dependency: a change in the top of a chain selects nothing below it.
+  assert.deepEqual(dependentsOf(perCrate(t, ["crates/rightkit-asr/src/lib.rs"])), []);
+});
+
+test("per-crate workspaces: a crate's own manifest or Cargo.lock selects that crate and its dependents, and runs only its own deny, audit and metadata", (t) => {
+  for (const file of ["crates/rightkit-db/Cargo.lock", "crates/rightkit-db/Cargo.toml"]) {
+    const p = perCrate(t, [file]);
+    assert.ok(ids(p).includes("clippy:rightkit-db"), file);
+    assert.deepEqual(dependentsOf(p), ["check-dependent:rightkit-asr", "check-dependent:rightkit-license"], file);
+    assert.deepEqual(ids(p).filter((i) => /^cargo-(deny|audit|metadata)/.test(i)), ["cargo-metadata:rightkit-db", "cargo-deny:rightkit-db", "cargo-audit:rightkit-db"], `${file}: unsuffixed by the directory, labelled by the crate`);
+    for (const id of ["cargo-deny:rightkit-db", "cargo-audit:rightkit-db", "cargo-metadata:rightkit-db"]) assert.equal(scanOf(p, id).cwd, "crates/rightkit-db", id);
+  }
+  // Another crate's lock moves nothing of db's.
+  assert.ok(!ids(perCrate(t, ["crates/rightkit-other/Cargo.lock"])).some((i) => /rightkit-(db|license|asr)/.test(i)));
+});
+
+test("per-crate workspaces: a file under vendor/citationberg selects rightkit-typeset and its dependents; another vendored file or a doc selects none", (t) => {
+  const p = perCrate(t, ["vendor/citationberg/src/lib.rs"]);
+  assert.ok(ids(p).includes("clippy:rightkit-typeset"), ids(p).join(","));
+  assert.deepEqual(dependentsOf(p), ["check-dependent:rightkit-pdf"]);
+  assert.ok(!ids(p).some((i) => /rightkit-(db|license|asr|other)/.test(i)));
+  assert.ok(!ids(perCrate(t, ["vendor/upstream-files.json"], {})).some((i) => /^clippy:/.test(i)), "a vendored file no crate patches in reaches no crate");
+  assert.ok(!ids(perCrate(t, ["docs/GATE-CONTRACT.md"])).some((i) => /^(clippy|check-dependent):/.test(i)), "a file outside every crate selects none");
+});
+
+test("per-crate workspaces: a genuinely shared input selects every crate; no other file outside a crate does", (t) => {
+  for (const f of ["ci/gate.config.json", "ci/rk-pipeline.json", "packages/release/bin/rightkit-gate.mjs", "packages/release/deterministic-scans.mjs"]) {
+    assert.ok(SHARED_RUST_SCOPE_FILE.test(f), f);
+    const p = perCrate(t, [f]);
+    assert.deepEqual(ids(p).filter((i) => i.startsWith("clippy:")).sort(), Object.keys(CRATE_DEPS).map((n) => `clippy:${n}`).sort(), f);
+  }
+  assert.ok(!SHARED_RUST_SCOPE_FILE.test("packages/release/foo.mjs") && !SHARED_RUST_SCOPE_FILE.test("ci/other.json"));
+});
+
+test("per-crate workspaces: a repository toolchain file that exists reaches every crate workspace", (t) => {
+  const files = perCrateFiles({ "rust-toolchain.toml": "[toolchain]\n" });
+  const fs = fakeFs(files, files);
+  const p = planScans({ changed: ["rust-toolchain.toml"], contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "linux", rustUnits: perCrateUnits, npmUnits: [], crateDependents: perCrateReach(t, files) });
+  assert.equal(ids(p).filter((i) => i.startsWith("clippy:")).length, Object.keys(CRATE_DEPS).length);
+});
+
+test("per-crate workspaces: advisory ledgers are planned per crate workspace that ignores an advisory, never at the repository root", (t) => {
+  const ignoring = { "crates/rightkit-pdf/deny.toml": '[advisories]\nignore = [{ id = "RUSTSEC-2026-0192", reason = "r" }]\n', "crates/rightkit-pdf/.cargo/audit.toml": '[advisories]\nignore = ["RUSTSEC-2026-0192"]\n', "crates/rightkit-pdf/.rightkit/advisory-exceptions.json": JSON.stringify({ schema: 1, exceptions: [] }) };
+  const files = perCrateFiles(ignoring);
+  const fs = fakeFs(files, files);
+  const p = planScans({ changed: ["crates/rightkit-other/src/lib.rs"], contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "linux", rustUnits: perCrateUnits, npmUnits: [], crateDependents: perCrateReach(t, files) });
+  const ledgers = p.scans.filter((s) => s.id.startsWith("advisory-exceptions"));
+  assert.deepEqual(ledgers.map((s) => s.id), ["advisory-exceptions:rightkit-pdf"], "only the crate that ignores one, labelled by the crate");
+  assert.equal(ledgers[0].dir, "crates/rightkit-pdf");
+  assert.equal(ledgers[0].exceptionsFile, ".rightkit/advisory-exceptions.json");
+  assert.ok(!ids(p).includes("advisory-exceptions"), "no repository-level ledger scan");
+  // deny and audit read the crate's own deny.toml from its own workspace.
+  const deny = scanOf(planScans({ changed: ["crates/rightkit-pdf/deny.toml"], contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "linux", rustUnits: perCrateUnits, npmUnits: [] }), "cargo-deny:rightkit-pdf");
+  assert.equal(deny.cwd, "crates/rightkit-pdf");
+});
+
+test("per-crate workspaces: requiredScanIds asks for each crate's own metadata, deny, audit and ledger, with plain crate names", () => {
+  const exists = (f) => /^crates\/rightkit-(db|pdf)\/(Cargo\.lock|src\/lib\.rs)$/.test(f) || f === "crates/rightkit-pdf/.rightkit/advisory-exceptions.json";
+  const required = requiredScanIds({ units: ["rightkit-db", "rightkit-pdf"], exists });
+  for (const id of ["cargo-metadata:rightkit-db", "cargo-deny:rightkit-db", "cargo-audit:rightkit-pdf", "advisory-exceptions:rightkit-pdf", "clippy:rightkit-db"]) assert.ok(required.includes(id), id);
+  assert.ok(!required.includes("advisory-exceptions:rightkit-db") && !required.includes("advisory-exceptions"), "a crate without a ledger and the repository need none");
+  for (const id of ["cargo-metadata", "cargo-deny", "cargo-audit"]) assert.ok(!required.includes(id), `${id} is per crate`);
+  // One root workspace keeps the unsuffixed ids.
+  const root = requiredScanIds({ units: ["rightkit-db"], exists: (f) => f === "ci/advisory-exceptions.json" });
+  for (const id of ["cargo-metadata", "cargo-deny", "cargo-audit", "advisory-exceptions"]) assert.ok(root.includes(id), id);
+});
+
 // ---- fix6: Rust configuration of ANY ancestor directory reaches every workspace below it ------------------------------------
 
 const nestedFiles = {

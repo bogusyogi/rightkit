@@ -4,7 +4,7 @@
 // a signed receipt of its own job; a missing command is a refusal that names it.
 import path from "node:path";
 import { CARGO_METADATA_ARGS, cargoPackageArgs, localTestPlan, npmPackArgs, qualifyFmtArgs } from "./local-publish.mjs";
-import { SWAP_HELPER_CARGO_ARGS, SWAP_HELPER_PACKAGE } from "./swap-helper-bundle.mjs";
+import { SWAP_HELPER_CARGO_ARGS, SWAP_HELPER_METADATA_ARGS, SWAP_HELPER_PACKAGE } from "./swap-helper-bundle.mjs";
 
 /** Stands for the one argument that is a fresh absolute scratch path (`pnpm pack --pack-destination <mkdtemp>`). */
 export const ANY_ABSOLUTE_PATH = Object.freeze({ anyAbsolutePath: true });
@@ -27,7 +27,7 @@ export function expectedStageCommands({ kind, unit, config, manifest, platform }
   if (kind === "npm") {
     if (unit === SWAP_HELPER_PACKAGE) {
       // The swap helper builds and signs a binary, then packs from a scratch copy of its directory.
-      pack.push(CARGO(SWAP_HELPER_CARGO_ARGS), CARGO(["metadata", "--format-version", "1", "--no-deps"]), PNPM(npmPackArgs(ANY_ABSOLUTE_PATH, ANY_ABSOLUTE_PATH)));
+      pack.push(CARGO(SWAP_HELPER_CARGO_ARGS), CARGO(SWAP_HELPER_METADATA_ARGS), PNPM(npmPackArgs(ANY_ABSOLUTE_PATH, ANY_ABSOLUTE_PATH)));
     } else pack.push(PNPM(npmPackArgs(dir, ANY_ABSOLUTE_PATH)));
   } else {
     compile.unshift(CARGO(qualifyFmtArgs(unit)));

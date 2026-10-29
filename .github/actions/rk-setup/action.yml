@@ -13,6 +13,9 @@ inputs:
   cache-key:
     description: Rust cache key of this job (one per shard, stable across pushes)
     default: ""
+  rust-workspaces:
+    description: "Rust cache workspaces, one `crates/<x> -> crates/<x>/target` line per crate of the job (rightkit#1285); empty skips the Rust cache"
+    default: ""
   save-cache:
     description: "true saves the Rust cache at the end of the job"
     default: "false"
@@ -135,11 +138,12 @@ runs:
       shell: pwsh
       run: |
         & "$env:GITHUB_WORKSPACE/scripts/ci/locate-native-openssl.ps1"
+    # rightkit#1285: no root Cargo workspace any more; each crate is its own workspace with crates/<x>/target. The caller names
+    # its shard's crates as `crates/<x> -> crates/<x>/target` lines. Without them the cache is not restored (never the root `.`).
     - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      if: ${{ inputs.rust == 'true' && inputs.restore-cache == 'true' }}
+      if: ${{ inputs.rust == 'true' && inputs.restore-cache == 'true' && inputs.rust-workspaces != '' }}
       with:
-        workspaces: |
-          . -> target
+        workspaces: ${{ inputs.rust-workspaces }}
         shared-key: ${{ inputs.cache-key }}
         add-job-id-key: false
         cache-workspace-crates: true

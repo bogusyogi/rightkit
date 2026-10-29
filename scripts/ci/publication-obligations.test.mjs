@@ -5,7 +5,7 @@ import { TEST_COMMAND } from "./test-results.mjs";
 
 const sha = "a".repeat(40);
 const manifest = (name) => ({ dir: `crates/${name}`, text: `[package]\nname = "${name}"\nversion = "1.0.0"\n` });
-const crateInput = () => ({ registry: "crates", units: ["leaf"], host: "windows", config: { rust: { leaf: { featureSets: [[], ["--features", "x"]], alsoSerial: true }, consumer: { checkFeatureSets: [["--features", "use-leaf"]] } } }, memberManifests: [manifest("leaf"), manifest("consumer")], lockText: '[[package]]\nname = "leaf"\nversion = "1.0.0"\n\n[[package]]\nname = "consumer"\nversion = "1.0.0"\ndependencies = [\n "leaf",\n]\n' });
+const crateInput = () => ({ registry: "crates", units: ["leaf"], host: "windows", config: { rust: { leaf: { featureSets: [[], ["--features", "x"]], alsoSerial: true }, consumer: { checkFeatureSets: [["--features", "use-leaf"]] } } }, memberManifests: [manifest("leaf"), manifest("consumer")], crateLocks: { "crates/leaf": '[[package]]\nname = "leaf"\nversion = "1.0.0"\n', "crates/consumer": '[[package]]\nname = "leaf"\nversion = "1.0.0"\n\n[[package]]\nname = "consumer"\nversion = "1.0.0"\ndependencies = [\n "leaf",\n]\n' } });
 
 function proof(plan) {
   const results = plan.commands.map((command) => ({ ...command, ok: true, code: 0, timedOut: false, seconds: 1, isTest: TEST_COMMAND.test(command.command), executed: TEST_COMMAND.test(command.command) ? 2 : 0, failed: 0, ignored: 0, skipped: 0, binaries: TEST_COMMAND.test(command.command) ? 1 : 0 }));

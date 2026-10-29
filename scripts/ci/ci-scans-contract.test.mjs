@@ -58,8 +58,8 @@ test("Rust preflight precedes tests & isolates failed units", async () => {
     results.push({ unit, ok });
     return ok;
   };
-  const invoke = new (Object.getPrototypeOf(async function () {}).constructor)("selection", "config", "consumers", "STEPS", "HOST", "results", "run", "assetEnv", "ortEnvFor", "clippyArgs", "checkArgs", "consumerRowInvocations", `${body}; return rustGate(selection, config, consumers);`);
-  await invoke({ rust: { test: ["bad", "good"], check: [] } }, {}, new Map([["bad", [{}]], ["good", [{}]]]), new Set(["test"]), "windows", results, run, () => ({}), async () => ({}), (name) => ["clippy", "-p", name], (name) => ["check", "-p", name], () => [{ command: "cargo", args: ["consumer"] }]);
+  const invoke = new (Object.getPrototypeOf(async function () {}).constructor)("selection", "config", "consumers", "STEPS", "HOST", "results", "run", "assetEnv", "ortEnvFor", "clippyArgs", "checkArgs", "consumerRowInvocations", "crateCwd", `${body}; return rustGate(selection, config, consumers);`);
+  await invoke({ rust: { test: ["bad", "good"], check: [] } }, {}, new Map([["bad", [{}]], ["good", [{}]]]), new Set(["test"]), "windows", results, run, () => ({}), async () => ({}), (name) => ["clippy", "-p", name], (name) => ["check", "-p", name], () => [{ command: "cargo", args: ["consumer"] }], (name) => `/repo/crates/${name}`);
   assert.deepEqual(calls.filter(([unit]) => unit === "rust:bad").map(([, step]) => step), ["clippy", "check", "doc", "doc"]);
   assert.deepEqual(calls.filter(([unit]) => unit === "rust:good").map(([, step]) => step), ["clippy", "check", "doc", "doc", "test", "consumer"]);
   assert.ok(results.some((result) => !result.ok));

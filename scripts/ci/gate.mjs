@@ -14,7 +14,9 @@
 //   gate.mjs --select "<tokens>" [--steps lock,fmt,test,closure,scans] [--base <sha>]
 // Tokens: rust:<crate> (tests, clippy and every feature row of a crate), rust-check:<crate> (a dependent that must still compile),
 // npm:<dir>, root:<suite id>, swift:<package id>. The diff and the last-green marker are not read: the plan already applied them.
-// `--steps` picks what runs (default: all): lock = Cargo.lock check, fmt = rustfmt, test = tests/clippy/feature rows/npm/root/Swift,
+// Every crates/<x> is its own Cargo workspace with its own Cargo.lock (rightkit#1285): there is no root Cargo.toml or Cargo.lock, and every
+// cargo command below runs with cwd crates/<x>. A change to a crate selects it (tested) and every crate that path-depends on it (compiled).
+// `--steps` picks what runs (default: all): lock = each crate's Cargo.lock check, fmt = rustfmt per crate, test = tests/clippy/feature rows/npm/root/Swift,
 // closure = compile the rust-check dependents, scans = the class A deterministic scans over the changed paths (every tracked
 // file without a --base). A job without the scans step needs RK_SCANS_JOB_RESULT=success from the hygiene job. Known-red and the pass/fail report work exactly as in a diff run.
 //
@@ -36,13 +38,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { crateWorkspaces, pathDependencies, reverseDependents } from "../../packages/release/crate-workspaces.mjs";
 import { checkArgs, clippyArgs, planScans, runScans, scanDeferrals, scanFailures } from "../../packages/release/deterministic-scans.mjs";
 import { scanGatePassed } from "./scan-receipt.mjs";
 import { judgeUnit, mergeCounts, ResultScanner, TEST_COMMAND } from "./test-results.mjs";
 import { dependentClosureEvidence } from "./gate-evidence.mjs";
 import { needsChrome, provisionForTests } from "./provision-chrome.mjs";
 import { parseSelectTokens, parseSteps, requiredConsumerLockCommands, swiftXcodebuilds } from "./shards.mjs";
-import { changedConfigCrates, changedLockNames, parseLock, pnpmBuildClosureArgs, selectByPaths, selectNpm, selectRust, selectUnits } from "./select.mjs";
+import { changedConfigCrates, parseLock, pnpmBuildClosureArgs, selectByPaths, selectNpm, selectRust, selectUnits } from "./select.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const WIN = process.platform === "win32";
@@ -92,16 +95,37 @@ function resolveBase() {
   return git("merge-base", "--is-ancestor", marker, "HEAD").status === 0 ? marker : null;
 }
 
+// One Cargo workspace per crate (packages/release/crate-workspaces.mjs): { name, dir: "crates/<x>", manifest, lock }.
+let WORKSPACES;
+const workspaces = () => (WORKSPACES ??= crateWorkspaces(ROOT));
+function workspaceOf(name) {
+  const found = workspaces().find((w) => w.name === name);
+  if (!found) throw new Error(`no crates/*/Cargo.toml package named ${name}`);
+  return found;
+}
+/** The directory every cargo command of a crate runs in: its own workspace root. */
+const crateCwd = (name) => path.join(ROOT, workspaceOf(name).dir);
+
 function rustMembers(config) {
-  const members = [];
-  for (const entry of fs.readdirSync(path.join(ROOT, "crates"), { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    let manifest;
-    try { manifest = fs.readFileSync(path.join(ROOT, "crates", entry.name, "Cargo.toml"), "utf8"); } catch { continue; }
-    const name = /^\[package\][^[]*?^name\s*=\s*"([^"]+)"/ms.exec(manifest)?.[1];
-    if (name) members.push({ name, dir: `crates/${entry.name}`, extraPaths: config.rust?.[name]?.paths ?? [] });
+  return workspaces().map((w) => ({ name: w.name, dir: w.dir, extraPaths: config.rust?.[w.name]?.paths ?? [] }));
+}
+
+/** Names -> the crates that path-depend on any of them, transitively (names excluded), from the manifests alone. */
+function crateDependents() {
+  const deps = pathDependencies(ROOT, {}, workspaces());
+  return (names) => reverseDependents(names, deps);
+}
+
+/** name -> its own package entry in its own crates/<x>/Cargo.lock; a crate with no readable lock is absent (selectUnits then refuses it). */
+function crateLockGraph() {
+  const graph = new Map();
+  for (const w of workspaces()) {
+    try {
+      const entry = parseLock(fs.readFileSync(path.join(ROOT, w.lock), "utf8")).get(w.name);
+      if (entry) graph.set(w.name, entry);
+    } catch { /* no lock: the crate is missing from the graph */ }
   }
-  return members;
+  return graph;
 }
 
 // Directories pnpm-workspace.yaml excludes (`- '!packages/<name>'`, parked packages) are not
@@ -126,7 +150,7 @@ function npmPackages() {
 
 function unitPlan() {
   const config = readJson("ci/gate.config.json", {});
-  const lock = parseLock(fs.readFileSync(path.join(ROOT, "Cargo.lock"), "utf8"));
+  const lock = crateLockGraph();
   const units = (argOf("--units") ?? "").split(/\s+/).filter(Boolean);
   const packages = npmPackages();
   const names = (flag) => (argOf(flag) ?? "").split(/\s+/).filter(Boolean);
@@ -159,17 +183,15 @@ function plan() {
   const base = resolveBase();
   const all = !base || process.argv.includes("--all");
   const changedPaths = all ? [] : git("diff", "--name-only", "--diff-filter=ACDMRTUXB", base, "HEAD").stdout.split("\n").filter(Boolean);
-  const lock = parseLock(fs.readFileSync(path.join(ROOT, "Cargo.lock"), "utf8"));
-  let lockChanged = new Set(); let configChanged = new Set();
+  let configChanged = new Set();
   if (!all) {
-    lockChanged = changedLockNames(parseLock(git("show", `${base}:Cargo.lock`).stdout), lock);
     const previous = git("show", `${base}:ci/gate.config.json`);
     configChanged = changedConfigCrates(previous.status === 0 ? JSON.parse(previous.stdout) : {}, config);
   }
   const packages = npmPackages();
   return {
     host: HOST, base, all, changedPaths: changedPaths.length, config, packages,
-    rust: selectRust({ changedPaths, members: rustMembers(config), lock, lockChanged, configChanged, all }),
+    rust: selectRust({ changedPaths, members: rustMembers(config), dependents: crateDependents(), configChanged, all }),
     npm: selectNpm({ changedPaths, packages, all }),
     root: selectByPaths({ changedPaths, suites: [...ROOT_SUITES, SCRIPT_TESTS], all }),
     swift: HOST === "macos" ? selectByPaths({ changedPaths, suites: SWIFT_PACKAGES, all }) : [],
@@ -385,13 +407,20 @@ async function rustGate(selection, config, consumers = new Map()) {
   const { rust } = selection;
   if (!rust.test.length && !rust.check.length) return;
   const applies = (name) => !(config.rust?.[name]?.os) || config.rust[name].os.includes(HOST);
-  // Check the lock first: a manifest edited without a build leaves it stale. The repair is
-  // `cargo update --workspace`, and the patch it produces is evidence, not a reason to skip the
-  // other units.
-  const locked = !STEPS.has("lock") || await run("lock", "cargo", ["metadata", "--locked", "--format-version", "1"], { timeoutMinutes: 15, discardStdout: true });
-  if (!locked) {
-    await run("lock", "cargo", ["update", "--workspace"], { timeoutMinutes: 15 });
-    savePatch("Cargo.lock.patch", ["Cargo.lock"]);
+  // Check every selected crate's own lock first: a manifest edited without a build leaves it stale. The repair is
+  // `cargo update --workspace` in that crate's workspace, and the one patch it produces (every changed crates/<x>/Cargo.lock) is
+  // evidence, not a reason to skip the other units. A failed locked metadata result stays red for this run.
+  if (STEPS.has("lock")) {
+    const repaired = [];
+    for (const name of [...new Set([...rust.test, ...rust.check])].sort()) {
+      const { manifest, lock } = workspaceOf(name);
+      const locked = await run("lock", "cargo", ["metadata", "--manifest-path", manifest, "--locked", "--format-version", "1"], { timeoutMinutes: 15, discardStdout: true });
+      if (!locked) {
+        await run("lock", "cargo", ["update", "--workspace", "--manifest-path", manifest], { timeoutMinutes: 15 });
+        repaired.push(lock);
+      }
+    }
+    if (repaired.length) savePatch("Cargo.lock.patch", repaired);
   }
 
   // Standalone consumers own locks too. Check each manifest once, even when several rows or crates share it.
@@ -408,14 +437,11 @@ async function rustGate(selection, config, consumers = new Map()) {
   }
 
   // rustfmt does not depend on the OS, so every selected crate is formatted wherever the step runs (CI runs it once, on Linux).
+  // One command per crate workspace: there is no root workspace to name the crates with -p. Every crate runs even if one fails;
+  // each failure is recorded by run().
   const formatted = STEPS.has("fmt") ? rust.test : [];
   if (formatted.length) {
-    // Batch the -p flags: one command line holding every crate overflows Windows' 32,767-char
-    // limit (os error 206). Every batch runs even if one fails; each failure is recorded by run().
-    const FMT_BATCH = 15;
-    for (let i = 0; i < formatted.length; i += FMT_BATCH) {
-      await run("fmt", "cargo", ["fmt", ...formatted.slice(i, i + FMT_BATCH).flatMap((name) => ["-p", name])], { timeoutMinutes: 10 });
-    }
+    for (const name of formatted) await run("fmt", "cargo", ["fmt", "--manifest-path", workspaceOf(name).manifest, "--all"], { timeoutMinutes: 10 });
     const dirty = git("diff", "--name-only").stdout.split("\n").filter((p) => p.endsWith(".rs"));
     if (dirty.length) {
       savePatch("fmt.patch", dirty);
@@ -432,10 +458,11 @@ async function rustGate(selection, config, consumers = new Map()) {
     const preflightStart = results.length;
     // Keep every tested feature set linted, matching local publication & the frozen shard command plan.
     // The clippy and check command lines come from the one scan module (packages/release/deterministic-scans.mjs).
-    for (const features of featureSets) await run(`rust:${name}`, "cargo", clippyArgs(name, { features }), { timeoutMinutes });
+    const cwd = crateCwd(name);
+    for (const features of featureSets) await run(`rust:${name}`, "cargo", clippyArgs(name, { features }), { cwd, timeoutMinutes });
     // Features the tests do not enable must still compile; keep in step with packages/release/local-publish.mjs.
     const checkSets = featureSets.some((features) => features.includes("--all-features")) ? [] : (entry.checkFeatureSets ?? [["--all-features"]]);
-    for (const features of checkSets) await run(`rust:${name}`, "cargo", checkArgs(name, { features }), { timeoutMinutes });
+    for (const features of checkSets) await run(`rust:${name}`, "cargo", checkArgs(name, { features }), { cwd, timeoutMinutes });
     // Keep rustdoc qualification when local pre-push runs only static checks. Use configured rows
     // rather than blanket all-features: several crates have mutually exclusive feature families.
     const docSets = [...new Map([...featureSets, ...checkSets].map((features) => [JSON.stringify(features), features])).values()];
@@ -443,13 +470,13 @@ async function rustGate(selection, config, consumers = new Map()) {
     // A rustdoc failure does not stop the tests: they run and report beside it, so one run shows every failure of
     // the unit instead of hiding the test results behind the doc step until the next attempt.
     const compiled = results.slice(preflightStart).every((result) => result.ok);
-    for (const features of docSets) await run(`rust:${name}`, "cargo", ["doc", "-p", name, "--no-deps", ...features], { timeoutMinutes, env: { ...env, RUSTDOCFLAGS: `${process.env.RUSTDOCFLAGS ?? ""} -D warnings`.trim() } });
+    for (const features of docSets) await run(`rust:${name}`, "cargo", ["doc", "-p", name, "--no-deps", ...features], { cwd, timeoutMinutes, env: { ...env, RUSTDOCFLAGS: `${process.env.RUSTDOCFLAGS ?? ""} -D warnings`.trim() } });
     // Failed preflight keeps its red result; unrelated units still run.
     if (!compiled) continue;
     env = { ...env, ...(await ortEnvFor(name)) };
     for (const features of featureSets) {
-      await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--show-output"], { timeoutMinutes, env });
-      if (entry.alsoSerial) await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--test-threads=1", "--show-output"], { timeoutMinutes, env });
+      await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--show-output"], { cwd, timeoutMinutes, env });
+      if (entry.alsoSerial) await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--test-threads=1", "--show-output"], { cwd, timeoutMinutes, env });
     }
     // Consumer compile checks belong to either the test shard or the closure shard of their owner.
     for (const row of consumers.get(name) ?? []) {
@@ -458,9 +485,10 @@ async function rustGate(selection, config, consumers = new Map()) {
   }
   for (const name of STEPS.has("closure") ? rust.check : []) {
     if (!applies(name)) continue;
-    await run(`rust:${name}`, "cargo", checkArgs(name), { timeoutMinutes: 30 });
+    const cwd = crateCwd(name);
+    await run(`rust:${name}`, "cargo", checkArgs(name), { cwd, timeoutMinutes: 30 });
     // R1: a dependent must also compile with the feature rows its own gate config names (all features unless it says otherwise).
-    for (const features of (config.rust?.[name]?.checkFeatureSets ?? [["--all-features"]]).filter((features) => features.length)) await run(`rust:${name}`, "cargo", checkArgs(name, { features }), { timeoutMinutes: 30 });
+    for (const features of (config.rust?.[name]?.checkFeatureSets ?? [["--all-features"]]).filter((features) => features.length)) await run(`rust:${name}`, "cargo", checkArgs(name, { features }), { cwd, timeoutMinutes: 30 });
     for (const row of consumers.get(name) ?? []) {
       for (const step of consumerRowInvocations(row)) await run(`rust:${name}`, step.command, step.args, { timeoutMinutes: config.rust?.[name]?.timeoutMinutes ?? 30, env: assetEnv(selection, name) });
     }
@@ -469,8 +497,8 @@ async function rustGate(selection, config, consumers = new Map()) {
 
 /**
  * The paths the class A scans cover. A diff run reads the diff; a sharded or unit run names its units, so every selected
- * crate and package contributes its manifest (and the lock and deny config when Rust is selected), which selects the
- * crate-level scans (metadata, deny, audit, package list, changelog, licence, secret scan, lockfile).
+ * crate and package contributes its manifest (and, for a crate, its own Cargo.lock and deny.toml), which selects the
+ * crate-level scans (metadata, deny, audit, package list, changelog, licence, secret scan, lockfile), each in its own crate workspace.
  */
 function scanPaths(selection) {
   if (!UNIT_MODE && !SELECT_MODE) {
@@ -484,8 +512,8 @@ function scanPaths(selection) {
   if (selection.base) for (const f of git("diff", "--name-only", "--diff-filter=ACMR", selection.base, "HEAD").stdout.split("\n").filter(Boolean)) paths.add(f);
   const crateDirs = new Map(rustMembers(selection.config).map((m) => [m.name, m.dir]));
   const rustNames = [...new Set([...selection.rust.test, ...selection.rust.check])];
-  for (const name of rustNames) { const dir = crateDirs.get(name); if (dir) { paths.add(`${dir}/Cargo.toml`); paths.add(`${dir}/CHANGELOG.md`); } }
-  if (rustNames.length) { paths.add("Cargo.lock"); paths.add("deny.toml"); }
+  // Each crate carries its own lock and deny policy (rightkit#1285), so each selected crate contributes its own.
+  for (const name of rustNames) { const dir = crateDirs.get(name); if (dir) { for (const file of ["Cargo.toml", "CHANGELOG.md", "Cargo.lock", "deny.toml"]) paths.add(`${dir}/${file}`); } }
   for (const dir of selection.npm.test) paths.add(`${dir}/package.json`);
   return [...paths];
 }
@@ -501,7 +529,7 @@ async function scansGate(selection) {
   // The npm units are the workspace's (npmPackages honours pnpm-workspace.yaml exclusions): a parked package is never installed, so a
   // scan planned for it (tsc on packages/sync-worker) could never pass. Unit names stay the directory names the scan ids use.
   const npmUnits = npmPackages().map((p) => ({ name: path.basename(p.dir), dir: p.dir }));
-  const planned = planScans({ changed: scanPaths(selection), contentRoot: ROOT, liveRoot: ROOT, includeTests: false, cargoCommand: ["cargo"], npmUnits, readBytes: (f) => fs.readFileSync(f) });
+  const planned = planScans({ changed: scanPaths(selection), contentRoot: ROOT, liveRoot: ROOT, includeTests: false, cargoCommand: ["cargo"], rustUnits: workspaces().map((w) => ({ name: w.name, dir: w.dir, cargoDir: w.dir, crate: w.name })), npmUnits, readBytes: (f) => fs.readFileSync(f) });
   // generated-docs needs a trusted root to run the generator, which this job (one checkout of the candidate) cannot provide, so the
   // planner can only defer it here, and a deferred scan is never a pass. The same check runs in the plan job every job here needs:
   // scripts/preflight.mjs rule G10 runs scripts/generate-index.mjs --check. So this job does not plan the deferred copy.

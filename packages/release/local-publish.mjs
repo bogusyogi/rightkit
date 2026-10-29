@@ -373,31 +373,26 @@ export function localTestPlan({ kind, unit, dir, config, manifest, batch = false
 
 /**
  * The clippy invocations that replace each crate's own `cargo clippy -p <crate> --no-deps --all-targets
- * <featureSets[0]> -- -D warnings`: same flags and lint level, so the same lints on the same code. Crates
- * whose first feature set is empty or `--all-features` share one `-p a -p b` invocation (the flags mean the
- * same for every crate); any other feature set runs per crate, because `--features x` must not reach a crate
- * that lacks x. The caller passes ONE dependency layer: no selected crate depends on another, so `-p` does not
- * unify extra features into a selected crate and each is linted with exactly the features it was before.
- * Crates with a different RIGHTKIT_REQUIRE_ASSETS (asset-gated) stay apart so the environment is unchanged.
+ * <featureSets[0]> -- -D warnings`: same flags and lint level, so the same lints on the same code. Every crate is its own
+ * Cargo workspace with its own Cargo.lock (rightkit#1285), so cargo runs in that crate's directory and one invocation never
+ * names two crates: one `-p <crate>` run per crate and feature set, in layer order. Crates with a different
+ * RIGHTKIT_REQUIRE_ASSETS (asset-gated) keep their own environment.
  */
 export function batchClippyInvocations(layer, { featuresOf = () => [], featureSetsOf = (unit) => [featuresOf(unit)], assetGatedOf = () => false } = {}) {
-  const groups = new Map();
+  const invocations = [];
   for (const unit of layer) {
     // Every tested feature set of a crate is linted, in order; identical sets of one crate collapse to one run.
     const sets = featureSetsOf(unit) ?? [[]];
     const unique = sets.filter((set, index) => sets.findIndex((other) => JSON.stringify(other ?? []) === JSON.stringify(set ?? [])) === index);
     for (const set of unique) {
       const features = set ?? [];
-      const shared = features.length === 0 || (features.length === 1 && features[0] === "--all-features");
-      const key = shared ? JSON.stringify([features, assetGatedOf(unit)]) : `unit:${unit}:${JSON.stringify(features)}`;
-      if (!groups.has(key)) groups.set(key, { crates: [], features, assetGated: assetGatedOf(unit) });
-      groups.get(key).crates.push(unit);
+      invocations.push({
+        crates: [unit], assetGated: assetGatedOf(unit),
+        args: ["clippy", "-p", unit, "--message-format=json-render-diagnostics", "--no-deps", "--all-targets", ...features, "--", "-D", "warnings"],
+      });
     }
   }
-  return [...groups.values()].map(({ crates, features, assetGated }) => ({
-    crates, assetGated,
-    args: ["clippy", ...crates.flatMap((unit) => ["-p", unit]), "--message-format=json-render-diagnostics", "--no-deps", "--all-targets", ...features, "--", "-D", "warnings"],
-  }));
+  return invocations;
 }
 
 const sha256 = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
@@ -566,7 +561,10 @@ async function* publishUnitStages(parsed, deps, batch) {
     if (tree !== batch.tree) refuse(`${unit}: HEAD tree ${tree} differs from the batch tree ${batch.tree}`);
   }
   const feedPath = "packages/release/rightkit-versions.json";
-  const guardedPaths = [dir, ...GATE_CONFIG_FILES, ...(parsed.qualifyOnly && kind === "cargo" ? ["Cargo.toml", "Cargo.lock"] : []), ...(parsed.qualifyOnly && kind === "npm" ? [feedPath] : [])];
+  // `dir` holds the crate's own Cargo.toml and Cargo.lock (each crate is its own workspace, #1285); a sibling crate it path-depends on
+  // shapes what is built, so its directory must match the commit too.
+  const siblingDirs = kind === "cargo" ? pathDependencyDirs(unitPath).map((sibling) => path.relative(workspaceRoot, sibling).split(path.sep).join("/")).filter((sibling) => sibling && !sibling.startsWith("..")) : [];
+  const guardedPaths = [dir, ...siblingDirs, ...GATE_CONFIG_FILES, ...(parsed.qualifyOnly && kind === "npm" ? [feedPath] : [])];
   const dirty = git(["status", "--porcelain", "--", ...guardedPaths], workspaceRoot);
   if (dirty === null) refuse(`cannot read git status for ${dir}`);
   if (dirty !== "") refuse(`tree is not clean for ${dir} or the gate config (${GATE_CONFIG_FILES.join(", ")}); commit first:\n${dirty}`);
@@ -612,7 +610,10 @@ async function* publishUnitStages(parsed, deps, batch) {
   for (const step of plan.steps) {
     const commandText = `${step.command} ${step.args.join(" ")}`;
     log(`[right-release] ${plan.id}: ${commandText}`);
-    const result = await run(step.command, step.command === "cargo" ? withCargoJobs(step.args, parsed.jobs) : step.args, { cwd: workspaceRoot, env });
+    // A crate's own steps run in its Cargo workspace (its own Cargo.lock and target directory, #1285); a consumer row names its
+    // separate workspace by --manifest-path relative to the repository root.
+    const stepCwd = kind === "cargo" && step.command === "cargo" && !step.args.includes("--manifest-path") ? unitPath : workspaceRoot;
+    const result = await run(step.command, step.command === "cargo" ? withCargoJobs(step.args, parsed.jobs) : step.args, { cwd: stepCwd, env });
     const row = { command: commandText, ok: false, isTest: step.test && TEST_COMMAND.test(commandText) };
     if (result.error || result.status !== 0) {
       steps.push(row);
@@ -675,11 +676,11 @@ async function* publishUnitStages(parsed, deps, batch) {
       // its evidence leaves this host, so the publishing host can reuse that exact archive's proof.
       const packageArgs = cargoPackageArgs(unit, parsed.qualifyOnly);
       packCommands.push(`cargo ${packageArgs.join(" ")}`);
-      const packed = await run("cargo", withCargoJobs(packageArgs, parsed.jobs), { cwd: workspaceRoot, env });
+      const packed = await run("cargo", withCargoJobs(packageArgs, parsed.jobs), { cwd: unitPath, env });
       if (packed.error || packed.status !== 0) refuse(`cargo package failed for ${unit}\n${tail(`${packed.stdout ?? ""}\n${packed.stderr ?? ""}`)}`);
       if (parsed.qualifyOnly) steps.push({ command: `cargo ${packageArgs.join(" ")}`, ok: true });
       const metadataArgs = [...CARGO_METADATA_ARGS];
-      const meta = await runCargoReadOnly(metadataArgs, { cwd: workspaceRoot, env }, (_command, args, settings) => run("cargo", args, settings),
+      const meta = await runCargoReadOnly(metadataArgs, { cwd: unitPath, env }, (_command, args, settings) => run("cargo", args, settings),
         (failed) => log(`[right-release] offline Cargo metadata missed cache; retrying online once\n${failed.stdout ?? ""}${failed.stderr ? `\n${failed.stderr}` : ""}`));
       const actualMetadataArgs = meta.usedOfflineFallback ? metadataArgs.filter((arg) => arg !== "--offline") : metadataArgs;
       packCommands.push(`cargo ${actualMetadataArgs.join(" ")}`);
@@ -801,11 +802,11 @@ async function runLocalPublishBatch(parsed, deps) {
   if (!head || !/^[0-9a-f]{40}$/.test(head)) refuse("cannot resolve HEAD");
   const tree = git(["rev-parse", "HEAD^{tree}"], workspaceRoot);
   if (!tree || !/^[0-9a-f]{40}$/.test(tree)) refuse("cannot resolve the HEAD tree");
-  // Every batch crate, the workspace manifest and lock, the gate config and EVERY crate's consumer directories must
-  // match the commit the batch checks are bound to, before the first layer publishes (0.4.1 review A3, A4).
-  const dirty = git(["status", "--porcelain", "--", ...crates.map((unit) => `crates/${unit}`), "Cargo.toml", "Cargo.lock", ...GATE_CONFIG_FILES, ...batchConsumerDirs], workspaceRoot);
+  // Every batch crate (its own Cargo.toml and Cargo.lock live in its directory, #1285), the gate config and EVERY crate's
+  // consumer directories must match the commit the batch checks are bound to, before the first layer publishes (0.4.1 review A3, A4).
+  const dirty = git(["status", "--porcelain", "--", ...crates.map((unit) => `crates/${unit}`), ...GATE_CONFIG_FILES, ...batchConsumerDirs], workspaceRoot);
   if (dirty === null) refuse("cannot read git status for the batch");
-  if (dirty !== "") refuse(`tree is not clean for the batch crates, the workspace manifest, the gate config or a consumer directory; commit first:\n${dirty}`);
+  if (dirty !== "") refuse(`tree is not clean for the batch crates, the gate config or a consumer directory; commit first:\n${dirty}`);
   const registryHas = deps.registryHas ?? defaultRegistryHas;
   const published = (await Promise.all(crates.map(async (unit) => ((await registryHas({ kind: "cargo", name: unit, version: versions.get(unit) })) ? `${unit}@${versions.get(unit)}` : null)))).filter(Boolean);
   if (published.length) refuse(`already on the crates.io registry: ${published.join(", ")}; bump the version or remove them from the batch`);
@@ -815,15 +816,18 @@ async function runLocalPublishBatch(parsed, deps) {
   const env = testEnv(deps, false);
   const stamp = { commit: head, tree };
   const checks = []; const commands = [];
-  const batchCheck = async (name, command, args, crateNames, runEnv = env) => {
+  // One recorded check; `cwds` are the crate workspaces it runs in (each crate is its own Cargo workspace, #1285), once each.
+  const batchCheck = async (name, command, args, crateNames, runEnv = env, cwds = [workspaceRoot]) => {
     const text = `${command} ${args.join(" ")}`;
     log(`[right-release] batch ${name}: ${text}`);
-    const result = await run(command, args, { cwd: workspaceRoot, env: runEnv });
-    if (result.error || result.status !== 0) refuse(`batch ${name} failed (${result.error?.message ?? `exit ${result.status}`}): ${text}\n${tail(`${result.stdout ?? ""}\n${result.stderr ?? ""}`)}`);
+    for (const cwd of cwds) {
+      const result = await run(command, args, { cwd, env: runEnv });
+      if (result.error || result.status !== 0) refuse(`batch ${name} failed (${result.error?.message ?? `exit ${result.status}`}): ${text}${cwd === workspaceRoot ? "" : ` (in ${path.relative(workspaceRoot, cwd)})`}\n${tail(`${result.stdout ?? ""}\n${result.stderr ?? ""}`)}`);
+    }
     checks.push({ name, command: text, ok: true, ...stamp, ...(crateNames ? { crates: crateNames } : {}) });
     commands.push(text);
   };
-  await batchCheck("fmt", "cargo", ["fmt", "--all", "--check"]);
+  await batchCheck("fmt", "cargo", ["fmt", "--all", "--check"], undefined, env, crates.map((unit) => path.join(workspaceRoot, "crates", unit)));
   log("[right-release] batch secret-scan: crate directories of the batch");
   const scan = deps.scanSecrets ?? scanCrateForSecrets;
   const violations = crates.flatMap((unit) => scan(path.join(workspaceRoot, "crates", unit)).map((file) => `${unit}: ${file}`));
@@ -834,7 +838,7 @@ async function runLocalPublishBatch(parsed, deps) {
   const featureSetsOf = (unit) => gateConfig?.rust?.[unit]?.featureSets ?? [[]];
   for (const layer of layers) {
     for (const invocation of batchClippyInvocations(layer, { featureSetsOf, assetGatedOf: isAssetGated })) {
-      await batchCheck("clippy", "cargo", invocation.args, invocation.crates, testEnv(deps, invocation.assetGated));
+      await batchCheck("clippy", "cargo", invocation.args, invocation.crates, testEnv(deps, invocation.assetGated), invocation.crates.map((unit) => path.join(workspaceRoot, "crates", unit)));
     }
   }
   const receipt = { id: `batch-${head.slice(0, 12)}-${sha256(JSON.stringify(layers)).slice(0, 8)}`, ...stamp, crates, checks };

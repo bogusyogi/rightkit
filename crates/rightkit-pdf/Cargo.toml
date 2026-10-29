@@ -85,3 +85,39 @@ rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = f
 [package.metadata.rightkit]
 continuous = false
 continuous_reason = "PDF render and font listing per call; resident-static is FontCatalog::shared, one OnceLock font catalog built once per process (fontdb system-font metadata, sized by the installed fonts, never grown afterwards), and the crate spawns no thread, timer or other continuous work. Feature host adds held native views: at most one active PDFKit view per window plus at most HostConfig::parked_limit (default 8) suspended views kept for at most parked_max_age (default 30 s, expired by calls and by an explicit PdfHost::sweep, never by a timer in this crate), one local key monitor per active view removed on suspend and close, and a bounded 256-entry event outbox"
+
+# One Cargo workspace and lock per crate (rightkit#1285).
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

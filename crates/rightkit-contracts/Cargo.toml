@@ -37,3 +37,39 @@ jsonschema = { version = "0.60", default-features = false, optional = true }
 [package.metadata.rightkit]
 continuous = false
 continuous_reason = "versioned content-pipeline contracts: serde types and JSON Schema validators initialised once, per-call checks; no thread-spawn, task-spawn, sleep, timer, listener or watcher in non-test src (checked by runtime-budgets.mjs); resident-static: VALIDATORS in src/schema.rs is a fixed array of 7 OnceLocks of compiled JSON Schema validators, each built once on first use and fixed size (reviewed 2026-10-17)"
+
+# One Cargo workspace and lock per crate (rightkit#1285).
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

@@ -20,14 +20,14 @@ function fixture(t, { files: additions = {}, responses = {} } = {}) {
   fs.mkdirSync(path.join(directory, ".git"));
   fs.writeFileSync(path.join(directory, ".git", "config"), "[core]\nrepositoryformatversion = 0\n");
   const files = {
-    "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n',
-    "Cargo.lock": 'version = 4\n[[package]]\nname = "rightkit-one"\nversion = "0.1.0"\n',
     "package.json": '{"name":"fixture","private":true}',
     "pnpm-lock.yaml": 'lockfileVersion: "9.0"\n',
     "pnpm-workspace.yaml": "packages:\n  - packages/*\n  - '!packages/parked'\n",
     "ci/gate.config.json": "{}",
     "ci/asset-gated.json": '{"crates":{},"npm":{}}',
-    "crates/one/Cargo.toml": '[package]\nname = "rightkit-one"\nversion = "0.1.0"\n',
+    // Every crate is its own Cargo workspace with its own Cargo.lock; there is no root manifest or lock (#1285).
+    "crates/one/Cargo.toml": '[package]\nname = "rightkit-one"\nversion = "0.1.0"\n\n[workspace]\n',
+    "crates/one/Cargo.lock": 'version = 4\n[[package]]\nname = "rightkit-one"\nversion = "0.1.0"\n',
     "packages/one/package.json": '{"name":"@rightkit/one","scripts":{"test":"node --test"}}',
     "packages/parked/package.json": '{"name":"@rightkit/parked","scripts":{"test":"node --test"}}',
     ...additions,
@@ -98,9 +98,9 @@ for (const [label, query, response, expected] of [
   ["wrong HEAD", "rev-parse --verify HEAD^{commit}", PROMOTION, /HEAD/],
   ["shallow history", "rev-parse --is-shallow-repository", "true", /full history/],
   ["nonancestor", `merge-base --is-ancestor ${SHA} ${PROMOTION}`, { status: 1, stdout: "" }, /ancestor/],
-  ["tracked drift", "status --porcelain=v1 --untracked-files=all --ignore-submodules=none", " M Cargo.lock", /drift/],
+  ["tracked drift", "status --porcelain=v1 --untracked-files=all --ignore-submodules=none", " M crates/one/Cargo.lock", /drift/],
   ["ignored untracked installation", "ls-files --others -z", "node_modules/x\0", /untracked/],
-  ["hidden index entry", "ls-files -v -z", "h Cargo.lock\0", /hidden/],
+  ["hidden index entry", "ls-files -v -z", "h crates/one/Cargo.lock\0", /hidden/],
   ["symlink blob", `ls-tree -r -z --full-tree ${SHA}`, `120000 blob ${TREE}\tcrates/one/Cargo.toml\0`, /symlink/],
   ["traversal path", `ls-tree -r -z --full-tree ${SHA}`, `100644 blob ${TREE}\t../Cargo.toml\0`, /unsafe/],
   ["oversized output", "rev-parse --verify HEAD^{commit}", { status: 0, stdout: Buffer.alloc(8 * 1024 * 1024 + 1) }, /limit/],
@@ -117,8 +117,10 @@ test("missing manifest, duplicate inventory & undeclared asset reader fail close
   assert.throws(() => loadCandidateSource(fixture(t, { files: { "packages/two/package.json": '{"name":"@rightkit/one"}' } })), /duplicate/);
   assert.throws(() => loadCandidateSource(fixture(t, { files: { "crates/one/src/lib.rs": 'const KEY: &str = "RIGHTKIT_REQUIRE_ASSETS";' } })), /asset declaration/);
   const input = fixture(t);
-  fs.unlinkSync(path.join(input.directory, "Cargo.lock"));
+  fs.unlinkSync(path.join(input.directory, "crates", "one", "Cargo.lock"));
   assert.throws(() => loadCandidateSource(input), /ENOENT/);
+  // A crate manifest without its own lock is refused: the candidate holds no lock to bind that crate to.
+  assert.throws(() => loadCandidateSource(fixture(t, { files: { "crates/two/Cargo.toml": '[package]\nname = "rightkit-two"\nversion = "0.1.0"\n\n[workspace]\n' } })), /candidate missing crates\/two\/Cargo\.lock/);
 });
 
 test("blob content cannot be substituted despite matching checkout identity", (t) => {
@@ -138,8 +140,8 @@ test("asset gating remains mandatory while publication obligations isolate reque
   const input = fixture(t, { files: {
     "ci/asset-gated.json": '{"crates":{"rightkit-one":"models"},"npm":{}}',
     "crates/one/src/lib.rs": 'const KEY: &str = "RIGHTKIT_REQUIRE_ASSETS";',
-    "crates/two/Cargo.toml": '[package]\nname = "rightkit-two"\nversion = "0.1.0"\n',
-    "Cargo.lock": '[[package]]\nname = "rightkit-one"\nversion = "0.1.0"\n[[package]]\nname = "rightkit-two"\nversion = "0.1.0"\ndependencies = ["rightkit-one"]\n',
+    "crates/two/Cargo.toml": '[package]\nname = "rightkit-two"\nversion = "0.1.0"\n\n[workspace]\n\n[dependencies]\nrightkit-one = { path = "../one", version = "0.1.0" }\n',
+    "crates/two/Cargo.lock": '[[package]]\nname = "rightkit-one"\nversion = "0.1.0"\n[[package]]\nname = "rightkit-two"\nversion = "0.1.0"\ndependencies = ["rightkit-one"]\n',
   } });
   const request = { ...input, registry: "crates", units: ["rightkit-one"] };
   assert.throws(() => loadCandidateSource(request), /need assets/);

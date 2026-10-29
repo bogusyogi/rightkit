@@ -1108,3 +1108,20 @@ test("structure preserves false & held-resource classification decisions", (t) =
     assert.equal(runtimeBudgetStructureCheck(options, { git: freshGit() }).status, runtimeBudgetCheck(options, { git: freshGit() }).status);
   }
 });
+
+test("each crate is its own Cargo workspace (#1285): the workspace root is the crate, a sibling is ../<x>, and base re-roots the specs for a repository-root git", (t) => {
+  const root = mkdtempSync(path.join(process.env.RIGHTKIT_TEST_SCRATCH ?? os.tmpdir(), "rk-rb-ws-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const write = (file, text) => { mkdirSync(path.dirname(path.join(root, file)), { recursive: true }); writeFileSync(path.join(root, file), text); };
+  write("crates/svc/Cargo.toml", '[package]\nname = "svc"\nversion = "0.1.0"\n\n[workspace]\n\n[dependencies]\ndep = { path = "../dep", version = "0.1.0" }\n');
+  write("crates/svc/Cargo.lock", "version = 4\n");
+  write("crates/dep/Cargo.toml", '[package]\nname = "dep"\nversion = "0.1.0"\n\n[workspace]\n');
+  write("crates/dep/Cargo.lock", "version = 4\n");
+  const own = measuredPathspecs(path.join(root, "crates", "svc"));
+  assert.deepEqual(own.problems, []);
+  assert.equal(own.root, path.join(root, "crates", "svc"), "the workspace root is the crate's own directory");
+  assert.deepEqual(own.specs, ["src", "benches", "Cargo.toml", "build.rs", "../dep/src", "../dep/Cargo.toml", "../dep/build.rs"]);
+  const fromRepo = measuredPathspecs(path.join(root, "crates", "svc"), { base: root });
+  assert.deepEqual(fromRepo.specs, ["crates/svc/src", "crates/svc/benches", "crates/svc/Cargo.toml", "crates/svc/build.rs", "crates/dep/src", "crates/dep/Cargo.toml", "crates/dep/build.rs"]);
+  assert.equal(fromRepo.root, own.root, "base changes only how the specs are written, not the workspace root");
+});

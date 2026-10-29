@@ -18,12 +18,13 @@ export const COMPATIBILITY_GROUPS = Object.freeze({
   runner: Object.freeze([
     ".github/actions/rk-setup/action.yml", ".github/workflows/ci.yml", "rust-toolchain.toml", "rust-toolchain",
   ]),
+  // There is no root Cargo.toml: every crates/<x> is its own Cargo workspace (rightkit#1285), so a manifest change is a change to that crate.
   toolchain: Object.freeze([
-    "Cargo.toml", "package.json", "pnpm-workspace.yaml",
+    "package.json", "pnpm-workspace.yaml",
   ]),
   evidence: Object.freeze([
     "ci/gate.config.json", "ci/shards.json", "ci/known-red.json", "ci/chrome-for-testing.json",
-    "scripts/ci/ci-plan.mjs", "scripts/ci/ci-summary.mjs", "scripts/ci/gate.mjs", "scripts/ci/select.mjs",
+    "scripts/ci/ci-plan.mjs", "scripts/ci/ci-summary.mjs", "scripts/ci/gate.mjs", "scripts/ci/select.mjs", "packages/release/crate-workspaces.mjs",
     "scripts/ci/shards.mjs", "scripts/ci/test-results.mjs", "scripts/ci/secret-scan.mjs",
     "scripts/ci/provision-chrome.mjs", "scripts/ci/provision-ort.mjs",
     "crates/rightkit-ffmpeg/catalog/native-libraries.json",

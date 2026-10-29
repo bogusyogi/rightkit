@@ -31,3 +31,39 @@ tempfile = "3"
 [package.metadata.rightkit]
 continuous = false
 continuous_reason = "thread-spawn: per-call stdin writer and stdout and stderr reader threads for one git or scanner child (gitio.rs, runner.rs), ended at pipe EOF or when the child is killed at the deadline; sleep: 2 ms try_wait and POLL_INTERVAL scanner poll bounded by the call timeout; the admission verdict cache is capped at CACHE_LIMIT 128; no listener, timer or watcher (reviewed 2026-10-11); resident-static: in src/inventory.rs LIMIT and SLOTS are OnceLocks built once (worker count capped at 4 and a counting semaphore), ACTIVE_HASHERS and PEAK_HASHERS are two atomic counters, and CACHE is a OnceLock Mutex of kept dirty-file inputs capped at HASH_CACHE_BYTES (64 MiB), entries dropped when a file changes and never kept for files modified in the last 2 s (reviewed 2026-10-17)"
+
+# One Cargo workspace and lock per crate (rightkit#1285).
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

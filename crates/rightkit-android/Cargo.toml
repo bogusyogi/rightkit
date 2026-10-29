@@ -49,3 +49,39 @@ rustls-platform-verifier = { version = "0.7", default-features = false, optional
 [package.metadata.rightkit]
 continuous = false
 continuous_reason = "no thread-spawn, task-spawn, sleep, timer, listener or watcher in this crate: it holds one write-once process-wide static (the captured JavaVM, application Context global reference, Keystore class global reference and the app paths, set by init and kept for the life of the process) and one debug-logging flag; each Keystore call attaches the calling thread to the JavaVM for the call and detaches it on return, and the worker threads that make those calls belong to rightkit-credentials (reviewed 2026-10-16); resident-static: CONTEXT in src/context.rs is the write-once OnceLock described above, set by init and never replaced (reviewed 2026-10-17)"
+
+# One Cargo workspace and lock per crate (rightkit#1285).
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

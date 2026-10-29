@@ -266,3 +266,39 @@ tempfile = "3"
 [package.metadata.rightkit]
 continuous = false
 continuous_reason = "sleep: bounded retry delay for a transient rename or sharing violation (atomic.rs, RetryPolicy attempts) and lock acquisition poll bounded by LockOptions.timeout (lock.rs); no thread, task, timer, listener, watcher or growing memory (reviewed 2026-10-11); resident-static: the thread_local cells in src/atomic.rs are per-thread fault-injection and sync-count seams inside the testing and test-seams features (testing refuses to compile in a release build, test-seams is off in production), each a fixed-size Cell or a short Vec of steps recorded only while a test arms it; the COUNTER there is a single AtomicU64 (reviewed 2026-10-17); 0.4.6 additions, not yet reviewed: src/transaction.rs holds one ID_COUNTER AtomicU64 and, inside test-seams, one thread_local hook cell, its commit and recovery waits are the bounded operation-lock acquisition (LockOptions timeout, default 30 s) with no thread, timer or growing memory, and src/write_locks.rs keeps an in-process registry that holds one entry per destination with a holder or waiter and removes it with the last, each wait bounded by a Condvar timeout (unless the caller passes a timeout the clock cannot add, such as Duration::MAX, which asks for no deadline); the transaction cleanup delete retry (transaction.rs retry_while and remove_with_retry) sleeps a bounded number of RetryPolicy attempts for each file with doubling pauses capped at one second, on Windows errors 5 (access denied), 32 (sharing violation) and 33 (lock violation) only"
+
+# One Cargo workspace and lock per crate (rightkit#1285).
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

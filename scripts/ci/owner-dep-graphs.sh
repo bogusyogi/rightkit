@@ -3,9 +3,10 @@
 # with --no-default-features, and with the required consumer feature sets (FEATURE_SETS below; names checked
 # against each crate's [features]), into the QA evidence directory (uploaded as qa-evidence-<runner>-<attempt>).
 # Output: <evidence>/owner-dep-graphs/<crate>-<mode>.txt and summary.tsv (plus an ASSERT row for optional storage).
-# Never fails the gate. cargo tree only resolves; --locked keeps it from rewriting Cargo.lock.
+# Never fails the gate. cargo tree only resolves; --locked keeps it from rewriting a crate's Cargo.lock; it runs in crates/<crate> (one workspace per crate).
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
+ROOT="$PWD"
 
 EVIDENCE="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/rightkit-ci"
 OUT="$EVIDENCE/owner-dep-graphs"
@@ -57,7 +58,8 @@ run_tree() { # crate mode [cargo flags...]
   shift 2
   local file="$OUT/$crate-$mode.txt"
   # shellcheck disable=SC2086
-  if $TO cargo tree --locked -e normal -p "$crate" --prefix none "$@" > "$file" 2> "$file.err"; then
+  # Each crate is its own Cargo workspace with its own Cargo.lock (rightkit#1285): run in the crate directory.
+  if ( cd "$ROOT/crates/$crate" && $TO cargo tree --locked -e normal -p "$crate" --prefix none "$@" ) > "$file" 2> "$file.err"; then
     rm -f "$file.err"
     local count
     count=$(awk 'NF { print $1 " " $2 }' "$file" | sort -u | wc -l | tr -d ' ')

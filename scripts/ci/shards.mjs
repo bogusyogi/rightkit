@@ -11,6 +11,8 @@ import { TEST_COMMAND } from "./test-results.mjs";
 // scripts/ci/shards.test.mjs.
 //
 // Rules the plan keeps:
+//  - Every crate is its own Cargo workspace with its own Cargo.lock and target directory (crates/<x>); a job that holds several
+//    crates runs each one in its own directory.
 //  - A crate or package is never split: all of its feature rows (ci/gate.config.json featureSets, the serial
 //    rerun, clippy, the checkFeatureSets rows) run in ONE job, so one target directory and one cache entry
 //    serve all of them.
@@ -270,7 +272,11 @@ export function requiredConsumerLockCommands(rows = []) {
   }));
 }
 
-/** Freeze every gate command at planning time, including serial, feature & dependency-build rows. */
+/**
+ * Freeze every gate command at planning time, including serial, feature & dependency-build rows. Every crate is its own Cargo workspace
+ * (rightkit#1285): gate.mjs runs each crate's commands with cwd crates/<x>, which a command string does not carry, so the strings stay
+ * `cargo <verb> -p <crate> ...` and must match the gate's run() labels exactly. Consumer rows run at the repository root.
+ */
 export function requiredShardCommands(tokens, { config = {}, packages = [], swiftTests = [] } = {}) {
   const commands = [];
   const add = (unit, executable, args) => commands.push({ unit, command: `${executable} ${args.join(" ")}` });

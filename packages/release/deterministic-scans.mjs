@@ -305,6 +305,11 @@ export const ancestorConfigChanged = (ws, changed, pattern = ANCESTOR_RUST_CONFI
   const rel = dir === "." ? f : f.startsWith(`${dir}/`) ? f.slice(dir.length + 1) : null;
   return rel !== null && pattern.test(rel);
 }));
+// Genuinely shared inputs of a repository whose every crate is its own Cargo workspace (rightkit#1285): no crate directory holds them,
+// so a change to one reaches every unit. Anything else outside a crate directory reaches no crate (a vendored source maps to the crates
+// that patch or path-depend on it through `externalInputs`; a repository-level toolchain, .cargo, clippy or rustfmt file is an
+// ANCESTOR_RUST_CONFIG_FILE of every workspace). The gate configuration, the pipeline's toolchain pins and the gate itself are named here.
+export const SHARED_RUST_SCOPE_FILE = /^(ci\/gate\.config\.json|ci\/rk-pipeline\.json|packages\/release\/(bin\/rightkit-gate|deterministic-scans|scan-digest|advisory-exceptions|crate-workspaces|lock-graph|cargo-target-shim)\.mjs)$/;
 const WORKSPACE_JS_FILE = /^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.npmrc)$/;
 // The linter a package has is the one it configures. ESLint reads a flat `eslint.config.*` or a legacy `.eslintrc*` from the package directory or
 // any ancestor of it; Biome reads `biome.json` / `biome.jsonc` the same way. A Biome-only app (ViewRight, ScrapeRight: `"lint": "biome lint ."`)
@@ -739,7 +744,7 @@ export function planScans({
   // Repository-specific units for any layout: [{ name, dir, publish? }], dir repo-relative ("." for a root unit). When given they
   // replace the crates/<name> and packages/<name> layout (rightkit-gate). `cargoDir` is the Cargo workspace root the cargo scans run in.
   // A rust unit may name its own workspace: { name, dir, cargoDir, crate, publish? } runs its scans with cwd cargoDir and `-p <crate>`;
-  // `name` is then the unit's identity in scan ids and feature config (rightkit-gate names it `<cargoDir>:<crate>` below the root), and
+  // `name` is then the unit's identity in scan ids and feature config (rightkit-gate names it `<cargoDir>:<crate>` below the root, and the plain crate for a `crates/<crate>` workspace of its own), and
   // `crateFeatures` is read by `name` first, then by `crate`. Units of different workspaces never share a lock, a deny/audit run or a
   // `cargo metadata`; a unit that sets no cargoDir belongs to the global `cargoDir` above.
   rustUnits = null, npmUnits = null, cargoDir = ".",
@@ -757,6 +762,14 @@ export function planScans({
   rustLocks = null,
   // The pinned RustSec advisory database ({ url, commit }, advisory-db.json): cargo-deny and cargo-audit read exactly that commit and never fetch.
   advisoryPin = null,
+  // Cross-workspace reach of a crate-per-workspace repository (rightkit#1285): `crateDependents(unitNames: Set) -> Set` answers the
+  // units that path-depend on any of `unitNames`, transitively, across Cargo workspaces (the gate builds it from packages/release/
+  // crate-workspaces.mjs; manifests only). Every such unit that is not itself in scope gets a `check-dependent` scan. null plans none beyond
+  // the per-workspace lock graph (rustLocks).
+  crateDependents = null,
+  // `{ "<repo-relative directory>": [unit names] }`: sources outside every unit that a unit compiles (vendor/citationberg is patched into
+  // rightkit-typeset). A changed file under the directory puts those units in scope. null maps none.
+  externalInputs = null,
 } = {}) {
   if (!contentRoot) throw new TypeError("planScans: contentRoot is required");
   if (!Array.isArray(cargoCommand) || cargoCommand.length === 0 || !["rustright", "cargo"].includes(cargoCommand[0]) || cargoCommand.slice(1).some((a) => a !== "cargo")) {
@@ -865,7 +878,13 @@ export function planScans({
   };
   // Units of an explicit-workspace layout (some unit names its cargoDir) get workspace-suffixed ids for the per-workspace scans.
   const perWorkspaceIds = Array.isArray(rustUnits) && rustUnits.some((u) => u?.cargoDir !== undefined);
-  const wsIdSuffix = (ws) => (perWorkspaceIds && ws !== "." ? `:${ws}` : "");
+  // The label a per-workspace scan id carries: the workspace directory, except for a workspace that is exactly one crate-named unit
+  // (`crates/rightkit-fs` holding rightkit-fs, rightkit#1285 D2), which is labelled by the crate (`cargo-deny:rightkit-fs`).
+  const wsLabel = (ws) => {
+    if (rustMap) for (const [name, u] of rustMap) if (u.cargoDir === ws && name === u.crate && ws === `crates/${u.crate}`) return name;
+    return ws;
+  };
+  const wsIdSuffix = (ws) => (perWorkspaceIds && ws !== "." ? `:${wsLabel(ws)}` : "");
   const wsOf = (n) => (rustMap ? rustMap.get(n).cargoDir : cargoWs);
   const crateOf = (n) => (rustMap?.get(n)?.crate ?? n);
   const featuresOf = (n) => crateFeatures?.[n] ?? crateFeatures?.[crateOf(n)] ?? {};
@@ -950,7 +969,12 @@ export function planScans({
   const wideJsRoots = new Set(pnpmRoots.filter((r) => files.some((f) => { const rel = wsRel(r, f); return rel !== null && WORKSPACE_JS_FILE.test(rel); })));
   const wideCrates = wideWs.size ? (rustMap ? [...rustMap.keys()].filter((n) => wideWs.has(wsOf(n))) : listDir(path.join(contentRoot, "crates"))).filter((n) => !rustScope || rustScope.has(n)) : [];
   if (wideWs.size && rustScope) notes.push(`workspace Rust change reaches ${wideCrates.length} crate(s) through the lock graph`);
-  const crateNames = safeUnits([...new Set([...(rustMap ? files.map((f) => unitOf(rustMap, f)).filter(Boolean) : under("crates/").map((f) => f.split("/")[1])), ...wideCrates])].filter((n) => exists(path.join(contentRoot, rustDir(n), "Cargo.toml"))).sort(), "crate");
+  // A source outside every unit that a unit compiles (externalInputs), and a shared input, reach their units; nothing else outside a
+  // unit's directory does (a crate-per-workspace repository has no root manifest or lock to widen the scope).
+  const externalUnits = rustMap && externalInputs ? Object.entries(externalInputs).flatMap(([dir, names]) => (files.some((f) => f === dir || f.startsWith(`${dir.replace(/\/+$/, "")}/`)) ? names : [])).filter((n) => rustMap.has(n)) : [];
+  const sharedUnits = rustMap && files.some((f) => SHARED_RUST_SCOPE_FILE.test(f)) ? [...rustMap.keys()] : [];
+  if (sharedUnits.length) notes.push(`a shared build input changed (${files.filter((f) => SHARED_RUST_SCOPE_FILE.test(f)).join(", ")}); every Rust unit is in scope`);
+  const crateNames = safeUnits([...new Set([...(rustMap ? files.map((f) => unitOf(rustMap, f)).filter(Boolean) : under("crates/").map((f) => f.split("/")[1])), ...wideCrates, ...externalUnits, ...sharedUnits])].filter((n) => exists(path.join(contentRoot, rustDir(n), "Cargo.toml"))).sort(), "crate");
   // The workspace a changed file belongs to is the deepest one that holds it (a root workspace holds only what no nested one does).
   const wsOfFile = (f) => { let best = null; for (const ws of workspaces) if ((ws === "." || f.startsWith(`${ws}/`)) && (best === null || ws.length > best.length)) best = ws; return best; };
   const configWs = new Set();
@@ -1002,7 +1026,7 @@ export function planScans({
     // A non-empty list only: `[^\]\s]` is one character that is neither whitespace nor the closing bracket, so `ignore = []` followed by
     // a later `]` (the next table header) is not an ignore (Pulse, 2026-10-27: `\S` matched the `]` itself).
     const ignores = ["deny.toml", ".cargo/audit.toml"].some((f) => { try { return /\bignore\s*=\s*\[[^\]]*[^\]\s][^\]]*\]/s.test(readFile(path.join(contentRoot, dir, f))); } catch { return false; } });
-    if (ignores && !(dir === "" && exists(path.join(contentRoot, "ci/advisory-exceptions.json")))) add({ id: `advisory-exceptions${dir ? `:${dir}` : ""}`, class: A, internal: "advisory-exceptions", dir, exceptionsFile: ".rightkit/advisory-exceptions.json" });
+    if (ignores && !(dir === "" && exists(path.join(contentRoot, "ci/advisory-exceptions.json")))) add({ id: `advisory-exceptions${dir ? `:${wsLabel(ws)}` : ""}`, class: A, internal: "advisory-exceptions", dir, exceptionsFile: ".rightkit/advisory-exceptions.json" });
   }
   // Like generated-docs, planned only when a changed file is one of the contract's inputs or projections. The generator runs from
   // the trusted scanner checkout (the import below); the exported contract and projections are data it checks.
@@ -1106,7 +1130,7 @@ export function planScans({
   }
   // Reverse dependents: a workspace crate that is not in scope but whose lock closure reaches one that is must still compile.
   // A unit only depends on units of its own Cargo workspace (its own lock), so each workspace is judged by its own lock.
-  const inScope = new Set(crateNames);
+  const inScope = new Set(crateNames); const planned = new Set();
   for (const ws of [...new Set(crateNames.map(wsOf))].sort()) {
     const lock = lockOf(ws);
     if (!lock) continue;
@@ -1114,7 +1138,13 @@ export function planScans({
     const scoped = crateNames.filter((n) => wsOf(n) === ws).map(crateOf);
     const workspace = (rustMap ? [...rustMap.keys()] : listDir(path.join(contentRoot, "crates"))).filter((n) => wsOf(n) === ws);
     const dependents = safeUnits(workspace.filter((n) => !inScope.has(n) && exists(path.join(contentRoot, rustDir(n), "Cargo.toml")) && scoped.some((t) => reach(lock, crateOf(n), memo).has(t))).sort(), "crate");
-    for (const name of dependents) add({ id: `check-dependent:${name}`, class: B, ...cargoIn(ws, ...checkArgs(crateOf(name), { locked: true })) });
+    for (const name of dependents) { planned.add(name); add({ id: `check-dependent:${name}`, class: B, ...cargoIn(ws, ...checkArgs(crateOf(name), { locked: true })) }); }
+  }
+  // Across Cargo workspaces (one workspace and lock per crate): a unit that path-depends on a unit in scope, transitively, is judged by
+  // the manifests' path dependencies, since no lock holds both.
+  if (typeof crateDependents === "function" && rustMap && crateNames.length) {
+    const across = [...crateDependents(new Set(crateNames))].filter((n) => !inScope.has(n) && !planned.has(n) && rustMap.has(n) && exists(path.join(contentRoot, rustDir(n), "Cargo.toml"))).sort();
+    for (const name of safeUnits(across, "crate")) add({ id: `check-dependent:${name}`, class: B, ...cargoIn(wsOf(name), ...checkArgs(crateOf(name), { locked: true })) });
   }
   // A linter config in the unit's directory or any ancestor of it (a repository-level config covers every unit, as the tools look it up).
   const hasConfig = (dir, names) => ancestorDirsOf(dir).some((d) => names.some((f) => exists(path.join(liveRoot, inDir(d, f)))));

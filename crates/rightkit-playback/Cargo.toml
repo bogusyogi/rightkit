@@ -28,3 +28,39 @@ tempfile = "3"
 [package.metadata.rightkit]
 continuous = false
 continuous_reason = "task-spawn: spawn_blocking inside the prepare_media_playback and prepare_registered_media_playback Tauri commands (lib.rs), one ffmpeg compatibility copy per command bounded by PREPARE_TIMEOUT and cancellation; sleep: PREPARE_POLL between try_wait calls inside that one copy; resident-static: PlaybackRegistry::shared() OnceLock (lib.rs) holds the one process-wide registry of paths the host registers and can revoke, and the SERIAL AtomicU64 (lib.rs) only mints copy ids; the SourceRegistry only holds paths the host registers and can revoke, no listener, timer or watcher (reviewed 2026-10-21)"
+
+# One Cargo workspace and lock per crate (rightkit#1285).
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

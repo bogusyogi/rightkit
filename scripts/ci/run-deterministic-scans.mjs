@@ -12,7 +12,7 @@ import { parseUnitNames, readCrateWorkspace, readNpmWorkspace } from "./publish.
 import { externalInputs } from "../../packages/release/bin/rightkit-gate.mjs";
 import { planScans, runScans, scanDeferrals, scanFailures } from "../../packages/release/deterministic-scans.mjs";
 import { brokerManagedHost } from "../../packages/release/cargo-contract.mjs";
-import { buildScanReceipt, observeToolVersions, resultProblems, SCAN_RECEIPT_FILE, sha256Hex, toolVersionProblems } from "./scan-receipt.mjs";
+import { buildScanReceipt, candidateCargoLocks, observeToolVersions, resultProblems, SCAN_RECEIPT_FILE, toolVersionProblems } from "./scan-receipt.mjs";
 
 const git = (cwd, ...args) => {
   const r = spawnSync("git", args, { cwd, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
@@ -36,6 +36,7 @@ export function publicationContent({ registry, units: text, files, workspace, cr
     if (!/^[A-Za-z0-9_@+.-]+(?:\/[A-Za-z0-9_@+.-]+)*$/.test(unit.dir) || unit.dir.split("/").includes("..")) throw new Error(`unsafe publication unit directory: ${unit.dir}`);
     dirs.push(unit.dir);
     if (registry === "crates") {
+      if (name === "rightkit-typeset") dirs.push("vendor/citationberg"); // its [patch.crates-io] path dependency (#1285 D7)
       dirs.push(`ci/consumers/${name}`);
       for (const row of crateFeatures[name]?.consumerRows ?? []) {
         if (!/^ci\/consumers\/[A-Za-z0-9_+.-]+\/Cargo\.toml$/.test(row.manifestPath)) throw new Error(`unsafe consumer manifest for ${name}`);
@@ -77,12 +78,13 @@ export async function runCandidateScans({ contentRoot, liveRoot, outDir, env = p
   const result = await runScans(plan, { classes: ["A"] });
   for (const line of scanDeferrals(result)) console.log(`DEFERRED ${line}`);
   for (const line of scanFailures(result)) console.log(`FAIL ${line}`);
+  // Each crate unit is bound to its own crates/<x>/Cargo.lock (#1285): no root lock exists.
+  const cargoLocks = candidateCargoLocks({ candidateDir: contentRoot, units: selection.scope.units, registry: selection.scope.registry });
   const receipt = buildScanReceipt({
-    result, plannedClassA, sourceCommit, headCommit: head, observedTools, scope: selection.scope,
-    cargoLockSha256: sha256Hex(fs.readFileSync(path.join(contentRoot, "Cargo.lock"))),
+    result, plannedClassA, sourceCommit, headCommit: head, observedTools, scope: selection.scope, cargoLocks,
     run: { repository: env.GITHUB_REPOSITORY, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT },
   });
-  const problems = [...resultProblems(result, plannedClassA), ...toolVersionProblems(observedTools)];
+  const problems = [...resultProblems(result, plannedClassA, cargoLocks), ...toolVersionProblems(observedTools)];
   if (problems.length === 0) {
     fs.mkdirSync(outDir, { recursive: true });
     fs.writeFileSync(path.join(outDir, SCAN_RECEIPT_FILE), `${JSON.stringify(receipt, null, 2)}\n`, { flag: "wx" });

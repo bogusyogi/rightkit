@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import {
-  checkAdvisoryExceptions, parseToml, lockedVersions,
+  checkAdvisoryExceptions, checkCrateAdvisoryExceptions, parseToml, lockedVersions, CRATE_EXCEPTIONS_FILE,
   EXCEPTIONS_FILE, DENY_FILE, AUDIT_FILE, LOCK_FILE,
 } from './advisory-exceptions.mjs';
 
@@ -165,9 +165,51 @@ test('an unresolvable lock dependency fails closed', () => {
   assert.ok(has(run(files({ lock })), /does not resolve to exactly one locked package/));
 });
 
-test('the real repository passes', () => {
+test('the real repository passes: every crate against its own ledger, deny.toml, audit.toml and lock', () => {
   const root = path.resolve(import.meta.dirname, '..', '..');
-  assert.deepEqual(checkAdvisoryExceptions({ root, now: NOW }), []);
+  assert.deepEqual(checkCrateAdvisoryExceptions({ root, now: NOW }), []);
+});
+
+// An in-memory repository of crate workspaces: { 'crates/<x>/<file>': text }.
+function repo(tree) {
+  const abs = (p) => path.join('/r', p);
+  const store = new Map(Object.entries(tree).map(([k, v]) => [abs(k), v]));
+  const dirs = new Set(['/r/crates']);
+  return {
+    root: '/r',
+    io: {
+      readFile: (p) => { if (!store.has(p)) throw new Error('ENOENT'); return store.get(p); },
+      readdir: (d) => (d === '/r/crates' ? [...new Set([...store.keys()].filter(k => k.startsWith('/r/crates/')).map(k => k.split('/')[3]))] : []),
+      exists: (p) => store.has(p) || dirs.has(p),
+    },
+  };
+}
+const crateTree = (name, f) => Object.fromEntries(Object.entries({ 'Cargo.toml': '[package]\nname = "x"\n', ...f }).map(([k, v]) => [`crates/${name}/${k}`, v]));
+const ledgerFiles = (over) => { const f = files(over); return { 'Cargo.lock': f[LOCK_FILE], 'deny.toml': f[DENY_FILE], '.cargo/audit.toml': f[AUDIT_FILE], [CRATE_EXCEPTIONS_FILE]: f[EXCEPTIONS_FILE] }; };
+const plainDeny = { 'deny.toml': '[advisories]\nversion = 2\nignore = []\n\n[licenses]\nallow = ["MIT"]\n', 'Cargo.lock': LOCK };
+
+test('per crate: a crate with its own consistent ledger passes and a crate without ignores needs none', () => {
+  const r = repo({ ...crateTree('rightkit-a', ledgerFiles()), ...crateTree('rightkit-b', plainDeny) });
+  assert.deepEqual(checkCrateAdvisoryExceptions({ ...r, now: NOW }), []);
+});
+
+test('per crate: each crate is read against its own lock and the problem names the crate', () => {
+  const stale = ledgerFiles({ lock: LOCK.replace('1.0.0', '1.0.1') });
+  const r = repo({ ...crateTree('rightkit-a', ledgerFiles()), ...crateTree('rightkit-b', stale) });
+  const problems = checkCrateAdvisoryExceptions({ ...r, now: NOW });
+  assert.ok(problems.length > 0 && problems.every(p => p.startsWith('crates/rightkit-b: ')), problems.join('; '));
+  assert.ok(has(problems, /scope drift/));
+});
+
+test('per crate: an ignore with no ledger fails, in deny.toml or in audit.toml', () => {
+  const f = ledgerFiles(); delete f[CRATE_EXCEPTIONS_FILE];
+  assert.ok(has(checkCrateAdvisoryExceptions({ ...repo(crateTree('rightkit-a', f)), now: NOW }), /crates\/rightkit-a: .*does not exist/));
+  const g = { ...plainDeny, '.cargo/audit.toml': '[advisories]\nignore = ["RUSTSEC-2099-0001"]\n' };
+  assert.ok(has(checkCrateAdvisoryExceptions({ ...repo(crateTree('rightkit-a', g)), now: NOW }), /does not exist/));
+});
+
+test('per crate: the repository has no root ledger to read', () => {
+  assert.deepEqual(checkCrateAdvisoryExceptions({ ...repo({}), now: NOW }), []);
 });
 
 test("parseToml reads hex, octal and binary integers (cargo-deny's licence clarify hashes)", () => {

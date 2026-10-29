@@ -66,7 +66,8 @@ jobs:
           PUBLISH_CANDIDATE_ID: ${{ inputs.candidate_id }}
           PUBLISH_SOURCE_DIR: ${{ github.workspace }}/candidate
         run: node verifier/scripts/ci/reviewed-candidate.mjs run --dry-run
-      - name: Require the original run's passed deterministic-scan receipt bound to the candidate source & Cargo.lock
+      # rightkit#1285: the receipt binds each crate's crates/*/Cargo.lock (full checkout above, no sparse pattern needed).
+      - name: Require the original run's passed deterministic-scan receipt bound to the candidate source & crate Cargo.lock files
         id: scans
         env:
           GITHUB_TOKEN: ${{ github.token }}

@@ -40,6 +40,29 @@ test("consumer-locks refuses a consumer lock behind its path crate and ignores u
   assert.match(failures[0].fix, /version = "0\.6\.1"/);
 });
 
+test("consumer-locks: a sibling version bump that leaves a dependent crate's own lock stale fails, naming that lock", (t) => {
+  const manifest = (name, version) => `[package]\nname = "${name}"\nversion = "${version}"\n`;
+  const lock = (...entries) => `version = 4\n${entries.map(([name, version]) => `\n[[package]]\nname = "${name}"\nversion = "${version}"\n`).join("")}`;
+  const files = {
+    "crates/rightkit-a/Cargo.toml": manifest("rightkit-a", "0.6.1"),
+    "crates/rightkit-a/Cargo.lock": lock(["rightkit-a", "0.6.1"]),
+    "crates/rightkit-b/Cargo.toml": manifest("rightkit-b", "0.2.0"),
+    // b path-depends on a and was last locked at a 0.6.0: stale after a's bump to 0.6.1.
+    "crates/rightkit-b/Cargo.lock": lock(["rightkit-b", "0.2.0"], ["rightkit-a", "0.6.0"]),
+    "crates/rightkit-c/Cargo.toml": manifest("rightkit-c", "0.3.0"),
+    "crates/rightkit-c/Cargo.lock": lock(["rightkit-c", "0.3.0"], ["rightkit-a", "0.6.1"]),
+    "crates/rightkit-d/Cargo.toml": manifest("rightkit-d", "0.4.1"),
+    "crates/rightkit-d/Cargo.lock": lock(["rightkit-d", "0.4.0"], ["rightkit-a", "0.6.0"]),
+  };
+  const failures = run("consumer-locks", t, files);
+  assert.deepEqual(failures.map((f) => f.problem.split(" lists ")[0]), ["crates/rightkit-b/Cargo.lock", "crates/rightkit-d/Cargo.lock", "crates/rightkit-d/Cargo.lock"]);
+  assert.match(failures[0].problem, /^crates\/rightkit-b\/Cargo\.lock lists rightkit-a 0\.6\.0 but crates\/rightkit-a\/Cargo\.toml is 0\.6\.1/);
+  assert.match(failures[0].fix, /crates\/rightkit-b/);
+  assert.match(failures[1].problem, /rightkit-d 0\.4\.0 but crates\/rightkit-d\/Cargo\.toml is 0\.4\.1/, "a crate's own entry in its own lock is checked too");
+  assert.deepEqual(run("consumer-locks", t, { ...files, "crates/rightkit-b/Cargo.lock": files["crates/rightkit-c/Cargo.lock"].replace("rightkit-c", "rightkit-b").replace("0.3.0", "0.2.0"), "crates/rightkit-d/Cargo.lock": lock(["rightkit-d", "0.4.1"], ["rightkit-a", "0.6.1"]) }), []);
+  assert.deepEqual(run("consumer-locks", t, { ...files, "Cargo.lock": lock(["rightkit-a", "0.1.0"]) }).map((f) => f.problem.split(" lists ")[0]).filter((p) => p === "Cargo.lock"), [], "a root Cargo.lock is no longer a gated build");
+});
+
 test("dispatch-pins refuses a changed helper and a pin it cannot map to a file", (t) => {
   const helper = "export const x = 1;\n";
   const dispatch = (pin) => `const PREFLIGHT_SHA256 = "${pin}";\nconst ADMISSION_DEPENDENCIES = {\n};\n`;

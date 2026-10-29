@@ -70,10 +70,11 @@ jobs:
         run: |
           set -uo pipefail
           failed=()
+          # rightkit#1285: each crate is its own Cargo workspace; check it through its own manifest and lock.
           check() {
-            local name="$1"; shift
+            local name="$1" dir="$2"; shift 2
             echo "::group::$name"
-            if ! cargo ndk -t arm64-v8a -t x86_64 --platform "$MIN_SDK" check --locked "$@"; then
+            if ! cargo ndk -t arm64-v8a -t x86_64 --platform "$MIN_SDK" check --locked --manifest-path "crates/$dir/Cargo.toml" "$@"; then
               failed+=("$name")
               echo "::error title=Android compile failed::$name"
             fi
@@ -81,9 +82,9 @@ jobs:
           }
           for crate in rightkit-android rightkit-fs rightkit-credentials rightkit-http rightkit-models \
                        rightkit-app-settings rightkit-license rightkit-device rightkit-vad rightkit-logs; do
-            check "$crate" -p "$crate"
+            check "$crate" "$crate" -p "$crate"
           done
-          check "rightkit-sync (drive)" -p rightkit-sync --no-default-features --features drive
+          check "rightkit-sync (drive)" rightkit-sync -p rightkit-sync --no-default-features --features drive
           if (( ${#failed[@]} )); then
             printf 'Android compile failed for: %s\n' "${failed[*]}" | tee -a "$GITHUB_STEP_SUMMARY"
             exit 1

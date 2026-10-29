@@ -19,7 +19,8 @@
 //                         package.json: reviewed surface, importClosures and dependencies match the exports
 //   version-pins     G03  scripts/ci/release-version-pins.mjs versionPinProblems: every hand-written copy of a unit's version
 //   dispatch-pins    G05  the helper digests pinned in scripts/ci/rightkit-dispatch.mjs match the committed helpers
-//   consumer-locks   G08  the root and ci/consumers/** Cargo.lock list each path crate at its crates/<name>/Cargo.toml version
+//   consumer-locks   G08  every crates/<x>/Cargo.lock (one workspace and lock per crate, rightkit#1285) and ci/consumers/** Cargo.lock list
+//                         each path crate at its crates/<name>/Cargo.toml version: a sibling version bump leaves each dependent's lock stale
 //                         (cargo --locked refuses a stale one: tauri-shell consumer-0-0, wv2-0_39, 2026-10-23)
 //   generated-docs   G10  scripts/generate-index.mjs --check: INDEX.md and docs/CAPABILITY-MAP.md match the committed sources, and the
 //                         port matrix's MD and HTML are the rendering of its JSON (offline: reads manifests and the version feed only)
@@ -265,10 +266,10 @@ function dispatchPins({ root }) {
   return out;
 }
 
-// The locks a gate builds with --locked: the root, the consumers and desktop-app-template (its own workspace, discovered by
+// The locks a gate builds with --locked: every crate's own lock, the consumers and desktop-app-template (its own workspace, discovered by
 // rightkit-gate). The spikes and the crates' example apps are built by no gate (scripts/ci/gate.mjs "Not covered by this gate")
 // and keep whatever versions they were last locked at.
-const LOCKED_BUILDS = /^(?:Cargo\.lock|ci\/consumers\/.+\/Cargo\.lock|desktop-app-template\/Cargo\.lock)$/;
+const LOCKED_BUILDS = /^(?:crates\/[^/]+\/Cargo\.lock|ci\/consumers\/.+\/Cargo\.lock|desktop-app-template\/Cargo\.lock)$/;
 
 function consumerLocks({ root, files }) {
   const crates = workspaceCrates(root);
@@ -278,7 +279,7 @@ function consumerLocks({ root, files }) {
     for (const pkg of lockPathPackages(readText(root, lock))) {
       const crate = crates.get(pkg.name);
       if (crate?.version && crate.version !== pkg.version) {
-        out.push({ problem: `${lock} lists ${pkg.name} ${pkg.version} but ${crate.dir}/Cargo.toml is ${crate.version} (cargo --locked refuses to update it)`, fix: `set version = "${crate.version}" in the ${pkg.name} [[package]] entry of ${lock} (a path package: no registry change), or regenerate that lock` });
+        out.push({ problem: `${lock} lists ${pkg.name} ${pkg.version} but ${crate.dir}/Cargo.toml is ${crate.version} (cargo --locked refuses to update it)`, fix: `set version = "${crate.version}" in the ${pkg.name} [[package]] entry of ${lock} (a path package: no registry change), or regenerate that lock in ${path.posix.dirname(lock)}; every crate that path-depends on ${pkg.name} owns its own lock and needs the same bump` });
       }
     }
   }

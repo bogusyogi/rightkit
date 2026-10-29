@@ -18,7 +18,10 @@ export const SWAP_HELPER_PACKAGE = "@rightkit/release";
 export const SWAP_HELPER_BIN = ["bin", "darwin", "rightkit-swap"];
 export const SWAP_HELPER_RECEIPT = ["bin", "darwin", "rightkit-swap.sign.json"];
 // rightkit-swap is gated on the crate feature "fs" (crates/rightkit-fs/Cargo.toml [[bin]] required-features).
-export const SWAP_HELPER_CARGO_ARGS = ["build", "--release", "-p", "rightkit-fs", "--features", "fs", "--bin", "rightkit-swap"];
+// Every crate is its own Cargo workspace (rightkit#1285): there is no root manifest, so the build and the target-directory read name crates/rightkit-fs.
+export const SWAP_HELPER_MANIFEST = "crates/rightkit-fs/Cargo.toml";
+export const SWAP_HELPER_CARGO_ARGS = ["build", "--manifest-path", SWAP_HELPER_MANIFEST, "--release", "-p", "rightkit-fs", "--features", "fs", "--bin", "rightkit-swap"];
+export const SWAP_HELPER_METADATA_ARGS = ["metadata", "--format-version", "1", "--no-deps", "--manifest-path", SWAP_HELPER_MANIFEST];
 
 /** Typed error. Codes: SWAP_HELPER_BUILD_FAILED, SWAP_HELPER_SIGN_FAILED, SWAP_HELPER_MISSING, SWAP_HELPER_UNSIGNED. */
 export class SwapHelperError extends Error {
@@ -67,7 +70,7 @@ export function prepareSwapHelper({
   const fail = (code, message) => { throw new SwapHelperError(code, message); };
   const built = run("cargo", SWAP_HELPER_CARGO_ARGS, { cwd: workspaceRoot, env });
   if (built.error || built.status !== 0) fail("SWAP_HELPER_BUILD_FAILED", `rustright cargo ${SWAP_HELPER_CARGO_ARGS.join(" ")} failed (${built.error?.message ?? `exit ${built.status}`})\n${tail(`${built.stdout ?? ""}\n${built.stderr ?? ""}`)}`);
-  const meta = run("cargo", ["metadata", "--format-version", "1", "--no-deps"], { cwd: workspaceRoot, env });
+  const meta = run("cargo", SWAP_HELPER_METADATA_ARGS, { cwd: workspaceRoot, env });
   let targetDir;
   try { targetDir = JSON.parse(meta.stdout).target_directory; } catch { /* refused below */ }
   if (meta.status !== 0 || typeof targetDir !== "string" || !path.isAbsolute(targetDir)) fail("SWAP_HELPER_BUILD_FAILED", "cannot read the Cargo target directory to find rightkit-swap");

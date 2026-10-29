@@ -10,7 +10,9 @@
 //     workspace (`cargo metadata --no-deps --locked` there, through the broker). A unit of a workspace below the repository root is
 //     named `<cargoDir>:<crate>`; its scans run with that directory as cwd, its reverse dependents and cache keys come from that
 //     workspace's own Cargo.lock, and ci/gate.config.json `rust` may key its feature sets by `<cargoDir>:<crate>` or by the plain crate
-//     name. A tracked Cargo.toml that is not a member and cannot stand alone, a member that is untracked or ignored, and an untracked
+//     name. One workspace and lock per crate (RightKit itself, rightkit#1285): a crate whose workspace is its own crates/<crate> directory keeps
+//     its plain name and unsuffixed scan ids; a selected crate also selects every crate that path-depends on it, across workspaces, read from
+//     the manifests (packages/release/crate-workspaces.mjs); a vendored source a crate patches in selects that crate. A tracked Cargo.toml that is not a member and cannot stand alone, a member that is untracked or ignored, and an untracked
 //     Cargo.toml are skipped with a note on the first lines of the run, never silently.
 //   - npm: every pnpm root (discoverPnpmRoots: the repository root, and any tracked directory with a pnpm-lock.yaml or pnpm-workspace.yaml
 //     beside a package.json, outside node_modules) has its own units: the pnpm-workspace.yaml globs over tracked package.json files; when that
@@ -514,8 +516,30 @@ export function discoverRustUnits({ root, spawn, cargoCommand, tracked, readFile
   return { present: true, units, cargoDir, uncovered };
 }
 
-/** The unit name in scan ids and ci/gate.config.json: the plain crate in a root workspace, `<cargoDir>:<crate>` below it. */
-export const rustUnitName = (cargoDir, crate) => (cargoDir === "." ? crate : `${cargoDir}:${crate}`);
+/**
+ * The unit name in scan ids and ci/gate.config.json: the plain crate in a root workspace and in a workspace that is exactly that crate's
+ * own directory (`crates/rightkit-fs` holding rightkit-fs: one workspace and lock per crate, rightkit#1285), `<cargoDir>:<crate>` below
+ * any other workspace.
+ */
+export const rustUnitName = (cargoDir, crate) => (cargoDir === "." || cargoDir === `crates/${crate}` ? crate : `${cargoDir}:${crate}`);
+
+/**
+ * The vendored sources a crate compiles: `{ "vendor/<name>": [unit names] }`, from every quoted `../../vendor/<name>` path in the crate
+ * manifests (a [patch.crates-io] or dependency `path`, rightkit-typeset's vendor/citationberg). A changed file under the directory
+ * selects those units. `readManifest(unit)` returns the manifest text, or null.
+ */
+export function vendorOwners(units, readManifest) {
+  const owners = {};
+  for (const u of units) {
+    let manifest = null;
+    try { manifest = readManifest(u); } catch { manifest = null; }
+    for (const m of String(manifest ?? "").matchAll(/["'](?:\.\.\/)+vendor\/([A-Za-z0-9_.@+-]+)\/?["']/g)) {
+      const list = (owners[`vendor/${m[1]}`] ??= []);
+      if (!list.includes(u.name)) list.push(u.name);
+    }
+  }
+  return owners;
+}
 
 /**
  * The top-level TOML tables of a Cargo manifest: name -> body text (the lines under `[name]` up to the next header, trimmed).
@@ -1047,6 +1071,7 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
   const byName = new Map(rustUnits.map((u) => [u.name, u]));
   const known = new Set(byName.keys());
   const byCrate = new Map(rustUnits.map((u) => [`${wsOf(u)}\0${crateOf(u)}`, u]));
+  const siblingByCrate = new Map(rustUnits.filter((u) => wsOf(u) === `crates/${crateOf(u)}`).map((u) => [crateOf(u), u]));
   const whole = () => canonicalJson({ kind: "tree", tree: headTree });
   const externalOf = (member) => {
     if (!externalMemo.has(member.dir)) {
@@ -1116,7 +1141,9 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
       } else if (!COMPILE_SCAN_PREFIXES.has(String(scan.id).split(":")[0])) return whole();
       if (!reachMemos.has(ws)) reachMemos.set(ws, new Map());
       const reached = [...reach(lock, crateOf(head), reachMemos.get(ws))];
-      const closure = [head, ...reached.map((n) => byCrate.get(`${ws}\0${n}`)).filter(Boolean)].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+      // A crate that is its own workspace (one workspace and lock per crate) holds its sibling crates in its lock as path packages: the
+      // sibling's source is part of the closure whichever workspace it lives in, or a change to it would leave a stale key.
+      const closure = [...new Set([head, ...reached.map((n) => byCrate.get(`${ws}\0${n}`) ?? siblingByCrate.get(n)).filter(Boolean)])].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
       const extra = new Set(testInputs);
       for (const member of closure) {
         const found = externalOf(member);
@@ -2155,8 +2182,11 @@ export async function main(argv, io = {}) {
     // otherwise hide a committed failure. Class A reads only the snapshot.
     if (!planOnly && !classAOnly && !snapshotB) {
       const npmRootFiles = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc", ...ESLINT_CONFIG_FILES, ...BIOME_CONFIG_FILES];
-      const inputs = [...new Set([...rust.units.map((u) => u.dir), ...npm.map((u) => u.dir), ...rust.workspaces.map((w) => w.cargoDir), "ci", "scripts", "vendor", "Cargo.toml", "Cargo.lock", ".cargo", "rust-toolchain.toml", "rust-toolchain",
-        "deny.toml", "clippy.toml", "rustfmt.toml", ...npmRootFiles, ...npmRoots.filter((r) => r !== ".").flatMap((r) => npmRootFiles.map((f) => `${r}/${f}`))])];
+      const inputs = [...new Set([...rust.units.map((u) => u.dir), ...npm.map((u) => u.dir), ...rust.workspaces.map((w) => w.cargoDir), "ci", "scripts", "vendor",
+        // The root manifest, lock and deny.toml only where a workspace is rooted there; a crate-per-workspace repository binds each crate's own
+        // (its directory is an input above, which holds its Cargo.toml, Cargo.lock, deny.toml, .cargo and .rightkit).
+        ...(rust.workspaces.some((w) => w.cargoDir === ".") ? ["Cargo.toml", "Cargo.lock", "deny.toml"] : []),
+        ".cargo", "rust-toolchain.toml", "rust-toolchain", "clippy.toml", "rustfmt.toml", ...npmRootFiles, ...npmRoots.filter((r) => r !== ".").flatMap((r) => npmRootFiles.map((f) => `${r}/${f}`))])];
       // Batched like cargoInputsDiffer: one argv with every input path overflows Windows' command line in a large repository.
       const dirtyRuns = pathspecBatches(inputs).map((batch) => git("status", "--porcelain", "--untracked-files=all", "--", ...batch));
       const dirtyFailed = dirtyRuns.find((r) => failed(r));
@@ -2226,6 +2256,22 @@ export async function main(argv, io = {}) {
       }
       cargoLiveRoot = root;
     }
+    // One Cargo workspace and lock per crate (rightkit#1285): the reach between crates is the manifests' path dependencies, read from the
+    // gated snapshot. A crate that is selected selects its transitive dependents (checked, not re-linted); a vendored source it patches
+    // in selects the crate. Neither is derivable from a single lock, so a layout that cannot read them is refused, never planned narrower.
+    let crateDependents = null; let externalInputs = null;
+    const crateUnits = rust.units.filter((u) => u.cargoDir === `crates/${u.crate}` && u.name === u.crate);
+    if (crateUnits.length) {
+      try {
+        const { crateWorkspaces, pathDependencies, reverseDependents } = await import("../crate-workspaces.mjs");
+        const io = { readFile: (f) => o.readFile(f), exists: (f) => o.exists(f), readdir: (d) => o.readdir(d) };
+        const known = new Set(crateUnits.map((u) => u.name));
+        const graph = new Map();
+        for (const [name, set] of pathDependencies(repo, io, crateWorkspaces(repo, io))) if (known.has(name)) graph.set(name, new Set([...set].filter((d) => known.has(d))));
+        crateDependents = (names) => reverseDependents([...names].filter((n) => known.has(n)), graph);
+        externalInputs = vendorOwners(crateUnits, (u) => o.readFile(path.join(repo, u.dir, "Cargo.toml")));
+      } catch (e) { o.err(`${tag} BLOCKED: cannot read the path dependencies between the crate workspaces (${e.message}); their reverse dependents would go unchecked, so nothing is planned`); return 1; }
+    }
     let fullPlan;
     fullPlan = planScans({
       // Class A of a commit or tree reads only that snapshot: every scan, cargo's included, runs in the export, never in the live
@@ -2238,7 +2284,7 @@ export async function main(argv, io = {}) {
       // The door's snapshot compile already executes the repository's own code (its tests) in the verified snapshot, guarded like
       // full class A, so the docs generator runs there too instead of being deferred (step 4c review).
       quietTests: fullA || o.env.RK_GATE_QUIET_TESTS === "local" ? "local" : "ci", packageFeatures, liveExecution: (fullA && (args.includes("--worktree") || Boolean(snapshotA))) || Boolean(snapshotB),
-      rustUnits: rust.units, npmUnits: npm, npmRoots, cargoDir: ".", rustLocks, crateFeatures,
+      rustUnits: rust.units, npmUnits: npm, npmRoots, cargoDir: ".", rustLocks, crateFeatures, crateDependents, externalInputs,
       // The broker (or, on a direct host, the gate itself) admits compiles; no separate grant file decides it here.
       localCompile: true,
       exists: o.exists, readFile: o.readFile, platform: o.platform,
@@ -2255,7 +2301,8 @@ export async function main(argv, io = {}) {
 
     if (planOnly) {
       o.out(`${tag} plan: ${plan.scans.length} scan(s) for ${changed.length} changed file(s) vs ${base.slice(0, 12)} (reads the working tree; nothing runs)`);
-      const wsList = rust.workspaces.map((w) => w.cargoDir);
+      // A crate that is its own workspace is named by its unit (rust units below); only the other workspaces are listed.
+      const wsList = rust.workspaces.filter((w) => !(w.units.length === 1 && w.units[0].name === w.units[0].crate && w.cargoDir === `crates/${w.units[0].crate}`)).map((w) => w.cargoDir);
       const wsNote = wsList.length === 1 ? (wsList[0] === "." ? "" : ` (workspace ${wsList[0]})`) : wsList.length > 1 ? ` (workspaces ${wsList.join(", ")})` : "";
       o.out(`${tag} rust units: ${rust.units.map((u) => `${u.name}=${u.dir}`).join(", ") || "none"}${wsNote}; npm units: ${npm.map((u) => `${u.name}=${u.dir}`).join(", ") || "none"}`);
       for (const s of plan.scans) o.out(`  [${s.class}] ${s.id} :: ${s.command}${plan.deferred.includes(s.id) ? " [deferred: no local compile grant]" : ""}`);

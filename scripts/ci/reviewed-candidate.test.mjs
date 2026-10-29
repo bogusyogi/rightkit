@@ -10,7 +10,7 @@ import { validateCandidate, selectCandidate, selectArchiveSupplement, checkProve
 import { SUPPLEMENT_WORKFLOW, SUPPLEMENT_POLICY } from "./supplemental-proof.mjs";
 import { assertReviewedDoc, REVIEWED_MUTATIONS } from "./reviewed-workflow-contract.mjs";
 import { parseYaml } from "./workflow-yaml.mjs";
-import { buildScanReceipt, REQUIRED_SCAN_IDS, SCAN_RECEIPT_FILE, SCAN_TOOL_PINS } from "./scan-receipt.mjs";
+import { buildScanReceipt, candidateCargoLocks, requiredReceiptScanIds, SCAN_RECEIPT_FILE, SCAN_TOOL_PINS } from "./scan-receipt.mjs";
 
 const SOURCE = "a".repeat(40); const PROMOTION = "b".repeat(40);
 const clone = (x) => structuredClone(x);
@@ -778,8 +778,15 @@ const directEnv = (f, extra = {}) => {
   return env;
 };
 function green(f) {
-  const scans = REQUIRED_SCAN_IDS.map((id) => ({ id, class: "A", command: `cmd ${id}`, status: "pass" }));
-  const scanReceipt = buildScanReceipt({ result: { ok: true, complete: true, classes: ["A"], deferred: [], scans }, plannedClassA: scans, sourceCommit: SOURCE, headCommit: SOURCE, cargoLockSha256: sha("sha256", fs.readFileSync(new URL("../../Cargo.lock", import.meta.url))), observedTools: SCAN_TOOL_PINS, run: { repository: "bogusyogi/rightkit", runId: "77", runAttempt: "1" }, scope: { registry: "crates", units: ["rightkit-a"] } });
+  // Every crate is its own Cargo workspace with its own lock (#1285): the scan receipt binds the unit to crates/rightkit-a/Cargo.lock of the
+  // trusted checkout, which this fixture stands in for with a candidate directory of its own.
+  f.candidateDir = path.join(f.temp, "candidate");
+  fs.mkdirSync(path.join(f.candidateDir, "crates", "rightkit-a"), { recursive: true });
+  fs.writeFileSync(path.join(f.candidateDir, "crates", "rightkit-a", "Cargo.toml"), '[package]\nname = "rightkit-a"\nversion = "0.1.0"\n\n[workspace]\n');
+  fs.writeFileSync(path.join(f.candidateDir, "crates", "rightkit-a", "Cargo.lock"), "# lock of rightkit-a\n");
+  const cargoLocks = candidateCargoLocks({ candidateDir: f.candidateDir, units: ["rightkit-a"], registry: "crates" });
+  const scans = requiredReceiptScanIds(cargoLocks).map((id) => ({ id, class: "A", command: `cmd ${id}`, status: "pass" }));
+  const scanReceipt = buildScanReceipt({ result: { ok: true, complete: true, classes: ["A"], deferred: [], scans }, plannedClassA: scans, sourceCommit: SOURCE, headCommit: SOURCE, cargoLocks, observedTools: SCAN_TOOL_PINS, run: { repository: "bogusyogi/rightkit", runId: "77", runAttempt: "1" }, scope: { registry: "crates", units: ["rightkit-a"] } });
   f.files["scan-receipt"] = { [SCAN_RECEIPT_FILE]: Buffer.from(JSON.stringify(scanReceipt)) };
   f.archives["scan-receipt"] = proofArchive(f.files["scan-receipt"]);
   f.artifacts[500] = { id: 500, name: "scan-receipt-1", expired: false, digest: `sha256:${sha("sha256", f.archives["scan-receipt"])}`, workflow_run: { id: 77, head_sha: SOURCE, head_branch: "main", repository_id: 99, head_repository_id: 99 } };
@@ -833,7 +840,7 @@ test("direct publication requires the run's own admission receipt for this run, 
   ];
   for (const [name, mutate, pattern] of cases) {
     const g = green(fixture(t)); mutate(g);
-    await assert.rejects(runQualified({ env: directEnv(g), identify: true, fetchImpl: g.fetchImpl, spawn: g.spawn }), pattern, name);
+    await assert.rejects(runQualified({ candidateDir: g.candidateDir, env: directEnv(g), identify: true, fetchImpl: g.fetchImpl, spawn: g.spawn }), pattern, name);
     assert.equal(g.puts.length, 0, name);
   }
 });
@@ -851,17 +858,17 @@ test("direct publication refuses missing, failed or differently scoped determini
     },
   ]) {
     const f = green(fixture(t)); change(f);
-    await assert.rejects(runQualified({ env: directEnv(f), identify: true, fetchImpl: f.fetchImpl, spawn: f.spawn }), /scan receipt refused/);
+    await assert.rejects(runQualified({ candidateDir: f.candidateDir, env: directEnv(f), identify: true, fetchImpl: f.fetchImpl, spawn: f.spawn }), /scan receipt refused/);
     assert.equal(f.puts.length, 0);
   }
 });
 
 test("a green qualification run publishes its own sealed bytes directly: no candidate, no approval pin, no reviewed dispatch", async (t) => {
   const f = green(fixture(t));
-  const identified = await runQualified({ env: directEnv(f), identify: true, fetchImpl: f.fetchImpl, spawn: f.spawn });
+  const identified = await runQualified({ candidateDir: f.candidateDir, env: directEnv(f), identify: true, fetchImpl: f.fetchImpl, spawn: f.spawn });
   assert.deepEqual(identified, { registry: "crates", units: ["rightkit-a"], sourceSha: SOURCE });
   assert.equal(f.puts.length, 0, "identification touches no registry");
-  const actual = await runQualified({ env: directEnv(f, { PUBLISH_REGISTRY: "crates", CARGO_REGISTRY_TOKEN: "registry-fixture" }), fetchImpl: f.fetchImpl, spawn: f.spawn, pause: 0, log: () => {} });
+  const actual = await runQualified({ candidateDir: f.candidateDir, env: directEnv(f, { PUBLISH_REGISTRY: "crates", CARGO_REGISTRY_TOKEN: "registry-fixture" }), fetchImpl: f.fetchImpl, spawn: f.spawn, pause: 0, log: () => {} });
   assert.equal(f.puts.length, 1);
   assert.deepEqual(f.puts[0].body, buildCratePublishBody(f.metadata.toString(), f.crate));
   assert.equal(actual.commit, SOURCE); assert.equal(actual.candidate.runId, "77"); assert.equal(actual.candidate.source, "qualified");
@@ -897,21 +904,21 @@ test("direct publication refuses a run that is not green, foreign, diverged, res
   ];
   for (const [name, mutate, extra] of cases) {
     const g = green(fixture(t)); mutate(g);
-    await assert.rejects(runQualified({ env: directEnv(g, extra), identify: true, fetchImpl: g.fetchImpl, spawn: g.spawn }), /refused/, name);
+    await assert.rejects(runQualified({ candidateDir: g.candidateDir, env: directEnv(g, extra), identify: true, fetchImpl: g.fetchImpl, spawn: g.spawn }), /refused/, name);
     assert.equal(g.puts.length, 0, name);
   }
   const h = green(fixture(t));
-  await assert.rejects(runQualified({ env: directEnv(h, { PUBLISH_REGISTRY: "npm", NODE_AUTH_TOKEN: "npm-fixture" }), fetchImpl: h.fetchImpl, spawn: h.spawn, pause: 0, log: () => {} }), /the qualified run sealed crates/);
+  await assert.rejects(runQualified({ candidateDir: h.candidateDir, env: directEnv(h, { PUBLISH_REGISTRY: "npm", NODE_AUTH_TOKEN: "npm-fixture" }), fetchImpl: h.fetchImpl, spawn: h.spawn, pause: 0, log: () => {} }), /the qualified run sealed crates/);
   assert.equal(h.puts.length, 0);
   const noToken = green(fixture(t));
-  await assert.rejects(runQualified({ env: directEnv(noToken, { PUBLISH_REGISTRY: "crates" }), fetchImpl: noToken.fetchImpl, spawn: noToken.spawn, pause: 0, log: () => {} }), /CARGO_REGISTRY_TOKEN is not set/);
+  await assert.rejects(runQualified({ candidateDir: noToken.candidateDir, env: directEnv(noToken, { PUBLISH_REGISTRY: "crates" }), fetchImpl: noToken.fetchImpl, spawn: noToken.spawn, pause: 0, log: () => {} }), /CARGO_REGISTRY_TOKEN is not set/);
   assert.equal(noToken.puts.length, 0);
   // Direct publication at the qualified commit itself (nothing pushed since): identical comparison is the legitimate case.
   const same = green(fixture(t)); same.provenance.comparison = { status: "identical", merge_base_commit: { sha: SOURCE } };
-  assert.deepEqual(await runQualified({ env: directEnv(same, { GITHUB_SHA: SOURCE }), identify: true, fetchImpl: same.fetchImpl, spawn: same.spawn }), { registry: "crates", units: ["rightkit-a"], sourceSha: SOURCE });
+  assert.deepEqual(await runQualified({ candidateDir: same.candidateDir, env: directEnv(same, { GITHUB_SHA: SOURCE }), identify: true, fetchImpl: same.fetchImpl, spawn: same.spawn }), { registry: "crates", units: ["rightkit-a"], sourceSha: SOURCE });
   // A Linux-required unit needs the Linux receipt and job of the same run; the fixture has neither.
   const linux = green(fixture(t)); const linuxFile = path.join(linux.temp, "linux-required.json"); fs.writeFileSync(linuxFile, JSON.stringify({ schema: 1, npm: [], crates: ["rightkit-a"] }));
-  await assert.rejects(runQualified({ env: directEnv(linux), identify: true, fetchImpl: linux.fetchImpl, spawn: linux.spawn, linuxFile }), /Linux verify job must succeed exactly when/);
+  await assert.rejects(runQualified({ candidateDir: linux.candidateDir, env: directEnv(linux), identify: true, fetchImpl: linux.fetchImpl, spawn: linux.spawn, linuxFile }), /Linux verify job must succeed exactly when/);
 });
 
 test("publish-direct workflow: fires on completed publish runs of main, identifies without credentials, then one credentialed step per registry", () => {
@@ -929,7 +936,7 @@ test("publish-direct workflow: fires on completed publish runs of main, identifi
   assert.equal(checkout.uses, "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1");
   assert.equal(checkout.with.ref, "${{ github.event.workflow_run.head_sha }}");
   assert.equal(String(checkout.with["persist-credentials"]), "false");
-  for (const input of ["Cargo.lock", "packages/release/scan-digest.mjs", "scripts/ci/scan-receipt.mjs"]) assert.ok(String(checkout.with["sparse-checkout"]).split("\n").includes(input), input);
+  for (const input of ["crates/*/Cargo.toml", "crates/*/Cargo.lock", "packages/release/scan-digest.mjs", "scripts/ci/scan-receipt.mjs"]) assert.ok(String(checkout.with["sparse-checkout"]).split("\n").includes(input), input);
   assert.ok(!String(checkout.with["sparse-checkout"]).includes("approved-artifacts"), "the committed approval file is not an input of direct publication");
   assert.equal(node.uses, "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020");
   const source = { GITHUB_TOKEN: "${{ github.token }}", PUBLISH_QUALIFIED_RUN_ID: "${{ github.event.workflow_run.id }}", PUBLISH_QUALIFIED_RUN_ATTEMPT: "${{ github.event.workflow_run.run_attempt }}", PUBLISH_QUALIFIED_SHA: "${{ github.event.workflow_run.head_sha }}" };

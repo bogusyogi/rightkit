@@ -171,7 +171,7 @@ function hostBundle(dir, key, { id, units, canonical, bytes = {}, excluded = [],
     const evidence = { schema: 1, kind: "cargo", name: unit.name, version: unit.version, commit, artifactSha256: sha, hostPolicy: `${OS[key] === "darwin" ? "darwin" : "win32"}-only`, hostPolicyReason: "fixture", runs: [{ host: { os: OS[key], arch: "x64" }, commit, features: ["default"], artifactSha256: sha, command: `cargo test -p ${unit.name}`, operator: "agent (local-build grant)", timestamp: "2026-10-22T00:00:00Z", passed: 3, failed: 0, skipped: 0, ignored: ign, steps: [] }] };
     return { name: unit.name, version: unit.version, file: `${unit.name}-${unit.version}.crate`, sha256: sha, bytesVerified: true, archiveScan: { schema: 1, scanner: "publish-cargo/scanCrateForSecrets", archiveSha256: sha, status: "pass", files: 4, violations: [], problems: [] }, status: ign > 0 ? "allowed-skips" : "pass", executed: 3, ignored: ign, skipped: 0, steps: [], evidence };
   });
-  const scans = { schema: upload.LOCAL_SCAN_SCHEMA, passed: true, problems: [], sourceCommit: commit, headCommit: commit, cargoLockSha256: "d".repeat(64), scope: { units: units.map((u) => u.name), files: 9 }, tools: { pinned: {}, observed: {} }, classes: ["A", "B"], scanSetDigest: "e".repeat(64), classDigests: { A: "e".repeat(64), B: "f".repeat(64) }, inputDigest: null, deferred: [], scans: [{ id: "cargo-metadata", class: "A", command: "cargo metadata", status: "pass" }, { id: "clippy", class: "B", command: "cargo clippy", status: "pass" }] };
+  const scans = { schema: upload.LOCAL_SCAN_SCHEMA, passed: true, problems: [], sourceCommit: commit, headCommit: commit, cargoLocks: Object.fromEntries(units.map((u) => [u.name, { path: `crates/${u.name}/Cargo.lock`, sha256: "d".repeat(64) }])), scope: { units: units.map((u) => u.name), files: 9 }, tools: { pinned: {}, observed: {} }, classes: ["A", "B"], scanSetDigest: "e".repeat(64), classDigests: { A: "e".repeat(64), B: "f".repeat(64) }, inputDigest: null, deferred: [], scans: [{ id: "cargo-metadata", class: "A", command: "cargo metadata", status: "pass" }, { id: "clippy", class: "B", command: "cargo clippy", status: "pass" }] };
   const result = { schema: 1, kind: "local-host-result", host: HOSTS[key].name, hostOs: OS[key], arch: "x64", candidateId: id, commit, tree, broker: { name: "rustright", client: "C:/.rustright/runtime/rustright.exe", sha256: "9".repeat(64) }, qualifiedAt: "2026-10-22T00:00:00Z", scans, units: rows }; mutate(result);
   fs.writeFileSync(path.join(dir, "host-result.json"), JSON.stringify(result)); writeBundleManifest(dir);
   return dir;
@@ -253,10 +253,10 @@ test("the candidate document validates, pins the asset hashes, and leaves review
 
 // ---- one host ----
 function hostRig(t, over = {}) {
-  const root = temp(t); const out = path.join(temp(t), "out"); fs.writeFileSync(path.join(root, "Cargo.lock"), "# lock\n");
+  const root = temp(t); const out = path.join(temp(t), "out"); for (const crate of ["rightkit-a", "rightkit-b", "rightkit-logs"]) { fs.mkdirSync(path.join(root, "crates", crate), { recursive: true }); fs.writeFileSync(path.join(root, "crates", crate, "Cargo.lock"), "# lock\n"); } // one workspace lock per crate (#1285)
   const calls = { run: [], spawn: [], scans: [], meta: [] };
   const deps = {
-    platform: "win32", arch: "x64", git: (args) => (args.join(" ") === "ls-files -z" ? "Cargo.lock\0crates/rightkit-a/src/lib.rs\0crates/other/src/lib.rs\0" : gitFake(over.git)(args)),
+    platform: "win32", arch: "x64", git: (args) => (args.join(" ") === "ls-files -z" ? "ci/gate.config.json\0crates/rightkit-a/src/lib.rs\0crates/other/src/lib.rs\0" : gitFake(over.git)(args)),
     managedRuntimeClient: () => "C:\\.rustright\\runtime\\rustright.exe", readFile: (file) => (String(file).includes("rustright") ? Buffer.from("broker bytes") : fs.readFileSync(file)),
     readPackage: (dir) => ({ name: path.basename(dir), version: "0.1.0" }), readJson: () => ({ rust: {} }), now: () => "2026-10-22T01:00:00Z",
     run: (command, args) => { calls.spawn.push([command, ...args]); return { status: 0, stdout: command === "where" ? "C:\\bin\\rightkit.cmd\n" : "", stderr: "" }; },
@@ -294,7 +294,7 @@ test("one host: scans first, then qualify-only per unit, a verified bundle, hone
   assert.deepEqual([b.name, b.status, b.sha256, b.bytesVerified], ["rightkit-b", "allowed-exclusion", null, false]);
   assert.equal(result.scans.passed, true);
   // Scans: whole-workspace scans plus only the units' crates, class A then B, nothing deferred, through the plan builder.
-  assert.deepEqual(rig.calls.plan.changed, ["Cargo.lock", "crates/rightkit-a/src/lib.rs"]); assert.deepEqual(rig.calls.plan.cargoCommand, ["rustright", "cargo"]); assert.equal(rig.calls.plan.includeTests, false); assert.equal(rig.calls.plan.liveRoot, rig.root);
+  assert.deepEqual(rig.calls.plan.changed, ["ci/gate.config.json", "crates/rightkit-a/src/lib.rs"]); assert.deepEqual(rig.calls.scans[0].cargoLocks, { "rightkit-a": { path: "crates/rightkit-a/Cargo.lock", sha256: sha256(Buffer.from("# lock\n")) }, "rightkit-b": { path: "crates/rightkit-b/Cargo.lock", sha256: sha256(Buffer.from("# lock\n")) } }); assert.deepEqual(rig.calls.plan.cargoCommand, ["rustright", "cargo"]); assert.equal(rig.calls.plan.includeTests, false); assert.equal(rig.calls.plan.liveRoot, rig.root);
   assert.deepEqual(rig.calls.scans[0].units, ["rightkit-a", "rightkit-b"]); assert.equal(rig.calls.scans[0].sourceCommit, COMMIT); assert.equal(rig.calls.scans[0].headCommit, COMMIT);
   assert.ok(fs.existsSync(path.join(out, "host-result.json")) && !fs.readdirSync(out).some((name) => /^(export|meta)-/.test(name)), "no scratch is left in the bundle");
 });

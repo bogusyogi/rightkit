@@ -10,7 +10,7 @@ import { validatePublicationEvidence } from "../../packages/release/publication-
 import { readCargoPackage } from "../../packages/release/crate-graph.mjs";
 import { readArchiveEntries } from "./archive-secret-scan.mjs";
 import { runtimeFeatureProofPolicy } from "./semantic-admission.mjs";
-import { localRequiredScanIds, verifyLocalScanRecord } from "./scan-receipt.mjs";
+import { cargoLocksFor, localRequiredScanIds, verifyLocalScanRecord } from "./scan-receipt.mjs";
 import { localTestPlan } from "../../packages/release/local-publish.mjs";
 import { LOCAL_HOST_OS } from "./upload.mjs";
 import { verifyLocalRuntimeProof } from "./runtime-supplement.mjs";
@@ -319,17 +319,21 @@ export async function localAdmission({ candidate, manifest, manifestSha256, sour
   const fail = (text) => failures.push(text);
   if (!source || source.source?.sha !== candidate.sourceSha || manifest.commit !== candidate.sourceSha || manifest.registry !== candidate.registry || candidate.registry !== "crates") fail("candidate/source/manifest identity mismatch");
   const hosts = Object.keys(candidate.assets).filter((key) => key !== "packed");
-  const lock = source.readData("Cargo.lock");
+  // rightkit#1285: every crate unit is bound to its own crate workspace lock (crates/<x>/Cargo.lock), read from the authenticated source.
+  let cargoLocks = {};
+  try {
+    for (const u of manifest.units) if (!/^crates\/[^/]+$/.test(String(u.dir))) throw new Error(`${u.name}: unit dir ${JSON.stringify(u.dir)} is not crates/<x>`);
+    cargoLocks = cargoLocksFor({ units: candidate.units, registry: "crates", workspaces: manifest.units.map((u) => ({ name: u.name, lock: `${u.dir}/Cargo.lock` })), read: source.readData });
+  } catch (error) { fail(`crate locks: ${error.message}`); }
   // fix5: what each host must prove is recomputed from the authenticated source, never from the receipts.
   const sourceText = (name) => source.readData(name).toString("utf8");
-  let requiredIds = null; let gateConfig = {}; let workspaceDependencies = {}; let workspacePackage = {}; let workspaceLints;
+  let requiredIds = null; let gateConfig = {};
   try { requiredIds = localRequiredScanIds({ units: candidate.units, readText: sourceText }); } catch (error) { fail(`required scan set: ${error.message}`); }
   try { gateConfig = JSON.parse(sourceText("ci/gate.config.json")); } catch (error) { if (error instanceof SyntaxError) fail("ci/gate.config.json in the authenticated source is not valid JSON"); }
-  try { const workspaceManifest = parseToml(sourceText("Cargo.toml")).workspace ?? {}; workspaceDependencies = workspaceManifest.dependencies ?? {}; workspacePackage = workspaceManifest.package ?? {}; workspaceLints = workspaceManifest.lints; } catch { /* a source without a workspace manifest inherits nothing; an inheriting field is then refused */ }
   for (const host of hosts) {
     const receipt = receipts[host];
     if (receipt?.commit !== candidate.sourceSha || receipt?.tree !== source.source.tree) fail(`${host}: receipt commit/tree differ from the authenticated source`);
-    try { verifyLocalScanRecord(receipt?.scans, { sourceSha: candidate.sourceSha, cargoLockSha256: sha256(lock), units: candidate.units, requiredIds }); } catch (error) { fail(`${host}: ${error.message}`); }
+    try { verifyLocalScanRecord(receipt?.scans, { sourceSha: candidate.sourceSha, cargoLocks, units: candidate.units, requiredIds, registry: "crates" }); } catch (error) { fail(`${host}: ${error.message}`); }
   }
   for (const unit of manifest.units) {
     const problems = [...failures]; const policies = {};
@@ -339,6 +343,9 @@ export async function localAdmission({ candidate, manifest, manifestSha256, sour
       bytes = fs.readFileSync(path.join(packDir, unit.file));
       if (sha256(bytes) !== unit.sha256) bad(`${unit.name}: archive bytes differ from the manifest`);
       problems.push(...crateSourceProblems({ bytes, unit, sourceSha: candidate.sourceSha, readData: source.readData }));
+      // Each crate is its own workspace: inherited `workspace = true` fields resolve against THIS crate's own [workspace] table, if it has one.
+      let workspaceDependencies = {}; let workspacePackage = {}; let workspaceLints;
+      try { const workspaceManifest = parseToml(sourceText(`${unit.dir}/Cargo.toml`)).workspace ?? {}; workspaceDependencies = workspaceManifest.dependencies ?? {}; workspacePackage = workspaceManifest.package ?? {}; workspaceLints = workspaceManifest.lints; } catch { /* a manifest without a workspace table inherits nothing; an inheriting field is then refused */ }
       problems.push(...packagedManifestProblems({ bytes, unit, metadataText: fs.readFileSync(path.join(packDir, unit.metaFile), "utf8"), workspaceDependencies, workspacePackage, workspaceLints }));
       const unitRoot = path.join(source.root, unit.dir);
       const info = readCargoPackage(unitRoot);

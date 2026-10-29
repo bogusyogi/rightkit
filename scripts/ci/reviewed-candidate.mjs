@@ -723,7 +723,10 @@ export const QUALIFIED_WORKFLOW = "publish-direct.yml";
 export const QUALIFIED_ARTIFACTS = { packed: "publish-packed", macos: "publish-receipt-verify-xcode-27", windows: "publish-receipt-verify-windows-2025", linux: "publish-receipt-verify-ubuntu-24.04" };
 const UNIT_NAME = /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 
-export async function prepareQualified({ env, fetchImpl = fetch, spawn = spawnSync, linuxFile }) {
+// The trusted checkout the scan receipt binds crate locks against: this repository root (publish-direct.yml checks out crates/*/Cargo.toml and
+// crates/*/Cargo.lock of the qualified commit). Tests pass their own `candidateDir`; no workflow or CLI does.
+const TRUSTED_CANDIDATE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+export async function prepareQualified({ env, fetchImpl = fetch, spawn = spawnSync, linuxFile, candidateDir = TRUSTED_CANDIDATE_DIR }) {
   requireThat(env.GITHUB_ACTIONS === "true" && env.GITHUB_REPOSITORY === REPOSITORY && env.GITHUB_REF === "refs/heads/main" && /^[0-9a-f]{40}$/.test(env.GITHUB_SHA ?? ""), "direct publication requires trusted main of the repository");
   requireThat(env.GITHUB_TOKEN && env.RUNNER_TEMP, "GitHub read token & runner temp are required");
   requireThat(env.GITHUB_WORKFLOW_REF === `${REPOSITORY}/.github/workflows/${QUALIFIED_WORKFLOW}@refs/heads/main`, "wrong direct publication workflow");
@@ -803,7 +806,7 @@ export async function prepareQualified({ env, fetchImpl = fetch, spawn = spawnSy
   fs.writeFileSync(approvedFile, `${JSON.stringify({ schema: 1, artifacts: sealed.manifest.units.map((unit) => ({ registry, name: unit.name, version: unit.version, sha256: unit.sha256, reviewer: "publish.yml qualified", reviewRef })) }, null, 2)}\n`, { flag: "wx" });
   const candidate = { id: `qualified-${runId}-${runAttempt}`, source: "qualified", sourceSha, runId, runAttempt, workflowId: String(workflow.id), manifestSha256: sealed.manifestSha256, registry, units, allow, artifacts, runtimeBudgetUnproven: runtimeOwned };
   const { verifyOriginalScanReceipt } = await import("./scan-receipt.mjs");
-  await verifyOriginalScanReceipt({ candidate, repository, env, candidateDir: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.."), fetchImpl, workDir: root, api, artifactMatches, unpack: (options) => unpackArtifact({ ...options, spawn }) });
+  await verifyOriginalScanReceipt({ candidate, repository, env, candidateDir, fetchImpl, workDir: root, api, artifactMatches, unpack: (options) => unpackArtifact({ ...options, spawn }) });
   // The run's own admission receipt (publish-admission.mjs): broker correlation, or hosted admission of exactly this package and
   // version with exactly these allowsets, written by this run and attempt.
   // Imported here: publish-reviewed.yml's sparse checkout carries no publish-admission.mjs.
@@ -816,9 +819,9 @@ export async function prepareQualified({ env, fetchImpl = fetch, spawn = spawnSy
   return { context, packDir, receiptsDir, approvedFile };
 }
 
-export async function runQualified({ env, identify = false, fetchImpl = fetch, spawn = spawnSync, linuxFile, pause, log }) {
+export async function runQualified({ env, identify = false, fetchImpl = fetch, spawn = spawnSync, linuxFile, pause, log, candidateDir }) {
   if (identify) for (const key of ["NODE_AUTH_TOKEN", "NPM_TOKEN", "CARGO_REGISTRY_TOKEN"]) requireThat(!env[key] && !process.env[key], `${key} is present in secretless identification`);
-  const prepared = await prepareQualified({ env, fetchImpl, spawn, linuxFile });
+  const prepared = await prepareQualified({ env, fetchImpl, spawn, linuxFile, ...(candidateDir === undefined ? {} : { candidateDir }) });
   const { candidate } = prepared.context;
   if (env.GITHUB_OUTPUT) fs.appendFileSync(env.GITHUB_OUTPUT, `registry=${candidate.registry}\nunits=${candidate.units.join(" ")}\nsource_sha=${candidate.sourceSha}\n`);
   if (identify) return { registry: candidate.registry, units: candidate.units, sourceSha: candidate.sourceSha };
