@@ -226,7 +226,8 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
        * never starts in a console-less session (measured on the Dell over ssh, 2026-10-29), so `detached` is not used.
        */
       contain({ name, pid, file, timeoutMs = 60_000, sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) }) {
-        // The script goes in an owner-only file beside the holder record, never on the command line: cmd.exe cuts a command line at
+        // The script goes in a file beside the holder record (mode 0600 means nothing on NTFS: the file has the ownership directory's
+        // ACL, the same trust the record itself has), never on the command line: cmd.exe cuts a command line at
         // 8191 characters, and the encoded holder passed that once it answered fresh queries (the holder never started; Dell
         // 2026-10-29, D:\scratch\rk-step4\dell-ev7-build-ownership.log). The holder deletes the file once PowerShell has read it.
         const script = holderScriptFile(file);
