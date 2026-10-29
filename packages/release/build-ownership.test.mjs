@@ -57,7 +57,7 @@ test("ownership: a fresh host is held with a fresh handle, the containment and n
     const own = acquire(file, platform, fakeProbe(platform));
     const rec = JSON.parse(fs.readFileSync(file, "utf8"));
     assert.equal(rec.schema, OWNERSHIP_SCHEMA); assert.equal(rec.handle, own.handle); assert.equal(rec.pid, process.pid);
-    assert.deepEqual(rec.containment, platform === "win32" ? { kind: "job", name: jobName(own.handle) } : { kind: "group", group: 4242 }, platform);
+    assert.deepEqual(rec.containment, platform === "win32" ? { kind: "job", name: jobName(own.handle), contained: true } : { kind: "group", group: 4242 }, platform);
     assert.equal(rec.broker.submitted, false); assert.equal(own.held(), true);
     assert.equal(own.release().released, true, platform); assert.equal(fs.existsSync(file), false);
   }
@@ -174,6 +174,11 @@ test("ownership Windows: a dead owner is reclaimed only when its job is empty, o
   own.release();
   const rec2 = deadOwner(file, "win32", { handle: "aaaaaaaa-2222-3333-4444-555555555555" });
   assert.equal(acquire(file, "win32", fakeProbe("win32", { jobState: () => ({ open: true, active: 0 }) })).reclaimed.from, rec2.handle);
+  // A gate whose children were never in its job (contained: false) is never cleared by the job, drained or not; only a reboot.
+  const rec3 = deadOwner(file, "win32", { handle: "bbbbbbbb-2222-3333-4444-555555555555", containment: { kind: "job", name: jobName("bbbbbbbb-2222-3333-4444-555555555555"), contained: false } });
+  fs.writeFileSync(holderFile(file, rec3.handle), JSON.stringify({ schema: HOLDER_SCHEMA, state: "drained", holder: 7, at: iso(NOW) }));
+  assert.throws(() => acquire(file, "win32", fakeProbe("win32", { jobState: () => ({ open: false }) })), /never held its gate's children .* until the host reboots/);
+  assert.equal(acquire(file, "win32", fakeProbe("win32", { bootTime: () => NOW, jobState: () => ({ open: false }) })).reclaimed.from, rec3.handle, "a reboot clears it");
 });
 
 test("ownership: a reboot after the record proves its work gone; broker work needs REAPED; a submit is marked before it happens", (t) => {
@@ -242,7 +247,7 @@ test("brokerLeaseState: only a well-formed rustright.snapshot-lease-status.v1 an
 
 const MODULE = pathToFileURL(path.resolve("build-ownership.mjs")).href;
 /** Starts a fake gate that takes ownership of `file` and starts one child that outlives it; resolves with their pids. */
-async function crashingGate(t, file, { detachChild = process.platform === "win32", mode = "plain", snapshot = null } = {}) {
+async function crashingGate(t, file, { detachChild = process.platform === "win32", mode = "plain", snapshot = null, viaNode = false } = {}) {
   const script = path.join(path.dirname(file), "fake-gate.mjs");
   const SCANS = pathToFileURL(path.resolve("deterministic-scans.mjs")).href;
   // plain: a child of the gate (detached on request). scan: the real class A spawner (detached, its own group) with the
@@ -262,17 +267,20 @@ if (${JSON.stringify(mode)} === "scan") {
 } else {
   const c = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore", detached: ${detachChild} }); c.unref(); pid = c.pid;
 }
-process.stdout.write(JSON.stringify({ handle: own.handle, gate: process.pid, child: pid }) + "\\n");
+(await import("node:fs")).writeFileSync(${JSON.stringify(file)} + ".gate-info", JSON.stringify({ handle: own.handle, gate: process.pid, child: pid, contained: own.contained }));
 setInterval(() => {}, 1000);
 `);
   const env = { ...process.env }; delete env[OWNERSHIP_ENV]; delete env.NODE_OPTIONS;
-  // POSIX: the fake gate leads its own process group, as a gate started from a shell leads its job's.
-  const gate = spawn(process.execPath, [script], { stdio: ["ignore", "pipe", "inherit"], env, detached: process.platform !== "win32" });
-  const line = await new Promise((resolve, reject) => {
-    let buf = ""; gate.stdout.on("data", (d) => { buf += d; if (buf.includes("\n")) resolve(buf.split("\n")[0]); });
-    gate.on("exit", (code) => reject(new Error(`fake gate exited ${code} before reporting`)));
-  });
-  const info = JSON.parse(line);
+  // POSIX: the fake gate leads its own process group, as a gate started from a shell leads its job's. Windows: started the way a
+  // shell starts it (cmd start), outside the kill-on-close job Node keeps for its own children; viaNode starts it from Node.
+  const infoFile = `${file}.gate-info`; fs.rmSync(infoFile, { force: true });
+  const gate = process.platform === "win32" && !viaNode
+    ? spawn("cmd.exe", ["/d", "/c", "start", "\"\"", "/b", "/wait", process.execPath, script], { stdio: "ignore", env })
+    : spawn(process.execPath, [script], { stdio: ["ignore", "ignore", "inherit"], env, detached: process.platform !== "win32" });
+  let exited = null; gate.on("exit", (code) => { exited = code; });
+  await until(() => fs.existsSync(infoFile) || exited !== null, 90_000);
+  if (!fs.existsSync(infoFile)) throw new Error(`fake gate exited ${exited} before reporting`);
+  const info = JSON.parse(fs.readFileSync(infoFile, "utf8"));
   t.after(() => { for (const pid of [info.gate, info.child]) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } } });
   return { ...info, kill: async (pid) => { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } for (let i = 0; i < 200; i++) { try { process.kill(pid, 0); } catch { return; } await new Promise((r) => setTimeout(r, 50)); } throw new Error(`pid ${pid} survived SIGKILL`); } };
 }
@@ -308,6 +316,7 @@ test("[native] G1: a gate killed while its child still runs keeps the host owned
   const file = path.join(tmp(t, "rk-own-native-"), "build-ownership", "owner.json");
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const g = await crashingGate(t, file);
+  if (process.platform === "win32") assert.equal(g.contained, true, "a gate started like a shell starts it holds its children in its job");
   await g.kill(g.gate);
   // The next gate is a process of its own.
   const busy = gateStep(t, "acquire", { file }, process.env);
@@ -321,6 +330,17 @@ test("[native] G1: a gate killed while its child still runs keeps the host owned
   assert.equal(next.reclaimed.from, g.handle);
   assert.match(next.reclaimed.proofs.join("; "), process.platform === "win32" ? /drained|holds no process/ : /has no member started under this ownership/);
   assert.equal(next.released.released, true, JSON.stringify(next.released));
+});
+
+test("[native] G1 Windows: a gate started by a Node process cannot hold its children in its job; it says so, and its crash stays held after the child is gone", { skip: process.platform !== "win32" && "Windows jobs only", timeout: 120_000 }, async (t) => {
+  const file = path.join(tmp(t, "rk-own-native-"), "build-ownership", "owner.json");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const g = await crashingGate(t, file, { viaNode: true });
+  assert.equal(g.contained, false, "the self-check saw the child leave the job");
+  await g.kill(g.gate); await g.kill(g.child);
+  await until(() => readHolder(holderFile(file, g.handle))?.state === "drained");
+  const step = gateStep(t, "acquire", { file }, process.env);
+  assert.equal(step.ok, false, JSON.stringify(step)); assert.match(step.message, /never held its gate's children/);
 });
 
 test("[native] G1 POSIX: a child that left the gate's process group but kept its environment still holds the host (environment net)", { skip: process.platform === "win32" && "Windows children stay in the gate's job", timeout: 60_000 }, async (t) => {

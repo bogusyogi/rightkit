@@ -13,9 +13,11 @@
 //   - the owner process is gone (not running, or its pid now runs a process with another start identity), and
 //   - its covered children are gone:
 //       Windows: the gate runs inside its own named Job Object (every descendant joins it, detached ones and those Node nests in
-//         its own job included; measured on the Dell, D:\scratch\rk-step4\dell-jobexp.log). A detached holder process keeps the
-//         job's only handle and records `drained` once the job has no active process. Proof: the job opens with 0 active, or it
-//         is gone and its holder recorded `drained` (or `failed` before the gate ever ran inside it).
+//         its own job included; measured on the Dell, D:\scratch\rk-step4\dell-jobexp.log). A holder process outside the gate's
+//         jobs keeps the job's only handle and records `drained` once the job has no active process. Proof: the job opens with 0
+//         active, or it is gone and its holder recorded `drained` (or `failed` before the gate ever ran inside it). A gate whose
+//         launcher's job lets children leave silently (a Node parent) cannot hold its children in the job; a self-check at
+//         acquisition records that (`contained: false`), and such a gate's crash is never cleared except by a reboot.
 //       POSIX, three nets, all of which must be clear: (1) the gate's process group, counting members started after the
 //         ownership whose ancestry leads to the owner or to an orphan (ancestors and peers that share the group are not its
 //         children); (2) no process whose environment carries the handle (RIGHTKIT_BUILD_OWNERSHIP=<handle>), which catches a
@@ -106,7 +108,9 @@ export function holderScript({ name, pid, file }) {
     "  [RkJob]::CloseHandle($p) | Out-Null",
     "  Put @{ state = 'holding'; job = $name }",
     "} catch { Put @{ state = 'failed'; why = \"$_\" }; exit 1 }",
-    "while ($true) { if ([RkJob]::Active($h) -eq 0) { Put @{ state = 'drained'; job = $name }; exit 0 }; Start-Sleep -Milliseconds 250 }",
+    // Reports the live count whenever it changes (the gate's containment self-check reads it), drained at zero.
+    "$last = -1",
+    "while ($true) { $a = [RkJob]::Active($h); if ($a -eq 0) { Put @{ state = 'drained'; job = $name }; exit 0 }; if ($a -gt 0 -and $a -ne $last) { Put @{ state = 'holding'; job = $name; active = $a }; $last = $a }; Start-Sleep -Milliseconds 100 }",
   ].join("\n");
 }
 
@@ -165,17 +169,32 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
        * job Node keeps for its own children (libuv sets SILENT_BREAKAWAY_OK); cmd exits at once. A DETACHED_PROCESS PowerShell
        * never starts in a console-less session (measured on the Dell over ssh, 2026-10-29), so `detached` is not used.
        */
-      contain({ name, pid, file, timeoutMs = 60_000, sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) }) {
+      contain({ name, pid, file, timeoutMs = 60_000, selfCheckMs = 3000, sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) }) {
         const child = spawnHolder("cmd.exe", ["/d", "/c", "start", "\"\"", "/b", "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded(holderScript({ name, pid, file }))], { stdio: "ignore" });
         child.unref?.();
         const until = Date.now() + timeoutMs;
+        let holding = null;
         for (;;) {
           const state = readHolder(file);
-          if (state?.state === "holding") return state;
+          if (state?.state === "holding") { holding = state; break; }
           if (state?.state === "failed") throw new Error(`the job holder could not contain the gate: ${state.why}`);
           if (Date.now() > until) throw new Error(`the job holder did not report within ${timeoutMs} ms`);
           sleep(50);
         }
+        // Self-check: a child of this gate must land in the job. Under a launcher whose own job lets children leave silently
+        // (a Node parent: libuv's job sets SILENT_BREAKAWAY_OK, and a job nested under it loses them too) it does not, and then
+        // nothing proves this gate's work gone after a crash: the record says so and a dead owner stays busy.
+        const probeChild = spawnHolder(process.execPath, ["-e", "setTimeout(() => {}, 15000)"], { stdio: "ignore" });
+        const checkUntil = Date.now() + selfCheckMs;
+        let contained = false;
+        for (;;) {
+          const state = readHolder(file);
+          if (state?.state === "holding" && Number(state.active) >= 2) { contained = true; break; }
+          if (Date.now() > checkUntil) break;
+          sleep(50);
+        }
+        try { probeChild.kill(); } catch { /* already gone */ }
+        return { ...holding, contained };
       },
     };
   }
@@ -363,6 +382,9 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null }) {
   if (selfPid === null) { try { rebooted = probe.bootTime() > Date.parse(owner.acquiredAt); } catch { rebooted = false; } }
   if (rebooted) proofs.push("the host rebooted after the record was written");
   const c = owner.containment ?? {};
+  if (!rebooted && c.kind === "job" && c.contained === false && selfPid === null) {
+    throw new Error(`job ${c.name} never held its gate's children (the gate's launcher lets children leave its job silently, so they left this one too), so their exit cannot be proven; it stays held until the host reboots`);
+  }
   if (!rebooted && c.kind === "job") {
     let state;
     try { state = probe.jobState(c.name); } catch (e) { throw new Error(`job ${c.name} cannot be read (${e.message})`); }
@@ -509,11 +531,15 @@ export function acquireBuildOwnership({
   const done = (reclaimed) => {
     // Windows: the gate enters its job before it returns, so every child it starts from here on is contained.
     if (platform === "win32") {
-      try { probe.contain({ name: record.containment.name, pid: process.pid, file: holderFile(file, handle) }); }
+      let held;
+      try { held = probe.contain({ name: record.containment.name, pid: process.pid, file: holderFile(file, handle) }); }
       catch (e) { if (holds(file, handle)) fs.rmSync(file, { force: true }); throw new OwnershipBusy(`build ownership ${file}: ${e.message}`); }
+      // Recorded before any work starts: an uncontained gate's crash is never cleared by the job alone.
+      record.containment = { ...record.containment, contained: held?.contained !== false };
+      rewriteRecord(file, handle, (r) => ({ ...r, containment: record.containment }));
     }
     if (exportEnv) { process.env[OWNERSHIP_ENV] = handle; process.env[OWNERSHIP_FILE_ENV] = file; }
-    return { handle, file, joined: false, reclaimed, owner: record, markBrokerSubmit: () => markBrokerSubmit(file, handle), held: () => holds(file, handle), release };
+    return { handle, file, joined: false, reclaimed, owner: record, contained: record.containment.contained ?? true, markBrokerSubmit: () => markBrokerSubmit(file, handle), held: () => holds(file, handle), release };
   };
   if (publish(file, body)) return done(null);
   const observed = readText(file);
@@ -532,6 +558,16 @@ export function acquireBuildOwnership({
     fs.rmSync(reclaim, { force: true });
   }
   return done({ from: judged.owner.handle, pid: judged.owner.pid, proofs: judged.proofs });
+}
+
+/** Replaces the record atomically while it is still `handle`'s. */
+function rewriteRecord(file, handle, change) {
+  const text = readText(file);
+  let owner = null; try { owner = JSON.parse(text ?? ""); } catch { owner = null; }
+  if (owner?.handle !== handle) throw new OwnershipBusy(`build ownership ${file} is no longer held by ${handle}`);
+  const tmp = `${file}.${crypto.randomUUID()}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(change(owner)), { flag: "wx", mode: 0o600 });
+  try { fs.renameSync(tmp, file); } finally { fs.rmSync(tmp, { force: true }); }
 }
 
 function holds(file, handle) {
