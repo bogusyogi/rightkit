@@ -10,6 +10,16 @@ import { renderTemplate, MANAGED_MARKER } from "./render.mjs";
 import { buildRenderContext, LANE_FILENAMES, KNOWN_LANES, CHECK_JOB_LANES, checkJob, parsePackageManager, validateManifest, swiftPrivatePackagesConfigureStep, swiftPrivatePackagesCleanupStep } from "./manifest.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
+// The shell the workflow steps run in: bash on a POSIX runner, Git Bash on a Windows one. On Windows `bash` on PATH may be WSL's
+// System32\bash.exe (a Linux shell that cannot see this test's Windows paths), so Git Bash is found from git's own install
+// (<git>/mingw64/libexec/git-core -> <git>/bin/bash.exe); a host without it fails here, never silently skips.
+const BASH = (() => {
+  if (process.platform !== "win32") return "bash";
+  const exec = spawnSync("git", ["--exec-path"], { encoding: "utf8" });
+  const candidate = exec.status === 0 ? path.resolve(exec.stdout.trim(), "..", "..", "..", "bin", "bash.exe") : null;
+  if (!candidate || !fs.existsSync(candidate)) throw new Error(`Git Bash not found next to git (${exec.stdout?.trim() || exec.error?.message || `exit ${exec.status}`}); the workflow step tests need the shell a Windows runner uses`);
+  return candidate;
+})();
 const templatesDir = path.join(packageRoot, "templates");
 
 const FULL_MANIFEST = {
@@ -1580,7 +1590,7 @@ test("swift.privatePackages configure and cleanup scripts write, refuse and remo
     const manifest = { ...VALID_RUST_HYBRID, swift: { privatePackages: SWIFT_ONE } };
     const configure = stepScript(swiftPrivatePackagesConfigureStep(manifest));
     const cleanup = stepScript(swiftPrivatePackagesCleanupStep(manifest));
-    const run = (script, token) => spawnSync("bash", ["-c", script], {
+    const run = (script, token) => spawnSync(BASH, ["-c", script], {
       encoding: "utf8",
       windowsHide: true,
       env: { PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: path.join(home, ".config"), RUNNER_TEMP: runnerTemp, RIGHT_GIT_PRIVATE_TOKEN_0: token },
@@ -1979,7 +1989,7 @@ test("node release-candidate ownership step passes on both triggers and fails on
     const other = git("rev-parse", "HEAD~1").stdout.trim();
     const line = swRender(SW_NODE, "release-candidate").split("\n").find((l) => l.includes("git rev-parse HEAD"));
     const script = line.replace(/^\s*run: /, "").replace(/ && .*$/, "").replace("${{ inputs.source_revision || github.sha }}", "$RC_EXPECTED");
-    const check = (inputRevision, sha) => spawnSync("bash", ["-c", script], {
+    const check = (inputRevision, sha) => spawnSync(BASH, ["-c", script], {
       cwd: scratch,
       encoding: "utf8",
       env: { PATH: process.env.PATH, RC_EXPECTED: inputRevision || sha },
