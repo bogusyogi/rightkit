@@ -258,8 +258,8 @@ describe("apply: pnpm", () => {
   };
 
   /** Simulates `pnpm add` by rewriting the right section of package.json. */
-  function pnpmFake(dir: string, seen: string[][]) {
-    return (argv: string[]) => {
+  function pnpmFake(dir: string, seen: string[][], prefixes: Record<string, string> = {}) {
+    return (argv: string[], options?: { env?: NodeJS.ProcessEnv }) => {
       if (argv[0] !== "pnpm") return undefined;
       seen.push(argv);
       const spec = argv[argv.length - 1];
@@ -269,7 +269,9 @@ describe("apply: pnpm", () => {
       const file = path.join(dir, "package.json");
       const doc = JSON.parse(fs.readFileSync(file, "utf8"));
       const section = argv.includes("-D") ? "devDependencies" : argv.includes("-O") ? "optionalDependencies" : "dependencies";
-      const prefix = argv.includes("--save-exact") ? "" : (argv.find((a) => a.startsWith("--save-prefix="))?.split("=")[1] ?? "^");
+      // The range prefix arrives in the environment (rightkit#1267); with neither it and no --save-exact, pnpm's default is `^`.
+      const prefix = argv.includes("--save-exact") ? "" : (options?.env?.pnpm_config_save_prefix ?? "^");
+      prefixes[name] = prefix;
       doc[section][name] = prefix + version;
       fs.writeFileSync(file, JSON.stringify(doc, null, 2));
       fs.writeFileSync(path.join(dir, "pnpm-lock.yaml"), `lock ${name} ${version}\n`);
@@ -295,10 +297,10 @@ describe("apply: pnpm", () => {
     expect(outcome.report!.failed).toEqual([]);
     const byName = Object.fromEntries(seen.map((a) => [a[a.length - 1].replace(/@[^@]+$/, ""), a]));
     expect(byName["left-pad"]).toEqual(["pnpm", "add", "--save-exact", "--ignore-scripts", "left-pad@1.3.0"]);
-    expect(byName["is-odd"]).toEqual(["pnpm", "add", "--save-prefix=~", "--ignore-scripts", "is-odd@3.0.1"]);
-    expect(byName.ms).toEqual(["pnpm", "add", "--save-prefix=^", "--ignore-scripts", "ms@2.1.3"]);
-    expect(byName.debug).toEqual(["pnpm", "add", "-D", "--save-prefix=^", "--ignore-scripts", "debug@4.3.7"]);
-    expect(byName.fsevents).toEqual(["pnpm", "add", "-O", "--save-prefix=^", "--ignore-scripts", "fsevents@2.3.3"]);
+    expect(byName["is-odd"]).toEqual(["pnpm", "add", "--ignore-scripts", "is-odd@3.0.1"]);
+    expect(byName.ms).toEqual(["pnpm", "add", "--ignore-scripts", "ms@2.1.3"]);
+    expect(byName.debug).toEqual(["pnpm", "add", "-D", "--ignore-scripts", "debug@4.3.7"]);
+    expect(byName.fsevents).toEqual(["pnpm", "add", "-O", "--ignore-scripts", "fsevents@2.3.3"]);
     expect(seen.every((a) => a[0] === "pnpm")).toBe(true);
 
     const final = JSON.parse(fs.readFileSync(path.join(repo, "packages/app/package.json"), "utf8"));
@@ -319,7 +321,7 @@ describe("apply: pnpm", () => {
     const { fetch } = mockFetch(npmRoutes({ debug: "4.3.7" }));
     const { run } = fakeRun(pnpmFake(repo, seen));
     const outcome = await applyIn(repo, { fetch, run });
-    expect(seen[0]).toEqual(["pnpm", "add", "-w", "-D", "--save-prefix=^", "--ignore-scripts", "debug@4.3.7"]);
+    expect(seen[0]).toEqual(["pnpm", "add", "-w", "-D", "--ignore-scripts", "debug@4.3.7"]);
     expect(outcome.report!.changes[0].files.map((f) => f.path)).toContain("package.json");
   });
 
@@ -558,5 +560,18 @@ describe("apply: manifest problems", () => {
     const outcome = await applyIn(repo, { fetch, run: fakeRun(() => undefined).run });
     expect(outcome.exitCode).toBe(0);
     expect(outcome.report!.baseCommit).toBeNull();
+  });
+});
+
+describe("pnpm add on Windows (rightkit#1267)", () => {
+  it("a range prefix travels in the environment, never as a `^` on the command line a .cmd shim would refuse", async () => {
+    const { pnpmAddCommand } = await import("../src/apply.js");
+    const caret = pnpmAddCommand("left-pad", "1.3.0", "dependencies", "^", false);
+    expect(caret.argv.join(" ")).not.toMatch(/\^/);
+    expect(caret.argv).toEqual(["pnpm", "add", "--ignore-scripts", "left-pad@1.3.0"]);
+    expect(caret.env).toEqual({ pnpm_config_save_prefix: "^", npm_config_save_prefix: "^" });
+    const exact = pnpmAddCommand("left-pad", "1.3.0", "devDependencies", "", true);
+    expect(exact.argv).toEqual(["pnpm", "add", "-w", "-D", "--save-exact", "--ignore-scripts", "left-pad@1.3.0"]);
+    expect(exact.env).toEqual({});
   });
 });

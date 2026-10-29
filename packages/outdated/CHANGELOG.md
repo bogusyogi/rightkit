@@ -9,6 +9,9 @@ rightkit#1267 (Adrian, 2026-10-29: "document it as an issue, a decision and fix 
   unless its name has a justified hold. Before, every unknown row fell through to exit 0, "all current".
 - `policy.held` entries may be `{ name, reason, evidence, exitCondition }` (each a non-empty string). Only such a justified hold
   excuses an unknown row. A bare name (the 0.2 form) still holds the dependency but excuses nothing.
+- `apply` on Windows: a pnpm range prefix (`^`, `~`) is passed as `pnpm_config_save_prefix` in the environment, never as
+  `--save-prefix=^` on a `.cmd` shim's command line, which cmd.exe refused for every caret range (HeardRight report).
+- `apply` runs cargo updates through `rustright cargo`; the 0.2.0 build still spawned the retired `rightkit`.
 - Renamed from @rightkit/update; it was never published under the old name.
 - Still open under rightkit#1267: the undeclared-manifest coverage scan, and native-source and toolchain kinds.
 

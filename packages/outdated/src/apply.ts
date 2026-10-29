@@ -134,8 +134,8 @@ class Transaction {
   }
 }
 
-async function runChecked(ctx: Ctx, argv: string[], cwd: string, timeoutMs: number): Promise<void> {
-  const result = await ctx.run(argv, { cwd, timeoutMs });
+async function runChecked(ctx: Ctx, argv: string[], cwd: string, timeoutMs: number, extraEnv: Record<string, string> = {}): Promise<void> {
+  const result = await ctx.run(argv, Object.keys(extraEnv).length ? { cwd, timeoutMs, env: { ...process.env, ...extraEnv } } : { cwd, timeoutMs });
   if (result.code !== 0) {
     const why = result.error ?? (result.timedOut ? `timed out after ${Math.round(timeoutMs / 1000)}s` : result.stderr.trim().split("\n").slice(-6).join(" | ") || `exit ${result.code}`);
     throw new Error(`${argv.join(" ")} failed: ${why}`);
@@ -254,15 +254,20 @@ function pnpmSectionOf(pkg: Record<string, unknown>, name: string): { section: P
   return null;
 }
 
-function pnpmAddArgs(name: string, full: string, section: PnpmSection, prefix: string, isWorkspaceRoot: boolean): string[] {
-  const args = ["pnpm", "add"];
-  if (isWorkspaceRoot) args.push("-w");
-  if (section === "devDependencies") args.push("-D");
-  if (section === "optionalDependencies") args.push("-O");
-  args.push(prefix === "" ? "--save-exact" : `--save-prefix=${prefix}`);
+/**
+ * The `pnpm add` command for one row. A range prefix (`^`, `~`) goes in the environment, never on the command line: on Windows
+ * `pnpm` is a `.cmd` shim run through cmd.exe, where `^` is the escape character, so `--save-prefix=^` is refused before it
+ * starts (rightkit#1267). pnpm 11 reads `pnpm_config_save_prefix`; the written spec is still checked after the run.
+ */
+export function pnpmAddCommand(name: string, full: string, section: PnpmSection, prefix: string, isWorkspaceRoot: boolean): { argv: string[]; env: Record<string, string> } {
+  const argv = ["pnpm", "add"];
+  if (isWorkspaceRoot) argv.push("-w");
+  if (section === "devDependencies") argv.push("-D");
+  if (section === "optionalDependencies") argv.push("-O");
+  if (prefix === "") argv.push("--save-exact");
   // A new dependency version must not run lifecycle scripts unattended.
-  args.push("--ignore-scripts", `${name}@${full}`);
-  return args;
+  argv.push("--ignore-scripts", `${name}@${full}`);
+  return { argv, env: prefix === "" ? {} : { pnpm_config_save_prefix: prefix, npm_config_save_prefix: prefix } };
 }
 
 async function applyPnpm(ctx: Ctx, entry: CheckEntry, newRequirement: string, full: string): Promise<RowResult> {
@@ -283,7 +288,7 @@ async function applyPnpm(ctx: Ctx, entry: CheckEntry, newRequirement: string, fu
     return { skipped: `pnpm add cannot express the ${JSON.stringify(req?.prefix ?? found.spec)} requirement style` };
   }
   const isWorkspaceRoot = fs.existsSync(path.join(dirAbs, "pnpm-workspace.yaml"));
-  const argv = pnpmAddArgs(entry.name, full, found.section, req.prefix, isWorkspaceRoot);
+  const { argv, env: addEnv } = pnpmAddCommand(entry.name, full, found.section, req.prefix, isWorkspaceRoot);
   const lockRel = findUp(ctx.repo, dirRel, "pnpm-lock.yaml");
   const workspaceRel = findUp(ctx.repo, dirRel, "pnpm-workspace.yaml");
   const localLock = dirRel === "." ? "pnpm-lock.yaml" : `${dirRel}/pnpm-lock.yaml`;
@@ -299,7 +304,7 @@ async function applyPnpm(ctx: Ctx, entry: CheckEntry, newRequirement: string, fu
   const conflicts = tx.conflicts();
   if (conflicts.length > 0) return { failed: `refusing to edit files with uncommitted changes: ${conflicts.join(", ")}` };
   try {
-    await runChecked(ctx, argv, dirAbs, PNPM_TIMEOUT_MS);
+    await runChecked(ctx, argv, dirAbs, PNPM_TIMEOUT_MS, addEnv);
     const after = JSON.parse(fs.readFileSync(manifestAbs, "utf8")) as Record<string, unknown>;
     const now = pnpmSectionOf(after, entry.name);
     if (!now || now.section !== found.section || now.spec !== newRequirement) {

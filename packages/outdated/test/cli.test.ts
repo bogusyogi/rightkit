@@ -77,7 +77,7 @@ describe("right-update CLI", () => {
   it("prints version and help", async () => {
     const version = io();
     expect(await runCli(["--version"], version.cli)).toBe(0);
-    expect(version.out()).toMatch(/^0\.2\.0\n$/);
+    expect(version.out()).toMatch(/^0\.3\.0\n$/);
     const help = io();
     expect(await runCli(["--help"], help.cli)).toBe(0);
     expect(help.out()).toMatch(/right-update check/);
