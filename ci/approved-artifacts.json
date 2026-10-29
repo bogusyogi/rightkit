@@ -1022,6 +1022,14 @@
       "reviewRef": "agent-review:/Volumes/D/scratch/rk-qa-closure-0.1.11/39903415267/qa-chrome-0.1.11"
     },
     {
+      "registry": "npm",
+      "name": "@rightkit/qa-chrome",
+      "version": "0.1.12",
+      "sha256": "bf3eae0aa4e3b0804ec69c02896150dbb9c049f0d2341e25d698276d53cb444a",
+      "reviewer": "Oracle (exact archive, source diff and pin review)",
+      "reviewRef": "agent-review:/Volumes/D/scratch/deps-1284/qa-chrome/rightkit-qa-chrome-0.1.12.tgz"
+    },
+    {
       "registry": "crates",
       "name": "rightkit-logs",
       "version": "0.3.5",

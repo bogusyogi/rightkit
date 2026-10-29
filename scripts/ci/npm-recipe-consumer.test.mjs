@@ -350,13 +350,13 @@ test('historical runner inventory allowance is exact & never applies to QA, futu
 
 test('QA age exception requires exact approved Chrome package, version, archive & reviewed closure', () => {
   const name = '@rightkit/qa'; const entry = clone(inventory.npm[name]);
-  assert.deepEqual(closureAgeExceptions(entry, name), ['@rightkit/qa-chrome@0.1.11']);
+  assert.deepEqual(closureAgeExceptions(entry, name), ['@rightkit/qa-chrome@0.1.12']);
   assert.deepEqual(sourceFiles(name), ['ci/consumer-recipes.json', 'package.json', 'packages/qa/package.json', 'ci/approved-artifacts.json']);
   const approved = [{ registry: 'npm', ...QA_CLOSURE_APPROVAL, reviewer: 'reviewed', reviewRef: 'reviewed-source' }];
   assert.doesNotThrow(() => validateClosureApproval(approved, entry, name));
   assert.doesNotThrow(() => validateClosureApproval(JSON.parse(read('ci/approved-artifacts.json')).artifacts, entry, name));
   for (const rows of [[], [...approved, ...approved], [{ ...approved[0], name: '@rightkit/logs' }], [{ ...approved[0], version: '0.1.9' }], [{ ...approved[0], sha256: 'f'.repeat(64) }], [{ ...approved[0], registry: 'crates' }], [{ ...approved[0], reviewer: ' ' }], [{ ...approved[0], reviewRef: '' }]]) assert.throws(() => validateClosureApproval(rows, entry, name), /approval/);
-  for (const install of [{ '@rightkit/qa-chrome': '0.1.10' }, { '@rightkit/qa-chrome': '0.1.12' }, { '@rightkit/logs': '0.1.10' }, {}, { '@rightkit/qa-chrome': '0.1.11', react: '19.3.1' }]) {
+  for (const install of [{ '@rightkit/qa-chrome': '0.1.10' }, { '@rightkit/qa-chrome': '0.1.11' }, { '@rightkit/logs': '0.1.10' }, {}, { '@rightkit/qa-chrome': '0.1.12', react: '19.3.1' }]) {
     const bad = clone(entry); bad.closure.install = install;
     assert.throws(() => closureAgeExceptions(bad, name), /exact selected reviewed closure/);
   }
@@ -365,12 +365,12 @@ test('QA age exception requires exact approved Chrome package, version, archive 
 
 test('QA workspace permits only exact selected Chrome age exception & rejects config substitution', () => {
   const name = '@rightkit/qa'; const entry = inventory.npm[name]; const scratch = '/scratch/consumer';
-  const config = 'packages: []\nminimumReleaseAgeExclude:\n  - "@rightkit/qa-chrome@0.1.11"\noverrides:\n  "@rightkit/qa-chrome": "0.1.11"\n';
+  const config = 'packages: []\nminimumReleaseAgeExclude:\n  - "@rightkit/qa-chrome@0.1.12"\noverrides:\n  "@rightkit/qa-chrome": "0.1.12"\n';
   assert.equal(scratchWorkspace(entry, name), config);
   const digest = sha('sha256', config);
   const good = { file: `${scratch}/pnpm-workspace.yaml`, before: config, after: config, beforeSha256: digest, afterSha256: digest };
   assert.equal(validateWorkspaceBinding(good, entry, name, scratch, path.posix), true);
-  for (const changed of [config.replace('@0.1.11', '@0.1.10'), config.replace('@0.1.11', ''), config.replace('  - "@rightkit/qa-chrome@0.1.11"\n', ''), `${config}minimumReleaseAge: 0\n`, `${config}trustPolicy: off\n`, `${config}  - "@rightkit/logs@0.1.6"\n`]) {
+  for (const changed of [config.replace('@0.1.12', '@0.1.10'), config.replace('@0.1.12', ''), config.replace('  - "@rightkit/qa-chrome@0.1.12"\n', ''), `${config}minimumReleaseAge: 0\n`, `${config}trustPolicy: off\n`, `${config}  - "@rightkit/logs@0.1.6"\n`]) {
     const bad = { ...good, after: changed, afterSha256: sha('sha256', changed) };
     assert.throws(() => validateWorkspaceBinding(bad, entry, name, scratch, path.posix), /exact reviewed overrides/);
     bad.before = changed; bad.beforeSha256 = bad.afterSha256;
@@ -383,7 +383,7 @@ test('QA provenance command selects exact Chrome registry bytes & keeps Tauri co
   assert.equal(closureProvenanceScript('@rightkit/tauri'), CLOSURE_PROVENANCE_SCRIPT);
   assert.equal(sha('sha256', CLOSURE_PROVENANCE_SCRIPT), '9f9ce9a2ef8fa8882d4c06950476b7dff407a0c537e6f9330e4c2252c81c6599', 'existing Tauri provenance command remains byte-for-byte stable');
   assert.ok(QA_CLOSURE_PROVENANCE_SCRIPT.includes(JSON.stringify(QA_CLOSURE_APPROVAL)));
-  assert.ok(QA_CLOSURE_PROVENANCE_SCRIPT.includes("fetch('https://registry.npmjs.org/@rightkit/qa-chrome/-/qa-chrome-0.1.11.tgz', { redirect: 'error', signal: AbortSignal.timeout(60000) })"));
+  assert.ok(QA_CLOSURE_PROVENANCE_SCRIPT.includes("fetch('https://registry.npmjs.org/@rightkit/qa-chrome/-/qa-chrome-0.1.12.tgz', { redirect: 'error', signal: AbortSignal.timeout(60000) })"));
   assert.ok(QA_CLOSURE_PROVENANCE_SCRIPT.includes("path.resolve('closure-qa-chrome.tgz')"));
   assert.ok(QA_CLOSURE_PROVENANCE_SCRIPT.includes("import { validateInstalledArtifact } from './provenance.mjs'"));
   assert.ok(!QA_CLOSURE_PROVENANCE_SCRIPT.includes('closure-logs.tgz'));

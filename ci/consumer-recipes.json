@@ -43,7 +43,7 @@
         "ci/consumers/npm/app-update/consumer.mjs": "c1d29b8ead2f4574388beeacd74c84ca6c78c9181854dc2373c7a48bcc8f56b7",
         "ci/consumers/npm/app-update/package.json": "d2e1a7ff98f819a90818c29b458462688dd05c8231502b806814a1ff7436b04b",
         "ci/consumers/npm/app-update/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/onboarding": {
@@ -75,7 +75,7 @@
         "ci/consumers/npm/onboarding/package.json": "e72033f2dfcf6c03ad8aadfc18f8fbca9702b17166997bc77e388c32e46474a6",
         "ci/consumers/npm/onboarding/provenance-negative.mjs": "0d685129d02c216d539c6ff67305541596c6822a5c9354ea40ab375dcd924952",
         "ci/consumers/npm/onboarding/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/qa-chrome": {
@@ -95,7 +95,7 @@
         "ci/consumers/npm/qa-chrome/consumer.mjs": "7bad71cec2e6d1f95c93705e8317b9774a38c2e04a8b0fdc13a6d109056f7b09",
         "ci/consumers/npm/qa-chrome/package.json": "6eacf53c660287434f0a95ef8c7cb159196af8b6567f74278654655c0cbf5c30",
         "ci/consumers/npm/qa-chrome/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/settings-ui": {
@@ -135,7 +135,7 @@
         "ci/consumers/npm/settings-ui/consumer.mjs": "6bb455d420a91094e84ea4d417cb352781aff42412a2716a4a25be5e842476ca",
         "ci/consumers/npm/settings-ui/package.json": "71f10ac471d38a2eceb8a26c618c9af521063b6ad89292e407bed31cb1dde1ea",
         "ci/consumers/npm/settings-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       },
       "importClosures": {
         ".": {
@@ -190,7 +190,7 @@
         "ci/consumers/npm/tauri-shell/consumer.mjs": "3c3207fe0254581feb8e6f2626f0c89a32ebaaec1b15beed85a683d589d8feb0",
         "ci/consumers/npm/tauri-shell/package.json": "44b3e3f3aced1ea3c799a1ef2ac235c38492fcafa8b3e02f698f491672572661",
         "ci/consumers/npm/tauri-shell/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/legal": {
@@ -214,7 +214,7 @@
         "ci/consumers/npm/legal/consumer.mjs": "88b5ebc6b2c3787d47302046aaf28e67006727794bd162d0e9764d2906323fb5",
         "ci/consumers/npm/legal/package.json": "9e5619a1cf811d6e9d1bfb7410c427f2151c581802f9abad4b1b20762e8200d0",
         "ci/consumers/npm/legal/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/doc-render": {
@@ -249,7 +249,7 @@
         "ci/consumers/npm/doc-render/consumer.mjs": "03ec48728c00e08bb8d0637bccf50703971955ab4616b71b9e092eba6bca9fcd",
         "ci/consumers/npm/doc-render/package.json": "6f679c0175955a1a3f08d5547a066c820855f2d4f119f658955b0eda2ce22f2d",
         "ci/consumers/npm/doc-render/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/tauri": {
@@ -285,7 +285,7 @@
         "ci/consumers/npm/tauri/consumer.mjs": "9f02cf75b03879bce155c87aa629b9a98eef3862852910b2c28267a261f933c2",
         "ci/consumers/npm/tauri/package.json": "316189e349f22abf33a63b7968c8d1e429af8f26bb53c824330266c5eb69c6a8",
         "ci/consumers/npm/tauri/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/qa": {
@@ -312,7 +312,7 @@
         "ci/consumers/npm/qa/consumer.mjs": "3666daed637f878d58b266bbd29311673e310242999a855b4e6d4cdca908525f",
         "ci/consumers/npm/qa/package.json": "3676cf928e8a7a8a7a4fbd5abc12bff76c15dea56de01b505f48f022932e4b71",
         "ci/consumers/npm/qa/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/release": {
@@ -367,7 +367,7 @@
         "ci/consumers/npm/release/consumer.mjs": "fa2bcce420cf677a8a7140d6dd78d5d8ed45fb1f5c92fb063529c3cc0fc88063",
         "ci/consumers/npm/release/package.json": "1b7c05b64845ef27d63390b7d2ea5c765540dcabc5ae19631cf8c82e92d9491d",
         "ci/consumers/npm/release/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/issues-tracker": {
@@ -388,7 +388,7 @@
         "ci/consumers/npm/issues-tracker/consumer.mjs": "fc74e501a6a5f73777625f2162e54c78c8b66d7d01d51f32f7ba757c19d3bdcb",
         "ci/consumers/npm/issues-tracker/package.json": "ad2c578f5ab4362e3a7a3f709a865d005c82d6aca8142d0df1deb6d686cc7b3c",
         "ci/consumers/npm/issues-tracker/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/ci": {
@@ -409,7 +409,7 @@
         "ci/consumers/npm/ci/consumer.mjs": "91919f408d4b06eab4476b890b47b062a1d84b2dd5872d0111d44bc8b9174576",
         "ci/consumers/npm/ci/package.json": "a87a0d12a23fc95104c3b3c250c3051dafc8111c5230d6eea19873304e7522e6",
         "ci/consumers/npm/ci/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/ax": {
@@ -441,7 +441,7 @@
         "ci/consumers/npm/ax/consumer.mjs": "e5dc3431773e944ca587c9c494483377e9f1c9190c24407e554375f0104ea6f3",
         "ci/consumers/npm/ax/package.json": "5ccfd47c8981f8e6fb8bc5f16de35d226cbcd43e559ae4c3f4666040ac21719f",
         "ci/consumers/npm/ax/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/hooks": {
@@ -461,7 +461,7 @@
         "ci/consumers/npm/hooks/consumer.mjs": "a5356599cf8ec61b740cd60a6dafe5a712a1db8b590a0ecaa2038d21e4716a33",
         "ci/consumers/npm/hooks/package.json": "b0c4f1c7b91b16f3330ba4a05ff0dbeec7445f74ac44ff2a8c67106b481ba2ab",
         "ci/consumers/npm/hooks/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/i18n": {
@@ -487,7 +487,7 @@
         "ci/consumers/npm/i18n/consumer.mjs": "df135ea2cf0863ba69f76a8a2a615d7ce1eec761b6267a7d9b2dafbbdbea27e1",
         "ci/consumers/npm/i18n/package.json": "a6984a73ba515ab807fa48398d2ae70acb19b3c0b89a7aed9d8eb0119b58dc68",
         "ci/consumers/npm/i18n/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/legal-ui": {
@@ -511,7 +511,7 @@
         "ci/consumers/npm/legal-ui/consumer.mjs": "f56ffe58499943c0867ac28de43ff9ce94cd7e59b73bc0f895c5e1d0d066504d",
         "ci/consumers/npm/legal-ui/package.json": "c6c3891911939bd6196f08021e8614b9116c5c1474f41db3bc597dbadd9c276d",
         "ci/consumers/npm/legal-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/license": {
@@ -532,7 +532,7 @@
         "ci/consumers/npm/license/consumer.mjs": "2b5f2df3ac508f2087d22e01e61970bb73b250f63767a5f13f1502cd2c3ca356",
         "ci/consumers/npm/license/package.json": "1a618f9257912933548d76abc364d6c94240f3a722031b3ae31deaec6695c008",
         "ci/consumers/npm/license/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/media-ui": {
@@ -560,7 +560,7 @@
         "ci/consumers/npm/media-ui/consumer.mjs": "9fd8822bf99dc9546db7ba86ca752e3036426669880dc98e4a4259680c18fc05",
         "ci/consumers/npm/media-ui/package.json": "6401a0545c02ad23589d4cfacd61d6cb1574040201714b9ea4d630dced87a4b6",
         "ci/consumers/npm/media-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/outdated": {
@@ -583,7 +583,7 @@
         "ci/consumers/npm/outdated/consumer.mjs": "e7bb367bc701fac60d9f83967702e3c6c82d2b58ed8a38ab4adf794e6b9e275d",
         "ci/consumers/npm/outdated/package.json": "b9c40be952e79ce736d4f25d7a1f68af99557b4319edfdb4e964371ccf3e79ef",
         "ci/consumers/npm/outdated/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/pdf-ui": {
@@ -608,7 +608,7 @@
         "ci/consumers/npm/pdf-ui/consumer.mjs": "b29247d38c20564ee8ee7eb54811ff6594d6c946c76ff42f79f16f33a99eae57",
         "ci/consumers/npm/pdf-ui/package.json": "40c7d65670b1eca2331794d9092d9d4ded6f664b69f370c62f5fd888ac71a407",
         "ci/consumers/npm/pdf-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/platform-ui": {
@@ -635,7 +635,7 @@
         "ci/consumers/npm/platform-ui/consumer.mjs": "83a279045253444eea0a5b999c05082555fafecf961d4ad39c2578b64278cad8",
         "ci/consumers/npm/platform-ui/package.json": "f391104eaf38878a10f9a7445c828fb6c70d1ca1286099303740fcdc181230a3",
         "ci/consumers/npm/platform-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/react-shell": {
@@ -668,7 +668,7 @@
         "ci/consumers/npm/react-shell/consumer.mjs": "3b073a3849629443c25a495343a64414abd8c8243b7c48860daaa1dd649848fb",
         "ci/consumers/npm/react-shell/package.json": "e974e26d85526fe4f5dee5a2de94853bddbcad7b6bc345641a4f310a989a90bc",
         "ci/consumers/npm/react-shell/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     },
     "@rightkit/theme": {
@@ -689,7 +689,7 @@
         "ci/consumers/npm/theme/consumer.mjs": "fd0b22b98665a8fc9e3ee887442632f955e0f0cb142b8b22fc1a704088e3e85d",
         "ci/consumers/npm/theme/package.json": "f5968d66bbc91fd4b163d2f44f8caea1c0c911d94ec8acc5cdb88db95e49ed25",
         "ci/consumers/npm/theme/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+        "scripts/ci/npm-recipe-consumer.mjs": "7419d39f3540513f1e83c147a3cfe489a128956211c8aab6e8aa01bcbaac5c89"
       }
     }
   },

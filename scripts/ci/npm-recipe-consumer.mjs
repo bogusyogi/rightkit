@@ -136,11 +136,11 @@ export function scratchManifest(manifest, name, archive, pin) {
 
 // These are exact reviewed dependency-byte exceptions, never a general release-age bypass.
 export const CLOSURE_APPROVAL = Object.freeze({ name: '@rightkit/logs', version: '0.1.6', sha256: '72bb07be21cd4138458a635d9c48b7619f3b2874c0758089972e40015de0286c' });
-export const QA_CLOSURE_APPROVAL = Object.freeze({ name: '@rightkit/qa-chrome', version: '0.1.11', sha256: '699a328926cbee90eaba0fbceab17ccea821f05d47ec0a023a66c60fa3c6ebb2' });
+export const QA_CLOSURE_APPROVAL = Object.freeze({ name: '@rightkit/qa-chrome', version: '0.1.12', sha256: 'bf3eae0aa4e3b0804ec69c02896150dbb9c049f0d2341e25d698276d53cb444a' });
 const closureApproval = name => name === '@rightkit/qa' ? QA_CLOSURE_APPROVAL : CLOSURE_APPROVAL;
 export function closureAgeExceptions(entry, name) {
   if (name === '@rightkit/qa') {
-    need(same(entry.closure.install, { '@rightkit/qa-chrome': '0.1.11' }), 'qa release-age exception requires exact selected reviewed closure');
+    need(same(entry.closure.install, { '@rightkit/qa-chrome': '0.1.12' }), 'qa release-age exception requires exact selected reviewed closure');
     return [`${QA_CLOSURE_APPROVAL.name}@${QA_CLOSURE_APPROVAL.version}`];
   }
   if (name !== '@rightkit/tauri') return [];
@@ -175,7 +175,7 @@ console.log(JSON.stringify({ archiveBase64: bytes.toString('base64'), artifact: 
 // Keep the Tauri command byte-for-byte stable for existing authenticated receipts.
 export const QA_CLOSURE_PROVENANCE_SCRIPT = CLOSURE_PROVENANCE_SCRIPT
   .replace(JSON.stringify(CLOSURE_APPROVAL), JSON.stringify(QA_CLOSURE_APPROVAL))
-  .replace('https://registry.npmjs.org/@rightkit/logs/-/logs-0.1.6.tgz', 'https://registry.npmjs.org/@rightkit/qa-chrome/-/qa-chrome-0.1.11.tgz')
+  .replace('https://registry.npmjs.org/@rightkit/logs/-/logs-0.1.6.tgz', 'https://registry.npmjs.org/@rightkit/qa-chrome/-/qa-chrome-0.1.12.tgz')
   .replace('closure-logs.tgz', 'closure-qa-chrome.tgz');
 export const closureProvenanceScript = name => name === '@rightkit/qa' ? QA_CLOSURE_PROVENANCE_SCRIPT : CLOSURE_PROVENANCE_SCRIPT;
 export function validateClosureProvenance(evidence, lock, entry, name, scratch, api = path) {
