@@ -86,6 +86,8 @@ public static class RkJob {
   [DllImport("kernel32.dll", SetLastError=true)] public static extern bool AssignProcessToJobObject(IntPtr job, IntPtr proc);
   [DllImport("kernel32.dll", SetLastError=true)] public static extern bool QueryInformationJobObject(IntPtr job, int cls, byte[] info, int len, IntPtr ret);
   [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr h);
+  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool IsProcessInJob(IntPtr proc, IntPtr job, out bool result);
+  [DllImport("kernel32.dll")] public static extern IntPtr GetCurrentProcess();
   public static int Active(IntPtr job) { var b = new byte[48]; if (!QueryInformationJobObject(job, 1, b, 48, IntPtr.Zero)) return -1; return BitConverter.ToInt32(b, 40); }
 }
 "@`;
@@ -111,6 +113,17 @@ export function holderScript({ name, pid, file }) {
     // Reports the live count whenever it changes (the gate's containment self-check reads it), drained at zero.
     "$last = -1",
     "while ($true) { $a = [RkJob]::Active($h); if ($a -eq 0) { Put @{ state = 'drained'; job = $name }; exit 0 }; if ($a -gt 0 -and $a -ne $last) { Put @{ state = 'holding'; job = $name; active = $a }; $last = $a }; Start-Sleep -Milliseconds 100 }",
+  ].join("\n");
+}
+
+/** Run as a child of the gate (as its work runs): `IN` when this process is in job `name`, `OUT` when not, `ERR:<n>` otherwise. */
+export function selfCheckScript(name) {
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    JOB_TYPE,
+    `$j = [RkJob]::OpenJobObjectW(0x0004, $false, ${psString(name)}); if ($j -eq [IntPtr]::Zero) { 'ERR:' + [Runtime.InteropServices.Marshal]::GetLastWin32Error(); exit 0 }`,
+    "$in = $false; if (-not [RkJob]::IsProcessInJob([RkJob]::GetCurrentProcess(), $j, [ref]$in)) { 'ERR:' + [Runtime.InteropServices.Marshal]::GetLastWin32Error(); exit 0 }",
+    "if ($in) { 'IN' } else { 'OUT' }",
   ].join("\n");
 }
 
@@ -169,7 +182,7 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
        * job Node keeps for its own children (libuv sets SILENT_BREAKAWAY_OK); cmd exits at once. A DETACHED_PROCESS PowerShell
        * never starts in a console-less session (measured on the Dell over ssh, 2026-10-29), so `detached` is not used.
        */
-      contain({ name, pid, file, timeoutMs = 60_000, selfCheckMs = 3000, sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) }) {
+      contain({ name, pid, file, timeoutMs = 60_000, sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) }) {
         const child = spawnHolder("cmd.exe", ["/d", "/c", "start", "\"\"", "/b", "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded(holderScript({ name, pid, file }))], { stdio: "ignore" });
         child.unref?.();
         const until = Date.now() + timeoutMs;
@@ -181,20 +194,13 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
           if (Date.now() > until) throw new Error(`the job holder did not report within ${timeoutMs} ms`);
           sleep(50);
         }
-        // Self-check: a child of this gate must land in the job. Under a launcher whose own job lets children leave silently
-        // (a Node parent: libuv's job sets SILENT_BREAKAWAY_OK, and a job nested under it loses them too) it does not, and then
-        // nothing proves this gate's work gone after a crash: the record says so and a dead owner stays busy.
-        const probeChild = spawnHolder(process.execPath, ["-e", "setTimeout(() => {}, 15000)"], { stdio: "ignore" });
-        const checkUntil = Date.now() + selfCheckMs;
-        let contained = false;
-        for (;;) {
-          const state = readHolder(file);
-          if (state?.state === "holding" && Number(state.active) >= 2) { contained = true; break; }
-          if (Date.now() > checkUntil) break;
-          sleep(50);
-        }
-        try { probeChild.kill(); } catch { /* already gone */ }
-        return { ...holding, contained };
+        // Self-check: a child of this gate, started as its work is started, asks Windows whether it is in the job. Under a launcher
+        // whose own job lets children leave silently (a Node parent: libuv's job sets SILENT_BREAKAWAY_OK, and a job nested under
+        // it loses them too) it is not, and nothing then proves this gate's work gone after a crash: the record says so and a dead
+        // owner stays busy. (Counting the job's processes cannot tell: a console child's host process lands in it either way.)
+        const answer = ps(selfCheckScript(name));
+        if (!/^(IN|OUT)$/m.test(answer)) throw new Error(`the containment self-check gave no answer (${answer.slice(0, 120)})`);
+        return { ...holding, contained: /^IN$/m.test(answer) };
       },
     };
   }
@@ -385,7 +391,16 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null }) {
   if (!rebooted && c.kind === "job" && c.contained === false && selfPid === null) {
     throw new Error(`job ${c.name} never held its gate's children (the gate's launcher lets children leave its job silently, so they left this one too), so their exit cannot be proven; it stays held until the host reboots`);
   }
-  if (!rebooted && c.kind === "job") {
+  if (!rebooted && c.kind === "job" && selfPid !== null) {
+    // Release by the live gate: anything this gate spawned to look at the job would sit in the job itself, so the count comes from
+    // the holder (outside the job), which reports it whenever it changes. Children that just exited get a moment to leave.
+    const until = Date.now() + 3000;
+    let state = readHolder(holderFile(file, owner.handle));
+    while (Date.now() < until && state?.state === "holding" && Number(state.active) > 1) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100); state = readHolder(holderFile(file, owner.handle)); }
+    if (state?.state !== "holding" || !Number.isInteger(state.active)) throw new Error(`job ${c.name}'s holder reports no live count (${state?.state ?? "no holder record"})`);
+    if (state.active > 1) throw new Error(`job ${c.name} still holds ${state.active} process(es) (this gate is one)`);
+    proofs.push(`job ${c.name} holds only this gate`);
+  } else if (!rebooted && c.kind === "job") {
     let state;
     try { state = probe.jobState(c.name); } catch (e) { throw new Error(`job ${c.name} cannot be read (${e.message})`); }
     if (state.open) {

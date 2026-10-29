@@ -28,7 +28,8 @@ function fakeProbe(platform, over = {}) {
     tokenHolders: () => null,
     cwdHolders: () => null,
     jobState: () => ({ open: true, active: 1 }),
-    contain: () => ({ state: "holding" }),
+    // The holder's report as a live gate's release reads it: only the gate in its job.
+    contain: ({ file }) => { fs.writeFileSync(file, JSON.stringify({ schema: HOLDER_SCHEMA, state: "holding", active: 1, holder: 1 })); return { state: "holding", contained: true }; },
     ...over,
   };
 }
@@ -209,9 +210,13 @@ test("ownership: a reboot after the record proves its work gone; broker work nee
 test("ownership: a normal release with a survivor leaves the record; a gate that cannot be contained never holds", (t) => {
   const dir = tmp(t, "rk-own-");
   const file = path.join(dir, "owner.json");
-  const own = acquire(file, "win32", fakeProbe("win32", { jobState: () => ({ open: true, active: 3 }) }));
+  // Windows release reads the holder's live count (a probe it spawned would sit in the job itself).
+  const own = acquire(file, "win32", fakeProbe("win32", { jobState: () => { throw new Error("release must not spawn a job probe"); } }));
+  fs.writeFileSync(holderFile(file, own.handle), JSON.stringify({ schema: HOLDER_SCHEMA, state: "holding", active: 3, holder: 9 }));
   assert.match(own.release().why, /still holds 3 process\(es\) \(this gate is one\)/); assert.equal(fs.existsSync(file), true);
-  fs.rmSync(file);
+  fs.writeFileSync(holderFile(file, own.handle), JSON.stringify({ schema: HOLDER_SCHEMA, state: "holding", active: 1, holder: 9 }));
+  assert.equal(own.release().released, true, "only the gate left: released");
+  fs.rmSync(file, { force: true });
   // At release the gate is alive: its own child (ppid = this process) is a survivor; a peer of the shell is not.
   const posix = acquire(file, "linux", fakeProbe("linux", { groupSnapshot: () => group([{ pid: 9, ppid: process.pid, startedMs: Date.now() }, { pid: 10, ppid: 5000, startedMs: Date.now() }, { pid: 5000, ppid: 1, startedMs: NOW - 9e6 }], []) }));
   assert.match(posix.release().why, /1 member\(s\) started under this ownership: 9$/); assert.equal(fs.existsSync(file), true);
@@ -267,7 +272,7 @@ if (${JSON.stringify(mode)} === "scan") {
 } else {
   const c = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore", detached: ${detachChild} }); c.unref(); pid = c.pid;
 }
-(await import("node:fs")).writeFileSync(${JSON.stringify(file)} + ".gate-info", JSON.stringify({ handle: own.handle, gate: process.pid, child: pid, contained: own.contained }));
+(await import("node:fs")).writeFileSync(${JSON.stringify(file)} + ".gate-info", JSON.stringify({ handle: own.handle, gate: process.pid, child: pid, contained: own.contained, job: own.owner.containment.name ?? null }));
 setInterval(() => {}, 1000);
 `);
   const env = { ...process.env }; delete env[OWNERSHIP_ENV]; delete env.NODE_OPTIONS;
@@ -282,8 +287,36 @@ setInterval(() => {}, 1000);
   if (!fs.existsSync(infoFile)) throw new Error(`fake gate exited ${exited} before reporting`);
   const info = JSON.parse(fs.readFileSync(infoFile, "utf8"));
   t.after(() => { for (const pid of [info.gate, info.child]) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } } });
-  return { ...info, kill: async (pid) => { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } for (let i = 0; i < 200; i++) { try { process.kill(pid, 0); } catch { return; } await new Promise((r) => setTimeout(r, 50)); } throw new Error(`pid ${pid} survived SIGKILL`); } };
+  return { ...info, ownChild: info.child, kill: async (pid) => { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } for (let i = 0; i < 200; i++) { try { process.kill(pid, 0); } catch { return; } await new Promise((r) => setTimeout(r, 50)); } throw new Error(`pid ${pid} survived SIGKILL`); } };
 }
+/**
+ * Windows: every descendant a gate starts through Node lands in Node's kill-on-close job, nested under the gate's job (which allows no
+ * breakaway), so it dies with the gate (measured on the Dell, 2026-10-29). A member that outlives the gate is made here: a sleeper
+ * started outside the gate is put into its job by name. Returns the sleeper's pid.
+ */
+function survivorInJob(t, jobName) {
+  const sleeper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore", detached: true });
+  sleeper.unref();
+  t.after(() => { try { process.kill(sleeper.pid, "SIGKILL"); } catch { /* gone */ } });
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    'Add-Type @"',
+    "using System; using System.Runtime.InteropServices;",
+    "public static class RkJobT {",
+    '  [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)] public static extern IntPtr OpenJobObjectW(uint access, bool inherit, string name);',
+    '  [DllImport("kernel32.dll", SetLastError=true)] public static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);',
+    '  [DllImport("kernel32.dll", SetLastError=true)] public static extern bool AssignProcessToJobObject(IntPtr job, IntPtr proc);',
+    "}",
+    '"@',
+    `$j = [RkJobT]::OpenJobObjectW(0x0001, $false, '${jobName}'); if ($j -eq [IntPtr]::Zero) { throw "open job failed" }`,
+    `$p = [RkJobT]::OpenProcess(0x0101, $false, [uint32]${sleeper.pid}); if (-not [RkJobT]::AssignProcessToJobObject($j, $p)) { throw "assign failed" }`,
+    "'ASSIGNED'",
+  ].join("\n");
+  const r = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { encoding: "utf8", timeout: 60_000 });
+  if (!/ASSIGNED/.test(String(r.stdout))) throw new Error(`could not put a survivor into ${jobName}: ${r.stderr}`);
+  return sleeper.pid;
+}
+
 /**
  * One gate step in a process of its own, as a real gate is one process (and on Windows a process that joined a job never leaves it,
  * so acquiring in this test process would leave it, and every later child, inside that job). Returns the step's JSON line.
@@ -316,7 +349,22 @@ test("[native] G1: a gate killed while its child still runs keeps the host owned
   const file = path.join(tmp(t, "rk-own-native-"), "build-ownership", "owner.json");
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const g = await crashingGate(t, file);
-  if (process.platform === "win32") assert.equal(g.contained, true, "a gate started like a shell starts it holds its children in its job");
+  if (process.platform === "win32") {
+    // Windows (measured on the Dell, D:\\scratch\\rk-step4\\dell-job-death-experiment.log): when a contained gate dies, every member
+    // of its job dies with it, its own children and a process put into the job from outside alike, so no member outlives it and the
+    // busy-while-a-member-lives path cannot be produced natively here (the unit tests hold it). What is proven natively: the members
+    // die, the job drains, and the next gate reclaims on the holder's drained record.
+    assert.equal(g.contained, true, "the self-check found this gate's children in its job");
+    const outsider = survivorInJob(t, g.job);
+    await g.kill(g.gate);
+    for (const pid of [g.ownChild, outsider]) await until(() => { try { process.kill(pid, 0); return false; } catch { return true; } }, 10_000);
+    await until(() => readHolder(holderFile(file, g.handle))?.state === "drained");
+    const next = gateStep(t, "acquire", { file }, process.env);
+    assert.equal(next.ok, true, JSON.stringify(next));
+    assert.match(next.reclaimed.proofs.join("; "), /drained \(holder pid/);
+    assert.equal(next.released.released, true, JSON.stringify(next.released));
+    return;
+  }
   await g.kill(g.gate);
   // The next gate is a process of its own.
   const busy = gateStep(t, "acquire", { file }, process.env);
@@ -332,15 +380,17 @@ test("[native] G1: a gate killed while its child still runs keeps the host owned
   assert.equal(next.released.released, true, JSON.stringify(next.released));
 });
 
-test("[native] G1 Windows: a gate started by a Node process cannot hold its children in its job; it says so, and its crash stays held after the child is gone", { skip: process.platform !== "win32" && "Windows jobs only", timeout: 120_000 }, async (t) => {
+test("[native] G1 Windows: a crashed gate's own children die with it (Node's kill-on-close job, nested under the gate's job), so its job drains and the next gate reclaims with the holder's proof", { skip: process.platform !== "win32" && "Windows jobs only", timeout: 120_000 }, async (t) => {
   const file = path.join(tmp(t, "rk-own-native-"), "build-ownership", "owner.json");
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const g = await crashingGate(t, file, { viaNode: true });
-  assert.equal(g.contained, false, "the self-check saw the child leave the job");
-  await g.kill(g.gate); await g.kill(g.child);
+  const g = await crashingGate(t, file);
+  assert.equal(g.contained, true);
+  await g.kill(g.gate);
+  await until(() => { try { process.kill(g.ownChild, 0); return false; } catch { return true; } }, 10_000);
   await until(() => readHolder(holderFile(file, g.handle))?.state === "drained");
-  const step = gateStep(t, "acquire", { file }, process.env);
-  assert.equal(step.ok, false, JSON.stringify(step)); assert.match(step.message, /never held its gate's children/);
+  const next = gateStep(t, "acquire", { file }, process.env);
+  assert.equal(next.ok, true, JSON.stringify(next));
+  assert.match(next.reclaimed.proofs.join("; "), /drained \(holder pid/);
 });
 
 test("[native] G1 POSIX: a child that left the gate's process group but kept its environment still holds the host (environment net)", { skip: process.platform === "win32" && "Windows children stay in the gate's job", timeout: 60_000 }, async (t) => {
@@ -395,7 +445,17 @@ test("[native] E6/G1: a snapshot sync is refused while a crashed gate's child su
   await g.kill(g.gate);
   fs.writeFileSync(path.join(repo, "a.txt"), "two\n"); git(repo, "commit", "-qam", "b");
   const second = git(repo, "rev-parse", "HEAD");
-  step = sync(["--commit", second]);
+  if (process.platform === "win32") {
+    // Every member of the crashed gate's job died with it (see the G1 fixture): the next sync reclaims on the drained record.
+    await until(() => readHolder(holderFile(file, g.handle))?.state === "drained");
+    step = sync(["--commit", second, "--json"]);
+    assert.equal(step.code, 0, JSON.stringify(step));
+    const r = JSON.parse(step.lines.find((l) => l.startsWith("{")));
+    assert.equal(r.commit, second); assert.equal(r.ownership.reclaimed.from, g.handle);
+    assert.match(r.ownership.reclaimed.proofs.join("; "), /drained/);
+    return;
+  }
+  step = sync(["--commit", second, "--json"]);
   assert.equal(step.code, 1, `busy, not synced: ${JSON.stringify(step)}`);
   assert.match(step.lines.join("\n"), /snapshot busy: build ownership .* is gone but/);
   const dir = path.join(path.join(root, "snapshots"), repoKey(keyPath(repo)));
