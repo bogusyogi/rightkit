@@ -10,6 +10,13 @@ import path from "node:path";
 import { test } from "node:test";
 import { consumeNpm } from "./consume.mjs";
 import { closeIncomplete, expectedIncomplete } from "./exports-import-effects.mjs";
+import { resolveInvocation } from "../../packages/release/deterministic-scans.mjs";
+/** npm/pnpm without a shell on every host: on Windows their cmd-shims run as node + the shim's JS entry (rightkit#1261). */
+const packageManager = (command, args, options = {}) => {
+  const inv = resolveInvocation(command, args, { env: options.env ?? process.env });
+  if (inv.error) throw inv.error;
+  return execFileSync(inv.file, inv.args, { ...options, windowsVerbatimArguments: inv.verbatim });
+};
 
 const NAME = "@rk/real"; const VERSION = "1.2.3";
 function packFixture(t, { skipImport = [] } = {}) {
@@ -22,7 +29,7 @@ function packFixture(t, { skipImport = [] } = {}) {
   fs.writeFileSync(path.join(dir, "dist", "x.js"), "export const x = 2;\n");
   fs.writeFileSync(path.join(dir, "src", "s.mjs"), "export const s = 3;\n");
   const packDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-real-pack-")); t.after(() => fs.rmSync(packDir, { recursive: true, force: true }));
-  const out = execFileSync("npm", ["pack", "--ignore-scripts", "--pack-destination", packDir, dir], { encoding: "utf8", env: { ...process.env, npm_config_loglevel: "error" } }).trim().split("\n").at(-1);
+  const out = packageManager("npm", ["pack", "--ignore-scripts", "--pack-destination", packDir, dir], { encoding: "utf8", env: { ...process.env, npm_config_loglevel: "error" } }).trim().split("\n").at(-1);
   const file = path.join(packDir, out); const bytes = fs.readFileSync(file);
   return { pkg, packDir, file: out, sha256: crypto.createHash("sha256").update(bytes).digest("hex"), size: bytes.length };
 }

@@ -1132,7 +1132,7 @@ const SAFE_SHIM_PATH = /^[A-Za-z0-9_.,:=@+ \/\\()-]+$/;
  * run any other .cmd/.bat shim only when its path and every argument pass a strict allowlist.
  * Returns { file, args, verbatim } or { error }.
  */
-export function resolveInvocation(command, args, { platform = process.platform, env = process.env, exists = fs.existsSync, execPath = process.execPath } = {}) {
+export function resolveInvocation(command, args, { platform = process.platform, env = process.env, exists = fs.existsSync, execPath = process.execPath, readFile = (f) => fs.readFileSync(f, "utf8") } = {}) {
   if (platform !== "win32") return { file: command, args, verbatim: false };
   const hasExt = /\.[A-Za-z0-9]{1,4}$/.test(command);
   const pathKey = Object.keys(env).find((k) => k.toLowerCase() === "path");
@@ -1147,11 +1147,26 @@ export function resolveInvocation(command, args, { platform = process.platform, 
   if (!/\.(cmd|bat)$/i.test(found)) return { file: found, args, verbatim: false };
   const cjs = path.win32.join(path.win32.dirname(found), "node_modules", "pnpm", "bin", "pnpm.cjs");
   if (/^pnpm\.cmd$/i.test(path.win32.basename(found)) && exists(cjs)) return { file: execPath, args: [cjs, ...args], verbatim: false };
+  // A Node cmd-shim (what npm, pnpm and nvm install: `"%~dp0\...\entry.js" %*`, npm's `SET "NPM_CLI_JS=%~dp0\...npm-cli.js"`) runs
+  // its JS entry with node: started here as node + that entry, no shell, so any argument passes unchanged (rightkit#1261).
+  const entry = cmdShimEntry(found, { readFile, exists });
+  if (entry) return { file: execPath, args: [entry, ...args], verbatim: false };
   const bad = args.find((a) => !SAFE_SHIM_ARG.test(a));
   if (bad !== undefined) return { error: new Error(`refusing to pass ${JSON.stringify(bad)} to the shell shim ${found}`) };
   if (!SAFE_SHIM_PATH.test(found)) return { error: new Error(`refusing to run shell shim ${found}: unsafe path`) };
   // Outer quotes around the whole line: with /s cmd strips exactly one leading and one trailing quote.
   return { file: env.ComSpec || "cmd.exe", args: ["/d", "/s", "/c", `""${found}"${args.map((a) => ` ${a}`).join("")}"`], verbatim: true };
+}
+
+/** The JS entry a Node cmd-shim at `shim` runs (the first `%~dp0`-relative .js/.mjs/.cjs path in it that exists), or null. */
+export function cmdShimEntry(shim, { readFile = (f) => fs.readFileSync(f, "utf8"), exists = fs.existsSync } = {}) {
+  let text;
+  try { text = String(readFile(shim)); } catch { return null; }
+  for (const m of text.matchAll(/%~dp0\\?([^"%\r\n]+?\.(?:mjs|cjs|js))"/gi)) {
+    const entry = path.win32.resolve(path.win32.dirname(shim), m[1]);
+    if (exists(entry)) return entry;
+  }
+  return null;
 }
 
 /** Default spawn: synchronous, no console window, never `shell: true`. */

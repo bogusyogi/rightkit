@@ -460,6 +460,27 @@ test("plan: a crate or package directory name with a shell metacharacter is refu
   }
 });
 
+test("resolveInvocation: a Node cmd-shim (npm, pnpm's global shim) runs as node + its JS entry, no shell, any argument (rightkit#1261)", () => {
+  const files = {
+    "C:\\nvm\\npm.cmd": ':: Created by npm, please don\'t edit manually.\r\n@ECHO OFF\r\nSETLOCAL\r\nSET "NODE_EXE=%~dp0\\node.exe"\r\nSET "NPM_CLI_JS=%~dp0\\node_modules\\npm\\bin\\npm-cli.js"\r\nFOR /F "delims=" %%F IN (\'CALL "%NODE_EXE%" "%NPM_CLI_JS%" prefix -g\') DO (SET "NPM_PREFIX_NPM_CLI_JS=%%F\\node_modules\\npm\\bin\\npm-cli.js")\r\n"%NODE_EXE%" "%NPM_CLI_JS%" %*\r\n',
+    "C:\\nvm\\node_modules\\npm\\bin\\npm-cli.js": "",
+    "C:\\pnpm\\bin\\pnpm.CMD": '@SETLOCAL\r\n@IF EXIST "%~dp0\\node.exe" (\r\n  "%~dp0\\node.exe"  "%~dp0\\..\\global\\v11\\abc\\node_modules\\pnpm\\bin\\pnpm.mjs" %*\r\n) ELSE (\r\n  node  "%~dp0\\..\\global\\v11\\abc\\node_modules\\pnpm\\bin\\pnpm.mjs" %*\r\n)\r\n',
+    "C:\\pnpm\\global\\v11\\abc\\node_modules\\pnpm\\bin\\pnpm.mjs": "",
+    "C:\\tools\\odd.cmd": "@echo off\r\nsomething.exe %*\r\n",
+  };
+  // Windows file names are case-insensitive (the shim is pnpm.CMD; the lookup tries .cmd).
+  const byLower = new Map(Object.entries(files).map(([k, v]) => [k.toLowerCase(), v]));
+  const exists = (f) => byLower.has(f.toLowerCase());
+  const readFile = (f) => { if (!exists(f)) throw new Error("ENOENT"); return byLower.get(f.toLowerCase()); };
+  const env = { PATH: "C:\\nvm;C:\\pnpm\\bin;C:\\tools", PATHEXT: ".COM;.EXE;.BAT;.CMD" };
+  const inv = (command, args) => resolveInvocation(command, args, { platform: "win32", env, exists, readFile, execPath: "node.exe" });
+  assert.deepEqual(inv("npm", ["pack", "--pack-destination", "D:\\a b\\out", "x&y"]), { file: "node.exe", args: ["C:\\nvm\\node_modules\\npm\\bin\\npm-cli.js", "pack", "--pack-destination", "D:\\a b\\out", "x&y"], verbatim: false });
+  assert.deepEqual(inv("pnpm", ["install", "--offline"]), { file: "node.exe", args: ["C:\\pnpm\\global\\v11\\abc\\node_modules\\pnpm\\bin\\pnpm.mjs", "install", "--offline"], verbatim: false });
+  // A .cmd that names no Node entry keeps the strict shell path.
+  assert.equal(inv("odd", ["a"]).file, "cmd.exe");
+  assert.match(inv("odd", ["a b"]).error.message, /refusing to pass/);
+});
+
 test("resolveInvocation: Windows .cmd shims take only strictly plain arguments; anything else is refused, not escaped", () => {
   const exists = (p) => ["C:\\bin\\rustright.cmd", "C:\\bin\\pnpm.cmd", "C:\\bin\\tool.exe"].includes(p);
   const env = { Path: "C:\\bin", PATHEXT: ".EXE;.CMD", ComSpec: "C:\\Windows\\System32\\cmd.exe" };

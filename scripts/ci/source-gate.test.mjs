@@ -10,6 +10,13 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { checkPackage, checkoutIdentity, closeIncomplete, EXIT_INCOMPLETE, expectedIncomplete, exportTree, hashInstalled, hashTree, INSTALL_COMMAND, installEnvironment, main, normalizeInstalledMetadata, packageManagerPin, pnpmIdentity, readIncompleteReport, runtimeTargets } from "./exports-import-effects.mjs";
 import { RULES } from "../preflight.mjs";
+import { resolveInvocation } from "../../packages/release/deterministic-scans.mjs";
+/** npm/pnpm without a shell on every host: on Windows their cmd-shims run as node + the shim's JS entry (rightkit#1261). */
+const packageManager = (command, args, options = {}) => {
+  const inv = resolveInvocation(command, args, { env: options.env ?? process.env });
+  if (inv.error) throw inv.error;
+  return execFileSync(inv.file, inv.args, { ...options, windowsVerbatimArguments: inv.verbatim });
+};
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const read = (f) => fs.readFileSync(path.join(REPO, f), "utf8");
@@ -71,7 +78,7 @@ test("exports-import-effects: wildcard exports are expanded and probed; a missin
   }
   const { repo: plainRoot, git: plainGit } = gitRepoFixture(t); const fixtureRootArgs = ["--root", plainRoot];
   fs.cpSync(dir, path.join(plainRoot, "packages", "wild"), { recursive: true });
-  execFileSync("pnpm", ["install", "--lockfile-only", "--ignore-scripts", "--ignore-pnpmfile", "--offline"], { cwd: plainRoot, encoding: "utf8", env: { ...process.env, CI: "1" } });
+  packageManager("pnpm", ["install", "--lockfile-only", "--ignore-scripts", "--ignore-pnpmfile", "--offline"], { cwd: plainRoot, encoding: "utf8", env: { ...process.env, CI: "1" } });
   plainGit("add", "-A"); plainGit("commit", "-qm", "wild");
   assert.equal(main([...fixtureRootArgs, path.join(plainRoot, "packages", "wild")], { log: (m) => io.logs.push(m), error: (m) => io.errs.push(m) }), EXIT_INCOMPLETE, io.errs.join("\n"));
   assert.ok(io.logs.some((l) => /INCOMPLETE: @rk\/wild \. \(\.\/dist\/index\.js\)/.test(l)), io.logs.join("\n"));
@@ -163,7 +170,7 @@ function gitRepoFixture(t, { packages = { a: { exports: { ".": "./dist/index.js"
   }
   write(repo, ".gitignore", "dist/\nnode_modules/\n.local.json\n");
   // The committed lockfile the exported tree installs from (no third-party dependencies: the install is offline-safe).
-  execFileSync("pnpm", ["install", "--lockfile-only", "--ignore-scripts", "--offline"], { cwd: repo, encoding: "utf8", env: { ...process.env, CI: "1" } });
+  packageManager("pnpm", ["install", "--lockfile-only", "--ignore-scripts", "--offline"], { cwd: repo, encoding: "utf8", env: { ...process.env, CI: "1" } });
   git("add", "-A"); git("commit", "-qm", "base");
   return { repo, git };
 }
@@ -274,13 +281,13 @@ test("exports-import-effects: dependency setup executes no candidate code — pn
   write(repo, ".pnpmfile.cjs", `require("fs").writeFileSync(${JSON.stringify(mark("pnpmfile"))}, "ran"); module.exports = { hooks: { readPackage(pkg) { require("fs").writeFileSync(${JSON.stringify(mark("readPackage"))}, pkg.name); return pkg; } } };\n`);
   write(repo, ".npmrc", "ignore-scripts=false\nignore-pnpmfile=false\nside-effects-cache=true\n");
   // The committed lockfile is regenerated with the hook present (it changes nothing about resolution for this tree).
-  execFileSync("pnpm", ["install", "--lockfile-only", "--ignore-scripts", "--ignore-pnpmfile", "--offline"], { cwd: repo, encoding: "utf8", env: { ...process.env, CI: "1" } });
+  packageManager("pnpm", ["install", "--lockfile-only", "--ignore-scripts", "--ignore-pnpmfile", "--offline"], { cwd: repo, encoding: "utf8", env: { ...process.env, CI: "1" } });
   git("add", "-A"); git("commit", "-qm", "hostile config");
   const commit = git("rev-parse", "HEAD").trim();
   // Positive control: a plain `pnpm install` of the same tree runs the hook and the scripts (the markers are real).
   const plain = tmp(t); execFileSync("tar", ["-x", "-C", plain], { input: execFileSync("git", ["-C", repo, "archive", "--format=tar", commit]) });
   // (not frozen: with hooks enabled pnpm compares the lockfile's pnpmfile checksum, which the committed hook-less lockfile lacks)
-  try { execFileSync("pnpm", ["install", "--no-frozen-lockfile", "--offline"], { cwd: plain, encoding: "utf8", env: { ...process.env, CI: "1" }, stdio: ["ignore", "pipe", "pipe"] }); }
+  try { packageManager("pnpm", ["install", "--no-frozen-lockfile", "--offline"], { cwd: plain, encoding: "utf8", env: { ...process.env, CI: "1" }, stdio: ["ignore", "pipe", "pipe"] }); }
   catch (error) { assert.fail(`positive-control install failed: ${error.stderr}\n${error.stdout}`); }
   assert.ok(existsSync(mark("pnpmfile")) && existsSync(mark("readPackage")), "positive control: the pnpm hook ran under a plain install");
   assert.ok(existsSync(mark("lifecycle")) && existsSync(mark("lifecycle-post")), "positive control: the lifecycle scripts ran under a plain install");
@@ -333,7 +340,7 @@ test("exports-import-effects: dependency setup executes no candidate code — pn
   fs.rmSync(mark("pnpmfile"), { force: true });
   // (The query is made as a developer shell would: PATH and HOME only. pnpm 10.28 skips the file when npm_config_ignore_pnpmfile is
   // set; pnpm 11.25 loads it regardless — so the install environment alone is not what keeps the identity query clean.)
-  const raw = execFileSync("pnpm", ["--version"], { cwd: repo, encoding: "utf8", env: { PATH: process.env.PATH, HOME: process.env.HOME, npm_config_manage_package_manager_versions: "false" } }).trim();
+  const raw = packageManager("pnpm", ["--version"], { cwd: repo, encoding: "utf8", env: { PATH: process.env.PATH, HOME: process.env.HOME, npm_config_manage_package_manager_versions: "false" } }).trim();
   assert.ok(/^\d+\.\d+\.\d+/.test(raw)); assert.equal(existsSync(mark("pnpmfile")), true, "positive control: `pnpm --version` inside the tree ran its .pnpmfile.cjs");
   fs.rmSync(mark("pnpmfile"), { force: true });
   const quietId = pnpmIdentity(); assert.equal(quietId.version, id.version); assert.equal(existsSync(mark("pnpmfile")), false, "the identity query never loads the tree's configuration");
