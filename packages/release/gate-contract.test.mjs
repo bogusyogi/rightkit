@@ -662,21 +662,33 @@ test("[behavior] §1 4c review (mixed reach): a test that reaches cargo in two w
       "packages/same/package.json": '{"name":"same","private":true,"scripts":{"test":"cargo test --locked && pnpm --dir ../rs run build"}}\n',
       // The second reach hides behind a same-package script: still read.
       "packages/deep/package.json": '{"name":"deep","private":true,"scripts":{"test":"pnpm run unit && pnpm run e2e","unit":"cargo test --locked","e2e":"pnpm --dir ../../native run build"}}\n',
+      // Root review of f883d5ca: (A) a same-package build script that itself hops; (B) retargets whatever the script is called, and exec.
+      "packages/samehop/package.json": '{"name":"samehop","private":true,"scripts":{"test":"cargo test --locked && pnpm run build","build":"pnpm --dir ../../native run build"}}\n',
+      "packages/nativetest/package.json": '{"name":"nativetest","private":true,"scripts":{"test":"cargo test --locked && pnpm --dir ../../native run test"}}\n',
+      "packages/filterexec/package.json": '{"name":"filterexec","private":true,"scripts":{"test":"cargo test --locked && pnpm --filter native exec cargo build"}}\n',
+      "packages/yarncwd/package.json": '{"name":"yarncwd","private":true,"scripts":{"test":"cargo test --locked && yarn --cwd ../../native build"}}\n',
+      // Limits are refusals, never a silent stop: ten nested scripts, and a script longer than the read limit.
+      "packages/deepchain/package.json": JSON.stringify({ name: "deepchain", private: true, scripts: Object.fromEntries([["test", "pnpm run s1"], ...Array.from({ length: 10 }, (_, k) => [`s${k + 1}`, k === 9 ? "cargo test" : `pnpm run s${k + 2}`])]) }) + "\n",
+      "packages/huge/package.json": JSON.stringify({ name: "huge", private: true, scripts: { test: `node --test ${"x".repeat(17000)} && cargo test` } }) + "\n",
       "packages/rs/package.json": '{"name":"rs","private":true,"scripts":{"build":"cargo build --locked","test":"cargo test --locked"}}\n',
-      "native/package.json": '{"name":"native","private":true,"scripts":{"build":"cargo build --locked"}}\n',
+      "native/package.json": '{"name":"native","private":true,"scripts":{"build":"cargo build --locked","test":"cargo test --locked"}}\n',
       "native/Cargo.toml": '[workspace]\nmembers = []\n', "Cargo.toml": '[workspace]\nmembers = ["packages/rs"]\n', "packages/rs/Cargo.toml": '[package]\nname = "rs"\nversion = "0.1.0"\n',
     });
-    const files = ["package.json", "pnpm-workspace.yaml", "packages/mix/package.json", "packages/twohop/package.json", "packages/same/package.json", "packages/deep/package.json", "packages/rs/package.json", "native/package.json", "native/Cargo.toml", "Cargo.toml", "packages/rs/Cargo.toml"];
-    const npmUnits = ["mix", "twohop", "same", "deep", "rs"].map((n) => ({ name: n, dir: `packages/${n}` })).concat([{ name: "native", dir: "native" }]);
+    const units = ["mix", "twohop", "same", "deep", "rs", "samehop", "nativetest", "filterexec", "yarncwd", "deepchain", "huge"];
+    const files = ["package.json", "pnpm-workspace.yaml", ...units.map((n) => `packages/${n}/package.json`), "native/package.json", "native/Cargo.toml", "Cargo.toml", "packages/rs/Cargo.toml"];
+    const npmUnits = units.map((n) => ({ name: n, dir: `packages/${n}` })).concat([{ name: "native", dir: "native" }]);
     const p = planScans({ changed: files, contentRoot: dir, liveRoot: dir, trustedRoot: dir, includeTests: true, quietTests: "local", tier: "compile", cargoCommand: ["cargo"],
       rustUnits: [{ name: "rs", dir: "packages/rs", crate: "rs", cargoDir: "." }], npmUnits, npmRoots: ["."], liveExecution: true,
       targetDirs: { ".": "/checkout/target", native: "/checkout/native/target" }, platform: process.platform });
     const row = (n) => p.scans.find((s) => s.id === `test:npm:${n}`);
     const refusedFor = (n) => p.scans.find((s) => s.internal === "refuse" && new RegExp(`npm unit ${n}:`).test(s.detail))?.detail ?? null;
-    for (const n of ["mix", "twohop", "deep"]) {
+    for (const n of ["mix", "twohop", "deep", "samehop", "nativetest", "filterexec", "yarncwd"]) {
       assert.equal(row(n), undefined, `${n} is not planned with one workspace's target directory`);
       assert.match(refusedFor(n) ?? "", /more than one workspace \(\., native|more than one workspace \(native, \./, `${n}: ${refusedFor(n)}`);
     }
+    assert.equal(row("deepchain"), undefined); assert.match(refusedFor("deepchain") ?? "", /deeper than 8 scripts/);
+    assert.equal(row("huge"), undefined); assert.match(refusedFor("huge") ?? "", /longer than 16384 characters/);
+    assert.equal(row("native")?.env.CARGO_TARGET_DIR, "/checkout/native/target", "a single reach into native is unchanged");
     assert.equal(row("same")?.env.CARGO_TARGET_DIR, "/checkout/target", `every reach in the enclosing workspace binds it (${refusedFor("same")})`);
     assert.equal(row("rs")?.env.CARGO_TARGET_DIR, "/checkout/target", "a single direct reach is unchanged");
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
