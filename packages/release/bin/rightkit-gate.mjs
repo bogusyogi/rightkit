@@ -1692,6 +1692,18 @@ export async function main(argv, io = {}) {
   // class A scan (lockfiles, cargo-deny, cargo-audit, secrets, licences, manifests, workflow lint, syntax...) over the whole tree of the
   // commit, never a diff. Nothing compiles. The RustRight broker runs exactly this before it admits any compile. `--list`,
   // `--print-baseline` and `--only` stay app-check-only views.
+  if (sub === "check" && args.includes("--snapshot") && !o.buildOwnership) {
+    // Host-wide build ownership (../build-ownership.mjs; GATE-CONTRACT §1): held from before the first snapshot read through the
+    // end of the check, so no other request can sync the snapshot while class A runs in it. A nested gate whose
+    // RIGHTKIT_BUILD_OWNERSHIP names the current owner joins it. Busy (or liveness unknown) runs nothing.
+    const { acquireBuildOwnership, ownershipFile } = await import("../build-ownership.mjs");
+    let own;
+    try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, env: o.env }), stage: "check", snapshot: option("--snapshot") ?? null, commit: option("--commit") ?? null, platform: o.platform, env: o.env }); }
+    catch (e) { if (e.code !== "busy") throw e; o.err(`rightkit-gate: RK_CHECK_ERROR: ${e.message}; nothing ran`); return 2; }
+    o.out(`rightkit-gate: build ownership ${own.joined ? "joined" : "held"} ${own.handle}${own.reclaimed ? ` (reclaimed from ${own.reclaimed.from}: ${own.reclaimed.proofs.join("; ")})` : ""}`);
+    try { return await main(argv, { ...io, buildOwnership: own }); }
+    finally { const r = own.release(); if (r?.released === false && !own.joined) o.err(`rightkit-gate: build ownership ${own.handle} kept: ${r.why}`); }
+  }
   if (sub === "check") {
     // `--snapshot <dir>`: full class A of the gate-owned snapshot of a selected commit (../snapshot-check.mjs). The checkout is only
     // where the commit comes from: its HEAD and status are never read, and the snapshot must be exactly the commit's tree before and

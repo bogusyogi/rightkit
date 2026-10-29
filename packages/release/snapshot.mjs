@@ -26,6 +26,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
+import { acquireBuildOwnership, OwnershipBusy, ownershipFile } from "./build-ownership.mjs";
 
 export const SNAPSHOT_SCHEMA = "rightkit.snapshot/1";
 const STATE_SCHEMA = "rightkit.snapshot-state/1";
@@ -468,14 +469,26 @@ export function snapshotCommand(o, args) {
   }
   const i = args.indexOf("--commit");
   const rev = i >= 0 ? args[i + 1] : "HEAD";
+  let ownership = null;
   try {
-    const r = args.includes("--verify") ? verifySnapshot({ checkout: o.cwd, rev, root: snapshotRoot({ platform: o.platform, env: o.env }) })
-      : syncSnapshot({ checkout: o.cwd, rev, root: snapshotRoot({ platform: o.platform, env: o.env }) });
+    const root = snapshotRoot({ platform: o.platform, env: o.env });
+    // A sync replaces snapshot bytes, so it runs only under the host's build ownership, taken before the first write (joined when
+    // this gate already holds it); a verify only reads.
+    if (!args.includes("--verify")) {
+      const repo = repositoryOf(o.cwd);
+      ownership = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, env: o.env }), stage: "snapshot", snapshot: path.join(root, repo.key), commit: resolveCommit(repo.checkout, rev).commit, platform: o.platform, env: o.env });
+    }
+    const r = args.includes("--verify") ? verifySnapshot({ checkout: o.cwd, rev, root })
+      : syncSnapshot({ checkout: o.cwd, rev, root });
+    if (ownership) r.ownership = { handle: ownership.handle, joined: ownership.joined, reclaimed: ownership.reclaimed };
     if (args.includes("--json")) o.out(JSON.stringify(r));
     else o.out(`rightkit-gate: snapshot ${r.path} commit=${r.commit} tree=${r.tree}${"written" in r ? ` written=${r.written} removed=${r.removed} modes=${r.modesFixed} links=${r.linksRemoved} unchanged=${r.unchanged} ms=${r.ms}` : " verified"}`);
     return 0;
   } catch (e) {
     o.err(`rightkit-gate: snapshot ${e.code ?? "error"}: ${e.message}`);
-    return e instanceof SnapshotError && e.code !== "error" ? 1 : 2;
+    return (e instanceof SnapshotError && e.code !== "error") || e instanceof OwnershipBusy ? 1 : 2;
+  } finally {
+    const r = ownership?.release();
+    if (r?.released === false && !ownership.joined) o.err(`rightkit-gate: build ownership ${ownership.handle} kept: ${r.why}`);
   }
 }

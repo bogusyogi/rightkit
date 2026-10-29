@@ -145,7 +145,8 @@ const code = await main(["check", "--commit", ${JSON.stringify(sha)}, "--full-a"
   ${executorStub ? `resolveExecutor: () => (${executorStub}),` : ""}
   spawn: undefined, runScans: async () => ({ scans: [], notes: [], cacheHits: [] }) });
 console.log(JSON.stringify({ code, out: out.join("\\n").slice(-1500) }));\n`.replace("spawn: undefined, ", ""));
-    const env = { ...process.env, NODE_OPTIONS: "", RK_GATE_CACHE: "0", PATH: `${shimDir}:${directDir}:${process.env.PATH}` };
+    // The host ownership record and snapshots stay in this fixture, never in the real state or data root.
+    const env = { ...process.env, NODE_OPTIONS: "", RK_GATE_CACHE: "0", PATH: `${shimDir}:${directDir}:${process.env.PATH}`, RIGHTKIT_SNAPSHOT_ROOT: path.join(dir, "snaps"), RIGHTKIT_DATA_ROOT: dir, XDG_STATE_HOME: dir };
     const r = spawnSync(process.execPath, [driver], { env, encoding: "utf8", cwd: repo });
     let res = {}; try { res = JSON.parse(String(r.stdout).trim().split(/\r?\n/).pop()); } catch { res = { stderr: r.stderr }; }
     return { ...res, shim: fs.existsSync(path.join(dir, "shim-ran")), direct: fs.existsSync(path.join(dir, "direct-ran")) };
