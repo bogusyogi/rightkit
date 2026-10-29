@@ -263,8 +263,8 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
       if (platform !== "darwin") return null;
       const { own } = psList();
       const r = run(spawn, "lsof", ["-a", "-d", "cwd", "-Fpn", "-u", String(uid)]);
-      // lsof exits 1 when a listed process vanished mid-scan; its output is still the listing.
-      if (r.error || (r.status !== 0 && !String(r.stdout ?? "").trim())) throw new Error(`lsof: ${r.error?.message ?? (String(r.stderr ?? "").trim() || `exit ${r.status}`)}`);
+      // Only a clean exit is a complete listing: any other status (even with output) is unknown, so the caller stays busy.
+      if (r.error || r.status !== 0) throw new Error(`lsof: ${r.error?.message ?? (String(r.stderr ?? "").trim().split(/\r?\n/).pop() || `exit ${r.status}`)}`);
       const found = []; let pid = null;
       for (const line of String(r.stdout ?? "").split(/\r?\n/)) {
         if (line.startsWith("p")) pid = Number(line.slice(1));

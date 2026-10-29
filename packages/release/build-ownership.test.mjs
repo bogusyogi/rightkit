@@ -203,6 +203,16 @@ test("ownership: a normal release with a survivor leaves the record; a gate that
   assert.equal(fs.existsSync(file), false, "the record of a gate that was never contained is removed");
 });
 
+test("probes: a listing that did not finish cleanly is unknown, never a complete answer", { skip: fs.existsSync("/proc/self") && "this host reads /proc, not ps and lsof" }, () => {
+  const probe = (status, stdout) => processProbe({ platform: "darwin", spawn: (cmd) => (cmd === "ps" ? { status: 0, stdout: `${process.pid} 1 ${process.pid} Thu Oct 29 00:00:00 2026\n`, pid: 1 } : { status, stdout, stderr: "lsof: WARNING: can't stat()" }), uid: 501 });
+  assert.throws(() => probe(1, "p123\nfcwd\nn/snap/k\n").cwdHolders("/snap/k"), /lsof: lsof: WARNING/);
+  assert.deepEqual(probe(0, "p123\nfcwd\nn/snap/k/src\np124\nfcwd\nn/elsewhere\n").cwdHolders("/snap/k"), [123]);
+  const env = (status) => processProbe({ platform: "darwin", spawn: (cmd, args) => (args[0] === "eww" ? { status, stdout: `77 node RIGHTKIT_BUILD_OWNERSHIP=h1 PATH=/x\n` } : { status: 0, stdout: "", pid: 1 }) });
+  assert.throws(() => env(1).tokenHolders("h1"), /ps eww/);
+  assert.deepEqual(env(0).tokenHolders("h1"), [77]);
+  assert.deepEqual(env(0).tokenHolders("h"), [], "a prefix of the handle is not the handle");
+});
+
 test("brokerLeaseState: only a well-formed rustright.snapshot-lease-status.v1 answer counts; everything else is UNKNOWN", () => {
   const answer = (stdout, status = 0) => () => ({ status, stdout, stderr: status ? "rustright: unknown command snapshot-lease" : "" });
   const q = { snapshot: "/s", handle: "h", env: {}, platform: "darwin", client: "/x/rustright" };
