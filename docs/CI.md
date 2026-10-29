@@ -227,7 +227,7 @@ gate report names it under "Now green" for removal in next commit.
 
 ## Working method
 
-1. Edit locally. Before pushing CI scripts or workflows, run `node --test "scripts/ci/*.test.mjs"` (Adrian, 2026-10-20). This Node-only preflight is local; Cargo, package test suites, installs & builds run locally through the gate, and CI qualifies.
+1. Edit locally. Cargo, package test suites, installs & builds run locally through the gate, and CI qualifies.
 2. Preview selection with `node scripts/ci/gate.mjs --plan --base <sha>`.
 3. Batch reviewed fixes into one push. Active `main` validation finishes; its single pending slot coalesces newer pushes to latest pending commit. Superseded PR validation cancels. Independent qualification runs remain concurrent; promotion uses a separate global queue. Avoid micro-pushes that discard pending validation.
 4. Apply `fmt.patch` and `Cargo.lock.patch` from the evidence with `git apply`, then commit.

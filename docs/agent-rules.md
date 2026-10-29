@@ -16,7 +16,6 @@ RightKit owns shared packages, crates, QA, licensing, logging, & release tooling
 - Run `node scripts/preflight.mjs` before every push, hook or no hook: seconds, files only. Fix every `FAIL` it prints, commit, & rerun until it passes; CI's first step runs the same check.
 - Run `node scripts/ci/gate.mjs --plan --base <sha>` to preview what a push will verify.
 - Push to `main` in batches & read the `ci` run; apply its `fmt.patch` or `Cargo.lock.patch`, never hand-format.
-- Run `rustfmt --edition <edition> --check <file>` on each changed Rust file before pushing.
 - Record a red unit in `ci/known-red.json` with its reason; never publish a unit listed there.
 - RightKit publishes automatically from git through CI after CI qualification; never from the Mac or Dell; see `docs/CI.md` "Publishing".
 
