@@ -1915,11 +1915,18 @@ export async function runScans(plan, options = {}) {
             const refDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-snapreq-"));
             try {
               const cargoArgv = s.tool === "rustright" ? finalArgs.slice(1) : finalArgs;
-              sb.markBrokerSubmit?.();
+              // The ownership must record the submit, under this gate's handle, before anything is launched: a missing hook or a
+              // mark that did not land refuses the request (the reclaim proof reads broker.submitted).
+              if (typeof sb.markBrokerSubmit !== "function") throw new Error("no build-ownership submit hook: the broker submit cannot be recorded");
+              const marked = sb.markBrokerSubmit();
+              if (marked?.broker?.submitted !== true || marked.handle !== sb.handle) throw new Error(`the build ownership did not record the broker submit under ${sb.handle}`);
               const made = writeSnapshotRequest({ controlRoot: sb.controlRoot, commit: sb.commit, snapshot: sb.snapshot, declaredInputs: sb.declaredInputs ?? [], handle: sb.handle, primaryCwd: fs.realpathSync.native(cwd), argv: cargoArgv, requestIdFile: path.join(refDir, "request.json") });
               carrier = { made, refDir, cargoArgv };
             } catch (e) { fs.rmSync(refDir, { recursive: true, force: true }); clearTimeout(clock); advisory?.cleanup?.(); return { ...row, status: "fail", code: "SNAPSHOT_REQUEST", detail: `the snapshot request for ${s.id} could not be written: ${e.message}` }; }
           }
+          // From here to the end of its verification the carrier and the request reference are this request's: every exit (cancel,
+          // timeout, a thrown spawn, a refused receipt) removes them.
+          try {
           try { r = await deps.spawn(p.command, finalArgs, { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...(carrier ? carrier.made.env : {}) }, signal: scanSignal, timeout: limitMs }); } finally { clearTimeout(clock); advisory?.cleanup?.(); }
           if (signal?.aborted && (!r || r.error || r.status !== 0)) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
           if ((timer.signal.aborted || r?.error?.code === "ETIMEDOUT") && (!r || r.error || r.status !== 0)) return { ...row, status: "fail", code: "TIMEOUT", detail: `${s.id} ran longer than ${Math.round(limitMs / 60000)} min and was killed with its process tree; a scan that does not finish fails` };
@@ -1939,13 +1946,14 @@ export async function runScans(plan, options = {}) {
             try {
               const ref = readRequestRef(path.join(carrier.refDir, "request.json"));
               const receipt = await deps.snapshotBroker.receiptOf(ref.requestId);
-              const { evidence } = verifySnapshotReceipt(receipt, { pins: deps.snapshotBroker.pins, jobId: ref.requestId, carrier: carrier.made.carrier, argv: carrier.cargoArgv, workspace: ref.workspace, observedEnv: observedEnvOf({ ...deps.env, ...s.env, ...(extraEnv ?? {}) }, deps.platform) });
+              const { evidence } = verifySnapshotReceipt(receipt, { pins: deps.snapshotBroker.pins, jobId: ref.requestId, carrier: carrier.made.carrier, argv: carrier.cargoArgv, workspace: ref.workspace, observedEnv: observedEnvOf({ ...deps.env, ...s.env, ...(extraEnv ?? {}) }, deps.platform ?? process.platform) });
               row.snapshotEvidence = { requestId: ref.requestId, outputDir: evidence.outputDir, treeAtStart: evidence.snapshot.treeAtStart, treeAtExit: evidence.snapshot.treeAtExit };
             } catch (e) {
               status = "fail"; code = "SNAPSHOT_EVIDENCE"; detail = `${s.id}: the broker's snapshot evidence did not verify (${e.code ?? "error"}: ${e.message})`;
-            } finally {
-              fs.rmSync(carrier.made.file, { force: true }); fs.rmSync(carrier.refDir, { recursive: true, force: true });
             }
+          }
+          } finally {
+            if (carrier) { fs.rmSync(carrier.made.file, { force: true }); fs.rmSync(carrier.refDir, { recursive: true, force: true }); }
           }
           if (status === "fail" && options.scanLogDir && r) {
             try { fs.mkdirSync(options.scanLogDir, { recursive: true }); const file = path.join(options.scanLogDir, `${s.id.replace(/[^A-Za-z0-9._-]+/g, "_")}.log`); fs.writeFileSync(file, `$ ${s.command ?? s.id}\nexit ${r.status}\n--- stdout\n${r.stdout ?? ""}\n--- stderr\n${r.stderr ?? ""}\n`); row.log = file; detail = `${detail} (full output: ${file})`; } catch { /* the tail in the row remains */ }

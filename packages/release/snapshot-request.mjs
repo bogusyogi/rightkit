@@ -9,7 +9,7 @@
 //      declared inputs, the build-ownership handle, the cargo working directory (primaryCwd) and sha256 of the canonical cargo
 //      argv (without `cargo`), so it cannot be replayed onto another request;
 //   3. after the run, verifies the signed receipt: the provenance signature against this host's enrolled pins (never from the
-//      receipt), the job id, the nonce, the request digest it recomputes over the EXTENDED core (the base core plus commit,
+//      receipt), the job id, the nonce, the signed result (SUCCEEDED, exit 0), the request digest it recomputes over the EXTENDED core (the base core plus commit,
 //      snapshot, declaredInputs and ownership), and the signed snapshotEvidence: the receipt's copies equal the signed ones,
 //      the commit and handle are the carrier's, and the snapshot held the expected tree at START and at exit.
 // The carrier is set only on that one cargo invocation and is removed after it; nothing the gate exports carries it.
@@ -49,12 +49,21 @@ export const freshNonce = () => crypto.randomBytes(32).toString("hex");
 /** sha256 of the canonical JSON of the cargo argv (without `cargo`), as the client computes it. */
 export const argvSha256 = (argv) => sha256(canonicalJson([...argv]));
 
-/** The managed Rust variables the client will report as observedEnv, from the environment the gate runs it with. */
+/**
+ * The managed Rust variables the client will report as observedEnv, from the environment the gate runs it with. RustRight's
+ * capture_managed_rust_environment (shims.rs) matches the name case-insensitively on every platform and keeps the key exactly as
+ * spelled (`Cargo_Home` stays `Cargo_Home`), so the digest binds that spelling. On Windows the child sees only one of several
+ * names that differ by case: Node passes the first in sorted order (child_process "env" on Windows), so the rest are not observed.
+ */
 export function observedEnvOf(env, platform = process.platform) {
   const out = {};
-  for (const [key, value] of Object.entries(env ?? {})) {
-    const name = platform === "win32" ? key.toUpperCase() : key;
-    if (MANAGED_RUST_ENVIRONMENT_KEYS.includes(name) && typeof value === "string") out[name] = value;
+  const entries = Object.entries(env ?? {});
+  if (platform === "win32") entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const seen = new Set();
+  for (const [key, value] of entries) {
+    const upper = key.toUpperCase();
+    if (platform === "win32") { if (seen.has(upper)) continue; seen.add(upper); }
+    if (MANAGED_RUST_ENVIRONMENT_KEYS.includes(upper) && typeof value === "string") out[key] = value;
   }
   return out;
 }
@@ -123,6 +132,13 @@ const same = (a, b) => canonicalJson(a ?? null) === canonicalJson(b ?? null);
 export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, workspace, observedEnv = {}, canonicalPath = (p) => fs.realpathSync.native(p) }) {
   const requestDigest = requestDigestOf(snapshotRequestCore({ argv, workspace, observedEnv, carrier }));
   const payload = verifyProvenance(receipt, pins, { jobId, nonce: carrier.nonce, requestDigest });
+  // The signed outcome, not the client's exit code: a passing row needs the broker to have signed SUCCEEDED with exit 0 and no
+  // signal (service.rs provenance_payload `result`). An authentic FAILED, or a payload without a result, is not a success.
+  const result = payload.result;
+  if (!result || typeof result !== "object") fail("result", "the signed payload carries no result: the broker did not sign this request's outcome");
+  if (result.status !== "SUCCEEDED" || result.exitCode !== 0 || (result.signal !== undefined && result.signal !== null)) {
+    fail("result", `the broker signed ${result.status ?? "no status"} (exit ${result.exitCode ?? "none"}${result.signal ? `, signal ${result.signal}` : ""}), not SUCCEEDED with exit 0`);
+  }
   const evidence = payload.snapshotEvidence;
   if (!evidence || typeof evidence !== "object") fail("evidence", "the signed payload carries no snapshotEvidence: the broker did not build this as a snapshot request");
   for (const name of SNAPSHOT_EVIDENCE_FIELDS) {

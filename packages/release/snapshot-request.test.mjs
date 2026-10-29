@@ -80,9 +80,18 @@ test("carrier: anything the reader would refuse is refused before a file is writ
   assert.equal(freshNonce().length, 64); assert.match(freshNonce(), /^[0-9a-f]{64}$/); assert.notEqual(freshNonce(), freshNonce());
 });
 
-test("observedEnv: only the managed Rust variables the client records (case-insensitive on Windows)", () => {
+test("observedEnv: the managed Rust variables as the client records them, matched case-insensitively, spelling kept", (t) => {
   assert.deepEqual(observedEnvOf({ PATH: "/x", CARGO_TARGET_DIR: "/t", RUSTFLAGS: "-D warnings", HOME: "/h" }, "darwin"), { CARGO_TARGET_DIR: "/t", RUSTFLAGS: "-D warnings" });
-  assert.deepEqual(observedEnvOf({ Cargo_Home: "C:\\c", Path: "x" }, "win32"), { CARGO_HOME: "C:\\c" });
+  // RustRight keeps the key as captured (shims.rs capture_managed_rust_environment: key.clone()), on every platform.
+  assert.deepEqual(observedEnvOf({ Cargo_Home: "C:\\c", Path: "x" }, "win32"), { Cargo_Home: "C:\\c" });
+  assert.deepEqual(observedEnvOf({ cargo_target_dir: "/t" }, "linux"), { cargo_target_dir: "/t" });
+  assert.deepEqual(observedEnvOf({ CARGO_HOME: "/a", cargo_home: "/b" }, "linux"), { CARGO_HOME: "/a", cargo_home: "/b" }, "POSIX names that differ by case are two variables");
+  // Windows hands the child one of several case variants, the first in sorted order; only that one is observed.
+  assert.deepEqual(observedEnvOf({ Cargo_Home: "/b", CARGO_HOME: "/a" }, "win32"), { CARGO_HOME: "/a" });
+  // The spelling is bound by the request digest: an uppercased copy would not match what the broker signed.
+  const { made, argv, cwd } = request(t);
+  assert.notEqual(requestDigestOf(snapshotRequestCore({ argv, workspace: cwd, observedEnv: observedEnvOf({ Cargo_Home: "C:\\c" }, "win32"), carrier: made.carrier })),
+    requestDigestOf(snapshotRequestCore({ argv, workspace: cwd, observedEnv: { CARGO_HOME: "C:\\c" }, carrier: made.carrier })));
 });
 
 test("request digest: the extended core binds every field the broker adds for a snapshot request", (t) => {
@@ -111,10 +120,12 @@ test("receipt: a signed snapshot receipt verifies; tampered copies, payload, tre
     requestId: jobId, brokerVersion: "rustright-x", executor: "host-1", commit: made.carrier.commit,
     snapshot: { path: snapshot, treeAtStart: T, treeAtExit: T }, declaredInputDigests: [], ownership: { handle: "own-1" }, outputDir: "/checkout/target",
   };
+  let signer = privateKey;
   const make = (mutate = (p) => p) => {
     const payload = mutate({ host: "host-1", broker: { brokerDigest: "bd" }, keyId: pins.keyId, jobId, nonce: made.carrier.nonce,
-      requestDigest: requestDigestOf(snapshotRequestCore({ argv, workspace: cwd, carrier: made.carrier })), snapshotEvidence: structuredClone(evidence) });
-    const value = crypto.sign("sha256", signedBytes(payload), { key: privateKey, dsaEncoding: "ieee-p1363" }).toString("hex");
+      requestDigest: requestDigestOf(snapshotRequestCore({ argv, workspace: cwd, carrier: made.carrier })),
+      result: { status: "SUCCEEDED", exitCode: 0, signal: null, reap: { reaped: true } }, snapshotEvidence: structuredClone(evidence) });
+    const value = crypto.sign("sha256", signedBytes(payload), { key: signer, dsaEncoding: "ieee-p1363" }).toString("hex");
     return { id: jobId, ...structuredClone(payload.snapshotEvidence ?? {}), provenance: { schema: "rustright.provenance.v1", payload, signature: { alg: "ES256", keyId: pins.keyId, value } } };
   };
   const check = (receipt, over = {}) => verifySnapshotReceipt(receipt, { pins, jobId, carrier: made.carrier, argv, workspace: cwd, ...over });
@@ -136,6 +147,19 @@ test("receipt: a signed snapshot receipt verifies; tampered copies, payload, tre
   assert.throws(() => check(make(), { argv: ["build"] }), (e) => e.code === "request");
   assert.throws(() => check(make(), { workspace: "/elsewhere" }), (e) => e.code === "request");
   assert.throws(() => check(make(), { pins: { ...pins, host: "other" } }), (e) => e.code === "host");
+  // Authentically signed, but not a success: a FAILED, timed-out or signalled build, a non-zero exit, or no signed result at all.
+  for (const [result, why] of [
+    [{ status: "FAILED", exitCode: 0, signal: null }, /signed FAILED/],
+    [{ status: "TIMED_OUT", exitCode: 0, signal: null }, /signed TIMED_OUT/],
+    [{ status: "SUCCEEDED", exitCode: 101, signal: null }, /exit 101/],
+    [{ status: "SUCCEEDED", exitCode: 0, signal: "SIGKILL" }, /signal SIGKILL/],
+    [undefined, /carries no result/],
+  ]) assert.throws(() => check(make((p) => { if (result) p.result = result; else delete p.result; return p; })), (e) => e.code === "result" && why.test(e.message), JSON.stringify(result));
+  // A real P-256 signature by a key this host never enrolled, over an otherwise perfect payload: refused on the signature.
+  signer = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey;
+  assert.throws(() => check(make()), (e) => e.code === "signature");
+  signer = privateKey;
+  assert.equal(check(make()).payload.result.status, "SUCCEEDED");
 });
 
 test("request reference: the client's rustright.request-ref.v1, or a refusal", (t) => {
@@ -161,13 +185,16 @@ test("runScans: a broker cargo request builds the snapshot under its own carrier
   const classA = { id: "a:noop", class: "A", tool: "node", args: ["-e", "0"], root: "live", env: {}, command: "node -e 0" };
   const plan = { roots: { contentRoot: snap, liveRoot: snap, cargoLiveRoot: checkout }, scans: [classA, scan], notes: [], deferred: [] };
   // A fake client that applies RustRight's reader rules, records the request reference, and keeps what it saw.
-  const run = async ({ tamper = null, badCarrier = false } = {}) => {
-    const seen = { submitsBefore: 0 }; let submits = 0;
+  const run = async ({ tamper = null, badCarrier = false, mark, launch = null } = {}) => {
+    const seen = { submitsBefore: 0, launched: false }; let submits = 0;
     const spawn = (command, args, opts = {}) => {
       const env = opts.env ?? {};
       // Tool probes and the class A row: anything that is not the carried request.
-      if (!env.RIGHTKIT_SNAPSHOT_REQUEST) return { status: 0, stdout: "v1\n", stderr: "" };
+      if (!env.RIGHTKIT_SNAPSHOT_REQUEST) { if (args.includes("check")) seen.launched = true; return { status: 0, stdout: "v1\n", stderr: "" }; }
+      seen.launched = true;
       const d = JSON.parse(env.RIGHTKIT_SNAPSHOT_REQUEST);
+      seen.file = d.path; seen.refDir = path.dirname(env.RIGHTKIT_REQUEST_ID_FILE);
+      if (launch) return launch(opts);
       const bytes = fs.readFileSync(d.path);
       const carrier = JSON.parse(bytes);
       seen.ok = sha(bytes) === d.sha256 && carrier.nonce === env.RIGHTKIT_ATTEST_NONCE && carrier.argvSha256 === sha(canonicalJson(args.slice(1))) && fs.realpathSync(carrier.primaryCwd) === fs.realpathSync(opts.cwd) && !badCarrier;
@@ -179,16 +206,20 @@ test("runScans: a broker cargo request builds the snapshot under its own carrier
       const c = seen.carrier;
       const evidence = { requestId: id, brokerVersion: "v", executor: "host-1", commit: c.commit, snapshot: { path: c.snapshot.path, treeAtStart: T, treeAtExit: T }, declaredInputDigests: [], ownership: c.ownership, outputDir: path.join(checkout, "target") };
       const payload = { host: "host-1", broker: { brokerDigest: "bd" }, keyId: pins.keyId, jobId: id, nonce: c.nonce,
-        requestDigest: requestDigestOf(snapshotRequestCore({ argv: args0, workspace: fs.realpathSync(path.join(checkout)), carrier: c })), snapshotEvidence: evidence };
+        requestDigest: requestDigestOf(snapshotRequestCore({ argv: args0, workspace: fs.realpathSync(path.join(checkout)), carrier: c })),
+        result: { status: "SUCCEEDED", exitCode: 0, signal: null, reap: { reaped: true } }, snapshotEvidence: evidence };
       tamper?.(payload);
       const value = crypto.sign("sha256", signedBytes(payload), { key: privateKey, dsaEncoding: "ieee-p1363" }).toString("hex");
       return { id, ...structuredClone(payload.snapshotEvidence), provenance: { schema: "rustright.provenance.v1", payload, signature: { alg: "ES256", keyId: pins.keyId, value } } };
     };
     const args0 = scan.args.slice(1);
     const result = await runScans(plan, { spawn, lookupSpawn: spawn, env: { PATH: process.env.PATH }, classes: ["A", "B"],
-      snapshotBroker: { controlRoot: path.join(root, "control"), commit: { sha: C, tree: T }, snapshot: { path: snap, expectedTree: T }, handle: "own-9", pins, markBrokerSubmit: () => { submits += 1; }, receiptOf } });
-    return { row: result.scans.find((r) => r.id === "check:core"), seen, submits };
+      signal: launchSignal,
+      snapshotBroker: { controlRoot: path.join(root, "control"), commit: { sha: C, tree: T }, snapshot: { path: snap, expectedTree: T }, handle: "own-9", pins,
+        ...(mark === null ? {} : { markBrokerSubmit: mark ?? (() => { submits += 1; return { handle: "own-9", broker: { submitted: true } }; }) }), receiptOf } }).catch((e) => ({ thrown: e, scans: [] }));
+    return { row: result.scans.find((r) => r.id === "check:core"), result, seen, submits };
   };
+  let launchSignal;
   const good = await run();
   assert.equal(good.seen.ok, true, `the client accepted the carrier (${JSON.stringify(good.row)})`);
   assert.equal(good.submits, 1); assert.equal(good.seen.submitsBefore, 1, "the ownership recorded the broker submit before the request ran");
@@ -202,4 +233,32 @@ test("runScans: a broker cargo request builds the snapshot under its own carrier
   assert.equal(other.row.code, "SNAPSHOT_EVIDENCE");
   const legacy = await run({ tamper: (p) => { delete p.snapshotEvidence; } });
   assert.equal(legacy.row.code, "SNAPSHOT_EVIDENCE"); assert.match(legacy.row.detail, /no snapshotEvidence/);
+  // cargo exited 0, but the broker authentically signed a failure, or signed no result: the row fails.
+  const failed = await run({ tamper: (p) => { p.result = { status: "FAILED", exitCode: 0, signal: null, reap: { reaped: true } }; } });
+  assert.equal(failed.row.status, "fail"); assert.equal(failed.row.code, "SNAPSHOT_EVIDENCE"); assert.match(failed.row.detail, /signed FAILED/);
+  const silent = await run({ tamper: (p) => { delete p.result; } });
+  assert.equal(silent.row.code, "SNAPSHOT_EVIDENCE"); assert.match(silent.row.detail, /no result/);
+  // The submit is recorded before launch, or nothing launches: no hook, a hook that throws, a mark that did not land.
+  for (const [mark, why] of [
+    [null, /no build-ownership submit hook/],
+    [() => { throw new Error("build ownership is no longer held"); }, /no longer held/],
+    [() => ({ handle: "own-9", broker: {} }), /did not record the broker submit/],
+    [() => ({ handle: "someone-else", broker: { submitted: true } }), /did not record the broker submit/],
+  ]) {
+    const refused = await run({ mark });
+    assert.equal(refused.row.status, "fail"); assert.equal(refused.row.code, "SNAPSHOT_REQUEST"); assert.match(refused.row.detail, why);
+    assert.equal(refused.seen.launched, false, "the cargo request was never launched");
+    assert.deepEqual(fs.readdirSync(path.join(root, "control", "snapshot-requests")), [], "no carrier is left behind");
+  }
+  // Every exit after the carrier exists removes it and the request reference: a thrown spawn, a cancel, a timeout.
+  const gone = (seen) => { assert.ok(seen.file && seen.refDir); assert.equal(fs.existsSync(seen.file), false, seen.file); assert.equal(fs.existsSync(seen.refDir), false, seen.refDir); };
+  const thrown = await run({ launch: () => { throw new Error("spawn exploded"); } });
+  assert.notEqual(thrown.row?.status, "pass"); gone(thrown.seen);
+  const ac = new AbortController(); launchSignal = ac.signal;
+  const cancelled = await run({ launch: () => { ac.abort(); return { status: null, error: Object.assign(new Error("aborted"), { code: "ABORT_ERR" }) }; } });
+  assert.equal(cancelled.row.code, "CANCELLED"); gone(cancelled.seen);
+  launchSignal = undefined;
+  const late = await run({ launch: () => ({ status: null, error: Object.assign(new Error("timed out"), { code: "ETIMEDOUT" }) }) });
+  assert.equal(late.row.code, "TIMEOUT"); gone(late.seen);
+  assert.deepEqual(fs.readdirSync(path.join(root, "control", "snapshot-requests")), []);
 });
