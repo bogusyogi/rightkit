@@ -10,6 +10,10 @@
 //! - Encoder: [`Zipformer2Transducer::run_encoder`] chunk by chunk on the reference's own
 //!   fbank frames (so the encoder is compared in isolation) against Sherpa's encoder
 //!   output (gate 1e-3). Needs `RK_KWS_MODEL_DIR` and `RK_ORT_TEST_DYLIB`.
+//! - Speed-lever preconditions, on this host's ONNX Runtime (run them on every OS that turns
+//!   a lever on): the decoder computes every row independently of its batch (what
+//!   `decoder_cache` relies on), and the `static_batch` encoder is bit-identical to the
+//!   dynamic one on the reference features. Same assets as the encoder test.
 //!
 //! A missing asset prints a SKIP line and the test passes; `RIGHTKIT_REQUIRE_ASSETS=1`
 //! makes it fail. `RK_KWS_FIXTURES` names a fixtures root to use instead of `tests/fixtures`.
@@ -346,7 +350,8 @@ fn kws_encoder_matches_sherpa_on_reference_features() {
     let dim = FbankTables::new(&FbankConfig::default(), Math::PLATFORM)
         .unwrap()
         .dim();
-    let mut model = Zipformer2Transducer::load(&encoder, &decoder, &joiner, dim, 1).unwrap();
+    let mut model =
+        Zipformer2Transducer::load(&encoder, &decoder, &joiner, dim, 1, false).unwrap();
     let (size, shift) = (model.chunk_size(), model.chunk_shift());
 
     let mut worst = 0.0f32;
@@ -412,6 +417,150 @@ fn kws_encoder_matches_sherpa_on_reference_features() {
         );
     }
     eprintln!("encoder worst max |diff| {worst:.3e}");
+}
+
+/// The reference model's files, checked against `reference.json`, with ONNX Runtime bound;
+/// `None` after a SKIP line.
+fn model_files() -> Option<(PathBuf, Reference, [PathBuf; 3])> {
+    let root = fixtures_root();
+    let Some(reference) = load_reference(&root) else {
+        skip_missing(
+            "KWS Sherpa reference fixture",
+            &root.join("kws/reference.json").display().to_string(),
+        );
+        return None;
+    };
+    let Some(model_dir) = env_path("RK_KWS_MODEL_DIR") else {
+        skip_missing("KWS zipformer model directory", "RK_KWS_MODEL_DIR");
+        return None;
+    };
+    let Some(runtime) = env_path("RK_ORT_TEST_DYLIB") else {
+        skip_missing("ONNX Runtime dylib", "RK_ORT_TEST_DYLIB");
+        return None;
+    };
+    bind_runtime(&runtime);
+    let m = &reference.model;
+    let files = [
+        model_dir.join(&m.encoder),
+        model_dir.join(&m.decoder),
+        model_dir.join(&m.joiner),
+    ];
+    for (file, sha) in files
+        .iter()
+        .zip([&m.encoder_sha256, &m.decoder_sha256, &m.joiner_sha256])
+    {
+        check_sha256(file, sha);
+    }
+    Some((root, reference, files))
+}
+
+fn feature_dim() -> usize {
+    FbankTables::new(&FbankConfig::default(), Math::PLATFORM)
+        .unwrap()
+        .dim()
+}
+
+/// `decoder_cache` precondition: every decoder row is bit-identical whatever batch computes
+/// it. Every context the beam can form (each token after the blank-context `-1` and after
+/// every token) is computed alone, then again in batches of 2 to 16 in shuffled orders.
+#[test]
+fn kws_decoder_is_batch_invariant() {
+    let Some((_, _, [encoder, decoder, joiner])) = model_files() else {
+        return;
+    };
+    let mut model =
+        Zipformer2Transducer::load(&encoder, &decoder, &joiner, feature_dim(), 1, false).unwrap();
+    let (cs, vocab) = (model.context_size(), model.vocab_size() as i64);
+    assert_eq!(cs, 2, "this test enumerates two-token contexts");
+    let mut contexts: Vec<[i64; 2]> = Vec::new();
+    for prev in -1..vocab {
+        for token in 0..vocab {
+            contexts.push([prev, token]);
+        }
+    }
+    let alone: Vec<Vec<f32>> = contexts
+        .iter()
+        .map(|c| model.run_decoder(c.to_vec()).unwrap().1)
+        .collect();
+    let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+    let (mut rows, mut differ) = (0usize, 0usize);
+    let mut first_difference = None;
+    for batch in [2usize, 3, 4, 5, 8, 16] {
+        // Fisher-Yates on a fixed LCG: each batch size sees other neighbours.
+        let mut order: Vec<usize> = (0..contexts.len()).collect();
+        for i in (1..order.len()).rev() {
+            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            order.swap(i, (seed >> 33) as usize % (i + 1));
+        }
+        for group in order.chunks(batch) {
+            let ids: Vec<i64> = group.iter().flat_map(|&i| contexts[i]).collect();
+            let (dim, out) = model.run_decoder(ids).unwrap();
+            for (&i, row) in group.iter().zip(out.chunks_exact(dim)) {
+                rows += 1;
+                let same = row
+                    .iter()
+                    .zip(&alone[i])
+                    .all(|(a, b)| a.to_bits() == b.to_bits());
+                if !same {
+                    differ += 1;
+                    first_difference.get_or_insert((batch, contexts[i]));
+                }
+            }
+        }
+    }
+    eprintln!(
+        "decoder batch invariance: {} contexts, {rows} batched rows, {differ} differ from the row computed alone",
+        contexts.len()
+    );
+    assert_eq!(
+        differ, 0,
+        "decoder rows depend on their batch (first: batch, context = {first_difference:?}); \
+         decoder_cache is not exact on this host"
+    );
+}
+
+/// `static_batch` precondition: the encoder built with `N` pinned to 1 gives the same bits as
+/// the dynamic one, chunk by chunk with carried states, on every reference clip's features.
+#[test]
+fn kws_static_batch_encoder_is_bit_identical() {
+    let Some((root, reference, [encoder, decoder, joiner])) = model_files() else {
+        return;
+    };
+    let dim = feature_dim();
+    let mut dynamic = Zipformer2Transducer::load(&encoder, &decoder, &joiner, dim, 1, false).unwrap();
+    let mut pinned = Zipformer2Transducer::load(&encoder, &decoder, &joiner, dim, 1, true).unwrap();
+    let (size, shift) = (dynamic.chunk_size(), dynamic.chunk_shift());
+    let (mut chunks, mut differ) = (0usize, 0usize);
+    for fb in &reference.fbank {
+        let path = root.join("kws").join(&fb.file);
+        if !path.is_file() {
+            skip_missing("KWS Sherpa fbank dump", &path.display().to_string());
+            return;
+        }
+        let features = read_f32le(&path, fb.frames * fb.dim);
+        let (mut a, mut b) = (dynamic.init_states(), pinned.init_states());
+        let mut start = 0;
+        while start + size <= fb.frames {
+            let x = &features[start * dim..(start + size) * dim];
+            let (da, db) = (
+                dynamic.run_encoder(x, &mut a).unwrap(),
+                pinned.run_encoder(x, &mut b).unwrap(),
+            );
+            chunks += 1;
+            let same = da.data.len() == db.data.len()
+                && da.data.iter().zip(&db.data).all(|(p, q)| p.to_bits() == q.to_bits())
+                && a == b;
+            if !same {
+                differ += 1;
+                let (max, _, _) = diff_stats(&da.data, &db.data);
+                eprintln!("  {} chunk at frame {start}: max |diff| {max:.3e}", fb.audio);
+            }
+            start += shift;
+        }
+    }
+    eprintln!("static batch encoder: {chunks} chunks, {differ} differ from the dynamic encoder");
+    assert!(chunks > 0, "no reference features to encode");
+    assert_eq!(differ, 0, "static_batch changes encoder output on this host");
 }
 
 // --- Model-free edge cases -------------------------------------------------------------

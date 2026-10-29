@@ -203,6 +203,13 @@ scale = "three ONNX sessions (streaming Zipformer2 encoder, decoder, joiner) on 
 release = "Drop"
 
 [[package.metadata.rightkit.resources]]
+api = "kws::KwsModel::load"
+file = "src/kws/mod.rs"
+holds = ["memory", "thread"]
+scale = "three ONNX sessions (streaming Zipformer2 encoder, decoder, joiner) on the CPU provider with the configured intra-op threads, shared by every KeywordSpotter::with_model on it; with decoder_cache, at most 2048 cached decoder rows (2.6 MB for the 320-dim decoder); fixed per model, independent of audio length and of the number of spotters"
+release = "Drop of the last Arc (the spotters hold clones)"
+
+[[package.metadata.rightkit.resources]]
 api = "kws::KeywordSpotter::create_stream"
 file = "src/kws/mod.rs"
 holds = ["memory"]

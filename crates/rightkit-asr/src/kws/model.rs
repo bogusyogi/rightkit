@@ -5,7 +5,12 @@
 //! input order and returns `encoder_out` followed by the next states in the same order.
 //! Initial states are built from the model metadata exactly as Sherpa builds them and
 //! are checked against the shapes the graph declares.
+//!
+//! Two opt-in speed levers live here: [`Zipformer2Transducer::load`]'s `static_batch` pins
+//! the encoder's free batch dimension `N` to 1, and [`Zipformer2Transducer::run_decoder_cached`]
+//! serves decoder rows from a per-context cache.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use rightkit_onnx::ort;
@@ -73,13 +78,54 @@ pub(crate) struct Zipformer2Transducer {
     vocab_size: usize,
     context_size: usize,
     init_states: Vec<StateTensor>,
+    /// Decoder output row per `context_size`-token context ([`Self::run_decoder_cached`]).
+    decoder_cache: HashMap<Vec<i64>, Box<[f32]>>,
 }
+
+/// Rows [`Zipformer2Transducer::run_decoder_cached`] keeps before it starts over (1.3 KB
+/// each for the 320-dim decoder, so at most 2.6 MB).
+pub(crate) const DECODER_CACHE_ROWS: usize = 2048;
 
 fn session(path: &Path, threads: usize) -> Result<Session> {
     rightkit_onnx::SessionOptions::new(rightkit_onnx::ExecutionProvider::Cpu)
         .with_threads(Some(threads.max(1)))
         .build_from_file(path)
         .map_err(|e| Error::Model(format!("load {}: {e}", path.display())))
+}
+
+/// The encoder's free batch dimension.
+const BATCH_DIM: &str = "N";
+
+/// [`session`] with the free dimension `N` pinned to 1, so ONNX Runtime constant-folds the
+/// encoder's shape subgraphs at load. `rightkit_onnx::SessionOptions` has no dimension
+/// override, so this builds the CPU session the way it does (shared-pool opt-out for explicit
+/// threads, intra-op threads, the KleidiAI disable when one is forced) plus the override.
+fn static_batch_session(path: &Path, threads: usize) -> Result<Session> {
+    use rightkit_onnx::{environment, kleidiai};
+    let fail = |what: &str, e: ort::Error| Error::Model(format!("load {}: {what}: {e}", path.display()));
+    if !path.is_file() {
+        return Err(Error::Model(format!("load {}: no such file", path.display())));
+    }
+    let env = environment::ort_environment()
+        .map_err(|e| Error::Model(format!("load {}: environment: {e}", path.display())))?;
+    let mut builder = Session::builder(env).map_err(|e| fail("session builder", e))?;
+    if environment::shared_pool_active() {
+        builder = builder
+            .with_independent_thread_pool()
+            .map_err(|e| fail("independent thread pool", e.into()))?;
+    }
+    builder = builder
+        .with_intra_threads(threads.max(1))
+        .map_err(|e| fail("intra threads", e.into()))?;
+    if kleidiai::session_disables(false, cfg!(target_arch = "aarch64"), kleidiai::forced_off()) {
+        builder = builder
+            .with_config_entry(kleidiai::CONFIG_KEY_DISABLE, "1")
+            .map_err(|e| fail("disable_kleidiai", e.into()))?;
+    }
+    builder = builder
+        .with_dimension_override(BATCH_DIM, 1)
+        .map_err(|e| fail("batch dimension override", e.into()))?;
+    builder.commit_from_file(path).map_err(|e| fail("commit", e))
 }
 
 fn meta(session: &Session, key: &str, file: &Path) -> Result<String> {
@@ -111,8 +157,13 @@ impl Zipformer2Transducer {
         joiner: &Path,
         feature_dim: usize,
         threads: usize,
+        static_batch: bool,
     ) -> Result<Self> {
-        let enc = session(encoder, threads)?;
+        let enc = if static_batch {
+            static_batch_session(encoder, threads)?
+        } else {
+            session(encoder, threads)?
+        };
         let model_type = meta(&enc, "model_type", encoder)?;
         if model_type != "zipformer2" {
             return Err(Error::Model(format!(
@@ -181,6 +232,17 @@ impl Zipformer2Transducer {
         });
 
         let inputs = enc.inputs();
+        if static_batch {
+            // The override names a dimension the graph must have; a graph without it would
+            // load unchanged and silently run the dynamic path.
+            let x = inputs.first().and_then(|i| i.dtype().tensor_shape().map(|s| s.to_vec()));
+            if x.as_ref().and_then(|s| s.first()) != Some(&1) {
+                return Err(Error::Model(format!(
+                    "{}: static_batch: input x declares {x:?}, not a batch of 1 after pinning `{BATCH_DIM}`",
+                    encoder.display()
+                )));
+            }
+        }
         if inputs.len() != init_states.len() + 1 || enc.outputs().len() != inputs.len() {
             return Err(Error::Model(format!(
                 "{}: {} inputs / {} outputs, expected {} of each",
@@ -223,6 +285,7 @@ impl Zipformer2Transducer {
             vocab_size,
             context_size,
             init_states,
+            decoder_cache: HashMap::new(),
         })
     }
 
@@ -299,6 +362,53 @@ impl Zipformer2Transducer {
         let outputs = self.decoder.run(ort::inputs![y])?;
         let (shape, data) = outputs[0].try_extract_tensor::<f32>()?;
         Ok((shape[shape.len() - 1] as usize, data.to_vec()))
+    }
+
+    /// [`Self::run_decoder`] through the per-context row cache: the decoder runs once, as one
+    /// batch, on the contexts not cached yet (first-seen order), and the rows come back in
+    /// `contexts` order. Equal to [`Self::run_decoder`] only where the decoder's rows do not
+    /// depend on the batch they are computed in (`kws_decoder_is_batch_invariant`). The cache
+    /// starts over once it would exceed [`DECODER_CACHE_ROWS`].
+    pub(crate) fn run_decoder_cached(&mut self, contexts: &[i64]) -> Result<(usize, Vec<f32>)> {
+        let cs = self.context_size;
+        let mut misses = self.uncached(contexts);
+        if self.decoder_cache.len() + misses.len() / cs > DECODER_CACHE_ROWS {
+            // Start over; every context is a miss again.
+            self.decoder_cache.clear();
+            misses = self.uncached(contexts);
+        }
+        if !misses.is_empty() {
+            let (dim, rows) = self.run_decoder(misses.clone())?;
+            for (c, row) in misses.chunks_exact(cs).zip(rows.chunks_exact(dim)) {
+                self.decoder_cache.insert(c.to_vec(), row.into());
+            }
+        }
+        let mut out = Vec::with_capacity(contexts.len() / cs * self.decoder_row_dim());
+        for c in contexts.chunks_exact(cs) {
+            out.extend_from_slice(&self.decoder_cache[c]);
+        }
+        Ok((self.decoder_row_dim(), out))
+    }
+
+    /// The distinct contexts in `contexts` that have no cached row, in first-seen order.
+    fn uncached(&self, contexts: &[i64]) -> Vec<i64> {
+        let cs = self.context_size;
+        let mut misses: Vec<i64> = Vec::new();
+        for c in contexts.chunks_exact(cs) {
+            if !self.decoder_cache.contains_key(c) && !misses.chunks_exact(cs).any(|m| m == c) {
+                misses.extend_from_slice(c);
+            }
+        }
+        misses
+    }
+
+    fn decoder_row_dim(&self) -> usize {
+        self.decoder_cache.values().next().map_or(0, |row| row.len())
+    }
+
+    /// Drop every cached decoder row.
+    pub(crate) fn clear_decoder_cache(&mut self) {
+        self.decoder_cache.clear();
     }
 
     /// Joiner logits `[rows, vocab_size]` for paired encoder and decoder rows.
