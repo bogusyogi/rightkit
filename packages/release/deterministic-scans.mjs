@@ -238,6 +238,40 @@ const PNPM_NO_HOOKS_ENV = Object.freeze({ npm_config_ignore_pnpmfile: "true", np
 // fails in the tool or the test with its own error. The `pnpm_config_` spelling is the one pnpm 11.25 honours for this setting
 // (`npm_config_verify_deps_before_run=false` still aborted, checked on a stale tree), the lowercase spelling PNPM_NO_HOOKS_ENV uses for its settings.
 const PNPM_RUN_ENV = Object.freeze({ pnpm_config_verify_deps_before_run: "false" });
+
+// The placeholder a tsc row passes as its project when its package depends on a workspace sibling (planScans; runScans replaces it).
+export const TSC_PROJECT = "{tscProject}";
+const DIST_TYPES = /^\.\/dist\/(.+)\.d\.ts$/;
+/**
+ * Writes the project a tsc row checks through: it extends the package's own tsconfig (its include, exclude and options, resolved from
+ * there), emits nothing, widens rootDir to the checked tree, and maps every exported entry point of each workspace sibling whose types
+ * are built output (`types: ./dist/<x>.d.ts`) to that sibling's committed source (`src/<x>.ts`, `.tsx`, `/index.ts`, `/index.tsx`).
+ * `workspace` is the siblings' tree-relative directories. Returns { dir, file }; the caller removes `dir`. Throws when a sibling's
+ * manifest cannot be read or an exported entry point has no committed source: such a sibling could only be checked against a build.
+ */
+export function writeTscProject({ contentRoot, packageDir, workspace, tmpdir = os.tmpdir() }) {
+  const paths = {};
+  for (const rel of workspace) {
+    const dir = path.join(contentRoot, rel);
+    let manifest;
+    try { manifest = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8").replace(/^﻿/, "")); }
+    catch (e) { throw new Error(`${rel}/package.json: ${e.message}`); }
+    if (typeof manifest.name !== "string" || path.resolve(dir) === path.resolve(packageDir)) continue;
+    const exported = manifest.exports && typeof manifest.exports === "object" ? Object.entries(manifest.exports) : [];
+    for (const [sub, target] of exported) {
+      const types = target && typeof target === "object" ? target.types : null;
+      const m = typeof types === "string" ? DIST_TYPES.exec(types) : null;
+      if (!m) continue;
+      const source = [`src/${m[1]}.ts`, `src/${m[1]}.tsx`, `src/${m[1]}/index.ts`, `src/${m[1]}/index.tsx`].map((f) => path.join(dir, f)).find((f) => fs.existsSync(f));
+      if (!source) throw new Error(`${manifest.name} exports ${sub} with types ${types}, and ${rel}/src has no committed source for it`);
+      paths[sub === "." ? manifest.name : `${manifest.name}${sub.slice(1)}`] = [source];
+    }
+  }
+  const out = fs.mkdtempSync(path.join(tmpdir, "rk-tsc-"));
+  const file = path.join(out, "tsconfig.json");
+  fs.writeFileSync(file, `${JSON.stringify({ extends: path.join(packageDir, "tsconfig.json"), compilerOptions: { noEmit: true, rootDir: path.resolve(contentRoot), paths } }, null, 2)}\n`);
+  return { dir: out, file };
+}
 const CONFIG_CRATE_FILE = /(^|\/)Cargo\.(toml|lock)$/;
 const JS_TOOLING_FILE = /(^|\/)(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml)$/;
 // Root files that change how EVERY crate (or package) builds: a change to one puts every unit in scope,
@@ -1075,9 +1109,24 @@ export function planScans({
   }
   // A linter config in the unit's directory or any ancestor of it (a repository-level config covers every unit, as the tools look it up).
   const hasConfig = (dir, names) => ancestorDirsOf(dir).some((d) => names.some((f) => exists(path.join(liveRoot, inDir(d, f)))));
+  // tsc reads a workspace sibling's types where its package.json exports point: built output (dist/*.d.ts) that no commit holds, so a
+  // check of the committed tree (CI, a commit snapshot) cannot find them, and a checkout with an old build checks against stale types.
+  // A package that depends on another workspace package is therefore checked through a generated project that maps each sibling's
+  // exported entry points to its committed sources (TSC_PROJECT, built by the runner); every other package keeps its own tsconfig.
+  const workspaceDirs = (npmMap ? [...npmMap.values()].map((u) => u.dir) : listDir(path.join(liveRoot, "packages")).map((n) => `packages/${n}`)).sort();
+  const manifestOf = (dir) => { try { return JSON.parse(readFile(path.join(liveRoot, dir, "package.json")).replace(/^﻿/, "")); } catch { return null; } };
+  const workspaceNames = new Map(workspaceDirs.map((d) => [manifestOf(d)?.name, d]).filter(([n]) => typeof n === "string"));
+  const usesWorkspaceSibling = (dir) => {
+    const m = manifestOf(dir);
+    return ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"].some((k) => Object.keys(m?.[k] ?? {}).some((n) => n !== m.name && workspaceNames.has(n)));
+  };
   for (const name of pkgNames) {
     const dir = npmDir(name);
-    if (exists(path.join(liveRoot, dir, "tsconfig.json"))) add({ id: `tsc:${name}`, class: A, executes: true, tool: "pnpm", args: ["exec", "tsc", "--noEmit", "-p", "tsconfig.json"], env: PNPM_RUN_ENV, cwd: dir });
+    if (exists(path.join(liveRoot, dir, "tsconfig.json"))) {
+      add(usesWorkspaceSibling(dir)
+        ? { id: `tsc:${name}`, class: A, executes: true, tool: "pnpm", args: ["exec", "tsc", "-p", TSC_PROJECT], tscWorkspace: [...workspaceNames.values()].sort(), env: PNPM_RUN_ENV, cwd: dir }
+        : { id: `tsc:${name}`, class: A, executes: true, tool: "pnpm", args: ["exec", "tsc", "--noEmit", "-p", "tsconfig.json"], env: PNPM_RUN_ENV, cwd: dir });
+    }
     if (hasConfig(dir, ESLINT_CONFIG_FILES)) add({ id: `eslint:${name}`, class: A, executes: true, tool: "pnpm", args: ["exec", "eslint", "."], env: PNPM_RUN_ENV, cwd: dir });
     if (hasConfig(dir, BIOME_CONFIG_FILES)) add({ id: `biome:${name}`, class: A, executes: true, tool: "pnpm", args: ["exec", "biome", "lint", "."], env: PNPM_RUN_ENV, cwd: dir });
   }
@@ -2019,6 +2068,14 @@ export async function runScans(plan, options = {}) {
           }
           // Every scan has a time limit (fails closed, names the scan, kills the process tree): a hung tool is a check that never
           // fails, i.e. a run that never ends (actionlint on the Dell, 2026-10-27).
+          // A tsc row that names TSC_PROJECT checks its package against the committed sources of its workspace siblings: the project is
+          // generated outside the checked tree and removed after the run, so the check reads nothing a commit lacks and writes nothing.
+          let tscProject = null;
+          if (args.includes(TSC_PROJECT)) {
+            try { tscProject = writeTscProject({ contentRoot, packageDir: path.join(rootDir(s.root), s.cwd ?? ""), workspace: s.tscWorkspace ?? [] }); }
+            catch (e) { advisory?.cleanup?.(); return { ...row, status: "fail", code: "TSC_PROJECT", detail: `${s.id}: the check project could not be built from the committed workspace: ${e.message}` }; }
+            args = args.map((a) => (a === TSC_PROJECT ? tscProject.file : a));
+          }
           const limitMs = scanTimeoutMs(s, options);
           const timer = new AbortController();
           const clock = setTimeout(() => timer.abort(), limitMs);
@@ -2091,6 +2148,7 @@ export async function runScans(plan, options = {}) {
           }
           } finally {
             if (carrier) { fs.rmSync(carrier.made.file, { force: true }); fs.rmSync(carrier.refDir, { recursive: true, force: true }); }
+            if (tscProject) fs.rmSync(tscProject.dir, { recursive: true, force: true });
           }
           if (status === "fail" && options.scanLogDir && r) {
             try { fs.mkdirSync(options.scanLogDir, { recursive: true }); const file = path.join(options.scanLogDir, `${s.id.replace(/[^A-Za-z0-9._-]+/g, "_")}.log`); fs.writeFileSync(file, `$ ${s.command ?? s.id}\nexit ${r.status}\n--- stdout\n${r.stdout ?? ""}\n--- stderr\n${r.stderr ?? ""}\n`); row.log = file; detail = `${detail} (full output: ${file})`; } catch { /* the tail in the row remains */ }

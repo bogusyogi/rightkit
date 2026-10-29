@@ -523,10 +523,12 @@ test("cache digest: an npm package scan keys on the package's workspace closure 
     "packages/core/package.json": JSON.stringify({ name: "@rightkit/core" }),
     "packages/qa/package.json": JSON.stringify({ name: "@rightkit/qa", devDependencies: { "@rightkit/release": "workspace:^" } }),
     "packages/lost/package.json": JSON.stringify({ name: "@rightkit/lost", dependencies: { "@rightkit/elsewhere": "workspace:*" } }),
+    // pnpm links a workspace package for a plain version range too (linkWorkspacePackages), and the tsc row checks it from source.
+    "packages/tauri/package.json": JSON.stringify({ name: "@rightkit/tauri", dependencies: { "@rightkit/core": "^0.1.4", "@rightkit/not-here": "^1" }, peerDependencies: { "@rightkit/qa": ">=0.2 <1" } }),
   };
-  const units = [{ name: "rightkit-release", dir: "packages/release" }, { name: "rightkit-core", dir: "packages/core" }, { name: "rightkit-qa", dir: "packages/qa" }, { name: "rightkit-lost", dir: "packages/lost" }];
+  const units = [{ name: "rightkit-release", dir: "packages/release" }, { name: "rightkit-core", dir: "packages/core" }, { name: "rightkit-qa", dir: "packages/qa" }, { name: "rightkit-lost", dir: "packages/lost" }, { name: "rightkit-tauri", dir: "packages/tauri" }];
   const make = (ids, tree = "t1") => buildCacheDigest({ objectId: (p) => ids[p] ?? null, headTree: tree, rustUnits: [], npmUnits: units, listFiles: () => [], readBlob: (p) => { if (!(p in manifests)) throw new Error(`no ${p}`); return manifests[p]; } });
-  const base = { "packages/release": "r1", "packages/core": "c1", "packages/qa": "q1", "pnpm-lock.yaml": "l1", "package.json": "p1" };
+  const base = { "packages/release": "r1", "packages/core": "c1", "packages/qa": "q1", "packages/tauri": "ta1", "pnpm-lock.yaml": "l1", "package.json": "p1" };
   const rel = { id: "test:npm:rightkit-release", class: "B" };
   assert.equal(make(base, "t1")(rel), make(base, "t2")(rel), "not keyed on the tree");
   assert.notEqual(make({ ...base, "packages/core": "c2" })(rel), make(base)(rel), "a workspace dependency changed");
@@ -535,6 +537,11 @@ test("cache digest: an npm package scan keys on the package's workspace closure 
   assert.notEqual(make(base)({ id: "tsc:rightkit-qa", class: "B" }), make({ ...base, "packages/release": "r2" })({ id: "tsc:rightkit-qa", class: "B" }), "qa's closure holds release (transitively core)");
   const lost = { id: "test:npm:rightkit-lost", class: "B" };
   assert.notEqual(make(base, "t1")(lost), make(base, "t2")(lost), "an unresolvable workspace dependency falls back to the whole tree");
+  // A class B package scan (class A rows key on the whole tree) reads a sibling pnpm linked for a range: it is part of the key.
+  const tauri = { id: "test:npm:rightkit-tauri", class: "B" };
+  assert.notEqual(make({ ...base, "packages/core": "c2" })(tauri), make(base)(tauri), "a workspace package named by a version range is in the closure");
+  assert.notEqual(make({ ...base, "packages/qa": "q2" })(tauri), make(base)(tauri), "a workspace peer named by a range too");
+  assert.equal(make(base, "t1")(tauri), make(base, "t2")(tauri), "a range naming no workspace package (a registry package) is not unresolved: the key stays off the tree");
 });
 
 test("rustUnitOfScanId maps every cargo scan id to its crate", () => {

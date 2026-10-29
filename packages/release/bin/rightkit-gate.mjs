@@ -976,8 +976,8 @@ const plainRelative = (p) => typeof p === "string" && p !== "" && !path.posix.is
  *   when declared. Without a declaration, a closure source that navigates out of its crate at run time without a literal path
  *   (externalInputs `leavesCrate`: workspace root, current_dir, a bare "..", the manifest directory's parent) keys the scan on the
  *   whole HEAD tree, since its tests may read anything.
- * - An npm package scan (test:npm, tsc, eslint, biome) keys on the package's workspace closure (its `workspace:` dependencies,
- *   transitively, by package name) and the root npm inputs; test:scripts-ci on scripts/, ci/, .github/, packages/release and the
+ * - An npm package scan (test:npm, tsc, eslint, biome) keys on the package's workspace closure (every dependency that is a workspace
+ *   package, whatever its spec, transitively, by package name) and the root npm inputs; test:scripts-ci on scripts/, ci/, .github/, packages/release and the
  *   root install graph. Every other class B scan (generated-docs, swift-build) uses the whole tree.
  * - Class A: cargo-deny, cargo-audit, pnpm-audit, pnpm-lockfile and advisory-exceptions are never cached (live answers); rustfmt,
  *   node-check, actionlint and the parse scans key on their files' blob ids; cargo-package-list on the crate, the manifest projection
@@ -1015,9 +1015,10 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
       if (!m) { unresolved = true; continue; }
       for (const section of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
         for (const [name, spec] of Object.entries(m[section] ?? {})) {
-          if (!/^(workspace:|link:|file:)/.test(String(spec))) continue;
+          // A workspace package is a member whatever the spec: pnpm links it for a version range too (linkWorkspacePackages), and the
+          // tsc row checks it from its committed source (deterministic-scans.mjs TSC_PROJECT). Only an explicit local spec must resolve.
           const dep = npmByPkgName.get(`${u.root ?? "."}\0${name}`);
-          if (!dep) { unresolved = true; continue; }
+          if (!dep) { if (/^(workspace:|link:|file:)/.test(String(spec))) unresolved = true; continue; }
           if (!seen.has(dep.name)) { seen.set(dep.name, dep); stack.push(dep); }
         }
       }
