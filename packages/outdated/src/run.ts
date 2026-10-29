@@ -50,7 +50,7 @@ Commands:
 --quiet prints only JSON lifecycle events (one per line) instead of text.
 
 Exit codes:
-  check  0 all current, 1 any outdated, 2 error
+  check  0 all current (every row judged, or held with a reason), 1 any outdated or unjudged, 2 error
   apply  0 done, 1 done with rolled-back rows, 2 refused or error
   gate   0 passed, 1 a gate or journey failed, 2 error, 3 a journey report is missing or malformed
   land   0 landed or nothing to land, 1 refused by a precondition, 2 failed part-way
@@ -115,7 +115,7 @@ export async function runCheck(repo: string, deps: CheckDeps = {}): Promise<Chec
     return { schemaVersion: 1, repo, exitCode: 2, errors: loaded.errors, entries: [] };
   }
   const entries: CheckEntry[] = await checkSources(repo, loaded.manifest, deps);
-  return buildReport(repo, entries);
+  return buildReport(repo, entries, [], loaded.manifest.policy);
 }
 
 function formatCheck(report: CheckReport): string {

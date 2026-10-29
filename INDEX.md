@@ -104,7 +104,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/logs` | npm | 0.1.6 | 0.1.6 | 0.1.6 | ok |  | structured-logging | Local-only structured logging and diagnostics client for Right Suite apps. |
 | `@rightkit/media-ui` | npm | 0.3.4 | 0.3.4 | 0.3.4 | ok |  | media-ui | Brand-neutral media player and image viewer/editor for Right Suite apps. |
 | `@rightkit/onboarding` | npm | 0.6.3 | 0.6.3 | 0.6.3 | ok |  | onboarding-ui | First-run onboarding framework: ordered steps, progress, skip/resume, legal gate first, permissions, model download and licence/trial steps. |
-| `@rightkit/outdated` | npm | 0.2.0 | 0.2.0 | 0.2.0 | ok | right-update | dependency-updates | Per-repo dependency updater: check, apply, gate and land for cargo, pnpm, swiftpm and external-tool pins, plus a scheduled run (launchd, Task Scheduler). |
+| `@rightkit/outdated` | npm | 0.3.0 | 0.2.0 | 0.3.0 | staged, not yet published | right-update | dependency-updates | Per-repo dependency updater: check, apply, gate and land for cargo, pnpm, swiftpm and external-tool pins, plus a scheduled run (launchd, Task Scheduler). |
 | `@rightkit/pdf-ui` | npm | 0.2.0 | 0.2.0 | 0.2.0 | ok |  | pdf-ui | Brand-neutral read-only PDF viewer (pdf.js) for Right Suite apps. |
 | `@rightkit/platform-ui` | npm | 0.4.0 | 0.4.0 | 0.4.0 | ok |  | platform-ui | Brand-neutral platform, shortcut, and window-control primitives for Right Suite apps. |
 | `@rightkit/qa` | npm | 0.6.1 | 0.6.1 | 0.6.1 | ok | rightkit-qa-journeys | qa-evidence | Shared QA evidence, ownership, browser helpers, and release-backdoor guards for Right Suite apps. |

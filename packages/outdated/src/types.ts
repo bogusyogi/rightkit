@@ -15,10 +15,22 @@ export const PLATFORMS = [
 ] as const;
 export type Platform = (typeof PLATFORMS)[number];
 
+/**
+ * A hold with its justification (rightkit#1267): why the dependency stays where it is, the evidence for that, and what would
+ * end the hold. Only a hold with a reason excuses a row `check` cannot judge; a bare name (the 0.2 form) still holds but
+ * excuses nothing.
+ */
+export interface HoldEntry {
+  name: string;
+  reason: string;
+  evidence: string;
+  exitCondition: string;
+}
+
 export interface PolicyConfig {
   default: Policy;
-  /** Dependency names that are always held, regardless of kind. */
-  held?: string[];
+  /** Dependencies that are always held, regardless of kind: a justified hold, or a bare name (0.2 form, excuses no unknown). */
+  held?: Array<string | HoldEntry>;
   tier?: {
     /** Exact names, or `/regex/` strings, that default to held. */
     held?: string[];

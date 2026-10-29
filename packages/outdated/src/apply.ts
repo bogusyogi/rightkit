@@ -486,7 +486,7 @@ export async function runApply(options: ApplyOptions, deps: ApplyDeps = {}): Pro
     }
   }
 
-  const check = buildReport(repo, await checkSources(repo, manifest, { fetch: deps.fetch, exec: deps.exec ?? defaultExec, drift: deps.drift }));
+  const check = buildReport(repo, await checkSources(repo, manifest, { fetch: deps.fetch, exec: deps.exec ?? defaultExec, drift: deps.drift }), [], manifest.policy);
   const only = options.only && options.only.length > 0 ? new Set(options.only) : null;
   const rows = check.entries.filter((e) => !only || only.has(e.name));
   if (only) {

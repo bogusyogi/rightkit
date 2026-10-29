@@ -126,8 +126,11 @@ function validatePolicyConfig(value: unknown, errors: string[]): void {
   checkUnknownKeys(value, POLICY_KEYS, "policy", errors);
   if (!isPolicy(value.default)) errors.push(`policy.default must be one of ${POLICIES.join(", ")}`);
   if (value.held !== undefined) {
-    if (!Array.isArray(value.held) || value.held.some((n) => typeof n !== "string" || n.length === 0)) {
-      errors.push("policy.held must be an array of dependency names");
+    const nonEmpty = (v: unknown): boolean => typeof v === "string" && v.trim().length > 0;
+    const valid = (h: unknown): boolean =>
+      nonEmpty(h) || (isObject(h) && ["name", "reason", "evidence", "exitCondition"].every((k) => nonEmpty(h[k])) && Object.keys(h).every((k) => ["name", "reason", "evidence", "exitCondition"].includes(k)));
+    if (!Array.isArray(value.held) || !value.held.every(valid)) {
+      errors.push("policy.held must be an array of dependency names or { name, reason, evidence, exitCondition } objects (each field a non-empty string)");
     }
   }
   if (value.land !== undefined && !(LAND_MODES as readonly string[]).includes(value.land as string)) {

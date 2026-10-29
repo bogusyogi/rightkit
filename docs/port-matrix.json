@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-10-27T21:31:29Z",
-  "rightkitHead": "d4e3a88",
+  "generatedAt": "2026-10-29T16:31:25Z",
+  "rightkitHead": "12b1c1b",
   "legend": [
     {
       "state": "adopted",
@@ -643,7 +643,7 @@
         }
       },
       "flags": {
-        "prePushHook": "absent",
+        "prePushHook": "uncommitted",
         "switches": false,
         "journeys": false,
         "releaseConfig": "none"
@@ -1436,7 +1436,7 @@
         }
       },
       "flags": {
-        "prePushHook": "absent",
+        "prePushHook": "uncommitted",
         "switches": true,
         "journeys": false,
         "releaseConfig": "code"
@@ -1781,7 +1781,7 @@
       "group": "mandatory-set app",
       "dir": "/Volumes/D/claude/heardright",
       "present": true,
-      "head": "358c6f4",
+      "head": "b712bff",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -1845,7 +1845,7 @@
         }
       },
       "flags": {
-        "prePushHook": "absent",
+        "prePushHook": "committed",
         "switches": false,
         "journeys": false,
         "releaseConfig": "none"
@@ -3034,7 +3034,7 @@
       "group": "mandatory-set app",
       "dir": "/Volumes/D/claude/pulse",
       "present": true,
-      "head": "37144d1",
+      "head": "3ee53a7",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -5925,9 +5925,9 @@
         "dependency-updates"
       ],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.3.0",
       "registry": "0.2.0",
-      "staged": "0.2.0",
+      "staged": "0.3.0",
       "dir": "packages/outdated",
       "toMoveFrom": {},
       "cells": {
@@ -8486,9 +8486,9 @@
         "owned-processes"
       ],
       "private": false,
-      "source": "0.5.6",
+      "source": "0.5.7",
       "registry": "0.5.6",
-      "staged": "0.5.6",
+      "staged": "0.5.7",
       "dir": "crates/rightkit-child-process",
       "toMoveFrom": {},
       "cells": {

@@ -76,7 +76,7 @@ export const DEFAULT_HELD_PATTERN = "/sign|secur|licen|credential/";
  * 4. policy.default
  */
 export function resolvePolicy(name: string, explicit: Policy | undefined, config: PolicyConfig): Policy {
-  if (config.held?.includes(name)) return "held";
+  if (config.held?.some((h) => (typeof h === "string" ? h : h.name) === name)) return "held";
   if (explicit) return explicit;
   const patterns = [DEFAULT_HELD_PATTERN, ...(config.tier?.held ?? [])];
   if (patterns.some((p) => matchesPattern(name, p))) return "held";

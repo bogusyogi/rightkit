@@ -1,8 +1,16 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
+rightkit#1267 (Adrian, 2026-10-29: "document it as an issue, a decision and fix and publish asap").
+
+- **Behaviour change:** `check` never reports a row it could not judge as current. An `unknown` row (a path or git dependency, a
+  `workspace:`/`file:` spec, a branch or revision pin, a non-comparable version, no upstream version found) makes `check` exit 1,
+  unless its name has a justified hold. Before, every unknown row fell through to exit 0, "all current".
+- `policy.held` entries may be `{ name, reason, evidence, exitCondition }` (each a non-empty string). Only such a justified hold
+  excuses an unknown row. A bare name (the 0.2 form) still holds the dependency but excuses nothing.
 - Renamed from @rightkit/update; it was never published under the old name.
+- Still open under rightkit#1267: the undeclared-manifest coverage scan, and native-source and toolchain kinds.
 
 ## 0.2.0
 

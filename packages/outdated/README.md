@@ -37,7 +37,7 @@ right-update schedule install|remove|status [--repo <path>] [--interval <minutes
 
 | Command | 0 | 1 | 2 | 3 |
 |---|---|---|---|---|
-| `check` | all current | any outdated | error (invalid manifest, any lookup failed) | |
+| `check` | all current: every row judged current, or held with a reason | any outdated, or any row it could not judge (`unknown`) without a justified hold | error (invalid manifest, any lookup failed) | |
 | `apply` | done | done, but one or more rows failed and were rolled back | refused or error | |
 | `gate` | every gate and journey passed | a gate or journey failed | error | a journey was inconclusive (its report is missing or malformed, or it exited 3) |
 | `land` | landed, or nothing to land | refused by a precondition (nothing changed) | failed part-way (for example the push) | |
@@ -55,7 +55,7 @@ right-update schedule install|remove|status [--repo <path>] [--interval <minutes
   "policy": {
     "default": "auto-land",
     "land": "commit",
-    "held": ["rightkit-license", "rightkit-credentials"],
+    "held": [{ "name": "rightkit-license", "reason": "licence protocol pinned for the 0.3 servers", "evidence": "bogusyogi/rightkit#300", "exitCondition": "servers accept 0.4" }],
     "tier": { "held": ["/^ffmpeg/"] }
   },
   "gates": [

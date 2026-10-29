@@ -336,3 +336,30 @@ describe("http retries", () => {
     expect(n).toBe(1);
   });
 });
+
+describe("unjudged rows never pass as current (rightkit#1267)", () => {
+  const row = (name: string, status: "current" | "outdated" | "unknown") =>
+    ({ name, kind: "cargo" as const, source: "Cargo.toml", pinned: "1.0.0", latest: status === "unknown" ? null : "1.0.0", status, policy: "auto-land" as const });
+  const justified = { name: "sherpa-onnx", reason: "pinned until the 2.x API port", evidence: "heardright#309", exitCondition: "port lands" };
+
+  it("an unknown row without a justified hold exits 1, never 0", () => {
+    expect(exitCodeFor([row("a", "current"), row("sherpa-onnx", "unknown")])).toBe(1);
+    expect(exitCodeFor([row("sherpa-onnx", "unknown")])).toBe(1);
+  });
+
+  it("an unknown row whose name has a justified hold is excused; all current exits 0", () => {
+    expect(exitCodeFor([row("a", "current"), row("sherpa-onnx", "unknown")], [], new Set(["sherpa-onnx"]))).toBe(0);
+    expect(exitCodeFor([row("a", "current")])).toBe(0);
+  });
+
+  it("a bare-name hold (0.2 form) still loads but excuses nothing; a justified hold must name every field", () => {
+    const bare = mkRepo({ ".rightkit/update.json": manifest([], { default: "auto-land", held: ["sherpa-onnx"] }) });
+    expect(loadManifest(bare).valid).toBe(true);
+    const full = mkRepo({ ".rightkit/update.json": manifest([], { default: "auto-land", held: [justified] }) });
+    expect(loadManifest(full).valid).toBe(true);
+    const missing = mkRepo({ ".rightkit/update.json": manifest([], { default: "auto-land", held: [{ name: "x", reason: "r", evidence: "" }] }) });
+    const loaded = loadManifest(missing);
+    expect(loaded.valid).toBe(false);
+    expect(loaded.errors.join(" ")).toMatch(/name, reason, evidence, exitCondition/);
+  });
+});

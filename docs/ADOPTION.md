@@ -36,7 +36,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-browser` | crates.io | 0.3.6 | 0.3.6 | 4 | coderight, genright, legion, scraperight | 1 stale |
 | `rightkit-cache` | crates.io | 0.2.3 | 0.2.3 | 5 | coderight, cutright, legion, mailright, postright | 1 stale |
 | `rightkit-channel-memory` | crates.io | 0.2.1 | 0.2.1 | 1 | postright | - |
-| `rightkit-child-process` | crates.io | 0.5.6 | 0.5.6 | 9 | coderight, cutright, genright, heardright, legion, mailright, postright, scraperight, viewright | 3 stale |
+| `rightkit-child-process` | crates.io | 0.5.7 | 0.5.6 | 9 | coderight, cutright, genright, heardright, legion, mailright, postright, scraperight, viewright | 3 stale |
 | `rightkit-compose` | crates.io | 0.2.0 | 0.2.0 | 1 | cutright | - |
 | `rightkit-contracts` | crates.io | 0.1.7 | 0.1.7 | 3 | cutright, genright, postright | - |
 | `rightkit-crash` | crates.io | 0.3.6 | 0.3.6 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | - |
@@ -108,7 +108,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/logs` | npm | 0.1.6 | 0.1.6 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | - |
 | `@rightkit/media-ui` | npm | 0.3.4 | 0.3.4 | 4 | cutright, genright, scraperight, viewright | - |
 | `@rightkit/onboarding` | npm | 0.6.3 | 0.6.3 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `@rightkit/outdated` | npm | 0.2.0 | 0.2.0 | 0 | none | - |
+| `@rightkit/outdated` | npm | 0.3.0 | 0.2.0 | 0 | none | - |
 | `@rightkit/pdf-ui` | npm | 0.2.0 | 0.2.0 | 2 | mailright, viewright | - |
 | `@rightkit/platform-ui` | npm | 0.4.0 | 0.4.0 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | - |
 | `@rightkit/qa` | npm | 0.6.1 | 0.6.1 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | - |

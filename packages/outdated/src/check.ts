@@ -15,6 +15,8 @@ import {
   SCHEMA_VERSION,
   type CheckEntry,
   type CheckReport,
+  type HoldEntry,
+  type PolicyConfig,
   type Policy,
   type PlatformReport,
   type Source,
@@ -544,13 +546,23 @@ export async function checkSources(repo: string, manifest: UpdateManifest, deps:
   return out;
 }
 
-/** Map entries to the exit code: 2 on any error, else 1 on any outdated, else 0. */
-export function exitCodeFor(entries: CheckEntry[], errors: string[] = []): 0 | 1 | 2 {
+/** Names whose hold carries a reason (rightkit#1267): only these excuse a row `check` could not judge. */
+export function justifiedHolds(config: PolicyConfig | undefined): Set<string> {
+  return new Set((config?.held ?? []).filter((h): h is HoldEntry => typeof h !== "string").map((h) => h.name));
+}
+
+/**
+ * Map entries to the exit code: 2 on any error, else 1 on any outdated row or any row `check` could not judge (`unknown`)
+ * whose name has no justified hold, else 0. "All current" means every row was judged current or is held with a reason:
+ * a row nobody could judge is never reported as current (rightkit#1267).
+ */
+export function exitCodeFor(entries: CheckEntry[], errors: string[] = [], justified: ReadonlySet<string> = new Set()): 0 | 1 | 2 {
   if (errors.length > 0 || entries.some((e) => e.error !== undefined)) return 2;
   if (entries.some((e) => e.status === "outdated")) return 1;
+  if (entries.some((e) => e.status === "unknown" && !justified.has(e.name))) return 1;
   return 0;
 }
 
-export function buildReport(repo: string, entries: CheckEntry[], errors: string[] = []): CheckReport {
-  return { schemaVersion: SCHEMA_VERSION, repo, exitCode: exitCodeFor(entries, errors), errors, entries };
+export function buildReport(repo: string, entries: CheckEntry[], errors: string[] = [], policy?: PolicyConfig): CheckReport {
+  return { schemaVersion: SCHEMA_VERSION, repo, exitCode: exitCodeFor(entries, errors, justifiedHolds(policy)), errors, entries };
 }
