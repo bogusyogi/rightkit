@@ -183,12 +183,46 @@ export function resolveUnit(selector, root, { granted = localBuildGranted, readJ
   return { kind, name, version: manifest.version };
 }
 
+/** `ci/known-red.json` hosts by `process.platform`; any other platform (Linux) has no known-red table. */
+const KNOWN_RED_HOST = { darwin: "macos", win32: "windows" };
+
+/**
+ * The ci/known-red.json entry that bars this unit from a compile, or null. A unit listed for the host platform is not compiled,
+ * packaged or qualified there; one that is headed to release is barred when it is listed for either host (a known-red unit is never
+ * published, AGENTS.md; scripts/ci/publish.mjs refuses it the same way). An entry is keyed by the crate name or `rust:<crate>`, the
+ * unit's directory or `npm:<directory>` (the ids scripts/ci/gate.mjs and publish.mjs use). A missing file lists nothing; an unreadable
+ * one refuses (a table that cannot be read is not an empty table).
+ */
+export function knownRedEntry({ unit, root, platform, toRelease = false, readText = (file) => fs.readFileSync(file, "utf8") }) {
+  let table;
+  try { table = JSON.parse(readText(path.join(root, "ci", "known-red.json"))); }
+  catch (error) { if (error?.code === "ENOENT") return null; throw new Error(`ci/known-red.json cannot be read (${error?.message}); a known-red table that cannot be read is not an empty one`); }
+  const dir = unit.kind === "npm" ? `packages/${unit.name.slice("@rightkit/".length)}` : `crates/${unit.name}`;
+  const keys = [unit.name, `rust:${unit.name}`, `${unit.kind}:${unit.name}`, dir, `npm:${dir}`];
+  const hosts = toRelease ? Object.keys(table ?? {}) : [KNOWN_RED_HOST[platform]].filter(Boolean);
+  for (const host of hosts) {
+    const key = keys.find((k) => Object.hasOwn(table?.[host] ?? {}, k));
+    if (key !== undefined) {
+      const reason = table[host][key];
+      return { host, key, reason: typeof reason === "string" ? reason : JSON.stringify(reason) };
+    }
+  }
+  return null;
+}
+
 /** One invocation reruns all owed stages; reports are never read as admission evidence. */
-export async function runUnitGate({ selector, to, root, commonDir, commit, tree, executor, env, platform, check, loadOwner = () => import("./local-publish.mjs"), out = console.log, err = console.error, releaser = null, resolve = resolveUnit, writeReport, fetchReceipt = readBrokerReceipt, stageCommands = defaultStageCommands }) {
+export async function runUnitGate({ selector, to, root, commonDir, commit, tree, executor, env, platform, check, loadOwner = () => import("./local-publish.mjs"), out = console.log, err = console.error, releaser = null, resolve = resolveUnit, writeReport, fetchReceipt = readBrokerReceipt, stageCommands = defaultStageCommands, readKnownRed }) {
   const stages = stagesTo(to);
   if (!stages) { err(`rightkit-gate: invalid unit stage ${to}`); return 2; }
   let unit;
   try { unit = resolve(selector, root); } catch (error) { err(`rightkit-gate: BLOCKED: ${error.message}`); return 1; }
+  // Before any compile (so --to compile|package|qualify|release; --to check compiles nothing): a unit recorded red is refused, not built.
+  if (stages.includes("compile")) {
+    try {
+      const red = knownRedEntry({ unit, root, platform, toRelease: stages.includes("release"), ...(readKnownRed ? { readText: readKnownRed } : {}) });
+      if (red) { err(`rightkit-gate: BLOCKED: ${selector} is listed in ci/known-red.json for ${red.host} (${red.key}: ${red.reason}); a known-red unit is not compiled, packaged, qualified or published. Fix the defect and remove the entry first`); return 1; }
+    } catch (error) { err(`rightkit-gate: BLOCKED: ${error.message}`); return 1; }
+  }
   const scratch = platform === "win32" ? "D:\\scratch" : "/Volumes/D/scratch";
   const bundle = path.join(scratch, `rk-unit-${randomBytes(12).toString("hex")}`);
   const argv = ["--local", unit.kind === "npm" ? "--package" : "--crate", unit.name, "--workspace", root, "--qualify-only", "--bundle", bundle];

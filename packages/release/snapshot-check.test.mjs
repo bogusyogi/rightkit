@@ -56,6 +56,10 @@ function scenario(t, extra = {}) {
 /** The gate's io for a snapshot check: real git, pnpm --version faked, every git call recorded, app rules and scans stubbed. */
 function io(t, s, { scans = [], onScans = null, fakeInstall = false } = {}) {
   const calls = [];
+  // The environment binding walks every file of the gate package; the live package can be written by other suites of a full run while
+  // this nested gate runs. The fixture is a private stand-in package, so only this test's own writes can move the binding.
+  const gatePackage = tmp(t, "rk-sc-gatepkg-");
+  write(gatePackage, { "rightkit-gate.stub.mjs": "// stand-in gate package for the environment binding\n" });
   const store = fakeInstall ? tmp(t, "rk-sc-fake-store-") : null;
   const spawn = (cmd, args, opts = {}) => {
     if (cmd === "git") calls.push(args.join(" "));
@@ -71,7 +75,7 @@ function io(t, s, { scans = [], onScans = null, fakeInstall = false } = {}) {
     calls, out, err, plans,
     io: {
       // The host-wide ownership record lives beside the injected root, in a fixture directory of its own (never the host's).
-      cwd: s.repo, env: { ...process.env, RK_GATE_CACHE: "0" }, snapshotRoot: path.join(tmp(t, "rk-sc-own-"), "snapshots"), spawn, out: (m) => out.push(m), err: (m) => err.push(m),
+      cwd: s.repo, gatePackage, env: { ...process.env, RK_GATE_CACHE: "0" }, snapshotRoot: path.join(tmp(t, "rk-sc-own-"), "snapshots"), spawn, out: (m) => out.push(m), err: (m) => err.push(m),
       appCheck: async () => 0, classA: undefined, selfPath: path.join(tmp(t, "rk-sc-self-"), "rightkit-gate.mjs"),
       resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }),
       runScans: async (plan) => { plans.push(plan); if (onScans) onScans(); return { scans, notes: [], cacheHits: [] }; },

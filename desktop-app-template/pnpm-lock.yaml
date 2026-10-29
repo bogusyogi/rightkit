@@ -6,6 +6,7 @@ settings:
 
 overrides:
   '@rightkit/tauri@0.3.0>@rightkit/logs': 0.1.6
+  '@rightkit/qa@0.6.1>@rightkit/qa-chrome': 0.1.12
 
 importers:
 
@@ -173,10 +174,6 @@ packages:
     peerDependenciesMeta:
       '@tauri-apps/plugin-os':
         optional: true
-
-  '@rightkit/qa-chrome@0.1.11':
-    resolution: {integrity: sha512-FLW5wZvF3sjoRTsdYsBtD8lGr+eobVxygyO2skzKu3312B4JZW7kM5qjezcsRUKMReKgSi8tavopCW1o4hxZ0w==}
-    hasBin: true
 
   '@rightkit/qa-chrome@0.1.12':
     resolution: {integrity: sha512-ZyjFSo3duHHLkshk40kvFYNJq6jwz5lcMEIL+TQsepHKh9Oz1mQ6uiybQTtJX64/bULtd7X4zA5kYYkWmaOI5w==}
@@ -1002,13 +999,11 @@ snapshots:
     optionalDependencies:
       '@tauri-apps/plugin-os': 2.4.0
 
-  '@rightkit/qa-chrome@0.1.11': {}
-
   '@rightkit/qa-chrome@0.1.12': {}
 
   '@rightkit/qa@0.6.1':
     dependencies:
-      '@rightkit/qa-chrome': 0.1.11
+      '@rightkit/qa-chrome': 0.1.12
 
   '@rightkit/react-shell@0.7.2(@rightkit/platform-ui@0.4.0(@tauri-apps/plugin-os@2.4.0)(react@19.3.1))(@tauri-apps/plugin-os@2.4.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
     dependencies:

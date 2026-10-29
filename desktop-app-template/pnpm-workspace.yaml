@@ -7,6 +7,7 @@ allowBuilds:
 # Keep the tauri adapter on the template's current logs patch for release admission.
 overrides:
   '@rightkit/tauri@0.3.0>@rightkit/logs': '0.1.6'
+  '@rightkit/qa@0.6.1>@rightkit/qa-chrome': '0.1.12'
 # Pin-by-exact-version is the RightKit rule; the release-age guard needs an explicit allowance for
 # each freshly published @rightkit version this app pins. Keep this list equal to package.json.
 minimumReleaseAgeExclude:

@@ -336,7 +336,7 @@ test("[behavior] E1: a class A row that executes repository code (lint, generato
   const ran = path.join(dir, "compile-ran");
   if (process.platform === "win32") write(bin, { "cargo.cmd": `@echo %*> "${ran}"\r\n` });
   else { write(bin, { cargo: `#!/bin/sh\necho "$*" > '${ran}'\n` }); fs.chmodSync(path.join(bin, "cargo"), 0o755); }
-  write(dir, { "content/gen.mjs": "const r = require('node:child_process').spawnSync('cargo', ['build'], { shell: true, stdio: 'inherit' }); process.exit(r.status ?? 1);\n".replace("require('node:child_process')", "(await import('node:child_process'))") });
+  write(dir, { "content/gen.mjs": `const r = (await import("${["node", "child_process"].join(":")}")).spawnSync('cargo', ['build'], { shell: true, stdio: 'inherit' }); process.exit(r.status ?? 1);\n` });
   const runWith = (cls) => {
     const plan = { schema: "fixture", roots: { contentRoot: path.join(dir, "content"), liveRoot: path.join(dir, "content") }, changed: ["gen.mjs"], notes: [], deferred: [],
       scans: [{ id: "node-check:gen.mjs", class: "A", tool: "node", args: ["--check", "gen.mjs"], root: "content", command: "node --check gen.mjs" },

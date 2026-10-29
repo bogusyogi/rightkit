@@ -446,7 +446,9 @@ test("host-cache-mode: sccache >= 0.15.0 exactly when the build would use the sh
   // an explicit legacy mode, CI, and a broker-managed host need none
   assert.equal((await unit("host-cache-mode", { platform: "mac", target: {}, config: APP, ...posixHost({ tools: [], env: { RIGHT_RELEASE_CACHE_MODE: "legacy" } }) })).row.status, "n/a");
   assert.equal((await unit("host-cache-mode", { platform: "mac", target: {}, config: APP, ...posixHost({ tools: [], env: { GITHUB_ACTIONS: "true" } }) })).row.status, "n/a");
-  assert.equal((await unit("host-cache-mode", { platform: "mac", target: {}, config: APP, ...posixHost({ tools: [], env: { RIGHTKIT_BUILD_BROKER_SOCKET: "/s" } }) })).row.status, "n/a");
+  assert.equal((await unit("host-cache-mode", { platform: "mac", target: {}, config: APP, ...posixHost({ tools: [], env: { RIGHTKIT_BUILD_BROKER_SOCKET: "/s" }, hostPlatform: "darwin" }) })).row.status, "n/a");
+  // Linux is never broker-managed (managed-cargo directPlatform), whatever socket the environment names: the shared cache still needs sccache
+  assert.deepEqual((await unit("host-cache-mode", { platform: "mac", target: {}, config: APP, ...posixHost({ tools: [], env: { RIGHTKIT_BUILD_BROKER_SOCKET: "/s" }, hostPlatform: "linux" }) })).details, [refusal(null)]);
   assert.deepEqual((await unit("host-cache-mode", { platform: "mac", target: {}, config: APP, ...posixHost({ tools: [], env: { RIGHT_RELEASE_CACHE_MODE: "turbo" } }) })).details, ["RIGHT_RELEASE_CACHE_MODE must be legacy or shared"]);
   assert.equal((await unit("host-cache-mode", { platform: "linux", target: {}, config: APP, ...posixHost({ tools: [] }) })).row.status, "n/a");
 });

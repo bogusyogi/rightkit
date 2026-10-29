@@ -361,7 +361,11 @@ function execute(command, { root, env, dryRun, run, label, door = null }) {
   if (!inside(root, cwd)) throw new Error(`development ${label} cwd must stay inside app root`);
   const args = (command.args ?? []).map(String);
   if (dryRun) return { cmd: command.cmd, args, cwd };
-  const resolved = resolveCommand(command.cmd, args, { root, env });
+  // A pnpm step through the door is the broker's rightkit-pnpm job (or plain pnpm on a direct host), launched by name: the door never uses
+  // the node entry resolveCommand would find, so resolving pnpm's JavaScript CLI here would only fail a host that does not need it.
+  // The door's own `pnpm exec right-release` forms still resolve to this package's right-release.
+  const ownReleaseStep = (args[0] === "exec" && args[1] === "right-release") || args[0] === "right-release";
+  const resolved = door && command.cmd === "pnpm" && !ownReleaseStep ? { command: "pnpm", args } : resolveCommand(command.cmd, args, { root, env });
   // Every dev build step goes through the one door (build-launch.mjs): the door's own right-release stays in process order, a pnpm step
   // is the rightkit-pnpm broker job (by its own name, not the node entry resolveCommand finds), anything else as resolved.
   // A configured command can run code regardless of its label, so installation commands use the door too.

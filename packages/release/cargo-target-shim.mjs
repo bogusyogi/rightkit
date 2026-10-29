@@ -18,7 +18,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath } from "node:url";
 
 export const SHIM_MAP_SCHEMA = "rightkit.cargo-target-shim/2";

@@ -40,10 +40,12 @@ test("managed host: any other build or test command is refused, never run around
 });
 
 test("host detection reads the cargo on PATH: the RightKit cargo guard makes it managed (pnpm then needs the client); a plain cargo is direct", () => {
-  const guard = { env: { PATH: "/g" }, platform: "linux", exists: () => false, which: (c) => (c === "cargo" ? ["/g/cargo"] : []), readFile: () => "#!/usr/bin/env node\nimport './cargo-guard.mjs';\n" };
+  // Mac and Windows only: every Linux host is direct whatever cargo is on PATH (gate-executor directPlatform).
+  const guard = { env: { PATH: "/g" }, platform: "darwin", exists: () => false, which: (c) => (c === "cargo" ? ["/g/cargo"] : []), readFile: () => "#!/usr/bin/env node\nimport './cargo-guard.mjs';\n" };
   assert.throws(() => buildLaunch("pnpm", ["run", "build"], guard), (e) => e.code === BUILD_LAUNCH_REFUSED && /rustright is not on PATH/.test(e.message));
   const plain = { ...guard, readFile: () => "\x7fELF" };
   assert.deepEqual(buildLaunch("pnpm", ["run", "build"], plain), { command: "pnpm", args: ["run", "build"] });
+  assert.equal(buildLaunch("pnpm", ["run", "build"], { ...guard, platform: "linux" }).command, "pnpm");
 });
 
 test("a managed host whose broker is unreachable refuses every launch; a host without a broker runs directly", () => {

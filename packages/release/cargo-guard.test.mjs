@@ -165,7 +165,8 @@ test("Cargo guard rejects cache bypasses and permits RightKit-owned cache paths"
 });
 
 test("Cargo guard passes a broker-owned CARGO_TARGET_DIR through instead of rejecting it", () => {
-  const base = { cwd: "/repo", platform: "mac", exists: () => false };
+  // "darwin" is the platform value of a broker-managed Mac (managed-cargo directPlatform: only darwin and win32 are broker hosts).
+  const base = { cwd: "/repo", platform: "darwin", exists: () => false };
   // Outside the shared cache root, which would be rejected on a non-broker host
   // (see the previous test) — but the broker owns this value, not Cache V2.
   const env = cargoCacheEnvironment(["test"], {
@@ -180,6 +181,12 @@ test("Cargo guard passes a broker-owned CARGO_TARGET_DIR through instead of reje
     env: { RIGHT_RELEASE_CACHE_ROOT: "/cache", RIGHTKIT_BUILD_BROKER_SOCKET: "/managed/broker.sock" },
   });
   assert.doesNotThrow(() => explicit);
+
+  // A Linux host is never broker-managed, whatever socket the environment names: the cache bypass is still rejected.
+  assert.throws(
+    () => cargoCacheEnvironment(["test"], { ...base, platform: "linux", env: { RIGHT_RELEASE_CACHE_ROOT: "/cache", RIGHTKIT_BUILD_BROKER_SOCKET: "/managed/broker.sock", CARGO_TARGET_DIR: "/broker/workspace/target" } }),
+    /CARGO_TARGET_DIR must stay inside/,
+  );
 
   // Non-broker host: unchanged, still rejects the cache bypass.
   assert.throws(

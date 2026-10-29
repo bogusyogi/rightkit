@@ -16,6 +16,10 @@ the build refuses one behind its latest, and `template-contract.test.mjs` requir
 command (`pnpm check`) ships from 0.6.6, and the JSON release config is loaded by every command from 0.6.6, so `pnpm release:*` and
 `pnpm dev:build:*` run from the pinned package.
 
+**Pin sequencing.** This template pins `@rightkit/release` 0.6.10, the latest published release; RightKit's own tree is at 0.6.11 (unpublished). The template's
+commands wait for 0.6.11 only for what that release adds (every compile reports every failure; one Cargo workspace and lock per crate): everything the
+template itself runs is in 0.6.10. The pin moves to 0.6.11 in the commit after it is published, and this paragraph is deleted in that commit.
+
 The committed `.githooks/pre-push` must be byte-identical to what the pinned release's `rightkit-gate install-hook` writes: `prepare`
 runs it, and it refuses to overwrite a differing hook, so a stale hook fails `pnpm install` in every app copied from the template.
 `template-contract.test.mjs` compares the hook with the sha256 recorded for the pin in `packages/release/fixtures/published-gate-hooks.json`

@@ -469,12 +469,13 @@ export function installedDependencyDigest({ root, files, maxFiles = 400000, incl
  * (node_modules/.modules.yaml) and the installed dependency bytes (installedDependencyDigest). The broker binds an admission ticket to it and recomputes it when the compile starts
  * (`rightkit-gate env-digest`), so a dependency or tool change while a compile waits invalidates the ticket.
  */
-export function classAEnvironmentDigest({ root, files, spawn = defaultSpawn, includeCaches = true }) {
+export function classAEnvironmentDigest({ root, files, spawn = defaultSpawn, includeCaches = true, gatePackage = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..") }) {
   // Only a file that does not exist is "absent"; any other read failure throws: an input whose bytes cannot be read is never
   // identified by a placeholder that would match the same failure later.
   // `optional`: only an install-state file may legitimately not exist; a gate file found by the walk must be readable.
   const fileDigest = (f, { optional = false } = {}) => { try { return createHash("sha256").update(fs.readFileSync(f)).digest("hex"); } catch (error) { if (optional && (error?.code === "ENOENT" || error?.code === "ENOTDIR")) return "absent"; throw new Error(`cannot read ${f} for the class A environment (${error?.code ?? error?.message})`); } };
-  const gatePkg = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  // `gatePackage` defaults to this very package; only a test that must not be disturbed by other writers of the live package injects another.
+  const gatePkg = gatePackage;
   const walkGate = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.name === "node_modules" || e.name.startsWith(".") ? [] : e.isDirectory() ? walkGate(path.join(dir, e.name)) : [path.join(dir, e.name)]));
   const gateFiles = walkGate(gatePkg).sort().map((f) => `${path.relative(gatePkg, f)}:${fileDigest(f)}`);
   // Bounded: a pnpm that switches itself to the repository's packageManager version on first use, or waits on the network,
@@ -2380,7 +2381,7 @@ export async function main(argv, io = {}) {
     if (boundFullA) {
       const orphans = orphanedPnpmStores({ root: liveBase, files: live.files });
       if (orphans.length) { o.err(`${tag} BLOCKED: orphaned nested pnpm store(s) ${orphans.join(", ")}: left by a standalone install in a workspace member; they can hold stale dependencies and make concurrent vitest runs clear their shared module cache under each other. Move them aside (or reinstall) and run again.`); return 1; }
-      try { envAtStart = classAEnvironmentDigest({ root: liveBase, files: live.files, spawn: o.spawn, includeCaches: false }); envStartWithCaches = classAEnvironmentDigest({ root: liveBase, files: live.files, spawn: o.spawn }); cachesAtStart = toolCacheManifest({ root: liveBase, files: live.files }); }
+      try { envAtStart = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files: live.files, spawn: o.spawn, includeCaches: false }); envStartWithCaches = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files: live.files, spawn: o.spawn }); cachesAtStart = toolCacheManifest({ root: liveBase, files: live.files }); }
       catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
     }
     if (boundFullA && !args.includes("--no-cache") && o.env.RK_GATE_CACHE !== "0") {
@@ -2395,7 +2396,7 @@ export async function main(argv, io = {}) {
         const readBlob = (p) => fs.readFileSync(path.join(liveBase, p), "utf8");
         // The verdict also depends on what is not in the tree: the gate's own code and advisory data, the node and pnpm that run
         // the checks, the installed dependencies (pnpm's install state) and the platform. Any change there is a cache miss.
-        const environment = classAEnvironmentDigest({ root: liveBase, files, spawn: o.spawn });
+        const environment = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files, spawn: o.spawn });
         cache = { ...store, digest: `${buildCacheDigest({ objectId, headTree: digestOf(files), rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures, listFiles, readBlob })}:${environment}` };
       } catch { cache = null; }
     }
@@ -2476,7 +2477,7 @@ export async function main(argv, io = {}) {
       }
       if (!live) return { env: null, notes: [] };
       let envDigest; let envNoCaches;
-      try { envDigest = classAEnvironmentDigest({ root: liveBase, files: live.files, spawn: o.spawn }); envNoCaches = classAEnvironmentDigest({ root: liveBase, files: live.files, spawn: o.spawn, includeCaches: false }); }
+      try { envDigest = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files: live.files, spawn: o.spawn }); envNoCaches = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files: live.files, spawn: o.spawn, includeCaches: false }); }
       catch (error) { return { prefix: "BLOCKED", exit: 1, problem: error.message }; }
       const notes = [];
       if (cachesAtStart !== null) {

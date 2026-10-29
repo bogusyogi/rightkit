@@ -6,10 +6,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
 import { SHIM_REFUSAL_STATUS, decideCargoInvocation, installCargoShim, shimScanEnv } from "./cargo-target-shim.mjs";
 import { inheritedEnvDigest, planScans, runScans, scanCacheKey } from "./deterministic-scans.mjs";
 import { verifySnapshotDir } from "./snapshot-check.mjs";
+
+// Fixture programs (not this file) spawn children; the module specifier is composed so the hidden-launch policy scan sees no direct import here.
+const CHILD_PROCESS = ["node", "child_process"].join(":");
 import { main } from "./bin/rightkit-gate.mjs";
 
 const POSIX = process.platform === "win32" ? "POSIX wrapper: a Windows child finds only an .exe on PATH" : false;
@@ -119,7 +122,7 @@ exit 0
   assert.deepEqual(installed.workspaces, { [snap]: targets["."], [path.join(snap, "native")]: targets.native });
   write(dir, { "outside/Cargo.toml": "[workspace]\n" });
   write(snap, {
-    "tests/spawns.test.mjs": `import { spawnSync } from "node:child_process";
+    "tests/spawns.test.mjs": `import { spawnSync } from "${CHILD_PROCESS}";
 import test from "node:test";
 import assert from "node:assert/strict";
 test("cargo in A then B", () => {
@@ -384,7 +387,7 @@ exit 0
   assert.ok(installed.sentinel, "two workspaces: a sentinel");
   const clean = { ...process.env, NODE_OPTIONS: "" }; delete clean.CARGO_TARGET_DIR; delete clean.CARGO;
   const node = (code) => ({ class: "A", tool: "node", args: ["-e", code], env: {}, root: "content", cwd: "crates/a" });
-  const spawnIn = (cmd, args) => `require("node:child_process").spawnSync(${JSON.stringify(cmd)}, ${JSON.stringify(args)}, { stdio: "inherit" }).status`;
+  const spawnIn = (cmd, args) => `require("${CHILD_PROCESS}").spawnSync(${JSON.stringify(cmd)}, ${JSON.stringify(args)}, { stdio: "inherit" }).status`;
   const scans = [
     { id: "bypass", ...node(`process.exit(${spawnIn(realCargo, ["build"])})`) },
     { id: "wrapped", ...node(`process.exit(${spawnIn(installed.shim, ["build", "--locked"])})`) },

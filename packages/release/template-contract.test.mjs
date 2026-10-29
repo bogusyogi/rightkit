@@ -3,6 +3,9 @@
 // the way a person does (`right-release init` on a copy, committed to a fresh git repository) and runs those evaluators on the
 // instance, then checks the template files the evaluators cannot see (pins, the committed hook, advisory policy, placeholders).
 // Every assertion names the thing that breaks the day it regresses.
+// Loaded first so the spawned doctor inherits the test broker guard (cargo metadata is stubbed, never sent to this host's real RustRight broker),
+// whether this file runs alone or in the package suite (which preloads it).
+import "./test-support/broker-guard.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
