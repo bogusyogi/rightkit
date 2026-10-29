@@ -467,3 +467,34 @@ test("[behavior] item 7 wrapper real cargo (review r2 #2): through the wrapper, 
   assert.match(r.stderr, /cannot create the lock file .* because --locked was passed/, r.stderr);
   for (const where of [outside, snap]) assert.equal(fs.existsSync(path.join(where, "Cargo.lock")), false, `no Cargo.lock written in ${where}`);
 });
+
+test("[behavior] item 7 (map 7.14): a snapshot compile refuses a relative CARGO_HOME, RUSTUP_HOME, SCCACHE_DIR or temp directory before anything compiles; absolute ones pass", { skip: POSIX }, async (t) => {
+  const run = async (extraEnv) => {
+    const dir = tmp(t);
+    const repo = path.join(dir, "repo");
+    write(repo, { "Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n', "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\n', "crates/a/src/lib.rs": "\n" });
+    const g = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
+    g("init", "-q", "-b", "main"); g("add", "-A"); g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c");
+    const sha = g("rev-parse", "HEAD").stdout.trim();
+    const env = { ...process.env, RIGHTKIT_DATA_ROOT: dir, XDG_STATE_HOME: dir, ...extraEnv };
+    delete env.GITHUB_ACTIONS; delete env.RIGHTKIT_BUILD_OWNERSHIP; delete env.RIGHTKIT_BUILD_OWNERSHIP_FILE;
+    const spawn = (c, a, opts) => {
+      if (c === "git") return spawnSync(c, a, { ...opts, encoding: "utf8" });
+      if (c === "which" && a[0] === "cargo") return { status: 0, stdout: `${path.join(dir, "toolchain", "cargo")}\n`, stderr: "" };
+      if (c === "cargo" && a.includes("metadata")) return { status: 0, stdout: JSON.stringify({ target_directory: path.join(repo, "target"), workspace_root: opts.cwd, packages: [{ name: "a", manifest_path: path.join(opts.cwd, "crates", "a", "Cargo.toml") }] }), stderr: "" };
+      return { status: 1, stdout: "", stderr: "not in this fixture" };
+    };
+    let compiled = false; const out = [];
+    const code = await main(["--to", "compile", "--commit", sha], { cwd: repo, platform: "linux", env, spawn, snapshotRoot: path.join(dir, "snaps"), out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0, runCheck: async () => 0, readReceipt: () => null, writeReceipt: () => {},
+      runScans: async (plan) => { if (plan.scans.some((s) => s.class === "B")) compiled = true; return { scans: [], notes: [], cacheHits: [] }; } });
+    return { code, compiled, out: out.join("\n") };
+  };
+  for (const [name, value] of [["CARGO_HOME", ".cargo-home"], ["RUSTUP_HOME", "rustup"], ["SCCACHE_DIR", "./sccache"], ["TMPDIR", "tmp"]]) {
+    const r = await run({ [name]: value });
+    assert.equal(r.code, 1, `${name}: ${r.out}`);
+    assert.match(r.out, new RegExp(`BLOCKED: ${name}=${value.replace(/[.]/g, "\\.")} is relative; a snapshot compile inherits CARGO_HOME, sccache and temp only as absolute paths`));
+    assert.equal(r.compiled, false, `${name}: nothing compiled`);
+  }
+  const ok = await run({ CARGO_HOME: path.join(os.tmpdir(), "abs-cargo-home"), SCCACHE_DIR: path.join(os.tmpdir(), "abs-sccache") });
+  assert.equal(ok.code, 0, ok.out); assert.equal(ok.compiled, true, "absolute values compile");
+});

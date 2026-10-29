@@ -2126,6 +2126,10 @@ export async function main(argv, io = {}) {
         targetDirs[ws.cargoDir] = path.resolve(dir);
         o.out(`${tag} output directory for workspace ${ws.cargoDir}: ${targetDirs[ws.cargoDir]} (the checkout's)`);
       }
+      // CARGO_HOME, sccache & temp are inherited as absolute values, never snapshot-relative (GATE-CONTRACT "Output directory & cache"):
+      // a relative one would be resolved inside the snapshot, a second cache or output location. Refused before anything compiles.
+      const relativeEnv = SNAPSHOT_ABSOLUTE_ENV.filter((name) => typeof o.env[name] === "string" && o.env[name] !== "" && !path.isAbsolute(o.env[name]));
+      if (relativeEnv.length) { o.err(`${tag} BLOCKED: ${relativeEnv.map((n) => `${n}=${o.env[n]}`).join(", ")} ${relativeEnv.length > 1 ? "are" : "is"} relative; a snapshot compile inherits CARGO_HOME, sccache and temp only as absolute paths, never resolved inside the snapshot; nothing compiled`); return 1; }
       // The runtime cargo wrapper (item 7): first on PATH and named in CARGO for every scan, it binds each real cargo invocation to its
       // own workspace's checkout target directory or refuses it (RK_CARGO_*), whatever path reaches cargo. Direct POSIX hosts only (a
       // broker host never reaches here; a direct Windows host keeps the fail-closed static walk). Removed when the gate ends (cleanup).
@@ -2504,6 +2508,9 @@ export async function main(argv, io = {}) {
     cleanup();
   }
 }
+
+// The inherited locations a snapshot compile requires as absolute paths (GATE-CONTRACT "Output directory & cache").
+const SNAPSHOT_ABSOLUTE_ENV = ["CARGO_HOME", "RUSTUP_HOME", "SCCACHE_DIR", "TMPDIR", "TMP", "TEMP"];
 
 const invokedDirectly = (() => {
   try { return fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
