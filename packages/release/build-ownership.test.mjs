@@ -10,7 +10,7 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "./background-process.mjs";
 import {
-  OWNERSHIP_ENV, OWNERSHIP_SCHEMA, HOLDER_SCHEMA, OwnershipBusy, acquireBuildOwnership, brokerLeaseState, childrenDir, holderFile, jobName, judgeOwner, ownershipFile, processProbe, readHolder, spawnUnderOwnership,
+  OWNERSHIP_ENV, OWNERSHIP_SCHEMA, HOLDER_SCHEMA, OwnershipBusy, acquireBuildOwnership, brokerLeaseState, childrenDir, holderFile, jobName, judgeOwner, ownershipFile, processProbe, queryHolder, readHolder, spawnUnderOwnership,
 } from "./build-ownership.mjs";
 import { keyPath, repoKey, snapshotCommand, verifySnapshot } from "./snapshot.mjs";
 
@@ -28,8 +28,9 @@ function fakeProbe(platform, over = {}) {
     tokenHolders: () => null,
     cwdHolders: () => null,
     jobState: () => ({ open: true, active: 1 }),
-    // The holder's report as a live gate's release reads it: only the gate in its job.
     contain: ({ file }) => { fs.writeFileSync(file, JSON.stringify({ schema: HOLDER_SCHEMA, state: "holding", active: 1, holder: 1 })); return { state: "holding", contained: true }; },
+    // The holder's fresh answer as a live gate's release asks for it: only the gate in its job.
+    queryHolder: () => ({ active: 1, holder: 1, at: iso(NOW), nonce: "q" }),
     ...over,
   };
 }
@@ -210,19 +211,69 @@ test("ownership: a reboot after the record proves its work gone; broker work nee
 test("ownership: a normal release with a survivor leaves the record; a gate that cannot be contained never holds", (t) => {
   const dir = tmp(t, "rk-own-");
   const file = path.join(dir, "owner.json");
-  // Windows release reads the holder's live count (a probe it spawned would sit in the job itself).
-  const own = acquire(file, "win32", fakeProbe("win32", { jobState: () => { throw new Error("release must not spawn a job probe"); } }));
-  fs.writeFileSync(holderFile(file, own.handle), JSON.stringify({ schema: HOLDER_SCHEMA, state: "holding", active: 3, holder: 9 }));
+  // Windows release asks the holder for a fresh count (a probe it spawned would sit in the job itself); its last report is never read.
+  let answer = () => ({ active: 3, holder: 9, at: iso(NOW), nonce: "q" });
+  const own = acquire(file, "win32", fakeProbe("win32", { jobState: () => { throw new Error("release must not spawn a job probe"); }, queryHolder: () => answer() }));
   assert.match(own.release().why, /still holds 3 process\(es\) \(this gate is one\)/); assert.equal(fs.existsSync(file), true);
+  // The holder's last report says only the gate is left, but the holder does not answer now: unknown, so held (BLOCK: a cached
+  // count is not a proof).
   fs.writeFileSync(holderFile(file, own.handle), JSON.stringify({ schema: HOLDER_SCHEMA, state: "holding", active: 1, holder: 9 }));
-  assert.equal(own.release().released, true, "only the gate left: released");
+  answer = () => { throw new Error("the job holder did not answer a fresh count within 5000 ms"); };
+  assert.match(own.release().why, /gave no fresh count \(the job holder did not answer/); assert.equal(fs.existsSync(file), true);
+  answer = () => ({ active: 0, holder: 9, at: iso(NOW), nonce: "q" });
+  assert.match(own.release().why, /counted 0 process\(es\), but this live gate is one/); assert.equal(fs.existsSync(file), true);
+  answer = () => ({ active: 1, holder: 9, at: iso(NOW), nonce: "q" });
+  const freed = own.release();
+  assert.equal(freed.released, true, "a fresh answer of only the gate: released"); assert.match(freed.proofs.join("; "), /holder 9 counted it .* for query q/);
+  // A live gate whose record is not proven contained is fenced like a crash: held, however empty the job looks.
+  const loose = acquire(file, "win32", fakeProbe("win32"));
+  const recLoose = JSON.parse(fs.readFileSync(file, "utf8")); fs.writeFileSync(file, JSON.stringify({ ...recLoose, containment: { ...recLoose.containment, contained: false } }));
+  assert.match(loose.release().why, /never proven to hold this gate's children \(contained: false\).*until the host reboots/); assert.equal(fs.existsSync(file), true);
   fs.rmSync(file, { force: true });
+  // A gate the self-check finds outside its job never starts work: refused at acquisition, no record left behind.
+  for (const contained of [false, undefined]) {
+    assert.throws(() => acquire(file, "win32", fakeProbe("win32", { contain: () => ({ state: "holding", contained }) })), (e) => e instanceof OwnershipBusy && /would not stay in job/.test(e.message), String(contained));
+    assert.equal(fs.existsSync(file), false, `no record for an uncontained gate (${contained})`);
+  }
   // At release the gate is alive: its own child (ppid = this process) is a survivor; a peer of the shell is not.
   const posix = acquire(file, "linux", fakeProbe("linux", { groupSnapshot: () => group([{ pid: 9, ppid: process.pid, startedMs: Date.now() }, { pid: 10, ppid: 5000, startedMs: Date.now() }, { pid: 5000, ppid: 1, startedMs: NOW - 9e6 }], []) }));
   assert.match(posix.release().why, /1 member\(s\) started under this ownership: 9$/); assert.equal(fs.existsSync(file), true);
   fs.rmSync(file);
   assert.throws(() => acquire(file, "win32", fakeProbe("win32", { contain: () => { throw new Error("the job holder could not contain the gate: AssignProcessToJobObject failed (5)"); } })), /could not contain the gate/);
   assert.equal(fs.existsSync(file), false, "the record of a gate that was never contained is removed");
+});
+
+test("queryHolder: only an answer that echoes this query's nonce, written after it, counts; a silent or stale holder is unknown", async (t) => {
+  // A real second process plays the holder (the PowerShell holder's protocol: read <file>.query, count, write <file>.ack).
+  const dir = tmp(t, "rk-own-query-");
+  const file = path.join(dir, "holder-h.json");
+  fs.writeFileSync(file, JSON.stringify({ schema: HOLDER_SCHEMA, state: "holding", active: 1, holder: 1 }), "utf8");
+  const responder = (mode) => {
+    const script = `const fs = require("fs"); const f = ${JSON.stringify(file)}; let n = 0;
+      const tick = () => { try { const q = JSON.parse(fs.readFileSync(f + ".query", "utf8")); n += 1;
+        const nonce = ${JSON.stringify(mode)} === "stale" ? "0".repeat(32) : q.nonce;
+        fs.writeFileSync(f + ".ack.tmp", JSON.stringify({ schema: ${JSON.stringify(HOLDER_SCHEMA)}, nonce, active: 1 + n, holder: process.pid, at: new Date().toISOString() })); fs.renameSync(f + ".ack.tmp", f + ".ack"); } catch {} };
+      setInterval(tick, 20); setTimeout(() => process.exit(0), 20000);`;
+    const child = spawn(process.execPath, ["-e", script], { stdio: "ignore" });
+    t.after(() => { try { child.kill(); } catch { /* gone */ } });
+    return child;
+  };
+  // No holder answers: the last report (active 1) is not used.
+  assert.throws(() => queryHolder(file, { timeoutMs: 300 }), /did not answer a fresh count within 300 ms/);
+  assert.equal(fs.existsSync(`${file}.query`), false, "the query is withdrawn");
+  // A holder that answers with another nonce (an old answer) is not this query's answer.
+  const stale = responder("stale");
+  await new Promise((r) => setTimeout(r, 200));
+  assert.throws(() => queryHolder(file, { timeoutMs: 400 }), /did not answer a fresh count/);
+  stale.kill(); await new Promise((r) => setTimeout(r, 100));
+  // A live holder counts afresh for each query (its count here rises per query: each answer is new, not cached).
+  const live = responder("live");
+  await new Promise((r) => setTimeout(r, 200));
+  const first = queryHolder(file, { timeoutMs: 5000 });
+  const second = queryHolder(file, { timeoutMs: 5000 });
+  assert.ok(Number.isInteger(first.active) && second.active > first.active, `${first.active} then ${second.active}`);
+  assert.notEqual(first.nonce, second.nonce); assert.equal(first.holder, live.pid);
+  assert.equal(fs.existsSync(`${file}.query`), false, "the query is withdrawn once answered");
 });
 
 test("probes: a listing that did not finish cleanly is unknown, never a complete answer", { skip: fs.existsSync("/proc/self") && "this host reads /proc, not ps and lsof" }, () => {

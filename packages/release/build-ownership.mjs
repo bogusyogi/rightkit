@@ -110,10 +110,38 @@ export function holderScript({ name, pid, file }) {
     "  [RkJob]::CloseHandle($p) | Out-Null",
     "  Put @{ state = 'holding'; job = $name }",
     "} catch { Put @{ state = 'failed'; why = \"$_\" }; exit 1 }",
-    // Reports the live count whenever it changes (the gate's containment self-check reads it), drained at zero.
-    "$last = -1",
-    "while ($true) { $a = [RkJob]::Active($h); if ($a -eq 0) { Put @{ state = 'drained'; job = $name }; exit 0 }; if ($a -gt 0 -and $a -ne $last) { Put @{ state = 'holding'; job = $name; active = $a }; $last = $a }; Start-Sleep -Milliseconds 100 }",
+    // Reports the live count whenever it changes, drained at zero. A release asks for a fresh count by writing `<file>.query`
+    // ({nonce}); the holder counts the job after reading it and answers in `<file>.ack` with that nonce (queryHolder).
+    "$last = -1; $query = \"$file.query\"; $ack = \"$file.ack\"",
+    "function Answer { try { $q = [IO.File]::ReadAllText($query) | ConvertFrom-Json; $n = [string]$q.nonce; if ($n -notmatch '^[0-9a-f]{32,128}$') { return }; $c = [RkJob]::Active($h); $o = @{ schema = '" + HOLDER_SCHEMA + "'; nonce = $n; active = $c; holder = $PID; at = (Get-Date).ToUniversalTime().ToString('o') }; $tmp = \"$ack.$PID.tmp\"; [IO.File]::WriteAllText($tmp, ($o | ConvertTo-Json -Compress)); Move-Item -Force -LiteralPath $tmp -Destination $ack } catch { } }",
+    "while ($true) { if ([IO.File]::Exists($query)) { Answer }; $a = [RkJob]::Active($h); if ($a -eq 0) { Put @{ state = 'drained'; job = $name }; exit 0 }; if ($a -gt 0 -and $a -ne $last) { Put @{ state = 'holding'; job = $name; active = $a }; $last = $a }; Start-Sleep -Milliseconds 50 }",
   ].join("\n");
+}
+
+/**
+ * A fresh count of the gate's job from its holder (outside the job): writes `<holder file>.query` with a new nonce and waits for
+ * `<holder file>.ack` carrying that nonce, which the holder writes after counting the job anew. Returns `{ active, holder, at, nonce }`
+ * or throws: no answer within `timeoutMs` (a dead or hung holder) is unknown, never the last count it wrote.
+ */
+export function queryHolder(file, { timeoutMs = 5000, nonce = crypto.randomBytes(16).toString("hex"), sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) } = {}) {
+  const query = `${file}.query`; const ack = `${file}.ack`;
+  fs.rmSync(ack, { force: true });
+  const tmp = `${query}.${crypto.randomUUID()}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify({ nonce }), { flag: "wx", mode: 0o600 });
+  try { fs.renameSync(tmp, query); } finally { fs.rmSync(tmp, { force: true }); }
+  try {
+    const until = Date.now() + timeoutMs;
+    for (;;) {
+      let answer = null;
+      try { answer = JSON.parse(fs.readFileSync(ack, "utf8").replace(/^\uFEFF/, "")); } catch { answer = null; }
+      if (answer?.schema === HOLDER_SCHEMA && answer.nonce === nonce) {
+        if (!Number.isInteger(answer.active)) throw new Error(`the holder's answer to ${nonce} carries no count`);
+        return { active: answer.active, holder: answer.holder, at: answer.at, nonce };
+      }
+      if (Date.now() > until) throw new Error(`the job holder did not answer a fresh count within ${timeoutMs} ms`);
+      sleep(25);
+    }
+  } finally { fs.rmSync(query, { force: true }); fs.rmSync(ack, { force: true }); }
 }
 
 /** Run as a child of the gate (as its work runs): `IN` when this process is in job `name`, `OUT` when not, `ERR:<n>` otherwise. */
@@ -168,6 +196,8 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
         if (!m) throw new Error("cannot read the boot time");
         return Number(m[1]);
       },
+      /** A fresh count from the job's holder (see queryHolder): asked at release, when a probe this gate spawned would sit in the job. */
+      queryHolder: (file, options) => queryHolder(file, options),
       /** `{ open: true, active }`, `{ open: false }` (no such job), or a throw. */
       jobState(name) {
         const out = ps(jobProbeScript(name));
@@ -392,14 +422,20 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null }) {
     throw new Error(`job ${c.name} never held its gate's children (the gate's launcher lets children leave its job silently, so they left this one too), so their exit cannot be proven; it stays held until the host reboots`);
   }
   if (!rebooted && c.kind === "job" && selfPid !== null) {
-    // Release by the live gate: anything this gate spawned to look at the job would sit in the job itself, so the count comes from
-    // the holder (outside the job), which reports it whenever it changes. Children that just exited get a moment to leave.
+    // A live release is fenced exactly like a crash: work that was never proven inside the job cannot be proven gone by it.
+    if (c.contained !== true) throw new Error(`job ${c.name} was never proven to hold this gate's children (contained: ${c.contained}), so their exit cannot be proven; it stays held until the host reboots`);
+    // Anything this gate spawned to look at the job would sit in the job itself, so the count comes from the holder (outside the
+    // job), asked afresh now (a nonce it must echo after counting), never its last report. Children that just exited get a moment.
     const until = Date.now() + 3000;
-    let state = readHolder(holderFile(file, owner.handle));
-    while (Date.now() < until && state?.state === "holding" && Number(state.active) > 1) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100); state = readHolder(holderFile(file, owner.handle)); }
-    if (state?.state !== "holding" || !Number.isInteger(state.active)) throw new Error(`job ${c.name}'s holder reports no live count (${state?.state ?? "no holder record"})`);
-    if (state.active > 1) throw new Error(`job ${c.name} still holds ${state.active} process(es) (this gate is one)`);
-    proofs.push(`job ${c.name} holds only this gate`);
+    let answer;
+    for (;;) {
+      try { answer = probe.queryHolder(holderFile(file, owner.handle)); } catch (e) { throw new Error(`job ${c.name}'s holder gave no fresh count (${e.message})`); }
+      if (!Number.isInteger(answer?.active) || answer.active < 1) throw new Error(`job ${c.name}'s holder counted ${answer?.active} process(es), but this live gate is one of them`);
+      if (answer.active === 1 || Date.now() >= until) break;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+    }
+    if (answer.active > 1) throw new Error(`job ${c.name} still holds ${answer.active} process(es) (this gate is one)`);
+    proofs.push(`job ${c.name} holds only this gate (holder ${answer.holder} counted it at ${answer.at} for query ${answer.nonce})`);
   } else if (!rebooted && c.kind === "job") {
     let state;
     try { state = probe.jobState(c.name); } catch (e) { throw new Error(`job ${c.name} cannot be read (${e.message})`); }
@@ -549,12 +585,18 @@ export function acquireBuildOwnership({
       let held;
       try { held = probe.contain({ name: record.containment.name, pid: process.pid, file: holderFile(file, handle) }); }
       catch (e) { if (holds(file, handle)) fs.rmSync(file, { force: true }); throw new OwnershipBusy(`build ownership ${file}: ${e.message}`); }
-      // Recorded before any work starts: an uncontained gate's crash is never cleared by the job alone.
-      record.containment = { ...record.containment, contained: held?.contained !== false };
+      // A gate the self-check did not find in its job would start work nothing can later prove gone, whether it exits or crashes.
+      // No work has started yet (the self-check child has exited), so it refuses now and leaves no record, instead of running and
+      // leaving the host held until a reboot.
+      if (held?.contained !== true) {
+        if (holds(file, handle)) fs.rmSync(file, { force: true });
+        throw new OwnershipBusy(`build ownership ${file}: this gate's children would not stay in job ${record.containment.name} (its launcher lets children leave their job silently, e.g. a Node parent's job), so their exit could never be proven; start the gate from a shell or PowerShell, not under such a launcher`);
+      }
+      record.containment = { ...record.containment, contained: true };
       rewriteRecord(file, handle, (r) => ({ ...r, containment: record.containment }));
     }
     if (exportEnv) { process.env[OWNERSHIP_ENV] = handle; process.env[OWNERSHIP_FILE_ENV] = file; }
-    return { handle, file, joined: false, reclaimed, owner: record, contained: record.containment.contained ?? true, markBrokerSubmit: () => markBrokerSubmit(file, handle), held: () => holds(file, handle), release };
+    return { handle, file, joined: false, reclaimed, owner: record, contained: platform === "win32" ? record.containment.contained === true : true, markBrokerSubmit: () => markBrokerSubmit(file, handle), held: () => holds(file, handle), release };
   };
   if (publish(file, body)) return done(null);
   const observed = readText(file);
