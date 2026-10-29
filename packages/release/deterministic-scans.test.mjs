@@ -774,6 +774,33 @@ test("vendor/ keeps upstream formatting only for files recorded verbatim in vend
   assert.ok(checked.includes("vendor/up/src/new.rs"), "a file not in the manifest is checked");
 });
 
+test("declared fixture files skip only the per-file format and parse scans while their bytes match (rightkit#1291)", () => {
+  const sha = (text) => crypto.createHash("sha256").update(text).digest("hex");
+  const bad = { rs: "fn  broken( {\n", js: "export const = ;\n", json: "{ truncated", toml: "[broken\n" };
+  const paths = { rs: "fixtures/a.rs", js: "fixtures/b.mjs", json: "fixtures/c.json", toml: "fixtures/d.toml" };
+  const files = Object.fromEntries(Object.entries(paths).map(([k, p]) => [p, bad[k]]));
+  const manifest = (rows) => JSON.stringify({ schema: 1, files: rows });
+  const all = Object.fromEntries(Object.entries(paths).map(([k, p]) => [p, { sha256: sha(bad[k]), note: "audit known-answer input, malformed on purpose" }]));
+  const scanned = (extra) => {
+    const { plan } = planFor(Object.values(paths), { ...files, ...extra });
+    const args = plan.scans.flatMap((x) => [...(x.args ?? []), ...(x.files ?? [])]);
+    return { args, refused: plan.scans.filter((x) => x.internal === "refuse").map((x) => x.detail) };
+  };
+  const exempt = scanned({ ".rightkit/fixture-files.json": manifest(all) });
+  for (const p of Object.values(paths)) assert.ok(!exempt.args.includes(p), `${p} is exempt while its bytes match`);
+  assert.deepEqual(exempt.refused, []);
+  // An edited file no longer matches its digest: it is checked again.
+  const edited = scanned({ ".rightkit/fixture-files.json": manifest(all), [paths.json]: "{ changed" });
+  assert.ok(edited.args.includes(paths.json) && !edited.args.includes(paths.rs));
+  // Without the manifest every file is checked.
+  const none = scanned({});
+  for (const p of Object.values(paths)) assert.ok(none.args.includes(p), `${p} is checked without the manifest`);
+  // A bad digest or an empty note refuses the manifest.
+  for (const row of [{ sha256: "x".repeat(64), note: "n" }, { sha256: sha(bad.rs), note: " " }]) {
+    assert.ok(scanned({ ".rightkit/fixture-files.json": manifest({ [paths.rs]: row }) }).refused.some((d) => d.startsWith(".rightkit/fixture-files.json")));
+  }
+});
+
 test("a patched vendor/ file keeps upstream formatting only while its bytes match the recorded patch (rightkit#915)", () => {
   const sha = (text) => crypto.createHash("sha256").update(text).digest("hex");
   const body = "fn  patched_upstream_style() {}\n";
