@@ -673,6 +673,9 @@ export function planScans({
   // { [cargoDir]: absolute directory }: the checkout's resolved target directory per Cargo workspace, set as CARGO_TARGET_DIR on
   // that workspace's cargo scans when the scans read a snapshot (the door's commit compile, joint plan step 4c).
   targetDirs = null,
+  // True when the gate's runtime cargo wrapper (cargo-target-shim.mjs) is first on PATH for every scan: each cargo invocation binds its
+  // own workspace's checkout target directory or is refused at run time, so the static walk (cargoReachOf) is advisory, never a refusal.
+  cargoShim = false,
   // The command prefix every cargo scan runs through: `rustright cargo` on a managed host, plain `cargo` in CI.
   cargoCommand = ["rustright", "cargo"],
   // Physical containment: a changed path whose real path leaves the real content root (a symlink) is refused.
@@ -1143,7 +1146,11 @@ export function planScans({
       // finds from the directory it runs in, which would be inside the snapshot. Bound to that workspace's checkout target directory
       // when the reachable path proves the directory (cargoReachOf); refused before launch only when it reaches Rust unprovably.
       let cargoTarget = null;
-      if (targetDirs) {
+      if (targetDirs && cargoShim) {
+        // Advisory only: the wrapper binds or refuses each cargo the test starts, whatever path reaches it.
+        const reach = cargoReachOf({ unitDir: npmDir(name), scripts: manifest.scripts, declared });
+        if (reach.unprovable && Object.keys(targetDirs).length) notes.push(`npm unit ${name}: the static walk cannot prove where its cargo writes (${reach.unprovable}); the runtime cargo wrapper binds each invocation to its workspace's checkout target directory or refuses it`);
+      } else if (targetDirs) {
         const unitDir = npmDir(name);
         const scriptsOf = (dir) => { try { const m = JSON.parse(readFile(path.join(contentRoot, ...(dir === "." ? [] : dir.split("/")), "package.json"))); return m?.scripts && typeof m.scripts === "object" ? m.scripts : {}; } catch { return null; } };
         const packageDirOf = (pkg) => {
