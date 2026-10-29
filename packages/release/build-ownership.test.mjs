@@ -141,6 +141,18 @@ test("spawnUnderOwnership: only a detached POSIX spawn under a held ownership is
     spawnUnderOwnership(fake, "x", [], opts, ctx);
     assert.equal(fs.existsSync(reg), false, JSON.stringify([opts, ctx.platform]));
   }
+  // A parent that pauses after the child exists still records a bound from before the spawn (review of 05a0ab74).
+  fs.rmSync(reg, { recursive: true, force: true });
+  const before = Date.now();
+  spawnUnderOwnership(() => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2500); return { pid: 4400 }; }, "eslint", [], { detached: true }, { env, platform: "darwin" });
+  const recorded = JSON.parse(fs.readFileSync(path.join(reg, "group-4400.json"), "utf8"));
+  assert.ok(recorded.startedMs <= before, `bound ${recorded.startedMs} is from before the spawn (${before}), not after the 2.5 s pause`);
+  // ...so a member that started right at the spawn, 2.5 s before the record was written, is still the scan's group.
+  const file = ownershipFile({ platform: "darwin", env });
+  fs.writeFileSync(file, JSON.stringify({ schema: OWNERSHIP_SCHEMA, handle: "h-9", host: os.hostname(), platform: "darwin", pid: 999_999, startedMs: before - 5000, containment: { kind: "group", group: 777 }, snapshot: null, acquiredAt: iso(before - 4000), broker: { submitted: false } }));
+  const member = { members: [{ pid: 4400, ppid: 1, startedMs: before }], byPid: new Map(), own: new Set() };
+  assert.throws(() => acquire(file, "darwin", fakeProbe("darwin", { groupSnapshot: (g) => (g === 4400 ? member : group([])) })), /detached process group 4400 \(eslint\) still has 1 member/);
+  fs.rmSync(file);
   fs.rmSync(reg, { recursive: true, force: true });
   assert.throws(() => spawnUnderOwnership(() => { throw new Error("ENOENT"); }, "x", [], { detached: true }, { env, platform: "darwin" }), /ENOENT/);
   assert.deepEqual(fs.readdirSync(reg), [], "a spawn that failed leaves nothing behind");

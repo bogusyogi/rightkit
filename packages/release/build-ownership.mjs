@@ -289,10 +289,13 @@ export function spawnUnderOwnership(spawn, command, args, options = {}, { env = 
   const dir = childrenDir(merged[OWNERSHIP_FILE_ENV] || ownershipFile({ platform, env: merged }), handle);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const intent = path.join(dir, `intent-${process.pid}-${crypto.randomUUID()}.json`);
-  fs.writeFileSync(intent, JSON.stringify({ by: process.pid, at: new Date().toISOString(), command: String(command) }), { flag: "wx", mode: 0o600 });
+  // The child's start lower bound is taken BEFORE it is created, so however long this process pauses before recording the
+  // group, every member of it started at or after the bound (a later bound would read a live group as pid reuse).
+  const notBefore = Date.now() - START_SLACK_MS;
+  fs.writeFileSync(intent, JSON.stringify({ by: process.pid, at: new Date().toISOString(), notBefore, command: String(command) }), { flag: "wx", mode: 0o600 });
   let child;
   try { child = spawn(command, args, options); } catch (e) { fs.rmSync(intent, { force: true }); throw e; }
-  if (child?.pid) fs.writeFileSync(path.join(dir, `group-${child.pid}.json`), JSON.stringify({ group: child.pid, startedMs: Date.now() - START_SLACK_MS, command: String(command) }), { mode: 0o600 });
+  if (child?.pid) fs.writeFileSync(path.join(dir, `group-${child.pid}.json`), JSON.stringify({ group: child.pid, startedMs: notBefore, command: String(command) }), { mode: 0o600 });
   fs.rmSync(intent, { force: true });
   return child;
 }
