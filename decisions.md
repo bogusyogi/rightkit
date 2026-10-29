@@ -1,5 +1,12 @@
 # Decisions
 
+## 2026-10-29 — Rust keyword spotting lives in `rightkit-asr::kws`
+
+- **Authorization:** Adrian's 2026-10-29 dispatch ("replace Sherpa-ONNX keyword spotting with a Rust implementation"), placement decided by his lead chat: generic streaming KWS runtime in `rightkit-asr`, command policy stays in HeardRight.
+- **Issues:** [rightkit#1273](https://github.com/bogusyogi/rightkit/issues/1273), [heardright#321](https://github.com/bogusyogi/heardright/issues/321).
+- **Decision:** `rightkit_asr::kws` ports Sherpa-ONNX 1.13.4's keyword spotter, kaldi-native-fbank 1.22.3 and KISS FFT on `rightkit-onnx` (CPU, batch one). HeardRight's native Sherpa patch becomes configuration (`active_path_ttl_frames`, `trailing_blank_reset`), defaulting to no silent reset. The joiner log-softmax follows the production Sherpa builds (`f32`; macOS libc++ and Windows MSVC, verified by disassembly), not the Linux GCC build (`f64`).
+- **Scope:** code, Linux parity tests against the PyPI 1.13.4 build, docs. macOS/Windows/iOS qualification and Sherpa removal stay with HeardRight#321; nothing is published.
+
 ## 2026-10-28 14:34 IST — Consolidate gate requirements
 
 - **Authorization:** Adrian said, “alright, go ahead with the consolidation please”.

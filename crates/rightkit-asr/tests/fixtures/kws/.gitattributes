@@ -1,0 +1,2 @@
+# Raw little-endian f32 tensors: keep the committed bytes on every host.
+*.f32le binary
