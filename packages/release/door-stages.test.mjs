@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 // Item 7 rows 7.02 (the door's snapshot route on every host), 7.03 (`--to dev|test` build a commit), 7.04 (package), 7.05 (sidecars) and
 // 7.06 (the stage table cannot drift): docs/GATE-CONTRACT.md "Commit-only build", signed map signed/item7-MAP-SIGNED.md.
 //
@@ -347,7 +348,7 @@ test("[7.03-7.05] source split: no checkout in the env is no split; every incons
 
 test("[7.03] right-release under a split: dev, test, stage-sidecar, web-build, build, package, release and qa run (build, package, release and qa through release-source-identity.mjs); a desktop upload, publish and signing refuse with RK_SOURCE_SPLIT_UNSUPPORTED; a stray split env fails closed", { skip: POSIX_SIM }, async (t) => {
   const fx = fixture(t, { "right-release.config.json": "{}\n", "README.md": "r\n" }, "rk-ds-cli-");
-  const cli = path.join(path.dirname(new URL(import.meta.url).pathname), "cli", "right-release.mjs");
+  const cli = fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url));
   let childEnv = null; let childCwd = null;
   const r = await fx.door(["--to", "dev", "--commit", fx.sha], { runCheck: async () => 0, spawnInherit: (c, a, opts) => { childEnv = opts.env; childCwd = opts.cwd; return { status: 0 }; } });
   assert.equal(r.code, 0, r.all);
