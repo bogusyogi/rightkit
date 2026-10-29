@@ -11,16 +11,21 @@
 //   - outside hosted CI (CI !== "true") treats every cargo, rustc, tauri and cargo-tauri launch as
 //     broker-reaching wherever PATH resolves it, so a local run never starts a real build or a new target root.
 // Opt-in for a real end-to-end run: RIGHTKIT_TEST_REAL_BROKER=1 (mirrors RIGHTKIT_TEST_REAL_DMG).
+// Real managed root (item 5 row 5.25, incident F8): on a Mac or Dell, a process under test that creates, writes, renames or removes anything
+// under the real managed root's `snapshots/` or `build-ownership/` (or launches a child whose cwd or owner-record variable points there)
+// throws RK_TEST_REAL_MANAGED_ROOT. A real-root run declares itself on purpose: RIGHTKIT_TEST_REAL_MANAGED_ROOT=1 or withRealManagedRoot(fn).
+// See "Real managed root guard" at the end of this file; the guard lives only here, never in production code.
 // Child processes inherit the guard through NODE_OPTIONS, which installation appends to.
 // Not shipped: lives under test-support/, outside package.json "files".
 import childProcess from "node:child_process";
-import { appendFileSync, mkdtempSync, realpathSync, statSync } from "node:fs";
+import fs, { appendFileSync, mkdtempSync, realpathSync, statSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { resolveManagedRoots } from "../managed-roots.mjs";
 
 export const OPT_IN_ENV = "RIGHTKIT_TEST_REAL_BROKER";
 export const LOG_ENV = "RIGHTKIT_BROKER_GUARD_LOG";
@@ -361,4 +366,165 @@ export function installBrokerGuard() {
   return state;
 }
 
+// ---------------------------------------------------------------------------------------------------------------------------------
+// Real managed root guard (item 5 row 5.25; incident F8: a gate test reached /Volumes/D/.rightkit-managed/snapshots and the root
+// migration emptied it). Mac and Dell only: the real roots are `/Volumes/D/.rightkit-managed`, `D:\.rightkit-managed` and the managed
+// data root the environment named when this process started (a throwaway root this guard itself made is never one). The protected
+// directories are `<root>/snapshots` and `<root>/build-ownership`. Mutating fs calls (sync, callback and promise forms, and write
+// streams) on a path under them throw, and so do child launches whose cwd or RIGHTKIT_BUILD_OWNERSHIP_FILE is under them. Read-only
+// access is untouched, and so is everything else under the managed root (a native test may use its own test-only subdirectory).
+// ---------------------------------------------------------------------------------------------------------------------------------
+export const REAL_ROOT_OPT_IN_ENV = "RIGHTKIT_TEST_REAL_MANAGED_ROOT";
+export const REAL_ROOT_ERROR_CODE = "RK_TEST_REAL_MANAGED_ROOT";
+const ROOT_GUARD = Symbol.for("rightkit.release.managedRootGuard");
+const PROTECTED_SUBDIRS = ["snapshots", "build-ownership"];
+const rootState = (globalThis[ROOT_GUARD] ??= { dirs: new Map(), declared: 0, patched: false });
+
+/** The real managed roots of this host (Mac, Dell), from the environment as this process was started; [] elsewhere. */
+export function realManagedRoots({ platform = process.platform, env = process.env, home = os.homedir() } = {}) {
+  if (platform !== "darwin" && platform !== "win32") return [];
+  const paths = platform === "win32" ? path.win32 : path.posix;
+  const roots = new Set([resolveManagedRoots({ env: {}, platform, home }).dataRoot]);
+  for (const value of [env.RIGHTKIT_DATA_ROOT, env.RIGHTKIT_MANAGED_ROOT, env.RIGHTKIT_EXTERNAL_ROOT]) {
+    if (typeof value === "string" && paths.isAbsolute(value) && value !== env.RIGHTKIT_GUARD_DATA_ROOT && !insideTemp(value)) roots.add(value);
+  }
+  for (const root of [...roots]) { try { roots.add(realpathSync(root)); } catch { /* an absent root has no other spelling */ } }
+  return [...roots];
+}
+
+function protectDirs(roots) {
+  for (const root of roots) for (const sub of PROTECTED_SUBDIRS) rootState.dirs.set(path.join(root, sub), root);
+}
+
+/** Declares `root` (a temporary directory in a test) a real managed root, so the guard's own behaviour is tested without touching the real one. Returns the undo. */
+export function protectManagedRoot(root) {
+  const added = PROTECTED_SUBDIRS.map((sub) => path.join(root, sub));
+  for (const dir of added) rootState.dirs.set(dir, root);
+  return () => { for (const dir of added) rootState.dirs.delete(dir); };
+}
+
+/** Runs `fn` with the real-root guard off: the declared, deliberate real-root run (sync or async). */
+export function withRealManagedRoot(fn) {
+  rootState.declared++;
+  let async = false;
+  try {
+    const result = fn();
+    if (result && typeof result.then === "function") { async = true; return result.finally(() => { rootState.declared--; }); }
+    return result;
+  } finally {
+    if (!async) rootState.declared--;
+  }
+}
+
+const realRootOptedIn = () => rootState.declared > 0 || process.env[REAL_ROOT_OPT_IN_ENV] === "1";
+const foldCase = (value) => (process.platform === "win32" || process.platform === "darwin" ? value.toLowerCase() : value);
+
+function protectedDirOf(target) {
+  let text;
+  try { text = typeof target === "string" ? target : target instanceof URL ? fileURLToPath(target) : Buffer.isBuffer(target) ? target.toString("utf8") : null; } catch { return null; }
+  if (!text) return null; // a file descriptor, or nothing
+  if (process.platform === "win32") text = text.replace(/^\\\\\?\\(UNC\\)?/, (_, unc) => (unc ? "\\\\" : ""));
+  const absolute = foldCase(path.resolve(text));
+  for (const dir of rootState.dirs.keys()) {
+    const rel = path.relative(foldCase(dir), absolute);
+    if (rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel))) return dir;
+  }
+  return null;
+}
+
+function realRootError(what, target, dir) {
+  return Object.assign(
+    new Error(
+      `RightKit test guard (${REAL_ROOT_ERROR_CODE}): a test tried to ${what} ${String(target)}, under the real managed root's ${path.basename(dir)} (${dir}). ` +
+        `Tests must inject a temporary root. A real-root run declares itself on purpose: ${REAL_ROOT_OPT_IN_ENV}=1 or withRealManagedRoot().`,
+    ),
+    { code: REAL_ROOT_ERROR_CODE, protectedDir: dir },
+  );
+}
+
+function refuseRealRoot(what, target) {
+  if (rootState.dirs.size === 0 || realRootOptedIn()) return;
+  const dir = protectedDirOf(target);
+  if (!dir) return;
+  record({ action: "refused-real-managed-root", what, target: String(target) });
+  throw realRootError(what, target, dir);
+}
+
+const WRITE_FLAGS = (fs.constants.O_WRONLY ?? 1) | (fs.constants.O_RDWR ?? 2) | (fs.constants.O_CREAT ?? 0o100) | (fs.constants.O_APPEND ?? 0o2000) | (fs.constants.O_TRUNC ?? 0o1000);
+const opensForWrite = (flags) => (typeof flags === "number" ? (flags & WRITE_FLAGS) !== 0 : typeof flags === "string" && !/^(?:r|rs|sr)$/.test(flags));
+
+// Mutating fs calls and the argument positions that name a path they change.
+const FS_WRITERS = {
+  writeFile: [0], appendFile: [0], mkdir: [0], mkdtemp: [0], rm: [0], rmdir: [0], unlink: [0], rename: [0, 1], copyFile: [1],
+  link: [1], symlink: [1], truncate: [0], utimes: [0], lutimes: [0], chmod: [0], lchmod: [0], chown: [0], lchown: [0], cp: [1],
+};
+
+function patchFs() {
+  const wrap = (name, positions, flagsAt) => {
+    const original = fs[name];
+    if (typeof original !== "function") return;
+    fs[name] = function guardedFsWriter(...args) {
+      if (flagsAt === undefined || opensForWrite(args[flagsAt] ?? "r")) for (const at of positions) refuseRealRoot(name, args[at]);
+      return original.apply(this, args);
+    };
+    for (const key of Object.getOwnPropertySymbols(original)) Object.defineProperty(fs[name], key, Object.getOwnPropertyDescriptor(original, key));
+  };
+  const wrapPromise = (name, positions, flagsAt) => {
+    const original = fs.promises[name];
+    if (typeof original !== "function") return;
+    fs.promises[name] = function guardedFsPromise(...args) {
+      try {
+        if (flagsAt === undefined || opensForWrite(args[flagsAt] ?? "r")) for (const at of positions) refuseRealRoot(name, args[at]);
+      } catch (error) { return Promise.reject(error); }
+      return original.apply(this, args);
+    };
+  };
+  for (const [name, positions] of Object.entries(FS_WRITERS)) {
+    wrap(`${name}Sync`, positions);
+    wrap(name, positions);
+    wrapPromise(name, positions);
+  }
+  wrap("openSync", [0], 1);
+  wrap("open", [0], 1);
+  wrapPromise("open", [0], 1);
+  wrap("createWriteStream", [0]);
+}
+
+const launchOptions = (args) => args.find((value) => value && typeof value === "object" && !Array.isArray(value) && !(value instanceof URL));
+
+// A child whose working directory or owner-record variable is under a protected directory works in the real root.
+function patchChildProcess() {
+  for (const name of ["spawn", "spawnSync", "execFile", "execFileSync", "exec", "execSync", "fork"]) {
+    const original = childProcess[name];
+    if (typeof original !== "function") continue;
+    const check = (args) => {
+      if (rootState.dirs.size === 0 || realRootOptedIn()) return;
+      const options = launchOptions(args) ?? {};
+      refuseRealRoot(`launch a child (${name}) with its cwd`, options.cwd);
+      refuseRealRoot(`launch a child (${name}) with RIGHTKIT_BUILD_OWNERSHIP_FILE`, (options.env ?? process.env).RIGHTKIT_BUILD_OWNERSHIP_FILE);
+    };
+    childProcess[name] = function guardedLaunch(...args) { check(args); return original.apply(this, args); };
+    const custom = original[promisify.custom];
+    if (custom) {
+      Object.defineProperty(childProcess[name], promisify.custom, {
+        value(...args) { try { check(args); } catch (error) { return Promise.reject(error); } return custom.apply(this, args); },
+      });
+    }
+  }
+}
+
+export function installManagedRootGuard(roots = realManagedRoots()) {
+  protectDirs(roots);
+  if (rootState.patched) return rootState;
+  rootState.patched = true;
+  patchFs();
+  patchChildProcess();
+  syncBuiltinESMExports();
+  return rootState;
+}
+
+// The real roots are read before the broker guard overwrites RIGHTKIT_DATA_ROOT with a throwaway one; the launch wrappers go on top of
+// the broker guard's, so a real-root launch is refused first.
+const realRootsAtStart = realManagedRoots();
 installBrokerGuard();
+installManagedRootGuard(realRootsAtStart);

@@ -22,7 +22,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { LIVE_SCAN_IDS, defaultSpawn, isLiveScan, isRegistryScan, launchGuardEnv, planScans, runScans } from "./deterministic-scans.mjs";
 import { compileLaunch } from "./class-a-launch-guard.mjs";
-import { SnapshotError, snapshotProblem, snapshotTree, treeEntries } from "./snapshot.mjs";
+import { SnapshotError, isInside, snapshotProblem, snapshotTree, treeEntries } from "./snapshot.mjs";
+import { discoveryRun, sealedRun } from "./snapshot-git.mjs";
 
 export const CHECK_ERROR = "RK_CHECK_ERROR";
 export const LIVE_SCANS_SCHEMA = "rightkit.live-scans/1";
@@ -38,7 +39,8 @@ export class CheckError extends Error {
 const text = (r) => String(r?.stdout ?? "");
 const failed = (r) => !r || Boolean(r.error) || r.status !== 0;
 const tail = (r) => `${r?.stderr ?? ""}\n${r?.stdout ?? ""}`.trim().split(/\r?\n/).slice(-6).join(" | ").slice(-600);
-const inside = (child, parent) => { const rel = path.relative(parent, child); return rel === "" || (!!rel && !rel.startsWith("..") && !path.isAbsolute(rel)); };
+// A path is outside only as `..`, `..<sep>…` or absolute: a sibling named `..x` is inside (snapshot.mjs isInside; review item5-r2 #4).
+const inside = (child, parent) => isInside(child, parent, path);
 
 /** The `--snapshot <dir>` of a check: absolute, an existing real directory, not inside the checkout and not holding it. */
 export function snapshotOption(args, { checkout }) {
@@ -57,12 +59,18 @@ export function snapshotOption(args, { checkout }) {
   return real;
 }
 
-/** `{ commit, tree }` of a revision in the checkout's object database. */
-export function commitOf(checkout, rev, spawn = defaultSpawn) {
-  const c = spawn("git", ["rev-parse", "--verify", "--quiet", `${rev}^{commit}`], { cwd: checkout });
-  if (failed(c)) throw new CheckError(`commit ${rev} does not resolve in ${checkout}`);
+/**
+ * `{ commit, tree }` of a revision in the checkout's object database. The sealed invocation (snapshot-git.mjs, item 5 D3): the
+ * revision is resolved under the sealed environment with replace refs off, so a replace ref cannot change what <sha>^{tree} means.
+ * `spawn` is accepted for the callers that still pass one and is not used: the gate's identity git never goes through an injected runner.
+ */
+export function commitOf(checkout, rev, spawn = defaultSpawn) { // eslint-disable-line no-unused-vars
+  const name = String(rev ?? "");
+  if (!name || name.startsWith("-") || name.includes("\0")) throw new CheckError(`commit ${name} does not resolve in ${checkout}`);
+  const c = discoveryRun(checkout, ["rev-parse", "--verify", "--quiet", `${name}^{commit}`]);
+  if (failed(c)) throw new CheckError(`commit ${name} does not resolve in ${checkout}`);
   const commit = text(c).trim();
-  const t = spawn("git", ["rev-parse", "--verify", "--quiet", `${commit}^{tree}`], { cwd: checkout });
+  const t = discoveryRun(checkout, ["rev-parse", "--verify", "--quiet", `${commit}^{tree}`]);
   if (failed(t)) throw new CheckError(`commit ${commit} has no tree`);
   return { commit, tree: text(t).trim() };
 }
@@ -85,8 +93,8 @@ export function verifySnapshotDir({ checkout, dir, commit, tree, when }) {
 }
 
 /** Every file of the commit with its blob id, from the checkout's object database: what the snapshot holds. */
-export function commitFiles(checkout, commit, spawn = defaultSpawn) {
-  const r = spawn("git", ["ls-tree", "-r", "-z", "--full-tree", commit], { cwd: checkout, maxBuffer: 1 << 30 });
+export function commitFiles(checkout, commit, spawn = defaultSpawn) { // eslint-disable-line no-unused-vars
+  const r = sealedRun(checkout, ["ls-tree", "-r", "-z", "--full-tree", commit]);
   if (failed(r)) throw new CheckError(`cannot list commit ${commit}: ${tail(r)}`);
   const ids = new Map();
   for (const record of text(r).split("\0").filter(Boolean)) {

@@ -10,9 +10,10 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "./background-process.mjs";
 import {
-  OWNERSHIP_ENV, OWNERSHIP_SCHEMA, HOLDER_SCHEMA, OwnershipBusy, acquireBuildOwnership, brokerLeaseState, childrenDir, holderFile, holderScript, holderScriptFile, jobName, judgeOwner, namesDir, readCleanMarker, cleanMarkerFile, CLEAN_SCHEMA, hostBootId, migrateBirthlessRoot, recordRootBirth, readRootBirth, rootBirthFile, ROOT_BIRTH_SCHEMA, OWNERSHIP_FILE_ENV, ownershipFile, processProbe, queryHolder, readHolder, spawnUnderOwnership, CMD_LINE_LIMIT,
+  OWNERSHIP_ENV, OWNERSHIP_SCHEMA, HOLDER_SCHEMA, OwnershipBusy, acquireBuildOwnership, brokerLeaseState, childrenDir, holderFile, holderScript, holderScriptFile, jobName, judgeOwner, namesDir, readCleanMarker, cleanMarkerFile, CLEAN_SCHEMA, hostBootId, migrateBirthlessRoot, recordRootBirth, readRootBirth, rootBirthFile, ROOT_BIRTH_SCHEMA, OWNERSHIP_FILE_ENV, ownershipFile, ensureOwnershipDir, classifyHiddenProcesses, HIDDEN_WALK_LIMIT, NOT_MANAGED_LINE, blameKind, OWNERSHIP_DIRNAME, processProbe, queryHolder, readHolder, spawnUnderOwnership, CMD_LINE_LIMIT,
 } from "./build-ownership.mjs";
 import { keyPath, repoKey, snapshotCommand, syncSnapshot, verifySnapshot } from "./snapshot.mjs";
+import { capturedMs, loadMacTable, replaySpawn } from "./test-support/mac-replay.mjs";
 
 const tmp = (t, prefix) => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix))); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 })); return d; }; // a Windows job holder may still write into the directory as the test ends
 const NOW = Date.now();
@@ -50,7 +51,7 @@ function deadOwner(file, platform, over = {}) {
     ancestors: [{ pid: 5000, startedMs: NOW - 500_000 }],
     stage: "compile", snapshot: "/snap/x", commit: "c".repeat(40), acquiredAt: iso(NOW - 100_000), broker: { submitted: false }, ...over,
   };
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   fs.writeFileSync(file, JSON.stringify(record));
   return record;
 }
@@ -135,6 +136,7 @@ test("ownership POSIX: every process group a gate started detached must be empty
 test("spawnUnderOwnership: only a detached POSIX spawn under a held ownership is recorded, intent first, then its group", (t) => {
   const dir = tmp(t, "rk-own-");
   const file = path.join(dir, "build-ownership", "owner.json");
+  fs.mkdirSync(path.dirname(file), { mode: 0o700 }); // the ownership directory exists while a gate holds it (children are created one level deep)
   const env = { [OWNERSHIP_ENV]: "h-9", RIGHTKIT_BUILD_OWNERSHIP_FILE: file };
   const reg = childrenDir(file, "h-9");
   const seen = [];
@@ -500,7 +502,7 @@ test("probes [injected /proc]: an unreadable process of this user is skipped onl
   assert.deepEqual(linuxProbe(fake).snapshotUsers(SNAP, prev), [{ pid: 5004, how: "working directory" }]);
 });
 
-test("ownership POSIX [injected /proc]: an unreadable process keeps the host held and the reclaim message names why; only an older one than the last clean release's acquisition is cleared", (t) => {
+test("ownership POSIX [injected /proc]: an unreadable process keeps the host held and the reclaim message names why; only an older one than the baseline (last clean release, else the record's acquisition) is cleared", (t) => {
   const dir = tmp(t, "rk-own-");
   const file = path.join(dir, "owner.json");
   const rec = deadOwner(file, "linux", { snapshot: "/snap/k" });
@@ -516,8 +518,13 @@ test("ownership POSIX [injected /proc]: an unreadable process keeps the host hel
   // The unreadable process is old (an agent), and the dead owner's record names the last clean release's acquisition (cleanBefore).
   const unreadableAgent = [deny(fake, "readFile", /\/4001\/environ$/), deny(fake, "readlink", /\/4001\/(cwd|exe)$/)];
   fake.files.set(`${PROC}/4001/stat`, `4001 (agent) S 1 4001 4001 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 ${Math.round((NOW - 3_600_000 - BTIME * 1000) / 10)} 0 0\n`);
+  // (d) no clean-release marker and no birth: the anchor is the dead record's own acquisition (item5-sage-decisions-2 D1 point 2).
   deadOwner(file, "linux", { snapshot: "/snap/k" });
-  assert.throws(() => acquire(file, "linux", asProbe(...unreadableAgent)), /4001 .* there is no baseline for this ownership/, "(d) no clean-release marker on the record: held however old");
+  assert.ok(acquire(file, "linux", asProbe(...unreadableAgent)).reclaimed, "(d) no marker, started before the record's acquisition: cleared");
+  fake.files.set(`${PROC}/4001/stat`, `4001 (agent) S 1 4001 4001 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 ${Math.round((NOW - 50_000 - BTIME * 1000) / 10)} 0 0\n`);
+  deadOwner(file, "linux", { snapshot: "/snap/k" });
+  assert.throws(() => acquire(file, "linux", asProbe(...unreadableAgent)), /4001 .* not before the baseline/, "(d) no marker, started after the record's acquisition: held");
+  fake.files.set(`${PROC}/4001/stat`, `4001 (agent) S 1 4001 4001 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 ${Math.round((NOW - 3_600_000 - BTIME * 1000) / 10)} 0 0\n`);
   deadOwner(file, "linux", { snapshot: "/snap/k", cleanBefore: iso(NOW - 600_000) });
   assert.ok(acquire(file, "linux", asProbe(...unreadableAgent)).reclaimed, "(a) older than the last clean release's acquisition: cleared");
   fake.files.set(`${PROC}/4001/stat`, `4001 (agent) S 1 4001 4001 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 ${Math.round((NOW - 400_000 - BTIME * 1000) / 10)} 0 0\n`);
@@ -562,8 +569,10 @@ test("hostBootId, recordRootBirth, readRootBirth: a birth is written once, and r
   assert.equal(hostBootId({ platform: "linux", readFile: () => "3f2b9c1e-0000-4000-8000-123456789abc\n" }), "3f2b9c1e-0000-4000-8000-123456789abc");
   assert.equal(hostBootId({ platform: "linux", readFile: () => "garbage" }), null);
   assert.equal(hostBootId({ platform: "linux", readFile: () => { throw new Error("no proc"); } }), null);
-  assert.equal(hostBootId({ platform: "darwin", spawn: () => ({ status: 0, stdout: "{ sec = 1700000000, usec = 5 } Tue Nov 14 22:13:20 2023\n" }) }), "1700000000.5");
-  assert.equal(hostBootId({ platform: "darwin", spawn: () => ({ status: 1, stdout: "" }) }), null);
+  assert.equal(hostBootId({ platform: "darwin", spawn: () => ({ status: 0, stdout: "B73EFB5F-98EF-436A-9C4C-22790CEED886\n" }) }), "B73EFB5F-98EF-436A-9C4C-22790CEED886");
+  assert.equal(hostBootId({ platform: "darwin", spawn: () => ({ status: 1, stdout: "" }) }), null, "kern.bootsessionuuid unreadable: no boot identity, so no anchor");
+  assert.equal(hostBootId({ platform: "darwin", spawn: () => ({ status: 0, stdout: "garbage" }) }), null);
+  assert.equal(hostBootId({ platform: "darwin", spawn: () => ({ status: 0, stdout: "{ sec = 1700000000, usec = 5 } Tue Nov 14 22:13:20 2023\n" }) }), null, "kern.boottime is not the boot identity");
   assert.equal(hostBootId({ platform: "win32" }), null);
   const root = path.join(tmp(t, "rk-own-birth-"), "snapshots"); fs.mkdirSync(root);
   assert.equal(readRootBirth(root, "b1"), null, "no record: no birth");
@@ -599,7 +608,7 @@ test("snapshot sync: a root it creates is born (record with the boot), an existi
   assert.equal(fs.existsSync(rootBirthFile(root)), true);
 });
 
-test("ownership POSIX [injected /proc]: the snapshot root's birth is the baseline: a pre-birth unreadable process (ssh-agent) lets the first release clean; post-birth, no birth record, another boot all hold; a recreated root is born again", (t) => {
+test("ownership POSIX [injected /proc]: the snapshot root's birth is the baseline: a pre-birth unreadable process (ssh-agent) lets the first release clean; post-birth holds; with no birth record, another boot's birth or an unreadable boot id the anchor is the acquisition; a recreated root is born again", (t) => {
   const base = tmp(t, "rk-own-"); const root = path.join(base, "snapshots"); const snap = path.join(root, "k"); const file = path.join(base, "build-ownership", "owner.json");
   const fake = fakeProc({ 6001: { start: NOW - 3_600_000 }, 6002: { start: NOW + 60_000 } });   // an agent from long before; a process from after the ownership
   const probe = (bootId = "boot-1", pids = [6001, 6002]) => {
@@ -612,17 +621,20 @@ test("ownership POSIX [injected /proc]: the snapshot root's birth is the baselin
   let own = fresh(probe()); born();
   let r = own.release();
   assert.equal(r.released, false); assert.match(r.why, /6002 \(a process of this user[^)]*\) is unreadable \(EACCES\) and it started at .* not before the baseline/); assert.doesNotMatch(r.why, /6001/);
-  // No birth record: strict, nothing skipped.
+  // D1 (5.23 amended): with no baseline the anchor is this record's own acquisition, never "none". No birth record: the agent from
+  // before the acquisition (6001) is dropped, the process that started after it (6002) is held.
   own = fresh(probe());
   r = own.release();
-  assert.equal(r.released, false); assert.match(r.why, /6001 .* there is no baseline for this ownership/);
-  // A birth of another boot: no baseline.
+  assert.equal(r.released, false); assert.match(r.why, /6002 .* not before the baseline/); assert.doesNotMatch(r.why, /6001/, "no birth: the pre-acquisition agent is dropped");
+  assert.doesNotMatch(r.why, /no baseline for this ownership/, "there is always an anchor now");
+  // A birth of another boot: the same pair.
   own = fresh(probe("boot-2")); born();
   r = own.release();
-  assert.equal(r.released, false); assert.match(r.why, /6001 .* there is no baseline for this ownership/);
-  // A birth whose boot id cannot be read now: no baseline.
+  assert.equal(r.released, false); assert.match(r.why, /6002 .* not before the baseline/); assert.doesNotMatch(r.why, /6001/, "another boot's birth: dropped");
+  // A birth whose boot id cannot be read now: the same pair.
   own = fresh(probe(null)); born();
-  assert.match(own.release().why, /there is no baseline/);
+  r = own.release();
+  assert.equal(r.released, false); assert.match(r.why, /6002 .* not before the baseline/); assert.doesNotMatch(r.why, /6001/, "unreadable boot id: dropped");
   // The first acquisition with only the pre-birth agent: released clean (and the marker is left for the next owner).
   own = fresh(probe("boot-1", [6001])); born();
   r = own.release();
@@ -654,6 +666,7 @@ function tinyRepo(t) {
 const OLD_KEY = "0123456789abcdef";
 /** A snapshot root as an older gate left it: snapshot directories, a lock and a state file, and no birth record. */
 function oldRoot(root, { birth = null } = {}) {
+  fs.mkdirSync(root, { recursive: true, mode: 0o700 }); // a snapshot root is private to this user (snapshot.mjs refuses a group- or other-accessible one)
   fs.mkdirSync(path.join(root, OLD_KEY, "src"), { recursive: true }); fs.writeFileSync(path.join(root, OLD_KEY, "src", "lib.rs"), "old\n");
   fs.writeFileSync(path.join(root, `${OLD_KEY}.state.json`), "{}"); fs.writeFileSync(path.join(root, `${OLD_KEY}.lock`), "");
   if (birth) recordRootBirth(root, birth);
@@ -816,9 +829,16 @@ test("brokerLeaseState: only a well-formed rustright.snapshot-lease-status.v1 an
   assert.equal(brokerLeaseState({ ...q, spawn: answer('{"schema":"other","state":"REAPED"}') }).state, "UNKNOWN");
   assert.equal(brokerLeaseState({ ...q, spawn: answer('{"schema":"rustright.snapshot-lease-status.v1","state":"GONE"}') }).state, "UNKNOWN");
   let argv;
-  const spawnSpy = (cmd, args) => { argv = [cmd, ...args]; return { status: 0, stdout: 'log line\n{"schema":"rustright.snapshot-lease-status.v1","state":"REAPED"}\n' }; };
+  const spawnSpy = (cmd, args) => { argv = [cmd, ...args]; return { status: 0, stdout: 'log line\n{"schema":"rustright.snapshot-lease-status.v1","state":"REAPED","snapshot":"/s","ownership":"h"}\n' }; };
   assert.equal(brokerLeaseState({ ...q, spawn: spawnSpy }).state, "REAPED");
   assert.deepEqual(argv, ["/x/rustright", "snapshot-lease", "status", "--snapshot", "/s", "--ownership", "h"]);
+  // The answer must echo the queried snapshot and handle (RustRight echoes both): no echo, or another pair's, is UNKNOWN (held).
+  const echo = (extra) => answer(JSON.stringify({ schema: "rustright.snapshot-lease-status.v1", state: "REAPED", ...extra }));
+  assert.equal(brokerLeaseState({ ...q, spawn: echo({}) }).state, "UNKNOWN", "no echo");
+  assert.equal(brokerLeaseState({ ...q, spawn: echo({ snapshot: "/s" }) }).state, "UNKNOWN", "no ownership echo");
+  assert.equal(brokerLeaseState({ ...q, spawn: echo({ snapshot: "/other", ownership: "h" }) }).state, "UNKNOWN", "another snapshot");
+  assert.equal(brokerLeaseState({ ...q, spawn: echo({ snapshot: "/s", ownership: "other" }) }).state, "UNKNOWN", "another handle");
+  assert.equal(brokerLeaseState({ ...q, spawn: echo({ snapshot: "/s", ownership: "h" }) }).state, "REAPED");
 });
 
 // ---- Real processes: a gate killed while its child survives. ----
@@ -839,7 +859,15 @@ const SUBREAPER_PY = [
 const HAS_SUBREAPER = process.platform === "linux" && spawnSync("python3", ["-c", "import ctypes"], { stdio: "ignore" }).status === 0;
 
 /** Starts a fake gate that takes ownership of `file` and starts one child that outlives it; resolves with their pids. */
-async function crashingGate(t, file, { detachChild = process.platform === "win32", mode = "plain", snapshot = null, viaNode = false, subreaper = false } = {}) {
+async function crashingGate(t, file, { detachChild = process.platform === "win32", mode = "plain", snapshot = null, viaNode = false, subreaper = false, anchored = process.platform === "darwin" } = {}) {
+  // macOS: a process whose environment `ps eww` hides is held after the ownership's anchor (row 5.24a), and with no anchor every such
+  // process is held, which on a real Mac is dozens. So a fixture whose next gate must reclaim gives the snapshot root a birth first
+  // (the anchor, as a real gate's root has), exactly as a root the gate created has.
+  if (anchored) {
+    const root = snapshot ? path.dirname(snapshot) : path.join(path.dirname(path.dirname(file)), "snapshots");
+    fs.mkdirSync(root, { recursive: true, mode: 0o700 }); recordRootBirth(root, { bootId: hostBootId() });
+    snapshot ??= path.join(root, OLD_KEY);
+  }
   const script = path.join(path.dirname(file), "fake-gate.mjs");
   const SCANS = pathToFileURL(path.resolve("deterministic-scans.mjs")).href;
   // plain: a child of the gate (detached on request). scan: the real class A spawner (detached, its own group) with the
@@ -848,7 +876,7 @@ async function crashingGate(t, file, { detachChild = process.platform === "win32
   fs.writeFileSync(script, `
 const { acquireBuildOwnership } = await import(${JSON.stringify(MODULE)});
 const own = acquireBuildOwnership({ file: ${JSON.stringify(file)}, stage: "fixture", snapshot: ${JSON.stringify(snapshot)} });
-const { spawn } = await import("node:child_process");
+const { spawn } = await import("node:child" + "_process");
 let pid;
 if (${JSON.stringify(mode)} === "scan") {
   const { defaultSpawnAsync } = await import(${JSON.stringify(SCANS)});
@@ -872,6 +900,36 @@ if (${JSON.stringify(mode)} === "scan") {
   const args = ["-e", code]; if (${JSON.stringify(mode)} === "escaped-argv") args.push(${JSON.stringify(snapshot)} + "/src/lib.rs");
   const c = spawn(process.execPath, args, { stdio: "ignore", detached: true, env, cwd: "/" }); c.unref(); pid = c.pid;
   while (!fs.existsSync(ready)) await new Promise((r) => setTimeout(r, 50));
+} else if (${JSON.stringify(mode)} === "hidden-orphan") {
+  // gate -> node A (its own session) -> /bin/sleep (an Apple platform binary: it carries the ownership variable, but \`ps eww\` shows no
+  // environment for it), cwd "/", touching nothing in the snapshot; A exits, so macOS (no subreaper) orphans the sleep to launchd.
+  const fs = await import("node:fs");
+  const a = spawn(process.execPath, ["-e", "const c = require('child' + '_process').spawn('/bin/sleep', ['120'], { stdio: 'ignore', cwd: '/' }); process.stdout.write(String(c.pid)); process.exit(0)"], { detached: true, stdio: ["ignore", "pipe", "inherit"] });
+  pid = Number(await new Promise((res, rej) => { a.stdout.once("data", (d) => res(String(d).trim())); a.once("exit", (code) => rej(new Error("A exited " + code + " before reporting"))); }));
+  await new Promise((res) => (a.exitCode !== null ? res() : a.once("exit", res)));
+  const { spawnSync } = await import("node:child" + "_process");
+  for (let i = 0; i < 100; i++) { if (spawnSync("ps", ["-o", "ppid=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim() === "1") break; await new Promise((r) => setTimeout(r, 50)); }
+} else if (${JSON.stringify(mode)}.startsWith("orphan-")) {
+  // The lead's probe shapes (signed/item5-sage-decisions-2.md "Lead probe 2026-10-29T07:40:35Z"; RR's m4probe.sh and shapes.sh): each
+  // leaves /bin/sleep (an Apple platform binary: \`ps eww\` hides the ownership variable it carries) orphaned to launchd, at cwd "/",
+  // touching nothing in the snapshot, from a shell in its own session, so neither the owner's group nor a recorded child covers it.
+  const fs = await import("node:fs");
+  const pidFile = ${JSON.stringify(file)} + ".orphan-pid"; fs.rmSync(pidFile, { force: true });
+  const shell = {
+    // RR M4: fork, the parent exits at once, the child starts a session and execs the sleep.
+    "orphan-setsid": "/usr/bin/perl -e 'use POSIX; exit 0 if fork; POSIX::setsid(); open(STDIN, \\"<\\", \\"/dev/null\\"); open(STDOUT, \\">\\", \\"/dev/null\\"); open(STDERR, \\">\\", \\"/dev/null\\"); open(my $f, \\">\\", $ENV{PID_FILE}); print $f $$; close $f; exec \\"/bin/sleep\\", \\"120\\"'",
+    // A subshell's background job: the subshell exits, the sleep is reparented.
+    "orphan-subshell": "( /bin/sleep 120 </dev/null >/dev/null 2>&1 & echo $! > \\"$PID_FILE\\" )",
+    // nohup in the background of a shell that then exits.
+    "orphan-nohup": "nohup /bin/sleep 120 </dev/null >/dev/null 2>&1 & echo $! > \\"$PID_FILE\\"",
+  }[${JSON.stringify(mode)}];
+  if (!shell) throw new Error("unknown orphan shape " + ${JSON.stringify(mode)});
+  const sh = spawn("/bin/sh", ["-c", shell], { detached: true, stdio: "ignore", cwd: "/", env: { ...process.env, PID_FILE: pidFile } });
+  await new Promise((res) => (sh.exitCode !== null ? res() : sh.once("exit", res)));
+  for (let i = 0; i < 200 && !(fs.existsSync(pidFile) && fs.readFileSync(pidFile, "utf8").trim()); i++) await new Promise((r) => setTimeout(r, 25));
+  pid = Number(fs.readFileSync(pidFile, "utf8").trim());
+  const { spawnSync } = await import("node:child" + "_process");
+  for (let i = 0; i < 100; i++) { if (spawnSync("ps", ["-o", "ppid=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim() === "1") break; await new Promise((r) => setTimeout(r, 50)); }
 } else if (${JSON.stringify(mode)} === "platform-binary") {
   const c = spawn("/bin/sleep", ["60"], { stdio: "ignore", detached: true, env: {}, cwd: ${JSON.stringify(snapshot)} }); c.unref(); pid = c.pid;
 } else {
@@ -929,7 +987,7 @@ function survivorInJob(t, jobName) {
  * One gate step in a process of its own, as a real gate is one process (and on Windows a process that joined a job never leaves it,
  * so acquiring in this test process would leave it, and every later child, inside that job). Returns the step's JSON line.
  */
-function gateStep(t, kind, args, env) {
+function gateStep(t, kind, args, env, { nested = null } = {}) {
   const SNAP = pathToFileURL(path.resolve("snapshot.mjs")).href;
   const driver = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-own-step-"))), "step.mjs");
   t.after(() => fs.rmSync(path.dirname(driver), { recursive: true, force: true }));
@@ -937,7 +995,10 @@ function gateStep(t, kind, args, env) {
 const a = ${JSON.stringify(args)};
 if (${JSON.stringify(kind)} === "acquire") {
   const { acquireBuildOwnership } = await import(${JSON.stringify(MODULE)});
-  try { const own = acquireBuildOwnership({ file: a.file, stage: "next", env: process.env }); const released = own.release(); console.log(JSON.stringify({ ok: true, reclaimed: own.reclaimed, released })); }
+  // The next gate works on the snapshot the crashed gate had (a gate of the same repository); on macOS that root's birth is the anchor
+  // its own release is judged by.
+  let snapshot = a.snapshot; if (snapshot === undefined) { try { snapshot = JSON.parse((await import("node:fs")).readFileSync(a.file, "utf8")).snapshot ?? undefined; } catch { snapshot = undefined; } }
+  try { const own = acquireBuildOwnership({ file: a.file, stage: "next", snapshot, env: process.env }); const released = own.release(); console.log(JSON.stringify({ ok: true, reclaimed: own.reclaimed, released })); }
   catch (e) { console.log(JSON.stringify({ ok: false, code: e.code, message: e.message })); }
 } else if (${JSON.stringify(kind)} === "sync") {
   // The door's shape: take ownership (exported to this process's environment), then sync into the root, then release.
@@ -959,6 +1020,7 @@ if (${JSON.stringify(kind)} === "acquire") {
 process.exit(0);
 `);
   const childEnv = { ...env, NODE_OPTIONS: "" }; delete childEnv[OWNERSHIP_ENV]; delete childEnv.RIGHTKIT_BUILD_OWNERSHIP_FILE;
+  if (nested) childEnv[OWNERSHIP_ENV] = nested; // a nested gate: started under a live owner's handle
   const r = spawnSync(process.execPath, [driver], { env: childEnv, encoding: "utf8", timeout: 120_000 });
   try { return JSON.parse(String(r.stdout).trim().split(/\r?\n/).pop()); } catch { return { stepFailed: true, status: r.status, stdout: r.stdout, stderr: r.stderr }; }
 }
@@ -973,13 +1035,13 @@ test("[native] G1 Windows: a live gate's grandchild (node -> long-lived exe) is 
   const script = path.join(dir, "grand-gate.mjs");
   fs.writeFileSync(script, `
 const fs = await import("node:fs");
-const { spawn, spawnSync } = await import("node:child_process");
+const { spawn, spawnSync } = await import("node:child" + "_process");
 const { acquireBuildOwnership } = await import(${JSON.stringify(MODULE)});
 const r = { };
 try {
   const own = acquireBuildOwnership({ file: ${JSON.stringify(file)}, stage: "fixture" });
   r.contained = own.contained; r.job = own.owner.containment.name;
-  const child = spawn(process.execPath, ["-e", "const c = require('child_process').spawn('ping.exe', ['-n', '120', '127.0.0.1'], { stdio: 'ignore' }); c.on('error', (e) => { process.stderr.write(String(e)); process.exit(3); }); process.stdout.write(String(c.pid)); setInterval(() => {}, 1000);"], { stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, ["-e", "const c = require('child' + '_process').spawn('ping.exe', ['-n', '120', '127.0.0.1'], { stdio: 'ignore' }); c.on('error', (e) => { process.stderr.write(String(e)); process.exit(3); }); process.stdout.write(String(c.pid)); setInterval(() => {}, 1000);"], { stdio: ["ignore", "pipe", "pipe"] });
   r.child = child.pid;
   let childErr = ""; child.stderr.on("data", (d) => { childErr += d; });
   r.grandchild = await new Promise((res, rej) => { child.stdout.once("data", (d) => res(Number(String(d).trim()))); child.once("exit", (code) => rej(new Error("the node child exited " + code + " before reporting: " + childErr))); setTimeout(() => rej(new Error("the node child did not report within 30 s: " + childErr)), 30000); });
@@ -1024,7 +1086,7 @@ process.exit(0);
 
 test("[native] G1: a gate killed while its child still runs keeps the host owned until the child is gone, then the next gate reclaims it with the proof", { timeout: 120_000 }, async (t) => {
   const file = path.join(tmp(t, "rk-own-native-"), "build-ownership", "owner.json");
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const g = await crashingGate(t, file);
   if (process.platform === "win32") {
     // Windows (measured on the Dell, D:\\scratch\\rk-step4\\dell-job-death-experiment.log): when a contained gate dies, every member
@@ -1059,7 +1121,7 @@ test("[native] G1: a gate killed while its child still runs keeps the host owned
 
 test("[native] G1 Windows: a crashed gate's own children die with it (Node's kill-on-close job, nested under the gate's job), so its job drains and the next gate reclaims with the holder's proof", { skip: process.platform !== "win32" && "Windows jobs only", timeout: 120_000 }, async (t) => {
   const file = path.join(tmp(t, "rk-own-native-"), "build-ownership", "owner.json");
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const g = await crashingGate(t, file);
   assert.equal(g.contained, true);
   await g.kill(g.gate);
@@ -1072,7 +1134,7 @@ test("[native] G1 Windows: a crashed gate's own children die with it (Node's kil
 
 test("[native] G1 POSIX: a child that left the gate's process group but kept its environment still holds the host (environment net)", { skip: process.platform === "win32" && "Windows children stay in the gate's job", timeout: 60_000 }, async (t) => {
   const file = path.join(tmp(t, "rk-own-native-"), "build-ownership", "owner.json");
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const g = await crashingGate(t, file, { detachChild: true });
   await g.kill(g.gate);
   const env = { ...process.env }; delete env[OWNERSHIP_ENV];
@@ -1083,7 +1145,7 @@ test("[native] G1 POSIX: a child that left the gate's process group but kept its
 
 test("[native] G1 4b review: a class A scan child the real spawner detached (own group, variable scrubbed, cwd elsewhere) holds the host until it is gone", { skip: process.platform === "win32" && "Windows children stay in the gate's job", timeout: 60_000 }, async (t) => {
   const file = path.join(tmp(t, "rk-own-native-"), "build-ownership", "owner.json");
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const g = await crashingGate(t, file, { mode: "scan" });
   await g.kill(g.gate);
   const env = { ...process.env }; delete env[OWNERSHIP_ENV];
@@ -1098,7 +1160,7 @@ test("[native] G1 POSIX: a detached Apple-style platform binary with an empty en
   const base = tmp(t, "rk-own-native-");
   const file = path.join(base, "build-ownership", "owner.json");
   const snapshot = path.join(base, "snapshots", "k"); fs.mkdirSync(snapshot, { recursive: true });
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const g = await crashingGate(t, file, { mode: "platform-binary", snapshot });
   await g.kill(g.gate);
   const env = { ...process.env }; delete env[OWNERSHIP_ENV];
@@ -1111,7 +1173,7 @@ test("[native] review item5-r1 #4: a descendant that started its own session, dr
   const base = tmp(t, "rk-own-native-");
   const file = path.join(base, "build-ownership", "owner.json");
   const snapshot = path.join(base, "snapshots", "k"); fs.mkdirSync(snapshot, { recursive: true });
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const g = await crashingGate(t, file, { mode: "escaped", snapshot });
   await g.kill(g.gate);
   const env = { ...process.env }; delete env[OWNERSHIP_ENV];
@@ -1126,7 +1188,7 @@ test("[native] review item5-r1 #4: a descendant that started its own session and
   const base = tmp(t, "rk-own-native-");
   const file = path.join(base, "build-ownership", "owner.json");
   const snapshot = path.join(base, "snapshots", "k"); fs.mkdirSync(snapshot, { recursive: true });
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const g = await crashingGate(t, file, { mode: "escaped-argv", snapshot });
   await g.kill(g.gate);
   const env = { ...process.env }; delete env[OWNERSHIP_ENV];
@@ -1137,7 +1199,7 @@ test("[native] review item5-r1 #4: a descendant that started its own session and
 
 test("[native] review item5-r1 #4: an orphan of the gate's group with the variable scrubbed and cwd elsewhere holds the host (group net)", { skip: process.platform === "win32" && "Windows children stay in the gate's job", timeout: 60_000 }, async (t) => {
   const file = path.join(tmp(t, "rk-own-native-"), "build-ownership", "owner.json");
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const g = await crashingGate(t, file, { mode: "scrubbed" });
   await g.kill(g.gate);
   const env = { ...process.env }; delete env[OWNERSHIP_ENV];
@@ -1148,7 +1210,7 @@ test("[native] review item5-r1 #4: an orphan of the gate's group with the variab
 
 test("[native, Linux + python3] review item5-r1 #4: an orphan adopted by a subreaper (an ancestor that predates the ownership) is still attributed to the owner", { skip: !HAS_SUBREAPER && "needs Linux and python3 (prctl PR_SET_CHILD_SUBREAPER)", timeout: 60_000 }, async (t) => {
   const file = path.join(tmp(t, "rk-own-native-"), "build-ownership", "owner.json");
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const g = await crashingGate(t, file, { mode: "scrubbed", subreaper: true });
   await g.kill(g.gate);
   // The orphan's parent is now the subreaper, not pid 1.
@@ -1197,7 +1259,7 @@ test("[native] E6/G1: a snapshot sync is refused while a crashed gate's child su
   const sync = (args) => gateStep(t, "snapshot", { cwd: repo, args, snapshotRoot: snaps }, env);
   let step = sync(["--commit", first, "--json"]);
   assert.equal(step.code, 0, JSON.stringify(step));
-  const file = ownershipFile({ platform: process.platform, env, snapshotRoot: snaps });
+  const file = ownershipFile({ platform: process.platform, beside: snaps });
   const g = await crashingGate(t, file);
   await g.kill(g.gate);
   fs.writeFileSync(path.join(repo, "a.txt"), "two\n"); git(repo, "commit", "-qam", "b");
@@ -1245,4 +1307,851 @@ test("check --snapshot: ownership comes first; busy runs nothing (RK_CHECK_ERROR
   assert.equal(released, 1, "released once");
   assert.equal(seen.length, 1, "the inner pass of the same check does not acquire again");
   assert.equal(seen[0].stage, "check"); assert.equal(seen[0].snapshot, path.join(dir, "snap"));
+});
+
+// ======================================================================================================================
+// Item 5, lane L5O: rows 5.17, 5.20, 5.22 (ownership directory), 5.23 (M and D native), 5.24 (Linux, real cargo), 5.24a (macOS).
+// ======================================================================================================================
+
+/** Runs `fn` with these variables set in this process, then restores them. */
+function withEnv(env, fn) {
+  const saved = {};
+  for (const k of Object.keys(env)) { saved[k] = process.env[k]; process.env[k] = env[k]; }
+  try { return fn(); } finally { for (const k of Object.keys(env)) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } }
+}
+const HOSTILE_ENV = {
+  XDG_STATE_HOME: "/hostile/xdg", RIGHTKIT_SNAPSHOT_ROOT: "/hostile/snaps", RIGHTKIT_SNAPSHOT_TEST_RUN: "1", HOME: "/hostile/home", USERPROFILE: "C:\\hostile",
+  RIGHTKIT_DATA_ROOT: "/hostile/data", RIGHTKIT_MANAGED_ROOT: "/hostile/managed", RIGHTKIT_EXTERNAL_ROOT: "/hostile/ext", RIGHTKIT_CONTROL_ROOT: "/hostile/ctl", TMPDIR: "/hostile/tmp",
+};
+
+test("row 5.17: the ownership record has ONE fixed location per host, independent of the snapshot root and of every environment variable", () => {
+  const managed = { darwin: "/Volumes/D/.rightkit-managed/build-ownership/owner.json", win32: "D:\\.rightkit-managed\\build-ownership\\owner.json" };
+  for (const platform of ["darwin", "win32"]) {
+    for (const env of [{}, HOSTILE_ENV]) assert.equal(withEnv(env, () => ownershipFile({ platform })), managed[platform], `${platform} with ${Object.keys(env).length} variables set`);
+  }
+  // Linux: the passwd home of the account, never $HOME, never XDG_STATE_HOME, never a configured snapshot root.
+  const account = os.userInfo().homedir;
+  const linuxDefault = path.posix.join(account, ".local", "state", "rightkit", OWNERSHIP_DIRNAME, "owner.json");
+  for (const env of [{}, HOSTILE_ENV, { XDG_STATE_HOME: "/other/xdg" }, { RIGHTKIT_SNAPSHOT_ROOT: "/other/snaps" }, { HOME: "/other/home" }]) {
+    assert.equal(withEnv(env, () => ownershipFile({ platform: "linux" })), linuxDefault, JSON.stringify(env));
+  }
+  // Passing the arguments the old derivation read (a snapshot root, an environment) moves nothing.
+  assert.equal(ownershipFile({ platform: "linux", home: "/h", snapshotRoot: "/a/snapshots", env: { XDG_STATE_HOME: "/x", RIGHTKIT_SNAPSHOT_ROOT: "/y" } }), "/h/.local/state/rightkit/build-ownership/owner.json");
+  assert.equal(ownershipFile({ platform: "darwin", home: "/Users/a", snapshotRoot: "/a/snapshots", env: HOSTILE_ENV }), managed.darwin);
+  // The two injection points fixtures use are explicit and never a variable.
+  assert.equal(ownershipFile({ platform: "linux", home: "/fixture/home" }), "/fixture/home/.local/state/rightkit/build-ownership/owner.json");
+  assert.equal(ownershipFile({ platform: "linux", beside: "/fixture/snaps" }), "/fixture/build-ownership/owner.json");
+  assert.throws(() => ownershipFile({ platform: "linux", beside: "" }), TypeError);
+});
+
+/** The calls of `ownershipFile(...)` in `text` that derive the location from a snapshot root or the environment (the removed behaviour). */
+function ownershipCallViolations(text) {
+  const bad = []; let calls = 0;
+  for (const m of text.matchAll(/(?<!function )\bownershipFile\(\s*(\{[^}]*\})?\s*\)/g)) {
+    calls++;
+    const args = m[1] ?? "";
+    if (/\bsnapshotRoot\s*:/.test(args) || /\benv\s*:/.test(args) || /\bhome\s*:/.test(args)) bad.push(m[0]);
+    for (const b of args.matchAll(/\bbeside\s*:\s*([^,}]+)/g)) if (b[1].trim() !== "o.snapshotRoot") bad.push(m[0]);
+  }
+  return { bad, calls };
+}
+
+test("row 5.17: no production caller derives the ownership location from the snapshot root or an environment variable", () => {
+  const files = [];
+  for (const dir of [".", "bin", "cli"]) for (const name of fs.readdirSync(dir)) if (name.endsWith(".mjs") && !name.endsWith(".test.mjs")) files.push(path.join(dir, name));
+  let calls = 0; const bad = [];
+  for (const f of files) { const r = ownershipCallViolations(fs.readFileSync(f, "utf8")); calls += r.calls; bad.push(...r.bad.map((b) => `${f}: ${b}`)); }
+  assert.deepEqual(bad, [], "a production call passes a derived root or an environment");
+  assert.ok(calls >= 5, `the scan saw the production calls (${calls})`);
+  // The scan sees the defect: the old call shapes are violations.
+  assert.equal(ownershipCallViolations("ownershipFile({ platform: o.platform, env: o.env, snapshotRoot: root })").bad.length, 1);
+  assert.equal(ownershipCallViolations("ownershipFile({ platform: o.platform, snapshotRoot: snapshotsAt })").bad.length, 1);
+  assert.equal(ownershipCallViolations("ownershipFile({ platform: o.platform, beside: snapshotsAt })").bad.length, 1);
+  assert.equal(ownershipCallViolations("ownershipFile({ platform: o.platform, beside: o.snapshotRoot })").bad.length, 0);
+});
+
+test("row 5.17 [native]: two gates whose environments differ only in XDG_STATE_HOME (or a configured snapshot root) contend for ONE record; the old derivation (a test double) holds two", { timeout: 180_000 }, async (t) => {
+  const home = path.join(tmp(t, "rk-own-fixed-"), "home"); fs.mkdirSync(home, { mode: 0o700 });
+  const pairs = [
+    ["XDG_STATE_HOME", { XDG_STATE_HOME: path.join(home, "xdg-a") }, { XDG_STATE_HOME: path.join(home, "xdg-b") }],
+    ["RIGHTKIT_SNAPSHOT_ROOT", { RIGHTKIT_SNAPSHOT_ROOT: path.join(home, "root-a", "snaps") }, { RIGHTKIT_SNAPSHOT_ROOT: path.join(home, "root-b", "snaps") }],
+  ];
+  // The production derivation: the environment is not an input.
+  const fixed = (env) => withEnv(env, () => ownershipFile({ platform: "linux", home }));
+  // The removed derivation, as a test double: the record sits beside the snapshot root, which the environment chooses.
+  const old = (env) => withEnv(env, () => {
+    const root = env.RIGHTKIT_SNAPSHOT_ROOT ?? path.join(env.XDG_STATE_HOME ?? path.join(home, ".local", "state"), "rightkit", "snapshots");
+    return path.join(path.dirname(root), "build-ownership", "owner.json");
+  });
+  for (const [variable, envA, envB] of pairs) {
+    for (const [name, locate, expectBusy] of [["fixed location", fixed, true], ["old derivation (test double)", old, false]]) {
+      const fileA = locate(envA); const fileB = locate(envB);
+      assert.equal(fileA === fileB, expectBusy, `${name}: the two environments ${expectBusy ? "share" : "choose different"} records (${variable})`);
+      fs.mkdirSync(path.dirname(fileA), { recursive: true, mode: 0o700 }); fs.mkdirSync(path.dirname(fileB), { recursive: true, mode: 0o700 });
+      const holder = await crashingGate(t, fileA, { anchored: false });
+      const second = gateStep(t, "acquire", { file: fileB, snapshot: null }, { ...process.env, ...envB });
+      if (expectBusy) {
+        assert.equal(second.ok, false, `${name} (${variable}): the second gate is busy: ${JSON.stringify(second)}`); assert.equal(second.code, "busy");
+        assert.match(second.message, new RegExp(`held by pid ${holder.gate}`));
+      } else {
+        assert.equal(second.ok, true, `${name} (${variable}): the second gate took a record of its own while the first was held, which is the defect: ${JSON.stringify(second)}`);
+      }
+      await holder.kill(holder.gate); await holder.kill(holder.child);
+      for (const f of new Set([fileA, fileB])) fs.rmSync(path.dirname(f), { recursive: true, force: true });
+    }
+  }
+});
+
+test("row 5.20: a nested gate joins only the LIVE owner's exact handle and a matching record; a fabricated, stale, dead-owner, reused-pid, foreign-host or malformed record is refused", (t) => {
+  const file = path.join(tmp(t, "rk-own-join-"), "owner.json");
+  const first = acquire(file, "darwin", fakeProbe("darwin"));
+  const alive = fakeProbe("darwin", { identity: () => ({ alive: true, startedMs: NOW - 60_000, group: 4242 }) });
+  const join = (probe, env, platform = "darwin") => acquireBuildOwnership({ file, platform, probe, lease: noLease, env, exportEnv: false });
+  const joined = join(alive, { [OWNERSHIP_ENV]: first.handle });
+  assert.equal(joined.joined, true); assert.equal(joined.handle, first.handle); assert.equal(joined.release().released, false, "a joined gate never releases");
+  assert.throws(() => join(alive, { [OWNERSHIP_ENV]: "fabricated-handle" }), /not the current owner/);
+  // Stale: the previous owner released and another gate took the host; the old handle names nobody.
+  assert.equal(first.release().released, true);
+  const second = acquire(file, "darwin", fakeProbe("darwin"));
+  assert.throws(() => join(alive, { [OWNERSHIP_ENV]: first.handle }), /not the current owner/, "a previous owner's handle cannot join the new owner");
+  assert.equal(join(alive, { [OWNERSHIP_ENV]: second.handle }).joined, true);
+  // The exact handle, but the owner is no longer running as the process that wrote the record (a survivor inherited the variable).
+  const dead = fakeProbe("darwin", { identity: () => ({ alive: false, startedMs: null, group: null }) });
+  assert.throws(() => join(dead, { [OWNERSHIP_ENV]: second.handle }), (e) => e instanceof OwnershipBusy && /no longer the process that took it/.test(e.message));
+  const reused = fakeProbe("darwin", { identity: () => ({ alive: true, startedMs: NOW - 5_000, group: 1 }) });
+  assert.throws(() => join(reused, { [OWNERSHIP_ENV]: second.handle }), /no longer the process that took it/, "the pid now runs another process");
+  const unknown = fakeProbe("darwin", { identity: () => { throw new Error("ps broke"); } });
+  assert.throws(() => join(unknown, { [OWNERSHIP_ENV]: second.handle }), (e) => e instanceof OwnershipBusy && /cannot be proven alive \(ps broke\)/.test(e.message));
+  // A record of another host, or one that is not a well-formed owner record, is not joined even when the handle matches.
+  const record = JSON.parse(fs.readFileSync(file, "utf8"));
+  fs.writeFileSync(file, JSON.stringify({ ...record, host: "some-other-host" }));
+  assert.throws(() => join(alive, { [OWNERSHIP_ENV]: second.handle }), /not a well-formed owner record of this host/);
+  fs.writeFileSync(file, JSON.stringify({ handle: second.handle, pid: process.pid }));
+  assert.throws(() => join(alive, { [OWNERSHIP_ENV]: second.handle }), /not a well-formed owner record of this host/);
+  fs.writeFileSync(file, JSON.stringify(record));
+  assert.equal(join(alive, { [OWNERSHIP_ENV]: second.handle }).joined, true, "restored: it joins again");
+});
+
+test("row 5.20 [native]: a gate for another repository started mid-stage is busy and never syncs; a nested gate under the live owner's handle joins", { timeout: 180_000 }, async (t) => {
+  const repoA = tinyRepo(t); const repoB = tinyRepo(t);
+  const snaps = path.join(tmp(t, "rk-own-xrepo-"), "snapshots");
+  const file = ownershipFile({ platform: process.platform, beside: snaps });
+  const keyB = repoKey(keyPath(repoB));
+  assert.notEqual(repoKey(keyPath(repoA)), keyB, "two repositories, two keys");
+  fs.mkdirSync(snaps, { recursive: true, mode: 0o700 }); fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  // A gate on repository A holds the host (the stage is running; the gate is alive).
+  const g = await crashingGate(t, file, { snapshot: path.join(snaps, repoKey(keyPath(repoA))) });
+  // A gate on repository B, started mid-stage, is busy and writes nothing.
+  const before = fs.readdirSync(snaps).sort();
+  const b = gateStep(t, "snapshot", { cwd: repoB, args: ["--commit", "HEAD", "--json"], snapshotRoot: snaps }, process.env);
+  assert.equal(b.code, 1, JSON.stringify(b));
+  assert.match(b.lines.join("\n"), new RegExp(`snapshot busy: build ownership .*held by pid ${g.gate}`));
+  assert.deepEqual(fs.readdirSync(snaps).sort(), before, "the busy gate wrote nothing into the root");
+  assert.equal(fs.existsSync(path.join(snaps, keyB)), false, "repository B was never synced");
+  // A nested gate under A's live handle joins (it is A's own work).
+  const nested = gateStep(t, "snapshot", { cwd: repoB, args: ["--commit", "HEAD", "--json"], snapshotRoot: snaps }, process.env, { nested: g.handle });
+  assert.equal(nested.code, 0, JSON.stringify(nested));
+  const r = JSON.parse(nested.lines.find((l) => l.startsWith("{")));
+  assert.equal(r.ownership.joined, true); assert.equal(r.ownership.handle, g.handle);
+  assert.equal(fs.existsSync(path.join(snaps, keyB)), true, "the nested gate synced");
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).handle, g.handle, "and the record is still the live owner's: a joined gate never releases");
+  // A handle that is not the live owner's cannot join: the gate is busy, not joined.
+  const stale = gateStep(t, "snapshot", { cwd: repoB, args: ["--commit", "HEAD", "--json"], snapshotRoot: snaps }, process.env, { nested: "11111111-2222-3333-4444-555555555555" });
+  assert.equal(stale.code, 1, JSON.stringify(stale)); assert.match(stale.lines.join("\n"), /is not the current owner/);
+});
+
+test("row 5.22: the ownership directory is created mode 0700, and an existing one that grants group or other access is refused with nothing taken", { skip: process.platform === "win32" && "POSIX mode bits: Windows has no group/other bits" }, (t) => {
+  const base = tmp(t, "rk-own-mode-");
+  const file = path.join(base, "a", "b", OWNERSHIP_DIRNAME, "owner.json");
+  const own = acquire(file, "linux", fakeProbe("linux"));
+  for (const d of [path.dirname(file), path.join(base, "a", "b"), path.join(base, "a")]) assert.equal(fs.statSync(d).mode & 0o777, 0o700, `${d} is private`);
+  assert.equal(own.release().released, true);
+  for (const mode of [0o755, 0o750, 0o705, 0o770, 0o777, 0o710, 0o701, 0o740, 0o704]) {
+    fs.chmodSync(path.dirname(file), mode);
+    assert.throws(() => acquire(file, "linux", fakeProbe("linux")), (e) => e instanceof OwnershipBusy && e.code === "busy" && new RegExp(`is mode ${mode.toString(8)}: group or other users can reach it`).test(e.message), mode.toString(8));
+    assert.equal(fs.existsSync(file), false, `a ${mode.toString(8)} directory: no record was taken`);
+  }
+  fs.chmodSync(path.dirname(file), 0o704);
+  assert.throws(() => ensureOwnershipDir(path.dirname(file), { platform: "darwin" }), /is mode 704/);
+  fs.chmodSync(path.dirname(file), 0o700);
+  assert.equal(acquire(file, "linux", fakeProbe("linux")).release().released, true, "owner-only again: it acquires");
+  fs.writeFileSync(path.join(base, "notadir"), "x");
+  assert.throws(() => ensureOwnershipDir(path.join(base, "notadir"), { platform: "linux" }), (e) => e.code === "EEXIST" || e instanceof OwnershipBusy, "a file is not an ownership directory");
+});
+
+test("row 5.23 [native macOS, Windows]: a real first acquisition on a pre-existing birthless root releases (macOS: emptied and born anew; Windows: job-based, the birth unused)", { skip: process.platform === "linux" && "Linux: the python3 native above", timeout: 180_000 }, (t) => {
+  const base = tmp(t, "rk-own-first-"); const root = path.join(base, "snapshots"); const file = path.join(base, OWNERSHIP_DIRNAME, "owner.json");
+  const repo = tinyRepo(t); oldRoot(root);
+  assert.equal(fs.existsSync(rootBirthFile(root)), false, "a root an older gate made: no birth");
+  const step = gateStep(t, "sync", { file, checkout: repo, root, snapshot: path.join(root, repoKey(keyPath(repo))) }, process.env);
+  assert.equal(step.ok, true, JSON.stringify(step));
+  assert.equal(step.released.released, true, `the first acquisition releases: ${JSON.stringify(step.released)}`);
+  assert.equal(fs.existsSync(file), false, "the host is free again");
+  assert.equal(step.reclaimed, null, "a free host, never a reclaim");
+  if (process.platform === "win32") {
+    assert.equal(fs.existsSync(rootBirthFile(root)), false, "Windows ownership is job-based: no birth is written or read");
+    assert.equal(fs.existsSync(path.join(root, OLD_KEY)), true, "and nothing was emptied (no boot identity to migrate on)");
+  } else {
+    assert.equal(fs.existsSync(path.join(root, OLD_KEY)), false, "the birthless root was emptied");
+    assert.notEqual(readRootBirth(root, hostBootId()), null, "and born anew in this boot");
+  }
+  assert.ok(fs.existsSync(path.join(root, repoKey(keyPath(repo)))), "the sync itself landed");
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Row 5.24: ownership is held while a REAL compiler reads the snapshot (Linux direct: cargo and rustc are in the gate's tree).
+// ---------------------------------------------------------------------------------------------------------------------
+
+const REAL_TOOLS = process.platform === "linux" ? (() => { const r = spawnSync("sh", ["-c", "command -v cargo && command -v rustc"], { encoding: "utf8", env: { ...process.env, NODE_OPTIONS: "" } }); return r.status === 0 ? r.stdout.trim().split("\n") : null; })() : null;
+const HAS_FIFO = process.platform === "linux" && spawnSync("mkfifo", ["--version"], { stdio: "ignore" }).status === 0;
+const pidsNamed = (name) => spawnSync("pgrep", ["-x", name], { encoding: "utf8" }).stdout.split("\n").filter(Boolean).map(Number);
+/** The real build-script binaries of `realCrate` (comm is cut to 15 characters, so match the command line). */
+const buildScriptPids = () => spawnSync("pgrep", ["-f", "/held-[0-9a-f]+/build-script-build$"], { encoding: "utf8" }).stdout.split("\n").filter(Boolean).map(Number);
+const alivePid = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+/**
+ * The pid of the real rustc compiling the crate of `realCrate` (`--crate-name held`): it is blocked opening the FIFO the crate includes
+ * until the test writes it, with its working directory in the snapshot (cargo runs it there). The compile of the build script is another
+ * crate name and has ended by then.
+ */
+const rustcOnCrate = () => pidsNamed("rustc").find((pid) => { try { return fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").includes("--crate-name\0held\0"); } catch { return false; } });
+
+/**
+ * A snapshot directory holding a real crate: a build.rs that waits until the test removes `hold-build`, and a library that rustc cannot
+ * finish until the test writes the FIFO `hold-rustc` (`include_bytes!` blocks reading a FIFO until a writer closes it). So a real
+ * build tool, a real build-script binary and a real rustc are each alive in turn, deterministically, reading the snapshot.
+ */
+function realCrate(dir) {
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "Cargo.toml"), '[package]\nname = "held"\nversion = "0.0.0"\nedition = "2021"\nbuild = "build.rs"\n');
+  fs.writeFileSync(path.join(dir, "build.rs"), 'fn main() { let flag = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("hold-build"); while flag.exists() { std::thread::sleep(std::time::Duration::from_millis(50)); } }\n');
+  fs.writeFileSync(path.join(dir, "src", "lib.rs"), 'pub static HELD: &[u8] = include_bytes!("../hold-rustc");\n');
+  fs.writeFileSync(path.join(dir, "hold-build"), "x");
+  assert.equal(spawnSync("mkfifo", [path.join(dir, "hold-rustc")]).status, 0);
+}
+
+/** Starts a fake gate that takes ownership, runs the REAL build tool in the snapshot and reports; it releases only when asked. */
+async function realBuildGate(t, file, snapshot, target) {
+  const script = path.join(path.dirname(file), "real-build-gate.mjs"); const info = `${file}.build-info`;
+  fs.writeFileSync(script, `
+const { acquireBuildOwnership } = await import(${JSON.stringify(MODULE)});
+const { spawn } = await import("node:child" + "_process");
+const fs = await import("node:fs");
+const own = acquireBuildOwnership({ file: ${JSON.stringify(file)}, stage: "compile", snapshot: ${JSON.stringify(snapshot)} });
+const env = { ...process.env, CARGO_TARGET_DIR: ${JSON.stringify(target)}, CARGO_TERM_COLOR: "never" };
+delete env.NODE_OPTIONS;
+const build = spawn("cargo", ["build", "--offline", "--manifest-path", ${JSON.stringify(path.join(snapshot, "Cargo.toml"))}], { cwd: ${JSON.stringify(snapshot)}, env, stdio: ["ignore", "ignore", "ignore"] });
+build.on("exit", (code) => fs.writeFileSync(${JSON.stringify(info)} + ".exit", String(code)));
+const { execFileSync } = await import("node:child" + "_process");
+const versions = ["cargo", "rustc"].map((n) => execFileSync(n, ["--version"], { env, encoding: "utf8" }).trim()).join("; ");
+fs.writeFileSync(${JSON.stringify(info)}, JSON.stringify({ handle: own.handle, gate: process.pid, build: build.pid, group: own.owner.containment.group, versions }));
+// The gate tries to release whenever a file asks it to, and writes the answer back.
+for (;;) {
+  if (fs.existsSync(${JSON.stringify(info)} + ".release-now")) { fs.rmSync(${JSON.stringify(info)} + ".release-now"); const r = own.release(); fs.writeFileSync(${JSON.stringify(info)} + ".release-answer", JSON.stringify(r)); if (r.released) process.exit(0); }
+  await new Promise((r) => setTimeout(r, 50));
+}
+`);
+  const env = { ...process.env }; delete env[OWNERSHIP_ENV]; delete env.NODE_OPTIONS;
+  const gate = spawn(process.execPath, [script], { stdio: ["ignore", "ignore", "inherit"], env, detached: true });
+  t.after(() => { try { process.kill(-gate.pid, "SIGKILL"); } catch { /* gone */ } for (const pid of [...buildScriptPids(), ...pidsNamed("rustc"), ...pidsNamed("cargo")]) { try { if (fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").includes(path.dirname(path.dirname(file)))) process.kill(pid, "SIGKILL"); } catch { /* gone */ } } });
+  await until(() => fs.existsSync(info), 60_000);
+  return { ...JSON.parse(fs.readFileSync(info, "utf8")), info };
+}
+const askRelease = async (g) => {
+  fs.rmSync(`${g.info}.release-answer`, { force: true }); fs.writeFileSync(`${g.info}.release-now`, "1");
+  await until(() => fs.existsSync(`${g.info}.release-answer`), 30_000); return JSON.parse(fs.readFileSync(`${g.info}.release-answer`, "utf8"));
+};
+
+test("row 5.24 [native Linux, real cargo and rustc]: the gate holds while a real build runs; its release is refused until cargo, the build script and rustc are gone", { skip: (!REAL_TOOLS && "needs Linux with real cargo and rustc") || (!HAS_FIFO && "needs mkfifo"), timeout: 300_000 }, async (t) => {
+  const base = tmp(t, "rk-own-real-"); const file = path.join(base, OWNERSHIP_DIRNAME, "owner.json"); const snapshot = path.join(base, "snapshots", "k"); const target = path.join(base, "target");
+  fs.mkdirSync(path.dirname(file), { mode: 0o700 }); fs.mkdirSync(path.dirname(snapshot), { mode: 0o700 }); recordRootBirth(path.dirname(snapshot), { bootId: hostBootId() }); realCrate(snapshot);
+  const g = await realBuildGate(t, file, snapshot, target);
+  t.diagnostic(`real toolchain: ${REAL_TOOLS.join(", ")}; ${g.versions}`);
+  // Phase 1: cargo has compiled build.rs with rustc and runs the build-script binary, which waits.
+  await until(() => buildScriptPids().length > 0, 120_000);
+  const buildScript = buildScriptPids()[0];
+  assert.equal(alivePid(g.build), true, "a real cargo is running");
+  assert.equal(fs.readFileSync(`/proc/${g.build}/comm`, "utf8").trim(), "cargo", "the gate's child is the real cargo");
+  // The gate is alive, so a second gate is busy (held by pid), and the gate's own release is refused while the build's tree lives.
+  const second = gateStep(t, "acquire", { file }, process.env);
+  assert.equal(second.ok, false, JSON.stringify(second)); assert.equal(second.code, "busy"); assert.match(second.message, new RegExp(`held by pid ${g.gate}`));
+  const refused = await askRelease(g);
+  assert.equal(refused.released, false, `release while cargo builds: ${JSON.stringify(refused)}`);
+  assert.match(refused.why, new RegExp(`process group ${g.group} still has \\d+ member\\(s\\) started under this ownership: .*\\b${g.build}\\b`), "the group net names the real cargo");
+  assert.match(refused.why, new RegExp(`\\b${buildScript}\\b`), "and the build-script binary it is running");
+  // Phase 2: the build script ends; rustc then compiles the crate and blocks reading the FIFO inside the snapshot.
+  fs.rmSync(path.join(snapshot, "hold-build"));
+  await until(() => rustcOnCrate() !== undefined, 120_000);
+  const rustc = rustcOnCrate();
+  assert.equal(fs.readFileSync(`/proc/${rustc}/comm`, "utf8").trim(), "rustc", "the real rustc");
+  assert.ok(fs.readlinkSync(`/proc/${rustc}/cwd`).startsWith(snapshot), "compiling inside the snapshot");
+  const refusedAgain = await askRelease(g);
+  assert.equal(refusedAgain.released, false, `release while rustc reads the snapshot: ${JSON.stringify(refusedAgain)}`);
+  assert.match(refusedAgain.why, new RegExp(`\\b${rustc}\\b`), "the real rustc is named");
+  // Phase 3: rustc is released from the FIFO; cargo finishes; only then does the gate release.
+  fs.writeFileSync(path.join(snapshot, "hold-rustc"), "bytes");
+  await until(() => !alivePid(g.build) && !alivePid(rustc), 120_000);
+  assert.equal(fs.readFileSync(`${g.info}.exit`, "utf8"), "0", "the real build succeeded");
+  const released = await askRelease(g);
+  assert.equal(released.released, true, `released once cargo and rustc are gone: ${JSON.stringify(released)}`);
+  assert.equal(fs.existsSync(file), false, "the host is free again");
+});
+
+test("row 5.24 [native Linux, real cargo and rustc]: the gate SIGKILLed mid-compile: a second SYNC is refused while cargo or rustc lives, and succeeds once they exit", { skip: (!REAL_TOOLS && "needs Linux with real cargo and rustc") || (!HAS_FIFO && "needs mkfifo"), timeout: 300_000 }, async (t) => {
+  const base = tmp(t, "rk-own-real-kill-"); const file = path.join(base, OWNERSHIP_DIRNAME, "owner.json"); const snapshot = path.join(base, "snapshots", "k"); const target = path.join(base, "target");
+  fs.mkdirSync(path.dirname(file), { mode: 0o700 }); fs.mkdirSync(path.dirname(snapshot), { mode: 0o700 }); recordRootBirth(path.dirname(snapshot), { bootId: hostBootId() }); realCrate(snapshot);
+  const repo = tinyRepo(t); const root = path.dirname(snapshot);
+  assert.equal(ownershipFile({ platform: "linux", beside: root }), file, "the sync below contends for this very record");
+  const sync = () => gateStep(t, "snapshot", { cwd: repo, args: ["--commit", "HEAD", "--json"], snapshotRoot: root }, process.env);
+  const g = await realBuildGate(t, file, snapshot, target);
+  await until(() => buildScriptPids().length > 0, 120_000);
+  const buildScript = buildScriptPids()[0];
+  process.kill(g.gate, "SIGKILL"); await until(() => !alivePid(g.gate), 10_000);
+  assert.equal(alivePid(g.build), true, "the real cargo outlives its gate");
+  // While cargo and its build script live: the sync is refused, names them, and writes nothing.
+  let busy = sync();
+  assert.equal(busy.code, 1, JSON.stringify(busy));
+  assert.match(busy.lines.join("\n"), new RegExp(`snapshot busy: build ownership .*owner pid ${g.gate} is gone but .*\\b${g.build}\\b`), "cargo is named");
+  assert.equal(fs.existsSync(path.join(root, repoKey(keyPath(repo)))), false, "nothing was synced");
+  // The build script ends and rustc blocks opening the FIFO: still refused, now naming the real rustc.
+  fs.rmSync(path.join(snapshot, "hold-build"));
+  await until(() => rustcOnCrate() !== undefined, 120_000);
+  const rustc = rustcOnCrate();
+  busy = sync();
+  assert.equal(busy.code, 1, JSON.stringify(busy));
+  assert.match(busy.lines.join("\n"), new RegExp(`snapshot busy: .*\\b${rustc}\\b`), "the real rustc is named");
+  assert.equal(fs.existsSync(path.join(root, repoKey(keyPath(repo)))), false, "still nothing synced");
+  // They exit; the next sync reclaims with the proof and syncs.
+  fs.writeFileSync(path.join(snapshot, "hold-rustc"), "bytes");
+  await until(() => !alivePid(g.build) && !alivePid(rustc) && !alivePid(buildScript), 120_000);
+  const next = sync();
+  assert.equal(next.code, 0, JSON.stringify(next));
+  const r = JSON.parse(next.lines.find((l) => l.startsWith("{")));
+  assert.equal(r.ownership.reclaimed.from, g.handle); assert.equal(fs.existsSync(path.join(root, repoKey(keyPath(repo)))), true, "synced");
+  assert.equal(fs.existsSync(file), false, "and released");
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Row 5.24a' (signed/item5-sage-decisions-2.md D1 and D2): macOS processes whose environment `ps eww` hides (every Apple platform
+// binary): held after the anchor unless lineage clears them; a launchd top is judged by `launchctl blame`. Injected tables; the recorded
+// real-Mac table; the natives judge only processes the test itself created.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const T = (s) => Date.UTC(2026, 9, 29, 10, 0, s);   // 10:00:ss
+const ANCHOR = T(5) + 500;                            // 10:00:05.500: the anchor second is 10:00:05, and an anchor-second start counts as after it
+const hp = (pid, ppid, startedMs, over = {}) => ({ pid, ppid, group: pid, startedMs, uid: 501, state: "S", hidden: true, uninspected: false, command: `/bin/p${pid}`, ...over });
+const MANAGED = (line = "ipc (mach)") => ({ rc: 0, line });
+const UNMANAGED = { rc: 3, line: NOT_MANAGED_LINE };
+const LAUNCHD = hp(1, 0, T(-3 * 86400), { group: 1, uid: 0, hidden: false, command: "/sbin/launchd" });
+const TERMINAL = hp(100, 1, T(1), { hidden: false, command: "Terminal" });         // predates the anchor, not launchd
+const LOGIN = hp(110, 100, T(7), { command: "/usr/bin/login" });
+const ZSH = hp(120, 110, T(8), { command: "-zsh" });                                // the shell the gate runs from
+const GATE = hp(200, 120, T(10), { hidden: false, command: "node gate.mjs" });
+const OWNER = { pid: 200, startedMs: T(10), acquiredAt: new Date(T(10)).toISOString(), containment: { kind: "group", group: 200 }, ancestors: [{ pid: 120, startedMs: T(8) }, { pid: 110, startedMs: T(7) }, { pid: 100, startedMs: T(1) }] };
+const PRE = hp(60, 1, T(2), { hidden: false, command: "/Applications/Agent" });  // a process that predates the anchor and is not launchd
+const world = (...extra) => [LAUNCHD, TERMINAL, LOGIN, ZSH, GATE, PRE, ...extra];
+/** `reread` of the table itself: each pid's parent and start as listed (`changes` overrides per pid, for the pid-reuse cases). */
+const rereadOf = (procs, changes = {}) => (pids) => new Map(pids.filter((p) => procs.some((x) => x.pid === p)).map((p) => { const x = procs.find((q) => q.pid === p); return [p, { ppid: x.ppid, startedMs: x.startedMs, ...changes[p] }]; }));
+/** Classifies `procs`; `judge.calls` lists the pids `blame` was asked about. Default: nothing is managed by launchd. */
+function judge(procs, over = {}) {
+  const calls = []; const answer = over.blame ?? (() => UNMANAGED);
+  const held = classifyHiddenProcesses({ procs, own: new Set([200]), uid: 501, owner: OWNER, anchorMs: ANCHOR, reread: rereadOf(procs, over.changes), ...over, blame: (pid) => { calls.push(pid); return answer(pid); } });
+  judge.calls = calls; return held;
+}
+const heldPids = (held) => held.map((h) => h.pid).sort((a, b) => a - b);
+const namesPid = (held, pid) => held.some((h) => h.pid === pid && new RegExp(`pid ${pid}\\b`).test(h.why));
+
+test("row 5.24a' [injected table]: a hidden process drops by its start before the anchor, under a launchd job (every blame kind seen on a real Mac), under a pre-anchor ancestor, or at the record's acquisition when there is no baseline; others are not candidates", () => {
+  assert.deepEqual(judge(world(hp(300, 1, T(4)))), [], "before the anchor second: dropped, though it is an unmanaged orphan");
+  assert.deepEqual(judge.calls, [], "and launchctl is not asked");
+  for (const line of ["ipc (mach)", "xpc event", "launch job demand", "speculative", "incomplete work", "non-ipc demand", "semaphore", "system support", "ipc (socket)"]) {
+    assert.deepEqual(judge(world(hp(310, 1, T(8))), { blame: () => MANAGED(line) }), [], `a launchd job (${line}) after the anchor drops`);
+  }
+  // Terminal (itself a launchd job), login, zsh and /bin/sleep, all after the anchor: only the top is asked, once.
+  const shell = world(hp(320, 1, T(7), { command: "Terminal" }), hp(321, 320, T(8), { command: "/usr/bin/login" }), hp(322, 321, T(9), { command: "-zsh" }), hp(323, 322, T(10), { command: "/bin/sleep 60" }));
+  assert.deepEqual(judge(shell, { blame: () => MANAGED("xpc event") }), [], "an ordinary shell under a post-anchor Terminal");
+  assert.deepEqual(judge.calls, [320], "blame is asked for the top only, once");
+  assert.deepEqual(judge(world(hp(121, 100, T(7), { command: "/usr/bin/login" }), hp(125, 121, T(8), { command: "-zsh" }), hp(126, 125, T(9), { command: "/bin/sleep 60" }))), [], "under a pre-anchor, not-launchd Terminal");
+  assert.deepEqual(judge.calls, [], "no blame for a lineage that ends at a pre-anchor process");
+  // No baseline: the anchor is the record's acquisition (T(10)); an unmanaged orphan from before it drops, so the gate never wedges on it.
+  assert.deepEqual(judge(world(hp(330, 1, T(9))), { anchorMs: NaN }), [], "no baseline: started before acquiredAt");
+  assert.deepEqual(judge(world(hp(331, 1, T(8), { hidden: false, uninspected: true })), { anchorMs: NaN }), [], "an uninspected one too");
+  assert.deepEqual(judge(world(hp(310, 1, T(11))), { anchorMs: NaN, blame: () => MANAGED() }), [], "no baseline, after acquiredAt, under a launchd job: dropped");
+  // Not candidates.
+  assert.deepEqual(judge(world(hp(340, 1, T(8), { uid: 0 }))), [], "another user's hidden process is skipped (the 0700 premise of row 5.22)");
+  assert.deepEqual(judge(world(hp(341, 1, T(8), { hidden: false }))), [], "a visible-environment process that lsof inspected");
+  assert.deepEqual(judge(world(hp(342, 1, T(8), { state: "Z" }))), [], "a zombie reads nothing");
+  assert.deepEqual(judge(world(hp(343, 1, T(11), { hidden: false, uninspected: true }), hp(344, 1, T(3), { hidden: false, uninspected: true }))).map((h) => h.pid), [343], "lsof could not inspect a visible one: classified (the pre-anchor one drops)");
+  assert.deepEqual(judge(world(hp(345, 1, T(11))), { alive: () => false }), [], "a process that exited before the verdict is no reader");
+  assert.deepEqual(judge(world()), [], "the gate, its ancestors and the listing it ran");
+});
+
+test("row 5.24a' [injected table]: held, each reason naming the pid: a top that is not managed, a blame that gives no usable answer, a top that is not the same process on the re-read, traced, no baseline but started at the acquisition", () => {
+  let h = judge(world(hp(401, 1, T(11))));
+  assert.deepEqual(heldPids(h), [401]); assert.ok(namesPid(h, 401)); assert.match(h[0].why, /not managed by launchd/);
+  assert.deepEqual(judge.calls, [401]);
+  for (const [name, blame] of [["another exit code", () => ({ rc: 1, line: "boom" })], ["empty output", () => ({ rc: 0, line: "" })], ["the not-managed text with exit 0 (a pipeline's exit, as in the lead's probe script)", () => ({ rc: 0, line: NOT_MANAGED_LINE })], ["a spawn error", () => { throw new Error("spawn launchctl ENOENT"); }], ["a timeout", () => ({ rc: null, line: "spawnSync launchctl ETIMEDOUT" })], ["no answer", () => null], ["exit 3 with other text", () => ({ rc: 3, line: "something else" })]]) {
+    h = judge(world(hp(402, 1, T(11))), { blame });
+    assert.deepEqual(heldPids(h), [402], name); assert.ok(namesPid(h, 402), name); assert.match(h[0].why, /no usable answer/, name);
+  }
+  // Binding against pid reuse: the cleared top is re-listed after the blame calls.
+  const tops = world(hp(410, 1, T(8)), hp(411, 410, T(9)));
+  assert.deepEqual(judge(tops, { blame: () => MANAGED() }), [], "unchanged: dropped");
+  h = judge(tops, { blame: () => MANAGED(), changes: { 410: { startedMs: T(8) + 5000 } } });
+  assert.deepEqual(heldPids(h), [410, 411], "another lstart on the re-read"); assert.match(h[0].why, /not the same process on the re-read/);
+  h = judge(tops, { blame: () => MANAGED(), changes: { 410: { ppid: 77 } } });
+  assert.deepEqual(heldPids(h), [410, 411], "a ppid other than 1 on the re-read");
+  h = judge(tops, { blame: () => MANAGED(), reread: () => new Map() });
+  assert.deepEqual(heldPids(h), [410, 411]); assert.match(h[0].why, /gone on the re-read/);
+  h = judge(tops, { blame: () => MANAGED(), reread: () => { throw new Error("ps -p"); } });
+  assert.deepEqual(heldPids(h), [410, 411]); assert.match(h[0].why, /could not be re-read/);
+  h = judge(tops, { blame: () => MANAGED(), reread: null });
+  assert.deepEqual(heldPids(h), [410, 411], "no re-read at all: the answer is not bound");
+  // Traced (stat X): P itself, or a process on its walk.
+  h = judge(world(hp(420, 1, T(11), { state: "SX" })), { blame: () => MANAGED() });
+  assert.deepEqual(heldPids(h), [420]); assert.match(h[0].why, /traced/);
+  h = judge(world(hp(430, 1, T(8)), hp(431, 430, T(9), { state: "SX" }), hp(432, 431, T(10))), { blame: () => MANAGED() });
+  assert.deepEqual(heldPids(h), [431, 432], "an ancestor on the walk is traced"); assert.match(h.find((x) => x.pid === 432).why, /pid 431 on its walk is traced/);
+  h = judge(world(hp(433, 1, T(3), { state: "SX" })));
+  assert.deepEqual(heldPids(h), [433], "traced, even before the anchor");
+  // No baseline: an unmanaged orphan that started at or after the record's acquisition (the second counts as after) is held.
+  h = judge(world(hp(440, 1, T(10)), hp(441, 1, T(9))), { anchorMs: NaN });
+  assert.deepEqual(heldPids(h), [440]); assert.match(h[0].why, /not managed by launchd/);
+  h = judge(world(hp(442, 60, T(11))), { anchorMs: NaN, owner: { ...OWNER, acquiredAt: "garbage" } });
+  assert.deepEqual(heldPids(h), [442]); assert.match(h[0].why, /no readable acquisition time/);
+});
+
+test("row 5.24a' [injected table]: held by the owner's group, a recorded detached group, the owner or a recorded child on the walk, an unreadable parent, pid reuse, a walk past the limit, the anchor second, an unreadable start", () => {
+  let h = judge(world(hp(450, 60, T(11), { group: 200 })));
+  assert.deepEqual(heldPids(h), [450]); assert.ok(namesPid(h, 450)); assert.match(h[0].why, /process group 200, the owner's group/);
+  const recorded = [{ group: 500, command: "/bin/sh" }];
+  h = judge(world(hp(501, 60, T(11), { group: 500 })), { recorded });
+  assert.deepEqual(heldPids(h), [501]); assert.match(h[0].why, /a detached group this gate recorded/);
+  h = judge(world(hp(500, 60, T(11), { group: 500 }), hp(510, 500, T(12), { group: 510 })), { recorded });
+  assert.deepEqual(heldPids(h), [500, 510]); assert.match(h.find((x) => x.pid === 510).why, /reaches a child this gate recorded \(pid 500\)/);
+  h = judge(world(hp(515, 200, T(12), { group: 515 }), hp(516, 515, T(13), { group: 516 })));
+  assert.deepEqual(heldPids(h), [515, 516], "a child of the owner, and its child"); assert.match(h.find((x) => x.pid === 516).why, /reaches the owner \(pid 200\)/);
+  h = judge(world(hp(430, 9999, T(11))));
+  assert.deepEqual(heldPids(h), [430]); assert.match(h[0].why, /the parent of pid 430 \(pid 9999\) cannot be read/);
+  h = judge(world(hp(460, 461, T(11)), hp(461, 60, T(12))));
+  assert.deepEqual(heldPids(h), [460], "461's parent predates the anchor: it drops"); assert.match(h[0].why, /pid 461 started after its child pid 460 \(pid reuse\)/);
+  const N = HIDDEN_WALK_LIMIT + 76;
+  const chain = Array.from({ length: N }, (_, i) => hp(10_000 + i, i === N - 1 ? 60 : 10_001 + i, T(11), { group: 10_000 + i }));
+  h = judge(world(...chain));
+  assert.ok(h.some((x) => x.pid === 10_000 && /the ancestry walk passed 1024 steps/.test(x.why)), "the deepest member is held for the walk limit");
+  assert.equal(h.some((x) => x.pid === 10_000 + N - 1), false, "the member nearest the pre-anchor ancestor drops");
+  h = judge(world(hp(470, 1, T(5)), hp(471, 1, T(4))));
+  assert.deepEqual(heldPids(h), [470], "a start in the anchor's own second counts as after it; one second earlier drops");
+  h = judge(world(hp(480, 60, NaN)));
+  assert.deepEqual(heldPids(h), [480]); assert.match(h[0].why, /its start time cannot be read/);
+  h = judge(world(hp(490, 1, T(11), { hidden: false, uninspected: true })));
+  assert.match(h[0].why, /`lsof` cannot inspect it/);
+  // Never by default: the same hidden orphan, visible and inspected, is cleared; hidden and unmanaged, it is held.
+  assert.deepEqual(judge(world(hp(495, 1, T(11), { hidden: false }))), []);
+  assert.deepEqual(heldPids(judge(world(hp(495, 1, T(11))))), [495]);
+});
+
+test("row 5.24a' D2 [injected table]: `gate | tee` and `{ gate; } | tee` are not held (the owner's group, but a child of a recorded ancestor, still walked); every other owner-group process is", () => {
+  const tee = (pid, ppid, over = {}) => hp(pid, ppid, T(10), { group: 200, command: "/usr/bin/tee", ...over });
+  assert.deepEqual(judge(world(tee(340, 120))), [], "`gate | tee`: the parent is ancestors[0]");
+  assert.deepEqual(judge(world(tee(341, 110))), [], "`{ gate; } | tee`: the parent is ancestors[1]");
+  assert.deepEqual(judge(world(hp(350, 120, T(11)), hp(351, 350, T(12)))), [], "the ancestor's other children, and theirs");
+  // Negatives.
+  let h = judge(world(tee(342, 200)));
+  assert.deepEqual(heldPids(h), [342], "a child of the gate itself in the owner's group"); assert.match(h[0].why, /the owner's group/);
+  const reused = [LAUNCHD, TERMINAL, LOGIN, { ...ZSH, startedMs: T(30) }, GATE, PRE, tee(343, 120, { startedMs: T(31) })];
+  assert.deepEqual(heldPids(judge(reused)).includes(343), true, "a parent with an ancestor's pid but another start (pid reuse)");
+  h = judge(world(tee(344, 120, { state: "SX" })));
+  assert.deepEqual(heldPids(h), [344], "P traced"); assert.match(h[0].why, /traced/);
+  h = judge([LAUNCHD, TERMINAL, LOGIN, { ...ZSH, state: "SX" }, GATE, PRE, tee(345, 120)]);
+  assert.deepEqual(heldPids(h), [345], "the parent (a recorded ancestor) is traced: no exemption"); assert.match(h[0].why, /the owner's group/);
+  h = judge(world(hp(346, 120, T(11), { group: 500 })), { recorded: [{ group: 500, command: "cargo" }] });
+  assert.deepEqual(heldPids(h), [346], "a member of a recorded detached group whose parent is an ancestor: no exemption"); assert.match(h[0].why, /detached group this gate recorded/);
+  // The exemption is never an immediate drop: an exempted process whose walk ends at a launchd top that is not managed is held.
+  const owner2 = { ...OWNER, ancestors: [{ pid: 120, startedMs: T(8) }, { pid: 130, startedMs: T(7) }] };
+  const mini = [LAUNCHD, hp(130, 1, T(7), { command: "sshd-session" }), hp(120, 130, T(8), { command: "-zsh" }), GATE, tee(347, 120)];
+  h = judge(mini, { owner: owner2 });
+  assert.deepEqual(heldPids(h), [347]); assert.match(h[0].why, /pid 130 is an orphan.*not managed by launchd/);
+  assert.deepEqual(judge(mini, { owner: owner2, blame: () => MANAGED("ipc (socket)") }), [], "the same walk under a launchd job (an ssh session) drops");
+});
+
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]; const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const lstart = (ms) => { const d = new Date(ms); return `${DAYS[d.getDay()]} ${MONTHS[d.getMonth()]} ${String(d.getDate()).padStart(2, " ")} ${[d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, "0")).join(":")} ${d.getFullYear()}`; };
+/**
+ * A `spawn` standing in for macOS ps/lsof/launchctl, built from a process table. `env`: pid -> what `ps eww` appends (undefined: nothing, so
+ * the environment is hidden). `blame`: pid -> { rc, line } (default: not managed). `changes`: pid -> what the `ps -p` re-read shows instead.
+ * `seen` collects the options each launchctl call got.
+ */
+function macSpawn(procs, { env = {}, eww = {}, lsof = "all", blame = {}, changes = {}, psFail = false, ewwFail = false, lsofStatus = 0, seen = [] } = {}) {
+  return (command, args, options) => {
+    const done = (stdout, status = 0, stderr = "") => ({ status, stdout, stderr: status ? (stderr || "boom") : stderr, pid: 900_000 + Math.floor(Math.random() * 1000) });
+    if (command === "launchctl") {
+      seen.push({ args, options }); const b = blame[args[1]] ?? UNMANAGED;
+      return b === "spawn-error" ? { error: new Error("spawn launchctl ENOENT"), status: null, stdout: "", stderr: "" } : done(b.rc === 0 ? `${b.line}\n` : "", b.rc, b.rc === 0 ? "" : `${b.line}\n`);
+    }
+    if (command === "ps" && args[0] === "eww") return ewwFail ? done("", 1) : done(procs.map((p) => `${String(p.pid).padStart(6)}     ${eww[p.pid] ?? (env[p.pid] === undefined ? p.command : `${p.command} ${env[p.pid]}`)}`).join("\n"));
+    if (command === "ps" && args.includes("-p")) {
+      const want = String(args[args.indexOf("-p") + 1]).split(",").map(Number);
+      return done(procs.filter((p) => want.includes(p.pid)).map((p) => `${String(p.pid).padStart(6)} ${String(changes[p.pid]?.ppid ?? p.ppid).padStart(6)} ${lstart(changes[p.pid]?.startedMs ?? p.startedMs)}`).join("\n"));
+    }
+    if (command === "ps") return psFail ? done("", 1) : done(procs.map((p) => `${String(p.pid).padStart(6)} ${String(p.ppid).padStart(6)} ${String(p.group).padStart(6)} ${String(p.uid).padStart(5)} ${p.state.padEnd(3)} ${Number.isFinite(p.startedMs) ? lstart(p.startedMs) : "garbage"}     ${p.command}`).join("\n"));
+    if (command === "lsof") return done((lsof === "all" ? procs : procs.filter((p) => lsof.includes(p.pid))).map((p) => `p${p.pid}\nfcwd\nn/`).join("\n"), lsofStatus);
+    throw new Error(`unexpected ${command}`);
+  };
+}
+const macProbe = (spawn) => processProbe({ platform: "darwin", spawn, kill: () => true, uid: 501 });
+
+test("row 5.24a' [injected ps/eww/lsof/launchctl]: hidden is `ps eww` showing nothing beyond the command; launchctl blame runs under LC_ALL=C with a 5 s limit; a failed listing, a spawn error or a re-read that differs is held", () => {
+  const orphan = (pid, over = {}) => hp(pid, 1, T(11), { hidden: false, ...over });
+  const procs = world(
+    orphan(601, { command: "/bin/sleep 60" }),                     // eww line = its command: hidden
+    orphan(602, { command: "/usr/bin/env -i /bin/sleep 61" }),     // an empty environment prints nothing more either: hidden (fail closed)
+    orphan(603, { command: "/bin/zsh -c x" }),                     // eww shows another command line (it exec'd between the two listings): hidden
+    orphan(604, { command: "/opt/homebrew/bin/node a.js" }),       // shows its environment, lsof inspected it: cleared
+    orphan(605, { command: "/opt/homebrew/bin/node b.js" }),       // shows its environment but lsof could not inspect it: classified
+    orphan(606, { command: "/bin/sleep 62" }),                     // no eww line at all: hidden
+    hp(607, 1, T(11), { command: "/usr/sbin/mdworker" }),          // hidden, but a launchd job
+  );
+  const env = { 604: "PATH=/x FOO=1", 605: "PATH=/x FOO=2", 200: "PATH=/x", 60: "A=b", 100: "A=b", 1: "A=b" };
+  const seen = [];
+  const base = macSpawn(procs, { env, eww: { 603: "/bin/sh" }, lsof: procs.map((p) => p.pid).filter((p) => p !== 605), blame: { 607: MANAGED("xpc event") }, seen });
+  const noLine = (c, a, o) => { const r = base(c, a, o); if (c === "ps" && a[0] === "eww") r.stdout = r.stdout.split("\n").filter((l) => !/^\s*606\s/.test(l)).join("\n"); return r; };
+  const held = macProbe(noLine).hiddenHolders({ owner: OWNER, anchorMs: ANCHOR, recorded: [] });
+  assert.deepEqual(heldPids(held), [601, 602, 603, 605, 606], "604 is visible and inspected: cleared; 607 is a launchd job: dropped");
+  assert.match(held.find((h) => h.pid === 605).why, /`lsof` cannot inspect it/);
+  assert.match(held.find((h) => h.pid === 601).why, /environment is hidden/);
+  assert.match(held.find((h) => h.pid === 601).why, /not managed by launchd/);
+  assert.ok(seen.length >= 1 && seen.every((c) => c.args[0] === "blame" && c.options.timeout === 5000 && c.options.env.LC_ALL === "C"), "launchctl blame: LC_ALL=C, 5 s");
+  assert.equal(new Set(seen.map((c) => c.args[1])).size, seen.length, "one answer per pid within a sample");
+  // A spawn error of launchctl is unknown, so held; a re-read that shows another start holds the processes under the cleared top.
+  const err = macProbe(macSpawn(procs, { env, blame: { 601: "spawn-error", 607: MANAGED() } })).hiddenHolders({ owner: OWNER, anchorMs: ANCHOR });
+  assert.match(err.find((h) => h.pid === 601).why, /no usable answer/);
+  const under = [...procs, hp(608, 607, T(12), { command: "/bin/sleep 63" })];
+  assert.equal(macProbe(macSpawn(under, { env, blame: { 607: MANAGED() } })).hiddenHolders({ owner: OWNER, anchorMs: ANCHOR }).some((h) => h.pid === 608), false, "under a launchd job, re-read unchanged: dropped");
+  const reused = macProbe(macSpawn(under, { env, blame: { 607: MANAGED() }, changes: { 607: { startedMs: T(30) } } })).hiddenHolders({ owner: OWNER, anchorMs: ANCHOR });
+  assert.ok(reused.some((h) => h.pid === 608 && /not the same process on the re-read/.test(h.why)), "the cleared top reads as another process: held");
+  // The traced flag is the `ps stat` column.
+  const traced = macProbe(macSpawn(world(hp(609, 1, T(11), { state: "SX" })), { env, blame: { 609: MANAGED() } })).hiddenHolders({ owner: OWNER, anchorMs: ANCHOR });
+  assert.deepEqual(heldPids(traced), [609]); assert.match(traced[0].why, /traced/);
+  for (const [name, opts] of [["ps fails", { psFail: true }], ["ps eww fails", { ewwFail: true }], ["lsof exits non-zero", { lsofStatus: 1 }]]) {
+    assert.throws(() => macProbe(macSpawn(procs, { env, ...opts })).hiddenHolders({ owner: OWNER, anchorMs: ANCHOR }), /boom|exit/, name);
+  }
+  assert.equal(processProbe({ platform: "linux", spawn: scripted(), proc: PROC }).hiddenHolders({ owner: OWNER, anchorMs: ANCHOR }), null, "Linux has no such net: it reads /proc/<pid>/environ under the unreadable rule");
+  assert.equal(processProbe({ platform: "win32" }).hiddenHolders, undefined, "Windows has none: job containment");
+  assert.throws(() => processProbe({ platform: "darwin", spawn: macSpawn(procs), kill: () => true, uid: NaN }).hiddenHolders({ owner: OWNER, anchorMs: ANCHOR }), /user id is unknown/, "without this process's user id nothing can be told from another user's");
+});
+
+test("row 5.24a' [recorded real-Mac table replay]: with the anchor ten minutes before the capture nothing is held, whatever launchd started in that window; one injected not-managed hidden orphan is held, and only it", () => {
+  const fx = loadMacTable(); const cap = capturedMs(fx);
+  const owner = { pid: 999_999, startedMs: cap - 3_000_000, acquiredAt: new Date(cap - 600_000).toISOString(), containment: { kind: "group", group: 999_999 }, ancestors: [] };
+  const probe = (overlay = []) => processProbe({ platform: "darwin", spawn: replaySpawn(fx, { uid: 501, overlay }), kill: () => true, uid: 501 });
+  const window = fx.rows.filter((r) => r.self && r.hidden && r.ppid === 1 && r.blame?.rc === 0 && Date.parse(r.lstart) >= cap - 600_000);
+  assert.ok(window.length >= 1, `the recording holds launchd jobs started within its last ten minutes (${window.length}), the case that wedged the first rule`);
+  assert.deepEqual(probe().hiddenHolders({ owner, anchorMs: cap - 600_000, recorded: [] }), [], "A = capture minus 10 minutes");
+  assert.deepEqual(probe().hiddenHolders({ owner, anchorMs: NaN, recorded: [] }), [], "no baseline: the anchor is the record's acquisition, the same ten minutes");
+  assert.deepEqual(probe().hiddenHolders({ owner, anchorMs: cap - 6 * 3600_000, recorded: [] }), [], "a six hour anchor");
+  const orphan = { pid: 777_001, ppid: 1, pgid: 777_001, self: true, stat: "S", lstart: fx.capturedAt, argv0: "sleep", hidden: true, lsofInspected: true, blame: { rc: 3, line: NOT_MANAGED_LINE } };
+  const held = probe([orphan]).hiddenHolders({ owner, anchorMs: cap - 600_000, recorded: [] });
+  assert.deepEqual(heldPids(held), [777_001], "exactly the injected orphan"); assert.match(held[0].why, /not managed by launchd/);
+  assert.deepEqual(heldPids(probe([{ ...orphan, blame: { rc: 0, line: "xpc event" } }]).hiddenHolders({ owner, anchorMs: cap - 600_000 })), [], "the same row as a launchd job: dropped");
+});
+
+test("row 5.24a' [injected]: the anchor is the root's birth (capped at the acquisition) or the last clean release, else the record's own acquisition; a missing birth, another boot's birth or an unreadable boot id never means 'no anchor'", (t) => {
+  const base = tmp(t, "rk-own-anchor-"); const root = path.join(base, "snapshots"); fs.mkdirSync(root, { mode: 0o700 });
+  const file = path.join(base, OWNERSHIP_DIRNAME, "owner.json"); const snapshot = path.join(root, OLD_KEY);
+  const sec = (ms) => Math.floor(ms / 1000) * 1000;
+  const acquiredAt = NOW - 100_000;
+  const table = (...extra) => [{ ...LAUNCHD, startedMs: NOW - 9e7 }, hp(50, 1, sec(NOW - 7_200_000), { hidden: false, command: "Terminal" }), ...extra];
+  const probeFor = (procs, over = {}, blames = {}) => fakeProbe("darwin", {
+    bootId: () => "boot-1", tokenHolders: () => [], snapshotUsers: () => [],
+    hiddenHolders: (ctx) => classifyHiddenProcesses({ procs, own: new Set([process.pid]), uid: 501, ...ctx, alive: () => true, blame: (pid) => blames[pid] ?? UNMANAGED, reread: rereadOf(procs) }), ...over,
+  });
+  const judged = (procs, ownerOver = {}, probeOver = {}, blames = {}) => {
+    const rec = deadOwner(file, "darwin", { snapshot, acquiredAt: iso(acquiredAt), ancestors: [], ...ownerOver });
+    return judgeOwner(JSON.stringify(rec), { file, probe: probeFor(procs, probeOver, blames), lease: noLease });
+  };
+  const old = hp(60, 1, sec(NOW - 3_600_000));          // an hour old, hidden, an unmanaged orphan
+  const shellKid = hp(61, 50, sec(NOW - 50_000), { command: "-zsh" }); const kid2 = hp(62, 61, sec(NOW - 40_000));
+  const clean = table(old, shellKid, kid2);
+  const after = (pid, at = NOW - 30_000, over = {}) => hp(pid, 1, sec(at), over);
+  // The 5.23 rewrites: no birth and no clean marker. Before the acquisition: dropped. After it: held.
+  assert.match(judged(clean).proofs.join("; "), /every live process of this user whose environment is hidden started before the anchor or descends from a process that did/, "no birth: the old orphan predates the acquisition");
+  assert.throws(() => judged([...clean, after(70)]), (e) => e instanceof OwnershipBusy && /70: pid 70\b.*not managed by launchd/s.test(e.message) && !/no anchor/.test(e.message));
+  // With a birth of this boot, before the acquisition: the anchor.
+  recordRootBirth(root, { now: () => NOW - 200_000, bootId: "boot-1" });
+  assert.doesNotThrow(() => judged(clean));
+  assert.throws(() => judged([...clean, after(71)]), /71: pid 71\b/);
+  assert.doesNotThrow(() => judged([...clean, after(72)], {}, {}, { 72: MANAGED() }), "after the anchor, under a launchd job");
+  // The birth is capped at the acquisition: a birth recorded AFTER it does not move the anchor later.
+  fs.rmSync(rootBirthFile(root)); recordRootBirth(root, { now: () => NOW - 10_000, bootId: "boot-1" });
+  assert.throws(() => judged([...clean, after(73, NOW - 50_000)]), /73: pid 73\b/, "started after the acquisition but before the (late) birth: after the anchor");
+  assert.doesNotThrow(() => judged([...clean, after(74, NOW - 200_000)]), "started before the acquisition: before the anchor");
+  // Another boot's birth, an unreadable boot id: the same pair as no birth.
+  fs.rmSync(rootBirthFile(root)); recordRootBirth(root, { now: () => NOW - 200_000, bootId: "boot-0" });
+  assert.doesNotThrow(() => judged(clean), "another boot's birth: before the acquisition dropped");
+  assert.throws(() => judged([...clean, after(75)]), /75: pid 75\b/, "another boot's birth: after the acquisition held");
+  assert.doesNotThrow(() => judged(clean, {}, { bootId: () => null }), "an unreadable boot id: before the acquisition dropped");
+  assert.throws(() => judged([...clean, after(76)], {}, { bootId: () => null }), /76: pid 76\b/, "an unreadable boot id: after the acquisition held");
+  assert.throws(() => judged([...clean, after(77)], {}, { bootId: () => { throw new Error("sysctl"); } }), /77: pid 77\b/);
+  // The last clean release is an anchor too; a record with no snapshot at all anchors at its acquisition (and releases clean under launchd jobs).
+  fs.rmSync(rootBirthFile(root));
+  assert.doesNotThrow(() => judged(clean, { cleanBefore: iso(NOW - 500_000) }));
+  const noSnapshot = judged([...clean, after(78), after(79)], { snapshot: null }, {}, { 78: MANAGED("launch job demand"), 79: MANAGED("xpc event") });
+  assert.match(noSnapshot.proofs.join("; "), /whose environment is hidden/, "snapshot: null, only launchd jobs after the anchor: clean");
+  assert.throws(() => judged([...clean, after(80)], { snapshot: null }), /80: pid 80\b/, "snapshot: null, an unmanaged orphan after the acquisition: held");
+  // A recorded detached group is held through the registry.
+  recordRootBirth(root, { now: () => NOW - 200_000, bootId: "boot-1" });
+  const rec = deadOwner(file, "darwin", { snapshot, acquiredAt: iso(acquiredAt), ancestors: [] });
+  const reg = childrenDir(file, rec.handle); fs.mkdirSync(reg, { recursive: true });
+  fs.writeFileSync(path.join(reg, "group-800.json"), JSON.stringify({ group: 800, startedMs: NOW - 90_000, command: "cargo" }));
+  assert.throws(() => judgeOwner(JSON.stringify(rec), { file, probe: probeFor([...clean, hp(801, 50, sec(NOW - 30_000), { group: 800 })]), lease: noLease }), /801: pid 801\b.*a detached group this gate recorded/s);
+});
+
+// ---- native macOS: the real Apple platform binary under ownership ----
+
+/** The facts the reproduction rests on, read from the real `ps`: the parent, and whether `ps eww` shows this process's environment. */
+function macFacts(pid) {
+  const ppid = Number(spawnSync("ps", ["-o", "ppid=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim());
+  const command = spawnSync("ps", ["-ww", "-o", "command=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim();
+  const shown = spawnSync("ps", ["eww", "-o", "command=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim();
+  return { ppid, command, envShown: shown.length > command.length && shown.startsWith(`${command} `) };
+}
+/** `launchctl blame` as the gate asks it, for a pid of the test's own making. */
+const blameOfPid = (pid) => { const r = spawnSync("launchctl", ["blame", String(pid)], { encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 5000 }); return { rc: r.status, line: `${r.stdout}${r.stderr}`.split("\n").find((l) => l.trim() !== "")?.trim() ?? "" }; };
+
+test("row 5.24a' [native macOS, G2 reproduction]: a gate descendant that is an Apple platform binary, started its own session, touches nothing in the snapshot and was orphaned to launchd holds the host: busy while it lives (not managed by launchd), free after it exits", { skip: process.platform !== "darwin" && "macOS: `ps eww` hides Apple platform binaries only there", timeout: 180_000 }, async (t) => {
+  const base = tmp(t, "rk-own-hidden-"); const file = path.join(base, OWNERSHIP_DIRNAME, "owner.json"); const snapshot = path.join(base, "snapshots", "k");
+  fs.mkdirSync(path.join(base, "snapshots"), { mode: 0o700 }); fs.mkdirSync(snapshot, { recursive: true }); fs.mkdirSync(path.dirname(file), { mode: 0o700 });
+  const g = await crashingGate(t, file, { mode: "hidden-orphan", snapshot });
+  const facts = macFacts(g.child);
+  t.diagnostic(`the descendant: pid ${g.child} ${JSON.stringify(facts)}`);
+  assert.equal(facts.command, "/bin/sleep 120", "an Apple platform binary");
+  assert.equal(facts.ppid, 1, "orphaned to launchd: macOS has no subreaper");
+  assert.equal(facts.envShown, false, "`ps eww` shows no environment for it, so the token net cannot see the handle it carries");
+  assert.equal(blameKind(blameOfPid(g.child)), "unmanaged", "launchctl blame: a reparented orphan is not managed by launchd");
+  const lsofPid = spawnSync("lsof", ["-n", "-P", "-p", String(g.child), "-Fn"], { encoding: "utf8" }).stdout;
+  assert.equal(lsofPid.split("\n").some((l) => l.startsWith("n") && l.includes(snapshot)), false, "and it touches nothing in the snapshot at sampling time");
+  await g.kill(g.gate);
+  const busy = gateStep(t, "acquire", { file }, process.env);
+  assert.equal(busy.ok, false, `busy while the descendant lives (this is what must fail at ad0e41175): ${JSON.stringify(busy)}`); assert.equal(busy.code, "busy");
+  assert.match(busy.message, new RegExp(`pid ${g.child}\\b`), "the reason names the pid");
+  assert.match(busy.message, /not managed by launchd/);
+  await g.kill(g.child);
+  const next = gateStep(t, "acquire", { file }, process.env);
+  assert.equal(next.ok, true, `free after it exits: ${JSON.stringify(next)}`); assert.equal(next.reclaimed.from, g.handle);
+});
+
+// The lead's probe (signed/item5-sage-decisions-2.md "Lead probe 2026-10-29T07:40:35Z"): launchctl blame says "not managed" for each of
+// these orphan shapes, the one that read launchd as the kernel birth parent (RR's M4) included. Each must hold.
+for (const shape of ["orphan-setsid", "orphan-subshell", "orphan-nohup"]) {
+  test(`row 5.24a' [native macOS, lead probe shape ${shape}]: a gate descendant orphaned to launchd this way is not managed by launchd and holds the host while it lives; the host is free once it is gone`, { skip: process.platform !== "darwin" && "macOS: `ps eww` hides Apple platform binaries only there", timeout: 180_000 }, async (t) => {
+    const base = tmp(t, "rk-own-shape-"); const file = path.join(base, OWNERSHIP_DIRNAME, "owner.json"); const snapshot = path.join(base, "snapshots", "k");
+    fs.mkdirSync(path.join(base, "snapshots"), { mode: 0o700 }); fs.mkdirSync(snapshot, { recursive: true }); fs.mkdirSync(path.dirname(file), { mode: 0o700 });
+    const g = await crashingGate(t, file, { mode: shape, snapshot });
+    const facts = macFacts(g.child);
+    t.diagnostic(`${shape}: pid ${g.child} ${JSON.stringify(facts)}`);
+    assert.equal(facts.command, "/bin/sleep 120", "an Apple platform binary");
+    assert.equal(facts.ppid, 1, "orphaned to launchd");
+    assert.equal(facts.envShown, false, "`ps eww` shows no environment for it");
+    assert.equal(blameKind(blameOfPid(g.child)), "unmanaged", "launchctl blame: not managed by launchd");
+    await g.kill(g.gate);
+    const busy = gateStep(t, "acquire", { file }, process.env);
+    assert.equal(busy.ok, false, `held while the orphan lives: ${JSON.stringify(busy)}`); assert.equal(busy.code, "busy");
+    assert.match(busy.message, new RegExp(`pid ${g.child}\\b`), "the reason names the pid");
+    assert.match(busy.message, /not managed by launchd/);
+    await g.kill(g.child);
+    const next = gateStep(t, "acquire", { file }, process.env);
+    assert.equal(next.ok, true, `free after it exits: ${JSON.stringify(next)}`); assert.equal(next.reclaimed.from, g.handle);
+  });
+}
+
+test("row 5.24a' [native macOS, liveness]: judges the rule, not the host: every pid held is re-blamed by the test and is not managed; none is in the test's own tree; the shell opened after the anchor and the platform binary it runs are not held", { skip: process.platform !== "darwin" && "macOS only", timeout: 180_000 }, async (t) => {
+  const base = tmp(t, "rk-own-shell-"); const file = path.join(base, OWNERSHIP_DIRNAME, "owner.json"); const snapshot = path.join(base, "snapshots", "k");
+  fs.mkdirSync(path.dirname(file), { mode: 0o700 });
+  // A terminal stand-in that predates the anchor (the root's birth is recorded when the gate fixture starts).
+  const helperCode = 'const { spawn } = require("node:child" + "_process"); process.stdin.on("data", () => { const sh = spawn("/bin/zsh", ["-c", "/bin/sleep 120; true"], { stdio: "ignore" }); process.stdout.write(sh.pid + "\\n"); }); setInterval(() => {}, 1000);';
+  const helper = spawn(process.execPath, ["-e", helperCode], { stdio: ["pipe", "pipe", "inherit"], env: { ...process.env, NODE_OPTIONS: "" } });
+  t.after(() => { try { helper.kill("SIGKILL"); } catch { /* gone */ } });
+  await new Promise((r) => setTimeout(r, 1500)); // the helper is a whole second older than the anchor (ps lstart has one-second resolution)
+  const g = await crashingGate(t, file, { snapshot });          // the gate takes ownership; the root is born now: the anchor is later than the helper
+  helper.stdin.write("go\n");
+  const shell = Number(await new Promise((res) => helper.stdout.once("data", (d) => res(String(d).trim()))));
+  // Its children first: once the shell is gone they are orphaned to launchd, where they would be a (real) false hold for every later test.
+  t.after(() => { for (const p of [...pidsOfParent(shell), shell]) { try { process.kill(p, "SIGKILL"); } catch { /* gone */ } } });
+  await new Promise((r) => setTimeout(r, 600));
+  const record = JSON.parse(fs.readFileSync(file, "utf8"));
+  const anchor = Math.min(readRootBirth(path.dirname(snapshot), hostBootId()), Date.parse(record.acquiredAt));
+  const held = processProbe({ platform: "darwin" }).hiddenHolders({ owner: record, anchorMs: anchor, recorded: [] });
+  const tree = new Set([shell, helper.pid, ...pidsOfParent(shell), g.gate, g.child]);
+  t.diagnostic(`shell ${shell} (opened after the anchor ${new Date(anchor).toISOString()}); held by the real classification: ${JSON.stringify(held.map((h) => h.pid))}`);
+  for (const h of held) {
+    assert.equal(tree.has(h.pid), false, `a held process is in the test's own tree: ${h.why}`);
+    assert.doesNotMatch(h.why, new RegExp(`pid (${[...tree].join("|")})\\b.*(parent|top)`), "no held reason names the test's own tree");
+    assert.notEqual(blameKind(blameOfPid(h.pid)), "managed", `a launchd-managed process was held: ${h.why}`);
+  }
+  assert.equal(held.some((h) => h.pid === shell), false, "the shell opened after the anchor is not held");
+  assert.equal(held.some((h) => h.pid === helper.pid), false, "nor is the terminal stand-in that predates it");
+  for (const kid of pidsOfParent(shell)) assert.equal(held.some((h) => h.pid === kid), false, `the command it runs is not held (pid ${kid})`);
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).handle, g.handle, "the gate still holds");
+});
+const pidsOfParent = (ppid) => spawnSync("ps", ["-A", "-o", "pid=,ppid="], { encoding: "utf8" }).stdout.split("\n").map((l) => l.trim().split(/\s+/).map(Number)).filter(([, pp]) => pp === ppid).map(([p]) => p);
+
+test("row 5.24a' D2 [native macOS]: `zsh -c '<gate> | /usr/bin/tee log'`: the gate acquires, then releases while tee is alive, and the release is clean", { skip: process.platform !== "darwin" && "macOS only", timeout: 180_000 }, async (t) => {
+  const base = tmp(t, "rk-own-tee-"); const file = path.join(base, OWNERSHIP_DIRNAME, "owner.json"); const root = path.join(base, "snapshots"); const result = path.join(base, "result.json");
+  fs.mkdirSync(path.dirname(file), { mode: 0o700 }); fs.mkdirSync(root, { mode: 0o700 }); recordRootBirth(root, { bootId: hostBootId() });
+  await new Promise((r) => setTimeout(r, 1200));   // the anchor second must pass: zsh and tee start in a later one
+  const driver = path.join(base, "gate-tee.mjs");
+  fs.writeFileSync(driver, `
+const { acquireBuildOwnership } = await import(${JSON.stringify(MODULE)});
+const fs = await import("node:fs");
+const own = acquireBuildOwnership({ file: ${JSON.stringify(file)}, stage: "tee", snapshot: ${JSON.stringify(path.join(root, OLD_KEY))}, env: process.env });
+// tee is alive here: it holds this process's stdout open until it exits
+const alive = (await import("node:child" + "_process")).spawnSync("pgrep", ["-x", "tee"], { encoding: "utf8" }).stdout.trim().split("\\n").filter(Boolean);
+fs.writeFileSync(${JSON.stringify(result)}, JSON.stringify({ release: own.release(), teeAlive: alive.length > 0 }));
+`);
+  const env = { ...process.env, NODE_OPTIONS: "" }; delete env[OWNERSHIP_ENV]; delete env.RIGHTKIT_BUILD_OWNERSHIP_FILE;
+  const zsh = spawn("/bin/zsh", ["-c", `${JSON.stringify(process.execPath)} ${JSON.stringify(driver)} | /usr/bin/tee ${JSON.stringify(path.join(base, "log"))}`], { env, stdio: "ignore" });
+  t.after(() => { try { zsh.kill("SIGKILL"); } catch { /* gone */ } });
+  await until(() => fs.existsSync(result), 60_000);
+  const r = JSON.parse(fs.readFileSync(result, "utf8"));
+  assert.equal(r.teeAlive, true, "tee was alive at the release");
+  assert.equal(r.release.released, true, `the release is clean with tee alive: ${JSON.stringify(r.release)}`);
+});
+
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Decision D4 (rows 5.15, 5.17): build ownership never creates the managed root. Injected temporary roots only (the real managed root
+// is protected by the 5.25 guard).
+// ---------------------------------------------------------------------------------------------------------------------
+
+const isRefusal = (reason) => (e) => e?.code === "refused" && e.reason === reason && /managed root/.test(e.message);
+const splitDevice = (p) => (p === "/" ? 1n : 2n);   // the managed root on another device than /
+const bootDevice = () => 1n;                         // the managed root on the boot volume
+/** Takes ownership at the host's own location inside the injected managed root `managedRoot`. */
+const acquireIn = (managedRoot, platform, device, extra = {}) => acquireBuildOwnership({ file: path.join(managedRoot, OWNERSHIP_DIRNAME, "owner.json"), platform, probe: fakeProbe(platform), lease: noLease, env: {}, exportEnv: false, stage: "d4", managedRoot, device, ...extra });
+
+test("D4 rule 1: the guard and its error class live in managed-root-guard.mjs, which build-ownership.mjs imports; snapshot.mjs re-exports the same two, and build-ownership.mjs never imports snapshot.mjs", async () => {
+  const guard = await import("./managed-root-guard.mjs");
+  const snapshot = await import("./snapshot.mjs");
+  assert.equal(snapshot.requireManagedRoot, guard.requireManagedRoot, "one guard, not a copy");
+  assert.equal(snapshot.SnapshotError, guard.SnapshotError, "one error class: a refusal from either path is instanceof the same SnapshotError");
+  const imports = [...fs.readFileSync(new URL("./build-ownership.mjs", import.meta.url), "utf8").matchAll(/^import\b[^;]*?from\s+"([^"]+)"/gm)].map((m) => m[1]);
+  assert.ok(imports.includes("./managed-root-guard.mjs"), imports.join(", "));
+  assert.equal(imports.includes("./snapshot.mjs"), false, "no import cycle with snapshot.mjs");
+  const absent = path.join(os.tmpdir(), `rk-d4-absent-${process.pid}-${Date.now()}`);
+  assert.throws(() => guard.requireManagedRoot(absent, { platform: "linux" }), (e) => e instanceof snapshot.SnapshotError && e.code === "refused" && e.reason === "managed-root-missing");
+  assert.equal(fs.existsSync(absent), false, "the guard creates nothing");
+});
+
+test("D4: the managed-root guard is FIRST in acquireBuildOwnership: an absent root, a link, or the boot volume is refused by name, and nothing is created", (t) => {
+  const base = tmp(t, "rk-own-d4-");
+  for (const platform of ["darwin", "win32"]) {
+    const absent = path.join(base, `absent-${platform}`);
+    assert.throws(() => acquireIn(absent, platform, splitDevice), isRefusal("managed-root-missing"), platform);
+    assert.equal(fs.existsSync(absent), false, `${platform}: the managed root was not created`);
+    // The guard is before the environment and the record: a nested gate's handle makes no difference.
+    assert.throws(() => acquireIn(absent, platform, splitDevice, { env: { [OWNERSHIP_ENV]: "x" } }), isRefusal("managed-root-missing"), `${platform}: before the environment is read`);
+    assert.deepEqual(fs.readdirSync(base).filter((n) => n.startsWith("absent")), [], `${platform}: nothing anywhere`);
+  }
+  // The managed root as a link: refused, and its target is untouched.
+  const target = path.join(base, "target"); fs.mkdirSync(target, { mode: 0o700 }); const link = path.join(base, "link");
+  let linked = true; try { fs.symlinkSync(target, link, "dir"); } catch (e) { linked = false; t.diagnostic(`no link here (${e.code}): the link case is not run`); }
+  if (linked) { assert.throws(() => acquireIn(link, "darwin", splitDevice), isRefusal("managed-root-missing")); assert.deepEqual(fs.readdirSync(target), [], "the target of the link is untouched"); }
+  // The Mac managed root on the boot device: refused (an unmounted volume's boot-volume substitute).
+  const onBoot = path.join(base, "onboot"); fs.mkdirSync(onBoot, { mode: 0o700 });
+  assert.throws(() => acquireIn(onBoot, "darwin", bootDevice), isRefusal("managed-root-on-boot-volume"));
+  assert.deepEqual(fs.readdirSync(onBoot), [], "nothing was created on the boot-volume root");
+  // A device that cannot be read is an error, not a pass.
+  assert.throws(() => acquireIn(onBoot, "darwin", () => { throw new Error("EIO"); }), (e) => e.code === "error");
+  // Linux has no managed root: the same absent path acquires (the durable state directory is created whole).
+  const linux = acquireBuildOwnership({ file: path.join(base, "state", "a", OWNERSHIP_DIRNAME, "owner.json"), platform: "linux", probe: fakeProbe("linux"), lease: noLease, env: {}, exportEnv: false, managedRoot: path.join(base, "absent-linux"), device: splitDevice });
+  assert.equal(linux.release().released, true);
+  assert.equal(fs.existsSync(path.join(base, "absent-linux")), false);
+});
+
+test("D4: an existing managed root gets exactly `build-ownership/` (mode 0700) and nothing else; the directory is one level, and the children directory too", { skip: process.platform === "win32" && "POSIX mode bits" }, (t) => {
+  const base = tmp(t, "rk-own-d4-ok-"); const managed = path.join(base, "managed"); fs.mkdirSync(managed, { mode: 0o700 });
+  const own = acquireIn(managed, "darwin", splitDevice);
+  assert.deepEqual(fs.readdirSync(managed), [OWNERSHIP_DIRNAME], "the managed root holds only build-ownership/");
+  assert.equal(fs.statSync(path.join(managed, OWNERSHIP_DIRNAME)).mode & 0o777, 0o700);
+  assert.deepEqual(fs.readdirSync(path.join(managed, OWNERSHIP_DIRNAME)), ["owner.json"]);
+  assert.equal(own.release().released, true);
+  assert.deepEqual(fs.readdirSync(managed), [OWNERSHIP_DIRNAME]);
+  // One level only on Mac & Dell: a missing parent is an error and creates nothing; on Linux the state directory is created whole.
+  const deep = path.join(base, "no", "such", OWNERSHIP_DIRNAME);
+  assert.throws(() => ensureOwnershipDir(deep, { platform: "darwin" }), (e) => e.code === "ENOENT");
+  assert.equal(fs.existsSync(path.join(base, "no")), false, "no parent was created");
+  ensureOwnershipDir(deep, { platform: "linux" }); assert.equal(fs.existsSync(deep), true);
+  ensureOwnershipDir(path.join(managed, OWNERSHIP_DIRNAME), { platform: "darwin" });   // an existing directory is accepted (EEXIST)
+  // The detached-children directory is one level inside an existing ownership directory, never a recursive creation.
+  const file = path.join(managed, OWNERSHIP_DIRNAME, "owner.json");
+  spawnUnderOwnership(() => ({ pid: 4321 }), "x", [], { detached: true }, { env: { [OWNERSHIP_ENV]: "h-d4", RIGHTKIT_BUILD_OWNERSHIP_FILE: file }, platform: "darwin" });
+  assert.equal(fs.existsSync(childrenDir(file, "h-d4")), true);
+  const gone = path.join(base, "gone", OWNERSHIP_DIRNAME, "owner.json");
+  assert.throws(() => spawnUnderOwnership(() => ({ pid: 1 }), "x", [], { detached: true }, { env: { [OWNERSHIP_ENV]: "h-d4", RIGHTKIT_BUILD_OWNERSHIP_FILE: gone }, platform: "darwin" }), (e) => e.code === "ENOENT");
+  assert.equal(fs.existsSync(path.join(base, "gone")), false);
+});
+
+test("D4: each entry point maps the refusal by name and creates nothing: the door (BLOCKED, exit 1), check --snapshot (RK_CHECK_ERROR, exit 2), the snapshot CLI (exit 1)", async (t) => {
+  const { main } = await import("./bin/rightkit-gate.mjs");
+  const dir = tmp(t, "rk-own-d4-entry-"); const absent = path.join(dir, "managed");
+  // The real guard, reached through the callers' own `acquireOwnership` seam with an injected absent managed root.
+  const guarded = (q) => acquireBuildOwnership({ ...q, platform: "darwin", managedRoot: absent, device: splitDevice, probe: fakeProbe("darwin"), lease: noLease, exportEnv: false, env: {} });
+  const untouched = (what) => { assert.equal(fs.existsSync(absent), false, `${what}: the managed root was not created`); assert.equal(fs.existsSync(path.join(dir, OWNERSHIP_DIRNAME)), false, `${what}: no build-ownership directory`); };
+  const snapshotRoot = path.join(dir, "snapshots");
+  // check --snapshot
+  let out = [];
+  let code = await main(["check", "--commit", "HEAD", "--full-a", "--snapshot", path.join(dir, "snap")], { cwd: dir, env: process.env, snapshotRoot, out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => { out.push("appCheck ran"); return 0; }, acquireOwnership: guarded });
+  assert.equal(code, 2, out.join("\n")); assert.match(out.join("\n"), /RK_CHECK_ERROR: .*managed root .* does not exist.*nothing ran, nothing created/); assert.doesNotMatch(out.join("\n"), /appCheck ran/); untouched("check --snapshot");
+  // the door
+  const repo = tinyRepo(t); const sha = String(spawnSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).stdout).trim();
+  fs.writeFileSync(path.join(repo, "package.json"), '{"name":"x","private":true}\n'); spawnSync("git", ["add", "-A"], { cwd: repo }); spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "p"], { cwd: repo });
+  const sha2 = String(spawnSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).stdout).trim(); assert.notEqual(sha, sha2);
+  const env = { ...process.env }; delete env.GITHUB_ACTIONS; delete env.RIGHTKIT_BUILD_OWNERSHIP; delete env.RIGHTKIT_BUILD_OWNERSHIP_FILE;
+  out = [];
+  code = await main(["--to", "compile", "--commit", sha2], { cwd: repo, platform: "linux", snapshotRoot, env, spawn: (c, a, opts) => (c === "git" ? spawnSync(c, a, { ...opts, encoding: "utf8" }) : { status: 1, stdout: "", stderr: "not in this fixture" }), out: (m) => out.push(m), err: (m) => out.push(m), runCheck: async () => { out.push("check ran"); return 0; }, runCompile: async () => { out.push("compile ran"); return 0; }, acquireOwnership: guarded });
+  assert.equal(code, 1, out.join("\n")); assert.match(out.join("\n"), /BLOCKED: .*managed root .* does not exist.*nothing ran, nothing created/); assert.doesNotMatch(out.join("\n"), /(check|compile) ran/); untouched("the door");
+  assert.equal(fs.existsSync(snapshotRoot), false, "the door synced nothing");
+  // the snapshot CLI: its own guard (the snapshot lane's) and ownership's agree, exit 1, nothing created
+  const { snapshotCommand } = await import("./snapshot.mjs");
+  out = [];
+  code = snapshotCommand({ cwd: repo, env, platform: "darwin", snapshotRoot, managedRoot: absent, device: splitDevice, out: (m) => out.push(m), err: (m) => out.push(m), acquireOwnership: guarded }, ["--commit", sha2]);
+  assert.equal(code, 1, out.join("\n")); assert.match(out.join("\n"), /managed root .* does not exist/); untouched("the snapshot CLI");
+  assert.equal(fs.existsSync(snapshotRoot), false);
+  // ownership's own refusal reaches the CLI's catch even when the snapshot guard is not the one that fires
+  out = [];
+  code = snapshotCommand({ cwd: repo, env, platform: "darwin", snapshotRoot, managedRoot: dir, device: splitDevice, out: (m) => out.push(m), err: (m) => out.push(m), acquireOwnership: guarded }, ["--commit", sha2]);
+  assert.equal(code, 1, out.join("\n")); assert.match(out.join("\n"), /refused.*managed root .* does not exist/); untouched("the snapshot CLI (ownership's guard)");
+});
+
+// ---- Windows process identity (found by row 5.20's native on the Dell, 2026-10-29): another process's start time, in any time zone ----
+
+test("Windows identity/bootTime: the start and boot times are Unix milliseconds from DateTimeOffset, never a subtraction of a LOCAL 1970-01-01 (which is off by the zone's offset)", () => {
+  const scripts = [];
+  const spawn = (cmd, args) => {
+    const script = Buffer.from(args[args.indexOf("-EncodedCommand") + 1], "base64").toString("utf16le"); scripts.push(script);
+    return { status: 0, stdout: /LastBootUpTime/.test(script) ? "BOOT:1793040152500\r\n" : "START:1793253444190\r\n", stderr: "" };
+  };
+  const probe = processProbe({ platform: "win32", spawn, kill: () => true });
+  assert.deepEqual(probe.identity(4242), { alive: true, startedMs: 1793253444190, group: null });
+  assert.equal(probe.bootTime(), 1793040152500);
+  assert.equal(scripts.length, 2);
+  for (const s of scripts) { assert.match(s, /\[DateTimeOffset\]/); assert.match(s, /ToUnixTimeMilliseconds\(\)/); assert.doesNotMatch(s, /1970-01-01/, "the epoch is not parsed as a local time"); }
+});
+
+test("[native Windows] a LIVE gate started by another process reads as the same process: its identity agrees with its own time origin, and the boot time agrees with the uptime", { skip: process.platform !== "win32" && "Windows PowerShell Get-Process", timeout: 120_000 }, async (t) => {
+  const dir = tmp(t, "rk-own-ident-"); const info = path.join(dir, "info.json"); const script = path.join(dir, "live.mjs");
+  fs.writeFileSync(script, `import fs from "node:fs"; fs.writeFileSync(${JSON.stringify(info)}, JSON.stringify({ pid: process.pid, origin: Math.round(performance.timeOrigin) })); setInterval(() => {}, 1000);`);
+  // Started the way a shell starts a gate (cmd start), as the door's nested gates and a second request see it.
+  const live = spawn("cmd.exe", ["/d", "/c", "start", "\"\"", "/b", "/wait", process.execPath, script], { stdio: "ignore", env: { ...process.env, NODE_OPTIONS: "" } });
+  t.after(() => { try { live.kill(); } catch { /* gone */ } });
+  await until(() => fs.existsSync(info), 60_000);
+  const g = JSON.parse(fs.readFileSync(info, "utf8"));
+  t.after(() => { try { process.kill(g.pid, "SIGKILL"); } catch { /* gone */ } });
+  const probe = processProbe({ platform: "win32" });
+  const id = probe.identity(g.pid);
+  assert.equal(id.alive, true);
+  assert.ok(Math.abs(id.startedMs - g.origin) <= 3000, `identity ${id.startedMs} vs the process's own time origin ${g.origin}: ${id.startedMs - g.origin} ms apart (a local-epoch bug is the zone offset, ${-new Date().getTimezoneOffset()} min)`);
+  const boot = probe.bootTime();
+  const expected = Date.now() - os.uptime() * 1000;
+  assert.ok(Math.abs(boot - expected) <= 300_000, `boot time ${new Date(boot).toISOString()} vs now minus uptime ${new Date(expected).toISOString()}`);
 });

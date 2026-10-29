@@ -1,8 +1,10 @@
 // Host-wide build ownership (docs/GATE-CONTRACT.md §1 "Commit-only build", "Broker lease"; joint plan step 4, G1).
 //
 // The gate acquires the host's build ownership BEFORE it syncs a snapshot and holds it until the stage completes, so no other
-// request can replace a snapshot while anything reads it. One owner per host (`<managed root>/build-ownership/owner.json`, next
-// to `snapshots/`): builds are one per host, and the snapshot's own sync lock only covers the sync itself.
+// request can replace a snapshot while anything reads it. One owner per host, at ONE fixed location per host (`ownershipFile`:
+// `<managed root>/build-ownership/owner.json` on Mac & Dell, `~/.local/state/rightkit/build-ownership/owner.json` on Linux), never
+// derived from the snapshot root or from an environment variable: builds are one per host, and the snapshot's own sync lock only
+// covers the sync itself. The directory is mode 0700 and refused when group- or other-accessible (`ensureOwnershipDir`).
 //
 // The owner record is written whole (create-exclusive) and names a fresh handle (the `ownership.handle` a broker request carries),
 // the gate's pid & start identity, the stage, snapshot & commit, how the gate's children are contained, and whether a broker
@@ -33,16 +35,17 @@
 //         Unknown is held: on Linux a /proc entry of this user's that cannot be read (EACCES/EPERM, e.g. a non-dumpable process)
 //         never counts as "not a reader" by default. It is skipped only when it vanished (ENOENT/ESRCH), belongs to another user
 //         (/proc/<pid>/status, world-readable), or the INVARIANT below holds: such a process is out of this ownership's reach only
-//         when it started before the acquisition of the PREVIOUS owner (/proc/<pid>/stat field 22 against the boot time, less
-//         START_SLACK_MS of reading error) AND that previous owner's release proved zero readers (a durable marker,
-//         `last-clean-release.json` beside the record, written only by a clean release; a record carries it as `cleanBefore`
-//         when it was acquired on a free host after that release). A process that predates THIS ownership but started after the
-//         previous acquisition may be the previous owner's leftover, so it stays held. A previous release that ended held,
-//         unknown, or reclaimed (a crash), a missing or unreadable marker, or an unreadable stat: every unreadable process is
-//         held. Residual on POSIX, stated plainly: a descendant that started a
-//         new session, dropped the variable (or is an Apple platform binary on macOS), runs outside the snapshot directory, names
-//         it in no argument AND holds no file in it open or mapped at the instant the nets sample it (it reads between samples)
-//         is invisible; a sampled net cannot prove such a process will not read next. Another user's unreadable processes are
+//         when it started before this ownership's baseline (/proc/<pid>/stat field 22 against the boot time, less START_SLACK_MS
+//         of reading error): the later of the acquisition of the previous owner whose release proved zero readers (a durable marker,
+//         `last-clean-release.json` beside the record, written only by a clean release; a record carries it as `cleanBefore`) and
+//         the snapshot root's birth in this boot, capped at acquisition; with neither, this record's own acquisition. A process
+//         that predates THIS ownership but started after the previous acquisition may be the previous owner's leftover, so it
+//         stays held when a baseline from a clean release or a birth exists (it is only dropped when it predates that baseline). An
+//         unreadable stat: the process is held. Residual on POSIX, stated plainly: a descendant that started a
+//         new session, dropped the variable, runs outside the snapshot directory, names it in no argument AND holds no file in it
+//         open or mapped at the instant the nets sample it (it reads between samples) is invisible; a sampled net cannot prove
+//         such a process will not read next. (On macOS an Apple platform binary no longer escapes that way: hidden means held
+//         after the baseline unless lineage clears it.) Another user's unreadable processes are
 //         skipped on the premise that they cannot read this user's managed root.
 //       Any host: a reboot after the record was written ends every process it covered.
 //   - if a broker request may have been submitted, `rustright snapshot-lease status` reports REAPED for that snapshot & handle.
@@ -59,7 +62,8 @@ import os from "node:os";
 import path from "node:path";
 import { spawn as spawnDetachedDefault, spawnSync } from "./background-process.mjs";
 import { managedRuntimeClient } from "./managed-cargo.mjs";
-import { snapshotRoot } from "./snapshot.mjs";
+import { resolveManagedRoots } from "./managed-roots.mjs";
+import { requireManagedRoot } from "./managed-root-guard.mjs";
 
 export const OWNERSHIP_SCHEMA = "rightkit.build-ownership/1";
 export const HOLDER_SCHEMA = "rightkit.build-ownership-holder/1";
@@ -83,10 +87,71 @@ export class OwnershipBusy extends Error {
   constructor(message, detail = {}) { super(message); this.code = "busy"; this.detail = detail; }
 }
 
-/** Where the host's owner record lives: beside the snapshot root, never in scratch. */
-export function ownershipFile({ platform = process.platform, env = process.env, home = os.homedir(), snapshotRoot: root } = {}) {
+/** The directory beside the host's snapshots (or beside any injected root) that holds the owner record. */
+export const OWNERSHIP_DIRNAME = "build-ownership";
+
+/**
+ * Where the host's one owner record lives (GC:24 "the host's build ownership"; GC:52 "host-wide build ownership"; item 5 row 5.17):
+ * ONE fixed location per host, independent of the snapshot root and of every environment variable. Two gates whose environments
+ * choose different snapshot roots (XDG_STATE_HOME, a configured root) must still contend for one record, so nothing here reads
+ * `process.env`, and nothing derives from where snapshots live.
+ *   Mac & Dell: `<managed root>/build-ownership/owner.json` (the host's fixed managed root, `/Volumes/D/.rightkit-managed`,
+ *     `D:\.rightkit-managed`).
+ *   Linux (WSL2 included): `<account home>/.local/state/rightkit/build-ownership/owner.json`, the account home taken from the
+ *     passwd database (`os.userInfo()`), never from $HOME.
+ * `home` replaces the Linux account home and `beside` replaces the whole location (`<dirname(beside)>/build-ownership/owner.json`);
+ * both are injection points for fixtures and tests only. A production caller passes neither: the root a caller derived from the
+ * environment must never be passed as `beside`, because that is the defect this row removes.
+ */
+export function ownershipFile({ platform = process.platform, home, beside } = {}) {
   const paths = platform === "win32" ? path.win32 : path.posix;
-  return paths.join(paths.dirname(root ?? snapshotRoot({ platform, env, home })), "build-ownership", "owner.json");
+  if (beside !== undefined) {
+    if (typeof beside !== "string" || beside === "") throw new TypeError(`ownershipFile: beside must be a path (${JSON.stringify(beside)})`);
+    return paths.join(paths.dirname(beside), OWNERSHIP_DIRNAME, "owner.json");
+  }
+  if (platform === "darwin" || platform === "win32") return paths.join(resolveManagedRoots({ env: {}, platform, home: "" }).dataRoot, OWNERSHIP_DIRNAME, "owner.json");
+  let base = home;
+  if (base === undefined) {
+    try { base = os.userInfo().homedir; } catch (e) { throw new OwnershipBusy(`build ownership: this account's home directory cannot be read (${e.message}), so the host's owner record has no location`); }
+  }
+  return paths.join(base, ".local", "state", "rightkit", OWNERSHIP_DIRNAME, "owner.json");
+}
+
+/**
+ * The managed-root guard, FIRST in `acquireBuildOwnership` (decision D4, rows 5.15 and 5.17): on Mac & Dell, when the record is at
+ * the host's own location (inside the host's managed root, or inside the `managedRoot` a fixture injects), the managed root must
+ * already exist, be a plain directory and, on the Mac, live on another device than `/`. Taking ownership creates `build-ownership/`,
+ * and must never be what brings a missing managed root (or a boot-volume substitute for an unmounted one) into being. Throws the
+ * guard's named refusal (`code: "refused"`, `reason`), before anything is read or written. Linux has no managed root.
+ */
+function guardManagedRoot(file, { platform, managedRoot, device }) {
+  if (platform !== "darwin" && platform !== "win32") return;
+  const root = managedRoot ?? resolveManagedRoots({ env: {}, platform, home: "" }).dataRoot;
+  if (managedRoot === undefined) {
+    const paths = platform === "win32" ? path.win32 : path.posix;
+    const fold = (x) => paths.resolve(x).toLowerCase();   // both volumes are case-insensitive by default
+    const rel = paths.relative(fold(root), fold(file));
+    if (rel === "" || rel === ".." || rel.startsWith(`..${paths.sep}`) || paths.isAbsolute(rel)) return; // a record elsewhere (a fixture's): not the host's
+  }
+  requireManagedRoot(root, { platform, device });
+}
+
+/**
+ * Creates the ownership directory mode 0700 (one level on Mac & Dell) and refuses an existing POSIX one that grants group or other access (item 5 row 5.22):
+ * another user's unreadable process is skipped by the nets on the premise that it cannot read this user's managed root, and a
+ * directory other users could write would let them forge or remove the record. Windows has no mode bits; its directory ACL is the
+ * same trust the record itself has.
+ */
+export function ensureOwnershipDir(dir, { platform = process.platform } = {}) {
+  // Mac & Dell: exactly ONE level, `build-ownership/` inside a managed root that already exists (decision D4: the gate never
+  // creates the managed root, and a recursive creation here would). Linux: the durable state directory under the account home is
+  // created whole (GC:63).
+  if (platform === "linux") fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  else { try { fs.mkdirSync(dir, { mode: 0o700 }); } catch (e) { if (e.code !== "EEXIST") throw e; } }
+  if (platform === "win32" || process.platform === "win32") return;
+  const st = fs.statSync(dir);
+  if (!st.isDirectory()) throw new OwnershipBusy(`build ownership directory ${dir} is not a directory`);
+  if ((st.mode & 0o077) !== 0) throw new OwnershipBusy(`build ownership directory ${dir} is mode ${(st.mode & 0o777).toString(8).padStart(3, "0")}: group or other users can reach it, so the premise that another user's processes cannot read this user's managed root does not hold; chmod 700 ${dir} (nothing ran)`, { dir, mode: st.mode & 0o777 });
 }
 
 export const jobName = (handle) => `Local\\RightKitBuildOwnership-${handle}`;
@@ -210,6 +275,130 @@ export function namesDir(text, dir) {
   return false;
 }
 
+/** The most parent links `classifyHiddenProcesses` follows from one process before it holds it (a cycle or an absurdly deep chain is unknown). */
+export const HIDDEN_WALK_LIMIT = 1024;
+/** What `launchctl blame <pid>` prints (exit 3) for a process launchd does not manage, or that no longer exists. */
+export const NOT_MANAGED_LINE = "Process is not managed by launchd or does not exist.";
+/** `launchctl blame` answer -> `managed` (a launchd job: exit 0 with a reason), `unmanaged` (exit 3, the line above) or `unknown` (anything else). */
+export function blameKind(answer) {
+  const line = String(answer?.line ?? "").trim();
+  if (answer?.rc === 3 && line === NOT_MANAGED_LINE) return "unmanaged";
+  if (answer?.rc === 0 && line !== "" && line !== NOT_MANAGED_LINE) return "managed";
+  return "unknown";
+}
+
+/**
+ * macOS (item 5 row 5.24a, rule 5.24a' of signed/item5-sage-decisions-2.md D1 with D2; item186-decision.md:47-71 with the gate's
+ * anchor in place of the broker's root start). `ps eww` prints no environment for an Apple platform binary (/bin/*, /usr/bin/*,
+ * system daemons), so the token net cannot tell such a process from one that never carried the handle, and the snapshot-use net
+ * samples only the instant it runs. A gate descendant that is a platform binary, started its own session and touches nothing in the
+ * snapshot at that instant would escape both. So: hidden means held after the anchor, cleared only by lineage proof.
+ *
+ * `procs` are the live processes as `{ pid, ppid, group, startedMs, uid, state, hidden, uninspected, command }` (`startedMs` has
+ * `ps lstart`'s one-second resolution; `state` is `ps stat`, whose `X` means traced; `hidden`: `ps eww` shows no environment, an
+ * empty environment included; `uninspected`: `lsof` listed nothing for it). `anchorMs` is the baseline (the later of the last clean
+ * release and the snapshot root's birth in this boot, capped at acquisition); with none, the anchor is the record's own acquisition
+ * (`owner.acquiredAt`), never "no anchor": a process that started before this ownership began is no unproven work of any owner,
+ * because every record is published on a free host after a release that proved zero readers, or by a reclaim that proved the
+ * previous work gone. `owner` is the record; `recorded` the detached children the gate recorded, `[{ group, command }]` (a child
+ * leads the group named by its own pid). `blame(pid) -> { rc, line }` is `launchctl blame`; `reread(pids) -> Map(pid -> { ppid,
+ * startedMs })` re-lists pids (the binding against pid reuse).
+ *
+ * A candidate is a same-user, live (not a zombie) process the gate did not itself start for this probe, that is hidden or that
+ * `lsof` could not inspect. Each is judged in this order:
+ *   (t) it, or a process on its walk, is traced (a ptrace attach reparents to the tracer) -> HELD.
+ *   (a) it started before the anchor second -> drop. The anchor second itself counts as after: `lstart` is whole seconds.
+ *   (b) it is in a recorded detached group -> HELD. It is in the owner's group -> HELD unless its parent is one of the owner's
+ *       recorded ancestors, matched by pid and start identity (`gate | tee`: that ancestor's other child), when it goes to (c).
+ *       The owner's own recorded ancestors are never its children and are not candidates.
+ *   (c) walk up from it; for each parent, in order:
+ *       the parent is the owner or a recorded child; the parent cannot be read; the parent started after its child (pid reuse);
+ *       or the walk passes HIDDEN_WALK_LIMIT steps or loops -> HELD.
+ *       The parent is launchd (pid 1): the child X on the walk started at or after the anchor; `launchctl blame X` decides. A
+ *       launchd job (exit 0 and a reason) means the chain was born under launchd and never passed through the gate -> drop,
+ *       once the re-read after the blame calls confirms X (still a child of pid 1, same start). Not managed (exit 3) is a reparented
+ *       orphan, or a vanished one -> HELD. Anything else (another exit code, no output, a spawn error, a timeout) -> HELD.
+ *       The parent provably started before the anchor, and is not launchd -> drop (a terminal opened after the anchor under a
+ *       Terminal that predates it).
+ *       Otherwise move to the parent and repeat. A recorded ancestor is walked like any other process: the exemption in (b) is never
+ *       an immediate drop.
+ * Residual R1 (trusted per-user model, AR:273-276): a gate descendant can ask launchd to spawn a process (`launchctl submit`, `open`, an
+ * XPC service, a LaunchAgent). That process is launchd-born, so it is dropped. macOS has no subreaper, so nothing else reparents a
+ * descendant to a process that predates the anchor.
+ * Returns `[{ pid, why }]`, every process held, each reason naming the pid.
+ */
+export function classifyHiddenProcesses({ procs, own = new Set(), uid, owner, recorded = [], anchorMs, alive = () => true, blame = null, reread = null }) {
+  const byPid = new Map(procs.map((p) => [p.pid, p]));
+  const anchor = Number.isFinite(anchorMs) ? anchorMs : Date.parse(owner?.acquiredAt ?? "");
+  const anchorSecond = Number.isFinite(anchor) ? Math.floor(anchor / 1000) * 1000 : NaN;
+  const ownerGroup = Number.isInteger(owner?.containment?.group) ? owner.containment.group : null;
+  const recordedGroups = new Set(recorded.map((r) => r.group));
+  const recordedChild = (p) => recordedGroups.has(p.pid);
+  const isOwner = (p) => p.pid === owner?.pid && sameStart(p.startedMs, owner?.startedMs);
+  const ancestors = Array.isArray(owner?.ancestors) ? owner.ancestors : [];
+  const isAncestor = (p) => ancestors.some((a) => a?.pid === p.pid && sameStart(a.startedMs, p.startedMs));
+  const traced = (p) => /X/.test(String(p.state));
+  const before = (p) => p.startedMs < anchorSecond;
+  const held = [];
+  const cleared = [];                                   // [{ p, top, hold }]: dropped by a launchd-job top, pending the re-read
+  const blamed = new Map();                             // one answer per pid within this sample
+  const blameOf = (pid) => {
+    if (!blamed.has(pid)) { let a; try { a = typeof blame === "function" ? blame(pid) : null; } catch { a = null; } blamed.set(pid, a); }
+    return blamed.get(pid);
+  };
+  const name = (p) => `pid ${p.pid} (${String(p.command ?? "?").slice(0, 80)}), started ${Number.isFinite(p.startedMs) ? new Date(p.startedMs).toISOString() : "at a time that cannot be read"}`;
+  for (const p of procs) {
+    if (own.has(p.pid) || p.uid !== uid || /^Z/.test(String(p.state)) || !(p.hidden || p.uninspected)) continue;
+    const what = p.hidden ? "its environment is hidden (`ps eww` shows none)" : "`lsof` cannot inspect it";
+    const hold = (why) => { if (alive(p.pid)) held.push({ pid: p.pid, why: `${name(p)}: ${what}, and ${why}` }); };
+    if (isOwner(p) || isAncestor(p)) continue; // the owner, or one of its parents: never its child
+    if (!Number.isFinite(anchorSecond)) { hold("this ownership has no anchor and its record has no readable acquisition time, so nothing hidden can be cleared"); continue; }
+    if (traced(p)) { hold("it is traced (a ptrace attach reparents it to the tracer), so its lineage proves nothing"); continue; } // (t)
+    if (!Number.isFinite(p.startedMs)) { hold("its start time cannot be read"); continue; }
+    if (before(p)) continue; // (a)
+    const parentRow = byPid.get(p.ppid);
+    const peer = !!parentRow && isAncestor(parentRow) && !traced(parentRow);
+    if (recordedGroups.has(p.group)) { hold(`it is in process group ${p.group}, a detached group this gate recorded`); continue; } // (b)
+    if (p.group === ownerGroup && !peer) { hold(`it is in process group ${p.group}, the owner's group`); continue; }
+    // (c)
+    let x = p; let verdict = null; let top = null; const seen = new Set([p.pid]);
+    for (let steps = 0; verdict === null; steps++) {
+      if (steps >= HIDDEN_WALK_LIMIT) { verdict = `the ancestry walk passed ${HIDDEN_WALK_LIMIT} steps`; break; }
+      const parent = byPid.get(x.ppid);
+      if (!parent) { verdict = `the parent of pid ${x.pid} (pid ${x.ppid}) cannot be read`; break; }
+      if (isOwner(parent)) { verdict = `its ancestry reaches the owner (pid ${parent.pid}) through pid ${x.pid}`; break; }
+      if (recordedChild(parent)) { verdict = `its ancestry reaches a child this gate recorded (pid ${parent.pid}) through pid ${x.pid}`; break; }
+      if (traced(parent)) { verdict = `pid ${parent.pid} on its walk is traced, so its lineage proves nothing`; break; }
+      if (parent.pid === 1) {
+        const answer = blameOf(x.pid);
+        const kind = blameKind(answer);
+        if (kind === "managed") { verdict = false; top = x; break; }
+        verdict = kind === "unmanaged" ? `pid ${x.pid} is an orphan: its parent is launchd, it started at or after the anchor, and launchctl blame says it is not managed by launchd (a reparented orphan, or one that vanished)`
+          : `pid ${x.pid}'s parent is launchd and launchctl blame gave no usable answer (${answer ? `exit ${answer.rc}, ${JSON.stringify(String(answer.line ?? "").slice(0, 80))}` : "it could not run"}), so it is unknown`;
+        break;
+      }
+      if (!Number.isFinite(parent.startedMs) || parent.startedMs > x.startedMs) { verdict = `pid ${parent.pid} started after its child pid ${x.pid} (pid reuse), so the lineage cannot be trusted`; break; }
+      if (before(parent)) { verdict = false; break; } // a parent that provably predates the anchor, and is not launchd
+      if (seen.has(parent.pid)) { verdict = `the ancestry of pid ${p.pid} loops at pid ${parent.pid}`; break; }
+      seen.add(parent.pid); x = parent;
+    }
+    if (verdict) hold(verdict);
+    else if (top) cleared.push({ p, top, hold });
+  }
+  // Binding against pid reuse: a top cleared as a launchd job is re-listed after the blame calls; one that is no longer a child of
+  // launchd, started at another time, or is gone, was another process when it was judged.
+  if (cleared.length) {
+    const tops = [...new Set(cleared.map((c) => c.top.pid))];
+    let fresh = null; try { fresh = typeof reread === "function" ? reread(tops) : null; } catch { fresh = null; }
+    for (const c of cleared) {
+      const f = fresh?.get(c.top.pid);
+      if (!f) c.hold(fresh ? `pid ${c.top.pid}, the launchd job it descends from, is gone on the re-read, so its lineage changed during the sample` : `pid ${c.top.pid}, the launchd job it descends from, could not be re-read, so the answer cannot be bound to it`);
+      else if (f.ppid !== 1 || f.startedMs !== c.top.startedMs) c.hold(`pid ${c.top.pid}, the launchd job it descends from, is not the same process on the re-read (parent ${f.ppid}, started ${Number.isFinite(f.startedMs) ? new Date(f.startedMs).toISOString() : "?"}; it was parent 1, started ${new Date(c.top.startedMs).toISOString()}): pid reuse`);
+    }
+  }
+  return held;
+}
+
 /**
  * The host's process facts the ownership rules rely on. Each answer is a fact or a throw; a throw means "unknown" and the
  * caller treats it as busy.
@@ -226,18 +415,23 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
     };
     return {
       platform,
-      /** `{ alive, startedMs }`. This gate's own start comes from its time origin (no process launch). */
+      /**
+       * `{ alive, startedMs }`. This gate's own start comes from its time origin (no process launch). Another process's start is
+       * a Unix time in ms from `[DateTimeOffset]`: `[datetime]'1970-01-01Z'` parses as LOCAL time, so subtracting it was off by the
+       * zone's offset (5.5 h on the Dell, 2026-10-29), which made a live owner read as another process and, west of UTC, a reboot
+       * appear to have happened.
+       */
       identity(pid) {
         if (pid === process.pid) return { alive: true, startedMs: Math.round(performance.timeOrigin), group: null };
         if (!exists(pid)) return { alive: false, startedMs: null, group: null };
-        const out = ps(`$p = Get-Process -Id ${Number(pid)} -ErrorAction SilentlyContinue; if ($p) { 'START:' + [int64](($p.StartTime.ToUniversalTime()) - [datetime]'1970-01-01Z').TotalMilliseconds } else { 'GONE' }`);
+        const out = ps(`$p = Get-Process -Id ${Number(pid)} -ErrorAction SilentlyContinue; if ($p) { 'START:' + ([DateTimeOffset]$p.StartTime).ToUnixTimeMilliseconds() } else { 'GONE' }`);
         if (out === "GONE") return { alive: false, startedMs: null, group: null };
         const m = /START:(\d+)/.exec(out);
         if (!m) throw new Error(`cannot read the start time of pid ${pid}`);
         return { alive: true, startedMs: Number(m[1]), group: null };
       },
       bootTime() {
-        const m = /BOOT:(\d+)/.exec(ps("'BOOT:' + [int64](((Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime()) - [datetime]'1970-01-01Z').TotalMilliseconds"));
+        const m = /BOOT:(\d+)/.exec(ps("'BOOT:' + ([DateTimeOffset](Get-CimInstance Win32_OperatingSystem).LastBootUpTime).ToUnixTimeMilliseconds()"));
         if (!m) throw new Error("cannot read the boot time");
         return Number(m[1]);
       },
@@ -336,9 +530,11 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
   //   (2) the birth of the snapshot root in this boot (the root's birth record), capped at this ownership's acquisition: a process
   //       that started before the root existed cannot have held it open from before, and one that started before this ownership
   //       is not the gate's own.
-  // A process that predates THIS ownership but started after both may be a previous owner's leftover and stays held; so does
-  // everything when there is no baseline (a previous release that ended held, unknown or reclaimed leaves no marker; a missing,
-  // malformed or other-boot birth record), when the process's start time cannot be read, or when its stat is unreadable.
+  // With neither (a previous release that ended held, unknown or reclaimed leaves no marker; a missing, malformed or other-boot
+  // birth record) the baseline is this ownership's own acquisition (decision D1, 5.23 amended): nothing that started before this
+  // record was published is the unproven work of any owner, because every record is published on a free host after a release that
+  // proved zero readers, or by a reclaim that proved the previous work gone. A process that started at or after that, when its
+  // start time cannot be read, or when its stat is unreadable, stays held.
   const unreadable = (pid, e, skipBefore) => {
     if (GONE.has(e.code)) return;
     if (!["EACCES", "EPERM"].includes(e.code)) throw e;
@@ -355,7 +551,7 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
     let startMs;
     try { startMs = startedAt(pid, bootMs()); } catch (e3) { if (GONE.has(e3.code)) return; throw unknown(`its start time cannot be read (${e3.code ?? e3.message})`); }
     if (startMs + START_SLACK_MS < skipBefore) return;
-    throw unknown(`it started at ${new Date(startMs).toISOString()}, not before the baseline ${new Date(skipBefore).toISOString()} (the later of the last clean release's acquisition and the snapshot root's birth)`);
+    throw unknown(`it started at ${new Date(startMs).toISOString()}, not before the baseline ${new Date(skipBefore).toISOString()} (the later of the last clean release's acquisition and the snapshot root's birth, else this ownership's own acquisition)`);
   };
   return {
     platform,
@@ -392,8 +588,8 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
     /**
      * Pids of processes whose environment carries `<OWNERSHIP_ENV>=<handle>` (this gate's own chain left out). Linux reads
      * /proc/<pid>/environ (an unreadable entry of this user's throws: unknown); macOS reads `ps eww`, which shows the environment
-     * of every process the user may inspect except Apple platform binaries (/bin/*, /usr/bin/*), which the snapshot-use net
-     * covers. null where neither exists.
+     * of every process the user may inspect except Apple platform binaries (/bin/*, /usr/bin/*), which `hiddenHolders` judges by
+     * lineage and the snapshot-use net covers. null where neither exists.
      */
     tokenHolders(handle, skipBefore) {
       const token = `${OWNERSHIP_ENV}=${handle}`;
@@ -413,6 +609,63 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
       if (r.error || r.status !== 0) throw new Error(`ps eww: ${r.error?.message ?? (String(r.stderr ?? "").trim() || `exit ${r.status}`)}`);
       const pattern = new RegExp(`(^|\\s)${token.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&")}(\\s|$)`);
       return String(r.stdout ?? "").split(/\r?\n/).map((l) => /^\s*(\d+)\s(.*)$/.exec(l)).filter((m) => m && !own.has(Number(m[1])) && Number(m[1]) !== r.pid && pattern.test(m[2])).map((m) => Number(m[1]));
+    },
+    /**
+     * macOS only (null elsewhere: Linux reads /proc/<pid>/environ under the unreadable rule, Windows uses job containment). The
+     * live same-user processes the token net cannot judge because `ps eww` shows no environment for them (hidden: an Apple
+     * platform binary, or a truly empty environment), plus any `lsof` cannot inspect, classified by `classifyHiddenProcesses`
+     * with this gate's anchor. `{ owner, anchorMs, recorded }` as there. Returns `[{ pid, why }]` (held), or throws: a listing
+     * that did not finish cleanly is unknown, and the caller stays busy.
+     */
+    hiddenHolders({ owner, anchorMs, recorded = [] } = {}) {
+      if (platform !== "darwin") return null;
+      // Without this process's own user id nothing could be told from another user's (which is skipped): unknown, never "none".
+      if (!Number.isInteger(uid)) throw new Error("this process's user id is unknown");
+      const C = { LC_ALL: "C", LANG: "C" };
+      const own = new Set();
+      const listing = (what, r) => { if (Number.isInteger(r.pid)) own.add(r.pid); if (r.error || r.status !== 0) throw new Error(`${what}: ${r.error?.message ?? (String(r.stderr ?? "").trim().split(/\r?\n/).pop() || `exit ${r.status}`)}`); return String(r.stdout ?? ""); };
+      const table = listing("ps", run(spawn, "ps", ["-A", "-ww", "-o", "pid=", "-o", "ppid=", "-o", "pgid=", "-o", "uid=", "-o", "stat=", "-o", "lstart=", "-o", "command="], C));
+      const withEnv = listing("ps eww", run(spawn, "ps", ["eww", "-A", "-o", "pid=", "-o", "command="], C));
+      const lsofOut = listing("lsof", run(spawn, "lsof", ["-n", "-P", "-a", "-u", String(uid), "-Fp"]));
+      const procs = [];
+      for (const line of table.split(/\r?\n/)) {
+        const m = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\w{3} \w{3}\s+\d+ \d\d:\d\d:\d\d \d{4})\s+(.*)$/.exec(line);
+        if (m) procs.push({ pid: Number(m[1]), ppid: Number(m[2]), group: Number(m[3]), uid: Number(m[4]), state: m[5], startedMs: Date.parse(m[6].replace(/\s+/g, " ")), command: m[7].trim() });
+      }
+      if (!procs.length) throw new Error("ps listed no process");
+      // This gate's own chain (itself and its ancestors) and the listings it just ran are never another owner's children.
+      const byPid = new Map(procs.map((p) => [p.pid, p]));
+      for (let pid = process.pid; pid > 1 && !own.has(pid); pid = byPid.get(pid)?.ppid ?? 0) own.add(pid);
+      const env = new Map();
+      for (const line of withEnv.split(/\r?\n/)) { const m = /^\s*(\d+)\s+(.*)$/.exec(line); if (m) env.set(Number(m[1]), m[2].trim()); }
+      const inspected = new Set(lsofOut.split(/\r?\n/).filter((l) => l.startsWith("p")).map((l) => Number(l.slice(1))));
+      for (const p of procs) {
+        // A process shows its environment when its `ps eww` line is its command line followed by more; anything else (no line, the
+        // same line, another command line) is hidden. An empty environment prints no more than the command, so it is hidden too.
+        const shown = env.get(p.pid);
+        p.hidden = !(shown !== undefined && shown.length > p.command.length && shown.startsWith(`${p.command} `));
+        p.uninspected = !inspected.has(p.pid);
+      }
+      // `launchctl blame <pid>` (LC_ALL=C, 5 s): exit 0 and a reason is a launchd job; exit 3 and the "not managed" line is a process
+      // launchd does not manage (a reparented orphan) or one that is gone; anything else is unknown (rc null: it could not run).
+      const blame = (pid) => {
+        const r = spawn("launchctl", ["blame", String(pid)], { encoding: "utf8", env: { ...process.env, LC_ALL: "C", LANG: "C" }, timeout: 5000, maxBuffer: 1 << 16 });
+        if (r.error) return { rc: null, line: String(r.error.message ?? r.error) };
+        const text = `${String(r.stdout ?? "")}${String(r.stderr ?? "")}`.split(/\r?\n/).find((l) => l.trim() !== "") ?? "";
+        return { rc: r.status, line: text.trim() };
+      };
+      // Re-lists pids after the blame calls (the binding against pid reuse): `Map(pid -> { ppid, startedMs })`; a pid that is gone is absent.
+      const reread = (pids) => {
+        const r = run(spawn, "ps", ["-o", "pid=", "-o", "ppid=", "-o", "lstart=", "-p", pids.join(",")], C);
+        if (r.error || (r.status !== 0 && String(r.stdout ?? "").trim() !== "")) throw new Error(`ps -p: ${r.error?.message ?? `exit ${r.status}`}`);
+        const out = new Map();
+        for (const line of String(r.stdout ?? "").split(/\r?\n/)) {
+          const m = /^\s*(\d+)\s+(\d+)\s+(\w{3} \w{3}\s+\d+ \d\d:\d\d:\d\d \d{4})\s*$/.exec(line);
+          if (m) out.set(Number(m[1]), { ppid: Number(m[2]), startedMs: Date.parse(m[3].replace(/\s+/g, " ")) });
+        }
+        return out;
+      };
+      return classifyHiddenProcesses({ procs, own, uid, owner, recorded, anchorMs, alive: exists, blame, reread });
     },
     /**
      * Processes using the snapshot `dir` in a way a new session, a scrubbed environment and a working directory elsewhere do not
@@ -499,8 +752,8 @@ export function spawnUnderOwnership(spawn, command, args, options = {}, { env = 
   const handle = env[OWNERSHIP_ENV] ?? options?.env?.[OWNERSHIP_ENV];
   if (!options?.detached || platform === "win32" || !handle) return spawn(command, args, options);
   const merged = { ...(options.env ?? {}), ...env };
-  const dir = childrenDir(merged[OWNERSHIP_FILE_ENV] || ownershipFile({ platform, env: merged }), handle);
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const dir = childrenDir(merged[OWNERSHIP_FILE_ENV] || ownershipFile({ platform }), handle);
+  try { fs.mkdirSync(dir, { mode: 0o700 }); } catch (e) { if (e.code !== "EEXIST") throw e; } // the ownership directory exists while this gate holds it
   const intent = path.join(dir, `intent-${process.pid}-${crypto.randomUUID()}.json`);
   // The child's start lower bound is taken BEFORE it is created, so however long this process pauses before recording the
   // group, every member of it started at or after the bound (a later bound would read a live group as pid reuse).
@@ -534,14 +787,15 @@ function writeCleanMarker(file, owner) {
 export const ROOT_BIRTH_SCHEMA = "rightkit.snapshot-root-birth/1";
 /** Inside a snapshot root: when this root came into being, and in which boot of the host. */
 export const rootBirthFile = (root) => path.join(root, ".rightkit-root-birth.json");
-/** This boot's identity: Linux boot_id, macOS kern.boottime; null where it cannot be read (Windows, a failure): no baseline then. */
+/** This boot's identity: Linux boot_id, macOS kern.bootsessionuuid; null where it cannot be read (Windows, a failure): no baseline then. */
 export function hostBootId({ platform = process.platform, readFile = fs.readFileSync, spawn = spawnSync, bootIdFile = "/proc/sys/kernel/random/boot_id" } = {}) {
   try {
     if (platform === "linux") { const id = String(readFile(bootIdFile, "utf8")).trim(); return /^[0-9a-f-]{16,}$/i.test(id) ? id : null; }
     if (platform === "darwin") {
-      const r = run(spawn, "sysctl", ["-n", "kern.boottime"]);
-      const m = /sec = (\d+), usec = (\d+)/.exec(String(r.stdout ?? ""));
-      return !r.error && r.status === 0 && m ? `${m[1]}.${m[2]}` : null;
+      // kern.bootsessionuuid: one UUID per boot, stable for the whole boot (kern.boottime moves when the wall clock is stepped).
+      const r = run(spawn, "sysctl", ["-n", "kern.bootsessionuuid"]);
+      const id = String(r.stdout ?? "").trim();
+      return !r.error && r.status === 0 && /^[0-9a-f-]{16,}$/i.test(id) ? id : null;
     }
   } catch { /* unknown */ }
   return null;
@@ -621,6 +875,9 @@ export function brokerLeaseState({ snapshot, handle, env = process.env, platform
   let answer = null;
   try { answer = JSON.parse(String(r.stdout ?? "").trim().split(/\r?\n/).pop()); } catch { answer = null; }
   if (answer?.schema !== LEASE_STATUS_SCHEMA || !LEASE_STATES.has(answer.state)) return { state: "UNKNOWN", why: `unrecognised lease status ${JSON.stringify(String(r.stdout ?? "").trim().slice(0, 200))}` };
+  // The answer must echo what was asked (RustRight echoes `snapshot` as received and `ownership` as the handle): another pair's answer,
+  // or no echo at all, binds nothing to this owner, so it is UNKNOWN and the record is held.
+  if (answer.snapshot !== snapshot || answer.ownership !== handle) return { state: "UNKNOWN", why: `the lease status does not echo the queried snapshot and ownership handle (${JSON.stringify(answer.snapshot ?? null)}, ${JSON.stringify(answer.ownership ?? null)})` };
   return { state: answer.state, why: `rustright snapshot-lease status: ${answer.state}` };
 }
 
@@ -727,10 +984,12 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null }) {
     const intents = entries.filter((n) => n.startsWith("intent-"));
     if (intents.length) throw new Error(`a detached spawn was in flight when its gate stopped (${intents[0]}), so its process group is unknown`);
     const groups = entries.filter((n) => /^group-\d+\.json$/.test(n));
+    const recorded = [];
     for (const name of groups) {
       let entry;
       try { entry = JSON.parse(fs.readFileSync(path.join(registry, name), "utf8")); } catch { throw new Error(`the detached-child entry ${name} cannot be read`); }
       if (!Number.isInteger(entry?.group) || !Number.isFinite(entry?.startedMs)) throw new Error(`the detached-child entry ${name} cannot be read`);
+      recorded.push({ group: entry.group, command: entry.command });
       let snapshot;
       try { snapshot = probe.groupSnapshot(entry.group); } catch (e) { throw new Error(`detached process group ${entry.group} cannot be listed (${e.message})`); }
       const live = snapshot.members.filter((m) => m.pid !== selfPid && m.startedMs >= entry.startedMs - START_SLACK_MS).map((m) => m.pid);
@@ -745,7 +1004,10 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null }) {
       try { const b = readRootBirth(path.dirname(owner.snapshot), probe.bootId?.()); if (b !== null) birth = Math.min(b, Date.parse(owner.acquiredAt)); } catch { birth = NaN; }
     }
     const baselines = [Date.parse(owner.cleanBefore ?? ""), birth].filter(Number.isFinite);
-    const skipBefore = baselines.length ? Math.max(...baselines) : NaN;
+    // With no baseline (no clean previous release, no birth of the root in this boot, an unreadable boot id) the anchor is this record's
+    // own acquisition: nothing that started before this ownership began is the unproven work of any owner (every record is published
+    // on a free host after a release that proved zero readers, or by a reclaim that proved the previous work gone). Never "no anchor".
+    const skipBefore = baselines.length ? Math.max(...baselines) : Date.parse(owner.acquiredAt);
     let carriers;
     try { carriers = probe.tokenHolders(owner.handle, skipBefore); } catch (e) { throw new Error(`processes carrying ${OWNERSHIP_ENV} cannot be listed (${e.message})`); }
     if (carriers) {
@@ -760,6 +1022,19 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null }) {
         const others = users.filter((u) => u.pid !== selfPid);
         if (others.length) throw new Error(`process(es) ${others.map((u) => `${u.pid} (${u.how})`).join(", ")} still use the snapshot ${owner.snapshot}`);
         proofs.push(`no process has a working directory, executable, open or mapped file or argument inside or naming ${owner.snapshot}`);
+      }
+    }
+    // macOS: a process whose environment `ps eww` does not show is held after the anchor unless its lineage clears it (row 5.24a).
+    if (typeof probe.hiddenHolders === "function") {
+      let hidden;
+      try { hidden = probe.hiddenHolders({ owner, anchorMs: skipBefore, recorded }); } catch (e) { throw new Error(`processes whose environment is hidden cannot be classified (${e.message})`); }
+      if (hidden) {
+        const others = hidden.filter((h) => h.pid !== selfPid);
+        if (others.length) {
+          const shown = others.slice(0, 8);
+          throw new Error(`${others.length} process(es) may still be this ownership's work (hidden environment, held after the anchor unless its lineage clears it): ${shown.map((h) => `${h.pid}: ${h.why}`).join("; ")}${others.length > shown.length ? `; and ${others.length - shown.length} more (pids ${others.slice(shown.length).map((h) => h.pid).join(", ")})` : ""}`);
+        }
+        proofs.push("every live process of this user whose environment is hidden started before the anchor or descends from a process that did");
       }
     }
   } else if (!rebooted) {
@@ -811,13 +1086,29 @@ export function acquireBuildOwnership({
   lease = (q) => brokerLeaseState({ ...q, env, platform }),
   exportEnv = true,
   hooks = {},
+  managedRoot,
+  device,
 } = {}) {
-  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  // First, before the environment, the record or any write: the managed root exists (decision D4). `managedRoot` and `device` are
+  // fixtures' seams; a production caller passes neither.
+  guardManagedRoot(file, { platform, managedRoot, device });
+  ensureOwnershipDir(path.dirname(file), { platform });
   const inherited = env[OWNERSHIP_ENV];
   if (inherited) {
     const current = readText(file);
     let owner = null; try { owner = JSON.parse(current ?? ""); } catch { owner = null; }
     if (owner?.handle === inherited) {
+      // A nested gate joins the LIVE owner's record (row 5.20): the exact handle of a well-formed record of this host whose owner is
+      // still running as the process that wrote it. A handle left in the environment of a survivor of a dead owner names a record
+      // nobody holds any more; joining it would run a build under an ownership no live gate answers for.
+      if (owner.schema !== OWNERSHIP_SCHEMA || !Number.isInteger(owner.pid) || owner.pid <= 0 || owner.host !== os.hostname()) {
+        throw new OwnershipBusy(`build ownership ${file}: ${OWNERSHIP_ENV}=${inherited} names a record that is not a well-formed owner record of this host; a nested gate joins only a live owner's record`);
+      }
+      let live;
+      try { live = probe.identity(owner.pid); } catch (e) { throw new OwnershipBusy(`build ownership ${file}: owner pid ${owner.pid} cannot be proven alive (${e.message}), so a nested gate cannot join it`); }
+      if (!live.alive || (Number.isFinite(owner.startedMs) && Number.isFinite(live.startedMs) && !sameStart(live.startedMs, owner.startedMs))) {
+        throw new OwnershipBusy(`build ownership ${file}: ${OWNERSHIP_ENV}=${inherited} names a record whose owner pid ${owner.pid} is no longer the process that took it; a nested gate joins only a live owner's record`);
+      }
       return { handle: inherited, file, joined: true, reclaimed: null, owner, markBrokerSubmit: () => markBrokerSubmit(file, inherited), held: () => holds(file, inherited), release: () => ({ released: false, joined: true }) };
     }
     throw new OwnershipBusy(`build ownership ${file}: ${OWNERSHIP_ENV}=${inherited} is not the current owner; a nested gate never takes ownership of its own`);

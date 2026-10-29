@@ -13,7 +13,7 @@ import { spawnSync } from "./background-process.mjs";
 import { defaultSpawn, isLiveScan, LIVE_SCAN_IDS } from "./deterministic-scans.mjs";
 import { repoKey, keyPath, syncSnapshot } from "./snapshot.mjs";
 import {
-  CheckError, DETERMINISTIC_MARKER, describeInstall, probeSkippedBuilds, LIVE_SCANS_SCHEMA, allowedBuilds, deterministicMarker, installSnapshotDependencies, liveScansCommand,
+  CheckError, DETERMINISTIC_MARKER, commitFiles, commitOf, describeInstall, probeSkippedBuilds, LIVE_SCANS_SCHEMA, allowedBuilds, deterministicMarker, installSnapshotDependencies, liveScansCommand,
   modulesStoreDir, pinnedPnpm, resolvePrimaryStore, snapshotOption, verifySnapshotDir,
 } from "./snapshot-check.mjs";
 import { main, discoverPnpmRoots, discoverNpmUnits } from "./bin/rightkit-gate.mjs";
@@ -171,8 +171,13 @@ test("E6 verifySnapshotDir: a planted ignored file, a link or junction into the 
 test("E6 verifySnapshotDir: only the named pnpm dependency directories and the config-only .git/config are allowed extras", (t) => {
   const s = scenario(t, { "package.json": "{\"name\":\"fixture\",\"private\":true}\n", "pnpm-lock.yaml": "lockfileVersion: '9.0'\n" });
   const check = () => verifySnapshotDir({ checkout: s.repo, dir: s.dir, commit: s.a, tree: s.tree, when: "unit" });
+  // The only .git/config allowed is byte-equal to what the gate writes for THIS checkout's origin (item 5 row 5.09).
+  git(s.repo, "remote", "add", "origin", "git@example.com:o/r.git");
   write(s.dir, { "node_modules/.pnpm/dep@1.0.0/node_modules/dep/index.js": "x\n", ".git/config": '[remote "origin"]\n\turl = git@example.com:o/r.git\n' });
   assert.equal(check(), s.tree);
+  write(s.dir, { ".git/config": '[remote "origin"]\n\turl = ext::sh -c id\n' });
+  assert.throws(check, (e) => e instanceof CheckError && /\.git\/config/.test(e.message));
+  write(s.dir, { ".git/config": '[remote "origin"]\n\turl = git@example.com:o/r.git\n' });
   write(s.dir, { "node_modules/dep/index.js": "x\n" });
   assert.equal(check(), s.tree);
   write(s.dir, { "dist/bundle.js": "a build output inside the snapshot\n" });
@@ -197,6 +202,9 @@ test("snapshot option: --commit and --full-a required, absolute real directory, 
     assert.throws(opt(["check", "--commit", s.a, "--full-a", "--snapshot", link]), /not a directory/);
   }
   assert.equal(opt(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir])(), fs.realpathSync.native(s.dir));
+  // A directory of the checkout whose name starts with `..` is inside the checkout, not a way out of it (review item5-r2 #4).
+  fs.mkdirSync(path.join(s.repo, "..x"));
+  assert.throws(opt(["check", "--commit", s.a, "--full-a", "--snapshot", path.join(s.repo, "..x")]), /overlap/);
 });
 
 test("rightkit#1257: a red of deterministic failures prints the marker with env=; a live-scan or undecided failure prints none", async (t) => {
@@ -396,7 +404,7 @@ test("skipped build scripts: a probed bin that launches cargo is refused by the 
   else { write(bin, { cargo: `#!/bin/sh\necho ran > '${sentinel}'\n` }); fs.chmodSync(path.join(bin, "cargo"), 0o755); }
   write(dir, {
     "node_modules/.pnpm/builder@1.0.0/node_modules/builder/package.json": JSON.stringify({ name: "builder", version: "1.0.0", bin: { builder: "cli.js" } }),
-    "node_modules/.pnpm/builder@1.0.0/node_modules/builder/cli.js": "const r = require('node:child_process').spawnSync('cargo', ['build'], { shell: true, stdio: 'inherit' }); process.exit(r.status ?? 0);\n",
+    "node_modules/.pnpm/builder@1.0.0/node_modules/builder/cli.js": "const r = require('node:child' + '_process').spawnSync('cargo', ['build'], { shell: true, stdio: 'inherit' }); process.exit(r.status ?? 0);\n",
   });
   // The test harness's broker guard (inherited through NODE_OPTIONS) is dropped for these two children: the control must really launch
   // the fake cargo, and the probe must be stopped by the class A launch guard alone. The sentinel proves what ran.
@@ -588,4 +596,43 @@ test("Oracle (79c4427b): a stray directory a members glob matches refuses a brok
   assert.ok(run.err.some((l) => /cargo's workspace there is not the commit's: \. \(checkout\): cargo metadata failed: .*failed to load manifest for workspace member/.test(l)), run.err.join("\n"));
   assert.equal(run.plans.length, 0);
   assert.equal(fs.existsSync(s.sentinel), false);
+});
+
+const refusesWith = (fn, re, name) => assert.throws(fn, (e) => e instanceof CheckError && re.test(e.message), name);
+
+// ============================================================================================================================
+// Item 5 D3 through the check path: commitOf, commitFiles and verifySnapshotDir use the sealed runner (snapshot-git.mjs).
+// ============================================================================================================================
+test("D3 sealed identity in the check path: a checkout armed with a filter driver, autocrlf, info/attributes and a hook runs nothing in commitOf, commitFiles or verifySnapshotDir; a masked tamper refuses; a replace ref changes nothing", (t) => {
+  const s = scenario(t);
+  const work = tmp(t, "rk-sc-armed-");
+  const marker = path.join(work, "marker");
+  const script = path.join(work, "filter.mjs");
+  fs.writeFileSync(script, `import fs from "node:fs";\nfs.appendFileSync(${JSON.stringify(marker)}, "filter ran\\n");\nlet d = "";\nprocess.stdin.setEncoding("utf8");\nprocess.stdin.on("data", (c) => { d += c; });\nprocess.stdin.on("end", () => process.stdout.write(d.replace(/commit A/g, "commit A")));\n`);
+  const fwd = (p) => p.split(path.sep).join("/");
+  git(s.repo, "config", "filter.evil.clean", `"${fwd(process.execPath)}" "${fwd(script)}"`);
+  git(s.repo, "config", "filter.evil.required", "false");
+  git(s.repo, "config", "core.autocrlf", "true");
+  fs.mkdirSync(path.join(s.repo, ".git", "info"), { recursive: true });
+  fs.appendFileSync(path.join(s.repo, ".git", "info", "attributes"), "* filter=evil\n* text eol=crlf\n");
+  const hook = path.join(s.repo, ".git", "hooks", "post-index-change");
+  fs.mkdirSync(path.dirname(hook), { recursive: true });
+  fs.writeFileSync(hook, `#!/bin/sh\necho hook >> '${fwd(marker)}'\n`, { mode: 0o755 });
+  git(s.repo, "config", "core.hooksPath", fwd(path.dirname(hook)));
+  // The scenario's snapshot was synced before the checkout was armed; the identity checks run now.
+  const { commit, tree } = commitOf(s.repo, s.a);
+  assert.deepEqual({ commit, tree }, { commit: s.a, tree: s.tree });
+  assert.ok(commitFiles(s.repo, s.a).files.includes("README.md"));
+  assert.equal(verifySnapshotDir({ checkout: s.repo, dir: s.dir, commit, tree, when: "armed" }), s.tree);
+  assert.equal(fs.existsSync(marker), false, "nothing the checkout configured ever ran");
+  // A one-byte tamper that a rewriting filter or eol conversion could hide: README.md becomes CRLF.
+  fs.writeFileSync(path.join(s.dir, "README.md"), "commit A\r\n");
+  refusesWith(() => verifySnapshotDir({ checkout: s.repo, dir: s.dir, commit, tree, when: "armed" }), /is tree [0-9a-f]+ armed, not tree/, "the CRLF tamper");
+  assert.equal(fs.existsSync(marker), false);
+  fs.writeFileSync(path.join(s.dir, "README.md"), "commit A\n");
+  // Replace refs: plain git reads the replacement's tree, the check path the true one.
+  git(s.repo, "replace", s.a, git(s.repo, "rev-parse", "HEAD"));
+  assert.notEqual(git(s.repo, "rev-parse", `${s.a}^{tree}`), s.tree, "plain git is fooled by the replace ref");
+  assert.deepEqual(commitOf(s.repo, s.a), { commit: s.a, tree: s.tree });
+  assert.equal(verifySnapshotDir({ checkout: s.repo, dir: s.dir, commit, tree, when: "replaced" }), s.tree);
 });

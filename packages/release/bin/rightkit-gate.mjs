@@ -1413,8 +1413,8 @@ async function runStages(o, args, root, git, io) {
     catch (e) { o.err(`${tag} cannot resolve ${option("--commit") ?? "HEAD"} to a commit: ${e.message}`); return 2; }
     const snapshotsAt = o.snapshotRoot ?? snap.snapshotRoot({ platform: o.platform, env: o.env });
     let own;
-    try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, env: o.env, snapshotRoot: snapshotsAt }), stage: `door:${to}`, snapshot: path.join(snapshotsAt, snap.repositoryOf(root).key), commit: selected.commit, platform: o.platform, env: o.env }); }
-    catch (e) { if (e.code !== "busy") throw e; o.err(`${tag} BLOCKED: ${e.message}; nothing ran`); return 1; }
+    try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot }), stage: `door:${to}`, snapshot: path.join(snapshotsAt, snap.repositoryOf(root).key), commit: selected.commit, platform: o.platform, env: o.env }); }
+    catch (e) { if (e.code !== "busy" && e.code !== "refused") throw e; o.err(`${tag} BLOCKED: ${e.message}; nothing ran${e.code === "refused" ? ", nothing created" : ""}`); return 1; }
     o.out(`${tag} build ownership ${own.joined ? "joined" : "held"} ${own.handle}${own.reclaimed ? ` (reclaimed from ${own.reclaimed.from}: ${own.reclaimed.proofs.join("; ")})` : ""}`);
     try {
       // One sync per door run: a second one would prune what class A installed into the snapshot.
@@ -1728,7 +1728,11 @@ export async function main(argv, io = {}) {
   if (args.includes("--help") || args.includes("-h")) { o.out(USAGE); return 0; }
   // `snapshot`: sync the selected commit into the gate-owned source directory and verify it is exactly the commit's tree
   // (../snapshot.mjs; docs/GATE-CONTRACT.md §1). Reads the checkout's commits only, never its working files.
-  if (args[0] === "snapshot") return (await import("../snapshot.mjs")).snapshotCommand(o, args.slice(1));
+  // `--verify --env <digest>` also requires the installed dependency environment to still be the digest `env-digest --snapshot` recorded.
+  if (args[0] === "snapshot") {
+    const sc = await import("../snapshot-check.mjs");
+    return (await import("../snapshot.mjs")).snapshotCommand(o, args.slice(1), { environmentDigest: ({ checkout, dir, commit }) => classAEnvironmentDigest({ root: dir, files: sc.commitFiles(checkout, commit, o.spawn).files, spawn: o.spawn }) });
+  }
   // `live-scans`: re-run only the live remote scans (pnpm-audit) of a checked tree, answering the broker's verdict-reuse refresh
   // (../snapshot-check.mjs; GATE-CONTRACT §1, E18; rightkit#1257).
   if (args[0] === "live-scans") return (await import("../snapshot-check.mjs")).liveScansCommand(o, args.slice(1), { discoverPnpmRoots, discoverNpmUnits });
@@ -1744,8 +1748,8 @@ export async function main(argv, io = {}) {
     // RIGHTKIT_BUILD_OWNERSHIP names the current owner joins it. Busy (or liveness unknown) runs nothing.
     const { acquireBuildOwnership, ownershipFile } = await import("../build-ownership.mjs");
     let own;
-    try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, env: o.env, snapshotRoot: o.snapshotRoot }), stage: sub ?? "compile", snapshot: option("--snapshot") ?? null, commit: option("--commit") ?? null, platform: o.platform, env: o.env }); }
-    catch (e) { if (e.code !== "busy") throw e; o.err(`rightkit-gate: RK_CHECK_ERROR: ${e.message}; nothing ran`); return 2; }
+    try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot }), stage: sub ?? "compile", snapshot: option("--snapshot") ?? null, commit: option("--commit") ?? null, platform: o.platform, env: o.env }); }
+    catch (e) { if (e.code !== "busy" && e.code !== "refused") throw e; o.err(`rightkit-gate: RK_CHECK_ERROR: ${e.message}; nothing ran${e.code === "refused" ? ", nothing created" : ""}`); return 2; }
     o.out(`rightkit-gate: build ownership ${own.joined ? "joined" : "held"} ${own.handle}${own.reclaimed ? ` (reclaimed from ${own.reclaimed.from}: ${own.reclaimed.proofs.join("; ")})` : ""}`);
     try { return await main(argv, { ...io, buildOwnership: own }); }
     finally { const r = own.release(); if (r?.released === false && !own.joined) o.err(`rightkit-gate: build ownership ${own.handle} kept: ${r.why}`); }

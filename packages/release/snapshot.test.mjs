@@ -9,10 +9,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { spawnSync } from "./background-process.mjs";
-import { SnapshotError, keyPath, repoKey, snapshotCommand, snapshotRoot, snapshotTree, syncSnapshot, verifySnapshot, acquireSnapshotLock } from "./snapshot.mjs";
-import { ownershipFile } from "./build-ownership.mjs";
-import { main } from "./bin/rightkit-gate.mjs";
+import { spawn, spawnSync } from "./background-process.mjs";
+import { SnapshotError, hostManagedRootFor, keyPath, repoKey, repositoryOf, requireManagedRoot, resolveCommit, treeEntries, snapshotCommand, snapshotRoot, snapshotTree, syncSnapshot, verifySnapshot, acquireSnapshotLock } from "./snapshot.mjs";
+import { holderFile, ownershipFile, readHolder } from "./build-ownership.mjs";
+import { HOST_CONFIG_SCHEMA, hostConfigFile, readSnapshotRootConfig } from "./snapshot-root-config.mjs";
+import { main, classAEnvironmentDigest, installedDependencyDigest } from "./bin/rightkit-gate.mjs";
+import { commitFiles } from "./snapshot-check.mjs";
+import { SEALED_ATTRIBUTES, SEALED_GIT, createSealedGitDir, sealedConfigArgs, sealedEnv } from "./snapshot-git.mjs";
+import { pathToFileURL } from "node:url";
 
 const posixOnly = process.platform === "win32" ? "POSIX process semantics (pid 1)" : false;
 const emptyConfig = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-snap-cfg-"))), "gitconfig");
@@ -69,7 +73,10 @@ function fixture(t, files = { "Cargo.toml": "[workspace]\n", "src/lib.rs": "pub 
   git(repo, "init", "-q", "-b", "main");
   write(repo, files);
   const commit = commitAll(repo);
-  const root = tmp(t, "rk-snap-root-");
+  // Each fixture's root has a parent of its own, so the owner record derived beside it (ownershipFile beside: root) is its own too:
+  // one test's kept or stale record can never make a later test busy.
+  const root = path.join(tmp(t, "rk-snap-own-"), "root");
+  fs.mkdirSync(root, { mode: 0o700 });
   return { repo, root, commit, dir: path.join(root, repoKey(keyPath(repo))) };
 }
 function mtimes(dir) {
@@ -79,7 +86,18 @@ function mtimes(dir) {
   return out;
 }
 
-test("§1 root & repo-key: Mac/Dell under the managed data root, Linux XDG state with fallback; key = sha256(canonical path)[:16]", () => {
+/** A per-user host configuration file naming `snapshotRoot` (or any body), in its own temporary home; returns the file's path. */
+function hostConfig(t, body, { home = tmp(t, "rk-snap-home-") } = {}) {
+  const file = path.join(home, ".config", "rightkit", "gate.json");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, typeof body === "string" ? body : JSON.stringify({ schema: HOST_CONFIG_SCHEMA, ...body }));
+  return file;
+}
+/** A configuration file location that holds nothing. */
+const noConfig = (t) => path.join(tmp(t, "rk-snap-noconfig-"), ".config", "rightkit", "gate.json");
+
+test("§1 root & repo-key: Mac/Dell under the managed data root, Linux config file, else XDG state, else ~/.local/state; key = sha256(canonical path)[:16]", (t) => {
+  const configFile = noConfig(t);
   assert.equal(repoKey("/Volumes/D/claude/rightkit"), crypto.createHash("sha256").update("/Volumes/D/claude/rightkit").digest("hex").slice(0, 16));
   // The keys the broker's checked-trees directories already use on each host (read 2026-10-29): Mac hashes the path as is,
   // Dell the verbatim form Rust's fs::canonicalize returns.
@@ -94,52 +112,99 @@ test("§1 root & repo-key: Mac/Dell under the managed data root, Linux XDG state
   assert.equal(snapshotRoot({ platform: "darwin", env: { RIGHTKIT_DATA_ROOT: "/Volumes/E/.rightkit-managed", RIGHTKIT_MANAGED_ROOT: "/x", RIGHTKIT_SNAPSHOT_ROOT: "/y/snaps", XDG_STATE_HOME: "/s" }, home: "/Users/a" }), "/Volumes/D/.rightkit-managed/snapshots");
   assert.equal(snapshotRoot({ platform: "win32", env: { RIGHTKIT_DATA_ROOT: "E:\\m", RIGHTKIT_SNAPSHOT_ROOT: "E:\\snaps" }, home: "C:\\Users\\a" }), "D:\\.rightkit-managed\\snapshots");
   assert.equal(snapshotRoot({ platform: "win32", env: {}, home: "C:\\Users\\a" }), "D:\\.rightkit-managed\\snapshots");
-  assert.equal(snapshotRoot({ platform: "linux", env: { XDG_STATE_HOME: "/s" }, home: "/home/a" }), "/s/rightkit/snapshots");
-  assert.equal(snapshotRoot({ platform: "linux", env: {}, home: "/home/a" }), "/home/a/.local/state/rightkit/snapshots");
-  assert.equal(snapshotRoot({ platform: "linux", env: { XDG_STATE_HOME: "relative" }, home: "/home/a" }), "/home/a/.local/state/rightkit/snapshots");
-  assert.equal(snapshotRoot({ platform: "linux", env: { RIGHTKIT_SNAPSHOT_ROOT: "/data/snaps", XDG_STATE_HOME: "/s" }, home: "/home/a" }), "/data/snaps");
+  // Linux (row 5.16): with no configuration file, the contract's named default; with neither variable, ~/.local/state.
+  assert.equal(snapshotRoot({ platform: "linux", env: { XDG_STATE_HOME: "/s" }, home: "/home/a", configFile }), "/s/rightkit/snapshots");
+  assert.equal(snapshotRoot({ platform: "linux", env: {}, home: "/home/a", configFile }), "/home/a/.local/state/rightkit/snapshots");
+  assert.equal(snapshotRoot({ platform: "linux", env: { XDG_STATE_HOME: "relative" }, home: "/home/a", configFile }), "/home/a/.local/state/rightkit/snapshots");
+  // The root a host configuration file names wins over XDG state; RIGHTKIT_SNAPSHOT_ROOT is not a source at all.
+  assert.equal(snapshotRoot({ platform: "linux", env: { XDG_STATE_HOME: "/s" }, home: "/home/a", configFile: hostConfig(t, { snapshotRoot: "/data/snaps" }) }), "/data/snaps");
+  assert.equal(snapshotRoot({ platform: "linux", env: { RIGHTKIT_SNAPSHOT_ROOT: "/data/snaps", XDG_STATE_HOME: "/s" }, home: "/home/a", configFile }), "/s/rightkit/snapshots", "the variable of an earlier round changes nothing");
+  assert.equal(snapshotRoot({ platform: "linux", env: { RIGHTKIT_SNAPSHOT_ROOT: "/data/snaps" }, home: "/home/a", configFile: hostConfig(t, { snapshotRoot: "/data/real" }) }), "/data/real");
 });
 
 // Review item5-r1 finding 9 (GATE-CONTRACT §1: the root is durable, "scratch is never the snapshot root because it is disposable").
 const refusesRoot = (opts, source) => assert.throws(() => snapshotRoot(opts), (e) => e instanceof SnapshotError && e.code === "error" && e.message.includes(source) && /durable/.test(e.message), JSON.stringify(opts));
+const CONFIG_SOURCE = "gate host configuration";
 
-test("§1 root durability: a root under a scratch root or a temp directory is refused on every host, naming where the root came from", () => {
-  const linux = (env) => ({ platform: "linux", env, home: "/home/a" });
+test("§1 root durability: a root under a scratch root or a temp directory is refused on every host, naming where the root came from", (t) => {
+  const linux = (env, configFile = noConfig(t)) => ({ platform: "linux", env, home: "/home/a", configFile });
   for (const root of ["/Volumes/D/scratch/snaps", "/Volumes/D/scratch", "/tmp/snaps", "/private/tmp/x/snaps", "/var/tmp/snaps", "/private/var/folders/ab/cd/T/snaps", "/var/folders/ab/cd/T/snaps", ...(process.platform === "win32" ? [] : [path.join(os.tmpdir(), "snaps")])]) {
-    refusesRoot(linux({ RIGHTKIT_SNAPSHOT_ROOT: root }), "RIGHTKIT_SNAPSHOT_ROOT");
+    refusesRoot(linux({}, hostConfig(t, { snapshotRoot: root })), CONFIG_SOURCE);
   }
   refusesRoot(linux({ XDG_STATE_HOME: "/Volumes/D/scratch/state" }), "XDG_STATE_HOME");
   refusesRoot(linux({ XDG_STATE_HOME: "/tmp/state" }), "XDG_STATE_HOME");
-  refusesRoot({ platform: "linux", env: {}, home: "/tmp/home" }, "the home directory /tmp/home");
+  refusesRoot({ platform: "linux", env: {}, home: "/tmp/home", configFile: noConfig(t) }, "the home directory /tmp/home");
   // A temp directory the host names by environment (TMPDIR / TEMP / TMP) counts too, and a root outside every one of them is fine.
-  refusesRoot(linux({ RIGHTKIT_SNAPSHOT_ROOT: "/data/t/snaps", TMPDIR: "/data/t" }), "RIGHTKIT_SNAPSHOT_ROOT");
-  assert.equal(snapshotRoot(linux({ RIGHTKIT_SNAPSHOT_ROOT: "/data/snaps", TMPDIR: "/data/t" })), "/data/snaps");
+  refusesRoot(linux({ TMPDIR: "/data/t" }, hostConfig(t, { snapshotRoot: "/data/t/snaps" })), CONFIG_SOURCE);
+  assert.equal(snapshotRoot(linux({ TMPDIR: "/data/t" }, hostConfig(t, { snapshotRoot: "/data/snaps" }))), "/data/snaps");
   // A TMPDIR of "/" must not turn every root into a refusal.
-  assert.equal(snapshotRoot(linux({ RIGHTKIT_SNAPSHOT_ROOT: "/data/snaps", TMPDIR: "/" })), "/data/snaps");
+  assert.equal(snapshotRoot(linux({ TMPDIR: "/" }, hostConfig(t, { snapshotRoot: "/data/snaps" }))), "/data/snaps");
   // Windows: the Dell's fixed root is fine; the same check reads %TEMP% & friends, case-insensitively, with Windows paths.
   assert.equal(snapshotRoot({ platform: "win32", env: { TEMP: "C:\\Users\\a\\AppData\\Local\\Temp" }, home: "C:\\Users\\a" }), "D:\\.rightkit-managed\\snapshots");
   refusesRoot({ platform: "win32", env: { TEMP: "d:\\.RIGHTKIT-MANAGED" }, home: "C:\\Users\\a" }, "the host's managed root");
 });
 
-test("§1 root: no environment variable relocates the Mac/Dell root; the one-time test variable of an earlier round is not read", () => {
+test("§1 root: no environment variable relocates the Mac/Dell root; the one-time test variable of an earlier round is not read", (t) => {
   const ignored = { RIGHTKIT_SNAPSHOT_TEST_RUN: "zzz", RIGHTKIT_SNAPSHOT_TEST_ROOT: "/y", RIGHTKIT_SNAPSHOT_ROOT: "/y", RIGHTKIT_DATA_ROOT: "/y", XDG_STATE_HOME: "/y" };
   assert.equal(snapshotRoot({ platform: "darwin", env: ignored, home: "/Users/a" }), "/Volumes/D/.rightkit-managed/snapshots");
   assert.equal(snapshotRoot({ platform: "win32", env: ignored, home: "C:\\Users\\a" }), "D:\\.rightkit-managed\\snapshots");
-  // Linux reads only the configured root and XDG state; the test variable changes neither.
-  assert.equal(snapshotRoot({ platform: "linux", env: { RIGHTKIT_SNAPSHOT_TEST_RUN: "zzz", XDG_STATE_HOME: "/s" }, home: "/home/a" }), "/s/rightkit/snapshots");
-  assert.equal(snapshotRoot({ platform: "linux", env: { RIGHTKIT_SNAPSHOT_TEST_RUN: "zzz", RIGHTKIT_SNAPSHOT_ROOT: "/data/snaps" }, home: "/home/a" }), "/data/snaps");
+  // Linux reads only the host configuration file and XDG state; the test variable changes neither.
+  const configFile = noConfig(t);
+  assert.equal(snapshotRoot({ platform: "linux", env: { RIGHTKIT_SNAPSHOT_TEST_RUN: "zzz", XDG_STATE_HOME: "/s" }, home: "/home/a", configFile }), "/s/rightkit/snapshots");
+  assert.equal(snapshotRoot({ platform: "linux", env: { RIGHTKIT_SNAPSHOT_TEST_RUN: "zzz", RIGHTKIT_SNAPSHOT_ROOT: "/data/snaps" }, home: "/home/a", configFile: hostConfig(t, { snapshotRoot: "/data/real" }) }), "/data/real");
   // And the owner record, derived from the root, follows the same fixed path.
   const owner = (env) => ownershipFile({ platform: "darwin", env, home: "/Users/a" });
   assert.equal(owner({ RIGHTKIT_SNAPSHOT_TEST_RUN: "zzz" }), owner({}));
   assert.equal(owner({}), "/Volumes/D/.rightkit-managed/build-ownership/owner.json");
 });
 
-test("§1 root durability: a sibling named like `..x` is inside scratch or temp, not outside (a path is outside only as `..` or `..<sep>…`)", () => {
-  const linux = (root) => ({ platform: "linux", env: { RIGHTKIT_SNAPSHOT_ROOT: root }, home: "/home/a" });
-  for (const root of ["/Volumes/D/scratch/..x/s", "/tmp/..x", "/tmp/...", "/private/var/folders/..cache/T/s"]) refusesRoot(linux(root), "RIGHTKIT_SNAPSHOT_ROOT");
-  assert.equal(snapshotRoot(linux("/Volumes/D/scratch/../data/s")), "/Volumes/D/scratch/../data/s", "`..` leaves scratch, so a root reached through it is not under it");
+test("§1 root durability: a sibling named like `..x` is inside scratch or temp, not outside (a path is outside only as `..` or `..<sep>…`)", (t) => {
+  const linux = (root) => ({ platform: "linux", env: {}, home: "/home/a", configFile: hostConfig(t, { snapshotRoot: root }) });
+  for (const root of ["/Volumes/D/scratch/..x/s", "/tmp/..x", "/tmp/...", "/private/var/folders/..cache/T/s"]) refusesRoot(linux(root), CONFIG_SOURCE);
+  // The configuration file demands a normalised path, so a root reached through `..` is refused as written, not collapsed.
+  assert.throws(() => snapshotRoot(linux("/Volumes/D/scratch/../data/s")), (e) => e.code === "error" && /normalised/.test(e.message));
   assert.equal(snapshotRoot(linux("/Volumes/D/..scratch/s")), "/Volumes/D/..scratch/s", "a sibling of scratch whose name starts with `..` is not under it");
   assert.equal(snapshotRoot(linux("/data/..x/snaps")), "/data/..x/snaps");
+});
+
+// Row 5.16: the Linux root comes from one per-user host configuration file and nothing else the process can be handed.
+test("§1 Linux host configuration (5.16): the file is ~/.config/rightkit/gate.json in the account's home; a bad file refuses, never falls back; no variable selects it", { skip: process.platform === "win32" ? "POSIX ownership and modes" : false }, (t) => {
+  const home = tmp(t, "rk-snap-cfg-home-");
+  assert.equal(hostConfigFile(home), path.posix.join(home, ".config", "rightkit", "gate.json"));
+  const refuses = (body, re, name) => assert.throws(() => snapshotRoot({ platform: "linux", env: {}, home: "/home/a", configFile: hostConfig(t, body) }), (e) => e instanceof SnapshotError && e.code === "error" && re.test(e.message), name);
+  refuses("{not json", /cannot be read as JSON/, "malformed");
+  refuses({ schema: "rightkit.gate-host-config/0", snapshotRoot: "/data/s" }, /schema/, "wrong schema");
+  refuses({ snapshotRoot: "relative/s" }, /relative/, "relative root");
+  refuses({ snapshotRoot: "/data/s/" }, /normalised/, "trailing separator");
+  refuses({ snapshotRoot: "/data//s" }, /normalised/, "doubled separator");
+  refuses({ snapshotRoot: "/" }, /normalised/, "the filesystem root");
+  refuses({ snapshotRoot: 7 }, /non-empty string/, "not a string");
+  refuses({ snapshotroot: "/data/s" }, /unknown key/, "a misspelt key would silently select the default root");
+  // A file another principal can change, a link (it could live inside a repository) and another user's file are not host configuration.
+  const open = hostConfig(t, { snapshotRoot: "/data/s" });
+  fs.chmodSync(open, 0o666);
+  assert.throws(() => snapshotRoot({ platform: "linux", env: {}, home: "/home/a", configFile: open }), (e) => /writable by group or other/.test(e.message));
+  const real = hostConfig(t, { snapshotRoot: "/data/s" });
+  const linked = path.join(tmp(t, "rk-snap-cfg-link-"), "gate.json");
+  fs.symlinkSync(real, linked);
+  assert.throws(() => snapshotRoot({ platform: "linux", env: {}, home: "/home/a", configFile: linked }), (e) => /not a regular file/.test(e.message));
+  assert.throws(() => readSnapshotRootConfig(real, { getuid: () => process.getuid() + 1 }), (e) => /owned by uid/.test(e.message));
+  // The directory that holds the file must not be writable by group or other either.
+  const looseHome = tmp(t, "rk-snap-cfg-loose-");
+  const loose = hostConfig(t, { snapshotRoot: "/data/s" }, { home: looseHome });
+  fs.chmodSync(path.dirname(loose), 0o777);
+  assert.throws(() => snapshotRoot({ platform: "linux", env: {}, home: "/home/a", configFile: loose }), (e) => /directory/.test(e.message));
+  fs.chmodSync(path.dirname(loose), 0o755);
+  // A valid file is honoured; a file with no snapshotRoot leaves the contract's default.
+  assert.equal(snapshotRoot({ platform: "linux", env: {}, home: "/home/a", configFile: hostConfig(t, { snapshotRoot: "/data/s" }) }), "/data/s");
+  assert.equal(snapshotRoot({ platform: "linux", env: { XDG_STATE_HOME: "/s" }, home: "/home/a", configFile: hostConfig(t, {}) }), "/s/rightkit/snapshots");
+  // Neither HOME nor XDG_CONFIG_HOME nor any RIGHTKIT variable moves the file: it is found from the account database.
+  const mover = { HOME: home, XDG_CONFIG_HOME: home, RIGHTKIT_SNAPSHOT_ROOT: "/data/hostile", RIGHTKIT_CONFIG: home };
+  const saved = { ...process.env };
+  Object.assign(process.env, mover);
+  t.after(() => { for (const k of Object.keys(mover)) { if (k in saved) process.env[k] = saved[k]; else delete process.env[k]; } });
+  assert.equal(hostConfigFile(), path.posix.join(os.userInfo().homedir, ".config", "rightkit", "gate.json"), "HOME does not select the configuration file: the account database does");
+  assert.notEqual(hostConfigFile(), path.posix.join(home, ".config", "rightkit", "gate.json"));
 });
 
 test("snapshot CLI: an injected snapshotRoot is the root, and the environment is not consulted for it", (t) => {
@@ -149,10 +214,14 @@ test("snapshot CLI: an injected snapshotRoot is the root, and the environment is
   const code = snapshotCommand({ cwd: f.repo, env, platform: process.platform, snapshotRoot: f.root, out: (m) => out.push(m), err: (m) => err.push(m), acquireOwnership: (q) => { assert.equal(q.snapshot, f.dir); assert.equal(q.file, path.join(path.dirname(f.root), "build-ownership", "owner.json")); return { handle: "h", joined: false, reclaimed: null, release: () => ({ released: true }) }; } }, ["--commit", f.commit, "--json"]);
   assert.equal(code, 0, err.join("\n"));
   assert.equal(JSON.parse(out.at(-1)).path, f.dir);
-  // Without the injection the root is the host's (Linux: the scratch root named here is refused before anything runs).
+  // Without the injection the root is the host's: on Linux the host configuration file's (here a scratch root: refused before anything
+  // runs); the environment variable of the same name names nothing.
   const refused = [];
-  assert.equal(snapshotCommand({ cwd: f.repo, env, platform: "linux", out: () => {}, err: (m) => refused.push(m), acquireOwnership: () => { throw new Error("must not acquire"); } }, ["--commit", f.commit]), 2);
-  assert.match(refused.join("\n"), /RIGHTKIT_SNAPSHOT_ROOT.*scratch root/);
+  assert.equal(snapshotCommand({ cwd: f.repo, env, platform: "linux", home: "/home/a", configFile: hostConfig(t, { snapshotRoot: "/Volumes/D/scratch/never" }), out: () => {}, err: (m) => refused.push(m), acquireOwnership: () => { throw new Error("must not acquire"); } }, ["--commit", f.commit]), 2);
+  assert.match(refused.join("\n"), /gate host configuration.*scratch root/);
+  const ignored = [];
+  assert.equal(snapshotCommand({ cwd: f.repo, env, platform: "linux", home: "/home/a", configFile: noConfig(t), snapshotRoot: undefined, out: () => {}, err: (m) => ignored.push(m), acquireOwnership: () => { throw new Error("stop here: the root was resolved without the variable"); } }, ["--commit", f.commit]), 2);
+  assert.doesNotMatch(ignored.join("\n"), /scratch root/, "RIGHTKIT_SNAPSHOT_ROOT was not read");
 });
 
 test("§1 commit-only build & E1: the snapshot is the commit's tree; a dirty checkout neither blocks nor leaks; the checkout is untouched", (t) => {
@@ -402,6 +471,7 @@ test("E6 exact: node_modules where the commit has no pnpm lockfile is refused (n
 
 test("§1 gate-written .git/config: only the config-only origin file is allowed under .git", (t) => {
   const f = fixture(t);
+  git(f.repo, "remote", "add", "origin", "git@github.com:example/repo.git");
   syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
   write(f.dir, { ".git/config": '[remote "origin"]\n\turl = git@github.com:example/repo.git\n' });
   verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
@@ -715,4 +785,913 @@ test("stale means proven gone: a holder pid that answers EPERM (pid 1) is busy, 
   fs.writeFileSync(lock, body);
   assert.throws(() => acquireSnapshotLock(lock), (e) => e.code === "busy" && /held by pid 1|cannot be proven gone \(EPERM\)/.test(e.message));
   assert.equal(fs.readFileSync(lock, "utf8"), body, "left in place");
+});
+
+// ============================================================================================================================
+// Item 5, lane L5S (docs/GATE-CONTRACT.md §1 "Commit-only build" and "Broker interface" Snapshot root; signed map rows 5.05, 5.07,
+// 5.08, 5.09, 5.12, 5.13, 5.15, 5.16 (root rule above), 5.18 and the root-mode half of 5.22). Each title names its row.
+// ============================================================================================================================
+
+/** Commits `name` as a plain file, a directory holding `a.rs`, or a link (mode 120000) to `body`, replacing whatever the path was. */
+function setEntry(repo, name, kind, body) {
+  git(repo, "rm", "-r", "-q", "--cached", "--ignore-unmatch", name);
+  fs.rmSync(path.join(repo, name), { recursive: true, force: true });
+  if (kind === "file") { write(repo, { [name]: body }); git(repo, "add", name); }
+  else if (kind === "dir") { write(repo, { [`${name}/a.rs`]: body }); git(repo, "add", name); }
+  else git(repo, "update-index", "--add", "--cacheinfo", `120000,${blobOf(repo, body)},${name}`);
+  git(repo, "commit", "-q", "-m", `${name} is a ${kind}`);
+  return git(repo, "rev-parse", "HEAD");
+}
+const kindOf = (p) => { const s = fs.lstatSync(p, { throwIfNoEntry: false }); return !s ? "none" : s.isSymbolicLink() ? "link" : s.isDirectory() ? "dir" : "file"; };
+
+test("5.05 type flips: file, directory, link and file again across commits converge, forward and back, and verify at every step", (t) => {
+  const f = fixture(t);
+  const steps = [["file", "one\n"], ["dir", "two\n"], ...(canLink ? [["link", "src/lib.rs"], ["link", "src"]] : []), ["file", "three\n"], ["dir", "four\n"]];
+  const commits = [{ rev: f.commit, kind: "none" }];
+  for (const [kind, body] of steps) commits.push({ rev: setEntry(f.repo, "x", kind, body), kind });
+  // Forward, then back through every commit, then forward again: every transition between two kinds is crossed in both directions.
+  const order = [...commits, ...[...commits].reverse(), ...commits];
+  for (const c of order) {
+    const r = syncSnapshot({ checkout: f.repo, rev: c.rev, root: f.root });
+    assert.equal(r.commit, c.rev);
+    assert.equal(kindOf(path.join(f.dir, "x")), c.kind, `x is a ${c.kind} at ${c.rev.slice(0, 8)}`);
+    assert.equal(verifySnapshot({ checkout: f.repo, rev: c.rev, root: f.root }).commit, c.rev);
+    assert.equal(fs.existsSync(path.join(f.dir, "x", "a.rs")), c.kind === "dir", "no leftover of the previous type under or beside x");
+  }
+});
+
+test("5.05 type flips planted in the snapshot refuse at verify, at the start and again at the end, and the next sync converges", (t) => {
+  const f = fixture(t);
+  const asFile = setEntry(f.repo, "x", "file", "committed\n");
+  const asDir = setEntry(f.repo, "x", "dir", "committed\n");
+  const asLink = canLink ? setEntry(f.repo, "x", "link", "src/lib.rs") : null;
+  const x = path.join(f.dir, "x");
+  const plant = {
+    "a file where the commit has a directory": () => { fs.rmSync(x, { recursive: true }); fs.writeFileSync(x, "planted\n"); },
+    "a link where the commit has a directory": () => { fs.rmSync(x, { recursive: true }); fs.symlinkSync(path.join(f.dir, "src"), x, dirLinkType); },
+    "a directory where the commit has a file": () => { fs.rmSync(x); fs.mkdirSync(x); fs.writeFileSync(path.join(x, "a.rs"), "planted\n"); },
+    "a link where the commit has a file": () => { fs.rmSync(x); fs.symlinkSync("src/lib.rs", x); },
+    "a plain file holding the text of the committed link": () => { fs.rmSync(x); fs.writeFileSync(x, "src/lib.rs"); },
+    "a directory where the commit has a link": () => { fs.rmSync(x); fs.mkdirSync(x); },
+  };
+  const cases = [["a file where the commit has a directory", asDir], ["a link where the commit has a directory", asDir], ["a directory where the commit has a file", asFile], ...(canLink ? [["a link where the commit has a file", asFile], ["a plain file holding the text of the committed link", asLink], ["a directory where the commit has a link", asLink]] : [])];
+  for (const [name, rev] of cases) {
+    if (name.includes("link") && !canLink) continue;
+    syncSnapshot({ checkout: f.repo, rev, root: f.root });
+    verifySnapshot({ checkout: f.repo, rev, root: f.root });            // the start verify
+    plant[name]();                                                       // planted between the start and the end verify
+    assert.throws(() => verifySnapshot({ checkout: f.repo, rev, root: f.root }), (e) => e instanceof SnapshotError && e.code === "mismatch" && /\bx\b/.test(e.message), name);
+    assert.equal(syncSnapshot({ checkout: f.repo, rev, root: f.root }).commit, rev, `${name}: the next sync converges`);
+    verifySnapshot({ checkout: f.repo, rev, root: f.root });
+  }
+  if (!canLink) assertNoLinkHost(t);
+});
+
+test("5.05 a commit with a gitlink is refused with a named reason before any write, and the snapshot of the previous commit is untouched", (t) => {
+  const f = fixture(t);
+  assert.deepEqual(fs.readdirSync(f.root), []);
+  git(f.repo, "update-index", "--add", "--cacheinfo", `160000,${f.commit},vendor/sub`);
+  git(f.repo, "commit", "-q", "-m", "gitlink");
+  const withGitlink = git(f.repo, "rev-parse", "HEAD");
+  // Nothing exists yet: the refusal creates nothing at all, not even the root's lock, state or birth record.
+  assert.throws(() => syncSnapshot({ checkout: f.repo, rev: withGitlink, root: f.root }), (e) => e instanceof SnapshotError && e.code === "refused" && e.reason === "gitlink" && /vendor\/sub/.test(e.message));
+  assert.deepEqual(fs.readdirSync(f.root), []);
+  // With a snapshot of the previous commit in place: its bytes, mtimes and the root's listing do not change.
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  const before = { names: fs.readdirSync(f.root).sort(), mtimes: mtimes(f.dir), state: fs.readFileSync(`${f.dir}.state.json`, "utf8") };
+  const err = [];
+  assert.equal(snapshotCommand({ cwd: f.repo, env: process.env, platform: process.platform, snapshotRoot: f.root, out: () => {}, err: (m) => err.push(m), acquireOwnership: () => ({ handle: "h", joined: false, reclaimed: null, release: () => ({ released: true }) }) }, ["--commit", withGitlink]), 1);
+  assert.match(err.join("\n"), /snapshot refused \(gitlink\)/);
+  assert.deepEqual({ names: fs.readdirSync(f.root).sort(), mtimes: mtimes(f.dir), state: fs.readFileSync(`${f.dir}.state.json`, "utf8") }, before);
+  verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+});
+
+// Row 5.07: a hard link from the snapshot to a checkout file carries a later checkout edit into the build with the bytes the tree id saw.
+test("5.07 hard links: a sync over a hard-linked file ends with nlink 1 and verifies; the checkout file is neither written nor chmod-ed through it", (t) => {
+  const f = fixture(t, { "Cargo.toml": "[workspace]\n", "src/lib.rs": "pub fn a() {}\n", "tool.sh": "#!/bin/sh\n", ".gitignore": "target/\n" });
+  if (process.platform !== "win32") fs.chmodSync(path.join(f.repo, "tool.sh"), 0o755);
+  const c = commitAll(f.repo, "tool");
+  syncSnapshot({ checkout: f.repo, rev: c, root: f.root });
+  for (const name of ["src/lib.rs", "tool.sh"]) {
+    const inSnap = path.join(f.dir, ...name.split("/"));
+    const inRepo = path.join(f.repo, ...name.split("/"));
+    fs.rmSync(inSnap);
+    fs.linkSync(inRepo, inSnap);                                         // equal bytes: the tree id cannot see it
+    assert.ok(fs.lstatSync(inSnap).nlink > 1, "the fixture planted a hard link");
+  }
+  if (process.platform !== "win32") fs.chmodSync(path.join(f.repo, "tool.sh"), 0o644); // through the link: the snapshot's name now reads 0644 too
+  assert.throws(() => verifySnapshot({ checkout: f.repo, rev: c, root: f.root }), (e) => e.code === "mismatch" && /hard link/.test(e.message));
+  const r = syncSnapshot({ checkout: f.repo, rev: c, root: f.root });
+  assert.equal(r.hardLinksReplaced, 2);
+  for (const name of ["src/lib.rs", "tool.sh"]) {
+    assert.equal(fs.lstatSync(path.join(f.dir, ...name.split("/"))).nlink, 1, `${name} is a fresh copy`);
+    assert.equal(fs.lstatSync(path.join(f.repo, ...name.split("/"))).nlink, 1, `${name} in the checkout lost its other name`);
+  }
+  if (process.platform !== "win32") {
+    assert.equal(fs.statSync(path.join(f.repo, "tool.sh")).mode & 0o777, 0o644, "the checkout file was not chmod-ed through the link");
+    assert.equal(fs.statSync(path.join(f.dir, "tool.sh")).mode & 0o111, 0o111, "the snapshot's copy has the committed exec bit");
+  }
+  verifySnapshot({ checkout: f.repo, rev: c, root: f.root });
+  // A later checkout edit does not reach the snapshot.
+  write(f.repo, { "src/lib.rs": "pub fn edited_after() {}\n" });
+  assert.equal(fs.readFileSync(path.join(f.dir, "src", "lib.rs"), "utf8"), "pub fn a() {}\n");
+  assert.equal(syncSnapshot({ checkout: f.repo, rev: c, root: f.root }).hardLinksReplaced, 0);
+});
+
+test("5.07 hard links: a hard link planted between the start verify and the end verify, and an extra hard link, refuse; pnpm's own links inside node_modules are not refused", (t) => {
+  const f = dependencyFixture(t);
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root });                    // the start verify
+  const lib = path.join(f.dir, "src", "lib.rs");
+  fs.rmSync(lib);
+  fs.linkSync(path.join(f.repo, "src", "lib.rs"), lib);                                  // between start and end
+  assert.throws(() => verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root }), (e) => e.code === "mismatch" && /src\/lib\.rs has \d+ hard links/.test(e.message));
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  write(f.repo, { "outside.rs": "x\n" });
+  fs.linkSync(path.join(f.repo, "outside.rs"), path.join(f.dir, "extra.rs"));            // an extra, hard-linked
+  assert.throws(() => verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root }), (e) => e.code === "mismatch" && /extra\.rs is not in the commit's tree/.test(e.message));
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  // pnpm hard-links package files out of its store into node_modules; the dependency bytes are bound by the environment digest instead.
+  write(f.dir, { "node_modules/.pnpm/dep@1.0.0/node_modules/dep/index.js": "module.exports = 1;\n" });
+  fs.linkSync(path.join(f.dir, "node_modules", ".pnpm", "dep@1.0.0", "node_modules", "dep", "index.js"), path.join(f.dir, "node_modules", "store-twin.js"));
+  assert.equal(verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root }).commit, f.commit);
+});
+
+// Row 5.08: the CLI-level negatives of `rightkit-gate snapshot --verify` (the snapshot-check E17 cases are item 6).
+test("5.08 snapshot --verify exits 0 on a fresh sync and 1 for each tamper: a byte, an ignored file, an untracked file, an empty directory, an exec bit, a link retarget, a link into a ..x directory, a planted target/", async (t) => {
+  const f = fixture(t, { "Cargo.toml": "[workspace]\n", "src/lib.rs": "pub fn a() {}\n", "run.sh": "#!/bin/sh\n", "..x/a.rs": "pub fn x() {}\n", ".gitignore": "target/\n*.log\n" });
+  if (process.platform !== "win32") fs.chmodSync(path.join(f.repo, "run.sh"), 0o755);
+  commitAll(f.repo, "run.sh");
+  const c = canLink ? commitLink(f.repo, "src/alias.rs", "lib.rs") : git(f.repo, "rev-parse", "HEAD");
+  const out = [], err = [];
+  // Build ownership is not this test's subject (rows 5.19 to 5.21 are): a stub keeps a host-wide hold out of the verdict.
+  const io = { cwd: f.repo, env: process.env, snapshotRoot: f.root, out: (m) => out.push(m), err: (m) => err.push(m), acquireOwnership: () => ({ handle: "h", joined: false, reclaimed: null, release: () => ({ released: true }) }) };
+  const cli = (...a) => { out.length = 0; err.length = 0; return main(["snapshot", ...a], io); };
+  assert.equal(await cli("--commit", c), 0, err.join("\n"));
+  assert.equal(await cli("--verify", "--commit", c), 0, err.join("\n"));
+  const cases = [
+    ["a changed byte", () => fs.appendFileSync(path.join(f.dir, "src", "lib.rs"), "// x\n"), "not tree"],
+    ["an added ignored file", () => write(f.dir, { "planted.log": "x\n" }), "planted.log"],
+    ["an added untracked file", () => write(f.dir, { "src/planted.rs": "x\n" }), "src/planted.rs"],
+    ["an empty directory", () => fs.mkdirSync(path.join(f.dir, "src", "empty")), "src/empty"],
+    ["a planted target/", () => write(f.dir, { "target/debug/x.o": "x\n" }), "target"],
+    ...(process.platform === "win32" ? [] : [["an exec-bit change", () => fs.chmodSync(path.join(f.dir, "run.sh"), 0o644), "run.sh"]]),
+    ...(canLink ? [
+      ["a link retarget to a file inside the snapshot", () => { fs.rmSync(path.join(f.dir, "src", "alias.rs")); fs.symlinkSync("../Cargo.toml", path.join(f.dir, "src", "alias.rs")); }, "src/alias.rs"],
+      ["a link retarget into the checkout", () => { fs.rmSync(path.join(f.dir, "src", "alias.rs")); fs.symlinkSync(path.join(f.repo, "src", "lib.rs"), path.join(f.dir, "src", "alias.rs")); }, "src/alias.rs"],
+      ["a link into a ..x sibling directory inside the snapshot", () => fs.symlinkSync(path.join(f.dir, "..x", "a.rs"), path.join(f.dir, "planted.rs")), "planted.rs"],
+    ] : []),
+  ];
+  for (const [name, tamper, where] of cases) {
+    tamper();
+    assert.equal(await cli("--verify", "--commit", c), 1, `${name}: ${err.join("\n")}`);
+    assert.match(err.join("\n"), /snapshot mismatch/, name);
+    assert.ok(err.join("\n").includes(where), `${name} names ${where}: ${err.join("\n")}`);
+    assert.equal(await cli("--commit", c), 0, `${name}: the next sync repairs it: ${err.join("\n")}`);
+    assert.equal(await cli("--verify", "--commit", c), 0, `${name}: verified again: ${err.join("\n")}`);
+  }
+  if (!canLink) assertNoLinkHost(t);
+});
+
+// Row 5.09: the only extras are the gate's own, and they are bounded.
+test("5.09 node_modules is allowed only under a root with a committed pnpm lockfile; a non-pnpm directory under a lockfile root refuses", (t) => {
+  const f = fixture(t, { "package.json": "{\"name\":\"root\",\"private\":true}\n", "apps/web/package.json": "{\"name\":\"web\"}\n", "apps/web/pnpm-lock.yaml": "lockfileVersion: '9.0'\n", "apps/web/src/a.js": "x\n", "tools/package.json": "{\"name\":\"tools\"}\n", ".gitignore": "node_modules/\n" });
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  write(f.dir, { "apps/web/node_modules/.pnpm/d@1/node_modules/d/i.js": "x\n" });
+  assert.equal(verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root }).commit, f.commit, "under the lockfile root");
+  for (const offender of ["node_modules", "tools/node_modules", "apps/web/src/node_modules", "apps/web/vendor", "apps/web/.pnpm-store", "apps/web/dist"]) {
+    write(f.dir, { [`${offender}/x.js`]: "x\n" });
+    refusesPath(f, offender);
+    fs.rmSync(path.join(f.dir, ...offender.split("/")), { recursive: true, force: true });
+  }
+  verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+});
+
+test("5.09 .git/config is allowed only byte-equal to what the gate writes for this checkout's origin: another URL (ext::), another section, another file or no origin refuse", (t) => {
+  const f = fixture(t);
+  const origin = "git@github.com:example/repo.git";
+  git(f.repo, "remote", "add", "origin", origin);
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  const body = `[remote "origin"]\n\turl = ${origin}\n`;
+  write(f.dir, { ".git/config": body });
+  assert.equal(verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root }).commit, f.commit, "the gate's own file");
+  for (const [name, bad] of [["another URL", '[remote "origin"]\n\turl = git@evil.example:x/y.git\n'], ["ext::", '[remote "origin"]\n\turl = ext::sh -c id\n'], ["a second section", `${body}[core]\n\tfsmonitor = /bin/sh\n`], ["a trailing space", body.replace(/\n$/, " \n")], ["CRLF", body.replace(/\n/g, "\r\n")], ["no newline", body.replace(/\n$/, "")], ["empty", ""]]) {
+    write(f.dir, { ".git/config": bad });
+    refusesPath(f, ".git/config");
+    assert.ok(name);
+  }
+  write(f.dir, { ".git/config": body, ".git/hooks/pre-commit": "#!/bin/sh\n" });
+  refusesPath(f, ".git");
+  fs.rmSync(path.join(f.dir, ".git", "hooks"), { recursive: true });
+  write(f.dir, { ".git/HEAD": "ref: refs/heads/main\n" });
+  refusesPath(f, ".git");
+  fs.rmSync(path.join(f.dir, ".git", "HEAD"));
+  fs.rmSync(path.join(f.dir, ".git", "config"));
+  fs.mkdirSync(path.join(f.dir, ".git", "config"));                                      // a directory named config
+  refusesPath(f, ".git/config");
+  fs.rmSync(path.join(f.dir, ".git"), { recursive: true });
+  // A checkout with no origin gets no .git at all (the gate writes none).
+  git(f.repo, "remote", "remove", "origin");
+  write(f.dir, { ".git/config": body });
+  refusesPath(f, ".git");
+});
+
+test("5.09 the installed dependency environment is bound by the recorded digest: a changed byte, a planted file, a deleted file and a retargeted link refuse at the end verify", (t) => {
+  const f = dependencyFixture(t);
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  write(f.dir, { "node_modules/.pnpm/dep@1.0.0/node_modules/dep/index.js": "module.exports = 1;\n", "node_modules/.modules.yaml": "layoutVersion: 5\n" });
+  if (canLink) fs.symlinkSync(path.join(f.dir, "node_modules", ".pnpm", "dep@1.0.0", "node_modules", "dep"), path.join(f.dir, "node_modules", "dep"), dirLinkType);
+  const files = commitFiles(f.repo, f.commit).files;
+  // The binding is the gate's installed-dependency digest (classAEnvironmentDigest hashes it with the gate and tool identity).
+  const compute = ({ dir }) => crypto.createHash("sha256").update(installedDependencyDigest({ root: dir, files })).digest("hex");
+  const environment = { expected: compute({ dir: f.dir }), compute };
+  const verify = () => verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root, environment });
+  assert.equal(verify().env, environment.expected, "an unchanged install verifies");
+  const dep = path.join(f.dir, "node_modules", ".pnpm", "dep@1.0.0", "node_modules", "dep", "index.js");
+  const tamper = [
+    ["a dependency byte changed after install", () => fs.appendFileSync(dep, "// tampered\n"), () => fs.writeFileSync(dep, "module.exports = 1;\n")],
+    ["a planted node_modules/evil/index.js", () => write(f.dir, { "node_modules/evil/index.js": "evil\n" }), () => fs.rmSync(path.join(f.dir, "node_modules", "evil"), { recursive: true })],
+    ["a deleted dependency file", () => fs.rmSync(dep), () => fs.writeFileSync(dep, "module.exports = 1;\n")],
+    ["a changed install state", () => fs.appendFileSync(path.join(f.dir, "node_modules", ".modules.yaml"), "x: 1\n"), () => fs.writeFileSync(path.join(f.dir, "node_modules", ".modules.yaml"), "layoutVersion: 5\n")],
+  ];
+  for (const [name, plant, restore] of tamper) {
+    plant();
+    assert.throws(verify, (e) => e instanceof SnapshotError && e.code === "mismatch" && /installed environment .* changed/.test(e.message), name);
+    restore();
+    assert.equal(verify().commit, f.commit, `${name}: restored`);
+  }
+  // The digest is required to be a digest, and a computation that fails refuses (never passes).
+  assert.throws(() => verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root, environment: { expected: "x", compute } }), (e) => e.code === "error");
+  assert.throws(() => verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root, environment: { expected: environment.expected, compute: () => { throw new Error("cannot hash"); } } }), (e) => e.code === "error" && /cannot hash/.test(e.message));
+});
+
+test("5.09 snapshot --verify --env <digest> through the gate: the real environment digest of the install, exit 0; a changed dependency byte, exit 1; usage errors, exit 2", async (t) => {
+  const f = dependencyFixture(t);
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  write(f.dir, { "node_modules/.pnpm/dep@1.0.0/node_modules/dep/index.js": "module.exports = 1;\n" });
+  // pnpm's version is faked: the digest's identity inputs are the node version, the gate's own files and the installed bytes.
+  const spawnPnpm = (cmd, args, opts = {}) => (cmd === "pnpm" ? { status: 0, stdout: "11.25.0\n", stderr: "" } : spawnSync(cmd, args, { encoding: "utf8", ...opts }));
+  const out = [], err = [];
+  const io = { cwd: f.repo, env: process.env, snapshotRoot: f.root, spawn: spawnPnpm, out: (m) => out.push(m), err: (m) => err.push(m) };
+  const digest = classAEnvironmentDigest({ root: f.dir, files: commitFiles(f.repo, f.commit).files, spawn: spawnPnpm });
+  assert.equal(await main(["snapshot", "--verify", "--commit", f.commit, "--env", digest], io), 0, err.join("\n"));
+  fs.appendFileSync(path.join(f.dir, "node_modules", ".pnpm", "dep@1.0.0", "node_modules", "dep", "index.js"), "// tampered\n");
+  err.length = 0;
+  assert.equal(await main(["snapshot", "--verify", "--commit", f.commit, "--env", digest], io), 1);
+  assert.match(err.join("\n"), /snapshot mismatch: .*installed environment .* changed/);
+  assert.equal(await main(["snapshot", "--verify", "--env", "nothex"], io), 2);
+  assert.equal(await main(["snapshot", "--commit", f.commit, "--env", digest], io), 2, "--env only checks");
+});
+
+// Row 5.12: a failed, unknown-commit or interrupted sync never yields a snapshot reported as a commit it is not.
+test("5.12 an unknown revision refuses with exit 1 before any write: the snapshot's bytes, mtimes and the root's listing are unchanged, for sync and for verify", async (t) => {
+  const f = fixture(t);
+  const out = [], err = [];
+  const io = { cwd: f.repo, env: process.env, snapshotRoot: f.root, out: (m) => out.push(m), err: (m) => err.push(m), acquireOwnership: () => ({ handle: "h", joined: false, reclaimed: null, release: () => ({ released: true }) }) };
+  const cli = (...a) => { out.length = 0; err.length = 0; return main(["snapshot", ...a], io); };
+  const bad = ["0123456789abcdef0123456789abcdef01234567", "no-such-branch", `${f.commit}~50`, git(f.repo, "rev-parse", `${f.commit}^{tree}`), "-x"];
+  // No snapshot yet: nothing is created at all.
+  for (const rev of bad) assert.equal(await cli("--commit", rev), 1, `${rev}: ${err.join("\n")}`);
+  assert.deepEqual(fs.readdirSync(f.root), [], "an unknown revision created nothing in the root");
+  assert.equal(await cli("--commit", bad[0]), 1);
+  assert.match(err.join("\n"), /snapshot refused \(unknown-revision\)/);
+  // A snapshot in place: untouched by each refusal.
+  assert.equal(await cli("--commit", f.commit), 0, err.join("\n"));
+  const snapshotOf = () => ({ names: fs.readdirSync(f.root).sort(), mtimes: mtimes(f.dir), bytes: fs.readFileSync(path.join(f.dir, "src", "lib.rs"), "utf8"), state: fs.readFileSync(`${f.dir}.state.json`, "utf8") });
+  const before = snapshotOf();
+  for (const rev of bad.slice(0, 4)) {
+    assert.equal(await cli("--commit", rev), 1, `${rev} (sync)`);
+    assert.equal(await cli("--verify", "--commit", rev), 1, `${rev} (verify)`);
+    assert.match(err.join("\n"), /unknown-revision/);
+  }
+  assert.deepEqual(snapshotOf(), before);
+  assert.equal(await cli("--verify", "--commit", f.commit), 0, err.join("\n"));
+});
+
+/** A gate process of its own that syncs `rev` and kills itself (SIGKILL; TerminateProcess on Windows) after its `killAfter`-th rename into the snapshot. */
+async function killedSync(t, { repo, rev, root, dir, killAfter, ownershipFile: file = null }) {
+  const work = tmp(t, "rk-snap-kill-");
+  const ready = path.join(work, "ready");
+  const driver = path.join(work, "driver.mjs");
+  fs.writeFileSync(driver, `
+import fs from "node:fs";
+import path from "node:path";
+const { spawn } = await import("node:child" + "_process");
+const a = JSON.parse(process.env.RK_L5S_ARGS);
+const { syncSnapshot } = await import(a.snapshot);
+if (a.file) {
+  const { acquireBuildOwnership } = await import(a.ownership);
+  acquireBuildOwnership({ file: a.file, stage: "snapshot", snapshot: a.dir, env: process.env });
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  child.unref();
+  fs.writeFileSync(a.ready + ".child", String(child.pid));
+}
+let renames = 0;
+const rename = fs.renameSync;
+fs.renameSync = (from, to) => { const r = rename(from, to); if (String(to).startsWith(a.dir + path.sep) && ++renames === a.killAfter) { fs.writeFileSync(a.ready, String(process.pid)); process.kill(process.pid, "SIGKILL"); } return r; };
+syncSnapshot({ checkout: a.checkout, rev: a.rev, root: a.root });
+fs.writeFileSync(a.ready + ".completed", "the sync finished before it could be killed");
+`);
+  const env = { ...process.env, NODE_OPTIONS: "", RK_L5S_ARGS: JSON.stringify({ snapshot: pathToFileURL(path.resolve("snapshot.mjs")).href, ownership: pathToFileURL(path.resolve("build-ownership.mjs")).href, file, checkout: repo, rev, root, dir, killAfter, ready }) };
+  delete env.RIGHTKIT_BUILD_OWNERSHIP; delete env.RIGHTKIT_BUILD_OWNERSHIP_FILE;
+  const child = spawn(process.execPath, [driver], { env, stdio: ["ignore", "ignore", "inherit"], detached: process.platform !== "win32" });
+  await new Promise((res) => child.on("exit", res));
+  assert.equal(fs.existsSync(`${ready}.completed`), false, "the sync was killed in its write phase, not after it");
+  assert.equal(fs.existsSync(ready), true, "the kill point was reached");
+  const sleeper = fs.existsSync(`${ready}.child`) ? Number(fs.readFileSync(`${ready}.child`, "utf8")) : null;
+  if (sleeper) t.after(() => { try { process.kill(sleeper, "SIGKILL"); } catch { /* gone */ } });
+  return { gate: Number(fs.readFileSync(ready, "utf8")), sleeper };
+}
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+async function untilGone(pid, ms = 20_000) { const end = Date.now() + ms; while (alive(pid)) { if (Date.now() > end) throw new Error(`pid ${pid} survived`); await new Promise((r) => setTimeout(r, 50)); } }
+
+test("5.12 a sync killed in its write phase leaves a snapshot that --verify refuses for the old commit and for the new one; the next sync converges and verifies", async (t) => {
+  const f = fixture(t, { "Cargo.toml": "[workspace]\n", "a.rs": "a1\n", "b.rs": "b1\n", "c.rs": "c1\n", "d.rs": "d1\n", ".gitignore": "target/\n" });
+  const first = f.commit;
+  write(f.repo, { "a.rs": "a2\n", "b.rs": "b2\n", "c.rs": "c2\n", "d.rs": "d2\n" });
+  const second = commitAll(f.repo, "all four change");
+  syncSnapshot({ checkout: f.repo, rev: first, root: f.root });
+  // A staging directory a dead sync left behind is not accumulated: the next sync removes it.
+  fs.mkdirSync(path.join(`${f.dir}.staging`, "dead-sync"), { recursive: true });
+  fs.writeFileSync(path.join(`${f.dir}.staging`, "dead-sync", "0"), "half");
+  await killedSync(t, { repo: f.repo, rev: second, root: f.root, dir: f.dir, killAfter: 2 });
+  const out = [], err = [];
+  const cli = (...a) => { out.length = 0; err.length = 0; return main(["snapshot", ...a], { cwd: f.repo, env: process.env, snapshotRoot: f.root, out: (m) => out.push(m), err: (m) => err.push(m), acquireOwnership: () => ({ handle: "h", joined: false, reclaimed: null, release: () => ({ released: true }) }) }); };
+  assert.equal(await cli("--verify", "--commit", first), 1, `old commit: ${err.join("\n")}`);
+  assert.match(err.join("\n"), /snapshot mismatch/);
+  assert.equal(await cli("--verify", "--commit", second), 1, `new commit: ${err.join("\n")}`);
+  assert.match(err.join("\n"), /snapshot mismatch/);
+  // Neither the old nor the new commit is reported: one file moved to the new commit, the rest stayed.
+  const heads = ["a.rs", "b.rs", "c.rs", "d.rs"].map((n) => fs.readFileSync(path.join(f.dir, n), "utf8").trim());
+  assert.ok(heads.some((h) => h.endsWith("2")) && heads.some((h) => h.endsWith("1")), `a partial snapshot: ${heads}`);
+  assert.equal(await cli("--commit", second), 0, `the next sync converges: ${err.join("\n")}`);
+  assert.equal(await cli("--verify", "--commit", second), 0, err.join("\n"));
+  assert.equal(fs.existsSync(`${f.dir}.staging`), false, "the dead sync's staging directory is gone");
+  assert.equal(fs.existsSync(`${f.dir}.lock`), false, "the dead sync's lock was reclaimed and released");
+});
+
+test("5.12 the killed gate's ownership stays held while its recorded child survives: a second sync is busy, the snapshot stays partial, and it syncs once the child is gone", { timeout: 180_000 }, async (t) => {
+  const f = fixture(t, { "Cargo.toml": "[workspace]\n", "a.rs": "a1\n", "b.rs": "b1\n", "c.rs": "c1\n", ".gitignore": "target/\n" });
+  const first = f.commit;
+  write(f.repo, { "a.rs": "a2\n", "b.rs": "b2\n", "c.rs": "c2\n" });
+  const second = commitAll(f.repo, "all change");
+  syncSnapshot({ checkout: f.repo, rev: first, root: f.root });
+  const file = ownershipFile({ platform: process.platform, beside: f.root });
+  const killed = await killedSync(t, { repo: f.repo, rev: second, root: f.root, dir: f.dir, killAfter: 2, ownershipFile: file });
+  const handle = JSON.parse(fs.readFileSync(file, "utf8")).handle;
+  assert.ok(handle, "the killed gate's owner record is still there");
+  // `replay`: the step's ownership judges the host from the RECORDED real-Mac process table (test-support/mac-process-table.mjs, built
+  // by the ownership lane, signed/item5-sage-decisions-2.md D1) instead of the live host's, overlaid with the step's own process chain:
+  // the killed gate and its sleeper are absent from the table, so they are gone, and no unrelated live daemon can decide the verdict.
+  const stepWith = (replay, ...args) => {
+    const work = tmp(t, "rk-snap-step-");
+    const driver = path.join(work, "step.mjs");
+    fs.writeFileSync(driver, `
+const { snapshotCommand } = await import(${JSON.stringify(pathToFileURL(path.resolve("snapshot.mjs")).href)});
+const lines = [];
+let acquireOwnership;
+if (${JSON.stringify(replay)}) {
+  const { acquireBuildOwnership } = await import(${JSON.stringify(pathToFileURL(path.resolve("build-ownership.mjs")).href)});
+  const { macTableProbe } = await import(${JSON.stringify(pathToFileURL(path.resolve("test-support", "mac-process-table.mjs")).href)});
+  const probe = macTableProbe({ own: [process.pid, process.ppid] });
+  acquireOwnership = (q) => acquireBuildOwnership({ ...q, probe });
+}
+const code = snapshotCommand({ cwd: ${JSON.stringify(f.repo)}, env: process.env, platform: process.platform, snapshotRoot: ${JSON.stringify(f.root)}, out: (m) => lines.push(m), err: (m) => lines.push(m), ...(acquireOwnership ? { acquireOwnership } : {}) }, ${JSON.stringify(args)});
+console.log(JSON.stringify({ code, lines }));
+process.exit(0);
+`);
+    const env = { ...process.env, NODE_OPTIONS: "" }; delete env.RIGHTKIT_BUILD_OWNERSHIP; delete env.RIGHTKIT_BUILD_OWNERSHIP_FILE;
+    const r = spawnSync(process.execPath, [driver], { env, encoding: "utf8", timeout: 120_000 });
+    try { return JSON.parse(String(r.stdout).trim().split(/\r?\n/).pop()); } catch { return { code: null, lines: [r.stdout, r.stderr] }; }
+  };
+  const step = (...args) => stepWith(false, ...args);
+  const verifiesAs = (rev) => { try { verifySnapshot({ checkout: f.repo, rev, root: f.root }); return true; } catch (e) { return e.code === "mismatch" ? false : Promise.reject(e); } };
+  if (process.platform === "win32") {
+    // Every member of the dead gate's job died with it (the G1 fixture): the record drains, and the next sync reclaims it.
+    const end = Date.now() + 60_000;
+    while (readHolder(holderFile(file, handle))?.state !== "drained") { if (Date.now() > end) throw new Error("the killed gate's job never drained"); await new Promise((r) => setTimeout(r, 200)); }
+  } else {
+    assert.ok(alive(killed.sleeper), "the gate's recorded child outlived it");
+    const busy = step("--commit", second, "--json");
+    assert.equal(busy.code, 1, `busy, not synced: ${JSON.stringify(busy)}`);
+    assert.match(busy.lines.join("\n"), /snapshot busy: build ownership .* is gone but/);
+    assert.equal(verifiesAs(first), false, "the snapshot is partial: not the old commit");
+    assert.equal(verifiesAs(second), false, "the snapshot is partial: not the new commit");
+    process.kill(killed.sleeper, "SIGKILL");
+    await untilGone(killed.sleeper);
+  }
+  // The "syncs once the child is gone" half: exit 0 AND a clean release, one outcome only. On the Mac the host's judgement comes from the
+  // recorded process table (a test that passes on two outcomes is not evidence); the busy half above stays native.
+  const synced = stepWith(process.platform === "darwin", "--commit", second, "--json");
+  assert.equal(synced.code, 0, JSON.stringify(synced));
+  assert.doesNotMatch(synced.lines.join("\n"), /kept:/, "the release was clean");
+  const r = JSON.parse(synced.lines.find((l) => l.startsWith("{")));
+  assert.equal(r.commit, second);
+  assert.equal(r.ownership.reclaimed.from, handle, "the sync reclaimed the dead gate's ownership with the proof");
+  assert.equal(verifySnapshot({ checkout: f.repo, rev: second, root: f.root }).commit, second);
+});
+
+// Row 5.13: the sync never touches the primary checkout.
+/** Everything about a checkout's git state a sync must leave alone: every file of `.git` but the object database, and git's own views. */
+function checkoutState(repo) {
+  const gitDir = path.join(repo, ".git");
+  const files = {};
+  const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); const rel = path.relative(gitDir, p).split(path.sep).join("/"); if (rel === "objects") continue; if (e.isDirectory()) walk(p); else files[rel] = crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex"); } };
+  walk(gitDir);
+  const g = (...a) => { const r = spawnSync("git", a, { cwd: repo, encoding: "utf8", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } }); return `${r.status}:${r.stdout}`; };
+  return {
+    head: fs.readFileSync(path.join(gitDir, "HEAD"), "utf8"),
+    index: crypto.createHash("sha256").update(fs.readFileSync(path.join(gitDir, "index"))).digest("hex"),
+    status: g("status", "--porcelain=v2", "--branch", "--untracked-files=all"),
+    stash: g("stash", "list"),
+    refs: g("for-each-ref", "--format=%(refname) %(objectname)"),
+    worktrees: fs.existsSync(path.join(gitDir, "worktrees")) ? fs.readdirSync(path.join(gitDir, "worktrees")).sort() : [],
+    files,
+  };
+}
+
+test("5.13 the sync never touches the checkout: HEAD, index, status, stash, refs, worktrees and every file of .git but objects are byte-equal before and after; the assertion sees each kind of change", (t) => {
+  const f = fixture(t);
+  const older = f.commit;
+  write(f.repo, { "src/lib.rs": "pub fn b() {}\n", "added.rs": "x\n" });
+  commitAll(f.repo, "head moves on");
+  write(f.repo, { "README.md": "dirty edit\n" });
+  git(f.repo, "stash", "push", "-q", "-m", "kept", "--", "README.md");
+  write(f.repo, { "README.md": "dirty again\n", "untracked.rs": "u\n" });
+  git(f.repo, "add", "untracked.rs");
+  git(f.repo, "worktree", "add", "-q", "-b", "side", path.join(tmp(t, "rk-snap-wt-"), "wt"));
+  const before = checkoutState(f.repo);
+  assert.notDeepEqual(before.worktrees, [], "the fixture has a linked worktree");
+  assert.match(before.stash, /kept/);
+  // A non-HEAD commit: sync, warm repeat, verify and the CLI, all through the real code.
+  const r = syncSnapshot({ checkout: f.repo, rev: older, root: f.root });
+  assert.equal(r.commit, older);
+  syncSnapshot({ checkout: f.repo, rev: older, root: f.root });
+  verifySnapshot({ checkout: f.repo, rev: older, root: f.root });
+  assert.equal(snapshotCommand({ cwd: f.repo, env: process.env, platform: process.platform, snapshotRoot: f.root, out: () => {}, err: () => {}, acquireOwnership: () => ({ handle: "h", joined: false, reclaimed: null, release: () => ({ released: true }) }) }, ["--commit", older]), 0);
+  assert.deepEqual(checkoutState(f.repo), before);
+  // The assertion can see a change: each double touches the checkout the way a clone, worktree, branch or stash would.
+  const doubles = {
+    "the index": () => git(f.repo, "add", "-A"),
+    "HEAD": () => git(f.repo, "checkout", "-q", "--detach", older),
+    "a branch": () => git(f.repo, "branch", "double-branch"),
+    "the stash": () => git(f.repo, "stash", "push", "-q", "-m", "double"),
+    "a worktree": () => git(f.repo, "worktree", "add", "-q", "--detach", path.join(tmp(t, "rk-snap-wt2-"), "wt"), older),
+    "a file of .git": () => fs.writeFileSync(path.join(f.repo, ".git", "rightkit-double"), "x"),
+  };
+  for (const [name, double] of Object.entries(doubles)) {
+    const was = checkoutState(f.repo);
+    double();
+    assert.notDeepEqual(checkoutState(f.repo), was, `the state check sees a change to ${name}`);
+  }
+});
+
+// Row 5.15: the gate never creates the managed root, and on the Mac the managed root is on another device than `/`.
+// A fixture's managed root is a temporary directory on the boot volume; the Mac device rule is injected away except where it is the subject.
+const managedVolume = (p) => (p === "/" ? 1n : 2n);
+test("5.15 an absent managed root refuses with a named reason and nothing exists afterwards; sync, verify and the CLI (which takes no ownership first)", (t) => {
+  const f = fixture(t);
+  const parent = tmp(t, "rk-snap-parent-");
+  const managed = path.join(parent, ".rightkit-managed");
+  const root = path.join(managed, "snapshots");
+  const refuses = (fn, reason) => assert.throws(fn, (e) => e instanceof SnapshotError && e.code === "refused" && e.reason === reason, reason);
+  refuses(() => syncSnapshot({ checkout: f.repo, rev: f.commit, root, managedRoot: managed, device: managedVolume }), "managed-root-missing");
+  refuses(() => verifySnapshot({ checkout: f.repo, rev: f.commit, root, managedRoot: managed, device: managedVolume }), "managed-root-missing");
+  assert.deepEqual(fs.readdirSync(parent), [], "nothing was created, not the managed root, not snapshots");
+  const err = [];
+  assert.equal(snapshotCommand({ cwd: f.repo, env: process.env, platform: process.platform, snapshotRoot: root, managedRoot: managed, device: managedVolume, out: () => {}, err: (m) => err.push(m), acquireOwnership: () => { throw new Error("ownership must not be taken first: it creates directories"); } }, ["--commit", f.commit]), 1);
+  assert.match(err.join("\n"), /snapshot refused \(managed-root-missing\)/);
+  assert.deepEqual(fs.readdirSync(parent), []);
+  // A managed root that is a file or a link is not a managed root either.
+  fs.writeFileSync(managed, "x");
+  refuses(() => syncSnapshot({ checkout: f.repo, rev: f.commit, root, managedRoot: managed, device: managedVolume }), "managed-root-missing");
+  fs.rmSync(managed);
+  // The root's own parent must exist as well: the gate creates `snapshots`, never the directories above it.
+  fs.mkdirSync(managed);
+  refuses(() => syncSnapshot({ checkout: f.repo, rev: f.commit, root: path.join(managed, "deeper", "snapshots"), managedRoot: managed, device: managedVolume }), "root-parent-missing");
+  assert.deepEqual(fs.readdirSync(managed), []);
+});
+
+test("5.15 an existing managed root gets snapshots/<repo-key> created beneath it and is itself left alone (its mode and listing)", (t) => {
+  const f = fixture(t);
+  const managed = path.join(tmp(t, "rk-snap-parent-"), ".rightkit-managed");
+  fs.mkdirSync(managed, { mode: 0o755 });
+  const before = { mode: fs.statSync(managed).mode, names: fs.readdirSync(managed) };
+  const root = path.join(managed, "snapshots");
+  const r = syncSnapshot({ checkout: f.repo, rev: f.commit, root, managedRoot: managed, device: managedVolume });
+  assert.equal(r.path, path.join(root, repoKey(keyPath(f.repo))));
+  assert.deepEqual(fs.readdirSync(managed), ["snapshots"]);
+  assert.equal(fs.statSync(managed).mode, before.mode);
+  verifySnapshot({ checkout: f.repo, rev: f.commit, root, managedRoot: managed, device: managedVolume });
+});
+
+test("5.15 Mac: a managed root on the same device as / refuses (an unmounted volume cannot yield a boot-volume substitute); another device passes; Windows has no device rule", (t) => {
+  const managed = tmp(t, "rk-snap-managed-");
+  const onBoot = () => 7n;
+  const split = (p) => (p === "/" ? 7n : 9n);
+  assert.throws(() => requireManagedRoot(managed, { platform: "darwin", device: onBoot }), (e) => e instanceof SnapshotError && e.code === "refused" && e.reason === "managed-root-on-boot-volume");
+  assert.equal(requireManagedRoot(managed, { platform: "darwin", device: split }), managed);
+  assert.equal(requireManagedRoot(managed, { platform: "win32", device: onBoot }), managed);
+  assert.equal(requireManagedRoot(managed, { platform: "linux", device: onBoot }), managed);
+  assert.throws(() => requireManagedRoot(managed, { platform: "darwin", device: () => { throw new Error("EIO"); } }), (e) => e.code === "error");
+  // Through the sync, where the host really is a Mac: the same refusal, before any write.
+  if (process.platform === "darwin") {
+    const f = fixture(t);
+    const root = path.join(managed, "snapshots");
+    assert.throws(() => syncSnapshot({ checkout: f.repo, rev: f.commit, root, managedRoot: managed, device: onBoot }), (e) => e.reason === "managed-root-on-boot-volume");
+    assert.deepEqual(fs.readdirSync(managed), []);
+    assert.equal(syncSnapshot({ checkout: f.repo, rev: f.commit, root, managedRoot: managed, device: split }).commit, f.commit);
+  }
+});
+
+test("5.15 the host's snapshot root is guarded by its path, however it is passed: spellings of the real root, and roots under it, find the managed root; no other root does", () => {
+  assert.equal(hostManagedRootFor("/Volumes/D/.rightkit-managed/snapshots", { platform: "darwin" }), "/Volumes/D/.rightkit-managed");
+  assert.equal(hostManagedRootFor("/volumes/d/.RIGHTKIT-managed/snapshots", { platform: "darwin" }), "/Volumes/D/.rightkit-managed", "a case-variant spelling is the same root on APFS");
+  assert.equal(hostManagedRootFor("/Volumes/D/.rightkit-managed/snapshots/../snapshots", { platform: "darwin" }), "/Volumes/D/.rightkit-managed");
+  assert.equal(hostManagedRootFor("/Volumes/D/.rightkit-managed/test-only/snapshots", { platform: "darwin" }), "/Volumes/D/.rightkit-managed");
+  assert.equal(hostManagedRootFor("D:\\.rightkit-managed\\snapshots", { platform: "win32" }), "D:\\.rightkit-managed");
+  assert.equal(hostManagedRootFor("d:\\.RightKit-Managed\\snapshots", { platform: "win32" }), "D:\\.rightkit-managed");
+  assert.equal(hostManagedRootFor("/Volumes/D/.rightkit-managed-other/snapshots", { platform: "darwin" }), null, "a sibling is not under it");
+  assert.equal(hostManagedRootFor("/Volumes/D/.rightkit-managed/../x/snapshots", { platform: "darwin" }), null);
+  assert.equal(hostManagedRootFor("/tmp/x/snapshots", { platform: "darwin" }), null);
+  assert.equal(hostManagedRootFor("/home/a/.local/state/rightkit/snapshots", { platform: "linux" }), null);
+});
+
+// Native on Mac and Dell: the real managed root. Read-only against the real root, and one write test inside a test-only subdirectory
+// of it, removed afterwards. The row's own subject: the gate verifies it can create and write under the real managed root.
+const realManaged = resolveManagedRootForHost();
+function resolveManagedRootForHost() {
+  if (process.platform !== "darwin" && process.platform !== "win32") return null;
+  return process.platform === "win32" ? "D:\\.rightkit-managed" : "/Volumes/D/.rightkit-managed";
+}
+test("5.15 native: the real managed root exists, is a real directory (and on the Mac not on the device of /); the real snapshot root is read back read-only", { skip: realManaged && fs.existsSync(realManaged) ? false : "the host has no real managed root (a Mac or Dell with the managed volume)" }, () => {
+  assert.equal(requireManagedRoot(realManaged), realManaged);
+  assert.equal(snapshotRoot(), path.join(realManaged, "snapshots"));
+  assert.equal(hostManagedRootFor(snapshotRoot()), realManaged);
+  const st = fs.lstatSync(realManaged);
+  assert.ok(st.isDirectory() && !st.isSymbolicLink());
+  if (process.platform === "darwin") assert.notEqual(fs.statSync(realManaged, { bigint: true }).dev, fs.statSync("/", { bigint: true }).dev, "the managed root is on its own volume");
+  const real = path.join(realManaged, "snapshots");
+  if (fs.existsSync(real) && process.platform !== "win32") assert.equal(fs.statSync(real).mode & 0o077, 0, `the real snapshot root ${real} grants nothing to group or other`);
+});
+
+test("5.15 native: sync and verify beneath the real managed root (a test-only subdirectory, removed afterwards); the path is read back, and on the Mac it is on the managed volume", { skip: realManaged && fs.existsSync(realManaged) ? false : "the host has no real managed root (a Mac or Dell with the managed volume)" }, (t) => {
+  const f = fixture(t);
+  const sub = path.join(realManaged, `rk-l5s-5-15-${process.pid}-${crypto.randomBytes(4).toString("hex")}`);
+  assert.ok(path.basename(sub).startsWith("rk-l5s-5-15-"));
+  fs.mkdirSync(sub, { mode: 0o700 });
+  t.after(() => fs.rmSync(sub, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
+  const root = path.join(sub, "snapshots");
+  assert.equal(hostManagedRootFor(root), realManaged, "the guard keys on the real managed root for a root beneath it");
+  const r = syncSnapshot({ checkout: f.repo, rev: f.commit, root });
+  assert.equal(r.path, path.join(root, repoKey(keyPath(f.repo))));
+  assert.equal(path.dirname(path.dirname(r.path)), sub);
+  assert.equal(verifySnapshot({ checkout: f.repo, rev: f.commit, root }).path, r.path, "the path read back");
+  assert.equal(fs.readFileSync(path.join(r.path, "src", "lib.rs"), "utf8"), "pub fn a() {}\n");
+  if (process.platform === "darwin") assert.notEqual(fs.statSync(r.path, { bigint: true }).dev, fs.statSync("/", { bigint: true }).dev, "the snapshot sits on the managed volume");
+  if (process.platform !== "win32") assert.equal(fs.statSync(root).mode & 0o777, 0o700, "the root the gate created is 0700");
+});
+
+// Row 5.16: the Linux root, end to end through the CLI (the resolution rules are tested with the root tests above).
+test("5.16 native Linux root: a configured root is honoured by the CLI; with no file, XDG state; with neither, ~/.local/state; RIGHTKIT_SNAPSHOT_ROOT changes nothing", { skip: process.platform === "linux" ? false : "the Linux root rule; the resolution is also asserted for platform linux on every host" }, (t) => {
+  const f = fixture(t);
+  const home = path.join(os.homedir(), `.rk-l5s-root-test-${process.pid}-${crypto.randomBytes(3).toString("hex")}`);
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const run = (o) => { const out = [], err = []; const code = snapshotCommand({ cwd: f.repo, platform: "linux", out: (m) => out.push(m), err: (m) => err.push(m), acquireOwnership: () => ({ handle: "h", joined: false, reclaimed: null, release: () => ({ released: true }) }), ...o }, ["--commit", f.commit, "--json"]); return { code, out, err }; };
+  const key = repoKey(keyPath(f.repo));
+  const configured = path.join(home, "configured-snaps");
+  let r = run({ env: { ...process.env, RIGHTKIT_SNAPSHOT_ROOT: path.join(home, "hostile") }, home, configFile: hostConfig(t, { snapshotRoot: configured }) });
+  assert.equal(r.code, 0, r.err.join("\n"));
+  assert.equal(JSON.parse(r.out.at(-1)).path, path.join(configured, key));
+  assert.equal(fs.statSync(configured).mode & 0o777, 0o700, "the root the gate created is 0700");
+  const xdg = path.join(home, "xdg");
+  r = run({ env: { ...process.env, XDG_STATE_HOME: xdg, RIGHTKIT_SNAPSHOT_ROOT: path.join(home, "hostile") }, home, configFile: noConfig(t) });
+  assert.equal(r.code, 0, r.err.join("\n"));
+  assert.equal(JSON.parse(r.out.at(-1)).path, path.join(xdg, "rightkit", "snapshots", key));
+  r = run({ env: { ...process.env, XDG_STATE_HOME: "", RIGHTKIT_SNAPSHOT_ROOT: path.join(home, "hostile") }, home, configFile: noConfig(t) });
+  assert.equal(r.code, 0, r.err.join("\n"));
+  assert.equal(JSON.parse(r.out.at(-1)).path, path.join(home, ".local", "state", "rightkit", "snapshots", key));
+  assert.equal(fs.existsSync(path.join(home, "hostile")), false, "the variable selected nothing");
+});
+
+// Row 5.18: repo-key = sha256(canonical repository path)[:16].
+test("5.18 one checkout, one key and one directory, whatever its spelling: a link, a relative path, a trailing separator, a subdirectory and (Mac, Windows) a case variant; distinct repositories have distinct keys", (t) => {
+  const f = fixture(t);
+  const want = repositoryOf(f.repo);
+  assert.equal(want.key, repoKey(keyPath(fs.realpathSync.native(f.repo))));
+  const spellings = { "the path itself": f.repo, "a trailing separator": f.repo + path.sep, "a subdirectory of the checkout": path.join(f.repo, "src") };
+  const relative = path.relative(process.cwd(), f.repo);
+  if (!path.isAbsolute(relative)) spellings["a relative path"] = relative;
+  const linkDir = tmp(t, "rk-snap-spell-");
+  try { fs.symlinkSync(f.repo, path.join(linkDir, "lnk"), dirLinkType); spellings["a link to it"] = path.join(linkDir, "lnk"); } catch { /* no link privilege: the other spellings still run */ }
+  if (spellings["a link to it"]) spellings["a link to it, with a trailing separator"] = path.join(linkDir, "lnk") + path.sep;
+  if (process.platform === "darwin" || process.platform === "win32") {
+    const base = path.basename(f.repo);
+    const swapped = base.replace(/[a-z]/gi, (c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase()));
+    const variant = path.join(path.dirname(f.repo), swapped);
+    if (swapped !== base && fs.existsSync(variant) && fs.statSync(variant).ino === fs.statSync(f.repo).ino) spellings["a case variant"] = variant;
+    else t.diagnostic(`no distinct case variant of ${f.repo} resolves to it here`);
+    assert.ok(spellings["a case variant"], "the case-insensitive volume resolves a case variant");
+  }
+  for (const [name, spelled] of Object.entries(spellings)) {
+    const got = repositoryOf(spelled);
+    assert.equal(got.key, want.key, `${name}: one key`);
+    assert.equal(got.checkout, want.checkout, `${name}: one canonical path`);
+    const r = syncSnapshot({ checkout: spelled, rev: f.commit, root: f.root });
+    assert.equal(r.path, f.dir, `${name}: one directory`);
+    assert.equal(r.repoKey, want.key);
+  }
+  assert.deepEqual(fs.readdirSync(f.root).filter((n) => /^[0-9a-f]{16}$/.test(n)), [want.key], "one snapshot directory for all spellings");
+  const other = fixture(t);
+  assert.notEqual(repositoryOf(other.repo).key, want.key, "distinct repositories have distinct keys");
+  assert.notEqual(other.dir, f.dir);
+});
+
+// Row 5.22, root-mode half: a snapshot root is private to this user.
+const posixModes = process.platform === "win32" ? "POSIX modes" : false;
+test("5.22 a snapshot root the gate creates is 0700, whatever the umask, with every directory it had to create", { skip: posixModes }, (t) => {
+  const f = fixture(t);
+  const top = path.join(tmp(t, "rk-snap-mode-"), "a", "b");
+  const root = path.join(top, "snapshots");
+  const umask = process.umask(0);
+  try { syncSnapshot({ checkout: f.repo, rev: f.commit, root }); } finally { process.umask(umask); }
+  assert.equal(fs.statSync(root).mode & 0o777, 0o700);
+  assert.equal(fs.statSync(top).mode & 0o777, 0o700, "a directory made on the way is private too");
+  verifySnapshot({ checkout: f.repo, rev: f.commit, root });
+});
+
+test("5.22 an existing root that grants group or other any access is refused by sync, verify and the CLI, naming the mode, and nothing in it is touched", { skip: posixModes }, (t) => {
+  const f = fixture(t);
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  const before = { names: fs.readdirSync(f.root).sort(), mtimes: mtimes(f.dir) };
+  for (const mode of [0o755, 0o750, 0o705, 0o770, 0o707, 0o711, 0o777]) {
+    fs.chmodSync(f.root, mode);
+    const label = mode.toString(8);
+    assert.throws(() => syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root }), (e) => e instanceof SnapshotError && e.code === "refused" && e.reason === "root-open-mode" && e.message.includes(`0${label}`), `sync at ${label}`);
+    assert.throws(() => verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root }), (e) => e.reason === "root-open-mode", `verify at ${label}`);
+    const err = [];
+    assert.equal(snapshotCommand({ cwd: f.repo, env: process.env, platform: process.platform, snapshotRoot: f.root, out: () => {}, err: (m) => err.push(m), acquireOwnership: () => { throw new Error("must not acquire"); } }, ["--commit", f.commit]), 1, `CLI at ${label}`);
+    assert.match(err.join("\n"), /snapshot refused \(root-open-mode\)/);
+    assert.equal(snapshotCommand({ cwd: f.repo, env: process.env, platform: process.platform, snapshotRoot: f.root, out: () => {}, err: () => {} }, ["--verify", "--commit", f.commit]), 1, `CLI verify at ${label}`);
+  }
+  fs.chmodSync(f.root, 0o700);
+  assert.deepEqual({ names: fs.readdirSync(f.root).sort(), mtimes: mtimes(f.dir) }, before, "the refusals wrote nothing and deleted nothing");
+  assert.equal(syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root }).commit, f.commit, "a private root works");
+  // A root that predates birth records is refused when open, before the migration could empty it.
+  fs.chmodSync(f.root, 0o755);
+  fs.writeFileSync(path.join(f.root, "0123456789abcdef"), "a snapshot-shaped entry the migration would delete");
+  assert.throws(() => syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root }), (e) => e.reason === "root-open-mode");
+  assert.equal(fs.existsSync(path.join(f.root, "0123456789abcdef")), true);
+});
+
+test("5.13 the temporary index is outside the checkout's .git: it lives in the temp directory (a temp directory that cannot be made fails the identity; .git is not a fallback)", (t) => {
+  const f = fixture(t);
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  const before = checkoutState(f.repo);
+  const saved = { TMPDIR: process.env.TMPDIR, TEMP: process.env.TEMP, TMP: process.env.TMP };
+  const restore = () => { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } };
+  t.after(restore);
+  const gone = path.join(f.root, "no-such-temp-directory");
+  Object.assign(process.env, { TMPDIR: gone, TEMP: gone, TMP: gone });
+  assert.throws(() => snapshotTree({ checkout: f.repo, dir: f.dir, baseTree: git(f.repo, "rev-parse", `${f.commit}^{tree}`) }), (e) => e.code === "ENOENT" || /ENOENT|no such file/i.test(e.message));
+  restore();
+  assert.equal(snapshotTree({ checkout: f.repo, dir: f.dir, baseTree: git(f.repo, "rev-parse", `${f.commit}^{tree}`) }), git(f.repo, "rev-parse", `${f.commit}^{tree}`));
+  assert.deepEqual(checkoutState(f.repo), before, "neither run left anything in .git");
+});
+
+test("5.13 a hook of the editable checkout never runs while the gate computes the snapshot's identity (it could write into the snapshot after it was walked)", (t) => {
+  const f = fixture(t);
+  const marker = path.join(f.root, "..", `hook-ran-${path.basename(f.root)}`);
+  t.after(() => fs.rmSync(marker, { force: true }));
+  const hook = path.join(f.repo, ".git", "hooks", "post-index-change");
+  fs.mkdirSync(path.dirname(hook), { recursive: true });
+  fs.writeFileSync(hook, `#!/bin/sh\necho ran >> '${marker.replace(/\\/g, "/")}'\n`, { mode: 0o755 });
+  // The hook is real: a plain index write in the checkout runs it (so its absence below is the gate's doing, not a broken fixture).
+  write(f.repo, { "probe.txt": "x\n" });
+  git(f.repo, "add", "probe.txt");
+  assert.equal(fs.existsSync(marker), true, "the fixture's hook runs when git itself writes the checkout's index");
+  fs.rmSync(marker);
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  assert.equal(fs.existsSync(marker), false, "the gate's git runs never executed the checkout's hook");
+});
+
+// ============================================================================================================================
+// Item 5 D3 (signed/item5-sage-decisions-2.md): the sealed git invocation. The checkout's git configuration cannot reach the
+// snapshot's identity: no filter driver, no eol conversion, no attributes from info/attributes or an attributes file, no hook, no
+// user-level configuration, no replace ref. Each fixture is built in a temporary directory.
+// ============================================================================================================================
+const fwd = (p) => p.split(path.sep).join("/");
+const trueTree = (repo, rev) => spawnSync("git", ["rev-parse", `${rev}^{tree}`], { cwd: repo, encoding: "utf8", env: { ...process.env, GIT_NO_REPLACE_OBJECTS: "1" } }).stdout.trim();
+
+/**
+ * A checkout armed against the gate: `variant` names what is planted. The filter writes `marker` and rewrites `hellp` to `hello` (so it
+ * would MASK a one-byte tamper); the hook writes `marker` too. Returns { f, marker, env } where env is what the gate process inherits.
+ */
+function armedCheckout(t, variant) {
+  const f = fixture(t, { "Cargo.toml": "[workspace]\n", "a.txt": "hello\n", "lf.txt": "one\ntwo\n", ".gitignore": "target/\n" });
+  const work = tmp(t, "rk-snap-armed-");
+  const marker = path.join(work, "marker");
+  const script = path.join(work, "filter.mjs");
+  fs.writeFileSync(script, `import fs from "node:fs";\nfs.appendFileSync(${JSON.stringify(marker)}, "filter ran\\n");\nlet d = "";\nprocess.stdin.setEncoding("utf8");\nprocess.stdin.on("data", (c) => { d += c; });\nprocess.stdin.on("end", () => process.stdout.write(d.replace(/hellp/g, "hello")));\n`);
+  const command = `"${fwd(process.execPath)}" "${fwd(script)}"`;
+  const cfg = (...a) => git(f.repo, "config", ...a);
+  const attributes = (text) => { fs.mkdirSync(path.join(f.repo, ".git", "info"), { recursive: true }); fs.appendFileSync(path.join(f.repo, ".git", "info", "attributes"), text); };
+  const env = {};
+  if (variant === "filter" || variant === "all") { cfg("filter.evil.clean", command); cfg("filter.evil.smudge", command); cfg("filter.evil.required", "false"); attributes("* filter=evil\n"); }
+  if (variant === "autocrlf" || variant === "all") { cfg("core.autocrlf", "true"); attributes("* text eol=crlf\n"); }
+  if (variant === "global-attributes" || variant === "all") {
+    cfg("filter.evil.clean", command);
+    const file = path.join(work, "global-attributes");
+    fs.writeFileSync(file, "* filter=evil\n");
+    cfg("core.attributesFile", fwd(file));
+  }
+  if (variant === "user-level" || variant === "all") {
+    // The gate's own environment carries a user-level filter and attributes (probe P3b): XDG_CONFIG_HOME / HOME / GIT_CONFIG_GLOBAL.
+    const user = path.join(work, "user");
+    fs.mkdirSync(path.join(user, "git"), { recursive: true });
+    fs.writeFileSync(path.join(user, "git", "config"), `[filter "usr"]\n\tclean = ${command.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}\n\trequired = false\n`);
+    fs.writeFileSync(path.join(user, "git", "attributes"), "* filter=usr\n");
+    Object.assign(env, { XDG_CONFIG_HOME: user, HOME: user, GIT_CONFIG_GLOBAL: path.join(user, "git", "config") });
+  }
+  if (variant === "hook" || variant === "all") {
+    const hook = path.join(f.repo, ".git", "hooks", "post-index-change");
+    fs.mkdirSync(path.dirname(hook), { recursive: true });
+    fs.writeFileSync(hook, `#!/bin/sh\necho hook >> '${fwd(marker)}'\n`, { mode: 0o755 });
+    cfg("core.hooksPath", fwd(path.dirname(hook)));
+  }
+  return { f, marker, env };
+}
+/** Runs `fn` with `env` merged into this process's environment (the gate process's), then restores it. */
+async function withEnv(env, fn) {
+  const saved = Object.fromEntries(Object.keys(env).map((k) => [k, process.env[k]]));
+  Object.assign(process.env, env);
+  try { return await fn(); } finally { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } }
+}
+/** The retired invocation (a test double): the checkout's own git directory, the process environment, only fsmonitor and hooks turned off. */
+function retiredIdentity(f, dir, baseTree) {
+  const index = path.join(tmp(t0, "rk-snap-retired-"), "index");
+  const run = (...a) => spawnSync("git", ["-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", `core.hooksPath=${os.devNull}`, `--git-dir=${path.join(f.repo, ".git")}`, `--work-tree=${dir}`, ...a], { cwd: dir, env: { ...process.env, GIT_INDEX_FILE: index }, encoding: "utf8" });
+  run("read-tree", baseTree); run("add", "-A");
+  return run("write-tree").stdout.trim();
+}
+let t0 = null;
+
+test("D3 sealed identity: no filter driver, eol conversion, attribute file, hook or user-level configuration of the checkout or the gate's environment reaches the id or runs; the exact snapshot verifies and its id is <sha>^{tree}", async (t) => {
+  t0 = t;
+  for (const variant of ["filter", "autocrlf", "global-attributes", "user-level", "hook", "all", "none"]) {
+    const { f, marker, env } = armedCheckout(t, variant);
+    const expected = trueTree(f.repo, f.commit);
+    await withEnv(env, async () => {
+      const r = syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+      assert.equal(r.tree, expected, `${variant}: the id of the synced snapshot is <sha>^{tree}`);
+      assert.equal(verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root }).tree, expected, variant);
+      // The CLI: sync and --verify.
+      const out = [], err = [];
+      const io = { cwd: f.repo, env: process.env, snapshotRoot: f.root, out: (m) => out.push(m), err: (m) => err.push(m), acquireOwnership: () => ({ handle: "h", joined: false, reclaimed: null, release: () => ({ released: true }) }) };
+      assert.equal(await main(["snapshot", "--commit", f.commit], io), 0, `${variant}: ${err.join("\n")}`);
+      assert.equal(await main(["snapshot", "--verify", "--commit", f.commit], io), 0, `${variant}: ${err.join("\n")}`);
+      assert.equal(fs.existsSync(marker), false, `${variant}: neither the filter nor the hook ever ran`);
+      // The masked tamper: the filter would rewrite hellp to hello, hiding a one-byte change; CRLF would be folded to LF by autocrlf.
+      if (variant !== "none") {
+        fs.writeFileSync(path.join(f.dir, "a.txt"), "hellp\n");
+        assert.throws(() => verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root }), (e) => e.code === "mismatch", `${variant}: the one-byte tamper is detected`);
+        assert.equal(await main(["snapshot", "--verify", "--commit", f.commit], io), 1, `${variant}: CLI exit 1 for the one-byte tamper`);
+        fs.writeFileSync(path.join(f.dir, "a.txt"), "hello\n");
+        fs.writeFileSync(path.join(f.dir, "lf.txt"), "one\r\ntwo\r\n");
+        assert.throws(() => verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root }), (e) => e.code === "mismatch", `${variant}: the LF-to-CRLF tamper is detected`);
+        assert.equal(await main(["snapshot", "--verify", "--commit", f.commit], io), 1);
+        assert.equal(fs.existsSync(marker), false, `${variant}: still nothing ran`);
+      } else assert.equal(verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root }).tree, expected, "positive control: a clean checkout agrees");
+    });
+  }
+});
+
+test("D3 negative control: the retired invocation over the same armed checkout runs the filter and hides the tamper (so the sealed test can see the defect)", (t) => {
+  t0 = t;
+  const { f, marker } = armedCheckout(t, "filter");
+  const expected = trueTree(f.repo, f.commit);
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  assert.equal(fs.existsSync(marker), false, "the sealed sync ran nothing");
+  fs.writeFileSync(path.join(f.dir, "a.txt"), "hellp\n");
+  const masked = retiredIdentity(f, f.dir, expected);
+  assert.equal(fs.existsSync(marker), true, "the retired invocation executed the checkout's filter");
+  assert.equal(masked, expected, "and the filter hid the one-byte tamper behind the commit's own id");
+  assert.throws(() => verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root }), (e) => e.code === "mismatch");
+});
+
+test("D3 replace refs: `git replace` changes what <sha>^{tree} means for plain git, never for the gate: the sync writes and verifies the true commit's tree", (t) => {
+  const f = fixture(t);
+  const c1 = f.commit;
+  write(f.repo, { "src/lib.rs": "pub fn other() {}\n", "extra.rs": "x\n" });
+  const c2 = commitAll(f.repo, "c2");
+  git(f.repo, "replace", c1, c2);
+  assert.equal(git(f.repo, "rev-parse", `${c1}^{tree}`), git(f.repo, "rev-parse", `${c2}^{tree}`), "plain git reads the replacement's tree");
+  const real = trueTree(f.repo, c1);
+  assert.notEqual(real, git(f.repo, "rev-parse", `${c2}^{tree}`));
+  assert.deepEqual(resolveCommit(f.repo, c1), { commit: c1, tree: real });
+  const r = syncSnapshot({ checkout: f.repo, rev: c1, root: f.root });
+  assert.equal(r.tree, real);
+  assert.equal(fs.readFileSync(path.join(f.dir, "src", "lib.rs"), "utf8"), "pub fn a() {}\n");
+  assert.equal(fs.existsSync(path.join(f.dir, "extra.rs")), false);
+  assert.equal(verifySnapshot({ checkout: f.repo, rev: c1, root: f.root }).tree, real);
+  assert.deepEqual(treeEntries(f.repo, c1).map((e) => e.path).sort(), ["Cargo.toml", ".gitignore", "README.md", "src/lib.rs"].sort());
+});
+
+test("D3 committed attributes (probes P3c, P3d): a raw CRLF blob, a raw $Id$ blob and a BOM-less working-tree-encoding blob verify exactly; the $Id$ tamper and the CRLF-to-LF tamper refuse", (t) => {
+  const f = fixture(t, { "Cargo.toml": "[workspace]\n", ".gitattributes": "*.txt text eol=lf ident\n*.u16 working-tree-encoding=UTF-16\n", ".gitignore": "target/\n" });
+  const raw = { "crlf.txt": "a\r\nb\r\n", "id.txt": "$Id: deadbeef $\n", "x.u16": "abc\n" };
+  for (const [name, body] of Object.entries(raw)) git(f.repo, "update-index", "--add", "--cacheinfo", `100644,${blobOf(f.repo, body)},${name}`);
+  git(f.repo, "commit", "-q", "-m", "raw blobs");
+  const c = git(f.repo, "rev-parse", "HEAD");
+  const expected = trueTree(f.repo, c);
+  const r = syncSnapshot({ checkout: f.repo, rev: c, root: f.root });
+  assert.equal(r.tree, expected);
+  for (const [name, body] of Object.entries(raw)) assert.equal(fs.readFileSync(path.join(f.dir, name), "utf8"), body, `${name} holds the blob's raw bytes`);
+  assert.equal(verifySnapshot({ checkout: f.repo, rev: c, root: f.root }).tree, expected);
+  fs.writeFileSync(path.join(f.dir, "id.txt"), "$Id$\n");
+  assert.throws(() => verifySnapshot({ checkout: f.repo, rev: c, root: f.root }), (e) => e.code === "mismatch", "the $Id$ tamper");
+  fs.writeFileSync(path.join(f.dir, "id.txt"), raw["id.txt"]);
+  fs.writeFileSync(path.join(f.dir, "crlf.txt"), "a\nb\n");
+  assert.throws(() => verifySnapshot({ checkout: f.repo, rev: c, root: f.root }), (e) => e.code === "mismatch", "the CRLF-to-LF tamper");
+});
+
+const caseHost = process.platform === "darwin" || process.platform === "win32" ? false : "a case-sensitive host: a case-only rename is two different names";
+test("D3 case drift (Mac, Dell): a case-only rename planted in the snapshot refuses; a commit that renames a file and a directory by case only, synced over its parent, converges and verifies", { skip: caseHost }, (t) => {
+  const f = fixture(t);
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  fs.renameSync(path.join(f.dir, "README.md"), path.join(f.dir, "tmp-case"));
+  fs.renameSync(path.join(f.dir, "tmp-case"), path.join(f.dir, "Readme.md"));
+  assert.throws(() => verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root }), (e) => e.code === "mismatch", "the case drift is part of the id");
+  assert.equal(syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root }).commit, f.commit);
+  assert.ok(fs.readdirSync(f.dir).includes("README.md") && !fs.readdirSync(f.dir).includes("Readme.md"), "the sync restored the commit's spelling");
+  verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  // A commit that renames by case only.
+  const readme = git(f.repo, "rev-parse", `${f.commit}:README.md`);
+  const lib = git(f.repo, "rev-parse", `${f.commit}:src/lib.rs`);
+  git(f.repo, "rm", "-q", "--cached", "README.md", "src/lib.rs");
+  git(f.repo, "update-index", "--add", "--cacheinfo", `100644,${readme},Readme.md`);
+  git(f.repo, "update-index", "--add", "--cacheinfo", `100644,${lib},Src/lib.rs`);
+  git(f.repo, "commit", "-q", "-m", "case-only renames");
+  const renamed = git(f.repo, "rev-parse", "HEAD");
+  const before = fs.lstatSync(path.join(f.dir, "README.md"), { bigint: true }).mtimeNs;
+  const r = syncSnapshot({ checkout: f.repo, rev: renamed, root: f.root });
+  assert.ok(r.casesFixed >= 2, `renamed in place: ${r.casesFixed}`);
+  assert.ok(fs.readdirSync(f.dir).includes("Readme.md") && fs.readdirSync(f.dir).includes("Src"), "the new spellings are on disk");
+  assert.ok(!fs.readdirSync(f.dir).includes("README.md") && !fs.readdirSync(f.dir).includes("src"));
+  assert.equal(fs.lstatSync(path.join(f.dir, "Readme.md"), { bigint: true }).mtimeNs, before, "the rename kept the file's mtime");
+  assert.equal(verifySnapshot({ checkout: f.repo, rev: renamed, root: f.root }).tree, trueTree(f.repo, renamed));
+});
+
+function objectNames(repo) {
+  const out = [];
+  const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else out.push(path.relative(path.join(repo, ".git", "objects"), p).split(path.sep).join("/")); } };
+  walk(path.join(repo, ".git", "objects"));
+  return out.sort();
+}
+test("D3 / 5.13 the checkout's objects/ listing is unchanged by sync, verify and the identity: every object the sealed git writes lands in its private directory", (t) => {
+  const f = fixture(t);
+  write(f.repo, { "src/lib.rs": "pub fn b() {}\n" });
+  const next = commitAll(f.repo, "next");
+  const before = objectNames(f.repo);
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  syncSnapshot({ checkout: f.repo, rev: next, root: f.root });
+  verifySnapshot({ checkout: f.repo, rev: next, root: f.root });
+  write(f.dir, { "src/lib.rs": "tampered, so the identity hashes a blob git has never seen\n" });
+  assert.throws(() => verifySnapshot({ checkout: f.repo, rev: next, root: f.root }), (e) => e.code === "mismatch");
+  assert.deepEqual(objectNames(f.repo), before, "no loose object, pack or directory was added to the checkout");
+});
+
+test("D3 the sealed invocation is one exported constant: the -c flags in order, the attributes, the fixed environment; fileMode per platform; no variable but the allowlist reaches git", () => {
+  const T = path.join(os.tmpdir(), "T");
+  const args = sealedConfigArgs(T, "linux");
+  assert.deepEqual(args.filter((a) => a !== "-c"), [
+    "core.autocrlf=false", "core.safecrlf=false", "core.eol=lf", "core.fileMode=true", "core.symlinks=true", "core.ignoreCase=false", "core.precomposeUnicode=false",
+    `core.attributesFile=${path.join(T, "empty")}`, `core.excludesFile=${path.join(T, "empty")}`, `core.hooksPath=${path.join(T, "hooks")}`,
+    "core.fsmonitor=false", "core.untrackedCache=false", "core.splitIndex=false", "core.sparseCheckout=false", "index.sparse=false", "core.useReplaceRefs=false",
+  ]);
+  assert.ok(sealedConfigArgs(T, "win32").includes("core.fileMode=false"));
+  assert.ok(sealedConfigArgs(T, "darwin").includes("core.fileMode=true"));
+  assert.equal(SEALED_GIT.attributes, "* -text -ident -filter -working-tree-encoding !eol\n");
+  const hostile = { PATH: "/bin", SystemRoot: "C:\\Windows", GIT_EXEC_PATH: "/evil", GIT_ALTERNATE_OBJECT_DIRECTORIES: "/evil", GIT_CONFIG_PARAMETERS: "'x=y'", GIT_CONFIG_COUNT: "1", GIT_ATTR_SOURCE: "x", GIT_TRACE: "1", GIT_REPLACE_REF_BASE: "x", GIT_OBJECT_DIRECTORY: "/evil", HOME: "/evil", EDITOR: "x" };
+  const env = sealedEnv(T, { snapshot: "/snap", platform: "linux", base: hostile });
+  assert.deepEqual(Object.keys(env).sort(), ["GIT_ATTR_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "GIT_DIR", "GIT_INDEX_FILE", "GIT_NO_LAZY_FETCH", "GIT_NO_REPLACE_OBJECTS", "GIT_OPTIONAL_LOCKS", "GIT_TERMINAL_PROMPT", "GIT_WORK_TREE", "HOME", "LC_ALL", "PATH", "XDG_CONFIG_HOME"]);
+  assert.equal(env.HOME, T);
+  assert.equal(env.GIT_DIR, T);
+  assert.equal(env.GIT_WORK_TREE, "/snap");
+  const win = sealedEnv(T, { snapshot: "/snap", platform: "win32", base: hostile });
+  assert.deepEqual([win.SystemRoot, win.TEMP, win.TMP], ["C:\\Windows", T, T]);
+  // The private directory's layout.
+  const dir = createSealedGitDir({ commonDir: "/x/.git", objectFormat: "sha1" });
+  try {
+    assert.equal(fs.readFileSync(path.join(dir, "HEAD"), "utf8"), "ref: refs/heads/none\n");
+    assert.equal(fs.readFileSync(path.join(dir, "info", "exclude"), "utf8"), "");
+    assert.equal(fs.readFileSync(path.join(dir, "info", "attributes"), "utf8"), SEALED_ATTRIBUTES);
+    assert.equal(fs.readFileSync(path.join(dir, "objects", "info", "alternates"), "utf8"), "/x/.git/objects\n");
+    assert.match(fs.readFileSync(path.join(dir, "config"), "utf8"), /^\[core\]\n\trepositoryformatversion = 0\n\tbare = false\n$/);
+    assert.deepEqual(fs.readdirSync(path.join(dir, "hooks")), []);
+    if (process.platform !== "win32") assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  const sha256Dir = createSealedGitDir({ commonDir: "/x/.git", objectFormat: "sha256" });
+  try { assert.match(fs.readFileSync(path.join(sha256Dir, "config"), "utf8"), /repositoryformatversion = 1\n\tbare = false\n\[extensions\]\n\tobjectFormat = sha256\n/); } finally { fs.rmSync(sha256Dir, { recursive: true, force: true }); }
 });
