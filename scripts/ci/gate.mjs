@@ -498,7 +498,10 @@ function scanPaths(selection) {
  */
 async function scansGate(selection) {
   const started = Date.now();
-  const plan = planScans({ changed: scanPaths(selection), contentRoot: ROOT, liveRoot: ROOT, includeTests: false, cargoCommand: ["cargo"], readBytes: (f) => fs.readFileSync(f) });
+  // The npm units are the workspace's (npmPackages honours pnpm-workspace.yaml exclusions): a parked package is never installed, so a
+  // scan planned for it (tsc on packages/sync-worker) could never pass. Unit names stay the directory names the scan ids use.
+  const npmUnits = npmPackages().map((p) => ({ name: path.basename(p.dir), dir: p.dir }));
+  const plan = planScans({ changed: scanPaths(selection), contentRoot: ROOT, liveRoot: ROOT, includeTests: false, cargoCommand: ["cargo"], npmUnits, readBytes: (f) => fs.readFileSync(f) });
   console.log(`::group::scans: class A (${plan.scans.filter((x) => x.class === "A").length} scans)`);
   const result = await runScans(plan, { classes: ["A"] });
   for (const line of scanDeferrals(result)) console.log(line);
