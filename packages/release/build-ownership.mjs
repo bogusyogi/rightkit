@@ -16,11 +16,16 @@
 //         its own job included; measured on the Dell, D:\scratch\rk-step4\dell-jobexp.log). A detached holder process keeps the
 //         job's only handle and records `drained` once the job has no active process. Proof: the job opens with 0 active, or it
 //         is gone and its holder recorded `drained` (or `failed` before the gate ever ran inside it).
-//       POSIX: the gate's process group, counting only members started after the gate took ownership (ancestors and peers that
-//         share the group are not its children). On Linux also no same-user process whose environment carries the handle
-//         (RIGHTKIT_BUILD_OWNERSHIP), which catches a descendant that left the group with its environment intact. A descendant
-//         that both starts a new session and drops its environment (or, on macOS, only starts a new session) is not covered:
-//         the gate launches no such child itself, and broker-run compiles are covered by the lease below.
+//       POSIX, three nets, all of which must be clear: (1) the gate's process group, counting members started after the
+//         ownership whose ancestry leads to the owner or to an orphan (ancestors and peers that share the group are not its
+//         children); (2) no process whose environment carries the handle (RIGHTKIT_BUILD_OWNERSHIP=<handle>), which catches a
+//         descendant that started its own session (Linux /proc/<pid>/environ; macOS `ps eww`, which hides the environment of
+//         Apple platform binaries only); (3) no process whose working directory is inside the snapshot (Linux /proc/<pid>/cwd;
+//         macOS `lsof -d cwd`, platform binaries included); (4) every process group a gate under this ownership started
+//         detached (spawnUnderOwnership records it before the child runs; class A scans, right-release builds and heavy-command
+//         start their children that way) is empty, and no such spawn was left half-recorded. Residual on POSIX: a descendant
+//         that itself starts a new session, drops the variable (or is an Apple platform binary on macOS) AND runs outside the
+//         snapshot directory while reading it.
 //       Any host: a reboot after the record was written ends every process it covered.
 //   - if a broker request may have been submitted, `rustright snapshot-lease status` reports REAPED for that snapshot & handle.
 // Any other answer (alive, a probe that fails or is unsupported, ACTIVE, UNKNOWN, a record or holder state that cannot be read)
@@ -41,6 +46,8 @@ import { snapshotRoot } from "./snapshot.mjs";
 export const OWNERSHIP_SCHEMA = "rightkit.build-ownership/1";
 export const HOLDER_SCHEMA = "rightkit.build-ownership-holder/1";
 export const OWNERSHIP_ENV = "RIGHTKIT_BUILD_OWNERSHIP";
+/** The owner record's path, exported beside the handle so every process under the ownership records detached children there. */
+export const OWNERSHIP_FILE_ENV = "RIGHTKIT_BUILD_OWNERSHIP_FILE";
 export const LEASE_STATUS_SCHEMA = "rustright.snapshot-lease-status.v1";
 const LEASE_STATES = new Set(["ACTIVE", "REAPED", "UNKNOWN"]);
 // `ps` prints start times to the second: a member started in the second the gate took ownership counts as the gate's.
@@ -61,6 +68,8 @@ export function ownershipFile({ platform = process.platform, env = process.env, 
 }
 
 export const jobName = (handle) => `Local\\RightKitBuildOwnership-${handle}`;
+/** Where the process groups of children a gate under this ownership started detached (POSIX) are recorded. */
+export const childrenDir = (file, handle) => path.join(path.dirname(file), `children-${handle}`);
 export const holderFile = (file, handle) => path.join(path.dirname(file), `holder-${handle}.json`);
 
 const run = (spawn, command, args, env = {}) => spawn(command, args, { encoding: "utf8", env: { ...process.env, ...env }, timeout: 60_000, maxBuffer: 1 << 26 });
@@ -209,21 +218,83 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
       for (const p of members) if (!Number.isFinite(p.startedMs)) throw new Error(`cannot read the start time of pid ${p.pid}`);
       return { members, byPid: new Map(rows.map((row) => [row.pid, row])), own };
     },
-    /** Linux: pids of same-user processes whose environment carries `<OWNERSHIP_ENV>=<handle>`; null where it cannot be read. */
+    /**
+     * Pids of processes whose environment carries `<OWNERSHIP_ENV>=<handle>` (this gate's own chain left out). Linux reads
+     * /proc/<pid>/environ; macOS reads `ps eww`, which shows the environment of every process the user may inspect except Apple
+     * platform binaries (/bin/*, /usr/bin/*), which the working-directory net covers. null where neither exists.
+     */
     tokenHolders(handle) {
-      // Only a Linux /proc lists environments (a host simulating Linux in a test has none: unsupported, not an error).
-      if (platform !== "linux" || !fs.existsSync("/proc/self/environ")) return null;
-      const needle = Buffer.from(`${OWNERSHIP_ENV}=${handle}\0`);
-      const found = [];
-      for (const name of readdir("/proc")) {
-        if (!/^\d+$/.test(name)) continue;
-        let environ;
-        try { environ = readFile(`/proc/${name}/environ`); } catch (e) { if (["EACCES", "EPERM", "ENOENT", "ESRCH"].includes(e.code)) continue; throw e; }
-        if (Number(name) !== process.pid && Buffer.concat([environ, Buffer.from("\0")]).includes(needle)) found.push(Number(name));
+      const token = `${OWNERSHIP_ENV}=${handle}`;
+      if (fs.existsSync("/proc/self/environ")) {
+        const needle = Buffer.from(`${token}\0`);
+        const found = [];
+        for (const name of readdir("/proc")) {
+          if (!/^\d+$/.test(name) || Number(name) === process.pid) continue;
+          let environ;
+          try { environ = readFile(`/proc/${name}/environ`); } catch (e) { if (["EACCES", "EPERM", "ENOENT", "ESRCH"].includes(e.code)) continue; throw e; }
+          if (Buffer.concat([environ, Buffer.from("\0")]).includes(needle)) found.push(Number(name));
+        }
+        return found;
+      }
+      if (platform !== "darwin") return null;
+      const { own } = psList();
+      const r = run(spawn, "ps", ["eww", "-A", "-o", "pid=", "-o", "command="], { LC_ALL: "C", LANG: "C" });
+      if (r.error || r.status !== 0) throw new Error(`ps eww: ${r.error?.message ?? (String(r.stderr ?? "").trim() || `exit ${r.status}`)}`);
+      const pattern = new RegExp(`(^|\\s)${token.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&")}(\\s|$)`);
+      return String(r.stdout ?? "").split(/\r?\n/).map((l) => /^\s*(\d+)\s(.*)$/.exec(l)).filter((m) => m && !own.has(Number(m[1])) && Number(m[1]) !== r.pid && pattern.test(m[2])).map((m) => Number(m[1]));
+    },
+    /**
+     * Pids of processes whose working directory is `dir` or inside it (this gate's own chain left out): Linux /proc/<pid>/cwd,
+     * macOS `lsof -d cwd` for this user. A reader of the snapshot that left both the group and its environment still runs
+     * there. null where neither exists.
+     */
+    cwdHolders(dir) {
+      const inside = (p) => { const rel = path.relative(dir, p); return rel === "" || (!!rel && !rel.startsWith("..") && !path.isAbsolute(rel)); };
+      if (fs.existsSync("/proc/self/cwd")) {
+        const found = [];
+        for (const name of readdir("/proc")) {
+          if (!/^\d+$/.test(name) || Number(name) === process.pid) continue;
+          let cwd;
+          try { cwd = fs.readlinkSync(`/proc/${name}/cwd`); } catch (e) { if (["EACCES", "EPERM", "ENOENT", "ESRCH"].includes(e.code)) continue; throw e; }
+          if (inside(cwd)) found.push(Number(name));
+        }
+        return found;
+      }
+      if (platform !== "darwin") return null;
+      const { own } = psList();
+      const r = run(spawn, "lsof", ["-a", "-d", "cwd", "-Fpn", "-u", String(uid)]);
+      // lsof exits 1 when a listed process vanished mid-scan; its output is still the listing.
+      if (r.error || (r.status !== 0 && !String(r.stdout ?? "").trim())) throw new Error(`lsof: ${r.error?.message ?? (String(r.stderr ?? "").trim() || `exit ${r.status}`)}`);
+      const found = []; let pid = null;
+      for (const line of String(r.stdout ?? "").split(/\r?\n/)) {
+        if (line.startsWith("p")) pid = Number(line.slice(1));
+        else if (line.startsWith("n") && pid && !own.has(pid) && inside(line.slice(1))) found.push(pid);
       }
       return found;
     },
   };
+}
+
+/**
+ * Spawns through `spawn`. A call that detaches the child (POSIX: a new session and process group, which the gate's own group no
+ * longer covers) while a build ownership is held records it first: an intent file before the spawn, then the child's group (its
+ * pid) once it exists, so a crashed gate's record is kept until that group is empty; a crash between the two leaves the intent,
+ * which keeps the record (unknown group). Windows children stay in the gate's job, so nothing is recorded there. Every detached
+ * launch on a gate path goes through here (scans, right-release builds, heavy-command).
+ */
+export function spawnUnderOwnership(spawn, command, args, options = {}, { env = process.env, platform = process.platform } = {}) {
+  const handle = env[OWNERSHIP_ENV] ?? options?.env?.[OWNERSHIP_ENV];
+  if (!options?.detached || platform === "win32" || !handle) return spawn(command, args, options);
+  const merged = { ...(options.env ?? {}), ...env };
+  const dir = childrenDir(merged[OWNERSHIP_FILE_ENV] || ownershipFile({ platform, env: merged }), handle);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const intent = path.join(dir, `intent-${process.pid}-${crypto.randomUUID()}.json`);
+  fs.writeFileSync(intent, JSON.stringify({ by: process.pid, at: new Date().toISOString(), command: String(command) }), { flag: "wx", mode: 0o600 });
+  let child;
+  try { child = spawn(command, args, options); } catch (e) { fs.rmSync(intent, { force: true }); throw e; }
+  if (child?.pid) fs.writeFileSync(path.join(dir, `group-${child.pid}.json`), JSON.stringify({ group: child.pid, startedMs: Date.now() - START_SLACK_MS, command: String(command) }), { mode: 0o600 });
+  fs.rmSync(intent, { force: true });
+  return child;
 }
 
 /** The holder's last report, or null when absent or unreadable. */
@@ -303,12 +374,38 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null }) {
     const children = snap.members.filter((m) => m.pid !== selfPid && coveredMember(m, owner, snap)).map((m) => m.pid);
     if (children.length) throw new Error(`process group ${c.group} still has ${children.length} member(s) started under this ownership: ${children.join(", ")}`);
     proofs.push(`process group ${c.group} has no member started under this ownership`);
+    // Children the gate started detached lead groups of their own: each recorded group must be empty too.
+    const registry = childrenDir(file, owner.handle);
+    let entries = [];
+    try { entries = fs.readdirSync(registry); } catch (e) { if (e.code !== "ENOENT") throw new Error(`the detached-child record ${registry} cannot be read (${e.message})`); }
+    const intents = entries.filter((n) => n.startsWith("intent-"));
+    if (intents.length) throw new Error(`a detached spawn was in flight when its gate stopped (${intents[0]}), so its process group is unknown`);
+    const groups = entries.filter((n) => /^group-\d+\.json$/.test(n));
+    for (const name of groups) {
+      let entry;
+      try { entry = JSON.parse(fs.readFileSync(path.join(registry, name), "utf8")); } catch { throw new Error(`the detached-child entry ${name} cannot be read`); }
+      if (!Number.isInteger(entry?.group) || !Number.isFinite(entry?.startedMs)) throw new Error(`the detached-child entry ${name} cannot be read`);
+      let snapshot;
+      try { snapshot = probe.groupSnapshot(entry.group); } catch (e) { throw new Error(`detached process group ${entry.group} cannot be listed (${e.message})`); }
+      const live = snapshot.members.filter((m) => m.pid !== selfPid && m.startedMs >= entry.startedMs - START_SLACK_MS).map((m) => m.pid);
+      if (live.length) throw new Error(`detached process group ${entry.group} (${entry.command}) still has ${live.length} member(s): ${live.join(", ")}`);
+    }
+    if (groups.length) proofs.push(`the ${groups.length} detached process group(s) it started are empty`);
     let carriers;
     try { carriers = probe.tokenHolders(owner.handle); } catch (e) { throw new Error(`processes carrying ${OWNERSHIP_ENV} cannot be listed (${e.message})`); }
     if (carriers) {
       const others = carriers.filter((pid) => pid !== selfPid);
       if (others.length) throw new Error(`process(es) ${others.join(", ")} still carry ${OWNERSHIP_ENV}=${owner.handle}`);
       proofs.push(`no process carries ${OWNERSHIP_ENV}=${owner.handle}`);
+    }
+    if (owner.snapshot) {
+      let inside;
+      try { inside = probe.cwdHolders(owner.snapshot); } catch (e) { throw new Error(`working directories cannot be listed (${e.message})`); }
+      if (inside) {
+        const others = inside.filter((pid) => pid !== selfPid);
+        if (others.length) throw new Error(`process(es) ${others.join(", ")} still run inside the snapshot ${owner.snapshot}`);
+        proofs.push(`no process runs inside ${owner.snapshot}`);
+      }
     }
   } else if (!rebooted) {
     throw new Error(`the record names no containment (${JSON.stringify(c)})`);
@@ -396,8 +493,9 @@ export function acquireBuildOwnership({
     // The record as it is now (a broker submit may have been marked since it was written).
     try { proofs = coveredWorkGone(JSON.parse(readText(file)), { probe, lease, file, selfPid: process.pid }); }
     catch (e) { return { released: false, why: `left for the next gate to reclaim: ${e.message}` }; }
-    finally { if (exportEnv && process.env[OWNERSHIP_ENV] === handle) delete process.env[OWNERSHIP_ENV]; }
+    finally { if (exportEnv && process.env[OWNERSHIP_ENV] === handle) { delete process.env[OWNERSHIP_ENV]; delete process.env[OWNERSHIP_FILE_ENV]; } }
     fs.rmSync(file, { force: true });
+    fs.rmSync(childrenDir(file, handle), { recursive: true, force: true });
     return { released: true, proofs };
   };
   const done = (reclaimed) => {
@@ -406,7 +504,7 @@ export function acquireBuildOwnership({
       try { probe.contain({ name: record.containment.name, pid: process.pid, file: holderFile(file, handle) }); }
       catch (e) { if (holds(file, handle)) fs.rmSync(file, { force: true }); throw new OwnershipBusy(`build ownership ${file}: ${e.message}`); }
     }
-    if (exportEnv) process.env[OWNERSHIP_ENV] = handle;
+    if (exportEnv) { process.env[OWNERSHIP_ENV] = handle; process.env[OWNERSHIP_FILE_ENV] = file; }
     return { handle, file, joined: false, reclaimed, owner: record, markBrokerSubmit: () => markBrokerSubmit(file, handle), held: () => holds(file, handle), release };
   };
   if (publish(file, body)) return done(null);
@@ -420,6 +518,7 @@ export function acquireBuildOwnership({
     if (readText(file) !== observed) throw new OwnershipBusy(`build ownership ${file} changed before it could be reclaimed`);
     fs.rmSync(file, { force: true });
     fs.rmSync(holderFile(file, judged.owner.handle), { force: true });
+    fs.rmSync(childrenDir(file, judged.owner.handle), { recursive: true, force: true });
     if (!publish(file, body)) throw new OwnershipBusy(`build ownership ${file} was taken by another process`);
   } finally {
     fs.rmSync(reclaim, { force: true });

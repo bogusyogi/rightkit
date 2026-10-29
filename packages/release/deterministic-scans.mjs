@@ -23,6 +23,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn as spawnChild, spawnSync } from "./background-process.mjs";
+import { spawnUnderOwnership } from "./build-ownership.mjs";
 import { checkAdvisoryExceptions } from "./advisory-exceptions.mjs";
 import { canonicalJson, digestScanSet, requiredScanIds, rustCratePlan, rustScanId } from "./scan-digest.mjs";
 import { reach } from "./lock-graph.mjs";
@@ -1152,7 +1153,8 @@ export function defaultSpawnAsync(command, args, options = {}) {
     let child;
     try {
       // stdin is closed: no scan reads it, and an open pipe nobody writes can block a tool that probes it (Windows).
-      child = spawnChild(inv.file, inv.args, { windowsHide: true, windowsVerbatimArguments: inv.verbatim, stdio: ["ignore", "pipe", "pipe"], ...(signal && process.platform !== "win32" ? { detached: true } : {}), ...rest, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+      // A detached child (POSIX, its own group for the abort kill) is recorded under the held build ownership (build-ownership.mjs).
+      child = spawnUnderOwnership(spawnChild, inv.file, inv.args, { windowsHide: true, windowsVerbatimArguments: inv.verbatim, stdio: ["ignore", "pipe", "pipe"], ...(signal && process.platform !== "win32" ? { detached: true } : {}), ...rest, shell: false, stdio: ["ignore", "pipe", "pipe"] });
     } catch (e) { resolve({ status: null, stdout: "", stderr: "", error: e }); return; }
     if (onSpawn && child.pid) onSpawn(child.pid);
     const onAbort = () => killProcessTree(child);

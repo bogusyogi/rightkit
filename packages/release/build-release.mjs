@@ -20,6 +20,7 @@ import {
 import path from "node:path";
 import { preflightOwnershipScope } from "./ownership-scope.mjs";
 import { spawn, spawnSync } from "./background-process.mjs";
+import { spawnUnderOwnership } from "./build-ownership.mjs";
 import { RightKitRegistryError, SNAPSHOT_ENV, SNAPSHOT_FILE, assertManifestRegistryEvidence, loadAdmittedSnapshot, prepareRightKitResolution, registryManifestFields, rightKitLockInventory, writeAdmissionRecord, writeSnapshot } from "./rightkit-registry-resolver.mjs";
 import { formatAdmission, formatNotRun, runAdmission } from "./admission.mjs";
 import { sccacheRefusal } from "./admission-host.mjs";
@@ -875,7 +876,7 @@ async function runProgress(cmd, runArgs, cwd, env, watchDir, diagnosticPath = nu
     const settleResolve = () => { if (!settled) { settled = true; resolve(); } };
     const settleReject = (error) => { if (!settled) { settled = true; reject(error); } };
     const useShell = process.platform === "win32" && !/\.(?:exe|com)$/i.test(cmd);
-    child = spawn(cmd, runArgs, { cwd, env, stdio: ["inherit", "pipe", "pipe"], windowsHide: true, shell: useShell, detached: process.platform !== "win32" });
+    child = spawnUnderOwnership(spawn, cmd, runArgs, { cwd, env, stdio: ["inherit", "pipe", "pipe"], windowsHide: true, shell: useShell, detached: process.platform !== "win32" });
     try {
       if (child.pid && heavySlot) heavySlot.trackChild(child.pid, cmd);
     } catch (error) {

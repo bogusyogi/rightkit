@@ -3,6 +3,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, r
 import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "./background-process.mjs";
+import { spawnUnderOwnership } from "./build-ownership.mjs";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
@@ -208,7 +209,7 @@ export async function watchOwnedProcessTree(
 
 function spawnOwnerWatcher(details) {
   const payload = Buffer.from(JSON.stringify(details)).toString("base64url");
-  const watcher = spawn(process.execPath, [SELF, "--watch-owner-base64", payload], {
+  const watcher = spawnUnderOwnership(spawn, process.execPath, [SELF, "--watch-owner-base64", payload], {
     detached: true, env: process.env, stdio: "ignore", windowsHide: true,
   });
   watcher.once("error", () => {
@@ -335,7 +336,7 @@ export async function runHeavyCommand(args, { env = process.env } = {}) {
 
 function spawnAttached(command, args, env, slot) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: process.cwd(), env, stdio: "inherit", windowsHide: true, detached: heavyChildDetached({ slot }) });
+    const child = spawnUnderOwnership(spawn, command, args, { cwd: process.cwd(), env, stdio: "inherit", windowsHide: true, detached: heavyChildDetached({ slot }) });
     try {
       if (child.pid && slot) slot.trackChild(child.pid, command);
     } catch (error) {
