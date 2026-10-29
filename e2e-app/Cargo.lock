@@ -6187,6 +6187,7 @@ dependencies = [
  "half",
  "hound",
  "libloading 0.9.0",
+ "libm",
  "ndarray",
  "objc2",
  "objc2-core-ml",

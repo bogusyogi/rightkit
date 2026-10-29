@@ -29,7 +29,10 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use rightkit_asr::kws::{KeywordSpotter, KeywordSpotterConfig, Keywords};
+use rightkit_asr::kws::{
+    JoinerBatching, KeywordDetection, KeywordSpotter, KeywordSpotterConfig, Keywords,
+    MergeTimestamps, OnsetConfig, ThresholdTokens,
+};
 use rightkit_asr::Error;
 use serde::Deserialize;
 
@@ -400,6 +403,58 @@ fn run(config: &KeywordSpotterConfig, input: Input<'_>, feed: usize) -> (usize, 
     (decodes, hits)
 }
 
+/// [`run`] through [`KeywordSpotter::detection`], keeping each detection's details.
+fn run_detections(
+    config: &KeywordSpotterConfig,
+    input: Input<'_>,
+    feed: usize,
+) -> (usize, Vec<(usize, KeywordDetection)>) {
+    let dim = config.features.num_bins;
+    let mut spotter = KeywordSpotter::new(config).expect("create keyword spotter");
+    let mut stream = spotter.create_stream();
+    let (mut decodes, mut found) = (0usize, Vec::new());
+    let total = match input {
+        Input::Wave(audio) => audio.len(),
+        Input::Features { samples, .. } => samples,
+    };
+    let (mut fed, mut injected) = (0usize, 0usize);
+    while fed < total {
+        let n = feed.max(1).min(total - fed);
+        match input {
+            Input::Wave(audio) => stream
+                .accept_waveform(16_000, &audio[fed..fed + n])
+                .expect("accept 16 kHz audio"),
+            Input::Features { frames, .. } => {
+                let ready = ready_frames(fed + n);
+                stream.accept_features(&frames[injected * dim..ready * dim]);
+                injected = ready;
+            }
+        }
+        fed += n;
+        while spotter.is_ready(&stream) {
+            spotter.decode(&mut stream).expect("decode");
+            if let Some(d) = spotter.detection(&mut stream) {
+                found.push((decodes, d));
+            }
+            decodes += 1;
+        }
+    }
+    (decodes, found)
+}
+
+fn hits_of(found: &[(usize, KeywordDetection)]) -> Vec<Hit> {
+    found
+        .iter()
+        .map(|(decode, d)| Hit {
+            decode: *decode,
+            keyword: d.result.keyword.clone(),
+            tokens: d.result.tokens.clone(),
+            timestamps: d.result.timestamps.clone(),
+            frames: d.result.frames.clone(),
+        })
+        .collect()
+}
+
 fn same_detection(want: &RefDetection, got: &Hit) -> bool {
     want.decode == got.decode
         && want.keyword == got.keyword
@@ -525,6 +580,212 @@ fn kws_detections_match_sherpa_reference() {
         failures.len(),
     );
     eprintln!("{checked} cases match the Sherpa reference exactly");
+}
+
+/// Onset estimation on: every case still matches the Sherpa reference exactly (estimation
+/// never changes detection), every detection carries candidates on the beam's clock, and
+/// the spread of each candidate against the emission frame is reported.
+#[test]
+fn kws_onset_estimation_leaves_detections_unchanged() {
+    let h = harness!();
+    let mut failures = Vec::new();
+    let (mut detections, mut checked) = (0usize, 0usize);
+    // (candidate, count, sum of feature-frame deltas from emission, min, max)
+    let mut spread: BTreeMap<&str, (usize, i64, i64, i64)> = BTreeMap::new();
+    let mut rules: BTreeMap<&str, usize> = BTreeMap::new();
+    for case in &h.reference.cases {
+        let Some(frames) = h.case_fbank(case) else {
+            continue;
+        };
+        checked += 1;
+        let samples = h.case_audio(case).len();
+        let mut config = h.parity_config(case);
+        config.onset = Some(OnsetConfig::default());
+        let input = Input::Features {
+            frames: &frames,
+            samples,
+        };
+        let (decodes, found) = run_detections(&config, input, case.feed_samples);
+        if let Some(diff) = compare(case, decodes, &hits_of(&found)) {
+            eprintln!("FAIL {}: {diff}", case.id);
+            failures.push(case.id.clone());
+        }
+        for (_, d) in &found {
+            detections += 1;
+            let onset = d.onset.as_ref().unwrap_or_else(|| {
+                panic!(
+                    "case {}: {} has no onset estimates",
+                    case.id, d.result.keyword
+                )
+            });
+            let first = d.result.frames[0];
+            let last = *d.result.frames.last().unwrap();
+            assert_eq!(onset.emission.feature_frame, 4 * first, "case {}", case.id);
+            assert!(
+                d.fired_frame > last + config.num_trailing_blanks,
+                "case {}",
+                case.id
+            );
+            assert_eq!(
+                d.token_probs.len(),
+                d.result.tokens.len(),
+                "case {}",
+                case.id
+            );
+            assert!(
+                d.score >= d.threshold,
+                "case {}: score below threshold",
+                case.id
+            );
+            if let Some(aligned) = onset.aligned {
+                assert_eq!(onset.aligned_frames.len(), d.result.tokens.len());
+                assert!(onset.aligned_frames.windows(2).all(|w| w[0] < w[1]));
+                assert_eq!(aligned.feature_frame, 4 * onset.aligned_frames[0]);
+                assert!(
+                    *onset.aligned_frames.last().unwrap() <= d.fired_frame,
+                    "case {}: alignment ends after the firing frame",
+                    case.id
+                );
+            }
+            let anchor = onset.aligned.unwrap_or(onset.emission).feature_frame;
+            if let Some(p) = onset.posterior {
+                assert!(
+                    p.feature_frame <= anchor,
+                    "case {}: posterior after its anchor",
+                    case.id
+                );
+            }
+            if let Some(a) = onset.acoustic {
+                assert!(
+                    a.feature_frame >= 0 && a.feature_frame <= anchor + 10,
+                    "case {}: acoustic {} outside [0, anchor {anchor} + 10]",
+                    case.id,
+                    a.feature_frame
+                );
+            }
+            for (name, estimate) in [
+                ("aligned", onset.aligned),
+                ("posterior", onset.posterior),
+                ("acoustic", onset.acoustic),
+            ] {
+                let Some(e) = estimate else { continue };
+                let delta = (e.feature_frame - onset.emission.feature_frame) as i64;
+                let entry = spread.entry(name).or_insert((0, 0, i64::MAX, i64::MIN));
+                entry.0 += 1;
+                entry.1 += delta;
+                entry.2 = entry.2.min(delta);
+                entry.3 = entry.3.max(delta);
+            }
+            if let Some(rule) = onset.acoustic_rule {
+                *rules.entry(rule.as_str()).or_default() += 1;
+            }
+        }
+    }
+    if checked == 0 {
+        common::skip_missing(
+            "KWS Sherpa fbank dumps",
+            &h.fixtures.join("kws/fbank").display().to_string(),
+        );
+        return;
+    }
+    for (name, (n, sum, min, max)) in &spread {
+        eprintln!(
+            "onset {name}: {n}/{detections} detections, feature frames vs emission mean {:+.1} min {min:+} max {max:+}",
+            *sum as f64 / (*n).max(1) as f64
+        );
+    }
+    eprintln!("acoustic rules: {rules:?}");
+    assert!(
+        failures.is_empty(),
+        "{} of {checked} cases changed with onset estimation on: {failures:?}",
+        failures.len()
+    );
+    assert!(detections > 0, "no detections to estimate");
+    eprintln!(
+        "{checked} cases unchanged with onset estimation on; {detections} detections estimated"
+    );
+}
+
+/// The accuracy levers. A one-path beam batches one hypothesis either way, so
+/// `PerHypothesis` must reproduce `Beam` exactly there. Elsewhere each lever's effect is
+/// reported against the same spotter without it (on the Rust filterbank): detections that
+/// appear or vanish, and matched detections whose first-token frame moves. Departures are
+/// expected, not failures.
+#[test]
+fn kws_levers_report_and_hold_their_invariants() {
+    let h = harness!();
+    let cases: Vec<&Case> = h
+        .reference
+        .cases
+        .iter()
+        .filter(|c| c.feed_samples == 320 || c.id.starts_with("hr_"))
+        .take(12)
+        .collect();
+    type Lever = (&'static str, fn(&mut KeywordSpotterConfig));
+    let levers: [Lever; 4] = [
+        ("matched_keyword", |c| {
+            c.threshold_tokens = ThresholdTokens::MatchedKeyword
+        }),
+        ("per_hypothesis", |c| {
+            c.joiner_batching = JoinerBatching::PerHypothesis
+        }),
+        ("portable_math", |c| c.portable_math = true),
+        ("merge_likelier", |c| {
+            c.merge_timestamps = MergeTimestamps::Likelier
+        }),
+    ];
+    // Per lever: (detections without it, with it, matched, first-token frame moved).
+    let mut totals = [(0usize, 0usize, 0usize, 0usize); 4];
+    for case in &cases {
+        let audio = h.case_audio(case);
+        let mut one_path = h.parity_config(case);
+        one_path.max_active_paths = 1;
+        let beam = run(&one_path, Input::Wave(&audio), case.feed_samples);
+        one_path.joiner_batching = JoinerBatching::PerHypothesis;
+        let per_hyp = run(&one_path, Input::Wave(&audio), case.feed_samples);
+        assert_eq!(
+            per_hyp, beam,
+            "case {}: one-path beam differs by batching",
+            case.id
+        );
+        let (base_decodes, base) = run(&h.parity_config(case), Input::Wave(&audio), case.feed_samples);
+        for ((lever, set), total) in levers.iter().zip(totals.iter_mut()) {
+            let mut config = h.parity_config(case);
+            set(&mut config);
+            let (decodes, hits) = run(&config, Input::Wave(&audio), case.feed_samples);
+            assert_eq!(decodes, base_decodes, "case {}: {lever} changed the decode count", case.id);
+            let matched: Vec<(&Hit, &Hit)> = hits
+                .iter()
+                .filter_map(|hit| {
+                    base.iter()
+                        .find(|b| (b.decode, &b.keyword) == (hit.decode, &hit.keyword))
+                        .map(|b| (b, hit))
+                })
+                .collect();
+            let moved = matched
+                .iter()
+                .filter(|(b, hit)| b.frames.first() != hit.frames.first())
+                .count();
+            *total = (
+                total.0 + base.len(),
+                total.1 + hits.len(),
+                total.2 + matched.len(),
+                total.3 + moved,
+            );
+            eprintln!(
+                "LEVER {lever} {}: {} detections ({} without it), {} matched, first-token frame moved on {moved}",
+                case.id,
+                hits.len(),
+                base.len(),
+                matched.len()
+            );
+        }
+    }
+    for ((lever, _), (without, with, matched, moved)) in levers.iter().zip(totals) {
+        eprintln!(
+            "LEVER {lever}: {with} detections vs {without} without it; {matched} matched, first-token frame moved on {moved}"
+        );
+    }
 }
 
 /// Keyword set built to fire on ordinary speech; see `kws_waveform_detections_track_sherpa`.

@@ -15,6 +15,14 @@
 //!   timestamps. That reset happens only with
 //!   [`KeywordSpotterConfig::trailing_blank_reset`] set; by default the caller owns resets.
 //!
+//! Opt-in additions, all off by default (the defaults are Sherpa's behaviour):
+//! - [`KeywordSpotterConfig::onset`]: estimate where each detected keyword began
+//!   ([`KeywordOnset`], read through [`KeywordSpotter::detection`]) without changing what is
+//!   detected.
+//! - [`KeywordSpotterConfig::threshold_tokens`], [`KeywordSpotterConfig::joiner_batching`],
+//!   [`KeywordSpotterConfig::merge_timestamps`], [`KeywordSpotterConfig::portable_math`]:
+//!   accuracy and portability levers.
+//!
 //! ```no_run
 //! # fn run(pcm: &[f32]) -> rightkit_asr::Result<()> {
 //! use rightkit_asr::kws::{KeywordSpotter, KeywordSpotterConfig, Keywords};
@@ -44,7 +52,9 @@ mod decoder;
 mod fbank;
 mod keywords;
 mod kissfft;
+mod math;
 mod model;
+mod onset;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -52,12 +62,15 @@ use std::sync::Arc;
 
 pub use fbank::FbankConfig;
 pub use keywords::{encode_keywords, EncodedKeywords, SymbolTable};
+pub use onset::{AcousticRule, KeywordOnset, OnsetConfig, OnsetEstimate};
 
 use crate::error::{Error, Result};
 use context_graph::ContextGraph;
 use decoder::{DecoderOptions, DecoderResult};
 use fbank::{FbankTables, OnlineFbank};
+use math::Math;
 use model::{StateTensor, Zipformer2Transducer};
+use onset::OnsetHistory;
 
 /// Where the keyword list comes from. One keyword per line: tokens from `tokens.txt`,
 /// then optional `:boost`, `#threshold` and `@label` (Sherpa's format), for example
@@ -66,6 +79,44 @@ use model::{StateTensor, Zipformer2Transducer};
 pub enum Keywords {
     File(PathBuf),
     Text(String),
+}
+
+/// Which token probabilities a keyword's threshold is compared against.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ThresholdTokens {
+    /// The mean of the FIRST `n` token probabilities on the path, `n` the keyword's length
+    /// (Sherpa). When a fail transition left earlier tokens on the path, those are read
+    /// instead of the keyword's own.
+    #[default]
+    Upstream,
+    /// The mean of the matched keyword's own `n` token probabilities.
+    MatchedKeyword,
+}
+
+/// How the joiner is batched across the beam.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum JoinerBatching {
+    /// Every live hypothesis in one call per frame (Sherpa). The int8 joiner quantizes the
+    /// batch together, so a path's scores depend on the other paths in the beam.
+    #[default]
+    Beam,
+    /// One call per hypothesis: each path is scored on its own. Costs one joiner call per
+    /// path per frame.
+    PerHypothesis,
+}
+
+/// Whose timestamps a merged beam path keeps when two paths reach the same tokens.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MergeTimestamps {
+    /// The path inserted first (Sherpa). The beam inserts in acoustic-score order, before
+    /// the keyword boost of a newly emitted token is added, so an old low-probability
+    /// emission of the keyword's first token can keep its timestamp when the real
+    /// keyword arrives: the reported first-token time is then early, and the active-path
+    /// TTL counts from it.
+    #[default]
+    First,
+    /// The path with the higher total score (boost included).
+    Likelier,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -101,6 +152,23 @@ pub struct KeywordSpotterConfig {
     /// tests against the Linux reference only.
     #[doc(hidden)]
     pub softmax_f64: bool,
+    /// Estimate each detection's onset ([`KeywordOnset`]). `None` (the default) keeps no
+    /// history and adds no work; with it, each stream keeps a bounded ring of encoder
+    /// frames and energies, and each detection costs one decoder and one joiner call.
+    /// Detection itself is unchanged.
+    pub onset: Option<OnsetConfig>,
+    /// Which probabilities a keyword's threshold applies to. Default: Sherpa's.
+    pub threshold_tokens: ThresholdTokens,
+    /// Joiner batching across the beam. Default: Sherpa's.
+    pub joiner_batching: JoinerBatching,
+    /// Whose timestamps a merged beam path keeps. Default: Sherpa's.
+    pub merge_timestamps: MergeTimestamps,
+    /// Compute the filterbank's per-frame logarithm, window, FFT twiddles and the softmax's
+    /// `exp`/`log` with the pure-Rust `libm` crate, identical on every OS, instead of the
+    /// platform C library Sherpa uses (whose last-ulp results differ between OSes). The mel
+    /// weight table keeps the platform `logf`: under `libm` it moves loud bins by up to
+    /// 1.7e-4, near the fbank parity gate. Default off.
+    pub portable_math: bool,
 }
 
 impl KeywordSpotterConfig {
@@ -127,6 +195,11 @@ impl KeywordSpotterConfig {
             active_path_ttl_frames: None,
             trailing_blank_reset: false,
             softmax_f64: false,
+            onset: None,
+            threshold_tokens: ThresholdTokens::Upstream,
+            joiner_batching: JoinerBatching::Beam,
+            merge_timestamps: MergeTimestamps::First,
+            portable_math: false,
         }
     }
 }
@@ -149,6 +222,23 @@ impl KeywordResult {
     }
 }
 
+/// A detection with what the spotter knew about it ([`KeywordSpotter::detection`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct KeywordDetection {
+    pub result: KeywordResult,
+    /// Probability of each keyword token when it was emitted.
+    pub token_probs: Vec<f32>,
+    /// The mean token probability that passed `threshold` (see [`ThresholdTokens`]).
+    pub score: f32,
+    /// The keyword's threshold: its `#threshold`, else `keywords_threshold`.
+    pub threshold: f32,
+    /// Encoder frame (on the clock of `result.frames`) on which the keyword fired, after
+    /// its last token and the trailing blanks the beam waited for.
+    pub fired_frame: i32,
+    /// Onset estimates; `None` unless [`KeywordSpotterConfig::onset`] is set.
+    pub onset: Option<KeywordOnset>,
+}
+
 static NEXT_SPOTTER_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Model sessions plus the keyword graph shared by its streams.
@@ -161,6 +251,7 @@ pub struct KeywordSpotter {
     sample_rate: u32,
     options: DecoderOptions,
     trailing_blank_reset: bool,
+    onset: Option<OnsetConfig>,
 }
 
 /// One audio stream's features, encoder cache and beam.
@@ -174,6 +265,8 @@ pub struct KeywordStream {
     /// Last timestamp of the result most recently reported (Sherpa's
     /// `prev_keyword_result_`), so one detection is reported once.
     reported_last_frame: Option<i32>,
+    /// Retained frames for onset estimation; `None` when it is off.
+    onset: Option<OnsetHistory>,
 }
 
 impl KeywordSpotter {
@@ -198,7 +291,8 @@ impl KeywordSpotter {
             &encoded.phrases,
             &encoded.thresholds,
         );
-        let fbank = FbankTables::new(&config.features)?;
+        let math = Math::new(config.portable_math);
+        let fbank = FbankTables::new(&config.features, math)?;
         let model = Zipformer2Transducer::load(
             &config.encoder,
             &config.decoder,
@@ -212,6 +306,10 @@ impl KeywordSpotter {
             unk_id: symbols.id("<unk>").map(i64::from),
             active_path_ttl_frames: config.active_path_ttl_frames,
             softmax_f64: config.softmax_f64,
+            threshold_tokens: config.threshold_tokens,
+            joiner_batching: config.joiner_batching,
+            merge_timestamps: config.merge_timestamps,
+            math,
         };
         Ok(Self {
             id: NEXT_SPOTTER_ID.fetch_add(1, Ordering::Relaxed),
@@ -222,6 +320,7 @@ impl KeywordSpotter {
             sample_rate: config.features.sample_rate,
             options,
             trailing_blank_reset: config.trailing_blank_reset,
+            onset: config.onset.clone(),
         })
     }
 
@@ -234,6 +333,9 @@ impl KeywordSpotter {
             states: self.model.init_states(),
             result: DecoderResult::new(self.model.context_size()),
             reported_last_frame: None,
+            onset: self.onset.clone().map(|config| {
+                OnsetHistory::new(config, self.fbank.first_bin_from(onset::HIGH_BAND_HZ))
+            }),
         }
     }
 
@@ -258,15 +360,50 @@ impl KeywordSpotter {
         let features = stream
             .fbank
             .frames(stream.processed_frames, self.model.chunk_size())?;
+        if let Some(history) = stream.onset.as_mut() {
+            history.push_features(stream.processed_frames, &features, self.fbank.dim());
+        }
         stream.processed_frames += self.model.chunk_shift();
         let encoder_out = self.model.run_encoder(&features, &mut stream.states)?;
+        if let Some(history) = stream.onset.as_mut() {
+            history.push_encoder(stream.result.frame_offset, &encoder_out);
+        }
+        let firings = stream.result.firings;
         decoder::decode_chunk(
             &mut self.model,
             &self.graph,
             &self.options,
             &encoder_out,
             &mut stream.result,
-        )
+        )?;
+        if stream.result.firings != firings {
+            self.estimate_onset(stream)?;
+        }
+        Ok(())
+    }
+
+    /// Fill the newest firing's onset estimates, when onset estimation is on.
+    fn estimate_onset(&mut self, stream: &mut KeywordStream) -> Result<()> {
+        let (Some(history), Some(firing)) = (stream.onset.as_ref(), stream.result.firing.as_ref())
+        else {
+            return Ok(());
+        };
+        let onset = onset::estimate(
+            &mut self.model,
+            history,
+            &onset::Firing {
+                context: &firing.context,
+                tokens: &stream.result.tokens,
+                frames: &stream.result.timestamps,
+                fired_frame: firing.frame,
+            },
+            self.options.joiner_batching,
+            self.options.math,
+        )?;
+        if let Some(firing) = stream.result.firing.as_mut() {
+            firing.onset = Some(onset);
+        }
+        Ok(())
     }
 
     /// The newest detection, reported once: later calls return an empty result until
@@ -275,6 +412,31 @@ impl KeywordSpotter {
         let Some(result) = stream.take_new_result() else {
             return KeywordResult::default();
         };
+        self.keyword_result(result)
+    }
+
+    /// [`Self::result`] with the detection's token probabilities, score, threshold and
+    /// onset estimates. `None` when there is nothing new to report; it shares
+    /// [`Self::result`]'s once-only gate, so use one or the other on a stream.
+    pub fn detection(&self, stream: &mut KeywordStream) -> Option<KeywordDetection> {
+        let result = stream.take_new_result()?;
+        let firing = result.firing.clone();
+        let result = self.keyword_result(result);
+        if result.is_empty() {
+            return None;
+        }
+        let firing = firing?;
+        Some(KeywordDetection {
+            result,
+            token_probs: firing.token_probs,
+            score: firing.score,
+            threshold: firing.threshold,
+            fired_frame: firing.frame,
+            onset: firing.onset,
+        })
+    }
+
+    fn keyword_result(&self, result: &DecoderResult) -> KeywordResult {
         let tokens: Vec<String> = result
             .tokens
             .iter()
@@ -305,6 +467,9 @@ impl KeywordSpotter {
     pub fn reset(&self, stream: &mut KeywordStream) {
         stream.result = DecoderResult::new(self.model.context_size());
         stream.states = self.model.init_states();
+        if let Some(history) = stream.onset.as_mut() {
+            history.reset(stream.processed_frames);
+        }
     }
 
     fn check_owner(&self, stream: &KeywordStream) -> Result<()> {

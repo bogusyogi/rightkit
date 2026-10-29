@@ -7,6 +7,8 @@
 //! whose C build does not contract multiply-adds (x86-64 without FMA); a general-purpose
 //! FFT differs by enough to move low-energy log-mel bins past 1e-4.
 
+use super::math::Math;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(crate) struct Cpx {
     pub r: f32,
@@ -35,10 +37,10 @@ fn sub(a: Cpx, b: Cpx) -> Cpx {
 }
 
 /// `kf_cexp`: double-precision phase, stored as float.
-fn cexp(phase: f64) -> Cpx {
+fn cexp(phase: f64, math: Math) -> Cpx {
     Cpx {
-        r: phase.cos() as f32,
-        i: phase.sin() as f32,
+        r: math.cos(phase) as f32,
+        i: math.sin(phase) as f32,
     }
 }
 
@@ -52,16 +54,16 @@ pub(crate) struct KissFftr {
 }
 
 impl KissFftr {
-    /// `nfft` must be a power of two, at least 4.
-    pub(crate) fn new(nfft: usize) -> Self {
+    /// `nfft` must be a power of two, at least 4. `math` computes the twiddles.
+    pub(crate) fn new(nfft: usize, math: Math) -> Self {
         assert!(nfft >= 4 && nfft.is_power_of_two(), "kissfft port needs a power of two");
         let ncfft = nfft / 2;
         let pi = std::f64::consts::PI;
         let twiddles = (0..ncfft)
-            .map(|i| cexp(-2.0 * pi * i as f64 / ncfft as f64))
+            .map(|i| cexp(-2.0 * pi * i as f64 / ncfft as f64, math))
             .collect();
         let super_twiddles = (0..ncfft / 2)
-            .map(|i| cexp(-pi * ((i + 1) as f64 / ncfft as f64 + 0.5)))
+            .map(|i| cexp(-pi * ((i + 1) as f64 / ncfft as f64 + 0.5), math))
             .collect();
         // kf_factor for powers of two: fours first, then a final two.
         let mut factors = Vec::new();
@@ -183,11 +185,14 @@ mod tests {
     /// Matches a direct DFT to float accuracy for every supported size path.
     #[test]
     fn matches_a_direct_dft() {
-        for nfft in [8usize, 16, 64, 256, 512] {
+        for (nfft, math) in [8usize, 16, 64, 256, 512]
+            .into_iter()
+            .flat_map(|n| [(n, Math::PLATFORM), (n, Math::PORTABLE)])
+        {
             let x: Vec<f32> = (0..nfft)
                 .map(|i| ((i * 37 % 11) as f32 - 5.0) * 0.1 + (i as f32 * 0.3).sin())
                 .collect();
-            let f = KissFftr::new(nfft);
+            let f = KissFftr::new(nfft, math);
             let mut tmp = vec![Cpx::default(); nfft / 2];
             let mut out = vec![Cpx::default(); nfft / 2 + 1];
             f.process(&x, &mut tmp, &mut out);
