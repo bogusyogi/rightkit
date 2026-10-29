@@ -576,7 +576,7 @@ test("[behavior] §1 4c review: an npm test that reaches cargo during a snapshot
   assert.ok(app, `test:npm:app is planned (${plan.scans.map((s) => s.id).join(", ")})`);
   assert.equal(app.env.CARGO_TARGET_DIR, checkoutTarget, "bound to the enclosing workspace's checkout target directory");
   assert.equal(plan.scans.some((s) => s.id === "test:npm:redirect"), false, "a script that redirects cargo is never launched");
-  assert.ok(plan.scans.some((s) => s.internal === "refuse" && /npm unit redirect: .*a script redirects cargo/.test(s.detail)), "it is refused with the reason");
+  assert.ok(plan.scans.some((s) => s.internal === "refuse" && /npm unit redirect: .*the path to cargo \(test\) redirects it/.test(s.detail)), "it is refused with the reason");
   // The real chain: pnpm runs the package's test script, which runs cargo; the fake cargo records the directory it was given.
   const pnpm = spawnSync(process.platform === "win32" ? "where" : "which", ["pnpm"], { encoding: "utf8" });
   if (pnpm.status !== 0) { t.diagnostic("no pnpm on this host: the planned env was checked, the nested launch was not"); return; }
@@ -597,10 +597,43 @@ test("[behavior] §1 4c review: an npm unit with no enclosing Cargo workspace th
     const plan = planScans({ changed: ["package.json", "pnpm-workspace.yaml", "tools/x/package.json"], contentRoot: dir, liveRoot: dir, trustedRoot: dir, includeTests: true, quietTests: "local", tier: "compile", cargoCommand: ["cargo"],
       rustUnits: [], npmUnits: [{ name: "x", dir: "tools/x" }], npmRoots: ["."], liveExecution: true, targetDirs: {}, platform: process.platform });
     assert.equal(plan.scans.some((s) => s.id === "test:npm:x"), false);
-    assert.ok(plan.scans.some((s) => s.internal === "refuse" && /npm unit x: .*no Cargo\.toml encloses tools\/x/.test(s.detail)), plan.scans.map((s) => `${s.id} ${s.detail ?? ""}`).join("\n"));
+    assert.ok(plan.scans.some((s) => s.internal === "refuse" && /npm unit x: .*reaches cargo from tools\/x, which no Cargo\.toml encloses/.test(s.detail)), plan.scans.map((s) => `${s.id} ${s.detail ?? ""}`).join("\n"));
     // Without a snapshot compile (no targetDirs) nothing changes: the row is planned as before.
     const live = planScans({ changed: ["package.json", "pnpm-workspace.yaml", "tools/x/package.json"], contentRoot: dir, liveRoot: dir, trustedRoot: dir, includeTests: true, quietTests: "local", tier: "compile", cargoCommand: ["cargo"],
       rustUnits: [], npmUnits: [{ name: "x", dir: "tools/x" }], npmRoots: ["."], liveExecution: true, platform: process.platform });
     assert.equal(live.scans.some((s) => s.id === "test:npm:x"), true);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("[behavior] §1 4c review (target binding): only what a test reaches decides; a JS-only build needs no Cargo, an unreached script's cd blocks nothing, and a build hop into another package binds that package's workspace", () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gc-4c-reach-")));
+  try {
+    write(dir, {
+      "package.json": '{"name":"root","private":true}\n', "pnpm-workspace.yaml": "packages:\n  - packages/*\n  - native\n",
+      // A: JS-only: builds with its own build script, then tests; no Cargo anywhere it reaches.
+      "packages/js/package.json": '{"name":"js","private":true,"scripts":{"build":"tsc -p .","test":"pnpm run build && node --test"}}\n',
+      // B: its test runs cargo directly; an unrelated release script cd's elsewhere and must not block it.
+      "packages/rs/package.json": '{"name":"rs","private":true,"scripts":{"test":"cargo test --locked","release":"cd dist && cargo publish"}}\n',
+      // C: its test builds the separate native package, whose build runs cargo in the native workspace.
+      "packages/hop/package.json": '{"name":"hop","private":true,"scripts":{"test":"pnpm --dir ../../native run build && node --test"}}\n',
+      "native/package.json": '{"name":"native","private":true,"scripts":{"build":"cargo build --locked"}}\n',
+      "native/Cargo.toml": '[workspace]\nmembers = []\n', "Cargo.toml": '[workspace]\nmembers = ["packages/rs"]\n', "packages/rs/Cargo.toml": '[package]\nname = "rs"\nversion = "0.1.0"\n',
+    });
+    const files = ["package.json", "pnpm-workspace.yaml", "packages/js/package.json", "packages/rs/package.json", "packages/hop/package.json", "native/package.json", "native/Cargo.toml", "Cargo.toml", "packages/rs/Cargo.toml"];
+    const npmUnits = [{ name: "js", dir: "packages/js" }, { name: "rs", dir: "packages/rs" }, { name: "hop", dir: "packages/hop" }, { name: "native", dir: "native" }];
+    const plan = (targetDirs, rustUnits) => planScans({ changed: files, contentRoot: dir, liveRoot: dir, trustedRoot: dir, includeTests: true, quietTests: "local", tier: "compile", cargoCommand: ["cargo"],
+      rustUnits, npmUnits, npmRoots: ["."], liveExecution: true, targetDirs, platform: process.platform });
+    const row = (p, n) => p.scans.find((s) => s.id === `test:npm:${n}`);
+    const refusedFor = (p, n) => p.scans.find((s) => s.internal === "refuse" && new RegExp(`npm unit ${n}:`).test(s.detail))?.detail ?? null;
+    // JS-only repository (no Cargo workspace at all): nothing is bound and nothing refused.
+    const jsOnly = plan({}, []);
+    assert.ok(row(jsOnly, "js"), "a JS-only build test is planned"); assert.equal(row(jsOnly, "js").env.CARGO_TARGET_DIR, undefined); assert.equal(refusedFor(jsOnly, "js"), null);
+    // With Rust: each test binds exactly the workspace it reaches.
+    const targets = { ".": "/checkout/target", native: "/checkout/native/target" };
+    const p = plan(targets, [{ name: "rs", dir: "packages/rs", crate: "rs", cargoDir: "." }]);
+    assert.equal(row(p, "js")?.env.CARGO_TARGET_DIR, undefined, "a JS build reaches no cargo: no binding, no refusal"); assert.equal(refusedFor(p, "js"), null);
+    assert.equal(row(p, "rs")?.env.CARGO_TARGET_DIR, "/checkout/target", `the unreached release script's cd blocks nothing (${refusedFor(p, "rs")})`);
+    assert.equal(row(p, "hop")?.env.CARGO_TARGET_DIR, "/checkout/native/target", `the --dir hop binds the native workspace, not the unit's (${refusedFor(p, "hop")})`);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
