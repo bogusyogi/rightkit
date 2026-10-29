@@ -501,7 +501,12 @@ async function scansGate(selection) {
   // The npm units are the workspace's (npmPackages honours pnpm-workspace.yaml exclusions): a parked package is never installed, so a
   // scan planned for it (tsc on packages/sync-worker) could never pass. Unit names stay the directory names the scan ids use.
   const npmUnits = npmPackages().map((p) => ({ name: path.basename(p.dir), dir: p.dir }));
-  const plan = planScans({ changed: scanPaths(selection), contentRoot: ROOT, liveRoot: ROOT, includeTests: false, cargoCommand: ["cargo"], npmUnits, readBytes: (f) => fs.readFileSync(f) });
+  const planned = planScans({ changed: scanPaths(selection), contentRoot: ROOT, liveRoot: ROOT, includeTests: false, cargoCommand: ["cargo"], npmUnits, readBytes: (f) => fs.readFileSync(f) });
+  // generated-docs needs a trusted root to run the generator, which this job (one checkout of the candidate) cannot provide, so the
+  // planner can only defer it here, and a deferred scan is never a pass. The same check runs in the plan job every job here needs:
+  // scripts/preflight.mjs rule G10 runs scripts/generate-index.mjs --check. So this job does not plan the deferred copy.
+  const plan = { ...planned, scans: planned.scans.filter((s) => !(s.id === "generated-docs" && s.deferred)) };
+  if (plan.scans.length !== planned.scans.length) console.log("generated-docs: checked by scripts/preflight.mjs (rule G10) in the plan job; this job has no trusted root to run the generator");
   console.log(`::group::scans: class A (${plan.scans.filter((x) => x.class === "A").length} scans)`);
   const result = await runScans(plan, { classes: ["A"] });
   for (const line of scanDeferrals(result)) console.log(line);
