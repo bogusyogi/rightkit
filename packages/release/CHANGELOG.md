@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.10
+
+Published by owner-approved direct publish (Adrian, 2026-10-29: "i approve you doing direct publishing"); 0.6.9 was installed
+on the hosts from earlier source and never published, so this source ships under a new number. Highlights since 0.6.9:
+
+- **npm units release again (rightkit#1274):** every pnpm step of a unit runs as a broker job (build-launch, rightkit#1241), so the
+  compile and package stages carry the signed receipts the release check demands; 0.6.9 ran pnpm directly and refused itself.
+- **Class A tsc reads siblings' committed sources (rightkit#1269):** a package that depends on a workspace sibling is
+  type-checked through a generated project mapping the sibling's exports to its `src/`, never its untracked `dist/`;
+  `--noEmit` stays on the argv for the launch guard; typeRoots keep the package's own @types.
+- **Exact commit snapshot and host build ownership (item 5):** the snapshot root comes from the host's managed root, which is
+  never created; a sealed git verifies the snapshot's tree; one ownership record per host behind the managed-root guard
+  (`managed-root-guard.mjs`); macOS hidden processes are judged by `launchctl blame`.
+- **Snapshot compile pieces (items 4 and 7, committed parts):** the cargo wrapper binds each cargo invocation to its
+  workspace's checkout target; the broker snapshot carrier and its evidence verifier; Windows job containment of the gate's
+  children.
+- **@rightkit/outdated 0.3.0** is the dependency (unjudged rows no longer pass as current, rightkit#1267).
+- desktop-app-template: the engine's CLI contract (M22), and RightKit's app-check baseline is empty (rightkit#1270).
+
 ## 0.6.9
 
 - **One publication door, closed before 0.6.9 (Adrian, 2026-10-27; Codex review).** `rightkit-gate --to release` writes the unit's qualification receipt (`<bundle>/qualification.json`, schema `rightkit.unit-qualification/1`: commit, tree, unit, the local check/compile/package/qualify stages all ok, one artifact sha256) and `rk-pipeline dispatch --qualification` is the only dispatch: without the receipt nothing is dispatched (`loop` has none). The broker's `rightkit-dispatch` adapter re-reads it and forwards the facts as the `qualification` workflow input; `publish.yml` admits `broker` only (hosted self-admission and the `publish-admission.mjs dispatch` cloud entry are retired), `publish-admission admit` verifies the receipt against the run's commit, unit and committed version and records it, and a new `bind` step after `pack` stops the run when the sealed archive's sha256 is not the locally qualified one (both digests and the hosted listing printed; no repack). The local publish engine (`runLocalPublish`, `runLocalPublishUploadEngine`) runs only inside a live door run (`requireEngineDoor`).

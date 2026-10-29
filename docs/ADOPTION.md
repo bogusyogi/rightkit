@@ -114,7 +114,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/qa` | npm | 0.6.1 | 0.6.1 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | - |
 | `@rightkit/qa-chrome` | npm | 0.1.12 | 0.1.11 | 9 | coderight, cutright, genright, heardright, legion, mailright, postright, scraperight, viewright | 1 stale; 1 ahead of published |
 | `@rightkit/react-shell` | npm | 0.7.2 | 0.7.2 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `@rightkit/release` | npm | 0.6.9 | 0.6.6 | 10 | coderight, cutright, genright, heardright, legion, mailright, postright, scraperight, sellright, viewright | 2 stale; 2 ahead of published |
+| `@rightkit/release` | npm | 0.6.10 | 0.6.6 | 10 | coderight, cutright, genright, heardright, legion, mailright, postright, scraperight, sellright, viewright | 2 stale; 2 ahead of published |
 | `@rightkit/settings-ui` | npm | 0.7.0 | 0.7.0 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | - |
 | `@rightkit/sync-worker` | private | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/tauri` | npm | 0.3.0 | 0.3.0 | 7 | coderight, cutright, genright, heardright, mailright, postright, scraperight | - |

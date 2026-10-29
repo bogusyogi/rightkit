@@ -233,11 +233,11 @@ test("ownership-exceptions: an unparseable ledger fails; an empty ledger and a t
   assert.deepEqual(run("ownership-exceptions", t, { "README.md": "x" }), []);
 });
 
-test("the desktop template passes both rules as committed, except its unratified M22 row", (t) => {
+test("the desktop template passes both rules as committed (M22 adopted as a host, rightkit#1270)", (t) => {
   const template = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "desktop-app-template");
   if (!fs.existsSync(template)) return t.skip("no RightKit checkout beside the package");
   const files = [".rightkit/ownership-exceptions.json", "rightkit-mandatory.json"];
   const result = runRules({ root: template, files, only: ["mandatory-foundation", "ownership-exceptions"], now: NOW });
-  // The template's M22 not-applicable row is not ratified yet (rightkit#994), so M22 applies: two findings when checked as its own root.
-  assert.deepEqual(result.failures.map((f) => f.identity), ["mandatory-foundation|rightkit-mandatory.json|notApplicable:M22", "mandatory-foundation|rightkit-mandatory.json|rightkit-agent-tools"]);
+  // M22 is mandatory (Adrian, 2026-10-29); the template adopts rightkit-agent-tools as a host, so it has no finding.
+  assert.deepEqual(result.failures.map((f) => f.identity), []);
 });

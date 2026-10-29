@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-10-29T16:31:25Z",
-  "rightkitHead": "12b1c1b",
+  "generatedAt": "2026-10-29T17:14:07Z",
+  "rightkitHead": "c6e4b2b",
   "legend": [
     {
       "state": "adopted",
@@ -6633,9 +6633,9 @@
         "release-tooling"
       ],
       "private": false,
-      "source": "0.6.9",
+      "source": "0.6.10",
       "registry": "0.6.6",
-      "staged": "0.6.9",
+      "staged": "0.6.10",
       "dir": "packages/release",
       "toMoveFrom": {},
       "cells": {
