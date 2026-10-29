@@ -23,6 +23,7 @@ import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
 import { createOwnershipEvidence } from "./ownership-evidence.mjs";
+import { isReleaseSource } from "./release-source-brand.mjs";
 import { appRuntimeBudgetAdoptionCheck } from "./runtime-budgets.mjs";
 import { isSwiftProject } from "./project-type.mjs";
 
@@ -203,6 +204,12 @@ export function collectPreflight({
   bridge = true,
   msix = false,
   findSdkTool = findWindowsSdkTool,
+  // A door source split (release-source-identity.mjs `resolveReleaseSource`, row 7.04). Only the ownership check reads it: the evidence is
+  // then the selected commit's, read from the checkout's object database, whatever `repoRoot` the caller names.
+  releaseSource = null,
+  // The artifact-path context of a door split (release-artifact-path.mjs, row 7.04c). When it is a split, the target-bridge check is replaced by
+  // the R-T1 check: every manifest has a bound target outside the snapshot, and nothing sits where a snapshot-relative target/ would.
+  splitTargets = null,
 } = {}) {
   const checks = [];
   const windows = platform === "win" || platform === "win32";
@@ -219,7 +226,14 @@ export function collectPreflight({
     );
   }
 
-  if (appRoot && !noBridge) {
+  if (appRoot && !noBridge && splitTargets?.mode === "split") {
+    const planted = splitTargets.boundTargets.map((bound) => path.join(appRoot, bound.prefix)).filter((dir) => { try { lstatSync(dir); return true; } catch { return false; } });
+    checks.push(
+      planted.length
+        ? fail("split-target", `RK_SPLIT_TARGET_PATH: ${planted.join(", ")} exists in the snapshot; a split binds its target outside it and nothing may sit there`, "remove it from the commit (it is build output) and add the directory to .gitignore")
+        : ok("split-target", splitTargets.boundTargets.length ? `target bound outside the snapshot: ${[...new Set(splitTargets.boundTargets.map((bound) => bound.dir))].join(", ")}` : "no target to bind"),
+    );
+  } else if (appRoot && !noBridge) {
     const target = targetLink ?? nativeLayout?.targetLink ?? path.join(appRoot, "src-tauri", "target");
     const targetLabel = nativeLayout?.targetPrefix || "src-tauri/target/";
     let entry = null;
@@ -339,8 +353,12 @@ export function collectPreflight({
     checks.push(fail("ownership", `ownership scope refused: ${ownershipScopeError}`, "fix the target's ownership scope configuration; the build refuses it too"));
   } else if (repoRoot && ownership) {
     // An app living inside the RightKit workspace repository is scoped to its own directory.
-    const workspace = existsSync(path.join(repoRoot, "tools", "rightkit", "packages", "release"));
-    checks.push(ownershipCheck(repoRoot, { scanRoot: workspace && appRoot ? appRoot : repoRoot, scope: ownershipScope, evidenceFactory: ownershipEvidenceFactory }));
+    // In a split the layout is the snapshot's (the commit's), the git root is the checkout, and the source is the one the identity module resolved.
+    if (releaseSource !== null && !isReleaseSource(releaseSource)) throw new Error("preflight: the release source was not resolved by resolveReleaseSource");
+    const split = releaseSource?.mode === "snapshot" ? releaseSource : null;
+    const gitRoot = split ? split.checkout : repoRoot;
+    const workspace = existsSync(path.join(split ? split.snapshot : repoRoot, "tools", "rightkit", "packages", "release"));
+    checks.push(ownershipCheck(gitRoot, { scanRoot: workspace && appRoot ? appRoot : gitRoot, scope: ownershipScope, evidenceFactory: ownershipEvidenceFactory, ...(split ? { releaseSource: split } : {}) }));
   }
 
   return checks;
@@ -349,9 +367,14 @@ export function collectPreflight({
 /** Release-blocking: the app keeps no unexcepted copy of a RightKit-owned capability. */
 export function ownershipCheck(repoRoot, options = {}) {
   let checked;
-  try { checked = (options.evidenceFactory ?? createOwnershipEvidence)(repoRoot, options.scanRoot ?? repoRoot, options.scope ?? null); }
+  const split = options.releaseSource?.mode === "snapshot" ? options.releaseSource : null;
+  try { checked = (options.evidenceFactory ?? createOwnershipEvidence)(repoRoot, options.scanRoot ?? repoRoot, options.scope ?? null, ...(split ? [split] : [])); }
   catch (error) { return fail("ownership", `ownership evidence failed: ${error.message}`, "restore protected RightKit ownership trust and catalog"); }
   const { result, evidence, floor } = checked;
+  // R4: evidence for another commit or tree than the selected one is refused whatever produced it (a factory that read HEAD, a stale one).
+  if (split && (evidence?.commit !== split.commit || (evidence?.tree !== undefined && evidence.tree !== split.tree))) {
+    return fail("ownership", `ownership evidence is for commit ${String(evidence?.commit ?? "(none)").slice(0, 12)}, not the selected commit ${split.commit.slice(0, 12)}`, "the door run builds the selected commit's snapshot; re-run the door for that commit");
+  }
   if (checked.ok) {
     const excepted = result.covered.length;
     const detail = excepted ? `no unapproved copies (${excepted} excepted findings)` : "no copies of RightKit-owned capabilities";

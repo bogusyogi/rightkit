@@ -69,6 +69,9 @@ export const FILES_ROWS = Object.freeze([
     run(ctx) {
       const inputs = ctx.buildInputs();
       if (!inputs.ok) return { skipped: "build-inputs is reported on its own" };
+      // A door source split (row 7.04): `repoRoot` is then the snapshot, the commit's bytes verified by the door at the start and end of the
+      // stage, and there is no checkout cleanliness to ask. Every input resolved under it by construction.
+      if (ctx.releaseSource?.mode === "snapshot") return undefined;
       const dirty = dirtyBuildInputs(ctx.repoRoot, inputs.value.buildInputs, ctx.commit());
       return dirty.length > 0 ? [`dirty files can change the packaged app; resolve them before release:\n${dirty.map((file) => `- ${file}`).join("\n")}`] : undefined;
     },

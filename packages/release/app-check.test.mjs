@@ -1730,7 +1730,8 @@ test("the packed tarball ships app-check.mjs and no tests, and its rightkit-gate
 test("app-check.mjs and the commands that use it are outside the import closure of the protected ownership policy bundle", async () => {
   const { POLICY_BUNDLE_ENTRYPOINTS, scannerSourceFiles } = await import("./ownership-policy-bundle.mjs");
   const closure = scannerSourceFiles({ entrypoints: POLICY_BUNDLE_ENTRYPOINTS }).map((f) => f.path);
-  assert.ok(closure.includes("ownership-hooks.mjs"), "the closure was read");
+  assert.ok(closure.includes("ownership-staged.mjs"), "the closure was read");
+  assert.ok(!closure.includes("ownership-hooks.mjs") && !closure.includes("hook-retirement.mjs"), "the retired hook step carries no enforcement decision");
   for (const file of ["app-check.mjs", "bin/rightkit-gate.mjs", "cli/right-release.mjs"]) assert.ok(!closure.includes(file), `${file} would need a trust-sync if it were in the closure`);
 });
 

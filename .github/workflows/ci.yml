@@ -76,8 +76,8 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           package-manager-cache: false
-      # Seconds, committed files only (scripts/preflight.mjs, the pre-push hook's first step). Every other job needs plan,
-      # so a push that skipped the hook stops here, before any shard or hosted runner starts.
+      # Seconds, committed files only (scripts/preflight.mjs). Every other job needs plan, so a push whose tree the
+      # preflight refuses stops here, before any shard or hosted runner starts. No local git hook runs it.
       - name: Preflight (committed files only)
         run: node scripts/preflight.mjs
       - name: Resolve authenticated per-OS baseline

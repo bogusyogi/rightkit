@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Preflight: the cheap checks, before a push leaves the machine. Reads committed files only: no network, no cargo, no pnpm,
-// no compile, no broker, no test run, no candidate generator. Seconds on any host, in any checkout, with or without
-// node_modules. .githooks/pre-push runs it before the gate; ci.yml runs it as the plan job's first step, so a push that skipped
-// the hook still stops within a minute instead of after native shards.
+// Preflight: the cheap checks. Reads committed files only: no network, no cargo, no pnpm, no compile, no broker, no test run,
+// no candidate generator. Seconds on any host, in any checkout, with or without node_modules. ci.yml runs it as the plan job's
+// first step on every push, so a red tree stops within a minute instead of after native shards; running it locally is optional and
+// never a push precondition (no git hook runs it: docs/GATE-CONTRACT.md).
 //
 // Why (scan-gaps report, 2026-10-23): 555 of 1,455 hosted runs failed, and 144 of those failed on a rule that only reads
 // files. The rules already existed, but as late refusals (rk-preflight, rk-npm-preflight, rightkit-dispatch, the hosted

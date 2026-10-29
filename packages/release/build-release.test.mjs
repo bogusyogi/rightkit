@@ -260,7 +260,8 @@ test("an admission-red build leaves no lock, state directory, cache, snapshot or
 });
 
 test("native local builds retain Cache V2 while CI & explicit legacy use safe fallback", () => {
-  assert.match(source, /assertCleanSource/);
+  // The clean-source gate is release-source-identity.mjs assertReleaseSource (R1 on the checkout route; a door split reads no status).
+  assert.match(source, /assertReleaseSource\(releaseSource, \{ commandId: "right-release build", skipPrimaryCheckout: true, skipCleanCheck: Boolean\(resumeFrom\) \}\)/);
   assert.match(source, /right-release build/);
   assert.match(source, /RIGHT_RELEASE_CACHE_MODE/);
   assert.match(source, /resolveReleaseCacheMode/);
@@ -279,7 +280,7 @@ test("native local builds retain Cache V2 while CI & explicit legacy use safe fa
   assert.doesNotMatch(source, /process\.exit\(signal/);
   assert.match(source, /throwIfInterrupted/);
   assert.match(source, /delete env\.RIGHT_RELEASE_CACHE_OWNER/);
-  assert.match(source, /assertPrimaryReleaseCheckout\(repoRoot\)/);
+  assert.match(source, /assertReleaseSource\(releaseSource, \{ commandId: "right-release build", skipCleanCheck: true \}\)/, "the primary worktree identity is asserted first");
   assert.match(source, /dirtyBuildInputs\(repoRoot/);
 });
 
@@ -359,7 +360,9 @@ test("Windows native executables preserve arguments containing spaces", () => {
 });
 
 test("sealing resolves installer and updater artifacts against the broker target on a managed host", () => {
-  assert.match(source, /sealRelease\(\{ configRoot: appRoot, managedCargoTarget,/);
+  // On a managed host the broker's target is what artifact paths resolve against; a door split (no target link in the snapshot) resolves them
+  // through the one resolver instead (release-artifact-path.mjs, row 7.04c R-T2), against the Cargo target the split bound.
+  assert.match(source, /sealRelease\(\{ configRoot: appRoot, managedCargoTarget, artifactPaths,/);
   assert.match(source, /function sealRelease\(\{ configRoot, managedCargoTarget,/);
   // Portable contracts declare bare archives under target.artifacts; the seal must read them.
   assert.match(source, /for \(const artifact of target\.artifacts \?\? \[\]\)/);
@@ -387,7 +390,7 @@ test("production builds never create or use an internal Git worktree", () => {
 });
 
 test("dirty release config is rejected before the config module is imported", () => {
-  const guard = source.indexOf("dirtyBuildInputs(repoRoot, { include: [relativeConfig], required: [relativeConfig] }, commit)");
+  const guard = source.indexOf("sourceProblems({ include: [relativeConfig], required: [relativeConfig] }, commit)");
   const imported = source.indexOf("await importReleaseConfig(");
   assert.ok(guard >= 0, "config cleanliness guard must exist");
   assert.ok(imported >= 0, "the release config must load through importReleaseConfig");
@@ -596,7 +599,10 @@ test("build accepts --platform android and keys its identity, state dir and rece
   assert.match(source, /receiptInputs: \[path\.resolve\(stateRoot, ANDROID_RECEIPT_NAME\)\]/);
   // The sealed entry is the receipt's, and the receipt is a sealed signing receipt like win/mac ones.
   assert.match(source, /androidSealEntry\(androidReceipt\)/);
-  assert.match(source, /present\.map\(\(file\) => \(\{ file, sha256: hashFile\(file\) \}\)\)/);
+  // Every receipt is recorded as itself on the checkout route (`recorded` returns the path unchanged without a split); a split records it relative to the
+  // checkout's app root and refuses one written inside the snapshot.
+  assert.match(source, /const recorded = \(file\) => \{\s*if \(!splitSealSource\) return file;/);
+  assert.match(source, /present\.map\(\(file\) => \(\{ file: recorded\(file\), sha256: hashFile\(file\) \}\)\)/);
 });
 
 test("android seal verifies the receipt against the AAB bytes and returns it for the files entry", () => {

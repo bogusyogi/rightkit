@@ -3,6 +3,7 @@ import { spawnSync } from "./background-process.mjs";
 import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
 import { signMacUpdaterFiles } from "./macos-signing-session.mjs";
+import { ArtifactPathError, loadSplitArtifactContext, resolveArtifactPath, resolveArtifactWritePath } from "./release-artifact-path.mjs";
 
 const args = process.argv.slice(2);
 let app;
@@ -18,8 +19,19 @@ for (let i = 0; i < args.length; i++) {
 }
 if (!app || !output) fail("--app and --output are required");
 
-const appPath = path.resolve(cwd, app);
-const outputPath = path.resolve(cwd, output);
+// A door split (row 7.04c, R-T2): a target-prefixed `--app` is the bound Cargo target's, an absolute one must lie inside it, and the tarball is
+// written under the snapshot app root (a generated, ignored ledger entry). Outside a split both are resolved against the cwd as always.
+let appPath;
+let outputPath;
+try {
+  const artifactPaths = await loadSplitArtifactContext({ cwd });
+  const split = artifactPaths.mode === "split";
+  appPath = split ? resolveArtifactPath(app, artifactPaths) : path.resolve(cwd, app);
+  outputPath = split ? resolveArtifactWritePath(output, artifactPaths) : path.resolve(cwd, output);
+} catch (error) {
+  if (error instanceof ArtifactPathError) fail(error.message);
+  throw error;
+}
 if (!dryRun && !existsSync(appPath)) fail(`signed app not found: ${appPath}`);
 
 const env = { ...process.env };

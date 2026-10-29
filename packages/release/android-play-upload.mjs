@@ -23,15 +23,14 @@
 import { createSign } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { spawnSync } from "./background-process.mjs";
 import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 import { describeAabProblems, scanAabBuffer } from "./android-aab-scan.mjs";
 import { sealedManifestAllowsContentDevtools } from "./devtools-policy.mjs";
 import { targetDistribution } from "./target-distribution.mjs";
 import { AndroidReleaseError, createAndroidCredentialStore, resolveAndroidSecret, validateSecretSource } from "./android-release.mjs";
 import { assertArtifactUnchanged, digestBytes, verifyPublicationRelease } from "./publication-artifacts.mjs";
-import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
-import { assertCleanSource } from "./source-gate.mjs";
+import { assertBindsSource, assertInsideSource, assertReleaseSource, gitRootOf, isSnapshotSource, resolveReleaseSource } from "./release-source-identity.mjs";
+import { verifyOwnershipEvidence } from "./ownership-evidence.mjs";
 
 export const PLAY_PROVIDER = "google-play";
 export const PLAY_TRACK = "internal";
@@ -183,26 +182,28 @@ export async function uploadToPlay({ distribution, aabBytes, accessToken, fetchI
 }
 
 // ---- authorisation and the command --------------------------------------------------------------------------------
-const git = (cwd, args) => {
-  const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
-  if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
-  return result.stdout.trim();
-};
 
 // Local checks only; no network, no secret. The sealed release is the only input: build-free by construction.
-export async function authorizePlayUpload({ releaseId, cwd = process.cwd(), configName = defaultReleaseConfigFile(cwd) }) {
+export async function authorizePlayUpload({ releaseId, cwd = process.cwd(), configName = defaultReleaseConfigFile(cwd), env = process.env }) {
   if (!RELEASE_ID.test(releaseId ?? "")) refuse("PLAY_RELEASE_REQUIRED", "--release <sealed-id> is required");
-  const repoRoot = git(cwd, ["rev-parse", "--show-toplevel"]);
-  assertPrimaryReleaseCheckout(repoRoot);
-  const commit = git(repoRoot, ["rev-parse", "HEAD"]);
-  assertCleanSource({ status: git(repoRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]), commandId: "right-release upload" });
+  // Source identity (release-source-identity.mjs, item 7 row 7.04): the checkout's clean HEAD outside a door run, the selected commit and
+  // its verified snapshot inside one (HEAD, status and branch of the checkout are then never read).
+  const release = resolveReleaseSource({ cwd, env });
+  assertReleaseSource(release, { commandId: "right-release upload", env });
+  const split = isSnapshotSource(release);
+  const repoRoot = gitRootOf(release);
+  const commit = release.commit;
   const configPath = path.resolve(cwd, configName);
+  assertInsideSource(release, configPath, "the release config");
   if (!existsSync(configPath)) refuse("PLAY_CONFIG_INVALID", `release config is required: ${configName}`);
   // A legacy config is a module that runs on import (a JSON config is data): loaded only after the tree is proven clean.
   const config = await importReleaseConfig(configPath, { query: `upload=${Date.now()}` });
   const distribution = validatePlayDistribution(targetDistribution(config, "android"));
   const sealedDir = path.join(repoRoot, ".right-release", "sealed", releaseId, "android");
-  const sealed = verifyPublicationRelease({ sealedDir, repoRoot, appRoot: path.dirname(configPath), commit, app: config.app, version: config.version, platform: "android", configPath, releaseId });
+  // The sealed release and its signing receipts are where the build wrote them (the checkout's `.right-release`).
+  const sealed = verifyPublicationRelease({ sealedDir, repoRoot, appRoot: split ? release.checkoutAppRoot : path.dirname(configPath), commit, app: config.app, version: config.version, platform: "android", configPath, releaseId },
+    split ? { verifyOwnership: (expected, root, scanRoot, scope) => verifyOwnershipEvidence(expected, root, scanRoot, scope, release) } : {});
+  if (split) assertBindsSource(release, sealed.manifest, "the sealed release");
   const entries = sealed.manifest.files.filter((entry) => entry.role === "aab");
   if (entries.length !== 1) refuse("PLAY_AAB_MISSING", "the sealed release must hold exactly one aab entry");
   const aab = sealed.artifacts.get(entries[0].name);
@@ -226,7 +227,7 @@ export async function runPlayUpload({
   fetchImpl = fetch, credentialStore, sign, nowSeconds, authorize = authorizePlayUpload,
 }) {
   refusePlayEnvSecrets(env);
-  const auth = await authorize({ releaseId, configName, cwd });
+  const auth = await authorize({ releaseId, configName, cwd, env });
   const aabEvidence = { name: auth.entry.name, sha256: auth.entry.sha256, sizeBytes: auth.entry.sizeBytes };
   const plan = playUploadPlan({ distribution: auth.distribution, aab: aabEvidence });
   const stateRoot = path.join(auth.repoRoot, ".right-release", "state", releaseId, "android");

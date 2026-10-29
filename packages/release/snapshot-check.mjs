@@ -78,18 +78,24 @@ export function commitOf(checkout, rev, spawn = defaultSpawn) { // eslint-disabl
 /**
  * The snapshot holds exactly the commit (E6, GATE-CONTRACT §1): no path under it the commit's tree lacks (ignored ones included; the
  * only allowances are snapshot.mjs's named pnpm dependency directories and the gate's config-only .git/config), no link resolving out
- * of it or into the checkout, and the seeded tree id (the broker's method) equal to the commit's tree. Otherwise CheckError.
+ * of it or into the checkout, and the seeded tree id (the broker's method) equal to the commit's tree. Otherwise CheckError. Returns the tree id.
+ *
+ * Stage-output ledger (row 5.09d), the same walk as snapshot.mjs verifySnapshot (one implementation, snapshotProblem): given `ledger`
+ * (the entries an earlier verify returned) and/or `admitNew` (the END of a stage only), the stage's own ignored, untracked outputs
+ * are admitted and the ledger must still match exactly. Then the result is `{ tree, ledger: [{ path, type, size, sha256, execBit }] }`.
  */
-export function verifySnapshotDir({ checkout, dir, commit, tree, when }) {
-  let extra;
-  try { extra = snapshotProblem({ dir, entries: treeEntries(checkout, commit), checkout }); }
+export function verifySnapshotDir({ checkout, dir, commit, tree, when, ledger, admitNew }) {
+  const ledgerMode = ledger !== undefined || admitNew === true;
+  let inspected;
+  try { inspected = snapshotProblem({ dir, entries: treeEntries(checkout, commit), checkout, ledger, admitNew }); }
   catch (e) { throw new CheckError(`cannot list snapshot ${dir} ${when}: ${e.message}`); }
-  if (extra) throw new CheckError(`snapshot ${dir} is not exactly commit ${commit} ${when}: ${extra}`);
+  const extra = ledgerMode ? inspected.problem : inspected;
+  if (extra) throw new CheckError(`snapshot ${dir} is not exactly commit ${commit}${ledgerMode ? " plus its stage-output ledger" : ""} ${when}: ${extra}`);
   let actual;
   try { actual = snapshotTree({ checkout, dir, baseTree: tree }); }
   catch (e) { throw new CheckError(`cannot compute the tree of snapshot ${dir} ${when}: ${e.message}`); }
   if (actual !== tree) throw new CheckError(`snapshot ${dir} is tree ${actual} ${when}, not tree ${tree} of commit ${commit}`);
-  return actual;
+  return ledgerMode ? { tree: actual, ledger: inspected.admitted } : actual;
 }
 
 /** Every file of the commit with its blob id, from the checkout's object database: what the snapshot holds. */

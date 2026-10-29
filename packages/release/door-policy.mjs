@@ -144,6 +144,10 @@ function argvViolation(argv, depth = 0, stdin = null) {
     else if (script) return null;
     else { a = rest; tool = base(a[0]); }
   }
+  // `rightkit-gate clippy [<cargo clippy args>]` is the agent entry for Clippy (GATE-CONTRACT §1 "Clippy route & batching", item 8 row
+  // 8.14): like every `rightkit-gate` subcommand it is the door, taken through the pinned gate (build-control-policy agentDoorViolation
+  // denies an unpinned copy as untrusted-gate) and run in the same order for a human and an agent. Direct `cargo clippy` and
+  // `cargo +<toolchain> clippy` stay denied by CARGO_COMPILES above, with the route named in the denial.
   if (tool === "rightkit-gate" || tool === "rustright") return null;
   if (tool === "tauri" && TAURI_BUILDS.has(a[1])) return `tauri ${a[1]}`;
   // Apple: xcrun wraps the tool it names; xcodebuild builds by default (no action word is `build`); swift build|test|run and swiftc compile.
@@ -262,7 +266,13 @@ export function doorViolation(command, depth = 0) {
   return null;
 }
 
+/** The agent entry for Clippy; a direct `cargo clippy` is denied in its favour. */
+export const CLIPPY_ROUTE = "rightkit-gate clippy [<cargo clippy args>]";
+
 export function doorDenial(violation) {
+  if (violation === "cargo clippy") {
+    return `[HOOK:one-door:block]\nWhy: \`${violation}\` builds outside the one door. Every check, compile, test, package and release goes through rightkit-gate, class A first.\nRequired: ${CLIPPY_ROUTE} (Clippy on HEAD's commit, class A first).`;
+  }
   const mobile = /^(cargo )?tauri (android|ios)$|^xcodebuild (archive|install)|^gradle (assemble|bundle|build|publish|install)/.test(violation) ? (/ios|xcodebuild/.test(violation) ? "ios" : "android") : null;
   const stage = /^right-release (dev|test)$/.test(violation) ? violation.slice("right-release ".length) : /^(cargo )?tauri dev$/.test(violation) ? "dev"
     : /^right-release (upload|publish|publish-update|github)$/.test(violation) ? "release" : /^right-release qa$/.test(violation) ? "qualify"

@@ -20,6 +20,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { verifyNsisEmbeddedBinary } from "./nsis-payload.mjs";
+import { resolveArtifactPath, splitArtifactContext } from "./release-artifact-path.mjs";
 import { signingReceiptPath } from "./signing-receipts.mjs";
 import { patchTauriBundleType } from "./tauri-bundle-marker.mjs";
 
@@ -198,7 +199,9 @@ export function defaultWinPackageDeps({ appRoot, target, env }) {
 }
 
 /** Where a produced artifact really is: the declared path, else the managed artifact directory (same rule as release.mjs). */
-function locate(declared, { env, fs }) {
+function locate(declared, { env, fs, split = false }) {
+  // A door split (row 7.04c, R-T2): the declared path is already the bound target's; there is no artifact-directory fallback for it.
+  if (split) return declared;
   if (fs.existsSync(declared)) return declared;
   const managed = env.RIGHT_RELEASE_ARTIFACT_DIR;
   if (managed) {
@@ -219,6 +222,15 @@ export function runWinPackageRecipe({ appRoot, config = {}, target, deps = {} } 
   const base = defaultWinPackageDeps({ appRoot: plan.appRoot, target, env });
   const d = { ...base, ...deps, env, fs: { ...base.fs, ...(deps.fs ?? {}) } };
   const { fs } = d;
+  // A door split has no target directory in its snapshot: the plan's `<app>/src-tauri/target/...` paths mean the bound target (R-T1, R-T3), where the
+  // raw EXE is deleted before the build, signed in place, bundled and verified. Outside a split this is the identity.
+  const artifactPaths = d.artifactPaths ?? splitArtifactContext({ cwd: plan.appRoot, env, target });
+  const split = artifactPaths.mode === "split";
+  const placed = (declared) => {
+    if (!split) return declared;
+    const relative = path.relative(plan.appRoot, declared).replaceAll("\\", "/");
+    return resolveArtifactPath(relative.startsWith("..") || path.isAbsolute(relative) ? declared : relative, artifactPaths);
+  };
   const dry = d.dryRun === true;
   const phases = [];
   const phase = (name, work) => {
@@ -244,15 +256,16 @@ export function runWinPackageRecipe({ appRoot, config = {}, target, deps = {} } 
 
   if (d.platform !== "win32" && !dry) throw new WinPackageRecipeError("build", `the Windows package recipe must run on Windows, not ${d.platform}`);
 
-  let raw = plan.rawExe;
+  const rawExe = placed(plan.rawExe);
+  let raw = rawExe;
   const sidecars = [...plan.sidecars];
 
   phase("build", () => {
-    if (!dry) fs.rmSync(plan.rawExe, { force: true });
+    if (!dry) fs.rmSync(rawExe, { force: true });
     tauri(["build", "--no-bundle", "--target", plan.triple], quiet);
     if (dry) return;
-    raw = locate(plan.rawExe, { env, fs });
-    if (!fs.existsSync(raw)) throw new Error(`tauri build did not produce the raw EXE: ${plan.rawExe}`);
+    raw = locate(rawExe, { env, fs, split });
+    if (!fs.existsSync(raw)) throw new Error(`tauri build did not produce the raw EXE: ${rawExe}`);
     for (const sidecar of sidecars) if (!fs.existsSync(sidecar)) throw new Error(`declared sidecar does not exist: ${sidecar}`);
   });
 
@@ -270,14 +283,14 @@ export function runWinPackageRecipe({ appRoot, config = {}, target, deps = {} } 
     return { sha256: byFile.get(path.resolve(raw).toLowerCase()), sidecars: Object.fromEntries(sidecars.map((file) => [file, byFile.get(path.resolve(file).toLowerCase())])) };
   });
 
-  const installerBase = plan.installerFile;
+  const installerBase = placed(plan.installerFile);
   let installer = installerBase;
   phase("bundle", () => {
     if (!dry) for (const stale of [installerBase, `${installerBase}.sig`, `${installerBase}.zip`, `${installerBase}.zip.sig`]) fs.rmSync(stale, { force: true });
     const override = { bundle: { createUpdaterArtifacts: false, windows: { nsis: { installMode: plan.perMachine ? "perMachine" : "currentUser" } } } };
     tauri(["bundle", "--bundles", "nsis", "--target", plan.triple, "--config", JSON.stringify(override)], quiet);
     if (dry) return;
-    installer = locate(installerBase, { env, fs });
+    installer = locate(installerBase, { env, fs, split });
     if (!fs.existsSync(installer)) throw new Error(`tauri bundle did not produce the installer: ${installerBase}`);
   });
 

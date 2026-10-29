@@ -23,6 +23,7 @@ import { buildLaunch } from "./build-launch.mjs";
 import { CommandSpecError, loadAppConfig, resolveInvocation, validateStep } from "./command-spec.mjs";
 import { defaultReleaseConfigFile } from "./release-config.mjs";
 import { requireDoorRun } from "./gate-stages.mjs";
+import { doorContextFor } from "./source-split.mjs";
 
 export function parseWebBuildArgs(argv) {
   const opts = { config: defaultReleaseConfigFile(), dryRun: false };
@@ -53,10 +54,11 @@ export function planWebBuild(config) {
  * bound to a commit: refused. `spawnSyncFn` runs git; `requireDoor` is gate-stages.mjs requireDoorRun.
  */
 export function webBuildDoorRefusal({ appRoot, env = process.env, spawnSyncFn = spawnSync, requireDoor = requireDoorRun }) {
-  const gitOut = (a) => { const r = spawnSyncFn("git", a, { cwd: appRoot, encoding: "utf8" }); return r.status === 0 ? String(r.stdout).trim() : ""; };
-  const common = gitOut(["rev-parse", "--git-common-dir"]);
-  if (!common) return "right-release web-build runs only inside a git repository, under a door run";
-  return requireDoor({ env, commonDir: path.resolve(appRoot, common), commit: gitOut(["rev-parse", "HEAD"]), command: "right-release web-build" });
+  // Inside a source split (the door's snapshot of a commit) the git context is the door run's checkout and commit, not the cwd's.
+  let context;
+  try { context = doorContextFor({ cwd: appRoot, env, run: spawnSyncFn }); } catch (error) { return `right-release web-build: ${error.code ?? "RK_SOURCE_SPLIT"}: ${error.message}`; }
+  if (!context) return "right-release web-build runs only inside a git repository, under a door run";
+  return requireDoor({ env, commonDir: context.commonDir, commit: context.commit, command: "right-release web-build" });
 }
 
 function doorError(refusal) { const error = new Error(refusal); error.code = "RK_DOOR"; return error; }

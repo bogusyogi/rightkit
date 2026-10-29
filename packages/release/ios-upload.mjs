@@ -33,8 +33,8 @@ import { IOS_SIGNING_CONTRACT } from "./ios-package-recipe.mjs";
 import { ASC_API, createAscClient, createTokenProvider, distributeToTestFlight, normalizeGroupSelection, TestFlightError, testflightPlan } from "./ios-testflight.mjs";
 import { iosOwnershipScope } from "./ownership-scope.mjs";
 import { assertArtifactUnchanged, digestBytes, verifyPublicationRelease } from "./publication-artifacts.mjs";
-import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
-import { assertCleanSource } from "./source-gate.mjs";
+import { assertBindsSource, assertInsideSource, assertReleaseSource, gitRootOf, isSnapshotSource, resolveReleaseSource } from "./release-source-identity.mjs";
+import { verifyOwnershipEvidence } from "./ownership-evidence.mjs";
 import { targetDistribution } from "./target-distribution.mjs";
 
 export const IOS_PROVIDER = "app-store-connect";
@@ -129,28 +129,33 @@ export function iosUploadPlan({ distribution, ipa, receipt }) {
 }
 
 // ---- authorisation -----------------------------------------------------------------------------------------------
-const git = (cwd, args) => {
-  const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
-  if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
-  return result.stdout.trim();
-};
 
 /** Local checks only; no network, no secret. The sealed release is the only input: build-free by construction. */
-export async function authorizeIosUpload({ releaseId, cwd = process.cwd(), configName = defaultReleaseConfigFile(cwd) }) {
+export async function authorizeIosUpload({ releaseId, cwd = process.cwd(), configName = defaultReleaseConfigFile(cwd), env = process.env }) {
   if (!RELEASE_ID.test(releaseId ?? "")) refuse("IOS_UPLOAD_RELEASE_REQUIRED", "--release <sealed-id> is required");
-  const repoRoot = git(cwd, ["rev-parse", "--show-toplevel"]);
-  assertPrimaryReleaseCheckout(repoRoot);
-  const commit = git(repoRoot, ["rev-parse", "HEAD"]);
-  assertCleanSource({ status: git(repoRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]), commandId: "right-release upload" });
+  // Source identity (release-source-identity.mjs, item 7 row 7.04). Outside a door run: the checkout's HEAD, primary worktree and a clean
+  // status, as always. Inside one: the selected commit and its verified snapshot, with HEAD, status and branch of the checkout unread.
+  const release = resolveReleaseSource({ cwd, env });
+  assertReleaseSource(release, { commandId: "right-release upload", env });
+  const split = isSnapshotSource(release);
+  const repoRoot = gitRootOf(release);
+  const commit = release.commit;
   const configPath = path.resolve(cwd, configName);
+  assertInsideSource(release, configPath, "the release config");
   if (!existsSync(configPath)) refuse("IOS_UPLOAD_CONFIG_INVALID", `release config is required: ${configName}`);
   // A legacy config is a module that runs on import (a JSON config is data): loaded only after the tree is proven clean.
   const config = await importReleaseConfig(configPath, { query: `upload=${Date.now()}` });
   const distribution = validateIosDistribution(targetDistribution(config, "ios"));
   const sealedDir = path.join(repoRoot, ".right-release", "sealed", releaseId, "ios");
-  const appRoot = path.dirname(configPath);
+  // The sealed release, its signing receipts and the state live where the build wrote them (the checkout's `.right-release`); the scope of
+  // the ownership scan is read from the snapshot's own config and project, which are the commit's.
+  const appRoot = split ? release.checkoutAppRoot : path.dirname(configPath);
+  const scopeRepoRoot = split ? release.snapshot : repoRoot;
+  const scopeAppRoot = path.dirname(configPath);
   // The IPA is verified by a streamed hash and never held in memory (streamRoles); the parts are read as byte ranges at upload time.
-  const sealed = verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit, app: config.app, version: config.version, platform: "ios", configPath, releaseId, streamRoles: ["ipa"], ownershipScope: iosOwnershipScope({ repoRoot, appRoot, target: config.targets?.ios, nativeAssembly: config.nativeAssembly }) });
+  const sealed = verifyPublicationRelease({ sealedDir, repoRoot, appRoot, commit, app: config.app, version: config.version, platform: "ios", configPath, releaseId, streamRoles: ["ipa"], ownershipScope: iosOwnershipScope({ repoRoot: scopeRepoRoot, appRoot: scopeAppRoot, target: config.targets?.ios, nativeAssembly: config.nativeAssembly }) },
+    split ? { verifyOwnership: (expected, root, scanRoot, scope) => verifyOwnershipEvidence(expected, root, scanRoot, scope, release) } : {});
+  if (split) assertBindsSource(release, sealed.manifest, "the sealed release");
   const entries = sealed.manifest.files.filter((entry) => entry.role === "ipa");
   if (entries.length !== 1) refuse("IOS_IPA_MISSING", "the sealed release must hold exactly one ipa entry");
   const ipa = sealed.artifacts.get(entries[0].name);
@@ -221,7 +226,7 @@ export async function runIosUpload({
   acquireLock = acquireFileLock, journalDir, sleep, monotonic, now = () => new Date(),
 }) {
   refuseIosAscEnv(env);
-  const auth = await authorize({ releaseId, configName, cwd });
+  const auth = await authorize({ releaseId, configName, cwd, env });
   const ipaEvidence = { name: auth.entry.name, sha256: auth.entry.sha256, sizeBytes: auth.entry.sizeBytes };
   const plan = iosUploadPlan({ distribution: auth.distribution, ipa: ipaEvidence, receipt: auth.receipt });
   const stateRoot = path.join(auth.repoRoot, ".right-release", "state", releaseId, "ios");

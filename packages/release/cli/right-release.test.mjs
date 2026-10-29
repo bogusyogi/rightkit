@@ -354,18 +354,18 @@ test("hooks install is an alias of rightkit-gate install-hook, run in the app; o
   assert.deepEqual(aliased.spawns, [[process.execPath, script("bin/rightkit-gate.mjs"), "install-hook"]]);
   assert.equal(path.resolve(aliased.calls[0].cwd), repo, "in the app directory");
   const forced = runCli(t, repo, ["hooks", "install", "--force"]);
-  assert.deepEqual(forced.spawns, [[process.execPath, script("bin/rightkit-gate.mjs"), "install-hook", "--force"]]);
+  assert.deepEqual(forced.spawns, [[process.execPath, script("bin/rightkit-gate.mjs"), "install-hook"]], "--force is gone: nothing is written to replace");
   assert.equal(path.resolve(forced.calls[0].cwd), repo);
   const noApp = runCli(t, repo, ["hooks", "install", "--app"]);
   assert.equal(noApp.status, 2);
   assert.match(noApp.stderr, /hooks install: --app needs a directory/);
   assert.deepEqual(runCli(t, repo, ["hooks"]).spawns, [[process.execPath, script("ownership-hooks.mjs")]]);
-  // For real, without the spy: the pre-push hook is written and core.hooksPath set.
+  // For real, without the spy: no git hook is written and core.hooksPath is not set (docs/GATE-CONTRACT.md: commit and push run no gate).
   const real = runCli(t, repo, ["hooks", "install"], { spy: false });
   assert.equal(real.status, 0, real.stderr);
-  assert.match(real.stdout, /wrote \.githooks\/pre-push/);
-  assert.equal(git(repo, "config", "--get", "core.hooksPath").trim(), ".githooks");
-  assert.match(fs.readFileSync(path.join(repo, ".githooks", "pre-push"), "utf8"), /rightkit_gate check --commit HEAD/);
+  assert.match(real.stdout, /no git hook is written/);
+  assert.equal(fs.existsSync(path.join(repo, ".githooks")), false);
+  assert.equal(spawnSync("git", ["config", "--local", "--get", "core.hooksPath"], { cwd: repo, encoding: "utf8" }).status, 1, "core.hooksPath is not set");
 });
 
 test("the help text names the check, its baseline, the commands that run it, the hooks alias, and that nothing skips it", (t) => {
@@ -374,7 +374,7 @@ test("the help text names the check, its baseline, the commands that run it, the
   assert.match(help.stdout, /^  check \[--repo <dir>\] \[--config <file>\]/m);
   assert.match(help.stdout, /there is no flag that skips it/);
   assert.match(help.stdout, /\.rightkit\/app-check-baseline\.json \(entries carry issue, added and sunset; the sunset is at most 90 days after added\)/);
-  assert.match(help.stdout, /hooks install \[--app <dir>\] \[--force\] +Alias of rightkit-gate install-hook/);
+  assert.match(help.stdout, /hooks install \[--app <dir>\] +Alias of rightkit-gate install-hook/);
   // every command the check guards is named where the help says which ones run it (release is the compatibility alias of build, with its own line)
   const guards = /The offline app check[\s\S]*?(?=\n {2}doctor )/.exec(help.stdout)?.[0] ?? "";
   assert.ok(guards.length > 200, "read the help for check");

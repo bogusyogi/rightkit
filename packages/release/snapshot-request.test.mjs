@@ -10,9 +10,10 @@ import path from "node:path";
 import test from "node:test";
 import { canonicalJson, signedBytes } from "./provenance-verify.mjs";
 import {
-  ATTEST_NONCE_ENV, DESCRIPTOR_MAX_BYTES, REQUEST_ID_FILE_ENV, SNAPSHOT_REQUEST_ENV, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, freshNonce,
-  observedEnvOf, readRequestRef, requestDigestOf, snapshotRequestCore, verifySnapshotReceipt, writeSnapshotRequest,
+  ATTEST_NONCE_ENV, DESCRIPTOR_MAX_BYTES, REQUEST_ID_FILE_ENV, SNAPSHOT_REQUEST_ENV, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, declaredInputDigestsOf, freshNonce,
+  cargoSubcommandOf, isCompileClass, isGenerationTarget, observedEnvOf, readDeclaredInputs, readRequestRef, requestDigestOf, snapshotRequestCore, verifySnapshotReceipt, writeSnapshotRequest,
 } from "./snapshot-request.mjs";
+import { makeFakeBroker, signedReceipt } from "./test-support/fake-broker.mjs";
 
 const tmp = (t) => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-snapreq-"))); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex");
@@ -109,57 +110,202 @@ test("request digest: the extended core binds every field the broker adds for a 
   assert.notEqual(requestDigestOf(snapshotRequestCore({ argv, workspace: cwd, observedEnv: { RUSTFLAGS: "x" }, carrier: made.carrier })), base);
 });
 
-test("receipt: a signed snapshot receipt verifies; tampered copies, payload, trees, handle or a missing evidence are refused", (t) => {
-  const { made, argv, cwd, snapshot } = request(t);
-  const { publicKey, privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
-  const jwk = publicKey.export({ format: "jwk" });
-  const sec1 = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, "base64url"), Buffer.from(jwk.y, "base64url")]).toString("hex");
-  const pins = { publicKey: sec1, keyId: sha(Buffer.from(sec1, "hex")), host: "host-1", brokerDigest: "bd" };
-  const jobId = "11111111-1111-4111-8111-111111111111";
-  const evidence = {
-    requestId: jobId, brokerVersion: "rustright-x", executor: "host-1", commit: made.carrier.commit,
-    snapshot: { path: snapshot, treeAtStart: T, treeAtExit: T }, declaredInputDigests: [], ownership: { handle: "own-1" }, outputDir: "/checkout/target",
-  };
-  let signer = privateKey;
-  const make = (mutate = (p) => p) => {
-    const payload = mutate({ host: "host-1", broker: { brokerDigest: "bd" }, keyId: pins.keyId, jobId, nonce: made.carrier.nonce,
-      requestDigest: requestDigestOf(snapshotRequestCore({ argv, workspace: cwd, carrier: made.carrier })),
-      result: { status: "SUCCEEDED", exitCode: 0, signal: null, reap: { reaped: true } }, snapshotEvidence: structuredClone(evidence) });
-    const value = crypto.sign("sha256", signedBytes(payload), { key: signer, dsaEncoding: "ieee-p1363" }).toString("hex");
-    return { id: jobId, ...structuredClone(payload.snapshotEvidence ?? {}), provenance: { schema: "rustright.provenance.v1", payload, signature: { alg: "ES256", keyId: pins.keyId, value } } };
-  };
-  const check = (receipt, over = {}) => verifySnapshotReceipt(receipt, { pins, jobId, carrier: made.carrier, argv, workspace: cwd, ...over });
-  assert.equal(check(make()).evidence.outputDir, "/checkout/target");
-  // The receipt's copies must equal the signed evidence (RustRight's own rule).
-  for (const field of ["snapshot", "outputDir", "commit", "declaredInputDigests", "ownership"]) {
-    const r = make(); r[field] = "tampered";
-    assert.throws(() => check(r), (e) => e.code === "evidence", field);
+// ---- row 7.22: every returned-evidence field is required and matches the request; the signature covers the snapshot evidence ----
+const JOB = "11111111-1111-4111-8111-111111111111";
+function receiptCase(t, { tamper = "none", inputs = ["gen/in.txt"], carrierInputs = inputs ?? [], over = {}, mutate = null, argv = ["test", "-p", "a", "--locked"] } = {}) {
+  const fx = makeFakeBroker(t, { inputs });
+  const made = writeSnapshotRequest({ controlRoot: fx.controlRoot, commit: fx.sb.commit, snapshot: fx.sb.snapshot, declaredInputs: carrierInputs, handle: fx.handle, primaryCwd: fx.checkout, argv, nonce: "a".repeat(64) });
+  const receipt = signedReceipt(fx, { id: JOB, carrier: made.carrier, argv, workspace: fx.checkout, tamper, mutate });
+  const check = (extra = {}) => verifySnapshotReceipt(receipt, { pins: fx.pins, jobId: JOB, carrier: made.carrier, argv, workspace: fx.checkout, checkout: fx.checkout, outputRoots: [fx.wsRoot], platform: process.platform, ...over, ...extra });
+  return { fx, made, receipt, check, argv };
+}
+
+test("[7.22] a fully formed receipt verifies, with and without declared inputs", (t) => {
+  for (const inputs of [["gen/in.txt"], null]) {
+    const c = receiptCase(t, { inputs });
+    const { evidence, payload } = c.check();
+    assert.equal(evidence.outputDir, c.fx.outputDir);
+    assert.equal(payload.result.status, "SUCCEEDED");
+    assert.deepEqual(evidence.declaredInputDigests.map((d) => d.path), inputs ?? []);
   }
-  // Editing the signed payload breaks the signature.
-  const r = make(); r.provenance.payload.snapshotEvidence.snapshot.treeAtExit = "f".repeat(40);
-  assert.throws(() => check(r), (e) => e.code === "signature");
-  // Signed, but the snapshot changed during the build, or another gate's handle, or another commit: refused.
-  assert.throws(() => check(make((p) => { p.snapshotEvidence.snapshot.treeAtExit = "f".repeat(40); return p; })), /not .* throughout/);
-  assert.throws(() => check(make((p) => { p.snapshotEvidence.ownership = { handle: "other" }; return p; })), /handle is not this gate's/);
-  assert.throws(() => check(make((p) => { p.snapshotEvidence.commit = { sha: "d".repeat(40), tree: T }; return p; })), /signed commit is not/);
-  assert.throws(() => check(make((p) => { delete p.snapshotEvidence; return p; })), /carries no snapshotEvidence/);
-  // A different argv, workspace or nonce than this request: the request digest no longer matches.
-  assert.throws(() => check(make(), { argv: ["build"] }), (e) => e.code === "request");
-  assert.throws(() => check(make(), { workspace: "/elsewhere" }), (e) => e.code === "request");
-  assert.throws(() => check(make(), { pins: { ...pins, host: "other" } }), (e) => e.code === "host");
-  // Authentically signed, but not a success: a FAILED, timed-out or signalled build, a non-zero exit, or no signed result at all.
-  for (const [result, why] of [
-    [{ status: "FAILED", exitCode: 0, signal: null }, /signed FAILED/],
-    [{ status: "TIMED_OUT", exitCode: 0, signal: null }, /signed TIMED_OUT/],
-    [{ status: "SUCCEEDED", exitCode: 101, signal: null }, /exit 101/],
-    [{ status: "SUCCEEDED", exitCode: 0, signal: "SIGKILL" }, /signal SIGKILL/],
-    [undefined, /carries no result/],
-  ]) assert.throws(() => check(make((p) => { if (result) p.result = result; else delete p.result; return p; })), (e) => e.code === "result" && why.test(e.message), JSON.stringify(result));
-  // A real P-256 signature by a key this host never enrolled, over an otherwise perfect payload: refused on the signature.
-  signer = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey;
-  assert.throws(() => check(make()), (e) => e.code === "signature");
-  signer = privateKey;
-  assert.equal(check(make()).payload.result.status, "SUCCEEDED");
+});
+
+test("[7.22] each refusal: provenance, signature, pins, request, job, nonce, signed outcome and snapshot evidence", (t) => {
+  const cases = [
+    // [tamper, error code, message pattern]
+    ["noProvenance", "legacy", /no provenance envelope/], ["editedAfterSigning", "signature", /does not verify/], ["signedByOtherKey", "signature", /does not verify/],
+    ["otherHost", "host", /another host/], ["otherBrokerDigest", "runtime", /another broker runtime/], ["otherJob", "job", /another job/], ["otherNonce", "nonce", /nonce/],
+    ["requestOtherArgv", "request", /request digest/],
+    ["failed", "result", /signed FAILED/], ["noResult", "result", /no result/],
+    ["noSnapshotEvidence", "evidence", /no snapshotEvidence/], ["receiptCopyDiffers", "evidence", /outputDir differs/],
+    ["treeAtExit", "evidence", /throughout/], ["treeAtStart", "evidence", /throughout/], ["otherHandle", "evidence", /handle is not this gate's/], ["otherCommit", "evidence", /signed commit is not/],
+    ["otherSnapshotPath", "evidence", /signed snapshot/], ["otherRequestId", "evidence", /request id/],
+    ["noBrokerVersion", "evidence", /brokerVersion differs/], ["noExecutor", "evidence", /executor differs/],
+  ];
+  for (const [tamper, code, why] of cases) {
+    const c = receiptCase(t, { tamper });
+    assert.throws(() => c.check(), (e) => e.code === code && why.test(e.message), `${tamper}: expected ${code} ${why}`);
+  }
+});
+
+test("[7.22] declared inputs: the signed digests must be the gate's own digest of the snapshot's declared inputs, from the manifest it carried", (t) => {
+  for (const tamper of ["digestWrong", "digestsDropped"]) {
+    const c = receiptCase(t, { tamper });
+    assert.throws(() => c.check(), (e) => e.code === "evidence" && /declaredInputDigests are not the gate's own digest/.test(e.message), tamper);
+  }
+  // A declared input changed in the snapshot after the broker digested it: the gate's own digest no longer matches.
+  const moved = receiptCase(t);
+  fs.writeFileSync(path.join(moved.fx.snapshot, "gen", "in.txt"), "changed after the build\n");
+  assert.throws(() => moved.check(), /declaredInputDigests are not the gate's own digest/);
+  // The manifest in the snapshot lists inputs the request did not carry.
+  const other = receiptCase(t, { carrierInputs: [] });
+  assert.throws(() => other.check(), /declared inputs are not the ones this request carried/);
+  // The checkout's own manifest is never read: a different one there changes nothing.
+  const c = receiptCase(t);
+  fs.mkdirSync(path.join(c.fx.checkout, ".rightkit"), { recursive: true });
+  fs.writeFileSync(path.join(c.fx.checkout, ".rightkit", "compile-inputs.json"), JSON.stringify({ inputs: ["Cargo.toml"] }));
+  assert.equal(c.check().evidence.declaredInputDigests.length, 1);
+});
+
+test("[7.22] output directory: absolute, outside the snapshot and the checkout, and a managed generation target", (t) => {
+  for (const [tamper, why] of [["outputInsideSnapshot", /inside the snapshot/], ["outputInsideCheckout", /inside the checkout/], ["outputOutsideWs", /not a managed generation target/], ["outputNotTarget", /not a managed generation target/], ["outputRelative", /no absolute output directory/]]) {
+    const c = receiptCase(t, { tamper });
+    assert.throws(() => c.check(), (e) => e.code === "evidence" && why.test(e.message), tamper);
+  }
+  const c = receiptCase(t);
+  // The gate must know where outputs may go: without a checkout and a managed root nothing can be judged, so it refuses.
+  assert.throws(() => c.check({ outputRoots: [] }), /no checkout or managed output root/);
+  assert.throws(() => c.check({ checkout: undefined }), /no checkout or managed output root/);
+  assert.throws(() => c.check({ outputRoots: [path.join(c.fx.root, "another-ws")] }), /not a managed generation target/);
+  const wsRoot = c.fx.wsRoot;
+  for (const [out, ok] of [[`${wsRoot}/0123456789ab/g/002/target`, true], [`${wsRoot}/0123456789ab/g/1000/target`, true], [`${wsRoot}/0123456789abcdef/g/002/target`, false], [`${wsRoot}/0123456789a/g/002/target`, false], [`${wsRoot}/0123456789AB/g/002/target`, false], [`${wsRoot}/0123456789ab/g/2/target`, false], [`${wsRoot}/zzzzzzzzzzzz/g/002/target`, false],
+    [`${wsRoot}/0123456789ab/g/002/target/debug`, false], [`${wsRoot}/0123456789ab/002/target`, false], [`${wsRoot}/../outside/0123456789ab/g/002/target`, false], [`${wsRoot}`, false]]) {
+    assert.equal(isGenerationTarget(out, [wsRoot], process.platform), ok, out);
+  }
+  assert.equal(isGenerationTarget("D:\\.rightkit-managed\\rightkit-build-control\\ws\\0123456789ab\\g\\002\\target", ["D:\\.rightkit-managed\\rightkit-build-control\\ws"], "win32"), true);
+  assert.equal(isGenerationTarget("d:\\.RIGHTKIT-managed\\rightkit-build-control\\ws\\0123456789ab\\g\\002\\target", ["D:\\.rightkit-managed\\rightkit-build-control\\ws"], "win32"), true, "Windows paths compare case-insensitively");
+});
+
+test("[7.22] stage evidence and the unsigned fields: freshness, attribution and toolchain are signed and equal; verdict, timingsMs, exit, diagnosticsPath, executor and refreshed are present with their types", (t) => {
+  for (const [tamper, why] of [["noStageEvidence", /no stageEvidence/], ["noFreshness", /freshness is missing/], ["freshnessReceiptOnly", /freshness is missing/], ["freshnessSignedOnly", /freshness is missing/], ["freshnessDiffers", /freshness differs from the signed stage evidence/]]) {
+    const c = receiptCase(t, { tamper });
+    assert.throws(() => c.check(), (e) => e.code === "evidence" && why.test(e.message), tamper);
+  }
+  for (const [tamper, field] of [["noVerdict", "verdict"], ["noTimings", "timingsMs"], ["noExit", "exit"], ["noDiagnostics", "diagnosticsPath"], ["noRefreshed", "refreshed"]]) {
+    const c = receiptCase(t, { tamper });
+    assert.throws(() => c.check(), (e) => e.code === "evidence" && new RegExp(`receipt ${field} is missing or has the wrong type`).test(e.message), tamper);
+  }
+  // Wrong types are as bad as missing ones.
+  for (const [field, value] of [["verdict", "passed"], ["timingsMs", [1]], ["exit", "0"], ["signal", {}], ["diagnosticsPath", ""], ["refreshed", {}]]) {
+    const c = receiptCase(t); c.receipt[field] = value;
+    assert.throws(() => c.check(), new RegExp(`receipt ${field} is missing or has the wrong type`), `${field}=${JSON.stringify(value)}`);
+  }
+});
+
+// ---- F7 re-decision #4: attribution and toolchain only for compile-class commands; the rest for every carried command ----
+const NON_COMPILE = [["metadata", "--format-version", "1", "--offline"], ["fetch", "--locked"], ["fmt", "--check"], ["tree", "--locked"], ["--frozen", "pkgid"], ["version"]];
+const COMPILE = [["check", "--locked"], ["clippy", "--", "-D", "warnings"], ["build"], ["doc", "--no-deps"], ["rustc", "--", "-Zx"], ["test", "-p", "a"], ["+stable", "--locked", "build"], ["--color", "always", "test"], ["b"], ["t"]];
+
+test("[F7 #4] a non-compile command (metadata, fetch --locked, fmt --check, tree --locked) verifies without attribution and toolchain, with or without them present", (t) => {
+  for (const argv of NON_COMPILE) {
+    for (const tamper of ["freshnessOnly", "none"]) {
+      const c = receiptCase(t, { argv, tamper });
+      assert.equal(c.check().payload.result.status, "SUCCEEDED", `${argv.join(" ")} / ${tamper}`);
+    }
+  }
+});
+
+test("[F7 #4] a compile-class command (check, clippy, build, doc, rustc, test, and their aliases) fails without attribution or without toolchain", (t) => {
+  for (const argv of COMPILE) {
+    assert.equal(receiptCase(t, { argv }).check().payload.result.status, "SUCCEEDED", `${argv.join(" ")} verifies with both`);
+    for (const [tamper, name] of [["noAttribution", "attribution"], ["noToolchain", "toolchain"], ["freshnessOnly", "attribution"]]) {
+      const c = receiptCase(t, { argv, tamper });
+      assert.throws(() => c.check(), (e) => e.code === "evidence" && new RegExp(`${name} is missing from the signed stage evidence or the receipt`).test(e.message), `${argv.join(" ")} / ${tamper}`);
+    }
+  }
+});
+
+test("[F7 #4] freshness is still required for every command, a copy carried by one side only is refused even for a non-compile command, and verdict, exit, timingsMs, diagnosticsPath and refreshed are required for every command", (t) => {
+  for (const argv of NON_COMPILE) {
+    for (const tamper of ["noFreshness", "freshnessReceiptOnly", "freshnessSignedOnly"]) {
+      assert.throws(() => receiptCase(t, { argv, tamper }).check(), (e) => e.code === "evidence" && /freshness is missing/.test(e.message), `${argv.join(" ")} / ${tamper}`);
+    }
+    for (const tamper of ["attributionReceiptOnly", "attributionSignedOnly"]) {
+      assert.throws(() => receiptCase(t, { argv, tamper }).check(), (e) => e.code === "evidence" && /attribution differs from the signed stage evidence/.test(e.message), `${argv.join(" ")} / ${tamper}`);
+    }
+    for (const [tamper, field] of [["noVerdict", "verdict"], ["noExit", "exit"], ["noTimings", "timingsMs"], ["noDiagnostics", "diagnosticsPath"], ["noRefreshed", "refreshed"]]) {
+      assert.throws(() => receiptCase(t, { argv, tamper: tamper }).check(), (e) => e.code === "evidence" && new RegExp(`receipt ${field} is missing or has the wrong type`).test(e.message), `${argv.join(" ")} / ${tamper}`);
+    }
+  }
+});
+
+// ---- RR's receipt shapes (item 4 row 4.18, answers at rustright HEAD f4cf1170) ----
+test("[RR 4.18] attribution: `{available:false, reason}` is accepted and recorded when the reason is a non-empty string; no reason, or not an object, is refused", (t) => {
+  const ok = receiptCase(t, { tamper: "attributionUnavailable" }).check();
+  assert.deepEqual(ok.attribution, { available: false, reason: "cargo-json-message-format-not-requested" }, "recorded for the consumer, which must treat available:false as FAILED where per-package attribution is needed");
+  assert.equal(receiptCase(t).check().attribution.available, true);
+  assert.throws(() => receiptCase(t, { tamper: "attributionNoReason" }).check(), (e) => e.code === "evidence" && /unavailable and names no reason/.test(e.message));
+  assert.throws(() => receiptCase(t, { tamper: "attributionNotObject" }).check(), (e) => e.code === "evidence" && /not \{available/.test(e.message));
+});
+
+test("[RR 4.18] toolchain is `<toolchain>|cargo:<sha256>|rustc:<sha256>`, and is returned for the record; another shape is refused", (t) => {
+  assert.match(receiptCase(t).check().toolchain, /^stable\|cargo:1{64}\|rustc:2{64}$/);
+  for (const tamper of ["toolchainObject", "toolchainNoHashes"]) assert.throws(() => receiptCase(t, { tamper }).check(), (e) => e.code === "evidence" && /toolchain is not <toolchain>\|cargo:<sha256>\|rustc:<sha256>/.test(e.message), tamper);
+});
+
+test("[RR 4.18] top-level fields: diagnosticsPath may be null, timingsMs needs all six keys (each a number or null), exit may be null only with a signal and a null exit without one is not a success, and a receipt copy that differs from the signed one is refused", (t) => {
+  assert.equal(receiptCase(t, { tamper: "diagnosticsNull" }).check().payload.result.status, "SUCCEEDED");
+  assert.equal(receiptCase(t, { tamper: "timingsNulls" }).check().payload.result.status, "SUCCEEDED");
+  assert.throws(() => receiptCase(t, { tamper: "timingsMissingKey" }).check(), /receipt timingsMs is missing or has the wrong type/);
+  assert.throws(() => receiptCase(t, { tamper: "exitNullNoSignal" }).check(), /exit null and signal null are not a success/);
+  assert.throws(() => receiptCase(t, { tamper: "verdictCopyDiffers" }).check(), /receipt verdict differs from the signed payload/);
+  const bad = receiptCase(t); bad.receipt.exit = 1;
+  assert.throws(() => bad.check(), /not a success/);
+  const signalled = receiptCase(t); signalled.receipt.exit = null; signalled.receipt.signal = "SIGKILL"; delete signalled.receipt.provenance.payload.exit; delete signalled.receipt.provenance.payload.signal;
+  assert.throws(() => signalled.check(), (e) => e.code === "signature" || /not a success/.test(e.message), "a signalled run is never a success (editing the signed payload breaks the signature)");
+});
+
+test("[F7 #4] the subcommand is read from the argv the way cargo reads it: after +toolchain and global options, before --", () => {
+  for (const [argv, sub] of [[["build"], "build"], [["+nightly", "test"], "test"], [["--color", "always", "check"], "check"], [["--locked", "-q", "metadata"], "metadata"], [["--", "build"], null], [[], null], [["--explain", "E0001", "doc"], "doc"]]) {
+    assert.equal(cargoSubcommandOf(argv), sub, argv.join(" "));
+  }
+  assert.equal(isCompileClass(["clippy"]), true); assert.equal(isCompileClass(["run"]), false); assert.equal(isCompileClass(["metadata"]), false); assert.equal(isCompileClass([]), false);
+});
+
+test("[7.22] declared inputs are read from the snapshot and digested as the broker digests them (check_admission.rs snapshot_inputs)", (t) => {
+  const root = tmp(t);
+  const snap = path.join(root, "snap"); fs.mkdirSync(path.join(snap, ".rightkit"), { recursive: true });
+  assert.deepEqual(readDeclaredInputs(snap), [], "no manifest: an empty declared set");
+  const manifest = (v) => fs.writeFileSync(path.join(snap, ".rightkit", "compile-inputs.json"), typeof v === "string" ? v : JSON.stringify(v));
+  manifest({ inputs: ["a.txt", "dir"] });
+  fs.writeFileSync(path.join(snap, "a.txt"), "hello"); fs.mkdirSync(path.join(snap, "dir", "sub"), { recursive: true });
+  fs.writeFileSync(path.join(snap, "dir", "b"), "B"); fs.writeFileSync(path.join(snap, "dir", "a"), "A"); fs.writeFileSync(path.join(snap, "dir", "sub", "c"), "C");
+  const inputs = readDeclaredInputs(snap);
+  assert.deepEqual(inputs, ["a.txt", "dir"]);
+  const h = (...parts) => crypto.createHash("sha256").update(Buffer.concat(parts.map((p) => (typeof p === "string" ? Buffer.from(p) : p)))).digest("hex");
+  // Per file, in sorted directory order: relative name, NUL, bytes, NUL (names joined with the platform separator).
+  assert.deepEqual(declaredInputDigestsOf(snap, inputs, { platform: "darwin" }), [
+    { path: "a.txt", sha256: h("a.txt", "\0", "hello", "\0") },
+    { path: "dir", sha256: h("dir/a", "\0", "A", "\0", "dir/b", "\0", "B", "\0", "dir/sub/c", "\0", "C", "\0") },
+  ]);
+  assert.equal(declaredInputDigestsOf(snap, ["dir"], { platform: "win32" })[0].sha256, h("dir\\a", "\0", "A", "\0", "dir\\b", "\0", "B", "\0", "dir\\sub\\c", "\0", "C", "\0"), "Windows joins child names with a backslash, as Path::join does");
+  // A malformed or unsafe manifest is refused before any request.
+  for (const [body, why] of [["not json", /not JSON/], [{ inputs: "x" }, /list of paths/], [{ inputs: [1] }, /non-empty relative path/], [{ inputs: ["/abs"] }, /plain relative path/], [{ inputs: ["../x"] }, /plain relative path/],
+    [{ inputs: ["a/./b"] }, /plain relative path/], [{ inputs: ["a//b"] }, /plain relative path/], [{ inputs: [".git/config"] }, /inside \.git/], [{ inputs: [".rightkit/compile-inputs.json"] }, /declaration file itself/], [{ inputs: [".rightkit"] }, /declaration file itself/]]) {
+    manifest(body);
+    assert.throws(() => readDeclaredInputs(snap), (e) => e instanceof SnapshotRequestError && e.code === "declared-inputs" && why.test(e.message), JSON.stringify(body));
+  }
+  // A link anywhere is refused, a missing input too (creating a link needs a privilege on Windows: those cases run where it is held).
+  const link = (target, at) => { try { fs.symlinkSync(target, at); return true; } catch { return false; } };
+  if (link(path.join(snap, "a.txt"), path.join(snap, "dir", "link"))) {
+    assert.throws(() => declaredInputDigestsOf(snap, ["dir"]), /holds a link/);
+    fs.rmSync(path.join(snap, "dir", "link"));
+  }
+  assert.throws(() => declaredInputDigestsOf(snap, ["missing"]), /ENOENT/);
+  if (link(path.join(snap, "dir"), path.join(snap, "viaLink"))) assert.throws(() => declaredInputDigestsOf(snap, ["viaLink"]), /runs through a link/);
+  fs.mkdirSync(path.join(root, "real")); fs.rmSync(path.join(snap, ".rightkit", "compile-inputs.json"));
+  fs.writeFileSync(path.join(root, "real", "m.json"), JSON.stringify({ inputs: [] }));
+  if (link(path.join(root, "real", "m.json"), path.join(snap, ".rightkit", "compile-inputs.json"))) assert.throws(() => readDeclaredInputs(snap), /runs through a link/, "a manifest that is a link is refused");
 });
 
 test("request reference: the client's rustright.request-ref.v1, or a refusal", (t) => {
@@ -173,13 +319,8 @@ test("request reference: the client's rustright.request-ref.v1, or a refusal", (
 
 test("runScans: a broker cargo request builds the snapshot under its own carrier and passes only on the broker's verified evidence", async (t) => {
   const { runScans } = await import("./deterministic-scans.mjs");
-  const root = tmp(t);
-  const checkout = path.join(root, "checkout"); const snap = path.join(root, "data", "snapshots", "0123456789abcdef");
-  fs.mkdirSync(checkout, { recursive: true }); fs.mkdirSync(snap, { recursive: true });
-  const { publicKey, privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
-  const jwk = publicKey.export({ format: "jwk" });
-  const sec1 = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, "base64url"), Buffer.from(jwk.y, "base64url")]).toString("hex");
-  const pins = { publicKey: sec1, keyId: sha(Buffer.from(sec1, "hex")), host: "host-1", brokerDigest: "bd" };
+  const fx = makeFakeBroker(t);
+  const { root, checkout, snapshot: snap, pins } = fx;
   const scan = { id: "check:core", class: "B", tool: "rustright", args: ["cargo", "check", "-p", "core", "--locked"], root: "cargoLive", env: {}, command: "rustright cargo check -p core --locked" };
   // Class B runs only after class A ran in the same call: one passing class A row.
   const classA = { id: "a:noop", class: "A", tool: "node", args: ["-e", "0"], root: "live", env: {}, command: "node -e 0" };
@@ -202,20 +343,11 @@ test("runScans: a broker cargo request builds the snapshot under its own carrier
       fs.writeFileSync(env.RIGHTKIT_REQUEST_ID_FILE, JSON.stringify({ schema: "rustright.request-ref.v1", requestId: "job-1", submittedAt: "x", workspace: fs.realpathSync(opts.cwd) }));
       return seen.ok ? { status: 0, stdout: "", stderr: "" } : { status: 2, stdout: "", stderr: "invalid snapshot request carrier" };
     };
-    const receiptOf = async (id) => {
-      const c = seen.carrier;
-      const evidence = { requestId: id, brokerVersion: "v", executor: "host-1", commit: c.commit, snapshot: { path: c.snapshot.path, treeAtStart: T, treeAtExit: T }, declaredInputDigests: [], ownership: c.ownership, outputDir: path.join(checkout, "target") };
-      const payload = { host: "host-1", broker: { brokerDigest: "bd" }, keyId: pins.keyId, jobId: id, nonce: c.nonce,
-        requestDigest: requestDigestOf(snapshotRequestCore({ argv: args0, workspace: fs.realpathSync(path.join(checkout)), carrier: c })),
-        result: { status: "SUCCEEDED", exitCode: 0, signal: null, reap: { reaped: true } }, snapshotEvidence: evidence };
-      tamper?.(payload);
-      const value = crypto.sign("sha256", signedBytes(payload), { key: privateKey, dsaEncoding: "ieee-p1363" }).toString("hex");
-      return { id, ...structuredClone(payload.snapshotEvidence), provenance: { schema: "rustright.provenance.v1", payload, signature: { alg: "ES256", keyId: pins.keyId, value } } };
-    };
+    const receiptOf = async (id) => signedReceipt(fx, { id, carrier: seen.carrier, argv: args0, workspace: fs.realpathSync(checkout), tamper: tamper ?? "none" });
     const args0 = scan.args.slice(1);
     const result = await runScans(plan, { spawn, lookupSpawn: spawn, env: { PATH: process.env.PATH }, classes: ["A", "B"],
       signal: launchSignal,
-      snapshotBroker: { controlRoot: path.join(root, "control"), commit: { sha: C, tree: T }, snapshot: { path: snap, expectedTree: T }, handle: "own-9", pins,
+      snapshotBroker: { controlRoot: path.join(root, "control"), commit: { sha: C, tree: T }, snapshot: { path: snap, expectedTree: T }, handle: "own-9", pins, checkout, outputRoots: [fx.wsRoot], platform: process.platform,
         ...(mark === null ? {} : { markBrokerSubmit: mark ?? (() => { submits += 1; return { handle: "own-9", broker: { submitted: true } }; }) }), receiptOf } }).catch((e) => ({ thrown: e, scans: [] }));
     return { row: result.scans.find((r) => r.id === "check:core"), result, seen, submits };
   };
@@ -224,19 +356,19 @@ test("runScans: a broker cargo request builds the snapshot under its own carrier
   assert.equal(good.seen.ok, true, `the client accepted the carrier (${JSON.stringify(good.row)})`);
   assert.equal(good.submits, 1); assert.equal(good.seen.submitsBefore, 1, "the ownership recorded the broker submit before the request ran");
   assert.equal(good.row.status, "pass", JSON.stringify(good.row));
-  assert.deepEqual(good.row.snapshotEvidence, { requestId: "job-1", outputDir: path.join(checkout, "target"), treeAtStart: T, treeAtExit: T });
+  assert.deepEqual(good.row.snapshotEvidence, { requestId: "job-1", outputDir: fx.outputDir, treeAtStart: T, treeAtExit: T });
   assert.equal(fs.existsSync(good.seen.file), false, "the carrier file is removed after the request");
   // The broker built from a snapshot that changed, or for another handle: the row fails even though cargo exited 0.
-  const moved = await run({ tamper: (p) => { p.snapshotEvidence.snapshot.treeAtExit = "f".repeat(40); } });
+  const moved = await run({ tamper: "treeAtExit" });
   assert.equal(moved.row.status, "fail"); assert.equal(moved.row.code, "SNAPSHOT_EVIDENCE"); assert.match(moved.row.detail, /throughout/);
-  const other = await run({ tamper: (p) => { p.snapshotEvidence.ownership = { handle: "someone-else" }; } });
+  const other = await run({ tamper: "otherHandle" });
   assert.equal(other.row.code, "SNAPSHOT_EVIDENCE");
-  const legacy = await run({ tamper: (p) => { delete p.snapshotEvidence; } });
+  const legacy = await run({ tamper: "noSnapshotEvidence" });
   assert.equal(legacy.row.code, "SNAPSHOT_EVIDENCE"); assert.match(legacy.row.detail, /no snapshotEvidence/);
   // cargo exited 0, but the broker authentically signed a failure, or signed no result: the row fails.
-  const failed = await run({ tamper: (p) => { p.result = { status: "FAILED", exitCode: 0, signal: null, reap: { reaped: true } }; } });
+  const failed = await run({ tamper: "failed" });
   assert.equal(failed.row.status, "fail"); assert.equal(failed.row.code, "SNAPSHOT_EVIDENCE"); assert.match(failed.row.detail, /signed FAILED/);
-  const silent = await run({ tamper: (p) => { delete p.result; } });
+  const silent = await run({ tamper: "noResult" });
   assert.equal(silent.row.code, "SNAPSHOT_EVIDENCE"); assert.match(silent.row.detail, /no result/);
   // The submit is recorded before launch, or nothing launches: no hook, a hook that throws, a mark that did not land.
   for (const [mark, why] of [
@@ -262,3 +394,20 @@ test("runScans: a broker cargo request builds the snapshot under its own carrier
   assert.equal(late.row.code, "TIMEOUT"); gone(late.seen);
   assert.deepEqual(fs.readdirSync(path.join(root, "control", "snapshot-requests")), []);
 });
+
+test("[7.22] a sibling directory whose name merely begins with two dots is not inside the snapshot or the checkout", (t) => {
+  const c = receiptCase(t);
+  // `<checkout>/..x/target` is inside the checkout; `<root>/..snap-sibling` is not inside the snapshot (a path-prefix check would say both).
+  const out = (dir) => signedReceiptWithOutput(c, dir);
+  assert.throws(() => out(path.join(c.fx.checkout, "..x", "target")).check(), /inside the checkout/);
+  assert.throws(() => out(path.join(c.fx.snapshot, "..x", "target")).check(), /inside the snapshot/);
+  assert.equal(isGenerationTarget(path.join(c.fx.wsRoot, "..0123456789a", "g", "002", "target"), [c.fx.wsRoot], process.platform), false);
+});
+function signedReceiptWithOutput(c, outputDir) {
+  const receipt = signedReceipt(c.fx, { id: JOB, carrier: c.made.carrier, argv: c.argv, workspace: c.fx.checkout, tamper: "none", mutate: null });
+  // Re-sign with the chosen output directory (signed and copied consistently).
+  const evidence = { ...receipt.provenance.payload.snapshotEvidence, outputDir };
+  const rebuilt = signedReceipt({ ...c.fx, outputDir }, { id: JOB, carrier: c.made.carrier, argv: c.argv, workspace: c.fx.checkout });
+  void evidence;
+  return { check: () => verifySnapshotReceipt(rebuilt, { pins: c.fx.pins, jobId: JOB, carrier: c.made.carrier, argv: c.argv, workspace: c.fx.checkout, checkout: c.fx.checkout, outputRoots: [c.fx.wsRoot], platform: process.platform }) };
+}

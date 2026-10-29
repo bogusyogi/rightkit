@@ -2,6 +2,6 @@
   "repository": "bogusyogi/rightkit",
   "allow": "build-test-publish",
   "approvedBy": "Adrian D'souza",
-  "approved": "2026-10-22",
-  "reason": "Adrian authorized static class A scans, focused scripts/ci tests & generated-doc checks before push; native compile, clippy, doc & package tests remain mandatory in publication qualification (2026-10-22, #911). Local build, test & publish remain allowed through RightKit & RustRight; green sealed qualification artifacts may use direct upload."
+  "approved": "2026-10-14",
+  "reason": "Local build, test & publish are allowed through RightKit & RustRight; green sealed qualification artifacts may use direct upload; the 2026-10-22 pre-push authorization (#911) is withdrawn: disputed by Adrian 2026-10-28, GATE-CONTRACT.md:32."
 }

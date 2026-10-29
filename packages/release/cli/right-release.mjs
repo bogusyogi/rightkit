@@ -59,8 +59,31 @@ const first = args[0];
 // The commands that compile, package, sign, ship or inspect a release run the app check (../app-check.mjs, CHECKED_COMMANDS) in this
 // process before they start a child. A red check prints its findings and exits 1; there is no flag that skips it.
 const WORKTREE_COMPILES = new Set(["dev", "test", "stage-sidecar"]);
+// The commands that run inside a source split (source-split.mjs): the door's snapshot of a commit, with the checkout kept for the git
+// context and every output. build, package, release and qa take their identity from release-source-identity.mjs (row 7.04): the selected
+// commit's objects plus the door's verified snapshot, never the checkout's HEAD, status or branch (each re-proves it through
+// assertReleaseSource). `upload` does so for the mobile platforms (the host's store upload); a desktop upload, publish and the signing
+// commands still read the checkout's HEAD and refuse under a split rather than run on the wrong bytes.
+const SPLIT_COMMANDS = new Set(["dev", "test", "stage-sidecar", "web-build", "build", "package", "release", "qa"]);
+const MOBILE_UPLOAD = (argv) => argv.some((a, i) => (a === "--platform" && ["ios", "android"].includes(argv[i + 1])) || a === "--platform=ios" || a === "--platform=android");
 async function requireGreenCheck() {
   const { guardCommand, checkedCommandOf, checkModeFor, appDirectory } = await import("../app-check.mjs");
+  const { readSourceSplit, SOURCE_SPLIT_UNSUPPORTED } = await import("../source-split.mjs");
+  let split = null;
+  try { split = readSourceSplit(); } catch (error) { console.error(`right-release: ${error.code ?? "RK_SOURCE_SPLIT"}: ${error.message}; nothing was started`); process.exit(2); }
+  if (split) {
+    // A flag-first call (`right-release --platform mac`) is a build with no command word.
+    const key = checkedCommandOf(args) ?? (args[0]?.startsWith("-") ? "build" : null);
+    if (checkModeFor(args) && !SPLIT_COMMANDS.has(key) && !(key === "upload" && MOBILE_UPLOAD(args))) {
+      console.error(`right-release: ${SOURCE_SPLIT_UNSUPPORTED}: right-release ${key ?? args.join(" ")} cannot run from the snapshot of ${split.commit.slice(0, 12)} yet: it reads the checkout's clean HEAD (ownership evidence, source QA identity, the clean-source and dirty-input gates), and a dirty checkout or another commit must never reach it; nothing was started`);
+      process.exit(2);
+    }
+    // The door run itself was proven by readSourceSplit (live, this checkout, this commit); the app rules read the commit from the checkout.
+    const refusedSplit = guardCommand({ args, source: { repo: split.checkout, commit: split.commit } });
+    if (!refusedSplit) return;
+    for (const line of refusedSplit.lines) console.error(line);
+    process.exit(refusedSplit.exitCode);
+  }
   // One door (Adrian, 2026-10-25): a commit-bound command (build, package, release, qa, upload, publish, signing) runs only when
   // rightkit-gate --to launched it for HEAD, after class A and the compile stage passed.
   const checked = checkedCommandOf(args);
@@ -129,13 +152,14 @@ if (first === "--version" || first === "-v") {
   const { main } = await import("../bin/rightkit-gate.mjs");
   process.exit(await main(["check", ...args.slice(1)], { cwd: appDirectory(args, process.cwd()) }));
 } else if (first === "hooks" && args[1] === "install") {
-  // One installer: `hooks install` is `rightkit-gate install-hook` (pre-push check and gate, ownership pre-commit step) run in the app.
+  // One installer: `hooks install` is `rightkit-gate install-hook` run in the app. It writes no git hook: it retires the pre-push gate, the
+  // forwarders and the ownership pre-commit hook an earlier release wrote (docs/GATE-CONTRACT.md: commit and push run no gate).
   const app = args.indexOf("--app");
   if (app >= 0 && (!args[app + 1] || args[app + 1].startsWith("-"))) {
     console.error("right-release hooks install: --app needs a directory");
     process.exit(2);
   }
-  run("bin/rightkit-gate.mjs", ["install-hook", ...(args.includes("--force") ? ["--force"] : [])], { cwd: app >= 0 ? path.resolve(args[app + 1]) : process.cwd() });
+  run("bin/rightkit-gate.mjs", ["install-hook"], { cwd: app >= 0 ? path.resolve(args[app + 1]) : process.cwd() });
 } else if (first === "hooks") {
   run("ownership-hooks.mjs", args.slice(1));
 } else if (first === "suite-doctor") {
@@ -373,8 +397,8 @@ Commands:
   doctor --all                                       Verify all Right Suite app release contracts
   suite-doctor                                       Verify all local Right Suite repositories
   ownership [--app <dir>] [--json]                   Fail on app copies of RightKit-owned capabilities
-  ownership --staged [--app <dir>] [--json]          Pre-commit gate: scan the staged index for block-tier findings
-  hooks install [--app <dir>] [--force]              Alias of rightkit-gate install-hook: the pre-push check and gate, and the advisory pre-commit ownership gate (pinned @rightkit/release)
+  ownership --staged [--app <dir>] [--json]          Manual check: scan the staged index for block-tier findings (no git hook runs it)
+  hooks install [--app <dir>]                        Alias of rightkit-gate install-hook: retires the pre-push gate and the pre-commit ownership hook an earlier release wrote; writes no git hook
   ownership enroll [--root] [--name <device>] [--root-fingerprint <sha256>] [--app <dir>]
                                                       Enroll one native key or create a signed-device request
   ownership approve-key <fingerprint|request.json>    Approve one pending device key from an active host

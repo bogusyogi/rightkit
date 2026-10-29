@@ -8,6 +8,7 @@ import { acquireCommittedSource, assertCommittedCheckoutClean, committedSourceDa
 import { readCommittedKeyAuthority } from "./ownership-key-authority.mjs";
 import { runningPolicyBundle } from "./ownership-policy-bundle.mjs";
 import { canonicalRepositoryIdentity, loadTrustedExternal, resolveKeyLogTrust, sha256, validateOwnershipFloor, verifyRepositoryRegistration } from "./ownership-approval.mjs";
+import { isReleaseSource } from "./release-source-brand.mjs";
 
 const digestFile = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
 
@@ -32,8 +33,22 @@ function createEvidence(repoRoot, {
   requireCleanCheckout = false,
   allowPendingAdvisory = false,
   policyBundleProvider = runningPolicyBundle,
+  // A door source split (release-source-identity.mjs `resolveReleaseSource`, item 7 row 7.04): the evidence binds the SELECTED commit's
+  // objects, read from the checkout's object database, and never the checkout's HEAD or status. null (and a checkout-mode source) is today's behaviour.
+  releaseSource = null,
 } = {}, readAuthority = readCommittedKeyAuthority, scanCommitted = checkCommittedApp) {
+  if (releaseSource !== null && !isReleaseSource(releaseSource)) throw new Error("ownership evidence: the release source was not resolved by resolveReleaseSource");
+  const snapshotSource = releaseSource?.mode === "snapshot" ? releaseSource : null;
   const root = path.resolve(repoRoot);
+  // Real paths on both sides: Git's root is resolved (macOS /private/var), callers may pass /var or /tmp.
+  const realPath = (p) => { try { return realpathSync.native(p); } catch { return path.resolve(p); } };
+  if (snapshotSource && realPath(root) !== realPath(snapshotSource.checkout)) throw new Error(`ownership evidence: in a door source split the git root is the run's checkout ${snapshotSource.checkout}, not ${root}`);
+  // The caller names its app root in the snapshot (its cwd); the committed scan places it by its path inside the repository, which is the
+  // same relative path in the checkout. Nothing is read from either: the scan reads committed objects.
+  if (snapshotSource) {
+    const relative = path.relative(realPath(snapshotSource.snapshot), realPath(scanRoot));
+    if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) scanRoot = path.join(snapshotSource.checkout, relative);
+  }
   const scope = requestedScope ? [...new Set(requestedScope)].sort() : null;
   const manifestBytes = readFileSync(manifestPath);
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
@@ -48,8 +63,14 @@ function createEvidence(repoRoot, {
   // a useful local backlog scan. It cannot assert a protected source binding or verify
   // approval signatures, so this result is deliberately advisory.
   const useCommittedSource = committed && (!enrollmentPending || Boolean(trustState.trust?.rootFingerprint));
-  if (useCommittedSource && requireCleanCheckout) assertCommittedCheckoutClean(root);
-  const source = useCommittedSource ? acquireCommittedSource(root, { requiredPaths: [...(trustState.trust?.provenance ?? []).flatMap((record) => record.paths ?? []), ...(trustState.trust?.rootFingerprint && !trustState.trust?.keyAuthority ? [".rightkit/ownership-keys.json"] : [])] }) : null;
+  // In a split the evidence is the selected commit's committed source or nothing: the advisory fallback would scan a mutable tree and
+  // read HEAD, which are exactly the reads a split replaces. Fail closed.
+  if (snapshotSource && !useCommittedSource) throw new Error("ownership evidence in a door source split needs the committed-source scan; this host's trust enrollment cannot provide it (RK_SOURCE_SPLIT)");
+  // The clean-checkout condition guards "bytes scanned (committed blobs) = bytes built (working tree)". A split builds a verified snapshot
+  // of the commit instead, so the checkout's cleanliness is irrelevant there (GC:24, GC:156 item 1).
+  if (useCommittedSource && requireCleanCheckout && !snapshotSource) assertCommittedCheckoutClean(root);
+  const selected = snapshotSource ? { commit: snapshotSource.commit, expectedTree: snapshotSource.tree } : {};
+  const source = useCommittedSource ? acquireCommittedSource(root, { ...selected, requiredPaths: [...(trustState.trust?.provenance ?? []).flatMap((record) => record.paths ?? []), ...(trustState.trust?.rootFingerprint && !trustState.trust?.keyAuthority ? [".rightkit/ownership-keys.json"] : [])] }) : null;
   let keyLogEvidence = null;
   if (trustState.trust?.keyAuthority) {
     const resolved = readAuthority(trustState.trust);
@@ -59,7 +80,7 @@ function createEvidence(repoRoot, {
     keyLogEvidence = { keyLogDigest: resolved.digest, keyCheckpoint: resolved.keyCheckpoint, rootFingerprint: resolved.rootFingerprint, keyAuthority: resolved.authority };
     if (!resolved.resolvedTrust.ownershipKeys.length) throw new Error("protected ownership key authority has no active approval keys");
   } else if (trustState.trust?.rootFingerprint) {
-    const keySource = source ?? acquireCommittedSource(root, { requiredPaths: [".rightkit/ownership-keys.json"] });
+    const keySource = source ?? acquireCommittedSource(root, { ...selected, requiredPaths: [".rightkit/ownership-keys.json"] });
     const sourceData = committedSourceDataForInternalUse(keySource);
     if (!sourceData) throw new Error("protected ownership key log requires authenticated committed source");
     const entry = sourceData.entries.find((item) => item.rel === ".rightkit/ownership-keys.json");
@@ -70,7 +91,8 @@ function createEvidence(repoRoot, {
     keyLogEvidence = { keyLogDigest: resolved.keyLogDigest, keyCheckpoint: resolved.checkpoint, rootFingerprint: resolved.trust.rootFingerprint };
     if (!resolved.trust.ownershipKeys.length) throw new Error("protected ownership key authority has no active approval keys");
   }
-  if (useCommittedSource && requireCleanCheckout) assertCommittedCheckoutClean(root, { expectedCommit: source.commit, expectedTree: source.tree });
+  if (useCommittedSource && requireCleanCheckout && !snapshotSource) assertCommittedCheckoutClean(root, { expectedCommit: source.commit, expectedTree: source.tree });
+  if (snapshotSource && (source.commit !== snapshotSource.commit || source.tree !== snapshotSource.tree)) throw new Error("ownership evidence: the acquired committed source is not the selected commit's");
   const commit = useCommittedSource ? source.commit : git(root, ["rev-parse", "HEAD"], gitRunner);
   if (!commit) throw new Error("ownership evidence: scan source did not produce a HEAD commit");
   const tree = useCommittedSource ? source.tree : git(root, ["rev-parse", `${commit}^{tree}`], gitRunner);
@@ -92,8 +114,7 @@ function createEvidence(repoRoot, {
     ? validateOwnershipFloor(trustState.trust, { scannerVersion, catalogVersion, catalogDigest, ...(policyBundleDigest !== undefined ? { policyBundleDigest } : {}) })
     : { ok: true, problems: [], warnings: ["protected ownership floor is unavailable: no protected trust registry is enrolled on this host (warning only)"] };
   floor.warnings = [...(floor.warnings ?? []), ...(bundleProblem ? [bundleProblem] : [])];
-  // Real paths on both sides: Git's root is resolved (macOS /private/var), callers may pass /var or /tmp.
-  const real = (p) => { try { return realpathSync.native(p); } catch { return path.resolve(p); } };
+  const real = realPath;
   const requestedRoot = path.relative(real(root), real(scanRoot)).replaceAll("\\", "/") || ".";
   if (requestedRoot.startsWith("../") || requestedRoot === ".." || path.isAbsolute(requestedRoot)) throw new Error("ownership evidence scan root must be inside repository");
   const evidenceDiagnostics = [];
@@ -199,13 +220,13 @@ function createEvidence(repoRoot, {
 }
 
 /** Create scan evidence bound to committed source, catalog, and signed exceptions. */
-export function createOwnershipEvidence(repoRoot, scanRoot = repoRoot, scope = null) {
-  return createEvidence(repoRoot, { scanRoot, scope, committed: true, requireCleanCheckout: true, allowPendingAdvisory: true });
+export function createOwnershipEvidence(repoRoot, scanRoot = repoRoot, scope = null, releaseSource = null) {
+  return createEvidence(repoRoot, { scanRoot, scope, committed: true, requireCleanCheckout: true, allowPendingAdvisory: true, releaseSource });
 }
 
 /** Alias spelling makes the immutable-source contract explicit at adapter boundaries. */
-export function createCommittedOwnershipEvidence(repoRoot, scanRoot = repoRoot, scope = null) {
-  return createEvidence(repoRoot, { scanRoot, scope, committed: true, requireCleanCheckout: true });
+export function createCommittedOwnershipEvidence(repoRoot, scanRoot = repoRoot, scope = null, releaseSource = null) {
+  return createEvidence(repoRoot, { scanRoot, scope, committed: true, requireCleanCheckout: true, releaseSource });
 }
 
 // Injection seam is deliberately named for tests and is not used by release commands.
@@ -228,12 +249,15 @@ export function runProtectedLocalOwnershipCheck(repoRoot, scanRoot = repoRoot) {
 }
 
 /** Re-scan exact source and compare every sealed binding before release upload. */
-export function verifyOwnershipEvidence(expected, repoRoot, scanRoot = repoRoot, scope = null) {
-  return verifyEvidence(expected, repoRoot, scanRoot, () => createCommittedOwnershipEvidence(repoRoot, scanRoot, scope), scope);
+export function verifyOwnershipEvidence(expected, repoRoot, scanRoot = repoRoot, scope = null, releaseSource = null) {
+  return verifyEvidence(expected, repoRoot, scanRoot, () => createCommittedOwnershipEvidence(repoRoot, scanRoot, scope, releaseSource), scope);
 }
 
 export function verifyOwnershipEvidenceForTest(expected, repoRoot, options) {
-  return verifyEvidence(expected, repoRoot, options.scanRoot ?? repoRoot, () => createOwnershipEvidenceForTest(repoRoot, options), options.scope ?? null);
+  // Re-scan the way the evidence was made: committed-git-tree evidence (always the case in a door source split) through the
+  // committed-source scan, as verifyOwnershipEvidence does in production.
+  const rescan = expected?.source === "committed-git-tree" ? createCommittedOwnershipEvidenceForTest : createOwnershipEvidenceForTest;
+  return verifyEvidence(expected, repoRoot, options.scanRoot ?? repoRoot, () => rescan(repoRoot, options), options.scope ?? null);
 }
 
 function verifyEvidence(expected, repoRoot, _scanRoot, createCurrent, scope = null) {

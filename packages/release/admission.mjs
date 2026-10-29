@@ -60,7 +60,7 @@ function gitHead(repoRoot, spawn) {
 export async function runAdmission({
   root, repoRoot = root, configPath, config, platform, target, tiers = TIERS, env = process.env, spawn = spawnSync, registry,
   log = () => {}, hostPlatform = process.platform, mode = "build", skipChecks = false, skipDoctorOwned = false, commit,
-  fs = { existsSync, readdirSync, readFileSync, statSync }, feed, rows = ADMISSION_ROWS, resolveInputs = resolveBuildInputs,
+  fs = { existsSync, readdirSync, readFileSync, statSync }, feed, rows = ADMISSION_ROWS, resolveInputs = resolveBuildInputs, releaseSource = null,
 } = {}) {
   const findings = [];
   const results = [];
@@ -78,7 +78,7 @@ export async function runAdmission({
   const exists = fs.existsSync;
   const projectType = memo(() => resolveProjectType({ appRoot: root, config, target }));
   const ctx = {
-    root, repoRoot, configPath, config, platform, target, env, spawn, registry, log, hostPlatform, mode, skipChecks, fs, exists, feed, out,
+    root, repoRoot, releaseSource, configPath, config, platform, target, env, spawn, registry, log, hostPlatform, mode, skipChecks, fs, exists, feed, out,
     // The target as the config declares it: the build controller judges a few rules on it, the worker on the expanded one.
     rawTarget: config?.targets?.[platform],
     projectType,

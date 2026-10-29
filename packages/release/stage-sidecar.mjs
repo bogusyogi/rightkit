@@ -665,8 +665,8 @@ async function defaultFetchBytes(url) {
 /** Absolute catalog file for a validated spec. Crate resolution reads the rightkit metadata listing; npm walks up node_modules. */
 function resolveCatalogFile(spec, ctx, kind) {
   const label = kind === "ffmpeg" ? "rightkit-ffmpeg" : "native-libraries";
-  if (spec.via === "absolute") return spec.file;
-  if (spec.via === "path") return path.resolve(ctx.appRoot, spec.file);
+  if (spec.via === "absolute") return requireSnapshotSource(ctx, spec.file, `the ${label} catalog`);
+  if (spec.via === "path") return requireSnapshotSource(ctx, path.resolve(ctx.appRoot, spec.file), `the ${label} catalog`);
   if (spec.via === "crate") {
     const meta = ctx.run("rustright", ["cargo", "metadata", "--format-version", "1"], { cwd: ctx.appRoot, env: ctx.env });
     let packages;
@@ -751,6 +751,23 @@ function cleanDest(ctx, entry, dest, { directory = false } = {}) {
   try { ctx.fs.rmSync(dest, { recursive: directory, force: true }); } catch (error) { fail("STAGE_SIDECAR_CLEAN_REFUSED", `cannot clean ${dest} (${error.message}); a directory is only removed for a directory resource`, { dest, cause: error }); }
 }
 
+/**
+ * Warm-cache rule (GATE-CONTRACT "rebuild only what changed"): a staged file carries the mtime of the cache file it was copied from, a
+ * lipo or merge output the newest mtime of its inputs, so a re-stage after the snapshot sync (which removes every ledger entry) does not
+ * bump the mtime and re-trigger the app crate (tauri-build emits rerun-if-changed for the staged sidecar). Bytes are bound by the
+ * ledger, never by mtime. A file system without `utimesSync` or `statSync().mtime` (a test double) is left as written.
+ */
+function carryMtime(ctx, dest, sources) {
+  const { fs } = ctx;
+  if (typeof fs.utimesSync !== "function") return;
+  let newest = null;
+  for (const source of sources) {
+    let st; try { st = fs.statSync(source); } catch { continue; }
+    if (st?.mtime instanceof Date && (!newest || st.mtime > newest)) newest = st.mtime;
+  }
+  if (newest) { try { fs.utimesSync(dest, newest, newest); } catch { /* the mtime is a cache hint, never a binding */ } }
+}
+
 function copyInto(ctx, source, dest, { executable }) {
   const { fs, windows } = ctx;
   const sourceSha256 = sha256Of(fs.readFileSync(source));
@@ -765,10 +782,43 @@ function copyInto(ctx, source, dest, { executable }) {
   } else if (executable && !windows) fs.chmodSync(dest, 0o755);
   const sha256 = sha256Of(fs.readFileSync(dest));
   if (sha256 !== sourceSha256) fail("STAGE_SIDECAR_HASH_MISMATCH", `staged ${dest} differs from its source ${source}`, { expected: sourceSha256, actual: sha256 });
+  carryMtime(ctx, dest, [source]);
   return { sha256, sizeBytes: fs.statSync(dest).size, changed };
 }
 
 const rel = (ctx, file) => path.relative(ctx.appRoot, file).replaceAll("\\", "/");
+
+/**
+ * The boundary of a split run (row 7.05a): the only checkout bytes it may read are cache entries whose digest the commit pins or
+ * tool-invalidated build caches, both under `ctx.cacheRoot`. A SOURCE the config names (a local `source.dir`, an ffmpeg `path`) must
+ * resolve inside the snapshot's app root, never into the checkout or anywhere else.
+ */
+function requireSnapshotSource(ctx, file, label) {
+  if (!ctx.split) return file;
+  const relative = path.relative(ctx.appRoot, path.resolve(file));
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) fail("STAGE_SIDECAR_SOURCE_OUTSIDE_SNAPSHOT", `${label} resolves to ${file}, outside the snapshot's app root ${ctx.appRoot}; a split run reads sources only from the snapshot (checkout bytes enter only as digest-pinned cache entries)`, { file });
+  return file;
+}
+/**
+ * The environment a split run hands to the commands it starts (a `command` entry, an ffmpeg `stage` command): Cargo's output directory is
+ * the checkout's, resolved there once and passed absolute, so a command that reaches Cargo (`rustright cargo run -p ...`) never writes
+ * `target/` into the snapshot. Without a split, or when the checkout holds no Cargo workspace, the environment is returned as it is.
+ */
+function splitCommandEnv(ctx) {
+  if (!ctx.split) return ctx.env;
+  if (ctx.splitEnv === undefined) {
+    const resolved = ctx.run("rustright", ["cargo", "metadata", "--format-version", "1", "--no-deps"], { cwd: ctx.cacheRoot, env: ctx.env });
+    let dir;
+    try { dir = JSON.parse(resolved?.stdout).target_directory; } catch { /* no workspace in the checkout: nothing to pin */ }
+    ctx.splitEnv = !resolved?.error && resolved?.status === 0 && typeof dir === "string" && path.isAbsolute(dir) ? { ...ctx.env, CARGO_TARGET_DIR: path.resolve(dir) } : ctx.env;
+  }
+  return ctx.splitEnv;
+}
+
+/** A cache directory the config names (`cacheDir`): the checkout's `.right-release` under a split, the app root otherwise. */
+const cacheDirFor = (ctx, dir) => (ctx.split ? path.resolve(ctx.cacheRoot, ".right-release", dir) : path.resolve(ctx.appRoot, dir));
+/** The per-arch slice directory of a universal staging: absolute under the checkout's cache root on a split, app-relative otherwise. */
+const sliceDirFor = (ctx, triple) => (ctx.split ? path.resolve(ctx.cacheRoot, SLICE_ROOT, triple) : `${SLICE_ROOT}/${triple}`);
 
 /** `lipo -archs <file>` as a list; a failing lipo is a typed error. */
 function lipoArchs(ctx, file) {
@@ -804,6 +854,7 @@ function lipoMergeInto(ctx, slices, dest, label, { executable = false } = {}) {
     fs.rmSync(temporary, { force: true });
     if (executable) fs.chmodSync(dest, 0o755);
   }
+  carryMtime(ctx, dest, slices);
   return { sha256, sizeBytes: fs.statSync(dest).size, changed };
 }
 
@@ -834,6 +885,7 @@ function stageCargoBin(entry, ctx) {
   const changed = !(fs.existsSync(dest) && sha256Of(fs.readFileSync(dest)) === sha256);
   fs.chmodSync(temporary, 0o755);
   fs.renameSync(temporary, dest);
+  carryMtime(ctx, dest, slices.map((slice) => slice.source));
   return [{ kind: "cargo-bin", name: entry.name, path: rel(ctx, dest), sha256, sizeBytes: fs.statSync(dest).size, changed, sourceSha256: sha256, package: entry.package, bin: entry.bin, profile: entry.profile, features: entry.features, externalBin: !entry.dest, slices: slices.map((slice) => ({ triple: slice.triple, sha256: slice.sourceSha256 })) }];
 }
 
@@ -851,17 +903,29 @@ function stageCargoBuild(entry, ctx, triple) {
     "-p", entry.package, "--bin", entry.bin, "--target", triple, "--profile", entry.profile,
     ...(entry.features.length ? ["--features", entry.features.join(",")] : []), "--message-format=json-render-diagnostics"];
   ctx.log(`stage-sidecar: rightkit ${args.join(" ")}`);
-  const built = run("rustright", args, { cwd: appRoot, env });
+  // From a snapshot, Cargo would resolve `target/` (or a relative build.target-dir) against the snapshot: its output directory is
+  // resolved in the checkout instead and passed as an absolute CARGO_TARGET_DIR, so the warm outputs stay the checkout's and the
+  // snapshot holds no target/ (docs/GATE-CONTRACT.md "Output directory & cache").
+  let buildEnv = env;
+  if (ctx.split) {
+    const checkoutManifest = entry.manifestPath ? ["--manifest-path", path.resolve(ctx.cacheRoot, entry.manifestPath)] : [];
+    const resolved = run("rustright", ["cargo", "metadata", "--format-version", "1", "--no-deps", ...checkoutManifest], { cwd: ctx.cacheRoot, env });
+    let pinned;
+    try { pinned = JSON.parse(resolved?.stdout).target_directory; } catch { /* refused below */ }
+    if (resolved?.error || resolved?.status !== 0 || typeof pinned !== "string" || !path.isAbsolute(pinned)) fail("STAGE_SIDECAR_BUILD_FAILED", `the checkout's cargo output directory for ${entry.package} cannot be resolved (${resolved?.error?.message ?? `exit ${resolved?.status}`}); nothing was built`, { package: entry.package });
+    buildEnv = { ...env, CARGO_TARGET_DIR: path.resolve(pinned) };
+  }
+  const built = run("rustright", args, { cwd: appRoot, env: buildEnv });
   if (built?.error || built?.status !== 0) fail("STAGE_SIDECAR_BUILD_FAILED", `rustright cargo build of ${entry.package} failed (${built?.error?.message ?? `exit ${built?.status}`})`, { package: entry.package, stderr: tail(built?.stderr) });
   let source = artifactFromStream(built.stdout, entry.bin);
   if (!source || !fs.existsSync(source)) {
-    const meta = run("rustright", ["cargo", "metadata", "--format-version", "1", "--no-deps", ...(entry.manifestPath ? ["--manifest-path", path.resolve(appRoot, entry.manifestPath)] : [])], { cwd: appRoot, env });
+    const meta = run("rustright", ["cargo", "metadata", "--format-version", "1", "--no-deps", ...(entry.manifestPath ? ["--manifest-path", path.resolve(appRoot, entry.manifestPath)] : [])], { cwd: appRoot, env: buildEnv });
     let targetDir;
     try { targetDir = JSON.parse(meta.stdout).target_directory; } catch { /* refused below */ }
     if (meta?.status !== 0 || typeof targetDir !== "string" || !path.isAbsolute(targetDir)) targetDir = undefined;
     // A managed target root: the broker/cargo metadata target_directory (which cargo derives from CARGO_TARGET_DIR) is
     // authoritative; an explicit CARGO_TARGET_DIR in this environment is tried too, resolved against the app root.
-    const envDir = typeof env.CARGO_TARGET_DIR === "string" && env.CARGO_TARGET_DIR.trim() ? path.resolve(appRoot, env.CARGO_TARGET_DIR) : undefined;
+    const envDir = typeof buildEnv.CARGO_TARGET_DIR === "string" && buildEnv.CARGO_TARGET_DIR.trim() ? path.resolve(appRoot, buildEnv.CARGO_TARGET_DIR) : undefined;
     if (!targetDir && !envDir) fail("STAGE_SIDECAR_BINARY_NOT_FOUND", `cargo reported no ${entry.bin} executable and its target directory cannot be read`, { bin: entry.bin });
     const candidates = builtBinaryCandidates({ targetDir, targetDirs: envDir ? [envDir] : [], triple, profile: entry.profile, bin: entry.bin, windows: ctx.windows });
     source = candidates.find((file) => fs.existsSync(file));
@@ -877,7 +941,7 @@ const ffmpegSourceFor = (sources, tool, arch) => { const spec = sources?.[tool];
 /** The binary a local ffmpeg source names: the file itself, or `<dir>/<member>` / `<dir>/bin/<member>` (`.exe` added for a Windows target). */
 function resolveLocalFfmpegSource(ctx, spec, tool) {
   const { fs } = ctx;
-  const base = path.resolve(ctx.appRoot, spec.path);
+  const base = requireSnapshotSource(ctx, path.resolve(ctx.appRoot, spec.path), `the ffmpeg ${tool} source path`);
   if (fs.existsSync(base) && fs.statSync(base).isFile()) return base;
   const member = spec.member ?? `${tool}${ctx.windows ? ".exe" : ""}`;
   const candidates = [path.join(base, member), path.join(base, "bin", member)];
@@ -955,15 +1019,17 @@ function probeFfmpegBinary(ctx, { file, tool, target }) {
  */
 async function stageFfmpegSlice(entry, ctx, resolved, { config, t, writeNotices, flat = false }) {
   const { appRoot, run, env, fs } = ctx;
-  const planned = planMediaSidecar({ config, catalog: resolved.catalog, crateDir: resolved.crateDir, crateVersion: resolved.crateVersion, catalogBytes: resolved.catalogBytes, root: appRoot });
+  // A universal slice is staged under SLICE_ROOT, which a split keeps in the checkout's cache root, never in the snapshot.
+  const sliceRoot = ctx.split && String(config.stageDir ?? "").startsWith(SLICE_ROOT) ? ctx.cacheRoot : appRoot;
+  const planned = planMediaSidecar({ config, catalog: resolved.catalog, crateDir: resolved.crateDir, crateVersion: resolved.crateVersion, catalogBytes: resolved.catalogBytes, root: sliceRoot });
   const plan = flat ? { ...planned, files: planned.files.map((file) => ({ ...file, stagedPath: path.resolve(appRoot, entry.resourceDir, file.bundledName) })) } : planned;
   await fetchFfmpegSources(entry, ctx, plan, t.arch);
   if (config.stage) {
     const universal = ctx.target.arch === "universal";
     // A universal entry stages once per slice: `{arch}`, `{triple}` and `{stageDir}` in the stage command's arguments name the slice.
-    const args = (config.stage.args ?? []).map((arg) => (universal ? String(arg).replaceAll("{arch}", t.arch).replaceAll("{triple}", t.triple).replaceAll("{stageDir}", config.stageDir) : arg));
+    const args = (config.stage.args ?? []).map((arg) => (universal ? String(arg).replaceAll("{arch}", t.arch).replaceAll("{triple}", t.triple).replaceAll("{stageDir}", sliceRoot === appRoot ? config.stageDir : path.resolve(sliceRoot, config.stageDir)) : arg));
     ctx.log(`stage-sidecar: ${config.stage.cmd} ${args.join(" ")}`);
-    const staged = run(config.stage.cmd, args, { cwd: appRoot, env });
+    const staged = run(config.stage.cmd, args, { cwd: appRoot, env: splitCommandEnv(ctx) });
     if (staged?.error || staged?.status !== 0) fail("STAGE_SIDECAR_BUILD_FAILED", `ffmpeg stage command failed (${staged?.error?.message ?? `exit ${staged?.status}`})`);
   }
   const noticeFiles = writeNotices ? writeMediaSidecarNotices(plan, { exists: fs.existsSync, mkdir: fs.mkdirSync, copy: fs.copyFileSync, write: fs.writeFileSync }) : [];
@@ -987,13 +1053,20 @@ async function stageFfmpegUniversal(entry, ctx, resolved) {
     results.push({ slice, ...(await stageFfmpegSlice(entry, ctx, resolved, { config: slice.media, t: parseTargetTriple(slice.triple), writeNotices: false })) });
   }
   // One notice set and one source offer that names the rows of every slice (a per-slice offer would overwrite the other).
+  // A split plans each slice under the checkout's cache root (SLICE_ROOT), so the slice plans name their notices there too. The notices are FINAL
+  // outputs and belong in the snapshot beside the merged file: they are rebased onto the app root before anything is written, never into the checkout.
+  const toApp = (file) => {
+    if (!ctx.split) return file;
+    const relative = path.relative(ctx.cacheRoot, file);
+    return relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative) ? file : path.resolve(appRoot, relative);
+  };
   const noticeByDest = new Map();
-  for (const { plan } of results) for (const notice of plan.notices) noticeByDest.set(notice.dest, notice);
+  for (const { plan } of results) for (const notice of plan.notices) noticeByDest.set(toApp(notice.dest), { ...notice, dest: toApp(notice.dest) });
   const rowsById = new Map();
   for (const { plan } of results) for (const row of plan.rows) rowsById.set(row.id, row);
   const combined = {
     notices: [...noticeByDest.values()],
-    offerPath: results[0].plan.offerPath,
+    offerPath: toApp(results[0].plan.offerPath),
     offer: sourceOfferText({ rows: [...rowsById.values()], contact: entry.media.notices.sourceOfferContact, crateVersion: resolved.crateVersion }),
   };
   const noticeFiles = writeMediaSidecarNotices(combined, { exists: fs.existsSync, mkdir: fs.mkdirSync, copy: fs.copyFileSync, write: fs.writeFileSync });
@@ -1229,14 +1302,14 @@ async function prepareNativeFile(entry, ctx, loaded, item, { destDir, scratchDir
   if (fs.existsSync(dest) && !nativeDigestMismatch(entry, row, fs.readFileSync(dest), { fromSource: Boolean(entry.source) })) return prepared;
 
   if (entry.source) {
-    const file = path.resolve(appRoot, entry.source.dir, row.artifactFileName);
+    const file = requireSnapshotSource(ctx, path.resolve(appRoot, entry.source.dir, row.artifactFileName), `source.dir of the ${where} row ${row.id}`);
     if (!(fs.existsSync(file) && fs.statSync(file).isFile())) fail("STAGE_SIDECAR_BINARY_NOT_FOUND", `the ${where} row ${row.id} is staged from source.dir ${entry.source.dir}, which has no ${row.artifactFileName} (looked at ${file}); nothing is downloaded for a source dir`, { file });
     const mismatch = nativeDigestMismatch(entry, row, fs.readFileSync(file), { fromSource: true });
     if (mismatch) failNativeMismatch(row, file, mismatch);
     return { ...prepared, from: file };
   }
   if (!row.archive) fail("STAGE_SIDECAR_CONFIG_INVALID", `the ${where} row ${row.id} has no archive, so it is staged from a local build: set source: { dir } on this entry to the directory holding ${row.artifactFileName}`);
-  const archive = path.resolve(appRoot, entry.cacheDir, archiveFileName(row.archive.url));
+  const archive = path.join(cacheDirFor(ctx, entry.cacheDir), archiveFileName(row.archive.url));
   if (!(fs.existsSync(archive) && sha256Of(fs.readFileSync(archive)) === row.archive.sha256)) {
     const bytes = await ctx.fetchBytes(row.archive.url);
     const actual = sha256Of(bytes);
@@ -1378,7 +1451,7 @@ async function stageNativeLibrary(entry, ctx) {
   }
   // Otherwise each arch's files are staged thin under SLICE_ROOT, then merged file by file into the entry's resource directory.
   const slices = [];
-  for (const plan of plans) slices.push({ triple: plan.triple, files: await stageNativeSet(entry, ctx, loaded, plan.items, { destDir: `${SLICE_ROOT}/${plan.triple}` }) });
+  for (const plan of plans) slices.push({ triple: plan.triple, files: await stageNativeSet(entry, ctx, loaded, plan.items, { destDir: sliceDirFor(ctx, plan.triple) }) });
   const [first, second] = slices.map((slice) => slice.files.map((file) => file.outName));
   if ([...first].sort().join("\n") !== [...second].sort().join("\n")) fail("STAGE_SIDECAR_NOT_APPROVED", `the arch rows name different library files (aarch64: ${first.join(", ")}; x86_64: ${second.join(", ")}); each file needs one name on both arches (a single file can be renamed with "as")`);
   return first.map((name) => {
@@ -1446,7 +1519,7 @@ function stageCommand(entry, ctx) {
   const cwd = entry.cwd ? path.resolve(appRoot, entry.cwd) : appRoot;
   cleanDest(ctx, entry, destFor(entry, ctx));
   ctx.log(`stage-sidecar: ${entry.cmd} ${entry.args.join(" ")}`);
-  const built = run(entry.cmd, entry.args, { cwd, env });
+  const built = run(entry.cmd, entry.args, { cwd, env: splitCommandEnv(ctx) });
   if (built?.error || built?.status !== 0) fail("STAGE_SIDECAR_BUILD_FAILED", `command ${entry.name} (${entry.cmd}) failed (${built?.error?.message ?? `exit ${built?.status}`})`, { name: entry.name, stderr: tail(built?.stderr) });
   const source = path.resolve(appRoot, entry.output);
   if (!fs.existsSync(source) || !fs.statSync(source).isFile()) fail("STAGE_SIDECAR_BINARY_NOT_FOUND", `command ${entry.name} did not produce ${entry.output}`, { name: entry.name, output: entry.output });
@@ -1463,8 +1536,8 @@ function stageCommand(entry, ctx) {
  * fails closed with nothing staged. Returns { cached, fromCache }.
  */
 async function ensureCachedDownload(ctx, { url, sha256, size }) {
-  const { appRoot, fs } = ctx;
-  const cached = path.resolve(appRoot, REMOTE_CACHE_DIR, sha256);
+  const { fs } = ctx;
+  const cached = path.resolve(ctx.cacheRoot, REMOTE_CACHE_DIR, sha256);
   if (fs.existsSync(cached) && sha256Of(fs.readFileSync(cached)) === sha256) return { cached, fromCache: true };
   ctx.log(`stage-sidecar: GET ${url}`);
   let response;
@@ -1596,7 +1669,7 @@ function stageCmake(entry, ctx) {
   const { appRoot, fs, run, env, target } = ctx;
   const cmake = resolveCmakeBinary(ctx, entry);
   const generator = entry.platformGenerators?.[target.platform] ?? entry.generator;
-  const root = path.resolve(appRoot, CMAKE_ROOT, entry.name);
+  const root = path.resolve(ctx.cacheRoot, CMAKE_ROOT, entry.name);
   const srcDir = path.join(root, "src");
   const buildDir = path.join(root, "build");
   const dest = destFor(entry, ctx);
@@ -1783,15 +1856,22 @@ export function planSidecarStaging({ manifest, target, env = process.env } = {})
  * fs (existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, renameSync, chmodSync, statSync, readdirSync, rmSync), run, fetch (https downloads of `remote`), fetchBytes, extractMember, loadMediaCatalog, loadNativeCatalog, makeTempDir, removeDir, now, pid, log (progress), warn (warnings; defaults to log), env.
  * The API is quiet by default; the `right-release stage-sidecar` command passes `warn` so the CLI prints warnings on stderr.
  */
-export async function stageSidecars({ appRoot, manifest, target, deps = {} } = {}) {
+export async function stageSidecars({ appRoot, manifest, target, cacheRoot, deps = {} } = {}) {
   if (typeof appRoot !== "string" || !path.isAbsolute(appRoot)) fail("STAGE_SIDECAR_CONFIG_INVALID", "appRoot must be an absolute path");
+  if (cacheRoot !== undefined && (typeof cacheRoot !== "string" || !path.isAbsolute(cacheRoot))) fail("STAGE_SIDECAR_CONFIG_INVALID", "cacheRoot must be an absolute path");
   const env = deps.env ?? process.env;
   const plan = validateSidecarManifest(manifest, { target, mode: resolveBuildMode(env) });
   assertNotNested(plan, env);
+  // A source split (source-split.mjs; rightkit-gate's snapshot route): `appRoot` is the snapshot of the commit, where the declared
+  // sources are read and where the staged files and the receipt go (the Tauri build script reads them there). `cacheRoot` is the
+  // checkout's app directory, which keeps every cache, archive, slice and build tree right-release owns (`.right-release/...`) and
+  // where Cargo's target directory is resolved: only final outputs and the receipt are written under the snapshot (row 7.05a). Checkout
+  // bytes enter a split run only as cache entries whose digest the commit pins, or as tool-invalidated build caches.
+  const split = cacheRoot !== undefined && path.resolve(cacheRoot) !== path.resolve(appRoot);
   const fs = deps.fs ?? nodeFs;
   const run = deps.run ?? defaultRun;
   const ctx = {
-    appRoot, target: plan.target, stageDir: plan.stageDir, fs, env, run, protectedPaths: protectedOutputPaths(plan),
+    appRoot, cacheRoot: split ? path.resolve(cacheRoot) : appRoot, split, target: plan.target, stageDir: plan.stageDir, fs, env, run, protectedPaths: protectedOutputPaths(plan),
     windows: plan.target.os === "windows",
     pid: deps.pid ?? process.pid,
     host: deps.host ?? { os: { darwin: "macos", win32: "windows", linux: "linux" }[process.platform] ?? process.platform, arch: { arm64: "aarch64", x64: "x86_64" }[process.arch] ?? process.arch },

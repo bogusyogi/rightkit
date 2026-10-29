@@ -186,7 +186,7 @@ test("build runner injects shim into environment inherited by release worker", {
     swiftPlan: null, buildPathPrefix: () => "", platform: "mac", macosCodesignEnvironment, heavyCommandEnvironment: (env) => env,
     releaseEnvironment: () => ({}), vaultRoot: f.home, sharedCacheRoot: f.home, cacheIdentity: { architecture: "arm64" },
     config: { app: "fixture", version: "1" }, cacheKey: "fixture", appRoot: f.cwd, cacheMode: "legacy", layout: { repoRoot: f.cwd, appRoot: f.cwd },
-    resolveManagedRoot: () => f.managed, resolveArtifactDir: () => f.managed, path };
+    splitSource: false, resolveManagedRoot: () => f.managed, resolveArtifactDir: () => f.managed, path };
   runInNewContext(`${source.slice(start, end)};globalThis.childEnv = env;`, context);
   assert.ok(fs.existsSync(path.join(context.childEnv.PATH.split(":")[0], "codesign")));
   assert.equal(context.childEnv.CI, "true");

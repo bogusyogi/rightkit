@@ -344,8 +344,8 @@ test("LG-05 negative: a card that points at doctrine/ outside its method, and a 
 
 // ---- contract 1: canonical regeneration (job 120769862741/762 at 7d9a8a35) --------------------------------------------------------
 // Legion's regeneration produced one change: rustfmt re-wrapped a line of engine/crates/legion-audit/src/source_cache.rs. That half of
-// canonical regeneration is the existing class A `rustfmt:<edition>` scan of the gate (deterministic-scans.mjs), which the pre-push
-// hook runs right after `rightkit-gate check`; its generator half (`legion-dev generate-*`) is class B. Replayed through the real gate.
+// canonical regeneration is the existing class A `rustfmt:<edition>` scan of the gate (deterministic-scans.mjs), which the gate
+// runs right after `rightkit-gate check`; its generator half (`legion-dev generate-*`) is class B. Replayed through the real gate.
 // A rustfmt the gate under test can RUN with the environment these tests hand it: the rustup proxy on PATH answers "not
 // runnable" under a HOME without rustup (the broker's), and the gate then fails closed, which is right for the gate and
 // wrong as a fixture. Verified here, or the rustfmt cases skip on this host.
@@ -364,7 +364,7 @@ const LEGION_CARGO = {
 function gate(dir) {
   const head = sh(dir, ["rev-parse", "HEAD"]);
   const e = env();
-  delete e.CI; delete e.GITHUB_ACTIONS; delete e.RIGHTKIT_GATE_NO_DEFER;
+  delete e.CI; delete e.GITHUB_ACTIONS;
   // Hermetic: the gate finds rustfmt through $RUSTFMT, the rustup toolchains under HOME, then PATH. The test already located
   // one on this host; hand it over so a HOME without rustup (the broker's) does not silently leave the scan out.
   if (RUSTFMT) e.RUSTFMT = RUSTFMT;

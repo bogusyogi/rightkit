@@ -363,15 +363,66 @@ export function dependencyDirs(entries, platform = process.platform) {
  * carries every later checkout edit into the build, with bytes that may still equal the commit's). Hard links inside the
  * dependency directories are pnpm's own store links; their bytes are bound by the environment digest instead. Never follows a link
  * to enter it. Returns a message naming the path, or null.
+ *
+ * The stage-output ledger (item 5 row 5.09d; signed/item7-sage-decisions-2.md Q1). Given `ledger` and/or `admitNew`, the walk does not
+ * refuse the first path the commit lacks: it collects every such path as a candidate entry and admits it only when ALL hold:
+ *   - it is untracked (not in `entries`) and ignored by the COMMIT'S OWN ignore rules, judged by the neutral oracle (neutralIgnored:
+ *     `git check-ignore --no-index` against an empty bare GIT_DIR with core.excludesFile at the null device, so neither the checkout's
+ *     info/exclude nor any global excludes file widens what is ignored; probe P4);
+ *   - it is a regular file or a directory, never a link of any kind, and a file has nlink 1;
+ *   - no path segment is `target`, `.right-release`, `.git` or `node_modules` (outside the pnpm roots, which are not candidates),
+ *     and it is not named `.gitignore` (an untracked ignore file would make the oracle ignore whatever it names).
+ * `ledger` (an array of `{ path, type, size, sha256, execBit }` recorded by an earlier verify) must still match exactly, byte for byte,
+ * and none of its entries may be missing (an absent directory that only parents ledger files is implied by them). `admitNew` (end of a
+ * stage only) additionally admits candidates the ledger does not hold. Without `admitNew`, a candidate outside the ledger is refused,
+ * so the start of a stage stays as strict as the sync. In this mode the result is `{ problem, admitted }`, `admitted` being every
+ * admitted entry (ledger and new), sorted by path; otherwise it is the message or null as before.
  */
-export function snapshotProblem({ dir, entries, checkout, platform = process.platform, originUrl }) {
+export function snapshotProblem(options) {
+  const r = inspectSnapshot(options);
+  return options.ledger !== undefined || options.admitNew ? r : r.problem;
+}
+
+const RESERVED_SEGMENTS = new Set(["target", ".right-release", ".git", "node_modules"]);
+
+/**
+ * Which of `paths` (relative, `/`-separated, existing under `dir`) the snapshot's own ignore rules ignore, and nothing else: the
+ * sealed runner (snapshot-git.mjs) gives an empty info/exclude and an empty private file for core.excludesFile (never a null device,
+ * so Windows needs no `NUL`), and `--no-index` so only the work tree's `.gitignore` files count. Returns a Set of the ignored paths as given.
+ */
+export function neutralIgnored(dir, paths) {
+  if (!paths.length) return new Set();
+  return withSealedGit({ snapshot: dir }, (git) => {
+    const r = git.run(["check-ignore", "--no-index", "-z", "--stdin"], { input: `${paths.join("\0")}\0` });
+    if (r.error) throw new SnapshotError("error", `git check-ignore: ${r.error.message}`);
+    // Exit 0: some path is ignored; 1: none is; anything else is git failing, which must never read as "not ignored" or "ignored".
+    if (r.status !== 0 && r.status !== 1) throw new SnapshotError("error", `git check-ignore: ${String(r.stderr).trim() || `exit ${r.status}`}`);
+    return new Set(String(r.stdout ?? "").split("\0").filter(Boolean));
+  });
+}
+
+/** sha256 of a file, read in chunks (a staged sidecar can be large). */
+function sha256File(file) {
+  const h = crypto.createHash("sha256");
+  const fd = fs.openSync(file, "r");
+  try {
+    const buf = Buffer.allocUnsafe(1 << 20);
+    for (let n; (n = fs.readSync(fd, buf, 0, buf.length, null)) > 0;) h.update(buf.subarray(0, n));
+  } finally { fs.closeSync(fd); }
+  return h.digest("hex");
+}
+
+function inspectSnapshot({ dir, entries, checkout, platform = process.platform, originUrl, ledger, admitNew = false }) {
+  const problem = (message) => ({ problem: message, admitted: [] });
+  const ledgerMode = ledger !== undefined || admitNew === true;
   const fold = foldFor(platform);
+  const candidates = [];
   const byKey = new Map(entries.map((e) => [fold(e.path), e]));
   const dirs = new Set();
   for (const e of entries) { const parts = e.path.split("/"); for (let i = 1; i < parts.length; i++) dirs.add(fold(parts.slice(0, i).join("/"))); }
   const deps = dependencyDirs(entries, platform);
   let realDir; let realCheckout = checkout;
-  try { realDir = fs.realpathSync.native(dir); } catch (e) { return `${dir} cannot be resolved: ${e.message}`; }
+  try { realDir = fs.realpathSync.native(dir); } catch (e) { return problem(`${dir} cannot be resolved: ${e.message}`); }
   try { realCheckout = fs.realpathSync.native(checkout); } catch { /* the path as given */ }
   const linkProblem = (rel, p) => {
     let real;
@@ -416,6 +467,38 @@ export function snapshotProblem({ dir, entries, checkout, platform = process.pla
     }
     return null;
   };
+  // Ledger mode: a path the commit lacks is a candidate. Everything about it that does not need git is decided here; whether the
+  // commit's own rules ignore it is decided for all candidates at once afterwards (neutralIgnored).
+  const reserved = (rel) => {
+    const parts = rel.split("/").map(fold);
+    const bad = parts.find((x) => RESERVED_SEGMENTS.has(x));
+    if (bad !== undefined) return `${rel} is under ${JSON.stringify(bad)}, a reserved path no stage output may occupy (target/ is the checkout's output directory, .right-release holds right-release's, .git is the gate's config-only file, node_modules is allowed only as the pnpm roots' installed dependencies)`;
+    if (fold(parts.at(-1)) === ".gitignore") return `${rel} is an ignore file the commit does not have: an untracked .gitignore would decide what counts as ignored`;
+    return null;
+  };
+  const candidate = (p, rel) => {
+    const bad = reserved(rel);
+    if (bad) return bad;
+    const s = lstat(p);
+    if (!s) return `${rel} vanished while it was checked`;
+    if (s.isSymbolicLink()) return `${rel} is a link: a link is never admitted to the stage-output ledger`;
+    if (!s.isFile()) return `${rel} is not a regular file or a directory`;
+    if (s.nlink > 1n) return `${rel} has ${s.nlink} hard links: a checkout edit made through another name for it would reach the build`;
+    candidates.push({ path: rel, type: "file", size: Number(s.size), sha256: sha256File(p), execBit: platform !== "win32" && (Number(s.mode) & 0o111) !== 0 });
+    return null;
+  };
+  const candidateDir = (p, rel) => {
+    const bad = reserved(rel);
+    if (bad) return bad;
+    candidates.push({ path: rel, type: "dir", size: 0, sha256: null, execBit: false });
+    for (const e of fs.readdirSync(p, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+      const r = `${rel}/${e.name}`;
+      const q = path.join(p, e.name);
+      const found = e.isSymbolicLink() ? `${r} is a link: a link is never admitted to the stage-output ledger` : e.isDirectory() ? candidateDir(q, r) : candidate(q, r);
+      if (found) return found;
+    }
+    return null;
+  };
   const walk = (d, rel, inDeps) => {
     const names = fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     for (const e of names) {
@@ -426,19 +509,42 @@ export function snapshotProblem({ dir, entries, checkout, platform = process.pla
       if (e.isSymbolicLink()) {
         // The landing is named first when it is the worse news (into the checkout, out of the snapshot); a link the commit lacks is refused either way.
         found = linkProblem(r, p);
-        if (!found && !inDeps) found = !byKey.has(key) ? `${r} is not in the commit's tree (a link the commit does not have)` : fileProblem(r, p, byKey.get(key));
+        if (!found && !inDeps) found = !byKey.has(key) ? (ledgerMode ? `${r} is a link the commit does not have: a link is never admitted to the stage-output ledger` : `${r} is not in the commit's tree (a link the commit does not have)`) : fileProblem(r, p, byKey.get(key));
       } else if (e.isDirectory()) {
         if (inDeps) found = walk(p, r, true);
         else if (deps.has(key)) found = walk(p, r, true);
         else if (dirs.has(key)) found = walk(p, r, false);
         else if (key === ".git") found = gitConfigProblem(r, p);
-        else found = `${r} is not in the commit's tree (a directory the commit does not have)`;
-      } else if (!inDeps) found = !byKey.has(key) ? `${r} is not in the commit's tree` : fileProblem(r, p, byKey.get(key));
+        else found = ledgerMode ? candidateDir(p, r) : `${r} is not in the commit's tree (a directory the commit does not have)`;
+      } else if (!inDeps) found = !byKey.has(key) ? (ledgerMode ? candidate(p, r) : `${r} is not in the commit's tree`) : fileProblem(r, p, byKey.get(key));
       if (found) return found;
     }
     return null;
   };
-  return walk(dir, "", false);
+  const found = walk(dir, "", false);
+  if (found || !ledgerMode) return { problem: found, admitted: [] };
+
+  // The ledger's entries, keyed like the walk's, must all be here and byte-identical; anything else the walk met is new.
+  const held = new Map((ledger ?? []).map((e) => [fold(e.path), e]));
+  const seen = new Map(candidates.map((c) => [fold(c.path), c]));
+  for (const [key, want] of held) {
+    const have = seen.get(key);
+    if (!have) return problem(`${want.path} is a ledger entry (recorded at the end of an earlier stage) and is missing`);
+    if (have.type !== want.type || have.size !== want.size || have.sha256 !== want.sha256 || have.execBit !== want.execBit) {
+      return problem(`${want.path} is a ledger entry and changed since it was recorded (${want.type} ${want.size} bytes sha256 ${want.sha256}${want.execBit ? " executable" : ""} was recorded; ${have.type} ${have.size} bytes sha256 ${have.sha256}${have.execBit ? " executable" : ""} is here)`);
+    }
+  }
+  // A directory that only parents ledger entries is implied by them; any other candidate must be admitted as new.
+  const parents = new Set();
+  for (const e of held.values()) { const parts = e.path.split("/"); for (let i = 1; i < parts.length; i++) parents.add(fold(parts.slice(0, i).join("/"))); }
+  for (const c of candidates) {
+    const key = fold(c.path);
+    if (!held.has(key) && !(c.type === "dir" && parents.has(key)) && !admitNew) return problem(`${c.path} is not in the commit's tree and not in the stage-output ledger (new stage outputs are admitted only at the end of a stage)`);
+  }
+  // Every candidate, ledger or new, must be ignored by the commit's own rules, as the neutral oracle judges them.
+  const ignored = neutralIgnored(dir, candidates.map((c) => c.path));
+  for (const c of candidates) if (!ignored.has(c.path)) return problem(`${c.path} is not in the commit's tree and is not ignored by the commit's own ignore rules (the checkout's info/exclude and global excludes do not count)`);
+  return { problem: null, admitted: [...candidates].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)) };
 }
 
 function blobId(content, objectFormat) {
@@ -775,8 +881,14 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), ma
  * digest (the caller supplies it: the digest is the gate's, bin/rightkit-gate.mjs classAEnvironmentDigest); a difference is a
  * mismatch, so dependency bytes changed or planted mid-stage refuse at the end verify. Callers run this at the start and again at
  * the end of a stage (the stage-level calls are item 7, 7.08). `managedRoot` and `device` as for syncSnapshot.
+ *
+ * Stage-output ledger (row 5.09d, snapshotProblem): `ledger` is the array of entries an earlier verify returned (the start of a stage
+ * passes the whole ledger and no `admitNew`: nothing new, nothing changed, nothing missing); `admitNew: true` (the END of a stage
+ * only) also admits the ignored, untracked, regular-file-or-directory outputs the stage's children wrote. Either option makes the
+ * result carry `ledger: [{ path, type, size, sha256, execBit }]`, every admitted entry. The tree id is still the commit's tree:
+ * an ignored output does not change it. With neither option nothing beyond the commit (and 5.09's allowances) is accepted.
  */
-export function verifySnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), dir, managedRoot = hostManagedRootFor(root), device, environment } = {}) {
+export function verifySnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), dir, managedRoot = hostManagedRootFor(root), device, environment, ledger, admitNew } = {}) {
   const repo = repositoryOf(checkout);
   const { commit, tree } = resolveCommit(repo.checkout, rev);
   if (managedRoot) requireManagedRoot(managedRoot, { device });
@@ -785,8 +897,9 @@ export function verifySnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), 
   if (path.resolve(path.dirname(at)) === path.resolve(root)) requirePrivateRoot(root, lstat(root));
   if (!lstat(at)?.isDirectory()) throw new SnapshotError("mismatch", `no snapshot directory at ${at}`);
   // The seeded tree id cannot see an ignored file or follow a link, so the directory itself is walked first (E6, §1 exact snapshot).
-  const extra = snapshotProblem({ dir: at, entries: treeEntries(repo.checkout, commit), checkout: repo.checkout });
-  if (extra) throw new SnapshotError("mismatch", `the snapshot at ${at} is not exactly commit ${commit}: ${extra}`);
+  const inspected = snapshotProblem({ dir: at, entries: treeEntries(repo.checkout, commit), checkout: repo.checkout, ledger, admitNew });
+  const extra = ledger !== undefined || admitNew ? inspected.problem : inspected;
+  if (extra) throw new SnapshotError("mismatch", `the snapshot at ${at} is not exactly commit ${commit}${ledger !== undefined || admitNew ? " plus its stage-output ledger" : ""}: ${extra}`);
   const actual = snapshotTree({ checkout: repo.checkout, dir: at, baseTree: tree, repo });
   if (actual !== tree) throw new SnapshotError("mismatch", `the snapshot at ${at} is tree ${actual}, not tree ${tree} of commit ${commit}`);
   if (environment !== undefined) {
@@ -796,7 +909,7 @@ export function verifySnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), 
     catch (e) { throw new SnapshotError("error", `the environment digest of the snapshot at ${at} cannot be computed: ${e.message}`); }
     if (now !== environment.expected) throw new SnapshotError("mismatch", `the installed environment of the snapshot at ${at} changed: env=${now}, recorded env=${environment.expected}`);
   }
-  return { schema: SNAPSHOT_SCHEMA, path: at, repoKey: repo.key, commit, tree, ...(environment !== undefined ? { env: environment.expected } : {}) };
+  return { schema: SNAPSHOT_SCHEMA, path: at, repoKey: repo.key, commit, tree, ...(environment !== undefined ? { env: environment.expected } : {}), ...(ledger !== undefined || admitNew ? { ledger: inspected.admitted } : {}) };
 }
 
 /**

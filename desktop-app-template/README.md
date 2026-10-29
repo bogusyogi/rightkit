@@ -20,17 +20,14 @@ command (`pnpm check`) ships from 0.6.6, and the JSON release config is loaded b
 commands wait for 0.6.11 only for what that release adds (every compile reports every failure; one Cargo workspace and lock per crate): everything the
 template itself runs is in 0.6.10. The pin moves to 0.6.11 in the commit after it is published, and this paragraph is deleted in that commit.
 
-The committed `.githooks/pre-push` must be byte-identical to what the pinned release's `rightkit-gate install-hook` writes: `prepare`
-runs it, and it refuses to overwrite a differing hook, so a stale hook fails `pnpm install` in every app copied from the template.
-`template-contract.test.mjs` compares the hook with the sha256 recorded for the pin in `packages/release/fixtures/published-gate-hooks.json`
-(computed from the published tarball, so the test needs no network); 0.6.4 to 0.6.8 and 0.6.10 are recorded (0.6.6 to 0.6.8 write the same hook as
-0.6.5). A commit that moves the pin adds the new release's digest to that record (the file's `about` gives the command) and regenerates
-this hook from that release's `hookText` when it differs.
+The template commits no git hook: commit and push run no gate and no local hook check (`docs/GATE-CONTRACT.md`). `prepare`
+runs `rightkit-gate install-hook`, which writes no hook; it removes a `.githooks/pre-push`, forwarder or ownership pre-commit hook that an
+earlier release wrote (matched by its own header only, never a foreign hook) and registers the one-door agent hook.
 
 **Installing inside the RightKit repository.** This directory sits inside RightKit's own git repository, so `prepare`
-(`rightkit-gate install-hook`) acts on the hooks at that repository's root, not on the template: it finds RightKit's own
-`.githooks/pre-push`, refuses to touch it and fails `pnpm install`. Install here with `pnpm install --ignore-scripts`, and never run
-`rightkit-gate install-hook --force` from this directory: it would replace RightKit's own pre-push hook. `pnpm check` here likewise checks RightKit's
+(`rightkit-gate install-hook`) acts on the repository at that root, not on the template: it would register the agent hook in RightKit's
+`.claude/settings.json` and edit RightKit's local git hook configuration. Install here with `pnpm install --ignore-scripts`, and never run
+`rightkit-gate install-hook` from this directory. `pnpm check` here likewise checks RightKit's
 committed files, not the template's; `template-contract.test.mjs` runs `rightkit-gate check` on a fresh instance instead. An app copied into its own
 repository installs normally; delete this paragraph there.
 
@@ -46,8 +43,8 @@ repository installs normally; delete this paragraph there.
 | Legal | `legal/`, `legal-snapshot.config.json`, `src/generated/legal-contract.json` | the six legal documents, the generated manifest and acceptance contract, passing the release legal contract (M12, M14) |
 | QA | `rightkit-qa.toml`, `journeys.toml`, `tests/scenarios/`, `src-tauri/tests/` | declared user journeys run against the real built app on isolated data (M20, M25); every Rust test is tagged `// rk-test: pure` or `contract` |
 | Switches | `switches.json` | the release switch inventory (M23): every environment read in the sources, with the build feature that compiles it out |
-| Gate | `.githooks/pre-push`, `prepare` and `check` scripts | `rightkit-gate check` then the gate run before every push; `pnpm install` installs the hook (A-16); `pnpm check` runs the offline app rules on demand |
-| Line endings | `.gitattributes` | LF in every checkout, Windows included: the legal documents are hashed byte for byte, `Cargo.lock` and `pnpm-lock.yaml` are held by `--locked`, and the hook runs under `sh` |
+| Gate | `prepare` and `check` scripts | `pnpm install` retires the git hooks an earlier release wrote and registers the agent hook (A-16); no git hook runs a gate; `pnpm check` runs the offline app rules on demand |
+| Line endings | `.gitattributes` | LF in every checkout, Windows included: the legal documents are hashed byte for byte, `Cargo.lock` and `pnpm-lock.yaml` are held by `--locked`, and any shell script runs under `sh` |
 | Mandatory set | `rightkit-mandatory.json`, `.rightkit/ownership-exceptions.json` | the desktop profile declaration and an empty exception ledger |
 | Advisory policy | `deny.toml`, `.cargo/audit.toml` | cargo-deny and cargo-audit policy; the ignores mirror RightKit's `ci/advisory-exceptions.json` |
 | Brand | `assets/brand/brand.json` -> `src/brand.css` | token file generated into Tailwind v4 `@theme` (`pnpm brand:sync`) |
@@ -117,7 +114,7 @@ Work from the **primary checkout** of the new app's repository. Read `docs/rules
    (`--slug`, `--dir` and `--dry-run` are optional). It rewrites the template identity in text files, re-sorts `Cargo.lock` so
    `cargo --locked` accepts it, re-hashes the legal manifest and prints the steps below that only a person can do. It keeps the
    `r2-rightapps` distribution service name.
-2. **Install.** `pnpm install` (never npm or npx); the template is its own pnpm workspace. `prepare` installs the pre-push hook.
+2. **Install.** `pnpm install` (never npm or npx); the template is its own pnpm workspace. `prepare` registers the agent hook and writes no git hook.
    Commit `pnpm-lock.yaml` and `Cargo.lock`.
 3. **Doctor.** `pnpm release:doctor`. Every files and host row must pass before you build anything.
 4. **Register the repository on each host.** Add it to `packages/release/ownership-repositories.json` in RightKit (and its byte copy
@@ -144,7 +141,7 @@ Work from the **primary checkout** of the new app's repository. Read `docs/rules
 
 ## Gate and advisories
 
-`.githooks/pre-push` runs `rightkit-gate` before every push; do not bypass it. `deny.toml` and `.cargo/audit.toml` are this workspace's
+Commit and push run no gate (the gate is for building: `rightkit-gate --to compile`); CI runs the checks on every push. `deny.toml` and `.cargo/audit.toml` are this workspace's
 advisory policy. The ignores in them (glib on Linux only; `zip` through `tauri-plugin-updater`) mirror RightKit's
 `ci/advisory-exceptions.json`, with the same review date: drop them when the dependency moves on, and add none without recording why
 the advisory does not apply. After a `cargo update`, re-check the lock against the advisory database.

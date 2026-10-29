@@ -2332,7 +2332,7 @@ test("cargoLiveRoot: cargo scans take the cargoLive root, the plan records it an
   await runScans(plan, deps({ ...fs, spawn, probeDir: "/neutral/probe" }), { classes: ["A"] });
   const cargoCalls = calls.filter((c) => c.command === "rustright");
   assert.ok(cargoCalls.length > 0, "rustright ran");
-  for (const c of cargoCalls) assert.ok(c.cwd === "/primary/checkout" || c.cwd.startsWith("/primary/checkout" + path.sep), `${c.args.join(" ")} ran in ${c.cwd}`);
+  for (const c of cargoCalls) assert.ok(norm(c.cwd) === "/primary/checkout" || norm(c.cwd).startsWith("/primary/checkout/"), `${c.args.join(" ")} ran in ${c.cwd}`); // norm: Windows joins with a backslash (rightkit#1262)
   const without = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]).plan;
   for (const s of without.scans.filter((x) => x.tool === "rustright")) assert.equal(s.root, "live", s.id);
   assert.equal(without.roots.cargoLiveRoot, undefined);
@@ -2357,7 +2357,7 @@ test("locked package listings run through the broker from the primary checkout a
   const listing = calls.find((c) => c.args.includes("package") && c.args.includes("--list"));
   assert.ok(listing, "the package listing was executed, not deferred");
   assert.equal(path.basename(listing.command), "rustright");
-  assert.equal(listing.cwd, "/primary/checkout");
+  assert.equal(norm(listing.cwd), "/primary/checkout"); // norm: Windows joins with a backslash (rightkit#1262)
   const refused = await runScans(broker.plan, deps({ ...broker.fs, spawn: fakeSpawn({ failing: ["package"] }) }), { classes: ["A"] });
   assert.equal(refused.ok, false);
   assert.equal(refused.scans.find((s) => s.id === "cargo-package-list:foo").status, "fail", "a broker refusal blocks instead of becoming a deferral or a pass");
@@ -2406,7 +2406,7 @@ test("broker shim probe: with cargoCommand [\"cargo\"] and cargoLiveRoot, the ca
   await runScans(plan, deps({ ...fs, spawn, probeDir: "/neutral/probe" }), { classes: ["A"] });
   const cargoProbe = calls.find((c) => c.command === "cargo" && c.args.length === 1 && c.args[0] === "--version");
   assert.ok(cargoProbe, "cargo was probed");
-  assert.ok(cargoProbe.cwd === "/primary/checkout" || cargoProbe.cwd.startsWith("/primary/checkout" + path.sep), `the cargo probe ran in ${cargoProbe.cwd}, not the neutral directory`);
+  assert.ok(norm(cargoProbe.cwd) === "/primary/checkout" || norm(cargoProbe.cwd).startsWith("/primary/checkout/"), `the cargo probe ran in ${cargoProbe.cwd}, not the neutral directory`); // norm: Windows joins with a backslash (rightkit#1262)
   const pnpmProbe = calls.find((c) => c.command === "pnpm" && c.args.length === 1 && c.args[0] === "--version");
   assert.ok(pnpmProbe, "pnpm was probed");
   assert.equal(pnpmProbe.cwd, "/neutral/probe", "pnpm's probe stays outside the repository");
@@ -2715,4 +2715,130 @@ test("defaultSpawnAsync marks output cut to the kept tail as truncated", async (
   assert.equal(big.status, 0); assert.equal(big.truncated, true); assert.doesNotMatch(big.stderr.slice(0, 20), /\[ERROR\]/, "the early line was cut, which is why truncation itself fails a deny row");
   const small = await defaultSpawnAsync(process.execPath, ["-e", "process.stderr.write('ok')"]);
   assert.equal(small.truncated, undefined);
+});
+
+// ---- item 8: Clippy batching (rows 8.6, 8.8, 8.15) -------------------------------------------------------------------------------------
+import { CLIPPY_UNIVERSAL_FEATURE_FLAGS, clippyBatchPlan, sidecarBoundCrate } from "./deterministic-scans.mjs";
+
+const batchCrate = (name, extra = {}) => ({ [`crates/${name}/Cargo.toml`]: crateFiles["crates/foo/Cargo.toml"], [`crates/${name}/src/lib.rs`]: "pub fn f() {}\n", ...extra });
+const batchFixture = (names, extra = {}) => Object.assign({}, ...names.map((n) => batchCrate(n)), extra);
+const clippyScans = (plan) => plan.scans.filter((s) => s.id.startsWith("clippy:"));
+const pkgsOf = (scan) => scan.args.map((a, i) => (scan.args[i - 1] === "-p" ? a : null)).filter(Boolean);
+const planBatched = (names, opts = {}, extra = {}) => planFor(["Cargo.lock"], batchFixture(names, extra), { listDir: () => names, cargoCommand: ["cargo"], clippyBatching: true, ...opts });
+
+test("item 8 row 8.6: N compatible crates are one Clippy scan with N -p flags; --locked and --no-deps stay; no batch is --workspace", () => {
+  const names = ["a", "b", "c", "d", "e"];
+  const { plan } = planBatched(names);
+  const scans = clippyScans(plan);
+  assert.equal(scans.length, 1, "five crates with default features are one invocation");
+  assert.deepEqual(pkgsOf(scans[0]), names);
+  assert.equal(scans[0].args.filter((a) => a === "-p").length, 5);
+  assert.match(scans[0].id, /^clippy:batch:[0-9a-f]{8}$/);
+  assert.equal(scanClassOf(scans[0].id), "B");
+  assert.equal(laneOf(scans[0]), "compile");
+  for (const s of scans) {
+    assert.ok(s.args.includes("--locked") && s.args.includes("--no-deps"), `${s.id}: --locked and --no-deps`);
+    assert.deepEqual(s.args.slice(-3), ["--", "-D", "warnings"]);
+    assert.ok(!s.args.includes("--workspace"), `${s.id}: a batch names its members with -p; it is never widened to --workspace`);
+  }
+  assert.ok(plan.notes.some((n) => /clippy batching: 5 crate configuration\(s\) in 1 invocation/.test(n)));
+  // The production path is untouched until the equivalence passes (row 8.15 pending 8.7): off by default, one scan per crate.
+  const perCrate = planFor(["Cargo.lock"], batchFixture(names), { listDir: () => names, cargoCommand: ["cargo"] }).plan;
+  assert.deepEqual(clippyScans(perCrate).map((s) => s.id), names.map((n) => `clippy:${n}`));
+});
+
+test("item 8 row 8.6: incompatible sets stay separate, each with a reason from ci/gate.config.json featureSets and ci/shards.json", () => {
+  const names = ["a", "b", "x", "y", "db", "qa-driver", "solo", "uni"];
+  const crateFeatures = {
+    x: { featureSets: [["--all-features"]] }, y: { featureSets: [["--all-features"]] },
+    db: { featureSets: [["--features", "bundled,statement-cache"], ["--features", "sqlcipher,statement-cache,encrypted-lifecycle"]] },
+    "qa-driver": { featureSets: [["--features", "qa-control,wv2-0_38"], ["--features", "qa-control,wv2-0_39"]] },
+  };
+  const { plan } = planBatched(names, { crateFeatures, shardSolo: ["solo"], clippySeparate: new Map([["uni", "batching changed the features uni compiles with (item 8 row 8.7)"]]) });
+  const scans = clippyScans(plan);
+  const byPackages = scans.map((s) => pkgsOf(s).join(","));
+  assert.ok(byPackages.includes("a,b"), "a and b share the default-feature batch");
+  assert.ok(byPackages.includes("x,y"), "x and y share the --all-features batch");
+  for (const lone of ["db", "qa-driver", "solo", "uni"]) assert.ok(byPackages.includes(lone), `${lone} is its own invocation`);
+  assert.equal(scans.filter((s) => pkgsOf(s).join(",") === "db").length, 2, "rightkit-db's SQLCipher variants are two invocations");
+  assert.equal(scans.filter((s) => pkgsOf(s).join(",") === "qa-driver").length, 2, "rightkit-qa-driver's wv2 generations are two invocations");
+  const noteFor = (name) => plan.notes.filter((n) => n.startsWith("clippy batching:") && n.includes(`${name} (`));
+  assert.match(noteFor("db")[0], /crate-specific features .*bundled.*; db declares 2 feature configurations/);
+  assert.match(noteFor("qa-driver")[0], /wv2-0_38/);
+  assert.match(plan.notes.find((n) => n.includes("solo (")), /ci\/shards\.json solo/);
+  assert.match(plan.notes.find((n) => n.includes("uni (")), /feature|unif|8\.7/);
+  assert.ok(CLIPPY_UNIVERSAL_FEATURE_FLAGS.includes("--all-features") && CLIPPY_UNIVERSAL_FEATURE_FLAGS.includes("--no-default-features"));
+  // The pure planner: different target, profile or environment are different keys.
+  const e = (name, set, env = null) => ({ name, crate: name, ws: ".", set, count: 1, env });
+  const split = clippyBatchPlan([e("a", ["--target", "x86_64-pc-windows-msvc"]), e("b", ["--all-features"]), e("c", ["--all-features"], "/t1"), e("d", ["--all-features"])]);
+  assert.equal(split.batches.length, 3, "environment and target split the key");
+  assert.deepEqual(split.batches.map((b) => b.units.join()).sort(), ["a", "b,d", "c"]);
+});
+
+test("item 8 row 8.15: with batching on, no per-crate Clippy scan exists for a crate that belongs to a compatible batch", () => {
+  const names = ["a", "b", "c", "x"];
+  const { plan } = planBatched(names, { crateFeatures: { x: { featureSets: [["--all-features"], []] } } });
+  const clippyIds = clippyScans(plan).map((s) => s.id);
+  for (const n of names) assert.ok(!clippyIds.includes(`clippy:${n}`) && !clippyIds.some((id) => id.startsWith(`clippy:${n}:`)), `no per-crate clippy for ${n}`);
+  assert.equal(clippyIds.length, 2, "default-feature batch (a, b, c, x) and the --all-features batch (x)");
+  const members = clippyScans(plan).map(pkgsOf).sort();
+  assert.deepEqual(members, [["a", "b", "c", "x"], ["x"]]);
+  // The planner never emits a per-crate scan beside a batch that holds the crate: every crate is covered exactly once per feature set.
+  const covered = clippyScans(plan).flatMap((s) => pkgsOf(s).map((p) => `${p}\0${s.args.filter((a) => a.startsWith("--")).join(" ")}`));
+  assert.equal(new Set(covered).size, covered.length);
+});
+
+test("item 8 row 8.8: a sidecar-bound crate is its own batch, scheduled after every independent batch; none declared, none scheduled", () => {
+  const bound = { "crates/shell/tauri.conf.json": JSON.stringify({ bundle: { externalBin: ["binaries/helper"] } }) };
+  const { plan } = planBatched(["a", "b", "shell"], {}, bound);
+  const scans = clippyScans(plan);
+  assert.deepEqual(scans.map(pkgsOf), [["a", "b"], ["shell"]], "the independent batch comes first in plan order, the compile lane drains in that order");
+  assert.deepEqual(scans.map((s) => s.batch.order), ["independent", "sidecar"]);
+  assert.match(scans[1].batch.reason, /sidecar-bound/);
+  assert.ok(plan.notes.some((n) => /shell \(.*stays its own invocation: sidecar-bound/.test(n)));
+  const none = planBatched(["a", "b", "shell"], {}, { "crates/shell/tauri.conf.json": JSON.stringify({ bundle: { externalBin: [] } }) }).plan;
+  assert.deepEqual(clippyScans(none).map((s) => s.batch.order), ["independent"], "an empty externalBin declares no sidecar");
+  assert.ok(!clippyScans(none).some((s) => s.batch.order === "sidecar"));
+  // sidecarBoundCrate: JSON in the crate or its src-tauri, JSON5/TOML as text, and none.
+  const dir = path.join(path.sep, "x", "crates", "shell");
+  const at = (files) => sidecarBoundCrate({ dir, exists: (p) => p in files, readFile: (p) => files[p] });
+  assert.equal(at({ [path.join(dir, "tauri.conf.json")]: '{"tauri":{"bundle":{"externalBin":["b/h"]}}}' }).bound, true);
+  assert.equal(at({ [path.join(dir, "src-tauri", "tauri.conf.json")]: '{"bundle":{"externalBin":["b/h"]}}' }).bound, true);
+  assert.equal(at({ [path.join(dir, "tauri.conf.json5")]: "{ bundle: { externalBin: ['b/h'] } }" }).bound, true);
+  assert.equal(at({ [path.join(dir, "Tauri.toml")]: '[bundle]\nexternalBin = ["b/h"]\n' }).bound, true);
+  assert.equal(at({ [path.join(dir, "tauri.conf.json")]: '{"bundle":{}}' }).bound, false);
+  assert.equal(at({}).bound, false);
+});
+
+test("item 8 row 8.15 support: requiredScanIds names the batch ids the planner emits with clippyBatching on, and the per-crate ids with it off", () => {
+  const names = ["a", "b", "c", "x", "db", "solo"];
+  const crateFeatures = { x: { featureSets: [["--all-features"], []] }, db: { featureSets: [["--features", "bundled"], ["--features", "sqlcipher"]] } };
+  const exists = (p) => /src\/lib\.rs$/.test(p);
+  const shardSolo = ["solo"];
+  const clippyOf = (list) => list.filter((id) => id.startsWith("clippy:")).sort();
+  // On: the same ids, from the same function, however the toolchain and output directory differ (the verifier knows neither).
+  const on = planBatched(names, { crateFeatures, shardSolo }).plan;
+  const requiredOn = requiredScanIds({ units: names, crateFeatures, exists, clippyBatching: true, shardSolo });
+  assert.deepEqual(clippyOf(requiredOn), clippyScans(on).map((s) => s.id).sort());
+  assert.ok(clippyOf(requiredOn).every((id) => /^clippy:batch:[0-9a-f]{8}$/.test(id)), "no per-crate id is required while batching is on");
+  const withTargets = planBatched(names, { crateFeatures, shardSolo, targetDirs: { ".": "/somewhere/target" }, cargoCommand: ["rustright", "cargo"] }).plan;
+  assert.deepEqual(clippyScans(withTargets).map((s) => s.id).sort(), clippyScans(on).map((s) => s.id).sort(), "a batch id does not depend on the toolchain command or the output directory");
+  // The id names the members it covers: another member list is another id, so a record cannot claim a crate its batch did not hold.
+  const more = requiredScanIds({ units: [...names, "d"], crateFeatures, exists, clippyBatching: true, shardSolo });
+  assert.notDeepEqual(clippyOf(more), clippyOf(requiredOn));
+  const less = requiredScanIds({ units: names.filter((n) => n !== "c"), crateFeatures, exists, clippyBatching: true, shardSolo });
+  assert.notDeepEqual(clippyOf(less), clippyOf(requiredOn));
+  // A unit kept separate by equivalence (clippySeparate) is its own required id.
+  const separate = new Map([["c", "feature unification (item 8 row 8.7)"]]);
+  assert.deepEqual(clippyOf(requiredScanIds({ units: names, crateFeatures, exists, clippyBatching: true, shardSolo, clippySeparate: separate })), clippyScans(planBatched(names, { crateFeatures, shardSolo, clippySeparate: separate }).plan).map((s) => s.id).sort());
+  // Off (the default): the per-crate ids, and the plan emits exactly them.
+  const off = planFor(["Cargo.lock"], batchFixture(names), { listDir: () => names, cargoCommand: ["cargo"], crateFeatures }).plan;
+  const requiredOff = requiredScanIds({ units: names, crateFeatures, exists });
+  assert.deepEqual(clippyOf(requiredOff), clippyScans(off).map((s) => s.id).sort());
+  assert.ok(clippyOf(requiredOff).includes("clippy:a") && clippyOf(requiredOff).includes("clippy:db:1") && clippyOf(requiredOff).includes("clippy:x:1"));
+  assert.ok(!clippyOf(requiredOff).some((id) => id.startsWith("clippy:batch:")));
+  assert.deepEqual(requiredScanIds({ units: names, crateFeatures, exists, clippyBatching: false }), requiredOff, "false is the default");
+  // Everything but the Clippy ids is identical on and off.
+  const rest = (list) => list.filter((id) => !id.startsWith("clippy:"));
+  assert.deepEqual(rest(requiredOn), rest(requiredOff));
 });

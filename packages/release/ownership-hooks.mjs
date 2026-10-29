@@ -1,41 +1,22 @@
-// right-release hooks install: writes the advisory pre-commit ownership gate into an app repository.
+// right-release hooks: the advisory pre-commit ownership gate is retired (docs/GATE-CONTRACT.md: "Commit and push run no gate and no
+// local hook checks"). Nothing here writes a hook any more.
 //
-//   right-release hooks install [--app <dir>]
+//   right-release hooks install [--app <dir>]   (`right-release hooks install` is `rightkit-gate install-hook`: it retires the hook)
 //
-// The hook runs the app's pinned @rightkit/release (node_modules) via `right-release ownership --staged`.
-// An existing foreign pre-commit is preserved as pre-commit.rightkit-foreign and chained first.
-// The gate is advisory: `git commit --no-verify` bypasses it; broker admission and the release gate
-// remain authoritative.
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+// An earlier release wrote `.git/hooks/pre-commit` (or the one in core.hooksPath) running `right-release ownership --staged`, and
+// kept a foreign pre-commit as pre-commit.rightkit-foreign. Retirement removes the hook by its own marker only and puts the foreign
+// pre-commit back. `right-release ownership --staged` stays a manual command; broker admission and the release gate remain
+// authoritative.
+import { lstatSync, readFileSync, readdirSync, realpathSync, renameSync, rmdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { HOOK_MARKER, retireHooksIn } from "./hook-retirement.mjs";
 import { repositoryRootFor } from "./ownership-staged.mjs";
 
-export const HOOK_MARKER = "rightkit-ownership-precommit v1";
-const FOREIGN = "pre-commit.rightkit-foreign";
-const PINNED_CLI = path.join("node_modules", "@rightkit", "release", "cli", "right-release.mjs");
+export { HOOK_MARKER };
 
-export function renderPreCommitHook() {
-  return [
-    "#!/bin/sh",
-    `# ${HOOK_MARKER}: advisory ownership gate installed by \`right-release hooks install\`.`,
-    "# Block-tier findings without a valid exception fail here; --no-verify bypasses this gate.",
-    "# Authoritative enforcement remains in broker admission and the release gate.",
-    "ROOT=\"$(git rev-parse --show-toplevel)\" || exit 1",
-    "HOOKS_DIR=\"$(dirname \"$0\")\"",
-    `if [ -x "$HOOKS_DIR/${FOREIGN}" ]; then`,
-    `  "$HOOKS_DIR/${FOREIGN}" "$@" || exit $?`,
-    "fi",
-    `GATE="$ROOT/${PINNED_CLI.split(path.sep).join("/")}"`,
-    "if [ ! -f \"$GATE\" ]; then",
-    "  echo \"[rightkit] @rightkit/release is not installed in this repository; add it as a devDependency, then re-run: right-release hooks install\" >&2",
-    "  exit 1",
-    "fi",
-    "exec node \"$GATE\" ownership --staged",
-    "",
-  ].join("\n");
-}
+const FS_OPS = Object.freeze({ readdir: readdirSync, readFile: (file) => readFileSync(file, "utf8"), lstat: lstatSync, unlink: unlinkSync, rename: renameSync, rmdir: rmdirSync });
 
 function git(cwd, args) {
   const result = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8", windowsHide: true, env: Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^GIT_/i.test(k))) });
@@ -52,46 +33,26 @@ export function hooksDirectoryFor(root) {
   return path.resolve(root, common);
 }
 
-/**
- * Idempotent install. Returns { status: "installed" | "updated" | "unchanged" | "chained", file }.
- */
-export function installPreCommitHook(repoDir) {
+/** Remove the ownership pre-commit hook an earlier release wrote, restoring the foreign pre-commit it displaced. { status: "retired" | "restored" | "absent", file } */
+export function retirePreCommitHook(repoDir) {
   const root = repositoryRootFor(repoDir);
-  const pinned = path.join(root, PINNED_CLI);
-  if (!existsSync(pinned)) throw new Error(`@rightkit/release is not installed at ${pinned}; add it as a devDependency and run pnpm install first`);
   const hooksDir = hooksDirectoryFor(root);
+  const result = retireHooksIn(hooksDir, FS_OPS, { scripts: false });
   const file = path.join(hooksDir, "pre-commit");
-  const foreign = path.join(hooksDir, FOREIGN);
-  const body = renderPreCommitHook();
-  mkdirSync(hooksDir, { recursive: true });
-  let status = "installed";
-  if (lstatSync(file, { throwIfNoEntry: false })) {
-    const current = readFileSync(file, "utf8");
-    if (current === body) return { status: "unchanged", file };
-    if (current.includes(HOOK_MARKER)) status = "updated";
-    else {
-      if (existsSync(path.join(hooksDir, FOREIGN))) throw new Error(`${FOREIGN} already exists; resolve the chained hook manually before installing`);
-      renameSync(file, foreign);
-      status = "chained";
-    }
-  }
-  const temporary = `${file}.${process.pid}.tmp`;
-  writeFileSync(temporary, body, { mode: 0o755 });
-  chmodSync(temporary, 0o755);
-  renameSync(temporary, file);
-  return { status, file };
+  return { status: result.restored.length ? "restored" : result.removed.includes("pre-commit") ? "retired" : "absent", file };
 }
 
 export function main(args, { print = (line) => console.log(line) } = {}) {
   const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
   if (args[0] !== "install") {
-    print("right-release hooks install [--app <dir>]");
+    print("right-release hooks install [--app <dir>]   (retires the ownership pre-commit hook; no hook is written)");
     return args.includes("--help") ? 0 : 2;
   }
   try {
-    const result = installPreCommitHook(path.resolve(flag("--app") ?? process.cwd()));
-    print(`[right-release] pre-commit ownership gate ${result.status}: ${result.file}`);
-    if (result.status === "chained") print(`[right-release] previous pre-commit preserved as ${FOREIGN} and runs first`);
+    const result = retirePreCommitHook(path.resolve(flag("--app") ?? process.cwd()));
+    print(`[right-release] pre-commit ownership gate retired (${result.status}): ${result.file}`);
+    if (result.status === "restored") print("[right-release] the previous pre-commit hook is back in place");
+    print("[right-release] commit runs no local hook check; `right-release ownership --staged` is still available by hand");
     return 0;
   } catch (error) {
     print(`[right-release] hooks install FAILED: ${error.message}`);

@@ -11,6 +11,7 @@ import { copyFileSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSy
 import { execFileSync } from "./background-process.mjs";
 import path from "node:path";
 import { importReleaseConfig } from "./release-config.mjs";
+import { ArtifactPathError, isSplitArtifactEnv, loadSplitArtifactContext, resolveArtifactPath } from "./release-artifact-path.mjs";
 
 const args = parseArgs(process.argv.slice(2));
 const usage = "Usage: right-release mirror-root-artifact (--file <artifact> --package-root <dir> [--name <filename>] | --config <file> --platform mac|win [--package-root <dir>])";
@@ -52,15 +53,27 @@ if (args.config) {
 
 const packageRoot = realpathSync(path.resolve(rootArg));
 const managedOutput = path.resolve(process.env.RIGHT_RELEASE_ARTIFACT_DIR);
-const repoRoot = path.resolve(git(packageRoot, "rev-parse", "--show-toplevel"));
-if (inside(managedOutput, repoRoot)) {
-  console.error(`right-release mirror-root-artifact: managed output must be outside repository: ${managedOutput}`);
-  process.exit(2);
+// A door split (row 7.04c): the package root is the snapshot, which has no git directory; the repositories the output must stay out of are the
+// checkout and the snapshot, and a target-prefixed source is the bound Cargo target's (read in place, never the checkout's).
+const splitMirror = isSplitArtifactEnv(process.env);
+const artifactPaths = await loadSplitArtifactContext({ cwd: packageRoot });
+const repoRoots = splitMirror ? [path.resolve(process.env.RK_GATE_CHECKOUT), packageRoot] : [path.resolve(git(packageRoot, "rev-parse", "--show-toplevel"))];
+for (const repoRoot of repoRoots) {
+  if (inside(managedOutput, repoRoot)) {
+    console.error(`right-release mirror-root-artifact: managed output must be outside repository: ${managedOutput}`);
+    process.exit(2);
+  }
 }
 const safeName = (name) => name === path.basename(name) && /^[A-Za-z0-9][A-Za-z0-9._+-]{0,159}$/.test(name);
 
 for (const entry of entries) {
-  const source = path.resolve(packageRoot, entry.file);
+  let source;
+  try { source = splitMirror ? resolveArtifactPath(entry.file, artifactPaths) : path.resolve(packageRoot, entry.file); }
+  catch (error) {
+    if (!(error instanceof ArtifactPathError)) throw error;
+    console.error(`right-release mirror-root-artifact: ${error.message}`);
+    process.exit(2);
+  }
   const name = entry.name || path.basename(source);
   if (!safeName(name)) {
     console.error(`right-release mirror-root-artifact: unsafe artifact name: ${name}`);

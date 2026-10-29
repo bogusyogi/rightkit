@@ -6,6 +6,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 import { planSidecarStaging, resolveTargetTriple, stageSidecars } from "./stage-sidecar.mjs";
+import { readSourceSplit } from "./source-split.mjs";
 
 export function parseStageSidecarArgs(argv, cwd = process.cwd()) {
   const opts = { config: defaultReleaseConfigFile(cwd), target: undefined, json: false, check: false };
@@ -50,6 +51,9 @@ async function main() {
   const opts = parseStageSidecarArgs(process.argv.slice(2));
   const configPath = path.resolve(opts.config);
   const appRoot = path.dirname(configPath);
+  // Inside the door's source split the config and every declared source are the snapshot's; the caches and build trees right-release
+  // owns stay in the checkout's app directory (stage-sidecar.mjs `cacheRoot`).
+  const split = readSourceSplit({ cwd: appRoot });
   const config = await importReleaseConfig(configPath, { lenient: true });
   if (config?.sidecars === undefined) throw new Error(`${opts.config} declares no sidecars`);
   if (opts.check) {
@@ -61,7 +65,7 @@ async function main() {
   }
   const target = resolveTargetTriple({ target: opts.target, cwd: appRoot });
   // Warnings (a never-run row, a catalog row that is not staged) go to stderr; stdout stays the staged-file list or the --json document.
-  const result = await stageSidecars({ appRoot, manifest: config.sidecars, target, deps: { warn: (line) => console.error(line) } });
+  const result = await stageSidecars({ appRoot, manifest: config.sidecars, target, ...(split ? { cacheRoot: split.checkoutAppRoot } : {}), deps: { warn: (line) => console.error(line) } });
   if (opts.json) console.log(JSON.stringify(result, null, 2));
   else {
     for (const file of result.files ?? []) console.log(`right-release stage-sidecar: staged ${typeof file === "string" ? file : file.path ?? JSON.stringify(file)}`);

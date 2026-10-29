@@ -463,7 +463,7 @@ async function rustGate(selection, config, consumers = new Map()) {
     // Features the tests do not enable must still compile; keep in step with packages/release/local-publish.mjs.
     const checkSets = featureSets.some((features) => features.includes("--all-features")) ? [] : (entry.checkFeatureSets ?? [["--all-features"]]);
     for (const features of checkSets) await run(`rust:${name}`, "cargo", checkArgs(name, { features }), { cwd, timeoutMinutes });
-    // Keep rustdoc qualification when local pre-push runs only static checks. Use configured rows
+    // Keep rustdoc qualification when only static checks ran. Use configured rows
     // rather than blanket all-features: several crates have mutually exclusive feature families.
     const docSets = [...new Map([...featureSets, ...checkSets].map((features) => [JSON.stringify(features), features])).values()];
     // A crate that does not compile (clippy or check red) cannot run its tests; skip them and keep the red result.

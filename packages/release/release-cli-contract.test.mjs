@@ -65,7 +65,8 @@ test("build is tier-neutral and rejects a tier before touching a repository", ()
 
 test("build enforces primary-checkout and build-input cleanliness guards", () => {
   const source = readFileSync(build, "utf8");
-  assert.match(source, /assertPrimaryReleaseCheckout\(repoRoot\)/);
+  // The primary-worktree and clean-source checks are release-source-identity.mjs assertReleaseSource (R1 unchanged without a door split).
+  assert.match(source, /assertReleaseSource\(releaseSource, \{ commandId: "right-release build", skipCleanCheck: true \}\)/);
   assert.match(source, /dirtyBuildInputs\(repoRoot,/);
   assert.match(source, /dirty files can change the packaged app/i);
 });

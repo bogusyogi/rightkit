@@ -217,7 +217,7 @@ test("doctor and build assemble an identical ownership scope; non-iOS stays whol
 
 test("doctor and build both route collectPreflight's ownershipScope through the one shared helper (rightkit#927; written, not run)", () => {
   const dir = path.dirname(fileURLToPath(import.meta.url));
-  for (const [file, call] of [["release.mjs", /(?:const )?ownershipScope = preflightOwnershipScope\(\{ repoRoot, appRoot: root, platform, target: projectTarget, nativeAssembly: config\.nativeAssembly \}\);/], ["build-release.mjs", /const ownershipScope = preflightOwnershipScope\(\{ repoRoot, appRoot, platform, target, nativeAssembly: config\?\.nativeAssembly \}\);/]]) {
+  for (const [file, call] of [["release.mjs", /(?:const )?ownershipScope = preflightOwnershipScope\(\{ repoRoot, appRoot: root, platform, target: projectTarget, nativeAssembly: config\.nativeAssembly \}\);/], ["build-release.mjs", /const ownershipScope = preflightOwnershipScope\(\{ repoRoot: sourceRoot, appRoot, platform, target, nativeAssembly: config\?\.nativeAssembly \}\);/]]) {
     const text = readFileSync(path.join(dir, file), "utf8");
     assert.match(text, call, file);
     assert.match(text, /collectPreflight\(\{\s*platform,\s*ownershipScope,/, file);

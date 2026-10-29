@@ -211,7 +211,13 @@ export function knownRedEntry({ unit, root, platform, toRelease = false, readTex
 }
 
 /** One invocation reruns all owed stages; reports are never read as admission evidence. */
-export async function runUnitGate({ selector, to, root, commonDir, commit, tree, executor, env, platform, check, loadOwner = () => import("./local-publish.mjs"), out = console.log, err = console.error, releaser = null, resolve = resolveUnit, writeReport, fetchReceipt = readBrokerReceipt, stageCommands = defaultStageCommands, readKnownRed }) {
+/**
+ * `source` ({ checkout, commit, tree }) marks a run built from the door's snapshot of that commit (row 7.06a): `root` is then the
+ * snapshot, `commonDir` the checkout's, and the stages take their identity from the selection (local-publish.mjs sourceGit). `stageGuard`
+ * ({ start(stage), end(stage) } returning true or false) is the door's ledger verify around each stage (7.08); `envExtra` carries the
+ * Cargo output pin. Without `source` every behavior is the checkout route's, unchanged.
+ */
+export async function runUnitGate({ selector, to, root, commonDir, commit, tree, executor, env, platform, check, source = null, stageGuard = null, envExtra = {}, loadOwner = () => import("./local-publish.mjs"), out = console.log, err = console.error, releaser = null, resolve = resolveUnit, writeReport, fetchReceipt = readBrokerReceipt, stageCommands = defaultStageCommands, readKnownRed }) {
   const stages = stagesTo(to);
   if (!stages) { err(`rightkit-gate: invalid unit stage ${to}`); return 2; }
   let unit;
@@ -238,7 +244,7 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
   const stageEnv = async (stage, action) => {
     const run = startRun({ commonDir, commit, tree, stage });
     const nonce = attested && ATTESTED_STAGES.includes(stage) ? { RIGHTKIT_ATTEST_NONCE: qualificationNonce({ commit, tree, unit: `${unit.kind}:${unit.name}`, stage }) } : {};
-    try { return await action({ ...env, ...nonce, ...run.env }); } finally { endRun(run); }
+    try { return await action({ ...env, ...envExtra, ...nonce, ...run.env }); } finally { endRun(run); }
   };
   const receipts = {};
   const collectReceipts = (stage, ids) => {
@@ -256,11 +262,12 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
   try {
     for (const stage of stages) {
       currentStage = stage;
+      if (stageGuard && !(await stageGuard.start(stage))) throw new Error(`RK_CHECK_ERROR: the snapshot is not the commit's bytes plus the ledger before the ${stage} stage`);
       // A unit run headed to qualify or release owes the release tier: it runs here, before the compile, and qualify does not run it again.
       if (stage === "check") { checkTier = stages.includes("qualify") ? "release" : "compile"; if (await check(checkTier) !== 0) throw new Error(`class A check (${checkTier} tier) failed`); }
       else if (stage === "compile") {
         owner = await loadOwner();
-        state = await stageEnv(stage, (runEnv) => owner.compileLocalUnit(unit.kind, argv, { env: runEnv }));
+        state = await stageEnv(stage, (runEnv) => owner.compileLocalUnit(unit.kind, argv, { env: runEnv, ...(source ? { source } : {}) }));
         collectReceipts(stage, owner.localUnitCompileRequests?.(state));
       } else if (stage === "package") {
         artifact = await stageEnv(stage, (runEnv) => owner.packageLocalUnit(state, { env: runEnv }));
@@ -280,6 +287,7 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
         const qualification = writeQualification({ report, artifact, unit, commit, tree, runtime, executor });
         released = await stageEnv(stage, (runEnv) => (releaser ?? releaseUnit)({ unit, root, commit, executor, env: runEnv, artifact, qualification, platform, out }));
       }
+      if (stageGuard && !(await stageGuard.end(stage))) throw new Error(`RK_CHECK_ERROR: the ${stage} stage's result covers no known bytes (a snapshot byte changed, or a write is outside the ledger)`);
       report.stages[stage] = { ok: true, ...(stage === "package" || stage === "qualify" ? { artifactFile: artifact.artifactFile, artifactSha256: artifact.artifactSha256 } : {}), ...(receipts[stage] ? { receipts: receipts[stage] } : {}), ...(released ?? {}) };
       save();
       out(`rightkit-gate: [${stage}] ${unit.kind}:${unit.name} passed`);

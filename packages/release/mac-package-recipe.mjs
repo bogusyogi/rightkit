@@ -18,6 +18,7 @@ import { buildDmg } from "./dmg-build.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { signMacosEntries } from "./mac-sign-core.mjs";
 import { mainExecutableName } from "./mac-bundle-signing.mjs";
+import { resolveArtifactPath, splitArtifactContext } from "./release-artifact-path.mjs";
 import { notarizeMacosArtifact } from "./macos-notarization.mjs";
 import { resolveMacosDeveloperIdIdentity } from "./macos-signing-identity.mjs";
 import { runMacCodesignCommands, signMacUpdaterFiles } from "./macos-signing-session.mjs";
@@ -160,10 +161,12 @@ const defaultInspect = (cmd, args) => {
  * signUpdater(files, options), receiptPath, log(event).
  */
 export function runMacPackageRecipe({ appRoot, config = {}, target, deps = {} }) {
+  let artifactPaths = null;
   const { recipe, app: declaredApp, dmgFile } = validateMacPackageTarget(target);
   const {
     platform = process.platform, env = process.env, fs = nodeFs,
-    resolveArtifact = (root, p) => path.resolve(root, p),
+    // A door split (row 7.04c, R-T2) reads a declared target path in the bound Cargo target, never the snapshot's or the checkout's; outside a split this is path.resolve.
+    resolveArtifact = (root, p) => { artifactPaths ??= splitArtifactContext({ cwd: root, env, target }); return artifactPaths.mode === "split" ? resolveArtifactPath(p, artifactPaths) : path.resolve(root, p); },
     resolveIdentity = resolveMacosDeveloperIdIdentity,
     signOne = (codesignArgs) => runMacCodesignCommands([codesignArgs], { env })[0],
     inspect = defaultInspect, evidence, hashFile,

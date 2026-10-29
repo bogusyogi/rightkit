@@ -4,7 +4,7 @@
 //   app-specific  product domain logic and presentation only.
 // Non-product code stays in an app only under an approved, expiring entry of .rightkit/ownership-exceptions.json that names the
 // RightKit issue that moves it. These two rules run wherever the app check runs (`rightkit-gate check`, `right-release check`, the
-// pre-push hook, the start of every checked right-release command and RightKit's own preflight):
+// start of every checked right-release command and RightKit's own preflight):
 //
 //   mandatory-foundation  OW-05  an app whose profile requires a foundation owner the app does not declare as a dependency (missing,
 //                                or dev-only), or that selects an unknown or unratified profile. An app is a repository whose root

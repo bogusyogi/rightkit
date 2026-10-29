@@ -51,7 +51,7 @@ export class RecipeBuildError extends Error {
 const fail = (code, message, details) => { throw new RecipeBuildError(code, message, details); };
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const STEP_KEYS = new Set(["phase", "cmd", "args", "cwd", "env"]);
-const PLAN_KEYS = new Set(["version", "steps", "cleanup", "stability", "stage", "verifySidecars", "nativeHelpers"]);
+const PLAN_KEYS = new Set(["version", "steps", "cleanup", "stability", "stage", "verifySidecars", "nativeHelpers", "boundTargets"]);
 const VERIFY_SIDECARS_KEYS = new Set(["receipt", "target"]);
 const NATIVE_HELPERS_KEYS = new Set(["app", "helpers", "version", "forceArch", "configuration"]);
 const UNIVERSAL_TRIPLE = "universal-apple-darwin";
@@ -65,10 +65,22 @@ const unknownKeys = (value, allowed, label, errors) => { for (const key of Objec
 const positiveInt = (value) => Number.isInteger(value) && value > 0;
 const badVolumePrefix = (item) => typeof item !== "string" || !item.trim() || item === "." || item === ".." || item.includes("/") || item.includes("\\") || item.includes(":") || item.includes("\0");
 
-/** A relative path that stays inside the app root; returns the normalized form or undefined and pushes an error. */
-function insideApp(value, label, errors, { strict = false } = {}) {
+/**
+ * A relative path that stays inside the app root; returns the normalized form or undefined and pushes an error.
+ * `bound` (a door split, row 7.04c R-T2): the absolute Cargo target directories the plan binds. A path strictly inside one of them is also
+ * accepted, absolute and without `..`: the snapshot has no target directory, so a split's build output is addressed there. Any other
+ * absolute path stays refused.
+ */
+function insideApp(value, label, errors, { strict = false, bound = [] } = {}) {
   if (typeof value !== "string" || !value.trim()) { errors.push(`${label} must be a non-empty relative path`); return undefined; }
   const normalized = value.replaceAll("\\", "/");
+  if (bound.length && (path.isAbsolute(value) || /^[A-Za-z]:[\\/]/.test(value))) {
+    const parts = normalized.split("/");
+    const absolute = path.resolve(value);
+    const under = !parts.includes("..") && bound.some((dir) => { const relative = path.relative(dir, absolute); return relative !== "" && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative); });
+    if (!under) { errors.push(`${label} is an absolute path outside every bound Cargo target (${bound.join(", ")}): ${value}`); return undefined; }
+    return normalized;
+  }
   if (path.isAbsolute(value) || /^[A-Za-z]:/.test(value) || normalized.split("/").includes("..")) { errors.push(`${label} must be relative and stay inside the app: ${value}`); return undefined; }
   const resolved = path.posix.normalize(normalized);
   if (strict && (resolved === "." || resolved === "./" || resolved === "")) { errors.push(`${label} must name a path strictly inside the app, not the app root: ${JSON.stringify(value)}`); return undefined; }
@@ -76,21 +88,31 @@ function insideApp(value, label, errors, { strict = false } = {}) {
   return normalized;
 }
 
-function validateCleanup(value, errors) {
+/** `boundTargets`: the absolute Cargo target directories of a door split (row 7.04c). Absent outside a split. */
+function validateBoundTargets(value, errors) {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || !value.length || value.some((dir) => typeof dir !== "string" || !path.isAbsolute(dir) || dir.replaceAll("\\", "/").split("/").includes(".."))) {
+    errors.push("boundTargets must be a non-empty list of absolute directories without ..");
+    return undefined;
+  }
+  return value.map((dir) => path.resolve(dir));
+}
+
+function validateCleanup(value, errors, bound = []) {
   if (value === undefined) return undefined;
   if (!isObject(value)) { errors.push("cleanup must be an object"); return undefined; }
   unknownKeys(value, CLEANUP_KEYS, "cleanup", errors);
   const out = {};
   if (value.remove !== undefined) {
     if (!Array.isArray(value.remove)) errors.push("cleanup.remove must be a list of relative paths");
-    else out.remove = value.remove.map((item, index) => insideApp(item, `cleanup.remove[${index}]`, errors, { strict: true })).filter(Boolean);
+    else out.remove = value.remove.map((item, index) => insideApp(item, `cleanup.remove[${index}]`, errors, { strict: true, bound })).filter(Boolean);
   }
   if (value.apps !== undefined) {
     if (!isObject(value.apps)) errors.push("cleanup.apps must be an object");
     else {
       unknownKeys(value.apps, APPS_KEYS, "cleanup.apps", errors);
       for (const key of ["remove", "unregister"]) if (value.apps[key] !== undefined && typeof value.apps[key] !== "boolean") errors.push(`cleanup.apps.${key} must be a boolean`);
-      const dir = insideApp(value.apps.dir, "cleanup.apps.dir", errors, { strict: true });
+      const dir = insideApp(value.apps.dir, "cleanup.apps.dir", errors, { strict: true, bound });
       if (dir) out.apps = { dir, remove: value.apps.remove === true, unregister: value.apps.unregister === true };
     }
   }
@@ -101,13 +123,13 @@ function validateCleanup(value, errors) {
   return out;
 }
 
-function validateStability(value, errors) {
+function validateStability(value, errors, bound = []) {
   if (value === undefined) return undefined;
   if (!isObject(value)) { errors.push("stability must be an object"); return undefined; }
   unknownKeys(value, STABILITY_KEYS, "stability", errors);
   for (const key of ["intervalMs", "checks", "timeoutMs"]) if (value[key] !== undefined && !positiveInt(value[key])) errors.push(`stability.${key} must be a positive integer`);
   if (!Array.isArray(value.files) || !value.files.length) { errors.push("stability.files must be a non-empty list of relative paths"); return undefined; }
-  const files = value.files.map((item, index) => insideApp(item, `stability.files[${index}]`, errors, { strict: true })).filter(Boolean);
+  const files = value.files.map((item, index) => insideApp(item, `stability.files[${index}]`, errors, { strict: true, bound })).filter(Boolean);
   return { files, ...(value.intervalMs === undefined ? {} : { intervalMs: value.intervalMs }), ...(value.checks === undefined ? {} : { checks: value.checks }), ...(value.timeoutMs === undefined ? {} : { timeoutMs: value.timeoutMs }) };
 }
 
@@ -167,11 +189,11 @@ function validateVerifySidecars(value, errors) {
   return receipt ? { receipt, target: UNIVERSAL_TRIPLE } : undefined;
 }
 
-function validateNativeHelpersSection(value, errors) {
+function validateNativeHelpersSection(value, errors, bound = []) {
   if (value === undefined) return undefined;
   if (!isObject(value)) { errors.push("nativeHelpers must be { app, helpers, version?, forceArch?, configuration? }"); return undefined; }
   unknownKeys(value, NATIVE_HELPERS_KEYS, "nativeHelpers", errors);
-  const app = insideApp(value.app, "nativeHelpers.app", errors, { strict: true });
+  const app = insideApp(value.app, "nativeHelpers.app", errors, { strict: true, bound });
   if (app && !app.replace(/\/+$/, "").endsWith(".app")) errors.push("nativeHelpers.app must name the .app bundle");
   let helpers;
   try { helpers = validateNativeHelpers(value.helpers, { label: "nativeHelpers.helpers" }); } catch (error) { errors.push(...(error.details?.errors ?? [error.message])); }
@@ -208,13 +230,15 @@ export function validateRecipePlan(plan) {
     steps.push({ phase: step.phase, cmd: step.cmd, args: Array.isArray(args) ? [...args] : [], ...(cwd ? { cwd } : {}), ...(isObject(step.env) ? { env: { ...step.env } } : {}) });
   }
   if (builds !== 1) errors.push(`exactly one build step is required, found ${builds}`);
-  const cleanup = validateCleanup(plan.cleanup, errors);
-  const stability = validateStability(plan.stability, errors);
+  const boundTargets = validateBoundTargets(plan.boundTargets, errors);
+  const cleanup = validateCleanup(plan.cleanup, errors, boundTargets ?? []);
+  const stability = validateStability(plan.stability, errors, boundTargets ?? []);
   const stage = validateStage(plan.stage, errors);
   const verifySidecars = validateVerifySidecars(plan.verifySidecars, errors);
-  const nativeHelpers = validateNativeHelpersSection(plan.nativeHelpers, errors);
+  const nativeHelpers = validateNativeHelpersSection(plan.nativeHelpers, errors, boundTargets ?? []);
+  if (boundTargets && stage && (stage.pre?.length || stage.post?.length)) errors.push("a plan that binds Cargo targets (a door split) plans no stage copies: the build output is read and signed in place (rightkit#924 copies are zero)");
   if (errors.length) fail("RECIPE_BUILD_PLAN_INVALID", `invalid recipe plan:\n${errors.map((line) => `- ${line}`).join("\n")}`, { errors });
-  return { version: RECIPE_BUILD_PLAN_VERSION, steps, ...(cleanup ? { cleanup } : {}), ...(stability ? { stability } : {}), ...(stage ? { stage } : {}), ...(verifySidecars ? { verifySidecars } : {}), ...(nativeHelpers ? { nativeHelpers } : {}) };
+  return { version: RECIPE_BUILD_PLAN_VERSION, steps, ...(boundTargets ? { boundTargets } : {}), ...(cleanup ? { cleanup } : {}), ...(stability ? { stability } : {}), ...(stage ? { stage } : {}), ...(verifySidecars ? { verifySidecars } : {}), ...(nativeHelpers ? { nativeHelpers } : {}) };
 }
 
 /** This package's own right-release entry: the door's RightKit, whatever the app's node_modules holds. */

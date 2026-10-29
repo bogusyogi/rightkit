@@ -13,7 +13,7 @@ RightKit owns shared packages, crates, QA, licensing, logging, & release tooling
 
 ## Commands
 - Compile & test locally through the gate (Mac & Dell via the broker, Linux direct); CI qualifies every push; see `docs/CI.md`.
-- Run `node scripts/preflight.mjs` before every push, hook or no hook: seconds, files only. Fix every `FAIL` it prints, commit, & rerun until it passes; CI's first step runs the same check.
+- CI's plan job runs preflight first on every push; running it locally is optional and never a push precondition (`node scripts/preflight.mjs`: seconds, files only).
 - Run `node scripts/ci/gate.mjs --plan --base <sha>` to preview what a push will verify.
 - Push to `main` in batches & read the `ci` run; apply its `fmt.patch` or `Cargo.lock.patch`, never hand-format.
 - Record a red unit in `ci/known-red.json` with its reason; never publish a unit listed there.

@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
+import { readSourceSplit } from "./source-split.mjs";
 import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 import { acquireManagedRunLease, directCargoEnv, directPlatform, managedRuntimeClient, managedRuntimeCommand, runCargoSync } from "./managed-cargo.mjs";
 import { BUNDLE_MARKERS, bundleMarkerBuffer, readTauriBundleMarkers } from "./tauri-bundle-marker.mjs";
@@ -107,7 +108,10 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
   // iOS: --dry-run validates the config and prints the plan on any host; everything else needs macOS with Xcode.
   if (!(platform === "ios" && dryRun)) assertNativeDevelopmentHost(platform);
   const target = validateDevelopmentConfig(config, platform, { root });
-  const repoRoot = git(root, ["rev-parse", "--show-toplevel"]);
+  // Inside the door's source split `root` is the snapshot of a commit (no git directory): the repository is the checkout the door
+  // ran in, whose primary-checkout rule and execution policy still apply, and the commit is the split's.
+  const split = readSourceSplit({ env, cwd: root });
+  const repoRoot = split ? split.checkout : git(root, ["rev-parse", "--show-toplevel"]);
   assertPrimaryReleaseCheckout(repoRoot, env);
   if (dryRun && uiTests) {
     if (!target.uiTests) throw new Error("development.targets.ios.uiTests is not declared: list the journeys in uiTests.onlyTesting");
@@ -147,10 +151,11 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
     // Linux: the declared files become one tarball per architecture plus the digest manifest a guest link pins (rightkit#1230).
     // Only from a clean checkout: an artifact others install must name the exact commit it was built from.
     if (platform === "linux" && target.archive && !dryRun) {
-      if (git(repoRoot, ["status", "--porcelain", "--untracked-files=normal"])) throw new Error("linux artifacts are packed only from a clean checkout: commit first, so the manifest names the exact source");
+      // A split's snapshot is exactly its commit (the door verifies it at the start and end of the stage); the checkout may hold anything.
+      if (!split && git(repoRoot, ["status", "--porcelain", "--untracked-files=normal"])) throw new Error("linux artifacts are packed only from a clean checkout: commit first, so the manifest names the exact source");
       let version;
       try { version = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version; } catch { version = undefined; }
-      packLinuxArtifacts({ root, archive: validateLinuxArchive(target.archive), app: target.archive.name, version, commit: git(repoRoot, ["rev-parse", "HEAD"]), run });
+      packLinuxArtifacts({ root, archive: validateLinuxArchive(target.archive), app: target.archive.name, version, commit: split ? split.commit : git(repoRoot, ["rev-parse", "HEAD"]), run });
     }
     if (buildOnly || !target.install) return { built: true, installed: false, ...(staged.length ? { staged } : {}) };
     if (iosPrepared) return { built: true, installed: true, ios: installIosDevelopment(iosPrepared.install, { root, env: childEnv, run }) };

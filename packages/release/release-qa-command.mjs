@@ -25,8 +25,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
-import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
-import { assertCleanSource } from "./source-gate.mjs";
+import { NO_REPOSITORY_CODE, assertBindsSource, assertInsideSource, assertReleaseSource, gitRootOf, isSnapshotSource, resolveReleaseSource, snapshotSourceIdentity } from "./release-source-identity.mjs";
 import { verifySealedRelease } from "./release-state.mjs";
 import { auditMain } from "./release-qa-audit.mjs";
 import { journeyRequiredItem, QA_RUN_ENV, relativePosix, validateJourneysReceipt } from "./release-qa-hardening.mjs";
@@ -102,11 +101,18 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, carryTo
   const executionStartedAt = new Date();
   const gitRunner = deps.gitRunner ?? spawnSync;
   const appRoot = path.dirname(configPath);
-  const repoRoot = String(gitRunner("git", ["-C", appRoot, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true }).stdout ?? "").trim();
-  if (!repoRoot) throw new Error("release config must live inside a Git repository");
-  if (!deps.skipPrimaryCheckout) assertPrimaryReleaseCheckout(repoRoot);
-  assertCleanSource({ status: String(gitRunner("git", ["-C", repoRoot, "status", "--porcelain=v1", "-z", "--untracked-files=all"], { encoding: "utf8", windowsHide: true }).stdout ?? ""), commandId: "right-release qa" });
-  const source = sourceIdentity(repoRoot, gitRunner);
+  // Source identity (release-source-identity.mjs, item 7 row 7.04). Outside a door run the checkout is the source, proven by the primary
+  // worktree and a clean status exactly as before. Inside one (RK_GATE_CHECKOUT) the source is the selected commit's objects and its
+  // verified snapshot: no HEAD, status or branch of the checkout is read, and the config, QA plan and journeys all come from the snapshot.
+  let release;
+  try { release = resolveReleaseSource({ cwd: appRoot, env: deps.env ?? process.env, git: gitRunner }); }
+  catch (error) { if (error.code === NO_REPOSITORY_CODE) throw new Error("release config must live inside a Git repository"); throw error; }
+  const split = isSnapshotSource(release);
+  // Outputs, the sealed vault and the QA receipts live in the checkout's `.right-release` either way (GC:31, GC:65).
+  const repoRoot = gitRootOf(release);
+  assertReleaseSource(release, { commandId: "right-release qa", env: deps.env ?? process.env, git: gitRunner, skipPrimaryCheckout: Boolean(deps.skipPrimaryCheckout) });
+  assertInsideSource(release, configPath, "the release config");
+  const source = split ? snapshotSourceIdentity(release, gitRunner) : sourceIdentity(repoRoot, gitRunner);
   const config = await importReleaseConfig(configPath, { query: `qa=${source.commit}` });
   if (!config?.app || !config?.version) throw new Error("release config must expose app and version");
   const { floor, digest: floorDigest } = loadQaFloor(deps.floorDir);
@@ -121,13 +127,23 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, carryTo
   else {
     if (!releaseId) throw new Error("--release <sealed-id> is required for the installed stage");
     sealed = verifySealedRelease(path.join(repoRoot, ".right-release", "sealed", releaseId, platform === "win" ? "windows" : "mac"));
-    if (sealed.manifest.commit !== source.commit) throw new Error("sealed release was built from a different commit than the current checkout");
+    // R4: a split binds the sealed release to the selected commit (and its tree), never to the checkout's HEAD.
+    if (split) assertBindsSource(release, sealed.manifest, "the sealed release");
+    else if (sealed.manifest.commit !== source.commit) throw new Error("sealed release was built from a different commit than the current checkout");
     sourceReceiptDigest = sealed.manifest.qa?.sourceReceiptDigest ?? null;
     if (!sourceReceiptDigest) throw new Error("sealed release records no source QA receipt; it was not built through the QA gate; rebuild after `right-release qa --stage source`");
     artifacts = sealed.manifest.files.map((file) => ({ name: file.name, sha256: file.sha256, sizeBytes: file.sizeBytes }));
   }
 
   const key = ensureQaReceiptKey({ env: deps.env ?? process.env, credentialStore: deps.credentialStore, provision: deps.provision ?? provisionKeyOnHost });
+  // R5: the QA plan, the journeys manifest and a named journeys receipt are read from the snapshot, and so is a runner the config names.
+  const journeysDeclared = config.qa.journeys ?? null;
+  assertInsideSource(release, path.resolve(appRoot, config.qa.config), "qa.config");
+  if (journeysDeclared) {
+    assertInsideSource(release, path.resolve(appRoot, journeysDeclared.manifest ?? "journeys.toml"), "qa.journeys.manifest");
+    if (journeysDeclared.receipt) assertInsideSource(release, path.resolve(appRoot, String(journeysDeclared.receipt)), "qa.journeys.receipt");
+  }
+  if (config.qa.runner && !deps.runnerFile) assertInsideSource(release, path.resolve(appRoot, config.qa.runner), "qa.runner");
   const runnerFile = deps.runnerFile ?? resolveRunner({ qa: config.qa, appRoot });
   const runnerSha = sha256File(runnerFile);
   const journeysConfig = config.qa.journeys ?? null;
@@ -183,7 +199,7 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, carryTo
     const manifestFile = path.resolve(appRoot, journeysConfig.manifest ?? "journeys.toml");
     const receiptFile = journeysConfig.receipt ? path.resolve(appRoot, String(journeysConfig.receipt)) : journeysReceiptFromOutput(journeysRun?.stdout);
     const validation = receiptFile
-      ? validateJourneysReceipt({ runnerFile, runnerSha256: runnerSha, receiptFile, manifestFile, manifestRelPath: relativePosix(repoRoot, manifestFile), platform, spawn: deps.spawnValidator ?? deps.spawnRunner ?? spawnSync })
+      ? validateJourneysReceipt({ runnerFile, runnerSha256: runnerSha, receiptFile, manifestFile, manifestRelPath: relativePosix(split ? release.snapshot : repoRoot, manifestFile), platform, spawn: deps.spawnValidator ?? deps.spawnRunner ?? spawnSync })
       : { ok: false, problems: ["rightkit-qa journeys run reported no run directory, so there is no journeys receipt to validate"], block: null };
     if (!deps.quiet) for (const problem of validation.problems) console.error(`[qa] journeys: ${problem}`);
     journeys = validation.block;

@@ -2091,7 +2091,7 @@ test("D4: an existing managed root gets exactly `build-ownership/` (mode 0700) a
   assert.equal(fs.existsSync(path.join(base, "gone")), false);
 });
 
-test("D4: each entry point maps the refusal by name and creates nothing: the door (BLOCKED, exit 1), check --snapshot (RK_CHECK_ERROR, exit 2), the snapshot CLI (exit 1)", async (t) => {
+test("D4: each entry point maps the refusal by name and creates nothing: the door (BLOCKED, exit 1), check --snapshot (RK_CHECK_ERROR, exit 2), the snapshot CLI (exit 1), the clippy route (BLOCKED)", async (t) => {
   const { main } = await import("./bin/rightkit-gate.mjs");
   const dir = tmp(t, "rk-own-d4-entry-"); const absent = path.join(dir, "managed");
   // The real guard, reached through the callers' own `acquireOwnership` seam with an injected absent managed root.

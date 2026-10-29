@@ -1,5 +1,5 @@
 // The app check: step 1 of docs/PIPELINE-ARCHITECTURE.md for any repository that uses RightKit, shipped in @rightkit/release so an
-// app runs it without a RightKit checkout (`rightkit-gate check`, `right-release check`, the pre-push hook, and the start of every
+// app runs it without a RightKit checkout (`rightkit-gate check`, `right-release check`, and the start of every
 // right-release command that builds or ships; see CHECKED_COMMANDS). RightKit's own scripts/preflight.mjs imports these rules and
 // adds the ones that police RightKit itself.
 //
@@ -1131,7 +1131,7 @@ export const RULES = Object.freeze([
 // asked of them. The compile tier is the rule set every app was green on when it last built through the gate: the rules @rightkit/release
 // 0.6.6 published. Every rule added since (consumer, shell, Legion, ownership and source-closure contracts) is release-tier until the
 // synthesis waves make it true in every app, and is promoted here, in RightKit, never per app and never through a baseline.
-//   compile  gates compile admission: the RustRight broker, the pre-push hook, rightkit-gate check, --to compile|package, right-release build|dev|test.
+//   compile  gates compile admission: the RustRight broker, rightkit-gate check, --to compile|package, right-release build|dev|test.
 //   release  the whole set: --to qualify|release and every right-release command that qualifies, signs, ships or uploads.
 export const TIERS = Object.freeze(["compile", "release"]);
 export const COMPILE_TIER_IDS = Object.freeze(new Set([
@@ -1513,7 +1513,7 @@ export const UNCHECKED_COMMANDS = new Map([
   ["identity-scan", "asserts the signature of a path named on the command line"],
   ["apple-profile-create", "provisioning-profile credentials; no app source"],
   ["ios-credentials", "stores or checks App Store Connect credentials; no app source"],
-  ["hooks", "installs the git hooks, and the pre-push hook runs the check"],
+  ["hooks", "retires the git hooks an earlier release wrote (install-hook); writes none"],
   ["suite-doctor", "verifies the Right Suite contract tests; a report"],
   ["cache", "host build-cache maintenance"],
   ["disk", "host disk maintenance"],
@@ -1578,14 +1578,18 @@ export const appDirectory = (args, cwd) => {
  * check is green (nothing is printed then), else { exitCode: 1, lines } for the caller to print: the findings and why nothing
  * was started. A check that cannot run is red too.
  */
-export function guardCommand({ args, cwd = process.cwd(), run = runAppCheck } = {}) {
-  const mode = checkModeFor(args);
-  if (!mode) return null;
+export function guardCommand({ args, cwd = process.cwd(), run = runAppCheck, source = null } = {}) {
+  const checkMode = checkModeFor(args);
+  if (!checkMode) return null;
   const name = args[0].startsWith("-") ? "build" : checkedCommandOf(args) ?? args[0];
-  const dir = appDirectory(args, cwd);
-  const repo = repoRoot(dir);
+  // A source split (source-split.mjs): the process runs in the door's snapshot of `source.commit`, which has no git directory. The
+  // rules read that commit from the checkout `source.repo`, whatever the command's usual mode (the snapshot IS the commit, so a
+  // "worktree" command checks it as a commit; the checkout's own working tree is never what is built).
+  const mode = source ? "commit" : checkMode;
+  const dir = source ? source.repo : appDirectory(args, cwd);
+  const repo = source ? source.repo : repoRoot(dir);
   if (!repo) return { exitCode: 1, lines: [`right-release ${name}: the app check needs a git repository and ${dir} is not inside one; nothing was started`] };
-  const result = run({ repo, mode, tier: tierForCommand(name, args), label: "check", refuse: BUILD_REFUSES });
+  const result = run({ repo, mode, ...(source ? { commit: source.commit } : {}), tier: tierForCommand(name, args), label: "check", refuse: BUILD_REFUSES });
   if (result.exitCode === 0) return null;
   const why = result.exitCode === 2 ? "could not run" : "found problems";
   return { exitCode: 1, lines: [...result.lines, ...result.errLines, `right-release ${name}: the app check ${why} in ${repo}; nothing was started. Fix the above and commit, then run it again.`] };

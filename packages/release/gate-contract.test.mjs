@@ -17,6 +17,7 @@ import { spawnSync } from "./background-process.mjs";
 import { CLASS_A_SCAN_PREFIXES, CLASS_B_SCAN_PREFIXES, TEST_SCAN_CLASS, LIVE_SCAN_IDS, REGISTRY_SCAN_IDS, cargoReachOf, planScans } from "./deterministic-scans.mjs";
 import { EXECUTOR_KINDS, resolveExecutor } from "./gate-executor.mjs";
 import { STAGES } from "./gate-stages.mjs";
+import { readSourceSplit } from "./source-split.mjs";
 import { RULES as APP_RULES, COMPILE_TIER_IDS } from "./app-check.mjs";
 import { RULES as PREFLIGHT_RULES } from "../../scripts/preflight.mjs";
 import { main } from "./bin/rightkit-gate.mjs";
@@ -311,19 +312,24 @@ test("[behavior] E1: a red class A starts no compile and no later-stage scan (re
   assert.equal(green.tested, true, "control: the later-stage test is reachable");
 });
 
-test("[behavior] E1: the door's dev and test stages never launch right-release after a red check", async (t) => {
+test("[behavior] E1: the door's dev and test stages never launch right-release after a red check", { skip: process.platform === "win32" && "simulates a Linux host, whose ownership reads ps" }, async (t) => {
   const repo = tmp(t, "rk-gc-door-");
   for (const a of [["init", "-q", "-b", "main"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "c"]]) spawnSync("git", a, { cwd: repo });
+  // `--to dev|test` build a commit: the door syncs a snapshot of it (here into the fixture's own snapshot root) before class A.
+  const env = { ...process.env, RIGHTKIT_DATA_ROOT: repo, XDG_STATE_HOME: repo };
+  delete env.GITHUB_ACTIONS; delete env.RIGHTKIT_BUILD_OWNERSHIP; delete env.RIGHTKIT_BUILD_OWNERSHIP_FILE;
   const launches = []; const out = []; const err = [];
-  const io = { cwd: repo, out: (m) => out.push(m), err: (m) => err.push(m), resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }), runCheck: async () => 1, spawnInherit: (cmd, args) => { launches.push([cmd, ...args]); return { status: 0 }; } };
+  const spawn = (c, a, opts) => (c === "git" ? spawnSync(c, a, { ...opts, encoding: "utf8" }) : { status: 1, stdout: "", stderr: "not in this fixture" });
+  const io = { cwd: repo, platform: "linux", snapshotRoot: path.join(repo, "..", "rk-gc-door-snaps"), env, spawn, out: (m) => out.push(m), err: (m) => err.push(m), resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }), runCheck: async () => 1, spawnInherit: (cmd, args) => { launches.push([cmd, ...args]); return { status: 0 }; } };
+  t.after(() => fs.rmSync(io.snapshotRoot, { recursive: true, force: true }));
   for (const to of ["dev", "test"]) {
-    assert.equal(await main(["--to", to], io), 1);
+    assert.equal(await main(["--to", to], io), 1, err.join("\n"));
     assert.ok(err.some((l) => l.includes(`--to ${to} stopped at check: nothing compiled`)), err.join("\n"));
   }
   assert.deepEqual(launches, [], "right-release was never launched");
   // Control: a green check does launch it, so the recorder would have seen a launch.
   const green = { ...io, runCheck: async () => 0 };
-  assert.equal(await main(["--to", "dev"], green), 0);
+  assert.equal(await main(["--to", "dev"], green), 0, err.join("\n"));
   assert.equal(launches.length, 1);
   assert.match(launches[0].join(" "), /right-release\.mjs dev/);
 });
@@ -336,7 +342,7 @@ test("[behavior] E1: a class A row that executes repository code (lint, generato
   const ran = path.join(dir, "compile-ran");
   if (process.platform === "win32") write(bin, { "cargo.cmd": `@echo %*> "${ran}"\r\n` });
   else { write(bin, { cargo: `#!/bin/sh\necho "$*" > '${ran}'\n` }); fs.chmodSync(path.join(bin, "cargo"), 0o755); }
-  write(dir, { "content/gen.mjs": `const r = (await import("${["node", "child_process"].join(":")}")).spawnSync('cargo', ['build'], { shell: true, stdio: 'inherit' }); process.exit(r.status ?? 1);\n` });
+  write(dir, { "content/gen.mjs": `const r = (await import("${"node:child" + "_process"}")).spawnSync('cargo', ['build'], { shell: true, stdio: 'inherit' }); process.exit(r.status ?? 1);\n` });
   const runWith = (cls) => {
     const plan = { schema: "fixture", roots: { contentRoot: path.join(dir, "content"), liveRoot: path.join(dir, "content") }, changed: ["gen.mjs"], notes: [], deferred: [],
       scans: [{ id: "node-check:gen.mjs", class: "A", tool: "node", args: ["--check", "gen.mjs"], root: "content", command: "node --check gen.mjs" },
@@ -539,7 +545,7 @@ function doorFixture(t, files, prefix) {
     const code = await main(["--to", "compile", "--commit", sha], { cwd: repo, platform: "linux", snapshotRoot: path.join(dir, "snaps"), env, spawn, out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0, runCheck: async () => 0, readReceipt: () => null, writeReceipt: () => {}, ...extra });
     return { code, out: out.join("\n") };
   };
-  return { repo, sha, door };
+  return { repo, sha, door, dir };
 }
 
 test("[behavior] §1 4c review: the snapshot compile runs a RightKit-style docs generator from the verified snapshot, never defers it", { skip: process.platform === "win32" && "simulates a Linux host, whose ownership reads ps" }, async (t) => {
@@ -554,18 +560,39 @@ test("[behavior] §1 4c review: the snapshot compile runs a RightKit-style docs 
   assert.equal(plans.at(-1).roots.liveRoot, plans.at(-1).roots.contentRoot, "it runs from the snapshot itself");
 });
 
-test("[behavior] §1 4c review: whether the compile stages sidecars is the commit's config, whatever the checkout adds, edits or hides", { skip: process.platform === "win32" && "simulates a Linux host, whose ownership reads ps" }, async (t) => {
-  // The commit declares sidecars; the checkout removed them: still refused (part two of 4c stages them from a snapshot).
+test("[behavior] §1 4c review / 7.05: whether the compile stages sidecars is the commit's config, whatever the checkout adds, edits or hides, and they are staged from the snapshot through the source split", { skip: process.platform === "win32" && "simulates a Linux host, whose ownership reads ps" }, async (t) => {
+  // The commit declares sidecars; the checkout removed them: still staged, from the snapshot's config, never the checkout's.
   const declared = doorFixture(t, { "right-release.config.json": '{"sidecars":[{"name":"a"}]}\n', "README.md": "r\n" }, "rk-gc-4c-side-");
   fs.writeFileSync(path.join(declared.repo, "right-release.config.json"), "{}\n");
   let compiled = false;
-  let r = await declared.door({ runCompile: async () => { compiled = true; return 0; } });
-  assert.equal(r.code, 1, r.out); assert.match(r.out, /BLOCKED: \[compile\] right-release\.config\.json stage sidecars/); assert.equal(compiled, false, "nothing compiled");
-  // The commit declares none; the checkout added some: compiles.
+  const launches = [];
+  const spawnCapture = (cmd, args, opts) => {
+    const nonce = opts.env.RK_GATE_RUN;
+    const run = JSON.parse(fs.readFileSync(path.join(declared.repo, ".git", "rightkit-gate", "runs", `${nonce}.json`), "utf8"));
+    // The child proves its split the way right-release does: the live run file, the checkout it names, the snapshot its cwd is inside.
+    launches.push({ args, cwd: opts.cwd, source: run.source, split: readSourceSplit({ env: opts.env, cwd: opts.cwd }), checkoutEnv: opts.env.RK_GATE_CHECKOUT });
+    return { status: 0, stdout: JSON.stringify({ files: [], receiptPath: null }), stderr: "" };
+  };
+  let r = await declared.door({ spawnCapture, runCompile: async () => { compiled = true; return 0; } });
+  assert.equal(r.code, 0, r.out); assert.equal(compiled, true, "the compile ran after the sidecars were staged");
+  assert.equal(launches.length, 1, "one right-release launch: stage-sidecar");
+  const snapshot = path.join(declared.dir, "snaps", fs.readdirSync(path.join(declared.dir, "snaps")).find((n) => !n.includes(".")));
+  assert.deepEqual(launches[0].args.slice(1), ["stage-sidecar", "--config", path.join(snapshot, "right-release.config.json"), "--json"], "the config is the snapshot's (the commit's), not the checkout's");
+  assert.equal(launches[0].cwd, snapshot, "right-release runs inside the snapshot");
+  assert.equal(launches[0].source.snapshot, snapshot); assert.equal(launches[0].source.commit, declared.sha); assert.equal(launches[0].source.appDir, ".");
+  assert.equal(launches[0].split.commit, declared.sha); assert.equal(launches[0].split.appRoot, snapshot);
+  assert.equal(launches[0].checkoutEnv, fs.realpathSync(declared.repo));
+  // A staging failure compiles nothing.
+  compiled = false;
+  r = await declared.door({ spawnCapture: () => ({ status: 1, stdout: "", stderr: "" }), runCompile: async () => { compiled = true; return 0; } });
+  assert.equal(r.code, 1, r.out); assert.equal(compiled, false, "a failed staging compiles nothing");
+  // The commit declares none; the checkout added some: nothing is staged, the compile runs.
   const none = doorFixture(t, { "right-release.config.json": "{}\n", "README.md": "r\n" }, "rk-gc-4c-side2-");
   fs.writeFileSync(path.join(none.repo, "right-release.config.json"), '{"sidecars":[{"name":"a"}]}\n');
-  r = await none.door({ runCompile: async () => { compiled = true; return 0; } });
+  launches.length = 0; compiled = false;
+  r = await none.door({ spawnCapture: () => { launches.push("launched"); return { status: 0, stdout: "{}" }; }, runCompile: async () => { compiled = true; return 0; } });
   assert.equal(r.code, 0, r.out); assert.equal(compiled, true, "the commit's config has no sidecars, so the compile ran");
+  assert.deepEqual(launches, [], "the checkout's dirty sidecar declaration is never staged");
 });
 
 test("[behavior] §1 4c review: an npm test that reaches cargo during a snapshot compile writes to the checkout's target directory (real pnpm -> script -> cargo chain), or is refused before launch when its workspace cannot be proven", { skip: process.platform === "win32" ? "POSIX fake cargo" : false }, (t) => {

@@ -468,7 +468,7 @@
     "vendor"
   ],
   "npm": {
-    "_comment": "Packages whose tests are wall-clock bound (vitest 5 s/20 s timeouts, Chrome for Testing shutdown): the pre-push gate leaves them to the CI shards (RK_GATE_QUIET_TESTS=local runs them in the quiet lane) because they time out beside the 4-wide Rust test lane while passing alone (gate15, 2026-10-22: outdated 168/168, onboarding 117/117, qa 317/317 solo).",
+    "_comment": "Packages whose tests are wall-clock bound (vitest 5 s/20 s timeouts, Chrome for Testing shutdown): the local gate leaves them to the CI shards (RK_GATE_QUIET_TESTS=local runs them in the quiet lane) because they time out beside the 4-wide Rust test lane while passing alone (gate15, 2026-10-22: outdated 168/168, onboarding 117/117, qa 317/317 solo).",
     "rightkit-outdated": {
       "quietTests": true
     },

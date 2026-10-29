@@ -370,7 +370,7 @@ function brokerIdentity(deps) {
   return { name: "rustright", client: String(client).replaceAll("\\", "/"), sha256: sha256((deps.readFile ?? fs.readFileSync)(client)) };
 }
 
-// Cargo only through the broker: `rustright cargo`, or a `cargo` on PATH that is the managed shim (scripts/local-gate.mjs).
+// Cargo only through the broker: `rustright cargo`, or a `cargo` on PATH that is the managed shim.
 function detectCargoCommand(deps) {
   const which = (command) => {
     const result = (deps.run ?? spawnSync)((deps.platform ?? process.platform) === "win32" ? "where" : "which", [command], { encoding: "utf8", windowsHide: true });

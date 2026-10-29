@@ -17,10 +17,11 @@ const CATALOG_FILE = "rightkit-ownership.json";
 const REGISTRY_FILE = "ownership-repositories.json";
 // Step 4: the release QA requirement floor is protected like the catalog. Dropping a required check changes the digest.
 export const QA_FLOOR_FILE = "release-qa-floor.json";
-// Modules that make or carry enforcement decisions. Their import closure is pinned.
+// Modules that make or carry enforcement decisions. Their import closure is pinned. ownership-hooks.mjs left the list with the
+// advisory pre-commit hook it used to write (GATE-CONTRACT: commit runs no local hook check): it retires that hook and decides nothing.
 export const POLICY_BUNDLE_ENTRYPOINTS = Object.freeze([
   "ownership-scan-worker.mjs", "ownership-evidence.mjs", "ownership-verdict.mjs", "ownership-admission.mjs",
-  "ownership-staged.mjs", "ownership-hooks.mjs", "ownership-key-trust.mjs", "release-qa-receipt.mjs",
+  "ownership-staged.mjs", "ownership-key-trust.mjs", "release-qa-receipt.mjs",
 ]);
 // Data files are pinned through their own digests, not as source files.
 const DATA_FILES = new Set([CATALOG_FILE, REGISTRY_FILE, ALLOWLIST_FILE, QA_FLOOR_FILE]);

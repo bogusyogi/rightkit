@@ -44,12 +44,45 @@ test("every invariant names the tests that enforce it, or its gap", () => {
   }
 });
 
-test("P1: the pre-push hook runs preflight before the gate", () => {
-  const hook = read(".githooks/pre-push");
-  const check = hook.indexOf("scripts/preflight.mjs");
-  const gate = hook.indexOf("scripts/local-gate.mjs");
-  assert.ok(check > 0 && gate > check, "preflight must run before the gate");
-  assert.match(hook, /scripts\/preflight\.mjs" <\/dev\/null \|\| exit 1/, "a red preflight stops the push, and it reads none of git's ref lines");
+/**
+ * Commit and push run no gate and no local hook check (docs/GATE-CONTRACT.md:32); CI checks every push as it always did. What the contract
+ * needs of ci.yml, as problems: it triggers on push, the plan job runs scripts/preflight.mjs first, and the hygiene job runs the class A scans.
+ * Takes the parsed workflow so a test can remove either step and see this fail.
+ */
+export function pushCheckProblems(parsed) {
+  const problems = [];
+  const on = parsed.on ?? parsed.true;
+  if (!on || typeof on !== "object" || !("push" in on)) problems.push("ci.yml does not trigger on push");
+  const plan = parsed.jobs?.plan?.steps ?? [];
+  const preflight = plan.findIndex((s) => s.run?.trim() === "node scripts/preflight.mjs");
+  if (preflight < 0) problems.push("the plan job does not run node scripts/preflight.mjs");
+  else if (!plan.slice(0, preflight).every((s) => /^actions\/(checkout|setup-node)@/.test(s.uses ?? ""))) problems.push("something other than checkout and node setup runs before preflight in plan");
+  const hygiene = parsed.jobs?.hygiene?.steps ?? [];
+  if (!hygiene.some((s) => /(?:^|\s)node scripts\/ci\/gate\.mjs --select \S+ --steps scans(?:\s|$)/.test(s.run ?? ""))) problems.push("the hygiene job does not run the class A scans (scripts/ci/gate.mjs --steps scans)");
+  if (!(parsed.jobs?.hygiene?.needs ?? []).includes("plan")) problems.push("hygiene does not need plan");
+  return problems;
+}
+
+test("P1: ci.yml triggers on push, plan runs preflight first and hygiene runs the class A scans; removing either step fails", () => {
+  const parsed = workflow("ci.yml");
+  assert.deepEqual(pushCheckProblems(parsed), []);
+  // Remove the preflight step: the contract fails.
+  const noPreflight = structuredClone(parsed);
+  noPreflight.jobs.plan.steps = noPreflight.jobs.plan.steps.filter((s) => s.run?.trim() !== "node scripts/preflight.mjs");
+  assert.match(pushCheckProblems(noPreflight).join("\n"), /plan job does not run node scripts\/preflight\.mjs/);
+  // Remove the class A scans from hygiene: the contract fails.
+  const noScans = structuredClone(parsed);
+  noScans.jobs.hygiene.steps = noScans.jobs.hygiene.steps.filter((s) => !/--steps scans/.test(s.run ?? ""));
+  assert.match(pushCheckProblems(noScans).join("\n"), /hygiene job does not run the class A scans/);
+  // Move preflight behind another step, or drop the push trigger: the contract fails.
+  const late = structuredClone(parsed);
+  late.jobs.plan.steps = [{ run: "echo first" }, ...late.jobs.plan.steps];
+  assert.match(pushCheckProblems(late).join("\n"), /before preflight/);
+  const noPush = structuredClone(parsed);
+  delete noPush.on.push;
+  assert.match(pushCheckProblems(noPush).join("\n"), /does not trigger on push/);
+  // No local hook is part of it: the tree commits none.
+  assert.equal(fs.existsSync(path.join(ROOT, ".githooks")), false, "RightKit commits no git hook (GATE-CONTRACT:32)");
 });
 
 /** Every job a job needs, directly or not. */

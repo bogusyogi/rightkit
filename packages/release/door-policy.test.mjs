@@ -93,3 +93,33 @@ test("shell forms the policy simulation (scripts/sim/door-policy.mjs) found allo
     "echo fmt --all | xargs cargo", "echo `T=pnpm; $T run lint`", "for x in 1; do T=pnpm; $T run lint; done", "echo \"cargo build\" > /dev/null",
   ]) assert.equal(doorViolation(command), null, command);
 });
+
+test("the Clippy route is the agent entry for Clippy: through the pinned gate it is allowed, direct Clippy stays denied (item 8 row 8.14)", async () => {
+  const { CLIPPY_ROUTE } = await import("./door-policy.mjs");
+  // The route and its every form are the door, for a human and an agent alike (the same text, so the same route and order).
+  for (const command of [
+    "rightkit-gate clippy", "rightkit-gate clippy --workspace --all-targets -- -D warnings", "pnpm exec rightkit-gate clippy -p rightkit-db --features bundled,statement-cache",
+    "node packages/release/bin/rightkit-gate.mjs clippy --all-targets", "npx rightkit-gate clippy --manifest-path crates/x/Cargo.toml", "bash -c 'rightkit-gate clippy -- -D warnings'",
+  ]) assert.equal(doorViolation(command), null, command);
+  assert.deepEqual(claudeDoorDecision({ tool_name: "Bash", tool_input: { command: "rightkit-gate clippy --workspace" } }), {});
+  // Direct Clippy, with or without a toolchain selector and however it is wrapped, is denied and the denial names the route.
+  for (const command of ["cargo clippy", "cargo clippy --workspace --all-targets -- -D warnings", "cargo +1.98.0 clippy --all-targets", "cargo +nightly clippy", "cargo --color always clippy", "bash -lc 'cargo clippy'", "sudo timeout 60 cargo clippy", "echo x | xargs cargo clippy"]) {
+    const v = doorViolation(command);
+    assert.equal(v, "cargo clippy", command);
+    assert.ok(doorDenial(v).includes(`Required: ${CLIPPY_ROUTE}`), doorDenial(v));
+    assert.equal(claudeDoorDecision({ tool_name: "Bash", tool_input: { command } }).hookSpecificOutput.permissionDecision, "deny", command);
+  }
+  assert.match(doorDenial("cargo test"), /Required: rightkit-gate --to compile /, "other cargo denials are unchanged");
+});
+
+test("an unpinned rightkit-gate copy is denied for the Clippy route on the managed hosts, the pinned gate is not (item 8 row 8.14; agentDoorViolation)", async () => {
+  const { agentDoorViolation, managedBuildViolation } = await import("../build-control-policy/src/index.mjs");
+  assert.equal(managedBuildViolation("cargo clippy --workspace"), "cargo", "direct cargo clippy is denied on a managed host");
+  assert.equal(managedBuildViolation("cargo +1.98.0 clippy --all-targets"), "cargo", "and so is cargo +toolchain clippy");
+  assert.equal(managedBuildViolation("node /pin/rightkit-gate.mjs clippy --workspace"), null);
+  const options = { platform: "darwin", home: "/home", hasDoor: () => true, read: () => JSON.stringify({ buildRules: { checkAdmission: { trustedGate: { path: "/pin/rightkit-gate.mjs" } } } }), realpath: (p) => p };
+  assert.equal(agentDoorViolation("node /pin/rightkit-gate.mjs clippy --workspace --all-targets -- -D warnings", options), null);
+  assert.equal(agentDoorViolation("node /pin/rightkit-gate.mjs clippy", options), null);
+  assert.equal(agentDoorViolation("rightkit-gate clippy --workspace", options), "untrusted-gate");
+  assert.equal(agentDoorViolation("node /elsewhere/rightkit-gate.mjs clippy --workspace", options), "untrusted-gate");
+});

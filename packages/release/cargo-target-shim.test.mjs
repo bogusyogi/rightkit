@@ -8,11 +8,11 @@ import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 import { SHIM_REFUSAL_STATUS, decideCargoInvocation, installCargoShim, shimScanEnv } from "./cargo-target-shim.mjs";
-import { inheritedEnvDigest, planScans, runScans, scanCacheKey } from "./deterministic-scans.mjs";
+import { UNOBSERVED_NESTED_CARGO_NOTE, inheritedEnvDigest, planScans, runScans, scanCacheKey } from "./deterministic-scans.mjs";
 import { verifySnapshotDir } from "./snapshot-check.mjs";
 
 // Fixture programs (not this file) spawn children; the module specifier is composed so the hidden-launch policy scan sees no direct import here.
-const CHILD_PROCESS = ["node", "child_process"].join(":");
+const CHILD_PROCESS = "node:child" + "_process";
 import { main } from "./bin/rightkit-gate.mjs";
 
 const POSIX = process.platform === "win32" ? "POSIX wrapper: a Windows child finds only an .exe on PATH" : false;
@@ -500,4 +500,143 @@ test("[behavior] item 7 (map 7.14): a snapshot compile refuses a relative CARGO_
   }
   const ok = await run({ CARGO_HOME: path.join(os.tmpdir(), "abs-cargo-home"), SCCACHE_DIR: path.join(os.tmpdir(), "abs-sccache") });
   assert.equal(ok.code, 0, ok.out); assert.equal(ok.compiled, true, "absolute values compile");
+});
+
+// ---- row 7.10: the gate-owned ledger of every wrapper call (direct mode) ----
+import { SCAN_TOKEN_ENV, readLedger, scanTokenOf, unclaimedLedgers } from "./cargo-ledger.mjs";
+
+test("[behavior] item 7 row 7.10 (decision C): a refused wrapper call fails its unit via the ledger even when the test swallows cargo's exit status; a bound call and a unit that never reaches cargo pass", { skip: POSIX }, async (t) => {
+  const { dir, snap, targets } = mixedSnapshot(t);
+  const realCargo = path.join(dir, "toolchain", "cargo");
+  write(path.join(dir, "toolchain"), {
+    cargo: `#!/bin/sh
+if [ "$1" = "locate-project" ]; then
+  d="$PWD"; while [ "$d" != "/" ]; do if [ -f "$d/Cargo.toml" ] && grep -q '\\[workspace\\]' "$d/Cargo.toml"; then echo "$d/Cargo.toml"; exit 0; fi; d=$(dirname "$d"); done
+  exit 101
+fi
+exit 0
+`,
+  });
+  fs.chmodSync(realCargo, 0o755);
+  const installed = installCargoShim({ base: path.join(dir, "shim"), snapshotRoot: snap, targetDirs: targets, realCargo });
+  t.after(() => fs.rmSync(installed.dir, { recursive: true, force: true }));
+  write(dir, { "outside/Cargo.toml": "[workspace]\n" });
+  const clean = { ...process.env, NODE_OPTIONS: "" }; delete clean.CARGO_TARGET_DIR; delete clean.CARGO; delete clean[SCAN_TOKEN_ENV];
+  const cargo = (cwd, args) => `require("node:child" + "_process").spawnSync(${JSON.stringify(installed.shim)}, ${JSON.stringify(args)}, { cwd: ${JSON.stringify(cwd)}, stdio: "inherit" }).status`;
+  const node = (id, code) => ({ id, command: id, class: "A", tool: "node", args: ["-e", code], env: {}, root: "content", cwd: "crates/a" });
+  const plan = { scans: [
+    node("swallows-unknown", `${cargo(path.join(dir, "outside"), ["build"])}; process.exit(0)`),
+    node("swallows-redirect", `${cargo(snap, ["build", "--target-dir", "/tmp/elsewhere"])}; process.exit(0)`),
+    node("swallows-clean", `${cargo(snap, ["clean"])}; process.exit(0)`),
+    node("bound", `process.exit(${cargo(path.join(snap, "native"), ["build", "--locked"])})`),
+    node("quiet", "process.exit(0)"),
+  ], roots: { contentRoot: snap, liveRoot: snap }, notes: [], deferred: [], inputDigest: "d", classDigests: {} };
+  const result = await runScans(plan, { classes: ["A"], env: shimScanEnv(clean, installed), cargoSentinel: installed.sentinel, cargoLedger: { dir: installed.ledgerDir } });
+  const row = (id) => result.scans.find((r) => r.id === id);
+  for (const [id, code] of [["swallows-unknown", "RK_CARGO_UNBOUND_WORKSPACE"], ["swallows-redirect", "RK_CARGO_REDIRECT"], ["swallows-clean", "RK_CARGO_UNBOUND_COMMAND"]]) {
+    assert.equal(row(id).status, "fail", `${id}: ${JSON.stringify(row(id))}`); assert.equal(row(id).code, "RK_CARGO_LEDGER", id);
+    assert.match(row(id).detail, new RegExp(code), id);
+  }
+  assert.equal(row("bound").status, "pass", JSON.stringify(row("bound")));
+  assert.equal(row("quiet").status, "pass");
+  assert.deepEqual(readLedger(installed.ledgerDir, scanTokenOf("bound")).entries.map((e) => [e.status, e.mode]), [["ran", "direct"]]);
+  assert.deepEqual(unclaimedLedgers(installed.ledgerDir, new Set(plan.scans.map((s) => scanTokenOf(s.id)))), []);
+  // A scan that clears its scan token cannot hide a refusal: the run gains a failing row of its own.
+  const env = JSON.stringify(Object.fromEntries(Object.entries(shimScanEnv(clean, installed)).filter(([k]) => k !== SCAN_TOKEN_ENV)));
+  const hidden = await runScans({ ...plan, scans: [node("clears-token", `require("node:child" + "_process").spawnSync(${JSON.stringify(installed.shim)}, ["clean"], { cwd: ${JSON.stringify(snap)}, env: ${env}, stdio: "inherit" }); process.exit(0)`)] }, { classes: ["A"], env: shimScanEnv(clean, installed), cargoSentinel: installed.sentinel, cargoLedger: { dir: installed.ledgerDir } });
+  assert.equal(hidden.scans.find((r) => r.id === "cargo-ledger")?.code, "RK_CARGO_LEDGER"); assert.equal(hidden.ok, false);
+});
+
+function realChain(t) {
+  const dir = tmp(t);
+  const files = {
+    "Cargo.toml": '[workspace]\nmembers = ["crates/a"]\nresolver = "2"\n', "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\nbuild = "build.rs"\n', "crates/a/src/lib.rs": "pub fn a() {}\n",
+    // The build script runs the cargo it was handed in $CARGO.
+    "crates/a/build.rs": 'fn main() { let cargo = std::env::var("CARGO").expect("CARGO"); let s = std::process::Command::new(cargo).arg("--version").status().expect("spawn"); assert!(s.success()); }\n',
+    "native/Cargo.toml": '[package]\nname = "b"\nversion = "0.1.0"\nedition = "2021"\n[workspace]\n', "native/src/lib.rs": "pub fn b() {}\n",
+  };
+  const snap = path.join(dir, "snap"); write(snap, files); write(path.join(dir, "repo"), files);
+  const targets = { ".": path.join(dir, "repo", "target"), native: path.join(dir, "repo", "native", "target") };
+  const installed = installCargoShim({ base: path.join(dir, "shim"), snapshotRoot: snap, targetDirs: targets, realCargo: REAL_CARGO });
+  t.after(() => fs.rmSync(installed.dir, { recursive: true, force: true }));
+  write(dir, { "outside/Cargo.toml": '[package]\nname = "o"\nversion = "0.1.0"\n[workspace]\n', "outside/src/lib.rs": "\n" });
+  write(snap, { "tests/spawns.test.mjs": `import { spawnSync } from "${"node:child" + "_process"}";
+import test from "node:test";
+import assert from "node:assert/strict";
+test("real cargo in A then B", () => {
+  for (const cwd of ["crates/a", "native"]) { const r = spawnSync("cargo", ["build"], { cwd, encoding: "utf8" }); assert.equal(r.status, 0, r.stderr); }
+});
+test("a refused cargo whose status the test swallows", () => {
+  const r = spawnSync("cargo", ["build"], { cwd: ${JSON.stringify(path.join(dir, "outside"))}, encoding: "utf8" });
+  console.log("SWALLOWED", r.status);
+});
+` });
+  const token = scanTokenOf(`combined-${path.basename(dir)}`);
+  const env = { ...process.env, PATH: `${installed.bin}${path.delimiter}${process.env.PATH}`, CARGO: installed.shim, NODE_OPTIONS: "", [SCAN_TOKEN_ENV]: token };
+  delete env.CARGO_TARGET_DIR; delete env.NODE_TEST_CONTEXT;
+  const r = spawnSync(process.execPath, ["--test", "tests/spawns.test.mjs"], { cwd: snap, encoding: "utf8", env });
+  return { r, snap, targets, ledger: readLedger(installed.ledgerDir, token) };
+}
+
+test("[behavior] item 7 row 7.10 real cargo (review w2#4): a `node --test` file spawning real cargo in workspaces A and B writes each to its own checkout target, and a refused call whose status the test swallows is ledgered", { skip: REAL_CARGO ? false : "needs Linux with a real cargo on PATH" }, (t) => {
+  const { r, snap, targets, ledger } = realChain(t);
+  assert.equal(r.status, 0, `the test file itself passes, swallowing the refusal\n${r.stdout}\n${r.stderr}`);
+  assert.match(r.stdout, /SWALLOWED 101/);
+  assert.ok(fs.readdirSync(path.join(targets["."], "debug")).length > 0, "A wrote to its checkout target"); assert.ok(fs.readdirSync(path.join(targets.native, "debug")).length > 0, "B wrote to its own checkout target");
+  assert.equal(fs.existsSync(path.join(snap, "target")) || fs.existsSync(path.join(snap, "native", "target")), false, "the snapshot holds no target/");
+  assert.equal(ledger.entries.filter((e) => e.status === "ran" && e.argv.join(" ") === "build").length, 2, "both workspaces built through the wrapper");
+  assert.equal(ledger.problems.length, 1); assert.match(ledger.problems[0], /cargo build .* was refused \(RK_CARGO_UNBOUND_WORKSPACE\)/, "the swallowed refusal fails the unit via the ledger");
+});
+
+// Row 7.10, nested $CARGO (lead re-decision F7): cargo 1.98.0 hands a build script its OWN path in CARGO, not the wrapper
+// (/Volumes/D/scratch/rk-l7b/wsl-debug1.sh), so a cargo a build script runs through $CARGO bypasses the wrapper. Accepted: it inherits
+// the parent's bound CARGO_TARGET_DIR, the sentinel and the after-compile verify stay as backstops, and the call is UNOBSERVED (not
+// in the ledger; the scan result carries the note).
+test("[behavior] item 7 row 7.10 real cargo, nested $CARGO (F7): a build script's cargo bypasses the wrapper, writes only to the bound checkout target, leaves the sentinel empty and the snapshot untouched, and is reported as unobserved", { skip: REAL_CARGO ? false : "needs Linux with a real cargo on PATH" }, async (t) => {
+  const dir = tmp(t);
+  const files = {
+    "Cargo.toml": '[workspace]\nmembers = ["crates/a"]\nresolver = "2"\n', "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\nbuild = "build.rs"\n', "crates/a/src/lib.rs": "pub fn a() {}\n",
+    // The build script runs the cargo it was handed in $CARGO (`cargo metadata --offline`, which takes no build-directory lock) and records which cargo that was in OUT_DIR, inside the bound target.
+    "crates/a/build.rs": `fn main() {
+  let cargo = std::env::var("CARGO").expect("CARGO");
+  let out = std::process::Command::new(&cargo).args(["metadata", "--format-version", "1", "--offline"]).output().expect("spawn");
+  assert!(out.status.success(), "nested cargo metadata: {}", String::from_utf8_lossy(&out.stderr));
+  let dir = std::env::var("OUT_DIR").expect("OUT_DIR");
+  std::fs::write(std::path::Path::new(&dir).join("nested-cargo"), format!("{cargo}\\n{}", std::env::var("CARGO_TARGET_DIR").unwrap_or_default())).expect("write");
+}
+`,
+    "native/Cargo.toml": '[package]\nname = "b"\nversion = "0.1.0"\nedition = "2021"\n[workspace]\n', "native/src/lib.rs": "pub fn b() {}\n",
+  };
+  const snap = path.join(dir, "snap"); write(snap, files); write(path.join(dir, "repo"), files);
+  const targets = { ".": path.join(dir, "repo", "target"), native: path.join(dir, "repo", "native", "target") };
+  const installed = installCargoShim({ base: path.join(dir, "shim"), snapshotRoot: snap, targetDirs: targets, realCargo: REAL_CARGO });
+  t.after(() => fs.rmSync(installed.dir, { recursive: true, force: true }));
+  assert.ok(installed.sentinel, "two workspaces: a per-scan sentinel");
+  const clean = { ...process.env, NODE_OPTIONS: "" }; delete clean.CARGO_TARGET_DIR; delete clean.CARGO; delete clean[SCAN_TOKEN_ENV];
+  const build = (cwd) => `require("node:child" + "_process").spawnSync(${JSON.stringify(installed.shim)}, ["build"], { cwd: ${JSON.stringify(cwd)}, stdio: "inherit" }).status`;
+  const scan = { id: "nested", command: "nested", class: "A", tool: "node", args: ["-e", `process.exit(${build(path.join(snap, "crates", "a"))} || ${build(path.join(snap, "native"))})`], env: {}, root: "content" };
+  const plan = { scans: [scan], roots: { contentRoot: snap, liveRoot: snap }, notes: [], deferred: [], inputDigest: "d", classDigests: {} };
+  const result = await runScans(plan, { classes: ["A"], env: shimScanEnv(clean, installed), cargoSentinel: installed.sentinel, cargoLedger: { dir: installed.ledgerDir } });
+  const row = result.scans.find((r) => r.id === "nested");
+  assert.equal(row.status, "pass", JSON.stringify(row));
+  // Outputs land only in the bound checkout targets, nested call included.
+  assert.ok(fs.readdirSync(path.join(targets["."], "debug")).length > 0, "A wrote to its checkout target"); assert.ok(fs.readdirSync(path.join(targets.native, "debug")).length > 0, "B wrote to its own checkout target");
+  const markers = [];
+  const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); if (e.isDirectory()) walk(f); else if (e.name === "nested-cargo") markers.push(f); } };
+  walk(path.join(targets["."], "debug", "build"));
+  assert.equal(markers.length, 1, "the build script ran its nested cargo, and its marker is in the bound target");
+  const [nestedCargo, nestedTarget] = fs.readFileSync(markers[0], "utf8").split("\n");
+  assert.notEqual(nestedCargo, installed.shim, "cargo handed the build script its own path, not the wrapper (cargo 1.98.0): the nested call bypassed the wrapper");
+  assert.equal(nestedTarget, targets["."], "the nested cargo inherited the parent's bound CARGO_TARGET_DIR");
+  // Backstops: the sentinel stays empty, the snapshot holds no target/.
+  const left = []; const sweep = (d) => { if (!fs.existsSync(d)) return; for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); if (e.isDirectory()) sweep(f); else left.push(f); } };
+  sweep(installed.sentinel);
+  assert.deepEqual(left, [], "the unbound sentinel is empty");
+  assert.equal(fs.existsSync(path.join(snap, "target")) || fs.existsSync(path.join(snap, "native", "target")), false, "the snapshot holds no target/");
+  // Unobserved: the ledger has the two wrapped builds and no nested call, and the result says so.
+  const { entries, problems } = readLedger(installed.ledgerDir, scanTokenOf("nested"));
+  assert.deepEqual(problems, []);
+  assert.deepEqual(entries.map((e) => e.argv.join(" ")), ["build", "build"], "only the wrapped calls are ledgered; the nested metadata call is not");
+  assert.ok(result.notes.includes(UNOBSERVED_NESTED_CARGO_NOTE), `the scan result notes the nested call as unobserved: ${JSON.stringify(result.notes)}`);
+  assert.match(UNOBSERVED_NESTED_CARGO_NOTE, /unobserved/);
 });

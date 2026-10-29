@@ -602,7 +602,82 @@ test("Oracle (79c4427b): a stray directory a members glob matches refuses a brok
   assert.equal(fs.existsSync(s.sentinel), false);
 });
 
+// ============================================================================================================================
+// Row 5.09d through verifySnapshotDir (the door's compile verifies call it with the ledger before and admitNew after the compile): the
+// same walk as snapshot.mjs, one implementation, and the result carries the admitted entries.
+// ============================================================================================================================
+const APP_IGNORE = "target/\nnode_modules/\n.right-release/\nsrc-tauri/binaries/\nsrc-tauri/gen/\n*.log\n";
+const appScenario = (t) => scenario(t, { ".gitignore": APP_IGNORE, "src-tauri/Cargo.toml": "[package]\nname = \"app\"\n", "src-tauri/src/main.rs": "fn main() {}\n" });
+const stageOutputs = (dir) => {
+  const tool = path.join(dir, "src-tauri", "binaries", "tool-x86_64");
+  fs.mkdirSync(path.dirname(tool), { recursive: true });
+  fs.writeFileSync(tool, "sidecar bytes\n", { mode: 0o755 });
+  if (process.platform !== "win32") fs.chmodSync(tool, 0o755);
+  write(dir, { "src-tauri/binaries/stage-sidecar.receipt.json": "{\"staged\":1}\n", "src-tauri/gen/schemas/capabilities.json": "{}\n" });
+  return tool;
+};
 const refusesWith = (fn, re, name) => assert.throws(fn, (e) => e instanceof CheckError && re.test(e.message), name);
+
+test("5.09d verifySnapshotDir: the end-of-stage verify admits the stage's ignored outputs and returns them; the next start verify holds the ledger exactly; without options it stays strict", (t) => {
+  const s = appScenario(t);
+  const verify = (extra = {}) => verifySnapshotDir({ checkout: s.repo, dir: s.dir, commit: s.a, tree: s.tree, when: "unit", ...extra });
+  assert.equal(verify(), s.tree, "no options: the old return, the tree id");
+  const tool = stageOutputs(s.dir);
+  refusesWith(() => verify(), /src-tauri\/binaries is not in the commit's tree/, "the plain verify stays strict (the strict class A after-check)");
+  const end = verify({ admitNew: true });
+  assert.equal(end.tree, s.tree, "an ignored output does not change the tree id");
+  const byPath = Object.fromEntries(end.ledger.map((e) => [e.path, e]));
+  assert.deepEqual(byPath["src-tauri/binaries/tool-x86_64"], { path: "src-tauri/binaries/tool-x86_64", type: "file", size: 14, sha256: crypto.createHash("sha256").update("sidecar bytes\n").digest("hex"), execBit: process.platform !== "win32" });
+  assert.deepEqual(Object.keys(byPath).sort(), ["src-tauri/binaries", "src-tauri/binaries/stage-sidecar.receipt.json", "src-tauri/binaries/tool-x86_64", "src-tauri/gen", "src-tauri/gen/schemas", "src-tauri/gen/schemas/capabilities.json"]);
+  // Before the compile (the exact ledger): passes; a changed byte, a missing entry and a new entry refuse.
+  assert.deepEqual(verify({ ledger: end.ledger }).ledger, end.ledger);
+  fs.appendFileSync(tool, "tampered\n");
+  refusesWith(() => verify({ ledger: end.ledger }), /ledger entry and changed/, "a changed staged byte");
+  fs.writeFileSync(tool, "sidecar bytes\n", { mode: 0o755 });
+  if (process.platform !== "win32") fs.chmodSync(tool, 0o755);
+  fs.rmSync(path.join(s.dir, "src-tauri", "gen", "schemas", "capabilities.json"));
+  refusesWith(() => verify({ ledger: end.ledger }), /capabilities\.json is a ledger entry .* and is missing/, "a missing entry");
+  write(s.dir, { "src-tauri/gen/schemas/capabilities.json": "{}\n", "src-tauri/gen/schemas/new.json": "{}\n" });
+  refusesWith(() => verify({ ledger: end.ledger }), /new\.json is not in the commit's tree and not in the stage-output ledger/, "a new entry before the compile");
+  // After the compile: the ledger plus admitNew admits the new output.
+  assert.ok(verify({ ledger: end.ledger, admitNew: true }).ledger.some((e) => e.path.endsWith("new.json")));
+  // A staged entry changed by the compile is refused even at the end.
+  fs.appendFileSync(tool, "rewritten by the compile\n");
+  refusesWith(() => verify({ ledger: end.ledger, admitNew: true }), /ledger entry and changed/, "a staged sidecar changed before the end verify");
+});
+
+test("5.09d verifySnapshotDir refuses what must never be admitted: a non-ignored output, one only the checkout's info/exclude ignores, a link, target/ and .right-release/, a planted .gitignore, a hard link; a rewritten tracked file refuses by the tree id", (t) => {
+  const s = appScenario(t);
+  const verify = () => verifySnapshotDir({ checkout: s.repo, dir: s.dir, commit: s.a, tree: s.tree, when: "unit", admitNew: true });
+  const plant = (files) => write(s.dir, files);
+  const clean = (name) => fs.rmSync(path.join(s.dir, ...name.split("/")), { recursive: true, force: true });
+  plant({ "src-tauri/notes.txt": "x\n" });
+  refusesWith(verify, /notes\.txt is not in the commit's tree and is not ignored by the commit's own ignore rules/, "not ignored");
+  clean("src-tauri/notes.txt");
+  fs.mkdirSync(path.join(s.repo, ".git", "info"), { recursive: true });
+  fs.appendFileSync(path.join(s.repo, ".git", "info", "exclude"), "local-only.rs\n");
+  plant({ "local-only.rs": "x\n" });
+  refusesWith(verify, /local-only\.rs is not in the commit's tree and is not ignored/, "info/exclude does not count");
+  clean("local-only.rs");
+  for (const [name, re] of [["src-tauri/target/debug/x", /under "target"/], [".right-release/state.json", /under "\.right-release"/], ["src-tauri/binaries/.gitignore", /ignore file the commit does not have/]]) {
+    plant({ [name]: "x\n" });
+    refusesWith(verify, re, name);
+    clean(name.split("/")[0] === "src-tauri" ? `src-tauri/${name.split("/")[1]}` : name.split("/")[0]);
+  }
+  fs.mkdirSync(path.join(s.dir, "src-tauri", "binaries"), { recursive: true });
+  let linked = false;
+  try { fs.symlinkSync(path.join(s.dir, "src-tauri", "Cargo.toml"), path.join(s.dir, "src-tauri", "binaries", "link")); linked = true; } catch { /* no link privilege: the link refusal is asserted in snapshot.test.mjs on hosts that can */ }
+  if (linked) refusesWith(verify, /binaries\/link is a link/, "a link");
+  clean("src-tauri/binaries");
+  write(s.repo, { "payload.txt": "bytes\n" });
+  fs.mkdirSync(path.join(s.dir, "src-tauri", "binaries"), { recursive: true });
+  fs.linkSync(path.join(s.repo, "payload.txt"), path.join(s.dir, "src-tauri", "binaries", "hard"));
+  refusesWith(verify, /binaries\/hard has \d+ hard links/, "a hard link");
+  clean("src-tauri/binaries");
+  assert.deepEqual(verify().ledger, [], "clean again");
+  fs.writeFileSync(path.join(s.dir, "src-tauri", "src", "main.rs"), "fn main() { rewritten_by_a_generator(); }\n");
+  refusesWith(verify, /is tree [0-9a-f]+ unit, not tree/, "a rewritten tracked file");
+});
 
 // ============================================================================================================================
 // Item 5 D3 through the check path: commitOf, commitFiles and verifySnapshotDir use the sealed runner (snapshot-git.mjs).

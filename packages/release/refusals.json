@@ -663,11 +663,6 @@
       "reason": "command-line usage of this entry point; not a property of the app's files or the host"
     },
     {
-      "key": "build-release.mjs::<module>::c1564581",
-      "class": "runtime-only",
-      "reason": "decided by the invocation (primary checkout, config path, branch), which the doctor and the build check with the same statement first"
-    },
-    {
       "key": "build-release.mjs::<module>::050d4b08",
       "class": "runtime-only",
       "reason": "decided by the invocation (primary checkout, config path, branch), which the doctor and the build check with the same statement first"
@@ -1758,6 +1753,61 @@
       "key": "sign-updater.mjs::assertSignedByExpectedKey::0b34abec",
       "class": "runtime-only",
       "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::<module>::f946d21b#2",
+      "class": "runtime-only",
+      "reason": "decided by the invocation (the door run's source split and snapshot: primary checkout, config path), which the doctor and the build check with the same statement first"
+    },
+    {
+      "key": "release.mjs::resolveReleaseArtifactPath::574980b1",
+      "class": "runtime-only",
+      "reason": "a declared artifact path a door split refuses (RK_SPLIT_TARGET_PATH, row 7.04c): the build binds the targets and scans every step before anything builds; a path decided at the seal or the worker is a property of the run, not of the app's files"
+    },
+    {
+      "key": "build-release.mjs::<module>::20141273",
+      "class": "runtime-only",
+      "reason": "decided by the invocation (the door run's source split and snapshot: primary checkout, config path), which the doctor and the build check with the same statement first"
+    },
+    {
+      "key": "build-release.mjs::<module>::574980b1",
+      "class": "runtime-only",
+      "reason": "decided by the invocation (the door run's source split and snapshot: primary checkout, config path), which the doctor and the build check with the same statement first"
+    },
+    {
+      "key": "build-release.mjs::<module>::574980b1#2",
+      "class": "runtime-only",
+      "reason": "decided by the invocation (the door run's source split and snapshot: primary checkout, config path), which the doctor and the build check with the same statement first"
+    },
+    {
+      "key": "build-release.mjs::<module>::51331eb8",
+      "class": "runtime-only",
+      "reason": "decided by the invocation (the door run's source split and snapshot: primary checkout, config path), which the doctor and the build check with the same statement first"
+    },
+    {
+      "key": "build-release.mjs::<module>::574980b1#3",
+      "class": "runtime-only",
+      "reason": "decided by the invocation (the door run's source split and snapshot: primary checkout, config path), which the doctor and the build check with the same statement first"
+    },
+    {
+      "key": "build-release.mjs::<module>::574980b1#4",
+      "class": "runtime-only",
+      "reason": "a declared artifact path a door split refuses (RK_SPLIT_TARGET_PATH, row 7.04c): the build binds the targets and scans every step before anything builds; a path decided at the seal or the worker is a property of the run, not of the app's files"
+    },
+    {
+      "key": "build-release.mjs::<module>::574980b1#5",
+      "class": "runtime-only",
+      "reason": "a declared artifact path a door split refuses (RK_SPLIT_TARGET_PATH, row 7.04c): the build binds the targets and scans every step before anything builds; a path decided at the seal or the worker is a property of the run, not of the app's files"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::574980b1",
+      "class": "runtime-only",
+      "reason": "a declared artifact path a door split refuses (RK_SPLIT_TARGET_PATH, row 7.04c): the build binds the targets and scans every step before anything builds; a path decided at the seal or the worker is a property of the run, not of the app's files"
+    },
+    {
+      "key": "build-release.mjs::recorded::31bac36c",
+      "class": "runtime-only",
+      "reason": "a signing receipt written inside the snapshot, decided at the seal from the run's own paths (the next sync replaces the snapshot)"
     }
   ]
 }

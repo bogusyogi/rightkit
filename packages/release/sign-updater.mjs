@@ -7,6 +7,7 @@ import { refuseManagedEnvSecrets } from "./managed-host-secrets.mjs";
 import { execWithUpdaterCredential } from "./protected-credentials.mjs";
 import { resolvePnpmCli } from "./development.mjs";
 import { UPDATER_KEY_ID_RE, updaterSignatureKeyId } from "./github-updater-release.mjs";
+import { ArtifactPathError, loadSplitArtifactContext, resolveArtifactPath } from "./release-artifact-path.mjs";
 
 export const UPDATER_SIGNING_SECRET = "updater-signing-key";
 
@@ -14,6 +15,8 @@ export function runSignUpdater(args, {
   env = process.env, platform = process.platform, cwd = process.cwd(),
   execCredential = execWithUpdaterCredential, resolvePnpm = resolvePnpmCli,
   signMac = signMacUpdaterFiles, exists = existsSync, remove = rmSync, read = (file) => readFileSync(file, "utf8"), log = console.log,
+  // The artifact-path context of a door split (release-artifact-path.mjs, row 7.04c): `--file` is then the bound Cargo target's, never the checkout's.
+  artifactPaths = null,
 } = {}) {
   const files = [];
   let dryRun = false;
@@ -21,7 +24,7 @@ export function runSignUpdater(args, {
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--file") {
       if (!args[i + 1] || args[i + 1].startsWith("--")) throw new Error("--file requires an artifact path");
-      files.push(path.resolve(cwd, args[++i]));
+      files.push(artifactPaths?.mode === "split" ? resolveArtifactPath(args[++i], artifactPaths) : path.resolve(cwd, args[++i]));
     } else if (args[i] === "--key-id") {
       if (keyId !== undefined) throw new Error("--key-id may be given only once");
       if (!UPDATER_KEY_ID_RE.test(args[i + 1] ?? "")) throw new Error("--key-id requires the 16 upper-case hex digits of the updater key id");
@@ -77,9 +80,9 @@ export function runSignUpdater(args, {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  try { runSignUpdater(process.argv.slice(2)); }
+  try { runSignUpdater(process.argv.slice(2), { artifactPaths: await loadSplitArtifactContext({ cwd: process.cwd() }) }); }
   catch (error) {
-    console.error(`sign-updater: ${error.code ? `[${error.code}] ` : ""}${error.message}`);
+    console.error(`sign-updater: ${error instanceof ArtifactPathError ? "" : error.code ? `[${error.code}] ` : ""}${error.message}`);
     process.exitCode = error.exitCode ?? 1;
   }
 }

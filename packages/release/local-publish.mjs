@@ -445,15 +445,47 @@ export async function runLocalPublishUploadEngine(kind, argv, deps = {}) {
 
 // Stage state never leaves this process: persisted receipts are reports, not authority to skip unit tests.
 const unitStages = new WeakMap();
-function assertUnitDoor(root, stage, env, identity) {
-  const commit = defaultGit(["rev-parse", "HEAD"], root);
-  const tree = defaultGit(["rev-parse", "HEAD^{tree}"], root);
-  const common = defaultGit(["rev-parse", "--git-common-dir"], root);
+
+/**
+ * A unit stage built from a door SNAPSHOT (item 7 row 7.06a): `source` is { checkout, commit, tree } of the commit the door selected,
+ * and `--workspace` is the gate-owned snapshot of it. Identity is that commit's immutable objects, read from the CHECKOUT's object
+ * database, plus the door's start and end verification of the snapshot; it is never the checkout's HEAD or status. The git calls of
+ * the unit flow are mapped: HEAD and its tree are the selection, `status` is clean by the door's verify, `show HEAD:<path>` and
+ * `ls-files --error-unmatch` read the selected commit, and everything else runs in the checkout.
+ */
+export function sourceGit(source, git = defaultGit) {
+  return (args, cwd) => {
+    const [a, b] = args;
+    if (a === "rev-parse" && b === "HEAD") return source.commit;
+    if (a === "rev-parse" && b === "HEAD^{tree}") return source.tree;
+    if (a === "status") return "";
+    if (a === "show" && /^HEAD:/.test(b ?? "")) return git(["show", `${source.commit}:${b.slice(5)}`], source.checkout);
+    if (a === "ls-files" && b === "--error-unmatch") { const files = args.slice(args.indexOf("--") + 1); for (const f of files) if (git(["cat-file", "-e", `${source.commit}:${f}`], source.checkout) === null) return null; return files.join("\n"); }
+    return git(args, source.checkout);
+  };
+}
+
+/** The local-build grant read from the SELECTED COMMIT (`git show <commit>:.rightkit-local-build.json`), its repository checked against the checkout's origin. */
+export function localBuildGrantedAt(source, git = defaultGit) {
+  try {
+    const grant = JSON.parse(git(["show", `${source.commit}:${LOCAL_BUILD_FILE}`], source.checkout) ?? "null");
+    if (grant?.allow !== "build-test-publish" || typeof grant.repository !== "string") return false;
+    const origin = git(["config", "--get", "remote.origin.url"], source.checkout) ?? "";
+    const repo = /github\.com[:/]([^/]+\/[^/.\s]+?)(?:\.git)?\/?$/i.exec(origin)?.[1];
+    return !!repo && repo.toLowerCase() === grant.repository.toLowerCase();
+  } catch { return false; }
+}
+
+function assertUnitDoor(root, stage, env, identity, source = null) {
+  const commit = source ? source.commit : defaultGit(["rev-parse", "HEAD"], root);
+  const tree = source ? source.tree : defaultGit(["rev-parse", "HEAD^{tree}"], root);
+  const common = defaultGit(["rev-parse", "--git-common-dir"], source ? source.checkout : root);
   if (!/^[0-9a-f]{40}$/.test(commit ?? "") || !/^[0-9a-f]{40}$/.test(tree ?? "") || !common) refuse("cannot bind unit stage to HEAD and tree");
   if (identity && (identity.commit !== commit || identity.tree !== tree)) refuse("unit stage HEAD or tree changed");
-  const dirty = defaultGit(["status", "--porcelain", "--untracked-files=no"], root);
+  // The snapshot route has no checkout cleanliness to ask: the door verifies the snapshot against the commit at each stage's start and end.
+  const dirty = source ? "" : defaultGit(["status", "--porcelain", "--untracked-files=no"], root);
   if (dirty === null || dirty !== "") refuse("unit stage requires a clean tracked checkout");
-  const commonDir = path.resolve(root, common);
+  const commonDir = path.resolve(source ? source.checkout : root, common);
   const denial = requireDoorRun({ env, commonDir, commit, command: `unit ${stage}` });
   if (denial) refuse(denial);
   let run;
@@ -462,17 +494,17 @@ function assertUnitDoor(root, stage, env, identity) {
   return { commit, tree };
 }
 
-export async function compileLocalUnit(kind, argv, { env = process.env } = {}) {
+export async function compileLocalUnit(kind, argv, { env = process.env, source = null } = {}) {
   const parsed = parseLocalPublishArgs(kind, argv);
   if (!parsed.qualifyOnly || parsed.batch) refuse("unit stages require one --qualify-only unit and a new bundle");
-  const identity = assertUnitDoor(parsed.workspaceRoot, "compile", env);
-  const runner = publishUnitStages(parsed, { env }, null);
+  const identity = assertUnitDoor(parsed.workspaceRoot, "compile", env, undefined, source);
+  const runner = publishUnitStages(parsed, source ? { env, git: sourceGit(source), localBuildGranted: () => localBuildGrantedAt(source) } : { env }, null);
   try {
     const step = await runner.next();
     if (step.done || step.value?.stage !== "compile") refuse("unit compile did not complete");
-    assertUnitDoor(parsed.workspaceRoot, "compile", env, identity);
+    assertUnitDoor(parsed.workspaceRoot, "compile", env, identity, source);
     const state = Object.freeze({});
-    unitStages.set(state, { runner, parsed, identity, stage: "compile", compileRequests: [...(step.value.brokerRequests ?? [])] });
+    unitStages.set(state, { runner, parsed, identity, source, stage: "compile", compileRequests: [...(step.value.brokerRequests ?? [])] });
     return state;
   } catch (error) { await runner.return(); throw error; }
 }
@@ -482,10 +514,10 @@ async function advanceLocalUnit(state, expected, stage, env) {
   if (!entry || entry.stage !== expected) refuse(`unit ${stage} requires this process's completed ${expected} stage`);
   entry.stage = "running";
   try {
-    assertUnitDoor(entry.parsed.workspaceRoot, stage, env, entry.identity);
+    assertUnitDoor(entry.parsed.workspaceRoot, stage, env, entry.identity, entry.source);
     const step = await entry.runner.next(env);
     if (stage === "package" ? step.done || step.value?.stage !== "package" : !step.done || !step.value?.qualifiedOnly) refuse(`unit ${stage} did not complete`);
-    assertUnitDoor(entry.parsed.workspaceRoot, stage, env, entry.identity);
+    assertUnitDoor(entry.parsed.workspaceRoot, stage, env, entry.identity, entry.source);
     entry.stage = stage;
     if (stage === "qualify") unitStages.delete(state);
     return step.value;

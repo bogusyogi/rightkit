@@ -26,8 +26,10 @@ import { formatAdmission, formatNotRun, runAdmission } from "./admission.mjs";
 import { sccacheRefusal } from "./admission-host.mjs";
 import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 import { fileURLToPath } from "node:url";
-import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
+import { dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
+import { assertInsideSource, assertReleaseSource, gitRootOf, isSnapshotSource, qaAdmissionSourceOptions, resolveReleaseSource, sourceRootOf } from "./release-source-identity.mjs";
 import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
+import { ArtifactPathError, assertSplitCommandPaths, boundTargetsEvidence, releaseCommandSteps, resolveArtifactPath as resolveSplitArtifactPath, splitArtifactContext } from "./release-artifact-path.mjs";
 import { admitSourceQa } from "./release-qa-audit.mjs";
 import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
 import { commandOutputPortable, releaseEnvironment, resolveReleaseLayout, runBuildStateMachine, verifySealedRelease, watchProgress } from "./release-state.mjs";
@@ -44,7 +46,6 @@ import { collectSwiftToolVersions, planSwiftBuild } from "./swift-build-context.
 import { planIosNativeBuild, resolveIosBuildContext } from "./ios-build-context.mjs";
 import { packageCommandOptional, requiredBuildExecutables, resolveProjectType, targetUsesMsix } from "./project-type.mjs";
 import { buildPathPrefix, collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
-import { assertCleanSource } from "./source-gate.mjs";
 import { acquireHeavyWorkSlot, heavyCommandEnvironment, summarizePreBrokerWaits, terminateProcessTree } from "./heavy-command.mjs";
 import { processGroupCpuSeconds } from "./process-liveness.mjs";
 import { cancelAndReapManagedRequest, firstManagedRequestId, releaseProgressLimits } from "./progress-control.mjs";
@@ -80,7 +81,7 @@ const ANDROID_PIPELINE_FINGERPRINT = createHash("sha256")
   .slice(0, 16);
 
 /** Assemble preflight inputs from the app's own files (mirrors release.mjs). */
-function buildPreflight({ config, configPath, appRoot, repoRoot, platform, nativeLayout, target, pinnedCargoLocks = [] }) {
+function buildPreflight({ config, configPath, appRoot, repoRoot, platform, nativeLayout, target, pinnedCargoLocks = [], releaseSource = null, sourceRoot = repoRoot, artifactPaths = null }) {
   let version;
   try {
     version = JSON.parse(readFileSync(path.join(appRoot, "package.json"), "utf8")).version;
@@ -88,12 +89,15 @@ function buildPreflight({ config, configPath, appRoot, repoRoot, platform, nativ
     version = undefined;
   }
   // An iOS target is built from its Xcode project and local packages only; the ownership scan covers just those roots.
-  const ownershipScope = preflightOwnershipScope({ repoRoot, appRoot, platform, target, nativeAssembly: config?.nativeAssembly });
+  // In a split the scope is the snapshot's (the commit's layout); the preflight reads the checkout for git, the sealed vault and the evidence.
+  const ownershipScope = preflightOwnershipScope({ repoRoot: sourceRoot, appRoot, platform, target, nativeAssembly: config?.nativeAssembly });
   return collectPreflight({
     platform,
     ownershipScope,
     appRoot,
     repoRoot,
+    releaseSource,
+    splitTargets: artifactPaths,
     app: config.app,
     configPath,
     // The version check is the doctor's job: by the time `build` runs, seal
@@ -140,10 +144,24 @@ if (resumeFrom && !["prepackage", "sign", "package", "post-sign", "harden"].incl
 const nativeReal = (file) => { try { return realpathSync.native(file); } catch { return file; } };
 const configPath = nativeReal(path.resolve(configName));
 const invocationRoot = path.dirname(configPath);
-const repoRoot = git(invocationRoot, ["rev-parse", "--show-toplevel"]);
-assertPrimaryReleaseCheckout(repoRoot);
-const relativeConfig = path.relative(nativeReal(repoRoot), nativeReal(configPath)).replaceAll("\\", "/");
-if (relativeConfig.startsWith("../")) fail("release config must live inside the Git repository");
+// Source identity (release-source-identity.mjs, item 7 row 7.04, decision 2 Q2). Without RK_GATE_CHECKOUT the source is the checkout's HEAD,
+// proven exactly as before (primary worktree, branch-attached HEAD, clean status). Inside a door run it is the SELECTED COMMIT's objects
+// plus the gate's verified snapshot: the checkout may be dirty, ahead or detached, and no HEAD, status or branch of it is read.
+// A split that cannot be proven is refused (never a fallback to the checkout checks).
+let releaseSource;
+try { releaseSource = resolveReleaseSource({ cwd: process.env.RK_GATE_CHECKOUT ? process.cwd() : invocationRoot }); }
+catch (error) { fail(error.code === "RK_SOURCE_NO_REPOSITORY" ? `git rev-parse --show-toplevel failed: ${error.message}` : `${error.code ?? "RK_SOURCE_IDENTITY"}: ${error.message}`); }
+const splitSource = isSnapshotSource(releaseSource);
+// The checkout: every object read and every output (`.right-release`: vault, state, locks, sealed) belongs to it (GC:31, GC:65). The
+// source root is where the config, the build inputs and the QA plan are read: the snapshot in a split, else the checkout itself.
+const repoRoot = gitRootOf(releaseSource);
+const sourceRoot = sourceRootOf(releaseSource);
+try { assertReleaseSource(releaseSource, { commandId: "right-release build", skipCleanCheck: true }); } catch (error) { fail(error.message); }
+try { assertInsideSource(releaseSource, configPath, "the release config"); } catch (error) { fail(error.message); }
+const relativeConfig = path.relative(nativeReal(sourceRoot), nativeReal(configPath)).replaceAll("\\", "/");
+if (relativeConfig.startsWith("../")) fail(splitSource ? "release config must live inside the snapshot" : "release config must live inside the Git repository");
+// A split reads no dirty-checkout condition: the snapshot is the commit's bytes, proven by the door at the start and end of the stage.
+const sourceProblems = (inputs, commitId) => (splitSource ? [] : dirtyBuildInputs(repoRoot, inputs, commitId));
 const appRoot = path.dirname(configPath);
 const layout = resolveReleaseLayout({ repoRoot, configPath });
 const vaultRoot = layout.vaultRoot;
@@ -182,20 +200,17 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
 
 try {
   throwIfInterrupted();
-  const commit = git(repoRoot, ["rev-parse", "HEAD"]);
+  const commit = releaseSource.commit;
   // A phase-resume never reads unrelated source. Its later build-input gate
   // remains strict, but requiring a globally clean mono-workspace here would
   // turn an already-built, signed installer into a needless full rebuild.
-  if (!resumeFrom) {
-    assertCleanSource({
-      status: git(repoRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"], { trim: false }), // untrimmed: a leading space is the first record's X column (#782)
-      commandId: "right-release build",
-    });
-  }
+  // The checkout route runs the clean-source gate here (R1, byte for byte as before); a split re-proves its door run instead and reads
+  // no status (R2: a split that is no longer proven refuses, it never falls back).
+  try { assertReleaseSource(releaseSource, { commandId: "right-release build", skipPrimaryCheckout: true, skipCleanCheck: Boolean(resumeFrom) }); } catch (error) { fail(error.message); }
   mkdirSync(path.join(vaultRoot, "locks"), { recursive: true });
   lock = acquireLock(path.join(vaultRoot, "locks", `${platform}.lock.json`));
   const shortCommit = commit.slice(0, 8);
-  const dirtyConfig = dirtyBuildInputs(repoRoot, { include: [relativeConfig], required: [relativeConfig] }, commit);
+  const dirtyConfig = sourceProblems({ include: [relativeConfig], required: [relativeConfig] }, commit);
   if (dirtyConfig.length > 0) fail(`dirty release config cannot be executed:\n${dirtyConfig.map((file) => `- ${file}`).join("\n")}`);
   const config = await importReleaseConfig(configPath, { query: `commit=${commit}` });
   if (!config?.app || !config?.version) fail("release config must expose app and version");
@@ -224,11 +239,25 @@ try {
     : null;
   const nativeIos = iosContext?.nativeIos ?? false;
   const nativeLayout = iosContext ? iosContext.nativeLayout : resolveNativeCargoLayout({ appRoot, config });
+  // Row 7.04c. In a door split the snapshot has no target directory: (R-T4) no step the app owns may name a target-relative path, refused here, before
+  // anything builds; (R-T1) each Cargo manifest's target is bound once, now, through the published resolver. Checkout mode does neither.
+  let artifactPaths = null;
+  if (splitSource) {
+    try {
+      assertSplitCommandPaths(releaseCommandSteps({ target, config, root: appRoot }), splitArtifactContext({ cwd: appRoot, env: process.env, nativeLayout, config, target, snapshotRoot: sourceRoot, resolve: false }));
+      artifactPaths = splitArtifactContext({
+        cwd: appRoot, nativeLayout, config, target, snapshotRoot: sourceRoot,
+        env: { ...process.env, RIGHT_RELEASE_ARTIFACT_DIR: resolveArtifactDir({ app: config.app, version: config.version, managedRoot: resolveManagedRoot({ env: process.env }) }) },
+      });
+    } catch (error) { if (error instanceof ArtifactPathError) fail(error.message); throw error; }
+  }
   if (platform === "win" && target.signingContract === "windows-raw-exe-authenticode-before-nsis-v1") {
     assertNsisInPlaceUpgradeContract(appRoot, target.nsisUpgradeContract);
   }
-  const { requiredInputs, buildInputs, cargoLockPaths: pinnedCargoLocks } = resolveReleaseBuildInputs({ repoRoot, appRoot, configPath, config, target });
-  const dirtyInputs = dirtyBuildInputs(repoRoot, buildInputs, commit);
+  const { requiredInputs, buildInputs, cargoLockPaths: pinnedCargoLocks } = resolveReleaseBuildInputs({ repoRoot: sourceRoot, appRoot, configPath, config, target });
+  // R5: in a split every input resolves inside the snapshot (`hashInputs` below hashes the snapshot's files); the dirty-input gate is the checkout route's.
+  for (const file of requiredInputs) try { assertInsideSource(releaseSource, file, "a release build input"); } catch (error) { fail(error.message); }
+  const dirtyInputs = sourceProblems(buildInputs, commit);
   if (dirtyInputs.length > 0) fail(`dirty files can change the packaged app; resolve them before release:\n${dirtyInputs.map((file) => `- ${file}`).join("\n")}`);
   const hasPackageJson = existsSync(path.join(appRoot, "package.json"));
   // iOS records the Xcode toolchain (and xcodegen when a project.yml is named) beside the Node and Rust tools.
@@ -316,7 +345,7 @@ try {
   // Preflight BEFORE any compile. These preconditions used to be discovered one
   // per build cycle, minutes deep, with errors that named a symptom instead of a
   // cause. Blocking problems stop here, in seconds, naming the fix.
-  const preflight = buildPreflight({ config, configPath, appRoot, repoRoot: layout.repoRoot, platform, nativeLayout, target, pinnedCargoLocks });
+  const preflight = buildPreflight({ config, configPath, appRoot, repoRoot: layout.repoRoot, platform, nativeLayout, target, pinnedCargoLocks, releaseSource, sourceRoot, artifactPaths });
   const preflightBlockers = preflightFailures(preflight);
   if (preflightBlockers.length > 0) {
     fail(`preflight found ${preflightBlockers.length} blocking problem(s):\n${formatPreflight(preflightBlockers)}`);
@@ -331,7 +360,8 @@ try {
   }
   // Hardening step 4: source QA is recorded, not enforced. A missing or rejected receipt warns loudly and the outcome
   // is sealed into the manifest (`qa.status`) for `right-release qa audit`. Dev lanes (install-app --dev) never reach this file.
-  const qaAdmission = admitSourceQa({ repoRoot: layout.repoRoot, releaseId, platform, configName: path.relative(process.cwd(), configPath) || path.basename(configPath), releaseConfigSha256: hashFile(configPath) });
+  // A split compares the source QA receipt with the SELECTED commit (its tree, repository identity and lockfile closure from its objects), not HEAD.
+  const qaAdmission = admitSourceQa({ repoRoot: layout.repoRoot, releaseId, platform, configName: path.relative(process.cwd(), configPath) || path.basename(configPath), releaseConfigSha256: hashFile(configPath), ...qaAdmissionSourceOptions(releaseSource) });
 
   // A tool being INSTALLED is not the same as it being the one PATH picks. The
   // vendored-OpenSSL build shells out to `perl`, and under Git Bash/MSYS that
@@ -343,6 +373,7 @@ try {
     ...releaseEnvironment({ root: vaultRoot, cacheRoot: sharedCacheRoot, platform, architecture: cacheIdentity.architecture, app: config.app, cacheKey, kind: "release", appRoot, mode: cacheMode }),
     ...(pathPrefix ? { PATH: `${pathPrefix}${path.delimiter}${process.env.PATH ?? ""}` } : {}),
     RIGHT_RELEASE_REPO_ROOT: layout.repoRoot,
+    ...(splitSource ? { RIGHT_RELEASE_SOURCE_ROOT: sourceRoot } : {}),
     RIGHT_RELEASE_APP_ROOT: layout.appRoot,
     RIGHTKIT_MANAGED_ROOT: resolveManagedRoot({ env: process.env }),
     RIGHT_RELEASE_ARTIFACT_DIR: resolveArtifactDir({ app: config.app, version: config.version, managedRoot: resolveManagedRoot({ env: process.env }) }),
@@ -353,6 +384,9 @@ try {
       delete env[name];
     }
   }
+  // A split's Cargo target is the one the gate bound and handed this process (row 7.09, R-T1): Cache V2's shared target does not replace it, or
+  // the bound target the seal reads would not be the one Cargo wrote.
+  if (splitSource && !managedCargoTarget && typeof process.env.CARGO_TARGET_DIR === "string" && path.isAbsolute(process.env.CARGO_TARGET_DIR)) env.CARGO_TARGET_DIR = process.env.CARGO_TARGET_DIR;
   if (cacheMode !== "shared") delete env.RIGHT_RELEASE_CACHE_OWNER;
   if (cacheMode === "shared" && env.RIGHT_RELEASE_CACHE_OWNER !== "rightkit-v2") fail("shared cache ownership token was not configured");
   if (cacheMode !== "shared" && !commandExists("sccache")) delete env.RUSTC_WRAPPER;
@@ -495,6 +529,9 @@ try {
         // cost ~5.9 GB of warm broker intermediates. The bridge's brokerManaged
         // flag already knows to leave a real directory untouched instead.
         if (swiftPlan) { /* SwiftPM: no Rust target link */ }
+        // A split writes no link into the snapshot (a link is never a ledger entry, decision 2 Q1 rule 2): Cargo writes the cache target
+        // directly (CARGO_TARGET_DIR) and the seal resolves `src-tauri/target/...` paths against it (sealRelease managedCargoTarget).
+        else if (splitSource) { /* no target link in the snapshot */ }
         else if (cacheMode === "shared" || managedCargoTarget) targetBridge.ensure();
         else {
           const linked = ensureLegacyTargetLink({ targetLink, cacheTarget, fs: { existsSync, realpathSync, renameSync, symlinkSync } });
@@ -538,7 +575,7 @@ try {
         });
       },
       seal: async ({ sealedDir }) => {
-        sealRelease({ configRoot: appRoot, managedCargoTarget, androidTarget, iosSpec, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot, stateRoot, rightkitRegistryFields: rightKitResolution ? registryManifestFields(rightKitResolution.snapshot, RELEASE_TOOL_VERSION) : undefined });
+        sealRelease({ configRoot: appRoot, managedCargoTarget, artifactPaths, androidTarget, iosSpec, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot, stateRoot, rightkitRegistryFields: rightKitResolution ? registryManifestFields(rightKitResolution.snapshot, RELEASE_TOOL_VERSION) : undefined, splitSealSource: splitSource ? { commit: releaseSource.commit, tree: releaseSource.tree, snapshotAppRoot: appRoot, checkoutAppRoot: releaseSource.checkoutAppRoot } : null });
         verifySealedRelease(sealedDir);
         if (cacheMode === "shared") markCacheEntrySuccessful({ layout: sharedLayout });
         checkpoint(stateRoot, "sealed");
@@ -565,8 +602,8 @@ async function admit() {
   let commit;
   let config;
   try {
-    commit = git(invocationRoot, ["rev-parse", "HEAD"]);
-    const dirtyConfig = dirtyBuildInputs(repoRoot, { include: [relativeConfig], required: [relativeConfig] }, commit);
+    commit = releaseSource.commit;
+    const dirtyConfig = sourceProblems({ include: [relativeConfig], required: [relativeConfig] }, commit);
     if (dirtyConfig.length > 0) fail(`dirty release config cannot be executed:\n${dirtyConfig.map((file) => `- ${file}`).join("\n")}`);
     try { config = await importReleaseConfig(configPath, { query: `commit=${commit}` }); } catch (error) { fail(`release config could not be loaded (${configPath}): ${error instanceof Error ? error.message : String(error)}`); }
   } catch (error) {
@@ -579,7 +616,7 @@ async function admit() {
     && existsSync(path.join(repoRoot, ".right-release", "sealed", `${config.app}-${config.version}-${commit.slice(0, 8)}`, platformName, "release-manifest.json"));
   const reuse = Boolean(resumeFrom) || Boolean(sealed);
   const result = await runAdmission({
-    root: appRoot, repoRoot, configPath, config: config ?? {}, platform, commit, skipChecks,
+    root: appRoot, repoRoot: sourceRoot, releaseSource, configPath, config: config ?? {}, platform, commit, skipChecks,
     tiers: reuse ? ["files", "host"] : ["files", "host", "network"],
     registry: async (ctx) => {
       const inputs = ctx.buildInputs();
@@ -631,7 +668,7 @@ function sqlCipherFeatures(text) {
     .filter((value) => /sqlcipher|openssl/i.test(value));
 }
 
-function sealRelease({ configRoot, managedCargoTarget, androidTarget, iosSpec, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot, stateRoot, rightkitRegistryFields }) {
+function sealRelease({ configRoot, managedCargoTarget, artifactPaths = null, androidTarget, iosSpec, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot, stateRoot, rightkitRegistryFields, splitSealSource = null }) {
   // Every app's release config names installer/updater artifacts
   // relative to its resolved native target. On a broker-managed host that
   // directory is never populated (the broker owns CARGO_TARGET_DIR and
@@ -642,7 +679,11 @@ function sealRelease({ configRoot, managedCargoTarget, androidTarget, iosSpec, n
   const targetPrefix = "src-tauri/target/";
   // A Cargo-less iOS app has no native layout and no managed cargo target: only the default prefix is ever compared.
   const effectiveTargetPrefix = nativeLayout?.targetPrefix ?? targetPrefix;
-  const resolveArtifactPath = (file) => {
+  const resolveArtifactPath = artifactPaths?.mode === "split" ? (file) => {
+    // Row 7.04c (R-T2): a split's declared artifact is read in place in the bound target (or the snapshot, or the managed artifact directory),
+    // through the one resolver; the prefix remap below is the checkout route's.
+    try { return resolveSplitArtifactPath(file, artifactPaths); } catch (error) { if (error instanceof ArtifactPathError) fail(error.message); throw error; }
+  } : (file) => {
     const normalized = file.replaceAll(path.win32.sep, "/");
     if (managedCargoTarget && normalized.startsWith(targetPrefix)) {
       return path.join(managedCargoTarget, normalized.slice(targetPrefix.length));
@@ -793,6 +834,10 @@ function sealRelease({ configRoot, managedCargoTarget, androidTarget, iosSpec, n
     app: config.app,
     version: config.version,
     commit,
+    // A split seal names the selected commit AND its tree and says its bytes came from the door's snapshot (decision 2 Q2 item 5).
+    ...(splitSealSource ? { tree: splitSealSource.tree, source: "snapshot" } : {}),
+    // The Cargo targets this split bound (R-T1); the door cross-checks them against its own resolution (RK_SPLIT_TARGET_DRIFT).
+    ...(artifactPaths?.mode === "split" ? { boundTargets: boundTargetsEvidence(artifactPaths) } : {}),
     ownershipEvidence,
     // The exact registry resolution (identities, digests, registries, policy revision, observation time, observed latest)
     // this release was built against. Upload and resume consume it; neither resolves again.
@@ -814,7 +859,15 @@ function sealRelease({ configRoot, managedCargoTarget, androidTarget, iosSpec, n
         if (present.length !== signingIdentity.receiptInputs.length) fail("missing current-build macOS signing or notarization receipt");
         validateNotarizationReceipt({ receiptPath: signingIdentity.receiptInputs[1], archive: resolveArtifactPath(target.notarize.file) });
       }
-      return present.map((file) => ({ file, sha256: hashFile(file) }));
+      // A split records each receipt relative to a base the checkout reproduces (its app root), never the snapshot's: the snapshot's bytes are
+      // replaced at the next sync. A receipt written INSIDE the snapshot cannot be re-read later, so it is refused (configure sign.receipt under the state root).
+      const recorded = (file) => {
+        if (!splitSealSource) return file;
+        const rel = (base) => path.relative(base, file).replaceAll("\\", "/");
+        if (!rel(splitSealSource.snapshotAppRoot).startsWith("../") && rel(splitSealSource.snapshotAppRoot) !== "..") fail(`signing receipt ${file} is inside the snapshot, which the next sync replaces; write it under the state root (${stateRoot}) so the seal can name it`);
+        return rel(splitSealSource.checkoutAppRoot);
+      };
+      return present.map((file) => ({ file: recorded(file), sha256: hashFile(file) }));
     })() } : null,
     files,
     routes,

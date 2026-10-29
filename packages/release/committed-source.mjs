@@ -115,7 +115,7 @@ function readBatch(root, oids, totalBytes, runner) {
   return result;
 }
 
-function acquire(root, { expectedCommit, expectedTree, requiredPaths = [], runner = spawnSync, env = gitEnv() } = {}) {
+function acquire(root, { expectedCommit, expectedTree, commit: selectedCommit, requiredPaths = [], runner = spawnSync, env = gitEnv() } = {}) {
   const text = (args) => runGit(root, args, { encoding: "utf8", runner, env }).trim();
   const repositoryRoot = path.resolve(text(["rev-parse", "--show-toplevel"]));
   const pathPrefix = text(["rev-parse", "--show-prefix"]).replaceAll("\\", "/");
@@ -125,9 +125,20 @@ function acquire(root, { expectedCommit, expectedTree, requiredPaths = [], runne
   const origin = originResult?.status === 0 ? String(originResult.stdout).trim() : null;
   const objectFormat = text(["rev-parse", "--show-object-format"]);
   if (objectFormat !== "sha1" && objectFormat !== "sha256") throw new Error("committed ownership: unsupported Git object format");
-  const commit = text(["rev-parse", "--verify", "HEAD^{commit}"]);
   const digestLength = objectFormat === "sha256" ? 64 : 40;
-  if (!new RegExp(`^[0-9a-f]{${digestLength}}$`).test(commit) || (expectedCommit && commit !== expectedCommit)) throw new Error("committed ownership: expected commit is not current HEAD");
+  // A door source split (release-source-identity.mjs, item 7 row 7.04) names the commit it builds: that commit's immutable objects are the
+  // source, never the checkout's HEAD. Only a full object id is accepted (never a ref, a revision expression or an option), and the
+  // object database must answer with that same commit. Without `commit` the source is HEAD, exactly as before.
+  let commit;
+  if (selectedCommit !== undefined) {
+    if (!new RegExp(`^[0-9a-f]{${digestLength}}$`).test(String(selectedCommit))) throw new Error("committed ownership: the selected commit is not a full object id");
+    commit = text(["rev-parse", "--verify", `${selectedCommit}^{commit}`]);
+    if (commit !== selectedCommit) throw new Error("committed ownership: the selected commit resolved to another object");
+    if (expectedCommit && commit !== expectedCommit) throw new Error("committed ownership: expected commit is not the selected commit");
+  } else {
+    commit = text(["rev-parse", "--verify", "HEAD^{commit}"]);
+    if (!new RegExp(`^[0-9a-f]{${digestLength}}$`).test(commit) || (expectedCommit && commit !== expectedCommit)) throw new Error("committed ownership: expected commit is not current HEAD");
+  }
   const tree = text(["rev-parse", "--verify", `${commit}^{tree}`]);
   if (!new RegExp(`^[0-9a-f]{${digestLength}}$`).test(tree) || (expectedTree && tree !== expectedTree)) throw new Error("committed ownership: expected tree does not match commit");
   const rows = parseTree(runGit(root, ["ls-tree", "-r", "-z", "--full-tree", tree], { encoding: "buffer", maxBuffer: MAX_TREE_BYTES, timeout: COMMAND_TIMEOUT_MS, runner, env }), objectFormat);
@@ -161,9 +172,13 @@ function acquire(root, { expectedCommit, expectedTree, requiredPaths = [], runne
   return Object.freeze({ repositoryRoot, pathPrefix, origin, commit, tree, objectFormat, entries, blobs, coverage });
 }
 
+/**
+ * The committed source of `root`'s repository. `options.commit` selects the commit by full object id (a door source split reads the
+ * selected commit's objects, never the checkout's HEAD); without it the source is HEAD. Blob-hash verification is the same either way.
+ */
 export function acquireCommittedSource(root, options = {}) {
-  const { expectedCommit, expectedTree, requiredPaths = [] } = options;
-  try { return createSourceHandle(acquire(path.resolve(root), { expectedCommit, expectedTree, requiredPaths })); }
+  const { expectedCommit, expectedTree, requiredPaths = [], commit } = options;
+  try { return createSourceHandle(acquire(path.resolve(root), { expectedCommit, expectedTree, requiredPaths, ...(commit !== undefined ? { commit } : {}) })); }
   catch (error) { if (error instanceof CommittedSourceIncompleteError) throw error; throw new CommittedSourceIncompleteError(error.message, error); }
 }
 
@@ -183,6 +198,25 @@ function createSourceHandle(data) {
 
 export function committedSourceDataForInternalUse(handle) {
   return acquiredSources.get(handle) ?? null;
+}
+
+/**
+ * `{ commit, tree }` of `commit` read from `root`'s object database: the full object id must name a commit, and the tree is that
+ * commit's own. It reads no HEAD, no index and no status, so a dirty or moved checkout cannot change the answer. Throws on any failure.
+ */
+export function resolveSelectedCommit(root, commit, { runner = spawnSync } = {}) {
+  const resolvedRoot = path.resolve(root);
+  const text = (args) => runGit(resolvedRoot, args, { encoding: "utf8", timeout: COMMAND_TIMEOUT_MS, runner, env: gitEnv() }).trim();
+  const objectFormat = text(["rev-parse", "--show-object-format"]);
+  if (objectFormat !== "sha1" && objectFormat !== "sha256") throw new Error("committed ownership: unsupported Git object format");
+  const digestLength = objectFormat === "sha256" ? 64 : 40;
+  const shape = new RegExp(`^[0-9a-f]{${digestLength}}$`);
+  if (!shape.test(String(commit))) throw new Error("committed ownership: the selected commit is not a full object id");
+  const resolved = text(["rev-parse", "--verify", `${commit}^{commit}`]);
+  if (resolved !== commit) throw new Error("committed ownership: the selected commit resolved to another object");
+  const tree = text(["rev-parse", "--verify", `${commit}^{tree}`]);
+  if (!shape.test(tree)) throw new Error("committed ownership: the selected commit has no tree");
+  return Object.freeze({ commit: resolved, tree, objectFormat });
 }
 
 export function assertCommittedCheckoutClean(root, { expectedCommit, expectedTree, runner = spawnSync } = {}) {

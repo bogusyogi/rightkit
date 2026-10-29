@@ -14,6 +14,8 @@ import { assertQaAdoption, assertQaBackdoorContract } from "./qa-contract.mjs";
 import { assertLegalReleaseContract } from "./legal-contract.mjs";
 import { DECLARED_UNRELATED_POLICY, declaredUnrelatedRefusal, releaseArtifactPaths } from "./hosted-workflow-policy.mjs";
 import { assertNativeIosPrepareHasManifest, assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
+import { resolveReleaseSource, sourceRootOf } from "./release-source-identity.mjs";
+import { ArtifactPathError, assertSplitCommandPaths, releaseCommandSteps, resolveArtifactPath, splitArtifactContext } from "./release-artifact-path.mjs";
 import { declaredCargoManifest, hasDefaultTauriManifest, resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 import {
   canonicalPackageIdentity,
@@ -275,10 +277,17 @@ const nativeFinalizer = resolveNativeFinalizerConfig(nativeAssembly);
 // state root and admission record; a snapshot from anywhere else is refused. The standalone doctor resolves live.
 const rightKitSnapshotFile = process.env[SNAPSHOT_ENV] || null;
 let rightKitResolution = null; // null when the registry resolution failed (recorded as the `rightkit-registry` finding)
+// The worker of a door split (row 7.04): its cwd is the snapshot, which has no git directory. Its commit and source root are the selected
+// commit's and the snapshot's (release-source-identity.mjs); the checkout route reads them from git as before.
+let workerSource = null;
+let artifactPathContext = null; // the declared-artifact resolver's context (artifactContext, row 7.04c)
+if (!opts.doctor && process.env.RK_GATE_CHECKOUT) {
+  try { workerSource = resolveReleaseSource({ cwd: process.cwd() }); } catch (error) { fail(`${error.code ?? "RK_SOURCE_IDENTITY"}: ${error.message}`); }
+}
 try {
   const lockInventory = () => {
     try {
-      const repoRoot = git(root, ["rev-parse", "--show-toplevel"]);
+      const repoRoot = workerSource ? sourceRootOf(workerSource) : git(root, ["rev-parse", "--show-toplevel"]);
       let canonicalTarget = config.targets?.[opts.platform];
       try { canonicalTarget = expandPackageRecipeTarget(canonicalTarget, { platform: opts.platform, appRoot: root, config }); } catch { /* reported later */ }
       const inputs = resolveReleaseBuildInputs({ repoRoot, appRoot: root, configPath, config, target: canonicalTarget });
@@ -292,7 +301,7 @@ try {
     if (!rightKitSnapshotFile) throw new RightKitRegistryError("no-admission", "no admitted RightKit registry snapshot was handed to the release worker; run it through `right-release build`, which admits the release");
     const stateRoot = process.env.RIGHT_RELEASE_STATE_ROOT;
     if (!stateRoot) throw new RightKitRegistryError("no-admission", "RIGHT_RELEASE_STATE_ROOT is not set; the admitted RightKit registry snapshot cannot be located");
-    const commit = git(root, ["rev-parse", "HEAD"]);
+    const commit = workerSource ? workerSource.commit : git(root, ["rev-parse", "HEAD"]);
     boundSnapshot = loadAdmittedSnapshot(stateRoot, { releaseId: `${config.app}-${config.version}-${commit.slice(0, 8)}`, commit, platform: opts.platform, snapshotFile: rightKitSnapshotFile });
   }
   rightKitResolution = await prepareRightKitResolution({
@@ -347,6 +356,12 @@ await check("target", [], () => {
   try { expanded = expandPackageRecipeTarget(target, { platform: opts.platform, appRoot: root, config }); } catch (error) { throw new Error(`${config.app ?? "app"} ${opts.platform} ${error.message}`); }
   if (!expanded) throw new Error(`${config.app ?? "app"} has no ${opts.platform} release target`);
   target = expanded;
+});
+// Row 7.04c (R-T1, R-T4): in a door split each Cargo manifest's target is bound now, once, before any step runs, and no step the app owns may name
+// a target-relative path (the snapshot has no target directory). Checkout mode checks nothing here.
+await check("split-artifact-paths", ["target"], () => {
+  if (!workerSource) return;
+  assertSplitCommandPaths(releaseCommandSteps({ target, config, root }), artifactContext());
 });
 const legalCheck = await check("legal-contract", [], () => (config.legal
   ? assertLegalReleaseContract(root, config.legal, config.app ?? path.basename(root), opts.platform)
@@ -636,7 +651,7 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
   // writes the App Installer route and the seal record. Never a second signer.
   await runCommand(target.prePackage, root);
   // Raw payload scan BEFORE the package is packed (a packed MSIX is only readable through its ZIP directory).
-  assertNoQaControlBinaries("msix staged payload", [path.resolve(root, target.msix.stageDir)], { requireBinary: true, prePack: true });
+  assertNoQaControlBinaries("msix staged payload", [resolveDeclaredPath(root, target.msix.stageDir)], { requireBinary: true, prePack: true });
   const options = msixBuildOptions({ root, target, app: config.app, dryRun: opts.dryRun, receipts: {
     pe: windowsReceiptPath(root, "raw-exe"), msix: windowsReceiptPath(root, "installer"),
     dir: path.dirname(windowsReceiptPath(root, "raw-exe")) } });
@@ -645,7 +660,7 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
   // Second layer: read the finished package through its ZIP central directory (stored and deflate entries).
   if (!built.dryRun) assertNoQaControlBinaries("msix package", [options.out], { requireBinary: true });
 } else if (opts.platform === "win") {
-  const rawFiles = target.sign.prePackageFiles.map((p) => path.resolve(root, p));
+  const rawFiles = target.sign.prePackageFiles.map((p) => resolveDeclaredPath(root, p));
   const sidecarPlan = await prepareMediaSidecar(root);
   const externalPlan = await prepareExternalBin(root);
   await runCommand(target.prePackage, root);
@@ -894,15 +909,25 @@ function assertNoWebBundleMocksInFrontend(phase, { required }) {
   } catch (error) { fail(error.message); }
 }
 
+// Row 7.04c (R-T2): one resolver for every declared artifact path. Checkout mode is the historical rule, byte for byte (the app root, then
+// RIGHT_RELEASE_ARTIFACT_DIR); a door split maps a target-prefixed path to its bound Cargo target and never reads the checkout.
+function artifactContext() {
+  artifactPathContext ??= splitArtifactContext({
+    cwd: root, env: process.env, nativeLayout, config, target: config.targets?.[opts.platform],
+    ...(workerSource?.mode === "snapshot" ? { snapshotRoot: workerSource.snapshot } : {}),
+  });
+  return artifactPathContext;
+}
+
 function resolveReleaseArtifactPath(root, declared) {
-  const local = path.resolve(root, declared);
-  if (existsSync(local)) return local;
-  const managed = process.env.RIGHT_RELEASE_ARTIFACT_DIR;
-  if (managed) {
-    const candidate = path.join(path.resolve(managed), path.basename(declared));
-    if (existsSync(candidate)) return candidate;
-  }
-  return local;
+  try { return resolveArtifactPath(declared, artifactContext()); }
+  catch (error) { if (error instanceof ArtifactPathError) fail(error.message); throw error; }
+}
+
+/** A declared path that never fell back to the managed artifact directory (a staged payload, a raw EXE): the app root, or in a split the same resolver. */
+function resolveDeclaredPath(root, declared) {
+  const context = artifactContext();
+  return context.mode === "split" ? resolveReleaseArtifactPath(root, declared) : path.resolve(root, declared);
 }
 
 function fail(message) {
@@ -1042,11 +1067,13 @@ function nativeSignedArtifacts(files, root) {
   return values.map((value) => {
     const declared = typeof value === "string" ? value : value?.path ?? value?.file;
     if (!declared) fail("native finalizer signed artifact path is missing");
-    const absolute = path.resolve(root, declared);
-    if (opts.dryRun) return { path: path.relative(root, absolute).replaceAll("\\", "/") };
+    const absolute = resolveDeclaredPath(root, declared);
+    // A split's bound target lies outside the app: its absolute path is the evidence there.
+    const evidencePath = () => { const relative = path.relative(root, absolute).replaceAll("\\", "/"); return relative.startsWith("..") ? absolute.replaceAll("\\", "/") : relative; };
+    if (opts.dryRun) return { path: evidencePath() };
     if (!existsSync(absolute)) fail(`native finalizer signed artifact missing: ${absolute}`);
     return {
-      path: path.relative(root, absolute).replaceAll("\\", "/"),
+      path: evidencePath(),
       sha256: createHash("sha256").update(readFileSync(absolute)).digest("hex"),
       sizeBytes: readFileSync(absolute).length,
     };
@@ -1080,7 +1107,7 @@ function nativeArchiveCandidates({ root, target, nativeAssembly }) {
     ...(target.installer?.artifacts ?? []).map((artifact) => artifact.file),
     ...(target.updater?.artifacts ?? []).map((artifact) => artifact.file),
   ].filter((value) => typeof value === "string" && value.trim());
-  return [...new Set(declared.map((value) => path.resolve(root, value)))];
+  return [...new Set(declared.map((value) => resolveDeclaredPath(root, value)))];
 }
 
 function nativeFinalizerOutputPath({ finalizer, target, root }) {
@@ -1906,7 +1933,7 @@ async function verifyWindowsEmbedding({ root, target, files, markers }) {
     console.log("dry-run: verify installer embeds the signed raw EXE");
     return;
   }
-  const rawFile = path.resolve(root, target.sign.prePackageFiles[0]);
+  const rawFile = resolveDeclaredPath(root, target.sign.prePackageFiles[0]);
   const rawReceiptPath = windowsReceiptPath(root, "raw-exe");
   let rawReceipt;
   try { rawReceipt = JSON.parse(readFileSync(rawReceiptPath, "utf8")); } catch { fail(`missing raw EXE signing receipt: ${rawReceiptPath}`); }

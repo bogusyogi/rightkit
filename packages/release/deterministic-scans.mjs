@@ -25,12 +25,14 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn as spawnChild, spawnSync } from "./background-process.mjs";
 import { spawnUnderOwnership } from "./build-ownership.mjs";
 import { checkAdvisoryExceptions } from "./advisory-exceptions.mjs";
-import { canonicalJson, digestScanSet, requiredScanIds, rustCratePlan, rustScanId } from "./scan-digest.mjs";
+import { CLIPPY_UNIVERSAL_FEATURE_FLAGS, canonicalJson, clippyBatchPlan, clippySelectionOf, digestScanSet, requiredScanIds, rustCratePlan, rustScanId } from "./scan-digest.mjs";
 import { reach } from "./lock-graph.mjs";
 import { cargoManifestState } from "./cargo-manifest-text.mjs";
 import { LAUNCH_GUARD_IMPORT } from "./class-a-launch-guard.mjs";
 import { advisoryCacheRoot, ensureAdvisoryDb, prepareDenyOverlay, readAdvisoryPin } from "./advisory-db.mjs";
 import { observedEnvOf, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest } from "./snapshot-request.mjs";
+import { SCAN_TOKEN_ENV, readLedger, scanTokenOf, unclaimedLedgers } from "./cargo-ledger.mjs";
+import { verifyBrokerLedger } from "./snapshot-broker.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
 /**
@@ -48,6 +50,14 @@ export const CHECKER_IDENTITY = (() => {
 })();
 export const CHECKER_VERSION = CHECKER_IDENTITY;
 export const SCAN_CLASS = Object.freeze({ A: "A", B: "B" });
+/**
+ * Recorded in the result of every wrapped snapshot compile (item 7 row 7.10, lead re-decision F7): cargo hands a build script its own
+ * path in CARGO (measured, cargo 1.98.0), so a cargo a build script runs through $CARGO never reaches the wrapper's ledger.
+ */
+export const UNOBSERVED_NESTED_CARGO_NOTE = "cargo calls that a build script makes through $CARGO are unobserved: cargo hands build scripts its own path, not the gate's wrapper, so they are not in the cargo ledger; they inherit the parent's bound CARGO_TARGET_DIR, and the per-scan sentinel and the after-compile snapshot verify are the backstops";
+
+/** The ledger token of the gate's own tool version probes (they reach the cargo wrapper like any scan does). */
+const PROBE_LEDGER_TOKEN = scanTokenOf("tool-probe");
 
 /** Scan id prefixes (the text before the first ":") that belong to each class. */
 export const CLASS_A_SCAN_PREFIXES = Object.freeze([
@@ -220,6 +230,35 @@ export function fmtCheckArgs(unit = null) { return unit ? ["fmt", "-p", unit, "-
 
 /** `cargo metadata` that validates manifests and the lock without resolving anything new. */
 export function metadataArgs({ noDeps = true } = {}) { return ["metadata", ...(noDeps ? ["--no-deps"] : []), "--format-version", "1", "--locked"]; }
+
+// ---- Clippy batching (GATE-CONTRACT §1 "Clippy route & batching"; item 8 rows 8.6, 8.8, 8.15) -----------------------------------------
+
+// The batch planner itself (clippyBatchPlan, clippySelectionOf, CLIPPY_UNIVERSAL_FEATURE_FLAGS) lives in scan-digest.mjs, beside the scan
+// ids, and is re-exported here.
+export { CLIPPY_UNIVERSAL_FEATURE_FLAGS, clippyBatchPlan, clippySelectionOf };
+
+/**
+ * Does this crate's directory declare sidecars its build needs staged first? A Tauri crate with `bundle.externalBin` refuses to build
+ * until its sidecars are in place (bin/rightkit-gate.mjs, the compile stage), so it is scheduled after the independent crates. The
+ * declaration is read from the crate's own Tauri configuration (JSON, JSON5 or TOML), in its directory or its `src-tauri`.
+ */
+export function sidecarBoundCrate({ dir, exists = fs.existsSync, readFile = (f) => fs.readFileSync(f, "utf8") }) {
+  for (const base of [dir, path.join(dir, "src-tauri")]) {
+    for (const name of ["tauri.conf.json", "tauri.conf.json5", "Tauri.toml"]) {
+      const file = path.join(base, name);
+      let body;
+      try { if (!exists(file)) continue; body = readFile(file); } catch { continue; }
+      try {
+        const conf = JSON.parse(body);
+        const list = conf?.bundle?.externalBin ?? conf?.tauri?.bundle?.externalBin;
+        if (Array.isArray(list) && list.length) return { bound: true, file, externalBin: list };
+        continue;
+      } catch { /* not strict JSON: read as text */ }
+      if (/(^|[\s{,"'])externalBin["']?\s*[:=]\s*\[\s*["']/.test(body)) return { bound: true, file, externalBin: null };
+    }
+  }
+  return { bound: false };
+}
 
 // ---- plan ---------------------------------------------------------------------------------------------
 
@@ -783,6 +822,11 @@ export function planScans({
   // `{ "<repo-relative directory>": [unit names] }`: sources outside every unit that a unit compiles (vendor/citationberg is patched into
   // rightkit-typeset). A changed file under the directory puts those units in scope. null maps none.
   externalInputs = null,
+  // Clippy batching (item 8; clippyBatchPlan). false keeps the production path: one Clippy scan per crate and lint feature set. It is
+  // switched on only after the batch-equivalence run (clippy-equivalence.mjs, row 8.7) has passed on the hosts the map names; then the
+  // planner emits one scan per compatible batch and no per-crate Clippy scan for a crate that belongs to one (row 8.15).
+  // `shardSolo` is ci/shards.json `solo`; `clippySeparate` maps a unit name to the reason equivalence found batching changed it.
+  clippyBatching = false, shardSolo = [], clippySeparate = new Map(),
 } = {}) {
   if (!contentRoot) throw new TypeError("planScans: contentRoot is required");
   if (!Array.isArray(cargoCommand) || cargoCommand.length === 0 || !["rustright", "cargo"].includes(cargoCommand[0]) || cargoCommand.slice(1).some((a) => a !== "cargo")) {
@@ -1122,6 +1166,7 @@ export function planScans({
       ...(trusted ? {} : { deferred: "requires a trusted-root run: the generator is repository code and no separate trusted checkout provides it; the content root's copy is never executed" }),
     });
   }
+  const clippyEntries = [];
   for (const name of crateNames) {
     // Feature sets exactly as CI's gate runs them (scripts/ci/gate.mjs, ci/gate.config.json rust.<crate>):
     // clippy per `featureSets` (default features when absent); check per `checkFeatureSets` (default
@@ -1134,12 +1179,21 @@ export function planScans({
     // check runs only when no clippy set covers default features.
     if (defaultCheck) add({ id: rustScanId.check(name), class: B, ...cargoIn(ws, ...checkArgs(crate, { locked: true })) });
     checkSets.forEach((set, i) => add({ id: rustScanId.checkFeatures(name, i), class: B, ...cargoIn(ws, ...checkArgs(crate, { features: set, locked: true })) }));
-    lintSets.forEach((set, i) => add({ id: rustScanId.clippy(name, lintSets.length, i), class: B, ...cargoIn(ws, ...clippyArgs(crate, { features: set, locked: true })) }));
+    if (clippyBatching) lintSets.forEach((set) => clippyEntries.push({ name, crate, ws, set, count: lintSets.length, env: targetDirs?.[ws] ?? null }));
+    else lintSets.forEach((set, i) => add({ id: rustScanId.clippy(name, lintSets.length, i), class: B, ...cargoIn(ws, ...clippyArgs(crate, { features: set, locked: true })) }));
     // rustdoc flags go after `--` for this crate's library only: the broker owns RUSTDOCFLAGS and refuses
     // a request that sets it. A crate with no library has no API docs to check.
     if (exists(path.join(contentRoot, rustDir(name), "src", "lib.rs"))) {
       add({ id: rustScanId.doc(name), class: B, ...cargoIn(ws, "rustdoc", "-p", crate, "--lib", ...lintSets[0], "--locked", "--", ...DOC_RUSTDOC_ARGS) });
     }
+  }
+  if (clippyBatching && clippyEntries.length) {
+    // One Clippy scan per batch (row 8.6): the independent batches first, the sidecar-bound ones after them (row 8.8; the compile lane
+    // drains in plan order). The reason a configuration stays separate is recorded in the plan notes.
+    const sidecarBound = new Set(clippyEntries.filter((e) => sidecarBoundCrate({ dir: path.join(contentRoot, rustDir(e.name)), exists, readFile }).bound).map((e) => e.name));
+    const plan = clippyBatchPlan(clippyEntries, { solo: shardSolo, separate: clippySeparate, sidecarBound, toolchain: cargoCommand.join(" ") });
+    for (const b of plan.batches) add({ id: b.id, class: B, batch: { units: b.units, order: b.order, reason: b.reason }, ...cargoIn(b.ws, ...clippyArgs(b.crates, { features: b.set, locked: true })) });
+    notes.push(...plan.notes);
   }
   // Reverse dependents: a workspace crate that is not in scope but whose lock closure reaches one that is must still compile.
   // A unit only depends on units of its own Cargo workspace (its own lock), so each workspace is judged by its own lock.
@@ -1847,7 +1901,11 @@ export async function runScans(plan, options = {}) {
   const ctx = { deps, contentRoot, read: (f) => deps.readFile(path.join(contentRoot, f)) };
   const toolVersions = {}; const probed = new Map(); const advisoryDbs = new Map();
   const results = [];
-  // options.cache = { read(key), write(key, row), digest(scan) => string | null } (null: not cacheable, which is how the live class A checks opt out).
+  // The gate-owned cargo ledger of a wrapped snapshot compile (options.cargoLedger = { dir }): every call the wrapper decided, filed
+  // under its scan's token. `ledgerSeen` is the run's one-use record of carriers and request ids across every scan.
+  const cargoLedger = options.cargoLedger?.dir ? options.cargoLedger : null;
+  const claimedTokens = new Set(); const ledgerSeen = { nonces: new Set(), ids: new Set() };
+  // options.cache ={ read(key), write(key, row), digest(scan) => string | null } (null: not cacheable, which is how the live class A checks opt out).
   const cache = options.cache && typeof options.cache.read === "function" && typeof options.cache.write === "function" && typeof options.cache.digest === "function" ? options.cache : null;
   const cacheHits = [];
   let classAFailed = false;
@@ -1887,7 +1945,11 @@ export async function runScans(plan, options = {}) {
       // lease, open.
       const probeMs = Number.isFinite(options.probeTimeoutMs) && options.probeTimeoutMs > 0 ? options.probeTimeoutMs : PROBE_TIMEOUT_MS;
       const probeSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(probeMs)]) : AbortSignal.timeout(probeMs);
-      const r = await deps.spawn(command, PROBES[tool] ?? ["--version"], { cwd, env: { ...deps.env, ...PNPM_NO_HOOKS_ENV, COREPACK_ENABLE_AUTO_PIN: "0" }, signal: probeSignal });
+      // The gate's own version probes reach the wrapper too (cargo is first on PATH): they are filed under the probe token, which the
+      // gate claims and checks like a scan's.
+      const probeLedgerEnv = cargoLedger ? { [SCAN_TOKEN_ENV]: PROBE_LEDGER_TOKEN } : {};
+      if (cargoLedger) claimedTokens.add(PROBE_LEDGER_TOKEN);
+      const r = await deps.spawn(command, PROBES[tool] ?? ["--version"], { cwd, env: { ...deps.env, ...PNPM_NO_HOOKS_ENV, COREPACK_ENABLE_AUTO_PIN: "0", ...probeLedgerEnv }, signal: probeSignal });
       if (!r || r.error || r.status !== 0) outcome = { ok: false, why: r?.error?.message ?? `exit ${r?.status}` };
       else {
         const text = String(r.stdout || r.stderr || "");
@@ -2180,14 +2242,19 @@ export async function runScans(plan, options = {}) {
           // CARGO_TARGET_DIR gets an empty directory of its own as one. Every cargo reached through the wrapper is bound elsewhere; only
           // a cargo that bypassed it (an absolute path, `rustup run`, a reset PATH) can write here, and the scan then fails below.
           let sentinel = null;
-          if (options.cargoSentinel && !Object.hasOwn(s.env ?? {}, "CARGO_TARGET_DIR")) {
+          // (A scan that is itself the carried broker request is bound by the broker: no sentinel, so the client's observed environment is the scan's own.)
+          if (options.cargoSentinel && !viaSnapshotBroker && !Object.hasOwn(s.env ?? {}, "CARGO_TARGET_DIR")) {
             sentinel = path.join(options.cargoSentinel, sha256(s.id).slice(0, 16));
             fs.rmSync(sentinel, { recursive: true, force: true });
             fs.mkdirSync(sentinel, { recursive: true });
           }
           const sentinelEnv = sentinel ? { CARGO_TARGET_DIR: sentinel, CARGO_BUILD_TARGET_DIR: sentinel } : {};
+          // Every cargo call the wrapper decides during this scan is filed under this token in the gate's ledger.
+          const ledgerToken = cargoLedger ? scanTokenOf(s.id) : null;
+          if (ledgerToken) claimedTokens.add(ledgerToken);
+          const ledgerEnv = ledgerToken ? { [SCAN_TOKEN_ENV]: ledgerToken } : {};
           try {
-          try { r = await deps.spawn(p.command, finalArgs, { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...(carrier ? carrier.made.env : {}) }, signal: scanSignal, timeout: limitMs }); } finally { clearTimeout(clock); advisory?.cleanup?.(); }
+          try { r = await deps.spawn(p.command, finalArgs, { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...(carrier ? carrier.made.env : {}) }, signal: scanSignal, timeout: limitMs }); } finally { clearTimeout(clock); advisory?.cleanup?.(); }
           if (signal?.aborted && (!r || r.error || r.status !== 0)) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
           if ((timer.signal.aborted || r?.error?.code === "ETIMEDOUT") && (!r || r.error || r.status !== 0)) return { ...row, status: "fail", code: "TIMEOUT", detail: `${s.id} ran longer than ${Math.round(limitMs / 60000)} min and was killed with its process tree; a scan that does not finish fails` };
           if (!r || r.error) { status = "fail"; code = "SPAWN_ERROR"; detail = r?.error?.message ?? "no result"; }
@@ -2200,6 +2267,19 @@ export async function runScans(plan, options = {}) {
             try { written = fs.readdirSync(sentinel); } catch (e) { written = [`(unreadable: ${e.message})`]; }
             if (written.length) { status = "fail"; code = "RK_CARGO_UNBOUND"; detail = `${s.id}: a cargo that bypassed the gate's wrapper wrote ${written.slice(0, 5).join(", ")} into the unbound sentinel ${sentinel}; with several Cargo workspaces no output directory can be inferred for it, so the scan proves nothing about where its outputs went`; }
           }
+          // The wrapper's ledger (rows 7.10 and 7.24): a refused, unverified or unfinished cargo call fails this scan even when the code
+          // under test ignored cargo's exit status; on a broker host each call's signed receipt is verified again here, by the gate.
+          if (ledgerToken) {
+            let problems;
+            try {
+              const ledger = readLedger(cargoLedger.dir, ledgerToken);
+              problems = [...ledger.problems, ...(deps.snapshotBroker ? await verifyBrokerLedger(ledger.entries, deps.snapshotBroker, { seen: ledgerSeen }) : [])];
+            } catch (e) { problems = [`the cargo ledger cannot be read (${e.message})`]; }
+            if (problems.length) {
+              const text = `${s.id}: the gate's cargo ledger records ${problems.length} cargo call(s) that did not complete as a verified success: ${problems.slice(0, 5).join("; ")}`;
+              if (status === "pass") { status = "fail"; code = "RK_CARGO_LEDGER"; detail = text; } else detail = `${detail ? `${detail}; ` : ""}${text}`;
+            }
+          }
           if (s.advisoryDb === "deny" && code !== "RK_CARGO_UNBOUND") {
             const denyError = `${r.stdout ?? ""}\n${r.stderr ?? ""}`.split(/\r?\n/).find((line) => /\[ERROR\]/.test(line));
             if (r.truncated) { status = "fail"; code = "DENY_ERROR"; detail = "cargo-deny output exceeded the kept tail, so the absence of an [ERROR] line cannot be shown"; }
@@ -2211,7 +2291,7 @@ export async function runScans(plan, options = {}) {
             try {
               const ref = readRequestRef(path.join(carrier.refDir, "request.json"));
               const receipt = await deps.snapshotBroker.receiptOf(ref.requestId);
-              const { evidence } = verifySnapshotReceipt(receipt, { pins: deps.snapshotBroker.pins, jobId: ref.requestId, carrier: carrier.made.carrier, argv: carrier.cargoArgv, workspace: ref.workspace, observedEnv: observedEnvOf({ ...deps.env, ...s.env, ...(extraEnv ?? {}) }, deps.platform ?? process.platform) });
+              const { evidence } = verifySnapshotReceipt(receipt, { pins: deps.snapshotBroker.pins, jobId: ref.requestId, carrier: carrier.made.carrier, argv: carrier.cargoArgv, workspace: ref.workspace, observedEnv: observedEnvOf({ ...deps.env, ...s.env, ...(extraEnv ?? {}) }, deps.platform ?? process.platform), checkout: deps.snapshotBroker.checkout, outputRoots: deps.snapshotBroker.outputRoots, platform: deps.snapshotBroker.platform ?? deps.platform ?? process.platform });
               row.snapshotEvidence = { requestId: ref.requestId, outputDir: evidence.outputDir, treeAtStart: evidence.snapshot.treeAtStart, treeAtExit: evidence.snapshot.treeAtExit };
             } catch (e) {
               status = "fail"; code = "SNAPSHOT_EVIDENCE"; detail = `${s.id}: the broker's snapshot evidence did not verify (${e.code ?? "error"}: ${e.message})`;
@@ -2242,12 +2322,27 @@ export async function runScans(plan, options = {}) {
     return { ...row, status, ...(code ? { code } : {}), ...(detail ? { detail } : {}) };
   }
 
+  // Cargo calls the gate cannot attribute to a scan (the code under test cleared or replaced the scan token): never skipped.
+  if (cargoLedger) {
+    // The gate's own version probes: anything but a completed call (a refused probe) fails the run too.
+    try {
+      const probeProblems = readLedger(cargoLedger.dir, PROBE_LEDGER_TOKEN).problems;
+      if (probeProblems.length) results.push({ id: "cargo-ledger:tool-probe", class: SCAN_CLASS.B, command: "cargo ledger", tool: null, toolVersion: null, status: "fail", code: "RK_CARGO_LEDGER", detail: `the gate's tool version probes reached the wrapper and did not complete: ${probeProblems.slice(0, 5).join("; ")}` });
+    } catch { /* an unreadable probe ledger is named by the unclaimed check only when it holds records */ }
+    let unclaimed;
+    try { unclaimed = unclaimedLedgers(cargoLedger.dir, claimedTokens); } catch (e) { unclaimed = [`unreadable (${e.message})`]; }
+    if (unclaimed.length) {
+      const calls = [];
+      for (const token of unclaimed) { try { for (const e of readLedger(cargoLedger.dir, token).entries) calls.push(`cargo ${(e.argv ?? []).join(" ")} (${e.status}, from ${e.cwd})`.trim()); } catch { /* named by its token below */ } }
+      results.push({ id: "cargo-ledger", class: SCAN_CLASS.B, command: "cargo ledger", tool: null, toolVersion: null, status: "fail", code: "RK_CARGO_LEDGER", detail: `cargo calls were filed under ${unclaimed.length} scan token(s) no scan owns (${unclaimed.slice(0, 3).join(", ")}), so they cannot be tied to a scan (${SCAN_TOKEN_ENV} was cleared, or the call came from outside every scan): ${calls.slice(0, 5).join("; ") || "unreadable"}` });
+    }
+  }
   const cancelled = signal?.aborted === true;
   return {
     schema: SCAN_RESULT_SCHEMA, ok: !cancelled && results.every((r) => r.status === "pass"), complete: !cancelled && results.every((r) => r.status === "pass"), classes, checker, ...(cancelled ? { cancelled: true } : {}),
     inputDigest: plan.inputDigest ?? null,
     deferred: results.filter((r) => r.status === "deferred").map((r) => r.id),
-    scans: results, toolVersions, cacheHits: [...cacheHits].sort(), notes: plan.notes ?? [],
+    scans: results, toolVersions, cacheHits: [...cacheHits].sort(), notes: [...(plan.notes ?? []), ...(cargoLedger ? [UNOBSERVED_NESTED_CARGO_NOTE] : [])],
     scanSetDigest: digestScanSet(results),
     classDigests: { A: digestScanSet(results.filter((r) => r.class === "A")), B: digestScanSet(results.filter((r) => r.class === "B")) },
   };

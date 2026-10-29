@@ -239,13 +239,13 @@ function admitRuntime(bin, rest, options, label) {
 }
 
 /**
- * `rightkit-gate install-hook`: writes the committed pre-push hook and sets core.hooksPath, so an app's `prepare` script may run it.
- * It builds, signs, packages and uploads nothing. The gate itself (`rightkit-gate`, `--base`) compiles and is run by the hook, never
- * by a release config; only the installer and the version probe are admitted.
+ * `rightkit-gate install-hook`: retires the git hooks an earlier release wrote and registers the agent hook, so an app's `prepare` script may run it.
+ * It builds, signs, packages and uploads nothing. The gate itself (`rightkit-gate`, `--base`) compiles and is never run by a release
+ * config; only the installer and the version probe are admitted.
  */
 function admitRightKitGate(args, label) {
   if (args.length === 1 && (args[0] === "install-hook" || args[0] === "--version")) return admit(`rightkit-gate-${args[0].replace(/^--/, "")}`, "owner");
-  return refuse("R1-owner-subcommand", `${label}: only rightkit-gate install-hook (and --version) is an admitted pipeline command; the gate itself runs from the pre-push hook`);
+  return refuse("R1-owner-subcommand", `${label}: only rightkit-gate install-hook (and --version) is an admitted pipeline command; the gate itself is run through the door, never by a release config`);
 }
 
 function admitRightRelease(args, label) {

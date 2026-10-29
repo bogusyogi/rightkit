@@ -8,6 +8,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveTargetRoot as cargoResolveTargetRoot } from "./cargo-target.mjs";
+import { ArtifactPathError, SPLIT_TARGET_UNRESOLVED_CODE, isSplitArtifactEnv } from "./release-artifact-path.mjs";
 import { defaultManagedRoots, isUnderManagedRoot } from "./managed-target-stage.mjs";
 import { NativeHelpersError, nativeHelperNestedCode, validateNativeHelpers } from "./native-helpers.mjs";
 import { validateWinPackage, WinPackageConfigError } from "./win-package-recipe.mjs";
@@ -79,13 +80,13 @@ const configArgs = (extras, appRoot, cwd) => (extras.tauriConfig ? ["--config", 
  * release.mjs runs ONE prePackage command: node recipe-build.mjs runs the built-in cleanup, prepare, the Tauri build,
  * the artifact stability poll and postBuild in order. `cleanup` and `stability` are recipe-build plan sections.
  */
-function recipeBuildCommand({ extras, build, env, cleanup, stability, stage, timeoutMs, verifySidecars, nativeHelpers }) {
+function recipeBuildCommand({ extras, build, env, cleanup, stability, stage, timeoutMs, verifySidecars, nativeHelpers, boundTargets }) {
   const steps = [
     ...extras.prepare.map((step) => ({ phase: "prepare", ...step })),
     { phase: "build", cmd: build.cmd, args: build.args, cwd: build.cwd },
     ...extras.postBuild.map((step) => ({ phase: "postBuild", ...step })),
   ];
-  const plan = { version: 1, steps, ...(cleanup ? { cleanup } : {}), ...(stability ? { stability } : {}), ...(stage && (stage.pre?.length || stage.post?.length) ? { stage } : {}), ...(verifySidecars ? { verifySidecars } : {}), ...(nativeHelpers ? { nativeHelpers } : {}) };
+  const plan = { version: 1, steps, ...(boundTargets?.length ? { boundTargets } : {}), ...(cleanup ? { cleanup } : {}), ...(stability ? { stability } : {}), ...(stage && (stage.pre?.length || stage.post?.length) ? { stage } : {}), ...(verifySidecars ? { verifySidecars } : {}), ...(nativeHelpers ? { nativeHelpers } : {}) };
   return { cmd: process.execPath, args: [RECIPE_BUILD, "--plan", JSON.stringify(plan)], env, ...(timeoutMs ? { timeoutMs } : {}) };
 }
 
@@ -114,6 +115,9 @@ function targetRootMapper({ spec, appRoot, cwd, env, resolveTargetRoot, label, m
 function buildTargetRootMapper({ spec, appRoot, cwd, env, resolveTargetRoot, label, managedRoots, staged }) {
   const explicit = spec.cargoTargetRoot;
   if (explicit !== undefined && explicit !== true && explicit !== false && typeof explicit !== "string") fail(`${label}.cargoTargetRoot must be true or an app-relative Cargo.toml path`);
+  // A door split (row 7.04c, R-T1/R-T3): the snapshot has no target directory, so every declared target path is the bound target's, absolute, and
+  // nothing is copied (the #924 bridge plans zero staged entries): the build output is read and signed in place.
+  if (isSplitArtifactEnv(env)) return splitTargetRootMapper({ spec, appRoot, cwd, resolveTargetRoot, label });
   const envDir = typeof env.CARGO_TARGET_DIR === "string" && env.CARGO_TARGET_DIR.trim() !== "";
   if (explicit === false || (!explicit && !envDir)) return (declared) => declared;
   const manifestRel = typeof explicit === "string" ? relativeInside(explicit, `${label}.cargoTargetRoot`) : path.posix.join(cwd === "." ? "" : cwd, "src-tauri", "Cargo.toml");
@@ -141,9 +145,34 @@ function buildTargetRootMapper({ spec, appRoot, cwd, env, resolveTargetRoot, lab
   };
 }
 
-function winPrePackage({ extras, cwd, appRoot, triple, jobs, timeoutMs, cleanup, stability, stage }) {
+function splitTargetRootMapper({ spec, appRoot, cwd, resolveTargetRoot, label }) {
+  const explicit = spec.cargoTargetRoot;
+  const manifestRel = typeof explicit === "string" ? relativeInside(explicit, `${label}.cargoTargetRoot`) : path.posix.join(cwd === "." ? "" : cwd, "src-tauri", "Cargo.toml");
+  const manifest = path.resolve(appRoot, manifestRel);
+  // An app that declares no recipe target and has no src-tauri manifest has nothing to bind; a declared one that is missing is refused below.
+  if (explicit !== true && typeof explicit !== "string" && !existsSync(manifest)) return (declared) => declared;
+  let targetDir;
+  try { targetDir = resolveTargetRoot(manifest); } catch (error) {
+    throw new ArtifactPathError(SPLIT_TARGET_UNRESOLVED_CODE, `${label}: cannot resolve the Cargo target directory of ${manifest} (${error.message}); a split never falls back to a snapshot-relative target/`);
+  }
+  const relativeToApp = path.relative(appRoot, targetDir);
+  if (relativeToApp === "" || (!relativeToApp.startsWith("..") && !path.isAbsolute(relativeToApp))) {
+    throw new ArtifactPathError(SPLIT_TARGET_UNRESOLVED_CODE, `${label}: the Cargo target directory ${targetDir} is inside the snapshot; a split binds it outside (CARGO_TARGET_DIR, row 7.09)`);
+  }
+  const prefix = path.posix.join(path.posix.dirname(manifestRel).replace(/^\.$/, ""), "target");
+  const mapper = (declared) => {
+    const normalized = String(declared).replaceAll("\\", "/");
+    if (normalized !== prefix && !normalized.startsWith(`${prefix}/`)) return declared;
+    if (normalized.split("/").includes("..")) fail(`${label}: ${declared} must not contain ..`);
+    return path.resolve(targetDir, normalized.slice(prefix.length + 1));
+  };
+  mapper.bound = [targetDir];
+  return mapper;
+}
+
+function winPrePackage({ extras, cwd, appRoot, triple, jobs, timeoutMs, cleanup, stability, stage, boundTargets }) {
   const args = ["exec", "tauri", "build", "--no-bundle", "--target", triple, ...configArgs(extras, appRoot, cwd), ...buildCargoArgs(extras, jobs)];
-  return recipeBuildCommand({ extras, build: { cmd: "pnpm", args, cwd }, env: QUIET_TAURI_ENV, cleanup, stability, stage, timeoutMs });
+  return recipeBuildCommand({ extras, build: { cmd: "pnpm", args, cwd }, env: QUIET_TAURI_ENV, cleanup, stability, stage, timeoutMs, boundTargets });
 }
 
 /** `targets.win.winPackage` → prePackage (`tauri build --no-bundle`) and package (`tauri bundle --bundles nsis`). */
@@ -193,7 +222,7 @@ export function expandWinPackageTarget(target, { appRoot, config = {}, env = pro
   return {
     ...rest,
     signingContract: "windows-raw-exe-authenticode-before-nsis-v1",
-    prePackage: winPrePackage({ extras, cwd, appRoot: plan.appRoot, triple: plan.triple, jobs, timeoutMs: timeout, cleanup, stability: { files: [rawExe] }, stage: prePackageStage }),
+    prePackage: winPrePackage({ extras, cwd, appRoot: plan.appRoot, triple: plan.triple, jobs, timeoutMs: timeout, cleanup, stability: { files: [rawExe] }, stage: prePackageStage, boundTargets: mapPath.bound }),
     package: bundleCommand,
     sign: { ...(target.sign ?? {}), prePackageFiles: [rawExe], files: [installerFile] },
     recipe: { kind: "winPackage", productName: plan.productName, updater: plan.updater },
@@ -327,7 +356,7 @@ export function expandMacPackageTarget(target, { appRoot, config = {}, env = pro
   return {
     ...rest,
     ...postSign,
-    prePackage: wrapped ? recipeBuildCommand({ extras, build: { cmd: "pnpm", args, cwd }, env: QUIET_TAURI_ENV, cleanup, stage: macStage, verifySidecars, nativeHelpers: nativeHelpersPlan }) : { cmd: "pnpm", args, cwd, env: QUIET_TAURI_ENV },
+    prePackage: wrapped ? recipeBuildCommand({ extras, build: { cmd: "pnpm", args, cwd }, env: QUIET_TAURI_ENV, cleanup, stage: macStage, verifySidecars, nativeHelpers: nativeHelpersPlan, boundTargets: mapPath.bound }) : { cmd: "pnpm", args, cwd, env: QUIET_TAURI_ENV },
     // Helpers are signed by release.mjs inside-out through sign.nestedCode (deepest path first, hardened runtime, each helper's own entitlements), then the app.
     sign: { ...(target.sign ?? {}), ...(helpers ? { nestedCode: { ...nativeHelperNestedCode(helpers), ...(target.sign?.nestedCode ?? {}) } } : {}), prePackageFiles },
     notarize: { ...target.notarize, app, appBeforePackage: true },

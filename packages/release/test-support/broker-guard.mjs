@@ -54,6 +54,12 @@ except (OSError, tomllib.TOMLDecodeError) as error:
 root = manifest.parent
 CRATES_IO = "registry+https://github.com/rust-lang/crates.io-index"
 
+def target_directory(root):
+    # Real metadata honours an absolute CARGO_TARGET_DIR (a door split binds the target outside the snapshot with it); otherwise <root>/target.
+    import os
+    named = os.environ.get("CARGO_TARGET_DIR", "")
+    return named if named and os.path.isabs(named) else str(root / "target")
+
 def dependency(key, spec, kind, target):
     table = {"version": spec} if isinstance(spec, str) else (spec if isinstance(spec, dict) else {})
     name = table.get("package", key)
@@ -88,7 +94,7 @@ if isinstance(package, dict) and "name" in package:
                      "readme": None, "repository": None, "homepage": None, "documentation": None, "links": None,
                      "default_run": None, "rust_version": None})
 json.dump({"packages": packages, "workspace_members": [p["id"] for p in packages], "workspace_root": str(root),
-           "target_directory": str(root / "target"), "metadata": None, "version": 1}, sys.stdout)
+           "target_directory": target_directory(root), "metadata": None, "version": 1}, sys.stdout)
 `;
 
 const original = {

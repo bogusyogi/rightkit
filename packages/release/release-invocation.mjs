@@ -17,7 +17,13 @@ function canonical(file) {
   return path.normalize(realpathSync.native(file)).toLowerCase();
 }
 
-export function assertPrimaryReleaseCheckout(repoRoot, env = process.env) {
+/**
+ * The release must run from the primary Git worktree. `split` is a door source split (release-source-identity.mjs, row 7.04): the
+ * process then builds the selected commit's snapshot, so the checkout's branch, its HEAD and whether it is detached are irrelevant
+ * (GATE-CONTRACT.md: the primary checkout's state is not a build input). Only the primary-worktree identity is still required. Without
+ * `split` every check is exactly as it was.
+ */
+export function assertPrimaryReleaseCheckout(repoRoot, env = process.env, { split = false } = {}) {
   const worktrees = git(repoRoot, ["worktree", "list", "--porcelain"]);
   const gitDir = git(repoRoot, ["rev-parse", "--git-dir"]).trim();
   const configured = spawnSync("git", ["config", "--path", "--get", "core.worktree"], {
@@ -33,6 +39,7 @@ export function assertPrimaryReleaseCheckout(repoRoot, env = process.env) {
   if (canonical(repoRoot) !== canonical(primary)) {
     throw new Error(`right-release must be invoked from the primary Git worktree: ${primary}`);
   }
+  if (split) return;
   const branch = spawnSync("git", ["symbolic-ref", "--quiet", "HEAD"], { cwd: repoRoot, encoding: "utf8", windowsHide: true });
   if (
     branch.status !== 0

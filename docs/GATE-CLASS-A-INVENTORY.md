@@ -166,9 +166,9 @@ App rules (`packages/release/app-check.mjs` `RULES`) and RightKit's own prefligh
 | `bin:rightkit-gate` | entry | `bin/rightkit-gate.mjs`: the one door |
 | `bin:rightkit-agent-hook` | entry | `bin/rightkit-agent-hook.mjs`: the managed-agent PreToolUse decision |
 | `policy:github-actions-only` | host policy | `execution-policy.mjs` `assertReleaseExecutionAllowed`: an app whose `.rightgit.json` says `compile: github-actions-only` (required for Orthic-Labs public repositories) may compile only in GitHub Actions, unless granted below; refusal code `RK_GITHUB_ACTIONS_ONLY`. Enforced by `cli/right-release.mjs` (which the door launches for dev, test and package) and `development.mjs`; the build-control hook mirrors it (`githubActionsOnlyViolation`, `build-control-policy`). Product-dependent: private apps have no `.rightgit.json` and compile locally. PENDING for the public-app cells A-M, A-D, A-L: the contract requires a local compile on the origin host, which needs a grant per app (Adrian's policy call) |
-| `policy:.rightkit-local-build.json` | host policy | the local-build grant (`localBuildGranted`): `allow: build-test-publish` (local publish is not permitted: RightKit publishes from git through CI) and a `repository` equal to the checkout's origin; RightKit's own grant names `bogusyogi/rightkit`. The grant's recorded reason (pre-push checks, 2026-10-22) is disputed by Adrian and needs correcting (GATE-CONTRACT §1) |
+| `policy:.rightkit-local-build.json` | host policy | the local-build grant (`localBuildGranted`): `allow: build-test-publish` (local publish is not permitted: RightKit publishes from git through CI) and a `repository` equal to the checkout's origin; RightKit's own grant names `bogusyogi/rightkit`. The record states the local build, test & publish grant only (`approved` 2026-10-14); the 2026-10-22 pre-push authorization (#911) is withdrawn in it, disputed by Adrian 2026-10-28 (GATE-CONTRACT:32) |
 
-The door also accepts `--to dev|test` (not in `STAGES`): today it runs full class A on the WORKING TREE and then `right-release dev|test`; under the commit-only build it must check and build a commit's snapshot (owner: step 4).
+The door also accepts `--to dev|test` (not in `STAGES`; both are rows of `STAGE_SOURCES` in `gate-stages.mjs`, item 7 row 7.06): it selects a commit, syncs its snapshot under ownership, runs full class A of the snapshot (`check --commit <sha> --full-a --snapshot <dir>`, never `--worktree`) and then `right-release dev|test` with the snapshot's app root as cwd (the source split, `source-split.mjs`). Mac and Dell keep the checkout route (class A of the working tree, `runWorktreeCompile`) until the one cutover commit wires the snapshot carrier; with the carrier wired a broker host takes the snapshot route and `dev|test` are refused (`RK_SNAPSHOT_CARRIER_NOT_WIRED`, row 7.24). (owner: step 4).
 
 ## Gaps found (code against contract)
 
@@ -176,9 +176,9 @@ The door also accepts `--to dev|test` (not in `STAGES`): today it runs full clas
 2. `deterministic-scans.mjs` header says class A runs no repository plugin or generator and lists tsc/eslint/biome/docs as B; the constants make them A. The header is stale.
 3. FIXED (step 4): `eslint` and `generated-docs` executed repository code in class A without the launch guard; every `executes` class A row now runs under it.
 4. FIXED (step 4): Linux was not always direct (see `executor:direct`).
-5. The door's `--to dev|test` builds the working tree, not a commit snapshot.
+5. FIXED (item 7, rows 7.02/7.03): the door's `--to dev|test` builds the selected commit's snapshot, not the working tree.
 6. `suite-api` coverage is lost in snapshot mode for a gate run from outside the repository.
-7. `prePushPlan` treats `generated-docs` as class B; it is A.
+7. FIXED (item 9): `prePushPlan` is retired with the `--pre-push` mode (commit and push run no gate).
 8. `rightkit-gate.mjs` header says class A scans are never cached; they are, keyed on bytes and environment.
 9. `check-all-features` is a class B prefix with no producer.
 10. `test:scripts-ci` lists files from the content root and runs at the live root.

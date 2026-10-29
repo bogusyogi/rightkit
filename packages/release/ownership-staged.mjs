@@ -1,4 +1,5 @@
-// Advisory pre-commit ownership gate: scans the STAGED tree (index content), never the working tree.
+// Ownership gate for the STAGED tree (index content), never the working tree: the manual command `right-release ownership --staged`.
+// No git hook runs it any more (docs/GATE-CONTRACT.md: commit runs no local hook check).
 // Authoritative enforcement stays in broker admission and the release gate.
 //
 //   right-release ownership --staged [--app <dir>] [--json]
