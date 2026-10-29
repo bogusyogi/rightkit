@@ -744,8 +744,11 @@ export function planScans({
   if (!["compile", "release"].includes(tier)) throw new Error(`planScans: tier must be compile or release, not ${JSON.stringify(tier)}`);
   let scans = []; const notes = [];
   if (cargoLiveRoot) notes.push(`broker host: cargo scans run in the primary checkout ${cargoLiveRoot}, whose Cargo inputs match the checked snapshot (rustright refuses cargo outside the primary checkout)`);
+  // A snapshot compile's scans carry its target map (item 7): the map is part of every scan's cache key, so no result cached by a
+  // live-checkout run (or a compile with another map) is taken for one that writes to these directories.
+  const snapshotTargets = targetDirs ? { RK_SNAPSHOT_TARGETS: canonicalJson(targetDirs) } : {};
   const add = (d) => {
-    const entry = { root: "live", env: {}, args: [], ...d };
+    const entry = { root: "live", args: [], ...d, env: { ...snapshotTargets, ...(d.env ?? {}) } };
     entry.command = commandText(entry);
     scans.push(entry);
   };

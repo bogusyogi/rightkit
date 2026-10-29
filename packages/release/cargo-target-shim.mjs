@@ -1,24 +1,30 @@
 #!/usr/bin/env node
-// The runtime cargo wrapper of a commit-snapshot compile (item 7, GATE-CONTRACT §1 "Broker interface", output directory): on a direct
-// (Linux) host the gate puts a `cargo` of its own first on PATH for every scan. Each real cargo invocation, however a test reaches it
-// (a script, `node --test`, a build helper), resolves its Cargo workspace (`cargo locate-project --workspace`, from its working
-// directory or --manifest-path) and runs with that workspace's ORIGINAL checkout target directory as CARGO_TARGET_DIR. A workspace the
-// snapshot compile did not resolve (outside the snapshot, a fixture, a temporary project), a cargo command that writes no bound
-// output or rewrites the commit, and an option that moves the workspace or output are refused with an RK_* code: the unit fails.
-// The static walker (deterministic-scans.mjs cargoReachOf) is advisory where this wrapper is installed.
+// The runtime cargo wrapper of a commit-snapshot compile (item 7, GATE-CONTRACT §1 "Broker interface", output directory). Scope: the
+// DIRECT POSIX (Linux) host only. On Mac and Dell the positive snapshot-compile path is the RustRight broker's snapshot carrier alone
+// (the gate refuses a snapshot compile on a broker host until it is wired); on a direct Windows host the static walk
+// (deterministic-scans.mjs cargoReachOf) is the fail-closed baseline, because a child started without a shell finds only an .exe.
+//
+// The gate puts this `cargo` first on PATH and names it in CARGO for every scan. Real cargo honours CARGO as its own path and hands
+// it to build scripts and tests (env!("CARGO"), $CARGO), so those come back here too. Each invocation resolves its Cargo workspace
+// (`cargo locate-project --workspace`, from its working directory or --manifest-path) and runs with that workspace's ORIGINAL checkout
+// target directory as CARGO_TARGET_DIR. Refused with an RK_* code (the unit fails): a workspace the compile did not resolve (outside
+// the snapshot, a fixture, a temporary project), an option that moves the workspace, configuration or output, a command that writes
+// no bound output or rewrites the commit (clean, install, publish, update, an alias or plugin, fetch without --locked, fmt without
+// --check). A cargo that bypasses PATH and CARGO (an absolute path, `rustup run`, a reset PATH) still inherits the scan-wide
+// CARGO_TARGET_DIR when the snapshot has one workspace; anything it writes into the snapshot fails the after-compile verification.
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-export const SHIM_MAP_SCHEMA = "rightkit.cargo-target-shim/1";
+export const SHIM_MAP_SCHEMA = "rightkit.cargo-target-shim/2";
 // Exit status of a refusal: cargo's own error status, so every caller reads it as a failed cargo.
 export const SHIM_REFUSAL_STATUS = 101;
-// Cargo commands that compile or report outputs: run bound to their workspace's checkout target directory.
-const BOUND = new Set(["build", "b", "check", "c", "test", "t", "bench", "run", "r", "doc", "d", "rustc", "rustdoc", "clippy", "metadata", "package"]);
-// Cargo commands that read the workspace and write no compile output (deny and audit: the gate's own class A scans): run unchanged,
-// no workspace needed.
-const PASSTHROUGH = new Set(["version", "help", "locate-project", "verify-project", "pkgid", "read-manifest", "tree", "fetch", "fmt", "deny", "audit"]);
+// Cargo commands that compile, fetch into or report on a workspace: run bound to its checkout target directory.
+const BOUND = new Set(["build", "b", "check", "c", "test", "t", "bench", "run", "r", "doc", "d", "rustc", "rustdoc", "clippy", "metadata", "package", "fetch"]);
+// Cargo commands that write nothing (deny and audit: the gate's own class A scans; fmt only as --check): run unchanged.
+const PASSTHROUGH = new Set(["version", "help", "locate-project", "verify-project", "pkgid", "read-manifest", "tree", "fmt", "deny", "audit"]);
 // Global options that take a value (`--color always`, `--explain E0001`); the subcommand is the first word after them.
 const GLOBAL_VALUE = new Set(["--color", "--explain"]);
 // Options that move the working directory, the configuration or the output (a short cluster holding C or Z too).
@@ -28,12 +34,14 @@ const refusal = (code, message) => ({ refuse: { code, message } });
 
 /**
  * What one cargo invocation may do: `{ exec: { args, env, workspace, targetDir } }` (bound), `{ exec: { args, env } }` (a command
- * with no compile output), or `{ refuse: { code, message } }`. `locate(manifestPath | null, cwd, toolchain | null)` returns the
- * absolute path of the workspace root's Cargo.toml or throws; `realpath` resolves a directory.
+ * that writes nothing), or `{ refuse: { code, message } }`. `locate(manifestPath | null, cwd, toolchain | null)` returns the absolute
+ * path of the workspace root's Cargo.toml or throws; `realpath` resolves a directory. `map.shim` (the wrapper's own path) is set as
+ * CARGO for the real cargo, so its build scripts and tests reach the wrapper again.
  */
 export function decideCargoInvocation({ args, cwd, env, map, locate, realpath = (p) => fs.realpathSync.native(p) }) {
   const words = [...args];
   const toolchain = words[0]?.startsWith("+") ? words[0] : null;
+  const withCargo = (e) => (map.shim ? { ...e, CARGO: map.shim } : e);
   let i = toolchain ? 1 : 0;
   let sub = null;
   for (; i < words.length; i += 1) {
@@ -45,9 +53,13 @@ export function decideCargoInvocation({ args, cwd, env, map, locate, realpath = 
     sub = w;
     break;
   }
-  if (sub === null || PASSTHROUGH.has(sub)) return { exec: { args: words, env: { ...env } } };
-  if (!BOUND.has(sub)) return refusal("RK_CARGO_UNBOUND_COMMAND", `\`cargo ${sub}\` is not a command a snapshot compile binds (${[...BOUND].join(", ")}; or ${[...PASSTHROUGH].join(", ")}, which write no output): an alias, plugin, clean, install, publish or lock rewrite is refused`);
-  const own = words.slice(i + 1, words.includes("--", i + 1) ? words.indexOf("--", i + 1) : undefined);
+  const end = sub === null ? -1 : words.indexOf("--", i + 1);
+  const own = sub === null ? [] : words.slice(i + 1, end < 0 ? undefined : end);
+  const globals = words.slice(toolchain ? 1 : 0, sub === null ? undefined : i);
+  if (sub === "fmt" && !own.includes("--check")) return refusal("RK_CARGO_UNBOUND_COMMAND", "`cargo fmt` without --check rewrites tracked files; a snapshot compile changes no file of the commit");
+  if (sub === null || PASSTHROUGH.has(sub)) return { exec: { args: words, env: withCargo({ ...env }) } };
+  if (!BOUND.has(sub)) return refusal("RK_CARGO_UNBOUND_COMMAND", `\`cargo ${sub}\` is not a command a snapshot compile binds (${[...BOUND].join(", ")}; or ${[...PASSTHROUGH].join(", ")}, which write nothing): an alias, plugin, clean, install, publish or lock rewrite is refused`);
+  if (sub === "fetch" && ![...globals, ...own].some((w) => w === "--locked" || w === "--frozen")) return refusal("RK_CARGO_UNBOUND_COMMAND", "`cargo fetch` without --locked or --frozen may rewrite Cargo.lock; a snapshot compile changes no file of the commit");
   for (const w of own) if (REDIRECT.test(w)) return refusal("RK_CARGO_REDIRECT", `\`cargo ${sub}\` passes ${w}, which moves its working directory, configuration or output; a snapshot compile's outputs must be the checkout's`);
   const valueOf = (name) => {
     const at = own.findIndex((w) => w === name || w.startsWith(`${name}=`));
@@ -67,29 +79,45 @@ export function decideCargoInvocation({ args, cwd, env, map, locate, realpath = 
   if (!targetDir) return refusal("RK_CARGO_UNBOUND_WORKSPACE", `\`cargo ${sub}\` builds the Cargo workspace ${workspace}, which is not one this snapshot compile resolved (${Object.keys(map.workspaces ?? {}).join(", ") || "none"}); its outputs would not be the checkout's`);
   const explicit = valueOf("--target-dir");
   if (explicit !== undefined && path.resolve(cwd, explicit) !== targetDir) return refusal("RK_CARGO_REDIRECT", `\`cargo ${sub}\` passes --target-dir ${explicit}; workspace ${workspace} writes only to the checkout's ${targetDir}`);
-  return { exec: { args: words, env: { ...env, CARGO_TARGET_DIR: targetDir, CARGO_BUILD_TARGET_DIR: targetDir }, workspace, targetDir } };
+  return { exec: { args: words, env: withCargo({ ...env, CARGO_TARGET_DIR: targetDir, CARGO_BUILD_TARGET_DIR: targetDir }), workspace, targetDir } };
 }
 
 /**
- * Writes the wrapper for one snapshot compile into `dir` (a fresh directory of the gate's own): the map file and `bin/cargo`, which
- * runs this module with node. `targetDirs` is the gate's { [cargoDir]: absolute checkout target directory }; each workspace is keyed
- * by its real path in the snapshot. `realCargo` is the absolute cargo the wrapper runs (never itself). POSIX hosts only: a Windows
- * child started without a shell finds only an .exe on PATH, so a script there would be bypassed.
+ * Writes the wrapper for one snapshot compile under `base`: the map file and `bin/cargo`, which runs this module with node. The
+ * directory is named by the sha256 of the map and this module's bytes (`identity`), so the same workspaces, targets and wrapper give
+ * the same path (and the same CARGO in a scan's cache key) and any change gives another. `targetDirs` is the gate's { [cargoDir]:
+ * absolute checkout target directory }; each workspace is keyed by its real path in the snapshot. `realCargo` is the absolute cargo
+ * the wrapper runs (never itself). POSIX hosts only: a Windows child started without a shell finds only an .exe on PATH.
  */
-export function installCargoShim({ dir, snapshotRoot, targetDirs, realCargo, node = process.execPath, platform = process.platform, realpath = (p) => fs.realpathSync.native(p) }) {
+export function installCargoShim({ base, snapshotRoot, targetDirs, realCargo, node = process.execPath, platform = process.platform, realpath = (p) => fs.realpathSync.native(p) }) {
   if (platform === "win32") throw Object.assign(new Error("the runtime cargo wrapper needs a POSIX host: a Windows child finds only an .exe on PATH"), { code: "RK_CARGO_SHIM_UNSUPPORTED" });
   if (typeof realCargo !== "string" || !path.isAbsolute(realCargo)) throw Object.assign(new Error(`no absolute cargo to wrap (${JSON.stringify(realCargo)})`), { code: "RK_CARGO_SHIM_UNSUPPORTED" });
   const workspaces = {};
   for (const [cargoDir, targetDir] of Object.entries(targetDirs ?? {})) workspaces[realpath(path.join(snapshotRoot, ...(cargoDir === "." ? [] : cargoDir.split("/"))))] = targetDir;
+  const self = fileURLToPath(import.meta.url);
+  const sorted = Object.fromEntries(Object.entries(workspaces).sort(([a], [b]) => (a < b ? -1 : 1)));
+  const identity = createHash("sha256").update(JSON.stringify({ realCargo, node, workspaces: sorted })).update(fs.readFileSync(self)).digest("hex");
+  const dir = path.join(base, `rk-cargo-shim-${identity.slice(0, 16)}`);
   const bin = path.join(dir, "bin");
-  fs.mkdirSync(bin, { recursive: true });
-  const mapFile = path.join(dir, "cargo-target-map.json");
-  fs.writeFileSync(mapFile, `${JSON.stringify({ schema: SHIM_MAP_SCHEMA, realCargo, workspaces }, null, 2)}\n`);
-  const quote = (s) => `'${String(s).replaceAll("'", "'\\''")}'`;
   const shim = path.join(bin, "cargo");
-  fs.writeFileSync(shim, `#!/bin/sh\nexec ${quote(node)} ${quote(fileURLToPath(import.meta.url))} --map ${quote(mapFile)} -- "$@"\n`);
-  fs.chmodSync(shim, 0o755);
-  return { bin, mapFile, workspaces };
+  const mapFile = path.join(dir, "cargo-target-map.json");
+  fs.mkdirSync(bin, { recursive: true });
+  const quote = (s) => `'${String(s).replaceAll("'", "'\\''")}'`;
+  const put = (file, text, mode) => { const tmp = `${file}.${process.pid}.tmp`; fs.writeFileSync(tmp, text, { mode }); fs.renameSync(tmp, file); };
+  put(mapFile, `${JSON.stringify({ schema: SHIM_MAP_SCHEMA, identity, realCargo, shim, workspaces: sorted }, null, 2)}\n`, 0o644);
+  put(shim, `#!/bin/sh\nexec ${quote(node)} ${quote(self)} --map ${quote(mapFile)} -- "$@"\n`, 0o755);
+  return { dir, bin, shim, mapFile, workspaces: sorted, identity };
+}
+
+/**
+ * The environment every scan of a wrapped snapshot compile starts from: the wrapper first on PATH and named in CARGO, and, when the
+ * snapshot has exactly one Cargo workspace, its checkout target as the scan-wide CARGO_TARGET_DIR, so a cargo that bypasses the
+ * wrapper (an absolute path, `rustup run`, a reset PATH) still writes there.
+ */
+export function shimScanEnv(env, installed) {
+  const targets = Object.values(installed.workspaces);
+  const pathKey = Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
+  return { ...env, [pathKey]: `${installed.bin}${path.delimiter}${env[pathKey] ?? ""}`, CARGO: installed.shim, ...(targets.length === 1 ? { CARGO_TARGET_DIR: targets[0] } : {}) };
 }
 
 /** The wrapper itself: `cargo-target-shim.mjs --map <file> -- <cargo args>`. Returns the exit status. */
@@ -100,8 +128,10 @@ export function runShim(argv, { env = process.env, cwd = process.cwd(), spawn = 
   let map;
   try { map = JSON.parse(fs.readFileSync(argv[mapAt + 1], "utf8")); if (map?.schema !== SHIM_MAP_SCHEMA) throw new Error(`schema ${JSON.stringify(map?.schema)}`); }
   catch (error) { err(`rightkit-gate: RK_CARGO_SHIM_ERROR: the cargo target map cannot be read (${error.message}); nothing ran`); return SHIM_REFUSAL_STATUS; }
+  // locate-project runs the real cargo with CARGO pointing at it, never at the wrapper.
+  const locateEnv = { ...env, CARGO: map.realCargo };
   const locate = (manifestPath, from, toolchain) => {
-    const r = spawn(map.realCargo, [...(toolchain ? [toolchain] : []), "locate-project", "--workspace", "--message-format", "plain", ...(manifestPath ? ["--manifest-path", manifestPath] : [])], { cwd: from, env, encoding: "utf8" });
+    const r = spawn(map.realCargo, [...(toolchain ? [toolchain] : []), "locate-project", "--workspace", "--message-format", "plain", ...(manifestPath ? ["--manifest-path", manifestPath] : [])], { cwd: from, env: locateEnv, encoding: "utf8" });
     if (r.error) throw r.error;
     if (r.status !== 0) throw new Error(String(r.stderr || `exit ${r.status}`).trim().split(/\r?\n/).at(-1));
     return String(r.stdout).trim();

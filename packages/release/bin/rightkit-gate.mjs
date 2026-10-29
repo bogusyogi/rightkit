@@ -2024,8 +2024,10 @@ export async function main(argv, io = {}) {
   const ac = o.abort ?? new AbortController();
   let exportRoot = null;
   let snapshotGitConfig = null;
+  let cargoShimDir = null;
   const cleanup = () => {
     if (exportRoot) fs.rmSync(exportRoot, { recursive: true, force: true });
+    if (cargoShimDir) fs.rmSync(cargoShimDir, { recursive: true, force: true });
     if (snapshotGitConfig) { fs.rmSync(snapshotGitConfig, { force: true }); try { fs.rmdirSync(path.dirname(snapshotGitConfig)); } catch { /* not empty: leave it, the next exact sync prunes it */ } }
   };
   const signals = [];
@@ -2124,16 +2126,19 @@ export async function main(argv, io = {}) {
         targetDirs[ws.cargoDir] = path.resolve(dir);
         o.out(`${tag} output directory for workspace ${ws.cargoDir}: ${targetDirs[ws.cargoDir]} (the checkout's)`);
       }
-      // The runtime cargo wrapper (item 7): first on PATH for every scan, it binds each real cargo invocation to its own workspace's
-      // checkout target directory or refuses it (RK_CARGO_*), whatever path reaches cargo. POSIX only: on Windows the static walk binds.
+      // The runtime cargo wrapper (item 7): first on PATH and named in CARGO for every scan, it binds each real cargo invocation to its
+      // own workspace's checkout target directory or refuses it (RK_CARGO_*), whatever path reaches cargo. Direct POSIX hosts only (a
+      // broker host never reaches here; a direct Windows host keeps the fail-closed static walk). Removed when the gate ends (cleanup).
       if (o.platform !== "win32" && rust.workspaces.length) {
         const realCargo = which("cargo").find((c) => path.isAbsolute(c));
         if (!realCargo) { o.err(`${tag} BLOCKED: no cargo on PATH to wrap for the snapshot compile; nothing compiled`); return 1; }
         try {
-          const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-cargo-shim-"));
-          cargoShim = { dir: shimDir, ...(await import("../cargo-target-shim.mjs")).installCargoShim({ dir: shimDir, snapshotRoot: snapshotB, targetDirs, realCargo, platform: o.platform }) };
+          const shimModule = await import("../cargo-target-shim.mjs");
+          cargoShim = shimModule.installCargoShim({ base: os.tmpdir(), snapshotRoot: snapshotB, targetDirs, realCargo, platform: o.platform });
+          cargoShimDir = cargoShim.dir;
+          cargoShim.scanEnv = shimModule.shimScanEnv(o.env, cargoShim);
         } catch (error) { o.err(`${tag} BLOCKED: the runtime cargo wrapper cannot be installed (${error.message}); nothing compiled`); return 1; }
-        o.out(`${tag} runtime cargo wrapper ${path.join(cargoShim.bin, "cargo")} -> ${realCargo}: each cargo invocation binds its workspace's checkout target directory or is refused`);
+        o.out(`${tag} runtime cargo wrapper ${cargoShim.shim} (identity ${cargoShim.identity.slice(0, 16)}) -> ${realCargo}: each cargo invocation binds its workspace's checkout target directory or is refused`);
       }
     }
 
@@ -2366,8 +2371,9 @@ export async function main(argv, io = {}) {
     }
     const scanResult = await (o.runScans ?? runScans)(plan, {
       classes: classAOnly ? ["A"] : ["A", "B"], jobs, testJobs, signal: ac.signal, ...(cache ? { cache } : {}),
-      // The runtime cargo wrapper is first on PATH for every scan of a snapshot compile (PATH is outside the cache key by design).
-      ...(cargoShim ? { env: { ...o.env, PATH: `${cargoShim.bin}${path.delimiter}${o.env.PATH ?? ""}` } } : {}),
+      // The runtime cargo wrapper is first on PATH and named in CARGO for every scan of a snapshot compile; CARGO (a path named by the
+      // wrapper's identity) is in every scan's cache key, so no result cached without the wrapper or with another map is reused.
+      ...(cargoShim ? { env: cargoShim.scanEnv } : {}),
       // `check` (and the broker's compile admission, which runs it on a captured copy of the tree without node_modules) judges the
       // content: it never executes the repository's own code. The class A checks that do (tests, typecheck, lint, generated docs:
       // `executes`) run in the full gate (--all, the push hook, the door's compile stage), after the content checks and before any compile.
@@ -2430,7 +2436,6 @@ export async function main(argv, io = {}) {
       try { (await import("../snapshot-check.mjs")).verifySnapshotDir({ checkout: fs.realpathSync.native(root), dir: snapshotB, ...snapshotBCommit, when: "after the compile" }); }
       catch (error) { o.err(`${tag} RK_CHECK_ERROR: ${error.message}; the compile covers no known bytes`); return 2; }
       o.out(`${tag} snapshot ${snapshotB} is still tree ${snapshotBCommit.tree} after the compile`);
-      if (cargoShim) fs.rmSync(cargoShim.dir, { recursive: true, force: true });
       // The direct host's own receipt (GATE-CONTRACT "Broker interface": the same field names as the broker's evidence, without the
       // broker-only ones): this run, the commit, the snapshot's tree at start and exit, the ownership, where the outputs went, the
       // result and when it was issued. Rebuilt units are the freshness census of joint plan step 6, not measured here.
@@ -2441,7 +2446,7 @@ export async function main(argv, io = {}) {
         snapshot: { path: snapshotB, treeAtStart: snapshotBCommit.tree, treeAtExit: snapshotBCommit.tree },
         ownership: { handle: o.buildOwnership?.handle ?? null },
         outputDir: workspaces.length === 1 ? targetDirs[workspaces[0]] : null, outputDirs: { ...(targetDirs ?? {}) },
-        cargoWrapper: cargoShim ? { workspaces: cargoShim.workspaces } : null,
+        cargoWrapper: cargoShim ? { identity: cargoShim.identity, workspaces: cargoShim.workspaces } : null,
         exitStatus: failures.length ? 1 : 0, rebuilt: null,
       };
       o.onDirectReceipt?.(directReceipt);
