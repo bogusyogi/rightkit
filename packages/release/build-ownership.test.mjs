@@ -276,6 +276,32 @@ setInterval(() => {}, 1000);
   t.after(() => { for (const pid of [info.gate, info.child]) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } } });
   return { ...info, kill: async (pid) => { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } for (let i = 0; i < 200; i++) { try { process.kill(pid, 0); } catch { return; } await new Promise((r) => setTimeout(r, 50)); } throw new Error(`pid ${pid} survived SIGKILL`); } };
 }
+/**
+ * One gate step in a process of its own, as a real gate is one process (and on Windows a process that joined a job never leaves it,
+ * so acquiring in this test process would leave it, and every later child, inside that job). Returns the step's JSON line.
+ */
+function gateStep(t, kind, args, env) {
+  const SNAP = pathToFileURL(path.resolve("snapshot.mjs")).href;
+  const driver = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-own-step-"))), "step.mjs");
+  t.after(() => fs.rmSync(path.dirname(driver), { recursive: true, force: true }));
+  fs.writeFileSync(driver, `
+const a = ${JSON.stringify(args)};
+if (${JSON.stringify(kind)} === "acquire") {
+  const { acquireBuildOwnership } = await import(${JSON.stringify(MODULE)});
+  try { const own = acquireBuildOwnership({ file: a.file, stage: "next", env: process.env }); const released = own.release(); console.log(JSON.stringify({ ok: true, reclaimed: own.reclaimed, released })); }
+  catch (e) { console.log(JSON.stringify({ ok: false, code: e.code, message: e.message })); }
+} else {
+  const { snapshotCommand } = await import(${JSON.stringify(SNAP)});
+  const lines = [];
+  const code = snapshotCommand({ cwd: a.cwd, env: process.env, platform: process.platform, out: (m) => lines.push(m), err: (m) => lines.push(m) }, a.args);
+  console.log(JSON.stringify({ code, lines }));
+}
+process.exit(0);
+`);
+  const childEnv = { ...env, NODE_OPTIONS: "" }; delete childEnv[OWNERSHIP_ENV]; delete childEnv.RIGHTKIT_BUILD_OWNERSHIP_FILE;
+  const r = spawnSync(process.execPath, [driver], { env: childEnv, encoding: "utf8", timeout: 120_000 });
+  try { return JSON.parse(String(r.stdout).trim().split(/\r?\n/).pop()); } catch { return { stepFailed: true, status: r.status, stdout: r.stdout, stderr: r.stderr }; }
+}
 async function until(fn, ms = 20_000) { const end = Date.now() + ms; for (;;) { if (fn()) return; if (Date.now() > end) throw new Error("timed out"); await new Promise((r) => setTimeout(r, 100)); } }
 
 test("[native] G1: a gate killed while its child still runs keeps the host owned until the child is gone, then the next gate reclaims it with the proof", { timeout: 120_000 }, async (t) => {
@@ -283,16 +309,18 @@ test("[native] G1: a gate killed while its child still runs keeps the host owned
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const g = await crashingGate(t, file);
   await g.kill(g.gate);
-  const env = { ...process.env }; delete env[OWNERSHIP_ENV];
-  const next = () => acquireBuildOwnership({ file, stage: "next", env, exportEnv: false });
+  // The next gate is a process of its own.
+  const busy = gateStep(t, "acquire", { file }, process.env);
   // POSIX: the group net names the orphan, or (WSL2, whose per-session init adopts orphans as a subreaper) the environment net does.
-  assert.throws(next, (e) => e instanceof OwnershipBusy && new RegExp(process.platform === "win32" ? "still holds 1 process" : `(started under this ownership: ${g.child}|${g.child} still carry)`).test(e.message), "a surviving child keeps ownership");
+  assert.equal(busy.ok, false, JSON.stringify(busy)); assert.equal(busy.code, "busy");
+  assert.match(busy.message, new RegExp(process.platform === "win32" ? "still holds 1 process" : `(started under this ownership: ${g.child}|${g.child} still carry)`), "a surviving child keeps ownership");
   await g.kill(g.child);
   if (process.platform === "win32") await until(() => readHolder(holderFile(file, g.handle))?.state === "drained");
-  const own = next();
-  assert.equal(own.reclaimed.from, g.handle);
-  assert.match(own.reclaimed.proofs.join("; "), process.platform === "win32" ? /drained|holds no process/ : /has no member started under this ownership/);
-  assert.equal(own.release().released, true);
+  const next = gateStep(t, "acquire", { file }, process.env);
+  assert.equal(next.ok, true, JSON.stringify(next));
+  assert.equal(next.reclaimed.from, g.handle);
+  assert.match(next.reclaimed.proofs.join("; "), process.platform === "win32" ? /drained|holds no process/ : /has no member started under this ownership/);
+  assert.equal(next.released.released, true, JSON.stringify(next.released));
 });
 
 test("[native] G1 POSIX: a child that left the gate's process group but kept its environment still holds the host (environment net)", { skip: process.platform === "win32" && "Windows children stay in the gate's job", timeout: 60_000 }, async (t) => {
@@ -338,23 +366,25 @@ test("[native] E6/G1: a snapshot sync is refused while a crashed gate's child su
   git(repo, "init", "-q", "-b", "main"); fs.writeFileSync(path.join(repo, "a.txt"), "one\n"); git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "a");
   const first = git(repo, "rev-parse", "HEAD");
   const env = { ...process.env, RIGHTKIT_DATA_ROOT: root, RIGHTKIT_SNAPSHOT_ROOT: path.join(root, "snapshots") }; delete env[OWNERSHIP_ENV];
-  const lines = []; const o = { cwd: repo, env, platform: process.platform, out: (m) => lines.push(m), err: (m) => lines.push(m) };
-  assert.equal(snapshotCommand(o, ["--commit", first, "--json"]), 0, lines.join("\n"));
+  // Each sync is a gate process of its own.
+  const sync = (args) => gateStep(t, "snapshot", { cwd: repo, args }, env);
+  let step = sync(["--commit", first, "--json"]);
+  assert.equal(step.code, 0, JSON.stringify(step));
   const file = ownershipFile({ platform: process.platform, env });
   const g = await crashingGate(t, file);
   await g.kill(g.gate);
   fs.writeFileSync(path.join(repo, "a.txt"), "two\n"); git(repo, "commit", "-qam", "b");
   const second = git(repo, "rev-parse", "HEAD");
-  lines.length = 0;
-  assert.equal(snapshotCommand(o, ["--commit", second]), 1, "busy, not synced");
-  assert.match(lines.join("\n"), /snapshot busy: build ownership .* is gone but/);
+  step = sync(["--commit", second]);
+  assert.equal(step.code, 1, `busy, not synced: ${JSON.stringify(step)}`);
+  assert.match(step.lines.join("\n"), /snapshot busy: build ownership .* is gone but/);
   const dir = path.join(path.join(root, "snapshots"), repoKey(keyPath(repo)));
   assert.equal(verifySnapshot({ checkout: repo, rev: first, root: path.join(root, "snapshots"), dir }).commit, first, "the snapshot still holds the first commit");
   await g.kill(g.child);
   if (process.platform === "win32") await until(() => readHolder(holderFile(file, g.handle))?.state === "drained");
-  lines.length = 0;
-  assert.equal(snapshotCommand(o, ["--commit", second, "--json"]), 0, lines.join("\n"));
-  const r = JSON.parse(lines.find((l) => l.startsWith("{")));
+  step = sync(["--commit", second, "--json"]);
+  assert.equal(step.code, 0, JSON.stringify(step));
+  const r = JSON.parse(step.lines.find((l) => l.startsWith("{")));
   assert.equal(r.commit, second); assert.equal(r.ownership.reclaimed.from, g.handle);
   assert.equal(fs.existsSync(file), false, "the sync released the host");
 });
