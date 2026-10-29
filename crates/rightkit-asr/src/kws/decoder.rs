@@ -8,7 +8,8 @@
 //! on every live hypothesis (its int8 graph quantizes the whole batch together, so the
 //! batch must match Sherpa's for identical logits). [`JoinerBatching::PerHypothesis`],
 //! [`ThresholdTokens::MatchedKeyword`] and [`MergeTimestamps::Likelier`] depart from
-//! Sherpa on request.
+//! Sherpa on request. The decoder, unlike the joiner, computes each row independently of
+//! its batch (fp32), so `decoder_cache` reuses rows across frames without changing a bit.
 
 use super::context_graph::{ContextGraph, ROOT};
 use super::math::Math;
@@ -28,6 +29,9 @@ pub(crate) struct DecoderOptions {
     pub joiner_batching: JoinerBatching,
     pub merge_timestamps: MergeTimestamps,
     pub math: Math,
+    /// Serve decoder rows from the model's per-context cache
+    /// ([`Zipformer2Transducer::run_decoder_cached`]).
+    pub decoder_cache: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -279,7 +283,11 @@ pub(crate) fn decode_chunk(
         for h in &prev {
             contexts.extend_from_slice(&h.ys[h.ys.len() - context_size..]);
         }
-        let (decoder_dim, decoder_out) = model.run_decoder(contexts)?;
+        let (decoder_dim, decoder_out) = if options.decoder_cache {
+            model.run_decoder_cached(&contexts)?
+        } else {
+            model.run_decoder(contexts)?
+        };
         let frame = encoder_out.frame(t);
         let mut scores = match options.joiner_batching {
             JoinerBatching::Beam => {

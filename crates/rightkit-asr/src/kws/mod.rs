@@ -4,8 +4,8 @@
 //! `OnlineStream`, `TransducerKeywordDecoder`, `ContextGraph`, the streaming Zipformer2
 //! model wrapper) and of the kaldi-native-fbank features it uses, running the same
 //! encoder/decoder/joiner ONNX files on [`rightkit_onnx`]. One [`KeywordSpotter`] holds
-//! the three sessions and a keyword graph; each [`KeywordStream`] holds one audio
-//! stream's features, encoder cache and beam.
+//! the three sessions (a [`KwsModel`], which several spotters may share) and a keyword
+//! graph; each [`KeywordStream`] holds one audio stream's features, encoder cache and beam.
 //!
 //! Two behaviours differ from upstream and are configured, not patched:
 //! - [`KeywordSpotterConfig::active_path_ttl_frames`] drops a beam path whose current
@@ -22,6 +22,9 @@
 //! - [`KeywordSpotterConfig::threshold_tokens`], [`KeywordSpotterConfig::joiner_batching`],
 //!   [`KeywordSpotterConfig::merge_timestamps`], [`KeywordSpotterConfig::portable_math`]:
 //!   accuracy and portability levers.
+//! - [`KeywordSpotterConfig::static_batch`], [`KeywordSpotterConfig::decoder_cache`] and a
+//!   shared [`KwsModel`] ([`KeywordSpotter::with_model`]): speed and memory levers that leave
+//!   every detection bit-identical where their preconditions hold (see each).
 //!
 //! ```no_run
 //! # fn run(pcm: &[f32]) -> rightkit_asr::Result<()> {
@@ -58,7 +61,7 @@ mod onset;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 pub use fbank::FbankConfig;
 pub use keywords::{encode_keywords, EncodedKeywords, SymbolTable};
@@ -169,6 +172,20 @@ pub struct KeywordSpotterConfig {
     /// weight table keeps the platform `logf`: under `libm` it moves loud bins by up to
     /// 1.7e-4, near the fbank parity gate. Default off.
     pub portable_math: bool,
+    /// Build the encoder session with its free batch dimension `N` pinned to 1 (the spotter
+    /// always runs one stream per call), so ONNX Runtime folds the encoder's shape
+    /// subgraphs at load: about 10% less CPU per decode. Bit-identical output is proven for
+    /// the int8 chunk-16 encoder on x86-64 (`kws_static_batch_encoder_is_bit_identical`); the
+    /// fp32 encoder's output moves in the last ulps with it. A model whose encoder has no
+    /// dimension `N` fails to load. Default off.
+    pub static_batch: bool,
+    /// Keep each decoder output row, keyed by its `context_size` tokens, and run the decoder
+    /// only on contexts not seen yet: about 5% less CPU. Exact only where the decoder's rows
+    /// do not depend on the batch they were computed in, which holds for the fp32 decoder on
+    /// x86-64 (`kws_decoder_is_batch_invariant`; the int8 joiner does NOT have this property
+    /// and is never cached). The cache lives in the [`KwsModel`], holds at most 2048 rows
+    /// (2.6 MB for the 320-dim decoder) and is cleared by [`KeywordSpotter::reset`]. Default off.
+    pub decoder_cache: bool,
 }
 
 impl KeywordSpotterConfig {
@@ -200,6 +217,8 @@ impl KeywordSpotterConfig {
             joiner_batching: JoinerBatching::Beam,
             merge_timestamps: MergeTimestamps::First,
             portable_math: false,
+            static_batch: false,
+            decoder_cache: false,
         }
     }
 }
@@ -241,10 +260,95 @@ pub struct KeywordDetection {
 
 static NEXT_SPOTTER_ID: AtomicU64 = AtomicU64::new(1);
 
+/// The encoder, decoder and joiner sessions of one model, shareable by several spotters
+/// ([`KeywordSpotter::with_model`]) that differ in keywords or beam settings: one set of
+/// sessions instead of one per spotter. Calls from the spotters sharing it run one at a time
+/// (a mutex around the sessions, held for one [`KeywordSpotter::decode`]). Built from a
+/// [`KeywordSpotterConfig`]'s `encoder`, `decoder`, `joiner`, `features`, `threads` and
+/// `static_batch`; every spotter on it must name the same.
+pub struct KwsModel {
+    sessions: Mutex<Zipformer2Transducer>,
+    encoder: PathBuf,
+    decoder: PathBuf,
+    joiner: PathBuf,
+    feature_dim: usize,
+    threads: usize,
+    static_batch: bool,
+    chunk_size: usize,
+    chunk_shift: usize,
+    context_size: usize,
+    init_states: Vec<StateTensor>,
+}
+
+impl KwsModel {
+    /// Load the three sessions `config` names. Keywords and decoder settings are ignored.
+    pub fn load(config: &KeywordSpotterConfig) -> Result<Arc<Self>> {
+        let feature_dim = FbankTables::new(&config.features, Math::new(config.portable_math))?.dim();
+        let sessions = Zipformer2Transducer::load(
+            &config.encoder,
+            &config.decoder,
+            &config.joiner,
+            feature_dim,
+            config.threads,
+            config.static_batch,
+        )?;
+        Ok(Arc::new(Self {
+            encoder: config.encoder.clone(),
+            decoder: config.decoder.clone(),
+            joiner: config.joiner.clone(),
+            feature_dim,
+            threads: config.threads,
+            static_batch: config.static_batch,
+            chunk_size: sessions.chunk_size(),
+            chunk_shift: sessions.chunk_shift(),
+            context_size: sessions.context_size(),
+            init_states: sessions.init_states(),
+            sessions: Mutex::new(sessions),
+        }))
+    }
+
+    /// The sessions. A panic inside a call leaves them usable (the decoder cache is
+    /// insert-only), so a poisoned lock is taken over.
+    fn lock(&self) -> MutexGuard<'_, Zipformer2Transducer> {
+        self.sessions.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Refuse a config that describes another model than this one.
+    fn check_config(&self, config: &KeywordSpotterConfig, feature_dim: usize) -> Result<()> {
+        let mut differs = Vec::new();
+        if config.encoder != self.encoder {
+            differs.push("encoder");
+        }
+        if config.decoder != self.decoder {
+            differs.push("decoder");
+        }
+        if config.joiner != self.joiner {
+            differs.push("joiner");
+        }
+        if feature_dim != self.feature_dim {
+            differs.push("features");
+        }
+        if config.threads != self.threads {
+            differs.push("threads");
+        }
+        if config.static_batch != self.static_batch {
+            differs.push("static_batch");
+        }
+        if differs.is_empty() {
+            Ok(())
+        } else {
+            Err(Error::Config(format!(
+                "keyword spotter config differs from its shared model in {}",
+                differs.join(", ")
+            )))
+        }
+    }
+}
+
 /// Model sessions plus the keyword graph shared by its streams.
 pub struct KeywordSpotter {
     id: u64,
-    model: Zipformer2Transducer,
+    model: Arc<KwsModel>,
     symbols: SymbolTable,
     graph: Arc<ContextGraph>,
     fbank: Arc<FbankTables>,
@@ -270,7 +374,24 @@ pub struct KeywordStream {
 }
 
 impl KeywordSpotter {
+    /// A spotter with its own [`KwsModel`].
     pub fn new(config: &KeywordSpotterConfig) -> Result<Self> {
+        Self::build(config, None)
+    }
+
+    /// A spotter on a shared [`KwsModel`] (from [`KwsModel::load`] or another spotter's
+    /// [`Self::model`]), with `config`'s keywords and decoder settings. `config` must name the
+    /// model's files, features, threads and `static_batch`; anything else is refused.
+    pub fn with_model(config: &KeywordSpotterConfig, model: Arc<KwsModel>) -> Result<Self> {
+        Self::build(config, Some(model))
+    }
+
+    /// The model this spotter runs on, to share with another spotter.
+    pub fn model(&self) -> &Arc<KwsModel> {
+        &self.model
+    }
+
+    fn build(config: &KeywordSpotterConfig, model: Option<Arc<KwsModel>>) -> Result<Self> {
         if config.max_active_paths == 0 {
             return Err(Error::Config("max_active_paths must be at least 1".into()));
         }
@@ -293,13 +414,13 @@ impl KeywordSpotter {
         );
         let math = Math::new(config.portable_math);
         let fbank = FbankTables::new(&config.features, math)?;
-        let model = Zipformer2Transducer::load(
-            &config.encoder,
-            &config.decoder,
-            &config.joiner,
-            fbank.dim(),
-            config.threads,
-        )?;
+        let model = match model {
+            Some(model) => {
+                model.check_config(config, fbank.dim())?;
+                model
+            }
+            None => KwsModel::load(config)?,
+        };
         let options = DecoderOptions {
             max_active_paths: config.max_active_paths,
             num_trailing_blanks: config.num_trailing_blanks,
@@ -310,6 +431,7 @@ impl KeywordSpotter {
             joiner_batching: config.joiner_batching,
             merge_timestamps: config.merge_timestamps,
             math,
+            decoder_cache: config.decoder_cache,
         };
         Ok(Self {
             id: NEXT_SPOTTER_ID.fetch_add(1, Ordering::Relaxed),
@@ -330,8 +452,8 @@ impl KeywordSpotter {
             fbank: OnlineFbank::new(Arc::clone(&self.fbank)),
             sample_rate: self.sample_rate,
             processed_frames: 0,
-            states: self.model.init_states(),
-            result: DecoderResult::new(self.model.context_size()),
+            states: self.model.init_states.clone(),
+            result: DecoderResult::new(self.model.context_size),
             reported_last_frame: None,
             onset: self.onset.clone().map(|config| {
                 OnsetHistory::new(config, self.fbank.first_bin_from(onset::HIGH_BAND_HZ))
@@ -341,7 +463,7 @@ impl KeywordSpotter {
 
     /// True when the stream holds a full encoder chunk beyond what was decoded.
     pub fn is_ready(&self, stream: &KeywordStream) -> bool {
-        stream.processed_frames + self.model.chunk_size() < stream.fbank.num_frames_ready()
+        stream.processed_frames + self.model.chunk_size < stream.fbank.num_frames_ready()
     }
 
     /// Decode one encoder chunk. Call while [`Self::is_ready`] holds.
@@ -354,42 +476,48 @@ impl KeywordSpotter {
             let blanks = stream.peek_result_for_reset().num_trailing_blanks;
             let trailing_seconds = ((blanks * 4) as f64 * 0.01) as f32;
             if trailing_seconds > 1.5 {
+                // Before the sessions are locked: `reset` may clear the decoder cache.
                 self.reset(stream);
             }
         }
         let features = stream
             .fbank
-            .frames(stream.processed_frames, self.model.chunk_size())?;
+            .frames(stream.processed_frames, self.model.chunk_size)?;
         if let Some(history) = stream.onset.as_mut() {
             history.push_features(stream.processed_frames, &features, self.fbank.dim());
         }
-        stream.processed_frames += self.model.chunk_shift();
-        let encoder_out = self.model.run_encoder(&features, &mut stream.states)?;
+        stream.processed_frames += self.model.chunk_shift;
+        let mut model = self.model.lock();
+        let encoder_out = model.run_encoder(&features, &mut stream.states)?;
         if let Some(history) = stream.onset.as_mut() {
             history.push_encoder(stream.result.frame_offset, &encoder_out);
         }
         let firings = stream.result.firings;
         decoder::decode_chunk(
-            &mut self.model,
+            &mut model,
             &self.graph,
             &self.options,
             &encoder_out,
             &mut stream.result,
         )?;
         if stream.result.firings != firings {
-            self.estimate_onset(stream)?;
+            self.estimate_onset(&mut model, stream)?;
         }
         Ok(())
     }
 
     /// Fill the newest firing's onset estimates, when onset estimation is on.
-    fn estimate_onset(&mut self, stream: &mut KeywordStream) -> Result<()> {
+    fn estimate_onset(
+        &self,
+        model: &mut Zipformer2Transducer,
+        stream: &mut KeywordStream,
+    ) -> Result<()> {
         let (Some(history), Some(firing)) = (stream.onset.as_ref(), stream.result.firing.as_ref())
         else {
             return Ok(());
         };
         let onset = onset::estimate(
-            &mut self.model,
+            model,
             history,
             &onset::Firing {
                 context: &firing.context,
@@ -463,10 +591,14 @@ impl KeywordSpotter {
     }
 
     /// Clear the beam and encoder cache (Sherpa `Reset`). Buffered features and the
-    /// reported-result memory are kept; timestamps restart from zero.
+    /// reported-result memory are kept; timestamps restart from zero. With
+    /// [`KeywordSpotterConfig::decoder_cache`] the model's decoder rows are dropped too.
     pub fn reset(&self, stream: &mut KeywordStream) {
-        stream.result = DecoderResult::new(self.model.context_size());
-        stream.states = self.model.init_states();
+        if self.options.decoder_cache {
+            self.model.lock().clear_decoder_cache();
+        }
+        stream.result = DecoderResult::new(self.model.context_size);
+        stream.states = self.model.init_states.clone();
         if let Some(history) = stream.onset.as_mut() {
             history.reset(stream.processed_frames);
         }

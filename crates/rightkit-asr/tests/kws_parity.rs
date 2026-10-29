@@ -27,11 +27,11 @@ mod common;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use rightkit_asr::kws::{
-    JoinerBatching, KeywordDetection, KeywordSpotter, KeywordSpotterConfig, Keywords,
-    MergeTimestamps, OnsetConfig, ThresholdTokens,
+    JoinerBatching, KeywordDetection, KeywordSpotter, KeywordSpotterConfig, KeywordStream,
+    Keywords, KwsModel, MergeTimestamps, OnsetConfig, ThresholdTokens,
 };
 use rightkit_asr::Error;
 use serde::Deserialize;
@@ -786,6 +786,186 @@ fn kws_levers_report_and_hold_their_invariants() {
             "LEVER {lever}: {with} detections vs {without} without it; {matched} matched, first-token frame moved on {moved}"
         );
     }
+}
+
+/// One spotter fed step by step, so several can interleave their decodes on one shared model.
+struct Stepper<'a> {
+    spotter: KeywordSpotter,
+    stream: KeywordStream,
+    input: Input<'a>,
+    feed: usize,
+    dim: usize,
+    total: usize,
+    fed: usize,
+    injected: usize,
+    decodes: usize,
+    hits: Vec<Hit>,
+}
+
+impl<'a> Stepper<'a> {
+    fn new(spotter: KeywordSpotter, dim: usize, input: Input<'a>, feed: usize) -> Self {
+        let total = match input {
+            Input::Wave(audio) => audio.len(),
+            Input::Features { samples, .. } => samples,
+        };
+        Self {
+            stream: spotter.create_stream(),
+            spotter,
+            input,
+            feed,
+            dim,
+            total,
+            fed: 0,
+            injected: 0,
+            decodes: 0,
+            hits: Vec::new(),
+        }
+    }
+
+    /// Feed one chunk and decode while ready, as [`run`] does; false once all is fed.
+    fn step(&mut self) -> bool {
+        if self.fed >= self.total {
+            return false;
+        }
+        let n = self.feed.max(1).min(self.total - self.fed);
+        match self.input {
+            Input::Wave(audio) => self
+                .stream
+                .accept_waveform(16_000, &audio[self.fed..self.fed + n])
+                .expect("accept 16 kHz audio"),
+            Input::Features { frames, .. } => {
+                let ready = ready_frames(self.fed + n);
+                self.stream
+                    .accept_features(&frames[self.injected * self.dim..ready * self.dim]);
+                self.injected = ready;
+            }
+        }
+        self.fed += n;
+        while self.spotter.is_ready(&self.stream) {
+            self.spotter.decode(&mut self.stream).expect("decode");
+            let r = self.spotter.result(&mut self.stream);
+            if !r.keyword.is_empty() {
+                self.hits.push(Hit {
+                    decode: self.decodes,
+                    keyword: r.keyword,
+                    tokens: r.tokens,
+                    timestamps: r.timestamps,
+                    frames: r.frames,
+                });
+            }
+            self.decodes += 1;
+        }
+        true
+    }
+}
+
+/// The speed levers change no bit: every injected-fbank case matches the Sherpa reference
+/// exactly with `static_batch` and `decoder_cache` on, first on a spotter of its own, then
+/// on ONE shared [`KwsModel`] while a second spotter with another case's keyword set decodes
+/// interleaved with it (one decoder cache serving both). Also: a config naming another model
+/// than the shared one is refused.
+#[test]
+fn kws_speed_levers_and_a_shared_model_match_sherpa_reference() {
+    let h = harness!();
+    let with_levers = |case: &Case| {
+        let mut config = h.parity_config(case);
+        config.static_batch = true;
+        config.decoder_cache = true;
+        config
+    };
+    let cases: Vec<(&Case, Vec<f32>, usize)> = h
+        .reference
+        .cases
+        .iter()
+        .filter_map(|case| {
+            let frames = h.case_fbank(case)?;
+            Some((case, frames, h.case_audio(case).len()))
+        })
+        .collect();
+    if cases.is_empty() {
+        common::skip_missing(
+            "KWS Sherpa fbank dumps",
+            &h.fixtures.join("kws/fbank").display().to_string(),
+        );
+        return;
+    }
+    let mut failures = Vec::new();
+    for (case, frames, samples) in &cases {
+        let input = Input::Features {
+            frames,
+            samples: *samples,
+        };
+        let (decodes, hits) = run(&with_levers(case), input, case.feed_samples);
+        if let Some(diff) = compare(case, decodes, &hits) {
+            eprintln!("FAIL levers {}: {diff}", case.id);
+            failures.push(format!("levers {}", case.id));
+        }
+    }
+
+    let shared = KwsModel::load(&with_levers(cases[0].0)).expect("load shared model");
+    let mut distinct_sets = 0usize;
+    for pair in cases.chunks(2) {
+        let mut steppers: Vec<(&Case, Stepper<'_>)> = pair
+            .iter()
+            .map(|(case, frames, samples)| {
+                let config = with_levers(case);
+                let spotter = KeywordSpotter::with_model(&config, Arc::clone(&shared))
+                    .expect("spotter on the shared model");
+                let input = Input::Features {
+                    frames,
+                    samples: *samples,
+                };
+                let stepper = Stepper::new(spotter, config.features.num_bins, input, case.feed_samples);
+                (*case, stepper)
+            })
+            .collect();
+        if pair.len() == 2 && pair[0].0.keyword_set != pair[1].0.keyword_set {
+            distinct_sets += 1;
+        }
+        // Round-robin until every stream is fed.
+        while steppers
+            .iter_mut()
+            .map(|(_, stepper)| stepper.step())
+            .fold(false, |any, stepped| any | stepped)
+        {}
+        for (case, stepper) in &steppers {
+            match compare(case, stepper.decodes, &stepper.hits) {
+                None => eprintln!(
+                    "PASS shared {}: decodes={} detections={}",
+                    case.id,
+                    stepper.decodes,
+                    stepper.hits.len()
+                ),
+                Some(diff) => {
+                    eprintln!("FAIL shared {}: {diff}", case.id);
+                    failures.push(format!("shared {}", case.id));
+                }
+            }
+        }
+    }
+    assert!(distinct_sets > 0, "no interleaved pair spans two keyword sets");
+
+    let mut other = with_levers(cases[0].0);
+    other.threads = 2;
+    other.static_batch = false;
+    let err = KeywordSpotter::with_model(&other, Arc::clone(&shared))
+        .err()
+        .expect("a config naming another model must be refused");
+    assert!(
+        err.to_string().contains("threads, static_batch"),
+        "unexpected error: {err}"
+    );
+
+    assert!(
+        failures.is_empty(),
+        "{} runs diverge from the Sherpa reference with the speed levers on: {failures:?}",
+        failures.len()
+    );
+    eprintln!(
+        "{} cases match the Sherpa reference exactly with static_batch + decoder_cache, alone and \
+         on one shared model ({distinct_sets} interleaved pairs across keyword sets)",
+        cases.len()
+    );
 }
 
 /// Keyword set built to fire on ordinary speech; see `kws_waveform_detections_track_sherpa`.
