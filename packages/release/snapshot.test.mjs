@@ -11,9 +11,10 @@ import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 import { SnapshotError, keyPath, repoKey, snapshotCommand, snapshotRoot, snapshotTree, syncSnapshot, verifySnapshot, acquireSnapshotLock } from "./snapshot.mjs";
+import { ownershipFile } from "./build-ownership.mjs";
 import { main } from "./bin/rightkit-gate.mjs";
 
-const posixOnly = process.platform === "win32" ? "POSIX exec bits and links" : false;
+const posixOnly = process.platform === "win32" ? "POSIX process semantics (pid 1)" : false;
 const emptyConfig = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-snap-cfg-"))), "gitconfig");
 fs.writeFileSync(emptyConfig, "");
 // Fixture repositories see no global or system git configuration (no user excludes file, no fsmonitor): the results are the method's.
@@ -37,6 +38,32 @@ function write(root, files) {
   }
 }
 function commitAll(repo, message = "c") { git(repo, "add", "-A"); git(repo, "commit", "-q", "--allow-empty", "-m", message); return git(repo, "rev-parse", "HEAD"); }
+// Links. Windows creates symbolic links only with Developer Mode or elevation. Where it can, every link case below runs for real
+// (the Dell session is elevated); where it cannot, the asserted behaviour is that a commit holding a link fails closed: the sync
+// refuses (SnapshotError "error") and the snapshot it leaves is not reported as the commit's (verification refuses it).
+const canLink = (() => {
+  let d = null;
+  try { d = fs.mkdtempSync(path.join(os.tmpdir(), "rk-snap-link-")); fs.writeFileSync(path.join(d, "a"), "x"); fs.symlinkSync("a", path.join(d, "l")); return true; }
+  catch { return false; }
+  finally { if (d) fs.rmSync(d, { recursive: true, force: true }); }
+})();
+/** Commits a symbolic link (mode 120000) through the index, so the fixture does not depend on the host git's core.symlinks (the Dell's is false). */
+function commitLink(repo, name, to, message = "link") {
+  git(repo, "update-index", "--add", "--cacheinfo", `120000,${blobOf(repo, to)},${name}`);
+  git(repo, "commit", "-q", "-m", message);
+  return git(repo, "rev-parse", "HEAD");
+}
+/** The repository path as a link target reaches it from the filesystem root: no drive, forward slashes (a chain of `..` ends at the root). */
+const fromRoot = (p) => (process.platform === "win32" ? p.slice(2).replace(/\\/g, "/").replace(/^\//, "") : p.slice(1));
+/** Without symlink privilege: a commit with a link refuses the sync and what is left behind is not the commit. */
+function assertNoLinkHost(t) {
+  const f = fixture(t);
+  const c = commitLink(f.repo, "src/alias.rs", "lib.rs");
+  assert.throws(() => syncSnapshot({ checkout: f.repo, rev: c, root: f.root }), (e) => e instanceof SnapshotError && e.code === "error" && /alias\.rs/.test(e.message) && /symbolic links/.test(e.message));
+  assert.equal(fs.existsSync(path.join(f.dir, "src", "alias.rs")), false);
+  assert.throws(() => verifySnapshot({ checkout: f.repo, rev: c, root: f.root }), (e) => e.code === "mismatch");
+}
+
 function fixture(t, files = { "Cargo.toml": "[workspace]\n", "src/lib.rs": "pub fn a() {}\n", "README.md": "x\n", ".gitignore": "target/\nnode_modules/\n*.log\n" }) {
   const repo = tmp(t, "rk-snap-repo-");
   git(repo, "init", "-q", "-b", "main");
@@ -94,34 +121,38 @@ test("§1 root durability: a root under a scratch root or a temp directory is re
   refusesRoot({ platform: "win32", env: { TEMP: "d:\\.RIGHTKIT-MANAGED" }, home: "C:\\Users\\a" }, "the host's managed root");
 });
 
-test("§1 root: RIGHTKIT_SNAPSHOT_TEST_RUN moves the root only to <base>/test-roots/<id>/snapshots inside the same durable base, and is checked like any root", () => {
-  const run = (platform, env, home) => snapshotRoot({ platform, env: { RIGHTKIT_SNAPSHOT_TEST_RUN: "run-1.a_b", ...env }, home });
-  assert.equal(run("darwin", {}, "/Users/a"), "/Volumes/D/.rightkit-managed/test-roots/run-1.a_b/snapshots");
-  assert.equal(run("win32", {}, "C:\\Users\\a"), "D:\\.rightkit-managed\\test-roots\\run-1.a_b\\snapshots");
-  assert.equal(run("linux", { XDG_STATE_HOME: "/s" }, "/home/a"), "/s/rightkit/test-roots/run-1.a_b/snapshots");
-  assert.equal(run("linux", { RIGHTKIT_SNAPSHOT_ROOT: "/data/rk/snaps" }, "/home/a"), "/data/rk/test-roots/run-1.a_b/snapshots");
-  // No id can name a place outside <base>/test-roots/.
-  for (const id of ["..", "../x", "a/b", "a\\b", "/abs", ".hidden", "a..b", "x".repeat(81), "a b", "a\0b"]) {
-    assert.throws(() => snapshotRoot({ platform: "darwin", env: { RIGHTKIT_SNAPSHOT_TEST_RUN: id }, home: "/Users/a" }), (e) => e instanceof SnapshotError && e.code === "error" && /RIGHTKIT_SNAPSHOT_TEST_RUN/.test(e.message), JSON.stringify(id));
-  }
-  // It does not lift the refusal: a base under scratch or temp stays refused, and the message names the variable and the base's source.
-  refusesRoot({ platform: "linux", env: { RIGHTKIT_SNAPSHOT_TEST_RUN: "r", XDG_STATE_HOME: "/Volumes/D/scratch/s" }, home: "/home/a" }, "RIGHTKIT_SNAPSHOT_TEST_RUN under XDG_STATE_HOME");
-  // It is not a way to name a snapshot root elsewhere: an empty value is ignored, and the other root variables stay ignored on Mac & Dell.
-  assert.equal(snapshotRoot({ platform: "darwin", env: { RIGHTKIT_SNAPSHOT_TEST_RUN: "", RIGHTKIT_SNAPSHOT_ROOT: "/y" }, home: "/Users/a" }), "/Volumes/D/.rightkit-managed/snapshots");
+test("§1 root: no environment variable relocates the Mac/Dell root; the one-time test variable of an earlier round is not read", () => {
+  const ignored = { RIGHTKIT_SNAPSHOT_TEST_RUN: "zzz", RIGHTKIT_SNAPSHOT_TEST_ROOT: "/y", RIGHTKIT_SNAPSHOT_ROOT: "/y", RIGHTKIT_DATA_ROOT: "/y", XDG_STATE_HOME: "/y" };
+  assert.equal(snapshotRoot({ platform: "darwin", env: ignored, home: "/Users/a" }), "/Volumes/D/.rightkit-managed/snapshots");
+  assert.equal(snapshotRoot({ platform: "win32", env: ignored, home: "C:\\Users\\a" }), "D:\\.rightkit-managed\\snapshots");
+  // Linux reads only the configured root and XDG state; the test variable changes neither.
+  assert.equal(snapshotRoot({ platform: "linux", env: { RIGHTKIT_SNAPSHOT_TEST_RUN: "zzz", XDG_STATE_HOME: "/s" }, home: "/home/a" }), "/s/rightkit/snapshots");
+  assert.equal(snapshotRoot({ platform: "linux", env: { RIGHTKIT_SNAPSHOT_TEST_RUN: "zzz", RIGHTKIT_SNAPSHOT_ROOT: "/data/snaps" }, home: "/home/a" }), "/data/snaps");
+  // And the owner record, derived from the root, follows the same fixed path.
+  const owner = (env) => ownershipFile({ platform: "darwin", env, home: "/Users/a" });
+  assert.equal(owner({ RIGHTKIT_SNAPSHOT_TEST_RUN: "zzz" }), owner({}));
+  assert.equal(owner({}), "/Volumes/D/.rightkit-managed/build-ownership/owner.json");
+});
+
+test("§1 root durability: a sibling named like `..x` is inside scratch or temp, not outside (a path is outside only as `..` or `..<sep>…`)", () => {
+  const linux = (root) => ({ platform: "linux", env: { RIGHTKIT_SNAPSHOT_ROOT: root }, home: "/home/a" });
+  for (const root of ["/Volumes/D/scratch/..x/s", "/tmp/..x", "/tmp/...", "/private/var/folders/..cache/T/s"]) refusesRoot(linux(root), "RIGHTKIT_SNAPSHOT_ROOT");
+  assert.equal(snapshotRoot(linux("/Volumes/D/scratch/../data/s")), "/Volumes/D/scratch/../data/s", "`..` leaves scratch, so a root reached through it is not under it");
+  assert.equal(snapshotRoot(linux("/Volumes/D/..scratch/s")), "/Volumes/D/..scratch/s", "a sibling of scratch whose name starts with `..` is not under it");
+  assert.equal(snapshotRoot(linux("/data/..x/snaps")), "/data/..x/snaps");
 });
 
 test("snapshot CLI: an injected snapshotRoot is the root, and the environment is not consulted for it", (t) => {
   const f = fixture(t);
   const out = [], err = [];
-  // The environment names an invalid run id: were it consulted the command would refuse. The injected root is used as given.
   const env = { ...process.env, RIGHTKIT_SNAPSHOT_ROOT: "/Volumes/D/scratch/never", RIGHTKIT_SNAPSHOT_TEST_RUN: "x/../y" };
   const code = snapshotCommand({ cwd: f.repo, env, platform: process.platform, snapshotRoot: f.root, out: (m) => out.push(m), err: (m) => err.push(m), acquireOwnership: (q) => { assert.equal(q.snapshot, f.dir); assert.equal(q.file, path.join(path.dirname(f.root), "build-ownership", "owner.json")); return { handle: "h", joined: false, reclaimed: null, release: () => ({ released: true }) }; } }, ["--commit", f.commit, "--json"]);
   assert.equal(code, 0, err.join("\n"));
   assert.equal(JSON.parse(out.at(-1)).path, f.dir);
-  // Without the injection the same environment is refused before anything runs.
+  // Without the injection the root is the host's (Linux: the scratch root named here is refused before anything runs).
   const refused = [];
-  assert.equal(snapshotCommand({ cwd: f.repo, env, platform: process.platform, out: () => {}, err: (m) => refused.push(m), acquireOwnership: () => { throw new Error("must not acquire"); } }, ["--commit", f.commit]), 2);
-  assert.match(refused.join("\n"), /RIGHTKIT_SNAPSHOT_TEST_RUN must be a plain run id/);
+  assert.equal(snapshotCommand({ cwd: f.repo, env, platform: "linux", out: () => {}, err: (m) => refused.push(m), acquireOwnership: () => { throw new Error("must not acquire"); } }, ["--commit", f.commit]), 2);
+  assert.match(refused.join("\n"), /RIGHTKIT_SNAPSHOT_ROOT.*scratch root/);
 });
 
 test("§1 commit-only build & E1: the snapshot is the commit's tree; a dirty checkout neither blocks nor leaks; the checkout is untouched", (t) => {
@@ -271,7 +302,8 @@ test("E6 exact: a planted directory link or junction (into the checkout, outside
   verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
 });
 
-test("E6 exact: a planted file link into the checkout or out of the snapshot (an ignored name, a visible name) refuses verification", { skip: posixOnly }, (t) => {
+test("E6 exact: a planted file link into the checkout or out of the snapshot (an ignored name, a visible name) refuses verification", (t) => {
+  if (!canLink) return assertNoLinkHost(t);
   const f = fixture(t);
   syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
   write(f.repo, { "secret.rs": "uncommitted\n" });
@@ -288,10 +320,10 @@ test("E6 exact: a planted file link into the checkout or out of the snapshot (an
   verifySnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
 });
 
-test("E6 exact: a committed link that is retargeted, dangles or leaves the snapshot refuses verification naming the link", { skip: posixOnly }, (t) => {
+test("E6 exact: a committed link that is retargeted, dangles or leaves the snapshot refuses verification naming the link", (t) => {
+  if (!canLink) return assertNoLinkHost(t);
   const f = fixture(t);
-  fs.symlinkSync("lib.rs", path.join(f.repo, "src", "alias.rs"));
-  const c = commitAll(f.repo);
+  const c = commitLink(f.repo, "src/alias.rs", "lib.rs");
   syncSnapshot({ checkout: f.repo, rev: c, root: f.root });
   const alias = path.join(f.dir, "src", "alias.rs");
   fs.rmSync(alias);
@@ -303,6 +335,25 @@ test("E6 exact: a committed link that is retargeted, dangles or leaves the snaps
   fs.rmSync(alias);
   fs.symlinkSync("lib.rs", alias);
   verifySnapshot({ checkout: f.repo, rev: c, root: f.root });
+});
+
+// Review item5-r2 #4: a directory whose name starts with `..` is inside the snapshot, not a way out of it.
+test("E6 exact: a committed link into a `..x` directory of the snapshot is inside it, and a planted one is refused only as an extra", (t) => {
+  if (!canLink) return assertNoLinkHost(t);
+  const f = fixture(t, { "Cargo.toml": "[workspace]\n", "src/lib.rs": "pub fn a() {}\n", "..x/a.rs": "pub fn x() {}\n", ".gitignore": "target/\n" });
+  const c = commitLink(f.repo, "src/alias.rs", "../..x/a.rs");
+  const r = syncSnapshot({ checkout: f.repo, rev: c, root: f.root });
+  // Windows reports the target with backslashes; the link is the same one.
+  assert.equal(fs.readlinkSync(path.join(f.dir, "src", "alias.rs")).replace(/\\/g, "/"), "../..x/a.rs");
+  assert.equal(fs.readFileSync(path.join(f.dir, "src", "alias.rs"), "utf8"), "pub fn x() {}\n", "the link reads the file in the `..x` directory");
+  assert.equal(r.linksRemoved, 0);
+  assert.equal(verifySnapshot({ checkout: f.repo, rev: c, root: f.root }).commit, c);
+  // A repeat sync leaves the link as it is (separator spelling is not a change): nothing written.
+  const again = syncSnapshot({ checkout: f.repo, rev: c, root: f.root });
+  assert.deepEqual([again.written, again.removed], [0, 0]);
+  // A planted link into `..x` is a link the commit lacks, refused for that (not as an escape).
+  fs.symlinkSync(path.join(f.dir, "..x", "a.rs"), path.join(f.dir, "planted.rs"));
+  assert.throws(() => verifySnapshot({ checkout: f.repo, rev: c, root: f.root }), (e) => e.code === "mismatch" && /planted\.rs is not in the commit's tree/.test(e.message));
 });
 
 const dependencyFixture = (t) => fixture(t, { "package.json": "{\"name\":\"root\",\"private\":true}\n", "pnpm-lock.yaml": "lockfileVersion: '9.0'\n", "apps/web/package.json": "{\"name\":\"web\"}\n", "tools/package.json": "{\"name\":\"tools\"}\n", "src/lib.rs": "x\n", ".gitignore": "target/\nnode_modules/\n" });
@@ -392,22 +443,42 @@ test("snapshot CLI: a sync whose build ownership release keeps the record exits 
   assert.match(failedOut.join("\n"), /kept: kept/);
 });
 
-test("E6 modes: a changed exec bit refuses; a mode-only commit fixes the mode without rewriting bytes", { skip: posixOnly }, (t) => {
+test("E6 modes: a changed exec bit refuses; a mode-only commit fixes the mode without rewriting bytes (Windows: the mode is the tree's, the disk holds none)", (t) => {
   const f = fixture(t);
   write(f.repo, { "run.sh": "#!/bin/sh\n" });
   const c1 = commitAll(f.repo);
   syncSnapshot({ checkout: f.repo, rev: c1, root: f.root });
-  fs.chmodSync(path.join(f.dir, "run.sh"), 0o755);
+  const run = path.join(f.dir, "run.sh");
+  if (process.platform === "win32") {
+    // NTFS has no exec bit (GATE-CONTRACT §1 "types & modes preserved" can only mean the tree's): the snapshot's identity is the
+    // commit's tree, whose entry mode comes from the seeded index, and a chmod changes nothing the tree can see. So a "tampered" mode
+    // verifies (there is nothing on disk to tamper), and a mode-only commit changes the tree id while the sync rewrites no byte.
+    fs.chmodSync(run, 0o755);
+    assert.equal(verifySnapshot({ checkout: f.repo, rev: c1, root: f.root }).commit, c1);
+    const before = fs.lstatSync(run, { bigint: true }).mtimeNs;
+    git(f.repo, "update-index", "--chmod=+x", "run.sh");
+    git(f.repo, "commit", "-q", "-m", "mode only");
+    const c2 = git(f.repo, "rev-parse", "HEAD");
+    assert.match(git(f.repo, "ls-tree", c2, "run.sh"), /^100755 blob /, "the commit records the exec mode");
+    const r = syncSnapshot({ checkout: f.repo, rev: c2, root: f.root });
+    assert.deepEqual([r.written, r.modesFixed], [0, 0]);
+    assert.equal(r.tree, git(f.repo, "rev-parse", `${c2}^{tree}`));
+    assert.notEqual(r.tree, git(f.repo, "rev-parse", `${c1}^{tree}`), "the mode-only commit is a different tree");
+    assert.equal(fs.lstatSync(run, { bigint: true }).mtimeNs, before);
+    assert.equal(verifySnapshot({ checkout: f.repo, rev: c2, root: f.root }).tree, r.tree);
+    return;
+  }
+  fs.chmodSync(run, 0o755);
   assert.throws(() => verifySnapshot({ checkout: f.repo, rev: c1, root: f.root }), (e) => e.code === "mismatch");
   syncSnapshot({ checkout: f.repo, rev: c1, root: f.root });
   verifySnapshot({ checkout: f.repo, rev: c1, root: f.root });
-  const before = fs.lstatSync(path.join(f.dir, "run.sh"), { bigint: true }).mtimeNs;
+  const before = fs.lstatSync(run, { bigint: true }).mtimeNs;
   fs.chmodSync(path.join(f.repo, "run.sh"), 0o755);
   const c2 = commitAll(f.repo);
   const r = syncSnapshot({ checkout: f.repo, rev: c2, root: f.root });
   assert.deepEqual([r.written, r.modesFixed], [0, 1]);
-  assert.equal(fs.lstatSync(path.join(f.dir, "run.sh"), { bigint: true }).mtimeNs, before);
-  assert.equal(fs.statSync(path.join(f.dir, "run.sh")).mode & 0o111, 0o111);
+  assert.equal(fs.lstatSync(run, { bigint: true }).mtimeNs, before);
+  assert.equal(fs.statSync(run).mode & 0o111, 0o111);
 });
 
 test("§1 no link into the checkout: a planted link or junction (ignored or in place of a directory) is removed and never written through", (t) => {
@@ -428,15 +499,15 @@ test("§1 no link into the checkout: a planted link or junction (ignored or in p
   assert.equal(fs.readFileSync(path.join(f.dir, "src/lib.rs"), "utf8"), "pub fn a() {}\n");
 });
 
-test("§1 committed links: a relative link inside the snapshot is kept as a link; one out of the snapshot refuses before writing", { skip: posixOnly }, (t) => {
+test("§1 committed links: a relative link inside the snapshot is kept as a link; one out of the snapshot refuses before writing", (t) => {
+  if (!canLink) return assertNoLinkHost(t);
   const f = fixture(t);
-  fs.symlinkSync("lib.rs", path.join(f.repo, "src", "alias.rs"));
-  const inside = commitAll(f.repo);
+  const inside = commitLink(f.repo, "src/alias.rs", "lib.rs");
   syncSnapshot({ checkout: f.repo, rev: inside, root: f.root });
   assert.equal(fs.readlinkSync(path.join(f.dir, "src", "alias.rs")), "lib.rs");
+  assert.ok(fs.lstatSync(path.join(f.dir, "src", "alias.rs")).isSymbolicLink());
   verifySnapshot({ checkout: f.repo, rev: inside, root: f.root });
-  fs.symlinkSync("../../outside", path.join(f.repo, "src", "escape.rs"));
-  const outside = commitAll(f.repo);
+  const outside = commitLink(f.repo, "src/escape.rs", "../../outside", "escape");
   assert.throws(() => syncSnapshot({ checkout: f.repo, rev: outside, root: f.root }), (e) => e.code === "refused" && /escape\.rs/.test(e.message));
   assert.equal(fs.existsSync(path.join(f.dir, "src", "escape.rs")), false);
 });
@@ -489,26 +560,28 @@ function blobOf(repo, text) {
 }
 const caseInsensitiveHost = process.platform === "darwin" || process.platform === "win32" ? false : "case collisions are refused on Mac & Windows only";
 
-test("Oracle #1: a committed link chain that escapes physically (c/b -> .., a -> c/b/…/../<checkout>/secret) refuses and is not left behind", { skip: posixOnly }, (t) => {
+test("Oracle #1: a committed link chain that escapes physically (c/b -> .., a -> c/b/…/../<checkout>/secret) refuses and is not left behind", (t) => {
+  if (!canLink) return assertNoLinkHost(t);
   const f = fixture(t);
   write(f.repo, { "secret.txt": "uncommitted checkout content\n" });
   const hops = 12;
   git(f.repo, "update-index", "--add", "--cacheinfo", `120000,${blobOf(f.repo, "..")},c/b`);
-  git(f.repo, "update-index", "--add", "--cacheinfo", `120000,${blobOf(f.repo, "c/b/".repeat(hops) + "../".repeat(2 * hops) + f.repo.slice(1) + "/secret.txt")},a`);
+  git(f.repo, "update-index", "--add", "--cacheinfo", `120000,${blobOf(f.repo, "c/b/".repeat(hops) + "../".repeat(2 * hops) + fromRoot(f.repo) + "/secret.txt")},a`);
   git(f.repo, "commit", "-q", "-m", "chain");
   const commit = git(f.repo, "rev-parse", "HEAD");
   assert.throws(() => syncSnapshot({ checkout: f.repo, rev: commit, root: f.root }), (e) => e.code === "refused" && /\ba\b/.test(e.message));
   assert.equal(fs.lstatSync(path.join(f.dir, "a"), { throwIfNoEntry: false }), undefined, "the escaping link is removed");
 });
 
-test("Oracle #1: a planted link escaping through a committed link chain is removed", { skip: posixOnly }, (t) => {
+test("Oracle #1: a planted link escaping through a committed link chain is removed", (t) => {
+  if (!canLink) return assertNoLinkHost(t);
   const f = fixture(t);
   git(f.repo, "update-index", "--add", "--cacheinfo", `120000,${blobOf(f.repo, "..")},c/b`);
   git(f.repo, "commit", "-q", "-m", "up-link");
   const commit = git(f.repo, "rev-parse", "HEAD");
   syncSnapshot({ checkout: f.repo, rev: commit, root: f.root });
   fs.mkdirSync(path.join(f.repo, "node_modules"), { recursive: true });
-  fs.symlinkSync("c/b/".repeat(12) + "../".repeat(24) + f.repo.slice(1) + "/node_modules", path.join(f.dir, "node_modules"));
+  fs.symlinkSync("c/b/".repeat(12) + "../".repeat(24) + fromRoot(f.repo) + "/node_modules", path.join(f.dir, "node_modules"), dirLinkType);
   const r = syncSnapshot({ checkout: f.repo, rev: commit, root: f.root });
   assert.equal(r.linksRemoved, 1);
   assert.equal(fs.lstatSync(path.join(f.dir, "node_modules"), { throwIfNoEntry: false }), undefined);
@@ -517,7 +590,7 @@ test("Oracle #1: a planted link escaping through a committed link chain is remov
 test("Oracle #2: paths differing only in case refuse before anything is written; the checkout is never written", { skip: caseInsensitiveHost }, (t) => {
   const f = fixture(t);
   write(f.repo, { "victim/x.txt": "CHECKOUT ORIGINAL\n" });
-  git(f.repo, "update-index", "--add", "--cacheinfo", `120000,${blobOf(f.repo, "c/b/".repeat(12) + "../".repeat(24) + f.repo.slice(1) + "/victim")},Foo`);
+  git(f.repo, "update-index", "--add", "--cacheinfo", `120000,${blobOf(f.repo, "c/b/".repeat(12) + "../".repeat(24) + fromRoot(f.repo) + "/victim")},Foo`);
   git(f.repo, "update-index", "--add", "--cacheinfo", `100644,${blobOf(f.repo, "WRITTEN BY SNAPSHOT SYNC\n")},foo/x.txt`);
   git(f.repo, "commit", "-q", "-m", "case collision");
   const commit = git(f.repo, "rev-parse", "HEAD");
@@ -526,10 +599,10 @@ test("Oracle #2: paths differing only in case refuse before anything is written;
   assert.equal(fs.readFileSync(path.join(f.repo, "victim/x.txt"), "utf8"), "CHECKOUT ORIGINAL\n");
 });
 
-test("a dangling committed link refuses and is removed", { skip: posixOnly }, (t) => {
+test("a dangling committed link refuses and is removed", (t) => {
+  if (!canLink) return assertNoLinkHost(t);
   const f = fixture(t);
-  fs.symlinkSync("missing.rs", path.join(f.repo, "src", "dangling.rs"));
-  const commit = commitAll(f.repo);
+  const commit = commitLink(f.repo, "src/dangling.rs", "missing.rs");
   assert.throws(() => syncSnapshot({ checkout: f.repo, rev: commit, root: f.root }), (e) => e.code === "refused" && /dangling\.rs/.test(e.message));
   assert.equal(fs.lstatSync(path.join(f.dir, "src", "dangling.rs"), { throwIfNoEntry: false }), undefined);
 });

@@ -70,7 +70,8 @@ function io(t, s, { scans = [], onScans = null, fakeInstall = false } = {}) {
   return {
     calls, out, err, plans,
     io: {
-      cwd: s.repo, env: { ...process.env, RK_GATE_CACHE: "0" }, spawn, out: (m) => out.push(m), err: (m) => err.push(m),
+      // The host-wide ownership record lives beside the injected root, in a fixture directory of its own (never the host's).
+      cwd: s.repo, env: { ...process.env, RK_GATE_CACHE: "0" }, snapshotRoot: path.join(tmp(t, "rk-sc-own-"), "snapshots"), spawn, out: (m) => out.push(m), err: (m) => err.push(m),
       appCheck: async () => 0, classA: undefined, selfPath: path.join(tmp(t, "rk-sc-self-"), "rightkit-gate.mjs"),
       resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }),
       runScans: async (plan) => { plans.push(plan); if (onScans) onScans(); return { scans, notes: [], cacheHits: [] }; },
@@ -487,7 +488,7 @@ test("E17 real subprocesses: npm-only dirty checkout with HEAD ahead passes on t
   const snap = syncSnapshot({ checkout: repo, rev: a, root: tmp(t, "rk-sc-real-snaps-") });
   const out = []; const err = [];
   const code = await main(["check", "--commit", a, "--full-a", "--snapshot", snap.path], {
-    cwd: repo, env: { ...process.env, RK_GATE_CACHE: "0", RIGHTKIT_SCRATCH_ROOT: tmp(t, "rk-sc-real-logs-") }, out: (m) => out.push(m), err: (m) => err.push(m),
+    cwd: repo, env: { ...process.env, RK_GATE_CACHE: "0", RIGHTKIT_SCRATCH_ROOT: tmp(t, "rk-sc-real-logs-") }, snapshotRoot: path.join(tmp(t, "rk-sc-real-own-"), "snapshots"), out: (m) => out.push(m), err: (m) => err.push(m),
     appCheck: async () => 0, resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }),
   });
   const all = [...out, ...err].join("\n");
@@ -502,7 +503,7 @@ test("E17 real subprocesses: npm-only dirty checkout with HEAD ahead passes on t
   const snapB = syncSnapshot({ checkout: repo, rev: b, root: path.dirname(snap.path) });
   const outB = []; const errB = [];
   const codeB = await main(["check", "--commit", b, "--full-a", "--snapshot", snapB.path], {
-    cwd: repo, env: { ...process.env, RK_GATE_CACHE: "0", RIGHTKIT_SCRATCH_ROOT: tmp(t, "rk-sc-real-logs-b-") }, out: (m) => outB.push(m), err: (m) => errB.push(m),
+    cwd: repo, env: { ...process.env, RK_GATE_CACHE: "0", RIGHTKIT_SCRATCH_ROOT: tmp(t, "rk-sc-real-logs-b-") }, snapshotRoot: path.join(tmp(t, "rk-sc-real-own-b-"), "snapshots"), out: (m) => outB.push(m), err: (m) => errB.push(m),
     appCheck: async () => 0, resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }),
   });
   const allB = [...outB, ...errB].join("\n");
@@ -555,7 +556,7 @@ console.log(JSON.stringify({ packages, workspace_members: packages.map((p) => p.
 function brokerIo(t, s) {
   const out = []; const err = []; const plans = [];
   return { out, err, plans, io: {
-    cwd: s.repo, env: { ...process.env, RK_GATE_CACHE: "0" }, out: (m) => out.push(m), err: (m) => err.push(m), appCheck: async () => 0,
+    cwd: s.repo, env: { ...process.env, RK_GATE_CACHE: "0" }, snapshotRoot: path.join(tmp(t, "rk-sc-own-"), "snapshots"), out: (m) => out.push(m), err: (m) => err.push(m), appCheck: async () => 0,
     // `cargo` is answered by the fake (never a real cargo, never the broker): metadata per cargo's member rule, anything else a sentinel.
     spawn: (cmd, args, opts = {}) => (cmd === "pnpm" && args[0] === "--version" ? { status: 0, stdout: "11.25.0\n", stderr: "" }
       : cmd === "cargo" ? defaultSpawn(process.execPath, [s.fake, ...args], opts) : defaultSpawn(cmd, args, opts)),

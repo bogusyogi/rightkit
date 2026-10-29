@@ -10,11 +10,11 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "./background-process.mjs";
 import {
-  OWNERSHIP_ENV, OWNERSHIP_SCHEMA, HOLDER_SCHEMA, OwnershipBusy, acquireBuildOwnership, brokerLeaseState, childrenDir, holderFile, holderScript, holderScriptFile, jobName, judgeOwner, namesDir, readCleanMarker, cleanMarkerFile, CLEAN_SCHEMA, hostBootId, recordRootBirth, readRootBirth, rootBirthFile, ROOT_BIRTH_SCHEMA, ownershipFile, processProbe, queryHolder, readHolder, spawnUnderOwnership, CMD_LINE_LIMIT,
+  OWNERSHIP_ENV, OWNERSHIP_SCHEMA, HOLDER_SCHEMA, OwnershipBusy, acquireBuildOwnership, brokerLeaseState, childrenDir, holderFile, holderScript, holderScriptFile, jobName, judgeOwner, namesDir, readCleanMarker, cleanMarkerFile, CLEAN_SCHEMA, hostBootId, migrateBirthlessRoot, recordRootBirth, readRootBirth, rootBirthFile, ROOT_BIRTH_SCHEMA, OWNERSHIP_FILE_ENV, ownershipFile, processProbe, queryHolder, readHolder, spawnUnderOwnership, CMD_LINE_LIMIT,
 } from "./build-ownership.mjs";
-import { keyPath, repoKey, snapshotCommand, snapshotRoot, syncSnapshot, verifySnapshot } from "./snapshot.mjs";
+import { keyPath, repoKey, snapshotCommand, syncSnapshot, verifySnapshot } from "./snapshot.mjs";
 
-const tmp = (t, prefix) => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix))); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
+const tmp = (t, prefix) => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix))); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 })); return d; }; // a Windows job holder may still write into the directory as the test ends
 const NOW = Date.now();
 const iso = (ms) => new Date(ms).toISOString();
 
@@ -341,6 +341,8 @@ test("probes [injected ps/lsof]: a listing that did not finish cleanly is unknow
   assert.throws(() => probe({ lsofStatus: 1, lsof: "p123\nfcwd\nn/snap/k\n" }).snapshotUsers("/snap/k"), /lsof: lsof: WARNING/);
   const lsof = "p123\nfcwd\nn/snap/k/src\np124\nfcwd\nn/elsewhere\nf7r\nn/snap/k/src/lib.rs\np125\nftxt\nn/usr/bin/cc\nfmem\nn/snap/k/target/x.dylib\np126\nf3u\nn/snap/k2/other\n";
   assert.deepEqual(probe({ lsof }).snapshotUsers("/snap/k"), [{ pid: 123, how: "working directory" }, { pid: 124, how: "open file /snap/k/src/lib.rs" }, { pid: 125, how: "mapped file /snap/k/target/x.dylib" }], "a sibling snapshot's file is not this snapshot's");
+  // A directory named `..x` inside the snapshot is inside it (it is not "outside" because its name starts with two dots); `..` and `../k2` are outside.
+  assert.deepEqual(probe({ lsof: "p127\nfcwd\nn/snap/k/..x/deep\np128\nf4r\nn/snap/k/..\np129\nf5r\nn/snap/k/../k2/a\n" }).snapshotUsers("/snap/k"), [{ pid: 127, how: "working directory" }], "..x is inside; the parent and a sibling are not");
   // A process that dropped the variable, left the session and runs elsewhere, holding nothing open, is still found by its argument.
   assert.deepEqual(probe({ args: [[301, "rustc --crate-name a /snap/k/src/lib.rs"], [302, "rustc /snap/k.old/src/lib.rs"], [303, "cargo build --manifest-path=/snap/k/Cargo.toml"]] }).snapshotUsers("/snap/k"), [{ pid: 301, how: "argument" }, { pid: 303, how: "argument" }]);
   // This gate's own chain is never its own user (a shell whose command line names the snapshot, the ps and lsof it ran).
@@ -423,11 +425,14 @@ test("probes [injected /proc]: an unreadable entry of this user's is UNKNOWN (he
     3001: { cwd: `${SNAP}/src` }, 3002: { root: SNAP }, 3003: { exe: `${SNAP}/bin/tool` }, 3004: { fds: { 0: "/dev/null", 5: `${SNAP}/src/lib.rs` } },
     3005: { maps: `7f00-7f01 r--p 00000000 fe:01 1234 ${SNAP}/target/x.so\n7f02-7f03 r-xp 0 fe:01 7 /usr/lib/libc.so\n` }, 3006: { cmdline: `rustc\0${SNAP}/src/lib.rs\0` },
     3007: { cwd: "/snap/k2", fds: { 3: "pipe:[99]", 4: "/snap/k2/x" }, maps: "7f00-7f01 r--p 0 fe:01 1 /snap/k2/y (deleted)\n", cmdline: "x\0/snap/k.old/a\0" }, 3008: { maps: `7f00-7f01 r--p 0 fe:01 1 ${SNAP}/gone.so (deleted)\n` },
+    // A directory named `..x` inside the snapshot: its readers are inside (cwd, descriptor, mapping); `/snap/k/..` itself (the parent) is not.
+    3009: { cwd: `${SNAP}/..x/sub` }, 3010: { fds: { 6: `${SNAP}/..x` } }, 3011: { maps: `7f00-7f01 r--p 0 fe:01 1 ${SNAP}/..x/lib.so\n` }, 3012: { cwd: `${SNAP}/..` },
   });
   const byPid = (a, b) => a.pid - b.pid;
   assert.deepEqual(linuxProbe(fake2).snapshotUsers(SNAP).sort(byPid), [
     { pid: 3001, how: "working directory" }, { pid: 3002, how: "root directory" }, { pid: 3003, how: "executable" }, { pid: 3004, how: `open file ${SNAP}/src/lib.rs` },
     { pid: 3005, how: `mapped file ${SNAP}/target/x.so` }, { pid: 3006, how: "argument" }, { pid: 3008, how: `mapped file ${SNAP}/gone.so` },
+    { pid: 3009, how: "working directory" }, { pid: 3010, how: `open file ${SNAP}/..x` }, { pid: 3011, how: `mapped file ${SNAP}/..x/lib.so` },
   ]);
   // Unreadable: each reader's failure on this user's process fails the net; another user's is skipped; a vanished entry is no reader.
   for (const what of [/\/3007\/cwd$/, /\/3007\/exe$/, /\/3007\/fd$/, /\/3007\/fd\/4$/, /\/3007\/maps$/, /\/3007\/cmdline$/]) {
@@ -639,6 +644,135 @@ test("ownership POSIX [injected /proc]: the snapshot root's birth is the baselin
   assert.equal(readRootBirth(root, "boot-1"), NOW - 60_000, "a new birth");
 });
 
+/** A tiny repository with one commit, for the sync-level migration fixtures. */
+function tinyRepo(t) {
+  const git = (cwd, ...args) => { const r = spawnSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" } }); if (r.status !== 0) throw new Error(r.stderr); return r.stdout.trim(); };
+  const repo = tmp(t, "rk-own-mig-repo-");
+  git(repo, "init", "-q", "-b", "main"); fs.writeFileSync(path.join(repo, "a.txt"), "one\n"); git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "a");
+  return repo;
+}
+const OLD_KEY = "0123456789abcdef";
+/** A snapshot root as an older gate left it: snapshot directories, a lock and a state file, and no birth record. */
+function oldRoot(root, { birth = null } = {}) {
+  fs.mkdirSync(path.join(root, OLD_KEY, "src"), { recursive: true }); fs.writeFileSync(path.join(root, OLD_KEY, "src", "lib.rs"), "old\n");
+  fs.writeFileSync(path.join(root, `${OLD_KEY}.state.json`), "{}"); fs.writeFileSync(path.join(root, `${OLD_KEY}.lock`), "");
+  if (birth) recordRootBirth(root, birth);
+}
+
+test("migration: a free host's birthless root is emptied and born anew under this process's own ownership; every other shape is left strict, untouched", (t) => {
+  const base = tmp(t, "rk-own-mig-"); const root = path.join(base, "snapshots"); const file = path.join(base, "build-ownership", "owner.json");
+  const probe = () => fakeProbe("linux", { bootId: () => "boot-1" });
+  const exists = (n) => fs.existsSync(path.join(root, n));
+  const env = (own) => ({ [OWNERSHIP_ENV]: own.handle, [OWNERSHIP_FILE_ENV]: file });
+  // (a) free host, birthless root: recreated and born; its contents are gone.
+  oldRoot(root);
+  let own = acquire(file, "linux", probe());
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).freeHost, true);
+  let r = migrateBirthlessRoot(root, { env: env(own), bootId: "boot-1" });
+  assert.equal(r.migrated, true, JSON.stringify(r));
+  assert.deepEqual(fs.readdirSync(root), [path.basename(rootBirthFile(root))], "only the new birth is left");
+  assert.equal(readRootBirth(root, "boot-1") !== null, true);
+  // ...and once born, a second call leaves it alone (a root that already has a birth).
+  oldRoot(root);
+  r = migrateBirthlessRoot(root, { env: env(own), bootId: "boot-1" });
+  assert.equal(r.migrated, false); assert.match(r.why, /already has a birth record of this boot/); assert.equal(exists(OLD_KEY), true, "untouched");
+  own.release();
+  // A birth record from ANOTHER boot, on a free host: migrated exactly like a birthless root, and reborn with the current boot id.
+  fs.rmSync(root, { recursive: true }); oldRoot(root, { birth: { now: () => NOW - 9_000_000, bootId: "boot-0" } });
+  assert.equal(readRootBirth(root, "boot-1"), null, "that birth gives no baseline in this boot");
+  own = acquire(file, "linux", probe());
+  r = migrateBirthlessRoot(root, { env: env(own), bootId: "boot-1" });
+  assert.equal(r.migrated, true, JSON.stringify(r)); assert.match(r.why, /another boot \("boot-0", not "boot-1"\)/);
+  assert.deepEqual(fs.readdirSync(root), [path.basename(rootBirthFile(root))], "the old snapshots are gone");
+  assert.ok(readRootBirth(root, "boot-1") >= NOW, "reborn with the current boot id, now");
+  assert.equal(readRootBirth(root, "boot-0"), null);
+  own.release();
+  // A birth with no boot id (written when the boot could not be read) cannot match any boot: it is migrated too.
+  fs.rmSync(root, { recursive: true }); oldRoot(root, { birth: { bootId: null } });
+  own = acquire(file, "linux", probe());
+  assert.equal(migrateBirthlessRoot(root, { env: env(own), bootId: "boot-1" }).migrated, true);
+  own.release();
+  // An unreadable birth record is not a birth of another boot: untouched.
+  fs.rmSync(root, { recursive: true }); oldRoot(root); fs.writeFileSync(rootBirthFile(root), "not json");
+  own = acquire(file, "linux", probe());
+  r = migrateBirthlessRoot(root, { env: env(own), bootId: "boot-1" });
+  assert.equal(r.migrated, false); assert.match(r.why, /birth record cannot be read/); assert.equal(exists(OLD_KEY), true);
+  own.release();
+  // An unreadable current boot id leaves the root untouched, birthless or other-boot alike.
+  for (const birth of [null, { now: () => NOW - 9_000_000, bootId: "boot-0" }]) {
+    fs.rmSync(root, { recursive: true }); oldRoot(root, { birth });
+    own = acquire(file, "linux", probe());
+    for (const unreadable of [null, ""]) {
+      r = migrateBirthlessRoot(root, { env: env(own), bootId: unreadable });
+      assert.equal(r.migrated, false); assert.match(r.why, /boot's identity cannot be read/); assert.equal(exists(OLD_KEY), true, "untouched");
+    }
+    own.release();
+  }
+  // An other-boot birth on a held or reclaimed host is untouched (the held cases below, with a birth record of another boot).
+  fs.rmSync(root, { recursive: true }); oldRoot(root, { birth: { now: () => NOW - 9_000_000, bootId: "boot-0" } });
+  deadOwner(file, "linux");
+  own = acquire(file, "linux", probe());          // a reclaim
+  r = migrateBirthlessRoot(root, { env: env(own), bootId: "boot-1" });
+  assert.equal(r.migrated, false); assert.match(r.why, /not taken on a free host/); assert.equal(exists(OLD_KEY), true); assert.equal(readRootBirth(root, "boot-0") !== null, true, "the old birth stays");
+  own.release();
+  fs.writeFileSync(file, JSON.stringify({ schema: OWNERSHIP_SCHEMA, handle: "other-h", pid: process.pid + 1, freeHost: true, acquiredAt: iso(NOW), host: os.hostname() }));
+  r = migrateBirthlessRoot(root, { env: { [OWNERSHIP_ENV]: "other-h", [OWNERSHIP_FILE_ENV]: file }, bootId: "boot-1" });
+  assert.equal(r.migrated, false); assert.match(r.why, /does not hold the owner record/); assert.equal(exists(OLD_KEY), true);
+  fs.rmSync(file);
+  // (b) a held host (a record that is not this process's free-host ownership): a reclaimed record, another process's record, no ownership at all.
+  fs.rmSync(root, { recursive: true }); oldRoot(root);
+  deadOwner(file, "linux");
+  own = acquire(file, "linux", probe());          // a reclaim
+  assert.equal(own.reclaimed !== null, true); assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).freeHost, false);
+  r = migrateBirthlessRoot(root, { env: env(own), bootId: "boot-1" });
+  assert.equal(r.migrated, false); assert.match(r.why, /not taken on a free host/); assert.equal(exists(OLD_KEY), true);
+  own.release();
+  fs.writeFileSync(file, JSON.stringify({ schema: OWNERSHIP_SCHEMA, handle: "other-h", pid: process.pid + 1, freeHost: true, acquiredAt: iso(NOW), host: os.hostname() }));
+  r = migrateBirthlessRoot(root, { env: { [OWNERSHIP_ENV]: "other-h", [OWNERSHIP_FILE_ENV]: file }, bootId: "boot-1" });
+  assert.equal(r.migrated, false); assert.match(r.why, /does not hold the owner record/); assert.equal(exists(OLD_KEY), true);
+  r = migrateBirthlessRoot(root, { env: { [OWNERSHIP_ENV]: "mine", [OWNERSHIP_FILE_ENV]: file }, bootId: "boot-1" });
+  assert.equal(r.migrated, false); assert.match(r.why, /does not hold the owner record/, "a handle that is not the record's");
+  r = migrateBirthlessRoot(root, { env: {}, bootId: "boot-1" });
+  assert.equal(r.migrated, false); assert.match(r.why, /holds no build ownership/);
+  fs.rmSync(file);
+  // A root that is some other directory is never emptied; a missing root is the sync's to create; a link is not a root.
+  fs.rmSync(root, { recursive: true }); oldRoot(root); fs.writeFileSync(path.join(root, "notes.txt"), "mine");
+  own = acquire(file, "linux", probe());
+  r = migrateBirthlessRoot(root, { env: env(own), bootId: "boot-1" });
+  assert.equal(r.migrated, false); assert.match(r.why, /"notes.txt" in the root is not a snapshot artifact/); assert.equal(exists(OLD_KEY), true); assert.equal(exists("notes.txt"), true);
+  fs.rmSync(root, { recursive: true });
+  assert.match(migrateBirthlessRoot(root, { env: env(own), bootId: "boot-1" }).why, /missing or is not a plain directory/);
+  if (process.platform !== "win32") {
+    const real = path.join(base, "real"); oldRoot(real); fs.symlinkSync(real, root);
+    assert.match(migrateBirthlessRoot(root, { env: env(own), bootId: "boot-1" }).why, /missing or is not a plain directory/);
+    assert.equal(fs.existsSync(path.join(real, OLD_KEY)), true, "a link is never followed");
+  }
+  own.release();
+});
+
+test("migration: syncSnapshot under a free-host ownership empties a birthless root before its first write and births it; a held host's sync leaves the old snapshots", (t) => {
+  const base = tmp(t, "rk-own-mig2-"); const root = path.join(base, "snapshots"); const file = path.join(base, "build-ownership", "owner.json");
+  const repo = tinyRepo(t);
+  const probe = () => fakeProbe("linux", { bootId: () => "boot-1" });
+  oldRoot(root);
+  const own = acquire(file, "linux", probe(), { exportEnv: true });
+  try {
+    syncSnapshot({ checkout: repo, root });
+    assert.equal(fs.existsSync(path.join(root, repoKey(keyPath(repo)))), true, "the new snapshot is written");
+    if (hostBootId() === null) {
+      // Windows has no boot id (and no unreadable-process rule): nothing is migrated, the root stays as it was.
+      assert.equal(fs.existsSync(path.join(root, OLD_KEY)), true); assert.equal(fs.existsSync(rootBirthFile(root)), false);
+    } else {
+      assert.equal(fs.existsSync(path.join(root, OLD_KEY)), false, "the old snapshot is gone");
+      assert.equal(fs.existsSync(rootBirthFile(root)), true, "and the root has its birth");
+    }
+  } finally { own.release(); }
+  // No ownership (a bare sync, as a test or a verify-only path calls it): the old root is left as it was, birthless.
+  fs.rmSync(root, { recursive: true }); oldRoot(root);
+  syncSnapshot({ checkout: repo, root });
+  assert.equal(fs.existsSync(path.join(root, OLD_KEY)), true); assert.equal(fs.existsSync(rootBirthFile(root)), false);
+});
+
 test("ownership POSIX [injected table]: an orphan a subreaper adopted is still the owner's work; only a recorded parent or a group-mate makes a peer", (t) => {
   const file = path.join(tmp(t, "rk-own-"), "owner.json");
   const me = { pid: process.pid, ppid: 5000, startedMs: NOW - 1_000 };
@@ -805,10 +939,21 @@ if (${JSON.stringify(kind)} === "acquire") {
   const { acquireBuildOwnership } = await import(${JSON.stringify(MODULE)});
   try { const own = acquireBuildOwnership({ file: a.file, stage: "next", env: process.env }); const released = own.release(); console.log(JSON.stringify({ ok: true, reclaimed: own.reclaimed, released })); }
   catch (e) { console.log(JSON.stringify({ ok: false, code: e.code, message: e.message })); }
+} else if (${JSON.stringify(kind)} === "sync") {
+  // The door's shape: take ownership (exported to this process's environment), then sync into the root, then release.
+  const { acquireBuildOwnership } = await import(${JSON.stringify(MODULE)});
+  const { syncSnapshot } = await import(${JSON.stringify(SNAP)});
+  let own = null;
+  try {
+    own = acquireBuildOwnership({ file: a.file, stage: "snapshot", snapshot: a.snapshot, env: process.env });
+    const synced = syncSnapshot({ checkout: a.checkout, root: a.root });
+    const released = own.release();
+    console.log(JSON.stringify({ ok: true, released, reclaimed: own.reclaimed, commit: synced.commit }));
+  } catch (e) { console.log(JSON.stringify({ ok: false, code: e.code, message: e.message, released: own?.release?.() })); }
 } else {
   const { snapshotCommand } = await import(${JSON.stringify(SNAP)});
   const lines = [];
-  const code = snapshotCommand({ cwd: a.cwd, env: process.env, platform: process.platform, out: (m) => lines.push(m), err: (m) => lines.push(m) }, a.args);
+  const code = snapshotCommand({ cwd: a.cwd, env: process.env, platform: process.platform, snapshotRoot: a.snapshotRoot, out: (m) => lines.push(m), err: (m) => lines.push(m) }, a.args);
   console.log(JSON.stringify({ code, lines }));
 }
 process.exit(0);
@@ -1018,22 +1163,41 @@ test("[native, Linux + python3] review item5-r1 #4: an orphan adopted by a subre
   assert.equal(next.ok, true, JSON.stringify(next)); assert.equal(next.reclaimed.from, g.handle);
 });
 
+test("[native, Linux + python3] review item5-r2 #7: a real first acquisition on a pre-existing birthless root, with a non-dumpable same-user process, now releases", { skip: !HAS_SUBREAPER && "needs Linux and python3 (prctl PR_SET_DUMPABLE)", timeout: 90_000 }, async (t) => {
+  const base = tmp(t, "rk-own-native-"); const root = path.join(base, "snapshots"); const file = path.join(base, "build-ownership", "owner.json");
+  const repo = tinyRepo(t); oldRoot(root);
+  // An agent from before the ownership (ssh-agent, gpg-agent): its own user's, non-dumpable, so /proc/<pid>/environ refuses reads.
+  const ready = path.join(base, "agent.ready");
+  const agent = spawn("python3", ["-c", "import ctypes, sys, time\nctypes.CDLL(None).prctl(4, 0, 0, 0, 0)\nopen(sys.argv[1], 'w').write('1')\ntime.sleep(600)", ready], { stdio: "ignore" });
+  t.after(() => { try { agent.kill("SIGKILL"); } catch { /* gone */ } });
+  await until(() => fs.existsSync(ready), 20_000);
+  let readable = true; try { fs.readFileSync(`/proc/${agent.pid}/environ`); } catch (e) { readable = !["EACCES", "EPERM"].includes(e.code); }
+  if (readable) return t.skip("this user can read a non-dumpable process (root?)");
+  // The reading error of a process start is up to 2 s: the agent must be clearly older than the ownership.
+  await new Promise((r) => setTimeout(r, 3_500));
+  const step = gateStep(t, "sync", { file, checkout: repo, root, snapshot: path.join(root, repoKey(keyPath(repo))) }, process.env);
+  assert.equal(step.ok, true, JSON.stringify(step));
+  assert.equal(step.released.released, true, `released with the agent alive: ${JSON.stringify(step.released)}`);
+  assert.equal(fs.existsSync(file), false, "the host is free again");
+  assert.equal(fs.existsSync(path.join(root, OLD_KEY)), false, "the birthless root was emptied");
+  assert.equal(fs.existsSync(rootBirthFile(root)), true, "and born");
+  assert.doesNotThrow(() => process.kill(agent.pid, 0), "the agent was never touched");
+});
+
 test("[native] E6/G1: a snapshot sync is refused while a crashed gate's child survives, the snapshot keeps its tree, and syncs once the child is gone", { timeout: 120_000 }, async (t) => {
   const git = (cwd, ...args) => { const r = spawnSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" } }); if (r.status !== 0) throw new Error(r.stderr); return r.stdout.trim(); };
   const repo = tmp(t, "rk-own-repo-");
   git(repo, "init", "-q", "-b", "main"); fs.writeFileSync(path.join(repo, "a.txt"), "one\n"); git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "a");
   const first = git(repo, "rev-parse", "HEAD");
-  // Each gate process of this fixture can only be handed its environment: it names a per-run directory under the host's durable
-  // managed root (<managed root>/test-roots/<id>, snapshotRoot's one test mechanism), removed when the test ends.
-  const env = { ...process.env, RIGHTKIT_SNAPSHOT_TEST_RUN: `own-${process.pid}-${Date.now().toString(36)}` }; delete env[OWNERSHIP_ENV];
-  const snaps = snapshotRoot({ env });
-  assert.equal(path.basename(path.dirname(path.dirname(snaps))), "test-roots", snaps);
-  t.after(() => fs.rmSync(path.dirname(snaps), { recursive: true, force: true }));
+  // Each gate process of this fixture is a driver script that calls snapshotCommand in-process: the root is passed to it as a
+  // parameter (never an environment variable), and the owner record lives beside it.
+  const env = { ...process.env }; delete env[OWNERSHIP_ENV];
+  const snaps = path.join(tmp(t, "rk-own-root-"), "snapshots");
   // Each sync is a gate process of its own.
-  const sync = (args) => gateStep(t, "snapshot", { cwd: repo, args }, env);
+  const sync = (args) => gateStep(t, "snapshot", { cwd: repo, args, snapshotRoot: snaps }, env);
   let step = sync(["--commit", first, "--json"]);
   assert.equal(step.code, 0, JSON.stringify(step));
-  const file = ownershipFile({ platform: process.platform, env });
+  const file = ownershipFile({ platform: process.platform, env, snapshotRoot: snaps });
   const g = await crashingGate(t, file);
   await g.kill(g.gate);
   fs.writeFileSync(path.join(repo, "a.txt"), "two\n"); git(repo, "commit", "-qam", "b");

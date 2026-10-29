@@ -426,7 +426,8 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
       const posix = path.posix;
       const roots = [posix.resolve(dir)];
       try { const real = fs.realpathSync(dir); if (!roots.includes(real)) roots.push(real); } catch { /* the directory is gone: only its recorded spelling can be named */ }
-      const inside = (p) => posix.isAbsolute(p) && roots.some((root) => { const rel = posix.relative(root, p); return rel === "" || (!rel.startsWith("..") && !posix.isAbsolute(rel)); });
+      // Outside is exactly `..`, `../x` or an absolute relative path: a directory named `..x` inside the snapshot is inside it.
+      const inside = (p) => posix.isAbsolute(p) && roots.some((root) => { const rel = posix.relative(root, p); return !(rel === ".." || rel.startsWith("../") || posix.isAbsolute(rel)); });
       const named = (text) => roots.some((root) => namesDir(text, root));
       if (!procAvailable() && platform !== "darwin") return null;
       const { own } = psList();
@@ -563,6 +564,45 @@ export function readRootBirth(root, bootId) {
     const at = Date.parse(b?.createdAt);
     return b?.schema === ROOT_BIRTH_SCHEMA && b.bootId === bootId && Number.isFinite(at) ? at : null;
   } catch { return null; }
+}
+
+/**
+ * Migration for a snapshot root with no usable baseline: it predates birth records (an older gate made it), or its birth record
+ * names another boot (a reboot happened since). On Linux, one non-dumpable agent of this user (ssh-agent) would otherwise hold
+ * every release. A root is a cache, so under THIS process's own ownership, taken on a free host (no owner record existed; never a
+ * reclaim, never a nested gate), before this sync's first write, its snapshots are deleted and the root is born anew, with this
+ * boot's identity. Why that is sound: after a reboot no process of the old boot is alive, so the old root has no live readers; a
+ * free host proves there is no current owner; and the fresh birth makes the strict rule apply only to processes that started after
+ * it. Refused (the root stays as it was, strict) when: this process does not hold the only record, or the record is not a free-host
+ * acquisition; this boot's identity cannot be read; the root is missing or is a link (a missing root is born by the sync); its birth
+ * record is unreadable, or names THIS boot; or anything in the root is not a snapshot artifact (`<16 hex>`, `<16 hex>.lock`,
+ * `.state.json`, `.staging`, or the birth record), because a root that is some other directory is never emptied.
+ * Returns `{ migrated, why }`.
+ */
+export function migrateBirthlessRoot(root, { env = process.env, file = env[OWNERSHIP_FILE_ENV], bootId = hostBootId() } = {}) {
+  const no = (why) => ({ migrated: false, why });
+  const handle = env[OWNERSHIP_ENV];
+  if (!handle || !file) return no("this process holds no build ownership");
+  let record = null; try { record = JSON.parse(fs.readFileSync(file, "utf8")); } catch { record = null; }
+  if (record?.handle !== handle || record.pid !== process.pid) return no("this process does not hold the owner record");
+  if (record.freeHost !== true) return no("the ownership was not taken on a free host");
+  if (typeof bootId !== "string" || !bootId) return no("this boot's identity cannot be read");
+  let st = null; try { st = fs.lstatSync(root); } catch { st = null; }
+  if (!st?.isDirectory()) return no("the root is missing or is not a plain directory");
+  let reason = "the root had no birth record";
+  if (fs.existsSync(rootBirthFile(root))) {
+    let birth = null; try { birth = JSON.parse(fs.readFileSync(rootBirthFile(root), "utf8")); } catch { birth = null; }
+    if (birth?.schema !== ROOT_BIRTH_SCHEMA) return no("the root's birth record cannot be read");
+    if (birth.bootId === bootId) return no("the root already has a birth record of this boot");
+    reason = `the root's birth record names another boot (${JSON.stringify(birth.bootId)}, not ${JSON.stringify(bootId)})`;
+  }
+  let entries; try { entries = fs.readdirSync(root); } catch (e) { return no(`the root cannot be listed (${e.code ?? e.message})`); }
+  const birthName = path.basename(rootBirthFile(root));
+  const stranger = entries.find((n) => n !== birthName && !/^[0-9a-f]{16}(\.[A-Za-z0-9._-]+)?$/.test(n));
+  if (stranger !== undefined) return no(`${JSON.stringify(stranger)} in the root is not a snapshot artifact`);
+  try { for (const n of entries) fs.rmSync(path.join(root, n), { recursive: true, force: true }); }
+  catch (e) { return no(`the root could not be emptied (${e.code ?? e.message}); it stays without a baseline`); }
+  return recordRootBirth(root, { bootId }) ? { migrated: true, why: `${reason}; its snapshots were deleted and it was born anew in this boot` } : no("the new birth could not be recorded");
 }
 
 /** The holder's last report, or null when absent or unreadable. */
@@ -805,6 +845,8 @@ export function acquireBuildOwnership({
     acquiredAt: new Date().toISOString(),
     // Set only for an acquisition on a free host after a release that proved zero readers (a reclaim never has it).
     cleanBefore: readCleanMarker(file),
+    // True when this ownership was published on a free host (no owner record anywhere); a reclaim sets it false.
+    freeHost: true,
     broker: { submitted: false },
   };
   const body = JSON.stringify(record);
@@ -849,6 +891,7 @@ export function acquireBuildOwnership({
   hooks.afterJudge?.();
   // A reclaim means the previous release was not clean (a crash, or a release that ended held): nothing unreadable is skipped.
   record.cleanBefore = null;
+  record.freeHost = false;
   const reclaimBody = JSON.stringify(record);
   const reclaim = `${file}.reclaim`;
   if (!publish(reclaim, reclaimBody)) throw new OwnershipBusy(`build ownership ${file} is being reclaimed by another process (remove ${reclaim} only if no gate is running)`);

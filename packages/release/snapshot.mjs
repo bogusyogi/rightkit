@@ -16,9 +16,8 @@
 // when configured, else `$XDG_STATE_HOME/rightkit/snapshots/<repo-key>`, else `~/.local/state/rightkit/snapshots/<repo-key>`.
 // `repo-key` = first 16 hex of sha256(canonical repository path), the key `checked-trees` uses. Scratch & temp are never the root
 // (they are disposable): a resolved root under a disk-policy scratch root or a temp directory is refused on every host. In-process
-// callers inject a root as a parameter (`snapshotRoot` of `snapshotCommand`'s and the gate's `o`); a subprocess that can only pass
-// its environment names a per-run directory with RIGHTKIT_SNAPSHOT_TEST_RUN, which moves the root to
-// `<base>/test-roots/<id>/snapshots` inside the same durable base and is checked like any other root.
+// callers inject a root as a parameter (`snapshotRoot` of `snapshotCommand`'s and the gate's `o`); no environment variable relocates
+// the root on Mac & Dell, and on Linux only the configured RIGHTKIT_SNAPSHOT_ROOT / XDG state do.
 //
 // Exclusion: one sync per snapshot at a time (`<root>/<repo-key>.lock`, re-checked before every write and before the verdict).
 // It narrows, but cannot close, the window in which two processes both replace one stale lock; host-wide build ownership held
@@ -31,7 +30,7 @@ import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { readDiskPolicy, scratchRoots } from "./disk-policy.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
-import { acquireBuildOwnership, OwnershipBusy, ownershipFile, recordRootBirth } from "./build-ownership.mjs";
+import { acquireBuildOwnership, migrateBirthlessRoot, OwnershipBusy, ownershipFile, recordRootBirth } from "./build-ownership.mjs";
 
 export const SNAPSHOT_SCHEMA = "rightkit.snapshot/1";
 const STATE_SCHEMA = "rightkit.snapshot-state/1";
@@ -63,8 +62,12 @@ export function keyPath(canonicalRepoPath, platform = process.platform) {
   return p.startsWith("\\\\") ? `\\\\?\\UNC\\${p.slice(2)}` : `\\\\?\\${p}`;
 }
 
-const TEST_RUN_ENV = "RIGHTKIT_SNAPSHOT_TEST_RUN";
-const TEST_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
+/** Whether `child` is `parent` or lies under it, by `paths`' relative path: outside only when it is exactly `..`, starts with `..` + the
+ * separator, or is absolute (a sibling named `..x` is inside). */
+function isInside(child, parent, paths = path) {
+  const rel = paths.relative(parent, child);
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${paths.sep}`) && !paths.isAbsolute(rel));
+}
 
 /** `p` with every link on its existing part resolved (the rest as written), spelled for `paths` (path.posix or path.win32). */
 function canonicalPath(p, paths) {
@@ -86,7 +89,7 @@ function canonicalPath(p, paths) {
 /** Throws SnapshotError("error") when `root` lies under a disk-policy scratch root or a temp directory: a snapshot is durable. */
 function refuseDisposableRoot(root, source, { platform, env }) {
   const paths = platform === "win32" ? path.win32 : path.posix;
-  const within = (child, parent) => { const rel = paths.relative(parent, child); return rel === "" || (!rel.startsWith("..") && !paths.isAbsolute(rel)); };
+  const within = (child, parent) => isInside(child, parent, paths);
   let scratch;
   try {
     const policy = readDiskPolicy();
@@ -105,32 +108,23 @@ function refuseDisposableRoot(root, source, { platform, env }) {
 /**
  * The directory every snapshot of this host lives under. Mac & Dell: `<managed root>/snapshots` with the host's fixed managed root,
  * never an environment variable (RIGHTKIT_DATA_ROOT & friends move build outputs, not snapshots). Linux: RIGHTKIT_SNAPSHOT_ROOT when
- * configured and absolute, else XDG state. RIGHTKIT_SNAPSHOT_TEST_RUN=<id> relocates the root to `<base>/test-roots/<id>/snapshots`
- * (the base is the managed root, on Linux the configured root's parent) and nothing else. The result is refused when it lies under
- * scratch or temp, on every host.
+ * configured and absolute, else XDG state. The result is refused when it lies under scratch or temp, on every host. Callers that need
+ * another root (tests) pass it as a parameter; nothing here reads a variable that moves the root.
  */
 export function snapshotRoot({ platform = process.platform, env = process.env, home = os.homedir() } = {}) {
   const paths = platform === "win32" ? path.win32 : path.posix;
-  let root; let base; let source;
+  let root; let source;
   if (platform === "darwin" || platform === "win32") {
-    base = resolveManagedRoots({ env: {}, platform, home }).dataRoot;
+    const base = resolveManagedRoots({ env: {}, platform, home }).dataRoot;
     root = paths.join(base, "snapshots");
     source = `the host's managed root ${base}`;
   } else if (env.RIGHTKIT_SNAPSHOT_ROOT && paths.isAbsolute(env.RIGHTKIT_SNAPSHOT_ROOT)) {
     root = env.RIGHTKIT_SNAPSHOT_ROOT;
-    base = paths.dirname(root);
     source = "RIGHTKIT_SNAPSHOT_ROOT";
   } else {
     const fromXdg = env.XDG_STATE_HOME && paths.isAbsolute(env.XDG_STATE_HOME);
-    base = paths.join(fromXdg ? env.XDG_STATE_HOME : paths.join(home, ".local", "state"), "rightkit");
-    root = paths.join(base, "snapshots");
+    root = paths.join(fromXdg ? env.XDG_STATE_HOME : paths.join(home, ".local", "state"), "rightkit", "snapshots");
     source = fromXdg ? "XDG_STATE_HOME" : `the home directory ${home}`;
-  }
-  const run = env[TEST_RUN_ENV];
-  if (run !== undefined && run !== "") {
-    if (!TEST_RUN_ID.test(run) || run.includes("..")) throw new SnapshotError("error", `${TEST_RUN_ENV} must be a plain run id (letters, digits, . _ -), not ${JSON.stringify(run)}`);
-    root = paths.join(base, "test-roots", run, "snapshots");
-    source = `${TEST_RUN_ENV} under ${source}`;
   }
   refuseDisposableRoot(root, source, { platform, env });
   return root;
@@ -349,7 +343,7 @@ function readBlobs(checkout, oids) {
   return blobs;
 }
 
-const inside = (child, parent) => { const rel = path.relative(parent, child); return rel === "" || (!!rel && !rel.startsWith("..") && !path.isAbsolute(rel)); };
+const inside = (child, parent) => isInside(child, parent, path);
 const lstat = (p) => { try { return fs.lstatSync(p, { bigint: true }); } catch (e) { if (e.code === "ENOENT" || e.code === "ENOTDIR") return null; throw e; } };
 const statKey = (s) => `${s.size}:${s.mtimeNs}:${s.ctimeNs}:${s.ino}`;
 
@@ -425,6 +419,9 @@ function writeState(file, state) {
   fs.renameSync(tmp, file);
 }
 
+/** A link's target as git records it: Windows reports `..\\x` for a link made from `../x`, so separators compare as `/` there. */
+const linkText = (text) => (process.platform === "win32" ? text.replace(/\\/g, "/") : text);
+
 /** Removes `target` without following links: a link or file is unlinked, a directory removed with its contents. */
 function removeEntry(target) {
   const s = lstat(target);
@@ -473,6 +470,9 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), no
   refuseCaseCollisions(entries, commit);
   // mkdir returns the first directory it created: a root that did not exist is born now, and build ownership keeps that birth (and
   // the boot it happened in) as the baseline for processes it cannot read.
+  // A root made before birth records existed is emptied and born anew, only under this process's own free-host ownership, before
+  // this sync's first write (build-ownership.mjs migrateBirthlessRoot).
+  migrateBirthlessRoot(root);
   if (fs.mkdirSync(root, { recursive: true, mode: 0o700 }) !== undefined) recordRootBirth(root);
   const rootStat = lstat(root);
   if (!rootStat?.isDirectory()) throw new SnapshotError("refused", `snapshot root ${root} is not a directory (a link is never followed)`);
@@ -566,9 +566,10 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), no
         ensureParents(dir, target);
         parentSafe(target);
         const s = lstat(target);
-        if (s?.isSymbolicLink() && fs.readlinkSync(target) === to) { unchanged++; continue; }
+        if (s?.isSymbolicLink() && linkText(fs.readlinkSync(target)) === to) { unchanged++; continue; }
         if (s) removeEntry(target);
-        fs.symlinkSync(to, target);
+        try { fs.symlinkSync(to, target); }
+        catch (err) { throw new SnapshotError("error", `cannot create the link ${e.path} -> ${to}: ${err.code ?? err.message}${process.platform === "win32" ? " (Windows creates symbolic links only with Developer Mode or elevation; a commit holding a link cannot be synced without it)" : ""}`); }
         written++;
       }
       // Every committed link must land, physically, on something inside the snapshot that is not in the checkout. One that does
