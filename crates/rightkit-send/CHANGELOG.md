@@ -2,6 +2,7 @@
 
 ## 0.3.0 (2026-10-29)
 
+- Dependency: `libc` 0.2.190 -> 0.2.191 (minimum version). (rightkit#1284)
 - Dependency: `sysinfo` =0.37.2 -> =0.40.0. `Networks::new_with_refreshed_list` now returns a `Result`; an interface list the OS refuses yields no local addresses and no sweep targets. (rightkit#1284)
 - Added: `Transfer.accepted: bool` (serde default false), set when the receiver answers `/prepare-upload` with 200 or 204 and never cleared, not even by `end_transfer`. A host can tell a send that failed before the receiver's owner was asked (`accepted == false`: fall back to another route) from one that failed after they said yes (`accepted == true`: do not ask again). The byte and file counts could not say so: a zero-byte file or a first-byte failure leaves both at 0 (rightkit#1275; Adrian: "those things that are wrong with right kit, can you not fix them? ... make the changes").
 - Changed: the first update after the receiver accepts, and the first `Phase::Sending` update, are always emitted as `Event::Progress`, outside the 100 ms limit, so a host sees `state == "active"` and `accepted == true`. `send::Progress` gains a public `accepted` field.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.6 (unpublished)
+
+- Dependency: `ureq` 3.4 -> 3.5 (minimum version); no source change. (rightkit#1284)
+
 ## 0.3.5 — 2026-10-21
 
 - Corrected package metadata and retained 0.3.4 qualification evidence. Production behavior is unchanged; fresh qualification is required for 0.3.5. The 0.3.4 Windows tracing wake-up overage remains unexplained, and no runtime fix is claimed.

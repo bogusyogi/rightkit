@@ -64,7 +64,7 @@ rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = f
 # The PDFKit backend of the `host` feature (macOS only; the target table keeps them out of every other
 # platform's build even with the feature on). Versions match rightkit-tauri-shell's objc2 family.
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2 = { version = "0.6.4", optional = true }
+objc2 = { version = "0.6.5", optional = true }
 objc2-app-kit = { version = "0.3.2", optional = true }
 objc2-foundation = { version = "0.3.2", optional = true }
 objc2-pdf-kit = { version = "0.3.2", optional = true }

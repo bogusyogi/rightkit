@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased (rightkit#1222)
+## 0.5.2 (unpublished; rightkit#1222)
+
+- Dependency: `ureq` 3.4 -> 3.5 (minimum version); no source change. (rightkit#1284)
 
 - Changed (behaviour): in a `test-mode` build `suite_root()` no longer refuses the real per-user suite root. With `RIGHTKIT_SUITE_ROOT`, `RIGHT_SUITE_DIR` or `ORTHIC_SHARED_DIR` set it is isolated as before; with none set it resolves the real folders exactly like a normal launch (the earlier panic "refusing the real per-user suite root" crashed dev installs at startup). A relative or unresolvable override still fails closed. Release builds (no `test-mode`) are unchanged. Test: `test_mode_without_override_uses_the_real_folders` in `tests/suite_paths.rs` (replaces the fail-closed test).
 

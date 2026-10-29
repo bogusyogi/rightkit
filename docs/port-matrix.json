@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-10-29T18:20:01Z",
-  "rightkitHead": "e0c2527",
+  "generatedAt": "2026-10-29T19:13:25Z",
+  "rightkitHead": "4f3b2ff",
   "legend": [
     {
       "state": "adopted",
@@ -3034,7 +3034,7 @@
       "group": "mandatory-set app",
       "dir": "/Volumes/D/claude/pulse",
       "present": true,
-      "head": "04e5d53",
+      "head": "76a0e05",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -4483,7 +4483,7 @@
       "group": "tool consumer",
       "dir": "/Volumes/D/claude/legion",
       "present": true,
-      "head": "26459d5",
+      "head": "e3d42ba",
       "profile": null,
       "inMandatorySet": false,
       "declaration": {
@@ -4495,7 +4495,7 @@
       "scan": {
         "manifests": 66,
         "parseErrors": 0,
-        "pins": 15,
+        "pins": 16,
         "vendored": 0
       },
       "progress": {
@@ -4543,7 +4543,7 @@
       },
       "flags": {
         "prePushHook": "absent",
-        "switches": false,
+        "switches": true,
         "journeys": false,
         "releaseConfig": "code"
       },
@@ -8601,7 +8601,7 @@
         },
         "legion": {
           "state": "stale",
-          "detail": "0.4.0→0.5.7, 3 pins"
+          "detail": "0.5.6→0.5.7, 4 pins"
         }
       }
     },
@@ -9712,9 +9712,9 @@
         "file-watching"
       ],
       "private": false,
-      "source": "0.4.1",
+      "source": "0.4.2",
       "registry": "0.4.1",
-      "staged": "0.4.1",
+      "staged": "0.4.2",
       "dir": "crates/rightkit-file-watch",
       "toMoveFrom": {},
       "cells": {
@@ -10254,9 +10254,9 @@
         "http-client"
       ],
       "private": false,
-      "source": "0.3.8",
+      "source": "0.3.9",
       "registry": "0.3.8",
-      "staged": "0.3.8",
+      "staged": "0.3.9",
       "dir": "crates/rightkit-http",
       "toMoveFrom": {},
       "cells": {
@@ -10842,9 +10842,9 @@
         "structured-logging"
       ],
       "private": false,
-      "source": "0.3.5",
+      "source": "0.3.6",
       "registry": "0.3.5",
-      "staged": "0.3.5",
+      "staged": "0.3.6",
       "dir": "crates/rightkit-logs",
       "toMoveFrom": {},
       "cells": {
@@ -10991,9 +10991,9 @@
         "mcp"
       ],
       "private": false,
-      "source": "0.7.0",
+      "source": "0.7.1",
       "registry": "0.7.0",
-      "staged": "0.7.0",
+      "staged": "0.7.1",
       "dir": "crates/rightkit-mcp",
       "toMoveFrom": {},
       "cells": {
@@ -11058,9 +11058,9 @@
         "model-installation"
       ],
       "private": false,
-      "source": "0.5.1",
+      "source": "0.5.2",
       "registry": "0.5.1",
-      "staged": "0.5.1",
+      "staged": "0.5.2",
       "dir": "crates/rightkit-models",
       "toMoveFrom": {},
       "cells": {

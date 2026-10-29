@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-file-watch"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Filesystem watching for Right Suite apps: ref-counted async subscribers, debounced file-set and directory watchers, and rename-storm coalescing."
@@ -18,14 +18,14 @@ default = ["async"]
 async = ["dep:tokio"]
 
 [dependencies]
-notify = "8.2.0"
+notify = "8.2.1"
 rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
-tokio = { version = "1.53.3", features = ["rt", "sync", "time", "macros"], optional = true }
+tokio = { version = "1.54.1", features = ["rt", "sync", "time", "macros"], optional = true }
 tracing = "0.1"
 
 [dev-dependencies]
 tempfile = "3"
-tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "time", "sync"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "time", "sync"] }
 
 [[bench]]
 name = "budget"

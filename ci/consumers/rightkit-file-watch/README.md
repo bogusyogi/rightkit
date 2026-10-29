@@ -1,6 +1,6 @@
-# rightkit-file-watch 0.4.1 registry consumer
+# rightkit-file-watch 0.4.2 registry consumer
 
-Standalone consumer, outside the workspace, pinning `rightkit-file-watch =0.4.1` exactly with the default feature set (`async`), the set ViewRight and CodeRight use. It also names `tokio` (runtime and timer only) to drive the async watcher. It installs the crate from the sealed archive through the offline directory registry and runs `src/main.rs`, which exits non-zero on the first failed assertion.
+Standalone consumer, outside the workspace, pinning `rightkit-file-watch =0.4.2` exactly with the default feature set (`async`), the set ViewRight and CodeRight use. It also names `tokio` (runtime and timer only) to drive the async watcher. It installs the crate from the sealed archive through the offline directory registry and runs `src/main.rs`, which exits non-zero on the first failed assertion.
 
 ## What it proves
 

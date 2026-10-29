@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.9 (unpublished)
+
+- Dependency: `ureq` 3.4 -> 3.5 (minimum version); no source change. (rightkit#1284)
+
 ## 0.3.8 — unpublished staging
 
 - **Added: `testing::DeclaredLengthResponse` and `testing::MockServer::start_declared_length`** (`testing` feature only; consumer: `rightkit-models` integration tests, which no longer dev-depend on `rightkit-qa`). `start_declared_length` takes a handler that returns a `DeclaredLengthResponse::new(status, body, content_length)`; the mock writes exactly `body` and one generated `Content-Length: content_length`, so a test can serve a precise interrupted download (declare the full length, send a prefix) or a HEAD response (declare the length, send no body). Purely additive: a new type and a new method; `MockBody`, `MockResponse` and `MockServer::start` are unchanged.

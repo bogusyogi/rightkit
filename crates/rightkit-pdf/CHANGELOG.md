@@ -2,6 +2,7 @@
 
 ## 0.3.4 (unpublished)
 
+- Dependency: `objc2` 0.6.4 -> 0.6.5 (minimum version). (rightkit#1284)
 - Dependency: `lopdf` 0.45 -> 0.46 (more lenient loading: damaged xref data is repaired, bad `/Annots` tolerated); no source change. (rightkit#1284)
 
 ## 0.3.3

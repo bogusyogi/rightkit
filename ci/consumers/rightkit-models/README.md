@@ -1,6 +1,6 @@
-# rightkit-models 0.5.1 registry consumer (PK12)
+# rightkit-models 0.5.2 registry consumer (PK12)
 
-Standalone consumer, outside the workspace, pinning `rightkit-models =0.5.1` exactly. It exercises
+Standalone consumer, outside the workspace, pinning `rightkit-models =0.5.2` exactly. It exercises
 `hash::sha256_file`, the digest a model install checks an artifact against: the FIPS 180-4 vector for
 "abc", a different digest after the bytes change, and a refusal for a missing file.
 

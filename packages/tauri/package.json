@@ -31,7 +31,7 @@
     }
   },
   "dependencies": {
-    "@rightkit/logs": "^0.1.4"
+    "@rightkit/logs": "^0.1.6"
   },
   "peerDependencies": {
     "@rightkit/app-update": ">=0.2.5 <0.5",

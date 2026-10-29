@@ -1,4 +1,4 @@
-// rightkit-logs 0.3.5 consumed by exact registry pin, outside the workspace.
+// rightkit-logs 0.3.6 consumed by exact registry pin, outside the workspace.
 //
 // Proves: KnownSecrets redaction (exact value and its percent-encoded form, Debug never shows
 // the value); scrub_text pattern redaction (Bearer token, e-mail); KnownSecrets::scrub_text
@@ -207,5 +207,5 @@ fn main() {
     drop(sink);
     drop(tmp);
     assert!(!dir.exists(), "temp dir removed");
-    println!("OK rightkit-logs 0.3.5 (sealed registry consumer)");
+    println!("OK rightkit-logs 0.3.6 (sealed registry consumer)");
 }

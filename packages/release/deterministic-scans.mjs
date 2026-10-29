@@ -1970,7 +1970,10 @@ export async function runScans(plan, options = {}) {
         const at = running.size < bJobs ? queue.findIndex((i) => !busy.has(keyOf(i))) : -1;
         if (at === -1) { await Promise.race(running); continue; }
         const [i] = queue.splice(at, 1); const key = keyOf(i); busy.add(key);
-        const job = runOne(bScans[i], extraEnv).then((row) => { slots[i] = row; }).finally(() => { busy.delete(key); running.delete(job); });
+        // A scan that throws becomes a failed row: with several components in flight, a rejection must not abandon the others.
+        const job = runOne(bScans[i], extraEnv)
+          .catch((error) => ({ id: bScans[i].id, class: bScans[i].class, command: bScans[i].command, tool: bScans[i].tool ?? null, toolVersion: null, status: "fail", code: "SCAN_ERROR", detail: String(error?.message ?? error) }))
+          .then((row) => { slots[i] = row; }).finally(() => { busy.delete(key); running.delete(job); });
         running.add(job);
       }
     };

@@ -3519,7 +3519,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-http"
-version = "0.3.8"
+version = "0.3.9"
 dependencies = [
  "getrandom 0.4.3",
  "serde",
@@ -3554,7 +3554,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -3569,7 +3569,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "dirs 7.0.0",
  "flate2",

@@ -17,7 +17,7 @@ Status values compare each pin with the latest published version (registry-recor
 
 - Packages in RightKit: 95 (69 crates, 26 npm packages).
 - Packages with at least one app pin: 78.
-- App pins: 631. Stale: 77. Ahead of published: 0. Unpublished: 0. Local: 0. Git: 0. Unparsed: 0.
+- App pins: 632. Stale: 78. Ahead of published: 0. Unpublished: 0. Local: 0. Git: 0. Unparsed: 0.
 - Vendored copies of RightKit packages inside app repos: 0.
 - App and package pairs with more than one requirement: 0.
 
@@ -36,7 +36,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-browser` | crates.io | 0.3.7 | 0.3.6 | 4 | coderight, genright, legion, scraperight | 1 stale |
 | `rightkit-cache` | crates.io | 0.2.3 | 0.2.3 | 5 | coderight, cutright, legion, mailright, postright | 1 stale |
 | `rightkit-channel-memory` | crates.io | 0.2.2 | 0.2.1 | 1 | postright | - |
-| `rightkit-child-process` | crates.io | 0.5.7 | 0.5.7 | 9 | coderight, cutright, genright, heardright, legion, mailright, postright, scraperight, viewright | 31 stale |
+| `rightkit-child-process` | crates.io | 0.5.7 | 0.5.7 | 9 | coderight, cutright, genright, heardright, legion, mailright, postright, scraperight, viewright | 32 stale |
 | `rightkit-compose` | crates.io | 0.2.0 | 0.2.0 | 1 | cutright | - |
 | `rightkit-contracts` | crates.io | 0.1.8 | 0.1.7 | 3 | cutright, genright, postright | - |
 | `rightkit-crash` | crates.io | 0.3.6 | 0.3.6 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | - |
@@ -48,20 +48,20 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-docs` | crates.io | 0.1.3 | 0.1.2 | 0 | none | - |
 | `rightkit-embed` | crates.io | 0.6.2 | 0.6.1 | 2 | coderight, mailright | - |
 | `rightkit-ffmpeg` | crates.io | 0.2.11 | 0.2.10 | 5 | coderight, cutright, genright, heardright, scraperight | - |
-| `rightkit-file-watch` | crates.io | 0.4.1 | 0.4.1 | 2 | coderight, viewright | - |
+| `rightkit-file-watch` | crates.io | 0.4.2 | 0.4.1 | 2 | coderight, viewright | - |
 | `rightkit-fs` | crates.io | 0.4.7 | 0.4.7 | 9 | coderight, cutright, genright, heardright, legion, mailright, postright, scraperight, viewright | 1 stale |
 | `rightkit-fsindex` | crates.io | 0.6.0 | 0.5.0 | 0 | none | - |
 | `rightkit-google-identity` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
 | `rightkit-hooks` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
 | `rightkit-hotkeys` | crates.io | 0.1.2 | 0.1.2 | 2 | cutright, heardright | - |
-| `rightkit-http` | crates.io | 0.3.8 | 0.3.8 | 6 | coderight, genright, heardright, mailright, postright, scraperight | - |
+| `rightkit-http` | crates.io | 0.3.9 | 0.3.8 | 6 | coderight, genright, heardright, mailright, postright, scraperight | - |
 | `rightkit-identity` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
 | `rightkit-job-queue` | crates.io | 0.5.1 | 0.5.1 | 7 | coderight, cutright, genright, heardright, mailright, postright, scraperight | - |
 | `rightkit-license` | crates.io | 0.2.5 | 0.2.5 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | - |
 | `rightkit-llm` | crates.io | 0.3.1 | 0.3.1 | 4 | coderight, cutright, heardright, mailright | - |
-| `rightkit-logs` | crates.io | 0.3.5 | 0.3.5 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `rightkit-mcp` | crates.io | 0.7.0 | 0.7.0 | 1 | coderight | - |
-| `rightkit-models` | crates.io | 0.5.1 | 0.5.1 | 6 | coderight, cutright, genright, heardright, mailright, scraperight | - |
+| `rightkit-logs` | crates.io | 0.3.6 | 0.3.5 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | - |
+| `rightkit-mcp` | crates.io | 0.7.1 | 0.7.0 | 1 | coderight | - |
+| `rightkit-models` | crates.io | 0.5.2 | 0.5.1 | 6 | coderight, cutright, genright, heardright, mailright, scraperight | - |
 | `rightkit-motion` | crates.io | 0.2.0 | 0.2.0 | 1 | genright | - |
 | `rightkit-oauth` | crates.io | 0.10.0 | 0.10.0 | 2 | coderight, mailright | - |
 | `rightkit-ocr` | crates.io | 0.2.3 | 0.2.3 | 4 | coderight, cutright, scraperight, viewright | - |
@@ -200,9 +200,10 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-child-process` | heardright | `heardright/tauri-app-next/heardright-runtime/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
 | `rightkit-child-process` | heardright | `heardright/tauri-app-next/heardright_platform/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
 | `rightkit-child-process` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
-| `rightkit-child-process` | legion | `legion/engine/bins/legion-dev/Cargo.toml` | dependencies | `=0.4.0` | 0.5.7 | stale |
-| `rightkit-child-process` | legion | `legion/engine/bins/legion/Cargo.toml` | dependencies | `=0.4.0` | 0.5.7 | stale |
-| `rightkit-child-process` | legion | `legion/engine/crates/legion-audit/Cargo.toml` | dependencies | `=0.4.0` | 0.5.7 | stale |
+| `rightkit-child-process` | legion | `legion/engine/bins/legion-dev/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
+| `rightkit-child-process` | legion | `legion/engine/bins/legion/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
+| `rightkit-child-process` | legion | `legion/engine/crates/legion-audit/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
+| `rightkit-child-process` | legion | `legion/engine/xtask/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
 | `rightkit-child-process` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
 | `rightkit-child-process` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
 | `rightkit-child-process` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.5.6` | 0.5.7 | stale |
@@ -784,4 +785,4 @@ None.
 | sellright | yes | 14 | 0 | 2 |
 | rightsites | yes | 20 | 0 | 1 |
 | voiceright | **missing** | 0 | 0 | 0 |
-| legion | yes | 66 | 0 | 15 |
+| legion | yes | 66 | 0 | 16 |

@@ -3,6 +3,7 @@
 ## 0.6.11 (unpublished)
 
 - **Components build in parallel (rightkit#1285):** class B scans of different components (the directory a scan runs in: its own Cargo workspace and output directory) run `RK_GATE_CLASS_B_JOBS` at a time (default 3, the Mac broker's build capacity; the broker queues beyond its own). One component's scans keep plan order and never overlap. Adrian, 2026-10-29: "you build the ones that changed. ... And in parallel."
+- **One Cargo workspace and lock per crate (rightkit#1285):** every `crates/<x>` is its own workspace with its own `Cargo.lock`. Units keep plain crate names; a change selects that crate plus every crate that path-depends on it, transitively (`check-dependent:<crate>`), through the new `crate-workspaces.mjs` (manifests only, no npm imports). `vendor/citationberg` selects `rightkit-typeset`. cargo-metadata, cargo-deny, cargo-audit and advisory-exceptions run per crate against its own lock, `deny.toml`, `.cargo/audit.toml` and `.rightkit/advisory-exceptions.json`. Gate inputs shared by every crate (`ci/gate.config.json`, `ci/rk-pipeline.json`, the gate's own modules) still select every crate.
 
 ## 0.6.10
 

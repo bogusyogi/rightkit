@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-mcp"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared MCP client (stdio + streamable HTTP, trust gate, pool, OAuth hook) and server host (stdio + loopback HTTP, per-tool admission) for Right Suite apps."
@@ -54,7 +54,7 @@ release = "HttpServer::shutdown or Drop"
 getrandom = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
-ureq = { version = "3.4", default-features = false, features = ["rustls"] }
+ureq = { version = "3.5", default-features = false, features = ["rustls"] }
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }
 rightkit-http = { version = "0.3.0", path = "../rightkit-http", default-features = false }
 http = { version = "1", optional = true }

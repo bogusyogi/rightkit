@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-http"
-version = "0.3.8"
+version = "0.3.9"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Brand-neutral blocking HTTP client for Right Suite apps: timeouts, retry/backoff with Retry-After, SSE streaming, multipart bodies, redacted secrets, and untrusted web-text wrapping."
@@ -28,7 +28,7 @@ testing = []
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest"], optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-ureq = { version = "3.4", default-features = false, features = ["rustls", "platform-verifier"] }
+ureq = { version = "3.5", default-features = false, features = ["rustls", "platform-verifier"] }
 getrandom = "0.4"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream"], optional = true }
 tokio = { version = "1", default-features = false, features = ["time", "net"], optional = true }

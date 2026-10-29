@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-logs"
-version = "0.3.5"
+version = "0.3.6"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Privacy-safe local JSONL logging and diagnostics for Right Suite desktop apps."
@@ -29,7 +29,7 @@ log-bridge = ["tracing", "dep:tracing-log"]
 rightkit-fs = { version = "0.4.2", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-ureq = { version = "3.4", default-features = false, features = ["rustls"], optional = true }
+ureq = { version = "3.5", default-features = false, features = ["rustls"], optional = true }
 getrandom = "0.4"
 rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
 tracing = { version = "0.1", default-features = false, features = ["std"], optional = true }

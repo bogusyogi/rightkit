@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2 (unpublished)
+
+- Dependencies: `notify` 8.2.0 -> 8.2.1 and `tokio` 1.53.3 -> 1.54.1 (minimum versions); no source change. (rightkit#1284)
+
 ## 0.4.1 (2026-10-17)
 
 ### Added (session manager, rightkit#547)

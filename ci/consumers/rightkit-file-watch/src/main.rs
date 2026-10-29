@@ -1,4 +1,4 @@
-// rightkit-file-watch 0.4.1 consumed by exact registry pin (default feature "async", the set
+// rightkit-file-watch 0.4.2 consumed by exact registry pin (default feature "async", the set
 // ViewRight and CodeRight use), outside the workspace.
 //
 // Proves, through the public API only. Pure parts, no operating-system events needed:
@@ -92,7 +92,7 @@ fn main() {
     directory_sets(&temp);
     sessions(&temp);
     subscribers(&temp);
-    println!("OK rightkit-file-watch 0.4.1 (registry consumer)");
+    println!("OK rightkit-file-watch 0.4.2 (registry consumer)");
 }
 
 /// Call `act(round)` every 250 ms until `poll` finds what it waits for; fail after 30 s.
