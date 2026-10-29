@@ -1,6 +1,6 @@
-# rightkit-child-process 0.5.6 registry consumer (PK02)
+# rightkit-child-process 0.5.7 registry consumer (PK02)
 
-Standalone consumer, outside the workspace, pinning `rightkit-child-process =0.5.6` exactly with
+Standalone consumer, outside the workspace, pinning `rightkit-child-process =0.5.7` exactly with
 default features. The child is this same executable, started through `std::env::current_exe` with a
 `--child <mode>` argument. It needs no shell, no network fetch and no second binary, so it runs the
 same way on Windows and macOS runners.

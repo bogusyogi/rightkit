@@ -457,7 +457,7 @@
     "rightkit-browser": "0.3.6",
     "rightkit-cache": "0.2.3",
     "rightkit-channel-memory": "0.2.1",
-    "rightkit-child-process": "0.5.6",
+    "rightkit-child-process": "0.5.7",
     "rightkit-compose": "0.2.0",
     "rightkit-contracts": "0.1.7",
     "rightkit-crash": "0.3.6",
@@ -987,7 +987,8 @@
       "0.5.2",
       "0.5.3",
       "0.5.4",
-      "0.5.5"
+      "0.5.5",
+      "0.5.6"
     ],
     "rightkit-hotkeys": [
       "0.1.0",

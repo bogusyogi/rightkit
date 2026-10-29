@@ -1024,16 +1024,16 @@
     "rightkit-child-process": {
       "pkId": "PK02",
       "id": "ci/consumers/rightkit-child-process/src/main.rs",
-      "dependency": "rightkit-child-process = { version = \"=0.5.6\" }",
+      "dependency": "rightkit-child-process = { version = \"=0.5.7\" }",
       "extraDependencies": [],
       "gateEvidence": "the child is the consumer executable itself (std::env::current_exe with a --child mode argument): no shell, network, files or ffmpeg; the strict incomplete-capture Err path is not exercised (not deterministic on a trivial child)",
       "consumes": "PK02 plan (01-packages.md:116-129): ScrapeRight and CodeRight runners; public items exercised: run (crates/rightkit-child-process/src/run.rs:192), run_with_stdin (src/run.rs:173), run_command (src/run.rs:249), run_command_capture (src/run.rs:271), RunOptions (src/run.rs:64), CaptureOptions (src/run.rs:105), OwnedCommand::new and command_mut (src/owned.rs:167,216); 0.5.5 descriptor policy surface: OwnedCommand::inherit_all_descriptors and inherit_fd (src/owned.rs:255,273)",
       "files": {
-        "Cargo.toml": "4326c50351f1a2815db17d727ae1d94814a102361a75d99595de519d12a4259a",
-        "README.md": "0a5dc86cf156e30e6bbb834bad3f1efa6ebd19a400ad3173571af56b1207d40f",
-        "src/main.rs": "3aa62c5ad97d74cbb61587fd71d898dc98901fe82481f7ea4a5364e6f3c5564d"
+        "Cargo.toml": "ba3a8af2b6a96af6d32f66e4512b2a8fe36dfca460bf228889feea6e6d134935",
+        "README.md": "1cd2a069b87285744a044a1ce292fdc83d41bd8eb3ab49fd6e3f7076960959a9",
+        "src/main.rs": "f755ebe9531d83e34b4ba70cbe6d3ec5d9d723840a2becd8b630320e00fcc450"
       },
-      "aggregateSha256": "b866beb09e1b4baf80db1baaef0e1bb3b03f56124caf6a07a84b2401fe579a54"
+      "aggregateSha256": "98a1dc3d406858988c1cb2e60661e9390d735339ec4f59715b4762c55d11cf98"
     },
     "rightkit-onnx": {
       "pkId": "PK18",
