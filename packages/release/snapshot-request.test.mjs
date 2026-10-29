@@ -146,3 +146,60 @@ test("request reference: the client's rustright.request-ref.v1, or a refusal", (
   assert.throws(() => readRequestRef(f), /not a rustright.request-ref.v1/);
   assert.throws(() => readRequestRef(path.join(root, "missing.json")), /no request reference/);
 });
+
+test("runScans: a broker cargo request builds the snapshot under its own carrier and passes only on the broker's verified evidence", async (t) => {
+  const { runScans } = await import("./deterministic-scans.mjs");
+  const root = tmp(t);
+  const checkout = path.join(root, "checkout"); const snap = path.join(root, "data", "snapshots", "0123456789abcdef");
+  fs.mkdirSync(checkout, { recursive: true }); fs.mkdirSync(snap, { recursive: true });
+  const { publicKey, privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const jwk = publicKey.export({ format: "jwk" });
+  const sec1 = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, "base64url"), Buffer.from(jwk.y, "base64url")]).toString("hex");
+  const pins = { publicKey: sec1, keyId: sha(Buffer.from(sec1, "hex")), host: "host-1", brokerDigest: "bd" };
+  const scan = { id: "check:core", class: "B", tool: "rustright", args: ["cargo", "check", "-p", "core", "--locked"], root: "cargoLive", env: {}, command: "rustright cargo check -p core --locked" };
+  // Class B runs only after class A ran in the same call: one passing class A row.
+  const classA = { id: "a:noop", class: "A", tool: "node", args: ["-e", "0"], root: "live", env: {}, command: "node -e 0" };
+  const plan = { roots: { contentRoot: snap, liveRoot: snap, cargoLiveRoot: checkout }, scans: [classA, scan], notes: [], deferred: [] };
+  // A fake client that applies RustRight's reader rules, records the request reference, and keeps what it saw.
+  const run = async ({ tamper = null, badCarrier = false } = {}) => {
+    const seen = { submitsBefore: 0 }; let submits = 0;
+    const spawn = (command, args, opts = {}) => {
+      const env = opts.env ?? {};
+      // Tool probes and the class A row: anything that is not the carried request.
+      if (!env.RIGHTKIT_SNAPSHOT_REQUEST) return { status: 0, stdout: "v1\n", stderr: "" };
+      const d = JSON.parse(env.RIGHTKIT_SNAPSHOT_REQUEST);
+      const bytes = fs.readFileSync(d.path);
+      const carrier = JSON.parse(bytes);
+      seen.ok = sha(bytes) === d.sha256 && carrier.nonce === env.RIGHTKIT_ATTEST_NONCE && carrier.argvSha256 === sha(canonicalJson(args.slice(1))) && fs.realpathSync(carrier.primaryCwd) === fs.realpathSync(opts.cwd) && !badCarrier;
+      seen.submitsBefore = submits; seen.carrier = carrier; seen.file = d.path;
+      fs.writeFileSync(env.RIGHTKIT_REQUEST_ID_FILE, JSON.stringify({ schema: "rustright.request-ref.v1", requestId: "job-1", submittedAt: "x", workspace: fs.realpathSync(opts.cwd) }));
+      return seen.ok ? { status: 0, stdout: "", stderr: "" } : { status: 2, stdout: "", stderr: "invalid snapshot request carrier" };
+    };
+    const receiptOf = async (id) => {
+      const c = seen.carrier;
+      const evidence = { requestId: id, brokerVersion: "v", executor: "host-1", commit: c.commit, snapshot: { path: c.snapshot.path, treeAtStart: T, treeAtExit: T }, declaredInputDigests: [], ownership: c.ownership, outputDir: path.join(checkout, "target") };
+      const payload = { host: "host-1", broker: { brokerDigest: "bd" }, keyId: pins.keyId, jobId: id, nonce: c.nonce,
+        requestDigest: requestDigestOf(snapshotRequestCore({ argv: args0, workspace: fs.realpathSync(path.join(checkout)), carrier: c })), snapshotEvidence: evidence };
+      tamper?.(payload);
+      const value = crypto.sign("sha256", signedBytes(payload), { key: privateKey, dsaEncoding: "ieee-p1363" }).toString("hex");
+      return { id, ...structuredClone(payload.snapshotEvidence), provenance: { schema: "rustright.provenance.v1", payload, signature: { alg: "ES256", keyId: pins.keyId, value } } };
+    };
+    const args0 = scan.args.slice(1);
+    const result = await runScans(plan, { spawn, lookupSpawn: spawn, env: { PATH: process.env.PATH }, classes: ["A", "B"],
+      snapshotBroker: { controlRoot: path.join(root, "control"), commit: { sha: C, tree: T }, snapshot: { path: snap, expectedTree: T }, handle: "own-9", pins, markBrokerSubmit: () => { submits += 1; }, receiptOf } });
+    return { row: result.scans.find((r) => r.id === "check:core"), seen, submits };
+  };
+  const good = await run();
+  assert.equal(good.seen.ok, true, `the client accepted the carrier (${JSON.stringify(good.row)})`);
+  assert.equal(good.submits, 1); assert.equal(good.seen.submitsBefore, 1, "the ownership recorded the broker submit before the request ran");
+  assert.equal(good.row.status, "pass", JSON.stringify(good.row));
+  assert.deepEqual(good.row.snapshotEvidence, { requestId: "job-1", outputDir: path.join(checkout, "target"), treeAtStart: T, treeAtExit: T });
+  assert.equal(fs.existsSync(good.seen.file), false, "the carrier file is removed after the request");
+  // The broker built from a snapshot that changed, or for another handle: the row fails even though cargo exited 0.
+  const moved = await run({ tamper: (p) => { p.snapshotEvidence.snapshot.treeAtExit = "f".repeat(40); } });
+  assert.equal(moved.row.status, "fail"); assert.equal(moved.row.code, "SNAPSHOT_EVIDENCE"); assert.match(moved.row.detail, /throughout/);
+  const other = await run({ tamper: (p) => { p.snapshotEvidence.ownership = { handle: "someone-else" }; } });
+  assert.equal(other.row.code, "SNAPSHOT_EVIDENCE");
+  const legacy = await run({ tamper: (p) => { delete p.snapshotEvidence; } });
+  assert.equal(legacy.row.code, "SNAPSHOT_EVIDENCE"); assert.match(legacy.row.detail, /no snapshotEvidence/);
+});
