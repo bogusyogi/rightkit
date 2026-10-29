@@ -380,8 +380,8 @@ test("--plan prints the plan for a fake repo from its own units and runs nothing
   assert.equal(code, 0, c.err.join("\n"));
   const out = c.out.join("\n");
   assert.match(out, /rust units: a=crates\/a, b=crates\/b; npm units: none/);
-  assert.match(out, /\[B\] clippy:a :: .*clippy -p a /);
-  assert.match(out, /rustright cargo clippy -p a --no-deps --all-targets --locked -- -D warnings/);
+  assert.match(out, /\[B\] clippy:a :: .*clippy --keep-going -p a /);
+  assert.match(out, /rustright cargo clippy --keep-going -p a --no-deps --all-targets --locked -- -D warnings/);
   assert.match(out, /\[A\] cargo-package-list:a /);
   assert.doesNotMatch(out, /clippy:b|cargo-package-list:b/);
   assert.doesNotMatch(out, /deferred/, "the compile grant is present");
@@ -414,7 +414,7 @@ test("executor: a broker-managed machine without a reachable broker is refused; 
   const direct = capture();
   const spawn = (cmd, args, opts) => (cmd === "cargo" && args[0] === "metadata" ? ok(metadata) : base(cmd, args, opts));
   assert.equal(await main(["--plan"], { ...direct.io, spawn, cwd: root, env: {}, exists: unmanagedHost }), 0, direct.err.join("\n"));
-  assert.match(direct.out.join("\n"), /\[B\] clippy:a :: cargo clippy -p a /, "the same compile scans, through plain cargo");
+  assert.match(direct.out.join("\n"), /\[B\] clippy:a :: cargo clippy --keep-going -p a /, "the same compile scans, through plain cargo");
 });
 
 test("pre-push: the pushed commit must be the checked-out HEAD, before anything else runs", async (t) => {
@@ -988,7 +988,7 @@ test("--plan with several workspaces: each unit runs in its own workspace, the f
   assert.equal(code, 0, c.err.join("\n"));
   const out = c.out.join("\n");
   assert.match(out, /rust units: a=crates\/a, hub\/src-tauri:app=hub\/src-tauri \(workspaces \., hub\/src-tauri\)/);
-  assert.match(out, /\[B\] clippy:hub\/src-tauri:app :: rustright cargo clippy -p app --no-deps --all-targets --locked -- -D warnings/);
+  assert.match(out, /\[B\] clippy:hub\/src-tauri:app :: rustright cargo clippy --keep-going -p app --no-deps --all-targets --locked -- -D warnings/);
   assert.match(out, /\[A\] cargo-package-list:hub\/src-tauri:app :: /);
   assert.match(out, /\[A\] cargo-metadata:hub\/src-tauri :: /);
   assert.doesNotMatch(out, /clippy:a\b|cargo-package-list:a\b/, "the root workspace's crate did not change");

@@ -10,7 +10,7 @@ import path from "node:path";
 import {
   CLASS_A_SCAN_PREFIXES, CLASS_B_SCAN_PREFIXES, canonicalJson, fileScanCache, inheritedEnvDigest, requiredScanIds, scanCacheKey, checkArgs, clippyArgs, digestScanSet, docArgs, fmtCheckArgs,
   defaultSpawn, deterministicScansEnabled, metadataArgs, planScans, resolveInvocation, runScans, scanClassOf, scanDeferrals, scanFailures,
-  CHECKER_IDENTITY, TSC_PROJECT, writeTscProject } from "./deterministic-scans.mjs";
+  CHECKER_IDENTITY, TSC_PROJECT, writeTscProject, everyFailure } from "./deterministic-scans.mjs";
 import { requiredScanProblems } from "./scan-digest.mjs";
 import { compileLaunch } from "./class-a-launch-guard.mjs";
 import * as scansModule from "./deterministic-scans.mjs";
@@ -1074,7 +1074,7 @@ test("reverse dependents: a crate that depends on one in scope gets a check-depe
   const dep = (changed, opts = {}) => planFor(changed, extra, { listDir, rustLock: lock, ...opts }).plan;
   const p = dep(["crates/foo/src/lib.rs"]);
   assert.deepEqual(ids(p).filter((i) => i.startsWith("check-dependent:")), ["check-dependent:bar", "check-dependent:baz"]);
-  assert.deepEqual(scanOf(p, "check-dependent:bar").args.slice(-5), ["check", "-p", "bar", "--all-targets", "--locked"]);
+  assert.deepEqual(scanOf(p, "check-dependent:bar").args.slice(-6), ["check", "--keep-going", "-p", "bar", "--all-targets", "--locked"]);
   assert.equal(scanOf(p, "check-dependent:bar").class, "B");
   assert.equal(scanClassOf("check-dependent:bar"), "B");
   assert.equal(laneOf({ id: "check-dependent:bar" }), "compile");
@@ -1339,7 +1339,7 @@ test("workspaces: a unit of a nested workspace runs in that workspace with its c
   const clippy = scanOf(p, "clippy:hub/src-tauri:app");
   assert.ok(clippy, ids(p).join(","));
   assert.equal(clippy.cwd, "hub/src-tauri");
-  assert.deepEqual(clippy.args.slice(0, 5), ["cargo", "clippy", "-p", "app", "--no-deps"], "-p takes the crate, not the unit name");
+  assert.deepEqual(clippy.args.slice(0, 6), ["cargo", "clippy", "--keep-going", "-p", "app", "--no-deps"], "-p takes the crate, not the unit name");
   for (const id of ["check-features:hub/src-tauri:app:0", "doc:hub/src-tauri:app", "test:rust:hub/src-tauri:app", "cargo-metadata:hub/src-tauri"]) {
     const s = scanOf(p, id); assert.ok(s, id); assert.equal(s.cwd, "hub/src-tauri", id);
   }
@@ -1539,7 +1539,7 @@ test("workspaces: reverse dependents come from each workspace's own lock, never 
   const p = multi(["engine/eng/src/lib.rs"], { rustLocks });
   assert.deepEqual(ids(p).filter((i) => i.startsWith("check-dependent:")), ["check-dependent:engine:eng-cli"]);
   const dep = scanOf(p, "check-dependent:engine:eng-cli");
-  assert.equal(dep.cwd, "engine"); assert.deepEqual(dep.args.slice(0, 4), ["cargo", "check", "-p", "eng-cli"]);
+  assert.equal(dep.cwd, "engine"); assert.deepEqual(dep.args.slice(0, 5), ["cargo", "check", "--keep-going", "-p", "eng-cli"]);
   // The root workspace's lock has an edge named like engine's; it is not engine's dependent edge.
   const clash = multi(["engine/eng/src/lib.rs"], { rustLocks: { ".": lockOf(["core", ["eng"]]), engine: lockOf(["eng"], ["eng-cli", ["eng"]]) } });
   assert.deepEqual(ids(clash).filter((i) => i.startsWith("check-dependent:")), ["check-dependent:engine:eng-cli"]);
@@ -1579,6 +1579,17 @@ test("root npm package: it is a unit like any other, but a file inside a nested 
   const nested = { ...files, "apps/web/package.json": '{"name":"web","license":"MIT"}', "apps/web/tsconfig.json": "{}", "apps/web/src/a.ts": "" };
   const both = planFor(["apps/web/src/a.ts", "src/main.ts"], nested, { rustUnits: [], npmUnits: [{ name: "app", dir: "." }, { name: "web", dir: "apps/web" }] }).plan;
   assert.ok(ids(both).includes("tsc:app") && ids(both).includes("tsc:web"));
+});
+
+test("every planned compile keeps going and every test run continues past a failed binary (rightkit#1293)", () => {
+  assert.deepEqual(everyFailure(["clippy", "-p", "a", "--", "-D", "warnings"]), ["clippy", "--keep-going", "-p", "a", "--", "-D", "warnings"]);
+  for (const sub of ["build", "check", "doc"]) assert.deepEqual(everyFailure([sub, "-p", "a"]), [sub, "--keep-going", "-p", "a"], sub);
+  // Cargo 1.98's test and bench reject --keep-going: they take --no-fail-fast.
+  assert.deepEqual(everyFailure(["test", "-p", "a", "--locked"]), ["test", "--no-fail-fast", "-p", "a", "--locked"]);
+  assert.deepEqual(everyFailure(["bench", "-p", "a"]), ["bench", "--no-fail-fast", "-p", "a"]);
+  assert.deepEqual(everyFailure(["test", "-p", "a", "--no-fail-fast"]), ["test", "-p", "a", "--no-fail-fast"], "never twice");
+  assert.deepEqual(everyFailure(["test", "-p", "a", "--", "--no-fail-fast"]), ["test", "--no-fail-fast", "-p", "a", "--", "--no-fail-fast"], "flags after -- belong to the test binary");
+  for (const sub of ["metadata", "deny", "audit", "fmt", "package", "publish"]) assert.deepEqual(everyFailure([sub, "x"]), [sub, "x"], sub);
 });
 
 test("lanes: class B scans of different components run concurrently; one component's scans never overlap (rightkit#1285)", async () => {

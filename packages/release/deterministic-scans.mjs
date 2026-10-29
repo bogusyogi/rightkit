@@ -197,6 +197,19 @@ export function checkArgs(unit, { features = [], messageFormat, locked = false }
 }
 
 /** `cargo doc -p <unit> --no-deps --all-features --locked`; run it with RUSTDOCFLAGS=DOC_RUSTDOCFLAGS (CI). */
+// Every compile reports every failure (Adrian, 2026-10-29: "even to ship, why isn't it better to get all errors and fix them all
+// wholesale?"; rightkit#1293): a compile keeps going past a failed crate (`--keep-going`) and a test run past a failed test binary
+// (`--no-fail-fast`). The run still fails if anything failed; the crates that compiled stay warm for the next run.
+// Cargo 1.98: build, check, clippy (through its cargo check) and doc take `--keep-going`; test and bench reject it and take
+// `--no-fail-fast` instead (the broker's BR29 adds the same split).
+const KEEP_GOING_SUBCOMMANDS = new Set(["build", "check", "clippy", "doc"]);
+const NO_FAIL_FAST_SUBCOMMANDS = new Set(["test", "bench"]);
+export function everyFailure(args) {
+  const [sub, ...rest] = args;
+  const until = rest.indexOf("--"); const own = until === -1 ? rest : rest.slice(0, until);
+  const flag = KEEP_GOING_SUBCOMMANDS.has(sub) ? "--keep-going" : NO_FAIL_FAST_SUBCOMMANDS.has(sub) ? "--no-fail-fast" : null;
+  return flag && !own.includes(flag) ? [sub, flag, ...rest] : args;
+}
 export function docArgs(unit) { return ["doc", "-p", unit, "--no-deps", "--all-features", "--locked"]; }
 export const DOC_RUSTDOCFLAGS = "-D warnings";
 /** The same check as rustdoc arguments (`cargo rustdoc ... -- -D warnings`), for the broker path. */
@@ -823,7 +836,7 @@ export function planScans({
   const plainDir = (d) => !ABSOLUTE_PATH.test(d) && !d.split("/").includes("..") && SAFE_UNIT_DIR.test(d);
   const cargoWs = cleanDir(cargoDir);
   if (!plainDir(cargoWs)) throw new TypeError("planScans: cargoDir must be a plain repository-relative directory");
-  const cargoIn = (ws, ...args) => ({ tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...args], ...(ws !== "." ? { cwd: ws } : {}), ...(cargoLiveRoot ? { root: "cargoLive" } : {}), ...(targetDirs?.[ws] ? { env: { CARGO_TARGET_DIR: targetDirs[ws] } } : {}) });
+  const cargoIn = (ws, ...args) => ({ tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...everyFailure(args)], ...(ws !== "." ? { cwd: ws } : {}), ...(cargoLiveRoot ? { root: "cargoLive" } : {}), ...(targetDirs?.[ws] ? { env: { CARGO_TARGET_DIR: targetDirs[ws] } } : {}) });
   const unitMap = (units, kind) => {
     if (units === null) return null;
     if (!Array.isArray(units)) throw new TypeError(`planScans: ${kind}Units must be an array of { name, dir }`);
