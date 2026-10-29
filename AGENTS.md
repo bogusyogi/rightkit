@@ -157,7 +157,6 @@ RightKit owns shared packages, crates, QA, licensing, logging, & release tooling
 - Keep add-on adoption bound to version, full manifest SHA-256, immutable URL, and target-qualified aliases.
 - Never run browser login, `az login`, Azure enrollment, or signing setup; use native-host provisioned signers.
 - Upload no unsigned or test artifact.
-- Activate enforcement policy & verifier changes only through Adrian-authenticated trust-sync; see `docs/OWNERSHIP-ENFORCEMENT.md`.
 - Apply identical qualification requirements across distribution providers; see `../../docs/rules/release-signing.md`.
 
 ## Verification
