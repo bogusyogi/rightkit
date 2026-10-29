@@ -2048,8 +2048,18 @@ export async function runScans(plan, options = {}) {
           }
           // From here to the end of its verification the carrier and the request reference are this request's: every exit (cancel,
           // timeout, a thrown spawn, a refused receipt) removes them.
+          // A wrapped snapshot compile with several Cargo workspaces (options.cargoSentinel, item 7): a scan whose own env binds no
+          // CARGO_TARGET_DIR gets an empty directory of its own as one. Every cargo reached through the wrapper is bound elsewhere; only
+          // a cargo that bypassed it (an absolute path, `rustup run`, a reset PATH) can write here, and the scan then fails below.
+          let sentinel = null;
+          if (options.cargoSentinel && !Object.hasOwn(s.env ?? {}, "CARGO_TARGET_DIR")) {
+            sentinel = path.join(options.cargoSentinel, sha256(s.id).slice(0, 16));
+            fs.rmSync(sentinel, { recursive: true, force: true });
+            fs.mkdirSync(sentinel, { recursive: true });
+          }
+          const sentinelEnv = sentinel ? { CARGO_TARGET_DIR: sentinel, CARGO_BUILD_TARGET_DIR: sentinel } : {};
           try {
-          try { r = await deps.spawn(p.command, finalArgs, { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...(carrier ? carrier.made.env : {}) }, signal: scanSignal, timeout: limitMs }); } finally { clearTimeout(clock); advisory?.cleanup?.(); }
+          try { r = await deps.spawn(p.command, finalArgs, { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...(carrier ? carrier.made.env : {}) }, signal: scanSignal, timeout: limitMs }); } finally { clearTimeout(clock); advisory?.cleanup?.(); }
           if (signal?.aborted && (!r || r.error || r.status !== 0)) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
           if ((timer.signal.aborted || r?.error?.code === "ETIMEDOUT") && (!r || r.error || r.status !== 0)) return { ...row, status: "fail", code: "TIMEOUT", detail: `${s.id} ran longer than ${Math.round(limitMs / 60000)} min and was killed with its process tree; a scan that does not finish fails` };
           if (!r || r.error) { status = "fail"; code = "SPAWN_ERROR"; detail = r?.error?.message ?? "no result"; }
@@ -2057,7 +2067,12 @@ export async function runScans(plan, options = {}) {
           // cargo-deny reports some failures only as an [ERROR] line and still exits 0 (under the broker, its nested offline
           // `cargo fetch` of crate sources is refused: "failed to fetch crates"). A deny row passes only with no [ERROR] line in
           // its complete output; output cut to the kept tail cannot prove that, so it fails too (RR, reviewer 2026-10-28).
-          else if (s.advisoryDb === "deny") {
+          if (sentinel) {
+            let written = [];
+            try { written = fs.readdirSync(sentinel); } catch (e) { written = [`(unreadable: ${e.message})`]; }
+            if (written.length) { status = "fail"; code = "RK_CARGO_UNBOUND"; detail = `${s.id}: a cargo that bypassed the gate's wrapper wrote ${written.slice(0, 5).join(", ")} into the unbound sentinel ${sentinel}; with several Cargo workspaces no output directory can be inferred for it, so the scan proves nothing about where its outputs went`; }
+          }
+          if (s.advisoryDb === "deny" && code !== "RK_CARGO_UNBOUND") {
             const denyError = `${r.stdout ?? ""}\n${r.stderr ?? ""}`.split(/\r?\n/).find((line) => /\[ERROR\]/.test(line));
             if (r.truncated) { status = "fail"; code = "DENY_ERROR"; detail = "cargo-deny output exceeded the kept tail, so the absence of an [ERROR] line cannot be shown"; }
             else if (denyError) { status = "fail"; code = "DENY_ERROR"; detail = `cargo-deny exited 0 but reported an error: ${denyError.trim().slice(0, 300)}`; }

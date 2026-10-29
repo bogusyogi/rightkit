@@ -2134,8 +2134,7 @@ export async function main(argv, io = {}) {
         if (!realCargo) { o.err(`${tag} BLOCKED: no cargo on PATH to wrap for the snapshot compile; nothing compiled`); return 1; }
         try {
           const shimModule = await import("../cargo-target-shim.mjs");
-          cargoShim = shimModule.installCargoShim({ base: os.tmpdir(), snapshotRoot: snapshotB, targetDirs, realCargo, platform: o.platform });
-          cargoShimDir = cargoShim.dir;
+          cargoShim = shimModule.installCargoShim({ base: os.tmpdir(), snapshotRoot: snapshotB, targetDirs, realCargo, platform: o.platform, onDir: (dir) => { cargoShimDir = dir; } });
           cargoShim.scanEnv = shimModule.shimScanEnv(o.env, cargoShim);
         } catch (error) { o.err(`${tag} BLOCKED: the runtime cargo wrapper cannot be installed (${error.message}); nothing compiled`); return 1; }
         o.out(`${tag} runtime cargo wrapper ${cargoShim.shim} (identity ${cargoShim.identity.slice(0, 16)}) -> ${realCargo}: each cargo invocation binds its workspace's checkout target directory or is refused`);
@@ -2373,7 +2372,7 @@ export async function main(argv, io = {}) {
       classes: classAOnly ? ["A"] : ["A", "B"], jobs, testJobs, signal: ac.signal, ...(cache ? { cache } : {}),
       // The runtime cargo wrapper is first on PATH and named in CARGO for every scan of a snapshot compile; CARGO (a path named by the
       // wrapper's identity) is in every scan's cache key, so no result cached without the wrapper or with another map is reused.
-      ...(cargoShim ? { env: cargoShim.scanEnv } : {}),
+      ...(cargoShim ? { env: cargoShim.scanEnv, ...(cargoShim.sentinel ? { cargoSentinel: cargoShim.sentinel } : {}) } : {}),
       // `check` (and the broker's compile admission, which runs it on a captured copy of the tree without node_modules) judges the
       // content: it never executes the repository's own code. The class A checks that do (tests, typecheck, lint, generated docs:
       // `executes`) run in the full gate (--all, the push hook, the door's compile stage), after the content checks and before any compile.
