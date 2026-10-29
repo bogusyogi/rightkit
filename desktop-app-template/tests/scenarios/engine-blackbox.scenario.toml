@@ -34,15 +34,26 @@ input = { n = 1, s = "kept" }
 
 [[step]]
 kind = "cli"
-label = "unknown command is a typed error with a stable exit code"
+label = "unknown command is a refusal (exit 2) with a stable error code"
 command = "frobnicate"
 allow_error = true
   [[step.expect]]
   path = "code"
-  eq = 3
+  eq = 2
   [[step.expect]]
   path = "json.error.code"
   eq = "unknown_command"
+
+[[step]]
+kind = "cli"
+label = "the CLI contract (M22) lists every tool with its effect, needs no data root"
+command = "contract"
+  [[step.expect]]
+  path = "json.schema"
+  eq = "rightkit-agent-tools/app-contract/1"
+  [[step.expect]]
+  path = "json.contract_version"
+  eq = 2
 
 # The one-shot CLI is a process on purpose (its exit codes are the contract); everything above is served by the persistent
 # --stdio sidecar, so the two surfaces are held to the same command table.

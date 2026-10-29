@@ -73,7 +73,7 @@ template contract test fails the moment it is wired but still listed.
 | M12, M13 | `rightkit-license`, `@rightkit/license` | wired: the native licence client behind the `rightkit_license_*` commands, the onboarding licence step and the Settings licence section. Disabled (`mode: disabled`, no network) until the app sets `LICENSE` in `src-tauri/src/services.rs` to its registered appKey, host and public key (bogusyogi/rightkit#272) |
 | M17 | `rightkit-http` | wired: `AppHttp`, the app's first-party client pinned to the licence host (HTTPS only); none while licensing is disabled |
 | M9 | `rightkit-db` | **declared only** (the engine opens no database yet) |
-| M22 | `rightkit-agent-tools` | not applicable: the template has no agent surface (`rightkit-mandatory.json`); an app adds it only when it ships agent tools |
+| M22 | `rightkit-agent-tools` | wired: the engine's CLI contract, `rightapp-engine contract` (every tool with its effect and approval; `crates/engine/src/main.rs`), role `host` in `rightkit-mandatory.json` |
 
 Journeys J-002 and J-003 drive the first run (gate, receipt, settings, licence status, relaunch) in the real app; the shell's
 `services` tests hold the receipt, settings and HTTP rules without a window.

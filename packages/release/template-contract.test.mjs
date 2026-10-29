@@ -169,8 +169,8 @@ test("the app has a QA lane, a legal block that passes the release legal contrac
   assert.equal(report.profile, "desktop");
   assert.deepEqual(report.problems, []);
   assert.equal(report.violations, 0, report.owners.filter((o) => o.status !== "ok").map((o) => `${o.owner} ${o.status}`).join(", "));
-  assert.deepEqual(report.notApplicable.map((n) => n.row), ["M22"], "only M22 is not applicable, with its reason in rightkit-mandatory.json");
-  assert.deepEqual(readJson("rightkit-mandatory.json").M22, { role: "absent", entrypoints: [] });
+  assert.deepEqual(report.notApplicable.map((n) => n.row), [], "no row is not applicable: M22 is mandatory (Adrian, 2026-10-29)");
+  assert.deepEqual(readJson("rightkit-mandatory.json").M22, { role: "host", entrypoints: ["crates/engine/src/main.rs#contract", "crates/engine/src/main.rs#main"] });
   assert.deepEqual(readJson(".rightkit", "ownership-exceptions.json"), { exceptions: [] }, "a fresh app carries no ownership exception");
 });
 
@@ -207,20 +207,19 @@ test("every journey and scenario the app declares exists, and every Rust test is
   }
 });
 
-// The template's notApplicable.M22 is not a ratified ruling (rightkit#994 is undecided), so since rightkit#1140's check M22 applies
-// and these are its only two findings. Ratifying the row (or adopting rightkit-agent-tools) makes the instance clean again.
-const TEMPLATE_M22 = ["mandatory-foundation (OW-05): notApplicable.M22", "mandatory-foundation (OW-05): profile \"desktop\" requires the foundation owner rightkit-agent-tools"];
+// M22 is mandatory (Adrian, 2026-10-29: "Cli for every app, yes"): the template adopts rightkit-agent-tools as a host, so an
+// instance is born with no finding at all.
 const failLines = (text) => text.split("\n").filter((line) => line.startsWith("FAIL "));
 // On a broker-managed host the class A cargo scans of the instance go through the live broker, which tests never reach
 // (test-support/broker-guard.mjs); CI (direct executor) runs this one.
-test("`rightkit-gate check` and RightKit's own preflight pass on the instance with an empty baseline, but for the unratified M22 row", { skip: brokerManagedHost(process.env) && "the class A cargo scans need the live broker on this managed host; CI runs it" }, () => {
+test("`rightkit-gate check` and RightKit's own preflight pass on the instance with an empty baseline and no finding", { skip: brokerManagedHost(process.env) && "the class A cargo scans need the live broker on this managed host; CI runs it" }, () => {
   const check = spawnSync(process.execPath, [path.join(here, "bin", "rightkit-gate.mjs"), "check", "--repo", instance(), "--commit", "HEAD"], { cwd: instance(), encoding: "utf8" });
-  assert.equal(check.status, 1, `${check.stdout}\n${check.stderr}`);
-  assert.deepEqual(failLines(check.stdout).map((line, i) => line.startsWith(`FAIL ${TEMPLATE_M22[i]}`)), [true, true], check.stdout);
+  assert.equal(check.status, 0, `${check.stdout}\n${check.stderr}`);
+  assert.deepEqual(failLines(check.stdout), [], check.stdout);
   assert.doesNotMatch(check.stdout + check.stderr, /KNOWN|STALE/, "a fresh app carries no baseline");
   const result = spawnSync(process.execPath, [path.join(REPO, "scripts", "preflight.mjs"), "--repo", instance()], { encoding: "utf8" });
-  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
-  assert.deepEqual(failLines(result.stdout).map((line, i) => line.startsWith(`FAIL ${TEMPLATE_M22[i]}`)), [true, true], result.stdout);
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.deepEqual(failLines(result.stdout), [], result.stdout);
 });
 
 test("template preflight checks required host rows with fixture ownership and host probes", () => {
@@ -484,7 +483,7 @@ test("the template is gated for real: no fixture entry, no baseline entry, and i
   assert.ok(!gate.fixtures.some((dir) => dir === "desktop-app-template" || "desktop-app-template".startsWith(`${dir}/`)), "desktop-app-template must not be a gate fixture: rightkit-gate would skip its scans");
   const baseline = JSON.parse(readFileSync(path.join(REPO, "ci", "app-check-baseline.json"), "utf8"));
   const templateEntries = Object.values(baseline.known).flat().filter((id) => id.includes("desktop-app-template"));
-  assert.deepEqual(templateEntries, ["mandatory-foundation|desktop-app-template/rightkit-mandatory.json|notApplicable:M22"], "the template's only baseline entries are its unratified M22 row (rightkit#994)");
+  assert.deepEqual(templateEntries, [], "the template carries no baseline entry");
   const ledger = JSON.parse(readFileSync(path.join(REPO, "ci", "advisory-exceptions.json"), "utf8"));
   const known = new Map(ledger.exceptions.map((e) => [e.id, e]));
   const deny = read("deny.toml");

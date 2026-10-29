@@ -2,9 +2,7 @@
   "schema": 1,
   "about": "Ratchet for the files-only app checks G13-G20 of scripts/preflight.mjs and for the shell-contract rules SC-R1..SC-R9 of packages/release/shell-contract.mjs, which preflight runs too. known.<repo> (lowercased --repo basename; rightkit for this checkout) lists the identities `rule|file|subject` (no line numbers) of findings that exist today: preflight prints them as KNOWN and does not fail. A new finding fails; a listed identity that is no longer found fails as STALE, so the list only shrinks. Never add an entry to hide a new defect: fix it. A person pastes `node scripts/preflight.mjs --repo <dir> --worktree --print-baseline` here; preflight never writes this file.",
   "known": {
-    "rightkit": [
-      "mandatory-foundation|desktop-app-template/rightkit-mandatory.json|notApplicable:M22"
-    ],
+    "rightkit": [],
     "mailright": [
       "engine-record-store|src-tauri/src/pro_gate.rs|from_record_store",
       "suite-key-literal|src-tauri/src/pro_gate.rs|licence-key:bytes"

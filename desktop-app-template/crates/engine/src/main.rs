@@ -2,9 +2,11 @@
 //!
 //!   rightapp-engine [--stdio]                    serve rightkit-job-queue frames over stdio (the shell supervises it)
 //!   rightapp-engine <words> [--input <json>]     one-shot CLI (rightkit-job-queue `run_cli`); JSON on stdout
+//!   rightapp-engine contract [--json]            the app's CLI contract (M22): every tool with its effect and approval
 //!
-//! Failure: `{"error":{"code","message"}}` on stdout. Exit codes: 1 engine error, 2 bad input or usage,
-//! 3 unknown command. Domain work is job kinds (`job.submit`); `echo` is also a synchronous command.
+//! Failure: `{"error":{"code","message"}}` on stdout. Exit codes: 0 ok, 1 state not reached, 2 refused or bad
+//! usage (an unknown command included), 3 no result known. Domain work is job kinds (`job.submit`); `echo` is
+//! also a synchronous command.
 use std::io::{self, Write};
 use std::path::Path;
 use std::sync::Arc;
@@ -19,7 +21,40 @@ use rightkit_job_queue::{
 };
 use serde_json::{json, Value};
 
-const USAGE: &str = "usage: rightapp-engine [--stdio] | doctor | echo --input <json> | job submit --input <json> [--wait] | --version";
+const USAGE: &str = "usage: rightapp-engine [--stdio] | contract [--json] | doctor | echo --input <json> | job submit --input <json> [--wait] | --version";
+
+/// The tools this engine offers through its CLI, with the consequence class of each (SHAPE §4): name, summary, effect, approval.
+const TOOLS: &[(&str, &str, &str, &str)] = &[
+    (
+        "echo",
+        "Return the input unchanged (a synchronous command).",
+        "read",
+        "none",
+    ),
+    (
+        "job submit",
+        "Queue a durable echo job; `--wait` returns its result.",
+        "write",
+        "none",
+    ),
+];
+
+/// The app's CLI contract (M22, schema rightkit-agent-tools/app-contract/1, contract version 2). Built here until
+/// rightkit-agent-tools 0.4.0 ships `host::run`, which replaces this local builder.
+fn contract() -> Value {
+    json!({
+        "contract": format!("{ENGINE_NAME}-cli"),
+        "contract_version": 2,
+        "schema": "rightkit-agent-tools/app-contract/1",
+        "app": ENGINE_NAME,
+        "app_version": env!("CARGO_PKG_VERSION"),
+        "platforms": ["macos", "windows"],
+        "exit_codes": { "0": "ok", "1": "state not reached", "2": "refused or bad usage", "3": "no result known" },
+        "tools": TOOLS.iter().map(|(name, summary, effect, approval)| json!({
+            "name": name, "summary": summary, "effect": effect, "approval": approval, "availability": "engine",
+        })).collect::<Vec<_>>(),
+    })
+}
 
 /// Runs one job of a known kind. Each kind is one domain command, expressed as durable work.
 struct DomainJobs;
@@ -98,6 +133,11 @@ fn main() {
             eprintln!("{USAGE}");
             return;
         }
+        // The contract needs no data root and opens no store: an agent may read it before the app ever ran.
+        Some("contract") => {
+            println!("{}", contract());
+            return;
+        }
         _ => {}
     }
     // `app_data_root` makes the process-wide release-or-test decision first (rightkit_daemon::mode), before any store opens.
@@ -126,12 +166,7 @@ fn main() {
         &mut out,
         &mut io::stderr(),
     );
-    // rightkit-job-queue exits 2 for any usage failure; the engine contract has always used 3 for an unknown command.
-    let code = if code == 2 && String::from_utf8_lossy(&out).contains("\"unknown_command\"") {
-        3
-    } else {
-        code
-    };
+    // An unknown command is a refusal (exit 2, code `unknown_command`), as rightkit-job-queue reports it: exit 3 means no result known.
     let _ = io::stdout().write_all(&out);
     std::process::exit(code);
 }

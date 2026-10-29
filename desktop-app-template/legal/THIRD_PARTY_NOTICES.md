@@ -1,7 +1,7 @@
 # RightApp Third-Party Notices
 
 Build provenance: RightApp 0.1.0, effective 2026-10-24.
-inputs: pnpm-lock.yaml sha256 92bbb20a1cce4949a38b7dcdd2f33bf8657758f0e35f3ffd19eb38c55ccff180; Cargo.lock sha256 343cd367e80319d661374899e1e5e09b495a38bec2159006b440d1fcb547065d; legal/THIRD_PARTY_NPM_LICENSES.html sha256 e2ffafc0f3ff3e5f30a251fd8e55a5e613a181b499aecff0318606b431bc72db.
+inputs: pnpm-lock.yaml sha256 92bbb20a1cce4949a38b7dcdd2f33bf8657758f0e35f3ffd19eb38c55ccff180; Cargo.lock sha256 d9b91e3093571165972789cb88badb1cd520e21a3ce16ed3fd87250b9dd46434; legal/THIRD_PARTY_NPM_LICENSES.html sha256 e2ffafc0f3ff3e5f30a251fd8e55a5e613a181b499aecff0318606b431bc72db.
 generated-by=@rightkit/legal legal-snapshot from legal/NOTICES.template.md
 
 RightApp includes third-party software that stays under its own licences. This notice does not reduce any permission those licences grant.

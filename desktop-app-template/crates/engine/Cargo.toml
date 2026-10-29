@@ -24,4 +24,6 @@ rightkit-crash = { version = "=0.3.6", default-features = false }
 # rightkit-db is the job store's SQLite owner (M9); rightkit-sidecar is the framed JSON-line transport (M4).
 rightkit-db = "=0.5.2"
 rightkit-sidecar = "=0.3.0"
+# The app CLI contract owner (M22): `contract` prints the manifest; `host::run` replaces the local builder at 0.4.0.
+rightkit-agent-tools = { version = "=0.3.0", default-features = false }
 serde_json = "1"
