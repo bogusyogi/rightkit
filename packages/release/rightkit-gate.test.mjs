@@ -2713,7 +2713,8 @@ test("a partial check (--only) says it is not a class A result, and the door and
   } finally { fs.rmSync(repo, { recursive: true, force: true }); }
   // The door's check stage and the broker's admission call the full form.
   const src = fs.readFileSync(new URL("./bin/rightkit-gate.mjs", import.meta.url), "utf8");
-  assert.match(src, /main\(\["check", "--commit", "HEAD", "--full-a", "--rule-tier", earlyTier\]/, "--to check runs the full check with full class A, at the tier the run owes");
+  // The door's check is the full check at the tier the run owes; on a direct host it reads the selected commit's snapshot (step 4c).
+  assert.match(src, /main\(\["check", "--commit", ds \? commit : "HEAD", "--full-a", \.\.\.\(ds \? \["--snapshot", ds\.path\] : \[\]\), "--rule-tier", earlyTier\]/, "--to check runs the full check with full class A, at the tier the run owes");
   assert.match(src, /main\(\["check", "--commit", "HEAD", "--full-a", "--rule-tier", tier\]/, "the unit stages run full class A");
   assert.match(src, /main\(\["check", "--worktree", "--full-a"\]/, "the dev door runs full class A");
   assert.doesNotMatch(src, /main\(\["check", "--(commit|worktree)"(?![^\]]*--full-a)[^\]]*\]/, "no other entry calls a content-only check");

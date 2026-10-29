@@ -51,7 +51,7 @@ const ROWS = {
   E3: { covered: [["gate-contract.test.mjs", "[behavior] executor: a Linux host with no broker runs direct"], ["gate-contract.test.mjs", "[behavior] executor: a Linux host always runs direct, even with RustRight on PATH, a broker socket variable or a managed cargo shim (contract §1 'One entry')"]], pending: [["step 10", "actual Linux/WSL2 local compile through the installed entry, zero broker or browser launches"]] },
   E4: { covered: [], pending: [["step 10", "private Linux hold/resume with and without Linux deliverables"], ["step 11", "hosted Linux qualification of exact sealed bytes on Mac/Dell"]] },
   E5: { covered: [], pending: [["step 9", "nonpublishing fixtures for each npm/Cargo route; failed qualification never promotes"], ["step 12", "six real R-M/R-D/R-L x npm/Cargo publications with readback"]] },
-  E6: { covered: [["snapshot.test.mjs", "E6: a changed byte, a deleted file, a planted visible file refuse verification; the next sync repairs them"], ["snapshot-check.test.mjs", "E17: a snapshot changed while class A runs refuses with RK_CHECK_ERROR, exit 2"]], pending: [["step 4", "checkout edits during a stage and a second request against held build ownership"], ["step 9", "stale or altered output, helper, native output, final artifact, app SHA, run or attempt reject"]] },
+  E6: { covered: [["snapshot.test.mjs", "E6: a changed byte, a deleted file, a planted visible file refuse verification; the next sync repairs them"], ["snapshot-check.test.mjs", "E17: a snapshot changed while class A runs refuses with RK_CHECK_ERROR, exit 2"], ["gate-contract.test.mjs", "[behavior] E6/§1: the door builds the commit, not the checkout: a dirty checkout neither blocks nor leaks, an edit mid-stage never reaches the snapshot, a tampered snapshot voids the stage (exit 2), a second request waits for the held ownership (exit 1)"]], pending: [["step 9", "stale or altered output, helper, native output, final artifact, app SHA, run or attempt reject"]] },
   E7: { covered: [], pending: [["step 9", "candidate-to-final evidence binding (transformations, final digest, unchanged promotion)"]] },
   E8: { covered: [], pending: [["step 11", "canary legs per origin with required app SHAs"]] },
   E9: { covered: [], pending: [["step 9", "durable retry/restart reconciliation at dispatch and publication boundaries"]] },
@@ -61,7 +61,7 @@ const ROWS = {
   E13: { covered: [], pending: [["step 7", "workspace Clippy route on Mac, Dell (broker) and Linux (direct)"]] },
   E14: { covered: [], pending: [["step 7", "batched Clippy equivalence before the per-crate path retires"]] },
   E15: { covered: [], pending: [["step 7", "failure collection with attribution across independent failures"]] },
-  E16: { covered: [], pending: [["step 4", "Linux output directory pinned to the checkout's resolved target_directory"]] },
+  E16: { covered: [["gate-contract.test.mjs", "[behavior] E16/§1: on Linux the door compiles the selected commit\'s snapshot; every cargo scan writes to the checkout\'s resolved target directory, never into the snapshot (real subprocesses, fake cargo)"]], pending: [["step 6", "a second build of the same commit reuses the checkout's outputs (measured cache reuse)"]] },
   E17: { covered: [["snapshot-check.test.mjs", "E17: a dirty checkout whose HEAD is ahead still checks the selected commit's snapshot, never reading HEAD or status"], ["snapshot-check.test.mjs", "E17 real subprocesses: npm-only dirty checkout with HEAD ahead passes on the selected commit's snapshot"]], pending: [["step 4", "the broker admits the snapshot-aware check itself (snapshot cwd for cargo scans; no primary-checkout fallback)"]] },
   E18: { covered: [["snapshot-check.test.mjs", "E18 live-scans: one JSON line the broker's parser accepts; exit 0 only when every live scan passed; only live scans run"], ["snapshot-check.test.mjs", "rightkit#1257: a red of deterministic failures prints the marker with env=; a live-scan or undecided failure prints none"]], pending: [["step 5", "reuse keyed on the commit tree under snapshot mode, with the broker's refresh (B19)"]] },
 };
@@ -419,3 +419,96 @@ test("[behavior] every scan the planner emits for a broad fixture repository has
     assert.match(rows[p], new RegExp(`^${s.class}\\b`), `${s.id}: planned class ${s.class}, inventory ${rows[p]}`);
   }
 });
+
+// ---- joint plan step 4c: the door builds the selected commit's gate-owned snapshot (direct host) ----
+
+test("[behavior] E16/§1: on Linux the door compiles the selected commit's snapshot; every cargo scan writes to the checkout's resolved target directory, never into the snapshot (real subprocesses, fake cargo)", { skip: process.platform === "win32" ? "POSIX fake cargo" : false }, (t) => {
+  const dir = tmp(t, "rk-gc-4c-");
+  const toolDir = path.join(dir, "toolchain", "bin");
+  // Fake cargo: `metadata` answers for the directory it runs in, with target_directory <cwd>/rk-target, so the checkout's answer
+  // (<checkout>/rk-target) and a snapshot's (<snapshot>/rk-target) differ. Every call is logged.
+  write(toolDir, { cargo: `#!/bin/sh\necho "$PWD $*" >> '${path.join(dir, "cargo-ran")}'\nif [ "$1" = "metadata" ]; then node -e 'const r=process.cwd();console.log(JSON.stringify({packages:[{name:"core",manifest_path:r+"/crates/core/Cargo.toml",publish:null,id:"core",targets:[{kind:["lib"],name:"core",src_path:r+"/crates/core/src/lib.rs"}],dependencies:[],features:{}}],workspace_members:["core"],workspace_root:r,target_directory:r+"/rk-target",resolve:null}))'; exit 0; fi\nexit 0\n` });
+  fs.chmodSync(path.join(toolDir, "cargo"), 0o755);
+  const repo = path.join(dir, "repo"); fs.mkdirSync(repo);
+  spawnSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
+  write(repo, { "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n', "Cargo.lock": "version = 4\n", "crates/core/Cargo.toml": '[package]\nname = "core"\nversion = "0.1.0"\nedition = "2021"\n', "crates/core/src/lib.rs": "pub fn committed() {}\n" });
+  spawnSync("git", ["add", "-A"], { cwd: repo }); spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c"], { cwd: repo });
+  const sha = String(spawnSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).stdout).trim();
+  // The checkout is dirty: the door builds the commit anyway, and the edit never reaches the snapshot.
+  fs.writeFileSync(path.join(repo, "crates/core/src/lib.rs"), "pub fn uncommitted() {}\n");
+  const driver = path.join(dir, "driver.mjs");
+  fs.writeFileSync(driver, `const { main } = await import(${JSON.stringify(pathToFileURL(path.join(HERE, "bin", "rightkit-gate.mjs")).href)});
+const fs = await import("node:fs");
+const out = []; const plans = [];
+const code = await main(["--to", "compile", "--commit", ${JSON.stringify(sha)}], { cwd: ${JSON.stringify(repo)}, platform: "linux", out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0,
+  runScans: async (plan) => { plans.push(plan.scans.filter((s) => s.tool === "cargo").map((s) => ({ id: s.id, cls: s.class, env: s.env ?? {}, root: plan.roots.liveRoot }))); return { scans: [], notes: [], cacheHits: [] }; } });
+console.log(JSON.stringify({ code, out: out.join("\\n").slice(-3000), plans }));\n`);
+  const env = { ...process.env, NODE_OPTIONS: "", RK_GATE_CACHE: "0", PATH: `${toolDir}:${process.env.PATH}`, RIGHTKIT_SNAPSHOT_ROOT: path.join(dir, "snaps"), RIGHTKIT_DATA_ROOT: dir, XDG_STATE_HOME: dir };
+  delete env.GITHUB_ACTIONS; delete env.RIGHTKIT_BUILD_OWNERSHIP;
+  const r = spawnSync(process.execPath, [driver], { env, encoding: "utf8", cwd: repo });
+  let res = {}; try { res = JSON.parse(String(r.stdout).trim().split(/\r?\n/).pop()); } catch { res = { stderr: r.stderr, stdout: r.stdout }; }
+  assert.equal(res.code, 0, JSON.stringify(res).slice(0, 3000));
+  const snapDir = (res.out.match(/snapshot (\S+) is commit/) ?? [])[1];
+  assert.ok(snapDir && snapDir.startsWith(path.join(dir, "snaps")), `the door synced the gate-owned snapshot (${snapDir})`);
+  assert.equal(fs.readFileSync(path.join(snapDir, "crates/core/src/lib.rs"), "utf8"), "pub fn committed() {}\n", "the snapshot holds the commit, not the dirty checkout");
+  assert.match(res.out, /build ownership held /);
+  assert.match(res.out, new RegExp(`output directory for workspace \\.: ${path.join(repo, "rk-target").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(the checkout's\\)`));
+  // The check stage plans first (class A runs from it); the compile stage's plan is the last one.
+  assert.equal(res.plans.length, 2, "one plan for the check stage, one for the compile stage");
+  const compile = res.plans[1];
+  assert.ok(compile.some((s) => s.cls === "B"), "the compile stage planned class B cargo scans");
+  assert.equal(compile[0].root, snapDir, "class B reads the snapshot");
+  for (const s of compile.filter((x) => x.cls === "B")) {
+    assert.equal(s.env.CARGO_TARGET_DIR, path.join(repo, "rk-target"), `${s.id} writes to the checkout's target directory`);
+    assert.ok(!s.env.CARGO_TARGET_DIR.startsWith(snapDir), `${s.id} never writes into the snapshot`);
+  }
+  // The only cargo the gate ran in the checkout is the read-only metadata that resolved its target directory.
+  const ran = fs.readFileSync(path.join(dir, "cargo-ran"), "utf8").trim().split("\n");
+  for (const line of ran.filter((l) => l.startsWith(`${repo} `))) assert.match(line, /^\S+ metadata --offline --format-version 1 --no-deps --manifest-path /, line);
+  assert.equal(fs.existsSync(path.join(dir, "build-ownership", "owner.json")), false, "the door released the host");
+});
+
+test("[behavior] E6/§1: the door builds the commit, not the checkout: a dirty checkout neither blocks nor leaks, an edit mid-stage never reaches the snapshot, a tampered snapshot voids the stage (exit 2), a second request waits for the held ownership (exit 1)", async (t) => {
+  const dir = tmp(t, "rk-gc-4c-e6-");
+  const repo = path.join(dir, "repo"); fs.mkdirSync(repo);
+  spawnSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
+  write(repo, { "README.md": "committed\n", "package.json": '{"name":"x","private":true}\n' });
+  spawnSync("git", ["add", "-A"], { cwd: repo }); spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c"], { cwd: repo });
+  const sha = String(spawnSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).stdout).trim();
+  fs.writeFileSync(path.join(repo, "README.md"), "dirty\n");
+  const env = { ...process.env, RIGHTKIT_SNAPSHOT_ROOT: path.join(dir, "snaps"), RIGHTKIT_DATA_ROOT: dir, XDG_STATE_HOME: dir };
+  delete env.GITHUB_ACTIONS; delete env.RIGHTKIT_BUILD_OWNERSHIP; delete env.RIGHTKIT_BUILD_OWNERSHIP_FILE;
+  const git = (cwd, ...a) => spawnSync("git", a, { cwd, encoding: "utf8" });
+  const spawn = (c, a, opts) => (c === "git" ? spawnSync(c, a, { ...opts, encoding: "utf8" }) : { status: 1, stdout: "", stderr: "not in this fixture" });
+  const door = async (compile, extra = {}) => {
+    const out = [];
+    // No receipt carries over between these runs: each one compiles.
+    const code = await main(["--to", "compile", "--commit", sha], { cwd: repo, platform: "linux", env, spawn, out: (m) => out.push(m), err: (m) => out.push(m), runCheck: async () => 0, runCompile: compile, readReceipt: () => null, writeReceipt: () => {}, ...extra });
+    return { code, out: out.join("\n") };
+  };
+  const snapReadme = () => { const m = fs.readdirSync(path.join(dir, "snaps")).find((n) => !n.includes(".")); return path.join(dir, "snaps", m, "README.md"); };
+  // An edit to the checkout during the stage: the snapshot keeps the commit's bytes, the stage passes.
+  let ok = await door(async () => { fs.writeFileSync(path.join(repo, "README.md"), "edited during the stage\n"); return fs.readFileSync(snapReadme(), "utf8") === "committed\n" ? 0 : 1; });
+  assert.equal(ok.code, 0, ok.out);
+  assert.match(ok.out, /--to compile passed/);
+  // A second request while this door holds the host: refused before anything runs (exit 1), the snapshot untouched.
+  let second = null;
+  ok = await door(async () => {
+    const before = fs.statSync(snapReadme()).mtimeMs;
+    const out = []; const env2 = { ...env }; delete env2.RIGHTKIT_BUILD_OWNERSHIP; delete env2.RIGHTKIT_BUILD_OWNERSHIP_FILE;
+    const code = await main(["--to", "compile", "--commit", sha], { cwd: repo, platform: "linux", env: env2, spawn, out: (m) => out.push(m), err: (m) => out.push(m), runCheck: async () => 0, runCompile: async () => 0, readReceipt: () => null, writeReceipt: () => {} });
+    second = { code, out: out.join("\n"), untouched: fs.statSync(snapReadme()).mtimeMs === before };
+    return 0;
+  });
+  assert.equal(ok.code, 0, ok.out);
+  assert.equal(second.code, 1, second.out); assert.match(second.out, /BLOCKED: build ownership .* held by pid \d+ \(door:compile of [0-9a-f]{40}\).*nothing ran/);
+  assert.equal(second.untouched, true, "the second request never synced");
+  // A snapshot tampered during the stage: the stage covers no known bytes (exit 2), recorded as not passed.
+  const tampered = await door(async () => { fs.writeFileSync(snapReadme(), "tampered\n"); return 0; });
+  assert.equal(tampered.code, 2, tampered.out); assert.match(tampered.out, /RK_CHECK_ERROR: \[compile\]/); assert.match(tampered.out, /stopped at compile: the result covers no known bytes/);
+  // Hosted CI and broker hosts keep the checkout route (no ownership, no snapshot).
+  const ci = await door(async () => 0, { env: { ...env, GITHUB_ACTIONS: "true" } });
+  assert.doesNotMatch(ci.out, /build ownership|snapshot .* is commit/); assert.match(ci.out, /BLOCKED: the checkout differs from HEAD/, "hosted CI keeps today's clean-checkout rule");
+  void git;
+});
+

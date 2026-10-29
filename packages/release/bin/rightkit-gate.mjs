@@ -1401,22 +1401,51 @@ async function runStages(o, args, root, git, io) {
   if (mobile && to === "qualify") { o.err(`${tag} --to qualify has no stage for ${platform}: there is no installed-QA lane for a mobile build; qualification is the store's test track after --to release. Run --to package or --to release.`); return 2; }
   if (mobile) stages = stages.filter((s) => s !== "qualify");
   if (stages.includes("release") && !mobile && !["patch", "update"].includes(tier)) { o.err(`${tag} --to release needs --tier patch|update (chosen explicitly, never defaulted)`); return 2; }
-  const commit = text(git("rev-parse", "HEAD")).trim();
-  const tree = text(git("rev-parse", "HEAD^{tree}")).trim();
+  // Commit-only build (GATE-CONTRACT §1, joint plan step 4c): on a direct host (Linux; not hosted CI, whose runner checkout is the
+  // commit) the door selects a commit (--commit <rev>, default HEAD), takes the host's build ownership, syncs the commit's
+  // gate-owned snapshot once, and every stage below reads that snapshot; the checkout may hold anything. Broker hosts keep the
+  // checkout route until the RustRight snapshot carrier lands (step 4d).
+  if (!o.doorSnapshot && directPlatform(o.platform) && o.env.GITHUB_ACTIONS !== "true") {
+    const snap = await import("../snapshot.mjs");
+    const { acquireBuildOwnership, ownershipFile } = await import("../build-ownership.mjs");
+    let selected;
+    try { selected = snap.resolveCommit(root, option("--commit") ?? "HEAD"); }
+    catch (e) { o.err(`${tag} cannot resolve ${option("--commit") ?? "HEAD"} to a commit: ${e.message}`); return 2; }
+    const snapshotsAt = snap.snapshotRoot({ platform: o.platform, env: o.env });
+    let own;
+    try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, env: o.env }), stage: `door:${to}`, snapshot: path.join(snapshotsAt, snap.repositoryOf(root).key), commit: selected.commit, platform: o.platform, env: o.env }); }
+    catch (e) { if (e.code !== "busy") throw e; o.err(`${tag} BLOCKED: ${e.message}; nothing ran`); return 1; }
+    o.out(`${tag} build ownership ${own.joined ? "joined" : "held"} ${own.handle}${own.reclaimed ? ` (reclaimed from ${own.reclaimed.from}: ${own.reclaimed.proofs.join("; ")})` : ""}`);
+    try {
+      // One sync per door run: a second one would prune what class A installed into the snapshot.
+      let synced;
+      try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout: root, rev: selected.commit, root: snapshotsAt }); }
+      catch (e) { o.err(`${tag} ${e.code === "error" ? "RK_CHECK_ERROR" : "BLOCKED"}: snapshot ${e.message}; nothing ran`); return e.code === "error" ? 2 : 1; }
+      o.out(`${tag} snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})`);
+      return await runStages({ ...o, buildOwnership: own, doorSnapshot: { own, path: synced.path, commit: synced.commit, tree: synced.tree, root: snapshotsAt } }, args, root, git, { ...io, buildOwnership: own });
+    } finally {
+      const r = own.release();
+      if (r?.released === false && !own.joined) o.err(`${tag} build ownership ${own.handle} kept: ${r.why}`);
+    }
+  }
+  const ds = o.doorSnapshot ?? null;
+  const commit = ds ? ds.commit : text(git("rev-parse", "HEAD")).trim();
+  const tree = ds ? ds.tree : text(git("rev-parse", "HEAD^{tree}")).trim();
   const common = text(git("rev-parse", "--git-common-dir")).trim();
   if (!/^[0-9a-f]{40}$/.test(commit) || !tree || !common) { o.err(`${tag} cannot read HEAD and the git directory`); return 2; }
   const commonDir = path.resolve(root, common);
-  const dirty = git("status", "--porcelain", "--untracked-files=no");
-  if (failed(dirty) || text(dirty).trim()) { o.err(`${tag} BLOCKED: the checkout differs from HEAD; every stage works on the commit, so commit or stash first`); return 1; }
+  // The snapshot route reads only the commit; the checkout may hold anything (GATE-CONTRACT §1: no dirty-tree condition).
+  const dirty = ds ? null : git("status", "--porcelain", "--untracked-files=no");
+  if (!ds && (failed(dirty) || text(dirty).trim())) { o.err(`${tag} BLOCKED: the checkout differs from HEAD; every stage works on the commit, so commit or stash first`); return 1; }
 
   const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
   const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile }); applyExecutorEnv(o, executor);
   if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
   const version = (cmd, a) => { const r = o.spawn(cmd, a, { cwd: root }); return failed(r) ? null : text(r).trim().split(/\r?\n/)[0]; };
-  const listed = git("ls-tree", "-r", "--name-only", "-z", "HEAD");
+  const listed = git("ls-tree", "-r", "--name-only", "-z", commit);
   const lockFiles = {};
   for (const f of failed(listed) ? [] : text(listed).split("\0").filter((x) => /(^|\/)(Cargo\.lock|pnpm-lock\.yaml)$/.test(x))) {
-    const shown = git("show", `HEAD:${f}`); if (!failed(shown)) lockFiles[f] = text(shown);
+    const shown = git("show", `${commit}:${f}`); if (!failed(shown)) lockFiles[f] = text(shown);
   }
   const binding = bindingOf({
     tree, lockFiles, gateFile: fileURLToPath(import.meta.url), executor: executor.kind,
@@ -1491,19 +1520,26 @@ async function runStages(o, args, root, git, io) {
     }
     let ok = false; const at = new Date().toISOString(); let extra = {};
     if (stage === "check") {
-      ok = (await (o.runCheck ?? (() => main(["check", "--commit", "HEAD", "--full-a", "--rule-tier", earlyTier], { ...io, cwd: root })))(earlyTier)) === 0;
+      ok = (await (o.runCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), "--rule-tier", earlyTier], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))(earlyTier)) === 0;
       extra = { ruleTier: earlyTier };
     }
     else if (stage === "compile") {
       // A Tauri crate with externalBin needs its sidecars in src-tauri/binaries before it compiles (its build script refuses
       // otherwise), so every release config that declares `sidecars` is staged first, through right-release under this door run.
-      const listedConfigs = git("ls-tree", "-r", "--name-only", "-z", "HEAD");
+      const listedConfigs = git("ls-tree", "-r", "--name-only", "-z", commit);
       const sidecarConfigs = (failed(listedConfigs) ? [] : text(listedConfigs).split("\0").filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)).filter((f) => appDir === "." || f.startsWith(`${appDir}/`)))
         .filter((f) => { try { return /\bsidecars\b/.test(o.readFile(path.join(root, f))); } catch { return false; } });
       ok = true;
+      // Sidecar staging is right-release's, which still reads the checkout: from a snapshot it waits for the right-release source
+      // split (joint plan step 4c, second part), so a commit with sidecars is refused here rather than built from the checkout.
+      if (ds && sidecarConfigs.length) { o.err(`${tag} BLOCKED: [compile] ${sidecarConfigs.join(", ")} stage sidecars through right-release, which does not build from a commit snapshot yet; nothing compiled`); ok = false; }
       // right-release runs in appRoot (nested apps), so the repository-relative config is handed over absolute (Astra, second pass).
-      for (const config of sidecarConfigs) if (!rightRelease(stage, ["stage-sidecar", "--config", path.join(root, config)])) { ok = false; break; }
-      if (ok) ok = (await (o.runCompile ?? (() => main(["--all"], { ...io, cwd: root, readStdin: () => "" })))()) === 0;
+      for (const config of ok && !ds ? sidecarConfigs : []) if (!rightRelease(stage, ["stage-sidecar", "--config", path.join(root, config)])) { ok = false; break; }
+      if (ok) ok = (await (o.runCompile ?? (() => main(ds ? ["--all", "--commit", commit, "--snapshot", ds.path] : ["--all"], { ...io, cwd: root, readStdin: () => "", ...(ds ? { buildOwnership: ds.own } : {}) })))()) === 0;
+    }
+    else if (stage === "package" && ds) {
+      o.err(`${tag} BLOCKED: [package] right-release builds and seals from the checkout; building from a commit snapshot waits for the right-release source split (joint plan step 4c, second part); nothing was built`);
+      ok = false;
     }
     else if (stage === "package") {
       // Source QA (right-release qa --stage source) exists for mac and win only; a mobile package is the signed build alone.
@@ -1522,7 +1558,7 @@ async function runStages(o, args, root, git, io) {
         // store); the release tier is owed first, as for desktop qualification.
         const releaseTier = receipt.stages.check?.ok && receipt.stages.check.ruleTier === "release"
           ? (o.out(`${tag} [release] the release tier already passed at check for this exact input; not run again`), 0)
-          : await (o.runReleaseCheck ?? (() => main(["check", "--commit", "HEAD", "--full-a", "--rule-tier", "release"], { ...io, cwd: root })))();
+          : await (o.runReleaseCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), "--rule-tier", "release"], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))();
         if (releaseTier !== 0) { o.err(`${tag} [release] the release tier (every rule and scan) is red for ${commit.slice(0, 12)}; nothing was uploaded`); ok = false; }
         else ok = rightRelease(stage, ["upload", "--platform", platform, "--release", sealed.sealed, "--apply"]);
         extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, track: platform === "ios" ? "testflight" : "play-internal", ruleTier: "release" };
@@ -1530,7 +1566,7 @@ async function runStages(o, args, root, git, io) {
         // Qualification owes the release tier: every rule and scan, the ones held out of compile admission included (app-check.mjs TIERS).
         const releaseTier = receipt.stages.check?.ok && receipt.stages.check.ruleTier === "release"
           ? (o.out(`${tag} [qualify] the release tier already passed at check for this exact input; not run again`), 0)
-          : await (o.runReleaseCheck ?? (() => main(["check", "--commit", "HEAD", "--full-a", "--rule-tier", "release"], { ...io, cwd: root })))();
+          : await (o.runReleaseCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), "--rule-tier", "release"], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))();
         if (releaseTier !== 0) { o.err(`${tag} [qualify] the release tier (every rule and scan) is red for ${commit.slice(0, 12)}; nothing was qualified`); ok = false; }
         else ok = rightRelease(stage, ["qa", "--stage", "installed", "--platform", platform, "--release", sealed.sealed]);
         extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, ruleTier: "release" };
@@ -1538,6 +1574,14 @@ async function runStages(o, args, root, git, io) {
         if (!receipt.stages.qualify?.ok || receipt.stages.qualify.manifestSha256 !== sealed.manifestSha256) { o.err(`${tag} BLOCKED: [release] the sealed set was not qualified (installed QA) in this door run's receipt`); ok = false; }
         else { ok = rightRelease(stage, ["upload", "--release", sealed.sealed, "--platform", platform, "--tier", tier]); extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, tier }; }
       }
+    }
+    if (ds) {
+      // The stage covers the commit only if the snapshot is still its tree and the host is still this door's (E6).
+      let intact = ds.own.held();
+      if (intact) { try { (o.verifySnapshot ?? (await import("../snapshot.mjs")).verifySnapshot)({ checkout: root, rev: commit, root: ds.root, dir: ds.path }); } catch (e) { intact = false; o.err(`${tag} RK_CHECK_ERROR: [${stage}] ${e.message}`); } }
+      else o.err(`${tag} RK_CHECK_ERROR: [${stage}] the build ownership ${ds.own.handle} is no longer held`);
+      extra = { ...extra, snapshot: { path: ds.path, tree: ds.tree, intactAfter: intact }, ownership: ds.own.handle };
+      if (!intact) { receipt.stages[stage] = { ok: false, at, ...extra }; save(); o.err(`${tag} --to ${to} stopped at ${stage}: the result covers no known bytes`); return 2; }
     }
     receipt.stages[stage] = { ok, at, ...extra };
     save();
@@ -1692,13 +1736,13 @@ export async function main(argv, io = {}) {
   // class A scan (lockfiles, cargo-deny, cargo-audit, secrets, licences, manifests, workflow lint, syntax...) over the whole tree of the
   // commit, never a diff. Nothing compiles. The RustRight broker runs exactly this before it admits any compile. `--list`,
   // `--print-baseline` and `--only` stay app-check-only views.
-  if (sub === "check" && args.includes("--snapshot") && !o.buildOwnership) {
+  if ((sub === "check" || (!sub && args.includes("--all"))) && args.includes("--snapshot") && !o.buildOwnership) {
     // Host-wide build ownership (../build-ownership.mjs; GATE-CONTRACT §1): held from before the first snapshot read through the
     // end of the check, so no other request can sync the snapshot while class A runs in it. A nested gate whose
     // RIGHTKIT_BUILD_OWNERSHIP names the current owner joins it. Busy (or liveness unknown) runs nothing.
     const { acquireBuildOwnership, ownershipFile } = await import("../build-ownership.mjs");
     let own;
-    try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, env: o.env }), stage: "check", snapshot: option("--snapshot") ?? null, commit: option("--commit") ?? null, platform: o.platform, env: o.env }); }
+    try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, env: o.env }), stage: sub ?? "compile", snapshot: option("--snapshot") ?? null, commit: option("--commit") ?? null, platform: o.platform, env: o.env }); }
     catch (e) { if (e.code !== "busy") throw e; o.err(`rightkit-gate: RK_CHECK_ERROR: ${e.message}; nothing ran`); return 2; }
     o.out(`rightkit-gate: build ownership ${own.joined ? "joined" : "held"} ${own.handle}${own.reclaimed ? ` (reclaimed from ${own.reclaimed.from}: ${own.reclaimed.proofs.join("; ")})` : ""}`);
     try { return await main(argv, { ...io, buildOwnership: own }); }
@@ -1844,6 +1888,11 @@ export async function main(argv, io = {}) {
   // Full class A of a gate-owned snapshot (`check --snapshot`, which verified it): the snapshot is the commit's bytes, so neither the
   // checkout's HEAD nor its cleanliness matters, and the repository's code runs in the snapshot, never in the checkout.
   const snapshotA = classAOnly ? (option("--snapshot") ?? null) : null;
+  // The door's compile of a selected commit (`--all --commit <sha> --snapshot <dir>`, joint plan step 4c): every scan, class B's
+  // compiles included, reads the verified gate-owned snapshot, never the checkout; outputs go to the checkout's own target
+  // directory. A direct host only, until the broker's snapshot carrier lands (step 4d).
+  const snapshotB = !classAOnly && args.includes("--all") ? (option("--snapshot") ?? null) : null;
+  if (snapshotB && !option("--commit")) { o.err(`${tag} --all --snapshot <dir> needs --commit <sha>`); return 2; }
   if (fullA && !args.includes("--worktree") && !snapshotA) {
     // A commit is checked in full only where its bytes are the live checkout: it is HEAD and nothing tracked or untracked differs
     // (the unit and app stages already refuse a dirty tree). Then the working tree is that commit, and the checks run there.
@@ -1958,9 +2007,10 @@ export async function main(argv, io = {}) {
   // A broker-managed host whose broker is unreachable refuses the moment a Cargo manifest is in the snapshot (below): a repository
   // with no Rust owes nothing to the broker (a git hook's minimal PATH, a JS-only app), and the class A scans never compile.
   const cargoCommand = executor.cargo ?? ["cargo"];
+  if (snapshotB && executor.kind !== "direct") { o.err(`${tag} BLOCKED: a ${executor.kind} host compiles a commit snapshot only through the RustRight snapshot carrier (joint plan step 4d), which is not wired yet; nothing ran`); return 1; }
   // The snapshot: the commit or tree being checked (check --commit), HEAD for the gate, or the working tree (check --worktree, --plan).
   const allFilesMode = classAOnly || args.includes("--all");
-  const snapshot = planOnly ? null : classAOnly ? classACommit : "HEAD";
+  const snapshot = planOnly ? null : classAOnly ? classACommit : snapshotB ? option("--commit") : "HEAD";
   // Every effectful gate entry owes the app rules, not only `check` (Astra, 2026-10-26): a bare, --all or pre-push run on HEAD runs them
   // first, in the tier asked for (compile by default), and plans nothing while they are red. --plan and --class-a (which runs them in
   // `check`) are untouched.
@@ -1979,7 +2029,11 @@ export async function main(argv, io = {}) {
   const signals = [];
   try {
     let repo = root;
-    if (snapshot && snapshotA) {
+    let snapshotBCommit = null;
+    if (snapshot && snapshotB) {
+      // Direct host: no broker grant to satisfy, so no config-only .git; the snapshot is scanned and compiled in place.
+      repo = snapshotB;
+    } else if (snapshot && snapshotA) {
       // The verified gate-owned snapshot is the commit's bytes: it is scanned in place, no export.
       repo = snapshotA;
       // As for an export (rightkit#1215): rustright binds the tracked .rightkit-local-build.json grant to the origin URL in .git/config,
@@ -2044,9 +2098,35 @@ export async function main(argv, io = {}) {
     } catch (e) { o.err(`${tag} BLOCKED: cannot discover the repository's units: ${e.message}`); return 1; }
     for (const k of rust.skipped) o.out(`${tag} note: ${k.manifest} is skipped, not scanned: ${k.why}`);
 
+    // The snapshot compile: verified as the commit's tree before anything runs, dependencies installed into it offline from the
+    // checkout's store, and every Cargo workspace's output pinned to the target directory cargo resolves for it IN THE CHECKOUT
+    // (CARGO_TARGET_DIR or build.target-dir honoured), so the warm outputs are the checkout's and the snapshot holds no target/.
+    let targetDirs = null;
+    if (snapshotB) {
+      const sc = await import("../snapshot-check.mjs");
+      try {
+        const checkout = fs.realpathSync.native(root);
+        snapshotBCommit = sc.commitOf(checkout, String(snapshot), o.spawn);
+        sc.verifySnapshotDir({ checkout, dir: snapshotB, ...snapshotBCommit, when: "before the compile" });
+        o.out(`${tag} snapshot ${snapshotB} is commit ${snapshotBCommit.commit} tree ${snapshotBCommit.tree} (verified before the compile)`);
+        for (const r of sc.installSnapshotDependencies({ checkout, snapshot: snapshotB, roots: npmRoots, env: o.env, spawn: o.spawn })) o.out(`${tag} ${sc.describeInstall(r)}`);
+      } catch (error) { o.err(`${tag} ${error.code === "RK_CHECK_ERROR" ? "RK_CHECK_ERROR" : "BLOCKED"}: ${error.message}`); return error.code === "RK_CHECK_ERROR" ? 2 : 1; }
+      targetDirs = {};
+      for (const ws of rust.workspaces) {
+        const manifest = path.join(root, ws.cargoDir, "Cargo.toml");
+        if (!o.exists(manifest)) { o.err(`${tag} BLOCKED: the checkout has no ${posix(path.relative(root, manifest))}, so the output directory of workspace ${ws.cargoDir} cannot be resolved; nothing compiled`); return 1; }
+        const r = o.spawn(cargoCommand[0], [...cargoCommand.slice(1), "metadata", "--offline", "--format-version", "1", "--no-deps", "--manifest-path", manifest], { cwd: path.dirname(manifest), env: o.env });
+        let dir = null;
+        try { dir = failed(r) ? null : JSON.parse(text(r)).target_directory; } catch { dir = null; }
+        if (typeof dir !== "string" || !path.isAbsolute(dir)) { o.err(`${tag} BLOCKED: cargo metadata in the checkout reported no absolute target_directory for ${ws.cargoDir}${failed(r) ? ` (${why(r)})` : ""}; nothing compiled`); return 1; }
+        targetDirs[ws.cargoDir] = path.resolve(dir);
+        o.out(`${tag} output directory for workspace ${ws.cargoDir}: ${targetDirs[ws.cargoDir]} (the checkout's)`);
+      }
+    }
+
     // Class B scans (compile, lint, tests) run in the live checkout, so it must equal HEAD where they read it: an uncommitted fix could
     // otherwise hide a committed failure. Class A reads only the snapshot.
-    if (!planOnly && !classAOnly) {
+    if (!planOnly && !classAOnly && !snapshotB) {
       const npmRootFiles = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc", ...ESLINT_CONFIG_FILES, ...BIOME_CONFIG_FILES];
       const inputs = [...new Set([...rust.units.map((u) => u.dir), ...npm.map((u) => u.dir), ...rust.workspaces.map((w) => w.cargoDir), "ci", "scripts", "vendor", "Cargo.toml", "Cargo.lock", ".cargo", "rust-toolchain.toml", "rust-toolchain",
         "deny.toml", "clippy.toml", "rustfmt.toml", ...npmRootFiles, ...npmRoots.filter((r) => r !== ".").flatMap((r) => npmRootFiles.map((f) => `${r}/${f}`))])];
@@ -2123,7 +2203,7 @@ export async function main(argv, io = {}) {
     fullPlan = planScans({
       // Class A of a commit or tree reads only that snapshot: every scan, cargo's included, runs in the export, never in the live
       // checkout (which may hold other bytes). Compiles (class B) use the live checkout, whose tree the dirty check pinned to HEAD.
-      changed, contentRoot: repo, liveRoot: classAOnly && snapshot ? repo : root, trustedRoot: snapshotA ?? root, includeTests: true, rustScope, cargoCommand,
+      changed, contentRoot: repo, liveRoot: (classAOnly && snapshot) || snapshotB ? repo : root, trustedRoot: snapshotA ?? snapshotB ?? root, includeTests: true, rustScope, cargoCommand, targetDirs,
       tier: fullA ? "release" : (option("--rule-tier") ?? "compile"), cargoLiveRoot,
       // The quiet tests (port, pipe, desktop and wall-clock bound) are proven by the CI shards, one crate per runner, unless
       // RK_GATE_QUIET_TESTS=local asks for the serial quiet lane here (no CI, or a CI outage).
@@ -2244,7 +2324,7 @@ export async function main(argv, io = {}) {
     }
     if (!classAOnly && !args.includes("--no-cache") && o.env.RK_GATE_CACHE !== "0") {
       try {
-        const headSha = text(git("rev-parse", "HEAD")).trim();
+        const headSha = snapshotBCommit?.commit ?? text(git("rev-parse", "HEAD")).trim();
         const treeId = text(git("rev-parse", `${headSha}^{tree}`)).trim();
         const common = git("rev-parse", "--git-common-dir");
         if (headSha && treeId && !failed(common) && text(common).trim()) {
@@ -2276,7 +2356,7 @@ export async function main(argv, io = {}) {
       // `executes`) run in the full gate (--all, the push hook, the door's compile stage), after the content checks and before any compile.
       ...(classAOnly && !fullA ? { exclude: (s) => s.executes === true } : {}),
       // A snapshot check names its commit; it never reads the checkout's HEAD.
-      quietLane: quietLeaseLane(o, { tag, reason: `rightkit-gate-quiet-tests@${snapshotCommitId ? snapshotCommitId.commit.slice(0, 12) : text(git("rev-parse", "--short", "HEAD")).trim()}` }),
+      quietLane: quietLeaseLane(o, { tag, reason: `rightkit-gate-quiet-tests@${snapshotCommitId ? snapshotCommitId.commit.slice(0, 12) : snapshotBCommit ? snapshotBCommit.commit.slice(0, 12) : text(git("rev-parse", "--short", "HEAD")).trim()}` }),
       // On a broker-managed host the quiet suites need the lease or they are refused (never run unleashed).
       requireQuietLease: executor.kind === "broker",
       // Failing scans' complete output: never inside the repository, on the host's scratch root (RIGHTKIT_SCRATCH_ROOT, else the
@@ -2328,6 +2408,12 @@ export async function main(argv, io = {}) {
       if (envAtStart !== null && envNoCaches !== envAtStart) return { prefix: "BLOCKED", exit: 1, problem: "the class A environment (gate, tools or installed dependencies) changed while class A ran; the verdict does not cover it. Run again." };
       return { env: envDigest, notes };
     };
+    if (snapshotB) {
+      // The compile covers the commit only if the snapshot still is its tree after every scan ran (E6).
+      try { (await import("../snapshot-check.mjs")).verifySnapshotDir({ checkout: fs.realpathSync.native(root), dir: snapshotB, ...snapshotBCommit, when: "after the compile" }); }
+      catch (error) { o.err(`${tag} RK_CHECK_ERROR: ${error.message}; the compile covers no known bytes`); return 2; }
+      o.out(`${tag} snapshot ${snapshotB} is still tree ${snapshotBCommit.tree} after the compile`);
+    }
     if (failures.length) {
       o.err(`${tag} BLOCKED (${failures.length})`);
       for (const f of failures) o.err(`  - ${f}`);

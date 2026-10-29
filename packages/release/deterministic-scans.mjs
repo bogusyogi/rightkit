@@ -522,6 +522,9 @@ export function planScans({
   // every cargo command but a locked metadata outside the app's primary checkout (RK_NOT_PRIMARY_CHECKOUT). The gate sets it only after
   // proving the checkout's Cargo inputs are blob-identical to the snapshot's (cargoInputsDiffer); null keeps the content/live roots.
   cargoLiveRoot = null,
+  // { [cargoDir]: absolute directory }: the checkout's resolved target directory per Cargo workspace, set as CARGO_TARGET_DIR on
+  // that workspace's cargo scans when the scans read a snapshot (the door's commit compile, joint plan step 4c).
+  targetDirs = null,
   // The command prefix every cargo scan runs through: `rustright cargo` on a managed host, plain `cargo` in CI.
   cargoCommand = ["rustright", "cargo"],
   // Physical containment: a changed path whose real path leaves the real content root (a symlink) is refused.
@@ -610,7 +613,7 @@ export function planScans({
   const plainDir = (d) => !ABSOLUTE_PATH.test(d) && !d.split("/").includes("..") && SAFE_UNIT_DIR.test(d);
   const cargoWs = cleanDir(cargoDir);
   if (!plainDir(cargoWs)) throw new TypeError("planScans: cargoDir must be a plain repository-relative directory");
-  const cargoIn = (ws, ...args) => ({ tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...args], ...(ws !== "." ? { cwd: ws } : {}), ...(cargoLiveRoot ? { root: "cargoLive" } : {}) });
+  const cargoIn = (ws, ...args) => ({ tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...args], ...(ws !== "." ? { cwd: ws } : {}), ...(cargoLiveRoot ? { root: "cargoLive" } : {}), ...(targetDirs?.[ws] ? { env: { CARGO_TARGET_DIR: targetDirs[ws] } } : {}) });
   const unitMap = (units, kind) => {
     if (units === null) return null;
     if (!Array.isArray(units)) throw new TypeError(`planScans: ${kind}Units must be an array of { name, dir }`);
