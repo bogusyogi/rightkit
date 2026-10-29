@@ -253,7 +253,7 @@ test("runScans: a broker cargo request builds the snapshot under its own carrier
   // Every exit after the carrier exists removes it and the request reference: a thrown spawn, a cancel, a timeout.
   const gone = (seen) => { assert.ok(seen.file && seen.refDir); assert.equal(fs.existsSync(seen.file), false, seen.file); assert.equal(fs.existsSync(seen.refDir), false, seen.refDir); };
   const thrown = await run({ launch: () => { throw new Error("spawn exploded"); } });
-  assert.notEqual(thrown.row?.status, "pass"); gone(thrown.seen);
+  assert.equal(thrown.row.status, "fail"); assert.equal(thrown.row.code, "SCAN_ERROR"); assert.match(thrown.row.detail, /spawn exploded/); gone(thrown.seen);
   const ac = new AbortController(); launchSignal = ac.signal;
   const cancelled = await run({ launch: () => { ac.abort(); return { status: null, error: Object.assign(new Error("aborted"), { code: "ABORT_ERR" }) }; } });
   assert.equal(cancelled.row.code, "CANCELLED"); gone(cancelled.seen);

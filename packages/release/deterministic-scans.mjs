@@ -418,12 +418,13 @@ function inspectCommand(words, scripts) {
  * (`pnpm <script>`, `pnpm run <script>`, `npm run <script>`, `yarn [run] <script>`, `npm test`), their `pre<script>` and `post<script>` hooks, and
  * `exec`/`dlx`/`npx` wrappers. A run pointed at another package (`--filter`, `-r`, `--dir` elsewhere) is not followed. Bounded to `maxDepth` nested
  * scripts and cycle-safe. Returns `{ tool, via, command }` for the first call in execution order (`via` is the scripts walked, `command` the command
- * line that calls the tool), or null. Reads package.json `scripts` data only.
+ * line that calls the tool), or null. With `all`, every such call in execution order (an array). Reads package.json `scripts` data only.
  */
-export function scriptBrokerCall(scripts, entry = "test", { maxDepth = 8 } = {}) {
-  if (scripts === null || typeof scripts !== "object" || Array.isArray(scripts)) return null;
+export function scriptBrokerCall(scripts, entry = "test", { maxDepth = 8, all = false } = {}) {
+  if (scripts === null || typeof scripts !== "object" || Array.isArray(scripts)) return all ? [] : null;
   const textOf = (name) => (Object.hasOwn(scripts, name) && typeof scripts[name] === "string" ? scripts[name].slice(0, SCRIPT_TEXT_LIMIT) : null);
   const seen = new Set();
+  const calls = [];
   const visit = (name, via) => {
     if (via.length >= maxDepth || seen.has(name)) return null;
     seen.add(name);
@@ -432,7 +433,7 @@ export function scriptBrokerCall(scripts, entry = "test", { maxDepth = 8 } = {})
       if (text === null) continue;
       for (const words of shellCommands(text)) {
         const found = inspectCommand(words, scripts);
-        if (found.call) return { tool: found.call, via: [...via, part], command: words.join(" ").slice(0, 200) };
+        if (found.call) { const call = { tool: found.call, via: [...via, part], command: words.join(" ").slice(0, 200) }; if (!all) return call; calls.push(call); continue; }
         if (found.run !== undefined) {
           const deeper = visit(found.run, [...via, part]);
           if (deeper) return deeper;
@@ -441,7 +442,8 @@ export function scriptBrokerCall(scripts, entry = "test", { maxDepth = 8 } = {})
     }
     return null;
   };
-  return visit(String(entry), []);
+  const first = visit(String(entry), []);
+  return all ? calls : first;
 }
 
 /**
@@ -450,8 +452,8 @@ export function scriptBrokerCall(scripts, entry = "test", { maxDepth = 8 } = {})
  * the scripts it starts in the same package.json like scriptBrokerCall. Such a test is not a pre-compile check: it runs after
  * class A, with the compile scans (Codex reviewer 2026-10-28). Returns `{ via, command }` or null.
  */
-export function scriptBuildCall(scripts, entry = "test", { maxDepth = 8 } = {}) {
-  if (scripts === null || typeof scripts !== "object" || Array.isArray(scripts)) return null;
+export function scriptBuildCall(scripts, entry = "test", { maxDepth = 8, all = false } = {}) {
+  if (scripts === null || typeof scripts !== "object" || Array.isArray(scripts)) return all ? [] : null;
   const textOf = (name) => (Object.hasOwn(scripts, name) && typeof scripts[name] === "string" ? scripts[name].slice(0, SCRIPT_TEXT_LIMIT) : null);
   const builds = (words) => {
     let i = 0;
@@ -469,6 +471,7 @@ export function scriptBuildCall(scripts, entry = "test", { maxDepth = 8 } = {}) 
     return false;
   };
   const seen = new Set();
+  const calls = [];
   const visit = (name, via) => {
     if (via.length >= maxDepth || seen.has(name)) return null;
     seen.add(name);
@@ -476,14 +479,15 @@ export function scriptBuildCall(scripts, entry = "test", { maxDepth = 8 } = {}) 
       const text = textOf(part);
       if (text === null) continue;
       for (const words of shellCommands(text)) {
-        if (builds(words)) return { via: [...via, part], command: words.join(" ").slice(0, 200) };
+        if (builds(words)) { const call = { via: [...via, part], command: words.join(" ").slice(0, 200) }; if (!all) return call; calls.push(call); continue; }
         const found = inspectCommand(words, scripts);
         if (found.run !== undefined) { const deeper = visit(found.run, [...via, part]); if (deeper) return deeper; }
       }
     }
     return null;
   };
-  return visit(String(entry), []);
+  const first = visit(String(entry), []);
+  return all ? calls : first;
 }
 
 // Cargo redirections on a reachable command line or script: an explicit manifest or output directory, or a working-directory change.
@@ -491,42 +495,48 @@ const CARGO_REDIRECT = /--manifest-path|--target-dir|(^|[\s;&|(])(CARGO_TARGET_D
 
 /**
  * Where a package's `test` script makes cargo run, for a commit-snapshot compile (joint plan step 4c): `{ none: true }` when it reaches
- * no cargo (a JS build, `tsc`), `{ dir }` (repository-relative) when cargo provably runs from that directory, or `{ unprovable }` with
- * the reason. Only what the test actually reaches is read: the same-package chain scriptBrokerCall walks, and one hop of a build it
- * retargets with --dir/-C/--filter to another package of this repository (that package's own build script, walked the same way).
+ * no cargo (a JS build, `tsc`), `{ dir }` (repository-relative) when cargo provably runs from that one directory, `{ dirs }` when it
+ * provably runs from several (the caller requires them to be one workspace), or `{ unprovable }` with the reason. Every call the test
+ * reaches counts, not the first: `cargo test && pnpm --dir native run build` reaches this package AND native (root review of 431fbeae).
+ * Only what the test actually reaches is read: the same-package chain scriptBrokerCall walks, and one hop of each build it retargets
+ * with --dir/-C/--filter to another package of this repository (that package's own scripts, walked the same way).
+ * `brokerCall`/`buildCall` (one call each) remain accepted; `brokerCalls`/`buildCalls` carry every call.
  */
-export function cargoReachOf({ unitDir, scripts, brokerCall = null, declared = null, buildCall = null, readScripts = () => null, packageDirOf = () => null }) {
+export function cargoReachOf({ unitDir, scripts, brokerCall = null, declared = null, buildCall = null, brokerCalls = brokerCall ? [brokerCall] : [], buildCalls = buildCall ? [buildCall] : [], readScripts = () => null, packageDirOf = () => null }) {
   const reaching = (call, ownScripts, dir) => {
     const texts = [call.command, ...(call.via ?? []).map((n) => (typeof ownScripts?.[n] === "string" ? ownScripts[n] : ""))];
     if (texts.some((t) => CARGO_REDIRECT.test(t))) return { unprovable: `the path to cargo (${call.via?.join(" -> ") ?? call.command}) redirects it` };
     return { dir };
   };
-  if (brokerCall) return reaching(brokerCall, scripts, unitDir);
-  if (declared?.call) return { unprovable: "it is declared to reach the broker in ways its scripts do not show (requiresBroker)" };
-  if (!buildCall) return { none: true };
-  const words = shellCommands(buildCall.command)[0] ?? [];
-  let i = 0;
-  while (i < words.length && (ENV_ASSIGNMENT.test(words[i]) || COMMAND_WRAPPERS.has(path.posix.basename(words[i])) || PACKAGE_RUNNERS.has(path.posix.basename(words[i])))) i += 1;
-  const tool = path.posix.basename(String(words[i] ?? "").replaceAll("\\", "/")).replace(/\.(exe|cmd|bat)$/i, "");
-  if (!PACKAGE_MANAGERS.has(tool)) return { none: true };
-  let target = null; let script = null;
-  for (let j = i + 1; j < words.length; j++) {
-    const [name, ...inline] = words[j].split("=");
-    const value = inline.length ? inline.join("=") : words[j + 1];
-    if (RETARGET_FLAGS.has(name)) return { unprovable: `${buildCall.command} builds across workspace packages (${name})` };
-    if (name === "--dir" || name === "-C" || name === "--prefix") { target = path.posix.normalize(path.posix.join(unitDir, String(value))); if (!inline.length) j++; continue; }
-    if (name === "--filter" || name === "-F" || name === "--filter-prod" || name === "--workspace") { const dir = packageDirOf(String(value)); if (dir === null) return { unprovable: `${buildCall.command} builds a package (${value}) this repository cannot resolve` }; target = dir; if (!inline.length) j++; continue; }
-    if (words[j].startsWith("-") || words[j] === "run" || words[j] === "run-script") continue;
-    script = words[j]; break;
-  }
-  if (target === null || SAME_DIR_VALUES.has(target) || target === unitDir) return { none: true };
-  const other = readScripts(target);
-  if (other === null) return { unprovable: `${buildCall.command} runs scripts of ${target}, which has no readable package.json` };
-  const inner = scriptBrokerCall(other, script ?? "build");
-  if (inner) return reaching(inner, other, target);
-  const further = scriptBuildCall(other, script ?? "build");
-  return further && /(^|\s)(--dir|-C|--prefix|--filter|-F|--filter-prod|--workspace|-r|--recursive)(\s|=|$)/.test(further.command)
-    ? { unprovable: `${target}'s ${script ?? "build"} builds further packages (${further.command})` } : { none: true };
+  const buildReach = (call) => {
+    const words = shellCommands(call.command)[0] ?? [];
+    let i = 0;
+    while (i < words.length && (ENV_ASSIGNMENT.test(words[i]) || COMMAND_WRAPPERS.has(path.posix.basename(words[i])) || PACKAGE_RUNNERS.has(path.posix.basename(words[i])))) i += 1;
+    const tool = path.posix.basename(String(words[i] ?? "").replaceAll("\\", "/")).replace(/\.(exe|cmd|bat)$/i, "");
+    if (!PACKAGE_MANAGERS.has(tool)) return [{ none: true }];
+    let target = null; let script = null;
+    for (let j = i + 1; j < words.length; j++) {
+      const [name, ...inline] = words[j].split("=");
+      const value = inline.length ? inline.join("=") : words[j + 1];
+      if (RETARGET_FLAGS.has(name)) return [{ unprovable: `${call.command} builds across workspace packages (${name})` }];
+      if (name === "--dir" || name === "-C" || name === "--prefix") { target = path.posix.normalize(path.posix.join(unitDir, String(value))); if (!inline.length) j++; continue; }
+      if (name === "--filter" || name === "-F" || name === "--filter-prod" || name === "--workspace") { const dir = packageDirOf(String(value)); if (dir === null) return [{ unprovable: `${call.command} builds a package (${value}) this repository cannot resolve` }]; target = dir; if (!inline.length) j++; continue; }
+      if (words[j].startsWith("-") || words[j] === "run" || words[j] === "run-script") continue;
+      script = words[j]; break;
+    }
+    if (target === null || SAME_DIR_VALUES.has(target) || target === unitDir) return [{ none: true }];
+    const other = readScripts(target);
+    if (other === null) return [{ unprovable: `${call.command} runs scripts of ${target}, which has no readable package.json` }];
+    const inner = scriptBrokerCall(other, script ?? "build", { all: true }).map((c) => reaching(c, other, target));
+    const further = scriptBuildCall(other, script ?? "build", { all: true }).find((c) => /(^|\s)(--dir|-C|--prefix|--filter|-F|--filter-prod|--workspace|-r|--recursive)(\s|=|$)/.test(c.command));
+    return further ? [{ unprovable: `${target}'s ${script ?? "build"} builds further packages (${further.command})` }] : inner.length ? inner : [{ none: true }];
+  };
+  if (!brokerCalls.length && declared?.call) return { unprovable: "it is declared to reach the broker in ways its scripts do not show (requiresBroker)" };
+  const reaches = [...brokerCalls.map((c) => reaching(c, scripts, unitDir)), ...buildCalls.flatMap(buildReach)];
+  const refused = reaches.find((r) => r.unprovable);
+  if (refused) return refused;
+  const dirs = [...new Set(reaches.filter((r) => r.dir !== undefined).map((r) => r.dir))];
+  return dirs.length === 0 ? { none: true } : dirs.length === 1 ? { dir: dirs[0] } : { dirs };
 }
 
 // A test script can reach the broker in ways scriptBrokerCall cannot read from package.json alone: `node -e "...spawnSync('pnpm', ['run', n])..."`,
@@ -1049,19 +1059,27 @@ export function planScans({
           }
           return null;
         };
-        const reach = cargoReachOf({ unitDir, scripts: manifest.scripts, brokerCall: scriptBrokerCall(manifest.scripts, "test"), declared, buildCall, readScripts: scriptsOf, packageDirOf });
+        // Every call the test reaches, not the first: one CARGO_TARGET_DIR binds the whole test, so all of them must be one workspace.
+        const reach = cargoReachOf({ unitDir, scripts: manifest.scripts, brokerCalls: scriptBrokerCall(manifest.scripts, "test", { all: true }), declared, buildCalls: scriptBuildCall(manifest.scripts, "test", { all: true }), readScripts: scriptsOf, packageDirOf });
         const hasRust = Object.keys(targetDirs).length > 0;
         if (reach.unprovable) {
           if (hasRust) { refuse(`npm unit ${name}`, `its test reaches cargo while the compile reads a commit snapshot, and which workspace's outputs it writes cannot be proven (${reach.unprovable}); outputs must be the checkout's`); continue; }
-        } else if (reach.dir !== undefined) {
-          let manifestDir = null;
-          for (let d = reach.dir; ; d = path.posix.dirname(d) === "." || d === "." ? "." : path.posix.dirname(d)) {
-            if (exists(path.join(contentRoot, ...(d === "." ? [] : d.split("/")), "Cargo.toml"))) { manifestDir = d; break; }
-            if (d === ".") break;
-          }
-          const ws = manifestDir === null ? null : Object.hasOwn(targetDirs, manifestDir) ? manifestDir : ([...(rustMap?.values() ?? [])].find((u) => u.dir === manifestDir)?.cargoDir ?? null);
-          if (!ws || !targetDirs[ws]) { refuse(`npm unit ${name}`, `its test reaches cargo from ${reach.dir}, ${manifestDir === null ? `which no Cargo.toml encloses` : `whose ${manifestDir}/Cargo.toml is not a known workspace or member`}; outputs must be the checkout's`); continue; }
-          cargoTarget = targetDirs[ws];
+        } else if (reach.dir !== undefined || reach.dirs) {
+          const workspaceOf = (from) => {
+            let manifestDir = null;
+            for (let d = from; ; d = path.posix.dirname(d) === "." || d === "." ? "." : path.posix.dirname(d)) {
+              if (exists(path.join(contentRoot, ...(d === "." ? [] : d.split("/")), "Cargo.toml"))) { manifestDir = d; break; }
+              if (d === ".") break;
+            }
+            const ws = manifestDir === null ? null : Object.hasOwn(targetDirs, manifestDir) ? manifestDir : ([...(rustMap?.values() ?? [])].find((u) => u.dir === manifestDir)?.cargoDir ?? null);
+            return ws && targetDirs[ws] ? { ws } : { why: `its test reaches cargo from ${from}, ${manifestDir === null ? `which no Cargo.toml encloses` : `whose ${manifestDir}/Cargo.toml is not a known workspace or member`}; outputs must be the checkout's` };
+          };
+          const found = (reach.dirs ?? [reach.dir]).map(workspaceOf);
+          const unknown = found.find((f) => f.why);
+          if (unknown) { refuse(`npm unit ${name}`, unknown.why); continue; }
+          const workspaces = [...new Set(found.map((f) => f.ws))];
+          if (workspaces.length > 1) { refuse(`npm unit ${name}`, `its test reaches cargo in more than one workspace (${workspaces.join(", ")} from ${reach.dirs.join(", ")}); one CARGO_TARGET_DIR binds the whole test, so one of them would write into another's outputs`); continue; }
+          cargoTarget = targetDirs[workspaces[0]];
         }
       }
       add({ id: `test:npm:${name}`, class: inClassA ? A : B, kind: "test", executes: true, classReason: inClassA ? `class A on recorded evidence (${classAEvidence}); run under the launch guard` : brokerCall ? "its test script reaches the broker (compiles); it runs with the compile scans" : laterReason ?? "test scripts execute project code and run after class A", ...(own.quietTests === true ? { quiet: true } : {}), ...(brokerCall ? { brokerCall } : {}), tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { ...PNPM_RUN_ENV, ...(isolatedCheckout ? { RIGHTKIT_ISOLATED_CHECKOUT: "1" } : {}), ...(cargoTarget ? { CARGO_TARGET_DIR: cargoTarget } : {}) } });

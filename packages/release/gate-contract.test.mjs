@@ -647,3 +647,38 @@ test("[behavior] §1 4c review (target binding): only what a test reaches decide
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("[behavior] §1 4c review (mixed reach): a test that reaches cargo in two workspaces is refused before launch; every reach in one workspace still binds it", () => {
+  // Root review of 431fbeae: only the first call was read, so `cargo test && pnpm --dir native run build` bound the enclosing workspace's
+  // CARGO_TARGET_DIR for the whole test and native's independent build wrote into it.
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gc-4c-mixed-")));
+  try {
+    write(dir, {
+      "package.json": '{"name":"root","private":true}\n', "pnpm-workspace.yaml": "packages:\n  - packages/*\n  - native\n",
+      // Direct cargo in the enclosing workspace, then a build hop into the independent native workspace.
+      "packages/mix/package.json": '{"name":"mix","private":true,"scripts":{"test":"cargo test --locked && pnpm --dir ../../native run build"}}\n',
+      // Two build hops, each into a different workspace.
+      "packages/twohop/package.json": '{"name":"twohop","private":true,"scripts":{"test":"pnpm --dir ../../native run build && pnpm --dir ../rs run build && node --test"}}\n',
+      // Direct cargo and a hop that both land in the enclosing workspace: one workspace, still bound.
+      "packages/same/package.json": '{"name":"same","private":true,"scripts":{"test":"cargo test --locked && pnpm --dir ../rs run build"}}\n',
+      // The second reach hides behind a same-package script: still read.
+      "packages/deep/package.json": '{"name":"deep","private":true,"scripts":{"test":"pnpm run unit && pnpm run e2e","unit":"cargo test --locked","e2e":"pnpm --dir ../../native run build"}}\n',
+      "packages/rs/package.json": '{"name":"rs","private":true,"scripts":{"build":"cargo build --locked","test":"cargo test --locked"}}\n',
+      "native/package.json": '{"name":"native","private":true,"scripts":{"build":"cargo build --locked"}}\n',
+      "native/Cargo.toml": '[workspace]\nmembers = []\n', "Cargo.toml": '[workspace]\nmembers = ["packages/rs"]\n', "packages/rs/Cargo.toml": '[package]\nname = "rs"\nversion = "0.1.0"\n',
+    });
+    const files = ["package.json", "pnpm-workspace.yaml", "packages/mix/package.json", "packages/twohop/package.json", "packages/same/package.json", "packages/deep/package.json", "packages/rs/package.json", "native/package.json", "native/Cargo.toml", "Cargo.toml", "packages/rs/Cargo.toml"];
+    const npmUnits = ["mix", "twohop", "same", "deep", "rs"].map((n) => ({ name: n, dir: `packages/${n}` })).concat([{ name: "native", dir: "native" }]);
+    const p = planScans({ changed: files, contentRoot: dir, liveRoot: dir, trustedRoot: dir, includeTests: true, quietTests: "local", tier: "compile", cargoCommand: ["cargo"],
+      rustUnits: [{ name: "rs", dir: "packages/rs", crate: "rs", cargoDir: "." }], npmUnits, npmRoots: ["."], liveExecution: true,
+      targetDirs: { ".": "/checkout/target", native: "/checkout/native/target" }, platform: process.platform });
+    const row = (n) => p.scans.find((s) => s.id === `test:npm:${n}`);
+    const refusedFor = (n) => p.scans.find((s) => s.internal === "refuse" && new RegExp(`npm unit ${n}:`).test(s.detail))?.detail ?? null;
+    for (const n of ["mix", "twohop", "deep"]) {
+      assert.equal(row(n), undefined, `${n} is not planned with one workspace's target directory`);
+      assert.match(refusedFor(n) ?? "", /more than one workspace \(\., native|more than one workspace \(native, \./, `${n}: ${refusedFor(n)}`);
+    }
+    assert.equal(row("same")?.env.CARGO_TARGET_DIR, "/checkout/target", `every reach in the enclosing workspace binds it (${refusedFor("same")})`);
+    assert.equal(row("rs")?.env.CARGO_TARGET_DIR, "/checkout/target", "a single direct reach is unchanged");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
