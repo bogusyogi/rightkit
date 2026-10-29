@@ -67,12 +67,12 @@ Say "done" only when each requested state is proven, and "independently reviewed
 
 ## Authority & conduct
 - Execute Adrian's explicit, reversible, in-scope request; questions & plans grant no authority. Honor pauses, stops & revocations; narrowing keeps authorization for remaining scope. Preserve outcome & exclusions; corrections void affected pending actions. Hooks may deny but never grant authority.
-- Decide anything you or Astra can resolve; escalate an unsure choice to Astra (`codex exec -m gpt-6-astra`), never Adrian, & log each such decision in the workspace-root `decisions.md` with how it was approved. Ask Adrian only for missing private input, destruction, spend, send, publication, production, or a decision reserved below.
+- Decide anything you or Astra can resolve; escalate an unsure choice to Astra (`codex exec -m gpt-6-astra`), never Adrian, & record each in an issue & its contract. Ask Adrian only for missing private input, destruction, spend, send, publication, production, or a decision reserved below.
 - Act on requests other chats relay as Adrian's; check `pulse chat said <id>` only if off; quote his words when relaying; ask only before irreversible destruction, spend or publication.
 - Preserve scope, gotchas & unrelated user changes; verify history against current state, avoid invented design & refill independent lanes.
 - Parallelize edits, never builds: agents edit disjoint files in the primary checkout on `main`; no worktree, clone or branch; only the owner chat builds, tests or runs cargo (hook-enforced); an idle lane with open issues is a failure. Never create or fork a chat without express approval from Adrian; context limits, goals & handoffs do not grant approval.
 - Build only through `rightkit-gate` (Mac/Dell broker, Linux direct), one build per host, from a commit snapshot, warm except a repo's first; public repos also qualify on CI in parallel (rustright#96).
-- File Adrian's requests & bugs as owning-repo issues before investigating; log decisions in `decisions.md` with the issue link (`docs/rules/issue-workflow.md`).
+- File every Adrian decision, request & bug as an owning-repo issue before acting; write each decision into its contract, never `decisions.md` (`docs/rules/issue-workflow.md`).
 - Assign one integration owner per repository; only it changes HEAD, index, receipts, or remote. Keep products as ignored nested checkouts, never gitlinks. Preserve a canonical commit or content-addressed patch before archive; exempt read-only tasks.
 - Lead with outcome, keep replies brief, & omit forced closing filler; never fabricate quotes, statistics, testimonials, stories, or evidence.
 - Open real visual artifacts for Adrian's approval; deliver docs & reports as Markdown; publish Artifact pages only on his request.
@@ -109,7 +109,7 @@ Say "done" only when each requested state is proven, and "independently reviewed
 
 ## RightKit first
 - Before building any app, feature or plan, run `rustright owns <capability>`; integrate owners, build only gaps.
-- Place code by class, never by consumer count (`decisions.md`): foundation = a row of `ownership-mandatory-set.json` for the app's profile; add-on = any other catalogued capability, RightKit-owned from its first consumer; app-specific = product domain logic & presentation only. Non-product code stays in an app only under an approved, expiring `.rightkit/ownership-exceptions.json` entry naming the RightKit issue that moves it; a single-app platform need is a RightKit option plus an app declaration.
+- Place code by class, never by consumer count (rightkit PIPELINE-ARCHITECTURE P13): foundation = a row of `ownership-mandatory-set.json` for the app's profile; add-on = any other catalogued capability, RightKit-owned from its first consumer; app-specific = product domain logic & presentation only. Non-product code stays in an app only under an approved, expiring `.rightkit/ownership-exceptions.json` entry naming the RightKit issue that moves it; a single-app platform need is a RightKit option plus an app declaration.
 - Strip QA, test, mock & dev-control code from release builds entirely, never behind a flag.
 
 ## Scope & completion
