@@ -1083,15 +1083,22 @@ impl OwnedChild {
         mut options: TerminationOptions,
     ) -> io::Result<ReapOutcome> {
         let started = Instant::now();
+        // One absolute deadline covers grace, kill, root reap and job emptiness: each step reads
+        // what is left of it when it actually waits, so a gap between steps never buys a fresh
+        // budget (rightkit#1260). `None` (a timeout too large for an Instant) is unbounded.
+        let deadline = started.checked_add(timeout);
+        let left = || {
+            deadline.map_or(Duration::MAX, |d| {
+                d.saturating_duration_since(Instant::now())
+            })
+        };
         options.grace = options.grace.min(timeout);
-        // One absolute budget covers grace, kill, root reap and job emptiness: every step gets
-        // only what is left of it, so no step can wait past it (rightkit#1260).
-        self.start_termination_within(options, timeout)?;
+        self.start_termination_within(options, deadline)?;
         #[cfg(test)]
-        if cleanup_test_fault::refuse(timeout.saturating_sub(started.elapsed())) {
+        if cleanup_test_fault::refuse(left()) {
             return Ok(ReapOutcome::TimedOut);
         }
-        let status = match self.wait_timeout(timeout.saturating_sub(started.elapsed()))? {
+        let status = match self.wait_timeout(left())? {
             Some(status) => status,
             None => return Ok(ReapOutcome::TimedOut),
         };
@@ -1102,7 +1109,9 @@ impl OwnedChild {
         // exit stands, as before.
         #[cfg(windows)]
         if let Some(job) = self.job.as_ref() {
-            if !job.wait_empty(timeout.saturating_sub(started.elapsed()))? {
+            #[cfg(test)]
+            cleanup_test_fault::handoff_delay();
+            if !job.wait_empty_until(deadline)? {
                 return Ok(ReapOutcome::TimedOut);
             }
         }
@@ -1154,17 +1163,15 @@ impl OwnedChild {
         })
     }
     fn start_termination(&mut self, options: TerminationOptions) -> io::Result<()> {
-        self.start_termination_within(options, Duration::MAX)
+        self.start_termination_within(options, None)
     }
-    /// [`start_termination`](Self::start_termination) inside `budget`: the grace is already
-    /// clipped by the caller, and on Windows the wait for an exiting leader is clipped to what
-    /// is left of `budget` after the grace.
+    /// [`start_termination`](Self::start_termination) before `deadline`: the grace is already
+    /// clipped by the caller, and on Windows the wait for an exiting leader ends at `deadline`.
     fn start_termination_within(
         &mut self,
         options: TerminationOptions,
-        budget: Duration,
+        deadline: Option<Instant>,
     ) -> io::Result<()> {
-        let started = Instant::now();
         #[cfg(unix)]
         if !self.tree_terminated {
             self.signal(libc::SIGTERM)?;
@@ -1173,10 +1180,7 @@ impl OwnedChild {
             // here: it must keep pinning the group id for the KILL below.
             self.await_tree(options.grace)?;
         }
-        self.force_kill_within(
-            options.windows_exit_code,
-            budget.saturating_sub(started.elapsed()),
-        )
+        self.force_kill_within(options.windows_exit_code, deadline)
     }
     /// Waits, for at most `grace`, until the leader has exited and every other member of its
     /// group has too. The leader is observed without reaping it; then the group is listed
@@ -1204,27 +1208,22 @@ impl OwnedChild {
         signal_shared(&self.child, target, signal).map(|_| ())
     }
     fn force_kill(&mut self, code: u32) -> io::Result<()> {
-        self.force_kill_within(code, Duration::MAX)
+        self.force_kill_within(code, None)
     }
-    /// The kill. Windows: `budget` caps the wait for a leader already exiting when
+    /// The kill. Windows: `deadline` ends the wait for a leader already exiting when
     /// `TerminateProcess` refuses it (at most the usual two seconds). Unix sends KILL and waits
     /// for nothing.
-    fn force_kill_within(&mut self, code: u32, budget: Duration) -> io::Result<()> {
+    fn force_kill_within(&mut self, code: u32, deadline: Option<Instant>) -> io::Result<()> {
         if self.tree_terminated {
             return Ok(());
         }
         #[cfg(unix)]
         {
-            let _ = (code, budget);
+            let _ = (code, deadline);
             self.signal(libc::SIGKILL)?;
         }
         #[cfg(windows)]
-        crate::process_windows::terminate(
-            &self.handle,
-            self.job.as_deref(),
-            code,
-            budget.min(crate::process_windows::EXITING_LEADER_WAIT),
-        )?;
+        crate::process_windows::terminate(&self.handle, self.job.as_deref(), code, deadline)?;
         self.tree_terminated = true;
         Ok(())
     }
@@ -1536,6 +1535,20 @@ pub(crate) mod cleanup_test_fault {
     thread_local! { static REFUSE_REAP: Cell<bool> = const { Cell::new(false) }; }
     thread_local! { static JOB_EMPTY_AT: Cell<Option<std::time::Instant>> = const { Cell::new(None) }; }
     thread_local! { static TERMINATION_REFUSED: Cell<bool> = const { Cell::new(false) }; }
+    thread_local! { static HANDOFF_DELAY: Cell<Duration> = const { Cell::new(Duration::ZERO) }; }
+    /// Test only: the next bounded reap on this thread pauses this long between the root's
+    /// reap and the job-emptiness wait (models the thread being descheduled there).
+    #[allow(dead_code)]
+    pub(crate) fn arm_handoff_delay(delay: Duration) {
+        HANDOFF_DELAY.with(|armed| armed.set(delay));
+    }
+    #[allow(dead_code)]
+    pub(crate) fn handoff_delay() {
+        let delay = HANDOFF_DELAY.with(|armed| armed.replace(Duration::ZERO));
+        if !delay.is_zero() {
+            std::thread::sleep(delay);
+        }
+    }
     /// Test only: on this thread, retained-job emptiness queries report one active process
     /// until `at` and none from then on (models a descendant that exits at a chosen moment).
     #[allow(dead_code)]
@@ -2276,10 +2289,10 @@ mod tests {
         super::cleanup_test_fault::arm_job_empty_at(
             Instant::now() + timeout + Duration::from_millis(5),
         );
-        let late = job.wait_empty(timeout);
+        let late = job.wait_empty_until(Some(Instant::now() + timeout));
         // Control: empty well inside the budget is success.
         super::cleanup_test_fault::arm_job_empty_at(Instant::now() + Duration::from_millis(20));
-        let early = job.wait_empty(Duration::from_millis(500));
+        let early = job.wait_empty_until(Some(Instant::now() + Duration::from_millis(500)));
         super::cleanup_test_fault::disarm_job_empty_at();
         assert!(
             !late.unwrap(),
@@ -2288,6 +2301,31 @@ mod tests {
         assert!(
             early.unwrap(),
             "control: a job empty inside the budget is reported empty"
+        );
+        drop(owned);
+        let _ = std::fs::remove_file(&pid_file);
+    }
+
+    /// rightkit#1260 second review: a pause between the root's reap and the job wait never buys
+    /// a fresh budget: a job that empties only after the original deadline is not `Exited`.
+    #[cfg(windows)]
+    #[test]
+    fn bounded_reap_after_a_delayed_handoff_keeps_the_original_deadline() {
+        use std::time::{Duration, Instant};
+        let pid_file =
+            std::env::temp_dir().join(format!("rightkit-1260-handoff-{}.pid", std::process::id()));
+        let (mut owned, _) = tree_with_grandchild(&pid_file, true);
+        let budget = Duration::from_millis(300);
+        let started = Instant::now();
+        // The thread stalls past the deadline before it asks the job; the job empties 20 ms
+        // after the deadline, well inside any fresh budget the stall could have handed out.
+        super::cleanup_test_fault::arm_job_empty_at(started + budget + Duration::from_millis(20));
+        super::cleanup_test_fault::arm_handoff_delay(budget + Duration::from_millis(50));
+        let outcome = owned.terminate_tree_bounded(budget);
+        super::cleanup_test_fault::disarm_job_empty_at();
+        assert!(
+            matches!(outcome, Ok(super::ReapOutcome::TimedOut)),
+            "a job empty only after the original deadline was confirmed: {outcome:?}"
         );
         drop(owned);
         let _ = std::fs::remove_file(&pid_file);

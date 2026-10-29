@@ -245,17 +245,20 @@ pub(crate) fn raw_job(job: &KillOnCloseJob) -> HANDLE {
 }
 
 impl KillOnCloseJob {
-    /// Waits at most `timeout` until the job holds no active process
-    /// (`JobObjectBasicAccountingInformation.ActiveProcesses == 0`). `Ok(false)` on timeout; a
-    /// query error is returned, never read as empty. Job termination is asynchronous, so a
-    /// leader's exit alone does not show the tree is gone (rightkit#1260).
+    /// Waits until `deadline` (an absolute instant shared with the caller's other steps; `None`
+    /// waits as long as it takes) for the job to hold no active process
+    /// (`JobObjectBasicAccountingInformation.ActiveProcesses == 0`). `Ok(false)` once the
+    /// deadline has passed; a query error is returned, never read as empty. Job termination is
+    /// asynchronous, so a leader's exit alone does not show the tree is gone (rightkit#1260).
     ///
-    /// Deadline-safe: an empty job counts only when the query that saw it returned within
-    /// `timeout`; one seen empty after the deadline (for instance after the last sleep overran
-    /// it) is still `Ok(false)`.
-    pub(crate) fn wait_empty(&self, timeout: std::time::Duration) -> io::Result<bool> {
+    /// Deadline-safe: an empty job counts only when the query that saw it returned by
+    /// `deadline`; one seen empty later (the last poll's sleep overran it, or the caller was
+    /// descheduled before calling) is `Ok(false)`.
+    pub(crate) fn wait_empty_until(
+        &self,
+        deadline: Option<std::time::Instant>,
+    ) -> io::Result<bool> {
         const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
-        let started = std::time::Instant::now();
         loop {
             #[cfg(test)]
             let count = match crate::owned::cleanup_test_fault::job_count() {
@@ -264,14 +267,16 @@ impl KillOnCloseJob {
             };
             #[cfg(not(test))]
             let count = crate::windows_job::WindowsJob::active_count_of(raw(&self.0))?;
-            let elapsed = started.elapsed();
+            let now = std::time::Instant::now();
+            let left = deadline.map(|d| d.saturating_duration_since(now));
+            let past = deadline.is_some_and(|d| now > d);
             if count == 0 {
-                return Ok(elapsed <= timeout);
+                return Ok(!past);
             }
-            if elapsed >= timeout {
+            if past || left.is_some_and(|l| l.is_zero()) {
                 return Ok(false);
             }
-            std::thread::sleep(POLL_INTERVAL.min(timeout - elapsed));
+            std::thread::sleep(left.map_or(POLL_INTERVAL, |l| POLL_INTERVAL.min(l)));
         }
     }
 
@@ -394,14 +399,15 @@ pub(crate) fn resume(pid: u32) -> io::Result<()> {
 /// exiting.
 pub(crate) const EXITING_LEADER_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// Terminates the job (when there is one) and the leader. `exiting_wait` bounds the wait for a
-/// leader that is already exiting when `TerminateProcess` refuses it: a bounded termination
-/// passes what is left of its own budget so this step never outlasts it (rightkit#1260).
+/// Terminates the job (when there is one) and the leader. A leader that `TerminateProcess`
+/// refuses because it is already exiting is waited for at most [`EXITING_LEADER_WAIT`], and never
+/// past `deadline`: a bounded termination passes its absolute deadline, read when the wait
+/// starts, so this step never outlasts it (rightkit#1260).
 pub(crate) fn terminate(
     process: &ProcessHandle,
     job: Option<&KillOnCloseJob>,
     code: u32,
-    exiting_wait: std::time::Duration,
+    deadline: Option<std::time::Instant>,
 ) -> io::Result<()> {
     #[cfg(test)]
     let refused = crate::owned::cleanup_test_fault::termination_refused();
@@ -426,7 +432,16 @@ pub(crate) fn terminate(
             Ok(()) => Ok(()),
             // TerminateProcess fails with ACCESS_DENIED while a process is already exiting
             // (job termination is asynchronous): give that exit a bounded moment to land.
-            Err(_) if process.wait_timeout(exiting_wait)?.is_some() => Ok(()),
+            Err(_)
+                if process
+                    .wait_timeout(deadline.map_or(EXITING_LEADER_WAIT, |d| {
+                        d.saturating_duration_since(std::time::Instant::now())
+                            .min(EXITING_LEADER_WAIT)
+                    }))?
+                    .is_some() =>
+            {
+                Ok(())
+            }
             Err(error) => Err(os_error(error)),
         }
     } else {

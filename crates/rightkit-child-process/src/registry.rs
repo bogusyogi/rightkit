@@ -227,7 +227,7 @@ fn terminate_all_windows(options: TerminationOptions) -> TerminateAllReport {
             &process,
             job.as_deref(),
             options.windows_exit_code,
-            crate::process_windows::EXITING_LEADER_WAIT,
+            None,
         ) {
             Ok(()) => report.terminated.push(pid),
             Err(error) => report.failed.push((pid, error)),
