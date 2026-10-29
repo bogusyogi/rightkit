@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-asr"
-version = "0.3.4"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.98.0"
 publish = true
@@ -14,7 +14,15 @@ keywords = ["speech-recognition", "asr", "parakeet", "whisper", "onnx"]
 categories = ["multimedia::audio"]
 include = [
   "src/**",
-  "tests/**",
+  "tests/*.rs",
+  "tests/common/**",
+  "tests/coreml_cache/**",
+  "tests/fixtures/*.json",
+  "tests/fixtures/*.wav",
+  # KWS parity: everything but the 7 MB of Sherpa fbank dumps (tests skip without them).
+  "tests/fixtures/kws/*.*",
+  "tests/fixtures/kws/audio/**",
+  "tests/fixtures/kws/encoder/**",
   "Cargo.toml",
   "README.md",
   "LICENSE",
@@ -181,6 +189,20 @@ api = "Transducer::load"
 file = "src/transducer.rs"
 holds = ["memory", "thread"]
 scale = "the TransducerModel sessions (encoder and decoder-joint) plus an optional mel_nemo.onnx preprocessor session pinned to the CPU provider, with vocabulary and decoder tables; fixed per Transducer, independent of audio length"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "kws::KeywordSpotter::new"
+file = "src/kws/mod.rs"
+holds = ["memory", "thread"]
+scale = "three ONNX sessions (streaming Zipformer2 encoder, decoder, joiner) on the CPU provider with the configured intra-op threads, plus the token table, keyword graph and fbank tables; fixed per spotter, independent of audio length"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "kws::KeywordSpotter::create_stream"
+file = "src/kws/mod.rs"
+holds = ["memory"]
+scale = "one stream: the encoder cache tensors (fixed by the model), the beam (at most max_active_paths hypotheses whose token lists are cleared at every keyword root) and buffered fbank frames, which decode releases chunk by chunk; bounded while the caller keeps decoding"
 release = "Drop"
 
 # One Cargo workspace and lock per crate (rightkit#1285).

@@ -100,6 +100,14 @@ Transcript text: `text` joins trimmed segments with one space, or with nothing f
 
 Windows: the catalog's whisper.cpp and ggml rows for Windows are `planned` (no digest yet), so `load_verified` fails closed there today. When they are pinned, a Windows host still has to prove the load: the loaded path is the canonical path, a verbatim `\\?\C:\...` path on Windows, which has not been run through the loader there.
 
+## Keyword spotting (`kws`)
+
+`rightkit_asr::kws` spots fixed keyword phrases in streaming 16 kHz audio with a Sherpa-ONNX Zipformer2 KWS transducer (for example `sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20`): `encoder-*.onnx`, `decoder-*.onnx`, `joiner-*.onnx`, `tokens.txt` and a keyword list in Sherpa's format (`Z EH1 F ER0 S T AA1 P :2 #0.15 @ZEPHYR_STOP`). It is a port of the Sherpa-ONNX 1.13.4 spotter; see the module docs for the API and `CHANGELOG.md` for the parity record.
+
+- The app owns command policy (which keyword sets, audio windows, when to reset a stream); the crate owns features, the encoder cache, the beam and the keyword graph.
+- `active_path_ttl_frames` and `trailing_blank_reset` replace patches some apps carried on Sherpa. Upstream behaviour is `active_path_ttl_frames: None` with `trailing_blank_reset: true`; the defaults never reset a stream silently.
+- CPU only (`threads` sets intra-op threads per session). Bind ONNX Runtime through `rightkit-onnx` before `KeywordSpotter::new`.
+
 ## Model requirements
 
 The Parakeet TDT model directory contains `encoder-model.onnx`, `decoder_joint-model.onnx` and `vocab.txt` (see `ParakeetTDT::from_pretrained`). The crate docs describe a FastConformer-TDT directory with `model.onnx`, `model.onnx_data`, `config.json`, `preprocessor_config.json`, `tokenizer.json` and `tokenizer_config.json`. Audio input is 16 kHz mono.
@@ -110,7 +118,7 @@ macOS runs the 4-stage static Parakeet TDT bundle in-process on CoreML (`CoreMlP
 
 ## Provenance and license
 
-This derivative is based on crates.io `parakeet-rs 0.3.5`, upstream commit `7d680db3d62e6aeaf68bc93aaae0ab891a09fae7` (`altunenes/parakeet-rs`, tag `v0.3.5`). See `UPSTREAM.toml`, `PATCHES.md`, `THIRD_PARTY_NOTICES.md`, and the preserved upstream `LICENSE`. The derivative currently selects the upstream MIT grant. Model artifacts are separate works and are not licensed by this crate.
+The `kws` module is a port of Sherpa-ONNX 1.13.4 and kaldi-native-fbank 1.22.3 (both Apache-2.0) and KISS FFT (BSD-3-Clause); see `THIRD_PARTY_NOTICES.md`. This derivative is based on crates.io `parakeet-rs 0.3.5`, upstream commit `7d680db3d62e6aeaf68bc93aaae0ab891a09fae7` (`altunenes/parakeet-rs`, tag `v0.3.5`). See `UPSTREAM.toml`, `PATCHES.md`, `THIRD_PARTY_NOTICES.md`, and the preserved upstream `LICENSE`. The derivative currently selects the upstream MIT grant. Model artifacts are separate works and are not licensed by this crate.
 
 ## Platform support
 

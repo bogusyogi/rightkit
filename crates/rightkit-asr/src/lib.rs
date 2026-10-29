@@ -80,6 +80,7 @@ mod decoder;
 mod decoder_tdt;
 mod error;
 mod execution;
+pub mod kws;
 mod model;
 mod model_eou;
 mod model_nemotron;
