@@ -31,8 +31,15 @@
 //         (spawnUnderOwnership records it before the child runs; class A scans, right-release builds and heavy-command start
 //         their children that way) is empty, and no such spawn was left half-recorded.
 //         Unknown is held: on Linux a /proc entry of this user's that cannot be read (EACCES/EPERM, e.g. a non-dumpable process)
-//         fails the net, never "not a reader"; only an entry that vanished (ENOENT/ESRCH) or belongs to another user (read from
-//         /proc/<pid>/status, which is world-readable) is skipped. Residual on POSIX, stated plainly: a descendant that started a
+//         never counts as "not a reader" by default. It is skipped only when it vanished (ENOENT/ESRCH), belongs to another user
+//         (/proc/<pid>/status, world-readable), or the INVARIANT below holds: such a process is out of this ownership's reach only
+//         when it started before the acquisition of the PREVIOUS owner (/proc/<pid>/stat field 22 against the boot time, less
+//         START_SLACK_MS of reading error) AND that previous owner's release proved zero readers (a durable marker,
+//         `last-clean-release.json` beside the record, written only by a clean release; a record carries it as `cleanBefore`
+//         when it was acquired on a free host after that release). A process that predates THIS ownership but started after the
+//         previous acquisition may be the previous owner's leftover, so it stays held. A previous release that ended held,
+//         unknown, or reclaimed (a crash), a missing or unreadable marker, or an unreadable stat: every unreadable process is
+//         held. Residual on POSIX, stated plainly: a descendant that started a
 //         new session, dropped the variable (or is an Apple platform binary on macOS), runs outside the snapshot directory, names
 //         it in no argument AND holds no file in it open or mapped at the instant the nets sample it (it reads between samples)
 //         is invisible; a sampled net cannot prove such a process will not read next. Another user's unreadable processes are
@@ -61,8 +68,12 @@ export const OWNERSHIP_ENV = "RIGHTKIT_BUILD_OWNERSHIP";
 export const OWNERSHIP_FILE_ENV = "RIGHTKIT_BUILD_OWNERSHIP_FILE";
 export const LEASE_STATUS_SCHEMA = "rustright.snapshot-lease-status.v1";
 const LEASE_STATES = new Set(["ACTIVE", "REAPED", "UNKNOWN"]);
-// `ps` prints start times to the second: a member started in the second the gate took ownership counts as the gate's.
-const START_SLACK_MS = 1000;
+// A start time read from `ps` (or /proc/<pid>/stat) is never late, only early: ps prints whole seconds (up to 1 s early), and on
+// Linux the figure is btime (whole seconds, so the boot is up to 1 s early) plus the process's ticks: measured on WSL2, a process
+// 98 ms old read as 788 ms old. So a start can read up to about 2 s before the process really began; this slack (with margin) is
+// how much earlier than an instant a reading may be and still be "not before" it. A member started right after the gate took
+// ownership counts as the gate's however its start reads.
+const START_SLACK_MS = 3000;
 // Two start identities of one pid are the same process when they agree to within this (ps prints seconds; this gate's own start
 // is read from its time origin on Windows, a few hundred ms after the OS creation time at most).
 const SAME_START_MS = 3000;
@@ -203,7 +214,7 @@ export function namesDir(text, dir) {
  * The host's process facts the ownership rules rely on. Each answer is a fact or a throw; a throw means "unknown" and the
  * caller treats it as busy.
  */
-export function processProbe({ platform = process.platform, spawn = spawnSync, spawnHolder = spawnDetachedDefault, kill = process.kill.bind(process), readFile = fs.readFileSync, readdir = fs.readdirSync, readlink = fs.readlinkSync, proc = "/proc", uid = process.getuid?.() } = {}) {
+export function processProbe({ platform = process.platform, spawn = spawnSync, spawnHolder = spawnDetachedDefault, kill = process.kill.bind(process), readFile = fs.readFileSync, readdir = fs.readdirSync, readlink = fs.readlinkSync, exists: procExists = fs.existsSync, proc = "/proc", uid = process.getuid?.() } = {}) {
   const exists = (pid) => {
     try { kill(pid, 0); return true; } catch (e) { if (e.code === "ESRCH") return false; if (e.code === "EPERM") return true; throw e; }
   };
@@ -297,20 +308,54 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
   const GONE = new Set(["ENOENT", "ESRCH"]);
   // A real Linux host always has /proc, so its absence there is unknown (throws below); a Linux platform simulated on another host
   // (gate-contract's linux cases on a Mac) has nothing real to read and falls through to "no net".
-  const procAvailable = () => platform === "linux" && (process.platform === "linux" || fs.existsSync(proc));
+  const procAvailable = () => platform === "linux" && (process.platform === "linux" || procExists(proc));
   const procPids = () => {
-    if (!fs.existsSync(proc)) throw new Error(`no ${proc} on this linux host`);
+    if (!procExists(proc)) throw new Error(`no ${proc} on this linux host`);
     return readdir(proc).filter((name) => /^\d+$/.test(name) && Number(name) !== process.pid).map(Number);
   };
-  const unreadable = (pid, e) => {
+  const bootMs = () => {
+    const m = /^btime (\d+)$/m.exec(String(readFile(`${proc}/stat`, "utf8")));
+    if (!m) throw new Error(`no btime in ${proc}/stat`);
+    return Number(m[1]) * 1000;
+  };
+  // When pid started, from /proc/<pid>/stat field 22 (clock ticks since boot, USER_HZ = 100 on Linux) and the boot time. stat and
+  // status stay readable for non-dumpable processes. btime has one-second resolution, so the figure can be up to a second early.
+  const TICKS_PER_SECOND = 100;
+  const startedAt = (pid, boot) => {
+    const text = String(readFile(`${proc}/${pid}/stat`, "utf8"));
+    const fields = text.slice(text.lastIndexOf(")") + 2).split(" "); // from field 3 (state) on; comm may hold spaces and parens
+    const ticks = Number(fields[19]);
+    if (!Number.isInteger(ticks)) throw new Error(`cannot read the start time in ${proc}/${pid}/stat`);
+    return boot + Math.round((ticks * 1000) / TICKS_PER_SECOND);
+  };
+  // THE INVARIANT behind skipping an unreadable (EACCES/EPERM) process of this user, which could be reading the snapshot unseen:
+  // it is skipped only if it started before `skipBefore` (less START_SLACK_MS of reading error), the BASELINE of this ownership,
+  // which is the later of
+  //   (1) the acquisition of the previous owner whose release proved zero readers (the record's `cleanBefore`, from the durable
+  //       marker of that release): the process predates that owner too, so it is no leftover of any owner whose work is unresolved;
+  //   (2) the birth of the snapshot root in this boot (the root's birth record), capped at this ownership's acquisition: a process
+  //       that started before the root existed cannot have held it open from before, and one that started before this ownership
+  //       is not the gate's own.
+  // A process that predates THIS ownership but started after both may be a previous owner's leftover and stays held; so does
+  // everything when there is no baseline (a previous release that ended held, unknown or reclaimed leaves no marker; a missing,
+  // malformed or other-boot birth record), when the process's start time cannot be read, or when its stat is unreadable.
+  const unreadable = (pid, e, skipBefore) => {
     if (GONE.has(e.code)) return;
     if (!["EACCES", "EPERM"].includes(e.code)) throw e;
     let status;
     try { status = String(readFile(`${proc}/${pid}/status`, "utf8")); } catch (e2) { if (GONE.has(e2.code)) return; throw new Error(`${proc}/${pid} is unreadable (${e.code}) and so is its owner (${e2.code ?? e2.message}), so what it reads is unknown`); }
+    // A zombie (Z) or dead (X) process has no memory, descriptors or working directory, and its /proc entries refuse reads: it reads nothing.
+    if (/^State:\s*[ZXx]/m.test(status)) return;
     const m = /^Uid:\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/m.exec(status);
     if (!m) throw new Error(`${proc}/${pid} is unreadable (${e.code}) and its owner cannot be read, so what it reads is unknown`);
     if (Number.isInteger(uid) && ![1, 2, 3, 4].some((i) => Number(m[i]) === uid)) return;
-    throw new Error(`${proc}/${pid} (a process of this user) is unreadable (${e.code}), so what it reads is unknown`);
+    const what = `${/^Name:\s*(.*)$/m.exec(status)?.[1] ?? "?"}, ${/^State:\s*(\S+)/m.exec(status)?.[1] ?? "?"}`;
+    const unknown = (why) => new Error(`${proc}/${pid} (a process of this user: ${what}) is unreadable (${e.code}) and ${why}, so what it reads is unknown`);
+    if (!Number.isFinite(skipBefore)) throw unknown("there is no baseline for this ownership (no clean previous release is recorded, and no birth record of the snapshot root in this boot)");
+    let startMs;
+    try { startMs = startedAt(pid, bootMs()); } catch (e3) { if (GONE.has(e3.code)) return; throw unknown(`its start time cannot be read (${e3.code ?? e3.message})`); }
+    if (startMs + START_SLACK_MS < skipBefore) return;
+    throw unknown(`it started at ${new Date(startMs).toISOString()}, not before the baseline ${new Date(skipBefore).toISOString()} (the later of the last clean release's acquisition and the snapshot root's birth)`);
   };
   return {
     platform,
@@ -322,11 +367,11 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
       if (!Number.isFinite(row.startedMs)) throw new Error(`cannot read the start time of pid ${pid}`);
       return { alive: true, startedMs: row.startedMs, group: row.group };
     },
+    /** This boot's identity for a snapshot root's birth record (null when unknown). */
+    bootId() { return platform === "linux" ? hostBootId({ platform, readFile, bootIdFile: `${proc}/sys/kernel/random/boot_id` }) : hostBootId({ platform, spawn }); },
     bootTime() {
       if (platform === "linux") {
-        const m = /^btime (\d+)$/m.exec(String(readFile("/proc/stat", "utf8")));
-        if (!m) throw new Error("no btime in /proc/stat");
-        return Number(m[1]) * 1000;
+        return bootMs();
       }
       const r = run(spawn, "sysctl", ["-n", "kern.boottime"]);
       const m = /sec = (\d+)/.exec(String(r.stdout ?? ""));
@@ -350,14 +395,14 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
      * of every process the user may inspect except Apple platform binaries (/bin/*, /usr/bin/*), which the snapshot-use net
      * covers. null where neither exists.
      */
-    tokenHolders(handle) {
+    tokenHolders(handle, skipBefore) {
       const token = `${OWNERSHIP_ENV}=${handle}`;
       if (procAvailable()) {
         const needle = Buffer.from(`${token}\0`);
         const found = [];
         for (const pid of procPids()) {
           let environ;
-          try { environ = readFile(`${proc}/${pid}/environ`); } catch (e) { unreadable(pid, e); continue; }
+          try { environ = readFile(`${proc}/${pid}/environ`); } catch (e) { unreadable(pid, e, skipBefore); continue; }
           if (Buffer.concat([environ, Buffer.from("\0")]).includes(needle)) found.push(pid);
         }
         return found;
@@ -376,10 +421,12 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
      * (an unreadable entry of this user's throws: unknown). macOS: `lsof` for this user (cwd, txt, mem and every descriptor) and
      * `ps -ww` arguments. null where neither exists.
      */
-    snapshotUsers(dir) {
-      const roots = [path.resolve(dir)];
+    snapshotUsers(dir, skipBefore) {
+      // Only POSIX hosts have these nets; the paths they see are POSIX paths on every host (injected tables run on Windows too).
+      const posix = path.posix;
+      const roots = [posix.resolve(dir)];
       try { const real = fs.realpathSync(dir); if (!roots.includes(real)) roots.push(real); } catch { /* the directory is gone: only its recorded spelling can be named */ }
-      const inside = (p) => path.isAbsolute(p) && roots.some((root) => { const rel = path.relative(root, p); return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel)); });
+      const inside = (p) => posix.isAbsolute(p) && roots.some((root) => { const rel = posix.relative(root, p); return rel === "" || (!rel.startsWith("..") && !posix.isAbsolute(rel)); });
       const named = (text) => roots.some((root) => namesDir(text, root));
       if (!procAvailable() && platform !== "darwin") return null;
       const { own } = psList();
@@ -407,7 +454,7 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
               let cmdline = ""; try { cmdline = String(readFile(`${proc}/${pid}/cmdline`, "utf8")); } catch (e) { if (!GONE.has(e.code)) throw e; }
               if (named(cmdline)) add(pid, "argument");
             }
-          } catch (e) { unreadable(pid, e); }
+          } catch (e) { unreadable(pid, e, skipBefore); }
         }
         return found;
       }
@@ -465,6 +512,59 @@ export function spawnUnderOwnership(spawn, command, args, options = {}, { env = 
   return child;
 }
 
+export const CLEAN_SCHEMA = "rightkit.build-ownership-clean/1";
+/** Beside the owner record: the acquisition time of the last owner whose release proved zero readers. */
+export const cleanMarkerFile = (file) => path.join(path.dirname(file), "last-clean-release.json");
+/** The marker's acquisition time (ISO), or null when absent, unreadable or malformed (no clean release is then known). */
+export function readCleanMarker(file) {
+  try {
+    const m = JSON.parse(fs.readFileSync(cleanMarkerFile(file), "utf8"));
+    return m?.schema === CLEAN_SCHEMA && Number.isFinite(Date.parse(m.acquiredAt)) ? m.acquiredAt : null;
+  } catch { return null; }
+}
+function writeCleanMarker(file, owner) {
+  const target = cleanMarkerFile(file); const tmp = `${target}.${crypto.randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify({ schema: CLEAN_SCHEMA, acquiredAt: owner.acquiredAt, releasedAt: new Date().toISOString(), handle: owner.handle }), { flag: "wx", mode: 0o600 });
+    fs.renameSync(tmp, target);
+  } catch { /* no marker: nothing is skipped, which only holds more */ } finally { fs.rmSync(tmp, { force: true }); }
+}
+
+export const ROOT_BIRTH_SCHEMA = "rightkit.snapshot-root-birth/1";
+/** Inside a snapshot root: when this root came into being, and in which boot of the host. */
+export const rootBirthFile = (root) => path.join(root, ".rightkit-root-birth.json");
+/** This boot's identity: Linux boot_id, macOS kern.boottime; null where it cannot be read (Windows, a failure): no baseline then. */
+export function hostBootId({ platform = process.platform, readFile = fs.readFileSync, spawn = spawnSync, bootIdFile = "/proc/sys/kernel/random/boot_id" } = {}) {
+  try {
+    if (platform === "linux") { const id = String(readFile(bootIdFile, "utf8")).trim(); return /^[0-9a-f-]{16,}$/i.test(id) ? id : null; }
+    if (platform === "darwin") {
+      const r = run(spawn, "sysctl", ["-n", "kern.boottime"]);
+      const m = /sec = (\d+), usec = (\d+)/.exec(String(r.stdout ?? ""));
+      return !r.error && r.status === 0 && m ? `${m[1]}.${m[2]}` : null;
+    }
+  } catch { /* unknown */ }
+  return null;
+}
+/**
+ * Writes the birth record of a snapshot root that was just created (never over an existing one). Best effort: without it the
+ * root has no baseline and build ownership applies its strict rule. Returns whether it wrote.
+ */
+export function recordRootBirth(root, { now = Date.now, bootId = hostBootId() } = {}) {
+  try {
+    fs.writeFileSync(rootBirthFile(root), JSON.stringify({ schema: ROOT_BIRTH_SCHEMA, createdAt: new Date(now()).toISOString(), bootId }), { flag: "wx", mode: 0o600 });
+    return true;
+  } catch { return false; }
+}
+/** When `root` was born (epoch ms), or null when there is no readable birth record of THIS boot (missing, malformed, another boot). */
+export function readRootBirth(root, bootId) {
+  if (typeof bootId !== "string" || !bootId) return null;
+  try {
+    const b = JSON.parse(fs.readFileSync(rootBirthFile(root), "utf8"));
+    const at = Date.parse(b?.createdAt);
+    return b?.schema === ROOT_BIRTH_SCHEMA && b.bootId === bootId && Number.isFinite(at) ? at : null;
+  } catch { return null; }
+}
+
 /** The holder's last report, or null when absent or unreadable. */
 export function readHolder(file) {
   try { const h = JSON.parse(fs.readFileSync(file, "utf8")); return h?.schema === HOLDER_SCHEMA ? h : null; } catch { return null; }
@@ -485,6 +585,17 @@ export function brokerLeaseState({ snapshot, handle, env = process.env, platform
 }
 
 function publish(target, text) {
+  if (process.platform === "win32") {
+    // Windows: no second name. Linking a temp file and deleting its name left owner.json a file that could not be replaced for
+    // seconds (measured on the Dell, rename EPERM with no open handle on it; a plain exclusive create has no such state). The
+    // record is created exclusively and written at once; a reader that catches it half-written cannot parse it and stays busy
+    // (fail closed), and a failed write removes it.
+    let fd;
+    try { fd = fs.openSync(target, "wx", 0o600); } catch (e) { if (e.code === "EEXIST") return false; throw e; }
+    try { fs.writeSync(fd, text); } catch (e) { try { fs.closeSync(fd); } catch { /* closed below */ } fs.rmSync(target, { force: true }); throw e; }
+    fs.closeSync(fd);
+    return true;
+  }
   const tmp = `${target}.${crypto.randomUUID()}.tmp`;
   fs.writeFileSync(tmp, text, { flag: "wx", mode: 0o600 });
   try { fs.linkSync(tmp, target); return true; } catch (e) { if (e.code === "EEXIST") return false; throw e; } finally { fs.rmSync(tmp, { force: true }); }
@@ -506,6 +617,8 @@ function coveredMember(m, owner, { byPid, own }) {
   const since = Date.parse(owner.acquiredAt) - START_SLACK_MS;
   const before = (p) => !Number.isFinite(p.startedMs) || p.startedMs < since;
   if (own.has(m.pid) || before(m)) return false;
+  // The owner's own ancestors (recorded at acquisition) are never its children, however recently they started.
+  if (Array.isArray(owner.ancestors) && owner.ancestors.some((a) => a?.pid === m.pid && sameStart(a.startedMs, m.startedMs))) return false;
   const parent = Array.isArray(owner.ancestors) ? owner.ancestors[0] : null;
   const peerParent = (p) => (Number.isInteger(p.group) && p.group === m.group) || (!!parent && p.pid === parent.pid && sameStart(p.startedMs, parent.startedMs));
   const seen = new Set([m.pid]);
@@ -514,8 +627,7 @@ function coveredMember(m, owner, { byPid, own }) {
     if (p.pid <= 1 || seen.has(p.pid)) return true;
     seen.add(p.pid);
     if (p.pid === process.pid) return false;
-    if (before(p)) return !peerParent(p);
-    if (own.has(p.pid)) return false;
+    if (before(p) || own.has(p.pid)) return !peerParent(p);
   }
   return true;
 }
@@ -585,8 +697,17 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null }) {
       if (live.length) throw new Error(`detached process group ${entry.group} (${entry.command}) still has ${live.length} member(s): ${live.join(", ")}`);
     }
     if (groups.length) proofs.push(`the ${groups.length} detached process group(s) it started are empty`);
+    // See `unreadable` in processProbe. The baseline is the later of (1) the acquisition of the last owner whose release proved zero
+    // readers and (2) the snapshot root's birth in this boot, capped at this ownership's own acquisition (a process the gate
+    // may have started is never baseline). NaN (neither) skips nothing.
+    let birth = NaN;
+    if (owner.snapshot) {
+      try { const b = readRootBirth(path.dirname(owner.snapshot), probe.bootId?.()); if (b !== null) birth = Math.min(b, Date.parse(owner.acquiredAt)); } catch { birth = NaN; }
+    }
+    const baselines = [Date.parse(owner.cleanBefore ?? ""), birth].filter(Number.isFinite);
+    const skipBefore = baselines.length ? Math.max(...baselines) : NaN;
     let carriers;
-    try { carriers = probe.tokenHolders(owner.handle); } catch (e) { throw new Error(`processes carrying ${OWNERSHIP_ENV} cannot be listed (${e.message})`); }
+    try { carriers = probe.tokenHolders(owner.handle, skipBefore); } catch (e) { throw new Error(`processes carrying ${OWNERSHIP_ENV} cannot be listed (${e.message})`); }
     if (carriers) {
       const others = carriers.filter((pid) => pid !== selfPid);
       if (others.length) throw new Error(`process(es) ${others.join(", ")} still carry ${OWNERSHIP_ENV}=${owner.handle}`);
@@ -594,7 +715,7 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null }) {
     }
     if (owner.snapshot) {
       let users;
-      try { users = probe.snapshotUsers(owner.snapshot); } catch (e) { throw new Error(`processes using the snapshot cannot be listed (${e.message})`); }
+      try { users = probe.snapshotUsers(owner.snapshot, skipBefore); } catch (e) { throw new Error(`processes using the snapshot cannot be listed (${e.message})`); }
       if (users) {
         const others = users.filter((u) => u.pid !== selfPid);
         if (others.length) throw new Error(`process(es) ${others.map((u) => `${u.pid} (${u.how})`).join(", ")} still use the snapshot ${owner.snapshot}`);
@@ -682,6 +803,8 @@ export function acquireBuildOwnership({
     snapshot: snapshot ?? null,
     commit: commit ?? null,
     acquiredAt: new Date().toISOString(),
+    // Set only for an acquisition on a free host after a release that proved zero readers (a reclaim never has it).
+    cleanBefore: readCleanMarker(file),
     broker: { submitted: false },
   };
   const body = JSON.stringify(record);
@@ -692,6 +815,8 @@ export function acquireBuildOwnership({
     try { proofs = coveredWorkGone(JSON.parse(readText(file)), { probe, lease, file, selfPid: process.pid }); }
     catch (e) { return { released: false, why: `left for the next gate to reclaim: ${e.message}` }; }
     finally { if (exportEnv && process.env[OWNERSHIP_ENV] === handle) { delete process.env[OWNERSHIP_ENV]; delete process.env[OWNERSHIP_FILE_ENV]; } }
+    // Only a release that proved zero readers leaves the marker; a held one leaves none (and keeps the record).
+    writeCleanMarker(file, record);
     fs.rmSync(file, { force: true });
     fs.rmSync(childrenDir(file, handle), { recursive: true, force: true });
     return { released: true, proofs };
@@ -710,7 +835,9 @@ export function acquireBuildOwnership({
         throw new OwnershipBusy(`build ownership ${file}: this gate's children would not stay in job ${record.containment.name} (its launcher lets children leave their job silently, e.g. a Node parent's job), so their exit could never be proven; start the gate from a shell or PowerShell, not under such a launcher`);
       }
       record.containment = { ...record.containment, contained: true };
-      rewriteRecord(file, handle, (r) => ({ ...r, containment: record.containment }));
+      // Fail closed: a record this gate published but cannot finish is removed, never left held by a gate that is not running.
+      try { rewriteRecord(file, handle, (r) => ({ ...r, containment: record.containment })); }
+      catch (e) { if (holds(file, handle)) fs.rmSync(file, { force: true }); throw new OwnershipBusy(`build ownership ${file}: the containment could not be recorded (${e.code ?? e.message}: ${e.message})`); }
     }
     if (exportEnv) { process.env[OWNERSHIP_ENV] = handle; process.env[OWNERSHIP_FILE_ENV] = file; }
     return { handle, file, joined: false, reclaimed, owner: record, contained: platform === "win32" ? record.containment.contained === true : true, markBrokerSubmit: () => markBrokerSubmit(file, handle), held: () => holds(file, handle), release };
@@ -720,15 +847,18 @@ export function acquireBuildOwnership({
   if (observed === null) { if (publish(file, body)) return done(null); throw new OwnershipBusy(`build ownership ${file} was taken by another process`); }
   const judged = judgeOwner(observed, { file, probe, lease });
   hooks.afterJudge?.();
+  // A reclaim means the previous release was not clean (a crash, or a release that ended held): nothing unreadable is skipped.
+  record.cleanBefore = null;
+  const reclaimBody = JSON.stringify(record);
   const reclaim = `${file}.reclaim`;
-  if (!publish(reclaim, body)) throw new OwnershipBusy(`build ownership ${file} is being reclaimed by another process (remove ${reclaim} only if no gate is running)`);
+  if (!publish(reclaim, reclaimBody)) throw new OwnershipBusy(`build ownership ${file} is being reclaimed by another process (remove ${reclaim} only if no gate is running)`);
   try {
     if (readText(file) !== observed) throw new OwnershipBusy(`build ownership ${file} changed before it could be reclaimed`);
     fs.rmSync(file, { force: true });
     fs.rmSync(holderFile(file, judged.owner.handle), { force: true });
     fs.rmSync(holderScriptFile(holderFile(file, judged.owner.handle)), { force: true });
     fs.rmSync(childrenDir(file, judged.owner.handle), { recursive: true, force: true });
-    if (!publish(file, body)) throw new OwnershipBusy(`build ownership ${file} was taken by another process`);
+    if (!publish(file, reclaimBody)) throw new OwnershipBusy(`build ownership ${file} was taken by another process`);
   } finally {
     fs.rmSync(reclaim, { force: true });
   }

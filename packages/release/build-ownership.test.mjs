@@ -10,9 +10,9 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "./background-process.mjs";
 import {
-  OWNERSHIP_ENV, OWNERSHIP_SCHEMA, HOLDER_SCHEMA, OwnershipBusy, acquireBuildOwnership, brokerLeaseState, childrenDir, holderFile, holderScript, holderScriptFile, jobName, judgeOwner, namesDir, ownershipFile, processProbe, queryHolder, readHolder, spawnUnderOwnership, CMD_LINE_LIMIT,
+  OWNERSHIP_ENV, OWNERSHIP_SCHEMA, HOLDER_SCHEMA, OwnershipBusy, acquireBuildOwnership, brokerLeaseState, childrenDir, holderFile, holderScript, holderScriptFile, jobName, judgeOwner, namesDir, readCleanMarker, cleanMarkerFile, CLEAN_SCHEMA, hostBootId, recordRootBirth, readRootBirth, rootBirthFile, ROOT_BIRTH_SCHEMA, ownershipFile, processProbe, queryHolder, readHolder, spawnUnderOwnership, CMD_LINE_LIMIT,
 } from "./build-ownership.mjs";
-import { keyPath, repoKey, snapshotCommand, snapshotRoot, verifySnapshot } from "./snapshot.mjs";
+import { keyPath, repoKey, snapshotCommand, snapshotRoot, syncSnapshot, verifySnapshot } from "./snapshot.mjs";
 
 const tmp = (t, prefix) => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix))); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
 const NOW = Date.now();
@@ -211,6 +211,20 @@ test("ownership: a reboot after the record proves its work gone; broker work nee
   assert.match(r.why, /lease is ACTIVE/); assert.equal(leases.length, 1); assert.equal(fs.existsSync(file), true);
 });
 
+test("ownership Windows: a failure after the record is published (the containment write) removes the record and throws busy; nothing is left held", (t) => {
+  const file = path.join(tmp(t, "rk-own-"), "build-ownership", "owner.json");
+  // owner.json cannot be replaced (the Dell's intermittent EPERM on rename): done() must not leave the record to a gate that is not running.
+  const rename = t.mock.method(fs, "renameSync", () => { throw Object.assign(new Error("EPERM: operation not permitted, rename"), { code: "EPERM" }); });
+  assert.throws(() => acquire(file, "win32", fakeProbe("win32")), (e) => e instanceof OwnershipBusy && /containment could not be recorded \(EPERM/.test(e.message));
+  assert.ok(rename.mock.callCount() >= 1);
+  assert.equal(fs.existsSync(file), false, "no record is left behind");
+  assert.deepEqual(fs.readdirSync(path.dirname(file)).filter((n) => n.endsWith(".tmp")), [], "no temp file is left behind");
+  rename.mock.restore();
+  // The host is free again: the next gate acquires at once.
+  const own = acquire(file, "win32", fakeProbe("win32"));
+  assert.equal(own.held(), true); own.release();
+});
+
 test("ownership: a normal release with a survivor leaves the record; a gate that cannot be contained never holds", (t) => {
   const dir = tmp(t, "rk-own-");
   const file = path.join(dir, "owner.json");
@@ -348,77 +362,281 @@ test("namesDir: the directory or a path under it, never a longer sibling", () =>
   assert.equal(namesDir("/snap/k/", "/snap/k/"), true);
 });
 
-/** A fake /proc: `procs` is { pid: { uid, environ, cwd, root, exe, fds: { n: target }, maps, cmdline } }. */
-function fakeProc(t, procs) {
-  const root = tmp(t, "rk-own-proc-");
+const BTIME = Math.floor((NOW - 2e7) / 1000);
+const PROC = "/fakeproc";
+const eno = (code, f) => Object.assign(new Error(`${code}: ${f}`), { code });
+/**
+ * A fake /proc held in memory (no files or symlinks, so it behaves the same on every host): `procs` is { pid: { uid, start (epoch ms;
+ * default long before any ownership), environ, cwd, root, exe, fds: { n: target }, maps, cmdline } }. `files`, `links` and `pids` may
+ * be changed by a test.
+ */
+function fakeProc(procs) {
+  const files = new Map([[`${PROC}/stat`, `cpu  1 2 3\nbtime ${BTIME}\nprocesses 9\n`]]);
+  const links = new Map(); const pids = new Set();
   for (const [pid, p] of Object.entries(procs)) {
-    const d = path.join(root, pid); fs.mkdirSync(path.join(d, "fd"), { recursive: true });
-    fs.writeFileSync(path.join(d, "status"), `Name:\tx\nUid:\t${p.uid ?? 1000}\t${p.uid ?? 1000}\t${p.uid ?? 1000}\t${p.uid ?? 1000}\n`);
-    fs.writeFileSync(path.join(d, "environ"), p.environ ?? "A=1\0");
-    fs.writeFileSync(path.join(d, "cmdline"), p.cmdline ?? "sleep\0");
-    fs.writeFileSync(path.join(d, "maps"), p.maps ?? "");
-    for (const link of ["cwd", "root", "exe"]) fs.symlinkSync(p[link] ?? "/", path.join(d, link));
-    for (const [n, target] of Object.entries(p.fds ?? {})) fs.symlinkSync(target, path.join(d, "fd", n));
+    pids.add(pid);
+    // Fields 3..22 of /proc/<pid>/stat; the comm holds a space and parentheses, as a real one may.
+    files.set(`${PROC}/${pid}/stat`, `${pid} (a b) (c) S 1 ${pid} ${pid} 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 ${Math.round(((p.start ?? NOW - 1e7) - BTIME * 1000) / 10)} 0 0\n`);
+    files.set(`${PROC}/${pid}/status`, `Name:\tx\nState:\t${p.state ?? "S (sleeping)"}\nUid:\t${p.uid ?? 1000}\t${p.uid ?? 1000}\t${p.uid ?? 1000}\t${p.uid ?? 1000}\n`);
+    files.set(`${PROC}/${pid}/environ`, p.environ ?? "A=1\0");
+    files.set(`${PROC}/${pid}/cmdline`, p.cmdline ?? "sleep\0");
+    files.set(`${PROC}/${pid}/maps`, p.maps ?? "");
+    for (const link of ["cwd", "root", "exe"]) links.set(`${PROC}/${pid}/${link}`, p[link] ?? "/");
+    for (const [n, target] of Object.entries(p.fds ?? {})) links.set(`${PROC}/${pid}/fd/${n}`, target);
   }
-  return root;
+  return {
+    files, links, pids,
+    exists: (f) => f === PROC,
+    readFile: (f, enc) => { if (!files.has(f)) throw eno("ENOENT", f); return enc ? files.get(f) : Buffer.from(files.get(f)); },
+    readlink: (f) => { if (!links.has(f)) throw eno("ENOENT", f); return links.get(f); },
+    readdir: (d) => {
+      if (d === PROC) return [...pids];
+      const m = /^\/fakeproc\/(\d+)\/fd$/.exec(d);
+      if (m && pids.has(m[1])) return [...links.keys()].filter((k) => k.startsWith(`${d}/`)).map((k) => k.slice(d.length + 1));
+      throw eno("ENOENT", d);
+    },
+  };
 }
-const linuxProbe = (root, over = {}) => processProbe({ platform: "linux", spawn: scripted(), proc: root, uid: 1000, ...over });
-const denied = (what, code = "EACCES") => (file, enc) => { if (what.test(String(file))) throw Object.assign(new Error(`${code}: ${file}`), { code }); return fs.readFileSync(file, enc); };
+/** A reader of `fake` (`kind`: readFile, readlink or readdir) that fails with `code` on the paths `re` matches. */
+const deny = (fake, kind, re, code = "EACCES") => ({ [kind]: (f, ...rest) => { if (re.test(f)) throw eno(code, f); return fake[kind](f, ...rest); } });
+const linuxProbe = (fake, ...overs) => processProbe({ platform: "linux", spawn: scripted(), proc: PROC, uid: 1000, exists: fake.exists, readFile: fake.readFile, readlink: fake.readlink, readdir: fake.readdir, ...Object.assign({}, ...overs) });
 
-test("probes [injected /proc]: an unreadable entry of this user's is UNKNOWN (held), never 'not a reader'; gone and other users' entries are skipped", (t) => {
+test("probes [injected /proc]: an unreadable entry of this user's is UNKNOWN (held), never 'not a reader'; gone and other users' entries are skipped", () => {
   const SNAP = "/snap/k";
-  const root = fakeProc(t, { 2001: {}, 2002: { uid: 0 }, 2003: {} });
+  const fake = fakeProc({ 2001: {}, 2002: { uid: 0 }, 2003: {} });
   // Environment net.
-  assert.deepEqual(linuxProbe(root).tokenHolders("h1"), []);
-  fs.writeFileSync(path.join(root, "2003", "environ"), "A=1\0RIGHTKIT_BUILD_OWNERSHIP=h1\0");
-  assert.deepEqual(linuxProbe(root).tokenHolders("h1"), [2003]);
-  assert.throws(() => linuxProbe(root, { readFile: denied(/\/2001\/environ$/) }).tokenHolders("h1"), /\(a process of this user\) is unreadable \(EACCES\).*unknown/, "this user's process, environment unreadable");
-  assert.throws(() => linuxProbe(root, { readFile: denied(/\/2001\/environ$/, "EPERM") }).tokenHolders("h1"), /unreadable \(EPERM\)/);
-  assert.deepEqual(linuxProbe(root, { readFile: denied(/\/2002\/environ$/) }).tokenHolders("h1"), [2003], "another user's process is skipped");
-  assert.deepEqual(linuxProbe(root, { readFile: denied(/\/200[12]\/environ$/, "ENOENT") }).tokenHolders("h1"), [2003], "a process that vanished is not a reader");
-  assert.throws(() => linuxProbe(root, { readFile: (f, e) => { if (/\/2001\/(environ|status)$/.test(String(f))) throw Object.assign(new Error("denied"), { code: "EACCES" }); return fs.readFileSync(f, e); } }).tokenHolders("h1"), /is unreadable \(EACCES\) and so is its owner/, "an owner that cannot be read is unknown");
-  assert.throws(() => linuxProbe(root, { readFile: denied(/\/2001\/environ$/, "EIO") }).tokenHolders("h1"), /EIO/, "any other failure is unknown too");
+  assert.deepEqual(linuxProbe(fake).tokenHolders("h1"), []);
+  fake.files.set(`${PROC}/2003/environ`, "A=1\0RIGHTKIT_BUILD_OWNERSHIP=h1\0");
+  assert.deepEqual(linuxProbe(fake).tokenHolders("h1"), [2003]);
+  assert.throws(() => linuxProbe(fake, deny(fake, "readFile", /\/2001\/environ$/)).tokenHolders("h1"), /\(a process of this user[^)]*\) is unreadable \(EACCES\).*unknown/, "this user's process, environment unreadable");
+  assert.throws(() => linuxProbe(fake, deny(fake, "readFile", /\/2001\/environ$/, "EPERM")).tokenHolders("h1"), /unreadable \(EPERM\)/);
+  assert.deepEqual(linuxProbe(fake, deny(fake, "readFile", /\/2002\/environ$/)).tokenHolders("h1"), [2003], "another user's process is skipped");
+  assert.deepEqual(linuxProbe(fake, deny(fake, "readFile", /\/200[12]\/environ$/, "ENOENT")).tokenHolders("h1"), [2003], "a process that vanished is not a reader");
+  assert.throws(() => linuxProbe(fake, deny(fake, "readFile", /\/2001\/(environ|status)$/)).tokenHolders("h1"), /is unreadable \(EACCES\) and so is its owner/, "an owner that cannot be read is unknown");
+  assert.throws(() => linuxProbe(fake, deny(fake, "readFile", /\/2001\/environ$/, "EIO")).tokenHolders("h1"), /EIO/, "any other failure is unknown too");
   // A real Linux host without /proc is unknown (throws); a Linux platform simulated on another host has nothing to read (no net).
-  if (process.platform === "linux") assert.throws(() => linuxProbe(path.join(root, "missing")).tokenHolders("h1"), /no .* on this linux host/);
-  else assert.equal(linuxProbe(path.join(root, "missing")).tokenHolders("h1"), null);
+  const missing = processProbe({ platform: "linux", spawn: scripted(), proc: "/nowhere", exists: () => false, uid: 1000 });
+  if (process.platform === "linux") assert.throws(() => missing.tokenHolders("h1"), /no .* on this linux host/);
+  else assert.equal(missing.tokenHolders("h1"), null);
   // Snapshot-use net: every signal, one process each.
-  const root2 = fakeProc(t, {
+  const fake2 = fakeProc({
     3001: { cwd: `${SNAP}/src` }, 3002: { root: SNAP }, 3003: { exe: `${SNAP}/bin/tool` }, 3004: { fds: { 0: "/dev/null", 5: `${SNAP}/src/lib.rs` } },
     3005: { maps: `7f00-7f01 r--p 00000000 fe:01 1234 ${SNAP}/target/x.so\n7f02-7f03 r-xp 0 fe:01 7 /usr/lib/libc.so\n` }, 3006: { cmdline: `rustc\0${SNAP}/src/lib.rs\0` },
     3007: { cwd: "/snap/k2", fds: { 3: "pipe:[99]", 4: "/snap/k2/x" }, maps: "7f00-7f01 r--p 0 fe:01 1 /snap/k2/y (deleted)\n", cmdline: "x\0/snap/k.old/a\0" }, 3008: { maps: `7f00-7f01 r--p 0 fe:01 1 ${SNAP}/gone.so (deleted)\n` },
   });
   const byPid = (a, b) => a.pid - b.pid;
-  assert.deepEqual(linuxProbe(root2).snapshotUsers(SNAP).sort(byPid), [
+  assert.deepEqual(linuxProbe(fake2).snapshotUsers(SNAP).sort(byPid), [
     { pid: 3001, how: "working directory" }, { pid: 3002, how: "root directory" }, { pid: 3003, how: "executable" }, { pid: 3004, how: `open file ${SNAP}/src/lib.rs` },
     { pid: 3005, how: `mapped file ${SNAP}/target/x.so` }, { pid: 3006, how: "argument" }, { pid: 3008, how: `mapped file ${SNAP}/gone.so` },
   ]);
   // Unreadable: each reader's failure on this user's process fails the net; another user's is skipped; a vanished entry is no reader.
   for (const what of [/\/3007\/cwd$/, /\/3007\/exe$/, /\/3007\/fd$/, /\/3007\/fd\/4$/, /\/3007\/maps$/, /\/3007\/cmdline$/]) {
-    const probe = (extra) => linuxProbe(root2, { readFile: denied(what), readlink: (f) => { if (what.test(String(f))) throw Object.assign(new Error("EACCES"), { code: "EACCES" }); return fs.readlinkSync(f); }, readdir: (d) => { if (what.test(String(d))) throw Object.assign(new Error("EACCES"), { code: "EACCES" }); return fs.readdirSync(d); }, ...extra });
-    assert.throws(() => probe().snapshotUsers(SNAP), /3007 \(a process of this user\) is unreadable \(EACCES\)/, String(what));
-    fs.writeFileSync(path.join(root2, "3007", "status"), "Uid:\t0\t0\t0\t0\n");
+    const probe = () => linuxProbe(fake2, deny(fake2, "readFile", what), deny(fake2, "readlink", what), deny(fake2, "readdir", what));
+    assert.throws(() => probe().snapshotUsers(SNAP), /3007 \(a process of this user[^)]*\) is unreadable \(EACCES\)/, String(what));
+    fake2.files.set(`${PROC}/3007/status`, "Uid:\t0\t0\t0\t0\n");
     assert.equal(probe().snapshotUsers(SNAP).some((u) => u.pid === 3007), false, `another user's ${what} skipped`);
-    fs.writeFileSync(path.join(root2, "3007", "status"), "Uid:\t1000\t1000\t1000\t1000\n");
+    fake2.files.set(`${PROC}/3007/status`, "Uid:\t1000\t1000\t1000\t1000\n");
   }
-  assert.throws(() => linuxProbe(root2, { readlink: (f) => { if (/\/3007\/cwd$/.test(String(f))) throw Object.assign(new Error("EIO"), { code: "EIO" }); return fs.readlinkSync(f); } }).snapshotUsers(SNAP), /EIO/);
+  assert.throws(() => linuxProbe(fake2, deny(fake2, "readlink", /\/3007\/cwd$/, "EIO")).snapshotUsers(SNAP), /EIO/);
   // The gate's own chain is not its own user.
-  assert.equal(linuxProbe(root2, { spawn: scripted({ rows: [[process.pid, 3006, process.pid], [3006, 1, 3006]] }) }).snapshotUsers(SNAP).some((u) => u.pid === 3006), false);
+  assert.equal(linuxProbe(fake2, { spawn: scripted({ rows: [[process.pid, 3006, process.pid], [3006, 1, 3006]] }) }).snapshotUsers(SNAP).some((u) => u.pid === 3006), false);
 });
 
-test("ownership POSIX [injected /proc]: an unreadable process keeps the host held and the reclaim message names why", (t) => {
+test("probes [injected /proc]: an unreadable process of this user is skipped only if it predates the previous owner's acquisition (whose release proved zero readers); everything else is held", () => {
+  const SNAP = "/snap/k";
+  // THE INVARIANT: `prev` is the acquisition of the previous owner whose release proved zero readers; this ownership began at NOW - 100 s.
+  const prev = NOW - 600_000;
+  const fake = fakeProc({
+    5001: { start: NOW - 3_600_000 },     // (a) unreadable, older than the previous acquisition: skipped
+    5002: { start: NOW - 10_000 },        // (b) unreadable, after this ownership began
+    5006: { start: NOW - 400_000 },       // (b) unreadable, between the previous acquisition and this ownership: may be the previous owner's leftover
+    5003: { start: prev - 2_500 },        // unreadable, older than prev but inside the start-reading error (START_SLACK_MS): not provably older
+    5004: { start: prev - 3_500 },        // unreadable, older than prev and the reading error: skipped
+    5005: { start: NOW - 3_600_000, uid: 0 },
+    5007: { start: NOW - 10_000, state: "Z (zombie)" },   // a zombie reads nothing, however new, and its /proc entries refuse reads
+    5008: { start: NOW - 10_000, state: "R (running)" },
+  });
+  const noEnv = (pid) => deny(fake, "readFile", new RegExp(`/${pid}/environ$`));
+  const noLink = (pid, ...links) => deny(fake, "readlink", new RegExp(`/${pid}/(${links.join("|")})$`));
+  const noStat = (pid, code = "EACCES") => deny(fake, "readFile", new RegExp(`/${pid}/(environ|stat)$`), code);
+  const tokens = (pid, ...overs) => linuxProbe(fake, noEnv(pid), ...overs).tokenHolders("h1", prev);
+  assert.deepEqual(tokens(5001), [], "(a) unreadable, older than the previous acquisition: skipped");
+  assert.throws(() => tokens(5002), /5002 \(a process of this user[^)]*\) is unreadable \(EACCES\) and it started at .* not before the baseline/, "(b) unreadable and newer: held");
+  assert.throws(() => tokens(5006), /5006 .* not before the baseline/, "(b) between the previous acquisition and this ownership: held");
+  assert.throws(() => tokens(5003), /5003 .* not before the baseline/, "inside the btime resolution: held");
+  assert.deepEqual(tokens(5004), [], "older than the previous acquisition and the resolution: skipped");
+  assert.deepEqual(tokens(5005), [], "another user's: skipped");
+  assert.deepEqual(tokens(5007), [], "a zombie: reads nothing, skipped even when new and with no marker");
+  assert.deepEqual(linuxProbe(fake, noEnv(5007)).tokenHolders("h1", null), [], "a zombie: skipped with no marker");
+  assert.throws(() => tokens(5008), /5008 \(a process of this user: x, R\) is unreadable/, "a running process that is new: held");
+  // (c)/(d) there is no baseline for this ownership (held, unknown or reclaimed; or no marker): nothing unreadable is skipped, however old.
+  for (const none of [undefined, NaN, null]) assert.throws(() => linuxProbe(fake, noEnv(5001)).tokenHolders("h1", none), /5001 .* there is no baseline for this ownership/, `skipBefore ${none}`);
+  // (e) stat itself unreadable (or malformed, or boot time unknown): the process is still unknown, so held.
+  assert.throws(() => linuxProbe(fake, noStat(5001)).tokenHolders("h1", prev), /5001 \(a process of this user[^)]*\) is unreadable \(EACCES\) and its start time cannot be read/);
+  assert.deepEqual(linuxProbe(fake, noStat(5001, "ENOENT")).tokenHolders("h1", prev), [], "a process that vanished while its stat was read is no reader");
+  const goodStat = fake.files.get(`${PROC}/5001/stat`);
+  fake.files.set(`${PROC}/5001/stat`, "5001 (x) S garbage\n");
+  assert.throws(() => tokens(5001), /5001 .* its start time cannot be read \(cannot read the start time/, "a malformed stat is unknown");
+  fake.files.set(`${PROC}/5001/stat`, goodStat);
+  assert.throws(() => linuxProbe(fake, deny(fake, "readFile", /^\/fakeproc\/stat$|\/5001\/environ$/)).tokenHolders("h1", prev), /5001 .* its start time cannot be read/, "no boot time: unknown");
+  // The same rule in the snapshot-use net, for each reader.
+  for (const link of ["cwd", "root", "exe"]) {
+    const users = (pid, skip = prev) => linuxProbe(fake, noLink(pid, link)).snapshotUsers(SNAP, skip);
+    assert.deepEqual(users(5001), [], `${link}: older is skipped`);
+    assert.throws(() => users(5002), /5002 \(a process of this user[^)]*\) is unreadable \(EACCES\) and it started at/, `${link}: newer is held`);
+    assert.throws(() => users(5006), /5006 .* not before the baseline/, `${link}: between is held`);
+    assert.throws(() => users(5001, null), /5001 .* there is no baseline for this ownership/, `${link}: no marker is held`);
+  }
+  const mapsDenied = (pid) => linuxProbe(fake, deny(fake, "readFile", new RegExp(`/${pid}/maps$`))).snapshotUsers(SNAP, prev);
+  assert.deepEqual(mapsDenied(5001), []); assert.throws(() => mapsDenied(5002), /5002 .* not before the baseline/);
+  assert.throws(() => linuxProbe(fake, noStat(5001), noLink(5001, "cwd")).snapshotUsers(SNAP, prev), /5001 .* its start time cannot be read/);
+  // An older process that is readable is judged by what it reads, not skipped for being old.
+  fake.links.set(`${PROC}/5004/cwd`, `${SNAP}/src`);
+  assert.deepEqual(linuxProbe(fake).snapshotUsers(SNAP, prev), [{ pid: 5004, how: "working directory" }]);
+});
+
+test("ownership POSIX [injected /proc]: an unreadable process keeps the host held and the reclaim message names why; only an older one than the last clean release's acquisition is cleared", (t) => {
   const dir = tmp(t, "rk-own-");
   const file = path.join(dir, "owner.json");
   const rec = deadOwner(file, "linux", { snapshot: "/snap/k" });
-  const root = fakeProc(t, { 4001: {}, 4002: { cwd: "/snap/k" } });
-  const probe = (over) => linuxProbe(root, over);
-  const asProbe = (p) => fakeProbe("linux", { tokenHolders: (h) => p.tokenHolders(h), snapshotUsers: (d) => p.snapshotUsers(d) });
-  assert.throws(() => acquire(file, "linux", asProbe(probe({ readFile: denied(/\/4001\/environ$/) }))), /owner pid 999999 is gone but processes carrying RIGHTKIT_BUILD_OWNERSHIP cannot be listed \(.*4001 \(a process of this user\) is unreadable \(EACCES\)/);
-  assert.throws(() => acquire(file, "linux", asProbe(probe({ readlink: (f) => { if (/\/4001\/exe$/.test(String(f))) throw Object.assign(new Error("EACCES"), { code: "EACCES" }); return fs.readlinkSync(f); } }))), /processes using the snapshot cannot be listed \(.*4001 \(a process of this user\) is unreadable/);
-  assert.throws(() => acquire(file, "linux", asProbe(probe())), /process\(es\) 4002 \(working directory\) still use the snapshot \/snap\/k/);
-  fs.rmSync(path.join(root, "4002"), { recursive: true });
-  const own = acquire(file, "linux", asProbe(probe()));
+  const fake = fakeProc({ 4001: { start: NOW - 10_000 }, 4002: { cwd: "/snap/k", start: NOW - 10_000 } });
+  const asProbe = (...overs) => { const p = linuxProbe(fake, ...overs); return fakeProbe("linux", { tokenHolders: (h, skipBefore) => p.tokenHolders(h, skipBefore), snapshotUsers: (d, skipBefore) => p.snapshotUsers(d, skipBefore) }); };
+  assert.throws(() => acquire(file, "linux", asProbe(deny(fake, "readFile", /\/4001\/environ$/))), /owner pid 999999 is gone but processes carrying RIGHTKIT_BUILD_OWNERSHIP cannot be listed \(.*4001 \(a process of this user[^)]*\) is unreadable \(EACCES\)/);
+  assert.throws(() => acquire(file, "linux", asProbe(deny(fake, "readlink", /\/4001\/exe$/))), /processes using the snapshot cannot be listed \(.*4001 \(a process of this user[^)]*\) is unreadable/);
+  assert.throws(() => acquire(file, "linux", asProbe()), /process\(es\) 4002 \(working directory\) still use the snapshot \/snap\/k/);
+  fake.pids.delete("4002");
+  const own = acquire(file, "linux", asProbe());
   assert.equal(own.reclaimed.from, rec.handle);
   assert.match(own.reclaimed.proofs.join("; "), /no process has a working directory, executable, open or mapped file or argument inside or naming \/snap\/k/);
+  // The unreadable process is old (an agent), and the dead owner's record names the last clean release's acquisition (cleanBefore).
+  const unreadableAgent = [deny(fake, "readFile", /\/4001\/environ$/), deny(fake, "readlink", /\/4001\/(cwd|exe)$/)];
+  fake.files.set(`${PROC}/4001/stat`, `4001 (agent) S 1 4001 4001 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 ${Math.round((NOW - 3_600_000 - BTIME * 1000) / 10)} 0 0\n`);
+  deadOwner(file, "linux", { snapshot: "/snap/k" });
+  assert.throws(() => acquire(file, "linux", asProbe(...unreadableAgent)), /4001 .* there is no baseline for this ownership/, "(d) no clean-release marker on the record: held however old");
+  deadOwner(file, "linux", { snapshot: "/snap/k", cleanBefore: iso(NOW - 600_000) });
+  assert.ok(acquire(file, "linux", asProbe(...unreadableAgent)).reclaimed, "(a) older than the last clean release's acquisition: cleared");
+  fake.files.set(`${PROC}/4001/stat`, `4001 (agent) S 1 4001 4001 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 ${Math.round((NOW - 400_000 - BTIME * 1000) / 10)} 0 0\n`);
+  deadOwner(file, "linux", { snapshot: "/snap/k", cleanBefore: iso(NOW - 600_000) });
+  assert.throws(() => acquire(file, "linux", asProbe(...unreadableAgent)), /4001 .* not before the baseline/, "(b) started after the previous acquisition, before this ownership: held");
+});
+
+test("ownership: a clean release leaves a durable marker of its acquisition; the next record on a free host carries it; a held release leaves none; a reclaim never has it", (t) => {
+  const file = path.join(tmp(t, "rk-own-"), "build-ownership", "owner.json");
+  let carriers = [];
+  const probe = () => fakeProbe("linux", { tokenHolders: () => carriers, snapshotUsers: () => [] });
+  const cleanBefore = () => JSON.parse(fs.readFileSync(file, "utf8")).cleanBefore;
+  const first = acquire(file, "linux", probe());
+  assert.equal(cleanBefore(), null, "(d) no marker yet: the record carries none");
+  assert.equal(readCleanMarker(file), null);
+  assert.equal(first.release().released, true);
+  assert.equal(readCleanMarker(file), first.owner.acquiredAt, "a clean release leaves the marker: its own acquisition");
+  assert.equal(fs.existsSync(cleanMarkerFile(file)), true); assert.equal(fs.existsSync(file), false);
+  const second = acquire(file, "linux", probe());
+  assert.equal(cleanBefore(), first.owner.acquiredAt, "the next record on the free host carries the last clean release's acquisition");
+  // (c) a release that ends held leaves the marker as it was (no newer one) and the record, which only a reclaim can clear.
+  carriers = [4242];
+  assert.equal(second.release().released, false);
+  assert.equal(readCleanMarker(file), first.owner.acquiredAt, "a held release writes no marker");
+  assert.equal(fs.existsSync(file), true);
+  carriers = [];
+  // (c) a reclaim (the previous release was not clean) never carries the marker, whatever the file says.
+  deadOwner(file, "linux");
+  const reclaimed = acquire(file, "linux", probe());
+  assert.ok(reclaimed.reclaimed); assert.equal(cleanBefore(), null, "a reclaimed record carries no marker");
+  assert.equal(reclaimed.release().released, true);
+  assert.equal(readCleanMarker(file), reclaimed.owner.acquiredAt);
+  // A missing, unparseable or foreign marker is no marker.
+  for (const body of ["not json", JSON.stringify({ schema: "other", acquiredAt: iso(NOW) }), JSON.stringify({ schema: CLEAN_SCHEMA, acquiredAt: "nope" })]) {
+    fs.writeFileSync(cleanMarkerFile(file), body);
+    assert.equal(readCleanMarker(file), null, body);
+    const own = acquire(file, "linux", probe()); assert.equal(cleanBefore(), null); own.release();
+  }
+});
+
+test("hostBootId, recordRootBirth, readRootBirth: a birth is written once, and read back only for the boot it happened in", (t) => {
+  assert.equal(hostBootId({ platform: "linux", readFile: () => "3f2b9c1e-0000-4000-8000-123456789abc\n" }), "3f2b9c1e-0000-4000-8000-123456789abc");
+  assert.equal(hostBootId({ platform: "linux", readFile: () => "garbage" }), null);
+  assert.equal(hostBootId({ platform: "linux", readFile: () => { throw new Error("no proc"); } }), null);
+  assert.equal(hostBootId({ platform: "darwin", spawn: () => ({ status: 0, stdout: "{ sec = 1700000000, usec = 5 } Tue Nov 14 22:13:20 2023\n" }) }), "1700000000.5");
+  assert.equal(hostBootId({ platform: "darwin", spawn: () => ({ status: 1, stdout: "" }) }), null);
+  assert.equal(hostBootId({ platform: "win32" }), null);
+  const root = path.join(tmp(t, "rk-own-birth-"), "snapshots"); fs.mkdirSync(root);
+  assert.equal(readRootBirth(root, "b1"), null, "no record: no birth");
+  assert.equal(recordRootBirth(root, { now: () => NOW - 5000, bootId: "b1" }), true);
+  assert.equal(recordRootBirth(root, { now: () => NOW, bootId: "b1" }), false, "never over an existing birth");
+  const rec = JSON.parse(fs.readFileSync(rootBirthFile(root), "utf8"));
+  assert.deepEqual(rec, { schema: ROOT_BIRTH_SCHEMA, createdAt: iso(NOW - 5000), bootId: "b1" });
+  assert.equal(readRootBirth(root, "b1"), NOW - 5000);
+  assert.equal(readRootBirth(root, "b2"), null, "another boot: no baseline"); assert.equal(readRootBirth(root, null), null); assert.equal(readRootBirth(root, ""), null);
+  for (const body of ["not json", JSON.stringify({ ...rec, schema: "x" }), JSON.stringify({ ...rec, createdAt: "nope" }), JSON.stringify({ ...rec, bootId: null })]) { fs.writeFileSync(rootBirthFile(root), body); assert.equal(readRootBirth(root, "b1"), null, body); }
+  // A boot id that cannot be read writes a record nothing can match.
+  fs.rmSync(rootBirthFile(root)); assert.equal(recordRootBirth(root, { bootId: null }), true); assert.equal(readRootBirth(root, "b1"), null);
+});
+
+test("snapshot sync: a root it creates is born (record with the boot), an existing root keeps what it had", (t) => {
+  const git = (cwd, ...args) => { const r = spawnSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" } }); if (r.status !== 0) throw new Error(r.stderr); return r.stdout.trim(); };
+  const repo = tmp(t, "rk-own-birth-repo-"); const root = path.join(tmp(t, "rk-own-birth-root-"), "snapshots");
+  git(repo, "init", "-q", "-b", "main"); fs.writeFileSync(path.join(repo, "a.txt"), "one\n"); git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "a");
+  const before = Date.now();
+  syncSnapshot({ checkout: repo, root });
+  const born = JSON.parse(fs.readFileSync(rootBirthFile(root), "utf8"));
+  assert.equal(born.schema, ROOT_BIRTH_SCHEMA); assert.equal(born.bootId, hostBootId());
+  assert.ok(Date.parse(born.createdAt) >= before - 1000 && Date.parse(born.createdAt) <= Date.now() + 1000, born.createdAt);
+  // A second sync into the existing root leaves its birth alone; a root without a birth is not given one later (no baseline).
+  syncSnapshot({ checkout: repo, root });
+  assert.deepEqual(JSON.parse(fs.readFileSync(rootBirthFile(root), "utf8")), born);
+  fs.rmSync(rootBirthFile(root));
+  syncSnapshot({ checkout: repo, root });
+  assert.equal(fs.existsSync(rootBirthFile(root)), false);
+  // A deleted and recreated root is born again.
+  fs.rmSync(root, { recursive: true, force: true });
+  syncSnapshot({ checkout: repo, root });
+  assert.equal(fs.existsSync(rootBirthFile(root)), true);
+});
+
+test("ownership POSIX [injected /proc]: the snapshot root's birth is the baseline: a pre-birth unreadable process (ssh-agent) lets the first release clean; post-birth, no birth record, another boot all hold; a recreated root is born again", (t) => {
+  const base = tmp(t, "rk-own-"); const root = path.join(base, "snapshots"); const snap = path.join(root, "k"); const file = path.join(base, "build-ownership", "owner.json");
+  const fake = fakeProc({ 6001: { start: NOW - 3_600_000 }, 6002: { start: NOW + 60_000 } });   // an agent from long before; a process from after the ownership
+  const probe = (bootId = "boot-1", pids = [6001, 6002]) => {
+    const p = linuxProbe(fake, deny(fake, "readFile", new RegExp(`/(${pids.join("|")})/environ$`)), deny(fake, "readlink", new RegExp(`/(${pids.join("|")})/(cwd|root|exe)$`)));
+    return fakeProbe("linux", { bootId: () => bootId, tokenHolders: (h, s) => p.tokenHolders(h, s), snapshotUsers: (d, s) => p.snapshotUsers(d, s) });
+  };
+  const born = () => recordRootBirth(root, { now: () => Date.now(), bootId: "boot-1" }); // what the sync does, after the ownership began
+  const fresh = (pr) => { fs.rmSync(file, { force: true }); fs.rmSync(cleanMarkerFile(file), { force: true }); fs.rmSync(root, { recursive: true, force: true }); fs.mkdirSync(snap, { recursive: true }); return acquire(file, "linux", pr, { snapshot: snap }); };
+  // Post-birth: the process from after the ownership is held, the agent from before is not.
+  let own = fresh(probe()); born();
+  let r = own.release();
+  assert.equal(r.released, false); assert.match(r.why, /6002 \(a process of this user[^)]*\) is unreadable \(EACCES\) and it started at .* not before the baseline/); assert.doesNotMatch(r.why, /6001/);
+  // No birth record: strict, nothing skipped.
+  own = fresh(probe());
+  r = own.release();
+  assert.equal(r.released, false); assert.match(r.why, /6001 .* there is no baseline for this ownership/);
+  // A birth of another boot: no baseline.
+  own = fresh(probe("boot-2")); born();
+  r = own.release();
+  assert.equal(r.released, false); assert.match(r.why, /6001 .* there is no baseline for this ownership/);
+  // A birth whose boot id cannot be read now: no baseline.
+  own = fresh(probe(null)); born();
+  assert.match(own.release().why, /there is no baseline/);
+  // The first acquisition with only the pre-birth agent: released clean (and the marker is left for the next owner).
+  own = fresh(probe("boot-1", [6001])); born();
+  r = own.release();
+  assert.equal(r.released, true, JSON.stringify(r)); assert.equal(readCleanMarker(file), own.owner.acquiredAt);
+  // Newer than the birth but the birth is capped at this ownership's acquisition: a process that started after the acquisition
+  // and before the birth (the gate's own, say) is not baseline.
+  fake.files.set(`${PROC}/6001/stat`, `6001 (x) S 1 6001 6001 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 ${Math.round((Date.now() + 10_000 - BTIME * 1000) / 10)} 0 0\n`);
+  own = fresh(probe("boot-1", [6001]));
+  recordRootBirth(root, { now: () => Date.now() + 60_000, bootId: "boot-1" });
+  assert.match(own.release().why, /6001 .* not before the baseline/, "started after the acquisition, before the birth: held");
+  fake.files.set(`${PROC}/6001/stat`, `6001 (x) S 1 6001 6001 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 ${Math.round((NOW - 3_600_000 - BTIME * 1000) / 10)} 0 0\n`);
+  // A deleted and recreated root is born again, later.
+  fs.rmSync(file, { force: true }); fs.rmSync(root, { recursive: true, force: true }); fs.mkdirSync(root, { recursive: true });
+  recordRootBirth(root, { now: () => NOW - 7_200_000, bootId: "boot-1" });
+  assert.equal(readRootBirth(root, "boot-1"), NOW - 7_200_000);
+  fs.rmSync(root, { recursive: true }); fs.mkdirSync(root, { recursive: true });
+  assert.equal(readRootBirth(root, "boot-1"), null, "the new root has no birth until it is recorded");
+  assert.equal(recordRootBirth(root, { now: () => NOW - 60_000, bootId: "boot-1" }), true);
+  assert.equal(readRootBirth(root, "boot-1"), NOW - 60_000, "a new birth");
 });
 
 test("ownership POSIX [injected table]: an orphan a subreaper adopted is still the owner's work; only a recorded parent or a group-mate makes a peer", (t) => {
@@ -445,6 +663,10 @@ test("ownership POSIX [injected table]: an orphan a subreaper adopted is still t
   held({ ancestors: [{ pid: 5000, startedMs: NOW - 1_000 }] }, [{ ...shell, group: 1 }, tee], undefined, /5003/);
   // A record written without ancestors cannot tell a peer from an adopted orphan, so it is covered.
   held({ ancestors: undefined }, [{ ...shell, group: 1 }, tee], undefined, /5003/);
+  // The owner's recorded ancestors are never its children, even when they started inside the slack before the acquisition.
+  const youngShell = { pid: 5010, ppid: 4000, startedMs: NOW - 100_500, group: 777 };
+  assert.equal(clear({ ancestors: [{ pid: 5010, startedMs: NOW - 100_500 }] }, [subreaper, youngShell]).reclaimed.pid, 999_999);
+  held({ ancestors: [{ pid: 5010, startedMs: NOW - 100_500 }] }, [subreaper, { ...youngShell, pid: 5011 }], undefined, /5011/);
   // The asking gate's own children are not the owner's work, whoever adopted whom.
   const mine = { pid: 5006, ppid: process.pid, startedMs: NOW - 500, group: 777 };
   assert.equal(clear({}, [shell, me, mine]).reclaimed.pid, 999_999);
@@ -787,10 +1009,13 @@ test("[native, Linux + python3] review item5-r1 #4: an orphan adopted by a subre
   // The orphan's parent is now the subreaper, not pid 1.
   const ppid = Number(/^PPid:\s+(\d+)/m.exec(fs.readFileSync(`/proc/${g.child}/status`, "utf8"))[1]);
   assert.notEqual(ppid, 1, "the subreaper adopted the orphan");
-  const env = { ...process.env }; delete env[OWNERSHIP_ENV];
-  assert.throws(() => acquireBuildOwnership({ file, env, exportEnv: false }), new RegExp(`process group \\d+ still has \\d+ member\\(s\\) started under this ownership: ${g.child}`), "attributed through the subreaper");
+  // The next gate is a process of its own (as a real next gate is): the subreaper is then no child of the asking gate.
+  const busy = gateStep(t, "acquire", { file }, process.env);
+  assert.equal(busy.ok, false, JSON.stringify(busy)); assert.equal(busy.code, "busy");
+  assert.match(busy.message, new RegExp(`process group \\d+ still has \\d+ member\\(s\\) started under this ownership: ${g.child}`), "attributed through the subreaper");
   await g.kill(g.child);
-  assert.equal(acquireBuildOwnership({ file, env, exportEnv: false }).reclaimed.from, g.handle);
+  const next = gateStep(t, "acquire", { file }, process.env);
+  assert.equal(next.ok, true, JSON.stringify(next)); assert.equal(next.reclaimed.from, g.handle);
 });
 
 test("[native] E6/G1: a snapshot sync is refused while a crashed gate's child survives, the snapshot keeps its tree, and syncs once the child is gone", { timeout: 120_000 }, async (t) => {

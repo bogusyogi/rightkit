@@ -31,7 +31,7 @@ import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { readDiskPolicy, scratchRoots } from "./disk-policy.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
-import { acquireBuildOwnership, OwnershipBusy, ownershipFile } from "./build-ownership.mjs";
+import { acquireBuildOwnership, OwnershipBusy, ownershipFile, recordRootBirth } from "./build-ownership.mjs";
 
 export const SNAPSHOT_SCHEMA = "rightkit.snapshot/1";
 const STATE_SCHEMA = "rightkit.snapshot-state/1";
@@ -68,6 +68,8 @@ const TEST_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
 
 /** `p` with every link on its existing part resolved (the rest as written), spelled for `paths` (path.posix or path.win32). */
 function canonicalPath(p, paths) {
+  // A path spelled for another platform than this host's (a simulated host) names nothing on this disk: it stays as written.
+  if (paths !== (process.platform === "win32" ? path.win32 : path.posix)) return paths.resolve(p);
   const rest = [];
   let at = paths.resolve(p);
   for (;;) {
@@ -95,7 +97,7 @@ function refuseDisposableRoot(root, source, { platform, env }) {
   const candidates = [...scratch.map((d) => ["scratch root", d]), ...temps.filter((d) => typeof d === "string" && d).map((d) => ["temp directory", d])];
   for (const [kind, dir] of candidates) {
     const canon = canonicalPath(dir, paths);
-    if (paths.dirname(canon) === canon) continue; // a filesystem root is no scratch or temp directory (a TMPDIR of "/" must not refuse everything)
+    if (paths.dirname(canon) === canon || paths.dirname(paths.resolve(dir)) === paths.resolve(dir)) continue; // a filesystem root is no scratch or temp directory (a TMPDIR of "/" must not refuse everything)
     if (within(real, canon) || within(paths.resolve(root), paths.resolve(dir))) throw new SnapshotError("error", `snapshot root ${root} (from ${source}) is under the ${kind} ${dir}: a snapshot is durable, and scratch & temp are disposable (docs/GATE-CONTRACT.md §1)`);
   }
 }
@@ -469,7 +471,9 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), no
   const { commit, tree } = resolveCommit(repo.checkout, rev);
   const entries = treeEntries(repo.checkout, commit);
   refuseCaseCollisions(entries, commit);
-  fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+  // mkdir returns the first directory it created: a root that did not exist is born now, and build ownership keeps that birth (and
+  // the boot it happened in) as the baseline for processes it cannot read.
+  if (fs.mkdirSync(root, { recursive: true, mode: 0o700 }) !== undefined) recordRootBirth(root);
   const rootStat = lstat(root);
   if (!rootStat?.isDirectory()) throw new SnapshotError("refused", `snapshot root ${root} is not a directory (a link is never followed)`);
   const dir = path.join(root, repo.key);

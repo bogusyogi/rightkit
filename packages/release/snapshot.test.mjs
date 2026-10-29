@@ -78,7 +78,7 @@ const refusesRoot = (opts, source) => assert.throws(() => snapshotRoot(opts), (e
 
 test("§1 root durability: a root under a scratch root or a temp directory is refused on every host, naming where the root came from", () => {
   const linux = (env) => ({ platform: "linux", env, home: "/home/a" });
-  for (const root of ["/Volumes/D/scratch/snaps", "/Volumes/D/scratch", "/tmp/snaps", "/private/tmp/x/snaps", "/var/tmp/snaps", "/private/var/folders/ab/cd/T/snaps", "/var/folders/ab/cd/T/snaps", path.join(os.tmpdir(), "snaps")]) {
+  for (const root of ["/Volumes/D/scratch/snaps", "/Volumes/D/scratch", "/tmp/snaps", "/private/tmp/x/snaps", "/var/tmp/snaps", "/private/var/folders/ab/cd/T/snaps", "/var/folders/ab/cd/T/snaps", ...(process.platform === "win32" ? [] : [path.join(os.tmpdir(), "snaps")])]) {
     refusesRoot(linux({ RIGHTKIT_SNAPSHOT_ROOT: root }), "RIGHTKIT_SNAPSHOT_ROOT");
   }
   refusesRoot(linux({ XDG_STATE_HOME: "/Volumes/D/scratch/state" }), "XDG_STATE_HOME");
