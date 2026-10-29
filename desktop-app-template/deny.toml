@@ -15,7 +15,6 @@ unmaintained = "workspace"
 yanked = "deny"
 ignore = [
   { id = "RUSTSEC-2024-0429", reason = "glib arrives only through tauri's Linux/BSD-gated GTK dependency; RightKit release targets are Windows and macOS only. Invalidated the moment any GTK (Linux or BSD) target ships." },
-  { id = "RUSTSEC-2026-0367", reason = "tauri-plugin-updater 2.10.1 requires zip ^4 as an optional Windows-only dependency (2.14.0, the latest, still does); rightkit-tauri-shell installs only bytes returned by the plugin's minisign-verified download, identity-rechecked before install, so no unsigned archive is ever extracted. reviewBy 2026-11-22 (RightKit ci/advisory-exceptions.json)." },
   { id = "RUSTSEC-2026-0368", reason = "tauri-plugin-updater 2.10.1 requires zip ^4 as an optional Windows-only dependency (2.14.0, the latest, still does); rightkit-tauri-shell installs only bytes returned by the plugin's minisign-verified download, identity-rechecked before install, so no unsigned archive is ever extracted. reviewBy 2026-11-22 (RightKit ci/advisory-exceptions.json)." },
   { id = "RUSTSEC-2026-0369", reason = "tauri-plugin-updater 2.10.1 requires zip ^4 as an optional Windows-only dependency (2.14.0, the latest, still does); rightkit-tauri-shell installs only bytes returned by the plugin's minisign-verified download, identity-rechecked before install, so no unsigned archive is ever extracted. reviewBy 2026-11-22 (RightKit ci/advisory-exceptions.json)." },
 ]

@@ -1832,7 +1832,14 @@ mod lifecycle_tests {
             // Another transfer reported progress an instant ago.
             *lock(&service.inner.last_progress) = Instant::now();
         }
-        run_send(service.inner.clone(), id.clone(), peer, items, false, handle);
+        run_send(
+            service.inner.clone(),
+            id.clone(),
+            peer,
+            items,
+            false,
+            handle,
+        );
         let transfer = lock(&service.inner.transfers)
             .iter()
             .find(|t| t.id == id)
@@ -1850,7 +1857,10 @@ mod lifecycle_tests {
         let (transfer, _) = send_through(peer, vec![SendItem::Text("hello".into())], false);
         server.join().unwrap();
         assert_eq!(transfer.state, "failed");
-        assert!(matches!(transfer.error, Some(Error::PeerUnreachable { .. })));
+        assert!(matches!(
+            transfer.error,
+            Some(Error::PeerUnreachable { .. })
+        ));
         assert!(transfer.accepted, "the owner had said yes");
     }
 
@@ -1861,15 +1871,17 @@ mod lifecycle_tests {
         let (transfer, _) = send_through(peer, vec![SendItem::Text("hello".into())], false);
         server.join().unwrap();
         assert_eq!(transfer.state, "failed");
-        assert!(matches!(transfer.error, Some(Error::PeerUnreachable { .. })));
+        assert!(matches!(
+            transfer.error,
+            Some(Error::PeerUnreachable { .. })
+        ));
         assert!(!transfer.accepted, "the owner was never asked");
     }
 
     #[test]
     fn a_zero_byte_file_accepted_then_5xx_leaves_accepted_true() {
         let _serial = serial();
-        let directory =
-            std::env::temp_dir().join(format!("rk-send-zero-{}", proto::random_hex(4)));
+        let directory = std::env::temp_dir().join(format!("rk-send-zero-{}", proto::random_hex(4)));
         std::fs::create_dir_all(&directory).unwrap();
         let empty = directory.join("empty.txt");
         std::fs::write(&empty, b"").unwrap();

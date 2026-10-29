@@ -66,7 +66,7 @@
         "reason": "ci/asset-gated.json: desktop session for the end-to-end tests (e2e_mac, e2e_win); the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-browser": {
-        "version": "0.3.6",
+        "version": "0.3.7",
         "allow": [
           "allow_missing_assets"
         ],
@@ -80,7 +80,7 @@
         "reason": "ci/asset-gated.json: ONNX Runtime and model files; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-qa": {
-        "version": "0.9.1",
+        "version": "0.9.2",
         "allow": [
           "allow_missing_assets"
         ],

@@ -54,7 +54,8 @@ fn excluded_folders_never_enter_the_gate_and_status_reports_the_gate() {
     }
     write(&t.root.join("src/new.txt"), 8);
     wait_for(&idx, "src change indexed", |x| {
-        x.folder_size(t.root.join("src")).is_some_and(|s| s.files == 2)
+        x.folder_size(t.root.join("src"))
+            .is_some_and(|s| s.files == 2)
     });
     std::thread::sleep(Duration::from_millis(500));
 

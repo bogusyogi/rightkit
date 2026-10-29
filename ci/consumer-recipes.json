@@ -310,7 +310,7 @@
       "files": {
         "ci/consumers/npm/qa/README.md": "a66453dabe64719ca42f77042b5366462761e920fddec3c4f264331449b03d26",
         "ci/consumers/npm/qa/consumer.mjs": "3666daed637f878d58b266bbd29311673e310242999a855b4e6d4cdca908525f",
-        "ci/consumers/npm/qa/package.json": "2a9441958aef7c52176dc1198d96419b7796f11d7273816ea2aa4ff19da59d63",
+        "ci/consumers/npm/qa/package.json": "3676cf928e8a7a8a7a4fbd5abc12bff76c15dea56de01b505f48f022932e4b71",
         "ci/consumers/npm/qa/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
       }
