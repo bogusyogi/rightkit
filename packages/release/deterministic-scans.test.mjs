@@ -462,8 +462,10 @@ test("plan: a crate or package directory name with a shell metacharacter is refu
 
 test("resolveInvocation: a Node cmd-shim (npm, pnpm's global shim) runs as node + its JS entry, no shell, any argument (rightkit#1261)", () => {
   const files = {
-    "C:\\nvm\\npm.cmd": ':: Created by npm, please don\'t edit manually.\r\n@ECHO OFF\r\nSETLOCAL\r\nSET "NODE_EXE=%~dp0\\node.exe"\r\nSET "NPM_CLI_JS=%~dp0\\node_modules\\npm\\bin\\npm-cli.js"\r\nFOR /F "delims=" %%F IN (\'CALL "%NODE_EXE%" "%NPM_CLI_JS%" prefix -g\') DO (SET "NPM_PREFIX_NPM_CLI_JS=%%F\\node_modules\\npm\\bin\\npm-cli.js")\r\n"%NODE_EXE%" "%NPM_CLI_JS%" %*\r\n',
+    // nvm's npm.cmd as installed on the Dell (2026-10-29): npm-prefix.js comes first and is not the entry.
+    "C:\\nvm\\npm.cmd": ':: Created by npm, please don\'t edit manually.\r\n@ECHO OFF\r\n\r\nSETLOCAL\r\n\r\nSET "NODE_EXE=%~dp0\\node.exe"\r\nIF NOT EXIST "%NODE_EXE%" (\r\n  SET "NODE_EXE=node"\r\n)\r\n\r\nSET "NPM_PREFIX_JS=%~dp0\\node_modules\\npm\\bin\\npm-prefix.js"\r\nSET "NPM_CLI_JS=%~dp0\\node_modules\\npm\\bin\\npm-cli.js"\r\nFOR /F "delims=" %%F IN (\'CALL "%NODE_EXE%" "%NPM_PREFIX_JS%"\') DO (\r\n  SET "NPM_PREFIX_NPM_CLI_JS=%%F\\node_modules\\npm\\bin\\npm-cli.js"\r\n)\r\nIF EXIST "%NPM_PREFIX_NPM_CLI_JS%" (\r\n  SET "NPM_CLI_JS=%NPM_PREFIX_NPM_CLI_JS%"\r\n)\r\n\r\n"%NODE_EXE%" "%NPM_CLI_JS%" %*\r\n',
     "C:\\nvm\\node_modules\\npm\\bin\\npm-cli.js": "",
+    "C:\\nvm\\node_modules\\npm\\bin\\npm-prefix.js": "",
     "C:\\pnpm\\bin\\pnpm.CMD": '@SETLOCAL\r\n@IF EXIST "%~dp0\\node.exe" (\r\n  "%~dp0\\node.exe"  "%~dp0\\..\\global\\v11\\abc\\node_modules\\pnpm\\bin\\pnpm.mjs" %*\r\n) ELSE (\r\n  node  "%~dp0\\..\\global\\v11\\abc\\node_modules\\pnpm\\bin\\pnpm.mjs" %*\r\n)\r\n',
     "C:\\pnpm\\global\\v11\\abc\\node_modules\\pnpm\\bin\\pnpm.mjs": "",
     "C:\\tools\\odd.cmd": "@echo off\r\nsomething.exe %*\r\n",

@@ -1158,13 +1158,32 @@ export function resolveInvocation(command, args, { platform = process.platform, 
   return { file: env.ComSpec || "cmd.exe", args: ["/d", "/s", "/c", `""${found}"${args.map((a) => ` ${a}`).join("")}"`], verbatim: true };
 }
 
-/** The JS entry a Node cmd-shim at `shim` runs (the first `%~dp0`-relative .js/.mjs/.cjs path in it that exists), or null. */
+/**
+ * The JS entry a Node cmd-shim at `shim` runs, or null: the line that passes the caller's arguments (`%*`) names it, either as a
+ * `%~dp0`-relative path (`"%~dp0\\..\\pnpm.mjs" %*`) or through a variable set to one (npm's `"%NODE_EXE%" "%NPM_CLI_JS%" %*` with
+ * `SET "NPM_CLI_JS=%~dp0\\node_modules\\npm\\bin\\npm-cli.js"`). Helpers the shim runs on other lines (npm's npm-prefix.js) are not it.
+ */
 export function cmdShimEntry(shim, { readFile = (f) => fs.readFileSync(f, "utf8"), exists = fs.existsSync } = {}) {
   let text;
   try { text = String(readFile(shim)); } catch { return null; }
-  for (const m of text.matchAll(/%~dp0\\?([^"%\r\n]+?\.(?:mjs|cjs|js))"/gi)) {
+  const vars = new Map();
+  // Every value a variable is set to (npm's NPM_CLI_JS is reassigned to a global-prefix copy when one exists): the %~dp0 one is used.
+  for (const m of text.matchAll(/^\s*@?SET\s+"?([A-Za-z_][A-Za-z0-9_]*)=([^"\r\n]*)"?\s*$/gim)) vars.set(m[1].toUpperCase(), [...(vars.get(m[1].toUpperCase()) ?? []), m[2]]);
+  const fromDp0 = (value) => {
+    const m = /^%~dp0\\?(.+\.(?:mjs|cjs|js))$/i.exec(String(value ?? "").trim());
+    if (!m) return null;
     const entry = path.win32.resolve(path.win32.dirname(shim), m[1]);
-    if (exists(entry)) return entry;
+    return exists(entry) ? entry : null;
+  };
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.includes("%*")) continue;
+    for (const q of line.matchAll(/"([^"]+)"/g)) {
+      const token = q[1];
+      const direct = fromDp0(token);
+      if (direct) return direct;
+      const v = /^%([A-Za-z_][A-Za-z0-9_]*)%$/.exec(token);
+      if (v) for (const value of vars.get(v[1].toUpperCase()) ?? []) { const viaVar = fromDp0(value); if (viaVar) return viaVar; }
+    }
   }
   return null;
 }
