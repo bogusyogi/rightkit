@@ -11,6 +11,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use super::kissfft::{Cpx, KissFftr};
+use super::math::Math;
 use crate::error::{Error, Result};
 
 /// Frame and mel-bank settings. Only the knobs Sherpa exposes are configurable; the
@@ -53,11 +54,16 @@ pub(crate) struct FbankTables {
     padded_size: usize,
     window: Vec<f32>,
     bins: Vec<MelBin>,
+    /// Centre frequency of each mel bin in Hz.
+    centers_hz: Vec<f32>,
     fft: KissFftr,
+    math: Math,
 }
 
 impl FbankTables {
-    pub(crate) fn new(config: &FbankConfig) -> Result<Self> {
+    /// `math` computes the window, FFT twiddles and per-frame logarithm (the mel table
+    /// always uses the platform `logf`; see [`mel_scale`]).
+    pub(crate) fn new(config: &FbankConfig, math: Math) -> Result<Self> {
         let samp_freq = config.sample_rate as f32;
         // FrameExtractionOptions::WindowShift/WindowSize: float product, truncated.
         let window_shift = (samp_freq * 0.001f32 * FRAME_SHIFT_MS) as i64;
@@ -69,21 +75,31 @@ impl FbankTables {
             )));
         }
         let padded_size = (window_size as usize).next_power_of_two();
-        let window = povey_window(window_size as usize);
-        let bins = kaldi_mel_bins(config, padded_size)?;
-        let fft = KissFftr::new(padded_size);
+        let window = povey_window(window_size as usize, math);
+        let (bins, centers_hz) = kaldi_mel_bins(config, padded_size, math)?;
+        let fft = KissFftr::new(padded_size, math);
         Ok(Self {
             window_shift,
             window_size,
             padded_size,
             window,
             bins,
+            centers_hz,
             fft,
+            math,
         })
     }
 
     pub(crate) fn dim(&self) -> usize {
         self.bins.len()
+    }
+
+    /// The first mel bin whose centre is at or above `hz` (`dim()` when none is).
+    pub(crate) fn first_bin_from(&self, hz: f32) -> usize {
+        self.centers_hz
+            .iter()
+            .position(|c| *c >= hz)
+            .unwrap_or(self.centers_hz.len())
     }
 
     /// `FirstSampleOfFrame` for `snip_edges = false`.
@@ -108,19 +124,32 @@ impl FbankTables {
 }
 
 /// `GetWindow("povey", n)`: computed in double, stored as float.
-fn povey_window(n: usize) -> Vec<f32> {
+fn povey_window(n: usize, math: Math) -> Vec<f32> {
     let a = 2.0 * std::f64::consts::PI / (n as f64 - 1.0);
     (0..n)
-        .map(|i| (0.5 - 0.5 * (a * i as f64).cos()).powf(0.85) as f32)
+        .map(|i| math.powf(0.5 - 0.5 * math.cos(a * i as f64), 0.85) as f32)
         .collect()
 }
 
+/// Always the platform `logf`, also under portable math: the weight table built from it
+/// moves loud bins by up to 1.7e-4 under `libm`, near the 2e-4 parity gate, while the
+/// per-frame logarithm (the part portable math exists for) moves them by under 1e-6.
 fn mel_scale(freq: f32) -> f32 {
     1127.0f32 * (1.0f32 + freq / 700.0f32).ln()
 }
 
-/// `MelBanks::InitKaldiMelBanks` without VTLN warping or HTK mode.
-fn kaldi_mel_bins(config: &FbankConfig, padded_size: usize) -> Result<Vec<MelBin>> {
+/// Inverse of [`mel_scale`]; only used to describe bins, never to build them.
+fn inverse_mel_scale(mel: f32, math: Math) -> f32 {
+    700.0 * (math.expf(mel / 1127.0) - 1.0)
+}
+
+/// `MelBanks::InitKaldiMelBanks` without VTLN warping or HTK mode, plus each bin's centre
+/// frequency.
+fn kaldi_mel_bins(
+    config: &FbankConfig,
+    padded_size: usize,
+    math: Math,
+) -> Result<(Vec<MelBin>, Vec<f32>)> {
     if config.num_bins < 3 {
         return Err(Error::Config("fbank needs at least 3 mel bins".into()));
     }
@@ -149,6 +178,7 @@ fn kaldi_mel_bins(config: &FbankConfig, padded_size: usize) -> Result<Vec<MelBin
     let mel_delta = (mel_high - mel_low) / (config.num_bins as f32 + 1.0);
 
     let mut bins = Vec::with_capacity(config.num_bins);
+    let mut centers_hz = Vec::with_capacity(config.num_bins);
     for bin in 0..config.num_bins {
         let left = mel_low + bin as f32 * mel_delta;
         let center = mel_low + (bin as f32 + 1.0) * mel_delta;
@@ -178,8 +208,9 @@ fn kaldi_mel_bins(config: &FbankConfig, padded_size: usize) -> Result<Vec<MelBin
             offset: first,
             weights: this_bin[first..=last].to_vec(),
         });
+        centers_hz.push(inverse_mel_scale(center, math));
     }
-    Ok(bins)
+    Ok((bins, centers_hz))
 }
 
 /// Streaming feature extractor: accepts PCM in any chunking and yields the same frames.
@@ -352,7 +383,7 @@ impl OnlineFbank {
                 for (k, w) in bin.weights.iter().enumerate() {
                     energy += *w * self.power[k + bin.offset];
                 }
-                energy.max(f32::EPSILON).ln()
+                tables.math.lnf(energy.max(f32::EPSILON))
             })
             .collect()
     }
@@ -363,12 +394,14 @@ mod tests {
     use super::*;
 
     fn fbank() -> OnlineFbank {
-        OnlineFbank::new(Arc::new(FbankTables::new(&FbankConfig::default()).unwrap()))
+        OnlineFbank::new(Arc::new(
+            FbankTables::new(&FbankConfig::default(), Math::PLATFORM).unwrap(),
+        ))
     }
 
     #[test]
     fn frame_geometry_matches_kaldi_for_16k() {
-        let t = FbankTables::new(&FbankConfig::default()).unwrap();
+        let t = FbankTables::new(&FbankConfig::default(), Math::PLATFORM).unwrap();
         assert_eq!((t.window_shift, t.window_size, t.padded_size), (160, 400, 512));
         // Frame f covers [160f - 120, 160f + 280); it is ready once that end is buffered.
         assert_eq!(t.num_frames(279, false), 0);
@@ -408,5 +441,39 @@ mod tests {
         f.frames(5, 2).unwrap();
         assert!(f.frames(4, 1).is_err());
         assert!(f.frames(5, 1).is_ok());
+    }
+
+    #[test]
+    fn portable_math_moves_log_mel_by_float_noise_only() {
+        let audio: Vec<f32> = (0..8_000)
+            .map(|i| ((i as f32) * 0.047).sin() * 0.2 + ((i * 7919) % 101) as f32 * 2e-4)
+            .collect();
+        let tables = |math| Arc::new(FbankTables::new(&FbankConfig::default(), math).unwrap());
+        let mut platform = OnlineFbank::new(tables(Math::PLATFORM));
+        let mut portable = OnlineFbank::new(tables(Math::PORTABLE));
+        platform.accept_waveform(&audio).unwrap();
+        portable.accept_waveform(&audio).unwrap();
+        let n = platform.num_frames_ready();
+        let (a, b) = (
+            platform.frames(0, n).unwrap(),
+            portable.frames(0, n).unwrap(),
+        );
+        let worst = a
+            .iter()
+            .zip(&b)
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0f32, f32::max);
+        assert!(worst < 1e-5, "portable fbank differs by {worst}");
+    }
+
+    #[test]
+    fn bin_centres_rise_from_low_to_high_freq() {
+        let t = FbankTables::new(&FbankConfig::default(), Math::PLATFORM).unwrap();
+        assert!(t.centers_hz.windows(2).all(|w| w[0] < w[1]));
+        assert!(t.centers_hz[0] > 20.0 && *t.centers_hz.last().unwrap() < 7_600.0);
+        let high = t.first_bin_from(3_500.0);
+        assert!((50..70).contains(&high), "3.5 kHz is bin {high}");
+        assert!(t.centers_hz[high] >= 3_500.0 && t.centers_hz[high - 1] < 3_500.0);
+        assert_eq!(t.first_bin_from(1e6), t.dim());
     }
 }

@@ -24,6 +24,7 @@ use serde::Deserialize;
 use super::context_graph::{ContextGraph, ROOT};
 use super::fbank::{FbankConfig, FbankTables, OnlineFbank};
 use super::keywords::{encode_keywords, SymbolTable};
+use super::math::Math;
 use super::model::Zipformer2Transducer;
 
 const SCHEMA: &str = "rightkit.kws-reference.v1";
@@ -238,7 +239,7 @@ fn kws_fbank_matches_kaldi_native_fbank() {
         root.join("kws/reference.json").display().to_string()
     );
     assert!(!reference.fbank.is_empty(), "reference.json lists no fbank clips");
-    let tables = Arc::new(FbankTables::new(&FbankConfig::default()).unwrap());
+    let tables = Arc::new(FbankTables::new(&FbankConfig::default(), Math::PLATFORM).unwrap());
     let mut failures = Vec::new();
     for entry in &reference.fbank {
         assert_eq!(entry.dim, tables.dim(), "{}: fbank dim", entry.file);
@@ -342,7 +343,9 @@ fn kws_encoder_matches_sherpa_on_reference_features() {
     check_sha256(&encoder, &m.encoder_sha256);
     check_sha256(&decoder, &m.decoder_sha256);
     check_sha256(&joiner, &m.joiner_sha256);
-    let dim = FbankTables::new(&FbankConfig::default()).unwrap().dim();
+    let dim = FbankTables::new(&FbankConfig::default(), Math::PLATFORM)
+        .unwrap()
+        .dim();
     let mut model = Zipformer2Transducer::load(&encoder, &decoder, &joiner, dim, 1).unwrap();
     let (size, shift) = (model.chunk_size(), model.chunk_shift());
 
@@ -476,7 +479,9 @@ fn tokens_table_reads_a_bare_id_as_the_space_token_and_keeps_the_first_duplicate
 
 #[test]
 fn fbank_refuses_audio_after_input_finished() {
-    let mut f = OnlineFbank::new(Arc::new(FbankTables::new(&FbankConfig::default()).unwrap()));
+    let mut f = OnlineFbank::new(Arc::new(
+        FbankTables::new(&FbankConfig::default(), Math::PLATFORM).unwrap(),
+    ));
     f.accept_waveform(&[0.1; 1_000]).unwrap();
     let before = f.num_frames_ready();
     f.input_finished();
