@@ -468,7 +468,7 @@ console.log(JSON.stringify({ code, out: out.join("\\n").slice(-3000), plans }));
   assert.equal(fs.existsSync(path.join(dir, "build-ownership", "owner.json")), false, "the door released the host");
 });
 
-test("[behavior] E6/§1: the door builds the commit, not the checkout: a dirty checkout neither blocks nor leaks, an edit mid-stage never reaches the snapshot, a tampered snapshot voids the stage (exit 2), a second request waits for the held ownership (exit 1)", async (t) => {
+test("[behavior] E6/§1: the door builds the commit, not the checkout: a dirty checkout neither blocks nor leaks, an edit mid-stage never reaches the snapshot, a tampered snapshot voids the stage (exit 2), a second request waits for the held ownership (exit 1)", { skip: process.platform === "win32" && "simulates a Linux host, whose ownership reads ps" }, async (t) => {
   const dir = tmp(t, "rk-gc-4c-e6-");
   const repo = path.join(dir, "repo"); fs.mkdirSync(repo);
   spawnSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
@@ -512,3 +512,95 @@ test("[behavior] E6/§1: the door builds the commit, not the checkout: a dirty c
   void git;
 });
 
+
+// Step 4c review fixtures: the commit decides, never the checkout; the snapshot compile keeps the guarded repository-code rows.
+function doorFixture(t, files, prefix) {
+  const dir = tmp(t, prefix);
+  const repo = path.join(dir, "repo"); fs.mkdirSync(repo);
+  spawnSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
+  write(repo, files);
+  spawnSync("git", ["add", "-A"], { cwd: repo }); spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c"], { cwd: repo });
+  const sha = String(spawnSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).stdout).trim();
+  const env = { ...process.env, RIGHTKIT_SNAPSHOT_ROOT: path.join(dir, "snaps"), RIGHTKIT_DATA_ROOT: dir, XDG_STATE_HOME: dir };
+  delete env.GITHUB_ACTIONS; delete env.RIGHTKIT_BUILD_OWNERSHIP; delete env.RIGHTKIT_BUILD_OWNERSHIP_FILE;
+  const spawn = (c, a, opts) => (c === "git" ? spawnSync(c, a, { ...opts, encoding: "utf8" }) : { status: 1, stdout: "", stderr: "not in this fixture" });
+  const door = async (extra = {}) => {
+    const out = [];
+    const code = await main(["--to", "compile", "--commit", sha], { cwd: repo, platform: "linux", env, spawn, out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0, runCheck: async () => 0, readReceipt: () => null, writeReceipt: () => {}, ...extra });
+    return { code, out: out.join("\n") };
+  };
+  return { repo, sha, door };
+}
+
+test("[behavior] §1 4c review: the snapshot compile runs a RightKit-style docs generator from the verified snapshot, never defers it", { skip: process.platform === "win32" && "simulates a Linux host, whose ownership reads ps" }, async (t) => {
+  const { door } = doorFixture(t, { "scripts/generate-index.mjs": "process.exit(0);\n", "crates/x/README.md": "x\n", "README.md": "r\n" }, "rk-gc-4c-gen-");
+  const plans = [];
+  const r = await door({ runScans: async (plan) => { plans.push(plan); return { scans: [], notes: [], cacheHits: [] }; } });
+  assert.equal(r.code, 0, r.out);
+  const row = plans.at(-1)?.scans.find((s) => s.id === "generated-docs");
+  assert.ok(row, `the compile plan has the generated-docs row (${plans.at(-1)?.scans.map((s) => s.id).join(", ")})`);
+  assert.equal(row.deferred, undefined, `generated-docs runs, it is not deferred (${row.deferred})`);
+  assert.equal(row.executes, true, "it is a guarded repository-code row");
+  assert.equal(plans.at(-1).roots.liveRoot, plans.at(-1).roots.contentRoot, "it runs from the snapshot itself");
+});
+
+test("[behavior] §1 4c review: whether the compile stages sidecars is the commit's config, whatever the checkout adds, edits or hides", { skip: process.platform === "win32" && "simulates a Linux host, whose ownership reads ps" }, async (t) => {
+  // The commit declares sidecars; the checkout removed them: still refused (part two of 4c stages them from a snapshot).
+  const declared = doorFixture(t, { "right-release.config.json": '{"sidecars":[{"name":"a"}]}\n', "README.md": "r\n" }, "rk-gc-4c-side-");
+  fs.writeFileSync(path.join(declared.repo, "right-release.config.json"), "{}\n");
+  let compiled = false;
+  let r = await declared.door({ runCompile: async () => { compiled = true; return 0; } });
+  assert.equal(r.code, 1, r.out); assert.match(r.out, /BLOCKED: \[compile\] right-release\.config\.json stage sidecars/); assert.equal(compiled, false, "nothing compiled");
+  // The commit declares none; the checkout added some: compiles.
+  const none = doorFixture(t, { "right-release.config.json": "{}\n", "README.md": "r\n" }, "rk-gc-4c-side2-");
+  fs.writeFileSync(path.join(none.repo, "right-release.config.json"), '{"sidecars":[{"name":"a"}]}\n');
+  r = await none.door({ runCompile: async () => { compiled = true; return 0; } });
+  assert.equal(r.code, 0, r.out); assert.equal(compiled, true, "the commit's config has no sidecars, so the compile ran");
+});
+
+test("[behavior] §1 4c review: an npm test that reaches cargo during a snapshot compile writes to the checkout's target directory (real pnpm -> script -> cargo chain), or is refused before launch when its workspace cannot be proven", { skip: process.platform === "win32" ? "POSIX fake cargo" : false }, (t) => {
+  const dir = tmp(t, "rk-gc-4c-npm-");
+  const snap = path.join(dir, "snap"); const checkoutTarget = path.join(dir, "checkout", "target");
+  write(snap, {
+    "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n', "crates/core/Cargo.toml": '[package]\nname = "core"\nversion = "0.1.0"\n', "crates/core/src/lib.rs": "\n",
+    "package.json": '{"name":"root","private":true}\n', "pnpm-workspace.yaml": "packages:\n  - packages/*\n",
+    "packages/app/package.json": '{"name":"app","private":true,"scripts":{"test":"cargo test --locked"}}\n',
+    "packages/redirect/package.json": '{"name":"redirect","private":true,"scripts":{"test":"cargo test --locked --manifest-path ../../crates/core/Cargo.toml"}}\n',
+  });
+  write(path.join(dir, "outside"), { "packages/lonely/package.json": "{}\n" });
+  const files = ["Cargo.toml", "crates/core/Cargo.toml", "crates/core/src/lib.rs", "package.json", "pnpm-workspace.yaml", "packages/app/package.json", "packages/redirect/package.json"];
+  const plan = planScans({ changed: files, contentRoot: snap, liveRoot: snap, trustedRoot: snap, includeTests: true, quietTests: "local", tier: "compile", cargoCommand: ["cargo"],
+    rustUnits: [{ name: "core", dir: "crates/core", crate: "core", cargoDir: "." }], npmUnits: [{ name: "app", dir: "packages/app" }, { name: "redirect", dir: "packages/redirect" }], npmRoots: ["."],
+    liveExecution: true, targetDirs: { ".": checkoutTarget }, platform: process.platform });
+  const app = plan.scans.find((s) => s.id === "test:npm:app");
+  assert.ok(app, `test:npm:app is planned (${plan.scans.map((s) => s.id).join(", ")})`);
+  assert.equal(app.env.CARGO_TARGET_DIR, checkoutTarget, "bound to the enclosing workspace's checkout target directory");
+  assert.equal(plan.scans.some((s) => s.id === "test:npm:redirect"), false, "a script that redirects cargo is never launched");
+  assert.ok(plan.scans.some((s) => s.internal === "refuse" && /npm unit redirect: .*a script redirects cargo/.test(s.detail)), "it is refused with the reason");
+  // The real chain: pnpm runs the package's test script, which runs cargo; the fake cargo records the directory it was given.
+  const pnpm = spawnSync(process.platform === "win32" ? "where" : "which", ["pnpm"], { encoding: "utf8" });
+  if (pnpm.status !== 0) { t.diagnostic("no pnpm on this host: the planned env was checked, the nested launch was not"); return; }
+  const toolDir = path.join(dir, "bin");
+  write(toolDir, { cargo: `#!/bin/sh\necho "cargo $* CARGO_TARGET_DIR=$CARGO_TARGET_DIR" >> '${path.join(dir, "cargo-ran")}'\nexit 0\n` });
+  fs.chmodSync(path.join(toolDir, "cargo"), 0o755);
+  const r = spawnSync(app.tool, app.args, { cwd: snap, encoding: "utf8", env: { ...process.env, ...app.env, PATH: `${toolDir}:${process.env.PATH}`, NODE_OPTIONS: "" } });
+  assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+  const ran = fs.readFileSync(path.join(dir, "cargo-ran"), "utf8").trim();
+  assert.equal(ran, `cargo test --locked CARGO_TARGET_DIR=${checkoutTarget}`, "the nested cargo wrote to the checkout's target directory, not the snapshot's");
+  assert.equal(fs.existsSync(path.join(snap, "target")), false);
+});
+
+test("[behavior] §1 4c review: an npm unit with no enclosing Cargo workspace that reaches cargo is refused before launch on a snapshot compile", () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gc-4c-npm2-")));
+  try {
+    write(dir, { "package.json": '{"name":"root","private":true}\n', "pnpm-workspace.yaml": "packages:\n  - tools/*\n", "tools/x/package.json": '{"name":"x","private":true,"scripts":{"test":"cargo build"}}\n' });
+    const plan = planScans({ changed: ["package.json", "pnpm-workspace.yaml", "tools/x/package.json"], contentRoot: dir, liveRoot: dir, trustedRoot: dir, includeTests: true, quietTests: "local", tier: "compile", cargoCommand: ["cargo"],
+      rustUnits: [], npmUnits: [{ name: "x", dir: "tools/x" }], npmRoots: ["."], liveExecution: true, targetDirs: {}, platform: process.platform });
+    assert.equal(plan.scans.some((s) => s.id === "test:npm:x"), false);
+    assert.ok(plan.scans.some((s) => s.internal === "refuse" && /npm unit x: .*no Cargo\.toml encloses tools\/x/.test(s.detail)), plan.scans.map((s) => `${s.id} ${s.detail ?? ""}`).join("\n"));
+    // Without a snapshot compile (no targetDirs) nothing changes: the row is planned as before.
+    const live = planScans({ changed: ["package.json", "pnpm-workspace.yaml", "tools/x/package.json"], contentRoot: dir, liveRoot: dir, trustedRoot: dir, includeTests: true, quietTests: "local", tier: "compile", cargoCommand: ["cargo"],
+      rustUnits: [], npmUnits: [{ name: "x", dir: "tools/x" }], npmRoots: ["."], liveExecution: true, platform: process.platform });
+    assert.equal(live.scans.some((s) => s.id === "test:npm:x"), true);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

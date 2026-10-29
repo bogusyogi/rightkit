@@ -991,7 +991,28 @@ export function planScans({
       const classAEvidence = typeof own.classATests?.evidence === "string" && own.classATests.evidence.trim() !== "" ? own.classATests.evidence.trim() : null;
       const inClassA = classAEvidence && !brokerCall && !buildCall && !afterClassA;
       if (classAEvidence && !inClassA) notes.push(`npm.${name}.classATests is ignored: ${brokerCall ? "its test script reaches the broker" : buildCall ? `its test script builds (${buildCall.command})` : "it is declared afterClassA"}; it runs after class A`);
-      add({ id: `test:npm:${name}`, class: inClassA ? A : B, kind: "test", executes: true, classReason: inClassA ? `class A on recorded evidence (${classAEvidence}); run under the launch guard` : brokerCall ? "its test script reaches the broker (compiles); it runs with the compile scans" : laterReason ?? "test scripts execute project code and run after class A", ...(own.quietTests === true ? { quiet: true } : {}), ...(brokerCall ? { brokerCall } : {}), tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { ...PNPM_RUN_ENV, ...(isolatedCheckout ? { RIGHTKIT_ISOLATED_CHECKOUT: "1" } : {}) } });
+      // A commit snapshot's compile (targetDirs): a test script that reaches cargo writes where cargo puts the outputs of the
+      // workspace it finds by walking up from its directory, which would be inside the snapshot. Bound to that workspace's
+      // checkout target directory when it is provable (the nearest Cargo.toml above the unit is a known workspace or member, and no
+      // script redirects cargo); refused before launch otherwise (step 4c review).
+      let cargoTarget = null;
+      if (targetDirs && (brokerCall || buildCall)) {
+        const unitDir = npmDir(name);
+        let manifestDir = null;
+        for (let d = unitDir; ; d = path.posix.dirname(d) === "." || d === "." ? "." : path.posix.dirname(d)) {
+          if (exists(path.join(contentRoot, ...(d === "." ? [] : d.split("/")), "Cargo.toml"))) { manifestDir = d; break; }
+          if (d === ".") break;
+        }
+        const ws = manifestDir === null ? null : Object.hasOwn(targetDirs, manifestDir) ? manifestDir : ([...(rustMap?.values() ?? [])].find((u) => u.dir === manifestDir)?.cargoDir ?? null);
+        const scriptText = Object.values(manifest.scripts ?? {}).filter((v) => typeof v === "string").join("\n");
+        const redirects = /--manifest-path|--target-dir|CARGO_TARGET_DIR|CARGO_BUILD_TARGET_DIR|(^|[\s;&|(])cd\s/.test(scriptText);
+        if (!ws || !targetDirs[ws] || redirects) {
+          refuse(`npm unit ${name}`, `its test script reaches cargo (${(brokerCall ?? buildCall).command ?? "cargo"}) while the compile reads a commit snapshot, and which workspace's outputs it writes cannot be proven (${redirects ? "a script redirects cargo" : manifestDir === null ? `no Cargo.toml encloses ${unitDir}` : `${manifestDir} is not a known workspace or member`}); outputs must be the checkout's`);
+          continue;
+        }
+        cargoTarget = targetDirs[ws];
+      }
+      add({ id: `test:npm:${name}`, class: inClassA ? A : B, kind: "test", executes: true, classReason: inClassA ? `class A on recorded evidence (${classAEvidence}); run under the launch guard` : brokerCall ? "its test script reaches the broker (compiles); it runs with the compile scans" : laterReason ?? "test scripts execute project code and run after class A", ...(own.quietTests === true ? { quiet: true } : {}), ...(brokerCall ? { brokerCall } : {}), tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { ...PNPM_RUN_ENV, ...(isolatedCheckout ? { RIGHTKIT_ISOLATED_CHECKOUT: "1" } : {}), ...(cargoTarget ? { CARGO_TARGET_DIR: cargoTarget } : {}) } });
     }
     if (deferredToCi.length) notes.push(`${deferredToCi.length} quiet test scan(s) left to the CI shards (one crate per runner), not run here: ${deferredToCi.join(", ")}`);
     // scripts/ci tests run when scripts/, ci/ or .github/ changed, or a file the scripts/ci sources reference (imports and

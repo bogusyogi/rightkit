@@ -285,7 +285,8 @@ test("[native] G1: a gate killed while its child still runs keeps the host owned
   await g.kill(g.gate);
   const env = { ...process.env }; delete env[OWNERSHIP_ENV];
   const next = () => acquireBuildOwnership({ file, stage: "next", env, exportEnv: false });
-  assert.throws(next, (e) => e instanceof OwnershipBusy && new RegExp(process.platform === "win32" ? "still holds 1 process" : `started under this ownership: ${g.child}`).test(e.message), "a surviving child keeps ownership");
+  // POSIX: the group net names the orphan, or (WSL2, whose per-session init adopts orphans as a subreaper) the environment net does.
+  assert.throws(next, (e) => e instanceof OwnershipBusy && new RegExp(process.platform === "win32" ? "still holds 1 process" : `(started under this ownership: ${g.child}|${g.child} still carry)`).test(e.message), "a surviving child keeps ownership");
   await g.kill(g.child);
   if (process.platform === "win32") await until(() => readHolder(holderFile(file, g.handle))?.state === "drained");
   const own = next();

@@ -124,7 +124,7 @@ function jobProbeScript(name) {
  * The host's process facts the ownership rules rely on. Each answer is a fact or a throw; a throw means "unknown" and the
  * caller treats it as busy.
  */
-export function processProbe({ platform = process.platform, spawn = spawnSync, spawnDetached = spawnDetachedDefault, kill = process.kill.bind(process), readFile = fs.readFileSync, readdir = fs.readdirSync, uid = process.getuid?.() } = {}) {
+export function processProbe({ platform = process.platform, spawn = spawnSync, spawnHolder = spawnDetachedDefault, kill = process.kill.bind(process), readFile = fs.readFileSync, readdir = fs.readdirSync, uid = process.getuid?.() } = {}) {
   const exists = (pid) => {
     try { kill(pid, 0); return true; } catch (e) { if (e.code === "ESRCH") return false; if (e.code === "EPERM") return true; throw e; }
   };
@@ -159,9 +159,14 @@ export function processProbe({ platform = process.platform, spawn = spawnSync, s
         if (/^GONE$/m.test(out)) return { open: false };
         throw new Error(`cannot open ${name}: ${out}`);
       },
-      /** Starts the detached holder that puts `pid` in job `name`; resolves once it reports holding (or throws). */
+      /**
+       * Starts the holder that puts `pid` in job `name`; returns once it reports holding (or throws). The holder must outlive
+       * this gate: it is started by `cmd /c start /b`, so it is cmd's child, not Node's, and silently leaves the kill-on-close
+       * job Node keeps for its own children (libuv sets SILENT_BREAKAWAY_OK); cmd exits at once. A DETACHED_PROCESS PowerShell
+       * never starts in a console-less session (measured on the Dell over ssh, 2026-10-29), so `detached` is not used.
+       */
       contain({ name, pid, file, timeoutMs = 60_000, sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) }) {
-        const child = spawnDetached("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded(holderScript({ name, pid, file }))], { detached: true, stdio: "ignore" });
+        const child = spawnHolder("cmd.exe", ["/d", "/c", "start", "\"\"", "/b", "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded(holderScript({ name, pid, file }))], { stdio: "ignore" });
         child.unref?.();
         const until = Date.now() + timeoutMs;
         for (;;) {

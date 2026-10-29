@@ -1528,7 +1528,8 @@ async function runStages(o, args, root, git, io) {
       // otherwise), so every release config that declares `sidecars` is staged first, through right-release under this door run.
       const listedConfigs = git("ls-tree", "-r", "--name-only", "-z", commit);
       const sidecarConfigs = (failed(listedConfigs) ? [] : text(listedConfigs).split("\0").filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)).filter((f) => appDir === "." || f.startsWith(`${appDir}/`)))
-        .filter((f) => { try { return /\bsidecars\b/.test(o.readFile(path.join(root, f))); } catch { return false; } });
+        // On the snapshot route the commit's config decides, never the checkout's (which may add, edit or hide one).
+        .filter((f) => { try { return /\bsidecars\b/.test(o.readFile(path.join(ds ? ds.path : root, f))); } catch { return false; } });
       ok = true;
       // Sidecar staging is right-release's, which still reads the checkout: from a snapshot it waits for the right-release source
       // split (joint plan step 4c, second part), so a commit with sidecars is refused here rather than built from the checkout.
@@ -2208,7 +2209,9 @@ export async function main(argv, io = {}) {
       // The quiet tests (port, pipe, desktop and wall-clock bound) are proven by the CI shards, one crate per runner, unless
       // RK_GATE_QUIET_TESTS=local asks for the serial quiet lane here (no CI, or a CI outage).
       // Full class A runs every test before a compile: the quiet suites run here in the quiet lane, never left to CI.
-      quietTests: fullA || o.env.RK_GATE_QUIET_TESTS === "local" ? "local" : "ci", packageFeatures, liveExecution: fullA && (args.includes("--worktree") || Boolean(snapshotA)),
+      // The door's snapshot compile already executes the repository's own code (its tests) in the verified snapshot, guarded like
+      // full class A, so the docs generator runs there too instead of being deferred (step 4c review).
+      quietTests: fullA || o.env.RK_GATE_QUIET_TESTS === "local" ? "local" : "ci", packageFeatures, liveExecution: (fullA && (args.includes("--worktree") || Boolean(snapshotA))) || Boolean(snapshotB),
       rustUnits: rust.units, npmUnits: npm, npmRoots, cargoDir: ".", rustLocks, crateFeatures,
       // The broker (or, on a direct host, the gate itself) admits compiles; no separate grant file decides it here.
       localCompile: true,
