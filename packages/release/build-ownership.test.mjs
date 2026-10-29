@@ -440,9 +440,10 @@ const r = { };
 try {
   const own = acquireBuildOwnership({ file: ${JSON.stringify(file)}, stage: "fixture" });
   r.contained = own.contained; r.job = own.owner.containment.name;
-  const child = spawn(process.execPath, ["-e", "const c = require('child_process').spawn('ping.exe', ['-n', '120', '127.0.0.1'], { stdio: 'ignore' }); process.stdout.write(String(c.pid) + '\\n'); setInterval(() => {}, 1000);"], { stdio: ["ignore", "pipe", "ignore"] });
+  const child = spawn(process.execPath, ["-e", "const c = require('child_process').spawn('ping.exe', ['-n', '120', '127.0.0.1'], { stdio: 'ignore' }); c.on('error', (e) => { process.stderr.write(String(e)); process.exit(3); }); process.stdout.write(String(c.pid)); setInterval(() => {}, 1000);"], { stdio: ["ignore", "pipe", "pipe"] });
   r.child = child.pid;
-  r.grandchild = await new Promise((res) => child.stdout.once("data", (d) => res(Number(String(d).trim()))));
+  let childErr = ""; child.stderr.on("data", (d) => { childErr += d; });
+  r.grandchild = await new Promise((res, rej) => { child.stdout.once("data", (d) => res(Number(String(d).trim()))); child.once("exit", (code) => rej(new Error("the node child exited " + code + " before reporting: " + childErr))); setTimeout(() => rej(new Error("the node child did not report within 30 s: " + childErr)), 30000); });
   const ps = [
     "$ErrorActionPreference = 'Stop'",
     'Add-Type @"',
@@ -454,7 +455,7 @@ try {
     "}",
     '"@',
     "$j = [RkJobG]::OpenJobObjectW(0x0004, $false, '" + r.job + "'); if ($j -eq [IntPtr]::Zero) { 'ERR:job'; exit 0 }",
-    "foreach ($id in " + r.child + "," + r.grandchild + ") { $p = [RkJobG]::OpenProcess(0x1000, $false, [uint32]$id); $in = $false; if ($p -eq [IntPtr]::Zero -or -not [RkJobG]::IsProcessInJob($p, $j, [ref]$in)) { \"$id=ERR\" } elseif ($in) { \"$id=IN\" } else { \"$id=OUT\" } }",
+    "foreach ($id in " + r.child + "," + r.grandchild + ") { $p = [RkJobG]::OpenProcess(0x1000, $false, [uint32]$id); $in = $false; if ($p -eq [IntPtr]::Zero -or -not [RkJobG]::IsProcessInJob($p, $j, [ref]$in)) { [string]$id + '=ERR' } elseif ($in) { [string]$id + '=IN' } else { [string]$id + '=OUT' } }",
   ].join("\\n");
   const m = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(ps, "utf16le").toString("base64")], { encoding: "utf8", timeout: 60000 });
   r.inJob = String(m.stdout).trim().split(/\\r?\\n/);
