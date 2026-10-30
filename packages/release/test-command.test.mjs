@@ -219,3 +219,25 @@ test("command-spec: loadAppConfig still imports a legacy right-release.config.mj
     assert.equal(parseTestArgs([]).config, "right-release.config.mjs");
   } finally { process.chdir(previous); rmSync(root, { recursive: true, force: true }); }
 });
+
+test("[GB-79] a planned `rightkit-qa journeys run` suite fails at planning with the named capability before ANY suite runs (no earlier build is wasted, nothing is skipped, an empty journey set is never green)", async () => {
+  const { QA_JOURNEYS_UNSUPPORTED, qaJourneysRunStep } = await import("./test-command.mjs");
+  const cfg = { tests: { suites: [
+    { name: "build", cmd: "node", args: ["build.mjs"] },
+    { name: "journeys", cmd: "rightkit-qa", args: ["journeys", "run", "--app", "x"] },
+  ] } };
+  const plan = planTests(cfg, { appRoot });
+  const calls = []; const errs = [];
+  const result = await runSuites(plan, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn([0, 0], calls), log: () => {}, errLog: (l) => errs.push(l), snapshotStage: true });
+  assert.equal(result.exitCode, 1);
+  assert.deepEqual(calls, [], "the earlier build suite never ran: planning refused first");
+  const directCalls = [];
+  const direct = await runSuites(plan, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn([0, 0], directCalls), log: () => {}, errLog: () => {}, snapshotStage: false });
+  assert.equal(direct.exitCode, 0);
+  assert.equal(directCalls.length, 2, "outside a gate-carried snapshot stage the suite starts as before");
+  assert.match(errs.join("\n"), new RegExp(`\\[${QA_JOURNEYS_UNSUPPORTED}\\] journeys:.*journeys-prebuilt-input`));
+  assert.equal(qaJourneysRunStep({ cmd: "rightkit-qa", args: ["run-tests"] }), false);
+  assert.equal(qaJourneysRunStep({ cmd: "/x/rightkit-qa", args: ["journeys", "run"] }), true);
+  assert.equal(qaJourneysRunStep({ cmd: "rightkit-qa", args: ["journeys"] }, ["run"]), true, "passthrough arguments count");
+  assert.equal(qaJourneysRunStep({ cmd: "rightkit-qa", args: ["journeys", "receipt", "--root", "."] }), false, "reading a receipt compiles nothing");
+});

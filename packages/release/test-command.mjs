@@ -29,7 +29,7 @@ import { buildLaunch } from "./build-launch.mjs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawn } from "./background-process.mjs";
-import { carriedLedgerIds, carriedOutputDirsSince } from "./carried-cargo.mjs";
+import { carriedCargoMapOf, carriedLedgerIds, carriedOutputDirsSince } from "./carried-cargo.mjs";
 import { CommandSpecError, loadAppConfig, resolveInvocation, validateStep } from "./command-spec.mjs";
 import { defaultReleaseConfigFile } from "./release-config.mjs";
 import { fsListRustFiles } from "./signing-files.mjs";
@@ -165,6 +165,15 @@ export function planTests(config, { suites = [], runner, passthrough = [], appRo
   return selected;
 }
 
+/** The refusal code of a planned `rightkit-qa journeys run` suite (GB-79). */
+export const QA_JOURNEYS_UNSUPPORTED = "RK_QA_JOURNEYS_PREBUILT_UNSUPPORTED";
+/** True when a suite step is `rightkit-qa journeys run ...` (by command or by node script name, extra args included). */
+export function qaJourneysRunStep(step, extraArgs = []) {
+  const words = [step.cmd ?? step.node, ...(step.args ?? []), ...extraArgs].filter((w) => typeof w === "string").map((w) => w.replaceAll("\\", "/"));
+  const at = words.findIndex((w) => /(^|\/)rightkit-qa(\.exe)?$/.test(w));
+  return at >= 0 && words[at + 1] === "journeys" && words[at + 2] === "run";
+}
+
 export function eventPrefix(config) {
   const prefix = config?.tests?.eventPrefix ?? "test";
   if (typeof prefix !== "string" || !PREFIX.test(prefix)) fail("tests.eventPrefix must be lower-case letters, digits and underscores");
@@ -178,7 +187,7 @@ export function eventPrefix(config) {
  * A `sign` step (suite-signing.mjs) runs IN THIS PROCESS, never through `door` (it is no command and never a broker job); it signs what an earlier
  * suite built, named by that suite's verified carried receipts, and only a success sets RIGHTKIT_QA_APP_BINARY for the suites after it.
  */
-export async function runSuites(plan, { appRoot, prefix = "test", env = process.env, spawnFn = spawn, log = console.log, errLog = console.error, door = buildLaunch, config = null, platform = process.platform, signDeps = {}, signStep = runSignStep } = {}) {
+export async function runSuites(plan, { appRoot, prefix = "test", env = process.env, spawnFn = spawn, log = console.log, errLog = console.error, door = buildLaunch, config = null, platform = process.platform, signDeps = {}, signStep = runSignStep, snapshotStage = Boolean(carriedCargoMapOf(env)?.map) } = {}) {
   const results = [];
   // One signing policy, enforced here whatever the config's format (the route probe reads JSON configs only; a legacy .mjs config is judged now): an
   // unsigned or ad hoc product build, or an identifier override, is refused before any suite runs (rightkit#1303). Mac and Dell only.
@@ -191,6 +200,15 @@ export async function runSuites(plan, { appRoot, prefix = "test", env = process.
   } catch (error) {
     if (!(error instanceof SuiteSigningError)) throw error;
     errLog(`right-release test: [${error.code}] ${error.message}`);
+    return { exitCode: 1, results };
+  }
+  // GB-79 (GATE test stage/E1/E6/E11): `rightkit-qa journeys run` builds through the broker before it launches and has no prebuilt-input form, so on
+  // a snapshot stage the door refuses it at launch (build-launch.mjs qaBuildReason). That refusal came after every earlier suite had already built.
+  // It is now a PLANNING failure naming the missing capability, before any suite runs; nothing is silently skipped and an empty journey set is never green.
+  // Only a gate-carried snapshot stage (a carrier map in the environment) has the one-build rule; a direct host starts it as it always did.
+  const unsupported = snapshotStage ? plan.filter((item) => !item.sign && item.step && qaJourneysRunStep(item.step, item.extraArgs)) : [];
+  if (unsupported.length) {
+    for (const item of unsupported) errLog(`right-release test: [${QA_JOURNEYS_UNSUPPORTED}] ${item.name}: \`rightkit-qa journeys run\` has no prebuilt-input mode (capability "journeys-prebuilt-input" is not implemented): it compiles through the broker itself, and a gate-carried stage must build once, sign, then run prebuilt bytes. Nothing ran`);
     return { exitCode: 1, results };
   }
   // The environment later suites get: the caller's, plus RIGHTKIT_QA_APP_BINARY and RIGHTKIT_QA_SIGNING_EVIDENCE once a sign step succeeded.
