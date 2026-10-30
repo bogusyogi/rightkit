@@ -617,12 +617,15 @@ test("[GB-16] the output pin reads the selected commit's snapshot, not the check
     git: () => ({ status: 0, stdout: manifests.join("\0"), stderr: "" }), root, commit: "c".repeat(40), executor: { cargo: ["cargo"] }, snapshot,
   });
   const one = run(["a/Cargo.toml"], (file) => ({ workspace_root: path.dirname(file), target_directory: path.join(path.dirname(file), "target") }));
-  assert.deepEqual(one, { dir: path.join(root, "a", "target") }, "the snapshot's target maps to the same relative path under the checkout, which does not have a/");
+  assert.deepEqual({ dir: one.dir, dirs: one.dirs }, { dir: path.join(root, "a", "target"), dirs: [path.join(root, "a", "target")] }, "the snapshot's target maps to the same relative path under the checkout, which does not have a/");
   assert.ok(asked.every((q) => q.file.startsWith(snapshot) && q.cwd.startsWith(snapshot)), "metadata was asked in the snapshot only");
-  assert.deepEqual(run(["b/Cargo.toml"], (file) => ({ workspace_root: path.dirname(file), target_directory: path.join(path.dirname(file), "target") })), { dir: path.join(root, "b", "target") }, "a dirty manifest in the checkout is not read");
-  assert.deepEqual(run(["Cargo.toml"], () => ({ workspace_root: snapshot, target_directory: path.join(base, "shared-target") })), { dir: path.join(base, "shared-target") }, "an absolute target outside the snapshot stands");
-  assert.deepEqual(run([], () => assert.fail("no manifest")), { dir: null });
+  assert.equal(run(["b/Cargo.toml"], (file) => ({ workspace_root: path.dirname(file), target_directory: path.join(path.dirname(file), "target") })).dir, path.join(root, "b", "target"), "a dirty manifest in the checkout is not read");
+  assert.equal(run(["Cargo.toml"], () => ({ workspace_root: snapshot, target_directory: path.join(base, "shared-target") })).dir, path.join(base, "shared-target"), "an absolute target outside the snapshot stands");
+  assert.equal(run([], () => assert.fail("no manifest")).dir, null);
   const two = run(["a/Cargo.toml", "b/Cargo.toml"], (file) => ({ workspace_root: path.dirname(file), target_directory: path.join(path.dirname(file), "target") }));
-  assert.match(two.refusal, /holds 2 Cargo workspaces \(a, b\)/, "workspaces are named by their checkout-relative path");
+  // GB-17: two workspaces are two independent targets, resolved from the snapshot and mapped to the checkout: no refusal, no shared directory.
+  assert.equal(two.refusal, undefined); assert.equal(two.dir, null);
+  assert.deepEqual(two.dirs, [path.join(root, "a", "target"), path.join(root, "b", "target")]);
+  assert.deepEqual([...two.workspaces.keys()], [path.join(root, "a"), path.join(root, "b")], "keyed by the checkout-relative workspace");
   assert.match(run(["a/Cargo.toml"], () => ({})).refusal, /metadata in the snapshot reported no absolute target_directory for a\/Cargo\.toml/);
 });

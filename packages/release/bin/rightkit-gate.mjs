@@ -1484,17 +1484,25 @@ async function runStages(o, args, root, git, io) {
         if (packagePin.refusal) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_OUTPUT_UNPINNED: [package] ${packagePin.refusal}; nothing was built`); ok = false; }
         else if (packagePin.dir) o.out(`${tag} [package] output directory for the Cargo workspace: ${packagePin.dir} (the checkout's)`);
       }
-      const packageEnv = packagePin.dir ? { CARGO_TARGET_DIR: packagePin.dir } : {};
+      // GB-17: several Cargo workspaces: each of right-release's and its children's Cargo calls is bound to ITS workspace's target through the per-call wrapper.
+      let packageMulti = null;
+      if (ok && packagePin.dirs?.length > 1) {
+        packageMulti = await bindUnitCargo({ o, git, root, ds, executor, which: whichIn(o) });
+        if (packageMulti.refusal) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_OUTPUT_UNPINNED: [package] ${packageMulti.refusal}; nothing was built`); ok = false; }
+        else if (packageMulti.note) o.out(`${tag} [package] ${packageMulti.note}`);
+      }
+      const packageEnv = packagePin.dir ? { CARGO_TARGET_DIR: packagePin.dir } : (packageMulti?.env ?? {});
       ok = ok && (mobile || await rightRelease(stage, ["qa", "--stage", "source", "--platform", platform], packageEnv)) && await rightRelease(stage, ["build", "--platform", platform], packageEnv);
       const sealed = ok ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;
       if (ok && !sealed) { o.err(`${tag} [package] the build reported success but sealed nothing for ${commit.slice(0, 8)} on ${platform}`); ok = false; }
       if (sealed) extra = { platform, sealed: sealed.id, manifestSha256: sealed.digest };
       // The cross-check: the Cargo targets the sealed manifest records are the directory this door resolved itself. A different one voids the stage.
-      if (ok && sealed && ds && packagePin.dir) {
+      try { packageMulti?.cleanup?.(); } catch { /* the wrapper's map is the gate's own temp directory */ }
+      if (ok && sealed && ds && (packagePin.dir || packagePin.dirs?.length > 1)) {
         let recorded = null;
         try { recorded = JSON.parse(String(o.readFile(sealed.manifest))).boundTargets ?? null; } catch { recorded = null; }
         const { crossCheckBoundTargets, SPLIT_TARGET_DRIFT_CODE } = await import("../release-artifact-path.mjs");
-        const drift = crossCheckBoundTargets({ recorded, expected: [packagePin.dir] });
+        const drift = crossCheckBoundTargets({ recorded, expected: packagePin.dirs });
         if (drift.length) {
           for (const problem of drift.slice(0, 10)) o.err(`${tag} ${SPLIT_TARGET_DRIFT_CODE}: [package] ${problem}`);
           const closedDrift = await closeSnapshotStage({ o, ds, root, stage, step: stage, tag });
@@ -1804,15 +1812,14 @@ async function bindUnitCargo({ o, git, root, ds, executor, which }) {
       targetDirs[found ?? nearest ?? path.posix.dirname(m)] = null;
     }
   }
-  for (const m of executor.kind === "broker" ? [] : manifests) {
-    const file = path.join(root, ...m.split("/"));
-    if (!o.exists(file)) return { refusal: `the checkout has no ${m}, so its Cargo output directory cannot be resolved` };
-    const r = o.spawn(cargo[0], [...cargo.slice(1), "metadata", "--offline", "--format-version", "1", "--no-deps", "--manifest-path", file], { cwd: path.dirname(file), env: o.env });
-    let doc = null;
-    try { doc = failed(r) ? null : JSON.parse(text(r)); } catch { doc = null; }
-    if (!doc || typeof doc.target_directory !== "string" || !path.isAbsolute(doc.target_directory) || typeof doc.workspace_root !== "string") return { refusal: `cargo metadata in the checkout reported no absolute target_directory for ${m}${failed(r) ? ` (${why(r)})` : ""}` };
-    const cargoDir = posix(path.relative(checkoutReal, (() => { try { return fs.realpathSync.native(doc.workspace_root); } catch { return doc.workspace_root; } })())) || ".";
-    targetDirs[cargoDir] = path.resolve(doc.target_directory);
+  // GB-16/GB-17: a direct host's workspaces and target directories are resolved from the SELECTED COMMIT's snapshot (its committed manifests and `.cargo/config.toml`) and mapped
+  // lexically to the checkout's counterpart, exactly as cargoOutputPin does: the live checkout's manifests are never read, so a directory the newer checkout deleted or moved, or a dirty or
+  // untracked manifest there, changes nothing.
+  if (executor.kind !== "broker") {
+    const resolved = cargoOutputPin({ o, git, root, commit: ds.commit, executor, snapshot: ds.path });
+    if (resolved.refusal) return { refusal: resolved.refusal };
+    const relOf = (w) => { for (const base of [root, checkoutReal]) { const r = path.relative(base, w); if (!r.startsWith("..") && !path.isAbsolute(r)) return posix(r) || "."; } return posix(w); };
+    for (const [workspaceRoot, target] of resolved.workspaces ?? []) targetDirs[relOf(workspaceRoot)] = target;
   }
   const workspaces = Object.keys(targetDirs);
   if (o.platform === "win32" && executor.kind !== "broker") {
@@ -2239,8 +2246,11 @@ export function cargoOutputPin({ o, git, root, commit, executor, snapshot }) {
     if (!doc || typeof doc.target_directory !== "string" || !path.isAbsolute(doc.target_directory) || typeof doc.workspace_root !== "string") return { refusal: `cargo metadata in the snapshot reported no absolute target_directory for ${m}${failed(r) ? ` (${why(r)})` : ""}` };
     workspaces.set(path.resolve(toCheckout(path.resolve(doc.workspace_root))), path.resolve(toCheckout(path.resolve(doc.target_directory))));
   }
-  if (workspaces.size > 1) return { refusal: `the commit holds ${workspaces.size} Cargo workspaces (${[...workspaces.keys()].map((w) => posix(path.relative(root, w)) || ".").join(", ")}); one directory cannot serve them all, and right-release's own Cargo calls carry no per-workspace wrapper` };
-  return { dir: workspaces.size ? [...workspaces.values()][0] : null };
+  // GB-17: several Cargo workspaces are independent components with their own target caches (GATE-CONTRACT, mixed workspaces never share a target): the per-workspace mapping
+  // (workspace root of the checkout -> its own target directory, all resolved from the commit's snapshot) is returned, never one shared directory and no refusal. The caller binds
+  // each of right-release's and its children's Cargo calls to its own workspace through the per-call wrapper (bindUnitCargo).
+  if (workspaces.size > 1) return { dir: null, workspaces, dirs: [...workspaces.values()] };
+  return { dir: workspaces.size ? [...workspaces.values()][0] : null, workspaces, dirs: [...workspaces.values()] };
 }
 
 /**
@@ -2288,6 +2298,13 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
   const pin = ds && executor.kind !== "broker" ? cargoOutputPin({ o, git, root, commit, executor, snapshot: ds.path }) : { dir: null };
   if (pin.refusal) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_OUTPUT_UNPINNED: ${pin.refusal}; nothing compiled`); return 1; }
   if (pin.dir) o.out(`${tag} output directory for the Cargo workspace: ${pin.dir} (the checkout's)`);
+  // GB-17: several workspaces, each with its own target (never one shared directory): the per-call wrapper binds every Cargo call to its workspace's target, from the snapshot's mapping.
+  let pinMulti = null;
+  if (pin.dirs?.length > 1) {
+    pinMulti = await bindUnitCargo({ o, git, root, ds, executor, which: whichIn(o) });
+    if (pinMulti.refusal) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_OUTPUT_UNPINNED: ${pinMulti.refusal}; nothing compiled`); return 1; }
+    if (pinMulti.note) o.out(`${tag} ${pinMulti.note}`);
+  }
   const commonDir = path.resolve(root, common);
   const source = ds ? sourceSplitOf({ root, ds, appDir }) : null;
   // GB-58 (GATE dev/test exact stage; E19): the selected app's declared sidecars are staged ONCE under this snapshot's ownership before the dependent
@@ -2309,11 +2326,11 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
     // The door's own RightKit runs every sub-step: a dev target's `right-release web-build|stage-sidecar` steps resolve `right-release`
     // on PATH, which found the app's node_modules copy (HeardRight on the Dell, 2026-10-27: the app's 0.6.8 guard refused what the
     // door's 0.6.9 admitted). An installed gate (node_modules/@rightkit/release/bin) has its package's bin shims two levels up.
-    const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, to, ...passthrough], { cwd: source ? snapshotAppRootOf(ds.path, appDir) : appRoot, env: carriedEnv(carrier, { ...o.env, ...run.env }, { ...doorPath({ ...o, env: { ...o.env, ...carrier.env } }), ...(pin.dir ? { CARGO_TARGET_DIR: pin.dir } : {}) }) });
+    const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, to, ...passthrough], { cwd: source ? snapshotAppRootOf(ds.path, appDir) : appRoot, env: carriedEnv(carrier, { ...o.env, ...run.env }, { ...doorPath({ ...o, env: { ...o.env, ...carrier.env } }), ...(pin.dir ? { CARGO_TARGET_DIR: pin.dir } : (pinMulti?.env ?? {})) }) });
     const carriedOk = await carrier.finish({ stage: to });
     if (ds && !(await closeSnapshotStage({ o, ds, root, stage: to, step: to, tag })).ok) { o.err(`${tag} --to ${to} stopped: the result covers no known bytes`); return 2; }
     return r.status === 0 && carriedOk ? 0 : 1;
-  } finally { endRun(run); carrier.cleanup(); }
+  } finally { endRun(run); carrier.cleanup(); try { pinMulti?.cleanup?.(); } catch { /* the wrapper map is the gate's own temp directory */ } }
 }
 
 /** A direct (Linux) executor's environment (PATH without RustRight shim directories) for every child this run starts. */

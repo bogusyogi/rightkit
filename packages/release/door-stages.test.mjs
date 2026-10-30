@@ -559,15 +559,20 @@ console.log("\\n" + JSON.stringify({ code, out: out.join("\\n") }));\n`);
   assert.equal(fs.readFileSync(path.join(snapshot, "src", "lib.rs"), "utf8"), "pub fn committed() {}\n", "and the snapshot holds the commit's bytes");
 });
 
-test("[7.03] --to dev|test: more than one Cargo workspace is refused (RK_SNAPSHOT_OUTPUT_UNPINNED) rather than pointed at one shared target directory", { skip: POSIX_SIM }, async (t) => {
+test("[7.03] --to dev|test: more than one Cargo workspace is bound per workspace (GB-17), never pointed at one shared target directory; one workspace is pinned", { skip: POSIX_SIM }, async (t) => {
   const fx = fixture(t, { "a/Cargo.toml": "[package]\nname=\"a\"\n", "b/Cargo.toml": "[package]\nname=\"b\"\n" }, "rk-ds-pin-");
   const spawn = (c, a, opts) => {
     if (c === "cargo" && a[0] === "metadata") { const m = a[a.indexOf("--manifest-path") + 1]; return { status: 0, stdout: JSON.stringify({ workspace_root: path.dirname(m), target_directory: path.join(path.dirname(m), "target") }), stderr: "" }; }
+    if (c === "which" && a[0] === "cargo") return { status: 0, stdout: `${process.execPath}\n`, stderr: "" }; // a real executable for the per-call wrapper to wrap; nothing runs through it here
     return c === "git" ? spawnSync(c, a, { ...opts, encoding: "utf8" }) : { status: 1, stdout: "", stderr: "" };
   };
   const launches = [];
-  let r = await fx.door(["--to", "dev", "--commit", fx.sha], { spawn, runCheck: async () => 0, spawnInherit: () => { launches.push("x"); return { status: 0 }; } });
-  assert.equal(r.code, 1, r.all); assert.match(r.err, /BLOCKED: RK_SNAPSHOT_OUTPUT_UNPINNED: the commit holds 2 Cargo workspaces \(a, b\)/); assert.deepEqual(launches, []);
+  let r = await fx.door(["--to", "dev", "--commit", fx.sha], { spawn, runCheck: async () => 0, spawnInherit: (c, a, opts) => { launches.push(opts.env); return { status: 0 }; } });
+  assert.equal(r.code, 0, r.all); assert.doesNotMatch(r.all, /RK_SNAPSHOT_OUTPUT_UNPINNED/);
+  assert.equal(launches.length, 1, "right-release started: two workspaces are no refusal");
+  assert.equal(launches[0].CARGO_TARGET_DIR === undefined || /rk-cargo-target|t-/.test(String(launches[0].CARGO_TARGET_DIR)), true, "no single shared CARGO_TARGET_DIR is imposed on both");
+  assert.match(r.all, /runtime cargo wrapper .*each cargo call a unit stage reaches binds its workspace's checkout target directory or is refused/, "the per-workspace binding is reported");
+  assert.match(launches[0].PATH.split(path.delimiter)[0], /rk-cargo-shim-[0-9a-f]+[\\/]bin$/, "the wrapper is first on the child's PATH, so every cargo call finds its own workspace's target");
   // One workspace is pinned; metadata that fails is refused.
   const one = fixture(t, { "a/Cargo.toml": "[package]\nname=\"a\"\n" }, "rk-ds-pin1-");
   const seen = [];

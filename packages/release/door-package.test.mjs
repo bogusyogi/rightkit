@@ -63,6 +63,8 @@ function appFixture(t, extra = {}) {
   const spawn = (c, a, opts) => {
     spawned.push([c, ...a]);
     if (c === "cargo" && a[0] === "metadata") return { status: 0, stdout: JSON.stringify(workspaces.current(a[a.indexOf("--manifest-path") + 1])), stderr: "" };
+    // `which cargo` names a real executable (the per-call wrapper of a multi-workspace stage needs one to wrap; nothing is ever run through it here).
+    if (c === "which" && a[0] === "cargo") return { status: 0, stdout: `${process.execPath}\n`, stderr: "" };
     return c === "git" ? spawnSync(c, a, { ...opts, encoding: "utf8" }) : c === "pnpm" && a[0] === "--version" ? { status: 0, stdout: "11.25.0\n", stderr: "" } : { status: 1, stdout: "", stderr: "" };
   };
   const snapshot = () => path.join(snaps, fs.readdirSync(snaps).find((n) => !n.includes(".") && fs.statSync(path.join(snaps, n)).isDirectory()));
@@ -217,14 +219,13 @@ test("[7.04c N6 on L] the door cross-checks the Cargo target the sealed manifest
   assert.equal(silent.code, 2, silent.all); assert.match(silent.err, /records no bound Cargo target/);
 });
 
-test("[7.04c] more than one Cargo workspace in the commit is refused before anything builds (one directory cannot serve them all); a broker host binds nothing here (the carrier's rows 7.20 to 7.24)", { skip: POSIX_SIM }, async (t) => {
+test("[7.04c] more than one Cargo workspace in the commit is bound per workspace, each to its own target (GB-17), and the sealed manifest must record every one; a broker host binds nothing here (the carrier's rows 7.20 to 7.24)", { skip: POSIX_SIM }, async (t) => {
   const fx = appFixture(t, { "other/Cargo.toml": '[package]\nname = "other"\nversion = "0.1.0"\nedition = "2021"\n' });
   fx.workspaces.current = (manifest) => ({ target_directory: path.join(fx.dir, `t-${path.basename(path.dirname(manifest))}`), workspace_root: path.dirname(manifest) });
   const many = await fx.door(["--to", "package", "--platform", "mac", "--commit", fx.c1]);
-  assert.notEqual(many.code, 0, many.all);
-  assert.match(many.err, /RK_SNAPSHOT_OUTPUT_UNPINNED: \[package\] the commit holds 2 Cargo workspaces/);
-  assert.deepEqual(fx.launches, [], "right-release never started");
-  // A broker host: the gate pins nothing (the broker's generation target is the carrier's, rows 7.20 to 7.24, which this gate does not call yet): BLOCKED as a run, asserted in source form.
+  assert.doesNotMatch(many.all, /RK_SNAPSHOT_OUTPUT_UNPINNED/, "two workspaces are no refusal");
+  assert.ok(fx.launches.length >= 1, `right-release started (the per-workspace binding): ${many.all}`);
+  // A broker host: the gate pins nothing (the broker's generation target is the carrier's, rows 7.20 to 7.24): asserted in source form.
   assert.match(fs.readFileSync(path.join(HERE, "bin/rightkit-gate.mjs"), "utf8"), /if \(ok && ds && executor\.kind !== "broker"\) \{\n\s+packagePin = cargoOutputPin/);
 });
 
