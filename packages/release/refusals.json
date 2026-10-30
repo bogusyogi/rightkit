@@ -1277,33 +1277,33 @@
       "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
     },
     {
-      "key": "sign-windows.mjs::<module>::c03132fd",
+      "key": "sign-windows.mjs::main::c03132fd",
       "class": "runtime-only",
       "reason": "command-line usage of this entry point; not a property of the app's files or the host"
     },
     {
-      "key": "sign-windows.mjs::<module>::87f647ac",
+      "key": "sign-windows.mjs::main::87f647ac",
       "class": "runtime-only",
       "reason": "command-line usage of this entry point; not a property of the app's files or the host"
     },
     {
-      "key": "sign-windows.mjs::<module>::13dac344",
+      "key": "sign-windows.mjs::requireWindowsHost::13dac344",
       "class": "doctor-covered",
       "doctorRow": "host-signing-win",
       "reason": "off a Windows host the row says NOT RUN, which is never a pass"
     },
     {
-      "key": "sign-windows.mjs::<module>::d7fbc793",
+      "key": "sign-windows.mjs::requireWindowsHost::d7fbc793",
       "class": "runtime-only",
       "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
     },
     {
-      "key": "sign-windows.mjs::<module>::51557a37",
+      "key": "sign-windows.mjs::requireSigntool::51557a37",
       "class": "doctor-covered",
       "doctorRow": "host-signing-win"
     },
     {
-      "key": "sign-windows.mjs::<module>::0adaa6c0",
+      "key": "sign-windows.mjs::signWindowsFiles::0adaa6c0",
       "class": "doctor-covered",
       "doctorRow": "host-signing-win"
     },
@@ -1316,6 +1316,36 @@
       "key": "sign-windows.mjs::metadataPath::96c665f2",
       "class": "doctor-covered",
       "doctorRow": "host-signing-win"
+    },
+    {
+      "key": "sign-windows.mjs::fail::83e7257c",
+      "class": "runtime-only",
+      "reason": "plumbing: the one throw of the signing helpers, a refusal of nothing of its own; each caller's refusal is classified at its own site"
+    },
+    {
+      "key": "sign-windows.mjs::requireSignerToken::ef10b7b6",
+      "class": "runtime-only",
+      "reason": "the signer's Azure CLI sign-in (a silent token) is a property of the signing user's desktop session, asked of az at signing time; there is no such session state before the build"
+    },
+    {
+      "key": "sign-windows.mjs::runTool::8d3e89a8",
+      "class": "runtime-only",
+      "reason": "a signing or verification tool the host ran failed; there is no such run before the build"
+    },
+    {
+      "key": "sign-windows.mjs::assertVerification::f4039f60",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "sign-windows.mjs::assertVerification::065362de",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "sign-windows.mjs::assertVerification::d6ba60e9",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
     },
     {
       "key": "sign-macos.mjs::<module>::c6e9a190",

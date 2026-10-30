@@ -166,6 +166,25 @@ function finish(ledgerDir, dir, workspaces = {}) {
   };
 }
 
+/** The ids of the calls the stage's ledger holds now, whatever their outcome (a snapshot to diff after a step), or an empty set when there is no carrier. */
+export function carriedLedgerIds(env = process.env) {
+  const carried = carriedCargoMapOf(env);
+  if (!carried?.map) return new Set();
+  try { return new Set(readLedger(carried.map.ledgerDir, env[SCAN_TOKEN_ENV]).entries.map((e) => e.id)); } catch { return new Set(); }
+}
+
+/**
+ * The output directories of the verified calls added to the ledger since `before` (carriedLedgerIds): a cargo call's receipt, an adapter job's own and
+ * each of its nested children's, in call order. A call that was refused, unverified or unfinished contributes none.
+ */
+export function carriedOutputDirsSince(env = process.env, before = new Set()) {
+  const carried = carriedCargoMapOf(env);
+  if (!carried?.map) return [];
+  let entries = [];
+  try { entries = readLedger(carried.map.ledgerDir, env[SCAN_TOKEN_ENV]).entries; } catch { return []; }
+  return [...new Set(entries.filter((e) => e.status === "verified" && !before.has(e.id)).flatMap(outputsOf))];
+}
+
 /**
  * The output directory of the workspace a manifest belongs to, from a signed receipt, or null: a verified call this child already made
  * in that workspace (a build, whose receipt names the broker's pinned `outputDir`, or a nested child of a carried adapter job, whose entry in

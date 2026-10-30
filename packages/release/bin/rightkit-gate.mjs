@@ -76,6 +76,7 @@ import { fileURLToPath } from "node:url";
 import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
+import { SIGNING_REFUSAL_CODES, suiteSigningRefusals } from "../suite-signing-policy.mjs";
 import { directPlatform } from "../managed-cargo.mjs";
 import { bindingOf, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, STAGE_SOURCES, writeReceipt } from "../gate-stages.mjs";
 import { spawnSync as spawnInherit } from "../background-process.mjs";
@@ -1297,7 +1298,7 @@ async function runStages(o, args, root, git, io) {
     const whichRoute = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
     const routeExecutor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which: whichRoute, readFile: o.readFile });
     let decided;
-    try { decided = routePlan(o, { to, stages: devTest ? [] : stages, devTest, executor: routeExecutor, capabilities: brokerCapabilityState(o, { to, executor: routeExecutor }) }); }
+    try { decided = routePlan(o, { to, stages: devTest ? [] : stages, devTest, executor: routeExecutor, capabilities: brokerCapabilityState(o, { to, executor: routeExecutor }), appConfig: devTest && selected ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
     catch (e) { o.err(`${tag} ${e.message}`); return 2; }
     if (decided.refusal) { o.err(`${tag} BLOCKED: ${decided.refusal.code}: ${decided.refusal.message}; nothing ran${decided.route === "snapshot" ? " and the checkout is never built" : ""}`); return 1; }
   }
@@ -1942,7 +1943,9 @@ export function snapshotRouteRefusal(o) {
 }
 
 /** The refusal codes a route probe can answer with: the codes the stages themselves print (`BLOCKED: <code>: ...`). */
-export const ROUTE_REFUSAL_CODES = Object.freeze(["RK_TAURI_CONFIG_OVERRIDE", "RK_SNAPSHOT_BROKER_UNAVAILABLE", "RK_SNAPSHOT_CARRIER_NOT_WIRED", "RK_BROKER_CAPABILITY_MISSING", "RK_BROKER_UNAVAILABLE"]);
+export const ROUTE_REFUSAL_CODES = Object.freeze(["RK_TAURI_CONFIG_OVERRIDE", "RK_SNAPSHOT_BROKER_UNAVAILABLE", "RK_SNAPSHOT_CARRIER_NOT_WIRED", "RK_BROKER_CAPABILITY_MISSING", "RK_BROKER_UNAVAILABLE",
+  // One signing identity per product (rightkit#1303): the Mac and the Dell refuse an unsigned, ad hoc or re-identified test or dev build.
+  ...SIGNING_REFUSAL_CODES]);
 /** The stages `--route` can answer for (`release` writes to the publisher and has no route of its own on a host). */
 export const ROUTE_PROBE_STAGES = Object.freeze(["check", "compile", "package", "qualify", "dev", "test"]);
 export const ROUTE_SCHEMA = "rightkit-gate.route/1";
@@ -2000,7 +2003,7 @@ export function brokerCapabilityState(o, { to, executor }) {
  * `executor` is a resolved executor. Returns { route, refusal } with
  * refusal null or { code, stage, message }. Reads no checkout, takes no ownership, syncs no snapshot and spawns nothing itself.
  */
-export function routePlan(o, { to, stages, devTest, executor, capabilities = null }) {
+export function routePlan(o, { to, stages, devTest, executor, capabilities = null, appConfig = null }) {
   const refuse = (code, stage, message) => ({ code, stage, message });
   const hosted = o.env.GITHUB_ACTIONS === "true";
   const snapshot = !hosted && snapshotRouteSelected(o);
@@ -2015,8 +2018,38 @@ export function routePlan(o, { to, stages, devTest, executor, capabilities = nul
       if (!capabilities.ok || missing.length) return { route, refusal: refuse("RK_BROKER_CAPABILITY_MISSING", to, `the broker ${capabilities.ok ? `does not advertise ${missing.join(", ")}` : `cannot be asked for its capabilities (${capabilities.problem})`} (\`rustright doctor --json\` \`.broker.capabilities\`); this release builds only against a broker that accepts snapshot-bound read-only Cargo and snapshot-bound adapter jobs (rightkit#1301, rustright#188, rustright#190)`) };
     }
   }
+  // One signing identity per product, every build (rightkit#1303): on the Mac and the Dell a test or dev build that would run unsigned, ad hoc or under
+  // another identifier is refused here, from the commit's own config, so `--route` and a real run decide alike. Linux and hosted CI are exempt.
+  if (snapshot && appConfig?.config && (devTest || to === "test" || to === "dev")) {
+    const [first] = suiteSigningRefusals({ config: appConfig.config, platform: o.platform, env: o.env, to, devPlatform: appConfig.devPlatform ?? null, readFile: appConfig.readFile });
+    if (first) return { route, refusal: refuse(first.code, to, first.message) };
+  }
   if (executor?.kind === "refuse") return { route, refusal: refuse("RK_BROKER_UNAVAILABLE", to, executor.problem) };
   return { route, refusal: null };
+}
+
+/**
+ * The app config of the selected commit for the route's signing refusals, read from the object database (never the checkout): `{ config, readFile }`,
+ * `readFile(rel)` being an app-relative file of the commit (text or null). Null when the commit has no readable JSON config (class A judges that).
+ * The probe covers JSON configs only: a legacy right-release.config.mjs is not evaluated here (that would run app code in the probe), so `--route` is
+ * silent about it. The same policy (suiteSigningRefusals) is enforced at run time on whatever config loaded: test-command.mjs before any suite runs and
+ * development.mjs before a dev target builds, so a .mjs config's unsigned product build is refused there, on the Mac and the Dell.
+ */
+export function routeAppConfig({ git, commit, appDir = ".", platform = null }) {
+  if (!commit) return null;
+  const show = (rel) => { const r = git("show", `${commit}:${path.posix.normalize(appDir === "." ? rel : `${appDir}/${rel}`)}`); return failed(r) ? null : text(r); };
+  const raw = show("right-release.config.json");
+  if (raw === null) return null;
+  let config;
+  try { config = JSON.parse(raw); } catch { return null; }
+  return { config, readFile: show, devPlatform: platform === "mac" || platform === "win" ? platform : null };
+}
+
+/** The `--platform` a dev or test run was given: before `--`, or in the arguments after it (a platform after `--` wins, as runDevTest hands it on). */
+export function devTestPlatform(args) {
+  const at = args.indexOf("--");
+  const find = (list) => { const i = list.lastIndexOf("--platform"); return i < 0 ? null : list[i + 1] ?? null; };
+  return (at >= 0 ? find(args.slice(at + 1)) : null) ?? find(at >= 0 ? args.slice(0, at) : args);
 }
 
 /**
@@ -2035,7 +2068,7 @@ async function runRouteProbe(o, args, root, git, { to, platform, stages, devTest
   const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
   let plan;
   const capabilities = brokerCapabilityState(o, { to, executor });
-  try { plan = routePlan(o, { to, stages, devTest, executor, capabilities }); }
+  try { plan = routePlan(o, { to, stages, devTest, executor, capabilities, appConfig: devTest ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
   catch (e) { o.err(`${tag} ${e.message}`); return 2; }
   // Read-only: GIT_OPTIONAL_LOCKS=0, so the probe's `git status` never refreshes the index or contends with a writer (rightkit#1297 L4).
   const dirty = o.spawn("git", ["status", "--porcelain", "--untracked-files=no"], { cwd: root, env: { ...o.env, GIT_OPTIONAL_LOCKS: "0" } });

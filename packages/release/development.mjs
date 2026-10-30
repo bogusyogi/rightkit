@@ -19,6 +19,9 @@ import { stageDevelopmentBinaries, validateStageEntries } from "./stage-binary.m
 import { assertStableDesignatedRequirement, readBundleExecutable, requestedCiAdhocSigning, signMacosDevelopmentBundle } from "./development-signing.mjs";
 import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 import { installTauriDevId, resolveTauriDevIdDescriptor, TAURI_DEVID_KIND } from "./install-tauri-devid.mjs";
+import { TAURI_AUTHENTICODE_KIND, installTauriAuthenticode, resolveAuthenticodeDescriptor, validateAuthenticodeBuild } from "./install-tauri-authenticode.mjs";
+import { signWindowsFiles, verifyWindowsFiles } from "./sign-windows.mjs";
+import { assertSuiteSigningPolicy } from "./suite-signing-policy.mjs";
 import { ASSEMBLED_APP_KIND, installAssembledMac, installAssembledWindows, resolveAssembledInstall } from "./install-assembled-app.mjs";
 import { assertIosDevelopmentSession, installIosDevelopment, iosUiTestCommands, prepareIosDevelopment, prepareIosUiTests, validateIosDevelopment } from "./ios-dev.mjs";
 import { packLinuxArtifacts, validateLinuxArchive } from "./linux-artifacts.mjs";
@@ -86,6 +89,10 @@ export function validateDevelopmentConfig(config, platform, { root = process.cwd
     if (platform !== "mac") throw new Error(`the ${TAURI_DEVID_KIND} development installer is for --platform mac`);
     resolveTauriDevIdDescriptor(target.install, { appRoot: root });
     if (!target.install.targetTriple && !target.install.bundleDirectory) throw new Error(`development.targets.${platform}.install requires targetTriple (or bundleDirectory) to find the built .app`);
+  } else if (target.install?.kind === TAURI_AUTHENTICODE_KIND) {
+    if (platform !== "win") throw new Error(`the ${TAURI_AUTHENTICODE_KIND} development installer is for --platform win`);
+    resolveAuthenticodeDescriptor(target.install, `development.targets.${platform}.install`);
+    validateAuthenticodeBuild(target.build, `development.targets.${platform}.build`, (rel) => { try { return readFileSync(path.resolve(root, rel), "utf8"); } catch { return null; } });
   } else if (target.install?.kind === ASSEMBLED_APP_KIND) {
     if (platform !== "mac" && platform !== "win") throw new Error(`the ${ASSEMBLED_APP_KIND} development installer is for --platform mac or win`);
     // The assembly (assembly.<platform>) and the install keys are validated together, before any build.
@@ -103,13 +110,16 @@ export function validateDevelopmentConfig(config, platform, { root = process.cwd
 }
 
 export function runDevelopment({ root, platform, config, buildOnly = false, dryRun = false, env = process.env, run = spawnSync, door = buildLaunch,
-  codesignEnvironment = macosCodesignEnvironment, serial, uiTests = false }) {
+  codesignEnvironment = macosCodesignEnvironment, serial, uiTests = false, hostPlatform = process.platform }) {
   // UI test journeys (`right-release test --platform ios`): the declared XCUITest journeys on the dev device, under the same guards.
   if (uiTests && platform !== "ios") throw new Error("UI test journeys run for --platform ios only");
   if (!new Set(["win", "mac", "linux", "android", "ios"]).has(platform)) throw new Error("--platform must be win, mac, linux, android or ios");
   // iOS: --dry-run validates the config and prints the plan on any host; everything else needs macOS with Xcode.
   if (!(platform === "ios" && dryRun)) assertNativeDevelopmentHost(platform);
   const target = validateDevelopmentConfig(config, platform, { root });
+  // One signing policy, enforced here whatever the config's format (the route probe reads JSON configs only; a legacy .mjs config is judged now): a dev
+  // target that would build ad hoc, unsigned or under another identifier is refused before it builds (rightkit#1303). Mac and Dell only.
+  if (!dryRun && !uiTests) assertSuiteSigningPolicy({ config, platform: hostPlatform, env, to: "dev", devPlatform: platform, readFile: (rel) => { try { return readFileSync(path.resolve(root, rel), "utf8"); } catch { return null; } } });
   // Inside the door's source split `root` is the snapshot of a commit (no git directory): the repository is the checkout the door
   // ran in, whose primary-checkout rule and execution policy still apply, and the commit is the split's.
   const split = readSourceSplit({ env, cwd: root });
@@ -176,6 +186,22 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
         .then((outcome) => ({ built: true, installed: true, ...(staged.length ? { staged } : {}), devid: outcome }))
         .finally(() => lease.release());
     }
+    if (target.install.kind === TAURI_AUTHENTICODE_KIND) {
+      // The unsigned Windows installer is never run: this kind signs the exe, bundles it, signs the installer, then installs (install-tauri-authenticode.mjs).
+      const descriptor = resolveAuthenticodeDescriptor(target.install, `development.targets.${platform}.install`);
+      const bundleRoot = resolveBundleRoot(descriptor, { root, env: childEnv, runCargo: runCargoSync });
+      const debugDir = path.resolve(bundleRoot, "..", "..");
+      const bundleStartedMs = Date.now();
+      const authenticode = installTauriAuthenticode({ descriptor, debugDir, deps: {
+        signWindows: (files) => signWindowsFiles(files),
+        verifyWindows: (files) => verifyWindowsFiles(files),
+        bundle: (command) => execute(command, { root, env: childEnv, dryRun, run, door, label: "bundle" }),
+        findInstaller: () => resolveTauriBundleDirectory(descriptor, { root, platform, env: childEnv, sinceMs: bundleStartedMs }).installer,
+        install: (installer) => installWindowsDevelopment(descriptor, installer, { root, env: childEnv, run, debugDir }),
+        installedExe: () => path.resolve(root, descriptor.expectedInstalledPath),
+      } });
+      return { built: true, installed: true, ...(staged.length ? { staged } : {}), authenticode };
+    }
     if (target.install.kind === ASSEMBLED_APP_KIND) {
       const { spec, descriptor } = resolveAssembledInstall({ config, platform });
       if (platform === "win") {
@@ -222,7 +248,15 @@ function install(descriptor, { root, platform, config, env, run, door, sinceMs =
   if (platform === "win") {
     if (!descriptor.expectedInstalledPath) throw new Error("Windows Tauri installer requires expectedInstalledPath for installed verification");
     const { bundleRoot, installer: app } = resolveTauriBundleDirectory(descriptor, { root, platform, env, sinceMs });
-    const built = path.resolve(bundleRoot, "..", "..", path.basename(descriptor.expectedInstalledPath));
+    return installWindowsDevelopment(descriptor, app, { root, env, run, debugDir: path.resolve(bundleRoot, "..", "..") });
+  }
+  return installMacosDevelopment(descriptor, { root, platform, config, env, run });
+}
+
+/** Run the silent NSIS installer of a Windows dev build in place and check the installed exe is this build's. */
+function installWindowsDevelopment(descriptor, app, { root, env, run, debugDir }) {
+  {
+    const built = path.resolve(debugDir, path.basename(descriptor.expectedInstalledPath));
     assertNonEmptyExecutable(built);
     // Tauri's silent installer force-kills a running copy of the app (utils.nsh: IfSilent kill). When it
     // was running, pass /R so the installer relaunches it as the user (RunAsUser, outside this process tree).
@@ -236,8 +270,10 @@ function install(descriptor, { root, platform, config, env, run, door, sinceMs =
     if (result.status !== 0) throw new Error(`development installer failed (${result.status}): ${app}`);
     const installed = path.resolve(root, descriptor.expectedInstalledPath);
     assertInstalledExecutableMatches(built, installed);
-    return;
   }
+}
+
+function installMacosDevelopment(descriptor, { root, platform, config, env, run }) {
   const app = resolveTauriArtifact(descriptor, { root, platform, env });
   // One fixed install path per app: macOS keys privacy grants to it. No /Applications/<name> guess.
   if (!descriptor.destination) throw new DevelopmentInstallError("DEV_INSTALL_DESTINATION_REQUIRED", "development.targets.mac.install.destination is required: the one fixed path this app installs to (for example /Applications/<Product>.app)");

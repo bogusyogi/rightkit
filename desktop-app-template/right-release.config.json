@@ -97,17 +97,12 @@
               "build",
               "--target",
               "x86_64-pc-windows-msvc",
-              "--bundles",
-              "nsis",
-              "--no-sign",
+              "--no-bundle",
               "--config",
               {
                 "$json": {
                   "bundle": {
-                    "createUpdaterArtifacts": false,
-                    "windows": {
-                      "signCommand": null
-                    }
+                    "createUpdaterArtifacts": false
                   }
                 }
               },
@@ -119,11 +114,14 @@
           }
         ],
         "install": {
-          "kind": "tauri",
+          "kind": "tauri-authenticode",
           "productName": "RightApp",
           "manifestPath": "src-tauri/Cargo.toml",
           "targetTriple": "x86_64-pc-windows-msvc",
-          "expectedInstalledPath": "{{localAppData}}/RightApp/rightapp.exe"
+          "expectedInstalledPath": "{{localAppData}}/RightApp/rightapp.exe",
+          "sidecars": [
+            "rightapp-engine.exe"
+          ]
         }
       },
       "mac": {

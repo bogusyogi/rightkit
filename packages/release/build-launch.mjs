@@ -46,6 +46,8 @@ import { QA_VALUE_OPTIONS, hasListing, isBuildFlag, ownWords, qaPathReason, qaSn
 const SNAPSHOT_STAGE_ENV = "RK_GATE_CHECKOUT";
 
 export const BUILD_LAUNCH_REFUSED = "RK_BUILD_LAUNCH_REFUSED";
+/** The program name a sign step would have if it were a command: the door refuses it on every route. */
+export const SIGN_STEP_COMMAND = "rightkit-sign-step";
 const OWN_RIGHT_RELEASE = fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url));
 const CARRIED_RUN = fileURLToPath(new URL("./carried-cargo-run.mjs", import.meta.url));
 const CARRIED_ADAPTER_RUN = fileURLToPath(new URL("./carried-adapter-run.mjs", import.meta.url));
@@ -126,6 +128,8 @@ export function snapshotInstallSkip(command, args, env) {
  * (resolveExecutor's inputs); `which` defaults to a PATH lookup over `env`.
  */
 export function buildLaunch(command, args = [], host = {}) {
+  // A `sign` step of tests.suites (suite-signing.mjs) runs in-process in the gate's own session: it is no command, no broker job and never carried.
+  if (command === SIGN_STEP_COMMAND || host.signStep) refuse("a sign step runs in-process in the gate's own session (signing agent, Keychain and Azure signer are the session's, not a broker job's); it never reaches the carrier (rightkit#1303)");
   const env = host.env ?? process.env;
   const platform = host.platform ?? process.platform;
   const exists = host.exists;

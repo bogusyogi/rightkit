@@ -300,6 +300,43 @@ runs a runner once with the arguments after `--` (watch mode, one project); `-- 
 one suite is selected. `--list [--json]` prints the resolved commands and runs nothing. Wrap it as the repository needs, for
 example `rustright storage run --app <app> -- right-release test`.
 
+#### The `sign` step: one signing identity per product, every build (rightkit#1303)
+
+The route probe (`--to <stage> --route`) judges JSON configs only; a legacy `right-release.config.mjs` is enforced at run time instead (the suite runner before any suite, the dev runner before a target builds). A successful sign step exports `RIGHTKIT_QA_APP_BINARY` and `RIGHTKIT_QA_SIGNING_EVIDENCE` (path of `signing-evidence.json`, kept until the stage ends). On Windows a missing silent Azure token refuses first with `SIGN_WINDOWS_TOKEN_UNAVAILABLE`.
+
+A suite that builds a product (a `tauri build` or `tauri bundle`, or a `cargo build` of the Tauri package or a sidecar package) must be followed by a `sign` step that names it, so a QA run exercises the code identity the release carries (macOS keys privacy grants to the designated requirement):
+
+```js
+suites: [
+  { name: "build-app", cmd: "pnpm", args: ["exec", "tauri", "build", "--target", "aarch64-apple-darwin", "--no-bundle", "--", "--profile", "dev", "--locked"] },
+  // `from` names an EARLIER suite; `path` is relative to the output directory of that suite's carried receipt. The main binary is the file `mainBinaryName` names, else the first.
+  { name: "sign-app", sign: { files: [{ from: "build-app", path: "aarch64-apple-darwin/debug/heardright" }] } },
+  { name: "native-journeys", cmd: "rightkit-qa", args: ["run-tests", "--app", "heardright"] },   // runs with RIGHTKIT_QA_APP_BINARY = the signed copy
+],
+```
+
+- **The identity is derived, never declared.** The product's `tauri.conf.json` `identifier` is the one id (a `tauri.<platform>.conf.json` that changes it is refused; the Mac `development.targets.mac.install.bundleId`, when set, must equal it; a dev or test Tauri `--config` that sets `identifier` is refused). A `sign` step takes no identity, identifier, team or thumbprint key. The Mac signs with the Developer ID Application identity of team `6KLGD3LLKF` through `resolveMacosDevelopmentSigning`, `signMacosEntries` and the signing agent (`runMacCodesignCommands`): there is no fallback to Apple Development or ad hoc signing. The main binary (the file named by `tauri.conf.json` `mainBinaryName` when it declares one, else the first file) is signed with `--identifier <bundle id>`; every other file is a sidecar signed with the identifier `resolveBundleIdentifier` gives it from `sign.identifiers` or `sign.identifierTemplate` (keyed `Contents/MacOS/<name>`; a sidecar the release signs with none is signed with no `--identifier`, as the release does, and must read back as the file name codesign derives). Windows signs through `sign-windows.mjs` (Azure Artifact Signing) and the identity is the signer subject `CN=Damned Ventures LLC`, never a thumbprint.
+- **It runs in-process, in the gate's own session, outside the broker** (like QA: the signing agent, the Keychain and the Azure signer are the session's), and a `sign` step is never a carried step: `build-launch.mjs` refuses it on every route. It verifies the file is in the output directory of the named suite's verified receipts (a path that leaves it, by `..` or a link, is refused), copies it with its sha256 checked into a gate-managed directory outside the snapshot, the checkout and every broker output directory, signs the copy and never the receipt's file, and reads the signature back: Mac `Identifier`, `TeamIdentifier` and the designated requirement, which must equal the release-shaped `expectedDesignatedRequirement(bundleId, team)` (`assertStableDesignatedRequirement`; an unreadable, ad hoc or cdhash-bound requirement is refused too); Windows Authenticode with the signer subject.
+- **Evidence, then the variable.** Only after every file is signed and read back does the step write its `signing` evidence (file, sha256 before and after, identifier, team or subject, requirement) to the carrier's ledger and an evidence file, print a `<prefix>_suite_signed` event, and set `RIGHTKIT_QA_APP_BINARY` to the main binary's signed copy for the suites after it (a step that signs only sidecars sets none). A failed step sets nothing and stops the run; its copies are removed when the run ends.
+- **The gate refuses before it builds, on the Mac and the Dell** (`routePlan`, so `rightkit-gate --to test --route` answers the same; Linux and hosted CI are exempt): a suite that builds a product with no later `sign` step naming it (`RK_SUITE_UNSIGNED_BUILD`), `sign-qa-bundle` or `RIGHTKIT_DEV_SIGNING` ad hoc signing (`RK_SUITE_ADHOC_SIGNING`), an identifier override (`RK_SUITE_IDENTIFIER_OVERRIDE`), a Mac `install.bundleId` that is not the Tauri identifier (`RK_SUITE_IDENTIFIER_MISMATCH`) and a Windows development `install.kind: "tauri"` (`RK_DEV_WIN_UNSIGNED_INSTALL`).
+
+#### Windows development: `install.kind: "tauri-authenticode"`
+
+The unsigned Windows `tauri` install kind is refused on the Dell. `tauri-authenticode` signs what it installs, in the release's order: `target.build` runs `tauri build --no-bundle` (a build that bundles, or names `--bundles`, is refused), then the bundle marker is patched (before signing), the exe and `install.sidecars` are signed and verified, the carried `tauri bundle --bundles nsis --debug` runs, the installer's payload is checked to embed the signed exe byte for byte, the installer is signed and verified, and only then is it installed and the installed exe verified.
+
+```json
+"install": {
+  "kind": "tauri-authenticode",
+  "productName": "RightApp",
+  "targetTriple": "x86_64-pc-windows-msvc",
+  "manifestPath": "src-tauri/Cargo.toml",
+  "expectedInstalledPath": "{{localAppData}}/RightApp/rightapp.exe",
+  "sidecars": ["rightapp-engine.exe"]
+}
+```
+
+`sidecars` (optional) are paths relative to the build's output directory; no other key is accepted.
+
 ### `right-release build --web` (or `web-build`)
 
 ```js
@@ -489,6 +526,8 @@ enforcement. D4 is ratified; pending activation does not mean pending ratificati
 - **Receipt** (JSON only, schema 1): `kind` `test` or `run`, `app`, `capability`, one of the adopted `entrypoint`s (a real file inside the app, optional `#symbol` that must appear in it), `packages` naming the pinned `<id>@<version>`, `target`, a `command`, `exitCode: 0`, `finishedAt`, and `lockfileSha256.<cargo|pnpm|swift>` equal to the current lockfile (a receipt from before the last lock change is refused).
 
 ## QA-only ad hoc bundle signing (`sign-qa-bundle`)
+
+On the Mac and the Dell the gate refuses a gate-run suite or dev build whose config calls this command (`RK_SUITE_ADHOC_SIGNING`, rightkit#1303): a gate-run build is signed with the product's one identity (see the `sign` step in the declared test suites section).
 
 `right-release sign-qa-bundle --app <abs .app> --qa-root <abs dir> [--entitlements <abs plist>] [--out <evidence.json>]` ad hoc signs an assembled QA bundle (for example an Accessibility QA copy) that lives inside a QA scratch root. It exists because `codesign --force --deep --sign -` sent through the signing agent (SSH or non-Aqua session) is refused by design; those refusals are unchanged and this command never calls the agent.
 

@@ -16,6 +16,11 @@ import { REQUIRED_BROKER_CAPABILITIES, ROUTE_REFUSAL_CODES, ROUTE_SCHEMA, broker
 import { compareCells } from "../../scripts/ci/rk-release-canary.mjs";
 import { parseRoute, routeStagesFor, runRouteProbe } from "../../scripts/ci/rk-release-canary-leg.mjs";
 import { PRODUCTION_SNAPSHOT_CARRIER } from "./snapshot-broker.mjs";
+import { SIGNING_REFUSAL_CODES } from "./suite-signing-policy.mjs";
+
+// The codes the route and carrier rules decide. The signing refusals (rightkit#1303) read the commit's config, so suite-signing-route.test.mjs derives and
+// exercises those and proves the probe and a real run agree on them; the list a probe can answer with is these plus those.
+const ROUTE_BASE_CODES = ROUTE_REFUSAL_CODES.filter((code) => !SIGNING_REFUSAL_CODES.includes(code));
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const GATE_FILE = path.join(HERE, "bin", "rightkit-gate.mjs");
@@ -102,7 +107,8 @@ test("every refusal code a probe can print is the set of codes the deciding func
     ...wired(body(source, "export function snapshotRouteRefusal")),
     ...wired(body(source, "export function routePlan")),
   ]);
-  assert.deepEqual([...fromSource].sort(), [...ROUTE_REFUSAL_CODES].sort(), "the list names exactly what the deciding code returns");
+  assert.deepEqual([...fromSource].sort(), [...ROUTE_BASE_CODES].sort(), "the list names exactly what the deciding code returns");
+  assert.deepEqual([...ROUTE_REFUSAL_CODES].sort(), [...ROUTE_BASE_CODES, ...SIGNING_REFUSAL_CODES].sort(), "and the signing refusals are the rest of it");
   // Behaviour: drive routePlan over the host, executor, carrier, environment and commit combinations; the codes it answers with are the list.
   const seen = new Set();
   for (const platform of ["linux", "darwin", "win32"]) for (const executor of [directExecutor(), brokerExecutor(), refuseExecutor()]) for (const carrier of [undefined, { kind: "x" }])
@@ -110,7 +116,7 @@ test("every refusal code a probe can print is the set of codes the deciding func
       const r = plan({ platform, snapshotBroker: carrier, env, resolveExecutor: () => executor }, { to, devTest, stages, executor, capabilities });
       if (r.refusal) { seen.add(r.refusal.code); assert.ok(ROUTE_REFUSAL_CODES.includes(r.refusal.code), r.refusal.code); }
     }
-  assert.deepEqual([...seen].sort(), [...ROUTE_REFUSAL_CODES].sort(), "every code in the list is reachable");
+  assert.deepEqual([...seen].sort(), [...ROUTE_BASE_CODES].sort(), "every code in the list is reachable");
   // Every code is one the stages print: the BLOCKED line of runStages is built from routePlan's refusal.
   assert.match(body(source, "async function runStages"), /decided\.refusal\.code/);
 });
@@ -152,7 +158,7 @@ test("parity: a real run of every stage (no --route) is refused with exactly the
     compared += 1;
   }
   assert.ok(compared > 400, `compared ${compared} combinations`);
-  assert.deepEqual([...refused.keys()].sort(), [...ROUTE_REFUSAL_CODES].sort(), "the combinations exercise every refusal code");
+  assert.deepEqual([...refused.keys()].sort(), [...ROUTE_BASE_CODES].sort(), "the combinations exercise every refusal code");
 });
 
 // ---- the command: arguments, answer and effects ------------------------------------------------------------------------------

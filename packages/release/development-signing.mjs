@@ -6,6 +6,7 @@ import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { adhocSafeEntitlements } from "./adhoc-entitlements.mjs";
 import { runMacCodesignCommands } from "./macos-signing-session.mjs";
+import { DEFAULT_TEAM } from "./signing-identity.mjs";
 import { bundleRelativePath, compileBundlePathMap, globToRegExp, isGlobPattern, lookupBundlePath, resolveBundleIdentifier, validateBundleRelativeKey, validateIdentifierTemplate, validateSigningIdentifier } from "./mac-bundle-signing.mjs";
 
 export class MacosDevelopmentSigningError extends Error {
@@ -17,7 +18,7 @@ export class MacosDevelopmentSigningError extends Error {
   }
 }
 
-const DEFAULT_TEAM = "6KLGD3LLKF";
+export { DEFAULT_TEAM };
 const output = (result) => `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
 const captureOptions = (root, env) => ({ cwd: root, env, encoding: "utf8", stdio: ["inherit", "pipe", "pipe"], windowsHide: true, shell: false });
 
@@ -385,6 +386,18 @@ export function signMacosDevelopmentBundle(options) {
     const asserted = assertSignedIdentities({ root, bundle, settings, teamIdentifier, identity, env, run, label: "signed staging copy", ...(options.listFiles ? { listFiles: options.listFiles } : {}), ...(options.isMachO ? { isMachO: options.isMachO } : {}) });
     return { ...signing, provisioningProfile: provisioningProfile ? embedded : null, verified: "strict-deep", designatedRequirement: designated, signedTargets: ordered.length, ...(asserted.checked ? { assertedIdentities: asserted.checked } : {}) };
   } finally { rmSync(scratch, { recursive: true, force: true }); }
+}
+
+/**
+ * The designated requirement a Developer ID Application signature of `bundleId` by `team` carries, exactly as `codesign -d -r-` prints it:
+ * the signing identifier, Apple's anchor, the Developer ID intermediate and leaf OIDs, and the team. A suite-signed QA binary and a release
+ * build of the same product have this same requirement, so macOS keeps one set of privacy grants for both. The team is printed bare when it
+ * starts with a letter and quoted when it starts with a digit (what `csreq -t` prints; a bare digit-first word does not parse).
+ */
+export function expectedDesignatedRequirement(bundleId, team = DEFAULT_TEAM) {
+  if (typeof bundleId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(bundleId)) throw new MacosDevelopmentSigningError("DEV_MAC_SIGNING_CONFIG_INVALID", `designated requirement: ${JSON.stringify(bundleId)} is not a signing identifier`);
+  if (typeof team !== "string" || !/^[A-Z0-9]{10}$/.test(team)) throw new MacosDevelopmentSigningError("DEV_MAC_SIGNING_CONFIG_INVALID", `designated requirement: ${JSON.stringify(team)} is not a ten-character Apple team identifier`);
+  return `identifier "${bundleId}" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = ${/^[A-Za-z]/.test(team) ? team : `"${team}"`}`;
 }
 
 /**

@@ -45,9 +45,7 @@
   },
   "rightkit": {
     "publishCheck": {
-      "skipImport": [
-        "./sign-windows.mjs"
-      ],
+      "skipImport": [],
       "binSmoke": {
         "right-release": [
           "--version"
