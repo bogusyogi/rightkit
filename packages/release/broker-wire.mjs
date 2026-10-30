@@ -47,12 +47,13 @@ export function drainFrames(text, limit = MAX_BROKER_LINE_BYTES) {
     if (at < 0) break;
     const line = rest.subarray(0, at + 1);
     rest = rest.subarray(at + 1);
-    if (line.length > limit) return { frames, overCap, error: `a frame of ${line.length} bytes (newline included) exceeds the ${limit}-byte limit` };
+    const protocolLike = line[0] === 0x7b; // `{`: a protocol frame; a tool's own long output line is not a wire frame and is never judged here
+    if (protocolLike && line.length > limit) return { frames, overCap, error: `a frame of ${line.length} bytes (newline included) exceeds the ${limit}-byte limit` };
     const body = line.subarray(0, line.length - 1).toString("utf8");
     frames.push(body);
     if (body.startsWith("{")) { try { const event = JSON.parse(body); if (overCapProblem(event)) overCap.push(event); } catch { /* not a protocol frame */ } }
   }
-  if (rest.length >= limit) return { frames, overCap, error: `an incomplete frame of ${rest.length} bytes has no newline within the ${limit}-byte limit` };
+  if (rest[0] === 0x7b && rest.length >= limit) return { frames, overCap, error: `an incomplete frame of ${rest.length} bytes has no newline within the ${limit}-byte limit` };
   if (rest.length > 0) frames.push(rest.toString("utf8"));
   return { frames, overCap, error: null };
 }
