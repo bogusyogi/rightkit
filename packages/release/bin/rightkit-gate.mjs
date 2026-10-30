@@ -80,7 +80,7 @@ import { resolveExecutor } from "../gate-executor.mjs";
 import { SIGNING_REFUSAL_CODES, suiteSigningRefusals } from "../suite-signing-policy.mjs";
 import { gitListRustFiles } from "../signing-files.mjs";
 import { directPlatform } from "../managed-cargo.mjs";
-import { bindingOf, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, STAGE_SOURCES, writeReceipt } from "../gate-stages.mjs";
+import { bindingOf, compileOutputsRecord, compileReuseProblem, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, STAGE_SOURCES, writeReceipt } from "../gate-stages.mjs";
 import { spawnSync as spawnInherit } from "../background-process.mjs";
 import { readDiskPolicy, scratchRoots } from "../disk-policy.mjs";
 import { buildDirectReceipt, directVerdict, resolveTargetDirectory, verifyDirectReceipt, writeDirectDiagnostics } from "../direct-receipt.mjs";
@@ -1402,7 +1402,13 @@ async function runStages(o, args, root, git, io) {
   const publisherUploadOnly = to === "release" && !mobile;
   for (const stage of stages) {
     if (stage === "check" && publisherUploadOnly && receipt.stages.check?.ok && tierAtLeast(receipt.stages.check.ruleTier ?? "compile", earlyTier)) { o.out(`${tag} [check] already passed (${receipt.stages.check.ruleTier ?? "compile"} tier) for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
-    if (stage === "compile" && receipt.stages.compile?.ok) { o.out(`${tag} [${stage}] already passed for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
+    if (stage === "compile" && receipt.stages.compile?.ok) {
+      // GB-13 (GATE E6/E7/E16): a recorded compile stands only while the outputs it recorded are still on disk and the compile environment is
+      // the one it ran in; otherwise the compile runs again, warm (never a cleared target), unless the sealed bytes below carry it.
+      const outputsProblem = (o.compileReuseProblem ?? compileReuseProblem)(receipt.stages.compile, { env: o.env });
+      if (!outputsProblem) { o.out(`${tag} [${stage}] already passed for this exact input (commit, tree, lockfiles, gate, toolchain) and its outputs are intact`); continue; }
+      if (!sealedIntact) o.out(`${tag} [${stage}] the recorded compile no longer stands: ${outputsProblem}; running it again (warm)`);
+    }
     if (((stage === "check" && publisherUploadOnly) || stage === "compile" || stage === "package") && sealedIntact) {
       o.out(`${tag} [${stage}] already passed for the sealed set ${sealedNow.id} (manifest ${sealedNow.digest.slice(0, 12)})`); continue;
     }
@@ -1436,8 +1442,12 @@ async function runStages(o, args, root, git, io) {
       // On the snapshot route sidecars are staged ONCE per door run by the ledger bookkeeping (attribution diff, immutable staged entries).
       if (ok && ds) ok = await stageSidecarsOnce({ o, ds, root, git, configs: sidecarConfigs, appDir, cli, commonDir, commit, tree, stage, executor });
       else for (const config of ok ? sidecarConfigs : []) if (!await rightRelease(stage, ["stage-sidecar", "--config", path.join(root, config)])) { ok = false; break; }
-      if (ok) ok = (await (o.runCompile ?? (() => main(ds ? ["--all", "--commit", commit, "--snapshot", ds.path] : ["--all"], { ...io, cwd: root, readStdin: () => "", ...(ds ? { buildOwnership: ds.own, snapshotLedger: ds.ledger?.entries ?? [], onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, onDirectReceipt: (r) => { directReceipt = r; } } : {}) })))()) === 0;
+      let compiledDirs = [];
+      const reportOutputs = (dirs) => { compiledDirs = [...dirs]; };
+      if (ok) ok = (await (o.runCompile ?? (() => main(ds ? ["--all", "--commit", commit, "--snapshot", ds.path] : ["--all"], { ...io, cwd: root, readStdin: () => "", ...(ds ? { buildOwnership: ds.own, snapshotLedger: ds.ledger?.entries ?? [], onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, onDirectReceipt: (r) => { directReceipt = r; }, onCompileOutputs: reportOutputs } : {}) })))({ reportOutputs })) === 0;
       if (directReceipt) extra = { ...extra, direct: directReceipt };
+      // What this compile produced, recorded with its result so a later run can prove the outputs are still there (GB-13).
+      if (ok) extra = { ...extra, outputs: compileOutputsRecord({ dirs: compiledDirs, env: o.env }) };
       // The cross-check with `.rightkit/compile-inputs.json`: a declared input that covers ledger entries must carry the digest of those
       // very bytes in the compile receipt (the broker digests declared inputs in place in the snapshot, BC:39).
       if (ok && ds && directReceipt?.declaredInputDigests) {
@@ -3150,6 +3160,8 @@ export async function main(argv, io = {}) {
       o.out(`${tag} snapshot ${snapshotB} is still tree ${snapshotBCommit.tree} after the compile`);
       // A broker host's evidence is the broker's own signed receipts (each carried scan's row.snapshotEvidence, verified above); the
       // gate writes no receipt that says `executor: direct` for it.
+      // The output directories this compile's evidence names (GB-13): the broker's signed receipts' `outputDir`, or the direct host's resolved targets.
+      o.onCompileOutputs?.(snapshotBroker ? scanResult.scans.map((r) => r.snapshotEvidence?.outputDir).filter(Boolean) : Object.values(targetDirs ?? {}).filter(Boolean));
       if (snapshotBroker) o.out(`${tag} broker compile: ${scanResult.scans.filter((r) => r.snapshotEvidence).length} carried request(s) with verified signed receipts; no direct receipt on a broker host`);
       else {
         // The direct host's own receipt (GATE-CONTRACT "Broker interface", row 7.18): the contract's returned-evidence names minus the

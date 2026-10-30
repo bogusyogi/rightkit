@@ -174,6 +174,67 @@ export function sameSource(a, b) {
   return Boolean(a && b) && a.tree === b.tree && a.gate === b.gate && JSON.stringify(a.locks) === JSON.stringify(b.locks);
 }
 
+/** Entries a compile-output census walks before it gives up (and the compile is then run again, warm, rather than trusted). */
+export const OUTPUT_CENSUS_LIMIT = 250000;
+
+/**
+ * What the compile stage produced, as the door can prove it later (GB-13, GATE E6/E7/E16): for each output directory the broker's
+ * receipt (or the direct host's resolution) named, every file's relative path and size, digested together. `truncated` means the walk
+ * hit `limit`; such a census never proves anything. A missing directory is recorded as missing, never as empty.
+ */
+export function outputCensus(dirs = [], { limit = OUTPUT_CENSUS_LIMIT, readdir = (d) => fs.readdirSync(d, { withFileTypes: true }), stat = (f) => fs.statSync(f) } = {}) {
+  const unique = [...new Set(dirs.filter((d) => typeof d === "string" && d))].sort();
+  const lines = []; let truncated = false; const missing = [];
+  for (const dir of unique) {
+    const stack = [""];
+    let exists = true;
+    while (stack.length && !truncated) {
+      const rel = stack.pop();
+      let entries;
+      try { entries = readdir(path.join(dir, rel)); } catch { if (rel === "") exists = false; continue; }
+      for (const e of entries) {
+        const next = rel ? `${rel}/${e.name}` : e.name;
+        if (e.isDirectory()) { stack.push(next); continue; }
+        let size = -1; try { size = stat(path.join(dir, next)).size; } catch { /* vanished while walking: recorded as -1 */ }
+        lines.push(`${dir}\0${next}\0${size}`);
+        if (lines.length > limit) { truncated = true; break; }
+      }
+    }
+    if (!exists) missing.push(dir);
+  }
+  lines.sort();
+  return { dirs: unique, entries: lines.length, truncated, missing, digest: sha256(lines.join("\n")) };
+}
+
+/** The environment a Cargo compile reads that picks its profile, target or flags: part of what a compile result is valid for. */
+const COMPILE_ENV = /^(CARGO_(?!HOME$|TARGET_DIR$|BUILD_TARGET_DIR$|REGISTRIES_|NET_|HTTP_|TERM_)|RUSTFLAGS$|RUSTDOCFLAGS$|RUSTC(_|$)|RUSTUP_TOOLCHAIN$)/;
+export function compileKeyOf(env = {}) {
+  const picked = Object.entries(env).filter(([k, v]) => COMPILE_ENV.test(k) && v !== undefined).sort(([a], [b]) => a.localeCompare(b));
+  return sha256(JSON.stringify(picked));
+}
+
+/** What a passed compile stage records about its outputs: the directories, their census and the key of the compile environment. */
+export function compileOutputsRecord({ dirs = [], env = {}, census = outputCensus }) {
+  const c = census(dirs);
+  return { dirs: c.dirs, entries: c.entries, digest: c.digest, truncated: c.truncated, key: compileKeyOf(env) };
+}
+
+/**
+ * Whether a recorded compile still stands for the outputs on disk now: null when it does, else the reason it does not. A record with no
+ * `outputs` (a receipt from before this binding) proves nothing and does not stand.
+ */
+export function compileReuseProblem(recorded, { env = {}, census = outputCensus } = {}) {
+  const out = recorded?.outputs;
+  if (!out || typeof out !== "object" || !Array.isArray(out.dirs) || typeof out.digest !== "string") return "the compile result records no outputs";
+  if (out.truncated) return "the recorded output census was incomplete";
+  if (out.key !== compileKeyOf(env)) return "the compile environment (profile, target or flags) differs from the recorded one";
+  const now = census(out.dirs);
+  if (now.missing.length) return `output directory ${now.missing[0]} is gone`;
+  if (now.truncated) return "the output census is too large to prove";
+  if (now.digest !== out.digest || now.entries !== out.entries) return "the compile outputs on disk differ from the recorded census (a required output was removed, replaced or added)";
+  return null;
+}
+
 /** The sealed release directory build-release wrote for `commit` on `platform`: { id, manifest, digest } or null. */
 export function sealedFor({ root, commit, platform, readdir = fs.readdirSync, readFile = (f) => fs.readFileSync(f) }) {
   const base = path.join(root, ".right-release", "sealed");
