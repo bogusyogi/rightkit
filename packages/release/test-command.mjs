@@ -33,7 +33,7 @@ import { carriedLedgerIds, carriedOutputDirsSince } from "./carried-cargo.mjs";
 import { CommandSpecError, loadAppConfig, resolveInvocation, validateStep } from "./command-spec.mjs";
 import { defaultReleaseConfigFile } from "./release-config.mjs";
 import { fsListRustFiles } from "./signing-files.mjs";
-import { SIGN_STEP_KEYS, QA_APP_BINARY_ENV, QA_SIGNING_EVIDENCE_ENV, SuiteSigningError, assertPlanSigningPolicy, assertSuiteSigningPolicy, validateSignSpec } from "./suite-signing-policy.mjs";
+import { SIGN_STEP_KEYS, QA_APP_BINARY_ENV, QA_SIGNING_EVIDENCE_ENV, QA_SIGNED_FILES_ENV, SuiteSigningError, assertPlanSigningPolicy, assertSuiteSigningPolicy, validateSignSpec } from "./suite-signing-policy.mjs";
 import { runSignStep } from "./suite-signing.mjs";
 
 const fail = (message) => { throw new CommandSpecError(message); };
@@ -205,7 +205,7 @@ export async function runSuites(plan, { appRoot, prefix = "test", env = process.
           // The variable is set only now, after every file was signed and read back.
           if (signed.appBinary) suiteEnv = { ...suiteEnv, [QA_APP_BINARY_ENV]: signed.appBinary };
           // The evidence file lives in the signed directory, kept until this run ends: a consumer checks what it was handed against it.
-          suiteEnv = { ...suiteEnv, [QA_SIGNING_EVIDENCE_ENV]: signed.evidenceFile };
+          suiteEnv = { ...suiteEnv, [QA_SIGNING_EVIDENCE_ENV]: signed.evidenceFile, [QA_SIGNED_FILES_ENV]: JSON.stringify(signed.signedFiles ?? {}) };
           log(JSON.stringify({ event: `${prefix}_suite_signed`, suite: item.name, appBinary: signed.appBinary, signing: signed.evidence }));
         } catch (error) {
           if (!(error instanceof SuiteSigningError)) throw error;

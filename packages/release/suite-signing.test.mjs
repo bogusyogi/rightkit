@@ -13,7 +13,7 @@ import { SHIM_MAP_SCHEMA } from "./cargo-target-shim.mjs";
 import { BUILD_LAUNCH_REFUSED, SIGN_STEP_COMMAND, buildLaunch } from "./build-launch.mjs";
 import { MacosDevelopmentSigningError, expectedDesignatedRequirement } from "./development-signing.mjs";
 import { runSignStep } from "./suite-signing.mjs";
-import { QA_APP_BINARY_ENV, QA_SIGNING_EVIDENCE_ENV, SIGN_SUBJECT, SIGN_TEAM, SuiteSigningError, containedRelative, validateSignSpec } from "./suite-signing-policy.mjs";
+import { QA_APP_BINARY_ENV, QA_SIGNED_FILES_ENV, QA_SIGNING_EVIDENCE_ENV, SIGN_SUBJECT, SIGN_TEAM, SuiteSigningError, containedRelative, validateSignSpec } from "./suite-signing-policy.mjs";
 import { planTests, runSuites } from "./test-command.mjs";
 
 const TEAM = SIGN_TEAM;
@@ -503,4 +503,18 @@ test("win: a Windows signer with no silent token is refused FIRST: no signing di
   // A preflight that passes lets the step go on to the signer.
   const ok = { ...deps, signerPreflight: () => {}, signWindows: (files) => files.map((file) => winEvidence(file)), verifyWindows: (files) => files.map((file) => winEvidence(file)) };
   assert.equal(runSignStep(stepOf(f, { platform: "win32", sign: { files: WIN_FILES }, deps: ok })).evidence.length, 1);
+});
+
+test("[GB-42] every file a sign step signed (main binary and each declared sidecar) is mapped to its signed copy for the consumer; the raw target is never what the map names", (t) => {
+  const f = fixture(t, { files: { "debug/rightapp": "MAIN", "debug/engine": "ENGINE", "debug/helper": "HELPER" }, mainBinaryName: "rightapp" });
+  const files = [{ from: "build-app", path: "debug/engine" }, { from: "build-app", path: "debug/rightapp" }, { from: "build-app", path: "debug/helper" }];
+  const result = run(f, fakeMac(), { sign: { files } });
+  assert.deepEqual(Object.keys(result.signedFiles).sort(), ["debug/engine", "debug/helper", "debug/rightapp"], "all declared sidecars, not only mainBinaryName");
+  for (const [declared, signedCopy] of Object.entries(result.signedFiles)) {
+    assert.ok(fs.existsSync(signedCopy), declared);
+    assert.ok(!signedCopy.startsWith(f.outputDir), `${declared}: the mapped bytes are the signed copy outside the build's output directory, never the raw target`);
+    assert.match(fs.readFileSync(signedCopy, "utf8"), /\|SIGNED$/, `${declared} is the signed copy`);
+  }
+  assert.equal(result.signedFiles["debug/rightapp"], result.appBinary);
+  assert.equal(QA_SIGNED_FILES_ENV, "RIGHTKIT_QA_SIGNED_FILES");
 });
