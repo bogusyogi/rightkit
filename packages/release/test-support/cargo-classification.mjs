@@ -8,95 +8,45 @@
 //
 // The table is a FIXTURE of that source, not a copy of its code: `classifyCargo` below mirrors the match arms, and the contract test
 // (cargo-classification.test.mjs) pins both to the table, so a change in either is a failing test, not a silent drift.
-import fs from "node:fs";
-import path from "node:path";
-import { cargoSubcommandOf } from "../snapshot-request.mjs";
+import { GATE_EXTERNAL_COMMANDS, classifyCargoArgv } from "../cargo-shapes.mjs";
+import { carriedScanRefusal } from "../snapshot-metadata.mjs";
 
 export const READ_ONLY_NEEDS = "requires rustright read-only snapshot acceptance (rightkit#1301 F1)";
 export const SNAPSHOT_MUST_COMPILE = "RK_CHECK_ERROR: a snapshot request must compile";
 
-const CONTROL = ["--version", "-V", "-vV", "version", "help", "locate-project", "read-manifest", "logout", "owner", "yank"];
-const ANALYSIS = ["search", "info", "pkgid", "verify-project", "report", "config"];
-const COMPILE = ["build", "check", "test", "bench", "clippy", "doc", "rustc", "rustdoc", "fix", "publish", "run"];
 const hasFlag = (argv, flag) => argv.includes(flag);
-const observationOnly = (argv) => {
-  // build_rules.rs observation_only_cargo, reduced to what the carried calls pass: `package` with --list and one -p, `metadata` and `tree` without `--` or +toolchain.
-  return !argv.includes("--") && !argv.some((a) => a.startsWith("+"));
-};
 
-/** `compile` (admitted as a snapshot request), `read-only` (CONTROL, ANALYSIS or WORKSPACE_OBSERVE: refused as one today), `write` (WORKSPACE_WRITE: refused), `denied`. */
+/**
+ * `compile` (admitted as a snapshot request), `read-only` (CONTROL, ANALYSIS or WORKSPACE_OBSERVE), `write` (WORKSPACE_WRITE: refused), `denied`.
+ * GB-82: whether a request compiles or is refused is the production grammar (cargo-shapes.mjs, exercised against RustRight's cargo-shapes vector), not a grammar of
+ * this fixture's own; only the descriptive read-only/write split below is the fixture's.
+ */
 export function classifyCargo(argv) {
+  const row = classifyCargoArgv(argv, { registered: GATE_EXTERNAL_COMMANDS });
+  if (row.refused) return row.refused.code === "RK_UNKNOWN_COMMAND" ? "read-only" : "denied";
+  if (row.compile) return "compile";
   const words = [...argv];
-  const first = words.find((w) => !w.startsWith("+")) ?? null;
-  const command = ["--version", "-V", "-vV"].includes(first) ? first : cargoSubcommandOf(words);
-  if (command === null) return "read-only";
-  if (["install", "uninstall"].includes(command)) return "denied";
-  if (CONTROL.includes(command) || ANALYSIS.includes(command)) return "read-only";
+  const command = row.command;
   const locked = hasFlag(words, "--locked") || hasFlag(words, "--frozen");
   if (command === "metadata" && hasFlag(words, "--no-deps")) return "read-only";
   if (command === "metadata" || command === "tree" || command === "fetch") return locked ? "read-only" : "write";
   if (command === "fmt") return words.includes("--check") ? "read-only" : "write";
   if (["new", "init", "update", "vendor", "generate-lockfile", "add", "remove"].includes(command)) return "write";
-  if (command === "clean") return "denied";
-  if (command === "package") return words.includes("--list") && words.includes("--locked") && observationOnly(words) ? "read-only" : "compile";
-  if (COMPILE.includes(command)) return "compile";
-  return "read-only"; // an unclassified command (a plugin such as about, audit or deny) is no BUILD capability: never a compile
+  return "read-only"; // CONTROL, ANALYSIS and an unclassified plugin (about, audit, deny) are no BUILD capability: never a compile
 }
 
 /**
- * What the broker accepts as a snapshot request AFTER RustRight's change (rk4 decision, rightkit#1301 B2; rustright 52a9ed76 for the scan
- * shapes): the compile commands, plus these read-only shapes and nothing else, each flag at most once and in spaced form (`--flag=value` is
- * not admitted):
- *   cargo metadata [--no-deps] [--locked] [--frozen] [--offline] [--format-version 1]   (with dependencies only with --locked or --frozen)
- *   cargo fetch --locked
- *   cargo deny [--frozen] [--metadata-path <file>] [--config <file>] check              (nothing after `check`)
- *   cargo audit --db <dir> --no-fetch
- *   cargo about ... --frozen                                                              (right-release's licence generation)
- * The files deny reads and audit's database directory must be absolute, existing, of the right kind and NOT inside the live checkout
- * (`checkout`; when it is not given only the shape is judged). Cargo's own `--config` and `-Z`, a `+toolchain`, `--manifest-path` and a `--`
- * are never part of a scan shape. A test fake of the broker refuses what the real broker refuses, so this is written from the broker's rules,
- * not from the gate's own shape checker (snapshot-metadata.mjs).
+ * What the broker accepts as a snapshot request (GB-82: the vector's own decision): `compile` rows, and, unless `readOnly` is false (a broker that predates
+ * RustRight's read-only snapshot acceptance), the carried read-only shapes, none of which carries cargo's `--config` or `-Z`. The files `deny` reads and the database
+ * directory `audit` reads must also be absolute, exist, be of the right kind and lie OUTSIDE the live checkout (`checkout`; with none only the shape is judged).
  */
-export function acceptedAfterFix(argv, { checkout = null } = {}) {
-  if (classifyCargo(argv) === "compile") return true;
-  const words = [...argv];
-  if (cargoSubcommandOf(words) === "about") return (words.includes("--") ? words.slice(0, words.indexOf("--")) : words).includes("--frozen");
-  const [sub, ...rest] = words;
-  const parse = (list, spec) => {
-    const seen = new Map();
-    for (let i = 0; i < list.length; i += 1) {
-      const w = list[i];
-      if (!Object.hasOwn(spec, w) || seen.has(w)) return null;
-      if (spec[w]) { const v = list[i + 1]; if (typeof v !== "string" || v === "" || v.startsWith("-")) return null; seen.set(w, v); i += 1; } else seen.set(w, true);
-    }
-    return seen;
-  };
-  const realOf = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
-  const placed = (value, kind) => {
-    if (!path.isAbsolute(value)) return false;
-    if (checkout === null) return true;
-    let st; try { st = fs.statSync(value); } catch { return false; }
-    if (kind === "file" ? !st.isFile() : !st.isDirectory()) return false;
-    const rel = path.relative(realOf(checkout), realOf(value));
-    return rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel); // outside the live checkout
-  };
-  if (sub === "metadata") {
-    const f = parse(rest, { "--no-deps": false, "--locked": false, "--frozen": false, "--offline": false, "--format-version": true });
-    return f !== null && (!f.has("--format-version") || f.get("--format-version") === "1") && (f.has("--no-deps") || f.has("--locked") || f.has("--frozen"));
-  }
-  if (sub === "fetch") return rest.length === 1 && rest[0] === "--locked";
-  if (sub === "deny") {
-    if (rest.at(-1) !== "check") return false;
-    const f = parse(rest.slice(0, -1), { "--frozen": false, "--metadata-path": true, "--config": true });
-    return f !== null && (!f.has("--metadata-path") || placed(f.get("--metadata-path"), "file")) && (!f.has("--config") || placed(f.get("--config"), "file"));
-  }
-  if (sub === "audit") {
-    const f = parse(rest, { "--db": true, "--no-fetch": false });
-    return f !== null && f.size === 2 && f.has("--db") && f.has("--no-fetch") && placed(f.get("--db"), "directory");
-  }
-  // rustright command_policy.rs:407-409 (class_a_scan "package" -> observation_only_cargo): -p <unit> --list --locked [--allow-dirty].
-  if (sub === "package") { const tail = rest.slice(2); return rest[0] === "-p" && typeof rest[1] === "string" && rest[1] !== "" && !rest[1].startsWith("-") && new Set(tail).size === tail.length && tail.every((w) => ["--list", "--locked", "--allow-dirty"].includes(w)) && tail.includes("--list") && tail.includes("--locked"); }
-  return false;
+export function acceptedAfterFix(argv, { checkout = null, readOnly = true } = {}) {
+  const row = classifyCargoArgv(argv, { registered: GATE_EXTERNAL_COMMANDS });
+  if (row.refused || row.carriedRefusal) return false;
+  if (row.compile) return true;
+  if (!readOnly || !row.carriedReadOnly) return false;
+  if (["--version", "-V", "version", "locate-project", "read-manifest", "about"].includes(row.command)) return true;
+  return carriedScanRefusal(row.normalizedArgv, { checkout }) === null;
 }
 
 /**

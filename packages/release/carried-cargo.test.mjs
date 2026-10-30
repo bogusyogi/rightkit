@@ -86,12 +86,15 @@ test("negative: a receipt for another argv (tampered), an unverified receipt, a 
     assert.equal(h.entries().entries.at(-1).status, "unverified", name);
   }
   h.fx.setBehavior({ exit: 3 });
-  assert.equal(h.cargo(["build"]).status, 3, "the client's own failure status is the call's (a cargo that failed is the child's to report: its receipt still verifies)");
+  assert.equal(h.cargo(["build"]).status, 3, "the client's own failure status is the call's");
+  // GB-82: a nonzero exit is a signed FAILED (never a signed success), so the call is NOT a verified success: it is ledgered unverified with the broker's signed outcome.
+  assert.equal(h.entries().entries.at(-1).status, "unverified");
+  assert.match(h.entries().entries.at(-1).message, /the broker signed FAILED \(exit 3/);
   h.fx.setBehavior({ refuse: true });
   assert.notEqual(h.cargo(["build"]).status, 0, "a broker that refuses the carrier");
   const { problems } = h.entries();
-  assert.equal(problems.length, 7, problems.join("\n"));
-  assert.equal((await h.installed.problems(h.fx.sb)).length, 7, "the stage's problems name every one");
+  assert.equal(problems.length, 8, problems.join("\n"));
+  assert.equal((await h.installed.problems(h.fx.sb)).length, 8, "the stage's problems name every one");
   assert.deepEqual(fs.readdirSync(h.requests), [], "no request file is left behind, whatever the outcome");
 });
 

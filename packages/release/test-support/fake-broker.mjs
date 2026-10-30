@@ -14,8 +14,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend } from "../build-ownership.mjs";
 import { adapterEnvRefusal, isReservedAdapterEnvKey } from "../adapter-env.mjs";
+import { isVersionProbe } from "../cargo-shapes.mjs";
+import { verifyAttributionDetail } from "../provenance-verify.mjs";
 import { ATTEST_STAGE_NONCE_ENV, canonicalJson, signedBytes } from "../provenance-verify.mjs";
-import { SNAPSHOT_MUST_COMPILE, acceptedAfterFix, classifyCargo } from "./cargo-classification.mjs";
+import { SNAPSHOT_MUST_COMPILE, acceptedAfterFix } from "./cargo-classification.mjs";
 import { MANAGED_RUST_ENVIRONMENT_KEYS, argvSha256, cargoSubcommandOf, declaredInputDigestsOf, isCallHandleOf, observedEnvOf, readDeclaredInputs, requestDigestOf, snapshotRequestCore } from "../snapshot-request.mjs";
 
 /**
@@ -156,7 +158,7 @@ export const TAMPERS = {
  * One receipt, signed. `carrier` is the carrier the gate wrote; `argv`, `workspace` and `observedEnv` are what the client submitted.
  * `fx` is the fixture (paths, keys, pins).
  */
-export function signedReceipt(fx, { id, carrier, argv, workspace, observedEnv = {}, adapterEnv = {}, tamper = "none", mutate = null, adapter = null, children = null }) {
+export function signedReceipt(fx, { id, carrier, argv, workspace, observedEnv = {}, adapterEnv = {}, tamper = "none", mutate = null, adapter = null, children = null, exit = 0 }) {
   const t = TAMPERS[tamper] ?? fail(`unknown tamper ${tamper}`);
   const inputs = readDeclaredInputs(carrier.snapshot.path);
   const evidence = {
@@ -164,13 +166,24 @@ export function signedReceipt(fx, { id, carrier, argv, workspace, observedEnv = 
     snapshot: { path: carrier.snapshot.path, treeAtStart: carrier.snapshot.expectedTree, treeAtExit: carrier.snapshot.expectedTree }, declaredInputDigests: declaredInputDigestsOf(carrier.snapshot.path, inputs),
     ownership: carrier.ownership, outputDir: fx.outputDir,
     // rustright#190 (final): an adapter job's nested children are signed INSIDE snapshotEvidence and mirrored on the receipt (the evidence copy below).
-    ...(adapter ? { nestedChildren: structuredClone(children ?? []).map((c) => ({ ...c, parentRequestId: id })) } : {}),
+    // The lineage is kept: a child names its own parent (a depth-2 child names an earlier child), and only a child with no parent is the root's.
+    ...(adapter ? { nestedChildren: structuredClone(children ?? []).map((c) => ({ ...c, parentRequestId: c.parentRequestId && c.parentRequestId !== "root" ? c.parentRequestId : id })) } : {}),
   };
   t.evidence?.(evidence, fx);
-  const stage = { freshness: { unitsAtStart: 3, fresh: 3, notFresh: 0, invalidationReasons: [] }, attribution: { available: true, rows: [] }, toolchain: TOOLCHAIN };
+  // GB-82: the broker signs COMPACT attribution (counts and a `detail` descriptor {path, sha256}); the per package and target rows live in the evidence file
+  // `<id>.evidence.json` (schema rustright.stage-evidence/1, carrying the request id and the toolchain). Freshness states whether it is available.
+  const rows = [{ package: "a", target: "a", kind: "lib", errors: 0, warnings: 0, fresh: true }];
+  const detailBytes = Buffer.from(JSON.stringify({ schema: "rustright.stage-evidence/1", id, toolchain: TOOLCHAIN, attribution: { available: true, truncated: 0, units: rows } }));
+  const evidenceDir = path.join(fx.root, "evidence"); fs.mkdirSync(evidenceDir, { recursive: true });
+  const detailPath = path.join(evidenceDir, `${id}.evidence.json`); fs.writeFileSync(detailPath, detailBytes);
+  const stage = {
+    freshness: { available: true, unitsAtStart: 3, fresh: 3, notFresh: 0, invalidationReasons: [] },
+    attribution: { available: true, source: "cargo-json", packages: 1, units: rows.length, errors: 0, warnings: 0, otherMessages: 0, freshUnits: 1, truncated: 0, detail: { path: detailPath, sha256: sha(detailBytes) } },
+    toolchain: TOOLCHAIN,
+  };
   t.stage?.(stage);
   // The contract-named top-level fields every carried command's receipt has (item 4 row 4.18), signed with the rest.
-  const top = { exit: 0, signal: null, timingsMs: { admission: 1, queue: 0, bind: 1, cargo: 2, afterExitBind: 1, diagnostics: 1 }, diagnosticsPath: "/diag/x.json" };
+  const top = { exit, signal: null, timingsMs: { admission: 1, queue: 0, bind: 1, cargo: 2, afterExitBind: 1, diagnostics: 1 }, diagnosticsPath: "/diag/x.json" };
   t.top?.(top);
   // GB-11: every receipt carries, and an attested receipt signs, the BR19 profile, stage, resources and environment (BROKER-CONTRACT section 14).
   const br19 = { profile: "release-iterate", stage: { name: argv.find((w) => !w.startsWith("-") && !w.startsWith("+")) ?? "check", source: adapter ? "adapter" : "command" }, resources: { grantedJobs: 4, memoryReservation: 4294967296, peakRssBytes: 1, samples: 1, sampledEveryMs: 100, priority: "SECOND" }, environment: { digest: "e".repeat(64), forwarded: Object.keys(adapterEnv).sort(), dropped: [] } };
@@ -178,7 +191,8 @@ export function signedReceipt(fx, { id, carrier, argv, workspace, observedEnv = 
   const payload = {
     host: fx.pins.host, broker: { brokerDigest: fx.pins.brokerDigest }, keyId: fx.pins.keyId, jobId: id, nonce: carrier.nonce,
     requestDigest: requestDigestOf(snapshotRequestCore({ argv: t.argv ? t.argv(argv) : argv, workspace, observedEnv, carrier, adapter, adapterEnv: t.adapterEnv ? t.adapterEnv(adapterEnv) : adapterEnv })),
-    result: { status: "SUCCEEDED", exitCode: 0, signal: null, reap: { reaped: true } }, snapshotEvidence: structuredClone(evidence), stageEvidence: structuredClone(stage),
+    // GB-82: a nonzero exit is a signed FAILED carrying that exit, never a signed success (rustright-broker a_nonzero_exit_is_signed_as_a_failure_never_as_success).
+    result: exit === 0 ? { status: "SUCCEEDED", exitCode: 0, signal: null, reap: { reaped: true } } : { status: "FAILED", exitCode: exit, signal: null, reap: { reaped: true } }, snapshotEvidence: structuredClone(evidence), stageEvidence: structuredClone(stage),
     // As the real broker signs them (service.rs provenance_payload): the result fields ride under resultEvidence, never at the payload's top level.
     resultEvidence: structuredClone(top),
     br19Evidence: structuredClone(br19),
@@ -203,11 +217,11 @@ const WORKSPACES = {
 };
 
 /**
- * A fixture broker host under a fresh temp root (`readOnlySnapshots: true` models the post-fix broker that accepts read-only snapshot requests): a checkout and the gate's snapshot (two Cargo workspaces, the root and `native`), a
+ * A fixture broker host under a fresh temp root (`readOnlySnapshots` defaults to true: the broker accepts the carried read-only shapes of RustRight's cargo-shapes vector; false models a broker that predates that and takes compiles only): a checkout and the gate's snapshot (two Cargo workspaces, the root and `native`), a
  * data root with the managed `ws` generation target, keys and pins, a control root, and a fake `rustright` client script whose
  * behaviour a test sets with `setBehavior({ tamper, exit, refuse })` (see client below). `sb` is the `deps.snapshotBroker` the gate builds.
  */
-export function makeFakeBroker(t, { inputs = null, readOnlySnapshots = false } = {}) {
+export function makeFakeBroker(t, { inputs = null, readOnlySnapshots = true } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-fake-broker-")));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const checkout = path.join(root, "checkout"); const dataRoot = path.join(root, "data"); const controlRoot = path.join(root, "control");
@@ -313,7 +327,7 @@ async function client(stateDir, [command, ...args]) {
     const raw = envVar("SNAPSHOT_REQUEST");
     // The real broker refuses an uncarried ROOT request whose workspace is inside a managed snapshot (service.rs: "a root request cannot run
     // inside a managed snapshot"). Every uncarried request is logged, so a test can count them (`rootRequests()`).
-    if (raw === undefined && !args.includes("--version") && !args.includes("-V")) {
+    if (raw === undefined && !isVersionProbe(args)) {
       const here = fs.realpathSync(process.cwd());
       const roots = [fx.snapshotsRoot, path.join(fx.dataRoot, "snapshots"), path.dirname(fx.snapshot)].filter(Boolean).map((r) => { try { return fs.realpathSync(r); } catch { return r; } });
       const inside = roots.some((r) => here === r || here.startsWith(`${r}${path.sep}`));
@@ -323,7 +337,7 @@ async function client(stateDir, [command, ...args]) {
       if (args.includes("metadata")) { process.stdout.write(synthMetadata(fx, here, false)); process.exit(0); }
     }
     // The client's own version probe is a root request in a workspace of the primary checkout (the gate's tool probe); it reads no file.
-    if (raw === undefined && (args.includes("--version") || args.includes("-V"))) { process.stdout.write("cargo 1.90.0 (fake)\n"); process.exit(0); }
+    if (raw === undefined && isVersionProbe(args)) { process.stdout.write("cargo 1.90.0 (fake)\n"); process.exit(0); }
     if (raw === undefined) bad("no descriptor");
     if (Buffer.byteLength(raw) > 4096) bad("descriptor exceeds 4096 bytes");
     let descriptor; try { descriptor = JSON.parse(raw); } catch { bad("descriptor is not JSON"); }
@@ -336,7 +350,8 @@ async function client(stateDir, [command, ...args]) {
     if (args.some((a) => a === "--manifest-path" || a.startsWith("--manifest-path="))) bad("attestation: the client would rewrite this invocation (--manifest-path); run from the manifest's directory without it");
     // The broker admits a snapshot request only when it compiles (job_service/service.rs: "a snapshot request must compile"); read-only
     // subcommands (metadata, locate-project, --version, ...) are refused today. `readOnlySnapshots` models the broker after RustRight's change (the lock-bound allowlist, acceptedAfterFix).
-    if (!(fx.readOnlySnapshots ? acceptedAfterFix(args, { checkout: fx.checkout }) : classifyCargo(args) === "compile")) { process.stderr.write(`${SNAPSHOT_MUST_COMPILE}\n`); process.exit(2); }
+    // GB-82: admission is the production grammar (cargo-shapes.mjs, exercised against RustRight's cargo-shapes vector), not a grammar of the fake's own.
+    if (!acceptedAfterFix(args, { checkout: fx.checkout, readOnly: fx.readOnlySnapshots !== false })) { process.stderr.write(`${SNAPSHOT_MUST_COMPILE}\n`); process.exit(2); }
     const dir = fs.realpathSync(path.join(fx.controlRoot, "snapshot-requests"));
     if (fs.lstatSync(path.join(fx.controlRoot, "snapshot-requests")).isSymbolicLink()) bad("snapshot-requests is a link");
     if (fs.realpathSync(path.dirname(descriptor.path)) !== dir) bad("not in snapshot-requests");
@@ -361,7 +376,7 @@ async function client(stateDir, [command, ...args]) {
     const id = crypto.randomUUID();
     const workspace = fs.realpathSync(process.cwd());
     fs.writeFileSync(envVar("REQUEST_ID_FILE"), JSON.stringify({ schema: "rustright.request-ref.v1", requestId: id, submittedAt: new Date().toISOString(), workspace }));
-    fs.writeFileSync(path.join(stateDir, "db", `${id}.json`), JSON.stringify({ id, carrier, argv: args, workspace, observedEnv: observedEnvOf(env, process.platform), tamper: behavior.tamper ?? "none" }));
+    fs.writeFileSync(path.join(stateDir, "db", `${id}.json`), JSON.stringify({ id, carrier, argv: args, workspace, observedEnv: observedEnvOf(env, process.platform), tamper: behavior.tamper ?? "none", exit: behavior.exit ?? 0 }));
     fs.appendFileSync(path.join(stateDir, "calls.jsonl"), `${JSON.stringify({ id, carrierEnvNames: Object.keys(env).filter((k) => /^(RUSTRIGHT|RIGHTKIT)_(SNAPSHOT_REQUEST|ATTEST_NONCE|REQUEST_ID_FILE|CALLING_GATE|PARENT_REQUEST_ID)$/.test(k)).sort(), argv: args, cwd: workspace, stageNonceSeen: env.RIGHTKIT_ATTEST_STAGE_NONCE !== undefined, managedEnvNames: Object.keys(env).filter((k) => MANAGED_RUST_ENVIRONMENT_KEYS.includes(k.toUpperCase())).sort(), env: { CARGO_TARGET_DIR: env.CARGO_TARGET_DIR ?? null, CARGO_BUILD_TARGET_DIR: env.CARGO_BUILD_TARGET_DIR ?? null } })}\n`);
     if (behavior.stdout) process.stdout.write(behavior.stdout);
     else if (args.includes("metadata")) process.stdout.write(synthMetadata(fx, workspace));
@@ -383,7 +398,7 @@ async function client(stateDir, [command, ...args]) {
     if (read("behavior.json", {}).statusLive) { process.stdout.write(`${JSON.stringify({ type: "STATUS", id: entry.id, state: "RUNNING", receipt: null })}\n`); process.exit(0); }
     const children = entry.adapter ? readChildren(stateDir, entry.id) : null;
     if (read("behavior.json", {}).statusBare) { process.stdout.write(`${JSON.stringify(signedReceipt(fx, { id: entry.id, carrier: entry.carrier, argv: entry.argv, workspace: entry.workspace, observedEnv: entry.observedEnv, adapterEnv: entry.adapterEnv ?? {}, adapter: entry.adapter ?? null, children }))}\n`); process.exit(0); }
-    const receipt = signedReceipt(fx, { id: entry.id, carrier: entry.carrier, argv: entry.argv, workspace: entry.workspace, observedEnv: entry.observedEnv, adapterEnv: entry.adapterEnv ?? {}, tamper: read("behavior.json", {}).statusTamper ?? entry.tamper, adapter: entry.adapter ?? null, children });
+    const receipt = signedReceipt(fx, { id: entry.id, carrier: entry.carrier, argv: entry.argv, workspace: entry.workspace, observedEnv: entry.observedEnv, adapterEnv: entry.adapterEnv ?? {}, exit: entry.exit ?? 0, tamper: read("behavior.json", {}).statusTamper ?? entry.tamper, adapter: entry.adapter ?? null, children });
     process.stdout.write(`${JSON.stringify({ type: "STATUS", id: entry.id, state: "SUCCEEDED", receipt })}\n`);
     process.exit(0);
   }
@@ -534,6 +549,7 @@ function adapterRun(stateDir, fx, behavior, argv) {
     if (r.status !== 0 && !behavior.adapter?.swallow) exit = exit || 1;
   }
   fs.appendFileSync(path.join(stateDir, "adaptercalls.jsonl"), `${JSON.stringify({ id, adapter, argv: args, cwd: clientCwd, workspace, primaryCwd: carrier.primaryCwd, jobCwd, jobEnvNames: Object.keys(jobEnv).sort(), forwardedEnv: forwarded, jobPath: jobEnv.PATH, callerEnvNamesDropped: Object.keys(env).filter((k) => !(k in jobEnv) && /^(RUSTRIGHT|RIGHTKIT)_/.test(k)).sort(), stageNonceSeen: env.RIGHTKIT_ATTEST_STAGE_NONCE !== undefined })}\n`);
+  { const entryFile = path.join(stateDir, "db", `${id}.json`); const entry = JSON.parse(fs.readFileSync(entryFile, "utf8")); fs.writeFileSync(entryFile, JSON.stringify({ ...entry, exit })); }
   if (behavior.stdout) process.stdout.write(behavior.stdout);
   process.exit(exit);
 }
