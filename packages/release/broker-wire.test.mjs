@@ -153,3 +153,13 @@ test("[GB-54] a paused carried submit is a typed no-spawn refusal, not a missing
   assert.match(r.outcome.message, /admission is paused and nothing was spawned/);
   assert.equal(records.at(-1).code, "broker-refused-paused");
 });
+
+test("[GB-66] a compile the broker refuses at admission with RK_TOOLCHAIN_IDENTITY_UNAVAILABLE is a typed toolchain-unavailable outcome, nothing ran", (t) => {
+  const fx = makeFakeBroker(t, { readOnlySnapshots: true });
+  const section = brokerSection({ ...fx.sb, markBrokerSubmit: subHandleStub(fx.handle) });
+  const env = { PATH: fx.root, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs" };
+  fx.setBehavior({ refuseWith: { type: "RESULT", exitCode: 125, status: "REJECTED", error: "no registered cargo", code: "RK_TOOLCHAIN_IDENTITY_UNAVAILABLE" } });
+  const r = carryBrokerCargo({ words: ["check"], cwd: path.join(fx.snapshot, "crates", "a"), env, section, workspace: fx.snapshot, checkoutWorkspace: fx.checkout, record: () => {}, err: () => {}, stdio: "capture" });
+  assert.equal(r.outcome.code, "toolchain-unavailable");
+  assert.match(r.outcome.message, /RK_TOOLCHAIN_IDENTITY_UNAVAILABLE.*nothing ran/);
+});

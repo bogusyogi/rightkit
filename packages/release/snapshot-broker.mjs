@@ -255,7 +255,8 @@ export function carryBrokerCargo({ words, cwd, env, section, workspace, checkout
     // code ("admission is paused; nothing was spawned"), not folded into a missing request reference. It is never a build outcome.
     if (outcome.status !== "verified" && capture) {
       const refused = refusalInCapturedOutput(`${out.stdout}\n${out.stderr}`);
-      if (refused) outcome = { status: "unverified", code: `broker-refused-${refused.refusal}`, message: `the broker refused the request (${refused.code ?? "no code"}: ${refused.message || refused.refusal})${refused.refusal === "paused" ? ": admission is paused and nothing was spawned" : ""}`, ...(outcome.requestId ? { requestId: outcome.requestId, workspace: outcome.workspace } : {}) };
+      if (refused?.code === "RK_TOOLCHAIN_IDENTITY_UNAVAILABLE") outcome = { status: "unverified", code: "toolchain-unavailable", message: `the broker refused the compile before it started: it could not build the toolchain identity (RK_TOOLCHAIN_IDENTITY_UNAVAILABLE: ${refused.message}); nothing ran`, ...(outcome.requestId ? { requestId: outcome.requestId, workspace: outcome.workspace } : {}) };
+      else if (refused) outcome = { status: "unverified", code: `broker-refused-${refused.refusal}`, message: `the broker refused the request (${refused.code ?? "no code"}: ${refused.message || refused.refusal})${refused.refusal === "paused" ? ": admission is paused and nothing was spawned" : ""}`, ...(outcome.requestId ? { requestId: outcome.requestId, workspace: outcome.workspace } : {}) };
     }
     // GB-53: captured output that lost a frame to FRAME_OVER_CAP (or a result the broker replaced with RK_RESPONSE_OVER_CAP) is truncated: refused, never read as complete.
     if (outcome.status === "verified" && capture) {
@@ -357,7 +358,8 @@ export function carryBrokerAdapter({ adapter, words, cwd, env, section, record, 
     // code ("admission is paused; nothing was spawned"), not folded into a missing request reference. It is never a build outcome.
     if (outcome.status !== "verified" && capture) {
       const refused = refusalInCapturedOutput(`${out.stdout}\n${out.stderr}`);
-      if (refused) outcome = { status: "unverified", code: `broker-refused-${refused.refusal}`, message: `the broker refused the request (${refused.code ?? "no code"}: ${refused.message || refused.refusal})${refused.refusal === "paused" ? ": admission is paused and nothing was spawned" : ""}`, ...(outcome.requestId ? { requestId: outcome.requestId, workspace: outcome.workspace } : {}) };
+      if (refused?.code === "RK_TOOLCHAIN_IDENTITY_UNAVAILABLE") outcome = { status: "unverified", code: "toolchain-unavailable", message: `the broker refused the compile before it started: it could not build the toolchain identity (RK_TOOLCHAIN_IDENTITY_UNAVAILABLE: ${refused.message}); nothing ran`, ...(outcome.requestId ? { requestId: outcome.requestId, workspace: outcome.workspace } : {}) };
+      else if (refused) outcome = { status: "unverified", code: `broker-refused-${refused.refusal}`, message: `the broker refused the request (${refused.code ?? "no code"}: ${refused.message || refused.refusal})${refused.refusal === "paused" ? ": admission is paused and nothing was spawned" : ""}`, ...(outcome.requestId ? { requestId: outcome.requestId, workspace: outcome.workspace } : {}) };
     }
     // GB-53: captured output that lost a frame to FRAME_OVER_CAP (or a result the broker replaced with RK_RESPONSE_OVER_CAP) is truncated: refused, never read as complete.
     if (outcome.status === "verified" && capture) {

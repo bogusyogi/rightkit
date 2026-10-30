@@ -47,6 +47,11 @@ export const STAGE_EVIDENCE_FIELDS = Object.freeze(["freshness", "attribution", 
 /** The result fields the broker signs in payload.resultEvidence and mirrors on the receipt (attestation.rs RESULT_EVIDENCE_FIELDS). */
 export const RESULT_EVIDENCE_FIELDS = Object.freeze(["exit", "signal", "timingsMs", "diagnosticsPath"]);
 const TIMING_KEYS =Object.freeze(["admission", "queue", "bind", "cargo", "afterExitBind", "diagnostics"]);
+/** The broker's code for a compile whose toolchain identity cannot be built (checked_toolchain_identity), and the gate's typed error code for it. */
+export const TOOLCHAIN_UNAVAILABLE_CODE = "RK_TOOLCHAIN_IDENTITY_UNAVAILABLE";
+export const TOOLCHAIN_UNAVAILABLE = "toolchain-unavailable";
+/** `{"state":"UNKNOWN","reason":<non-empty string>}` exactly: the one spelling of an identity the broker could not establish (BR19). */
+export const isToolchainUnknown = (v) => v !== null && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 2 && v.state === "UNKNOWN" && typeof v.reason === "string" && v.reason !== "";
 /** `<toolchain>|cargo:<sha256>|rustc:<sha256>` (rustright toolchain_identity). */
 const TOOLCHAIN_FORMAT = /^[^|\s][^|]*\|cargo:[0-9a-f]{64}\|rustc:[0-9a-f]{64}$/;
 
@@ -512,6 +517,8 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
     // `snapshot exit bind: ...` message; the field that carries it is pending RustRight's confirmation, so the usual spellings are read).
     // The signed result of a broker verdict after a clean run (FAILED with exit 0: RR_UNEXPLAINED_COLD, ...) carries no reason; the receipt's own
     // unsigned `error` names it. It is shown for diagnosis only and decides nothing: the verdict is the signed status.
+    // GB-66: a compile the broker refused to run because it could not name its toolchain fails with this code (and an UNKNOWN toolchain on its receipt).
+    if ([result.code, receipt?.code].includes(TOOLCHAIN_UNAVAILABLE_CODE)) fail(TOOLCHAIN_UNAVAILABLE, `the broker did not run this compile: it could not build the toolchain identity (${TOOLCHAIN_UNAVAILABLE_CODE}${isToolchainUnknown(receipt?.toolchain) ? `: ${receipt.toolchain.reason}` : ""}); register the toolchain's cargo and rustc and its name, then ask again`);
     const why = [result.message, result.error, result.reason].find((v) => typeof v === "string" && v !== "");
     const unsigned = why ? "" : [receipt?.error, receipt?.code].find((v) => typeof v === "string" && v !== "");
     fail("result", `the broker signed ${result.status ?? "no status"} (exit ${result.exitCode ?? "none"}${result.signal ? `, signal ${result.signal}` : ""}${why ? `; ${why}` : ""}${unsigned ? `; the receipt's unsigned error: ${unsigned}` : ""}), not SUCCEEDED with exit 0`);
@@ -565,6 +572,10 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
     if (!isObject(attribution) || typeof attribution.available !== "boolean") fail("evidence", "receipt attribution is not {available, ...}");
     if (attribution.available === false && !(typeof attribution.reason === "string" && attribution.reason !== "")) fail("evidence", "receipt attribution is unavailable and names no reason");
   }
+  // GB-66: the broker signs `<name>|cargo:<sha256>|rustc:<sha256>` only when it could build that identity; when it could not (no configured name, an unregistered or
+  // changed cargo or rustc) the receipt's toolchain is exactly {"state":"UNKNOWN","reason":...}. That is a typed unavailable identity, never evidence and never a
+  // string with an empty component.
+  if (isToolchainUnknown(toolchain)) fail(TOOLCHAIN_UNAVAILABLE, `the broker could not name this compile's toolchain (${TOOLCHAIN_UNAVAILABLE_CODE}: UNKNOWN, ${toolchain.reason}); an unknown toolchain identity is not evidence, so the call is unverified and nothing is concluded from it`);
   if (toolchain !== null && !(typeof toolchain === "string" && TOOLCHAIN_FORMAT.test(toolchain))) fail("evidence", "receipt toolchain is not <toolchain>|cargo:<sha256>|rustc:<sha256>");
   // Fields the signature does not cover must still be present with their types (the consumer reads them). Every carried command:
   // exit (an integer, or null with a signal) and signal, timingsMs{admission, queue, bind, cargo, afterExitBind, diagnostics} (each a

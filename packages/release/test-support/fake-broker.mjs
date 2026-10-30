@@ -73,6 +73,11 @@ export const TAMPERS = {
   attributionNotObject: { stage: (g) => { g.attribution = "none"; } },
   toolchainObject: { stage: (g) => { g.toolchain = { rustc: "1.98.0" }; } },
   toolchainNoHashes: { stage: (g) => { g.toolchain = "stable|cargo:abc|rustc:def"; } },
+  /** GB-66: the toolchain identity the broker could not build is exactly {state:"UNKNOWN",reason}; a failed job names the code. */
+  toolchainUnknown: { stage: (g) => { g.toolchain = { state: "UNKNOWN", reason: "cargo is not registered" }; } },
+  toolchainUnknownMalformed: { stage: (g) => { g.toolchain = { state: "UNKNOWN" }; } },
+  toolchainEmptyName: { stage: (g) => { g.toolchain = `|cargo:${"1".repeat(64)}|rustc:${"2".repeat(64)}`; } },
+  toolchainUnavailableFailed: { stage: (g) => { g.toolchain = { state: "UNKNOWN", reason: "rustc changed since registration" }; }, payload: (p) => { p.result = { status: "FAILED", exitCode: 1, signal: null, code: "RK_TOOLCHAIN_IDENTITY_UNAVAILABLE", reap: { reaped: true } }; } },
   diagnosticsNull: { top: (x) => { x.diagnosticsPath = null; } },
   timingsMissingKey: { top: (x) => { delete x.timingsMs.queue; } },
   timingsNulls: { top: (x) => { x.timingsMs = { admission: null, queue: null, bind: 1, cargo: 2, afterExitBind: null, diagnostics: null }; } },

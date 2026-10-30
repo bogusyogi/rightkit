@@ -32,6 +32,7 @@ import { directPlatform } from "./managed-cargo.mjs";
 import { defaultSpawnAsync, sidecarBoundCrate } from "./deterministic-scans.mjs";
 import { gateStateDir } from "./gate-stages.mjs";
 import { ProvenanceError, verifyAttributionDetail } from "./provenance-verify.mjs";
+import { isToolchainUnknown } from "./snapshot-request.mjs";
 
 export const ROUTE_RECEIPT_SCHEMA = "rightkit.gate-clippy-route-receipt/1";
 export const ROUTE_DIAGNOSTICS_SCHEMA = "rightkit.gate-clippy-route-diagnostics/1";
@@ -285,7 +286,7 @@ export function routeFromBrokerReceipt(receipt, detailBytes = null) {
       problems.push(`the receipt's attribution is not verified against its detail rows (${e.code}: ${e.message})`);
     }
   }
-  if (toolchain === null) problems.push("the receipt carries no toolchain identity");
+  if (toolchain === null) problems.push(isToolchainUnknown(receipt?.toolchain) ? `the broker could not name the toolchain (${receipt.toolchain.reason}; RK_TOOLCHAIN_IDENTITY_UNAVAILABLE): the identity is UNKNOWN, not evidence` : "the receipt carries no toolchain identity");
   const units = rows ? rows.map((u) => ({ package: u.package, packageId: u.packageId ?? null, target: u.target, kind: u.kind ?? "", errors: Number(u.errors ?? 0), warnings: Number(u.warnings ?? 0), status: Number(u.errors ?? 0) > 0 ? "failed" : "clean", fresh: u.fresh ?? null })) : [];
   const exit = receipt?.exit;
   const exitCode = typeof exit === "number" ? exit : typeof exit?.code === "number" ? exit.code : typeof exit?.status === "number" ? exit.status : null;

@@ -615,3 +615,13 @@ test("[GB-10] a receipt the strict verifier refuses never verifies: no or one-si
   // A timing phase missing on BOTH sides: equal, but not the contract's six phases.
   assert.throws(() => receiptCase(t, { mutate: (p) => { delete p.resultEvidence.timingsMs.queue; } }).check(), (e) => e.code === "evidence");
 });
+
+// ---- GB-66: the toolchain identity the broker could not build is a typed unavailable state ----
+test("[GB-66] an UNKNOWN toolchain is a typed unavailable identity, never evidence; an empty component or a malformed UNKNOWN is still refused; a compile refused for it names the broker's code", (t) => {
+  assert.equal(receiptCase(t).check().toolchain.startsWith("stable|cargo:"), true, "a full identity verifies");
+  assert.throws(() => receiptCase(t, { tamper: "toolchainUnknown" }).check(), (e) => e.code === "toolchain-unavailable" && /RK_TOOLCHAIN_IDENTITY_UNAVAILABLE: UNKNOWN, cargo is not registered/.test(e.message));
+  assert.throws(() => receiptCase(t, { tamper: "toolchainUnavailableFailed" }).check(), (e) => e.code === "toolchain-unavailable" && /did not run this compile.*rustc changed since registration/.test(e.message));
+  for (const tamper of ["toolchainUnknownMalformed", "toolchainEmptyName", "toolchainNoHashes", "toolchainObject"]) assert.throws(() => receiptCase(t, { tamper }).check(), (e) => e.code === "evidence", tamper);
+  // A read-only form carries no toolchain at all and is not made to.
+  assert.equal(receiptCase(t, { argv: ["metadata", "--no-deps"], tamper: "noStageCensus" }).check().toolchain, null);
+});
