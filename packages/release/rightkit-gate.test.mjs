@@ -232,7 +232,9 @@ const doorIo = (args, io) => {
   const sealing = SEALING.has(args[args.indexOf("--to") + 1]);
   return { ...(sealing && !io.env ? { env: { ...process.env, GITHUB_ACTIONS: "true" } } : {}), ...(io.syncSnapshot ? {} : doorSeams(io)) };
 };
-const main = (args, io = {}) => gateMain(args, { spawn: gitOnly, ...doorIo(args, io), ...io });
+// The protected installed-QA receipt (GB-14): these door tests stand it in with a fixed digest the qualify record journals and the verifier confirms.
+const QA_DIGEST = "a".repeat(64);
+const main = (args, io = {}) => gateMain(args, { spawn: gitOnly, installedQaReceiptDigest: () => QA_DIGEST, verifyQa: () => ({ digest: QA_DIGEST }), ...doorIo(args, io), ...io });
 const capture = () => { const out = []; const err = []; return { out, err, io: { out: (m) => out.push(m), err: (m) => err.push(m) } }; };
 
 test("install-hook registers the one-door agent hook in .claude/settings.json once, keeping the settings already there", async (t) => {

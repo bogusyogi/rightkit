@@ -1382,6 +1382,12 @@ async function runStages(o, args, root, git, io) {
   // The release configs of the commit (under this app) that declare `sidecars`: the commit's config decides on the snapshot route, never the checkout's.
   const sidecarConfigsOf = () => committedSidecarConfigs({ o, git, commit, appDir, base: ds ? ds.path : root });
   const sealedNow = receipt.stages.package?.ok ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;
+  // The protected-receipt verifier pulls in the ownership policy modules (and their dependencies): loaded only for a run that qualifies or releases,
+  // so an installed copy that only checks or compiles never needs them (GB-14).
+  const qualifyReuse = stages.includes("qualify") || stages.includes("release") ? await import("../qualify-reuse.mjs") : null;
+  const installedQaReceiptDigest = (...a) => qualifyReuse.installedQaReceiptDigest(...a);
+  const qualifyReuseProblem = (...a) => qualifyReuse.qualifyReuseProblem(...a);
+  const qualifyRecordProblem = (recorded) => (o.qualifyReuseProblem ?? qualifyReuseProblem)({ recorded, sealedNow, repoRoot: appRoot, platform, ...(o.verifyQa !== undefined ? { verify: o.verifyQa } : (o.env.GITHUB_ACTIONS === "true" && o.env.RIGHTKIT_PUBLISHER === "github-environment" ? { verify: null } : {})) });
   const sealedIntact = Boolean(sealedNow && sealedNow.id === receipt.stages.package.sealed && sealedNow.digest === receipt.stages.package.manifestSha256);
   // Every deterministic scan (full class A) runs before any compile, for every door stage. The app rules run at the tier the stage
   // owes: dev, test and package take the compile-tier rules; qualify and release add the release-only rules (approvals, ratified
@@ -1412,8 +1418,13 @@ async function runStages(o, args, root, git, io) {
     }
     // The publisher (another runner, often another OS) cannot repeat installed QA; it takes the qualify result recorded for exactly
     // these sealed bytes. --to qualify itself always runs it.
+    // GB-14: the record is reused only while the protected installed-QA receipt it names still verifies over the current state (the existing
+    // verifier: policy bundle, floor, required checks, source, artifact hashes); the publisher, which holds no receipt key, is held to the
+    // recorded receipt digest and the manifest digest, and the upload admission verifies the receipt itself.
     if (stage === "qualify" && to !== "qualify" && sealedIntact && receipt.stages.qualify?.ok && receipt.stages.qualify.manifestSha256 === sealedNow.digest) {
-      o.out(`${tag} [qualify] already passed for the sealed set ${sealedNow.id} (manifest ${sealedNow.digest.slice(0, 12)})`); continue;
+      const problem = qualifyRecordProblem(receipt.stages.qualify);
+      if (!problem) { o.out(`${tag} [qualify] already passed for the sealed set ${sealedNow.id} (manifest ${sealedNow.digest.slice(0, 12)}; protected QA receipt ${receipt.stages.qualify.qaReceiptDigest.slice(0, 12)} verified)`); continue; }
+      o.out(`${tag} [qualify] the recorded result no longer stands: ${problem}; it runs again`);
     }
     // The publisher only uploads. It never checks out a build environment, signs or runs installed QA, so every earlier stage must
     // already stand in its receipt for exactly the sealed bytes on disk; anything else is refused, never rebuilt or requalified here.
@@ -1538,9 +1549,11 @@ async function runStages(o, args, root, git, io) {
           : await (o.runReleaseCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path, ...appScope] : []), "--rule-tier", "release"], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))();
         if (releaseTier !== 0) { o.err(`${tag} [qualify] the release tier (every rule and scan) is red for ${commit.slice(0, 12)}; nothing was qualified`); ok = false; }
         else ok = await rightRelease(stage, ["qa", "--stage", "installed", "--platform", platform, "--release", sealed.sealed]);
-        extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, ruleTier: "release" };
+        // The protected installed-QA receipt this run produced is journaled by digest (GB-14), so the record can be re-verified before any reuse.
+        extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, ruleTier: "release", ...(ok ? { qaReceiptDigest: (o.installedQaReceiptDigest ?? installedQaReceiptDigest)({ repoRoot: appRoot, releaseId: sealed.sealed, platform }) } : {}) };
       } else {
         if (!receipt.stages.qualify?.ok || receipt.stages.qualify.manifestSha256 !== sealed.manifestSha256) { o.err(`${tag} BLOCKED: [release] the sealed set was not qualified (installed QA) in this door run's receipt`); ok = false; }
+        else if (qualifyRecordProblem(receipt.stages.qualify)) { o.err(`${tag} BLOCKED: [release] the recorded qualification no longer stands: ${qualifyRecordProblem(receipt.stages.qualify)}; nothing was uploaded`); ok = false; }
         else { ok = await rightRelease(stage, ["upload", "--release", sealed.sealed, "--platform", platform, "--tier", tier]); extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, tier }; }
       }
     }
