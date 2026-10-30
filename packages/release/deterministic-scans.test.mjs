@@ -2902,3 +2902,22 @@ test("item 8 row 8.15 support: requiredScanIds names the batch ids the planner e
   const rest = (list) => list.filter((id) => !id.startsWith("clippy:"));
   assert.deepEqual(rest(requiredOn), rest(requiredOff));
 });
+
+test("[GB-67] on a broker host a swift scan is the carried adapter job and sends NO scratch or build path (the broker owns SwiftPM's state); `--package-path .` names the package, nothing runs around the broker", async () => {
+  const swiftOnly = fakeFs({ "app/mac/Pkg/Package.swift": "", "app/mac/Pkg/Sources/a.swift": "" }, { "app/mac/Pkg/Package.swift": "", "app/mac/Pkg/Sources/a.swift": "" });
+  const plan = planScans({ changed: ["app/mac/Pkg/Package.swift"], contentRoot: CONTENT, liveRoot: LIVE, ...swiftOnly, platform: "darwin" });
+  const evidence = await runScans(plan, deps({ ...swiftOnly, classes: ["A"] }));
+  const ledgerDir = mkdtempSync(path.join(os.tmpdir(), "rk-swift-ledger-"));
+  try {
+    const log = [];
+    // A stub snapshot broker whose snapshot cannot be resolved: the carried call refuses before anything is sent, which is enough to read the argv it would send.
+    const snapshotBroker = { handle: "own", commit: { sha: "c".repeat(40), tree: "e".repeat(40) }, snapshot: { path: path.join(os.tmpdir(), "no-such-snapshot"), expectedTree: "e".repeat(40) }, checkout: LIVE, controlRoot: ledgerDir, markBrokerSubmit: () => { throw new Error("must not mark"); } };
+    const result = await runScans(plan, deps({ ...swiftOnly, classes: ["B"], priorClassA: evidence, spawn: fakeSpawn({ log }), snapshotBroker, env: { RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs" }, cargoLedger: { dir: ledgerDir } }));
+    assert.ok(!log.some((c) => path.basename(c[0]) === "swift" && c[1] === "build"), `swift build never runs around the broker: ${JSON.stringify(log.filter((c) => /swift/.test(c[0])))}`);
+    assert.ok(result.scans.some((r) => r.id.startsWith("swift-build") && r.status === "fail"), "the refused carried call fails the scan");
+    const entries = fsModule.readdirSync(ledgerDir).flatMap((f) => { try { return fsModule.readFileSync(path.join(ledgerDir, f), "utf8").trim().split("\n").map((l) => JSON.parse(l)); } catch { return []; } });
+    const sent = entries.find((e) => e.adapter === "rightkit-swift");
+    assert.ok(sent, `the adapter request is ledgered: ${JSON.stringify(entries)}`);
+    assert.deepEqual(sent.argv, ["build", "--package-path", "."], "no --scratch-path, no --build-path");
+  } finally { rmSync(ledgerDir, { recursive: true, force: true }); }
+});
