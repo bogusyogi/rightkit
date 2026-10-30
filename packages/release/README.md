@@ -293,9 +293,10 @@ tests: {
 }
 ```
 
-`right-release test` runs every suite in order and stops at the first failure, exiting with that suite's code; each suite prints
+`right-release test` runs every suite in order, collects every reachable failure (see below) and exits with the first failing suite's code; each suite prints
 a JSON line before and after (`{"event":"e2e_suite_completed","suite":"tooling","exitCode":0,"durationMs":1234}`). `--suite a,b`
 (repeatable) selects suites; a group name such as `journeys` selects all its chunks. `--runner vitest -- run --project unit`
+`right-release test` collects every reachable failure instead of stopping at the first: a failed (or unstartable) suite does not hide an independent one, and the run ends non-zero. A suite may declare `requires: ["<earlier suite>"]`; it is skipped, with the reason in the output and an `_suite_skipped` event, when a required suite failed or was skipped. A `sign` step requires the suites it signs, and any other suite after a `sign` step is treated as a consumer of the signed output (nothing that may consume signed bytes runs after a sign step that failed); declare `requires: []` (or the suites it truly needs) to mark a suite independent. Cancellation (a signal) still stops the whole run. A sign step also exports `RIGHTKIT_QA_SIGNED_FILES`, a JSON object of every signed file's declared path to its signed copy.
 runs a runner once with the arguments after `--` (watch mode, one project); `-- <args>` after `--suite` is allowed when exactly
 one suite is selected. `--list [--json]` prints the resolved commands and runs nothing. Wrap it as the repository needs, for
 example `rustright storage run --app <app> -- right-release test`.

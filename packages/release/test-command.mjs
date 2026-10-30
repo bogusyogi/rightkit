@@ -62,7 +62,7 @@ export function parseTestArgs(argv) {
 }
 
 function mergeRunner(runner, entry) {
-  const { name: _name, runner: _runner, journeys: _journeys, ...own } = entry;
+  const { name: _name, runner: _runner, journeys: _journeys, requires: _requires, ...own } = entry;
   return {
     ...runner,
     ...own,
@@ -128,10 +128,14 @@ export function planTests(config, { suites = [], runner, passthrough = [], appRo
       if (seen.has(entry.name) || declared.has(entry.name)) fail(`${label}: duplicate suite name ${entry.name}`);
       const sign = validateSignSpec(entry.sign, `${label}.sign`, declared);
       seen.add(entry.name); declared.add(entry.name);
-      planned.push({ name: entry.name, group: entry.name, sign, step: null, extraArgs: [] });
+      // A sign step needs the suites whose outputs it signs (GB-44): if one of them failed or was skipped, there is nothing to sign.
+      planned.push({ name: entry.name, group: entry.name, sign, step: null, extraArgs: [], requires: [...new Set(sign.files.map((file) => file.from))] });
       return;
     }
-    validateStep(entry, label, ["name", "runner", "journeys"]);
+    validateStep(entry, label, ["name", "runner", "journeys", "requires"]);
+    // `requires` (GB-44): the earlier suites (by name or group) whose success this suite's inputs depend on; it is skipped, with the reason recorded,
+    // when one of them failed or was skipped, while every independent suite still runs.
+    if (entry.requires !== undefined && (!Array.isArray(entry.requires) || entry.requires.some((r) => typeof r !== "string" || !declared.has(r)))) fail(`${label}.requires must be a list of earlier suite names`);
     if (typeof entry.name !== "string" || !NAME.test(entry.name)) fail(`${label}.name must be set (letters, digits, . _ -)`);
     if (entry.runner !== undefined && !runners[entry.runner]) fail(`${label}.runner names an undeclared runner: ${entry.runner}`);
     const base = mergeRunner(entry.runner === undefined ? undefined : runners[entry.runner], entry);
@@ -144,7 +148,7 @@ export function planTests(config, { suites = [], runner, passthrough = [], appRo
     for (const variant of variants) {
       if (seen.has(variant.name)) fail(`${label}: duplicate suite name ${variant.name}`);
       seen.add(variant.name);
-      planned.push({ name: variant.name, group: entry.name, step: { ...base, args: [...base.args, ...variant.extra] }, extraArgs: [] });
+      planned.push({ name: variant.name, group: entry.name, step: { ...base, args: [...base.args, ...variant.extra] }, extraArgs: [], ...(Array.isArray(entry.requires) ? { requires: [...entry.requires] } : {}) });
     }
   });
   let selected = planned;
@@ -168,8 +172,9 @@ export function eventPrefix(config) {
 }
 
 /**
- * Run the planned suites in order; stop at the first non-zero exit. `spawnFn` and `log` are injectable.
- * Resolves `{ exitCode, results: [{ suite, exitCode, durationMs }] }`; a spawn error or a signal rejects.
+ * Run the planned suites in order, collecting every reachable failure (GB-44): a failed suite does not stop an independent one, a suite that requires a
+ * failed or skipped one is skipped with its reason, and the run ends non-zero. `spawnFn` and `log` are injectable.
+ * Resolves `{ exitCode, results: [{ suite, exitCode, durationMs, skipped?, reason?, error? }] }`; a signal (cancellation) rejects.
  * A `sign` step (suite-signing.mjs) runs IN THIS PROCESS, never through `door` (it is no command and never a broker job); it signs what an earlier
  * suite built, named by that suite's verified carried receipts, and only a success sets RIGHTKIT_QA_APP_BINARY for the suites after it.
  */
@@ -193,8 +198,30 @@ export async function runSuites(plan, { appRoot, prefix = "test", env = process.
   // The verified carried receipts' output directories of each suite that passed, by name and by group (a sign step reads them).
   const outputs = new Map();
   const signedDirs = [];
+  // GB-44 (BR29): every reachable failure is collected. A failed or errored suite does not stop its independent siblings; only a suite that
+  // REQUIRES a failed or skipped one (a sign step needs the suites it signs; a suite after a sign step needs every earlier sign step unless it declares its own `requires`; an explicit
+  // `requires`) is skipped, with the reason recorded. Cancellation (a signal) still stops the whole run, and nothing is signed or launched from a failed build.
+  const status = new Map(); // suite name and group -> "passed" | "failed" | "skipped"
+  const signsSoFar = [];
+  // What a suite waits for. A sign step waits for the suites it signs. Any other suite positioned after a sign step is by default a CONSUMER of its
+  // signed output (a QA runner, a launcher: nothing in its command line shows what its script reads), so it waits for every earlier sign step too;
+  // a suite that declares `requires` (even an empty list) states its own dependencies instead and so keeps running for its diagnostics.
+  // Fail closed: nothing that may consume signed bytes runs after a sign step that failed or was skipped.
+  const waitsFor = (item) => (item.sign || Array.isArray(item.requires) ? (item.requires ?? []) : signsSoFar);
+  const record = (item, outcome) => { for (const key of new Set([item.name, item.group])) status.set(key, outcome); };
+  const firstFailure = () => results.find((r) => r.exitCode !== 0 && r.skipped !== true)?.exitCode ?? (results.some((r) => r.skipped) ? 1 : 0);
   try {
     for (const item of plan) {
+      const unmet = waitsFor(item).filter((name) => status.has(name) && status.get(name) !== "passed");
+      if (unmet.length) {
+        const reason = `${[...new Set(unmet)].map((n) => JSON.stringify(n)).join(", ")} did not pass, and ${item.name} ${item.sign ? "signs what it builds" : "needs what it produces"}`;
+        errLog(`right-release test: ${item.name}: skipped: ${reason}`);
+        log(JSON.stringify({ event: `${prefix}_suite_skipped`, suite: item.name, reason }));
+        results.push({ suite: item.name, exitCode: null, skipped: true, reason, durationMs: 0 });
+        record(item, "skipped");
+        if (item.sign) signsSoFar.push(item.name);
+        continue;
+      }
       log(JSON.stringify({ event: `${prefix}_suite_started`, suite: item.name }));
       const started = Date.now();
       if (item.sign) {
@@ -215,21 +242,30 @@ export async function runSuites(plan, { appRoot, prefix = "test", env = process.
         const durationMs = Date.now() - started;
         log(JSON.stringify({ event: `${prefix}_suite_completed`, suite: item.name, exitCode, durationMs }));
         results.push({ suite: item.name, exitCode, durationMs });
-        if (exitCode !== 0) return { exitCode, results };
+        record(item, exitCode === 0 ? "passed" : "failed");
+        signsSoFar.push(item.name);
         continue;
       }
       const invocation = resolveInvocation(item.step, { appRoot, baseEnv: suiteEnv, extraArgs: item.extraArgs });
       const before = carriedLedgerIds(env);
-      const exitCode = await new Promise((resolve, reject) => {
-        // A test suite goes through the one door (build-launch.mjs): a broker job on a managed host, which builds it under the app's claim.
-        const target = door(invocation.cmd, invocation.args, { env: invocation.env, stepEnv: item.step.env, cwd: invocation.cwd, exists: existsSync });
-        const child = spawnFn(target.command, target.args, { cwd: invocation.cwd, env: target.env ? { ...invocation.env, ...target.env } : invocation.env, stdio: "inherit" });
-        child.once("error", reject);
-        child.once("exit", (code, signal) => {
-          if (signal) reject(new Error(`${item.name} stopped by ${signal}`));
-          else resolve(code ?? 1);
+      let exitCode; let failure = null;
+      try {
+        exitCode = await new Promise((resolve, reject) => {
+          // A test suite goes through the one door (build-launch.mjs): a broker job on a managed host, which builds it under the app's claim.
+          const target = door(invocation.cmd, invocation.args, { env: invocation.env, stepEnv: item.step.env, cwd: invocation.cwd, exists: existsSync });
+          const child = spawnFn(target.command, target.args, { cwd: invocation.cwd, env: target.env ? { ...invocation.env, ...target.env } : invocation.env, stdio: "inherit" });
+          child.once("error", (error) => reject(Object.assign(error, { spawnFailure: true })));
+          child.once("exit", (code, signal) => {
+            if (signal) reject(Object.assign(new Error(`${item.name} stopped by ${signal}`), { cancelled: true }));
+            else resolve(code ?? 1);
+          });
         });
-      });
+      } catch (error) {
+        // A suite that cannot start (a refused launch, a spawn error) is a failed suite; a signal is a cancellation and ends the run.
+        if (error?.cancelled) throw error;
+        failure = error; exitCode = 1;
+        errLog(`right-release test: ${item.name}: ${error?.code ? `[${error.code}] ` : ""}${error?.message ?? error}`);
+      }
       const durationMs = Date.now() - started;
       // Only a suite that passed hands its receipts to a sign step.
       if (exitCode === 0) {
@@ -237,10 +273,10 @@ export async function runSuites(plan, { appRoot, prefix = "test", env = process.
         for (const key of new Set([item.name, item.group])) outputs.set(key, [...new Set([...(outputs.get(key) ?? []), ...dirs])]);
       }
       log(JSON.stringify({ event: `${prefix}_suite_completed`, suite: item.name, exitCode, durationMs }));
-      results.push({ suite: item.name, exitCode, durationMs });
-      if (exitCode !== 0) return { exitCode, results };
+      results.push({ suite: item.name, exitCode, durationMs, ...(failure ? { error: String(failure.message ?? failure) } : {}) });
+      record(item, exitCode === 0 ? "passed" : "failed");
     }
-    return { exitCode: 0, results };
+    return { exitCode: results.some((r) => r.skipped !== true && r.exitCode !== 0) || results.some((r) => r.skipped) ? firstFailure() : 0, results };
   } finally {
     // The signed copies live only as long as the run that signed them.
     for (const dir of signedDirs) { try { rmSync(dir, { recursive: true, force: true }); } catch { /* the managed root is pruned */ } }

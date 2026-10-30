@@ -118,7 +118,7 @@ function fakeSpawn(exitCodes, calls) {
   };
 }
 
-test("runSuites runs in order, emits events, stops at the first failure and returns its code", async () => {
+test("runSuites runs in order and emits events; a failure no longer hides the independent suites after it (GB-44); a signal still cancels the whole run", async () => {
   const plan = planTests(config, { appRoot });
   const calls = [];
   const logs = [];
@@ -132,14 +132,63 @@ test("runSuites runs in order, emits events, stops at the first failure and retu
 
   const failCalls = [];
   const failLogs = [];
-  const failed = await runSuites(plan, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn([0, 3], failCalls), log: (line) => failLogs.push(JSON.parse(line)) });
-  assert.equal(failed.exitCode, 3);
-  assert.equal(failCalls.length, 2, "the third suite never starts");
-  assert.deepEqual(failed.results.map((r) => r.exitCode), [0, 3]);
+  const failed = await runSuites(plan, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn([0, 3, 0], failCalls), log: (line) => failLogs.push(JSON.parse(line)), errLog: () => {} });
+  assert.equal(failed.exitCode, 3, "the run ends with the first failing code");
+  assert.equal(failCalls.length, 3, "the independent third suite still runs");
+  assert.deepEqual(failed.results.map((r) => r.exitCode), [0, 3, 0]);
   assert.equal(failLogs[0].event, "test_suite_started");
 
   await assert.rejects(() => runSuites(plan, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn(["signal"], []), log: () => {} }), /stopped by SIGTERM/);
-  await assert.rejects(() => runSuites(plan, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn([new Error("ENOENT")], []), log: () => {} }), /ENOENT/);
+  const errored = await runSuites(plan, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn([new Error("ENOENT"), 0, 0], []), log: () => {}, errLog: () => {} });
+  assert.equal(errored.exitCode, 1, "a suite that cannot start is a failed suite, recorded, not a rejection of the whole run");
+  assert.match(errored.results[0].error, /ENOENT/);
+  assert.deepEqual(errored.results.map((r) => r.exitCode), [1, 0, 0]);
+});
+
+test("[GB-44] first suite fails, an unrelated second fails, a third needs the first's output, a fourth is independent: both failures and the pass are recorded, the dependent is skipped with its reason, the run is non-zero", async () => {
+  const cfg = { tests: { suites: [
+    { name: "build", cmd: "node", args: ["build.mjs"] },
+    { name: "unrelated", cmd: "node", args: ["unrelated.mjs"] },
+    { name: "needs-build", cmd: "node", args: ["consumer.mjs"], requires: ["build"] },
+    { name: "independent", cmd: "node", args: ["independent.mjs"] },
+  ] } };
+  const plan = planTests(cfg, { appRoot });
+  assert.deepEqual(plan.map((p) => p.requires ?? null), [null, null, ["build"], null]);
+  const calls = []; const errs = []; const logs = [];
+  const result = await runSuites(plan, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn([2, 5, 0], calls), log: (l) => logs.push(JSON.parse(l)), errLog: (l) => errs.push(l) });
+  assert.deepEqual(calls.map((c) => path.basename(c.args[0])), ["build.mjs", "unrelated.mjs", "independent.mjs"], "the dependent never started");
+  assert.deepEqual(result.results.map((r) => [r.suite, r.exitCode, r.skipped === true]), [["build", 2, false], ["unrelated", 5, false], ["needs-build", null, true], ["independent", 0, false]]);
+  assert.match(result.results[2].reason, /"build" did not pass/);
+  assert.ok(logs.some((e) => e.event === "test_suite_skipped" && e.suite === "needs-build"));
+  assert.equal(result.exitCode, 2, "the aggregate terminal outcome is non-zero (the first failing code)");
+  assert.match(errs.join("\n"), /needs-build: skipped/);
+  assert.throws(() => planTests({ tests: { suites: [{ name: "a", cmd: "node", requires: ["later"] }, { name: "later", cmd: "node" }] } }, { appRoot }), /requires must be a list of earlier suite names/);
+});
+
+test("[GB-44] a failed sign step signs nothing and no product consumer runs after it, but suites before it and independent ones keep their diagnostics; a sign whose build failed is skipped, not attempted", async () => {
+  const signing = (name, from) => ({ name, sign: { files: [{ from, path: "debug/rightapp" }] } });
+  const cfg = { tests: { suites: [
+    { name: "build", cmd: "node", args: ["build.mjs"] },
+    { name: "lint", cmd: "node", args: ["lint.mjs"] },
+    signing("sign", "build"),
+    { name: "e2e", cmd: "node", args: ["e2e.mjs"], env: { RIGHTKIT_QA_APP_BINARY: "$signed" } },
+    { name: "docs", cmd: "node", args: ["docs.mjs"], requires: [] },
+  ] } };
+  const plan = planTests(cfg, { appRoot });
+  const calls = []; const signed = [];
+  // 1. The build fails: the sign is skipped (never attempted), the consumer is skipped, lint and docs still run.
+  const buildFails = await runSuites(plan, { door: (c, a) => ({ command: c, args: a }), appRoot, env: {}, spawnFn: fakeSpawn([1, 0, 0], calls), log: () => {}, errLog: () => {}, signStep: () => { signed.push("attempted"); throw new Error("must not sign"); } });
+  assert.deepEqual(calls.map((c) => path.basename(c.args[0])), ["build.mjs", "lint.mjs", "docs.mjs"]);
+  assert.deepEqual(signed, []);
+  assert.deepEqual(buildFails.results.map((r) => [r.suite, r.skipped === true ? "skipped" : r.exitCode]), [["build", 1], ["lint", 0], ["sign", "skipped"], ["e2e", "skipped"], ["docs", 0]]);
+  assert.equal(buildFails.exitCode, 1);
+  // 2. The build passes but the sign fails: the consumer never launches; independent suites still run.
+  const calls2 = [];
+  const { SuiteSigningError } = await import("./suite-signing-policy.mjs");
+  const signFails = await runSuites(plan, { door: (c, a) => ({ command: c, args: a }), appRoot, env: {}, spawnFn: fakeSpawn([0, 0, 0], calls2), log: () => {}, errLog: () => {}, signStep: () => { throw new SuiteSigningError("SIGN_FAILED", "codesign refused"); } });
+  assert.deepEqual(calls2.map((c) => path.basename(c.args[0])), ["build.mjs", "lint.mjs", "docs.mjs"], "no product consumer after a failed sign");
+  assert.deepEqual(signFails.results.map((r) => [r.suite, r.skipped === true ? "skipped" : r.exitCode]), [["build", 0], ["lint", 0], ["sign", 1], ["e2e", "skipped"], ["docs", 0]]);
+  assert.equal(signFails.exitCode, 1);
 });
 
 test("command-spec: loadAppConfig loads right-release.config.json from the working directory and names the app root", async () => {
