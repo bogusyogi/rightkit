@@ -32,8 +32,26 @@ export function stageDevelopmentBinary({ root, source, name = path.basename(sour
 const profileDirectory = (profile) => (profile === "dev" || profile === "test" ? "debug" : profile === "bench" ? "release" : profile);
 
 /** `{ source }` or `{ manifestPath, bin, targetTriple?, profile? }` (resolved through Cargo's own target directory, broker or not). */
-export function resolveStageSource(entry, { root, resolveTarget = resolveTargetRoot, platform = process.platform } = {}) {
-  if (entry.source) return path.resolve(root, entry.source);
+export function resolveStageSource(entry, { root, resolveTarget = resolveTargetRoot, platform = process.platform, managedOutputDirs = [] } = {}) {
+  if (entry.source) {
+    const from = path.resolve(root, entry.source);
+    // GB-60: on a receipt-managed build (managedOutputDirs: the output directories signed receipts of this run named) a source path under a `target`
+    // directory is the Cargo target directory's, which the broker keeps elsewhere: it is migrated onto the receipt's directory when exactly one is known,
+    // and refused when the receipts name several (the entry must then say which: manifestPath and bin). A source path outside any target directory is a
+    // source-tree file and is used as written.
+    const unique = [...new Set(managedOutputDirs)];
+    const segments = path.relative(path.resolve(root), from).split(path.sep).filter(Boolean);
+    const at = segments.indexOf("target");
+    if (unique.length && at >= 0 && !segments.includes("..")) {
+      if (unique.length > 1) {
+        const error = new Error(`development stage source ${JSON.stringify(entry.source)} is under a Cargo target directory, but this build's receipts name ${unique.length} output directories; name the workspace with manifestPath and bin instead`);
+        error.code = "DEV_OUTPUT_AMBIGUOUS";
+        throw error;
+      }
+      return path.join(unique[0], ...segments.slice(at + 1));
+    }
+    return from;
+  }
   if (!entry.manifestPath || !entry.bin) throw new Error("development stage entry needs source, or manifestPath and bin");
   const target = resolveTarget(path.resolve(root, entry.manifestPath));
   const file = platform === "win32" ? `${entry.bin}.exe` : entry.bin;
@@ -51,9 +69,9 @@ export function validateStageEntries(entries, label) {
   return entries;
 }
 
-export function stageDevelopmentBinaries(entries, { root, platform = process.platform, resolveTarget } = {}) {
+export function stageDevelopmentBinaries(entries, { root, platform = process.platform, resolveTarget, managedOutputDirs = [] } = {}) {
   return entries.map((entry) => {
-    const source = resolveStageSource(entry, { root, platform, resolveTarget });
+    const source = resolveStageSource(entry, { root, platform, resolveTarget, managedOutputDirs });
     const name = entry.name ?? path.basename(source);
     return stageDevelopmentBinary({ root, source, name, triple: entry.targetTriple ?? null });
   });

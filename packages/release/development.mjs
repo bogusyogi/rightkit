@@ -3,7 +3,7 @@ import { spawnSync } from "./background-process.mjs";
 import { createHash } from "node:crypto";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, lstatSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
 import { buildLaunch } from "./build-launch.mjs";
-import { carriedOutputDir } from "./carried-cargo.mjs";
+import { carriedOutputDir, carriedOutputDirsSince } from "./carried-cargo.mjs";
 import { lockedTauriArgs } from "./tauri-locked.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -159,7 +159,7 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
     for (const command of iosPrepared ? iosPrepared.build : target.build) execute(command, { root, env: childEnv, dryRun, run, door, label: "build" });
     // Dev and QA binaries run from one stable staged path, copied in place (no backup of the old copy), never from the
     // broker's per-generation target folder or a hashed dev-targets folder.
-    const staged = target.stage?.length ? stageDevelopmentBinaries(target.stage, { root, platform: platform === "win" ? "win32" : process.platform }) : [];
+    const staged = target.stage?.length ? stageDevelopmentBinaries(target.stage, { root, platform: platform === "win" ? "win32" : process.platform, managedOutputDirs: carriedOutputDirsSince(childEnv) }) : [];
     for (const file of staged) console.log(`right-release dev: staged ${file}`);
     // Linux: the declared files become one tarball per architecture plus the digest manifest a guest link pins (rightkit#1230).
     // Only from a clean checkout: an artifact others install must name the exact commit it was built from.
@@ -340,11 +340,36 @@ export function resolveTauriArtifact(descriptor, { root, platform, env = process
   return resolveTauriBundleDirectory(descriptor, { root, platform, env, runCargo }).installer;
 }
 
+/**
+ * GB-60 (GATE output pinning; E16/E19): a build whose compile is receipt-managed (a broker host's carried build) writes its outputs under the broker's
+ * output directory a signed receipt named, never under the source tree or the snapshot. A configured path that reads "target/..." (relative to the Cargo
+ * workspace) is therefore migrated EXPLICITLY onto that directory; a source-relative output path that is not under a `target` directory cannot hold what that
+ * build wrote and is refused with a typed error. It is never silently ignored, never resolved to a stale same-name file in the snapshot, and never
+ * replaced by a scan for the newest match. `declared` is the configured path relative to `root`; `manifestDir` the Cargo manifest's directory relative to it.
+ */
+export function receiptRelativeOutputPath({ declared, root, manifestDir = ".", managedOutputDir, label }) {
+  const relative = path.relative(path.resolve(root), path.resolve(root, declared)).split(path.sep).join("/");
+  const segments = relative.split("/").filter(Boolean);
+  const manifestParts = String(manifestDir).split(/[\\/]/).filter((part) => part && part !== ".");
+  const at = segments.findIndex((segment, index) => segment === "target" && segments.slice(0, index).every((part, i) => part === manifestParts[i]));
+  if (at < 0) {
+    const error = new Error(`${label} ${JSON.stringify(declared)} is a source-relative path, but this build is receipt-managed: its outputs are under ${managedOutputDir}, not the source tree or the snapshot. Declare it relative to the Cargo target directory (target/<triple>/debug/bundle/...), or omit it so the receipt's directory is used`);
+    error.code = "DEV_OUTPUT_SOURCE_RELATIVE";
+    throw error;
+  }
+  return path.join(managedOutputDir, ...segments.slice(at + 1));
+}
+
 export function resolveTauriBundleDirectory(descriptor, { root, platform, env = process.env, runCargo = runCargoSync, sinceMs = null }) {
-  const bundleRoot = descriptor.bundleDirectory
-    ? path.resolve(root, descriptor.bundleDirectory)
-    : resolveBundleRoot(descriptor, { root, env, runCargo });
-  if (descriptor.bundleDirectory && !inside(root, bundleRoot)) throw new Error("Tauri bundleDirectory must stay inside app root");
+  let bundleRoot;
+  if (descriptor.bundleDirectory) {
+    const declared = path.resolve(root, descriptor.bundleDirectory);
+    if (!inside(root, declared)) throw new Error("Tauri bundleDirectory must stay inside app root");
+    const managed = descriptor.manifestPath ? carriedOutputDir(env, path.resolve(root, descriptor.manifestPath), { preferNested: true }) : null;
+    bundleRoot = managed
+      ? receiptRelativeOutputPath({ declared: descriptor.bundleDirectory, root, manifestDir: path.dirname(descriptor.manifestPath), managedOutputDir: managed, label: "Tauri bundleDirectory" })
+      : declared;
+  } else bundleRoot = resolveBundleRoot(descriptor, { root, env, runCargo });
   const entries = readdirSync(bundleRoot, { withFileTypes: true });
   const candidates = platform === "mac"
     ? entries.filter((entry) => entry.isDirectory() && entry.name === `${descriptor.productName}.app`).map((entry) => path.join(bundleRoot, entry.name))
