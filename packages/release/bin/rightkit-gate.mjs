@@ -1380,11 +1380,7 @@ async function runStages(o, args, root, git, io) {
   // A later stage on the sealed bytes: check, compile and package already passed for them (in this receipt) and the bytes on disk are
   // the ones they sealed, so they are not run again.
   // The release configs of the commit (under this app) that declare `sidecars`: the commit's config decides on the snapshot route, never the checkout's.
-  const sidecarConfigsOf = () => {
-    const listedConfigs = git("ls-tree", "-r", "--name-only", "-z", commit);
-    return (failed(listedConfigs) ? [] : text(listedConfigs).split("\0").filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)).filter((f) => appDir === "." || f.startsWith(`${appDir}/`)))
-      .filter((f) => { try { return /\bsidecars\b/.test(o.readFile(path.join(ds ? ds.path : root, f))); } catch { return false; } });
-  };
+  const sidecarConfigsOf = () => committedSidecarConfigs({ o, git, commit, appDir, base: ds ? ds.path : root });
   const sealedNow = receipt.stages.package?.ok ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;
   const sealedIntact = Boolean(sealedNow && sealedNow.id === receipt.stages.package.sealed && sealedNow.digest === receipt.stages.package.manifestSha256);
   // Every deterministic scan (full class A) runs before any compile, for every door stage. The app rules run at the tier the stage
@@ -1697,6 +1693,13 @@ export async function closeSnapshotStage({ o, ds, root, stage, step = "stage", t
   } catch (e) { o.err(`${tag} RK_CHECK_ERROR: [${stage}] ${e.message}`); return { ok: false, entries: ds.ledger?.entries ?? [] }; }
   ds.ledger = { entries };
   return { ok: true, entries };
+}
+
+/** The release configs of `commit` (under `appDir`) that declare `sidecars`, read from `base` (the snapshot on the snapshot route): the commit's config decides, never the checkout's. */
+export function committedSidecarConfigs({ o, git, commit, appDir = ".", base }) {
+  const listedConfigs = git("ls-tree", "-r", "--name-only", "-z", commit);
+  return (failed(listedConfigs) ? [] : text(listedConfigs).split("\0").filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)).filter((f) => appDir === "." || f.startsWith(`${appDir}/`)))
+    .filter((f) => { try { return /\bsidecars\b/.test(o.readFile(path.join(base, f))); } catch { return false; } });
 }
 
 /**
@@ -2266,6 +2269,14 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
   if (pin.dir) o.out(`${tag} output directory for the Cargo workspace: ${pin.dir} (the checkout's)`);
   const commonDir = path.resolve(root, common);
   const source = ds ? sourceSplitOf({ root, ds, appDir }) : null;
+  // GB-58 (GATE dev/test exact stage; E19): the selected app's declared sidecars are staged ONCE under this snapshot's ownership before the dependent
+  // build, through the same planner and ledger as the compile and package stages (a Tauri crate with externalBin refuses to build without them). The
+  // app's own prepare step may stage them too; the ledger's attribution check, not an environment marker, is what keeps that single and exact.
+  if (ds) {
+    const sidecarConfigs = committedSidecarConfigs({ o, git, commit, appDir, base: ds.path });
+    const staged = await stageSidecarsOnce({ o, ds, root, git, configs: sidecarConfigs, appDir, cli: fileURLToPath(new URL("../cli/right-release.mjs", import.meta.url)), commonDir, commit, tree, stage: to, executor, tag });
+    if (!staged) { o.err(`${tag} --to ${to} stopped: the declared sidecars could not be staged; nothing compiled`); return 1; }
+  }
   // right-release dev and test, and the Tauri CLI and every other child they start, reach Cargo only through the stage's carrier on a broker host.
   const carrier = await carrierForChildren({ o, ds, root, git, executor, stage: to, tag });
   if (carrier.refusal) { o.err(`${tag} BLOCKED: ${carrier.refusal}; nothing compiled`); return 1; }

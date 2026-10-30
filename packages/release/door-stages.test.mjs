@@ -227,7 +227,7 @@ test("[7.02] with the carrier wired a broker host takes the snapshot route: righ
   const envs = [];
   const launch = (c, a, opts) => { envs.push({ a: a.slice(1), env: opts.env, cwd: opts.cwd }); return { status: 0, stdout: JSON.stringify({ files: [], receiptPath: null }), stderr: "" }; };
   for (const to of ["dev", "test"]) {
-    const r = await door(["--to", to, "--commit", fx.sha], { ...carried, spawnInherit: launch });
+    const r = await door(["--to", to, "--commit", fx.sha], { ...carried, spawnInherit: launch, spawnCapture: launch });
     assert.equal(r.code, 0, `${to}: ${r.all}`);
     assert.match(r.out, /snapshot .* is commit/);
     assert.equal(envs.at(-1).env.RIGHTKIT_CARRIED_CARGO_MAP, MAP, `${to}: the child carries the stage's map`);
@@ -244,14 +244,14 @@ test("[7.02] with the carrier wired a broker host takes the snapshot route: righ
   assert.equal(envs.length, before + 1); assert.equal(envs.at(-1).a[0], "stage-sidecar"); assert.equal(envs.at(-1).env.RIGHTKIT_CARRIED_CARGO_MAP, MAP);
   // A refused, unverified or unfinished call in the ledger fails the stage even though the child exited 0.
   problems = ["cargo build --manifest-path x (from /s) was refused (RK_CARGO_REDIRECT)"];
-  r = await door(["--to", "dev", "--commit", fx.sha], { ...carried, spawnInherit: launch });
+  r = await door(["--to", "dev", "--commit", fx.sha], { ...carried, spawnInherit: launch, spawnCapture: launch });
   assert.equal(r.code, 1, r.all); assert.match(r.err, /RK_CHECK_ERROR: \[dev\] a broker call the right-release child made did not complete: cargo build .*RK_CARGO_REDIRECT/);
   r = await door(["--to", "compile", "--commit", fx.sha], { ...carried, spawnCapture: launch });
   assert.equal(r.code, 1, r.all); assert.match(r.err, /RK_CHECK_ERROR: \[compile\] a broker call the right-release child made did not complete/);
   // A carrier that cannot be installed refuses the stage before the child starts.
   const launches = [];
   r = await door(["--to", "dev", "--commit", fx.sha], { ...carried, installCarrier: () => { throw new Error("disk full"); }, spawnInherit: () => { launches.push("x"); return { status: 0 }; } });
-  assert.equal(r.code, 1, r.all); assert.match(r.err, /BLOCKED: RK_CARGO_CARRIER: the stage's cargo carrier cannot be installed \(disk full\); nothing compiled/); assert.deepEqual(launches, []);
+  assert.equal(r.code, 1, r.all); assert.match(r.err, /BLOCKED: RK_CARGO_CARRIER: the stage's cargo carrier cannot be installed \(disk full\); nothing was staged/); assert.deepEqual(launches, []);
   // A broker that is unreachable is still refused; TAURI_CONFIG is still refused.
   assert.match((await door(["--to", "compile", "--commit", fx.sha], { ...carried, resolveExecutor: () => ({ kind: "refuse", problem: "the RightKit broker is not reachable" }) })).err, /BLOCKED: RK_SNAPSHOT_BROKER_UNAVAILABLE: the RightKit broker is not reachable; nothing ran and the checkout is never built/);
   assert.match((await door(["--to", "dev", "--commit", fx.sha], { ...carried, env: { ...fx.env, TAURI_CONFIG: "{}" } })).err, /BLOCKED: RK_TAURI_CONFIG_OVERRIDE/);

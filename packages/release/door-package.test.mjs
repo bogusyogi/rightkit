@@ -302,3 +302,28 @@ test("[7.04] the wiring that makes package work in a split is present in every f
   assert.match(read("release.mjs"), /workerSource \? workerSource\.commit : git\(root, \["rev-parse", "HEAD"\]\)/);
   assert.match(read("admission-files.mjs"), /ctx\.releaseSource\?\.mode === "snapshot"\) return undefined/);
 });
+
+test("[GB-58] --to dev|test stages the app's top-level declared sidecars ONCE under the snapshot's ownership before the dependent build; a failed staging launches nothing", { skip: POSIX_SIM }, async (t) => {
+  for (const to of ["dev", "test"]) {
+    const fx = appFixture(t);
+    const staged = await fx.door(["--to", to, "--commit", fx.c1]);
+    assert.equal(staged.code, 0, staged.all);
+    assert.equal(fx.captures.length, 1, `${to}: the declared sidecars are staged once for a fresh snapshot (no duplicate prepare stage owes it)`);
+    assert.deepEqual(fx.launches.map((l) => l.verb), [to], `${to}: right-release ${to} starts after the staging`);
+    assert.ok(fs.existsSync(path.join(fx.snapshot(), fx.staged)), `${to}: the staged sidecar is in the snapshot the build reads`);
+    // The staged bytes are ledgered immutable entries the build cannot silently replace; the snapshot is the commit plus the ledger.
+    assert.match(staged.all, /\[(dev|test)\] right-release stage-sidecar --config /);
+  }
+  // A failed staging stops before the dependent build: the stale-sidecar fallback never runs.
+  const fx = appFixture(t);
+  const failing = await fx.door(["--to", "dev", "--commit", fx.c1], { spawnCapture: () => ({ status: 3, stderr: "stage failed", stdout: "" }) });
+  assert.equal(failing.code, 1, failing.all);
+  assert.match(failing.err, /the declared sidecars could not be staged; nothing compiled/);
+  assert.deepEqual(fx.launches, [], "no right-release dev after a failed staging");
+  // An app that declares no sidecars stages nothing and builds as before.
+  const plain = appFixture(t, { "right-release.config.json": JSON.stringify({ schema: 1, app: "app", version: "1.0.0" }) + "\n" });
+  const ran = await plain.door(["--to", "dev", "--commit", plain.c1]);
+  assert.equal(ran.code, 0, ran.all);
+  assert.equal(plain.captures.length, 0);
+  assert.deepEqual(plain.launches.map((l) => l.verb), ["dev"]);
+});
