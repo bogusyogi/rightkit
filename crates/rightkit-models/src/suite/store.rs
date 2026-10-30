@@ -278,6 +278,8 @@ pub(crate) fn ensure_ready_recorded(
     mut progress: impl FnMut(Progress),
     slot: &download::FailureSlot,
 ) -> Result<ModelStatus, String> {
+    // A speech model is HeardRight's alone: refuse before any download (rightkit#1316).
+    refs::check_speech_owner(opts.app_id, spec.id)?;
     let client = agent.vetted_client();
     // Keep the registry guard from initial readiness check through ref
     // registration so GC cannot delete a ready entry between those steps.
@@ -762,8 +764,86 @@ pub fn prune_retired(
     ))
 }
 
+/// HeardRight's sole-owner speech retire (rightkit#1316). Call it after `active` (the speech
+/// model now in use, for example Parakeet Ultra) is activated: it removes every retired Parakeet
+/// TDT entry ([`crate::suite::catalog::PARAKEET_TDT_RETIRED_STORE_IDS`], except `active`) and
+/// strips those ids from every app's ref in every registry this store answers to.
+///
+/// Only [`crate::suite::catalog::SPEECH_OWNER_APP`] may call it, and only while `active` is a
+/// speech model that is Ready in the store. Foreign refs, a foreign runtime lease and a corrupt
+/// ref file never block it: no other app may hold a speech model, so no runtime-family lease is
+/// taken. An install in progress or a held entry lock keeps that entry (reported in `kept`), and
+/// a removal the OS refuses (a file still mapped on Windows) leaves the live entry intact and is
+/// reported in `failed`; call again to retry. Idempotent.
+pub fn retire_speech_models(
+    models_root: &Path,
+    app_id: &str,
+    active: &ModelSpec,
+) -> Result<RetiredPruneReport, String> {
+    use crate::suite::catalog::{
+        is_speech_model_id, PARAKEET_TDT_RETIRED_STORE_IDS, SPEECH_OWNER_APP,
+    };
+    if app_id != SPEECH_OWNER_APP {
+        return Err(format!(
+            "only {SPEECH_OWNER_APP} retires speech models, not {app_id:?}"
+        ));
+    }
+    if !is_speech_model_id(active.id) {
+        return Err(format!("{} is not a speech model", active.id));
+    }
+    let ids: Vec<&str> = PARAKEET_TDT_RETIRED_STORE_IDS
+        .iter()
+        .copied()
+        .filter(|id| !id.eq_ignore_ascii_case(active.id))
+        .collect();
+    let ref_dirs = registry_dirs(models_root);
+    let ref_dir_refs: Vec<&Path> = ref_dirs.iter().map(PathBuf::as_path).collect();
+    let (_guard_paths, _guards) = refs::acquire_registries(&ref_dir_refs)?;
+    if status_at(models_root, active, VerifyMode::Size).state != EntryState::Ready {
+        return Err(format!(
+            "{} is not Ready: nothing is retired before its replacement is installed",
+            active.id
+        ));
+    }
+    for refs_dir in &ref_dirs {
+        refs::strip_ids_all_locked(refs_dir, &ids)?;
+    }
+    let mut report = RetiredPruneReport::default();
+    for id in ids {
+        let dir = paths::model_dir_at(models_root, id);
+        if lock::install_in_progress(&dir) {
+            if dir.exists() {
+                report.kept.push(id.to_string());
+            }
+            continue;
+        }
+        let _entry_guard = match lock::try_lock(&dir, "model-store") {
+            Ok(Some(guard)) => guard,
+            Ok(None) => {
+                report.kept.push(id.to_string());
+                continue;
+            }
+            Err(error) => {
+                report.failed.push((id.to_string(), error));
+                continue;
+            }
+        };
+        if let Err(error) = sweep_retiring(models_root, id) {
+            report.failed.push((id.to_string(), error.to_string()));
+        }
+        match retire_entry_with(&dir, |path| fs::remove_dir_all(path)) {
+            Ok(true) => report.removed.push(id.to_string()),
+            Ok(false) => {}
+            Err(error) => report
+                .failed
+                .push((id.to_string(), format!("retire {}: {error}", dir.display()))),
+        }
+    }
+    Ok(report)
+}
+
 /// Every store id any built-in spec retires, plus the ids Parakeet Ultra retires (that spec is
-/// pin-gated and not in [`crate::suite::catalog::all_models`]).
+/// pin-gated and not in [`crate::suite::catalog::all_models`]) and every retired TDT id.
 fn known_retired_store_ids() -> BTreeSet<&'static str> {
     let mut ids: BTreeSet<&'static str> = crate::suite::catalog::all_models()
         .iter()
@@ -771,6 +851,11 @@ fn known_retired_store_ids() -> BTreeSet<&'static str> {
         .collect();
     ids.extend(
         crate::suite::catalog::PARAKEET_ULTRA_RETIRED_STORE_IDS
+            .iter()
+            .copied(),
+    );
+    ids.extend(
+        crate::suite::catalog::PARAKEET_TDT_RETIRED_STORE_IDS
             .iter()
             .copied(),
     );

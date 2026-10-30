@@ -336,8 +336,8 @@ const PARAKEET_FILES: &[SpecFile] = &[
     },
 ];
 
-/// Parakeet TDT v3 shared-store spec — the production ASR model for every
-/// Right Suite app on this machine.
+/// Parakeet TDT v3 shared-store spec. Retired: Ultra replaces it, and only HeardRight
+/// ([`SPEECH_OWNER_APP`]) may hold it; it is in no catalog list (rightkit#1316).
 pub fn parakeet_spec() -> ModelSpec {
     #[cfg(not(target_os = "macos"))]
     let (id, legacy_dirs) = (
@@ -440,7 +440,34 @@ pub const PARAKEET_ULTRA_NOTICE: &str =
 pub const PARAKEET_ULTRA_RETIRED_STORE_IDS: &[&str] = &[
     "parakeet_tdt_v3_static1500_qint8_20260722",
     "parakeet-tdt-v3-coreml-compiled-5f8888117f47",
+    "parakeet_tdt_v3_dynamic_b64_fp16storage_20260720",
 ];
+
+/// The only app that may hold a speech model (Adrian, 2026-10-31; rightkit#1316): every other
+/// app gets speech through HeardRight. A speech ref from any other app is refused at
+/// registration and ignored by every store GC; HeardRight's lease and ref alone pin speech.
+pub const SPEECH_OWNER_APP: &str = "heardright";
+
+/// Every retired Parakeet TDT store id of both platforms: the TDT v3 entries Ultra supersedes
+/// plus the older variants. [`crate::suite::store::retire_speech_models`] removes them all.
+pub const PARAKEET_TDT_RETIRED_STORE_IDS: &[&str] = &[
+    "parakeet_tdt_v3_static1500_qint8_20260722",
+    "parakeet-tdt-v3-coreml-compiled-5f8888117f47",
+    "parakeet_tdt_v3_dynamic_b64_fp16storage_20260720",
+    "parakeet_tdt_v3_static_b64",
+    "parakeet_tdt_v3_b64_sym_bits4_protect",
+    "unified_static15_b128_sym_bits4_timestamp_hybrid",
+];
+
+/// True for a speech model store id: any Parakeet entry, a retired TDT id, or Whisper.
+pub fn is_speech_model_id(id: &str) -> bool {
+    let lower = id.to_ascii_lowercase();
+    lower.starts_with("parakeet")
+        || lower == "whisper-turbo"
+        || PARAKEET_TDT_RETIRED_STORE_IDS
+            .iter()
+            .any(|retired| retired.eq_ignore_ascii_case(id))
+}
 
 /// Files the Ultra entry must hold on this platform: exactly what a pins table must list, no
 /// more and no fewer. (An archive may carry extras such as a `manifest.json`; they are never
@@ -1570,12 +1597,13 @@ pub fn embedding_gemma2_platform_specs() -> Vec<ModelSpec> {
     Vec::new()
 }
 
-/// What every install needs on this platform: the base set, in dependency-free order.
+/// What every install needs on this platform: the base set, in dependency-free order. Speech is
+/// not in it: HeardRight owns speech models through its own specs (rightkit#1316).
 /// Onboarding, setup-complete checks and size estimates iterate this. Every entry carries
 /// per-file size and SHA-256 pins (the `builtin_catalog_pins_every_file` test enforces it).
 pub fn base_catalog() -> Vec<ModelSpec> {
     #[allow(unused_mut)]
-    let mut specs = vec![parakeet_spec()];
+    let mut specs = Vec::new();
     #[cfg(windows)]
     specs.push(ocr_spec());
     specs
@@ -1610,8 +1638,8 @@ pub fn all_models() -> Vec<ModelSpec> {
     specs
 }
 
-/// The models every install needs. Same as [`base_catalog`], and the meaning of this function
-/// in 0.2.8 (Parakeet, plus OCR on Windows); add-ons are reached only through [`add_ons`].
+/// The models every install needs. Same as [`base_catalog`] (OCR on Windows; nothing elsewhere);
+/// add-ons are reached only through [`add_ons`].
 pub fn catalog() -> Vec<ModelSpec> {
     base_catalog()
 }

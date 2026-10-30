@@ -797,7 +797,8 @@ fn self_described_manifest_never_defines_identity_but_matching_bytes_are_adopted
 #[test]
 fn builtin_catalog_pins_every_file_and_variant_descriptor_matches() {
     use rightkit_models::suite::catalog::{all_models, parakeet_spec};
-    for spec in all_models() {
+    // TDT left the catalog lists (rightkit#1316); its pins are still checked.
+    for spec in all_models().into_iter().chain([parakeet_spec()]) {
         assert!(!spec.files.is_empty());
         for f in spec.files {
             assert!(
@@ -1362,12 +1363,7 @@ fn root_ref_migration_merges_notes_maps_ids_and_unregister_spans_both_roots() {
     fs::create_dir_all(&old_refs).unwrap();
     fs::write(old_refs.join("heardright.json"), br#"{"app":"heardright","models":["parakeet-tdt-v3","unknown-id"],"note":"first used 0.1.1"}"#).unwrap();
     refs::register(&new_refs, "heardright", "already-here").unwrap();
-    refs::register(
-        &new_refs,
-        "scraperight",
-        "parakeet-tdt-v3-coreml-compiled-x",
-    )
-    .unwrap();
+    refs::register(&new_refs, "scraperight", "scrape-model").unwrap();
 
     refs::migrate_root_refs_with_map(
         &m.old_models,
@@ -1405,10 +1401,15 @@ fn root_ref_migration_merges_notes_maps_ids_and_unregister_spans_both_roots() {
     let freed: BTreeSet<_> = freed.into_iter().collect();
     assert_eq!(
         freed,
-        ["already-here", "parakeet-tdt-v3", "unknown-id"]
-            .map(String::from)
-            .into_iter()
-            .collect()
+        [
+            "already-here",
+            "parakeet-tdt-v3",
+            "parakeet-tdt-v3-coreml-compiled-x",
+            "unknown-id"
+        ]
+        .map(String::from)
+        .into_iter()
+        .collect()
     );
     assert!(new_refs.join("scraperight.json").exists());
 
@@ -1640,66 +1641,131 @@ fn release_drops_only_this_apps_refs_and_returns_ids_nobody_holds() {
 }
 
 #[test]
-fn model_store_release_frees_retired_entries_only_when_the_last_app_lets_go() {
+fn model_store_release_frees_retired_speech_entries_whatever_foreign_refs_say() {
     isolated(
-        "model_store_release_frees_retired_entries_only_when_the_last_app_lets_go",
+        "model_store_release_frees_retired_speech_entries_whatever_foreign_refs_say",
         || {
-            // The Windows and macOS Parakeet TDT v3 ids that Parakeet Ultra retires.
+            // The Windows Parakeet TDT v3 id that Parakeet Ultra retires.
             let retired = "parakeet_tdt_v3_static1500_qint8_20260722";
             let lay = layout();
             let old = retired_entry(&lay, retired, b"v3-bytes");
             let other = retired_entry(&lay, "not-retired-by-anything", b"o");
-            for (app, id) in [
-                ("a", retired),
-                ("b", retired),
-                ("a", "not-retired-by-anything"),
-            ] {
-                store::register_ref(&lay.models, app, id).unwrap();
-            }
-            let a = ModelStore::at_models_root(&lay.models, "a");
-            let b = ModelStore::at_models_root(&lay.models, "b");
+            store::register_ref(&lay.models, "heardright", retired).unwrap();
+            store::register_ref(&lay.models, "heardright", "not-retired-by-anything").unwrap();
+            // No other app may register a speech model (rightkit#1316)...
+            let err = store::register_ref(&lay.models, "scraperight", retired).unwrap_err();
+            assert!(err.contains("heardright"), "{err}");
+            // ...and a foreign speech ref already on disk never pins one.
+            fs::write(
+                lay.models.join("refs/scraperight.json"),
+                format!(r#"{{"app":"scraperight","models":["{retired}"]}}"#),
+            )
+            .unwrap();
+            let hr = ModelStore::at_models_root(&lay.models, "heardright");
 
-            // A releases both. The retired entry stays (B holds it); the plain unreferenced
-            // one is reported but never deleted by release.
-            let report = a
+            let report = hr
                 .release_with_report(&[retired, "not-retired-by-anything"])
                 .unwrap();
             assert_eq!(
                 report.unreferenced,
-                vec!["not-retired-by-anything".to_string()]
+                vec!["not-retired-by-anything".to_string(), retired.to_string()]
             );
-            assert!(report.pruned.removed.is_empty());
-            assert!(old.exists() && other.exists());
-            // Idempotent.
-            assert_eq!(
-                a.release(&[retired, "not-retired-by-anything"]).unwrap(),
-                vec!["not-retired-by-anything".to_string()]
-            );
-
-            // B releases the retired id: free, and pruned from disk.
-            let report = b.release_with_report(&[retired]).unwrap();
-            assert_eq!(report.unreferenced, vec![retired.to_string()]);
             assert_eq!(report.pruned.removed, vec![retired.to_string()]);
             assert!(!old.exists());
             assert!(other.exists(), "release never deletes what nothing retires");
-            assert!(!refs::referenced_ids_checked(&lay.models.join("refs"))
-                .unwrap()
-                .contains(retired));
-            // And again: nothing left to do, same answer.
-            assert_eq!(b.release(&[retired]).unwrap(), vec![retired.to_string()]);
+            // Idempotent.
+            assert_eq!(hr.release(&[retired]).unwrap(), vec![retired.to_string()]);
 
             // A live entry lock keeps a freed retired entry for a later prune.
             let again = retired_entry(&lay, retired, b"v3-bytes");
             let held = rightkit_models::lock::try_lock(&again, "installer")
                 .unwrap()
                 .expect("lock");
-            let report = b.release_with_report(&[retired]).unwrap();
+            let report = hr.release_with_report(&[retired]).unwrap();
             assert_eq!(report.pruned.kept, vec![retired.to_string()]);
             assert!(again.exists());
             drop(held);
 
             // An invalid id is an error.
-            assert!(a.release(&["../x"]).is_err());
+            assert!(hr.release(&["../x"]).is_err());
+        },
+    );
+}
+
+#[test]
+fn heardright_speech_retire_ignores_foreign_refs_leases_and_corrupt_refs() {
+    isolated(
+        "heardright_speech_retire_ignores_foreign_refs_leases_and_corrupt_refs",
+        || {
+            let lay = layout();
+            let active = ModelSpec {
+                tier: rightkit_models::suite::catalog::ModelTier::Base,
+                entitlement: false,
+                id: "parakeet-tdt-ultra",
+                label: "u",
+                version: "u1",
+                size_hint_bytes: 0,
+                files: spec_files(&[("weights.bin", WEIGHTS)]),
+                source: SpecSource::Files(&[]),
+                legacy_dirs: &[],
+                retired_legacy_paths: &[],
+                retired_store_ids: &[],
+            };
+            let retired = rightkit_models::suite::catalog::PARAKEET_TDT_RETIRED_STORE_IDS;
+            let entries: Vec<PathBuf> = retired
+                .iter()
+                .map(|id| retired_entry(&lay, id, b"tdt"))
+                .collect();
+            let keep = retired_entry(&lay, "embeddinggemma2-coreml", b"e");
+            let hr = ModelStore::at_models_root(&lay.models, "heardright");
+
+            // Not before the replacement is Ready, and never for another app.
+            assert!(hr.retire_speech_models(&active).is_err());
+            let dir = installed_entry(&lay, active.id);
+            fs::write(dir.join("weights.bin"), WEIGHTS).unwrap();
+            manifest::write_manifest(&dir, &active.expected_manifest()).unwrap();
+            let err = ModelStore::at_models_root(&lay.models, "scraperight")
+                .retire_speech_models(&active)
+                .unwrap_err();
+            assert!(err.contains("heardright"), "{err}");
+
+            // Foreign refs (written before the owner rule), a foreign runtime lease on the
+            // Parakeet family, and a corrupt ref file.
+            let refs_dir = lay.models.join("refs");
+            fs::create_dir_all(&refs_dir).unwrap();
+            fs::write(
+                refs_dir.join("scraperight.json"),
+                format!(
+                    r#"{{"app":"scraperight","models":["{}","{}","shared-a"]}}"#,
+                    retired[0], retired[2]
+                ),
+            )
+            .unwrap();
+            fs::write(refs_dir.join("broken.json"), b"nope").unwrap();
+            store::register_ref(&lay.models, "heardright", retired[1]).unwrap();
+            let _foreign_lease =
+                lease::try_acquire_at_root(&lay.suite, "parakeet-tdt-v3", "cutright")
+                    .unwrap()
+                    .expect("lease");
+
+            let report = hr.retire_speech_models(&active).unwrap();
+            let removed: BTreeSet<&str> = report.removed.iter().map(String::as_str).collect();
+            assert_eq!(removed, retired.iter().copied().collect::<BTreeSet<_>>());
+            assert!(
+                report.kept.is_empty() && report.failed.is_empty(),
+                "{report:?}"
+            );
+            assert!(entries.iter().all(|entry| !entry.exists()));
+            assert!(dir.exists() && keep.exists());
+            // Every retired id is gone from every readable ref; other ids stay.
+            assert_eq!(held_by(&lay, "scraperight"), set_of(&["shared-a"]));
+            assert!(held_by(&lay, "heardright").is_empty());
+            assert_eq!(fs::read(refs_dir.join("broken.json")).unwrap(), b"nope");
+            // Idempotent.
+            assert_eq!(
+                hr.retire_speech_models(&active).unwrap(),
+                store::RetiredPruneReport::default()
+            );
         },
     );
 }

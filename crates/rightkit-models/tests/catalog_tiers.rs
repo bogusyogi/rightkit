@@ -19,13 +19,12 @@ fn catalog_is_the_base_set_and_excludes_every_add_on() {
         .iter()
         .all(|s| s.tier == ModelTier::Base && !s.is_add_on()));
     assert!(!catalog().iter().any(|s| s.id == "whisper-turbo"));
-    // 0.2.8 returned Parakeet (plus OCR on Windows) and nothing else.
-    let expected = if cfg!(windows) { 2 } else { 1 };
+    // Speech is HeardRight's alone (rightkit#1316): the base set is OCR on Windows, else empty.
+    let expected = if cfg!(windows) { 1 } else { 0 };
     assert_eq!(catalog().len(), expected);
-    assert_eq!(
-        catalog()[0].id,
-        rightkit_models::suite::catalog::parakeet_spec().id
-    );
+    assert!(!all_models()
+        .iter()
+        .any(|s| s.id == rightkit_models::suite::catalog::parakeet_spec().id));
 }
 
 #[test]
@@ -70,7 +69,8 @@ fn add_ons_are_marked_entitlement_gated_and_all_models_is_base_then_add_ons() {
 fn rollups_default_to_base_and_an_add_on_never_blocks_setup() {
     let root = tempfile::tempdir().unwrap();
     let base = base_status_at(root.path(), VerifyMode::Size);
-    assert!(!base.ready, "nothing installed yet");
+    // Nothing is installed: ready only when the base set is empty (no OCR off Windows).
+    assert_eq!(base.ready, base_catalog().is_empty());
     assert_eq!(base.models.len(), base_catalog().len());
     assert!(base.models.iter().all(|m| m.tier == ModelTier::Base));
     assert_eq!(base.base_download_bytes, base_size_hint_bytes());
@@ -81,7 +81,8 @@ fn rollups_default_to_base_and_an_add_on_never_blocks_setup() {
     // The add-on shows up in the listing and the total, not in what setup still needs.
     assert!(everything.total_size_hint_bytes > base_size_hint_bytes());
     assert_eq!(everything.base_download_bytes, base_size_hint_bytes());
-    assert!(!everything.ready);
+    // Add-ons never block setup: ready exactly when the (uninstalled) base set is empty.
+    assert_eq!(everything.ready, base_catalog().is_empty());
     let add_on = everything
         .models
         .iter()
@@ -90,8 +91,13 @@ fn rollups_default_to_base_and_an_add_on_never_blocks_setup() {
     assert_eq!(add_on.state, EntryState::Missing);
     assert_eq!(add_on.status_label(), "Optional, not installed");
     assert!(add_on.requires_entitlement);
-    let parakeet = &everything.models[0];
-    assert_eq!(parakeet.status_label(), "Not installed");
+    for base_model in everything
+        .models
+        .iter()
+        .filter(|m| m.tier == ModelTier::Base)
+    {
+        assert_eq!(base_model.status_label(), "Not installed");
+    }
 
     // A set made only of add-ons is vacuously ready: a missing optional model is not incomplete setup.
     let only_add_ons = set_status_at(root.path(), &add_ons(), VerifyMode::Size);
@@ -113,7 +119,7 @@ fn grants_are_never_requested_for_an_entitlement_gated_model() {
 
     // ensure_entitled refuses a model that is not entitlement-gated.
     let store = ModelStore::at_models_root(root.path(), "app");
-    let base = base_catalog().remove(0);
+    let base = rightkit_models::suite::catalog::parakeet_spec();
     let err = store
         .ensure_entitled(&base, "Bearer x", &|| false, |_| {})
         .unwrap_err();

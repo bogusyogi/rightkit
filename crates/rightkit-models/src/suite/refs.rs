@@ -46,6 +46,26 @@ fn valid_model_id(model_id: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '@'))
 }
 
+/// Refuse a speech model ref from any app but HeardRight (rightkit#1316).
+pub fn check_speech_owner(app_id: &str, model_id: &str) -> Result<(), String> {
+    use crate::suite::catalog::{is_speech_model_id, SPEECH_OWNER_APP};
+    if is_speech_model_id(model_id) && app_id != SPEECH_OWNER_APP {
+        return Err(format!(
+            "{model_id} is a speech model: only {SPEECH_OWNER_APP} holds speech models, \
+             not {app_id:?}; get speech through HeardRight"
+        ));
+    }
+    Ok(())
+}
+
+/// The ids in `rf` that protect a store entry: a speech id counts only in HeardRight's ref.
+fn honoured_ids(rf: RefFile) -> impl Iterator<Item = String> {
+    let owner = rf.app == crate::suite::catalog::SPEECH_OWNER_APP;
+    rf.models
+        .into_iter()
+        .filter(move |id| owner || !crate::suite::catalog::is_speech_model_id(id))
+}
+
 /// Held across a complete ref read-modify-write or GC operation.
 pub struct RegistryGuard {
     _lock: FileLock,
@@ -117,6 +137,7 @@ pub fn register_locked(refs_dir: &Path, app_id: &str, model_id: &str) -> Result<
     if !valid_model_id(model_id) {
         return Err(format!("invalid model id for refs: {model_id:?}"));
     }
+    check_speech_owner(app_id, model_id)?;
     let mut rf = read_ref_unlocked(refs_dir, app_id)?.unwrap_or(RefFile {
         app: app_id.to_string(),
         models: BTreeSet::new(),
@@ -203,18 +224,51 @@ pub fn referenced_ids_excluding_locked(
     let mut ids = BTreeSet::new();
     for rf in ref_files_unlocked(refs_dir)? {
         if rf.app != app_id {
-            ids.extend(rf.models);
+            ids.extend(honoured_ids(rf));
         }
     }
     Ok(ids)
 }
 
+/// Ids that protect a store entry: every app's refs, except that a speech id counts only in
+/// HeardRight's ref (rightkit#1316).
 fn referenced_ids_unlocked(refs_dir: &Path) -> Result<BTreeSet<String>, String> {
     let mut ids = BTreeSet::new();
     for rf in ref_files_unlocked(refs_dir)? {
-        ids.extend(rf.models);
+        ids.extend(honoured_ids(rf));
     }
     Ok(ids)
+}
+
+/// Remove `ids` from every app's ref in `refs_dir` while the caller holds the registry guard.
+/// Unlike every other registry operation, an unreadable or malformed ref file is skipped, not an
+/// error: HeardRight's speech retire must not be blocked by a foreign app's ref
+/// ([`crate::suite::store::retire_speech_models`]). A read-dir or write failure is an error.
+pub fn strip_ids_all_locked(refs_dir: &Path, ids: &[&str]) -> Result<(), String> {
+    let entries = match fs::read_dir(refs_dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(format!("read refs dir {}: {e}", refs_dir.display())),
+    };
+    for entry in entries {
+        let path = entry.map_err(|e| format!("read refs entry: {e}"))?.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let Some(app) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        let Ok(Some(mut rf)) = read_ref_unlocked(refs_dir, app) else {
+            continue;
+        };
+        let held = rf.models.len();
+        rf.models
+            .retain(|id| !ids.iter().any(|retired| retired.eq_ignore_ascii_case(id)));
+        if rf.models.len() != held {
+            write_ref_unlocked(refs_dir, app, &rf)?;
+        }
+    }
+    Ok(())
 }
 
 fn ref_files_unlocked(refs_dir: &Path) -> Result<Vec<RefFile>, String> {

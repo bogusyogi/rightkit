@@ -214,7 +214,7 @@ E43 (int8 token table, batched ingest graphs; read by `rightkit-embed` 0.6.1) sh
 
 ## Parakeet Ultra (`parakeet_ultra_spec`, additive)
 
-moondream/parakeet-ultra weights on the Parakeet TDT v3 graphs (CC-BY-4.0, based on NVIDIA parakeet-tdt-0.6b-v3; bogusyogi/rightkit#897). `parakeet_spec()` is unchanged. `parakeet_ultra_spec()` returns `Err(MissingParakeetUltraPins)` on a platform whose pins are `None` (Linux only; Windows and macOS are both live), so nothing downloads unpinned bytes.
+moondream/parakeet-ultra weights on the Parakeet TDT v3 graphs (CC-BY-4.0, based on NVIDIA parakeet-tdt-0.6b-v3; bogusyogi/rightkit#897). `parakeet_ultra_spec()` returns `Err(MissingParakeetUltraPins)` on a platform whose pins are `None` (Linux only; Windows and macOS are both live), so nothing downloads unpinned bytes.
 
 | | Windows | macOS |
 |---|---|---|
@@ -223,7 +223,16 @@ moondream/parakeet-ultra weights on the Parakeet TDT v3 graphs (CC-BY-4.0, based
 | Pins | `PARAKEET_ULTRA_WINDOWS_PINS` (sealed 2026-10-22) | `PARAKEET_ULTRA_MACOS_PINS` (sealed 2026-10-22; archive `23610964...d4ee`, 391,192,167 bytes, installed 432,894,292 bytes) |
 | Files | `config.json`, `encoder-model.onnx`, `decoder_joint-model.onnx`, `mel_nemo.onnx`, `mel_nemo.onnx.data`, `vocab.txt`, `NOTICE.txt` | `pipeline.json`, `vocab.txt`, `NOTICE.txt` and the four `.mlmodelc` stage bundles (IR, `metadata.json`, `coremldata.bin`, weights, analytics): 23 files |
 
-The archive SHA-256 and size are pinned (the download is capped at the size and checked exactly); `legacy_dirs` is empty; `retired_store_ids` names the two Parakeet TDT v3 ids (`PARAKEET_ULTRA_RETIRED_STORE_IDS`). Ultra is not in `base_catalog()` or `all_models()` (promotion is the release owner's call). `ModelStore::parakeet_ultra_spec()` and `resolve_parakeet_ultra()` sit beside the v3 accessors. Each archive's own `manifest.json` is deliberately unpinned and unlisted on both platforms: the suite store writes its own `<entry>/manifest.json` record to the same path, so a pinned archive manifest would collide with it. The builder refuses a file set that is not exactly `PARAKEET_ULTRA_REQUIRED_PATHS` and an installed size that is not the sum of the file sizes. The grant worker model name for Ultra is the caller's `GrantConfig::model`; this crate does not choose it.
+The archive SHA-256 and size are pinned (the download is capped at the size and checked exactly); `legacy_dirs` is empty; `retired_store_ids` names the Parakeet TDT v3 ids (`PARAKEET_ULTRA_RETIRED_STORE_IDS`: both platforms' entries plus `parakeet_tdt_v3_dynamic_b64_fp16storage_20260720`). Ultra is not in `base_catalog()` or `all_models()` (promotion is the release owner's call). `ModelStore::parakeet_ultra_spec()` and `resolve_parakeet_ultra()` sit beside the v3 accessors. Each archive's own `manifest.json` is deliberately unpinned and unlisted on both platforms: the suite store writes its own `<entry>/manifest.json` record to the same path, so a pinned archive manifest would collide with it. The builder refuses a file set that is not exactly `PARAKEET_ULTRA_REQUIRED_PATHS` and an installed size that is not the sum of the file sizes. The grant worker model name for Ultra is the caller's `GrantConfig::model`; this crate does not choose it.
+
+## Speech models are HeardRight's (rightkit#1316)
+
+Only `SPEECH_OWNER_APP` (`heardright`) may hold a speech model; every other app gets speech through HeardRight. `is_speech_model_id` covers every Parakeet id (TDT, Ultra, the retired TDT variants in `PARAKEET_TDT_RETIRED_STORE_IDS`) and `whisper-turbo`.
+
+- Registration (`register_ref`, `refs::register`, `Store::register_app`, every ensure) refuses a speech id from any other app; an ensure refuses before any download.
+- Every GC and prune counts a speech id only in HeardRight's ref: a foreign speech ref already on disk never pins an entry.
+- `parakeet_spec()` (TDT v3) is in no catalog list: `base_catalog()` is OCR on Windows and empty elsewhere.
+- `retire_speech_models(models_root, "heardright", active)` / `ModelStore::retire_speech_models(active)`: HeardRight calls it after activating `active` (Ultra). With `active` Ready, it strips every retired TDT id from every readable ref in every registry and removes each entry. Foreign refs, a foreign Parakeet runtime lease and a corrupt ref file never block it. An install in progress or a held entry lock keeps that entry; an OS refusal (a file still mapped on Windows) leaves the live entry intact in `failed`. Any other caller, a non-speech `active` or an `active` that is not Ready is an error. Idempotent.
 
 ## Releasing models and retired-entry pruning
 

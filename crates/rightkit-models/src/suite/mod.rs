@@ -69,9 +69,10 @@ pub use store::http_agent;
 pub use store::{
     base_size_hint_bytes, base_status_at, ensure_ready, ensure_ready_cancellable, migrate_legacy,
     migrate_legacy_checked, migrate_source_checked, prune_retired, prune_unref_entries,
-    prune_unref_entries_with, register_ref, release_models, resolve_ready_dir, set_status_at,
-    size_hint_bytes, status_at, status_in, EnsureOptions, EntryState, MigrateOutcome, ModelStatus,
-    Progress, ReleaseReport, RetiredPruneReport, SetStatus,
+    prune_unref_entries_with, register_ref, release_models, resolve_ready_dir,
+    retire_speech_models, set_status_at, size_hint_bytes, status_at, status_in, EnsureOptions,
+    EntryState, MigrateOutcome, ModelStatus, Progress, ReleaseReport, RetiredPruneReport,
+    SetStatus,
 };
 pub use variant::{parakeet_variant_descriptor, VariantDescriptor};
 pub use whisper::{

@@ -15,8 +15,8 @@ use crate::suite::grant::GrantError;
 use crate::suite::install::{ensure_with_grant, ensure_with_grant_via, GrantConfig};
 use crate::suite::manifest::VerifyMode;
 use crate::suite::store::{
-    ensure_ready_recorded, prune_retired, release_models, status_at, status_in, EnsureOptions,
-    EntryState, ModelStatus, Progress, ReleaseReport, RetiredPruneReport,
+    ensure_ready_recorded, prune_retired, release_models, retire_speech_models, status_at,
+    status_in, EnsureOptions, EntryState, ModelStatus, Progress, ReleaseReport, RetiredPruneReport,
 };
 use crate::suite::{paths, refs};
 
@@ -336,6 +336,13 @@ impl ModelStore {
     /// report or retry after a failure. A no-op unless `spec` is Ready here.
     pub fn prune_retired(&self, spec: &ModelSpec) -> Result<RetiredPruneReport, String> {
         prune_retired(&self.models_root, spec, &self.app_id)
+    }
+
+    /// HeardRight only: after activating `active`, remove every retired Parakeet TDT entry and
+    /// strip it from every app's ref, whatever foreign refs or leases exist. See
+    /// [`crate::suite::store::retire_speech_models`].
+    pub fn retire_speech_models(&self, active: &ModelSpec) -> Result<RetiredPruneReport, String> {
+        retire_speech_models(&self.models_root, &self.app_id, active)
     }
 
     /// Download an entitlement-gated add-on (verified, resumable). `bearer` is the full
