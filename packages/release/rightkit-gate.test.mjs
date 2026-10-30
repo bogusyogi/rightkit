@@ -1457,12 +1457,12 @@ test("--to reuses check and compile only for the exact same inputs, and needs --
   assert.equal(await main(["--to", "compile"], { ...first.io, cwd: root, ...io }), 0, first.err.join("\n"));
   const again = capture();
   assert.equal(await main(["--to", "compile"], { ...again.io, cwd: root, ...io }), 0);
-  assert.deepEqual(ran, ["check", "compile"], "the second run reuses both: same commit, tree, lockfiles, gate and toolchain");
-  assert.match(again.out.join("\n"), /\[check\] already passed \((compile|release) tier\) for this exact input/);
+  assert.deepEqual(ran, ["check", "compile", "check"], "the second run reuses compile (same commit, tree, lockfiles, gate and toolchain) but asks Class A again at the stage boundary (GB-12)");
+  assert.doesNotMatch(again.out.join("\n"), /\[check\] already passed/);
   fs.writeFileSync(path.join(root, "Cargo.lock"), "version = 4\n# changed\n");
   spawnSync("git", ["commit", "-qam", "lock change"], { cwd: root });
   assert.equal(await main(["--to", "compile"], { ...capture().io, cwd: root, ...io }), 0);
-  assert.deepEqual(ran, ["check", "compile", "check", "compile"], "a new commit (here a lockfile change) runs both again");
+  assert.deepEqual(ran, ["check", "compile", "check", "check", "compile"], "a new commit (here a lockfile change) runs both again");
   const noPlatform = capture();
   assert.equal(await main(["--to", "package"], { ...noPlatform.io, cwd: root, ...io }), 2);
   assert.match(noPlatform.err.join("\n"), /--to package needs --platform mac\|win/);
@@ -1554,7 +1554,7 @@ test("--receipt-out / --receipt-in: a later job on another runner takes the seal
   calls.length = 0;
   const qual = capture();
   assert.equal(await main(["--to", "qualify", "--platform", "win", "--receipt-in", out], { ...qual.io, cwd: root, ...io("broker") }), 0, qual.err.join("\n"));
-  assert.deepEqual(calls, [`qa --stage installed --platform win --release ${id}`], "check, compile and package stand on the sealed set; only qualify runs");
+  assert.deepEqual(calls, ["check", `qa --stage installed --platform win --release ${id}`], "compile and package stand on the sealed set; Class A is asked again at the qualify boundary (GB-12); then only qualify runs");
   // The publisher: another runner again (ubuntu, no installer can run there); qualify is taken from the receipt for these bytes.
   const qualified = path.join(root, "..", `receipt-q-${path.basename(root)}.json`);
   t.after(() => fs.rmSync(qualified, { force: true }));
@@ -2093,7 +2093,7 @@ test("package checks the compile-tier rules before compiling; qualify then owes 
   const calls = []; const tiers = [];
   const io = {
     resolveExecutor: directExecutor, runCompile: async () => 0,
-    runCheck: async (tier) => { tiers.push(`check:${tier}`); return 0; },
+    runCheck: async (tier) => { tiers.push(`check:${tier}`); return tier === "release" ? 1 : 0; },
     runReleaseCheck: async () => { tiers.push("qualify:release"); return 1; },
     sealedFor: () => ({ id: `app-1.0.0-${head.slice(0, 8)}`, manifest: "m", digest: "d".repeat(64) }),
     spawnInherit: (cmd, a) => { calls.push(a.slice(1).join(" ")); return { status: 0 }; },
@@ -2103,9 +2103,9 @@ test("package checks the compile-tier rules before compiling; qualify then owes 
   assert.deepEqual(tiers, ["check:compile"]);
   tiers.length = 0; calls.length = 0;
   const qual = capture();
-  // Qualify reuses the compile-tier check and owes the release tier itself; a red release tier qualifies nothing.
+  // Qualify owes the release tier, and since GB-12 Class A is asked at its own boundary at that tier; a red release tier qualifies nothing.
   assert.notEqual(await main(["--to", "qualify", "--platform", "win"], { ...qual.io, cwd: root, ...io }), 0);
-  assert.deepEqual(tiers, ["qualify:release"], "qualify runs the release tier");
+  assert.deepEqual(tiers, ["check:release"], "qualify's Class A boundary runs the release tier and its red stops the run");
   assert.ok(!calls.some((c) => c.startsWith("qa --stage installed")), calls.join(" | "));
 });
 

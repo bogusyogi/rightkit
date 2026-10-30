@@ -1393,10 +1393,17 @@ async function runStages(o, args, root, git, io) {
   // 2026-10-28 change to release tier everywhere was never his decision and blocked HeardRight's dev and test builds).
   const earlyTier = ["qualify", "release"].includes(to) ? "release" : "compile";
   const tierAtLeast = (have, need) => have === "release" || need === "compile";
+  // GB-12 (GATE 36/44/86, E18): Class A admission runs at every stage boundary a door run crosses; an outer receipt boolean or an intact
+  // sealed set never stands in for it. The deterministic scans reuse through their own complete result-cache key (never this receipt's
+  // coarse binding, which names the entry file only), and the live scans (cargo-deny, cargo-audit, pnpm-audit, pnpm-lockfile,
+  // advisory-exceptions) are never cached, so the day's advisories are re-asked on every reuse. The one exception is the trusted
+  // publisher's upload (`--to release` on a desktop platform): it runs no build environment, only uploads bytes whose earlier stages
+  // (Class A included) another job of the same pipeline recorded in the receipt it imported (--receipt-in).
+  const publisherUploadOnly = to === "release" && !mobile;
   for (const stage of stages) {
-    if (stage === "check" && receipt.stages.check?.ok && tierAtLeast(receipt.stages.check.ruleTier ?? "compile", earlyTier)) { o.out(`${tag} [check] already passed (${receipt.stages.check.ruleTier ?? "compile"} tier) for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
+    if (stage === "check" && publisherUploadOnly && receipt.stages.check?.ok && tierAtLeast(receipt.stages.check.ruleTier ?? "compile", earlyTier)) { o.out(`${tag} [check] already passed (${receipt.stages.check.ruleTier ?? "compile"} tier) for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
     if (stage === "compile" && receipt.stages.compile?.ok) { o.out(`${tag} [${stage}] already passed for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
-    if ((stage === "check" || stage === "compile" || stage === "package") && sealedIntact) {
+    if (((stage === "check" && publisherUploadOnly) || stage === "compile" || stage === "package") && sealedIntact) {
       o.out(`${tag} [${stage}] already passed for the sealed set ${sealedNow.id} (manifest ${sealedNow.digest.slice(0, 12)})`); continue;
     }
     // The publisher (another runner, often another OS) cannot repeat installed QA; it takes the qualify result recorded for exactly
