@@ -105,3 +105,23 @@ test("status, prune, and migrate short-circuit cleanly on a broker-managed host 
   assert.equal(unmanaged.status, 0, unmanaged.stderr);
   assert.equal(JSON.parse(unmanaged.stdout).brokerManaged, undefined);
 });
+
+test("[GB-65] a broker Mac with RIGHT_RELEASE_CACHE_ROOT unset skips status, prune and migrate with a null root; argv stays validated; a direct host still needs a valid root; nothing is deleted", async () => {
+  const brokerMac = { RIGHT_RELEASE_PLATFORM: "mac" };
+  const call = async (args, env, isBrokerHost) => {
+    let out = ""; let error = null; let result = null;
+    try { result = await runCacheCommand(args, { env, isBrokerHost, stdout: (v) => { out += `${v}\n`; }, stderr: () => {} }); } catch (e) { error = e; }
+    return { out, error, result };
+  };
+  for (const args of [["status", "--json"], ["prune", "--apply", "--json"], ["prune", "--dry-run"], ["migrate", "--json"], ["migrate", "--config", "x/right-release.config.json", "--apply"]]) {
+    const r = await call(args, brokerMac, () => true);
+    assert.equal(r.error, null, `${args.join(" ")}: ${r.error?.message}`);
+    assert.equal(r.result.brokerManaged, true); assert.equal(r.result.skipped, true); assert.equal(r.result.cacheRoot, null);
+    assert.equal(r.result.removedIds, undefined, "no prune ran");
+  }
+  assert.match((await call(["status", "--bogus"], brokerMac, () => true)).error?.message, /unknown cache argument: --bogus/, "argv validation is kept on the broker route");
+  assert.match((await call(["prune", "--apply", "--dry-run"], brokerMac, () => true)).error?.message, /either --dry-run or --apply/);
+  assert.match((await call(["migrate", "--nope"], brokerMac, () => true)).error?.message, /unknown cache argument: --nope/);
+  assert.match((await call(["status"], brokerMac, () => false)).error?.message, /RIGHT_RELEASE_CACHE_ROOT is required on macOS/, "a direct Mac host still requires a valid cache policy");
+  assert.match((await call(["frobnicate"], brokerMac, () => true)).error?.message, /expected status, prune, or migrate|RIGHT_RELEASE_CACHE_ROOT/);
+});
