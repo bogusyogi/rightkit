@@ -61,8 +61,9 @@ export const TAMPERS = {
   diagnosticsNull: { top: (x) => { x.diagnosticsPath = null; } },
   timingsMissingKey: { top: (x) => { delete x.timingsMs.queue; } },
   timingsNulls: { top: (x) => { x.timingsMs = { admission: null, queue: null, bind: 1, cargo: 2, afterExitBind: null, diagnostics: null }; } },
-  /** Receipt copy of a top-level field that differs from the signed one. */
-  verdictCopyDiffers: { receipt: (r) => { r.verdict = { status: "failed" }; } },
+  /** Retired fields (rustright bc24d55): a receipt that carries either is refused. */
+  retiredVerdict: { receipt: (r) => { r.verdict = { status: "passed" }; } },
+  retiredRefreshed: { receipt: (r) => { r.refreshed = []; } },
   exitNullNoSignal: { top: (x) => { x.exit = null; } },
   noAttribution: { payload: (p) => { delete p.stageEvidence.attribution; }, receipt: (r) => { delete r.attribution; } },
   noToolchain: { payload: (p) => { delete p.stageEvidence.toolchain; }, receipt: (r) => { delete r.toolchain; } },
@@ -70,15 +71,14 @@ export const TAMPERS = {
   freshnessOnly: { payload: (p) => { delete p.stageEvidence.attribution; delete p.stageEvidence.toolchain; }, receipt: (r) => { delete r.attribution; delete r.toolchain; } },
   attributionReceiptOnly: { payload: (p) => { delete p.stageEvidence.attribution; } },
   attributionSignedOnly: { receipt: (r) => { delete r.attribution; } },
+  noStageCensus: { payload: (p) => { for (const f of ["freshness", "attribution", "toolchain"]) delete p.stageEvidence[f]; }, receipt: (r) => { for (const f of ["freshness", "attribution", "toolchain"]) delete r[f]; } },
   freshnessReceiptOnly: { receipt: (r) => { delete r.freshness; } },
   freshnessSignedOnly: { payload: (p) => { delete p.stageEvidence.freshness; } },
   freshnessDiffers: { receipt: (r) => { r.freshness = { unitsAtStart: 9, fresh: 9, notFresh: 0, invalidationReasons: [] }; } },
   noStageEvidence: { payload: (p) => { delete p.stageEvidence; } },
-  noVerdict: { receipt: (r) => { delete r.verdict; } },
   noTimings: { receipt: (r) => { delete r.timingsMs; } },
   noExit: { receipt: (r) => { delete r.exit; } },
   noDiagnostics: { receipt: (r) => { delete r.diagnosticsPath; } },
-  noRefreshed: { receipt: (r) => { delete r.refreshed; } },
   noBrokerVersion: { evidence: (e) => { delete e.brokerVersion; } },
   noExecutor: { evidence: (e) => { delete e.executor; } },
   noProvenance: { receipt: (r) => { delete r.provenance; } },
@@ -127,7 +127,7 @@ export function signedReceipt(fx, { id, carrier, argv, workspace, observedEnv = 
   const stage = { freshness: { unitsAtStart: 3, fresh: 3, notFresh: 0, invalidationReasons: [] }, attribution: { available: true, rows: [] }, toolchain: TOOLCHAIN };
   t.stage?.(stage);
   // The contract-named top-level fields every carried command's receipt has (item 4 row 4.18), signed with the rest.
-  const top = { verdict: { status: "passed" }, refreshed: [], exit: 0, signal: null, timingsMs: { admission: 1, queue: 0, bind: 1, cargo: 2, afterExitBind: 1, diagnostics: 1 }, diagnosticsPath: "/diag/x.json" };
+  const top = { exit: 0, signal: null, timingsMs: { admission: 1, queue: 0, bind: 1, cargo: 2, afterExitBind: 1, diagnostics: 1 }, diagnosticsPath: "/diag/x.json" };
   t.top?.(top);
   const payload = {
     host: fx.pins.host, broker: { brokerDigest: fx.pins.brokerDigest }, keyId: fx.pins.keyId, jobId: id, nonce: carrier.nonce,
@@ -256,6 +256,8 @@ async function client(stateDir, [command, ...args]) {
       // A root `metadata` in the primary checkout is answered with the checkout's own paths (what the gate compares the snapshot's members with).
       if (args.includes("metadata")) { process.stdout.write(synthMetadata(fx, here, false)); process.exit(0); }
     }
+    // The client's own version probe is a root request in a workspace of the primary checkout (the gate's tool probe); it reads no file.
+    if (raw === undefined && (args.includes("--version") || args.includes("-V"))) { process.stdout.write("cargo 1.90.0 (fake)\n"); process.exit(0); }
     if (raw === undefined) bad("no descriptor");
     if (Buffer.byteLength(raw) > 4096) bad("descriptor exceeds 4096 bytes");
     let descriptor; try { descriptor = JSON.parse(raw); } catch { bad("descriptor is not JSON"); }
@@ -267,7 +269,7 @@ async function client(stateDir, [command, ...args]) {
     if (args.some((a) => a === "--manifest-path" || a.startsWith("--manifest-path="))) bad("attestation: the client would rewrite this invocation (--manifest-path); run from the manifest's directory without it");
     // The broker admits a snapshot request only when it compiles (job_service/service.rs: "a snapshot request must compile"); read-only
     // subcommands (metadata, locate-project, --version, ...) are refused today. `readOnlySnapshots` models the broker after RustRight's change (the lock-bound allowlist, acceptedAfterFix).
-    if (!(fx.readOnlySnapshots ? acceptedAfterFix(args) : classifyCargo(args) === "compile")) { process.stderr.write(`${SNAPSHOT_MUST_COMPILE}\n`); process.exit(2); }
+    if (!(fx.readOnlySnapshots ? acceptedAfterFix(args, { checkout: fx.checkout }) : classifyCargo(args) === "compile")) { process.stderr.write(`${SNAPSHOT_MUST_COMPILE}\n`); process.exit(2); }
     const dir = fs.realpathSync(path.join(fx.controlRoot, "snapshot-requests"));
     if (fs.lstatSync(path.join(fx.controlRoot, "snapshot-requests")).isSymbolicLink()) bad("snapshot-requests is a link");
     if (fs.realpathSync(path.dirname(descriptor.path)) !== dir) bad("not in snapshot-requests");

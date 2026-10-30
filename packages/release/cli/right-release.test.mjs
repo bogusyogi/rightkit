@@ -78,7 +78,7 @@ function doorEnv(cwd) {
   return { RK_GATE_RUN: nonce };
 }
 
-function runCli(t, cwd, args, { spy = true, door = true } = {}) {
+function runCli(t, cwd, args, { spy = true, door = true, hosted = false } = {}) {
   if (!preload) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-cli-spy-"));
     process.on("exit", () => fs.rmSync(dir, { recursive: true, force: true }));
@@ -87,7 +87,7 @@ function runCli(t, cwd, args, { spy = true, door = true } = {}) {
   }
   const log = path.join(tmpDir(t, "rk-cli-log-"), "calls.log");
   const appRoot = args.includes("--app-root") ? args[args.indexOf("--app-root") + 1] : cwd;
-  const result = spawnSync(process.execPath, [...(spy ? ["--import", pathToFileURL(preload).href] : []), CLI, ...args], { cwd, encoding: "utf8", env: { ...process.env, RK_CLI_SPY_LOG: log, ...(door ? doorEnv(appRoot) : {}) } });
+  const result = spawnSync(process.execPath, [...(spy ? ["--import", pathToFileURL(preload).href] : []), CLI, ...args], { cwd, encoding: "utf8", env: { ...process.env, RK_CLI_SPY_LOG: log, ...(hosted ? { GITHUB_ACTIONS: "true" } : {}), ...(door ? doorEnv(appRoot) : {}) } });
   const calls = fs.existsSync(log) ? fs.readFileSync(log, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [];
   return { status: result.status, stdout: result.stdout, stderr: result.stderr, spawns: calls.filter((c) => c.spawn).map((c) => c.spawn), developments: calls.filter((c) => c.development).map((c) => c.development), calls };
 }
@@ -181,7 +181,7 @@ test("a baseline entry cannot excuse what the build refuses: switches-inventory 
   fs.writeFileSync(path.join(repo, ".rightkit", "app-check-baseline.json"), JSON.stringify({ schema: 1, known: [{ id: "switches-inventory|sub/right-release.config.mjs|sub", issue: "app#9", added, sunset: addDays(added, 30) }] }));
   git(repo, "add", "-A");
   git(repo, "commit", "-q", "-m", "baseline the missing inventory");
-  const check = runCli(t, repo, ["check"], { spy: false });
+  const check = runCli(t, repo, ["check"], { spy: false, hosted: true });
   assert.equal(check.status, 0, check.stdout + check.stderr);
   assert.match(check.stdout, /^KNOWN switches-inventory: /m);
   for (const args of [["build", "--platform", "win"], ["doctor", "--platform", "win"]]) {
@@ -324,13 +324,13 @@ test("one door: every commit-bound command refuses without a live rightkit-gate 
 test("check: the same findings as rightkit-gate check, exit 1 red and 0 green, --list, and --config picks the repository", (t) => {
   const repo = app(t, { red: true });
   // `right-release check` is `rightkit-gate check`: the app check, then class A (real child processes, so no spawn spy here).
-  const runCheck = (cwd, args) => runCli(t, cwd, args, { spy: false });
+  const runCheck = (cwd, args) => runCli(t, cwd, args, { spy: false, hosted: true });
   const red = runCheck(repo, ["check", "--commit", "HEAD"]);
   assert.equal(red.status, 1);
   assert.match(red.stdout, /^FAIL skip-checks \(G17\): package\.json:1 /m);
   assert.match(red.stdout, /^check: 1 problem\(s\) in \w{12} \(13 rules, compile tier, /m);
   assert.deepEqual(red.calls, [], "check spawns nothing");
-  const gate = spawnSync(process.execPath, [path.join(PACKAGE, "bin", "rightkit-gate.mjs"), "check", "--commit", "HEAD"], { cwd: repo, encoding: "utf8" });
+  const gate = spawnSync(process.execPath, [path.join(PACKAGE, "bin", "rightkit-gate.mjs"), "check", "--commit", "HEAD"], { cwd: repo, env: { ...process.env, GITHUB_ACTIONS: "true" }, encoding: "utf8" });
   // Every duration (the summary and each row) is timing, not output: normalise them all, not only the first.
   const timeless = (text) => text.replace(/\b[\d.]+s\b/g, "Ns");
   assert.equal(timeless(gate.stdout), timeless(red.stdout), "right-release check and rightkit-gate check print the same");

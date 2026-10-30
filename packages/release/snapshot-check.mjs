@@ -49,7 +49,8 @@ export function snapshotOption(args, { checkout }) {
   const dir = args[i + 1];
   if (!dir || dir.startsWith("--")) throw new CheckError("check --snapshot needs a directory");
   if (!path.isAbsolute(dir)) throw new CheckError(`check --snapshot needs an absolute directory, not ${JSON.stringify(dir)}`);
-  if (!args.includes("--full-a") || !args.includes("--commit")) throw new CheckError("check --snapshot is full class A of a selected commit: it needs --commit <sha> and --full-a");
+  // Full class A (`--full-a`, the door's) or the content checks alone (plain `check --commit`): either way the snapshot is the commit's bytes.
+  if (!args.includes("--commit")) throw new CheckError("check --snapshot judges the snapshot of a selected commit: it needs --commit <sha>");
   if (args.includes("--worktree")) throw new CheckError("check --snapshot never checks the working tree: drop --worktree");
   let st;
   try { st = fs.lstatSync(dir); } catch { throw new CheckError(`snapshot ${dir} does not exist`); }

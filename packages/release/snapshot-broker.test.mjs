@@ -317,7 +317,7 @@ test("[7.20] the gate builds deps.snapshotBroker on a broker host (enrolled pins
   assert.ok(call.options.cargoSentinel); assert.equal(call.options.cargoLedger.dir, path.join(call.wrapperDir, "ledger")); assert.deepEqual(call.map.broker.pins, ok.fx.pins);
   assert.equal(call.plan.roots.cargoLiveRoot, ok.repo, "cargo scans are carried requests that run from the primary checkout");
   const cargoScans = call.plan.scans.filter((s) => s.tool === "rustright"); assert.ok(cargoScans.length > 0, "cargo scans go through the client");
-  assert.ok(cargoScans.every((s) => s.root === "cargoLive"));
+  assert.ok(cargoScans.every((s) => s.root === (s.class === "B" ? "cargoLive" : "live")), "class B compiles start in the checkout; class A cargo scans read the snapshot");
   assert.match(ok.out, /broker snapshot compile: pins [0-9a-f]{12} from enrolled, 1 declared input\(s\) read from the snapshot/);
   assert.doesNotMatch(ok.out, /direct receipt \{/, "a broker host writes no receipt that says executor direct");
   assert.equal(fs.existsSync(call.wrapperDir), false, "the wrapper directory is removed after the compile");

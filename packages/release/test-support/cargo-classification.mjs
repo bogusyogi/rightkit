@@ -8,6 +8,8 @@
 //
 // The table is a FIXTURE of that source, not a copy of its code: `classifyCargo` below mirrors the match arms, and the contract test
 // (cargo-classification.test.mjs) pins both to the table, so a change in either is a failing test, not a silent drift.
+import fs from "node:fs";
+import path from "node:path";
 import { cargoSubcommandOf } from "../snapshot-request.mjs";
 
 export const READ_ONLY_NEEDS = "requires rustright read-only snapshot acceptance (rightkit#1301 F1)";
@@ -42,16 +44,56 @@ export function classifyCargo(argv) {
 }
 
 /**
- * What the broker accepts as a snapshot request AFTER RustRight's change (rk4 decision, rightkit#1301 B2): the compile commands, `metadata
- * --no-deps`, and `metadata` with dependencies and `cargo about` only when `--frozen` (lock-bound: they cannot rewrite Cargo.lock or reach the
- * network). Nothing else read-only is accepted. PENDING RustRight's confirmation of the exact allowlist.
+ * What the broker accepts as a snapshot request AFTER RustRight's change (rk4 decision, rightkit#1301 B2; rustright 52a9ed76 for the scan
+ * shapes): the compile commands, plus these read-only shapes and nothing else, each flag at most once and in spaced form (`--flag=value` is
+ * not admitted):
+ *   cargo metadata [--no-deps] [--locked] [--frozen] [--offline] [--format-version 1]   (with dependencies only with --locked or --frozen)
+ *   cargo fetch --locked
+ *   cargo deny [--frozen] [--metadata-path <file>] [--config <file>] check              (nothing after `check`)
+ *   cargo audit --db <dir> --no-fetch
+ *   cargo about ... --frozen                                                              (right-release's licence generation)
+ * The files deny reads and audit's database directory must be absolute, existing, of the right kind and NOT inside the live checkout
+ * (`checkout`; when it is not given only the shape is judged). Cargo's own `--config` and `-Z`, a `+toolchain`, `--manifest-path` and a `--`
+ * are never part of a scan shape. A test fake of the broker refuses what the real broker refuses, so this is written from the broker's rules,
+ * not from the gate's own shape checker (snapshot-metadata.mjs).
  */
-export function acceptedAfterFix(argv) {
+export function acceptedAfterFix(argv, { checkout = null } = {}) {
   if (classifyCargo(argv) === "compile") return true;
-  const sub = cargoSubcommandOf(argv);
-  const own = argv.includes("--") ? argv.slice(0, argv.indexOf("--")) : argv;
-  if (sub === "metadata") return own.includes("--no-deps") || own.includes("--frozen");
-  if (sub === "about") return own.includes("--frozen");
+  const words = [...argv];
+  if (cargoSubcommandOf(words) === "about") return (words.includes("--") ? words.slice(0, words.indexOf("--")) : words).includes("--frozen");
+  const [sub, ...rest] = words;
+  const parse = (list, spec) => {
+    const seen = new Map();
+    for (let i = 0; i < list.length; i += 1) {
+      const w = list[i];
+      if (!Object.hasOwn(spec, w) || seen.has(w)) return null;
+      if (spec[w]) { const v = list[i + 1]; if (typeof v !== "string" || v === "" || v.startsWith("-")) return null; seen.set(w, v); i += 1; } else seen.set(w, true);
+    }
+    return seen;
+  };
+  const realOf = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+  const placed = (value, kind) => {
+    if (!path.isAbsolute(value)) return false;
+    if (checkout === null) return true;
+    let st; try { st = fs.statSync(value); } catch { return false; }
+    if (kind === "file" ? !st.isFile() : !st.isDirectory()) return false;
+    const rel = path.relative(realOf(checkout), realOf(value));
+    return rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel); // outside the live checkout
+  };
+  if (sub === "metadata") {
+    const f = parse(rest, { "--no-deps": false, "--locked": false, "--frozen": false, "--offline": false, "--format-version": true });
+    return f !== null && (!f.has("--format-version") || f.get("--format-version") === "1") && (f.has("--no-deps") || f.has("--locked") || f.has("--frozen"));
+  }
+  if (sub === "fetch") return rest.length === 1 && rest[0] === "--locked";
+  if (sub === "deny") {
+    if (rest.at(-1) !== "check") return false;
+    const f = parse(rest.slice(0, -1), { "--frozen": false, "--metadata-path": true, "--config": true });
+    return f !== null && (!f.has("--metadata-path") || placed(f.get("--metadata-path"), "file")) && (!f.has("--config") || placed(f.get("--config"), "file"));
+  }
+  if (sub === "audit") {
+    const f = parse(rest, { "--db": true, "--no-fetch": false });
+    return f !== null && f.size === 2 && f.has("--db") && f.has("--no-fetch") && placed(f.get("--db"), "directory");
+  }
   return false;
 }
 

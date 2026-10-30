@@ -10,7 +10,8 @@ import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 import { discoverRustWorkspaces, main } from "./bin/rightkit-gate.mjs";
-import { carriedReadOnlyMetadata, snapshotCargoSpawn } from "./snapshot-metadata.mjs";
+import { carriedReadOnlyScan, carriedScanRefusal, snapshotCargoSpawn } from "./snapshot-metadata.mjs";
+import { runScans } from "./deterministic-scans.mjs";
 import { syncSnapshot } from "./snapshot.mjs";
 import { makeFakeBroker } from "./test-support/fake-broker.mjs";
 
@@ -29,9 +30,43 @@ function git(cwd, ...args) {
   return r.stdout.trim();
 }
 
-test("the shapes the broker admits as a carried read-only request: metadata --no-deps, or lock-pinned offline metadata; nothing else", () => {
-  for (const ok of [["metadata", "--no-deps", "--format-version", "1", "--locked"], ["metadata", "--format-version", "1", "--no-deps"], ["metadata", "--frozen"], ["metadata", "--locked", "--offline"]]) assert.equal(carriedReadOnlyMetadata(ok), true, ok.join(" "));
-  for (const no of [["metadata", "--locked"], ["metadata", "--offline"], ["metadata"], ["fetch", "--locked"], ["deny", "check"], ["audit"], ["metadata", "--no-deps", "--config", "x=y"], ["metadata", "--no-deps", "-Zfoo"], ["metadata", "--", "--no-deps"], ["build", "--locked"]]) assert.equal(carriedReadOnlyMetadata(no), false, no.join(" "));
+test("the shapes the broker admits as a carried read-only request: metadata, fetch --locked, deny, audit --db --no-fetch; nothing else", () => {
+  const ok = [
+    ["metadata", "--no-deps", "--format-version", "1", "--locked"], ["metadata", "--format-version", "1", "--no-deps"], ["metadata", "--frozen"], ["metadata", "--locked", "--offline"],
+    ["metadata", "--format-version", "1", "--locked"], // full metadata, online (cargo-deny's aux metadata)
+    ["fetch", "--locked"],
+    ["deny", "--frozen", "--metadata-path", "/abs/m.json", "--config", "/abs/deny.toml", "check"], ["deny", "check"], ["deny", "--config", "/abs/deny.toml", "check"],
+    ["audit", "--db", "/abs/db", "--no-fetch"], ["audit", "--no-fetch", "--db", "/abs/db"],
+  ];
+  for (const argv of ok) assert.equal(carriedReadOnlyScan(argv), true, `${argv.join(" ")}: ${carriedScanRefusal(argv)}`);
+  const no = [
+    ["metadata", "--offline"], ["metadata"], ["metadata", "--format-version", "2", "--locked"], ["metadata", "--locked", "--locked"],
+    ["metadata", "--no-deps", "--config", "x=y"], ["metadata", "--no-deps", "-Zfoo"], ["metadata", "--", "--no-deps"], ["metadata", "--no-deps", "--manifest-path", "/x/Cargo.toml"], ["+nightly", "metadata", "--no-deps"],
+    ["fetch"], ["fetch", "--locked", "--offline"], ["fetch", "--locked", "--config", "x=y"], ["fetch", "--frozen"],
+    ["deny", "check", "--hide-inclusion-graph"], ["deny", "--frozen", "--frozen", "check"], ["deny", "--config=/abs/deny.toml", "check"], ["deny", "--metadata-path", "m.json", "check"], ["deny", "--frozen"],
+    ["deny", "--offline", "check"], ["deny", "--config", "/abs/deny.toml", "--", "check"], ["deny", "--workspace", "check"], ["deny", "-Z", "x", "check"],
+    ["audit"], ["audit", "--db", "/abs/db"], ["audit", "--no-fetch"], ["audit", "--db", "rel", "--no-fetch"], ["audit", "--db", "/abs/db", "--no-fetch", "--deny", "warnings"], ["audit", "--db=/abs/db", "--no-fetch"],
+    ["package", "-p", "a", "--list", "--allow-dirty", "--locked"], ["build", "--locked"], ["check"], ["--version"], ["tree", "--locked"], ["about", "generate", "--frozen"],
+  ];
+  for (const argv of no) assert.equal(carriedReadOnlyScan(argv), false, argv.join(" "));
+});
+
+test("the files a carried deny reads and the database a carried audit reads must exist, be of the right kind and lie outside the live checkout", (t) => {
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-sm-shape-")));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const checkout = path.join(base, "checkout"); const gateOwned = path.join(base, "gate");
+  fs.mkdirSync(path.join(checkout, "db"), { recursive: true }); fs.mkdirSync(path.join(gateOwned, "db"), { recursive: true });
+  fs.writeFileSync(path.join(checkout, "deny.toml"), ""); fs.writeFileSync(path.join(gateOwned, "deny.toml"), ""); fs.writeFileSync(path.join(gateOwned, "m.json"), "{}");
+  fs.symlinkSync(path.join(checkout, "deny.toml"), path.join(gateOwned, "link.toml"));
+  const refusal = (argv) => carriedScanRefusal(argv, { checkout });
+  assert.equal(refusal(["deny", "--frozen", "--metadata-path", path.join(gateOwned, "m.json"), "--config", path.join(gateOwned, "deny.toml"), "check"]), null);
+  assert.equal(refusal(["audit", "--db", path.join(gateOwned, "db"), "--no-fetch"]), null);
+  assert.match(refusal(["deny", "--config", path.join(checkout, "deny.toml"), "check"]), /inside the live checkout/, "the checkout's own deny.toml is never named");
+  assert.match(refusal(["deny", "--config", path.join(gateOwned, "link.toml"), "check"]), /inside the live checkout/, "a link into the checkout is the checkout");
+  assert.match(refusal(["audit", "--db", path.join(checkout, "db"), "--no-fetch"]), /inside the live checkout/);
+  assert.match(refusal(["deny", "--config", path.join(gateOwned, "absent.toml"), "check"]), /does not exist/);
+  assert.match(refusal(["deny", "--config", path.join(gateOwned, "db"), "check"]), /not a file/);
+  assert.match(refusal(["audit", "--db", path.join(gateOwned, "m.json"), "--no-fetch"]), /not a directory/);
 });
 
 test("[1311] discovery inside the snapshot is carried: units are found, no root request reaches the broker, each call has a verified receipt", (t) => {
@@ -68,9 +103,10 @@ test("[1311] a carried request without a valid receipt, or a call the broker wou
   fake.setBehavior({ refuse: true });
   assert.throws(discover, /cargo metadata failed/);
   fake.setBehavior({});
-  // Not admitted by the broker inside a snapshot (fetch, deny, audit, an unpinned metadata): refused here, before anything is sent.
+  // Not admitted by the broker inside a snapshot (an unlocked fetch or metadata, a package list, a deny or audit of another shape, anything with
+  // cargo's own --config or -Z): refused here, before anything is sent.
   const calls = fake.calls().length;
-  for (const argv of [["fetch", "--locked"], ["deny", "check"], ["metadata", "--locked"]]) {
+  for (const argv of [["fetch"], ["deny", "check", "--hide-inclusion-graph"], ["metadata"], ["audit"], ["package", "-p", "a", "--list", "--allow-dirty", "--locked"], ["build", "--locked"], ["metadata", "--no-deps", "--config", "x=y"], ["deny", "--config", "deny.toml", "check"]]) {
     const r = spawn("rustright", [...CARGO.slice(1), ...argv], { cwd: fake.snapshot });
     assert.notEqual(r.status, 0); assert.match(r.stderr, /RK_SNAPSHOT_CARRIED_REFUSED/);
   }
@@ -125,7 +161,7 @@ function gateIo(t, s, { runScans }) {
   };
 }
 
-test("[1311] the check stage of the snapshot route (class A of the snapshot) makes zero root requests inside the snapshot: discovery and the member comparison are carried", async (t) => {
+test("[1311] the check stage of the snapshot route (class A of the snapshot) makes zero root requests inside the snapshot: discovery is carried", async (t) => {
   const s = scenario(t);
   const plans = [];
   const run = gateIo(t, s, { runScans: async (plan) => { plans.push(plan); return { schema: "rightkit.deterministic-scans/1", ok: true, complete: true, classes: ["A"], scans: [], toolVersions: {}, cacheHits: [], notes: [], deferred: [] }; } });
@@ -133,7 +169,7 @@ test("[1311] the check stage of the snapshot route (class A of the snapshot) mak
   assert.equal(code, 0, run.err.join("\n"));
   assert.ok(plans.length >= 1, "the scans were planned from the discovered units");
   assert.deepEqual(s.fake.rootRequests().filter((r) => r.refused), [], "no root request inside the snapshot");
-  assert.ok(s.fake.calls().length >= 2, "discovery (and the snapshot side of the member comparison) were carried requests");
+  assert.ok(s.fake.calls().length >= 1, "discovery was a carried request");
   assert.ok(s.fake.calls().every((c) => c.argv[0] === "metadata" && c.cwd.startsWith(s.repo)), "carried, read-only, from the primary checkout's counterpart");
   // A carried request whose receipt does not verify blocks the stage with the discovery message, not a root fallback.
   s.fake.setBehavior({ tamper: "signedByOtherKey" });
@@ -141,4 +177,84 @@ test("[1311] the check stage of the snapshot route (class A of the snapshot) mak
   assert.notEqual(await main(["check", "--commit", s.sha, "--full-a", "--snapshot", s.snap.path], bad.io), 0);
   assert.match(bad.err.join("\n"), /cannot discover the repository's units: cargo metadata failed/);
   assert.deepEqual(s.fake.rootRequests().filter((r) => r.refused), []);
+});
+
+// ---- plain `check --commit` and the class A cargo scans of a snapshot (docs/GATE-CONTRACT.md: no export or copy; no dirty-tree condition) ----
+
+const ADMITTED_SCAN_SHAPES = [
+  (a) => a.length === 5 && a[0] === "metadata" && a[1] === "--no-deps" && a[2] === "--format-version" && a[3] === "1" && a[4] === "--locked",
+  (a) => a.length === 4 && a[0] === "metadata" && a[1] === "--format-version" && a[2] === "1" && a[3] === "--locked",
+  (a) => a.length === 2 && a[0] === "fetch" && a[1] === "--locked",
+  (a) => a.length === 7 && a[0] === "deny" && a[1] === "--frozen" && a[2] === "--metadata-path" && path.isAbsolute(a[3]) && a[4] === "--config" && path.isAbsolute(a[5]) && a[6] === "check",
+  (a) => a.length === 4 && a[0] === "audit" && a[1] === "--db" && path.isAbsolute(a[2]) && a[3] === "--no-fetch",
+];
+
+test("[plain check] `check --commit` on a broker host reads the gate's warm snapshot: no tmp export, every class A cargo scan is carried in the snapshot, and an uncommitted Cargo edit in the checkout is ignored", async (t) => {
+  const s = scenario(t);
+  const advisoryDb = fs.mkdtempSync(path.join(os.tmpdir(), "rk-sm-advdb-"));
+  const gateTmp = fs.mkdtempSync(path.join(os.tmpdir(), "rk-sm-gatetmp-"));
+  t.after(() => { fs.rmSync(advisoryDb, { recursive: true, force: true }); fs.rmSync(gateTmp, { recursive: true, force: true }); });
+  // Uncommitted edits to every Cargo input of the checkout: none of them is the commit's bytes.
+  const dirty = { "Cargo.toml": '[workspace]\nmembers = []\n# uncommitted\n', "Cargo.lock": "not a lockfile\n", "crates/a/Cargo.toml": "garbage = [\n" };
+  for (const [f, body] of Object.entries(dirty)) fs.writeFileSync(path.join(s.repo, f), body);
+  fs.writeFileSync(path.join(s.repo, "deny.toml"), "# untracked\n");
+  const seen = { plan: null, spawns: [], tmpEntries: [] };
+  const run = gateIo(t, s, { runScans: async (plan, opts) => {
+    seen.plan = plan;
+    seen.tmpEntries = [...fs.readdirSync(os.tmpdir()), ...fs.readdirSync(gateTmp)].filter((n) => n.startsWith("rk-gate-"));
+    // The client's own version probe starts in the checkout (a workspace of the primary checkout); the guard refuses a live launch, so it is answered here.
+    const spawn = (cmd, args, o) => { seen.spawns.push({ cmd, args, cwd: o?.cwd }); return args.includes("--version") ? { status: 0, stdout: "cargo 1.90.0 (fake)\n", stderr: "" } : opts.spawn(cmd, args, o); };
+    return runScans(plan, { ...opts, spawn, env: run.io.env, jobs: 1, exclude: (x) => x.tool !== "rustright", ensureAdvisoryDb: () => advisoryDb });
+  } });
+  run.io.snapshotRoot = path.dirname(s.snap.path);
+  run.io.env = { ...run.io.env, RK_GATE_TMPDIR: gateTmp };
+  const code = await main(["check", "--commit", s.sha], run.io);
+  assert.equal(code, 0, `${run.err.join("\n")}\n${run.out.join("\n")}`);
+  assert.deepEqual(seen.tmpEntries, [], "no rk-gate-* export directory was made");
+  assert.ok(run.out.some((l) => /build ownership held/.test(l)) && run.out.some((l) => /snapshot .* is commit/.test(l)), "the snapshot was selected under host ownership");
+  // The plan reads the snapshot: no scan is rooted in the checkout, and the checkout is only the client's starting directory.
+  const snapDir = fs.realpathSync(s.snap.path);
+  assert.equal(fs.realpathSync(seen.plan.roots.contentRoot), snapDir); assert.equal(fs.realpathSync(seen.plan.roots.liveRoot), snapDir);
+  const cargoScans = seen.plan.scans.filter((x) => x.class === "A" && x.tool === "rustright");
+  assert.ok(cargoScans.length >= 1 && cargoScans.every((x) => x.root === "live"), JSON.stringify(cargoScans.map((x) => [x.id, x.root])));
+  // Every cargo call a scan made had its working directory in the snapshot, except the client's version probe (it reads no file).
+  const cargoSpawns = seen.spawns.filter((x) => x.cmd === "rustright" && x.args[0] === "cargo" && !x.args.includes("--version"));
+  assert.ok(cargoSpawns.length >= 3 && cargoSpawns.every((x) => fs.realpathSync(x.cwd).startsWith(snapDir)), JSON.stringify(cargoSpawns.map((x) => x.cwd)));
+  assert.deepEqual(s.fake.rootRequests(), [], "zero root requests: nothing inside the snapshot, nothing in the checkout");
+  // The argvs the broker received: exactly the admitted shapes, and the scans' shapes all appeared.
+  const argvs = s.fake.calls().map((c) => c.argv);
+  assert.ok(argvs.every((a) => ADMITTED_SCAN_SHAPES.some((ok) => ok(a))), JSON.stringify(argvs));
+  for (const [i, name] of [[0, "metadata --no-deps"], [1, "full metadata"], [2, "fetch"], [3, "deny"], [4, "audit"]]) assert.ok(argvs.some((a) => ADMITTED_SCAN_SHAPES[i](a)), `${name} was carried: ${JSON.stringify(argvs)}`);
+  const deny = argvs.find((a) => a[0] === "deny");
+  for (const file of [deny[3], deny[5]]) assert.ok(file.startsWith(`${gateTmp}${path.sep}`), `${file} is in the gate-owned temporary directory, outside the checkout`);
+  // The probe is the one call that starts in the checkout: it reads no file of it.
+  const probes = seen.spawns.filter((x) => x.args.includes("--version"));
+  assert.ok(probes.length >= 1 && probes.every((x) => fs.realpathSync(x.cwd).startsWith(fs.realpathSync(s.repo))));
+  // The checkout's uncommitted bytes are untouched.
+  for (const [f, body] of Object.entries(dirty)) assert.equal(fs.readFileSync(path.join(s.repo, f), "utf8"), body);
+  // The release tier also plans the package listing: it is not one of the shapes the broker admits carried, so it is refused here with the
+  // gate's own code before anything is sent (never a root request in the checkout), and the stage is red until the broker admits it.
+  const before = s.fake.calls().length;
+  const red = gateIo(t, s, { runScans: async (plan, opts) => runScans(plan, { ...opts, spawn: (cmd, args, o) => (args.includes("--version") ? { status: 0, stdout: "cargo 1.90.0 (fake)\n", stderr: "" } : opts.spawn(cmd, args, o)), env: red.io.env, jobs: 1, exclude: (x) => x.tool !== "rustright", ensureAdvisoryDb: () => advisoryDb }) });
+  red.io.snapshotRoot = path.dirname(s.snap.path); red.io.env = { ...red.io.env, RK_GATE_TMPDIR: gateTmp };
+  assert.equal(await main(["check", "--commit", s.sha, "--rule-tier", "release"], red.io), 1);
+  assert.match(red.err.join("\n"), /RK_SNAPSHOT_CARRIED_REFUSED/);
+  assert.equal(s.fake.calls().slice(before).filter((c) => c.argv[0] === "package").length, 0, "the package listing was never sent");
+  assert.deepEqual(s.fake.rootRequests(), []);
+});
+
+test("[plain check] a direct host scans the snapshot in place with no tmp export, and the checkout's own files are never the scanned root", async (t) => {
+  const s = scenario(t);
+  const gateTmp = fs.mkdtempSync(path.join(os.tmpdir(), "rk-sm-gatetmp-"));
+  t.after(() => fs.rmSync(gateTmp, { recursive: true, force: true }));
+  let seen = null;
+  const run = gateIo(t, s, { runScans: async (plan) => { seen = { plan, tmp: [...fs.readdirSync(os.tmpdir()), ...fs.readdirSync(gateTmp)].filter((n) => n.startsWith("rk-gate-")) }; return { schema: "rightkit.deterministic-scans/1", ok: true, complete: true, classes: ["A"], scans: [], toolVersions: {}, cacheHits: [], notes: [], deferred: [] }; } });
+  Object.assign(run.io, { platform: "linux", resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }), snapshotBroker: undefined, snapshotRoot: path.dirname(s.snap.path) });
+  run.io.env = { ...run.io.env, RK_GATE_TMPDIR: gateTmp };
+  fs.writeFileSync(path.join(s.repo, "README.md"), "uncommitted\n");
+  assert.equal(await main(["check", "--commit", "HEAD"], { ...run.io, spawn: (cmd, args, opts = {}) => spawnSync(cmd === "cargo" && args[0] === "metadata" ? process.execPath : cmd, cmd === "cargo" && args[0] === "metadata" ? ["-e", "process.stdout.write(JSON.stringify({packages:[{name:'a',manifest_path:process.cwd()+'/crates/a/Cargo.toml',version:'0.1.0'}],workspace_root:process.cwd()}))"] : args, { encoding: "utf8", ...opts, env: opts.env ?? run.io.env }) }), 0, `${run.err.join("\n")}`);
+  assert.deepEqual(seen.tmp, [], "no rk-gate-* export directory was made");
+  const snapDir = fs.realpathSync(s.snap.path);
+  assert.equal(fs.realpathSync(seen.plan.roots.contentRoot), snapDir, "the scans read the warm snapshot");
+  assert.notEqual(fs.realpathSync(seen.plan.roots.contentRoot), fs.realpathSync(s.repo));
 });

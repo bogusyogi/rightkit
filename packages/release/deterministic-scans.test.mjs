@@ -2348,30 +2348,33 @@ test("tool version probes run outside the repository with pnpm hooks and corepac
   assert.ok(audit && audit.cwd.startsWith(CONTENT), "the scan runs where its lockfile is");
 });
 
-test("cargoLiveRoot: cargo scans take the cargoLive root, the plan records it and says why, and runScans resolves it to that directory for the command and the rustright probe", async () => {
+test("cargoLiveRoot: class B cargo scans take the cargoLive root, class A cargo scans keep the content root (the snapshot), the plan records it and says why, and the rustright probe runs in the checkout", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { cargoLiveRoot: "/primary/checkout" });
-  for (const s of plan.scans.filter((x) => x.tool === "rustright")) assert.equal(s.root, "cargoLive", s.id);
+  for (const s of plan.scans.filter((x) => x.tool === "rustright")) assert.equal(s.root, s.class === "B" ? "cargoLive" : "live", s.id);
+  assert.ok(plan.scans.some((x) => x.tool === "rustright" && x.class === "A") && plan.scans.some((x) => x.tool === "rustright" && x.class === "B"));
   assert.equal(plan.roots.cargoLiveRoot, "/primary/checkout");
-  assert.ok(plan.notes.some((n) => /broker host: cargo scans run in the primary checkout \/primary\/checkout/.test(n)), plan.notes.join(" | "));
+  assert.ok(plan.notes.some((n) => /broker host: class A cargo scans run in the snapshot as carried read-only requests, class B compiles .* primary checkout \/primary\/checkout/.test(n)), plan.notes.join(" | "));
   const calls = [];
   const base = fakeSpawn();
   const spawn = (command, args, options = {}) => { calls.push({ command: path.basename(command), args, cwd: options.cwd }); return base(command, args, options); };
   await runScans(plan, deps({ ...fs, spawn, probeDir: "/neutral/probe" }), { classes: ["A"] });
   const cargoCalls = calls.filter((c) => c.command === "rustright");
   assert.ok(cargoCalls.length > 0, "rustright ran");
-  for (const c of cargoCalls) assert.ok(norm(c.cwd) === "/primary/checkout" || norm(c.cwd).startsWith("/primary/checkout/"), `${c.args.join(" ")} ran in ${c.cwd}`); // norm: Windows joins with a backslash (rightkit#1262)
+  const inCheckout = (c) => norm(c.cwd) === "/primary/checkout" || norm(c.cwd).startsWith("/primary/checkout/"); // norm: Windows joins with a backslash (rightkit#1262)
+  const compiles = (c) => ["check", "clippy", "test", "rustdoc"].includes(c.args[1]);
+  for (const c of cargoCalls) assert.equal(inCheckout(c), c.args.includes("--version") || compiles(c), `${c.args.join(" ")} ran in ${c.cwd}: only the client's version probe and class B compiles start in the checkout; every class A scan runs in the snapshot`);
   const without = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]).plan;
   for (const s of without.scans.filter((x) => x.tool === "rustright")) assert.equal(s.root, "live", s.id);
   assert.equal(without.roots.cargoLiveRoot, undefined);
 });
 
-test("locked package listings run through the broker from the primary checkout and through cargo on direct hosts", async () => {
+test("locked package listings run in the content root (the snapshot, never the checkout) on a broker host and through cargo on direct hosts", async () => {
   const broker = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { cargoLiveRoot: "/primary/checkout", tier: "release" });
   const packageLists = broker.plan.scans.filter((s) => s.id.startsWith("cargo-package-list"));
   assert.ok(packageLists.length > 0, "the plan has a package-list scan");
   for (const s of packageLists) {
     assert.equal(s.deferred, undefined, s.id);
-    assert.equal(s.root, "cargoLive");
+    assert.equal(s.root, "live");
     assert.equal(s.tool, "rustright");
     assert.ok(s.args.includes("--locked"));
   }
@@ -2384,7 +2387,7 @@ test("locked package listings run through the broker from the primary checkout a
   const listing = calls.find((c) => c.args.includes("package") && c.args.includes("--list"));
   assert.ok(listing, "the package listing was executed, not deferred");
   assert.equal(path.basename(listing.command), "rustright");
-  assert.equal(norm(listing.cwd), "/primary/checkout"); // norm: Windows joins with a backslash (rightkit#1262)
+  assert.ok(!norm(listing.cwd).startsWith("/primary/checkout"), `the listing ran in ${listing.cwd}, not the checkout`); // norm: Windows joins with a backslash (rightkit#1262)
   const refused = await runScans(broker.plan, deps({ ...broker.fs, spawn: fakeSpawn({ failing: ["package"] }) }), { classes: ["A"] });
   assert.equal(refused.ok, false);
   assert.equal(refused.scans.find((s) => s.id === "cargo-package-list:foo").status, "fail", "a broker refusal blocks instead of becoming a deferral or a pass");

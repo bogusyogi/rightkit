@@ -193,11 +193,11 @@ test("E6 verifySnapshotDir: only the named pnpm dependency directories and the c
   assert.throws(check, (e) => e instanceof CheckError && /node_modules\/leak is a link resolving outside the snapshot/.test(e.message));
 });
 
-test("snapshot option: --commit and --full-a required, absolute real directory, no overlap, never with --worktree", (t) => {
+test("snapshot option: --commit required (--full-a optional), absolute real directory, no overlap, never with --worktree", (t) => {
   const s = scenario(t);
   const opt = (args) => () => snapshotOption(args, { checkout: s.repo });
   assert.throws(opt(["check", "--full-a", "--snapshot", s.dir]), CheckError);
-  assert.throws(opt(["check", "--commit", s.a, "--snapshot", s.dir]), CheckError);
+  assert.equal(opt(["check", "--commit", s.a, "--snapshot", s.dir])(), fs.realpathSync.native(s.dir), "the content checks of a snapshot (plain check --commit) need no --full-a");
   assert.throws(opt(["check", "--commit", s.a, "--full-a", "--snapshot", "relative/dir"]), /absolute/);
   assert.throws(opt(["check", "--commit", s.a, "--full-a", "--snapshot", path.join(s.root, "missing")]), /does not exist/);
   assert.throws(opt(["check", "--commit", s.a, "--full-a", "--snapshot", path.join(s.repo, "src")]), /overlap/);
@@ -540,8 +540,8 @@ test("rightkit#1257: a pnpm-lockfile failure (registry-dependent) never yields a
   assert.equal(run.out.find((l) => l.startsWith(DETERMINISTIC_MARKER)), undefined);
 });
 
-// (2) On a broker host the cargo scans read the checkout's workspace: an untracked member or a stray directory a members glob matches
-// must refuse the snapshot check before any cargo scan, never reach the commit's verdict. A fake cargo follows cargo's member rule.
+// (2) On a broker host the cargo scans read the SNAPSHOT: what the checkout's workspace holds (an untracked member, a stray directory a
+// members glob matches) is never read, so it neither refuses the check nor reaches its verdict.
 function cargoScenario(t) {
   const repo = tmp(t, "rk-sc-cargo-");
   git(repo, "init", "-q", "-b", "main");
@@ -583,29 +583,20 @@ function brokerIo(t, s) {
   } };
 }
 
-test("Oracle (79c4427b): an untracked workspace member in the checkout refuses a broker-host snapshot check before any cargo scan", async (t) => {
+test("Oracle (79c4427b), reversed by the contract (no dirty-tree condition): an untracked member and a stray members-glob directory in the checkout are ignored; the check runs on the commit's own workspace", async (t) => {
   const s = cargoScenario(t);
-  // Control: nothing extra in the checkout, so cargo sees the commit's members in both places and class A proceeds.
   const ok = brokerIo(t, s);
   assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], ok.io), 0, ok.err.join("\n"));
-  assert.equal(fs.realpathSync.native(ok.plans[0].roots.cargoLiveRoot), fs.realpathSync.native(s.repo), "cargo scans run in the checkout");
+  assert.equal(fs.realpathSync.native(ok.plans[0].roots.cargoLiveRoot), fs.realpathSync.native(s.repo), "the checkout is only where the client starts");
+  assert.ok(ok.plans[0].scans.filter((x) => x.tool === "cargo" && x.class === "A").every((x) => x.root === "live"), "class A cargo scans read the snapshot");
   write(s.repo, { "crates/b/Cargo.toml": '[package]\nname = "b"\nversion = "0.1.0"\nedition = "2021"\n' });
-  const run = brokerIo(t, s);
-  assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], run.io), 1);
-  assert.ok(run.err.some((l) => /cargo's workspace there is not the commit's: \.: checkout-only crates\/b\/Cargo\.toml; commit-only none/.test(l)), run.err.join("\n"));
-  assert.equal(run.plans.length, 0, "no scan planned or run");
-  assert.equal(fs.existsSync(s.sentinel), false, "only cargo metadata ran");
-});
-
-test("Oracle (79c4427b): a stray directory a members glob matches refuses a broker-host snapshot check (cargo cannot read the checkout)", async (t) => {
-  const s = cargoScenario(t);
   fs.mkdirSync(path.join(s.repo, "crates", "scratch-dir"), { recursive: true });
   write(s.repo, { "crates/scratch-dir/notes.txt": "agent scratch\n" });
   const run = brokerIo(t, s);
-  assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], run.io), 1);
-  assert.ok(run.err.some((l) => /cargo's workspace there is not the commit's: \. \(checkout\): cargo metadata failed: .*failed to load manifest for workspace member/.test(l)), run.err.join("\n"));
-  assert.equal(run.plans.length, 0);
-  assert.equal(fs.existsSync(s.sentinel), false);
+  assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], run.io), 0, run.err.join("\n"));
+  assert.equal(run.plans.length, 1, "the scans were planned from the commit's members");
+  assert.deepEqual(run.plans[0].scans.filter((x) => x.id.startsWith("cargo-metadata")).map((x) => x.cwd ?? "."), ["."], "crates/b is not in the commit, so no scan names it");
+  assert.equal(fs.existsSync(s.sentinel), false, "only cargo metadata ran");
 });
 
 // ============================================================================================================================

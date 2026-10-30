@@ -76,7 +76,7 @@ test("the fixture broker accepts a compile and refuses every other class as a sn
   assert.equal(h.fx.calls().length, CARGO_CLASSIFICATION.filter((r) => r.class === "compile").length, "the fixture broker took exactly the compile requests and refused the rest before submitting them");
 });
 
-test("with the post-fix broker flag (readOnlySnapshots) only the lock-bound allowlist is accepted: metadata --no-deps, metadata and cargo about with --frozen; every other read-only subcommand stays refused", { skip: POSIX }, (t) => {
+test("with the post-fix broker flag (readOnlySnapshots) only the lock-bound allowlist is accepted: metadata, fetch --locked, deny, audit --db --no-fetch and cargo about --frozen; every other read-only subcommand stays refused", { skip: POSIX }, (t) => {
   const h = host(t, { readOnlySnapshots: true });
   for (const row of CARGO_CLASSIFICATION.filter((r) => r.class === "read-only")) {
     const r = h.call(row.argv);
@@ -85,7 +85,16 @@ test("with the post-fix broker flag (readOnlySnapshots) only the lock-bound allo
   }
   assert.equal(acceptedAfterFix(["metadata", "--no-deps"]), true);
   assert.equal(acceptedAfterFix(["metadata", "--frozen", "--format-version", "1"]), true);
-  assert.equal(acceptedAfterFix(["metadata", "--locked"]), false, "with dependencies it must be --frozen");
+  assert.equal(acceptedAfterFix(["metadata", "--locked"]), true, "with dependencies --locked is enough (online is allowed, rustright 52a9ed76)");
+  assert.equal(acceptedAfterFix(["metadata", "--offline"]), false, "with dependencies it must be --locked or --frozen");
+  // The scan shapes (rustright 52a9ed76): exactly these, each flag once, spaced form, files absolute and outside the live checkout.
+  assert.equal(acceptedAfterFix(["fetch", "--locked"]), true);
+  for (const no of [["fetch"], ["fetch", "--locked", "--offline"], ["fetch", "--locked=true"]]) assert.equal(acceptedAfterFix(no), false, no.join(" "));
+  assert.equal(acceptedAfterFix(["deny", "--frozen", "--metadata-path", "/m.json", "--config", "/d.toml", "check"]), true);
+  for (const no of [["deny", "check", "--hide-inclusion-graph"], ["deny", "--frozen", "--frozen", "check"], ["deny", "--config=/d.toml", "check"], ["deny", "--metadata-path", "m.json", "check"], ["deny", "--frozen"], ["deny", "--offline", "check"], ["deny", "--config", "/d.toml", "--", "check"]]) assert.equal(acceptedAfterFix(no), false, no.join(" "));
+  assert.equal(acceptedAfterFix(["audit", "--db", "/db", "--no-fetch"]), true);
+  for (const no of [["audit"], ["audit", "--db", "/db"], ["audit", "--no-fetch"], ["audit", "--db", "db", "--no-fetch"], ["audit", "--db", "/db", "--no-fetch", "--deny", "warnings"]]) assert.equal(acceptedAfterFix(no), false, no.join(" "));
+  for (const no of [["metadata", "--no-deps", "--config", "x=y"], ["metadata", "--no-deps", "-Zfoo"], ["+nightly", "metadata", "--no-deps"], ["metadata", "--no-deps", "--manifest-path", "/x"], ["metadata", "--no-deps", "--", "x"]]) assert.equal(acceptedAfterFix(no), false, no.join(" "));
   assert.equal(acceptedAfterFix(["about", "generate", "--frozen"]), true);
   assert.equal(acceptedAfterFix(["about", "generate", "--locked"]), false);
 });

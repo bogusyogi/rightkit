@@ -1684,8 +1684,8 @@ test("an installed copy of the package, with no RightKit checkout, prints the sa
   git(repo, "commit", "-q", "-m", "attributes after the fact");
   const installed = installedCopy(t);
   assert.equal(fs.existsSync(path.join(installed, "..", "..", "..", "ci")), false, "nothing of a RightKit checkout is around the installed copy");
-  const gate = spawnSync(process.execPath, [path.join(installed, "bin", "rightkit-gate.mjs"), "check", "--repo", repo, "--commit", "HEAD", "--rule-tier", "release"], { cwd: path.dirname(installed), encoding: "utf8" });
-  const compileTier = spawnSync(process.execPath, [path.join(installed, "bin", "rightkit-gate.mjs"), "check", "--repo", repo, "--commit", "HEAD"], { cwd: path.dirname(installed), encoding: "utf8" });
+  const gate = spawnSync(process.execPath, [path.join(installed, "bin", "rightkit-gate.mjs"), "check", "--repo", repo, "--commit", "HEAD", "--rule-tier", "release"], { cwd: path.dirname(installed), env: { ...process.env, GITHUB_ACTIONS: "true" }, encoding: "utf8" });
+  const compileTier = spawnSync(process.execPath, [path.join(installed, "bin", "rightkit-gate.mjs"), "check", "--repo", repo, "--commit", "HEAD"], { cwd: path.dirname(installed), env: { ...process.env, GITHUB_ACTIONS: "true" }, encoding: "utf8" });
   assert.match(compileTier.stdout, /^check: \d+ problem\(s\) in \w{12} \(13 rules, compile tier, /m, "the default is the compile tier: the 0.6.6 rule set");
   const preflightRun = spawnSync(process.execPath, [path.join(REPO_ROOT, "scripts", "preflight.mjs"), "--repo", repo, "--commit", "HEAD"], { encoding: "utf8" });
   assert.equal(gate.status, 1, gate.stdout + gate.stderr);
@@ -1699,7 +1699,7 @@ test("an installed copy of the package, with no RightKit checkout, prints the sa
   assert.deepEqual(spawnSync(process.execPath, [path.join(installed, "bin", "rightkit-gate.mjs"), "check", "--list"], { cwd: path.dirname(installed), encoding: "utf8" }).stdout.trim().split("\n"), RULES.map((r) => `${r.id} (${r.gap}) ${tierOf(r)}`));
   // The same installed copy through the right-release command, at the same (release) tier: `right-release check` owes the compile
   // tier by default like `rightkit-gate check` (TIERS), so the tier is asked for.
-  const cli = spawnSync(process.execPath, [path.join(installed, "cli", "right-release.mjs"), "check", "--repo", repo, "--commit", "HEAD", "--rule-tier", "release"], { cwd: path.dirname(installed), encoding: "utf8" });
+  const cli = spawnSync(process.execPath, [path.join(installed, "cli", "right-release.mjs"), "check", "--repo", repo, "--commit", "HEAD", "--rule-tier", "release"], { cwd: path.dirname(installed), env: { ...process.env, GITHUB_ACTIONS: "true" }, encoding: "utf8" });
   assert.equal(cli.status, 1);
   assert.deepEqual(findingLines(cli.stdout), lines);
 });
@@ -1720,7 +1720,7 @@ test("the packed tarball ships app-check.mjs and no tests, and its rightkit-gate
   const untar = spawnSync("tar", ["-xzf", path.join(out, info.filename), "-C", root, "--strip-components=1"], { encoding: "utf8" });
   if (untar.error || untar.status !== 0) { t.skip(`tar is unavailable here: ${untar.error?.message ?? untar.stderr.trim().slice(0, 200)}`); return; }
   const { repo } = appRepo(t, FIXTURE);
-  const run = (...args) => spawnSync(process.execPath, [path.join(root, "bin", "rightkit-gate.mjs"), "check", "--repo", repo, ...args], { cwd: out, encoding: "utf8" });
+  const run = (...args) => spawnSync(process.execPath, [path.join(root, "bin", "rightkit-gate.mjs"), "check", "--repo", repo, ...args], { cwd: out, env: { ...process.env, GITHUB_ACTIONS: "true" }, encoding: "utf8" });
   const red = run("--commit", "HEAD");
   assert.equal(red.status, 1, red.stdout + red.stderr);
   assert.deepEqual(findingLines(red.stdout).filter((l) => l.startsWith("FAIL")).map((l) => l.split(":")[0]), ["FAIL qa-platform (G13)", "FAIL skip-checks (G17)"]);

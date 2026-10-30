@@ -60,7 +60,7 @@ test("rightkit-gate check judges the captured declared inputs named by RIGHTKIT_
   const run = async (files) => {
     const root = captured(t, files);
     const out = []; const err = [];
-    const code = await main(["check", "--commit", "HEAD", "--repo", repo], { out: (s) => out.push(s), err: (s) => err.push(s), cwd: repo, appCheck: async () => 0, env: { ...process.env, RIGHTKIT_COMPILE_INPUTS: root }, classA: undefined, runClassA: undefined });
+    const code = await main(["check", "--commit", "HEAD", "--repo", repo], { out: (s) => out.push(s), err: (s) => err.push(s), cwd: repo, appCheck: async () => 0, env: { ...process.env, GITHUB_ACTIONS: "true", RIGHTKIT_COMPILE_INPUTS: root }, classA: undefined, runClassA: undefined });
     return { code, text: [...out, ...err].join("\n") };
   };
   const red = await run({ "dist/app.js": "function (\n" });

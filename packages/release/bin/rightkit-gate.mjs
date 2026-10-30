@@ -238,13 +238,13 @@ function workspaceMetadata({ root, spawn, cargoCommand, dir, realpath }) {
  * { present, units: [{ name, dir, publish }], cargoDir, uncovered }.
  */
 /**
- * Where the snapshot export lives. The RustRight broker refuses a job whose workspace is on the system volume
- * (RK_INTERNAL_DRIVE_REFUSED: agents never write to the internal drive), and os.tmpdir() is on it on every Mac and Dell, so on a
- * host with a disk-policy scratch root (/Volumes/D/scratch, D:\scratch) the export goes there. RK_GATE_TMPDIR overrides; os.tmpdir()
- * is the fallback where no scratch root exists (CI runners, cloud containers), where plain cargo runs and nothing refuses the system
- * volume. (rightkit#1215)
+ * Where the gate's own temporary files live (cargo-deny's metadata file and config overlay, read by the broker by absolute path). The
+ * RustRight broker refuses paths on the system volume (RK_INTERNAL_DRIVE_REFUSED: agents never write to the internal drive), and
+ * os.tmpdir() is on it on every Mac and Dell, so on a host with a disk-policy scratch root (/Volumes/D/scratch, D:\scratch) they go
+ * there. RK_GATE_TMPDIR overrides; os.tmpdir() is the fallback where no scratch root exists (CI runners, cloud containers). The gate
+ * exports nothing and copies no source: this is not a source location (docs/GATE-CONTRACT.md, 2026-10-29: no export or copy).
  */
-export function exportTmpRoot({ env = process.env, platform = process.platform, exists = fs.existsSync, policy = null } = {}) {
+export function gateTmpRoot({ env = process.env, platform = process.platform, exists = fs.existsSync, policy = null } = {}) {
   if (env.RK_GATE_TMPDIR) return env.RK_GATE_TMPDIR;
   try {
     const roots = scratchRoots(policy ?? readDiskPolicy(), { platform, env });
@@ -252,64 +252,6 @@ export function exportTmpRoot({ env = process.env, platform = process.platform, 
     if (found) return found;
   } catch { /* no readable policy: the system temp dir */ }
   return os.tmpdir();
-}
-
-/** The files cargo metadata, deny and audit read, in the repository root and in every workspace that has a manifest. */
-export const CARGO_INPUT_NAMES = Object.freeze(["Cargo.toml", "Cargo.lock", "deny.toml", "rust-toolchain.toml", "rust-toolchain", ".cargo"]);
-
-/**
- * The Cargo inputs of the live checkout `root` that are not blob-identical to `snapshot`'s (a commit or tree): a changed or deleted
- * tracked input, or any untracked file (ignored ones included, cargo reads them) under those paths. Empty means the broker may scan
- * the primary checkout for exactly the snapshot's result. `manifests` are the snapshot's tracked Cargo.toml paths (posix).
- */
-export function cargoInputsDiffer({ root, snapshot, manifests, spawn = defaultSpawn }) {
-  const git = (...a) => spawn("git", a, { cwd: root });
-  // Every manifest directory and every ancestor up to the root: cargo reads a .cargo/config.toml or a rust-toolchain file from any of them.
-  const dirs = new Set([""]);
-  for (const m of manifests) { const parts = path.posix.dirname(m).split("/").filter((x) => x && x !== "."); for (let i = 1; i <= parts.length; i++) dirs.add(parts.slice(0, i).join("/")); }
-  const dirList = [...dirs];
-  const paths = dirList.flatMap((d) => CARGO_INPUT_NAMES.map((n) => (d ? `${d}/${n}` : n)));
-  // Pathspecs go to git in bounded batches: a repository with many crates (RightKit: ~1000 input paths) overflows Windows' 32767-
-  // character command line in one argv (ENAMETOOLONG on the Dell, 2026-10-27; G4 was the same for rustfmt). Each batch's results
-  // are merged; a failed batch fails the whole listing closed.
-  const batches = pathspecBatches(paths);
-  const listedAll = batches.map((b) => git("ls-tree", "-r", "-z", snapshot, "--", ...b));
-  const badList = listedAll.find((r) => failed(r));
-  if (badList) return [`(cannot list ${snapshot}: ${why(badList)})`];
-  const snap = new Map();
-  for (const listed of listedAll) for (const entry of text(listed).split("\0").filter(Boolean)) { const tab = entry.indexOf("\t"); const [, , id] = entry.slice(0, tab).split(" "); snap.set(entry.slice(tab + 1), id); }
-  const differ = new Set();
-  for (const [p, id] of snap) {
-    const live = path.join(root, ...p.split("/"));
-    let liveId = null;
-    // Cargo reads the live bytes, so the live bytes are hashed raw (`--no-filters`: no clean filter, eol or text attribute can make
-    // two different byte strings look the same). The one accepted difference is an exact CRLF checkout of an LF blob (D13, Dell
-    // 2026-10-27: core.autocrlf), which every TOML/toolchain reader treats as the same newline; anything else differs.
-    try { if (fs.statSync(live).isFile()) { const h = git("hash-object", "--no-filters", "--", live); liveId = failed(h) ? null : text(h).trim(); } } catch { liveId = null; }
-    if (liveId !== id && !isCrlfCheckoutOf({ git, id, live })) differ.add(p);
-  }
-  // Untracked under the input paths, ignored files included: cargo reads a .cargo/config.toml or a deny.toml whether or not git tracks it.
-  for (const batch of batches) {
-    const others = git("ls-files", "-z", "--others", "--", ...batch);
-    if (failed(others)) differ.add(`(cannot list untracked Cargo inputs: ${why(others)})`); // fail closed: an unlisted input is an unknown input
-    else for (const p of text(others).split("\0").filter(Boolean)) if (!snap.has(p)) differ.add(p);
-    // A tracked input the snapshot lacks (added in HEAD after the snapshot, say) is live-only too.
-    const tracked = git("ls-files", "-z", "--", ...batch);
-    if (failed(tracked)) differ.add(`(cannot list tracked Cargo inputs: ${why(tracked)})`);
-    else for (const p of text(tracked).split("\0").filter(Boolean)) if (!snap.has(p)) differ.add(p);
-  }
-  return [...differ].sort();
-}
-
-/** True only when the live file's bytes are exactly blob `id` with every LF written as CRLF (an autocrlf checkout); fails closed. */
-export function isCrlfCheckoutOf({ git, id, live, readFile = fs.readFileSync }) {
-  try {
-    const blob = git("cat-file", "blob", id);
-    if (failed(blob)) return false;
-    const committed = text(blob);
-    if (committed.includes("\r")) return false;
-    return readFile(live, "utf8") === committed.replace(/\n/g, "\r\n");
-  } catch { return false; }
 }
 
 /**
@@ -2338,6 +2280,40 @@ export async function main(argv, io = {}) {
   // class A scan (lockfiles, cargo-deny, cargo-audit, secrets, licences, manifests, workflow lint, syntax...) over the whole tree of the
   // commit, never a diff. Nothing compiles. The RustRight broker runs exactly this before it admits any compile. `--list`,
   // `--print-baseline` and `--only` stay app-check-only views.
+  // `check --commit <sha>` without `--snapshot` reads the gate's one warm snapshot of that commit, selected the way
+  // every `--to` stage selects it: host-wide build ownership first, then one sync of the commit into the gate-owned source directory, then the
+  // check of that snapshot below. There is no export and no copy of the source (docs/GATE-CONTRACT.md, 2026-10-29); the checkout's own files are
+  // never read, so an uncommitted edit in it is ignored. Hosted CI has no warm snapshot: its runner checkout is the commit, scanned in place.
+  const commitCheck = sub === "check"
+    && !["--full-a", "--snapshot", "--worktree", "--plan", "--list", "--print-baseline", "--only"].some((f) => args.includes(f)) && o.classA !== false && snapshotRouteSelected(o);
+  if (commitCheck) {
+    const sc = await import("../snapshot-check.mjs");
+    const snap = await import("../snapshot.mjs");
+    const { acquireBuildOwnership, ownershipFile } = await import("../build-ownership.mjs");
+    const at = option("--repo") ? path.resolve(o.cwd, option("--repo")) : o.cwd;
+    const top0 = o.spawn("git", ["rev-parse", "--show-toplevel"], { cwd: at });
+    if (failed(top0) || !text(top0).trim()) { o.err("rightkit-gate: not inside a git repository"); return 2; }
+    let own = o.buildOwnership ?? null; let ownHere = false;
+    try {
+      const checkout = fs.realpathSync.native(path.resolve(text(top0).trim()));
+      const selected = sc.commitOf(checkout, option("--commit") ?? "HEAD", o.spawn);
+      const snapshotsAt = o.snapshotRoot ?? snap.snapshotRoot({ platform: o.platform, env: o.env });
+      if (!own) {
+        try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot }), stage: "check", snapshot: path.join(snapshotsAt, snap.repositoryOf(checkout).key), commit: selected.commit, platform: o.platform, env: o.env }); ownHere = true; }
+        catch (e) { if (e.code !== "busy" && e.code !== "refused") throw e; o.err(`rightkit-gate: RK_CHECK_ERROR: ${e.message}; nothing ran${e.code === "refused" ? ", nothing created" : ""}`); return 2; }
+        o.out(`rightkit-gate: build ownership ${own.joined ? "joined" : "held"} ${own.handle}${own.reclaimed ? ` (reclaimed from ${own.reclaimed.from}: ${own.reclaimed.proofs.join("; ")})` : ""}`);
+      }
+      let synced;
+      try { synced = (o.syncSnapshot ?? snap.syncSnapshot)({ checkout, rev: selected.commit, root: snapshotsAt }); }
+      catch (e) { o.err(`rightkit-gate: ${e.code === "error" ? sc.CHECK_ERROR : "BLOCKED"}: snapshot ${e.message}; nothing ran`); return e.code === "error" ? 2 : 1; }
+      o.out(`rightkit-gate: snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})`);
+      const next = [...argv]; const ci = next.indexOf("--commit");
+      if (ci >= 0) next.splice(ci, 2, "--commit", synced.commit); else next.push("--commit", synced.commit);
+      next.push("--snapshot", synced.path);
+      return await main(next, { ...io, buildOwnership: own });
+    } catch (e) { if (e instanceof sc.CheckError) { o.err(`rightkit-gate: ${sc.CHECK_ERROR}: ${e.message}`); return 2; } throw e; }
+    finally { if (ownHere) { const r = own.release(); if (r?.released === false && !own.joined) o.err(`rightkit-gate: build ownership ${own.handle} kept: ${r.why}`); } }
+  }
   if ((sub === "check" || (!sub && args.includes("--all"))) && args.includes("--snapshot") && !o.buildOwnership) {
     // Host-wide build ownership (../build-ownership.mjs; GATE-CONTRACT §1): held from before the first snapshot read through the
     // end of the check, so no other request can sync the snapshot while class A runs in it. A nested gate whose
@@ -2637,11 +2613,9 @@ export async function main(argv, io = {}) {
   }
 
   const ac = o.abort ?? new AbortController();
-  let exportRoot = null;
   let snapshotGitConfig = null;
   let cargoShimDir = null;
   const cleanup = () => {
-    if (exportRoot) fs.rmSync(exportRoot, { recursive: true, force: true });
     if (cargoShimDir) fs.rmSync(cargoShimDir, { recursive: true, force: true });
     if (snapshotGitConfig) { fs.rmSync(snapshotGitConfig, { force: true }); try { fs.rmdirSync(path.dirname(snapshotGitConfig)); } catch { /* not empty: leave it, the next exact sync prunes it */ } }
   };
@@ -2654,6 +2628,9 @@ export async function main(argv, io = {}) {
     // with the broker's signed receipt verified (snapshot-metadata.mjs). The checkout, git and a direct host keep the plain spawn.
     let snapshotSpawn = (c, a, opts) => o.spawn(c, a, opts);
     let discoveryBroker = null;
+    // On a broker host, the spawn every Class A Cargo scan of the snapshot runs through: a Cargo call inside the snapshot is a carried read-only
+    // request of one of the exact admitted shapes (snapshot-metadata.mjs), anything else passes through (node, git, the client's probe).
+    let scanSpawn = null;
     if (snapshot && snapshotB) {
       // Direct host: no broker grant to satisfy, so no config-only .git; the snapshot is scanned and compiled in place.
       repo = snapshotB;
@@ -2671,27 +2648,14 @@ export async function main(argv, io = {}) {
         o.writeFile(snapshotGitConfig, `[remote "origin"]\n\turl = ${originUrl}\n`);
       }
     } else if (snapshot) {
-      exportRoot = fs.mkdtempSync(path.join(exportTmpRoot({ env: o.env, platform: o.platform, exists: o.exists }), "rk-gate-"));
-      repo = path.join(exportRoot, "repo");
-      // Every file of the commit or tree: read-tree into a private index, then checkout-index. `git archive` would leave out files
-      // marked export-ignore in .gitattributes, so they would never be scanned; this export has no such exclusion.
-      const indexEnv = { ...o.env, GIT_INDEX_FILE: path.join(exportRoot, "index") };
-      const made = o.spawn("git", ["read-tree", snapshot], { cwd: root, env: indexEnv });
-      // git builds each path as <prefix><index path> with "/" separators and creates only the directories below the prefix, so the
-      // export root must exist and the prefix use "/": a "C:\\...\\repo\\" prefix made checkout-index fail on Windows
-      // (publish run 40282215043: "cannot create directory at ...\\repo\\.github").
-      fs.mkdirSync(repo, { recursive: true });
-      const x = failed(made) ? made : o.spawn("git", ["checkout-index", "--all", "--force", `--prefix=${repo.split(path.sep).join("/")}/`], { cwd: root, env: indexEnv });
-      if (failed(made) || failed(x)) { o.err(`${tag} cannot export ${snapshot}: ${why(made) || why(x)}`); return 2; }
-      // rustright binds the tracked .rightkit-local-build.json grant to the origin URL in .git/config (rustright-policy local_build.rs),
-      // and the export has no .git, so cargo metadata in it was refused on every broker host and no push passed the hook (rightkit#1215).
-      // A config-only .git carries exactly the source checkout's origin and is not a repository to git (no HEAD, no objects), so nothing
-      // can run git against the export. No origin (a checkout without a remote): nothing is written and rustright decides as before.
-      const origin = o.spawn("git", ["config", "--get", "remote.origin.url"], { cwd: root });
-      const originUrl = failed(origin) ? "" : text(origin).trim();
-      if (originUrl) {
-        o.mkdir(path.join(repo, ".git"), { recursive: true });
-        o.writeFile(path.join(repo, ".git", "config"), `[remote "origin"]\n\turl = ${originUrl}\n`);
+      // No export, no copy of the source (docs/GATE-CONTRACT.md, 2026-10-29): a host that has the gate's warm snapshot reads the commit
+      // through it (`check --commit` selects it above, `--to` stages hand it over). What reaches here is a run whose checkout IS the
+      // commit: hosted CI's runner checkout, or HEAD for the legacy gate run. It is scanned in place, only after proving it is that commit.
+      if (classAOnly && snapshotRouteSelected(o)) { o.err(`${tag} BLOCKED: class A of a commit reads the gate's warm snapshot of it, never the checkout; run \`rightkit-gate check --commit <sha>\` (it selects the snapshot) or pass \`--snapshot <dir>\``); return 2; }
+      const want = git("rev-parse", "--verify", `${snapshot}^{commit}`); const head = git("rev-parse", "--verify", "HEAD^{commit}");
+      if (snapshot !== "HEAD" && (failed(want) || failed(head) || text(want).trim() !== text(head).trim())) {
+        o.err(`${tag} BLOCKED: ${snapshot} is not HEAD of this checkout, and this run has no gate-owned snapshot of it: only the commit the checkout already is can be scanned in place (hosted CI's runner checkout); check another commit with \`check --commit <sha>\` on a host with the gate's warm snapshot`);
+        return 2;
       }
     }
     // Every file of the snapshot, once: units, manifests, lockfiles and the changed set are all read from what is scanned, never from
@@ -2730,6 +2694,7 @@ export async function main(argv, io = {}) {
           }
         } catch (error) { o.err(`${tag} BLOCKED: ${error.code ?? "RK_SNAPSHOT_BROKER"}: ${error.message}; nothing compiled`); return 1; }
         snapshotSpawn = snapshotCargoSpawn({ spawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, snapshotRoot: repo, env: o.env, err: o.err, broker: () => discoveryBroker });
+        scanSpawn = snapshotCargoSpawn({ spawn: defaultSpawnAsync, carrySpawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, snapshotRoot: repo, env: o.env, err: o.err, broker: () => discoveryBroker });
       }
       rust = discoverRustWorkspaces({ root: repo, spawn: snapshotSpawn, cargoCommand, tracked, untracked, fixtures, readFile: readSnap });
       npm = discoverNpmUnits({ root: repo, tracked, readFile: readSnap, exists: o.exists });
@@ -2833,7 +2798,7 @@ export async function main(argv, io = {}) {
         // (its directory is an input above, which holds its Cargo.toml, Cargo.lock, deny.toml, .cargo and .rightkit).
         ...(rust.workspaces.some((w) => w.cargoDir === ".") ? ["Cargo.toml", "Cargo.lock", "deny.toml"] : []),
         ".cargo", "rust-toolchain.toml", "rust-toolchain", "clippy.toml", "rustfmt.toml", ...npmRootFiles, ...npmRoots.filter((r) => r !== ".").flatMap((r) => npmRootFiles.map((f) => `${r}/${f}`))])];
-      // Batched like cargoInputsDiffer: one argv with every input path overflows Windows' command line in a large repository.
+      // Batched (pathspecBatches): one argv with every input path overflows Windows' command line in a large repository.
       const dirtyRuns = pathspecBatches(inputs).map((batch) => git("status", "--porcelain", "--untracked-files=all", "--", ...batch));
       const dirtyFailed = dirtyRuns.find((r) => failed(r));
       const dirtyFiles = dirtyFailed ? [`git status failed: ${why(dirtyFailed)}`] : dirtyRuns.flatMap((r) => text(r).split(/\r?\n/)).filter(Boolean).filter((l) => !l.includes("node_modules"));
@@ -2870,38 +2835,12 @@ export async function main(argv, io = {}) {
     }
     const rustScope = restricted ? scopeNames : null;
 
-    // A broker host: rustright refuses every cargo command but a locked metadata outside the app's primary checkout
-    // (RK_NOT_PRIMARY_CHECKOUT), so class A's cargo scans cannot read the export there. They run in the primary checkout, allowed only
-    // when every Cargo input in it is blob-identical to the snapshot's; a live edit to a manifest, lock, deny.toml or .cargo/ refuses
-    // the check with the paths named. A direct host (cloud, CI) keeps reading the export. (rightkit#1215, third cause)
+    // A broker host: the class A Cargo scans of the snapshot (metadata, fetch, cargo-deny, cargo-audit) are carried read-only requests that run IN
+    // THE SNAPSHOT (scanSpawn above), so an uncommitted edit in the checkout is ignored, never refused (docs/GATE-CONTRACT.md: no dirty-tree
+    // condition; class A reads the snapshot). The checkout is only where the RustRight client starts (it refuses to start anywhere else) and
+    // where class B's carried compiles name their working directory; `cargoLiveRoot` is that directory, never a source.
     let cargoLiveRoot = null;
-    if (classAOnly && snapshot && executor.kind === "broker" && manifests.length) {
-      const differing = cargoInputsDiffer({ root, snapshot, manifests, spawn: (c, a, opts) => o.spawn(c, a, opts) });
-      if (differing.length) {
-        const resolved = git("rev-parse", "--verify", String(snapshot));
-        o.err(`${tag} BLOCKED: the broker scans Cargo inputs in the primary checkout, and these differ from ${(failed(resolved) ? String(snapshot) : text(resolved).trim()).slice(0, 12)}: ${differing.join(", ")}; commit or restore them, then run the check again`);
-        return 1;
-      }
-      // A snapshot check's cargo scans then read the checkout's WORKSPACE, which can hold more than its tracked inputs: an untracked
-      // member, or a stray directory a members glob (crates/*) matches. Cargo's own member list there must equal the commit's (from
-      // the snapshot), or the verdict would not be the commit's (Oracle review of 79c4427b). A checkout cargo cannot read refuses too.
-      if (snapshotA) {
-        const memberDiff = [];
-        const membersOf = (base, dir) => workspaceMetadata({ root: base, spawn: base === repo ? snapshotSpawn : (c, a, opts) => o.spawn(c, a, opts), cargoCommand, dir, realpath: fs.realpathSync }).members.map((m) => m.manifest).sort();
-        for (const ws of rust.workspaces) {
-          let inCommit; let inCheckout;
-          try { inCommit = membersOf(repo, ws.cargoDir); } catch (e) { memberDiff.push(`${ws.cargoDir} (commit): ${e.message}`); continue; }
-          try { inCheckout = membersOf(root, ws.cargoDir); } catch (e) { memberDiff.push(`${ws.cargoDir} (checkout): ${e.message}`); continue; }
-          const extra = inCheckout.filter((m) => !inCommit.includes(m)); const missing = inCommit.filter((m) => !inCheckout.includes(m));
-          if (extra.length || missing.length) memberDiff.push(`${ws.cargoDir}: checkout-only ${extra.join(", ") || "none"}; commit-only ${missing.join(", ") || "none"}`);
-        }
-        if (memberDiff.length) {
-          o.err(`${tag} BLOCKED: the broker scans Cargo in the primary checkout, and cargo's workspace there is not the commit's: ${memberDiff.join("; ")}; remove or commit what differs, then run the check again`);
-          return 1;
-        }
-      }
-      cargoLiveRoot = root;
-    }
+    if (executor.kind === "broker" && manifests.length && snapshot && (snapshotA || snapshotB)) cargoLiveRoot = root;
     // One Cargo workspace and lock per crate (rightkit#1285): the reach between crates is the manifests' path dependencies, read from the
     // gated snapshot. A crate that is selected selects its transitive dependents (checked, not re-linted); a vendored source it patches
     // in selects the crate. Neither is derivable from a single lock, so a layout that cannot read them is refused, never planned narrower.
@@ -2918,12 +2857,9 @@ export async function main(argv, io = {}) {
         externalInputs = vendorOwners(crateUnits, (u) => o.readFile(path.join(repo, u.dir, "Cargo.toml")));
       } catch (e) { o.err(`${tag} BLOCKED: cannot read the path dependencies between the crate workspaces (${e.message}); their reverse dependents would go unchecked, so nothing is planned`); return 1; }
     }
-    // A broker snapshot compile: its cargo scans are carried requests that name the commit's snapshot and run from the primary checkout
-    // (rustright refuses cargo anywhere else); the checkout is the request's working directory, never its source.
-    if (snapshotBroker && manifests.length) cargoLiveRoot = root;
     let fullPlan;
     fullPlan = planScans({
-      // Class A of a commit or tree reads only that snapshot: every scan, cargo's included, runs in the export, never in the live
+      // Class A of a commit or tree reads only that snapshot: every scan, cargo's included, runs in the snapshot, never in the live
       // checkout (which may hold other bytes). Compiles (class B) use the live checkout, whose tree the dirty check pinned to HEAD.
       changed, contentRoot: repo, liveRoot: (classAOnly && snapshot) || snapshotB ? repo : root, trustedRoot: snapshotA ?? snapshotB ?? root, includeTests: true, rustScope, cargoCommand, targetDirs, cargoShim: Boolean(cargoShim),
       tier: fullA ? "release" : (option("--rule-tier") ?? "compile"), cargoLiveRoot,
@@ -3083,6 +3019,9 @@ export async function main(argv, io = {}) {
     const scanResult = await (o.runScans ?? runScans)(plan, {
       classes: classAOnly ? ["A"] : ["A", "B"], jobs, testJobs, classBJobs, signal: ac.signal, ...(cache ? { cache } : {}),
       ...(census ? { spawn: census.wrapSpawn(defaultSpawnAsync) } : {}),
+      // A broker host: every Cargo call a class A scan makes inside the snapshot is a carried read-only request; the gate's own temporary files
+      // (cargo-deny's metadata and config) live in a gate-owned directory the broker can read, outside the checkout.
+      ...(scanSpawn ? { spawn: scanSpawn, tmpRoot: gateTmpRoot({ env: o.env, platform: o.platform, exists: o.exists }) } : {}),
       // The runtime cargo wrapper is first on PATH and named in CARGO for every scan of a snapshot compile; CARGO (a path named by the
       // wrapper's identity) is in every scan's cache key, so no result cached without the wrapper or with another map is reused.
       ...(cargoShim ? { env: cargoShim.scanEnv, ...(cargoShim.sentinel ? { cargoSentinel: cargoShim.sentinel } : {}), cargoLedger: { dir: cargoShim.ledgerDir } } : {}),

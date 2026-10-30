@@ -186,19 +186,22 @@ test("[7.22] output directory: absolute, outside the snapshot and the checkout, 
   assert.equal(isGenerationTarget("d:\\.RIGHTKIT-managed\\rightkit-build-control\\ws\\0123456789ab\\g\\002\\target", ["D:\\.rightkit-managed\\rightkit-build-control\\ws"], "win32"), true, "Windows paths compare case-insensitively");
 });
 
-test("[7.22] stage evidence and the unsigned fields: freshness, attribution and toolchain are signed and equal; verdict, timingsMs, exit, diagnosticsPath, executor and refreshed are present with their types", (t) => {
+test("[7.22] stage evidence and the unsigned fields: freshness, attribution and toolchain are signed and equal; timingsMs, exit, diagnosticsPath, executor are present with their types, and the retired verdict and refreshed are refused", (t) => {
   for (const [tamper, why] of [["noStageEvidence", /no stageEvidence/], ["noFreshness", /freshness is missing/], ["freshnessReceiptOnly", /freshness is missing/], ["freshnessSignedOnly", /freshness is missing/], ["freshnessDiffers", /freshness differs from the signed stage evidence/]]) {
     const c = receiptCase(t, { tamper });
     assert.throws(() => c.check(), (e) => e.code === "evidence" && why.test(e.message), tamper);
   }
-  for (const [tamper, field] of [["noVerdict", "verdict"], ["noTimings", "timingsMs"], ["noExit", "exit"], ["noDiagnostics", "diagnosticsPath"], ["noRefreshed", "refreshed"]]) {
+  for (const [tamper, field] of [["noTimings", "timingsMs"], ["noExit", "exit"], ["noDiagnostics", "diagnosticsPath"]]) {
     const c = receiptCase(t, { tamper });
     assert.throws(() => c.check(), (e) => e.code === "evidence" && new RegExp(`receipt ${field} is missing or has the wrong type`).test(e.message), tamper);
   }
   // Wrong types are as bad as missing ones.
-  for (const [field, value] of [["verdict", "passed"], ["timingsMs", [1]], ["exit", "0"], ["signal", {}], ["diagnosticsPath", ""], ["refreshed", {}]]) {
+  for (const [field, value] of [["timingsMs", [1]], ["exit", "0"], ["signal", {}], ["diagnosticsPath", ""]]) {
     const c = receiptCase(t); c.receipt[field] = value;
     assert.throws(() => c.check(), new RegExp(`receipt ${field} is missing or has the wrong type`), `${field}=${JSON.stringify(value)}`);
+  }
+  for (const [tamper, field] of [["retiredVerdict", "verdict"], ["retiredRefreshed", "refreshed"]]) {
+    assert.throws(() => receiptCase(t, { tamper }).check(), (e) => e.code === "evidence" && new RegExp(`receipt carries the retired field ${field}`).test(e.message), tamper);
   }
 });
 
@@ -225,18 +228,57 @@ test("[F7 #4] a compile-class command (check, clippy, build, doc, rustc, test, a
   }
 });
 
-test("[F7 #4] freshness is still required for every command, a copy carried by one side only is refused even for a non-compile command, and verdict, exit, timingsMs, diagnosticsPath and refreshed are required for every command", (t) => {
+test("[#1311] a read-only carried command's receipt passes with freshness (or the whole census) absent on both sides", (t) => {
   for (const argv of NON_COMPILE) {
-    for (const tamper of ["noFreshness", "freshnessReceiptOnly", "freshnessSignedOnly"]) {
+    for (const tamper of ["noFreshness", "freshnessOnly", "none"]) {
+      assert.equal(receiptCase(t, { argv, tamper }).check().payload.result.status, "SUCCEEDED", `${argv.join(" ")} / ${tamper}`);
+    }
+    // The whole census absent on both sides: a read-only metadata job has none.
+    assert.equal(receiptCase(t, { argv, tamper: "noStageCensus" }).check().payload.result.status, "SUCCEEDED", `${argv.join(" ")} / no census`);
+  }
+});
+
+test("[#1311] a compile-class receipt without a census fails; freshness on one side only fails (either side); a tampered freshness fails; the parity check is unchanged for read-only commands", (t) => {
+  for (const argv of COMPILE) {
+    assert.throws(() => receiptCase(t, { argv, tamper: "noStageCensus" }).check(), (e) => e.code === "evidence" && /is missing from the signed stage evidence or the receipt/.test(e.message), `${argv.join(" ")} / no census`);
+    assert.throws(() => receiptCase(t, { argv, tamper: "noFreshness" }).check(), (e) => e.code === "evidence" && /freshness is missing from the signed stage evidence or the receipt/.test(e.message), `${argv.join(" ")} / no freshness on either side`);
+    for (const tamper of ["freshnessReceiptOnly", "freshnessSignedOnly"]) {
       assert.throws(() => receiptCase(t, { argv, tamper }).check(), (e) => e.code === "evidence" && /freshness is missing/.test(e.message), `${argv.join(" ")} / ${tamper}`);
     }
+  }
+  for (const argv of NON_COMPILE) {
+    // Present on the receipt side only (the signed stage evidence has none).
+    assert.throws(() => receiptCase(t, { argv, tamper: "freshnessSignedOnly" }).check(), (e) => e.code === "evidence" && /receipt freshness differs from the signed stage evidence/.test(e.message), `${argv.join(" ")} / receipt side only`);
+    // Present on the signed side only (the receipt dropped it).
+    assert.throws(() => receiptCase(t, { argv, tamper: "freshnessReceiptOnly" }).check(), (e) => e.code === "evidence" && /receipt freshness differs from the signed stage evidence/.test(e.message), `${argv.join(" ")} / signed side only`);
+    assert.throws(() => receiptCase(t, { argv, tamper: "freshnessDiffers" }).check(), (e) => e.code === "evidence" && /receipt freshness differs from the signed stage evidence/.test(e.message), `${argv.join(" ")} / tampered`);
     for (const tamper of ["attributionReceiptOnly", "attributionSignedOnly"]) {
       assert.throws(() => receiptCase(t, { argv, tamper }).check(), (e) => e.code === "evidence" && /attribution differs from the signed stage evidence/.test(e.message), `${argv.join(" ")} / ${tamper}`);
     }
-    for (const [tamper, field] of [["noVerdict", "verdict"], ["noExit", "exit"], ["noTimings", "timingsMs"], ["noDiagnostics", "diagnosticsPath"], ["noRefreshed", "refreshed"]]) {
+    for (const [tamper, field] of [["noExit", "exit"], ["noTimings", "timingsMs"], ["noDiagnostics", "diagnosticsPath"]]) {
       assert.throws(() => receiptCase(t, { argv, tamper: tamper }).check(), (e) => e.code === "evidence" && new RegExp(`receipt ${field} is missing or has the wrong type`).test(e.message), `${argv.join(" ")} / ${tamper}`);
     }
+    for (const [tamper, field] of [["retiredVerdict", "verdict"], ["retiredRefreshed", "refreshed"]]) {
+      assert.throws(() => receiptCase(t, { argv, tamper }).check(), (e) => e.code === "evidence" && new RegExp(`receipt carries the retired field ${field}`).test(e.message), `${argv.join(" ")} / ${tamper}`);
+    }
   }
+});
+
+test("[#1311] a nested adapter job's compile children are still validated when the job signs no freshness, attribution or toolchain", (t) => {
+  const JOBID = JOB; const argv = ["exec", "tauri", "build"];
+  const child = (fx, over = {}) => ({ requestId: "22222222-2222-4222-8222-222222222222", parentRequestId: JOBID, shim: "cargo", argv: ["build", "--locked"], cwd: path.join(fx.snapshot, "native"), exitCode: 0, status: "SUCCEEDED", outputDir: path.join(fx.outputDir, "nested", "native"), ...over });
+  const run = (tamper, over = {}) => {
+    const fx = makeFakeBroker(t, { inputs: ["gen/in.txt"] });
+    const made = writeSnapshotRequest({ controlRoot: fx.controlRoot, commit: fx.sb.commit, snapshot: fx.sb.snapshot, declaredInputs: ["gen/in.txt"], handle: fx.handle, primaryCwd: fx.checkout, argv, nonce: "a".repeat(64) });
+    const receipt = signedReceipt(fx, { id: JOBID, carrier: made.carrier, argv, workspace: fx.checkout, tamper, adapter: "rightkit-pnpm", children: [child(fx, over)] });
+    return () => verifySnapshotReceipt(receipt, { pins: fx.pins, jobId: JOBID, carrier: made.carrier, argv, workspace: fx.checkout, checkout: fx.checkout, outputRoots: [fx.wsRoot], platform: process.platform, adapter: "rightkit-pnpm" });
+  };
+  const ok = run("freshnessOnly")();
+  assert.equal(ok.nestedChildren.length, 1, "the adapter job verifies and its compile child is carried");
+  assert.equal(run("noFreshness")().nestedChildren.length, 1, "no freshness on either side is fine for an adapter job");
+  assert.throws(run("childFailed"), (e) => e.code === "nested" && /exited 1, not 0/.test(e.message));
+  assert.throws(run("none", { cwd: "/elsewhere" }), (e) => e.code === "nested" && /outside the snapshot/.test(e.message));
+  assert.throws(run("nestedCopyDiffers"), (e) => e.code === "nested" && /differs from the signed list/.test(e.message));
 });
 
 // ---- RR's receipt shapes (item 4 row 4.18, answers at rustright HEAD f4cf1170) ----
@@ -258,7 +300,6 @@ test("[RR 4.18] top-level fields: diagnosticsPath may be null, timingsMs needs a
   assert.equal(receiptCase(t, { tamper: "timingsNulls" }).check().payload.result.status, "SUCCEEDED");
   assert.throws(() => receiptCase(t, { tamper: "timingsMissingKey" }).check(), /receipt timingsMs is missing or has the wrong type/);
   assert.throws(() => receiptCase(t, { tamper: "exitNullNoSignal" }).check(), /exit null and signal null are not a success/);
-  assert.throws(() => receiptCase(t, { tamper: "verdictCopyDiffers" }).check(), /receipt verdict differs from the signed payload/);
   const bad = receiptCase(t); bad.receipt.exit = 1;
   assert.throws(() => bad.check(), /not a success/);
   const signalled = receiptCase(t); signalled.receipt.exit = null; signalled.receipt.signal = "SIGKILL"; delete signalled.receipt.provenance.payload.exit; delete signalled.receipt.provenance.payload.signal;

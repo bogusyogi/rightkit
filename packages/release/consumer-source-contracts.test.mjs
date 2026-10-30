@@ -377,7 +377,7 @@ test("the consumer rules are app-check rules: rightkit-gate check reports them a
   fs.writeFileSync(path.join(repo, ".github/workflows/codeql.yml"), codeql(V4390, V4383));
   git("add", "-A"); git("commit", "-q", "-m", "dependabot #263");
   // The consumer contracts are release tier (app-check.mjs TIERS): the release tier reports them, and the shipping commands refuse on them.
-  const gate = spawnSync(process.execPath, [path.join(PACKAGE, "bin", "rightkit-gate.mjs"), "check", "--repo", repo, "--commit", "HEAD", "--rule-tier", "release"], { encoding: "utf8" });
+  const gate = spawnSync(process.execPath, [path.join(PACKAGE, "bin", "rightkit-gate.mjs"), "check", "--repo", repo, "--commit", "HEAD", "--rule-tier", "release"], { env: { ...process.env, GITHUB_ACTIONS: "true" }, encoding: "utf8" });
   assert.equal(gate.status, 1, gate.stderr);
   assert.match(gate.stdout, /^FAIL workflow-action-pair \(CA-04\): \.github\/workflows\/codeql\.yml:20 job analyze runs github\/codeql-action\/analyze@24c54180a607 \(v4\.38\.3\) but github\/codeql-action\/init@6f2ac81f5cd8 \(v4\.39\.0\)/m);
   assert.equal(guardCommand({ args: ["build"], cwd: repo }), null, "build owes the compile tier: a consumer-contract finding does not stop it");

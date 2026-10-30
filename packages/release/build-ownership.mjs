@@ -44,8 +44,8 @@
 //         unreadable stat: the process is held. Residual on POSIX, stated plainly: a descendant that started a
 //         new session, dropped the variable, runs outside the snapshot directory, names it in no argument AND holds no file in it
 //         open or mapped at the instant the nets sample it (it reads between samples) is invisible; a sampled net cannot prove
-//         such a process will not read next. (On macOS an Apple platform binary no longer escapes that way: hidden means held
-//         after the baseline unless lineage clears it.) Another user's unreadable processes are
+//         such a process will not read next. (On macOS a hidden-environment process is attributed by no start time: it is reported in
+//         the output and never held; rightkit#1313.) Another user's unreadable processes are
 //         skipped on the premise that they cannot read this user's managed root.
 //       Any host: a reboot after the record was written ends every process it covered.
 //   - if a broker request may have been submitted, `rustright snapshot-lease status` reports REAPED for that snapshot & handle.
@@ -1024,17 +1024,17 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null }) {
         proofs.push(`no process has a working directory, executable, open or mapped file or argument inside or naming ${owner.snapshot}`);
       }
     }
-    // macOS: a process whose environment `ps eww` does not show is held after the anchor unless its lineage clears it (row 5.24a).
+    // macOS: a process whose environment `ps eww` does not show cannot be attributed to this ownership by the token net. Start time plus a
+    // hidden environment is no attribution (rightkit#1313: an unrelated same-user process started during the run held every later gate), so
+    // such a process is REPORTED here and never held. Only lineage the gate recorded (tracked child groups and intents above), the exact
+    // ownership token, an actual snapshot user, and the broker lease hold a release.
     if (typeof probe.hiddenHolders === "function") {
       let hidden;
-      try { hidden = probe.hiddenHolders({ owner, anchorMs: skipBefore, recorded }); } catch (e) { throw new Error(`processes whose environment is hidden cannot be classified (${e.message})`); }
-      if (hidden) {
-        const others = hidden.filter((h) => h.pid !== selfPid);
-        if (others.length) {
-          const shown = others.slice(0, 8);
-          throw new Error(`${others.length} process(es) may still be this ownership's work (hidden environment, held after the anchor unless its lineage clears it): ${shown.map((h) => `${h.pid}: ${h.why}`).join("; ")}${others.length > shown.length ? `; and ${others.length - shown.length} more (pids ${others.slice(shown.length).map((h) => h.pid).join(", ")})` : ""}`);
-        }
-        proofs.push("every live process of this user whose environment is hidden started before the anchor or descends from a process that did");
+      try { hidden = probe.hiddenHolders({ owner, anchorMs: skipBefore, recorded }); } catch { hidden = null; }
+      const others = (hidden ?? []).filter((h) => h.pid !== selfPid);
+      if (others.length) {
+        const shown = others.slice(0, 8);
+        proofs.push(`reported, not held: ${others.length} unattributed process(es) of this user with a hidden environment started after the anchor (no recorded lineage, token or snapshot use): ${shown.map((h) => `${h.pid}: ${h.why}`).join("; ")}${others.length > shown.length ? `; and ${others.length - shown.length} more (pids ${others.slice(shown.length).map((h) => h.pid).join(", ")})` : ""}`);
       }
     }
   } else if (!rebooted) {

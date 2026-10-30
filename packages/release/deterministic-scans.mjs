@@ -766,9 +766,11 @@ export function planScans({
   // Which scans this plan owes (Adrian, 2026-10-26; app-check.mjs TIERS): "compile" leaves out the scans added after @rightkit/release
   // 0.6.6 (shellcheck, and actionlint's shellcheck requirement) until every app builds through the door again; "release" plans everything.
   tier = "compile",
-  // A broker host (rustright): cargo scans run in this primary checkout instead of the content root, because the RustRight client refuses
-  // every cargo command but a locked metadata outside the app's primary checkout (RK_NOT_PRIMARY_CHECKOUT). The gate sets it only after
-  // proving the checkout's Cargo inputs are blob-identical to the snapshot's (cargoInputsDiffer); null keeps the content/live roots.
+  // A broker host (rustright): the primary checkout's directory. The RustRight client refuses to start anywhere that is not a Cargo workspace
+  // of the app's primary checkout (RK_NOT_PRIMARY_CHECKOUT), so (a) every CLASS B cargo scan (a compile the snapshot carrier admits) is
+  // started from here, naming the snapshot as its source, and (b) the client's version probe runs here. CLASS A cargo scans (metadata,
+  // package list, cargo-deny, cargo-audit) never read the checkout: they keep the content root (the snapshot) and run there as carried
+  // read-only requests (snapshot-metadata.mjs), so an uncommitted edit in the checkout cannot reach them. null on a direct host.
   cargoLiveRoot = null,
   // { [cargoDir]: absolute directory }: the checkout's resolved target directory per Cargo workspace, set as CARGO_TARGET_DIR on
   // that workspace's cargo scans when the scans read a snapshot (the door's commit compile, joint plan step 4c).
@@ -856,7 +858,7 @@ export function planScans({
   const under = (prefix) => files.filter((f) => f.startsWith(prefix));
   if (!["compile", "release"].includes(tier)) throw new Error(`planScans: tier must be compile or release, not ${JSON.stringify(tier)}`);
   let scans = []; const notes = [];
-  if (cargoLiveRoot) notes.push(`broker host: cargo scans run in the primary checkout ${cargoLiveRoot}, whose Cargo inputs match the checked snapshot (rustright refuses cargo outside the primary checkout)`);
+  if (cargoLiveRoot) notes.push(`broker host: class A cargo scans run in the snapshot as carried read-only requests, class B compiles are carried requests started from the primary checkout ${cargoLiveRoot} (uncommitted edits there never reach a scan)`);
   // A snapshot compile's scans carry its target map (item 7): the map is part of every scan's cache key, so no result cached by a
   // live-checkout run (or a compile with another map) is taken for one that writes to these directories.
   const snapshotTargets = targetDirs ? { RK_SNAPSHOT_TARGETS: canonicalJson(targetDirs) } : {};
@@ -880,7 +882,11 @@ export function planScans({
   const plainDir = (d) => !ABSOLUTE_PATH.test(d) && !d.split("/").includes("..") && SAFE_UNIT_DIR.test(d);
   const cargoWs = cleanDir(cargoDir);
   if (!plainDir(cargoWs)) throw new TypeError("planScans: cargoDir must be a plain repository-relative directory");
-  const cargoIn = (ws, ...args) => ({ tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...everyFailure(args)], ...(ws !== "." ? { cwd: ws } : {}), ...(cargoLiveRoot ? { root: "cargoLive" } : {}), ...(targetDirs?.[ws] ? { env: { CARGO_TARGET_DIR: targetDirs[ws] } } : {}) });
+  const cargoBase = (ws, args) => ({ tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...everyFailure(args)], ...(ws !== "." ? { cwd: ws } : {}), ...(targetDirs?.[ws] ? { env: { CARGO_TARGET_DIR: targetDirs[ws] } } : {}) });
+  // Class B (compiles): started from the primary checkout on a broker host, the snapshot carrier names the source.
+  const cargoIn = (ws, ...args) => ({ ...cargoBase(ws, args), ...(cargoLiveRoot ? { root: "cargoLive" } : {}) });
+  // Class A (reads Cargo inputs, compiles nothing): always the content root, the snapshot or the commit's own tree.
+  const cargoReadIn = (ws, ...args) => cargoBase(ws, args);
   const unitMap = (units, kind) => {
     if (units === null) return null;
     if (!Array.isArray(units)) throw new TypeError(`planScans: ${kind}Units must be an array of { name, dir }`);
@@ -1118,18 +1124,18 @@ export function planScans({
     else notes.push("suite-api: RightKit's own generator contract runs from the in-tree gate and CI, not from this installed copy");
   }
   if (rustTouched) {
-    for (const ws of touchedWs) add({ id: `cargo-metadata${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, ...metadataArgs()) });
+    for (const ws of touchedWs) add({ id: `cargo-metadata${wsIdSuffix(ws)}`, class: A, ...cargoReadIn(ws, ...metadataArgs()) });
     // Locked package listings are observations in RustRight (#1216). They run through the selected executor
     // from the checked Cargo inputs, just like metadata; an executor refusal remains a failed scan.
-    if (tier === "release") for (const name of crateNames.filter((n) => rustMap?.get(n).publish !== false)) add({ id: rustScanId.packageList(name), class: A, tier: "release", ...cargoIn(wsOf(name), "package", "-p", crateOf(name), "--list", "--allow-dirty", "--locked") });
+    if (tier === "release") for (const name of crateNames.filter((n) => rustMap?.get(n).publish !== false)) add({ id: rustScanId.packageList(name), class: A, tier: "release", ...cargoReadIn(wsOf(name), "package", "-p", crateOf(name), "--list", "--allow-dirty", "--locked") });
   }
   for (const ws of [...configWs].sort()) {
     // Offline against the pinned database. The pin commit is part of the command (env), so a pin change is a different scan, and the
     // placeholders are filled at run time from the materialised checkout (runScans).
     const pin = advisoryPin ?? (advisoryPin = readAdvisoryPin());
     const pinEnv = { RK_ADVISORY_DB_COMMIT: pin.commit };
-    add({ id: `cargo-deny${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "deny", "--frozen", "--metadata-path", "{advisoryMetadata}", "--config", "{advisoryDenyConfig}", "check"), env: pinEnv, advisoryDb: "deny", advisoryPin: pin });
-    add({ id: `cargo-audit${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "audit", "--db", "{advisoryDb}", "--no-fetch"), env: pinEnv, advisoryDb: "audit", advisoryPin: pin });
+    add({ id: `cargo-deny${wsIdSuffix(ws)}`, class: A, ...cargoReadIn(ws, "deny", "--frozen", "--metadata-path", "{advisoryMetadata}", "--config", "{advisoryDenyConfig}", "check"), env: pinEnv, advisoryDb: "deny", advisoryPin: pin });
+    add({ id: `cargo-audit${wsIdSuffix(ws)}`, class: A, ...cargoReadIn(ws, "audit", "--db", "{advisoryDb}", "--no-fetch"), env: pinEnv, advisoryDb: "audit", advisoryPin: pin });
   }
   // The audit policy is the consumer's own: every package.json script that is exactly `pnpm audit <flags>` (only --prod, --dev,
   // --audit-level <low|moderate|high|critical> are accepted) declares one, and the scan runs the strictest of them all: a dependency
@@ -1914,6 +1920,9 @@ export async function runScans(plan, options = {}) {
   // An AbortSignal: once aborted, no further scan starts, running children are killed (process tree) and every unfinished scan is "not-run" with code CANCELLED.
   const signal = options.signal; const sig = signal ? { signal } : {};
   const { contentRoot, liveRoot, cargoLiveRoot = null } = plan.roots;
+  // Where the gate's own temporary files live (cargo-deny's metadata file and config overlay): a directory the gate owns, never inside the
+  // checkout or the snapshot; the broker reads them by absolute path (options.tmpRoot, else the system temp directory).
+  const tmpRoot = options.tmpRoot ?? os.tmpdir();
   const rootDir = (r) => (r === "content" ? contentRoot : r === "parent" ? path.dirname(contentRoot) : r === "cargoLive" ? (cargoLiveRoot ?? liveRoot) : liveRoot);
   const selected = plan.scans.filter((s) => classes.includes(s.class) && !exclude(s));
   const ordered = [...selected.filter((s) => s.class === SCAN_CLASS.A), ...selected.filter((s) => s.class === SCAN_CLASS.B)];
@@ -2114,7 +2123,7 @@ export async function runScans(plan, options = {}) {
       // which allows no licence at all.
       denyToml = deps.defaultDenyToml ?? fs.readFileSync(new URL("./deny-default.toml", import.meta.url), "utf8");
     }
-    const overlay = prepare({ denyToml, dbDir: db.dir, pin: s.advisoryPin });
+    const overlay = prepare({ denyToml, dbDir: db.dir, pin: s.advisoryPin, tmpRoot });
     return { dbDir: db.dir, configPath: overlay.configPath, cleanup: overlay.cleanup };
   }
 
@@ -2140,7 +2149,15 @@ export async function runScans(plan, options = {}) {
         else if (out.length) { status = "fail"; detail = out.join("; "); }
       } else {
         const scanDir = path.join(rootDir(s.root), s.cwd ?? "");
-        const p = await probe(s.tool, scanDir);
+        // The RustRight client's version probe starts in a Cargo workspace of the primary checkout; a class A cargo scan's own directory is
+        // in the snapshot, so its probe uses the checkout's counterpart (reading no file of it), or the checkout when it has none.
+        let probeAt = scanDir;
+        if (cargoLiveRoot && s.root !== "cargoLive" && (s.tool === "rustright" || s.tool === "cargo")) {
+          const counterpart = path.join(cargoLiveRoot, s.cwd ?? "");
+          let isDir = false; try { isDir = fs.statSync(counterpart).isDirectory(); } catch { isDir = false; }
+          probeAt = isDir ? counterpart : cargoLiveRoot;
+        }
+        const p = await probe(s.tool, probeAt);
         row.toolVersion = p.ok ? p.version : null;
         let missingDep = null; let depVersionProblem = null; const depVersions = [];
         for (const dep of s.requires ?? []) {
@@ -2158,7 +2175,8 @@ export async function runScans(plan, options = {}) {
           // A cargo request that builds the commit snapshot through the broker (options.snapshotBroker) is never served from or written
           // to the scan cache: each run must carry its own request and verify the broker's own signed evidence.
           const viaSnapshotBroker = Boolean(deps.snapshotBroker) && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo");
-          if (cache && !viaSnapshotBroker) {
+          const carriedRead = Boolean(deps.snapshotBroker) && s.class === SCAN_CLASS.A && (s.tool === "rustright" || s.tool === "cargo"); // a snapshot compile never reuses a cargo read either
+          if (cache && !viaSnapshotBroker && !carriedRead) {
             try {
               const digest = cache.digest(s);
               // The analyzers a scan runs through (actionlint's shellcheck) judge it too, so their versions key it as well.
@@ -2199,7 +2217,7 @@ export async function runScans(plan, options = {}) {
                 if (fetchTimer.signal.aborted || fetched?.error?.code === "ETIMEDOUT") return { ...row, status: "fail", code: "TIMEOUT", detail: `cargo fetch --locked for cargo-deny ran longer than ${Math.round(fetchLimit / 60000)} min and was killed with its process tree` };
                 return { ...row, status: "fail", code: "FETCH", detail: `cargo fetch --locked for cargo-deny failed (crate sources must be local before deny): ${fetched?.error?.message ?? (tail(fetched) || `exit ${fetched?.status}`)}` };
               }
-              const metadataDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-deny-metadata-"));
+              const metadataDir = fs.mkdtempSync(path.join(tmpRoot, "rk-deny-metadata-"));
               const metadataFile = path.join(metadataDir, "metadata.json");
               const metadata = await deps.spawn(p.command, [...args.slice(0, at), ...metadataArgs({ noDeps: false })], { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env }, stdoutFile: metadataFile, ...sig });
               // AUX_METADATA: the auxiliary metadata that feeds deny could not be produced; not a deny finding, so never a deterministic red (rightkit#1257).
