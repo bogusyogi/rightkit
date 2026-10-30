@@ -1125,16 +1125,16 @@
     "rightkit-qa": {
       "pkId": "PK14",
       "id": "ci/consumers/rightkit-qa/src/main.rs",
-      "dependency": "rightkit-qa = { version = \"=0.9.2\" }",
+      "dependency": "rightkit-qa = { version = \"=0.10.0\" }",
       "extraDependencies": [
         "serde_json = \"1\""
       ],
       "gateEvidence": "no assets needed; in-memory values only; default features only; no ci/asset-gated.json entry needed",
       "consumes": "PK14-4 named QA glue consumers per 01-packages.md: MailRight tauri_run.rs:109 QA registration, HeardRight and ScrapeRight journey runners; exercised modules: scenario, config, settings, check, storage, util (crates/rightkit-qa/src/lib.rs)",
       "files": {
-        "Cargo.toml": "aa9ad847f3641163e687b09c49a70ec7d9828e6c200b7d5cb51ac3136f376527",
-        "README.md": "3d6be678710e55ebe61736faeb97359c1ac4effc0c684edfcd6b8735266e8b7c",
-        "src/main.rs": "0554f464c188361d578f4f2e3e2cb6d3467ec2917c4246b6ca41a30a44739834"
+        "Cargo.toml": "3da67d5ecdd3beee68e1f9661a7adc5be82a77f6e9131b584efb06ccabb7e61b",
+        "README.md": "d5b3c9c5f502f2e2f9280ca0b946ef3159fcbe912ba7cd1eaea71432e163c231",
+        "src/main.rs": "5968d3ccfc1dcec8152beb5bae6d914d0cae846f0d06f7b1ba7220c33af3f5b9"
       },
       "aggregateSha256": "dbc38563a81c35c3538c25ca56e55cc340de5ccffc749b3da1ddd1f42e1244f1"
     },

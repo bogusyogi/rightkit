@@ -1,6 +1,6 @@
-# rightkit-qa 0.9.2 registry consumer (PK14)
+# rightkit-qa 0.10.0 registry consumer (PK14)
 
-Standalone consumer, outside the workspace, pinning `rightkit-qa =0.9.2` exactly with default
+Standalone consumer, outside the workspace, pinning `rightkit-qa =0.10.0` exactly with default
 features only. It exercises the pure public surface: run-kind parsing and the scenario capture and
 tier rules, `QaConfig::parse` on a committed sample, `Settings` parsing and typed reads, `check`
 over a JSON result, and the digest, base64 and secret-leak helpers.

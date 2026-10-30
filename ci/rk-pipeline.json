@@ -80,7 +80,7 @@
         "reason": "ci/asset-gated.json: ONNX Runtime and model files; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-qa": {
-        "version": "0.9.2",
+        "version": "0.10.0",
         "allow": [
           "allow_missing_assets"
         ],

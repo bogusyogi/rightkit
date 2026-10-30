@@ -501,7 +501,7 @@
     "rightkit-pdf": "0.3.4",
     "rightkit-platform-rules": "0.1.0",
     "rightkit-playback": "0.3.0",
-    "rightkit-qa": "0.9.2",
+    "rightkit-qa": "0.10.0",
     "rightkit-qa-driver": "0.7.0",
     "rightkit-record": "0.3.3",
     "rightkit-review": "0.4.0",

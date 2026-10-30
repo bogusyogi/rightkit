@@ -72,7 +72,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-pdf` | crates.io | 0.3.4 | 0.3.3 | 1 | viewright | - |
 | `rightkit-platform-rules` | crates.io | 0.1.0 | 0.1.0 | 1 | postright | - |
 | `rightkit-playback` | crates.io | 0.3.0 | 0.3.0 | 2 | cutright, scraperight | - |
-| `rightkit-qa` | crates.io | 0.9.2 | 0.9.1 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 18 stale |
+| `rightkit-qa` | crates.io | 0.10.0 | 0.9.1 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 18 stale |
 | `rightkit-qa-driver` | crates.io | 0.7.0 | 0.7.0 | 0 | none | - |
 | `rightkit-record` | crates.io | 0.3.3 | 0.3.3 | 1 | cutright | - |
 | `rightkit-review` | crates.io | 0.4.0 | 0.4.0 | 2 | cutright, postright | - |

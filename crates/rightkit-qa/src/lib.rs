@@ -77,6 +77,8 @@ pub mod retention;
 pub mod run_tests;
 pub mod scenario;
 pub mod settings;
+/// Signing evidence of a gate-signed QA run: parse `RIGHTKIT_QA_SIGNING_EVIDENCE` and require a launched file to hash to its signed record.
+pub mod signing;
 pub mod steps;
 pub mod storage;
 pub mod suite;

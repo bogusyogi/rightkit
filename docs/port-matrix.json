@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-10-30T01:36:37Z",
-  "rightkitHead": "d94a724",
+  "generatedAt": "2026-10-30T07:18:06Z",
+  "rightkitHead": "f564266",
   "legend": [
     {
       "state": "adopted",
@@ -1781,7 +1781,7 @@
       "group": "mandatory-set app",
       "dir": "/Volumes/D/claude/heardright",
       "present": true,
-      "head": "4219b5e",
+      "head": "849f60e",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -3034,7 +3034,7 @@
       "group": "mandatory-set app",
       "dir": "/Volumes/D/claude/pulse",
       "present": true,
-      "head": "82f3d64",
+      "head": "6bc80f9",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -3093,7 +3093,7 @@
         }
       },
       "flags": {
-        "prePushHook": "committed",
+        "prePushHook": "absent",
         "switches": true,
         "journeys": false,
         "releaseConfig": "code"
@@ -4483,7 +4483,7 @@
       "group": "tool consumer",
       "dir": "/Volumes/D/claude/legion",
       "present": true,
-      "head": "cee2fc0",
+      "head": "5732509",
       "profile": null,
       "inMandatorySet": false,
       "declaration": {
@@ -11743,9 +11743,9 @@
         "desktop-qa"
       ],
       "private": false,
-      "source": "0.9.2",
+      "source": "0.10.0",
       "registry": "0.9.1",
-      "staged": "0.9.2",
+      "staged": "0.10.0",
       "dir": "crates/rightkit-qa",
       "toMoveFrom": {},
       "cells": {
