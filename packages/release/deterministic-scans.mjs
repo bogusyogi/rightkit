@@ -1085,14 +1085,16 @@ export function planScans({
   const actionlintConfig = exists(path.join(contentRoot, ".github/actionlint.yaml")) ? ["-config-file", ".github/actionlint.yaml"] : [];
   // actionlint lints every run: script with shellcheck only when shellcheck is found, and otherwise passes silently; class A
   // requires it (`requires`), so a host without it fails the scan instead of skipping the shell checks.
-  if (workflowFiles.length) add({ id: "actionlint", class: A, tool: "actionlint", requires: tier === "release" ? ["shellcheck"] : [], args: [...actionlintConfig, ...workflowFiles], root: "content", runScriptLimit: { files: workflowFiles, bytes: RUN_SCRIPT_LIMIT_BYTES } });
+  if (workflowFiles.length) add({ id: "actionlint", class: A, tool: "actionlint", requires: ["shellcheck"], args: [...actionlintConfig, ...workflowFiles], root: "content", runScriptLimit: { files: workflowFiles, bytes: RUN_SCRIPT_LIMIT_BYTES } });
   // Standalone shell scripts (SellRight's deploy scripts failed SC2154, SC2030/2031 and SC2016 in CI): every tracked .sh/.bash file,
   // with ShellCheck's own defaults and the repository's .shellcheckrc (data, not code). actionlint covers only workflow run: blocks.
   // A script whose shebang names another shell (zsh, fish) is not ShellCheck's to judge, so it is left out, never failed.
   const otherShell = (f) => { try { return /^#!.*\b(zsh|fish|pwsh|powershell)\b/.test(String(readFile(path.join(contentRoot, f))).split("\n", 1)[0]); } catch { return false; } };
   const shellFiles = files.filter((f) => /\.(sh|bash)$/.test(f) && !/(^|\/)node_modules\//.test(f) && !otherShell(f)).sort();
-  if (shellFiles.length && tier !== "release") notes.push("compile tier: shellcheck (added after 0.6.6) is not planned; it runs in the release tier (--to qualify|release)");
-  if (shellFiles.length && tier === "release") add({ id: "shellcheck", class: A, tool: "shellcheck", tier: "release", args: ["--format=gcc", "--external-sources", ...shellFiles], root: "content" });
+  // GB-83 (GATE rule-tier correction, E1/E17, B1/B14): the deterministic scan inventory does not depend on the app-rule tier. Only the app's
+  // release rules (approvals, ratified rulings, notice digests) are deferred at the compile tier; every approved Class A scan, shellcheck
+  // and the locked package listing included, is planned for dev, test, package, qualify and release alike.
+  if (shellFiles.length) add({ id: "shellcheck", class: A, tool: "shellcheck", args: ["--format=gcc", "--external-sources", ...shellFiles], root: "content" });
   // No right-git drift scan: the one workflow right-git renders here, ci.yml, is hand-owned (its header;
   // docs/CI.md) and held by scripts/ci/ci-scans-contract.mjs instead, so drift is always reported by design.
 
@@ -1127,7 +1129,7 @@ export function planScans({
     for (const ws of touchedWs) add({ id: `cargo-metadata${wsIdSuffix(ws)}`, class: A, ...cargoReadIn(ws, ...metadataArgs()) });
     // Locked package listings are observations in RustRight (#1216). They run through the selected executor
     // from the checked Cargo inputs, just like metadata; an executor refusal remains a failed scan.
-    if (tier === "release") for (const name of crateNames.filter((n) => rustMap?.get(n).publish !== false)) add({ id: rustScanId.packageList(name), class: A, tier: "release", ...cargoReadIn(wsOf(name), "package", "-p", crateOf(name), "--list", "--allow-dirty", "--locked") });
+    for (const name of crateNames.filter((n) => rustMap?.get(n).publish !== false)) add({ id: rustScanId.packageList(name), class: A, ...cargoReadIn(wsOf(name), "package", "-p", crateOf(name), "--list", "--allow-dirty", "--locked") });
   }
   for (const ws of [...configWs].sort()) {
     // Offline against the pinned database. The pin commit is part of the command (env), so a pin change is a different scan, and the

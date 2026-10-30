@@ -403,14 +403,14 @@ test("secret-scan: the gate admits an env template and a fixture only by the rec
 
 test("no local compile grant: every broker scan is deferred by name, never passed and never run outside the broker", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { localCompile: false });
-  const broker = ["cargo-metadata", "cargo-deny", "cargo-audit", "check-features:foo:0", "clippy:foo", "doc:foo", "test:rust:foo"];
+  const broker = ["cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo", "check-features:foo:0", "clippy:foo", "doc:foo", "test:rust:foo"];
   assert.deepEqual([...plan.deferred].sort(), [...broker].sort());
   for (const id of broker) assert.ok(plan.scans.find((x) => x.id === id)?.deferred, `${id} stays in the plan, deferred`);
   const log = [];
   const result = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ log }) }));
   assert.equal(result.ok, false, "a deferred scan is not a pass");
   assert.equal(result.complete, false);
-  const classA = ["cargo-metadata", "cargo-deny", "cargo-audit"];
+  const classA = ["cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo"];
   for (const id of classA) assert.equal(result.scans.find((s) => s.id === id).status, "deferred");
   // A deferred class A scan is not a class A pass: no class B scan runs after it.
   for (const s of result.scans.filter((x) => x.class === "B")) assert.equal(s.status, "not-run", s.id);
@@ -1655,7 +1655,8 @@ test("lanes: class B scans of different components run concurrently; one compone
   const active = new Map(); let peak = 0; let samePeak = 0;
   const spawn = async (command, args, options) => {
     const key = String(options?.cwd ?? "");
-    const builds = /(?:cargo|rustright)(?:\.exe)?$/.test(command);
+    // Class B compiles only: the class A observations (version probes, metadata, deny, audit, the locked package list; GB-83 plans it at every tier) share no output directory.
+    const builds = /(?:cargo|rustright)(?:\.exe)?$/.test(command) && ["check", "clippy", "rustdoc", "test"].includes((args ?? [])[1]);
     if (builds) {
       active.set(key, (active.get(key) ?? 0) + 1);
       samePeak = Math.max(samePeak, active.get(key)); peak = Math.max(peak, [...active.values()].reduce((a, b) => a + b, 0));
@@ -2424,19 +2425,20 @@ test("locked package listings run in the content root (the snapshot, never the c
   assert.equal(plain.deferred, undefined, "a direct host runs the package list");
   const plainResult = await runScans(direct.plan, deps({ ...direct.fs }), { classes: ["A"] });
   assert.equal(plainResult.scans.find((s) => s.id === "cargo-package-list:foo").status, "pass");
-  // The compile tier (no tier) plans no package list at all, broker host or not.
+  // GB-83: the compile tier (no tier) plans the same package list, broker host or not; the tier decides only the app's release rules.
   const compile = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { cargoLiveRoot: "/primary/checkout" });
-  assert.deepEqual(compile.plan.scans.filter((s) => s.id.startsWith("cargo-package-list")).map((s) => s.id), []);
+  assert.deepEqual(compile.plan.scans.filter((s) => s.id.startsWith("cargo-package-list")).map((s) => s.id), ["cargo-package-list:foo"]);
 });
 
-test("rule tiers: the compile tier (the default) plans no shellcheck and no shellcheck requirement for actionlint; the release tier plans both; an unknown tier throws", () => {
-  const files = { "deploy/release.sh": "#!/bin/sh\necho hi\n", ".github/workflows/ci.yml": "on: push\njobs: {}\n" };
+test("[GB-83] rule tiers: the deterministic scan inventory is the same at the compile and release tiers (shellcheck, actionlint's shellcheck requirement, the locked package list); an unknown tier throws", () => {
+  const files = { "deploy/release.sh": "#!/bin/sh\necho hi\n", ".github/workflows/ci.yml": "on: push\njobs: {}\n", "crates/foo/src/lib.rs": "", "crates/foo/Cargo.toml": "[package]\nname = \"foo\"\n" };
   const compile = planFor(Object.keys(files), files, { all: true }).plan;
-  assert.equal(compile.scans.find((s) => s.id === "shellcheck"), undefined, "shellcheck was added after 0.6.6: release tier only");
-  assert.deepEqual(compile.scans.find((s) => s.id === "actionlint").requires, []);
-  assert.ok(compile.notes.some((n) => /compile tier: shellcheck .* release tier/.test(n)), compile.notes.join(" | "));
   const release = planFor(Object.keys(files), files, { all: true, tier: "release" }).plan;
-  assert.equal(release.scans.find((s) => s.id === "shellcheck").tier, "release");
+  assert.ok(compile.scans.find((s) => s.id === "shellcheck"), "a shell defect fails before compile at the compile tier too");
+  assert.deepEqual(compile.scans.find((s) => s.id === "actionlint").requires, ["shellcheck"]);
+  assert.ok(compile.scans.some((s) => s.id === "cargo-package-list:foo"));
+  assert.ok(!compile.notes.some((n) => /compile tier: shellcheck/.test(n)), "no silent tier omission is announced");
+  assert.deepEqual(compile.scans.map((s) => s.id).sort(), release.scans.map((s) => s.id).sort(), "dev/test/package/qualify plan identical deterministic Class A IDs");
   assert.deepEqual(release.scans.find((s) => s.id === "actionlint").requires, ["shellcheck"]);
   assert.throws(() => planFor(Object.keys(files), files, { all: true, tier: "patch" }), /tier must be compile or release/);
 });
