@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { userInfo } from 'node:os';
 import path from 'node:path';
-import { CANONICAL_WINDOWS_PIPE, LEGACY_WINDOWS_PIPE, discoverBrokerSocket, resolveManagedRoots } from './managed-roots.mjs';
+import { CANONICAL_WINDOWS_PIPE, LEGACY_WINDOWS_PIPE, discoverBrokerSocket, gateRunsRoot, resolveManagedRoots } from './managed-roots.mjs';
 import { loadVector } from './test-support/vectors.mjs';
 import { managedRuntimeClient, runCargoSync } from './managed-cargo.mjs';
 
@@ -129,3 +129,19 @@ test("[GB-63] the endpoint: an explicit pipe or socket is authoritative; a Windo
   assert.equal(discoverBrokerSocket({ RUSTRIGHT_CONTROL_ROOT: "/ctl" }, { platform: "darwin", exists: (p) => p === "/ctl/broker.sock" }), "/ctl/broker.sock");
 });
 
+
+// E2E L0-06: a direct (Linux) host wrote its scan logs and direct diagnostics under /Volumes/D/.rightkit-managed/runs, the Mac data
+// volume, creating /Volumes/D as root. Only a managed Mac or Windows host has a data root to put runs in.
+test('the gate runs root is the managed data root on Mac and Windows and a per-account state directory elsewhere, never the Mac volume', () => {
+  assert.equal(gateRunsRoot({ platform: 'darwin', env: {}, home: '/Users/test' }), '/Volumes/D/.rightkit-managed/runs');
+  assert.equal(gateRunsRoot({ platform: 'win32', env: {}, home: 'C:\\Users\\test' }), 'D:\\.rightkit-managed\\runs');
+  assert.equal(gateRunsRoot({ platform: 'darwin', env: { RIGHTKIT_MANAGED_ROOT: '/data' }, home: '/Users/test' }), '/data/runs');
+  for (const platform of ['linux', 'freebsd']) {
+    const root = gateRunsRoot({ platform, env: {}, home: '/home/test' });
+    assert.equal(root, '/home/test/.local/state/rightkit/runs');
+    assert.ok(!root.startsWith('/Volumes'), root);
+  }
+  assert.equal(gateRunsRoot({ platform: 'linux', env: { RIGHTKIT_MANAGED_ROOT: '/data' }, home: '/home/test' }), '/data/runs', 'an explicit data root still wins on Linux');
+  assert.equal(gateRunsRoot({ platform: 'linux', env: { RUSTRIGHT_DATA_ROOT: '/rr-data', RIGHTKIT_DATA_ROOT: '/old' }, home: '/home/test' }), '/rr-data/runs', 'GB-63: the RUSTRIGHT_ name names the data root too, and beats its legacy spelling');
+  assert.equal(gateRunsRoot({ platform: 'linux', env: { RIGHTKIT_SCRATCH_ROOT: '/scratch', RIGHTKIT_MANAGED_ROOT: '/data' }, home: '/home/test' }), '/scratch', 'RIGHTKIT_SCRATCH_ROOT wins everywhere');
+});

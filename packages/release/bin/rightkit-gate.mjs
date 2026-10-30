@@ -68,7 +68,7 @@
 // SIGINT/SIGTERM stop scheduling, kill every running scan's process tree and exit non-zero listing the scans not run.
 import fs from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
-import { resolveManagedRoots } from "../managed-roots.mjs";
+import { gateRunsRoot } from "../managed-roots.mjs";
 import { spawnBrokerClient } from "../broker-client.mjs";
 import os from "node:os";
 import path from "node:path";
@@ -3193,7 +3193,7 @@ export async function main(argv, io = {}) {
       // managed data root's runs/), in a folder unique to this run so evidence is never overwritten.
       scanLogDir: (() => {
         try {
-          const base = o.env.RIGHTKIT_SCRATCH_ROOT || path.join(resolveManagedRoots({ env: o.env }).dataRoot, "runs");
+          const base = gateRunsRoot({ env: o.env, platform: o.platform });
           const stamp = new Date().toISOString().replace(/[:.]/g, "-");
           return path.join(base, "rightkit-gate-scan-logs", `${path.basename(root)}-${stamp}-${process.pid}`);
         } catch { return null; }
@@ -3267,7 +3267,7 @@ export async function main(argv, io = {}) {
         const requestId = randomUUID();
         const exitCode = failures.length ? 1 : 0;
         const diagnosticsDir = (() => {
-          try { return path.join(o.env.RIGHTKIT_SCRATCH_ROOT || path.join(resolveManagedRoots({ env: o.env }).dataRoot, "runs"), "rightkit-gate-direct-diagnostics"); } catch { return path.join(os.tmpdir(), "rightkit-gate-direct-diagnostics"); }
+          try { return path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-gate-direct-diagnostics"); } catch { return path.join(os.tmpdir(), "rightkit-gate-direct-diagnostics"); }
         })();
         let directReceipt;
         try {

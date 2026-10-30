@@ -34,6 +34,21 @@ export function resolveManagedRoots({ env = process.env, platform = process.plat
       : paths.join(controlRoot, 'signing-agent') });
 }
 
+/**
+ * Where a gate run keeps evidence that must not live in the repository (failing scans' complete output, the direct executor's
+ * diagnostics): RIGHTKIT_SCRATCH_ROOT, else `<data root>/runs`. A managed Mac or Windows host has a data root, and so does any host
+ * that names one in the environment. A direct (Linux and other) host with none used to fall to the Mac data volume,
+ * `/Volumes/D/.rightkit-managed/runs`, and create it; it keeps its runs in the account's own state directory instead, beside the
+ * snapshots and the build-ownership record (`~/.local/state/rightkit`), never in a fixed host path.
+ */
+export function gateRunsRoot({ env = process.env, platform = process.platform, home = homedir() } = {}) {
+  if (env.RIGHTKIT_SCRATCH_ROOT) return env.RIGHTKIT_SCRATCH_ROOT;
+  const paths = platform === 'win32' ? win32 : posix;
+  const named = envNamed(env, 'DATA_ROOT') || envNamed(env, 'MANAGED_ROOT') || envNamed(env, 'EXTERNAL_ROOT');
+  if (named || platform === 'darwin' || platform === 'win32') return paths.join(resolveManagedRoots({ env, platform, home }).dataRoot, 'runs');
+  return paths.join(home, '.local', 'state', 'rightkit', 'runs');
+}
+
 export function managedControlCandidates(options = {}) {
   const platform = options.platform ?? process.platform;
   if (!['darwin', 'win32'].includes(platform)) {
