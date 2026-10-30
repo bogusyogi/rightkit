@@ -34,6 +34,7 @@ import { spawnBrokerClient } from "./broker-client.mjs";
 import { fileURLToPath } from "node:url";
 import { SCAN_TOKEN_ENV, appendLedger } from "./cargo-ledger.mjs";
 import { BROKER_REFUSAL_STATUS, runBrokerCargo } from "./snapshot-broker.mjs";
+import { carriedScanRefusal } from "./snapshot-metadata.mjs";
 
 export const SHIM_MAP_SCHEMA = "rightkit.cargo-target-shim/3";
 // Exit status of a refusal: cargo's own error status, so every caller reads it as a failed cargo.
@@ -51,6 +52,14 @@ const BOUND = new Set([...COMPILE, ...LOCKED, ...LOCKFILE]);
 const PASSTHROUGH = new Set(["version", "help"]);
 /** The subcommands the wrapper binds or passes through (the contract test pins each to the broker's classification). */
 export const WRAPPER_COMMANDS = Object.freeze({ get bound() { return [...BOUND]; }, get passthrough() { return [...PASSTHROUGH]; } });
+// Cargo's built-in command aliases. The broker classifies only the full names (command_policy.rs: b, c, t, r, d are RK_UNKNOWN_COMMAND), so a
+// broker-mode call is expanded to the full name BEFORE it is classified and sent (the signed argv digest is over the argv as sent).
+const ALIASES = Object.freeze({ b: "build", c: "check", t: "test", r: "run", d: "doc" });
+// The only requests the broker lets run uncarried inside a snapshot (command_policy.rs uncarried_snapshot_probe: VERSION_ARGUMENTS and `version`).
+const VERSION_PROBES = Object.freeze([["-V"], ["--version"], ["-vV"], ["-Vv"], ["--version", "--verbose"], ["-V", "--verbose"], ["-v", "-V"], ["version"]]);
+// The read-only commands the broker admits to a carried request only in carriedScanRefusal's exact shapes (snapshot-metadata.mjs).
+const CARRIED_SHAPE = new Set(["metadata", "deny", "audit", "fmt"]);
+const insideOf = (child, parent) => { const rel = path.relative(parent, child); return rel === "" || !(rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)); };
 // Global options that take a value (`--color always`, `--explain E0001`); the subcommand is the first word after them.
 const GLOBAL_VALUE = new Set(["--color", "--explain"]);
 // Options that move the working directory, the configuration or the output (a short cluster holding C or Z too).
@@ -79,12 +88,29 @@ export function decideCargoInvocation({ args, cwd, env, map, locate, realpath = 
     sub = w;
     break;
   }
+  const broker = map.mode === "broker";
+  if (broker && sub !== null && Object.hasOwn(ALIASES, sub)) { words[i] = ALIASES[sub]; sub = ALIASES[sub]; }
   const end = sub === null ? -1 : words.indexOf("--", i + 1);
   const own = sub === null ? [] : words.slice(i + 1, end < 0 ? undefined : end);
   const globals = words.slice(toolchain ? 1 : 0, sub === null ? undefined : i);
   if (sub === "fmt" && !own.includes("--check")) return refusal("RK_CARGO_UNBOUND_COMMAND", "`cargo fmt` without --check rewrites tracked files; a snapshot compile changes no file of the commit");
-  if (sub === null || PASSTHROUGH.has(sub)) return { exec: { args: words, env: withCargo({ ...env }) } };
+  if (sub === null || PASSTHROUGH.has(sub)) {
+    // Inside the snapshot the broker runs only a version probe uncarried; `help`, `--list` and anything else would be refused there (and is
+    // never sent as a root request from the snapshot), so the wrapper refuses it first. A snapshot it cannot place is treated as inside.
+    if (broker && !VERSION_PROBES.some((probe) => probe.length === words.length && probe.every((w, k) => w === words[k]))) {
+      let inside = true;
+      try { if (map.broker?.snapshot?.path) inside = insideOf(realpath(cwd), realpath(map.broker.snapshot.path)); } catch { inside = true; }
+      if (inside) return refusal("RK_CARGO_BROKER_UNCARRIED", `\`cargo ${words.join(" ")}\` reads no workspace but is not a version probe; the broker refuses an uncarried call inside the snapshot (only ${VERSION_PROBES.map((p) => p.join(" ")).join(", ")}), so it is never sent`);
+    }
+    return { exec: { args: words, env: withCargo({ ...env }) } };
+  }
   if (!BOUND.has(sub)) return refusal("RK_CARGO_UNBOUND_COMMAND", `\`cargo ${sub}\` is not a command a snapshot compile binds (${[...BOUND].join(", ")}; or ${[...PASSTHROUGH].join(", ")}, which read no workspace): an alias, plugin, clean, install, publish or lock rewrite is refused`);
+  // Broker mode: metadata, deny, audit and fmt ride only in the exact shapes the broker admits as carried read-only requests (the one rule,
+  // snapshot-metadata.mjs carriedScanRefusal). Nothing is added to the argv and nothing is dropped: a call of another shape is refused.
+  if (broker && CARRIED_SHAPE.has(sub)) {
+    const shaped = i === 0 ? carriedScanRefusal(words, { checkout: map.broker?.checkout ?? null }) : `a +toolchain or global option before \`${sub}\` is not carried`;
+    if (shaped !== null) return refusal("RK_CARGO_BROKER_READ_ONLY_SHAPE", `\`cargo ${words.join(" ")}\` is not a shape the broker carries (${shaped})`);
+  }
   if (LOCKED.has(sub) && ![...globals, ...own].some((w) => w === "--locked" || w === "--frozen")) return refusal("RK_CARGO_UNBOUND_COMMAND", `\`cargo ${sub}\` without --locked or --frozen may write a Cargo.lock; a snapshot compile changes no file of the commit and writes nothing outside its bound outputs`);
   if (!PLUGIN.has(sub)) for (const w of own) if (REDIRECT.test(w)) return refusal("RK_CARGO_REDIRECT", `\`cargo ${sub}\` passes ${w}, which moves its working directory, configuration or output; a snapshot compile's outputs must be the checkout's`);
   const valueOf = (name) => {
@@ -93,7 +119,6 @@ export function decideCargoInvocation({ args, cwd, env, map, locate, realpath = 
     return own[at].includes("=") ? own[at].slice(name.length + 1) : (own[at + 1] ?? "");
   };
   const manifestPath = valueOf("--manifest-path");
-  const broker = map.mode === "broker";
   // The RustRight client submits the call from the working directory and refuses to rewrite it (attestation), and the broker pins the
   // output: a manifest path or a target directory of the caller's has no place in a broker call.
   if (broker && manifestPath !== undefined) return refusal("RK_CARGO_BROKER_MANIFEST_PATH", `\`cargo ${sub}\` passes --manifest-path; a broker call runs from the workspace's own directory (the client refuses to rewrite the invocation), so run it there`);
@@ -138,7 +163,7 @@ export function installCargoShim({ base, snapshotRoot, targetDirs, broker = null
   const sorted = Object.fromEntries(Object.entries(workspaces).sort(([a], [b]) => (a < b ? -1 : 1)));
   const identityHash = createHash("sha256").update(JSON.stringify({ realCargo: realCargo ?? null, node, workspaces: sorted, ...(broker ? { mode, section: broker.section } : {}) })).update(fs.readFileSync(self));
   // The broker half of the wrapper is part of its identity: any change to the code that carries and verifies a call is another wrapper.
-  if (broker) for (const name of ["snapshot-broker.mjs", "snapshot-request.mjs", "provenance-verify.mjs", "cargo-ledger.mjs"]) identityHash.update(fs.readFileSync(new URL(`./${name}`, import.meta.url)));
+  if (broker) for (const name of ["snapshot-broker.mjs", "snapshot-request.mjs", "snapshot-metadata.mjs", "provenance-verify.mjs", "cargo-ledger.mjs"]) identityHash.update(fs.readFileSync(new URL(`./${name}`, import.meta.url)));
   const identity = identityHash.digest("hex");
   const dir = path.join(base, `rk-cargo-shim-${identity.slice(0, 16)}`);
   const bin = path.join(dir, "bin");

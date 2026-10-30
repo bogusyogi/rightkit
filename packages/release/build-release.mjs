@@ -55,6 +55,7 @@ import { ANDROID_RECEIPT_NAME, androidSealEntry, validateAndroidTarget, verifyAn
 import { IOS_RECEIPT_NAME, iosSealEntry, verifyIosReceipt } from "./ios-package-recipe.mjs";
 import { expandIosPackageTarget } from "./package-recipe-targets.mjs";
 import { assertUpdaterKeyId, assertUpdaterSignature, isSuiteUpdaterApp, resolveUpdaterTrust } from "./github-updater-release.mjs";
+import { platformDirOf } from "./platform-dir.mjs";
 
 // The iOS lane's own packaging code, kept out of the win/mac fingerprint for the same reason as the Android one.
 const IOS_PIPELINE_FINGERPRINT = createHash("sha256")
@@ -266,7 +267,7 @@ try {
     : collectToolVersions(config.packageManager ?? "pnpm", appRoot);
   const inputHashes = hashInputs(requiredInputs);
   const releaseId = `${config.app}-${config.version}-${shortCommit}`;
-  const platformDir = platform === "win" ? "windows" : platform === "android" ? "android" : platform === "ios" ? "ios" : "mac";
+  const platformDir = platformDirOf(platform);
   const stateRoot = path.join(vaultRoot, "state", releaseId, platformDir);
   const signingIdentity = platform === "win" ? {
     contract: target.signingContract ?? "<missing>",
@@ -611,7 +612,7 @@ async function admit() {
     throw error;
   }
   // A fresh build asks the registries once, here; a resume or a re-run over a sealed release reuses its recorded snapshot instead.
-  const platformName = platform === "win" ? "windows" : platform;
+  const platformName = platformDirOf(platform);
   const sealed = config?.app && config?.version
     && existsSync(path.join(repoRoot, ".right-release", "sealed", `${config.app}-${config.version}-${commit.slice(0, 8)}`, platformName, "release-manifest.json"));
   const reuse = Boolean(resumeFrom) || Boolean(sealed);

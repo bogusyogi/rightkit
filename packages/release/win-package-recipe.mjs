@@ -19,6 +19,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { resolveCommand } from "./development.mjs";
 import { verifyNsisEmbeddedBinary } from "./nsis-payload.mjs";
 import { resolveArtifactPath, splitArtifactContext } from "./release-artifact-path.mjs";
 import { signingReceiptPath } from "./signing-receipts.mjs";
@@ -160,8 +161,13 @@ function sha256File(file, read) {
 export function defaultWinPackageDeps({ appRoot, target, env }) {
   const runSync = (command, args, options) => spawnSync(command, args, options);
   const spawn = (command, args, options) => {
-    const shell = process.platform === "win32" && !/\.(?:exe|com)$/i.test(command);
-    return runSync(command, args, { ...options, shell, stdio: "inherit" });
+    // `pnpm` and `node` start as argv arrays under this very node (resolveCommand: the pnpm CLI file, never the pnpm.cmd shim), with no shell: a
+    // shell would re-quote `tauri --config <json>` and let an argument inject (L8). Only a command resolved to something else keeps the old
+    // rule (a shell for anything that is not an .exe or .com on Windows).
+    const direct = command === "pnpm" || command === "node";
+    const launch = direct ? resolveCommand(command, args, { root: options?.cwd ?? appRoot, env: options?.env ?? env }) : { command, args };
+    const shell = !direct && process.platform === "win32" && !/\.(?:exe|com)$/i.test(command);
+    return runSync(launch.command, launch.args, { ...options, shell, stdio: "inherit" });
   };
   const receiptFor = (phase) => signingReceiptPath({ appRoot, target, platform: "win", phase, stateRoot: env.RIGHT_RELEASE_STATE_ROOT });
   return {

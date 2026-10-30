@@ -22,6 +22,7 @@ import { checkTools, planCommandsFromWorkflow, readJson, SCHEMA, verifyAttestati
 import { pnpmBuildClosureArgs } from "./select.mjs";
 import { closureAgeExceptions, validateClosureApproval } from "./npm-recipe-consumer.mjs";
 import { versionPinProblems } from "./release-version-pins.mjs";
+import { brokerClientInvocation } from "../../packages/release/broker-client.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const ADAPTER = "rightkit-pnpm";
@@ -158,7 +159,10 @@ function run(command, args, { cwd, env, timeoutMinutes, logFile }) {
   return new Promise((resolve) => {
     const started = Date.now();
     let out = "";
-    const child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+    let launch;
+    try { launch = brokerClientInvocation(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] }, { probe: spawnSync }); }
+    catch (error) { resolve({ code: 127, out: String(error.message), timedOut: false, seconds: 0 }); return; }
+    const child = spawn(launch.command, launch.args, launch.options);
     const log = fs.createWriteStream(logFile);
     const sink = (chunk) => { const text = chunk.toString(); out += text; log.write(text); };
     child.stdout.on("data", sink);
@@ -290,7 +294,7 @@ export async function main(argv, deps = {}) {
     const args = ["run", ADAPTER, "--", ...row.args];
     const logFile = path.join(logDir, `${row.id.replace(/[^a-z0-9.-]+/gi, "_")}.log`);
     const nonce = crypto.randomBytes(32).toString("hex");
-    const r = await run("rustright", args, { cwd: root, env: { ...env, ...(row.env ?? {}), RIGHTKIT_ATTEST_NONCE: nonce }, timeoutMinutes: row.timeoutMinutes, logFile });
+    const r = await run("rustright", args, { cwd: root, env: { ...env, ...(row.env ?? {}), RUSTRIGHT_ATTEST_NONCE: nonce }, timeoutMinutes: row.timeoutMinutes, logFile });
     const ids = brokerRequestIds(r.out);
     const attestation = ids.length === 1
       ? (deps.verifyAttestation ?? verifyAttestation)(ids[0], { nonce, argv: row.args, pins, expect, workspace: root })

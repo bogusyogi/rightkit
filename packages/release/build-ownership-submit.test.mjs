@@ -5,6 +5,7 @@
 // would stay locked until a manual clear (gate 5c388c71, stage-sidecar's `rustc -vV`).
 import "./test-support/broker-guard.mjs";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -12,6 +13,7 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "./background-process.mjs";
 import { OWNERSHIP_SCHEMA, OwnershipBusy, acquireBuildOwnership, markCarriedSend, markLockFile } from "./build-ownership.mjs";
+import { MARK_LOCK_SCHEMA, markBrokerSubmit, withMarkLock } from "./ownership-mark.mjs";
 import { CARRIED_CARGO_MAP_ENV, installCarrier } from "./carried-cargo.mjs";
 import { brokerSection } from "./snapshot-broker.mjs";
 import { makeFakeBroker } from "./test-support/fake-broker.mjs";
@@ -157,4 +159,133 @@ test("parallel carried sends from several processes all land in the record", { s
   assert.equal(fs.existsSync(markLockFile(file)), false);
   assert.equal(rec.schema, OWNERSHIP_SCHEMA);
   fs.rmSync(file, { force: true });
+});
+
+// Submit lock safety (audit GB-22): the lock names its holder (pid, start, boot) and a nonce; age never proves death.
+const lockFixture = (t) => { const dir = tmp(t, "rk-own-lock-"); const file = path.join(dir, "owner.json"); fs.writeFileSync(file, JSON.stringify({ handle: "h", broker: { submitted: false } })); return { dir, file, lock: markLockFile(file) }; };
+const ME = { pid: process.pid, startedMs: NOW - 5000, bootId: "boot-aaaaaaaaaaaaaaaa" };
+const identityOf = ({ alive = new Map(), me = ME, boot = ME.bootId } = {}) => ({ self: () => me, probe: (pid) => { const v = alive.get(pid); if (v instanceof Error) throw v; return v ?? { alive: false, startedMs: null }; }, bootId: () => boot });
+const lockRecord = (over = {}) => ({ schema: MARK_LOCK_SCHEMA, pid: 4242, startedMs: NOW - 90_000, bootId: ME.bootId, host: os.hostname(), nonce: crypto.randomUUID(), at: new Date(NOW - 60_000).toISOString(), ...over });
+const noSleep = () => {};
+
+test("[GB-22] a live holder's lock is never stolen, however old; the waiter fails closed with OwnershipBusy", (t) => {
+  const { file, lock } = lockFixture(t);
+  const rec = lockRecord(); fs.writeFileSync(lock, JSON.stringify(rec));
+  fs.utimesSync(lock, new Date(NOW - 3_600_000), new Date(NOW - 3_600_000)); // an hour old: the old rule stole it after ten seconds
+  const identity = identityOf({ alive: new Map([[4242, { alive: true, startedMs: rec.startedMs + 400 }]]) });
+  let ran = false;
+  assert.throws(() => withMarkLock(file, () => { ran = true; }, { identity, sleep: noSleep, waitMs: 20 }), (e) => e instanceof OwnershipBusy && e.detail.verdict === "live" && /is alive/.test(e.message));
+  assert.equal(ran, false);
+  assert.equal(JSON.parse(fs.readFileSync(lock, "utf8")).nonce, rec.nonce, "the live holder's lock is untouched");
+});
+
+test("[GB-22] uncertain liveness fails closed: an unreadable lock, an unreadable identity, another host and a missing start are all left in place", (t) => {
+  const { file, lock } = lockFixture(t);
+  const cases = [
+    ["garbage", "garbage", identityOf()],
+    ["legacy pid-only lock", "4242", identityOf()],
+    ["identity unreadable", JSON.stringify(lockRecord()), identityOf({ alive: new Map([[4242, new Error("ps failed")]]) })],
+    ["another host", JSON.stringify(lockRecord({ host: "some-other-host" })), identityOf()],
+    ["alive, no recorded start", JSON.stringify(lockRecord({ startedMs: null })), identityOf({ alive: new Map([[4242, { alive: true, startedMs: NOW }]]) })],
+    ["alive, start unreadable", JSON.stringify(lockRecord()), identityOf({ alive: new Map([[4242, { alive: true, startedMs: null }]]) })],
+  ];
+  for (const [name, text, identity] of cases) {
+    fs.writeFileSync(lock, text);
+    assert.throws(() => withMarkLock(file, () => assert.fail("must not run"), { identity, sleep: noSleep, waitMs: 10 }), (e) => e instanceof OwnershipBusy, name);
+    assert.equal(fs.readFileSync(lock, "utf8"), text, `${name}: the lock is untouched`);
+  }
+});
+
+test("[GB-22] a holder proven dead is reclaimed: pid gone, pid reused by a process that started at another time, or another boot", (t) => {
+  const { file, lock } = lockFixture(t);
+  const rec = lockRecord();
+  const cases = [
+    ["pid gone", identityOf()],
+    ["pid reused", identityOf({ alive: new Map([[4242, { alive: true, startedMs: rec.startedMs + 3_600_000 }]]) })],
+    ["rebooted", identityOf({ boot: "boot-bbbbbbbbbbbbbbbb", alive: new Map([[4242, { alive: true, startedMs: rec.startedMs }]]) })],
+  ];
+  for (const [name, identity] of cases) {
+    fs.writeFileSync(lock, JSON.stringify(rec));
+    let ran = 0;
+    withMarkLock(file, () => { ran += 1; assert.equal(JSON.parse(fs.readFileSync(lock, "utf8")).pid, process.pid, "the lock is now this process's"); }, { identity, sleep: noSleep, waitMs: 1000 });
+    assert.equal(ran, 1, name);
+    assert.equal(fs.existsSync(lock), false, `${name}: released`);
+    assert.deepEqual(fs.readdirSync(path.dirname(lock)).filter((n) => n.includes("steal") || n.endsWith(".tmp")), [], `${name}: no claim or temp file left`);
+  }
+});
+
+test("[GB-22] a dead holder's lock is stolen by one claimant only: a second observer of the same dead lock never removes the winner's lock", (t) => {
+  const { file, lock } = lockFixture(t);
+  const dead = lockRecord(); const text = JSON.stringify(dead);
+  fs.writeFileSync(lock, text);
+  const identity = identityOf();
+  // A claimant is mid-steal (holds the claim, alive): the second waits and does not remove the dead lock.
+  const claimant = lockRecord({ pid: 5151, nonce: crypto.randomUUID() });
+  fs.writeFileSync(`${lock}.steal-${dead.nonce}`, JSON.stringify(claimant));
+  const both = identityOf({ alive: new Map([[5151, { alive: true, startedMs: claimant.startedMs }]]) });
+  assert.throws(() => withMarkLock(file, () => assert.fail("must not run"), { identity: both, sleep: noSleep, waitMs: 10 }), (e) => e instanceof OwnershipBusy);
+  assert.equal(fs.readFileSync(lock, "utf8"), text, "the dead lock stays while a live claimant owns its steal");
+  // The claimant died too: its claim is dropped, then the dead lock is taken.
+  fs.rmSync(`${lock}.steal-${dead.nonce}`);
+  fs.writeFileSync(`${lock}.steal-${dead.nonce}`, JSON.stringify(claimant));
+  let ran = 0; withMarkLock(file, () => { ran += 1; }, { identity, sleep: noSleep, waitMs: 1000 });
+  assert.equal(ran, 1);
+});
+
+test("[GB-22] release is token-checked: a resumed old holder whose lock was replaced does not remove the successor's lock", (t) => {
+  const { file, lock } = lockFixture(t);
+  const successor = lockRecord({ pid: 7777, nonce: crypto.randomUUID() });
+  withMarkLock(file, () => {
+    // While this holder is "suspended", its lock is replaced by another holder's.
+    fs.rmSync(lock); fs.writeFileSync(lock, JSON.stringify(successor));
+  }, { identity: identityOf(), sleep: noSleep, waitMs: 100 });
+  assert.equal(JSON.parse(fs.readFileSync(lock, "utf8")).nonce, successor.nonce, "the successor's lock survives the old holder's release");
+});
+
+test("[GB-22] real processes: a live holder in another process blocks a mark; once it exits its lock is reclaimed and the mark lands", { skip: POSIX }, async (t) => {
+  const file = path.join(tmp(t, "rk-own-lock-"), "build-ownership", "owner.json");
+  const own = acquire(file, noLease);
+  const holder = spawn(process.execPath, ["--input-type=module", "-e", `
+    import { withMarkLock } from ${JSON.stringify(pathToFileURL(path.join(import.meta.dirname, "ownership-mark.mjs")).href)};
+    withMarkLock(${JSON.stringify(file)}, () => { process.stdout.write("held\\n"); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20000); });`], { stdio: ["ignore", "pipe", "inherit"] });
+  t.after(() => holder.kill("SIGKILL"));
+  await new Promise((resolve, reject) => { holder.stdout.once("data", resolve); holder.once("exit", () => reject(new Error("the holder exited before holding"))); });
+  const sub = `${own.handle}#aaaa1111`;
+  assert.throws(() => markBrokerSubmit(file, own.handle, sub, { waitMs: 300 }), (e) => e instanceof OwnershipBusy && /is alive/.test(e.message), "a live holder in another process is never displaced");
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).broker.submitted, false, "nothing was recorded");
+  holder.kill("SIGKILL");
+  await new Promise((resolve) => holder.once("exit", resolve));
+  markBrokerSubmit(file, own.handle, sub, { waitMs: 15_000 });
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")).broker.handles, [sub], "the dead holder's lock was reclaimed and the mark landed");
+});
+
+test("[GB-23] a reclaim needs REAPED for EACH recorded sub-handle, asked by its exact name: the bare handle (REAPED once any sibling completed) is not enough", (t) => {
+  const file = path.join(tmp(t, "rk-own-sub-"), "build-ownership", "owner.json");
+  const own = acquire(file, noLease);
+  const sub1 = `${own.handle}#11111111-aaaa`; const sub2 = `${own.handle}#22222222-bbbb`; const sub3 = `${own.handle}#33333333-cccc`;
+  own.markBrokerSubmit(sub1); own.markBrokerSubmit(sub2); own.markBrokerSubmit(sub3);
+  // The broker's answers: the bare handle and sub1 completed; sub2 is UNKNOWN (sent, no completion); sub3 completed.
+  const answers = (table) => { const asked = []; const lease = (q) => { asked.push(q.handle); return { state: table[q.handle] ?? "UNKNOWN", why: `fake ${table[q.handle] ?? "UNKNOWN"}` }; }; lease.asked = asked; return lease; };
+  crash(file);
+  const partial = answers({ [own.handle]: "REAPED", [sub1]: "REAPED", [sub3]: "REAPED" });
+  assert.throws(() => acquire(file, partial), (e) => e instanceof OwnershipBusy && new RegExp(`sub-handle ${sub2} and its lease is UNKNOWN`).test(e.message));
+  assert.deepEqual(partial.asked, [own.handle, sub1, sub2], "the parent first, then each sub-handle in send order, stopping at the first that is not REAPED");
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).handle, own.handle, "the record is still held");
+  // An ACTIVE sub-handle also holds it.
+  assert.throws(() => acquire(file, answers({ [own.handle]: "REAPED", [sub1]: "ACTIVE" })), (e) => e instanceof OwnershipBusy && /ACTIVE/.test(e.message));
+  // Every sub-handle REAPED: the record is reclaimed, and each one was asked exactly once.
+  const all = answers({ [own.handle]: "REAPED", [sub1]: "REAPED", [sub2]: "REAPED", [sub3]: "REAPED" });
+  const next = acquire(file, all);
+  assert.deepEqual(all.asked, [own.handle, sub1, sub2, sub3]);
+  assert.match(next.reclaimed.proofs.join("; "), /each of 3 sub-handle\(s\) is REAPED/);
+  next.release();
+});
+
+test("[GB-23] a record that lists something that is not a sub-handle of its own handle is never reclaimed", (t) => {
+  const file = path.join(tmp(t, "rk-own-sub-"), "build-ownership", "owner.json");
+  const own = acquire(file, noLease);
+  own.markBrokerSubmit(`${own.handle}#11111111-aaaa`);
+  const rec = JSON.parse(fs.readFileSync(file, "utf8")); rec.broker.handles.push("someone-else#1"); fs.writeFileSync(file, JSON.stringify(rec));
+  crash(file);
+  assert.throws(() => acquire(file, leaseOf("REAPED")), (e) => e instanceof OwnershipBusy && /not a sub-handle/.test(e.message));
 });

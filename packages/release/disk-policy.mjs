@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { brokerClientInvocation } from "./broker-client.mjs";
 
 export const DISK_EXIT_WARNING = 3;
 export const DEFAULT_POLICY_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), "disk-policy.json");
@@ -339,7 +340,8 @@ export const BUDGET_PARTS = ["targets", "sccache", "cargoHome", "toolchains", "t
  * missing, fails, times out or answers with anything else. Nothing is cached and no shell is used. */
 export function readRustrightBudget({ run = spawnSync } = {}) {
   try {
-    const r = run("rustright", ["doctor", "--json", "--no-scan"], { encoding: "utf8", timeout: 20_000, shell: false, maxBuffer: 1 << 24 });
+    const launch = brokerClientInvocation("rustright", ["doctor", "--json", "--no-scan"], { encoding: "utf8", timeout: 20_000, shell: false, maxBuffer: 1 << 24 }, { probe: run });
+    const r = run(launch.command, launch.args, launch.options);
     if (!r || r.error || r.status !== 0) return null;
     const budget = JSON.parse(String(r.stdout)).buildBudget;
     if (!budget || typeof budget !== "object") return null;

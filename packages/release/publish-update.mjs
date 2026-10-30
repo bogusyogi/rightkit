@@ -17,6 +17,7 @@ import { verifyPlatformTrust } from "./github-release.mjs";
 import { admitInstalledQa } from "./release-qa-audit.mjs";
 import { RIGHT_SUITE_API_ORIGIN, RIGHT_SUITE_GATED_ARTIFACT_HOST, RIGHT_SUITE_PUBLIC_INSTALLER_BASE } from "./suite-api.generated.mjs";
 import { assertAssetName, assertGitHubRepository, assertUpdaterKeyId, assertUpdaterPlatform, assertUpdaterSignature, buildLatestJson, githubAssetUrl, githubTag, publishGitHubUpdaterRelease, resolveUpdaterTrust } from "./github-updater-release.mjs";
+import { platformDirOf } from "./platform-dir.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const API_BASE = process.env.RIGHTAPPS_API_URL || RIGHT_SUITE_API_ORIGIN;
@@ -71,7 +72,7 @@ if (!dryRun || releaseId) {
   assertPrimaryReleaseCheckout(repoRoot);
   const commit = git(["rev-parse", "HEAD"]);
   assertCleanSource({ status: git(["status", "--porcelain=v1", "-z", "--untracked-files=all"]), commandId: "right-release publish-update" });
-  sealed = verifyPublicationRelease({ sealedDir: path.join(repoRoot, ".right-release", "sealed", releaseId, platform === "win" ? "windows" : "mac"), repoRoot, appRoot: root, commit, app: config.app, version: versionForStorage, platform, configPath, releaseId });
+  sealed = verifyPublicationRelease({ sealedDir: path.join(repoRoot, ".right-release", "sealed", releaseId, platformDirOf(platform)), repoRoot, appRoot: root, commit, app: config.app, version: versionForStorage, platform, configPath, releaseId });
   const routes = sealed.manifest.routes?.[githubLane ? "update" : tier] ?? [];
   const configured = githubLane
     ? artifacts.map((item) => ({ ...item, key: githubKey(item), role: "updater" }))

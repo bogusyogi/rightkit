@@ -7,6 +7,7 @@ import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 import { bufferQaFindings } from "./qa-control-scan.mjs";
 import { sealedManifestAllowsContentDevtools } from "./devtools-policy.mjs";
 import { assertManifestRegistryEvidence } from "./rightkit-registry-resolver.mjs";
+import { platformDirOf } from "./platform-dir.mjs";
 
 export function cacheFingerprint({ cargoLockSha256, rustc, target, architecture, features = [] }) {
   const payload = JSON.stringify({
@@ -157,7 +158,7 @@ export async function runBuildStateMachine({
   ops,
 }) {
   const releaseId = `${app}-${version}-${commit.slice(0, 8)}`;
-  const platformDir = platform === "win" ? "windows" : platform === "mac" ? "mac" : platform;
+  const platformDir = platformDirOf(platform);
   const sealedDir = path.join(root, ".right-release", "sealed", releaseId, platformDir);
   const sealedRoot = path.join(root, ".right-release", "sealed");
   if (existsSync(sealedRoot)) {
@@ -202,7 +203,7 @@ export async function runBuildStateMachine({
 export async function runUploadStateMachine({ root, releaseId, platform, tier, ops = {} }) {
   if (tier !== "patch" && tier !== "update") throw new Error("upload tier is required (patch|update)");
   if (!/^[A-Za-z0-9][A-Za-z0-9._+-]{0,159}$/.test(String(releaseId))) throw new Error(`invalid release id: ${releaseId}`);
-  const platformDir = platform === "win" ? "windows" : platform === "mac" ? "mac" : platform;
+  const platformDir = platformDirOf(platform);
   const sealedDir = path.join(root, ".right-release", "sealed", releaseId, platformDir);
   const sealed = verifySealedRelease(sealedDir);
   if (sealed.manifest.platform !== platform) throw new Error("sealed release platform mismatch");

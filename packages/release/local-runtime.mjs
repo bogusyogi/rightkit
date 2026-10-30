@@ -33,7 +33,7 @@ const round3 = (value) => Math.round(value * 1000) / 1000;
 const tail = (text, lines = 30) => String(text ?? "").split(/\r?\n/).slice(-lines).join("\n");
 const loadFromRoot = (root, ...segments) => import(pathToFileURL(path.join(root, ...segments)).href);
 const CREDENTIAL_LIKE = /TOKEN|PASSWORD|SECRET|CREDENTIAL|^ACTIONS_ID_TOKEN/i;
-const BROKER_ENV = ["RIGHTKIT_BUILD_BROKER_SOCKET", "RIGHTKIT_CONTROL_ROOT", "RIGHTKIT_DATA_ROOT", "RIGHTKIT_MANAGED_ROOT"];
+const BROKER_ENV = ["RUSTRIGHT_BUILD_BROKER_SOCKET", "RIGHTKIT_BUILD_BROKER_SOCKET", "RIGHTKIT_CONTROL_ROOT", "RIGHTKIT_DATA_ROOT", "RIGHTKIT_MANAGED_ROOT"];
 const BENCH_TIMEOUT_MS = 40 * 60 * 1000;
 
 // ---- host evidence -------------------------------------------------------------------------------
@@ -173,7 +173,7 @@ export async function measureRuntimeCrate(options, deps = {}) {
   const baseEnv = Object.fromEntries(Object.entries(deps.env ?? process.env).filter(([name]) => !CREDENTIAL_LIKE.test(name)));
   const brokerEnv = Object.fromEntries(BROKER_ENV.filter((name) => baseEnv[name]).map((name) => [name, baseEnv[name]]));
   const socket = discoverBrokerSocket(deps.env ?? process.env, { platform });
-  if (socket) brokerEnv.RIGHTKIT_BUILD_BROKER_SOCKET = socket;
+  if (socket) brokerEnv.RUSTRIGHT_BUILD_BROKER_SOCKET = socket;
   const run = deps.run ?? ((command, args, settings) => spawnCollect(command, args, { maxBuffer: 64 * 1024 * 1024, ...settings }));
   const invoke = (args, settings) => run(cargoCommand[0], [...cargoCommand.slice(1), ...args], { cwd: crateDir, windowsHide: true, ...settings });
   const toolchainOf = async () => {

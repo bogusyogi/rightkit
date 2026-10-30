@@ -9,9 +9,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { AGENT_SHIM_MARKER, BROKER_CLIENT_UNRESOLVED, parseAgentShim, resolveBrokerClient, spawnBrokerClient, withoutAgentShimEnv } from "./broker-client.mjs";
+import { AGENT_SHIM_MARKER, BROKER_CLIENT_UNRESOLVED, brokerClientInvocation, locateBrokerClient, parseAgentShim, resolveBrokerClient, spawnBrokerClient, withoutAgentShimEnv } from "./broker-client.mjs";
 import { brokerSection, carryBrokerCargo, createSnapshotBroker, receiptSync } from "./snapshot-broker.mjs";
-import { makeFakeBroker } from "./test-support/fake-broker.mjs";
+import { makeFakeBroker, subHandleStub } from "./test-support/fake-broker.mjs";
 
 const EXE = "D:\\.rustright\\runtime\\rustright.exe";
 const SHIM = (exe = EXE) => `@echo off\r\nrem ${AGENT_SHIM_MARKER}\r\nsetlocal\r\nset "RUSTRIGHT_MANAGED_AGENT_SHIM="\r\nset "RIGHTKIT_MANAGED_AGENT_SHIM="\r\n"${exe}" %*\r\nexit /b %ERRORLEVEL%\r\n`;
@@ -78,7 +78,7 @@ test("POSIX is unchanged: the client is spawned as given with the caller's optio
 
 test("the carried map carries the exe: a win32 broker built with the .cmd shim hands brokerSection (the map) the resolved .exe, and a refused shim builds no broker", (t) => {
   const fx = makeFakeBroker(t);
-  const own = { handle: "h", markBrokerSubmit: () => ({}) };
+  const own = { handle: "h", markBrokerSubmit: subHandleStub("h") };
   const make = (client) => createSnapshotBroker({ env: { RIGHTKIT_DATA_ROOT: fx.dataRoot, RIGHTKIT_CONTROL_ROOT: fx.controlRoot }, platform: "win32", checkout: fx.checkout, commit: fx.sb.commit, snapshot: fx.sb.snapshot, ownership: own, client, gateFile: path.join(fx.root, "x", "rightkit-gate.mjs"), loadPins: () => ({ ...fx.pins, source: "enrolled" }) });
   const sb = make(shimFile(t, SHIM()));
   assert.equal(sb.client, EXE);
@@ -107,4 +107,20 @@ test("a carried call and a receipt read start the exe directly on win32; a carri
   assert.equal(bad.outcome.code, BROKER_CLIENT_UNRESOLVED);
   assert.equal(calls.length, before, "nothing was started");
   assert.throws(() => receiptSync({ client: shimFile(t, "@echo off\r\n"), requestId: "x", env: {}, spawn, platform: "win32" }), (e) => e.code === "receipt");
+});
+
+test("[M6] locateBrokerClient and brokerClientInvocation: POSIX keeps the bare name; win32 finds the shim with `where` and starts its .exe with no shell; anything but `rustright` is unchanged; a foreign shim is refused", () => {
+  assert.equal(locateBrokerClient({ platform: "darwin" }), "rustright");
+  assert.deepEqual(brokerClientInvocation("rustright", ["status", "x"], { cwd: "/c" }, { platform: "darwin" }), { command: "rustright", args: ["status", "x"], options: { cwd: "/c" } });
+  assert.deepEqual(brokerClientInvocation("node", ["a"], { cwd: "/c" }, { platform: "win32" }), { command: "node", args: ["a"], options: { cwd: "/c" } });
+  const probe = (answer) => (cmd, args) => { assert.equal(cmd, "where"); assert.deepEqual(args, ["rustright"]); return { status: 0, stdout: answer }; };
+  const CMD = "C:\\x\\rustright.cmd";
+  assert.equal(locateBrokerClient({ platform: "win32", probe: probe(`${CMD}\r\nC:\\y\\rustright.exe\r\n`) }), CMD);
+  assert.equal(locateBrokerClient({ platform: "win32", probe: probe("C:\\y\\rustright.exe\r\n") }), "C:\\y\\rustright.exe");
+  assert.equal(locateBrokerClient({ platform: "win32", probe: probe("") }), "rustright", "not found: the bare name, which the caller's spawn fails on as before");
+  assert.throws(() => locateBrokerClient({ platform: "win32" }), (e) => e.code === BROKER_CLIENT_UNRESOLVED);
+  const launched = brokerClientInvocation("rustright", ["run", "x"], { cwd: "/c", env: { A: "1", RUSTRIGHT_MANAGED_AGENT_SHIM: "1" } }, { platform: "win32", probe: probe(`${CMD}\r\n`), readFile: () => SHIM() });
+  assert.equal(launched.command, EXE); assert.deepEqual(launched.args, ["run", "x"]);
+  assert.equal(launched.options.shell, false); assert.deepEqual(launched.options.env, { A: "1" }); assert.equal(launched.options.cwd, "/c");
+  refused(() => brokerClientInvocation("rustright", [], {}, { platform: "win32", probe: probe(`${CMD}\r\n`), readFile: () => "@echo off\r\nother\r\n" }));
 });

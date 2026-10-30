@@ -5,7 +5,8 @@ import path from "node:path";
 import test from "node:test";
 import { tempRoot } from "./test-support/temp-roots.mjs";
 import { qualificationNonce } from "./provenance-verify.mjs";
-import { readBrokerReceipt, resolveUnit, runUnitGate } from "./unit-gate.mjs";
+import { AGENT_SHIM_MARKER } from "./broker-client.mjs";
+import { readBrokerReceipt, releaseUnit, resolveUnit, runUnitGate } from "./unit-gate.mjs";
 
 const commit = "a".repeat(40), tree = "b".repeat(40);
 const unit = { kind: "npm", name: "@rightkit/demo", version: "1.0.0" };
@@ -290,6 +291,54 @@ test("readBrokerReceipt reduces `rustright status <id>` to the id and signed env
   assert.throws(() => readBrokerReceipt("j", { run: run("not json") }), /not JSON/);
   assert.throws(() => readBrokerReceipt("j", { run: run(JSON.stringify({ receipt: { id: "other", provenance: prov } })) }), /no signed provenance receipt/);
   assert.throws(() => readBrokerReceipt("j", { run: run(JSON.stringify({ receipt: { id: "j" } })) }), /no signed provenance receipt/);
+});
+
+test("[M6] readBrokerReceipt starts the client the way every gate child does: on Windows the .cmd shim's .exe target, no shell", () => {
+  const prov = { schema: "rustright.provenance.v1", payload: { jobId: "j" }, signature: { alg: "ES256", keyId: "k", value: "ab" } };
+  const exe = "D:\\.rightkit-managed\\runtime-current\\rustright.exe";
+  const shim = `@echo off\r\nrem ${AGENT_SHIM_MARKER}\r\nsetlocal\r\nset "RUSTRIGHT_MANAGED_AGENT_SHIM="\r\nset "RIGHTKIT_MANAGED_AGENT_SHIM="\r\n"${exe}" %*\r\nexit /b %ERRORLEVEL%\r\n`;
+  const launches = [];
+  const run = (cmd, args, options) => {
+    launches.push({ cmd, args, options });
+    if (cmd === "where") return { status: 0, stdout: "D:\\.rightkit-managed\\agent-bin\\rustright.cmd\r\n" };
+    return { status: 0, stdout: JSON.stringify({ receipt: { id: "j", provenance: prov } }) };
+  };
+  const env0 = process.env.RUSTRIGHT_MANAGED_AGENT_SHIM; process.env.RUSTRIGHT_MANAGED_AGENT_SHIM = "1";
+  try {
+    assert.deepEqual(readBrokerReceipt("j", { run, platform: "win32", readFile: () => shim }), { id: "j", provenance: prov });
+  } finally { if (env0 === undefined) delete process.env.RUSTRIGHT_MANAGED_AGENT_SHIM; else process.env.RUSTRIGHT_MANAGED_AGENT_SHIM = env0; }
+  assert.equal(launches[0].cmd, "where");
+  assert.equal(launches[1].cmd, exe, "the shim's target is spawned, never rustright or rustright.cmd");
+  assert.deepEqual(launches[1].args, ["status", "j"]);
+  assert.equal(launches[1].options.shell, false);
+  assert.equal(Object.keys(launches[1].options.env).some((k) => k.toUpperCase() === "RUSTRIGHT_MANAGED_AGENT_SHIM"), false);
+  // A shim of any other shape is refused, never run through a shell.
+  assert.throws(() => readBrokerReceipt("j", { run, platform: "win32", readFile: () => "@echo off\r\ncalc\r\n" }), /cannot report job j/);
+});
+
+test("[M5] releaseUnit runs rk-pipeline from the PRIMARY CHECKOUT, never from the managed snapshot, and only when HEAD is the qualified commit", async () => {
+  const qualification = path.join(tempRoot("unit-qualification-m5-"), "qualification.json"); fs.writeFileSync(qualification, "{}");
+  const snapshot = "/managed/snapshots/abc/snap", checkout = "/primary/rightkit";
+  const calls = [];
+  const dispatched = { unit: unit.name, sha: commit, registry: "npm" };
+  const make = (head) => (cmd, args, options) => {
+    calls.push({ cmd, args, cwd: options?.cwd });
+    if (cmd === "git") return { status: 0, stdout: `${head}\n` };
+    return { status: 1, stdout: "", stderr: "stop here" };
+  };
+  const base = { unit, root: snapshot, checkout, commit, executor: { kind: "broker" }, env: {}, artifact: {}, qualification, platform: "darwin", out: () => {}, readJson: () => ({ dispatches: { k: dispatched } }) };
+  await assert.rejects(releaseUnit({ ...base, run: make(commit) }), /canary.*failed/);
+  const pipelineCalls = calls.filter((c) => c.cmd !== "git");
+  assert.ok(pipelineCalls.length >= 1);
+  for (const c of pipelineCalls) {
+    assert.equal(c.args[0], path.join(checkout, "scripts", "ci", "rk-pipeline.mjs"), "the primary checkout's pipeline script");
+    assert.equal(c.cwd, checkout, "from the primary checkout");
+    assert.ok(!c.args[0].startsWith(snapshot) && !String(c.cwd).startsWith(snapshot), "never from inside the snapshot");
+  }
+  // HEAD elsewhere: the pre-flight and the dispatch would prove another commit; nothing starts.
+  calls.length = 0;
+  await assert.rejects(releaseUnit({ ...base, run: make("c".repeat(40)) }), /not at the qualified commit/);
+  assert.deepEqual(calls.filter((c) => c.cmd !== "git"), []);
 });
 
 // Known red (AGENTS.md: "never publish a unit listed there"): the gate refuses a listed unit before any compile.

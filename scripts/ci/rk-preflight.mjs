@@ -11,6 +11,7 @@ import { parseYaml } from "./workflow-yaml.mjs";
 import { cargoRecipe } from "./consumer-recipes.mjs";
 import { routeCrate, readOnlyQueries } from "./rk-routing.mjs";
 import { consumerStage } from "./rk-consumer-stage.mjs";
+import { brokerClientInvocation } from "../../packages/release/broker-client.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const DEFAULT_OUT = "/Volumes/D/scratch/rk-pipeline/receipts";
@@ -285,13 +286,21 @@ export function checkTools({ pins, spawnFn = spawnSync, exists = fs.existsSync, 
  * envelope's signature bytes are verified by `rustright verify-receipt` against this host's ENROLLED public key, key id
  * and broker digest from ci/rk-pipeline.json (never taken from the receipt). The request digest is passed from the
  * receipt, so that one check is not independent yet; the signature over the canonical payload is. */
+/** One synchronous `rustright` call, started the way every gate child starts the client (packages/release/broker-client.mjs): on Windows the
+ * `.cmd` shim's target .exe, no shell. A refused shim returns a spawn-shaped `{ error }`. */
+function spawnClient(spawnFn, args, options) {
+  let launch;
+  try { launch = brokerClientInvocation("rustright", args, options, { probe: spawnFn }); } catch (error) { return { error, status: null, signal: null, stdout: "", stderr: "" }; }
+  return spawnFn(launch.command, launch.args, launch.options);
+}
+
 export function verifyAttestation(requestId, { nonce, argv, pins, expect, workspace, spawnFn = spawnSync, tmpDir = os.tmpdir() }) {
   if (!requestId || !nonce) return { verified: false, requestId: requestId ?? null, nonce: nonce ?? null, reason: "no broker request or nonce" };
   const adapter = expect?.kind === "adapter";
   const executableDigest = adapter ? pins?.nodeSha256 : pins?.cargoSha256;
   if (!pins?.publicKey || !pins.keyId || !pins.host || !pins.brokerDigest || !executableDigest) return { verified: false, requestId, nonce, reason: "no enrollment pins for this host" };
   if (expect && (!adapter || expect.adapter !== "rightkit-pnpm" || !path.isAbsolute(expect.script?.path ?? "") || !/^[0-9a-f]{64}$/.test(expect.script?.sha256 ?? "") || expect.executable?.sha256 !== executableDigest)) return { verified: false, requestId, nonce, reason: "invalid expected adapter enrollment" };
-  const r = spawnFn("rustright", ["status", requestId], { encoding: "utf8", timeout: 60_000 });
+  const r = spawnClient(spawnFn, ["status", requestId], { encoding: "utf8", timeout: 60_000 });
   if (r.error || r.status !== 0) return { verified: false, requestId, nonce, reason: "broker status unavailable" };
   let doc;
   try {
@@ -327,7 +336,7 @@ export function verifyAttestation(requestId, { nonce, argv, pins, expect, worksp
   if (failed) return { verified: false, requestId, nonce, reason: failed[1] };
   const file = path.join(tmpDir, `rk-receipt-${requestId}.json`);
   fs.writeFileSync(file, JSON.stringify(receipt));
-  const v = spawnFn("rustright", ["verify-receipt", "--receipt", file, "--public-key", pins.publicKey, "--key-id", pins.keyId, "--host", pins.host, "--broker-digest", pins.brokerDigest, "--nonce", nonce, "--request-digest", payload.requestDigest, "--job-id", requestId], { encoding: "utf8", timeout: 60_000 });
+  const v = spawnClient(spawnFn, ["verify-receipt", "--receipt", file, "--public-key", pins.publicKey, "--key-id", pins.keyId, "--host", pins.host, "--broker-digest", pins.brokerDigest, "--nonce", nonce, "--request-digest", payload.requestDigest, "--job-id", requestId], { encoding: "utf8", timeout: 60_000 });
   fs.rmSync(file, { force: true });
   if (v.error || v.status !== 0) return { verified: false, requestId, nonce, reason: "signature verification failed" };
   return { verified: true, signatureVerified: true, requestId, nonce, keyId: pins.keyId, brokerDigest: pins.brokerDigest, requestDigest: payload.requestDigest, manifestDigest: request.manifestDigest ?? null, inputBoundary: receipt.inputBoundary?.status ?? "unrequested" };
@@ -368,7 +377,10 @@ function run(command, args, { cwd, env, timeoutMinutes, logFile }) {
   return new Promise((resolve) => {
     const started = Date.now();
     let out = "";
-    const child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+    let launch;
+    try { launch = brokerClientInvocation(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] }, { probe: spawnSync }); }
+    catch (error) { resolve({ code: 1, timedOut: false, seconds: 0, out: String(error) }); return; }
+    const child = spawn(launch.command, launch.args, launch.options);
     const log = fs.createWriteStream(logFile);
     const sink = (chunk) => {
       const text = chunk.toString();
@@ -545,7 +557,7 @@ export async function main(argv, deps = {}) {
     }
     const logFile = path.join(logDir, `${row.id.replace(/[^a-z0-9.-]+/gi, "_")}.log`);
     const nonce = crypto.randomBytes(32).toString("hex");
-    const r = await run(command, args, { cwd: rowCwd, env: { ...rowEnv, RIGHTKIT_ATTEST_NONCE: nonce }, timeoutMinutes: row.timeoutMinutes, logFile });
+    const r = await run(command, args, { cwd: rowCwd, env: { ...rowEnv, RUSTRIGHT_ATTEST_NONCE: nonce }, timeoutMinutes: row.timeoutMinutes, logFile });
     const warnings = row.denyWarnings ? countDocWarnings(r.out, opts.unit) : 0;
     const ids = brokerRequestIds(r.out);
     const attestation = ids.length === 1 ? (deps.verifyAttestation ?? verifyAttestation)(ids[0], { nonce, argv: row.args, pins: pipeline.attestation?.[process.platform], workspace: rowCwd }) : { verified: false, requestId: null, nonce, reason: ids.length ? "one row produced several broker requests" : "no broker request" };

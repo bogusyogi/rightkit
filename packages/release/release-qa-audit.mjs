@@ -15,8 +15,8 @@ import { spawnSync } from "./background-process.mjs";
 import { hardenQaReceipt } from "./release-qa-hardening.mjs";
 import { admissionModeFor, loadAdmissionPolicy } from "./release-qa-policy.mjs";
 import { assertInstalledQaAdmission, assertSourceQaAdmission, loadQaFloor, QaAdmissionError, qaReceiptPath, readQaReceipt } from "./release-qa-receipt.mjs";
+import { platformDirOf, platformOfDir } from "./platform-dir.mjs";
 
-const platformDirOf = (platform) => (platform === "win" ? "windows" : platform);
 
 /** "missing" when no receipt exists; "rejected" for anything else the gate refused (bad receipt, no key, wrong commit). */
 function refusalStatus(error) {
@@ -106,7 +106,7 @@ function installedStatus({ repoRoot, releaseId, platformDir }) {
   if (record) return { uploaded: true, status: record.status, ...(record.reason ? { reason: record.reason } : {}), ...(record.checkedAt ? { checkedAt: record.checkedAt } : {}) };
   if (!published) return { uploaded: false, status: "not-uploaded" };
   // Uploaded before outcomes were recorded: fall back to the receipt file the old gate required.
-  const receipt = readQaReceipt(qaReceiptPath({ repoRoot, releaseId, platform: platformDir === "windows" ? "win" : platformDir, stage: "installed" }));
+  const receipt = readQaReceipt(qaReceiptPath({ repoRoot, releaseId, platform: platformOfDir(platformDir), stage: "installed" }));
   if (receipt?.status === "passed") return { uploaded: true, status: "passed", reason: "legacy upload; receipt file present, not re-verified" };
   return { uploaded: true, status: "missing", reason: "uploaded with no recorded installed QA outcome" };
 }

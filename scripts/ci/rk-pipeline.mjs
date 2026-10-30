@@ -17,6 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_OUT, ROOT, readJson, receiptRefusal, exceptionAllowsets } from "./rk-preflight.mjs";
 import { packageRows, readPackages as readNpmPackages } from "./rk-npm-preflight.mjs";
+import { brokerClientInvocation } from "../../packages/release/broker-client.mjs";
 
 export const REPO = "bogusyogi/rightkit";
 export const STATE_FILE = "/Volumes/D/scratch/rk-pipeline/state.json";
@@ -267,7 +268,12 @@ function gh(args) {
 function runChild(command, args, env = process.env) {
   return new Promise((resolve) => {
     let out = "";
-    const child = spawn(command, args, { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"] });
+    // `rustright` starts the one way every gate child starts it (packages/release/broker-client.mjs): on Windows it is rustright.cmd, which
+    // node cannot start, so the shim's target .exe is started directly, without a shell.
+    let launch;
+    try { launch = brokerClientInvocation(command, args, { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"] }, { probe: spawnSync }); }
+    catch (e) { resolve({ code: 1, out: String(e) }); return; }
+    const child = spawn(launch.command, launch.args, launch.options);
     child.stdout.on("data", (c) => (out += c));
     child.stderr.on("data", (c) => (out += c));
     child.on("close", (code) => resolve({ code: code ?? 1, out }));
@@ -431,7 +437,7 @@ export async function cmdDispatch(opts, deps = {}) {
     const nonce = crypto.randomBytes(32).toString("hex");
     const args = ["run", "rightkit-dispatch", "--", "--workflow", "publish", "--registry", opts.registry, "--unit", unit, "--sha", sha, "--qualification", qualification.file];
     for (const [key, list] of Object.entries(allow)) if (list.includes(unit)) args.push(`--${key.replaceAll("_", "-")}`, unit);
-    const r = await runChild(RUSTRIGHT, args, { ...process.env, RIGHTKIT_ATTEST_NONCE: nonce });
+    const r = await runChild(RUSTRIGHT, args, { ...process.env, RUSTRIGHT_ATTEST_NONCE: nonce });
     const record = r.out.split("\n").map((l) => l.trim()).filter((l) => l.startsWith("{")).map((l) => {
       try {
         return JSON.parse(l);

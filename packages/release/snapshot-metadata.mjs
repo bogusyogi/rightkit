@@ -13,6 +13,7 @@
 //   cargo fetch --locked
 //   cargo deny [--frozen] [--metadata-path <file>] [--config <file>] check              (each flag at most once, spaced form, nothing after `check`)
 //   cargo audit --db <dir> --no-fetch
+//   cargo fmt -p <unit> --check | cargo fmt --all --check                                 (command_policy.rs fmt_check_shape; check only, nothing after)
 //
 // Cargo's own `--config` and `-Z`, a `+toolchain`, `--manifest-path`, a `--` and every other word never ride along. The files deny reads and
 // the database directory audit reads are absolute, exist (a file; a directory) and lie outside the live checkout.
@@ -70,6 +71,11 @@ export function carriedScanRefusal(words, { checkout = null } = {}) {
     for (const flag of ["--metadata-path", "--config"]) if (f.has(flag)) { const problem = pathProblem(flag, f.get(flag), "file"); if (problem) return problem; }
     return null;
   }
+  // rustright command_policy.rs fmt_check_shape: exactly `-p <unit> --check` or `--all --check`; no `--`, so no rustfmt argument reaches it.
+  if (sub === "fmt") {
+    const shapeOk = (rest.length === 3 && rest[0] === "-p" && rest[1] !== "" && !rest[1].startsWith("-") && rest[2] === "--check") || (rest.length === 2 && rest[0] === "--all" && rest[1] === "--check");
+    return shapeOk ? null : "`fmt` is admitted as `fmt -p <unit> --check` or `fmt --all --check` only";
+  }
   if (sub === "audit") {
     const f = flagsOf(rest, { "--db": "value", "--no-fetch": "flag" });
     if (f === null || f.size !== 2 || !f.has("--db") || !f.has("--no-fetch")) return "`audit` is admitted as `audit --db <dir> --no-fetch` only";
@@ -83,7 +89,7 @@ export function carriedScanRefusal(words, { checkout = null } = {}) {
     const shapeOk = rest[0] === "-p" && typeof unit === "string" && unit !== "" && !unit.startsWith("-") && new Set(tail).size === tail.length && tail.every((w) => ["--list", "--locked", "--allow-dirty"].includes(w)) && tail.includes("--list") && tail.includes("--locked");
     return shapeOk ? null : "`package` is admitted as `package -p <unit> --list --locked [--allow-dirty]` only";
   }
-  return `\`cargo ${words.join(" ")}\` is not one of the carried read-only shapes (metadata, fetch --locked, deny, audit --db --no-fetch, package -p <unit> --list --locked)`;
+  return `\`cargo ${words.join(" ")}\` is not one of the carried read-only shapes (metadata, fetch --locked, deny, audit --db --no-fetch, fmt --check, package -p <unit> --list --locked)`;
 }
 
 /** Whether the broker admits `words` as a carried read-only request (see carriedScanRefusal). */

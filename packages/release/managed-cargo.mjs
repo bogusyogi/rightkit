@@ -97,7 +97,7 @@ export function acquireManagedRunLease({ command, env = process.env, platform = 
 
 export function managedHost(env, platform = process.platform) {
   if (directPlatform(platform)) return false; // Linux is never broker-managed (directPlatform), whatever the env names
-  return Boolean(env.RIGHTKIT_BUILD_BROKER_SOCKET)
+  return Boolean(env.RUSTRIGHT_BUILD_BROKER_SOCKET || env.RIGHTKIT_BUILD_BROKER_SOCKET)
     || /(?:^|[;:])[^;:]*[/\\](?:\.rightkit-managed|rightkitmanagedagent|rightkit[/\\]build-control)[/\\]agent-bin(?:[;:]|$)/i.test(String(env.PATH ?? ""));
 }
 
@@ -124,7 +124,7 @@ export function runCargoSync(args, options = {}, { platform = process.platform, 
   if (client) {
     const socket = discoverBrokerSocket(env, { platform, exists });
     if (platform === 'darwin' && (!socket || !exists(socket))) return unavailable('RightKit broker socket is unavailable');
-    const childEnv = socket ? { ...env, RIGHTKIT_BUILD_BROKER_SOCKET: socket } : env;
+    const childEnv = socket ? { ...env, RUSTRIGHT_BUILD_BROKER_SOCKET: socket } : env;
     const invocation = managedRuntimeCommand(client, ["cargo", ...args]);
     const result = spawn(invocation.command, invocation.args, { ...options, env: childEnv });
     if (platform === 'darwin' && result.status !== 0 && /RK_BROKER_UNAVAILABLE|RightKit broker (?:unavailable|endpoint is not configured)/i.test(String(result.stderr ?? ''))) {

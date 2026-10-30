@@ -321,3 +321,16 @@ test("the real signUpdater never forwards a key file (sign-updater refuses --key
   const source = readFileSync(new URL("./win-package-recipe.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(source, /--key-file/);
 });
+
+test("[L8] the real spawn starts pnpm and node as argv arrays with no shell: a `--config <json>` argument reaches the child byte for byte", () => {
+  const cwd = tempRoot("right-release-win-argv-");
+  const out = path.join(cwd, "argv.json");
+  const deps = defaultWinPackageDeps({ appRoot: cwd, target: baseTarget(), env: { ...process.env } });
+  const json = '{"bundle":{"targets":["nsis"]},"note":"a \\"quoted\\" value & more | pipes %PATH% ^ carets"}';
+  const result = deps.spawn("node", ["-e", "require('node:fs').writeFileSync(process.argv[1], JSON.stringify(process.argv.slice(2)))", out, "exec", "tauri", "bundle", "--config", json], { cwd, env: { ...process.env } });
+  assert.equal(result.status, 0, String(result.error ?? result.stderr));
+  assert.deepEqual(JSON.parse(readFileSync(out, "utf8")), ["exec", "tauri", "bundle", "--config", json]);
+  const source = readFileSync(new URL("./win-package-recipe.mjs", import.meta.url), "utf8");
+  assert.match(source, /const direct = command === "pnpm" \|\| command === "node"/);
+  assert.match(source, /const shell = !direct && /, "pnpm and node never take the shell");
+});

@@ -3,6 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { locateBrokerClient, spawnBrokerClient } from "./broker-client.mjs";
 import { localBuildGranted } from "./execution-policy.mjs";
 import { readCargoPackage } from "./crate-graph.mjs";
 import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
@@ -42,8 +43,10 @@ export function defaultStageCommands({ unit, root, platform, readJson = defaultR
   return expectedStageCommands({ kind: unit.kind, unit: unit.name, config: readJson(path.join(root, "ci", "gate.config.json")), manifest, platform });
 }
 
-export function readBrokerReceipt(id, { run = defaultRun } = {}) {
-  const r = run("rustright", ["status", id], { encoding: "utf8", timeout: 60_000 });
+export function readBrokerReceipt(id, { run = defaultRun, platform = process.platform, readFile } = {}) {
+  // The client starts the one way every gate child starts it (broker-client.mjs): on Windows `rustright` is rustright.cmd, which node cannot
+  // spawn, so its target .exe is read from the shim and started directly.
+  const r = spawnBrokerClient(run, locateBrokerClient({ platform, probe: run }), ["status", id], { encoding: "utf8", timeout: 60_000 }, { platform, readFile });
   if (r.error || r.status !== 0) throw new Error(`the broker cannot report job ${id} (rustright status failed)`);
   let doc;
   try { doc = JSON.parse(r.stdout); } catch { throw new Error(`the broker's status of job ${id} is not JSON`); }
@@ -83,15 +86,25 @@ export function writeQualification({ report, artifact, unit, commit, tree, runti
 
 const requireBrokerHost = (executor) => { if (executor?.kind !== "broker") throw new Error("unit release runs only on a broker-managed host (the hosted qualification is dispatched by the RustRight rightkit-dispatch adapter); a direct host has no gate-owned release route, so no upload was started"); };
 
-export async function releaseUnit({ unit, root, commit, executor, env, artifact, qualification, platform = process.platform, run = defaultRun, readJson = defaultReadJson, out = console.log, scratch = platform === "win32" ? "D:\\scratch" : "/Volumes/D/scratch", registryBytes = defaultRegistryBytes }) {
+export async function releaseUnit({ unit, root, checkout = root, commit, executor, env, artifact, qualification, platform = process.platform, run = defaultRun, readJson = defaultReadJson, out = console.log, scratch = platform === "win32" ? "D:\\scratch" : "/Volumes/D/scratch", registryBytes = defaultRegistryBytes }) {
   requireBrokerHost(executor);
   if (typeof qualification !== "string" || !fs.existsSync(qualification)) throw new Error("release needs the unit qualification receipt (written by the gate after the qualify stage); nothing is dispatched without it");
   const registry = unit.kind === "npm" ? "npm" : "crates";
-  const pipeline = path.join(root, "scripts", "ci", "rk-pipeline.mjs");
+  // rk-pipeline (the canary, the preflight rows, the dispatch) makes its broker calls as ROOT and ADAPTER requests, and the broker refuses any
+  // such request whose workspace is inside a managed snapshot (service.rs "a root request cannot run inside a managed snapshot"). So it runs from
+  // the PRIMARY CHECKOUT (`checkout`; `root` is the snapshot, which stays the source of the bytes that were qualified). rk-preflight proves the
+  // commit itself: it refuses a checkout whose tracked files are modified, and every row reads HEAD's committed bytes (resolveRowWorkspace
+  // compares each consumer manifest with `git show <sha>`); rk-pipeline dispatch pins HEAD to origin/main. Here HEAD must also be the
+  // qualified commit, or the pre-flight and the dispatch would prove another commit than the one that was packaged.
+  if (checkout !== root) {
+    const head = run("git", ["rev-parse", "HEAD"], { cwd: checkout, encoding: "utf8" });
+    if (head.status !== 0 || String(head.stdout ?? "").trim() !== commit) throw new Error(`the primary checkout ${checkout} is not at the qualified commit ${commit.slice(0, 12)} (HEAD ${String(head.stdout ?? "").trim().slice(0, 12) || "unreadable"}); the release runs rk-pipeline from the checkout, so it proves nothing else, and nothing was started`);
+  }
+  const pipeline = path.join(checkout, "scripts", "ci", "rk-pipeline.mjs");
   const stateFile = platform === "win32" ? "D:\\scratch\\rk-pipeline\\state.json" : "/Volumes/D/scratch/rk-pipeline/state.json";
   const step = (label, args, { accept = [0], acceptWhen = null } = {}) => {
     out(`rightkit-gate: [release] ${label}`);
-    const r = run(process.execPath, [pipeline, ...args], { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
+    const r = run(process.execPath, [pipeline, ...args], { cwd: checkout, env, stdio: ["ignore", "pipe", "pipe"] });
     const accepted = r.status === 0 || (accept.includes(r.status) && (!acceptWhen || acceptWhen(r)));
     if (!accepted) {
       const said = `${String(r.stdout ?? "")}\n${String(r.stderr ?? "")}`.split("\n").map((l) => l.trim()).filter((l) => l && !l.includes("note:")).slice(-4).join(" | ");
@@ -314,7 +327,7 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
         requireBrokerHost(executor); // a direct host has no broker receipts to carry: refuse for that reason, not for the missing receipts
         const qualification = writeQualification({ report, artifact, unit, commit, tree, runtime, executor });
         selfCheck(qualification);
-        released = await stageEnv(stage, (runEnv) => (releaser ?? releaseUnit)({ unit, root, commit, executor, env: runEnv, artifact, qualification, platform, out }));
+        released = await stageEnv(stage, (runEnv) => (releaser ?? releaseUnit)({ unit, root, checkout: source?.checkout ?? root, commit, executor, env: runEnv, artifact, qualification, platform, out }));
       }
       if (stageGuard && !(await stageGuard.end(stage))) throw new Error(`RK_CHECK_ERROR: the ${stage} stage's result covers no known bytes (a snapshot byte changed, or a write is outside the ledger)`);
       report.stages[stage] = { ok: true, ...(stage === "package" || stage === "qualify" ? { artifactFile: artifact.artifactFile, artifactSha256: artifact.artifactSha256, ...(artifact.contentSha256 ? { contentSha256: artifact.contentSha256 } : {}) } : {}), ...(receipts[stage] ? { receipts: receipts[stage] } : {}), ...(released ?? {}) };

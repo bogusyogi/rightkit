@@ -18,6 +18,7 @@ import { verifyOwnershipEvidence } from "./ownership-evidence.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { verifySealedRelease } from "./release-state.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
+import { platformDirOf } from "./platform-dir.mjs";
 
 /** Throws unless the operator named a tier. There is no default and no inference from the version or the notes. */
 export function assertUploadTier(tier) {
@@ -63,7 +64,7 @@ export async function authorizeGitHubUpload({
     status: git(repoRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
     commandId: command,
   });
-  const platformDir = platform === "win" ? "windows" : "mac";
+  const platformDir = platformDirOf(platform);
   const sealed = verifySealedRelease(path.join(repoRoot, ".right-release", "sealed", releaseId, platformDir));
   if (sealed.manifest.commit !== candidateCommit) throw new Error("sealed release was built from a different commit than the current checkout");
 

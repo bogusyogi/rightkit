@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { subHandleStub } from "./test-support/fake-broker.mjs";
 import { createHash } from "node:crypto";
 import { qualificationNonce } from "./provenance-verify.mjs";
 import { spawnSync } from "./background-process.mjs";
@@ -194,7 +195,7 @@ test("[7.06a] on a broker host the unit cargo binding is the carrier (o.snapshot
   const fx = unitFixture(t, { npm: true });
   const brokerExecutor = () => ({ kind: "broker", cargo: ["rustright", "cargo"] });
   const installs = [];
-  const sb = { handle: "own-1", markBrokerSubmit: () => ({ handle: "own-1", broker: { submitted: true } }) };
+  const sb = { handle: "own-1", markBrokerSubmit: subHandleStub("own-1") };
   const r = await fx.door(["--to", "compile", "--unit", "npm:@rightkit/x", "--commit", fx.c1], {
     platform: "darwin", resolveExecutor: brokerExecutor, snapshotBroker: sb, brokerSection: () => ({ client: "/x/rustright" }),
     installCargoShim: (args) => { installs.push(args); return { dir: path.join(fx.dir, "shim"), bin: path.join(fx.dir, "shim", "bin"), shim: path.join(fx.dir, "shim", "bin", "cargo"), mode: "broker", workspaces: {}, ledgerDir: path.join(fx.dir, "shim", "ledger"), identity: "i" }; },
@@ -221,7 +222,7 @@ test("[B6] on a broker host the Cargo workspaces are the commit's own (read from
   const brokerExecutor = () => ({ kind: "broker", cargo: ["rustright", "cargo"] });
   const bound = async () => {
     const installs = [];
-    const sb = { handle: "own-1", markBrokerSubmit: () => ({ handle: "own-1", broker: { submitted: true } }) };
+    const sb = { handle: "own-1", markBrokerSubmit: subHandleStub("own-1") };
     const before = fx.spawned.length;
     const r = await fx.door(["--to", "compile", "--unit", "npm:@rightkit/x", "--commit", commit], {
       platform: "darwin", resolveExecutor: brokerExecutor, snapshotBroker: sb, brokerSection: () => ({ client: "/x/rustright" }),
@@ -248,7 +249,7 @@ test("[B6] on a broker host the Cargo workspaces are the commit's own (read from
 test("[B8/B9] `--to qualify --unit` on a broker host is the no-upload route: the compile and package stages are attested, the qualification is written beside the archive and verified against the commit, and nothing is dispatched; a refusal fails the run", { skip: POSIX_SIM }, async (t) => {
   const fx = unitFixture(t, { npm: true });
   const brokerExecutor = () => ({ kind: "broker", cargo: ["rustright", "cargo"] });
-  const sb = { handle: "own-1", markBrokerSubmit: () => ({ handle: "own-1", broker: { submitted: true } }) };
+  const sb = { handle: "own-1", markBrokerSubmit: subHandleStub("own-1") };
   const tgz = path.join(fx.dir, "x-1.2.3.tgz"); fs.writeFileSync(tgz, "tgz");
   const sha = createHash("sha256").update("tgz").digest("hex");
   const seen = { env: {}, released: 0 };

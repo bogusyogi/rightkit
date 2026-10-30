@@ -23,8 +23,20 @@ import { resolveManagedRoots } from "./managed-roots.mjs";
 import { forwardedAdapterEnv } from "./adapter-env.mjs";
 import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend } from "./ownership-mark.mjs";
 import {
-  SnapshotRequestError, argvSha256, isCallHandleOf, lockedArgv, observedEnvOf, readDeclaredInputs, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest,
+  MANAGED_RUST_ENVIRONMENT_KEYS, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, isCallHandleOf, lockedArgv, observedEnvOf, readDeclaredInputs, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest,
 } from "./snapshot-request.mjs";
+
+/**
+ * `env` without any managed Rust variable (MANAGED_RUST_ENVIRONMENT_KEYS, the list the client records as `observedEnv`; case-insensitive,
+ * as Windows environments are). The broker refuses a carried request whose observed value of one of them differs from the one it manages
+ * itself (service.rs validate_managed_rust_environment), and it supplies its own: so a carried call never forwards one, whatever the
+ * caller's shell held (CARGO_HOME, RUSTFLAGS, RUSTC_WRAPPER, ...).
+ */
+export function withoutManagedRustEnv(env) {
+  const out = { ...env };
+  for (const key of Object.keys(out)) if (MANAGED_RUST_ENVIRONMENT_KEYS.includes(key.toUpperCase())) delete out[key];
+  return out;
+}
 
 /** The status a refused or unverified call returns to its caller: cargo's own error status. */
 export const BROKER_REFUSAL_STATUS = 101;
@@ -67,7 +79,7 @@ export function createSnapshotBroker({ env = process.env, platform = process.pla
   const pins = loadPins({ dataRoot: managedData, platform, gateFile, checkout, spawn });
   return {
     controlRoot: roots.controlRoot, commit: { sha: commit.sha, tree: commit.tree }, snapshot: { path: snapshot.path, expectedTree: snapshot.expectedTree },
-    declaredInputs: readDeclaredInputs(snapshot.path), handle: ownership.handle, markBrokerSubmit: () => ownership.markBrokerSubmit(),
+    declaredInputs: readDeclaredInputs(snapshot.path), handle: ownership.handle, markBrokerSubmit: (callHandle) => ownership.markBrokerSubmit(callHandle),
     pins: { host: pins.host, keyId: pins.keyId, publicKey: pins.publicKey, brokerDigest: pins.brokerDigest }, pinsSource: pins.source,
     checkout: fs.realpathSync.native(checkout), outputRoots: brokerOutputRoots({ dataRoot: managedData }), platform, client,
     receiptOf: async (requestId) => receiptSync({ client, requestId, env, spawn, platform }),
@@ -113,6 +125,31 @@ function markCarriedRequest({ section, env, callHandle }) {
 const escapes = (rel) => rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);
 const inside = (child, parent) => { const rel = path.relative(parent, child); return rel === "" || !escapes(rel); };
 
+/**
+ * The primary-checkout counterpart of a directory of the snapshot, computed LEXICALLY: the logical checkout path `base` plus the snapshot-relative
+ * `rel`, checked to stay inside `checkout` by its spelling alone. Nothing about the checkout's present state decides the mapping. The directory is then
+ * required to exist because RustRight requires it: the client canonicalizes the carrier's primaryCwd and compares it with its own working directory
+ * (rustright-cli shims.rs:241, b84ae605), and the broker canonicalizes the request workspace for an adapter root (service.rs:4116-4119), so a counterpart
+ * the newer checkout deleted or moved cannot be served today. That is reported as a typed BROKER-SIDE refusal naming the missing directory, never as a
+ * vague cwd failure; the fix is RustRight's (map by the snapshot-relative cwd the carrier already binds). An existing counterpart is realpathed, so a link
+ * that leaves the checkout is still refused. Returns `{ dir }` or `{ refusal: { code, message } }`.
+ */
+export function checkoutCounterpart({ base, rel, checkout, absentCode }) {
+  // The logical base may be spelled through a link the checkout path is not (a map built from a realpath): resolve the base alone when it exists.
+  let root = base; try { root = fs.realpathSync.native(base); } catch { /* an absent base is judged by its spelling */ }
+  const lexical = path.join(root, rel);
+  if (!inside(lexical, checkout)) return { refusal: { code: absentCode.replace(/_ABSENT$/, "_ESCAPE"), message: `${lexical} is outside the primary checkout ${checkout}` } };
+  let real;
+  try { real = fs.realpathSync.native(lexical); }
+  catch (e) {
+    if (e.code === "ENOENT" || e.code === "ENOTDIR") return { refusal: { code: absentCode, message: `the selected commit's directory ${rel === "" ? "." : rel.split(path.sep).join("/")} has no counterpart ${lexical} in the primary checkout (deleted or moved since the commit); RustRight's client requires the carrier's primaryCwd to exist and be its working directory (shims.rs:241), so this is a broker-side limit: the snapshot-relative cwd is already bound by the carrier and RustRight must map by it. The gate does not recreate the directory` } };
+    return { refusal: { code: absentCode, message: `${lexical} cannot be resolved (${e.code ?? e.message})` } };
+  }
+  try { if (!fs.statSync(real).isDirectory()) return { refusal: { code: absentCode, message: `${real} is not a directory` } }; } catch (e) { return { refusal: { code: absentCode, message: `${real} cannot be read (${e.code ?? e.message})` } }; }
+  if (!inside(real, checkout)) return { refusal: { code: absentCode.replace(/_ABSENT$/, "_ESCAPE"), message: `${real} is outside the primary checkout ${checkout}` } };
+  return { dir: real };
+}
+
 /** Per-call carrier variables, in both spellings (rustright-cli shims.rs LEGACY_ENV_SPELLINGS: the current RUSTRIGHT_* name wins over the legacy one). */
 const CARRIER_CALL_VARIABLES = ["SNAPSHOT_REQUEST", "ATTEST_NONCE", "REQUEST_ID_FILE", "PARENT_REQUEST_ID", "PARENT_CAPABILITY_TOKEN", "SNAPSHOT_ADMISSION"];
 /** The carrier variables of an environment, by name: a call's carrier is set by the gate for that one call and never inherited. */
@@ -148,22 +185,21 @@ export function carryBrokerCargo({ words, cwd, env, section, workspace, checkout
   // The broker pins the output directory, so a carried call passes none: the caller's CARGO_TARGET_DIR (and the gate's unbound sentinel)
   // are dropped here. The receipt's `outputDir` is verified to be the broker's generation target under the managed `ws` root, outside the
   // snapshot and the checkout, whatever the environment held, so dropping it can only make the call safer.
-  const clientEnv = { ...env };
-  for (const key of Object.keys(clientEnv)) if (/^(CARGO_TARGET_DIR|CARGO_BUILD_TARGET_DIR)$/i.test(key)) delete clientEnv[key];
+  const clientEnv = withoutManagedRustEnv(env);
   // There is no stage grant any more (one model: a snapshot stage's compiles run nested under an adapter job); an inherited one is dropped, never forwarded.
   for (const key of Object.keys(clientEnv)) if (/^(RUSTRIGHT|RIGHTKIT)_SNAPSHOT_GRANT$/i.test(key)) delete clientEnv[key];
   // A release-bound stage's nonce (RIGHTKIT_ATTEST_STAGE_NONCE) is read here and never reaches the client: this call's nonce is derived from it.
   const stageNonce = env[ATTEST_STAGE_NONCE_ENV];
   for (const key of Object.keys(clientEnv)) if (key.toUpperCase() === ATTEST_STAGE_NONCE_ENV) delete clientEnv[key];
-  let realCwd; let checkoutCwd;
+  let realCwd; let checkoutCwd; let rel;
   try {
     realCwd = fs.realpathSync.native(cwd);
-    const rel = path.relative(workspace, realCwd);
+    rel = path.relative(workspace, realCwd);
     if (escapes(rel)) throw new Error(`${realCwd} is not inside the workspace ${workspace}`);
-    checkoutCwd = fs.realpathSync.native(path.join(checkoutWorkspace, rel));
-    if (!fs.statSync(checkoutCwd).isDirectory()) throw new Error(`${checkoutCwd} is not a directory`);
-    if (!inside(checkoutCwd, section.checkout)) throw new Error(`${checkoutCwd} is outside the primary checkout ${section.checkout}`);
-  } catch (e) { return refuse("RK_CARGO_BROKER_CWD", `the call's working directory has no counterpart in the primary checkout (${e.message}); the broker runs it where the checkout has it`); }
+  } catch (e) { return refuse("RK_CARGO_BROKER_CWD", `the call's working directory is not inside its workspace (${e.message})`); }
+  const counterpart = checkoutCounterpart({ base: checkoutWorkspace, rel, checkout: section.checkout, absentCode: "RK_CARGO_BROKER_COUNTERPART_ABSENT" });
+  if (counterpart.refusal) return refuse(counterpart.refusal.code, counterpart.refusal.message);
+  checkoutCwd = counterpart.dir;
   let inputs;
   try { inputs = readDeclaredInputs(section.snapshot.path); } catch (e) { return refuse("RK_CARGO_BROKER_DECLARED_INPUTS", e.message); }
   const refDir = fs.mkdtempSync(path.join(tmp, "rk-snapreq-"));
@@ -234,8 +270,8 @@ export function carryBrokerAdapter({ adapter, words, cwd, env, section, record, 
   if (inherited.length) return refuse("RK_ADAPTER_BROKER_INHERITED_ENV", `${inherited.join(", ")} ${inherited.length > 1 ? "are" : "is"} already in the environment; a carrier is set by the gate for one call only, so a nested or replayed call (or one from inside a broker job) is refused`);
   // The client's environment: the stage nonce is read here and never forwarded (this call's nonce is derived from it); no output directory
   // and no stage grant is forwarded either (the broker pins the output, and no grant exists).
-  const clientEnv = { ...env };
-  for (const key of Object.keys(clientEnv)) if (/^(CARGO_TARGET_DIR|CARGO_BUILD_TARGET_DIR)$/i.test(key) || /^(RUSTRIGHT|RIGHTKIT)_SNAPSHOT_GRANT$/i.test(key)) delete clientEnv[key];
+  const clientEnv = withoutManagedRustEnv(env);
+  for (const key of Object.keys(clientEnv)) if (/^(RUSTRIGHT|RIGHTKIT)_SNAPSHOT_GRANT$/i.test(key)) delete clientEnv[key];
   const stageNonce = env[ATTEST_STAGE_NONCE_ENV];
   for (const key of Object.keys(clientEnv)) if (key.toUpperCase() === ATTEST_STAGE_NONCE_ENV) delete clientEnv[key];
   // The request environment the client will forward (RUSTRIGHT_ADAPTER_ENV and the variables it names): bound into the request core below and
@@ -243,16 +279,16 @@ export function carryBrokerAdapter({ adapter, words, cwd, env, section, record, 
   let adapterEnv;
   try { adapterEnv = forwardedAdapterEnv(env); } catch (e) { return refuse(e.code ?? "RK_ADAPTER_ENV_INVALID", e.message); }
   base.adapterEnv = adapterEnv;
-  let realCwd; let checkoutCwd;
+  let realCwd; let checkoutCwd; let rel;
   try {
     const snapshotRoot = fs.realpathSync.native(section.snapshot.path);
     realCwd = fs.realpathSync.native(cwd);
-    const rel = path.relative(snapshotRoot, realCwd);
+    rel = path.relative(snapshotRoot, realCwd);
     if (escapes(rel)) throw new Error(`${realCwd} is not inside the snapshot ${snapshotRoot}`);
-    checkoutCwd = fs.realpathSync.native(path.join(section.checkout, rel));
-    if (!fs.statSync(checkoutCwd).isDirectory()) throw new Error(`${checkoutCwd} is not a directory`);
-    if (!inside(checkoutCwd, section.checkout)) throw new Error(`${checkoutCwd} is outside the primary checkout ${section.checkout}`);
-  } catch (e) { return refuse("RK_ADAPTER_BROKER_CWD", `the step's working directory has no counterpart in the primary checkout (${e.message}); the broker runs it where the checkout has it`); }
+  } catch (e) { return refuse("RK_ADAPTER_BROKER_CWD", `the step's working directory is not inside the snapshot (${e.message})`); }
+  const counterpart = checkoutCounterpart({ base: section.checkout, rel, checkout: section.checkout, absentCode: "RK_ADAPTER_BROKER_COUNTERPART_ABSENT" });
+  if (counterpart.refusal) return refuse(counterpart.refusal.code, counterpart.refusal.message);
+  checkoutCwd = counterpart.dir;
   let inputs;
   try { inputs = readDeclaredInputs(section.snapshot.path); } catch (e) { return refuse("RK_ADAPTER_BROKER_DECLARED_INPUTS", e.message); }
   const refDir = fs.mkdtempSync(path.join(tmp, "rk-snapreq-"));
@@ -337,7 +373,7 @@ export async function verifyBrokerLedger(entries, sb, { seen = { nonces: new Set
       }
       // The gate's own truth: its commit, snapshot, handle and declared inputs; only the call's own argv, nonce and cwd come from the ledger.
       const carrier = {
-        schema: "rightkit.snapshot-request/1", commit: sb.commit, snapshot: sb.snapshot, declaredInputs: { inputs: readDeclaredInputs(sb.snapshot.path) },
+        schema: SNAPSHOT_REQUEST_SCHEMA, commit: sb.commit, snapshot: sb.snapshot, declaredInputs: { inputs: readDeclaredInputs(sb.snapshot.path) },
         ownership: { handle: e.ownershipHandle }, primaryCwd: fs.realpathSync.native(e.checkoutCwd), argvSha256: argvSha256(e.argv), nonce: e.nonce,
       };
       const receipt = await sb.receiptOf(e.requestId);

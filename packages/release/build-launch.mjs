@@ -40,6 +40,7 @@ import { resolveExecutor } from "./gate-executor.mjs";
 import { resolveExecutable } from "./admission-host.mjs";
 import { CARRIED_CARGO_MAP_ENV as CARRIED_MAP_ENV, carriedCargoMapOf } from "./carried-cargo.mjs";
 import { adapterEnvLaunch } from "./adapter-env.mjs";
+import { PNPM_ADAPTER_GRAMMAR, liveAdapterGrammar, pnpmGrammarRefusal } from "./pnpm-adapter-grammar.mjs";
 import { QA_VALUE_OPTIONS, hasListing, isBuildFlag, ownWords, qaPathReason, qaSnapshotPlan } from "./qa-snapshot.mjs";
 
 /** The environment variable the door sets for a stage that runs from a commit snapshot (gate-stages.mjs CHECKOUT_ENV). */
@@ -237,6 +238,10 @@ export function buildLaunch(command, args = [], host = {}) {
     if (at >= 0 && words[at] === "exec" && !EXEC_TARGETS.includes(words[at + 1] ?? "")) refuse(`pnpm ${words.join(" ")}: pnpm exec target ${JSON.stringify(words[at + 1] ?? null)} is not allowed (allowed: ${EXEC_TARGETS.join(", ")}); on a broker-managed host pnpm exec runs only those, as a broker job (rightkit#1241)`);
     // A snapshot-bound broker call admits run, exec and pack only; a bare script name (\`pnpm build\`) is refused here, naming the step, not by the broker.
     if (adapterMap?.map && at >= 0 && !SNAPSHOT_PNPM_COMMANDS.has(words[at])) refuse(`pnpm ${words.join(" ")}: a snapshot stage runs pnpm run, exec and pack only (the broker's snapshotSubcommands); write \`pnpm run ${words[at]}\` for a package script`);
+    // The broker's rightkit-pnpm grammar, mirrored (pnpm-adapter-grammar.mjs; the live registration when this host has it): a first argument the
+    // adapter does not register (a leading --if-present, --prefix, --config, ...) or a global option it does not register is refused here, naming the step.
+    const grammarProblem = pnpmGrammarRefusal(words, (host.pnpmGrammar ?? liveAdapterGrammar({ env, platform, readFile: host.readFile })) ?? PNPM_ADAPTER_GRAMMAR);
+    if (grammarProblem) refuse(`pnpm ${words.join(" ")}: ${grammarProblem}; the broker's rightkit-pnpm adapter would refuse it (rightkit#1241)`);
     return adapterLaunch("rightkit-pnpm", words);
   }
   return refuse(`${program} ${args.join(" ")}: no broker adapter runs this command yet, and on a broker-managed host a build or test command never runs around the broker (rightkit#1241)`);

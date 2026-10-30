@@ -128,7 +128,7 @@ export async function consumerStage({ root, unit, version, sha, logDir, env, run
       const argv = ["build", ...(features.length ? ["--features", key] : [])];
       const nonce = crypto.randomBytes(32).toString("hex");
       const logFile = path.join(logDir, `registry-consumer-build${key ? `-${key.replace(/[^a-z0-9]+/gi, "_")}` : ""}.log`);
-      const r = await runCommand("rustright", ["cargo", ...argv], { cwd: checkDir, env: { ...env, RIGHTKIT_ATTEST_NONCE: nonce }, timeoutMinutes: 60, logFile });
+      const r = await runCommand("rustright", ["cargo", ...argv], { cwd: checkDir, env: { ...env, RUSTRIGHT_ATTEST_NONCE: nonce }, timeoutMinutes: 60, logFile });
       const attestation = attest(r.out, { nonce, argv, workspace: checkDir });
       const entry = { argv: `cargo ${argv.join(" ")}`, argvList: argv, exit: r.code, timedOut: r.timedOut, seconds: r.seconds, attestation, log: logFile, ok: r.code === 0 && !r.timedOut && attestation.verified === true };
       result.build.push(entry);
@@ -154,7 +154,7 @@ export async function consumerStage({ root, unit, version, sha, logDir, env, run
       via = "broker";
       const argv = ["run", ...(features.length ? ["--features", key] : []), ...((run.args ?? []).length ? ["--", ...run.args] : [])];
       const nonce = crypto.randomBytes(32).toString("hex");
-      r = await runCommand("rustright", ["cargo", ...argv], { cwd: checkDir, env: { ...env, RIGHTKIT_ATTEST_NONCE: nonce }, timeoutMinutes: 30, logFile });
+      r = await runCommand("rustright", ["cargo", ...argv], { cwd: checkDir, env: { ...env, RUSTRIGHT_ATTEST_NONCE: nonce }, timeoutMinutes: 30, logFile });
       attestation = attest(r.out, { nonce, argv, workspace: checkDir });
       runArgv = argv;
       if (attestation.verified !== true) r = { ...r, code: r.code === 0 ? 1 : r.code, out: `${r.out}\nconsumer run not attested: ${attestation.reason}` };

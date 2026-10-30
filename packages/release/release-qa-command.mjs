@@ -36,6 +36,7 @@ import {
   buildQaReceipt, currentPolicyBundleDigest, dependencyClosure, ensureQaReceiptKey, evaluateRequiredChecks, loadQaFloor,
   qaReceiptPath, QA_STAGES, sealQaReceipt, sourceIdentity, validateAppQaConfig, writeQaReceipt,
 } from "./release-qa-receipt.mjs";
+import { platformDirOf } from "./platform-dir.mjs";
 
 const sha256File = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
 
@@ -126,7 +127,7 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, carryTo
   if (stage === "source") releaseId = `${config.app}-${config.version}-${source.commit.slice(0, 8)}`;
   else {
     if (!releaseId) throw new Error("--release <sealed-id> is required for the installed stage");
-    sealed = verifySealedRelease(path.join(repoRoot, ".right-release", "sealed", releaseId, platform === "win" ? "windows" : "mac"));
+    sealed = verifySealedRelease(path.join(repoRoot, ".right-release", "sealed", releaseId, platformDirOf(platform)));
     // R4: a split binds the sealed release to the selected commit (and its tree), never to the checkout's HEAD.
     if (split) assertBindsSource(release, sealed.manifest, "the sealed release");
     else if (sealed.manifest.commit !== source.commit) throw new Error("sealed release was built from a different commit than the current checkout");

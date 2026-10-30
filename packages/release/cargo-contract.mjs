@@ -31,7 +31,7 @@ export function managedCargoShimOnPath(env = process.env, platform = process.pla
 
 export function brokerManagedHost(env = process.env, platform = process.platform, exists = existsSync) {
   if (directPlatform(platform)) return false; // Linux is never broker-managed, whatever socket or control root the env names
-  return Boolean(managedRuntimeClient(env, platform, exists)) || Boolean(env.RIGHTKIT_BUILD_BROKER_SOCKET) || managedCargoShimOnPath(env, platform, exists);
+  return Boolean(managedRuntimeClient(env, platform, exists)) || Boolean(env.RUSTRIGHT_BUILD_BROKER_SOCKET || env.RIGHTKIT_BUILD_BROKER_SOCKET) || managedCargoShimOnPath(env, platform, exists);
 }
 
 export function isolatedCargoMetadataEnv(cargoHome, env = process.env, platform = process.platform, exists = existsSync) {

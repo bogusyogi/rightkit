@@ -11,6 +11,7 @@ import { verifySealedRelease } from "./release-state.mjs";
 import { admitInstalledQa } from "./release-qa-audit.mjs";
 import { addonManifestSha256, validateAddonConfig, validateAddonManifest } from "./addon-contract.mjs";
 import { RIGHTRELEASE_MANIFEST_SIGNER, verifyManifestCatalogSignature } from "./sign-release-manifest.mjs";
+import { platformDirOf } from "./platform-dir.mjs";
 
 const REPO_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const RELEASE_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,159}$/;
@@ -21,7 +22,7 @@ export function prepareGitHubRelease({ repoRoot, releaseId, platform, repo, stat
   if (!RELEASE_RE.test(releaseId)) throw new Error(`invalid release id: ${releaseId}`);
   if (platform !== "mac" && platform !== "win") throw new Error("platform must be mac or win");
   if (!REPO_RE.test(repo)) throw new Error(`invalid GitHub repository: ${repo}`);
-  const platformDir = platform === "win" ? "windows" : "mac";
+  const platformDir = platformDirOf(platform);
   const sealed = verifySealedRelease(path.join(repoRoot, ".right-release", "sealed", releaseId, platformDir));
   if (sealed.manifest.platform !== platform) throw new Error("sealed release platform mismatch");
   const installers = sealed.manifest.files.filter((file) => file.role === "installer");

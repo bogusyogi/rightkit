@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { BrokerPinsError, PINS_SCHEMA, enrollBrokerPins, loadBrokerPins, main, pinsFile, readEnrolledPins, readGateRevisionPins, validatePins } from "./broker-pins.mjs";
 import { createSnapshotBroker } from "./snapshot-broker.mjs";
-import { makeFakeBroker, keyPair, signedReceipt } from "./test-support/fake-broker.mjs";
+import { makeFakeBroker, keyPair, signedReceipt, subHandleStub } from "./test-support/fake-broker.mjs";
 import { verifySnapshotReceipt, writeSnapshotRequest } from "./snapshot-request.mjs";
 
 const POSIX = process.platform === "win32" ? "POSIX file modes" : false;
@@ -115,7 +115,7 @@ test("[7.21] the enrolled record wins over the fallback; nothing in the environm
   assert.deepEqual(loadBrokerPins({ dataRoot, platform: "darwin", gateFile, checkout: root }), before, "no environment variable changes the pins");
   // The production factory has no pin parameter at all: pins handed to it are ignored, and a missing record refuses the compile.
   const fx = makeFakeBroker(t);
-  const own = { handle: "h", markBrokerSubmit: () => ({}) };
+  const own = { handle: "h", markBrokerSubmit: subHandleStub("h") };
   const make = (extra = {}) => createSnapshotBroker({ env: { RIGHTKIT_DATA_ROOT: fx.dataRoot, RIGHTKIT_CONTROL_ROOT: fx.controlRoot }, platform: platformKey, checkout: fx.checkout, commit: fx.sb.commit, snapshot: fx.sb.snapshot, ownership: own, client: fx.client, gateFile: path.join(fx.root, "x", "rightkit-gate.mjs"), ...extra });
   assert.throws(() => make({ pins: enrolled }), (e) => e.code === "RK_BROKER_PINS_MISSING", "an app repository with no enrollment compiles nothing; a pins argument does not help");
   enrollBrokerPins({ dataRoot: fx.dataRoot, platform: platformKey, ...fx.pins });

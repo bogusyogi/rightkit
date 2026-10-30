@@ -1042,10 +1042,20 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null }) {
     throw new Error(`the record names no containment (${JSON.stringify(c)})`);
   }
   if (owner.broker?.submitted) {
-    // A carried request was sent under this handle (recorded just before each send): the broker must answer REAPED for the bare handle.
+    // A carried request was sent under this handle (recorded just before each send). The bare handle answers REAPED when ANY one sub-handle has completed and
+    // none is held (rustright snapshot.rs `status`: handle_covers), so it proves only that no lease is held now; it never proves every sent request returned.
     const status = lease({ snapshot: owner.snapshot, handle: owner.handle });
     if (status.state !== "REAPED") throw new Error(`broker work may exist under this handle and its lease is ${status.state} (${status.why})`);
     proofs.push(`broker lease for ${owner.handle} is REAPED`);
+    // Every recorded sub-handle (broker.handles: each is recorded before its send) must itself answer REAPED, asked by its exact name: an UNKNOWN one is a
+    // request that may have run and left no completion, so the record is held. Fail closed on a handle that is not a sub-handle of this record.
+    const handles = Array.isArray(owner.broker.handles) ? owner.broker.handles : [];
+    for (const sub of [...new Set(handles)]) {
+      if (typeof sub !== "string" || !sub.startsWith(`${owner.handle}#`) || sub.length <= owner.handle.length + 1) throw new Error(`the record lists ${JSON.stringify(sub)}, which is not a sub-handle of ${owner.handle}`);
+      const one = lease({ snapshot: owner.snapshot, handle: sub });
+      if (one.state !== "REAPED") throw new Error(`broker work may exist under sub-handle ${sub} and its lease is ${one.state} (${one.why})`);
+    }
+    if (handles.length) proofs.push(`broker lease for each of ${new Set(handles).size} sub-handle(s) is REAPED`);
   }
   return proofs;
 }

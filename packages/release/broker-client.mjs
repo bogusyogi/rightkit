@@ -7,6 +7,7 @@
 // environment the shim would have made (RUSTRIGHT_MANAGED_AGENT_SHIM and RIGHTKIT_MANAGED_AGENT_SHIM removed). A shim of any other
 // shape is refused with RK_BROKER_CLIENT_UNRESOLVED; there is no shell fallback. POSIX is unchanged: the client is spawned as given.
 import fs from "node:fs";
+import path from "node:path";
 
 export const BROKER_CLIENT_UNRESOLVED = "RK_BROKER_CLIENT_UNRESOLVED";
 export const AGENT_SHIM_MARKER = "rustright.build-control.agent-shims.install.v1";
@@ -66,4 +67,30 @@ export function spawnBrokerClient(spawn, client, args, options = {}, { platform 
   try { resolved = resolveBrokerClient(client, { platform, readFile }); } catch (error) { return { error, status: null, signal: null, stdout: "", stderr: "" }; }
   if (!resolved.shim) return spawn(resolved.file, args, options);
   return spawn(resolved.file, args, { ...options, shell: false, env: withoutAgentShimEnv(options.env ?? process.env) });
+}
+
+/**
+ * The client as PATH names it. POSIX: the bare name `rustright` (the shim is an executable file). win32: the first absolute path `where`
+ * lists for it (the managed `rustright.cmd` shim or an .exe), so resolveBrokerClient can read the shim; none found leaves the bare name,
+ * which the caller's spawn then fails on, as it did. `probe` is a synchronous spawn `(file, args, options)`; it is called on win32 only.
+ */
+export function locateBrokerClient({ platform = process.platform, env = process.env, probe } = {}) {
+  if (platform !== "win32") return "rustright";
+  if (typeof probe !== "function") throw new BrokerClientError("locating the RustRight client on win32 needs a synchronous spawn (`probe`)");
+  const r = probe("where", ["rustright"], { encoding: "utf8", env, windowsHide: true, shell: false, timeout: 20_000 });
+  const found = String(r?.stdout ?? "").split(/\r?\n/).map((l) => l.trim()).filter((l) => path.win32.isAbsolute(l));
+  return found.find((l) => /\.(cmd|bat)$/i.test(l)) ?? found.find((l) => /\.exe$/i.test(l)) ?? "rustright";
+}
+
+/**
+ * `{ command, args, options }` to hand to ANY spawn (synchronous or not) for `command`: anything but the bare `rustright` is returned
+ * as given; `rustright` is located (locateBrokerClient) and resolved (resolveBrokerClient), so a win32 `.cmd` shim becomes its .exe
+ * target with `shell: false` and the shim's environment. Throws BrokerClientError for a shim that is not the installed shape.
+ */
+export function brokerClientInvocation(command, args, options = {}, { platform = process.platform, probe, readFile } = {}) {
+  if (command !== "rustright") return { command, args, options };
+  const client = locateBrokerClient({ platform, env: options.env, probe });
+  const resolved = resolveBrokerClient(client, { platform, readFile });
+  if (!resolved.shim) return { command: resolved.file, args, options };
+  return { command: resolved.file, args, options: { ...options, shell: false, env: withoutAgentShimEnv(options.env ?? process.env) } };
 }

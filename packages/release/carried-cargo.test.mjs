@@ -14,6 +14,7 @@ import { CARRIED_CARGO_MAP_ENV, CARRIER_MISSING_CODE, carriedCargoMapOf, install
 import { runCargoSync, runCargoAsync } from "./managed-cargo.mjs";
 import { brokerSection, inheritedCarrierEnv } from "./snapshot-broker.mjs";
 import * as requestModule from "./snapshot-request.mjs";
+import { MANAGED_RUST_ENVIRONMENT_KEYS } from "./snapshot-request.mjs";
 import { makeFakeBroker } from "./test-support/fake-broker.mjs";
 
 const POSIX = process.platform === "win32" ? "the fixture wrapper is POSIX only: a Windows child finds only an .exe" : false;
@@ -121,6 +122,19 @@ test("negative: --manifest-path without a value, --target-dir, --config, -Z and 
   // After `--` the arguments are the program's own, not cargo's.
   assert.equal(h.cargo(["run", "--", "--target-dir", "x"]).status, 0);
   assert.deepEqual(h.fx.calls().at(-1).argv, ["run", "--locked", "--", "--target-dir", "x"], "a run is sent locked; after -- the arguments are the program's");
+});
+
+test("[L3] every managed Rust variable of the caller (CARGO_HOME, RUSTFLAGS, RUSTC_WRAPPER, ...) is dropped from a carried call, so the broker never sees a value that differs from its own", { skip: POSIX }, async (t) => {
+  const h = host(t);
+  const set = Object.fromEntries(MANAGED_RUST_ENVIRONMENT_KEYS.map((k) => [k, `/caller/${k}`]));
+  set.Rustflags = "-Dwarnings"; // any case
+  const r = h.cargo(["build"], { over: set });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(h.fx.calls().at(-1).managedEnvNames, [], "no managed Rust variable reaches the broker's client");
+  assert.deepEqual(await h.installed.problems(h.fx.sb), []);
+  // A variable that is not managed still passes (the carrier drops only what the broker manages).
+  assert.equal(h.cargo(["build"], { over: { SOME_OTHER_VARIABLE: "1" } }).status, 0);
+  assert.deepEqual(h.fx.calls().at(-1).managedEnvNames, []);
 });
 
 test("an output directory of the caller's (CARGO_TARGET_DIR or CARGO_BUILD_TARGET_DIR, any case) is dropped: the broker pins it, and the receipt's directory is verified whatever the environment held", { skip: POSIX }, async (t) => {

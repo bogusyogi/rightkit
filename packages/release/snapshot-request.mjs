@@ -3,7 +3,7 @@
 //
 // For each `rustright cargo` request that builds the commit snapshot on a broker host the gate:
 //   1. picks a fresh nonce (RUSTRIGHT_ATTEST_NONCE: an attested request; the carrier must carry the same nonce);
-//   2. writes the carrier `rightkit.snapshot-request/1` as an owner-only file under `<control root>/snapshot-requests/` (the
+//   2. writes the carrier `rustright.snapshot-request/1` as an owner-only file under `<control root>/snapshot-requests/` (the
 //      directory the client accepts, never a link) and points RUSTRIGHT_SNAPSHOT_REQUEST at it as `{"path","sha256"}` (at most
 //      4096 bytes; the file at most 4 MiB). The carrier binds the commit and tree, the snapshot and its expected tree, the
 //      declared inputs, the build-ownership handle, the cargo working directory (primaryCwd) and sha256 of the canonical cargo
@@ -22,7 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { canonicalJson, ProvenanceError, verifyProvenance } from "./provenance-verify.mjs";
 
-export const SNAPSHOT_REQUEST_SCHEMA = "rightkit.snapshot-request/1";
+export const SNAPSHOT_REQUEST_SCHEMA = "rustright.snapshot-request/1";
 // One spelling per variable, the current one (rustright-cli shims.rs reads RUSTRIGHT_* first, then the legacy RIGHTKIT_* spelling, which task
 // L-1 removes): the gate never sets both.
 export const SNAPSHOT_REQUEST_ENV = "RUSTRIGHT_SNAPSHOT_REQUEST";
@@ -42,13 +42,26 @@ export const MANAGED_RUST_ENVIRONMENT_KEYS = Object.freeze([
 export const SNAPSHOT_EVIDENCE_FIELDS = Object.freeze(["requestId", "brokerVersion", "executor", "commit", "snapshot", "declaredInputDigests", "ownership", "outputDir"]);
 /** The stage evidence the broker signs in payload.stageEvidence and copies onto the receipt (attestation.rs STAGE_EVIDENCE_FIELDS). */
 export const STAGE_EVIDENCE_FIELDS = Object.freeze(["freshness", "attribution", "toolchain"]);
-const SIGNED_TOP_LEVEL_FIELDS = Object.freeze(["verdict", "refreshed", "exit", "signal", "timingsMs", "diagnosticsPath"]);
+/** The result fields the broker signs in payload.resultEvidence and mirrors on the receipt (attestation.rs RESULT_EVIDENCE_FIELDS). */
+export const RESULT_EVIDENCE_FIELDS = Object.freeze(["exit", "signal", "timingsMs", "diagnosticsPath"]);
 const TIMING_KEYS =Object.freeze(["admission", "queue", "bind", "cargo", "afterExitBind", "diagnostics"]);
 /** `<toolchain>|cargo:<sha256>|rustc:<sha256>` (rustright toolchain_identity). */
 const TOOLCHAIN_FORMAT = /^[^|\s][^|]*\|cargo:[0-9a-f]{64}\|rustc:[0-9a-f]{64}$/;
 
-/** The compile-class cargo commands (and their aliases): the ones whose receipt carries attribution and toolchain. */
-export const COMPILE_CLASS_COMMANDS = Object.freeze(["check", "clippy", "build", "doc", "rustc", "test", "b", "c", "t", "d"]);
+/**
+ * The ONE table of what the broker classifies as a compile (a Capability that builds: its receipt carries freshness, attribution and toolchain), read from
+ * rustright b84ae605 crates/rustright-policy/src/command_policy.rs `cargo_capability`: `fix` (:581), `run` (:597, CARGO_RUN = BUILD that stays resident),
+ * `package` unless it is the observation shape (:611, `observation_only_cargo`), `publish` (:615) and `build check test bench clippy doc rustc rustdoc` (:619).
+ * Both decisions the gate makes from an argv derive from it: which evidence a receipt must carry (`isCompileClass`) and which commands get `--locked`
+ * (`lockedArgv`). `package` is a compile only when it is not the exact `-p <crate> --list --locked [--allow-dirty]` listing (`isPackageObservation`).
+ */
+export const BROKER_COMPILE_COMMANDS = Object.freeze(["fix", "run", "package", "publish", "build", "check", "test", "bench", "clippy", "doc", "rustc", "rustdoc"]);
+/**
+ * The one-letter aliases of Cargo. The broker lists none (an alias is refused there); the gate reads one as the command it expands to, so an alias can only
+ * make the gate demand MORE evidence and lock MORE, never less.
+ */
+export const CARGO_COMMAND_ALIASES = Object.freeze({ b: "build", c: "check", t: "test", r: "run", d: "doc" });
+const canonicalCommand = (sub) => (typeof sub === "string" && Object.hasOwn(CARGO_COMMAND_ALIASES, sub) ? CARGO_COMMAND_ALIASES[sub] : sub);
 const GLOBAL_VALUE_OPTIONS = new Set(["--color", "--explain"]);
 
 /** The cargo subcommand of an argv (without `cargo`): after an optional `+toolchain` and the global options, before `--`; null when there is none. */
@@ -63,8 +76,39 @@ export function cargoSubcommandOf(argv) {
   }
   return null;
 }
-/** The compile-class commands that build or run, and so can rewrite Cargo.lock inside a snapshot unless they are locked (rightkit#1301). */
-export const LOCK_BOUND_COMMANDS = Object.freeze(["build", "run", "test", "check", "bench", "clippy", "doc", "rustc", "rustdoc"]);
+const PACKAGE_PLAIN_FLAGS = new Set(["--list", "--locked", "--allow-dirty"]);
+/**
+ * Whether `argv` is the one package form the broker admits as an observation that compiles nothing (rustright build_rules.rs `observation_only_cargo`, package
+ * arm): no `--`, no `+toolchain`, the subcommand as the one positional, `-p`/`--package` once with a value that is not a flag (`--package=x` is read, `-p=x` is not),
+ * and only `--list`, `--locked` and `--allow-dirty` besides; it must carry `--list`, `--locked` and one package. Anything else is a compiling package.
+ */
+export function isPackageObservation(argv) {
+  const words = [...argv];
+  if (words.includes("--") || words.some((w) => w.startsWith("+")) || cargoSubcommandOf(words) !== "package") return false;
+  let seen = false; let list = false; let locked = false; let packages = 0;
+  for (let i = 0; i < words.length; i += 1) {
+    const w = words[i];
+    if (!w.startsWith("-")) { if (seen || w !== "package") return false; seen = true; continue; }
+    const eq = w.startsWith("--") ? w.indexOf("=") : -1;
+    const name = eq >= 0 ? w.slice(0, eq) : w; const inline = eq >= 0 ? w.slice(eq + 1) : null;
+    if (name === "-p" || name === "--package") {
+      const value = inline ?? words[++i];
+      if (typeof value !== "string" || value === "" || value.startsWith("-")) return false;
+      packages += 1; if (packages > 1) return false;
+      continue;
+    }
+    if (!PACKAGE_PLAIN_FLAGS.has(name) || inline !== null) return false;
+    if (name === "--list") list = true; else if (name === "--locked") locked = true;
+  }
+  return seen && list && locked && packages === 1;
+}
+/** Whether the broker classifies this argv (without the tool name) as a compile. `package` is one unless it is the observation listing. */
+export const isCompileClass = (argv) => {
+  const sub = canonicalCommand(cargoSubcommandOf(argv));
+  return BROKER_COMPILE_COMMANDS.includes(sub) && !(sub === "package" && isPackageObservation(argv));
+};
+/** The commands that build or run, and so can rewrite Cargo.lock inside a snapshot unless they are locked (rightkit#1301): the same table as `isCompileClass`. */
+export const isLockBound = (argv) => isCompileClass(argv);
 
 /**
  * The argv a carried call sends: a build or run command with neither `--locked` nor `--frozen` (before any `--`) gets `--locked` right
@@ -74,8 +118,7 @@ export const LOCK_BOUND_COMMANDS = Object.freeze(["build", "run", "test", "check
  */
 export function lockedArgv(argv) {
   const words = [...argv];
-  const sub = cargoSubcommandOf(words);
-  if (!LOCK_BOUND_COMMANDS.includes(sub)) return words;
+  if (!isLockBound(words)) return words;
   const end = words.indexOf("--");
   if ((end < 0 ? words : words.slice(0, end)).some((w) => w === "--locked" || w === "--frozen")) return words;
   let i = words[0]?.startsWith("+") ? 1 : 0;
@@ -87,7 +130,6 @@ export function lockedArgv(argv) {
   }
   return [...words.slice(0, i + 1), "--locked", ...words.slice(i + 1)];
 }
-export const isCompileClass = (argv) => COMPILE_CLASS_COMMANDS.includes(cargoSubcommandOf(argv));
 
 const CARRIED_REDIRECT = /^(--config|-Z|-C)(=|$)|^-[A-Za-z]*[CZ]/;
 
@@ -541,10 +583,18 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   for (const [name, ok] of typed) if (!ok) fail("evidence", `receipt ${name} is missing or has the wrong type`);
   for (const name of ["verdict", "refreshed"]) if (Object.hasOwn(receipt, name)) fail("evidence", `receipt carries the retired field ${name}`);
   if (receipt.exit !== 0 || receipt.signal !== null) fail("evidence", `receipt exit ${receipt.exit} and signal ${receipt.signal} are not a success (exit 0, no signal)`);
-  // RustRight signs these top-level fields in the payload (item 4 row 4.18): when the signed payload carries one, the receipt's copy must equal it.
-  for (const name of SIGNED_TOP_LEVEL_FIELDS) {
-    if (payload[name] !== undefined && !same(receipt[name], payload[name])) fail("evidence", `receipt ${name} differs from the signed payload`);
+  // RustRight signs the result fields under payload.resultEvidence (service.rs provenance_payload; attestation.rs RESULT_EVIDENCE_FIELDS), never at
+  // the payload's top level. Every receipt copy must equal its signed counterpart, and a receipt with no signed resultEvidence is refused: the
+  // exit, signal, timings and diagnostics path it shows would otherwise be this receipt's own say-so.
+  const signedResult = payload.resultEvidence;
+  if (!isObject(signedResult)) fail("evidence", "the signed payload carries no resultEvidence: the receipt's exit, signal, timingsMs and diagnosticsPath are not covered by the signature");
+  for (const name of RESULT_EVIDENCE_FIELDS) {
+    if (!Object.hasOwn(signedResult, name) || !same(receipt[name], signedResult[name])) fail("evidence", `receipt ${name} differs from the signed result evidence`);
   }
+  for (const name of ["verdict", "refreshed"]) if (Object.hasOwn(signedResult, name)) fail("evidence", `the signed result evidence carries the retired field ${name}`);
+  // Symmetric both ways: a field the broker signed that the protocol does not name is as unexplained as one the receipt lacks (an added field).
+  for (const name of Object.keys(signedResult)) if (!RESULT_EVIDENCE_FIELDS.includes(name)) fail("evidence", `the signed result evidence carries the unknown field ${name}`);
+  for (const name of Object.keys(isObject(receipt.timingsMs) ? receipt.timingsMs : {})) if (!TIMING_KEYS.includes(name)) fail("evidence", `receipt timingsMs carries the unknown key ${name}`);
   // A snapshot-bound adapter job signs the compiles its own children made (rustright#190 D8).
   const nestedChildren = adapter === null ? null : verifyNestedChildren(evidence, receipt, { snapshotPath: carrier.snapshot.path, checkout, outputRoots, platform, canonicalPath, jobId });
   return { payload, evidence, attribution, toolchain, nestedChildren };

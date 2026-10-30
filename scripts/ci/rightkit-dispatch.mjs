@@ -131,18 +131,19 @@ export function matchRun(runs, query) {
 }
 
 // Broker pins this adapter. Pin its admission implementation too: importing mutable helpers would defeat that pin.
-const PREFLIGHT_SHA256 = "44b1d589f6b6b9460e8f59a26bde17ef6f174ebb8adab571ccc17b629630d405";
-const NPM_PREFLIGHT_SHA256 = "8cf8376beaabd07a055c03364acc62e40c2d2bb024a516f024a0628d9aa0c5f6";
+const PREFLIGHT_SHA256 = "cb2d11828852504fc3706157b1482b89ad0568b77d55c3a654607263b20eaebb";
+const NPM_PREFLIGHT_SHA256 = "efe9e94fbe5c831b699d1ed9764a31b7fc86ec7412112b6e570aa99deeda40d6";
 const NPM_SELECT_SHA256 = "7ca660e23cc584242f0fd7e973f7475b5142c9bb1249f80650a2662adf84423b";
 // rk-npm-preflight.mjs imports this module (its version-pin plan-check); a pinned importer that trusts an unpinned module is not pinned.
 const NPM_VERSION_PINS_SHA256 = "5f490eb13c11dab32bb57a0d4b95eea94564e75ec1d853af5dbc1093a215b7a8";
 // Filled from reviewed bytes; validate the complete static admission import tree before import.
 const ADMISSION_DEPENDENCIES = {
-  "scripts/ci/rk-consumer-stage.mjs": "8e123e9315aecb36f1d1f3b7b8b644b0bf7a7b127c90bdef642dbfadd723c39b",
+  "scripts/ci/rk-consumer-stage.mjs": "f111d02dbc77b917f4560585020746daee5ae4f6e2256a5865bd3bcbc95f5b8f",
   "scripts/ci/rk-routing.mjs": "6b3c6350a653c5284146c98dcd7df306c5ce8b96d5a5dd14c2e8f39c0dfb29c1",
   "scripts/ci/consumer-recipes.mjs": "919a1f28d6b005ea963d7e1f9958aebdb34c0ca2a9696ba3eecee475b426bcb8",
   "scripts/ci/workflow-yaml.mjs": "c9e6fe758036e9e246915b2205d520e7ffc8e9f0e0a1a4117c2affc96dd015f5",
   "packages/release/workflow-yaml.mjs": "13491a0cbebe60575f459be004333d4782c1dbe66fe18963c1b1eba0410f4ced",
+  "packages/release/broker-client.mjs": "9037947b6b216e53573ead100eb61aec1c730db909885cb86d07de707d31c176",
 };
 export async function requirePreflight(opts) {
   if (opts.workflow !== "publish" || !["crates", "npm"].includes(opts.registry)) throw new Error("only scoped crates/npm publication has local admission; general CI dispatch is not admitted");

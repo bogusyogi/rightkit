@@ -74,7 +74,7 @@ async function main() {
     ["qa-chrome-tests", "rustright", ["run", "rightkit-pnpm", "--", "--dir", "packages/qa-chrome", "run", "test"], true],
   ];
   for (const [name, command, args, attested] of steps) {
-    const r = sh(command, args, { env: attested ? { RIGHTKIT_ATTEST_NONCE: nonce() } : {} });
+    const r = sh(command, args, { env: attested ? { RUSTRIGHT_ATTEST_NONCE: nonce() } : {} });
     log("step", { name, code: r.code, out: tail(r.out, 6) });
     if (r.code !== 0) { revert(); fileIssue(`Chrome for Testing ${version}: ${name} failed; pin not moved`, `Daily update to Stable ${version} reverted after \`${name}\`:\n\n\`\`\`\n${tail(r.out, 40)}\n\`\`\``); return 1; }
   }

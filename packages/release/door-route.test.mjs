@@ -401,3 +401,32 @@ test("contract: a candidate whose production entry does not wire the carrier (th
   const same = compareCells({ candidate: cell("candidate", baseRoutes), baseline: cell("baseline", baseRoutes), version: "0.6.14", app: "app", platform: "mac" });
   assert.equal(same.verdict, "ok");
 });
+
+test("[GB-appscope] the app scope is the SELECTED COMMIT's committed config inventory plus the cwd: a newer checkout's deleted, added, untracked or dirty config never moves an older commit's app", async (t) => {
+  const fx = fixture(t, { "README.md": "r\n", "apps/one/right-release.config.json": "{}\n", "apps/one/src/a.txt": "a\n", "apps/two/src/b.txt": "b\n" });
+  const c1 = fx.sha;
+  // The newer commit drops apps/one's config and adds apps/two's; the working tree then also holds an untracked config for apps/one.
+  git(fx.repo, "rm", "-q", "apps/one/right-release.config.json");
+  fx.write("apps/two/right-release.config.json", "{}\n");
+  git(fx.repo, "add", "-A"); git(fx.repo, "commit", "-q", "-m", "c2");
+  const c2 = git(fx.repo, "rev-parse", "HEAD").stdout.trim();
+  const at = (rel) => path.join(fx.repo, ...rel.split("/"));
+  const appOf = async (sha, rel) => { const r = await fx.run(["--to", "package", "--platform", "mac", "--route", "--commit", sha], { cwd: at(rel) }); assert.equal(r.code, 0, r.err); return r.json.app; };
+  // Checkout state A: HEAD = c2 (apps/one has no config, apps/two has one).
+  assert.equal(await appOf(c1, "apps/one/src"), "apps/one", "c1 committed apps/one's config: it is the app although the checkout no longer has it");
+  assert.equal(await appOf(c1, "apps/two/src"), ".", "c1 has no config for apps/two: the root is the app although the checkout now has one");
+  assert.equal(await appOf(c2, "apps/two/src"), "apps/two");
+  assert.equal(await appOf(c2, "apps/one/src"), ".");
+  // Checkout state B: dirty and untracked configs appear; the selected commit's answer is unchanged.
+  fx.write("apps/one/right-release.config.mjs", "export default {};\n");
+  fx.write("apps/two/right-release.config.json", "{ dirty\n");
+  assert.equal(await appOf(c2, "apps/one/src"), ".", "an untracked config in the checkout does not make apps/one an app of c2");
+  assert.equal(await appOf(c1, "apps/one"), "apps/one"); assert.equal(await appOf(c1, "apps/two"), ".");
+  // And the checkout's config files are never read to decide it.
+  const { appRootOf, committedConfigDirs } = await import("./bin/rightkit-gate.mjs");
+  const root = fx.repo;
+  const dirs = committedConfigDirs({ git: (...a) => git(root, ...a), commit: c1 }).dirs;
+  assert.deepEqual([...dirs], ["apps/one"]);
+  assert.deepEqual(appRootOf({ root, cwd: at("apps/one/src"), exists: () => { throw new Error("the checkout is not asked"); }, configDirs: dirs }), { appRoot: at("apps/one"), appDir: "apps/one" });
+  assert.match(committedConfigDirs({ git: (...a) => git(root, ...a), commit: "f".repeat(40) }).refusal, /cannot list the files/);
+});

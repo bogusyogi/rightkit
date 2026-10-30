@@ -6,6 +6,7 @@
 // of the caller dropped: the carrier map, a stage grant, the stage nonce), its compiles run NESTED under it (a `cargo` on that PATH is the
 // broker's nested request), and the receipt signs the list of those children. No broker, no cargo. NOT the dev or installed broker: native Mac and Dell runs against RustRight's
 // item-4 dev install are separate evidence and are reported BLOCKED until that install lands.
+import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -14,8 +15,18 @@ import { fileURLToPath } from "node:url";
 import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend } from "../build-ownership.mjs";
 import { ATTEST_STAGE_NONCE_ENV, canonicalJson, signedBytes } from "../provenance-verify.mjs";
 import { SNAPSHOT_MUST_COMPILE, acceptedAfterFix, classifyCargo } from "./cargo-classification.mjs";
-import { argvSha256, cargoSubcommandOf, declaredInputDigestsOf, observedEnvOf, readDeclaredInputs, requestDigestOf, snapshotRequestCore } from "../snapshot-request.mjs";
+import { MANAGED_RUST_ENVIRONMENT_KEYS, argvSha256, cargoSubcommandOf, declaredInputDigestsOf, isCallHandleOf, observedEnvOf, readDeclaredInputs, requestDigestOf, snapshotRequestCore } from "../snapshot-request.mjs";
 
+/**
+ * A `markBrokerSubmit` fake that takes the call's sub-handle and asserts its shape (`<handle>#<id>`, the build ownership's own rule), so a
+ * wiring that drops the argument fails here instead of being refused only by the real ownership. `onMark` sees each valid sub-handle.
+ */
+export const subHandleStub = (handle, onMark = () => {}) => (callHandle) => {
+  assert.ok(isCallHandleOf(callHandle, typeof handle === "function" ? handle() : handle), `a broker submit is recorded for a carried request's sub-handle <handle>#<id>, not ${JSON.stringify(callHandle ?? null)}`);
+  onMark(callHandle);
+  const h = typeof handle === "function" ? handle() : handle;
+  return { handle: h, broker: { submitted: true, handles: [callHandle] } };
+};
 export const COMMIT = "c".repeat(40);
 export const TREE = "e".repeat(40);
 export const HANDLE = "own-7";
@@ -79,6 +90,21 @@ export const TAMPERS = {
   freshnessSignedOnly: { payload: (p) => { delete p.stageEvidence.freshness; } },
   freshnessDiffers: { receipt: (r) => { r.freshness = { unitsAtStart: 9, fresh: 9, notFresh: 0, invalidationReasons: [] }; } },
   noStageEvidence: { payload: (p) => { delete p.stageEvidence; } },
+  /** resultEvidence (attestation.rs RESULT_EVIDENCE_FIELDS): absent, partial, or disagreeing with the receipt's copy. */
+  noResultEvidence: { payload: (p) => { delete p.resultEvidence; } },
+  resultEvidenceTopLevelOnly: { payload: (p) => { Object.assign(p, structuredClone(p.resultEvidence)); delete p.resultEvidence; } },
+  resultEvidenceEmpty: { payload: (p) => { p.resultEvidence = {}; } },
+  resultEvidenceNoExit: { payload: (p) => { delete p.resultEvidence.exit; } },
+  resultEvidenceNoSignal: { payload: (p) => { delete p.resultEvidence.signal; } },
+  resultEvidenceNoTimings: { payload: (p) => { delete p.resultEvidence.timingsMs; } },
+  resultEvidenceNoDiagnostics: { payload: (p) => { delete p.resultEvidence.diagnosticsPath; } },
+  resultEvidenceExitDiffers: { payload: (p) => { p.resultEvidence.exit = 1; } },
+  resultEvidenceSignalDiffers: { payload: (p) => { p.resultEvidence.signal = "SIGKILL"; } },
+  resultEvidenceTimingsDiffer: { payload: (p) => { p.resultEvidence.timingsMs = { ...p.resultEvidence.timingsMs, cargo: 999 }; } },
+  resultEvidenceDiagnosticsDiffers: { payload: (p) => { p.resultEvidence.diagnosticsPath = "/diag/other.json"; } },
+  resultEvidenceAddedField: { payload: (p) => { p.resultEvidence.extra = 1; } },
+  resultEvidenceTimingsAddedKey: { payload: (p) => { p.resultEvidence.timingsMs = { ...p.resultEvidence.timingsMs, bogus: 1 }; }, receipt: (r) => { r.timingsMs = { ...r.timingsMs, bogus: 1 }; } },
+  resultEvidenceRetiredVerdict: { payload: (p) => { p.resultEvidence.verdict = { status: "passed" }; } },
   noTimings: { receipt: (r) => { delete r.timingsMs; } },
   noExit: { receipt: (r) => { delete r.exit; } },
   noDiagnostics: { receipt: (r) => { delete r.diagnosticsPath; } },
@@ -135,7 +161,9 @@ export function signedReceipt(fx, { id, carrier, argv, workspace, observedEnv = 
   const payload = {
     host: fx.pins.host, broker: { brokerDigest: fx.pins.brokerDigest }, keyId: fx.pins.keyId, jobId: id, nonce: carrier.nonce,
     requestDigest: requestDigestOf(snapshotRequestCore({ argv: t.argv ? t.argv(argv) : argv, workspace, observedEnv, carrier, adapter, adapterEnv: t.adapterEnv ? t.adapterEnv(adapterEnv) : adapterEnv })),
-    result: { status: "SUCCEEDED", exitCode: 0, signal: null, reap: { reaped: true } }, snapshotEvidence: structuredClone(evidence), stageEvidence: structuredClone(stage), ...structuredClone(top),
+    result: { status: "SUCCEEDED", exitCode: 0, signal: null, reap: { reaped: true } }, snapshotEvidence: structuredClone(evidence), stageEvidence: structuredClone(stage),
+    // As the real broker signs them (service.rs provenance_payload): the result fields ride under resultEvidence, never at the payload's top level.
+    resultEvidence: structuredClone(top),
   };
   t.payload?.(payload, fx);
   mutate?.(payload);
@@ -314,7 +342,7 @@ async function client(stateDir, [command, ...args]) {
     const workspace = fs.realpathSync(process.cwd());
     fs.writeFileSync(envVar("REQUEST_ID_FILE"), JSON.stringify({ schema: "rustright.request-ref.v1", requestId: id, submittedAt: new Date().toISOString(), workspace }));
     fs.writeFileSync(path.join(stateDir, "db", `${id}.json`), JSON.stringify({ id, carrier, argv: args, workspace, observedEnv: observedEnvOf(env, process.platform), tamper: behavior.tamper ?? "none" }));
-    fs.appendFileSync(path.join(stateDir, "calls.jsonl"), `${JSON.stringify({ id, carrierEnvNames: Object.keys(env).filter((k) => /^(RUSTRIGHT|RIGHTKIT)_(SNAPSHOT_REQUEST|ATTEST_NONCE|REQUEST_ID_FILE|CALLING_GATE|PARENT_REQUEST_ID)$/.test(k)).sort(), argv: args, cwd: workspace, stageNonceSeen: env.RIGHTKIT_ATTEST_STAGE_NONCE !== undefined, env: { CARGO_TARGET_DIR: env.CARGO_TARGET_DIR ?? null, CARGO_BUILD_TARGET_DIR: env.CARGO_BUILD_TARGET_DIR ?? null } })}\n`);
+    fs.appendFileSync(path.join(stateDir, "calls.jsonl"), `${JSON.stringify({ id, carrierEnvNames: Object.keys(env).filter((k) => /^(RUSTRIGHT|RIGHTKIT)_(SNAPSHOT_REQUEST|ATTEST_NONCE|REQUEST_ID_FILE|CALLING_GATE|PARENT_REQUEST_ID)$/.test(k)).sort(), argv: args, cwd: workspace, stageNonceSeen: env.RIGHTKIT_ATTEST_STAGE_NONCE !== undefined, managedEnvNames: Object.keys(env).filter((k) => MANAGED_RUST_ENVIRONMENT_KEYS.includes(k.toUpperCase())).sort(), env: { CARGO_TARGET_DIR: env.CARGO_TARGET_DIR ?? null, CARGO_BUILD_TARGET_DIR: env.CARGO_BUILD_TARGET_DIR ?? null } })}\n`);
     if (behavior.stdout) process.stdout.write(behavior.stdout);
     else if (args.includes("metadata")) process.stdout.write(synthMetadata(fx, workspace));
     process.exit(behavior.exit ?? 0);

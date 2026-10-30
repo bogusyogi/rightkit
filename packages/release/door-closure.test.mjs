@@ -167,5 +167,7 @@ test("a snapshot call admits pnpm run, exec and pack only: a bare script name is
   for (const args of [["run", "build"], ["pack"], ["--dir", "packages/release", "pack", "--pack-destination", "/s/rk-local-publish-x/p"], ["-r", "--workspace-concurrency=1", "run", "test"]]) assert.equal(h.door("pnpm", args).args[1], "rightkit-pnpm", args.join(" "));
   for (const args of [["build"], ["native:assemble", "--", "--profile", "release"], ["windows:package"], ["--dir", "hub", "dev"]]) assert.throws(() => h.door("pnpm", args), refused(new RegExp(`a snapshot stage runs pnpm run, exec and pack only.*pnpm run ${args.find((a) => !a.startsWith("-") && a !== "hub").replace(/[:.]/g, ".")}`)), args.join(" "));
   const { RIGHTKIT_CARRIED_CARGO_MAP: _, ...bare } = h.env;
-  assert.deepEqual(h.door("pnpm", ["build"], { env: bare }).args, ["run", "rightkit-pnpm", "--", "build"]);
+  assert.deepEqual(h.door("pnpm", ["run", "build"], { env: bare }).args, ["run", "rightkit-pnpm", "--", "run", "build"]);
+  // The broker's rightkit-pnpm grammar (M12): a bare script name is no registered first argument on any route, so the door refuses it too.
+  assert.throws(() => h.door("pnpm", ["build"], { env: bare }), refused(/"build" is not a registered first argument of rightkit-pnpm/));
 });

@@ -20,7 +20,7 @@ import { SourceSplitError, doorContextFor, readSourceSplit } from "./source-spli
 import { stageSidecars } from "./stage-sidecar.mjs";
 import { runCarriedAdapter } from "./carried-cargo.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
-import { makeFakeBroker } from "./test-support/fake-broker.mjs";
+import { makeFakeBroker, subHandleStub } from "./test-support/fake-broker.mjs";
 
 const LINUX = process.platform === "linux" ? false : "real right-release children run only on a Linux host (a broker host's children need the real broker; carried-cargo.test.mjs covers the carrier with a fixture client)";
 /** Starts the real right-release child with its output captured, so a failed real run says why. */
@@ -186,7 +186,7 @@ test("[7.03] hosted CI keeps its runner checkout (it is the commit): class A of 
 const brokerExecutor = () => ({ kind: "broker", cargo: ["rustright", "cargo"] });
 
 // A simulated Windows host: the real Windows ownership waits on a job holder the Mac cannot provide, so the door is handed a stub.
-const winOwnership = () => ({ handle: "own-win", joined: false, held: () => true, release: () => ({ released: true }), markBrokerSubmit: () => ({ handle: "own-win", broker: { submitted: true } }) });
+const winOwnership = () => ({ handle: "own-win", joined: false, held: () => true, release: () => ({ released: true }), markBrokerSubmit: subHandleStub("own-win") });
 const CARGO_FILES = { "README.md": "r\n", "Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\n', "src/lib.rs": "\n", "src-tauri/tauri.conf.json": "{}\n" };
 
 test("[7.02] Mac and Dell take the snapshot route for every stage, with no checkout route (rightkit#1301): a gate started without the carrier is refused RK_SNAPSHOT_CARRIER_NOT_WIRED, an unreachable broker RK_SNAPSHOT_BROKER_UNAVAILABLE, and nothing syncs, owns, checks or launches", { skip: POSIX_SIM }, async (t) => {
@@ -220,7 +220,7 @@ test("[7.02] with the carrier wired a broker host takes the snapshot route: righ
   const door = async (...a) => { try { return await fx.door(...a); } finally { fs.rmSync(path.join(fx.dir, "build-ownership"), { recursive: true, force: true }); } };
   const installs = []; const submits = [];
   let problems = [];
-  const sb = { handle: "own-1", markBrokerSubmit: () => { submits.push("x"); return { handle: "own-1", broker: { submitted: true } }; } };
+  const sb = { handle: "own-1", markBrokerSubmit: subHandleStub("own-1", (h) => submits.push(h)) };
   const MAP = "/x/carried-map.json";
   const carried = { platform: "darwin", resolveExecutor: brokerExecutor, snapshotBroker: sb, brokerSection: () => ({ client: "/x/rustright" }), runCheck: async () => 0, runCompile: async () => 0,
     installCarrier: (args) => { installs.push(args); return { mode: "test", env: { RIGHTKIT_CARRIED_CARGO_MAP: MAP }, problems: async () => problems }; } };
@@ -555,14 +555,16 @@ test("[7.03] --to dev|test: more than one Cargo workspace is refused (RK_SNAPSHO
   const launches = [];
   let r = await fx.door(["--to", "dev", "--commit", fx.sha], { spawn, runCheck: async () => 0, spawnInherit: () => { launches.push("x"); return { status: 0 }; } });
   assert.equal(r.code, 1, r.all); assert.match(r.err, /BLOCKED: RK_SNAPSHOT_OUTPUT_UNPINNED: the commit holds 2 Cargo workspaces \(a, b\)/); assert.deepEqual(launches, []);
-  // One workspace is pinned; a missing manifest in the checkout, or metadata that fails, is refused too.
+  // One workspace is pinned; metadata that fails is refused.
   const one = fixture(t, { "a/Cargo.toml": "[package]\nname=\"a\"\n" }, "rk-ds-pin1-");
   const seen = [];
   r = await one.door(["--to", "test", "--commit", one.sha], { spawn, runCheck: async () => 0, spawnInherit: (c, a, opts) => { seen.push(opts.env.CARGO_TARGET_DIR); return { status: 0 }; } });
   assert.equal(r.code, 0, r.all); assert.deepEqual(seen, [path.join(one.repo, "a", "target")]);
   fs.rmSync(path.join(one.repo, "a", "Cargo.toml"));
-  r = await one.door(["--to", "test", "--commit", one.sha], { spawn, runCheck: async () => 0, spawnInherit: () => ({ status: 0 }) });
-  assert.equal(r.code, 1, r.all); assert.match(r.err, /RK_SNAPSHOT_OUTPUT_UNPINNED: the checkout has no a\/Cargo\.toml/);
+  // The commit is what is built: a manifest the checkout no longer has (deleted since, or edited dirty) changes nothing, the output directory still maps to the checkout's path.
+  seen.length = 0;
+  r = await one.door(["--to", "test", "--commit", one.sha], { spawn, runCheck: async () => 0, spawnInherit: (c, a, opts) => { seen.push(opts.env.CARGO_TARGET_DIR); return { status: 0 }; } });
+  assert.equal(r.code, 0, r.all); assert.deepEqual(seen, [path.join(one.repo, "a", "target")], "a manifest deleted from the checkout does not stop an older commit");
   r = await fixture(t, { "Cargo.toml": "[package]\nname=\"a\"\n" }, "rk-ds-pin2-").door(["--to", "test"], { spawn: (c, a, o) => (c === "git" ? spawnSync(c, a, { ...o, encoding: "utf8" }) : { status: 1, stdout: "", stderr: "no cargo" }), runCheck: async () => 0, spawnInherit: () => ({ status: 0 }) });
-  assert.equal(r.code, 1, r.all); assert.match(r.err, /RK_SNAPSHOT_OUTPUT_UNPINNED: cargo metadata in the checkout reported no absolute target_directory for Cargo\.toml/);
+  assert.equal(r.code, 1, r.all); assert.match(r.err, /RK_SNAPSHOT_OUTPUT_UNPINNED: cargo metadata in the snapshot reported no absolute target_directory for Cargo\.toml/);
 });

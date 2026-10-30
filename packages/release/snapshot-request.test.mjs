@@ -10,8 +10,8 @@ import path from "node:path";
 import test from "node:test";
 import { canonicalJson, signedBytes } from "./provenance-verify.mjs";
 import {
-  ATTEST_NONCE_ENV, DESCRIPTOR_MAX_BYTES, REQUEST_ID_FILE_ENV, SNAPSHOT_REQUEST_ENV, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, declaredInputDigestsOf, freshNonce,
-  cargoSubcommandOf, isCallHandleOf, isCompileClass, isGenerationTarget, isInsideGenerationTarget, GENERATION_LEAVES, nextCallHandle, ownershipOfHandle, observedEnvOf, readDeclaredInputs, readRequestRef, requestDigestOf, snapshotRequestCore, verifySnapshotEvidenceIdentity, verifySnapshotReceipt, writeSnapshotRequest,
+  ATTEST_NONCE_ENV, DESCRIPTOR_MAX_BYTES, REQUEST_ID_FILE_ENV, RESULT_EVIDENCE_FIELDS, SNAPSHOT_REQUEST_ENV, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, declaredInputDigestsOf, freshNonce,
+  BROKER_COMPILE_COMMANDS, CARGO_COMMAND_ALIASES, cargoSubcommandOf, isCallHandleOf, isCompileClass, isLockBound, isPackageObservation, lockedArgv, isGenerationTarget, isInsideGenerationTarget, GENERATION_LEAVES, nextCallHandle, ownershipOfHandle, observedEnvOf, readDeclaredInputs, readRequestRef, requestDigestOf, snapshotRequestCore, verifySnapshotEvidenceIdentity, verifySnapshotReceipt, writeSnapshotRequest,
 } from "./snapshot-request.mjs";
 import { makeFakeBroker, signedReceipt } from "./test-support/fake-broker.mjs";
 
@@ -348,15 +348,83 @@ test("[RR 4.18] top-level fields: diagnosticsPath may be null, timingsMs needs a
   assert.throws(() => receiptCase(t, { tamper: "exitNullNoSignal" }).check(), /exit null and signal null are not a success/);
   const bad = receiptCase(t); bad.receipt.exit = 1;
   assert.throws(() => bad.check(), /not a success/);
-  const signalled = receiptCase(t); signalled.receipt.exit = null; signalled.receipt.signal = "SIGKILL"; delete signalled.receipt.provenance.payload.exit; delete signalled.receipt.provenance.payload.signal;
+  const signalled = receiptCase(t); signalled.receipt.exit = null; signalled.receipt.signal = "SIGKILL"; delete signalled.receipt.provenance.payload.resultEvidence.exit; delete signalled.receipt.provenance.payload.resultEvidence.signal;
   assert.throws(() => signalled.check(), (e) => e.code === "signature" || /not a success/.test(e.message), "a signalled run is never a success (editing the signed payload breaks the signature)");
+});
+
+test("[L1] the signed result fields are compared where the broker signs them (payload.resultEvidence): a missing, partial or disagreeing resultEvidence fails, a matching one passes", (t) => {
+  assert.equal(receiptCase(t).check().payload.result.status, "SUCCEEDED");
+  assert.deepEqual(Object.keys(receiptCase(t).check().payload.resultEvidence).sort(), [...RESULT_EVIDENCE_FIELDS].sort());
+  assert.equal(Object.hasOwn(receiptCase(t).check().payload, "exit"), false, "the fake signs them as the real broker does: not at the top level");
+  for (const tamper of ["noResultEvidence", "resultEvidenceTopLevelOnly", "resultEvidenceEmpty"]) assert.throws(() => receiptCase(t, { tamper }).check(), (e) => e.code === "evidence" && /no resultEvidence|differs from the signed result evidence/.test(e.message), tamper);
+  for (const [tamper, field] of [["resultEvidenceNoExit", "exit"], ["resultEvidenceNoSignal", "signal"], ["resultEvidenceNoTimings", "timingsMs"], ["resultEvidenceNoDiagnostics", "diagnosticsPath"],
+    ["resultEvidenceExitDiffers", "exit"], ["resultEvidenceSignalDiffers", "signal"], ["resultEvidenceTimingsDiffer", "timingsMs"], ["resultEvidenceDiagnosticsDiffers", "diagnosticsPath"]]) {
+    assert.throws(() => receiptCase(t, { tamper }).check(), (e) => e.code === "evidence" && new RegExp(`receipt ${field} differs from the signed result evidence`).test(e.message), tamper);
+  }
+  assert.throws(() => receiptCase(t, { tamper: "resultEvidenceRetiredVerdict" }).check(), (e) => e.code === "evidence" && /retired field verdict/.test(e.message));
+  // Added field: signed but unnamed by the protocol (in resultEvidence, or as a timingsMs key both sides carry).
+  assert.throws(() => receiptCase(t, { tamper: "resultEvidenceAddedField" }).check(), (e) => e.code === "evidence" && /unknown field extra/.test(e.message), "added signed field");
+  assert.throws(() => receiptCase(t, { tamper: "resultEvidenceTimingsAddedKey" }).check(), (e) => e.code === "evidence" && /unknown key bogus/.test(e.message), "added timings key");
+  // Dropped on the receipt side while still signed, and present on the receipt while unsigned (one-sided either way), and dropped on both sides.
+  for (const field of RESULT_EVIDENCE_FIELDS) {
+    const dropReceipt = receiptCase(t); delete dropReceipt.receipt[field];
+    assert.throws(() => dropReceipt.check(), (e) => e.code === "evidence", `receipt drops ${field}, the signature still carries it`);
+    const dropBoth = receiptCase(t); delete dropBoth.receipt[field]; delete dropBoth.receipt.provenance.payload.resultEvidence[field];
+    assert.throws(() => dropBoth.check(), (e) => e.code === "evidence" || e.code === "signature", `both drop ${field}`);
+  }
+  // The gate still reads the signed status and exit code: a signed FAILED never passes however the copies agree.
+  assert.throws(() => receiptCase(t, { tamper: "failed" }).check(), (e) => e.code === "result");
+  // A receipt copy edited after the fact (the signature still verifies the payload) disagrees with resultEvidence.
+  for (const [field, value] of [["timingsMs", { admission: 1, queue: 0, bind: 1, cargo: 3, afterExitBind: 1, diagnostics: 1 }], ["diagnosticsPath", "/diag/elsewhere.json"]]) {
+    const c = receiptCase(t); c.receipt[field] = value;
+    assert.throws(() => c.check(), (e) => e.code === "evidence" && new RegExp(`receipt ${field} differs from the signed result evidence`).test(e.message), field);
+  }
 });
 
 test("[F7 #4] the subcommand is read from the argv the way cargo reads it: after +toolchain and global options, before --", () => {
   for (const [argv, sub] of [[["build"], "build"], [["+nightly", "test"], "test"], [["--color", "always", "check"], "check"], [["--locked", "-q", "metadata"], "metadata"], [["--", "build"], null], [[], null], [["--explain", "E0001", "doc"], "doc"]]) {
     assert.equal(cargoSubcommandOf(argv), sub, argv.join(" "));
   }
-  assert.equal(isCompileClass(["clippy"]), true); assert.equal(isCompileClass(["run"]), false); assert.equal(isCompileClass(["metadata"]), false); assert.equal(isCompileClass([]), false);
+  assert.equal(isCompileClass(["clippy"]), true); assert.equal(isCompileClass(["run"]), true); assert.equal(isCompileClass(["metadata"]), false); assert.equal(isCompileClass([]), false);
+});
+
+test("[GB-02] the compile table is the broker's: pinned to rustright b84ae605 command_policy.rs cargo_capability (:581 fix, :597 run, :611 package, :615 publish, :619 the BUILD list)", () => {
+  // The broker's own spellings, copied from the cited lines at b84ae605 (git show b84ae605:crates/rustright-policy/src/command_policy.rs): a change on either side shows here.
+  const brokerBuildList = ["build", "check", "test", "bench", "clippy", "doc", "rustc", "rustdoc"]; // :619
+  const brokerOthers = ["fix", "run", "package", "publish"]; // :581, :597, :611, :615
+  assert.deepEqual([...BROKER_COMPILE_COMMANDS].sort(), [...brokerBuildList, ...brokerOthers].sort());
+  for (const command of [...brokerBuildList, "fix", "run", "publish"]) assert.equal(isCompileClass([command]), true, command);
+  assert.equal(isCompileClass(["+nightly", command0()]), true);
+  // package compiles unless it is exactly the observation listing the broker admits (build_rules.rs observation_only_cargo).
+  assert.equal(isCompileClass(["package", "-p", "a"]), true);
+  assert.equal(isCompileClass(["package", "-p", "a", "--list"]), true, "an unlocked listing is not the observation shape");
+  assert.equal(isCompileClass(["package", "-p", "a", "--list", "--locked"]), false);
+  assert.equal(isCompileClass(["package", "--package=a", "--list", "--locked", "--allow-dirty"]), false);
+  for (const argv of [["package", "-p=a", "--list", "--locked"], ["package", "-p", "a", "-p", "b", "--list", "--locked"], ["package", "--list", "--locked"], ["package", "-p", "a", "--list", "--locked", "--no-verify"], ["+nightly", "package", "-p", "a", "--list", "--locked"], ["package", "-p", "a", "--list", "--locked", "--", "x"], ["package", "-p", "-q", "--list", "--locked"]]) {
+    assert.equal(isPackageObservation(argv), false, argv.join(" "));
+    assert.equal(isCompileClass(argv), true, argv.join(" "));
+  }
+  // Not compiles: the read-only and write classes.
+  for (const argv of [["metadata"], ["metadata", "--no-deps"], ["fetch", "--locked"], ["fmt", "--check"], ["tree", "--locked"], ["--version"], ["deny", "check"], ["audit"], ["about", "generate"], []]) assert.equal(isCompileClass(argv), false, argv.join(" "));
+  // The one-letter aliases are the gate's stricter reading (the broker lists none): each reads as its command.
+  for (const [alias, command] of Object.entries(CARGO_COMMAND_ALIASES)) assert.equal(isCompileClass([alias]), isCompileClass([command]), alias);
+  // lockedArgv derives from the same table: every compile command is locked, nothing else is.
+  for (const command of [...brokerBuildList, "fix", "run", "publish"]) assert.deepEqual(lockedArgv([command, "-x"]), [command, "--locked", "-x"], command);
+  assert.deepEqual(lockedArgv(["package", "-p", "a"]), ["package", "--locked", "-p", "a"]);
+  assert.deepEqual(lockedArgv(["package", "-p", "a", "--list", "--locked"]), ["package", "-p", "a", "--list", "--locked"]);
+  for (const argv of [["metadata"], ["fmt", "--check"], ["fetch"]]) assert.deepEqual(lockedArgv(argv), argv);
+  for (const argv of [["build"], ["rustdoc"], ["package", "-p", "a"], ["bench"]]) assert.equal(isLockBound(argv), isCompileClass(argv));
+});
+const command0 = () => "build";
+
+test("[GB-02] every compile command's receipt must carry freshness, attribution and toolchain: dropping a field from BOTH the signed evidence and the receipt fails for each; a read-only command passes without them", (t) => {
+  for (const argv of [["bench"], ["run"], ["rustdoc"], ["package", "-p", "a"], ["fix"], ["publish"], ["clippy"], ["build"]]) {
+    for (const field of ["freshness", "attribution", "toolchain"]) {
+      const c = receiptCase(t, { argv });
+      delete c.receipt[field]; delete c.receipt.provenance.payload.stageEvidence[field];
+      assert.throws(() => c.check(), (e) => e.code === "evidence" || e.code === "signature", `${argv.join(" ")} without ${field}`);
+    }
+  }
 });
 
 test("[7.22] declared inputs are read from the snapshot and digested as the broker digests them (check_admission.rs snapshot_inputs)", (t) => {
@@ -435,7 +503,7 @@ test("runScans: a broker cargo request builds the snapshot under its own carrier
     const result = await runScans(plan, { spawn, lookupSpawn: spawn, env: { PATH: process.env.PATH }, classes: ["A", "B"],
       signal: launchSignal,
       snapshotBroker: { controlRoot: path.join(root, "control"), commit: { sha: C, tree: T }, snapshot: { path: snap, expectedTree: T }, handle: "own-9", pins, checkout, outputRoots: [fx.wsRoot], platform: process.platform,
-        ...(mark === null ? {} : { markBrokerSubmit: mark ?? ((h) => { submits += 1; return { handle: "own-9", broker: { submitted: true, handles: [h] } }; }) }), receiptOf } }).catch((e) => ({ thrown: e, scans: [] }));
+        ...(mark === null ? {} : { markBrokerSubmit: mark ?? ((h) => { assert.ok(isCallHandleOf(h, "own-9"), `a broker submit is recorded for a sub-handle <handle>#<id>, not ${JSON.stringify(h ?? null)}`); submits += 1; return { handle: "own-9", broker: { submitted: true, handles: [h] } }; }) }), receiptOf } }).catch((e) => ({ thrown: e, scans: [] }));
     return { row: result.scans.find((r) => r.id === "check:core"), result, seen, submits };
   };
   let launchSignal;

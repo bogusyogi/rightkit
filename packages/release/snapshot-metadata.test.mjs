@@ -13,7 +13,7 @@ import { discoverRustWorkspaces, main } from "./bin/rightkit-gate.mjs";
 import { carriedReadOnlyScan, carriedScanRefusal, snapshotCargoSpawn } from "./snapshot-metadata.mjs";
 import { runScans } from "./deterministic-scans.mjs";
 import { syncSnapshot } from "./snapshot.mjs";
-import { makeFakeBroker } from "./test-support/fake-broker.mjs";
+import { makeFakeBroker, subHandleStub } from "./test-support/fake-broker.mjs";
 
 const emptyConfig = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-sm-cfg-"))), "gitconfig");
 fs.writeFileSync(emptyConfig, "");
@@ -37,6 +37,7 @@ test("the shapes the broker admits as a carried read-only request: metadata, fet
     ["fetch", "--locked"],
     ["deny", "--frozen", "--metadata-path", "/abs/m.json", "--config", "/abs/deny.toml", "check"], ["deny", "check"], ["deny", "--config", "/abs/deny.toml", "check"],
     ["audit", "--db", "/abs/db", "--no-fetch"], ["audit", "--no-fetch", "--db", "/abs/db"],
+    ["fmt", "--all", "--check"], ["fmt", "-p", "a", "--check"], // rustright command_policy.rs fmt_check_shape
     ["package", "-p", "a", "--list", "--locked"], ["package", "-p", "a", "--list", "--locked", "--allow-dirty"], ["package", "-p", "a", "--list", "--allow-dirty", "--locked"], // rustright command_policy.rs:407-409
   ];
   for (const argv of ok) assert.equal(carriedReadOnlyScan(argv), true, `${argv.join(" ")}: ${carriedScanRefusal(argv)}`);
@@ -46,6 +47,7 @@ test("the shapes the broker admits as a carried read-only request: metadata, fet
     ["fetch"], ["fetch", "--locked", "--offline"], ["fetch", "--locked", "--config", "x=y"], ["fetch", "--frozen"],
     ["deny", "check", "--hide-inclusion-graph"], ["deny", "--frozen", "--frozen", "check"], ["deny", "--config=/abs/deny.toml", "check"], ["deny", "--metadata-path", "m.json", "check"], ["deny", "--frozen"],
     ["deny", "--offline", "check"], ["deny", "--config", "/abs/deny.toml", "--", "check"], ["deny", "--workspace", "check"], ["deny", "-Z", "x", "check"],
+    ["fmt"], ["fmt", "--check"], ["fmt", "--all"], ["fmt", "-p", "a"], ["fmt", "-p", "--check"], ["fmt", "--all", "--check", "--", "--edition", "2021"], ["fmt", "--check", "--all"], ["fmt", "-p", "a", "--check", "--all"],
     ["audit"], ["audit", "--db", "/abs/db"], ["audit", "--no-fetch"], ["audit", "--db", "rel", "--no-fetch"], ["audit", "--db", "/abs/db", "--no-fetch", "--deny", "warnings"], ["audit", "--db=/abs/db", "--no-fetch"],
     ["package", "--list", "--locked"], ["package", "-p", "a", "--list"], ["package", "-p", "a", "--locked"], ["package", "-p", "a", "--list", "--locked", "--list"], ["package", "-p", "a", "--list", "--locked", "--no-verify"], ["package", "-p", "--list", "--locked"], ["package", "--workspace", "--list", "--locked"], ["package", "-p", "a", "--list", "--locked", "--config", "x=y"],
     ["build", "--locked"], ["check"], ["--version"], ["tree", "--locked"], ["about", "generate", "--frozen"],
@@ -141,7 +143,7 @@ function scenario(t) {
   const snap = syncSnapshot({ checkout: repo, rev: sha, root: snaps });
   const fake = makeFakeBroker(t, { readOnlySnapshots: true });
   fake.rebase({ checkout: repo, snapshotsRoot: path.dirname(snap.path) });
-  const sb = { ...fake.sb, checkout: repo, markBrokerSubmit: () => ({ handle: fake.sb.handle, broker: { submitted: true } }), get snapshot() { return { path: snap.path, expectedTree: fake.sb.snapshot.expectedTree }; } };
+  const sb = { ...fake.sb, checkout: repo, markBrokerSubmit: subHandleStub(fake.sb.handle), get snapshot() { return { path: snap.path, expectedTree: fake.sb.snapshot.expectedTree }; } };
   return { repo, sha, snap, fake, sb };
 }
 

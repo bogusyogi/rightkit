@@ -11,6 +11,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { platformDirOf } from "./platform-dir.mjs";
 
 export const STAGES = Object.freeze(["check", "compile", "package", "qualify", "release"]);
 export const RECEIPT_SCHEMA = "rightkit.gate-receipt/1";
@@ -179,7 +180,7 @@ export function sealedFor({ root, commit, platform, readdir = fs.readdirSync, re
   let ids = [];
   try { ids = readdir(base).filter((id) => id.endsWith(`-${commit.slice(0, 8)}`)); } catch { return null; }
   for (const id of ids.sort()) {
-    const file = path.join(base, id, platform, "release-manifest.json");
+    const file = path.join(base, id, platformDirOf(platform), "release-manifest.json");
     try { const bytes = readFile(file); return { id, manifest: file, digest: sha256(bytes) }; } catch { /* not this platform */ }
   }
   return null;

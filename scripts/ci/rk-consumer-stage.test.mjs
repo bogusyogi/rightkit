@@ -29,8 +29,8 @@ function fixture({ runs, unit = "rightkit-example", version = "1.2.3" } = {}) {
 function brokerDouble({ buildExit = 0, runExit = 0, attested = true } = {}) {
   const calls = [];
   const target = fs.mkdtempSync(path.join(os.tmpdir(), "rk-consumer-target-"));
-  const runCommand = async (command, args, { cwd }) => {
-    calls.push({ command, args, cwd });
+  const runCommand = async (command, args, { cwd, env }) => {
+    calls.push({ command, args, cwd, env });
     if (args[1] === "metadata") return { code: 0, out: JSON.stringify({ target_directory: target }), timedOut: false, seconds: 0 };
     if (args[1] === "build") {
       const manifest = fs.readFileSync(path.join(cwd, "Cargo.toml"), "utf8");
@@ -71,6 +71,8 @@ test("a recipe without runs: brokered build in a fresh check dir under .consumer
   assert.ok(stage.checkDir.startsWith(path.join(".consumer-checks", `${f.unit}-${SHA.slice(0, 12)}-`)));
   assert.deepEqual(b.calls.filter((c) => c.args[1] !== "metadata").map((c) => c.args.join(" ")), ["cargo build", "cargo run"]);
   assert.ok(b.calls.every((c) => c.command === "rustright" && c.cwd === path.join(f.root, stage.checkDir)), "every cargo command enters the broker from the check dir");
+  // L4: the attested calls carry the nonce as RUSTRIGHT_ATTEST_NONCE (shims.rs), never the legacy RIGHTKIT_ spelling.
+  for (const c of b.calls.filter((x) => x.args[1] !== "metadata")) { assert.match(c.env.RUSTRIGHT_ATTEST_NONCE, /^[0-9a-f]{64}$/); assert.equal(Object.hasOwn(c.env, "RIGHTKIT_ATTEST_NONCE"), false); }
   assert.match(fs.readFileSync(path.join(f.root, stage.checkDir, "Cargo.toml"), "utf8"), /\[patch\.crates-io\]/);
   assert.deepEqual(stage.runs.map((r) => [r.id, r.via, r.status]), [["default", "broker", "passed"]]);
   assert.match(stage.proof, /local-source fixture proof/);

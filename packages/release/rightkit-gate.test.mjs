@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import * as shipped from "./lock-graph.mjs";
 import * as ci from "../../scripts/ci/select.mjs";
 import { spawnSync } from "./background-process.mjs";
+import { AGENT_SHIM_MARKER } from "./broker-client.mjs";
 import { PINNED_SCAN_TOOLS } from "./deterministic-scans.mjs";
 import { pathspecBatches, EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, lockScope, main as gateMain, manifestChangeIsLockReflected, PARTIAL_EXIT, manifestTables, parsePushLines, parseWorkspaceGlobs, quietLeaseLane, rustUnitName, rustUnitOfScanId, vendorOwners, tomlString, tomlStrings, tomlValue, workspaceExcludes, gateTmpRoot, appRootOf } from "./bin/rightkit-gate.mjs";
 import * as gateModule from "./bin/rightkit-gate.mjs";
@@ -925,22 +926,26 @@ test("--plan: a workspace-wide change in one workspace puts only its crates in s
 
 test("quietLeaseLane: acquires through rustright with the gate pid, hands the lease id to the lane as RUSTRIGHT_QUIET_LEASE, releases it; no rustright or a refusal runs the lane without one", async () => {
   const calls = []; const out = [];
+  // On Windows the client on PATH is the .cmd shim, which is never spawned: its target .exe is (broker-client.mjs).
+  const EXE = "D:\\.rightkit-managed\\runtime-current\\rustright.exe";
+  const SHIM = `@echo off\r\nrem ${AGENT_SHIM_MARKER}\r\nsetlocal\r\nset "RUSTRIGHT_MANAGED_AGENT_SHIM="\r\nset "RIGHTKIT_MANAGED_AGENT_SHIM="\r\n"${EXE}" %*\r\nexit /b %ERRORLEVEL%\r\n`;
   const spawnWith = (answers) => (cmd, args) => {
     calls.push([cmd, ...args]);
-    if (cmd === "where" || cmd === "which") return answers.present ? ok("D:\bin\rustright.cmd\n") : no();
-    if (cmd === "rustright" && args[1] === "acquire") return answers.acquire;
-    if (cmd === "rustright" && args[1] === "release") return answers.release ?? ok("");
+    if (cmd === "where" || cmd === "which") return answers.present ? ok("D:\\.rightkit-managed\\agent-bin\\rustright.cmd\r\n") : no();
+    if (cmd === EXE && args[1] === "acquire") return answers.acquire;
+    if (cmd === EXE && args[1] === "release") return answers.release ?? ok("");
     return no(`unexpected ${cmd}`);
   };
-  const o = (answers, platform = "win32") => ({ spawn: spawnWith(answers), out: (m) => out.push(m), platform });
+  const o = (answers, platform = "win32") => ({ spawn: spawnWith(answers), out: (m) => out.push(m), platform, readFile: () => SHIM });
   const held = quietLeaseLane(o({ present: true, acquire: ok(JSON.stringify({ type: "QUIET_LEASE", granted: true, state: "HELD", id: "q-abc" })) }), { reason: "gate test", pid: 4242 });
   const lease = await held.acquire();
   assert.deepEqual(lease.env, { RUSTRIGHT_QUIET_LEASE: "q-abc" });
   assert.equal(lease.id, "q-abc");
-  const acquire = calls.find((c) => c[0] === "rustright" && c[2] === "acquire");
+  const acquire = calls.find((c) => c[0] === EXE && c[2] === "acquire");
+  assert.ok(!calls.some((c) => c[0] === "rustright" || /\.cmd$/i.test(c[0])), "the .cmd shim and the bare name are never spawned");
   assert.deepEqual(acquire.slice(3), ["--ttl-ms", String(QUIET_LEASE_TTL_MS), "--reason", "gate test", "--wait-drain-ms", String(QUIET_LEASE_WAIT_DRAIN_MS), "--holder-pid", "4242", "--json"]);
   await held.release(lease.id);
-  assert.deepEqual(calls.at(-1), ["rustright", "quiet", "release", "q-abc"]);
+  assert.deepEqual(calls.at(-1), [EXE, "quiet", "release", "q-abc"]);
   assert.ok(out.some((m) => /quiet lease q-abc held/.test(m)) && out.some((m) => /quiet lease q-abc released/.test(m)));
   // Refused by the broker (non-zero exit with the typed event), granted:false, no id, and no rustright at all: null, with a note each.
   for (const [label, answers] of [
@@ -1613,6 +1618,12 @@ test("--to dev|test: class A on the working tree first, then right-release dev|t
   fs.writeFileSync(path.join(root, "apps/one/right-release.config.mjs"), "export default {};\n");
   const cwds = [];
   const nested = { ...io(0), spawnInherit: (cmd, a, opts) => { cwds.push(opts.cwd); return { status: 0 }; } };
+  // A config only the working tree holds (untracked) is not the selected commit's: the root is the app (GB-appscope).
+  assert.equal(await main(["--to", "dev"], { ...capture().io, cwd: path.join(root, "apps/one/src/lib"), ...nested }), 0);
+  assert.deepEqual(cwds, [root], "an untracked config does not make apps/one an app of HEAD");
+  cwds.length = 0;
+  // Committed, it is the app's.
+  for (const args of [["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "app config"]]) spawnSync("git", args, { cwd: root, encoding: "utf8" });
   assert.equal(await main(["--to", "dev"], { ...capture().io, cwd: path.join(root, "apps/one/src/lib"), ...nested }), 0);
   assert.deepEqual(cwds, [path.join(root, "apps/one")]);
   cwds.length = 0;

@@ -64,7 +64,7 @@ export function developmentEnvironment(env = process.env, platform = process.pla
     // Same default as the agent-bin `rightkit` shim: children that run the managed client directly
     // (resolveCommand("rustright"), build scripts) must not lose the broker endpoint.
     const socket = discoverBrokerSocket(result);
-    if (!result.RIGHTKIT_BUILD_BROKER_SOCKET && socket && existsSync(socket)) result.RIGHTKIT_BUILD_BROKER_SOCKET = socket;
+    if (!result.RUSTRIGHT_BUILD_BROKER_SOCKET && !result.RIGHTKIT_BUILD_BROKER_SOCKET && socket && existsSync(socket)) result.RUSTRIGHT_BUILD_BROKER_SOCKET = socket;
   }
   return result;
 }
@@ -448,7 +448,7 @@ export function resolveCommand(command, args, { root, env = process.env, platfor
     const client = managedRuntimeClient(env);
     if (!client) throw new Error("installed RightKit runtime client is unavailable for development command");
     const socket = discoverBrokerSocket(env);
-    const childEnv = !env.RIGHTKIT_BUILD_BROKER_SOCKET && existsSync(socket) ? { ...env, RIGHTKIT_BUILD_BROKER_SOCKET: socket } : undefined;
+    const childEnv = !env.RUSTRIGHT_BUILD_BROKER_SOCKET && !env.RIGHTKIT_BUILD_BROKER_SOCKET && existsSync(socket) ? { ...env, RUSTRIGHT_BUILD_BROKER_SOCKET: socket } : undefined;
     return { ...managedRuntimeCommand(client, args), ...(childEnv ? { env: childEnv } : {}) };
   }
   return { command, args };

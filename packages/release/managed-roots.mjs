@@ -29,7 +29,8 @@ export function managedControlCandidates(options = {}) {
 }
 
 export function discoverBrokerSocket(env = process.env, { exists = existsSync, ...options } = {}) {
-  if (typeof env.RIGHTKIT_BUILD_BROKER_SOCKET === 'string' && env.RIGHTKIT_BUILD_BROKER_SOCKET) return env.RIGHTKIT_BUILD_BROKER_SOCKET;
+  // The client reads RUSTRIGHT_BUILD_BROKER_SOCKET (rustright-cli client.rs); the RIGHTKIT_ spelling is the legacy one, read here, never set.
+  for (const name of ['RUSTRIGHT_BUILD_BROKER_SOCKET', 'RIGHTKIT_BUILD_BROKER_SOCKET']) if (typeof env[name] === 'string' && env[name]) return env[name];
   if ((options.platform ?? process.platform) === 'win32') return undefined;
   for (const root of managedControlCandidates({ ...options, env })) {
     const socket = posix.join(root, 'broker.sock');

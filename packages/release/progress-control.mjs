@@ -1,4 +1,5 @@
-import { spawn } from "./background-process.mjs";
+import { spawn, spawnSync } from "./background-process.mjs";
+import { brokerClientInvocation } from "./broker-client.mjs";
 
 const MANAGED_REQUEST_PATTERN = /\brightkit(?: managed-agent)?: request ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/gi;
 export const RELEASE_LIVENESS_OWNER_MARGIN_MS = 5 * 60 * 1000;
@@ -30,7 +31,11 @@ export function releaseProgressLimits(env = process.env, { livenessOwnerTimeoutM
 
 function runRightkitControl(args, { cwd, env, timeoutMs = 30_000 } = {}) {
   return new Promise((resolve) => {
-    const control = spawn("rustright", args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, shell: process.platform === "win32" });
+    // The client starts the way every gate child starts it (broker-client.mjs): no shell; on Windows the .cmd shim's .exe target.
+    let launch;
+    try { launch = brokerClientInvocation("rustright", args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true }, { probe: spawnSync }); }
+    catch (error) { resolve(Object.freeze({ code: 125, output: "", timedOut: false, error: error.message })); return; }
+    const control = spawn(launch.command, launch.args, launch.options);
     let output = "";
     let timedOut = false;
     const append = (chunk) => { output = `${output}${chunk}`.slice(-64 * 1024); };

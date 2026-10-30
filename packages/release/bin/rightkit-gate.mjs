@@ -69,6 +69,7 @@
 import fs from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { resolveManagedRoots } from "../managed-roots.mjs";
+import { spawnBrokerClient } from "../broker-client.mjs";
 import os from "node:os";
 import path from "node:path";
 import { FOREIGN_PRE_COMMIT, retireHooksIn } from "../hook-retirement.mjs";
@@ -84,6 +85,7 @@ import { spawnSync as spawnInherit } from "../background-process.mjs";
 import { readDiskPolicy, scratchRoots } from "../disk-policy.mjs";
 import { buildDirectReceipt, directVerdict, resolveTargetDirectory, verifyDirectReceipt, writeDirectDiagnostics } from "../direct-receipt.mjs";
 import { createFreshnessCensus } from "../freshness-census.mjs";
+import { platformDirOf } from "../platform-dir.mjs";
 
 const ZERO = /^0+$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -1064,6 +1066,12 @@ export function quietLeaseLane(o, { tag = "rightkit-gate:", reason = "rightkit-g
     const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]);
     return failed(r) ? null : (text(r).split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? null);
   };
+  // The client is started the one way every gate child starts it (broker-client.mjs): on Windows `rustright` is rustright.cmd, which node cannot
+  // spawn, so its target .exe is read from the shim and started directly, without a shell.
+  const clientCall = (client, args) => {
+    const platform = o.platform ?? process.platform;
+    return spawnBrokerClient(o.spawn, platform === "win32" ? client : "rustright", args, {}, { platform, readFile: o.readFile });
+  };
   return {
     // `want.ttlMs` (from the scan runner): the lane's own bound, every quiet scan's timeout plus a margin, so the lease cannot
     // expire while a quiet suite still runs (each scan is killed at its timeout first).
@@ -1071,9 +1079,10 @@ export function quietLeaseLane(o, { tag = "rightkit-gate:", reason = "rightkit-g
       const ttlMs = Number.isFinite(want.ttlMs) && want.ttlMs > baseTtlMs ? want.ttlMs : baseTtlMs;
       // A direct (Linux) host never takes a broker lease, whatever is on PATH (managed-cargo directPlatform).
       if (directPlatform(o.platform ?? process.platform)) { o.out(`${tag} note: direct host (no broker on ${o.platform ?? process.platform}); quiet test scans run without a broker lease`); return null; }
-      if (!which("rustright")) { o.out(`${tag} note: no rustright on PATH; quiet test scans run without a broker lease`); return null; }
+      const client = which("rustright");
+      if (!client) { o.out(`${tag} note: no rustright on PATH; quiet test scans run without a broker lease`); return null; }
       const started = Date.now();
-      const r = o.spawn("rustright", ["quiet", "acquire", "--ttl-ms", String(ttlMs), "--reason", reason, "--wait-drain-ms", String(waitDrainMs), "--holder-pid", String(pid), "--json"]);
+      const r = clientCall(client, ["quiet", "acquire", "--ttl-ms", String(ttlMs), "--reason", reason, "--wait-drain-ms", String(waitDrainMs), "--holder-pid", String(pid), "--json"]);
       if (failed(r)) { o.out(`${tag} note: broker quiet lease refused (${(why(r) || `exit ${r?.status}`).slice(0, 200)}); quiet test scans run without a lease`); return null; }
       let id = null;
       // The CLI prints the broker's QUIET_LEASE event: { type, granted, state, id } when held; a refusal exits non-zero above.
@@ -1083,7 +1092,7 @@ export function quietLeaseLane(o, { tag = "rightkit-gate:", reason = "rightkit-g
       return { id, env: { RUSTRIGHT_QUIET_LEASE: id }, at: Date.now() };
     },
     release: async (id) => {
-      const r = o.spawn("rustright", ["quiet", "release", String(id)]);
+      const r = clientCall(which("rustright") ?? "rustright", ["quiet", "release", String(id)]);
       if (failed(r)) o.out(`${tag} note: broker quiet lease ${id} release failed (${(why(r) || `exit ${r?.status}`).slice(0, 200)}); it expires on its own`);
       else o.out(`${tag} broker quiet lease ${id} released`);
     },
@@ -1187,19 +1196,34 @@ async function installHook(o, root) {
  * apps/coderight-tauri), else the repository root. Every right-release stage runs there, the sealed set is read from there, and the
  * receipt is keyed to it (receiptKey). Returns { appRoot, appDir } with appDir relative to the repository root, "." at the root.
  */
-export function appRootOf({ root, cwd, exists = fs.existsSync }) {
+export function appRootOf({ root, cwd, exists = fs.existsSync, configDirs = null }) {
   const inside = cwd && (cwd === root || cwd.startsWith(root + path.sep));
-  const hasConfig = (d) => ["right-release.config.json", "right-release.config.mjs"].some((f) => exists(path.join(d, f)));
+  // With `configDirs` (the directories whose committed tree holds a release config: `committedConfigDirs`) the scope is the SELECTED COMMIT's, read from
+  // its tree alone; the checkout's files are never asked, so a newer, dirty or edited checkout cannot move an older commit's app. Without it (callers that
+  // hold no commit) the live checkout answers, as before. Either way the directory the gate was run from is the explicit identity.
+  const hasConfig = configDirs
+    ? (d) => configDirs.has(path.relative(root, d).split(path.sep).join("/") || ".")
+    : (d) => ["right-release.config.json", "right-release.config.mjs"].some((f) => exists(path.join(d, f)));
   // The nearest directory at or above cwd (below the root) that carries a release config is the app; a deeper cwd (apps/foo/src) is apps/foo.
   let appRoot = root;
-  for (let d = path.resolve(cwd); d.startsWith(root) && d !== root; d = path.dirname(d)) { if (hasConfig(d)) { appRoot = d; break; } }
+  if (inside) for (let d = path.resolve(cwd); d.startsWith(root) && d !== root; d = path.dirname(d)) { if (hasConfig(d)) { appRoot = d; break; } }
   return { appRoot, appDir: path.relative(root, appRoot).split(path.sep).join("/") || "." };
+}
+
+/**
+ * The directories (posix, relative to the repository root, "." for the root) that hold a release config in `commit`'s tree: `{ dirs }`, or `{ refusal }` when the
+ * tree cannot be listed. Read with `git ls-tree` of the selected commit, so the answer is the commit's, whatever the checkout holds.
+ */
+export function committedConfigDirs({ git, commit }) {
+  const listed = git("ls-tree", "-r", "--name-only", "-z", commit);
+  if (failed(listed)) return { refusal: `cannot list the files of ${String(commit).slice(0, 12)}: ${why(listed)}` };
+  const dirs = new Set(text(listed).split("\0").filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)).map((f) => path.posix.dirname(f)));
+  return { dirs };
 }
 
 async function runStages(o, args, root, git, io) {
   const option = (name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
   const tag = "rightkit-gate:";
-  const { appRoot, appDir } = appRootOf({ root, cwd: o.cwd, exists: o.exists });
   const to = option("--to");
   // dev and test are door stages like the rest: the same commit-only route (select a commit, sync its snapshot under ownership, class A
   // of the snapshot), then right-release dev|test with the snapshot's app root as its cwd. They have no stage list of their own.
@@ -1220,6 +1244,22 @@ async function runStages(o, args, root, git, io) {
   if (mobile && to === "qualify") { o.err(`${tag} --to qualify has no stage for ${platform}: there is no installed-QA lane for a mobile build; qualification is the store's test track after --to release. Run --to package or --to release.`); return 2; }
   if (mobile) stages = stages.filter((s) => s !== "qualify");
   if (stages.includes("release") && !mobile && !["patch", "update"].includes(tier)) { o.err(`${tag} --to release needs --tier patch|update (chosen explicitly, never defaulted)`); return 2; }
+  // The commit this run is for is selected FIRST (--commit <rev>, default HEAD; the door snapshot's commit inside a door run; HEAD on hosted CI, whose runner
+  // checkout is the commit), and the app scope is read from THAT commit's tree (committedConfigDirs): the checkout's present files never decide it.
+  const hosted = o.env.GITHUB_ACTIONS === "true";
+  let selected = null;
+  if (!o.doorSnapshot && !hosted) {
+    const snapModule = await import("../snapshot.mjs");
+    try { selected = snapModule.resolveCommit(root, option("--commit") ?? "HEAD"); }
+    catch (e) {
+      if (o.routeProbe) return await runRouteProbe(o, args, root, git, { to, platform, stages: devTest ? [] : stages, devTest, appDir: "." }); // the probe names the same refusal in its own words
+      o.err(`${tag} cannot resolve ${option("--commit") ?? "HEAD"} to a commit: ${e.message}`); return 2;
+    }
+  }
+  const scopeCommit = o.doorSnapshot ? o.doorSnapshot.commit : selected ? selected.commit : text(git("rev-parse", "HEAD")).trim();
+  const inventory = committedConfigDirs({ git, commit: scopeCommit });
+  if (inventory.refusal) { o.err(`${tag} cannot read the app configuration of the selected commit: ${inventory.refusal}`); return 2; }
+  const { appRoot, appDir } = appRootOf({ root, cwd: o.cwd, configDirs: inventory.dirs });
   // `--route`: which route this stage takes here and whether it refuses, answered without running anything (rightkit#1297).
   if (o.routeProbe) return await runRouteProbe(o, args, root, git, { to, platform, stages: devTest ? [] : stages, devTest, appDir });
   // Commit-only build (GATE-CONTRACT §1): on every host (not hosted CI, whose runner checkout is the commit) the door selects a commit
@@ -1228,13 +1268,6 @@ async function runStages(o, args, root, git, io) {
   // and Dell compile it through the RustRight snapshot carrier (`deps.snapshotBroker`, wired by `productionEntryDeps`; item 7 rows 7.20
   // to 7.24, rightkit#1301), right-release's own children included. Once it is selected any failure refuses; there is no retry on the
   // checkout, and no flag or environment variable selects another route.
-  const hosted = o.env.GITHUB_ACTIONS === "true";
-  let selected = null;
-  if (!o.doorSnapshot && !hosted) {
-    const snapModule = await import("../snapshot.mjs");
-    try { selected = snapModule.resolveCommit(root, option("--commit") ?? "HEAD"); }
-    catch (e) { o.err(`${tag} cannot resolve ${option("--commit") ?? "HEAD"} to a commit: ${e.message}`); return 2; }
-  }
   // The route and every refusal the door can meet before it takes ownership are `routePlan`'s, the one function the `--route` probe
   // also answers from (rightkit#1297 L1): the probe and the real run cannot drift, and the door-route parity test compares the two.
   if (!o.doorSnapshot) {
@@ -1420,7 +1453,7 @@ async function runStages(o, args, root, git, io) {
       // is the carrier's (rows 7.20 to 7.24): the carried calls' signed receipts name it (carried-cargo.mjs), and no CARGO_TARGET_DIR is passed.
       let packagePin = { dir: null };
       if (ok && ds && executor.kind !== "broker") {
-        packagePin = cargoOutputPin({ o, git, root, commit, executor });
+        packagePin = cargoOutputPin({ o, git, root, commit, executor, snapshot: ds.path });
         if (packagePin.refusal) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_OUTPUT_UNPINNED: [package] ${packagePin.refusal}; nothing was built`); ok = false; }
         else if (packagePin.dir) o.out(`${tag} [package] output directory for the Cargo workspace: ${packagePin.dir} (the checkout's)`);
       }
@@ -1532,7 +1565,9 @@ function stageForPublisher(o, args, root, git) {
   const common = text(git("rev-parse", "--git-common-dir")).trim();
   if (!/^[0-9a-f]{40}$/.test(commit) || !common) { o.err(`${tag} cannot read HEAD and the git directory`); return 2; }
   const commonDir = path.resolve(root, common);
-  const { appRoot, appDir } = appRootOf({ root, cwd: o.cwd, exists: o.exists });
+  const inventory = committedConfigDirs({ git, commit });
+  if (inventory.refusal) { o.err(`${tag} cannot read the app configuration of ${commit.slice(0, 12)}: ${inventory.refusal}`); return 2; }
+  const { appRoot, appDir } = appRootOf({ root, cwd: o.cwd, configDirs: inventory.dirs });
   const receipt = (o.readReceipt ?? readReceipt)({ commonDir, commit, app: appDir });
   const pack = receipt?.stages?.package; const qual = receipt?.stages?.qualify;
   const sealed = pack?.ok ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;
@@ -1547,7 +1582,7 @@ function stageForPublisher(o, args, root, git) {
     const receiptFile = path.join(work, `receipt-${platform}.json`);
     fs.writeFileSync(receiptFile, `${JSON.stringify(receipt, null, 2)}\n`);
     const archive = path.join(work, `sealed-${platform}.tar.gz`);
-    const tar = o.spawn("tar", ["-czf", archive, "-C", appRoot, path.join(".right-release", "sealed", sealed.id, platform)]);
+    const tar = o.spawn("tar", ["-czf", archive, "-C", appRoot, path.join(".right-release", "sealed", sealed.id, platformDirOf(platform))]);
     if (failed(tar)) { o.err(`${tag} could not pack ${sealed.id}/${platform}`); return 1; }
     const gh = (...a) => o.spawn("gh", a, { cwd: root });
     if (failed(gh("release", "view", releaseTag))) {
@@ -1912,7 +1947,7 @@ export const REQUIRED_BROKER_CAPABILITIES = Object.freeze(["snapshot-readonly-v1
 export function queryBrokerCapabilities(o) {
   const client = whichIn(o)("rustright").find((c) => path.isAbsolute(c));
   if (!client) return { ok: false, problem: "the RustRight client is not on PATH" };
-  const r = o.spawn(client, ["doctor", "--json"], { env: o.env, encoding: "utf8", timeout: 20_000, windowsHide: true });
+  const r = spawnBrokerClient(o.spawn, client, ["doctor", "--json"], { env: o.env, encoding: "utf8", timeout: 20_000, windowsHide: true }, { platform: o.platform ?? process.platform, readFile: o.readFile });
   if (r?.error || r?.status === null || r?.status === undefined) return { ok: false, problem: `\`rustright doctor --json\` did not finish: ${why(r)}` };
   let doc;
   try { doc = JSON.parse(text(r)); } catch { return { ok: false, problem: `\`rustright doctor --json\` printed no JSON${r.status ? ` (exit ${r.status})` : ""}` }; }
@@ -2131,24 +2166,35 @@ async function carrierForChildren({ o, ds, root, git, executor, stage, tag = "ri
 
 /**
  * The checkout's Cargo output directory for the snapshot of `commit`: `{ dir }` (null when the commit has no Cargo manifest) or
- * `{ refusal }`. Each tracked Cargo.toml of the commit is asked, in the CHECKOUT with the stage's environment, for its
- * `target_directory` (which honours CARGO_TARGET_DIR and `.cargo/config.toml` build.target-dir) and its workspace root; one workspace
- * yields its directory, several are refused rather than pointed at one shared directory (GATE-CONTRACT: mixed workspaces never share a target).
+ * `{ refusal }`. Each Cargo.toml the COMMIT tracks (git ls-tree of the selected commit, never the checkout's files) is asked, in the
+ * commit's SNAPSHOT with the stage's environment, for its `target_directory` (which honours CARGO_TARGET_DIR and the committed
+ * `.cargo/config.toml` build.target-dir) and its workspace root. A path the snapshot holds is mapped lexically to the same
+ * snapshot-relative path under the checkout (the output directory is the checkout's, GATE-CONTRACT "Output directory & cache"), so a
+ * directory the newer checkout deleted or moved, or a dirty or untracked manifest there, changes nothing: the checkout is not read. A
+ * path outside the snapshot (an absolute CARGO_TARGET_DIR) stands as reported. One workspace yields its directory, several are refused
+ * rather than pointed at one shared directory (GATE-CONTRACT: mixed workspaces never share a target).
  */
-function cargoOutputPin({ o, git, root, commit, executor }) {
+export function cargoOutputPin({ o, git, root, commit, executor, snapshot }) {
   const listed = git("ls-tree", "-r", "--name-only", "-z", commit);
   if (failed(listed)) return { refusal: `cannot list the files of ${commit.slice(0, 12)}: ${why(listed)}` };
   const manifests = text(listed).split("\0").filter((f) => f === "Cargo.toml" || f.endsWith("/Cargo.toml"));
+  if (manifests.length && (typeof snapshot !== "string" || !path.isAbsolute(snapshot))) return { refusal: "the output directory is resolved in the commit's snapshot and none was given" };
   const cargo = executor.cargo ?? ["cargo"];
+  // The snapshot as the tool reports it may be a realpath of the spelling the gate holds (a symlinked temp root): both spellings map.
+  const snapshots = [path.resolve(snapshot ?? "/")];
+  try { snapshots.push(fs.realpathSync.native(snapshot)); } catch { /* an absent snapshot fails at the metadata call */ }
+  const toCheckout = (p) => {
+    for (const base of snapshots) { const rel = path.relative(base, p); if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) return path.join(root, rel); }
+    return p;
+  };
   const workspaces = new Map();
   for (const m of manifests) {
-    const file = path.join(root, ...m.split("/"));
-    if (!o.exists(file)) return { refusal: `the checkout has no ${m}, so its Cargo output directory cannot be resolved` };
+    const file = path.join(snapshot, ...m.split("/"));
     const r = o.spawn(cargo[0], [...cargo.slice(1), "metadata", "--offline", "--format-version", "1", "--no-deps", "--manifest-path", file], { cwd: path.dirname(file), env: o.env });
     let doc = null;
     try { doc = failed(r) ? null : JSON.parse(text(r)); } catch { doc = null; }
-    if (!doc || typeof doc.target_directory !== "string" || !path.isAbsolute(doc.target_directory) || typeof doc.workspace_root !== "string") return { refusal: `cargo metadata in the checkout reported no absolute target_directory for ${m}${failed(r) ? ` (${why(r)})` : ""}` };
-    workspaces.set(path.resolve(doc.workspace_root), path.resolve(doc.target_directory));
+    if (!doc || typeof doc.target_directory !== "string" || !path.isAbsolute(doc.target_directory) || typeof doc.workspace_root !== "string") return { refusal: `cargo metadata in the snapshot reported no absolute target_directory for ${m}${failed(r) ? ` (${why(r)})` : ""}` };
+    workspaces.set(path.resolve(toCheckout(path.resolve(doc.workspace_root))), path.resolve(toCheckout(path.resolve(doc.target_directory))));
   }
   if (workspaces.size > 1) return { refusal: `the commit holds ${workspaces.size} Cargo workspaces (${[...workspaces.keys()].map((w) => posix(path.relative(root, w)) || ".").join(", ")}); one directory cannot serve them all, and right-release's own Cargo calls carry no per-workspace wrapper` };
   return { dir: workspaces.size ? [...workspaces.values()][0] : null };
@@ -2196,7 +2242,7 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
   // and passed absolute, so the warm outputs stay the checkout's and the snapshot holds no target/ (docs/GATE-CONTRACT.md "Output
   // directory & cache"). One Cargo workspace is pinned as a whole; several would share one directory (refused, naming them).
   // A broker host's output is the broker's (the receipts' `outputDir`); only a direct host pins the checkout's target directory.
-  const pin = ds && executor.kind !== "broker" ? cargoOutputPin({ o, git, root, commit, executor }) : { dir: null };
+  const pin = ds && executor.kind !== "broker" ? cargoOutputPin({ o, git, root, commit, executor, snapshot: ds.path }) : { dir: null };
   if (pin.refusal) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_OUTPUT_UNPINNED: ${pin.refusal}; nothing compiled`); return 1; }
   if (pin.dir) o.out(`${tag} output directory for the Cargo workspace: ${pin.dir} (the checkout's)`);
   const commonDir = path.resolve(root, common);

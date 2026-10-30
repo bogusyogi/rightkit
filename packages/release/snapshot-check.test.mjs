@@ -17,7 +17,7 @@ import {
   modulesStoreDir, pinnedPnpm, resolvePrimaryStore, snapshotOption, verifySnapshotDir,
 } from "./snapshot-check.mjs";
 import { main, discoverPnpmRoots, discoverNpmUnits } from "./bin/rightkit-gate.mjs";
-import { makeFakeBroker } from "./test-support/fake-broker.mjs";
+import { makeFakeBroker, subHandleStub } from "./test-support/fake-broker.mjs";
 
 const emptyConfig = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-sc-cfg-"))), "gitconfig");
 fs.writeFileSync(emptyConfig, "");
@@ -574,7 +574,7 @@ function brokerIo(t, s) {
   const out = []; const err = []; const plans = [];
   return { out, err, plans, io: {
     cwd: s.repo, env: { ...process.env, RK_GATE_CACHE: "0", RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs" }, snapshotRoot: path.join(tmp(t, "rk-sc-own-"), "snapshots"), out: (m) => out.push(m), err: (m) => err.push(m), appCheck: async () => 0,
-    snapshotBroker: { ...s.broker.sb, checkout: fs.realpathSync.native(s.repo), markBrokerSubmit: () => ({ handle: s.broker.sb.handle, broker: { submitted: true } }), get snapshot() { return { path: s.dir, expectedTree: s.broker.sb.snapshot.expectedTree }; } },
+    snapshotBroker: { ...s.broker.sb, checkout: fs.realpathSync.native(s.repo), markBrokerSubmit: subHandleStub(s.broker.sb.handle), get snapshot() { return { path: s.dir, expectedTree: s.broker.sb.snapshot.expectedTree }; } },
     // `cargo` is answered by the fake (never a real cargo, never the broker): metadata per cargo's member rule, anything else a sentinel.
     spawn: (cmd, args, opts = {}) => (cmd === "pnpm" && args[0] === "--version" ? { status: 0, stdout: "11.25.0\n", stderr: "" }
       : cmd === "cargo" ? defaultSpawn(process.execPath, [s.fake, ...args], opts) : defaultSpawn(cmd, args, opts)),
