@@ -162,3 +162,23 @@ test("[GB-85] a stage's release waits for every handle to be REAPED by the broke
   const timed = brokerLeaseState({ snapshot: "/s", handle: "h", client: "/c", waitMs: 99_999, spawn: (c, a) => ({ status: 0, stdout: JSON.stringify({ schema: "rustright.snapshot-lease-status.v1", state: "ACTIVE", snapshot: "/s", ownership: "h", waitedMs: 30000, waitTimedOut: true, members: [] }), stderr: String(a.at(-1)) }) });
   assert.equal(timed.state, "UNKNOWN"); assert.equal(timed.waitTimedOut, true); assert.match(timed.why, /waitTimedOut/);
 });
+
+// ---- GB-57 (RightKit side of stage members sharing one snapshot lease) ----
+test("[GB-57] each carried call of one stage has its own handle <stage handle>#<call> under ONE commit and tree; every member is recorded and must be REAPED by name before the stage's ownership is released", { skip: POSIX }, (t) => {
+  const fx = makeFakeBroker(t);
+  const file = path.join(tmp(t, "rk-own-stage-"), "build-ownership", "owner.json");
+  const own = acquire(file, noLease, { snapshot: fx.snapshot });
+  const section = brokerSection({ ...fx.sb, handle: own.handle, markBrokerSubmit: own.markBrokerSubmit, markBrokerUnsent: own.markBrokerUnsent });
+  const records = [];
+  for (let i = 0; i < 3; i += 1) assert.equal(cargo(fx, section, { record: (e) => records.push(e) }).outcome.status, "verified");
+  const handles = JSON.parse(fs.readFileSync(file, "utf8")).broker.handles;
+  assert.equal(new Set(handles).size, 3, "a handle is spent once: three calls, three handles");
+  assert.ok(handles.every((h) => h.startsWith(`${own.handle}#`)), "the stage owner is the part before the first #");
+  assert.equal(new Set(records.filter((r) => r.status === "verified").map((r) => r.ownershipHandle)).size, 3);
+  // The stage's release asks for each member by name (the fixture broker lists them as members), and releases only when all are REAPED.
+  const asked = []; const lease = (q) => { asked.push(q.handle); const ok = q.handle === own.handle ? handles : [q.handle]; return { state: "REAPED", why: "REAPED", members: ok.map((h) => ({ handle: h, state: "REAPED" })) }; };
+  crash(file);
+  const next = acquire(file, lease, { snapshot: fx.snapshot });
+  assert.deepEqual(asked, [own.handle, ...handles], "the aggregate first, then every member by its exact name");
+  next.release();
+});
