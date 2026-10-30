@@ -9,7 +9,6 @@
 import path from "node:path";
 
 export const ADAPTER_ENV_VAR = "RUSTRIGHT_ADAPTER_ENV";
-const LEGACY_ADAPTER_ENV_VAR = "RIGHTKIT_ADAPTER_ENV";
 
 export const ADAPTER_ENV_RESERVED = "RK_ADAPTER_ENV_RESERVED";
 export const ADAPTER_ENV_UNSET = "RK_ADAPTER_ENV_UNSET";
@@ -114,7 +113,7 @@ export function adapterEnvLaunch(stepEnv, { registered = null } = {}) {
  * from `env`. A reserved name, or a named variable that is not set, is refused (the client refuses the same two ways).
  */
 export function forwardedAdapterEnv(env) {
-  const raw = env?.[ADAPTER_ENV_VAR] ?? env?.[LEGACY_ADAPTER_ENV_VAR] ?? "";
+  const raw = env?.[ADAPTER_ENV_VAR] ?? "";
   const forwarded = {};
   for (const name of String(raw).split(",").map((part) => part.trim()).filter(Boolean)) {
     if (isReservedAdapterEnvKey(name)) fail(ADAPTER_ENV_RESERVED, `${ADAPTER_ENV_VAR} names ${name}, which is broker-controlled and cannot be forwarded to an adapter`);

@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { managedRuntimeClient } from "./managed-roots.mjs";
+import { currentInterfaceEnv, legacyInterfaceNamesIn } from "./rustright-names.mjs";
 
 export const BROKER_CLIENT_UNRESOLVED = "RK_BROKER_CLIENT_UNRESOLVED";
 export const AGENT_SHIM_MARKER = "rustright.build-control.agent-shims.install.v1";
@@ -66,8 +67,11 @@ export function withoutAgentShimEnv(env) {
 export function spawnBrokerClient(spawn, client, args, options = {}, { platform = process.platform, readFile } = {}) {
   let resolved;
   try { resolved = resolveBrokerClient(client, { platform, readFile }); } catch (error) { return { error, status: null, signal: null, stdout: "", stderr: "" }; }
-  if (!resolved.shim) return spawn(resolved.file, args, options);
-  return spawn(resolved.file, args, { ...options, shell: false, env: withoutAgentShimEnv(options.env ?? process.env) });
+  // GB-09: every outbound client call carries the current RUSTRIGHT_* spelling of the interface names only (a legacy RIGHTKIT_* one is translated, never sent).
+  const baseEnv = options.env ?? process.env;
+  const env = legacyInterfaceNamesIn(baseEnv).length ? currentInterfaceEnv(baseEnv) : options.env;
+  if (!resolved.shim) return spawn(resolved.file, args, env === options.env ? options : { ...options, env });
+  return spawn(resolved.file, args, { ...options, shell: false, env: withoutAgentShimEnv(env ?? process.env) });
 }
 
 /**

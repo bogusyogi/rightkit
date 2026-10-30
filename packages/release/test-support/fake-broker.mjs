@@ -254,7 +254,7 @@ function callerTestFile() {
 function logRequest(fx, command, args) {
   try {
     const env = process.env;
-    const envVar = (name) => env[`RUSTRIGHT_${name}`] ?? env[`RIGHTKIT_${name}`];
+    const envVar = (name) => env[`RUSTRIGHT_${name}`]; // GB-09: aliases off, as RUSTRIGHT_LEGACY_ALIASES=off: the gate must emit the current spelling
     let shim = command; let argv = args; let adapter = null; let carried = false;
     if (command === "run") { adapter = args[0] ?? null; shim = `run ${adapter}`; const sep = args.indexOf("--"); argv = sep >= 0 ? args.slice(sep + 1) : []; carried = envVar("SNAPSHOT_REQUEST") !== undefined; }
     else if (command === "cargo") { carried = envVar("SNAPSHOT_REQUEST") !== undefined; }
@@ -291,7 +291,7 @@ async function client(stateDir, [command, ...args]) {
     // legacy RIGHTKIT_* spelling, the descriptor is at most 4096 bytes with exactly `path` and `sha256`, the request file is a regular
     // file (never a link) directly in <control root>/snapshot-requests of at most 4 MiB whose fields are exactly the carrier's, cargo
     // only, no parent request, no admission-check call, a calling gate, and an attested call never rewrites its invocation.
-    const envVar = (name) => env[`RUSTRIGHT_${name}`] ?? env[`RIGHTKIT_${name}`];
+    const envVar = (name) => env[`RUSTRIGHT_${name}`]; // GB-09: aliases off, as RUSTRIGHT_LEGACY_ALIASES=off: the gate must emit the current spelling
     const bad = (why) => { process.stderr.write(`invalid snapshot request carrier (${why})\n`); process.exit(2); };
     const raw = envVar("SNAPSHOT_REQUEST");
     // The real broker refuses an uncarried ROOT request whose workspace is inside a managed snapshot (service.rs: "a root request cannot run
@@ -330,6 +330,7 @@ async function client(stateDir, [command, ...args]) {
     const carrier = JSON.parse(bytes);
     const exactly = (value, keys, what) => { if (!value || typeof value !== "object" || Object.keys(value).sort().join() !== [...keys].sort().join()) bad(`unknown or missing fields in ${what}`); };
     exactly(carrier, ["schema", "commit", "snapshot", "declaredInputs", "ownership", "primaryCwd", "argvSha256", "nonce"], "the carrier");
+  if (carrier.schema !== "rustright.snapshot-request/1") bad(`unknown carrier schema ${JSON.stringify(carrier.schema)} (the legacy rightkit.snapshot-request/1 is not read: aliases off)`);
     exactly(carrier.commit, ["sha", "tree"], "commit"); exactly(carrier.snapshot, ["path", "expectedTree"], "snapshot"); exactly(carrier.declaredInputs, ["inputs"], "declaredInputs"); exactly(carrier.ownership, ["handle"], "ownership");
     if (carrier.nonce !== envVar("ATTEST_NONCE")) bad("nonce");
     if (carrier.argvSha256 !== argvSha256(args)) bad("argv");
@@ -448,7 +449,7 @@ function snapshotArgvProblem(fx, adapter, args) {
 function adapterRun(stateDir, fx, behavior, argv) {
   const [adapter, ...rest] = argv;
   const env = process.env;
-  const envVar = (name) => env[`RUSTRIGHT_${name}`] ?? env[`RIGHTKIT_${name}`];
+  const envVar = (name) => env[`RUSTRIGHT_${name}`]; // GB-09: aliases off, as RUSTRIGHT_LEGACY_ALIASES=off: the gate must emit the current spelling
   const bad = (why) => { process.stderr.write(`invalid snapshot request carrier (${why})\n`); process.exit(2); };
   if (!ADAPTERS.includes(adapter)) bad(`${adapter} is not a registered snapshot adapter`);
   if (rest[0] !== "--") bad("the adapter's arguments follow `--`");
@@ -470,6 +471,7 @@ function adapterRun(stateDir, fx, behavior, argv) {
   const carrier = JSON.parse(bytes);
   const exactly = (value, keys, what) => { if (!value || typeof value !== "object" || Object.keys(value).sort().join() !== [...keys].sort().join()) bad(`unknown or missing fields in ${what}`); };
   exactly(carrier, ["schema", "commit", "snapshot", "declaredInputs", "ownership", "primaryCwd", "argvSha256", "nonce"], "the carrier");
+  if (carrier.schema !== "rustright.snapshot-request/1") bad(`unknown carrier schema ${JSON.stringify(carrier.schema)} (the legacy rightkit.snapshot-request/1 is not read: aliases off)`);
   if (carrier.nonce !== envVar("ATTEST_NONCE")) bad("nonce");
   if (carrier.argvSha256 !== argvSha256(args)) bad("argv");
   if (fs.realpathSync(carrier.primaryCwd) !== fs.realpathSync(process.cwd())) bad("primaryCwd");
