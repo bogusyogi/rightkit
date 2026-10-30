@@ -156,6 +156,7 @@ export const provenNoSpawn = (error) => Boolean(error) && NO_SPAWN_CODES.has(err
 export function clientStartable(client, platform = process.platform) {
   if (typeof client !== "string" || client === "") return "no RustRight client is named";
   if (!(platform === "win32" ? path.win32 : path).isAbsolute(client)) return null;
+  if (platform !== process.platform) return null; // a simulated platform (a test) has no file system of its own to probe
   try { const meta = fs.statSync(client); if (!meta.isFile()) return `${client} is not a file`; if (platform !== "win32") fs.accessSync(client, fs.constants.X_OK); return null; } catch (e) { return `${client} cannot be started (${e.code ?? e.message})`; }
 }
 
