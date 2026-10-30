@@ -56,7 +56,7 @@ test("a QA step that compiles nothing runs outside the broker: a direct step wit
   assert.equal(ran.stdout, `/app|fast,local-models|${args.join(" ")}`);
   for (const ok of [["journeys", "receipt", "--root", s.cwd], ["run", "--tier", "fast"], ["--all"]]) assert.deepEqual(buildLaunch("rightkit-qa", ok, s.host), { command: s.qa, args: ok }, ok.join(" "));
   // Off the snapshot route the whole run is still one broker job (the client's `run`), as before.
-  assert.deepEqual(buildLaunch("rightkit-qa", ["run-tests", "--app", "a"], { ...s.host, env: { PATH: "/managed/agent-bin" } }), { command: CLIENT, args: ["run", "rightkit-qa", "--", "run-tests", "--app", "a"] });
+  assert.throws(() => buildLaunch("rightkit-qa", ["run-tests", "--app", "a"], { ...s.host, env: { PATH: "/managed/agent-bin" } }), (e) => e.code === BUILD_LAUNCH_REFUSED && /no uncarried route/.test(e.message), "GB-27: no carrier, no unregistered adapter request");
   assert.equal(Object.hasOwn(buildLaunch("rightkit-qa", ["--all"], { ...s.host, stepEnv: { HEARDRIGHT_QA_APP_ROOT: "/app" } }), "env"), false);
 });
 

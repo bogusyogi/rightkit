@@ -179,7 +179,11 @@ export function buildLaunch(command, args = [], host = {}) {
   if (program === "cargo") return { command: client(), args: ["cargo", ...args.map(String)] };
   if (program === "rustright") {
     const snapshotMap = carriedCargoMapOf(env);
-    if (!snapshotMap) return { command: client(), args: args.map(String) };
+    if (!snapshotMap) {
+      // GB-27: the client spelling of the same unregistered adapter is refused as well (no snapshot carrier, no rightkit-qa route).
+      if (args[0] === "run" && String(args[1]) === "rightkit-qa") refuse(`rustright ${args.join(" ")}: a QA run is a direct, noncompiling step of a snapshot stage under the door; the broker registers no rightkit-qa adapter, so outside a snapshot stage there is no uncarried route`);
+      return { command: client(), args: args.map(String) };
+    }
     if (snapshotMap.error) refuse(`rustright ${args.join(" ")}: ${snapshotMap.error}; a snapshot stage's step is never sent to the client around its carrier`);
     // A snapshot stage: `rustright run <adapter> -- <args>` is that adapter's step (judged by the door's rules for its program, then carried);
     // any other `rustright <command>` is an uncarried client call that no registered adapter takes, so it is refused, naming the step.
@@ -192,7 +196,10 @@ export function buildLaunch(command, args = [], host = {}) {
     // the unscrubbed environment the broker's job lacks), and nothing in it may compile (the broker refuses an uncarried compile from the snapshot).
     const snapshotMap = carriedCargoMapOf(env);
     if (snapshotMap?.error) refuse(`rightkit-qa ${args.join(" ")}: ${snapshotMap.error}; a snapshot stage's step is never run around its carrier`);
-    if (!snapshotMap) return adapterLaunch("rightkit-qa", args.map(String));
+    // GB-27 (GATE one entry): the broker registers no `rightkit-qa` adapter, so a QA step with no snapshot carrier has no route: it is
+    // refused here, naming the step, never sent as `rustright run rightkit-qa` (an unregistered capability the broker would refuse after the
+    // gate had marked the call submitted). QA runs only as the direct, noncompiling step of a snapshot stage under the door.
+    if (!snapshotMap) refuse(`rightkit-qa ${args.join(" ")}: a QA run is a direct, noncompiling step of a snapshot stage under the door; the broker registers no rightkit-qa adapter, so outside a snapshot stage there is no uncarried route (and any build the run needs is its own carried build step)`);
     // The step runs from the snapshot and reads only the snapshot and managed output: its directory is inside the snapshot, and nothing it
     // names (the listing, --root, --cwd, --manifest-path) resolves into the primary checkout.
     const section = snapshotMap.map.broker ?? {};

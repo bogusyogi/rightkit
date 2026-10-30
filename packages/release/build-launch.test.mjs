@@ -27,8 +27,18 @@ test("managed host: node runs a workspace script as a rightkit-node broker job; 
   const host = { ...managed, cwd: "/w/app" };
   assert.deepEqual(buildLaunch("node", ["node_modules/vite/bin/vite.js", "build"], host), { command: CLIENT, args: ["run", "rightkit-node", "--", "node_modules/vite/bin/vite.js", "build"] });
   assert.deepEqual(buildLaunch(process.execPath, ["/w/app/scripts/dev-build.mjs", "--platform", "mac"], host).args, ["run", "rightkit-node", "--", "scripts/dev-build.mjs", "--platform", "mac"]);
-  // The whole QA run (its test binaries included) is one broker job.
-  assert.deepEqual(buildLaunch("rightkit-qa", ["run-tests", "--app", "heardright"], host), { command: CLIENT, args: ["run", "rightkit-qa", "--", "run-tests", "--app", "heardright"] });
+  // GB-27: the broker registers no rightkit-qa adapter; outside a snapshot stage a QA step has no route (see the GB-27 test below).
+  assert.throws(() => buildLaunch("rightkit-qa", ["run-tests", "--app", "heardright"], host), (e) => e.code === BUILD_LAUNCH_REFUSED && /no uncarried route/.test(e.message));
+});
+
+test("[GB-27] a rightkit-qa step with no snapshot carrier never requests the unregistered rightkit-qa adapter, in either spelling; it is refused before any spawn", () => {
+  const host = { ...managed, cwd: "/w/app" };
+  for (const [command, args] of [["rightkit-qa", ["run-tests", "--app", "a"]], ["rustright", ["run", "rightkit-qa", "--", "run-tests", "--app", "a"]]]) {
+    let launched = null;
+    try { launched = buildLaunch(command, args, host); } catch (e) { assert.equal(e.code, BUILD_LAUNCH_REFUSED, `${command}: ${e.message}`); continue; }
+    assert.notDeepEqual(launched.args?.slice(0, 2), ["run", "rightkit-qa"], `${command} must not be sent as an adapter job: ${JSON.stringify(launched)}`);
+    assert.fail(`${command} ${args.join(" ")} was launched without a carrier: ${JSON.stringify(launched)}`);
+  }
 });
 
 test("managed host: any other build or test command is refused, never run around the broker", () => {
