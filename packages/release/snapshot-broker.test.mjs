@@ -404,7 +404,7 @@ test("[RR status envelope] the receipt is read from `{type:\"STATUS\", state, re
   assert.equal(h.ledger("live").entries[0].status, "unverified");
   h.fx.setBehavior({ statusBare: true });
   r = h.row(await h.run([unit("bare")]), "bare");
-  assert.equal(r.code, "RK_CARGO_LEDGER"); assert.match(r.detail, /no receipt field \(not a STATUS envelope\)/);
+  assert.equal(r.code, "RK_CARGO_LEDGER"); assert.match(r.detail, /the reply is not a valid status for this request \(the reply is not a typed object\)/);
   h.fx.setBehavior({});
   assert.equal(h.row(await h.run([unit("envelope")]), "envelope").status, "pass", "the full envelope of a terminal job verifies");
   const entry = h.ledger("envelope").entries[0];
