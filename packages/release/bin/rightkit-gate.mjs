@@ -2347,8 +2347,10 @@ export async function main(argv, io = {}) {
   // every `--to` stage selects it: host-wide build ownership first, then one sync of the commit into the gate-owned source directory, then the
   // check of that snapshot below. There is no export and no copy of the source (docs/GATE-CONTRACT.md, 2026-10-29); the checkout's own files are
   // never read, so an uncommitted edit in it is ignored. Hosted CI has no warm snapshot: its runner checkout is the commit, scanned in place.
+  // `check --commit <sha> --full-a` takes the same route (GB-48, GATE 34/36/44, E17): the selected commit's snapshot, never a conversion to
+  // `--worktree` that reads the live checkout after a momentary cleanliness check. Only hosted CI keeps the in-place full check.
   const commitCheck = sub === "check"
-    && !["--full-a", "--snapshot", "--worktree", "--plan", "--list", "--print-baseline", "--only"].some((f) => args.includes(f)) && o.classA !== false && snapshotRouteSelected(o);
+    && !["--snapshot", "--worktree", "--plan", "--list", "--print-baseline", "--only"].some((f) => args.includes(f)) && o.classA !== false && snapshotRouteSelected(o);
   if (commitCheck) {
     const sc = await import("../snapshot-check.mjs");
     const snap = await import("../snapshot.mjs");
