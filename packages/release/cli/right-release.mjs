@@ -425,6 +425,8 @@ Commands:
   disk run-root --release <name>                     End a run-root lease
   disk schedule install|uninstall|status             Hourly launchd job (Mac) / hidden Task Scheduler entry (Windows) running "disk run --auto", bound to the stable per-user copy; status fails when no full pass finished in 26 h
   deps --check|--audit|--update                      Shared dependency lane
+  deps --cargo-lock --manifest <Cargo.toml> --pin <crate>=<version> [--pin <crate>=<version>]...
+                                                      Refresh one workspace's Cargo.lock (cargo update -p <crate> --precise <version>, one request per pin): the broker in the primary checkout on Mac and Dell, plain cargo on Linux; never a build. Refuses, and restores the lock, if any other file changes
   update check|apply|gate|land|discard|run|schedule [--repo <path>]
                                                       Run the pinned @rightkit/outdated updater (right-update) that moves stale pins; reads .rightkit/update.json
   hardening <artifact...>                            Run the Right Suite hardening scan

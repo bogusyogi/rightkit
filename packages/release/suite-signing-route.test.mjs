@@ -13,7 +13,7 @@ import { runDevelopment } from "./development.mjs";
 import { runSuites, main as testMain, planTests } from "./test-command.mjs";
 import { SuiteSigningError } from "./suite-signing-policy.mjs";
 import { ROUTE_REFUSAL_CODES, devTestPlatform, main, routeAppConfig, routePlan } from "./bin/rightkit-gate.mjs";
-import { SIGNING_REFUSAL_CODES, adHocReason, identifierOverrideReason, isProductBuildStep, productTargets, signingRefusalHost, suiteSigningRefusals } from "./suite-signing-policy.mjs";
+import { SIGNING_REFUSAL_CODES, adHocReason, classifyStepArtifacts, identifierOverrideReason, isProductBuildStep, planSigningRefusals, productTargets, signingRefusalHost, suiteSigningRefusals } from "./suite-signing-policy.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const directExecutor = () => ({ kind: "direct", cargo: ["cargo"] });
@@ -23,14 +23,17 @@ const QA = { name: "qa", cmd: "node", args: ["qa.mjs"] };
 const TAURI_CONF = JSON.stringify({ productName: "RightApp", identifier: "app.rightsuite.rightapp" });
 const CARGO = '[package]\nname = "rightapp"\nversion = "0.1.0"\n';
 const files = { "src-tauri/tauri.conf.json": TAURI_CONF, "src-tauri/Cargo.toml": CARGO };
-const readFile = (rel) => files[rel] ?? null;
-const refusals = (config, over = {}) => suiteSigningRefusals({ config, platform: "darwin", to: "test", readFile, ...over });
+// The commit's Rust tests, as the policy reads them (app-relative path -> text): the sidecar crate's e2e test launches its own bin.
+const tree = { "src-tauri/tests/ui.rs": "#[test] fn ui() {}", "crates/engine/tests/e2e.rs": 'let bin = env!("CARGO_BIN_EXE_rightapp-engine");', "crates/engine/tests/unit.rs": "#[test] fn u() {}" };
+const readFile = (rel) => files[rel] ?? tree[rel] ?? null;
+const listFiles = (dir) => Object.keys(tree).filter((name) => name.startsWith(`${dir}/`));
+const refusals = (config, over = {}) => suiteSigningRefusals({ config, platform: "darwin", to: "test", readFile, listFiles, ...over });
 const codes = (list) => list.map((item) => item.code);
 
 // ---- what counts -------------------------------------------------------------------------------------------------------------------
 
 test("a product build: tauri build and bundle, and a cargo build of the tauri package or a sidecar package; a test build is not one", () => {
-  const targets = productTargets({ config: { sidecars: { sidecars: [{ kind: "cargo-bin", package: "rightapp-engine", manifestPath: "crates/engine/Cargo.toml" }] } }, readFile });
+  const targets = productTargets({ config: { sidecars: { sidecars: [{ kind: "cargo-bin", package: "rightapp-engine", manifestPath: "crates/engine/Cargo.toml" }] } }, readFile, listFiles });
   const is = (step) => isProductBuildStep(step, targets);
   assert.equal(is({ cmd: "pnpm", args: ["exec", "tauri", "build"] }), true);
   assert.equal(is({ cmd: "pnpm", args: ["exec", "tauri", "bundle", "--bundles", "nsis"] }), true);
@@ -121,9 +124,11 @@ test("each refusal fires on darwin and win32 and on neither linux nor hosted CI"
     { to: "test", config: { tests: { suites: [{ ...BUILD, args: [...BUILD.args, "--config", '{"identifier":"a.b"}'] }, SIGN] } }, code: "RK_SUITE_IDENTIFIER_OVERRIDE" },
     { to: "dev", config: { development: { targets: { mac: { build: [], install: { kind: "tauri-devid", bundleId: "app.other" } } } } }, code: "RK_SUITE_IDENTIFIER_MISMATCH", only: "darwin" },
     { to: "dev", config: { development: { targets: { win: { build: [], install: { kind: "tauri" } } } } }, code: "RK_DEV_WIN_UNSIGNED_INSTALL", only: "win32" },
+    { to: "dev", config: { development: { targets: { mac: { build: [], install: { kind: "command", cmd: "true" } } } } }, code: "RK_DEV_UNSIGNED_INSTALL", only: "darwin" },
+    { to: "test", config: { sidecars: { sidecars: [{ package: "no-manifest" }] }, tests: { suites: [{ name: "t", cmd: "cargo", args: ["test", "-p", "no-manifest"] }] } }, code: "RK_SUITE_UNCLASSIFIED_ARTIFACT" },
   ];
   assert.deepEqual([...new Set(configs.map((c) => c.code))].sort(), [...SIGNING_REFUSAL_CODES].sort(), "every code is exercised");
-  const plan = (platform, env, { to, config }) => routePlan({ platform, env, resolveExecutor: directExecutor, spawn: () => ({ status: 1 }), exists: () => false, readFile: () => "" }, { to, stages: [], devTest: true, executor: directExecutor(), appConfig: { config, readFile } });
+  const plan = (platform, env, { to, config }) => routePlan({ platform, env, resolveExecutor: directExecutor, spawn: () => ({ status: 1 }), exists: () => false, readFile: () => "" }, { to, stages: [], devTest: true, executor: directExecutor(), appConfig: { config, readFile, listFiles } });
   for (const item of configs) {
     for (const platform of ["darwin", "win32"]) {
       const answer = plan(platform, {}, item);
@@ -142,7 +147,13 @@ test("each refusal fires on darwin and win32 and on neither linux nor hosted CI"
   assert.equal(signingRefusalHost("darwin"), true);
   assert.equal(signingRefusalHost("win32"), true);
   assert.equal(signingRefusalHost("linux"), false);
-  assert.equal(signingRefusalHost("win32", { GITHUB_ACTIONS: "true" }), false);
+  const runner = { GITHUB_ACTIONS: "true", CI: "true", RUNNER_ENVIRONMENT: "github-hosted" };
+  assert.equal(signingRefusalHost("win32", runner), false);
+  assert.equal(signingRefusalHost("darwin", runner), false);
+  // L1: the hosted exemption is the whole three-variable runner test, never one forgeable variable.
+  assert.equal(signingRefusalHost("win32", { GITHUB_ACTIONS: "true" }), true);
+  assert.equal(signingRefusalHost("darwin", { ...runner, RUNNER_ENVIRONMENT: "self-hosted" }), true);
+  assert.equal(signingRefusalHost("darwin", { ...runner, CI: undefined }), true);
 });
 
 test("routePlan: no config, a clean config and a stage that is not dev or test never refuse for signing; an earlier refusal keeps its place", () => {
@@ -160,6 +171,139 @@ test("the route's code list is the base codes plus exactly the codes the signing
   const body = source.slice(at, source.indexOf("\n}\n", at));
   assert.deepEqual([...new Set([...body.matchAll(/\b(RK_[A-Z0-9_]+)\b/g)].map((m) => m[1]))].sort(), [...SIGNING_REFUSAL_CODES].sort());
   for (const code of SIGNING_REFUSAL_CODES) assert.ok(ROUTE_REFUSAL_CODES.includes(code), code);
+});
+
+// ---- the resolved plan (Oracle H1) and the artifact rule -----------------------------------------------------------------------------
+
+const ENGINE = { sidecars: { sidecars: [{ kind: "cargo-bin", package: "rightapp-engine", manifestPath: "crates/engine/Cargo.toml" }] } };
+const RUNNERS = { cargo: { cmd: "cargo" }, pnpm: { cmd: "pnpm" } };
+const PLAN_CONFIG = { ...ENGINE, tests: { runners: RUNNERS, suites: [BUILD, SIGN, QA] } };
+const planOf = (options, config = PLAN_CONFIG) => planTests(config, { appRoot: os.tmpdir(), ...options });
+const planRefusals = (plan, over = {}) => planSigningRefusals({ config: PLAN_CONFIG, plan, platform: "darwin", env: {}, readFile, listFiles, ...over });
+
+test("H1: runner mode, a lone build suite and passthrough are judged on the plan that runs; the four Oracle reproductions and HeardRight's are refused", () => {
+  const cargoBuild = planOf({ runner: "cargo", passthrough: ["build", "-p", "rightapp-engine"] });
+  assert.deepEqual(codes(planRefusals(cargoBuild)), ["RK_SUITE_UNSIGNED_BUILD"], "--runner cargo -- build -p <sidecar>");
+  assert.deepEqual(codes(planRefusals(planOf({ runner: "cargo", passthrough: ["build"] }))), ["RK_SUITE_UNSIGNED_BUILD"], "a bare cargo build");
+  assert.deepEqual(codes(planRefusals(planOf({ runner: "pnpm", passthrough: ["exec", "tauri", "build"] }))), ["RK_SUITE_UNSIGNED_BUILD"], "--runner pnpm -- exec tauri build");
+  assert.deepEqual(codes(planRefusals(planOf({ suites: ["build-app"] }))), ["RK_SUITE_UNSIGNED_BUILD"], "--suite build-app alone");
+  assert.deepEqual(codes(planRefusals(planOf({ suites: ["build-app"], passthrough: ["--config", '{"identifier":"com.other"}'] }))).sort(), ["RK_SUITE_IDENTIFIER_OVERRIDE", "RK_SUITE_UNSIGNED_BUILD"], "--suite build-app -- --config {identifier}");
+  // HeardRight's own shape: its cargo runner building its engine sidecar.
+  const hr = { sidecars: { sidecars: [{ kind: "cargo-bin", package: "heardright-engine", manifestPath: "crates/engine/Cargo.toml" }] }, tests: { runners: RUNNERS, suites: [BUILD, SIGN] } };
+  assert.deepEqual(codes(planSigningRefusals({ config: hr, plan: planOf({ runner: "cargo", passthrough: ["build", "-p", "heardright-engine"] }, hr), platform: "darwin", env: {}, readFile, listFiles })), ["RK_SUITE_UNSIGNED_BUILD"]);
+  // Ad hoc signing smuggled in by passthrough.
+  assert.deepEqual(codes(planRefusals(planOf({ suites: ["qa"], passthrough: ["--sign", "sign-qa-bundle"] }))), ["RK_SUITE_ADHOC_SIGNING"]);
+  // A properly planned build + sign passes, whole or as a named group; Linux and hosted CI are exempt.
+  assert.deepEqual(planRefusals(planOf({})), []);
+  assert.deepEqual(planRefusals(planOf({ suites: ["build-app", "sign-app"] })), []);
+  assert.deepEqual(planRefusals(planOf({ runner: "cargo", passthrough: ["build"] }), { platform: "linux" }), []);
+  assert.deepEqual(planRefusals(planOf({ runner: "cargo", passthrough: ["build"] }), { env: { GITHUB_ACTIONS: "true", CI: "true", RUNNER_ENVIRONMENT: "github-hosted" } }), []);
+  // runSuites refuses it before anything spawns.
+  const spawned = [];
+  return runSuites(cargoBuild, { appRoot: os.tmpdir(), config: PLAN_CONFIG, platform: "darwin", env: {}, spawnFn: (...args) => { spawned.push(args); throw new Error("must not spawn"); }, errLog: () => {}, log: () => {} }).then((result) => {
+    assert.equal(result.exitCode, 1);
+    assert.equal(spawned.length, 0);
+  });
+});
+
+test("artifacts, not verbs: a product bin is a product, in-place lib tests and explicit examples are harnesses, a test that launches CARGO_BIN_EXE_ needs an earlier sign", () => {
+  const targets = productTargets({ config: ENGINE, readFile, listFiles });
+  const kind = (...args) => { const found = classifyStepArtifacts({ cmd: "cargo", args }, targets); return found.unknown.length ? "unknown" : found.launches ? "launches" : found.product ? "product" : "harness"; };
+  // HeardRight's Case4: three lib harnesses and six explicitly selected examples pass.
+  for (const args of [["test", "-p", "rightapp", "--lib"], ["test", "-p", "rightapp-engine", "--lib"], ["test", "--lib", "-p", "rightapp-engine", "--no-run"]]) assert.equal(kind(...args), "harness", args.join(" "));
+  for (let i = 1; i <= 6; i += 1) assert.equal(kind("run", "-p", "rightapp-engine", "--example", `measure${i}`), "harness", `example ${i}`);
+  assert.equal(kind("build", "-p", "rightapp-engine", "--example", "m"), "harness");
+  assert.equal(kind("test", "-p", "rightapp"), "harness", "a product package whose tests never launch its bin");
+  assert.equal(kind("test", "-p", "other-crate"), "harness");
+  // The engine e2e launches its own bin: product consumption, with `--no-run` no exception.
+  assert.equal(kind("test", "-p", "rightapp-engine"), "launches");
+  assert.equal(kind("test", "-p", "rightapp-engine", "--no-run"), "launches");
+  assert.equal(kind("test", "-p", "rightapp-engine", "--test", "e2e"), "launches");
+  assert.equal(kind("test"), "launches", "no package named covers every product package");
+  assert.equal(kind("test", "--manifest-path", "crates/engine/Cargo.toml"), "launches");
+  assert.equal(kind("build", "-p", "rightapp-engine"), "product");
+  assert.equal(kind("run", "-p", "rightapp-engine"), "launches");
+  assert.equal(kind("clippy", "-p", "rightapp-engine"), "harness", "check, clippy and doc produce no executable");
+  // The verb list is gone: `test --no-run` is no escape, and a harness-only verb does not make a product.
+  const hr = (suites) => ({ ...ENGINE, tests: { suites } });
+  const e2e = { name: "e2e", cmd: "cargo", args: ["test", "-p", "rightapp-engine", "--test", "e2e"] };
+  const lib = { name: "lib", cmd: "cargo", args: ["test", "-p", "rightapp-engine", "--lib"] };
+  const buildEngine = { name: "build-engine", cmd: "cargo", args: ["build", "-p", "rightapp-engine"] };
+  const signEngine = { name: "sign-engine", sign: { files: [{ from: "build-engine", path: "debug/rightapp-engine" }] } };
+  assert.deepEqual(codes(refusals(hr([e2e]))), ["RK_SUITE_UNSIGNED_BUILD"], "the e2e that launches CARGO_BIN_EXE unsigned is refused");
+  assert.deepEqual(refusals(hr([lib])), [], "a lib harness runs in place");
+  assert.deepEqual(codes(refusals(hr([e2e, buildEngine, signEngine]))), ["RK_SUITE_UNSIGNED_BUILD"], "a sign step AFTER the launch does not cover it");
+  assert.deepEqual(refusals(hr([buildEngine, signEngine, e2e])), [], "build, sign, then the test passes");
+});
+
+test("an artifact that cannot be classified is refused before it runs", () => {
+  const bare = { sidecars: { sidecars: [{ kind: "cargo-bin", package: "mystery" }] }, tests: { runners: RUNNERS, suites: [{ name: "t", cmd: "cargo", args: ["test", "-p", "mystery"] }] } };
+  assert.deepEqual(codes(refusals(bare)), ["RK_SUITE_UNCLASSIFIED_ARTIFACT"], "no manifest path: its tests cannot be found");
+  assert.deepEqual(codes(refusals({ ...ENGINE, tests: { suites: [{ name: "t", cmd: "cargo", args: ["test", "-p", "rightapp-engine"] }] } }, { listFiles: null })), ["RK_SUITE_UNCLASSIFIED_ARTIFACT"], "no way to list the tests");
+  assert.deepEqual(codes(refusals({ ...ENGINE, tests: { suites: [{ name: "t", cmd: "cargo", args: ["test", "-p", "rightapp-engine"] }] } }, { listFiles: () => null })), ["RK_SUITE_UNCLASSIFIED_ARTIFACT"], "a tests directory that cannot be read");
+  assert.deepEqual(codes(refusals({ ...ENGINE, tests: { suites: [{ name: "t", cmd: "cargo", args: ["test", "-p", "rightapp-engine"] }] } }, { readFile: () => null })), ["RK_SUITE_UNCLASSIFIED_ARTIFACT"], "a test file that cannot be read");
+  assert.deepEqual(codes(planRefusals(planOf({ runner: "cargo", passthrough: ["test", "-p", "mystery"] }, bare), { config: bare })), ["RK_SUITE_UNCLASSIFIED_ARTIFACT"]);
+});
+
+test("a sidecar package with no manifestPath is found through the workspace members (globs, exclude); missing or ambiguous stays unclassified", () => {
+  const virtual = (extra = {}) => {
+    const tree = {
+      "Cargo.toml": '[workspace]\nmembers = [\n  "src-tauri",\n  "crates/*",\n]\nexclude = ["crates/skipped"]\n',
+      "src-tauri/Cargo.toml": CARGO,
+      "crates/engine/Cargo.toml": '[package]\nname = "heardright-engine"\n',
+      "crates/engine/tests/e2e_engine.rs": 'let exe = env!("CARGO_BIN_EXE_heardright-engine");',
+      "crates/helper/Cargo.toml": '[package]\nname = "helper"\n',
+      "crates/skipped/Cargo.toml": '[package]\nname = "heardright-engine"\n',
+      ...extra,
+    };
+    return { read: (rel) => tree[rel] ?? null, list: (dir) => Object.keys(tree).filter((name) => name.startsWith(dir === "." ? "" : `${dir}/`)) };
+  };
+  const config = { sidecars: { sidecars: [{ kind: "cargo-bin", package: "heardright-engine" }] } };
+  const kindOf = (world, ...args) => {
+    const targets = productTargets({ config, readFile: world.read, listFiles: world.list });
+    const found = classifyStepArtifacts({ cmd: "cargo", args }, targets);
+    return { dir: targets.dirs.get("heardright-engine"), kind: found.unknown.length ? "unknown" : found.launches ? "launches" : found.product ? "product" : "harness" };
+  };
+  const world = virtual();
+  assert.deepEqual(kindOf(world, "test", "-p", "heardright-engine"), { dir: "crates/engine", kind: "launches" }, "resolved through crates/*, its e2e test launches the bin");
+  assert.deepEqual(kindOf(world, "test", "-p", "heardright-engine", "--lib"), { dir: "crates/engine", kind: "harness" });
+  assert.deepEqual(codes(refusals({ ...config, tests: { suites: [{ name: "e2e", cmd: "cargo", args: ["test", "-p", "heardright-engine", "--test", "e2e_engine"] }] } }, { readFile: world.read, listFiles: world.list })), ["RK_SUITE_UNSIGNED_BUILD"]);
+  // Two members with the package's name (here the excluded one is counted out; drop the exclude and it is ambiguous).
+  const ambiguous = virtual({ "Cargo.toml": '[workspace]\nmembers = ["src-tauri", "crates/*"]\n' });
+  assert.equal(kindOf(ambiguous, "test", "-p", "heardright-engine").kind, "unknown");
+  // Not a member at all.
+  const missing = virtual({ "Cargo.toml": '[workspace]\nmembers = ["src-tauri"]\n' });
+  assert.equal(kindOf(missing, "test", "-p", "heardright-engine").kind, "unknown");
+  // No workspace root and no lister: unresolved.
+  assert.equal(kindOf({ read: () => null, list: () => [] }, "test", "-p", "heardright-engine").kind, "unknown");
+});
+
+test("the dev win path hands the Authenticode installer the app root and the release config", () => {
+  const source = fs.readFileSync(path.join(HERE, "development.mjs"), "utf8");
+  const call = /installTauriAuthenticode\(\{([^]*?)deps: \{/.exec(source);
+  assert.ok(call, "installTauriAuthenticode is called");
+  assert.match(call[1], /appRoot: root/);
+  assert.match(call[1], /releaseConfig: config/);
+});
+
+test("M2: a Mac or Dell dev target needs a signed install: command, portable, none, --build-only and stage entries are refused", () => {
+  const mac = (install, extra = {}) => ({ development: { targets: { mac: { build: [], ...(install ? { install } : {}), ...extra } } } });
+  assert.deepEqual(codes(refusals(mac({ kind: "command", cmd: "true" }), { to: "dev" })), ["RK_DEV_UNSIGNED_INSTALL"]);
+  assert.deepEqual(codes(refusals(mac({ kind: "portable" }), { to: "dev" })), ["RK_DEV_UNSIGNED_INSTALL"]);
+  assert.deepEqual(codes(refusals(mac(null), { to: "dev" })), ["RK_DEV_UNSIGNED_INSTALL"], "no install at all");
+  assert.deepEqual(codes(refusals(mac({ kind: "tauri-devid" }, { stage: [{ from: "a", to: "b" }] }), { to: "dev" })), ["RK_DEV_UNSIGNED_INSTALL"], "stage copies the raw build");
+  assert.deepEqual(codes(refusals(mac({ kind: "tauri-devid" }), { to: "dev", buildOnly: true })), ["RK_DEV_UNSIGNED_INSTALL"], "--build-only signs nothing");
+  assert.deepEqual(refusals(mac({ kind: "tauri-devid" }), { to: "dev" }), []);
+  assert.deepEqual(refusals(mac({ kind: "command", cmd: "true" }), { to: "dev", platform: "linux" }), [], "Linux builds sign nothing");
+  assert.deepEqual(refusals({ development: { targets: { ios: { build: [] } } } }, { to: "dev", devPlatform: "ios" }), [], "iOS and Android are not Mac or Dell product installs");
+});
+
+test("M2: the desktop-app template's dev targets pass the policy on both hosts", () => {
+  const template = JSON.parse(fs.readFileSync(path.join(HERE, "..", "..", "desktop-app-template", "right-release.config.json"), "utf8"));
+  const tauriConf = JSON.stringify({ identifier: "app.rightsuite.rightapp" });
+  const read = (rel) => (rel === "src-tauri/tauri.conf.json" ? tauriConf : rel === "src-tauri/Cargo.toml" ? CARGO : null);
+  assert.deepEqual(suiteSigningRefusals({ config: template, platform: "darwin", to: "dev", devPlatform: "mac", readFile: read, listFiles: () => [] }), []);
+  assert.deepEqual(suiteSigningRefusals({ config: template, platform: "win32", to: "dev", devPlatform: "win", readFile: read, listFiles: () => [] }), []);
 });
 
 // ---- the commit's own bytes, and the probe and a real run deciding alike ---------------------------------------------------------------
@@ -204,6 +348,8 @@ test("parity: `--route` and a real run refuse with the same signing code on darw
     { to: "test", extra: [], config: { tests: { suites: [{ ...BUILD, args: [...BUILD.args, "--config", '{"identifier":"a.b"}'] }, SIGN] } }, code: "RK_SUITE_IDENTIFIER_OVERRIDE", hosts: ["darwin", "win32"] },
     { to: "dev", extra: ["--platform", "mac"], config: { development: { targets: { mac: { build: [], install: { kind: "tauri-devid", bundleId: "app.other" } } } } }, code: "RK_SUITE_IDENTIFIER_MISMATCH", hosts: ["darwin", "win32"] },
     { to: "dev", extra: ["--platform", "win"], config: { development: { targets: { win: { build: [], install: { kind: "tauri" } } } } }, code: "RK_DEV_WIN_UNSIGNED_INSTALL", hosts: ["darwin", "win32"] },
+    { to: "dev", extra: ["--platform", "mac"], config: { development: { targets: { mac: { build: [], install: { kind: "command", cmd: "true" } } } } }, code: "RK_DEV_UNSIGNED_INSTALL", hosts: ["darwin", "win32"] },
+    { to: "test", extra: [], config: { sidecars: { sidecars: [{ package: "no-manifest" }] }, tests: { suites: [{ name: "t", cmd: "cargo", args: ["test", "-p", "no-manifest"] }] } }, code: "RK_SUITE_UNCLASSIFIED_ARTIFACT", hosts: ["darwin", "win32"] },
   ];
   assert.deepEqual(cases.map((c) => c.code).sort(), [...SIGNING_REFUSAL_CODES].sort());
   for (const item of cases) {
@@ -217,7 +363,7 @@ test("parity: `--route` and a real run refuse with the same signing code on darw
     };
     const blocked = (err) => /BLOCKED: (RK_[A-Z0-9_]+):/.exec(err)?.[1] ?? null;
     for (const [platform, hosted] of [["darwin", false], ["win32", false], ["linux", false], ["darwin", true], ["win32", true]]) {
-      const env = hosted ? { ...r.env, GITHUB_ACTIONS: "true" } : r.env;
+      const env = hosted ? { ...r.env, GITHUB_ACTIONS: "true", CI: "true", RUNNER_ENVIRONMENT: "github-hosted" } : r.env;
       const probe = await run(["--to", item.to, "--route", ...item.extra], { platform, env });
       assert.equal(probe.code, 0, probe.err);
       const answer = JSON.parse(probe.out.find((l) => l.startsWith("{")));
@@ -246,7 +392,7 @@ function mjsApp(t, config) {
   return { dir, file };
 }
 const never = () => assert.fail("nothing may be spawned or built");
-const hostEnforces = (process.platform === "darwin" || process.platform === "win32") && process.env.GITHUB_ACTIONS !== "true";
+const hostEnforces = (process.platform === "darwin" || process.platform === "win32") && !(process.env.GITHUB_ACTIONS === "true" && process.env.CI === "true" && process.env.RUNNER_ENVIRONMENT === "github-hosted");
 
 test(".mjs config: right-release test refuses an unsigned product build before any suite runs (loaded config, runSuites, and the real CLI main on a Mac or Dell)", async (t) => {
   const app = mjsApp(t, { tests: { suites: [BUILD, QA] } });
@@ -264,7 +410,7 @@ test(".mjs config: right-release test refuses an unsigned product build before a
   // Hosted CI and Linux are exempt: same config, no refusal.
   const exempt = await runSuites([], { appRoot: loaded.appRoot, config: loaded.config, platform: "linux", env: {}, spawnFn: never, door: never, log: () => {}, errLog: never });
   assert.equal(exempt.exitCode, 0);
-  const ci = await runSuites([], { appRoot: loaded.appRoot, config: loaded.config, platform: "darwin", env: { GITHUB_ACTIONS: "true" }, spawnFn: never, door: never, log: () => {}, errLog: never });
+  const ci = await runSuites([], { appRoot: loaded.appRoot, config: loaded.config, platform: "darwin", env: { GITHUB_ACTIONS: "true", CI: "true", RUNNER_ENVIRONMENT: "github-hosted" }, spawnFn: never, door: never, log: () => {}, errLog: never });
   assert.equal(ci.exitCode, 0);
   // The real CLI entry, from the config file, on a host the policy applies to.
   if (hostEnforces) {

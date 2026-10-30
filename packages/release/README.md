@@ -560,6 +560,12 @@ pnpm add -D @rightkit/release
 pnpm exec right-release deps --check
 ```
 
+Refresh one Cargo.lock after adopting a newly published RightKit crate (rightkit#1305; no build, writes only that workspace's `Cargo.lock`, one request per pin, in the primary checkout):
+
+```sh
+pnpm exec right-release deps --cargo-lock --manifest src-tauri/Cargo.toml --pin rightkit-qa=0.10.0 --pin rightkit-asr=0.4.0
+```
+
 ## MSIX target and Swift app type
 
 Swift (SwiftPM) apps are a first-class project type. `projectType: "swiftpm"` (config or target; auto-detected from a `Package.swift` with no Cargo manifest) replaces the cargo/rustc requirement with `swift`, and skips the Rust target-bridge, sccache and Perl checks. Tauri/Rust targets are unchanged. `makeappx` and `signtool` are required only when `targets.win.msix` is configured.

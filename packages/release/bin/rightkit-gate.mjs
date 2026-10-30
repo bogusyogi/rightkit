@@ -77,6 +77,7 @@ import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, WORKSPACE_RUST_FILE, ancestorC
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
 import { SIGNING_REFUSAL_CODES, suiteSigningRefusals } from "../suite-signing-policy.mjs";
+import { gitListRustFiles } from "../signing-files.mjs";
 import { directPlatform } from "../managed-cargo.mjs";
 import { bindingOf, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, STAGE_SOURCES, writeReceipt } from "../gate-stages.mjs";
 import { spawnSync as spawnInherit } from "../background-process.mjs";
@@ -2021,7 +2022,7 @@ export function routePlan(o, { to, stages, devTest, executor, capabilities = nul
   // One signing identity per product, every build (rightkit#1303): on the Mac and the Dell a test or dev build that would run unsigned, ad hoc or under
   // another identifier is refused here, from the commit's own config, so `--route` and a real run decide alike. Linux and hosted CI are exempt.
   if (snapshot && appConfig?.config && (devTest || to === "test" || to === "dev")) {
-    const [first] = suiteSigningRefusals({ config: appConfig.config, platform: o.platform, env: o.env, to, devPlatform: appConfig.devPlatform ?? null, readFile: appConfig.readFile });
+    const [first] = suiteSigningRefusals({ config: appConfig.config, platform: o.platform, env: o.env, to, devPlatform: appConfig.devPlatform ?? null, readFile: appConfig.readFile, listFiles: appConfig.listFiles ?? null });
     if (first) return { route, refusal: refuse(first.code, to, first.message) };
   }
   if (executor?.kind === "refuse") return { route, refusal: refuse("RK_BROKER_UNAVAILABLE", to, executor.problem) };
@@ -2042,7 +2043,8 @@ export function routeAppConfig({ git, commit, appDir = ".", platform = null }) {
   if (raw === null) return null;
   let config;
   try { config = JSON.parse(raw); } catch { return null; }
-  return { config, readFile: show, devPlatform: platform === "mac" || platform === "win" ? platform : null };
+  const list = (c, rel) => { const r = git("ls-tree", "-r", "--name-only", c, "--", rel); return failed(r) ? null : text(r).split(/\r?\n/).filter(Boolean); };
+  return { config, readFile: show, listFiles: gitListRustFiles(list, commit, appDir), devPlatform: platform === "mac" || platform === "win" ? platform : null };
 }
 
 /** The `--platform` a dev or test run was given: before `--`, or in the arguments after it (a platform after `--` wins, as runDevTest hands it on). */

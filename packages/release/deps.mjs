@@ -4,8 +4,12 @@ import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.
 import { spawnSync } from "./background-process.mjs";
 import { existsSync } from "node:fs";
 import { cargoAuditWorkdirs, runCargoAudits } from "./deps-cargo.mjs";
+import { runCargoLockCommand } from "./deps-cargo-lock.mjs";
 
 const args = process.argv.slice(2);
+// `deps --cargo-lock --manifest <Cargo.toml> --pin <crate>=<version>`: the Cargo.lock update door (rightkit#1305). It needs no release
+// config and compiles nothing, so it answers before the config is read.
+if (args.includes("--cargo-lock")) process.exit(runCargoLockCommand(args.filter((arg) => arg !== "--cargo-lock")));
 const opts = {
   config: defaultReleaseConfigFile(),
   mode: "check",
@@ -71,6 +75,7 @@ if (failures.length > 0) {
 function usage(code, message) {
   if (message) console.error(`right-deps: ${message}\n`);
   console.error("usage: node deps.mjs [--config right-release.config.json] [--check|--audit|--update] [--latest]");
+  console.error("       node deps.mjs --cargo-lock --manifest <Cargo.toml> --pin <crate>=<version> [--pin <crate>=<version>]...");
   process.exit(code);
 }
 

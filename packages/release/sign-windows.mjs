@@ -110,9 +110,36 @@ export function requireSignerToken(ctx = windowsSigningContext({ quiet: true }))
  * Self-contained on purpose (release-cli-contract.test.mjs evaluates this function alone): the subject is WINDOWS_SIGNER_SUBJECT, spelled out.
  */
 function assertVerification(file, output) {
-  if (!/successfully verified/i.test(output)) fail(`Authenticode verification did not report Valid for ${file}`);
-  if (!/^[ \t]*Issued to:[ \t]*Damned Ventures LLC[ \t]*$/m.test(output)) fail(`Authenticode subject must be Damned Ventures LLC for ${file}`);
+  if (!/^[ \t]*successfully verified\b/im.test(output)) fail(`Authenticode verification did not report Valid for ${file}`);
   if (!/(?:timestamp|time stamped|timestamped)/i.test(output)) fail(`Authenticode timestamp is missing for ${file}`);
+  // SignTool prints this chain root first, with each child indented four more spaces.
+  // Timestamp/cross-certificate chains are separate sections, never signer evidence.
+  const lines = String(output).replace(/\r\n?/g, "\n").replace(/\t/g, "    ").split("\n");
+  const headers = lines.flatMap((line, index) => line.trim() === "Signing Certificate Chain:" ? [index] : []);
+  const invalidChain = () => fail(`Authenticode signing certificate chain is missing, malformed or ambiguous for ${file}`);
+  if (headers.length !== 1 || lines[headers[0]] !== "Signing Certificate Chain:") invalidChain();
+  let depth = 0;
+  let leaf = null;
+  let ended = false;
+  for (const line of lines.slice(headers[0] + 1)) {
+    if (!line.trim()) continue;
+    if (!/^ /.test(line)) {
+      if (!/^(?:The signature is (?:timestamped|time stamped):|Timestamp(?: Verified by:|:)|Successfully verified\b|Cross Certificate Chain:)/i.test(line)) invalidChain();
+      ended = true;
+      break;
+    }
+    const subject = /^( +)Issued to:[ ]*(\S(?:.*\S)?)[ ]*$/.exec(line);
+    if (subject) {
+      if (subject[1].length !== depth + 4) invalidChain();
+      depth = subject[1].length;
+      leaf = subject[2];
+    } else {
+      const field = /^( +)(?:Issued by|Expires|SHA1 hash):[ ]*\S.*$/.exec(line);
+      if (!field || field[1].length !== depth || depth === 0) invalidChain();
+    }
+  }
+  if (!ended || leaf === null) invalidChain();
+  if (leaf !== "Damned Ventures LLC") fail(`Authenticode subject must be Damned Ventures LLC for ${file}`);
   return { authenticode: "Valid", subject: "CN=Damned Ventures LLC", timestampPresent: true };
 }
 

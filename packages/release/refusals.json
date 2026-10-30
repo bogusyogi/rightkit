@@ -1343,6 +1343,11 @@
       "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
     },
     {
+      "key": "sign-windows.mjs::assertVerification::a28e2e63",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
       "key": "sign-windows.mjs::assertVerification::d6ba60e9",
       "class": "runtime-only",
       "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"

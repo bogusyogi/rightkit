@@ -12,8 +12,9 @@ import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 const WINDOWS_SKIP = process.platform === "win32" ? "installs a macOS app bundle through POSIX paths" : false;
 
 const nativePlatform = process.platform === "win32" ? "win" : "mac";
-// These fixtures test development mechanics without installing host shims.
-const runDevelopment = (options) => runDevelopmentActual({ codesignEnvironment: (env) => env, ...options });
+// These fixtures test development mechanics without installing host shims. They run as a Linux host, which the suite signing policy exempts (rightkit#1303 M2
+// is exercised in suite-signing-policy tests); a fixture may still pass its own hostPlatform.
+const runDevelopment = (options) => runDevelopmentActual({ codesignEnvironment: (env) => env, hostPlatform: "linux", ...options });
 
 test("dev configuration requires explicit build commands and valid installers", () => {
   assert.throws(() => validateDevelopmentConfig({}, "win"), /non-empty command array/);

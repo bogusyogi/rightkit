@@ -119,55 +119,177 @@ export function cargoPackageName(text) {
   return null;
 }
 
-/** `{ packages, manifests }`: what counts as a product for a cargo build (the Tauri package and every sidecar package). */
-export function productTargets({ config = {}, readFile = () => null, devPlatform = null } = {}) {
-  const manifests = new Set(); const packages = new Set();
+/**
+ * `{ packages, manifests, dirs, testsLaunch, testsUnknown }`: what counts as a product for a cargo step (the Tauri package and every sidecar package).
+ * `dirs` maps a product package to its directory (null when no manifest path is known). `testsLaunch` holds the product packages whose integration tests
+ * (`<dir>/tests/**.rs`) reference `CARGO_BIN_EXE_`, which launches the package's own bin; `testsUnknown` the product packages whose tests cannot be listed
+ * (no directory, or no `listFiles`), which cannot be classified. `listFiles(dir)` lists the `.rs` files under an app-relative directory ([] when it has
+ * none, null when it cannot be read).
+ */
+export function productTargets({ config = {}, readFile = () => null, devPlatform = null, listFiles = null } = {}) {
+  const manifests = new Set(); const packages = new Set(); const dirs = new Map();
+  const testsLaunch = new Set(); const testsUnknown = new Set();
   const norm = (p) => path.posix.normalize(String(p).replaceAll("\\", "/"));
+  const dirOf = (manifest) => path.posix.dirname(norm(manifest));
+  const addPackage = (name, manifest) => {
+    packages.add(name);
+    if (manifest !== undefined && !dirs.has(name)) dirs.set(name, dirOf(manifest));
+    else if (!dirs.has(name)) dirs.set(name, null);
+  };
+  // A package with no declared manifest path is found in the workspace: the root Cargo.toml's `[workspace] members` (globs included, minus `exclude`),
+  // the member whose `[package] name` is it. Read from the commit, never by cargo. A package that is missing or in two members stays unresolved.
+  const workspaceDirs = () => {
+    const found = new Map(); // package name -> Set of directories
+    if (typeof listFiles !== "function") return found;
+    const globRe = (pattern) => new RegExp(`^${pattern.replace(/[.+^${}()|\\]/g, "\\$&").replaceAll("**", "\u0000").replaceAll("*", "[^/]*").replaceAll("?", "[^/]").replaceAll("\u0000", ".*")}$`);
+    const record = (dir, text) => { const name = typeof text === "string" ? cargoPackageName(text) : null; if (name) found.set(name, new Set([...(found.get(name) ?? []), dir])); };
+    for (const rootManifest of new Set(["Cargo.toml", ...[...tauriManifests].map(norm)])) {
+      const rootText = readFile(rootManifest);
+      if (typeof rootText !== "string") continue;
+      const rootDir = dirOf(rootManifest);
+      const under = (rel) => path.posix.normalize(rootDir === "." ? rel : `${rootDir}/${rel}`);
+      record(rootDir, rootText);
+      const start = rootText.search(/^\s*\[workspace\]/m);
+      if (start < 0) continue;
+      const section = rootText.slice(start).replace(/^\s*\[workspace\]/, "").split(/^\s*\[(?!workspace)/m)[0];
+      const list = (key) => { const m = new RegExp(`\\b${key}\\s*=\\s*\\[([\\s\\S]*?)\\]`).exec(section); return m ? [...m[1].matchAll(/"([^"]+)"/g)].map((item) => item[1]) : []; };
+      const excluded = list("exclude").map((item) => globRe(under(item)));
+      for (const member of list("members")) {
+        const pattern = under(member);
+        if (!/[*?]/.test(pattern)) { if (!excluded.some((re) => re.test(pattern))) record(pattern, readFile(`${pattern}/Cargo.toml`)); continue; }
+        const prefix = pattern.split("/").slice(0, pattern.split("/").findIndex((part) => /[*?]/.test(part))).join("/");
+        const listed = listFiles(prefix || ".");
+        if (!Array.isArray(listed)) continue;
+        const re = globRe(pattern);
+        for (const file of listed) {
+          if (path.posix.basename(file) !== "Cargo.toml") continue;
+          const dir = path.posix.dirname(file);
+          if (re.test(dir) && !excluded.some((ex) => ex.test(dir))) record(dir, readFile(file));
+        }
+      }
+    }
+    return found;
+  };
+  const finish = () => {
+    if ([...packages].some((name) => (dirs.get(name) ?? null) === null)) {
+      const located = workspaceDirs();
+      for (const name of packages) {
+        if ((dirs.get(name) ?? null) !== null) continue;
+        const hits = located.get(name);
+        if (hits && hits.size === 1) dirs.set(name, [...hits][0]);
+      }
+    }
+    for (const name of packages) {
+      const dir = dirs.get(name) ?? null;
+      const files = dir !== null && typeof listFiles === "function" ? listFiles(dir === "." ? "tests" : `${dir}/tests`) : null;
+      if (!Array.isArray(files)) { testsUnknown.add(name); continue; }
+      for (const file of files.filter((item) => /\.rs$/.test(item))) {
+        const text = readFile(file);
+        if (typeof text !== "string") testsUnknown.add(name);
+        else if (/CARGO_BIN_EXE_/.test(text)) testsLaunch.add(name);
+      }
+    }
+    return { packages, manifests, dirs, testsLaunch, testsUnknown };
+  };
   const installs = Object.entries(config?.development?.targets ?? {}).filter(([name]) => devPlatform === null || name === devPlatform).map(([, target]) => target?.install).filter(isObject);
   const tauriManifests = new Set([...installs.map((install) => install.manifestPath).filter((p) => typeof p === "string"), "src-tauri/Cargo.toml"]);
   for (const manifest of tauriManifests) {
     manifests.add(norm(manifest));
     const text = readFile(manifest);
     const name = typeof text === "string" ? cargoPackageName(text) : null;
-    if (name) packages.add(name);
+    if (name) addPackage(name, manifest);
   }
   const sidecars = Array.isArray(config?.sidecars?.sidecars) ? config.sidecars.sidecars : Array.isArray(config?.sidecars) ? config.sidecars : [];
   for (const sidecar of sidecars) {
     if (!isObject(sidecar)) continue;
-    if (typeof sidecar.package === "string") packages.add(sidecar.package);
-    if (typeof sidecar.manifestPath === "string") manifests.add(norm(sidecar.manifestPath));
+    const hasManifest = typeof sidecar.manifestPath === "string";
+    if (hasManifest) manifests.add(norm(sidecar.manifestPath));
+    if (typeof sidecar.package === "string") addPackage(sidecar.package, hasManifest ? sidecar.manifestPath : undefined);
+    else if (hasManifest) {
+      const text = readFile(sidecar.manifestPath);
+      const name = typeof text === "string" ? cargoPackageName(text) : null;
+      if (name) addPackage(name, sidecar.manifestPath);
+    }
   }
-  return { packages, manifests };
+  return finish();
+}
+
+const CARGO_BUILD_VERBS = new Set(["build", "b", "rustc", "install", "run", "r"]);
+const CARGO_TEST_VERBS = new Set(["test", "t", "bench"]);
+/** The target-selection flags of a cargo step (before any `--`). */
+function cargoSelectors(words) {
+  const end = words.indexOf("--");
+  return new Set((end < 0 ? words : words.slice(0, end)).map((word) => word.replace(/=.*$/, "")).filter((word) => ["--lib", "--bin", "--bins", "--test", "--tests", "--example", "--examples", "--bench", "--benches", "--all-targets", "--doc"].includes(word)));
 }
 
 /**
- * Whether a step builds a product: a Tauri `build` or `bundle`, or a cargo build (`build`, `b`, `rustc`, `install`) of the Tauri package or a
- * sidecar package. A cargo build that names a package (`-p`, `--package`, `--manifest-path`) that is neither is not one; one that names none
- * builds the workspace's defaults, which include the product, so it is.
+ * Classify the executables a step produces, by artifact rather than by verb (rightkit#1303, Approver's Muse ruling). `{ product, launches, unknown }`:
+ *   - product: a Tauri `build`/`bundle`; a cargo `build`/`run`/`install`/`rustc` that produces a bin of a product package (no selector, `--bin`,
+ *     `--bins`, `--all-targets`): the bin must be signed by a LATER sign step. `launches` (also set by a cargo `run`): the step runs a product bin,
+ *     as does a cargo `test`/`bench` that builds the integration tests of a product package whose tests reference `CARGO_BIN_EXE_`: a sign step
+ *     must come EARLIER. A cargo step naming no package covers every product package.
+ *   - harness (neither flag set): in-place Rust test binaries (`--lib`, `--bins` unit tests, `--tests` of a package that never launches its bin),
+ *     `--lib`/`--test`/`--tests` builds and an explicitly selected `--example` or `--bench`; they need no product signing.
+ *   - unknown: a product package's tests that cannot be read (no directory known, or no way to list them). Refused before anything runs.
+ * Only a cargo `build`-like or `test`-like verb produces an executable; `check`, `clippy`, `doc`, `metadata` and the rest never do.
  */
-export function isProductBuildStep(step, targets = { packages: new Set(), manifests: new Set() }) {
+export function classifyStepArtifacts(step, targets = { packages: new Set(), manifests: new Set() }) {
+  const out = { product: false, launches: false, unknown: [] };
   const words = stepWords(step);
-  if (!words.length) return false;
+  if (!words.length) return out;
   const program = base(words[0]);
   const rest = words.slice(1);
-  // The Tauri CLI by any spelling a step uses: `tauri` (pnpm exec), `cargo-tauri`, or its script (`node node_modules/@tauri-apps/cli/tauri.js`).
   const isTauriWord = (word) => word === "tauri" || base(word) === "cargo-tauri" || /(^|\/)tauri\.js$/.test(String(word).replaceAll("\\", "/"));
   const tauriAt = rest.findIndex(isTauriWord);
   if (program === "cargo-tauri" || tauriAt >= 0) {
     const after = program === "cargo-tauri" ? rest : rest.slice(tauriAt + 1);
     const command = firstWord(after);
-    if (command === "build" || command === "bundle") return true;
+    if (command === "build" || command === "bundle") return { product: true, launches: false, unknown: [] };
   }
   const cargoWords = program === "rustright" && base(rest[0]) === "cargo" ? rest.slice(1) : program === "cargo" ? rest : null;
-  if (cargoWords) {
-    const command = firstWord(cargoWords);
-    if (!["build", "b", "rustc", "install"].includes(command)) return false;
-    const named = cargoTargets(cargoWords);
-    if (!named.packages.length && !named.manifests.length) return true;
-    const norm = (p) => path.posix.normalize(String(p).replaceAll("\\", "/"));
-    return named.packages.some((name) => targets.packages.has(name)) || named.manifests.some((manifest) => targets.manifests.has(norm(manifest)));
+  if (!cargoWords) return out;
+  const command = firstWord(cargoWords);
+  const building = CARGO_BUILD_VERBS.has(command);
+  const testing = CARGO_TEST_VERBS.has(command);
+  if (!building && !testing) return out;
+  const named = cargoTargets(cargoWords);
+  const norm = (p) => path.posix.normalize(String(p).replaceAll("\\", "/"));
+  const all = !named.packages.length && !named.manifests.length;
+  const selected = new Set();
+  if (all) for (const name of targets.packages) selected.add(name);
+  else {
+    for (const name of named.packages) if (targets.packages.has(name)) selected.add(name);
+    for (const manifest of named.manifests) {
+      if (!targets.manifests.has(norm(manifest))) continue;
+      const hit = [...(targets.dirs ?? new Map())].find(([, dir]) => dir !== null && norm(manifest) === (dir === "." ? "Cargo.toml" : `${dir}/Cargo.toml`));
+      if (hit) selected.add(hit[0]); else out.unknown.push(`${manifest} (a product manifest whose package is not known)`);
+    }
   }
-  return false;
+  const selectors = cargoSelectors(cargoWords);
+  const none = selectors.size === 0;
+  if (building) {
+    // A bin is produced with no selector, `--bin`, `--bins` or `--all-targets`; `--example`, `--lib`, `--test(s)` and `--bench(es)` alone are harnesses.
+    const bins = none || selectors.has("--bin") || selectors.has("--bins") || selectors.has("--all-targets");
+    // No package named and no product known (a bare default): the workspace builds its default members, which include the product.
+    if (bins && (selected.size > 0 || (all && targets.packages.size === 0))) { out.product = true; if (command === "run" || command === "r") out.launches = true; }
+    return out;
+  }
+  const integration = none || selectors.has("--test") || selectors.has("--tests") || selectors.has("--all-targets");
+  if (!integration) return out;
+  for (const name of selected) {
+    if (targets.testsUnknown?.has(name)) out.unknown.push(`${name}'s integration tests cannot be read, so it cannot be shown they never launch its bin`);
+    else if (targets.testsLaunch?.has(name)) out.launches = true;
+  }
+  return out;
+}
+
+/**
+ * Whether a step builds or launches a product, by artifact (see `classifyStepArtifacts`). A step whose artifacts cannot be classified counts as one
+ * here (the policy refuses it separately, before it runs).
+ */
+export function isProductBuildStep(step, targets = { packages: new Set(), manifests: new Set() }) {
+  const found = classifyStepArtifacts(step, targets);
+  return found.product || found.launches || found.unknown.length > 0;
 }
 
 /** Why a step asks for ad hoc signing (the QA bundle signer, or the ad hoc opt-in), or null. */
@@ -248,23 +370,23 @@ export function assertBundleIdMatches(config, identifier) {
 // ---- the gate's refusals --------------------------------------------------------------------------------------------------------
 
 /** The codes of the gate's signing refusals (the route probe lists them beside its own). */
-export const SIGNING_REFUSAL_CODES = Object.freeze(["RK_SUITE_UNSIGNED_BUILD", "RK_SUITE_ADHOC_SIGNING", "RK_SUITE_IDENTIFIER_OVERRIDE", "RK_SUITE_IDENTIFIER_MISMATCH", "RK_DEV_WIN_UNSIGNED_INSTALL"]);
+export const SIGNING_REFUSAL_CODES = Object.freeze(["RK_SUITE_UNSIGNED_BUILD", "RK_SUITE_ADHOC_SIGNING", "RK_SUITE_IDENTIFIER_OVERRIDE", "RK_SUITE_IDENTIFIER_MISMATCH", "RK_DEV_WIN_UNSIGNED_INSTALL", "RK_DEV_UNSIGNED_INSTALL", "RK_SUITE_UNCLASSIFIED_ARTIFACT"]);
 
 /** Hosts these refusals apply to: the Mac and the Dell. Linux and hosted CI are exempt. */
-export const signingRefusalHost = (platform, env = {}) => (platform === "darwin" || platform === "win32") && env.GITHUB_ACTIONS !== "true";
+export const signingRefusalHost = (platform, env = {}) => (platform === "darwin" || platform === "win32") && !(env.GITHUB_ACTIONS === "true" && env.CI === "true" && env.RUNNER_ENVIRONMENT === "github-hosted");
 
 /**
  * Every signing refusal for an app's config on this host, `[{ code, message }]` (empty when the host is exempt or the config is clean).
  * `to` is the stage (`dev`, `test`); `devPlatform` the `--platform` of a dev run (default: the host's); `readFile(rel)` reads an app-relative file of the
  * commit (text, or null).
  */
-export function suiteSigningRefusals({ config, platform, env = {}, to, devPlatform = null, readFile = () => null }) {
+export function suiteSigningRefusals({ config, platform, env = {}, to, devPlatform = null, buildOnly = false, readFile = () => null, listFiles = null }) {
   if (!signingRefusalHost(platform, env) || !isObject(config)) return [];
   const out = [];
   const add = (code, message) => out.push({ code, message });
   const hostDev = platform === "win32" ? "win" : "mac";
   const dev = devPlatform ?? hostDev;
-  const targets = productTargets({ config, readFile, devPlatform: null });
+  const targets = productTargets({ config, readFile, devPlatform: null, listFiles });
   const runners = isObject(config.tests?.runners) ? config.tests.runners : {};
   const suites = Array.isArray(config.tests?.suites) ? config.tests.suites.filter(isObject) : [];
   // Suites run by `right-release test`; development builds run by `right-release dev`.
@@ -282,9 +404,14 @@ export function suiteSigningRefusals({ config, platform, env = {}, to, devPlatfo
     const label = `tests.suites[${index}] (${entry.name ?? "?"})`;
     const adhoc = adHocReason(step);
     if (adhoc) add("RK_SUITE_ADHOC_SIGNING", `${label}: ${adhoc}; a ${platform === "darwin" ? "Mac" : "Dell"} build is signed with the product's one identity (Developer ID, team ${SIGN_TEAM}; Azure Artifact Signing ${SIGN_SUBJECT}), never ad hoc`);
-    if (isProductBuildStep(step, targets)) {
+    const artifacts = classifyStepArtifacts(step, targets);
+    for (const why of artifacts.unknown) add("RK_SUITE_UNCLASSIFIED_ARTIFACT", `${label}: ${why}; an artifact that cannot be classified as product or harness is refused before it runs`);
+    if (artifacts.launches && !signs.some((sign) => sign.index < index)) add("RK_SUITE_UNSIGNED_BUILD", `${label} launches a product bin (cargo run, or an integration test that uses CARGO_BIN_EXE_) and no earlier sign step signs one; products are signed before any launch`);
+    if (artifacts.product || artifacts.launches) {
       const override = identifierOverrideReason(step, readFile);
       if (override) add("RK_SUITE_IDENTIFIER_OVERRIDE", `${label}: ${override}`);
+    }
+    if (artifacts.product) {
       if (!signs.some((sign) => sign.index > index && sign.from.has(entry.name))) add("RK_SUITE_UNSIGNED_BUILD", `${label} builds a product and no later { sign: { files: [{ from: ${JSON.stringify(entry.name)}, path }] } } step names it; a ${platform === "darwin" ? "Mac" : "Dell"} test build is signed with the product's one identity before anything runs it`);
     }
   });
@@ -300,6 +427,13 @@ export function suiteSigningRefusals({ config, platform, env = {}, to, devPlatfo
       const override = isProductBuildStep(step, targets) ? identifierOverrideReason(step, readFile) : null;
       if (override) add("RK_SUITE_IDENTIFIER_OVERRIDE", `${label}: ${override}`);
     });
+    // Only a signed install route leaves a signed binary: `command` and `portable` installs, no install at all, `--build-only` and `stage` entries
+    // all leave (or hand QA) the raw, unsigned build (rightkit#1303 M2).
+    if (dev === "mac" || dev === "win") {
+      if (!install.kind || install.kind === "command" || install.kind === "portable") add("RK_DEV_UNSIGNED_INSTALL", `development.targets.${dev}.install ${install.kind ? `kind ${JSON.stringify(install.kind)}` : "is missing"}: it leaves the product binary unsigned; use a signed install kind (${dev === "win" ? `"${WINDOWS_SIGNED_KIND}"` : '"tauri-devid"'})`);
+      if (buildOnly) add("RK_DEV_UNSIGNED_INSTALL", `--build-only on development.targets.${dev} builds the product and signs nothing; a ${platform === "darwin" ? "Mac" : "Dell"} dev build is signed with the product's one identity`);
+      if (Array.isArray(target.stage) && target.stage.length) add("RK_DEV_UNSIGNED_INSTALL", `development.targets.${dev}.stage copies the raw, unsigned build to the staged path QA runs from; a ${platform === "darwin" ? "Mac" : "Dell"} dev build stages no product binary`);
+    }
     if (install.signing !== undefined) add("RK_SUITE_ADHOC_SIGNING", `development.targets.${dev}.install.signing ${JSON.stringify(install.signing)} asks for ad hoc signing; a ${platform === "darwin" ? "Mac" : "Dell"} dev build is signed with the product's one identity`);
     if (dev === "win" && install.kind === WINDOWS_TAURI_KIND) add("RK_DEV_WIN_UNSIGNED_INSTALL", `development.targets.win.install.kind "tauri" installs an unsigned installer; use "${WINDOWS_SIGNED_KIND}" (build --no-bundle, sign the exe, bundle, sign the installer, install)`);
     if (dev === "mac" && install.bundleId !== undefined) {
@@ -311,11 +445,49 @@ export function suiteSigningRefusals({ config, platform, env = {}, to, devPlatfo
 }
 
 /**
+ * The policy applied to the RESOLVED plan of a `right-release test` run (rightkit#1303 H1), which is what actually executes: runner mode (`--runner`),
+ * a selected subset of suites and the `-- <args>` passthrough are all judged, not only `config.tests.suites`. For every non-sign item, its merged
+ * step plus `extraArgs` is checked for ad hoc signing and an identifier override; a step that builds a product needs a sign item LATER in the same
+ * plan whose `from` names it (by name or group). Runner mode has no sign item, so a runner invocation that builds a product is refused.
+ * `plan` is `planTests`' result: `[{ name, group, step, extraArgs, sign? }]`.
+ */
+export function planSigningRefusals({ config, plan, platform, env = {}, readFile = () => null, listFiles = null }) {
+  if (!signingRefusalHost(platform, env) || !Array.isArray(plan)) return [];
+  const out = [];
+  const add = (code, message) => out.push({ code, message });
+  const host = platform === "darwin" ? "Mac" : "Dell";
+  const targets = productTargets({ config: isObject(config) ? config : {}, readFile, devPlatform: null, listFiles });
+  plan.forEach((item, index) => {
+    if (item.sign !== undefined && item.sign !== null) return;
+    const step = { ...item.step, args: [...(Array.isArray(item.step?.args) ? item.step.args : []), ...(Array.isArray(item.extraArgs) ? item.extraArgs : [])] };
+    const label = `the planned step ${index} (${item.name ?? "?"})`;
+    const adhoc = adHocReason(step);
+    if (adhoc) add("RK_SUITE_ADHOC_SIGNING", `${label}: ${adhoc}; a ${host} build is signed with the product's one identity (Developer ID, team ${SIGN_TEAM}; Azure Artifact Signing ${SIGN_SUBJECT}), never ad hoc`);
+    const artifacts = classifyStepArtifacts(step, targets);
+    for (const why of artifacts.unknown) add("RK_SUITE_UNCLASSIFIED_ARTIFACT", `${label}: ${why}; an artifact that cannot be classified as product or harness is refused before it runs`);
+    if (!artifacts.product && !artifacts.launches) return;
+    const override = identifierOverrideReason(step, readFile);
+    if (override) add("RK_SUITE_IDENTIFIER_OVERRIDE", `${label}: ${override}`);
+    if (artifacts.launches && !plan.slice(0, index).some((earlier) => earlier.sign)) add("RK_SUITE_UNSIGNED_BUILD", `${label} launches a product bin (cargo run, or an integration test that uses CARGO_BIN_EXE_) and no earlier sign step of this plan signs one; products are signed before any launch`);
+    if (!artifacts.product) return;
+    const signed = plan.slice(index + 1).some((later) => later.sign && Array.isArray(later.sign.files) && later.sign.files.some((file) => file.from === item.name || file.from === item.group));
+    if (!signed) add("RK_SUITE_UNSIGNED_BUILD", `${label} builds a product and no later sign step of this plan names ${JSON.stringify(item.name)}${item.group && item.group !== item.name ? ` or ${JSON.stringify(item.group)}` : ""}; a ${host} test build is signed with the product's one identity before anything runs it (a runner or passthrough product build cannot be signed: run the planned build and sign suites)`);
+  });
+  return out;
+}
+
+/** Throws SuiteSigningError with the first refusal of `planSigningRefusals`; a no-op off the Mac and the Dell. */
+export function assertPlanSigningPolicy({ config, plan, platform = process.platform, env = process.env, readFile = () => null, listFiles = null }) {
+  const [first] = planSigningRefusals({ config, plan, platform, env, readFile, listFiles });
+  if (first) refuse(first.code, first.message);
+}
+
+/**
  * The same policy at run time, on the config a run actually loaded, whatever its format (right-release.config.json or a legacy right-release.config.mjs).
  * The route probe (routePlan) reads only the commit's JSON config, so a .mjs config is enforced here: the suite runner before any suite runs and the
  * dev runner before a target builds. Throws SuiteSigningError with the first refusal's code (RK_SUITE_*); a no-op off the Mac and the Dell.
  */
-export function assertSuiteSigningPolicy({ config, platform = process.platform, env = process.env, to, devPlatform = null, readFile = () => null }) {
-  const [first] = suiteSigningRefusals({ config, platform, env, to, devPlatform, readFile });
+export function assertSuiteSigningPolicy({ config, platform = process.platform, env = process.env, to, devPlatform = null, buildOnly = false, readFile = () => null, listFiles = null }) {
+  const [first] = suiteSigningRefusals({ config, platform, env, to, devPlatform, buildOnly, readFile, listFiles });
   if (first) refuse(first.code, first.message);
 }

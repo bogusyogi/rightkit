@@ -32,7 +32,8 @@ import { spawn } from "./background-process.mjs";
 import { carriedLedgerIds, carriedOutputDirsSince } from "./carried-cargo.mjs";
 import { CommandSpecError, loadAppConfig, resolveInvocation, validateStep } from "./command-spec.mjs";
 import { defaultReleaseConfigFile } from "./release-config.mjs";
-import { SIGN_STEP_KEYS, QA_APP_BINARY_ENV, QA_SIGNING_EVIDENCE_ENV, SuiteSigningError, assertSuiteSigningPolicy, validateSignSpec } from "./suite-signing-policy.mjs";
+import { fsListRustFiles } from "./signing-files.mjs";
+import { SIGN_STEP_KEYS, QA_APP_BINARY_ENV, QA_SIGNING_EVIDENCE_ENV, SuiteSigningError, assertPlanSigningPolicy, assertSuiteSigningPolicy, validateSignSpec } from "./suite-signing-policy.mjs";
 import { runSignStep } from "./suite-signing.mjs";
 
 const fail = (message) => { throw new CommandSpecError(message); };
@@ -177,7 +178,11 @@ export async function runSuites(plan, { appRoot, prefix = "test", env = process.
   // One signing policy, enforced here whatever the config's format (the route probe reads JSON configs only; a legacy .mjs config is judged now): an
   // unsigned or ad hoc product build, or an identifier override, is refused before any suite runs (rightkit#1303). Mac and Dell only.
   try {
-    assertSuiteSigningPolicy({ config, platform, env, to: "test", readFile: (rel) => { try { return readFileSync(path.resolve(appRoot, rel), "utf8"); } catch { return null; } } });
+    const readRel = (rel) => { try { return readFileSync(path.resolve(appRoot, rel), "utf8"); } catch { return null; } };
+    const listFiles = fsListRustFiles(appRoot);
+    assertSuiteSigningPolicy({ config, platform, env, to: "test", readFile: readRel, listFiles });
+    // And the plan that actually runs: runner mode, a selected subset and `-- <args>` passthrough are judged too (rightkit#1303 H1).
+    assertPlanSigningPolicy({ config, plan, platform, env, readFile: readRel, listFiles });
   } catch (error) {
     if (!(error instanceof SuiteSigningError)) throw error;
     errLog(`right-release test: [${error.code}] ${error.message}`);

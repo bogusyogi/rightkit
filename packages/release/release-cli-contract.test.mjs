@@ -109,7 +109,7 @@ test("Windows signer verification accepts CRLF subjects and retains identity che
   const assertVerification = vm.runInNewContext(`(${functionSource})`, {
     fail(message) { throw new Error(message); },
   });
-  const valid = "Successfully verified\r\n\tIssued to: Damned Ventures LLC  \r\nTimestamp: present\r\n";
+  const valid = "Signing Certificate Chain:\r\n\tIssued to: Fixture Root\r\n\t\tIssued to: Damned Ventures LLC  \r\nTimestamp: present\r\nSuccessfully verified\r\n";
   assert.equal(JSON.stringify(assertVerification("fixture.exe", valid)), JSON.stringify({
     authenticode: "Valid",
     subject: "CN=Damned Ventures LLC",

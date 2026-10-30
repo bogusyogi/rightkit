@@ -22,6 +22,7 @@ import { installTauriDevId, resolveTauriDevIdDescriptor, TAURI_DEVID_KIND } from
 import { TAURI_AUTHENTICODE_KIND, installTauriAuthenticode, resolveAuthenticodeDescriptor, validateAuthenticodeBuild } from "./install-tauri-authenticode.mjs";
 import { signWindowsFiles, verifyWindowsFiles } from "./sign-windows.mjs";
 import { assertSuiteSigningPolicy } from "./suite-signing-policy.mjs";
+import { fsListRustFiles } from "./signing-files.mjs";
 import { ASSEMBLED_APP_KIND, installAssembledMac, installAssembledWindows, resolveAssembledInstall } from "./install-assembled-app.mjs";
 import { assertIosDevelopmentSession, installIosDevelopment, iosUiTestCommands, prepareIosDevelopment, prepareIosUiTests, validateIosDevelopment } from "./ios-dev.mjs";
 import { packLinuxArtifacts, validateLinuxArchive } from "./linux-artifacts.mjs";
@@ -119,7 +120,7 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
   const target = validateDevelopmentConfig(config, platform, { root });
   // One signing policy, enforced here whatever the config's format (the route probe reads JSON configs only; a legacy .mjs config is judged now): a dev
   // target that would build ad hoc, unsigned or under another identifier is refused before it builds (rightkit#1303). Mac and Dell only.
-  if (!dryRun && !uiTests) assertSuiteSigningPolicy({ config, platform: hostPlatform, env, to: "dev", devPlatform: platform, readFile: (rel) => { try { return readFileSync(path.resolve(root, rel), "utf8"); } catch { return null; } } });
+  if (!dryRun && !uiTests) assertSuiteSigningPolicy({ config, platform: hostPlatform, env, to: "dev", devPlatform: platform, buildOnly, listFiles: fsListRustFiles(root), readFile: (rel) => { try { return readFileSync(path.resolve(root, rel), "utf8"); } catch { return null; } } });
   // Inside the door's source split `root` is the snapshot of a commit (no git directory): the repository is the checkout the door
   // ran in, whose primary-checkout rule and execution policy still apply, and the commit is the split's.
   const split = readSourceSplit({ env, cwd: root });
@@ -192,7 +193,7 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
       const bundleRoot = resolveBundleRoot(descriptor, { root, env: childEnv, runCargo: runCargoSync });
       const debugDir = path.resolve(bundleRoot, "..", "..");
       const bundleStartedMs = Date.now();
-      const authenticode = installTauriAuthenticode({ descriptor, debugDir, deps: {
+      const authenticode = installTauriAuthenticode({ descriptor, debugDir, appRoot: root, releaseConfig: config, deps: {
         signWindows: (files) => signWindowsFiles(files),
         verifyWindows: (files) => verifyWindowsFiles(files),
         bundle: (command) => execute(command, { root, env: childEnv, dryRun, run, door, label: "bundle" }),

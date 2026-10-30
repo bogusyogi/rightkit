@@ -197,7 +197,7 @@ test("right-release dev passes installed shim to every build & install child", {
   const f = fixture(t);
   for (const args of [["init", "--initial-branch", "main"]]) assert.equal(spawnSync("git", args, { cwd: f.cwd }).status, 0);
   const platform = process.platform === "win32" ? "win" : "mac", seen = [];
-  runDevelopment({ door: (command, args) => ({ command, args }), root: f.cwd, platform, config: { development: { targets: { [platform]: {
+  runDevelopment({ hostPlatform: "linux", door: (command, args) => ({ command, args }), root: f.cwd, platform, config: { development: { targets: { [platform]: {
     build: [{ cmd: "build" }, { cmd: "build2" }], install: { kind: "command", cmd: "install" },
   } } } }, env: { PATH: "/cargo-shims:/usr/bin", RIGHTKIT_MANAGED_ROOT: f.managed, SSH_CONNECTION: "fixture" },
     codesignEnvironment: (env) => macosCodesignEnvironment(env, { platform: "darwin" }),
