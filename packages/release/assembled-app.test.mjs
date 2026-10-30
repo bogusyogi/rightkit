@@ -339,9 +339,9 @@ test("[GB-59] assemble --build: each prepare step takes the one build door (carr
   const f = fixture(t); macTree(f);
   f.receipt([{ name: "democli", profile: "release", content: "cli-bytes" }, { name: "smartctl", kind: "remote", content: "smart-bytes" }]);
   const spawned = [];
-  await assert.rejects(assembleApp({ root: f.root, config: stepsOf([{ cmd: "cargo", args: ["build", "--release", "-p", "democli"] }, { cmd: "pnpm", args: ["run", "build"], env: { APP_BUILD_PROFILE: "release" } }]), opts: parseAssembleArgs(["--platform", "mac", "--build"]), env: {}, deps: common(spawned) }), /stop after prepare/);
+  await assert.rejects(assembleApp({ root: f.root, config: stepsOf([{ cmd: "cargo", args: ["build", "--release", "-p", "democli"] }, { cmd: "pnpm", args: ["run", "build"], env: { RK_ISOLATED_CHECKOUT: "1" } }]), opts: parseAssembleArgs(["--platform", "mac", "--build"]), env: {}, deps: common(spawned) }), /stop after prepare/);
   assert.deepEqual(spawned.map((s) => [s.command, s.args.slice(0, 3)]), [[CLIENT, ["cargo", "build", "--release"]], [CLIENT, ["run", "rightkit-pnpm", "--"]]], "every admitted step is one door launch");
-  assert.ok(JSON.stringify(spawned[1]).includes("APP_BUILD_PROFILE"), "the step's declared env rides the adapter launch");
+  assert.ok(JSON.stringify(spawned[1]).includes("RK_ISOLATED_CHECKOUT"), "the step's declared env rides the adapter launch");
   // An unsupported custom command refuses before any spawn, naming the step.
   const refused = [];
   await assert.rejects(assembleApp({ root: f.root, config: stepsOf([{ cmd: "make", args: ["all"] }]), opts: parseAssembleArgs(["--platform", "mac", "--build"]), env: {}, deps: common(refused) }), (e) => /prepare command refused before it started/.test(e.message) && /no broker adapter runs this command/.test(e.message));
