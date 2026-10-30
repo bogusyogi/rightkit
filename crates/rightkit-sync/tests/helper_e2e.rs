@@ -565,8 +565,7 @@ fn swift_helper() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("RIGHTKIT_CLOUDKIT_HELPER") {
         return Some(PathBuf::from(p));
     }
-    let base =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../swift/RightKitSwift/.build");
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../swift/RightKitSwift/.build");
     ["release", "debug"]
         .iter()
         .map(|c| base.join(c).join("rightkit-cloudkit-helper"))
