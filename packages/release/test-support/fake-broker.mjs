@@ -106,6 +106,14 @@ export const TAMPERS = {
   resultEvidenceAddedField: { payload: (p) => { p.resultEvidence.extra = 1; } },
   resultEvidenceTimingsAddedKey: { payload: (p) => { p.resultEvidence.timingsMs = { ...p.resultEvidence.timingsMs, bogus: 1 }; }, receipt: (r) => { r.timingsMs = { ...r.timingsMs, bogus: 1 }; } },
   resultEvidenceRetiredVerdict: { payload: (p) => { p.resultEvidence.verdict = { status: "passed" }; } },
+  /** BR19 evidence (GB-11): absent, one-sided or malformed. */
+  noBr19Evidence: { payload: (p) => { delete p.br19Evidence; } },
+  br19ReceiptOnly: { payload: (p) => { delete p.br19Evidence; }, receipt: (r) => { r.profile = "release-iterate"; } },
+  br19SignedOnly: { receipt: (r) => { delete r.profile; } },
+  br19ProfileDiffers: { receipt: (r) => { r.profile = "development"; } },
+  br19ResourcesNoPriority: { br19: (b) => { delete b.resources.priority; } },
+  br19InventedZero: { br19: (b) => { b.resources.grantedJobs = { state: "UNKNOWN" }; } },
+  br19DigestNotHex: { br19: (b) => { b.environment.digest = "xyz"; } },
   noTimings: { receipt: (r) => { delete r.timingsMs; } },
   noExit: { receipt: (r) => { delete r.exit; } },
   noDiagnostics: { receipt: (r) => { delete r.diagnosticsPath; } },
@@ -159,19 +167,23 @@ export function signedReceipt(fx, { id, carrier, argv, workspace, observedEnv = 
   // The contract-named top-level fields every carried command's receipt has (item 4 row 4.18), signed with the rest.
   const top = { exit: 0, signal: null, timingsMs: { admission: 1, queue: 0, bind: 1, cargo: 2, afterExitBind: 1, diagnostics: 1 }, diagnosticsPath: "/diag/x.json" };
   t.top?.(top);
+  // GB-11: every receipt carries, and an attested receipt signs, the BR19 profile, stage, resources and environment (BROKER-CONTRACT section 14).
+  const br19 = { profile: "release-iterate", stage: { name: argv.find((w) => !w.startsWith("-") && !w.startsWith("+")) ?? "check", source: adapter ? "adapter" : "command" }, resources: { grantedJobs: 4, memoryReservation: 4294967296, peakRssBytes: 1, samples: 1, sampledEveryMs: 100, priority: "SECOND" }, environment: { digest: "e".repeat(64), forwarded: Object.keys(adapterEnv).sort(), dropped: [] } };
+  t.br19?.(br19);
   const payload = {
     host: fx.pins.host, broker: { brokerDigest: fx.pins.brokerDigest }, keyId: fx.pins.keyId, jobId: id, nonce: carrier.nonce,
     requestDigest: requestDigestOf(snapshotRequestCore({ argv: t.argv ? t.argv(argv) : argv, workspace, observedEnv, carrier, adapter, adapterEnv: t.adapterEnv ? t.adapterEnv(adapterEnv) : adapterEnv })),
     result: { status: "SUCCEEDED", exitCode: 0, signal: null, reap: { reaped: true } }, snapshotEvidence: structuredClone(evidence), stageEvidence: structuredClone(stage),
     // As the real broker signs them (service.rs provenance_payload): the result fields ride under resultEvidence, never at the payload's top level.
     resultEvidence: structuredClone(top),
+    br19Evidence: structuredClone(br19),
   };
   t.payload?.(payload, fx);
   mutate?.(payload);
   const signer = t.signer === "other" ? crypto.generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey : fx.privateKey;
   const value = crypto.sign("sha256", signedBytes(payload), { key: signer, dsaEncoding: "ieee-p1363" }).toString("hex");
   const receipt = {
-    id, ...structuredClone(evidence), ...structuredClone(stage), ...structuredClone(top),
+    id, ...structuredClone(evidence), ...structuredClone(stage), ...structuredClone(top), ...structuredClone(br19),
     provenance: { schema: "rustright.provenance.v1", payload, signature: { alg: "ES256", keyId: fx.pins.keyId, value } },
   };
   t.receipt?.(receipt);
