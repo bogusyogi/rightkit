@@ -770,3 +770,33 @@ test("[behavior] §1 4c review (mixed reach): a test that reaches cargo in two w
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+
+test("[drift] GB-30: the contract's returned-evidence table, its Class A command form and its output leaf agree with the code; every retired row says so; no orphan field", async () => {
+  const doc = fs.readFileSync(path.join(REPO, "docs", "GATE-CONTRACT.md"), "utf8");
+  const { SNAPSHOT_EVIDENCE_FIELDS } = await import("./snapshot-request.mjs");
+  const section = doc.slice(doc.indexOf("**Returned evidence**"), doc.indexOf("**Broker lease.**"));
+  assert.ok(section.length > 200, "the returned-evidence section is found");
+  const informational = new Set(["exit", "diagnosticsPath", "timingsMs", "reusedFrom", "refreshed", "freshness", "verdict", "admission", "queue"]);
+  const rows = section.split("\n").filter((line) => /^\| `/.test(line));
+  assert.ok(rows.length >= 8);
+  for (const row of rows) {
+    const [cell, ...rest] = row.split("|").slice(1);
+    const fields = [...cell.matchAll(/`([A-Za-z][A-Za-z0-9]*)(?:\.[A-Za-z.]+)?`/g)].map((m) => m[1]);
+    const retired = /\*\*[^*]*[Rr]etired/.test(rest.join("|"));
+    for (const field of fields) {
+      if (retired) continue;
+      assert.ok(SNAPSHOT_EVIDENCE_FIELDS.includes(field) || ["declaredInputs", "commit", "snapshot", "ownership", "declaredInputDigests"].includes(field) || informational.has(field), `row field ${field} is neither required by the gate's evidence verifier, nor an input, nor informational, nor marked retired: an orphan`);
+    }
+    for (const field of fields) if (["verdict", "freshness", "refreshed"].includes(field)) assert.ok(retired, `${field} is a retired broker field and its row says so`);
+  }
+  for (const field of SNAPSHOT_EVIDENCE_FIELDS) assert.ok(new RegExp(`\`${field}\``).test(section) || field === "brokerVersion" || field === "executor" || field === "requestId", `the required field ${field} appears in the table`);
+  // The gate's real Class A command form, and the broker's either-leaf output directory.
+  assert.match(doc, /check --commit <sha> --full-a --snapshot <dir> --scope </, "the managed-host Class A form is the implemented one");
+  assert.doesNotMatch(doc.replace(/earlier wording[^)]*\)/gi, "").replace(/\(earlier wording: `[^`]*`\)/g, ""), /run `check --commit <sha> --unit <kind:name> --snapshot <dir>`/, "the unimplemented `check --unit` form is only history");
+  assert.match(doc, /g\/<gen>\/target` or `ws\/<repo-key>\/g\/<gen>\/t`/, "the output leaf is target or t");
+  const { isGenerationTarget } = await import("./snapshot-request.mjs");
+  assert.equal(isGenerationTarget("/m/ws/0123456789ab/g/001/target", ["/m/ws"], "linux"), true);
+  assert.equal(isGenerationTarget("/m/ws/0123456789ab/g/001/t", ["/m/ws"], "linux"), true);
+  // The contract's own cross-links that name RightKit code resolve.
+  for (const ref of ["packages/release/snapshot-request.mjs"]) assert.ok(doc.includes(ref) && fs.existsSync(path.join(REPO, ref)), ref);
+});
