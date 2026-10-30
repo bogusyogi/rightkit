@@ -2,7 +2,7 @@
 //!
 //! The `sign` suite step writes a receipt and exports its path as `RIGHTKIT_QA_SIGNING_EVIDENCE`
 //! (and the signed main binary as `RIGHTKIT_QA_APP_BINARY`). The receipt is schema 1, written by
-//! `packages/release/suite-signing.mjs` (the file near :203, the per-file records at :102 for mac
+//! `packages/release/suite-signing.mjs` (the file near :211, the per-file records at :102 for mac
 //! and :121 for Windows):
 //!
 //! `{ "schema": 1, "step": "..", "files": [{ "file", "signed", "sha256Before", "sha256After", .. }] }`
@@ -12,10 +12,10 @@
 //! signed copy, and the file actually launched must hash to that record's `sha256After`. Anything
 //! else (no receipt, a malformed one, no record, several records, a mismatch) is an [`Error`].
 //!
-//! Only `schema`, `files`, and each record's `signed` and `sha256After` are read, and read
+//! Only `schema`, `files`, and each record's `file`, `signed` and `sha256After` are read, and read
 //! strictly; every other field (`file`, `sha256Before`, the platform fields) is ignored, so the
 //! signer can add fields without breaking a consumer. An error names the receipt or file path and
-//! never quotes the receipt's contents.
+//! quotes no other receipt content than a digest: a hash mismatch prints the receipt's `sha256After` beside the file's own digest.
 
 use std::ffi::OsString;
 use std::fmt;
@@ -186,6 +186,8 @@ impl std::error::Error for Error {
 /// One signed file of the receipt: the fields a consumer relies on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Record {
+    /// The file's receipt-relative path (`/` separators), e.g. `aarch64-apple-darwin/debug/heardright-engine`.
+    pub file: String,
     /// The signed copy's path, as the receipt wrote it.
     pub signed: PathBuf,
     /// The signed copy's lowercase hex SHA-256.
@@ -273,7 +275,9 @@ impl Evidence {
                 });
             }
             let signed = field("signed")?;
+            let file = field("file")?;
             records.push(Record {
+                file: file.to_owned(),
                 signed: PathBuf::from(signed),
                 sha256_after: sha256_after.to_owned(),
             });
@@ -287,6 +291,33 @@ impl Evidence {
     /// Every record of the receipt.
     pub fn records(&self) -> &[Record] {
         &self.records
+    }
+
+    /// The signed copy of the file the build left at receipt-relative `file` (`/` separators, the
+    /// `files[].file` the `sign` step wrote): exactly one record must name it, and the signed copy
+    /// must still hash to that record's `sha256After`. A test that launches a product binary (a
+    /// sidecar, `CARGO_BIN_EXE_<bin>`) inside a signed suite resolves it here and launches the
+    /// returned path, never the unsigned build output.
+    pub fn signed_for(&self, file: &str) -> Result<PathBuf, Error> {
+        let mut matches = self.records.iter().filter(|r| r.file == file);
+        let record = match (matches.next(), matches.next()) {
+            (Some(record), None) => record,
+            (None, _) => {
+                return Err(Error::NoRecord {
+                    receipt: self.source.clone(),
+                    signed: PathBuf::from(file),
+                })
+            }
+            (Some(_), Some(_)) => {
+                return Err(Error::SeveralRecords {
+                    receipt: self.source.clone(),
+                    signed: PathBuf::from(file),
+                    count: self.records.iter().filter(|r| r.file == file).count(),
+                })
+            }
+        };
+        self.require(&record.signed, &record.signed)?;
+        Ok(record.signed.clone())
     }
 
     /// Require exactly one record whose `signed` is `signed` (compared canonicalised), and require
@@ -524,11 +555,57 @@ mod tests {
     #[test]
     fn a_bad_second_record_is_refused_with_its_index() {
         let text = format!(
-            r#"{{"schema":1,"files":[{{"signed":"/a","sha256After":"{ABC}"}},{{"signed":"/b","sha256After":"zz"}}]}}"#
+            r#"{{"schema":1,"files":[{{"file":"a","signed":"/a","sha256After":"{ABC}"}},{{"file":"b","signed":"/b","sha256After":"zz"}}]}}"#
         );
         assert!(matches!(
             parse(&text).unwrap_err(),
             Error::BadSha { index: 1, .. }
+        ));
+    }
+
+    #[test]
+    fn signed_for_resolves_a_sidecar_by_its_receipt_relative_file() {
+        let engine = temp("heardright-engine", b"signed engine");
+        let main = temp("app", b"signed app");
+        let text = serde_json::json!({ "schema": 1, "files": [
+            { "file": "aarch64-apple-darwin/debug/app", "signed": main, "sha256After": sha_of(b"signed app") },
+            { "file": "aarch64-apple-darwin/debug/heardright-engine", "signed": engine, "sha256After": sha_of(b"signed engine") },
+        ]})
+        .to_string();
+        let evidence = parse(&text).unwrap();
+        assert_eq!(
+            evidence
+                .signed_for("aarch64-apple-darwin/debug/heardright-engine")
+                .unwrap(),
+            engine
+        );
+        assert!(matches!(
+            evidence
+                .signed_for("aarch64-apple-darwin/debug/other")
+                .unwrap_err(),
+            Error::NoRecord { .. }
+        ));
+        // A signed copy replaced after signing is refused, never returned.
+        std::fs::write(&engine, b"stale engine").unwrap();
+        assert!(matches!(
+            evidence
+                .signed_for("aarch64-apple-darwin/debug/heardright-engine")
+                .unwrap_err(),
+            Error::HashMismatch { .. }
+        ));
+    }
+
+    #[test]
+    fn signed_for_refuses_two_records_for_one_file() {
+        let a = temp("a", b"x");
+        let text = serde_json::json!({ "schema": 1, "files": [
+            { "file": "debug/e", "signed": a, "sha256After": sha_of(b"x") },
+            { "file": "debug/e", "signed": a, "sha256After": sha_of(b"x") },
+        ]})
+        .to_string();
+        assert!(matches!(
+            parse(&text).unwrap().signed_for("debug/e").unwrap_err(),
+            Error::SeveralRecords { count: 2, .. }
         ));
     }
 
