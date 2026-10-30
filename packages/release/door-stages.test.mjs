@@ -573,6 +573,14 @@ test("[7.03] --to dev|test: more than one Cargo workspace is bound per workspace
   assert.equal(launches[0].CARGO_TARGET_DIR === undefined || /rk-cargo-target|t-/.test(String(launches[0].CARGO_TARGET_DIR)), true, "no single shared CARGO_TARGET_DIR is imposed on both");
   assert.match(r.all, /runtime cargo wrapper .*each cargo call a unit stage reaches binds its workspace's checkout target directory or is refused/, "the per-workspace binding is reported");
   assert.match(launches[0].PATH.split(path.delimiter)[0], /rk-cargo-shim-[0-9a-f]+[\\/]bin$/, "the wrapper is first on the child's PATH, so every cargo call finds its own workspace's target");
+  // GB-16: the selected commit is what is bound: a workspace directory the newer checkout deleted, or a manifest it edited dirty, changes nothing (the checkout's files are never read).
+  const old = fixture(t, { "a/Cargo.toml": "[package]\nname=\"a\"\n", "b/Cargo.toml": "[package]\nname=\"b\"\n" }, "rk-ds-pin-old-");
+  fs.rmSync(path.join(old.repo, "b"), { recursive: true, force: true });
+  fs.writeFileSync(path.join(old.repo, "a", "Cargo.toml"), "THIS IS NOT A MANIFEST\n");
+  const oldLaunches = [];
+  r = await old.door(["--to", "dev", "--commit", old.sha], { spawn, runCheck: async () => 0, spawnInherit: (c, a, opts) => { oldLaunches.push(opts.env); return { status: 0 }; } });
+  assert.equal(r.code, 0, `an older commit still builds with the checkout's directory deleted and its manifest edited: ${r.all}`);
+  assert.doesNotMatch(r.all, /the checkout has no/); assert.equal(oldLaunches.length, 1);
   // One workspace is pinned; metadata that fails is refused.
   const one = fixture(t, { "a/Cargo.toml": "[package]\nname=\"a\"\n" }, "rk-ds-pin1-");
   const seen = [];
