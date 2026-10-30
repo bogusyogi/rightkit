@@ -70,6 +70,10 @@ test("broker dispatch rechecks deterministic admission then real-observation rou
     }),
     gh: args => {
       if (args.some(arg => arg.includes("/commits/main"))) return { ok: true, stdout: sha };
+      // The shared candidate claim (GB-47) is GitHub-side bookkeeping, not a hosted run: it is answered in memory and is not "the POST".
+      if (args.some((arg) => arg.includes("/git/matching-refs/"))) return { ok: true, stdout: "[]" };
+      if (args.some((arg) => /\/git\/tags$/.test(arg))) return { ok: true, stdout: JSON.stringify({ sha: "1".repeat(40) }) };
+      if (args.some((arg) => /\/git\/refs/.test(arg))) return { ok: true, stdout: "{}" };
       if (args.includes("POST")) { events.push("POST"); return { ok: true, stdout: "" }; }
       return { ok: true, stdout: JSON.stringify({ workflow_runs: [{ id: 42, head_sha: sha, event: "workflow_dispatch",
         path: ".github/workflows/publish.yml", display_title: "publish req-routing", run_attempt: 1, html_url: "https://example.invalid/run/42" }] }) };

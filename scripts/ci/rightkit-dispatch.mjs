@@ -18,6 +18,7 @@ import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { claimDigest, claimIdentity, recordRun, reserveClaim } from "./dispatch-claim.mjs";
 
 export const REPO = "bogusyogi/rightkit";
 export const WORKFLOWS = { ci: "ci.yml", publish: "publish.yml" };
@@ -278,6 +279,24 @@ export async function main(argv, deps = {}) {
     try { qualification = (deps.readQualification ?? readQualification)(opts.qualification, { sha: opts.sha, unit: opts.unit, registry: opts.registry }); }
     catch (error) { err(`rightkit-dispatch: refused, ${error.message}`); return 2; }
   }
+  // GB-47: a publish candidate is claimed in the shared GitHub namespace before anything is sent (dispatch-claim.mjs): the same candidate joins its
+  // existing run, a different candidate for the same version is refused, and a lost acknowledgement is discovered, not re-sent.
+  let claim = null;
+  if (opts.workflow === "publish") {
+    const identity = claimIdentity({ repo: REPO, workflow: WORKFLOWS.publish, sha: opts.sha, registry: opts.registry, unit: opts.unit, version: qualification.unit.version, qualification, allow: opts.allow });
+    const runsAt = () => { const listed = gh(["api", `repos/${REPO}/actions/runs?event=workflow_dispatch&head_sha=${opts.sha}&per_page=30`], env); try { return listed.ok ? JSON.parse(listed.stdout).workflow_runs ?? [] : []; } catch { return []; } };
+    claim = (deps.claim ?? reserveClaim)({
+      gh, env, repo: REPO, identity, requestId, now,
+      discover: (token) => matchingRuns(runsAt(), { workflow: opts.workflow, sha: opts.sha, requestId: token }),
+      verifyRun: (id) => { const got = gh(["api", `repos/${REPO}/actions/runs/${id}`], env); try { const r = got.ok ? JSON.parse(got.stdout) : null; return r && r.head_sha === opts.sha && r.event === "workflow_dispatch" && String(r.path ?? "").endsWith(`.github/workflows/${WORKFLOWS.publish}`) ? r : null; } catch { return null; } },
+    });
+    if (claim.status === "joined") {
+      if (claim.adopt) recordRun({ gh, env, repo: REPO, ref: claim.ref, identity, digest: claimDigest(identity), requestId: claim.claim.requestId, run: claim.run, now });
+      out(JSON.stringify({ repo: REPO, workflow: WORKFLOWS[opts.workflow], sha: opts.sha, unit: opts.unit ?? null, registry: opts.registry ?? null, allowsets: opts.allow, requestId: claim.claim.requestId, runId: claim.run.id, runAttempt: claim.run.run_attempt, runUrl: claim.run.html_url ?? null, joined: true }));
+      return 0;
+    }
+    if (claim.status !== "reserved") { err(`rightkit-dispatch: ${claim.status === "unavailable" ? "claim unavailable: " : claim.status === "conflict" ? "refused, conflicting candidate: " : "refused, claimed elsewhere: "}${claim.message}`); return claim.status === "unavailable" ? 3 : 2; }
+  }
   const inputs = dispatchInputs(opts, requestId, qualification);
   const fields = ["-f", "ref=main"];
   for (const [key, value] of Object.entries(inputs)) fields.push("-f", `inputs[${key}]=${value}`);
@@ -309,6 +328,7 @@ export async function main(argv, deps = {}) {
     return 2;
   }
   const run = matches[0];
+  if (claim?.status === "reserved" && !claim.record(run)) err(`rightkit-dispatch: the run ${run.id} could not be written onto the claim; a retry will find it by this request's token`);
   out(JSON.stringify({ repo: REPO, workflow: WORKFLOWS[opts.workflow], sha: opts.sha, unit: opts.unit ?? null, registry: opts.registry ?? null, allowsets: opts.allow, requestId, runId: run.id, runAttempt: run.run_attempt, runUrl: run.html_url ?? null, dispatchedAt: new Date(now()).toISOString() }));
   return 0;
 }
