@@ -41,6 +41,7 @@ import { resolveExecutable } from "./admission-host.mjs";
 import { CARRIED_CARGO_MAP_ENV as CARRIED_MAP_ENV, carriedCargoMapOf } from "./carried-cargo.mjs";
 import { ADAPTER_ENV_MANIFEST, QA_HANDOFF_ENV, adapterEnvLaunch } from "./adapter-env.mjs";
 import { cargoSubcommandOf, canonicalCargoCommand } from "./cargo-shapes.mjs";
+import { swiftScratchRefusal } from "./swift-scratch.mjs";
 import { PNPM_ADAPTER_GRAMMAR, adapterArgvRefusal, liveAdapterGrammar, scanAdapterArgv } from "./pnpm-adapter-grammar.mjs";
 import { QA_VALUE_OPTIONS, hasListing, isBuildFlag, ownWords, qaPathReason, qaSnapshotPlan } from "./qa-snapshot.mjs";
 
@@ -240,7 +241,12 @@ export function buildLaunch(command, args = [], host = {}) {
     if (plan) return { command: process.execPath, args: [QA_SNAPSHOT_RUN, qa, "--", ...args.map(String)] };
     return { command: qa, args: args.map(String) };
   }
-  if (program === "swift") return adapterLaunch("rightkit-swift", args.map(String));
+  if (program === "swift") {
+    // GB-67: the broker owns SwiftPM's scratch and build path; a caller that names one is refused here, typed, before anything is sent.
+    const owned = swiftScratchRefusal(args.map(String));
+    if (owned) refuse(`${owned.code}: ${owned.message}`);
+    return adapterLaunch("rightkit-swift", args.map(String));
+  }
   // This package's own right-release, run by this very Node binary (not any executable named node), with no startup code added by
   // the caller: NODE_OPTIONS is empty or exactly this process's own string (a hook's env could otherwise --import code that builds
   // outside the broker; reordered tokens can re-pair an option with another value, so nothing short of equality is accepted).

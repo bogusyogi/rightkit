@@ -31,8 +31,8 @@ import { cargoManifestState } from "./cargo-manifest-text.mjs";
 import { LAUNCH_GUARD_IMPORT } from "./class-a-launch-guard.mjs";
 import { advisoryCacheRoot, ensureAdvisoryDb, prepareDenyOverlay, readAdvisoryPin } from "./advisory-db.mjs";
 import { observedEnvOf, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest } from "./snapshot-request.mjs";
-import { SCAN_TOKEN_ENV, readLedger, scanTokenOf, unclaimedLedgers } from "./cargo-ledger.mjs";
-import { verifyBrokerLedger } from "./snapshot-broker.mjs";
+import { SCAN_TOKEN_ENV, appendLedger, readLedger, scanTokenOf, unclaimedLedgers } from "./cargo-ledger.mjs";
+import { brokerSection, carryBrokerAdapter, verifyBrokerLedger } from "./snapshot-broker.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
 /**
@@ -2276,7 +2276,12 @@ export async function runScans(plan, options = {}) {
           const finalArgs = args.map((a) => (a === "{contentRoot}" ? contentRoot : a));
           // SwiftPM writes its `.build/` inside the package by default: that must never land in the commit snapshot or the checkout, so the
           // build directory is the gate's own, keyed by the repository and the scan so it stays warm.
-          if (s.tool === "swift" && finalArgs[0] === "build" && !finalArgs.some((a) => a === "--scratch-path" || a === "--build-path" || a.startsWith("--scratch-path=") || a.startsWith("--build-path="))) {
+          // GB-67: on a broker host the scan is the carried `rightkit-swift` adapter job and the broker owns SwiftPM's scratch (it appends the one managed path and the
+          // product location is `build --show-bin-path`): the gate sends no scratch or build path, and never adds one. Only a host with no broker (Linux direct) keeps its own.
+          const swiftBrokered = s.tool === "swift" && Boolean(deps.snapshotBroker);
+          // The adapter takes exactly one relative --package-path (adapter.rs check_swift_package); the scan runs in its package directory, so that is `.`.
+          if (swiftBrokered && finalArgs[0] === "build" && !finalArgs.some((a) => a === "--package-path" || a.startsWith("--package-path="))) finalArgs.splice(1, 0, "--package-path", ".");
+          if (s.tool === "swift" && finalArgs[0] === "build" && !swiftBrokered && !finalArgs.some((a) => a === "--scratch-path" || a === "--build-path" || a.startsWith("--scratch-path=") || a.startsWith("--build-path="))) {
             try { finalArgs.push("--scratch-path", swiftScratchPath({ tmpRoot, roots: [contentRoot, liveRoot, cargoLiveRoot], id: s.id })); }
             catch (e) { advisory?.cleanup?.(); return { ...row, status: "fail", code: "SWIFT_SCRATCH", detail: `${s.id}: ${e.message}` }; }
           }
@@ -2320,6 +2325,13 @@ export async function runScans(plan, options = {}) {
               return { ...row, status: "fail", code: "SNAPSHOT_REQUEST", detail: `the snapshot request for ${s.id} was not sent: the build ownership did not record the broker submit under ${deps.snapshotBroker.handle}${why ? ` (${why})` : ""}` };
             }
           }
+          if (swiftBrokered) {
+            // One signed, ledgered adapter request in the commit's snapshot (the ownership records its sub-handle before it is sent); a refused or unverified call fails the scan.
+            try {
+              const carried = carryBrokerAdapter({ adapter: "rightkit-swift", words: finalArgs, cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, section: brokerSection(deps.snapshotBroker), record: (entry) => { if (cargoLedger && ledgerToken) appendLedger(cargoLedger.dir, ledgerToken, entry); }, err: () => {}, stdio: "capture" });
+              r = { status: carried.status, stdout: carried.stdout, stderr: carried.stderr };
+            } catch (e) { r = { error: e }; } finally { clearTimeout(clock); advisory?.cleanup?.(); }
+          } else
           try { r = await deps.spawn(p.command, finalArgs, { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...(carrier ? carrier.made.env : {}) }, signal: scanSignal, timeout: limitMs }); } finally { clearTimeout(clock); advisory?.cleanup?.(); }
           if (signal?.aborted && (!r || r.error || r.status !== 0)) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
           if ((timer.signal.aborted || r?.error?.code === "ETIMEDOUT") && (!r || r.error || r.status !== 0)) return { ...row, status: "fail", code: "TIMEOUT", detail: `${s.id} ran longer than ${Math.round(limitMs / 60000)} min and was killed with its process tree; a scan that does not finish fails` };

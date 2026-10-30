@@ -22,6 +22,7 @@ import { ATTEST_STAGE_NONCE_ENV, canonicalJson, carriedCallNonce } from "./prove
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { forwardedAdapterEnv } from "./adapter-env.mjs";
 import { carriedShapeDecision } from "./cargo-shapes.mjs";
+import { swiftScratchRefusal } from "./swift-scratch.mjs";
 import { diagnoseControlReply, drainFrames, overCapProblem, refusalInCapturedOutput } from "./broker-wire.mjs";
 import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend } from "./ownership-mark.mjs";
 import {
@@ -295,6 +296,8 @@ export function carryBrokerAdapter({ adapter, words, cwd, env, section, record, 
   const base = { id, mode: "broker", shim: "adapter", adapter, cwd, argv: [...words] };
   const refuse = (code, message) => { record({ ...base, status: "refused", code, message }); err(`rightkit-gate: ${code}: ${message}`); return { status: BROKER_REFUSAL_STATUS, outcome: { status: "refused", code, message }, stdout: "", stderr: `rightkit-gate: ${code}: ${message}\n` }; };
   const describe = `${adapter} ${words.join(" ")}`.trim();
+  // GB-67: the broker owns SwiftPM's scratch and build path; a caller-named one is refused before the carrier, the mark and the send.
+  if (adapter === "rightkit-swift") { const owned = swiftScratchRefusal(words); if (owned) return refuse(owned.code, owned.message); }
   if (typeof adapter !== "string" || !/^[a-z][a-z0-9-]*$/.test(adapter)) return refuse("RK_ADAPTER_BROKER_ADAPTER", `${JSON.stringify(adapter)} is not a registered adapter name`);
   const gate = env[CALLING_GATE_ENV];
   if (typeof gate !== "string" || !gate.trim()) return refuse("RK_ADAPTER_BROKER_NO_GATE", `${CALLING_GATE_ENV} is not set: the call names no gate, and the carrier never forges one`);
