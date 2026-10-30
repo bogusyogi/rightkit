@@ -1088,6 +1088,22 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
 }
 
 /**
+ * Whether the claimant a standing `.reclaim` body names is `"dead"` (proven), `"live"` or `"unknown"`. The body is the claimant's own owner record, so the same identity
+ * rules as the record's judge apply: another host or an unreadable body is unknown; a reboot since the claimant started, a gone pid, or a pid that now runs a process that
+ * started at another time is dead; the same process still alive is live.
+ */
+export function judgeClaimant(text, { probe, host }) {
+  let rec = null; try { rec = JSON.parse(text ?? ""); } catch { rec = null; }
+  if (rec?.schema !== OWNERSHIP_SCHEMA || typeof rec.handle !== "string" || !Number.isInteger(rec.pid) || rec.pid <= 0 || rec.pid > 0x7fffffff || !Number.isFinite(rec.startedMs)) return "unknown";
+  if (rec.host !== host) return "unknown";
+  try { const boot = probe.bootTime?.(); if (Number.isFinite(boot) && rec.startedMs < boot) return "dead"; } catch { /* the pid proof below decides */ }
+  let now; try { now = probe.identity(rec.pid); } catch { return "unknown"; }
+  if (!now.alive) return "dead";
+  if (!Number.isFinite(now.startedMs)) return "unknown";
+  return sameStart(now.startedMs, rec.startedMs) ? "live" : "dead";
+}
+
+/**
  * Why the record `observed` may be reclaimed (`{ owner, proofs }`), or an OwnershipBusy throw naming what is still live or
  * unknown. Pure apart from the probes.
  */
@@ -1225,8 +1241,17 @@ export function acquireBuildOwnership({
   record.freeHost = false;
   const reclaimBody = JSON.stringify(record);
   const reclaim = `${file}.reclaim`;
-  if (!publish(reclaim, reclaimBody)) throw new OwnershipBusy(`build ownership ${file} is being reclaimed by another process (remove ${reclaim} only if no gate is running)`);
+  // GB-56: a `.reclaim` already there is judged by the identity its body carries (the claimant's owner record: pid, start, host, boot), never taken for a live claimant on its
+  // existence alone. A claimant PROVEN dead (its pid is gone, the pid now runs a process that started at another time, or the host rebooted since) is removed, compare-by-content,
+  // and the claim retried once; a live, unreadable or unprovable claimant keeps the lock. Bounded: one retry, so two reclaimers never loop.
+  if (!publish(reclaim, reclaimBody)) {
+    const standing = readText(reclaim);
+    const verdict = judgeClaimant(standing, { probe, host: os.hostname() });
+    if (verdict === "dead" && readText(reclaim) === standing) { fs.rmSync(reclaim, { force: true }); }
+    if (verdict !== "dead" || !publish(reclaim, reclaimBody)) throw new OwnershipBusy(`build ownership ${file} is being reclaimed by another process (${verdict === "dead" ? "its claim was dropped but another gate took it first" : verdict === "live" ? "a live gate holds the reclaim claim" : "the reclaim claim cannot be proven dead"}: remove ${reclaim} only if no gate is running)`);
+  }
   try {
+    hooks.afterClaim?.(reclaim);
     if (readText(file) !== observed) throw new OwnershipBusy(`build ownership ${file} changed before it could be reclaimed`);
     fs.rmSync(file, { force: true });
     fs.rmSync(markLockFile(file), { force: true });
@@ -1235,7 +1260,8 @@ export function acquireBuildOwnership({
     fs.rmSync(childrenDir(file, judged.owner.handle), { recursive: true, force: true });
     if (!publish(file, reclaimBody)) throw new OwnershipBusy(`build ownership ${file} was taken by another process`);
   } finally {
-    fs.rmSync(reclaim, { force: true });
+    // Token-checked: only this reclaim's own claim is removed (a successor's claim, published after this one was judged dead, stays).
+    if (readText(reclaim) === reclaimBody) fs.rmSync(reclaim, { force: true });
   }
   return done({ from: judged.owner.handle, pid: judged.owner.pid, proofs: judged.proofs });
 }
