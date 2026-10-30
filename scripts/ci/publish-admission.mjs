@@ -28,8 +28,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { ProvenanceError, qualificationNonce, verifyProvenance } from "../../packages/release/provenance-verify.mjs";
-import { assignJobs, describeCommand, expectedStageCommands } from "../../packages/release/stage-commands.mjs";
+import { SWAP_HELPER_ARCHIVE_BIN, SWAP_HELPER_ARCHIVE_RECEIPT, exclusionsFor, npmContentDigest } from "../../packages/release/pack-digest.mjs";
+import { ATTESTED_STAGES, enrolledPins, verifyQualificationReceipts } from "../../packages/release/qualification-verify.mjs";
+import { SWAP_HELPER_PACKAGE } from "../../packages/release/swap-helper-bundle.mjs";
 
 export const ADMISSION_SCHEMA = "rk-publish-admission.v2";
 export const ADMISSION_FILE = "admission.json";
@@ -47,6 +48,7 @@ const requireThat = (condition, message) => { if (!condition) refuse(message); }
 const words = (text) => String(text ?? "").split(/\s+/).filter(Boolean);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const sorted = (list) => [...list].sort();
+const sameSet = (a, b) => a.length === b.length && same(sorted(a), sorted(b));
 
 export function admissionArtifactName(runAttempt) {
   requireThat(/^[1-9][0-9]*$/.test(String(runAttempt)), "invalid run attempt");
@@ -157,110 +159,66 @@ export function readQualificationInput(text, { sha, registry, units }) {
   requireThat(/^[0-9a-f]{40}$/.test(q.tree ?? "") && /^\d+\.\d+\.\d+/.test(q.unit?.version ?? ""), "the qualification receipt lacks a tree or a version");
   for (const stage of ["check", "compile", "package", "qualify"]) requireThat(q.stages?.[stage]?.ok === true, `the qualification receipt's ${stage} stage is not ok`);
   requireThat(/^[0-9a-f]{64}$/.test(q.artifactSha256 ?? ""), "the qualification receipt names no artifact sha256");
-  return { schema: q.schema, commit: q.commit, tree: q.tree, runtime: q.runtime ?? null, executor: q.executor ?? null, unit: { kind: q.unit.kind, name: q.unit.name, version: q.unit.version }, artifactSha256: q.artifactSha256 };
+  // An npm unit is bound by its content digest (pack-digest.mjs), not by the archive's bytes: the qualification must carry it. For the
+  // swap-helper package it must also record that the local archive held both excluded files (the hosted side checks the helper separately).
+  const content = {};
+  if (kind === "npm") {
+    requireThat(/^[0-9a-f]{64}$/.test(q.contentSha256 ?? ""), "the qualification receipt names no content sha256 for its npm unit");
+    content.contentSha256 = q.contentSha256;
+    // Exclusions are this code's, for one package: a qualification that claims excluded entries for any other unit is refused outright.
+    requireThat(exclusionsFor(q.unit.name).length > 0 || q.contentExcluded === undefined, `the qualification receipt claims excluded archive entries for ${q.unit.name}, which has none`);
+    if (exclusionsFor(q.unit.name).length) {
+      requireThat(Array.isArray(q.contentExcluded) && sameSet(q.contentExcluded, exclusionsFor(q.unit.name)), `the qualification receipt does not record that its ${q.unit.name} archive held ${exclusionsFor(q.unit.name).join(" and ")}`);
+      content.contentExcluded = sorted(q.contentExcluded);
+    }
+  }
+  return { schema: q.schema, commit: q.commit, tree: q.tree, runtime: q.runtime ?? null, executor: q.executor ?? null, unit: { kind: q.unit.kind, name: q.unit.name, version: q.unit.version }, artifactSha256: q.artifactSha256, ...content };
 }
 
-const ATTESTED_STAGES = ["compile", "package"];
-const MAX_VERIFIED_RECEIPTS = 64;
-const SHA256_HEX = /^[0-9a-f]{64}$/;
-
-/** The enrolled host pins committed at `sha` (ci/rk-pipeline.json "attestation", one entry per platform) -- never taken from the request. */
-export function enrolledPins(sha, git) {
-  let doc;
-  try { doc = JSON.parse(git("show", `${sha}:ci/rk-pipeline.json`)); } catch { refuse("ci/rk-pipeline.json is unreadable at the dispatched commit; no host is enrolled"); }
-  const pins = Object.entries(doc?.attestation ?? {})
-    .filter(([, p]) => p && typeof p === "object" && ["publicKey", "keyId", "host", "brokerDigest"].every((key) => typeof p[key] === "string" && p[key]))
-    .map(([platform, { publicKey, keyId, host, brokerDigest }]) => ({ publicKey, keyId, host, brokerDigest, platform }));
-  requireThat(pins.length > 0, "ci/rk-pipeline.json enrolls no attestation pins at the dispatched commit");
-  return pins;
-}
+export { enrolledPins, verifyQualificationReceipts };
 
 /**
- * The qualification's broker receipts, verified. For each of the compile and package stages: at least one receipt whose signature
- * verifies against the pins enrolled at the dispatched commit for the receipt's host, whose job id is its own, whose nonce is the one
- * recomputed for (dispatched commit, its real git tree, unit, stage), and whose signed result is SUCCEEDED with exit code 0 in a
- * recorded workspace. A receipt of another commit, tree, unit or stage cannot carry the nonce; a job id is used once across stages.
- * The qualification's tree must equal the dispatched commit's tree. Returns the verified summary the admission receipt records.
+ * The hosted pack must reproduce the locally qualified content: the sealed manifest's entry for the unit carries a content digest
+ * (pack-digest.mjs: path, type, exec bit and sha256 of every entry) equal to the qualification's, or the run stops here with both digests
+ * and the hosted archive's listing; nothing is repacked, nothing proceeds. The whole archive's sha256 is recorded for information, never equated:
+ * gzip and entry metadata are not part of what a package ships.
+ *
+ * The one binary that cannot match is @rightkit/release's Developer-ID-signed swap helper (re-signed, timestamped, on every signing), so it is
+ * left out of that digest by a constant of this code, for that package alone, and bound on its own: the sealed helper's sha256 is the
+ * sign-swap job's (`swapSha256`, from its rightkit-swap.sha256), the sealed archive holds no `.sign.json` (that receipt is the local signing's),
+ * and the local qualification records that its archive held both. `packed(entry)` reads the sealed archive (default: `<dir>/<entry.file>`).
  */
-export function verifyQualificationReceipts(text, { sha, git }) {
-  let q;
-  try { q = JSON.parse(text); } catch { refuse("the qualification input is not JSON"); }
-  const tree = String(git("rev-parse", `${sha}^{tree}`)).trim();
-  requireThat(/^[0-9a-f]{40}$/.test(tree), `cannot read the tree of ${sha.slice(0, 12)}`);
-  requireThat(q?.tree === tree, `the qualification receipt is for tree ${String(q?.tree).slice(0, 12)}, the dispatched commit's tree is ${tree.slice(0, 12)}`);
-  requireThat(typeof q.unit?.kind === "string" && typeof q.unit?.name === "string", "the qualification receipt names no unit");
-  const pins = enrolledPins(sha, git);
-  const unit = `${q.unit.kind}:${q.unit.name}`;
-  // What each stage's signed requests must show, derived by the stages' own command builders from the dispatched commit's files.
-  const expectedByPlatform = new Map();
-  const expectedFor = (platform) => {
-    if (!expectedByPlatform.has(platform)) {
-      let expected;
-      try {
-        const config = JSON.parse(git("show", `${sha}:ci/gate.config.json`));
-        const manifest = q.unit.kind === "npm" ? JSON.parse(git("show", `${sha}:packages/${q.unit.name.slice("@rightkit/".length)}/package.json`)) : undefined;
-        expected = expectedStageCommands({ kind: q.unit.kind, unit: q.unit.name, config, manifest, platform });
-      } catch (error) { refuse(`cannot derive the ${platform} stage commands of ${unit} at ${sha.slice(0, 12)}: ${error.message}`); }
-      expectedByPlatform.set(platform, expected);
-    }
-    return expectedByPlatform.get(platform);
-  };
-  const repoName = REPOSITORY.split("/")[1];
-  let workspace = null, platform = null;
-  const seen = new Set();
-  const verified = {};
-  for (const stage of ATTESTED_STAGES) {
-    const list = q.stages?.[stage]?.receipts;
-    requireThat(Array.isArray(list) && list.length >= 1, `the qualification receipt's ${stage} stage carries no signed broker receipts; an unauthenticated qualification admits nothing`);
-    requireThat(list.length <= MAX_VERIFIED_RECEIPTS, `the qualification receipt's ${stage} stage carries ${list.length} receipts (at most ${MAX_VERIFIED_RECEIPTS})`);
-    const nonce = qualificationNonce({ commit: sha, tree, unit, stage });
-    const jobs = [];
-    verified[stage] = list.map((receipt, index) => {
-      const where = `${stage} receipt ${index + 1}`;
-      requireThat(receipt && typeof receipt === "object" && typeof receipt.id === "string" && receipt.id, `${where} has no job id`);
-      requireThat(!seen.has(receipt.id), `${where}: job ${receipt.id} appears more than once in the qualification`);
-      seen.add(receipt.id);
-      const candidates = pins.filter((p) => p.host === receipt.provenance?.payload?.host);
-      requireThat(candidates.length > 0, `${where}: signed for host ${JSON.stringify(receipt.provenance?.payload?.host)}, which ci/rk-pipeline.json does not enroll`);
-      let payload, failure, pin;
-      for (const candidate of candidates) {
-        try { payload = verifyProvenance(receipt, candidate, { jobId: receipt.id, nonce }); pin = candidate; break; } catch (error) { if (!(error instanceof ProvenanceError)) throw error; failure = error; }
-      }
-      requireThat(payload, `${where} (job ${receipt.id}) does not verify against the enrolled pins at ${sha.slice(0, 12)}: ${failure?.code}: ${failure?.message}`);
-      requireThat(payload.result?.status === "SUCCEEDED" && payload.result.exitCode === 0, `${where} (job ${receipt.id}) did not succeed (${payload.result?.status}, exit ${payload.result?.exitCode})`);
-      requireThat(typeof payload.request?.workspace === "string" && payload.request.workspace !== "", `${where} (job ${receipt.id}) records no workspace`);
-      requireThat(SHA256_HEX.test(payload.requestDigest ?? ""), `${where} (job ${receipt.id}) carries no request digest`);
-      // The signed request must be one of this stage's own commands (kind, adapter and exact argv, as the stage's builders define them),
-      // run in a checkout of this repository on the enrolled host: the same one for every receipt of the qualification.
-      platform ??= pin.platform;
-      requireThat(pin.platform === platform, `${where} (job ${receipt.id}) was signed by the ${pin.platform} host, another host than the qualification's other jobs (${platform})`);
-      jobs.push({ id: receipt.id, payload });
-      const where_ = String(payload.request.workspace).replaceAll("\\", "/").replace(/\/+$/, "");
-      requireThat(where_.split("/").pop() === repoName && (payload.request.workspaceRoot === undefined || String(payload.request.workspaceRoot).replaceAll("\\", "/").replace(/\/+$/, "") === where_), `${where} (job ${receipt.id}) ran in ${payload.request.workspace}, not in a checkout of ${repoName}`);
-      requireThat(workspace === null || workspace === where_, `${where} (job ${receipt.id}) ran in ${payload.request.workspace}, another workspace than the qualification's other jobs (${workspace})`);
-      workspace = where_;
-      return { jobId: receipt.id, host: payload.host, keyId: payload.keyId, requestDigest: payload.requestDigest, requestedArgv: payload.request.requestedArgv };
-    });
-    // EVERY command the stage runs must be covered by a verified receipt of its own job, and every receipt must be one of those commands.
-    const { assigned, unmatched, missing } = assignJobs(expectedFor(platform)[stage], jobs);
-    // Messages are formatted only on failure: on success there is no unmatched job or missing command to describe.
-    if (unmatched.length) requireThat(false, `${stage} job ${unmatched[0]} ran ${JSON.stringify(jobs.find((j) => j.id === unmatched[0])?.payload.request.requestedArgv)}, which is not (or no longer) a command of the ${stage} stage of ${unit}`);
-    if (missing.length) requireThat(false, `the qualification carries no signed receipt of the ${stage} stage's ${missing.length ? describeCommand(missing[0]) : ""} (${missing.length} of ${assigned.size + missing.length} required command(s) missing)`);
-  }
-  return verified;
-}
-
-/** The hosted pack must reproduce the locally qualified bytes: the sealed manifest's entry for the unit carries the same sha256,
- * or the run stops here with both digests and the hosted archive's listing; nothing is repacked, nothing proceeds. */
-export function bindPackedToQualification({ manifest, qualification, listing = () => "" }) {
+export function bindPackedToQualification({ manifest, qualification, listing = () => "", packed, swapSha256 }) {
   requireThat(manifest?.commit === qualification.commit, `the sealed manifest is for ${String(manifest?.commit).slice(0, 12)}, the qualification for ${qualification.commit.slice(0, 12)}`);
   const entry = (manifest.units ?? []).find((u) => u.name === qualification.unit.name);
   requireThat(entry, `the sealed manifest has no entry for ${qualification.unit.name}`);
   requireThat(entry.version === qualification.unit.version, `the sealed ${qualification.unit.name} is ${entry.version}, the qualification is ${qualification.unit.version}`);
-  if (entry.sha256 !== qualification.artifactSha256) {
-    refuse(`the hosted pack of ${qualification.unit.name}@${entry.version} is not the locally qualified archive: hosted sha256 ${entry.sha256}, qualified ${qualification.artifactSha256}; stopped before verify and upload (no repack). Hosted archive listing:\n${listing(entry)}`);
+  const name = qualification.unit.name;
+  if (qualification.unit.kind !== "npm") {
+    if (entry.sha256 !== qualification.artifactSha256) {
+      refuse(`the hosted pack of ${name}@${entry.version} is not the locally qualified archive: hosted sha256 ${entry.sha256}, qualified ${qualification.artifactSha256}; stopped before verify and upload (no repack). Hosted archive listing:\n${listing(entry)}`);
+    }
+    return { unit: name, version: entry.version, sha256: entry.sha256, file: entry.file };
   }
-  return { unit: qualification.unit.name, version: entry.version, sha256: entry.sha256, file: entry.file };
+  // The exclusions come from this code, keyed to the package; the qualification and the manifest never name one.
+  const exclude = exclusionsFor(name);
+  requireThat(typeof packed === "function", "no way to read the sealed archive");
+  let hosted;
+  try { hosted = npmContentDigest(packed(entry), { exclude }); } catch (error) { refuse(`the sealed ${name}@${entry.version} cannot be read (${error.message})`); }
+  if (hosted.contentSha256 !== qualification.contentSha256) {
+    refuse(`the hosted pack of ${name}@${entry.version} does not hold the locally qualified content: hosted content sha256 ${hosted.contentSha256}, qualified ${qualification.contentSha256} (archive sha256 hosted ${entry.sha256}, qualified ${qualification.artifactSha256}${exclude.length ? `; ${exclude.join(" and ")} are not compared here` : ""}); stopped before verify and upload (no repack). Hosted archive listing:\n${listing(entry)}`);
+  }
+  const bound = { unit: name, version: entry.version, sha256: entry.sha256, file: entry.file, contentSha256: hosted.contentSha256, qualifiedSha256: qualification.artifactSha256 };
+  if (name !== SWAP_HELPER_PACKAGE) return bound;
+  // The swap helper: the sealed one is exactly the one the sign-swap job signed, and the hosted archive carries no signing receipt of the local route.
+  requireThat(sameSet(qualification.contentExcluded ?? [], exclude), `the qualification does not record that its ${name} archive held ${exclude.join(" and ")}`);
+  const helper = hosted.excluded[SWAP_HELPER_ARCHIVE_BIN];
+  requireThat(helper && helper.type === "file" && helper.exec === true, `the sealed ${name}@${entry.version} holds no executable ${SWAP_HELPER_ARCHIVE_BIN}`);
+  requireThat(Object.hasOwn(hosted.excluded, SWAP_HELPER_ARCHIVE_RECEIPT) === false, `the sealed ${name}@${entry.version} holds ${SWAP_HELPER_ARCHIVE_RECEIPT}, the local signing's receipt: the hosted helper is signed by the sign-swap job and carries none`);
+  const signed = /^([0-9a-f]{64})\s+\*?rightkit-swap\s*$/.exec(String(swapSha256 ?? ""))?.[1];
+  requireThat(signed, `${name} needs the sign-swap job's rightkit-swap sha256 (its rightkit-swap.sha256) to bind the sealed helper`);
+  requireThat(helper.sha256 === signed, `the sealed ${SWAP_HELPER_ARCHIVE_BIN} has sha256 ${helper.sha256}, not the sign-swap job's ${signed}`);
+  return { ...bound, swapHelperSha256: helper.sha256 };
 }
 
 /**
@@ -369,12 +327,14 @@ if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(file
       process.stdout.write(`admission ${receipt.mode}: ${receipt.registry} ${receipt.units.join(" ")} at ${receipt.sourceSha} (run ${receipt.runId} attempt ${receipt.runAttempt})\n`);
     } else if (command === "bind") {
       const packed = flag("--packed");
-      requireThat(packed && rest.length === 2, "usage: publish-admission.mjs bind --packed <dir> (QUALIFICATION, EXPECTED_SHA, REGISTRY, UNITS in the environment)");
+      const swapFile = flag("--swap-sha256-file");
+      requireThat(packed && (rest.length === 2 || (swapFile && rest.length === 4)), "usage: publish-admission.mjs bind --packed <dir> [--swap-sha256-file <rightkit-swap.sha256>] (QUALIFICATION, EXPECTED_SHA, REGISTRY, UNITS in the environment)");
       const manifest = JSON.parse(fs.readFileSync(path.join(packed, "manifest.json"), "utf8"));
       const qualification = readQualificationInput(process.env.QUALIFICATION, { sha: process.env.EXPECTED_SHA, registry: process.env.REGISTRY, units: words(process.env.UNITS) });
-      const bound = bindPackedToQualification({ manifest, qualification, listing: (entry) => { const r = spawnSync("tar", ["-tzvf", path.join(packed, entry.file)], { encoding: "utf8" }); return r.stdout ?? ""; } });
+      const bound = bindPackedToQualification({ manifest, qualification, packed: (entry) => fs.readFileSync(path.join(packed, entry.file)), swapSha256: swapFile ? fs.readFileSync(swapFile, "utf8") : undefined,
+        listing: (entry) => { const r = spawnSync("tar", ["-tzvf", path.join(packed, entry.file)], { encoding: "utf8" }); return r.stdout ?? ""; } });
       fs.writeFileSync(path.join(packed, "qualification-binding.json"), `${JSON.stringify({ schema: "rk-qualification-binding.v1", ...bound, qualification }, null, 2)}\n`, { flag: "wx" });
-      process.stdout.write(`bound ${bound.unit}@${bound.version} sha256 ${bound.sha256} to the local qualification at ${qualification.commit}\n`);
+      process.stdout.write(`bound ${bound.unit}@${bound.version} ${bound.contentSha256 ? `content sha256 ${bound.contentSha256} (archive ${bound.sha256})` : `sha256 ${bound.sha256}`} to the local qualification at ${qualification.commit}\n`);
     } else if (command === "dispatch") {
       requireThat(flag("--unit") && rest.length === 2, "usage: publish-admission.mjs dispatch --unit <@rightkit/name>");
       const policy = await committedPolicy(root, (file) => fs.readFileSync(path.join(root, file), "utf8"));

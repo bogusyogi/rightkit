@@ -1,6 +1,10 @@
 // Test support for the broker snapshot carrier (item 7): a fixture host, receipts signed in-test with a real P-256 key the way
 // rustright-protocol attestation.rs signs them, and a fake `rustright` client that applies the reader's carrier rules and serves
-// `rustright status <id>`. No broker, no cargo. NOT the dev or installed broker: native Mac and Dell runs against RustRight's
+// `rustright status <id>`. It also models a snapshot-bound ADAPTER job (`rustright run <adapter> -- <args>`, rustright#190) the way the real
+// broker runs one: the job's PATH is the broker's own adapter-job PATH (never the caller's, so no wrapper of the caller's is on it), its
+// environment holds only what the broker passes (RUSTRIGHT_PARENT_REQUEST_ID and RUSTRIGHT_PARENT_CAPABILITY_TOKEN set, every other variable
+// of the caller dropped: the carrier map, a stage grant, the stage nonce), its compiles run NESTED under it (a `cargo` on that PATH is the
+// broker's nested request), and the receipt signs the list of those children. No broker, no cargo. NOT the dev or installed broker: native Mac and Dell runs against RustRight's
 // item-4 dev install are separate evidence and are reported BLOCKED until that install lands.
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -83,19 +87,37 @@ export const TAMPERS = {
   /** A signed payload edited after signing. */
   editedAfterSigning: { receipt: (r) => { r.provenance.payload.snapshotEvidence.snapshot.treeAtExit = "f".repeat(40); } },
   receiptCopyDiffers: { receipt: (r) => { r.outputDir = "/tampered"; } },
+  /** The signed list of an adapter job's nested children (rustright#190, final), as a hostile or faulty broker could sign it. */
+  noNestedChildren: { evidence: (e) => { delete e.nestedChildren; }, receipt: (r) => { delete r.nestedChildren; } },
+  nestedChildrenNotSigned: { payload: (p) => { delete p.snapshotEvidence.nestedChildren; } },
+  nestedChildrenNotMirrored: { receipt: (r) => { delete r.nestedChildren; } },
+  nestedCopyDiffers: { receipt: (r) => { r.nestedChildren = []; } },
+  childFailed: { evidence: (e) => { e.nestedChildren[0].exitCode = 1; e.nestedChildren[0].status = "FAILED"; } },
+  childNullExit: { evidence: (e) => { e.nestedChildren[0].exitCode = null; } },
+  childUnfinished: { evidence: (e) => { e.nestedChildren[0].exitCode = null; e.nestedChildren[0].status = "UNFINISHED"; } },
+  childOtherParent: { evidence: (e) => { e.nestedChildren[0].parentRequestId = "44444444-4444-4444-8444-444444444444"; } },
+  childOutsideSnapshot: { evidence: (e, fx) => { e.nestedChildren[0].cwd = path.join(fx.checkout, "native"); } },
+  childOutputInsideSnapshot: { evidence: (e, fx) => { e.nestedChildren[0].outputDir = path.join(fx.snapshot, "target"); } },
+  childOutputUnmanaged: { evidence: (e, fx) => { e.nestedChildren[0].outputDir = path.join(fx.root, "elsewhere", "nested", "x"); } },
+  childOutputRelative: { evidence: (e) => { e.nestedChildren[0].outputDir = "target/nested/x"; } },
+  childExtraField: { evidence: (e) => { e.nestedChildren[0].extra = true; } },
+  childDuplicated: { evidence: (e) => { e.nestedChildren.push(structuredClone(e.nestedChildren[0])); } },
+  childrenOverCap: { evidence: (e) => { const c = e.nestedChildren[0]; e.nestedChildren = Array.from({ length: 8193 }, (_, i) => ({ ...c, requestId: `child-${i}` })); } },
 };
 
 /**
  * One receipt, signed. `carrier` is the carrier the gate wrote; `argv`, `workspace` and `observedEnv` are what the client submitted.
  * `fx` is the fixture (paths, keys, pins).
  */
-export function signedReceipt(fx, { id, carrier, argv, workspace, observedEnv = {}, tamper = "none", mutate = null }) {
+export function signedReceipt(fx, { id, carrier, argv, workspace, observedEnv = {}, tamper = "none", mutate = null, adapter = null, children = null }) {
   const t = TAMPERS[tamper] ?? fail(`unknown tamper ${tamper}`);
   const inputs = readDeclaredInputs(carrier.snapshot.path);
   const evidence = {
     requestId: id, brokerVersion: "rustright-test", executor: fx.pins.host, commit: carrier.commit,
     snapshot: { path: carrier.snapshot.path, treeAtStart: TREE, treeAtExit: TREE }, declaredInputDigests: declaredInputDigestsOf(carrier.snapshot.path, inputs),
     ownership: carrier.ownership, outputDir: fx.outputDir,
+    // rustright#190 (final): an adapter job's nested children are signed INSIDE snapshotEvidence and mirrored on the receipt (the evidence copy below).
+    ...(adapter ? { nestedChildren: structuredClone(children ?? []).map((c) => ({ ...c, parentRequestId: id })) } : {}),
   };
   t.evidence?.(evidence, fx);
   const stage = { freshness: { unitsAtStart: 3, fresh: 3, notFresh: 0, invalidationReasons: [] }, attribution: { available: true, rows: [] }, toolchain: TOOLCHAIN };
@@ -105,10 +127,10 @@ export function signedReceipt(fx, { id, carrier, argv, workspace, observedEnv = 
   t.top?.(top);
   const payload = {
     host: fx.pins.host, broker: { brokerDigest: fx.pins.brokerDigest }, keyId: fx.pins.keyId, jobId: id, nonce: carrier.nonce,
-    requestDigest: requestDigestOf(snapshotRequestCore({ argv: t.argv ? t.argv(argv) : argv, workspace, observedEnv, carrier })),
+    requestDigest: requestDigestOf(snapshotRequestCore({ argv: t.argv ? t.argv(argv) : argv, workspace, observedEnv, carrier, adapter })),
     result: { status: "SUCCEEDED", exitCode: 0, signal: null, reap: { reaped: true } }, snapshotEvidence: structuredClone(evidence), stageEvidence: structuredClone(stage), ...structuredClone(top),
   };
-  t.payload?.(payload);
+  t.payload?.(payload, fx);
   mutate?.(payload);
   const signer = t.signer === "other" ? crypto.generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey : fx.privateKey;
   const value = crypto.sign("sha256", signedBytes(payload), { key: signer, dsaEncoding: "ieee-p1363" }).toString("hex");
@@ -140,18 +162,22 @@ export function makeFakeBroker(t, { inputs = null, readOnlySnapshots = false } =
   const wsRoot = path.join(dataRoot, "rightkit-build-control", "ws");
   const outputDir = path.join(wsRoot, "0123456789ab", "g", "002", "target");
   fs.mkdirSync(controlRoot, { recursive: true }); fs.mkdirSync(outputDir, { recursive: true });
+  const scratchRoot = path.join(root, "scratch"); fs.mkdirSync(scratchRoot, { recursive: true });
+  const adapterBin = path.join(root, "adapter-bin"); fs.mkdirSync(adapterBin, { recursive: true });
   write(checkout, WORKSPACES); write(snapshot, WORKSPACES);
   if (inputs) { write(snapshot, { ".rightkit/compile-inputs.json": JSON.stringify({ inputs }), "gen/in.txt": "declared input\n" }); }
   const { privateKey, pins } = keyPair();
-  const fx = { root, checkout, dataRoot, controlRoot, snapshot, wsRoot, outputDir, privateKey, pins, handle: HANDLE };
+  const fx = { root, checkout, dataRoot, controlRoot, snapshot, wsRoot, outputDir, privateKey, pins, handle: HANDLE, scratchRoot, adapterBin };
   const state = path.join(root, "client-state"); fs.mkdirSync(path.join(state, "db"), { recursive: true });
   fs.writeFileSync(path.join(state, "key.pem"), privateKey.export({ type: "pkcs8", format: "pem" }));
-  fs.writeFileSync(path.join(state, "fixture.json"), JSON.stringify({ root, checkout, dataRoot, controlRoot, snapshot, wsRoot, outputDir, pins, readOnlySnapshots }));
+  fs.writeFileSync(path.join(state, "fixture.json"), JSON.stringify({ root, checkout, dataRoot, controlRoot, snapshot, wsRoot, outputDir, pins, readOnlySnapshots, scratchRoot, adapterBin }));
   const client = path.join(root, "rustright");
   fs.writeFileSync(client, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(fileURLToPath(import.meta.url))} --client ${JSON.stringify(state)} "$@"\n`, { mode: 0o755 });
+  // The broker's adapter-job PATH holds the broker's own `cargo`: a compile the job's child starts is a nested request of this job.
+  fs.writeFileSync(path.join(adapterBin, "cargo"), `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(fileURLToPath(import.meta.url))} --client ${JSON.stringify(state)} nested-cargo "$@"\n`, { mode: 0o755 });
   const setBehavior = (b) => fs.writeFileSync(path.join(state, "behavior.json"), JSON.stringify(b));
   setBehavior({});
-  const grantCalls = () => (fs.existsSync(path.join(state, "grantcalls.jsonl")) ? fs.readFileSync(path.join(state, "grantcalls.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
+  const adapterCalls = () => (fs.existsSync(path.join(state, "adaptercalls.jsonl")) ? fs.readFileSync(path.join(state, "adaptercalls.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
   const calls = () => (fs.existsSync(path.join(state, "calls.jsonl")) ? fs.readFileSync(path.join(state, "calls.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
   const submits = [];
   const sb = {
@@ -160,7 +186,12 @@ export function makeFakeBroker(t, { inputs = null, readOnlySnapshots = false } =
     checkout, outputRoots: [wsRoot], platform: process.platform, client,
     receiptOf: async (id) => JSON.parse(spawnStatus(client, id)).receipt,
   };
-  return { ...fx, client, state, setBehavior, calls, grantCalls, sb, submits };
+  // Models a broker host whose checkout and snapshot are a door fixture's (its own snapshots root holds the one snapshot): the client reads these at each call.
+  const rebase = ({ checkout: checkoutRoot, snapshotsRoot }) => {
+    const doc = JSON.parse(fs.readFileSync(path.join(state, "fixture.json"), "utf8"));
+    fs.writeFileSync(path.join(state, "fixture.json"), JSON.stringify({ ...doc, ...(checkoutRoot ? { checkout: checkoutRoot } : {}), ...(snapshotsRoot ? { snapshotsRoot } : {}) }));
+  };
+  return { ...fx, client, state, setBehavior, rebase, calls, adapterCalls, sb, submits };
 }
 import { spawnSync } from "../background-process.mjs";
 const spawnStatus = (client, id) => { const r = spawnSync(client, ["status", id], { encoding: "utf8" }); if (r.status !== 0) throw new Error(`status ${id}: ${r.stderr}`); return r.stdout; };
@@ -169,8 +200,10 @@ const spawnStatus = (client, id) => { const r = spawnSync(client, ["status", id]
 async function client(stateDir, [command, ...args]) {
   const read = (f, d = null) => { try { return JSON.parse(fs.readFileSync(path.join(stateDir, f), "utf8")); } catch { return d; } };
   const fx = { ...read("fixture.json"), privateKey: crypto.createPrivateKey(fs.readFileSync(path.join(stateDir, "key.pem"))) };
+  if (fx.snapshotsRoot) fx.snapshot = path.join(fx.snapshotsRoot, fs.readdirSync(fx.snapshotsRoot).find((n) => !n.includes(".") && fs.statSync(path.join(fx.snapshotsRoot, n)).isDirectory()));
   const behavior = read("behavior.json", {});
-  if (command === "cargo" && (process.env.RUSTRIGHT_SNAPSHOT_GRANT !== undefined || process.env.RIGHTKIT_SNAPSHOT_GRANT !== undefined)) return await grantCall(stateDir, fx, behavior, args);
+  if (command === "run") return adapterRun(stateDir, fx, behavior, args);
+  if (command === "nested-cargo") return nestedCargo(stateDir, fx, behavior, args);
   if (command === "cargo") {
     const env = process.env;
     // The reader's own rules (rustright-cli shims.rs snapshot_carrier and the attested-run check): a current RUSTRIGHT_* name wins over the
@@ -215,7 +248,7 @@ async function client(stateDir, [command, ...args]) {
     const workspace = fs.realpathSync(process.cwd());
     fs.writeFileSync(envVar("REQUEST_ID_FILE"), JSON.stringify({ schema: "rustright.request-ref.v1", requestId: id, submittedAt: new Date().toISOString(), workspace }));
     fs.writeFileSync(path.join(stateDir, "db", `${id}.json`), JSON.stringify({ id, carrier, argv: args, workspace, observedEnv: observedEnvOf(env, process.platform), tamper: behavior.tamper ?? "none" }));
-    fs.appendFileSync(path.join(stateDir, "calls.jsonl"), `${JSON.stringify({ id, carrierEnvNames: Object.keys(env).filter((k) => /^(RUSTRIGHT|RIGHTKIT)_(SNAPSHOT_REQUEST|ATTEST_NONCE|REQUEST_ID_FILE|CALLING_GATE|PARENT_REQUEST_ID)$/.test(k)).sort(), argv: args, cwd: workspace, env: { CARGO_TARGET_DIR: env.CARGO_TARGET_DIR ?? null, CARGO_BUILD_TARGET_DIR: env.CARGO_BUILD_TARGET_DIR ?? null } })}\n`);
+    fs.appendFileSync(path.join(stateDir, "calls.jsonl"), `${JSON.stringify({ id, carrierEnvNames: Object.keys(env).filter((k) => /^(RUSTRIGHT|RIGHTKIT)_(SNAPSHOT_REQUEST|ATTEST_NONCE|REQUEST_ID_FILE|CALLING_GATE|PARENT_REQUEST_ID)$/.test(k)).sort(), argv: args, cwd: workspace, stageNonceSeen: env.RIGHTKIT_ATTEST_STAGE_NONCE !== undefined, env: { CARGO_TARGET_DIR: env.CARGO_TARGET_DIR ?? null, CARGO_BUILD_TARGET_DIR: env.CARGO_BUILD_TARGET_DIR ?? null } })}\n`);
     if (behavior.stdout) process.stdout.write(behavior.stdout);
     process.exit(behavior.exit ?? 0);
   }
@@ -225,89 +258,139 @@ async function client(stateDir, [command, ...args]) {
     if (!entry) { process.stderr.write(`no such request ${args[0]}\n`); process.exit(1); }
     // RustRight's envelope: {type:"STATUS", id, state, ..., receipt}; receipt is null while the job is live.
     if (read("behavior.json", {}).statusLive) { process.stdout.write(`${JSON.stringify({ type: "STATUS", id: entry.id, state: "RUNNING", receipt: null })}\n`); process.exit(0); }
-    if (read("behavior.json", {}).statusBare) { process.stdout.write(`${JSON.stringify(signedReceipt(fx, { id: entry.id, carrier: entry.carrier, argv: entry.argv, workspace: entry.workspace, observedEnv: entry.observedEnv }))}\n`); process.exit(0); }
-    const receipt = signedReceipt(fx, { id: entry.id, carrier: entry.carrier, argv: entry.argv, workspace: entry.workspace, observedEnv: entry.observedEnv, tamper: read("behavior.json", {}).statusTamper ?? entry.tamper });
+    const children = entry.adapter ? readChildren(stateDir, entry.id) : null;
+    if (read("behavior.json", {}).statusBare) { process.stdout.write(`${JSON.stringify(signedReceipt(fx, { id: entry.id, carrier: entry.carrier, argv: entry.argv, workspace: entry.workspace, observedEnv: entry.observedEnv, adapter: entry.adapter ?? null, children }))}\n`); process.exit(0); }
+    const receipt = signedReceipt(fx, { id: entry.id, carrier: entry.carrier, argv: entry.argv, workspace: entry.workspace, observedEnv: entry.observedEnv, tamper: read("behavior.json", {}).statusTamper ?? entry.tamper, adapter: entry.adapter ?? null, children });
     process.stdout.write(`${JSON.stringify({ type: "STATUS", id: entry.id, state: "SUCCEEDED", receipt })}\n`);
     process.exit(0);
   }
   process.stderr.write(`unsupported command ${command}\n`); process.exit(2);
 }
 
-// ---- the stage grant, as the broker enforces it (rustright.snapshot-grant/1; rightkit#1301) ----
-// A third-party child's call: `RUSTRIGHT_SNAPSHOT_GRANT={"path","sha256"}` (current spelling only), no SNAPSHOT_REQUEST, no ATTEST_NONCE (the
-// client mints one per call), a calling gate. The file is `grant-<uuid v4>.json`, a regular file directly in <control root>/snapshot-requests
-// of at most 4 MiB, whose bytes hash to the descriptor's sha256; its body has exactly the schema's fields. A call is allowed when it is
-// build or run with --locked or --frozen, `metadata --no-deps` or a carried read-only command, with no --config or -Z, every path inside
-// the snapshot, its cwd inside an allowed workspace, before expiry, one at a time, and at most maxCalls distinct nonces.
-const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const GRANT_FIELDS = ["schema", "grantId", "primary", "commit", "snapshot", "declaredInputs", "ownership", "allowedWorkspaces", "maxCalls", "expiresAt"];
-async function grantCall(stateDir, fx, behavior, args) {
-  const env = process.env;
-  const refuse = (why) => { process.stderr.write(`invalid snapshot grant (${why})\n`); process.exit(2); };
-  const inside = (child, parent) => { const rel = path.relative(parent, child); return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel)); };
-  const exactly = (value, keys, what) => { if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).sort().join() !== [...keys].sort().join()) refuse(`unknown or missing fields in ${what}`); };
-  if (env.RIGHTKIT_SNAPSHOT_GRANT !== undefined) refuse("the legacy spelling");
-  if (env.RUSTRIGHT_SNAPSHOT_REQUEST !== undefined || env.RIGHTKIT_SNAPSHOT_REQUEST !== undefined) refuse("a grant child sets no snapshot request");
-  if (env.RUSTRIGHT_ATTEST_NONCE !== undefined || env.RIGHTKIT_ATTEST_NONCE !== undefined) refuse("a grant child leaves the nonce unset: the client mints one per call");
-  if (!String(env.RUSTRIGHT_CALLING_GATE ?? "").trim()) refuse("no calling gate");
-  const raw = env.RUSTRIGHT_SNAPSHOT_GRANT;
-  if (Buffer.byteLength(raw) > 4096) refuse("descriptor exceeds 4096 bytes");
-  let descriptor; try { descriptor = JSON.parse(raw); } catch { refuse("descriptor is not JSON"); }
-  exactly(descriptor, ["path", "sha256"], "the descriptor");
-  if (!/^[0-9a-f]{64}$/.test(descriptor.sha256) || !path.isAbsolute(descriptor.path)) refuse("descriptor fields");
-  const dirPath = path.join(fx.controlRoot, "snapshot-requests");
-  if (fs.lstatSync(dirPath).isSymbolicLink()) refuse("snapshot-requests is a link");
-  if (fs.realpathSync(path.dirname(descriptor.path)) !== fs.realpathSync(dirPath)) refuse("not directly in snapshot-requests");
-  const name = path.basename(descriptor.path);
-  const named = /^grant-(.+)\.json$/.exec(name);
-  if (!named || !UUID_V4.test(named[1])) refuse("the file is not named grant-<uuid v4>.json");
-  const meta = fs.lstatSync(descriptor.path);
-  if (!meta.isFile() || meta.isSymbolicLink()) refuse("the grant file is not a regular file");
-  if (meta.size > 4 * 1024 * 1024) refuse("the grant file exceeds 4 MiB");
-  const bytes = fs.readFileSync(descriptor.path);
-  if (sha(bytes) !== descriptor.sha256) refuse("the grant file does not match its sha256");
-  const body = JSON.parse(bytes);
-  exactly(body, GRANT_FIELDS, "the grant");
-  if (body.schema !== "rustright.snapshot-grant/1") refuse("schema");
-  if (body.grantId !== named[1]) refuse("grantId is not the file's");
-  if (!path.isAbsolute(body.primary)) refuse("primary is not absolute");
-  exactly(body.commit, ["sha", "tree"], "commit"); exactly(body.snapshot, ["path", "expectedTree"], "snapshot"); exactly(body.declaredInputs, ["inputs"], "declaredInputs"); exactly(body.ownership, ["handle"], "ownership");
-  if (body.snapshot.expectedTree !== body.commit.tree) refuse("expectedTree is not the commit's tree");
-  if (!Array.isArray(body.allowedWorkspaces) || !body.allowedWorkspaces.length || !body.allowedWorkspaces.every((w) => path.isAbsolute(w) && inside(w, body.snapshot.path))) refuse("allowedWorkspaces must be non-empty absolute directories inside the snapshot");
-  if (!Number.isInteger(body.maxCalls) || body.maxCalls < 1 || body.maxCalls > 4096) refuse("maxCalls is 1 to 4096");
-  if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$/.test(body.expiresAt)) refuse("expiresAt is not RFC3339 UTC");
-  if (Date.parse(body.expiresAt) <= Date.now()) refuse("the grant has expired");
-  // The call itself.
+// ---- a snapshot-bound adapter job, as the broker runs it (rustright#190) ----
+// `rustright run <adapter> -- <args>` with a snapshot carrier: the reader's own rules (the carrier file, the nonce, no parent request, a calling
+// gate, a primaryCwd equal to the cwd), the adapter's registered grammar in snapshot mode (D1b: pnpm `exec`, `run` and `pack` only; D3: no
+// absolute path but inside the snapshot, a relative --dir, a --pack-destination that is an empty child of a scratch `rk-local-publish-*`
+// directory), then the job runs in the SNAPSHOT counterpart of the cwd with the broker's own environment and PATH. A compile its child starts
+// is nested under it (nestedCargo); the job's signed receipt lists those children.
+const ADAPTERS = ["rightkit-pnpm", "rightkit-node", "rightkit-qa", "rightkit-swift"];
+const PNPM_VALUE_OPTIONS = new Set(["--dir", "-C", "--filter", "-F", "--prefix"]);
+const readChildren = (stateDir, id) => { try { return fs.readFileSync(path.join(stateDir, "db", `${id}.children.jsonl`), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
+
+function snapshotArgvProblem(fx, adapter, args) {
+  const insideOf = (child, parent) => { const rel = path.relative(parent, child); return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel)); };
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
   const own = args.includes("--") ? args.slice(0, args.indexOf("--")) : args;
-  if (own.some((w) => w === "--config" || w.startsWith("--config=") || w === "-Z" || (/^-Z/.test(w)))) refuse("--config and -Z are never allowed");
-  const sub = cargoSubcommandOf(args);
-  const locked = own.includes("--locked") || own.includes("--frozen");
-  const allowed = ((sub === "build" || sub === "run") && locked) || (sub === "metadata" && own.includes("--no-deps")) || ["locate-project", "version", "help"].includes(sub) || args[0] === "--version";
-  if (!allowed) refuse(`cargo ${args.join(" ")} is not a grant-carried command (build and run need --locked or --frozen)`);
-  const cwd = fs.realpathSync(process.cwd());
-  if (!body.allowedWorkspaces.some((w) => inside(cwd, w))) refuse("the cwd is outside every allowed workspace");
-  for (let i = 0; i < own.length; i += 1) {
-    const opt = ["--manifest-path", "--target-dir"].find((o) => own[i] === o || own[i].startsWith(`${o}=`));
-    if (!opt) continue;
-    const value = own[i].includes("=") ? own[i].slice(opt.length + 1) : own[i + 1];
-    if (!value || !inside(path.resolve(cwd, value), body.snapshot.path)) refuse(`${opt} ${value} is outside the snapshot`);
+  if (adapter === "rightkit-pnpm") {
+    let command = null;
+    for (let i = 0; i < own.length; i += 1) { const w = own[i]; if (w.startsWith("-")) { if (PNPM_VALUE_OPTIONS.has(w)) i += 1; continue; } command = w; break; }
+    if (!["exec", "run", "pack"].includes(command)) return `the pnpm command ${command} is not allowed in a snapshot call (exec, run and pack only)`;
   }
-  // One at a time, and at most maxCalls distinct nonces (the client mints a fresh one for each call).
-  const dir = path.join(stateDir, "grants"); fs.mkdirSync(dir, { recursive: true });
-  const busy = path.join(dir, `${body.grantId}.busy`);
-  try { fs.writeFileSync(busy, "", { flag: "wx" }); } catch { refuse("a call of this grant is already running: calls run one at a time"); }
-  try {
-    const usedFile = path.join(dir, `${body.grantId}.nonces.json`);
-    const used = fs.existsSync(usedFile) ? JSON.parse(fs.readFileSync(usedFile, "utf8")) : [];
-    if (used.length >= body.maxCalls) refuse(`the grant's ${body.maxCalls} calls are used`);
-    const nonce = crypto.randomBytes(32).toString("hex");
-    fs.writeFileSync(usedFile, JSON.stringify([...used, nonce]));
-    fs.appendFileSync(path.join(stateDir, "grantcalls.jsonl"), `${JSON.stringify({ grantId: body.grantId, argv: args, cwd, nonce, envNames: Object.keys(env).filter((k) => /^(RUSTRIGHT|RIGHTKIT)_/.test(k)).sort() })}\n`);
-    if (behavior.holdMs) await new Promise((resolve) => setTimeout(resolve, behavior.holdMs));
-  } finally { fs.rmSync(busy, { force: true }); }
-  process.exit(0);
+  // rightkit-swift: `build` only, with one relative --package-path (policy check_swift_package; the registered subcommands are [build]).
+  if (adapter === "rightkit-swift") {
+    if (args[0] !== "build") return `the swift command ${args[0]} is not allowed (build only)`;
+    const at = args.indexOf("--package-path");
+    if (at < 0 || !args[at + 1] || path.isAbsolute(args[at + 1]) || args[at + 1].split("/").includes("..")) return "swift needs exactly one relative --package-path";
+  }
+  for (let i = 0; i < args.length; i += 1) {
+    const w = args[i];
+    const flag = /^(--[a-z-]+)=(.*)$/.exec(w);
+    const name = flag ? flag[1] : w;
+    const value = flag ? flag[2] : args[i + 1];
+    if (name === "--pack-destination") {
+      if (!value || !path.isAbsolute(value)) return "--pack-destination must be an absolute scratch directory";
+      if (!/^rk-local-publish-/.test(path.basename(path.dirname(value))) || !insideOf(real(path.dirname(value)), real(fx.scratchRoot)) || real(path.dirname(path.dirname(value))) !== real(fx.scratchRoot)) return `--pack-destination ${value} is not a child of a scratch rk-local-publish-* directory`;
+      let names = null; try { names = fs.readdirSync(value); } catch { /* checked below */ }
+      if (names === null || names.some((n) => n.endsWith(".tgz"))) return `--pack-destination ${value} is not an existing directory without a tarball`;
+      if (!flag) i += 1;
+      continue;
+    }
+    if ((name === "--dir" || name === "-C" || name === "--prefix") && value !== undefined && path.isAbsolute(value)) return `${name} ${value} is absolute: a snapshot call names its directory relative to the snapshot`;
+    for (const token of [flag ? flag[2] : w]) if (path.isAbsolute(token) && !insideOf(real(token), real(fx.snapshot))) return `the absolute path ${token} is outside the bound snapshot`;
+  }
+  return null;
 }
 
+function adapterRun(stateDir, fx, behavior, argv) {
+  const [adapter, ...rest] = argv;
+  const env = process.env;
+  const envVar = (name) => env[`RUSTRIGHT_${name}`] ?? env[`RIGHTKIT_${name}`];
+  const bad = (why) => { process.stderr.write(`invalid snapshot request carrier (${why})\n`); process.exit(2); };
+  if (!ADAPTERS.includes(adapter)) bad(`${adapter} is not a registered snapshot adapter`);
+  if (rest[0] !== "--") bad("the adapter's arguments follow `--`");
+  const args = rest.slice(1);
+  const raw = envVar("SNAPSHOT_REQUEST");
+  if (raw === undefined) bad("no descriptor (an adapter job in a snapshot is refused without its carrier)");
+  if (Buffer.byteLength(raw) > 4096) bad("descriptor exceeds 4096 bytes");
+  let descriptor; try { descriptor = JSON.parse(raw); } catch { bad("descriptor is not JSON"); }
+  if (!descriptor || typeof descriptor !== "object" || Object.keys(descriptor).sort().join() !== "path,sha256" || !/^[0-9a-f]{64}$/.test(descriptor.sha256) || !path.isAbsolute(descriptor.path)) bad("descriptor fields");
+  if (behavior.refuse) bad("refused by the broker");
+  if (envVar("PARENT_REQUEST_ID") !== undefined || envVar("PARENT_CAPABILITY_TOKEN") !== undefined) bad("a parent request is set: a root snapshot request is never nested");
+  if (!String(envVar("CALLING_GATE") ?? "").trim()) bad("no calling gate");
+  const dirPath = path.join(fx.controlRoot, "snapshot-requests");
+  if (fs.lstatSync(dirPath).isSymbolicLink() || fs.realpathSync(path.dirname(descriptor.path)) !== fs.realpathSync(dirPath)) bad("not directly in snapshot-requests");
+  const meta = fs.lstatSync(descriptor.path);
+  if (!meta.isFile() || meta.isSymbolicLink() || meta.size > 4 * 1024 * 1024) bad("the request file is not a regular file of at most 4 MiB");
+  const bytes = fs.readFileSync(descriptor.path);
+  if (sha(bytes) !== descriptor.sha256) bad("digest");
+  const carrier = JSON.parse(bytes);
+  const exactly = (value, keys, what) => { if (!value || typeof value !== "object" || Object.keys(value).sort().join() !== [...keys].sort().join()) bad(`unknown or missing fields in ${what}`); };
+  exactly(carrier, ["schema", "commit", "snapshot", "declaredInputs", "ownership", "primaryCwd", "argvSha256", "nonce"], "the carrier");
+  if (carrier.nonce !== envVar("ATTEST_NONCE")) bad("nonce");
+  if (carrier.argvSha256 !== argvSha256(args)) bad("argv");
+  if (fs.realpathSync(carrier.primaryCwd) !== fs.realpathSync(process.cwd())) bad("primaryCwd");
+  if (fs.realpathSync(process.cwd()) !== fs.realpathSync(fx.checkout) && !fs.realpathSync(process.cwd()).startsWith(`${fs.realpathSync(fx.checkout)}${path.sep}`)) bad("the request's workspace is not inside the primary checkout");
+  const denied = snapshotArgvProblem(fx, adapter, args);
+  if (denied) { process.stderr.write(`RK_ADAPTER_ARGV_DENIED: ${denied}\n`); process.exit(2); }
+  const used = path.join(stateDir, "nonces"); fs.mkdirSync(used, { recursive: true });
+  if (fs.existsSync(path.join(used, carrier.nonce))) bad("nonce replayed");
+  fs.writeFileSync(path.join(used, carrier.nonce), "");
+  const id = crypto.randomUUID();
+  // The workspace root of a snapshot-bound adapter job is the bound primary toplevel (no Cargo.toml needed); the cwd is where the client was run.
+  const clientCwd = fs.realpathSync(process.cwd());
+  const workspace = behavior.workspaceIsCwd ? clientCwd : fs.realpathSync(fx.checkout); // workspaceIsCwd models a broker that still answered with the cwd
+  fs.writeFileSync(envVar("REQUEST_ID_FILE"), JSON.stringify({ schema: "rustright.request-ref.v1", requestId: id, submittedAt: new Date().toISOString(), workspace }));
+  fs.writeFileSync(path.join(stateDir, "db", `${id}.json`), JSON.stringify({ id, carrier, argv: args, adapter, workspace, observedEnv: {}, tamper: behavior.tamper ?? "none" }));
+  // The job runs in the snapshot's counterpart of the checkout directory, with the broker's environment: only what the broker passes, its own PATH.
+  const token = crypto.randomBytes(16).toString("hex");
+  fs.mkdirSync(path.join(stateDir, "tokens"), { recursive: true });
+  fs.writeFileSync(path.join(stateDir, "tokens", id), token);
+  const jobCwd = path.join(fx.snapshot, path.relative(fs.realpathSync(fx.checkout), clientCwd));
+  const jobEnv = { PATH: fx.adapterBin, HOME: env.HOME ?? "/", RUSTRIGHT_PARENT_REQUEST_ID: id, RUSTRIGHT_PARENT_CAPABILITY_TOKEN: token };
+  const children = behavior.adapter?.children ?? [];
+  let exit = behavior.exit ?? 0;
+  for (const child of children) {
+    // The child finds `cargo` the way a real child does: by the job's PATH (a shell resolves it; nothing is named by path here).
+    const r = spawnSync("/bin/sh", ["-c", 'exec cargo "$@"', "sh", ...(child.argv ?? ["build", "--locked"])], { cwd: path.join(jobCwd, child.cwd ?? "."), env: jobEnv, encoding: "utf8" });
+    if (r.status !== 0 && !behavior.adapter?.swallow) exit = exit || 1;
+  }
+  fs.appendFileSync(path.join(stateDir, "adaptercalls.jsonl"), `${JSON.stringify({ id, adapter, argv: args, cwd: clientCwd, workspace, primaryCwd: carrier.primaryCwd, jobCwd, jobEnvNames: Object.keys(jobEnv).sort(), jobPath: jobEnv.PATH, callerEnvNamesDropped: Object.keys(env).filter((k) => !(k in jobEnv) && /^(RUSTRIGHT|RIGHTKIT)_/.test(k)).sort(), stageNonceSeen: env.RIGHTKIT_ATTEST_STAGE_NONCE !== undefined })}\n`);
+  if (behavior.stdout) process.stdout.write(behavior.stdout);
+  process.exit(exit);
+}
+
+// A compile started by an adapter job's child: the broker attributes it to the job by the parent's own capability token and nests it (no lease,
+// no ledger, no evidence of its own; rustright#190 D7 and D8). A compile with no parent is a root request, which a snapshot stage never makes.
+function nestedCargo(stateDir, fx, behavior, args) {
+  const env = process.env;
+  const parent = env.RUSTRIGHT_PARENT_REQUEST_ID;
+  const fail = (why) => { process.stderr.write(`${why}\n`); process.exit(2); };
+  if (!parent) fail("RK_SNAPSHOT_CARRIER_REQUIRED: a compile outside a broker job inside a snapshot has no carrier");
+  let expected = null; try { expected = fs.readFileSync(path.join(stateDir, "tokens", parent), "utf8"); } catch { /* unknown parent */ }
+  if (!expected || env.RUSTRIGHT_PARENT_CAPABILITY_TOKEN !== expected) fail("RK_NESTED_PARENT: the parent capability token is not the job's");
+  const cwd = fs.realpathSync(process.cwd());
+  const requestId = crypto.randomUUID();
+  const inSnapshot = cwd === fs.realpathSync(fx.snapshot) || cwd.startsWith(`${fs.realpathSync(fx.snapshot)}${path.sep}`);
+  // A refused child (outside the parent's snapshot) is NOT listed (rustright#190): it only fails the call that made it.
+  if (!inSnapshot) fail("RK_NESTED_OUTSIDE_SNAPSHOT: a nested compile runs inside the parent's snapshot");
+  // A child that compiles nothing (`rustc -vV`, `metadata`) has no output directory.
+  const compiles = !(args[0] === "metadata" || args[0] === "-vV" || args[0] === "--version" || args.includes("-vV"));
+  const outputDir = compiles ? path.join(fx.outputDir, "nested", path.basename(cwd)) : null;
+  if (outputDir) fs.mkdirSync(outputDir, { recursive: true });
+  const exitCode = behavior.adapter?.childExit ?? 0;
+  fs.appendFileSync(path.join(stateDir, "db", `${parent}.children.jsonl`), `${JSON.stringify({ requestId, parentRequestId: parent, shim: "cargo", argv: args, cwd, exitCode, status: exitCode === 0 ? "SUCCEEDED" : "FAILED", outputDir })}\n`);
+  process.exit(exitCode);
+}
 if (process.argv[1] && (() => { try { return fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url)); } catch { return false; } })() && process.argv[2] === "--client") {
   client(process.argv[3], process.argv.slice(4)).catch((e) => { process.stderr.write(`${e.stack}\n`); process.exit(3); });
 }

@@ -24,6 +24,7 @@
 // nested bundles itself, and signNativeHelpers below does the same for any other caller. Every external effect is injectable.
 import { createHash } from "node:crypto";
 import { buildLaunch } from "./build-launch.mjs";
+import { carriedCargoMapOf } from "./carried-cargo.mjs";
 import * as nodeFs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -211,6 +212,12 @@ export function buildAndEmbedNativeHelpers({ appRoot, app, helpers: rawHelpers, 
   const root = sharedRoot ?? env.RIGHTKIT_SWIFT_ROOT ?? fileURLToPath(new URL("../../", import.meta.url));
   const events = [];
   const results = [];
+  // The commit snapshot a carried stage builds from (the gate's carrier map names it), or null: not a snapshot stage on a broker host.
+  const carrier = carriedCargoMapOf(env);
+  if (carrier?.error) fail("NATIVE_HELPERS_SNAPSHOT_SOURCE", `native helpers: ${carrier.error}; a snapshot stage's Swift build is never run around its carrier`);
+  const realOf = (target) => { try { return (fs.realpathSync?.native ?? fs.realpathSync)(target); } catch { return path.resolve(target); } };
+  const insideDir = (child, parent) => { const rel = path.relative(parent, child); return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel)); };
+  const snapshotRoot = carrier?.map ? realOf(carrier.map.broker.snapshot.path) : null;
   const run = (what, cmd, args, { capture = false, cwd = appRoot } = {}) => {
     log(`native-helpers: ${what}: ${cmd} ${args.join(" ")}`);
     const launch = cmd === "swift" ? buildLaunch(cmd, args, { cwd, env, exists: fs.existsSync }) : { command: cmd, args };
@@ -221,12 +228,17 @@ export function buildAndEmbedNativeHelpers({ appRoot, app, helpers: rawHelpers, 
   for (const helper of helpers) {
     const pkgDir = helper.package ? path.resolve(appRoot, helper.package) : path.resolve(root, SHARED_SWIFT_PACKAGES[helper.sharedPackage]);
     if (helper.package && path.relative(appRoot, pkgDir).startsWith("..")) fail("NATIVE_HELPERS_INVALID", `${helper.name}: package escapes the app root`);
+    // A snapshot stage on a broker host builds only what the commit holds (GATE-CONTRACT "Commit-only build"): a package outside the snapshot (the
+    // editable RightKit checkout RIGHTKIT_SWIFT_ROOT or the installed package root names) is refused here, with the code and what to supply,
+    // before a broker job could refuse its working directory or a build could read an uncommitted file.
+    if (snapshotRoot !== null && !insideDir(realOf(pkgDir), snapshotRoot)) fail("NATIVE_HELPERS_SNAPSHOT_SOURCE", `${helper.name}: the Swift package ${pkgDir} is outside this stage's commit snapshot (${snapshotRoot}); a snapshot stage builds only committed source. ${helper.sharedPackage ? `The shared "${helper.sharedPackage}" package comes from ${env.RIGHTKIT_SWIFT_ROOT ? "RIGHTKIT_SWIFT_ROOT" : "the installed RightKit package root"}, which is not in the snapshot; the app must commit the package into its own repository and declare it with \`package\` (a path inside the app) instead of \`sharedPackage\`` : "declare a package inside the app's own repository"}.`, { helper: helper.name, package: pkgDir, snapshot: snapshotRoot });
     if (!fs.existsSync(path.join(pkgDir, "Package.swift"))) fail("NATIVE_HELPERS_INPUT_MISSING", `${helper.name}: no Package.swift in ${pkgDir}${helper.sharedPackage ? " (set RIGHTKIT_SWIFT_ROOT to the RightKit checkout)" : ""}`);
     const entitlements = helper.entitlements ? path.resolve(appRoot, helper.entitlements) : undefined;
     if (entitlements && !fs.existsSync(entitlements)) fail("NATIVE_HELPERS_INPUT_MISSING", `${helper.name}: entitlements file not found: ${entitlements}`);
     const archs = forceArch ? [forceArch] : helper.universal ? [...ARCHS] : [hostArch];
     // Each Swift job is admitted against the checkout that owns its package, including shared RightKit helpers.
-    const packageRoot = packageOwner(pkgDir) || appRoot;
+    // On a snapshot stage the job's directory is the snapshot (the package is inside it, checked above), never a repository the package may sit in.
+    const packageRoot = snapshotRoot ?? (packageOwner(pkgDir) || appRoot);
     const relativePackage = path.relative(packageRoot, pkgDir);
     const packageArg = relativePackage === "" ? "." : relativePackage;
     const swiftArgs = ["build", "-c", configuration, "--package-path", packageArg, "--product", helper.product, ...archs.flatMap((arch) => ["--arch", arch])];

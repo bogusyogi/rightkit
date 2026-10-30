@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { ProvenanceError, brokerRequestIds, canonicalJson, qualificationNonce, verifyProvenance } from "./provenance-verify.mjs";
+import { ProvenanceError, brokerRequestIds, canonicalJson, carriedCallNonce, qualificationNonce, verifyProvenance } from "./provenance-verify.mjs";
 import { makeSigner } from "./test-support/provenance-signer.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -128,4 +128,18 @@ test("golden vector: a real broker receipt verifies against the pins it was sign
 test("optional golden vector from RIGHTKIT_PROVENANCE_FIXTURE", { skip: !process.env.RIGHTKIT_PROVENANCE_FIXTURE }, () => {
   const doc = JSON.parse(fs.readFileSync(process.env.RIGHTKIT_PROVENANCE_FIXTURE, "utf8"));
   goldenOf(doc.receipt ?? doc);
+});
+
+test("golden vector: the carried-call nonce is sha256 of the domain, stage nonce, cwd and the canonical argv, and moves with each", () => {
+  const stageNonce = "ab".repeat(32);
+  const argv = ["build", "--locked", "--release", "-p", "rightkit-x"];
+  // Computed independently of this module: sha256("rightkit-carried-call-v1\n<stage>\ncrates/rightkit-x\n[\"build\",...]").
+  assert.equal(carriedCallNonce({ stageNonce, cwd: "crates/rightkit-x", argv }), "a0a721efd4536c1eeb017a97bb1c4405f5f832aa42c7424fb03c3dfe56bbf850");
+  assert.equal(carriedCallNonce({ stageNonce, cwd: ".", argv: ["metadata", "--format-version", "1", "--no-deps"] }), "db6ad74456c39fbaf2a7da480ca8584ca981ca757ac2e8c695982e01bb80e429");
+  const base = carriedCallNonce({ stageNonce, cwd: "crates/rightkit-x", argv });
+  assert.notEqual(carriedCallNonce({ stageNonce: "cd".repeat(32), cwd: "crates/rightkit-x", argv }), base, "another stage nonce");
+  assert.notEqual(carriedCallNonce({ stageNonce, cwd: "crates/rightkit-y", argv }), base, "another directory");
+  assert.notEqual(carriedCallNonce({ stageNonce, cwd: "crates/rightkit-x", argv: [...argv, "--all"] }), base, "another argv");
+  assert.notEqual(carriedCallNonce({ stageNonce, cwd: "crates/rightkit-x", argv }), stageNonce, "never the stage nonce itself");
+  assert.match(base, /^[0-9a-f]{64}$/);
 });

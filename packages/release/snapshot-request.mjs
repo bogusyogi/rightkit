@@ -13,6 +13,9 @@
 //      snapshot, declaredInputs and ownership), and the signed snapshotEvidence: the receipt's copies equal the signed ones,
 //      the commit and handle are the carrier's, and the snapshot held the expected tree at START and at exit.
 // The carrier is set only on that one cargo invocation and is removed after it; nothing the gate exports carries it.
+// A pnpm, node or QA step of a snapshot stage is carried the same way as an ADAPTER request (`rustright run <adapter> -- <args>`,
+// rustright#190: snapshot-adapter-v1): the same carrier, the adapter's name in the request core, and a signed `nestedChildren` list (in snapshotEvidence, mirrored on the receipt) of the
+// compiles that job's own children made (the Tauri CLI's Cargo calls), which the gate verifies as it does the call (rightkit#1301).
 
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -85,6 +88,51 @@ export function lockedArgv(argv) {
   return [...words.slice(0, i + 1), "--locked", ...words.slice(i + 1)];
 }
 export const isCompileClass = (argv) => COMPILE_CLASS_COMMANDS.includes(cargoSubcommandOf(argv));
+
+const CARRIED_REDIRECT = /^(--config|-Z|-C)(=|$)|^-[A-Za-z]*[CZ]/;
+
+/**
+ * The one place that turns a caller's cargo arguments (without `cargo`) into the arguments a carried call sends (carried-cargo.mjs
+ * `runCarriedCargo`; stage-commands.mjs derives what a stage's signed receipts must show from the same function, so the two cannot drift):
+ * `--manifest-path <p>` or `--manifest-path=<p>` before any `--` is removed (the client refuses to rewrite an attested call; the call
+ * runs from the manifest's directory instead, the last one wins) and returned as `manifestPath`; `--target-dir` and the redirecting
+ * options are refused. Returns `{ words, manifestPath }` (`manifestPath` null when none) or `{ refusal: { code, message } }`.
+ * `words` are not yet locked: the signed request carries `lockedArgv(words)` (carryBrokerCargo).
+ */
+export function splitCarriedArgs(args) {
+  const original = [...args];
+  const words = [];
+  let manifestPath = null;
+  let atSeparator = false;
+  for (let i = 0; i < original.length; i += 1) {
+    const w = original[i];
+    if (atSeparator) { words.push(w); continue; }
+    if (w === "--") { atSeparator = true; words.push(w); continue; }
+    if (w === "--manifest-path" || w.startsWith("--manifest-path=")) {
+      const value = w === "--manifest-path" ? original[i + 1] : w.slice("--manifest-path=".length);
+      if (w === "--manifest-path") i += 1;
+      if (typeof value !== "string" || !value) return { refusal: { code: "RK_CARGO_BROKER_MANIFEST_PATH", message: "--manifest-path names no manifest" } };
+      manifestPath = value;
+      continue;
+    }
+    if (w === "--target-dir" || w.startsWith("--target-dir=")) return { refusal: { code: "RK_CARGO_REDIRECT", message: `\`cargo ${original.join(" ")}\` passes --target-dir; the broker pins a carried call's output directory` } };
+    if (CARRIED_REDIRECT.test(w)) return { refusal: { code: "RK_CARGO_REDIRECT", message: `\`cargo ${original.join(" ")}\` passes ${w}, which moves its working directory, configuration or output` } };
+    words.push(w);
+  }
+  return { words, manifestPath };
+}
+
+/**
+ * What a carried call sends the broker for `args` run from `cwd` (a posix path relative to the workspace root, "." for the root): the
+ * argv as signed (`requestedArgv`: no --manifest-path, `--locked` added to a build or run) and the directory it runs in (`cwd` joined
+ * with the manifest's directory). Returns `{ argv, cwd }` or null when the call would be refused.
+ */
+export function carriedRequestOf(args, cwd = ".") {
+  const split = splitCarriedArgs(args);
+  if (split.refusal) return null;
+  const dir = split.manifestPath === null ? cwd : path.posix.normalize(path.posix.join(cwd, path.posix.dirname(split.manifestPath.replaceAll("\\", "/"))));
+  return { argv: lockedArgv(split.words), cwd: dir === "" ? "." : dir };
+}
 
 /** Where the gate's declared compile inputs are listed, as read from the snapshot (GATE-CONTRACT "Request"; the broker's COMPILE_INPUTS). */
 export const COMPILE_INPUTS = ".rightkit/compile-inputs.json";
@@ -162,61 +210,15 @@ export function writeSnapshotRequest({ controlRoot, commit, snapshot, declaredIn
   return { file, sha256: digest, descriptor, carrier, env };
 }
 
-// ---- the stage grant (rightkit#1301; RustRight's rustright.snapshot-grant/1) ----
-//
-// A grant lets the third-party children of a stage (the Tauri CLI, anything else that reaches Cargo without the seam) make their own
-// Cargo calls: the client mints a nonce per call, the broker checks each call against the grant. The gate writes one file per stage,
-// `<control root>/snapshot-requests/grant-<grantId>.json` (a direct child, a regular file, owner-only, at most 4 MiB), and hands the
-// child `RUSTRIGHT_SNAPSHOT_GRANT={"path","sha256"}` (current spelling only). The child gets no RUSTRIGHT_SNAPSHOT_REQUEST and no
-// RUSTRIGHT_ATTEST_NONCE. The broker allows build and run (with --locked or --frozen), `metadata --no-deps` and the carried read-only list,
-// never `--config` or `-Z`, only inside the snapshot, one call at a time, at most `maxCalls` distinct nonces, until `expiresAt`.
-export const SNAPSHOT_GRANT_SCHEMA = "rustright.snapshot-grant/1";
-export const SNAPSHOT_GRANT_ENV = "RUSTRIGHT_SNAPSHOT_GRANT";
-export const GRANT_MAX_CALLS_LIMIT = 4096;
-/** The calls one stage's third-party children may make: the Tauri CLI runs `metadata` several times and one to three builds (both universal-mac builds included), so 64 leaves room without leaving an open door. */
-export const STAGE_GRANT_MAX_CALLS = 64;
-/** The stage deadline: a release build is long, a grant must not outlive its stage by much (the gate also removes the file after the stage). */
-export const STAGE_GRANT_TTL_MS = 3 * 60 * 60 * 1000;
-const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-export const GRANT_FIELDS = Object.freeze(["schema", "grantId", "primary", "commit", "snapshot", "declaredInputs", "ownership", "allowedWorkspaces", "maxCalls", "expiresAt"]);
-
-/** Writes the stage grant and returns `{ file, sha256, descriptor, body, env }`; `env` is what a third-party child adds (and nothing else). */
-export function writeStageGrant({ controlRoot, primary, commit, snapshot, declaredInputs = [], handle, allowedWorkspaces, maxCalls = STAGE_GRANT_MAX_CALLS, ttlMs = STAGE_GRANT_TTL_MS, now = Date.now(), uuid = crypto.randomUUID, callingGate }) {
-  if (!objectId(commit?.sha) || !objectId(commit?.tree)) fail("invalid", "commit sha and tree must be full lowercase object ids");
-  if (!snapshot?.path || !path.isAbsolute(snapshot.path) || snapshot.expectedTree !== commit.tree) fail("invalid", "the snapshot needs an absolute path and the commit's tree as expectedTree");
-  if (typeof handle !== "string" || !handle.trim()) fail("invalid", "the build-ownership handle is missing");
-  if (!primary || !path.isAbsolute(primary)) fail("invalid", "primary must be the absolute primary checkout root");
-  if (!controlRoot || !path.isAbsolute(controlRoot)) fail("invalid", "the control root must be absolute");
-  if (typeof callingGate !== "string" || !callingGate.trim()) fail("invalid", "RUSTRIGHT_CALLING_GATE must name the gate: a grant call without one is refused");
-  if (!Array.isArray(allowedWorkspaces) || !allowedWorkspaces.length) fail("invalid", "allowedWorkspaces must be non-empty");
-  const inside = (dir) => { const rel = path.relative(snapshot.path, dir); return path.isAbsolute(dir) && rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel); };
-  if (!allowedWorkspaces.every(inside)) fail("invalid", "every allowed workspace is an absolute directory inside the snapshot");
-  if (!Number.isInteger(maxCalls) || maxCalls < 1 || maxCalls > GRANT_MAX_CALLS_LIMIT) fail("invalid", `maxCalls is 1 to ${GRANT_MAX_CALLS_LIMIT}`);
-  if (!Array.isArray(declaredInputs) || declaredInputs.some((p) => typeof p !== "string" || !p || path.isAbsolute(p) || path.posix.isAbsolute(p))) fail("invalid", "declared inputs must be relative paths");
-  const dir = path.join(controlRoot, "snapshot-requests");
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const meta = fs.lstatSync(dir);
-  if (meta.isSymbolicLink() || !meta.isDirectory()) fail("invalid", `${dir} is not a real directory`);
-  const grantId = uuid();
-  if (!UUID_V4.test(grantId)) fail("invalid", "grantId must be a lowercase uuid v4");
-  const body = {
-    schema: SNAPSHOT_GRANT_SCHEMA, grantId, primary, commit: { sha: commit.sha, tree: commit.tree }, snapshot: { path: snapshot.path, expectedTree: snapshot.expectedTree },
-    declaredInputs: { inputs: [...declaredInputs] }, ownership: { handle }, allowedWorkspaces: [...allowedWorkspaces], maxCalls, expiresAt: new Date(now + ttlMs).toISOString(),
-  };
-  const bytes = Buffer.from(JSON.stringify(body), "utf8");
-  if (bytes.length > CARRIER_MAX_BYTES) fail("too-large", `the stage grant is ${bytes.length} bytes, more than ${CARRIER_MAX_BYTES}`);
-  const file = path.join(dir, `grant-${grantId}.json`);
-  fs.writeFileSync(file, bytes, { flag: "wx", mode: 0o600 });
-  const digest = sha256(bytes);
-  const descriptor = JSON.stringify({ path: file, sha256: digest });
-  if (Buffer.byteLength(descriptor) > DESCRIPTOR_MAX_BYTES) { fs.rmSync(file, { force: true }); fail("too-large", "the stage grant descriptor exceeds 4096 bytes"); }
-  return { file, sha256: digest, descriptor, body, env: { [SNAPSHOT_GRANT_ENV]: descriptor, RUSTRIGHT_CALLING_GATE: callingGate } };
-}
-
-/** The request core the broker digests for a snapshot cargo request: the base core plus commit, snapshot, declaredInputs and ownership. */
-export function snapshotRequestCore({ argv, workspace, observedEnv = {}, carrier }) {
+/**
+ * The request core the broker digests for a snapshot request: the base core plus commit, snapshot, declaredInputs and ownership. A cargo
+ * request has `shim: "cargo"` and no adapter; a carried adapter request (rustright#190 D2) has `shim: "adapter"`, the registered adapter's
+ * name, and no observed environment (the broker takes none for an adapter job). The adapter spelling is RustRight's; see
+ * snapshot-broker.mjs carryBrokerAdapter.
+ */
+export function snapshotRequestCore({ argv, workspace, observedEnv = {}, carrier, adapter = null }) {
   return {
-    adapter: null, env: {}, inputManifest: null, nonce: carrier.nonce, observedEnv, outputs: [], requestedArgv: [...argv], shim: "cargo", workspace,
+    adapter, env: {}, inputManifest: null, nonce: carrier.nonce, observedEnv: adapter === null ? observedEnv : {}, outputs: [], requestedArgv: [...argv], shim: adapter === null ? "cargo" : "adapter", workspace,
     commit: carrier.commit, snapshot: carrier.snapshot, declaredInputs: carrier.declaredInputs, ownership: carrier.ownership,
   };
 }
@@ -342,8 +344,88 @@ export function isGenerationTarget(outputDir, outputRoots, platform = process.pl
 
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
+/** Whether `dir` is a managed generation target or a directory inside one (a nested compile's own directory under the adapter job's target). */
+export function isInsideGenerationTarget(dir, outputRoots, platform = process.platform) {
+  const mod = platform === "win32" ? path.win32 : path;
+  for (const root of outputRoots) {
+    const rel = mod.relative(platform === "win32" ? mod.resolve(root).toLowerCase() : mod.resolve(root), platform === "win32" ? mod.resolve(dir).toLowerCase() : mod.resolve(dir));
+    const segments = rel.split(/[\\/]/);
+    if (segments.length >= 4 && segments[0] !== ".." && !mod.isAbsolute(rel) && /^[0-9a-f]{12}$/.test(segments[0]) && segments[1] === "g" && /^[0-9]{3,}$/.test(segments[2]) && segments[3] === "target") return true;
+  }
+  return false;
+}
+
+
 /**
- * Verifies the receipt of one snapshot cargo request. `pins` come from this host's enrollment, never from the receipt.
+ * The filesystem-free identity of a signed `snapshotEvidence` (rightkit#1301 B9), shared by the gate's own verification of a receipt
+ * (verifySnapshotReceipt) and the hosted admission (qualification-verify.mjs): the commit is `commit` ({ sha, tree }), the ownership
+ * handle is `handle` when one is known, the request id is the job's, the snapshot path is `snapshotPath` when one is known (compared with
+ * `samePath`, which the gate gives a real-path comparison), and the snapshot held `tree` at START and at exit. Throws a
+ * SnapshotRequestError (`evidence`); returns the evidence's `snapshot`.
+ */
+export function verifySnapshotEvidenceIdentity(evidence, { commit, tree = commit?.tree, jobId, handle, snapshotPath, samePath = (a, b) => a === b }) {
+  if (!evidence || typeof evidence !== "object") fail("evidence", "the signed payload carries no snapshotEvidence: the broker did not build this as a snapshot request");
+  if (!same(evidence.commit, commit)) fail("evidence", "the signed commit is not the one this request carried");
+  if (handle !== undefined && evidence.ownership?.handle !== handle) fail("evidence", "the signed ownership handle is not this gate's");
+  if (typeof evidence.requestId !== "string" || evidence.requestId !== jobId) fail("evidence", "the signed request id is not this job");
+  const snap = evidence.snapshot ?? {};
+  if (snapshotPath !== undefined && !samePath(snap.path, snapshotPath)) fail("evidence", `the signed snapshot ${snap.path} is not ${snapshotPath}`);
+  if (snap.treeAtStart !== tree || snap.treeAtExit !== tree) {
+    fail("evidence", `the snapshot was tree ${snap.treeAtStart} at START and ${snap.treeAtExit} at exit, not ${tree} throughout: the build changed a tracked file (or added or removed one) in the commit's snapshot, so the result is discarded; that is the app owner's defect to fix (write generated output to an ignored path or an output directory, or generate before commit)`);
+  }
+  return snap;
+}
+
+export const NESTED_CHILD_FIELDS = Object.freeze(["requestId", "parentRequestId", "shim", "argv", "cwd", "exitCode", "status", "outputDir"]);
+/** The most children a root job's list may carry (rustright#190: the broker's cap; a refused child is never listed). */
+export const NESTED_CHILDREN_CAP = 8192;
+
+/**
+ * The nested children of a snapshot-bound adapter job (rustright#190, final): the list the broker signs at `payload.snapshotEvidence.nestedChildren`
+ * and mirrors at the receipt's `nestedChildren`; BOTH are required and must be equal. Entries are in admission order, each exactly
+ * `{ requestId, parentRequestId, shim, argv, cwd, exitCode, status, outputDir }`: `argv` is redacted (cargo only), `exitCode` is an integer or
+ * null, `status` is "UNFINISHED" for a child that had not ended when the root's receipt was built, `outputDir` is null for a child that does not
+ * compile (`rustc -vV`, `metadata`). A refused child is not listed. Returns the normalised list or throws a SnapshotRequestError (`nested`).
+ * Refused: a missing or differing list, more than the cap, a child whose `parentRequestId` is neither the root job nor an earlier listed child, a repeated request id, an
+ * UNFINISHED child, a null or non-zero exit code, a cwd outside the snapshot, and a non-null `outputDir` that is not absolute, is inside the
+ * snapshot or the checkout, or is not a managed generation target or inside one.
+ */
+export function verifyNestedChildren(evidence, receipt, { snapshotPath, checkout, outputRoots, platform = process.platform, canonicalPath = (p) => fs.realpathSync.native(p), jobId }) {
+  const list = evidence?.nestedChildren;
+  if (!Array.isArray(list)) fail("nested", "the signed snapshotEvidence carries no nestedChildren list: the broker did not sign what this adapter job's children ran");
+  if (!Array.isArray(receipt?.nestedChildren)) fail("nested", "the receipt carries no nestedChildren list (the mirror of the signed one)");
+  if (!same(receipt.nestedChildren, list)) fail("nested", "receipt nestedChildren differs from the signed list");
+  if (list.length > NESTED_CHILDREN_CAP) fail("nested", `the nestedChildren list holds ${list.length} entries, more than the cap ${NESTED_CHILDREN_CAP}`);
+  const canon = (p) => { try { return canonicalPath(p); } catch { return p; } };
+  const ids = new Set();
+  return list.map((child, index) => {
+    const where = `nestedChildren[${index}]`;
+    if (!isObject(child) || Object.keys(child).sort().join() !== [...NESTED_CHILD_FIELDS].sort().join()) fail("nested", `${where} is not exactly { ${NESTED_CHILD_FIELDS.join(", ")} }`);
+    if (typeof child.requestId !== "string" || !child.requestId || child.requestId === jobId || ids.has(child.requestId)) fail("nested", `${where} has no request id of its own`);
+    const name = `${where} (${child.requestId})`;
+    // The parent is the job the request named: this job, or a child listed before it (admission order; depth >= 2, rustright#190 ad9ecb37).
+    if (child.parentRequestId !== jobId && !ids.has(child.parentRequestId)) fail("nested", `${name} names parent ${JSON.stringify(child.parentRequestId)}, neither this job ${jobId} nor an earlier listed child`);
+    ids.add(child.requestId);
+    if (typeof child.shim !== "string" || !child.shim) fail("nested", `${name} names no shim`);
+    if (!Array.isArray(child.argv) || !child.argv.every((a) => typeof a === "string")) fail("nested", `${name} argv is not a list of strings`);
+    if (child.status === "UNFINISHED") fail("nested", `${name} (${child.argv.join(" ")}) had not finished when the job's receipt was built (UNFINISHED)`);
+    if (typeof child.status !== "string" || !child.status) fail("nested", `${name} has no status`);
+    if (!Number.isSafeInteger(child.exitCode) || child.exitCode !== 0) fail("nested", `${name} (${child.argv.join(" ")}) exited ${child.exitCode === null ? "with no exit code" : child.exitCode}, not 0: a child of this job failed or never finished`);
+    if (typeof child.cwd !== "string" || (!path.isAbsolute(child.cwd) && !path.win32.isAbsolute(child.cwd))) fail("nested", `${name} names no absolute working directory`);
+    if (!inside(child.cwd, snapshotPath, platform) && !inside(canon(child.cwd), canon(snapshotPath), platform)) fail("nested", `${name} ran in ${child.cwd}, outside the snapshot ${snapshotPath}`);
+    const out = child.outputDir;
+    if (out !== null) {
+      if (typeof out !== "string" || (!path.isAbsolute(out) && !path.win32.isAbsolute(out))) fail("nested", `${name} names an output directory that is neither null nor absolute`);
+      if (inside(out, snapshotPath, platform) || inside(out, canon(snapshotPath), platform)) fail("nested", `${name} output directory ${out} is inside the snapshot`);
+      if (inside(out, checkout, platform) || inside(out, canon(checkout), platform)) fail("nested", `${name} output directory ${out} is inside the checkout`);
+      if (!isInsideGenerationTarget(out, outputRoots, platform)) fail("nested", `${name} output directory ${out} is not inside a managed generation target under ${outputRoots.join(", ")}`);
+    }
+    return { requestId: child.requestId, parentRequestId: child.parentRequestId, shim: child.shim, argv: [...child.argv], cwd: child.cwd, exitCode: 0, status: child.status, outputDir: out };
+  });
+}
+
+/**
+ * Verifies the receipt of one snapshot request (a cargo call, or with `adapter` an adapter job). `pins` come from this host's enrollment, never from the receipt.
  * Returns `{ payload, evidence }`; throws ProvenanceError (legacy, signature, pins, job, nonce, request) or SnapshotRequestError (evidence).
  *
  * Beyond the signature, the job, the nonce and the request digest, the receipt must carry (item 7 row 7.22):
@@ -355,8 +437,8 @@ const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v)
  *   - verdict, timingsMs, exit, diagnosticsPath, brokerVersion, executor and refreshed present with their types.
  * `checkout` and `outputRoots` are required: without them nothing can be said about where the outputs went, so it refuses.
  */
-export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, workspace, observedEnv = {}, checkout, outputRoots, platform = process.platform, canonicalPath = (p) => fs.realpathSync.native(p), digestInputs = declaredInputDigestsOf, readInputs = readDeclaredInputs }) {
-  const requestDigest = requestDigestOf(snapshotRequestCore({ argv, workspace, observedEnv, carrier }));
+export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, workspace, observedEnv = {}, adapter = null, checkout, outputRoots, platform = process.platform, canonicalPath = (p) => fs.realpathSync.native(p), digestInputs = declaredInputDigestsOf, readInputs = readDeclaredInputs }) {
+  const requestDigest = requestDigestOf(snapshotRequestCore({ argv, workspace, observedEnv, carrier, adapter }));
   const payload = verifyProvenance(receipt, pins, { jobId, nonce: carrier.nonce, requestDigest });
   // The signed outcome, not the client's exit code: a passing row needs the broker to have signed SUCCEEDED with exit 0 and no
   // signal (service.rs provenance_payload `result`). An authentic FAILED, or a payload without a result, is not a success.
@@ -370,16 +452,10 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   for (const name of SNAPSHOT_EVIDENCE_FIELDS) {
     if (evidence[name] === undefined || !same(receipt[name], evidence[name])) fail("evidence", `receipt ${name} differs from the signed snapshot evidence`);
   }
-  if (!same(evidence.commit, carrier.commit)) fail("evidence", "the signed commit is not the one this request carried");
-  if (evidence.ownership?.handle !== carrier.ownership.handle) fail("evidence", "the signed ownership handle is not this gate's");
-  if (evidence.requestId !== jobId) fail("evidence", "the signed request id is not this job");
-  const snap = evidence.snapshot ?? {};
-  let samePath = false;
-  try { samePath = canonicalPath(snap.path) === canonicalPath(carrier.snapshot.path); } catch { samePath = false; }
-  if (!samePath) fail("evidence", `the signed snapshot ${snap.path} is not ${carrier.snapshot.path}`);
-  if (snap.treeAtStart !== carrier.snapshot.expectedTree || snap.treeAtExit !== carrier.snapshot.expectedTree) {
-    fail("evidence", `the snapshot was tree ${snap.treeAtStart} at START and ${snap.treeAtExit} at exit, not ${carrier.snapshot.expectedTree} throughout: the build changed a tracked file (or added or removed one) in the commit's snapshot, so the result is discarded; that is the app owner's defect to fix (write generated output to an ignored path or an output directory, or generate before commit)`);
-  }
+  verifySnapshotEvidenceIdentity(evidence, {
+    commit: carrier.commit, tree: carrier.snapshot.expectedTree, jobId, handle: carrier.ownership.handle, snapshotPath: carrier.snapshot.path,
+    samePath: (a, b) => { try { return canonicalPath(a) === canonicalPath(b); } catch { return false; } },
+  });
   // Declared inputs: what the broker digested in place must be what the gate digests in the snapshot, from the same manifest.
   let gateInputs; let gateDigests;
   try {
@@ -402,7 +478,9 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   // anyway, both must carry the same value.
   const stage = payload.stageEvidence;
   if (!isObject(stage)) fail("evidence", "the signed payload carries no stageEvidence");
-  const compile = isCompileClass(argv);
+  // An adapter job is not a cargo command: whether it signs attribution and toolchain is the adapter's; when either side carries one,
+  // both must carry the same value (below).
+  const compile = adapter === null && isCompileClass(argv);
   for (const name of STAGE_EVIDENCE_FIELDS) {
     const signed = stage[name] ?? null; const copy = receipt[name] ?? null;
     const required = name === "freshness" || compile;
@@ -434,7 +512,9 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   for (const name of SIGNED_TOP_LEVEL_FIELDS) {
     if (payload[name] !== undefined && !same(receipt[name], payload[name])) fail("evidence", `receipt ${name} differs from the signed payload`);
   }
-  return { payload, evidence, attribution, toolchain };
+  // A snapshot-bound adapter job signs the compiles its own children made (rustright#190 D8).
+  const nestedChildren = adapter === null ? null : verifyNestedChildren(evidence, receipt, { snapshotPath: carrier.snapshot.path, checkout, outputRoots, platform, canonicalPath, jobId });
+  return { payload, evidence, attribution, toolchain, nestedChildren };
 }
 
 export { ProvenanceError };

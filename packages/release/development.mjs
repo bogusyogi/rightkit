@@ -347,8 +347,9 @@ function assertNonEmptyExecutable(file) { if (!existsSync(file) || !statSync(fil
 function resolveBundleRoot(descriptor, { root, env, runCargo }) {
   if (!descriptor.manifestPath) throw new Error("Tauri installer requires manifestPath when bundleDirectory is omitted");
   const manifest = path.resolve(root, descriptor.manifestPath);
-  // The bundle root is under the output directory a signed receipt of this stage named (the build step's own carried call), not under a read-only metadata call.
-  const fromReceipt = carriedOutputDir(env, manifest);
+  // The bundle root is under the output directory a signed receipt of this stage named, not under a read-only metadata call
+  // (the compile the Tauri CLI made nested under the build step's carried adapter job, from the broker's signed list of its children).
+  const fromReceipt = carriedOutputDir(env, manifest, { preferNested: true });
   if (fromReceipt) return path.join(fromReceipt, descriptor.targetTriple, cargoProfileDirectory(DEVELOPMENT_PROFILE), "bundle", platformBundleKind(descriptor));
   const cwd = process.cwd();
   let metadata;

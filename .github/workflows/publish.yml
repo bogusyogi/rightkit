@@ -698,15 +698,21 @@ jobs:
           PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}
           PUBLISH_UNITS: ${{ needs.plan.outputs.units }}
         run: node scripts/ci/publish.mjs pack
-      # One door: the sealed archive must be byte-identical to the one rightkit-gate qualified locally (its sha256 travels in the
-      # qualification input). A mismatch stops the run here with both digests and the hosted listing; nothing is repacked.
+      # One door: the sealed archive must hold the content rightkit-gate qualified locally (an npm unit by its content digest, a crate by
+      # its sha256; both travel in the qualification input). @rightkit/release's signed swap helper is the one entry compared separately:
+      # its sha256 must be the sign-swap job's. A mismatch stops the run here with both digests and the hosted listing; nothing is repacked.
       - name: Bind the sealed archive to the local qualification
         env:
           QUALIFICATION: ${{ inputs.qualification }}
           EXPECTED_SHA: ${{ inputs.expected_sha }}
           REGISTRY: ${{ needs.plan.outputs.registry }}
           UNITS: ${{ needs.plan.outputs.units }}
-        run: node scripts/ci/publish-admission.mjs bind --packed "$RUNNER_TEMP/rk-pack"
+          SWAP_SHA256_FILE: ${{ needs.sign-swap.result == 'success' && format('{0}/swap-signed/rightkit-swap.sha256', runner.temp) || '' }}
+        run: |
+          set -euo pipefail
+          args=(--packed "$RUNNER_TEMP/rk-pack")
+          if [ -n "$SWAP_SHA256_FILE" ]; then args+=(--swap-sha256-file "$SWAP_SHA256_FILE"); fi
+          node scripts/ci/publish-admission.mjs bind "${args[@]}"
       - name: Keep the sealed artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

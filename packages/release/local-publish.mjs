@@ -29,6 +29,7 @@ import { refuseHostUpload } from "./host-upload-refusal.mjs";
 import { pathDependencyDirs, readCargoPackage } from "./crate-graph.mjs";
 import { recordPublished, stageSourceVersions, workspaceFeedOptions } from "./rightkit-sync.mjs";
 import { prepareSwapHelper, SWAP_HELPER_CARGO_ARGS, SWAP_HELPER_PACKAGE } from "./swap-helper-bundle.mjs";
+import { exclusionsFor, npmContentDigest } from "./pack-digest.mjs";
 import { requireDoorRun, gateStateDir } from "./gate-stages.mjs";
 
 export const LOCAL_OPERATOR = "agent (local-build grant)";
@@ -559,6 +560,10 @@ async function* publishUnitStages(parsed, deps, batch) {
   // Every pnpm step goes through the one door for build and test launches (build-launch.mjs): a rightkit-pnpm broker job on a
   // managed host (refused, never run directly, when the broker is unreachable), direct on a host without one. A run headed to release
   // then also has the signed receipt each stage owes (stage-commands.mjs). Other commands (cargo is already a broker job) are unchanged.
+  // A release-bound stage carries its nonce in RIGHTKIT_ATTEST_STAGE_NONCE (unit-gate.mjs stageEnv), which is no carrier variable. Every pnpm
+  // and Cargo step of a snapshot stage is a carried request of its own (build-launch.mjs routes pnpm to the carried adapter runner, carried-cargo.mjs
+  // runCarriedAdapter), and each derives its per-call nonce from the stage nonce (snapshot-broker.mjs carryBrokerAdapter and carryBrokerCargo,
+  // rightkit#1301 B8), so nothing is given the stage nonce itself and no step sets RUSTRIGHT_ATTEST_NONCE.
   const run = (command, args, options) => {
     const target = command === "pnpm" ? buildLaunch(command, args, { env: options?.env ?? process.env, platform: deps.platform ?? process.platform, exists: fs.existsSync }) : { command, args };
     const result = launch(target.command, target.args, options);
@@ -668,22 +673,20 @@ async function* publishUnitStages(parsed, deps, batch) {
   if (packageEnv) Object.assign(env, testEnv({ env: packageEnv }, isAssetGated));
 
   // 3. Pack the artifact and hash it.
-  // An npm pack is a broker job whose --dir and --pack-destination the adapter accepts only under the host's scratch root, so it
-  // packs there (the workspace rule for run output) rather than in the OS temp directory.
+  // An npm pack is a broker job whose --pack-destination the adapter accepts only as an empty child of the host's scratch root, so the
+  // tarball goes there (the workspace rule for run output) rather than in the OS temp directory; the package itself is packed from the
+  // snapshot (relative --dir).
   const scratchRoot = deps.tmpdir ?? (kind === "npm" ? (platform === "win32" ? "D:\\scratch" : "/Volumes/D/scratch") : os.tmpdir());
   const scratch = fs.mkdtempSync(path.join(scratchRoot, "rk-local-publish-"));
   const cleanup = () => fs.rmSync(scratch, { recursive: true, force: true });
   try {
     let artifactFile; const packCommands = [];
-    let packDir = dir;
     if (kind === "npm" && unit === SWAP_HELPER_PACKAGE) {
-      if (parsed.qualifyOnly) {
-        // Signing writes its binary and receipt. Keep both in the pack copy, never the source checkout.
-        packDir = path.join(scratch, "package-source");
-        fs.cpSync(unitPath, packDir, { recursive: true, filter: (source) => path.basename(source) !== "node_modules" });
-      }
-      // #258: the package ships a Developer-ID-signed bin/darwin/rightkit-swap; build, sign and verify it before packing (fails closed).
-      try { (deps.prepareSwapHelper ?? prepareSwapHelper)({ workspaceRoot, packageDir: parsed.qualifyOnly ? packDir : unitPath, platform, run, env, log }); }
+      // #258: the package ships a Developer-ID-signed bin/darwin/rightkit-swap; build, sign and verify it before packing (fails closed). The
+      // helper and its signing receipt are written into the unit's own directory of the snapshot (packages/release/bin/darwin, both ignored by
+      // packages/release/.gitignore): declared stage outputs of this stage, recorded by the gate's stage-output ledger (stage-ledger.mjs) like
+      // any ignored generated file, never a copy of the package kept outside the snapshot, so the pack below runs from the snapshot.
+      try { (deps.prepareSwapHelper ?? prepareSwapHelper)({ workspaceRoot, packageDir: unitPath, platform, run, env, log }); }
       catch (error) { refuse(`${error.code ? `[${error.code}] ` : ""}${error.message}`); }
       packCommands.push(`rustright cargo ${SWAP_HELPER_CARGO_ARGS.join(" ")} && codesign --verify --strict bin/darwin/rightkit-swap`);
     }
@@ -695,7 +698,9 @@ async function* publishUnitStages(parsed, deps, batch) {
       // child of a scratch directory (never the scratch directory itself) and refuses one that already holds a tarball.
       const packOut = path.join(scratch, "pack");
       fs.mkdirSync(packOut);
-      const args = npmPackArgs(packDir, packOut);
+      // `--dir` is the unit's directory RELATIVE to the repository root, where the step runs: a snapshot-bound adapter job refuses an absolute --dir; only
+      // --pack-destination is outside the snapshot (an empty child of the scratch directory).
+      const args = npmPackArgs(dir, packOut);
       packCommands.push(`pnpm ${args.join(" ")}`);
       const packed = await run("pnpm", args, { cwd: workspaceRoot, env });
       if (packed.error || packed.status !== 0) refuse(`pnpm pack failed for ${unit}\n${tail(`${packed.stdout ?? ""}\n${packed.stderr ?? ""}`)}`);
@@ -725,6 +730,7 @@ async function* publishUnitStages(parsed, deps, batch) {
       if (!fs.existsSync(artifactFile)) refuse(`cargo package did not produce ${artifactFile}`);
     }
     const artifactSha256 = sha256(fs.readFileSync(artifactFile));
+    let contentSha256 = null, contentExcluded = [];
     if (parsed.qualifyOnly && (git(["rev-parse", "HEAD"], workspaceRoot) !== head || git(["status", "--porcelain", "--", ...guardedPaths], workspaceRoot) !== "")) refuse("qualification inputs changed while preparing the artifact; no bundle was created");
     if (parsed.qualifyOnly) {
       fs.mkdirSync(parsed.bundleDir, { recursive: false });
@@ -732,7 +738,13 @@ async function* publishUnitStages(parsed, deps, batch) {
       fs.copyFileSync(artifactFile, bundledArtifact, fs.constants.COPYFILE_EXCL);
       if (sha256(fs.readFileSync(bundledArtifact)) !== artifactSha256) refuse("qualification archive changed while copying");
       artifactFile = bundledArtifact;
-      yield { stage: "package", kind, name: unit, version, commit: head, artifactFile, artifactSha256, brokerRequests: brokerRequests.splice(0) };
+      // An npm archive is bound hosted by what it ships (pack-digest.mjs), not by its bytes; the swap helper and its signing receipt are
+      // the only entries left out, for @rightkit/release alone, and their presence is recorded.
+      if (kind === "npm") {
+        try { const digest = npmContentDigest(artifactFile, { exclude: exclusionsFor(unit) }); contentSha256 = digest.contentSha256; contentExcluded = Object.keys(digest.excluded).sort(); }
+        catch (error) { refuse(`${unit}: cannot read the packed archive for its content digest (${error.message})`); }
+      }
+      yield { stage: "package", kind, name: unit, version, commit: head, artifactFile, artifactSha256, ...(contentSha256 ? { contentSha256, contentExcluded } : {}), brokerRequests: brokerRequests.splice(0) };
       if (sha256(fs.readFileSync(artifactFile)) !== artifactSha256) refuse("qualification archive changed after packaging");
     }
 
@@ -767,7 +779,7 @@ async function* publishUnitStages(parsed, deps, batch) {
       // Bytes and evidence stay together outside the checkout.
       const bundledEvidence = evidencePath;
       log(`[right-release] qualified ${unit}@${version}; bundle ${parsed.bundleDir}${kind === "cargo" ? `; publish cargo --crate ${unit} --from-evidence ${bundledEvidence}` : ""}`);
-      return { kind, name: unit, version, commit: head, artifactSha256, evidencePath: bundledEvidence, artifactFile, qualifiedOnly: true };
+      return { kind, name: unit, version, commit: head, artifactSha256, ...(contentSha256 ? { contentSha256, contentExcluded } : {}), evidencePath: bundledEvidence, artifactFile, qualifiedOnly: true };
     }
 
     // 5. The EXISTING publish path.

@@ -39,8 +39,12 @@ test("M1: a configured cargo or rustright cargo step whose carrier map cannot be
   for (const [command, args] of [["cargo", ["build"]], ["rustright", ["cargo", "test"]], ["/x/cargo", ["check"]]]) {
     assert.throws(() => buildLaunch(command, args, host), (e) => e.code === BUILD_LAUNCH_REFUSED && /cannot be read/.test(e.message) && /never sent to the client/.test(e.message), command);
   }
-  // A step that is no Cargo step does not look at the map; a missing map variable is no carrier.
-  assert.equal(buildLaunch("pnpm", ["run", "x"], host).command, CLIENT);
+  // A pnpm, node or QA step is carried the same way: a map that cannot be read refuses it, never the client's adapter job around the carrier.
+  for (const [command, args] of [["pnpm", ["run", "x"]], ["rightkit-qa", ["--all"]], ["node", ["scripts/x.mjs"]]]) {
+    assert.throws(() => buildLaunch(command, args, { ...host, cwd: "/app" }), (e) => e.code === BUILD_LAUNCH_REFUSED && /cannot be read/.test(e.message) && /never sent to the client/.test(e.message), command);
+  }
+  // A missing map variable is no carrier.
+  assert.equal(buildLaunch("pnpm", ["run", "x"], { ...host, env: { PATH: "/managed/agent-bin" } }).command, CLIENT);
   assert.deepEqual(buildLaunch("cargo", ["build"], { ...host, env: { PATH: "/managed/agent-bin" } }), { command: CLIENT, args: ["cargo", "build"] });
 });
 

@@ -39,6 +39,7 @@ import path from "node:path";
 import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
 import { resolveCommand } from "./development.mjs";
 import { carriedCargoMapOf } from "./carried-cargo.mjs";
+import { BUILD_LAUNCH_REFUSED, buildLaunch } from "./build-launch.mjs";
 import { directPlatform, managedHost, runCargoSync } from "./managed-cargo.mjs";
 import { APPROVAL_MACHO_STRIP_LINKEDIT_V1, APPROVAL_RAW_SHA256, approvalDigest } from "./macho-approval-hash.mjs";
 import {
@@ -821,6 +822,31 @@ function splitCommandEnv(ctx) {
   return ctx.splitEnv;
 }
 
+/**
+ * One step command of a config (`stage.cmd`, a `command` entry's `cmd`, the cmake tool). In a snapshot stage with a carrier (the gate's
+ * carrier map in the environment) every compile is carried or nested under a carried adapter job, so such a step goes through the door
+ * (build-launch.mjs): `pnpm`, `node`, `swift` and `rightkit-qa` become carried adapter jobs, `rustright cargo` keeps the carried seam
+ * (defaultRun), this package's own `right-release` runs as it is, and anything else (`cmake`, a bare tool, `rustright <not cargo>`) is
+ * refused with STAGE_SIDECAR_STEP_REFUSED, naming the step: it would otherwise run uncarried around the broker. Without a carrier the
+ * step runs exactly as before. Utility commands that compile nothing (`tar`, `codesign`) never come through here.
+ */
+export function runStep(ctx, command, args, options = {}) {
+  const env = options.env ?? ctx.env;
+  const carried = carriedCargoMapOf(env);
+  if (!carried || (command === "rustright" && String(args[0]) === "cargo")) return ctx.run(command, args, options);
+  const describe = `${command} ${args.join(" ")}`.trim();
+  if (carried.error) fail("STAGE_SIDECAR_STEP_REFUSED", `step \`${describe}\`: ${carried.error}; a snapshot stage's step is never run around its carrier`, { command });
+  const own = command === "right-release" || (command === "pnpm" && ((args[0] === "exec" && args[1] === "right-release") || args[0] === "right-release"));
+  let launch;
+  try {
+    launch = own ? resolveCommand(command, args, { root: options.cwd, env }) : buildLaunch(command, args, { env, cwd: options.cwd, exists: ctx.fs?.existsSync });
+  } catch (error) {
+    if (error?.code === BUILD_LAUNCH_REFUSED) fail("STAGE_SIDECAR_STEP_REFUSED", `step \`${describe}\` of a snapshot stage is refused: ${error.message}`, { command });
+    throw error;
+  }
+  return ctx.run(launch.command, launch.args, { ...options, env: launch.env ? { ...env, ...launch.env } : env });
+}
+
 /** A cache directory the config names (`cacheDir`): the checkout's `.right-release` under a split, the app root otherwise. */
 const cacheDirFor = (ctx, dir) => (ctx.split ? path.resolve(ctx.cacheRoot, ".right-release", dir) : path.resolve(ctx.appRoot, dir));
 /** The per-arch slice directory of a universal staging: absolute under the checkout's cache root on a split, app-relative otherwise. */
@@ -1044,7 +1070,7 @@ async function stageFfmpegSlice(entry, ctx, resolved, { config, t, writeNotices,
     // A universal entry stages once per slice: `{arch}`, `{triple}` and `{stageDir}` in the stage command's arguments name the slice.
     const args = (config.stage.args ?? []).map((arg) => (universal ? String(arg).replaceAll("{arch}", t.arch).replaceAll("{triple}", t.triple).replaceAll("{stageDir}", sliceRoot === appRoot ? config.stageDir : path.resolve(sliceRoot, config.stageDir)) : arg));
     ctx.log(`stage-sidecar: ${config.stage.cmd} ${args.join(" ")}`);
-    const staged = run(config.stage.cmd, args, { cwd: appRoot, env: splitCommandEnv(ctx) });
+    const staged = runStep(ctx, config.stage.cmd, args, { cwd: appRoot, env: splitCommandEnv(ctx) });
     if (staged?.error || staged?.status !== 0) fail("STAGE_SIDECAR_BUILD_FAILED", `ffmpeg stage command failed (${staged?.error?.message ?? `exit ${staged?.status}`})`);
   }
   const noticeFiles = writeNotices ? writeMediaSidecarNotices(plan, { exists: fs.existsSync, mkdir: fs.mkdirSync, copy: fs.copyFileSync, write: fs.writeFileSync }) : [];
@@ -1534,7 +1560,7 @@ function stageCommand(entry, ctx) {
   const cwd = entry.cwd ? path.resolve(appRoot, entry.cwd) : appRoot;
   cleanDest(ctx, entry, destFor(entry, ctx));
   ctx.log(`stage-sidecar: ${entry.cmd} ${entry.args.join(" ")}`);
-  const built = run(entry.cmd, entry.args, { cwd, env: splitCommandEnv(ctx) });
+  const built = runStep(ctx, entry.cmd, entry.args, { cwd, env: splitCommandEnv(ctx) });
   if (built?.error || built?.status !== 0) fail("STAGE_SIDECAR_BUILD_FAILED", `command ${entry.name} (${entry.cmd}) failed (${built?.error?.message ?? `exit ${built?.status}`})`, { name: entry.name, stderr: tail(built?.stderr) });
   const source = path.resolve(appRoot, entry.output);
   if (!fs.existsSync(source) || !fs.statSync(source).isFile()) fail("STAGE_SIDECAR_BINARY_NOT_FOUND", `command ${entry.name} did not produce ${entry.output}`, { name: entry.name, output: entry.output });
@@ -1696,7 +1722,7 @@ function stageCmake(entry, ctx) {
   const configure = ["-S", srcDir, "-B", buildDir, "-DCMAKE_BUILD_TYPE=Release", ...(generator ? ["-G", generator] : []), ...(entry.architecture ? ["-A", entry.architecture] : []), ...(archFlag ? [archFlag] : []), ...(entry.platformArgs[target.platform] ?? []), ...entry.cmakeArgs];
   const step = (args, label) => {
     ctx.log(`stage-sidecar: ${cmake} ${args.join(" ")}`);
-    const result = run(cmake, args, { cwd: appRoot, env });
+    const result = runStep(ctx, cmake, args, { cwd: appRoot, env });
     if (result?.error || result?.status !== 0) fail("STAGE_SIDECAR_BUILD_FAILED", `cmake ${label} of ${entry.name} failed (${result?.error?.message ?? `exit ${result?.status}`})`, { name: entry.name, stderr: tail(result?.stderr) });
   };
   step(configure, "configure");

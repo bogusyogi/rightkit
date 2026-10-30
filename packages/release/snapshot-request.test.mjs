@@ -11,7 +11,7 @@ import test from "node:test";
 import { canonicalJson, signedBytes } from "./provenance-verify.mjs";
 import {
   ATTEST_NONCE_ENV, DESCRIPTOR_MAX_BYTES, REQUEST_ID_FILE_ENV, SNAPSHOT_REQUEST_ENV, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, declaredInputDigestsOf, freshNonce,
-  cargoSubcommandOf, isCompileClass, isGenerationTarget, observedEnvOf, readDeclaredInputs, readRequestRef, requestDigestOf, snapshotRequestCore, verifySnapshotReceipt, writeSnapshotRequest,
+  cargoSubcommandOf, isCompileClass, isGenerationTarget, observedEnvOf, readDeclaredInputs, readRequestRef, requestDigestOf, snapshotRequestCore, verifySnapshotEvidenceIdentity, verifySnapshotReceipt, writeSnapshotRequest,
 } from "./snapshot-request.mjs";
 import { makeFakeBroker, signedReceipt } from "./test-support/fake-broker.mjs";
 
@@ -411,3 +411,23 @@ function signedReceiptWithOutput(c, outputDir) {
   void evidence;
   return { check: () => verifySnapshotReceipt(rebuilt, { pins: c.fx.pins, jobId: JOB, carrier: c.made.carrier, argv: c.argv, workspace: c.fx.checkout, checkout: c.fx.checkout, outputRoots: [c.fx.wsRoot], platform: process.platform }) };
 }
+
+test("[B9] the filesystem-free evidence identity: commit, handle, request id, snapshot path and the tree at start and exit, in the gate's order", () => {
+  const commit = { sha: "a".repeat(40), tree: "b".repeat(40) };
+  const evidence = { requestId: "job-1", commit, snapshot: { path: "/s/x", treeAtStart: commit.tree, treeAtExit: commit.tree }, ownership: { handle: "h" } };
+  const ok = (over = {}, expect = {}) => verifySnapshotEvidenceIdentity({ ...evidence, ...over }, { commit, jobId: "job-1", ...expect });
+  assert.deepEqual(ok(), evidence.snapshot, "handle and snapshot path are checked only when the caller knows them");
+  assert.deepEqual(ok({}, { handle: "h", snapshotPath: "/s/x" }), evidence.snapshot);
+  const refuses = (over, expect, pattern) => assert.throws(() => ok(over, expect), (e) => e instanceof SnapshotRequestError && e.code === "evidence" && pattern.test(e.message));
+  refuses({ commit: { ...commit, sha: "c".repeat(40) } }, {}, /commit is not the one/);
+  refuses({ commit: { ...commit, tree: "c".repeat(40) } }, {}, /commit is not the one/);
+  refuses({}, { handle: "other" }, /ownership handle/);
+  refuses({ requestId: "job-2" }, {}, /request id is not this job/);
+  refuses({ requestId: undefined }, {}, /request id is not this job/);
+  refuses({}, { snapshotPath: "/s/y" }, /signed snapshot \/s\/x is not \/s\/y/);
+  refuses({ snapshot: { ...evidence.snapshot, treeAtStart: "c".repeat(40) } }, {}, /throughout/);
+  refuses({ snapshot: { ...evidence.snapshot, treeAtExit: "c".repeat(40) } }, {}, /throughout/);
+  refuses({ snapshot: undefined }, {}, /throughout/);
+  assert.throws(() => verifySnapshotEvidenceIdentity(undefined, { commit, jobId: "job-1" }), /no snapshotEvidence/);
+  assert.equal(ok({}, { snapshotPath: "/s/X", samePath: (a, b) => a.toLowerCase() === b.toLowerCase() }) === evidence.snapshot, true, "the gate compares real paths through its own comparator");
+});

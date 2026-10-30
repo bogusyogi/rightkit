@@ -48,7 +48,7 @@ export function readLedger(dir, token) {
   const entries = [...byId.values()];
   for (const e of entries) {
     if (OK_STATUSES.includes(e.status)) continue;
-    const call = `cargo ${(e.argv ?? []).join(" ")}`.trim();
+    const call = `${e.adapter ?? "cargo"} ${(e.argv ?? []).join(" ")}`.trim();
     problems.push(e.status === "pending" ? `${call} (from ${e.cwd}) never completed: the wrapper recorded it and no outcome, so it is unverified` : `${call} (from ${e.cwd}) was ${e.status}${e.code ? ` (${e.code})` : ""}${e.message ? `: ${e.message}` : ""}`);
   }
   return { entries, problems };

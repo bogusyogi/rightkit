@@ -18,6 +18,7 @@ import { main, snapshotAppRootOf } from "./bin/rightkit-gate.mjs";
 import { STAGE_SOURCES, STAGES, stageSourceGaps, stageSourceProblems } from "./gate-stages.mjs";
 import { SourceSplitError, doorContextFor, readSourceSplit } from "./source-split.mjs";
 import { stageSidecars } from "./stage-sidecar.mjs";
+import { runCarriedAdapter } from "./carried-cargo.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
 import { makeFakeBroker } from "./test-support/fake-broker.mjs";
 
@@ -244,9 +245,9 @@ test("[7.02] with the carrier wired a broker host takes the snapshot route: righ
   // A refused, unverified or unfinished call in the ledger fails the stage even though the child exited 0.
   problems = ["cargo build --manifest-path x (from /s) was refused (RK_CARGO_REDIRECT)"];
   r = await door(["--to", "dev", "--commit", fx.sha], { ...carried, spawnInherit: launch });
-  assert.equal(r.code, 1, r.all); assert.match(r.err, /RK_CHECK_ERROR: \[dev\] a cargo call the right-release child made did not complete: cargo build .*RK_CARGO_REDIRECT/);
+  assert.equal(r.code, 1, r.all); assert.match(r.err, /RK_CHECK_ERROR: \[dev\] a broker call the right-release child made did not complete: cargo build .*RK_CARGO_REDIRECT/);
   r = await door(["--to", "compile", "--commit", fx.sha], { ...carried, spawnCapture: launch });
-  assert.equal(r.code, 1, r.all); assert.match(r.err, /RK_CHECK_ERROR: \[compile\] a cargo call the right-release child made did not complete/);
+  assert.equal(r.code, 1, r.all); assert.match(r.err, /RK_CHECK_ERROR: \[compile\] a broker call the right-release child made did not complete/);
   // A carrier that cannot be installed refuses the stage before the child starts.
   const launches = [];
   r = await door(["--to", "dev", "--commit", fx.sha], { ...carried, installCarrier: () => { throw new Error("disk full"); }, spawnInherit: () => { launches.push("x"); return { status: 0 }; } });
@@ -254,72 +255,69 @@ test("[7.02] with the carrier wired a broker host takes the snapshot route: righ
   // A broker that is unreachable is still refused; TAURI_CONFIG is still refused.
   assert.match((await door(["--to", "compile", "--commit", fx.sha], { ...carried, resolveExecutor: () => ({ kind: "refuse", problem: "the RightKit broker is not reachable" }) })).err, /BLOCKED: RK_SNAPSHOT_BROKER_UNAVAILABLE: the RightKit broker is not reachable; nothing ran and the checkout is never built/);
   assert.match((await door(["--to", "dev", "--commit", fx.sha], { ...carried, env: { ...fx.env, TAURI_CONFIG: "{}" } })).err, /BLOCKED: RK_TAURI_CONFIG_OVERRIDE/);
-  // The Dell has no PATH wrapper: a commit that runs the Tauri CLI gets a stage grant for its third-party children (the Mac keeps its wrapper and gets none).
+  // One model on every host: the Mac and the Dell get the same carrier (the map and the ledger), with no PATH wrapper and no stage grant, Tauri or not.
   problems = []; const before2 = installs.length;
   for (const to of ["dev", "compile"]) {
     r = await door(["--to", to, "--platform", "win", "--commit", fx.sha], { ...carried, platform: "win32", acquireOwnership: winOwnership, spawnInherit: launch, spawnCapture: launch });
     assert.equal(r.code, 0, `${to}: ${r.all}`);
   }
-  const winInstalls = installs.slice(before2);
-  assert.ok(winInstalls.length >= 2 && winInstalls.every((i) => i.grant && i.grant.primary === fs.realpathSync(fx.repo) && typeof i.grant.callingGate === "string" && i.grant.callingGate.length), JSON.stringify(winInstalls.map((i) => i.grant)));
-  assert.ok(installs.slice(0, before2).every((i) => i.grant === undefined), "a Mac stage asks for no grant");
-  // A commit with no Tauri crate asks for none on the Dell either.
-  const plainFx = fixture(t, { "README.md": "r\n", "Cargo.toml": CARGO_FILES["Cargo.toml"], "src/lib.rs": "\n" }, "rk-ds-plain-");
-  const plainInstalls = [];
-  const plainDoor = async (...a) => { try { return await plainFx.door(...a); } finally { fs.rmSync(path.join(plainFx.dir, "build-ownership"), { recursive: true, force: true }); } };
-  r = await plainDoor(["--to", "dev", "--platform", "win", "--commit", plainFx.sha], { ...carried, platform: "win32", acquireOwnership: winOwnership, spawnInherit: launch, installCarrier: (args) => { plainInstalls.push(args); return { mode: "test", env: {}, problems: async () => [] }; } });
-  assert.equal(r.code, 0, r.all); assert.ok(plainInstalls.length && plainInstalls.every((i) => i.grant === undefined));
+  assert.ok(installs.length - before2 >= 2 && installs.every((i) => i.grant === undefined), "no stage grant is asked for, on any platform");
 });
 
-test("[7.02 e2e] through the real carrier install and a fixture broker: a stage's child makes carried calls, the gate verifies the ledger after it, and a refused call, a tampered receipt or a third-party wrapper refusal fails the stage even though the child exited 0", { skip: POSIX_SIM || (process.platform === "win32" && "the fixture wrapper is POSIX only") }, async (t) => {
+test("[7.02 e2e] through the real carrier install and a fixture broker: a stage's child makes a carried Cargo call and a carried adapter step whose compile is nested, the gate verifies the ledger after it (the nested children included), and a refused call, a tampered receipt or a failed nested child fails the stage even though the child exited 0", { skip: POSIX_SIM || (process.platform === "win32" && "the fixture adapter PATH is POSIX only") }, async (t) => {
   const fx = fixture(t, CARGO_FILES, "rk-ds-e2e-");
   const fake = makeFakeBroker(t);
+  fake.rebase({ checkout: fs.realpathSync(fx.repo), snapshotsRoot: fx.snaps });
   const door = async (...a) => { try { return await fx.door(...a); } finally { fs.rmSync(path.join(fx.dir, "build-ownership"), { recursive: true, force: true }); } };
-  // The fixture broker's view of the host: its checkout is the door's checkout (the gate's snapshot-to-checkout map is what primaryCwd comes from).
-  const sb = { ...fake.sb, checkout: fs.realpathSync(fx.repo), markBrokerSubmit: () => ({ handle: fake.sb.handle, broker: { submitted: true } }) };
+  // The fixture broker's view of the host: its checkout is the door's checkout and its snapshot the door's (the gate's snapshot-to-checkout map is
+  // what primaryCwd comes from).
+  const sb = { ...fake.sb, checkout: fs.realpathSync(fx.repo), markBrokerSubmit: () => ({ handle: fake.sb.handle, broker: { submitted: true } }), get snapshot() { return { path: fx.snapshot(), expectedTree: fake.sb.snapshot.expectedTree }; } };
   const GATE = "/gate/bin/rightkit-gate.mjs";
   const base = { platform: "darwin", resolveExecutor: brokerExecutor, snapshotBroker: sb, runCheck: async () => 0, env: { ...fx.env, RUSTRIGHT_CALLING_GATE: GATE } };
   const results = [];
-  // The child: right-release's own call through the seam, and a third-party `cargo` found on PATH (the wrapper).
+  // The child: right-release's own Cargo call through the seam, and a pnpm step as a carried adapter job (what build-launch.mjs routes it to).
   const child = (mode) => (cmd, args, opts) => {
+    assert.equal(opts.env.CARGO, undefined, "no wrapper is named in CARGO");
+    assert.equal(opts.env.PATH, fx.env.PATH, "no wrapper is first on PATH: the child's PATH is the host's");
     const own = runCargoSync(mode === "redirect" ? ["build", "--target-dir", "/x"] : ["build", "--locked"], { cwd: opts.cwd, env: opts.env, encoding: "utf8" }, { platform: "darwin" });
-    assert.equal(path.dirname(opts.env.CARGO), opts.env.PATH.split(path.delimiter)[0], "the wrapper is first on PATH and named in CARGO");
-    // A third party finds `cargo` on PATH; it is launched here by the wrapper's own path (the broker guard refuses a bare name).
-    const third = mode === "wrapper-refusal" ? spawnSync(opts.env.CARGO, ["build", "--config", "build.target-dir='x'"], { cwd: opts.cwd, env: opts.env, encoding: "utf8" }) : { status: 0 };
-    results.push({ own, third });
-    return { status: 0 }; // the child exits 0 whatever its cargo calls did
+    const map = JSON.parse(fs.readFileSync(opts.env.RIGHTKIT_CARRIED_CARGO_MAP, "utf8"));
+    const adapter = runCarriedAdapter("rightkit-pnpm", ["exec", "tauri", "build"], { cwd: opts.cwd, env: opts.env, stdio: "capture" }, { map, err: () => {} });
+    results.push({ own, adapter });
+    return { status: 0 }; // the child exits 0 whatever its broker calls did
   };
+  fake.setBehavior({ adapter: { children: [{ argv: ["build", "--locked"], cwd: "." }] } });
   let r = await door(["--to", "dev", "--commit", fx.sha], { ...base, spawnInherit: child("ok") });
   assert.equal(r.code, 0, r.all);
   assert.equal(results.at(-1).own.status, 0); assert.equal(results.at(-1).own.outputDir, fake.outputDir);
+  assert.equal(results.at(-1).adapter.status, 0, results.at(-1).adapter.stderr);
+  assert.deepEqual(results.at(-1).adapter.nestedChildren.map((c) => c.argv), [["build", "--locked"]], "the Tauri compile was nested under the adapter job");
   assert.deepEqual(fake.calls().map((c) => [c.argv, c.cwd]), [[["build", "--locked"], fs.realpathSync(fx.repo)]], "the client ran in the checkout, from the call's workspace");
-  assert.match(r.out, /\[dev\] cargo carrier \(shim\): 1 workspace\(s\)/);
+  assert.deepEqual(fake.adapterCalls().map((c) => [c.adapter, c.argv, c.cwd]), [["rightkit-pnpm", ["exec", "tauri", "build"], fs.realpathSync(fx.repo)]]);
+  assert.match(r.out, /\[dev\] carrier \(map\): 1 workspace\(s\)/);
   // A refused call (--target-dir) fails the stage although the child exited 0.
   r = await door(["--to", "dev", "--commit", fx.sha], { ...base, spawnInherit: child("redirect") });
-  assert.equal(r.code, 1, r.all); assert.match(r.err, /RK_CHECK_ERROR: \[dev\] a cargo call the right-release child made did not complete: cargo build --target-dir \/x .*refused \(RK_CARGO_REDIRECT\)/);
-  // A third party's `cargo` call through the wrapper with --config is refused and fails the stage.
-  r = await door(["--to", "dev", "--commit", fx.sha], { ...base, spawnInherit: child("wrapper-refusal") });
-  assert.equal(results.at(-1).third.status, 101);
-  assert.equal(r.code, 1, r.all); assert.match(r.err, /did not complete: cargo build --config build.target-dir='x' .*RK_CARGO_REDIRECT/);
+  assert.equal(r.code, 1, r.all); assert.match(r.err, /RK_CHECK_ERROR: \[dev\] a broker call the right-release child made did not complete: cargo build --target-dir \/x .*refused \(RK_CARGO_REDIRECT\)/);
+  // A nested child that failed (the job swallowed it and exited 0) is in the broker's signed list: the stage fails, naming the child.
+  fake.setBehavior({ adapter: { children: [{ argv: ["build", "--locked"], cwd: "." }], swallow: true, childExit: 3 } });
+  r = await door(["--to", "dev", "--commit", fx.sha], { ...base, spawnInherit: child("ok") });
+  assert.equal(r.code, 1, r.all); assert.match(r.err, /did not complete: rightkit-pnpm exec tauri build .*exited 3, not 0/);
+  fake.setBehavior({ adapter: { children: [{ argv: ["build", "--locked"], cwd: "." }] } });
   // A receipt the gate cannot verify (the broker signed another argv) fails the stage.
-  fake.setBehavior({ tamper: "requestOtherArgv" });
+  fake.setBehavior({ adapter: { children: [{ argv: ["build", "--locked"], cwd: "." }] }, tamper: "requestOtherArgv" });
   r = await door(["--to", "dev", "--commit", fx.sha], { ...base, spawnInherit: child("ok") });
   assert.equal(r.code, 1, r.all); assert.match(r.err, /did not complete: cargo build --locked .*unverified/);
   fake.setBehavior({});
   // The carrier is removed with the stage: nothing of it is left in the control root.
   assert.deepEqual(fs.readdirSync(path.join(fake.controlRoot, "snapshot-requests")), []);
-  // The Dell (no wrapper): the same stage hands its children a grant, which exists while the child runs and is gone after the stage.
+  // The Dell takes the same carrier: no grant file, no grant variable, the same map.
   let seen = null;
   r = await door(["--to", "dev", "--platform", "win", "--commit", fx.sha], { ...base, platform: "win32", acquireOwnership: winOwnership, spawnInherit: (cmd, args, opts) => {
-    const descriptor = JSON.parse(opts.env.RUSTRIGHT_SNAPSHOT_GRANT);
-    seen = { descriptor, exists: fs.existsSync(descriptor.path), keys: Object.keys(opts.env).filter((k) => /^(RUSTRIGHT|RIGHTKIT)_(SNAPSHOT_REQUEST|SNAPSHOT_GRANT|ATTEST_NONCE|REQUEST_ID_FILE|CALLING_GATE)$/.test(k)).sort(), path: opts.env.PATH };
+    seen = { keys: Object.keys(opts.env).filter((k) => /^(RUSTRIGHT|RIGHTKIT)_(SNAPSHOT_REQUEST|SNAPSHOT_GRANT|ATTEST_NONCE|REQUEST_ID_FILE|CALLING_GATE|CARRIED_CARGO_MAP)$/.test(k)).sort(), path: opts.env.PATH };
     return { status: 0 };
   } });
   assert.equal(r.code, 0, r.all);
-  assert.ok(seen.exists, "the grant file exists while the child runs");
-  assert.deepEqual(seen.keys, ["RUSTRIGHT_CALLING_GATE", "RUSTRIGHT_SNAPSHOT_GRANT"], "no request, no nonce, no legacy spelling");
-  assert.equal(fs.existsSync(seen.descriptor.path), false, "the grant file is removed after the stage");
-  assert.match(r.out, /under stage grant [0-9a-f-]{36} \(at most 64 calls, until \d{4}-/);
+  assert.deepEqual(seen.keys, ["RIGHTKIT_CARRIED_CARGO_MAP", "RUSTRIGHT_CALLING_GATE"], "the map and the calling gate only: no grant, no request, no nonce");
+  assert.equal(seen.path, fx.env.PATH);
 });
 
 // ---- 7.04: package --------------------------------------------------------------------------------------------------------------

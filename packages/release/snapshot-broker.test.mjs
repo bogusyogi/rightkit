@@ -15,7 +15,8 @@ import { fileURLToPath } from "node:url";
 import { SCAN_TOKEN_ENV, appendLedger, readLedger, scanTokenOf, unclaimedLedgers } from "./cargo-ledger.mjs";
 import { decideCargoInvocation, installCargoShim, locateWorkspaceByWalk, shimScanEnv } from "./cargo-target-shim.mjs";
 import { runScans } from "./deterministic-scans.mjs";
-import { brokerSection, verifyBrokerLedger } from "./snapshot-broker.mjs";
+import { brokerSection, carryBrokerCargo, verifyBrokerLedger } from "./snapshot-broker.mjs";
+import { carriedCallNonce } from "./provenance-verify.mjs";
 import { argvSha256, writeSnapshotRequest } from "./snapshot-request.mjs";
 import { makeFakeBroker } from "./test-support/fake-broker.mjs";
 
@@ -389,4 +390,30 @@ test("[7.20] production hands the door the carrier seam: a broker host takes the
   assert.deepEqual(await productionEntryDeps({ platform: "darwin" }), { snapshotBroker: PRODUCTION_SNAPSHOT_CARRIER });
   assert.deepEqual(await productionEntryDeps({ platform: "win32" }), { snapshotBroker: PRODUCTION_SNAPSHOT_CARRIER });
   assert.deepEqual(await productionEntryDeps({ platform: "linux" }), {});
+});
+
+test("[B8] a carried call under a release-bound stage derives its nonce from the stage's, its directory (relative to the primary checkout) and its argv; otherwise it is fresh; the stage nonce never reaches the client", { skip: POSIX }, async (t) => {
+  const fx = makeFakeBroker(t, {});
+  const records = [];
+  const snapshotRoot = fs.realpathSync.native(fx.snapshot);
+  const stageNonce = "ab".repeat(32);
+  const call = (env, { cwd = path.join(snapshotRoot, "crates", "a"), words = ["build", "--locked"] } = {}) => {
+    const before = fx.calls().length;
+    const r = carryBrokerCargo({ words, cwd, env: { PATH: process.env.PATH, RUSTRIGHT_CALLING_GATE: GATE, ...env }, section: brokerSection(fx.sb), workspace: snapshotRoot, checkoutWorkspace: fx.checkout, record: (e) => records.push(e), err: () => {}, stdio: "capture" });
+    assert.equal(r.outcome.status, "verified", JSON.stringify(r.outcome));
+    const sent = fx.calls()[before];
+    return { nonce: records.filter((e) => e.status === "pending").at(-1).nonce, sent };
+  };
+  const inCrate = call({ RIGHTKIT_ATTEST_STAGE_NONCE: stageNonce });
+  assert.equal(inCrate.nonce, carriedCallNonce({ stageNonce, cwd: "crates/a", argv: ["build", "--locked"] }));
+  assert.equal(inCrate.sent.stageNonceSeen, false, "stripped from the client's environment");
+  // Another directory or another argv is another nonce; a stage runs each command once (the broker refuses a nonce used twice, so a repeated identical call in one stage is refused).
+  assert.equal(call({ RIGHTKIT_ATTEST_STAGE_NONCE: stageNonce }, { cwd: snapshotRoot }).nonce, carriedCallNonce({ stageNonce, cwd: ".", argv: ["build", "--locked"] }));
+  assert.equal(call({ RIGHTKIT_ATTEST_STAGE_NONCE: stageNonce }, { words: ["check"] }).nonce, carriedCallNonce({ stageNonce, cwd: "crates/a", argv: ["check", "--locked"] }), "another command, another nonce");
+  // Without a stage nonce, or with a malformed one, the nonce is fresh and different every call.
+  const fresh = [call({}), call({}), call({ RIGHTKIT_ATTEST_STAGE_NONCE: "not-hex" }), call({ RIGHTKIT_ATTEST_STAGE_NONCE: "AB".repeat(32) })].map((c) => c.nonce);
+  assert.equal(new Set(fresh).size, 4);
+  for (const n of fresh) { assert.match(n, /^[0-9a-f]{64}$/); assert.notEqual(n, inCrate.nonce); }
+  // The receipt the broker signed carries the nonce the call sent, so the hosted admission can recompute it.
+  assert.equal((await fx.sb.receiptOf(inCrate.sent.id)).provenance.payload.nonce, inCrate.nonce);
 });

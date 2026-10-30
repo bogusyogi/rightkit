@@ -14,6 +14,11 @@ import { startRun, endRun } from './gate-stages.mjs';
 import { mintTestCapability } from './test-support/publish-capability-fixture.mjs';
 import { LOCAL_WIN32_HOST_POLICY_REASON, LocalPublishError, batchCargoExecute, batchClippyInvocations, checkCrateLayers, consumerRows, deriveCrateLayers, localTestPlan, parseCrateLayers, parseLocalPublishArgs, runLocalPublishUploadEngine as runLocalPublish, compileLocalUnit, packageLocalUnit, qualifyLocalUnit, closeLocalUnit, localUnitCompileRequests } from './local-publish.mjs';
 import { runCargoAsync, spawnCollect } from './managed-cargo.mjs';
+import { tgzOf } from './test-support/tgz.mjs';
+import { npmContentDigest } from './pack-digest.mjs';
+const DEMO_TGZ = tgzOf([{ path: 'package/package.json', data: '{"name":"@rightkit/demo"}' }, { path: 'package/index.mjs', data: 'export {};\n' }]);
+const RELEASE_ENTRIES = [{ path: 'package/package.json', data: '{}' }, { path: 'package/bin/darwin/rightkit-swap', data: 'signed-helper', mode: 0o755 }, { path: 'package/bin/darwin/rightkit-swap.sign.json', data: '{"schema":1}' }];
+const RELEASE_TGZ = tgzOf(RELEASE_ENTRIES);
 
 const HEAD = 'a'.repeat(40);
 const LIBTEST = 'test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n';
@@ -51,7 +56,7 @@ function harness(root, kind, over = {}) {
       calls.push({ command, args, env: options.env });
       envs.push(options.env);
       const text = `${command} ${args.join(' ')}`;
-      if (args.includes('--pack-destination')) fs.writeFileSync(path.join(args[args.indexOf('--pack-destination') + 1], 'rightkit-demo-1.2.3.tgz'), 'tarball-bytes');
+      if (args.includes('--pack-destination')) fs.writeFileSync(path.join(args[args.indexOf('--pack-destination') + 1], 'rightkit-demo-1.2.3.tgz'), DEMO_TGZ);
       if (command === 'cargo' && args[0] === 'metadata') {
         fs.mkdirSync(path.join(root, 'target', 'package'), { recursive: true });
         fs.writeFileSync(path.join(root, 'target', 'package', 'rightkit-demo-1.2.3.crate'), 'crate-bytes');
@@ -64,7 +69,7 @@ function harness(root, kind, over = {}) {
       assert.deepEqual(gate.missing, []);
       return gate;
     },
-    publishGatedTarball: (info) => published.push({ ...info, bytes: fs.readFileSync(info.tarball, 'utf8') }),
+    publishGatedTarball: (info) => published.push({ ...info, bytes: fs.readFileSync(info.tarball) }),
     runCargoPublish: async (options) => { published.push(options); return { name: 'rightkit-demo', version: '1.2.3' }; },
     recordPublished: (entry) => published.push({ recorded: entry }),
     ...over,
@@ -301,7 +306,7 @@ test('npm: writes schema-valid darwin-only evidence the gate accepts and publish
   assert.equal(h.envs[0].RIGHTKIT_REQUIRE_ASSETS, '1');
   const evidence = JSON.parse(fs.readFileSync(result.evidencePath, 'utf8'));
   assert.equal(result.evidencePath, path.join(root, 'release-evidence', 'gate', 'npm-rightkit-demo.json'));
-  const bytes = Buffer.from('tarball-bytes');
+  const bytes = DEMO_TGZ;
   assert.equal(evidence.artifactSha256, crypto.createHash('sha256').update(bytes).digest('hex'));
   assert.deepEqual([evidence.schema, evidence.kind, evidence.name, evidence.version, evidence.commit], [1, 'npm', '@rightkit/demo', '1.2.3', HEAD]);
   assert.equal(evidence.hostPolicy, 'darwin-only');
@@ -312,14 +317,14 @@ test('npm: writes schema-valid darwin-only evidence the gate accepts and publish
   const gate = checkPublicationGate({ kind: 'npm', name: '@rightkit/demo', version: '1.2.3', packagePath: path.join(root, 'packages/demo'), evidencePath: result.evidencePath, git: (args) => (args[0] === 'rev-parse' ? HEAD : '') });
   assert.deepEqual(gate.missing, []);
   assert.equal(h.published.length, 1);
-  assert.equal(h.published[0].bytes, 'tarball-bytes');
+  assert.deepEqual(h.published[0].bytes, DEMO_TGZ);
   assert.match(h.published[0].tarball, /rightkit-demo-1\.2\.3\.tgz$/);
   assert.equal(h.published[0].evidencePath, result.evidencePath);
 });
 
 test('asset-gated unit: RIGHTKIT_REQUIRE_ASSETS=0 and the skipped count is recorded, not hidden', async () => {
   const root = workspace({ assetGated: true });
-  const h = harness(root, 'npm', { run: (command, args, options) => { if (args.includes('--pack-destination')) fs.writeFileSync(path.join(args[args.indexOf('--pack-destination') + 1], 'rightkit-demo-1.2.3.tgz'), 'x'); return { status: 0, stdout: args.includes('test') ? `${LIBTEST}SKIP needs sibling\n` : '', stderr: '' }; } });
+  const h = harness(root, 'npm', { run: (command, args, options) => { if (args.includes('--pack-destination')) fs.writeFileSync(path.join(args[args.indexOf('--pack-destination') + 1], 'rightkit-demo-1.2.3.tgz'), DEMO_TGZ); return { status: 0, stdout: args.includes('test') ? `${LIBTEST}SKIP needs sibling\n` : '', stderr: '' }; } });
   const result = await h.run();
   const run = JSON.parse(fs.readFileSync(result.evidencePath, 'utf8')).runs[0];
   assert.equal(run.requireAssets, '0');
@@ -828,18 +833,24 @@ test('release npm qualification prepares the signed swap helper before packing',
   let prepared = false;
   const h = harness(root, 'npm', {
     git: (args) => args[0] === 'rev-parse' ? HEAD : args[0] === 'show' ? feedText : '',
-    prepareSwapHelper: ({ packageDir }) => { assert.notEqual(packageDir, unitDir); prepared = true; },
+    // The helper and its receipt are written into the unit's own directory of the snapshot (declared stage outputs), never a scratch copy.
+    prepareSwapHelper: ({ packageDir }) => { assert.equal(packageDir, unitDir); prepared = true; },
     run: (command, args) => {
       if (args.includes('--pack-destination')) {
         assert.equal(prepared, true);
-        fs.writeFileSync(path.join(args[args.indexOf('--pack-destination') + 1], 'rightkit-release-0.6.9.tgz'), 'release-tarball');
+        // The pack runs from the snapshot: a RELATIVE --dir (a snapshot-bound adapter job refuses an absolute one); only --pack-destination is scratch.
+        assert.deepEqual((args[0] === 'run' ? args.slice(3) : args).slice(0, 3), ['--dir', 'packages/release', 'pack']);
+        fs.writeFileSync(path.join(args[args.indexOf('--pack-destination') + 1], 'rightkit-release-0.6.9.tgz'), RELEASE_TGZ);
       }
       return { status: 0, stdout: args.includes('test') ? LIBTEST : '', stderr: '' };
     },
   });
   const result = await runLocalPublish('npm', ['--local', '--package', '@rightkit/release', '--workspace', root, '--qualify-only', '--bundle', path.join(root, 'qualified')], h.deps);
   assert.equal(prepared, true);
-  assert.equal(fs.readFileSync(result.artifactFile, 'utf8'), 'release-tarball');
+  assert.deepEqual(fs.readFileSync(result.artifactFile), RELEASE_TGZ);
+  // The qualification records the archive's content digest with the swap helper and its signing receipt left out (and recorded as present).
+  assert.equal(result.contentSha256, npmContentDigest(RELEASE_TGZ, { exclude: ['package/bin/darwin/rightkit-swap', 'package/bin/darwin/rightkit-swap.sign.json'] }).contentSha256);
+  assert.deepEqual(result.contentExcluded, ['package/bin/darwin/rightkit-swap', 'package/bin/darwin/rightkit-swap.sign.json']);
   assert.deepEqual(h.published, []);
 });
 
@@ -857,12 +868,15 @@ test('unit stages reject forged authority and changed inputs, stop at boundaries
   fs.writeFileSync(path.join(root, 'scripts/ci/upload.mjs'), 'export const checkNpmTarball = () => ({ problems: [] });\n');
   git('add', '.'); git('commit', '-qm', 'fixture');
   fs.writeFileSync(path.join(bin, 'npm'), '#!/bin/sh\necho "404 Not Found" >&2\nexit 1\n', { mode: 0o755 });
-  fs.writeFileSync(path.join(bin, 'pnpm'), `#!/bin/sh\nprintf '%s\\n' "$*" >> "$RK_TEST_UNIT_LOG"\nprintf 'rustright: request %s-0000-4000-8000-000000000000\\n' "$(printf %08d $$)" >&2\ncase "$*" in *--pack-destination*) while [ "$1" != "--pack-destination" ]; do shift; done; printf '%s' "$2" > "$RK_TEST_UNIT_SCRATCH"; printf tarball > "$2/rightkit-demo-1.2.3.tgz";; *test*) printf '%s\\n' '${LIBTEST.trim()}';; esac\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, 'pnpm'), `#!/bin/sh\nprintf '%s\\n' "$*" >> "$RK_TEST_UNIT_LOG"\nprintf '%s\\n' "\${RUSTRIGHT_ATTEST_NONCE:-none}:\${RIGHTKIT_ATTEST_STAGE_NONCE:-none}" >> "$RK_TEST_UNIT_NONCE"\nprintf 'rustright: request %s-0000-4000-8000-000000000000\\n' "$(printf %08d $$)" >&2\ncase "$*" in *--pack-destination*) while [ "$1" != "--pack-destination" ]; do shift; done; printf '%s' "$2" > "$RK_TEST_UNIT_SCRATCH"; cp "$RK_TEST_UNIT_TGZ" "$2/rightkit-demo-1.2.3.tgz";; *test*) printf '%s\\n' '${LIBTEST.trim()}';; esac\n`, { mode: 0o755 });
   // pnpm steps are rightkit-pnpm broker jobs: a fixture rustright client drops `run rightkit-pnpm --` and runs the fixture pnpm.
   fs.writeFileSync(path.join(bin, 'rustright'), '#!/bin/sh\n[ "$1 $2 $3" = "run rightkit-pnpm --" ] || exit 97\nshift 3\nexec "$(dirname "$0")/pnpm" "$@"\n', { mode: 0o755 });
   const oldPath = process.env.PATH;
   const oldLog = process.env.RK_TEST_UNIT_LOG; const oldScratch = process.env.RK_TEST_UNIT_SCRATCH;
+  const oldNonce = process.env.RK_TEST_UNIT_NONCE; const oldTgz = process.env.RK_TEST_UNIT_TGZ;
   process.env.RK_TEST_UNIT_LOG = path.join(bin, 'calls'); process.env.RK_TEST_UNIT_SCRATCH = path.join(bin, 'scratch');
+  process.env.RK_TEST_UNIT_NONCE = path.join(bin, 'nonces'); process.env.RK_TEST_UNIT_TGZ = path.join(bin, 'demo.tgz');
+  fs.writeFileSync(process.env.RK_TEST_UNIT_TGZ, DEMO_TGZ);
   process.env.PATH = `${bin}${path.delimiter}${oldPath}`;
   const commit = git('rev-parse', 'HEAD'); const tree = git('rev-parse', 'HEAD^{tree}');
   const commonDir = path.resolve(root, git('rev-parse', '--git-common-dir'));
@@ -892,7 +906,11 @@ test('unit stages reject forged authority and changed inputs, stop at boundaries
     const packed = await packageLocalUnit(state, { env: door('package') });
     assert.equal(packed.brokerRequests.length, 1);
     assert.ok(!compileIds.includes(packed.brokerRequests[0]));
-    assert.equal(fs.readFileSync(packed.artifactFile, 'utf8'), 'tarball');
+    assert.deepEqual(fs.readFileSync(packed.artifactFile), DEMO_TGZ);
+    assert.equal(packed.contentSha256, npmContentDigest(DEMO_TGZ).contentSha256, 'an npm unit hands over its archive\'s content digest');
+    assert.deepEqual(packed.contentExcluded, [], 'and no excluded entry for a unit that has none');
+    // No stage nonce in the environment: no pnpm job is given one.
+    assert.ok(fs.readFileSync(process.env.RK_TEST_UNIT_NONCE, 'utf8').split('\n').filter(Boolean).every((l) => l === 'none:none'));
     assert.equal(fs.existsSync(path.join(bundle, 'gate.json')), false);
     fs.writeFileSync(packed.artifactFile, 'changed');
     await assert.rejects(qualifyLocalUnit(state, { env: door('qualify') }), /archive changed after packaging/);
@@ -900,10 +918,18 @@ test('unit stages reject forged authority and changed inputs, stop at boundaries
     await assert.rejects(qualifyLocalUnit(state, { env: door('qualify') }), /completed package/);
     await closeLocalUnit(state);
     const nextBundle = path.join(tempRoot('rk-unit-bundle-'), 'bundle');
-    const second = await compileLocalUnit('npm', [...argv.slice(0, -1), nextBundle], { env: door('compile') });
+    fs.writeFileSync(process.env.RK_TEST_UNIT_NONCE, '');
+    // A release-bound stage hands its steps the stage nonce in RIGHTKIT_ATTEST_STAGE_NONCE, which is no carrier variable. No pnpm job is given
+    // it as RUSTRIGHT_ATTEST_NONCE any more: in a snapshot stage every pnpm step is a carried adapter request that derives its own per-call nonce
+    // from the stage nonce (snapshot-broker.mjs carryBrokerAdapter), in the compile and the package stage.
+    const stageNonce = 'ab'.repeat(32);
+    const second = await compileLocalUnit('npm', [...argv.slice(0, -1), nextBundle], { env: { ...door('compile'), RIGHTKIT_ATTEST_STAGE_NONCE: stageNonce } });
     const beforePack = fs.readFileSync(process.env.RK_TEST_UNIT_LOG, 'utf8').split('\n').filter(Boolean).length;
-    const packedAgain = await packageLocalUnit(second, { env: door('package') });
+    const packedAgain = await packageLocalUnit(second, { env: { ...door('package'), RIGHTKIT_ATTEST_STAGE_NONCE: stageNonce } });
+    const seenNonces = fs.readFileSync(process.env.RK_TEST_UNIT_NONCE, 'utf8').split('\n').filter(Boolean);
+    assert.ok(seenNonces.length >= 2 && seenNonces.every((l) => l === `none:${stageNonce}`), seenNonces.join());
     const qualified = await qualifyLocalUnit(second, { env: door('qualify') });
+    assert.equal(qualified.contentSha256, packedAgain.contentSha256);
     assert.equal(qualified.artifactSha256, packedAgain.artifactSha256);
     assert.equal(JSON.parse(fs.readFileSync(qualified.evidencePath, 'utf8')).artifactSha256, packedAgain.artifactSha256);
     assert.equal(fs.readFileSync(process.env.RK_TEST_UNIT_LOG, 'utf8').split('\n').filter(Boolean).length, beforePack + 1);
@@ -913,6 +939,8 @@ test('unit stages reject forged authority and changed inputs, stop at boundaries
     process.env.PATH = oldPath;
     if (oldLog === undefined) delete process.env.RK_TEST_UNIT_LOG; else process.env.RK_TEST_UNIT_LOG = oldLog;
     if (oldScratch === undefined) delete process.env.RK_TEST_UNIT_SCRATCH; else process.env.RK_TEST_UNIT_SCRATCH = oldScratch;
+    if (oldNonce === undefined) delete process.env.RK_TEST_UNIT_NONCE; else process.env.RK_TEST_UNIT_NONCE = oldNonce;
+    if (oldTgz === undefined) delete process.env.RK_TEST_UNIT_TGZ; else process.env.RK_TEST_UNIT_TGZ = oldTgz;
   }
 });
 
@@ -974,8 +1002,8 @@ test('on a managed host every pnpm step is its rightkit-pnpm broker job, matchin
   const rows = expectedStageCommands({ kind: 'npm', unit: '@rightkit/release', config, manifest, platform: 'darwin' });
   const managed = { env: { PATH: '/managed/agent-bin' }, platform: 'darwin', exists: (p) => p === '/managed/agent-bin/rustright', which: (c) => (c === 'rustright' ? ['/managed/agent-bin/rustright'] : []) };
   const compileSteps = [['-r', '--workspace-concurrency=1', 'run', 'build'], ['--dir', 'packages/release', 'run', 'test']];
-  // @rightkit/release ships the signed swap helper, so it packs from a scratch copy (absolute --dir); its cargo jobs are broker jobs already.
-  const packStep = ['--dir', '/Volumes/D/scratch/rk-local-publish-x/package-source', 'pack', '--pack-destination', '/Volumes/D/scratch/rk-local-publish-x/pack'];
+  // @rightkit/release ships the signed swap helper, written into its own directory of the snapshot, so it packs from there: a RELATIVE --dir.
+  const packStep = ['--dir', 'packages/release', 'pack', '--pack-destination', '/Volumes/D/scratch/rk-local-publish-x/pack'];
   for (const [stage, steps] of [['compile', compileSteps], ['package', [packStep]]]) {
     for (const [i, args] of steps.entries()) {
       const target = buildLaunch('pnpm', args, managed);

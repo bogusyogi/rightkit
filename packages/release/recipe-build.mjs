@@ -32,6 +32,7 @@ import { existsSync as nodeExistsSync, readFileSync, readdirSync as nodeReaddirS
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
+import { buildLaunch } from "./build-launch.mjs";
 import { resolveTargetRoot as cargoResolveTargetRoot } from "./cargo-target.mjs";
 import { buildAndEmbedNativeHelpers, validateNativeHelpers } from "./native-helpers.mjs";
 import { lockedTauriArgs } from "./tauri-locked.mjs";
@@ -383,7 +384,7 @@ export function waitForStableArtifacts(stability, { appRoot, log = () => {}, sta
  * nothing after it runs.
  * Options: appRoot (absolute), env, platform, log, spawnSync, fs, sleep, now, statSync (injected in tests).
  */
-export function runRecipeBuild(rawPlan, { appRoot, env = process.env, platform = process.platform, log = () => {}, spawnSync = nodeSpawnSync, fs, sleep, now, statSync, resolveTargetRoot = cargoResolveTargetRoot } = {}) {
+export function runRecipeBuild(rawPlan, { appRoot, env = process.env, platform = process.platform, log = () => {}, spawnSync = nodeSpawnSync, fs, sleep, now, statSync, resolveTargetRoot = cargoResolveTargetRoot, door = buildLaunch } = {}) {
   if (typeof appRoot !== "string" || !path.isAbsolute(appRoot)) fail("RECIPE_BUILD_PLAN_INVALID", "appRoot must be an absolute path");
   const plan = validateRecipePlan(rawPlan);
   const done = [];
@@ -404,10 +405,20 @@ export function runRecipeBuild(rawPlan, { appRoot, env = process.env, platform =
       verifyReal("after the copy-back, before the build step");
     }
     if (step.phase === "build" && plan.verifySidecars) verifyUniversalSidecars(plan.verifySidecars, { appRoot, spawnSync, env, log, ...(fs?.readFileSync ? { readFile: fs.readFileSync } : {}) });
-    const launch = resolveLaunch({ cmd: step.cmd, args: lockedTauriArgs(step.args, env), platform, env });
+    const stepArgs = lockedTauriArgs(step.args, env);
+    const launch = resolveLaunch({ cmd: step.cmd, args: stepArgs, platform, env });
     const cwd = path.resolve(appRoot, step.cwd ?? ".");
+    const stepEnv = { ...env, ...(step.env ?? {}) };
     log(`recipe-build: [${step.phase}] ${step.cmd} ${step.args.join(" ")}`.trimEnd());
-    const result = spawnSync(launch.command, launch.args, { cwd, env: { ...env, ...(step.env ?? {}) }, stdio: "inherit", shell: launch.shell, windowsHide: true });
+    // The release stage goes through the same one door as dev and test (build-launch.mjs; rightkit#1301, one model): on a broker host a pnpm,
+    // node or cargo step is a broker job (in a snapshot stage a carried one, with the Tauri CLI's compiles nested under it), a snapshot stage's
+    // `install` step is skipped, and this package's own right-release runs as it is. Where the door adds nothing (a direct host, a step it
+    // passes through unchanged) the step runs as resolveLaunch decided.
+    const own = launch.command === process.execPath && launch.args[0] === OWN_RIGHT_RELEASE;
+    const routed = own ? null : door(step.cmd, stepArgs, { env: stepEnv, platform, cwd, exists: (fs?.existsSync ?? nodeExistsSync) });
+    const passthrough = !routed || (routed.command === step.cmd && routed.args.length === stepArgs.length && routed.args.every((a, i) => a === stepArgs[i]));
+    const run = passthrough ? launch : { command: routed.command, args: routed.args, shell: false };
+    const result = spawnSync(run.command, run.args, { cwd, env: { ...stepEnv, ...(!passthrough && routed.env ? routed.env : {}) }, stdio: "inherit", shell: run.shell, windowsHide: true });
     if (result?.error || result?.status !== 0) {
       fail("RECIPE_BUILD_STEP_FAILED", `recipe-build ${step.phase} step ${index} (${step.cmd}) failed (${result?.error?.message ?? `exit ${result?.status ?? result?.signal ?? "unknown"}`}); later steps were not run`, { phase: step.phase, index, cmd: step.cmd, status: result?.status ?? null });
     }

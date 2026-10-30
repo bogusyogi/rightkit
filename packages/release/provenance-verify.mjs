@@ -6,6 +6,11 @@ import { createHash, createPublicKey, verify } from "node:crypto";
 export const PROVENANCE_SCHEMA = "rustright.provenance.v1";
 export const PROVENANCE_DOMAIN = "rustright-provenance-v1";
 export const QUALIFICATION_NONCE_DOMAIN = "rightkit-qualification-v1";
+export const CARRIED_CALL_NONCE_DOMAIN = "rightkit-carried-call-v1";
+/** The environment variable that carries a release-bound stage's nonce. It is no carrier variable: every carried call, a Cargo call or an
+ * adapter job (a pnpm, node, swift or QA step), derives its own per-call nonce from it (carriedCallNonce) and the broker client never
+ * sees the stage nonce itself; no step takes it as its RUSTRIGHT_ATTEST_NONCE (local-publish.mjs). */
+export const ATTEST_STAGE_NONCE_ENV = "RIGHTKIT_ATTEST_STAGE_NONCE";
 
 export class ProvenanceError extends Error {
   constructor(code, message) { super(message); this.name = "ProvenanceError"; this.code = code; }
@@ -103,10 +108,18 @@ export function verifyProvenance(receipt, pins, expected) {
   return payload;
 }
 
-/** The nonce a unit gate run sets (RIGHTKIT_ATTEST_NONCE) for the broker jobs of one stage; the hosted admission recomputes it from
+/** The stage nonce a unit gate run sets (RIGHTKIT_ATTEST_STAGE_NONCE) for the broker jobs of one stage; the hosted admission recomputes it from
  * what it knows of the dispatched commit, so a receipt of another commit, tree, unit or stage cannot match. 64 lowercase hex. */
 export function qualificationNonce({ commit, tree, unit, stage }) {
   return sha256Hex(`${QUALIFICATION_NONCE_DOMAIN}\n${commit}\n${tree}\n${unit}\n${stage}`);
+}
+
+/** The nonce of one carried cargo call of a stage (rightkit#1301 B8): derived from the stage nonce, the directory of the repository the call
+ * runs in (`.` or `crates/x`, posix, relative) and the argv it sends (the locked words, no `cargo`), so a call's receipt binds the stage,
+ * the directory and the command, and a stage nonce is never itself a carrier nonce. 64 lowercase hex. The gate derives it per call
+ * (snapshot-broker.mjs carryBrokerCargo) and the hosted admission recomputes it from each stage row. */
+export function carriedCallNonce({ stageNonce, cwd, argv }) {
+  return sha256Hex(`${CARRIED_CALL_NONCE_DOMAIN}\n${stageNonce}\n${cwd}\n${canonicalJson([...argv])}`);
 }
 
 /** Broker request ids the client prints (`rustright: request <id>`) in one command's output. */

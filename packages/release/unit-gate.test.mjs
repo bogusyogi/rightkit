@@ -21,7 +21,7 @@ function setup() {
     qualifyLocalUnit: async (_state, { env }) => { assert.ok(env.RK_GATE_RUN); calls.push("qualify"); return { ...result, qualifiedOnly: true, evidencePath: "gate.json" }; },
     closeLocalUnit: async () => calls.push("close"),
   };
-  const args = { selector: "npm:@rightkit/demo", to: "qualify", root, commonDir: root, commit, tree, executor: { kind: "broker" }, env: {}, platform: "darwin", resolve: () => unit, check: async (tier) => { calls.push(`check:${tier}`); return 0; }, loadOwner: async () => owner, out: () => {}, err: () => {}, writeReport: (r) => reports.push(structuredClone(r)) };
+  const args = { selector: "npm:@rightkit/demo", to: "qualify", root, commonDir: root, commit, tree, executor: { kind: "direct" }, env: {}, platform: "darwin", resolve: () => unit, check: async (tier) => { calls.push(`check:${tier}`); return 0; }, loadOwner: async () => owner, out: () => {}, err: () => {}, writeReport: (r) => reports.push(structuredClone(r)) };
   return { args, calls, reports, owner, artifactFile };
 }
 
@@ -185,7 +185,7 @@ test("`--unit` after `--` belongs to right-release, not the gate: an app's dev r
 test("writeQualification binds the passed local stages and the one artifact sha256 into <bundle>/qualification.json; a missing stage refuses", async (t) => {
   const { writeQualification, QUALIFICATION_SCHEMA } = await import("./unit-gate.mjs");
   const dir = tempRoot("unit-qualification-write-");
-  const artifact = { artifactFile: path.join(dir, "rightkit-release-0.6.9.tgz"), artifactSha256: "a".repeat(64) };
+  const artifact = { artifactFile: path.join(dir, "rightkit-release-0.6.9.tgz"), artifactSha256: "a".repeat(64), contentSha256: "c".repeat(64) };
   const ok = { ok: true, artifactFile: artifact.artifactFile, artifactSha256: artifact.artifactSha256 };
   const signed = (id) => ({ id, provenance: { schema: "rustright.provenance.v1", payload: { jobId: id }, signature: { alg: "ES256", keyId: "k", value: "ab" } } });
   const report = { stages: { check: { ok: true }, compile: { ok: true, receipts: [signed("job-c")] }, package: { ...ok, receipts: [signed("job-p")] }, qualify: ok } };
@@ -197,6 +197,8 @@ test("writeQualification binds the passed local stages and the one artifact sha2
   assert.deepEqual(receipt.unit, { kind: unit.kind, name: unit.name, version: unit.version });
   assert.equal(receipt.commit, commit); assert.equal(receipt.tree, "b".repeat(40)); assert.equal(receipt.executor, "broker");
   assert.equal(receipt.artifactSha256, "a".repeat(64));
+  assert.equal(receipt.contentSha256, "c".repeat(64), "an npm unit is bound hosted by its content digest");
+  assert.equal(receipt.contentExcluded, undefined, "and no exclusion is recorded for a unit that has none");
   assert.deepEqual(Object.keys(receipt.stages), ["check", "compile", "package", "qualify"]);
   assert.equal(receipt.stages.qualify.artifactSha256, "a".repeat(64));
   assert.deepEqual(receipt.stages.compile.receipts.map((r) => r.id), ["job-c"], "the broker's signed receipts ride in the qualification");
@@ -208,29 +210,44 @@ test("writeQualification binds the passed local stages and the one artifact sha2
   assert.throws(() => writeQualification({ report: without("compile", [{ id: "big", pad: "x".repeat(60_000) }]), artifact, unit, commit, tree: "b".repeat(40), runtime: "r", executor: { kind: "broker" }, write: () => {} }), /exceeds the workflow dispatch input limit/);
   assert.throws(() => writeQualification({ report: { stages: { ...report.stages, qualify: { ok: false } } }, artifact, unit, commit, tree: "b".repeat(40), runtime: "r", executor: { kind: "broker" }, write: () => {} }), /stage qualify ok/);
   assert.throws(() => writeQualification({ report, artifact: { artifactFile: artifact.artifactFile }, unit, commit, tree: "b".repeat(40), runtime: "r", executor: { kind: "broker" }, write: () => {} }), /qualified artifact/);
+  // An npm unit owes its content digest; the swap-helper package also owes that its archive held the helper and its signing receipt.
+  const write = (a, u = unit) => writeQualification({ report, artifact: { ...artifact, ...a }, unit: u, commit, tree: "b".repeat(40), runtime: "r", executor: { kind: "broker" }, write: () => {} });
+  assert.throws(() => write({ contentSha256: undefined }), /content digest/);
+  assert.throws(() => write({ contentSha256: "xyz" }), /content digest/);
+  const swap = { kind: "npm", name: "@rightkit/release", version: "0.6.9" };
+  const helper = ["package/bin/darwin/rightkit-swap", "package/bin/darwin/rightkit-swap.sign.json"];
+  assert.throws(() => write({}, swap), /archive to hold package\/bin\/darwin\/rightkit-swap and package\/bin\/darwin\/rightkit-swap\.sign\.json/);
+  assert.throws(() => write({ contentExcluded: [helper[0]] }, swap), /archive to hold/);
+  assert.throws(() => write({ contentExcluded: [] }, swap), /archive to hold/);
+  const swapWritten = []; writeQualification({ report, artifact: { ...artifact, contentExcluded: [...helper].reverse() }, unit: swap, commit, tree: "b".repeat(40), runtime: "r", executor: { kind: "broker" }, write: (f, text) => swapWritten.push(JSON.parse(text)) });
+  assert.deepEqual(swapWritten[0].contentExcluded, helper);
+  // A crate carries no content digest.
+  assert.doesNotThrow(() => write({ contentSha256: undefined }, { kind: "cargo", name: "rightkit-demo", version: "1.0.0" }));
   void t;
 });
 
 test("a release run sends each compile and package broker job a nonce bound to commit, tree, unit and stage, fetches those jobs' signed receipts and embeds them in the qualification", async () => {
   const s = setup();
-  const envs = {};
+  const envs = {}; const carriers = [];
   const nonce = (stage) => qualificationNonce({ commit, tree, unit: `${unit.kind}:${unit.name}`, stage });
   const stageCommands = () => ({ compile: [{ kind: "cargo", argvs: [["fmt"]] }, { kind: "cargo", argvs: [["test"]] }], package: [{ kind: "adapter", adapter: "rightkit-pnpm", argvs: [["pack"]] }] });
   const requests = { "c-1": { kind: "cargo", requestedArgv: ["fmt"] }, "c-2": { kind: "cargo", requestedArgv: ["test"] }, "p-1": { kind: "adapter", adapter: "rightkit-pnpm", requestedArgv: ["pack"] }, "x-1": { kind: "cargo", requestedArgv: ["metadata"] } };
   const fetched = [];
   const fetchReceipt = (id) => { fetched.push(id); return { id, provenance: { schema: "rustright.provenance.v1", payload: { jobId: id, request: requests[id] }, signature: { alg: "ES256", keyId: "k", value: "ab" } } }; };
   let ids = ["c-1", "c-2", "c-1"];
-  s.owner.compileLocalUnit = async (_kind, _args, { env }) => { envs.compile = env.RIGHTKIT_ATTEST_NONCE; return {}; };
+  s.owner.compileLocalUnit = async (_kind, _args, { env }) => { envs.compile = env.RIGHTKIT_ATTEST_STAGE_NONCE; carriers.push(...Object.keys(env).filter((k) => /^(RUSTRIGHT|RIGHTKIT)_(ATTEST_NONCE|SNAPSHOT_REQUEST|REQUEST_ID_FILE)$/.test(k))); return {}; };
   s.owner.localUnitCompileRequests = () => ids;
-  const packaged = { ...unit, commit, artifactFile: s.artifactFile, artifactSha256: createHash("sha256").update("artifact").digest("hex") };
-  s.owner.packageLocalUnit = async (_state, { env }) => { envs.package = env.RIGHTKIT_ATTEST_NONCE; return { ...packaged, brokerRequests: ["p-1"] }; };
-  s.owner.qualifyLocalUnit = async (_state, { env }) => { envs.qualify = env.RIGHTKIT_ATTEST_NONCE; return { ...packaged, qualifiedOnly: true, evidencePath: "gate.json" }; };
+  const packaged = { ...unit, commit, artifactFile: s.artifactFile, artifactSha256: createHash("sha256").update("artifact").digest("hex"), contentSha256: "c".repeat(64) };
+  s.owner.packageLocalUnit = async (_state, { env }) => { envs.package = env.RIGHTKIT_ATTEST_STAGE_NONCE; return { ...packaged, brokerRequests: ["p-1"] }; };
+  s.owner.qualifyLocalUnit = async (_state, { env }) => { envs.qualify = env.RIGHTKIT_ATTEST_STAGE_NONCE; carriers.push(...Object.keys(env).filter((k) => /^(RUSTRIGHT|RIGHTKIT)_(ATTEST_NONCE|SNAPSHOT_REQUEST|REQUEST_ID_FILE)$/.test(k))); return { ...packaged, qualifiedOnly: true, evidencePath: "gate.json" }; };
   fs.writeFileSync(s.artifactFile, "artifact");
   let written;
   const releaser = async ({ qualification }) => { written = JSON.parse(fs.readFileSync(qualification, "utf8")); return { registry: "npm" }; };
-  const run = (over = {}) => runUnitGate({ ...s.args, to: "release", fetchReceipt, stageCommands, releaser, ...over });
+  const run = (over = {}) => runUnitGate({ ...s.args, executor: { kind: "broker" }, verifyReceipts: () => {}, to: "release", fetchReceipt, stageCommands, releaser, ...over });
   assert.equal(await run(), 0);
   assert.equal(envs.compile, nonce("compile")); assert.equal(envs.package, nonce("package"));
+  assert.deepEqual(carriers, [], "the stage env carries the stage nonce only in RIGHTKIT_ATTEST_STAGE_NONCE: no carrier variable (RUSTRIGHT_ATTEST_NONCE and the rest) is set for the stage's calls");
+  assert.equal(written.contentSha256, "c".repeat(64), "the qualification carries the archive's content digest");
   assert.notEqual(envs.compile, envs.package);
   assert.match(envs.compile, /^[0-9a-f]{64}$/);
   assert.deepEqual(fetched, ["c-1", "c-2", "p-1"], "duplicates collapse; one fetch per job");
@@ -254,8 +271,12 @@ test("a release run sends each compile and package broker job a nonce bound to c
   ids = []; errs.length = 0;
   assert.equal(await run({ releaser: async () => assert.fail("not released"), err: (l) => errs.push(l) }), 1);
   assert.match(errs.join("\n"), /compile stage's cargo fmt has no broker job receipt/);
-  // Runs that do not head to release set no nonce and fetch nothing: what the stages do is unchanged.
+  // A run that does not reach qualify sets no nonce and fetches nothing: what the stages do is unchanged.
   Object.keys(envs).forEach((k) => delete envs[k]); fetched.length = 0;
+  assert.equal(await runUnitGate({ ...s.args, executor: { kind: "broker" }, to: "package", fetchReceipt, stageCommands }), 0);
+  assert.deepEqual([envs.compile, envs.package, envs.qualify], [undefined, undefined, undefined]);
+  assert.deepEqual(fetched, []);
+  // A direct host sets none either, whatever the target.
   assert.equal(await runUnitGate({ ...s.args, to: "qualify", fetchReceipt, stageCommands }), 0);
   assert.deepEqual([envs.compile, envs.package, envs.qualify], [undefined, undefined, undefined]);
   assert.deepEqual(fetched, []);
@@ -334,4 +355,69 @@ test("known red: --to check compiles nothing and still runs; a missing or empty 
   assert.equal(await runUnitGate({ ...broken.args, err: (l) => errs.push(l) }), 1);
   assert.deepEqual(broken.calls, []);
   assert.match(errs.join("\n"), /ci\/known-red\.json cannot be read/);
+});
+
+// ---- the local self-check and the sanctioned no-upload route (rightkit#1301) ---------------------------------------------------------
+/** A broker-host run with the owner returning broker job ids for each stage and fetchReceipt serving them (shapes only: verification is stubbed or real per test). */
+function brokerRun() {
+  const s = setup();
+  const stageCommands = () => ({ compile: [{ kind: "cargo", argvs: [["fmt"]] }], package: [{ kind: "adapter", adapter: "rightkit-pnpm", argvs: [["pack"]] }] });
+  const requests = { "c-1": { kind: "cargo", requestedArgv: ["fmt"] }, "p-1": { kind: "adapter", adapter: "rightkit-pnpm", requestedArgv: ["pack"] } };
+  const fetchReceipt = (id) => ({ id, provenance: { schema: "rustright.provenance.v1", payload: { jobId: id, request: requests[id] }, signature: { alg: "ES256", keyId: "k", value: "ab" } } });
+  const envs = {};
+  s.owner.compileLocalUnit = async (_k, _a, { env }) => { envs.compile = env; return {}; };
+  s.owner.localUnitCompileRequests = () => ["c-1"];
+  const packaged = { ...unit, commit, artifactFile: s.artifactFile, artifactSha256: createHash("sha256").update("artifact").digest("hex"), contentSha256: "c".repeat(64) };
+  s.owner.packageLocalUnit = async (_s, { env }) => { envs.package = env; return { ...packaged, brokerRequests: ["p-1"] }; };
+  s.owner.qualifyLocalUnit = async (_s, { env }) => { envs.qualify = env; return { ...packaged, qualifiedOnly: true, evidencePath: "gate.json" }; };
+  const errs = [], outs = [], verified = [], released = [];
+  const run = (over = {}) => runUnitGate({ ...s.args, executor: { kind: "broker" }, fetchReceipt, stageCommands, out: (l) => outs.push(l), err: (l) => errs.push(l), releaser: async () => { released.push(1); return { registry: "npm" }; }, selfGit: () => assert.fail("the stub verifier reads no git"),
+    verifyReceipts: (text, o) => { verified.push({ q: JSON.parse(text), ...o }); }, ...over });
+  return { s, run, envs, errs, outs, verified, released };
+}
+
+test("`--to qualify` on a broker host attests the stages, writes the qualification beside the artifact and verifies it locally; it dispatches nothing", async () => {
+  const h = brokerRun();
+  assert.equal(await h.run({ to: "qualify" }), 0, h.errs.join("\n"));
+  assert.deepEqual(h.released, [], "no releaser: this is the no-upload route");
+  assert.equal(h.envs.compile.RIGHTKIT_ATTEST_STAGE_NONCE, qualificationNonce({ commit, tree, unit: `${unit.kind}:${unit.name}`, stage: "compile" }), "attested without release");
+  assert.equal(h.envs.package.RIGHTKIT_ATTEST_STAGE_NONCE, qualificationNonce({ commit, tree, unit: `${unit.kind}:${unit.name}`, stage: "package" }));
+  assert.equal(h.envs.qualify.RIGHTKIT_ATTEST_STAGE_NONCE, undefined, "the qualify stage runs no broker job");
+  for (const stage of ["compile", "package", "qualify"]) assert.ok(!Object.keys(h.envs[stage]).some((k) => /^(RUSTRIGHT|RIGHTKIT)_(ATTEST_NONCE|SNAPSHOT_REQUEST)$/.test(k)), `${stage}: no carrier variable`);
+  assert.equal(h.verified.length, 1);
+  assert.equal(h.verified[0].sha, commit, "verified against the dispatched commit");
+  assert.equal(h.verified[0].q.contentSha256, "c".repeat(64));
+  assert.deepEqual(h.verified[0].q.stages.compile.receipts.map((r) => r.id), ["c-1"]);
+  assert.deepEqual(h.verified[0].q.stages.package.receipts.map((r) => r.id), ["p-1"]);
+  const file = path.join(path.dirname(h.s.artifactFile), "qualification.json");
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).contentSha256, "c".repeat(64), "the qualification is written beside the artifact");
+  assert.match(h.outs.join("\n"), /qualification .*qualification\.json verified locally; nothing was dispatched/);
+  // A target short of qualify attests nothing and writes nothing.
+  const none = brokerRun();
+  assert.equal(await none.run({ to: "package" }), 0);
+  assert.equal(none.envs.compile.RIGHTKIT_ATTEST_STAGE_NONCE, undefined); assert.deepEqual(none.verified, []);
+});
+
+test("a qualification the hosted admission would refuse stops the run before the releaser (--to release) and fails the run (--to qualify); the default verifier is the real one", async () => {
+  const bad = (text, o) => { void text; void o; throw new Error("publication admission refused: package receipt 1 (job p-1) does not verify against the enrolled pins at aaaaaaaaaaaa: signature: signature does not verify"); };
+  const rel = brokerRun();
+  assert.equal(await rel.run({ to: "release", verifyReceipts: bad }), 1);
+  assert.deepEqual(rel.released, [], "nothing is dispatched");
+  assert.match(rel.errs.join("\n"), /local check of the qualification's signed broker receipts failed; the hosted admission would refuse it, so nothing is dispatched: package receipt 1 \(job p-1\) does not verify/);
+  assert.doesNotMatch(rel.errs.join("\n"), /publication admission refused:/);
+  const q = brokerRun();
+  assert.equal(await q.run({ to: "qualify", verifyReceipts: bad }), 1);
+  assert.match(q.errs.join("\n"), /local check of the qualification's signed broker receipts failed/);
+  assert.equal(q.s.reports.at(-1).stages.qualify.ok, false);
+  // And with no stub: the real verifier runs against the commit's own files (git reads are injected), and an unsigned receipt does not pass it.
+  const real = brokerRun();
+  const gitAt = (...args) => {
+    if (args[0] === "rev-parse") return `${tree}\n`;
+    if (args[1] === `${commit}:ci/rk-pipeline.json`) return JSON.stringify({ attestation: { darwin: { publicKey: "04".padEnd(130, "0"), keyId: "k".repeat(64), host: "enrolled.local", brokerDigest: "d".repeat(64) } } });
+    throw new Error(`unexpected git ${args.join(" ")}`);
+  };
+  const errs = [];
+  assert.equal(await runUnitGate({ ...real.s.args, executor: { kind: "broker" }, to: "release", fetchReceipt: (id) => ({ id, provenance: { schema: "rustright.provenance.v1", payload: { jobId: id, request: id === "c-1" ? { kind: "cargo", requestedArgv: ["fmt"] } : { kind: "adapter", adapter: "rightkit-pnpm", requestedArgv: ["pack"] } }, signature: { alg: "ES256", keyId: "k", value: "ab" } } }),
+    stageCommands: () => ({ compile: [{ kind: "cargo", argvs: [["fmt"]] }], package: [{ kind: "adapter", adapter: "rightkit-pnpm", argvs: [["pack"]] }] }), selfGit: gitAt, releaser: async () => assert.fail("not released"), err: (l) => errs.push(l) }), 1);
+  assert.match(errs.join("\n"), /local check of the qualification's signed broker receipts failed.*which ci\/rk-pipeline\.json does not enroll/);
 });

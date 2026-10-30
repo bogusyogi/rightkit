@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { qualificationNonce } from "../../packages/release/provenance-verify.mjs";
+import { npmContentDigest, SWAP_HELPER_ARCHIVE_BIN, SWAP_HELPER_ARCHIVE_RECEIPT, exclusionsFor } from "../../packages/release/pack-digest.mjs";
+import { carriedCallNonce, qualificationNonce } from "../../packages/release/provenance-verify.mjs";
 import { expectedStageCommands } from "../../packages/release/stage-commands.mjs";
 import { makeSigner } from "../../packages/release/test-support/provenance-signer.mjs";
+import { tgzOf } from "../../packages/release/test-support/tgz.mjs";
 import { ADMISSION_SCHEMA, QUALIFICATION_SCHEMA, admissionArtifactName, admit, bindPackedToQualification, dispatchHosted, gateVerdict, readQualificationInput, verifyAdmissionReceipt, verifyQualificationReceipts } from "./publish-admission.mjs";
 import { main as rightkitDispatch } from "./rightkit-dispatch.mjs";
 
@@ -23,19 +26,34 @@ const PIPELINE = JSON.stringify({ attestation: { darwin: SIGNER.pins } });
 /** What each stage's signed requests must show: the stage builders' own commands for the unit (the same derivation the admission uses). */
 const stageRows = ({ kind, name, stage }) => expectedStageCommands({ kind, unit: name, config: {}, manifest: { scripts: { test: "x" } }, platform: "darwin" })[stage];
 const argvOf = (row) => row.argvs[0].map((a) => (typeof a === "string" ? a : "/tmp/scratch"));
-const requestOf = (row, workspace) => ({ kind: row.kind, ...(row.adapter ? { adapter: row.adapter } : {}), shim: row.kind, requestedArgv: argvOf(row), workspace, workspaceRoot: workspace });
+/** A carried call's signed workspace is the directory of the checkout it ran in (`row.cwd`), a pnpm job's the checkout itself. */
+const dirOf = (row, workspace) => (row.cwd && row.cwd !== "." ? `${workspace.replace(/\/+$/, "")}/${row.cwd}` : workspace);
+const requestOf = (row, workspace) => ({ kind: row.kind, ...(row.adapter ? { adapter: row.adapter } : {}), shim: row.kind, requestedArgv: argvOf(row), workspace: dirOf(row, workspace), workspaceRoot: dirOf(row, workspace) });
+/** The signed snapshotEvidence a carried or adapter job carries: the dispatched commit and tree, the snapshot at that tree throughout, one handle. */
+const evidenceOf = ({ jobId, commit, tree, snapshot = "/snap/rk", handle = "own-1" }) => ({ requestId: jobId, commit: { sha: commit, tree }, snapshot: { path: snapshot, treeAtStart: tree, treeAtExit: tree }, ownership: { handle } });
 /** The broker's signed receipts for one stage of one unit, as the gate embeds them: one job per command of the stage, nonce bound to
- * commit, tree, unit and stage, run in a checkout named for the repository. `jobs` overrides the ids (each runs the stage's key command). */
-const stageReceipts = ({ commit = SHA, tree = TREE, kind, name, stage, signer = SIGNER, jobs, workspace = "/work/rightkit", rows, request, requestFor, ...over }) => {
+ * commit, tree, unit and stage (a carried cargo call or pnpm adapter job: derived for its directory and argv), snapshot evidence of the dispatched commit, run in a
+ * checkout. `jobs` overrides the ids (each runs the stage's key command); `evidence(base, i)` returns the job's snapshotEvidence (undefined: none);
+ * `nonceOf({ row, request, stageNonce, i })` overrides the nonce. */
+const stageReceipts = ({ commit = SHA, tree = TREE, kind, name, stage, signer = SIGNER, jobs, workspace = "/work/rightkit", rows, request, requestFor, evidence = (base) => base, nonceOf, payload: extra = {}, ...over }) => {
   const all = rows ?? stageRows({ kind, name, stage });
   const ids = jobs ?? all.map((_, i) => `${stage}-job-${i + 1}`);
-  return ids.map((jobId, i) => signer.receipt({ jobId, nonce: qualificationNonce({ commit, tree, unit: `${kind}:${name}`, stage }), request: request ?? (requestFor ?? requestOf)(all[i] ?? all[0], workspace, i), ...over }));
+  const stageNonce = qualificationNonce({ commit, tree, unit: `${kind}:${name}`, stage });
+  return ids.map((jobId, i) => {
+    const row = all[i] ?? all[0];
+    const req = request ?? (requestFor ?? requestOf)(row, workspace, i);
+    const nonce = nonceOf ? nonceOf({ row, request: req, stageNonce, i }) : row.kind === req.kind && (row.kind === "cargo" || row.kind === "adapter") ? carriedCallNonce({ stageNonce, cwd: row.cwd ?? ".", argv: req.requestedArgv }) : stageNonce;
+    const snapshotEvidence = evidence(evidenceOf({ jobId, commit, tree }), i);
+    return signer.receipt({ jobId, nonce, request: req, payload: { ...(snapshotEvidence === undefined ? {} : { snapshotEvidence }), ...extra }, ...over });
+  });
 };
+const CONTENT = "f".repeat(64);
+const HELPER_PATHS = [SWAP_HELPER_ARCHIVE_BIN, SWAP_HELPER_ARCHIVE_RECEIPT];
 /** rightkit-gate's qualification receipt as the dispatcher forwards it (one unit, every local stage ok, signed broker receipts for compile and package, one artifact sha). */
 const qual = ({ kind = "npm", name = "@rightkit/release", version = "0.6.7", commit = SHA, tree = TREE, receiptFor = {}, ...over } = {}) => ({ schema: QUALIFICATION_SCHEMA, commit, tree, runtime: "r".repeat(64), executor: "broker",
-  unit: { kind, name, version }, stages: { check: { ok: true }, compile: { ok: true, receipts: stageReceipts({ commit, tree, kind, name, stage: "compile", ...receiptFor }) }, package: { ok: true, receipts: stageReceipts({ commit, tree, kind, name, stage: "package", ...receiptFor }) }, qualify: { ok: true } }, artifactSha256: "d".repeat(64), ...over });
+  unit: { kind, name, version }, stages: { check: { ok: true }, compile: { ok: true, receipts: stageReceipts({ commit, tree, kind, name, stage: "compile", ...receiptFor }) }, package: { ok: true, receipts: stageReceipts({ commit, tree, kind, name, stage: "package", ...receiptFor }) }, qualify: { ok: true } }, artifactSha256: "d".repeat(64), ...(kind === "npm" ? { contentSha256: CONTENT, ...(name === "@rightkit/release" ? { contentExcluded: HELPER_PATHS } : {}) } : {}), ...over });
 const provenanceOf = ({ kind, name }) => Object.fromEntries(["compile", "package"].map((stage) => [stage, stageRows({ kind, name, stage }).map((row, i) => ({ jobId: `${stage}-job-${i + 1}`, host: SIGNER.pins.host, keyId: SIGNER.pins.keyId, requestDigest: "7".repeat(64), requestedArgv: argvOf(row) }))]));
-const QUAL = { schema: QUALIFICATION_SCHEMA, commit: SHA, tree: TREE, runtime: "r".repeat(64), executor: "broker", unit: { kind: "npm", name: "@rightkit/release", version: "0.6.7" }, artifactSha256: "d".repeat(64),
+const QUAL = { schema: QUALIFICATION_SCHEMA, commit: SHA, tree: TREE, runtime: "r".repeat(64), executor: "broker", unit: { kind: "npm", name: "@rightkit/release", version: "0.6.7" }, artifactSha256: "d".repeat(64), contentSha256: CONTENT, contentExcluded: [...HELPER_PATHS].sort(),
   provenance: provenanceOf({ kind: "npm", name: "@rightkit/release" }), unattested: ["check", "qualify"] };
 /** The only admitted shape: the broker's dispatch of rightkit-gate --to release, carrying the qualification for the first unit named. */
 const brokerEnv = (extra = {}) => {
@@ -248,17 +266,76 @@ test("the cloud entry is retired: dispatchHosted refuses before any gate run or 
   }
 });
 
-test("bind: the sealed archive must carry the locally qualified sha256; a mismatch stops with both digests and the hosted listing", () => {
-  const qualification = readQualificationInput(JSON.stringify(qual()), { sha: SHA, registry: "npm", units: ["@rightkit/release"] });
-  const manifest = { schema: 1, registry: "npm", commit: SHA, units: [{ name: "@rightkit/release", version: "0.6.7", file: "rightkit-release-0.6.7.tgz", sha256: "d".repeat(64) }] };
-  assert.deepEqual(bindPackedToQualification({ manifest, qualification }), { unit: "@rightkit/release", version: "0.6.7", sha256: "d".repeat(64), file: "rightkit-release-0.6.7.tgz" });
+// ---- B2: the hosted pack is bound by content, and the signed swap helper by the sign-swap job ------------------------------------
+const sha256 = (data) => crypto.createHash("sha256").update(data).digest("hex");
+const PKG = [{ path: "package/package.json", data: '{"name":"@rightkit/release"}' }, { path: "package/bin/cli.mjs", data: "#!/usr/bin/env node\n", mode: 0o755 }, { path: "package/lib/a.mjs", data: "export const a = 1;\n" }];
+const helperEntries = (helper, receipt) => [{ path: SWAP_HELPER_ARCHIVE_BIN, data: helper, mode: 0o755 }, ...(receipt === undefined ? [] : [{ path: SWAP_HELPER_ARCHIVE_RECEIPT, data: receipt }])];
+/** A qualification and manifest for one npm unit, from the archive the local gate packed (`local`); `hosted` is what the pack job sealed. */
+function bindFixture({ name = "@rightkit/release", local, hosted, helper = "signed-by-ci", swap = true, over = {} }) {
+  const digest = npmContentDigest(tgzOf(local), { exclude: exclusionsFor(name) });
+  const q = qual({ kind: "npm", name, contentSha256: digest.contentSha256, ...(exclusionsFor(name).length ? { contentExcluded: Object.keys(digest.excluded) } : {}), artifactSha256: sha256(tgzOf(local)), ...over });
+  const qualification = readQualificationInput(JSON.stringify(q), { sha: SHA, registry: "npm", units: [name] });
+  const sealed = tgzOf(hosted);
+  const manifest = { schema: 1, registry: "npm", commit: SHA, units: [{ name, version: "0.6.7", file: "u.tgz", sha256: sha256(sealed) }] };
+  return { qualification, manifest, args: { manifest, qualification, packed: () => sealed, ...(swap ? { swapSha256: `${sha256(helper)}  rightkit-swap\n` } : {}), listing: (entry) => `listing of ${entry.file}` } };
+}
+
+test("bind: a crate is bound by its sha256; a mismatch stops with both digests and the hosted listing", () => {
+  const q = readQualificationInput(JSON.stringify(qual({ kind: "cargo", name: "rightkit-qa", version: "0.9.2" })), { sha: SHA, registry: "crates", units: ["rightkit-qa"] });
+  const manifest = { schema: 1, registry: "crates", commit: SHA, units: [{ name: "rightkit-qa", version: "0.9.2", file: "rightkit-qa-0.9.2.crate", sha256: "d".repeat(64) }] };
+  assert.deepEqual(bindPackedToQualification({ manifest, qualification: q }), { unit: "rightkit-qa", version: "0.9.2", sha256: "d".repeat(64), file: "rightkit-qa-0.9.2.crate" });
   const other = { ...manifest, units: [{ ...manifest.units[0], sha256: "e".repeat(64) }] };
-  assert.throws(() => bindPackedToQualification({ manifest: other, qualification, listing: (entry) => `listing of ${entry.file}` }), (e) => /hosted sha256 e{64}, qualified d{64}/.test(e.message) && /no repack/.test(e.message) && /listing of rightkit-release-0.6.7.tgz/.test(e.message));
-  assert.throws(() => bindPackedToQualification({ manifest: { ...manifest, commit: OTHER }, qualification }), /sealed manifest is for bbbbbbbbbbbb/);
-  assert.throws(() => bindPackedToQualification({ manifest: { ...manifest, units: [] }, qualification }), /no entry for @rightkit\/release/);
-  assert.throws(() => bindPackedToQualification({ manifest: { ...manifest, units: [{ ...manifest.units[0], version: "0.6.8" }] }, qualification }), /is 0.6.8, the qualification is 0.6.7/);
+  assert.throws(() => bindPackedToQualification({ manifest: other, qualification: q, listing: (entry) => `listing of ${entry.file}` }), (e) => /hosted sha256 e{64}, qualified d{64}/.test(e.message) && /no repack/.test(e.message) && /listing of rightkit-qa-0.9.2.crate/.test(e.message));
+  assert.throws(() => bindPackedToQualification({ manifest: { ...manifest, commit: OTHER }, qualification: q }), /sealed manifest is for bbbbbbbbbbbb/);
+  assert.throws(() => bindPackedToQualification({ manifest: { ...manifest, units: [] }, qualification: q }), /no entry for rightkit-qa/);
+  assert.throws(() => bindPackedToQualification({ manifest: { ...manifest, units: [{ ...manifest.units[0], version: "0.9.3" }] }, qualification: q }), /is 0.9.3, the qualification is 0.9.2/);
   assert.throws(() => readQualificationInput("not json", { sha: SHA, registry: "npm", units: ["@rightkit/release"] }), /not JSON/);
   assert.throws(() => readQualificationInput(JSON.stringify({ ...qual(), artifactSha256: "x" }), { sha: SHA, registry: "npm", units: ["@rightkit/release"] }), /names no artifact sha256/);
+});
+
+test("bind (B2): an npm unit is bound by content; a re-signed helper with no .sign.json passes, any other differing entry refuses, and gzip and order do not matter", () => {
+  const local = [...PKG, ...helperEntries("signed-locally", '{"signed":"locally"}')];
+  const hosted = [...PKG, ...helperEntries("signed-by-ci")];
+  const ok = bindPackedToQualification(bindFixture({ local, hosted }).args);
+  assert.equal(ok.unit, "@rightkit/release"); assert.equal(ok.swapHelperSha256, sha256("signed-by-ci")); assert.match(ok.contentSha256, /^[0-9a-f]{64}$/);
+  assert.notEqual(ok.sha256, ok.qualifiedSha256, "the archives differ as bytes: only their content is equated");
+  // Another gzip level and entry order is the same content.
+  const sealedAgain = bindFixture({ local, hosted: [...hosted].reverse() });
+  sealedAgain.args.packed = () => tgzOf([...hosted].reverse(), 1);
+  assert.equal(bindPackedToQualification(sealedAgain.args).contentSha256, ok.contentSha256);
+  // Any other differing entry refuses, with both content digests and the listing; nothing is repacked.
+  for (const [what, entries] of [["a changed file", hosted.map((e) => (e.path.endsWith("a.mjs") ? { ...e, data: "tampered" } : e))], ["a dropped exec bit", hosted.map((e) => (e.path.endsWith("cli.mjs") ? { ...e, mode: 0o644 } : e))], ["an extra file", [...hosted, { path: "package/x.js", data: "x" }]], ["a missing file", hosted.filter((e) => !e.path.endsWith("a.mjs"))]]) {
+    assert.throws(() => bindPackedToQualification(bindFixture({ local, hosted: entries }).args), (e) => /does not hold the locally qualified content/.test(e.message) && /no repack/.test(e.message) && /listing of u\.tgz/.test(e.message), what);
+  }
+});
+
+test("bind (B2): the sealed helper must be the sign-swap job's, carry no .sign.json, be executable and be the one the local archive recorded; exclusions are @rightkit/release's alone", () => {
+  const local = [...PKG, ...helperEntries("signed-locally", '{"signed":"locally"}')];
+  const hosted = [...PKG, ...helperEntries("signed-by-ci")];
+  // The sealed helper differs from what sign-swap produced, or sign-swap's digest is missing or malformed.
+  const f = bindFixture({ local, hosted });
+  assert.throws(() => bindPackedToQualification({ ...f.args, swapSha256: `${sha256("another-helper")}  rightkit-swap\n` }), /not the sign-swap job's/);
+  assert.throws(() => bindPackedToQualification({ ...f.args, swapSha256: undefined }), /needs the sign-swap job's rightkit-swap sha256/);
+  assert.throws(() => bindPackedToQualification({ ...f.args, swapSha256: "not a digest" }), /needs the sign-swap job's rightkit-swap sha256/);
+  // A hosted archive that holds the local signing's receipt, or no helper, or a helper that is not executable.
+  assert.throws(() => bindPackedToQualification(bindFixture({ local, hosted: [...PKG, ...helperEntries("signed-by-ci", '{"signed":"locally"}')] }).args), /holds package\/bin\/darwin\/rightkit-swap\.sign\.json, the local signing's receipt/);
+  assert.throws(() => bindPackedToQualification(bindFixture({ local, hosted: PKG }).args), /holds no executable package\/bin\/darwin\/rightkit-swap/);
+  assert.throws(() => bindPackedToQualification(bindFixture({ local, hosted: [...PKG, { path: SWAP_HELPER_ARCHIVE_BIN, data: "signed-by-ci", mode: 0o644 }] }).args), /holds no executable/);
+  // A local archive that lacked the helper (or its receipt) never qualifies: its qualification must record both excluded files.
+  const noHelper = (contentExcluded) => () => readQualificationInput(JSON.stringify(qual({ contentExcluded })), { sha: SHA, registry: "npm", units: ["@rightkit/release"] });
+  assert.throws(noHelper([SWAP_HELPER_ARCHIVE_RECEIPT]), /does not record that its @rightkit\/release archive held package\/bin\/darwin\/rightkit-swap and/);
+  assert.throws(noHelper([SWAP_HELPER_ARCHIVE_BIN]), /does not record/);
+  assert.throws(noHelper([]), /does not record/);
+  assert.throws(noHelper(undefined), /does not record/);
+  assert.doesNotThrow(noHelper([SWAP_HELPER_ARCHIVE_RECEIPT, SWAP_HELPER_ARCHIVE_BIN]));
+  // An exclusion claimed for another unit is refused at the qualification, and a differing helper there is any other differing entry.
+  assert.throws(() => readQualificationInput(JSON.stringify(qual({ name: "@rightkit/ci", version: "0.3.2", contentExcluded: HELPER_PATHS })), { sha: SHA, registry: "npm", units: ["@rightkit/ci"] }), /claims excluded archive entries for @rightkit\/ci/);
+  const other = bindFixture({ name: "@rightkit/ci", local, hosted, swap: false, over: { version: "0.3.2" } });
+  other.manifest.units[0].version = "0.6.7"; other.qualification.unit.version = "0.6.7";
+  assert.throws(() => bindPackedToQualification(other.args), /does not hold the locally qualified content/, "the same re-signed helper in another unit's archive is a differing entry");
+  // The unit's content digest is required, and is never taken from a crate's field.
+  assert.throws(() => readQualificationInput(JSON.stringify(qual({ contentSha256: undefined })), { sha: SHA, registry: "npm", units: ["@rightkit/release"] }), /names no content sha256 for its npm unit/);
+  assert.throws(() => readQualificationInput(JSON.stringify(qual({ contentSha256: "xyz" })), { sha: SHA, registry: "npm", units: ["@rightkit/release"] }), /names no content sha256/);
 });
 
 test("the original denied path stays denied: rightkit-dispatch without a broker job id refuses before any gh call", async () => {
@@ -300,7 +377,7 @@ test("authenticated qualification: receipts of another key, commit, tree, unit, 
   await assert.rejects(admitWith(qual({ tree: "e".repeat(40) })), /tree eeeeeeeeeeee, the dispatched commit's tree is cccccccccccc/);
   // A failed job, a job with no workspace, a tampered payload.
   await assert.rejects(admitWith(qual({ receiptFor: { result: { status: "FAILED", exitCode: 101 } } })), /did not succeed \(FAILED, exit 101\)/);
-  await assert.rejects(admitWith(qual({ receiptFor: { payload: { request: { kind: "cargo" } } } })), /records no workspace/);
+  await assert.rejects(admitWith(qual({ receiptFor: { payload: { request: { kind: "cargo" } }, nonceOf: ({ stageNonce }) => stageNonce } })), /records no workspace/);
   const tampered = qual(); tampered.stages.compile.receipts[0].provenance.payload.result.exitCode = 0; tampered.stages.compile.receipts[0].provenance.payload.request.workspace = "/forged";
   await assert.rejects(admitWith(tampered), /signature: signature does not verify/);
   // A receipt that is not a signed envelope at all.
@@ -322,8 +399,10 @@ test("a signed, successful job that carries the stage nonce but ran another comm
   const compile = stageRows({ ...base, stage: "compile" }), pack = stageRows({ ...base, stage: "package" });
   assert.equal(compile.length, 2, "npm compile: the workspace build and the unit's test");
   assert.deepEqual(compile.map(argvOf), [["-r", "--workspace-concurrency=1", "run", "build"], ["--dir", "packages/release", "run", "test"]]);
-  // @rightkit/release is the swap helper: it builds and signs a binary, then packs from a scratch copy of its directory.
-  assert.deepEqual(pack.map(argvOf), [["build", "--manifest-path", "crates/rightkit-fs/Cargo.toml", "--release", "-p", "rightkit-fs", "--features", "fs", "--bin", "rightkit-swap"], ["metadata", "--format-version", "1", "--no-deps", "--manifest-path", "crates/rightkit-fs/Cargo.toml"], ["--dir", "/tmp/scratch", "pack", "--pack-destination", "/tmp/scratch"]]);
+  // @rightkit/release is the swap helper: it builds and signs a binary into its own directory of the snapshot, then packs from there (a relative --dir).
+  // As a broker host receives them (carried-cargo.mjs): no --manifest-path (the call runs from the crate's directory), `--locked` on the build.
+  assert.deepEqual(pack.map(argvOf), [["build", "--locked", "--release", "-p", "rightkit-fs", "--features", "fs", "--bin", "rightkit-swap"], ["metadata", "--format-version", "1", "--no-deps"], ["--dir", "packages/release", "pack", "--pack-destination", "/tmp/scratch"]]);
+  assert.deepEqual(pack.map((row) => row.cwd), ["crates/rightkit-fs", "crates/rightkit-fs", undefined], "and from that directory");
   const put = (stage, receipts) => { const q = qual(); q.stages[stage].receipts = receipts; return q; };
   // Every command of the stage is proven by its own job: the full set is admitted.
   assert.deepEqual((await admitWith(qual())).qualification.provenance.compile.map((p) => p.requestedArgv), compile.map(argvOf));
@@ -343,12 +422,19 @@ test("a signed, successful job that carries the stage nonce but ran another comm
     ["another request kind", ({ adapter: _a, ...r }) => ({ ...r, kind: "cargo" })],
   ]) await assert.rejects(admitWith(put("compile", stageReceipts({ ...base, stage: "compile", requestFor: (row, w, i) => (i === 1 ? mutate(requestOf(row, w)) : requestOf(row, w)) }))), /is not \(or no longer\) a command of the compile stage of npm:@rightkit\/release/, name);
   const badPack = (requestedArgv) => put("package", stageReceipts({ ...base, stage: "package", requestFor: (row, w, i) => ({ ...requestOf(row, w), ...(i === 2 ? { requestedArgv } : {}) }) }));
-  await assert.rejects(admitWith(badPack(["--dir", "/tmp/scratch", "pack", "--pack-destination", "relative/out"])), /not \(or no longer\) a command of the package stage/, "a pack destination must be an absolute scratch path");
+  await assert.rejects(admitWith(badPack(["--dir", "packages/release", "pack", "--pack-destination", "relative/out"])), /not \(or no longer\) a command of the package stage/, "a pack destination must be an absolute scratch path");
+  await assert.rejects(admitWith(badPack(["--dir", "/tmp/scratch", "pack", "--pack-destination", "/tmp/scratch"])), /not \(or no longer\) a command of the package stage/, "an absolute pack directory (the old scratch copy) is no longer the stage's command: the pack runs from the snapshot");
   // A compile command is not accepted as the package stage's.
   await assert.rejects(admitWith(put("package", stageReceipts({ ...base, stage: "package", requestFor: (_row, w) => requestOf(compile[1], w) }))), /not \(or no longer\) a command of the package stage/);
-  // Wrong workspace: a checkout of another repository, a different workspaceRoot, or two checkouts within one qualification.
-  await assert.rejects(admitWith(put("package", stageReceipts({ ...base, stage: "package", workspace: "/work/other-repo" }))), /not in a checkout of rightkit/);
-  await assert.rejects(admitWith(put("package", stageReceipts({ ...base, stage: "package", requestFor: (row, w) => ({ ...requestOf(row, w), workspaceRoot: "/work/rightkit/sub" }) }))), /not in a checkout of rightkit/);
+  // Wrong workspace: a different workspaceRoot, or two checkouts within one qualification. The checkout's own name is no evidence (B9): the
+  // signed snapshot evidence is, so a checkout not named rightkit is admitted when every job shows the same one.
+  await assert.rejects(admitWith(put("package", stageReceipts({ ...base, stage: "package", workspace: "/work/other-repo" }))), /another workspace than the qualification's other jobs/);
+  await assert.rejects(admitWith(put("package", stageReceipts({ ...base, stage: "package", requestFor: (row, w) => ({ ...requestOf(row, w), workspaceRoot: "/work/rightkit/sub" }) }))), /not in one checkout/);
+  assert.ok((await admitWith(qual({ receiptFor: { workspace: "/Volumes/D/claude/checkout-x" } }))).qualification.provenance, "a checkout not named rightkit passes");
+  // The swap helper's calls are bound to the crate they build: the same argv run from another crate's directory, or from the root, is none of the stage's commands.
+  const fromDir = (dir) => put("package", stageReceipts({ ...base, stage: "package", requestFor: (row, w, i) => (i === 0 ? { ...requestOf(row, w), workspace: `${w}${dir}`, workspaceRoot: `${w}${dir}` } : requestOf(row, w)) }));
+  await assert.rejects(admitWith(fromDir("/crates/rightkit-other")), /not \(or no longer\) a command of the package stage/, "another crate's directory is none of the stage's commands");
+  await assert.rejects(admitWith(fromDir("")), /not \(or no longer\) a command of the package stage/, "run from the repository root instead of the crate");
   const split = qual(); split.stages.package.receipts = stageReceipts({ ...base, stage: "package", workspace: "/elsewhere/rightkit" });
   await assert.rejects(admitWith(split), /another workspace than the qualification's other jobs/);
   assert.ok((await admitWith(put("package", stageReceipts({ ...base, stage: "package", workspace: "/work/rightkit/" })))).qualification.provenance, "a trailing separator is the same workspace");
@@ -372,7 +458,7 @@ test("a signed, successful job that carries the stage nonce but ran another comm
   // the hosted pack is compared with it: bytes that differ from the qualification's digest stop the run there.
   const qualification = readQualificationInput(JSON.stringify(qual()), { sha: SHA, registry: "npm", units: ["@rightkit/release"] });
   const manifest = { commit: SHA, units: [{ name: "@rightkit/release", version: "0.6.7", sha256: "e".repeat(64), file: "r.tgz" }] };
-  assert.throws(() => bindPackedToQualification({ manifest, qualification }), /not the locally qualified archive/);
+  assert.throws(() => bindPackedToQualification({ manifest, qualification, packed: () => tgzOf([{ path: "package/package.json", data: "{}" }]), swapSha256: `${"1".repeat(64)}  rightkit-swap\n` }), /does not hold the locally qualified content/);
   const signedAsArtifact = qual(); signedAsArtifact.stages.package.receipts[0].provenance.payload.outputDigest = "d".repeat(64);
   await assert.rejects(admitWith(signedAsArtifact), /signature does not verify/, "a digest claimed inside a signed payload cannot be added after signing");
   // check and qualify: `ok: true` with no evidence is accepted as the caller's word for those two stages only, and the admission says so.
@@ -381,4 +467,55 @@ test("a signed, successful job that carries the stage nonce but ran another comm
   // ...but it never substitutes for the attested stages: ok:true everywhere with no broker receipts at all admits nothing.
   const allOk = qual(); for (const stage of ["compile", "package"]) delete allOk.stages[stage].receipts;
   await assert.rejects(admitWith(allOk), /carries no signed broker receipts/);
+});
+
+// ---- B8: a carried call's nonce (a cargo call, and a pnpm adapter job, one model) is derived per call from the stage's, its directory and its argv ----
+const derived = ({ row, request, stageNonce }) => (row.kind === request.kind && (row.kind === "cargo" || row.kind === "adapter") ? carriedCallNonce({ stageNonce, cwd: row.cwd ?? ".", argv: request.requestedArgv }) : stageNonce);
+const RELEASE = { kind: "npm", name: "@rightkit/release" };
+const admitQual = (q) => admit({ env: hostedEnv({ QUALIFICATION: JSON.stringify(q) }), git: git(), runGate: greenGate(), fetchImpl: npm([]), policy: policy() });
+const withPackage = (receipts) => { const q = qual(); q.stages.package.receipts = receipts; return q; };
+
+test("B8: a derived per-call nonce verifies; a random nonce, another directory, another stage, another unit, the stage's own nonce on a cargo call or on a pnpm job, a pnpm job's nonce derived for another directory or argv refuse", async () => {
+  const pack = (nonceOf) => withPackage(stageReceipts({ ...RELEASE, stage: "package", nonceOf }));
+  const [build] = stageRows({ ...RELEASE, stage: "package" });
+  assert.equal(build.kind, "cargo"); assert.equal(build.cwd, "crates/rightkit-fs");
+  assert.ok((await admitQual(pack(derived))).qualification.provenance, "the derived nonce, recomputed from the row's directory and argv");
+  const refusedFor = (nonceOf, pattern, why) => assert.rejects(admitQual(pack((a) => (a.i === 0 ? nonceOf(a) : derived(a)))), pattern, why);
+  await refusedFor(() => "a".repeat(64), /package receipt 1 .*nonce: the nonce is not the one this invocation sent/, "a random nonce");
+  await refusedFor(({ request, stageNonce }) => carriedCallNonce({ stageNonce, cwd: "crates/rightkit-other", argv: request.requestedArgv }), /package receipt 1 .*nonce/, "another directory");
+  await refusedFor(({ request }) => carriedCallNonce({ stageNonce: qualificationNonce({ commit: SHA, tree: TREE, unit: "npm:@rightkit/release", stage: "compile" }), cwd: "crates/rightkit-fs", argv: request.requestedArgv }), /package receipt 1 .*nonce/, "another stage's");
+  await refusedFor(({ request }) => carriedCallNonce({ stageNonce: qualificationNonce({ commit: SHA, tree: TREE, unit: "npm:@rightkit/ci", stage: "package" }), cwd: "crates/rightkit-fs", argv: request.requestedArgv }), /package receipt 1 .*nonce/, "another unit's");
+  await refusedFor(({ request, stageNonce }) => carriedCallNonce({ stageNonce, cwd: "crates/rightkit-fs", argv: [...request.requestedArgv, "--all-features"] }), /package receipt 1 .*nonce/, "another argv");
+  // The stage nonce itself (the old regime) is not any call's nonce, a cargo call's or a pnpm job's.
+  await refusedFor(({ stageNonce }) => stageNonce, /package job package-job-1 carries a nonce that is not the one its command \(cargo build .*\) owes/, "the stage's own nonce");
+  await assert.rejects(admitQual(pack((a) => (a.i === 2 ? a.stageNonce : derived(a)))), /package job package-job-3 carries a nonce that is not the one its command \(pnpm .*\) owes/, "the stage's own nonce on a pnpm job");
+  await assert.rejects(admitQual(pack((a) => (a.i === 2 ? carriedCallNonce({ stageNonce: a.stageNonce, cwd: "packages/release", argv: a.request.requestedArgv }) : derived(a)))), /package receipt 3 .*nonce/, "a pnpm job's nonce derived for another directory");
+  await assert.rejects(admitQual(pack((a) => (a.i === 2 ? carriedCallNonce({ stageNonce: a.stageNonce, cwd: ".", argv: [...a.request.requestedArgv, "--x"] }) : derived(a)))), /package receipt 3 .*nonce/, "a pnpm job's nonce derived for another argv");
+  // Two cargo calls of one directory with different argv carry different nonces: swapping them between the two jobs refuses.
+  const [b1, b2] = stageReceipts({ ...RELEASE, stage: "package" }).slice(0, 2).map((r) => r.provenance.payload.nonce);
+  assert.notEqual(b1, b2);
+  await assert.rejects(admitQual(pack((a) => (a.i === 0 ? b2 : a.i === 1 ? b1 : derived(a)))), /package receipt 1 .*nonce/, "one call's nonce on another call");
+});
+
+// ---- B9: every receipt carries signed snapshot evidence of the dispatched commit ---------------------------------------------------------
+test("B9: a receipt without snapshotEvidence, or with another commit, tree, request id, or a snapshot that moved, refuses; two snapshots or two ownership handles refuse", async () => {
+  const both = (evidence) => admitQual(qual({ receiptFor: { evidence } }));
+  assert.ok((await admitQual(qual())).qualification.provenance);
+  await assert.rejects(both(() => undefined), /compile receipt 1 \(job compile-job-1\) carries no signed snapshotEvidence/);
+  await assert.rejects(both((b) => ({ ...b, commit: { ...b.commit, sha: OTHER } })), /compile receipt 1 \(job compile-job-1\): the signed commit is not the one/);
+  await assert.rejects(both((b) => ({ ...b, commit: { ...b.commit, tree: "e".repeat(40) } })), /signed commit is not the one/);
+  await assert.rejects(both((b) => ({ ...b, snapshot: { ...b.snapshot, treeAtStart: "e".repeat(40) } })), /snapshot was tree e{40} at START and c{40} at exit, not c{40} throughout/);
+  await assert.rejects(both((b) => ({ ...b, snapshot: { ...b.snapshot, treeAtExit: "e".repeat(40) } })), /at START and e{40} at exit/);
+  await assert.rejects(both((b) => ({ ...b, requestId: "another-job" })), /signed request id is not this job/);
+  await assert.rejects(both((b) => ({ ...b, snapshot: { ...b.snapshot, path: "" } })), /names no snapshot path or ownership handle/);
+  await assert.rejects(both((b) => ({ ...b, ownership: {} })), /names no snapshot path or ownership handle/);
+  // One snapshot and one handle for the whole qualification, within a stage and across the two.
+  const pack = (evidence) => withPackage(stageReceipts({ ...RELEASE, stage: "package", evidence }));
+  await assert.rejects(admitQual(pack((b, i) => (i === 1 ? { ...b, snapshot: { ...b.snapshot, path: "/snap/other" } } : b))), /package receipt 2 .*ran in the snapshot \/snap\/other, another snapshot than the qualification's other jobs \(\/snap\/rk\)/);
+  await assert.rejects(admitQual(pack((b) => ({ ...b, snapshot: { ...b.snapshot, path: "/snap/other" } }))), /another snapshot than the qualification's other jobs/, "the package stage in another snapshot than the compile stage");
+  await assert.rejects(admitQual(pack((b, i) => (i === 2 ? { ...b, ownership: { handle: "own-2" } } : b))), /package receipt 3 .*ownership handle own-2, another than the qualification's other jobs \(own-1\)/);
+  // The commit's own name is no evidence: a checkout not named rightkit passes, and the one primary root is what the receipts agree on.
+  assert.ok((await admitQual(qual({ receiptFor: { workspace: "/Volumes/D/claude/checkout-x" } }))).qualification.provenance);
+  const rootOf = (workspace) => withPackage(stageReceipts({ ...RELEASE, stage: "package", requestFor: (row, w, i) => requestOf(row, i === 2 ? workspace : w) }));
+  await assert.rejects(admitQual(rootOf("/work/another-root")), /package job package-job-3 ran in \/work\/another-root, another workspace than the qualification's other jobs \(\/work\/rightkit\)/);
 });

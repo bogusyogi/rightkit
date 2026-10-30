@@ -8,6 +8,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { createHash } from "node:crypto";
+import { qualificationNonce } from "./provenance-verify.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { main } from "./bin/rightkit-gate.mjs";
 import { localBuildGrantedAt, sourceGit } from "./local-publish.mjs";
@@ -209,4 +211,79 @@ test("[7.06a] on a broker host the unit cargo binding is the carrier (o.snapshot
   const none = await fx.door(["--to", "compile", "--unit", "npm:@rightkit/x", "--commit", fx.c1], { platform: "darwin", resolveExecutor: brokerExecutor, loadUnitOwner: fx.loadUnitOwner({ compile: () => launches.push("x") }) });
   assert.equal(none.code, 1, none.all); assert.match(none.err, /BLOCKED: RK_SNAPSHOT_CARRIER_NOT_WIRED/); assert.deepEqual(launches, []);
   assert.equal(typeof CARRIED_CARGO_MAP_ENV, "string");
+});
+
+test("[B6] on a broker host the Cargo workspaces are the commit's own (read from its manifests): a checkout edit to a Cargo.toml changes nothing and no Cargo call is made against the checkout", { skip: POSIX_SIM }, async (t) => {
+  const fx = unitFixture(t, { npm: true });
+  fx.write("native/Cargo.toml", '[workspace]\n[package]\nname = "native"\nversion = "0.1.0"\n'); fx.write("native/src/lib.rs", "\n");
+  git(fx.repo, "add", "-A"); git(fx.repo, "commit", "-q", "-m", "native workspace");
+  const commit = git(fx.repo, "rev-parse", "HEAD").stdout.trim();
+  const brokerExecutor = () => ({ kind: "broker", cargo: ["rustright", "cargo"] });
+  const bound = async () => {
+    const installs = [];
+    const sb = { handle: "own-1", markBrokerSubmit: () => ({ handle: "own-1", broker: { submitted: true } }) };
+    const before = fx.spawned.length;
+    const r = await fx.door(["--to", "compile", "--unit", "npm:@rightkit/x", "--commit", commit], {
+      platform: "darwin", resolveExecutor: brokerExecutor, snapshotBroker: sb, brokerSection: () => ({ client: "/x/rustright" }),
+      installCargoShim: (args) => { installs.push(args); return { dir: path.join(fx.dir, "shim"), bin: path.join(fx.dir, "shim", "bin"), shim: path.join(fx.dir, "shim", "bin", "cargo"), mode: "broker", workspaces: {}, ledgerDir: path.join(fx.dir, "shim", "ledger"), identity: "i" }; },
+      loadUnitOwner: fx.loadUnitOwner(),
+    });
+    assert.equal(installs.length, 1, r.all);
+    const metadata = fx.spawned.slice(before).filter((c) => c.includes("metadata"));
+    return { map: installs[0].broker.checkoutDirs, metadata };
+  };
+  const real = fs.realpathSync(fx.repo);
+  const committed = await bound();
+  assert.deepEqual(committed.map, { ".": real, native: path.join(real, "native") }, "the root workspace (its member crate included) and the nested one");
+  assert.deepEqual(committed.metadata, [], "Cargo is asked nothing about the checkout");
+  // Uncommitted edits to the checkout's manifests: the root stops being a workspace, the nested one is deleted, a crate becomes its own workspace.
+  fx.write("Cargo.toml", "this is not toml\n");
+  fx.write("crates/rightkit-x/Cargo.toml", '[workspace]\n[package]\nname = "rightkit-x"\nversion = "9.9.9"\n');
+  fs.rmSync(path.join(fx.repo, "native"), { recursive: true, force: true });
+  const edited = await bound();
+  assert.deepEqual(edited.map, committed.map, "a checkout edit to a Cargo.toml does not change what the commit builds");
+  assert.deepEqual(edited.metadata, []);
+});
+
+test("[B8/B9] `--to qualify --unit` on a broker host is the no-upload route: the compile and package stages are attested, the qualification is written beside the archive and verified against the commit, and nothing is dispatched; a refusal fails the run", { skip: POSIX_SIM }, async (t) => {
+  const fx = unitFixture(t, { npm: true });
+  const brokerExecutor = () => ({ kind: "broker", cargo: ["rustright", "cargo"] });
+  const sb = { handle: "own-1", markBrokerSubmit: () => ({ handle: "own-1", broker: { submitted: true } }) };
+  const tgz = path.join(fx.dir, "x-1.2.3.tgz"); fs.writeFileSync(tgz, "tgz");
+  const sha = createHash("sha256").update("tgz").digest("hex");
+  const seen = { env: {}, released: 0 };
+  const owner = async () => {
+    const packaged = { kind: "npm", name: "@rightkit/x", version: "1.2.3", commit: fx.c1, artifactFile: tgz, artifactSha256: sha, contentSha256: "c".repeat(64) };
+    return {
+      compileLocalUnit: async (_k, _a, { env }) => { seen.env.compile = env; return Object.freeze({}); }, localUnitCompileRequests: () => ["c-1"],
+      packageLocalUnit: async (_s, { env }) => { seen.env.package = env; return { ...packaged, brokerRequests: ["p-1"] }; },
+      qualifyLocalUnit: async (_s, { env }) => { seen.env.qualify = env; return { ...packaged, qualifiedOnly: true, evidencePath: "gate.json" }; }, closeLocalUnit: async () => {},
+    };
+  };
+  const requests = { "c-1": { kind: "adapter", adapter: "rightkit-pnpm", requestedArgv: ["-r", "run", "build"] }, "p-1": { kind: "adapter", adapter: "rightkit-pnpm", requestedArgv: ["pack"] } };
+  const verified = [];
+  const hooks = (verify) => ({ fetchReceipt: (id) => ({ id, provenance: { schema: "rustright.provenance.v1", payload: { jobId: id, request: requests[id] }, signature: { alg: "ES256", keyId: "k", value: "ab" } } }),
+    stageCommands: () => ({ compile: [{ kind: "adapter", adapter: "rightkit-pnpm", argvs: [["-r", "run", "build"]] }], package: [{ kind: "adapter", adapter: "rightkit-pnpm", argvs: [["pack"]] }] }), verifyReceipts: verify });
+  const run = (verify) => fx.door(["--to", "qualify", "--unit", "npm:@rightkit/x", "--commit", fx.c1], {
+    platform: "darwin", resolveExecutor: brokerExecutor, snapshotBroker: sb, brokerSection: () => ({ client: "/x/rustright" }), unitGateDeps: hooks(verify),
+    installCargoShim: () => ({ dir: path.join(fx.dir, "shim"), bin: path.join(fx.dir, "shim", "bin"), shim: path.join(fx.dir, "shim", "bin", "cargo"), mode: "broker", workspaces: {}, ledgerDir: path.join(fx.dir, "shim", "ledger"), identity: "i" }),
+    loadUnitOwner: owner,
+  });
+  const ok = await run((text, o) => { verified.push({ q: JSON.parse(text), ...o }); });
+  assert.equal(ok.code, 0, ok.all);
+  assert.match(ok.all, /\[qualify\] npm:@rightkit\/x passed/);
+  assert.match(ok.all, /qualification .*qualification\.json verified locally; nothing was dispatched/);
+  const tree = git(fx.repo, "rev-parse", `${fx.c1}^{tree}`).stdout.trim();
+  const nonce = (stage) => qualificationNonce({ commit: fx.c1, tree, unit: "npm:@rightkit/x", stage });
+  assert.equal(seen.env.compile.RIGHTKIT_ATTEST_STAGE_NONCE, nonce("compile")); assert.equal(seen.env.package.RIGHTKIT_ATTEST_STAGE_NONCE, nonce("package"));
+  for (const stage of ["compile", "package", "qualify"]) assert.ok(!Object.keys(seen.env[stage]).some((k) => /^(RUSTRIGHT|RIGHTKIT)_(ATTEST_NONCE|SNAPSHOT_REQUEST|REQUEST_ID_FILE)$/.test(k)), `${stage}: the stage env carries no carrier variable`);
+  assert.equal(verified.length, 1); assert.equal(verified[0].sha, fx.c1, "verified against the selected commit");
+  assert.equal(verified[0].q.tree, tree); assert.equal(verified[0].q.contentSha256, "c".repeat(64));
+  assert.deepEqual(verified[0].q.stages.package.receipts.map((r) => r.id), ["p-1"]);
+  const written = JSON.parse(fs.readFileSync(path.join(path.dirname(tgz), "qualification.json"), "utf8"));
+  assert.equal(written.commit, fx.c1); assert.equal(written.artifactSha256, sha);
+  // The hosted admission would refuse it: the run fails, naming why, with the qualification never dispatched.
+  const refused = await run(() => { throw new Error("publication admission refused: package receipt 1 (job p-1) carries no signed snapshotEvidence"); });
+  assert.equal(refused.code, 1, refused.all);
+  assert.match(refused.err, /local check of the qualification's signed broker receipts failed.*carries no signed snapshotEvidence/);
 });

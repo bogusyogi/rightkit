@@ -308,26 +308,26 @@ test("the real entry (node rightkit-gate.mjs --to <stage> --route) answers with 
     if (brokerHost) assert.deepEqual(line.brokerCapabilities, to === "check" ? null : [...REQUIRED_BROKER_CAPABILITIES], `${to}: the capabilities the fixture client advertised`);
   }
   // A client that advertises too little, or cannot answer, is refused on every stage that builds; --to check builds nothing.
-  if (process.platform === "darwin" || process.platform === "win32") for (const [caps, why] of [[["snapshot-readonly-v1"], "stage-grant-v1"], [[], "snapshot-readonly-v1"], [null, "cannot be asked"], [undefined, "no `.broker.capabilities`"]]) {
+  if (process.platform === "darwin" || process.platform === "win32") for (const [caps, why] of [[["snapshot-readonly-v1", "stage-grant-v1"], "snapshot-adapter-v1"], [["snapshot-readonly-v1"], "snapshot-adapter-v1"], [["snapshot-adapter-v1", "stage-grant-v1"], "snapshot-readonly-v1"], [[], "snapshot-readonly-v1"], [null, "cannot be asked"], [undefined, "no `.broker.capabilities`"]]) {
     const bad = { ...fx.env, PATH: `${fixtureClient(t, caps)}${path.delimiter}${fx.env.PATH}` };
     for (const to of ["dev", "test", "compile", "package", "qualify"]) {
       const out = spawnSync(process.execPath, [GATE_FILE, "--to", to, "--route", ...(to === "package" || to === "qualify" ? ["--platform", "mac"] : [])], { cwd: fx.repo, env: bad, encoding: "utf8" });
       const answer = JSON.parse(out.stdout.trim().split("\n").pop());
       assert.equal(answer.refusal?.code, "RK_BROKER_CAPABILITY_MISSING", `${to} with ${JSON.stringify(caps)}`);
       assert.match(answer.refusal.message, new RegExp(why));
-      assert.match(answer.refusal.message, /rustright#188/);
+      assert.match(answer.refusal.message, /rustright#190/);
     }
     assert.equal(JSON.parse(spawnSync(process.execPath, [GATE_FILE, "--to", "check", "--route"], { cwd: fx.repo, env: bad, encoding: "utf8" }).stdout.trim().split("\n").pop()).refusal, null);
   }
 });
 
 test("rightkit#1301 B2: the broker's capabilities are read from `rustright doctor --json` `.broker.capabilities` without a build, and a missing field, a failing, hung or garbled answer is a refusal on the probe and on the real run", async (t) => {
-  assert.deepEqual([...REQUIRED_BROKER_CAPABILITIES], ["snapshot-readonly-v1", "stage-grant-v1"]);
+  assert.deepEqual([...REQUIRED_BROKER_CAPABILITIES], ["snapshot-readonly-v1", "snapshot-adapter-v1"], "no stage grant is minted any more: stage-grant-v1 is not required");
   const o = (spawn, over = {}) => ({ platform: "darwin", env: {}, spawn, exists: () => true, ...over });
   const answer = (stdout, status = 0) => (c, a) => (c === "which" ? { status: 0, stdout: "/managed/agent-bin/rustright\n" } : { status, stdout, stderr: "e" });
   const calls = [];
-  const ok = queryBrokerCapabilities(o((c, a, opts) => { calls.push([c, ...a, opts?.timeout]); return answer('{"healthy":true,"broker":{"capabilities":["journal-v1","snapshot-readonly-v1","stage-grant-v1"]}}')(c, a); }));
-  assert.deepEqual(ok, { ok: true, capabilities: ["journal-v1", "snapshot-readonly-v1", "stage-grant-v1"] });
+  const ok = queryBrokerCapabilities(o((c, a, opts) => { calls.push([c, ...a, opts?.timeout]); return answer('{"healthy":true,"broker":{"capabilities":["journal-v1","snapshot-readonly-v1","stage-grant-v1","snapshot-adapter-v1"]}}')(c, a); }));
+  assert.deepEqual(ok, { ok: true, capabilities: ["journal-v1", "snapshot-readonly-v1", "stage-grant-v1", "snapshot-adapter-v1"] });
   assert.deepEqual(calls.at(-1), ["/managed/agent-bin/rustright", "doctor", "--json", 20000], "a bounded, build-free query through the resolved client");
   for (const [spawn, why] of [[answer("", 2), /no JSON \(exit 2\)/], [answer("not json"), /no JSON/], [answer('{"broker":{}}'), /no `\.broker\.capabilities`/], [answer('{"capabilities":["snapshot-readonly-v1"]}'), /no `\.broker\.capabilities`/], [answer('{"broker":{"capabilities":"x"}}'), /no `\.broker\.capabilities`/], [answer('{"broker":{"capabilities":[1]}}'), /no `\.broker\.capabilities`/], [(c) => (c === "which" ? { status: 1, stdout: "" } : { status: 0, stdout: "{}" }), /not on PATH/], [(c) => (c === "which" ? { status: 0, stdout: "/m/rustright\n" } : { status: null, error: new Error("ETIMEDOUT"), stdout: "" }), /did not finish/]]) {
     const r = queryBrokerCapabilities(o(spawn)); assert.equal(r.ok, false); assert.match(r.problem, why);
@@ -342,7 +342,7 @@ test("rightkit#1301 B2: the broker's capabilities are read from `rustright docto
   // The plan: every capability is owed, a failed query refuses, check and the direct host are not asked.
   const planWith = (capabilities, over = {}) => routePlan({ platform: "darwin", env: {}, spawn: () => ({ status: 1 }), exists: () => false, readFile: () => "", snapshotBroker: { kind: "x" }, resolveExecutor: brokerExecutor, ...over }, { to: "package", stages: ["check", "compile", "package"], devTest: false, executor: brokerExecutor(), capabilities });
   assert.equal(planWith(OK_CAPS()).refusal, null);
-  for (const caps of [{ ok: false, problem: "p" }, { ok: true, capabilities: [] }, { ok: true, capabilities: ["snapshot-readonly-v1"] }, { ok: true, capabilities: ["stage-grant-v1"] }]) {
+  for (const caps of [{ ok: false, problem: "p" }, { ok: true, capabilities: [] }, { ok: true, capabilities: ["snapshot-readonly-v1"] }, { ok: true, capabilities: ["stage-grant-v1"] }, { ok: true, capabilities: ["snapshot-adapter-v1"] }, { ok: true, capabilities: ["snapshot-readonly-v1", "stage-grant-v1"] }]) {
     const r = planWith(caps); assert.equal(r.refusal.code, "RK_BROKER_CAPABILITY_MISSING"); assert.equal(r.refusal.stage, "package"); assert.match(r.refusal.message, /rustright doctor --json/);
   }
   assert.equal(routePlan({ platform: "darwin", env: {}, spawn: () => ({ status: 1 }), exists: () => false, readFile: () => "", snapshotBroker: { kind: "x" }, resolveExecutor: brokerExecutor }, { to: "check", stages: ["check"], devTest: false, executor: brokerExecutor(), capabilities: { ok: false, problem: "p" } }).refusal, null, "--to check builds nothing");

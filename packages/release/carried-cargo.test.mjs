@@ -215,39 +215,20 @@ test("the seam never applies on Linux (no broker there, whatever the environment
   assert.equal(carriedCargoMapOf({ [CARRIED_CARGO_MAP_ENV]: h.installed.env[CARRIED_CARGO_MAP_ENV] }).map.mode, "broker");
 });
 
-test("the third-party wrapper (the Tauri CLI's and cargo-about's cargo): first on PATH and in CARGO, refuses --config, --target-dir and --manifest-path, ledgers every call, and the stage's problems name the refusals", { skip: POSIX }, async (t) => {
-  const h = host(t);
-  assert.equal(h.installed.mode, "shim");
-  assert.equal(h.installed.env.CARGO, h.installed.shim);
-  assert.ok(h.installed.env.PATH.startsWith(path.dirname(h.installed.shim)), "the wrapper is first on PATH");
-  const wrap = (args, cwd = h.a) => spawnSync(h.installed.shim, args, { cwd, env: { ...process.env, ...h.env }, encoding: "utf8" });
-  const ok = wrap(["build", "--locked"]);
-  assert.equal(ok.status, 0, ok.stderr);
-  for (const [args, code] of [[["build", "--config", "build.target-dir='x'"], "RK_CARGO_REDIRECT"], [["build", "--target-dir", "x"], "RK_CARGO_REDIRECT"], [["build", "--manifest-path", path.join(h.a, "Cargo.toml")], "RK_CARGO_BROKER_MANIFEST_PATH"]]) {
-    const r = wrap(args);
-    assert.equal(r.status, 101, args.join(" ")); assert.match(r.stderr, new RegExp(code), args.join(" "));
+test("installCarrier writes the map and the ledger only, on every platform: no wrapper, no .cmd, .bat or PATHEXT shim, no PATH or CARGO variable, no stage grant, and the seam works from the map", { skip: POSIX }, async (t) => {
+  for (const platform of ["darwin", "win32", "linux"]) {
+    const fx = makeFakeBroker(t);
+    const installed = installCarrier({ base: fs.mkdtempSync(path.join(fx.root, "carrier-")), snapshotRoot: fx.snapshot, checkoutDirs: { ".": fx.checkout }, section: brokerSection(fx.sb), platform, env: {} });
+    t.after(() => installed.cleanup());
+    assert.equal(installed.mode, "map", platform); assert.equal(installed.shim, null, platform); assert.equal(installed.grant, undefined, platform);
+    assert.deepEqual(Object.keys(installed.env), [CARRIED_CARGO_MAP_ENV], `${platform}: only the map; no PATH, CARGO, grant or wrapper variable`);
+    assert.deepEqual(fs.readdirSync(installed.dir).sort(), ["cargo-target-map.json", "ledger"], `${platform}: no wrapper of any kind is written`);
+    const r = runCargoSync(["build"], { cwd: path.join(fx.snapshot, "crates", "a"), env: { RUSTRIGHT_CALLING_GATE: GATE, ...installed.env }, encoding: "utf8" }, { ...MAC });
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(await installed.problems(fx.sb), []);
+    installed.cleanup();
+    assert.equal(fs.existsSync(installed.dir), false);
   }
-  assert.deepEqual(h.fx.calls().map((c) => c.argv), [["build", "--locked"]], "only the clean call reached the broker");
-  const problems = await h.installed.problems(h.fx.sb);
-  assert.equal(problems.length, 3, problems.join("\n"));
-  assert.ok(problems.every((p) => /was refused/.test(p)));
-  // Both halves share one ledger and one map: the seam's own call and a third party's call are told apart only by their ids.
-  assert.equal(h.cargo(["check"]).status, 0);
-  assert.equal(h.entries().entries.filter((e) => e.status === "verified").length, 2);
-});
-
-test("installCarrier on Windows writes the map and the ledger only: no .cmd, .bat or PATHEXT shim, nothing on PATH, and the seam works from the map", { skip: POSIX }, async (t) => {
-  const fx = makeFakeBroker(t);
-  const installed = installCarrier({ base: fs.mkdtempSync(path.join(fx.root, "carrier-")), snapshotRoot: fx.snapshot, checkoutDirs: { ".": fx.checkout }, section: brokerSection(fx.sb), platform: "win32", env: {} });
-  t.after(() => installed.cleanup());
-  assert.equal(installed.mode, "map"); assert.equal(installed.shim, null);
-  assert.deepEqual(Object.keys(installed.env), [CARRIED_CARGO_MAP_ENV], "only the map; no PATH, CARGO or wrapper variable");
-  assert.deepEqual(fs.readdirSync(installed.dir).sort(), ["cargo-target-map.json", "ledger"], "no wrapper of any kind is written");
-  const r = runCargoSync(["build"], { cwd: path.join(fx.snapshot, "crates", "a"), env: { RUSTRIGHT_CALLING_GATE: GATE, ...installed.env }, encoding: "utf8" }, { ...MAC });
-  assert.equal(r.status, 0, r.stderr);
-  assert.deepEqual(await installed.problems(fx.sb), []);
-  installed.cleanup();
-  assert.equal(fs.existsSync(installed.dir), false);
 });
 
 test("the consumers of the seam take the output directory from a receipt, and ask Cargo (a read-only snapshot request) only when no receipt names it", { skip: POSIX || (process.platform !== "darwin" && "the seam only applies on a broker host (the process platform decides here)") }, async (t) => {

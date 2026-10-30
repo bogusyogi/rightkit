@@ -1383,8 +1383,9 @@ async function runStages(o, args, root, git, io) {
   // (source-split.mjs). Anywhere else it runs in the app root of the checkout, which hosted CI's runner holds at the commit.
   const sourceOf = ds ? sourceSplitOf({ root, ds, appDir }) : null;
   const rightRelease = async (stage, cliArgs, extraEnv = {}) => {
-    // A broker host's child reaches Cargo only through this stage's carrier (carried-cargo.mjs): its own calls, and the third-party
-    // children's through the wrapper first on PATH. Every call is in the gate-owned ledger and is verified again after the child ends.
+    // A broker host's child reaches the broker only through this stage's carrier (carried-cargo.mjs): its Cargo calls, and its pnpm, node and QA
+    // steps as adapter jobs with the third-party children's compiles nested under them. Every call is in the gate-owned ledger and is verified
+    // again after the child ends.
     const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag });
     if (carrier.refusal) { o.err(`${tag} BLOCKED: ${carrier.refusal}; nothing ran`); return false; }
     const run = startRun({ commonDir, commit, tree, stage, ...(sourceOf ? { source: sourceOf } : {}) });
@@ -1745,8 +1746,10 @@ export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appD
 
 /**
  * The Cargo binding of a unit stage built from a snapshot (row 7.06a; decision 2 Q3, as for any npm unit): a unit's test or pack that
- * reaches Cargo must never write `target/` into the snapshot. Every tracked Cargo.toml of the commit is asked, in the CHECKOUT, for its
- * workspace and `target_directory`. Linux and any POSIX host with a direct executor put the runtime wrapper (cargo-target-shim.mjs)
+ * reaches Cargo must never write `target/` into the snapshot. On a broker host the workspaces are read from the commit's own manifests
+ * (git objects, never the checkout: the broker pins every output). On a direct host every tracked Cargo.toml of the commit is asked, in the
+ * CHECKOUT, for its workspace and `target_directory` (a direct host has no broker to pin it; Linux compiles directly, so this one reads
+ * the checkout's manifests and its Cargo configuration for where the output goes). Linux and any POSIX host with a direct executor put the runtime wrapper (cargo-target-shim.mjs)
  * first on PATH and name it in CARGO, so each cargo call binds its own workspace's checkout target or is refused. A broker host
  * (`o.snapshotBroker`) uses the same wrapper in broker mode, one carried request per call with its own receipt. A direct Windows host has
  * no wrapper: one workspace is pinned by CARGO_TARGET_DIR, several are refused. Returns `{ env, note, cleanup }` or `{ refusal }`.
@@ -1759,7 +1762,34 @@ async function bindUnitCargo({ o, git, root, ds, executor, which }) {
   let checkoutReal = root; try { checkoutReal = fs.realpathSync.native(root); } catch { /* as given */ }
   const cargo = executor.cargo ?? ["cargo"];
   const targetDirs = {};
-  for (const m of manifests) {
+  if (executor.kind === "broker") {
+    // A broker host never asks Cargo anything about the checkout: the broker pins every output directory (the receipt's `outputDir`), so
+    // all this binding needs is which directories of the commit are Cargo workspaces, and the commit's own manifests say so (read with the
+    // object database, never the editable checkout: GATE-CONTRACT "Commit-only build"). The same rule the carried seam applies to a call
+    // (cargo-target-shim.mjs locateWorkspaceByWalk): the nearest enclosing manifest that declares `[workspace]`, else the nearest manifest.
+    const tracked = new Set(manifests);
+    const bodies = new Map();
+    const declaresWorkspace = (m) => {
+      if (!bodies.has(m)) { const r = git("show", `${ds.commit}:${m}`); bodies.set(m, failed(r) ? null : text(r)); }
+      return bodies.get(m);
+    };
+    for (const m of manifests) {
+      let dir = path.posix.dirname(m); let nearest = null; let found = null;
+      for (;;) {
+        const candidate = dir === "." ? "Cargo.toml" : `${dir}/Cargo.toml`;
+        if (tracked.has(candidate)) {
+          nearest ??= dir;
+          const body = declaresWorkspace(candidate);
+          if (body === null) return { refusal: `cannot read ${candidate} of ${ds.commit.slice(0, 12)}` };
+          if (/^\s*\[workspace(?:\.[^\]]*)?\]/m.test(body)) { found = dir; break; }
+        }
+        if (dir === ".") break;
+        dir = path.posix.dirname(dir);
+      }
+      targetDirs[found ?? nearest ?? path.posix.dirname(m)] = null;
+    }
+  }
+  for (const m of executor.kind === "broker" ? [] : manifests) {
     const file = path.join(root, ...m.split("/"));
     if (!o.exists(file)) return { refusal: `the checkout has no ${m}, so its Cargo output directory cannot be resolved` };
     const r = o.spawn(cargo[0], [...cargo.slice(1), "metadata", "--offline", "--format-version", "1", "--no-deps", "--manifest-path", file], { cwd: path.dirname(file), env: o.env });
@@ -1858,6 +1888,7 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
     return await runUnitGate({ selector, to: option("--to"), root: ds.path, commonDir: path.resolve(root, text(common).trim()), commit: ds.commit, tree: ds.tree, executor, env: o.env, platform: o.platform, source, envExtra,
       resolve: (sel, r) => resolveUnit(sel, r, { granted: () => localBuildGrantedAt(source) }),
       ...(o.loadUnitOwner ? { loadOwner: o.loadUnitOwner } : {}),
+      ...(o.unitGateDeps ?? {}), // test seam: fetchReceipt, stageCommands, verifyReceipts, selfGit
       stageGuard: { start: (stage) => openSnapshotStage({ o, ds, root, stage: `unit:${stage}`, tag }), end: async (stage) => {
         if (!(await closeSnapshotStage({ o, ds, root, stage: `unit:${stage}`, step: `unit:${stage}`, tag })).ok) return false;
         const calls = bound.check ? await bound.check() : [];
@@ -1918,11 +1949,15 @@ export const ROUTE_SCHEMA = "rightkit-gate.route/1";
 
 /**
  * The capabilities a broker must advertise for the carried stages (rightkit#1301 B2). RustRight reports them in `rustright doctor --json`
- * as `.broker.capabilities` (the HANDSHAKE's `capabilities`: `journal-v1`, `snapshot-readonly-v1`, `stage-grant-v1`; constants in
- * rustright-protocol response.rs). The two required strings ship with RustRight's upcoming change: today's broker (78eda7e) reports no
- * `.broker.capabilities`, so this release refuses every stage that builds until that broker is installed.
+ * as `.broker.capabilities` (the HANDSHAKE's `capabilities`: `journal-v1`, `snapshot-readonly-v1`, `snapshot-adapter-v1`, ...; constants
+ * in rustright-protocol response.rs). The two required strings ship with RustRight's upcoming change: today's broker (78eda7e) reports no
+ * `.broker.capabilities`, so this release refuses every stage that builds until that broker is installed. `snapshot-adapter-v1`
+ * (rustright#190, rightkit#1301 B10) is the broker's acceptance of a snapshot-bound adapter job (pnpm, node, QA) inside a gate snapshot,
+ * under which a Tauri CLI's compiles run nested: without it every pnpm step of a snapshot stage (an app's dev and package steps, an npm
+ * unit's compile and package) is refused by the broker, so the gate refuses first. `stage-grant-v1` is no longer required: the gate mints
+ * no stage grant (one model: every compile of a snapshot stage is a carried request or nested under one).
  */
-export const REQUIRED_BROKER_CAPABILITIES = Object.freeze(["snapshot-readonly-v1", "stage-grant-v1"]);
+export const REQUIRED_BROKER_CAPABILITIES = Object.freeze(["snapshot-readonly-v1", "snapshot-adapter-v1"]);
 
 /**
  * The broker's capabilities, asked without a build through `rustright doctor --json`: `{ ok: true, capabilities }` or `{ ok: false, problem }`.
@@ -1937,7 +1972,7 @@ export function queryBrokerCapabilities(o) {
   let doc;
   try { doc = JSON.parse(text(r)); } catch { return { ok: false, problem: `\`rustright doctor --json\` printed no JSON${r.status ? ` (exit ${r.status})` : ""}` }; }
   const caps = doc?.broker?.capabilities;
-  if (!Array.isArray(caps) || !caps.every((c) => typeof c === "string")) return { ok: false, problem: "`rustright doctor --json` reports no `.broker.capabilities` (a broker that predates snapshot-readonly-v1 and stage-grant-v1)" };
+  if (!Array.isArray(caps) || !caps.every((c) => typeof c === "string")) return { ok: false, problem: "`rustright doctor --json` reports no `.broker.capabilities` (a broker that predates snapshot-readonly-v1 and snapshot-adapter-v1)" };
   return { ok: true, capabilities: caps };
 }
 
@@ -1950,13 +1985,6 @@ export function brokerCapabilityState(o, { to, executor }) {
   if (executor?.kind !== "broker" || to === "check" || o.env.GITHUB_ACTIONS === "true") return null;
   if (typeof o.brokerCapabilities === "function") return o.brokerCapabilities(o);
   return typeof o.snapshotBroker?.create === "function" ? queryBrokerCapabilities(o) : null;
-}
-
-/** Whether the commit has a Tauri crate under this app (a Tauri configuration file): its build and dev run the Tauri CLI. Reads the commit's objects. */
-export function commitHasTauri({ git, commit, appDir = "." }) {
-  const listed = git("ls-tree", "-r", "--name-only", "-z", commit);
-  if (failed(listed)) throw new Error(`cannot list the files of ${commit.slice(0, 12)}: ${why(listed)}`);
-  return text(listed).split("\0").some((f) => /(^|\/)(tauri\.conf\.json5?|Tauri\.toml)$/.test(f) && (appDir === "." || f.startsWith(`${appDir}/`)));
 }
 
 /**
@@ -1984,7 +2012,7 @@ export function routePlan(o, { to, stages, devTest, executor, capabilities = nul
     // The broker must accept what the carried stages ask of it (rightkit#1301 B2): a missing or failing capability query refuses.
     if (capabilities && executor?.kind === "broker" && to !== "check") {
       const missing = capabilities.ok ? REQUIRED_BROKER_CAPABILITIES.filter((c) => !capabilities.capabilities.includes(c)) : REQUIRED_BROKER_CAPABILITIES;
-      if (!capabilities.ok || missing.length) return { route, refusal: refuse("RK_BROKER_CAPABILITY_MISSING", to, `the broker ${capabilities.ok ? `does not advertise ${missing.join(", ")}` : `cannot be asked for its capabilities (${capabilities.problem})`} (\`rustright doctor --json\` \`.broker.capabilities\`); this release builds only against a broker that accepts snapshot-bound read-only Cargo and stage grants (rightkit#1301, rustright#188)`) };
+      if (!capabilities.ok || missing.length) return { route, refusal: refuse("RK_BROKER_CAPABILITY_MISSING", to, `the broker ${capabilities.ok ? `does not advertise ${missing.join(", ")}` : `cannot be asked for its capabilities (${capabilities.problem})`} (\`rustright doctor --json\` \`.broker.capabilities\`); this release builds only against a broker that accepts snapshot-bound read-only Cargo and snapshot-bound adapter jobs (rightkit#1301, rustright#188, rustright#190)`) };
     }
   }
   if (executor?.kind === "refuse") return { route, refusal: refuse("RK_BROKER_UNAVAILABLE", to, executor.problem) };
@@ -2033,10 +2061,6 @@ export function carriedEnv(carrier, base, extra = {}) {
     const out = { ...env };
     for (const key of Object.keys(out)) {
       if (/^(CARGO_TARGET_DIR|CARGO_BUILD_TARGET_DIR)$/i.test(key)) delete out[key];
-      // A grant child (the Tauri CLI on a host with no wrapper) carries the stage grant and nothing of a per-call carrier: no
-      // SNAPSHOT_REQUEST, no ATTEST_NONCE (the client mints one per call), no legacy spelling of the gate or the grant.
-      else if (carrier.grant && /^(RUSTRIGHT|RIGHTKIT)_(SNAPSHOT_REQUEST|SNAPSHOT_GRANT|ATTEST_NONCE|REQUEST_ID_FILE)$/i.test(key)) delete out[key];
-      else if (carrier.grant && /^RIGHTKIT_CALLING_GATE$/i.test(key)) delete out[key];
     }
     return out;
   };
@@ -2082,7 +2106,7 @@ async function snapshotCargoWorkspaces({ git, ds, root }) {
 
 /**
  * The carrier of one snapshot stage's right-release child on a broker host: the stage's workspaces, the broker section, one map and
- * ledger, the broker-mode wrapper first on PATH on POSIX. Returns `{ env, refusal, finish({ stage }), cleanup }`: `env` is added to the
+ * ledger. Returns `{ env, refusal, finish({ stage }), cleanup }`: `env` is added to the
  * child's environment; `finish` runs after the child ended, fails on any call that was refused, unverified or unfinished and on any
  * receipt the gate cannot verify again itself, and removes the carrier. A direct executor, or no snapshot, has nothing to carry.
  */
@@ -2100,16 +2124,15 @@ async function carrierForChildren({ o, ds, root, git, executor, stage, tag = "ri
     if (marked?.broker?.submitted !== true || marked.handle !== sb.handle) throw new Error(`the build ownership did not record the broker submit${sb.handle ? ` under ${sb.handle}` : ""}`);
     const checkoutDirs = await snapshotCargoWorkspaces({ git, ds, root });
     base = fs.mkdtempSync(path.join(os.tmpdir(), "rk-carrier-"));
-    // A host with no PATH wrapper (Windows) carries the third-party children (the Tauri CLI) through a stage grant: the broker checks each of
-    // their calls against it. The Mac keeps the wrapper: every call it makes is in the gate's ledger and verified again from its receipt,
-    // which a grant call is not (the gate does not see them), so the grant is used only where nothing else can carry the child.
-    const grantWanted = o.platform === "win32" && commitHasTauri({ git, commit: ds.commit });
-    const installed = (o.installCarrier ?? carried.installCarrier)({ base, snapshotRoot: ds.path, checkoutDirs, section: (o.brokerSection ?? brokerSection)(sb), known: Object.fromEntries(ds.carriedOutputs ?? []), platform: o.platform, env: o.env, ...(grantWanted ? { grant: { primary: fs.realpathSync.native(root), callingGate: callingGatePath() } } : {}) });
-    o.out(`${tag} [${stage}] cargo carrier (${installed.mode}): ${Object.keys(checkoutDirs).length} workspace(s), each right-release call is one carried request with its own signed receipt${installed.grant ? `; the Tauri CLI's own calls run under stage grant ${installed.grant.body.grantId} (at most ${installed.grant.body.maxCalls} calls, until ${installed.grant.body.expiresAt})` : ""}`);
+    // The carrier is the map and the ledger on every platform: no PATH wrapper and no stage grant. The child's pnpm, node and QA steps are carried
+    // adapter jobs and its Cargo calls carried requests; whatever the Tauri CLI compiles runs nested under the adapter job that started it, and the
+    // broker's signed list of those children is what the gate verifies and reads the bundle root from (carried-cargo.mjs).
+    const installed = (o.installCarrier ?? carried.installCarrier)({ base, snapshotRoot: ds.path, checkoutDirs, section: (o.brokerSection ?? brokerSection)(sb), known: Object.fromEntries(ds.carriedOutputs ?? []), platform: o.platform, env: o.env });
+    o.out(`${tag} [${stage}] carrier (${installed.mode}): ${Object.keys(checkoutDirs).length} workspace(s); each right-release cargo call and each pnpm, node or QA step is one carried request with its own signed receipt, and a compile a step's child makes is nested under it`);
     let finished = false;
     const cleanup = () => { try { installed.cleanup?.(); } catch { /* removed below */ } fs.rmSync(base, { recursive: true, force: true }); };
     return {
-      env: installed.env, carried: true, grant: Boolean(installed.grant), refusal: null, cleanup,
+      env: installed.env, carried: true, refusal: null, cleanup,
       async finish({ stage: at = stage } = {}) {
         if (finished) return true;
         finished = true;
@@ -2121,7 +2144,7 @@ async function carrierForChildren({ o, ds, root, git, executor, stage, tag = "ri
           // And by workspace, for the next stage's children: a receipt already names the output directory, so none asks Cargo for it.
           for (const [root, dir] of installed.outputsByWorkspace?.() ?? []) (ds.carriedOutputs ??= new Map()).set(root, dir);
         } catch (error) { problems = [`the cargo ledger cannot be read (${error.message})`]; } finally { cleanup(); }
-        for (const p of problems.slice(0, 10)) o.err(`${tag} RK_CHECK_ERROR: [${at}] a cargo call the right-release child made did not complete: ${typeof p === "string" ? p : JSON.stringify(p)}`);
+        for (const p of problems.slice(0, 10)) o.err(`${tag} RK_CHECK_ERROR: [${at}] a broker call the right-release child made did not complete: ${typeof p === "string" ? p : JSON.stringify(p)}`);
         return problems.length === 0;
       },
     };
