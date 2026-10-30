@@ -342,9 +342,17 @@ export function classifyStepArtifacts(step, targets = { packages: new Set(), man
   }
   const integration = none || selectors.has("--test") || selectors.has("--tests") || selectors.has("--all-targets");
   if (!integration) return out;
+  // GB-43 (GATE Class A inventory/42, E19): `--no-run` (before the `--` boundary; after it the flag is the test harness's, not Cargo's) builds the test
+  // executables and runs none of them. It PRODUCES the bins an integration test would later launch (CARGO_BIN_EXE_), so those still need a later sign
+  // step before any consumer runs them, but it launches nothing, so it needs no earlier one. Produced and executed artifacts are modelled separately.
+  const ownWords = cargoWords.indexOf("--") < 0 ? cargoWords : cargoWords.slice(0, cargoWords.indexOf("--"));
+  const compileOnly = ownWords.includes("--no-run");
   for (const name of selected) {
     if (targets.testsUnknown?.has(name)) out.unknown.push(`${name}'s integration tests cannot be read, so it cannot be shown they never launch its bin`);
-    else if (targets.testsLaunch?.has(name)) {
+    else if (targets.testsLaunch?.has(name) && compileOnly) {
+      out.product = true;
+      out.packages.add(name);
+    } else if (targets.testsLaunch?.has(name)) {
       out.launches = true;
       out.packages.add(name);
       // Every bin the package's test sources launch, whatever `--test` selects (no narrowing).

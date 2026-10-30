@@ -216,9 +216,9 @@ test("artifacts, not verbs: a product bin is a product, in-place lib tests and e
   assert.equal(kind("build", "-p", "rightapp-engine", "--example", "m"), "harness");
   assert.equal(kind("test", "-p", "rightapp"), "harness", "a product package whose tests never launch its bin");
   assert.equal(kind("test", "-p", "other-crate"), "harness");
-  // The engine e2e launches its own bin: product consumption, with `--no-run` no exception.
+  // The engine e2e launches its own bin: product consumption. `--no-run` (GB-43) only PRODUCES that bin: a product, no launch.
   assert.equal(kind("test", "-p", "rightapp-engine"), "launches");
-  assert.equal(kind("test", "-p", "rightapp-engine", "--no-run"), "launches");
+  assert.equal(kind("test", "-p", "rightapp-engine", "--no-run"), "product");
   assert.equal(kind("test", "-p", "rightapp-engine", "--test", "e2e"), "launches");
   assert.equal(kind("test"), "launches", "no package named covers every product package");
   assert.equal(kind("test", "--manifest-path", "crates/engine/Cargo.toml"), "launches");
@@ -560,4 +560,32 @@ test(".mjs config: the real CLI entries (child processes) refuse it, the suite r
   const dev = cli("development.mjs", "--platform", "mac", "--config", devApp.file);
   assert.equal(dev.status, 1, dev.stderr);
   assert.match(dev.stderr, /right-release dev: \[RK_SUITE_ADHOC_SIGNING\]/);
+});
+
+test("[GB-43] a compile-only test (--no-run) produces the product bin but launches nothing: it needs a LATER sign, not an earlier one; the real launch still refuses unsigned; --lib stays a harness; the `--` boundary belongs to the program", () => {
+  const targets = productTargets({ config: ENGINE, readFile, listFiles });
+  const found = (...args) => classifyStepArtifacts({ cmd: "cargo", args }, targets);
+  const kind = (...args) => { const f = found(...args); return f.unknown.length ? "unknown" : f.launches ? "launches" : f.product ? "product" : "harness"; };
+  assert.equal(kind("test", "-p", "rightapp-engine", "--no-run"), "product");
+  assert.equal(kind("test", "-p", "rightapp-engine", "--test", "e2e", "--no-run"), "product", "an explicit --test selector, compile only");
+  assert.equal(kind("test", "--no-run", "-p", "rightapp-engine", "--tests"), "product");
+  assert.equal(kind("test", "-p", "rightapp-engine", "--lib", "--no-run"), "harness", "--lib builds no integration test, so nothing is produced");
+  assert.equal(kind("test", "-p", "rightapp-engine", "--lib"), "harness");
+  assert.equal(kind("test", "-p", "rightapp-engine", "--test", "e2e"), "launches", "the integration run");
+  assert.equal(kind("test", "-p", "rightapp-engine", "--", "--no-run"), "launches", "after `--` the flag is the test harness's: the run still launches");
+  assert.equal(kind("test", "-p", "rightapp", "--no-run"), "harness", "a product package whose tests never launch its bin produces none");
+  assert.deepEqual([...found("test", "-p", "rightapp-engine", "--no-run").packages], ["rightapp-engine"], "the produced package is named, so a later sign must cover it");
+  assert.equal(found("test", "-p", "rightapp-engine", "--no-run").launchBins.size, 0, "no bin is launched");
+  const hr = (suites) => ({ ...ENGINE, tests: { suites } });
+  const compileTests = { name: "compile-tests", cmd: "cargo", args: ["test", "-p", "rightapp-engine", "--no-run"] };
+  const signEngine = { name: "sign-engine", sign: { files: [{ from: "compile-tests", path: "debug/rightapp-engine" }] } };
+  const e2e = { name: "e2e", cmd: "cargo", args: ["test", "-p", "rightapp-engine", "--test", "e2e"] };
+  const lib = { name: "lib", cmd: "cargo", args: ["test", "-p", "rightapp-engine", "--lib"] };
+  assert.deepEqual(refusals(hr([compileTests, signEngine])), [], "compile-only succeeds before sign when a later sign names what it produced");
+  assert.deepEqual(codes(refusals(hr([compileTests]))), ["RK_SUITE_UNSIGNED_BUILD"], "the produced product is still never left unsigned");
+  assert.deepEqual(codes(refusals(hr([e2e]))), ["RK_SUITE_UNSIGNED_BUILD"], "an actual unsigned launch refuses");
+  assert.deepEqual(codes(refusals(hr([compileTests, e2e, signEngine]))), ["RK_SUITE_UNSIGNED_BUILD"], "a sign step AFTER the launch does not cover it");
+  assert.deepEqual(refusals(hr([compileTests, signEngine, e2e])), [], "produced product signed before the later test launches it");
+  assert.deepEqual(refusals(hr([lib])), [], "the selected harness remains in place");
+  assert.deepEqual(codes(refusals(hr([{ name: "after-boundary", cmd: "cargo", args: ["test", "-p", "rightapp-engine", "--", "--no-run"] }]))), ["RK_SUITE_UNSIGNED_BUILD"]);
 });
