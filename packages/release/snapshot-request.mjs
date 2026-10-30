@@ -502,16 +502,19 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   }
   if (toolchain !== null && !(typeof toolchain === "string" && TOOLCHAIN_FORMAT.test(toolchain))) fail("evidence", "receipt toolchain is not <toolchain>|cargo:<sha256>|rustc:<sha256>");
   // Fields the signature does not cover must still be present with their types (the consumer reads them). Every carried command:
-  // verdict, refreshed, exit (an integer, or null with a signal) and signal, timingsMs{admission, queue, bind, cargo, afterExitBind,
-  // diagnostics} (each a number or null) and diagnosticsPath (a path, or null). Success needs exit 0 and no signal, as signed.
+  // exit (an integer, or null with a signal) and signal, timingsMs{admission, queue, bind, cargo, afterExitBind, diagnostics} (each a
+  // number or null) and diagnosticsPath (a path, or null). Success needs exit 0 and no signal, as signed. `verdict` and `refreshed`
+  // are retired: the gate owns Class A, and RustRight refuses a receipt that carries either (rustright bc24d55, attestation.rs
+  // RETIRED_RESULT_FIELDS), so the gate refuses them too.
   const timingsOk = isObject(receipt.timingsMs) && TIMING_KEYS.every((k) => Object.hasOwn(receipt.timingsMs, k) && (receipt.timingsMs[k] === null || Number.isFinite(receipt.timingsMs[k])));
   const typed = [
-    ["verdict", isObject(receipt.verdict)], ["timingsMs", timingsOk], ["exit", receipt.exit === null || Number.isSafeInteger(receipt.exit)],
+    ["timingsMs", timingsOk], ["exit", receipt.exit === null || Number.isSafeInteger(receipt.exit)],
     ["signal", receipt.signal === null || typeof receipt.signal === "string" || Number.isSafeInteger(receipt.signal)],
     ["diagnosticsPath", receipt.diagnosticsPath === null || (typeof receipt.diagnosticsPath === "string" && receipt.diagnosticsPath !== "")], ["brokerVersion", typeof receipt.brokerVersion === "string" && receipt.brokerVersion !== ""],
-    ["executor", typeof receipt.executor === "string" && receipt.executor !== ""], ["refreshed", Array.isArray(receipt.refreshed)],
+    ["executor", typeof receipt.executor === "string" && receipt.executor !== ""],
   ];
   for (const [name, ok] of typed) if (!ok) fail("evidence", `receipt ${name} is missing or has the wrong type`);
+  for (const name of ["verdict", "refreshed"]) if (Object.hasOwn(receipt, name)) fail("evidence", `receipt carries the retired field ${name}`);
   if (receipt.exit !== 0 || receipt.signal !== null) fail("evidence", `receipt exit ${receipt.exit} and signal ${receipt.signal} are not a success (exit 0, no signal)`);
   // RustRight signs these top-level fields in the payload (item 4 row 4.18): when the signed payload carries one, the receipt's copy must equal it.
   for (const name of SIGNED_TOP_LEVEL_FIELDS) {
