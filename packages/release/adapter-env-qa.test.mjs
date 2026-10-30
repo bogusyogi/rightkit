@@ -68,8 +68,9 @@ test("build-launch: a carried adapter step's launch carries RUSTRIGHT_ADAPTER_EN
   fs.writeFileSync(mapFile, JSON.stringify({ schema: SHIM_MAP_SCHEMA, mode: "broker", broker: {}, ledgerDir: path.join(dir, "ledger"), workspaces: {} }));
   const CLIENT = "/managed/agent-bin/rustright";
   const managed = { platform: "darwin", exists: (p) => p === CLIENT, which: (c) => (c === "rustright" ? [CLIENT] : []) };
-  const snapshot = { ...managed, env: { PATH: "/managed/agent-bin", [CARRIED_CARGO_MAP_ENV]: mapFile } };
-  const plain = { ...managed, env: { PATH: "/managed/agent-bin" } };
+  const registeredEnv = { "rightkit-pnpm": ["APP_FLAG"], "rightkit-node": ["APP_FLAG"] };
+  const snapshot = { ...managed, registeredEnv, env: { PATH: "/managed/agent-bin", [CARRIED_CARGO_MAP_ENV]: mapFile } };
+  const plain = { ...managed, registeredEnv, env: { PATH: "/managed/agent-bin" } };
   // With env: carried on the snapshot route, and the client's `run` elsewhere.
   assert.deepEqual(buildLaunch("pnpm", ARGS, { ...snapshot, stepEnv: { APP_FLAG: "1" } }), { command: process.execPath, args: [ADAPTER_RUN, "rightkit-pnpm", "--", ...ARGS], env: { [ADAPTER_ENV_VAR]: "APP_FLAG", APP_FLAG: "1" } });
   assert.deepEqual(buildLaunch("pnpm", ARGS, { ...plain, stepEnv: { APP_FLAG: "1" } }), { command: CLIENT, args: ["run", "rightkit-pnpm", "--", ...ARGS], env: { [ADAPTER_ENV_VAR]: "APP_FLAG", APP_FLAG: "1" } });
@@ -84,6 +85,9 @@ test("build-launch: a carried adapter step's launch carries RUSTRIGHT_ADAPTER_EN
   }
   assert.equal(Object.hasOwn(buildLaunch("pnpm", ARGS, { ...plain, env: { ...plain.env, APP_FLAG: "ambient" } }), "env"), false, "an ambient variable is not a step's declared env");
   // A reserved name is refused at the door with the coded reason.
+  // GB-04: a key outside the adapter's registration is refused before launch, naming it and the registered set (and a registered key is never dropped).
+  assert.throws(() => buildLaunch("pnpm", ARGS, { ...snapshot, stepEnv: { APP_FLAG: "1", NOT_REGISTERED: "2" } }), (e) => e.code === BUILD_LAUNCH_REFUSED && e.reason === "RK_ADAPTER_ENV_UNREGISTERED" && e.message.includes("NOT_REGISTERED") && e.message.includes("registered: APP_FLAG"));
+  assert.throws(() => buildLaunch("swift", ["build"], { ...snapshot, stepEnv: { APP_FLAG: "1" } }), (e) => e.reason === "RK_ADAPTER_ENV_UNREGISTERED", "swift registers no key");
   for (const name of ["RIGHTKIT_BUILD_MODE", "CARGO_HOME", "NODE_OPTIONS", "RUSTRIGHT_ADAPTER_ENV"]) {
     assert.throws(() => buildLaunch("pnpm", ARGS, { ...snapshot, stepEnv: { [name]: "x" } }), (e) => e.code === BUILD_LAUNCH_REFUSED && e.reason === ADAPTER_ENV_RESERVED && e.message.includes(name), name);
   }

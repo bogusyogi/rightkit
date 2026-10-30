@@ -13,6 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend } from "../build-ownership.mjs";
+import { adapterEnvRefusal, isReservedAdapterEnvKey } from "../adapter-env.mjs";
 import { ATTEST_STAGE_NONCE_ENV, canonicalJson, signedBytes } from "../provenance-verify.mjs";
 import { SNAPSHOT_MUST_COMPILE, acceptedAfterFix, classifyCargo } from "./cargo-classification.mjs";
 import { MANAGED_RUST_ENVIRONMENT_KEYS, argvSha256, cargoSubcommandOf, declaredInputDigestsOf, isCallHandleOf, observedEnvOf, readDeclaredInputs, requestDigestOf, snapshotRequestCore } from "../snapshot-request.mjs";
@@ -475,13 +476,17 @@ function adapterRun(stateDir, fx, behavior, argv) {
   if (fs.realpathSync(process.cwd()) !== fs.realpathSync(fx.checkout) && !fs.realpathSync(process.cwd()).startsWith(`${fs.realpathSync(fx.checkout)}${path.sep}`)) bad("the request's workspace is not inside the primary checkout");
   // The request environment: what the client forwards (shims.rs adapter_environment) and the broker's check_environment (a reserved or
   // unregistered name is refused; the registration is `behavior.registeredEnv[adapter]`, empty by default).
+  // GB-82: the same judgement as the production parser (adapter-env.mjs adapterEnvRefusal, a port exercised against RustRight's vector): a reserved
+  // key is broker-controlled except the two signed-artifact handoff names, a handoff key must be an absolute path, and a key the registration does not list refuses,
+  // naming every unregistered key and the registered set.
   const forwarded = {};
   for (const key of String(envVar("ADAPTER_ENV") ?? "").split(",").map((k) => k.trim()).filter(Boolean)) {
-    if (/^(PATH|HOME|NODE_OPTIONS)$/i.test(key) || /^(RUSTRIGHT_|RIGHTKIT_|LD_|DYLD_|CARGO|RUST)/i.test(key)) { process.stderr.write(`RUSTRIGHT_ADAPTER_ENV names ${key}, which is broker-controlled and cannot be forwarded to an adapter\n`); process.exit(2); }
+    if (isReservedAdapterEnvKey(key)) { process.stderr.write(`RUSTRIGHT_ADAPTER_ENV names ${key}, which is broker-controlled and cannot be forwarded to an adapter\n`); process.exit(2); }
     if (env[key] === undefined) { process.stderr.write(`RUSTRIGHT_ADAPTER_ENV names ${key}, which is not set\n`); process.exit(2); }
     forwarded[key] = env[key];
   }
-  for (const key of Object.keys(forwarded)) if (!(behavior.registeredEnv?.[adapter] ?? []).includes(key)) { process.stderr.write(`RK_ADAPTER_ENV_DENIED: environment key ${JSON.stringify(key)} is not registered for this adapter\n`); process.exit(2); }
+  const envProblem = adapterEnvRefusal(forwarded, behavior.registeredEnv?.[adapter] ?? []);
+  if (envProblem) { process.stderr.write(`RK_ADAPTER_ENV_DENIED: ${envProblem.message}\n`); process.exit(2); }
   const denied = snapshotArgvProblem(fx, adapter, args);
   if (denied) { process.stderr.write(`RK_ADAPTER_ARGV_DENIED: ${denied}\n`); process.exit(2); }
   const used = path.join(stateDir, "nonces"); fs.mkdirSync(used, { recursive: true });

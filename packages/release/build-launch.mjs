@@ -39,8 +39,9 @@ import { fileURLToPath } from "node:url";
 import { resolveExecutor } from "./gate-executor.mjs";
 import { resolveExecutable } from "./admission-host.mjs";
 import { CARRIED_CARGO_MAP_ENV as CARRIED_MAP_ENV, carriedCargoMapOf } from "./carried-cargo.mjs";
-import { adapterEnvLaunch } from "./adapter-env.mjs";
-import { PNPM_ADAPTER_GRAMMAR, liveAdapterGrammar, pnpmGrammarRefusal } from "./pnpm-adapter-grammar.mjs";
+import { ADAPTER_ENV_MANIFEST, QA_HANDOFF_ENV, adapterEnvLaunch } from "./adapter-env.mjs";
+import { cargoSubcommandOf, canonicalCargoCommand } from "./cargo-shapes.mjs";
+import { PNPM_ADAPTER_GRAMMAR, adapterArgvRefusal, liveAdapterGrammar, scanAdapterArgv } from "./pnpm-adapter-grammar.mjs";
 import { QA_VALUE_OPTIONS, hasListing, isBuildFlag, ownWords, qaPathReason, qaSnapshotPlan } from "./qa-snapshot.mjs";
 
 /** The environment variable the door sets for a stage that runs from a commit snapshot (gate-stages.mjs CHECKOUT_ENV). */
@@ -59,8 +60,6 @@ const PNPM_VALUE_OPTIONS = new Set(["--dir", "-C", "--filter", "-F", "--prefix",
 const NODE_FLAGS = /^--(?:disable-warning=[A-Za-z0-9_-]+|no-experimental-webstorage|no-warnings|enable-source-maps|max-old-space-size=\d+|stack-size=\d+)$/;
 /** The pnpm `exec` targets the door admits (every app config's `pnpm exec <target>`: tauri and right-release; vite for a web build). */
 export const EXEC_TARGETS = Object.freeze(["tauri", "right-release", "vite"]);
-/** The pnpm commands a snapshot-bound broker call admits (the registration's snapshotSubcommands; `install` is skipped before this). */
-const SNAPSHOT_PNPM_COMMANDS = new Set(["run", "exec", "pack"]);
 /** The broker adapter a `rustright run <adapter> -- ...` names, and the program whose door rules judge the step. */
 const ADAPTER_PROGRAMS = Object.freeze({ "rightkit-pnpm": "pnpm", "rightkit-node": "node", "rightkit-qa": "rightkit-qa", "rightkit-swift": "swift" });
 /** The tools a QA step must not start: running one is a build, and a QA step compiles nothing. */
@@ -103,7 +102,11 @@ function pnpmCommandAt(words) {
   return -1;
 }
 
-/** The pnpm command of an argv (the first word that is not an option or an option's value), or null. */
+/**
+ * The pnpm command of an argv read LENIENTLY (the first word that is not an option or an option's value), or null. Only the install-skip of a snapshot
+ * stage uses it (a stage that skips `install` runs nothing, so a lenient reading can only skip more); everything the door SENDS is judged by the
+ * registration's own parser (pnpm-adapter-grammar.mjs scanAdapterArgv, GB-03).
+ */
 export function pnpmCommandOf(args) {
   const words = args.map(String);
   const at = pnpmCommandAt(words);
@@ -150,21 +153,43 @@ export function buildLaunch(command, args = [], host = {}) {
     return { command, args, ...extra };
   }
   const program = name(command);
+  const handoffEnv = () => {
+    const found = {};
+    for (const key of QA_HANDOFF_ENV) if (typeof env[key] === "string" && env[key] !== "") found[key] = env[key];
+    return found;
+  };
+  // GB-05: a Cargo suite consumer (`cargo test|bench|run|nextest`) receives the signed handoff names the same way, through RUSTRIGHT_FORWARD_ENV
+  // (the client forwards the caller's value for each name, for these runtime commands only; the repository declares both names in `forwardEnv` of its
+  // `.rustright/broker.json`, or the host lists them in `buildRules.forwardTestEnv`). Nothing here carries a signing key or credential.
+  const cargoHandoffEnv = (cargoArgs) => {
+    const present = Object.keys(handoffEnv());
+    if (!present.length || !["test", "bench", "run", "nextest"].includes(canonicalCargoCommand(cargoSubcommandOf(cargoArgs.map(String))))) return {};
+    for (const key of present) {
+      if (!(path.isAbsolute(env[key]) || path.win32.isAbsolute(env[key])) || env[key].split(/[\\/]/).includes("..")) refuse(`${name(command)} ${args.join(" ")}: ${key} must be an absolute path with no '..' (the signed artifact's exact path); it is not forwarded`);
+    }
+    const existing = String(env.RUSTRIGHT_FORWARD_ENV ?? "").split(",").map((n) => n.trim()).filter(Boolean);
+    return { env: { RUSTRIGHT_FORWARD_ENV: [...new Set([...existing, ...present])].join(",") } };
+  };
   // A snapshot stage's `cargo` and `rustright cargo` steps are carried (carried-cargo.mjs), never sent to the client: one signed, ledgered
   // request per call, from the step's working directory, on every platform (rightkit#1301 F3).
   const carriedArgs = program === "cargo" ? args : program === "rustright" && String(args[0]) === "cargo" ? args.slice(1) : null;
   const carried = carriedArgs ? carriedCargoMapOf(env) : null;
   // A carrier map that cannot be read is a refusal, never a fallback to the uncarried client (rightkit#1301 M1).
   if (carried?.error) refuse(`${name(command)} ${args.join(" ")}: ${carried.error}; a snapshot stage's Cargo step is never sent to the client around its carrier`);
-  if (carriedArgs && carried?.map) return { command: process.execPath, args: [CARRIED_RUN, ...carriedArgs.map(String)] };
+  if (carriedArgs && carried?.map) return { command: process.execPath, args: [CARRIED_RUN, ...carriedArgs.map(String)], ...cargoHandoffEnv(carriedArgs) };
   const client = () => lookup("rustright")[0] ?? refuse(`rustright is not on PATH: on a broker-managed host ${program} runs only as a broker job`);
   // A snapshot stage's pnpm, node and swift steps are carried adapter jobs (carried-adapter-run.mjs); anywhere else they are the client's `run`.
   // A QA step is not one of them: it runs an already-built artifact (see the rightkit-qa branch below).
   const adapterMap = ["pnpm", "node", "swift"].includes(program) ? carriedCargoMapOf(env) : null;
   if (adapterMap?.error) refuse(`${name(command)} ${args.join(" ")}: ${adapterMap.error}; a snapshot stage's step is never sent to the client around its carrier`);
-  // The step's own environment rides the adapter request (adapter-env.mjs): RUSTRIGHT_ADAPTER_ENV names exactly what the step declares.
-  const stepEnvLaunch = () => {
-    try { return adapterEnvLaunch(host.stepEnv); } catch (error) {
+  // The step's own environment rides the adapter request (adapter-env.mjs): RUSTRIGHT_ADAPTER_ENV names exactly what the step declares, plus the
+  // signed-artifact handoff (GB-05) when a sign step set it in this environment. Every name is judged against the adapter's registered `env`
+  // (the live registration, else the candidate manifest) BEFORE launch (GB-04): an unregistered key refuses, naming it and the registered set.
+  const stepEnvLaunch = (adapter) => {
+    try {
+      const registered = host.registeredEnv?.[adapter] ?? liveAdapterGrammar({ env, platform, readFile: host.readFile, adapter })?.env ?? ADAPTER_ENV_MANIFEST[adapter] ?? [];
+      return adapterEnvLaunch({ ...(host.stepEnv ?? {}), ...handoffEnv() }, { registered });
+    } catch (error) {
       const refusal = new Error(`${name(command)} ${args.join(" ")}: ${error.message}`);
       refusal.code = BUILD_LAUNCH_REFUSED;
       refusal.reason = error.code;
@@ -172,11 +197,11 @@ export function buildLaunch(command, args = [], host = {}) {
     }
   };
   const adapterLaunch = (adapter, adapterArgs) => {
-    const stepLaunchEnv = stepEnvLaunch();
+    const stepLaunchEnv = stepEnvLaunch(adapter);
     const launchEnv = Object.keys(stepLaunchEnv).length ? { env: stepLaunchEnv } : {};
     return adapterMap?.map ? { command: process.execPath, args: [CARRIED_ADAPTER_RUN, adapter, "--", ...adapterArgs], ...launchEnv } : { command: client(), args: ["run", adapter, "--", ...adapterArgs], ...launchEnv };
   };
-  if (program === "cargo") return { command: client(), args: ["cargo", ...args.map(String)] };
+  if (program === "cargo") return { command: client(), args: ["cargo", ...args.map(String)], ...cargoHandoffEnv(args) };
   if (program === "rustright") {
     const snapshotMap = carriedCargoMapOf(env);
     if (!snapshotMap) {
@@ -239,16 +264,15 @@ export function buildLaunch(command, args = [], host = {}) {
   }
   if (program === "pnpm") {
     const words = args.map(String);
-    const at = pnpmCommandAt(words);
-    // `pnpm exec <target> ...`: the broker registers `exec` with an opaque tail and no target allowlist, so the door admits only the targets the
-    // apps' configs run. `pnpm exec node -e ...` (or any other binary) would otherwise run code the node flag ban exists to stop.
-    if (at >= 0 && words[at] === "exec" && !EXEC_TARGETS.includes(words[at + 1] ?? "")) refuse(`pnpm ${words.join(" ")}: pnpm exec target ${JSON.stringify(words[at + 1] ?? null)} is not allowed (allowed: ${EXEC_TARGETS.join(", ")}); on a broker-managed host pnpm exec runs only those, as a broker job (rightkit#1241)`);
-    // A snapshot-bound broker call admits run, exec and pack only; a bare script name (\`pnpm build\`) is refused here, naming the step, not by the broker.
-    if (adapterMap?.map && at >= 0 && !SNAPSHOT_PNPM_COMMANDS.has(words[at])) refuse(`pnpm ${words.join(" ")}: a snapshot stage runs pnpm run, exec and pack only (the broker's snapshotSubcommands); write \`pnpm run ${words[at]}\` for a package script`);
-    // The broker's rightkit-pnpm grammar, mirrored (pnpm-adapter-grammar.mjs; the live registration when this host has it): a first argument the
-    // adapter does not register (a leading --if-present, --prefix, --config, ...) or a global option it does not register is refused here, naming the step.
-    const grammarProblem = pnpmGrammarRefusal(words, (host.pnpmGrammar ?? liveAdapterGrammar({ env, platform, readFile: host.readFile })) ?? PNPM_ADAPTER_GRAMMAR);
-    if (grammarProblem) refuse(`pnpm ${words.join(" ")}: ${grammarProblem}; the broker's rightkit-pnpm adapter would refuse it (rightkit#1241)`);
+    // GB-03: the registration's own parser decides, before anything is sent (the live registration when this host has it, else the reference registration
+    // RustRight published): the command token, the leading global flags, `--if-present` after `run`, the opaque tail of `run` and `exec`, the registered exec
+    // targets, the pack destination, and in a snapshot-bound call the snapshot subcommands. No leading option is skipped to find the command, and nothing is rewritten.
+    const grammar = (host.pnpmGrammar ?? liveAdapterGrammar({ env, platform, readFile: host.readFile })) ?? PNPM_ADAPTER_GRAMMAR;
+    const grammarProblem = adapterArgvRefusal(words, grammar, { snapshot: Boolean(adapterMap?.map) });
+    if (grammarProblem) refuse(`pnpm ${words.join(" ")}: ${grammarProblem}; the broker's rightkit-pnpm adapter would refuse it (rightkit#1241), so it is not sent`);
+    // `pnpm exec <target> ...`: the door admits only the targets the apps' configs run, and only those the registration admits (`opaqueTargets.exec`).
+    const scanned = scanAdapterArgv(words, grammar);
+    if (scanned.command === "exec" && !EXEC_TARGETS.includes(scanned.target ?? "")) refuse(`pnpm ${words.join(" ")}: pnpm exec target ${JSON.stringify(scanned.target ?? null)} is not allowed (allowed: ${EXEC_TARGETS.join(", ")}); on a broker-managed host pnpm exec runs only those, as a broker job (rightkit#1241)`);
     return adapterLaunch("rightkit-pnpm", words);
   }
   return refuse(`${program} ${args.join(" ")}: no broker adapter runs this command yet, and on a broker-managed host a build or test command never runs around the broker (rightkit#1241)`);
