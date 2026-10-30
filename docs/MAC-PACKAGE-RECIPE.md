@@ -162,7 +162,7 @@ helper) declare them once. The list is shared by the dev lane and the release la
 | Key | Meaning |
 | --- | --- |
 | `name` | unique label |
-| `package` or `sharedPackage` | exactly one. `package`: app-relative SwiftPM package directory. `sharedPackage`: a RightKit shared Swift package key (`cloudkit` = `swift/RightKitCloudKitHelper`), resolved against the RightKit checkout (`RIGHTKIT_SWIFT_ROOT` overrides) |
+| `package` | app-relative SwiftPM package directory, committed in the app. A shared helper (cloudkit) is declared with `product: "rightkit-cloudkit-helper"` and pinned by URL and tag through that package's own `Package.swift`; `sharedPackage` and `RIGHTKIT_SWIFT_ROOT` are retired (rightkit#1302) |
 | `product` | SwiftPM executable product |
 | `kind` | `app` (wrap the product as a helper .app) or `executable` (embed the bare binary) |
 | `embed` | path inside the .app, under `Contents/Library/`, `Helpers/`, `XPCServices/`, `PlugIns/` or (executables only) `Contents/MacOS/<file>`; kind `app` ends in `.app` |
@@ -180,7 +180,7 @@ macPackage: {
   nativeHelpers: [
     { name: "menubar", package: "macos-native/Pkg", product: "MenuBar", kind: "app", embed: "Contents/Library/LoginItems/MenuBar.app", universal: true,
       info: { bundleId: "com.example.statusbar", uiElement: true }, resources: [{ from: "src-tauri/icons/tray", to: "tray" }] },
-    { name: "cloud", sharedPackage: "cloudkit", product: "rightkit-cloudkit-helper", kind: "app", embed: "Contents/Library/LoginItems/CloudHelper.app", universal: true,
+    { name: "cloud", package: "macos-native/Cloud", product: "rightkit-cloudkit-helper", kind: "app", embed: "Contents/Library/LoginItems/CloudHelper.app", universal: true,
       executable: "CloudHelper", info: { bundleId: "com.example.next", name: "CloudHelper", uiElement: true },
       entitlements: "src-tauri/entitlements-cloud.plist", provisioningProfile: "src-tauri/provisioning/App.provisionprofile" },
   ],

@@ -19,7 +19,7 @@ const menu = (extra = {}) => ({
   ...extra,
 });
 const cloud = (extra = {}) => ({
-  name: "cloud", sharedPackage: "cloudkit", product: "rightkit-cloudkit-helper", kind: "app", embed: `${LOGIN}/CloudHelper.app`, universal: true,
+  name: "cloud", package: "macos-native/Cloud", product: "rightkit-cloudkit-helper", kind: "app", embed: `${LOGIN}/CloudHelper.app`, universal: true,
   executable: "CloudHelper", entitlements: "src-tauri/cloud.plist", provisioningProfile: "src-tauri/p.provisionprofile",
   info: { bundleId: "com.example.next", name: "CloudHelper" },
   ...extra,
@@ -45,7 +45,7 @@ function memoryFs(existing = []) {
   return { fs, files, log };
 }
 
-const baseExisting = [`${APP}/Contents/Info.plist`, `${ROOT}/macos-native/Pkg/Package.swift`, `${ROOT}/src-tauri/icons/tray`, `${ROOT}/src-tauri/cloud.plist`, `${ROOT}/src-tauri/p.provisionprofile`, "/rk-rightkit/swift/RightKitCloudKitHelper/Package.swift", `${BIN}/MenuBar`, `${BIN}/tool`, `${BIN}/rightkit-cloudkit-helper`];
+const baseExisting = [`${APP}/Contents/Info.plist`, `${ROOT}/macos-native/Pkg/Package.swift`, `${ROOT}/src-tauri/icons/tray`, `${ROOT}/src-tauri/cloud.plist`, `${ROOT}/src-tauri/p.provisionprofile`, `${ROOT}/macos-native/Cloud/Package.swift`, `${BIN}/MenuBar`, `${BIN}/tool`, `${BIN}/rightkit-cloudkit-helper`];
 
 function fakeSpawn({ archs = "x86_64 arm64", binDir = BIN } = {}) {
   const calls = [];
@@ -72,9 +72,11 @@ test("validation is strict: unknown keys, absolute and escaping paths, wrong kin
   bad(menu({ embed: `${LOGIN}/X` }), /\.app/);
   bad(tool({ embed: "Contents/MacOS/sub/tool" }), /kind "executable"/);
   bad(tool({ embed: "Contents/Library/Tool.app" }), /kind "executable"/);
-  bad(menu({ package: undefined }), /exactly one of package or sharedPackage/);
-  bad(menu({ sharedPackage: "cloudkit" }), /exactly one/);
-  bad(cloud({ sharedPackage: "nope" }), /sharedPackage must be one of/);
+  bad(menu({ package: undefined }), /package is required/);
+  // sharedPackage is retired (rightkit#1302): refused with the replacement, whatever its value, with or without a package.
+  for (const extra of [{ sharedPackage: "cloudkit" }, { sharedPackage: "nope" }, { package: undefined, sharedPackage: "cloudkit" }]) {
+    bad(cloud(extra), /sharedPackage is retired[^]*package: "<the app's SwiftPM package directory>"[^]*product: "rightkit-cloudkit-helper"[^]*pinned by URL and tag/);
+  }
   bad(menu({ universal: undefined }), /universal is required/);
   bad(menu({ info: undefined }), /info is required/);
   bad(menu({ info: { bundleId: "nodots" } }), /reverse-DNS/);
@@ -107,13 +109,13 @@ test("Info.plist carries the declared bundle fields, LSUIElement and the executa
 test("builds every helper with explicit --arch slices, finds the bin path, verifies archs exactly, then embeds before anything is signed", () => {
   const { fs, log } = memoryFs(baseExisting);
   const { spawn, calls } = fakeSpawn();
-  const result = buildAndEmbedNativeHelpers({ appRoot: ROOT, app: APP, helpers: [menu(), cloud(), tool()], version: "1.2.3", env: {}, spawn, fs, sharedRoot: "/rk-rightkit", packageOwner: (pkg) => pkg.startsWith("/rk-rightkit/") ? "/rk-rightkit" : ROOT });
+  const result = buildAndEmbedNativeHelpers({ appRoot: ROOT, app: APP, helpers: [menu(), cloud(), tool()], version: "1.2.3", env: {}, spawn, fs, packageOwner: () => ROOT });
   assert.deepEqual(result.events, ["build:menubar", "embed:menubar", "build:cloud", "embed:cloud", "build:tool", "embed:tool"]);
   const swift = calls.filter((call) => call.cmd === "swift" && !call.args.includes("--show-bin-path"));
   assert.deepEqual(swift[0].args, ["build", "-c", "release", "--package-path", "macos-native/Pkg", "--product", "MenuBar", "--arch", "arm64", "--arch", "x86_64"]);
   assert.equal(swift[0].options.cwd, ROOT);
-  assert.equal(swift[1].args[swift[1].args.indexOf("--package-path") + 1], "swift/RightKitCloudKitHelper");
-  assert.equal(swift[1].options.cwd, "/rk-rightkit");
+  assert.equal(swift[1].args[swift[1].args.indexOf("--package-path") + 1], "macos-native/Cloud");
+  assert.equal(swift[1].options.cwd, ROOT);
   assert.deepEqual(calls.filter((call) => call.cmd === "lipo")[0].args, ["-archs", `${BIN}/MenuBar`]);
   assert.ok(log.includes(`copy:${BIN}/MenuBar->${APP}/${LOGIN}/MenuBar.app/Contents/MacOS/MenuBar`));
   assert.ok(log.includes(`copy:${BIN}/rightkit-cloudkit-helper->${APP}/${LOGIN}/CloudHelper.app/Contents/MacOS/CloudHelper`), "executable renamed");
@@ -143,7 +145,7 @@ test("fails closed: a thin slice, a missing product, a failing build, an existin
   assert.throws(() => run({}, fakeSpawn().spawn, [...baseExisting, `${APP}/${LOGIN}/MenuBar.app/Contents/Info.plist`]), { code: "NATIVE_HELPERS_EMBED_EXISTS" });
   assert.doesNotThrow(() => run({ replaceExisting: true }, fakeSpawn().spawn, [...baseExisting, `${APP}/${LOGIN}/MenuBar.app/Contents/Info.plist`]));
   assert.throws(() => run({}, fakeSpawn().spawn, baseExisting.filter((file) => !file.endsWith("Package.swift"))), { code: "NATIVE_HELPERS_INPUT_MISSING" });
-  assert.throws(() => run({ helpers: [cloud()], sharedRoot: "/rk-rightkit" }, fakeSpawn().spawn, baseExisting.filter((file) => !file.endsWith("cloud.plist"))), { code: "NATIVE_HELPERS_INPUT_MISSING", message: /entitlements/ });
+  assert.throws(() => run({ helpers: [cloud()] }, fakeSpawn().spawn, baseExisting.filter((file) => !file.endsWith("cloud.plist"))), { code: "NATIVE_HELPERS_INPUT_MISSING", message: /entitlements/ });
   assert.throws(() => run({ version: undefined }), { code: "NATIVE_HELPERS_INVALID" });
   assert.throws(() => run({}, fakeSpawn().spawn, baseExisting.filter((file) => !file.endsWith("Contents/Info.plist"))), { code: "NATIVE_HELPERS_INPUT_MISSING" });
 });
@@ -194,7 +196,7 @@ test("helpers are signed inside-out with their own entitlements and the hardened
   const discover = (helperApp) => (helperApp.endsWith("CloudHelper.app") ? [nestedInCloud] : []);
   const order = [];
   const result = buildEmbedSignNativeHelpers({
-    appRoot: ROOT, app: APP, helpers: [menu(), cloud(), tool()], version: "1.2.3", env: {}, fs, sharedRoot: "/rk-rightkit",
+    appRoot: ROOT, app: APP, helpers: [menu(), cloud(), tool()], version: "1.2.3", env: {}, fs,
     spawn: (cmd, args, options) => { order.push(cmd === "codesign" ? "codesign-verify" : args.includes("--show-bin-path") ? "bin" : cmd); return spawn(cmd, args, options); },
     signing: { identity: "Developer ID Application: Demo", signOne: (args) => { order.push("sign"); return signOne(args); }, inspect, discover, evidence: () => ({}), hashFile: () => "h" },
     signApp: () => order.push("sign-app"),

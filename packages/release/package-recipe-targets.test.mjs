@@ -407,7 +407,7 @@ test("a target directory inside the app plans no stage and keeps the existing sh
 // ---- stageSidecars and nativeHelpers (Mac release lane) ----
 
 const helperEntry = (extra = {}) => ({ name: "menu", package: "macos-native/Pkg", product: "Menu", kind: "app", embed: "Contents/Library/LoginItems/Menu.app", universal: true, info: { bundleId: "com.example.menu", uiElement: true }, ...extra });
-const cloudEntry = (extra = {}) => ({ name: "cloud", sharedPackage: "cloudkit", product: "rightkit-cloudkit-helper", kind: "app", embed: "Contents/Library/LoginItems/Cloud.app", universal: true, executable: "Cloud", entitlements: "src-tauri/cloud.plist", provisioningProfile: "src-tauri/p.provisionprofile", info: { bundleId: "com.example.next" }, ...extra });
+const cloudEntry = (extra = {}) => ({ name: "cloud", package: "macos-native/Cloud", product: "rightkit-cloudkit-helper", kind: "app", embed: "Contents/Library/LoginItems/Cloud.app", universal: true, executable: "Cloud", entitlements: "src-tauri/cloud.plist", provisioningProfile: "src-tauri/p.provisionprofile", info: { bundleId: "com.example.next" }, ...extra });
 
 test("macPackage.stageSidecars stages for the build triple first and verifies the universal sidecars before the Tauri build", () => {
   const out = expandMacPackageTarget(macTarget({ macPackage: { stageSidecars: true, prepare: [{ cmd: "node", args: ["scripts/a.mjs"] }] } }), { appRoot });

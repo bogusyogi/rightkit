@@ -122,6 +122,7 @@ test("each refusal fires on darwin and win32 and on neither linux nor hosted CI"
     { to: "test", config: { tests: { suites: [BUILD, QA] } }, code: "RK_SUITE_UNSIGNED_BUILD" },
     { to: "test", config: { tests: { suites: [{ name: "x", node: "sign-qa-bundle.mjs" }] } }, code: "RK_SUITE_ADHOC_SIGNING" },
     { to: "test", config: { tests: { suites: [{ ...BUILD, args: [...BUILD.args, "--config", '{"identifier":"a.b"}'] }, SIGN] } }, code: "RK_SUITE_IDENTIFIER_OVERRIDE" },
+    { to: "test", config: { ...ENGINE, tests: { suites: [{ name: "build-all", cmd: "cargo", args: ["build"] }, { name: "sign-shell", sign: { files: [{ from: "build-all", path: "debug/rightapp" }] } }, { name: "e2e", cmd: "cargo", args: ["test", "-p", "rightapp-engine", "--test", "e2e"] }] } }, code: "RK_SUITE_LAUNCH_UNBOUND" },
     { to: "dev", config: { development: { targets: { mac: { build: [], install: { kind: "tauri-devid", bundleId: "app.other" } } } } }, code: "RK_SUITE_IDENTIFIER_MISMATCH", only: "darwin" },
     { to: "dev", config: { development: { targets: { win: { build: [], install: { kind: "tauri" } } } } }, code: "RK_DEV_WIN_UNSIGNED_INSTALL", only: "win32" },
     { to: "dev", config: { development: { targets: { mac: { build: [], install: { kind: "command", cmd: "true" } } } } }, code: "RK_DEV_UNSIGNED_INSTALL", only: "darwin" },
@@ -223,6 +224,10 @@ test("artifacts, not verbs: a product bin is a product, in-place lib tests and e
   assert.equal(kind("test", "--manifest-path", "crates/engine/Cargo.toml"), "launches");
   assert.equal(kind("build", "-p", "rightapp-engine"), "product");
   assert.equal(kind("run", "-p", "rightapp-engine"), "launches");
+  // Words after `--` go to the program: they never select or exclude packages.
+  assert.equal(kind("run", "-p", "rightapp-engine", "--", "--exclude", "rightapp-engine"), "launches");
+  assert.equal(kind("build", "-p", "rightapp-engine", "--", "--exclude", "rightapp-engine"), "product");
+  assert.equal(kind("test", "-p", "rightapp", "--", "-p", "rightapp-engine"), "harness", "a program argument names no package");
   assert.equal(kind("clippy", "-p", "rightapp-engine"), "harness", "check, clippy and doc produce no executable");
   // The verb list is gone: `test --no-run` is no escape, and a harness-only verb does not make a product.
   const hr = (suites) => ({ ...ENGINE, tests: { suites } });
@@ -234,6 +239,98 @@ test("artifacts, not verbs: a product bin is a product, in-place lib tests and e
   assert.deepEqual(refusals(hr([lib])), [], "a lib harness runs in place");
   assert.deepEqual(codes(refusals(hr([e2e, buildEngine, signEngine]))), ["RK_SUITE_UNSIGNED_BUILD"], "a sign step AFTER the launch does not cover it");
   assert.deepEqual(refusals(hr([buildEngine, signEngine, e2e])), [], "build, sign, then the test passes");
+  // Launch binding: the sign step must name the executable the suite launches, built by a suite of that package, at exactly the path its layout leaves
+  // it: <profile>/<bin> for a build with no --target (what cargo writes), <triple>/<profile>/<bin> with one.
+  const buildAll = { name: "build-all", cmd: "cargo", args: ["build"] };
+  const signOf = (from, file) => ({ name: "sign-x", sign: { files: [{ from, path: file }] } });
+  const signShell = signOf("build-all", "debug/rightapp");
+  const signEngineDebug = signOf("build-all", "debug/rightapp-engine");
+  const signWinEngine = signOf("build-all", "debug/rightapp-engine.exe");
+  assert.deepEqual(codes(refusals(hr([buildAll, signShell, e2e]))), ["RK_SUITE_LAUNCH_UNBOUND"], "a sign step that signs only the shell does not cover the engine the test launches");
+  assert.match(refusals(hr([buildAll, signShell, e2e]))[0].message, /rightapp-engine:rightapp-engine/);
+  assert.deepEqual(refusals(hr([buildAll, signEngineDebug, e2e])), [], "a sign step that covers the engine passes");
+  assert.deepEqual(refusals(hr([buildAll, signShell, signEngineDebug, e2e])), [], "any earlier sign step may cover it");
+  assert.deepEqual(refusals(hr([buildAll, signWinEngine, e2e])), [], "<profile>/<bin>.exe");
+  assert.deepEqual(codes(refusals(hr([lib, signOf("lib", "debug/rightapp-engine"), e2e]))), ["RK_SUITE_LAUNCH_UNBOUND"], "a file of a suite that builds nothing is no cover");
+  // 3. The path shape, the triple and the profile must match what the build produced and what the launch uses.
+  const buildRelease = { name: "build-all", cmd: "cargo", args: ["build", "--release"] };
+  assert.deepEqual(codes(refusals(hr([buildRelease, signOf("build-all", "release/rightapp-engine"), e2e]))), ["RK_SUITE_LAUNCH_UNBOUND"], "a release build signed, a debug cargo test launched");
+  assert.deepEqual(refusals(hr([buildRelease, signOf("build-all", "release/rightapp-engine"), { ...e2e, args: [...e2e.args, "--release"] }]), []), [], "release build, release launch");
+  assert.deepEqual(codes(refusals(hr([buildAll, signOf("build-all", "anything/rightapp-engine"), e2e]))), ["RK_SUITE_LAUNCH_UNBOUND"], "an arbitrary directory is not the profile directory");
+  assert.deepEqual(codes(refusals(hr([buildAll, signOf("build-all", "rightapp-engine"), e2e]))), ["RK_SUITE_LAUNCH_UNBOUND"], "a bare file name");
+  assert.deepEqual(codes(refusals(hr([buildAll, signOf("build-all", "a/b/debug/rightapp-engine"), e2e]))), ["RK_SUITE_LAUNCH_UNBOUND"], "more segments than the layout has");
+  assert.deepEqual(codes(refusals(hr([buildAll, signOf("build-all", "aarch64-apple-darwin/debug/rightapp-engine"), e2e]))), ["RK_SUITE_LAUNCH_UNBOUND"], "a build with no --target writes no triple directory");
+  const TRIPLE = "x86_64-unknown-freebsd";
+  const buildTarget = { name: "build-all", cmd: "cargo", args: ["build", "--target", TRIPLE] };
+  const e2eTarget = { ...e2e, args: [...e2e.args, "--target", TRIPLE] };
+  assert.deepEqual(refusals(hr([buildTarget, signOf("build-all", `${TRIPLE}/debug/rightapp-engine`), e2eTarget])), [], "the triple of the build is the triple of the launch");
+  assert.deepEqual(codes(refusals(hr([buildTarget, signOf("build-all", `${TRIPLE}/debug/rightapp-engine`), e2e]))), ["RK_SUITE_LAUNCH_UNBOUND"], "built for another triple than the launch runs");
+  assert.deepEqual(codes(refusals(hr([buildTarget, signOf("build-all", "debug/rightapp-engine"), e2eTarget]))), ["RK_SUITE_LAUNCH_UNBOUND"], "a --target build is under the triple directory");
+  // No host-triple equivalence, in either direction: signing target/<triple>/debug/<bin> does not cover the target/debug/<bin> a no-target launch runs.
+  for (const host of [TRIPLE, "aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]) {
+    const built = { name: "build-all", cmd: "cargo", args: ["build", "--target", host] };
+    assert.deepEqual(codes(refusals(hr([built, signOf("build-all", `${host}/debug/rightapp-engine`), e2e]))), ["RK_SUITE_LAUNCH_UNBOUND"], `build --target ${host}, launch with no --target`);
+    assert.deepEqual(codes(refusals(hr([buildAll, signEngineDebug, { ...e2e, args: [...e2e.args, "--target", host] }]))), ["RK_SUITE_LAUNCH_UNBOUND"], `build with no --target, launch --target ${host}`);
+    assert.deepEqual(refusals(hr([built, signOf("build-all", `${host}/debug/rightapp-engine`), { ...e2e, args: [...e2e.args, "--target", host] }])), [], `the same --target ${host} on both`);
+  }
+  const buildProfile ={ name: "build-all", cmd: "cargo", args: ["build", "--profile", "qa"] };
+  assert.deepEqual(refusals(hr([buildProfile, signOf("build-all", "qa/rightapp-engine"), { ...e2e, args: [...e2e.args, "--profile", "qa"] }])), [], "--profile X lands in X");
+  assert.deepEqual(codes(refusals(hr([buildProfile, signOf("build-all", "debug/rightapp-engine"), e2e]))), ["RK_SUITE_LAUNCH_UNBOUND"]);
+  // 1. A shared test module (tests/common/mod.rs) launches another bin for every target, so `--test e2e` cannot narrow it away.
+  const sharedTree = { ...tree, "crates/engine/tests/e2e.rs": 'mod common;\nlet bin = env!("CARGO_BIN_EXE_rightapp-engine");', "crates/engine/tests/common/mod.rs": 'pub fn h() { let _ = env!("CARGO_BIN_EXE_rightapp-helper"); }' };
+  const shared = (suites) => refusals(hr(suites), { readFile: (rel) => files[rel] ?? sharedTree[rel] ?? null, listFiles: (dir) => Object.keys(sharedTree).filter((name) => name.startsWith(`${dir}/`)) });
+  const sharedRefusal = shared([buildAll, signEngineDebug, e2e]);
+  assert.deepEqual(codes(sharedRefusal), ["RK_SUITE_LAUNCH_UNBOUND"]);
+  assert.match(sharedRefusal[0].message, /rightapp-helper/);
+  assert.deepEqual(shared([buildAll, signOf("build-all", "debug/rightapp-helper"), signEngineDebug, e2e]), [], "both bins signed");
+  // C. No narrowing by `--test`: every bin any test source of the package launches counts for every cargo test of it.
+  const twoBins = { ...tree, "crates/engine/tests/other.rs": 'let bin = env!("CARGO_BIN_EXE_rightapp-helper");' };
+  const wide = (suites) => refusals(hr(suites), { readFile: (rel) => files[rel] ?? twoBins[rel] ?? null, listFiles: (dir) => Object.keys(twoBins).filter((name) => name.startsWith(`${dir}/`)) });
+  assert.deepEqual(codes(wide([buildAll, signEngineDebug, e2e])), ["RK_SUITE_LAUNCH_UNBOUND"], "--test e2e does not narrow away what tests/other.rs launches");
+  assert.match(wide([buildAll, signEngineDebug, e2e])[0].message, /rightapp-helper/);
+  assert.deepEqual(wide([buildAll, signOf("build-all", "debug/rightapp-helper"), signEngineDebug, e2e]), [], "both bins signed");
+  // ...and a [[test]] path outside tests/ is a test source too.
+  const outside = { ...tree, "crates/engine/Cargo.toml": '[package]\nname = "rightapp-engine"\n\n[[test]]\nname = "extra"\npath = "extras/launch.rs"\n', "crates/engine/extras/launch.rs": 'let bin = env!("CARGO_BIN_EXE_rightapp-helper");' };
+  const outsideRefusals = refusals(hr([buildAll, signEngineDebug, e2e]), { readFile: (rel) => files[rel] ?? outside[rel] ?? null, listFiles: (dir) => Object.keys(outside).filter((name) => name.startsWith(`${dir}/`)) });
+  assert.deepEqual(codes(outsideRefusals), ["RK_SUITE_LAUNCH_UNBOUND"], "a [[test]] path outside tests/");
+  assert.match(outsideRefusals[0].message, /rightapp-helper/);
+  assert.deepEqual(codes(wide([buildAll, signEngineDebug, { name: "all", cmd: "cargo", args: ["test", "-p", "rightapp-engine"] }])), ["RK_SUITE_LAUNCH_UNBOUND"], "the whole package also launches the helper");
+  // A. `--exclude` removes a package from a workspace-wide build.
+  for (const args of [["build", "--workspace", "--exclude", "rightapp-engine"], ["build", "--workspace", "--exclude=rightapp-engine"], ["build", "--workspace", "--exclude", "other", "--exclude", "rightapp-engine"]]) {
+    assert.deepEqual(codes(refusals(hr([{ name: "build-all", cmd: "cargo", args }, signEngineDebug, e2e]))), ["RK_SUITE_LAUNCH_UNBOUND"], args.join(" "));
+  }
+  assert.deepEqual(refusals(hr([{ name: "build-all", cmd: "cargo", args: ["build", "--workspace", "--exclude", "rightapp"] }, signEngineDebug, e2e])), [], "excluding another package still builds the engine");
+  // 2. A tauri build builds only the shell's package: a sign file naming it does not cover the engine.
+  const shell = { name: "shell", cmd: "pnpm", args: ["exec", "tauri", "build", "--no-bundle", "--debug"] };
+  assert.deepEqual(codes(refusals(hr([shell, signOf("shell", "debug/rightapp-engine"), { name: "all", cmd: "cargo", args: ["test", "-p", "rightapp-engine"] }]))), ["RK_SUITE_LAUNCH_UNBOUND"], "the tauri build does not build the engine");
+  assert.deepEqual(refusals(hr([shell, signOf("shell", "debug/rightapp"), buildAll, signEngineDebug, e2e])), [], "the shell signed from its tauri build, the engine from its own build");
+  // 4. A launch whose bin name is not literal needs every declared bin of the package signed.
+  const concatTree = { ...files, "crates/engine/Cargo.toml": '[package]\nname = "rightapp-engine"\n\n[[bin]]\nname = "rightapp-engine"\npath = "src/main.rs"\n\n[[bin]]\nname = "unrelated-tool"\npath = "src/tool.rs"\n', "crates/engine/tests/e2e.rs": 'let bin = env!(concat!("CARGO_BIN_EXE_", "rightapp-engine"));' };
+  const concat = (suites, world = concatTree) => refusals(hr(suites), { readFile: (rel) => world[rel] ?? null, listFiles: (dir) => Object.keys(world).filter((name) => name.startsWith(`${dir}/`)) });
+  const unrelated = concat([buildAll, signOf("build-all", "debug/unrelated-tool"), e2e]);
+  assert.deepEqual(codes(unrelated), ["RK_SUITE_LAUNCH_UNBOUND"]);
+  assert.match(unrelated[0].message, /rightapp-engine:rightapp-engine/);
+  assert.deepEqual(codes(concat([buildAll, signEngineDebug, e2e])), ["RK_SUITE_LAUNCH_UNBOUND"], "the other declared bin is still unsigned");
+  assert.deepEqual(concat([buildAll, { name: "sign-x", sign: { files: [{ from: "build-all", path: "debug/rightapp-engine" }, { from: "build-all", path: "debug/unrelated-tool" }] } }, e2e]), [], "every declared bin signed");
+  // B. The manifest is read with a real TOML parser: single-quoted names and inline bin arrays declare bins too.
+  for (const [form, manifest] of [["single-quoted names", "[package]\nname = 'rightapp-engine'\n\n[[bin]]\nname = 'rightapp-engine'\n\n[[bin]]\nname = 'unrelated-tool'\n"], ["an inline bin array", 'bin = [{ name = "rightapp-engine" }, { name = "unrelated-tool", path = "src/t.rs" }]\n\n[package]\nname = "rightapp-engine"\n']]) {
+    const formed = concat([buildAll, signEngineDebug, e2e], { ...concatTree, "crates/engine/Cargo.toml": manifest });
+    assert.deepEqual(codes(formed), ["RK_SUITE_LAUNCH_UNBOUND"], form);
+    assert.match(formed[0].message, /rightapp-engine:unrelated-tool/, form);
+  }
+  assert.deepEqual(codes(concat([buildAll, signEngineDebug, e2e], { ...concatTree, "crates/engine/Cargo.toml": "[package\nname = " })), ["RK_SUITE_UNCLASSIFIED_ARTIFACT"], "a manifest that does not parse cannot be shown not to launch a bin");
+  assert.deepEqual(codes(concat([buildAll, signEngineDebug, e2e], { ...concatTree, "crates/engine/Cargo.toml": null })), ["RK_SUITE_LAUNCH_UNBOUND"], "declared bins that cannot be read are never covered");
+  // A sign step that names a suite AFTER the launch covers nothing, in the config and in the plan alike.
+  assert.ok(codes(refusals(hr([signEngineDebug, e2e, buildAll]))).includes("RK_SUITE_LAUNCH_UNBOUND"));
+  // The resolved plan is judged the same way.
+  const planItem = (suite) => ({ name: suite.name, group: suite.name, step: suite.sign ? undefined : { cmd: suite.cmd, args: suite.args ?? [] }, extraArgs: [], ...(suite.sign ? { sign: suite.sign } : {}) });
+  const planned = (suites, over = {}) => planSigningRefusals({ config: hr(suites), plan: suites.map(planItem), platform: "darwin", readFile, listFiles, ...over });
+  assert.deepEqual(codes(planned([buildAll, signShell, e2e])), ["RK_SUITE_LAUNCH_UNBOUND"]);
+  assert.deepEqual(planned([buildAll, signEngineDebug, e2e]), []);
+  assert.deepEqual(codes(planned([buildRelease, signOf("build-all", "release/rightapp-engine"), e2e])), ["RK_SUITE_LAUNCH_UNBOUND"]);
+  assert.deepEqual(codes(planned([shell, signOf("shell", "debug/rightapp-engine"), { name: "all", cmd: "cargo", args: ["test", "-p", "rightapp-engine"] }])), ["RK_SUITE_LAUNCH_UNBOUND"]);
+  assert.deepEqual(codes(planned([buildAll, signEngineDebug, e2e], { readFile: (rel) => files[rel] ?? sharedTree[rel] ?? null, listFiles: (dir) => Object.keys(sharedTree).filter((name) => name.startsWith(`${dir}/`)) })), ["RK_SUITE_LAUNCH_UNBOUND"]);
+  assert.ok(SIGNING_REFUSAL_CODES.includes("RK_SUITE_LAUNCH_UNBOUND"));
 });
 
 test("an artifact that cannot be classified is refused before it runs", () => {
@@ -346,6 +443,7 @@ test("parity: `--route` and a real run refuse with the same signing code on darw
     { to: "test", extra: [], config: { tests: { suites: [BUILD, QA] } }, code: "RK_SUITE_UNSIGNED_BUILD", hosts: ["darwin", "win32"] },
     { to: "test", extra: [], config: { tests: { suites: [{ name: "x", cmd: "node", args: ["a.mjs"], env: { RIGHTKIT_DEV_SIGNING: "ci-adhoc" } }] } }, code: "RK_SUITE_ADHOC_SIGNING", hosts: ["darwin", "win32"] },
     { to: "test", extra: [], config: { tests: { suites: [{ ...BUILD, args: [...BUILD.args, "--config", '{"identifier":"a.b"}'] }, SIGN] } }, code: "RK_SUITE_IDENTIFIER_OVERRIDE", hosts: ["darwin", "win32"] },
+    { to: "test", extra: [], config: { ...ENGINE, tests: { suites: [{ name: "build-all", cmd: "cargo", args: ["build"] }, { name: "sign-shell", sign: { files: [{ from: "build-all", path: "debug/rightapp" }] } }, { name: "e2e", cmd: "cargo", args: ["test", "-p", "rightapp-engine", "--test", "e2e"] }] } }, code: "RK_SUITE_LAUNCH_UNBOUND", hosts: ["darwin", "win32"] },
     { to: "dev", extra: ["--platform", "mac"], config: { development: { targets: { mac: { build: [], install: { kind: "tauri-devid", bundleId: "app.other" } } } } }, code: "RK_SUITE_IDENTIFIER_MISMATCH", hosts: ["darwin", "win32"] },
     { to: "dev", extra: ["--platform", "win"], config: { development: { targets: { win: { build: [], install: { kind: "tauri" } } } } }, code: "RK_DEV_WIN_UNSIGNED_INSTALL", hosts: ["darwin", "win32"] },
     { to: "dev", extra: ["--platform", "mac"], config: { development: { targets: { mac: { build: [], install: { kind: "command", cmd: "true" } } } } }, code: "RK_DEV_UNSIGNED_INSTALL", hosts: ["darwin", "win32"] },
@@ -353,7 +451,7 @@ test("parity: `--route` and a real run refuse with the same signing code on darw
   ];
   assert.deepEqual(cases.map((c) => c.code).sort(), [...SIGNING_REFUSAL_CODES].sort());
   for (const item of cases) {
-    const r = repoWith(t, { "right-release.config.json": JSON.stringify({ schema: 1, app: "x", ...item.config }), ...files });
+    const r = repoWith(t, { "right-release.config.json": JSON.stringify({ schema: 1, app: "x", ...item.config }), ...files, ...tree });
     const reached = [];
     const run = async (args, extra) => {
       const out = []; const err = [];

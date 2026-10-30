@@ -2,8 +2,7 @@
 //
 //   nativeHelpers: [{
 //     name: "menubar",                       // unique label (logs, receipts)
-//     package: "macos-native/Pkg"            // app-relative SwiftPM package dir ...
-//     // sharedPackage: "cloudkit",          // ... or a RightKit shared Swift package key (exactly one of the two)
+//     package: "macos-native/Pkg"            // app-relative SwiftPM package dir (committed in the app; a shared helper is pinned by URL + tag in its Package.swift)
 //     product: "MenuBar",                    // SwiftPM executable product
 //     kind: "app" | "executable",
 //     embed: "Contents/Library/LoginItems/MenuBar.app",   // path inside the .app
@@ -28,7 +27,6 @@ import { carriedCargoMapOf } from "./carried-cargo.mjs";
 import * as nodeFs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
 import { signMacosEntries } from "./mac-sign-core.mjs";
 import { discoverNestedCode } from "./swift-mac-app.mjs";
@@ -39,12 +37,10 @@ export class NativeHelpersError extends Error {
 const fail = (code, message, details) => { throw new NativeHelpersError(code, message, details); };
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 
-export const NATIVE_HELPER_KEYS = Object.freeze(["name", "package", "sharedPackage", "product", "kind", "embed", "universal", "entitlements", "executable", "info", "resources", "appIntents", "provisioningProfile"]);
+export const NATIVE_HELPER_KEYS = Object.freeze(["name", "package", "product", "kind", "embed", "universal", "entitlements", "executable", "info", "resources", "appIntents", "provisioningProfile"]);
 const INFO_KEYS = ["bundleId", "name", "displayName", "uiElement", "minimumSystemVersion"];
 const APP_INTENTS_KEYS = ["moduleName", "deploymentTarget"];
 const RESOURCE_KEYS = ["from", "to"];
-/** RightKit shared Swift packages, keyed, relative to the RightKit checkout root (env RIGHTKIT_SWIFT_ROOT overrides the root). */
-export const SHARED_SWIFT_PACKAGES = Object.freeze({ cloudkit: "swift/RightKitCloudKitHelper" });
 /** Where a helper may be embedded: only roots the inside-out signing discovery walks. */
 const EMBED_ROOTS = ["Contents/Library/", "Contents/Helpers/", "Contents/XPCServices/", "Contents/PlugIns/", "Contents/MacOS/"];
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -72,13 +68,14 @@ export function validateNativeHelpers(list, { label = "nativeHelpers" } = {}) {
   list.forEach((raw, index) => {
     const at = `${label}[${index}]`;
     if (!isObject(raw)) { errors.push(`${at} must be an object`); return; }
-    unknown(raw, NATIVE_HELPER_KEYS, at, errors);
+    // `sharedPackage` (a RightKit-checkout package resolved outside the commit) is retired (rightkit#1302): refuse it with its replacement.
+    const { sharedPackage, ...declared } = raw;
+    if (sharedPackage !== undefined) errors.push(`${at}.sharedPackage is retired: it resolved a package from RIGHTKIT_SWIFT_ROOT or the installed RightKit package root, outside the commit snapshot. Declare the helper with \`package: "<the app's SwiftPM package directory>"\` and \`product: "rightkit-cloudkit-helper"\`, with the shared helper pinned by URL and tag through that package's own Package.swift`);
+    unknown(declared, NATIVE_HELPER_KEYS, at, errors);
     const helper = {};
     if (typeof raw.name !== "string" || !NAME.test(raw.name)) errors.push(`${at}.name must be 1-64 characters of letters, digits, '.', '_' and '-'`); else helper.name = raw.name;
-    if ((raw.package === undefined) === (raw.sharedPackage === undefined)) errors.push(`${at} needs exactly one of package or sharedPackage`);
-    else if (raw.package !== undefined) { const value = relative(raw.package, `${at}.package`, errors); if (value) helper.package = value; }
-    else if (typeof raw.sharedPackage !== "string" || !Object.hasOwn(SHARED_SWIFT_PACKAGES, raw.sharedPackage)) errors.push(`${at}.sharedPackage must be one of ${Object.keys(SHARED_SWIFT_PACKAGES).join(", ")}`);
-    else helper.sharedPackage = raw.sharedPackage;
+    if (raw.package === undefined) { if (sharedPackage === undefined) errors.push(`${at}.package is required (the app-relative SwiftPM package directory)`); }
+    else { const value = relative(raw.package, `${at}.package`, errors); if (value) helper.package = value; }
     if (typeof raw.product !== "string" || !PRODUCT.test(raw.product)) errors.push(`${at}.product must be a SwiftPM product name`); else helper.product = raw.product;
     if (raw.kind !== "app" && raw.kind !== "executable") errors.push(`${at}.kind must be "app" or "executable"`); else helper.kind = raw.kind;
     if (typeof raw.universal !== "boolean") errors.push(`${at}.universal is required and must be true or false`); else helper.universal = raw.universal;
@@ -198,10 +195,10 @@ function findFile(fs, root, predicate) {
  * options: appRoot (absolute), app (absolute .app), helpers (validated or raw), version (required with a kind "app" helper),
  * forceArch ("arm64"|"x86_64": build only that slice for every helper, e.g. a dev build or a thin release triple),
  * configuration ("release"|"debug"), env, spawn, fs, log, replaceExisting (default false: an existing embed path is an error),
- * sharedRoot, hostArch, tmpdir. Without forceArch a universal helper gets both slices and a thin one the host arch.
+ * hostArch, tmpdir. Without forceArch a universal helper gets both slices and a thin one the host arch.
  * Returns { helpers: [{ name, embed, path, source, archs, sha256 }], events: [...] }.
  */
-export function buildAndEmbedNativeHelpers({ appRoot, app, helpers: rawHelpers, version, forceArch, configuration = "release", env = process.env, spawn = nodeSpawnSync, fs = nodeFs, log = () => {}, replaceExisting = false, sharedRoot, hostArch = process.arch === "arm64" ? "arm64" : "x86_64", tmpdir = os.tmpdir(), packageOwner = (pkg) => { const result = nodeSpawnSync("git", ["-C", pkg, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true }); return result.status === 0 ? String(result.stdout).trim() : null; } } = {}) {
+export function buildAndEmbedNativeHelpers({ appRoot, app, helpers: rawHelpers, version, forceArch, configuration = "release", env = process.env, spawn = nodeSpawnSync, fs = nodeFs, log = () => {}, replaceExisting = false, hostArch = process.arch === "arm64" ? "arm64" : "x86_64", tmpdir = os.tmpdir(), packageOwner = (pkg) => { const result = nodeSpawnSync("git", ["-C", pkg, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true }); return result.status === 0 ? String(result.stdout).trim() : null; } } = {}) {
   if (typeof appRoot !== "string" || !path.isAbsolute(appRoot)) fail("NATIVE_HELPERS_INVALID", "appRoot must be an absolute path");
   if (typeof app !== "string" || !path.isAbsolute(app) || !app.replace(/\/+$/, "").endsWith(".app")) fail("NATIVE_HELPERS_INVALID", "app must be the absolute path of the .app bundle");
   if (!["release", "debug"].includes(configuration)) fail("NATIVE_HELPERS_INVALID", "configuration must be release or debug");
@@ -209,7 +206,6 @@ export function buildAndEmbedNativeHelpers({ appRoot, app, helpers: rawHelpers, 
   const helpers = validateNativeHelpers(rawHelpers);
   if (helpers.some((helper) => helper.kind === "app") && (typeof version !== "string" || !VERSION.test(version))) fail("NATIVE_HELPERS_INVALID", "a kind \"app\" helper needs the app version (1-3 numeric parts) for its Info.plist");
   if (!fs.existsSync(path.join(app, "Contents", "Info.plist"))) fail("NATIVE_HELPERS_INPUT_MISSING", `${app} is not a built .app (no Contents/Info.plist); helpers are embedded after the app build`);
-  const root = sharedRoot ?? env.RIGHTKIT_SWIFT_ROOT ?? fileURLToPath(new URL("../../", import.meta.url));
   const events = [];
   const results = [];
   // The commit snapshot a carried stage builds from (the gate's carrier map names it), or null: not a snapshot stage on a broker host.
@@ -226,13 +222,13 @@ export function buildAndEmbedNativeHelpers({ appRoot, app, helpers: rawHelpers, 
     return result;
   };
   for (const helper of helpers) {
-    const pkgDir = helper.package ? path.resolve(appRoot, helper.package) : path.resolve(root, SHARED_SWIFT_PACKAGES[helper.sharedPackage]);
-    if (helper.package && path.relative(appRoot, pkgDir).startsWith("..")) fail("NATIVE_HELPERS_INVALID", `${helper.name}: package escapes the app root`);
-    // A snapshot stage on a broker host builds only what the commit holds (GATE-CONTRACT "Commit-only build"): a package outside the snapshot (the
-    // editable RightKit checkout RIGHTKIT_SWIFT_ROOT or the installed package root names) is refused here, with the code and what to supply,
-    // before a broker job could refuse its working directory or a build could read an uncommitted file.
-    if (snapshotRoot !== null && !insideDir(realOf(pkgDir), snapshotRoot)) fail("NATIVE_HELPERS_SNAPSHOT_SOURCE", `${helper.name}: the Swift package ${pkgDir} is outside this stage's commit snapshot (${snapshotRoot}); a snapshot stage builds only committed source. ${helper.sharedPackage ? `The shared "${helper.sharedPackage}" package comes from ${env.RIGHTKIT_SWIFT_ROOT ? "RIGHTKIT_SWIFT_ROOT" : "the installed RightKit package root"}, which is not in the snapshot; the app must commit the package into its own repository and declare it with \`package\` (a path inside the app) instead of \`sharedPackage\`` : "declare a package inside the app's own repository"}.`, { helper: helper.name, package: pkgDir, snapshot: snapshotRoot });
-    if (!fs.existsSync(path.join(pkgDir, "Package.swift"))) fail("NATIVE_HELPERS_INPUT_MISSING", `${helper.name}: no Package.swift in ${pkgDir}${helper.sharedPackage ? " (set RIGHTKIT_SWIFT_ROOT to the RightKit checkout)" : ""}`);
+    const pkgDir = path.resolve(appRoot, helper.package);
+    if (path.relative(appRoot, pkgDir).startsWith("..")) fail("NATIVE_HELPERS_INVALID", `${helper.name}: package escapes the app root`);
+    // A snapshot stage on a broker host builds only what the commit holds (GATE-CONTRACT "Commit-only build"): a package outside the snapshot
+    // (a symlink out of the app) is refused here, with the code and what to supply, before a broker job could refuse its working directory or a
+    // build could read an uncommitted file.
+    if (snapshotRoot !== null && !insideDir(realOf(pkgDir), snapshotRoot)) fail("NATIVE_HELPERS_SNAPSHOT_SOURCE", `${helper.name}: the Swift package ${pkgDir} is outside this stage's commit snapshot (${snapshotRoot}); a snapshot stage builds only committed source; declare a package inside the app's own repository.`, { helper: helper.name, package: pkgDir, snapshot: snapshotRoot });
+    if (!fs.existsSync(path.join(pkgDir, "Package.swift"))) fail("NATIVE_HELPERS_INPUT_MISSING", `${helper.name}: no Package.swift in ${pkgDir}`);
     const entitlements = helper.entitlements ? path.resolve(appRoot, helper.entitlements) : undefined;
     if (entitlements && !fs.existsSync(entitlements)) fail("NATIVE_HELPERS_INPUT_MISSING", `${helper.name}: entitlements file not found: ${entitlements}`);
     const archs = forceArch ? [forceArch] : helper.universal ? [...ARCHS] : [hostArch];

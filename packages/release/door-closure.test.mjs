@@ -59,30 +59,33 @@ test("a swift step of a snapshot stage is a carried rightkit-swift adapter job, 
   assert.deepEqual(h.door("swift", args, { env: bare }), { command: client, args: ["run", "rightkit-swift", "--", ...args] });
 });
 
-test("a shared Swift package outside the commit snapshot is refused with NATIVE_HELPERS_SNAPSHOT_SOURCE, whatever names it; a package inside the snapshot is built as a carried swift job from the snapshot", { skip: MAC }, (t) => {
+test("a Swift package outside the commit snapshot is refused with NATIVE_HELPERS_SNAPSHOT_SOURCE; sharedPackage is retired; a package inside the snapshot is built as a carried swift job from the snapshot", { skip: MAC }, (t) => {
   const h = host(t);
   const app = path.join(h.fx.snapshot, "app");
   fs.mkdirSync(path.join(app, "dist", "Demo.app", "Contents"), { recursive: true });
   fs.writeFileSync(path.join(app, "dist", "Demo.app", "Contents", "Info.plist"), "<plist/>");
-  // The editable RightKit checkout (RIGHTKIT_SWIFT_ROOT, or the installed package root by default) holds the shared package: outside the snapshot.
+  // A package directory that is a symlink out of the app resolves outside the snapshot.
   const editable = path.join(h.fx.root, "editable-rightkit");
   fs.mkdirSync(path.join(editable, "swift", "RightKitCloudKitHelper"), { recursive: true });
   fs.writeFileSync(path.join(editable, "swift", "RightKitCloudKitHelper", "Package.swift"), "// package\n");
-  const cloud = { name: "cloud", sharedPackage: "cloudkit", product: "rightkit-cloudkit-helper", kind: "app", embed: "Contents/Library/LoginItems/Cloud.app", universal: true, executable: "Cloud", info: { bundleId: "com.example.next", name: "Cloud" } };
+  fs.symlinkSync(path.join(editable, "swift", "RightKitCloudKitHelper"), path.join(app, "linked-pkg"));
+  const cloud = { name: "cloud", package: "linked-pkg", product: "rightkit-cloudkit-helper", kind: "app", embed: "Contents/Library/LoginItems/Cloud.app", universal: true, executable: "Cloud", info: { bundleId: "com.example.next", name: "Cloud" } };
   const calls = [];
   const spawn = (command, args) => { calls.push({ command, args }); return { status: 0, stdout: "", stderr: "" }; };
-  for (const via of [{ sharedRoot: editable }, { env: { ...h.env, RIGHTKIT_SWIFT_ROOT: editable } }]) {
-    assert.throws(
-      () => buildAndEmbedNativeHelpers({ appRoot: app, app: path.join(app, "dist", "Demo.app"), helpers: [cloud], version: "1.0.0", env: h.env, spawn, ...via }),
-      (e) => e.code === "NATIVE_HELPERS_SNAPSHOT_SOURCE" && /outside this stage's commit snapshot/.test(e.message) && /sharedPackage/.test(e.message) && /declare it with `package`/.test(e.message),
-    );
-  }
+  assert.throws(
+    () => buildAndEmbedNativeHelpers({ appRoot: app, app: path.join(app, "dist", "Demo.app"), helpers: [cloud], version: "1.0.0", env: h.env, spawn }),
+    (e) => e.code === "NATIVE_HELPERS_SNAPSHOT_SOURCE" && /outside this stage's commit snapshot/.test(e.message) && /declare a package inside the app's own repository/.test(e.message),
+  );
+  // sharedPackage is retired (rightkit#1302): refused before anything runs, naming the replacement; RIGHTKIT_SWIFT_ROOT is no longer read.
+  assert.throws(
+    () => buildAndEmbedNativeHelpers({ appRoot: app, app: path.join(app, "dist", "Demo.app"), helpers: [{ ...cloud, package: undefined, sharedPackage: "cloudkit" }], version: "1.0.0", env: { ...h.env, RIGHTKIT_SWIFT_ROOT: editable }, spawn }),
+    (e) => e.code === "NATIVE_HELPERS_INVALID" && /sharedPackage is retired/.test(e.message) && /package: "<the app's SwiftPM package directory>"/.test(e.message),
+  );
   assert.deepEqual(calls, [], "nothing ran: not a swift job, not a client call");
   // The app's own package, committed into the snapshot, builds: the first call is the carried adapter job, from the snapshot root.
   fs.mkdirSync(path.join(app, "macos-native", "Pkg"), { recursive: true });
   fs.writeFileSync(path.join(app, "macos-native", "Pkg", "Package.swift"), "// package\n");
-  const own = { ...cloud, sharedPackage: undefined, package: "macos-native/Pkg" };
-  delete own.sharedPackage;
+  const own = { ...cloud, package: "macos-native/Pkg" };
   assert.throws(() => buildAndEmbedNativeHelpers({ appRoot: app, app: path.join(app, "dist", "Demo.app"), helpers: [own], version: "1.0.0", forceArch: "arm64", env: h.env, spawn }), (e) => e.code === "NATIVE_HELPERS_STEP_FAILED" && /no absolute path/.test(e.message), "the stub spawn prints no bin path: the build was attempted, so the package passed the snapshot check");
   assert.equal(calls[0].command, process.execPath);
   assert.deepEqual(calls[0].args.slice(0, 3), [ADAPTER_RUN, "rightkit-swift", "--"]);
