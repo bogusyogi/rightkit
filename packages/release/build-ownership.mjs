@@ -1071,6 +1071,7 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
     if (status.state === "ACTIVE") throw new Error(`broker work is still active under this handle (${status.why})`);
     if (status.state !== "REAPED" && !everyUnsent) throw new Error(`broker work may exist under this handle and its lease is ${status.state} (${status.why})`);
     if (status.state === "REAPED") proofs.push(`broker lease for ${owner.handle} is REAPED`);
+    let neverStarted = 0;
     for (const sub of handles) {
       if (typeof sub !== "string" || !sub.startsWith(`${owner.handle}#`) || sub.length <= owner.handle.length + 1) throw new Error(`the record lists ${JSON.stringify(sub)}, which is not a sub-handle of ${owner.handle}`);
       const one = lease({ snapshot: owner.snapshot, handle: sub, ...waitOptions });
@@ -1079,10 +1080,10 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
         if (Array.isArray(one.members) && !(member && member.state === "REAPED")) throw new Error(`the broker answers REAPED for ${sub} but lists no completed submission under that name`);
         continue;
       }
-      if (settled(sub) && one.state === "UNKNOWN" && Array.isArray(one.members) && one.members.length === 0) { proofs.push(`${sub} never started (${unsent[sub].reason}) and the broker holds nothing under it`); continue; }
+      if (settled(sub) && one.state === "UNKNOWN" && Array.isArray(one.members) && one.members.length === 0) { proofs.push(`${sub} never started (${unsent[sub].reason}) and the broker holds nothing under it`); neverStarted += 1; continue; }
       throw new Error(`broker work may exist under sub-handle ${sub} and its lease is ${one.state} (${one.why})`);
     }
-    if (handles.length) proofs.push(`every one of ${handles.length} sub-handle(s) is accounted for: REAPED, or proven never started`);
+    if (handles.length) proofs.push(neverStarted === 0 ? `broker lease for each of ${handles.length} sub-handle(s) is REAPED` : `every one of ${handles.length} sub-handle(s) is accounted for: ${handles.length - neverStarted} REAPED, ${neverStarted} proven never started`);
   }
   return proofs;
 }
