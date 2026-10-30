@@ -278,7 +278,6 @@ export function routeFromBrokerReceipt(receipt, detailBytes = null) {
   let rows = null; let failedUnits = 0;
   if (!attribution || typeof attribution !== "object") problems.push("the receipt carries no attribution");
   else if (attribution.available !== true) problems.push(`the receipt's attribution is unavailable (${attribution.reason ?? "no reason"})`);
-  else if (Number(attribution.truncated ?? 0) > 0) problems.push(`the receipt's attribution is truncated (${attribution.truncated} unit(s) not listed)`);
   else if (detailBytes === null || detailBytes === undefined) problems.push("the receipt's attribution is compact counts only and no detail file was supplied: counts alone cannot satisfy attribution");
   else {
     try { ({ rows, failedUnits } = verifyAttributionDetail(receipt, detailBytes)); } catch (e) {

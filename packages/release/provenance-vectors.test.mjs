@@ -23,3 +23,14 @@ test("[GB-10] the vector covers both directions: a case the lenient verifier acc
   for (const c of split) { assert.equal(outcome(verifyReceiptLenient, c.receipt), "ok", c.name); assert.equal(outcome(verifyReceiptStrict, c.receipt), "evidence", c.name); }
   assert.ok(vector.cases.some((c) => c.name === "a failed signed result keeps its failure" && c.strict === "ok"), "a failed signed result is a valid receipt: the gate's own success check stays separate");
 });
+
+test("[GB-50] every case of the attribution-detail vector has RustRight's outcome: the real producer's compact receipt with its full rows passes, every single edit is refused with its code", async () => {
+  const { verifyAttributionDetail } = await import("./provenance-verify.mjs");
+  const detail = loadVector("attribution-detail-vectors.v1.json");
+  assert.equal(detail.cases.length, 10);
+  for (const c of detail.cases) {
+    let got;
+    try { const r = verifyAttributionDetail(structuredClone(c.receipt), Buffer.from(c.detail, "utf8")); got = `ok:${r.rows.length}:${r.failedUnits}`; } catch (e) { if (!(e instanceof ProvenanceError)) throw e; got = e.code; }
+    assert.equal(got, c.expect, c.name);
+  }
+});
