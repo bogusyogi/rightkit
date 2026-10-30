@@ -3,7 +3,7 @@ import { spawnSync } from "./background-process.mjs";
 import { createHash } from "node:crypto";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, lstatSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
 import { buildLaunch } from "./build-launch.mjs";
-import { carriedOutputDir, carriedOutputDirsSince } from "./carried-cargo.mjs";
+import { carriedAdapterOutputDir, carriedCargoMapOf, carriedLedgerIds, carriedOutputDir, carriedOutputDirsSince } from "./carried-cargo.mjs";
 import { lockedTauriArgs } from "./tauri-locked.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -139,7 +139,7 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
   if (platform === "ios") {
     assertIosDevelopmentSession(target, { env, run });
     if (uiTests && !target.uiTests) throw new Error("development.targets.ios.uiTests is not declared: list the journeys in uiTests.onlyTesting");
-    iosPrepared = uiTests ? prepareIosUiTests(target, { root, env, run, serial }) : prepareIosDevelopment(target, { root, env, run, serial });
+    iosPrepared = uiTests ? prepareIosUiTests(target, { root, env, run, serial }) : prepareIosDevelopment(target, { root, env, run, serial, brokerOwned: Boolean(carriedCargoMapOf(env)?.map) });
   }
   // Android: the device serial is required, so a missing one is refused before the (long) build too.
   if (!buildOnly && platform === "android" && target.install) androidDevelopmentSerial({ descriptor: target.install, serial, env });
@@ -156,7 +156,14 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
       console.log(`right-release test: ios journeys passed (${target.uiTests.onlyTesting.join(", ")}); result bundle ${iosPrepared.resultBundle}`);
       return { built: true, installed: false, tested: true, resultBundle: iosPrepared.resultBundle };
     }
+    const ledgerBefore = carriedLedgerIds(childEnv);
     for (const command of iosPrepared ? iosPrepared.build : target.build) execute(command, { root, env: childEnv, dryRun, run, door, label: "build" });
+    // GB-51: a broker-owned iOS build wrote under the output directory the xcodebuild adapter's signed receipt names; the .app to install is found there, never from host storage.
+    if (iosPrepared?.brokerOwned && iosPrepared.install && !dryRun) {
+      const out = carriedAdapterOutputDir(childEnv, "rightkit-xcodebuild", ledgerBefore);
+      if (!out) throw new Error("the carried xcodebuild step has no verified output directory, so there is no built app to install (the broker owns the build's output root)");
+      iosPrepared.install.app = iosPrepared.appFromOutputDir(out);
+    }
     // Dev and QA binaries run from one stable staged path, copied in place (no backup of the old copy), never from the
     // broker's per-generation target folder or a hashed dev-targets folder.
     const staged = target.stage?.length ? stageDevelopmentBinaries(target.stage, { root, platform: platform === "win" ? "win32" : process.platform, managedOutputDirs: carriedOutputDirsSince(childEnv) }) : [];

@@ -124,7 +124,7 @@ const destinationFor = (install, id) => (install?.kind === "device" ? `id=${id}`
 export const productsDirectory = (dev) => `${dev.configuration}-${dev.install?.kind === "device" ? "iphoneos" : "iphonesimulator"}`;
 
 /** Pure: the generated argv commands, in order. No secret is ever part of them. */
-export function iosDevelopmentBuildCommands(dev, { root, storage, destinationId }) {
+export function iosDevelopmentBuildCommands(dev, { root, storage, destinationId, brokerOwned = false }) {
   const commands = [];
   if (dev.projectSpec) commands.push({ cmd: "xcodegen", args: ["generate", "--spec", path.resolve(root, dev.projectSpec), "--project", path.resolve(root, path.posix.dirname(dev.project))], name: "xcodegen generate" });
   for (const step of dev.prepare) commands.push({ ...step, name: step.cmd });
@@ -137,8 +137,9 @@ export function iosDevelopmentBuildCommands(dev, { root, storage, destinationId 
       "-scheme", dev.scheme,
       "-configuration", dev.configuration,
       "-destination", dev.install ? destinationFor(dev.install, destinationId) : "generic/platform=iOS Simulator",
-      "-derivedDataPath", storage.derivedData,
-      ...(storage.resultBundle ? ["-resultBundlePath", storage.resultBundle] : []),
+      // GB-51: on a broker host the xcodebuild ADAPTER owns where the build writes (the one managed output root, named by the signed receipt): the step names neither.
+      ...(brokerOwned ? [] : ["-derivedDataPath", storage.derivedData]),
+      ...(!brokerOwned && storage.resultBundle ? ["-resultBundlePath", storage.resultBundle] : []),
       ...(dev.teamId ? [`DEVELOPMENT_TEAM=${dev.teamId}`] : []),
       ...Object.entries(dev.extraBuildSettings).map(([name, value]) => `${name}=${value}`),
       ...(device ? ["-allowProvisioningUpdates", "-allowProvisioningDeviceRegistration"] : []),
@@ -218,7 +219,7 @@ function listDevices({ run, fs, tmpRoot }) {
  * Resolve the storage, the device or simulator and the final build commands BEFORE the (long) build, so a missing or
  * unready device is refused up front. Returns { build, install } with install carrying the resolved id and the .app path.
  */
-export function prepareIosDevelopment(dev, { root, env = process.env, run = spawnSync, fs = nodeFs, serial, tmpRoot = os.tmpdir() }) {
+export function prepareIosDevelopment(dev, { root, env = process.env, run = spawnSync, fs = nodeFs, serial, tmpRoot = os.tmpdir(), brokerOwned = false }) {
   const storage = resolveXcodeStorage({ env, run, cwd: root, fallbackRoot: path.join(root, ".right-release", "ios-dev") });
   let resolved = null;
   if (dev.install) {
@@ -231,9 +232,11 @@ export function prepareIosDevelopment(dev, { root, env = process.env, run = spaw
       resolved = { id: device.identifier, detail: device.detail };
     }
   }
-  const build = iosDevelopmentBuildCommands(dev, { root, storage, destinationId: resolved?.id });
-  const app = dev.install ? path.join(storage.derivedData, "Build", "Products", productsDirectory(dev), `${dev.install.productName}.app`) : null;
-  return { build, storage, install: dev.install ? { ...dev.install, resolved, app } : null };
+  const build = iosDevelopmentBuildCommands(dev, { root, storage, destinationId: resolved?.id, brokerOwned });
+  // With a broker-owned output the .app path is known only after the build, from the signed receipt's output directory (`appFromOutputDir`).
+  const appUnder = (derivedData) => path.join(derivedData, "Build", "Products", productsDirectory(dev), `${dev.install.productName}.app`);
+  const app = dev.install && !brokerOwned ? appUnder(storage.derivedData) : null;
+  return { build, storage, brokerOwned, ...(dev.install && brokerOwned ? { appFromOutputDir: appUnder } : {}), install: dev.install ? { ...dev.install, resolved, app } : null };
 }
 
 // App arguments follow a "--" terminator so an argument such as --device or --json-output is passed to the app and can never be

@@ -45,15 +45,17 @@ export const PNPM_ADAPTER_GRAMMAR = Object.freeze({
 
 /** The grammar a registered adapter spec declares (the fields the door uses), or null when `spec` is not a usable registration. */
 export function grammarFromSpec(spec) {
-  if (!spec || typeof spec !== "object" || !Array.isArray(spec.subcommands) || !spec.subcommands.every((s) => typeof s === "string" && s !== "")) return null;
+  if (!spec || typeof spec !== "object" || (spec.subcommands !== undefined && spec.subcommands !== null && (!Array.isArray(spec.subcommands) || !spec.subcommands.every((s) => typeof s === "string" && s !== "")))) return null;
   if (!Array.isArray(spec.flags) || !spec.flags.every((f) => f && typeof f.name === "string" && typeof f.value === "string")) return null;
   const targets = spec.opaqueTargets && typeof spec.opaqueTargets === "object" && !Array.isArray(spec.opaqueTargets) ? spec.opaqueTargets : {};
   return Object.freeze({
-    subcommands: Object.freeze([...spec.subcommands]),
+    subcommands: Array.isArray(spec.subcommands) ? Object.freeze([...spec.subcommands]) : null,
     flags: Object.freeze(Object.fromEntries(spec.flags.map((f) => [f.name, f.value]))),
     positionals: typeof spec.positionals === "string" ? spec.positionals : "none",
     env: frozenList(spec.env),
     opaqueAfterTarget: frozenList(spec.opaqueAfterTarget),
+    ...(Array.isArray(spec.positionalValues) ? { positionalValues: frozenList(spec.positionalValues) } : {}),
+    ...(spec.flagPrefixes && typeof spec.flagPrefixes === "object" ? { flagPrefixes: Object.freeze({ ...spec.flagPrefixes }) } : {}),
     opaqueTargets: Object.freeze(Object.fromEntries(Object.entries(targets).map(([command, list]) => [command, frozenList(list)]))),
     snapshotSubcommands: frozenList(spec.snapshotSubcommands),
     scratchRoot: typeof spec.scratchRoot === "string" && spec.scratchRoot !== "" ? spec.scratchRoot : null,
@@ -73,8 +75,17 @@ export function liveAdapterGrammar({ env = process.env, platform = process.platf
 const relpathOk = (v) => v !== "" && !v.includes("\0") && !v.startsWith("/") && !v.startsWith("\\") && !(v.length >= 2 && v[1] === ":") && v.split(/[\\/]/).every((part) => part !== "..");
 const isAbsoluteAnywhere = (v) => path.posix.isAbsolute(v) || path.win32.isAbsolute(v) || v.startsWith("\\");
 const scratchShapeOk = (v) => v !== "" && !v.includes("\0") && (path.isAbsolute(v) || path.posix.isAbsolute(v) || path.win32.isAbsolute(v)) && v.split(/[\\/]/).every((part) => part !== "..");
+/** Build settings a caller never sets for an Apple build: they redirect where the build writes (the broker owns the output root) or choose the signing identity (the provisioned signer's). */
+const XCODE_DENIED_SETTINGS = /^(?:SYMROOT|OBJROOT|DSTROOT|BUILD_DIR|BUILD_ROOT|CONFIGURATION_BUILD_DIR|CONFIGURATION_TEMP_DIR|TARGET_BUILD_DIR|SHARED_PRECOMPS_DIR|MODULE_CACHE_DIR|DERIVED_DATA_DIR|CODE_SIGN_IDENTITY|CODE_SIGN_STYLE|OTHER_CODE_SIGN_FLAGS|PROVISIONING_PROFILE(?:_SPECIFIER)?|CODE_SIGN_ENTITLEMENTS|CODE_SIGNING_ALLOWED|CODE_SIGNING_REQUIRED)=/;
+/** CMake cache entries that run or load arbitrary code from a path the caller names. */
+const CMAKE_DENIED_DEFINES = /^(?:CMAKE_COMMAND|CMAKE_MAKE_PROGRAM|CMAKE_PROJECT_INCLUDE(?:_BEFORE)?|CMAKE_MODULE_PATH|CMAKE_PREFIX_PATH|CMAKE_PROGRAM_PATH)[:=]/;
 function valueOk(kind, v) {
   switch (kind) {
+    case "identifier": return /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(v);
+    case "gradleTask": return /^:?[A-Za-z0-9][A-Za-z0-9_:.-]{0,255}$/.test(v) && !/(?:^|:)(?:publish|upload)|(?:bundle|assemble|install)[A-Za-z0-9]*Release/i.test(v);
+    case "actionOrBuildSetting": return v.includes("=") ? valueOk("buildSetting", v) : valueOk("identifier", v);
+    case "buildSetting": return /^[A-Z][A-Za-z0-9_]*=[^\0]*$/.test(v) && !XCODE_DENIED_SETTINGS.test(v);
+    case "cmakeDefine": return /^[A-Za-z_][A-Za-z0-9_.+-]*(?::[A-Z]+)?=[^\0]*$/.test(v) && !CMAKE_DENIED_DEFINES.test(v);
     case "none": return false;
     case "any": return !v.includes("\0");
     case "int": return v !== "" && /^[0-9]+$/.test(v);
@@ -118,12 +129,18 @@ export function scanAdapterArgv(argv, grammar = PNPM_ADAPTER_GRAMMAR) {
   const found = { command: null, target: null, positionals: [], opaqueTail: [], flagValues: [], scratch: [] };
   let index = 0; let awaiting = false; let opaque = false; let commandSeen = false;
   const first = args[0];
-  if (first === undefined) return { error: "a subcommand is required" };
-  if (!grammar.subcommands.includes(first)) return { error: `subcommand ${JSON.stringify(first)} is not registered for ${PNPM_ADAPTER} (registered: ${grammar.subcommands.join(", ")}); a leading flag such as --if-present, --prefix or --config is refused (--if-present goes after \`run\`)` };
-  awaiting = grammar.opaqueAfterTarget.includes(first);
-  commandSeen = !first.startsWith("-");
-  if (commandSeen) found.command = first;
-  index = first.startsWith("-") && Object.hasOwn(grammar.flags, first) ? 0 : 1;
+  const name = grammar.adapter ?? PNPM_ADAPTER;
+  if (grammar.subcommands === null) {
+    // No registered first argument (an adapter whose tool takes flags and positionals only, such as gradle, cmake and xcodebuild): the scan starts at the first word.
+    index = 0;
+  } else {
+    if (first === undefined) return { error: "a subcommand is required" };
+    if (!grammar.subcommands.includes(first)) return { error: `subcommand ${JSON.stringify(first)} is not registered for ${name} (registered: ${grammar.subcommands.join(", ")}); a leading flag such as --if-present, --prefix or --config is refused (--if-present goes after \`run\`)` };
+    awaiting = grammar.opaqueAfterTarget.includes(first);
+    commandSeen = !first.startsWith("-");
+    if (commandSeen) found.command = first;
+    index = first.startsWith("-") && Object.hasOwn(grammar.flags, first) ? 0 : 1;
+  }
   let afterSeparator = false;
   while (index < args.length) {
     const word = args[index]; index += 1;
@@ -132,6 +149,7 @@ export function scanAdapterArgv(argv, grammar = PNPM_ADAPTER_GRAMMAR) {
     if (!afterSeparator && word === "--") { afterSeparator = true; continue; }
     if (afterSeparator || !word.startsWith("-") || word === "-") {
       if (grammar.positionals === "none" || !valueOk(grammar.positionals, word)) return { error: `positional argument ${JSON.stringify(word)} is not allowed` };
+      if (grammar.positionalValues && !word.includes("=") && !grammar.positionalValues.includes(word)) return { error: `positional argument ${JSON.stringify(word)} is not registered for ${grammar.adapter ?? PNPM_ADAPTER} (registered: ${grammar.positionalValues.join(", ")})` };
       if (needsScratchCheck(grammar.positionals, word)) found.scratch.push(["positional argument", grammar.positionals, word]);
       found.positionals.push(word);
       if (awaiting) {
@@ -143,9 +161,17 @@ export function scanAdapterArgv(argv, grammar = PNPM_ADAPTER_GRAMMAR) {
       }
       continue;
     }
+    // A registered flag PREFIX carries its value in the same word (`-DNAME=value`): the rest of the word is the value, judged by the prefix's kind.
+    const prefix = grammar.flagPrefixes ? Object.keys(grammar.flagPrefixes).find((p) => word.startsWith(p) && word.length > p.length) : undefined;
+    if (prefix !== undefined) {
+      const value = word.slice(prefix.length);
+      if (!valueOk(grammar.flagPrefixes[prefix], value)) return { error: `flag ${JSON.stringify(prefix)} has a value of the wrong kind or one ${grammar.adapter ?? PNPM_ADAPTER} never admits (${JSON.stringify(value)})` };
+      found.flagValues.push([`flag ${JSON.stringify(prefix)}`, grammar.flagPrefixes[prefix], value]);
+      continue;
+    }
     const name = flagNameOf(word);
     const inline = word.startsWith("--") && word.includes("=") ? word.slice(word.indexOf("=") + 1) : null;
-    if (!Object.hasOwn(grammar.flags, name)) return { error: `flag ${JSON.stringify(name)} is not registered for ${PNPM_ADAPTER}` };
+    if (!Object.hasOwn(grammar.flags, name)) return { error: `flag ${JSON.stringify(name)} is not registered for ${grammar.adapter ?? PNPM_ADAPTER}` };
     const kind = grammar.flags[name];
     let value;
     if (kind === "none") { if (inline !== null) return { error: `flag ${JSON.stringify(name)} takes no value` }; continue; }

@@ -54,6 +54,8 @@ export const ADAPTER_ENV_MANIFEST = Object.freeze({
   "rightkit-pnpm": Object.freeze(["RK_ISOLATED_CHECKOUT", ...QA_HANDOFF_ENV]),
   "rightkit-node": Object.freeze(["RK_ISOLATED_CHECKOUT", ...QA_HANDOFF_ENV]),
   "rightkit-swift": Object.freeze([]),
+  // GB-51: the native-tool adapters take no request environment (a step's own environment is refused before launch, naming the key).
+  "rightkit-xcodegen": Object.freeze([]), "rightkit-xcodebuild": Object.freeze([]), "rightkit-gradle": Object.freeze([]), "rightkit-cmake": Object.freeze([]),
 });
 
 /**

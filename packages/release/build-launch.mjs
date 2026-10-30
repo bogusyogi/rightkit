@@ -42,6 +42,7 @@ import { CARRIED_CARGO_MAP_ENV as CARRIED_MAP_ENV, carriedCargoMapOf } from "./c
 import { ADAPTER_ENV_MANIFEST, QA_HANDOFF_ENV, adapterEnvLaunch } from "./adapter-env.mjs";
 import { cargoSubcommandOf, canonicalCargoCommand } from "./cargo-shapes.mjs";
 import { swiftScratchRefusal } from "./swift-scratch.mjs";
+import { NATIVE_ADAPTERS, nativeToolLaunch, nativeToolOf } from "./native-adapters.mjs";
 import { PNPM_ADAPTER_GRAMMAR, adapterArgvRefusal, liveAdapterGrammar, scanAdapterArgv } from "./pnpm-adapter-grammar.mjs";
 import { QA_VALUE_OPTIONS, hasListing, isBuildFlag, ownWords, qaPathReason, qaSnapshotPlan } from "./qa-snapshot.mjs";
 
@@ -68,7 +69,7 @@ const NODE_FLAGS = /^--(?:disable-warning=[A-Za-z0-9_-]+|no-experimental-webstor
 /** The pnpm `exec` targets the door admits (every app config's `pnpm exec <target>`: tauri and right-release; vite for a web build). */
 export const EXEC_TARGETS = Object.freeze(["tauri", "right-release", "vite"]);
 /** The broker adapter a `rustright run <adapter> -- ...` names, and the program whose door rules judge the step. */
-const ADAPTER_PROGRAMS = Object.freeze({ "rightkit-pnpm": "pnpm", "rightkit-node": "node", "rightkit-qa": "rightkit-qa", "rightkit-swift": "swift" });
+const ADAPTER_PROGRAMS = Object.freeze({ "rightkit-pnpm": "pnpm", "rightkit-node": "node", "rightkit-qa": "rightkit-qa", "rightkit-swift": "swift", "rightkit-xcodegen": "xcodegen", "rightkit-xcodebuild": "xcodebuild", "rightkit-gradle": "gradle", "rightkit-cmake": "cmake" });
 /** The tools a QA step must not start: running one is a build, and a QA step compiles nothing. */
 const QA_BUILD_PROGRAMS = new Set(["cargo", "rustc", "rustdoc", "rustright", "rightkit", "pnpm", "npm", "npx", "yarn", "swift", "swiftc", "xcodebuild", "gradle", "gradlew", "make", "cmake", "node-gyp"]);
 export { QA_VALUE_OPTIONS };
@@ -187,7 +188,7 @@ export function buildLaunch(command, args = [], host = {}) {
   const client = () => lookup("rustright")[0] ?? refuse(`rustright is not on PATH: on a broker-managed host ${program} runs only as a broker job`);
   // A snapshot stage's pnpm, node and swift steps are carried adapter jobs (carried-adapter-run.mjs); anywhere else they are the client's `run`.
   // A QA step is not one of them: it runs an already-built artifact (see the rightkit-qa branch below).
-  const adapterMap = ["pnpm", "node", "swift"].includes(program) ? carriedCargoMapOf(env) : null;
+  const adapterMap = ["pnpm", "node", "swift"].includes(program) || nativeToolOf(command) !== null ? carriedCargoMapOf(env) : null;
   if (adapterMap?.error) refuse(`${name(command)} ${args.join(" ")}: ${adapterMap.error}; a snapshot stage's step is never sent to the client around its carrier`);
   // The step's own environment rides the adapter request (adapter-env.mjs): RUSTRIGHT_ADAPTER_ENV names exactly what the step declares, plus the
   // signed-artifact handoff (GB-05) when a sign step set it in this environment. Every name is judged against the adapter's registered `env`
@@ -246,6 +247,15 @@ export function buildLaunch(command, args = [], host = {}) {
     if (plan?.refusal) refuse(`rightkit-qa ${args.join(" ")}: ${plan.refusal}`);
     if (plan) return { command: process.execPath, args: [QA_SNAPSHOT_RUN, qa, "--", ...args.map(String)] };
     return { command: qa, args: args.map(String) };
+  }
+  // GB-51: a declared native build tool (xcodegen, xcodebuild, Gradle and its wrapper, CMake) is a snapshot-bound adapter job of its own constrained adapter (native-adapters.mjs): its argv is
+  // judged by the registration BEFORE the send (an output override or an unregistered flag is refused here, naming the capability), paths are made relative to the step's directory, and the
+  // step carries no environment of its own. Nothing runs the tool around the broker.
+  const nativeTool = nativeToolOf(command);
+  if (nativeTool !== null) {
+    const launch = nativeToolLaunch(nativeTool, args, { cwd: host.cwd ?? process.cwd() });
+    if (launch.refusal) refuse(`${launch.refusal.code}: ${launch.refusal.message}`);
+    return adapterLaunch(NATIVE_ADAPTERS[nativeTool].adapter, launch.args);
   }
   if (program === "swift") {
     // GB-67: the broker owns SwiftPM's scratch and build path; a caller that names one is refused here, typed, before anything is sent.

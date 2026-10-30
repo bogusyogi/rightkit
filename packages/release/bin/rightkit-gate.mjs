@@ -2041,7 +2041,7 @@ export function routePlan(o, { to, stages, devTest, executor, capabilities = nul
   // GB-51: a declared native build tool with no carried adapter (xcodegen, xcodebuild, Gradle, CMake) refuses here, at planning, naming the missing
   // capability, instead of after the earlier stages built (the door's launch-time refusal remains the backstop).
   if (snapshot && executor?.kind === "broker" && appConfig?.config && to !== "check") {
-    const refusalText = nativeToolRefusal(nativeToolUses({ config: appConfig.config, to, devPlatform: appConfig.devPlatform ?? null }));
+    const refusalText = nativeToolRefusal(nativeToolUses({ config: appConfig.config, to, devPlatform: appConfig.devPlatform ?? null }), { capabilities, readFile: appConfig.readFile ?? null });
     if (refusalText) return { route, refusal: refuse("RK_BROKER_CAPABILITY_MISSING", to, refusalText) };
   }
   // One signing identity per product, every build (rightkit#1303): on the Mac and the Dell a test or dev build that would run unsigned, ad hoc or under

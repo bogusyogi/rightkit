@@ -186,6 +186,19 @@ export function carriedOutputDirsSince(env = process.env, before = new Set()) {
 }
 
 /**
+ * The output directory the broker signed for the carried ADAPTER job of `adapter` (a native tool such as `rightkit-xcodebuild`) added to the ledger since `before`, or null: the last such
+ * verified call's own `outputDir` (the one managed root the adapter owns). A call that was refused, unverified or unfinished names none.
+ */
+export function carriedAdapterOutputDir(env, adapter, before = new Set()) {
+  const carried = carriedCargoMapOf(env);
+  if (!carried?.map) return null;
+  let entries = [];
+  try { entries = readLedger(carried.map.ledgerDir, env[SCAN_TOKEN_ENV]).entries; } catch { return null; }
+  const mine = entries.filter((e) => e.status === "verified" && e.shim === "adapter" && e.adapter === adapter && !before.has(e.id) && typeof e.outputDir === "string");
+  return mine.length ? mine.at(-1).outputDir : null;
+}
+
+/**
  * The output directory of the workspace a manifest belongs to, from a signed receipt, or null: a verified call this child already made
  * in that workspace (a build, whose receipt names the broker's pinned `outputDir`, or a nested child of a carried adapter job, whose entry in
  * the job's signed list names the compile's own `outputDir`), else one an earlier stage of the door run
