@@ -58,6 +58,27 @@ test('darwin: a failed build, a missing identity or a failed codesign throws a t
   assert.equal(fs.existsSync(dest), false);
 });
 
+test('N22: a carried metadata call reports the signed receipt outputDir, which wins over the target_directory its stdout prints', () => {
+  const { root, packageDir } = workspace();
+  const receiptDir = path.join(root, 'managed-output');
+  const printedDir = path.join(root, 'snapshot-local-target');
+  const { deps } = darwinDeps(root, {
+    run: (command, args) => {
+      if (args[0] === 'metadata') return { status: 0, outputDir: receiptDir, stdout: JSON.stringify({ target_directory: printedDir }), stderr: '' };
+      // The build wrote only under the receipt's directory: finding the helper there proves outputDir was read first.
+      fs.mkdirSync(path.join(receiptDir, 'release'), { recursive: true });
+      fs.writeFileSync(path.join(receiptDir, 'release', 'rightkit-swap'), 'from-receipt-dir');
+      return { status: 0, stdout: '', stderr: '' };
+    },
+  });
+  const result = prepareSwapHelper(deps);
+  assert.equal(fs.readFileSync(result.file, 'utf8'), 'from-receipt-dir');
+  assert.equal(result.file, path.join(packageDir, 'bin', 'darwin', 'rightkit-swap'));
+  // Without an outputDir (a direct call) the printed target_directory is what is read, as before.
+  const direct = darwinDeps(root);
+  assert.equal(fs.readFileSync(prepareSwapHelper(direct.deps).file, 'utf8'), 'macho-bytes');
+});
+
 test('non-darwin: refuses unless the helper is present with a receipt matching its bytes', () => {
   const { root, packageDir } = workspace();
   const deps = { workspaceRoot: root, platform: 'win32', run: () => assert.fail('must not build off the Mac') };

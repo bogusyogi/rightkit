@@ -205,7 +205,7 @@ test("ownership: a reboot after the record proves its work gone; broker work nee
   }
   fs.rmSync(file, { force: true });
   const leases = [];
-  const own = acquireBuildOwnership({ file, platform: "darwin", probe: fakeProbe("darwin"), lease: (q) => { leases.push(q); return { state: "ACTIVE", why: "x" }; }, env: {}, exportEnv: false, snapshot: "/snap/y" });
+  const own = acquireBuildOwnership({ file, platform: "darwin", probe: fakeProbe("darwin"), lease: (q) => { leases.push(q); return { state: "ACTIVE", why: "x" }; }, env: {}, exportEnv: false, snapshot: "/snap/y", leaseWaitMs: 0 });
   own.markBrokerSubmit(`${own.handle}#c1`);
   assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).broker.submitted, true);
   const r = own.release();
@@ -2185,4 +2185,130 @@ test("[native Windows] a LIVE gate started by another process reads as the same 
   const boot = probe.bootTime();
   const expected = Date.now() - os.uptime() * 1000;
   assert.ok(Math.abs(boot - expected) <= 300_000, `boot time ${new Date(boot).toISOString()} vs now minus uptime ${new Date(expected).toISOString()}`);
+});
+
+// ---- GATE-3: ownership lifecycle (audit M6, M8, N14, N16, N36c) ----
+
+test("[M6] a dead owner with submitted broker work on a host that REBOOTED is reclaimed without asking the broker's lease (the broker and its jobs died with the boot); the same record without a reboot still needs REAPED", (t) => {
+  const file = path.join(tmp(t, "rk-own-"), "owner.json");
+  const sub = "11111111-2222-3333-4444-555555555555#aaaa";
+  deadOwner(file, "darwin", { broker: { submitted: true, handles: [sub] } });
+  const asked = [];
+  const lease = (q) => { asked.push(q); return { state: "UNKNOWN", why: "the broker's lease record of the previous boot never reaps" }; };
+  const rebooted = fakeProbe("darwin", { bootTime: () => NOW, groupSnapshot: () => { throw new Error("must not be asked"); } });
+  const own = acquireBuildOwnership({ file, platform: "darwin", probe: rebooted, lease, env: {}, exportEnv: false, stage: "test" });
+  assert.deepEqual(asked, [], "no lease question after a reboot");
+  assert.match(own.reclaimed.proofs.join("; "), /rebooted/);
+  assert.match(own.reclaimed.proofs.join("; "), /broker work of the previous boot cannot run/);
+  own.release();
+  deadOwner(file, "darwin", { broker: { submitted: true, handles: [sub] } });
+  assert.throws(() => acquireBuildOwnership({ file, platform: "darwin", probe: fakeProbe("darwin"), lease, env: {}, exportEnv: false, stage: "test" }), /lease is UNKNOWN/, "no reboot: UNKNOWN still holds");
+  assert.ok(asked.length >= 1);
+});
+
+test("[M8] a .reclaim left by a reclaimer that died is removed on proof (pid gone, pid reused, host rebooted) and the reclaim goes through; one naming a LIVE pid stays busy and retryable; an unreadable one is not guessed at", (t) => {
+  const mk = () => { const file = path.join(tmp(t, "rk-own-"), "owner.json"); deadOwner(file, "darwin"); return file; };
+  const reclaimBody = (over) => JSON.stringify({ schema: OWNERSHIP_SCHEMA, handle: "99999999-aaaa-bbbb-cccc-dddddddddddd", host: os.hostname(), pid: 777_777, startedMs: NOW - 300_000, acquiredAt: iso(NOW - 200_000), ...over });
+  // Dead: the pid is gone.
+  let file = mk(); fs.writeFileSync(`${file}.reclaim`, reclaimBody({}));
+  let own = acquire(file, "darwin", fakeProbe("darwin"));
+  assert.ok(own.reclaimed, "reclaimed past a dead reclaimer's file"); assert.equal(fs.existsSync(`${file}.reclaim`), false, "the stale file and the claim beside it are gone");
+  assert.deepEqual(fs.readdirSync(path.dirname(file)).filter((n) => n.includes(".reclaim")), []);
+  own.release();
+  // Dead: the pid now runs a process that started at another time.
+  file = mk(); fs.writeFileSync(`${file}.reclaim`, reclaimBody({ pid: 4321 }));
+  const reused = fakeProbe("darwin", { identity: (pid) => (pid === process.pid ? { alive: true, startedMs: NOW - 60_000, group: 4242 } : pid === 4321 ? { alive: true, startedMs: NOW - 1000, group: 9 } : { alive: false, startedMs: null, group: null }) });
+  own = acquire(file, "darwin", reused); assert.ok(own.reclaimed); own.release();
+  // Dead: written before this boot.
+  file = mk(); fs.writeFileSync(`${file}.reclaim`, reclaimBody({ pid: process.pid + 7, acquiredAt: iso(NOW - 200_000) }));
+  own = acquire(file, "darwin", fakeProbe("darwin", { bootTime: () => NOW - 100_000 })); assert.ok(own.reclaimed); own.release();
+  // Live: the same pid, the same start. Busy, retryable, and nothing is removed.
+  file = mk(); fs.writeFileSync(`${file}.reclaim`, reclaimBody({ pid: process.pid, startedMs: NOW - 60_000 }));
+  assert.throws(() => acquire(file, "darwin", fakeProbe("darwin")), (e) => e instanceof OwnershipBusy && e.retryable === true && new RegExp(`reclaimed by pid ${process.pid} \\(alive\\)`).test(e.message));
+  assert.equal(fs.existsSync(`${file}.reclaim`), true);
+  fs.rmSync(`${file}.reclaim`);
+  // Unreadable and newer than the boot: unknown, never removed, not retryable.
+  file = mk(); fs.writeFileSync(`${file}.reclaim`, "{ half");
+  assert.throws(() => acquire(file, "darwin", fakeProbe("darwin")), (e) => e instanceof OwnershipBusy && e.retryable === false && /cannot be proven/.test(e.message));
+  assert.equal(fs.existsSync(`${file}.reclaim`), true);
+  // Another host's: unknown.
+  file = mk(); fs.writeFileSync(`${file}.reclaim`, reclaimBody({ host: "elsewhere" }));
+  assert.throws(() => acquire(file, "darwin", fakeProbe("darwin")), /cannot be proven/);
+});
+
+test("[M8] two gates that both find the same dead .reclaim: only the holder of the claim removes it, and a late gate never removes a successor's live .reclaim", (t) => {
+  const file = path.join(tmp(t, "rk-own-"), "owner.json"); deadOwner(file, "darwin");
+  const deadHandle = "99999999-aaaa-bbbb-cccc-dddddddddddd";
+  fs.writeFileSync(`${file}.reclaim`, JSON.stringify({ schema: OWNERSHIP_SCHEMA, handle: deadHandle, host: os.hostname(), pid: 777_777, startedMs: NOW - 300_000, acquiredAt: iso(NOW - 200_000) }));
+  // Another gate already holds the claim for this dead file (and is alive): this gate stays busy and removes nothing.
+  fs.writeFileSync(`${file}.reclaim.steal-${deadHandle}`, JSON.stringify({ schema: OWNERSHIP_SCHEMA, handle: "x", host: os.hostname(), pid: process.pid, startedMs: NOW - 60_000, acquiredAt: iso(NOW) }));
+  assert.throws(() => acquire(file, "darwin", fakeProbe("darwin")), OwnershipBusy);
+  assert.equal(fs.existsSync(`${file}.reclaim`), true, "the claim of another gate keeps the dead file in place");
+  // A claim whose holder is dead is dropped; the next gate then proceeds.
+  fs.writeFileSync(`${file}.reclaim.steal-${deadHandle}`, JSON.stringify({ schema: OWNERSHIP_SCHEMA, handle: "y", host: os.hostname(), pid: 777_778, startedMs: NOW - 60_000, acquiredAt: iso(NOW) }));
+  assert.throws(() => acquire(file, "darwin", fakeProbe("darwin")), OwnershipBusy, "this gate stays busy once while it drops the dead claim");
+  assert.equal(fs.existsSync(`${file}.reclaim.steal-${deadHandle}`), false);
+  const own = acquire(file, "darwin", fakeProbe("darwin")); assert.ok(own.reclaimed); own.release();
+});
+
+test("[N14] a release asks the lease again for up to leaseWaitMs: ACTIVE then REAPED on the second ask releases cleanly; still ACTIVE past the bound is kept; a reclaim never polls", (t) => {
+  const file = path.join(tmp(t, "rk-own-"), "owner.json");
+  const sleeps = [];
+  const flip = () => { const states = ["ACTIVE", "REAPED"]; const seen = []; const lease = (q) => { seen.push(q.handle); return { state: states[Math.min(seen.length - 1, 1)], why: "fake" }; }; lease.seen = seen; return lease; };
+  let lease = flip();
+  let own = acquireBuildOwnership({ file, platform: "darwin", probe: fakeProbe("darwin"), lease, env: {}, exportEnv: false, stage: "test", snapshot: "/snap/z", leaseWaitMs: 5000, sleep: (ms) => sleeps.push(ms) });
+  own.markBrokerSubmit(`${own.handle}#c1`);
+  const r = own.release();
+  assert.equal(r.released, true, JSON.stringify(r)); assert.ok(sleeps.length >= 1, "it waited for the second answer"); assert.ok(lease.seen.length >= 3, "the bare handle twice, then the sub-handle");
+  // Never REAPED: kept after the bound (a real clock with a tiny bound).
+  const stuck = (() => { let n = 0; const l = () => { n += 1; return { state: "ACTIVE", why: "still" }; }; l.count = () => n; return l; })();
+  own = acquireBuildOwnership({ file, platform: "darwin", probe: fakeProbe("darwin"), lease: stuck, env: {}, exportEnv: false, stage: "test", snapshot: "/snap/z", leaseWaitMs: 60, sleep: () => {} });
+  own.markBrokerSubmit(`${own.handle}#c2`);
+  const kept = own.release();
+  assert.equal(kept.released, false); assert.match(kept.why, /lease is ACTIVE/); assert.ok(stuck.count() > 1, "asked more than once"); assert.equal(fs.existsSync(file), true);
+  // A reclaim (the owner is dead) asks once: no polling.
+  const dead = deadOwner(file, "darwin", { broker: { submitted: true } });
+  let asks = 0;
+  assert.throws(() => acquireBuildOwnership({ file, platform: "darwin", probe: fakeProbe("darwin"), lease: () => { asks += 1; return { state: "ACTIVE", why: "x" }; }, env: {}, exportEnv: false, stage: "test", leaseWaitMs: 5000, sleep: () => { throw new Error("a reclaim must not sleep"); } }), /lease is ACTIVE/);
+  assert.equal(asks, 1, dead.handle);
+});
+
+test("[N16/M46] brokerLeaseState starts a win32 .cmd client through its shim's .exe (never node EINVAL), refuses a foreign shim as UNKNOWN naming it, and waits for the client as long as it retries a busy pipe (>= 130 s)", async (t) => {
+  const { AGENT_SHIM_MARKER, BROKER_CLIENT_QUERY_TIMEOUT_MS } = await import("./broker-client.mjs");
+  assert.ok(BROKER_CLIENT_QUERY_TIMEOUT_MS >= 130_000);
+  const dir = tmp(t, "rk-lease-shim-");
+  const EXE = "C:\\rk\\rustright\\rustright.exe";
+  const shim = path.join(dir, "rustright.cmd");
+  fs.writeFileSync(shim, `@echo off\r\nrem ${AGENT_SHIM_MARKER}\r\nsetlocal\r\nset "RUSTRIGHT_MANAGED_AGENT_SHIM="\r\nset "RIGHTKIT_MANAGED_AGENT_SHIM="\r\n"${EXE}" %*\r\nexit /b %ERRORLEVEL%\r\n`);
+  const calls = [];
+  const spawn = (file, args, options) => { calls.push({ file, args, options }); return { status: 0, stdout: JSON.stringify({ schema: "rustright.snapshot-lease-status.v1", state: "REAPED", snapshot: "S", ownership: "H" }) }; };
+  const ok = brokerLeaseState({ snapshot: "S", handle: "H", env: { RIGHTKIT_MANAGED_AGENT_SHIM: "1" }, platform: "win32", spawn, client: shim });
+  assert.equal(ok.state, "REAPED");
+  assert.equal(calls[0].file, EXE, "the shim's target, not the .cmd");
+  assert.equal(calls[0].options.shell, false);
+  assert.equal(calls[0].options.env.RIGHTKIT_MANAGED_AGENT_SHIM, undefined);
+  assert.ok(calls[0].options.timeout >= 130_000, `lease timeout ${calls[0].options.timeout}`);
+  fs.writeFileSync(shim, "@echo off\r\nrustright.exe %*\r\n");
+  const before = calls.length;
+  const bad = brokerLeaseState({ snapshot: "S", handle: "H", env: {}, platform: "win32", spawn, client: shim });
+  assert.equal(bad.state, "UNKNOWN"); assert.match(bad.why, /agent shim|RustRight agent shim/); assert.equal(calls.length, before, "nothing started");
+});
+
+test("[N36c] acquire with waitMs polls only a LIVE holder: it gets the host when the holder releases, and gives up with a retryable busy at the deadline; an unreadable or foreign record is never waited for", (t) => {
+  const file = path.join(tmp(t, "rk-own-"), "owner.json");
+  const liveProbe = fakeProbe("darwin", { identity: (pid) => (pid === process.pid ? { alive: true, startedMs: NOW - 60_000, group: 4242 } : pid === 424242 ? { alive: true, startedMs: NOW - 50_000, group: 1 } : { alive: false, startedMs: null, group: null }) });
+  deadOwner(file, "darwin", { pid: 424242, startedMs: NOW - 50_000 });
+  let waits = 0;
+  const own = acquireBuildOwnership({ file, platform: "darwin", probe: liveProbe, lease: noLease, env: {}, exportEnv: false, stage: "test", waitMs: 60_000, pollMs: 10, waitSleep: () => { waits += 1; if (waits === 3) fs.rmSync(file); } });
+  assert.equal(waits, 3, "it waited three polls, then took the free host"); assert.equal(own.reclaimed, null); own.release();
+  // Deadline: a live holder that never leaves is a retryable busy (exit 75 for the gate).
+  deadOwner(file, "darwin", { pid: 424242, startedMs: NOW - 50_000 });
+  assert.throws(() => acquireBuildOwnership({ file, platform: "darwin", probe: liveProbe, lease: noLease, env: {}, exportEnv: false, stage: "test", waitMs: 30, pollMs: 10, waitSleep: () => {} }), (e) => e instanceof OwnershipBusy && e.retryable === true);
+  // No wait asked: immediate, and still marked retryable for the caller's exit code.
+  assert.throws(() => acquire(file, "darwin", liveProbe), (e) => e instanceof OwnershipBusy && e.retryable === true);
+  // Not retryable: an unreadable record and another host's.
+  fs.writeFileSync(file, "{ nope");
+  assert.throws(() => acquireBuildOwnership({ file, platform: "darwin", probe: liveProbe, lease: noLease, env: {}, exportEnv: false, waitMs: 60_000, pollMs: 10, waitSleep: () => { throw new Error("must not wait"); } }), (e) => e instanceof OwnershipBusy && e.retryable === false);
+  deadOwner(file, "darwin", { host: "elsewhere" });
+  assert.throws(() => acquireBuildOwnership({ file, platform: "darwin", probe: liveProbe, lease: noLease, env: {}, exportEnv: false, waitMs: 60_000, pollMs: 10, waitSleep: () => { throw new Error("must not wait"); } }), (e) => e.retryable === false);
 });

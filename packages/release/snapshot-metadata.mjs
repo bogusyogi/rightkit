@@ -20,6 +20,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { BROKER_REFUSAL_STATUS, brokerSection, carryBrokerCargo } from "./snapshot-broker.mjs";
+import { isFmtCheckShape } from "./snapshot-request.mjs";
 
 export const CARRIED_METADATA_REFUSED = "RK_SNAPSHOT_CARRIED_REFUSED";
 
@@ -73,8 +74,7 @@ export function carriedScanRefusal(words, { checkout = null } = {}) {
   }
   // rustright command_policy.rs fmt_check_shape: exactly `-p <unit> --check` or `--all --check`; no `--`, so no rustfmt argument reaches it.
   if (sub === "fmt") {
-    const shapeOk = (rest.length === 3 && rest[0] === "-p" && rest[1] !== "" && !rest[1].startsWith("-") && rest[2] === "--check") || (rest.length === 2 && rest[0] === "--all" && rest[1] === "--check");
-    return shapeOk ? null : "`fmt` is admitted as `fmt -p <unit> --check` or `fmt --all --check` only";
+    return isFmtCheckShape(rest) ? null : "`fmt` is admitted as `fmt -p <unit> --check` or `fmt --all --check` only";
   }
   if (sub === "audit") {
     const f = flagsOf(rest, { "--db": "value", "--no-fetch": "flag" });

@@ -35,6 +35,7 @@ import { fileURLToPath } from "node:url";
 import { SCAN_TOKEN_ENV, appendLedger } from "./cargo-ledger.mjs";
 import { BROKER_REFUSAL_STATUS, runBrokerCargo } from "./snapshot-broker.mjs";
 import { carriedScanRefusal } from "./snapshot-metadata.mjs";
+import { carriesRedirect } from "./snapshot-request.mjs";
 
 export const SHIM_MAP_SCHEMA = "rightkit.cargo-target-shim/3";
 // Exit status of a refusal: cargo's own error status, so every caller reads it as a failed cargo.
@@ -42,12 +43,14 @@ export const SHIM_REFUSAL_STATUS = BROKER_REFUSAL_STATUS;
 // Cargo commands that compile or report on a workspace: run bound to its checkout target directory.
 const COMPILE = new Set(["build", "b", "check", "c", "test", "t", "bench", "run", "r", "doc", "d", "rustc", "rustdoc", "clippy", "metadata", "package"]);
 // Commands that only read a workspace but may resolve and write its Cargo.lock: bound, and only with --locked or --frozen.
-const LOCKED = new Set(["fetch", "tree", "pkgid", "verify-project", "read-manifest", "locate-project", "deny"]);
+const LOCKED = new Set(["fetch", "tree", "pkgid", "verify-project", "deny"]);
+// Commands that read a manifest and never write a lock (there is no lock flag to demand; the broker's offline_read_only takes them with any arguments): bound, no flag required.
+const NO_LOCK = new Set(["locate-project", "read-manifest"]);
 // Commands with no lock flag (cargo fmt, cargo-audit): bound, and only where the workspace's committed Cargo.lock already exists.
 const LOCKFILE = new Set(["fmt", "audit"]);
 // Plugins whose options are their own, not cargo's (cargo-deny's --config is its config file, not a cargo redirect).
 const PLUGIN = new Set(["deny", "audit"]);
-const BOUND = new Set([...COMPILE, ...LOCKED, ...LOCKFILE]);
+const BOUND = new Set([...COMPILE, ...LOCKED, ...NO_LOCK, ...LOCKFILE]);
 // Commands that read no workspace at all: run unchanged.
 const PASSTHROUGH = new Set(["version", "help"]);
 /** The subcommands the wrapper binds or passes through (the contract test pins each to the broker's classification). */
@@ -62,8 +65,8 @@ const CARRIED_SHAPE = new Set(["metadata", "deny", "audit", "fmt"]);
 const insideOf = (child, parent) => { const rel = path.relative(parent, child); return rel === "" || !(rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)); };
 // Global options that take a value (`--color always`, `--explain E0001`); the subcommand is the first word after them.
 const GLOBAL_VALUE = new Set(["--color", "--explain"]);
-// Options that move the working directory, the configuration or the output (a short cluster holding C or Z too).
-const REDIRECT = /^(--config|-Z|-C)(=|$)|^-[A-Za-z]*[CZ]/;
+// Options that move the working directory, the configuration or the output are judged by `carriesRedirect` (snapshot-request.mjs), the broker's own cluster walk, which stops at
+// a value letter (`-pCore`, `-FZed` are a package and a feature, not a `-C`/`-Z`).
 
 const refusal = (code, message) => ({ refuse: { code, message } });
 
@@ -82,7 +85,7 @@ export function decideCargoInvocation({ args, cwd, env, map, locate, realpath = 
   for (; i < words.length; i += 1) {
     const w = words[i];
     if (w === "--") break;
-    if (REDIRECT.test(w)) return refusal("RK_CARGO_REDIRECT", `\`cargo ${words.join(" ")}\` passes ${w}, which moves its working directory, configuration or output; a snapshot compile's outputs must be the checkout's`);
+    if (carriesRedirect(w)) return refusal("RK_CARGO_REDIRECT", `\`cargo ${words.join(" ")}\` passes ${w}, which moves its working directory, configuration or output; a snapshot compile's outputs must be the checkout's`);
     if (GLOBAL_VALUE.has(w)) { i += 1; continue; }
     if (w.startsWith("-")) continue;
     sub = w;
@@ -112,7 +115,7 @@ export function decideCargoInvocation({ args, cwd, env, map, locate, realpath = 
     if (shaped !== null) return refusal("RK_CARGO_BROKER_READ_ONLY_SHAPE", `\`cargo ${words.join(" ")}\` is not a shape the broker carries (${shaped})`);
   }
   if (LOCKED.has(sub) && ![...globals, ...own].some((w) => w === "--locked" || w === "--frozen")) return refusal("RK_CARGO_UNBOUND_COMMAND", `\`cargo ${sub}\` without --locked or --frozen may write a Cargo.lock; a snapshot compile changes no file of the commit and writes nothing outside its bound outputs`);
-  if (!PLUGIN.has(sub)) for (const w of own) if (REDIRECT.test(w)) return refusal("RK_CARGO_REDIRECT", `\`cargo ${sub}\` passes ${w}, which moves its working directory, configuration or output; a snapshot compile's outputs must be the checkout's`);
+  if (!PLUGIN.has(sub)) for (const w of own) if (carriesRedirect(w)) return refusal("RK_CARGO_REDIRECT", `\`cargo ${sub}\` passes ${w}, which moves its working directory, configuration or output; a snapshot compile's outputs must be the checkout's`);
   const valueOf = (name) => {
     const at = own.findIndex((w) => w === name || w.startsWith(`${name}=`));
     if (at < 0) return undefined;

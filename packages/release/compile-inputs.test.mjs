@@ -70,3 +70,41 @@ test("rightkit-gate check judges the captured declared inputs named by RIGHTKIT_
   assert.equal(green.code, 0, green.text);
   assert.match(green.text, new RegExp(`compile input dist: 1 file\\(s\\), sha256 ${brokerDigest([["dist/app.js", "export const a = 1;\n"]])}`));
 });
+
+test("[B2] judgeCompileInputs reads `.rustright/compile-inputs.json` first, the legacy `.rightkit` one only when it is absent, and guards the overlap of both", (t) => {
+  const root = captured(t, { "a/x.txt": "ax", "b/y.txt": "by" }, null);
+  const decl = (rel, inputs) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), JSON.stringify({ inputs })); };
+  decl(".rustright/compile-inputs.json", ["a"]);
+  assert.deepEqual(judgeCompileInputs(root).inputs.map((i) => i.path), ["a"], "only .rustright");
+  decl(".rightkit/compile-inputs.json", ["b"]);
+  const both = judgeCompileInputs(root);
+  assert.deepEqual(both.inputs.map((i) => i.path), ["a"], "both files: .rustright wins");
+  assert.deepEqual(both.findings, []);
+  fs.rmSync(path.join(root, ".rustright"), { recursive: true });
+  assert.deepEqual(judgeCompileInputs(root).inputs.map((i) => i.path), ["b"], "legacy only when .rustright is absent");
+  fs.rmSync(path.join(root, ".rightkit"), { recursive: true });
+  assert.deepEqual(judgeCompileInputs(root), { inputs: [], findings: [] }, "neither: no declared inputs");
+  fs.mkdirSync(path.join(root, ".rustright"), { recursive: true }); fs.writeFileSync(path.join(root, ".rustright/compile-inputs.json"), "{ nope");
+  const bad = judgeCompileInputs(root);
+  assert.equal(bad.inputs.length, 0); assert.match(bad.findings[0], /^\.rustright\/compile-inputs\.json: /, "callers filter malformed declarations on this prefix");
+  fs.rmSync(path.join(root, ".rustright"), { recursive: true });
+  fs.mkdirSync(path.join(root, ".rightkit"), { recursive: true }); fs.writeFileSync(path.join(root, ".rightkit/compile-inputs.json"), "{ nope");
+  assert.match(judgeCompileInputs(root).findings[0], /^\.rustright\/compile-inputs\.json: \.rightkit\/compile-inputs\.json: /, "a malformed legacy declaration keeps the same prefix and names its file");
+  fs.rmSync(path.join(root, ".rightkit"), { recursive: true });
+  for (const input of [".rustright", ".rustright/compile-inputs.json", ".rightkit", ".rightkit/compile-inputs.json"]) {
+    decl(".rustright/compile-inputs.json", [input]);
+    assert.match(judgeCompileInputs(root).findings.join("\n"), /declaration file itself/, input);
+  }
+});
+
+test("[M23] the declared-input digest joins child names with the host's separator: a Windows host hashes `\\`, and it equals the snapshot-request digest for that platform and differs from the POSIX one", (t) => {
+  const root = captured(t, { "dist/a.txt": "A", "dist/sub/c.txt": "C" }, ["dist"]);
+  const posix = judgeCompileInputs(root, { platform: "darwin" }).inputs[0].sha256;
+  const win = judgeCompileInputs(root, { platform: "win32" }).inputs[0].sha256;
+  assert.equal(posix, brokerDigest([["dist/a.txt", "A"], ["dist/sub/c.txt", "C"]]));
+  assert.equal(win, brokerDigest([["dist\\a.txt", "A"], ["dist\\sub\\c.txt", "C"]]));
+  assert.notEqual(win, posix);
+  assert.equal(win, declaredInputDigestsOf(root, ["dist"], { platform: "win32" })[0].sha256);
+  assert.equal(posix, declaredInputDigestsOf(root, ["dist"], { platform: "darwin" })[0].sha256);
+});
+import { declaredInputDigestsOf } from "./snapshot-request.mjs";

@@ -302,6 +302,26 @@ test("the recipe refuses to run off Windows, and a dry run performs no signing e
   assert.equal(receipt.rawExe.signedSha256, null);
 });
 
+test("M32: the standalone recipe refuses under a snapshot stage's carrier (or source split) before any effect, naming the winPackage split route", () => {
+  for (const marker of ["RIGHTKIT_CARRIED_CARGO_MAP", "RK_GATE_CHECKOUT"]) {
+    const w = world();
+    w.deps.env = { ...w.deps.env, [marker]: "/some/value" };
+    assert.throws(() => run(baseTarget(), w), (error) => {
+      assert.ok(error instanceof WinPackageRecipeError);
+      assert.equal(error.phase, "build");
+      assert.match(error.message, /cannot run on a snapshot stage/);
+      assert.match(error.message, /targets\.win\.winPackage/);
+      assert.match(error.message, /recipe-build\.mjs/);
+      return true;
+    }, marker);
+    assert.deepEqual(w.events, [], `${marker}: nothing ran (no tauri, no marker patch, no Authenticode)`);
+  }
+  // Without a carrier the same world runs as before.
+  const plain = world();
+  const receipt = run(baseTarget(), plain);
+  assert.ok(receipt.phases.includes("sign-raw"));
+});
+
 test("updater.keyFile is refused at validation: updater keys come from the OS credential provider", () => {
   const target = baseTarget({ updater: { keyFile: "%APPDATA%\\ViewRight\\updater.key" } });
   assert.throws(() => validateWinPackage({ appRoot, config: {}, target }), (error) => {

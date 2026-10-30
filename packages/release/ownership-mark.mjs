@@ -10,9 +10,15 @@ export const OWNERSHIP_ENV = "RIGHTKIT_BUILD_OWNERSHIP";
 /** The owner record's path, exported beside the handle so every process under the ownership records detached children there. */
 export const OWNERSHIP_FILE_ENV = "RIGHTKIT_BUILD_OWNERSHIP_FILE";
 
+/**
+ * Another build holds the host, or its liveness is not provable. `retryable` is true only when the holder is a LIVE gate (or a live reclaimer): a wait
+ * can end it. An unreadable record, another host, an unknown liveness or a held lease never wait: they need an operator (N36c).
+ */
 export class OwnershipBusy extends Error {
-  constructor(message, detail = {}) { super(message); this.code = "busy"; this.detail = detail; }
+  constructor(message, detail = {}) { super(message); this.code = "busy"; this.detail = detail; this.retryable = detail.retryable === true; }
 }
+/** The gate's exit status for a retryable busy host (EX_TEMPFAIL): another gate is running; the same command may be run again, or with `--wait`. */
+export const OWNERSHIP_BUSY_RETRYABLE_EXIT = 75;
 
 const readText = (file) => { try { return fs.readFileSync(file, "utf8"); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
 
@@ -44,6 +50,31 @@ export function markBrokerSubmit(file, handle, callHandle, options = {}) {
     fs.writeFileSync(tmp, JSON.stringify(next), { flag: "wx", mode: 0o600 });
     try { fs.renameSync(tmp, file); } finally { fs.rmSync(tmp, { force: true }); }
     if (!holds(file, handle)) throw new OwnershipBusy(`build ownership ${file} changed while recording a broker submit`);
+    return next;
+  }, options);
+}
+
+/**
+ * Takes back the mark of ONE carried request that was provably never sent (its client never started: the spawn itself failed). Under the same lock
+ * as the mark, removes `callHandle` from `broker.handles` and recomputes `submitted` from the handles that remain, so a record whose only mark was
+ * this one is again `submitted: false` and reclaimable without a lease the broker never had. A handle that is not listed is left alone (another
+ * path may have marked the record), and a handle whose request may have been sent is never passed here. Returns the record.
+ */
+export function unmarkBrokerSubmit(file, handle, callHandle, options = {}) {
+  return withMarkLock(file, () => {
+    const text = readText(file);
+    let owner = null; try { owner = JSON.parse(text ?? ""); } catch { owner = null; }
+    if (owner?.handle !== handle) return owner; // no longer this handle's: nothing of ours to take back
+    const seen = Array.isArray(owner.broker?.handles) ? owner.broker.handles : [];
+    if (!seen.includes(callHandle)) return owner;
+    const remaining = seen.filter((h) => h !== callHandle);
+    const broker = { ...(owner.broker ?? {}), handles: remaining, submitted: remaining.length > 0 };
+    if (remaining.length === 0) { delete broker.at; delete broker.handles; }
+    const next = { ...owner, broker };
+    const tmp = `${file}.${crypto.randomUUID()}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(next), { flag: "wx", mode: 0o600 });
+    try { fs.renameSync(tmp, file); } finally { fs.rmSync(tmp, { force: true }); }
+    if (!holds(file, handle)) throw new OwnershipBusy(`build ownership ${file} changed while taking back an unsent broker submit`);
     return next;
   }, options);
 }
@@ -148,4 +179,10 @@ function stealDeadLock({ file, lock, text, observed, record, identity, take }) {
 export function markCarriedSend({ file, handle, callHandle }) {
   if (typeof file !== "string" || !file || typeof handle !== "string" || !handle) throw new OwnershipBusy("a carried request is marked only under a build ownership file and handle");
   return markBrokerSubmit(file, handle, callHandle);
+}
+
+/** Takes back the mark of a carried request that was provably never sent (see unmarkBrokerSubmit), for a caller that holds no ownership object. */
+export function unmarkCarriedSend({ file, handle, callHandle }) {
+  if (typeof file !== "string" || !file || typeof handle !== "string" || !handle) throw new OwnershipBusy("an unsent carried request is taken back only under a build ownership file and handle");
+  return unmarkBrokerSubmit(file, handle, callHandle);
 }

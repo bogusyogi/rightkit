@@ -20,6 +20,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { compareBrokerVersion } from "./broker-pins.mjs";
 import { canonicalJson, ProvenanceError, verifyProvenance } from "./provenance-verify.mjs";
 
 export const SNAPSHOT_REQUEST_SCHEMA = "rustright.snapshot-request/1";
@@ -55,7 +56,12 @@ const TOOLCHAIN_FORMAT = /^[^|\s][^|]*\|cargo:[0-9a-f]{64}\|rustc:[0-9a-f]{64}$/
  * Both decisions the gate makes from an argv derive from it: which evidence a receipt must carry (`isCompileClass`) and which commands get `--locked`
  * (`lockedArgv`). `package` is a compile only when it is not the exact `-p <crate> --list --locked [--allow-dirty]` listing (`isPackageObservation`).
  */
-export const BROKER_COMPILE_COMMANDS = Object.freeze(["fix", "run", "package", "publish", "build", "check", "test", "bench", "clippy", "doc", "rustc", "rustdoc"]);
+export const BROKER_COMPILE_COMMANDS = Object.freeze(["fix", "run", "package", "publish", "build", "check", "test", "bench", "clippy", "doc", "rustc", "rustdoc", "nextest", "ndk"]);
+/**
+ * The registered external compiling commands (command_policy.rs external_policy `nextest`/`ndk` => BUILD, :67-70). They compile, so their receipts carry the compile
+ * evidence, but they own their argv (`cargo ndk -t <abi> ... build`, `cargo nextest run`): the gate never inserts `--locked` after their subcommand.
+ */
+const EXTERNAL_COMPILE_COMMANDS = Object.freeze(["nextest", "ndk"]);
 /**
  * The one-letter aliases of Cargo. The broker lists none (an alias is refused there); the gate reads one as the command it expands to, so an alias can only
  * make the gate demand MORE evidence and lock MORE, never less.
@@ -107,8 +113,8 @@ export const isCompileClass = (argv) => {
   const sub = canonicalCommand(cargoSubcommandOf(argv));
   return BROKER_COMPILE_COMMANDS.includes(sub) && !(sub === "package" && isPackageObservation(argv));
 };
-/** The commands that build or run, and so can rewrite Cargo.lock inside a snapshot unless they are locked (rightkit#1301): the same table as `isCompileClass`. */
-export const isLockBound = (argv) => isCompileClass(argv);
+/** The commands that build or run, and so can rewrite Cargo.lock inside a snapshot unless they are locked (rightkit#1301): the same table as `isCompileClass`, minus the external ones that own their argv. */
+export const isLockBound = (argv) => isCompileClass(argv) && !EXTERNAL_COMPILE_COMMANDS.includes(canonicalCommand(cargoSubcommandOf(argv)));
 
 /**
  * The argv a carried call sends: a build or run command with neither `--locked` nor `--frozen` (before any `--`) gets `--locked` right
@@ -131,7 +137,93 @@ export function lockedArgv(argv) {
   return [...words.slice(0, i + 1), "--locked", ...words.slice(i + 1)];
 }
 
-const CARRIED_REDIRECT = /^(--config|-Z|-C)(=|$)|^-[A-Za-z]*[CZ]/;
+/**
+ * Whether a short-flag cluster reaches `-Z` or `-C` (`-Z...`, `-vZ...`, `-rC/dir`), the broker's command_policy.rs `short_cluster_carries_z_or_c`: the scan
+ * stops at a short flag that takes a value (`-j`, `-p`, `-F`: the rest of the argument is that value, so `-pCore` and `-FZed` are packages and features), any
+ * other letter keeps it going (which can only refuse more). `--long` options are no cluster.
+ */
+export function shortClusterCarriesZOrC(arg) {
+  if (typeof arg !== "string" || !arg.startsWith("-") || arg.startsWith("--")) return false;
+  for (const c of arg.slice(1)) {
+    if (c === "Z" || c === "C") return true;
+    if (c === "j" || c === "p" || c === "F") return false;
+  }
+  return false;
+}
+/** Whether one cargo-own argument moves the configuration or the output (`--config`, `--config=x`, or a short cluster holding `-Z`/`-C`): `has_config_or_unstable` per word. */
+export const carriesRedirect = (arg) => arg === "--config" || (typeof arg === "string" && arg.startsWith("--config=")) || shortClusterCarriesZOrC(arg);
+
+/**
+ * Where the broker reads the subcommand of an argv (command_policy.rs `command_index`): after `+toolchain`, the global options and the values of
+ * `--manifest-path --config -C -Z --color --target-dir`; a `--version`/`-V`/`-vV` is itself the command; null when there is none before `--`.
+ */
+export function brokerCommandIndex(argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const value = argv[index];
+    if (value === "--") return null;
+    if (value.startsWith("+") && value.length > 1) continue;
+    if (["--version", "-V", "-vV"].includes(value)) return index;
+    if (["--manifest-path", "--config", "-C", "-Z", "--color", "--target-dir"].includes(value)) { index += 1; continue; }
+    if (value.startsWith("-")) continue;
+    return index;
+  }
+  return null;
+}
+
+/** `deny [--frozen] [--metadata-path <file>] [--config <file>] check`, the broker's `deny_check_files` shape (each once, spaced form, nothing after `check`). */
+function denyCheckShape(argv, index) {
+  if (argv[index] !== "deny") return false;
+  const seen = new Set(); let frozen = false;
+  for (let i = index + 1; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "check") return i === argv.length - 1;
+    if (arg === "--frozen" && !frozen) { frozen = true; continue; }
+    if (arg === "--metadata-path" || arg === "--config") {
+      const value = argv[i + 1];
+      if (seen.has(arg) || typeof value !== "string" || value === "" || value.startsWith("-")) return false;
+      seen.add(arg); i += 1; continue;
+    }
+    return false;
+  }
+  return false;
+}
+
+/**
+ * `about generate --frozen --fail [--config <file>] [--manifest-path <file>] [--all-features | --features <list>] <template>`, the broker's
+ * `about_notices_shape` (cargo-license-notices.mjs cargoAboutArgs): spaced forms, each option once, one template, nothing else.
+ */
+function aboutNoticesShape(argv, index) {
+  const tail = argv.slice(index + 1);
+  if (argv[index] !== "about" || tail.length < 4 || tail[0] !== "generate" || tail[1] !== "--frozen" || tail[2] !== "--fail") return false;
+  const seen = new Set(); let template = false; let features = false;
+  for (let i = 3; i < tail.length; i += 1) {
+    const arg = tail[i];
+    if (arg === "--config" || arg === "--manifest-path" || arg === "--features") {
+      const feature = arg === "--features";
+      const value = tail[i + 1];
+      if (seen.has(arg) || (feature && features) || typeof value !== "string" || value === "" || value.startsWith("-")) return false;
+      features ||= feature; seen.add(arg); i += 1;
+    } else if (arg === "--all-features" && !features) features = true;
+    else if (!arg.startsWith("-") && !template) template = true;
+    else return false;
+  }
+  return template;
+}
+
+/**
+ * Whether `argv` (cargo's arguments, no `cargo`) is one of the two tool shapes whose own `--config` and `--manifest-path` are the tool's, not cargo's
+ * (`cargo deny ... check`, `cargo about generate ...`): the broker's `cargo_own_args` then takes only what stands BEFORE the subcommand as cargo's own.
+ * Returns the subcommand's index in `argv`, or null for every other argv.
+ */
+export function toolOwnArgsIndex(argv) {
+  const index = brokerCommandIndex(argv);
+  return index !== null && (denyCheckShape(argv, index) || aboutNoticesShape(argv, index)) ? index : null;
+}
+
+/** The exact `cargo fmt` shapes the broker admits as read-only (`fmt_check_shape`): `-p <unit> --check` or `--all --check`, nothing else. `tail` is what follows `fmt`. */
+export function isFmtCheckShape(tail) {
+  return (tail.length === 3 && tail[0] === "-p" && tail[1] !== "" && !tail[1].startsWith("-") && tail[2] === "--check") || (tail.length === 2 && tail[0] === "--all" && tail[1] === "--check");
+}
 
 /**
  * The one place that turns a caller's cargo arguments (without `cargo`) into the arguments a carried call sends (carried-cargo.mjs
@@ -146,8 +238,12 @@ export function splitCarriedArgs(args) {
   const words = [];
   let manifestPath = null;
   let atSeparator = false;
+  // `cargo deny ... check` and `cargo about generate ...` carry their own `--config` and `--manifest-path` after the subcommand (the broker's cargo_own_args):
+  // from the subcommand on, those words ride untouched and are the tool's; only what stands before it is cargo's.
+  const toolAt = toolOwnArgsIndex(original);
   for (let i = 0; i < original.length; i += 1) {
     const w = original[i];
+    if (toolAt !== null && i >= toolAt) { words.push(w); continue; }
     if (atSeparator) { words.push(w); continue; }
     if (w === "--") { atSeparator = true; words.push(w); continue; }
     if (w === "--manifest-path" || w.startsWith("--manifest-path=")) {
@@ -158,9 +254,14 @@ export function splitCarriedArgs(args) {
       continue;
     }
     if (w === "--target-dir" || w.startsWith("--target-dir=")) return { refusal: { code: "RK_CARGO_REDIRECT", message: `\`cargo ${original.join(" ")}\` passes --target-dir; the broker pins a carried call's output directory` } };
-    if (CARRIED_REDIRECT.test(w)) return { refusal: { code: "RK_CARGO_REDIRECT", message: `\`cargo ${original.join(" ")}\` passes ${w}, which moves its working directory, configuration or output` } };
+    if (carriesRedirect(w)) return { refusal: { code: "RK_CARGO_REDIRECT", message: `\`cargo ${original.join(" ")}\` passes ${w}, which moves its working directory, configuration or output` } };
     words.push(w);
   }
+  // The broker lists no one-letter alias (b, c, t, r, d are RK_UNKNOWN_COMMAND there): the request carries the full name, and the signed argv digest is over it.
+  const at = brokerCommandIndex(words);
+  if (at !== null && toolAt === null && Object.hasOwn(CARGO_COMMAND_ALIASES, words[at])) words[at] = CARGO_COMMAND_ALIASES[words[at]];
+  // `fmt` is read-only for the broker only in its two exact shapes; any other (`--check -- --edition 2021`, a bare `--check`) would be refused there as a must-compile.
+  if (at !== null && words[at] === "fmt" && !isFmtCheckShape(words.slice(at + 1))) return { refusal: { code: "RK_CARGO_BROKER_READ_ONLY_SHAPE", message: `\`cargo ${words.join(" ")}\` is not a shape the broker carries: \`fmt\` is admitted as \`fmt -p <unit> --check\` or \`fmt --all --check\` only` } };
   return { words, manifestPath };
 }
 
@@ -176,8 +277,13 @@ export function carriedRequestOf(args, cwd = ".") {
   return { argv: lockedArgv(split.words), cwd: dir === "" ? "." : dir };
 }
 
-/** Where the gate's declared compile inputs are listed, as read from the snapshot (GATE-CONTRACT "Request"; the broker's COMPILE_INPUTS). */
-export const COMPILE_INPUTS = ".rightkit/compile-inputs.json";
+/**
+ * Where the gate's declared compile inputs are listed, as read from the snapshot (GATE-CONTRACT "Request"; the broker's COMPILE_INPUTS and
+ * LEGACY_COMPILE_INPUTS, check_admission.rs:32-34): the `.rustright` spelling first, the legacy `.rightkit` one only when the first is absent.
+ */
+export const COMPILE_INPUTS = ".rustright/compile-inputs.json";
+export const LEGACY_COMPILE_INPUTS = ".rightkit/compile-inputs.json";
+export const COMPILE_INPUT_DECLARATIONS = Object.freeze([COMPILE_INPUTS, LEGACY_COMPILE_INPUTS]);
 export const MAX_DECLARATION_BYTES = 1024 * 1024;
 const MAX_INPUT_FILES = 200_000;
 const MAX_INPUT_BYTES = 4 * 1024 * 1024 * 1024;
@@ -296,33 +402,51 @@ const same = (a, b) => canonicalJson(a ?? null) === canonicalJson(b ?? null);
 const lstatOrNull = (p) => { try { return fs.lstatSync(p); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
 
 /**
- * The declared inputs of a snapshot: `inputs` of `.rightkit/compile-inputs.json` read FROM THE SNAPSHOT, never the checkout. No
- * manifest means an empty set; a link on its path, a file that is not regular, an oversized or malformed manifest, or an input that
- * is not a plain relative path (absolute, `.`/`..`, inside `.git`, the manifest itself) is refused before any request is made.
+ * The declaration file of a snapshot and its name: `.rustright/compile-inputs.json`, else (only when that is absent) `.rightkit/compile-inputs.json`,
+ * exactly as the broker's declared_inputs picks it. `null` when neither exists; a link on a path, or any lstat error other than a missing path, is
+ * refused. Returns `{ name, at, meta }`.
+ */
+export function findDeclaration(snapshotRoot) {
+  for (const name of COMPILE_INPUT_DECLARATIONS) {
+    let at = snapshotRoot; let meta = null; let missing = false;
+    for (const part of name.split("/")) {
+      at = path.join(at, part);
+      meta = lstatOrNull(at);
+      if (meta === null) { missing = true; break; }
+      if (meta.isSymbolicLink()) fail("declared-inputs", `${name} runs through a link at ${at}`);
+    }
+    if (!missing) return { name, at, meta };
+  }
+  return null;
+}
+
+/**
+ * The declared inputs of a snapshot: `inputs` of `.rustright/compile-inputs.json` (else the legacy `.rightkit/compile-inputs.json`) read FROM THE
+ * SNAPSHOT, never the checkout. No manifest means an empty set; a link on its path, a file that is not regular, an oversized or malformed manifest, or an
+ * input that is not a plain relative path (absolute, `.`/`..`, inside `.git`, either declaration file or a directory holding one) is refused before any
+ * request is made.
  */
 export function readDeclaredInputs(snapshotRoot) {
-  const parts = COMPILE_INPUTS.split("/");
-  let at = snapshotRoot; let meta = null;
-  for (const part of parts) {
-    at = path.join(at, part);
-    meta = lstatOrNull(at);
-    if (meta === null) return [];
-    if (meta.isSymbolicLink()) fail("declared-inputs", `${COMPILE_INPUTS} runs through a link at ${at}`);
-  }
-  if (!meta.isFile()) fail("declared-inputs", `${COMPILE_INPUTS} is not a regular file`);
-  if (meta.size > MAX_DECLARATION_BYTES) fail("declared-inputs", `${COMPILE_INPUTS} is larger than ${MAX_DECLARATION_BYTES} bytes`);
+  const found = findDeclaration(snapshotRoot);
+  if (found === null) return [];
+  const { name: file, at, meta } = found;
+  if (!meta.isFile()) fail("declared-inputs", `${file} is not a regular file`);
+  if (meta.size > MAX_DECLARATION_BYTES) fail("declared-inputs", `${file} is larger than ${MAX_DECLARATION_BYTES} bytes`);
   let value;
-  try { value = JSON.parse(fs.readFileSync(at, "utf8")); } catch (e) { fail("declared-inputs", `${COMPILE_INPUTS} is not JSON (${e.message})`); }
-  if (!value || typeof value !== "object" || !Array.isArray(value.inputs)) fail("declared-inputs", `${COMPILE_INPUTS}: \`inputs\` must be a list of paths`);
+  try { value = JSON.parse(fs.readFileSync(at, "utf8")); } catch (e) { fail("declared-inputs", `${file} is not JSON (${e.message})`); }
+  if (!value || typeof value !== "object" || !Array.isArray(value.inputs)) fail("declared-inputs", `${file}: \`inputs\` must be a list of paths`);
   for (const input of value.inputs) {
-    if (typeof input !== "string" || !input) fail("declared-inputs", `${COMPILE_INPUTS}: every input is a non-empty relative path`);
+    if (typeof input !== "string" || !input) fail("declared-inputs", `${file}: every input is a non-empty relative path`);
     const components = input.split(/[\\/]/);
-    if (path.isAbsolute(input) || path.posix.isAbsolute(input) || path.win32.isAbsolute(input) || components.some((c) => c === "" || c === "." || c === "..")) fail("declared-inputs", `${COMPILE_INPUTS}: ${input} is not a plain relative path inside the snapshot`);
-    if (components.some((c) => c.toLowerCase() === ".git")) fail("declared-inputs", `${COMPILE_INPUTS}: ${input} is inside .git; repository metadata is never a compile input`);
-    if (components.length <= parts.length && components.every((c, i) => c === parts[i])) fail("declared-inputs", `${COMPILE_INPUTS}: ${input} overlaps the declaration file itself`);
+    if (path.isAbsolute(input) || path.posix.isAbsolute(input) || path.win32.isAbsolute(input) || components.some((c) => c === "" || c === "." || c === "..")) fail("declared-inputs", `${file}: ${input} is not a plain relative path inside the snapshot`);
+    if (components.some((c) => c.toLowerCase() === ".git")) fail("declared-inputs", `${file}: ${input} is inside .git; repository metadata is never a compile input`);
+    if (overlapsDeclaration(components)) fail("declared-inputs", `${file}: ${input} overlaps the declaration file itself`);
   }
   return [...value.inputs];
 }
+
+/** Whether an input (as path components) is a declaration file's path or a directory holding one: the broker's `declaration.starts_with(input)` for BOTH spellings. */
+export const overlapsDeclaration = (components) => COMPILE_INPUT_DECLARATIONS.some((declaration) => { const parts = declaration.split("/"); return components.length <= parts.length && components.every((c, i) => c === parts[i]); });
 
 /**
  * The `declaredInputDigests` the broker records for these inputs, computed here from the snapshot: per input, sha256 over, for each
@@ -581,6 +705,10 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
     ["executor", typeof receipt.executor === "string" && receipt.executor !== ""],
   ];
   for (const [name, ok] of typed) if (!ok) fail("evidence", `receipt ${name} is missing or has the wrong type`);
+  // M39: a host enrolled at one broker version must not trust receipts of another silently. A pin that names a brokerVersion refuses a receipt whose version differs (the
+  // refusal carries the upgrade warning); a pin that names none compares nothing. The verdict's `warning` is returned for the record.
+  const versionCheck = compareBrokerVersion(pins, receipt.brokerVersion);
+  if (!versionCheck.ok) fail("broker-version", versionCheck.warning);
   for (const name of ["verdict", "refreshed"]) if (Object.hasOwn(receipt, name)) fail("evidence", `receipt carries the retired field ${name}`);
   if (receipt.exit !== 0 || receipt.signal !== null) fail("evidence", `receipt exit ${receipt.exit} and signal ${receipt.signal} are not a success (exit 0, no signal)`);
   // RustRight signs the result fields under payload.resultEvidence (service.rs provenance_payload; attestation.rs RESULT_EVIDENCE_FIELDS), never at
@@ -597,7 +725,7 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   for (const name of Object.keys(isObject(receipt.timingsMs) ? receipt.timingsMs : {})) if (!TIMING_KEYS.includes(name)) fail("evidence", `receipt timingsMs carries the unknown key ${name}`);
   // A snapshot-bound adapter job signs the compiles its own children made (rustright#190 D8).
   const nestedChildren = adapter === null ? null : verifyNestedChildren(evidence, receipt, { snapshotPath: carrier.snapshot.path, checkout, outputRoots, platform, canonicalPath, jobId });
-  return { payload, evidence, attribution, toolchain, nestedChildren };
+  return { payload, evidence, attribution, toolchain, nestedChildren, brokerVersionCheck: versionCheck };
 }
 
 export { ProvenanceError };

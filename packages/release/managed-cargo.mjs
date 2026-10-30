@@ -1,4 +1,4 @@
-import { discoverBrokerSocket, managedControlCandidates, resolveManagedRoots } from './managed-roots.mjs';
+import { discoverBrokerSocket, envNamed, managedControlCandidates, resolveManagedRoots } from './managed-roots.mjs';
 import { randomUUID } from "node:crypto";
 import { homedir, userInfo } from "node:os";
 import { closeSync, existsSync, mkdirSync, openSync, readSync, rmSync, writeFileSync } from "node:fs";
@@ -49,9 +49,9 @@ export function managedRuntimeClient(env = process.env, platform = process.platf
   if (directPlatform(platform)) return undefined;
   const roots = managedControlCandidates({ env, platform });
   const paths = platform === 'win32' ? path.win32 : path.posix;
-  // runtime-current ships the native `rustright` client.
-  for (const root of roots) {
-    const client = paths.join(root, "runtime-current", platform === 'win32' ? "rustright.exe" : "rustright");
+  // `runtime` is the contract's live runtime directory (managed-roots.md rule 3); `runtime-current` is the retired spelling, probed after it.
+  for (const root of roots) for (const dir of ["runtime", "runtime-current"]) {
+    const client = paths.join(root, dir, platform === 'win32' ? "rustright.exe" : "rustright");
     if (exists(client)) return client;
   }
   // RustRight's own install (2026-10-17 cutover): the Mac agent-bin shims exec this client directly.
@@ -97,7 +97,7 @@ export function acquireManagedRunLease({ command, env = process.env, platform = 
 
 export function managedHost(env, platform = process.platform) {
   if (directPlatform(platform)) return false; // Linux is never broker-managed (directPlatform), whatever the env names
-  return Boolean(env.RUSTRIGHT_BUILD_BROKER_SOCKET || env.RIGHTKIT_BUILD_BROKER_SOCKET)
+  return Boolean(envNamed(env, 'BUILD_BROKER_SOCKET'))
     || /(?:^|[;:])[^;:]*[/\\](?:\.rightkit-managed|rightkitmanagedagent|rightkit[/\\]build-control)[/\\]agent-bin(?:[;:]|$)/i.test(String(env.PATH ?? ""));
 }
 

@@ -20,6 +20,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { resolveCommand } from "./development.mjs";
+import { onSnapshotRoute } from "./build-launch.mjs";
 import { verifyNsisEmbeddedBinary } from "./nsis-payload.mjs";
 import { resolveArtifactPath, splitArtifactContext } from "./release-artifact-path.mjs";
 import { signingReceiptPath } from "./signing-receipts.mjs";
@@ -225,6 +226,13 @@ function locate(declared, { env, fs, split = false }) {
 export function runWinPackageRecipe({ appRoot, config = {}, target, deps = {} } = {}) {
   const plan = validateWinPackage({ appRoot, config, target });
   const env = deps.env ?? process.env;
+  // M32: this standalone runner builds, Authenticode-signs and signs the updater in ONE process tree. Run as a package step of a snapshot stage that tree
+  // is one carried rightkit-node broker job (scrubbed environment, no signing session), so signing would fail or sign under the wrong identity: the gate
+  // contract keeps signing in the gate's own session. It refuses before any effect, naming the split route (the declarative `winPackage` target:
+  // package-recipe-targets.mjs expands it to recipe-build.mjs for the build and release.mjs's sign, notarize and updater hooks for the rest).
+  if (onSnapshotRoute(env)) {
+    throw new WinPackageRecipeError("build", "the standalone Windows package recipe builds and signs in one process tree and cannot run on a snapshot stage (a carrier is in the environment): signing belongs to the gate's session, never a broker job. Declare `targets.win.winPackage` instead, which splits the build (recipe-build.mjs prePackage, a carried broker step) from the sign, bundle and updater phases (release.mjs hooks in the gate's session)");
+  }
   const base = defaultWinPackageDeps({ appRoot: plan.appRoot, target, env });
   const d = { ...base, ...deps, env, fs: { ...base.fs, ...(deps.fs ?? {}) } };
   const { fs } = d;

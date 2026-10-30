@@ -289,3 +289,53 @@ test("[GB-23] a record that lists something that is not a sub-handle of its own 
   crash(file);
   assert.throws(() => acquire(file, leaseOf("REAPED")), (e) => e instanceof OwnershipBusy && /not a sub-handle/.test(e.message));
 });
+
+// ---- GATE-3 (audit M5, N13) ----
+import { unmarkBrokerSubmit, unmarkCarriedSend } from "./ownership-mark.mjs";
+
+test("[M5] unmarkBrokerSubmit takes back ONE sub-handle under the lock and recomputes submitted from what remains; an unlisted handle or a record that is no longer ours is left alone", (t) => {
+  const dir = tmp(t, "rk-own-unmark-");
+  const file = path.join(dir, "build-ownership", "owner.json");
+  const own = acquire(file, noLease);
+  const a = `${own.handle}#aaaa`; const b = `${own.handle}#bbbb`;
+  own.markBrokerSubmit(a); own.markBrokerSubmit(b);
+  own.unmarkBrokerSubmit(a);
+  let rec = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(rec.broker.submitted, true); assert.deepEqual(rec.broker.handles, [b], "the other request is still covered");
+  own.unmarkBrokerSubmit(`${own.handle}#never`);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")).broker.handles, [b], "an unlisted handle changes nothing");
+  own.unmarkBrokerSubmit(b);
+  rec = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.deepEqual(rec.broker, { submitted: false }, "no broker request is covered any more");
+  assert.equal(fs.existsSync(markLockFile(file)), false);
+  // With nothing submitted the next gate reclaims without any lease question (the wedge M5 describes is gone).
+  crash(file);
+  const next = acquire(file, noLease); assert.equal(next.reclaimed.from, own.handle); next.release();
+  // Another handle's record: left alone.
+  const other = acquire(file, noLease);
+  assert.doesNotThrow(() => unmarkBrokerSubmit(file, "not-this-handle", "not-this-handle#x"));
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).handle, other.handle);
+  assert.throws(() => unmarkCarriedSend({ file: "", handle: "h", callHandle: "h#1" }), OwnershipBusy);
+  other.release();
+});
+
+test("[N13] a holder stalled past 10 s is never displaced by age: the second marker fails closed while the live holder keeps the lock, and both handles land once it finishes", (t) => {
+  const { file, lock } = lockFixture(t);
+  const me = identityOf({ me: ME, alive: new Map([[ME.pid, { alive: true, startedMs: ME.startedMs }]]) });
+  fs.writeFileSync(file, JSON.stringify({ handle: "h", broker: { submitted: false } }));
+  let second = null;
+  markBrokerSubmit(file, "h", "h#a", {
+    identity: me, sleep: noSleep, waitMs: 20,
+    // The first marker "stalls": its lock is older than any stale-break age while a second marker (same live pid, so the holder is provably alive) tries.
+  });
+  withMarkLock(file, () => {
+    const held = JSON.parse(fs.readFileSync(lock, "utf8"));
+    fs.writeFileSync(lock, JSON.stringify({ ...held, at: new Date(Date.now() - 11_000).toISOString() })); // an 11 s old lock, as after a suspended Dell
+    try { markBrokerSubmit(file, "h", "h#b", { identity: me, sleep: noSleep, waitMs: 30 }); } catch (e) { second = e; }
+    assert.equal(fs.existsSync(lock), true, "the stalled live holder's lock was not removed by age");
+  }, { identity: me, sleep: noSleep, waitMs: 20 });
+  assert.ok(second instanceof OwnershipBusy, "the second marker refused rather than interleave");
+  markBrokerSubmit(file, "h", "h#b", { identity: me, sleep: noSleep, waitMs: 20 });
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")).broker.handles, ["h#a", "h#b"], "every handle landed, none lost");
+  assert.equal(fs.existsSync(lock), false);
+});

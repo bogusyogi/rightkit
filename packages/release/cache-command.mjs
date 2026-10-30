@@ -30,13 +30,16 @@ export async function runCacheCommand(args = process.argv.slice(2), { env = proc
   const [command, ...rest] = args;
   const json = rest.includes("--json");
   const platform = platformFrom(env);
-  const cacheRoot = resolveSharedCacheRoot({ platform, env });
+  // The broker gate comes BEFORE the cache root (M59): the broker owns target and cache on a managed Mac, where RIGHT_RELEASE_CACHE_ROOT is
+  // legitimately unset and resolving the root would throw instead of reporting the skip. A skipped result carries a root only when one is set.
   if (BROKER_GATED_COMMANDS.has(command) && isBrokerHost(env)) {
-    const result = { schema: 1, command, cacheRoot, brokerManaged: true, skipped: true, message: BROKER_MANAGED_MESSAGE };
+    const configured = env.RIGHT_RELEASE_CACHE_ROOT ? path.resolve(env.RIGHT_RELEASE_CACHE_ROOT) : null;
+    const result = { schema: 1, command, cacheRoot: configured, brokerManaged: true, skipped: true, message: BROKER_MANAGED_MESSAGE };
     if (json) stdout(JSON.stringify(result));
     else stdout(BROKER_MANAGED_MESSAGE);
     return result;
   }
+  const cacheRoot = resolveSharedCacheRoot({ platform, env });
   if (command === "status") {
     rejectUnknown(rest, new Set(["--json"]));
     const snapshot = inspectCache({ cacheRoot });

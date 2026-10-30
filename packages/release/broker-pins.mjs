@@ -44,7 +44,22 @@ export function validatePins(pins, label = "the broker pins") {
   if (typeof publicKey !== "string" || !HEX.test(publicKey) || publicKey.length !== 130 || !publicKey.startsWith("04")) bad("publicKey is not an uncompressed SEC1 P-256 point in lowercase hex");
   if (typeof keyId !== "string" || keyId !== sha256(Buffer.from(publicKey, "hex"))) bad("keyId is not the sha256 of the public key");
   if (typeof brokerDigest !== "string" || !/^[0-9a-f]{64}$/.test(brokerDigest)) bad("brokerDigest is not a sha256 in lowercase hex");
-  return { host, keyId, publicKey, brokerDigest };
+  // Optional provenance of the enrolled build (M39): kept when present so an upgrade can be named, never required.
+  const { brokerVersion, brokerSourceRevision } = pins;
+  if (brokerVersion !== undefined && (typeof brokerVersion !== "string" || !brokerVersion.trim())) bad("brokerVersion is not a non-empty string");
+  if (brokerSourceRevision !== undefined && (typeof brokerSourceRevision !== "string" || !/^[0-9a-f]{40}$/.test(brokerSourceRevision))) bad("brokerSourceRevision is not a 40-hex commit");
+  return { host, keyId, publicKey, brokerDigest, ...(brokerVersion !== undefined ? { brokerVersion } : {}), ...(brokerSourceRevision !== undefined ? { brokerSourceRevision } : {}) };
+}
+
+/**
+ * Compares the broker version a receipt carries with the enrolled pin's. The digest stays the trust anchor (provenance-verify.mjs refuses a
+ * receipt signed by another runtime); this only NAMES an upgrade before that refusal. A pin without a brokerVersion compares nothing.
+ * `{ ok: true }` or `{ ok: false, warning }`; never throws, never trusts a version over the digest.
+ */
+export function compareBrokerVersion(pins, brokerVersion) {
+  if (typeof pins?.brokerVersion !== "string" || !pins.brokerVersion) return { ok: true, compared: false };
+  if (brokerVersion === pins.brokerVersion) return { ok: true, compared: true };
+  return { ok: false, compared: true, warning: `the broker reports version ${JSON.stringify(brokerVersion ?? null)} but this host is enrolled at ${JSON.stringify(pins.brokerVersion)}${pins.brokerSourceRevision ? ` (${pins.brokerSourceRevision.slice(0, 12)})` : ""}: the broker was upgraded or replaced; its digest will not match the pin, so re-enroll the host (broker-pins.mjs enroll --rotate) and update ci/rk-pipeline.json before trusting its receipts` };
 }
 
 const isLink = (meta) => meta.isSymbolicLink();
@@ -111,8 +126,8 @@ export function loadBrokerPins({ dataRoot, platform = process.platform, gateFile
  * installed runtime's `brokerDigest`); nothing is read from the broker, its key file or the environment. An existing record is
  * replaced only with `rotate: true`.
  */
-export function enrollBrokerPins({ dataRoot, platform = process.platform, host, keyId, publicKey, brokerDigest, rotate = false, now = () => new Date() }) {
-  const pins = validatePins({ host, keyId, publicKey, brokerDigest }, "the enrollment");
+export function enrollBrokerPins({ dataRoot, platform = process.platform, host, keyId, publicKey, brokerDigest, brokerVersion, brokerSourceRevision, rotate = false, now = () => new Date() }) {
+  const pins = validatePins({ host, keyId, publicKey, brokerDigest, ...(brokerVersion !== undefined ? { brokerVersion } : {}), ...(brokerSourceRevision !== undefined ? { brokerSourceRevision } : {}) }, "the enrollment");
   const file = pinsFile({ dataRoot, platform });
   const dir = path.dirname(file);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -135,7 +150,7 @@ export function main(argv, { out = (m) => process.stdout.write(`${m}\n`), err = 
   try {
     const dataRoot = opt("--data-root"); const platform = opt("--platform") ?? process.platform;
     if (command === "enroll") {
-      const r = enrollBrokerPins({ dataRoot, platform, host: opt("--host"), keyId: opt("--key-id"), publicKey: opt("--public-key"), brokerDigest: opt("--broker-digest"), rotate: rest.includes("--rotate") });
+      const r = enrollBrokerPins({ dataRoot, platform, host: opt("--host"), keyId: opt("--key-id"), publicKey: opt("--public-key"), brokerDigest: opt("--broker-digest"), brokerVersion: opt("--broker-version"), brokerSourceRevision: opt("--broker-revision"), rotate: rest.includes("--rotate") });
       out(`enrolled ${r.record.platform} ${r.record.host} key ${r.record.keyId} in ${r.file}${r.rotated ? " (rotation)" : ""}`);
       return 0;
     }

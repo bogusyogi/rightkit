@@ -17,6 +17,7 @@ import { compareCells } from "../../scripts/ci/rk-release-canary.mjs";
 import { parseRoute, routeStagesFor, runRouteProbe } from "../../scripts/ci/rk-release-canary-leg.mjs";
 import { PRODUCTION_SNAPSHOT_CARRIER } from "./snapshot-broker.mjs";
 import { SIGNING_REFUSAL_CODES } from "./suite-signing-policy.mjs";
+import { makeFakeBroker } from "./test-support/fake-broker.mjs";
 
 // The codes the route and carrier rules decide. The signing refusals (rightkit#1303) read the commit's config, so suite-signing-route.test.mjs derives and
 // exercises those and proves the probe and a real run agree on them; the list a probe can answer with is these plus those.
@@ -429,4 +430,63 @@ test("[GB-appscope] the app scope is the SELECTED COMMIT's committed config inve
   assert.deepEqual([...dirs], ["apps/one"]);
   assert.deepEqual(appRootOf({ root, cwd: at("apps/one/src"), exists: () => { throw new Error("the checkout is not asked"); }, configDirs: dirs }), { appRoot: at("apps/one"), appDir: "apps/one" });
   assert.match(committedConfigDirs({ git: (...a) => git(root, ...a), commit: "f".repeat(40) }).refusal, /cannot list the files/);
+});
+
+// ---- M38: a fake doctor behind the fake broker's own client -----------------------------------------------------------------
+
+/**
+ * The doctor document a real `rustright doctor --json` prints (rustright cli/src/doctor.rs: `broker.capabilities` rendered from the handshake,
+ * `runtime.version`). `capabilities: undefined` models a broker that predates the field.
+ */
+const doctorDocument = (capabilities, version = "rustright-test") => ({
+  healthy: capabilities !== undefined,
+  broker: { endpoint: "/fake/broker.sock", reachable: true, phase: "ready", error: null, admissionPaused: false, ...(capabilities === undefined ? {} : { capabilities }) },
+  runtime: { version },
+});
+
+/**
+ * A `rustright` on PATH, in a managed agent-bin directory so the gate takes this host for a broker host, that answers `doctor --json` from
+ * `doctorDocument` and hands every other command to makeFakeBroker's client (status, snapshot-lease, the compile commands...). The doctor lives here, in
+ * the test, because the fake client has none (audit M38); a fake that gained one would be the better home.
+ */
+function fakeBrokerClientWithDoctor(t, capabilities) {
+  const broker = makeFakeBroker(t);
+  const dir = path.join(tmp(t, "rk-fake-doctor-"), ".rightkit-managed", "agent-bin");
+  fs.mkdirSync(dir, { recursive: true });
+  const doc = path.join(dir, "..", "doctor.json");
+  fs.writeFileSync(doc, `${JSON.stringify(doctorDocument(capabilities))}\n`);
+  const code = capabilities === undefined ? 1 : 0; // an unhealthy host's doctor exits 1 and still prints its JSON
+  fs.writeFileSync(path.join(dir, "rustright"), `#!/bin/sh\nif [ "$1 $2" = "doctor --json" ]; then cat ${JSON.stringify(doc)}; exit ${code}; fi\nexec ${JSON.stringify(broker.client)} "$@"\n`, { mode: 0o755 });
+  return { dir, broker };
+}
+
+test("M38: the fake broker's client has no doctor of its own, so the doctor shape is pinned here and read by the gate's capability probe", { skip: POSIX_CLIENT }, (t) => {
+  const { dir } = fakeBrokerClientWithDoctor(t, ["journal-v1", "snapshot-readonly-v1", "stage-grant-v1", "snapshot-adapter-v1"]);
+  const client = path.join(dir, "rustright");
+  // The broker guard refuses any in-process launch of a `rustright`; the wrapper runs under `sh`, and the gate's probe gets the same answer through an injected runner.
+  const viaSh = (...args) => spawnSync("/bin/sh", [client, ...args], { encoding: "utf8" });
+  const o = { platform: "darwin", env: {}, exists: () => true, spawn: (c, a) => (c === "which" ? { status: 0, stdout: `${client}\n` } : viaSh(...a)) };
+  assert.deepEqual(queryBrokerCapabilities(o), { ok: true, capabilities: ["journal-v1", "snapshot-readonly-v1", "stage-grant-v1", "snapshot-adapter-v1"] });
+  const doc = JSON.parse(viaSh("doctor", "--json").stdout);
+  assert.deepEqual(Object.keys(doc.broker).sort(), ["admissionPaused", "capabilities", "endpoint", "error", "phase", "reachable"]);
+  assert.equal(typeof doc.runtime.version, "string");
+  // Everything but doctor reaches the fake broker's client, unchanged (an unknown request is the fake's own refusal, not the wrapper's).
+  const status = viaSh("status", "no-such-request");
+  assert.equal(status.status, 1); assert.match(status.stderr, /no such request/);
+});
+
+test("M38: one real-entry route through the fake broker client: its full capability set takes the snapshot route; an empty or missing set is RK_BROKER_CAPABILITY_MISSING", { skip: POSIX_CLIENT || (!["darwin", "win32"].includes(process.platform) && "capabilities are asked on broker hosts only") }, (t) => {
+  const fx = fixture(t);
+  const route = (capabilities, to = "dev") => {
+    const { dir } = fakeBrokerClientWithDoctor(t, capabilities);
+    const env = { ...fx.env, PATH: `${dir}${path.delimiter}${fx.env.PATH}` };
+    const r = spawnSync(process.execPath, [GATE_FILE, "--to", to, "--route"], { cwd: fx.repo, env, encoding: "utf8" });
+    return JSON.parse(r.stdout.trim().split("\n").pop());
+  };
+  const full = route(["journal-v1", "snapshot-readonly-v1", "stage-grant-v1", "snapshot-adapter-v1"]);
+  assert.equal(full.route, "snapshot"); assert.equal(full.refusal, null);
+  assert.deepEqual(full.brokerCapabilities, ["journal-v1", "snapshot-readonly-v1", "stage-grant-v1", "snapshot-adapter-v1"]);
+  for (const caps of [[], ["journal-v1"], ["snapshot-readonly-v1"], undefined]) {
+    assert.equal(route(caps).refusal?.code, "RK_BROKER_CAPABILITY_MISSING", JSON.stringify(caps));
+  }
 });

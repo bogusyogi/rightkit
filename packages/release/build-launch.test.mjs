@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { BUILD_LAUNCH_REFUSED, buildLaunch } from "./build-launch.mjs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import { BUILD_LAUNCH_REFUSED, buildLaunch, cmakeRefusal, lockedNdkArgs, pnpmTailRefusal } from "./build-launch.mjs";
+import { SHIM_MAP_SCHEMA } from "./cargo-target-shim.mjs";
+import { CARRIED_CARGO_MAP_ENV } from "./carried-cargo.mjs";
+import { PNPM_ADAPTER_GRAMMAR } from "./pnpm-adapter-grammar.mjs";
 
 const CLIENT = "/managed/agent-bin/rustright";
 const managed = { env: { PATH: "/managed/agent-bin" }, platform: "darwin", exists: (p) => p === CLIENT, which: (c) => (c === "rustright" ? [CLIENT] : []) };
@@ -34,7 +39,7 @@ test("managed host: node runs a workspace script as a rightkit-node broker job; 
 test("managed host: any other build or test command is refused, never run around the broker", () => {
   // An executable merely named node that names right-release is not this Node binary running this package's right-release.
   assert.throws(() => buildLaunch("/tmp/evil/node", [ownRightRelease, "web-build"], { ...managed, cwd: "/w/app" }), (e) => e.code === BUILD_LAUNCH_REFUSED);
-  for (const [command, args] of [["vite", ["build"]], ["npm", ["run", "build"]], ["sh", ["scripts/prepackage-mac.sh"]], ["xcodebuild", ["build"]], ["gradle", ["assembleDebug"]], ["sh", ["-c", "pnpm run build"]], ["tsc", ["-p", "."]], ["node", ["/elsewhere/build.mjs"]], ["node", ["../other/build.mjs"]], ["node", ["-e", "1"]], ["powershell", ["-File", "x.ps1"]]]) {
+  for (const [command, args] of [["vite", ["build"]], ["npm", ["run", "build"]], ["sh", ["scripts/prepackage-mac.sh"]], ["gradle", ["assembleDebug"]], ["sh", ["-c", "pnpm run build"]], ["tsc", ["-p", "."]], ["node", ["/elsewhere/build.mjs"]], ["node", ["../other/build.mjs"]], ["node", ["-e", "1"]], ["powershell", ["-File", "x.ps1"]]]) {
     assert.throws(() => buildLaunch(command, args, managed), (e) => e.code === BUILD_LAUNCH_REFUSED && /rightkit#1241/.test(e.message), command);
   }
 });
@@ -79,4 +84,114 @@ test("managed host: npm (whose install lifecycle scripts can build) refuses; the
   } finally { if (original === undefined) delete process.env.NODE_OPTIONS; else process.env.NODE_OPTIONS = original; }
   const same = { ...managed, env: { ...managed.env, ...(process.env.NODE_OPTIONS !== undefined ? { NODE_OPTIONS: process.env.NODE_OPTIONS } : {}) } };
   assert.deepEqual(buildLaunch(process.execPath, [ownRightRelease, "web-build"], same).command, process.execPath);
+});
+
+// ---- GATE-5 (gate-vs-broker audit 2026-10-30): B5/B6, M4, M12, M13, M28, M31 ----------------------------------------------------------------
+
+const releaseDir = path.dirname(fileURLToPath(import.meta.url));
+const adapterRun = path.join(releaseDir, "carried-adapter-run.mjs");
+const cargoRun = path.join(releaseDir, "carried-cargo-run.mjs");
+const pinned = { pnpmGrammar: PNPM_ADAPTER_GRAMMAR };
+/** A host on a snapshot stage: the carrier map file is in the environment. */
+function carriedHost(t, extra = {}) {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "rk-bl-carrier-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const mapFile = path.join(dir, "map.json");
+  writeFileSync(mapFile, JSON.stringify({ schema: SHIM_MAP_SCHEMA, mode: "broker", broker: { checkout: "/primary", snapshot: { path: "/snap" } }, ledgerDir: dir, workspaces: {} }));
+  return { ...managed, ...pinned, env: { ...managed.env, [CARRIED_CARGO_MAP_ENV]: mapFile }, cwd: "/snap/app", ...extra };
+}
+
+test("B5/B6: xcodegen, xcodebuild and gradlew are registered adapter jobs (rightkit-xcodegen|rightkit-xcodebuild|rightkit-gradle), never a direct run", () => {
+  assert.deepEqual(buildLaunch("xcodegen", ["generate", "--spec", "/w/app/project.yml", "--project", "/w/app/ios"], managed), { command: CLIENT, args: ["run", "rightkit-xcodegen", "--", "generate", "--spec", "/w/app/project.yml", "--project", "/w/app/ios"] });
+  const build = ["-project", "/w/app/ios/App.xcodeproj", "-scheme", "App", "-configuration", "Debug", "-destination", "id=ABC", "-derivedDataPath", "/managed/dd", "DEVELOPMENT_TEAM=TEAM123456", "-allowProvisioningUpdates", "build"];
+  assert.deepEqual(buildLaunch("xcodebuild", build, managed), { command: CLIENT, args: ["run", "rightkit-xcodebuild", "--", ...build] });
+  assert.deepEqual(buildLaunch("./gradlew", [":app:assembleDebug"], managed), { command: CLIENT, args: ["run", "rightkit-gradle", "--", ":app:assembleDebug"] });
+  assert.deepEqual(buildLaunch("gradlew.bat", ["bundleRelease", "--no-daemon", "--console=plain"], managed).args, ["run", "rightkit-gradle", "--", "bundleRelease", "--no-daemon", "--console=plain"]);
+  // A plain `gradle` (no wrapper) is still no adapter.
+  assert.throws(() => buildLaunch("gradle", ["assembleDebug"], managed), (e) => e.code === BUILD_LAUNCH_REFUSED);
+  // The argv the adapters would not take is refused at the door.
+  for (const [command, args] of [
+    ["xcodegen", ["--version"]], ["xcodegen", ["generate", "--use-cache"]],
+    ["xcodebuild", ["-runFirstLaunch"]], ["xcodebuild", ["build", "OTHER_LDFLAGS=-fplugin"]], ["xcodebuild", ["-scheme", "App"]], ["xcodebuild", ["-project"]],
+    ["./gradlew", ["assembleDebug", "-Pandroid.injected=1"]], ["./gradlew", ["assembleDebug", "--init-script", "x.gradle"]], ["./gradlew", ["--no-daemon"]], ["./gradlew", ["assembleDebug", "--project-dir", ".."]],
+  ]) assert.throws(() => buildLaunch(command, args, managed), (e) => e.code === BUILD_LAUNCH_REFUSED, `${command} ${args.join(" ")}`);
+});
+
+test("B5/B6: on a snapshot stage the toolchain adapters are carried adapter jobs, and `rustright run <adapter>` of them maps back to the same door rules", (t) => {
+  const host = carriedHost(t);
+  assert.deepEqual(buildLaunch("xcodebuild", ["-project", "App.xcodeproj", "-scheme", "App", "build"], host).args, [adapterRun, "rightkit-xcodebuild", "--", "-project", "App.xcodeproj", "-scheme", "App", "build"]);
+  assert.deepEqual(buildLaunch("./gradlew", [":app:assembleDebug"], host).args, [adapterRun, "rightkit-gradle", "--", ":app:assembleDebug"]);
+  assert.equal(buildLaunch("rustright", ["run", "rightkit-gradle", "--", ":app:assembleDebug"], host).args[1], "rightkit-gradle");
+  assert.throws(() => buildLaunch("rustright", ["run", "rightkit-gradle", "--", ":app:assembleDebug", "-Pk=v"], host), (e) => e.code === BUILD_LAUNCH_REFUSED);
+});
+
+test("M28: cmake is a rightkit-cmake adapter job for the configure and build argv only; -E, -P, --install, --preset and positionals refuse", (t) => {
+  const configure = ["-S", "/c/src", "-B", "/c/build", "-DCMAKE_BUILD_TYPE=Release", "-G", "Ninja", "-A", "x64", "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"];
+  const build = ["--build", "/c/build", "--config", "Release", "--target", "whisper-cli", "--parallel"];
+  assert.equal(cmakeRefusal(configure), null);
+  assert.equal(cmakeRefusal(build), null);
+  assert.equal(cmakeRefusal(["--build", "/c/build", "--parallel", "8"]), null);
+  assert.deepEqual(buildLaunch("cmake", configure, managed), { command: CLIENT, args: ["run", "rightkit-cmake", "--", ...configure] });
+  assert.deepEqual(buildLaunch("cmake", build, carriedHost(t)).args, [adapterRun, "rightkit-cmake", "--", ...build]);
+  for (const bad of [["-E", "remove_directory", "/"], ["-P", "x.cmake"], ["--install", "/c/build"], ["--preset", "x"], ["-C", "init.cmake"], ["--toolchain", "t.cmake"], ["-S", "/c/src", "positional"], ["-B"], []]) {
+    assert.notEqual(cmakeRefusal(bad), null, bad.join(" "));
+    assert.throws(() => buildLaunch("cmake", bad, managed), (e) => e.code === BUILD_LAUNCH_REFUSED, bad.join(" "));
+  }
+});
+
+test("M31: a carried `cargo ndk ... build` gets --locked right after cargo-ndk's cargo subcommand, once, and never inside a -- tail", (t) => {
+  const ndk = ["ndk", "--platform", "26", "-t", "arm64-v8a", "-t", "x86_64", "-o", "app/src/main/jniLibs", "build", "--release", "--manifest-path", "Cargo.toml"];
+  assert.deepEqual(lockedNdkArgs(ndk), ["ndk", "--platform", "26", "-t", "arm64-v8a", "-t", "x86_64", "-o", "app/src/main/jniLibs", "build", "--locked", "--release", "--manifest-path", "Cargo.toml"]);
+  assert.deepEqual(lockedNdkArgs(["ndk", "-o", "build", "build"]), ["ndk", "-o", "build", "build", "--locked"], "an output directory named like the subcommand is a value, not the subcommand");
+  assert.deepEqual(lockedNdkArgs(["ndk", "-t", "x86_64", "build", "--frozen"]), ["ndk", "-t", "x86_64", "build", "--frozen"]);
+  assert.deepEqual(lockedNdkArgs(["ndk", "-t", "x86_64", "build", "--locked"]), ["ndk", "-t", "x86_64", "build", "--locked"]);
+  assert.deepEqual(lockedNdkArgs(["ndk", "-t", "x86_64", "build", "--", "--locked"]), ["ndk", "-t", "x86_64", "build", "--locked", "--", "--locked"]);
+  assert.deepEqual(lockedNdkArgs(["build", "--release"]), ["build", "--release"], "only `ndk` is touched here");
+  const host = carriedHost(t);
+  assert.deepEqual(buildLaunch("cargo", ndk, host), { command: process.execPath, args: [cargoRun, ...lockedNdkArgs(ndk)] });
+  assert.deepEqual(buildLaunch("rustright", ["cargo", ...ndk], host).args, [cargoRun, ...lockedNdkArgs(ndk)]);
+  assert.ok(buildLaunch("cargo", ndk, host).args.includes("--locked"));
+});
+
+test("M12: a leading flag the adapter does not register (--if-present, --prefix, --config) and an unregistered global option are refused at the door; --store-dir cannot hide a pnpm exec target", () => {
+  const host = { ...managed, ...pinned };
+  for (const args of [["--if-present", "run", "build"], ["--prefix", "x", "run", "build"], ["--config", "x", "run", "build"], ["--dir", "apps/web", "--prefix", "x", "run", "build"]]) {
+    assert.throws(() => buildLaunch("pnpm", args, host), (e) => e.code === BUILD_LAUNCH_REFUSED && /rightkit-pnpm/.test(e.message), args.join(" "));
+  }
+  assert.deepEqual(buildLaunch("pnpm", ["--dir", "apps/web", "--filter", "web", "run", "build"], host).args, ["run", "rightkit-pnpm", "--", "--dir", "apps/web", "--filter", "web", "run", "build"]);
+  // `--store-dir s` takes a value: `s` is not the command, so `exec node -e` still meets the exec target rule.
+  assert.throws(() => buildLaunch("pnpm", ["--dir", "a", "--store-dir", "s", "exec", "node", "-e", "1"], host), (e) => e.code === BUILD_LAUNCH_REFUSED && /pnpm exec target/.test(e.message));
+});
+
+test("M13: `pnpm run <script> --flag` with no `--` is refused naming the `--` form; the `--` form, registered flags and exec tails pass", () => {
+  const host = { ...managed, ...pinned };
+  assert.throws(() => buildLaunch("pnpm", ["run", "build", "--mode", "production"], host), (e) => e.code === BUILD_LAUNCH_REFUSED && /pnpm run <script> -- --mode/.test(e.message));
+  assert.match(pnpmTailRefusal(["run", "test", "--watch=false"], PNPM_ADAPTER_GRAMMAR), /pnpm run <script> -- --watch=false/);
+  assert.deepEqual(buildLaunch("pnpm", ["run", "build", "--", "--mode", "production"], host).args, ["run", "rightkit-pnpm", "--", "run", "build", "--", "--mode", "production"]);
+  assert.equal(pnpmTailRefusal(["run", "build", "--if-present"], PNPM_ADAPTER_GRAMMAR), null, "a registered flag is the broker's flag");
+  assert.equal(pnpmTailRefusal(["exec", "tauri", "build", "--target", "x86_64-apple-darwin", "--bundles", "app"], PNPM_ADAPTER_GRAMMAR), null, "after the exec target everything is the target's own");
+  assert.equal(pnpmTailRefusal(["--dir", "apps/web", "run", "build"], PNPM_ADAPTER_GRAMMAR), null);
+  assert.equal(pnpmTailRefusal(["pack", "--pack-destination", "out"], PNPM_ADAPTER_GRAMMAR), null);
+});
+
+test("M4: this package's recipe-build.mjs and create-mac-updater.mjs run in process (never a node adapter job), and TAURI_SIGNING_* never enters a broker request", (t) => {
+  const quiet = { TAURI_SIGNING_PRIVATE_KEY: "", TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "" };
+  for (const script of ["recipe-build.mjs", "create-mac-updater.mjs"]) {
+    const launch = buildLaunch(process.execPath, [path.join(releaseDir, script), "--plan", "{}"], { ...managed, cwd: "/w/app", stepEnv: quiet });
+    assert.deepEqual(launch, { command: process.execPath, args: [path.join(releaseDir, script), "--plan", "{}"] }, `${script} is in process: no rustright, no RUSTRIGHT_ADAPTER_ENV`);
+    const carried = buildLaunch(process.execPath, [path.join(releaseDir, script)], { ...carriedHost(t), stepEnv: quiet });
+    assert.equal(carried.command, process.execPath);
+    assert.ok(!carried.args.includes(adapterRun), `${script} is not a carried adapter job`);
+  }
+  // A script of another directory named the same is not this package's.
+  assert.throws(() => buildLaunch(process.execPath, ["/tmp/evil/recipe-build.mjs"], { ...managed, cwd: "/w/app" }), (e) => e.code === BUILD_LAUNCH_REFUSED);
+  // A pnpm step that declares the quiet (empty) signing env sends neither the names nor RUSTRIGHT_ADAPTER_ENV; a step env of other names still rides.
+  const quietPnpm = buildLaunch("pnpm", ["exec", "tauri", "build"], { ...carriedHost(t), stepEnv: quiet });
+  assert.equal(quietPnpm.env, undefined);
+  const mixed = buildLaunch("pnpm", ["exec", "tauri", "build"], { ...carriedHost(t), stepEnv: { ...quiet, RK_ISOLATED_CHECKOUT: "1" } });
+  assert.equal(mixed.env.RUSTRIGHT_ADAPTER_ENV, "RK_ISOLATED_CHECKOUT");
+  assert.ok(!Object.keys(mixed.env).some((k) => /TAURI_SIGNING/.test(k)));
+  // A non-empty signing value is a secret and is refused, never forwarded or echoed.
+  assert.throws(() => buildLaunch("pnpm", ["exec", "tauri", "build"], { ...carriedHost(t), stepEnv: { TAURI_SIGNING_PRIVATE_KEY: "s3cr3t-value" } }), (e) => e.code === BUILD_LAUNCH_REFUSED && e.reason === "RK_ADAPTER_ENV_SECRET" && !e.message.includes("s3cr3t-value"));
+  assert.throws(() => buildLaunch("pnpm", ["exec", "tauri", "build"], { ...managed, ...pinned, stepEnv: { TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "p" } }), (e) => e.reason === "RK_ADAPTER_ENV_SECRET");
 });

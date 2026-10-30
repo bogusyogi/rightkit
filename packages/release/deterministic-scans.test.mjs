@@ -11,6 +11,7 @@ import {
   CLASS_A_SCAN_PREFIXES, CLASS_B_SCAN_PREFIXES, canonicalJson, fileScanCache, inheritedEnvDigest, requiredScanIds, scanCacheKey, checkArgs, clippyArgs, digestScanSet, docArgs, fmtCheckArgs,
   defaultSpawn, deterministicScansEnabled, metadataArgs, planScans, resolveInvocation, runScans, scanClassOf, scanDeferrals, scanFailures,
   CHECKER_IDENTITY, TSC_PROJECT, writeTscProject, everyFailure } from "./deterministic-scans.mjs";
+import { SWIFT_SCRATCH_PINNED_CODE, stripSwiftScratchFlags } from "./deterministic-scans.mjs";
 import { requiredScanProblems } from "./scan-digest.mjs";
 import { compileLaunch } from "./class-a-launch-guard.mjs";
 import * as scansModule from "./deterministic-scans.mjs";
@@ -2899,4 +2900,28 @@ test("item 8 row 8.15 support: requiredScanIds names the batch ids the planner e
   // Everything but the Clippy ids is identical on and off.
   const rest = (list) => list.filter((id) => !id.startsWith("clippy:"));
   assert.deepEqual(rest(requiredOn), rest(requiredOff));
+});
+
+test("[M60] a caller-passed SwiftPM build directory is found in every spelling, so the broker route can refuse it (the broker's canonical scratch is never overridden)", () => {
+  assert.deepEqual(stripSwiftScratchFlags(["build", "--package-path", "p", "--scratch-path", "/tmp/x"]), { args: ["build", "--package-path", "p"], removed: ["--scratch-path", "/tmp/x"] });
+  assert.deepEqual(stripSwiftScratchFlags(["build", "--scratch-path=/tmp/x", "--build-path", "/tmp/y", "-c", "release"]).removed, ["--scratch-path=/tmp/x", "--build-path", "/tmp/y"]);
+  assert.deepEqual(stripSwiftScratchFlags(["build", "--", "--scratch-path", "x"]), { args: ["build", "--", "--scratch-path", "x"], removed: [] });
+  assert.equal(SWIFT_SCRATCH_PINNED_CODE, "RK_SWIFT_SCRATCH_BROKER_PINNED");
+});
+
+test("[M60] on the broker route a caller-passed swift --scratch-path is REFUSED with RK_SWIFT_SCRATCH_BROKER_PINNED naming the broker's canonical directory, never silently dropped; no swift runs", async () => {
+  const swiftOnly = fakeFs({ "app/mac/Pkg/Package.swift": "", "app/mac/Pkg/Sources/a.swift": "" }, { "app/mac/Pkg/Package.swift": "", "app/mac/Pkg/Sources/a.swift": "" });
+  const plan = planScans({ changed: ["app/mac/Pkg/Package.swift"], contentRoot: CONTENT, liveRoot: LIVE, ...swiftOnly, platform: "darwin" });
+  const tmpRoot = mkdtempSync(path.join(os.tmpdir(), "rk-swift-scratch-"));
+  try {
+    const evidence = await runScans(plan, deps({ ...swiftOnly, classes: ["A"], tmpRoot }));
+    const passed = { ...plan, scans: plan.scans.map((sc) => (sc.tool === "swift" ? { ...sc, args: [...sc.args, "--scratch-path", "/tmp/caller-scratch"] } : sc)) };
+    const log = [];
+    const r = await runScans(passed, deps({ ...swiftOnly, classes: ["B"], priorClassA: evidence, spawn: fakeSpawn({ log }), tmpRoot, snapshotBroker: {} }));
+    const row = r.scans.find((x) => x.code === SWIFT_SCRATCH_PINNED_CODE);
+    assert.ok(row, JSON.stringify(r.scans.map((x) => [x.id, x.status, x.code])));
+    assert.equal(row.status, "fail");
+    assert.match(row.detail, /--scratch-path \/tmp\/caller-scratch/); assert.match(row.detail, /<outputDir>\/swiftpm\/<sha256/);
+    assert.ok(!log.some((c) => path.basename(c[0]) === "swift" && c[1] === "build"), "the build did not run");
+  } finally { rmSync(tmpRoot, { recursive: true, force: true }); }
 });

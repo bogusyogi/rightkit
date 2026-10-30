@@ -48,6 +48,24 @@ test("cache rejects unknown commands and migration requires a config", async () 
   assert.notEqual((await run(["migrate"], cacheRoot)).status, 0);
 });
 
+test("M59: on a broker-managed Mac with no RIGHT_RELEASE_CACHE_ROOT, status, prune and migrate report the broker skip instead of throwing the missing-root error", async () => {
+  const env = { ...process.env, RIGHT_RELEASE_PLATFORM: "mac" };
+  delete env.RIGHT_RELEASE_CACHE_ROOT;
+  for (const args of [["status"], ["status", "--json"], ["prune", "--dry-run"], ["migrate"]]) {
+    let stdout = "";
+    const result = await runCacheCommand(args, { env, isBrokerHost: () => true, stdout: (value) => { stdout += `${value}\n`; }, stderr: () => {} });
+    assert.equal(result.skipped, true, args.join(" "));
+    assert.equal(result.brokerManaged, true);
+    assert.equal(result.cacheRoot, null, "no root is invented or required on a broker host");
+    assert.match(stdout, /broker-managed host|brokerManaged/);
+  }
+  // Off a broker host the same environment still demands the root (nothing weakened).
+  await assert.rejects(runCacheCommand(["status"], { env, isBrokerHost: () => false, stdout: () => {}, stderr: () => {} }), /RIGHT_RELEASE_CACHE_ROOT is required on macOS/);
+  // A configured root is reported in the skip.
+  const configured = await runCacheCommand(["status"], { env: { ...env, RIGHT_RELEASE_CACHE_ROOT: "/Volumes/cache" }, isBrokerHost: () => true, stdout: () => {}, stderr: () => {} });
+  assert.equal(configured.cacheRoot, path.resolve("/Volumes/cache"));
+});
+
 test("status and prune dry-run do not create a cache root or lock file", async () => {
   const parent = mkdtempSync(path.join(os.tmpdir(), "rightkit-cache-command-"));
   const cacheRoot = path.join(parent, "never-created");
