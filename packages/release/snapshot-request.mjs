@@ -147,9 +147,15 @@ export function carriedRequestOf(args, cwd = ".") {
   return { argv: lockedArgv(split.words), cwd: dir === "" ? "." : dir };
 }
 
-/** Where the gate's declared compile inputs are listed, as read from the snapshot (GATE-CONTRACT "Request"; the broker's COMPILE_INPUTS). */
-export const COMPILE_INPUTS = ".rightkit/compile-inputs.json";
-export const MAX_DECLARATION_BYTES = 1024 * 1024;
+/**
+ * Where the declared compile inputs are listed, as read from the snapshot (the broker's COMPILE_INPUTS; GB-49): `.rustright/compile-inputs.json` first,
+ * `.rightkit/compile-inputs.json` ONLY when the canonical file is absent. A present but invalid canonical declaration is an error, never a fallback.
+ */
+export const COMPILE_INPUTS_CANONICAL = ".rustright/compile-inputs.json";
+export const COMPILE_INPUTS_LEGACY = ".rightkit/compile-inputs.json";
+export const COMPILE_INPUTS = COMPILE_INPUTS_CANONICAL;
+export const COMPILE_INPUT_DECLARATIONS = Object.freeze([COMPILE_INPUTS_CANONICAL, COMPILE_INPUTS_LEGACY]);
+export const MAX_DECLARATION_BYTES = 4 * 1024 * 1024;
 const MAX_INPUT_FILES = 200_000;
 const MAX_INPUT_BYTES = 4 * 1024 * 1024 * 1024;
 
@@ -267,49 +273,65 @@ const same = (a, b) => canonicalJson(a ?? null) === canonicalJson(b ?? null);
 const lstatOrNull = (p) => { try { return fs.lstatSync(p); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
 
 /**
- * The declared inputs of a snapshot: `inputs` of `.rightkit/compile-inputs.json` read FROM THE SNAPSHOT, never the checkout. No
- * manifest means an empty set; a link on its path, a file that is not regular, an oversized or malformed manifest, or an input that
- * is not a plain relative path (absolute, `.`/`..`, inside `.git`, the manifest itself) is refused before any request is made.
+ * The declared inputs of a snapshot, read FROM THE SNAPSHOT, never the checkout, by the one rule every RightKit reader shares (the broker's, vector
+ * docs/contracts/declared-inputs.fixtures.json): `.rustright/compile-inputs.json` when it exists, else `.rightkit/compile-inputs.json`, else none. Either file
+ * is judged by the same checks: no link on its path, a regular file of at most 4 MiB, JSON with `inputs` a list of plain relative paths (not absolute, no `.`,
+ * `..` or empty component, not inside `.git`) and no input that is, or holds, either declaration file. A present but invalid canonical declaration is an
+ * error: it is never read as the legacy one.
  */
 export function readDeclaredInputs(snapshotRoot) {
-  const parts = COMPILE_INPUTS.split("/");
-  let at = snapshotRoot; let meta = null;
-  for (const part of parts) {
-    at = path.join(at, part);
-    meta = lstatOrNull(at);
-    if (meta === null) return [];
-    if (meta.isSymbolicLink()) fail("declared-inputs", `${COMPILE_INPUTS} runs through a link at ${at}`);
+  let file = null; let at = null; let meta = null;
+  for (const candidate of COMPILE_INPUT_DECLARATIONS) {
+    let here = snapshotRoot; let found = true;
+    for (const part of candidate.split("/")) {
+      here = path.join(here, part);
+      const m = lstatOrNull(here);
+      if (m === null) { found = false; break; }
+      if (m.isSymbolicLink()) fail("declared-inputs", `${candidate} runs through a link at ${here}`);
+      meta = m;
+    }
+    if (found) { file = candidate; at = here; break; }
   }
-  if (!meta.isFile()) fail("declared-inputs", `${COMPILE_INPUTS} is not a regular file`);
-  if (meta.size > MAX_DECLARATION_BYTES) fail("declared-inputs", `${COMPILE_INPUTS} is larger than ${MAX_DECLARATION_BYTES} bytes`);
+  if (file === null) return [];
+  if (!meta.isFile()) fail("declared-inputs", `${file} is not a regular file`);
+  if (meta.size > MAX_DECLARATION_BYTES) fail("declared-inputs", `${file} is larger than ${MAX_DECLARATION_BYTES} bytes`);
   let value;
-  try { value = JSON.parse(fs.readFileSync(at, "utf8")); } catch (e) { fail("declared-inputs", `${COMPILE_INPUTS} is not JSON (${e.message})`); }
-  if (!value || typeof value !== "object" || !Array.isArray(value.inputs)) fail("declared-inputs", `${COMPILE_INPUTS}: \`inputs\` must be a list of paths`);
+  try { value = JSON.parse(fs.readFileSync(at, "utf8")); } catch (e) { fail("declared-inputs", `${file} is not JSON (${e.message})`); }
+  if (!value || typeof value !== "object" || !Array.isArray(value.inputs)) fail("declared-inputs", `${file}: \`inputs\` must be a list of paths`);
   for (const input of value.inputs) {
-    if (typeof input !== "string" || !input) fail("declared-inputs", `${COMPILE_INPUTS}: every input is a non-empty relative path`);
+    if (typeof input !== "string" || !input) fail("declared-inputs", `${file}: every input is a non-empty relative path`);
     const components = input.split(/[\\/]/);
-    if (path.isAbsolute(input) || path.posix.isAbsolute(input) || path.win32.isAbsolute(input) || components.some((c) => c === "" || c === "." || c === "..")) fail("declared-inputs", `${COMPILE_INPUTS}: ${input} is not a plain relative path inside the snapshot`);
-    if (components.some((c) => c.toLowerCase() === ".git")) fail("declared-inputs", `${COMPILE_INPUTS}: ${input} is inside .git; repository metadata is never a compile input`);
-    if (components.length <= parts.length && components.every((c, i) => c === parts[i])) fail("declared-inputs", `${COMPILE_INPUTS}: ${input} overlaps the declaration file itself`);
+    if (path.isAbsolute(input) || path.posix.isAbsolute(input) || path.win32.isAbsolute(input) || components.some((c) => c === "" || c === "." || c === "..")) fail("declared-inputs", `${file}: ${input} is not a plain relative path inside the snapshot`);
+    if (components.some((c) => c.toLowerCase() === ".git")) fail("declared-inputs", `${file}: ${input} is inside .git; repository metadata is never a compile input`);
+    for (const declaration of COMPILE_INPUT_DECLARATIONS) {
+      const parts = declaration.split("/");
+      if (components.length <= parts.length && components.every((c, i) => c === parts[i])) fail("declared-inputs", `${file}: ${input} overlaps the declaration file itself (${declaration})`);
+    }
   }
   return [...value.inputs];
+}
+
+/** The inputs a request supplied must be exactly the declaration the snapshot holds (the broker's check): a throw naming the difference. */
+export function assertSuppliedInputs(snapshotRoot, supplied) {
+  const declared = readDeclaredInputs(snapshotRoot);
+  if (!same(declared, supplied)) fail("declared-inputs", "the snapshot's declared inputs are not the ones this request carried (declaredInputs differs from the snapshot declaration)");
+  return declared;
 }
 
 /**
  * The `declaredInputDigests` the broker records for these inputs, computed here from the snapshot: per input, sha256 over, for each
  * regular file in directory order (names sorted by their bytes), the file's relative name, a NUL, its bytes and a NUL. A link
- * anywhere, a special file, or a limit breach is a refusal. Child names are joined with the platform's separator, as the broker's
- * `Path::join` does.
+ * anywhere, a special file, or a limit breach is a refusal. The name is the input's path components joined by `/` on EVERY platform (GB-49: RustRight hashes
+ * `/` on Windows too, so a `\` in a declaration or a platform separator never reaches the hash), UTF-8, no Unicode normalisation.
  */
-export function declaredInputDigestsOf(snapshotRoot, inputs, { platform = process.platform } = {}) {
-  const sep = platform === "win32" ? "\\" : "/";
+export function declaredInputDigestsOf(snapshotRoot, inputs) {
   let files = 0; let bytes = 0;
   const walk = (full, name, hasher) => {
     const meta = fs.lstatSync(full);
     if (meta.isSymbolicLink()) fail("declared-inputs", `declared compile input holds a link at ${name}`);
     if (meta.isDirectory()) {
       const children = fs.readdirSync(full).sort((a, b) => Buffer.compare(Buffer.from(a, "utf8"), Buffer.from(b, "utf8")));
-      for (const child of children) walk(path.join(full, child), name.endsWith("/") || name.endsWith("\\") ? `${name}${child}` : `${name}${sep}${child}`, hasher);
+      for (const child of children) walk(path.join(full, child), `${name}/${child}`, hasher);
       return;
     }
     if (!meta.isFile()) fail("declared-inputs", `declared compile input ${name} is not a regular file or directory`);
@@ -341,7 +363,7 @@ export function declaredInputDigestsOf(snapshotRoot, inputs, { platform = proces
       if (meta.isSymbolicLink()) fail("declared-inputs", `${input} runs through a link at ${at}`);
     }
     const hasher = crypto.createHash("sha256");
-    walk(at, input, hasher);
+    walk(at, input.split(/[\\/]/).join("/"), hasher);
     return { path: input, sha256: hasher.digest("hex") };
   });
 }
@@ -504,7 +526,7 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
     gateInputs = readInputs(carrier.snapshot.path);
     gateDigests = digestInputs(carrier.snapshot.path, gateInputs, { platform });
   } catch (e) { fail("evidence", `the gate cannot digest the snapshot's declared inputs (${e.message})`); }
-  if (!same(gateInputs, carrier.declaredInputs?.inputs)) fail("evidence", "the snapshot's declared inputs are not the ones this request carried");
+  if (!same(gateInputs, carrier.declaredInputs?.inputs)) fail("evidence", "the snapshot's declared inputs are not the ones this request carried (declaredInputs differs from the snapshot declaration)");
   if (!same(evidence.declaredInputDigests, gateDigests)) fail("evidence", "the signed declaredInputDigests are not the gate's own digest of the snapshot's declared inputs");
   // Output directory: where the outputs went must be the broker's managed generation target, never under the snapshot or the checkout.
   const out = evidence.outputDir;

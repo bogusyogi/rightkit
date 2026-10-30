@@ -439,12 +439,12 @@ test("[7.22] declared inputs are read from the snapshot and digested as the brok
   const inputs = readDeclaredInputs(snap);
   assert.deepEqual(inputs, ["a.txt", "dir"]);
   const h = (...parts) => crypto.createHash("sha256").update(Buffer.concat(parts.map((p) => (typeof p === "string" ? Buffer.from(p) : p)))).digest("hex");
-  // Per file, in sorted directory order: relative name, NUL, bytes, NUL (names joined with the platform separator).
+  // Per file, in sorted directory order: relative name, NUL, bytes, NUL (names joined with `/` on every platform, GB-49).
   assert.deepEqual(declaredInputDigestsOf(snap, inputs, { platform: "darwin" }), [
     { path: "a.txt", sha256: h("a.txt", "\0", "hello", "\0") },
     { path: "dir", sha256: h("dir/a", "\0", "A", "\0", "dir/b", "\0", "B", "\0", "dir/sub/c", "\0", "C", "\0") },
   ]);
-  assert.equal(declaredInputDigestsOf(snap, ["dir"], { platform: "win32" })[0].sha256, h("dir\\a", "\0", "A", "\0", "dir\\b", "\0", "B", "\0", "dir\\sub\\c", "\0", "C", "\0"), "Windows joins child names with a backslash, as Path::join does");
+  assert.equal(declaredInputDigestsOf(snap, ["dir"], { platform: "win32" })[0].sha256, h("dir/a", "\0", "A", "\0", "dir/b", "\0", "B", "\0", "dir/sub/c", "\0", "C", "\0"), "GB-49: RustRight now hashes names with `/` on Windows too (input_name), so the gate no longer joins with a backslash there");
   // A malformed or unsafe manifest is refused before any request.
   for (const [body, why] of [["not json", /not JSON/], [{ inputs: "x" }, /list of paths/], [{ inputs: [1] }, /non-empty relative path/], [{ inputs: ["/abs"] }, /plain relative path/], [{ inputs: ["../x"] }, /plain relative path/],
     [{ inputs: ["a/./b"] }, /plain relative path/], [{ inputs: ["a//b"] }, /plain relative path/], [{ inputs: [".git/config"] }, /inside \.git/], [{ inputs: [".rightkit/compile-inputs.json"] }, /declaration file itself/], [{ inputs: [".rightkit"] }, /declaration file itself/]]) {
