@@ -12,6 +12,8 @@
 
 2026-10-29: the broker runs no gate and no RightKit code; Class A, Class A verdict reuse and the admission check belong to the gate; the gate speaks the broker's RUSTRIGHT_* names and rustright.snapshot-request/1 carrier (Adrian: "nothing rk is needed to build and manage the broker. at all."; "rk uses broker, not the other way around")
 
+2026-10-30: a gate candidate runs on the real broker of every managed host before any app runs on it: the RK lead runs each stage the candidate changes on a RightKit fixture repository, on the Mac and the Dell, and the raw logs go with the pin request; the broker owner pins a candidate for apps only with them; a test fake of the broker refuses what the real broker refuses (Adrian, 2026-10-30, after HR M0 failed on an unwitnessed 0.6.14, rightkit#1311; https://github.com/bogusyogi/rightkit/issues/1312)
+
 ## 1. User requirements
 
 These lines reproduce the user's three requirements; line breaks are normalized:
