@@ -163,3 +163,44 @@ test("[GB-66] a compile the broker refuses at admission with RK_TOOLCHAIN_IDENTI
   assert.equal(r.outcome.code, "toolchain-unavailable");
   assert.match(r.outcome.message, /RK_TOOLCHAIN_IDENTITY_UNAVAILABLE.*nothing ran/);
 });
+
+// ---- GB-82: the fixture broker's lease status is the production table's (vector lease-status-vectors.v1.json) ----
+import { spawnSync as spawnClient } from "./background-process.mjs";
+
+test("[GB-82] the fixture broker answers snapshot-lease status as the production lease table does for every step of the lease-status vector", (t) => {
+  const vector = loadVector("lease-status-vectors.v1.json");
+  for (const c of vector.cases) {
+    const fx = makeFakeBroker(t, { readOnlySnapshots: true });
+    const behavior = { heldHandles: [], completedHandles: [], unknownHandles: [], refusedHandles: {} };
+    const apply = () => fx.setBehavior({ ...behavior });
+    const query = (handle) => { const r = spawnClient(fx.client, ["snapshot-lease", "status", "--snapshot", fx.snapshot, "--ownership", handle], { encoding: "utf8" }); assert.equal(r.status, 0, r.stderr); return JSON.parse(r.stdout); };
+    let last = null;
+    for (const step of c.steps) {
+      if (step.op === "acquire") { behavior.heldHandles.push(step.handle); last = step.handle; apply(); }
+      else if (step.op === "complete") { behavior.completedHandles.push(...behavior.heldHandles); behavior.heldHandles = []; apply(); }
+      else if (step.op === "unknown-start") { behavior.unknownHandles.push(step.handle); apply(); }
+      else if (step.op === "refuse") { behavior.refusedHandles[step.handle] = step.code ?? "RK_CHECK_ERROR"; apply(); }
+      else if (step.op === "restart") { /* the completion is a file: it outlives the process */ }
+      else if (step.op === "query") {
+        const answer = query(step.handle);
+        assert.equal(answer.state, step.state, `${c.name}: ${step.handle}`);
+        assert.equal(answer.type, "SNAPSHOT_LEASE_STATUS"); assert.equal(answer.ownership, step.handle); assert.equal(answer.snapshot, fx.snapshot);
+        if (step.members) assert.deepEqual(answer.members.map((m) => ({ handle: m.handle, state: m.state, ...(m.spawned === false ? { spawned: false } : {}), ...(m.refused ? { refused: m.refused } : {}) })), step.members.map((m) => ({ handle: m.handle, state: m.state, ...(m.spawned === false ? { spawned: false } : {}), ...(m.refused ? { refused: m.refused } : {}) })), `${c.name}: members of ${step.handle}`);
+      } else assert.fail(`unknown step ${step.op}`);
+    }
+    void last;
+  }
+});
+
+test("[GB-82] a carried call's completion survives in the fixture broker (a durable completed handle) and a never-held handle stays UNKNOWN, not REAPED", (t) => {
+  const fx = makeFakeBroker(t, { readOnlySnapshots: true });
+  const section = brokerSection({ ...fx.sb, markBrokerSubmit: subHandleStub(fx.handle) });
+  const env = { PATH: fx.root, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs" };
+  const status = (handle) => JSON.parse(spawnClient(fx.client, ["snapshot-lease", "status", "--snapshot", fx.snapshot, "--ownership", handle], { encoding: "utf8" }).stdout);
+  assert.equal(status(fx.handle).state, "UNKNOWN", "nothing was ever held under this handle");
+  const r = carryBrokerCargo({ words: ["check"], cwd: path.join(fx.snapshot, "crates", "a"), env, section, workspace: fx.snapshot, checkoutWorkspace: fx.checkout, record: () => {}, err: () => {}, stdio: "capture" });
+  assert.equal(r.outcome.status, "verified");
+  const after = status(fx.handle);
+  assert.equal(after.state, "REAPED"); assert.equal(after.members.length, 1); assert.match(after.members[0].handle, new RegExp(`^${fx.handle}#`));
+  assert.equal(status(fx.handle.slice(0, 3)).state, "UNKNOWN", "a prefix of a handle covers nothing");
+});

@@ -297,6 +297,20 @@ function logRequest(fx, command, args) {
   } catch { /* logging is best-effort; the fake's behavior never depends on it */ }
 }
 
+/** The carrier's VALUES, not only its key sets (rustright-cli shims.rs snapshot_carrier): full object ids, an absolute snapshot path and primaryCwd, the commit's tree as expectedTree, a sub-handle, a 64-hex argv digest, a 64..128-hex nonce, string inputs. */
+function carrierValuesProblem(c) {
+  const oid = (v) => typeof v === "string" && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(v);
+  if (c.schema !== "rustright.snapshot-request/1") return `unknown carrier schema ${JSON.stringify(c.schema)} (the legacy rightkit.snapshot-request/1 is not read: aliases off)`;
+  if (!oid(c.commit?.sha) || !oid(c.commit?.tree)) return "commit sha and tree must be full lowercase object ids";
+  if (typeof c.snapshot?.path !== "string" || !path.isAbsolute(c.snapshot.path) || c.snapshot.expectedTree !== c.commit.tree) return "the snapshot needs an absolute path and the commit's tree as expectedTree";
+  if (typeof c.ownership?.handle !== "string" || !/^[^#\s]+#[A-Za-z0-9._-]+$/.test(c.ownership.handle)) return "the ownership handle must be a sub-handle <handle>#<token>";
+  if (typeof c.primaryCwd !== "string" || !path.isAbsolute(c.primaryCwd)) return "primaryCwd must be absolute";
+  if (typeof c.argvSha256 !== "string" || !/^[0-9a-f]{64}$/.test(c.argvSha256)) return "argvSha256 must be 64 hex characters";
+  if (typeof c.nonce !== "string" || !/^[0-9a-f]{64,128}$/.test(c.nonce)) return "the nonce must be 64 to 128 lowercase hex characters";
+  if (!Array.isArray(c.declaredInputs?.inputs) || c.declaredInputs.inputs.some((i) => typeof i !== "string" || i === "")) return "declaredInputs.inputs must be a list of non-empty strings";
+  return null;
+}
+
 /**
  * The broker's one-completion-per-(snapshot, lease handle) rule (rustright snapshot.rs:330-343): a second carried request under a handle the
  * snapshot already has a completion for is refused ("snapshot ownership handle has a prior or unreadable completion").
@@ -305,6 +319,29 @@ function claimHandle(stateDir, carrier, bad) {
   const dir = path.join(stateDir, "handles"); fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, sha(`${carrier.snapshot.path}\0${carrier.ownership.handle}`));
   try { fs.writeFileSync(file, "", { flag: "wx" }); } catch { bad("snapshot ownership handle has a prior or unreadable completion"); }
+  // The fixture job finishes inside this call, so the claim is also its durable completion (it survives a restart: it is a file); `heldHandles`, `unknownHandles` and
+  // `refusedHandles` of the behavior model a lease still held, a start that may have run with no completion, and a refusal that ran nothing.
+  fs.appendFileSync(path.join(stateDir, "leases.jsonl"), `${JSON.stringify({ snapshot: carrier.snapshot.path, handle: carrier.ownership.handle })}\n`);
+}
+
+/**
+ * `SNAPSHOT_LEASE_STATUS` as the production lease table answers it (snapshot.rs Leases::status; vector lease-status-vectors.v1.json): a handle covers its own lease and every
+ * `<handle>#<suffix>`; a handle never held (and a prefix of one, and another suffix) is UNKNOWN, never REAPED; REAPED needs a durable completion; the answer carries
+ * `members` {handle, state, spawned, refused?, job?} sorted by handle and its `state` is only the aggregate: ACTIVE when any member is held, REAPED when there is at
+ * least one member and every member is REAPED, else UNKNOWN.
+ */
+function leaseStatus(stateDir, behavior, snapshot, wanted) {
+  const covers = (h) => h === wanted || h.startsWith(`${wanted}#`);
+  const members = new Map();
+  let lines = []; try { lines = fs.readFileSync(path.join(stateDir, "leases.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)); } catch { /* none yet */ }
+  for (const { handle, snapshot: where } of lines) if (where === snapshot && covers(handle)) members.set(handle, { handle, state: "REAPED", spawned: true });
+  for (const handle of behavior.completedHandles ?? []) if (covers(handle)) members.set(handle, { handle, state: "REAPED", spawned: true });
+  for (const [handle, code] of Object.entries(behavior.refusedHandles ?? {})) if (covers(handle)) members.set(handle, { handle, state: "REAPED", spawned: false, refused: code });
+  for (const handle of behavior.unknownHandles ?? []) if (covers(handle)) members.set(handle, { handle, state: "UNKNOWN", spawned: true });
+  for (const handle of behavior.heldHandles ?? []) if (covers(handle)) members.set(handle, { handle, state: "ACTIVE", spawned: true });
+  const rows = [...members.values()].sort((a, b) => (a.handle < b.handle ? -1 : a.handle > b.handle ? 1 : 0));
+  const state = rows.some((m) => m.state === "ACTIVE") ? "ACTIVE" : rows.length > 0 && rows.every((m) => m.state === "REAPED") ? "REAPED" : "UNKNOWN";
+  return { type: "SNAPSHOT_LEASE_STATUS", schema: "rustright.snapshot-lease-status.v1", state, snapshot, ownership: wanted, members: rows };
 }
 
 // ---- the fake client: `node fake-broker.mjs --client <state dir> cargo <args>` | `status <id>` ----
@@ -363,7 +400,7 @@ async function client(stateDir, [command, ...args]) {
     const carrier = JSON.parse(bytes);
     const exactly = (value, keys, what) => { if (!value || typeof value !== "object" || Object.keys(value).sort().join() !== [...keys].sort().join()) bad(`unknown or missing fields in ${what}`); };
     exactly(carrier, ["schema", "commit", "snapshot", "declaredInputs", "ownership", "primaryCwd", "argvSha256", "nonce"], "the carrier");
-  if (carrier.schema !== "rustright.snapshot-request/1") bad(`unknown carrier schema ${JSON.stringify(carrier.schema)} (the legacy rightkit.snapshot-request/1 is not read: aliases off)`);
+  { const problem = carrierValuesProblem(carrier); if (problem) bad(problem); }
     exactly(carrier.commit, ["sha", "tree"], "commit"); exactly(carrier.snapshot, ["path", "expectedTree"], "snapshot"); exactly(carrier.declaredInputs, ["inputs"], "declaredInputs"); exactly(carrier.ownership, ["handle"], "ownership");
     if (carrier.nonce !== envVar("ATTEST_NONCE")) bad("nonce");
     if (carrier.argvSha256 !== argvSha256(args)) bad("argv");
@@ -386,8 +423,7 @@ async function client(stateDir, [command, ...args]) {
     // rustright snapshot.rs:469: the status of a (bare) ownership handle covers every held handle equal to it or starting with `<it>#`.
     const flag = (name) => args[args.indexOf(name) + 1];
     const snapshot = flag("--snapshot"); const wanted = flag("--ownership");
-    const held = (behavior.heldHandles ?? []).some((h) => h === wanted || h.startsWith(`${wanted}#`));
-    process.stdout.write(`${JSON.stringify({ schema: "rustright.snapshot-lease-status.v1", state: held ? "ACTIVE" : "REAPED", snapshot, ownership: wanted })}\n`);
+    process.stdout.write(`${JSON.stringify(leaseStatus(stateDir, behavior, snapshot, wanted))}\n`);
     process.exit(0);
   }
   if (command === "status") {
@@ -505,7 +541,7 @@ function adapterRun(stateDir, fx, behavior, argv) {
   const carrier = JSON.parse(bytes);
   const exactly = (value, keys, what) => { if (!value || typeof value !== "object" || Object.keys(value).sort().join() !== [...keys].sort().join()) bad(`unknown or missing fields in ${what}`); };
   exactly(carrier, ["schema", "commit", "snapshot", "declaredInputs", "ownership", "primaryCwd", "argvSha256", "nonce"], "the carrier");
-  if (carrier.schema !== "rustright.snapshot-request/1") bad(`unknown carrier schema ${JSON.stringify(carrier.schema)} (the legacy rightkit.snapshot-request/1 is not read: aliases off)`);
+  { const problem = carrierValuesProblem(carrier); if (problem) bad(problem); }
   if (carrier.nonce !== envVar("ATTEST_NONCE")) bad("nonce");
   if (carrier.argvSha256 !== argvSha256(args)) bad("argv");
   if (fs.realpathSync(carrier.primaryCwd) !== fs.realpathSync(process.cwd())) bad("primaryCwd");

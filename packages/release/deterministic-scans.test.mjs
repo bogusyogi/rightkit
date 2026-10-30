@@ -2911,7 +2911,7 @@ test("[GB-67] on a broker host a swift scan is the carried adapter job and sends
   try {
     const log = [];
     // A stub snapshot broker whose snapshot cannot be resolved: the carried call refuses before anything is sent, which is enough to read the argv it would send.
-    const snapshotBroker = { handle: "own", commit: { sha: "c".repeat(40), tree: "e".repeat(40) }, snapshot: { path: path.join(os.tmpdir(), "no-such-snapshot"), expectedTree: "e".repeat(40) }, checkout: LIVE, controlRoot: ledgerDir, markBrokerSubmit: () => { throw new Error("must not mark"); } };
+    const snapshotBroker = { handle: "own", commit: { sha: "c".repeat(40), tree: "e".repeat(40) }, snapshot: { path: path.join(os.tmpdir(), "no-such-snapshot"), expectedTree: "e".repeat(40) }, checkout: LIVE, controlRoot: ledgerDir, markBrokerSubmit: (callHandle) => { throw new Error(`must not mark ${callHandle}`); } };
     const result = await runScans(plan, deps({ ...swiftOnly, classes: ["B"], priorClassA: evidence, spawn: fakeSpawn({ log }), snapshotBroker, env: { RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs" }, cargoLedger: { dir: ledgerDir } }));
     assert.ok(!log.some((c) => path.basename(c[0]) === "swift" && c[1] === "build"), `swift build never runs around the broker: ${JSON.stringify(log.filter((c) => /swift/.test(c[0])))}`);
     assert.ok(result.scans.some((r) => r.id.startsWith("swift-build") && r.status === "fail"), "the refused carried call fails the scan");

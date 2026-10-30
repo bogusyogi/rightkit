@@ -408,7 +408,7 @@ test("[RR status envelope] the receipt is read from `{type:\"STATUS\", state, re
   h.fx.setBehavior({});
   assert.equal(h.row(await h.run([unit("envelope")]), "envelope").status, "pass", "the full envelope of a terminal job verifies");
   const entry = h.ledger("envelope").entries[0];
-  assert.deepEqual(entry.attribution, { available: true, rows: [] }); assert.match(entry.toolchain, /^stable\|cargo:1{64}\|rustc:2{64}$/, "attribution and toolchain are recorded in the ledger");
+  assert.deepEqual({ ...entry.attribution, detail: undefined }, { available: true, source: "cargo-json", packages: 1, units: 1, errors: 0, warnings: 0, otherMessages: 0, freshUnits: 1, truncated: 0, detail: undefined }, "the compact attribution the broker signs (GB-82/GB-50), its rows in the detail file"); assert.match(entry.attribution.detail.sha256, /^[0-9a-f]{64}$/); assert.match(entry.toolchain, /^stable\|cargo:1{64}\|rustc:2{64}$/, "attribution and toolchain are recorded in the ledger");
 });
 
 test("[7.07 M/D, gate half] a generator that writes an ignored path inside the snapshot passes; one that rewrites a tracked file is refused at the after-exit bind with the app owner's fix named, and its result is discarded (the broker's own bind is item 2: dev-broker run BLOCKED-on-item-4)", { skip: POSIX }, async (t) => {
