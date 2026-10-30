@@ -47,7 +47,7 @@ export function assertSwiftDoc(doc) {
   assert.deepEqual(tag.permissions, { contents: "write", actions: "read" }, "contents: write belongs to the tag job alone");
   assert.deepEqual(tag.needs, ["verify"]); assert.equal(tag.environment, "release");
   for (const job of [verify, tag]) assert.ok(Number(job["timeout-minutes"]) > 0);
-  assert.equal(verify.steps.length, 5); assert.equal(tag.steps.length, 4);
+  assert.equal(verify.steps.length, 7); assert.equal(tag.steps.length, 4);
   for (const job of [verify, tag]) {
     for (const step of job.steps) {
       if (step.run) assert.ok(!step.run.includes("${{"), "dispatch values cannot enter shell source");
@@ -56,11 +56,20 @@ export function assertSwiftDoc(doc) {
     }
     assert.deepEqual(job.steps[0], CHECKOUT_STEP); assert.deepEqual(job.steps[1], NODE_STEP);
   }
-  assert.deepEqual(verify.steps[2], { name: "Check this workflow's own contract", run: "node scripts/ci/swift-workflow-contract.mjs" });
-  keys(verify.steps[3], ["name", "env", "run"]); assert.deepEqual(verify.steps[3].env, SWIFT_ENV);
-  assert.equal(verify.steps[3].run, "node scripts/ci/publish-swift.mjs verify");
-  keys(verify.steps[4], ["name", "run"]);
-  assert.equal(verify.steps[4].run, 'swift package describe --type json > "$RUNNER_TEMP/describe.json"');
+  // Order in verify: checkout, node, preflight (P1: before anything compiles), contract, guards, qualify (the compile), describe.
+  keys(verify.steps[2], ["name", "run"]);
+  assert.equal(verify.steps[2].run, 'node scripts/preflight.mjs --commit "$GITHUB_SHA"', "preflight runs first, on exactly the checked-out commit");
+  assert.deepEqual(verify.steps[3], { name: "Check this workflow's own contract", run: "node scripts/ci/swift-workflow-contract.mjs" });
+  keys(verify.steps[4], ["name", "env", "run"]); assert.deepEqual(verify.steps[4].env, SWIFT_ENV);
+  assert.equal(verify.steps[4].run, "node scripts/ci/publish-swift.mjs verify");
+  keys(verify.steps[5], ["name", "run"]);
+  assert.equal(verify.steps[5].run, "node scripts/ci/publish-swift.mjs qualify", "the read-only compile is the verify job's, after preflight and the guards");
+  keys(verify.steps[6], ["name", "run"]);
+  assert.equal(verify.steps[6].run, 'swift package describe --type json > "$RUNNER_TEMP/describe.json"');
+  const compiles = (step) => /(^|[\s;&|])(swift|xcodebuild)\s|publish-swift\.mjs qualify/.test(step.run ?? "");
+  assert.deepEqual(verify.steps.map((step, index) => (compiles(step) ? index : -1)).filter((index) => index >= 0), [5, 6], "only qualify and describe compile in verify, after preflight");
+  assert.ok(!tag.steps.some(compiles), "the write job compiles nothing");
+  assert.ok(!("environment" in verify) && !("env" in verify) && !("secrets" in verify), "verify holds no environment, job env or secret");
   keys(tag.steps[2], ["name", "env", "run"]); assert.deepEqual(tag.steps[2].env, SWIFT_ENV);
   assert.equal(tag.steps[2].run, "node scripts/ci/publish-swift.mjs tag");
   keys(tag.steps[3], ["name", "if", "uses", "with"]);
@@ -98,11 +107,22 @@ export const SWIFT_MUTATIONS = [
   ["dispatch value in shell source", (d) => { d.jobs.tag.steps[2].run += " ${{ inputs.version }}"; }],
   ["repository secret in the tag step", (d) => { d.jobs.tag.steps[2].env.NODE_AUTH_TOKEN = "${{ secrets.NPM_TOKEN }}"; }],
   ["tag step skips verification mode", (d) => { d.jobs.tag.steps[2].run = "git tag $PUBLISH_SWIFT_VERSION && git push origin $PUBLISH_SWIFT_VERSION"; }],
-  ["verify step tags", (d) => { d.jobs.verify.steps[3].run = "node scripts/ci/publish-swift.mjs tag"; }],
+  ["verify step tags", (d) => { d.jobs.verify.steps[4].run = "node scripts/ci/publish-swift.mjs tag"; }],
   ["version comes from elsewhere", (d) => { d.jobs.tag.steps[2].env.PUBLISH_SWIFT_VERSION = "0.9.0"; }],
-  ["commit comes from elsewhere", (d) => { d.jobs.verify.steps[3].env.PUBLISH_SWIFT_COMMIT = "${{ github.sha }}"; }],
+  ["commit comes from elsewhere", (d) => { d.jobs.verify.steps[4].env.PUBLISH_SWIFT_COMMIT = "${{ github.sha }}"; }],
   ["dry run flag is dropped from tag", (d) => { delete d.jobs.tag.steps[2].env.PUBLISH_DRY_RUN; }],
-  ["contract self-check removed", (d) => { d.jobs.verify.steps.splice(2, 1); }],
+  ["contract self-check removed", (d) => { d.jobs.verify.steps.splice(3, 1); }],
+  ["preflight missing", (d) => { d.jobs.verify.steps.splice(2, 1); }],
+  ["preflight runs after the guards", (d) => { const [step] = d.jobs.verify.steps.splice(2, 1); d.jobs.verify.steps.splice(4, 0, step); }],
+  ["preflight checks another commit", (d) => { d.jobs.verify.steps[2].run = 'node scripts/preflight.mjs --commit "${{ inputs.commit }}"'; }],
+  ["qualify missing", (d) => { d.jobs.verify.steps.splice(5, 1); }],
+  ["qualify runs before preflight", (d) => { const [step] = d.jobs.verify.steps.splice(5, 1); d.jobs.verify.steps.splice(2, 0, step); }],
+  ["qualify moved into the tag job", (d) => { const [step] = d.jobs.verify.steps.splice(5, 1); d.jobs.tag.steps.splice(2, 0, step); }],
+  ["an extra compile in the write job", (d) => { d.jobs.tag.steps.splice(2, 0, { name: "build", run: "swift build" }); }],
+  ["verify compiles before preflight", (d) => { d.jobs.verify.steps.splice(2, 0, { name: "build", run: "swift build" }); }],
+  ["verify gains the release environment", (d) => { d.jobs.verify.environment = "release"; }],
+  ["verify gains a job secret", (d) => { d.jobs.verify.env = { NODE_AUTH_TOKEN: "${{ secrets.NPM_TOKEN }}" }; }],
+  ["verify qualify step gains a secret", (d) => { d.jobs.verify.steps[5].env = { TOKEN: "${{ secrets.NPM_TOKEN }}" }; }],
   ["extra step in the write job", (d) => { d.jobs.tag.steps.splice(3, 0, { run: "git push --force origin main" }); }],
   ["receipt artifact is replaced", (d) => { d.jobs.tag.steps[3].with.name = "publication-receipt"; }],
 ];

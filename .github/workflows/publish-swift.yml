@@ -1,5 +1,7 @@
-# Hand-written security boundary: the only route that tags a RightKitSwift release. It compiles nothing; it
-# proves that one reviewed, CI-green commit on main is what the tag names, then pushes that one tag.
+# Hand-written security boundary: the only route that tags a RightKitSwift release. The verify job is read-only: it
+# runs preflight, proves the commit and its reviewer approval, then builds and tests the root package (swift build,
+# swift test, generic iOS and watchOS builds) on the hosted xcode-27 runner. The tag job compiles nothing; it
+# re-proves the commit and pushes that one tag. Dispatch directly with `gh workflow run publish-swift.yml`.
 # Contract: scripts/ci/swift-workflow-contract.mjs. Guard logic: scripts/ci/publish-swift.mjs.
 name: publish-swift
 on:
@@ -42,15 +44,19 @@ jobs:
         with:
           node-version: "26.8.1"
           package-manager-cache: false
+      - name: Check the commit before anything compiles
+        run: node scripts/preflight.mjs --commit "$GITHUB_SHA"
       - name: Check this workflow's own contract
         run: node scripts/ci/swift-workflow-contract.mjs
-      - name: Verify the commit, its approval and its green CI run (no write permission)
+      - name: Verify the commit and its reviewer approval (no write permission)
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PUBLISH_SWIFT_VERSION: ${{ inputs.version }}
           PUBLISH_SWIFT_COMMIT: ${{ inputs.commit }}
           PUBLISH_DRY_RUN: ${{ inputs.dry_run }}
         run: node scripts/ci/publish-swift.mjs verify
+      - name: Qualify the root package read-only (swift build, swift test, iOS and watchOS builds)
+        run: node scripts/ci/publish-swift.mjs qualify
       - name: Confirm the root package that apps resolve describes at this commit
         run: swift package describe --type json > "$RUNNER_TEMP/describe.json"
   tag:

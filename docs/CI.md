@@ -290,6 +290,8 @@ then Windows (`windows-2025`) & macOS (`xcode-27`) verify those sealed archives.
 Its per-run concurrency group permits independent qualifications concurrently; `publish-direct.yml` uploads
 serially in the `publish` concurrency group, so dependency-ordered dispatches publish in order.
 
+**RightKitSwift tags** use a third route, `publish-swift.yml`, dispatched directly (`gh workflow run publish-swift.yml -f version=X.Y.Z -f commit=<sha>`; `dry_run` defaults to true) as `publish-reviewed.yml` is. It qualifies itself and needs no shared-CI run. Its `verify` job (hosted `xcode-27`, `contents: read` and `actions: read` only, no secret, no environment) runs `node scripts/preflight.mjs --commit "$GITHUB_SHA"` first, then the workflow contract, then every guard in `scripts/ci/publish-swift.mjs` (trusted context, clean checkout on `origin/main`, VERSION, CHANGELOG, manifest drift, tag absent, reviewer approval bound to the tree digest of `Package.swift` and `swift/RightKitSwift`), then `publish-swift.mjs qualify` (`swift build`, `swift test` and the generic iOS and watchOS `xcodebuild` builds of the root package). The `tag` job (`release` environment, `contents: write`) compiles nothing: it re-verifies and pushes the one tag. This is the named Swift exception to P4 in `docs/PIPELINE-ARCHITECTURE.md`.
+
 The rest of this section is the reviewed route. After R8 Astra signoff on exact diff, commit both approval layers in `ci/approved-artifacts.json` (schema 2):
 
 - `artifacts`: every unit's registry, name, version & archive SHA-256, with reviewer & review reference.

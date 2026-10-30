@@ -6,11 +6,10 @@ import test from "node:test";
 import { spawnSync } from "node:child_process";
 import { parseYaml } from "./workflow-yaml.mjs";
 import { REPOSITORY, loadApprovedArtifacts } from "./upload.mjs";
-import { WORKFLOW_PATH } from "./last-green.mjs";
 import { assertSwiftDoc, proveSwiftMutations, SWIFT_MUTATIONS } from "./swift-workflow-contract.mjs";
 import {
-  REQUIRED_CI_JOBS, SWIFT_NAME, TREE_DIGEST_CONTRACT, WORKFLOW_REF, checkApproval, checkCheckout, checkCi, checkIdentity, checkSourceFiles,
-  ciJobProblems, createTag, gitRunner, isCalendarDate, parseInputs, pushCredential, repositoryOfRemote, selectCiRun, tagCommands, treeDigest, verifyAll,
+  QUALIFY_COMMANDS, SWIFT_NAME, TREE_DIGEST_CONTRACT, WORKFLOW_REF, checkApproval, checkCheckout, checkIdentity, checkSourceFiles,
+  createTag, gitRunner, isCalendarDate, parseInputs, pushCredential, qualify, repositoryOfRemote, tagCommands, treeDigest, verifyAll,
 } from "./publish-swift.mjs";
 
 const COMMIT = "a".repeat(40);
@@ -137,59 +136,35 @@ test("approval needs exactly one swift entry for this name and version with the 
   assert.throws(() => checkApproval({ approvedFile: path.join(os.tmpdir(), "rk-swift-no-such-file.json"), version: "0.9.0", digest }), /not valid/);
 });
 
-// ---- shared CI evidence ------------------------------------------------------------------------
+// ---- qualification -----------------------------------------------------------------------------
 
-const run = (extra = {}) => ({
-  id: 4242, run_number: 7, run_attempt: 1, path: WORKFLOW_PATH, event: "workflow_dispatch", head_branch: "main", head_sha: COMMIT, status: "completed", conclusion: "success",
-  repository: { full_name: REPOSITORY }, head_repository: { full_name: REPOSITORY }, ...extra,
-});
-const jobs = (extra = {}, base = run()) => REQUIRED_CI_JOBS.map((name) => ({ name, status: "completed", conclusion: "success", run_id: base.id, run_attempt: base.run_attempt, head_sha: COMMIT, ...extra }));
-
-test("the CI run must be the broker-dispatched shared-CI run on main of this repository for exactly this commit, and green", () => {
-  assert.equal(selectCiRun({ runs: [run()], commit: COMMIT }).id, 4242);
-  assert.throws(() => selectCiRun({ runs: [], commit: COMMIT }), /no broker-dispatched rightkit-shared-ci run/);
-  assert.throws(() => selectCiRun({ runs: undefined, commit: COMMIT }), /no broker-dispatched rightkit-shared-ci run/);
-  const wrong = [
-    { head_sha: "b".repeat(40) }, { path: ".github/workflows/publish.yml" }, { event: "pull_request" }, { event: "push" }, { head_branch: "topic" },
-    { repository: { full_name: "fork/rightkit" } }, { head_repository: { full_name: "fork/rightkit" } },
-  ];
-  for (const extra of wrong) assert.throws(() => selectCiRun({ runs: [run(extra)], commit: COMMIT }), /no broker-dispatched rightkit-shared-ci run/, JSON.stringify(extra));
-  for (const extra of [{ status: "in_progress", conclusion: null }, { status: "queued", conclusion: null }, { conclusion: "failure" }, { conclusion: "cancelled" }, { conclusion: "skipped" }]) {
-    assert.throws(() => selectCiRun({ runs: [run(extra)], commit: COMMIT }), /not green/, JSON.stringify(extra));
-  }
-  // The newest run for the commit decides: a later red re-run is not hidden by an older green one.
-  assert.throws(() => selectCiRun({ runs: [run({ id: 1, run_number: 6 }), run({ id: 2, run_number: 7, conclusion: "failure" })], commit: COMMIT }), /run 2/);
-  assert.equal(selectCiRun({ runs: [run({ id: 1, run_number: 6, conclusion: "failure" }), run({ id: 2, run_number: 7 })], commit: COMMIT }).id, 2);
-  assert.throws(() => selectCiRun({ runs: [run({ id: 1, run_attempt: 2, conclusion: "failure" }), run({ id: 1, run_attempt: 1 })], commit: COMMIT }), /not green/);
-});
-
-test("the swift shard, the root job, the summary and mark-green-macos must each exist once and succeed on this attempt", () => {
-  assert.deepEqual(REQUIRED_CI_JOBS, ["summary", "mark-green-macos", "macos swift-rightkitswift", "macos root"]);
-  assert.deepEqual(ciJobProblems({ jobs: jobs(), run: run(), commit: COMMIT }), []);
-  assert.match(ciJobProblems({ jobs: undefined, run: run(), commit: COMMIT })[0], /unavailable/);
-  const missingSwift = jobs().filter((job) => job.name !== "macos swift-rightkitswift");
-  assert.match(ciJobProblems({ jobs: missingSwift, run: run(), commit: COMMIT })[0], /CI selected no Swift work/);
-  assert.match(ciJobProblems({ jobs: [...jobs(), ...jobs().slice(0, 1)], run: run(), commit: COMMIT })[0], /found 2/);
-  for (const name of REQUIRED_CI_JOBS) {
-    for (const extra of [{ conclusion: "failure" }, { conclusion: "skipped" }, { conclusion: "cancelled" }, { status: "in_progress", conclusion: null }]) {
-      const rows = jobs().map((job) => (job.name === name ? { ...job, ...extra } : job));
-      assert.match(ciJobProblems({ jobs: rows, run: run(), commit: COMMIT }).join(";"), new RegExp(`"${name}" did not succeed`), `${name} ${JSON.stringify(extra)}`);
-    }
-  }
-  for (const extra of [{ run_id: 1 }, { run_attempt: 2 }, { head_sha: "b".repeat(40) }]) {
-    assert.match(ciJobProblems({ jobs: jobs(extra), run: run(), commit: COMMIT }).join(";"), /another run attempt or commit/, JSON.stringify(extra));
-  }
-});
-
-test("checkCi reads the run list then the jobs of that exact attempt", async () => {
+test("qualify runs swift build, swift test and the generic iOS and watchOS builds of the root package, in that order", () => {
+  const xcode = (platform) => ["xcodebuild", ["build", "-scheme", "RightKitSwift-Package", "-destination", `generic/platform=${platform}`, "-skipPackagePluginValidation", "CODE_SIGNING_ALLOWED=NO"]];
+  assert.deepEqual(QUALIFY_COMMANDS, [["swift", ["build"]], ["swift", ["test"]], xcode("iOS"), xcode("watchOS")]);
   const calls = [];
-  const client = { listRuns: async () => { calls.push("runs"); return [run()]; }, listAttemptJobs: async (id, attempt) => { calls.push(`jobs ${id} ${attempt}`); return jobs(); } };
-  assert.deepEqual(await checkCi({ client, commit: COMMIT }), { id: "4242", attempt: 1, number: 7 });
-  assert.deepEqual(calls, ["runs", "jobs 4242 1"]);
-  const red = { listRuns: async () => [run()], listAttemptJobs: async () => jobs({ conclusion: "failure" }) };
-  await assert.rejects(checkCi({ client: red, commit: COMMIT }), /run 4242: .*did not succeed/);
-  const none = { listRuns: async () => [], listAttemptJobs: async () => { throw new Error("must not be called"); } };
-  await assert.rejects(checkCi({ client: none, commit: COMMIT }), /no broker-dispatched rightkit-shared-ci run/);
+  const count = qualify({ root: "/checkout", log: () => {}, run: (command, args, root) => { calls.push([command, args, root]); return { status: 0 }; } });
+  assert.equal(count, 4);
+  assert.deepEqual(calls, QUALIFY_COMMANDS.map(([command, args]) => [command, args, "/checkout"]));
+});
+
+test("qualify stops at the first failing command and refuses", () => {
+  for (let failing = 0; failing < QUALIFY_COMMANDS.length; failing += 1) {
+    const calls = [];
+    assert.throws(() => qualify({ log: () => {}, run: (command, args) => { calls.push(command); return { status: calls.length === failing + 1 ? 1 : 0 }; } }), /swift publish refused: .* failed \(exit 1\)/, `command ${failing}`);
+    assert.equal(calls.length, failing + 1, "nothing runs after the failure");
+  }
+});
+
+test("qualify refuses a command that cannot start or is killed by a signal", () => {
+  assert.throws(() => qualify({ log: () => {}, run: () => ({ error: new Error("spawn swift ENOENT"), status: null }) }), /could not run: spawn swift ENOENT/);
+  assert.throws(() => qualify({ log: () => {}, run: () => ({ status: null, signal: "SIGKILL" }) }), /swift build failed/);
+  assert.throws(() => qualify({ log: () => {}, run: () => undefined }), /swift build failed/);
+});
+
+test("the qualify subcommand takes no argument and is not an input-driven mode", () => {
+  const source = fs.readFileSync(new URL("./publish-swift.mjs", import.meta.url), "utf8");
+  assert.match(source, /mode === "qualify"[\s\S]*?need\(rest\.length === 0, "usage: publish-swift\.mjs qualify"\)/);
+  assert.ok(!/REQUIRED_CI_JOBS|selectCiRun|ciJobProblems|listAttemptJobs|createGitHubActionsClient/.test(source), "the shared-CI guard is gone");
 });
 
 // ---- git fixture -------------------------------------------------------------------------------
@@ -278,18 +253,13 @@ test("checkout guards refuse a wrong HEAD, a foreign origin, a dirty tree, an un
 
 // ---- the whole verification and the tag --------------------------------------------------------
 
-function world({ version = "0.9.0", mutateApproved, jobRows, runRows } = {}) {
+function world({ version = "0.9.0", mutateApproved } = {}) {
   const f = fixture({ version });
   const approved = approvedFile([entry({ version, sha256: f.digest() })]);
   if (mutateApproved) mutateApproved(approved);
-  const base = run({ head_sha: f.commit });
-  const client = {
-    listRuns: async () => (runRows ? runRows(f.commit) : [base]),
-    listAttemptJobs: async () => (jobRows ? jobRows(f.commit) : REQUIRED_CI_JOBS.map((name) => ({ name, status: "completed", conclusion: "success", run_id: base.id, run_attempt: 1, head_sha: f.commit }))),
-  };
   const env = goodEnv({ GITHUB_SHA: f.commit, PUBLISH_SWIFT_COMMIT: f.commit, PUBLISH_SWIFT_VERSION: version });
-  const verify = (overrides = {}) => verifyAll({ env, root: f.work, git: f.runner, client, approvedFile: approved.file, drift: f.stubDrift(), ...overrides });
-  return { f, approved, env, client, verify, cleanup: () => { f.cleanup(); approved.cleanup(); } };
+  const verify = (overrides = {}) => verifyAll({ env, root: f.work, git: f.runner, approvedFile: approved.file, drift: f.stubDrift(), ...overrides });
+  return { f, approved, env, verify, cleanup: () => { f.cleanup(); approved.cleanup(); } };
 }
 
 test("verifyAll returns the evidence of a fully qualified commit and writes nothing", async () => {
@@ -297,7 +267,7 @@ test("verifyAll returns the evidence of a fully qualified commit and writes noth
   try {
     const verified = await w.verify();
     assert.equal(verified.version, "0.9.0"); assert.equal(verified.commit, w.f.commit); assert.equal(verified.digest, w.f.digest());
-    assert.equal(verified.changelogDate, "2026-10-20"); assert.deepEqual(verified.ci, { id: "4242", attempt: 1, number: 7 }); assert.equal(verified.dryRun, false);
+    assert.equal(verified.changelogDate, "2026-10-20"); assert.equal(verified.dryRun, false);
     assert.equal(w.f.git(["tag", "-l"]), ""); assert.equal(w.f.git(["ls-remote", "--tags", "origin"]), "");
   } finally { w.cleanup(); }
 });
@@ -306,9 +276,6 @@ test("verifyAll refuses each missing proof before anything is tagged", async () 
   const cases = {
     "no approval entry": [{ mutateApproved: (a) => fs.writeFileSync(a.file, JSON.stringify({ schema: 2, candidates: [], artifacts: [] })) }, /not reviewer-approved/],
     "approval for other bytes": [{ mutateApproved: (a) => fs.writeFileSync(a.file, JSON.stringify({ schema: 2, candidates: [], artifacts: [entry({ sha256: HEX(7) })] })) }, /is not the reviewer-approved/],
-    "CI not green": [{ runRows: (commit) => [run({ head_sha: commit, conclusion: "failure" })] }, /not green/],
-    "CI never ran for the commit": [{ runRows: () => [run({ head_sha: "c".repeat(40) })] }, /no broker-dispatched rightkit-shared-ci run/],
-    "the swift shard is red": [{ jobRows: (commit) => REQUIRED_CI_JOBS.map((name) => ({ name, status: "completed", conclusion: name === "macos swift-rightkitswift" ? "failure" : "success", run_id: 4242, run_attempt: 1, head_sha: commit })) }, /macos swift-rightkitswift" did not succeed/],
   };
   for (const [label, [options, pattern]] of Object.entries(cases)) {
     const w = world(options);
@@ -373,9 +340,9 @@ test("publish-swift.yml satisfies its contract and every weakening is rejected",
   const doc = parseYaml(fs.readFileSync(new URL("../../.github/workflows/publish-swift.yml", import.meta.url), "utf8"));
   assert.equal(assertSwiftDoc(doc), true);
   assert.deepEqual(proveSwiftMutations(doc), []);
-  assert.ok(SWIFT_MUTATIONS.length >= 30);
+  assert.ok(SWIFT_MUTATIONS.length >= 40);
   const names = SWIFT_MUTATIONS.map(([name]) => name);
-  for (const required of ["verify gains contents write", "tag runs for a dry run", "dry run defaults to false", "publications stop sharing one lock", "checkout follows an input", "dispatch value in shell source", "repository secret in the tag step", "extra step in the write job"]) assert.ok(names.includes(required), required);
+  for (const required of ["verify gains contents write", "tag runs for a dry run", "dry run defaults to false", "publications stop sharing one lock", "checkout follows an input", "dispatch value in shell source", "repository secret in the tag step", "extra step in the write job", "preflight missing", "qualify missing", "qualify moved into the tag job", "verify gains the release environment", "verify gains a job secret"]) assert.ok(names.includes(required), required);
 });
 
 test("contents: write appears only in the tag job, and the push token is the job token", () => {
