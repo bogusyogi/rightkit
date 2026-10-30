@@ -1,4 +1,4 @@
-import { discoverBrokerSocket, managedControlCandidates, resolveManagedRoots } from './managed-roots.mjs';
+import { discoverBrokerSocket, managedControlCandidates, managedRuntimeClient, resolveManagedRoots } from './managed-roots.mjs';
 import { randomUUID } from "node:crypto";
 import { homedir, userInfo } from "node:os";
 import { closeSync, existsSync, mkdirSync, openSync, readSync, rmSync, writeFileSync } from "node:fs";
@@ -45,33 +45,8 @@ export function directCargoEnv(env = process.env, platform = process.platform, e
   return direct.dropped.length ? { ...env, PATH: direct.path } : env;
 }
 
-export function managedRuntimeClient(env = process.env, platform = process.platform, exists = existsSync) {
-  if (directPlatform(platform)) return undefined;
-  const roots = managedControlCandidates({ env, platform });
-  const paths = platform === 'win32' ? path.win32 : path.posix;
-  // runtime-current ships the native `rustright` client.
-  for (const root of roots) {
-    const client = paths.join(root, "runtime-current", platform === 'win32' ? "rustright.exe" : "rustright");
-    if (exists(client)) return client;
-  }
-  // RustRight's own install (2026-10-17 cutover): the Mac agent-bin shims exec this client directly.
-  if (platform === 'darwin') {
-    const client = path.posix.join(env.HOME || homedir(), 'Library', 'Application Support', 'RustRight', 'runtime', 'rustright');
-    if (exists(client)) return client;
-    // Broker-managed HOME may point at a build home; the installed native client belongs to the OS account.
-    const accountClient = path.posix.join(userInfo().homedir, 'Library', 'Application Support', 'RustRight', 'runtime', 'rustright');
-    if (exists(accountClient)) return accountClient;
-  }
-  // RustRight's own install on Windows (2026-10-18 cutover): the runtime moved out of the control root to
-  // <drive>\.rustright\runtime, beside the control root's drive, and runtime-current was retired.
-  if (platform === 'win32') {
-    for (const root of roots) {
-      const client = path.win32.join(path.win32.parse(root).root, '.rustright', 'runtime', 'rustright.exe');
-      if (exists(client)) return client;
-    }
-  }
-  return undefined;
-}
+// The installed-runtime client lookup lives in managed-roots.mjs (a leaf module, so broker-client.mjs can use it without an import cycle).
+export { managedRuntimeClient };
 
 /** Command line that runs the managed client: the native rustright client runs directly. */
 export function managedRuntimeCommand(client, args) {

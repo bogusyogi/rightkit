@@ -62,14 +62,36 @@ export function rightkitDrift(appRoot, versions = loadRightkitVersions()) {
   return drift;
 }
 
-function run(command, args, cwd) {
-  const result = spawnSync(command, args, { cwd, stdio: "inherit", windowsHide: true, shell: process.platform === "win32" });
+const SHIM_EXE_LINE = /^"([A-Za-z]:\\[^"%\r\n<>|&^!*?]+\.exe)" %\*$/m;
+
+/**
+ * How a command starts (GB-08, BR11/B31). `rustright` on Windows is the managed agent shim `rustright.cmd`, which node cannot start without
+ * a shell (EINVAL; a shell would re-quote the argv): its target .exe is read from the shim and started directly, argv array, no shell.
+ * Anything else keeps the old launch (pnpm on Windows is a .cmd and keeps its shell). A client that cannot be resolved throws before anything runs.
+ */
+export function launchOf(command, args, { platform = process.platform, spawn = spawnSync, readFile = (f) => readFileSync(f, "utf8") } = {}) {
+  if (command !== "rustright") return { command, args, shell: platform === "win32" };
+  if (platform !== "win32") return { command, args, shell: false };
+  const where = spawn("where", ["rustright"], { encoding: "utf8", windowsHide: true, shell: false, timeout: 20_000 });
+  const found = String(where?.stdout ?? "").split(/\r?\n/).map((l) => l.trim()).filter((l) => /^[A-Za-z]:\\/.test(l));
+  const exe = found.find((l) => /\.exe$/i.test(l));
+  if (exe) return { command: exe, args, shell: false };
+  const shim = found.find((l) => /\.(cmd|bat)$/i.test(l));
+  let target = null;
+  if (shim) { try { target = SHIM_EXE_LINE.exec(readFile(shim))?.[1] ?? null; } catch { target = null; } }
+  if (!target) throw new Error("RK_BROKER_CLIENT_UNRESOLVED: the RustRight client (rustright.exe) cannot be resolved from PATH; nothing was started");
+  return { command: target, args, shell: false };
+}
+
+function run(command, args, cwd, { spawn = spawnSync, platform = process.platform, readFile } = {}) {
+  const launch = launchOf(command, args, { platform, spawn, readFile });
+  const result = spawn(launch.command, launch.args, { cwd, stdio: "inherit", windowsHide: true, shell: launch.shell });
   if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed in ${cwd} (exit ${result.status ?? result.error?.message})`);
 }
 
 /** Move drifted pins to the latest version (keeping their = ^ ~ prefix), then refresh lockfiles.
  * Breaking bumps need code changes, so they are adopted only with includeBreaking. */
-export function applyRightkitAdoption(appRoot, versions = loadRightkitVersions(), { refreshLocks = true, includeBreaking = false } = {}) {
+export function applyRightkitAdoption(appRoot, versions = loadRightkitVersions(), { refreshLocks = true, includeBreaking = false, runOptions = {} } = {}) {
   const drift = rightkitDrift(appRoot, versions).filter((item) => includeBreaking || !item.breaking);
   const byFile = Map.groupBy(drift, (item) => item.file);
   for (const [file, items] of byFile) {
@@ -90,8 +112,8 @@ export function applyRightkitAdoption(appRoot, versions = loadRightkitVersions()
   if (refreshLocks) {
     for (const file of byFile.keys()) {
       const dir = path.join(appRoot, path.dirname(file));
-      if (file.endsWith("package.json")) run("pnpm", ["install", "--lockfile-only", "--ignore-scripts"], dir);
-      else run("rustright", ["cargo", "metadata", "--format-version", "1", "--manifest-path", path.join(appRoot, file)], dir);
+      if (file.endsWith("package.json")) run("pnpm", ["install", "--lockfile-only", "--ignore-scripts"], dir, runOptions);
+      else run("rustright", ["cargo", "metadata", "--format-version", "1", "--manifest-path", path.join(appRoot, file)], dir, runOptions);
     }
   }
   return drift;

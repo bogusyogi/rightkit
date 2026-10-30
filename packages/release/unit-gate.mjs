@@ -43,10 +43,10 @@ export function defaultStageCommands({ unit, root, platform, readJson = defaultR
   return expectedStageCommands({ kind: unit.kind, unit: unit.name, config: readJson(path.join(root, "ci", "gate.config.json")), manifest, platform });
 }
 
-export function readBrokerReceipt(id, { run = defaultRun, platform = process.platform, readFile } = {}) {
+export function readBrokerReceipt(id, { run = defaultRun, platform = process.platform, readFile, env = process.env, installed } = {}) {
   // The client starts the one way every gate child starts it (broker-client.mjs): on Windows `rustright` is rustright.cmd, which node cannot
   // spawn, so its target .exe is read from the shim and started directly.
-  const r = spawnBrokerClient(run, locateBrokerClient({ platform, probe: run }), ["status", id], { encoding: "utf8", timeout: 60_000 }, { platform, readFile });
+  const r = spawnBrokerClient(run, locateBrokerClient({ platform, env, probe: run, ...(installed ? { installed } : {}) }), ["status", id], { encoding: "utf8", timeout: 60_000, windowsHide: true, shell: false }, { platform, readFile });
   if (r.error || r.status !== 0) throw new Error(`the broker cannot report job ${id} (rustright status failed)`);
   let doc;
   try { doc = JSON.parse(r.stdout); } catch { throw new Error(`the broker's status of job ${id} is not JSON`); }
