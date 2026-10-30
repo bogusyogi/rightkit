@@ -20,6 +20,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { REQUEST_OVER_CAP_CODE, requestOverCap } from "./broker-wire.mjs";
 import { BROKER_COMPILE_COMMANDS, CARGO_COMMAND_ALIASES, cargoCommandIndex, cargoSubcommandOf, expandCargoAliases, isCompileCommand, isPackageObservation } from "./cargo-shapes.mjs";
 import { canonicalJson, ProvenanceError, verifyBr19Evidence, verifyProvenance, verifyReceiptCoverage, verifyResultEvidence } from "./provenance-verify.mjs";
 
@@ -234,6 +235,10 @@ export function writeSnapshotRequest({ controlRoot, commit, snapshot, declaredIn
   };
   const bytes = Buffer.from(JSON.stringify(carrier), "utf8");
   if (bytes.length > CARRIER_MAX_BYTES) fail("too-large", `the snapshot request is ${bytes.length} bytes, more than ${CARRIER_MAX_BYTES}`);
+  // GB-53: the request line is 1 MiB, newline included, one unit with the response limit. The declared inputs ride in it with the envelope: a request that cannot fit is
+  // refused here, before the carrier is written, before it counts as sent, so no job exists.
+  const overCap = requestOverCap(Buffer.byteLength(JSON.stringify(carrier.declaredInputs)) + Buffer.byteLength(JSON.stringify({ commit: carrier.commit, snapshot: carrier.snapshot, ownership: carrier.ownership, primaryCwd, argv })));
+  if (overCap) fail(REQUEST_OVER_CAP_CODE, overCap);
   const file = path.join(dir, `${uuid()}.json`);
   fs.writeFileSync(file, bytes, { flag: "wx", mode: 0o600 });
   const digest = sha256(bytes);

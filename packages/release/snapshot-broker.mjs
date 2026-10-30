@@ -22,6 +22,7 @@ import { ATTEST_STAGE_NONCE_ENV, canonicalJson, carriedCallNonce } from "./prove
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { forwardedAdapterEnv } from "./adapter-env.mjs";
 import { carriedShapeDecision } from "./cargo-shapes.mjs";
+import { drainFrames, overCapProblem } from "./broker-wire.mjs";
 import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend } from "./ownership-mark.mjs";
 import {
   MANAGED_RUST_ENVIRONMENT_KEYS, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, isCallHandleOf, lockedArgv, observedEnvOf, readDeclaredInputs, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest,
@@ -54,6 +55,9 @@ export function receiptSync({ client, requestId, env, spawn = spawnSync, platfor
   try { doc = JSON.parse(String(r.stdout)); } catch { throw new SnapshotRequestError("receipt", `rustright status ${requestId} printed no JSON`); }
   // The status envelope is `{type:"STATUS", id, state, ..., receipt}`: `receipt` is null while the job is live and full once it is
   // terminal. Polling is not allowed, so a null receipt after the cargo process exited is a clear error, never a retry.
+  // GB-53: an over-cap outcome is a typed truncation, never a missing-field mystery.
+  const over = overCapProblem(doc);
+  if (over) throw new SnapshotRequestError(over.code, `rustright status ${requestId}: ${over.message}`);
   if (!doc || typeof doc !== "object" || !Object.hasOwn(doc, "receipt")) throw new SnapshotRequestError("receipt", `rustright status ${requestId} returned no receipt field (not a STATUS envelope)`);
   if (doc.receipt === null) throw new SnapshotRequestError("receipt-not-ready", `rustright status ${requestId} reports the job ${doc.state ?? "state unknown"} with no receipt yet, although its cargo process exited; the gate does not poll, so this call is unverified`);
   if (typeof doc.receipt !== "object" || Array.isArray(doc.receipt)) throw new SnapshotRequestError("receipt", `rustright status ${requestId} returned a receipt that is not an object`);
@@ -236,8 +240,14 @@ export function carryBrokerCargo({ words, cwd, env, section, workspace, checkout
     } catch (e) {
       outcome = { status: "unverified", code: e.code ?? "error", message: e.message, ...(ref ? { requestId: ref.requestId, workspace: ref.workspace } : {}) };
     }
-    record({ ...base, ...outcome, nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd, clientExit: r.status ?? null });
     const out = capture ? { stdout: String(r.stdout ?? ""), stderr: String(r.stderr ?? "") } : { stdout: "", stderr: "" };
+    // GB-53: captured output that lost a frame to FRAME_OVER_CAP (or a result the broker replaced with RK_RESPONSE_OVER_CAP) is truncated: refused, never read as complete.
+    if (outcome.status === "verified" && capture) {
+      const drained = drainFrames(`${out.stdout}\n${out.stderr}`);
+      const lost = drained.error ? { code: "frame-over-cap", message: drained.error } : drained.overCap.map(overCapProblem)[0];
+      if (lost) outcome = { status: "unverified", code: lost.code, message: lost.message, requestId: outcome.requestId, workspace: outcome.workspace };
+    }
+    record({ ...base, ...outcome, nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd, clientExit: r.status ?? null });
     if (outcome.status !== "verified") {
       const message = `rightkit-gate: RK_CARGO_BROKER_UNVERIFIED: \`cargo ${words.join(" ")}\` has no verified signed receipt (${outcome.code}: ${outcome.message}); the scan fails`;
       err(message);
@@ -326,8 +336,14 @@ export function carryBrokerAdapter({ adapter, words, cwd, env, section, record, 
     } catch (e) {
       outcome = { status: "unverified", code: e.code ?? "error", message: e.message, ...(ref ? { requestId: ref.requestId, workspace: ref.workspace } : {}) };
     }
-    record({ ...base, ...outcome, nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd, clientExit: r.status ?? null });
     const out = capture ? { stdout: String(r.stdout ?? ""), stderr: String(r.stderr ?? "") } : { stdout: "", stderr: "" };
+    // GB-53: captured output that lost a frame to FRAME_OVER_CAP (or a result the broker replaced with RK_RESPONSE_OVER_CAP) is truncated: refused, never read as complete.
+    if (outcome.status === "verified" && capture) {
+      const drained = drainFrames(`${out.stdout}\n${out.stderr}`);
+      const lost = drained.error ? { code: "frame-over-cap", message: drained.error } : drained.overCap.map(overCapProblem)[0];
+      if (lost) outcome = { status: "unverified", code: lost.code, message: lost.message, requestId: outcome.requestId, workspace: outcome.workspace };
+    }
+    record({ ...base, ...outcome, nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd, clientExit: r.status ?? null });
     if (outcome.status !== "verified") {
       const message = `rightkit-gate: RK_ADAPTER_BROKER_UNVERIFIED: \`${describe}\` has no verified signed receipt (${outcome.code}: ${outcome.message}); the stage fails`;
       err(message);
