@@ -28,13 +28,13 @@ test("F3: in a snapshot stage with a carrier a configured cargo or rustright car
     assert.deepEqual(buildLaunch("rustright", ["cargo", "build"], host), { command: process.execPath, args: [runner, "build"] }, platform);
     assert.deepEqual(buildLaunch("/x/cargo.exe", ["check"], host).args, [runner, "check"], "named by path, still carried");
     if (platform !== "darwin") continue; // the client lookup below is the POSIX fixture
-    // A pnpm, node or QA step of a snapshot stage is a carried ADAPTER job (carried-adapter-run.mjs), never the client's `run`.
+    // A pnpm or node step of a snapshot stage is a carried ADAPTER job (carried-adapter-run.mjs), never the client's `run`.
     const adapterRunner = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "carried-adapter-run.mjs");
     assert.deepEqual(buildLaunch("pnpm", ["run", "x"], host), { command: process.execPath, args: [adapterRunner, "rightkit-pnpm", "--", "run", "x"] });
-    assert.deepEqual(buildLaunch("rightkit-qa", ["--all"], host), { command: process.execPath, args: [adapterRunner, "rightkit-qa", "--", "--all"] });
+    assert.deepEqual(buildLaunch("rightkit-qa", ["--all"], host), { command: "rightkit-qa", args: ["--all"] }, "QA runs an already-built artifact: a direct gate step, never an adapter job");
     assert.deepEqual(buildLaunch("node", ["scripts/x.mjs", "a"], { ...host, cwd: "/app" }), { command: process.execPath, args: [adapterRunner, "rightkit-node", "--", "scripts/x.mjs", "a"] });
     // A rustright command that is not cargo is not the client's in a snapshot stage (door-closure.test.mjs): `run <adapter> -- <args>` is that adapter's carried step, anything else is refused.
-    assert.deepEqual(buildLaunch("rustright", ["run", "rightkit-qa", "--", "--all"], host), { command: process.execPath, args: [adapterRunner, "rightkit-qa", "--", "--all"] });
+    assert.deepEqual(buildLaunch("rustright", ["run", "rightkit-qa", "--", "--all"], host), { command: "rightkit-qa", args: ["--all"] });
     assert.throws(() => buildLaunch("rustright", ["run", "rightkit-qa"], host), (e) => e.code === "RK_BUILD_LAUNCH_REFUSED");
   }
   assert.deepEqual(buildLaunch("cargo", ["build"], managed), { command: CLIENT, args: ["cargo", "build"] }, "no carrier in the environment");

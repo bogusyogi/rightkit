@@ -4,6 +4,11 @@
 // to the RustRight client, so the step is one signed, ledgered adapter request (rustright#190) with its compiles nested under it, the
 // counterpart of carried-cargo-run.mjs for Cargo.
 //
+// The step's own environment arrives in this process's environment: build-launch.mjs sets RUSTRIGHT_ADAPTER_ENV to exactly the names the step
+// declares (adapter-env.mjs adapterEnvLaunch) and those variables' values. runCarriedAdapter reads the same list back (forwardedAdapterEnv),
+// refuses a reserved or unset name with its code (a ledgered refusal, status 101), and binds the forwarded values into the request core the
+// gate recomputes. A step that declares no env has no RUSTRIGHT_ADAPTER_ENV, so the request carries an empty environment.
+//
 // `node carried-adapter-run.mjs --skip-install <pnpm args>` runs nothing: a snapshot stage's dependencies were installed by the gate, so a
 // step that only installs them is skipped with a log line (build-launch.mjs snapshotInstallSkip).
 import { carriedCargoMapOf, runCarriedAdapter } from "./carried-cargo.mjs";

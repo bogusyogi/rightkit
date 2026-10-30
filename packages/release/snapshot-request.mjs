@@ -213,12 +213,13 @@ export function writeSnapshotRequest({ controlRoot, commit, snapshot, declaredIn
 /**
  * The request core the broker digests for a snapshot request: the base core plus commit, snapshot, declaredInputs and ownership. A cargo
  * request has `shim: "cargo"` and no adapter; a carried adapter request (rustright#190 D2) has `shim: "adapter"`, the registered adapter's
- * name, and no observed environment (the broker takes none for an adapter job). The adapter spelling is RustRight's; see
- * snapshot-broker.mjs carryBrokerAdapter.
+ * name, no observed environment (the client captures none for an adapter), and `env`: the request's own environment object, exactly the
+ * variables RUSTRIGHT_ADAPTER_ENV names (rustright-protocol attestation.rs request_core `environment`; adapter-env.mjs), always empty for Cargo.
+ * The adapter spelling is RustRight's; see snapshot-broker.mjs carryBrokerAdapter.
  */
-export function snapshotRequestCore({ argv, workspace, observedEnv = {}, carrier, adapter = null }) {
+export function snapshotRequestCore({ argv, workspace, observedEnv = {}, carrier, adapter = null, adapterEnv = {} }) {
   return {
-    adapter, env: {}, inputManifest: null, nonce: carrier.nonce, observedEnv: adapter === null ? observedEnv : {}, outputs: [], requestedArgv: [...argv], shim: adapter === null ? "cargo" : "adapter", workspace,
+    adapter, env: adapter === null ? {} : { ...adapterEnv }, inputManifest: null, nonce: carrier.nonce, observedEnv: adapter === null ? observedEnv : {}, outputs: [], requestedArgv: [...argv], shim: adapter === null ? "cargo" : "adapter", workspace,
     commit: carrier.commit, snapshot: carrier.snapshot, declaredInputs: carrier.declaredInputs, ownership: carrier.ownership,
   };
 }
@@ -437,15 +438,18 @@ export function verifyNestedChildren(evidence, receipt, { snapshotPath, checkout
  *   - verdict, timingsMs, exit, diagnosticsPath, brokerVersion, executor and refreshed present with their types.
  * `checkout` and `outputRoots` are required: without them nothing can be said about where the outputs went, so it refuses.
  */
-export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, workspace, observedEnv = {}, adapter = null, checkout, outputRoots, platform = process.platform, canonicalPath = (p) => fs.realpathSync.native(p), digestInputs = declaredInputDigestsOf, readInputs = readDeclaredInputs }) {
-  const requestDigest = requestDigestOf(snapshotRequestCore({ argv, workspace, observedEnv, carrier, adapter }));
+export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, workspace, observedEnv = {}, adapter = null, adapterEnv = {}, checkout, outputRoots, platform = process.platform, canonicalPath = (p) => fs.realpathSync.native(p), digestInputs = declaredInputDigestsOf, readInputs = readDeclaredInputs }) {
+  const requestDigest = requestDigestOf(snapshotRequestCore({ argv, workspace, observedEnv, carrier, adapter, adapterEnv }));
   const payload = verifyProvenance(receipt, pins, { jobId, nonce: carrier.nonce, requestDigest });
   // The signed outcome, not the client's exit code: a passing row needs the broker to have signed SUCCEEDED with exit 0 and no
   // signal (service.rs provenance_payload `result`). An authentic FAILED, or a payload without a result, is not a success.
   const result = payload.result;
   if (!result || typeof result !== "object") fail("result", "the signed payload carries no result: the broker did not sign this request's outcome");
   if (result.status !== "SUCCEEDED" || result.exitCode !== 0 || (result.signal !== undefined && result.signal !== null)) {
-    fail("result", `the broker signed ${result.status ?? "no status"} (exit ${result.exitCode ?? "none"}${result.signal ? `, signal ${result.signal}` : ""}), not SUCCEEDED with exit 0`);
+    // Any terminal status but SUCCEEDED fails the call, whatever the broker says about why (a tracked write is refused at exit with a
+    // `snapshot exit bind: ...` message; the field that carries it is pending RustRight's confirmation, so the usual spellings are read).
+    const why = [result.message, result.error, result.reason].find((v) => typeof v === "string" && v !== "");
+    fail("result", `the broker signed ${result.status ?? "no status"} (exit ${result.exitCode ?? "none"}${result.signal ? `, signal ${result.signal}` : ""}${why ? `; ${why}` : ""}), not SUCCEEDED with exit 0`);
   }
   const evidence = payload.snapshotEvidence;
   if (!evidence || typeof evidence !== "object") fail("evidence", "the signed payload carries no snapshotEvidence: the broker did not build this as a snapshot request");

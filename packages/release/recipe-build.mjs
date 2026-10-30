@@ -415,7 +415,7 @@ export function runRecipeBuild(rawPlan, { appRoot, env = process.env, platform =
     // `install` step is skipped, and this package's own right-release runs as it is. Where the door adds nothing (a direct host, a step it
     // passes through unchanged) the step runs as resolveLaunch decided.
     const own = launch.command === process.execPath && launch.args[0] === OWN_RIGHT_RELEASE;
-    const routed = own ? null : door(step.cmd, stepArgs, { env: stepEnv, platform, cwd, exists: (fs?.existsSync ?? nodeExistsSync) });
+    const routed = own ? null : door(step.cmd, stepArgs, { env: stepEnv, stepEnv: step.env, platform, cwd, exists: (fs?.existsSync ?? nodeExistsSync) });
     const passthrough = !routed || (routed.command === step.cmd && routed.args.length === stepArgs.length && routed.args.every((a, i) => a === stepArgs[i]));
     const run = passthrough ? launch : { command: routed.command, args: routed.args, shell: false };
     const result = spawnSync(run.command, run.args, { cwd, env: { ...stepEnv, ...(!passthrough && routed.env ? routed.env : {}) }, stdio: "inherit", shell: run.shell, windowsHide: true });

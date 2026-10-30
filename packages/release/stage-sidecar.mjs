@@ -825,7 +825,7 @@ function splitCommandEnv(ctx) {
 /**
  * One step command of a config (`stage.cmd`, a `command` entry's `cmd`, the cmake tool). In a snapshot stage with a carrier (the gate's
  * carrier map in the environment) every compile is carried or nested under a carried adapter job, so such a step goes through the door
- * (build-launch.mjs): `pnpm`, `node`, `swift` and `rightkit-qa` become carried adapter jobs, `rustright cargo` keeps the carried seam
+ * (build-launch.mjs): `pnpm`, `node` and `swift` become carried adapter jobs, `rightkit-qa` runs direct (it compiles nothing), `rustright cargo` keeps the carried seam
  * (defaultRun), this package's own `right-release` runs as it is, and anything else (`cmake`, a bare tool, `rustright <not cargo>`) is
  * refused with STAGE_SIDECAR_STEP_REFUSED, naming the step: it would otherwise run uncarried around the broker. Without a carrier the
  * step runs exactly as before. Utility commands that compile nothing (`tar`, `codesign`) never come through here.

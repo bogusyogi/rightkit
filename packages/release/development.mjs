@@ -383,8 +383,8 @@ function execute(command, { root, env, dryRun, run, label, door = null }) {
   // is the rightkit-pnpm broker job (by its own name, not the node entry resolveCommand finds), anything else as resolved.
   // A configured command can run code regardless of its label, so installation commands use the door too.
   const own = resolved.command === process.execPath && resolved.args[0] === OWN_RIGHT_RELEASE;
-  const launch = own || !door ? resolved : { ...resolved, ...door(command.cmd === "pnpm" ? "pnpm" : resolved.command, command.cmd === "pnpm" ? args : resolved.args, { env: resolved.env ?? env, cwd, exists: existsSync }) };
-  const result = run(launch.command, launch.args, { cwd, env: launch.env ?? env, stdio: "inherit", windowsHide: true, shell: false, timeout: command.timeoutMs });
+  const launch = own || !door ? resolved : { ...resolved, ...door(command.cmd === "pnpm" ? "pnpm" : resolved.command, command.cmd === "pnpm" ? args : resolved.args, { env: resolved.env ?? env, stepEnv: command.env, cwd, exists: existsSync }) };
+  const result = run(launch.command, launch.args, { cwd, env: launch.env && launch.env !== resolved.env ? { ...(resolved.env ?? env), ...launch.env } : (launch.env ?? env), stdio: "inherit", windowsHide: true, shell: false, timeout: command.timeoutMs });
   if (result.status !== 0) throw new Error(`development ${label} command failed (${result.status}): ${command.name ?? command.cmd}`);
 }
 /** This package's own right-release entry: the door's RightKit, whatever the app's node_modules holds. */

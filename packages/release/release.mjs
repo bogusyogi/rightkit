@@ -1199,7 +1199,7 @@ async function runCommands(value, root, options) {
 async function runCommand(command, root, { env = {}, captureStdout = false } = {}) {
   const cwd = path.resolve(root, command.cwd ?? ".");
   const commandEnvironment = { ...(await commandEnv(command, root)), ...env };
-  const target = buildLaunch(command.cmd, command.args ?? [], { env: { ...process.env, ...commandEnvironment }, cwd, exists: existsSync });
+  const target = buildLaunch(command.cmd, command.args ?? [], { env: { ...process.env, ...commandEnvironment }, stepEnv: command.env, cwd, exists: existsSync });
   // A direct (Linux) launch carries PATH without RustRight shim directories (build-launch `env`).
   return run(target.command, target.args, cwd, { ...commandEnvironment, ...(target.env ?? {}) }, {
     ...command,

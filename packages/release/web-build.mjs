@@ -75,8 +75,8 @@ export function runWebBuild(steps, { appRoot, env = process.env, dryRun = false,
     log(`${dryRun ? "[dry-run] " : ""}${[invocation.cmd, ...invocation.args].join(" ")}`);
     if (dryRun) continue;
     // A web build is a build: through the one door (build-launch.mjs), a broker job on a managed host.
-    const target = door(invocation.cmd, invocation.args, { env: invocation.env, cwd: invocation.cwd, exists: existsSync });
-    const result = spawnSyncFn(target.command, target.args, { cwd: invocation.cwd, env: invocation.env, stdio: "inherit" });
+    const target = door(invocation.cmd, invocation.args, { env: invocation.env, stepEnv: step.env, cwd: invocation.cwd, exists: existsSync });
+    const result = spawnSyncFn(target.command, target.args, { cwd: invocation.cwd, env: target.env ? { ...invocation.env, ...target.env } : invocation.env, stdio: "inherit" });
     if (result.error) throw result.error;
     if (result.status !== 0) return result.status ?? 1;
   }

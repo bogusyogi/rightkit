@@ -40,6 +40,10 @@ export const TAMPERS = {
   otherRequestId: { evidence: (e) => { e.requestId = "33333333-3333-4333-8333-333333333333"; } },
   noSnapshotEvidence: { payload: (p) => { delete p.snapshotEvidence; } },
   failed: { payload: (p) => { p.result = { status: "FAILED", exitCode: 0, signal: null, reap: { reaped: true } }; } },
+  // RustRight refuses a tracked write at exit: the job's terminal receipt is FAILED and its message starts `snapshot exit bind:` (not `changed during execution`).
+  exitBindRefused: { payload: (p) => { p.result = { status: "FAILED", exitCode: 1, signal: null, message: "snapshot exit bind: tracked path src/main.rs was written during the job", reap: { reaped: true } }; } },
+  // The signed request core carries a variable the client did not forward (a broker that digested a different environment).
+  adapterEnvChanged: { adapterEnv: (env) => ({ ...env, EXTRA: "1" }) },
   noResult: { payload: (p) => { delete p.result; } },
   outputInsideSnapshot: { evidence: (e, fx) => { e.outputDir = path.join(fx.snapshot, "target"); } },
   outputInsideCheckout: { evidence: (e, fx) => { e.outputDir = path.join(fx.checkout, "target"); } },
@@ -109,7 +113,7 @@ export const TAMPERS = {
  * One receipt, signed. `carrier` is the carrier the gate wrote; `argv`, `workspace` and `observedEnv` are what the client submitted.
  * `fx` is the fixture (paths, keys, pins).
  */
-export function signedReceipt(fx, { id, carrier, argv, workspace, observedEnv = {}, tamper = "none", mutate = null, adapter = null, children = null }) {
+export function signedReceipt(fx, { id, carrier, argv, workspace, observedEnv = {}, adapterEnv = {}, tamper = "none", mutate = null, adapter = null, children = null }) {
   const t = TAMPERS[tamper] ?? fail(`unknown tamper ${tamper}`);
   const inputs = readDeclaredInputs(carrier.snapshot.path);
   const evidence = {
@@ -127,7 +131,7 @@ export function signedReceipt(fx, { id, carrier, argv, workspace, observedEnv = 
   t.top?.(top);
   const payload = {
     host: fx.pins.host, broker: { brokerDigest: fx.pins.brokerDigest }, keyId: fx.pins.keyId, jobId: id, nonce: carrier.nonce,
-    requestDigest: requestDigestOf(snapshotRequestCore({ argv: t.argv ? t.argv(argv) : argv, workspace, observedEnv, carrier, adapter })),
+    requestDigest: requestDigestOf(snapshotRequestCore({ argv: t.argv ? t.argv(argv) : argv, workspace, observedEnv, carrier, adapter, adapterEnv: t.adapterEnv ? t.adapterEnv(adapterEnv) : adapterEnv })),
     result: { status: "SUCCEEDED", exitCode: 0, signal: null, reap: { reaped: true } }, snapshotEvidence: structuredClone(evidence), stageEvidence: structuredClone(stage), ...structuredClone(top),
   };
   t.payload?.(payload, fx);
@@ -259,8 +263,8 @@ async function client(stateDir, [command, ...args]) {
     // RustRight's envelope: {type:"STATUS", id, state, ..., receipt}; receipt is null while the job is live.
     if (read("behavior.json", {}).statusLive) { process.stdout.write(`${JSON.stringify({ type: "STATUS", id: entry.id, state: "RUNNING", receipt: null })}\n`); process.exit(0); }
     const children = entry.adapter ? readChildren(stateDir, entry.id) : null;
-    if (read("behavior.json", {}).statusBare) { process.stdout.write(`${JSON.stringify(signedReceipt(fx, { id: entry.id, carrier: entry.carrier, argv: entry.argv, workspace: entry.workspace, observedEnv: entry.observedEnv, adapter: entry.adapter ?? null, children }))}\n`); process.exit(0); }
-    const receipt = signedReceipt(fx, { id: entry.id, carrier: entry.carrier, argv: entry.argv, workspace: entry.workspace, observedEnv: entry.observedEnv, tamper: read("behavior.json", {}).statusTamper ?? entry.tamper, adapter: entry.adapter ?? null, children });
+    if (read("behavior.json", {}).statusBare) { process.stdout.write(`${JSON.stringify(signedReceipt(fx, { id: entry.id, carrier: entry.carrier, argv: entry.argv, workspace: entry.workspace, observedEnv: entry.observedEnv, adapterEnv: entry.adapterEnv ?? {}, adapter: entry.adapter ?? null, children }))}\n`); process.exit(0); }
+    const receipt = signedReceipt(fx, { id: entry.id, carrier: entry.carrier, argv: entry.argv, workspace: entry.workspace, observedEnv: entry.observedEnv, adapterEnv: entry.adapterEnv ?? {}, tamper: read("behavior.json", {}).statusTamper ?? entry.tamper, adapter: entry.adapter ?? null, children });
     process.stdout.write(`${JSON.stringify({ type: "STATUS", id: entry.id, state: "SUCCEEDED", receipt })}\n`);
     process.exit(0);
   }
@@ -340,6 +344,15 @@ function adapterRun(stateDir, fx, behavior, argv) {
   if (carrier.argvSha256 !== argvSha256(args)) bad("argv");
   if (fs.realpathSync(carrier.primaryCwd) !== fs.realpathSync(process.cwd())) bad("primaryCwd");
   if (fs.realpathSync(process.cwd()) !== fs.realpathSync(fx.checkout) && !fs.realpathSync(process.cwd()).startsWith(`${fs.realpathSync(fx.checkout)}${path.sep}`)) bad("the request's workspace is not inside the primary checkout");
+  // The request environment: what the client forwards (shims.rs adapter_environment) and the broker's check_environment (a reserved or
+  // unregistered name is refused; the registration is `behavior.registeredEnv[adapter]`, empty by default).
+  const forwarded = {};
+  for (const key of String(envVar("ADAPTER_ENV") ?? "").split(",").map((k) => k.trim()).filter(Boolean)) {
+    if (/^(PATH|HOME|NODE_OPTIONS)$/i.test(key) || /^(RUSTRIGHT_|RIGHTKIT_|LD_|DYLD_|CARGO|RUST)/i.test(key)) { process.stderr.write(`RUSTRIGHT_ADAPTER_ENV names ${key}, which is broker-controlled and cannot be forwarded to an adapter\n`); process.exit(2); }
+    if (env[key] === undefined) { process.stderr.write(`RUSTRIGHT_ADAPTER_ENV names ${key}, which is not set\n`); process.exit(2); }
+    forwarded[key] = env[key];
+  }
+  for (const key of Object.keys(forwarded)) if (!(behavior.registeredEnv?.[adapter] ?? []).includes(key)) { process.stderr.write(`RK_ADAPTER_ENV_DENIED: environment key ${JSON.stringify(key)} is not registered for this adapter\n`); process.exit(2); }
   const denied = snapshotArgvProblem(fx, adapter, args);
   if (denied) { process.stderr.write(`RK_ADAPTER_ARGV_DENIED: ${denied}\n`); process.exit(2); }
   const used = path.join(stateDir, "nonces"); fs.mkdirSync(used, { recursive: true });
@@ -350,13 +363,13 @@ function adapterRun(stateDir, fx, behavior, argv) {
   const clientCwd = fs.realpathSync(process.cwd());
   const workspace = behavior.workspaceIsCwd ? clientCwd : fs.realpathSync(fx.checkout); // workspaceIsCwd models a broker that still answered with the cwd
   fs.writeFileSync(envVar("REQUEST_ID_FILE"), JSON.stringify({ schema: "rustright.request-ref.v1", requestId: id, submittedAt: new Date().toISOString(), workspace }));
-  fs.writeFileSync(path.join(stateDir, "db", `${id}.json`), JSON.stringify({ id, carrier, argv: args, adapter, workspace, observedEnv: {}, tamper: behavior.tamper ?? "none" }));
+  fs.writeFileSync(path.join(stateDir, "db", `${id}.json`), JSON.stringify({ id, carrier, argv: args, adapter, workspace, observedEnv: {}, adapterEnv: forwarded, tamper: behavior.tamper ?? "none" }));
   // The job runs in the snapshot's counterpart of the checkout directory, with the broker's environment: only what the broker passes, its own PATH.
   const token = crypto.randomBytes(16).toString("hex");
   fs.mkdirSync(path.join(stateDir, "tokens"), { recursive: true });
   fs.writeFileSync(path.join(stateDir, "tokens", id), token);
   const jobCwd = path.join(fx.snapshot, path.relative(fs.realpathSync(fx.checkout), clientCwd));
-  const jobEnv = { PATH: fx.adapterBin, HOME: env.HOME ?? "/", RUSTRIGHT_PARENT_REQUEST_ID: id, RUSTRIGHT_PARENT_CAPABILITY_TOKEN: token };
+  const jobEnv = { ...forwarded, PATH: fx.adapterBin, HOME: env.HOME ?? "/", RUSTRIGHT_PARENT_REQUEST_ID: id, RUSTRIGHT_PARENT_CAPABILITY_TOKEN: token };
   const children = behavior.adapter?.children ?? [];
   let exit = behavior.exit ?? 0;
   for (const child of children) {
@@ -364,7 +377,7 @@ function adapterRun(stateDir, fx, behavior, argv) {
     const r = spawnSync("/bin/sh", ["-c", 'exec cargo "$@"', "sh", ...(child.argv ?? ["build", "--locked"])], { cwd: path.join(jobCwd, child.cwd ?? "."), env: jobEnv, encoding: "utf8" });
     if (r.status !== 0 && !behavior.adapter?.swallow) exit = exit || 1;
   }
-  fs.appendFileSync(path.join(stateDir, "adaptercalls.jsonl"), `${JSON.stringify({ id, adapter, argv: args, cwd: clientCwd, workspace, primaryCwd: carrier.primaryCwd, jobCwd, jobEnvNames: Object.keys(jobEnv).sort(), jobPath: jobEnv.PATH, callerEnvNamesDropped: Object.keys(env).filter((k) => !(k in jobEnv) && /^(RUSTRIGHT|RIGHTKIT)_/.test(k)).sort(), stageNonceSeen: env.RIGHTKIT_ATTEST_STAGE_NONCE !== undefined })}\n`);
+  fs.appendFileSync(path.join(stateDir, "adaptercalls.jsonl"), `${JSON.stringify({ id, adapter, argv: args, cwd: clientCwd, workspace, primaryCwd: carrier.primaryCwd, jobCwd, jobEnvNames: Object.keys(jobEnv).sort(), forwardedEnv: forwarded, jobPath: jobEnv.PATH, callerEnvNamesDropped: Object.keys(env).filter((k) => !(k in jobEnv) && /^(RUSTRIGHT|RIGHTKIT)_/.test(k)).sort(), stageNonceSeen: env.RIGHTKIT_ATTEST_STAGE_NONCE !== undefined })}\n`);
   if (behavior.stdout) process.stdout.write(behavior.stdout);
   process.exit(exit);
 }

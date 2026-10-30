@@ -157,8 +157,8 @@ export async function runSuites(plan, { appRoot, prefix = "test", env = process.
     const started = Date.now();
     const exitCode = await new Promise((resolve, reject) => {
       // A test suite goes through the one door (build-launch.mjs): a broker job on a managed host, which builds it under the app's claim.
-      const target = door(invocation.cmd, invocation.args, { env: invocation.env, cwd: invocation.cwd, exists: existsSync });
-      const child = spawnFn(target.command, target.args, { cwd: invocation.cwd, env: invocation.env, stdio: "inherit" });
+      const target = door(invocation.cmd, invocation.args, { env: invocation.env, stepEnv: item.step.env, cwd: invocation.cwd, exists: existsSync });
+      const child = spawnFn(target.command, target.args, { cwd: invocation.cwd, env: target.env ? { ...invocation.env, ...target.env } : invocation.env, stdio: "inherit" });
       child.once("error", reject);
       child.once("exit", (code, signal) => {
         if (signal) reject(new Error(`${item.name} stopped by ${signal}`));

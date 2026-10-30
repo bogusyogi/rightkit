@@ -19,6 +19,7 @@ import { spawnSync } from "./background-process.mjs";
 import { loadBrokerPins } from "./broker-pins.mjs";
 import { ATTEST_STAGE_NONCE_ENV, canonicalJson, carriedCallNonce } from "./provenance-verify.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
+import { forwardedAdapterEnv } from "./adapter-env.mjs";
 import {
   SnapshotRequestError, argvSha256, lockedArgv, observedEnvOf, readDeclaredInputs, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest,
 } from "./snapshot-request.mjs";
@@ -207,6 +208,11 @@ export function carryBrokerAdapter({ adapter, words, cwd, env, section, record, 
   for (const key of Object.keys(clientEnv)) if (/^(CARGO_TARGET_DIR|CARGO_BUILD_TARGET_DIR)$/i.test(key) || /^(RUSTRIGHT|RIGHTKIT)_SNAPSHOT_GRANT$/i.test(key)) delete clientEnv[key];
   const stageNonce = env[ATTEST_STAGE_NONCE_ENV];
   for (const key of Object.keys(clientEnv)) if (key.toUpperCase() === ATTEST_STAGE_NONCE_ENV) delete clientEnv[key];
+  // The request environment the client will forward (RUSTRIGHT_ADAPTER_ENV and the variables it names): bound into the request core below and
+  // recorded in the ledger so the gate's own re-verification recomputes the same digest. A reserved or unset name is refused here, as the client would.
+  let adapterEnv;
+  try { adapterEnv = forwardedAdapterEnv(env); } catch (e) { return refuse(e.code ?? "RK_ADAPTER_ENV_INVALID", e.message); }
+  base.adapterEnv = adapterEnv;
   let realCwd; let checkoutCwd;
   try {
     const snapshotRoot = fs.realpathSync.native(section.snapshot.path);
@@ -239,7 +245,7 @@ export function carryBrokerAdapter({ adapter, words, cwd, env, section, record, 
       // The workspace root of a snapshot-bound adapter job is the bound primary toplevel (no Cargo.toml needed), never the step's own directory.
       if (fs.realpathSync.native(ref.workspace) !== fs.realpathSync.native(section.checkout)) throw new SnapshotRequestError("workspace", `the request's workspace ${ref.workspace} is not the primary toplevel ${section.checkout}`);
       const receipt = receiptSync({ client: section.client, requestId: ref.requestId, env: clientEnv, spawn });
-      const { evidence, attribution, toolchain, nestedChildren } = verifySnapshotReceipt(receipt, { pins: section.pins, jobId: ref.requestId, carrier: made.carrier, argv: words, workspace: ref.workspace, adapter, checkout: section.checkout, outputRoots: section.outputRoots, platform: section.platform });
+      const { evidence, attribution, toolchain, nestedChildren } = verifySnapshotReceipt(receipt, { pins: section.pins, jobId: ref.requestId, carrier: made.carrier, argv: words, workspace: ref.workspace, adapter, adapterEnv, checkout: section.checkout, outputRoots: section.outputRoots, platform: section.platform });
       outcome = { status: "verified", requestId: ref.requestId, workspace: ref.workspace, outputDir: evidence.outputDir, nestedChildren, treeAtStart: evidence.snapshot.treeAtStart, treeAtExit: evidence.snapshot.treeAtExit, attribution, toolchain };
     } catch (e) {
       outcome = { status: "unverified", code: e.code ?? "error", message: e.message, ...(ref ? { requestId: ref.requestId, workspace: ref.workspace } : {}) };
@@ -275,6 +281,8 @@ export async function verifyBrokerLedger(entries, sb, { seen = { nonces: new Set
     try {
       if (typeof e.nonce !== "string" || typeof e.requestId !== "string" || !Array.isArray(e.argv) || !e.argv.every((a) => typeof a === "string") || typeof e.workspace !== "string" || typeof e.checkoutCwd !== "string") throw new SnapshotRequestError("ledger", "the record is incomplete");
       if (seen.nonces.has(e.nonce) || seen.ids.has(e.requestId)) throw new SnapshotRequestError("replay", "a carrier or request was used twice; each call carries its own fresh nonce and is used once");
+      if (e.adapterEnv !== undefined && !(e.adapterEnv && typeof e.adapterEnv === "object" && !Array.isArray(e.adapterEnv) && Object.values(e.adapterEnv).every((v) => typeof v === "string"))) throw new SnapshotRequestError("ledger", "the record's adapter environment is not a map of strings");
+      if (adapter === null && e.adapterEnv !== undefined && Object.keys(e.adapterEnv).length) throw new SnapshotRequestError("ledger", "a cargo call carries no request environment");
       seen.nonces.add(e.nonce); seen.ids.add(e.requestId);
       const workspace = fs.realpathSync.native(e.workspace);
       if (!inside(workspace, sb.checkout)) throw new SnapshotRequestError("ledger", `the request ran in ${workspace}, outside the primary checkout`);
@@ -293,7 +301,7 @@ export async function verifyBrokerLedger(entries, sb, { seen = { nonces: new Set
         ownership: { handle: sb.handle }, primaryCwd: fs.realpathSync.native(e.checkoutCwd), argvSha256: argvSha256(e.argv), nonce: e.nonce,
       };
       const receipt = await sb.receiptOf(e.requestId);
-      const verified = verifySnapshotReceipt(receipt, { pins: sb.pins, jobId: e.requestId, carrier, argv: e.argv, workspace: e.workspace, observedEnv: e.observedEnv ?? {}, adapter, checkout: sb.checkout, outputRoots: sb.outputRoots, platform: sb.platform });
+      const verified = verifySnapshotReceipt(receipt, { pins: sb.pins, jobId: e.requestId, carrier, argv: e.argv, workspace: e.workspace, observedEnv: e.observedEnv ?? {}, adapter, adapterEnv: e.adapterEnv ?? {}, checkout: sb.checkout, outputRoots: sb.outputRoots, platform: sb.platform });
       if (adapter !== null) {
         // The children the ledger records (the bundle root and the stage's output directories are read from them) are the signed ones, and no more.
         if (canonicalJson(e.nestedChildren ?? null) !== canonicalJson(verified.nestedChildren)) throw new SnapshotRequestError("nested", "the nested children the call recorded are not the ones the broker's receipt signs");
