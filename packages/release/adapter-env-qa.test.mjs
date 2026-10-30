@@ -12,8 +12,8 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { ADAPTER_ENV_RESERVED, ADAPTER_ENV_UNSET, ADAPTER_ENV_VAR, adapterEnvLaunch, forwardedAdapterEnv, isReservedAdapterEnvKey } from "./adapter-env.mjs";
-import { BUILD_LAUNCH_REFUSED, buildLaunch, qaBuildReason } from "./build-launch.mjs";
 import { readLedger, UNSCOPED } from "./cargo-ledger.mjs";
+import { BUILD_LAUNCH_REFUSED, buildLaunch } from "./build-launch.mjs";
 import { SHIM_MAP_SCHEMA } from "./cargo-target-shim.mjs";
 import { CARRIED_CARGO_MAP_ENV, installCarrier, runCarriedAdapter } from "./carried-cargo.mjs";
 import { spawnSync } from "./background-process.mjs";
@@ -182,60 +182,4 @@ test("a tracked write refused at exit (`snapshot exit bind: ...`) is a terminal 
   }
 });
 
-// ---- QA is not an adapter job ----
-
-const CLIENT = "/managed/agent-bin/rustright";
-function snapshotHost(t, extra = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-qa-"));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  const mapFile = path.join(dir, "map.json");
-  fs.writeFileSync(mapFile, JSON.stringify({ schema: SHIM_MAP_SCHEMA, mode: "broker", broker: {}, ledgerDir: path.join(dir, "ledger"), workspaces: {} }));
-  const qa = path.join(dir, "rightkit-qa");
-  return { dir, qa, host: { platform: "darwin", exists: (p) => p === CLIENT || p === qa, which: (c) => (c === "rustright" ? [CLIENT] : []), env: { PATH: `/managed/agent-bin:${dir}`, [CARRIED_CARGO_MAP_ENV]: mapFile }, ...extra } };
-}
-
-test("a QA step on the snapshot route runs outside the broker: a direct step with the caller's unscrubbed environment, no adapter job, and never the client", { skip: POSIX }, (t) => {
-  const s = snapshotHost(t);
-  fs.writeFileSync(s.qa, `#!/bin/sh\nprintf '%s|%s|%s' "$HEARDRIGHT_QA_APP_ROOT" "$RIGHTKIT_QA_TIER" "$*"\n`, { mode: 0o755 });
-  const args = ["run-tests", "--from-cargo-json", "/scratch/list.json", "--app", "heardright", "--parallel", "1", "--", "--nocapture"];
-  const launch = buildLaunch("rightkit-qa", args, s.host);
-  assert.deepEqual(launch, { command: s.qa, args }, "the QA runner itself, by its resolved path");
-  assert.notEqual(launch.command, CLIENT);
-  assert.notEqual(launch.command, process.execPath);
-  assert.equal(launch.args.includes("run") && launch.args.includes("rightkit-qa"), false);
-  assert.equal(Object.hasOwn(launch, "env"), false, "no adapter environment: QA keeps the caller's own");
-  assert.deepEqual(buildLaunch("rustright", ["run", "rightkit-qa", "--", ...args], s.host), launch, "the client spelling is the same direct step");
-  // It runs as a plain child with the unscrubbed environment of its step.
-  const ran = spawnSync(launch.command, launch.args, { env: { ...process.env, HEARDRIGHT_QA_APP_ROOT: "/app", RIGHTKIT_QA_TIER: "fast,local-models" }, encoding: "utf8" });
-  assert.equal(ran.status, 0);
-  assert.equal(ran.stdout, `/app|fast,local-models|${args.join(" ")}`);
-  // Journeys that only read a receipt, and a plain run of a built app, compile nothing.
-  for (const ok of [["journeys", "receipt", "--root", "/app"], ["run", "--tier", "fast"], ["--all"]]) assert.deepEqual(buildLaunch("rightkit-qa", ok, s.host), { command: s.qa, args: ok }, ok.join(" "));
-  // Off the snapshot route the whole run is still one broker job (the client's `run`), as before.
-  assert.deepEqual(buildLaunch("rightkit-qa", ["run-tests", "--app", "a"], { ...s.host, env: { PATH: "/managed/agent-bin" } }), { command: CLIENT, args: ["run", "rightkit-qa", "--", "run-tests", "--app", "a"] });
-  // A step's declared env is not turned into an adapter request for QA.
-  assert.equal(Object.hasOwn(buildLaunch("rightkit-qa", ["--all"], { ...s.host, stepEnv: { HEARDRIGHT_QA_APP_ROOT: "/app" } }), "env"), false);
-});
-
-test("a QA step on the snapshot route that would compile is refused, naming the step and the build it needs as its own carried step", { skip: POSIX }, (t) => {
-  const s = snapshotHost(t);
-  const compiles = [
-    // The apps' own QA steps today: both compile their test binaries (no --from-cargo-json).
-    ["run-tests", "--app", "heardright", "--parallel", "1", "--manifest-path", "./qa-e2e/Cargo.toml", "--", "--nocapture"],
-    ["run-tests", "--app", "genright", "--parallel", "1", "-p", "genright-e2e", "--", "--test-threads=1"],
-    ["journeys", "run", "--root", "/app"],
-    ["run", "--tier", "fast", "--build"],
-    ["run", "--build-ui"],
-    ["run-tests", "--from-cargo-json", "/l.json", "--build-with", "cargo"],
-    ["cargo", "build"],
-    ["run", "pnpm", "build"],
-  ];
-  for (const args of compiles) {
-    assert.ok(qaBuildReason(args), args.join(" "));
-    assert.throws(() => buildLaunch("rightkit-qa", args, s.host), (e) => e.code === BUILD_LAUNCH_REFUSED && /rightkit-qa .*compiles nothing/s.test(e.message) && /its own carried build step/.test(e.message), args.join(" "));
-    assert.throws(() => buildLaunch("rustright", ["run", "rightkit-qa", "--", ...args], s.host), (e) => e.code === BUILD_LAUNCH_REFUSED, `via the client spelling: ${args.join(" ")}`);
-  }
-  // Arguments after `--` go to the test binaries; naming a tool there is not a build by the QA step.
-  assert.equal(qaBuildReason(["run-tests", "--from-cargo-json", "/l.json", "--", "cargo"]), null);
-  assert.equal(qaBuildReason(["run-tests", "--from-cargo-json=/l.json", "--app", "x"]), null);
-});
+// QA on the snapshot route (a direct step, the carried build of a run-tests step, the path rules): qa-snapshot.test.mjs.

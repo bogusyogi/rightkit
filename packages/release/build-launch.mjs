@@ -10,7 +10,10 @@
 // - rightkit-qa <args>         -> <rustright> run rightkit-qa -- <args>   (off the snapshot route: the whole QA run, its test binaries included,
 //                                  is one broker job holding the app's claim). ON a snapshot stage it is NOT an adapter job: QA runs an
 //                                  already-built artifact and compiles nothing, so it stays a direct, gate-run step with its GUI session and
-//                                  unscrubbed environment (`qaBuildReason` refuses a QA step whose argv would build)
+//                                  unscrubbed environment. A `run-tests` step with no `--from-cargo-json` is two parts (qa-snapshot-run.mjs): a
+//                                  carried test build whose listing lands under the carrier's managed directory, then QA directly against
+//                                  it. Any other QA step whose argv would build (`journeys run`, `--build*`) is refused (`qaBuildReason`), as
+//                                  is a QA directory outside the snapshot or an input that resolves into the primary checkout (`qaPathReason`)
 // - this package's right-release -> unchanged (same NODE_OPTIONS as this process): it orchestrates, and every build it starts comes back
 //                                  through this door
 // A SNAPSHOT STAGE (the gate's carrier map is in the environment, RIGHTKIT_CARRIED_CARGO_MAP) carries every one of those steps itself: a
@@ -37,6 +40,7 @@ import { resolveExecutor } from "./gate-executor.mjs";
 import { resolveExecutable } from "./admission-host.mjs";
 import { CARRIED_CARGO_MAP_ENV as CARRIED_MAP_ENV, carriedCargoMapOf } from "./carried-cargo.mjs";
 import { adapterEnvLaunch } from "./adapter-env.mjs";
+import { QA_VALUE_OPTIONS, hasListing, isBuildFlag, ownWords, qaPathReason, qaSnapshotPlan } from "./qa-snapshot.mjs";
 
 /** The environment variable the door sets for a stage that runs from a commit snapshot (gate-stages.mjs CHECKOUT_ENV). */
 const SNAPSHOT_STAGE_ENV = "RK_GATE_CHECKOUT";
@@ -45,6 +49,7 @@ export const BUILD_LAUNCH_REFUSED = "RK_BUILD_LAUNCH_REFUSED";
 const OWN_RIGHT_RELEASE = fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url));
 const CARRIED_RUN = fileURLToPath(new URL("./carried-cargo-run.mjs", import.meta.url));
 const CARRIED_ADAPTER_RUN = fileURLToPath(new URL("./carried-adapter-run.mjs", import.meta.url));
+const QA_SNAPSHOT_RUN = fileURLToPath(new URL("./qa-snapshot-run.mjs", import.meta.url));
 // pnpm options that take the next argument as their value (so that value is not the command).
 const PNPM_VALUE_OPTIONS = new Set(["--dir", "-C", "--filter", "-F", "--prefix", "--config", "--reporter", "--workspace-concurrency"]);
 // Node flags that change no code path; everything else before the script (-e, --eval, -p, --import, -r, --require, --loader, …) refuses.
@@ -57,21 +62,21 @@ const SNAPSHOT_PNPM_COMMANDS = new Set(["run", "exec", "pack"]);
 const ADAPTER_PROGRAMS = Object.freeze({ "rightkit-pnpm": "pnpm", "rightkit-node": "node", "rightkit-qa": "rightkit-qa", "rightkit-swift": "swift" });
 /** The tools a QA step must not start: running one is a build, and a QA step compiles nothing. */
 const QA_BUILD_PROGRAMS = new Set(["cargo", "rustc", "rustdoc", "rustright", "rightkit", "pnpm", "npm", "npx", "yarn", "swift", "swiftc", "xcodebuild", "gradle", "gradlew", "make", "cmake", "node-gyp"]);
-const QA_VALUE_OPTIONS = new Set(["--app", "--root", "--qa-config", "--tier", "--parallel", "--manifest-path", "-p", "--package", "--test", "--features", "--from-cargo-json"]);
+export { QA_VALUE_OPTIONS };
 /**
  * Why a `rightkit-qa` argv would build, or null. A QA step on a snapshot stage runs an already-built artifact: `run-tests` compiles its
- * test binaries unless it is handed an existing listing (`--from-cargo-json`), `journeys run` builds through the broker, `run --build` and
- * `--build-ui` build, and any named toolchain command is a build. A QA flow that needs a harness built compiles it as a separate carried
- * build step (a `cargo test --no-run --message-format=json` step, then `run-tests --from-cargo-json <listing>`).
+ * test binaries unless it is handed an existing listing (`--from-cargo-json`, read in flag position only), `journeys run` builds through the
+ * broker, `run --build`, `--build-ui` and `--build-with` build, and any named toolchain command is a build. `carried` says the gate carries a
+ * `run-tests` step's build itself (qa-snapshot.mjs), so that one is not reported; `journeys run` has no prebuilt form and always is.
  */
-export function qaBuildReason(args) {
+export function qaBuildReason(args, { carried = false } = {}) {
   const words = args.map(String);
-  const own = words.includes("--") ? words.slice(0, words.indexOf("--")) : words;
-  const positionals = own.filter((w, i) => !w.startsWith("-") && !(i > 0 && QA_VALUE_OPTIONS.has(own[i - 1])));
-  const fromListing = own.some((w) => w === "--from-cargo-json" || w.startsWith("--from-cargo-json="));
-  if (positionals[0] === "run-tests" && !fromListing) return "`rightkit-qa run-tests` without --from-cargo-json compiles its test binaries (`cargo test --no-run`)";
-  if (positionals[0] === "journeys" && positionals[1] === "run") return "`rightkit-qa journeys run` builds through the broker before it launches";
-  if (own.some((w) => w === "--build" || w === "--build-ui" || w === "--build-with" || w.startsWith("--build-with="))) return "a --build, --build-ui or --build-with flag makes the QA run build";
+  // run-tests has its own parser (words after `--` are test arguments); every other command's Args reads the whole argv (rightkit-qa.rs
+  // Args::has / value ignore `--`), so for those a build flag or tool anywhere is the build.
+  const own = words[0] === "run-tests" ? ownWords(words) : words;
+  if (words[0] === "run-tests" && !hasListing(words) && !carried) return "`rightkit-qa run-tests` without --from-cargo-json compiles its test binaries (`cargo test --no-run`)";
+  if (words[0] === "journeys" && words[1] === "run") return "`rightkit-qa journeys run` builds through the broker before it launches, and rightkit-qa has no prebuilt mode for it (it spawns its own `rustright cargo ... --no-run`)";
+  if (own.some(isBuildFlag)) return "a --build, --build-ui or --build-with flag makes the QA run build";
   const tool = own.find((w) => QA_BUILD_PROGRAMS.has(name(w)));
   if (tool !== undefined) return `the argument ${JSON.stringify(tool)} names a build tool (${name(tool)}); a QA step compiles nothing`;
   return null;
@@ -183,9 +188,20 @@ export function buildLaunch(command, args = [], host = {}) {
     const snapshotMap = carriedCargoMapOf(env);
     if (snapshotMap?.error) refuse(`rightkit-qa ${args.join(" ")}: ${snapshotMap.error}; a snapshot stage's step is never run around its carrier`);
     if (!snapshotMap) return adapterLaunch("rightkit-qa", args.map(String));
-    const reason = qaBuildReason(args);
-    if (reason) refuse(`rightkit-qa ${args.join(" ")}: ${reason}; a QA step of a snapshot stage runs the already-built artifact and compiles nothing, so the build it needs is its own carried build step (cargo test --no-run --message-format=json, then run-tests --from-cargo-json)`);
-    return { command: lookup("rightkit-qa")[0] ?? "rightkit-qa", args: args.map(String) };
+    // The step runs from the snapshot and reads only the snapshot and managed output: its directory is inside the snapshot, and nothing it
+    // names (the listing, --root, --cwd, --manifest-path) resolves into the primary checkout.
+    const section = snapshotMap.map.broker ?? {};
+    const checkouts = [section.checkout, env[SNAPSHOT_STAGE_ENV]].filter((c) => typeof c === "string" && c);
+    const placed = qaPathReason(args, { cwd: host.cwd ?? process.cwd(), snapshot: section.snapshot?.path, checkouts, env: { ...env, ...host.stepEnv } });
+    if (placed) refuse(`rightkit-qa ${args.join(" ")}: ${placed}`);
+    const reason = qaBuildReason(args, { carried: true });
+    if (reason) refuse(`rightkit-qa ${args.join(" ")}: ${reason}; a QA step of a snapshot stage runs the already-built artifact and compiles nothing, so a build it needs is its own carried build step (a test build with --no-run --message-format=json, then run-tests --from-cargo-json)`);
+    const qa = lookup("rightkit-qa")[0] ?? "rightkit-qa";
+    // `run-tests` with no listing: the gate carries its test build, then runs QA directly against the listing (qa-snapshot-run.mjs).
+    const plan = qaSnapshotPlan(args);
+    if (plan?.refusal) refuse(`rightkit-qa ${args.join(" ")}: ${plan.refusal}`);
+    if (plan) return { command: process.execPath, args: [QA_SNAPSHOT_RUN, qa, "--", ...args.map(String)] };
+    return { command: qa, args: args.map(String) };
   }
   if (program === "swift") return adapterLaunch("rightkit-swift", args.map(String));
   // This package's own right-release, run by this very Node binary (not any executable named node), with no startup code added by

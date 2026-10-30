@@ -260,7 +260,7 @@ test("under a release-bound stage the adapter's nonce is derived from the stage 
   assert.deepEqual(await h.installed.problems(h.fx.sb), []);
 });
 
-test("build-launch: a snapshot stage's pnpm, node and QA steps are carried adapter jobs, an install step is skipped with a log line, and nothing changes without the snapshot route", () => {
+test("build-launch: a snapshot stage's pnpm and node steps are carried adapter jobs (QA is a direct step), an install step is skipped with a log line, and nothing changes without the snapshot route", () => {
   const CLIENT = "/managed/agent-bin/rustright";
   const base = { platform: "darwin", exists: (p) => p === CLIENT, which: (c) => (c === "rustright" ? [CLIENT] : []) };
   const snapshot = { ...base, env: { PATH: "/managed/agent-bin", RK_GATE_CHECKOUT: "/co" } };

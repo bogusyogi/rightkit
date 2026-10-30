@@ -20,10 +20,11 @@ test("F3: in a snapshot stage with a carrier a configured cargo or rustright car
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-bl-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const map = path.join(dir, "map.json");
-  fs.writeFileSync(map, JSON.stringify({ schema: SHIM_MAP_SCHEMA, mode: "broker", broker: {}, ledgerDir: path.join(dir, "ledger"), workspaces: {} }));
+  fs.writeFileSync(map, JSON.stringify({ schema: SHIM_MAP_SCHEMA, mode: "broker", broker: { snapshot: { path: path.join(dir, "snap") }, checkout: path.join(dir, "co") }, ledgerDir: path.join(dir, "ledger"), workspaces: {} }));
+  fs.mkdirSync(path.join(dir, "snap"), { recursive: true });
   const runner = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "carried-cargo-run.mjs");
   for (const platform of ["darwin", "win32"]) {
-    const host = { ...managed, platform, env: { ...managed.env, [CARRIED_CARGO_MAP_ENV]: map } };
+    const host = { ...managed, platform, cwd: path.join(dir, "snap"), env: { ...managed.env, [CARRIED_CARGO_MAP_ENV]: map } };
     assert.deepEqual(buildLaunch("cargo", ["test", "--locked"], host), { command: process.execPath, args: [runner, "test", "--locked"] }, platform);
     assert.deepEqual(buildLaunch("rustright", ["cargo", "build"], host), { command: process.execPath, args: [runner, "build"] }, platform);
     assert.deepEqual(buildLaunch("/x/cargo.exe", ["check"], host).args, [runner, "check"], "named by path, still carried");
