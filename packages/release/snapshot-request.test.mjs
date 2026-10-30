@@ -605,3 +605,13 @@ test("[GB-02] for every compile form of the vector, removing both copies of fres
     }
   }
 });
+
+// ---- GB-10 / GB-11: the gate verifies a compile receipt with the strict verifier ----
+test("[GB-10] a receipt the strict verifier refuses never verifies: no or one-sided or malformed BR19 evidence, signed-only and receipt-only result evidence", (t) => {
+  assert.equal(receiptCase(t).check().payload.result.status, "SUCCEEDED");
+  for (const tamper of ["noBr19Evidence", "br19ReceiptOnly", "br19SignedOnly", "br19ProfileDiffers", "br19ResourcesNoPriority", "br19InventedZero", "br19DigestNotHex"]) {
+    assert.throws(() => receiptCase(t, { tamper }).check(), (e) => e.code === "evidence", tamper);
+  }
+  // A timing phase missing on BOTH sides: equal, but not the contract's six phases.
+  assert.throws(() => receiptCase(t, { mutate: (p) => { delete p.resultEvidence.timingsMs.queue; } }).check(), (e) => e.code === "evidence");
+});

@@ -566,14 +566,14 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   // Symmetric both ways: a field the broker signed that the protocol does not name is as unexplained as one the receipt lacks (an added field).
   for (const name of Object.keys(signedResult)) if (!RESULT_EVIDENCE_FIELDS.includes(name)) fail("evidence", `the signed result evidence carries the unknown field ${name}`);
   for (const name of Object.keys(isObject(receipt.timingsMs) ? receipt.timingsMs : {})) if (!TIMING_KEYS.includes(name)) fail("evidence", `receipt timingsMs carries the unknown key ${name}`);
+  // A snapshot-bound adapter job signs the compiles its own children made (rustright#190 D8).
+  const nestedChildren = adapter === null ? null : verifyNestedChildren(evidence, receipt, { snapshotPath: carrier.snapshot.path, checkout, outputRoots, platform, canonicalPath, jobId });
   // GB-10 / GB-11: whatever the checks above did not already name, the production strict verifier (`verify_receipt_strict`, provenance-verify.mjs, judged
   // against RustRight's receipt vector case for case) must also accept: no signed-only or receipt-only field anywhere, the signed result evidence with exactly
   // its four fields and six phases, and the BR19 shape (profile, stage, resources, environment; a value or a typed UNKNOWN, never absent).
   verifyReceiptCoverage(receipt, payload);
   verifyResultEvidence(receipt, payload);
   verifyBr19Evidence(receipt, payload);
-  // A snapshot-bound adapter job signs the compiles its own children made (rustright#190 D8).
-  const nestedChildren = adapter === null ? null : verifyNestedChildren(evidence, receipt, { snapshotPath: carrier.snapshot.path, checkout, outputRoots, platform, canonicalPath, jobId });
   return { payload, evidence, attribution, toolchain, nestedChildren };
 }
 
