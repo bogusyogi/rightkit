@@ -476,9 +476,10 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   if (inside(out, carrier.snapshot.path, platform) || inside(out, canon(carrier.snapshot.path), platform)) fail("evidence", `the output directory ${out} is inside the snapshot`);
   if (inside(out, checkout, platform) || inside(out, canon(checkout), platform)) fail("evidence", `the output directory ${out} is inside the checkout`);
   if (!isGenerationTarget(out, outputRoots, platform)) fail("evidence", `the output directory ${out} is not a managed generation target (<ws root>/<repo-key>/g/<generation>/target) under ${outputRoots.join(", ")}`);
-  // Stage evidence is signed with the rest and must equal the receipt's copy. `freshness` is required for every carried command;
-  // `attribution` and `toolchain` only for a compile-class command (check, clippy, build, doc, rustc, test: the broker emits them
-  // for compiles only), so metadata, fetch --locked, fmt --check or tree --locked pass without them. When either side carries one
+  // Stage evidence is signed with the rest and must equal the receipt's copy. `freshness`, `attribution` and `toolchain` are
+  // required only for a compile-class command (check, clippy, build, doc, rustc, test): the broker emits them for compiles only, so a
+  // read-only metadata, fetch --locked, fmt --check or tree --locked passes without them (rightkit#1311: a carried metadata job has
+  // no freshness census; the Mac witness, request ed37214e). When either side carries one
   // anyway, both must carry the same value.
   const stage = payload.stageEvidence;
   if (!isObject(stage)) fail("evidence", "the signed payload carries no stageEvidence");
@@ -487,8 +488,8 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   const compile = adapter === null && isCompileClass(argv);
   for (const name of STAGE_EVIDENCE_FIELDS) {
     const signed = stage[name] ?? null; const copy = receipt[name] ?? null;
-    const required = name === "freshness" || compile;
-    if (required && (signed === null || copy === null)) fail("evidence", `${name} is missing from the signed stage evidence or the receipt${name === "freshness" ? "" : ` (a compile-class command, cargo ${cargoSubcommandOf(argv)}, carries it)`}`);
+    const required = compile;
+    if (required && (signed === null || copy === null)) fail("evidence", `${name} is missing from the signed stage evidence or the receipt (a compile-class command, cargo ${cargoSubcommandOf(argv)}, carries it)`);
     if (!same(copy, signed)) fail("evidence", `receipt ${name} differs from the signed stage evidence`);
   }
   // Shapes RustRight emits (item 4 row 4.18): attribution is `{available, ...}`, and an unavailable one names its reason
