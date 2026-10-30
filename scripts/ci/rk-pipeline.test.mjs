@@ -660,3 +660,62 @@ test("dispatch reads the gate's qualification receipt for exactly HEAD and the o
   assert.throws(() => read({ stages: { ...q.stages, qualify: { ok: true, artifactSha256: "e".repeat(64) } } }), /one artifact sha256/);
   assert.throws(() => read({ schema: "x" }), /schema/);
 });
+
+test("[GB-46] coordinator lock: published complete or not at all; pause between create and write cannot yield two owners; torn/unknown record is never dead; pid reuse is dead; release after a successor deletes nothing; simultaneous stale reclaim keeps exactly one owner", () => {
+  const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
+  const fresh = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), "rk-lock46-")), "state.json.lock");
+  const idle = { wait: () => {}, identity: () => ({ startedMs: null, bootMs: null }) };
+  // 1. A creator paused right before it publishes: a second coordinator takes the lock; the first, resumed, finds a LIVE owner and does not clobber it.
+  let lock = fresh(); let second;
+  assert.throws(() => acquireLock(lock, { ...idle, pid: 1, alive: () => true, hooks: { beforePublish: () => { if (!second) { second = acquireLock(lock, { ...idle, pid: 2, alive: () => true }); } } } }), /another coordinator \(pid 2\)/);
+  assert.equal(JSON.parse(fs.readFileSync(lock, "utf8")).pid, 2, "exactly one owner");
+  assert.equal(JSON.parse(fs.readFileSync(lock, "utf8")).nonce, second.nonce);
+  assert.deepEqual(fs.readdirSync(path.dirname(lock)).filter((n) => n.endsWith(".tmp")), [], "no private temp file survives");
+  // 2. The file at the lock path is always a complete record: a reader during acquire never sees an empty or partial one.
+  lock = fresh();
+  acquireLock(lock, { ...idle, pid: 5, alive: () => true });
+  const text = fs.readFileSync(lock, "utf8");
+  assert.doesNotThrow(() => JSON.parse(text)); assert.match(text, /"nonce":"[0-9a-f]{32}"/); assert.match(text, /"schema":2/);
+  // 3. A crash-torn or empty record is UNKNOWN until proven stale: it is refused and never unlinked, even though the "owner" cannot be judged alive.
+  for (const torn of ["", '{"pid":', "not json", "{}"]) {
+    lock = fresh(); fs.writeFileSync(lock, torn);
+    assert.throws(() => acquireLock(lock, { ...idle, pid: 9, alive: () => false }), /owner cannot be read .*UNKNOWN, not dead/, JSON.stringify(torn));
+    assert.equal(fs.readFileSync(lock, "utf8"), torn, "the torn record was not deleted");
+  }
+  // 4. PID reuse: the recorded pid is alive but it started at another time, so the lock is the dead owner's and is reclaimed.
+  lock = fresh();
+  fs.writeFileSync(lock, JSON.stringify({ schema: 2, pid: 111, nonce: "a".repeat(32), startedMs: 1_000_000, bootMs: null }));
+  const reused = acquireLock(lock, { pid: 222, alive: () => true, wait: () => {}, identity: (p) => (p === 111 ? { startedMs: 9_000_000, bootMs: null } : { startedMs: 5, bootMs: null }) });
+  assert.equal(JSON.parse(fs.readFileSync(lock, "utf8")).pid, 222);
+  assert.ok(reused.nonce);
+  // ...and the same pid with the same start is a live owner that excludes.
+  lock = fresh();
+  fs.writeFileSync(lock, JSON.stringify({ schema: 2, pid: 111, nonce: "b".repeat(32), startedMs: 1_000_000, bootMs: null }));
+  assert.throws(() => acquireLock(lock, { pid: 222, alive: () => true, wait: () => {}, identity: () => ({ startedMs: 1_000_500, bootMs: null }) }), /another coordinator \(pid 111\)/);
+  // 5. Release after a successor: A's stale release (its nonce) deletes nothing of B's lock.
+  lock = fresh();
+  const a = acquireLock(lock, { ...idle, pid: 10, alive: () => true });
+  const b = acquireLock(lock, { ...idle, pid: 11, alive: (p) => p !== 10 }); // A is dead; B reclaimed
+  assert.equal(JSON.parse(fs.readFileSync(lock, "utf8")).pid, 11);
+  releaseLock(lock, { pid: 10, nonce: a.nonce });
+  assert.ok(fs.existsSync(lock), "a release by a replaced owner never deletes the successor's lock");
+  releaseLock(lock, { pid: 11, nonce: "0".repeat(32) });
+  assert.ok(fs.existsSync(lock), "a wrong nonce releases nothing");
+  releaseLock(lock, { pid: 11, nonce: b.nonce });
+  assert.ok(!fs.existsSync(lock));
+  // 6. Two coordinators reclaim the same dead owner at once: the second starts while the first is between its judgment and its unlink; one owner results.
+  lock = fresh();
+  fs.writeFileSync(lock, JSON.stringify({ schema: 2, pid: 700, nonce: "c".repeat(32), startedMs: null, bootMs: null }));
+  let late; let firstError = null;
+  try { acquireLock(lock, { ...idle, pid: 701, alive: (p) => p !== 700, hooks: { afterJudgedDead: () => { if (!late) { late = "tried"; try { acquireLock(lock, { ...idle, pid: 702, alive: (p) => p !== 700, maxWaitMs: 50 }); late = "acquired"; } catch (error) { late = error.message; } } } } }); } catch (error) { firstError = error.message; }
+  assert.equal(late, "acquired", "the second coordinator reclaimed the dead owner while the first was between judgment and unlink");
+  assert.match(firstError ?? "", /another coordinator \(pid 702\)/, "the resumed first coordinator found the successor's LIVE lock and neither deleted nor overwrote it");
+  const owners = [701, 702].filter((p) => JSON.parse(fs.readFileSync(lock, "utf8")).pid === p);
+  assert.equal(owners.length, 1, `exactly one owner (late: ${late})`);
+  assert.deepEqual(fs.readdirSync(path.dirname(lock)).filter((n) => /\.(tmp|reclaim)$/.test(n)), [], "no reservation or temp file is left behind");
+  // 7. A schema-1 record (an earlier coordinator's) is a complete record judged by its pid.
+  lock = fresh(); fs.writeFileSync(lock, JSON.stringify({ pid: 31, at: "2026-01-01T00:00:00Z" }));
+  assert.throws(() => acquireLock(lock, { ...idle, pid: 32, alive: () => true }), /another coordinator \(pid 31\)/);
+  acquireLock(lock, { ...idle, pid: 32, alive: () => false });
+  assert.equal(JSON.parse(fs.readFileSync(lock, "utf8")).pid, 32);
+});

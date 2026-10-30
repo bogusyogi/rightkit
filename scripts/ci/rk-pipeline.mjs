@@ -13,11 +13,13 @@
 import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_OUT, ROOT, readJson, receiptRefusal, exceptionAllowsets } from "./rk-preflight.mjs";
 import { packageRows, readPackages as readNpmPackages } from "./rk-npm-preflight.mjs";
 import { brokerClientInvocation } from "../../packages/release/broker-client.mjs";
+import { processProbe } from "../../packages/release/build-ownership.mjs";
 
 export const REPO = "bogusyogi/rightkit";
 export const STATE_FILE = "/Volumes/D/scratch/rk-pipeline/state.json";
@@ -684,28 +686,100 @@ export async function cmdLoop(opts, deps = {}) {
   }
 }
 
-/** (2) Coordinator lock with stale-owner recovery: a lock whose recorded pid is dead is reclaimed; a live owner excludes. */
+/**
+ * (2) Coordinator lock (GB-46; GATE E9, durable coordination). The lock file is published COMPLETE or not at all: the full record (pid, process start,
+ * boot, host, nonce) is written to a private temp file, fsynced, and hard-linked to the lock path, which fails if the path exists (a no-clobber
+ * reservation), so no reader ever meets a created-but-empty or partial record. Identity is pid + process start + boot + nonce, not a pid alone: a recorded
+ * pid whose process started at another time (pid reuse) or before another boot is dead. A record that cannot be read is UNKNOWN, never dead: it is
+ * refused, never deleted. Reclaiming a dead owner is serialized by a reclaim reservation and re-checks, under it, that the file still is the record that
+ * was judged dead (nonce and inode), so two coordinators reclaiming at once never delete each other's live lock. Release removes the lock only when
+ * its nonce is ours. Waiting is bounded.
+ */
 export function pidAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (error) { return error.code === "EPERM"; }
 }
-export function acquireLock(lockFile, { alive = pidAlive, pid = process.pid } = {}) {
-  fs.mkdirSync(path.dirname(lockFile), { recursive: true });
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const fd = fs.openSync(lockFile, "wx"); fs.writeFileSync(fd, JSON.stringify({ pid, at: new Date().toISOString() })); fs.closeSync(fd);
-      return;
-    } catch (error) {
-      if (error.code !== "EEXIST") throw error;
-      let owner = null;
-      try { owner = JSON.parse(fs.readFileSync(lockFile, "utf8")).pid; } catch { owner = null; }
-      if (owner && alive(owner)) throw new Error(`another coordinator (pid ${owner}) holds ${lockFile}; wait for it or stop it, never delete the lock by hand`);
-      fs.unlinkSync(lockFile); // stale: owner gone; the state file is authoritative and the loop skips recorded dispatches
-    }
-  }
-  throw new Error(`could not acquire ${lockFile}`);
+const sleepSync = (ms) => { try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { const end = Date.now() + ms; while (Date.now() < end) { /* spin */ } } };
+let probeCache;
+function defaultIdentity(pid) {
+  try {
+    probeCache ??= processProbe({ platform: process.platform });
+    const { alive, startedMs } = probeCache.identity(pid);
+    let bootMs = null; try { bootMs = probeCache.bootTime?.() ?? null; } catch { bootMs = null; }
+    return { alive, startedMs: Number.isFinite(startedMs) ? startedMs : null, bootMs: Number.isFinite(bootMs) ? bootMs : null };
+  } catch { return { alive: null, startedMs: null, bootMs: null }; }
 }
-export function releaseLock(lockFile, { pid = process.pid } = {}) {
-  try { if (JSON.parse(fs.readFileSync(lockFile, "utf8")).pid === pid) fs.unlinkSync(lockFile); } catch { /* not ours or gone */ }
+const SAME_START_MS = 2000;
+/** Whether a lock record names a live owner: alive, and not a reused pid (another start time) nor a pre-reboot one. */
+function ownerLive(record, { alive, identity }) {
+  if (!alive(record.pid)) return false;
+  const now = identity(record.pid);
+  if (Number.isFinite(record.startedMs) && Number.isFinite(now?.startedMs) && Math.abs(record.startedMs - now.startedMs) > SAME_START_MS) return false; // the pid was reused
+  const mine = identity(process.pid);
+  if (Number.isFinite(record.bootMs) && Number.isFinite(mine?.bootMs) && Math.abs(record.bootMs - mine.bootMs) > SAME_START_MS * 5) return false; // another boot
+  return true;
+}
+/** Publishes `record` at `file` complete, or throws EEXIST (the no-clobber reservation); the private temp file never survives. */
+function publishComplete(file, record) {
+  const temp = `${file}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+  try {
+    const fd = fs.openSync(temp, "wx", 0o600);
+    try { fs.writeSync(fd, `${JSON.stringify(record)}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.linkSync(temp, file);
+  } finally { try { fs.unlinkSync(temp); } catch { /* gone */ } }
+}
+function readRecord(file) {
+  let text;
+  try { text = fs.readFileSync(file, "utf8"); } catch (error) { if (error.code === "ENOENT") return { gone: true }; return { unknown: true, why: error.message }; }
+  try {
+    const record = JSON.parse(text);
+    if (record && Number.isInteger(record.pid) && record.pid > 0) {
+      // A schema-1 record ({ pid, at }) written by an earlier coordinator is a complete record with a derived identity, judged by its pid alone.
+      return { record: typeof record.nonce === "string" ? record : { ...record, nonce: `legacy-${record.pid}-${record.at ?? ""}` }, ino: fs.statSync(file).ino };
+    }
+    return { unknown: true, why: "no owner identity in it" };
+  }
+  catch { return { unknown: true, why: "it is not a complete record" }; }
+}
+export function acquireLock(lockFile, { alive = pidAlive, pid = process.pid, identity = defaultIdentity, wait = sleepSync, maxWaitMs = 2000, hooks = {} } = {}) {
+  fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+  const me = identity(pid);
+  const mine = { schema: 2, pid, nonce: crypto.randomBytes(16).toString("hex"), startedMs: me?.startedMs ?? null, bootMs: me?.bootMs ?? null, host: os.hostname(), at: new Date().toISOString() };
+  const reclaimFile = `${lockFile}.reclaim`;
+  const deadline = Date.now() + maxWaitMs;
+  for (;;) {
+    hooks.beforePublish?.(lockFile);
+    try { publishComplete(lockFile, mine); return { nonce: mine.nonce }; } catch (error) { if (error.code !== "EEXIST") throw error; }
+    const found = readRecord(lockFile);
+    if (found.gone) continue; // released between the attempt and the read
+    if (found.unknown) throw new Error(`${lockFile} holds a record whose owner cannot be read (${found.why}); its owner is UNKNOWN, not dead: inspect it, never delete the lock by hand`);
+    if (ownerLive(found.record, { alive, identity })) throw new Error(`another coordinator (pid ${found.record.pid}) holds ${lockFile}; wait for it or stop it, never delete the lock by hand`);
+    hooks.afterJudgedDead?.(lockFile);
+    // The owner is dead: reclaim under a reservation, re-checking under it that the file is still the record judged dead.
+    try { publishComplete(reclaimFile, { ...mine, reclaim: true }); } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      const holder = readRecord(reclaimFile);
+      if (holder.record && !ownerLive(holder.record, { alive, identity })) { try { fs.unlinkSync(reclaimFile); } catch { /* another reclaimer got it */ } continue; }
+      if (Date.now() >= deadline) throw new Error(`could not acquire ${lockFile}: another coordinator is reclaiming it`);
+      wait(25); continue;
+    }
+    try {
+      const again = readRecord(lockFile);
+      if (again.record && again.record.nonce === found.record.nonce && again.ino === found.ino) fs.unlinkSync(lockFile);
+    } finally {
+      const own = readRecord(reclaimFile);
+      if (own.record?.nonce === mine.nonce) { try { fs.unlinkSync(reclaimFile); } catch { /* gone */ } }
+    }
+    if (Date.now() >= deadline) throw new Error(`could not acquire ${lockFile}`);
+  }
+}
+export function releaseLock(lockFile, { pid = process.pid, nonce } = {}) {
+  try {
+    const found = readRecord(lockFile);
+    if (!found.record || found.record.pid !== pid) return; // not ours, unreadable or gone
+    if (nonce !== undefined && found.record.nonce !== nonce) return; // a successor's lock
+    const again = readRecord(lockFile);
+    if (again.record?.nonce === found.record.nonce && again.ino === found.ino) fs.unlinkSync(lockFile);
+  } catch { /* not ours or gone */ }
 }
 
 export async function main(argv) {
@@ -737,10 +811,10 @@ export async function main(argv) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const mutates = ["dispatch", "watch", "loop"].includes(process.argv[2]);
   const lock = `${STATE_FILE}.lock`;
-  let locked = false;
+  let locked = false; let held = null;
   try {
-    if (mutates) { acquireLock(lock); locked = true; }
+    if (mutates) { held = acquireLock(lock); locked = true; }
     process.exitCode = await main(process.argv.slice(2));
   } catch (error) { fail(error.message); process.exitCode = 2; }
-  finally { if (locked) releaseLock(lock); }
+  finally { if (locked) releaseLock(lock, { nonce: held?.nonce }); }
 }
