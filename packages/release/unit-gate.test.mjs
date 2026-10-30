@@ -347,6 +347,7 @@ test("[M5] releaseUnit runs rk-pipeline from the PRIMARY CHECKOUT, never from th
   const dispatched = { unit: unit.name, sha: commit, registry: "npm" };
   const make = (head) => (cmd, args, options) => {
     calls.push({ cmd, args, cwd: options?.cwd });
+    if (cmd === "git" && args[0] === "status") return { status: 0, stdout: "" }; // GB-07: a clean checkout (the coordinator must be exactly the qualified commit's bytes)
     if (cmd === "git") return { status: 0, stdout: `${head}\n` };
     return { status: 1, stdout: "", stderr: "stop here" };
   };
@@ -493,4 +494,31 @@ test("a qualification the hosted admission would refuse stops the run before the
   assert.equal(await runUnitGate({ ...real.s.args, executor: { kind: "broker" }, to: "release", fetchReceipt: (id) => ({ id, provenance: { schema: "rustright.provenance.v1", payload: { jobId: id, request: id === "c-1" ? { kind: "cargo", requestedArgv: ["fmt"] } : { kind: "adapter", adapter: "rightkit-pnpm", requestedArgv: ["pack"] } }, signature: { alg: "ES256", keyId: "k", value: "ab" } } }),
     stageCommands: () => ({ compile: [{ kind: "cargo", argvs: [["fmt"]] }], package: [{ kind: "adapter", adapter: "rightkit-pnpm", argvs: [["pack"]] }] }), selfGit: gitAt, releaser: async () => assert.fail("not released"), err: (l) => errs.push(l) }), 1);
   assert.match(errs.join("\n"), /local check of the qualification's signed broker receipts failed.*which ci\/rk-pipeline\.json does not enroll/);
+});
+
+test("[GB-07] unit release refuses to start the coordinator from a primary checkout whose coordinator or release code is not exactly the qualified commit's bytes (modified tracked file, untracked file under scripts/ci or packages/release); a clean checkout at the commit proceeds", async () => {
+  const { releaseUnit } = await import("./unit-gate.mjs");
+  const qualification = path.join(tempRoot("unit-qualification-"), "qualification.json");
+  fs.writeFileSync(qualification, "{}");
+  const make = ({ tracked = "", scoped = "", head = commit } = {}) => { const calls = []; const run = (cmd, args, options) => {
+    calls.push({ cmd: path.basename(cmd), args, cwd: options?.cwd });
+    if (cmd === "git" && args[0] === "rev-parse") return { status: 0, stdout: `${head}\n`, stderr: "" };
+    if (cmd === "git" && args[0] === "status") return { status: 0, stdout: args.includes("--untracked-files=no") ? tracked : scoped, stderr: "" };
+    return { status: 1, stdout: "", stderr: "stop here" };
+  }; return { calls, run }; };
+  const base = (run) => ({ unit, root: "/snap/commit", checkout: "/repo", commit, executor: { kind: "broker" }, env: {}, artifact: { artifactSha256: "1".repeat(64) }, qualification, platform: "darwin", out: () => {}, scratch: tempRoot("unit-release-"), run });
+  // Clean and at the commit: the coordinator starts from the primary checkout (cwd too).
+  const clean = make();
+  await assert.rejects(releaseUnit(base(clean.run)), /canary/);
+  const started = clean.calls.find((c) => c.args[0]?.endsWith("rk-pipeline.mjs"));
+  assert.equal(started.args[0], path.join("/repo", "scripts", "ci", "rk-pipeline.mjs")); assert.equal(started.cwd, "/repo");
+  // A modified tracked file, or an untracked one beside the coordinator: nothing is dispatched, the coordinator never starts.
+  for (const [name, over] of [["a modified tracked file", { tracked: " M scripts/ci/rk-pipeline.mjs\n" }], ["an untracked sibling the coordinator could import", { scoped: "?? scripts/ci/rk-evil.mjs\n" }]]) {
+    const dirty = make(over);
+    await assert.rejects(releaseUnit(base(dirty.run)), /holds modified or untracked files.*exactly the qualified commit/, name);
+    assert.equal(dirty.calls.some((c) => c.args[0]?.endsWith("rk-pipeline.mjs")), false, `${name}: the coordinator never started`);
+  }
+  // An unreadable status is not a clean one.
+  const unreadable = { calls: [], run: (cmd, args) => (cmd === "git" && args[0] === "rev-parse" ? { status: 0, stdout: `${commit}\n` } : cmd === "git" ? { status: 128, stdout: "" } : { status: 1 }) };
+  await assert.rejects(releaseUnit(base(unreadable.run)), /cannot be read for modified coordinator files/);
 });

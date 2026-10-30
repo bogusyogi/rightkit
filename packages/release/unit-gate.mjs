@@ -101,6 +101,18 @@ export async function releaseUnit({ unit, root, checkout = root, commit, executo
     const head = run("git", ["rev-parse", "HEAD"], { cwd: checkout, encoding: "utf8" });
     if (head.status !== 0 || String(head.stdout ?? "").trim() !== commit) throw new Error(`the primary checkout ${checkout} is not at the qualified commit ${commit.slice(0, 12)} (HEAD ${String(head.stdout ?? "").trim().slice(0, 12) || "unreadable"}); the release runs rk-pipeline from the checkout, so it proves nothing else, and nothing was started`);
   }
+  // GB-07: the coordinator must run from the primary checkout (its ROOT is derived from its own location, and the broker refuses a root request whose workspace is inside a managed
+  // snapshot), so the candidate's logic is protected differently: HEAD is the qualified commit (above) AND the coordinator and the release code it imports are exactly that commit's
+  // bytes: no tracked file modified and nothing untracked under scripts/ci or packages/release (an untracked sibling is importable), checked BEFORE the first coordinator step starts. A
+  // modified or newer coordinator in the live checkout therefore can never stand in for the candidate's own.
+  if (checkout !== root) {
+    const dirty = run("git", ["status", "--porcelain", "--", "scripts/ci", "packages/release"], { cwd: checkout, encoding: "utf8" });
+    const tracked = run("git", ["status", "--porcelain", "--untracked-files=no"], { cwd: checkout, encoding: "utf8" });
+    const changed = [dirty, tracked].map((r) => (r.status === 0 ? String(r.stdout ?? "").trim() : null));
+    if (changed.some((c) => c === null)) throw new Error(`the primary checkout ${checkout} cannot be read for modified coordinator files; nothing is dispatched`);
+    const lines = [...new Set(changed.flatMap((c) => c.split("\n").filter(Boolean)))];
+    if (lines.length) throw new Error(`the primary checkout ${checkout} holds modified or untracked files (${lines.slice(0, 4).map((l) => l.trim()).join("; ")}${lines.length > 4 ? "; ..." : ""}); the coordinator that dispatches ${unit.name} must be exactly the qualified commit ${commit.slice(0, 12)}'s bytes, so nothing is dispatched`);
+  }
   const pipeline = path.join(checkout, "scripts", "ci", "rk-pipeline.mjs");
   const stateFile = platform === "win32" ? "D:\\scratch\\rk-pipeline\\state.json" : "/Volumes/D/scratch/rk-pipeline/state.json";
   const step = (label, args, { accept = [0], acceptWhen = null } = {}) => {
