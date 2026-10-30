@@ -75,7 +75,15 @@ export function carriedScanRefusal(words, { checkout = null } = {}) {
     if (f === null || f.size !== 2 || !f.has("--db") || !f.has("--no-fetch")) return "`audit` is admitted as `audit --db <dir> --no-fetch` only";
     return pathProblem("--db", f.get("--db"), "directory");
   }
-  return `\`cargo ${words.join(" ")}\` is not one of the carried read-only shapes (metadata, fetch --locked, deny, audit --db --no-fetch)`;
+  // rustright command_policy.rs:407-409: class_a_scan "package" -> observation_only_cargo. Exactly: -p <unit> --list --locked [--allow-dirty].
+  if (sub === "package") {
+    const unit = rest[1];
+    // `-p <unit>` first, then --list and --locked and optionally --allow-dirty, each once in either order (the gate plans `--allow-dirty --locked`).
+    const tail = rest.slice(2);
+    const shapeOk = rest[0] === "-p" && typeof unit === "string" && unit !== "" && !unit.startsWith("-") && new Set(tail).size === tail.length && tail.every((w) => ["--list", "--locked", "--allow-dirty"].includes(w)) && tail.includes("--list") && tail.includes("--locked");
+    return shapeOk ? null : "`package` is admitted as `package -p <unit> --list --locked [--allow-dirty]` only";
+  }
+  return `\`cargo ${words.join(" ")}\` is not one of the carried read-only shapes (metadata, fetch --locked, deny, audit --db --no-fetch, package -p <unit> --list --locked)`;
 }
 
 /** Whether the broker admits `words` as a carried read-only request (see carriedScanRefusal). */

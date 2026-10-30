@@ -11,7 +11,7 @@ import test from "node:test";
 import { canonicalJson, signedBytes } from "./provenance-verify.mjs";
 import {
   ATTEST_NONCE_ENV, DESCRIPTOR_MAX_BYTES, REQUEST_ID_FILE_ENV, SNAPSHOT_REQUEST_ENV, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, declaredInputDigestsOf, freshNonce,
-  cargoSubcommandOf, isCompileClass, isGenerationTarget, observedEnvOf, readDeclaredInputs, readRequestRef, requestDigestOf, snapshotRequestCore, verifySnapshotEvidenceIdentity, verifySnapshotReceipt, writeSnapshotRequest,
+  cargoSubcommandOf, isCallHandleOf, isCompileClass, isGenerationTarget, isInsideGenerationTarget, GENERATION_LEAVES, nextCallHandle, ownershipOfHandle, observedEnvOf, readDeclaredInputs, readRequestRef, requestDigestOf, snapshotRequestCore, verifySnapshotEvidenceIdentity, verifySnapshotReceipt, writeSnapshotRequest,
 } from "./snapshot-request.mjs";
 import { makeFakeBroker, signedReceipt } from "./test-support/fake-broker.mjs";
 
@@ -49,7 +49,7 @@ test("carrier: the file and descriptor pass every rule RustRight's reader applie
   assert.deepEqual(Object.keys(c).sort(), ["argvSha256", "commit", "declaredInputs", "nonce", "ownership", "primaryCwd", "schema", "snapshot"]);
   assert.equal(c.schema, SNAPSHOT_REQUEST_SCHEMA);
   assert.deepEqual(c.commit, { sha: C, tree: T }); assert.deepEqual(c.snapshot, { path: snapshot, expectedTree: T });
-  assert.deepEqual(c.declaredInputs, { inputs: ["Cargo.lock", "crates/core"] }); assert.deepEqual(c.ownership, { handle: "own-1" });
+  assert.deepEqual(c.declaredInputs, { inputs: ["Cargo.lock", "crates/core"] }); assert.match(c.ownership.handle, /^own-1#[A-Za-z0-9._-]+$/, "the carrier names a per-call sub-handle of the ownership"); assert.equal(isCallHandleOf(c.ownership.handle, "own-1"), true);
   assert.equal(c.primaryCwd, cwd);
   assert.equal(c.argvSha256, sha(canonicalJson(argv)), "sha256 of the canonical cargo argv, without cargo");
   assert.equal(c.nonce, made.env[ATTEST_NONCE_ENV]);
@@ -182,8 +182,48 @@ test("[7.22] output directory: absolute, outside the snapshot and the checkout, 
     [`${wsRoot}/0123456789ab/g/002/target/debug`, false], [`${wsRoot}/0123456789ab/002/target`, false], [`${wsRoot}/../outside/0123456789ab/g/002/target`, false], [`${wsRoot}`, false]]) {
     assert.equal(isGenerationTarget(out, [wsRoot], process.platform), ok, out);
   }
-  assert.equal(isGenerationTarget("D:\\.rightkit-managed\\rightkit-build-control\\ws\\0123456789ab\\g\\002\\target", ["D:\\.rightkit-managed\\rightkit-build-control\\ws"], "win32"), true);
-  assert.equal(isGenerationTarget("d:\\.RIGHTKIT-managed\\rightkit-build-control\\ws\\0123456789ab\\g\\002\\target", ["D:\\.rightkit-managed\\rightkit-build-control\\ws"], "win32"), true, "Windows paths compare case-insensitively");
+  // The leaf is per generation (rustright-state lib.rs:52-62, :422-461): `target` or `t`, on either platform; any other leaf is refused.
+  const winWs = "D:\\.rightkit-managed\\rightkit-build-control\\ws"; const winGen = `${winWs}\\0123456789ab\\g\\002`;
+  for (const leaf of ["t", "target"]) {
+    assert.equal(isGenerationTarget(`${winGen}\\${leaf}`, [winWs], "win32"), true, `win32 ${leaf}`);
+    assert.equal(isGenerationTarget(`${wsRoot}/0123456789ab/g/002/${leaf}`, [wsRoot], "darwin"), true, `darwin ${leaf}`);
+    assert.equal(isGenerationTarget(`${wsRoot}/0123456789ab/g/002/${leaf}`, [wsRoot], "linux"), true, `linux ${leaf}`);
+  }
+  for (const leaf of ["T", "tt", "debug", "targets", "release", ""]) {
+    if (leaf !== "T") assert.equal(isGenerationTarget(`${winGen}\\${leaf}`, [winWs], "win32"), false, `win32 ${leaf}`); // Windows paths are case-insensitive
+    assert.equal(isGenerationTarget(`${wsRoot}/0123456789ab/g/002/${leaf}`, [wsRoot], "linux"), false, `linux ${leaf}`);
+  }
+  assert.equal(isGenerationTarget("d:\\.RIGHTKIT-managed\\rightkit-build-control\\ws\\0123456789ab\\g\\002\\t", [winWs], "win32"), true, "Windows paths compare case-insensitively");
+  assert.equal(isGenerationTarget("E:\\elsewhere\\0123456789ab\\g\\002\\t", [winWs], "win32"), false, "outside the managed root");
+  assert.equal(isGenerationTarget(`${wsRoot}/../outside/0123456789ab/g/002/t`, [wsRoot], "linux"), false, "outside the managed root");
+  assert.deepEqual([...GENERATION_LEAVES], ["target", "t"]);
+});
+
+test("[7.22] a nested compile's directory is inside a generation target with either leaf on either platform, and nowhere else", () => {
+  const winWs = "D:\\ws"; const gen = `${winWs}\\0123456789ab\\g\\001`;
+  for (const leaf of ["t", "target"]) {
+    assert.equal(isInsideGenerationTarget(`${gen}\\${leaf}`, [winWs], "win32"), true, leaf);
+    assert.equal(isInsideGenerationTarget(`${gen}\\${leaf}\\debug\\x`, [winWs], "win32"), true, leaf);
+    assert.equal(isInsideGenerationTarget(`/w/ws/0123456789ab/g/001/${leaf}/debug`, ["/w/ws"], "linux"), true, leaf);
+    assert.equal(isInsideGenerationTarget(`/w/ws/0123456789ab/g/001/${leaf}`, ["/w/ws"], "darwin"), true, leaf);
+  }
+  assert.equal(isInsideGenerationTarget(`${gen}\\debug\\x`, [winWs], "win32"), false);
+  assert.equal(isInsideGenerationTarget("/w/ws/0123456789ab/g/001/other/x", ["/w/ws"], "linux"), false);
+  assert.equal(isInsideGenerationTarget("/elsewhere/0123456789ab/g/001/t/x", ["/w/ws"], "linux"), false);
+});
+
+test("[7.22] lease handles: each carrier names its own `<ownership>#<n>`; the bare handle, another ownership's and a malformed one are refused; receipts bind the exact sub-handle", (t) => {
+  const a = nextCallHandle("own-1"); const b = nextCallHandle("own-1");
+  assert.notEqual(a, b); assert.equal(isCallHandleOf(a, "own-1"), true); assert.equal(ownershipOfHandle(a), "own-1");
+  for (const bad of ["own-1", "own-1#", "own-10#1", "own-1#a b", "own-1##1", undefined, 7]) assert.equal(isCallHandleOf(bad, "own-1"), false, String(bad));
+  assert.equal(isCallHandleOf("own-1#1", "own-1"), true);
+  assert.throws(() => request(t, { callHandle: "own-1" }), /not a sub-handle/);
+  assert.throws(() => request(t, { callHandle: "other#1" }), /not a sub-handle/);
+  assert.equal(request(t, { callHandle: "own-1#fixed-1" }).made.carrier.ownership.handle, "own-1#fixed-1");
+  assert.notEqual(request(t).made.carrier.ownership.handle, request(t).made.carrier.ownership.handle, "each call gets a fresh one");
+  // The receipt must sign exactly the sub-handle the gate sent: another sub-handle of the same ownership, or the bare handle, fails.
+  assert.doesNotThrow(() => receiptCase(t).check());
+  for (const tamper of ["otherSubHandle", "bareHandle", "otherHandle"]) assert.throws(() => receiptCase(t, { tamper }).check(), (e) => e.code === "evidence" && /handle is not this gate's/.test(e.message), tamper);
 });
 
 test("[7.22] stage evidence and the unsigned fields: freshness, attribution and toolchain are signed and equal; timingsMs, exit, diagnosticsPath, executor are present with their types, and the retired verdict and refreshed are refused", (t) => {

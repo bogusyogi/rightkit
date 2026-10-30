@@ -3,7 +3,7 @@
 // It lives in this package, not under scripts/, because unit-gate ships in the package and may import nothing outside it.
 // Pure over the dispatched commit: `git(...args)` reads that commit's objects; nothing here touches the filesystem or the broker.
 import { ProvenanceError, carriedCallNonce, qualificationNonce, verifyProvenance } from "./provenance-verify.mjs";
-import { SnapshotRequestError, verifySnapshotEvidenceIdentity } from "./snapshot-request.mjs";
+import { SnapshotRequestError, ownershipOfHandle, verifySnapshotEvidenceIdentity } from "./snapshot-request.mjs";
 import { assignJobs, describeCommand, expectedStageCommands, rootOfWorkspace } from "./stage-commands.mjs";
 
 export const ATTESTED_STAGES = ["compile", "package"];
@@ -111,7 +111,8 @@ export function verifyQualificationReceipts(text, { sha, git }) {
       requireThat(isRecord(evidence), `${where} (job ${receipt.id}) carries no signed snapshotEvidence: it was not built as a snapshot request of the dispatched commit`);
       try { verifySnapshotEvidenceIdentity(evidence, { commit: { sha, tree }, tree, jobId: receipt.id }); }
       catch (error) { if (!(error instanceof SnapshotRequestError)) throw error; refuse(`${where} (job ${receipt.id}): ${error.message}`); }
-      const path = evidence.snapshot?.path, owner = evidence.ownership?.handle;
+      // Each carried request signs its own sub-handle `<ownership-handle>#<n>`; the qualification's one ownership is the part before the `#`.
+      const path = evidence.snapshot?.path, owner = ownershipOfHandle(evidence.ownership?.handle);
       requireThat(typeof path === "string" && path !== "" && typeof owner === "string" && owner !== "", `${where} (job ${receipt.id}) names no snapshot path or ownership handle`);
       requireThat(snapshotPath === null || snapshotPath === path, `${where} (job ${receipt.id}) ran in the snapshot ${path}, another snapshot than the qualification's other jobs (${snapshotPath})`);
       requireThat(handle === null || handle === owner, `${where} (job ${receipt.id}) was signed under ownership handle ${owner}, another than the qualification's other jobs (${handle})`);

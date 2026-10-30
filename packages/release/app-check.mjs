@@ -1206,6 +1206,11 @@ export function exportCommit(repo, commit, dest, { batchBytes = BATCH_BYTES } = 
   return entries.map((entry) => entry.path);
 }
 
+/** The repository paths of `commit` as `git ls-tree -r` lists them (files and submodule directories), without reading a blob or writing anything. */
+export function listCommitFiles(repo, commit) {
+  return git(["ls-tree", "-r", "-z", "--name-only", commit], { cwd: repo }).split("\0").filter(Boolean);
+}
+
 /**
  * The tree a compile of `repo` would see, written under `dest`: HEAD plus every tracked and untracked, non-ignored file as it is
  * on disk, put through a throwaway index (the repository's own index is never touched; the blobs land in its object store).
@@ -1368,7 +1373,7 @@ function loadBaseline({ explicit, root, central, repoKey, today }) {
  * `refuse` lists rules whose findings the baseline cannot excuse here, because the build refuses them whatever the baseline says
  * (BUILD_REFUSES); a listed one fails like a new one.
  */
-export function runAppCheck({ repo, mode = "commit", commit, only = null, baseline, printBaseline = false, rules = RULES, tier = null, label = "check", repoKey, central = rightkitCheckout(), now = new Date(), refuse = [] } = {}) {
+export function runAppCheck({ repo, mode = "commit", commit, only = null, baseline, printBaseline = false, rules = RULES, tier = null, label = "check", repoKey, central = rightkitCheckout(), now = new Date(), refuse = [], snapshot = null } = {}) {
   const lines = [];
   const errLines = [];
   if (tier !== null && !TIERS.includes(tier)) { errLines.push(`${label}: --rule-tier must be compile or release, not ${JSON.stringify(tier)}`); return { findings: [], known: [], stale: [], expired: [], found: [], exitCode: 2, lines, text: "", errLines, errText: errLines.join("\n") }; }
@@ -1387,15 +1392,24 @@ export function runAppCheck({ repo, mode = "commit", commit, only = null, baseli
   const key = repoKey ?? (central && sameDirectory(repo, central) ? "rightkit" : path.basename(repo).toLowerCase());
   const started = Date.now();
   let checked, files, root;
+  // `snapshot` (the gate's own directory holding exactly `commit`'s tree, verified by the caller) is read in place: no export, no copy of the
+  // source, nothing written under the temporary directory, and the directory is never removed here (docs/GATE-CONTRACT.md, 2026-10-29).
+  const inPlace = snapshot !== null && mode === "commit";
   try {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-check-"));
-    if (mode === "worktree") ({ tree: checked, files } = exportWorktree(repo, root));
-    else { checked = resolveCommit(repo, commit ?? "HEAD"); files = exportCommit(repo, checked, root); }
+    if (inPlace) {
+      root = path.resolve(snapshot);
+      checked = resolveCommit(repo, commit ?? "HEAD");
+      files = listCommitFiles(repo, checked);
+    } else {
+      root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-check-"));
+      if (mode === "worktree") ({ tree: checked, files } = exportWorktree(repo, root));
+      else { checked = resolveCommit(repo, commit ?? "HEAD"); files = exportCommit(repo, checked, root); }
+    }
   } catch (error) {
     // HEAD is what both modes start from: a repository that has no commit yet has nothing to read, and "commit first" is the fix.
     const unborn = (mode === "worktree" || (commit ?? "HEAD") === "HEAD") && hasNoCommit(repo);
     errLines.push(unborn ? `${label}: the repository has no commit yet; commit first` : `${label}: could not export the commit to check: ${error.message}`);
-    if (root) fs.rmSync(root, { recursive: true, force: true });
+    if (root && !inPlace) fs.rmSync(root, { recursive: true, force: true });
     return finish(2);
   }
   try {
@@ -1440,7 +1454,7 @@ export function runAppCheck({ repo, mode = "commit", commit, only = null, baseli
     lines.push(`${label}: ${checked.slice(0, 12)} passed ${ruleCount} rules (${tierLabel}) in ${seconds}s${known.length ? ` (${known.length} known finding(s) in ${listed.listedFile}; fix them, then remove their entries)` : ""}`);
     return finish(0, result);
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    if (!inPlace) fs.rmSync(root, { recursive: true, force: true });
   }
 }
 
@@ -1602,7 +1616,7 @@ export function guardCommand({ args, cwd = process.cwd(), run = runAppCheck, sou
  * `--rule-tier` defaults to compile (see TIERS); `--list` prints every rule with its tier. (`--tier patch|update` is the upload tier, elsewhere.)
  * `--repo` defaults to the git top-level of `cwd` (or `defaultRepo`). Returns the exit code: 0 pass, 1 findings, 2 could not run.
  */
-export async function main(argv, { out = (s) => process.stdout.write(`${s}\n`), err = (s) => process.stderr.write(`${s}\n`), label = "check", rules = RULES, defaultRepo = null, cwd = process.cwd(), central, now } = {}) {
+export async function main(argv, { out = (s) => process.stdout.write(`${s}\n`), err = (s) => process.stderr.write(`${s}\n`), label = "check", rules = RULES, defaultRepo = null, cwd = process.cwd(), central, now, snapshot = null } = {}) {
   const arg = (flag) => { const i = argv.indexOf(flag); return i >= 0 ? argv[i + 1] : undefined; };
   if (argv.includes("--list")) { for (const r of rules) out(`${r.id} (${r.gap}) ${tierOf(r)}`); return 0; }
   const tier = arg("--rule-tier") ?? "compile";
@@ -1615,7 +1629,7 @@ export async function main(argv, { out = (s) => process.stdout.write(`${s}\n`), 
     only: arg("--only")?.split(",").filter(Boolean) ?? null,
     baseline: arg("--baseline"),
     printBaseline: argv.includes("--print-baseline"),
-    rules, tier, label, ...(central === undefined ? {} : { central }), ...(now ? { now } : {}),
+    rules, tier, label, ...(central === undefined ? {} : { central }), ...(now ? { now } : {}), ...(snapshot ? { snapshot } : {}),
   });
   for (const line of result.lines) out(line);
   for (const line of result.errLines) err(line);

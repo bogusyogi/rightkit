@@ -21,7 +21,7 @@ import { ATTEST_STAGE_NONCE_ENV, canonicalJson, carriedCallNonce } from "./prove
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { forwardedAdapterEnv } from "./adapter-env.mjs";
 import {
-  SnapshotRequestError, argvSha256, lockedArgv, observedEnvOf, readDeclaredInputs, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest,
+  SnapshotRequestError, argvSha256, isCallHandleOf, lockedArgv, observedEnvOf, readDeclaredInputs, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest,
 } from "./snapshot-request.mjs";
 
 /** The status a refused or unverified call returns to its caller: cargo's own error status. */
@@ -147,7 +147,7 @@ export function carryBrokerCargo({ words, cwd, env, section, workspace, checkout
       const nonce = /^[0-9a-f]{64}$/.test(stageNonce ?? "") ? carriedCallNonce({ stageNonce, cwd: path.relative(section.checkout, checkoutCwd).split(path.sep).join("/") || ".", argv: words }) : undefined;
       made = writeSnapshotRequest({ controlRoot: section.controlRoot, commit: section.commit, snapshot: section.snapshot, declaredInputs: inputs, handle: section.handle, primaryCwd: checkoutCwd, argv: words, nonce, requestIdFile: path.join(refDir, "request.json") });
     } catch (e) { return refuse("RK_CARGO_BROKER_CARRIER", e.message); }
-    try { record({ ...base, status: "pending", nonce: made.carrier.nonce, checkoutCwd }); } catch (e) { fs.rmSync(made.file, { force: true }); return refuse("RK_CARGO_LEDGER_ERROR", `the call cannot be recorded (${e.message}); it does not run`); }
+    try { record({ ...base, status: "pending", nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd }); } catch (e) { fs.rmSync(made.file, { force: true }); return refuse("RK_CARGO_LEDGER_ERROR", `the call cannot be recorded (${e.message}); it does not run`); }
     const childEnv = { ...clientEnv, ...made.env };
     const capture = stdio === "capture";
     const r = spawn(section.client, ["cargo", ...words], capture ? { cwd: checkoutCwd, env: childEnv, encoding: "utf8", maxBuffer: 1 << 28, windowsHide: true } : { cwd: checkoutCwd, env: childEnv, stdio: "inherit" });
@@ -165,7 +165,7 @@ export function carryBrokerCargo({ words, cwd, env, section, workspace, checkout
     } catch (e) {
       outcome = { status: "unverified", code: e.code ?? "error", message: e.message, ...(ref ? { requestId: ref.requestId, workspace: ref.workspace } : {}) };
     }
-    record({ ...base, ...outcome, nonce: made.carrier.nonce, checkoutCwd, clientExit: r.status ?? null });
+    record({ ...base, ...outcome, nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd, clientExit: r.status ?? null });
     const out = capture ? { stdout: String(r.stdout ?? ""), stderr: String(r.stderr ?? "") } : { stdout: "", stderr: "" };
     if (outcome.status !== "verified") {
       const message = `rightkit-gate: RK_CARGO_BROKER_UNVERIFIED: \`cargo ${words.join(" ")}\` has no verified signed receipt (${outcome.code}: ${outcome.message}); the scan fails`;
@@ -232,7 +232,7 @@ export function carryBrokerAdapter({ adapter, words, cwd, env, section, record, 
       const nonce = /^[0-9a-f]{64}$/.test(stageNonce ?? "") ? carriedCallNonce({ stageNonce, cwd: path.relative(section.checkout, checkoutCwd).split(path.sep).join("/") || ".", argv: words }) : undefined;
       made = writeSnapshotRequest({ controlRoot: section.controlRoot, commit: section.commit, snapshot: section.snapshot, declaredInputs: inputs, handle: section.handle, primaryCwd: checkoutCwd, argv: words, nonce, requestIdFile: path.join(refDir, "request.json") });
     } catch (e) { return refuse("RK_ADAPTER_BROKER_CARRIER", e.message); }
-    try { record({ ...base, status: "pending", nonce: made.carrier.nonce, checkoutCwd }); } catch (e) { fs.rmSync(made.file, { force: true }); return refuse("RK_CARGO_LEDGER_ERROR", `the call cannot be recorded (${e.message}); it does not run`); }
+    try { record({ ...base, status: "pending", nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd }); } catch (e) { fs.rmSync(made.file, { force: true }); return refuse("RK_CARGO_LEDGER_ERROR", `the call cannot be recorded (${e.message}); it does not run`); }
     const childEnv = { ...clientEnv, ...made.env };
     const capture = stdio === "capture";
     const r = spawn(section.client, ["run", adapter, "--", ...words], capture ? { cwd: checkoutCwd, env: childEnv, encoding: "utf8", maxBuffer: 1 << 28, windowsHide: true } : { cwd: checkoutCwd, env: childEnv, stdio: "inherit" });
@@ -250,7 +250,7 @@ export function carryBrokerAdapter({ adapter, words, cwd, env, section, record, 
     } catch (e) {
       outcome = { status: "unverified", code: e.code ?? "error", message: e.message, ...(ref ? { requestId: ref.requestId, workspace: ref.workspace } : {}) };
     }
-    record({ ...base, ...outcome, nonce: made.carrier.nonce, checkoutCwd, clientExit: r.status ?? null });
+    record({ ...base, ...outcome, nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd, clientExit: r.status ?? null });
     const out = capture ? { stdout: String(r.stdout ?? ""), stderr: String(r.stderr ?? "") } : { stdout: "", stderr: "" };
     if (outcome.status !== "verified") {
       const message = `rightkit-gate: RK_ADAPTER_BROKER_UNVERIFIED: \`${describe}\` has no verified signed receipt (${outcome.code}: ${outcome.message}); the stage fails`;
@@ -272,7 +272,8 @@ export const runBrokerCargo = (call) => carryBrokerCargo(call).status;
  * again now, verifies against THIS gate's commit, snapshot, ownership handle and pins, and its carrier was used once: a nonce or a
  * request id that appears twice in the run (`seen`) is a replay. Returns the problems; none means every call verified.
  */
-export async function verifyBrokerLedger(entries, sb, { seen = { nonces: new Set(), ids: new Set() } } = {}) {
+export async function verifyBrokerLedger(entries, sb, { seen = { nonces: new Set(), ids: new Set(), handles: new Set() } } = {}) {
+  seen.handles ??= new Set();
   const problems = [];
   for (const e of entries) {
     if (e.mode !== "broker" || e.status !== "verified") continue;
@@ -283,7 +284,11 @@ export async function verifyBrokerLedger(entries, sb, { seen = { nonces: new Set
       if (seen.nonces.has(e.nonce) || seen.ids.has(e.requestId)) throw new SnapshotRequestError("replay", "a carrier or request was used twice; each call carries its own fresh nonce and is used once");
       if (e.adapterEnv !== undefined && !(e.adapterEnv && typeof e.adapterEnv === "object" && !Array.isArray(e.adapterEnv) && Object.values(e.adapterEnv).every((v) => typeof v === "string"))) throw new SnapshotRequestError("ledger", "the record's adapter environment is not a map of strings");
       if (adapter === null && e.adapterEnv !== undefined && Object.keys(e.adapterEnv).length) throw new SnapshotRequestError("ledger", "a cargo call carries no request environment");
-      seen.nonces.add(e.nonce); seen.ids.add(e.requestId);
+      // One lease handle per call: the sub-handle the gate sent (recorded with the call) is exactly one of this ownership's, used once in the run;
+      // the receipt must sign that very handle (verifySnapshotReceipt binds equality, never a prefix).
+      if (!isCallHandleOf(e.ownershipHandle, sb.handle)) throw new SnapshotRequestError("ledger", `the record names no sub-handle of the build ownership ${sb.handle}`);
+      if (seen.handles.has(e.ownershipHandle)) throw new SnapshotRequestError("replay", `lease handle ${e.ownershipHandle} was used by two calls; each carried request has its own`);
+      seen.nonces.add(e.nonce); seen.ids.add(e.requestId); seen.handles.add(e.ownershipHandle);
       const workspace = fs.realpathSync.native(e.workspace);
       if (!inside(workspace, sb.checkout)) throw new SnapshotRequestError("ledger", `the request ran in ${workspace}, outside the primary checkout`);
       if (adapter === null && fs.realpathSync.native(e.checkoutCwd) !== workspace) throw new SnapshotRequestError("ledger", "the request's working directory is not the one the call recorded");
@@ -298,7 +303,7 @@ export async function verifyBrokerLedger(entries, sb, { seen = { nonces: new Set
       // The gate's own truth: its commit, snapshot, handle and declared inputs; only the call's own argv, nonce and cwd come from the ledger.
       const carrier = {
         schema: "rightkit.snapshot-request/1", commit: sb.commit, snapshot: sb.snapshot, declaredInputs: { inputs: readDeclaredInputs(sb.snapshot.path) },
-        ownership: { handle: sb.handle }, primaryCwd: fs.realpathSync.native(e.checkoutCwd), argvSha256: argvSha256(e.argv), nonce: e.nonce,
+        ownership: { handle: e.ownershipHandle }, primaryCwd: fs.realpathSync.native(e.checkoutCwd), argvSha256: argvSha256(e.argv), nonce: e.nonce,
       };
       const receipt = await sb.receiptOf(e.requestId);
       const verified = verifySnapshotReceipt(receipt, { pins: sb.pins, jobId: e.requestId, carrier, argv: e.argv, workspace: e.workspace, observedEnv: e.observedEnv ?? {}, adapter, adapterEnv: e.adapterEnv ?? {}, checkout: sb.checkout, outputRoots: sb.outputRoots, platform: sb.platform });

@@ -17,7 +17,7 @@ import { decideCargoInvocation, installCargoShim, locateWorkspaceByWalk, shimSca
 import { runScans } from "./deterministic-scans.mjs";
 import { brokerSection, carryBrokerCargo, verifyBrokerLedger } from "./snapshot-broker.mjs";
 import { carriedCallNonce } from "./provenance-verify.mjs";
-import { argvSha256, writeSnapshotRequest } from "./snapshot-request.mjs";
+import { argvSha256, isCallHandleOf, writeSnapshotRequest } from "./snapshot-request.mjs";
 import { makeFakeBroker } from "./test-support/fake-broker.mjs";
 
 const POSIX = process.platform === "win32" ? "the runtime wrapper is POSIX only: a Windows child finds only an .exe on PATH; the Dell refuses by the static walk" : false;
@@ -58,6 +58,8 @@ test("[7.24] a node unit spawning cargo in two workspaces gets two verified rece
   assert.deepEqual(problems, []);
   assert.deepEqual(entries.map((e) => e.status), ["verified", "verified"]);
   assert.equal(new Set(entries.map((e) => e.nonce)).size, 2, "a fresh nonce per call");
+  assert.equal(new Set(entries.map((e) => e.ownershipHandle)).size, 2, "and its own lease sub-handle");
+  for (const e of entries) assert.equal(isCallHandleOf(e.ownershipHandle, h.fx.handle), true, e.ownershipHandle);
   assert.equal(new Set(entries.map((e) => e.requestId)).size, 2);
   assert.deepEqual(entries.map((e) => e.outputDir), [h.fx.outputDir, h.fx.outputDir]);
   // The broker never sees the gate's sentinel as an output directory (it pins the output itself) and a carrier is used once and removed.
@@ -75,7 +77,7 @@ test("[7.20] the declared inputs of a carried request are the snapshot's manifes
   assert.equal(r.status, "pass", JSON.stringify(r));
   const [entry] = fs.readdirSync(path.join(h.fx.state, "db")).map((f) => JSON.parse(fs.readFileSync(path.join(h.fx.state, "db", f), "utf8")));
   assert.deepEqual(entry.carrier.declaredInputs, { inputs: ["gen/in.txt"] }, "the request carries the snapshot's declared inputs");
-  assert.deepEqual(entry.carrier.ownership, { handle: h.fx.handle }); assert.deepEqual(entry.carrier.commit, h.fx.sb.commit);
+  assert.equal(isCallHandleOf(entry.carrier.ownership.handle, h.fx.handle), true, "the request names a sub-handle of the gate's ownership"); assert.deepEqual(Object.keys(entry.carrier.ownership), ["handle"]); assert.deepEqual(entry.carrier.commit, h.fx.sb.commit);
   assert.deepEqual(entry.carrier.snapshot, h.fx.sb.snapshot); assert.equal(entry.carrier.primaryCwd, path.join(h.fx.checkout, "crates", "a"));
 });
 
@@ -98,6 +100,69 @@ test("[7.10] a refused wrapper call fails its unit even when the test swallows c
   assert.match(h.row(result, "swallows-unbound-command").detail, /RK_CARGO_UNBOUND_COMMAND/);
   assert.equal(h.row(result, "quiet").status, "pass");
   assert.deepEqual(h.fx.calls(), [], "no refused call ever reached the broker");
+});
+
+test("[7.24] one completion per (snapshot, lease handle): N carried requests in one stage succeed under distinct sub-handles; reusing a sub-handle is refused by the broker; a receipt naming another sub-handle fails; the bare handle's lease status is ACTIVE while any sub-handle is held", { skip: POSIX }, async (t) => {
+  const h = host(t);
+  const result = await h.run([h.scan("many", `process.exit(${[0, 1, 2, 3].map((i) => h.cargo(i % 2 ? h.native : h.a, ["build", "--locked", ...(i > 1 ? ["-q"] : [])])).join(" || ")})`)]);
+  const r = h.row(result, "many");
+  assert.equal(r.status, "pass", JSON.stringify(r));
+  const { entries, problems } = h.ledger("many");
+  assert.deepEqual(problems, []);
+  assert.equal(entries.filter((e) => e.status === "verified").length, 4);
+  const handles = entries.map((e) => e.ownershipHandle);
+  assert.equal(new Set(handles).size, 4, "four calls, four sub-handles");
+  assert.ok(handles.every((x) => isCallHandleOf(x, h.fx.handle)));
+  // The gate's own re-verification binds the exact sub-handle each call sent, once each: a ledger that names the same sub-handle twice, the bare handle or another's is a problem.
+  assert.deepEqual(await verifyBrokerLedger(entries, h.fx.sb), []);
+  const verified = entries.filter((e) => e.status === "verified");
+  assert.match((await verifyBrokerLedger([verified[0], { ...verified[1], ownershipHandle: verified[0].ownershipHandle }], h.fx.sb)).join("\n"), /(replay|lease handle|handle is not this gate's)/);
+  assert.match((await verifyBrokerLedger([{ ...verified[0], ownershipHandle: h.fx.handle }], h.fx.sb)).join("\n"), /names no sub-handle/);
+  assert.match((await verifyBrokerLedger([{ ...verified[0], ownershipHandle: `${h.fx.handle}#not-the-one-sent` }], h.fx.sb)).join("\n"), /request digest|handle is not this gate's/, "a ledger whose sub-handle is not the one sent fails (the request digest binds the carrier's handle, the evidence binds it again)");
+  // The broker refuses a second carried request under a handle the snapshot already completed (snapshot.rs:330-343).
+  const sendTwice = () => {
+    const cwd = h.fx.checkout; const argv = ["build", "--locked"];
+    return [1, 2].map(() => {
+      const made = writeSnapshotRequest({ controlRoot: h.fx.controlRoot, commit: h.fx.sb.commit, snapshot: h.fx.sb.snapshot, declaredInputs: [], handle: h.fx.handle, callHandle: `${h.fx.handle}#reused`, primaryCwd: cwd, argv, requestIdFile: path.join(h.fx.root, "ref.json") });
+      const res = spawnSync(h.fx.client, ["cargo", ...argv], { cwd, env: { ...process.env, ...made.env, RUSTRIGHT_CALLING_GATE: GATE }, encoding: "utf8" });
+      fs.rmSync(made.file, { force: true });
+      return res;
+    });
+  };
+  const [first, second] = sendTwice();
+  assert.equal(first.status, 0, first.stderr);
+  assert.notEqual(second.status, 0); assert.match(second.stderr, /prior or unreadable completion/);
+  // `snapshot-lease status --ownership <bare>` aggregates its `#` sub-handles: ACTIVE while any is held, REAPED when none.
+  const status = (held) => { h.fx.setBehavior({ heldHandles: held }); return JSON.parse(spawnSync(h.fx.client, ["snapshot-lease", "status", "--snapshot", h.fx.snapshot, "--ownership", h.fx.handle], { encoding: "utf8" }).stdout).state; };
+  assert.equal(status([`${h.fx.handle}#a-1`, `${h.fx.handle}#a-2`]), "ACTIVE");
+  assert.equal(status([`${h.fx.handle}#a-2`]), "ACTIVE");
+  assert.equal(status([`${h.fx.handle}x#a-1`, "other#1"]), "REAPED", "another ownership's sub-handles do not count");
+  assert.equal(status([]), "REAPED");
+});
+
+test("[7.24] sub-handles are per invocation: two sequential calls on the same workspace, two independently launched callers, and the parent's lease is ACTIVE while the last child runs and REAPED only after the final completion with the ledger drained", { skip: POSIX }, async (t) => {
+  const h = host(t);
+  // Two calls from one workspace (a check, then a test: the same directory, as metadata then check are) draw two different handles.
+  const same = h.row(await h.run([h.scan("same-ws", `process.exit(${h.cargo(h.a, ["build", "--locked"])} || ${h.cargo(h.a, ["test", "--locked"])})`)]), "same-ws");
+  assert.equal(same.status, "pass", JSON.stringify(same));
+  const entries = h.ledger("same-ws").entries.filter((e) => e.status === "verified");
+  assert.equal(entries.length, 2);
+  assert.notEqual(entries[0].ownershipHandle, entries[1].ownershipHandle);
+  for (const e of entries) assert.match(e.ownershipHandle, new RegExp(`^${h.fx.handle}#[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`), "a random UUID, never an index");
+  // Two independently launched processes (wrapper children) never collide: each draws its own id.
+  const draw = () => spawnSync(process.execPath, ["--input-type=module", "-e", `import { nextCallHandle } from ${JSON.stringify(new URL("./snapshot-request.mjs", import.meta.url).href)}; process.stdout.write(nextCallHandle(${JSON.stringify(h.fx.handle)}))`], { encoding: "utf8" }).stdout;
+  const [x, y] = [draw(), draw()];
+  assert.ok(isCallHandleOf(x, h.fx.handle) && isCallHandleOf(y, h.fx.handle)); assert.notEqual(x, y);
+  // A receipt for the wrong child is rejected: the ledger names child 2's handle on child 1's receipt.
+  const swapped = [{ ...entries[0], ownershipHandle: entries[1].ownershipHandle }];
+  assert.match((await verifyBrokerLedger(swapped, h.fx.sb)).join("\n"), /request digest|handle is not this gate's/);
+  assert.deepEqual(await verifyBrokerLedger(entries, h.fx.sb), [], "the exact recorded children verify");
+  assert.match((await verifyBrokerLedger(entries, h.fx.sb, { seen: { nonces: new Set(), ids: new Set(), handles: new Set([entries[0].ownershipHandle]) } })).join("\n"), /used by two calls/, "a handle used twice is a replay");
+  // Lease status for the bare parent: ACTIVE while child 2 runs; REAPED only once none is held, and only then does the gate drain.
+  const lease = (held) => { h.fx.setBehavior({ heldHandles: held }); return JSON.parse(spawnSync(h.fx.client, ["snapshot-lease", "status", "--snapshot", h.fx.snapshot, "--ownership", h.fx.handle], { encoding: "utf8" }).stdout).state; };
+  assert.equal(lease([entries[1].ownershipHandle]), "ACTIVE", "child 2 still running");
+  assert.equal(lease([]), "REAPED", "after the final completion");
+  assert.equal(h.ledger("same-ws").problems.length, 0, "the gate ledger is drained: no pending call");
 });
 
 test("[7.24] negatives: an unverified receipt, a broker that fails or cannot be asked, no calling gate, and a call the checkout cannot host each fail the scan; nothing launches when the request cannot be built", { skip: POSIX }, async (t) => {

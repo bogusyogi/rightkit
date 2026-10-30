@@ -34,6 +34,8 @@ export const TAMPERS = {
   none: {},
   treeAtExit: { evidence: (e) => { e.snapshot.treeAtExit = "f".repeat(40); } },
   treeAtStart: { evidence: (e) => { e.snapshot.treeAtStart = "f".repeat(40); } },
+  otherSubHandle: { evidence: (e) => { e.ownership = { handle: `${String(e.ownership.handle).split("#")[0]}#not-the-one-sent` }; } },
+  bareHandle: { evidence: (e) => { e.ownership = { handle: String(e.ownership.handle).split("#")[0] }; } },
   otherHandle: { evidence: (e) => { e.ownership = { handle: "someone-else" }; } },
   otherCommit: { evidence: (e) => { e.commit = { sha: "d".repeat(40), tree: TREE }; } },
   otherSnapshotPath: { evidence: (e, fx) => { e.snapshot.path = path.join(fx.dataRoot, "snapshots", "ffffffffffffffff"); } },
@@ -227,6 +229,16 @@ function logRequest(fx, command, args) {
   } catch { /* logging is best-effort; the fake's behavior never depends on it */ }
 }
 
+/**
+ * The broker's one-completion-per-(snapshot, lease handle) rule (rustright snapshot.rs:330-343): a second carried request under a handle the
+ * snapshot already has a completion for is refused ("snapshot ownership handle has a prior or unreadable completion").
+ */
+function claimHandle(stateDir, carrier, bad) {
+  const dir = path.join(stateDir, "handles"); fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, sha(`${carrier.snapshot.path}\0${carrier.ownership.handle}`));
+  try { fs.writeFileSync(file, "", { flag: "wx" }); } catch { bad("snapshot ownership handle has a prior or unreadable completion"); }
+}
+
 // ---- the fake client: `node fake-broker.mjs --client <state dir> cargo <args>` | `status <id>` ----
 async function client(stateDir, [command, ...args]) {
   const read = (f, d = null) => { try { return JSON.parse(fs.readFileSync(path.join(stateDir, f), "utf8")); } catch { return d; } };
@@ -288,6 +300,7 @@ async function client(stateDir, [command, ...args]) {
     // A used carrier is a replay: the broker accepts each nonce once.
     const used = path.join(stateDir, "nonces"); fs.mkdirSync(used, { recursive: true });
     if (fs.existsSync(path.join(used, carrier.nonce))) bad("nonce replayed");
+    claimHandle(stateDir, carrier, bad);
     fs.writeFileSync(path.join(used, carrier.nonce), "");
     const id = crypto.randomUUID();
     const workspace = fs.realpathSync(process.cwd());
@@ -297,6 +310,14 @@ async function client(stateDir, [command, ...args]) {
     if (behavior.stdout) process.stdout.write(behavior.stdout);
     else if (args.includes("metadata")) process.stdout.write(synthMetadata(fx, workspace));
     process.exit(behavior.exit ?? 0);
+  }
+  if (command === "snapshot-lease" && args[0] === "status") {
+    // rustright snapshot.rs:469: the status of a (bare) ownership handle covers every held handle equal to it or starting with `<it>#`.
+    const flag = (name) => args[args.indexOf(name) + 1];
+    const snapshot = flag("--snapshot"); const wanted = flag("--ownership");
+    const held = (behavior.heldHandles ?? []).some((h) => h === wanted || h.startsWith(`${wanted}#`));
+    process.stdout.write(`${JSON.stringify({ schema: "rustright.snapshot-lease-status.v1", state: held ? "ACTIVE" : "REAPED", snapshot, ownership: wanted })}\n`);
+    process.exit(0);
   }
   if (command === "status") {
     if (behavior.statusFail) { process.stderr.write("broker unreachable\n"); process.exit(1); }
@@ -429,6 +450,7 @@ function adapterRun(stateDir, fx, behavior, argv) {
   if (denied) { process.stderr.write(`RK_ADAPTER_ARGV_DENIED: ${denied}\n`); process.exit(2); }
   const used = path.join(stateDir, "nonces"); fs.mkdirSync(used, { recursive: true });
   if (fs.existsSync(path.join(used, carrier.nonce))) bad("nonce replayed");
+  claimHandle(stateDir, carrier, bad);
   fs.writeFileSync(path.join(used, carrier.nonce), "");
   const id = crypto.randomUUID();
   // The workspace root of a snapshot-bound adapter job is the bound primary toplevel (no Cargo.toml needed); the cwd is where the client was run.

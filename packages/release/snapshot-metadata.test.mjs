@@ -37,6 +37,7 @@ test("the shapes the broker admits as a carried read-only request: metadata, fet
     ["fetch", "--locked"],
     ["deny", "--frozen", "--metadata-path", "/abs/m.json", "--config", "/abs/deny.toml", "check"], ["deny", "check"], ["deny", "--config", "/abs/deny.toml", "check"],
     ["audit", "--db", "/abs/db", "--no-fetch"], ["audit", "--no-fetch", "--db", "/abs/db"],
+    ["package", "-p", "a", "--list", "--locked"], ["package", "-p", "a", "--list", "--locked", "--allow-dirty"], ["package", "-p", "a", "--list", "--allow-dirty", "--locked"], // rustright command_policy.rs:407-409
   ];
   for (const argv of ok) assert.equal(carriedReadOnlyScan(argv), true, `${argv.join(" ")}: ${carriedScanRefusal(argv)}`);
   const no = [
@@ -46,7 +47,8 @@ test("the shapes the broker admits as a carried read-only request: metadata, fet
     ["deny", "check", "--hide-inclusion-graph"], ["deny", "--frozen", "--frozen", "check"], ["deny", "--config=/abs/deny.toml", "check"], ["deny", "--metadata-path", "m.json", "check"], ["deny", "--frozen"],
     ["deny", "--offline", "check"], ["deny", "--config", "/abs/deny.toml", "--", "check"], ["deny", "--workspace", "check"], ["deny", "-Z", "x", "check"],
     ["audit"], ["audit", "--db", "/abs/db"], ["audit", "--no-fetch"], ["audit", "--db", "rel", "--no-fetch"], ["audit", "--db", "/abs/db", "--no-fetch", "--deny", "warnings"], ["audit", "--db=/abs/db", "--no-fetch"],
-    ["package", "-p", "a", "--list", "--allow-dirty", "--locked"], ["build", "--locked"], ["check"], ["--version"], ["tree", "--locked"], ["about", "generate", "--frozen"],
+    ["package", "--list", "--locked"], ["package", "-p", "a", "--list"], ["package", "-p", "a", "--locked"], ["package", "-p", "a", "--list", "--locked", "--list"], ["package", "-p", "a", "--list", "--locked", "--no-verify"], ["package", "-p", "--list", "--locked"], ["package", "--workspace", "--list", "--locked"], ["package", "-p", "a", "--list", "--locked", "--config", "x=y"],
+    ["build", "--locked"], ["check"], ["--version"], ["tree", "--locked"], ["about", "generate", "--frozen"],
   ];
   for (const argv of no) assert.equal(carriedReadOnlyScan(argv), false, argv.join(" "));
 });
@@ -106,7 +108,7 @@ test("[1311] a carried request without a valid receipt, or a call the broker wou
   // Not admitted by the broker inside a snapshot (an unlocked fetch or metadata, a package list, a deny or audit of another shape, anything with
   // cargo's own --config or -Z): refused here, before anything is sent.
   const calls = fake.calls().length;
-  for (const argv of [["fetch"], ["deny", "check", "--hide-inclusion-graph"], ["metadata"], ["audit"], ["package", "-p", "a", "--list", "--allow-dirty", "--locked"], ["build", "--locked"], ["metadata", "--no-deps", "--config", "x=y"], ["deny", "--config", "deny.toml", "check"]]) {
+  for (const argv of [["fetch"], ["deny", "check", "--hide-inclusion-graph"], ["metadata"], ["audit"], ["package", "-p", "a", "--list", "--no-verify", "--locked"], ["build", "--locked"], ["metadata", "--no-deps", "--config", "x=y"], ["deny", "--config", "deny.toml", "check"]]) {
     const r = spawn("rustright", [...CARGO.slice(1), ...argv], { cwd: fake.snapshot });
     assert.notEqual(r.status, 0); assert.match(r.stderr, /RK_SNAPSHOT_CARRIED_REFUSED/);
   }
@@ -198,9 +200,9 @@ test("[plain check] `check --commit` on a broker host reads the gate's warm snap
   const dirty = { "Cargo.toml": '[workspace]\nmembers = []\n# uncommitted\n', "Cargo.lock": "not a lockfile\n", "crates/a/Cargo.toml": "garbage = [\n" };
   for (const [f, body] of Object.entries(dirty)) fs.writeFileSync(path.join(s.repo, f), body);
   fs.writeFileSync(path.join(s.repo, "deny.toml"), "# untracked\n");
-  const seen = { plan: null, spawns: [], tmpEntries: [] };
+  const seen = { plan: null, spawns: [], tmpEntries: [], liveTmp: [] };
   const run = gateIo(t, s, { runScans: async (plan, opts) => {
-    seen.plan = plan;
+    seen.plan = plan; seen.liveTmp = fs.readdirSync(os.tmpdir());
     seen.tmpEntries = [...fs.readdirSync(os.tmpdir()), ...fs.readdirSync(gateTmp)].filter((n) => n.startsWith("rk-gate-"));
     // The client's own version probe starts in the checkout (a workspace of the primary checkout); the guard refuses a live launch, so it is answered here.
     const spawn = (cmd, args, o) => { seen.spawns.push({ cmd, args, cwd: o?.cwd }); return args.includes("--version") ? { status: 0, stdout: "cargo 1.90.0 (fake)\n", stderr: "" } : opts.spawn(cmd, args, o); };
@@ -208,9 +210,12 @@ test("[plain check] `check --commit` on a broker host reads the gate's warm snap
   } });
   run.io.snapshotRoot = path.dirname(s.snap.path);
   run.io.env = { ...run.io.env, RK_GATE_TMPDIR: gateTmp };
+  const tmpBefore = new Set(fs.readdirSync(os.tmpdir()));
   const code = await main(["check", "--commit", s.sha], run.io);
   assert.equal(code, 0, `${run.err.join("\n")}\n${run.out.join("\n")}`);
   assert.deepEqual(seen.tmpEntries, [], "no rk-gate-* export directory was made");
+  assert.deepEqual(fs.readdirSync(os.tmpdir()).filter((n) => !tmpBefore.has(n) && n !== "build-ownership"), [], "no rk-check-* export and no other tree was left in the temporary directory (the ownership record is the gate's lock, not a tree)");
+  assert.deepEqual(seen.liveTmp.filter((n) => /^rk-check-/.test(n)), [], "and none existed while the app rules and class A ran");
   assert.ok(run.out.some((l) => /build ownership held/.test(l)) && run.out.some((l) => /snapshot .* is commit/.test(l)), "the snapshot was selected under host ownership");
   // The plan reads the snapshot: no scan is rooted in the checkout, and the checkout is only the client's starting directory.
   const snapDir = fs.realpathSync(s.snap.path);
@@ -232,14 +237,16 @@ test("[plain check] `check --commit` on a broker host reads the gate's warm snap
   assert.ok(probes.length >= 1 && probes.every((x) => fs.realpathSync(x.cwd).startsWith(fs.realpathSync(s.repo))));
   // The checkout's uncommitted bytes are untouched.
   for (const [f, body] of Object.entries(dirty)) assert.equal(fs.readFileSync(path.join(s.repo, f), "utf8"), body);
-  // The release tier also plans the package listing: it is not one of the shapes the broker admits carried, so it is refused here with the
-  // gate's own code before anything is sent (never a root request in the checkout), and the stage is red until the broker admits it.
+  // The release tier also plans the package listing; the broker admits it carried (rustright command_policy.rs:407-409), so it is sent
+  // from the snapshot like the other read-only shapes, never as a root request in the checkout, and the stage passes.
   const before = s.fake.calls().length;
   const red = gateIo(t, s, { runScans: async (plan, opts) => runScans(plan, { ...opts, spawn: (cmd, args, o) => (args.includes("--version") ? { status: 0, stdout: "cargo 1.90.0 (fake)\n", stderr: "" } : opts.spawn(cmd, args, o)), env: red.io.env, jobs: 1, exclude: (x) => x.tool !== "rustright", ensureAdvisoryDb: () => advisoryDb }) });
   red.io.snapshotRoot = path.dirname(s.snap.path); red.io.env = { ...red.io.env, RK_GATE_TMPDIR: gateTmp };
-  assert.equal(await main(["check", "--commit", s.sha, "--rule-tier", "release"], red.io), 1);
-  assert.match(red.err.join("\n"), /RK_SNAPSHOT_CARRIED_REFUSED/);
-  assert.equal(s.fake.calls().slice(before).filter((c) => c.argv[0] === "package").length, 0, "the package listing was never sent");
+  assert.equal(await main(["check", "--commit", s.sha, "--rule-tier", "release"], red.io), 0, `${red.err.join("\n")}`);
+  assert.doesNotMatch(red.err.join("\n"), /RK_SNAPSHOT_CARRIED_REFUSED/);
+  const packageCalls = s.fake.calls().slice(before).filter((c) => c.argv[0] === "package");
+  assert.ok(packageCalls.length >= 1, "the package listing was carried to the broker");
+  assert.ok(packageCalls.every((c) => carriedReadOnlyScan(c.argv) && c.carrierEnvNames.length > 0), "and sent as a carried request (a carrier set), in an admitted shape");
   assert.deepEqual(s.fake.rootRequests(), []);
 });
 
@@ -248,12 +255,15 @@ test("[plain check] a direct host scans the snapshot in place with no tmp export
   const gateTmp = fs.mkdtempSync(path.join(os.tmpdir(), "rk-sm-gatetmp-"));
   t.after(() => fs.rmSync(gateTmp, { recursive: true, force: true }));
   let seen = null;
-  const run = gateIo(t, s, { runScans: async (plan) => { seen = { plan, tmp: [...fs.readdirSync(os.tmpdir()), ...fs.readdirSync(gateTmp)].filter((n) => n.startsWith("rk-gate-")) }; return { schema: "rightkit.deterministic-scans/1", ok: true, complete: true, classes: ["A"], scans: [], toolVersions: {}, cacheHits: [], notes: [], deferred: [] }; } });
+  const run = gateIo(t, s, { runScans: async (plan) => { seen = { plan, tmpAll: fs.readdirSync(os.tmpdir()), tmp: [...fs.readdirSync(os.tmpdir()), ...fs.readdirSync(gateTmp)].filter((n) => n.startsWith("rk-gate-")) }; return { schema: "rightkit.deterministic-scans/1", ok: true, complete: true, classes: ["A"], scans: [], toolVersions: {}, cacheHits: [], notes: [], deferred: [] }; } });
   Object.assign(run.io, { platform: "linux", resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }), snapshotBroker: undefined, snapshotRoot: path.dirname(s.snap.path) });
   run.io.env = { ...run.io.env, RK_GATE_TMPDIR: gateTmp };
   fs.writeFileSync(path.join(s.repo, "README.md"), "uncommitted\n");
+  const tmpBefore = new Set(fs.readdirSync(os.tmpdir()));
   assert.equal(await main(["check", "--commit", "HEAD"], { ...run.io, spawn: (cmd, args, opts = {}) => spawnSync(cmd === "cargo" && args[0] === "metadata" ? process.execPath : cmd, cmd === "cargo" && args[0] === "metadata" ? ["-e", "process.stdout.write(JSON.stringify({packages:[{name:'a',manifest_path:process.cwd()+'/crates/a/Cargo.toml',version:'0.1.0'}],workspace_root:process.cwd()}))"] : args, { encoding: "utf8", ...opts, env: opts.env ?? run.io.env }) }), 0, `${run.err.join("\n")}`);
   assert.deepEqual(seen.tmp, [], "no rk-gate-* export directory was made");
+  assert.deepEqual(seen.tmpAll.filter((n) => /^rk-check-/.test(n)), [], "no rk-check-* export existed while the scans ran");
+  assert.deepEqual(fs.readdirSync(os.tmpdir()).filter((n) => !tmpBefore.has(n) && n !== "build-ownership"), [], "no rk-check-* export and no other tree was left in the temporary directory (the ownership record is the gate's lock, not a tree)");
   const snapDir = fs.realpathSync(s.snap.path);
   assert.equal(fs.realpathSync(seen.plan.roots.contentRoot), snapDir, "the scans read the warm snapshot");
   assert.notEqual(fs.realpathSync(seen.plan.roots.contentRoot), fs.realpathSync(s.repo));

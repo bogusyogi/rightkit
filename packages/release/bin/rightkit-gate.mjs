@@ -2355,7 +2355,7 @@ export async function main(argv, io = {}) {
     const stripSnapshot = (list) => { const i = list.indexOf("--snapshot"); return i < 0 ? list : [...list.slice(0, i), ...list.slice(i + 2)]; };
     const appArgs = stripSnapshot(args.slice(1).filter((a) => a !== "--full-a"));
     if (fullAdmission && !appArgs.includes("--rule-tier")) appArgs.push("--rule-tier", requestedTier);
-    const appCheck = await (o.appCheck ?? (await import("../app-check.mjs")).main)(appArgs, { out: o.out, err: o.err, label: "check", cwd: o.cwd });
+    const appCheck = await (o.appCheck ?? (await import("../app-check.mjs")).main)(appArgs, { out: o.out, err: o.err, label: "check", cwd: o.cwd, ...(snapshotDir && !args.includes("--worktree") ? { snapshot: snapshotDir } : {}) });
     if (args.includes("--list") || args.includes("--print-baseline") || args.includes("--only") || o.classA === false) {
       // A view of the app rules, never a class A verdict: say so, so no caller can take its exit 0 for a full check.
       // A green partial view exits PARTIAL_EXIT (3), never 0, so a caller that admits only exit 0 rejects it by status alone.

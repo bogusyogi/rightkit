@@ -173,13 +173,25 @@ export function observedEnvOf(env, platform = process.platform) {
 }
 
 /**
+ * The next per-call lease handle of a build ownership: `<ownership-handle>#<uuid>`. A workspace index or a per-process counter is not unique
+ * (metadata, check and test reuse a workspace; wrapper children are separate processes), so each invocation draws its own random UUID. The broker accepts one
+ * completion per handle on a snapshot, and its status for the bare ownership handle covers every `#` sub-handle.
+ */
+export const nextCallHandle = (handle) => `${handle}#${crypto.randomUUID()}`;
+/** Whether `callHandle` is exactly one sub-handle of the ownership `handle` (`<handle>#<token>`, never the bare handle or another's). */
+export const isCallHandleOf = (callHandle, handle) => typeof callHandle === "string" && typeof handle === "string" && handle !== "" && callHandle.length > handle.length + 1 && callHandle.startsWith(`${handle}#`) && /^[A-Za-z0-9._-]+$/.test(callHandle.slice(handle.length + 1));
+/** The ownership handle a signed (sub-)handle belongs to: everything before the first `#`. */
+export const ownershipOfHandle = (handle) => (typeof handle === "string" ? handle.split("#")[0] : handle);
+
+/**
  * Writes the carrier for one cargo request and returns `{ file, sha256, descriptor, carrier, env }`; `env` is what that one
  * invocation adds (carrier descriptor, nonce, request-id file). Refuses before writing anything the reader would refuse.
  */
-export function writeSnapshotRequest({ controlRoot, commit, snapshot, declaredInputs = [], handle, primaryCwd, argv, nonce = freshNonce(), requestIdFile, uuid = crypto.randomUUID }) {
+export function writeSnapshotRequest({ controlRoot, commit, snapshot, declaredInputs = [], handle, callHandle, primaryCwd, argv, nonce = freshNonce(), requestIdFile, uuid = crypto.randomUUID }) {
   if (!objectId(commit?.sha) || !objectId(commit?.tree)) fail("invalid", "commit sha and tree must be full lowercase object ids");
   if (!snapshot?.path || !path.isAbsolute(snapshot.path) || snapshot.expectedTree !== commit.tree) fail("invalid", "the snapshot needs an absolute path and the commit's tree as expectedTree");
   if (typeof handle !== "string" || !handle.trim()) fail("invalid", "the build-ownership handle is missing");
+  if (callHandle !== undefined && !isCallHandleOf(callHandle, handle)) fail("invalid", `the call handle ${JSON.stringify(callHandle)} is not a sub-handle (<ownership-handle>#<n>) of the build ownership`);
   if (!primaryCwd || !path.isAbsolute(primaryCwd)) fail("invalid", "primaryCwd must be the cargo request's absolute working directory");
   if (!Array.isArray(argv) || !argv.every((a) => typeof a === "string")) fail("invalid", "argv must be the cargo arguments (without cargo)");
   if (typeof nonce !== "string" || !/^[0-9a-f]{64,128}$/.test(nonce)) fail("invalid", "the nonce must be 64 to 128 lowercase hex characters");
@@ -194,7 +206,9 @@ export function writeSnapshotRequest({ controlRoot, commit, snapshot, declaredIn
     commit: { sha: commit.sha, tree: commit.tree },
     snapshot: { path: snapshot.path, expectedTree: snapshot.expectedTree },
     declaredInputs: { inputs: [...declaredInputs] },
-    ownership: { handle },
+    // One completion per (snapshot, lease handle) at the broker (rustright snapshot.rs:330-343): each carried request names its own
+    // sub-handle `<ownership-handle>#<n>`, which the broker's bare-handle lease status aggregates (snapshot.rs:469).
+    ownership: { handle: callHandle ?? nextCallHandle(handle) },
     primaryCwd,
     argvSha256: argvSha256(argv),
     nonce,
@@ -328,7 +342,15 @@ const inside = (child, parent, platform) => {
 };
 
 /**
- * The generation target the broker pins an app's outputs to: `<root>/<12 hex>/g/<NNN>/target` under one of the managed `ws` roots
+ * The leaf names of a managed generation (`g/<gen>/<leaf>`). The leaf is per GENERATION, not per platform (rustright-state lib.rs:52-62 and
+ * :422-461): a generation keeps the leaf it was created with, and only new generations default to `t` on Windows and `target` elsewhere, so
+ * either may appear on either platform. The gate takes the leaf from the signed outputDir; it never infers it and never picks a directory.
+ */
+export const GENERATION_LEAVES = Object.freeze(["target", "t"]);
+const isGenerationLeaf = (segment) => GENERATION_LEAVES.includes(segment);
+
+/**
+ * The generation target the broker pins an app's outputs to: `<root>/<12 hex>/g/<NNN>/<leaf>` (leaf `target` or `t`, GENERATION_LEAVES) under one of the managed `ws` roots
  * (`<external data root>/rightkit-build-control/ws`; BROKER-CONTRACT "Source identity", output pinning). The 12-hex key is
  * rustright-state's workspace_key, which the gate never computes (the snapshot's own key is `snapshots/<sha256(repo path)[:16]>`, a
  * different thing); it reads the receipt's outputDir and checks only this shape. The generation number (3+ digits) is the broker's.
@@ -338,7 +360,7 @@ export function isGenerationTarget(outputDir, outputRoots, platform = process.pl
   for (const root of outputRoots) {
     const rel = mod.relative(platform === "win32" ? mod.resolve(root).toLowerCase() : mod.resolve(root), platform === "win32" ? mod.resolve(outputDir).toLowerCase() : mod.resolve(outputDir));
     const segments = rel.split(/[\\/]/);
-    if (segments.length === 4 && segments[0] !== ".." && !mod.isAbsolute(rel) && /^[0-9a-f]{12}$/.test(segments[0]) && segments[1] === "g" && /^[0-9]{3,}$/.test(segments[2]) && segments[3] === "target") return true;
+    if (segments.length === 4 && segments[0] !== ".." && !mod.isAbsolute(rel) && /^[0-9a-f]{12}$/.test(segments[0]) && segments[1] === "g" && /^[0-9]{3,}$/.test(segments[2]) && isGenerationLeaf(segments[3])) return true;
   }
   return false;
 }
@@ -351,7 +373,7 @@ export function isInsideGenerationTarget(dir, outputRoots, platform = process.pl
   for (const root of outputRoots) {
     const rel = mod.relative(platform === "win32" ? mod.resolve(root).toLowerCase() : mod.resolve(root), platform === "win32" ? mod.resolve(dir).toLowerCase() : mod.resolve(dir));
     const segments = rel.split(/[\\/]/);
-    if (segments.length >= 4 && segments[0] !== ".." && !mod.isAbsolute(rel) && /^[0-9a-f]{12}$/.test(segments[0]) && segments[1] === "g" && /^[0-9]{3,}$/.test(segments[2]) && segments[3] === "target") return true;
+    if (segments.length >= 4 && segments[0] !== ".." && !mod.isAbsolute(rel) && /^[0-9a-f]{12}$/.test(segments[0]) && segments[1] === "g" && /^[0-9]{3,}$/.test(segments[2]) && isGenerationLeaf(segments[3])) return true;
   }
   return false;
 }
@@ -475,7 +497,7 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   const canon = (p) => { try { return canonicalPath(p); } catch { return p; } };
   if (inside(out, carrier.snapshot.path, platform) || inside(out, canon(carrier.snapshot.path), platform)) fail("evidence", `the output directory ${out} is inside the snapshot`);
   if (inside(out, checkout, platform) || inside(out, canon(checkout), platform)) fail("evidence", `the output directory ${out} is inside the checkout`);
-  if (!isGenerationTarget(out, outputRoots, platform)) fail("evidence", `the output directory ${out} is not a managed generation target (<ws root>/<repo-key>/g/<generation>/target) under ${outputRoots.join(", ")}`);
+  if (!isGenerationTarget(out, outputRoots, platform)) fail("evidence", `the output directory ${out} is not a managed generation target (<ws root>/<repo-key>/g/<generation>/{target|t}) under ${outputRoots.join(", ")}`);
   // Stage evidence is signed with the rest and must equal the receipt's copy. `freshness`, `attribution` and `toolchain` are
   // required only for a compile-class command (check, clippy, build, doc, rustc, test): the broker emits them for compiles only, so a
   // read-only metadata, fetch --locked, fmt --check or tree --locked passes without them (rightkit#1311: a carried metadata job has

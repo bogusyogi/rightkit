@@ -94,6 +94,8 @@ export function acceptedAfterFix(argv, { checkout = null } = {}) {
     const f = parse(rest, { "--db": true, "--no-fetch": false });
     return f !== null && f.size === 2 && f.has("--db") && f.has("--no-fetch") && placed(f.get("--db"), "directory");
   }
+  // rustright command_policy.rs:407-409 (class_a_scan "package" -> observation_only_cargo): -p <unit> --list --locked [--allow-dirty].
+  if (sub === "package") { const tail = rest.slice(2); return rest[0] === "-p" && typeof rest[1] === "string" && rest[1] !== "" && !rest[1].startsWith("-") && new Set(tail).size === tail.length && tail.every((w) => ["--list", "--locked", "--allow-dirty"].includes(w)) && tail.includes("--list") && tail.includes("--locked"); }
   return false;
 }
 
