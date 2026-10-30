@@ -52,11 +52,11 @@ Adrian's latest correction confirms: “linux no broker, it's not that complicat
 
 ### Decision ownership & execution hold
 
-Fable is Adrian's designated Oracle contract reviewer. Sage/Astra may design or adjudicate technical choices where needed; these role descriptions do not create extra mandatory reviewers or approval stages. Adrian retains decisions reserved to him, including production/publication authorization & trust-policy changes. The integration owner implements only already-authorized scope after Adrian's Fable-review hold is satisfied; do not add fresh approval for routine work already authorized.
+Fable is Adrian's designated Oracle contract reviewer. Sage/Astra may design or adjudicate technical choices where needed; these role descriptions do not create extra mandatory reviewers or approval stages. Adrian retains production/publication authorization. Broker pins, adapter re-pins and other trust-policy changes are routine integration work and need no Adrian approval (Adrian, 2026-10-30, https://github.com/bogusyogi/rightkit/issues/1309). The integration owner implements only already-authorized scope after Adrian's Fable-review hold is satisfied; do not add fresh approval for routine work already authorized.
 
 | Open decision | Design / evidence owners | Reserved decision |
 |---|---|---|
-| Direct Linux origin trust & existing admission | Sage/Astra design if needed; Fable is designated Oracle reviewer for contract/evidence | Adrian decides any trust-policy change or production/publication authorization |
+| Direct Linux origin trust & existing admission | Sage/Astra design if needed; Fable is designated Oracle reviewer for contract/evidence | Adrian decides production/publication authorization; trust-policy changes and pins are routine (2026-10-30) |
 | Private Linux qualification environment | Sage/Astra map runtime OS/architecture if needed; Fable is designated Oracle reviewer for contract/evidence | Adrian decides any production scope/policy change |
 | Class A inventory & placements | Sage/Astra adjudicate from actual command inventory if needed; Fable is designated Oracle reviewer | Any change beyond already-authorized scope remains with Adrian |
 
