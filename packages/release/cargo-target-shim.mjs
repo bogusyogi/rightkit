@@ -35,6 +35,7 @@ import { fileURLToPath } from "node:url";
 import { SCAN_TOKEN_ENV, appendLedger } from "./cargo-ledger.mjs";
 import { BROKER_REFUSAL_STATUS, runBrokerCargo } from "./snapshot-broker.mjs";
 import { carriedScanRefusal } from "./snapshot-metadata.mjs";
+import { carriedShapeDecision } from "./cargo-shapes.mjs";
 
 export const SHIM_MAP_SCHEMA = "rightkit.cargo-target-shim/3";
 // Exit status of a refusal: cargo's own error status, so every caller reads it as a failed cargo.
@@ -123,6 +124,12 @@ export function decideCargoInvocation({ args, cwd, env, map, locate, realpath = 
   // output: a manifest path or a target directory of the caller's has no place in a broker call.
   if (broker && manifestPath !== undefined) return refusal("RK_CARGO_BROKER_MANIFEST_PATH", `\`cargo ${sub}\` passes --manifest-path; a broker call runs from the workspace's own directory (the client refuses to rewrite the invocation), so run it there`);
   if (broker && valueOf("--target-dir") !== undefined) return refusal("RK_CARGO_REDIRECT", `\`cargo ${sub}\` passes --target-dir; the broker pins a snapshot compile's output directory`);
+  // GB-01: in broker mode the one command-shape table (cargo-shapes.mjs) decides what the broker would admit inside a snapshot, before anything is
+  // sent: tree, pkgid and verify-project (no non-writing policy at RustRight), a bare metadata and the other shapes it refuses are refused here, typed.
+  if (broker) {
+    const decision = carriedShapeDecision(words);
+    if (!decision.ok) return refusal(decision.code, decision.message);
+  }
   let workspace;
   try {
     const manifest = locate(manifestPath === undefined ? null : path.resolve(cwd, manifestPath), cwd, toolchain);

@@ -474,7 +474,8 @@ test("[M8-M11] broker-mode wrapper: metadata, deny, audit and fmt are carried on
   for (const [alias, full] of [["b", "build"], ["c", "check"], ["t", "test"], ["r", "run"], ["d", "doc"]]) {
     const r = decide([alias, "--locked", "-p", "a"]);
     assert.deepEqual(r.exec?.args, [full, "--locked", "-p", "a"], `${alias} is sent as ${full}`);
-    assert.deepEqual(decide(["+stable", alias]).exec?.args, ["+stable", full]);
+    // GB-01: RustRight's normalisation refuses a `+toolchain` of a managed request (RK_REDIRECT_REFUSED), so the wrapper refuses it first and sends nothing.
+    assert.equal(decide(["+stable", alias]).refuse?.code, "RK_REDIRECT_REFUSED", `+stable ${alias} is a redirect at the broker: it is not sent`);
     assert.deepEqual(decide(["--color", "always", alias]).exec?.args, ["--color", "always", full]);
   }
   assert.deepEqual(decide(["test", "--", "t"]).exec?.args, ["test", "--", "t"], "an argument after -- is not an alias");

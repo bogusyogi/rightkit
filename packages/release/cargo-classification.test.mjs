@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { carriedShapeDecision } from "./cargo-shapes.mjs";
 import { WRAPPER_COMMANDS } from "./cargo-target-shim.mjs";
 import { installCarrier } from "./carried-cargo.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
@@ -70,7 +71,9 @@ test("the fixture broker accepts a compile and refuses every other class as a sn
     else {
       assert.notEqual(r.status, 0, `cargo ${row.argv.join(" ")} must be refused today`);
       assert.equal(r.outputDir, undefined, "an unverified call names no output directory");
-      assert.match(r.stderr, /RK_CARGO_BROKER_UNVERIFIED/);
+      // GB-01: a shape the broker refuses inside a snapshot is refused by the gate's command-shape table BEFORE submission (typed, nothing marked or sent);
+      // a carried read-only shape is sent, and this pre-fix fixture broker then refuses it (unverified).
+      assert.match(r.stderr, carriedShapeDecision(row.argv).ok ? /RK_CARGO_BROKER_UNVERIFIED/ : /RK_(CARGO_BROKER_READ_ONLY_SHAPE|CARGO_BROKER_CARRIED_REFUSED|UNKNOWN_COMMAND|COMMAND_DENIED|REDIRECT_REFUSED)|RR_CLEAN_REFUSED/, `cargo ${row.argv.join(" ")}`);
     }
   }
   assert.equal(h.fx.calls().length, CARGO_CLASSIFICATION.filter((r) => r.class === "compile").length, "the fixture broker took exactly the compile requests and refused the rest before submitting them");

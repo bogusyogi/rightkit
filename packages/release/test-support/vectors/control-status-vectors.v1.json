@@ -1,0 +1,28 @@
+{
+  "schema": "rustright.control-status-vectors.v1",
+  "note": "GB-84. Shapes the broker writes for STATUS, RESULT and control refusals, each with the diagnosis a client must reach (rustright_protocol::diagnose_control_reply; the RightKit client boundary must reach the same `kind` and, where present, `code`). The live, terminal, not-found and suspended shapes are checked against the real job service by rustright-broker tests; the paused and unavailable shapes against the real front gate. A diagnosis other than `terminal` is never a build result: an absent or null receipt is `live` (pending), never green, and a malformed envelope is `malformed`. A client reconciles a known request by its durable id and never resubmits because a diagnosis improved.",
+  "expectedId": "job-1",
+  "cases": [
+    {"name": "a live job's status carries no receipt", "event": {"type": "STATUS", "id": "job-1", "state": "RUNNING", "lane": "BUILD", "priority": "BATCH"}, "kind": "live", "state": "RUNNING"},
+    {"name": "a queued job's status with a null receipt is still pending", "event": {"type": "STATUS", "id": "job-1", "state": "QUEUED", "receipt": null}, "kind": "live", "state": "QUEUED"},
+    {"name": "a finished job's status carries its receipt", "event": {"type": "STATUS", "id": "job-1", "state": "SUCCEEDED", "coalescedClients": 0, "receipt": {"id": "job-1", "state": "SUCCEEDED", "exitCode": 0}}, "kind": "terminal", "state": "SUCCEEDED"},
+    {"name": "a failed job's status is terminal, not an error of the client", "event": {"type": "STATUS", "id": "job-1", "state": "FAILED", "receipt": {"id": "job-1", "state": "FAILED", "exitCode": 101}}, "kind": "terminal", "state": "FAILED"},
+    {"name": "a terminal state with no receipt is malformed", "event": {"type": "STATUS", "id": "job-1", "state": "SUCCEEDED"}, "kind": "malformed"},
+    {"name": "a receipt for another request is malformed", "event": {"type": "STATUS", "id": "job-1", "state": "SUCCEEDED", "receipt": {"id": "job-2", "state": "SUCCEEDED"}}, "kind": "malformed"},
+    {"name": "a status for another request is malformed", "event": {"type": "STATUS", "id": "job-2", "state": "RUNNING"}, "kind": "malformed"},
+    {"name": "a status with no state is malformed", "event": {"type": "STATUS", "id": "job-1"}, "kind": "malformed"},
+    {"name": "a status with a receipt that is not an object is malformed", "event": {"type": "STATUS", "id": "job-1", "state": "SUCCEEDED", "receipt": "ok"}, "kind": "malformed"},
+    {"name": "the gate answers STATUS UNAVAILABLE while the data root is unreadable", "event": {"type": "STATUS", "id": "job-1", "state": "UNAVAILABLE", "runtime": {"version": "x"}, "diagnostic": {"code": "EIO", "path": "/data", "errno": 5}, "code": "EIO"}, "kind": "unavailable"},
+    {"name": "a paused broker refuses root admission", "event": {"type": "RESULT", "exitCode": 125, "status": "REJECTED", "error": "admission is paused; resume with 'rustright resume-admission'", "code": "RK_ADMISSION_PAUSED"}, "kind": "refused", "code": "RK_ADMISSION_PAUSED", "refusal": "paused"},
+    {"name": "an unknown job", "event": {"type": "RESULT", "exitCode": 125, "status": "REJECTED", "error": "job not found", "code": "RK_JOB_NOT_FOUND"}, "kind": "refused", "code": "RK_JOB_NOT_FOUND", "refusal": "not-found"},
+    {"name": "a journaled job that runs again after the broker restarts", "event": {"type": "RESULT", "exitCode": 125, "status": "REJECTED", "error": "job is journaled and runs again after the broker restarts; ask again then", "code": "RK_JOB_SUSPENDED"}, "kind": "refused", "code": "RK_JOB_SUSPENDED", "refusal": "suspended"},
+    {"name": "an activation that is not finished", "event": {"type": "RESULT", "exitCode": 125, "status": "REJECTED", "error": "activation pending", "code": "RK_ACTIVATION_PENDING"}, "kind": "refused", "code": "RK_ACTIVATION_PENDING", "refusal": "activation-pending"},
+    {"name": "a cutover drain", "event": {"type": "RESULT", "exitCode": 125, "status": "REJECTED", "error": "runtime cutover drain is pending: RustRight broker is stopping", "code": "RK_CUTOVER_DRAIN_PENDING"}, "kind": "refused", "code": "RK_CUTOVER_DRAIN_PENDING", "refusal": "cutover-drain"},
+    {"name": "a refusal with a code this client does not know", "event": {"type": "RESULT", "exitCode": 125, "status": "REJECTED", "error": "no", "code": "RK_SOMETHING_NEW"}, "kind": "refused", "code": "RK_SOMETHING_NEW", "refusal": "other"},
+    {"name": "a refusal with no code", "event": {"type": "RESULT", "exitCode": 125, "status": "REJECTED", "error": "invalid JSON: x"}, "kind": "refused", "refusal": "other"},
+    {"name": "a terminal RESULT carries the receipt", "event": {"type": "RESULT", "id": "job-1", "exitCode": 0, "status": "SUCCEEDED", "receipt": {"id": "job-1", "state": "SUCCEEDED"}}, "kind": "terminal", "state": "SUCCEEDED"},
+    {"name": "a RESULT with no receipt and no refusal is malformed", "event": {"type": "RESULT", "id": "job-1", "exitCode": 0, "status": "SUCCEEDED"}, "kind": "malformed"},
+    {"name": "an event with no type is malformed", "event": {"state": "RUNNING"}, "kind": "malformed"},
+    {"name": "an unexpected type is malformed", "event": {"type": "LIST"}, "kind": "malformed"}
+  ]
+}

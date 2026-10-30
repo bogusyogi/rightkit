@@ -20,6 +20,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { BROKER_COMPILE_COMMANDS, CARGO_COMMAND_ALIASES, cargoCommandIndex, cargoSubcommandOf, expandCargoAliases, isCompileCommand, isPackageObservation } from "./cargo-shapes.mjs";
 import { canonicalJson, ProvenanceError, verifyProvenance } from "./provenance-verify.mjs";
 
 export const SNAPSHOT_REQUEST_SCHEMA = "rustright.snapshot-request/1";
@@ -48,65 +49,12 @@ const TIMING_KEYS =Object.freeze(["admission", "queue", "bind", "cargo", "afterE
 /** `<toolchain>|cargo:<sha256>|rustc:<sha256>` (rustright toolchain_identity). */
 const TOOLCHAIN_FORMAT = /^[^|\s][^|]*\|cargo:[0-9a-f]{64}\|rustc:[0-9a-f]{64}$/;
 
-/**
- * The ONE table of what the broker classifies as a compile (a Capability that builds: its receipt carries freshness, attribution and toolchain), read from
- * rustright b84ae605 crates/rustright-policy/src/command_policy.rs `cargo_capability`: `fix` (:581), `run` (:597, CARGO_RUN = BUILD that stays resident),
- * `package` unless it is the observation shape (:611, `observation_only_cargo`), `publish` (:615) and `build check test bench clippy doc rustc rustdoc` (:619).
- * Both decisions the gate makes from an argv derive from it: which evidence a receipt must carry (`isCompileClass`) and which commands get `--locked`
- * (`lockedArgv`). `package` is a compile only when it is not the exact `-p <crate> --list --locked [--allow-dirty]` listing (`isPackageObservation`).
- */
-export const BROKER_COMPILE_COMMANDS = Object.freeze(["fix", "run", "package", "publish", "build", "check", "test", "bench", "clippy", "doc", "rustc", "rustdoc"]);
-/**
- * The one-letter aliases of Cargo. The broker lists none (an alias is refused there); the gate reads one as the command it expands to, so an alias can only
- * make the gate demand MORE evidence and lock MORE, never less.
- */
-export const CARGO_COMMAND_ALIASES = Object.freeze({ b: "build", c: "check", t: "test", r: "run", d: "doc" });
-const canonicalCommand = (sub) => (typeof sub === "string" && Object.hasOwn(CARGO_COMMAND_ALIASES, sub) ? CARGO_COMMAND_ALIASES[sub] : sub);
-const GLOBAL_VALUE_OPTIONS = new Set(["--color", "--explain"]);
-
-/** The cargo subcommand of an argv (without `cargo`): after an optional `+toolchain` and the global options, before `--`; null when there is none. */
-export function cargoSubcommandOf(argv) {
-  const words = [...argv];
-  for (let i = words[0]?.startsWith("+") ? 1 : 0; i < words.length; i += 1) {
-    const w = words[i];
-    if (w === "--") return null;
-    if (GLOBAL_VALUE_OPTIONS.has(w)) { i += 1; continue; }
-    if (w.startsWith("-")) continue;
-    return w;
-  }
-  return null;
-}
-const PACKAGE_PLAIN_FLAGS = new Set(["--list", "--locked", "--allow-dirty"]);
-/**
- * Whether `argv` is the one package form the broker admits as an observation that compiles nothing (rustright build_rules.rs `observation_only_cargo`, package
- * arm): no `--`, no `+toolchain`, the subcommand as the one positional, `-p`/`--package` once with a value that is not a flag (`--package=x` is read, `-p=x` is not),
- * and only `--list`, `--locked` and `--allow-dirty` besides; it must carry `--list`, `--locked` and one package. Anything else is a compiling package.
- */
-export function isPackageObservation(argv) {
-  const words = [...argv];
-  if (words.includes("--") || words.some((w) => w.startsWith("+")) || cargoSubcommandOf(words) !== "package") return false;
-  let seen = false; let list = false; let locked = false; let packages = 0;
-  for (let i = 0; i < words.length; i += 1) {
-    const w = words[i];
-    if (!w.startsWith("-")) { if (seen || w !== "package") return false; seen = true; continue; }
-    const eq = w.startsWith("--") ? w.indexOf("=") : -1;
-    const name = eq >= 0 ? w.slice(0, eq) : w; const inline = eq >= 0 ? w.slice(eq + 1) : null;
-    if (name === "-p" || name === "--package") {
-      const value = inline ?? words[++i];
-      if (typeof value !== "string" || value === "" || value.startsWith("-")) return false;
-      packages += 1; if (packages > 1) return false;
-      continue;
-    }
-    if (!PACKAGE_PLAIN_FLAGS.has(name) || inline !== null) return false;
-    if (name === "--list") list = true; else if (name === "--locked") locked = true;
-  }
-  return seen && list && locked && packages === 1;
-}
+// GB-01/GB-02: the command-shape table is cargo-shapes.mjs (one versioned table, exercised against RustRight's cargo-shapes vector); these names
+// are its views for the carried call. `isCompileClass` decides which evidence a receipt must carry from the broker's own compile rule (the `compile`
+// column of the vector), so bench, run, rustdoc and a compiling `package` owe it too and a read-only metadata or `package --list` legitimately carries none.
+export { BROKER_COMPILE_COMMANDS, CARGO_COMMAND_ALIASES, cargoSubcommandOf, isPackageObservation };
 /** Whether the broker classifies this argv (without the tool name) as a compile. `package` is one unless it is the observation listing. */
-export const isCompileClass = (argv) => {
-  const sub = canonicalCommand(cargoSubcommandOf(argv));
-  return BROKER_COMPILE_COMMANDS.includes(sub) && !(sub === "package" && isPackageObservation(argv));
-};
+export const isCompileClass = (argv) => isCompileCommand(argv);
 /** The commands that build or run, and so can rewrite Cargo.lock inside a snapshot unless they are locked (rightkit#1301): the same table as `isCompileClass`. */
 export const isLockBound = (argv) => isCompileClass(argv);
 
@@ -142,18 +90,15 @@ function lockedNdkArgv(words) {
 }
 
 export function lockedArgv(argv) {
-  const words = [...argv];
+  // GB-01: the standard aliases are expanded BEFORE locking and hashing, so what the gate sends, signs and digests is what the broker classifies
+  // (a committed `.cargo/config.toml` [alias] can never redefine it). Only the subcommand token changes.
+  const words = expandCargoAliases(argv);
   if (cargoSubcommandOf(words) === "ndk") return lockedNdkArgv(words);
   if (!isLockBound(words)) return words;
   const end = words.indexOf("--");
   if ((end < 0 ? words : words.slice(0, end)).some((w) => w === "--locked" || w === "--frozen")) return words;
-  let i = words[0]?.startsWith("+") ? 1 : 0;
-  for (; i < words.length; i += 1) {
-    if (words[i] === "--") break;
-    if (GLOBAL_VALUE_OPTIONS.has(words[i])) { i += 1; continue; }
-    if (words[i].startsWith("-")) continue;
-    break;
-  }
+  const i = cargoCommandIndex(words);
+  if (i === null) return words;
   return [...words.slice(0, i + 1), "--locked", ...words.slice(i + 1)];
 }
 

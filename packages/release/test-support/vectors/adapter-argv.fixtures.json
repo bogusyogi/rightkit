@@ -1,0 +1,59 @@
+{
+  "schema": "rustright.adapter-argv.fixtures.v1",
+  "note": "GB-03/GB-04/GB-05 shared vectors. Owner: RustRight (the registered grammar, `adapters.pnpm` in the broker config); consumer: RightKit's pnpm planner must produce only argv this registration admits. Every row is judged by the production parser (rustright-policy tests/adapter_vectors.rs: check_spec, check_argv and, for snapshot-bound calls, snapshot_argv_check). `{scratch}` stands for the registration's scratchRoot, `{scratch}/rk-local-publish-a/work` for an existing, empty child of it. Registration facts the planner depends on: global flags that take a value are registered both as flag and as leading subcommand token (`--dir`, `-C`, `--filter`); `--if-present` is a `run` option and is registered as a flag, so it goes after `run` (a leading `--if-present` is refused); everything after the target of `run` or `exec` belongs to the target and is opaque (so `run x --flag` and `run x -- --flag` are both admitted without rewriting); `exec` admits only the targets in `opaqueTargets.exec`, never an arbitrary executable. `envRows` (GB-04) are judged by check_environment: the registration lists the only non-reserved environment keys the adapter takes; a reserved or unregistered key refuses before any process starts, naming the keys and the registered set.",
+  "adapter": {
+    "tool": "node",
+    "script": {"path": "/opt/tools/pnpm.mjs", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "lane": "BUILD",
+    "compile": true,
+    "snapshot": true,
+    "snapshotSubcommands": ["run", "exec", "pack"],
+    "subcommands": ["install", "run", "exec", "pack", "-r", "--dir", "-C", "--filter", "--workspace-concurrency=1"],
+    "flags": [
+      {"name": "--dir", "value": "relpathOrScratchPath"},
+      {"name": "-C", "value": "relpathOrScratchPath"},
+      {"name": "--filter", "value": "any"},
+      {"name": "--if-present", "value": "none"},
+      {"name": "--workspace-concurrency", "value": "int"},
+      {"name": "--pack-destination", "value": "scratchPackDir"}
+    ],
+    "positionals": "relpath",
+    "env": ["RK_ISOLATED_CHECKOUT", "RIGHTKIT_QA_APP_BINARY", "RIGHTKIT_QA_SIGNING_EVIDENCE"],
+    "opaqueAfterTarget": ["run", "exec"],
+    "opaqueTargets": {"exec": ["tauri"]},
+    "scratchRoot": "{scratch}",
+    "timeoutMs": 1800000
+  },
+  "envRows": [
+    {"name": "the registered key", "env": {"RK_ISOLATED_CHECKOUT": "1"}, "result": "ok"},
+    {"name": "no environment", "env": {}, "result": "ok"},
+    {"name": "unregistered keys are all named with the registered ones", "env": {"RK_OTHER": "1", "RK_ZED": "2"}, "result": "refused", "mentions": ["RK_OTHER", "RK_ZED", "RK_ISOLATED_CHECKOUT", "RIGHTKIT_QA_APP_BINARY"]},
+    {"name": "signed-artifact handoff keys carry absolute paths", "env": {"RIGHTKIT_QA_APP_BINARY": "/signed/app", "RIGHTKIT_QA_SIGNING_EVIDENCE": "/signed/evidence.json"}, "result": "ok"},
+    {"name": "a relative handoff path is refused", "env": {"RIGHTKIT_QA_APP_BINARY": "app"}, "result": "refused", "mentions": ["RIGHTKIT_QA_APP_BINARY", "absolute"]},
+    {"name": "other RIGHTKIT_ names stay broker-controlled", "env": {"RIGHTKIT_JOB_ID": "/x"}, "result": "refused", "mentions": ["RIGHTKIT_JOB_ID", "broker-controlled"]},
+    {"name": "build redirect keys are broker-controlled", "env": {"CARGO_HOME": "/x"}, "result": "refused", "mentions": ["CARGO_HOME", "broker-controlled"]},
+    {"name": "a registered key beside an unregistered one still refuses", "env": {"RK_ISOLATED_CHECKOUT": "1", "RK_OTHER": "1"}, "result": "refused", "mentions": ["RK_OTHER"]}
+  ],
+  "rows": [
+    {"name": "run script", "argv": ["run", "build"], "result": "ok"},
+    {"name": "--dir", "argv": ["--dir", "hub", "run", "build"], "result": "ok"},
+    {"name": "-C", "argv": ["-C", "hub", "run", "build"], "result": "ok"},
+    {"name": "--filter", "argv": ["--filter", "app", "run", "build"], "result": "ok"},
+    {"name": "recursive with concurrency", "argv": ["-r", "--workspace-concurrency=1", "run", "build"], "result": "ok"},
+    {"name": "--if-present after run", "argv": ["run", "--if-present", "build"], "result": "ok"},
+    {"name": "leading --if-present is not registered", "argv": ["--if-present", "run", "build"], "result": "refused"},
+    {"name": "script flag passthrough", "argv": ["run", "x", "--flag"], "result": "ok"},
+    {"name": "script flag passthrough after separator", "argv": ["run", "x", "--", "--flag"], "result": "ok"},
+    {"name": "run with no script", "argv": ["run"], "result": "refused"},
+    {"name": "pack destination", "argv": ["pack", "--pack-destination", "{scratch}/rk-local-publish-a/work"], "result": "ok", "snapshot": "ok"},
+    {"name": "pack destination outside the scratch children", "argv": ["pack", "--pack-destination", "{scratch}/other/work"], "result": "refused"},
+    {"name": "exec tauri", "argv": ["exec", "tauri", "build", "--debug"], "result": "ok"},
+    {"name": "exec tauri under --dir", "argv": ["--dir", "hub", "exec", "tauri", "build", "--debug"], "result": "ok"},
+    {"name": "exec node -e is denied", "argv": ["exec", "node", "-e", "process.exit(0)"], "result": "refused"},
+    {"name": "exec of any other executable is denied", "argv": ["exec", "sh", "-c", "true"], "result": "refused"},
+    {"name": "exec target behind the separator is still judged", "argv": ["exec", "--", "node", "-e", "1"], "result": "refused"},
+    {"name": "unregistered leading flag", "argv": ["--unknown", "run", "build"], "result": "refused"},
+    {"name": "--dir may not leave the workspace", "argv": ["--dir", "../x", "run", "build"], "result": "refused"},
+    {"name": "install is registered but not snapshot-bound", "argv": ["install"], "result": "ok", "snapshot": "refused"}
+  ]
+}

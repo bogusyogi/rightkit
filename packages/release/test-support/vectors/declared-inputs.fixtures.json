@@ -1,0 +1,241 @@
+{
+ "schema": "rustright.declared-inputs.fixtures.v1",
+ "note": "GB-49 shared vectors. Owner: RustRight (the broker's declared-input digest); consumer: every RightKit reader of the declaration must give the same inputs and the same digests. The declaration is `.rustright/compile-inputs.json`; the legacy `.rightkit/compile-inputs.json` is read only when the canonical file is absent (a present but invalid canonical file is an error, never a fallback). Each input is digested in place: for every regular file under it, in directory order sorted by name bytes, the file's name (its path components joined by `/` on every platform, UTF-8, no Unicode normalisation) + NUL + the file's bytes + NUL are fed to one SHA-256 per input; `files` and `bytes` total the regular files of all inputs. A link, a non-regular file, an absolute or `..` or `.git` path, and a path overlapping either declaration file are refused. The Rust test (broker check_admission tests) builds each case in a temporary directory and compares; the expected digests here were computed independently (Python), not by the broker.",
+ "cases": [
+  {
+   "name": "a single file, canonical declaration",
+   "files": {
+    "a.txt": "hello"
+   },
+   "declarations": {
+    ".rustright/compile-inputs.json": "{\"inputs\": [\"a.txt\"]}"
+   },
+   "supplied": [
+    "a.txt"
+   ],
+   "expect": {
+    "declared": [
+     {
+      "path": "a.txt",
+      "sha256": "3cb3fd4eec476f06fa7b3f636359420c227a672ebf7a17c6b735ac26aec394cb"
+     }
+    ],
+    "files": 1,
+    "bytes": 5
+   }
+  },
+  {
+   "name": "a nested directory with non-ASCII names",
+   "files": {
+    "data/é.txt": "x",
+    "data/sub/b.bin": "yz",
+    "data/a.txt": "first"
+   },
+   "declarations": {
+    ".rustright/compile-inputs.json": "{\"inputs\": [\"data\"]}"
+   },
+   "supplied": [
+    "data"
+   ],
+   "expect": {
+    "declared": [
+     {
+      "path": "data",
+      "sha256": "912f7d582fb6bfa5c487adc688dc6dc69af776a11c471a2ca49e7f7f7c61120f"
+     }
+    ],
+    "files": 3,
+    "bytes": 8
+   }
+  },
+  {
+   "name": "a slash-declared nested directory",
+   "files": {
+    "data/sub/b.bin": "yz",
+    "data/sub/c.bin": "w"
+   },
+   "declarations": {
+    ".rustright/compile-inputs.json": "{\"inputs\": [\"data/sub\"]}"
+   },
+   "supplied": [
+    "data/sub"
+   ],
+   "expect": {
+    "declared": [
+     {
+      "path": "data/sub",
+      "sha256": "cbdb52cdeaa5b854b302904f75483bc4b5cf70311b804697aa945f8eae994ec5"
+     }
+    ],
+    "files": 2,
+    "bytes": 3
+   }
+  },
+  {
+   "name": "two inputs in declaration order",
+   "files": {
+    "b.txt": "2",
+    "a.txt": "1"
+   },
+   "declarations": {
+    ".rustright/compile-inputs.json": "{\"inputs\": [\"b.txt\", \"a.txt\"]}"
+   },
+   "supplied": [
+    "b.txt",
+    "a.txt"
+   ],
+   "expect": {
+    "declared": [
+     {
+      "path": "b.txt",
+      "sha256": "182d20e3f7e9ee112eb27fe002c5e54935efde0d0d10467cc3612bc6a52d8811"
+     },
+     {
+      "path": "a.txt",
+      "sha256": "fb72b7fcf2dd724ad6b2da93e71da7946b3bda99ad7fdaed4e284fddc7316b63"
+     }
+    ],
+    "files": 2,
+    "bytes": 2
+   }
+  },
+  {
+   "name": "legacy declaration only",
+   "files": {
+    "a.txt": "hello"
+   },
+   "declarations": {
+    ".rightkit/compile-inputs.json": "{\"inputs\": [\"a.txt\"]}"
+   },
+   "supplied": [
+    "a.txt"
+   ],
+   "expect": {
+    "declared": [
+     {
+      "path": "a.txt",
+      "sha256": "3cb3fd4eec476f06fa7b3f636359420c227a672ebf7a17c6b735ac26aec394cb"
+     }
+    ],
+    "files": 1,
+    "bytes": 5
+   }
+  },
+  {
+   "name": "canonical wins when both exist",
+   "files": {
+    "a.txt": "1",
+    "b.txt": "2"
+   },
+   "declarations": {
+    ".rustright/compile-inputs.json": "{\"inputs\": [\"a.txt\"]}",
+    ".rightkit/compile-inputs.json": "{\"inputs\": [\"b.txt\"]}"
+   },
+   "supplied": [
+    "a.txt"
+   ],
+   "expect": {
+    "declared": [
+     {
+      "path": "a.txt",
+      "sha256": "fb72b7fcf2dd724ad6b2da93e71da7946b3bda99ad7fdaed4e284fddc7316b63"
+     }
+    ],
+    "files": 1,
+    "bytes": 1
+   }
+  },
+  {
+   "name": "supplied inputs that differ from the declaration actually read are refused",
+   "files": {
+    "a.txt": "1"
+   },
+   "declarations": {
+    ".rustright/compile-inputs.json": "{\"inputs\": [\"a.txt\"]}",
+    ".rightkit/compile-inputs.json": "{\"inputs\": [\"a.txt\"]}"
+   },
+   "supplied": [
+    "b.txt"
+   ],
+   "expect": {
+    "error": "declaredInputs differs from the snapshot declaration"
+   }
+  },
+  {
+   "name": "an invalid canonical declaration is not read as the legacy one",
+   "files": {
+    "a.txt": "1"
+   },
+   "declarations": {
+    ".rustright/compile-inputs.json": "{not json",
+    ".rightkit/compile-inputs.json": "{\"inputs\": [\"a.txt\"]}"
+   },
+   "supplied": [
+    "a.txt"
+   ],
+   "expect": {
+    "error": "compile-inputs.json"
+   }
+  },
+  {
+   "name": "an input overlapping the declaration file is refused",
+   "files": {
+    "a.txt": "1"
+   },
+   "declarations": {
+    ".rustright/compile-inputs.json": "{\"inputs\": [\".rustright\"]}"
+   },
+   "supplied": [
+    ".rustright"
+   ],
+   "expect": {
+    "error": "overlaps the declaration file"
+   }
+  },
+  {
+   "name": "an input overlapping the legacy declaration file is refused",
+   "files": {
+    "a.txt": "1"
+   },
+   "declarations": {
+    ".rustright/compile-inputs.json": "{\"inputs\": [\".rightkit\"]}"
+   },
+   "supplied": [
+    ".rightkit"
+   ],
+   "expect": {
+    "error": "overlaps the declaration file"
+   }
+  },
+  {
+   "name": "an absolute input is refused",
+   "files": {
+    "a.txt": "1"
+   },
+   "declarations": {
+    ".rustright/compile-inputs.json": "{\"inputs\": [\"/etc/passwd\"]}"
+   },
+   "supplied": [
+    "/etc/passwd"
+   ],
+   "expect": {
+    "error": "not a plain relative path"
+   }
+  },
+  {
+   "name": "a dot-dot input is refused",
+   "files": {
+    "a.txt": "1"
+   },
+   "declarations": {
+    ".rustright/compile-inputs.json": "{\"inputs\": [\"../a.txt\"]}"
+   },
+   "supplied": [
+    "../a.txt"
+   ],
+   "expect": {
+    "error": "not a plain relative path"
+   }
+  }
+ ]
+}

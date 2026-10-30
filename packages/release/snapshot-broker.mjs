@@ -21,6 +21,7 @@ import { loadBrokerPins } from "./broker-pins.mjs";
 import { ATTEST_STAGE_NONCE_ENV, canonicalJson, carriedCallNonce } from "./provenance-verify.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { forwardedAdapterEnv } from "./adapter-env.mjs";
+import { carriedShapeDecision } from "./cargo-shapes.mjs";
 import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend } from "./ownership-mark.mjs";
 import {
   MANAGED_RUST_ENVIRONMENT_KEYS, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, isCallHandleOf, lockedArgv, observedEnvOf, readDeclaredInputs, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest,
@@ -174,10 +175,14 @@ export function inheritedCarrierEnv(env) {
  * directory with no counterpart in the checkout. An output directory of the caller's is dropped (the broker pins it).
  */
 export function carryBrokerCargo({ words, cwd, env, section, workspace, checkoutWorkspace, record, spawn = spawnSync, err, tmp = os.tmpdir(), stdio = "inherit" }) {
-  words = lockedArgv(words); // a build or run is always locked (snapshot-request.mjs lockedArgv)
+  words = lockedArgv(words); // a build or run is always locked, and a standard alias is expanded first (snapshot-request.mjs lockedArgv)
   const id = crypto.randomUUID();
   const base = { id, mode: "broker", cwd, argv: [...words] };
   const refuse = (code, message) => { record({ ...base, status: "refused", code, message }); err(`rightkit-gate: ${code}: ${message}`); return { status: BROKER_REFUSAL_STATUS, outcome: { status: "refused", code, message }, stdout: "", stderr: `rightkit-gate: ${code}: ${message}\n` }; };
+  // GB-01: the one command-shape table (cargo-shapes.mjs, exercised against RustRight's cargo-shapes vector) decides BEFORE anything is marked or sent:
+  // a shape the broker refuses inside a snapshot (tree, pkgid, verify-project, a bare metadata, a write-form fmt, help, ...) launches zero processes.
+  const shape = carriedShapeDecision(words);
+  if (!shape.ok) return refuse(shape.code, shape.message);
   const gate = env[CALLING_GATE_ENV];
   if (typeof gate !== "string" || !gate.trim()) return refuse("RK_CARGO_BROKER_NO_GATE", `${CALLING_GATE_ENV} is not set: the call names no gate, and the wrapper never forges one`);
   const inherited = inheritedCarrierEnv(env);
