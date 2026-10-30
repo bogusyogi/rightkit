@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { locateBrokerClient, spawnBrokerClient } from "./broker-client.mjs";
+import { publicationRowProblem } from "./publication-outcomes.mjs";
 import { localBuildGranted } from "./execution-policy.mjs";
 import { readCargoPackage } from "./crate-graph.mjs";
 import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
@@ -143,7 +144,10 @@ export async function releaseUnit({ unit, root, checkout = root, commit, executo
   const rows = (receipt.receipts ?? []).filter((r) => r.unit === unit.name && r.version === unit.version);
   if (rows.length !== 1) throw new Error(`${unit.name}@${unit.version}: the publication receipt holds ${rows.length} row(s) for this unit; exactly one is required`);
   const [row] = rows;
-  if (row.published !== true || row.registryVerified !== true || row.outcome !== "published" || !/^[0-9a-f]{64}$/.test(row.sha256 ?? "")) throw new Error(`${unit.name}@${unit.version}: the publication receipt of upload run ${done.uploadRunId} records no verified publication (${row.outcome})`);
+  // The shared success definition (publication-outcomes.mjs, GB-45): `published` and the uploader's verified reconciliation of an earlier attempt's
+  // identical bytes (`published-by-earlier-attempt`) are both success; the registry readback below still has to serve the receipt's own hash.
+  const rowProblem = publicationRowProblem(row);
+  if (rowProblem) throw new Error(`${unit.name}@${unit.version}: the publication receipt of upload run ${done.uploadRunId} records no verified publication (${row.outcome}): ${rowProblem}`);
   // Read the registry back independently of the upload run: npm's dist.shasum (sha1) and the served tarball's sha256 (the receipt
   // row carries sha256 + sha1, not the sha512 integrity); crates: the sparse index cksum (sha256).
   const served = await registryBytes({ unit, registry, run, env, expected: row, scratch });

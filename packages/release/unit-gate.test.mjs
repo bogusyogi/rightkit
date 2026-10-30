@@ -148,6 +148,30 @@ test("release stage: the gate owns pre-flight, broker dispatch, the wait and the
   f = make({ states: [dispatched, published] });
   f.readJson = () => ({ dispatches: { a: dispatched, b: dispatched } });
   await assert.rejects(releaseUnit({ ...base, ...f }), /2 dispatch records/);
+  // GB-45: the uploader's verified reconciliation of an earlier attempt's IDENTICAL bytes is a successful terminal result, not a failed publication.
+  const reconciled = { ...row, outcome: "published-by-earlier-attempt", publishedBy: "earlier-attempt", earlierAttempt: 1, earlierOutcome: "pending" };
+  f = make({ states: [dispatched, published], receiptRows: [reconciled] });
+  const reusedOk = await releaseUnit({ ...base, ...f });
+  assert.equal(reusedOk.registryVerified, true); assert.equal(reusedOk.hostedSha256, "2".repeat(64), "bound to the receipt's hash, which the registry readback confirmed");
+  // ...but only with the same bytes, a verified row, a named provenance and the one row: everything else still refuses.
+  f = make({ states: [dispatched, published], receiptRows: [reconciled], served: { shasum: "s1", sha256: "3".repeat(64) } });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /different bytes/, "DIFFERENT bytes on the registry");
+  f = make({ states: [dispatched, published], receiptRows: [{ ...reconciled, registryVerified: false }] });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /records no verified publication \(published-by-earlier-attempt\): it is not registry-verified/, "unverified");
+  f = make({ states: [dispatched, published], receiptRows: [{ ...reconciled, publishedBy: undefined }] });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /provenance is ambiguous/, "ambiguous provenance");
+  f = make({ states: [dispatched, published], receiptRows: [{ ...reconciled, outcome: "already-exists" }] });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /outcome is "already-exists"/, "a generic already-exists answer is never success");
+  f = make({ states: [dispatched, published], receiptRows: [] });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /holds 0 row/, "missing row");
+  f = make({ states: [dispatched, published], receiptRows: [{ ...reconciled, sha256: undefined }] });
+  await assert.rejects(releaseUnit({ ...base, ...f }), /carries no sha256/);
+  // Producer and consumer share one definition.
+  const { SUCCESSFUL_PUBLICATION_OUTCOMES, PUBLISHED_BY_EARLIER_ATTEMPT } = await import("./publication-outcomes.mjs");
+  assert.deepEqual([...SUCCESSFUL_PUBLICATION_OUTCOMES], ["published", "published-by-earlier-attempt"]);
+  const uploader = fs.readFileSync(new URL("../../scripts/ci/upload.mjs", import.meta.url), "utf8");
+  assert.match(uploader, /outcome: PUBLISHED_BY_EARLIER_ATTEMPT, publishedBy: "earlier-attempt"/, "the uploader writes the shared name");
+  assert.equal(PUBLISHED_BY_EARLIER_ATTEMPT, "published-by-earlier-attempt");
 });
 
 test("unit selection requires grant and canonical matching publishable manifest", () => {
