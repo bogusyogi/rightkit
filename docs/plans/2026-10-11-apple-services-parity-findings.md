@@ -156,7 +156,7 @@ HeardRight does not link RightKitArtifacts, RightKitOverlay or RightKitWatch.
 - The `.storekit` file is a `fileGroups` entry.
 - `docs/APPLE_CONTINUITY_ARCHITECTURE.md:81` says push needs main-app APNs entitlements and matching provisioning profiles.
 
-**Signing:** `docs/MAC_DEVELOPER_ID_SIGNING.md:35` says restricted CloudKit and APNs entitlements need an app-specific provisioning profile that authorises the bundle id, team and certificate. A helper must be a signed `.app` with an embedded profile (`swift/RightKitCloudKitHelper/README.md`). `docs/rules/release-signing.md` states only that Apple accounts exist and are provisioned, with no per-app list.
+**Signing:** `docs/MAC_DEVELOPER_ID_SIGNING.md:35` says restricted CloudKit and APNs entitlements need an app-specific provisioning profile that authorises the bundle id, team and certificate. A helper must be a signed `.app` with an embedded profile (`swift/RightKitSwift/docs/cloudkit-helper/README.md`). `docs/rules/release-signing.md` states only that Apple accounts exist and are provisioned, with no per-app list.
 
 **CodeRight, what exists today (V):**
 - Bundle ids: `app.coderight.CodeRight`, `.widgets` and `.fileprovider` (`CodeRight.xcodeproj/project.pbxproj:1972,2072,2096`).
@@ -185,7 +185,7 @@ HeardRight does not link RightKitArtifacts, RightKitOverlay or RightKitWatch.
 **RightKit docs:**
 - `swift/RightKitSwift/README.md` (products and consuming) and `swift/README.md` (extraction contract)
 - `crates/rightkit-sync/API.md` (wire protocol and per-app migration)
-- `swift/RightKitCloudKitHelper/README.md` (manual real-CloudKit gate)
+- `swift/RightKitSwift/docs/cloudkit-helper/README.md` (manual real-CloudKit gate)
 - `docs/PLATFORM-MATRIX.md`
 - `/Volumes/D/claude/docs/RIGHTKIT-SHARED-PACKAGES.md` and `RIGHTKIT-SHARED-PLATFORM.md`
 - `swift/ios-app-template/`

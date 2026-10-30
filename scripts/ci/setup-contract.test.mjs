@@ -76,7 +76,7 @@ test("shared setup keeps install enabled by default and caches only pnpm store",
 
 test("Swift cache targets SwiftPM build directories with scoped compatibility keys", () => {
   const cache = ACTION.runs.steps.find((step) => step.name === "Cache SwiftPM build products");
-  assert.equal(cache.with.path.trimEnd(), ".build\nswift/RightKitSwift/.build\nswift/RightKitCloudKitHelper/.build");
+  assert.equal(cache.with.path.trimEnd(), ".build\nswift/RightKitSwift/.build");
   assert.match(cache.with.key, /rust-toolchain\.toml/);
   assert.match(cache.with.key, /Package\.resolved/);
   assert.match(cache.with.key, /Package\.swift/);

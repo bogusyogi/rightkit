@@ -1,3 +1,4 @@
+#if os(macOS)
 // rightkit-cloudkit-helper — long-lived stdin/stdout helper that gives rightkit-sync (Rust) access
 // to the user's private CloudKit database. Protocol: see Session.swift and the rightkit-sync API.md.
 //
@@ -5,7 +6,7 @@
 //   rightkit-cloudkit-helper --backend memory      # in-process zone, no iCloud (protocol E2E tests)
 //
 // CloudKit refuses to run unless this binary is packaged as its own signed .app bundle with the
-// iCloud container entitlement and an embedded provisioning profile (see README.md); a bare
+// iCloud container entitlement and an embedded provisioning profile (see docs/cloudkit-helper/README.md); a bare
 // Mach-O is killed at launch. Logs go to stderr only: stdout is protocol-only.
 
 import Foundation
@@ -53,3 +54,5 @@ while let line = readLine(strippingNewline: true) {
     fflush(stdout)
     if stop { break }
 }
+
+#endif

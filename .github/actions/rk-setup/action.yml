@@ -120,7 +120,6 @@ runs:
         path: |
           .build
           swift/RightKitSwift/.build
-          swift/RightKitCloudKitHelper/.build
         key: ${{ runner.os }}-${{ inputs.derived-data }}-swiftpm-${{ hashFiles('rust-toolchain.toml', 'Package.swift', '**/Package.resolved', 'swift/**/Package.swift', 'swift/**/*.swift', 'swift/**/Resources/**') }}
         restore-keys: |
           ${{ runner.os }}-${{ inputs.derived-data }}-swiftpm-

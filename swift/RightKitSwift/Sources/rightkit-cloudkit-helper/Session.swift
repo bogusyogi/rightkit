@@ -1,3 +1,4 @@
+#if os(macOS)
 // Protocol handler for `rightkit-sync-helper/1`: one JSON request per line in, one JSON response
 // per line out. Stateless across restarts except the change-tag cache inside the transport and the
 // per-record field-name memory below; the change cursor lives in the Rust ledger (the token travels
@@ -337,3 +338,5 @@ actor HelperSession {
         return text
     }
 }
+
+#endif

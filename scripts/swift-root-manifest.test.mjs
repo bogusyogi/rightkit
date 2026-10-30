@@ -38,10 +38,11 @@ const field = (args, name) => {
 function parse(file) {
   const raw = read(file);
   const text = stripComments(raw);
-  const products = calls(text, "library").map((a) => ({ name: strings(a)[0], targets: strings(field(a, "targets") ?? "") }));
+  const products = [...calls(text, "library"), ...calls(text, "executable")].map((a) => ({ name: strings(a)[0], targets: strings(field(a, "targets") ?? "") }));
   const targets = [
     ...calls(text, "target").map((args) => ({ kind: "target", args })),
     ...calls(text, "testTarget").map((args) => ({ kind: "testTarget", args })),
+    ...calls(text, "executableTarget").map((args) => ({ kind: "executableTarget", args })),
   ].map(({ kind, args }) => ({
     kind,
     name: strings(args)[0],
@@ -88,7 +89,7 @@ test("manifests agree on tools version and platforms", () => {
 
 test("every root target path exists and is the default location the nested manifest uses", () => {
   for (const t of root.targets) {
-    const folder = t.kind === "target" ? "Sources" : "Tests";
+    const folder = t.kind === "testTarget" ? "Tests" : "Sources";
     assert.equal(t.path, `${PKG_DIR}/${folder}/${t.name}`, `path of ${t.name}`);
     assert.ok(fs.statSync(path.join(ROOT, t.path)).isDirectory(), `${t.path} must exist`);
   }

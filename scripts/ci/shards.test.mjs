@@ -207,8 +207,6 @@ test("swift packages owe a generic iOS and watchOS build per declared platform; 
     "build -scheme RightKitSwift-Package -destination generic/platform=watchOS -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO",
   ]);
   assert.deepEqual(swiftXcodebuilds("swift/RightKitSwift").skipped, []);
-  assert.deepEqual(swiftXcodebuilds("swift/RightKitCloudKitHelper"), { builds: [], skipped: ["iOS", "watchOS"] });
-  assert.deepEqual(requiredShardCommands("swift:swift/RightKitCloudKitHelper", { swiftTests: [] }).map((row) => row.command), ["swift build"]);
 });
 
 test("consumer rows freeze each target after per-set lint & feature checks; missing or substituted commands fail evidence", () => {

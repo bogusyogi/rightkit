@@ -9,7 +9,7 @@ Generic cloud sync engine for Right Suite apps. It owns change cursors, tombston
 ## Public surface
 
 - `API.md` (in this crate): adapter traits, the shared wire contract, the helper protocol, and per-app migration. Read it before changing record or conflict behavior.
-- `helper::{CloudKitHelper, HelperBackend, HelperAuth}`: the macOS CloudKit backend, over the Swift `rightkit-cloudkit-helper` (`swift/RightKitCloudKitHelper` at the RightKit root). `HelperAuth` is defined in `src/helper/mod.rs`.
+- `helper::{CloudKitHelper, HelperBackend, HelperAuth}`: the macOS CloudKit backend, over the Swift `rightkit-cloudkit-helper` (`swift/RightKitSwift` at the RightKit root). `HelperAuth` is defined in `src/helper/mod.rs`.
 - `MemoryBackend` (`src/memory.rs`) and the `rightkit-sync-fake-helper` binary (`src/bin/rightkit-sync-fake-helper.rs`): a reference zone and protocol fake for tests. The fake-helper binary and its end-to-end test live in the repository only; the published package ships `MemoryBackend` but not the binary.
 
 ## Features

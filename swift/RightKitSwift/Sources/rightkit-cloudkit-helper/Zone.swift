@@ -1,3 +1,4 @@
+#if os(macOS)
 // Zone I/O the helper needs: the shared transport's account/zone/subscription calls plus a change-tag
 // aware fetch and a conditional save (`.ifServerRecordUnchanged`), which RightKitCloudSync's
 // transport does not expose. `CloudKitZone` talks to CloudKit; `MemoryZone` is the deterministic
@@ -282,4 +283,6 @@ struct CloudKitZone: ZoneIO {
         return record
     }
 }
+#endif
+
 #endif

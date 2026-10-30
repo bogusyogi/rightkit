@@ -8,13 +8,18 @@ failed-record reporting, account scope `sha256(container|zone|userRecordName)`),
 iOS share one CloudKit implementation.
 
 ```
-swift build -c release                    # in this directory
+swift build -c release --product rightkit-cloudkit-helper    # in swift/RightKitSwift
 .build/release/rightkit-cloudkit-helper --backend memory            # no iCloud: protocol E2E
 .build/release/rightkit-cloudkit-helper --container <id> --zone <name> --subscription <id>
 ```
 
+The helper is an executable product of RightKitSwift (rightkit#1302, 0.9.0). An app builds it from its
+own SwiftPM package, which depends on RightKitSwift by URL pinned to the exact tag, with
+`swift build --product rightkit-cloudkit-helper`. The source compiles on macOS only; on iOS and
+watchOS the target is empty.
+
 Every request must carry `"v":1`; a missing or different version is refused with error kind
-`unsupported_protocol` before any command runs (`swift test` in this directory covers it).
+`unsupported_protocol` before any command runs (`swift test --filter RightKitCloudKitHelperTests` in swift/RightKitSwift covers it).
 
 `--backend memory` serves an in-process zone (`InMemorySyncTransport`); `rightkit-sync`'s
 `tests/helper_e2e.rs` runs the real engine against this binary when it is built.

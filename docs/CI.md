@@ -147,8 +147,8 @@ everything runs.
   `fmt` unit and the patch is printed in the log and uploaded as evidence. `Cargo.lock.patch` covers every changed `crates/*/Cargo.lock`.
 - **npm.** A changed package & its dependents are tested after selected packages’ workspace
   dependency closure builds in dependency order.
-- **Swift.** `swift/RightKitSwift` and `swift/RightKitCloudKitHelper` build and test on the macOS
-  runner when their directory changed. The repository-root `Package.swift` (the manifest apps resolve by
+- **Swift.** `swift/RightKitSwift` (including the `rightkit-cloudkit-helper` executable product, empty off macOS) builds and tests on the macOS
+  runner when its directory changed. The repository-root `Package.swift` (the manifest apps resolve by
   URL and tag) is checked with `swift package describe --type json`, which validates every target path
   without compiling; `scripts/swift-root-manifest.test.mjs` guards it against drift from
   `swift/RightKitSwift/Package.swift`.

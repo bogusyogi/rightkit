@@ -558,7 +558,7 @@ fn helper_missing_is_unavailable_not_a_crash() {
 
 /// The real Swift helper (memory backend, no iCloud) must speak the protocol
 /// exactly as the fake does: same engine, same contract, different process.
-/// Build it first: `swift build -c release` in swift/RightKitCloudKitHelper
+/// Build it first: `swift build -c release --product rightkit-cloudkit-helper` in swift/RightKitSwift
 /// (or point RIGHTKIT_CLOUDKIT_HELPER at a built binary). Skipped, loudly,
 /// when it is not built.
 fn swift_helper() -> Option<PathBuf> {
@@ -566,7 +566,7 @@ fn swift_helper() -> Option<PathBuf> {
         return Some(PathBuf::from(p));
     }
     let base =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../swift/RightKitCloudKitHelper/.build");
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../swift/RightKitSwift/.build");
     ["release", "debug"]
         .iter()
         .map(|c| base.join(c).join("rightkit-cloudkit-helper"))

@@ -54,7 +54,7 @@ function main() {
   const everything = gatePlan("linux", ["--all"]);
   const universe = { rust: everything.rust.test, npm: everything.npm.test };
   const packages = universe.npm.map((dir) => ({ ...JSON.parse(fs.readFileSync(path.join(ROOT, dir, "package.json"), "utf8")), dir }));
-  const swiftTests = ["swift/RightKitSwift", "swift/RightKitCloudKitHelper"].filter((dir) => fs.existsSync(path.join(ROOT, dir, "Tests")));
+  const swiftTests = ["swift/RightKitSwift"].filter((dir) => fs.existsSync(path.join(ROOT, dir, "Tests")));
 
   const output = {};
   const selections = [];

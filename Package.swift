@@ -48,6 +48,9 @@ let package = Package(
         .library(name: "RightKitEngine", targets: ["RightKitEngine"]),
         .library(name: "RightKitHub", targets: ["RightKitHub"]),
         .library(name: "RightKitHubQA", targets: ["RightKitHubQA"]),
+        // macOS CloudKit helper for rightkit-sync (rightkit#1302). Apps build it with
+        // `swift build --product rightkit-cloudkit-helper`; the body is compiled on macOS only.
+        .executable(name: "rightkit-cloudkit-helper", targets: ["rightkit-cloudkit-helper"]),
     ],
     targets: [
         // Keychain-backed secret store (namespace = service, key = account); RightKitLicense persists through it.
@@ -136,5 +139,8 @@ let package = Package(
         .target(name: "RightKitHubQA", dependencies: ["RightKitHub"], path: "swift/RightKitSwift/Sources/RightKitHubQA"),
         .testTarget(name: "RightKitEngineClientTests", dependencies: ["RightKitEngineClient"], path: "swift/RightKitSwift/Tests/RightKitEngineClientTests"),
         .testTarget(name: "RightKitHubTests", dependencies: ["RightKitHub", "RightKitHubQA"], path: "swift/RightKitSwift/Tests/RightKitHubTests"),
+        // Line-JSON `rightkit-sync-helper/1` CloudKit helper over RightKitCloudSync (macOS only; empty elsewhere).
+        .executableTarget(name: "rightkit-cloudkit-helper", dependencies: ["RightKitCloudSync"], path: "swift/RightKitSwift/Sources/rightkit-cloudkit-helper"),
+        .testTarget(name: "RightKitCloudKitHelperTests", dependencies: ["rightkit-cloudkit-helper"], path: "swift/RightKitSwift/Tests/RightKitCloudKitHelperTests"),
     ],
 )

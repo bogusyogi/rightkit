@@ -73,7 +73,6 @@ const SCRIPT_TESTS = { id: "scripts", paths: ["scripts"] };
 const SWIFT_ROOT_MANIFEST = "swift/root-manifest";
 const SWIFT_PACKAGES = [
   { id: "swift/RightKitSwift", paths: ["swift/RightKitSwift"] },
-  { id: "swift/RightKitCloudKitHelper", paths: ["swift/RightKitCloudKitHelper"] },
   // The repository-root Package.swift is what apps resolve by URL + tag; it reuses swift/RightKitSwift sources by path.
   { id: SWIFT_ROOT_MANIFEST, paths: ["Package.swift", "swift/RightKitSwift"] },
 ];

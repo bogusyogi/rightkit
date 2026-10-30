@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 import Testing
 @testable import rightkit_cloudkit_helper
@@ -72,3 +73,5 @@ import Testing
         #expect(HelperProtocolError.missingVersion.failure.kind == "unsupported_protocol")
     }
 }
+
+#endif
