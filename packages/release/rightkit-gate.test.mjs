@@ -220,7 +220,7 @@ const doorSeams = (io) => {
   function rev0(r) { return rev(r); }
 };
 // The package, qualify and release stages seal bytes through right-release, whose snapshot route is refused until it binds its identity to the
-// selected commit (STAGE_SOURCES.package.wired); the only package route today is hosted CI's, whose runner checkout is the commit. These
+// selected commit (STAGE_SOURCES.package.pending); the only package route today is hosted CI's, whose runner checkout is the commit. These
 // tests of the sealed-set, receipt and tier logic therefore run on that route (GITHUB_ACTIONS), unless a test names its own env.
 const SEALING = new Set(["package", "qualify", "release"]);
 const doorIo = (args, io) => {

@@ -26,8 +26,11 @@ const sha256 = (data) => createHash("sha256").update(data).digest("hex");
  * `--to test` included, builds a commit; uncommitted changes never enter a build). One row per stage name the gate dispatches:
  * the STAGES, `dev` and `test`, `stage` (the hand-off to the publisher) and each STAGES entry again as a RightKit unit stage
  * (`--to <stage> --unit <selector>`). `compiles` and `packages` say whether the stage starts a compiler or seals bytes.
- *   source "snapshot": the gate-owned snapshot of the selected commit (`wired: false` names a stage whose snapshot route is
- *     refused today, `blocker` saying why; it still never reads the checkout).
+ *   source "snapshot": the gate-owned snapshot of the selected commit (the checkout is never a build source on any host: rightkit#1301 deleted
+ *     the checkout route, so no row carries an interim checkout rule). `implemented: true` says the executable route exists in code and runs;
+ *     `witnessed: false` with `pending` says which host acceptance (native fixture witness on the Mac and the Dell) has not yet been proved. The two
+ *     are separate facts (GB-86): an implemented route may run for its witness, and a route whose host acceptance is unproved is never presented as
+ *     ready for apps (`appFacingReady`). A stage the route planner cannot run fails at planning with a named capability, not through this table.
  *   source "sealed" or "publisher", with `basis`: the stage compiles nothing from source (it acts on bytes an earlier stage
  *     sealed, or runs only in the trusted publisher on hosted CI with its normal checkout, docs/GATE-CONTRACT.md).
  *   source "checkout", with `gap`: a known breach, listed so it cannot grow; stageSourceProblems ignores it, stageSourceGaps names it.
@@ -36,23 +39,34 @@ const sha256 = (data) => createHash("sha256").update(data).digest("hex");
  */
 export const STAGE_SOURCES = Object.freeze({
   check: { compiles: false, packages: false, source: "snapshot" },
-  compile: { compiles: true, packages: false, source: "snapshot", interim: "Mac and Dell: the clean-HEAD checkout route until the cutover" },
-  // Wired in code (row 7.04: build-release.mjs, release.mjs, cli/right-release.mjs, release-source-identity.mjs): right-release builds and seals the selected commit from the snapshot. `wired` becomes true when door-package.test.mjs passes on L and on M and D (dev broker).
-  package: { compiles: true, packages: true, source: "snapshot", wired: false, blocker: "wired in code (rows 7.04 and 7.04c: release-artifact-path.mjs binds each Cargo manifest's target, one resolver reads every declared artifact path); awaiting 7.04c green on L, M and D: the dev-broker rows need the snapshot carrier (rows 7.20 to 7.24) and RustRight's item-4 dev pins" },
+  compile: { compiles: true, packages: false, source: "snapshot" },
+  // Implemented in code (row 7.04: build-release.mjs, release.mjs, cli/right-release.mjs, release-source-identity.mjs): right-release builds and seals the selected commit from the snapshot. `witnessed` becomes true (and `pending` goes) when door-package.test.mjs passes on Linux and the native fixture witness passes on the Mac and the Dell (dev broker).
+  package: { compiles: true, packages: true, source: "snapshot", implemented: true, witnessed: false, pending: "route implemented in code (rows 7.04 and 7.04c: release-artifact-path.mjs binds each Cargo manifest's target, one resolver reads every declared artifact path); awaiting 7.04c green on L, M and D: the dev-broker rows need the snapshot carrier (rows 7.20 to 7.24) and RustRight's item-4 dev pins" },
   // Narrowed by decision 2 (7.06 correction): qualification rebuilds nothing, but its source reads (config, QA plan, test code) go through the split.
-  qualify: { compiles: false, packages: false, source: "snapshot", wired: false, blocker: "qa --stage installed takes its identity from the split (release-qa-command.mjs, row 7.04); awaiting its tests on every host" },
+  qualify: { compiles: false, packages: false, source: "snapshot", implemented: true, witnessed: false, pending: "qa --stage installed takes its identity from the split (release-qa-command.mjs, row 7.04); awaiting its tests on every host" },
   release: { compiles: false, packages: false, source: "publisher", basis: "--to release runs only in the trusted publisher on hosted CI with its normal checkout (docs/GATE-CONTRACT.md), and only uploads sealed bytes" },
-  dev: { compiles: true, packages: false, source: "snapshot", interim: "Mac and Dell: the checkout route (check --worktree) until the cutover" },
-  test: { compiles: true, packages: false, source: "snapshot", interim: "Mac and Dell: the checkout route (check --worktree) until the cutover" },
+  dev: { compiles: true, packages: false, source: "snapshot" },
+  test: { compiles: true, packages: false, source: "snapshot" },
   stage: { compiles: false, packages: false, source: "sealed", basis: "stage packs the sealed directory and its receipt into the publisher's draft release; it compiles nothing" },
-  // Row 7.06a: a unit stage builds the selected commit's snapshot (Linux now; Mac and Dell at the cutover commit, until which they take
-  // the clean-HEAD checkout route, decision 2 "Interim").
-  "unit:check": { compiles: false, packages: false, source: "snapshot", interim: "Mac and Dell: clean HEAD of the checkout until the cutover" },
-  "unit:compile": { compiles: true, packages: false, source: "snapshot", interim: "Mac and Dell: clean HEAD of the checkout until the cutover" },
-  "unit:package": { compiles: true, packages: true, source: "snapshot", interim: "Mac and Dell: clean HEAD of the checkout until the cutover" },
-  "unit:qualify": { compiles: false, packages: false, source: "snapshot", interim: "Mac and Dell: clean HEAD of the checkout until the cutover" },
+  // Row 7.06a: a unit stage builds the selected commit's snapshot on every host (runUnitSnapshot); hosted CI keeps its runner checkout, which is the commit.
+  "unit:check": { compiles: false, packages: false, source: "snapshot" },
+  "unit:compile": { compiles: true, packages: false, source: "snapshot" },
+  "unit:package": { compiles: true, packages: true, source: "snapshot" },
+  "unit:qualify": { compiles: false, packages: false, source: "snapshot" },
   "unit:release": { compiles: false, packages: false, source: "publisher", basis: "a unit release is dispatched to the trusted publisher (releaseUnit); it compiles nothing here" },
 });
+
+/**
+ * What a row says about readiness: `implemented` (the executable route exists), `witnessed` (host acceptance proved; absent means nothing is pending for the
+ * row) and `pending` (what remains). `appFacingReady` is true only for an implemented route with no pending host acceptance.
+ */
+export function stageReadiness(stage, table = STAGE_SOURCES) {
+  const row = table[stage];
+  if (!row) return null;
+  const implemented = row.source === "snapshot" ? row.implemented !== false : true;
+  const pending = typeof row.pending === "string" && row.pending ? row.pending : null;
+  return { stage, implemented, witnessed: pending === null && row.witnessed !== false, pending, appFacingReady: implemented && pending === null && row.witnessed !== false };
+}
 
 /** Rows of `table` that compile or package without a snapshot source, a stated exclusion basis or a registered gap. */
 export function stageSourceProblems(table = STAGE_SOURCES) {

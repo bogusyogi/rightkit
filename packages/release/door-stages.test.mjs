@@ -15,7 +15,7 @@ import test from "node:test";
 import { createHash } from "node:crypto";
 import { spawnSync } from "./background-process.mjs";
 import { main, snapshotAppRootOf } from "./bin/rightkit-gate.mjs";
-import { STAGE_SOURCES, STAGES, stageSourceGaps, stageSourceProblems } from "./gate-stages.mjs";
+import { STAGE_SOURCES, STAGES, stageReadiness, stageSourceGaps, stageSourceProblems } from "./gate-stages.mjs";
 import { SourceSplitError, doorContextFor, readSourceSplit } from "./source-split.mjs";
 import { stageSidecars } from "./stage-sidecar.mjs";
 import { runCarriedAdapter } from "./carried-cargo.mjs";
@@ -72,8 +72,21 @@ test("[7.06] every stage the gate dispatches has a row in STAGE_SOURCES, and non
   // Row 7.06a closed the unit-stage gap: no stage compiles or packages from the checkout any more, and a new one fails here.
   assert.deepEqual(stageSourceGaps(), [], "a new stage that compiles from the checkout fails here");
   for (const stage of ["compile", "dev", "test", "package", "qualify", "unit:check", "unit:compile", "unit:package", "unit:qualify"]) assert.equal(STAGE_SOURCES[stage].source, "snapshot", `${stage} reads the commit's snapshot`);
-  assert.equal(STAGE_SOURCES.qualify.wired, false, "qualify's source reads go through the split, which waits for the identity module (7.04)");
-  assert.equal(STAGE_SOURCES.package.wired, false, "package's snapshot route is refused today, and the table says so (row 7.04 blocker)");
+  // GB-86: implementation support and host acceptance are separate facts; the old `wired: false` conflated them and described a refusal that no code applies.
+  for (const stage of ["package", "qualify"]) {
+    assert.equal(STAGE_SOURCES[stage].implemented, true, `${stage}: the executable route exists and runs (door-package.test.mjs runs it)`);
+    assert.equal(STAGE_SOURCES[stage].witnessed, false, `${stage}: host acceptance is pending, and the table says so`);
+    assert.match(STAGE_SOURCES[stage].pending, /.{40}/, `${stage}: it names what is pending`);
+    assert.equal(Object.hasOwn(STAGE_SOURCES[stage], "wired"), false, "the ambiguous flag is gone");
+    assert.equal(stageReadiness(stage).appFacingReady, false, `${stage}: unproved host acceptance is never presented as ready for apps`);
+  }
+  for (const [stage, row] of Object.entries(STAGE_SOURCES)) {
+    assert.equal(Object.hasOwn(row, "interim"), false, `${stage}: no stale checkout-route text (the checkout route is deleted, rightkit#1301)`);
+    assert.equal(Object.hasOwn(row, "blocker"), false, `${stage}: pending host acceptance is \`pending\`, not a blocker the code never applies`);
+  }
+  for (const stage of ["check", "compile", "dev", "test", "unit:check", "unit:compile", "unit:package", "unit:qualify"]) assert.deepEqual(stageReadiness(stage), { stage, implemented: true, witnessed: true, pending: null, appFacingReady: true }, stage);
+  assert.equal(stageReadiness("nope"), null);
+  assert.equal(stageReadiness("x", { x: { compiles: true, source: "snapshot", implemented: false } }).implemented, false, "an unimplemented route is reported as such");
 });
 
 test("[7.06] negative: a stage stub that compiles from the checkout, or packages with no basis, fails the table check", () => {
@@ -110,7 +123,7 @@ test("[7.06] behavior: each stage that reads a snapshot reads the selected commi
     for (const root of roots) assert.ok(inside(root, fx.snaps) && !inside(root, fx.repo), `${stage} reads ${root}, which is not the snapshot under ${fx.snaps}`);
   }
   assert.deepEqual(Object.keys(observed).sort(), ["check", "compile", "dev", "package", "test"]);
-  for (const [stage, row] of Object.entries(STAGE_SOURCES)) if (row.source === "snapshot" && row.wired !== false && !stage.startsWith("unit:")) assert.ok(observed[stage], `${stage} is declared a snapshot stage and was observed on the snapshot`);
+  for (const [stage, row] of Object.entries(STAGE_SOURCES)) if (row.source === "snapshot" && row.witnessed !== false && !stage.startsWith("unit:")) assert.ok(observed[stage], `${stage} is declared a snapshot stage and was observed on the snapshot`);
 });
 
 // ---- 7.03: --to dev and --to test build a commit ----------------------------------------------------------------------------------
