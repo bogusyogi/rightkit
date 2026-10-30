@@ -567,6 +567,13 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   // Shapes RustRight emits (item 4 row 4.18): attribution is `{available, ...}`, and an unavailable one names its reason
   // (`cargo-json-message-format-not-requested` without a JSON message stream; a consumer that needs per-package attribution treats
   // `available:false` as FAILED, not partial); toolchain is `<toolchain>|cargo:<sha256>|rustc:<sha256>`.
+  // GB-02 (BROKER-CONTRACT section 14): a compile's freshness is an object with a boolean `available`, and `available: false` always names a reason: absence is never an
+  // unavailable census, and an unavailable one on a SUCCEEDED compile is the broker's own failure (RR_FRESHNESS_UNAVAILABLE), never evidence.
+  if (compile) {
+    const freshness = receipt.freshness;
+    if (!isObject(freshness) || typeof freshness.available !== "boolean") fail("evidence", "receipt freshness is not {available, ...}");
+    if (freshness.available === false && !(typeof freshness.reason === "string" && freshness.reason !== "")) fail("evidence", "receipt freshness is unavailable and names no reason");
+  }
   const attribution = receipt.attribution ?? null; const toolchain = receipt.toolchain ?? null;
   if (attribution !== null) {
     if (!isObject(attribution) || typeof attribution.available !== "boolean") fail("evidence", "receipt attribution is not {available, ...}");

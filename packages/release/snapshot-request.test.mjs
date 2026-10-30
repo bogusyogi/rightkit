@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { canonicalJson, signedBytes } from "./provenance-verify.mjs";
+import { canonicalJson, signedBytes, verifyAttributionDetail } from "./provenance-verify.mjs";
 import {
   ATTEST_NONCE_ENV, DESCRIPTOR_MAX_BYTES, REQUEST_ID_FILE_ENV, RESULT_EVIDENCE_FIELDS, SNAPSHOT_REQUEST_ENV, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, declaredInputDigestsOf, freshNonce,
   BROKER_COMPILE_COMMANDS, CARGO_COMMAND_ALIASES, cargoSubcommandOf, isCallHandleOf, isCompileClass, isLockBound, isPackageObservation, lockedArgv, isGenerationTarget, isInsideGenerationTarget, GENERATION_LEAVES, nextCallHandle, ownershipOfHandle, observedEnvOf, readDeclaredInputs, readRequestRef, requestDigestOf, snapshotRequestCore, verifySnapshotEvidenceIdentity, verifySnapshotReceipt, writeSnapshotRequest,
@@ -624,4 +624,26 @@ test("[GB-66] an UNKNOWN toolchain is a typed unavailable identity, never eviden
   for (const tamper of ["toolchainUnknownMalformed", "toolchainEmptyName", "toolchainNoHashes", "toolchainObject"]) assert.throws(() => receiptCase(t, { tamper }).check(), (e) => e.code === "evidence", tamper);
   // A read-only form carries no toolchain at all and is not made to.
   assert.equal(receiptCase(t, { argv: ["metadata", "--no-deps"], tamper: "noStageCensus" }).check().toolchain, null);
+});
+
+// ---- GB-82: the fixture broker's receipts are the production forms ----
+test("[GB-82] the fixture signs compact attribution with a detail file the production verifier accepts, an unavailable census fails the compile, and a nonzero exit is a signed FAILED", (t) => {
+  const c = receiptCase(t);
+  const { attribution } = c.check();
+  assert.equal(attribution.units, 1); assert.equal(Object.hasOwn(attribution, "rows"), false, "no manufactured full row set in the signed receipt");
+  const bytes = fs.readFileSync(attribution.detail.path);
+  assert.deepEqual(verifyAttributionDetail(c.receipt, bytes).failedUnits, 0);
+  // Unavailable census: typed unavailable evidence that fails a compile; without a reason, or not an object, it is refused as evidence.
+  assert.throws(() => receiptCase(t, { tamper: "censusUnavailable" }).check(), (e) => e.code === "result" && /the broker signed FAILED/.test(e.message));
+  for (const tamper of ["censusUnavailableNoReason", "freshnessNotObject"]) assert.throws(() => receiptCase(t, { tamper }).check(), (e) => e.code === "evidence", tamper);
+  // A read-only form that carries no census is unaffected.
+  assert.equal(receiptCase(t, { argv: ["metadata", "--no-deps"], tamper: "noStageCensus" }).check().payload.result.status, "SUCCEEDED");
+  // A depth-2 nested child keeps its lineage (its parent is the earlier child, not the root).
+  const fx = makeFakeBroker(t);
+  const made = writeSnapshotRequest({ controlRoot: fx.controlRoot, commit: fx.sb.commit, snapshot: fx.sb.snapshot, declaredInputs: [], handle: fx.handle, primaryCwd: fx.checkout, argv: ["run", "x"], nonce: "a".repeat(64) });
+  const child = (requestId, parentRequestId) => ({ requestId, parentRequestId, shim: "cargo", argv: ["build"], cwd: fx.snapshot, exitCode: 0, status: "SUCCEEDED", outputDir: path.join(fx.outputDir, "nested", requestId) });
+  const receipt = signedReceipt(fx, { id: JOB, carrier: made.carrier, argv: ["run", "x"], workspace: fx.checkout, adapter: "rightkit-pnpm", children: [child("c1", "root"), child("c2", "c1")] });
+  assert.deepEqual(receipt.nestedChildren.map((n) => [n.requestId, n.parentRequestId]), [["c1", JOB], ["c2", "c1"]]);
+  const verified = verifySnapshotReceipt(receipt, { pins: fx.pins, jobId: JOB, carrier: made.carrier, argv: ["run", "x"], workspace: fx.checkout, adapter: "rightkit-pnpm", checkout: fx.checkout, outputRoots: [fx.wsRoot], platform: process.platform });
+  assert.equal(verified.nestedChildren.length, 2);
 });

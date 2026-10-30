@@ -70,6 +70,10 @@ export const TAMPERS = {
   digestWrong: { evidence: (e) => { e.declaredInputDigests = [{ path: "gen/in.txt", sha256: "0".repeat(64) }]; } },
   digestsDropped: { evidence: (e) => { e.declaredInputDigests = []; } },
   noFreshness: { payload: (p) => { delete p.stageEvidence.freshness; }, receipt: (r) => { delete r.freshness; } },
+  /** GB-19/GB-82: a census that could not be taken is {available:false, reason} and FAILS a compile that would otherwise have succeeded (RR_FRESHNESS_UNAVAILABLE). */
+  censusUnavailable: { stage: (g) => { g.freshness = { available: false, reason: "timeout" }; }, payload: (p) => { p.result = { status: "FAILED", exitCode: 1, signal: null, code: "RR_FRESHNESS_UNAVAILABLE", reap: { reaped: true } }; } },
+  censusUnavailableNoReason: { stage: (g) => { g.freshness = { available: false }; } },
+  freshnessNotObject: { stage: (g) => { g.freshness = "fresh"; } },
   attributionUnavailable: { stage: (g) => { g.attribution = { available: false, reason: "cargo-json-message-format-not-requested" }; } },
   attributionNoReason: { stage: (g) => { g.attribution = { available: false, reason: "" }; } },
   attributionNotObject: { stage: (g) => { g.attribution = "none"; } },
