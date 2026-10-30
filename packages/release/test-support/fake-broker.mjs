@@ -11,7 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { canonicalJson, signedBytes } from "../provenance-verify.mjs";
+import { ATTEST_STAGE_NONCE_ENV, canonicalJson, signedBytes } from "../provenance-verify.mjs";
 import { SNAPSHOT_MUST_COMPILE, acceptedAfterFix, classifyCargo } from "./cargo-classification.mjs";
 import { argvSha256, cargoSubcommandOf, declaredInputDigestsOf, observedEnvOf, readDeclaredInputs, requestDigestOf, snapshotRequestCore } from "../snapshot-request.mjs";
 
@@ -118,7 +118,7 @@ export function signedReceipt(fx, { id, carrier, argv, workspace, observedEnv = 
   const inputs = readDeclaredInputs(carrier.snapshot.path);
   const evidence = {
     requestId: id, brokerVersion: "rustright-test", executor: fx.pins.host, commit: carrier.commit,
-    snapshot: { path: carrier.snapshot.path, treeAtStart: TREE, treeAtExit: TREE }, declaredInputDigests: declaredInputDigestsOf(carrier.snapshot.path, inputs),
+    snapshot: { path: carrier.snapshot.path, treeAtStart: carrier.snapshot.expectedTree, treeAtExit: carrier.snapshot.expectedTree }, declaredInputDigests: declaredInputDigestsOf(carrier.snapshot.path, inputs),
     ownership: carrier.ownership, outputDir: fx.outputDir,
     // rustright#190 (final): an adapter job's nested children are signed INSIDE snapshotEvidence and mirrored on the receipt (the evidence copy below).
     ...(adapter ? { nestedChildren: structuredClone(children ?? []).map((c) => ({ ...c, parentRequestId: id })) } : {}),
@@ -174,7 +174,8 @@ export function makeFakeBroker(t, { inputs = null, readOnlySnapshots = false } =
   const fx = { root, checkout, dataRoot, controlRoot, snapshot, wsRoot, outputDir, privateKey, pins, handle: HANDLE, scratchRoot, adapterBin };
   const state = path.join(root, "client-state"); fs.mkdirSync(path.join(state, "db"), { recursive: true });
   fs.writeFileSync(path.join(state, "key.pem"), privateKey.export({ type: "pkcs8", format: "pem" }));
-  fs.writeFileSync(path.join(state, "fixture.json"), JSON.stringify({ root, checkout, dataRoot, controlRoot, snapshot, wsRoot, outputDir, pins, readOnlySnapshots, scratchRoot, adapterBin }));
+  // RK_FAKE_BROKER_LOG (opt-in): the client appends one JSON line per request it receives to this path; read here, once, so the child needs no env.
+  fs.writeFileSync(path.join(state, "fixture.json"), JSON.stringify({ root, checkout, dataRoot, controlRoot, snapshot, wsRoot, outputDir, pins, readOnlySnapshots, scratchRoot, adapterBin, requestLog: process.env.RK_FAKE_BROKER_LOG || null, testName: t?.name ?? null, testFile: callerTestFile() }));
   const client = path.join(root, "rustright");
   fs.writeFileSync(client, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(fileURLToPath(import.meta.url))} --client ${JSON.stringify(state)} "$@"\n`, { mode: 0o755 });
   // The broker's adapter-job PATH holds the broker's own `cargo`: a compile the job's child starts is a nested request of this job.
@@ -183,6 +184,7 @@ export function makeFakeBroker(t, { inputs = null, readOnlySnapshots = false } =
   setBehavior({});
   const adapterCalls = () => (fs.existsSync(path.join(state, "adaptercalls.jsonl")) ? fs.readFileSync(path.join(state, "adaptercalls.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
   const calls = () => (fs.existsSync(path.join(state, "calls.jsonl")) ? fs.readFileSync(path.join(state, "calls.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
+  const rootRequests = () => (fs.existsSync(path.join(state, "rootrequests.jsonl")) ? fs.readFileSync(path.join(state, "rootrequests.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
   const submits = [];
   const sb = {
     controlRoot, commit: { sha: COMMIT, tree: TREE }, snapshot: { path: snapshot, expectedTree: TREE }, declaredInputs: inputs ?? [], handle: HANDLE, pins,
@@ -195,10 +197,35 @@ export function makeFakeBroker(t, { inputs = null, readOnlySnapshots = false } =
     const doc = JSON.parse(fs.readFileSync(path.join(state, "fixture.json"), "utf8"));
     fs.writeFileSync(path.join(state, "fixture.json"), JSON.stringify({ ...doc, ...(checkoutRoot ? { checkout: checkoutRoot } : {}), ...(snapshotsRoot ? { snapshotsRoot } : {}) }));
   };
-  return { ...fx, client, state, setBehavior, rebase, calls, adapterCalls, sb, submits };
+  return { ...fx, client, state, setBehavior, rebase, calls, adapterCalls, rootRequests, sb, submits };
 }
 import { spawnSync } from "../background-process.mjs";
 const spawnStatus = (client, id) => { const r = spawnSync(client, ["status", id], { encoding: "utf8" }); if (r.status !== 0) throw new Error(`status ${id}: ${r.stderr}`); return r.stdout; };
+
+// The test file that built this fake, read from the caller's stack (null when it is not found). Used only for RK_FAKE_BROKER_LOG.
+function callerTestFile() {
+  const hit = (new Error().stack ?? "").split("\n").map((l) => l.match(/((?:file:\/\/)?\/[^\s()]+?\.test\.mjs)/)).find(Boolean);
+  return hit ? path.basename(hit[1].replace(/^file:\/\//, "")) : null;
+}
+
+// RK_FAKE_BROKER_LOG: one JSON line per request this fake receives (shim, argv, cwd, cwdInSnapshot, carried, grant, adapter, test, file).
+// shim is "cargo", "run <adapter>", "nested-cargo" (a compile an adapter job's child starts) or the bare command ("status", ...).
+// argv of "run" is the adapter's own arguments (after `--`). carried = a snapshot-request carrier env is set; grant = RIGHTKIT_ATTEST_STAGE_NONCE is set.
+// Logging never changes the response; a failure to log is ignored.
+function logRequest(fx, command, args) {
+  try {
+    const env = process.env;
+    const envVar = (name) => env[`RUSTRIGHT_${name}`] ?? env[`RIGHTKIT_${name}`];
+    let shim = command; let argv = args; let adapter = null; let carried = false;
+    if (command === "run") { adapter = args[0] ?? null; shim = `run ${adapter}`; const sep = args.indexOf("--"); argv = sep >= 0 ? args.slice(sep + 1) : []; carried = envVar("SNAPSHOT_REQUEST") !== undefined; }
+    else if (command === "cargo") { carried = envVar("SNAPSHOT_REQUEST") !== undefined; }
+    const here = fs.realpathSync(process.cwd());
+    const snap = fx.snapshot ? (() => { try { return fs.realpathSync(fx.snapshot); } catch { return fx.snapshot; } })() : null;
+    const cwdInSnapshot = snap !== null && (here === snap || here.startsWith(`${snap}${path.sep}`));
+    const line = { shim, argv, cwd: here, cwdInSnapshot, carried, grant: env[ATTEST_STAGE_NONCE_ENV] !== undefined, adapter, test: fx.testName ?? null, file: fx.testFile ?? null };
+    fs.appendFileSync(fx.requestLog, `${JSON.stringify(line)}\n`);
+  } catch { /* logging is best-effort; the fake's behavior never depends on it */ }
+}
 
 // ---- the fake client: `node fake-broker.mjs --client <state dir> cargo <args>` | `status <id>` ----
 async function client(stateDir, [command, ...args]) {
@@ -206,6 +233,7 @@ async function client(stateDir, [command, ...args]) {
   const fx = { ...read("fixture.json"), privateKey: crypto.createPrivateKey(fs.readFileSync(path.join(stateDir, "key.pem"))) };
   if (fx.snapshotsRoot) fx.snapshot = path.join(fx.snapshotsRoot, fs.readdirSync(fx.snapshotsRoot).find((n) => !n.includes(".") && fs.statSync(path.join(fx.snapshotsRoot, n)).isDirectory()));
   const behavior = read("behavior.json", {});
+  if (fx.requestLog) logRequest(fx, command, args);
   if (command === "run") return adapterRun(stateDir, fx, behavior, args);
   if (command === "nested-cargo") return nestedCargo(stateDir, fx, behavior, args);
   if (command === "cargo") {
@@ -217,6 +245,17 @@ async function client(stateDir, [command, ...args]) {
     const envVar = (name) => env[`RUSTRIGHT_${name}`] ?? env[`RIGHTKIT_${name}`];
     const bad = (why) => { process.stderr.write(`invalid snapshot request carrier (${why})\n`); process.exit(2); };
     const raw = envVar("SNAPSHOT_REQUEST");
+    // The real broker refuses an uncarried ROOT request whose workspace is inside a managed snapshot (service.rs: "a root request cannot run
+    // inside a managed snapshot"). Every uncarried request is logged, so a test can count them (`rootRequests()`).
+    if (raw === undefined && !args.includes("--version") && !args.includes("-V")) {
+      const here = fs.realpathSync(process.cwd());
+      const roots = [fx.snapshotsRoot, path.join(fx.dataRoot, "snapshots"), path.dirname(fx.snapshot)].filter(Boolean).map((r) => { try { return fs.realpathSync(r); } catch { return r; } });
+      const inside = roots.some((r) => here === r || here.startsWith(`${r}${path.sep}`));
+      fs.appendFileSync(path.join(stateDir, "rootrequests.jsonl"), `${JSON.stringify({ argv: args, cwd: here, refused: inside })}\n`);
+      if (inside) { process.stderr.write("rustright: a root request cannot run inside a managed snapshot\n"); process.exit(2); }
+      // A root `metadata` in the primary checkout is answered with the checkout's own paths (what the gate compares the snapshot's members with).
+      if (args.includes("metadata")) { process.stdout.write(synthMetadata(fx, here, false)); process.exit(0); }
+    }
     if (raw === undefined) bad("no descriptor");
     if (Buffer.byteLength(raw) > 4096) bad("descriptor exceeds 4096 bytes");
     let descriptor; try { descriptor = JSON.parse(raw); } catch { bad("descriptor is not JSON"); }
@@ -254,6 +293,7 @@ async function client(stateDir, [command, ...args]) {
     fs.writeFileSync(path.join(stateDir, "db", `${id}.json`), JSON.stringify({ id, carrier, argv: args, workspace, observedEnv: observedEnvOf(env, process.platform), tamper: behavior.tamper ?? "none" }));
     fs.appendFileSync(path.join(stateDir, "calls.jsonl"), `${JSON.stringify({ id, carrierEnvNames: Object.keys(env).filter((k) => /^(RUSTRIGHT|RIGHTKIT)_(SNAPSHOT_REQUEST|ATTEST_NONCE|REQUEST_ID_FILE|CALLING_GATE|PARENT_REQUEST_ID)$/.test(k)).sort(), argv: args, cwd: workspace, stageNonceSeen: env.RIGHTKIT_ATTEST_STAGE_NONCE !== undefined, env: { CARGO_TARGET_DIR: env.CARGO_TARGET_DIR ?? null, CARGO_BUILD_TARGET_DIR: env.CARGO_BUILD_TARGET_DIR ?? null } })}\n`);
     if (behavior.stdout) process.stdout.write(behavior.stdout);
+    else if (args.includes("metadata")) process.stdout.write(synthMetadata(fx, workspace));
     process.exit(behavior.exit ?? 0);
   }
   if (command === "status") {
@@ -269,6 +309,36 @@ async function client(stateDir, [command, ...args]) {
     process.exit(0);
   }
   process.stderr.write(`unsupported command ${command}\n`); process.exit(2);
+}
+
+/**
+ * The metadata (no dependencies) of the SNAPSHOT counterpart of a checkout directory (the job runs in the snapshot, so its paths are the
+ * snapshot's): the workspace root is the nearest ancestor manifest with a [workspace] table (else the directory), the packages are its own
+ * [package] and its `members`. Read from the fixture's manifests with plain patterns, enough for the gate's discovery.
+ */
+function synthMetadata(fx, checkoutCwd, inSnapshot = true) {
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return p; } };
+  const checkout = real(fx.checkout); const snapshot = inSnapshot ? real(fx.snapshot) : checkout;
+  const dir = path.join(snapshot, path.relative(checkout, checkoutCwd));
+  const manifestIn = (d) => path.join(d, "Cargo.toml");
+  let workspace = dir;
+  for (let d = dir; d.startsWith(snapshot); d = path.dirname(d)) {
+    if (fs.existsSync(manifestIn(d)) && /^\[workspace\]/m.test(fs.readFileSync(manifestIn(d), "utf8"))) { workspace = d; break; }
+    if (d === snapshot) break;
+  }
+  const text = fs.readFileSync(manifestIn(workspace), "utf8");
+  const packages = [];
+  const pushPackage = (d) => { const m = /^\[package\][^[]*?name\s*=\s*"([^"]+)"/ms.exec(fs.readFileSync(manifestIn(d), "utf8")); if (m) packages.push({ name: m[1], manifest_path: manifestIn(d), publish: null }); };
+  if (/^\[package\]/m.test(text)) pushPackage(workspace);
+  const members = /members\s*=\s*\[([^\]]*)\]/s.exec(text);
+  // A `dir/*` member is every directory below `dir` (cargo's rule); one without a Cargo.toml is an error, as in cargo.
+  const listed = members ? [...members[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]) : [];
+  const expanded = listed.flatMap((m) => (m.endsWith("/*") ? (fs.existsSync(path.join(workspace, m.slice(0, -2))) ? fs.readdirSync(path.join(workspace, m.slice(0, -2)), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => `${m.slice(0, -2)}/${e.name}`) : []) : [m]));
+  for (const m of expanded) {
+    if (!fs.existsSync(manifestIn(path.join(workspace, m)))) { process.stderr.write(`error: failed to load manifest for workspace member \`${path.join(workspace, m)}\`\n`); process.exit(101); }
+    pushPackage(path.join(workspace, m));
+  }
+  return `${JSON.stringify({ packages, workspace_root: workspace, target_directory: fx.outputDir, version: 1 })}\n`;
 }
 
 // ---- a snapshot-bound adapter job, as the broker runs it (rustright#190) ----

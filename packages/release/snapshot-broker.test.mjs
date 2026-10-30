@@ -270,7 +270,7 @@ import { enrollBrokerPins } from "./broker-pins.mjs";
 
 test("[7.20] the gate builds deps.snapshotBroker on a broker host (enrolled pins, the snapshot's declared inputs, the ownership handle), runs scans in the checkout with the broker-mode wrapper, and refuses before anything compiles without an enrollment or with a broker it cannot reach", { skip: POSIX }, async (t) => {
   const run = async ({ enroll = true, executor = { kind: "broker", cargo: ["rustright", "cargo"] } } = {}) => {
-    const fx = makeFakeBroker(t, { inputs: ["gen/in.txt"] });
+    const fx = makeFakeBroker(t, { inputs: ["gen/in.txt"], readOnlySnapshots: true });
     const repo = fx.checkout;
     // The commit tracks its declaration and the input it names, so the snapshot (the commit's bytes) carries both.
     fs.mkdirSync(path.join(repo, ".rightkit")); fs.writeFileSync(path.join(repo, ".rightkit", "compile-inputs.json"), JSON.stringify({ inputs: ["gen/in.txt"] }));
@@ -279,13 +279,15 @@ test("[7.20] the gate builds deps.snapshotBroker on a broker host (enrolled pins
     g("init", "-q", "-b", "main"); g("add", "-A"); g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c");
     const sha = g("rev-parse", "HEAD").stdout.trim();
     // The snapshot is the commit's bytes (plus the declared input it digests in place), outside the checkout.
-    const snap = path.join(fx.root, "gate-snapshot"); fs.mkdirSync(snap);
+    const snap = path.join(fx.root, "gate-snapshots", "gate-snapshot"); fs.mkdirSync(snap, { recursive: true });
+    // The gate reads the snapshot's metadata as a carried read-only request (rightkit#1311): the fixture broker serves it from this snapshot.
+    fx.rebase({ snapshotsRoot: path.dirname(snap) });
     for (const f of g("ls-files", "-z").stdout.split("\0").filter(Boolean)) { fs.mkdirSync(path.dirname(path.join(snap, f)), { recursive: true }); fs.copyFileSync(path.join(repo, f), path.join(snap, f)); }
     if (enroll) enrollBrokerPins({ dataRoot: fx.dataRoot, platform: "darwin", ...fx.pins });
-    const env = { ...process.env, RIGHTKIT_DATA_ROOT: fx.dataRoot, RIGHTKIT_CONTROL_ROOT: fx.controlRoot, XDG_STATE_HOME: fx.root };
+    const env = { ...process.env, RIGHTKIT_DATA_ROOT: fx.dataRoot, RIGHTKIT_CONTROL_ROOT: fx.controlRoot, XDG_STATE_HOME: fx.root, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs" };
     for (const k of ["GITHUB_ACTIONS", "RIGHTKIT_BUILD_OWNERSHIP", "RIGHTKIT_BUILD_OWNERSHIP_FILE", "CARGO_TARGET_DIR"]) delete env[k];
     const spawn = (c, a, opts) => {
-      if (c === "git") return spawnSync(c, a, { ...opts, encoding: "utf8" });
+      if (c === "git" || c === fx.client) return spawnSync(c, a, { ...opts, encoding: "utf8" });
       if (c === "which" && a[0] === "rustright") return { status: 0, stdout: `${fx.client}\n`, stderr: "" };
       if (c === "which" && a[0] === "cargo") return { status: 0, stdout: "/opt/toolchain/bin/cargo\n", stderr: "" };
       if (c === "rustright" && a.includes("metadata")) return { status: 0, stdout: JSON.stringify({ workspace_root: opts.cwd, target_directory: "/never", packages: [{ name: "a", manifest_path: path.join(opts.cwd, "crates", "a", "Cargo.toml") }] }), stderr: "" };
@@ -309,7 +311,7 @@ test("[7.20] the gate builds deps.snapshotBroker on a broker host (enrolled pins
   assert.deepEqual(sb.declaredInputs, ["gen/in.txt"], "the declared inputs come from the snapshot's manifest");
   assert.equal(sb.snapshot.path, ok.snap); assert.equal(sb.commit.sha, ok.sha); assert.equal(sb.snapshot.expectedTree, sb.commit.tree);
   assert.equal(sb.checkout, ok.repo); assert.deepEqual(sb.outputRoots, [path.join(ok.fx.dataRoot, "rightkit-build-control", "ws")]); assert.equal(sb.client, ok.fx.client);
-  assert.equal(ok.fx.submits.length, 1, "the ownership recorded the broker submit before the wrapper could carry a request");
+  assert.ok(ok.fx.submits.length >= 1, "the ownership recorded the broker submit before the gate's first carried request (discovery) and before the wrapper could carry one");
   // The wrapper is the broker's: the gate's own snapshot-to-checkout map, the sentinel, the ledger, and no scan-wide target directory.
   assert.equal(call.map.mode, "broker"); assert.deepEqual(call.map.workspaces, { [ok.snap]: ok.repo }); assert.equal(call.options.env.CARGO_TARGET_DIR, undefined);
   assert.ok(call.options.cargoSentinel); assert.equal(call.options.cargoLedger.dir, path.join(call.wrapperDir, "ledger")); assert.deepEqual(call.map.broker.pins, ok.fx.pins);

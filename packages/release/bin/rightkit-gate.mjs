@@ -2649,6 +2649,11 @@ export async function main(argv, io = {}) {
   try {
     let repo = root;
     let snapshotBCommit = null;
+    // On a broker host the gate's snapshot is the broker's managed one, where RustRight refuses a root request ("a root request cannot run inside a
+    // managed snapshot", rightkit#1311): the gate's own Cargo reads there (unit discovery, workspace members) are carried read-only requests,
+    // with the broker's signed receipt verified (snapshot-metadata.mjs). The checkout, git and a direct host keep the plain spawn.
+    let snapshotSpawn = (c, a, opts) => o.spawn(c, a, opts);
+    let discoveryBroker = null;
     if (snapshot && snapshotB) {
       // Direct host: no broker grant to satisfy, so no config-only .git; the snapshot is scanned and compiled in place.
       repo = snapshotB;
@@ -2711,7 +2716,22 @@ export async function main(argv, io = {}) {
         const r = git("ls-files", "-z", "--others", "--exclude-standard", "--", ":(glob)**/Cargo.toml");
         return failed(r) ? [] : text(r).split("\0").filter(Boolean).map(posix);
       };
-      rust = discoverRustWorkspaces({ root: repo, spawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, tracked, untracked, fixtures, readFile: readSnap });
+      if (executor.kind === "broker" && snapshot && (snapshotA || snapshotB) && manifests.length) {
+        const { snapshotCargoSpawn } = await import("../snapshot-metadata.mjs");
+        const { createSnapshotBroker } = await import("../snapshot-broker.mjs");
+        const snapshotCheck = await import("../snapshot-check.mjs");
+        const snapshotCommitOf = () => snapshotCheck.commitOf(fs.realpathSync.native(root), String(snapshot), o.spawn);
+        // The broker is built before anything is read: a missing enrollment, ownership or client refuses here, naming its code (as the compile does).
+        try {
+          if (o.snapshotBroker && typeof o.snapshotBroker.create !== "function") discoveryBroker = o.snapshotBroker; // a fixture broker (tests)
+          else {
+            const sc = snapshotCommitOf();
+            discoveryBroker = createSnapshotBroker({ env: o.env, platform: o.platform, checkout: root, commit: { sha: sc.commit, tree: sc.tree }, snapshot: { path: repo, expectedTree: sc.tree }, ownership: o.buildOwnership, client: which("rustright").find((c) => path.isAbsolute(c)), gateFile: callingGatePath(), spawn: o.spawn });
+          }
+        } catch (error) { o.err(`${tag} BLOCKED: ${error.code ?? "RK_SNAPSHOT_BROKER"}: ${error.message}; nothing compiled`); return 1; }
+        snapshotSpawn = snapshotCargoSpawn({ spawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, snapshotRoot: repo, env: o.env, err: o.err, broker: () => discoveryBroker });
+      }
+      rust = discoverRustWorkspaces({ root: repo, spawn: snapshotSpawn, cargoCommand, tracked, untracked, fixtures, readFile: readSnap });
       npm = discoverNpmUnits({ root: repo, tracked, readFile: readSnap, exists: o.exists });
       npmRoots = discoverPnpmRoots({ root: repo, tracked, exists: o.exists });
     } catch (e) { o.err(`${tag} BLOCKED: cannot discover the repository's units: ${e.message}`); return 1; }
@@ -2757,7 +2777,7 @@ export async function main(argv, io = {}) {
         try {
           const { createSnapshotBroker } = await import("../snapshot-broker.mjs");
           const client = which("rustright").find((c) => path.isAbsolute(c));
-          snapshotBroker = createSnapshotBroker({ env: o.env, platform: o.platform, checkout: root, commit: { sha: snapshotBCommit.commit, tree: snapshotBCommit.tree }, snapshot: { path: snapshotB, expectedTree: snapshotBCommit.tree }, ownership: o.buildOwnership, client, gateFile: callingGatePath(), spawn: o.spawn });
+          snapshotBroker = discoveryBroker ?? createSnapshotBroker({ env: o.env, platform: o.platform, checkout: root, commit: { sha: snapshotBCommit.commit, tree: snapshotBCommit.tree }, snapshot: { path: snapshotB, expectedTree: snapshotBCommit.tree }, ownership: o.buildOwnership, client, gateFile: callingGatePath(), spawn: o.spawn });
         } catch (error) { o.err(`${tag} BLOCKED: ${error.code ?? "RK_SNAPSHOT_BROKER"}: ${error.message}; nothing compiled`); return 1; }
         o.out(`${tag} broker snapshot compile: pins ${snapshotBroker.pins.keyId.slice(0, 12)} from ${snapshotBroker.pinsSource}, ${snapshotBroker.declaredInputs.length} declared input(s) read from the snapshot, ownership ${snapshotBroker.handle}`);
       }
@@ -2867,7 +2887,7 @@ export async function main(argv, io = {}) {
       // the snapshot), or the verdict would not be the commit's (Oracle review of 79c4427b). A checkout cargo cannot read refuses too.
       if (snapshotA) {
         const memberDiff = [];
-        const membersOf = (base, dir) => workspaceMetadata({ root: base, spawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, dir, realpath: fs.realpathSync }).members.map((m) => m.manifest).sort();
+        const membersOf = (base, dir) => workspaceMetadata({ root: base, spawn: base === repo ? snapshotSpawn : (c, a, opts) => o.spawn(c, a, opts), cargoCommand, dir, realpath: fs.realpathSync }).members.map((m) => m.manifest).sort();
         for (const ws of rust.workspaces) {
           let inCommit; let inCheckout;
           try { inCommit = membersOf(repo, ws.cargoDir); } catch (e) { memberDiff.push(`${ws.cargoDir} (commit): ${e.message}`); continue; }

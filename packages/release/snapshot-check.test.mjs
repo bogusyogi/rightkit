@@ -17,6 +17,7 @@ import {
   modulesStoreDir, pinnedPnpm, resolvePrimaryStore, snapshotOption, verifySnapshotDir,
 } from "./snapshot-check.mjs";
 import { main, discoverPnpmRoots, discoverNpmUnits } from "./bin/rightkit-gate.mjs";
+import { makeFakeBroker } from "./test-support/fake-broker.mjs";
 
 const emptyConfig = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-sc-cfg-"))), "gitconfig");
 fs.writeFileSync(emptyConfig, "");
@@ -547,6 +548,10 @@ function cargoScenario(t) {
   write(repo, { ".gitignore": "target/\n", "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\nresolver = "2"\n', "Cargo.lock": "version = 4\n", "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n', "crates/a/src/lib.rs": "\n" });
   const a = commitAll(repo, "A");
   const snap = syncSnapshot({ checkout: repo, rev: a, root: tmp(t, "rk-sc-cargo-snaps-") });
+  // The gate reads the SNAPSHOT's members as a carried read-only request (rightkit#1311: a root request inside a managed snapshot is refused):
+  // a fixture broker serves it, with the snapshot and the checkout this scenario made.
+  const broker = makeFakeBroker(t, { readOnlySnapshots: true });
+  broker.rebase({ checkout: fs.realpathSync.native(repo), snapshotsRoot: path.dirname(snap.path) });
   const bin = tmp(t, "rk-sc-fakecargo-");
   const sentinel = path.join(bin, "non-metadata-cargo-ran");
   const fake = path.join(bin, "fake-cargo.mjs");
@@ -563,12 +568,13 @@ for (const d of fs.existsSync(crates) ? fs.readdirSync(crates, { withFileTypes: 
 }
 console.log(JSON.stringify({ packages, workspace_members: packages.map((p) => p.id), workspace_root: root, target_directory: path.join(root, "target"), version: 1 }));
 `);
-  return { repo, a, dir: snap.path, fake, sentinel };
+  return { repo, a, dir: snap.path, fake, sentinel, broker };
 }
 function brokerIo(t, s) {
   const out = []; const err = []; const plans = [];
   return { out, err, plans, io: {
-    cwd: s.repo, env: { ...process.env, RK_GATE_CACHE: "0" }, snapshotRoot: path.join(tmp(t, "rk-sc-own-"), "snapshots"), out: (m) => out.push(m), err: (m) => err.push(m), appCheck: async () => 0,
+    cwd: s.repo, env: { ...process.env, RK_GATE_CACHE: "0", RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs" }, snapshotRoot: path.join(tmp(t, "rk-sc-own-"), "snapshots"), out: (m) => out.push(m), err: (m) => err.push(m), appCheck: async () => 0,
+    snapshotBroker: { ...s.broker.sb, checkout: fs.realpathSync.native(s.repo), markBrokerSubmit: () => ({ handle: s.broker.sb.handle, broker: { submitted: true } }), get snapshot() { return { path: s.dir, expectedTree: s.broker.sb.snapshot.expectedTree }; } },
     // `cargo` is answered by the fake (never a real cargo, never the broker): metadata per cargo's member rule, anything else a sentinel.
     spawn: (cmd, args, opts = {}) => (cmd === "pnpm" && args[0] === "--version" ? { status: 0, stdout: "11.25.0\n", stderr: "" }
       : cmd === "cargo" ? defaultSpawn(process.execPath, [s.fake, ...args], opts) : defaultSpawn(cmd, args, opts)),
