@@ -14,6 +14,7 @@ import {
   BROKER_COMPILE_COMMANDS, CARGO_COMMAND_ALIASES, cargoSubcommandOf, isCallHandleOf, isCompileClass, isLockBound, isPackageObservation, lockedArgv, isGenerationTarget, isInsideGenerationTarget, GENERATION_LEAVES, nextCallHandle, ownershipOfHandle, observedEnvOf, readDeclaredInputs, readRequestRef, requestDigestOf, snapshotRequestCore, verifySnapshotEvidenceIdentity, verifySnapshotReceipt, writeSnapshotRequest,
 } from "./snapshot-request.mjs";
 import { makeFakeBroker, signedReceipt } from "./test-support/fake-broker.mjs";
+import { loadVector } from "./test-support/vectors.mjs";
 
 const tmp = (t) => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-snapreq-"))); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex");
@@ -585,4 +586,22 @@ test("[B9] the filesystem-free evidence identity: commit, handle, request id, sn
   refuses({ snapshot: undefined }, {}, /throughout/);
   assert.throws(() => verifySnapshotEvidenceIdentity(undefined, { commit, jobId: "job-1" }), /no snapshotEvidence/);
   assert.equal(ok({}, { snapshotPath: "/s/X", samePath: (a, b) => a.toLowerCase() === b.toLowerCase() }) === evidence.snapshot, true, "the gate compares real paths through its own comparator");
+});
+
+// ---- GB-02: the evidence a receipt owes is the broker's own compile classification (RustRight's cargo-shapes vector, `compile` column) ----
+test("[GB-02] for every compile form of the vector, removing both copies of freshness, attribution or toolchain is refused; a read-only form legitimately carries none", (t) => {
+  const rows = loadVector("cargo-shapes.fixtures.json").rows.filter((r) => !r.refused);
+  assert.ok(rows.some((r) => r.compile) && rows.some((r) => !r.compile));
+  for (const row of rows) {
+    const argv = row.normalizedArgv;
+    if (row.compile) {
+      for (const tamper of ["noFreshness", "noAttribution", "noToolchain", "noStageCensus"]) {
+        assert.throws(() => receiptCase(t, { argv, tamper }).check(), (e) => e.code === "evidence" && /is missing from the signed stage evidence or the receipt/.test(e.message), `${row.name} / ${tamper}`);
+      }
+      assert.equal(receiptCase(t, { argv }).check().payload.result.status, "SUCCEEDED", `${row.name}: the full evidence verifies`);
+    } else {
+      assert.equal(receiptCase(t, { argv, tamper: "noStageCensus" }).check().payload.result.status, "SUCCEEDED", `${row.name}: absence is valid for a form that compiles nothing`);
+      assert.throws(() => receiptCase(t, { argv, tamper: "attributionReceiptOnly" }).check(), (e) => e.code === "evidence", `${row.name}: one-sided evidence still fails`);
+    }
+  }
 });
