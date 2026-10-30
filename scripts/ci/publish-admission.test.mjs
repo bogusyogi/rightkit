@@ -342,7 +342,7 @@ test("the original denied path stays denied: rightkit-dispatch without a broker 
   const errors = [];
   const code = await rightkitDispatch(["--workflow", "publish", "--registry", "npm", "--unit", "@rightkit/release", "--sha", SHA, "--qualification", "/nope/qualification.json"], { env: {}, gh: () => assert.fail("no gh call without a broker job"), stderr: (l) => errors.push(l), stdout: () => {} });
   assert.equal(code, 2);
-  assert.match(errors.join("\n"), /no RIGHTKIT_JOB_ID; this runs only as the broker's rightkit-dispatch adapter/);
+  assert.match(errors.join("\n"), /no RUSTRIGHT_JOB_ID; this runs only as the broker's rightkit-dispatch adapter/);
 });
 
 // ---- the qualification is authenticated by the broker's signed receipts, not asserted ------------------------------------------

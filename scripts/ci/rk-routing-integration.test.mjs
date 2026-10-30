@@ -61,7 +61,7 @@ test("forged CI observations cannot waive checks or fresh local/unknown route", 
 test("broker dispatch rechecks deterministic admission then real-observation route before sole hosted POST", async () => {
   const events = [];
   const code = await dispatch(["--workflow", "publish", "--registry", "crates", "--unit", unit, "--sha", sha, "--qualification", "/bundle/qualification.json"], {
-    env: { RIGHTKIT_JOB_ID: "req-routing" }, stdout: () => {}, stderr: () => {}, now: () => 0,
+    env: { RUSTRIGHT_JOB_ID: "req-routing" }, stdout: () => {}, stderr: () => {}, now: () => 0,
     readQualification: (file, { sha: admitted, unit: name }) => { assert.equal(file, "/bundle/qualification.json"); assert.equal(admitted, sha); events.push("qualification");
       return { schema: "rightkit.unit-qualification/1", commit: sha, tree: "t".repeat(40), runtime: null, executor: "broker", unit: { kind: "cargo", name, version: "0.1.0" }, stages: { check: { ok: true }, compile: { ok: true }, package: { ok: true }, qualify: { ok: true } }, artifactSha256: "d".repeat(64) }; },
     admission: async () => recheckHostedAdmission(input(hosted()), {

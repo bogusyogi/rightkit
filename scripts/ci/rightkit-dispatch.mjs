@@ -3,7 +3,7 @@
 // through the RustRight broker; deterministic checks first; per-unit qualification on GitHub; direct publish).
 // Registered as the `rightkit-dispatch` adapter (docs/contracts/attested-runs.md §2): the broker pins this file by
 // digest, clears the environment (no token is forwarded; gh resolves its own host and keyring configuration under the
-// broker-injected HOME), stamps RIGHTKIT_JOB_ID and writes the receipt. This script proves the commit, dispatches one workflow run bound to that request, and
+// broker-injected HOME), stamps RUSTRIGHT_JOB_ID and writes the receipt. This script proves the commit, dispatches one workflow run bound to that request, and
 // prints one JSON record line with the hosted run id. It compiles nothing, waits for nothing after discovery, and
 // never prints an environment value.
 //
@@ -250,9 +250,9 @@ export async function main(argv, deps = {}) {
     err(`rightkit-dispatch: ${error.message}`);
     return 2;
   }
-  const requestId = env.RIGHTKIT_JOB_ID;
+  const requestId = env.RUSTRIGHT_JOB_ID;
   if (!requestId) {
-    err("rightkit-dispatch: no RIGHTKIT_JOB_ID; this runs only as the broker's rightkit-dispatch adapter");
+    err("rightkit-dispatch: no RUSTRIGHT_JOB_ID; this runs only as the broker's rightkit-dispatch adapter");
     return 2;
   }
   if (opts.probe) {

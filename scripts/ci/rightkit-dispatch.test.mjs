@@ -18,7 +18,7 @@ const QFILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "rk-dispatch-qual-
 fs.writeFileSync(QFILE, JSON.stringify(QUAL));
 const FORWARDED = { schema: QUAL.schema, commit: SHA, tree: QUAL.tree, runtime: QUAL.runtime, executor: "broker", unit: QUAL.unit, stages: { check: { ok: true }, compile: { ok: true, receipts: [RECEIPT("job-compile")] }, package: { ok: true, receipts: [RECEIPT("job-package")] }, qualify: { ok: true } }, artifactSha256: QUAL.artifactSha256 };
 const admitted = async () => {};
-const env = { RIGHTKIT_JOB_ID: "req-123", GH_TOKEN: "not-printed" };
+const env = { RUSTRIGHT_JOB_ID: "req-123", GH_TOKEN: "not-printed" };
 
 function fakeGh({ mainSha = SHA, runs = [], dispatchOk = true } = {}) {
   const calls = [];
@@ -62,11 +62,11 @@ test("the child environment keeps the broker-injected HOME and forwards no token
   assert.ok(GH_TIMEOUT_MS > 0 && PROBE_TIMEOUT_MS > 0 && PROBE_TIMEOUT_MS <= GH_TIMEOUT_MS, "every gh call is bounded");
 });
 
-test("refuses outside the broker: no RIGHTKIT_JOB_ID", async () => {
+test("refuses outside the broker: no RUSTRIGHT_JOB_ID", async () => {
   const lines = [];
   const code = await main(["--workflow", "ci", "--sha", SHA], { gh: fakeGh().gh, env: {}, stderr: (l) => lines.push(l), stdout: () => {} });
   assert.equal(code, 2);
-  assert.match(lines.join("\n"), /RIGHTKIT_JOB_ID/);
+  assert.match(lines.join("\n"), /RUSTRIGHT_JOB_ID/);
 });
 
 test("refuses when main moved after admission, before any dispatch", async () => {
@@ -134,7 +134,7 @@ test("invoked as a file, the entry guard runs main: outside the broker it refuse
   const result = spawnSync(process.execPath, [script, "--probe"], { encoding: "utf8", env: { PATH: process.env.PATH }, timeout: 20_000 });
   assert.equal(result.status, 2);
   assert.equal(result.stdout, "");
-  assert.match(result.stderr, /RIGHTKIT_JOB_ID/);
+  assert.match(result.stderr, /RUSTRIGHT_JOB_ID/);
 });
 
 test("probe requires the broker marker before gh is invoked, then prints only the boolean and the broker job id", async () => {
@@ -142,7 +142,7 @@ test("probe requires the broker marker before gh is invoked, then prints only th
   const probeGh = () => { probes += 1; return { ok: true, stdout: "" }; };
   const lines = [];
   assert.equal(await main(["--probe"], { gh: fakeGh().gh, probeGh, env: { GH_TOKEN: "not-printed" }, stdout: (l) => lines.push(l), stderr: (l) => lines.push(l) }), 2);
-  assert.equal(probes, 0, "no gh call without RIGHTKIT_JOB_ID");
+  assert.equal(probes, 0, "no gh call without RUSTRIGHT_JOB_ID");
   const out = [];
   assert.equal(await main(["--probe"], { gh: fakeGh().gh, probeGh, env, stdout: (l) => out.push(l), stderr: () => {} }), 0);
   assert.deepEqual(JSON.parse(out[0]), { authenticated: true, brokerJobId: "req-123" });
