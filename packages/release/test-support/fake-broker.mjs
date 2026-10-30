@@ -11,6 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend } from "../build-ownership.mjs";
 import { ATTEST_STAGE_NONCE_ENV, canonicalJson, signedBytes } from "../provenance-verify.mjs";
 import { SNAPSHOT_MUST_COMPILE, acceptedAfterFix, classifyCargo } from "./cargo-classification.mjs";
 import { argvSha256, cargoSubcommandOf, declaredInputDigestsOf, observedEnvOf, readDeclaredInputs, requestDigestOf, snapshotRequestCore } from "../snapshot-request.mjs";
@@ -188,9 +189,16 @@ export function makeFakeBroker(t, { inputs = null, readOnlySnapshots = false } =
   const calls = () => (fs.existsSync(path.join(state, "calls.jsonl")) ? fs.readFileSync(path.join(state, "calls.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
   const rootRequests = () => (fs.existsSync(path.join(state, "rootrequests.jsonl")) ? fs.readFileSync(path.join(state, "rootrequests.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
   const submits = [];
+  // The gate's build-ownership record, as a right-release child inherits it (`ownershipEnv`: RIGHTKIT_BUILD_OWNERSHIP and _FILE, which a test
+  // adds to the environment it hands a child): every carried call records its sub-handle in it just before it is sent, like the real record.
+  const ownership = path.join(root, "build-ownership", "owner.json");
+  fs.mkdirSync(path.dirname(ownership), { recursive: true });
+  fs.writeFileSync(ownership, JSON.stringify({ handle: HANDLE, broker: { submitted: false } }));
+  const ownershipEnv = { [OWNERSHIP_ENV]: HANDLE, [OWNERSHIP_FILE_ENV]: ownership };
+  const owner = () => JSON.parse(fs.readFileSync(ownership, "utf8"));
   const sb = {
     controlRoot, commit: { sha: COMMIT, tree: TREE }, snapshot: { path: snapshot, expectedTree: TREE }, declaredInputs: inputs ?? [], handle: HANDLE, pins,
-    markBrokerSubmit: () => { submits.push(Date.now()); return { handle: HANDLE, broker: { submitted: true } }; },
+    markBrokerSubmit: (callHandle) => { submits.push(callHandle); return markCarriedSend({ file: ownership, handle: HANDLE, callHandle }); },
     checkout, outputRoots: [wsRoot], platform: process.platform, client,
     receiptOf: async (id) => JSON.parse(spawnStatus(client, id)).receipt,
   };
@@ -199,7 +207,7 @@ export function makeFakeBroker(t, { inputs = null, readOnlySnapshots = false } =
     const doc = JSON.parse(fs.readFileSync(path.join(state, "fixture.json"), "utf8"));
     fs.writeFileSync(path.join(state, "fixture.json"), JSON.stringify({ ...doc, ...(checkoutRoot ? { checkout: checkoutRoot } : {}), ...(snapshotsRoot ? { snapshotsRoot } : {}) }));
   };
-  return { ...fx, client, state, setBehavior, rebase, calls, adapterCalls, rootRequests, sb, submits };
+  return { ...fx, client, state, setBehavior, rebase, calls, adapterCalls, rootRequests, sb, submits, ownership, ownershipEnv, owner };
 }
 import { spawnSync } from "../background-process.mjs";
 const spawnStatus = (client, id) => { const r = spawnSync(client, ["status", id], { encoding: "utf8" }); if (r.status !== 0) throw new Error(`status ${id}: ${r.stderr}`); return r.stdout; };
@@ -453,9 +461,9 @@ function adapterRun(stateDir, fx, behavior, argv) {
   claimHandle(stateDir, carrier, bad);
   fs.writeFileSync(path.join(used, carrier.nonce), "");
   const id = crypto.randomUUID();
-  // The workspace root of a snapshot-bound adapter job is the bound primary toplevel (no Cargo.toml needed); the cwd is where the client was run.
+  // The request workspace of a snapshot-bound adapter job is the cwd the client ran in: the primary counterpart of the step's snapshot directory.
   const clientCwd = fs.realpathSync(process.cwd());
-  const workspace = behavior.workspaceIsCwd ? clientCwd : fs.realpathSync(fx.checkout); // workspaceIsCwd models a broker that still answered with the cwd
+  const workspace = behavior.workspaceIsToplevel ? fs.realpathSync(fx.checkout) : behavior.workspaceOutside ? fs.realpathSync(os.tmpdir()) : clientCwd; // the broker: request.workspace is the cwd the client ran in; workspaceIsToplevel models the old answer, workspaceOutside a workspace outside the checkout
   fs.writeFileSync(envVar("REQUEST_ID_FILE"), JSON.stringify({ schema: "rustright.request-ref.v1", requestId: id, submittedAt: new Date().toISOString(), workspace }));
   fs.writeFileSync(path.join(stateDir, "db", `${id}.json`), JSON.stringify({ id, carrier, argv: args, adapter, workspace, observedEnv: {}, adapterEnv: forwarded, tamper: behavior.tamper ?? "none" }));
   // The job runs in the snapshot's counterpart of the checkout directory, with the broker's environment: only what the broker passes, its own PATH.

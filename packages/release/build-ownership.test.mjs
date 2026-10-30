@@ -206,7 +206,7 @@ test("ownership: a reboot after the record proves its work gone; broker work nee
   fs.rmSync(file, { force: true });
   const leases = [];
   const own = acquireBuildOwnership({ file, platform: "darwin", probe: fakeProbe("darwin"), lease: (q) => { leases.push(q); return { state: "ACTIVE", why: "x" }; }, env: {}, exportEnv: false, snapshot: "/snap/y" });
-  own.markBrokerSubmit();
+  own.markBrokerSubmit(`${own.handle}#c1`);
   assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).broker.submitted, true);
   const r = own.release();
   assert.equal(r.released, false, "a gate whose broker lease is still ACTIVE leaves the record for the next gate");

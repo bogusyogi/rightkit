@@ -470,8 +470,11 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   if (result.status !== "SUCCEEDED" || result.exitCode !== 0 || (result.signal !== undefined && result.signal !== null)) {
     // Any terminal status but SUCCEEDED fails the call, whatever the broker says about why (a tracked write is refused at exit with a
     // `snapshot exit bind: ...` message; the field that carries it is pending RustRight's confirmation, so the usual spellings are read).
+    // The signed result of a broker verdict after a clean run (FAILED with exit 0: RR_UNEXPLAINED_COLD, ...) carries no reason; the receipt's own
+    // unsigned `error` names it. It is shown for diagnosis only and decides nothing: the verdict is the signed status.
     const why = [result.message, result.error, result.reason].find((v) => typeof v === "string" && v !== "");
-    fail("result", `the broker signed ${result.status ?? "no status"} (exit ${result.exitCode ?? "none"}${result.signal ? `, signal ${result.signal}` : ""}${why ? `; ${why}` : ""}), not SUCCEEDED with exit 0`);
+    const unsigned = why ? "" : [receipt?.error, receipt?.code].find((v) => typeof v === "string" && v !== "");
+    fail("result", `the broker signed ${result.status ?? "no status"} (exit ${result.exitCode ?? "none"}${result.signal ? `, signal ${result.signal}` : ""}${why ? `; ${why}` : ""}${unsigned ? `; the receipt's unsigned error: ${unsigned}` : ""}), not SUCCEEDED with exit 0`);
   }
   const evidence = payload.snapshotEvidence;
   if (!evidence || typeof evidence !== "object") fail("evidence", "the signed payload carries no snapshotEvidence: the broker did not build this as a snapshot request");

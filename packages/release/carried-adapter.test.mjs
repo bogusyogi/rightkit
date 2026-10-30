@@ -8,6 +8,7 @@
 import "./test-support/broker-guard.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -36,7 +37,7 @@ function host(t) {
   }
   const installed = installCarrier({ base: fs.mkdtempSync(path.join(fx.root, "carrier-")), snapshotRoot: fx.snapshot, checkoutDirs: { ".": fx.checkout, native: path.join(fx.checkout, "native") }, section: brokerSection(fx.sb), platform: process.platform, env: {} });
   t.after(() => installed.cleanup());
-  const env = { PATH: process.env.PATH, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, ...installed.env };
+  const env = { PATH: process.env.PATH, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, ...fx.ownershipEnv, ...installed.env };
   const adapter = (name, args, { cwd = fx.snapshot, over = {}, stdio = "capture" } = {}) => runCarriedAdapter(name, args, { cwd, env: { ...env, ...over }, stdio }, { map: JSON.parse(fs.readFileSync(installed.env[CARRIED_CARGO_MAP_ENV], "utf8")), err: () => {} });
   const entries = () => readLedger(installed.ledgerDir, UNSCOPED);
   return { fx, installed, env, adapter, entries };
@@ -169,25 +170,40 @@ test("an entry that compiles nothing has a null outputDir: it is verified, and n
   assert.equal(carriedOutputDir(h.env, path.join(h.fx.snapshot, "native", "Cargo.toml"), { preferNested: true }), null, "no bundle root from a child with a null outputDir");
 });
 
-test("the workspace root is the primary toplevel and the cwds are exactly these: the runner runs in the snapshot step directory, the client in the primary counterpart that the carrier names (a per-call carrier, never a grant), the job in the snapshot", { skip: POSIX }, (t) => {
+test("the request's workspace is the primary counterpart of the step's directory (an app root in a subfolder passes), and the cwds are exactly these: the runner runs in the snapshot step directory, the client in the primary counterpart that the carrier names (a per-call carrier, never a grant), the job in the snapshot", { skip: POSIX }, (t) => {
   const h = host(t);
   h.fx.setBehavior({ adapter: { children: [{ argv: ["build", "--locked"], cwd: "." }] } });
   const stepDir = path.join(h.fx.snapshot, "native");
-  const r = spawnSync(process.execPath, [ADAPTER_RUN, "rightkit-pnpm", "--", ...TAURI_ARGS], { cwd: stepDir, env: h.env, encoding: "utf8" });
+  const r = h.adapter("rightkit-pnpm", TAURI_ARGS, { cwd: stepDir });
   assert.equal(r.status, 0, r.stderr);
   const [job] = h.fx.adapterCalls();
   assert.equal(job.cwd, path.join(h.fx.checkout, "native"), "the client's cwd is the primary counterpart of the runner's (snapshot) cwd");
   assert.equal(job.primaryCwd, job.cwd, "and it is what the carrier names");
   assert.equal(job.jobCwd, stepDir, "the broker runs the job in the snapshot counterpart");
-  assert.equal(job.workspace, h.fx.checkout, "the request's workspace is the primary toplevel, not the step's directory");
+  assert.equal(job.workspace, job.cwd, "the request's workspace is the directory the client ran in (a subfolder app root), not the toplevel");
   assert.equal(h.entries().entries[0].status, "verified");
   const ledger = h.entries().entries[0];
-  assert.deepEqual([ledger.cwd, ledger.checkoutCwd, ledger.workspace], [stepDir, job.cwd, h.fx.checkout]);
-  // A request whose workspace is not the primary toplevel (the old cwd-as-workspace answer) is unverified.
-  h.fx.setBehavior({ workspaceIsCwd: true });
+  assert.deepEqual([ledger.cwd, ledger.checkoutCwd, ledger.workspace], [stepDir, job.cwd, job.cwd]);
+  // A request whose workspace is the toplevel while the step ran in a subfolder is not this call's counterpart: unverified.
+  h.fx.setBehavior({ workspaceIsToplevel: true });
   const bad = h.adapter("rightkit-pnpm", ["run", "x"], { cwd: stepDir });
   assert.notEqual(bad.status, 0);
-  assert.match(bad.stderr, /not the primary toplevel/);
+  assert.match(bad.stderr, /not the primary checkout counterpart/);
+  // A workspace outside the primary checkout is refused too.
+  h.fx.setBehavior({ workspaceOutside: true });
+  const outside = h.adapter("rightkit-pnpm", ["run", "y"], { cwd: stepDir });
+  assert.notEqual(outside.status, 0);
+  assert.match(outside.stderr, /not the primary checkout counterpart/);
+});
+
+test("a step run from the snapshot's root has the primary toplevel as its workspace (the counterpart of the root)", { skip: POSIX }, (t) => {
+  const h = host(t);
+  h.fx.setBehavior({});
+  const r = h.adapter("rightkit-pnpm", ["run", "x"], { cwd: h.fx.snapshot });
+  assert.equal(r.status, 0, r.stderr);
+  const [job] = h.fx.adapterCalls();
+  assert.equal(job.workspace, h.fx.checkout);
+  assert.equal(h.entries().entries[0].workspace, h.fx.checkout);
 });
 
 test("the gate re-verifies the ledger's nested children against the signed list: a ledger record that names other children, another cwd, or a replayed request is a problem", { skip: POSIX }, async (t) => {
@@ -200,7 +216,8 @@ test("the gate re-verifies the ledger's nested children against the signed list:
   assert.match((await forge({ nestedChildren: [] }))[0], /not the ones the broker's receipt signs/);
   assert.match((await forge({ nestedChildren: [{ ...entries[0].nestedChildren[0], outputDir: path.join(h.fx.outputDir, "nested", "forged") }] }))[0], /not the ones the broker's receipt signs/);
   assert.match((await forge({ cwd: path.join(h.fx.snapshot, "native") }))[0], /not the checkout counterpart/);
-  assert.match((await forge({ workspace: path.join(h.fx.checkout, "native") }))[0], /not the primary toplevel/);
+  assert.match((await forge({ workspace: path.join(h.fx.checkout, "native") }))[0], /not the primary checkout counterpart/);
+  assert.match((await forge({ workspace: os.tmpdir() }))[0], /outside the primary checkout/);
   assert.match((await forge({ cwd: h.fx.checkout }))[0], /outside the snapshot/);
   const seen = { nonces: new Set(), ids: new Set() };
   assert.deepEqual(await verifyBrokerLedger([entries[0]], h.fx.sb, { seen }), []);

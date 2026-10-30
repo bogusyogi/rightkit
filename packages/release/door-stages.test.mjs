@@ -236,7 +236,7 @@ test("[7.02] with the carrier wired a broker host takes the snapshot route: righ
   }
   // The carrier's map is the gate's snapshot-to-checkout map of the commit's workspaces, from the files alone.
   assert.ok(installs.every((i) => fs.realpathSync(i.snapshotRoot) === fs.realpathSync(fx.snapshot()) && i.checkoutDirs["."] === fs.realpathSync(fx.repo)), JSON.stringify(installs.map((i) => i.checkoutDirs)));
-  assert.ok(submits.length >= 2, "the ownership records the broker submit before any carried call");
+  assert.deepEqual(submits, [], "installing the carrier sends nothing, so the ownership records no broker submit (each carried send records its own sub-handle)");
   // A sidecar compile: the stage-sidecar child is carried too.
   const before = envs.length;
   let r = await door(["--to", "compile", "--commit", fx.sha], { ...carried, spawnCapture: launch });
@@ -271,7 +271,8 @@ test("[7.02 e2e] through the real carrier install and a fixture broker: a stage'
   const door = async (...a) => { try { return await fx.door(...a); } finally { fs.rmSync(path.join(fx.dir, "build-ownership"), { recursive: true, force: true }); } };
   // The fixture broker's view of the host: its checkout is the door's checkout and its snapshot the door's (the gate's snapshot-to-checkout map is
   // what primaryCwd comes from).
-  const sb = { ...fake.sb, checkout: fs.realpathSync(fx.repo), markBrokerSubmit: () => ({ handle: fake.sb.handle, broker: { submitted: true } }), get snapshot() { return { path: fx.snapshot(), expectedTree: fake.sb.snapshot.expectedTree }; } };
+  // The handle is the gate's real ownership handle (the child inherits it in its environment and records its sends in the gate's record), as in production.
+  const sb = { ...fake.sb, get handle() { return process.env.RIGHTKIT_BUILD_OWNERSHIP ?? fake.sb.handle; }, checkout: fs.realpathSync(fx.repo), markBrokerSubmit: (h) => ({ handle: process.env.RIGHTKIT_BUILD_OWNERSHIP ?? fake.sb.handle, broker: { submitted: true, handles: [h] } }), get snapshot() { return { path: fx.snapshot(), expectedTree: fake.sb.snapshot.expectedTree }; } };
   const GATE = "/gate/bin/rightkit-gate.mjs";
   const base = { platform: "darwin", resolveExecutor: brokerExecutor, snapshotBroker: sb, runCheck: async () => 0, env: { ...fx.env, RUSTRIGHT_CALLING_GATE: GATE } };
   const results = [];
@@ -282,13 +283,15 @@ test("[7.02 e2e] through the real carrier install and a fixture broker: a stage'
     const own = runCargoSync(mode === "redirect" ? ["build", "--target-dir", "/x"] : ["build", "--locked"], { cwd: opts.cwd, env: opts.env, encoding: "utf8" }, { platform: "darwin" });
     const map = JSON.parse(fs.readFileSync(opts.env.RIGHTKIT_CARRIED_CARGO_MAP, "utf8"));
     const adapter = runCarriedAdapter("rightkit-pnpm", ["exec", "tauri", "build"], { cwd: opts.cwd, env: opts.env, stdio: "capture" }, { map, err: () => {} });
-    results.push({ own, adapter });
+    const record = JSON.parse(fs.readFileSync(process.env.RIGHTKIT_BUILD_OWNERSHIP_FILE, "utf8"));
+    results.push({ own, adapter, handles: record.broker.handles ?? [] });
     return { status: 0 }; // the child exits 0 whatever its broker calls did
   };
   fake.setBehavior({ adapter: { children: [{ argv: ["build", "--locked"], cwd: "." }] } });
   let r = await door(["--to", "dev", "--commit", fx.sha], { ...base, spawnInherit: child("ok") });
   assert.equal(r.code, 0, r.all);
   assert.equal(results.at(-1).own.status, 0); assert.equal(results.at(-1).own.outputDir, fake.outputDir);
+  assert.equal(results.at(-1).handles.length, 2, "the child recorded each of its two carried sends in the gate's real owner record");
   assert.equal(results.at(-1).adapter.status, 0, results.at(-1).adapter.stderr);
   assert.deepEqual(results.at(-1).adapter.nestedChildren.map((c) => c.argv), [["build", "--locked"]], "the Tauri compile was nested under the adapter job");
   assert.deepEqual(fake.calls().map((c) => [c.argv, c.cwd]), [[["build", "--locked"], fs.realpathSync(fx.repo)]], "the client ran in the checkout, from the call's workspace");

@@ -31,7 +31,7 @@ function host(t, { inputs = null } = {}) {
     broker: { checkoutDirs: { ".": fx.checkout, native: path.join(fx.checkout, "native") }, section: brokerSection(fx.sb) },
   });
   t.after(() => fs.rmSync(installed.dir, { recursive: true, force: true }));
-  const clean = { ...process.env, NODE_OPTIONS: "", RUSTRIGHT_CALLING_GATE: GATE };
+  const clean = { ...process.env, NODE_OPTIONS: "", RUSTRIGHT_CALLING_GATE: GATE, ...fx.ownershipEnv };
   for (const k of ["CARGO_TARGET_DIR", "CARGO", "NODE_TEST_CONTEXT", SCAN_TOKEN_ENV]) delete clean[k];
   const scanEnv = shimScanEnv(clean, installed);
   const cargo = (cwd, args) => `spawnSync("cargo", ${JSON.stringify(args)}, { cwd: ${JSON.stringify(cwd)}, stdio: "inherit" }).status`;
@@ -466,7 +466,7 @@ test("[B8] a carried call under a release-bound stage derives its nonce from the
   const stageNonce = "ab".repeat(32);
   const call = (env, { cwd = path.join(snapshotRoot, "crates", "a"), words = ["build", "--locked"] } = {}) => {
     const before = fx.calls().length;
-    const r = carryBrokerCargo({ words, cwd, env: { PATH: process.env.PATH, RUSTRIGHT_CALLING_GATE: GATE, ...env }, section: brokerSection(fx.sb), workspace: snapshotRoot, checkoutWorkspace: fx.checkout, record: (e) => records.push(e), err: () => {}, stdio: "capture" });
+    const r = carryBrokerCargo({ words, cwd, env: { PATH: process.env.PATH, RUSTRIGHT_CALLING_GATE: GATE, ...fx.ownershipEnv, ...env }, section: brokerSection(fx.sb), workspace: snapshotRoot, checkoutWorkspace: fx.checkout, record: (e) => records.push(e), err: () => {}, stdio: "capture" });
     assert.equal(r.outcome.status, "verified", JSON.stringify(r.outcome));
     const sent = fx.calls()[before];
     return { nonce: records.filter((e) => e.status === "pending").at(-1).nonce, sent };

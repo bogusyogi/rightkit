@@ -130,6 +130,12 @@ test("[7.22] a fully formed receipt verifies, with and without declared inputs",
   }
 });
 
+test("a broker verdict after a clean run (FAILED, exit 0) is refused and the message carries the receipt's unsigned error for diagnosis", (t) => {
+  const c = receiptCase(t, { tamper: "failed" });
+  c.receipt.error = "RR_UNEXPLAINED_COLD: 1 rebuilt unit(s) have no explained cause";
+  assert.throws(() => c.check(), (e) => e.code === "result" && /signed FAILED \(exit \d+; the receipt's unsigned error: RR_UNEXPLAINED_COLD/.test(e.message) && /not SUCCEEDED with exit 0/.test(e.message));
+});
+
 test("[7.22] each refusal: provenance, signature, pins, request, job, nonce, signed outcome and snapshot evidence", (t) => {
   const cases = [
     // [tamper, error code, message pattern]
@@ -429,7 +435,7 @@ test("runScans: a broker cargo request builds the snapshot under its own carrier
     const result = await runScans(plan, { spawn, lookupSpawn: spawn, env: { PATH: process.env.PATH }, classes: ["A", "B"],
       signal: launchSignal,
       snapshotBroker: { controlRoot: path.join(root, "control"), commit: { sha: C, tree: T }, snapshot: { path: snap, expectedTree: T }, handle: "own-9", pins, checkout, outputRoots: [fx.wsRoot], platform: process.platform,
-        ...(mark === null ? {} : { markBrokerSubmit: mark ?? (() => { submits += 1; return { handle: "own-9", broker: { submitted: true } }; }) }), receiptOf } }).catch((e) => ({ thrown: e, scans: [] }));
+        ...(mark === null ? {} : { markBrokerSubmit: mark ?? ((h) => { submits += 1; return { handle: "own-9", broker: { submitted: true, handles: [h] } }; }) }), receiptOf } }).catch((e) => ({ thrown: e, scans: [] }));
     return { row: result.scans.find((r) => r.id === "check:core"), result, seen, submits };
   };
   let launchSignal;

@@ -42,7 +42,7 @@ function host(t) {
   fs.mkdirSync(path.join(fx.outputDir, "release"), { recursive: true });
   fs.writeFileSync(path.join(fx.outputDir, "release", "rightkit-swap"), "macho-bytes");
   fx.setBehavior({ stdout: `${JSON.stringify({ target_directory: fx.outputDir })}\n` });
-  const env = { PATH: process.env.PATH, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, ...installed.env };
+  const env = { PATH: process.env.PATH, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, ...fx.ownershipEnv, ...installed.env };
   // `run` as local-publish hands it to prepareSwapHelper: a `cargo` step of a snapshot stage, which build-launch.mjs turns into the carried seam.
   const run = (_command, args, options) => runCargoSync(args, { ...options, encoding: "utf8" }, { platform: "darwin" });
   return { fx, installed, env, run };

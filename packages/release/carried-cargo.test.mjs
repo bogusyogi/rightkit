@@ -27,7 +27,7 @@ function host(t, { inputs = null, platform = process.platform, readOnlySnapshots
   const checkoutDirs = { ".": fx.checkout, native: path.join(fx.checkout, "native") };
   const installed = installCarrier({ base: fs.mkdtempSync(path.join(fx.root, "carrier-")), snapshotRoot: fx.snapshot, checkoutDirs, section: brokerSection(fx.sb), platform, env: {} });
   t.after(() => installed.cleanup());
-  const clean = { PATH: process.env.PATH, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE };
+  const clean = { PATH: process.env.PATH, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, ...fx.ownershipEnv };
   const env = { ...clean, ...installed.env };
   const cargo = (args, { cwd = path.join(fx.snapshot, "crates", "a"), over = {}, options = {} } = {}) => runCargoSync(args, { cwd, env: { ...env, ...over }, encoding: "utf8", ...options }, { ...MAC });
   const entries = () => readLedger(installed.ledgerDir, UNSCOPED);
@@ -223,7 +223,7 @@ test("installCarrier writes the map and the ledger only, on every platform: no w
     assert.equal(installed.mode, "map", platform); assert.equal(installed.shim, null, platform); assert.equal(installed.grant, undefined, platform);
     assert.deepEqual(Object.keys(installed.env), [CARRIED_CARGO_MAP_ENV], `${platform}: only the map; no PATH, CARGO, grant or wrapper variable`);
     assert.deepEqual(fs.readdirSync(installed.dir).sort(), ["cargo-target-map.json", "ledger"], `${platform}: no wrapper of any kind is written`);
-    const r = runCargoSync(["build"], { cwd: path.join(fx.snapshot, "crates", "a"), env: { RUSTRIGHT_CALLING_GATE: GATE, ...installed.env }, encoding: "utf8" }, { ...MAC });
+    const r = runCargoSync(["build"], { cwd: path.join(fx.snapshot, "crates", "a"), env: { RUSTRIGHT_CALLING_GATE: GATE, ...fx.ownershipEnv, ...installed.env }, encoding: "utf8" }, { ...MAC });
     assert.equal(r.status, 0, r.stderr);
     assert.deepEqual(await installed.problems(fx.sb), []);
     installed.cleanup();
@@ -233,9 +233,10 @@ test("installCarrier writes the map and the ledger only, on every platform: no w
 
 test("the consumers of the seam take the output directory from a receipt, and ask Cargo (a read-only snapshot request) only when no receipt names it", { skip: POSIX || (process.platform !== "darwin" && "the seam only applies on a broker host (the process platform decides here)") }, async (t) => {
   const h = host(t);
-  const saved = { map: process.env[CARRIED_CARGO_MAP_ENV], gate: process.env.RUSTRIGHT_CALLING_GATE };
-  process.env[CARRIED_CARGO_MAP_ENV] = h.installed.env[CARRIED_CARGO_MAP_ENV]; process.env.RUSTRIGHT_CALLING_GATE = GATE;
-  t.after(() => { for (const [k, v] of [[CARRIED_CARGO_MAP_ENV, saved.map], ["RUSTRIGHT_CALLING_GATE", saved.gate]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } });
+  const own = h.fx.ownershipEnv;
+  const saved = { map: process.env[CARRIED_CARGO_MAP_ENV], gate: process.env.RUSTRIGHT_CALLING_GATE, ...Object.fromEntries(Object.keys(own).map((k) => [k, process.env[k]])) };
+  process.env[CARRIED_CARGO_MAP_ENV] = h.installed.env[CARRIED_CARGO_MAP_ENV]; process.env.RUSTRIGHT_CALLING_GATE = GATE; Object.assign(process.env, own);
+  t.after(() => { for (const [k, v] of [[CARRIED_CARGO_MAP_ENV, saved.map], ["RUSTRIGHT_CALLING_GATE", saved.gate], ...Object.keys(own).map((k) => [k, saved[k]])]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } });
   const { resolveTargetRoot } = await import("./cargo-target.mjs");
   const manifest = path.join(h.native, "Cargo.toml");
   // No receipt yet: the fallback is a carried read-only `metadata`, which the broker refuses today (a fixture of command_policy.rs).

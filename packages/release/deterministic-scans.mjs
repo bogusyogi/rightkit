@@ -1901,6 +1901,21 @@ const INTERNAL = {
 };
 
 /**
+ * SwiftPM's build directory for one Swift package scan: `<tmpRoot>/rightkit-swift-scratch/<sha256(repository root)[:16]>/<scan id>`, outside every root
+ * the scan reads (the commit snapshot, the checkout), the same path every run (so the build stays warm). Throws when it would land inside one of them.
+ */
+export function swiftScratchPath({ tmpRoot, roots, id }) {
+  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
+  const repo = real(roots.find(Boolean));
+  const dir = path.join(real(tmpRoot), "rightkit-swift-scratch", crypto.createHash("sha256").update(repo).digest("hex").slice(0, 16), id.replace(/[^A-Za-z0-9._-]/g, "_"));
+  for (const root of roots.filter(Boolean)) {
+    const rel = path.relative(real(root), dir);
+    if (rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel))) throw new Error(`the SwiftPM build directory ${dir} would be inside ${real(root)}; set RK_GATE_TMPDIR outside the repository`);
+  }
+  return dir;
+}
+
+/**
  * Run a plan. Options: classes (default ["A","B"]), exclude(scan) => boolean (an explicit, recorded
  * omission such as a caller that runs its own tests), plus the injectable spawn/exists/readFile/readdir/env.
  * Class B runs only when every selected class A scan passed; otherwise each B scan is "not-run".
@@ -2257,6 +2272,12 @@ export async function runScans(plan, options = {}) {
           // The broker snapshot carrier (joint plan step 4d): this one cargo request names the commit, the snapshot, the ownership
           // handle and its own argv and working directory, under a fresh nonce; the ownership records the submit first.
           const finalArgs = args.map((a) => (a === "{contentRoot}" ? contentRoot : a));
+          // SwiftPM writes its `.build/` inside the package by default: that must never land in the commit snapshot or the checkout, so the
+          // build directory is the gate's own, keyed by the repository and the scan so it stays warm.
+          if (s.tool === "swift" && finalArgs[0] === "build" && !finalArgs.some((a) => a === "--scratch-path" || a === "--build-path" || a.startsWith("--scratch-path=") || a.startsWith("--build-path="))) {
+            try { finalArgs.push("--scratch-path", swiftScratchPath({ tmpRoot, roots: [contentRoot, liveRoot, cargoLiveRoot], id: s.id })); }
+            catch (e) { advisory?.cleanup?.(); return { ...row, status: "fail", code: "SWIFT_SCRATCH", detail: `${s.id}: ${e.message}` }; }
+          }
           let carrier = null;
           if (viaSnapshotBroker) {
             const sb = deps.snapshotBroker;
@@ -2264,11 +2285,6 @@ export async function runScans(plan, options = {}) {
             const refDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-snapreq-"));
             try {
               const cargoArgv = s.tool === "rustright" ? finalArgs.slice(1) : finalArgs;
-              // The ownership must record the submit, under this gate's handle, before anything is launched: a missing hook or a
-              // mark that did not land refuses the request (the reclaim proof reads broker.submitted).
-              if (typeof sb.markBrokerSubmit !== "function") throw new Error("no build-ownership submit hook: the broker submit cannot be recorded");
-              const marked = sb.markBrokerSubmit();
-              if (marked?.broker?.submitted !== true || marked.handle !== sb.handle) throw new Error(`the build ownership did not record the broker submit under ${sb.handle}`);
               const made = writeSnapshotRequest({ controlRoot: sb.controlRoot, commit: sb.commit, snapshot: sb.snapshot, declaredInputs: sb.declaredInputs ?? [], handle: sb.handle, primaryCwd: fs.realpathSync.native(cwd), argv: cargoArgv, requestIdFile: path.join(refDir, "request.json") });
               carrier = { made, refDir, cargoArgv };
             } catch (e) { fs.rmSync(refDir, { recursive: true, force: true }); clearTimeout(clock); advisory?.cleanup?.(); return { ...row, status: "fail", code: "SNAPSHOT_REQUEST", detail: `the snapshot request for ${s.id} could not be written: ${e.message}` }; }
@@ -2291,6 +2307,17 @@ export async function runScans(plan, options = {}) {
           if (ledgerToken) claimedTokens.add(ledgerToken);
           const ledgerEnv = ledgerToken ? { [SCAN_TOKEN_ENV]: ledgerToken } : {};
           try {
+          // The ownership records this request's sub-handle immediately before it is sent (the reclaim proof reads broker.submitted): a
+          // missing hook or a mark that did not land sends nothing.
+          if (carrier) {
+            const sub = carrier.made.carrier.ownership.handle;
+            let marked = null; let why = null;
+            try { if (typeof deps.snapshotBroker.markBrokerSubmit !== "function") throw new Error("no build-ownership submit hook"); marked = deps.snapshotBroker.markBrokerSubmit(sub); } catch (e) { why = e.message; }
+            if (marked?.broker?.submitted !== true || marked.handle !== deps.snapshotBroker.handle || !marked.broker.handles?.includes(sub)) {
+              clearTimeout(clock); advisory?.cleanup?.();
+              return { ...row, status: "fail", code: "SNAPSHOT_REQUEST", detail: `the snapshot request for ${s.id} was not sent: the build ownership did not record the broker submit under ${deps.snapshotBroker.handle}${why ? ` (${why})` : ""}` };
+            }
+          }
           try { r = await deps.spawn(p.command, finalArgs, { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...(carrier ? carrier.made.env : {}) }, signal: scanSignal, timeout: limitMs }); } finally { clearTimeout(clock); advisory?.cleanup?.(); }
           if (signal?.aborted && (!r || r.error || r.status !== 0)) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
           if ((timer.signal.aborted || r?.error?.code === "ETIMEDOUT") && (!r || r.error || r.status !== 0)) return { ...row, status: "fail", code: "TIMEOUT", detail: `${s.id} ran longer than ${Math.round(limitMs / 60000)} min and was killed with its process tree; a scan that does not finish fails` };

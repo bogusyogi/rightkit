@@ -28,7 +28,7 @@ function host(t) {
   const fx = makeFakeBroker(t, { readOnlySnapshots: true });
   const installed = installCarrier({ base: fs.mkdtempSync(path.join(fx.root, "carrier-")), snapshotRoot: fx.snapshot, checkoutDirs: { ".": fx.checkout }, section: brokerSection(fx.sb), platform: process.platform, env: {} });
   t.after(() => installed.cleanup());
-  const env = { PATH: fx.root, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, ...installed.env };
+  const env = { PATH: fx.root, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, ...fx.ownershipEnv, ...installed.env };
   const door = (command, args, over = {}) => buildLaunch(command, args, { env, platform: "darwin", exists: (p) => p === path.join(fx.root, "rustright"), cwd: fx.snapshot, ...over });
   const entries = () => readLedger(installed.ledgerDir, UNSCOPED);
   return { fx, installed, env, door, entries };

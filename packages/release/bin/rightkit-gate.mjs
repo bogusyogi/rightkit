@@ -1754,8 +1754,7 @@ async function bindUnitCargo({ o, git, root, ds, executor, which }) {
     if (!o.snapshotBroker) return { refusal: "a broker host reaches Cargo from a unit stage only through the snapshot carrier (deps.snapshotBroker), which this gate was started without" };
     let sb;
     try { sb = await carrierBroker({ o, root, ds, which }); } catch (error) { return { refusal: `the snapshot carrier cannot be built (${error.code ?? "error"}: ${error.message})` }; }
-    const marked = sb.markBrokerSubmit?.();
-    if (marked?.broker?.submitted !== true || marked.handle !== sb.handle) return { refusal: `the build ownership did not record the broker submit${sb.handle ? ` under ${sb.handle}` : ""}` };
+    // Installing the carrier map sends nothing: the ownership records each carried request's sub-handle just before it is sent (snapshot-broker.mjs).
     const { brokerSection } = await import("../snapshot-broker.mjs");
     broker = { checkoutDirs: Object.fromEntries(workspaces.map((w) => [w, path.join(checkoutReal, ...(w === "." ? [] : w.split("/")))])), section: (o.brokerSection ?? brokerSection)(sb) };
   } else {
@@ -2096,9 +2095,8 @@ async function carrierForChildren({ o, ds, root, git, executor, stage, tag = "ri
     const carried = await import("../carried-cargo.mjs");
     const { brokerSection } = await import("../snapshot-broker.mjs");
     const sb = await carrierBroker({ o, root, ds });
-    // Broker work may exist from here on: the ownership records it first.
-    const marked = sb.markBrokerSubmit?.();
-    if (marked?.broker?.submitted !== true || marked.handle !== sb.handle) throw new Error(`the build ownership did not record the broker submit${sb.handle ? ` under ${sb.handle}` : ""}`);
+    // Installing the carrier map sends nothing, so it records nothing: the child's own uncarried probes (`rustc -vV`, `--version`) never
+    // reach the broker under a snapshot, and each carried request records its sub-handle just before it is sent (snapshot-broker.mjs).
     const checkoutDirs = await snapshotCargoWorkspaces({ git, ds, root });
     base = fs.mkdtempSync(path.join(os.tmpdir(), "rk-carrier-"));
     // The carrier is the map and the ledger on every platform: no PATH wrapper and no stage grant. The child's pnpm, node and QA steps are carried
@@ -2774,11 +2772,9 @@ export async function main(argv, io = {}) {
           let broker = null;
           if (snapshotBroker) {
             // Broker mode (the Mac, decision C): every cargo a test reaches is its own carried request. The gate's own snapshot-to-checkout
-            // map is the only source of a request's primaryCwd, and broker work may exist from here on: the ownership records it first.
+            // map is the only source of a request's primaryCwd; each carried request records its sub-handle in the ownership just before it is sent.
             const checkoutRoot = fs.realpathSync.native(root);
             const checkoutDirs = Object.fromEntries(rust.workspaces.map((ws) => [ws.cargoDir, path.join(checkoutRoot, ...(ws.cargoDir === "." ? [] : ws.cargoDir.split("/")))]));
-            const marked = snapshotBroker.markBrokerSubmit();
-            if (marked?.broker?.submitted !== true || marked.handle !== snapshotBroker.handle) throw new Error(`the build ownership did not record the broker submit under ${snapshotBroker.handle}`);
             const { brokerSection } = await import("../snapshot-broker.mjs");
             broker = { checkoutDirs, section: brokerSection(snapshotBroker) };
           }

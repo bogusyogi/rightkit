@@ -48,7 +48,8 @@
 //         the output and never held; rightkit#1313.) Another user's unreadable processes are
 //         skipped on the premise that they cannot read this user's managed root.
 //       Any host: a reboot after the record was written ends every process it covered.
-//   - if a broker request may have been submitted, `rustright snapshot-lease status` reports REAPED for that snapshot & handle.
+//   - if a carried (snapshot-bound) request was sent under the handle (`broker.submitted`, set only just before such a send; an uncarried
+//     probe or an installed carrier map never sets it), `rustright snapshot-lease status` reports REAPED for that snapshot & handle.
 // Any other answer (alive, a probe that fails or is unsupported, ACTIVE, UNKNOWN, a record or holder state that cannot be read)
 // is busy: never a reclaim. The same rules decide a normal release: the record is removed only when nothing but the gate itself
 // is left; otherwise it stays, and the next gate reclaims it once the survivors are gone.
@@ -64,12 +65,15 @@ import { spawn as spawnDetachedDefault, spawnSync } from "./background-process.m
 import { managedRuntimeClient } from "./managed-cargo.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { requireManagedRoot } from "./managed-root-guard.mjs";
+import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, OwnershipBusy, holds, markBrokerSubmit, markCarriedSend, markLockFile } from "./ownership-mark.mjs";
+
+// The mark itself lives in a leaf module (ownership-mark.mjs): snapshot-broker.mjs records carried sends through it, and importing this
+// file from there would close a cycle (this file -> managed-cargo -> cargo-target-shim -> snapshot-broker).
+export { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, OwnershipBusy, markCarriedSend, markLockFile };
 
 export const OWNERSHIP_SCHEMA = "rightkit.build-ownership/1";
 export const HOLDER_SCHEMA = "rightkit.build-ownership-holder/1";
-export const OWNERSHIP_ENV = "RIGHTKIT_BUILD_OWNERSHIP";
 /** The owner record's path, exported beside the handle so every process under the ownership records detached children there. */
-export const OWNERSHIP_FILE_ENV = "RIGHTKIT_BUILD_OWNERSHIP_FILE";
 export const LEASE_STATUS_SCHEMA = "rustright.snapshot-lease-status.v1";
 const LEASE_STATES = new Set(["ACTIVE", "REAPED", "UNKNOWN"]);
 // A start time read from `ps` (or /proc/<pid>/stat) is never late, only early: ps prints whole seconds (up to 1 s early), and on
@@ -83,9 +87,6 @@ const START_SLACK_MS = 3000;
 const SAME_START_MS = 3000;
 const sameStart = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= SAME_START_MS;
 
-export class OwnershipBusy extends Error {
-  constructor(message, detail = {}) { super(message); this.code = "busy"; this.detail = detail; }
-}
 
 /** The directory beside the host's snapshots (or beside any injected root) that holds the owner record. */
 export const OWNERSHIP_DIRNAME = "build-ownership";
@@ -1041,6 +1042,7 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null }) {
     throw new Error(`the record names no containment (${JSON.stringify(c)})`);
   }
   if (owner.broker?.submitted) {
+    // A carried request was sent under this handle (recorded just before each send): the broker must answer REAPED for the bare handle.
     const status = lease({ snapshot: owner.snapshot, handle: owner.handle });
     if (status.state !== "REAPED") throw new Error(`broker work may exist under this handle and its lease is ${status.state} (${status.why})`);
     proofs.push(`broker lease for ${owner.handle} is REAPED`);
@@ -1072,7 +1074,7 @@ export function judgeOwner(observed, { file, probe, lease, host = os.hostname() 
 
 /**
  * Acquires the host's build ownership (or joins it, when RIGHTKIT_BUILD_OWNERSHIP names the current record). Returns
- * `{ handle, file, joined, reclaimed, owner, markBrokerSubmit(), held(), release() }`. Throws OwnershipBusy while another build
+ * `{ handle, file, joined, reclaimed, owner, markBrokerSubmit(callHandle), held(), release() }`. Throws OwnershipBusy while another build
  * owns the host, its liveness is unknown, or this gate cannot be contained.
  */
 export function acquireBuildOwnership({
@@ -1109,7 +1111,7 @@ export function acquireBuildOwnership({
       if (!live.alive || (Number.isFinite(owner.startedMs) && Number.isFinite(live.startedMs) && !sameStart(live.startedMs, owner.startedMs))) {
         throw new OwnershipBusy(`build ownership ${file}: ${OWNERSHIP_ENV}=${inherited} names a record whose owner pid ${owner.pid} is no longer the process that took it; a nested gate joins only a live owner's record`);
       }
-      return { handle: inherited, file, joined: true, reclaimed: null, owner, markBrokerSubmit: () => markBrokerSubmit(file, inherited), held: () => holds(file, inherited), release: () => ({ released: false, joined: true }) };
+      return { handle: inherited, file, joined: true, reclaimed: null, owner, markBrokerSubmit: (callHandle) => markBrokerSubmit(file, inherited, callHandle), held: () => holds(file, inherited), release: () => ({ released: false, joined: true }) };
     }
     throw new OwnershipBusy(`build ownership ${file}: ${OWNERSHIP_ENV}=${inherited} is not the current owner; a nested gate never takes ownership of its own`);
   }
@@ -1151,6 +1153,7 @@ export function acquireBuildOwnership({
     // Only a release that proved zero readers leaves the marker; a held one leaves none (and keeps the record).
     writeCleanMarker(file, record);
     fs.rmSync(file, { force: true });
+    fs.rmSync(markLockFile(file), { force: true });
     fs.rmSync(childrenDir(file, handle), { recursive: true, force: true });
     return { released: true, proofs };
   };
@@ -1173,7 +1176,7 @@ export function acquireBuildOwnership({
       catch (e) { if (holds(file, handle)) fs.rmSync(file, { force: true }); throw new OwnershipBusy(`build ownership ${file}: the containment could not be recorded (${e.code ?? e.message}: ${e.message})`); }
     }
     if (exportEnv) { process.env[OWNERSHIP_ENV] = handle; process.env[OWNERSHIP_FILE_ENV] = file; }
-    return { handle, file, joined: false, reclaimed, owner: record, contained: platform === "win32" ? record.containment.contained === true : true, markBrokerSubmit: () => markBrokerSubmit(file, handle), held: () => holds(file, handle), release };
+    return { handle, file, joined: false, reclaimed, owner: record, contained: platform === "win32" ? record.containment.contained === true : true, markBrokerSubmit: (callHandle) => markBrokerSubmit(file, handle, callHandle), held: () => holds(file, handle), release };
   };
   if (publish(file, body)) return done(null);
   const observed = readText(file);
@@ -1189,6 +1192,7 @@ export function acquireBuildOwnership({
   try {
     if (readText(file) !== observed) throw new OwnershipBusy(`build ownership ${file} changed before it could be reclaimed`);
     fs.rmSync(file, { force: true });
+    fs.rmSync(markLockFile(file), { force: true });
     fs.rmSync(holderFile(file, judged.owner.handle), { force: true });
     fs.rmSync(holderScriptFile(holderFile(file, judged.owner.handle)), { force: true });
     fs.rmSync(childrenDir(file, judged.owner.handle), { recursive: true, force: true });
@@ -1209,23 +1213,4 @@ function rewriteRecord(file, handle, change) {
   try { fs.renameSync(tmp, file); } finally { fs.rmSync(tmp, { force: true }); }
 }
 
-function holds(file, handle) {
-  try { return JSON.parse(fs.readFileSync(file, "utf8")).handle === handle; } catch { return false; }
-}
 
-/**
- * Records, before the first broker submit, that broker work may exist under this handle; from then on the record is reclaimed
- * only on the broker's REAPED. Replaces the record atomically and only while it is still this handle's.
- */
-function markBrokerSubmit(file, handle) {
-  const text = readText(file);
-  let owner = null; try { owner = JSON.parse(text ?? ""); } catch { owner = null; }
-  if (owner?.handle !== handle) throw new OwnershipBusy(`build ownership ${file} is no longer held by ${handle}; no broker request may be submitted`);
-  if (owner.broker?.submitted) return owner;
-  const next = { ...owner, broker: { ...(owner.broker ?? {}), submitted: true, at: new Date().toISOString() } };
-  const tmp = `${file}.${crypto.randomUUID()}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(next), { flag: "wx", mode: 0o600 });
-  try { fs.renameSync(tmp, file); } finally { fs.rmSync(tmp, { force: true }); }
-  if (!holds(file, handle)) throw new OwnershipBusy(`build ownership ${file} changed while recording a broker submit`);
-  return next;
-}

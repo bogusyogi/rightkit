@@ -32,7 +32,7 @@ function host(t) {
   const fx = makeFakeBroker(t, { readOnlySnapshots: true });
   const installed = installCarrier({ base: fs.mkdtempSync(path.join(fx.root, "carrier-")), snapshotRoot: fx.snapshot, checkoutDirs: { ".": fx.checkout }, section: brokerSection(fx.sb), platform: process.platform, env: {} });
   t.after(() => installed.cleanup());
-  const env = { PATH: process.env.PATH, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, ...installed.env };
+  const env = { PATH: process.env.PATH, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, ...fx.ownershipEnv, ...installed.env };
   const map = JSON.parse(fs.readFileSync(installed.env[CARRIED_CARGO_MAP_ENV], "utf8"));
   const adapter = (name, args, over = {}) => runCarriedAdapter(name, args, { cwd: fx.snapshot, env: { ...env, ...over }, stdio: "capture" }, { map, err: () => {} });
   const entries = () => readLedger(installed.ledgerDir, UNSCOPED);

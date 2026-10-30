@@ -30,6 +30,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { spawnSync } from "./background-process.mjs";
+import { spawnBrokerClient } from "./broker-client.mjs";
 import { fileURLToPath } from "node:url";
 import { SCAN_TOKEN_ENV, appendLedger } from "./cargo-ledger.mjs";
 import { BROKER_REFUSAL_STATUS, runBrokerCargo } from "./snapshot-broker.mjs";
@@ -231,7 +232,8 @@ export function runShim(argv, { env = process.env, cwd = process.cwd(), spawn = 
   // A call that reads no workspace (version, help) runs as it is: the real cargo in direct mode, the host's cargo or the client in broker mode.
   const viaClient = broker && !map.realCargo;
   const command = viaClient ? map.broker.client : map.realCargo;
-  const r = spawn(command, viaClient ? ["cargo", ...decision.exec.args] : decision.exec.args, { cwd, env: decision.exec.env, stdio: "inherit" });
+  const spawnOpts = { cwd, env: decision.exec.env, stdio: "inherit" };
+  const r = viaClient ? spawnBrokerClient(spawn, command, ["cargo", ...decision.exec.args], spawnOpts, { platform: map.broker.platform }) : spawn(command, decision.exec.args, spawnOpts);
   if (r.error) return refuse({ code: "RK_CARGO_SHIM_ERROR", message: `${command} did not start (${r.error.message})` });
   record({ ...base, status: "ran", exit: r.status ?? null });
   return r.status ?? (r.signal ? 128 : SHIM_REFUSAL_STATUS);

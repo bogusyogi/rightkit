@@ -708,6 +708,34 @@ test("class B evidence binds to the input content and to a real class A run", as
   assert.ok(ok.scans.every((s) => s.status === "pass"));
 });
 
+test("a swift package scan builds into the gate's own scratch path, outside the snapshot and the checkout (and a tmp root inside the snapshot is refused)", async () => {
+  const swiftOnly = fakeFs({ "app/mac/Pkg/Package.swift": "", "app/mac/Pkg/Sources/a.swift": "" }, { "app/mac/Pkg/Package.swift": "", "app/mac/Pkg/Sources/a.swift": "" });
+  const plan = planScans({ changed: ["app/mac/Pkg/Package.swift"], contentRoot: CONTENT, liveRoot: LIVE, ...swiftOnly, platform: "darwin" });
+  const tmpRoot = mkdtempSync(path.join(os.tmpdir(), "rk-swift-scratch-"));
+  try {
+    const evidence = await runScans(plan, deps({ ...swiftOnly, classes: ["A"], tmpRoot }));
+    const log = [];
+    const run = () => runScans(plan, deps({ ...swiftOnly, classes: ["B"], priorClassA: evidence, spawn: fakeSpawn({ log }), tmpRoot }));
+    await run();
+    const call = log.find((c) => path.basename(c[0]) === "swift" && c[1] === "build");
+    assert.ok(call, "the swift build ran");
+    const at = call.indexOf("--scratch-path");
+    assert.ok(at > 0, `a scratch path is passed: ${call.join(" ")}`);
+    const scratch = call[at + 1];
+    const under = (child, parent) => { const rel = path.relative(parent, child); return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel)); };
+    assert.ok(under(scratch, fsModule.realpathSync(tmpRoot)), "the scratch path is under the gate's tmp root");
+    assert.ok(!under(scratch, CONTENT) && !under(scratch, LIVE), "and outside the snapshot and the checkout");
+    const again = [];
+    await runScans(plan, deps({ ...swiftOnly, classes: ["B"], priorClassA: evidence, spawn: fakeSpawn({ log: again }), tmpRoot }));
+    assert.equal(again.find((c) => path.basename(c[0]) === "swift" && c[1] === "build")[again.find((c) => path.basename(c[0]) === "swift" && c[1] === "build").indexOf("--scratch-path") + 1], scratch, "the same path every run, so the build stays warm");
+    // A tmp root inside the snapshot is refused, and the build does not run.
+    const bad = [];
+    const refused = await runScans(plan, deps({ ...swiftOnly, classes: ["B"], priorClassA: evidence, spawn: fakeSpawn({ log: bad }), tmpRoot: path.join(CONTENT, "tmp") }));
+    assert.ok(refused.scans.some((r) => r.code === "SWIFT_SCRATCH"));
+    assert.ok(!bad.some((c) => path.basename(c[0]) === "swift" && c[1] === "build"));
+  } finally { rmSync(tmpRoot, { recursive: true, force: true }); }
+});
+
 test("class A pnpm scans disable .pnpmfile hooks and lifecycle scripts", () => {
   const extra = { "packages/p/package.json": '{"license":"MIT"}' };
   const { plan } = planFor(["packages/p/package.json"], extra);

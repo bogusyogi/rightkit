@@ -144,7 +144,7 @@ function qaHost(t, name) {
   ].join("\n");
   fs.writeFileSync(qa, script, { mode: 0o755 });
   const cwd = path.join(fx.snapshot, "native");
-  const stepEnv = { ...step.env, PATH: `${fx.root}:${process.env.PATH}`, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, RK_GATE_CHECKOUT: fx.checkout, ...installed.env };
+  const stepEnv = { ...step.env, PATH: `${fx.root}:${process.env.PATH}`, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, RK_GATE_CHECKOUT: fx.checkout, ...fx.ownershipEnv, ...installed.env };
   const door = () => buildLaunch("rightkit-qa", step.args, { platform: "darwin", cwd, exists: (p) => p === CLIENT || p === qa, which: (c) => (c === "rightkit-qa" ? [qa] : c === "rustright" ? [CLIENT] : []), env: stepEnv, stepEnv: step.env });
   // The gate's step spawn: the launch's env (none for QA) over the step's, in the step's directory.
   const run = (launch, over = {}) => spawnSync(launch.command, launch.args, { cwd, env: { ...stepEnv, ...(launch.env ?? {}), ...over }, encoding: "utf8" });

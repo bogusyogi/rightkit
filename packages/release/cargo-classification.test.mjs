@@ -58,7 +58,7 @@ function host(t, options) {
   const fx = makeFakeBroker(t, options);
   const installed = installCarrier({ base: fs.mkdtempSync(path.join(fx.root, "carrier-")), snapshotRoot: fx.snapshot, checkoutDirs: { ".": fx.checkout, native: path.join(fx.checkout, "native") }, section: brokerSection(fx.sb), platform: "darwin", env: {} });
   t.after(() => installed.cleanup());
-  const env = { PATH: process.env.PATH, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs", ...installed.env };
+  const env = { PATH: process.env.PATH, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs", ...fx.ownershipEnv, ...installed.env };
   return { fx, call: (argv) => runCargoSync(argv, { cwd: path.join(fx.snapshot, "crates", "a"), env, encoding: "utf8" }, { platform: "darwin" }) };
 }
 

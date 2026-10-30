@@ -98,7 +98,6 @@ export const carriedReadOnlyScan = (words, options) => carriedScanRefusal(words,
  */
 export function snapshotCargoSpawn({ spawn, carrySpawn = spawn, cargoCommand, snapshotRoot, broker, env, err = () => {}, records = [] }) {
   const prefix = cargoCommand.slice(1);
-  let marked = false;
   const refused = (code, message) => { err(`rightkit-gate: ${code}: ${message}`); return { status: BROKER_REFUSAL_STATUS, signal: null, error: null, stdout: "", stderr: `rightkit-gate: ${code}: ${message}\n` }; };
   return (cmd, args, opts = {}) => {
     const cargo = cmd === cargoCommand[0] && prefix.every((w, i) => args[i] === w);
@@ -111,12 +110,6 @@ export function snapshotCargoSpawn({ spawn, carrySpawn = spawn, cargoCommand, sn
       // The named files are checked against the live checkout before anything is sent (absolute, existing, of the right kind, outside it).
       const placed = carriedScanRefusal(words, { checkout: sb.checkout });
       if (placed !== null) return refused(CARRIED_METADATA_REFUSED, `\`cargo ${words.join(" ")}\` names a path the broker would not admit (${placed}); it is not sent`);
-      // The ownership records the broker submit first, under this gate's handle (as every other carried call).
-      if (!marked) {
-        const m = sb.markBrokerSubmit?.();
-        if (m?.broker?.submitted !== true || m.handle !== sb.handle) throw new Error(`the build ownership did not record the broker submit${sb.handle ? ` under ${sb.handle}` : ""}`);
-        marked = true;
-      }
       const r = carryBrokerCargo({ words, cwd: opts.cwd, env: { ...env, ...(opts.env ?? {}) }, section: brokerSection(sb), workspace: real(snapshotRoot), checkoutWorkspace: sb.checkout, record: (e) => records.push(e), spawn: carrySpawn, err, stdio: "capture" });
       return { status: r.status, signal: null, error: null, stdout: r.stdout, stderr: r.stderr };
     } catch (e) { return refused(e.code ?? "RK_SNAPSHOT_BROKER", e.message); }
