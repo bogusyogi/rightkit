@@ -31,6 +31,7 @@ import { resolveExecutor as defaultResolveExecutor } from "./gate-executor.mjs";
 import { directPlatform } from "./managed-cargo.mjs";
 import { defaultSpawnAsync, sidecarBoundCrate } from "./deterministic-scans.mjs";
 import { gateStateDir } from "./gate-stages.mjs";
+import { ProvenanceError, verifyAttributionDetail } from "./provenance-verify.mjs";
 
 export const ROUTE_RECEIPT_SCHEMA = "rightkit.gate-clippy-route-receipt/1";
 export const ROUTE_DIAGNOSTICS_SCHEMA = "rightkit.gate-clippy-route-diagnostics/1";
@@ -261,26 +262,37 @@ export function summarizeRun({ messages, stderr = "", exit = null, signal = null
 // ---- the broker's half of the receipt: attribution and toolchain (rows 8.9, 8.16) ------------------------------------------------------
 
 /**
- * The gate's reading of a broker receipt for a Clippy request (BROKER-CONTRACT B4 to B6; the gate side only, wired when the carrier
- * is). Missing attribution, a truncated or unavailable one, or a missing toolchain identity makes the route result FAILED, never a
- * partial success: `{ aggregate, code, units, problems, toolchain, complete }`. The units are the receipt's per package and per
- * target `attribution` rows.
+ * The gate's reading of a broker receipt for a Clippy request (BROKER-CONTRACT B4 to B6; the gate side only, wired when the carrier is). The receipt's
+ * `attribution` is COMPACT (counts and a `detail` descriptor `{path, sha256}`); the per package and per target rows live in the evidence file the descriptor names
+ * (`detailBytes`, read by the caller from that path). GB-50: the per-unit result is derived only through `verifyAttributionDetail` (RustRight's
+ * verify_attribution_detail, vector attribution-detail-vectors.v1.json): the file's bytes hash to the signed descriptor, its schema, request id and toolchain are
+ * this receipt's, it is available and not truncated, every row is well formed and the compact counts equal the rows. Counts alone never pass (`units: 2` with exit 0
+ * and no matching detail is FAILED). Missing or unverifiable evidence makes the route result FAILED, never a partial success:
+ * `{ aggregate, code, units, failedUnits, problems, toolchain, complete }`. A unit with errors, or a nonzero exit, is a failure.
+ * The Clippy carrier stays explicitly refused (RK_CLIPPY_BROKER_CARRIER_NOT_WIRED) until the whole route is wired.
  */
-export function routeFromBrokerReceipt(receipt) {
+export function routeFromBrokerReceipt(receipt, detailBytes = null) {
   const problems = [];
   const attribution = receipt?.attribution;
   const toolchain = typeof receipt?.toolchain === "string" && receipt.toolchain.trim() ? receipt.toolchain : null;
+  let rows = null; let failedUnits = 0;
   if (!attribution || typeof attribution !== "object") problems.push("the receipt carries no attribution");
   else if (attribution.available !== true) problems.push(`the receipt's attribution is unavailable (${attribution.reason ?? "no reason"})`);
-  else if (!Array.isArray(attribution.units)) problems.push("the receipt's attribution lists no units");
   else if (Number(attribution.truncated ?? 0) > 0) problems.push(`the receipt's attribution is truncated (${attribution.truncated} unit(s) not listed)`);
+  else if (detailBytes === null || detailBytes === undefined) problems.push("the receipt's attribution is compact counts only and no detail file was supplied: counts alone cannot satisfy attribution");
+  else {
+    try { ({ rows, failedUnits } = verifyAttributionDetail(receipt, detailBytes)); } catch (e) {
+      if (!(e instanceof ProvenanceError)) throw e;
+      problems.push(`the receipt's attribution is not verified against its detail rows (${e.code}: ${e.message})`);
+    }
+  }
   if (toolchain === null) problems.push("the receipt carries no toolchain identity");
-  const units = Array.isArray(attribution?.units) ? attribution.units.map((u) => ({ package: u.package, packageId: u.packageId ?? null, target: u.target, kind: u.kind ?? "", errors: Number(u.errors ?? 0), warnings: Number(u.warnings ?? 0), status: Number(u.errors ?? 0) > 0 ? "failed" : "clean", fresh: u.fresh ?? null })) : [];
+  const units = rows ? rows.map((u) => ({ package: u.package, packageId: u.packageId ?? null, target: u.target, kind: u.kind ?? "", errors: Number(u.errors ?? 0), warnings: Number(u.warnings ?? 0), status: Number(u.errors ?? 0) > 0 ? "failed" : "clean", fresh: u.fresh ?? null })) : [];
   const exit = receipt?.exit;
   const exitCode = typeof exit === "number" ? exit : typeof exit?.code === "number" ? exit.code : typeof exit?.status === "number" ? exit.status : null;
   if (exitCode === null) problems.push("the receipt carries no exit status");
-  const aggregate = problems.length || exitCode !== 0 || units.some((u) => u.status === "failed") ? "FAILED" : "PASSED";
-  return { aggregate, code: problems.length ? ROUTE_CODES.receiptEvidence : null, units, problems, toolchain, complete: aggregate === "PASSED" };
+  const aggregate = problems.length || exitCode !== 0 || failedUnits > 0 ? "FAILED" : "PASSED";
+  return { aggregate, code: problems.length ? ROUTE_CODES.receiptEvidence : null, units, failedUnits, problems, toolchain, complete: aggregate === "PASSED" };
 }
 
 // ---- sidecar-bound scope (row 8.8) -----------------------------------------------------------------------------------------------------

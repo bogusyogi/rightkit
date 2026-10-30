@@ -14,6 +14,7 @@ import { compareEquivalence } from "./clippy-equivalence.mjs";
 import { RECEIPT_SCHEMA, gateStateDir, readReceipt, writeReceipt } from "./gate-stages.mjs";
 import { repositoryOf, syncSnapshot } from "./snapshot.mjs";
 import { resolveExecutor as realResolveExecutor } from "./gate-executor.mjs";
+import { loadVector } from "./test-support/vectors.mjs";
 
 // ---- rows 8.1 and 8.2: argv --------------------------------------------------------------------------------------------------------------
 
@@ -292,29 +293,54 @@ test("item 8 row 8.5: the route leaves the door receipts byte-identical, and nei
   }
 });
 
-test("item 8 rows 8.9 and 8.16: the gate reads a broker receipt's attribution and toolchain; missing evidence is FAILED, not partial success", () => {
-  const good = { exit: 0, toolchain: "stable|cargo:aaa|rustc:bbb", attribution: { available: true, source: "cargo-json", truncated: 0, units: [{ package: "a", packageId: "path+file:///w/a#a@0.1.0", target: "a", kind: "lib", errors: 0, warnings: 1, otherMessages: 0, fresh: true }, { package: "a", packageId: "path+file:///w/a#a@0.1.0", target: "t1", kind: "test", errors: 0, warnings: 0, otherMessages: 0, fresh: false }, { package: "b", target: "b", kind: "bin", errors: 0, warnings: 0 }] } };
-  const ok = routeFromBrokerReceipt(good);
-  assert.equal(ok.aggregate, "PASSED");
+test("item 8 rows 8.9 and 8.16 (GB-50): the gate derives a unit result only from the detail rows the signed descriptor names; compact counts alone never pass, and missing evidence is FAILED, not partial success", () => {
+  const vector = loadVector("attribution-detail-vectors.v1.json");
+  const bytesOf = (c) => Buffer.from(c.detail, "utf8");
+  const [real, ...edits] = vector.cases;
+  const good = { exit: 0, ...structuredClone(real.receipt) };
+  const ok = routeFromBrokerReceipt(good, bytesOf(real));
+  // The real producer's batched `clippy -p alpha -p beta`: two units, beta carries one error, so the unit result is FAILED with the failing unit named.
+  assert.equal(real.expect, "ok:2:1");
+  assert.equal(ok.units.length, 2);
+  assert.equal(ok.failedUnits, 1);
+  assert.equal(ok.aggregate, "FAILED", "a unit with errors fails the route even when cargo exited 0");
   assert.deepEqual(ok.problems, []);
-  assert.deepEqual(ok.units.map((u) => [u.package, u.target, u.kind, u.status]), [["a", "a", "lib", "clean"], ["a", "t1", "test", "clean"], ["b", "b", "bin", "clean"]], "per-package and per-target units map to the route's output");
+  assert.equal(ok.units.filter((u) => u.status === "failed").length, 1);
   assert.equal(ok.toolchain, good.toolchain);
+  // Every refusal of the vector (counts without detail, another file, another request, another toolchain, disagreeing counts, truncated, a row without its target, unknown schema).
+  for (const c of edits) {
+    const r = { exit: 0, ...structuredClone(c.receipt) };
+    const res = routeFromBrokerReceipt(r, bytesOf(c));
+    assert.equal(res.aggregate, "FAILED", c.name);
+    assert.equal(res.code, ROUTE_CODES.receiptEvidence, c.name);
+    assert.match(res.problems.join(" | "), new RegExp(`\\(${c.expect}:`), `${c.name}: the broker-side diagnosis ${c.expect}`);
+    assert.equal(res.complete, false, c.name);
+  }
+  // `units: 2` with exit 0 and no detail at all must NOT pass.
+  const countsOnly = { exit: 0, toolchain: good.toolchain, attribution: { available: true, source: "cargo-json", units: 2, packages: 2, errors: 0, warnings: 0, otherMessages: 0, freshUnits: 0, truncated: 0 } };
+  const res = routeFromBrokerReceipt(countsOnly);
+  assert.equal(res.aggregate, "FAILED"); assert.match(res.problems.join(), /counts alone cannot satisfy attribution/);
+  assert.equal(routeFromBrokerReceipt(countsOnly, Buffer.from("{}")).aggregate, "FAILED");
+  // A clean receipt (all rows clean, exit 0) passes only when the detail verifies; the same receipt with a nonzero exit, a missing exit, toolchain or attribution fails.
+  const clean = structuredClone(real); 
+  const rowsOf = JSON.parse(clean.detail);
+  for (const u of rowsOf.attribution.units) u.errors = 0;
+  rowsOf.attribution.errors = 0;
+  const text = JSON.stringify(rowsOf);
+  const cleanReceipt = { exit: 0, ...structuredClone(real.receipt) };
+  cleanReceipt.attribution.errors = 0; cleanReceipt.attribution.detail = { ...cleanReceipt.attribution.detail, sha256: crypto.createHash("sha256").update(text).digest("hex") };
+  const passed = routeFromBrokerReceipt(cleanReceipt, Buffer.from(text));
+  assert.equal(passed.aggregate, "PASSED", passed.problems.join());
+  assert.equal(routeFromBrokerReceipt({ ...cleanReceipt, exit: 101 }, Buffer.from(text)).aggregate, "FAILED");
+  assert.equal(routeFromBrokerReceipt({ ...cleanReceipt, exit: { code: 0 } }, Buffer.from(text)).aggregate, "PASSED");
   for (const [name, mutate, problem] of [
     ["no attribution", (r) => { delete r.attribution; }, /no attribution/], ["no toolchain", (r) => { delete r.toolchain; }, /no toolchain identity/], ["an empty toolchain", (r) => { r.toolchain = "  "; }, /no toolchain identity/],
-    ["attribution unavailable", (r) => { r.attribution = { available: false, reason: "cargo-json-message-format-not-requested" }; }, /unavailable \(cargo-json-message-format-not-requested\)/],
-    ["attribution without units", (r) => { r.attribution = { available: true }; }, /lists no units/], ["truncated attribution", (r) => { r.attribution.truncated = 3; }, /truncated/], ["no exit", (r) => { delete r.exit; }, /no exit status/],
+    ["attribution unavailable", (r) => { r.attribution = { available: false, reason: "cargo-json-message-format-not-requested" }; }, /unavailable \(cargo-json-message-format-not-requested\)/], ["no exit", (r) => { delete r.exit; }, /no exit status/],
   ]) {
-    const r = structuredClone(good); mutate(r);
-    const res = routeFromBrokerReceipt(r);
-    assert.equal(res.aggregate, "FAILED", name);
-    assert.equal(res.code, ROUTE_CODES.receiptEvidence, name);
-    assert.match(res.problems.join(" | "), problem, name);
-    assert.equal(res.complete, false, name);
+    const r = structuredClone(cleanReceipt); mutate(r);
+    const out = routeFromBrokerReceipt(r, Buffer.from(text));
+    assert.equal(out.aggregate, "FAILED", name); assert.equal(out.code, ROUTE_CODES.receiptEvidence, name); assert.match(out.problems.join(" | "), problem, name);
   }
-  assert.equal(routeFromBrokerReceipt({ ...good, exit: 101 }).aggregate, "FAILED");
-  const failing = structuredClone(good); failing.attribution.units[2].errors = 2;
-  assert.equal(routeFromBrokerReceipt(failing).aggregate, "FAILED");
-  assert.equal(routeFromBrokerReceipt({ ...good, exit: { code: 0 } }).aggregate, "PASSED");
   assert.equal(routeFromBrokerReceipt(null).aggregate, "FAILED");
 });
 

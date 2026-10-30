@@ -207,6 +207,47 @@ export function verifyReceiptStrict(receipt, pins, expected) {
   return payload;
 }
 
+// ---- GB-50: the full attribution a Clippy (or check) route needs, read from the signed detail descriptor, never from the compact counts ----
+export const STAGE_EVIDENCE_SCHEMA = "rustright.stage-evidence/1";
+
+/**
+ * `rustright_protocol::attestation::verify_attribution_detail(receipt, file_bytes)`, case for case (vector attribution-detail-vectors.v1.json). `receipt` is a
+ * receipt `verifyReceiptStrict` already accepted (so its compact `attribution`, `toolchain` and the descriptor's sha256 are signed) and `bytes` the evidence file the
+ * descriptor names. Checks in order: the descriptor is present and `bytes` hash to its sha256 (`detail`); the schema is rustright.stage-evidence/1 (`schema`); the
+ * file's `id` is this receipt's request (`job`) and its `toolchain` the receipt's (`evidence`); its attribution is available, `truncated` is exactly 0 in the file and in
+ * the compact twin (`truncated`); every row names package, target and kind with numeric errors and warnings; the compact `units`, `packages`, `errors`, `warnings`,
+ * `otherMessages` and `freshUnits` equal the values recomputed from the rows. Returns `{ rows, failedUnits }`. Counts alone never pass.
+ */
+export function verifyAttributionDetail(receipt, bytes) {
+  const compact = receipt?.attribution;
+  if (!isRecord(compact)) refuse("evidence", "the receipt carries no attribution");
+  const descriptor = compact.detail;
+  if (!isRecord(descriptor) || typeof descriptor.sha256 !== "string" || typeof descriptor.path !== "string") refuse("detail", "the attribution names no evidence file");
+  if (sha256Hex(bytes) !== descriptor.sha256) refuse("detail", "the evidence file is not the one the receipt signed");
+  let document;
+  try { document = JSON.parse(Buffer.from(bytes).toString("utf8")); } catch { refuse("malformed", "the evidence file is not JSON"); }
+  if (!isRecord(document) || document.schema !== STAGE_EVIDENCE_SCHEMA) refuse("schema", "unknown stage evidence schema");
+  if (typeof document.id !== "string" || document.id !== receipt.id) refuse("job", "the evidence file is for another request");
+  if (typeof document.toolchain !== "string" || document.toolchain !== receipt.toolchain) refuse("evidence", "the evidence file names another toolchain than the receipt");
+  const attribution = document.attribution;
+  if (!isRecord(attribution) || attribution.available !== true) refuse("evidence", "the evidence file holds no available attribution");
+  if (!isU64(attribution.truncated)) refuse("evidence", "the evidence file does not say whether the attribution is complete");
+  if (attribution.truncated !== 0 || compact.truncated !== 0) refuse("truncated", "the attribution is truncated or its completeness is not stated");
+  const rows = attribution.units;
+  if (!Array.isArray(rows)) refuse("evidence", "the evidence file holds no unit rows");
+  const packages = new Set(); let errors = 0; let warnings = 0; let other = 0; let fresh = 0; let failedUnits = 0;
+  for (const row of rows) {
+    const text = (name) => (isRecord(row) && typeof row[name] === "string" && row[name] !== "" ? row[name] : null);
+    const count = (name) => (isRecord(row) && isU64(row[name]) ? row[name] : null);
+    const [pkg, target, kind, e, w] = [text("package"), text("target"), text("kind"), count("errors"), count("warnings")];
+    if (pkg === null || target === null || kind === null || e === null || w === null) refuse("evidence", "a unit row lacks its package, target, kind, errors or warnings");
+    packages.add(pkg); errors += e; warnings += w; other += count("otherMessages") ?? 0; fresh += row.fresh === true ? 1 : 0; failedUnits += e > 0 ? 1 : 0;
+  }
+  const derived = { units: rows.length, packages: packages.size, errors, warnings, otherMessages: other, freshUnits: fresh };
+  for (const [name, value] of Object.entries(derived)) if (compact[name] !== value) refuse("evidence", `the receipt's compact attribution ${name} disagrees with the evidence file's rows`);
+  return { rows, failedUnits };
+}
+
 /** The stage nonce a unit gate run sets (RIGHTKIT_ATTEST_STAGE_NONCE) for the broker jobs of one stage; the hosted admission recomputes it from
  * what it knows of the dispatched commit, so a receipt of another commit, tree, unit or stage cannot match. 64 lowercase hex. */
 export function qualificationNonce({ commit, tree, unit, stage }) {
