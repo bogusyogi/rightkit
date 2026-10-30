@@ -58,7 +58,9 @@ export function androidNdkCommand(ndk, { profile = "release" } = {}) {
   const args = ["ndk"];
   if (ndk.apiLevel !== undefined) args.push("--platform", String(ndk.apiLevel));
   for (const abi of ndk.abis) args.push("-t", abi);
-  args.push("-o", ndk.jniLibs, "build");
+  // GB-62 (GATE commit exactness; BR20): `--locked` goes at the INNER Cargo build boundary, right after `build`, where cargo-ndk hands its remaining
+  // arguments to Cargo; the outer ABI/API/output options stay as written (`--locked` before `build` would be cargo-ndk's own option to reject).
+  args.push("-o", ndk.jniLibs, "build", "--locked");
   if (profile === "release") args.push("--release");
   if (ndk.manifestPath) args.push("--manifest-path", ndk.manifestPath);
   if (ndk.package) args.push("-p", ndk.package);

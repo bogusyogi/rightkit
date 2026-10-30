@@ -116,8 +116,34 @@ export const isLockBound = (argv) => isCompileClass(argv);
  * Adding it, not refusing, is the less surprising rule: the call runs as the caller meant it, except that a stale lock fails instead of
  * being rewritten. The ledger and the signed request digest both carry the argv as sent.
  */
+/** cargo-ndk's own options that take a value (outer grammar): `cargo ndk [-t <abi>] [-p|--platform <api>] [-o <dir>] ... <cargo subcommand> [cargo args]`. */
+const NDK_VALUE_OPTIONS = new Set(["-t", "--target", "-o", "--output-dir", "-p", "--platform"]);
+const NDK_INNER_LOCKED = new Set(["build", "b", "check", "c", "test", "t", "bench", "clippy", "doc", "rustc", "rustdoc", "run", "r"]);
+
+/**
+ * GB-62: `cargo ndk <outer options> build <cargo args>` is two grammars. The immutable-dependency flag belongs to the INNER Cargo command, so it is
+ * inserted right after that inner subcommand (never after `ndk`, where cargo-ndk would read it as its own option, and never before it). Returns the argv
+ * unchanged when the inner command is not a locked-class command, already carries `--locked`/`--frozen` before `--`, or cannot be found.
+ */
+function lockedNdkArgv(words) {
+  const end = words.indexOf("--");
+  const own = end < 0 ? words : words.slice(0, end);
+  let i = words.findIndex((w) => w === "ndk");
+  if (i < 0) return words;
+  for (i += 1; i < own.length; i += 1) {
+    const w = own[i];
+    if (NDK_VALUE_OPTIONS.has(w)) { i += 1; continue; }
+    if (w.startsWith("-")) continue;
+    break;
+  }
+  if (i >= own.length || !NDK_INNER_LOCKED.has(own[i])) return words;
+  if (own.slice(i + 1).some((w) => w === "--locked" || w === "--frozen")) return words;
+  return [...words.slice(0, i + 1), "--locked", ...words.slice(i + 1)];
+}
+
 export function lockedArgv(argv) {
   const words = [...argv];
+  if (cargoSubcommandOf(words) === "ndk") return lockedNdkArgv(words);
   if (!isLockBound(words)) return words;
   const end = words.indexOf("--");
   if ((end < 0 ? words : words.slice(0, end)).some((w) => w === "--locked" || w === "--frozen")) return words;
