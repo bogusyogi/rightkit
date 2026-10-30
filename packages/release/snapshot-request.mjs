@@ -21,6 +21,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { REQUEST_OVER_CAP_CODE, requestOverCap } from "./broker-wire.mjs";
+import { writeCarrierOwner } from "./carrier-census.mjs";
 import { BROKER_COMPILE_COMMANDS, CARGO_COMMAND_ALIASES, cargoCommandIndex, cargoSubcommandOf, expandCargoAliases, isCompileCommand, isPackageObservation } from "./cargo-shapes.mjs";
 import { canonicalJson, ProvenanceError, verifyBr19Evidence, verifyProvenance, verifyReceiptCoverage, verifyResultEvidence } from "./provenance-verify.mjs";
 
@@ -246,9 +247,11 @@ export function writeSnapshotRequest({ controlRoot, commit, snapshot, declaredIn
   if (overCap) fail(REQUEST_OVER_CAP_CODE, overCap);
   const file = path.join(dir, `${uuid()}.json`);
   fs.writeFileSync(file, bytes, { flag: "wx", mode: 0o600 });
+  // GB-76: the creator is recorded beside the carrier (identity, sub-handle, digest) so a later sweep can retire a crash leftover on proof, never on age alone.
+  try { writeCarrierOwner({ file, bytes, handle: carrier.ownership.handle, nonce }); } catch (e) { fs.rmSync(file, { force: true }); fail("invalid", `the carrier's owner record cannot be written (${e.code ?? e.message}), so no carrier is left behind`); }
   const digest = sha256(bytes);
   const descriptor = JSON.stringify({ path: file, sha256: digest });
-  if (Buffer.byteLength(descriptor) > DESCRIPTOR_MAX_BYTES) { fs.rmSync(file, { force: true }); fail("too-large", "the snapshot request descriptor exceeds 4096 bytes"); }
+  if (Buffer.byteLength(descriptor) > DESCRIPTOR_MAX_BYTES) { fs.rmSync(file, { force: true }); fs.rmSync(file.replace(/\.json$/, ".owner.json"), { force: true }); fail("too-large", "the snapshot request descriptor exceeds 4096 bytes"); }
   const env = { [SNAPSHOT_REQUEST_ENV]: descriptor, [ATTEST_NONCE_ENV]: nonce, ...(requestIdFile ? { [REQUEST_ID_FILE_ENV]: requestIdFile } : {}) };
   return { file, sha256: digest, descriptor, carrier, env };
 }
