@@ -15,6 +15,8 @@ import { fileURLToPath } from "node:url";
 import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend } from "../build-ownership.mjs";
 import { adapterEnvRefusal, isReservedAdapterEnvKey } from "../adapter-env.mjs";
 import { isVersionProbe } from "../cargo-shapes.mjs";
+import { NATIVE_ADAPTERS, nativeGrammar } from "../native-adapters.mjs";
+import { adapterArgvRefusal } from "../pnpm-adapter-grammar.mjs";
 import { verifyAttributionDetail } from "../provenance-verify.mjs";
 import { ATTEST_STAGE_NONCE_ENV, canonicalJson, signedBytes } from "../provenance-verify.mjs";
 import { SNAPSHOT_MUST_COMPILE, acceptedAfterFix } from "./cargo-classification.mjs";
@@ -481,7 +483,7 @@ function synthMetadata(fx, checkoutCwd, inSnapshot = true) {
 // absolute path but inside the snapshot, a relative --dir, a --pack-destination that is an empty child of a scratch `rk-local-publish-*`
 // directory), then the job runs in the SNAPSHOT counterpart of the cwd with the broker's own environment and PATH. A compile its child starts
 // is nested under it (nestedCargo); the job's signed receipt lists those children.
-const ADAPTERS = ["rightkit-pnpm", "rightkit-node", "rightkit-qa", "rightkit-swift"];
+const ADAPTERS = ["rightkit-pnpm", "rightkit-node", "rightkit-qa", "rightkit-swift", "rightkit-xcodegen", "rightkit-xcodebuild", "rightkit-gradle", "rightkit-cmake"];
 const PNPM_VALUE_OPTIONS = new Set(["--dir", "-C", "--filter", "-F", "--prefix"]);
 const readChildren = (stateDir, id) => { try { return fs.readFileSync(path.join(stateDir, "db", `${id}.children.jsonl`), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
 
@@ -494,6 +496,9 @@ function snapshotArgvProblem(fx, adapter, args) {
     for (let i = 0; i < own.length; i += 1) { const w = own[i]; if (w.startsWith("-")) { if (PNPM_VALUE_OPTIONS.has(w)) i += 1; continue; } command = w; break; }
     if (!["exec", "run", "pack"].includes(command)) return `the pnpm command ${command} is not allowed in a snapshot call (exec, run and pack only)`;
   }
+  // GB-51: a native-tool adapter judges its argv by the reference registration (the production parser's port), snapshot-bound.
+  const native = Object.entries(NATIVE_ADAPTERS).find(([, entry]) => entry.adapter === adapter);
+  if (native) { const problem = adapterArgvRefusal(args, nativeGrammar(native[0]), { snapshot: true }); if (problem) return problem; }
   // rightkit-swift: `build` only, with one relative --package-path (policy check_swift_package; the registered subcommands are [build]).
   if (adapter === "rightkit-swift") {
     if (args[0] !== "build") return `the swift command ${args[0]} is not allowed (build only)`;

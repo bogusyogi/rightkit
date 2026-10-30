@@ -88,3 +88,41 @@ test("[GB-51] the launch route: each declared tool is one carried job of its own
   refused("cmake", ["-E", "remove_directory", "x"], /not registered/);
   refused("cmake", ["-S", "/app/src", "-B", "/tmp/elsewhere"], /outside the step's directory/);
 });
+
+// ---- the carried jobs, end to end through the fixture broker ----
+import fs from "node:fs";
+import path from "node:path";
+import { spawnSync } from "./background-process.mjs";
+import { CARRIED_CARGO_MAP_ENV, installCarrier } from "./carried-cargo.mjs";
+import { brokerSection } from "./snapshot-broker.mjs";
+import { makeFakeBroker } from "./test-support/fake-broker.mjs";
+
+test("[GB-51] each native tool runs as one signed, ledgered, snapshot-bound adapter job whose output directory is the broker's (never named by the step); a step with its own environment is refused", { skip: process.platform === "win32" ? "POSIX fixture" : false }, (t) => {
+  const fx = makeFakeBroker(t, { readOnlySnapshots: true });
+  fx.setBehavior({});
+  const installed = installCarrier({ base: fs.mkdtempSync(path.join(fx.root, "carrier-")), snapshotRoot: fx.snapshot, checkoutDirs: { ".": fx.checkout }, section: brokerSection(fx.sb), platform: process.platform, env: {} });
+  t.after(() => installed.cleanup());
+  const env = { PATH: fx.root, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs", ...fx.ownershipEnv, ...installed.env };
+  const door = (tool, args, over = {}) => buildLaunch(tool, args, { env, platform: "darwin", exists: (p) => p === path.join(fx.root, "rustright"), cwd: fx.snapshot, ...over });
+  const cases = [
+    ["xcodegen", ["generate", "--spec", `${fx.snapshot}/project.yml`, "--project", fx.snapshot], "rightkit-xcodegen", ["generate", "--spec", "project.yml", "--project", "."]],
+    ["xcodebuild", ["-project", `${fx.snapshot}/A.xcodeproj`, "-scheme", "A", "build"], "rightkit-xcodebuild", ["-project", "A.xcodeproj", "-scheme", "A", "build"]],
+    ["./gradlew", [":app:assembleDebug"], "rightkit-gradle", [":app:assembleDebug"]],
+    ["cmake", ["-S", `${fx.snapshot}/src`, "-B", `${fx.snapshot}/build`], "rightkit-cmake", ["-S", "src", "-B", "build"]],
+  ];
+  for (const [tool, args, adapter, sent] of cases) {
+    const launch = door(tool, args);
+    assert.deepEqual(launch.args.slice(0, 3), [path.join(path.dirname(new URL(import.meta.url).pathname), "carried-adapter-run.mjs"), adapter, "--"].slice(0, 3), tool);
+    const r = spawnSync(launch.command, launch.args, { cwd: fx.snapshot, env: { ...env, ...(launch.env ?? {}) }, encoding: "utf8" });
+    assert.equal(r.status, 0, `${tool}: ${r.stderr}`);
+    const job = fx.adapterCalls().at(-1);
+    assert.equal(job.adapter, adapter); assert.deepEqual(job.argv, sent, `${tool}: the job received the relative, registered argv`);
+  }
+  const verified = JSON.parse(`[${fs.readdirSync(installed.ledgerDir).flatMap((f) => fs.readFileSync(path.join(installed.ledgerDir, f), "utf8").trim().split("\n")).filter(Boolean).join(",")}]`).filter((e) => e.status === "verified");
+  assert.equal(verified.length, 4); assert.ok(verified.every((e) => e.shim === "adapter" && typeof e.outputDir === "string" && e.outputDir.startsWith(fx.wsRoot)), "each signed receipt names the broker's managed output directory");
+  assert.throws(() => door("cmake", ["--build", `${fx.snapshot}/build`], { stepEnv: { MY_FLAG: "1" } }), (e) => e.code === BUILD_LAUNCH_REFUSED && e.reason === "RK_ADAPTER_ENV_UNREGISTERED");
+  // The `rustright run <adapter> --` spelling of the same steps is judged by the same rules.
+  assert.deepEqual(door("rustright", ["run", "rightkit-cmake", "--", "--build", `${fx.snapshot}/build`]).args.slice(1, 3), ["rightkit-cmake", "--"]);
+  assert.throws(() => door("rustright", ["run", "rightkit-cmake", "--", "-B", "/tmp/elsewhere", "-S", `${fx.snapshot}/src`]), (e) => e.code === BUILD_LAUNCH_REFUSED);
+  assert.ok(NATIVE_ADAPTERS.cmake.executable.length > 0);
+});
