@@ -116,3 +116,40 @@ test("[GB-84] receiptSync gives each diagnosis its own recoverable error: live, 
   // A terminal reply with a failing client exit is not a build outcome either.
   assert.equal(code({ type: "STATUS", id: "job-1", state: "SUCCEEDED", receipt: { id: "job-1" } }, 1)[0], "receipt");
 });
+
+// ---- GB-54: pause and resume ----
+import { ADMISSION_EVENT, PAUSE_ADMISSION, RESUME_ADMISSION, admissionRequest, parseAdmissionEvent, parseAdmissionRequest, refusalInCapturedOutput } from "./broker-wire.mjs";
+
+test("[GB-54] pause and resume requests and the ADMISSION reply round-trip through the typed shapes; a reason or holder of the wrong shape is refused, unknown optional fields are ignored", () => {
+  const runtime = { version: "x", brokerDigest: "b".repeat(64) };
+  const pause = admissionRequest(PAUSE_ADMISSION, { protocol: "rustright.broker/1", runtime, reason: "install", holder: { pid: 4242, startTimeMs: 1700000000000 } });
+  assert.deepEqual(pause, { type: "PAUSE_ADMISSION", protocol: "rustright.broker/1", runtime, reason: "install", holder: { pid: 4242, startTimeMs: 1700000000000 } });
+  assert.deepEqual(parseAdmissionRequest(JSON.parse(JSON.stringify(pause))), { ok: true, request: pause }, "a captured request round-trips");
+  assert.deepEqual(admissionRequest(PAUSE_ADMISSION, { protocol: "p", runtime }), { type: "PAUSE_ADMISSION", protocol: "p", runtime }, "reason and holder are optional");
+  assert.deepEqual(admissionRequest(RESUME_ADMISSION, { protocol: "p", runtime, reason: "ignored" }), { type: "RESUME_ADMISSION", protocol: "p", runtime }, "resume carries the envelope only");
+  assert.deepEqual(parseAdmissionRequest({ ...pause, future: 1 }).request, pause, "unknown optional fields are ignored (additive compatibility)");
+  for (const bad of [{ reason: 7 }, { holder: "me" }, { holder: { pid: -1 } }, { holder: { pid: 2 ** 33 } }, { holder: { pid: 1, startTimeMs: -5 } }, { holder: { startTimeMs: 1 } }]) {
+    assert.equal(parseAdmissionRequest({ ...pause, ...bad }).ok, false, JSON.stringify(bad));
+    assert.throws(() => admissionRequest(PAUSE_ADMISSION, { protocol: "p", runtime, ...bad }), (e) => e.code === "RK_ADMISSION_REQUEST_INVALID");
+  }
+  assert.equal(parseAdmissionRequest({ type: "PROMOTE", protocol: "p", runtime }).ok, false);
+  assert.deepEqual(parseAdmissionEvent({ type: ADMISSION_EVENT, paused: true, reason: "install", holder: { pid: 1 }, persistError: "EIO" }), { ok: true, paused: true, reason: "install", holder: { pid: 1 }, persistError: "EIO" });
+  assert.deepEqual(parseAdmissionEvent({ type: "ADMISSION", paused: false }), { ok: true, paused: false });
+  for (const bad of [{ type: "ADMISSION" }, { type: "ADMISSION", paused: "yes" }, { type: "ADMISSION", paused: true, holder: { pid: "x" } }, { type: "STATUS", paused: true }]) assert.equal(parseAdmissionEvent(bad).ok, false, JSON.stringify(bad));
+});
+
+test("[GB-54] a paused carried submit is a typed no-spawn refusal, not a missing request reference", (t) => {
+  const paused = { type: "RESULT", exitCode: 125, status: "REJECTED", error: "admission is paused; resume with 'rustright resume-admission'", code: "RK_ADMISSION_PAUSED" };
+  assert.deepEqual(refusalInCapturedOutput(`cargo noise\n${JSON.stringify(paused)}\n`), { code: "RK_ADMISSION_PAUSED", refusal: "paused", message: paused.error });
+  assert.equal(refusalInCapturedOutput("plain output\n"), null);
+  const fx = makeFakeBroker(t, { readOnlySnapshots: true });
+  const section = brokerSection({ ...fx.sb, markBrokerSubmit: subHandleStub(fx.handle) });
+  const env = { PATH: fx.root, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs" };
+  fx.setBehavior({ refuseWith: paused });
+  const records = [];
+  const r = carryBrokerCargo({ words: ["check"], cwd: path.join(fx.snapshot, "crates", "a"), env, section, workspace: fx.snapshot, checkoutWorkspace: fx.checkout, record: (e) => records.push(e), err: () => {}, stdio: "capture" });
+  assert.equal(r.outcome.status, "unverified");
+  assert.equal(r.outcome.code, "broker-refused-paused");
+  assert.match(r.outcome.message, /admission is paused and nothing was spawned/);
+  assert.equal(records.at(-1).code, "broker-refused-paused");
+});

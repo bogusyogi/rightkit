@@ -323,6 +323,7 @@ async function client(stateDir, [command, ...args]) {
     if (Buffer.byteLength(raw) > 4096) bad("descriptor exceeds 4096 bytes");
     let descriptor; try { descriptor = JSON.parse(raw); } catch { bad("descriptor is not JSON"); }
     if (!descriptor || typeof descriptor !== "object" || Object.keys(descriptor).sort().join() !== "path,sha256" || !/^[0-9a-f]{64}$/.test(descriptor.sha256) || !path.isAbsolute(descriptor.path)) bad("descriptor fields");
+    if (behavior.refuseWith) { process.stdout.write(`${JSON.stringify(behavior.refuseWith)}\n`); process.exit(125); } // GB-54: a typed REJECTED result, nothing spawned
     if (behavior.refuse) bad("refused by the broker");
     if (envVar("PARENT_REQUEST_ID") !== undefined) bad("a parent request is set");
     if (String(envVar("CHECK_ADMISSION") ?? "").trim() === "1") bad("an admission check is not a snapshot compile");
@@ -471,6 +472,7 @@ function adapterRun(stateDir, fx, behavior, argv) {
   if (Buffer.byteLength(raw) > 4096) bad("descriptor exceeds 4096 bytes");
   let descriptor; try { descriptor = JSON.parse(raw); } catch { bad("descriptor is not JSON"); }
   if (!descriptor || typeof descriptor !== "object" || Object.keys(descriptor).sort().join() !== "path,sha256" || !/^[0-9a-f]{64}$/.test(descriptor.sha256) || !path.isAbsolute(descriptor.path)) bad("descriptor fields");
+  if (behavior.refuseWith) { process.stdout.write(`${JSON.stringify(behavior.refuseWith)}\n`); process.exit(125); } // GB-54: a typed REJECTED result, nothing spawned
   if (behavior.refuse) bad("refused by the broker");
   if (envVar("PARENT_REQUEST_ID") !== undefined || envVar("PARENT_CAPABILITY_TOKEN") !== undefined) bad("a parent request is set: a root snapshot request is never nested");
   if (!String(envVar("CALLING_GATE") ?? "").trim()) bad("no calling gate");

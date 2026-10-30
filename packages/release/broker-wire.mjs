@@ -107,3 +107,66 @@ export function diagnoseControlReply(event, expectedId = null) {
   }
   return malformed("the reply is not a STATUS or RESULT");
 }
+
+// ---- GB-54: pause and resume in the typed protocol (BROKER-CONTRACT section 14) ----
+// `PAUSE_ADMISSION` and `RESUME_ADMISSION` are variants of RustRight's `BrokerRequest` and `ADMISSION` a variant of `BrokerEvent`, defined once in rustright-protocol
+// and answered by the broker's front gate (authentication unchanged, whether or not the job service is up). Wire:
+//   {"type":"PAUSE_ADMISSION","protocol","runtime","reason"?:string,"holder"?:{"pid":u32,"startTimeMs"?:u64}}
+//   {"type":"RESUME_ADMISSION","protocol","runtime"}
+//   reply {"type":"ADMISSION","paused":bool,"reason"?,"holder"?,"persistError"?}
+// Compatibility: unknown optional fields are ignored; a `reason` or `holder` of the wrong shape is refused (it used to be dropped silently, leaving a pause without its holder).
+export const PAUSE_ADMISSION = "PAUSE_ADMISSION";
+export const RESUME_ADMISSION = "RESUME_ADMISSION";
+export const ADMISSION_EVENT = "ADMISSION";
+export const ADMISSION_PAUSED_CODE = "RK_ADMISSION_PAUSED";
+const isU32 = (v) => Number.isInteger(v) && v >= 0 && v <= 0xffffffff;
+const isUint = (v) => Number.isSafeInteger(v) && v >= 0;
+
+const holderProblem = (holder) => {
+  if (!isObject(holder) || !isU32(holder.pid)) return "holder must be {pid: u32, startTimeMs?: u64}";
+  if (holder.startTimeMs !== undefined && !isUint(holder.startTimeMs)) return "holder.startTimeMs must be a non-negative integer";
+  return null;
+};
+
+/** Parses one admission control request as RustRight's canonical codec does: `{ ok: true, request }` (known fields only) or `{ ok: false, message }`; nothing changes on a refusal. */
+export function parseAdmissionRequest(value) {
+  if (!isObject(value) || (value.type !== PAUSE_ADMISSION && value.type !== RESUME_ADMISSION)) return { ok: false, message: "not a PAUSE_ADMISSION or RESUME_ADMISSION request" };
+  if (typeof value.protocol !== "string" || value.protocol === "") return { ok: false, message: "protocol is required" };
+  if (!isObject(value.runtime)) return { ok: false, message: "runtime identity is required" };
+  const request = { type: value.type, protocol: value.protocol, runtime: value.runtime };
+  if (value.type === PAUSE_ADMISSION) {
+    if (value.reason !== undefined && value.reason !== null) { if (typeof value.reason !== "string") return { ok: false, message: "reason must be a string" }; request.reason = value.reason; }
+    if (value.holder !== undefined && value.holder !== null) { const problem = holderProblem(value.holder); if (problem) return { ok: false, message: problem }; request.holder = { pid: value.holder.pid, ...(value.holder.startTimeMs !== undefined ? { startTimeMs: value.holder.startTimeMs } : {}) }; }
+  }
+  return { ok: true, request };
+}
+
+/** The wire request a gate-side caller builds: the same function the parser judges, so a request that is built is a request that parses. */
+export function admissionRequest(type, { protocol, runtime, reason, holder } = {}) {
+  const parsed = parseAdmissionRequest({ type, protocol, runtime, ...(type === PAUSE_ADMISSION ? { reason, holder } : {}) });
+  if (!parsed.ok) throw Object.assign(new Error(`${type}: ${parsed.message}`), { code: "RK_ADMISSION_REQUEST_INVALID" });
+  return parsed.request;
+}
+
+/** The `ADMISSION` reply: `{ ok: true, paused, reason?, holder?, persistError? }` or `{ ok: false, message }`. `persistError` means the pause holds for this run but could not be written to survive a restart. */
+export function parseAdmissionEvent(event) {
+  if (!isObject(event) || event.type !== ADMISSION_EVENT) return { ok: false, message: "not an ADMISSION event" };
+  if (typeof event.paused !== "boolean") return { ok: false, message: "ADMISSION carries no boolean paused" };
+  if (event.holder !== undefined && holderProblem(event.holder)) return { ok: false, message: holderProblem(event.holder) };
+  for (const name of ["reason", "persistError"]) if (event[name] !== undefined && typeof event[name] !== "string") return { ok: false, message: `${name} must be a string` };
+  return { ok: true, paused: event.paused, ...(event.reason !== undefined ? { reason: event.reason } : {}), ...(event.holder !== undefined ? { holder: event.holder } : {}), ...(event.persistError !== undefined ? { persistError: event.persistError } : {}) };
+}
+
+/**
+ * The typed refusal the client's captured output carries, if it carries one: a `RESULT` with status `REJECTED` (diagnoseControlReply), for example `RK_ADMISSION_PAUSED`
+ * (exit 125: admission is paused and NOTHING was spawned). `{ code, refusal, message }` or null. Never a build outcome.
+ */
+export function refusalInCapturedOutput(text) {
+  for (const frame of drainFrames(String(text ?? "")).frames) {
+    if (!frame.startsWith("{")) continue;
+    let event; try { event = JSON.parse(frame); } catch { continue; }
+    const diagnosis = diagnoseControlReply(event);
+    if (diagnosis.kind === "refused") return { code: diagnosis.code, refusal: diagnosis.refusal, message: diagnosis.message };
+  }
+  return null;
+}

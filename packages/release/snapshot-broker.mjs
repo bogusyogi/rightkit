@@ -22,7 +22,7 @@ import { ATTEST_STAGE_NONCE_ENV, canonicalJson, carriedCallNonce } from "./prove
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { forwardedAdapterEnv } from "./adapter-env.mjs";
 import { carriedShapeDecision } from "./cargo-shapes.mjs";
-import { diagnoseControlReply, drainFrames, overCapProblem } from "./broker-wire.mjs";
+import { diagnoseControlReply, drainFrames, overCapProblem, refusalInCapturedOutput } from "./broker-wire.mjs";
 import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend } from "./ownership-mark.mjs";
 import {
   MANAGED_RUST_ENVIRONMENT_KEYS, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, isCallHandleOf, lockedArgv, observedEnvOf, readDeclaredInputs, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest,
@@ -251,6 +251,12 @@ export function carryBrokerCargo({ words, cwd, env, section, workspace, checkout
       outcome = { status: "unverified", code: e.code ?? "error", message: e.message, ...(ref ? { requestId: ref.requestId, workspace: ref.workspace } : {}) };
     }
     const out = capture ? { stdout: String(r.stdout ?? ""), stderr: String(r.stderr ?? "") } : { stdout: "", stderr: "" };
+    // GB-54: a request the broker REFUSED (admission paused, a suspended or unknown job, a cutover drain) never started: the client's typed REJECTED result is kept as the outcome's
+    // code ("admission is paused; nothing was spawned"), not folded into a missing request reference. It is never a build outcome.
+    if (outcome.status !== "verified" && capture) {
+      const refused = refusalInCapturedOutput(`${out.stdout}\n${out.stderr}`);
+      if (refused) outcome = { status: "unverified", code: `broker-refused-${refused.refusal}`, message: `the broker refused the request (${refused.code ?? "no code"}: ${refused.message || refused.refusal})${refused.refusal === "paused" ? ": admission is paused and nothing was spawned" : ""}`, ...(outcome.requestId ? { requestId: outcome.requestId, workspace: outcome.workspace } : {}) };
+    }
     // GB-53: captured output that lost a frame to FRAME_OVER_CAP (or a result the broker replaced with RK_RESPONSE_OVER_CAP) is truncated: refused, never read as complete.
     if (outcome.status === "verified" && capture) {
       const drained = drainFrames(`${out.stdout}\n${out.stderr}`);
@@ -347,6 +353,12 @@ export function carryBrokerAdapter({ adapter, words, cwd, env, section, record, 
       outcome = { status: "unverified", code: e.code ?? "error", message: e.message, ...(ref ? { requestId: ref.requestId, workspace: ref.workspace } : {}) };
     }
     const out = capture ? { stdout: String(r.stdout ?? ""), stderr: String(r.stderr ?? "") } : { stdout: "", stderr: "" };
+    // GB-54: a request the broker REFUSED (admission paused, a suspended or unknown job, a cutover drain) never started: the client's typed REJECTED result is kept as the outcome's
+    // code ("admission is paused; nothing was spawned"), not folded into a missing request reference. It is never a build outcome.
+    if (outcome.status !== "verified" && capture) {
+      const refused = refusalInCapturedOutput(`${out.stdout}\n${out.stderr}`);
+      if (refused) outcome = { status: "unverified", code: `broker-refused-${refused.refusal}`, message: `the broker refused the request (${refused.code ?? "no code"}: ${refused.message || refused.refusal})${refused.refusal === "paused" ? ": admission is paused and nothing was spawned" : ""}`, ...(outcome.requestId ? { requestId: outcome.requestId, workspace: outcome.workspace } : {}) };
+    }
     // GB-53: captured output that lost a frame to FRAME_OVER_CAP (or a result the broker replaced with RK_RESPONSE_OVER_CAP) is truncated: refused, never read as complete.
     if (outcome.status === "verified" && capture) {
       const drained = drainFrames(`${out.stdout}\n${out.stderr}`);
