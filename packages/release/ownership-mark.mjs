@@ -48,6 +48,31 @@ export function markBrokerSubmit(file, handle, callHandle, options = {}) {
   }, options);
 }
 
+/**
+ * GB-21: records, under the same lock, that the carried request `callHandle` was PROVEN never to have started: the gate could not even start the RustRight client
+ * (no such executable, not executable, a refused spawn), so no byte reached the broker. Only a sub-handle already marked as sent can be marked unsent (the mark
+ * preceded the attempt); the record keeps `submitted` and the handle, and adds `broker.unsent[callHandle] = { reason, at }`. A reclaim then accepts the sub-handle as
+ * settled only when the broker also holds no lease or completion for it (it answers UNKNOWN with no members: it never saw it). An ambiguous send (a timeout, a lost
+ * connection after the client started) is never marked unsent: its uncertainty is reconciled by the request id, never erased.
+ */
+export function markBrokerUnsent(file, handle, callHandle, reason, options = {}) {
+  if (typeof callHandle !== "string" || callHandle.length <= handle.length + 1 || !callHandle.startsWith(`${handle}#`) || !/^[A-Za-z0-9._-]+$/.test(callHandle.slice(handle.length + 1))) {
+    throw new OwnershipBusy(`build ownership ${file}: only a sub-handle of ${handle} (<handle>#<id>) can be marked unsent, not ${JSON.stringify(callHandle ?? null)}`);
+  }
+  if (typeof reason !== "string" || reason === "") throw new OwnershipBusy(`build ownership ${file}: an unsent mark names the local proof that nothing was sent`);
+  return withMarkLock(file, () => {
+    let owner = null; try { owner = JSON.parse(readText(file) ?? ""); } catch { owner = null; }
+    if (owner?.handle !== handle) throw new OwnershipBusy(`build ownership ${file} is no longer held by ${handle}`);
+    if (!Array.isArray(owner.broker?.handles) || !owner.broker.handles.includes(callHandle)) throw new OwnershipBusy(`build ownership ${file}: ${callHandle} was never marked as sent, so it cannot be marked unsent`);
+    const next = { ...owner, broker: { ...owner.broker, unsent: { ...(owner.broker.unsent ?? {}), [callHandle]: { reason, at: new Date().toISOString() } } } };
+    const tmp = `${file}.${crypto.randomUUID()}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(next), { flag: "wx", mode: 0o600 });
+    try { fs.renameSync(tmp, file); } finally { fs.rmSync(tmp, { force: true }); }
+    if (!holds(file, handle)) throw new OwnershipBusy(`build ownership ${file} changed while recording an unsent mark`);
+    return next;
+  }, options);
+}
+
 const MARK_LOCK_WAIT_MS = 15_000;
 export const MARK_LOCK_SCHEMA = "rightkit.build-ownership-mark-lock/1";
 /** The lock beside the record that serializes `broker.handles` updates. Removed with the record (release, reclaim). */
@@ -148,4 +173,10 @@ function stealDeadLock({ file, lock, text, observed, record, identity, take }) {
 export function markCarriedSend({ file, handle, callHandle }) {
   if (typeof file !== "string" || !file || typeof handle !== "string" || !handle) throw new OwnershipBusy("a carried request is marked only under a build ownership file and handle");
   return markBrokerSubmit(file, handle, callHandle);
+}
+
+/** The caller that holds no ownership object (a right-release child): the same unsent mark under the inherited handle and file. */
+export function markCarriedUnsent({ file, handle, callHandle, reason }) {
+  if (typeof file !== "string" || !file || typeof handle !== "string" || !handle) throw new OwnershipBusy("an unsent mark is recorded only under a build ownership file and handle");
+  return markBrokerUnsent(file, handle, callHandle, reason);
 }

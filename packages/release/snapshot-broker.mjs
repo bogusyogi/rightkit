@@ -24,7 +24,7 @@ import { forwardedAdapterEnv } from "./adapter-env.mjs";
 import { carriedShapeDecision } from "./cargo-shapes.mjs";
 import { swiftScratchRefusal } from "./swift-scratch.mjs";
 import { diagnoseControlReply, drainFrames, overCapProblem, refusalInCapturedOutput } from "./broker-wire.mjs";
-import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend } from "./ownership-mark.mjs";
+import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend, markCarriedUnsent } from "./ownership-mark.mjs";
 import {
   MANAGED_RUST_ENVIRONMENT_KEYS, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, isCallHandleOf, lockedArgv, observedEnvOf, readDeclaredInputs, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest,
 } from "./snapshot-request.mjs";
@@ -95,7 +95,7 @@ export function createSnapshotBroker({ env = process.env, platform = process.pla
   const pins = loadPins({ dataRoot: managedData, platform, gateFile, checkout, spawn });
   return {
     controlRoot: roots.controlRoot, commit: { sha: commit.sha, tree: commit.tree }, snapshot: { path: snapshot.path, expectedTree: snapshot.expectedTree },
-    declaredInputs: readDeclaredInputs(snapshot.path), handle: ownership.handle, markBrokerSubmit: (callHandle) => ownership.markBrokerSubmit(callHandle),
+    declaredInputs: readDeclaredInputs(snapshot.path), handle: ownership.handle, markBrokerSubmit: (callHandle) => ownership.markBrokerSubmit(callHandle), markBrokerUnsent: typeof ownership.markBrokerUnsent === "function" ? (callHandle, reason) => ownership.markBrokerUnsent(callHandle, reason) : undefined,
     pins: { host: pins.host, keyId: pins.keyId, publicKey: pins.publicKey, brokerDigest: pins.brokerDigest }, pinsSource: pins.source,
     checkout: fs.realpathSync.native(checkout), outputRoots: brokerOutputRoots({ dataRoot: managedData }), platform, client,
     receiptOf: async (requestId) => receiptSync({ client, requestId, env, spawn, platform }),
@@ -118,6 +118,7 @@ export const brokerSection = (sb, { sentinel = null } = {}) => {
   // The gate's own carried calls record their sub-handle through the ownership object it holds. Not enumerable: it never reaches the carrier
   // map a child reads (JSON), whose carried calls record through the inherited ownership file instead (markCarriedRequest).
   if (typeof sb.markBrokerSubmit === "function") Object.defineProperty(section, "markSend", { value: (callHandle) => sb.markBrokerSubmit(callHandle), enumerable: false });
+  if (typeof sb.markBrokerUnsent === "function") Object.defineProperty(section, "markUnsent", { value: (callHandle, reason) => sb.markBrokerUnsent(callHandle, reason), enumerable: false });
   return section;
 };
 
@@ -128,7 +129,13 @@ export const brokerSection = (sb, { sentinel = null } = {}) => {
  * seam for a caller that holds the ownership object (and for fixtures). Throws when the mark cannot land; the request is then not sent.
  */
 function markCarriedRequest({ section, env, callHandle }) {
-  if (typeof section.markSend === "function") return section.markSend(callHandle);
+  if (typeof section.markSend === "function") {
+    // GB-69: a direct hook's return value is never trusted unchecked: the same assertion the env-file path makes. A hook that did nothing, returned another handle's record, or
+    // returned no record of this call's sub-handle refuses the send (nothing is sent), whatever the hook is.
+    const marked = section.markSend(callHandle);
+    if (marked?.broker?.submitted !== true || !Array.isArray(marked.broker.handles) || !marked.broker.handles.includes(callHandle) || (marked.handle !== undefined && marked.handle !== section.handle)) throw new SnapshotRequestError("ownership", `the build ownership did not record the carried request ${callHandle} under ${section.handle} (the submit hook returned ${marked?.broker ? "another record" : "no record"}); the request is not sent`);
+    return marked;
+  }
   const handle = env[OWNERSHIP_ENV] ?? process.env[OWNERSHIP_ENV];
   if (handle !== section.handle) throw new SnapshotRequestError("ownership", `the build ownership in the environment (${handle ?? "none"}) is not this call's (${section.handle}); the carried request is not sent`);
   const file = env[OWNERSHIP_FILE_ENV] ?? process.env[OWNERSHIP_FILE_ENV];
@@ -136,6 +143,31 @@ function markCarriedRequest({ section, env, callHandle }) {
   const marked = markCarriedSend({ file, handle, callHandle });
   if (marked?.broker?.submitted !== true || !marked.broker.handles?.includes(callHandle)) throw new SnapshotRequestError("ownership", `the build ownership did not record the carried request ${callHandle}`);
   return marked;
+}
+
+/** The spawn errors that prove the client process never started, so no byte reached the broker (GB-21). Anything else after a start is ambiguous and is never marked unsent. */
+const NO_SPAWN_CODES = new Set(["ENOENT", "EACCES", "EPERM", "EINVAL", "ENOEXEC", "ENOTDIR", BROKER_CLIENT_UNRESOLVED]);
+export const provenNoSpawn = (error) => Boolean(error) && NO_SPAWN_CODES.has(error.code);
+
+/**
+ * GB-21: whether the RustRight client can be started at all, checked BEFORE the ownership is marked (a mark records that broker work may exist, so a call that cannot start
+ * must not leave one). An absolute client path must exist and (on POSIX) be executable; a bare name is resolved by the spawn itself and is left to it.
+ */
+export function clientStartable(client, platform = process.platform) {
+  if (typeof client !== "string" || client === "") return "no RustRight client is named";
+  if (!(platform === "win32" ? path.win32 : path).isAbsolute(client)) return null;
+  try { const meta = fs.statSync(client); if (!meta.isFile()) return `${client} is not a file`; if (platform !== "win32") fs.accessSync(client, fs.constants.X_OK); return null; } catch (e) { return `${client} cannot be started (${e.code ?? e.message})`; }
+}
+
+/** Records, after a client that provably never started, that this sub-handle was never sent (ownership: broker.unsent). Best-effort: a mark that cannot land leaves the record held, never released. */
+function markCarriedUnsentRequest({ section, env, callHandle, reason }) {
+  try {
+    if (typeof section.markUnsent === "function") { section.markUnsent(callHandle, reason); return true; }
+    const handle = env[OWNERSHIP_ENV] ?? process.env[OWNERSHIP_ENV]; const file = env[OWNERSHIP_FILE_ENV] ?? process.env[OWNERSHIP_FILE_ENV];
+    if (handle !== section.handle || !file) return false;
+    markCarriedUnsent({ file, handle, callHandle, reason });
+    return true;
+  } catch { return false; }
 }
 
 const escapes = (rel) => rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);
@@ -235,9 +267,13 @@ export function carryBrokerCargo({ words, cwd, env, section, workspace, checkout
     const childEnv = { ...clientEnv, ...made.env };
     const capture = stdio === "capture";
     // Broker work may exist from the next statement on: the ownership records this request's sub-handle first (a mark that does not land sends nothing).
+    { const startable = clientStartable(section.client, section.platform); if (startable) { fs.rmSync(made.file, { force: true }); return refuse("RK_CARGO_BROKER_CLIENT", `${startable}; nothing was marked or sent`); } }
     try { markCarriedRequest({ section, env, callHandle: made.carrier.ownership.handle }); } catch (e) { fs.rmSync(made.file, { force: true }); return refuse("RK_CARGO_BROKER_OWNERSHIP", e.message); }
     const r = spawnBrokerClient(spawn, section.client, ["cargo", ...words], capture ? { cwd: checkoutCwd, env: childEnv, encoding: "utf8", maxBuffer: 1 << 28, windowsHide: true } : { cwd: checkoutCwd, env: childEnv, stdio: "inherit" }, { platform: section.platform });
     fs.rmSync(made.file, { force: true });
+    // GB-21: a client that provably never started sent nothing: that sub-handle is recorded unsent under the ownership lock, so it does not wedge a later reclaim. Any other
+    // failure after a start (a lost connection, a timeout, an exit before a reference) is ambiguous and stays held, reconciled by the request id.
+    if (r.error && provenNoSpawn(r.error)) markCarriedUnsentRequest({ section, env, callHandle: made.carrier.ownership.handle, reason: `the RustRight client did not start (${r.error.code})` });
     let outcome;
     let ref = null;
     try {
@@ -337,9 +373,13 @@ export function carryBrokerAdapter({ adapter, words, cwd, env, section, record, 
     const childEnv = { ...clientEnv, ...made.env };
     const capture = stdio === "capture";
     // Broker work may exist from the next statement on: the ownership records this request's sub-handle first (a mark that does not land sends nothing).
+    { const startable = clientStartable(section.client, section.platform); if (startable) { fs.rmSync(made.file, { force: true }); return refuse("RK_ADAPTER_BROKER_CLIENT", `${startable}; nothing was marked or sent`); } }
     try { markCarriedRequest({ section, env, callHandle: made.carrier.ownership.handle }); } catch (e) { fs.rmSync(made.file, { force: true }); return refuse("RK_ADAPTER_BROKER_OWNERSHIP", e.message); }
     const r = spawnBrokerClient(spawn, section.client, ["run", adapter, "--", ...words], capture ? { cwd: checkoutCwd, env: childEnv, encoding: "utf8", maxBuffer: 1 << 28, windowsHide: true } : { cwd: checkoutCwd, env: childEnv, stdio: "inherit" }, { platform: section.platform });
     fs.rmSync(made.file, { force: true });
+    // GB-21: a client that provably never started sent nothing: that sub-handle is recorded unsent under the ownership lock, so it does not wedge a later reclaim. Any other
+    // failure after a start (a lost connection, a timeout, an exit before a reference) is ambiguous and stays held, reconciled by the request id.
+    if (r.error && provenNoSpawn(r.error)) markCarriedUnsentRequest({ section, env, callHandle: made.carrier.ownership.handle, reason: `the RustRight client did not start (${r.error.code})` });
     let outcome;
     let ref = null;
     try {
