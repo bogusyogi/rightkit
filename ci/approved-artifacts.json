@@ -1148,6 +1148,14 @@
       "sha256": "4d6eae05bf2b22bde1bf2b6c0ddbdeb072f12a07bfe3a3037c754f4ef95c22e7",
       "reviewer": "Astra (gpt-6-astra high, adversarial review)",
       "reviewRef": "https://github.com/bogusyogi/rightkit/issues/886#issuecomment-6328792371"
+    },
+    {
+      "registry": "swift",
+      "name": "RightKitSwift",
+      "version": "0.9.0",
+      "sha256": "36069f56d1717d4b89bcfa3ad0928496851726827a7b6f61b9010d69abb6a234",
+      "reviewer": "Oracle (claude-opus-5-5, independent pre-tag review)",
+      "reviewRef": "https://github.com/bogusyogi/rightkit/issues/1302#issuecomment-6519518345"
     }
   ]
 }
