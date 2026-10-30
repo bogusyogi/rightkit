@@ -331,16 +331,16 @@ test("runScans: a broker cargo request builds the snapshot under its own carrier
     const spawn = (command, args, opts = {}) => {
       const env = opts.env ?? {};
       // Tool probes and the class A row: anything that is not the carried request.
-      if (!env.RIGHTKIT_SNAPSHOT_REQUEST) { if (args.includes("check")) seen.launched = true; return { status: 0, stdout: "v1\n", stderr: "" }; }
+      if (!env.RUSTRIGHT_SNAPSHOT_REQUEST) { if (args.includes("check")) seen.launched = true; return { status: 0, stdout: "v1\n", stderr: "" }; }
       seen.launched = true;
-      const d = JSON.parse(env.RIGHTKIT_SNAPSHOT_REQUEST);
-      seen.file = d.path; seen.refDir = path.dirname(env.RIGHTKIT_REQUEST_ID_FILE);
+      const d = JSON.parse(env.RUSTRIGHT_SNAPSHOT_REQUEST);
+      seen.file = d.path; seen.refDir = path.dirname(env.RUSTRIGHT_REQUEST_ID_FILE);
       if (launch) return launch(opts);
       const bytes = fs.readFileSync(d.path);
       const carrier = JSON.parse(bytes);
-      seen.ok = sha(bytes) === d.sha256 && carrier.nonce === env.RIGHTKIT_ATTEST_NONCE && carrier.argvSha256 === sha(canonicalJson(args.slice(1))) && fs.realpathSync(carrier.primaryCwd) === fs.realpathSync(opts.cwd) && !badCarrier;
+      seen.ok = sha(bytes) === d.sha256 && carrier.nonce === env.RUSTRIGHT_ATTEST_NONCE && carrier.argvSha256 === sha(canonicalJson(args.slice(1))) && fs.realpathSync(carrier.primaryCwd) === fs.realpathSync(opts.cwd) && !badCarrier;
       seen.submitsBefore = submits; seen.carrier = carrier; seen.file = d.path;
-      fs.writeFileSync(env.RIGHTKIT_REQUEST_ID_FILE, JSON.stringify({ schema: "rustright.request-ref.v1", requestId: "job-1", submittedAt: "x", workspace: fs.realpathSync(opts.cwd) }));
+      fs.writeFileSync(env.RUSTRIGHT_REQUEST_ID_FILE, JSON.stringify({ schema: "rustright.request-ref.v1", requestId: "job-1", submittedAt: "x", workspace: fs.realpathSync(opts.cwd) }));
       return seen.ok ? { status: 0, stdout: "", stderr: "" } : { status: 2, stdout: "", stderr: "invalid snapshot request carrier" };
     };
     const receiptOf = async (id) => signedReceipt(fx, { id, carrier: seen.carrier, argv: args0, workspace: fs.realpathSync(checkout), tamper: tamper ?? "none" });

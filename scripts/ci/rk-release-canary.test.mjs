@@ -590,3 +590,120 @@ test("tree-write coverage: ignored paths a cell did not observe are reported, ne
   assert.equal(f.severity, "report");
   assert.match(f.detail, /not observed: build\/, node_modules\//);
 });
+
+// ---------- the route probes (rightkit#1297) ----------
+const probe = (stage, over = {}) => ({ stage, status: "ok", route: { to: stage, executor: "broker", carrier: "production", route: "snapshot", refusal: null, ...over } });
+const refusal = (code, stage = "dev") => ({ code, stage, message: `${code} message` });
+const routes = (over = {}) => ["dev", "test", "compile", "package", "qualify"].map((st) => (over[st] ? (over[st].status ? { stage: st, ...over[st] } : probe(st, over[st])) : probe(st)));
+const rcmp = (candidate, baseline, extra = {}) => cmp({ routeSupported: true, routes: routes(), ...candidate }, { routeSupported: false, routes: [], ...baseline }, extra);
+
+test("route probes: the snapshot route through the production carrier on a broker host is ok", () => {
+  const r = rcmp({}, {});
+  assert.equal(r.verdict, "ok");
+  assert.deepEqual(r.findings, []);
+});
+test("route probes: a candidate-only refusal blocks as route-refusal <stage>:<code>, whether the baseline cannot probe or admits the stage", () => {
+  const dev = { dev: { refusal: refusal("RK_SNAPSHOT_CARRIER_NOT_WIRED"), route: "snapshot" } };
+  const unprobed = rcmp({ routes: routes(dev) }, {});
+  assert.equal(unprobed.verdict, "regression");
+  assert.deepEqual(kinds(unprobed, "block"), ["route-refusal:dev:RK_SNAPSHOT_CARRIER_NOT_WIRED"]);
+  const admits = rcmp({ routes: routes(dev) }, { routeSupported: true, routes: routes() });
+  assert.deepEqual(kinds(admits, "block"), ["route-refusal:dev:RK_SNAPSHOT_CARRIER_NOT_WIRED"]);
+  const other = rcmp({ routes: routes(dev) }, { routeSupported: true, routes: routes({ dev: { refusal: refusal("RK_BROKER_UNAVAILABLE") } }) });
+  assert.deepEqual(kinds(other, "block"), ["route-refusal:dev:RK_SNAPSHOT_CARRIER_NOT_WIRED"], "a different refusal is not the same refusal");
+});
+test("route probes: the same refusal on both sides is only reported; a fixed refusal and a changed route are reported", () => {
+  const same = { dev: { refusal: refusal("RK_BROKER_UNAVAILABLE") } };
+  const r = rcmp({ routes: routes(same) }, { routeSupported: true, routes: routes(same) });
+  assert.equal(r.verdict, "ok");
+  assert.deepEqual(kinds(r, "report"), ["pre-existing-route-refusal"]);
+  const fixed = rcmp({}, { routeSupported: true, routes: routes(same) });
+  assert.deepEqual(kinds(fixed, "report"), ["route-fixed"]);
+  assert.equal(fixed.verdict, "ok");
+  const changed = rcmp({ routes: routes({ compile: { carrier: "injected" } }) }, { routeSupported: true, routes: routes() });
+  assert.deepEqual(kinds(changed, "report"), ["route-changed"]);
+  assert.equal(changed.verdict, "ok");
+});
+test("route probes: a crashed probe blocks as route-probe-crash and no expected entry can excuse it", () => {
+  const crashed = { routes: routes({ test: { status: "crash", detail: "exit 139" } }) };
+  const entries = ["route-refusal", "route-probe-crash"].map((check) => ({ version: "0.6.4", app: "app", platform: "mac", check, match: "test", reason: "r".repeat(12), issue: "#1" }));
+  const r = rcmp(crashed, {}, { expected: entries });
+  assert.equal(r.verdict, "regression");
+  assert.deepEqual(kinds(r, "block"), ["route-probe-crash:test"]);
+  assert.equal(expectedMatch({ kind: "route-probe-crash", match: "test" }, entries, ctx), null);
+  assert.ok(CHECKS.includes("route-refusal") && !CHECKS.includes("route-probe-crash"));
+  assert.match(expectedProblems({ schema: 1, entries: [{ ...entries[1], check: "route-probe-crash" }] }).join(), /check must be one of/);
+});
+test("route probes: an expected route-refusal entry excuses exactly that stage and code", () => {
+  const dev = { dev: { refusal: refusal("RK_SNAPSHOT_CARRIER_NOT_WIRED") } };
+  const entry = { version: "0.6.4", app: "app", platform: "mac", check: "route-refusal", match: "dev:RK_SNAPSHOT_CARRIER_NOT_WIRED", reason: "known gap until row 7.24", issue: "#1297" };
+  assert.equal(rcmp({ routes: routes(dev) }, {}, { expected: [entry] }).verdict, "ok");
+  assert.equal(rcmp({ routes: routes({ test: { refusal: refusal("RK_SNAPSHOT_CARRIER_NOT_WIRED") } }) }, {}, { expected: [entry] }).verdict, "regression");
+});
+test("route probes: on darwin and win32 an executor other than the broker is incomplete (not representative), never green", () => {
+  const r = rcmp({ routes: routes({ dev: { executor: "direct" } }) }, {});
+  assert.equal(r.verdict, "incomplete");
+  assert.deepEqual(kinds(r, "incomplete"), ["route-not-representative:dev:direct"]);
+  const win = cmp({ platform: "win", host: "win32", routeSupported: true, routes: routes({ dev: { executor: "direct" } }) }, { platform: "win", host: "win32" }, { platform: "win" });
+  assert.equal(win.verdict, "incomplete");
+});
+test("route probes: on the Mac or Dell a route that is not snapshot, or a null carrier, blocks as route-not-snapshot, and no expected entry can excuse it", () => {
+  const r = rcmp({ routes: routes({ dev: { route: "checkout" }, test: { carrier: null } }) }, {});
+  assert.equal(r.verdict, "regression");
+  assert.deepEqual(kinds(r, "block"), ["route-not-snapshot:dev:checkout/production", "route-not-snapshot:test:snapshot/no carrier"]);
+  const entry = { version: "0.6.4", app: "app", platform: "mac", check: "route-not-snapshot", match: "dev:checkout/production", reason: "r".repeat(12), issue: "#1" };
+  assert.match(expectedProblems({ schema: 1, entries: [entry] }).join(), /check must be one of/);
+  assert.ok(!CHECKS.includes("route-not-snapshot"));
+  // Linux (no broker) and a non-broker executor are not judged by this rule.
+  assert.deepEqual(kinds(rcmp({ routes: routes({ dev: { executor: "direct", route: "checkout" } }) }, {}), "block"), []);
+});
+test("route probes: a probe that timed out, or an executor of kind refuse (the broker is unreachable), is incomplete and never a block (L3)", () => {
+  const timed = rcmp({ routes: routes({ dev: { status: "timeout", detail: "route probe timed out" } }) }, {});
+  assert.equal(timed.verdict, "incomplete");
+  assert.deepEqual(kinds(timed, "incomplete"), ["route-probe-timeout:dev"]);
+  assert.deepEqual(kinds(timed, "block"), []);
+  const down = rcmp({ routes: routes({ dev: { executor: "refuse", refusal: refusal("RK_SNAPSHOT_BROKER_UNAVAILABLE") }, test: { executor: "refuse", refusal: refusal("RK_BROKER_UNAVAILABLE", "test") } }) }, {});
+  assert.equal(down.verdict, "incomplete");
+  assert.deepEqual(kinds(down, "incomplete"), ["route-broker-unreachable:dev", "route-broker-unreachable:test"]);
+  assert.deepEqual(kinds(down, "block"), []);
+  // A crash (the probe answered nothing and was not a timeout) still blocks, and a real refusal with a reachable broker still blocks.
+  assert.deepEqual(kinds(rcmp({ routes: routes({ dev: { status: "crash", detail: "exit 139" } }) }, {}), "block"), ["route-probe-crash:dev"]);
+  assert.deepEqual(kinds(rcmp({ routes: routes({ dev: { refusal: refusal("RK_SNAPSHOT_CARRIER_NOT_WIRED") } }) }, {}), "block"), ["route-refusal:dev:RK_SNAPSHOT_CARRIER_NOT_WIRED"]);
+});
+test("route probes: a report-only app stays report-only, and compareAll's summary carries the routes", () => {
+  const cells = full({ "candidate.soft": { routeSupported: true, routes: routes({ dev: { refusal: refusal("RK_BROKER_UNAVAILABLE") } }) }, "candidate.a.mac": { routeSupported: true, routes: routes({ dev: { refusal: refusal("RK_BROKER_UNAVAILABLE") } }) } });
+  const r = all(cells);
+  assert.equal(r.cells.find((c) => c.id === "soft").verdict, "ok");
+  assert.equal(r.cells.find((c) => c.id === "soft").findings.find((f) => f.kind === "route-refusal").reportOnly, "block");
+  assert.equal(r.verdict, "regression", "the blocking app still blocks");
+  const summary = r.cells.find((c) => c.id === "a" && c.platform === "mac").candidate;
+  assert.equal(summary.routeSupported, true);
+  assert.deepEqual(summary.routes.find((x) => x.stage === "dev").refusal.code, "RK_BROKER_UNAVAILABLE");
+  assert.equal(r.cells.find((c) => c.id === "a" && c.platform === "mac").baseline.routeSupported, false);
+});
+
+test("fetchBaseline records the packument's npm provenance (attestations) and says when a version has none", async (t) => {
+  const r = registry(t);
+  assert.deepEqual((await fetchBaseline({ fetchImpl: r.fetchImpl, outDir: r.outDir })).provenance, { attested: false, predicateType: null, url: null });
+  const attested = async (url, o) => {
+    const res = await r.fetchImpl(url, o);
+    if (!url.endsWith("/@rightkit%2Frelease")) return res;
+    const doc = await res.json();
+    doc.versions["0.6.2"].dist.attestations = { url: "https://registry.npmjs.org/-/npm/v1/attestations/@rightkit%2frelease@0.6.2", provenance: { predicateType: "https://slsa.dev/provenance/v1" } };
+    return { ok: true, status: 200, json: async () => doc };
+  };
+  const b = await fetchBaseline({ fetchImpl: attested, outDir: r.outDir });
+  assert.deepEqual(b.provenance, { attested: true, predicateType: "https://slsa.dev/provenance/v1", url: "https://registry.npmjs.org/-/npm/v1/attestations/@rightkit%2frelease@0.6.2" });
+});
+test("runCanary: the receipt records and reports the baseline's provenance", async (t) => {
+  const a = canaryDeps(t, { cells: matrixCells() });
+  const r = await runCanary({ root: REPO, out: a.out, deps: a.deps });
+  assert.deepEqual(r.receipt.baselineProvenance, { attested: false, predicateType: null, url: null });
+  assert.ok(r.lines.some((l) => /NO npm provenance/.test(l)));
+  const b = canaryDeps(t, { cells: matrixCells() });
+  const prior = b.deps.fetchBaseline;
+  b.deps.fetchBaseline = async (x) => ({ ...(await prior(x)), provenance: { attested: true, predicateType: "https://slsa.dev/provenance/v1", url: "u" } });
+  const rb = await runCanary({ root: REPO, out: b.out, deps: b.deps });
+  assert.equal(rb.receipt.baselineProvenance.attested, true);
+  assert.equal(rb.receipt.artifacts.baseline.provenance.attested, true);
+});

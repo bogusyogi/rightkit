@@ -9,8 +9,8 @@ const key = (...parts) => path.normalize(path.join(APP, ...parts));
 
 test("options are validated and the cargo about argument list is exact", () => {
   const options = resolveCargoNoticeOptions(config({ features: ["a", "b"] }));
-  assert.deepEqual(cargoAboutArgs(options), ["about", "generate", "--locked", "--fail", "--config", "legal/about.toml", "--manifest-path", "src-tauri/Cargo.toml", "--features", "a,b", "legal/about.hbs"]);
-  assert.deepEqual(cargoAboutArgs(resolveCargoNoticeOptions(config({ allFeatures: true, config: undefined, manifestPath: undefined }))), ["about", "generate", "--locked", "--fail", "--all-features", "legal/about.hbs"]);
+  assert.deepEqual(cargoAboutArgs(options), ["about", "generate", "--frozen", "--fail", "--config", "legal/about.toml", "--manifest-path", "src-tauri/Cargo.toml", "--features", "a,b", "legal/about.hbs"]);
+  assert.deepEqual(cargoAboutArgs(resolveCargoNoticeOptions(config({ allFeatures: true, config: undefined, manifestPath: undefined }))), ["about", "generate", "--frozen", "--fail", "--all-features", "legal/about.hbs"]);
   for (const bad of [{ output: "../x" }, { template: undefined }, { template: "/abs" }, { features: "a" }, { features: ["a b"] }, { allFeatures: true, features: ["a"] }, { allFeatures: "yes" }, { nope: 1 }]) {
     assert.throws(() => resolveCargoNoticeOptions(config(bad)), /legal\.cargoNotices|no output|required/, JSON.stringify(bad));
   }

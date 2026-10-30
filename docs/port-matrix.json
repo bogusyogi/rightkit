@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-10-29T22:27:50Z",
-  "rightkitHead": "ce8cd01",
+  "generatedAt": "2026-10-30T01:36:37Z",
+  "rightkitHead": "d94a724",
   "legend": [
     {
       "state": "adopted",
@@ -182,7 +182,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.12",
+          "latest": "0.6.13",
           "current": false,
           "dev": true
         },
@@ -629,7 +629,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.12",
+          "latest": "0.6.13",
           "current": false,
           "dev": true
         },
@@ -1056,7 +1056,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.4.0",
-          "latest": "0.6.12",
+          "latest": "0.6.13",
           "current": false,
           "dev": true
         },
@@ -1422,7 +1422,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.12",
+          "latest": "0.6.13",
           "current": false,
           "dev": true
         },
@@ -1781,7 +1781,7 @@
       "group": "mandatory-set app",
       "dir": "/Volumes/D/claude/heardright",
       "present": true,
-      "head": "eb2035f",
+      "head": "4219b5e",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -1831,7 +1831,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.8",
-          "latest": "0.6.12",
+          "latest": "0.6.13",
           "current": false,
           "dev": true
         },
@@ -2276,7 +2276,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.8",
-          "latest": "0.6.12",
+          "latest": "0.6.13",
           "current": false,
           "dev": true
         },
@@ -2680,7 +2680,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.12",
+          "latest": "0.6.13",
           "current": false,
           "dev": true
         },
@@ -3034,7 +3034,7 @@
       "group": "mandatory-set app",
       "dir": "/Volumes/D/claude/pulse",
       "present": true,
-      "head": "76a0e05",
+      "head": "82f3d64",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -3070,8 +3070,8 @@
           "local": 0
         },
         "exceptions": {
-          "total": 99,
-          "open": 99,
+          "total": 32,
+          "open": 32,
           "expired": 0,
           "withoutIssueOrExpiry": 0,
           "unmatched": 16
@@ -3079,7 +3079,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.12",
+          "latest": "0.6.13",
           "current": false,
           "dev": true
         },
@@ -3598,7 +3598,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.12",
+          "latest": "0.6.13",
           "current": false,
           "dev": true
         },
@@ -4064,7 +4064,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.6",
-          "latest": "0.6.12",
+          "latest": "0.6.13",
           "current": false,
           "dev": true
         },
@@ -4437,7 +4437,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.4",
-          "latest": "0.6.12",
+          "latest": "0.6.13",
           "current": false,
           "dev": true
         },
@@ -4483,7 +4483,7 @@
       "group": "tool consumer",
       "dir": "/Volumes/D/claude/legion",
       "present": true,
-      "head": "e9b7c9e",
+      "head": "cee2fc0",
       "profile": null,
       "inMandatorySet": false,
       "declaration": {
@@ -4528,7 +4528,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.3.0",
-          "latest": "0.6.12",
+          "latest": "0.6.13",
           "current": false,
           "dev": true
         },
@@ -4645,20 +4645,10 @@
         },
         "pulse": {
           "state": "adopted",
-          "detail": "0.4.2; 2 exceptions: bogusyogi/rightkit#415, expires 2026-11-30",
+          "detail": "0.4.2",
           "rows": [
             "M18"
-          ],
-          "exceptions": {
-            "count": 2,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#415"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "scraperight": {
           "state": "adopted",
@@ -5016,18 +5006,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "exception",
-          "detail": "2 exceptions: bogusyogi/rightkit#1041, expires 2026-11-30",
-          "exceptions": {
-            "count": 2,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1041"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "unused",
+          "detail": ""
         },
         "scraperight": {
           "state": "unused",
@@ -5875,20 +5855,10 @@
         },
         "pulse": {
           "state": "adopted",
-          "detail": "0.6.3; 1 exception: bogusyogi/rightkit#861, expires 2026-11-30",
+          "detail": "0.6.3",
           "rows": [
             "M14"
-          ],
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#861"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "scraperight": {
           "state": "adopted",
@@ -6249,18 +6219,17 @@
         },
         "pulse": {
           "state": "adopted",
-          "detail": "0.6.1, 2 pins; 5 exceptions: bogusyogi/rightkit#1046/bogusyogi/rightkit#427, expires 2026-11-30",
+          "detail": "0.6.1, 2 pins; 1 exception: bogusyogi/rightkit#1046, expires 2026-11-30",
           "rows": [
             "M20"
           ],
           "exceptions": {
-            "count": 5,
+            "count": 1,
             "expired": 0,
             "withoutIssue": 0,
             "withoutExpiry": 0,
             "issues": [
-              "bogusyogi/rightkit#1046",
-              "bogusyogi/rightkit#427"
+              "bogusyogi/rightkit#1046"
             ],
             "earliestExpiry": "2026-11-30"
           }
@@ -6552,24 +6521,10 @@
         },
         "pulse": {
           "state": "adopted",
-          "detail": "0.7.2; 10 exceptions: bogusyogi/rightkit#1031/bogusyogi/rightkit#729+, expires 2026-11-30",
+          "detail": "0.7.2",
           "rows": [
             "M2"
-          ],
-          "exceptions": {
-            "count": 10,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1031",
-              "bogusyogi/rightkit#729",
-              "bogusyogi/rightkit#863",
-              "bogusyogi/rightkit#865",
-              "bogusyogi/rightkit#866"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "scraperight": {
           "state": "adopted",
@@ -6633,15 +6588,15 @@
         "release-tooling"
       ],
       "private": false,
-      "source": "0.6.13",
-      "registry": "0.6.12",
-      "staged": "0.6.13",
+      "source": "0.6.14",
+      "registry": "0.6.13",
+      "staged": "0.6.14",
       "dir": "packages/release",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "stale",
-          "detail": "0.6.6→0.6.12 dev; 4 exceptions: bogusyogi/rightkit#1135/bogusyogi/rightkit#1136+, expires 2026-11-30",
+          "detail": "0.6.6→0.6.13 dev; 4 exceptions: bogusyogi/rightkit#1135/bogusyogi/rightkit#1136+, expires 2026-11-30",
           "rows": [
             "M19"
           ],
@@ -6660,35 +6615,35 @@
         },
         "cutright": {
           "state": "stale",
-          "detail": "0.6.6→0.6.12 dev",
+          "detail": "0.6.6→0.6.13 dev",
           "rows": [
             "M19"
           ]
         },
         "ember": {
           "state": "stale",
-          "detail": "0.4.0→0.6.12 dev",
+          "detail": "0.4.0→0.6.13 dev",
           "rows": [
             "M19"
           ]
         },
         "genright": {
           "state": "stale",
-          "detail": "0.6.6→0.6.12 dev",
+          "detail": "0.6.6→0.6.13 dev",
           "rows": [
             "M19"
           ]
         },
         "heardright": {
           "state": "stale",
-          "detail": "0.6.8→0.6.12 dev",
+          "detail": "0.6.8→0.6.13 dev",
           "rows": [
             "M19"
           ]
         },
         "mailright": {
           "state": "stale",
-          "detail": "0.6.8→0.6.12 dev; 1 exception: bogusyogi/rightkit#993, expires 2026-11-30",
+          "detail": "0.6.8→0.6.13 dev; 1 exception: bogusyogi/rightkit#993, expires 2026-11-30",
           "rows": [
             "M19"
           ],
@@ -6705,35 +6660,21 @@
         },
         "postright": {
           "state": "stale",
-          "detail": "0.6.6→0.6.12 dev",
+          "detail": "0.6.6→0.6.13 dev",
           "rows": [
             "M19"
           ]
         },
         "pulse": {
           "state": "stale",
-          "detail": "0.6.6→0.6.12 dev; 6 exceptions: bogusyogi/rightkit#1039/bogusyogi/rightkit#428+, expires 2026-11-30",
+          "detail": "0.6.6→0.6.13 dev",
           "rows": [
             "M19"
-          ],
-          "exceptions": {
-            "count": 6,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1039",
-              "bogusyogi/rightkit#428",
-              "bogusyogi/rightkit#430",
-              "bogusyogi/rightkit#816",
-              "bogusyogi/rightkit#871"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "scraperight": {
           "state": "stale",
-          "detail": "0.6.6→0.6.12 dev; 1 exception: bogusyogi/rightkit#1029, expires 2026-12-31",
+          "detail": "0.6.6→0.6.13 dev; 1 exception: bogusyogi/rightkit#1029, expires 2026-12-31",
           "rows": [
             "M19"
           ],
@@ -6750,18 +6691,18 @@
         },
         "viewright": {
           "state": "stale",
-          "detail": "0.6.6→0.6.12 dev",
+          "detail": "0.6.6→0.6.13 dev",
           "rows": [
             "M19"
           ]
         },
         "sellright": {
           "state": "stale",
-          "detail": "0.6.4→0.6.12 dev"
+          "detail": "0.6.4→0.6.13 dev"
         },
         "legion": {
           "state": "stale",
-          "detail": "0.3.0→0.6.12 dev"
+          "detail": "0.3.0→0.6.13 dev"
         }
       }
     },
@@ -7212,17 +7153,7 @@
         },
         "pulse": {
           "state": "adopted",
-          "detail": "0.1.3; 1 exception: bogusyogi/rightkit#414, expires 2026-11-30",
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#414"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "detail": "0.1.3"
         },
         "scraperight": {
           "state": "adopted",
@@ -7360,18 +7291,17 @@
         },
         "pulse": {
           "state": "adopted",
-          "detail": "0.3.1; 3 exceptions: bogusyogi/rightkit#847/bogusyogi/rightkit#864, expires 2026-11-30",
+          "detail": "0.3.1; 2 exceptions: bogusyogi/rightkit#847, expires 2026-11-30",
           "rows": [
             "M2"
           ],
           "exceptions": {
-            "count": 3,
+            "count": 2,
             "expired": 0,
             "withoutIssue": 0,
             "withoutExpiry": 0,
             "issues": [
-              "bogusyogi/rightkit#847",
-              "bogusyogi/rightkit#864"
+              "bogusyogi/rightkit#847"
             ],
             "earliestExpiry": "2026-11-30"
           }
@@ -7525,24 +7455,14 @@
         },
         "pulse": {
           "state": "adopted",
-          "detail": "=0.8.1, 4 pins; 29 exceptions: bogusyogi/rightkit#1033/bogusyogi/rightkit#1038+, expires 2026-11-30",
+          "detail": "=0.8.1, 4 pins; 2 exceptions: bogusyogi/rightkit#1038, expires 2026-11-30",
           "exceptions": {
-            "count": 29,
+            "count": 2,
             "expired": 0,
             "withoutIssue": 0,
             "withoutExpiry": 0,
             "issues": [
-              "bogusyogi/rightkit#1033",
-              "bogusyogi/rightkit#1038",
-              "bogusyogi/rightkit#1170",
-              "bogusyogi/rightkit#209",
-              "bogusyogi/rightkit#405",
-              "bogusyogi/rightkit#410",
-              "bogusyogi/rightkit#415",
-              "bogusyogi/rightkit#423",
-              "bogusyogi/rightkit#424",
-              "bogusyogi/rightkit#859",
-              "bogusyogi/rightkit#891"
+              "bogusyogi/rightkit#1038"
             ],
             "earliestExpiry": "2026-11-30"
           }
@@ -7864,19 +7784,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "exception",
-          "detail": "2 exceptions: bogusyogi/rightkit#1037/bogusyogi/rightkit#209, expires 2026-11-30",
-          "exceptions": {
-            "count": 2,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1037",
-              "bogusyogi/rightkit#209"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "unused",
+          "detail": ""
         },
         "scraperight": {
           "state": "unused",
@@ -7976,22 +7885,10 @@
         },
         "pulse": {
           "state": "adopted",
-          "detail": "=0.3.0, 3 pins; 3 exceptions: bogusyogi/rightkit#1037/bogusyogi/rightkit#1170+, expires 2026-11-30",
+          "detail": "=0.3.0, 3 pins",
           "rows": [
             "M10"
-          ],
-          "exceptions": {
-            "count": 3,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1037",
-              "bogusyogi/rightkit#1170",
-              "bogusyogi/rightkit#423"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "scraperight": {
           "state": "adopted",
@@ -8219,15 +8116,13 @@
         },
         "pulse": {
           "state": "adopted",
-          "detail": "=0.6.1, 3 pins; 3 exceptions: bogusyogi/rightkit#424/bogusyogi/rightkit#689+, expires 2026-11-30",
+          "detail": "=0.6.1, 3 pins; 1 exception: bogusyogi/rightkit#852, expires 2026-11-30",
           "exceptions": {
-            "count": 3,
+            "count": 1,
             "expired": 0,
             "withoutIssue": 0,
             "withoutExpiry": 0,
             "issues": [
-              "bogusyogi/rightkit#424",
-              "bogusyogi/rightkit#689",
               "bogusyogi/rightkit#852"
             ],
             "earliestExpiry": "2026-11-30"
@@ -8562,22 +8457,11 @@
         },
         "pulse": {
           "state": "stale",
-          "detail": "0.5.6→0.5.7, 6 pins; 13 exceptions: bogusyogi/rightkit#424/bogusyogi/rightkit#855, expires 2026-11-30",
+          "detail": "0.5.6→0.5.7, 6 pins",
           "rows": [
             "M3",
             "M5"
-          ],
-          "exceptions": {
-            "count": 13,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#424",
-              "bogusyogi/rightkit#855"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "scraperight": {
           "state": "stale",
@@ -8941,20 +8825,17 @@
         },
         "pulse": {
           "state": "adopted",
-          "detail": "=0.4.2, 2 pins; 8 exceptions: bogusyogi/rightkit#1038/bogusyogi/rightkit#209+, expires 2026-11-30",
+          "detail": "=0.4.2, 2 pins; 2 exceptions: bogusyogi/rightkit#1038, expires 2026-11-30",
           "rows": [
             "M11"
           ],
           "exceptions": {
-            "count": 8,
+            "count": 2,
             "expired": 0,
             "withoutIssue": 0,
             "withoutExpiry": 0,
             "issues": [
-              "bogusyogi/rightkit#1038",
-              "bogusyogi/rightkit#209",
-              "bogusyogi/rightkit#410",
-              "bogusyogi/rightkit#859"
+              "bogusyogi/rightkit#1038"
             ],
             "earliestExpiry": "2026-11-30"
           }
@@ -9180,23 +9061,19 @@
         },
         "pulse": {
           "state": "adopted",
-          "detail": "=0.4.0, 7 pins; 7 exceptions: bogusyogi/rightkit#1035/bogusyogi/rightkit#1042+, expires 2026-11-30",
+          "detail": "=0.4.0, 7 pins; 2 exceptions: bogusyogi/rightkit#1042/bogusyogi/rightkit#852, expires 2026-11-30",
           "rows": [
             "M6",
             "M7"
           ],
           "exceptions": {
-            "count": 7,
+            "count": 2,
             "expired": 0,
             "withoutIssue": 0,
             "withoutExpiry": 0,
             "issues": [
-              "bogusyogi/rightkit#1035",
               "bogusyogi/rightkit#1042",
-              "bogusyogi/rightkit#405",
-              "bogusyogi/rightkit#414",
-              "bogusyogi/rightkit#852",
-              "bogusyogi/rightkit#936"
+              "bogusyogi/rightkit#852"
             ],
             "earliestExpiry": "2026-11-30"
           }
@@ -9307,20 +9184,10 @@
         },
         "pulse": {
           "state": "adopted",
-          "detail": "=0.5.2, 5 pins; 1 exception: bogusyogi/rightkit#881, expires 2026-11-30",
+          "detail": "=0.5.2, 5 pins",
           "rows": [
             "M9"
-          ],
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#881"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "scraperight": {
           "state": "adopted",
@@ -10144,17 +10011,7 @@
         },
         "pulse": {
           "state": "adopted",
-          "detail": "=0.2.0, 2 pins; 2 exceptions: bogusyogi/rightkit#1041, expires 2026-11-30",
-          "exceptions": {
-            "count": 2,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1041"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "detail": "=0.2.0, 2 pins"
         },
         "scraperight": {
           "state": "unused",
@@ -10587,9 +10444,9 @@
         "right-suite-api"
       ],
       "private": false,
-      "source": "0.2.5",
+      "source": "0.2.6",
       "registry": "0.2.5",
-      "staged": "0.2.5",
+      "staged": "0.2.6",
       "dir": "crates/rightkit-license",
       "toMoveFrom": {},
       "cells": {
@@ -11483,15 +11340,14 @@
         },
         "pulse": {
           "state": "adopted",
-          "detail": "=0.2.0; 2 exceptions: bogusyogi/rightkit#848/bogusyogi/rightkit#868, expires 2026-11-30",
+          "detail": "=0.2.0; 1 exception: bogusyogi/rightkit#848, expires 2026-11-30",
           "exceptions": {
-            "count": 2,
+            "count": 1,
             "expired": 0,
             "withoutIssue": 0,
             "withoutExpiry": 0,
             "issues": [
-              "bogusyogi/rightkit#848",
-              "bogusyogi/rightkit#868"
+              "bogusyogi/rightkit#848"
             ],
             "earliestExpiry": "2026-11-30"
           }
@@ -11561,9 +11417,9 @@
         },
         "pulse": {
           "state": "exception",
-          "detail": "5 exceptions: bogusyogi/rightkit#914, expires 2026-11-30",
+          "detail": "3 exceptions: bogusyogi/rightkit#914, expires 2026-11-30",
           "exceptions": {
-            "count": 5,
+            "count": 3,
             "expired": 0,
             "withoutIssue": 0,
             "withoutExpiry": 0,
@@ -11967,20 +11823,10 @@
         },
         "pulse": {
           "state": "stale",
-          "detail": "0.9.0→0.9.1, 2 pins; 1 exception: bogusyogi/rightkit#427, expires 2026-11-30",
+          "detail": "0.9.0→0.9.1, 2 pins",
           "rows": [
             "M20"
-          ],
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#427"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "scraperight": {
           "state": "stale",
@@ -12277,18 +12123,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "exception",
-          "detail": "1 exception: bogusyogi/rightkit#855, expires 2026-11-30",
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#855"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "unused",
+          "detail": ""
         },
         "scraperight": {
           "state": "unused",
@@ -13025,20 +12861,10 @@
         },
         "pulse": {
           "state": "adopted",
-          "detail": "=0.6.0; 1 exception: bogusyogi/rightkit#414, expires 2026-11-30",
+          "detail": "=0.6.0",
           "rows": [
             "M1"
-          ],
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#414"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "scraperight": {
           "state": "adopted",

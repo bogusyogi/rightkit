@@ -11,7 +11,7 @@
 //! clock. The clock is written BEFORE the record and a token is verified BEFORE either, so a
 //! crash between the two writes can only fail closed (fresh anchor, old record).
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -25,6 +25,7 @@ use super::invalidation::LicenseInvalidation;
 use super::lock::{OpGuard, OpLock};
 use super::order::{self, Level, LevelGuard};
 use super::persist::{outcome_result, Loaded, RecordStore, Snapshot, Written};
+use super::reader::NativeRefusal;
 use super::time::{parse_rfc3339, to_ms};
 use super::types::{DeviceIdSource, LicenseClientConfig, PendingLicenseRelease, SecretString};
 use super::view::{
@@ -61,6 +62,8 @@ pub(crate) struct Core {
     /// The stored record may have changed since the live engines were last told.
     dirty: AtomicBool,
     invalidation: LicenseInvalidation,
+    /// The code of the last native read's refusal (0: the last read was not refused).
+    native_refusal: AtomicU8,
 }
 
 /// The lock held, the item read.
@@ -186,6 +189,86 @@ pub(crate) fn suffix(id: &str) -> Option<String> {
     Some(chars[chars.len().saturating_sub(4)..].iter().collect())
 }
 
+/// What a snapshot may do, decided once for the status view and the native engine source.
+/// Only [`Admission::Signed`] can grant.
+pub(crate) enum Admission<'a> {
+    /// No item.
+    Absent,
+    /// A deactivation tombstone.
+    Tombstone,
+    /// An item this crate does not understand.
+    Corrupt,
+    /// A write may be in flight or half done.
+    Unresolved,
+    /// A record that cannot grant by itself: revoked, invalid, or with no signed token.
+    NonGranting(&'a StoredRecord),
+    /// An active signed record in a revisioned envelope.
+    Signed {
+        revision: &'a str,
+        record: &'a StoredRecord,
+    },
+    /// An active signed record of the older bare form (no revision): it grants nothing until it
+    /// is authenticated and rewritten as an envelope.
+    BareSigned(&'a StoredRecord),
+}
+
+pub(crate) fn admit(snap: &Snapshot, flagged_unresolved: bool) -> Admission<'_> {
+    if snap.unresolved() || flagged_unresolved {
+        return Admission::Unresolved;
+    }
+    let envelope = match &snap.loaded {
+        Loaded::Absent => return Admission::Absent,
+        Loaded::Corrupt => return Admission::Corrupt,
+        Loaded::Present(envelope) => &**envelope,
+    };
+    if envelope.state == RecordState::Tombstone {
+        return Admission::Tombstone;
+    }
+    let Some(record) = envelope.record.as_ref() else {
+        return Admission::Corrupt;
+    };
+    if record.status != RecordStatus::Active || record.signed_token().is_none() {
+        return Admission::NonGranting(record);
+    }
+    match envelope.revision.as_deref() {
+        Some(revision) => Admission::Signed { revision, record },
+        None => Admission::BareSigned(record),
+    }
+}
+
+/// The revision of the stored envelope, when there is one.
+fn stored_revision(snap: &Snapshot) -> Option<String> {
+    match &snap.loaded {
+        Loaded::Present(envelope) => envelope.revision.clone(),
+        _ => None,
+    }
+}
+
+/// Why a bare record was not rewritten as an envelope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UpgradeRefusal {
+    /// The snapshot holds no bare signed active record.
+    NotBare,
+    /// The signed token did not authenticate (signature, app or device binding).
+    Unauthenticated,
+    /// The device identity could not be read.
+    Device,
+    /// The credential store failed before anything was written.
+    Store,
+    /// The write did not settle cleanly.
+    Unresolved,
+}
+
+/// The result of [`Core::upgrade_bare_locked`].
+pub(crate) enum Upgraded {
+    /// Written and read back clean: the revisioned snapshot, lock still held.
+    Rebound(OpGuard, Snapshot),
+    /// Nothing was written; the lock is still held and the snapshot is as read.
+    Left(OpGuard, Snapshot, UpgradeRefusal),
+    /// A write was attempted and did not settle cleanly; the lock went with the write.
+    Failed(UpgradeRefusal),
+}
+
 impl Core {
     pub(crate) fn new(
         cfg: LicenseClientConfig,
@@ -206,6 +289,7 @@ impl Core {
             last_view: Mutex::new(None),
             dirty: AtomicBool::new(false),
             invalidation,
+            native_refusal: AtomicU8::new(0),
             cfg,
         })
     }
@@ -269,6 +353,28 @@ impl Core {
                     snap = records.read()?;
                 }
                 Written::TimedOut | Written::Failed => return Err(LicenseError::Unresolved),
+            }
+        }
+        // A same-item bare signed record is authenticated and rewritten as an envelope under
+        // this very hold of the lock, so status and the native reader see one revision.
+        if !self.is_unresolved(&snap) && matches!(admit(&snap, false), Admission::BareSigned(_)) {
+            match self.upgrade_bare_locked(&records, guard, snap) {
+                Upgraded::Rebound(held, fresh) => {
+                    guard = held;
+                    snap = fresh;
+                }
+                // Not authenticated or no device id: nothing written, nothing deleted. The bare
+                // snapshot stays and `evaluate` shows it as migration required.
+                Upgraded::Left(held, kept, UpgradeRefusal::Store) => {
+                    drop((held, kept));
+                    return Err(LicenseError::Store);
+                }
+                Upgraded::Left(held, kept, _) => {
+                    guard = held;
+                    snap = kept;
+                }
+                Upgraded::Failed(UpgradeRefusal::Store) => return Err(LicenseError::Store),
+                Upgraded::Failed(_) => return Err(LicenseError::Unresolved),
             }
         }
         Ok(Locked {
@@ -336,12 +442,15 @@ impl Core {
 
     pub(crate) fn evaluate(&self, snap: &Snapshot) -> Evaluation {
         let mode = LicenseMode::Configured;
-        if self.is_unresolved(snap) {
-            return Evaluation::refused(LicenseView::unverifiable(MessageCode::Unresolved, true));
-        }
-        let envelope = match &snap.loaded {
-            Loaded::Absent => return Evaluation::refused(LicenseView::none(mode)),
-            Loaded::Corrupt => {
+        let (record, revision) = match admit(snap, self.records.flagged_unresolved()) {
+            Admission::Unresolved => {
+                return Evaluation::refused(LicenseView::unverifiable(
+                    MessageCode::Unresolved,
+                    true,
+                ))
+            }
+            Admission::Absent => return Evaluation::refused(LicenseView::none(mode)),
+            Admission::Corrupt => {
                 return Evaluation::refused(LicenseView {
                     status: ViewStatus::Invalid,
                     lifecycle: Lifecycle::Invalid,
@@ -349,16 +458,17 @@ impl Core {
                     ..LicenseView::none(mode)
                 })
             }
-            Loaded::Present(envelope) => &**envelope,
-        };
-        let record = match (&envelope.state, &envelope.record) {
-            (RecordState::Active, Some(record)) => record,
-            _ => {
+            Admission::Tombstone => {
                 return Evaluation::refused(LicenseView {
                     revision_state: RevisionState::Tombstone,
                     ..LicenseView::none(mode)
                 })
             }
+            Admission::BareSigned(record) => {
+                return Evaluation::refused(self.bare_view(record));
+            }
+            Admission::NonGranting(record) => (record, stored_revision(snap)),
+            Admission::Signed { revision, record } => (record, Some(revision.to_owned())),
         };
         let device_id = if record.device_id.is_empty() {
             match self.device.device_id() {
@@ -420,12 +530,12 @@ impl Core {
                 });
             }
         };
-        self.evaluation_from(envelope, record, report)
+        self.evaluation_from(revision, record, report)
     }
 
     fn evaluation_from(
         &self,
-        envelope: &Envelope,
+        revision: Option<String>,
         record: &StoredRecord,
         report: LifecycleReport,
     ) -> Evaluation {
@@ -480,9 +590,119 @@ impl Core {
             view,
             entitlement,
             grants,
-            revision: envelope.revision.clone(),
+            revision,
             record: Some(record.clone()),
         }
+    }
+
+    /// The device binding the record's token is checked against: the hashed id for a lease
+    /// record, the plain id otherwise.
+    fn binding_of(&self, record: &StoredRecord) -> Result<String, ()> {
+        if record.lease.is_some() || record.binding_lease_id.is_some() {
+            self.device.device_id_hash()
+        } else {
+            self.device.device_id()
+        }
+        .map_err(|_| ())
+    }
+
+    /// The view of a bare signed record that has not been upgraded: it grants nothing.
+    fn bare_view(&self, record: &StoredRecord) -> LicenseView {
+        if self.binding_of(record).is_err() {
+            return LicenseView::unverifiable(MessageCode::VerifyFailed, false);
+        }
+        LicenseView {
+            status: ViewStatus::Unverifiable,
+            lifecycle: Lifecycle::MigrationRequired,
+            message: MessageCode::MigrationRequired,
+            ..LicenseView::none(LicenseMode::Configured)
+        }
+    }
+
+    /// Authenticate a bare record's signed token (signature, app, device binding; no time
+    /// check, so an expired licence upgrades as expired and a grace one keeps its anchors) and
+    /// bind the record to the device id the token carries. Pure: nothing is written.
+    pub(crate) fn upgrade_bare(
+        &self,
+        mut record: StoredRecord,
+    ) -> Result<StoredRecord, UpgradeRefusal> {
+        let token = record
+            .signed_token()
+            .map(|token| Zeroizing::new(token.to_owned()))
+            .ok_or(UpgradeRefusal::Unauthenticated)?;
+        let binding = self
+            .binding_of(&record)
+            .map_err(|()| UpgradeRefusal::Device)?;
+        let authenticated = authenticate_token_any_device(
+            &token,
+            &self.cfg.public_key,
+            &self.cfg.app,
+            &[binding.as_str()],
+        )
+        .map_err(|_| UpgradeRefusal::Unauthenticated)?;
+        // The record is bound to whichever id the token carries.
+        record.device_id = authenticated.device_id.clone();
+        if record.license_id.is_none() {
+            record.license_id = Some(authenticated.id.clone());
+        }
+        Ok(record)
+    }
+
+    /// Rewrite the bare signed active record of `snap` as a revisioned envelope, under the
+    /// held lock. Never rewrites an existing envelope or a tombstone, never deletes, never
+    /// touches the clock. The write is read back and must be a clean revisioned snapshot.
+    pub(crate) fn upgrade_bare_locked(
+        &self,
+        records: &RecordStore,
+        guard: OpGuard,
+        snap: Snapshot,
+    ) -> Upgraded {
+        let bare = match &snap.loaded {
+            Loaded::Present(envelope)
+                if envelope.revision.is_none() && envelope.state == RecordState::Active =>
+            {
+                envelope.record.clone().filter(|record| {
+                    record.status == RecordStatus::Active && record.signed_token().is_some()
+                })
+            }
+            _ => None,
+        };
+        let Some(bare) = bare else {
+            return Upgraded::Left(guard, snap, UpgradeRefusal::NotBare);
+        };
+        let upgraded = match self.upgrade_bare(bare) {
+            Ok(record) => record,
+            Err(why) => return Upgraded::Left(guard, snap, why),
+        };
+        let envelope = match Envelope::active(upgraded) {
+            Ok(envelope) => envelope,
+            Err(_) => return Upgraded::Left(guard, snap, UpgradeRefusal::Store),
+        };
+        let guard = match self.commit_to(records, guard, &envelope) {
+            Ok(guard) => guard,
+            Err(LicenseError::Store) => return Upgraded::Failed(UpgradeRefusal::Store),
+            Err(_) => return Upgraded::Failed(UpgradeRefusal::Unresolved),
+        };
+        match records.read() {
+            Ok(fresh)
+                if !self.is_unresolved(&fresh)
+                    && matches!(admit(&fresh, false), Admission::Signed { .. }) =>
+            {
+                Upgraded::Rebound(guard, fresh)
+            }
+            Ok(_) => Upgraded::Failed(UpgradeRefusal::Unresolved),
+            Err(_) => Upgraded::Failed(UpgradeRefusal::Store),
+        }
+    }
+
+    /// Record the native reader's last refusal code (`None` after a read that was not refused).
+    pub(crate) fn note_native_refusal(&self, refusal: Option<NativeRefusal>) {
+        self.native_refusal
+            .store(refusal.map_or(0, NativeRefusal::code), Ordering::SeqCst);
+    }
+
+    pub(crate) fn last_native_refusal(&self) -> Option<NativeRefusal> {
+        NativeRefusal::from_code(self.native_refusal.load(Ordering::SeqCst))
     }
 
     // ---- status -----------------------------------------------------------------------
@@ -1204,7 +1424,7 @@ impl Core {
             _ => {}
         }
         let parsed = Envelope::parse(json).map_err(|_| LicenseError::Verify)?;
-        let Some(mut record) = parsed
+        let Some(record) = parsed
             .record
             .filter(|_| parsed.state == RecordState::Active)
         else {
@@ -1215,30 +1435,15 @@ impl Core {
             // A dead legacy record grants nothing and is not carried over.
             return Ok((LicenseView::none(LicenseMode::Configured), Some(guard)));
         }
-        let Some(token) = record.signed_token().map(str::to_owned) else {
+        if record.signed_token().is_none() {
             // Nothing verifiable: an activation credential alone is not imported.
             return Ok((LicenseView::none(LicenseMode::Configured), Some(guard)));
-        };
+        }
         // Authenticate only (signature, app, device binding): no time check, so an expired
         // licence imports as expired and a grace one keeps its original anchors.
-        let binding = if record.lease.is_some() || record.binding_lease_id.is_some() {
-            self.device.device_id_hash()
-        } else {
-            self.device.device_id()
-        }
-        .map_err(|_| LicenseError::Verify)?;
-        let authenticated = authenticate_token_any_device(
-            &token,
-            &self.cfg.public_key,
-            &self.cfg.app,
-            &[binding.as_str()],
-        )
-        .map_err(|_| LicenseError::Verify)?;
-        // The record is bound to whichever id the token carries.
-        record.device_id = authenticated.device_id.clone();
-        if record.license_id.is_none() {
-            record.license_id = Some(authenticated.id.clone());
-        }
+        let record = self
+            .upgrade_bare(record)
+            .map_err(|_| LicenseError::Verify)?;
         let envelope = Envelope::active(record)?;
         let guard = self.commit(guard, &envelope)?;
         Ok((self.view_after(&envelope), Some(guard)))

@@ -17,7 +17,7 @@ importers:
         version: 0.4.2(react@19.3.1)
       '@rightkit/legal':
         specifier: 0.6.3
-        version: 0.6.3(@rightkit/release@0.6.12)
+        version: 0.6.3(@rightkit/release@0.6.13)
       '@rightkit/legal-ui':
         specifier: 0.4.1
         version: 0.4.1(react@19.3.1)
@@ -74,8 +74,8 @@ importers:
         specifier: 0.1.12
         version: 0.1.12
       '@rightkit/release':
-        specifier: 0.6.12
-        version: 0.6.12
+        specifier: 0.6.13
+        version: 0.6.13
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(vite@8.3.5(jiti@2.7.0))
@@ -194,8 +194,8 @@ packages:
       '@tauri-apps/plugin-os':
         optional: true
 
-  '@rightkit/release@0.6.12':
-    resolution: {integrity: sha512-B7CpSdUnLTTi1MBs5OIrpgNU4VS+VHbmq1KabYJ4uuPQXbRV2wqLt0IkaChFeu0lFtQFtIE5Oax6BwbyIcvhEQ==}
+  '@rightkit/release@0.6.13':
+    resolution: {integrity: sha512-pu1PGq3mMVwHBSKqXYRk2ORDrq3iJlVt6V8sJzRvDP33W283tYjrGuChFPjRJTNc91Ej9FJ0rqbZcn6z9r5C6Q==}
     hasBin: true
 
   '@rightkit/settings-ui@0.7.0':
@@ -974,9 +974,9 @@ snapshots:
     dependencies:
       react: 19.3.1
 
-  '@rightkit/legal@0.6.3(@rightkit/release@0.6.12)':
+  '@rightkit/legal@0.6.3(@rightkit/release@0.6.13)':
     optionalDependencies:
-      '@rightkit/release': 0.6.12
+      '@rightkit/release': 0.6.13
 
   '@rightkit/license@0.3.0': {}
 
@@ -1013,7 +1013,7 @@ snapshots:
     optionalDependencies:
       '@tauri-apps/plugin-os': 2.4.0
 
-  '@rightkit/release@0.6.12':
+  '@rightkit/release@0.6.13':
     dependencies:
       '@rightkit/outdated': 0.3.0
       smol-toml: 1.9.1

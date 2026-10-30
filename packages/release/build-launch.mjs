@@ -20,9 +20,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveExecutor } from "./gate-executor.mjs";
 import { resolveExecutable } from "./admission-host.mjs";
+import { carriedCargoMapOf } from "./carried-cargo.mjs";
 
 export const BUILD_LAUNCH_REFUSED = "RK_BUILD_LAUNCH_REFUSED";
 const OWN_RIGHT_RELEASE = fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url));
+const CARRIED_RUN = fileURLToPath(new URL("./carried-cargo-run.mjs", import.meta.url));
 // Node flags that change no code path; everything else before the script (-e, --eval, -p, --import, -r, --require, --loader, …) refuses.
 const NODE_FLAGS = /^--(?:disable-warning=[A-Za-z0-9_-]+|no-experimental-webstorage|no-warnings|enable-source-maps|max-old-space-size=\d+|stack-size=\d+)$/;
 const name = (program) => path.basename(String(program ?? "").replaceAll("\\", "/")).replace(/\.(exe|cmd|bat)$/i, "").toLowerCase();
@@ -55,6 +57,13 @@ export function buildLaunch(command, args = [], host = {}) {
     return { command, args, ...extra };
   }
   const program = name(command);
+  // A snapshot stage's `cargo` and `rustright cargo` steps are carried (carried-cargo.mjs), never sent to the client: one signed, ledgered
+  // request per call, from the step's working directory, on every platform (rightkit#1301 F3).
+  const carriedArgs = program === "cargo" ? args : program === "rustright" && String(args[0]) === "cargo" ? args.slice(1) : null;
+  const carried = carriedArgs ? carriedCargoMapOf(env) : null;
+  // A carrier map that cannot be read is a refusal, never a fallback to the uncarried client (rightkit#1301 M1).
+  if (carried?.error) refuse(`${name(command)} ${args.join(" ")}: ${carried.error}; a snapshot stage's Cargo step is never sent to the client around its carrier`);
+  if (carriedArgs && carried?.map) return { command: process.execPath, args: [CARRIED_RUN, ...carriedArgs.map(String)] };
   const client = () => lookup("rustright")[0] ?? refuse(`rustright is not on PATH: on a broker-managed host ${program} runs only as a broker job`);
   if (program === "cargo") return { command: client(), args: ["cargo", ...args.map(String)] };
   if (program === "rustright") return { command: client(), args: args.map(String) };

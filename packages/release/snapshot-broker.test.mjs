@@ -30,7 +30,7 @@ function host(t, { inputs = null } = {}) {
     broker: { checkoutDirs: { ".": fx.checkout, native: path.join(fx.checkout, "native") }, section: brokerSection(fx.sb) },
   });
   t.after(() => fs.rmSync(installed.dir, { recursive: true, force: true }));
-  const clean = { ...process.env, NODE_OPTIONS: "", RIGHTKIT_CALLING_GATE: GATE };
+  const clean = { ...process.env, NODE_OPTIONS: "", RUSTRIGHT_CALLING_GATE: GATE };
   for (const k of ["CARGO_TARGET_DIR", "CARGO", "NODE_TEST_CONTEXT", SCAN_TOKEN_ENV]) delete clean[k];
   const scanEnv = shimScanEnv(clean, installed);
   const cargo = (cwd, args) => `spawnSync("cargo", ${JSON.stringify(args)}, { cwd: ${JSON.stringify(cwd)}, stdio: "inherit" }).status`;
@@ -121,7 +121,7 @@ test("[7.24] negatives: an unverified receipt, a broker that fails or cannot be 
   h.fx.setBehavior({});
   const before = h.fx.calls().length;
   // No calling gate in the environment: the wrapper never forges one.
-  r = h.row(await h.run([h.scan("no-gate", `${h.cargo(h.a, ["build", "--locked"])} ; process.exit(0)`, { env: {} })], { env: { ...h.scanEnv, RIGHTKIT_CALLING_GATE: "" } }), "no-gate");
+  r = h.row(await h.run([h.scan("no-gate", `${h.cargo(h.a, ["build", "--locked"])} ; process.exit(0)`, { env: {} })], { env: { ...h.scanEnv, RUSTRIGHT_CALLING_GATE: "" } }), "no-gate");
   assert.equal(r.code, "RK_CARGO_LEDGER"); assert.match(r.detail, /RK_CARGO_BROKER_NO_GATE/);
   // --manifest-path (the client refuses to rewrite the invocation) and a working directory the checkout does not have.
   fs.mkdirSync(path.join(h.a, "src", "only-in-snapshot"), { recursive: true });
@@ -382,9 +382,11 @@ test("[7.20] production hands the door the carrier seam: a broker host takes the
   assert.equal(door({})?.code, "RK_SNAPSHOT_CARRIER_NOT_WIRED");
   assert.equal(door({ snapshotBroker: PRODUCTION_SNAPSHOT_CARRIER, resolveExecutor: () => ({ kind: "refuse", cargo: null, problem: "unreachable" }) })?.code, "RK_SNAPSHOT_BROKER_UNAVAILABLE");
   assert.equal(PRODUCTION_SNAPSHOT_CARRIER.create, createSnapshotBroker); assert.ok(Object.isFrozen(PRODUCTION_SNAPSHOT_CARRIER));
-  // Interim (decision 2, rightkit#1296): the production entry passes no carrier until row 7.24 is wired, so Mac and Dell keep the
-  // checkout route instead of refusing every dev, test and sidecar build; the cutover commit wires it.
+  // rightkit#1301: the production entry hands the carrier to Mac and Dell (right-release's own calls and the Tauri CLI's are carried).
   const entry = fs.readFileSync(new URL("./bin/rightkit-gate.mjs", import.meta.url), "utf8");
-  assert.match(entry, /Promise\.resolve\(main\(process\.argv\.slice\(2\)\)\)/);
-  assert.doesNotMatch(entry, /snapshotBroker: PRODUCTION_SNAPSHOT_CARRIER/);
+  assert.match(entry, /productionEntryDeps\(\)\.then\(\(deps\) => main\(process\.argv\.slice\(2\), deps\)\)/);
+  const { productionEntryDeps } = await import("./bin/rightkit-gate.mjs");
+  assert.deepEqual(await productionEntryDeps({ platform: "darwin" }), { snapshotBroker: PRODUCTION_SNAPSHOT_CARRIER });
+  assert.deepEqual(await productionEntryDeps({ platform: "win32" }), { snapshotBroker: PRODUCTION_SNAPSHOT_CARRIER });
+  assert.deepEqual(await productionEntryDeps({ platform: "linux" }), {});
 });

@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import zlib from "node:zlib";
-import { GATES_REQUIRED_FROM, contentStatus, scratchRoot, admissionCodeOf, detectGates, extractTarball, gatesRequired, normalize, parseDoctor, pool, prepareLive, prepareSide, readTarball, runDoctor, runLeg, treeDigest } from "./rk-release-canary-leg.mjs";
+import { GATES_REQUIRED_FROM, ROUTE_REQUIRED_FROM, ROUTE_STAGES, contentStatus, detectRoute, parseRoute, routeRequired, routeStagesFor, runRouteProbe, scratchRoot, admissionCodeOf, detectGates, extractTarball, gatesRequired, normalize, parseDoctor, pool, prepareLive, prepareSide, readTarball, runDoctor, runLeg, treeDigest } from "./rk-release-canary-leg.mjs";
 
 const tmp = (t, prefix = "rk-leg-") => { const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
 const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
@@ -286,6 +286,24 @@ test("treeDigest sees untracked, modified and ignored output", (t) => {
 // ---------- the doctor, end to end with a fake package ----------
 const cli = (body) => `import fs from "node:fs";\nconst args = process.argv.slice(2);\nconst mode = fs.readFileSync("mode.txt", "utf8").trim();\nconsole.log("right-release 9.9.9\\nargs: " + args.join(" ") + "\\nplatform: " + args[args.indexOf("--platform") + 1] + "\\npreflight:");\n${body}\n`;
 const PASS_BODY = `console.log("  [ok  ] compiler-cache: broker-managed; recorded");\nif (mode === "write") fs.writeFileSync("stray.txt", "x");\nif (mode === "fail") { console.log("  [FAIL] ownership: copy"); console.error("right-release: preflight found 1 blocking problem(s)"); process.exit(1); }\nif (mode === "fatal") { console.error("right-release: app boom at " + process.cwd()); process.exit(1); }\nif (mode === "crash") { throw new Error("kaput"); }\nif (mode === "hang") setInterval(() => {}, 1000);`;
+/** A fake rightkit-gate: `--help` lists `--route`; `--route` prints the answer in ./route.json (cwd, keyed by stage or "all") or a plain
+ * checkout route; ./route-mode.txt makes it crash, print junk or hang; every argv is appended to the file FAKE_GATE_LOG names. */
+const FAKE_GATE = `import fs from "node:fs";
+const args = process.argv.slice(2);
+if (process.env.FAKE_GATE_LOG) fs.appendFileSync(process.env.FAKE_GATE_LOG, args.join(" ") + "\\n");
+if (args.includes("--help")) { console.log("usage: rightkit-gate --to check|compile|package|qualify|dev|test --route [--platform p]"); process.exit(0); }
+if (!args.includes("--route")) { console.log("BUILD RAN"); process.exit(0); }
+const mode = fs.existsSync("route-mode.txt") ? fs.readFileSync("route-mode.txt", "utf8").trim() : "";
+if (mode === "crash") { console.error("boom"); process.exit(139); }
+if (mode === "junk") { console.log("not json"); process.exit(0); }
+if (mode === "hang") setInterval(() => {}, 1000);
+else {
+  const to = args[args.indexOf("--to") + 1];
+  const base = { schema: "rightkit-gate.route/1", gate: "9.9.10", to, platform: args[args.indexOf("--platform") + 1], host: process.platform, app: ".", commit: "a".repeat(40), executor: "broker", carrier: null, route: "checkout", stages: [to], refusal: null, checkoutClean: true };
+  const over = fs.existsSync("route.json") ? JSON.parse(fs.readFileSync("route.json", "utf8")) : {};
+  console.log(JSON.stringify({ ...base, ...(over[to] ?? over.all ?? {}) }));
+}
+`;
 function sidePkg(dir, name, { body = PASS_BODY, gates = false, version = "9.9.9", extra = {} } = {}) {
   const file = path.join(dir, `${name}.tgz`);
   fs.writeFileSync(file, tgz({ "package.json": JSON.stringify({ name: "@rightkit/release", version }), "cli/right-release.mjs": cli(body), "release.mjs": gates ? 'else if (arg === "--gates") opts.gates = true;' : "", ...extra }));
@@ -313,7 +331,7 @@ function manifestFor(t, modes, { candidateBody, baselineBody, hang, files = {}, 
     apps.push({ id, repoDir, configPath: "sub/right-release.config.mjs", platforms: [platform], blocking: true });
   }
   const bundle = path.join(dir, "bundle"); fs.mkdirSync(bundle);
-  const candidate = sidePkg(bundle, "candidate", { body: candidateBody ?? PASS_BODY, gates: true, version: "9.9.10", extra: candidateFiles });
+  const candidate = sidePkg(bundle, "candidate", { body: candidateBody ?? PASS_BODY, gates: true, version: "9.9.10", extra: { "bin/rightkit-gate.mjs": FAKE_GATE, ...candidateFiles } });
   const baseline = sidePkg(bundle, "baseline", { body: baselineBody ?? PASS_BODY, version: "9.9.9" });
   const dep = path.join(bundle, "smol-toml.tgz"); fs.writeFileSync(dep, tgz({ "package.json": "{}" }));
   const manifest = {
@@ -554,4 +572,78 @@ test("treeDigest: every tracked file's raw bytes are hashed (defence in depth fo
   const ignoredWrite = treeDigest(r.repo);
   assert.equal(ignoredWrite.digest, after.digest, "ignored output is outside the digest");
   assert.deepEqual(ignoredWrite.ignoredNotCovered, ["build/"], "and the result says so");
+});
+
+// ---------- the route probes (rightkit#1297) ----------
+test("routeRequired: candidates from 0.6.14 on must answer --route; the stage list drops qualify for ios", () => {
+  assert.equal(ROUTE_REQUIRED_FROM, "0.6.14");
+  for (const [v, want] of [["0.6.13", false], ["0.6.14", true], ["0.7.0", true], ["junk", false]]) assert.equal(routeRequired(v), want, v);
+  assert.deepEqual(ROUTE_STAGES, ["dev", "test", "compile", "package", "qualify"]);
+  assert.deepEqual(routeStagesFor("ios"), ["dev", "test", "compile", "package"]);
+  assert.deepEqual(routeStagesFor("mac"), ROUTE_STAGES);
+});
+
+test("parseRoute accepts only a rightkit-gate.route/1 line for the stage, exit 0", () => {
+  const line = (over = {}) => JSON.stringify({ schema: "rightkit-gate.route/1", to: "dev", executor: "broker", route: "checkout", carrier: null, refusal: null, ...over });
+  assert.equal(parseRoute({ stdout: `noise\n${line()}\n`, exit: 0, stage: "dev" }).status, "ok");
+  assert.equal(parseRoute({ stdout: line({ refusal: { code: "RK_X", stage: "dev", message: "m" } }), exit: 0, stage: "dev" }).route.refusal.code, "RK_X");
+  for (const bad of [{ stdout: line({ schema: "other/1" }), exit: 0 }, { stdout: line({ to: "test" }), exit: 0 }, { stdout: line({ refusal: "x" }), exit: 0 }, { stdout: "x", exit: 0 }, { stdout: line(), exit: 2 }, { stdout: line(), exit: null, signal: "SIGKILL" }, { exit: null, spawnError: "ENOENT" }]) {
+    assert.equal(parseRoute({ stage: "dev", ...bad }).status, "crash", JSON.stringify(bad).slice(0, 60));
+  }
+  // A probe that timed out answered nothing: its own status, so the comparison can call the cell incomplete (rightkit#1297 L3).
+  assert.deepEqual(parseRoute({ stdout: line(), exit: 0, timedOut: true, stage: "dev" }), { status: "timeout", detail: "route probe timed out" });
+});
+
+test("detectRoute and runRouteProbe: a gate that does not list --route is never run with it", async (t) => {
+  const dir = tmp(t);
+  const old = path.join(dir, "old"); fs.mkdirSync(path.join(old, "bin"), { recursive: true });
+  const log = path.join(dir, "log.txt");
+  fs.writeFileSync(path.join(old, "bin", "rightkit-gate.mjs"), `import fs from "node:fs"; fs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(" ") + "\\n"); if (process.argv.includes("--help")) console.log("usage: rightkit-gate --to check|compile"); else console.log("BUILD RAN");`);
+  assert.equal(detectRoute({ releaseDir: old }).supportsRoute, false);
+  assert.equal(detectRoute({ releaseDir: path.join(dir, "none") }).supportsRoute, false);
+  await assert.rejects(runRouteProbe({ gateBin: path.join(old, "bin", "rightkit-gate.mjs"), appRoot: dir, platform: "mac", stage: "dev" }), /does not support --route/);
+  assert.doesNotMatch(fs.readFileSync(log, "utf8"), /--to dev/, "the old gate was only asked --help");
+});
+
+test("runLeg: every cell probes dev, test, compile, package and qualify on a candidate that answers --route; the baseline without it records no routes", async (t) => {
+  const log = path.join(tmp(t), "gate.log");
+  process.env.FAKE_GATE_LOG = log; t.after(() => { delete process.env.FAKE_GATE_LOG; });
+  const { manifest, bundle } = manifestFor(t, { clean: "pass" });
+  const receipt = await runLeg(manifest, { manifestDir: bundle });
+  const c = cellOf(receipt, "clean", "candidate"), b = cellOf(receipt, "clean", "baseline");
+  assert.equal(c.routeSupported, true);
+  assert.deepEqual(c.routes.map((r) => r.stage), ROUTE_STAGES);
+  assert.ok(c.routes.every((r) => r.status === "ok" && r.route.refusal === null && r.route.route === "checkout"));
+  assert.equal(b.routeSupported, false);
+  assert.deepEqual(b.routes, []);
+  assert.equal(receipt.sides.candidate.supportsRoute, true);
+  assert.equal(receipt.sides.baseline.supportsRoute, false);
+  const argv = fs.readFileSync(log, "utf8").trim().split("\n").filter((l) => !l.includes("--help"));
+  assert.equal(argv.length, 5);
+  assert.ok(argv.every((l) => l.includes("--route") && /--platform \w+$/.test(l)), argv.join("|"));
+  assert.equal(c.treeChanged, false);
+});
+
+test("runLeg: a probe that refuses, crashes or prints junk is recorded per stage", async (t) => {
+  const refusal = { code: "RK_SNAPSHOT_CARRIER_NOT_WIRED", stage: "dev", message: "m" };
+  const { manifest, bundle } = manifestFor(t, { refuses: "pass", crashes: "pass" }, { files: {} });
+  // per-app files: add route.json to the first repo and a crash mode to the second, inside the committed checkouts' sub/ directory
+  const ws = manifest.hosts[process.platform].workspaceRoot;
+  fs.writeFileSync(path.join(ws, "repo-refuses", "sub", "route.json"), JSON.stringify({ dev: { refusal, route: "snapshot" } }));
+  fs.writeFileSync(path.join(ws, "repo-crashes", "sub", "route-mode.txt"), "crash\n");
+  const receipt = await runLeg(manifest, { manifestDir: bundle });
+  const r = cellOf(receipt, "refuses", "candidate");
+  assert.equal(r.routes.find((x) => x.stage === "dev").route.refusal.code, "RK_SNAPSHOT_CARRIER_NOT_WIRED");
+  assert.equal(r.routes.find((x) => x.stage === "test").route.refusal, null);
+  const k = cellOf(receipt, "crashes", "candidate");
+  assert.ok(k.routes.every((x) => x.status === "crash" && /exit 139/.test(x.detail)));
+});
+
+test("runLeg: a candidate >= 0.6.14 whose gate cannot answer --route makes every candidate cell incomplete (infra), not green", async (t) => {
+  const { manifest, bundle } = manifestFor(t, { clean: "pass" }, { candidateFiles: { "bin/rightkit-gate.mjs": 'console.log("usage: rightkit-gate --to check|compile");' } });
+  const receipt = await runLeg(manifest, { manifestDir: bundle });
+  const c = cellOf(receipt, "clean", "candidate");
+  assert.equal(c.status, "infra");
+  assert.match(c.detail, /cannot run rightkit-gate --route/);
+  assert.equal(cellOf(receipt, "clean", "baseline").status, "pass");
 });

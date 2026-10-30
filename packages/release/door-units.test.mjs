@@ -87,7 +87,7 @@ test("[7.06a] a unit stage builds the selected commit's snapshot: --workspace is
   assert.doesNotMatch(unitBlock, /--worktree|rev-parse", "HEAD"|"status"/);
 });
 
-test("[7.06a negative] a unit manifest or local grant present only in the checkout is refused; a grant naming another repository is refused; --commit is refused where the checkout route holds", { skip: POSIX_SIM }, async (t) => {
+test("[7.06a negative] a unit manifest or local grant present only in the checkout is refused; a grant naming another repository is refused; --commit is refused on hosted CI", { skip: POSIX_SIM }, async (t) => {
   const noManifest = unitFixture(t, { manifest: false });
   noManifest.write("crates/rightkit-x/Cargo.toml", '[package]\nname = "rightkit-x"\nversion = "1.2.3"\n'); // untracked: present only in the checkout
   let r = await noManifest.door(["--to", "compile", "--unit", "cargo:rightkit-x", "--commit", noManifest.c1], { loadUnitOwner: noManifest.loadUnitOwner() });
@@ -101,9 +101,9 @@ test("[7.06a negative] a unit manifest or local grant present only in the checko
   git(fx.repo, "remote", "set-url", "origin", "https://github.com/other/repo.git");
   r = await fx.door(["--to", "compile", "--unit", "cargo:rightkit-x", "--commit", fx.c1], { loadUnitOwner: fx.loadUnitOwner() });
   assert.equal(r.code, 1, r.all); assert.match(r.err, /BLOCKED: unit needs/); assert.equal(fx.owner.compiles.length, 0);
-  // On a host that keeps the checkout route, --commit is refused (a unit stage takes HEAD of a clean checkout there).
-  const mac = await fx.door(["--to", "compile", "--unit", "cargo:rightkit-x", "--commit", fx.c1], { platform: "darwin" });
-  assert.equal(mac.code, 2); assert.match(mac.err, /--commit selects a commit for the snapshot route/);
+  // Hosted CI alone has no snapshot route (the runner's checkout is the commit): --commit is refused there.
+  const hosted = await fx.door(["--to", "compile", "--unit", "cargo:rightkit-x", "--commit", fx.c1], { platform: "darwin", env: { ...process.env, GITHUB_ACTIONS: "true" } });
+  assert.equal(hosted.code, 2); assert.match(hosted.err, /--commit selects a commit for the snapshot route; hosted CI builds the runner's checkout/);
 });
 
 test("[7.06a negative] a snapshot tamper mid-stage is refused (the real verify); a write into the snapshot outside the ledger is refused; a staged-sidecar-style ignored output is admitted", { skip: POSIX_SIM }, async (t) => {
@@ -201,8 +201,12 @@ test("[7.06a] on a broker host the unit cargo binding is the carrier (o.snapshot
   assert.equal(installs.length, 1, r.all);
   assert.ok(installs[0].broker?.checkoutDirs && Object.keys(installs[0].broker.checkoutDirs).length === 1, "the broker map is the gate's snapshot-to-checkout map");
   assert.equal(installs[0].broker.checkoutDirs["."], fs.realpathSync(fx.repo));
+  // The wrapper's map is the stage's carrier for a unit's own right-release calls too.
+  const { CARRIED_CARGO_MAP_ENV } = await import("./carried-cargo.mjs");
+  assert.ok(r.all.length > 0);
   // Without the carrier seam a broker host is refused before anything runs.
   const launches = [];
   const none = await fx.door(["--to", "compile", "--unit", "npm:@rightkit/x", "--commit", fx.c1], { platform: "darwin", resolveExecutor: brokerExecutor, loadUnitOwner: fx.loadUnitOwner({ compile: () => launches.push("x") }) });
-  assert.equal(none.code, 2, none.all); assert.deepEqual(launches, []);
+  assert.equal(none.code, 1, none.all); assert.match(none.err, /BLOCKED: RK_SNAPSHOT_CARRIER_NOT_WIRED/); assert.deepEqual(launches, []);
+  assert.equal(typeof CARRIED_CARGO_MAP_ENV, "string");
 });

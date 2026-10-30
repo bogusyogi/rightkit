@@ -11,14 +11,14 @@ the release-switch scan, the Cargo, QA and legal contracts and `right-release ow
 `packages/release/template-contract.test.mjs` runs those evaluators on a fresh instance on every change to the template or to
 `right-release init`.
 
-**Pin.** The pin is the latest published `@rightkit/release`, 0.6.12: the registry check refuses a pin the registry does not have,
+**Pin.** The pin is the latest published `@rightkit/release`, 0.6.13: the registry check refuses a pin the registry does not have,
 the build refuses one behind its latest, and `template-contract.test.mjs` requires every pin to equal the published set. The `check`
 command (`pnpm check`) ships from 0.6.6, and the JSON release config is loaded by every command from 0.6.6, so `pnpm release:*` and
 `pnpm dev:build:*` run from the pinned package.
 
-**Pin sequencing.** This template pins `@rightkit/release` 0.6.12, the latest published release; RightKit's own tree is at 0.6.13 (unpublished). The template's
-commands wait for 0.6.13 only for what that release adds (Mac and Dell keep the checkout route): everything the
-template itself runs is in 0.6.12. The pin moves to 0.6.13 in the commit after it is published, and this paragraph is deleted in that commit.
+**Pin sequencing.** This template pins `@rightkit/release` 0.6.13, the latest published release; RightKit's own tree is at 0.6.14 (unpublished). The template's
+commands wait for 0.6.14 only for what that release adds (the route probe, and Mac and Dell building the commit's snapshot through the broker carrier): everything the
+template itself runs is in 0.6.13. The pin moves to 0.6.14 in the commit after it is published, and this paragraph is deleted in that commit.
 
 The template commits no git hook: commit and push run no gate and no local hook check (`docs/GATE-CONTRACT.md`). `prepare`
 runs `rightkit-gate install-hook`, which writes no hook; it removes a `.githooks/pre-push`, forwarder or ownership pre-commit hook that an

@@ -6,7 +6,7 @@
 //   legal: { cargoNotices: { output: "legal/THIRD_PARTY_CARGO_LICENSES.html", template: "legal/about.hbs",
 //                            config?: "legal/about.toml", manifestPath?: "src-tauri/Cargo.toml", features?: ["a"], allFeatures?: true } }
 //
-// `output`, `template`, `config` and `manifestPath` are app-relative and may not leave the app. The run is `cargo about generate --locked
+// `output`, `template`, `config` and `manifestPath` are app-relative and may not leave the app. The run is `cargo about generate --frozen
 // --fail [--config <config>] [--manifest-path <path>] [--all-features | --features a,b] <template>`; cargo-about writes the rendered
 // appendix to stdout, which is normalised to LF and one trailing newline so the same lockfile always produces the same bytes. `--fail`
 // makes an unaccepted license or an unresolved clarification an error instead of a warning. `--check` writes nothing and exits 1 when
@@ -43,7 +43,7 @@ export function resolveCargoNoticeOptions(config, flags = {}) {
 /** The `cargo about` argument list (after the managed client adds `cargo`). */
 export function cargoAboutArgs(options) {
   return [
-    "about", "generate", "--locked", "--fail",
+    "about", "generate", "--frozen", "--fail",
     ...(options.config ? ["--config", options.config] : []),
     ...(options.manifestPath ? ["--manifest-path", options.manifestPath] : []),
     ...(options.allFeatures ? ["--all-features"] : options.features.length ? ["--features", options.features.join(",")] : []),

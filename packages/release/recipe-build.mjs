@@ -34,6 +34,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
 import { resolveTargetRoot as cargoResolveTargetRoot } from "./cargo-target.mjs";
 import { buildAndEmbedNativeHelpers, validateNativeHelpers } from "./native-helpers.mjs";
+import { lockedTauriArgs } from "./tauri-locked.mjs";
 import { assertTargetDirUnchanged, removeFreshSources, stageArtifacts, verifySameContent } from "./managed-target-stage.mjs";
 
 export const RECIPE_BUILD_PLAN_VERSION = 1;
@@ -403,7 +404,7 @@ export function runRecipeBuild(rawPlan, { appRoot, env = process.env, platform =
       verifyReal("after the copy-back, before the build step");
     }
     if (step.phase === "build" && plan.verifySidecars) verifyUniversalSidecars(plan.verifySidecars, { appRoot, spawnSync, env, log, ...(fs?.readFileSync ? { readFile: fs.readFileSync } : {}) });
-    const launch = resolveLaunch({ cmd: step.cmd, args: step.args, platform, env });
+    const launch = resolveLaunch({ cmd: step.cmd, args: lockedTauriArgs(step.args, env), platform, env });
     const cwd = path.resolve(appRoot, step.cwd ?? ".");
     log(`recipe-build: [${step.phase}] ${step.cmd} ${step.args.join(" ")}`.trimEnd());
     const result = spawnSync(launch.command, launch.args, { cwd, env: { ...env, ...(step.env ?? {}) }, stdio: "inherit", shell: launch.shell, windowsHide: true });

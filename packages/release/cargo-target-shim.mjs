@@ -48,6 +48,8 @@ const PLUGIN = new Set(["deny", "audit"]);
 const BOUND = new Set([...COMPILE, ...LOCKED, ...LOCKFILE]);
 // Commands that read no workspace at all: run unchanged.
 const PASSTHROUGH = new Set(["version", "help"]);
+/** The subcommands the wrapper binds or passes through (the contract test pins each to the broker's classification). */
+export const WRAPPER_COMMANDS = Object.freeze({ get bound() { return [...BOUND]; }, get passthrough() { return [...PASSTHROUGH]; } });
 // Global options that take a value (`--color always`, `--explain E0001`); the subcommand is the first word after them.
 const GLOBAL_VALUE = new Set(["--color", "--explain"]);
 // Options that move the working directory, the configuration or the output (a short cluster holding C or Z too).
@@ -235,4 +237,7 @@ export function runShim(argv, { env = process.env, cwd = process.cwd(), spawn = 
   return r.status ?? (r.signal ? 128 : SHIM_REFUSAL_STATUS);
 }
 
-if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) process.exit(runShim(process.argv.slice(2)));
+// Run as the wrapper only when this file is the entry. Imported by another module (carried-cargo.mjs, through managed-cargo.mjs), the entry
+// may be anything, `node -e` arguments included, so a path that cannot be resolved is no wrapper run.
+const invokedAsWrapper = (() => { try { return Boolean(process.argv[1]) && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url)); } catch { return false; } })();
+if (invokedAsWrapper) process.exit(runShim(process.argv.slice(2)));

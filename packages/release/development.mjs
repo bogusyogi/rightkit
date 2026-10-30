@@ -3,6 +3,8 @@ import { spawnSync } from "./background-process.mjs";
 import { createHash } from "node:crypto";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, lstatSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
 import { buildLaunch } from "./build-launch.mjs";
+import { carriedOutputDir } from "./carried-cargo.mjs";
+import { lockedTauriArgs } from "./tauri-locked.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
@@ -345,6 +347,9 @@ function assertNonEmptyExecutable(file) { if (!existsSync(file) || !statSync(fil
 function resolveBundleRoot(descriptor, { root, env, runCargo }) {
   if (!descriptor.manifestPath) throw new Error("Tauri installer requires manifestPath when bundleDirectory is omitted");
   const manifest = path.resolve(root, descriptor.manifestPath);
+  // The bundle root is under the output directory a signed receipt of this stage named (the build step's own carried call), not under a read-only metadata call.
+  const fromReceipt = carriedOutputDir(env, manifest);
+  if (fromReceipt) return path.join(fromReceipt, descriptor.targetTriple, cargoProfileDirectory(DEVELOPMENT_PROFILE), "bundle", platformBundleKind(descriptor));
   const cwd = process.cwd();
   let metadata;
   try {
@@ -353,7 +358,9 @@ function resolveBundleRoot(descriptor, { root, env, runCargo }) {
   } finally { process.chdir(cwd); }
   if (metadata.error || metadata.status !== 0) throw new Error(`RightKit Cargo metadata failed (${metadata.status ?? "unavailable"})${metadata.error ? `: ${metadata.error.message}` : ""}`);
   let targetDirectory;
-  try { targetDirectory = JSON.parse(metadata.stdout).target_directory; } catch { throw new Error("RightKit Cargo metadata returned invalid JSON"); }
+  // A carried call (a snapshot stage's, carried-cargo.mjs) reports the signed receipt's output directory, not what metadata prints.
+  if (typeof metadata.outputDir === "string") targetDirectory = metadata.outputDir;
+  else try { targetDirectory = JSON.parse(metadata.stdout).target_directory; } catch { throw new Error("RightKit Cargo metadata returned invalid JSON"); }
   if (!targetDirectory || !path.isAbsolute(targetDirectory)) throw new Error("Cargo metadata omitted absolute target_directory");
   return path.join(targetDirectory, descriptor.targetTriple, cargoProfileDirectory(DEVELOPMENT_PROFILE), "bundle", platformBundleKind(descriptor));
 }
@@ -364,7 +371,7 @@ function execute(command, { root, env, dryRun, run, label, door = null }) {
   validateCommand(command, `development ${label}`);
   const cwd = path.resolve(root, command.cwd ?? ".");
   if (!inside(root, cwd)) throw new Error(`development ${label} cwd must stay inside app root`);
-  const args = (command.args ?? []).map(String);
+  const args = lockedTauriArgs((command.args ?? []).map(String), env);
   if (dryRun) return { cmd: command.cmd, args, cwd };
   // A pnpm step through the door is the broker's rightkit-pnpm job (or plain pnpm on a direct host), launched by name: the door never uses
   // the node entry resolveCommand would find, so resolving pnpm's JavaScript CLI here would only fail a host that does not need it.

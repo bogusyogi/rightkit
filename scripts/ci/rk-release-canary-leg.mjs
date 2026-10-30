@@ -129,18 +129,27 @@ export function prepareSide({ sideDir, release, dependency, node = process.execP
   if (release.version && manifest.version !== release.version) throw new Error(`extracted @rightkit/release is ${manifest.version}, the manifest says ${release.version}`);
   const bin = path.join(releaseDir, "cli", "right-release.mjs");
   if (!fs.existsSync(bin)) throw new Error("extracted @rightkit/release has no cli/right-release.mjs");
-  return { sideDir, releaseDir, bin, version: manifest.version, ...detectGates({ releaseDir, bin, node }) };
+  return { sideDir, releaseDir, bin, version: manifest.version, ...detectGates({ releaseDir, bin, node }), ...detectRoute({ releaseDir, node }) };
 }
 
-/** Candidates from this version on must be able to run `doctor --gates`; one that cannot is a broken candidate, not an old one. */
-export const GATES_REQUIRED_FROM = "0.6.4";
-export function gatesRequired(version) {
+const versionAtLeast = (version, from) => {
   const v = /^(\d+)\.(\d+)\.(\d+)/.exec(String(version));
-  const need = GATES_REQUIRED_FROM.split(".").map(Number);
+  const need = from.split(".").map(Number);
   if (!v) return false;
   for (let i = 0; i < 3; i += 1) if (Number(v[i + 1]) !== need[i]) return Number(v[i + 1]) > need[i];
   return true;
-}
+};
+/** Candidates from this version on must be able to run `doctor --gates`; one that cannot is a broken candidate, not an old one. */
+export const GATES_REQUIRED_FROM = "0.6.4";
+export const gatesRequired = (version) => versionAtLeast(version, GATES_REQUIRED_FROM);
+/** Candidates from this version on must answer `rightkit-gate --to <stage> --route` (rightkit#1297); one that cannot is broken. */
+export const ROUTE_REQUIRED_FROM = "0.6.14";
+export const routeRequired = (version) => versionAtLeast(version, ROUTE_REQUIRED_FROM);
+/** The stages every cell probes, in order; a mobile build has no installed-QA lane, so ios has no qualify. */
+export const ROUTE_STAGES = Object.freeze(["dev", "test", "compile", "package", "qualify"]);
+export const routeStagesFor = (platform) => ROUTE_STAGES.filter((s) => !(s === "qualify" && platform === "ios"));
+export const ROUTE_SCHEMA = "rightkit-gate.route/1";
+export const ROUTE_TIMEOUT_MS = 60_000;
 
 /** Does this package run `doctor --gates`? Asked of the CLI itself (`right-release --help` lists `doctor ... [--gates]`),
  * so a refactor that moves the flag's parsing cannot silently turn gates off; the source text is only a fallback. */
@@ -154,6 +163,16 @@ export function detectGates({ releaseDir, bin, node = process.execPath }) {
     if (/["']--gates["']/.test(source)) via = "source";
   }
   return { supportsGates: via !== null, gatesVia: via };
+}
+
+/** Does this package's gate answer `--route`? Asked of the gate itself (`rightkit-gate --help` lists the flag in its usage), the way
+ * detectGates asks the CLI. A gate that does not list it is never run with it: an older gate would treat the flag as an ordinary
+ * `--to` run and build. */
+export function detectRoute({ releaseDir, node = process.execPath }) {
+  const gateBin = path.join(releaseDir, "bin", "rightkit-gate.mjs");
+  if (!fs.existsSync(gateBin)) return { supportsRoute: false, gateBin: null };
+  const help = spawnSync(node, [gateBin, "--help"], { cwd: releaseDir, encoding: "utf8", timeout: 30_000, windowsHide: true, env: { ...process.env, RIGHT_RELEASE_NO_UPDATE_CHECK: "1" } });
+  return { supportsRoute: help.status === 0 && /--route\b/.test(`${help.stdout}\n${help.stderr}`), gateBin };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -323,6 +342,42 @@ export function runDoctor({ node = process.execPath, bin, appRoot, configRel, pl
   });
 }
 
+/** Run `rightkit-gate --to <stage> --route` from the app root. It throws when this gate does not list `--route` (re-asked here, so
+ * no caller can start a real build by probing an old gate). */
+export async function runRouteProbe({ node = process.execPath, gateBin, appRoot, platform, stage, env = process.env, timeoutMs = ROUTE_TIMEOUT_MS }) {
+  if (!gateBin || !fs.existsSync(gateBin)) throw new Error("this side has no rightkit-gate to probe");
+  const help = spawnSync(node, [gateBin, "--help"], { cwd: appRoot, encoding: "utf8", timeout: 30_000, windowsHide: true, env });
+  if (help.status !== 0 || !/--route\b/.test(`${help.stdout}\n${help.stderr}`)) throw new Error("this side's rightkit-gate does not support --route; it is never run with it");
+  const args = [gateBin, "--to", stage, "--route", "--platform", platform];
+  return await new Promise((resolve) => {
+    const started = Date.now();
+    let stdout = "", stderr = "", timedOut = false, settled = false;
+    const finish = (extra) => { if (settled) return; settled = true; clearTimeout(timer); resolve({ stdout, stderr, timedOut, seconds: Math.round((Date.now() - started) / 1000), args, ...extra }); };
+    const child = spawn(node, args, { cwd: appRoot, env, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32", windowsHide: true });
+    child.stdout.on("data", (c) => { if (stdout.length < OUTPUT_CAP) stdout += c.toString("utf8"); });
+    child.stderr.on("data", (c) => { if (stderr.length < OUTPUT_CAP) stderr += c.toString("utf8"); });
+    const timer = setTimeout(() => { timedOut = true; killTree(child); }, timeoutMs);
+    child.on("error", (error) => finish({ exit: null, signal: null, spawnError: String(error.message ?? error) }));
+    child.on("close", (code, signal) => finish({ exit: code, signal }));
+  });
+}
+
+/** One probe's answer: { status: "ok", route } for exit 0 and a schema line for this stage, { status: "timeout", detail } when it timed out, else { status: "crash", detail }. Only a
+ * line that is exactly a `rightkit-gate.route/1` object is accepted. */
+export function parseRoute({ stdout = "", stderr = "", exit = null, signal = null, timedOut = false, spawnError = null, stage = null } = {}) {
+  if (timedOut) return { status: "timeout", detail: "route probe timed out" };
+  if (spawnError) return { status: "crash", detail: spawnError };
+  if (signal || exit !== 0) return { status: "crash", detail: signal ? `signal ${signal}` : `exit ${exit}: ${String(stderr).trim().split(/\r?\n/).slice(-1)[0] ?? ""}`.trim() };
+  for (const line of String(stdout).split(/\r?\n/)) {
+    let v; try { v = JSON.parse(line); } catch { continue; }
+    if (v?.schema !== ROUTE_SCHEMA) continue;
+    const refusalOk = v.refusal === null || (v.refusal && typeof v.refusal.code === "string" && typeof v.refusal.message === "string");
+    if (typeof v.route !== "string" || typeof v.executor !== "string" || !refusalOk || (stage && v.to !== stage)) return { status: "crash", detail: "malformed route line" };
+    return { status: "ok", route: { to: v.to, platform: v.platform ?? null, host: v.host ?? null, gate: v.gate ?? null, commit: v.commit ?? null, executor: v.executor, carrier: v.carrier ?? null, route: v.route, stages: v.stages ?? [], refusal: v.refusal, checkoutClean: v.checkoutClean ?? null } };
+  }
+  return { status: "crash", detail: "no rightkit-gate.route/1 line in the output" };
+}
+
 // A fatal line is `right-release: <message>` or, from a command that refuses before it starts (the app check from 0.6.5,
 // `right-release doctor: the app check found problems in <repo>; nothing was started…`), `right-release <command>: <message>`.
 const FATAL_LINE = /^right-release(?: [a-z][a-z0-9-]*)?: (.*)$/;
@@ -387,10 +442,25 @@ export async function runCell({ side, sidePrep, app, platform, exportDir, node, 
   if (gates && side === "candidate" && !sidePrep.supportsGates && gatesRequired(sidePrep.version)) {
     throw new Error(`candidate @rightkit/release ${sidePrep.version} cannot run doctor --gates (neither its --help nor its release.mjs offers it); from ${GATES_REQUIRED_FROM} that is required`);
   }
+  if (side === "candidate" && !sidePrep.supportsRoute && routeRequired(sidePrep.version)) {
+    throw new Error(`candidate @rightkit/release ${sidePrep.version} cannot run rightkit-gate --route (its gate's --help does not list it); from ${ROUTE_REQUIRED_FROM} that is required`);
+  }
+  const routeSupported = Boolean(sidePrep.supportsRoute);
   const gatesRun = Boolean(gates && side === "candidate" && sidePrep.supportsGates);
   const noNodeModules = !fs.existsSync(path.join(exportDir, "node_modules")) && !fs.existsSync(path.join(appRoot, "node_modules"));
   const before = treeDigest(exportDir, { extra: unnormalizedBlobs });
   const run = await runDoctor({ node, bin: sidePrep.bin, appRoot, configRel, platform, gates: gatesRun, sideDir: sidePrep.sideDir, tmpDir: path.join(tmpRoot, `${side}-${app.repoDir}-${platform}`), timeoutMs });
+  // The route probes run in the same live checkout, so the tree digest below covers them: a probe that wrote anything is a tree write.
+  const routes = [];
+  if (routeSupported) {
+    const env = { ...process.env, RIGHTKIT_WORKSPACE_ROOT: sidePrep.sideDir, TMPDIR: path.join(tmpRoot, `${side}-${app.repoDir}-${platform}`), TEMP: path.join(tmpRoot, `${side}-${app.repoDir}-${platform}`), TMP: path.join(tmpRoot, `${side}-${app.repoDir}-${platform}`) };
+    for (const stage of routeStagesFor(platform)) {
+      try {
+        const probe = await runRouteProbe({ node, gateBin: sidePrep.gateBin, appRoot, platform, stage, env, timeoutMs: ROUTE_TIMEOUT_MS });
+        routes.push({ stage, seconds: probe.seconds, ...parseRoute({ ...probe, stage }) });
+      } catch (error) { routes.push({ stage, status: "crash", detail: String(error.message ?? error).slice(0, 300) }); }
+    }
+  }
   const after = treeDigest(exportDir, { extra: unnormalizedBlobs });
   const parsed = parseDoctor(run);
   // Only the orchestrator decides whether an admission code is infrastructure: it needs the baseline cell and the probe.
@@ -402,7 +472,7 @@ export async function runCell({ side, sidePrep, app, platform, exportDir, node, 
     id: app.id, app: app.id, platform, side, repoDir: app.repoDir, host: process.platform,
     status: parsed.status, exit: parsed.exit, signal: parsed.signal, detail: parsed.detail ?? null, timedOut: run.timedOut, seconds: run.seconds,
     failNames: parsed.failNames, gateFailNames: parsed.gateFailNames, fatal: parsed.fatal, compilerCache: parsed.compilerCache,
-    rows: parsed.rows.map((r) => ({ level: r.level, name: r.name, gate: r.gate })), gatesRun, noNodeModules, args: run.args.slice(1),
+    rows: parsed.rows.map((r) => ({ level: r.level, name: r.name, gate: r.gate })), gatesRun, noNodeModules, args: run.args.slice(1), routeSupported, routes,
     treeChanged: before.digest !== after.digest, treeDelta: delta.slice(0, 50), treeBefore: before.digest, treeAfter: after.digest,
     // Writes inside ignored paths are not detected; the cell says so instead of implying full coverage.
     treeIgnoredNotCovered: [...new Set([...(before.ignoredNotCovered ?? []), ...(after.ignoredNotCovered ?? [])])].sort().slice(0, 50),
@@ -535,7 +605,7 @@ export async function runLeg(manifest, { manifestDir, now = Date.now, host = pro
     schema: LEG_SCHEMA, host, node: process.version, sha: manifest.sha, version: manifest.version,
     manifestSha256: manifest.manifestSha256 ?? null, legSha256: sha256(fs.readFileSync(fileURLToPath(import.meta.url))),
     startedAt: new Date(started).toISOString(), finishedAt: new Date(now()).toISOString(), seconds: Math.round((now() - started) / 1000),
-    sides: Object.fromEntries(Object.entries(sides).map(([k, v]) => [k, { version: v.version, supportsGates: v.supportsGates, gatesVia: v.gatesVia }])), sideErrors, cells,
+    sides: Object.fromEntries(Object.entries(sides).map(([k, v]) => [k, { version: v.version, supportsGates: v.supportsGates, gatesVia: v.gatesVia, supportsRoute: v.supportsRoute }])), sideErrors, cells,
     admissionRefused: probe.admissionRefused ?? null, admissionProbe: probe,
   };
 }

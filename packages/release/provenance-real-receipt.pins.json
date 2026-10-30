@@ -1,0 +1,7 @@
+{
+  "_comment": "The enrolled pins the golden-vector receipt (provenance-real-receipt.fixture.json, rustright status 36efaa30-..., 2026-10-27) was signed under: the Mac broker key a9eb1cee..., from ci/rk-pipeline.json before RustRight rotated it on 2026-10-29T22:17:21Z (BR15, d367ceb6a). The golden vector is verified against THESE pins, never the live ones, so a rotation of the live pin cannot break it; the live pin is exercised by the optional RIGHTKIT_PROVENANCE_FIXTURE vector.",
+  "host": "Adrians-Mac-Mini.local",
+  "keyId": "a9eb1ceeaa6b1cec899a7e5d01a97a084308a585c3e2c409510d02774ef7134f",
+  "publicKey": "04248e98a439add3f13756be789c4091a5e9735fbe4e85768d394eedbffc685f63ae4ad3e1a68dfee87008955b308dcdf5d142b1a760bf45e4ea0b2d3430c22dcb",
+  "brokerDigest": "2b0d6c901ccbb1c4dee517d9fbec6bfd72d49aede200fae89a7659b8e141853e"
+}

@@ -659,7 +659,7 @@ test("media-sidecar-catalog: with no catalog in the config, the rightkit-ffmpeg 
   writeFileSync(path.join(crateDir, "catalog", "artifacts.json"), sidecarCatalog([sidecarRow("ffmpeg"), sidecarRow("ffprobe")]));
   const healthy = cargo(metadata([crate]));
   assert.deepEqual((await unit("media-sidecar-catalog", { root, config: app, target, ...healthy, ...withLayout(manifest) })).details, []);
-  assert.deepEqual(healthy.calls, [{ file: "cargo", args: ["metadata", "--offline", "--format-version", "1", "--manifest-path", manifest], cwd: path.dirname(manifest) }]);
+  assert.deepEqual(healthy.calls, [{ file: "cargo", args: ["metadata", "--frozen", "--format-version", "1", "--manifest-path", manifest], cwd: path.dirname(manifest) }]);
   // the worker's refusals, in its wording: no crate in the dependency graph, cargo failing, cargo that cannot start
   assert.deepEqual((await unit("media-sidecar-catalog", { root, config: app, target, ...cargo(metadata([])), ...withLayout(manifest) })).details, ["fixture win mediaSidecar: [MEDIA_SIDECAR_CRATE_NOT_FOUND] the app's dependency graph has 0 rightkit-ffmpeg packages (expected exactly one)"]);
   assert.deepEqual((await unit("media-sidecar-catalog", { root, config: app, target, ...cargo({ status: 101, stdout: "", stderr: "error: no lock\n" }), ...withLayout(manifest) })).details, ["fixture win mediaSidecar: [MEDIA_SIDECAR_CRATE_NOT_FOUND] cargo metadata failed: error: no lock"]);

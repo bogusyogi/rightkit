@@ -4,6 +4,7 @@ import { homedir, userInfo } from "node:os";
 import { closeSync, existsSync, mkdirSync, openSync, readSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { spawn as spawnProcess, spawnSync } from "./background-process.mjs";
+import { CARRIER_MISSING_CODE, carriedCargoMapOf, runCarriedCargo } from "./carried-cargo.mjs";
 
 /**
  * Linux, and any host that is neither Mac nor Windows, never uses the RustRight broker: WSL2, a VM, a cloud or CI runner, Linux hosted on
@@ -100,8 +101,25 @@ export function managedHost(env, platform = process.platform) {
     || /(?:^|[;:])[^;:]*[/\\](?:\.rightkit-managed|rightkitmanagedagent|rightkit[/\\]build-control)[/\\]agent-bin(?:[;:]|$)/i.test(String(env.PATH ?? ""));
 }
 
+/**
+ * The carried seam (rightkit#1301): on a broker host, a call made by a child of a snapshot door stage, which the gate started with the
+ * stage's carrier map in its environment, goes through that carrier (carried-cargo.mjs: one signed, ledgered request per call, from the
+ * manifest's directory, output directory from the receipt). A map that cannot be read refuses the call; it is never run uncarried.
+ * Linux never has a carrier. A call made with no carrier in its environment keeps the managed client route as before; refusing a
+ * carrier-less compile that comes from a snapshot stage is RustRight's side (rightkit#1301 step 3).
+ */
+function carriedSeam(args, options, { platform, spawn }) {
+  if (directPlatform(platform)) return null;
+  const carried = carriedCargoMapOf(options.env ?? process.env);
+  if (!carried) return null;
+  if (carried.error) return { status: 101, signal: null, stdout: "", stderr: `rightkit-gate: ${CARRIER_MISSING_CODE}: ${carried.error}\n`, error: Object.assign(new Error(`${CARRIER_MISSING_CODE}: ${carried.error}`), { code: CARRIER_MISSING_CODE }) };
+  return runCarriedCargo(args, options, { map: carried.map, spawn });
+}
+
 export function runCargoSync(args, options = {}, { platform = process.platform, exists = existsSync, spawn = spawnSync } = {}) {
   const env = options.env ?? process.env;
+  const seam = carriedSeam(args, options, { platform, spawn });
+  if (seam) return seam;
   const client = managedRuntimeClient(env, platform, exists);
   if (client) {
     const socket = discoverBrokerSocket(env, { platform, exists });
@@ -155,6 +173,8 @@ export function spawnCollect(command, args, options = {}, { spawnAsync = spawnPr
   });
 }
 
+const carriedSeamActive = (args, options, { platform = process.platform } = {}) => !directPlatform(platform) && Boolean(carriedCargoMapOf(options.env ?? process.env));
+
 /**
  * Async twin of `runCargoSync`: the same client, broker-socket and darwin-never-direct selection (it asks
  * `runCargoSync` to choose, with a spawn that only records the invocation), then runs the chosen invocation
@@ -163,6 +183,8 @@ export function spawnCollect(command, args, options = {}, { spawnAsync = spawnPr
  */
 export async function runCargoAsync(args, options = {}, deps = {}) {
   const { spawnAsync = spawnCollect, ...syncDeps } = deps;
+  // A carried call (a snapshot stage's) is verified in process: it runs whole, then resolves.
+  if (carriedSeamActive(args, options, syncDeps)) return runCargoSync(args, options, syncDeps);
   let chosen;
   const probe = runCargoSync(args, options, { ...syncDeps, spawn: (command, commandArgs, commandOptions) => { chosen = { command, args: commandArgs, options: commandOptions }; return { status: 0, stdout: "", stderr: "" }; } });
   if (!chosen) return probe;

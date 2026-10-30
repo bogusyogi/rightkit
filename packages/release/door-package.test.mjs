@@ -100,7 +100,7 @@ function appFixture(t, extra = {}) {
     });
     return { code, all: [...out, ...err].join("\n"), err: err.join("\n") };
   };
-  return { dir, repo, c1, tree, snaps, env, spawned, receipts, launches, captures, door, snapshot, staged, checkoutTarget, workspaces };
+  return { dir, repo, c1, tree, snaps, env, spawned, receipts, launches, captures, door, snapshot, staged, checkoutTarget, workspaces, spawnInherit };
 }
 
 test("[7.04 positive] --to package seals the SELECTED commit from the snapshot though the checkout is dirty, detached and ahead: right-release starts inside the snapshot, sidecars are staged once, the manifest names the commit, its tree and source: snapshot, the sealed sidecar sha256 equals the ledger's", { skip: POSIX_SIM }, async (t) => {
@@ -160,6 +160,33 @@ test("[7.04 negative] a snapshot byte changed during package voids the stage (ex
   const tampered = await fx.door(["--to", "package", "--platform", "mac", "--commit", fx.c1], { readReceipt: () => null, spawnInherit: (c, a, opts) => { if (a[1] === "build") fs.writeFileSync(path.join(opts.cwd, "README.md"), "tampered\n"); return { status: 0 }; }, verifySnapshot: undefined });
   assert.equal(tampered.code, 2, tampered.all); assert.match(tampered.err, /RK_CHECK_ERROR: \[package\]/); assert.match(tampered.err, /the result covers no known bytes/);
   assert.equal(fx.receipts.get(fx.c1).stages.package.ok, false);
+});
+
+test("[7.04c broker] on a broker host the package stage binds no CARGO_TARGET_DIR: its children carry the stage's carrier, and the sealed manifest may record only a target a verified receipt of the stage named (RK_SPLIT_TARGET_DRIFT otherwise)", { skip: POSIX_SIM }, async (t) => {
+  const OUT = "/managed/rightkit-build-control/ws/0123456789ab/g/001/target";
+  const broker = (fx, outputDirs) => ({ platform: "darwin", resolveExecutor: () => ({ kind: "broker", cargo: ["rustright", "cargo"] }),
+    snapshotBroker: { handle: "own-1", markBrokerSubmit: () => ({ handle: "own-1", broker: { submitted: true } }) }, brokerSection: () => ({ client: "/x/rustright" }),
+    installCarrier: () => ({ mode: "test", env: { RIGHTKIT_CARRIED_CARGO_MAP: "/x/map.json" }, problems: async () => [], outputDirs: () => (typeof outputDirs === "function" ? outputDirs() : outputDirs) }),
+    spawnInherit: (cmd, args, opts) => { assert.equal(opts.env.CARGO_TARGET_DIR, undefined, "no output directory is bound"); assert.equal(opts.env.RIGHTKIT_CARRIED_CARGO_MAP, "/x/map.json"); return fx.spawnInherit(cmd, args, { ...opts, env: { ...opts.env, CARGO_TARGET_DIR: OUT } }); } });
+  const fx = appFixture(t);
+  const ok = await fx.door(["--to", "package", "--platform", "mac", "--commit", fx.c1], broker(fx, [OUT]));
+  assert.equal(ok.code, 0, ok.all);
+  assert.ok(!fx.spawned.some((c) => c[0] === "cargo" && c[1] === "metadata"), "no carrier-less cargo metadata resolves the target in the checkout");
+  // The manifest records a target no receipt of the stage named: the stage is void.
+  const fx2 = appFixture(t);
+  const drift = await fx2.door(["--to", "package", "--platform", "mac", "--commit", fx2.c1], broker(fx2, ["/managed/rightkit-build-control/ws/ffffffffffff/g/001/target"]));
+  assert.equal(drift.code, 2, drift.all); assert.match(drift.err, /RK_SPLIT_TARGET_DRIFT: \[package\] boundTargets\[0\] is \/managed\/.*not the directory the gate bound/);
+  assert.equal(fx2.receipts.get(fx2.c1).stages.package.voided, "RK_SPLIT_TARGET_DRIFT");
+  // THIS stage's receipts only (L1): the compile stage's sidecar build named the directory, but no receipt of the package stage did.
+  const fx3 = appFixture(t); let now = [OUT];
+  const base3 = broker(fx3, () => now);
+  const other = await fx3.door(["--to", "package", "--platform", "mac", "--commit", fx3.c1], { ...base3, spawnInherit: (cmd, args, opts) => { const r = base3.spawnInherit(cmd, args, opts); now = []; return r; } });
+  assert.equal(other.code, 2, other.all); assert.match(other.err, /RK_SPLIT_TARGET_DRIFT: \[package\] no verified receipt of this package stage names an output directory/);
+  // A sealed manifest that records no bound target at all is refused where the commit has a Cargo workspace.
+  const fx4 = appFixture(t);
+  const base4 = broker(fx4, [OUT]);
+  const none = await fx4.door(["--to", "package", "--platform", "mac", "--commit", fx4.c1], { ...base4, spawnInherit: (cmd, args, opts) => fx4.spawnInherit(cmd, args, { ...opts, env: { ...opts.env, CARGO_TARGET_DIR: undefined } }) });
+  assert.equal(none.code, 2, none.all); assert.match(none.err, /RK_SPLIT_TARGET_DRIFT: \[package\] the sealed manifest records no bound Cargo target/);
 });
 
 test("[7.04c N6 on L] the door cross-checks the Cargo target the sealed manifest records against its own resolution: a manifest naming another directory voids the package stage (RK_SPLIT_TARGET_DRIFT, exit 2) and nothing after it runs", { skip: POSIX_SIM }, async (t) => {

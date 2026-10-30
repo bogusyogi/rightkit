@@ -57,7 +57,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-http` | crates.io | 0.3.9 | 0.3.8 | 6 | coderight, genright, heardright, mailright, postright, scraperight | - |
 | `rightkit-identity` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
 | `rightkit-job-queue` | crates.io | 0.5.1 | 0.5.1 | 7 | coderight, cutright, genright, heardright, mailright, postright, scraperight | - |
-| `rightkit-license` | crates.io | 0.2.5 | 0.2.5 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | - |
+| `rightkit-license` | crates.io | 0.2.6 | 0.2.5 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | - |
 | `rightkit-llm` | crates.io | 0.3.1 | 0.3.1 | 4 | coderight, cutright, heardright, mailright | - |
 | `rightkit-logs` | crates.io | 0.3.6 | 0.3.5 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | - |
 | `rightkit-mcp` | crates.io | 0.7.1 | 0.7.0 | 1 | coderight | - |
@@ -114,7 +114,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/qa` | npm | 0.6.2 | 0.6.1 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | - |
 | `@rightkit/qa-chrome` | npm | 0.1.12 | 0.1.12 | 9 | coderight, cutright, genright, heardright, legion, mailright, postright, scraperight, viewright | 8 stale |
 | `@rightkit/react-shell` | npm | 0.7.2 | 0.7.2 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `@rightkit/release` | npm | 0.6.13 | 0.6.12 | 10 | coderight, cutright, genright, heardright, legion, mailright, postright, scraperight, sellright, viewright | 10 stale |
+| `@rightkit/release` | npm | 0.6.14 | 0.6.13 | 10 | coderight, cutright, genright, heardright, legion, mailright, postright, scraperight, sellright, viewright | 10 stale |
 | `@rightkit/settings-ui` | npm | 0.7.0 | 0.7.0 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | - |
 | `@rightkit/sync-worker` | private | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/tauri` | npm | 0.3.0 | 0.3.0 | 7 | coderight, cutright, genright, heardright, mailright, postright, scraperight | - |
@@ -726,16 +726,16 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/react-shell` | postright | `postright/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
 | `@rightkit/react-shell` | scraperight | `scraperight/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
 | `@rightkit/react-shell` | viewright | `viewright/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
-| `@rightkit/release` | coderight | `coderight/apps/coderight-tauri/package.json` | devDependencies | `0.6.6` | 0.6.12 | stale |
-| `@rightkit/release` | cutright | `cutright/apps/cutright/package.json` | devDependencies | `0.6.6` | 0.6.12 | stale |
-| `@rightkit/release` | genright | `genright/package.json` | devDependencies | `0.6.6` | 0.6.12 | stale |
-| `@rightkit/release` | heardright | `heardright/tauri-app-next/package.json` | devDependencies | `0.6.8` | 0.6.12 | stale |
-| `@rightkit/release` | legion | `legion/package.json` | devDependencies | `0.3.0` | 0.6.12 | stale |
-| `@rightkit/release` | mailright | `mailright/package.json` | devDependencies | `0.6.8` | 0.6.12 | stale |
-| `@rightkit/release` | postright | `postright/package.json` | devDependencies | `0.6.6` | 0.6.12 | stale |
-| `@rightkit/release` | scraperight | `scraperight/package.json` | devDependencies | `0.6.6` | 0.6.12 | stale |
-| `@rightkit/release` | sellright | `sellright/package.json` | devDependencies | `0.6.4` | 0.6.12 | stale |
-| `@rightkit/release` | viewright | `viewright/package.json` | devDependencies | `0.6.6` | 0.6.12 | stale |
+| `@rightkit/release` | coderight | `coderight/apps/coderight-tauri/package.json` | devDependencies | `0.6.6` | 0.6.13 | stale |
+| `@rightkit/release` | cutright | `cutright/apps/cutright/package.json` | devDependencies | `0.6.6` | 0.6.13 | stale |
+| `@rightkit/release` | genright | `genright/package.json` | devDependencies | `0.6.6` | 0.6.13 | stale |
+| `@rightkit/release` | heardright | `heardright/tauri-app-next/package.json` | devDependencies | `0.6.8` | 0.6.13 | stale |
+| `@rightkit/release` | legion | `legion/package.json` | devDependencies | `0.3.0` | 0.6.13 | stale |
+| `@rightkit/release` | mailright | `mailright/package.json` | devDependencies | `0.6.8` | 0.6.13 | stale |
+| `@rightkit/release` | postright | `postright/package.json` | devDependencies | `0.6.6` | 0.6.13 | stale |
+| `@rightkit/release` | scraperight | `scraperight/package.json` | devDependencies | `0.6.6` | 0.6.13 | stale |
+| `@rightkit/release` | sellright | `sellright/package.json` | devDependencies | `0.6.4` | 0.6.13 | stale |
+| `@rightkit/release` | viewright | `viewright/package.json` | devDependencies | `0.6.6` | 0.6.13 | stale |
 | `@rightkit/settings-ui` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.7.0` | 0.7.0 | current |
 | `@rightkit/settings-ui` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.7.0` | 0.7.0 | current |
 | `@rightkit/settings-ui` | genright | `genright/package.json` | dependencies | `0.7.0` | 0.7.0 | current |

@@ -1464,11 +1464,13 @@ test("--to reuses check and compile only for the exact same inputs, and needs --
   assert.match(noTier.err.join("\n"), /--to release needs --tier patch\|update \(chosen explicitly, never defaulted\)/);
   const dirty = capture();
   fs.writeFileSync(path.join(root, "Cargo.lock"), "edited\n");
-  // Commit-only build: on the snapshot route (Linux, or a broker host with the carrier wired) a dirty checkout is no condition at all.
-  assert.equal(await main(["--to", "check"], { ...capture().io, cwd: root, ...io, platform: "linux" }), 0);
-  // Mac and Dell keep the checkout route until the cutover commit (decision 2 "Interim"): a differing checkout is still refused there.
-  assert.equal(await main(["--to", "check"], { ...dirty.io, cwd: root, ...io, platform: "darwin" }), 1);
-  assert.match(dirty.err.join("\n"), /the checkout differs from HEAD; every stage works on the commit/);
+  // Commit-only build: on the snapshot route (every host but hosted CI) a dirty checkout is no condition at all.
+  // Hosted CI (GITHUB_ACTIONS=true, as on the runner that runs this suite) takes the hosted route, so these cases run without it.
+  const offRunner = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== "GITHUB_ACTIONS"));
+  assert.equal(await main(["--to", "check"], { ...capture().io, cwd: root, ...io, env: offRunner, platform: "linux" }), 0);
+  // rightkit#1301: Mac and Dell take the snapshot route too, so a differing checkout is no condition there either.
+  assert.equal(await main(["--to", "check"], { ...dirty.io, cwd: root, ...io, env: offRunner, platform: "darwin" }), 0);
+  assert.doesNotMatch(dirty.err.join("\n"), /the checkout differs from HEAD/);
 });
 
 test("--to release: package seals, qualify and release use exactly that sealed set, under a live door run; a changed seal blocks", async (t) => {
@@ -2094,7 +2096,7 @@ test("a partial check (--only) says it is not a class A result, and the door and
   assert.match(src, /main\(\["check", "--commit", ds \? commit : "HEAD", "--full-a", \.\.\.\(ds \? \["--snapshot", ds\.path\] : \[\]\), "--rule-tier", earlyTier\]/, "--to check runs the full check with full class A, at the tier the run owes");
   assert.match(src, /main\(\["check", "--commit", "HEAD", "--full-a", "--rule-tier", tier\]/, "the unit stages run full class A");
   assert.match(src, /main\(\["check", "--commit", ds \? commit : "HEAD", "--full-a", \.\.\.\(ds \? \["--snapshot", ds\.path\] : \[\]\)\], \{ \.\.\.io, cwd: root/, "the dev and test door run full class A of the selected commit's snapshot");
-  assert.match(src, /main\(\["check", "--worktree", "--full-a"\]/, "the checkout route (Mac and Dell until the cutover commit) runs full class A on the working tree; the cutover deletes runWorktreeCompile");
+  assert.doesNotMatch(src, /"--worktree", "--full-a"|runWorktreeCompile/, "rightkit#1301: the checkout route is deleted; no door stage runs class A on the working tree");
   assert.doesNotMatch(src, /main\(\["check", "--(commit|worktree)"(?![^\]]*--full-a)[^\]]*\]/, "no other entry calls a content-only check");
 });
 
@@ -2526,10 +2528,10 @@ test("full class A refuses an orphaned nested pnpm store in a workspace member (
   assert.equal(await main(["--class-a", "--full-a", "--worktree", "--no-cache"], { ...noRoot.io, cwd: repo, runScans: steady, spawn: withPnpm }), 0, noRoot.err.join("\n"));
 });
 
-test("the gate names itself to the broker by its own resolved entry path (RIGHTKIT_CALLING_GATE), set for every child of a CLI run", async () => {
+test("the gate names itself to the broker by its own resolved entry path (RUSTRIGHT_CALLING_GATE, one spelling), set for every child of a CLI run", async () => {
   const { callingGatePath } = await import("./bin/rightkit-gate.mjs");
   const entry = fs.realpathSync(new URL("./bin/rightkit-gate.mjs", import.meta.url));
   assert.equal(callingGatePath(), entry);
   const source = fs.readFileSync(entry, "utf8");
-  assert.match(source, /if \(invokedDirectly\) \{\s*\/\/[^\n]*\n\s*process\.env\.RIGHTKIT_CALLING_GATE = callingGatePath\(\);/);
+  assert.match(source, /if \(invokedDirectly\) \{\s*\/\/[^\n]*\n\s*process\.env\.RUSTRIGHT_CALLING_GATE = callingGatePath\(\);\s*delete process\.env\.RIGHTKIT_CALLING_GATE;/);
 });

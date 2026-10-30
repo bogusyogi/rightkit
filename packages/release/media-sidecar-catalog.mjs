@@ -10,7 +10,7 @@ import { runCargoSync } from "./managed-cargo.mjs";
 const invalid = (code, message) => Object.assign(new Error(message), { code });
 
 export function cargoFfmpegCrate(manifestPath, { run = runCargoSync } = {}) {
-  const result = run(["metadata", "--offline", "--format-version", "1", "--manifest-path", manifestPath], {
+  const result = run(["metadata", "--frozen", "--format-version", "1", "--manifest-path", manifestPath], {
     cwd: path.dirname(manifestPath),
     encoding: "utf8",
     maxBuffer: 256 * 1024 * 1024,

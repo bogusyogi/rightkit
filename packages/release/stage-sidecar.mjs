@@ -38,7 +38,8 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
 import { resolveCommand } from "./development.mjs";
-import { directPlatform, managedHost } from "./managed-cargo.mjs";
+import { carriedCargoMapOf } from "./carried-cargo.mjs";
+import { directPlatform, managedHost, runCargoSync } from "./managed-cargo.mjs";
 import { APPROVAL_MACHO_STRIP_LINKEDIT_V1, APPROVAL_RAW_SHA256, approvalDigest } from "./macho-approval-hash.mjs";
 import {
   bundledFileName, planMediaSidecar, sourceOfferText, stagedFileName, validateMediaSidecarConfig, verifyStagedSidecars, writeMediaSidecarNotices,
@@ -583,6 +584,9 @@ const tail = (text, lines = 12) => String(text ?? "").trim().split("\n").slice(-
 /** Default process runner: `rustright` resolves through the installed runtime client (its Windows shim is rustright.cmd). */
 export function defaultRun(command, args, { cwd, env = process.env } = {}) {
   if (command === "rightkit") throw new Error("`rightkit` is the retired name of the RustRight client (rustright#91); use rustright (stage: { cmd: \"rustright\" })");
+  // Every `rustright cargo` of this module is a right-release Cargo call: the one carried seam (managed-cargo.mjs runCargoSync) takes it,
+  // so a snapshot stage's call is carried and verified, and any other host runs it as before.
+  if (command === "rustright" && args[0] === "cargo") return runCargoSync(args.slice(1), { cwd, env, encoding: "utf8", maxBuffer: 512 * 1024 * 1024, shell: false, windowsHide: true, stdio: ["inherit", "pipe", "inherit"] });
   const launch = command === "rustright" ? resolveCommand(command, args, { root: cwd, env }) : { command, args };
   return nodeSpawnSync(launch.command, launch.args, {
     cwd, env: { ...env, ...(launch.env ?? {}) }, encoding: "utf8", maxBuffer: 512 * 1024 * 1024, shell: false, windowsHide: true, stdio: ["inherit", "pipe", "inherit"],
@@ -668,7 +672,7 @@ function resolveCatalogFile(spec, ctx, kind) {
   if (spec.via === "absolute") return requireSnapshotSource(ctx, spec.file, `the ${label} catalog`);
   if (spec.via === "path") return requireSnapshotSource(ctx, path.resolve(ctx.appRoot, spec.file), `the ${label} catalog`);
   if (spec.via === "crate") {
-    const meta = ctx.run("rustright", ["cargo", "metadata", "--format-version", "1"], { cwd: ctx.appRoot, env: ctx.env });
+    const meta = ctx.run("rustright", ["cargo", "metadata", "--frozen", "--format-version", "1"], { cwd: ctx.appRoot, env: ctx.env });
     let packages;
     try { packages = JSON.parse(meta.stdout).packages; } catch { /* refused below */ }
     if (meta?.status !== 0 || !Array.isArray(packages)) fail("STAGE_SIDECAR_CATALOG_UNREADABLE", `the ${label} catalog crate ${spec.crate} cannot be located: the workspace metadata query failed`, { crate: spec.crate });
@@ -806,6 +810,8 @@ function requireSnapshotSource(ctx, file, label) {
  */
 function splitCommandEnv(ctx) {
   if (!ctx.split) return ctx.env;
+  // A carried stage (carried-cargo.mjs): the broker pins every Cargo output, so nothing is pinned here and the commands inherit the carrier.
+  if (carriedCargoMapOf(ctx.env)?.map) return ctx.env;
   if (ctx.splitEnv === undefined) {
     const resolved = ctx.run("rustright", ["cargo", "metadata", "--format-version", "1", "--no-deps"], { cwd: ctx.cacheRoot, env: ctx.env });
     let dir;
@@ -907,7 +913,10 @@ function stageCargoBuild(entry, ctx, triple) {
   // resolved in the checkout instead and passed as an absolute CARGO_TARGET_DIR, so the warm outputs stay the checkout's and the
   // snapshot holds no target/ (docs/GATE-CONTRACT.md "Output directory & cache").
   let buildEnv = env;
-  if (ctx.split) {
+  // A carried stage (carried-cargo.mjs, a broker host): the broker pins the output directory and the call passes no CARGO_TARGET_DIR;
+  // the directory the binary is read from is the signed receipt's `outputDir`, never a carrier-less `cargo metadata`.
+  const carried = Boolean(carriedCargoMapOf(env)?.map);
+  if (ctx.split && !carried) {
     const checkoutManifest = entry.manifestPath ? ["--manifest-path", path.resolve(ctx.cacheRoot, entry.manifestPath)] : [];
     const resolved = run("rustright", ["cargo", "metadata", "--format-version", "1", "--no-deps", ...checkoutManifest], { cwd: ctx.cacheRoot, env });
     let pinned;
@@ -918,7 +927,13 @@ function stageCargoBuild(entry, ctx, triple) {
   const built = run("rustright", args, { cwd: appRoot, env: buildEnv });
   if (built?.error || built?.status !== 0) fail("STAGE_SIDECAR_BUILD_FAILED", `rustright cargo build of ${entry.package} failed (${built?.error?.message ?? `exit ${built?.status}`})`, { package: entry.package, stderr: tail(built?.stderr) });
   let source = artifactFromStream(built.stdout, entry.bin);
-  if (!source || !fs.existsSync(source)) {
+  if (carried && (!source || !fs.existsSync(source))) {
+    const targetDir = typeof built.outputDir === "string" && path.isAbsolute(built.outputDir) ? built.outputDir : undefined;
+    if (!targetDir) fail("STAGE_SIDECAR_BINARY_NOT_FOUND", `cargo reported no ${entry.bin} executable and the receipt names no output directory`, { bin: entry.bin });
+    const candidates = builtBinaryCandidates({ targetDir, targetDirs: [], triple, profile: entry.profile, bin: entry.bin, windows: ctx.windows });
+    source = candidates.find((file) => fs.existsSync(file));
+    if (!source) fail("STAGE_SIDECAR_BINARY_NOT_FOUND", `the build did not produce ${entry.bin} (looked in ${candidates.join(", ")})`, { bin: entry.bin, candidates });
+  } else if (!source || !fs.existsSync(source)) {
     const meta = run("rustright", ["cargo", "metadata", "--format-version", "1", "--no-deps", ...(entry.manifestPath ? ["--manifest-path", path.resolve(appRoot, entry.manifestPath)] : [])], { cwd: appRoot, env: buildEnv });
     let targetDir;
     try { targetDir = JSON.parse(meta.stdout).target_directory; } catch { /* refused below */ }

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -103,14 +104,25 @@ const goldenOf = (receipt) => {
   assert.ok(pins, `no enrolled pins for ${payload.host}`);
   return verifyProvenance(receipt, pins, { jobId: receipt.id, nonce: payload.nonce });
 };
-test("golden vector: a real broker receipt verifies against the enrolled pins, and a one-byte change to it does not", () => {
+test("golden vector: a real broker receipt verifies against the pins it was signed under (recorded beside it), and a one-byte change to it does not", () => {
   const real = JSON.parse(fs.readFileSync(path.join(HERE, "provenance-real-receipt.fixture.json"), "utf8"));
-  const payload = goldenOf(real);
+  // The fixture was signed by the Mac key before its 2026-10-29 rotation (BR15): its pins are recorded beside it, so a rotation of the live pin
+  // in ci/rk-pipeline.json cannot break the vector. The live pin is not the subject of this vector.
+  const recorded = JSON.parse(fs.readFileSync(path.join(HERE, "provenance-real-receipt.pins.json"), "utf8"));
+  const pins = { host: recorded.host, keyId: recorded.keyId, publicKey: recorded.publicKey, brokerDigest: recorded.brokerDigest };
+  assert.equal(real.provenance.payload.host, pins.host);
+  assert.equal(real.provenance.payload.keyId, pins.keyId, "the recorded key is the one that signed it");
+  assert.equal(crypto.createHash("sha256").update(Buffer.from(pins.publicKey, "hex")).digest("hex"), pins.keyId, "the key id is the digest of the recorded public key");
+  const golden = (receipt) => verifyProvenance(receipt, pins, { jobId: receipt.id, nonce: receipt.provenance.payload.nonce });
+  const payload = golden(real);
   assert.equal(payload.result.status, "SUCCEEDED");
   const tampered = structuredClone(real); tampered.provenance.payload.result.exitCode = 1;
-  refusal(() => goldenOf(tampered), "signature");
+  refusal(() => golden(tampered), "signature");
   const moved = structuredClone(real); moved.provenance.payload.request.workspace += "x";
-  refusal(() => goldenOf(moved), "signature");
+  refusal(() => golden(moved), "signature");
+  // The same receipt against another key (the rotated live pin) is refused as unpinned: a pin cannot be taken from the receipt.
+  const live = Object.values(pipeline.attestation ?? {}).find((p) => p.host === pins.host);
+  if (live && live.keyId !== pins.keyId) refusal(() => verifyProvenance(real, live, { jobId: real.id, nonce: real.provenance.payload.nonce }), "key");
 });
 
 test("optional golden vector from RIGHTKIT_PROVENANCE_FIXTURE", { skip: !process.env.RIGHTKIT_PROVENANCE_FIXTURE }, () => {

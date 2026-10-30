@@ -174,22 +174,26 @@ impl RecordStore {
         })
     }
 
-    /// Native continuity requires positive proof that no mutation is outstanding.
-    pub(crate) fn read_native(&self) -> Result<Snapshot, crate::NativeSourceError> {
+    /// Native continuity requires positive proof that no mutation is outstanding. A refusal
+    /// carries its fixed code beside the error the engine sees.
+    pub(crate) fn read_native(
+        &self,
+    ) -> Result<Snapshot, (crate::NativeSourceError, super::reader::NativeRefusal)> {
+        use super::reader::NativeRefusal;
         use crate::NativeSourceError;
         let store = self
             .store
             .pinned()
-            .map_err(|_| NativeSourceError::Refused)?;
+            .map_err(|_| (NativeSourceError::Refused, NativeRefusal::Store))?;
         let fence = store
             .rotation_status(&self.account)
-            .map_err(|_| NativeSourceError::Refused)?;
+            .map_err(|_| (NativeSourceError::Refused, NativeRefusal::Store))?;
         if !fence.is_idle() || self.flagged_unresolved() {
-            return Err(NativeSourceError::Refused);
+            return Err((NativeSourceError::Refused, NativeRefusal::Unresolved));
         }
         let loaded = match store
             .get(&self.account)
-            .map_err(|e| super::reader::native_store_error(&e))?
+            .map_err(|e| (super::reader::native_store_error(&e), NativeRefusal::Store))?
         {
             None => Loaded::Absent,
             Some(secret) if secret.is_empty() => Loaded::Absent,

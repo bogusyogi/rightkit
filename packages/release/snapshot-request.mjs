@@ -2,9 +2,9 @@
 // rustright-cli shims.rs `snapshot_carrier`, the verifier rustright-protocol attestation.rs `verify_receipt`).
 //
 // For each `rustright cargo` request that builds the commit snapshot on a broker host the gate:
-//   1. picks a fresh nonce (RIGHTKIT_ATTEST_NONCE: an attested request; the carrier must carry the same nonce);
+//   1. picks a fresh nonce (RUSTRIGHT_ATTEST_NONCE: an attested request; the carrier must carry the same nonce);
 //   2. writes the carrier `rightkit.snapshot-request/1` as an owner-only file under `<control root>/snapshot-requests/` (the
-//      directory the client accepts, never a link) and points RIGHTKIT_SNAPSHOT_REQUEST at it as `{"path","sha256"}` (at most
+//      directory the client accepts, never a link) and points RUSTRIGHT_SNAPSHOT_REQUEST at it as `{"path","sha256"}` (at most
 //      4096 bytes; the file at most 4 MiB). The carrier binds the commit and tree, the snapshot and its expected tree, the
 //      declared inputs, the build-ownership handle, the cargo working directory (primaryCwd) and sha256 of the canonical cargo
 //      argv (without `cargo`), so it cannot be replayed onto another request;
@@ -20,9 +20,11 @@ import path from "node:path";
 import { canonicalJson, ProvenanceError, verifyProvenance } from "./provenance-verify.mjs";
 
 export const SNAPSHOT_REQUEST_SCHEMA = "rightkit.snapshot-request/1";
-export const SNAPSHOT_REQUEST_ENV = "RIGHTKIT_SNAPSHOT_REQUEST";
-export const ATTEST_NONCE_ENV = "RIGHTKIT_ATTEST_NONCE";
-export const REQUEST_ID_FILE_ENV = "RIGHTKIT_REQUEST_ID_FILE";
+// One spelling per variable, the current one (rustright-cli shims.rs reads RUSTRIGHT_* first, then the legacy RIGHTKIT_* spelling, which task
+// L-1 removes): the gate never sets both.
+export const SNAPSHOT_REQUEST_ENV = "RUSTRIGHT_SNAPSHOT_REQUEST";
+export const ATTEST_NONCE_ENV = "RUSTRIGHT_ATTEST_NONCE";
+export const REQUEST_ID_FILE_ENV = "RUSTRIGHT_REQUEST_ID_FILE";
 export const REQUEST_REF_SCHEMA = "rustright.request-ref.v1";
 export const DESCRIPTOR_MAX_BYTES = 4096;
 export const CARRIER_MAX_BYTES = 4 * 1024 * 1024;
@@ -57,6 +59,30 @@ export function cargoSubcommandOf(argv) {
     return w;
   }
   return null;
+}
+/** The compile-class commands that build or run, and so can rewrite Cargo.lock inside a snapshot unless they are locked (rightkit#1301). */
+export const LOCK_BOUND_COMMANDS = Object.freeze(["build", "run", "test", "check", "bench", "clippy", "doc", "rustc", "rustdoc"]);
+
+/**
+ * The argv a carried call sends: a build or run command with neither `--locked` nor `--frozen` (before any `--`) gets `--locked` right
+ * after its subcommand. RustRight refuses an unlocked grant-minted build, and an unlocked build could rewrite Cargo.lock in the snapshot.
+ * Adding it, not refusing, is the less surprising rule: the call runs as the caller meant it, except that a stale lock fails instead of
+ * being rewritten. The ledger and the signed request digest both carry the argv as sent.
+ */
+export function lockedArgv(argv) {
+  const words = [...argv];
+  const sub = cargoSubcommandOf(words);
+  if (!LOCK_BOUND_COMMANDS.includes(sub)) return words;
+  const end = words.indexOf("--");
+  if ((end < 0 ? words : words.slice(0, end)).some((w) => w === "--locked" || w === "--frozen")) return words;
+  let i = words[0]?.startsWith("+") ? 1 : 0;
+  for (; i < words.length; i += 1) {
+    if (words[i] === "--") break;
+    if (GLOBAL_VALUE_OPTIONS.has(words[i])) { i += 1; continue; }
+    if (words[i].startsWith("-")) continue;
+    break;
+  }
+  return [...words.slice(0, i + 1), "--locked", ...words.slice(i + 1)];
 }
 export const isCompileClass = (argv) => COMPILE_CLASS_COMMANDS.includes(cargoSubcommandOf(argv));
 
@@ -136,6 +162,57 @@ export function writeSnapshotRequest({ controlRoot, commit, snapshot, declaredIn
   return { file, sha256: digest, descriptor, carrier, env };
 }
 
+// ---- the stage grant (rightkit#1301; RustRight's rustright.snapshot-grant/1) ----
+//
+// A grant lets the third-party children of a stage (the Tauri CLI, anything else that reaches Cargo without the seam) make their own
+// Cargo calls: the client mints a nonce per call, the broker checks each call against the grant. The gate writes one file per stage,
+// `<control root>/snapshot-requests/grant-<grantId>.json` (a direct child, a regular file, owner-only, at most 4 MiB), and hands the
+// child `RUSTRIGHT_SNAPSHOT_GRANT={"path","sha256"}` (current spelling only). The child gets no RUSTRIGHT_SNAPSHOT_REQUEST and no
+// RUSTRIGHT_ATTEST_NONCE. The broker allows build and run (with --locked or --frozen), `metadata --no-deps` and the carried read-only list,
+// never `--config` or `-Z`, only inside the snapshot, one call at a time, at most `maxCalls` distinct nonces, until `expiresAt`.
+export const SNAPSHOT_GRANT_SCHEMA = "rustright.snapshot-grant/1";
+export const SNAPSHOT_GRANT_ENV = "RUSTRIGHT_SNAPSHOT_GRANT";
+export const GRANT_MAX_CALLS_LIMIT = 4096;
+/** The calls one stage's third-party children may make: the Tauri CLI runs `metadata` several times and one to three builds (both universal-mac builds included), so 64 leaves room without leaving an open door. */
+export const STAGE_GRANT_MAX_CALLS = 64;
+/** The stage deadline: a release build is long, a grant must not outlive its stage by much (the gate also removes the file after the stage). */
+export const STAGE_GRANT_TTL_MS = 3 * 60 * 60 * 1000;
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+export const GRANT_FIELDS = Object.freeze(["schema", "grantId", "primary", "commit", "snapshot", "declaredInputs", "ownership", "allowedWorkspaces", "maxCalls", "expiresAt"]);
+
+/** Writes the stage grant and returns `{ file, sha256, descriptor, body, env }`; `env` is what a third-party child adds (and nothing else). */
+export function writeStageGrant({ controlRoot, primary, commit, snapshot, declaredInputs = [], handle, allowedWorkspaces, maxCalls = STAGE_GRANT_MAX_CALLS, ttlMs = STAGE_GRANT_TTL_MS, now = Date.now(), uuid = crypto.randomUUID, callingGate }) {
+  if (!objectId(commit?.sha) || !objectId(commit?.tree)) fail("invalid", "commit sha and tree must be full lowercase object ids");
+  if (!snapshot?.path || !path.isAbsolute(snapshot.path) || snapshot.expectedTree !== commit.tree) fail("invalid", "the snapshot needs an absolute path and the commit's tree as expectedTree");
+  if (typeof handle !== "string" || !handle.trim()) fail("invalid", "the build-ownership handle is missing");
+  if (!primary || !path.isAbsolute(primary)) fail("invalid", "primary must be the absolute primary checkout root");
+  if (!controlRoot || !path.isAbsolute(controlRoot)) fail("invalid", "the control root must be absolute");
+  if (typeof callingGate !== "string" || !callingGate.trim()) fail("invalid", "RUSTRIGHT_CALLING_GATE must name the gate: a grant call without one is refused");
+  if (!Array.isArray(allowedWorkspaces) || !allowedWorkspaces.length) fail("invalid", "allowedWorkspaces must be non-empty");
+  const inside = (dir) => { const rel = path.relative(snapshot.path, dir); return path.isAbsolute(dir) && rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel); };
+  if (!allowedWorkspaces.every(inside)) fail("invalid", "every allowed workspace is an absolute directory inside the snapshot");
+  if (!Number.isInteger(maxCalls) || maxCalls < 1 || maxCalls > GRANT_MAX_CALLS_LIMIT) fail("invalid", `maxCalls is 1 to ${GRANT_MAX_CALLS_LIMIT}`);
+  if (!Array.isArray(declaredInputs) || declaredInputs.some((p) => typeof p !== "string" || !p || path.isAbsolute(p) || path.posix.isAbsolute(p))) fail("invalid", "declared inputs must be relative paths");
+  const dir = path.join(controlRoot, "snapshot-requests");
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const meta = fs.lstatSync(dir);
+  if (meta.isSymbolicLink() || !meta.isDirectory()) fail("invalid", `${dir} is not a real directory`);
+  const grantId = uuid();
+  if (!UUID_V4.test(grantId)) fail("invalid", "grantId must be a lowercase uuid v4");
+  const body = {
+    schema: SNAPSHOT_GRANT_SCHEMA, grantId, primary, commit: { sha: commit.sha, tree: commit.tree }, snapshot: { path: snapshot.path, expectedTree: snapshot.expectedTree },
+    declaredInputs: { inputs: [...declaredInputs] }, ownership: { handle }, allowedWorkspaces: [...allowedWorkspaces], maxCalls, expiresAt: new Date(now + ttlMs).toISOString(),
+  };
+  const bytes = Buffer.from(JSON.stringify(body), "utf8");
+  if (bytes.length > CARRIER_MAX_BYTES) fail("too-large", `the stage grant is ${bytes.length} bytes, more than ${CARRIER_MAX_BYTES}`);
+  const file = path.join(dir, `grant-${grantId}.json`);
+  fs.writeFileSync(file, bytes, { flag: "wx", mode: 0o600 });
+  const digest = sha256(bytes);
+  const descriptor = JSON.stringify({ path: file, sha256: digest });
+  if (Buffer.byteLength(descriptor) > DESCRIPTOR_MAX_BYTES) { fs.rmSync(file, { force: true }); fail("too-large", "the stage grant descriptor exceeds 4096 bytes"); }
+  return { file, sha256: digest, descriptor, body, env: { [SNAPSHOT_GRANT_ENV]: descriptor, RUSTRIGHT_CALLING_GATE: callingGate } };
+}
+
 /** The request core the broker digests for a snapshot cargo request: the base core plus commit, snapshot, declaredInputs and ownership. */
 export function snapshotRequestCore({ argv, workspace, observedEnv = {}, carrier }) {
   return {
@@ -145,7 +222,7 @@ export function snapshotRequestCore({ argv, workspace, observedEnv = {}, carrier
 }
 export const requestDigestOf = (core) => sha256(canonicalJson(core));
 
-/** The request reference the client writes at submit (RIGHTKIT_REQUEST_ID_FILE), or a throw. */
+/** The request reference the client writes at submit (RUSTRIGHT_REQUEST_ID_FILE), or a throw. */
 export function readRequestRef(file) {
   let ref;
   try { ref = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { fail("request", `no request reference at ${file} (${e.message})`); }

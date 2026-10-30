@@ -3540,7 +3540,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-license"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",

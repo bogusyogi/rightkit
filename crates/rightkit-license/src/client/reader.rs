@@ -7,8 +7,12 @@
 //! means no write is in flight; a marker, or a fence still held by a timed-out child call, means
 //! an earlier write is unresolved. Each refusal is a fixed-text `Err` the engine reports as
 //! `Unreadable`, never "no licence" and never an entitlement. The record it reads is the envelope:
-//! a tombstone is no licence, and an older bare record is read as active (see
-//! [`stored_signed_token`](crate::stored_signed_token)).
+//! a tombstone is no licence. An older bare record (no revision) never grants as it stands: the
+//! client's native source (`ClientNativeEntitlementSource`) authenticates a same-item bare signed
+//! active record and rewrites it as an envelope on its first read, under the operation lock it
+//! already holds, and refuses it when it does not authenticate (see [`NativeRefusal`]).
+//! [`stored_signed_token`](crate::stored_signed_token) still reads either form for the legacy
+//! engine token source.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -16,6 +20,7 @@ use std::time::Duration;
 use rightkit_credentials::Store;
 
 use super::lock::{OpLock, STATUS_WAIT};
+use super::ops::{admit, Admission, UpgradeRefusal, Upgraded};
 use super::order::{self, Level};
 use super::view::LicenseError;
 use crate::CredentialTokenSource;
@@ -81,6 +86,76 @@ impl CredentialTokenSource {
     }
 }
 
+/// Why the native source refused its last read: a fixed code, never a token, device id,
+/// revision, path or store text. The native source reports the refusal itself only as
+/// `NativeSourceError::Refused`; this says which one, through
+/// [`LicenseClient::last_native_refusal`](super::LicenseClient::last_native_refusal).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum NativeRefusal {
+    /// The licence operation lock is held.
+    Busy,
+    /// A marker or an unfinished write stands, or a bare record's upgrade did not settle.
+    Unresolved,
+    /// The credential store could not be read, or its fence could not be checked.
+    Store,
+    /// The stored item is not a record this crate understands.
+    Corrupt,
+    /// A bare (older, revision-less) record whose signed token did not authenticate. It is
+    /// neither rewritten nor deleted, and the status view reports migration required.
+    Unauthenticated,
+    /// The device identity could not be read.
+    Device,
+    /// The record is present but is not active (neither revoked nor a signed active licence).
+    InvalidRecord,
+}
+
+impl NativeRefusal {
+    /// The stable snake_case code.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Busy => "busy",
+            Self::Unresolved => "unresolved",
+            Self::Store => "store",
+            Self::Corrupt => "corrupt",
+            Self::Unauthenticated => "unauthenticated",
+            Self::Device => "device",
+            Self::InvalidRecord => "invalid_record",
+        }
+    }
+
+    pub(crate) const fn code(self) -> u8 {
+        match self {
+            Self::Busy => 1,
+            Self::Unresolved => 2,
+            Self::Store => 3,
+            Self::Corrupt => 4,
+            Self::Unauthenticated => 5,
+            Self::Device => 6,
+            Self::InvalidRecord => 7,
+        }
+    }
+
+    pub(crate) const fn from_code(code: u8) -> Option<Self> {
+        Some(match code {
+            1 => Self::Busy,
+            2 => Self::Unresolved,
+            3 => Self::Store,
+            4 => Self::Corrupt,
+            5 => Self::Unauthenticated,
+            6 => Self::Device,
+            7 => Self::InvalidRecord,
+            _ => return None,
+        })
+    }
+}
+
+impl std::fmt::Display for NativeRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Native-only credential source sharing every client writer's operation fence.
 #[derive(Clone)]
 pub struct ClientNativeEntitlementSource {
@@ -88,6 +163,14 @@ pub struct ClientNativeEntitlementSource {
 }
 
 impl super::LicenseClient {
+    /// The reason the native source refused its last read, or `None` when that read was not
+    /// refused (or none has happened, or licensing is disabled). A fixed code only.
+    pub fn last_native_refusal(&self) -> Option<NativeRefusal> {
+        self.core
+            .as_ref()
+            .and_then(|core| core.last_native_refusal())
+    }
+
     /// Returns a native source; disabled licensing has no authorizer.
     pub fn native_entitlement_source(&self) -> Result<ClientNativeEntitlementSource, LicenseError> {
         Ok(ClientNativeEntitlementSource {
@@ -118,54 +201,103 @@ impl ClientNativeEntitlementSource {
     }
 }
 
+impl ClientNativeEntitlementSource {
+    /// One read under the operation lock. Must not call `signalled`: the engine's continuity
+    /// mutex is held around this call. The refusal code rides beside the error.
+    fn read_coded(
+        &self,
+    ) -> Result<crate::NativeCredential, (crate::NativeSourceError, NativeRefusal)> {
+        use super::envelope::RecordStatus;
+        use crate::{NativeCredential, NativeSignedCredential, NativeSourceError};
+        let refuse = |why: NativeRefusal| (NativeSourceError::Refused, why);
+        let _level = order::enter(Level::Op);
+        let mut guard = self.core.op.acquire(ENGINE_WAIT).map_err(|error| {
+            refuse(match error {
+                LicenseError::Busy => NativeRefusal::Busy,
+                _ => NativeRefusal::Store,
+            })
+        })?;
+        let records = self
+            .core
+            .records
+            .pinned()
+            .map_err(|_| refuse(NativeRefusal::Store))?;
+        guard.records = Some(Box::new(records.clone()));
+        let mut snap = records.read_native()?;
+        if matches!(
+            admit(&snap, self.core.records.flagged_unresolved()),
+            Admission::BareSigned(_)
+        ) {
+            match self.core.upgrade_bare_locked(&records, guard, snap) {
+                Upgraded::Rebound(held, fresh) => {
+                    guard = held;
+                    snap = fresh;
+                }
+                Upgraded::Left(_, _, why) => {
+                    return Err(refuse(match why {
+                        UpgradeRefusal::Unauthenticated => NativeRefusal::Unauthenticated,
+                        UpgradeRefusal::Device => NativeRefusal::Device,
+                        UpgradeRefusal::Store => NativeRefusal::Store,
+                        UpgradeRefusal::NotBare | UpgradeRefusal::Unresolved => {
+                            NativeRefusal::Unresolved
+                        }
+                    }))
+                }
+                Upgraded::Failed(why) => {
+                    return Err(refuse(match why {
+                        UpgradeRefusal::Store => NativeRefusal::Store,
+                        _ => NativeRefusal::Unresolved,
+                    }))
+                }
+            }
+        }
+        // The guard stays held until the read has returned.
+        let _guard = guard;
+        match admit(&snap, self.core.records.flagged_unresolved()) {
+            Admission::Unresolved => Err(refuse(NativeRefusal::Unresolved)),
+            Admission::Absent | Admission::Tombstone => Ok(NativeCredential::Absent),
+            Admission::Corrupt => Err(refuse(NativeRefusal::Corrupt)),
+            // A bare record that is still bare here was not rebound: never a grant.
+            Admission::BareSigned(_) => Err(refuse(NativeRefusal::Unauthenticated)),
+            Admission::NonGranting(record) => match record.status {
+                RecordStatus::Revoked => Ok(NativeCredential::Revoked),
+                RecordStatus::Active => Ok(if record.activation_token.is_some() {
+                    NativeCredential::LegacyUnsigned
+                } else {
+                    NativeCredential::Unsigned
+                }),
+                RecordStatus::Invalid => Err(refuse(NativeRefusal::InvalidRecord)),
+            },
+            Admission::Signed { revision, record } => {
+                let token = record
+                    .signed_token()
+                    .ok_or_else(|| refuse(NativeRefusal::InvalidRecord))?;
+                let device_binding = self
+                    .binding(record)
+                    .map_err(|_| refuse(NativeRefusal::Device))?;
+                Ok(NativeCredential::Signed(NativeSignedCredential {
+                    token: token.to_owned(),
+                    device_binding,
+                    clock_initialized: record.clock_initialized,
+                    revision: revision.to_owned(),
+                }))
+            }
+        }
+    }
+}
+
 impl crate::NativeEntitlementSource for ClientNativeEntitlementSource {
     fn read(&self) -> Result<crate::NativeCredential, crate::NativeSourceError> {
-        use super::envelope::{RecordState, RecordStatus};
-        use super::persist::Loaded;
-        use crate::{NativeCredential, NativeSignedCredential, NativeSourceError};
-        let _level = order::enter(Level::Op);
-        let _guard = self
-            .core
-            .op
-            .acquire(ENGINE_WAIT)
-            .map_err(|_| NativeSourceError::Refused)?;
-        let snap = self.core.records.read_native()?;
-        if snap.unresolved() || self.core.records.flagged_unresolved() {
-            return Err(NativeSourceError::Refused);
+        match self.read_coded() {
+            Ok(credential) => {
+                self.core.note_native_refusal(None);
+                Ok(credential)
+            }
+            Err((error, why)) => {
+                self.core.note_native_refusal(Some(why));
+                Err(error)
+            }
         }
-        let envelope = match snap.loaded {
-            Loaded::Absent => return Ok(NativeCredential::Absent),
-            Loaded::Corrupt => return Err(NativeSourceError::Refused),
-            Loaded::Present(value) => value,
-        };
-        if envelope.state == RecordState::Tombstone {
-            return Ok(NativeCredential::Absent);
-        }
-        let record = envelope.record.as_ref().ok_or(NativeSourceError::Refused)?;
-        if record.status == RecordStatus::Revoked {
-            return Ok(NativeCredential::Revoked);
-        }
-        if record.status != RecordStatus::Active {
-            return Err(NativeSourceError::Refused);
-        }
-        let Some(token) = record.signed_token() else {
-            return Ok(if record.activation_token.is_some() {
-                NativeCredential::LegacyUnsigned
-            } else {
-                NativeCredential::Unsigned
-            });
-        };
-        // Bare records must pass the client's authenticated import before marker CAS is possible.
-        let revision = envelope
-            .revision
-            .clone()
-            .ok_or(NativeSourceError::Refused)?;
-        Ok(NativeCredential::Signed(NativeSignedCredential {
-            token: token.to_owned(),
-            device_binding: self.binding(record)?,
-            clock_initialized: record.clock_initialized,
-            revision,
-        }))
     }
 
     fn mark_clock_initialized(

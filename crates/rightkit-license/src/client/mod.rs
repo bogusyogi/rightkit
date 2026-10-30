@@ -75,7 +75,8 @@ pub use clockstore::{ClientClockError, ClientClockStore};
 pub use invalidation::LicenseInvalidation;
 pub use ops::LegacySource;
 pub use reader::{
-    ClientNativeEntitlementSource, ENGINE_BUSY_TEXT, ENGINE_STORE_TEXT, ENGINE_UNRESOLVED_TEXT,
+    ClientNativeEntitlementSource, NativeRefusal, ENGINE_BUSY_TEXT, ENGINE_STORE_TEXT,
+    ENGINE_UNRESOLVED_TEXT,
 };
 pub use types::{
     DeviceIdError, DeviceIdSource, LicenseClientConfig, LicenseSetup, PendingLicenseRelease,
@@ -222,7 +223,9 @@ impl LicenseClient {
         core.signalled(|| core.deactivate())
     }
 
-    /// Native only migration of an app's older record. Reads `source`, authenticates its signed
+    /// Native only migration of an app's older record. A same-item bare signed record is also
+    /// upgraded automatically by `status` and by the native source's first read, so this is
+    /// needed only for a record in a different item. Reads `source`, authenticates its signed
     /// token (signature, app, device; no time check, so an expired licence imports as expired
     /// and a grace one keeps its anchors), writes the envelope, and only after that commits
     /// removes the legacy item (never when it is the licence item itself, which is upgraded in

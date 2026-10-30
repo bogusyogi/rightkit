@@ -87,7 +87,7 @@
         "reason": "ci/asset-gated.json: FFmpeg binary for the media cross-check (tests/media_ffmpeg.rs); its skip-handling tests also print SKIP markers by design; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "@rightkit/release": {
-        "version": "0.6.13",
+        "version": "0.6.14",
         "allow": [
           "allow_missing_assets"
         ],
@@ -139,7 +139,7 @@
       "host": "Adrians-Mac-Mini.local",
       "keyId": "325f2a62844637131c2678eec6f1c15215863d540fbba0a823329e5e26e4f4d6",
       "publicKey": "0415170e128cfaa2007f87cbcff0ba9559b11c66436b9335c3dfd8eceab20c6e7d9f70e908426b3c5805db5a23873b18c4fec909efdda02d4dd7961a9b40b6338b",
-      "brokerDigest": "2b0d6c901ccbb1c4dee517d9fbec6bfd72d49aede200fae89a7659b8e141853e",
+      "brokerDigest": "1698bb5cfd6743b20c39d843303c897c50b4f94bbb88dacc60f14a54e3948569",
       "note": "Enrollment of this host's installed broker for receipt verification (attested-runs.md 'Verifying a receipt'): public key, key id and broker digest read from the control root and runtime manifest, never from a receipt. npm rows run through the broker adapter `rightkit-pnpm` (node + pinned pnpm.mjs, both in the broker tool registry); nodeSha256 and pnpmScriptSha256 are read from that registry, never from a receipt.",
       "cargoSha256": "1de2e84c15443b70444eecfa959ff9099dd8c1a5606b6d9ef5bc0ea9c25bc7f9",
       "cargoPath": "/Volumes/D/.build-home/adrdsouza/rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
@@ -155,7 +155,7 @@
       "host": "BOGUS-DELL",
       "keyId": "5feb907f576bf36569e336f025623f6710759ee3571da9bd30e6af8be370a0c6",
       "publicKey": "04404cf79f43f03b8d0d442360f3561d2119c3783eeb6eb09ae566a29da15373ff2a461a50fe9d5317142ccf1305a8072beddecd12a20ce1301a45503fc383cf2e",
-      "brokerDigest": "2fa8b229a56c166df64410b39311eb6505d733487f85cb5532c55556b881ce31",
+      "brokerDigest": "ed3b4cc419ff326c6fa990b9ccb727c4fcff51e1a30f6fbcf18b71dba8abdc42",
       "note": "Enrollment of the Dell's installed broker for receipt verification, read from its control root and runtime manifest by RightBoss D (2026-10-28); host and broker taken verbatim from the broker-signed receipt c81f945d-2d07-4aa9-9244-e6e2efcd3853 (D:\\scratch\\rk-069-accept\\pin8-dell-verify\\attest-status.json).",
       "cargoSha256": "197c9f582da4994c585b13366abc12e810de2708ce14ddcf0873a8f377f3954e",
       "cargoPath": "C:\\Users\\adrds\\.rustup\\toolchains\\1.98.0-x86_64-pc-windows-msvc\\bin\\cargo.exe",

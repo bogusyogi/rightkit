@@ -33,7 +33,7 @@ export const DIGEST_FILES = Object.freeze([
   "scripts/ci/rk-release-canary.mjs", "scripts/ci/rk-release-canary-leg.mjs", "scripts/ci/release-version-pins.mjs", "ci/release-canary.json",
 ]);
 export const EXPECTED_FILE = "ci/release-canary-expected.json";
-export const CHECKS = Object.freeze(["new-fail-row", "pass-to-not-pass", "fatal-signature-changed", "tree-write", "gate-row"]);
+export const CHECKS = Object.freeze(["new-fail-row", "pass-to-not-pass", "fatal-signature-changed", "tree-write", "gate-row", "route-refusal"]);
 const REGISTRY = "https://registry.npmjs.org";
 const sha256 = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
 
@@ -107,7 +107,7 @@ export function expectedProblems(file) {
     if (problems.some((p) => p.startsWith(at))) return;
     if (!/^\d+\.\d+\.\d+$/.test(e.version)) problems.push(`${at}.version must be one exact x.y.z`);
     if (!HOST_FOR_PLATFORM[e.platform]) problems.push(`${at}.platform must be mac, win or ios`);
-    if (!CHECKS.includes(e.check)) problems.push(`${at}.check must be one of ${CHECKS.join(", ")} (a candidate crash can never be expected)`);
+    if (!CHECKS.includes(e.check)) problems.push(`${at}.check must be one of ${CHECKS.join(", ")} (a candidate crash or route-probe crash can never be expected)`);
     for (const f of ["version", "app", "platform", "check", "match"]) if (/[*?]/.test(e[f])) problems.push(`${at}.${f} contains a wildcard`);
     if (e.reason.trim().length < 10) problems.push(`${at}.reason must say why`);
     if (!/^(?:#\d+|[\w.-]+\/[\w.-]+#\d+|https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+)$/.test(e.issue)) problems.push(`${at}.issue must be an issue reference`);
@@ -120,7 +120,7 @@ export function expectedProblems(file) {
 
 /** The entry that excuses exactly this finding for exactly this candidate version, or null. A candidate crash never matches. */
 export function expectedMatch(finding, entries, { version, app, platform }) {
-  if (finding.kind === "candidate-crash") return null;
+  if (finding.kind === "candidate-crash" || finding.kind === "route-probe-crash") return null;
   return (entries ?? []).find((e) => e.version === version && e.app === app && e.platform === platform && e.check === finding.kind && e.match === finding.match) ?? null;
 }
 
@@ -197,6 +197,32 @@ export function compareCells({ candidate: c, baseline: b, expected = [], version
     }
   }
 
+  // The route of every stage (rightkit#1297): what `rightkit-gate --to <stage> --route` answers on this host. A candidate that refuses a
+  // stage the baseline does not refuse blocks; a baseline that cannot probe counts as admitting every stage.
+  if (c && !isInfra(c)) {
+    const baseProbes = new Map((b && !isInfra(b) && b.routeSupported ? b.routes ?? [] : []).map((r) => [r.stage, r]));
+    for (const r of c.routes ?? []) {
+      // A probe that timed out answered nothing (an outage is not a verdict): incomplete, never block (rightkit#1297 L3).
+      if (r.status === "timeout") { add("incomplete", "route-probe-timeout", `${r.stage}`, `rightkit-gate --to ${r.stage} --route timed out: ${r.detail ?? "no answer"}; the route is unproven, so the cell is not green`); continue; }
+      if (r.status !== "ok") { add("block", "route-probe-crash", `${r.stage}`, `rightkit-gate --to ${r.stage} --route did not answer: ${r.detail ?? "crash"}; a probe crash can never be listed as expected`); continue; }
+      const p = r.route;
+      // An executor of kind `refuse` is a host whose broker cannot be reached: the refusal it reports is the outage's, not the candidate's
+      // (rightkit#1297 L3), so it is incomplete and never a route-refusal block.
+      if (p.executor === "refuse") { add("incomplete", "route-broker-unreachable", `${r.stage}`, `the broker is unreachable on ${host} (${p.refusal?.code ?? "no refusal"}); the route of ${r.stage} cannot be judged`); continue; }
+      // On the Mac and the Dell every stage takes the snapshot route through the production carrier (rightkit#1301): any other route, or no
+      // carrier, is the checkout route's return (0.6.13) and blocks. It is no expected-entry check, so it can never be excused.
+      if ((host === "darwin" || host === "win32") && p.executor === "broker" && (p.route !== "snapshot" || !p.carrier)) add("block", "route-not-snapshot", `${r.stage}:${p.route}/${p.carrier ?? "no carrier"}`, `on ${host} rightkit-gate --to ${r.stage} takes the ${p.route} route with ${p.carrier ?? "no carrier"}; every stage must take the snapshot route through the carrier`);
+      if ((host === "darwin" || host === "win32") && p.executor !== "broker") add("incomplete", "route-not-representative", `${r.stage}:${p.executor}`, `on ${host} the executor is ${p.executor}, not the broker: the route is not the one Adrian's hosts take`);
+      const was = baseProbes.get(r.stage);
+      const wasOk = was?.status === "ok" ? was.route : null;
+      if (p.refusal) {
+        if (wasOk?.refusal?.code === p.refusal.code) add("report", "pre-existing-route-refusal", `${r.stage}:${p.refusal.code}`, `${r.stage} is refused with ${p.refusal.code} on the baseline too`);
+        else add("block", "route-refusal", `${r.stage}:${p.refusal.code}`, `rightkit-gate --to ${r.stage} refuses with ${p.refusal.code}: ${p.refusal.message}${wasOk ? "; the baseline does not refuse it" : "; the baseline cannot be probed and counts as admitting it"}`);
+      } else if (wasOk?.refusal) add("report", "route-fixed", `${r.stage}:${wasOk.refusal.code}`, `${r.stage} was refused with ${wasOk.refusal.code} on the baseline, not on the candidate`);
+      else if (wasOk && (wasOk.route !== p.route || wasOk.carrier !== p.carrier || wasOk.executor !== p.executor)) add("report", "route-changed", `${r.stage}:${wasOk.route}->${p.route}`, `${r.stage} route changed from ${wasOk.route}/${wasOk.carrier ?? "no carrier"} to ${p.route}/${p.carrier ?? "no carrier"}`);
+    }
+  }
+
   const excused = [];
   for (const f of findings) {
     if (f.severity !== "block") continue;
@@ -248,7 +274,7 @@ export function compareAll({ matrix, candidateCells, baselineCells, expected, ve
       if (unresolved && !pair.candidate && !pair.baseline) r.findings.unshift({ severity: app.blocking ? "incomplete" : "report", kind: "unresolved-app-commit", match: app.repoDir, detail: unresolved });
       const verdict = r.findings.some((f) => f.severity === "block") ? "regression" : r.findings.some((f) => f.severity === "incomplete") ? "incomplete" : "ok";
       for (const e of r.excused) used.add(e);
-      const summary = (cell) => cell && ({ status: cell.status, refusedAs: cell.refusedAs ?? null, failNames: cell.failNames, gateFailNames: cell.gateFailNames, fatal: cell.fatal?.signature ?? null, treeIgnoredNotCovered: cell.treeIgnoredNotCovered ?? [], treeChanged: cell.treeChanged, head: cell.head ?? null, headMatchesPin: cell.headMatchesPin ?? null, dirty: cell.dirty ?? null, gatesRun: cell.gatesRun ?? false, compilerCache: cell.compilerCache ?? null, normalizedSha256: cell.normalizedSha256 ?? null, noNodeModules: cell.noNodeModules ?? null, seconds: cell.seconds, attempts: cell.attempts ?? 1, detail: cell.detail ?? null, admissionCode: cell.admissionCode ?? null, unnormalizedBlobs: cell.unnormalizedBlobs ?? [] });
+      const summary = (cell) => cell && ({ status: cell.status, refusedAs: cell.refusedAs ?? null, failNames: cell.failNames, gateFailNames: cell.gateFailNames, fatal: cell.fatal?.signature ?? null, treeIgnoredNotCovered: cell.treeIgnoredNotCovered ?? [], treeChanged: cell.treeChanged, head: cell.head ?? null, headMatchesPin: cell.headMatchesPin ?? null, dirty: cell.dirty ?? null, gatesRun: cell.gatesRun ?? false, routeSupported: cell.routeSupported ?? false, routes: (cell.routes ?? []).map((r) => ({ stage: r.stage, status: r.status, detail: r.detail ?? null, route: r.route?.route ?? null, executor: r.route?.executor ?? null, carrier: r.route?.carrier ?? null, refusal: r.route?.refusal ?? null })), compilerCache: cell.compilerCache ?? null, normalizedSha256: cell.normalizedSha256 ?? null, noNodeModules: cell.noNodeModules ?? null, seconds: cell.seconds, attempts: cell.attempts ?? 1, detail: cell.detail ?? null, admissionCode: cell.admissionCode ?? null, unnormalizedBlobs: cell.unnormalizedBlobs ?? [] });
       cells.push({ id: app.id, platform, host, blocking: app.blocking, verdict, findings: r.findings, candidate: summary(pair.candidate), baseline: summary(pair.baseline) });
     }
   }
@@ -336,7 +362,11 @@ async function fetchVersion({ fetchImpl, name, version, file, what }) {
   const bytes = await fetchBytes(fetchImpl, dist.tarball, what);
   const integrity = checkIntegrity(bytes, dist, what);
   fs.writeFileSync(file, bytes);
-  return { file, version: wanted, sha256: sha256(bytes), integrity };
+  // npm provenance: the packument's dist.attestations names the SLSA provenance a trusted publisher (publish-direct.yml) produced; a version
+  // published by hand carries none (0.6.10 to 0.6.13 were direct publishes, rightkit#1297).
+  const att = doc.versions[wanted].dist?.attestations;
+  const provenance = { attested: Boolean(att?.provenance), predicateType: att?.provenance?.predicateType ?? null, url: att?.url ?? null };
+  return { file, version: wanted, sha256: sha256(bytes), integrity, provenance };
 }
 /** The registry's latest @rightkit/release tarball, verified against the packument integrity. */
 export const fetchBaseline = ({ fetchImpl = fetch, outDir }) => once(() => fetchVersion({ fetchImpl, name: UNIT, file: path.join(outDir, "baseline.tgz"), what: "baseline" }), "baseline fetch");
@@ -483,7 +513,9 @@ export async function runCanary({ root = ROOT, out = DEFAULT_OUT, unit = UNIT, e
     if (spec !== matrix.dependency.version) { receipt.stages.dependency = { ok: false, problems: [`candidate depends on ${matrix.dependency.name} ${spec}, the canary pins ${matrix.dependency.version}`] }; say(receipt.stages.dependency.problems[0]); return finish("regression"); }
     [baseline, dependency] = await Promise.all([(deps.fetchBaseline ?? fetchBaseline)({ fetchImpl: deps.fetchImpl, outDir: bundleDir }), (deps.fetchDependency ?? fetchDependency)({ fetchImpl: deps.fetchImpl, outDir: bundleDir, ...matrix.dependency })]);
   } catch (error) { receipt.stages.inputs = { ok: false, problems: [String(error.message ?? error)] }; say(`inputs: ${error.message}`); return finish("incomplete"); }
-  receipt.artifacts = { candidate: { sha256: candidate.sha256, version: candidate.version }, baseline: { sha256: baseline.sha256, version: baseline.version, integrity: baseline.integrity }, dependency: { sha256: dependency.sha256, version: dependency.version } };
+  receipt.baselineProvenance = baseline.provenance ?? { attested: false, predicateType: null, url: null };
+  say(`baseline ${unit}@${baseline.version}: ${receipt.baselineProvenance.attested ? `npm provenance ${receipt.baselineProvenance.predicateType ?? "present"}` : "NO npm provenance (a direct publish is no CI-qualified baseline)"}`);
+  receipt.artifacts = { candidate: { sha256: candidate.sha256, version: candidate.version }, baseline: { sha256: baseline.sha256, version: baseline.version, integrity: baseline.integrity, provenance: receipt.baselineProvenance }, dependency: { sha256: dependency.sha256, version: dependency.version } };
 
   const manifest = buildManifest({ sha, version, matrix, repos, candidate, baseline, dependency });
   fs.writeFileSync(path.join(bundleDir, "manifest.json"), JSON.stringify(manifest, null, 2));
@@ -507,7 +539,7 @@ export async function runCanary({ root = ROOT, out = DEFAULT_OUT, unit = UNIT, e
     say(receipt.stages.head.problems[0]);
     return finish("incomplete", { cells: result.cells });
   }
-  for (const c of result.cells) for (const f of c.findings) if (f.severity !== "report" || ["pre-existing-fail", "pre-existing-fatal", "fixed", "fixed-row", "unproven"].includes(f.kind) || f.excusedBy) say(`${f.severity.toUpperCase().padEnd(10)} ${c.id}/${c.platform} ${f.kind}${f.match && f.kind !== "unproven" ? ` ${JSON.stringify(f.match)}` : ""}${f.excusedBy ? ` (expected: ${f.excusedBy.issue})` : ""}${f.reportOnly ? " [report-only app]" : ""}`);
+  for (const c of result.cells) for (const f of c.findings) if (f.severity !== "report" || ["pre-existing-fail", "pre-existing-fatal", "fixed", "fixed-row", "unproven", "pre-existing-route-refusal", "route-changed", "route-fixed"].includes(f.kind) || f.excusedBy) say(`${f.severity.toUpperCase().padEnd(10)} ${c.id}/${c.platform} ${f.kind}${f.match && f.kind !== "unproven" ? ` ${JSON.stringify(f.match)}` : ""}${f.excusedBy ? ` (expected: ${f.excusedBy.issue})` : ""}${f.reportOnly ? " [report-only app]" : ""}`);
   return finish(result.verdict, { cells: result.cells, representative: result.representative, staleExpected: result.staleExpected });
 }
 
