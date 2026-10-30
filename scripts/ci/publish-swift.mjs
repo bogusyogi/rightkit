@@ -15,7 +15,7 @@
 //   3. swift/RightKitSwift/VERSION equals the version, CHANGELOG.md has a dated `## <version> - YYYY-MM-DD` heading,
 //      and the root Package.swift still matches the nested manifest (scripts/swift-root-manifest.test.mjs);
 //   4. the tag exists neither locally nor on origin;
-//   5. a green rightkit-shared-ci push run exists for exactly that commit, including `macos swift-rightkitswift`
+//   5. a green broker-dispatched rightkit-shared-ci run (workflow_dispatch; pushes skip native jobs) exists for exactly that commit, including `macos swift-rightkitswift`
 //      (swift build, swift test and the generic iOS and watchOS xcodebuild rows are required commands of that job,
 //      and the summary job proves every frozen command), `macos root` and mark-green-macos;
 //   6. ci/approved-artifacts.json (read from that commit) holds one reviewer-approved registry=swift entry whose
@@ -171,13 +171,15 @@ export function checkApproval({ approvedFile = APPROVED_FILE, version, digest })
 
 const runOrder = (a, b) => Number(b?.run_number ?? 0) - Number(a?.run_number ?? 0) || Number(b?.run_attempt ?? 0) - Number(a?.run_attempt ?? 0);
 
-/** The latest rightkit-shared-ci push run on main for exactly this commit; it must have completed green. */
+/** The latest broker-dispatched rightkit-shared-ci run on main for exactly this commit; it must have completed green. Only a
+ * dispatched run carries the native macOS jobs (a push runs static validation only and skips them), and ci.yml binds it to
+ * the commit (expected_sha must equal GITHUB_SHA). */
 export function selectCiRun({ runs, repository = REPOSITORY, commit }) {
   const rows = (Array.isArray(runs) ? runs : [])
-    .filter((run) => run?.head_sha === commit && run.path === WORKFLOW_PATH && run.event === "push" && run.head_branch === "main"
+    .filter((run) => run?.head_sha === commit && run.path === WORKFLOW_PATH && run.event === "workflow_dispatch" && run.head_branch === "main"
       && run.repository?.full_name === repository && run.head_repository?.full_name === repository)
     .sort(runOrder);
-  need(rows.length > 0, `no rightkit-shared-ci push run for ${commit} in the latest main runs`);
+  need(rows.length > 0, `no broker-dispatched rightkit-shared-ci run for ${commit} in the latest main runs`);
   const run = rows[0];
   need(run.status === "completed" && run.conclusion === "success", `rightkit-shared-ci run ${run.id} for ${commit} is ${run.status}/${run.conclusion ?? "none"}, not green`);
   return run;

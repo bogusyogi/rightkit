@@ -140,20 +140,20 @@ test("approval needs exactly one swift entry for this name and version with the 
 // ---- shared CI evidence ------------------------------------------------------------------------
 
 const run = (extra = {}) => ({
-  id: 4242, run_number: 7, run_attempt: 1, path: WORKFLOW_PATH, event: "push", head_branch: "main", head_sha: COMMIT, status: "completed", conclusion: "success",
+  id: 4242, run_number: 7, run_attempt: 1, path: WORKFLOW_PATH, event: "workflow_dispatch", head_branch: "main", head_sha: COMMIT, status: "completed", conclusion: "success",
   repository: { full_name: REPOSITORY }, head_repository: { full_name: REPOSITORY }, ...extra,
 });
 const jobs = (extra = {}, base = run()) => REQUIRED_CI_JOBS.map((name) => ({ name, status: "completed", conclusion: "success", run_id: base.id, run_attempt: base.run_attempt, head_sha: COMMIT, ...extra }));
 
-test("the CI run must be the shared-CI push run on main of this repository for exactly this commit, and green", () => {
+test("the CI run must be the broker-dispatched shared-CI run on main of this repository for exactly this commit, and green", () => {
   assert.equal(selectCiRun({ runs: [run()], commit: COMMIT }).id, 4242);
-  assert.throws(() => selectCiRun({ runs: [], commit: COMMIT }), /no rightkit-shared-ci push run/);
-  assert.throws(() => selectCiRun({ runs: undefined, commit: COMMIT }), /no rightkit-shared-ci push run/);
+  assert.throws(() => selectCiRun({ runs: [], commit: COMMIT }), /no broker-dispatched rightkit-shared-ci run/);
+  assert.throws(() => selectCiRun({ runs: undefined, commit: COMMIT }), /no broker-dispatched rightkit-shared-ci run/);
   const wrong = [
-    { head_sha: "b".repeat(40) }, { path: ".github/workflows/publish.yml" }, { event: "pull_request" }, { head_branch: "topic" },
+    { head_sha: "b".repeat(40) }, { path: ".github/workflows/publish.yml" }, { event: "pull_request" }, { event: "push" }, { head_branch: "topic" },
     { repository: { full_name: "fork/rightkit" } }, { head_repository: { full_name: "fork/rightkit" } },
   ];
-  for (const extra of wrong) assert.throws(() => selectCiRun({ runs: [run(extra)], commit: COMMIT }), /no rightkit-shared-ci push run/, JSON.stringify(extra));
+  for (const extra of wrong) assert.throws(() => selectCiRun({ runs: [run(extra)], commit: COMMIT }), /no broker-dispatched rightkit-shared-ci run/, JSON.stringify(extra));
   for (const extra of [{ status: "in_progress", conclusion: null }, { status: "queued", conclusion: null }, { conclusion: "failure" }, { conclusion: "cancelled" }, { conclusion: "skipped" }]) {
     assert.throws(() => selectCiRun({ runs: [run(extra)], commit: COMMIT }), /not green/, JSON.stringify(extra));
   }
@@ -189,7 +189,7 @@ test("checkCi reads the run list then the jobs of that exact attempt", async () 
   const red = { listRuns: async () => [run()], listAttemptJobs: async () => jobs({ conclusion: "failure" }) };
   await assert.rejects(checkCi({ client: red, commit: COMMIT }), /run 4242: .*did not succeed/);
   const none = { listRuns: async () => [], listAttemptJobs: async () => { throw new Error("must not be called"); } };
-  await assert.rejects(checkCi({ client: none, commit: COMMIT }), /no rightkit-shared-ci push run/);
+  await assert.rejects(checkCi({ client: none, commit: COMMIT }), /no broker-dispatched rightkit-shared-ci run/);
 });
 
 // ---- git fixture -------------------------------------------------------------------------------
@@ -307,7 +307,7 @@ test("verifyAll refuses each missing proof before anything is tagged", async () 
     "no approval entry": [{ mutateApproved: (a) => fs.writeFileSync(a.file, JSON.stringify({ schema: 2, candidates: [], artifacts: [] })) }, /not reviewer-approved/],
     "approval for other bytes": [{ mutateApproved: (a) => fs.writeFileSync(a.file, JSON.stringify({ schema: 2, candidates: [], artifacts: [entry({ sha256: HEX(7) })] })) }, /is not the reviewer-approved/],
     "CI not green": [{ runRows: (commit) => [run({ head_sha: commit, conclusion: "failure" })] }, /not green/],
-    "CI never ran for the commit": [{ runRows: () => [run({ head_sha: "c".repeat(40) })] }, /no rightkit-shared-ci push run/],
+    "CI never ran for the commit": [{ runRows: () => [run({ head_sha: "c".repeat(40) })] }, /no broker-dispatched rightkit-shared-ci run/],
     "the swift shard is red": [{ jobRows: (commit) => REQUIRED_CI_JOBS.map((name) => ({ name, status: "completed", conclusion: name === "macos swift-rightkitswift" ? "failure" : "success", run_id: 4242, run_attempt: 1, head_sha: commit })) }, /macos swift-rightkitswift" did not succeed/],
   };
   for (const [label, [options, pattern]] of Object.entries(cases)) {
