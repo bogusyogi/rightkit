@@ -1400,6 +1400,8 @@ async function runStages(o, args, root, git, io) {
   // publisher's upload (`--to release` on a desktop platform): it runs no build environment, only uploads bytes whose earlier stages
   // (Class A included) another job of the same pipeline recorded in the receipt it imported (--receipt-in).
   const publisherUploadOnly = to === "release" && !mobile;
+  // GB-15: a nested app's Class A runs its executing scans for that app's dependency closure; an app at the repository root is the repository.
+  const appScope = appDir === "." ? [] : ["--scope", appDir];
   for (const stage of stages) {
     if (stage === "check" && publisherUploadOnly && receipt.stages.check?.ok && tierAtLeast(receipt.stages.check.ruleTier ?? "compile", earlyTier)) { o.out(`${tag} [check] already passed (${receipt.stages.check.ruleTier ?? "compile"} tier) for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
     if (stage === "compile" && receipt.stages.compile?.ok) {
@@ -1427,7 +1429,7 @@ async function runStages(o, args, root, git, io) {
     if (ds && !(await openSnapshotStage({ o, ds, root, stage, tag }))) { receipt.stages[stage] = { ok: false, at: new Date().toISOString(), snapshot: { path: ds.path, tree: ds.tree, intactAfter: false }, ownership: ds.own.handle }; save(); o.err(`${tag} --to ${to} stopped before ${stage}: the snapshot is not the commit's bytes plus the ledger; nothing ran`); return 2; }
     let ok = false; const at = new Date().toISOString(); let extra = {}; let directReceipt = null;
     if (stage === "check") {
-      ok = (await (o.runCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), "--rule-tier", earlyTier], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))(earlyTier)) === 0;
+      ok = (await (o.runCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path, ...appScope] : []), "--rule-tier", earlyTier], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))(earlyTier)) === 0;
       extra = { ruleTier: earlyTier };
     }
     else if (stage === "compile") {
@@ -1529,7 +1531,7 @@ async function runStages(o, args, root, git, io) {
         // store); the release tier is owed first, as for desktop qualification.
         const releaseTier = receipt.stages.check?.ok && receipt.stages.check.ruleTier === "release"
           ? (o.out(`${tag} [release] the release tier already passed at check for this exact input; not run again`), 0)
-          : await (o.runReleaseCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), "--rule-tier", "release"], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))();
+          : await (o.runReleaseCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path, ...appScope] : []), "--rule-tier", "release"], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))();
         if (releaseTier !== 0) { o.err(`${tag} [release] the release tier (every rule and scan) is red for ${commit.slice(0, 12)}; nothing was uploaded`); ok = false; }
         else ok = await rightRelease(stage, ["upload", "--platform", platform, "--release", sealed.sealed, "--apply"]);
         extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, track: platform === "ios" ? "testflight" : "play-internal", ruleTier: "release" };
@@ -1537,7 +1539,7 @@ async function runStages(o, args, root, git, io) {
         // Qualification owes the release tier: every rule and scan, the ones held out of compile admission included (app-check.mjs TIERS).
         const releaseTier = receipt.stages.check?.ok && receipt.stages.check.ruleTier === "release"
           ? (o.out(`${tag} [qualify] the release tier already passed at check for this exact input; not run again`), 0)
-          : await (o.runReleaseCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), "--rule-tier", "release"], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))();
+          : await (o.runReleaseCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path, ...appScope] : []), "--rule-tier", "release"], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))();
         if (releaseTier !== 0) { o.err(`${tag} [qualify] the release tier (every rule and scan) is red for ${commit.slice(0, 12)}; nothing was qualified`); ok = false; }
         else ok = await rightRelease(stage, ["qa", "--stage", "installed", "--platform", platform, "--release", sealed.sealed]);
         extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, ruleTier: "release" };
@@ -1890,7 +1892,7 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
         for (const p of calls.slice(0, 10)) o.err(`${tag} RK_CHECK_ERROR: [unit:${stage}] a cargo call the unit stage made did not complete: ${typeof p === "string" ? p : JSON.stringify(p)}`);
         return calls.length === 0;
       } },
-      check: (tier) => (o.runCheck ?? (() => main(["check", "--commit", ds.commit, "--full-a", "--snapshot", ds.path, "--rule-tier", tier], { ...io, cwd: root, buildOwnership: own })))(tier), out: o.out, err: o.err,
+      check: (tier) => (o.runCheck ?? (() => main(["check", "--commit", ds.commit, "--full-a", "--snapshot", ds.path, "--scope", path.posix.dirname(manifest), "--rule-tier", tier], { ...io, cwd: root, buildOwnership: own })))(tier), out: o.out, err: o.err,
       ...(reportOut ? { writeReport: (report) => o.writeFile(path.resolve(o.cwd, reportOut), `${JSON.stringify(report, null, 2)}\n`) } : {}),
     });
     } finally { bound.cleanup(); }
@@ -2250,7 +2252,7 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
   if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
   o.out(`${tag} --to ${to} for ${commit.slice(0, 12)}${appDir === "." ? "" : ` (app ${appDir})`}: check (class A) -> right-release ${to}; executor ${executor.kind}${ds ? `; snapshot ${ds.path}` : ""}`);
   // Full class A of the commit before right-release compiles anything: of the snapshot, the checks that execute repository code included.
-  const checked = await (o.runCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : [])], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))();
+  const checked = await (o.runCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path, ...(appDir === "." ? [] : ["--scope", appDir])] : [])], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))();
   if (checked !== 0) { o.err(`${tag} --to ${to} stopped at check: nothing compiled`); return 1; }
   // The snapshot is exactly tree + dependencies + the ledger before right-release starts; what it wrote may remain only as ledger
   // entries (a generated `gen/schemas`, a dist), recorded by this gate's own walk (stage-ledger.mjs, decision 2 Q1).
@@ -2414,7 +2416,9 @@ export async function main(argv, io = {}) {
     // and package compile on the compile-tier rules, qualify and release name the release tier (rightkit#1296).
     const fullAdmission = args.includes("--full-a") && !args.includes("--list") && !args.includes("--print-baseline") && !args.includes("--only");
     const stripSnapshot = (list) => { const i = list.indexOf("--snapshot"); return i < 0 ? list : [...list.slice(0, i), ...list.slice(i + 2)]; };
-    const appArgs = stripSnapshot(args.slice(1).filter((a) => a !== "--full-a"));
+    const scopeForward = args.flatMap((a, i) => (a === "--scope" && args[i + 1] !== undefined ? ["--scope", args[i + 1]] : []));
+    const withoutScope = (list) => list.filter((a, i) => !(a === "--scope" || list[i - 1] === "--scope"));
+    const appArgs = withoutScope(stripSnapshot(args.slice(1).filter((a) => a !== "--full-a")));
     if (fullAdmission && !appArgs.includes("--rule-tier")) appArgs.push("--rule-tier", requestedTier);
     const appCheck = await (o.appCheck ?? (await import("../app-check.mjs")).main)(appArgs, { out: o.out, err: o.err, label: "check", cwd: o.cwd, ...(snapshotDir && !args.includes("--worktree") ? { snapshot: snapshotDir } : {}) });
     if (args.includes("--list") || args.includes("--print-baseline") || args.includes("--only") || o.classA === false) {
@@ -2432,7 +2436,7 @@ export async function main(argv, io = {}) {
     const checkCwd = repoArg ? path.resolve(o.cwd, repoArg) : o.cwd;
     // The app rules' tier is the stage's (rightkit#1296); class A's deterministic scans are the same at either tier.
     const ruleTier = requestedTier;
-    const classA = await main(["--class-a", "--rule-tier", ruleTier, ...(args.includes("--full-a") ? ["--full-a"] : []), ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", snapshotCommit?.commit ?? option("--commit") ?? "HEAD"]), ...(snapshotDir ? ["--snapshot", snapshotDir] : [])], { ...io, cwd: checkCwd });
+    const classA = await main(["--class-a", "--rule-tier", ruleTier, ...(args.includes("--full-a") ? ["--full-a"] : []), ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", snapshotCommit?.commit ?? option("--commit") ?? "HEAD"]), ...(snapshotDir ? ["--snapshot", snapshotDir] : []), ...scopeForward], { ...io, cwd: checkCwd });
     // RightKit checking itself: its own rules (line endings, consumer recipes, npm surface, version copies and the version feed, dispatcher
     // pins, consumer locks, generated docs, temp paths: scripts/preflight.mjs) and its exports' import safety are class A for the RightKit repository.
     let selfRules = 0;
@@ -2939,6 +2943,22 @@ export async function main(argv, io = {}) {
     // broker is unreachable runs neither; the gate stops rather than skip them.
     if (executor.kind === "refuse" && fullPlan.scans.some((x) => x.class === "B" || (x.kind === "test" && (!classAOnly || fullA)))) { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
     let plan = fullPlan;
+    // GB-15 (GATE 9/86, E17): `--scope <dir>` (repeatable; full class A of a snapshot only) limits the scans that EXECUTE repository code (tests,
+    // typecheck, lint, compile checks) to the dependency closure of the units under those directories, read from the committed manifests;
+    // file-only scans stay repository-wide. An unreadable manifest widens the scope (its whole Cargo workspace, every npm unit), never narrows it.
+    const scopeDirs = args.flatMap((a, i) => (a === "--scope" && args[i + 1] !== undefined ? [args[i + 1]] : []));
+    let scoped = false;
+    if (scopeDirs.length) {
+      const bad = scopeDirs.find((d) => !d || d.startsWith("--") || path.isAbsolute(d) || /(^|[\\/])\.\.([\\/]|$)/.test(d));
+      if (!fullA || !snapshotA || bad !== undefined) { o.err(`${tag} --scope needs full class A of a snapshot (--full-a --snapshot) and repository-relative directories${bad !== undefined ? ` (${JSON.stringify(bad)} is not one)` : ""}`); return 2; }
+      const { closureOf, scopeScans } = await import("../app-closure.mjs");
+      const closure = closureOf({ scopeDirs, npmUnits: npm, rustUnits: rust.units, readFile: (f) => o.readFile(path.join(repo, f)) });
+      const kept = scopeScans(fullPlan.scans, closure, { rustUnits: rust.units });
+      plan = { ...fullPlan, scans: kept.scans, deferred: fullPlan.deferred.filter((id) => kept.scans.some((x) => x.id === id)) };
+      scoped = true;
+      o.out(`${tag} scope ${scopeDirs.join(", ")}: executing scans run for ${closure.npm.size} npm and ${closure.rust.size} Rust unit(s) of the closure; ${kept.dropped.length} scan(s) of unrelated units are not part of this stage${kept.dropped.length ? ` (${kept.dropped.slice(0, 6).map((x) => x.id).join(", ")}${kept.dropped.length > 6 ? ", ..." : ""})` : ""}; every file-only scan stays repository-wide`);
+      for (const w of closure.widened) o.out(`${tag} note: scope widened, ${w}`);
+    }
     const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? 4) || 4);
     const testJobs = Math.max(1, Number(o.env.RK_GATE_TEST_JOBS ?? jobs) || jobs);
     const classBJobs = Math.max(1, Number(o.env.RK_GATE_CLASS_B_JOBS ?? 3) || 3);
@@ -3226,9 +3246,9 @@ export async function main(argv, io = {}) {
         const trackedList = snapFullA ? null : git("ls-files", "-z", "--cached");
         if (trackedList && failed(trackedList)) { o.err(`${tag} BLOCKED: cannot list tracked files to name the checked bytes`); return 1; }
         const tracked = new Set(snapFullA ? live.files : text(trackedList).split("\0").filter(Boolean).map(posix));
-        o.out(`${tag} class A bytes tracked=${live.digestOf(live.files.filter((f) => tracked.has(f)))} all=${live.digest}${envStartWithCaches ? ` env-at-start=${envStartWithCaches}` : ""} env=${binding.env}`);
+        o.out(`${tag} class A ${scoped ? "scoped " : ""}bytes tracked=${live.digestOf(live.files.filter((f) => tracked.has(f)))} all=${live.digest}${envStartWithCaches ? ` env-at-start=${envStartWithCaches}` : ""} env=${binding.env}`);
       }
-      o.out(`${tag} class A full pass: ${scanResult.scans.length} deterministic check(s), the ones that execute repository code included, over ${changed.length} file(s) of ${base}`);
+      o.out(`${tag} class A ${scoped ? "scoped " : "full "}pass: ${scanResult.scans.length} deterministic check(s), the ones that execute repository code included, over ${changed.length} file(s) of ${base}`);
       return 0;
     }
     if (classAOnly) {

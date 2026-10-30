@@ -2015,9 +2015,9 @@ test("a partial check (--only) says it is not a class A result, and the door and
   // Release-only app rules gate qualify and release; dev, test and package run the compile-tier rules (rightkit#1296).
   assert.match(src, /const earlyTier = \["qualify", "release"\]\.includes\(to\) \? "release" : "compile";/);
   // The door's check is the full check at the tier the run owes; on a direct host it reads the selected commit's snapshot (step 4c).
-  assert.match(src, /main\(\["check", "--commit", ds \? commit : "HEAD", "--full-a", \.\.\.\(ds \? \["--snapshot", ds\.path\] : \[\]\), "--rule-tier", earlyTier\]/, "--to check runs the full check with full class A, at the tier the run owes");
+  assert.match(src, /main\(\["check", "--commit", ds \? commit : "HEAD", "--full-a", \.\.\.\(ds \? \["--snapshot", ds\.path, \.\.\.appScope\] : \[\]\), "--rule-tier", earlyTier\]/, "--to check runs the full check with full class A (scoped to a nested app's closure, GB-15), at the tier the run owes");
   assert.match(src, /main\(\["check", "--commit", "HEAD", "--full-a", "--rule-tier", tier\]/, "the unit stages run full class A");
-  assert.match(src, /main\(\["check", "--commit", ds \? commit : "HEAD", "--full-a", \.\.\.\(ds \? \["--snapshot", ds\.path\] : \[\]\)\], \{ \.\.\.io, cwd: root/, "the dev and test door run full class A of the selected commit's snapshot");
+  assert.match(src, /main\(\["check", "--commit", ds \? commit : "HEAD", "--full-a", \.\.\.\(ds \? \["--snapshot", ds\.path, \.\.\.\(appDir === "\." \? \[\] : \["--scope", appDir\]\)\] : \[\]\)\], \{ \.\.\.io, cwd: root/, "the dev and test door run full class A of the selected commit's snapshot (scoped to a nested app's closure, GB-15)");
   assert.doesNotMatch(src, /"--worktree", "--full-a"|runWorktreeCompile/, "rightkit#1301: the checkout route is deleted; no door stage runs class A on the working tree");
   assert.doesNotMatch(src, /main\(\["check", "--(commit|worktree)"(?![^\]]*--full-a)[^\]]*\]/, "no other entry calls a content-only check");
 });
