@@ -33,6 +33,7 @@ import { advisoryCacheRoot, ensureAdvisoryDb, prepareDenyOverlay, readAdvisoryPi
 import { observedEnvOf, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest } from "./snapshot-request.mjs";
 import { SCAN_TOKEN_ENV, appendLedger, readLedger, scanTokenOf, unclaimedLedgers } from "./cargo-ledger.mjs";
 import { brokerSection, carryBrokerAdapter, verifyBrokerLedger } from "./snapshot-broker.mjs";
+import { CANCEL_WAIT_ENV, operationDeadlineEnv } from "./broker-wire.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
 /**
@@ -1906,6 +1907,16 @@ const INTERNAL = {
  * SwiftPM's build directory for one Swift package scan: `<tmpRoot>/rightkit-swift-scratch/<sha256(repository root)[:16]>/<scan id>`, outside every root
  * the scan reads (the commit snapshot, the checkout), the same path every run (so the build stays warm). Throws when it would land inside one of them.
  */
+/**
+ * GB-52: a carried scan's client gets an operation deadline BEFORE the scan's own limit, so the client cancels the job by id and watches its terminal state (within a 15 s cancel wait)
+ * instead of being killed with the job still running; a user-set RUSTRIGHT_OPERATION_DEADLINE_MS or cancel wait is never replaced.
+ */
+export function scanOperationEnv(env, limitMs) {
+  const deadline = operationDeadlineEnv({ env, deadlineMs: Math.max(Math.floor(limitMs / 2), limitMs - 20_000) });
+  if (Object.keys(deadline).length === 0) return {};
+  return { ...deadline, ...(Object.keys(env ?? {}).some((k) => k.toUpperCase() === CANCEL_WAIT_ENV) ? {} : { [CANCEL_WAIT_ENV]: "15000" }) };
+}
+
 export function swiftScratchPath({ tmpRoot, roots, id }) {
   const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
   const repo = real(roots.find(Boolean));
@@ -2332,7 +2343,7 @@ export async function runScans(plan, options = {}) {
               r = { status: carried.status, stdout: carried.stdout, stderr: carried.stderr };
             } catch (e) { r = { error: e }; } finally { clearTimeout(clock); advisory?.cleanup?.(); }
           } else
-          try { r = await deps.spawn(p.command, finalArgs, { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...(carrier ? carrier.made.env : {}) }, signal: scanSignal, timeout: limitMs }); } finally { clearTimeout(clock); advisory?.cleanup?.(); }
+          try { r = await deps.spawn(p.command, finalArgs, { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...(carrier ? carrier.made.env : {}), ...(carrier ? scanOperationEnv({ ...deps.env, ...s.env }, limitMs) : {}) }, signal: scanSignal, timeout: limitMs }); } finally { clearTimeout(clock); advisory?.cleanup?.(); }
           if (signal?.aborted && (!r || r.error || r.status !== 0)) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
           if ((timer.signal.aborted || r?.error?.code === "ETIMEDOUT") && (!r || r.error || r.status !== 0)) return { ...row, status: "fail", code: "TIMEOUT", detail: `${s.id} ran longer than ${Math.round(limitMs / 60000)} min and was killed with its process tree; a scan that does not finish fails` };
           if (!r || r.error) { status = "fail"; code = "SPAWN_ERROR"; detail = r?.error?.message ?? "no result"; }

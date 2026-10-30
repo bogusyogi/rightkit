@@ -170,3 +170,46 @@ export function refusalInCapturedOutput(text) {
   }
   return null;
 }
+
+// ---- GB-52: an end-to-end operation deadline and explicit cancellation for carried calls (BROKER-CONTRACT section 16) ----
+// RustRight's client bounds one submit-and-watch operation with RUSTRIGHT_OPERATION_DEADLINE_MS (absent or 0: none; a user-set test cap or stall limit is never replaced
+// by a universal duration). Past it the client does not abandon or resubmit the job: it sends CANCEL by id and polls STATUS for the terminal state within
+// RUSTRIGHT_CANCEL_WAIT_MS (default 30000), failing with `operation deadline of N ms passed; request <id>: cancelConfirmed: <bool>, terminal state: <state | not observed>`.
+// An unobserved state keeps ownership unknown. `RK_BROKER_BUSY` (every pipe instance busy: a wait) is distinct from `RK_BROKER_UNAVAILABLE`.
+export const OPERATION_DEADLINE_ENV = "RUSTRIGHT_OPERATION_DEADLINE_MS";
+export const CANCEL_WAIT_ENV = "RUSTRIGHT_CANCEL_WAIT_MS";
+export const DEFAULT_CANCEL_WAIT_MS = 30_000;
+/** The gate's remaining stage budget, as an absolute epoch-ms instant a stage sets for its children (unset: no budget). */
+export const STAGE_DEADLINE_AT_ENV = "RK_GATE_STAGE_DEADLINE_AT";
+
+/**
+ * The environment delta that gives one carried call its operation deadline: the caller's own RUSTRIGHT_OPERATION_DEADLINE_MS is never replaced (a user-set cap wins);
+ * otherwise `deadlineMs` (a scan's or stage's own limit) or the time left to `deadlineAt` (STAGE_DEADLINE_AT_ENV in `env`), at least 1 ms. `{}` when there is no budget.
+ */
+export function operationDeadlineEnv({ env = {}, deadlineMs = null, deadlineAt = null, now = Date.now() } = {}) {
+  const set = Object.entries(env).find(([key]) => key.toUpperCase() === OPERATION_DEADLINE_ENV);
+  if (set && String(set[1]).trim() !== "") return {};
+  const at = deadlineAt ?? (Number.isFinite(Number(env[STAGE_DEADLINE_AT_ENV])) && Number(env[STAGE_DEADLINE_AT_ENV]) > 0 ? Number(env[STAGE_DEADLINE_AT_ENV]) : null);
+  const budget = deadlineMs ?? (at !== null ? at - now : null);
+  if (!Number.isFinite(budget) || budget === null) return {};
+  return { [OPERATION_DEADLINE_ENV]: String(Math.max(1, Math.trunc(budget))) };
+}
+
+/** The outer guard on the client process: the deadline, the cancel wait and a margin, so the client's own cancel and terminal-state wait finish before the gate kills it. */
+export function clientGuardMs(env, { margin = 15_000 } = {}) {
+  const deadline = Number(env?.[OPERATION_DEADLINE_ENV]);
+  if (!Number.isFinite(deadline) || deadline <= 0) return null;
+  const wait = Number(env?.[CANCEL_WAIT_ENV]);
+  return deadline + (Number.isFinite(wait) && wait >= 0 ? wait : DEFAULT_CANCEL_WAIT_MS) + margin;
+}
+
+/** What the client reported when its operation deadline passed, or null: `{ code, deadlineMs, requestId, cancelConfirmed, terminalState }`; busy and unavailable are named apart. */
+export function operationOutcomeInOutput(text) {
+  const t = String(text ?? "");
+  const deadline = /operation deadline of (\d+) ms passed; request ([0-9A-Za-z._-]+): cancelConfirmed: (true|false), terminal state: (not observed|[A-Z_]+)/.exec(t);
+  if (deadline) return { code: "operation-deadline", deadlineMs: Number(deadline[1]), requestId: deadline[2], cancelConfirmed: deadline[3] === "true", terminalState: deadline[4].trim().startsWith("not observed") ? null : deadline[4].trim() };
+  if (/RK_OPERATION_DEADLINE/.test(t)) return { code: "operation-deadline", deadlineMs: null, requestId: null, cancelConfirmed: null, terminalState: null };
+  if (/RK_BROKER_BUSY/.test(t)) return { code: "broker-busy" };
+  if (/RK_BROKER_UNAVAILABLE/.test(t)) return { code: "broker-unavailable" };
+  return null;
+}

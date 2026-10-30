@@ -204,3 +204,50 @@ test("[GB-82] a carried call's completion survives in the fixture broker (a dura
   assert.equal(after.state, "REAPED"); assert.equal(after.members.length, 1); assert.match(after.members[0].handle, new RegExp(`^${fx.handle}#`));
   assert.equal(status(fx.handle.slice(0, 3)).state, "UNKNOWN", "a prefix of a handle covers nothing");
 });
+
+// ---- GB-52: operation deadline, cancel and a vanished gate ----
+import { CANCEL_WAIT_ENV, OPERATION_DEADLINE_ENV, STAGE_DEADLINE_AT_ENV, clientGuardMs, operationDeadlineEnv, operationOutcomeInOutput } from "./broker-wire.mjs";
+import { scanOperationEnv } from "./deterministic-scans.mjs";
+
+test("[GB-52] the operation deadline is the call's own budget: a user-set cap is never replaced, none means none, a stage's remaining budget is passed", () => {
+  assert.deepEqual(operationDeadlineEnv({ env: {} }), {}, "no budget, no deadline: no universal duration is invented");
+  assert.deepEqual(operationDeadlineEnv({ env: {}, deadlineMs: 90_000 }), { RUSTRIGHT_OPERATION_DEADLINE_MS: "90000" });
+  assert.deepEqual(operationDeadlineEnv({ env: { [OPERATION_DEADLINE_ENV]: "5000" }, deadlineMs: 90_000 }), {}, "a user-set cap wins");
+  assert.deepEqual(operationDeadlineEnv({ env: { [STAGE_DEADLINE_AT_ENV]: "1700000060000" }, now: 1_700_000_000_000 }), { RUSTRIGHT_OPERATION_DEADLINE_MS: "60000" }, "the remaining stage budget");
+  assert.equal(operationDeadlineEnv({ env: { [STAGE_DEADLINE_AT_ENV]: "1700000000000" }, now: 1_700_000_900_000 }).RUSTRIGHT_OPERATION_DEADLINE_MS, "1", "an expired budget still asks for the shortest deadline: the job is cancelled, not run");
+  assert.equal(clientGuardMs({}), null);
+  assert.equal(clientGuardMs({ [OPERATION_DEADLINE_ENV]: "1000" }), 1000 + 30_000 + 15_000, "deadline + the client's default cancel wait + margin");
+  assert.equal(clientGuardMs({ [OPERATION_DEADLINE_ENV]: "1000", [CANCEL_WAIT_ENV]: "2000" }), 1000 + 2000 + 15_000);
+  assert.deepEqual(scanOperationEnv({}, 600_000), { RUSTRIGHT_OPERATION_DEADLINE_MS: "580000", RUSTRIGHT_CANCEL_WAIT_MS: "15000" });
+  assert.deepEqual(scanOperationEnv({ [OPERATION_DEADLINE_ENV]: "9" }, 600_000), {}, "the user's cap wins over a scan's");
+});
+
+test("[GB-52] the client's own words are read: deadline with cancel confirmation and terminal state, busy apart from unavailable", () => {
+  assert.deepEqual(operationOutcomeInOutput("rustright: operation deadline of 1500 ms passed; request 5e3f-aa: cancelConfirmed: true, terminal state: CANCELLED\n"), { code: "operation-deadline", deadlineMs: 1500, requestId: "5e3f-aa", cancelConfirmed: true, terminalState: "CANCELLED" });
+  assert.equal(operationOutcomeInOutput("operation deadline of 9 ms passed; request x1: cancelConfirmed: false, terminal state: not observed (the broker was unreachable)").terminalState, null);
+  assert.equal(operationOutcomeInOutput("RK_BROKER_BUSY: every pipe instance is busy").code, "broker-busy");
+  assert.equal(operationOutcomeInOutput("RK_BROKER_UNAVAILABLE: connection refused").code, "broker-unavailable");
+  assert.equal(operationOutcomeInOutput("RK_OPERATION_DEADLINE").code, "operation-deadline");
+  assert.equal(operationOutcomeInOutput("all good"), null);
+});
+
+test("[GB-52] a carried call whose client ran out its deadline, was stopped by the outer guard, or met a busy broker is not a build outcome and keeps its sub-handle marked (ownership UNKNOWN)", (t) => {
+  const fx = makeFakeBroker(t, { readOnlySnapshots: true });
+  const marks = [];
+  const section = brokerSection({ ...fx.sb, markBrokerSubmit: subHandleStub(fx.handle, (h) => marks.push(h)) });
+  const env = { PATH: fx.root, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs" };
+  const seen = [];
+  const run = (spawn, extra = {}) => carryBrokerCargo({ words: ["check"], cwd: path.join(fx.snapshot, "crates", "a"), env, section, workspace: fx.snapshot, checkoutWorkspace: fx.checkout, record: () => {}, err: () => {}, stdio: "capture", spawn: (file, args, options) => { seen.push(options); return spawn(file, args, options); }, ...extra });
+  const deadline = run(() => ({ status: 125, stdout: "", stderr: "rustright: operation deadline of 1500 ms passed; request abc-1: cancelConfirmed: false, terminal state: not observed\n" }), { deadlineMs: 1500 });
+  assert.equal(deadline.outcome.code, "operation-deadline"); assert.match(deadline.outcome.message, /cancelConfirmed: false, terminal state: not observed.*ownership stays UNKNOWN/);
+  assert.equal(seen[0].env.RUSTRIGHT_OPERATION_DEADLINE_MS, "1500"); assert.equal(seen[0].timeout, 1500 + 30_000 + 15_000, "the outer guard follows the client's own cancel wait");
+  const guarded = run(() => ({ error: Object.assign(new Error("spawnSync ETIMEDOUT"), { code: "ETIMEDOUT" }), status: null, stdout: "", stderr: "" }), { deadlineMs: 1000 });
+  assert.equal(guarded.outcome.code, "operation-deadline"); assert.match(guarded.outcome.message, /outer guard/);
+  assert.equal(run(() => ({ status: 125, stdout: "", stderr: "RK_BROKER_BUSY: busy\n" })).outcome.code, "broker-busy");
+  assert.equal(run(() => ({ status: 125, stdout: "", stderr: "RK_BROKER_UNAVAILABLE: down\n" })).outcome.code, "broker-unavailable");
+  assert.equal(marks.length, 4, "every sub-handle stays recorded: none is cleared by a timeout, a cancel or an outage (reconciled by the request id)");
+  // Without a budget nothing is invented: no deadline variable, no guard.
+  const plain = run(() => ({ status: 0, stdout: "", stderr: "" }));
+  assert.equal(plain.outcome.status !== undefined, true);
+  assert.equal(Object.hasOwn(seen.at(-1).env, "RUSTRIGHT_OPERATION_DEADLINE_MS"), false); assert.equal(Object.hasOwn(seen.at(-1), "timeout"), false);
+});
