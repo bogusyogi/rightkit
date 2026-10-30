@@ -86,6 +86,7 @@ import { readDiskPolicy, scratchRoots } from "../disk-policy.mjs";
 import { buildDirectReceipt, directVerdict, resolveTargetDirectory, verifyDirectReceipt, writeDirectDiagnostics } from "../direct-receipt.mjs";
 import { createFreshnessCensus } from "../freshness-census.mjs";
 import { platformDirOf } from "../platform-dir.mjs";
+import { nativeToolRefusal, nativeToolUses } from "../native-tool-planning.mjs";
 
 const ZERO = /^0+$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -1274,7 +1275,7 @@ async function runStages(o, args, root, git, io) {
     const whichRoute = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
     const routeExecutor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which: whichRoute, readFile: o.readFile });
     let decided;
-    try { decided = routePlan(o, { to, stages: devTest ? [] : stages, devTest, executor: routeExecutor, capabilities: brokerCapabilityState(o, { to, executor: routeExecutor }), appConfig: devTest && selected ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
+    try { decided = routePlan(o, { to, stages: devTest ? [] : stages, devTest, executor: routeExecutor, capabilities: brokerCapabilityState(o, { to, executor: routeExecutor }), appConfig: selected && to !== "check" ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
     catch (e) { o.err(`${tag} ${e.message}`); return 2; }
     if (decided.refusal) { o.err(`${tag} BLOCKED: ${decided.refusal.code}: ${decided.refusal.message}; nothing ran${decided.route === "snapshot" ? " and the checkout is never built" : ""}`); return 1; }
   }
@@ -2030,6 +2031,12 @@ export function routePlan(o, { to, stages, devTest, executor, capabilities = nul
       if (!capabilities.ok || missing.length) return { route, refusal: refuse("RK_BROKER_CAPABILITY_MISSING", to, `the broker ${capabilities.ok ? `does not advertise ${missing.join(", ")}` : `cannot be asked for its capabilities (${capabilities.problem})`} (\`rustright doctor --json\` \`.broker.capabilities\`); this release builds only against a broker that accepts snapshot-bound read-only Cargo and snapshot-bound adapter jobs (rightkit#1301, rustright#188, rustright#190)`) };
     }
   }
+  // GB-51: a declared native build tool with no carried adapter (xcodegen, xcodebuild, Gradle, CMake) refuses here, at planning, naming the missing
+  // capability, instead of after the earlier stages built (the door's launch-time refusal remains the backstop).
+  if (snapshot && executor?.kind === "broker" && appConfig?.config && to !== "check") {
+    const refusalText = nativeToolRefusal(nativeToolUses({ config: appConfig.config, to, devPlatform: appConfig.devPlatform ?? null }));
+    if (refusalText) return { route, refusal: refuse("RK_BROKER_CAPABILITY_MISSING", to, refusalText) };
+  }
   // One signing identity per product, every build (rightkit#1303): on the Mac and the Dell a test or dev build that would run unsigned, ad hoc or under
   // another identifier is refused here, from the commit's own config, so `--route` and a real run decide alike. Linux and hosted CI are exempt.
   if (snapshot && appConfig?.config && (devTest || to === "test" || to === "dev")) {
@@ -2081,7 +2088,7 @@ async function runRouteProbe(o, args, root, git, { to, platform, stages, devTest
   const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
   let plan;
   const capabilities = brokerCapabilityState(o, { to, executor });
-  try { plan = routePlan(o, { to, stages, devTest, executor, capabilities, appConfig: devTest ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
+  try { plan = routePlan(o, { to, stages, devTest, executor, capabilities, appConfig: to !== "check" ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
   catch (e) { o.err(`${tag} ${e.message}`); return 2; }
   // Read-only: GIT_OPTIONAL_LOCKS=0, so the probe's `git status` never refreshes the index or contends with a writer (rightkit#1297 L4).
   const dirty = o.spawn("git", ["status", "--porcelain", "--untracked-files=no"], { cwd: root, env: { ...o.env, GIT_OPTIONAL_LOCKS: "0" } });
