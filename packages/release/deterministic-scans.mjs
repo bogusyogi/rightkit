@@ -34,6 +34,7 @@ import { observedEnvOf, readRequestRef, verifySnapshotReceipt, writeSnapshotRequ
 import { SCAN_TOKEN_ENV, appendLedger, readLedger, scanTokenOf, unclaimedLedgers } from "./cargo-ledger.mjs";
 import { brokerSection, carryBrokerAdapter, verifyBrokerLedger } from "./snapshot-broker.mjs";
 import { CANCEL_WAIT_ENV, operationDeadlineEnv } from "./broker-wire.mjs";
+import { removeCarrier } from "./carrier-census.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
 /**
@@ -2387,7 +2388,7 @@ export async function runScans(plan, options = {}) {
             }
           }
           } finally {
-            if (carrier) { fs.rmSync(carrier.made.file, { force: true }); fs.rmSync(carrier.refDir, { recursive: true, force: true }); }
+            if (carrier) { removeCarrier(carrier.made.file); fs.rmSync(carrier.refDir, { recursive: true, force: true }); }
             if (tscProject) fs.rmSync(tscProject.dir, { recursive: true, force: true });
           }
           if (status === "fail" && options.scanLogDir && r) {

@@ -33,6 +33,12 @@ export function writeCarrierOwner({ file, bytes, handle, nonce, identity = () =>
   return record;
 }
 
+/** Removes a carrier and its owner record after its call (the normal path: nothing is left for a sweep). */
+export function removeCarrier(file) {
+  fs.rmSync(file, { force: true });
+  fs.rmSync(ownerFileOf(file), { force: true });
+}
+
 const readBounded = (file, max) => {
   const meta = fs.lstatSync(file);
   if (meta.isSymbolicLink() || !meta.isFile()) return { problem: "not a regular file" };

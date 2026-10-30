@@ -23,6 +23,7 @@ import { resolveManagedRoots } from "./managed-roots.mjs";
 import { forwardedAdapterEnv } from "./adapter-env.mjs";
 import { carriedShapeDecision } from "./cargo-shapes.mjs";
 import { swiftScratchRefusal } from "./swift-scratch.mjs";
+import { removeCarrier, sweepSnapshotRequests } from "./carrier-census.mjs";
 import { clientGuardMs, diagnoseControlReply, drainFrames, operationDeadlineEnv, operationOutcomeInOutput, overCapProblem, refusalInCapturedOutput } from "./broker-wire.mjs";
 import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend, markCarriedUnsent } from "./ownership-mark.mjs";
 import {
@@ -80,7 +81,7 @@ export function receiptSync({ client, requestId, env, spawn = spawnSync, platfor
  * no build ownership, no RustRight client, no pins (an app repository without an enrollment), a malformed declared-inputs manifest.
  * There is no way to hand it pins: tests build their own object and inject it as `deps.snapshotBroker`.
  */
-export function createSnapshotBroker({ env = process.env, platform = process.platform, checkout, commit, snapshot, ownership, client, gateFile, dataRoot, spawn = spawnSync, loadPins = loadBrokerPins }) {
+export function createSnapshotBroker({ env = process.env, platform = process.platform, checkout, commit, snapshot, ownership, client, gateFile, dataRoot, spawn = spawnSync, loadPins = loadBrokerPins, lease = null }) {
   const need = (ok, why) => { if (!ok) throw new SnapshotRequestError("broker", why); };
   need(checkout && path.isAbsolute(checkout), "the primary checkout must be an absolute path");
   need(commit?.sha && commit?.tree, "the commit and its tree are required");
@@ -93,7 +94,12 @@ export function createSnapshotBroker({ env = process.env, platform = process.pla
   const roots = resolveManagedRoots({ env, platform });
   const managedData = dataRoot ?? roots.dataRoot;
   const pins = loadPins({ dataRoot: managedData, platform, gateFile, checkout, spawn });
+  // GB-76: carriers a crashed gate left behind are retired on proof (creator dead, nothing live or unknown at the broker under their sub-handle), counted otherwise. Best-effort: a
+  // sweep that cannot run never stops a build, and nothing is deleted without proof.
+  let carrierSweep = null;
+  if (typeof lease === "function") { try { carrierSweep = sweepSnapshotRequests({ controlRoot: roots.controlRoot, snapshot: snapshot.path, lease: (q) => lease({ ...q, env, platform, spawn, client }) }); } catch { carrierSweep = null; } }
   return {
+    carrierSweep,
     controlRoot: roots.controlRoot, commit: { sha: commit.sha, tree: commit.tree }, snapshot: { path: snapshot.path, expectedTree: snapshot.expectedTree },
     declaredInputs: readDeclaredInputs(snapshot.path), handle: ownership.handle, markBrokerSubmit: (callHandle) => ownership.markBrokerSubmit(callHandle), markBrokerUnsent: typeof ownership.markBrokerUnsent === "function" ? (callHandle, reason) => ownership.markBrokerUnsent(callHandle, reason) : undefined,
     pins: { host: pins.host, keyId: pins.keyId, publicKey: pins.publicKey, brokerDigest: pins.brokerDigest }, pinsSource: pins.source,
@@ -264,16 +270,16 @@ export function carryBrokerCargo({ words, cwd, env, section, workspace, checkout
       const nonce = /^[0-9a-f]{64}$/.test(stageNonce ?? "") ? carriedCallNonce({ stageNonce, cwd: path.relative(section.checkout, checkoutCwd).split(path.sep).join("/") || ".", argv: words }) : undefined;
       made = writeSnapshotRequest({ controlRoot: section.controlRoot, commit: section.commit, snapshot: section.snapshot, declaredInputs: inputs, handle: section.handle, primaryCwd: checkoutCwd, argv: words, nonce, requestIdFile: path.join(refDir, "request.json") });
     } catch (e) { return refuse("RK_CARGO_BROKER_CARRIER", e.message); }
-    try { record({ ...base, status: "pending", nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd }); } catch (e) { fs.rmSync(made.file, { force: true }); return refuse("RK_CARGO_LEDGER_ERROR", `the call cannot be recorded (${e.message}); it does not run`); }
+    try { record({ ...base, status: "pending", nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd }); } catch (e) { removeCarrier(made.file); return refuse("RK_CARGO_LEDGER_ERROR", `the call cannot be recorded (${e.message}); it does not run`); }
     // GB-52: the call's operation deadline (the caller's own cap is never replaced) and an outer guard past the client's own cancel wait.
     const childEnv = { ...clientEnv, ...made.env, ...operationDeadlineEnv({ env: clientEnv, deadlineMs }) };
     const guard = clientGuardMs(childEnv);
     const capture = stdio === "capture";
     // Broker work may exist from the next statement on: the ownership records this request's sub-handle first (a mark that does not land sends nothing).
-    { const startable = clientStartable(section.client, section.platform); if (startable) { fs.rmSync(made.file, { force: true }); return refuse("RK_CARGO_BROKER_CLIENT", `${startable}; nothing was marked or sent`); } }
-    try { markCarriedRequest({ section, env, callHandle: made.carrier.ownership.handle }); } catch (e) { fs.rmSync(made.file, { force: true }); return refuse("RK_CARGO_BROKER_OWNERSHIP", e.message); }
+    { const startable = clientStartable(section.client, section.platform); if (startable) { removeCarrier(made.file); return refuse("RK_CARGO_BROKER_CLIENT", `${startable}; nothing was marked or sent`); } }
+    try { markCarriedRequest({ section, env, callHandle: made.carrier.ownership.handle }); } catch (e) { removeCarrier(made.file); return refuse("RK_CARGO_BROKER_OWNERSHIP", e.message); }
     const r = spawnBrokerClient(spawn, section.client, ["cargo", ...words], capture ? { cwd: checkoutCwd, env: childEnv, encoding: "utf8", maxBuffer: 1 << 28, windowsHide: true, ...(guard ? { timeout: guard } : {}) } : { cwd: checkoutCwd, env: childEnv, stdio: "inherit", ...(guard ? { timeout: guard } : {}) }, { platform: section.platform });
-    fs.rmSync(made.file, { force: true });
+    removeCarrier(made.file);
     // GB-21: a client that provably never started sent nothing: that sub-handle is recorded unsent under the ownership lock, so it does not wedge a later reclaim. Any other
     // failure after a start (a lost connection, a timeout, an exit before a reference) is ambiguous and stays held, reconciled by the request id.
     if (r.error && provenNoSpawn(r.error)) markCarriedUnsentRequest({ section, env, callHandle: made.carrier.ownership.handle, reason: `the RustRight client did not start (${r.error.code})` });
@@ -318,7 +324,7 @@ export function carryBrokerCargo({ words, cwd, env, section, workspace, checkout
     }
     return { status: r.status ?? (r.signal ? 128 : BROKER_REFUSAL_STATUS), outcome, ...out };
   } finally {
-    if (made) fs.rmSync(made.file, { force: true });
+    if (made) removeCarrier(made.file);
     fs.rmSync(refDir, { recursive: true, force: true });
   }
 }
@@ -378,16 +384,16 @@ export function carryBrokerAdapter({ adapter, words, cwd, env, section, record, 
       const nonce = /^[0-9a-f]{64}$/.test(stageNonce ?? "") ? carriedCallNonce({ stageNonce, cwd: path.relative(section.checkout, checkoutCwd).split(path.sep).join("/") || ".", argv: words }) : undefined;
       made = writeSnapshotRequest({ controlRoot: section.controlRoot, commit: section.commit, snapshot: section.snapshot, declaredInputs: inputs, handle: section.handle, primaryCwd: checkoutCwd, argv: words, nonce, requestIdFile: path.join(refDir, "request.json") });
     } catch (e) { return refuse("RK_ADAPTER_BROKER_CARRIER", e.message); }
-    try { record({ ...base, status: "pending", nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd }); } catch (e) { fs.rmSync(made.file, { force: true }); return refuse("RK_CARGO_LEDGER_ERROR", `the call cannot be recorded (${e.message}); it does not run`); }
+    try { record({ ...base, status: "pending", nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd }); } catch (e) { removeCarrier(made.file); return refuse("RK_CARGO_LEDGER_ERROR", `the call cannot be recorded (${e.message}); it does not run`); }
     // GB-52: the call's operation deadline (the caller's own cap is never replaced) and an outer guard past the client's own cancel wait.
     const childEnv = { ...clientEnv, ...made.env, ...operationDeadlineEnv({ env: clientEnv, deadlineMs }) };
     const guard = clientGuardMs(childEnv);
     const capture = stdio === "capture";
     // Broker work may exist from the next statement on: the ownership records this request's sub-handle first (a mark that does not land sends nothing).
-    { const startable = clientStartable(section.client, section.platform); if (startable) { fs.rmSync(made.file, { force: true }); return refuse("RK_ADAPTER_BROKER_CLIENT", `${startable}; nothing was marked or sent`); } }
-    try { markCarriedRequest({ section, env, callHandle: made.carrier.ownership.handle }); } catch (e) { fs.rmSync(made.file, { force: true }); return refuse("RK_ADAPTER_BROKER_OWNERSHIP", e.message); }
+    { const startable = clientStartable(section.client, section.platform); if (startable) { removeCarrier(made.file); return refuse("RK_ADAPTER_BROKER_CLIENT", `${startable}; nothing was marked or sent`); } }
+    try { markCarriedRequest({ section, env, callHandle: made.carrier.ownership.handle }); } catch (e) { removeCarrier(made.file); return refuse("RK_ADAPTER_BROKER_OWNERSHIP", e.message); }
     const r = spawnBrokerClient(spawn, section.client, ["run", adapter, "--", ...words], capture ? { cwd: checkoutCwd, env: childEnv, encoding: "utf8", maxBuffer: 1 << 28, windowsHide: true, ...(guard ? { timeout: guard } : {}) } : { cwd: checkoutCwd, env: childEnv, stdio: "inherit", ...(guard ? { timeout: guard } : {}) }, { platform: section.platform });
-    fs.rmSync(made.file, { force: true });
+    removeCarrier(made.file);
     // GB-21: a client that provably never started sent nothing: that sub-handle is recorded unsent under the ownership lock, so it does not wedge a later reclaim. Any other
     // failure after a start (a lost connection, a timeout, an exit before a reference) is ambiguous and stays held, reconciled by the request id.
     if (r.error && provenNoSpawn(r.error)) markCarriedUnsentRequest({ section, env, callHandle: made.carrier.ownership.handle, reason: `the RustRight client did not start (${r.error.code})` });
@@ -435,7 +441,7 @@ export function carryBrokerAdapter({ adapter, words, cwd, env, section, record, 
     }
     return { status: r.status ?? (r.signal ? 128 : BROKER_REFUSAL_STATUS), outcome, ...out };
   } finally {
-    if (made) fs.rmSync(made.file, { force: true });
+    if (made) removeCarrier(made.file);
     fs.rmSync(refDir, { recursive: true, force: true });
   }
 }

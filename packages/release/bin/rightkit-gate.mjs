@@ -2133,7 +2133,8 @@ async function carrierBroker({ o, root, ds, which = whichIn(o) }) {
   let sb = carrier;
   if (typeof carrier?.create === "function") {
     const client = which("rustright").find((c) => path.isAbsolute(c));
-    sb = carrier.create({ env: o.env, platform: o.platform, checkout: root, commit: { sha: ds.commit, tree: ds.tree }, snapshot: { path: ds.path, expectedTree: ds.tree }, ownership: ds.own, client, gateFile: callingGatePath(), spawn: o.spawn });
+    const { brokerLeaseState } = await import("../build-ownership.mjs");
+    sb = carrier.create({ lease: brokerLeaseState, env: o.env, platform: o.platform, checkout: root, commit: { sha: ds.commit, tree: ds.tree }, snapshot: { path: ds.path, expectedTree: ds.tree }, ownership: ds.own, client, gateFile: callingGatePath(), spawn: o.spawn });
   }
   ds.carrierBroker = sb;
   return sb;
