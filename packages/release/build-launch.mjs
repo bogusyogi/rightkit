@@ -52,6 +52,12 @@ export const BUILD_LAUNCH_REFUSED = "RK_BUILD_LAUNCH_REFUSED";
 /** The program name a sign step would have if it were a command: the door refuses it on every route. */
 export const SIGN_STEP_COMMAND = "rightkit-sign-step";
 const OWN_RIGHT_RELEASE = fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url));
+// GB-06: the helpers the package recipes generate (package-recipe-targets.mjs) are this package's own release operations, run by this very Node binary at their exact installed
+// paths, like right-release itself: they orchestrate in the gate's own session, and every build-capable child they start comes back through this door as a carried step.
+// Only these exact files qualify; an edited app or a copy under its node_modules is a different path and is refused like any other script outside the job's workspace.
+const RECIPE_BUILD_HELPER = fileURLToPath(new URL("./recipe-build.mjs", import.meta.url));
+const CREATE_MAC_UPDATER_HELPER = fileURLToPath(new URL("./create-mac-updater.mjs", import.meta.url));
+export const INTERNAL_RELEASE_HELPERS = Object.freeze([OWN_RIGHT_RELEASE, RECIPE_BUILD_HELPER, CREATE_MAC_UPDATER_HELPER]);
 const CARRIED_RUN = fileURLToPath(new URL("./carried-cargo-run.mjs", import.meta.url));
 const CARRIED_ADAPTER_RUN = fileURLToPath(new URL("./carried-adapter-run.mjs", import.meta.url));
 const QA_SNAPSHOT_RUN = fileURLToPath(new URL("./qa-snapshot-run.mjs", import.meta.url));
@@ -250,7 +256,7 @@ export function buildLaunch(command, args = [], host = {}) {
   // This package's own right-release, run by this very Node binary (not any executable named node), with no startup code added by
   // the caller: NODE_OPTIONS is empty or exactly this process's own string (a hook's env could otherwise --import code that builds
   // outside the broker; reordered tokens can re-pair an option with another value, so nothing short of equality is accepted).
-  if (command === process.execPath && path.resolve(String(args[0] ?? "")) === OWN_RIGHT_RELEASE) {
+  if (command === process.execPath && INTERNAL_RELEASE_HELPERS.includes(path.resolve(String(args[0] ?? "")))) {
     const options = String(env.NODE_OPTIONS ?? "");
     if (options.trim() !== "" && options !== String(process.env.NODE_OPTIONS ?? "")) refuse(`right-release ${args.slice(1).join(" ")}: NODE_OPTIONS is neither empty nor exactly this process's own; on a broker-managed host the door's own right-release runs with no added startup code (rightkit#1241)`);
     return { command, args };

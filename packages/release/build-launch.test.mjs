@@ -90,3 +90,27 @@ test("managed host: npm (whose install lifecycle scripts can build) refuses; the
   const same = { ...managed, env: { ...managed.env, ...(process.env.NODE_OPTIONS !== undefined ? { NODE_OPTIONS: process.env.NODE_OPTIONS } : {}) } };
   assert.deepEqual(buildLaunch(process.execPath, [ownRightRelease, "web-build"], same).command, process.execPath);
 });
+
+// ---- GB-06: the helpers a package recipe generates are this package's own release operations ----
+test("[GB-06] the exact installed recipe-build.mjs and create-mac-updater.mjs run unchanged on a broker host (own session, their builds come back through the door); any other script, a copy under an app, or a changed NODE_OPTIONS is refused", async () => {
+  const { INTERNAL_RELEASE_HELPERS } = await import("./build-launch.mjs");
+  const { fileURLToPath } = await import("node:url");
+  const HERE_DIR = path.dirname(fileURLToPath(import.meta.url));
+  assert.deepEqual(INTERNAL_RELEASE_HELPERS.map((f) => path.basename(f)), ["right-release.mjs", "recipe-build.mjs", "create-mac-updater.mjs"]);
+  const broker = { env: { PATH: "/managed/agent-bin" }, platform: "darwin", exists: (p) => p === "/managed/agent-bin/rustright", which: () => ["/managed/agent-bin/rustright"], readFile: () => "", cwd: "/app" };
+  for (const helper of [path.join(HERE_DIR, "recipe-build.mjs"), path.join(HERE_DIR, "create-mac-updater.mjs")]) {
+    // The generated environment (the quiet Tauri signing variables) is the helper process's own, never an adapter request's.
+    const launch = buildLaunch(process.execPath, [helper, "--plan", "{}"], { ...broker, stepEnv: { TAURI_SIGNING_PRIVATE_KEY: "", TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "" } });
+    assert.deepEqual(launch, { command: process.execPath, args: [helper, "--plan", "{}"] }, path.basename(helper));
+  }
+  // Not the installed helper: an app's copy, another absolute script, a relative one, a different executable named node.
+  // An app's own copy is a workspace script like any other: it is carried as the rightkit-node ADAPTER job (never run unchanged, never in the gate's session).
+  const copy = buildLaunch(process.execPath, ["/app/node_modules/@rightkit/release/recipe-build.mjs", "--plan", "{}"], broker);
+  assert.deepEqual(copy.args.slice(0, 3), ["run", "rightkit-node", "--"], "the app's copy is an adapter job");
+  for (const script of ["/tmp/evil/recipe-build.mjs", "recipe-build.mjs", path.join(HERE_DIR, "..", "elsewhere", "recipe-build.mjs")]) {
+    assert.throws(() => buildLaunch(process.execPath, [script, "--plan", "{}"], broker), (e) => e.code === BUILD_LAUNCH_REFUSED, script);
+  }
+  assert.throws(() => buildLaunch("/usr/local/bin/node", [path.join(HERE_DIR, "recipe-build.mjs")], broker), (e) => e.code === BUILD_LAUNCH_REFUSED, "an executable that merely is named node is not this process");
+  // No added startup code: NODE_OPTIONS must be empty or exactly this process's own.
+  assert.throws(() => buildLaunch(process.execPath, [path.join(HERE_DIR, "recipe-build.mjs")], { ...broker, env: { ...broker.env, NODE_OPTIONS: "--import /tmp/x.mjs" } }), (e) => e.code === BUILD_LAUNCH_REFUSED && /NODE_OPTIONS/.test(e.message));
+});
