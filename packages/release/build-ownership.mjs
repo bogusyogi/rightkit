@@ -1068,8 +1068,7 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
     const settled = (sub) => unsent[sub] && typeof unsent[sub].reason === "string";
     const everyUnsent = handles.length > 0 && handles.every(settled);
     const status = lease({ snapshot: owner.snapshot, handle: owner.handle, ...waitOptions });
-    if (status.state === "ACTIVE") throw new Error(`broker work is still active under this handle (${status.why})`);
-    if (status.state !== "REAPED" && !everyUnsent) throw new Error(`broker work may exist under this handle and its lease is ${status.state} (${status.why})`);
+    if (status.state === "ACTIVE" || (status.state !== "REAPED" && !everyUnsent)) throw new Error(`broker work may exist under this handle and its lease is ${status.state} (${status.why})`);
     if (status.state === "REAPED") proofs.push(`broker lease for ${owner.handle} is REAPED`);
     let neverStarted = 0;
     for (const sub of handles) {
