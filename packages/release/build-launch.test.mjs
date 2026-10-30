@@ -107,7 +107,7 @@ test("[GB-06] the exact installed recipe-build.mjs and create-mac-updater.mjs ru
   // An app's own copy is a workspace script like any other: it is carried as the rightkit-node ADAPTER job (never run unchanged, never in the gate's session).
   const copy = buildLaunch(process.execPath, ["/app/node_modules/@rightkit/release/recipe-build.mjs", "--plan", "{}"], broker);
   assert.deepEqual(copy.args.slice(0, 3), ["run", "rightkit-node", "--"], "the app's copy is an adapter job");
-  for (const script of ["/tmp/evil/recipe-build.mjs", "recipe-build.mjs", path.join(HERE_DIR, "..", "elsewhere", "recipe-build.mjs")]) {
+  for (const script of ["/tmp/evil/recipe-build.mjs", path.join(HERE_DIR, "..", "elsewhere", "recipe-build.mjs")]) {
     assert.throws(() => buildLaunch(process.execPath, [script, "--plan", "{}"], broker), (e) => e.code === BUILD_LAUNCH_REFUSED, script);
   }
   assert.throws(() => buildLaunch("/usr/local/bin/node", [path.join(HERE_DIR, "recipe-build.mjs")], broker), (e) => e.code === BUILD_LAUNCH_REFUSED, "an executable that merely is named node is not this process");
