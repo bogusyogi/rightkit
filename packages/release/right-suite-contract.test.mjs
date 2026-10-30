@@ -749,10 +749,14 @@ for (const app of apps) {
       assert.equal(disabled, false, `${app.key} must satisfy the active release contract`);
     }
     if (!disabled && pkg.scripts) {
-      assert.equal(scripts["release:doctor"], "right-release doctor");
-      assertReleasePackageScripts(scripts, app.key, "r2-rightapps");
-      assert.equal(scripts["deps:check"], "right-release deps --check");
-      assert.equal(scripts["deps:update"], "right-release deps --update");
+      // Adrian 2026-10-25 (heardright 5153c3f5): "zero ways for an app to build" except the gate; every package script is a
+      // rightkit-host-gate stage, never a right-release, cargo or tauri entry of its own.
+      for (const [name, command] of Object.entries(scripts)) {
+        assert.match(command, /^rightkit-host-gate --to (dev|test|compile|package|qualify|release)\b/, `${app.key} script ${name} must route through rightkit-host-gate: ${command}`);
+      }
+      for (const platform of ["mac", "win"]) for (const tier of ["patch", "update"]) {
+        assert.ok(Object.values(scripts).includes(`rightkit-host-gate --to release --platform ${platform} --tier ${tier}`), `${app.key} must release ${platform} ${tier} through the gate`);
+      }
     } else if (!disabled) {
       assert.ok(usesRecipeLane(config), `${app.key} has no package scripts; its release must be declared through RightKit recipes`);
     }
