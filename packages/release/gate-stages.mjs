@@ -11,6 +11,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { writeFileAtomic } from "./atomic-write.mjs";
 import { platformDirOf } from "./platform-dir.mjs";
 
 export const STAGES = Object.freeze(["check", "compile", "package", "qualify", "release"]);
@@ -163,7 +164,7 @@ export function readReceipt({ commonDir, commit, app = ".", readFile = (f) => fs
   return null;
 }
 
-export function writeReceipt({ commonDir, receipt, write = fs.writeFileSync, mkdir = fs.mkdirSync }) {
+export function writeReceipt({ commonDir, receipt, write = (file, data) => writeFileAtomic(file, data), mkdir = fs.mkdirSync }) {
   const dir = path.join(gateStateDir(commonDir), "receipts");
   mkdir(dir, { recursive: true });
   write(path.join(dir, `${receiptKey(receipt.commit, receipt.app ?? ".")}.json`), `${JSON.stringify(receipt, null, 2)}\n`);
