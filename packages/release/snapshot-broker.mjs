@@ -22,7 +22,7 @@ import { ATTEST_STAGE_NONCE_ENV, canonicalJson, carriedCallNonce } from "./prove
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { forwardedAdapterEnv } from "./adapter-env.mjs";
 import { carriedShapeDecision } from "./cargo-shapes.mjs";
-import { drainFrames, overCapProblem } from "./broker-wire.mjs";
+import { diagnoseControlReply, drainFrames, overCapProblem } from "./broker-wire.mjs";
 import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend } from "./ownership-mark.mjs";
 import {
   MANAGED_RUST_ENVIRONMENT_KEYS, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, isCallHandleOf, lockedArgv, observedEnvOf, readDeclaredInputs, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest,
@@ -50,18 +50,28 @@ export const brokerOutputRoots = ({ dataRoot }) => [path.join(dataRoot, "rightki
 /** The broker's receipt of one request, read through the RustRight client (`rustright status <id>`), synchronously. */
 export function receiptSync({ client, requestId, env, spawn = spawnSync, platform = process.platform }) {
   const r = spawnBrokerClient(spawn, client, ["status", requestId], { encoding: "utf8", env, timeout: 60_000, maxBuffer: 64 * 1024 * 1024 }, { platform });
-  if (r.error || r.status !== 0) throw new SnapshotRequestError("receipt", `rustright status ${requestId} failed (${r.error?.message ?? `exit ${r.status}`})`);
+  const failedRun = () => new SnapshotRequestError("receipt", `rustright status ${requestId} failed (${r.error?.message ?? `exit ${r.status}`})`);
+  if (r.error) throw failedRun();
   let doc;
-  try { doc = JSON.parse(String(r.stdout)); } catch { throw new SnapshotRequestError("receipt", `rustright status ${requestId} printed no JSON`); }
+  // A refused or unavailable reply may arrive with a nonzero exit (the client exits 125 on a REJECTED result): its typed body is still diagnosed (GB-84).
+  try { doc = JSON.parse(String(r.stdout)); } catch { throw r.status !== 0 ? failedRun() : new SnapshotRequestError("receipt", `rustright status ${requestId} printed no JSON`); }
   // The status envelope is `{type:"STATUS", id, state, ..., receipt}`: `receipt` is null while the job is live and full once it is
   // terminal. Polling is not allowed, so a null receipt after the cargo process exited is a clear error, never a retry.
   // GB-53: an over-cap outcome is a typed truncation, never a missing-field mystery.
   const over = overCapProblem(doc);
   if (over) throw new SnapshotRequestError(over.code, `rustright status ${requestId}: ${over.message}`);
-  if (!doc || typeof doc !== "object" || !Object.hasOwn(doc, "receipt")) throw new SnapshotRequestError("receipt", `rustright status ${requestId} returned no receipt field (not a STATUS envelope)`);
-  if (doc.receipt === null) throw new SnapshotRequestError("receipt-not-ready", `rustright status ${requestId} reports the job ${doc.state ?? "state unknown"} with no receipt yet, although its cargo process exited; the gate does not poll, so this call is unverified`);
-  if (typeof doc.receipt !== "object" || Array.isArray(doc.receipt)) throw new SnapshotRequestError("receipt", `rustright status ${requestId} returned a receipt that is not an object`);
-  return doc.receipt;
+  // GB-84: the typed envelope is judged BEFORE any receipt validation (diagnoseControlReply, RustRight's own rule, vector control-status-vectors.v1.json). Only a terminal
+  // reply with a receipt of this request is a build outcome; a live, unavailable, refused or malformed reply keeps the broker's state, code and identity, is never green, and
+  // is reconciled by the durable request id (the gate never resubmits because a diagnosis improved).
+  const diagnosis = diagnoseControlReply(doc, requestId);
+  const typed = (code, message) => Object.assign(new SnapshotRequestError(code, message), { diagnosis });
+  switch (diagnosis.kind) {
+    case "terminal": if (r.status !== 0) throw failedRun(); return diagnosis.receipt;
+    case "live": throw typed("receipt-not-ready", `rustright status ${requestId} reports the job ${diagnosis.state} with no receipt yet, although its cargo process exited; the gate does not poll or resubmit, so this call is unverified and the request id ${requestId} is the durable handle to reconcile it`);
+    case "unavailable": throw typed("broker-unavailable", `rustright status ${requestId}: the broker's front gate cannot serve now (${diagnosis.reason}); the request id ${requestId} is kept for reconciliation, nothing is resubmitted`);
+    case "refused": throw typed(`broker-refused-${diagnosis.refusal}`, `rustright status ${requestId}: the broker refused the reply (${diagnosis.code ?? "no code"}: ${diagnosis.message || diagnosis.refusal})${diagnosis.refusal === "suspended" ? "; the job runs again after the broker restarts: ask again then, by this id" : diagnosis.refusal === "paused" ? "; admission is paused, nothing was spawned" : ""}`);
+    default: throw typed("receipt", `rustright status ${requestId}: the reply is not a valid status for this request (${diagnosis.message})`);
+  }
 }
 
 /**

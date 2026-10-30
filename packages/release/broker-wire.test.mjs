@@ -77,3 +77,42 @@ test("[GB-53] FRAME_OVER_CAP and RK_RESPONSE_OVER_CAP are typed truncation: a st
   fx.setBehavior({});
   assert.equal(adapterRun().outcome.status, "verified");
 });
+
+// ---- GB-84: control and status replies are diagnosed, not collapsed into a generic receipt failure ----
+import { diagnoseControlReply } from "./broker-wire.mjs";
+import { loadVector } from "./test-support/vectors.mjs";
+
+test("[GB-84] every case of the control-status vector reaches RustRight's diagnosis kind, state, code and refusal class", () => {
+  const vector = loadVector("control-status-vectors.v1.json");
+  assert.ok(vector.cases.length >= 19);
+  for (const c of vector.cases) {
+    const got = diagnoseControlReply(c.event, vector.expectedId);
+    assert.equal(got.kind, c.kind, c.name);
+    if (c.state !== undefined) assert.equal(got.state, c.state, c.name);
+    if (c.code !== undefined) assert.equal(got.code, c.code, c.name);
+    if (c.refusal !== undefined) assert.equal(got.refusal, c.refusal, c.name);
+  }
+});
+
+test("[GB-84] receiptSync gives each diagnosis its own recoverable error: live, unavailable, refused (paused, suspended), malformed; only a terminal reply yields a receipt", () => {
+  const read = (doc, exit = 0) => receiptSync({ client: "rustright", requestId: "job-1", env: {}, spawn: () => ({ status: exit, stdout: JSON.stringify(doc), stderr: "" }) });
+  const code = (doc, exit) => { try { read(doc, exit); return "no error"; } catch (e) { return [e.code, e.diagnosis?.kind, e.message]; } };
+  assert.deepEqual(read({ type: "STATUS", id: "job-1", state: "SUCCEEDED", receipt: { id: "job-1", state: "SUCCEEDED" } }), { id: "job-1", state: "SUCCEEDED" });
+  for (const live of [{ type: "STATUS", id: "job-1", state: "RUNNING" }, { type: "STATUS", id: "job-1", state: "QUEUED", receipt: null }]) {
+    const [c, kind, message] = code(live);
+    assert.deepEqual([c, kind], ["receipt-not-ready", "live"]); assert.match(message, /request id job-1 is the durable handle/);
+  }
+  const [uc, uk, um] = code({ type: "STATUS", id: "job-1", state: "UNAVAILABLE", diagnostic: { code: "EIO" } });
+  assert.deepEqual([uc, uk], ["broker-unavailable", "unavailable"]); assert.match(um, /EIO/);
+  const paused = code({ type: "RESULT", exitCode: 125, status: "REJECTED", error: "admission is paused", code: "RK_ADMISSION_PAUSED" }, 125);
+  assert.deepEqual(paused.slice(0, 2), ["broker-refused-paused", "refused"]); assert.match(paused[2], /RK_ADMISSION_PAUSED.*nothing was spawned/);
+  const suspended = code({ type: "RESULT", exitCode: 125, status: "REJECTED", error: "journaled", code: "RK_JOB_SUSPENDED" }, 125);
+  assert.deepEqual(suspended.slice(0, 2), ["broker-refused-suspended", "refused"]); assert.match(suspended[2], /ask again then, by this id/);
+  assert.equal(code({ type: "RESULT", exitCode: 125, status: "REJECTED", code: "RK_JOB_NOT_FOUND" }, 125)[0], "broker-refused-not-found");
+  // Malformed: a terminal state with no receipt, another request's receipt or id, no state: never green.
+  for (const bad of [{ type: "STATUS", id: "job-1", state: "SUCCEEDED" }, { type: "STATUS", id: "job-1", state: "SUCCEEDED", receipt: { id: "job-2" } }, { type: "STATUS", id: "job-2", state: "RUNNING" }, { type: "STATUS", id: "job-1" }, { type: "STATUS", id: "job-1", state: "SUCCEEDED", receipt: "ok" }]) {
+    assert.deepEqual(code(bad).slice(0, 2), ["receipt", "malformed"], JSON.stringify(bad));
+  }
+  // A terminal reply with a failing client exit is not a build outcome either.
+  assert.equal(code({ type: "STATUS", id: "job-1", state: "SUCCEEDED", receipt: { id: "job-1" } }, 1)[0], "receipt");
+});

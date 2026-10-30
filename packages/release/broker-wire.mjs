@@ -57,3 +57,53 @@ export function drainFrames(text, limit = MAX_BROKER_LINE_BYTES) {
   if (rest.length > 0) frames.push(rest.toString("utf8"));
   return { frames, overCap, error: null };
 }
+
+// ---- GB-84: the typed diagnosis of one STATUS or RESULT reply (rustright_protocol::diagnose_control_reply, vector control-status-vectors.v1.json) ----
+const TERMINAL_STATES = new Set(["SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT", "REJECTED"]);
+const REFUSAL_CLASSES = Object.freeze({ RK_ADMISSION_PAUSED: "paused", RK_JOB_SUSPENDED: "suspended", RK_JOB_NOT_FOUND: "not-found", RK_ACTIVATION_PENDING: "activation-pending", RK_CUTOVER_DRAIN_PENDING: "cutover-drain" });
+const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+
+/**
+ * What a client concludes from one STATUS or RESULT line about a request it knows by id. Only `terminal` is a build outcome, and only after the receipt's own signed
+ * validation; every other kind keeps the broker's code, state and identity instead of collapsing into a generic receipt failure, and a known request is reconciled by
+ * its durable id, never resubmitted because a diagnosis improved:
+ *   { kind: "live", id, state }                  non-terminal with an absent or null receipt (pending; never a result, never green)
+ *   { kind: "terminal", id, state, receipt }      a terminal state with a receipt object whose id is the request's
+ *   { kind: "unavailable", id, reason }           the front gate's STATUS with state UNAVAILABLE and its diagnostic code
+ *   { kind: "refused", code, refusal, message }   a RESULT with status REJECTED: paused, suspended, not-found, activation-pending, cutover-drain, other
+ *   { kind: "malformed", message }                not a typed object, another request's id or receipt, no state, a terminal state without a receipt, a receipt that is not an object
+ */
+export function diagnoseControlReply(event, expectedId = null) {
+  const malformed = (message) => ({ kind: "malformed", message });
+  if (!isObject(event) || typeof event.type !== "string") return malformed("the reply is not a typed object");
+  const id = typeof event.id === "string" ? event.id : null;
+  if (expectedId !== null && id !== null && expectedId !== id) return malformed("the reply names another request");
+  const receiptOf = (state) => {
+    const receipt = event.receipt;
+    if (isObject(receipt)) {
+      const receiptId = typeof receipt.id === "string" ? receipt.id : null;
+      const want = expectedId ?? id;
+      if (want !== null && receiptId !== null && want !== receiptId) return malformed("the receipt is for another request");
+      if (want !== null && receiptId === null) return malformed("the receipt names no request");
+      return { kind: "terminal", id, state, receipt };
+    }
+    if (receipt === undefined || receipt === null) return TERMINAL_STATES.has(state) ? malformed("a finished job's reply carries no receipt") : { kind: "live", id, state };
+    return malformed("the receipt is not an object");
+  };
+  if (event.type === "STATUS") {
+    if (typeof event.state !== "string" || event.state === "") return malformed("the status carries no state");
+    if (event.state === "UNAVAILABLE") {
+      const reason = (isObject(event.diagnostic) && typeof event.diagnostic.code === "string" ? event.diagnostic.code : null) ?? (typeof event.code === "string" ? event.code : null) ?? "unavailable";
+      return { kind: "unavailable", id, reason };
+    }
+    return receiptOf(event.state);
+  }
+  if (event.type === "RESULT") {
+    if (event.status === "REJECTED") {
+      const code = typeof event.code === "string" ? event.code : null;
+      return { kind: "refused", code, refusal: (code !== null && Object.hasOwn(REFUSAL_CLASSES, code) ? REFUSAL_CLASSES[code] : "other"), message: typeof event.error === "string" ? event.error : "" };
+    }
+    return typeof event.status === "string" && TERMINAL_STATES.has(event.status) ? receiptOf(event.status) : malformed("the result carries no terminal status");
+  }
+  return malformed("the reply is not a STATUS or RESULT");
+}
