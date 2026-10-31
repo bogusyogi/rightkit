@@ -24,7 +24,12 @@
 //     on Windows and Linux) or from a file outside the repository (mode 0600 on POSIX), then written to a transient
 //     0600 `signing.properties` in a private temp directory. Gradle gets only the file's PATH, in
 //     RIGHTKIT_ANDROID_SIGNING_PROPERTIES; the app's signingConfig reads storeFile/storePassword/keyAlias/keyPassword from it.
-//   - The file is zeroed and removed when Gradle ends, on failure, and on process exit.
+//   - The file is zeroed and removed when Gradle ends, on failure, on cancellation (an AbortSignal, SIGINT, SIGTERM, SIGHUP) and on process exit. It lives in a
+//     private 0700 directory this lane created and owns (`tmpRoot`); signingFileProblem (native-adapters.mjs, the broker's own file rule) must accept it before Gradle sees its path, and a
+//     file that survives cleanup is a refusal of its own (ANDROID_SIGNING_CLEANUP_FAILED), never a warning.
+//   - Gradle runs through the door (release.mjs runCommand -> build-launch.mjs): the path is the typed `signingFile` handoff, never an environment of a broker job. A broker route has no
+//     request field that carries it yet (capability native-signing-file-v1, open policy: the signed Android release phase is OPEN and off), so `native.plan` is asked FIRST, before any
+//     secret is read or any file written, and the typed refusal (RK_NATIVE_SIGNING_FILE_UNSUPPORTED, or the grammar's refusal of bundle<Variant>Release) ends the lane. A direct host's own Gradle gets the path in its environment.
 //
 // After the build the AAB is read in-process (android-aab-scan.mjs): QA/debug markers in every .so, web-bundle mocks,
 // one upload-key signature whose certificate matches expectedCertSha256 (never the Android debug certificate). A receipt
@@ -36,9 +41,14 @@ import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { describeAabProblems, extractNativeLibs, scanAab } from "./android-aab-scan.mjs";
 import { runAndroidNdk, validateAndroidNdk } from "./android-ndk.mjs";
+import { NATIVE_SIGNING_FILE_ENV, signingFileProblem } from "./native-adapters.mjs";
 
 export const ANDROID_SIGNING_CONTRACT = "android-aab-upload-key-v1";
-export const ANDROID_SIGNING_PROPERTIES_ENV = "RIGHTKIT_ANDROID_SIGNING_PROPERTIES";
+export const ANDROID_SIGNING_PROPERTIES_ENV = NATIVE_SIGNING_FILE_ENV; // "RIGHTKIT_ANDROID_SIGNING_PROPERTIES": the one name, shared with the door
+export const ANDROID_SIGNING_FILE_REFUSED = "ANDROID_SIGNING_FILE_REFUSED";
+export const ANDROID_SIGNING_CLEANUP_FAILED = "ANDROID_SIGNING_CLEANUP_FAILED";
+export const ANDROID_SIGNING_ROUTE_REFUSED = "ANDROID_SIGNING_ROUTE_REFUSED";
+export const ANDROID_RELEASE_CANCELLED = "ANDROID_RELEASE_CANCELLED";
 export const ANDROID_RECEIPT_NAME = "android-aab.json";
 export const ANDROID_ENV_SECRET_REFUSED = "ANDROID_ENV_SECRET_REFUSED";
 export const ANDROID_SECRET_MISSING = "ANDROID_SECRET_MISSING";
@@ -245,6 +255,46 @@ export function createSigningProperties({ keystore, alias, storePassword, keyPas
   return { file, dir, cleanup };
 }
 
+// ---- lifetime of the signing file ---------------------------------------------------------------------------------
+// The file must not outlive the signing phase on any exit: normal end, a thrown step, process.exit() (release.mjs ends a failed step with it) or a signal. A signal handler suppresses the
+// default action, so after the cleanup the handlers are removed and the signal is re-raised: the process still dies of the signal, with no secret file left behind.
+const CANCEL_SIGNALS = process.platform === "win32" ? ["SIGINT", "SIGTERM"] : ["SIGINT", "SIGTERM", "SIGHUP"];
+export function holdSigningFile(props, host = process) {
+  const signalHandlers = new Map();
+  const detach = () => {
+    host.removeListener("exit", onExit);
+    for (const [signal, handler] of signalHandlers) host.removeListener(signal, handler);
+    signalHandlers.clear();
+  };
+  const onExit = () => props.cleanup();
+  host.on("exit", onExit);
+  for (const signal of CANCEL_SIGNALS) {
+    const handler = () => { props.cleanup(); detach(); host.kill(host.pid, signal); };
+    signalHandlers.set(signal, handler);
+    host.on(signal, handler);
+  }
+  // release(): cleanup, then stop guarding. Returns true when nothing of the owned directory is left.
+  return () => { props.cleanup(); detach(); return !existsSync(props.dir); };
+}
+
+// Asks the production native runner (build-launch.mjs createNativeRunner) whether the door can carry this Gradle step WITH the signing-file handoff, before any secret is read.
+// The probe path names a file that does not exist and is never created; plan() spawns nothing. Returns the launch, or { refused } with the door's typed reason.
+export function planNativeSigningRoute({ native, gradle, root, tmpRoot }) {
+  if (!native) return null;
+  const probe = path.join(tmpRoot, "rightkit-android-sign-probe", "signing.properties");
+  let launch;
+  try { launch = native.plan(gradle.cmd, gradle.args, { cwd: path.resolve(root, gradle.cwd ?? "."), signingFile: probe }); }
+  catch (error) {
+    if (error?.code === "RK_BUILD_LAUNCH_REFUSED") return { refused: { code: String(error.reason ?? ANDROID_SIGNING_ROUTE_REFUSED), message: String(error.message) } };
+    throw error;
+  }
+  // A direct host launches Gradle itself: its environment must carry exactly the handoff path. A broker route that accepts the file carries it by its own typed capability.
+  if (!launch.native && launch.env?.[NATIVE_SIGNING_FILE_ENV] !== probe) {
+    return { refused: { code: ANDROID_SIGNING_ROUTE_REFUSED, message: `the door's launch of ${gradle.cmd} would not carry ${NATIVE_SIGNING_FILE_ENV}; the signing file is not handed over` } };
+  }
+  return { launch };
+}
+
 // ---- verification, receipt and seal entry ------------------------------------------------------------------------
 const sha256File = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
 
@@ -284,12 +334,18 @@ export function verifyAndroidReceipt(receiptPath, aabFile) {
 export async function runAndroidRelease({
   root, app = "app", target, dryRun = false, env = process.env, platform = process.platform,
   runGradle, runNdk = runGradle, resolveArtifact = (file) => path.resolve(root, file), scanFiles, receiptDir,
-  allowContentOnlyDevtools = false, credentialStore, tmpRoot = os.tmpdir(), now = () => new Date(), log = console.log,
+  allowContentOnlyDevtools = false, credentialStore, tmpRoot = os.tmpdir(), now = () => new Date(), log = console.log, native, signal,
 }) {
+  const cancelled = () => { if (signal?.aborted) refuse(ANDROID_RELEASE_CANCELLED, "the Android release was cancelled before the signing phase ended; no signing file remains"); };
+  cancelled();
   refuseAndroidEnvSecrets(env);
   const aab = resolveArtifact(target.aab.file);
   const { signing } = target;
+  // RA-08: the door's verdict on the signing-file handoff comes first, before any secret is read or any file or directory is created (a refusal here has nothing to clean up).
+  const route = planNativeSigningRoute({ native, gradle: target.gradle, root, tmpRoot });
+  if (route?.refused && !dryRun) refuse(route.refused.code, `${route.refused.message}; the signed Android release phase did not start: no secret was read and no signing file was written`);
   if (dryRun) {
+    if (route?.refused) log(`right-release: dry-run: the door refuses this Gradle step with the signing-file handoff (${route.refused.code}); a real run stops there before any secret is read`);
     log(`right-release: dry-run: android ${target.task} -> ${aab}; signing passwords would come from ${signing.storePassword.credential ? "the credential store" : "a file"}, never the environment`);
     if (target.ndk) await runAndroidNdk({ ndk: target.ndk, profile: "release", dryRun: true, run: (command) => runNdk(command, {}), log });
     await runGradle(target.gradle, {});
@@ -304,16 +360,25 @@ export async function runAndroidRelease({
   rmSync(aab, { force: true });
   // Native libraries first (no secret involved): cargo-ndk --release per ABI into the generated jniLibs directory.
   if (target.ndk) await runAndroidNdk({ ndk: target.ndk, profile: "release", run: (command) => runNdk(command, {}), log });
+  cancelled();
   const props = createSigningProperties({ keystore: signing.keystorePath, alias: signing.alias, storePassword, keyPassword, tmpRoot });
-  const onExit = () => props.cleanup();
-  process.on("exit", onExit); // release.mjs ends a failed step with process.exit(); the secret file must not outlive it
+  // From here the file is owned by this phase: exit, process.exit() and the cancelling signals all remove it (holdSigningFile).
+  const release = holdSigningFile(props);
+  let built = false;
   try {
+    // The broker's own file rule (signingFileProblem) must accept the file, inside this lane's tmpRoot, before Gradle is handed its path.
+    const shape = signingFileProblem(props.file, { signerRoot: tmpRoot });
+    if (shape) refuse(ANDROID_SIGNING_FILE_REFUSED, `the transient signing file is not acceptable (${shape.replaceAll(props.file, "<signing file>")}); Gradle was not started`);
+    cancelled();
     log(`right-release: android ${target.task} (signing properties passed by path only)`);
-    await runGradle(target.gradle, { [ANDROID_SIGNING_PROPERTIES_ENV]: props.file });
+    await runGradle(target.gradle, { [ANDROID_SIGNING_PROPERTIES_ENV]: props.file }, ...(signal ? [{ signal }] : []));
+    built = true;
   } finally {
-    props.cleanup();
-    process.removeListener("exit", onExit);
+    const clean = release();
+    if (!clean && built) refuse(ANDROID_SIGNING_CLEANUP_FAILED, "the transient signing directory could not be removed after Gradle; the release is refused (the file holds only zeroes if the overwrite succeeded)");
+    if (!clean) log("right-release: WARNING: the transient signing directory could not be removed; remove it by hand (it holds no password if the overwrite succeeded)");
   }
+  cancelled();
   if (!existsSync(aab) || !statSync(aab).isFile()) refuse("ANDROID_AAB_MISSING", `Gradle finished but ${target.aab.file} was not produced`);
 
   const scan = scanAab(aab, { allowContentOnlyDevtools });
