@@ -19,7 +19,7 @@ import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { BROKER_ONLY_FIELDS, DIRECT_RECEIPT_REQUIRED, TIMING_FIELDS, buildDirectReceipt, directVerdict, envInputs, isWithin, resolveTargetDirectory, verifyDirectReceipt, writeDirectDiagnostics } from "./direct-receipt.mjs";
-import { FINGERPRINT_LOG_FILTER, FingerprintLog, REASONS_CAP, REASON_TEXT_CAP, compilesWorkspace, createFreshnessCensus, fingerprintDirectories, validateFreshness } from "./freshness-census.mjs";
+import { FINGERPRINT_LOG_FILTER, FingerprintLog, REASONS_CAP, REASON_TEXT_CAP, compilesWorkspace, createFreshnessCensus, selectedFingerprintDirectories, validateFreshness } from "./freshness-census.mjs";
 import { main } from "./bin/rightkit-gate.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -61,11 +61,12 @@ const REASON = "  0.123s  INFO prepare_target{force=false package_id=core v0.1.0
 test("[behavior] item 7 row 7.19: the fingerprint filter is the one the broker sets, and a dirty unit with its reason is recorded and kept out of the output", () => {
   assert.equal(FINGERPRINT_LOG_FILTER, "cargo::core::compiler::fingerprint=info");
   const log = new FingerprintLog({ strip: true });
-  const shown = log.feed(`   Compiling core v0.1.0\n${DIRTY}${REASON}    Finished dev\n`);
+  // The root's fingerprint lines come before Cargo's first execution status word (GB-68); what follows is a nested Cargo's and is neither counted nor stripped.
+  const shown = log.feed(`${DIRTY}${REASON}   Compiling core v0.1.0\n    Finished dev\n`);
   assert.equal(shown, "   Compiling core v0.1.0\n    Finished dev\n");
   assert.equal(log.dirtyUnits, 1);
   assert.equal(log.reasons.length, 1);
-  assert.deepEqual([log.reasons[0].unit, log.reasons[0].target, log.reasons[0].kind], ["core v0.1.0", "core", "FsStatusOutdated"]);
+  assert.deepEqual([log.reasons[0].unit, log.reasons[0].target, log.reasons[0].kind, log.reasons[0].cause], ["core v0.1.0", "core", "FsStatusOutdated", "source-or-dependency-changed"]);
   assert.match(log.reasons[0].reason, /src\/lib\.rs/);
 });
 
@@ -116,16 +117,16 @@ function unitAt(target, profileDir, name, seconds) {
   for (const p of [file, dir]) fs.utimesSync(p, seconds, seconds);
 }
 
-test("[behavior] item 7 row 7.19: the census counts units at start, fresh and rebuilt (a new unit included) from the target directory's fingerprints; doc output and packaging are not profiles", (t) => {
+test("[behavior] item 7 row 7.19: the census counts units at start, fresh and rebuilt (a new unit included) from the SELECTED scope's fingerprints (the build's profile and triple); other profiles, doc output and packaging are not counted", (t) => {
   const target = path.join(tmp(t), "target");
   unitAt(target, "debug", "a-1", FP_NOW_S - 100);
   unitAt(target, "debug", "b-1", FP_NOW_S - 100);
   unitAt(target, "x86_64-unknown-linux-gnu/debug", "c-1", FP_NOW_S - 100);
   unitAt(target, "doc", "ignored-1", FP_NOW_S - 100);
   unitAt(target, "package", "ignored-2", FP_NOW_S - 100);
-  assert.deepEqual(fingerprintDirectories(target).map((d) => path.relative(target, d).split(path.sep).join("/")).sort(), ["debug/.fingerprint", "x86_64-unknown-linux-gnu/debug/.fingerprint"]);
+  assert.deepEqual(selectedFingerprintDirectories(target, { argv: ["build"], triples: ["x86_64-unknown-linux-gnu"] }).map((d) => path.relative(target, d).split(path.sep).join("/")), ["x86_64-unknown-linux-gnu/debug/.fingerprint", "debug/.fingerprint"]);
   const census = createFreshnessCensus({ targetDirs: { ".": target }, now: () => FP_NOW_S * 1000 });
-  census.start();
+  census.start({ argv: ["build"], triples: ["x86_64-unknown-linux-gnu"] });
   fs.utimesSync(path.join(target, "debug", ".fingerprint", "b-1", "lib-x.json"), FP_NOW_S + 10, FP_NOW_S + 10); // b was rebuilt
   unitAt(target, "debug", "d-1", FP_NOW_S + 20); // d is new
   const freshness = census.finish();
@@ -137,13 +138,16 @@ test("[behavior] item 7 row 7.19: the census counts units at start, fresh and re
 test("[behavior] item 7 row 7.19: a census with nothing to count, never started or over the entry cap says so instead of reporting zeros as reuse", (t) => {
   const dir = tmp(t);
   const empty = createFreshnessCensus({ targetDirs: { ".": path.join(dir, "no-target") }, now: () => FP_NOW_S * 1000 });
-  empty.start();
+  empty.start({ argv: ["build"] });
   assert.deepEqual([empty.finish().available, empty.finish().reason], [false, "no-fingerprint-units-found"]);
+  const unselected = createFreshnessCensus({ targetDirs: { ".": path.join(dir, "no-target") }, now: () => FP_NOW_S * 1000 });
+  unselected.start();
+  assert.deepEqual([unselected.finish().available, unselected.finish().reason], [false, "fingerprint-census-no-compiling-process"], "no compiling process selected a scope: unavailable, not a census of everything");
   assert.equal(createFreshnessCensus({ targetDirs: {} }).finish().reason, "fingerprint-census-not-started");
   const target = path.join(dir, "target");
   for (const n of ["a-1", "b-1", "c-1"]) unitAt(target, "debug", n, FP_NOW_S - 100);
   const capped = createFreshnessCensus({ targetDirs: { ".": target }, now: () => FP_NOW_S * 1000, cap: 1 });
-  capped.start();
+  capped.start({ argv: ["build"] });
   const f = capped.finish();
   assert.deepEqual([f.available, f.reason, f.fresh, f.notFresh], [false, "fingerprint-census-entry-cap-exceeded", 0, 0]);
   assert.deepEqual(validateFreshness(f), [], "unavailable is still a well formed census: the consumer reads available:false");
@@ -333,6 +337,8 @@ test("[behavior] item 7 rows 7.09, 7.18, 7.19 (fixture): the door resolves the o
       // Not cargo: passed through untouched, with its stderr intact.
       const through = await options.spawn(process.execPath, ["-e", "console.error('through')"], { env: process.env });
       seen[0].through = through.stderr;
+      // The census reads the scope a compiling cargo process selects (its profile, here the default `debug`): `cargo check --help` is such a process and compiles nothing.
+      await options.spawn("cargo", ["check", "--help"], { env: process.env, cwd: repo });
       await new Promise((resolve) => setTimeout(resolve, 40)); // the file system's clock is coarser than Date.now()
       unitAt(checkoutTarget, "debug", "a-1", Math.floor(Date.now() / 1000) + 5); // a unit "rebuilt" during the stage
       return { scans: [], notes: [], cacheHits: [] };
@@ -394,7 +400,7 @@ function cargoRepo(dir, crates, { config = null } = {}) {
 
 // The gate's own door run in a child process (the broker guard is off there), with the same real class B cargo scans the gate plans plus
 // any extra scan rows; `onlyExtra` runs the extra rows alone. Returns { code, out, receipt }.
-function runDoor(dir, { repo, sha, extra = [], onlyExtra = false, env: envOver = {} }) {
+function runDoor(dir, { repo, sha, extra = [], onlyExtra = false, forceCompile = false, env: envOver = {} }) {
   const driver = path.join(dir, `driver-${Math.random().toString(16).slice(2)}.mjs`);
   fs.writeFileSync(driver, `const { main } = await import(${JSON.stringify(pathToFileURL(path.join(HERE, "bin", "rightkit-gate.mjs")).href)});
 const { runScans } = await import(${JSON.stringify(pathToFileURL(path.join(HERE, "deterministic-scans.mjs")).href)});
@@ -402,7 +408,7 @@ const out = [];
 const keep = (s) => (s.class === "B" ? s.tool === "cargo" : s.internal || s.tool === "node" || (s.tool === "cargo" && s.args.includes("metadata")));
 const extra = ${JSON.stringify(extra)};
 const code = await main(["--to", "compile", "--commit", ${JSON.stringify(sha)}], { cwd: ${JSON.stringify(repo)}, platform: "linux", snapshotRoot: ${JSON.stringify(path.join(dir, "snaps"))},
-  out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0,
+  out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0,${forceCompile ? " compileReuseProblem: () => \"the test measures the census of this run's own compile (GB-13 would otherwise reuse the recorded one)\"," : ""}
   runScans: (plan, options) => runScans({ ...plan, scans: [...(${onlyExtra ? "true" : "false"} ? [] : plan.scans.filter(keep)), ...extra] }, options) });
 const line = out.find((l) => l.startsWith("rightkit-gate: direct receipt "));
 const snapLine = out.map((l) => / snapshot (\\S+) is commit /.exec(l)).find(Boolean);
@@ -462,7 +468,7 @@ test("[behavior] item 7 rows 7.18 and 7.19 real cargo: the receipt of a real dir
   assert.equal(path.isAbsolute(r1.outputDir), true);
 
   // The same commit again: reuse. notFresh is 0, or each rebuilt unit has a reason.
-  const second = runDoor(dir, { repo, sha });
+  const second = runDoor(dir, { repo, sha, forceCompile: true });
   assert.equal(second.code, 0, second.out.slice(-4000));
   const f2 = second.receipt.freshness;
   assert.ok(f2.unitsAtStart > 0 && f2.fresh > 0, `the second build sees the first build's units: ${JSON.stringify(f2)}`);
@@ -472,7 +478,7 @@ test("[behavior] item 7 rows 7.18 and 7.19 real cargo: the receipt of a real dir
   // One committed edit to crate a: a and its dependent b rebuild, each with a reason, and c does not.
   fs.appendFileSync(path.join(repo, "crates", "a", "src", "lib.rs"), "// edited\n");
   const sha2 = commitAll(repo, "edit a");
-  const third = runDoor(dir, { repo, sha: sha2 });
+  const third = runDoor(dir, { repo, sha: sha2, forceCompile: true });
   assert.equal(third.code, 0, third.out.slice(-4000));
   const f3 = third.receipt.freshness;
   const names = new Set(f3.invalidationReasons.map((r) => r.unit.split(" ")[0]));

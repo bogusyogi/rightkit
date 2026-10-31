@@ -28,6 +28,12 @@
       "sha256": "04d56a4cb5cdd9022f5bf15b96e9f00e144bdef75c7a2bb1d9948d4b4016f049",
       "schema": "rustright.declared-inputs.fixtures.v1"
     },
+    "freshness-evidence-vectors.v1.json": {
+      "sha256": "13a87427d659d33fb586dd284d652280663c02c437d4ad89cf440a0cd036b5a8",
+      "schema": "rustright.freshness-evidence-vectors.v1",
+      "commit": "ddfb07b185d35cf3c0b7848c0a195ec34ac146dd",
+      "note": "copied byte for byte from rustright docs/contracts at ddfb07b (GB-68), identical at the branch tip 8a97e085830205ca633f092158aee650bab7d707"
+    },
     "lease-status-vectors.v1.json": {
       "sha256": "1e2bd4abca08932962c86c3e8e143ec56b08046a2f570b6e368e000c25b7ab46",
       "schema": "rustright.lease-status-vectors.v1"
