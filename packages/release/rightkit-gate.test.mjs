@@ -1531,7 +1531,8 @@ test("--to release refuses outside the trusted publisher: a host or agent never 
   const io = { resolveExecutor: directExecutor, runCheck: async () => { ran.push("check"); return 0; }, runCompile: async () => 0, spawnInherit: () => { ran.push("right-release"); return { status: 0 }; } };
   for (const env of [{ ...process.env, GITHUB_ACTIONS: undefined, RIGHTKIT_PUBLISHER: undefined }, { ...process.env, GITHUB_ACTIONS: "true", RIGHTKIT_PUBLISHER: undefined }, { ...process.env, GITHUB_ACTIONS: undefined, RIGHTKIT_PUBLISHER: "github-environment" }]) {
     const c = capture();
-    assert.equal(await main(["--to", "release", "--platform", "win", "--tier", "patch"], { ...c.io, cwd: root, ...io, env }), 1);
+    // A Mac host: a release's native host is asked first (E2E L3-03), then the publisher.
+    assert.equal(await main(["--to", "release", "--platform", "mac", "--tier", "patch"], { ...c.io, cwd: root, ...io, platform: "darwin", env }), 1);
     assert.match(c.err.join("\n"), /runs only in the trusted publisher/);
   }
   assert.deepEqual(ran, [], "nothing ran before the refusal");

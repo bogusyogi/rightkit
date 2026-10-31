@@ -112,8 +112,8 @@ test("every refusal code a probe can print is the set of codes the deciding func
   // Behaviour: drive routePlan over the host, executor, carrier, environment and commit combinations; the codes it answers with are the list.
   const seen = new Set();
   for (const platform of ["linux", "darwin", "win32"]) for (const executor of [directExecutor(), brokerExecutor(), refuseExecutor()]) for (const carrier of [undefined, { kind: "x" }])
-    for (const env of [{}, { TAURI_CONFIG: "{}" }, { GITHUB_ACTIONS: "true" }]) for (const [to, devTest, stages] of [["check", false, ["check"]], ["compile", false, ["check", "compile"]], ["dev", true, []], ["package", false, ["check", "compile", "package"]]]) for (const capabilities of [null, { ok: false, problem: "p" }]) {
-      const r = plan({ platform, snapshotBroker: carrier, env, resolveExecutor: () => executor }, { to, devTest, stages, executor, capabilities });
+    for (const env of [{}, { TAURI_CONFIG: "{}" }, { GITHUB_ACTIONS: "true" }]) for (const [to, devTest, stages] of [["check", false, ["check"]], ["compile", false, ["check", "compile"]], ["dev", true, []], ["package", false, ["check", "compile", "package"]]]) for (const capabilities of [null, { ok: false, problem: "p" }]) for (const stagePlatform of [null, "mac", "win", "android"]) {
+      const r = plan({ platform, snapshotBroker: carrier, env, resolveExecutor: () => executor }, { to, devTest, stages, executor, capabilities, stagePlatform });
       if (r.refusal) { seen.add(r.refusal.code); assert.ok(ROUTE_REFUSAL_CODES.includes(r.refusal.code), r.refusal.code); }
     }
   assert.deepEqual([...seen].sort(), [...ROUTE_BASE_CODES].sort(), "every code in the list is reachable");
@@ -166,17 +166,19 @@ test("parity: a real run of every stage (no --route) is refused with exactly the
 test("--route answers one rightkit-gate.route/1 line for every stage, exit 0, and touches nothing but git and `which`", async (t) => {
   const fx = fixture(t);
   for (const [to, platform] of [["check"], ["compile"], ["dev"], ["test"], ["package", "mac"], ["qualify", "win"], ["package", "ios"], ["package", "android"], ["compile", "ios"]]) {
-    const r = await fx.run(["--to", to, "--route", ...(platform ? ["--platform", platform] : [])]);
+    // A Mac or Windows artifact is the native host's (E2E L3-03): the stage is probed on the host that builds it.
+    const host = { mac: "darwin", ios: "darwin", win: "win32" }[platform] ?? "linux";
+    const r = await fx.run(["--to", to, "--route", ...(platform ? ["--platform", platform] : [])], { platform: host });
     assert.equal(r.code, 0, `${to}: ${r.err}`);
     assert.equal(r.out.length, 1, "one line and nothing else");
     assert.equal(r.json.schema, ROUTE_SCHEMA);
-    assert.deepEqual([r.json.to, r.json.platform, r.json.host, r.json.app, r.json.commit, r.json.executor, r.json.carrier, r.json.route, r.json.refusal, r.json.checkoutClean], [to, platform ?? null, "linux", ".", fx.sha, "direct", null, "snapshot", null, true]);
+    assert.deepEqual([r.json.to, r.json.platform, r.json.host, r.json.app, r.json.commit, r.json.executor, r.json.carrier, r.json.route, r.json.refusal, r.json.checkoutClean], [to, platform ?? null, host, ".", fx.sha, "direct", null, "snapshot", null, true]);
     assert.match(r.json.gate, /^\d+\.\d+\.\d+$/);
   }
   assert.deepEqual((await fx.run(["--to", "dev", "--route"])).json.stages, ["check", "dev"]);
-  assert.deepEqual((await fx.run(["--to", "package", "--platform", "mac", "--route"])).json.stages, ["check", "compile", "package"]);
-  assert.deepEqual((await fx.run(["--to", "package", "--platform", "ios", "--route"])).json.stages, ["check", "compile", "package"]);
-  assert.deepEqual((await fx.run(["--to", "qualify", "--platform", "mac", "--route"])).json.stages, ["check", "compile", "package", "qualify"]);
+  assert.deepEqual((await fx.run(["--to", "package", "--platform", "mac", "--route"], { platform: "darwin" })).json.stages, ["check", "compile", "package"]);
+  assert.deepEqual((await fx.run(["--to", "package", "--platform", "ios", "--route"], { platform: "darwin" })).json.stages, ["check", "compile", "package"]);
+  assert.deepEqual((await fx.run(["--to", "qualify", "--platform", "mac", "--route"], { platform: "darwin" })).json.stages, ["check", "compile", "package", "qualify"]);
   for (const { call } of fx.spawned) assert.ok(call[0] === "git" || call[0] === "which", `unexpected launch: ${call.join(" ")}`);
   assert.ok(fx.spawned.every(({ call }) => call[0] !== "git" || !["add", "commit", "checkout", "stash", "write-tree", "update-index", "worktree"].includes(call[1])), "git was only read");
   assert.equal(fs.existsSync(path.join(fx.dir, "snaps")), false, "no snapshot root was created");

@@ -96,7 +96,8 @@ function appFixture(t, extra = {}) {
   const door = async (args, extra = {}) => {
     const out = []; const err = [];
     const code = await main(args, {
-      cwd: repo, platform: "linux", snapshotRoot: snaps, env, spawn, out: (m) => out.push(m), err: (m) => err.push(m), appCheck: async () => 0, runCheck: async () => 0,
+      // A package run is the native host's: these tests simulate the Mac (the executor is the injected direct stand-in), since a Linux host refuses `--platform mac` (E2E L3-03).
+      cwd: repo, platform: "darwin", snapshotRoot: snaps, env, spawn, out: (m) => out.push(m), err: (m) => err.push(m), appCheck: async () => 0, runCheck: async () => 0,
       runCompile: async () => { const s = snapshot(); fs.mkdirSync(path.join(s, "src-tauri/gen/schemas"), { recursive: true }); fs.writeFileSync(path.join(s, "src-tauri/gen/schemas/x.json"), "{}\n"); return 0; },
       readReceipt: ({ commit }) => receipts.get(commit) ?? null, writeReceipt: ({ receipt }) => receipts.set(receipt.commit, receipt),
       resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }), verifySnapshot: () => ({}), spawnCapture, spawnInherit, ...extra,

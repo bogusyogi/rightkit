@@ -116,7 +116,7 @@ test("[7.06] behavior: each stage that reads a snapshot reads the selected commi
     assert.equal(r.code, 0, r.all);
   }
   // package: right-release (source QA, then the build) starts with its cwd in the snapshot (row 7.04).
-  r = await fx.door(["--to", "package", "--platform", "mac", "--commit", fx.sha], { runCheck: async () => 0, runCompile: async () => 0, sealedFor: () => ({ id: "x-1.0.0-00000000", manifest: "m", digest: "d".repeat(64) }), spawnInherit: (c, a, opts) => { note("package", opts.cwd); return { status: 0 }; } });
+  r = await fx.door(["--to", "package", "--platform", "mac", "--commit", fx.sha], { platform: "darwin", runCheck: async () => 0, runCompile: async () => 0, sealedFor: () => ({ id: "x-1.0.0-00000000", manifest: "m", digest: "d".repeat(64) }), spawnInherit: (c, a, opts) => { note("package", opts.cwd); return { status: 0 }; } });
   assert.equal(r.code, 0, r.all);
   for (const [stage, roots] of Object.entries(observed)) {
     assert.ok(roots.length > 0, `${stage} was observed`);

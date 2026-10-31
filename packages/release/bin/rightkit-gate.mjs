@@ -101,6 +101,8 @@ export const PARTIAL_EXIT = 3;
 /** The platforms a door run can package: desktop (signed, sealed, installed QA, publisher upload) and mobile (signed, sealed, store test track). */
 export const PLATFORMS = Object.freeze(["mac", "win", "ios", "android"]);
 export const MOBILE_PLATFORMS = Object.freeze(new Set(["ios", "android"]));
+/** The host platform (process.platform) that constructs each platform's artifact; a platform missing here (android) builds on any host. */
+const STAGE_NATIVE_HOST = Object.freeze({ mac: "darwin", ios: "darwin", win: "win32" });
 const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to dev|test [--commit <rev>] [-- <right-release args>] | rightkit-gate --to check|compile|package|qualify|dev|test --route [--platform mac|win|ios|android] [--commit <rev>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] | rightkit-gate install-hook | rightkit-gate env-digest | rightkit-gate snapshot [--commit <rev>] [--verify [--env <sha256>]] [--json] | rightkit-gate live-scans --repo <root> | rightkit-gate clippy [<cargo clippy args>] | rightkit-gate env-digest [--snapshot <dir> --commit <sha>] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | rightkit-gate check --commit <sha> --full-a --snapshot <dir> | --version`;
 
 // ---- pure helpers (exported for tests) ----------------------------------------------------------------------
@@ -1276,9 +1278,11 @@ async function runStages(o, args, root, git, io) {
     const whichRoute = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
     const routeExecutor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which: whichRoute, readFile: o.readFile });
     let decided;
-    try { decided = routePlan(o, { to, stages: devTest ? [] : stages, devTest, executor: routeExecutor, capabilities: await brokerCapabilityStateWithHandshake(o, { to, executor: routeExecutor }), appConfig: selected && to !== "check" ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
+    try { decided = routePlan(o, { to, stages: devTest ? [] : stages, devTest, executor: routeExecutor, stagePlatform: platform, capabilities: await brokerCapabilityStateWithHandshake(o, { to, executor: routeExecutor }), appConfig: selected && to !== "check" ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
     catch (e) { o.err(`${tag} ${e.message}`); return 2; }
     if (decided.refusal) { o.err(`${tag} BLOCKED: ${decided.refusal.code}: ${decided.refusal.message}; nothing ran${decided.route === "snapshot" ? " and the checkout is never built" : ""}`); return 1; }
+    const notPublisher = decided.route === "snapshot" ? releaseRouteRefusal(o, { stages, platform }) : null;
+    if (notPublisher) { o.err(`${tag} BLOCKED: ${notPublisher.code}: ${notPublisher.message}; nothing ran and the checkout is never built`); return 1; }
   }
   if (!o.doorSnapshot && !hosted) {
     const snap = await import("../snapshot.mjs");
@@ -1964,7 +1968,7 @@ export function snapshotRouteRefusal(o) {
 }
 
 /** The refusal codes a route probe can answer with: the codes the stages themselves print (`BLOCKED: <code>: ...`). */
-export const ROUTE_REFUSAL_CODES = Object.freeze(["RK_TAURI_CONFIG_OVERRIDE", "RK_SNAPSHOT_BROKER_UNAVAILABLE", "RK_SNAPSHOT_CARRIER_NOT_WIRED", "RK_BROKER_CAPABILITY_MISSING", "RK_BROKER_UNAVAILABLE",
+export const ROUTE_REFUSAL_CODES = Object.freeze(["RK_TAURI_CONFIG_OVERRIDE", "RK_STAGE_HOST_MISMATCH", "RK_SNAPSHOT_BROKER_UNAVAILABLE", "RK_SNAPSHOT_CARRIER_NOT_WIRED", "RK_BROKER_CAPABILITY_MISSING", "RK_BROKER_UNAVAILABLE",
   // One signing identity per product (rightkit#1303): the Mac and the Dell refuse an unsigned, ad hoc or re-identified test or dev build.
   ...SIGNING_REFUSAL_CODES]);
 /** The stages `--route` can answer for (`release` writes to the publisher and has no route of its own on a host). */
@@ -2033,6 +2037,17 @@ export async function brokerCapabilityStateWithHandshake(o, { to, executor }) {
 }
 
 /**
+ * The refusal of `--to release` on a host that is not the trusted publisher, or null: a release uploads sealed bytes and runs only in the release workflow's
+ * protected publication job (GITHUB_ACTIONS with RIGHTKIT_PUBLISHER=github-environment); a mobile platform's store upload has its own tier-less route. Asked by a real
+ * run before it takes ownership or syncs the snapshot (E2E L3-03); the probe has no release route, so this is not a probe code.
+ */
+export function releaseRouteRefusal(o, { stages, platform }) {
+  if (!stages.includes("release") || MOBILE_PLATFORMS.has(platform)) return null;
+  if (o.env.GITHUB_ACTIONS === "true" && o.env.RIGHTKIT_PUBLISHER === "github-environment") return null;
+  return { code: "RK_RELEASE_PUBLISHER_ONLY", message: "--to release runs only in the trusted publisher (the release workflow's protected publication job). Run --to qualify on the native host, then dispatch the release workflow for the commit" };
+}
+
+/**
  * Which route this host's door takes for `--to <stage>` and whether it refuses, WITHOUT running anything: the decisions of `runStages`
  * in the order it makes them. `runStages` takes its own pre-ownership route and refusal from this very function (rightkit#1297 L1), so
  * the probe and a real run cannot drift (the door-route parity test compares them over the carrier, executor, platform and Tauri
@@ -2045,13 +2060,20 @@ export async function brokerCapabilityStateWithHandshake(o, { to, executor }) {
  * `executor` is a resolved executor. Returns { route, refusal } with
  * refusal null or { code, stage, message }. Reads no checkout, takes no ownership, syncs no snapshot and spawns nothing itself.
  */
-export function routePlan(o, { to, stages, devTest, executor, capabilities = null, appConfig = null }) {
+export function routePlan(o, { to, stages, devTest, executor, capabilities = null, appConfig = null, stagePlatform = null }) {
   const refuse = (code, stage, message) => ({ code, stage, message });
   const hosted = o.env.GITHUB_ACTIONS === "true";
   const snapshot = !hosted && snapshotRouteSelected(o);
   const route = hosted ? "hosted" : "snapshot";
   if (snapshot) {
     if (o.env.TAURI_CONFIG !== undefined) return { route, refusal: refuse("RK_TAURI_CONFIG_OVERRIDE", to, "TAURI_CONFIG is set in the environment; it would replace the commit's Tauri configuration (externalBin included) for every build below, so a commit-only build refuses it") };
+    // A stage that packages or qualifies a platform's artifact runs on that platform's own host: Mac and Windows artifacts are constructed on their
+    // native platform and never cross-built (GATE-CONTRACT s1 "Native build target"; PLATFORM-MATRIX: packages only on the matching native host).
+    // Refused here, before ownership, a snapshot or any process, so `--route` and a real run say the same thing (E2E L3-03).
+    const hostNeeded = STAGE_NATIVE_HOST[stagePlatform];
+    if (stagePlatform && (stages.includes("package") || stages.includes("qualify")) && hostNeeded && o.platform !== hostNeeded) {
+      return { route, refusal: refuse("RK_STAGE_HOST_MISMATCH", to, `--to ${to} --platform ${stagePlatform} builds the ${stagePlatform} artifact, which is constructed only on a ${hostNeeded === "darwin" ? "Mac" : "Windows"} host (this host is ${o.platform}); a Mac or Windows artifact is never cross-built from another platform, so nothing was started`) };
+    }
     const refused = to === "check" ? null : snapshotRouteRefusal(o);
     if (refused) return { route, refusal: refuse(refused.code, to, refused.message) };
     // The broker must accept what the carried stages ask of it (rightkit#1301 B2): a missing or failing capability query refuses.
@@ -2117,7 +2139,7 @@ async function runRouteProbe(o, args, root, git, { to, platform, stages, devTest
   const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
   let plan;
   const capabilities = await brokerCapabilityStateWithHandshake(o, { to, executor });
-  try { plan = routePlan(o, { to, stages, devTest, executor, capabilities, appConfig: to !== "check" ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
+  try { plan = routePlan(o, { to, stages, devTest, executor, stagePlatform: platform, capabilities, appConfig: to !== "check" ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
   catch (e) { o.err(`${tag} ${e.message}`); return 2; }
   // Read-only: GIT_OPTIONAL_LOCKS=0, so the probe's `git status` never refreshes the index or contends with a writer (rightkit#1297 L4).
   const dirty = o.spawn("git", ["status", "--porcelain", "--untracked-files=no"], { cwd: root, env: { ...o.env, GIT_OPTIONAL_LOCKS: "0" } });
