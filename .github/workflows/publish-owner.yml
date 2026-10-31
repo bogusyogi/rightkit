@@ -1,0 +1,72 @@
+# One-off owner-approved crate publication outside the gate and broker (rightkit#1322). It uploads only what a committed
+# ci/owner-approvals/*.json names, after scripts/ci/owner-approval.mjs proves the validated source commit, its green
+# native CI run and that nothing but the approval changed since. publish.yml (broker admission) is untouched.
+name: publish-owner
+run-name: publish-owner ${{ inputs.approval }}
+on:
+  workflow_dispatch:
+    inputs:
+      approval:
+        description: Approval file on main (ci/owner-approvals/<name>.json)
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: publish
+  queue: max
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      crates: ${{ steps.check.outputs.crates }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "26.8.1"
+      - id: check
+        env:
+          APPROVAL: ${{ inputs.approval }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/owner-approval.mjs
+  publish:
+    needs: verify
+    runs-on: ubuntu-24.04
+    environment: release
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Publish the approved crates (the native CI run already built and tested this source)
+        env:
+          CRATES: ${{ needs.verify.outputs.crates }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          for crate in $CRATES; do
+            (cd "crates/$crate" && cargo publish --locked --no-verify)
+          done
+      - name: Read every approved version back from crates.io
+        env:
+          CRATES: ${{ needs.verify.outputs.crates }}
+        run: |
+          set -euo pipefail
+          for crate in $CRATES; do
+            version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' "crates/$crate/Cargo.toml" | head -1)
+            for _ in $(seq 1 30); do
+              code=$(curl -s -o /dev/null -w '%{http_code}' -A rightkit-owner-approval "https://crates.io/api/v1/crates/$crate/$version")
+              [ "$code" = 200 ] && { echo "$crate@$version is on crates.io"; continue 2; }
+              sleep 10
+            done
+            echo "::error::$crate@$version did not appear on crates.io"; exit 1
+          done
