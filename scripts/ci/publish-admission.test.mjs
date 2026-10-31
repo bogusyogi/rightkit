@@ -519,3 +519,73 @@ test("B9: a receipt without snapshotEvidence, or with another commit, tree, requ
   const rootOf = (workspace) => withPackage(stageReceipts({ ...RELEASE, stage: "package", requestFor: (row, w, i) => requestOf(row, i === 2 ? workspace : w) }));
   await assert.rejects(admitQual(rootOf("/work/another-root")), /package job package-job-3 ran in \/work\/another-root, another workspace than the qualification's other jobs \(\/work\/rightkit\)/);
 });
+
+// RA-21: publish-direct's sparse checkout must list the whole static import closure of its run-qualified entry, and that closure must
+// load from a tree materialized exactly as the sparse list says. Both checks read the workflow's own list; nothing is mocked, and no
+// workflow, credential or upload runs.
+const RA21_REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const RA21_ENTRIES = ["scripts/ci/reviewed-candidate.mjs", "scripts/ci/publish-admission.mjs", "scripts/ci/scan-receipt.mjs", "scripts/ci/upload.mjs", "scripts/ci/supplemental-proof.mjs"];
+// Static relative imports only: `from "./x"`, the closing line of a multi-line import, and bare `import "./x"`. Dynamic import() edges run
+// only on their own code paths and are not part of the static closure.
+const RA21_STATIC_IMPORT = /(?:^|\s)(?:import|export)\b[^'"(]*?from\s*['"](\.{1,2}\/[^'"]+)['"]|^\s*\}\s*from\s*['"](\.{1,2}\/[^'"]+)['"]|^\s*import\s*['"](\.{1,2}\/[^'"]+)['"]/gm;
+const ra21SparseList = () => {
+  const workflow = fs.readFileSync(path.join(RA21_REPO, ".github", "workflows", "publish-direct.yml"), "utf8");
+  const block = workflow.split("          sparse-checkout: |\n")[1].split("          sparse-checkout-cone-mode")[0];
+  return block.split("\n").map((line) => line.trim()).filter(Boolean);
+};
+const ra21StaticClosure = () => {
+  const seen = new Set();
+  const queue = [...RA21_ENTRIES];
+  while (queue.length > 0) {
+    const file = queue.shift();
+    if (seen.has(file)) continue;
+    seen.add(file);
+    const text = fs.readFileSync(path.join(RA21_REPO, file), "utf8");
+    for (const match of text.matchAll(RA21_STATIC_IMPORT)) {
+      const spec = match[1] ?? match[2] ?? match[3];
+      queue.push(path.relative(RA21_REPO, path.resolve(RA21_REPO, path.dirname(file), spec)));
+    }
+  }
+  return [...seen].sort();
+};
+
+test("RA-21: publish-direct's sparse checkout lists the whole static import closure of the run-qualified entry", () => {
+  const listed = new Set(ra21SparseList());
+  const missing = ra21StaticClosure().filter((file) => !listed.has(file));
+  assert.deepEqual(missing, [], "the sparse checkout omits modules the credentialed run loads before upload");
+});
+
+// A sparse entry with one `*` (`packages/*/package.json`, `crates/*/Cargo.lock`) names every matching file the checkout holds.
+const ra21Expand = (entry) => {
+  if (!entry.includes("*")) return [entry];
+  const [head, ...rest] = entry.split("*");
+  const tail = rest.join("*");
+  return fs.readdirSync(path.join(RA21_REPO, head), { withFileTypes: true })
+    .filter((dirent) => dirent.isDirectory())
+    .map((dirent) => `${head}${dirent.name}${tail}`)
+    .filter((file) => fs.existsSync(path.join(RA21_REPO, file)));
+};
+
+test("RA-21: after the workflow's frozen install, the run-qualified entries load from the sparse tree", { timeout: 900_000 }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ra21-sparse-"));
+  try {
+    for (const entry of ra21SparseList()) {
+      for (const file of ra21Expand(entry)) {
+        fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+        fs.copyFileSync(path.join(RA21_REPO, file), path.join(dir, file));
+      }
+    }
+    // publish-direct.yml installs with the pnpm that pnpm/action-setup pins to 11.25.0 (the root packageManager); run the same install here.
+    const pnpmVersion = spawnSync("pnpm", ["--version"], { encoding: "utf8" });
+    assert.equal(pnpmVersion.status, 0, "pnpm must be on PATH to install the release closure the way publish-direct.yml does");
+    assert.equal(pnpmVersion.stdout.trim(), "11.25.0", "the installed pnpm must be the version publish-direct.yml pins");
+    const install = spawnSync("pnpm", ["install", "--filter", "rightkit-shared", "--filter", "@rightkit/release...", "--frozen-lockfile", "--ignore-scripts"], { cwd: dir, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    assert.equal(install.status, 0, `the workflow's install fails in the sparse tree:\n${install.stderr.split("\n").slice(-12).join("\n")}`);
+    for (const entry of RA21_ENTRIES) {
+      const probe = spawnSync(process.execPath, ["--input-type=module", "-e", "await import(process.env.RA21_ENTRY)"], { cwd: dir, env: { PATH: process.env.PATH ?? "", RA21_ENTRY: `file://${path.join(dir, entry)}` }, encoding: "utf8" });
+      assert.equal(probe.status, 0, `${entry} does not load after the install:\n${probe.stderr.split("\n").slice(0, 6).join("\n")}`);
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
