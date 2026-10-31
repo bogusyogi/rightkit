@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import zlib from "node:zlib";
-import { GATES_REQUIRED_FROM, ROUTE_REQUIRED_FROM, ROUTE_STAGES, contentStatus, detectRoute, parseRoute, routeRequired, routeStagesFor, runRouteProbe, scratchRoot, admissionCodeOf, detectGates, extractTarball, gatesRequired, normalize, parseDoctor, pool, prepareLive, prepareSide, readTarball, runDoctor, runLeg, treeDigest } from "./rk-release-canary-leg.mjs";
+import { GATES_REQUIRED_FROM, ROUTE_REQUIRED_FROM, ROUTE_STAGES, contentStatus, detectRoute, parseRoute, routeRequired, routeStagesFor, runRouteProbe, scratchRoot, admissionCodeOf, detectGates, extractTarball, gatesRequired, normalize, parseDoctor, pool, prepareLive, prepareSide, readTarball, runDoctor, runLeg as runLegOn, treeDigest } from "./rk-release-canary-leg.mjs";
 
 const tmp = (t, prefix = "rk-leg-") => { const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
 const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
@@ -309,6 +309,10 @@ function sidePkg(dir, name, { body = PASS_BODY, gates = false, version = "9.9.9"
   fs.writeFileSync(file, tgz({ "package.json": JSON.stringify({ name: "@rightkit/release", version }), "cli/right-release.mjs": cli(body), "release.mjs": gates ? 'else if (arg === "--gates") opts.gates = true;' : "", ...extra }));
   return { file, sha256: sha256(fs.readFileSync(file)), version };
 }
+/** The leg only runs on the hosts that own a canary platform (HOST_FOR_PLATFORM: darwin for mac/ios, win32 for win; linux owns none).
+ * On any other machine the fixture plays the darwin host, so the leg's own cell loop still runs on this box. */
+const LEG_HOST = process.platform === "win32" ? "win32" : "darwin";
+const runLeg = (manifest, options = {}) => runLegOn(manifest, { host: LEG_HOST, ...options });
 /** `files` are added to every app's repository (in one commit with the cell files); `attributes`, when given, is committed
  * alone afterwards, so a committed CRLF blob stays CRLF in the index while its path gets a text attribute. */
 function manifestFor(t, modes, { candidateBody, baselineBody, hang, files = {}, attributes = null, candidateFiles = {} } = {}) {
@@ -316,7 +320,7 @@ function manifestFor(t, modes, { candidateBody, baselineBody, hang, files = {}, 
   const live = path.join(dir, "ws");
   fs.mkdirSync(live);
   const repos = {};
-  const host = process.platform;
+  const host = LEG_HOST;
   const platform = host === "win32" ? "win" : "mac";
   const apps = [];
   for (const [id, mode] of Object.entries(modes)) {
@@ -400,7 +404,7 @@ test("runLeg: a pin the live checkout does not stand at is reported, not refused
   assert.equal(cellOf(r1, "gone", "candidate").headMatchesPin, false);
   assert.equal(cellOf(r1, "gone", "candidate").pinned, "e".repeat(40));
   const absent = manifestFor(t, { nowhere: "pass" });
-  fs.rmSync(path.join(absent.manifest.hosts[process.platform].workspaceRoot, "repo-nowhere"), { recursive: true, force: true });
+  fs.rmSync(path.join(absent.manifest.hosts[LEG_HOST].workspaceRoot, "repo-nowhere"), { recursive: true, force: true });
   const r0 = await runLeg(absent.manifest, { manifestDir: absent.bundle });
   assert.equal(cellOf(r0, "nowhere", "candidate").status, "infra");
   assert.match(cellOf(r0, "nowhere", "candidate").detail, /not a git checkout/);
@@ -628,7 +632,7 @@ test("runLeg: a probe that refuses, crashes or prints junk is recorded per stage
   const refusal = { code: "RK_SNAPSHOT_CARRIER_NOT_WIRED", stage: "dev", message: "m" };
   const { manifest, bundle } = manifestFor(t, { refuses: "pass", crashes: "pass" }, { files: {} });
   // per-app files: add route.json to the first repo and a crash mode to the second, inside the committed checkouts' sub/ directory
-  const ws = manifest.hosts[process.platform].workspaceRoot;
+  const ws = manifest.hosts[LEG_HOST].workspaceRoot;
   fs.writeFileSync(path.join(ws, "repo-refuses", "sub", "route.json"), JSON.stringify({ dev: { refusal, route: "snapshot" } }));
   fs.writeFileSync(path.join(ws, "repo-crashes", "sub", "route-mode.txt"), "crash\n");
   const receipt = await runLeg(manifest, { manifestDir: bundle });
