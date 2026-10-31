@@ -87,6 +87,7 @@ import { buildDirectReceipt, directVerdict, resolveTargetDirectory, verifyDirect
 import { createFreshnessCensus } from "../freshness-census.mjs";
 import { platformDirOf } from "../platform-dir.mjs";
 import { nativeToolRefusal, nativeToolUses } from "../native-tool-planning.mjs";
+import { mergeCapabilityViews, queryBrokerHandshake } from "../broker-handshake.mjs";
 
 const ZERO = /^0+$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -1275,7 +1276,7 @@ async function runStages(o, args, root, git, io) {
     const whichRoute = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
     const routeExecutor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which: whichRoute, readFile: o.readFile });
     let decided;
-    try { decided = routePlan(o, { to, stages: devTest ? [] : stages, devTest, executor: routeExecutor, capabilities: brokerCapabilityState(o, { to, executor: routeExecutor }), appConfig: selected && to !== "check" ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
+    try { decided = routePlan(o, { to, stages: devTest ? [] : stages, devTest, executor: routeExecutor, capabilities: await brokerCapabilityStateWithHandshake(o, { to, executor: routeExecutor }), appConfig: selected && to !== "check" ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
     catch (e) { o.err(`${tag} ${e.message}`); return 2; }
     if (decided.refusal) { o.err(`${tag} BLOCKED: ${decided.refusal.code}: ${decided.refusal.message}; nothing ran${decided.route === "snapshot" ? " and the checkout is never built" : ""}`); return 1; }
   }
@@ -1879,7 +1880,7 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
   const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
   const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile }); applyExecutorEnv(o, executor);
   if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
-  { const decided = routePlan(o, { to: option("--to"), stages: [], devTest: true, executor, capabilities: brokerCapabilityState(o, { to: option("--to"), executor }) });
+  { const decided = routePlan(o, { to: option("--to"), stages: [], devTest: true, executor, capabilities: await brokerCapabilityStateWithHandshake(o, { to: option("--to"), executor }) });
     if (decided.refusal?.code === "RK_BROKER_CAPABILITY_MISSING") { o.err(`${tag} BLOCKED: ${decided.refusal.code}: ${decided.refusal.message}; nothing ran`); return 1; } }
   if (executor.kind === "broker" && !o.snapshotBroker) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_CARRIER_NOT_WIRED: a broker host builds a unit snapshot only through the snapshot carrier; nothing ran`); return 1; }
   const common = git("rev-parse", "--git-common-dir");
@@ -2015,6 +2016,23 @@ export function brokerCapabilityState(o, { to, executor }) {
 }
 
 /**
+ * GB-51 / GB-62: the capability state a route plans from, with the broker's HANDSHAKE received by the gate itself (broker-handshake.mjs) beside `rustright doctor --json`: both are asked, they must agree,
+ * and a plan sees only names advertised by what answered. Not asked (null) exactly when `brokerCapabilityState` asks nothing; an injected fixture broker that declares its own capabilities
+ * (`o.brokerCapabilities`) keeps them unless it also declares a handshake (`o.brokerHandshake`, a function returning a parsed handshake or `{ ok: false, problem }`).
+ */
+export async function brokerCapabilityStateWithHandshake(o, { to, executor }) {
+  const doctor = brokerCapabilityState(o, { to, executor });
+  if (doctor === null) return null;
+  const injected = typeof o.brokerHandshake === "function";
+  if (!injected && typeof o.brokerCapabilities === "function") return doctor;
+  let handshake;
+  try {
+    handshake = injected ? await o.brokerHandshake(o) : await queryBrokerHandshake(o, { client: whichIn(o)("rustright").find((c) => path.isAbsolute(c)) });
+  } catch (error) { handshake = { ok: false, problem: `the broker's HANDSHAKE could not be read (${error?.message ?? error})` }; }
+  return mergeCapabilityViews({ doctor, handshake });
+}
+
+/**
  * Which route this host's door takes for `--to <stage>` and whether it refuses, WITHOUT running anything: the decisions of `runStages`
  * in the order it makes them. `runStages` takes its own pre-ownership route and refusal from this very function (rightkit#1297 L1), so
  * the probe and a real run cannot drift (the door-route parity test compares them over the carrier, executor, platform and Tauri
@@ -2098,7 +2116,7 @@ async function runRouteProbe(o, args, root, git, { to, platform, stages, devTest
   const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
   const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
   let plan;
-  const capabilities = brokerCapabilityState(o, { to, executor });
+  const capabilities = await brokerCapabilityStateWithHandshake(o, { to, executor });
   try { plan = routePlan(o, { to, stages, devTest, executor, capabilities, appConfig: to !== "check" ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
   catch (e) { o.err(`${tag} ${e.message}`); return 2; }
   // Read-only: GIT_OPTIONAL_LOCKS=0, so the probe's `git status` never refreshes the index or contends with a writer (rightkit#1297 L4).
