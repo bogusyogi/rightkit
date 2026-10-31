@@ -12,7 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend } from "../build-ownership.mjs";
+import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, brokerLeaseState, markCarriedSend } from "../build-ownership.mjs";
 import { adapterEnvRefusal, isReservedAdapterEnvKey } from "../adapter-env.mjs";
 import { isVersionProbe } from "../cargo-shapes.mjs";
 import { NATIVE_ADAPTERS, nativeGrammar } from "../native-adapters.mjs";
@@ -267,13 +267,15 @@ export function makeFakeBroker(t, { inputs = null, readOnlySnapshots = true } = 
     markBrokerSubmit: (callHandle) => { submits.push(callHandle); return markCarriedSend({ file: ownership, handle: HANDLE, callHandle }); },
     checkout, outputRoots: [wsRoot], platform: process.platform, client,
     receiptOf: async (id) => JSON.parse(spawnStatus(client, id)).receipt,
+    // The broker's lease status for a sub-handle, through the fake client's `snapshot-lease status` (the gate hands createSnapshotBroker brokerLeaseState).
+    leaseStatus: ({ handle: asked, waitMs = 0 }) => brokerLeaseState({ snapshot, handle: asked, env: {}, platform: process.platform, client, waitMs }),
   };
   // Models a broker host whose checkout and snapshot are a door fixture's (its own snapshots root holds the one snapshot): the client reads these at each call.
   const rebase = ({ checkout: checkoutRoot, snapshotsRoot }) => {
     const doc = JSON.parse(fs.readFileSync(path.join(state, "fixture.json"), "utf8"));
     fs.writeFileSync(path.join(state, "fixture.json"), JSON.stringify({ ...doc, ...(checkoutRoot ? { checkout: checkoutRoot } : {}), ...(snapshotsRoot ? { snapshotsRoot } : {}) }));
   };
-  return { ...fx, client, state, setBehavior, rebase, calls, adapterCalls, rootRequests, sb, submits, ownership, ownershipEnv, owner };
+  return { ...fx, client, state, setBehavior, rebase, realSpawn: (file, args, options) => spawnSync(file, args, options), calls, adapterCalls, rootRequests, sb, submits, ownership, ownershipEnv, owner };
 }
 import { spawnSync } from "../background-process.mjs";
 const spawnStatus = (client, id) => { const r = spawnSync(client, ["status", id], { encoding: "utf8" }); if (r.status !== 0) throw new Error(`status ${id}: ${r.stderr}`); return r.stdout; };

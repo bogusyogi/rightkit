@@ -105,6 +105,8 @@ export function createSnapshotBroker({ env = process.env, platform = process.pla
     pins: { host: pins.host, keyId: pins.keyId, publicKey: pins.publicKey, brokerDigest: pins.brokerDigest }, pinsSource: pins.source,
     checkout: fs.realpathSync.native(checkout), outputRoots: brokerOutputRoots({ dataRoot: managedData }), platform, client,
     receiptOf: async (requestId) => receiptSync({ client, requestId, env, spawn, platform }),
+    // The broker's lease status of one sub-handle (SNAPSHOT_LEASE_STATUS, with the bounded wait): what a cancelled call is reconciled against.
+    ...(typeof lease === "function" ? { leaseStatus: ({ handle, waitMs = 0 }) => lease({ snapshot: snapshot.path, handle, env, platform, spawn, client, waitMs }) } : {}),
   };
 }
 
@@ -134,6 +136,8 @@ export const brokerSection = (sb, { sentinel = null } = {}) => {
   // map a child reads (JSON), whose carried calls record through the inherited ownership file instead (markCarriedRequest).
   if (typeof sb.markBrokerSubmit === "function") Object.defineProperty(section, "markSend", { value: (callHandle) => sb.markBrokerSubmit(callHandle), enumerable: false });
   if (typeof sb.markBrokerUnsent === "function") Object.defineProperty(section, "markUnsent", { value: (callHandle, reason) => sb.markBrokerUnsent(callHandle, reason), enumerable: false });
+  // GB-52: the broker's lease status of one sub-handle, asked after a cancelled call (not part of the map a child reads).
+  if (typeof sb.leaseStatus === "function") Object.defineProperty(section, "leaseStatus", { value: (query) => sb.leaseStatus(query), enumerable: false });
   return section;
 };
 
@@ -256,6 +260,23 @@ export function inheritedCarrierEnv(env) {
     if (CARRIER_CALL_VARIABLES.includes(bare) || (bare === "CHECK_ADMISSION" && String(value).trim() === "1")) found.push(key);
   }
   return found;
+}
+
+/**
+ * GB-52: a call that ran out its operation deadline is cancelled BY ID by the client, which then polls the terminal state. The gate does not take that for a release: it asks the broker once, with
+ * a bounded wait, what it holds under the call's sub-handle (SNAPSHOT_LEASE_STATUS members, GB-23/GB-85). `reaped` is true only for a well-formed REAPED answer (every submission under the
+ * handle durably complete); ACTIVE, UNKNOWN, a wait that timed out, a reader that is absent or throws all leave ownership held, and the outcome says which. Never resubmits.
+ */
+function reconcileAfterCancel({ section, callHandle, childEnv }) {
+  const cancelWait = Number(childEnv?.RUSTRIGHT_CANCEL_WAIT_MS);
+  const waitMs = Math.min(30_000, Number.isFinite(cancelWait) && cancelWait >= 0 ? Math.trunc(cancelWait) : 30_000);
+  if (typeof section.leaseStatus !== "function") return { reaped: false, subHandle: { handle: callHandle, state: "UNKNOWN", why: "this gate has no lease reader" }, note: `the gate cannot ask the broker about sub-handle ${callHandle}, so ownership stays UNKNOWN until every sub-handle is REAPED` };
+  let status;
+  try { status = section.leaseStatus({ handle: callHandle, waitMs }); } catch (e) { status = { state: "UNKNOWN", why: e.message }; }
+  const state = status?.state ?? "UNKNOWN";
+  const subHandle = { handle: callHandle, state, why: status?.why ?? null, ...(status?.waitedMs !== undefined ? { waitedMs: status.waitedMs } : {}), ...(status?.waitTimedOut !== undefined ? { waitTimedOut: status.waitTimedOut } : {}), ...(Array.isArray(status?.members) ? { members: status.members } : {}) };
+  if (state === "REAPED") return { reaped: true, subHandle, note: `after the cancel the broker reports sub-handle ${callHandle} REAPED (every submission under it is settled)` };
+  return { reaped: false, subHandle, note: `after the cancel the broker reports sub-handle ${callHandle} still ${state}${status?.why ? ` (${status.why})` : ""}: ownership stays held until it is REAPED, and ownership stays UNKNOWN meanwhile; the job is not resubmitted` };
 }
 
 /**
@@ -389,6 +410,10 @@ function carryBrokerCargoOnce({ words, cwd, env, section, workspace, checkoutWor
       const seen = operationOutcomeInOutput(`${out.stdout}\n${out.stderr}`) ?? (r.error?.code === "ETIMEDOUT" ? { code: "operation-deadline", deadlineMs: null, requestId: ref?.requestId ?? null, cancelConfirmed: null, terminalState: null, guard: true } : null);
       if (seen) outcome = { status: "unverified", code: seen.code, message: seen.code === "operation-deadline" ? `the operation deadline${seen.deadlineMs ? ` of ${seen.deadlineMs} ms` : ""} passed${seen.guard ? " and the client was stopped by the gate's outer guard" : ""}; request ${seen.requestId ?? ref?.requestId ?? "unknown"}: cancelConfirmed: ${seen.cancelConfirmed ?? "unknown"}, terminal state: ${seen.terminalState ?? "not observed"}; the job is neither abandoned nor resubmitted and ownership stays UNKNOWN until every sub-handle is REAPED` : seen.code === "broker-busy" ? "every broker connection was busy (RK_BROKER_BUSY: a wait, not an outage); nothing was admitted" : "the broker was unavailable (RK_BROKER_UNAVAILABLE)", ...(ref ? { requestId: ref.requestId, workspace: ref.workspace } : {}) };
     }
+    if (outcome.status === "unverified" && outcome.code === "operation-deadline") {
+      const settled = reconcileAfterCancel({ section, callHandle: made.carrier.ownership.handle, childEnv });
+      outcome = { ...outcome, message: `${outcome.message}; ${settled.note}`, reaped: settled.reaped, subHandle: settled.subHandle };
+    }
     // RK_BROKER_BUSY with no request reference: the connection never opened, so no byte reached the broker. That is the gate's own proof that this sub-handle was never sent (GB-21), recorded under
     // the ownership lock so the retry's own sub-handle, not this one, is what the stage waits on; a busy answer after a reference exists (a reconnect) proves nothing of the kind.
     if (outcome.status === "unverified" && outcome.code === "broker-busy" && ref === null) markCarriedUnsentRequest({ section, env, callHandle: made.carrier.ownership.handle, reason: "every broker connection was busy (RK_BROKER_BUSY): the connection never opened and no byte was sent" });
@@ -510,6 +535,10 @@ function carryBrokerAdapterOnce({ adapter, words, cwd, env, section, record, spa
     if (outcome.status !== "verified") {
       const seen = operationOutcomeInOutput(`${out.stdout}\n${out.stderr}`) ?? (r.error?.code === "ETIMEDOUT" ? { code: "operation-deadline", deadlineMs: null, requestId: ref?.requestId ?? null, cancelConfirmed: null, terminalState: null, guard: true } : null);
       if (seen) outcome = { status: "unverified", code: seen.code, message: seen.code === "operation-deadline" ? `the operation deadline${seen.deadlineMs ? ` of ${seen.deadlineMs} ms` : ""} passed${seen.guard ? " and the client was stopped by the gate's outer guard" : ""}; request ${seen.requestId ?? ref?.requestId ?? "unknown"}: cancelConfirmed: ${seen.cancelConfirmed ?? "unknown"}, terminal state: ${seen.terminalState ?? "not observed"}; the job is neither abandoned nor resubmitted and ownership stays UNKNOWN until every sub-handle is REAPED` : seen.code === "broker-busy" ? "every broker connection was busy (RK_BROKER_BUSY: a wait, not an outage); nothing was admitted" : "the broker was unavailable (RK_BROKER_UNAVAILABLE)", ...(ref ? { requestId: ref.requestId, workspace: ref.workspace } : {}) };
+    }
+    if (outcome.status === "unverified" && outcome.code === "operation-deadline") {
+      const settled = reconcileAfterCancel({ section, callHandle: made.carrier.ownership.handle, childEnv });
+      outcome = { ...outcome, message: `${outcome.message}; ${settled.note}`, reaped: settled.reaped, subHandle: settled.subHandle };
     }
     // RK_BROKER_BUSY with no request reference: the connection never opened, so no byte reached the broker. That is the gate's own proof that this sub-handle was never sent (GB-21), recorded under
     // the ownership lock so the retry's own sub-handle, not this one, is what the stage waits on; a busy answer after a reference exists (a reconnect) proves nothing of the kind.
