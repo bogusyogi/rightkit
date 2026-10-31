@@ -44,7 +44,7 @@ test("[GB-27] a rightkit-qa step with no snapshot carrier never requests the unr
 test("managed host: any other build or test command is refused, never run around the broker", () => {
   // An executable merely named node that names right-release is not this Node binary running this package's right-release.
   assert.throws(() => buildLaunch("/tmp/evil/node", [ownRightRelease, "web-build"], { ...managed, cwd: "/w/app" }), (e) => e.code === BUILD_LAUNCH_REFUSED);
-  for (const [command, args] of [["vite", ["build"]], ["npm", ["run", "build"]], ["sh", ["scripts/prepackage-mac.sh"]], ["xcodebuild", ["build"]], ["gradle", ["assembleDebug"]], ["sh", ["-c", "pnpm run build"]], ["tsc", ["-p", "."]], ["node", ["/elsewhere/build.mjs"]], ["node", ["../other/build.mjs"]], ["node", ["-e", "1"]], ["powershell", ["-File", "x.ps1"]]]) {
+  for (const [command, args] of [["vite", ["build"]], ["npm", ["run", "build"]], ["sh", ["scripts/prepackage-mac.sh"]], ["xcodebuild", ["-showBuildSettings"]], ["gradle", ["publish"]], ["make", ["all"]], ["sh", ["-c", "pnpm run build"]], ["tsc", ["-p", "."]], ["node", ["/elsewhere/build.mjs"]], ["node", ["../other/build.mjs"]], ["node", ["-e", "1"]], ["powershell", ["-File", "x.ps1"]]]) {
     assert.throws(() => buildLaunch(command, args, managed), (e) => e.code === BUILD_LAUNCH_REFUSED && /rightkit#1241/.test(e.message), command);
   }
 });
