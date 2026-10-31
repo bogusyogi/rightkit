@@ -1194,6 +1194,8 @@ const RIGHTKIT_PUBLISHING_WORKFLOWS = ["publish-reviewed.yml"];
 // Direct publication (Adrian, 2026-10-22): a green publish.yml qualification run on main uploads its own sealed bytes.
 const RIGHTKIT_DIRECT_PUBLISHING_WORKFLOWS = ["publish-direct.yml"];
 const RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS = ["publish-swift.yml"];
+// Owner-approved one-off crate publication outside the gate and broker (rightkit#1322): the crates come from a committed owner approval file, Class A kept.
+const RIGHTKIT_OWNER_PUBLISHING_WORKFLOWS = ["publish-owner.yml"];
 const publishWorkflowPresent = existsSync(new URL("../../.github/workflows/publish.yml", import.meta.url));
 const reviewedWorkflowPresent = existsSync(new URL("../../.github/workflows/publish-reviewed.yml", import.meta.url));
 const PUBLISHING_WORKFLOW = /secrets\.|right-release\s+(?:build|upload|publish)|gh\s+release|action-gh-release/;
@@ -1280,6 +1282,31 @@ function assertAppPublishWorkflow(text, name) {
   assert.equal(job.steps.find((step) => /--to release/.test(step.run ?? ""))?.env?.RIGHTKIT_PUBLISHER, "github-environment", name);
 }
 
+// publish-owner (rightkit#1322): dispatch only, read-only token; a verify job proves the owner approval and the qualifying CI of the source commit and holds no secret and no
+// environment; a publish job in the protected release environment, after verify, packages each approved crate once and checks the archive against registry dependencies;
+// the exact checked archives go up through scripts/ci/owner-upload.mjs, the only step that reads a secret, and the only secret is the crates.io token.
+function assertOwnerPublishWorkflow(text, name) {
+  assert.match(text, /^on:\n  workflow_dispatch:\n    inputs:\n      approval:\n/m, `${name} must be triggered by workflow_dispatch with an approval input`);
+  assert.doesNotMatch(text, /^  (?:push|pull_request|pull_request_target|schedule|workflow_run|release):/m, `${name} must have no automatic trigger`);
+  assert.match(text, /^permissions:\n  contents: read\n(?!  )/m, `${name} top-level permissions must be contents: read only`);
+  assert.doesNotMatch(text, /id-token:|contents:\s*write|packages:\s*write/, `${name} must not request write or OIDC permissions`);
+  const verifyAt = text.indexOf("\n  verify:\n"); const publishAt = text.indexOf("\n  publish:\n");
+  assert.ok(verifyAt > 0 && publishAt > verifyAt, `${name} must have a verify job and then a publish job`);
+  const verify = text.slice(verifyAt, publishAt); const publish = text.slice(publishAt);
+  assert.match(verify, /node scripts\/ci\/owner-approval\.mjs/, `${name}: the verify job proves the owner approval`);
+  assert.doesNotMatch(verify, /secrets\.|environment:/, `${name}: the verify job holds no secret and joins no environment`);
+  assert.match(publish, /^    needs: verify$/m, `${name}: publish runs only after verify`);
+  assert.match(publish, /^    environment: release$/m, `${name}: publish joins the protected release environment`);
+  assert.deepEqual([...new Set(text.match(/secrets\.[A-Z_]+/g) ?? [])], ["secrets.CARGO_REGISTRY_TOKEN"], `${name} may read only the crates.io token`);
+  const uploadAt = publish.indexOf("- name: Upload the exact checked archives");
+  assert.ok(uploadAt > 0, `${name} has its upload step`);
+  assert.doesNotMatch(publish.slice(0, uploadAt), /secrets\./, `${name}: only the upload step reads the token`);
+  assert.match(publish.slice(uploadAt), /node scripts\/ci\/owner-upload\.mjs "\$RUNNER_TEMP\/owner-publish"/, `${name}: the upload step uploads the archives checked in the earlier step through the owner uploader`);
+  assert.doesNotMatch(text, PUBLISHING_WORKFLOW_COMMANDS, `${name} publishes only through scripts/ci/owner-upload.mjs`);
+  assert.doesNotMatch(text, /pull_request_target/, `${name} must not use pull_request_target`);
+  pinnedActionLines(text, name);
+}
+
 function assertAdminWorkflow(text, name) {
   assert.match(text, /^on:\n  workflow_dispatch:/m, `${name} must be manually dispatched`);
   assert.doesNotMatch(text, /^  (?:push|pull_request|pull_request_target|schedule|workflow_run|release):/m, `${name} must have no automatic trigger`);
@@ -1300,7 +1327,7 @@ test("Right Suite hosts no hosted workflow except rightkit's reviewed workflows"
       assert.deepEqual(workflows, [], `${root} must not contain hosted workflow files`);
       continue;
     }
-    const allowed = [...RIGHTKIT_VERIFICATION_WORKFLOWS, ...RIGHTKIT_EVIDENCE_WORKFLOWS, ...RIGHTKIT_EXCEPTION_WORKFLOWS, ...RIGHTKIT_QUALIFICATION_WORKFLOWS, ...RIGHTKIT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_DIRECT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_ADMIN_WORKFLOWS, ...RIGHTKIT_APP_PUBLISHING_WORKFLOWS];
+    const allowed = [...RIGHTKIT_VERIFICATION_WORKFLOWS, ...RIGHTKIT_EVIDENCE_WORKFLOWS, ...RIGHTKIT_EXCEPTION_WORKFLOWS, ...RIGHTKIT_QUALIFICATION_WORKFLOWS, ...RIGHTKIT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_DIRECT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_ADMIN_WORKFLOWS, ...RIGHTKIT_APP_PUBLISHING_WORKFLOWS, ...RIGHTKIT_OWNER_PUBLISHING_WORKFLOWS];
     assert.deepEqual(workflows.filter((name) => !allowed.includes(name)), [], `rightkit may host only ${allowed.join(", ")}; any other hosted workflow needs an explicit decision`);
     for (const name of workflows) {
       const text = readFileSync(path.join(workflowDir, name), "utf8").replace(/\r\n/g, "\n");
@@ -1309,6 +1336,7 @@ test("Right Suite hosts no hosted workflow except rightkit's reviewed workflows"
       if (RIGHTKIT_DIRECT_PUBLISHING_WORKFLOWS.includes(name)) { assertDirectPublishWorkflow(text, name); continue; }
       if (RIGHTKIT_ADMIN_WORKFLOWS.includes(name)) { assertAdminWorkflow(text, name); continue; }
       if (RIGHTKIT_APP_PUBLISHING_WORKFLOWS.includes(name)) { assertAppPublishWorkflow(text, name); continue; }
+      if (RIGHTKIT_OWNER_PUBLISHING_WORKFLOWS.includes(name)) { assertOwnerPublishWorkflow(text, name); continue; }
       if (RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS.includes(name)) {
         const doc = parseYaml(text);
         assertSwiftDoc(doc);

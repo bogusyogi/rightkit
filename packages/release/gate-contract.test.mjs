@@ -131,7 +131,8 @@ test("[behavior] executor: on Linux the gate launches the real cargo, never a Ru
   const repo = path.join(dir, "repo");
   fs.mkdirSync(repo);
   for (const a of [["init", "-q", "-b", "main"]]) spawnSync("git", a, { cwd: repo });
-  write(repo, { "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n', "Cargo.lock": "version = 4\n", "crates/core/Cargo.toml": '[package]\nname = "core"\nversion = "0.1.0"\nedition = "2021"\n', "crates/core/src/lib.rs": "\n" });
+  // ci/gate.config.json: the committed build definition names the repository's one Cargo workspace (#1325: every repository but RightKit commits the list).
+  write(repo, { "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n', "Cargo.lock": "version = 4\n", "crates/core/Cargo.toml": '[package]\nname = "core"\nversion = "0.1.0"\nedition = "2021"\n', "crates/core/src/lib.rs": "\n", "ci/gate.config.json": '{ "cargoWorkspaces": ["."] }\n' });
   spawnSync("git", ["add", "-A"], { cwd: repo }); spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c"], { cwd: repo });
   const sha = String(spawnSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).stdout).trim();
   const snapRoot = path.join(dir, "snaps");
@@ -437,7 +438,7 @@ test("[behavior] E16/§1: on Linux the door compiles the selected commit's snaps
   fs.chmodSync(path.join(toolDir, "cargo"), 0o755);
   const repo = path.join(dir, "repo"); fs.mkdirSync(repo);
   spawnSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
-  write(repo, { "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n', "Cargo.lock": "version = 4\n", "crates/core/Cargo.toml": '[package]\nname = "core"\nversion = "0.1.0"\nedition = "2021"\n', "crates/core/src/lib.rs": "pub fn committed() {}\n" });
+  write(repo, { "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n', "Cargo.lock": "version = 4\n", "crates/core/Cargo.toml": '[package]\nname = "core"\nversion = "0.1.0"\nedition = "2021"\n', "crates/core/src/lib.rs": "pub fn committed() {}\n", "ci/gate.config.json": '{ "cargoWorkspaces": ["."] }\n' }); // the committed build definition (#1325)
   spawnSync("git", ["add", "-A"], { cwd: repo }); spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c"], { cwd: repo });
   const sha = String(spawnSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).stdout).trim();
   // The checkout is dirty: the door builds the commit anyway, and the edit never reaches the snapshot.

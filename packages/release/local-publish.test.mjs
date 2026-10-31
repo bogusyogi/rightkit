@@ -12,7 +12,7 @@ import { execFileSync } from './background-process.mjs';
 import { checkPublicationGate, provenGateSteps, publishGatedTarball } from './publication-gate.mjs';
 import { startRun, endRun } from './gate-stages.mjs';
 import { mintTestCapability } from './test-support/publish-capability-fixture.mjs';
-import { LOCAL_WIN32_HOST_POLICY_REASON, LocalPublishError, batchCargoExecute, batchClippyInvocations, checkCrateLayers, consumerRows, deriveCrateLayers, localTestPlan, parseCrateLayers, parseLocalPublishArgs, runLocalPublishUploadEngine as runLocalPublish, compileLocalUnit, packageLocalUnit, qualifyLocalUnit, closeLocalUnit, localUnitCompileRequests } from './local-publish.mjs';
+import { LOCAL_WIN32_HOST_POLICY_REASON, LocalPublishError, batchCargoExecute, batchClippyInvocations, checkCrateLayers, consumerRows, deriveCrateLayers, hostScratchRoot, localTestPlan, parseCrateLayers, parseLocalPublishArgs, runLocalPublishUploadEngine as runLocalPublish, compileLocalUnit, packageLocalUnit, qualifyLocalUnit, closeLocalUnit, localUnitCompileRequests } from './local-publish.mjs';
 import { runCargoAsync, spawnCollect } from './managed-cargo.mjs';
 import { tgzOf } from './test-support/tgz.mjs';
 import { npmContentDigest } from './pack-digest.mjs';
@@ -78,6 +78,17 @@ function harness(root, kind, over = {}) {
 }
 
 const refused = (promise, pattern) => assert.rejects(promise, (error) => error instanceof LocalPublishError && pattern.test(error.message));
+
+test('data: an npm pack goes to the disk policy\'s scratch root where the host has it, and to the system temp directory where it does not (a hosted runner has no /Volumes/D or D:\\)', () => {
+  const seen = [];
+  const has = (...roots) => (p) => { seen.push(p); return roots.includes(p); };
+  assert.equal(hostScratchRoot('darwin', has('/Volumes/D/scratch')), '/Volumes/D/scratch');
+  assert.equal(hostScratchRoot('linux', has('/Volumes/D/scratch')), '/Volumes/D/scratch');
+  assert.equal(hostScratchRoot('win32', has('D:\\scratch')), 'D:\\scratch');
+  assert.equal(hostScratchRoot('darwin', has()), os.tmpdir(), 'no policy root on this host: the system temp directory');
+  assert.equal(hostScratchRoot('win32', has('/Volumes/D/scratch')), os.tmpdir(), 'the Windows root is D:\\scratch, not the Mac one');
+  assert.deepEqual(seen, ['/Volumes/D/scratch', '/Volumes/D/scratch', 'D:\\scratch', '/Volumes/D/scratch', 'D:\\scratch']);
+});
 
 test('argument parsing demands --local and a well-formed unit', () => {
   assert.throws(() => parseLocalPublishArgs('npm', ['--package', '@rightkit/x']), /--local is required/);

@@ -230,12 +230,20 @@ test("[RA-07/RA-09] what the broker's grammar or its shape rules refuse is refus
   }
 });
 
-test("[RA-07/RA-09] the native client is the resolved executor's: the declared Linux broker's validated client, else the installed managed runtime client; a PATH `rustright` is never launched", async (t) => {
+/** Unix socket paths are limited to 103 bytes on macOS and a hosted runner's hermetic temp root leaves no room: a socket's directory falls back to /tmp when the socket's path would not fit under the temp directory. */
+const socketBase = (prefix, file) => (process.platform === "win32" || Buffer.byteLength(path.join(os.tmpdir(), `${prefix}XXXXXX`, file)) < 100 ? os.tmpdir() : "/tmp");
+/** Windows cannot hold the declared Linux broker route's endpoint: a unix socket file on a POSIX path (the route is Linux's only, and its judging reads POSIX paths). */
+const NO_UNIX_SOCKET = process.platform === "win32" && "a declared Linux broker names a unix socket file on a POSIX path, which Windows cannot hold";
+test("[RA-07/RA-09] the native client is the resolved executor's: the installed managed runtime client; a PATH `rustright` is never launched", (t) => {
   const dir = nativeApp(t);
   // A Mac or Dell host whose installed runtime client is not there: the `rustright` on PATH is not an identity.
   assert.throws(() => buildLaunch("cmake", ["-S", "."], macHost(dir, { exists: () => false })), (e) => e.code === BUILD_LAUNCH_REFUSED && e.reason === "RK_NATIVE_CLIENT_UNRESOLVED" && /never launched through a PATH lookup/.test(e.message));
+});
+
+test("[RA-07/RA-09] the native client is the resolved executor's: the declared Linux broker's validated client wins over a PATH `rustright`, and an undeclared Linux host is direct", { skip: NO_UNIX_SOCKET }, async (t) => {
+  const dir = nativeApp(t);
   // A declared Linux broker (a real client file and a real socket, as the route is judged): the validated client wins over a `rustright` first on PATH.
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-native-linux-")));
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(socketBase("rk-native-linux-", "broker.sock"), "rk-native-linux-")));
   const server = net.createServer();
   const socket = path.join(home, "broker.sock");
   await new Promise((resolve, reject) => { server.once("error", reject); server.listen(socket, resolve); });

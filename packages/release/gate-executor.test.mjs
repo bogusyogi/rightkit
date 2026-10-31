@@ -12,6 +12,8 @@ import test from "node:test";
 import { EXECUTOR_KINDS, LINUX_BROKER_ROUTE, resolveExecutor } from "./gate-executor.mjs";
 import { LINUX_BROKER_CLIENT_ENV, LINUX_BROKER_CLIENT_SHA256_ENV, LINUX_BROKER_SOCKET_ENV } from "./managed-cargo.mjs";
 
+/** Unix socket paths are limited to 103 bytes on macOS and a hosted runner's hermetic temp root leaves no room: a socket's directory falls back to /tmp when the socket's path would not fit under the temp directory. */
+const socketBase = (prefix, file) => (process.platform === "win32" || Buffer.byteLength(path.join(os.tmpdir(), `${prefix}XXXXXX`, file)) < 100 ? os.tmpdir() : "/tmp");
 const base = { env: { PATH: "/usr/bin" }, exists: () => false, readFile: () => "" };
 const withRustright = (cmd) => (cmd === "rustright" ? ["/usr/local/bin/rustright"] : []);
 
@@ -46,8 +48,10 @@ test("forceDirect never takes the Linux broker route, even when the declaration 
   assert.equal(x.kind, "direct"); assert.equal(x.route, undefined);
 });
 
+/** Windows cannot hold the declared Linux broker route's endpoint: a unix socket file on a POSIX path (the route is Linux's only, and its judging reads POSIX paths). */
+const NO_UNIX_SOCKET = process.platform === "win32" && "a declared Linux broker names a unix socket file on a POSIX path, which Windows cannot hold";
 async function installed(t) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-exec-linux-")));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(socketBase("rk-exec-linux-", "broker.sock"), "rk-exec-linux-")));
   const server = net.createServer();
   const socket = path.join(dir, "broker.sock");
   await new Promise((resolve, reject) => { server.once("error", reject); server.listen(socket, resolve); });
@@ -66,7 +70,7 @@ test("unconfigured Linux is direct whatever is on PATH, rustright included (no a
   }
 });
 
-test("a declared Linux broker resolves to one typed broker choice carrying the validated client and endpoint, not a PATH lookup", async (t) => {
+test("a declared Linux broker resolves to one typed broker choice carrying the validated client and endpoint, not a PATH lookup", { skip: NO_UNIX_SOCKET }, async (t) => {
   const host = await installed(t);
   // Even with another `rustright` first on PATH, the declared client is the one chosen.
   const r = resolve({ PATH: "/usr/bin", [LINUX_BROKER_CLIENT_ENV]: host.client, [LINUX_BROKER_SOCKET_ENV]: host.socket, [LINUX_BROKER_CLIENT_SHA256_ENV]: host.sha }, "linux", { which: () => ["/usr/bin/rustright"] });
@@ -78,7 +82,7 @@ test("a declared Linux broker resolves to one typed broker choice carrying the v
   assert.ok(EXECUTOR_KINDS.includes(r.kind));
 });
 
-test("a declared Linux broker that is stopped, replaced, unpinned or mis-pinned refuses; it never resolves to direct", async (t) => {
+test("a declared Linux broker that is stopped, replaced, unpinned or mis-pinned refuses; it never resolves to direct", { skip: NO_UNIX_SOCKET }, async (t) => {
   const host = await installed(t);
   const declared = { PATH: "/usr/bin", [LINUX_BROKER_CLIENT_ENV]: host.client, [LINUX_BROKER_SOCKET_ENV]: host.socket, [LINUX_BROKER_CLIENT_SHA256_ENV]: host.sha };
   const stopped = resolve({ ...declared, [LINUX_BROKER_SOCKET_ENV]: path.join(host.dir, "gone.sock") });

@@ -227,7 +227,7 @@ test("[7.04c] more than one Cargo workspace in the commit is bound per workspace
   assert.doesNotMatch(many.all, /RK_SNAPSHOT_OUTPUT_UNPINNED/, "two workspaces are no refusal");
   assert.ok(fx.launches.length >= 1, `right-release started (the per-workspace binding): ${many.all}`);
   // A broker host: the gate pins nothing (the broker's generation target is the carrier's, rows 7.20 to 7.24): asserted in source form.
-  assert.match(fs.readFileSync(path.join(HERE, "bin/rightkit-gate.mjs"), "utf8"), /if \(ok && ds && executor\.kind !== "broker"\) \{\n\s+packagePin = cargoOutputPin/);
+  assert.match(fs.readFileSync(path.join(HERE, "bin/rightkit-gate.mjs"), "utf8"), /if \(ok && ds && executor\.kind !== "broker"\) \{\n\s+packagePin = await cargoOutputPinForScope\(/);
 });
 
 // ---- Part B: the real build-release.mjs as a split child ----------------------------------------------------------------------------

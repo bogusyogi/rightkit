@@ -50,6 +50,16 @@ const meta = (root, wsDir, members) => JSON.stringify({
   workspace_root: path.join(root, wsDir),
   packages: members.map(([name, dir, publish = null]) => ({ name, manifest_path: path.join(root, dir, "Cargo.toml"), publish })),
 });
+/**
+ * The committed build definition of the three-workspace fixtures (rightkit-app, rightkit-core, rightkit-other, each its own Cargo workspace): `cargoWorkspaces` is the
+ * list every repository but RightKit commits (#1325: the gate refuses a commit whose list is missing or differs from the workspaces it holds), and `rust` gives each
+ * crate the lint feature set that makes a default `check:<unit>` row part of its plan (a crate whose lint set already covers the default features has none).
+ */
+const SCOPED_GATE_CONFIG = JSON.stringify({
+  fixtures: ["fixtures"],
+  cargoWorkspaces: ["crates/rightkit-app", "crates/rightkit-core", "crates/rightkit-other"],
+  rust: Object.fromEntries(["rightkit-app", "rightkit-core", "rightkit-other"].map((name) => [name, { featureSets: [["--all-features"]] }])),
+});
 
 // ---- lock graph parity -----------------------------------------------------------------------------------------
 
@@ -1121,7 +1131,9 @@ test("check runs the real app check: findings on stdout, exit 0 green and 1 red,
   fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT", scripts: { ship: "right-release build" } }));
   git("commit", "-q", "-am", "green");
   const green = capture();
-  assert.equal(await main(["check"], { ...green.io, cwd: repo }), 0, green.err.join("\n"));
+  // The commit is checked through the gate's snapshot (the route of every host but hosted CI): GITHUB_ACTIONS, set on the runner that runs this suite, selects the hosted route instead.
+  const offRunner = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== "GITHUB_ACTIONS"));
+  assert.equal(await main(["check"], { ...green.io, cwd: repo, env: offRunner }), 0, green.err.join("\n"));
   assert.match(green.out.join("\n"), /^check: \w{12} passed 13 rules \(compile tier\) in [\d.]+s$/m, "no --repo: the git top-level of the working directory");
   assert.ok(green.out.some((l) => /^rightkit-gate: class A content pass: \d+ deterministic scan\(s\) over \d+ file\(s\) of [0-9a-f]{40}$/.test(l)), `then every class A scan over the whole commit: ${green.out.join(" | ")}`);
   const unknown = capture();
@@ -2000,6 +2012,8 @@ test("class A of an older commit runs cargo's scans on that commit's Cargo files
   fs.writeFileSync(path.join(root, "src", "lib.rs"), "");
   fs.writeFileSync(path.join(root, "Cargo.toml"), '[package]\nname = "old"\nversion = "0.1.0"\nedition = "2021"\nlicense = "MIT"\n');
   fs.writeFileSync(path.join(root, "Cargo.lock"), "version = 4\n");
+  // The repository's committed build definition names its one Cargo workspace (#1325: every repository but RightKit commits the list).
+  fs.mkdirSync(path.join(root, "ci")); fs.writeFileSync(path.join(root, "ci", "gate.config.json"), `${JSON.stringify({ cargoWorkspaces: ["."] })}\n`);
   git("add", "-A"); git("commit", "-q", "-m", "old");
   const old = git("rev-parse", "HEAD").stdout.trim();
   // HEAD and the live checkout move on: a different crate name in HEAD, and a live edit no commit holds.
@@ -2048,9 +2062,9 @@ test("a partial check (--only) says it is not a class A result, and the door and
   // Release-only app rules gate qualify and release; dev, test and package run the compile-tier rules (rightkit#1296).
   assert.match(src, /const earlyTier = \["qualify", "release"\]\.includes\(to\) \? "release" : "compile";/);
   // The door's check is the full check at the tier the run owes; on a direct host it reads the selected commit's snapshot (step 4c).
-  assert.match(src, /main\(\["check", "--commit", ds \? commit : "HEAD", "--full-a", \.\.\.\(ds \? \["--snapshot", ds\.path, \.\.\.appScope\] : \[\]\), "--rule-tier", earlyTier\]/, "--to check runs the full check with full class A (scoped to a nested app's closure, GB-15), at the tier the run owes");
-  assert.match(src, /main\(\["check", "--commit", "HEAD", "--full-a", "--rule-tier", tier\]/, "the unit stages run full class A");
-  assert.match(src, /main\(\["check", "--commit", ds \? commit : "HEAD", "--full-a", \.\.\.\(ds \? \["--snapshot", ds\.path, \.\.\.\(appDir === "\." \? \[\] : \["--scope", appDir\]\)\] : \[\]\)\], \{ \.\.\.io, cwd: root/, "the dev and test door run full class A of the selected commit's snapshot (scoped to a nested app's closure, GB-15)");
+  assert.match(src, /main\(\["check", "--commit", ds \? commit : "HEAD", "--full-a", \.\.\.\(ds \? \["--snapshot", ds\.path\] : \[\]\), \.\.\.appScope, "--rule-tier", earlyTier\]/, "--to check runs the full check with full class A (scoped to a nested app's closure, GB-15), at the tier the run owes");
+  assert.match(src, /main\(\["check", "--commit", commit, "--full-a", "--rule-tier", tier, "--scope", path\.posix\.dirname\(manifest\)\]/, "the hosted unit stages run full class A of the unit's closure");
+  assert.match(src, /main\(\["check", "--commit", ds \? commit : "HEAD", "--full-a", \.\.\.\(ds \? \["--snapshot", ds\.path\] : \[\]\), \.\.\.\(appDir === "\." \? \[\] : \["--scope", appDir\]\)\], \{ \.\.\.io, cwd: root/, "the dev and test door run full class A of the selected commit's snapshot (scoped to a nested app's closure, GB-15)");
   assert.doesNotMatch(src, /"--worktree", "--full-a"|runWorktreeCompile/, "rightkit#1301: the checkout route is deleted; no door stage runs class A on the working tree");
   assert.doesNotMatch(src, /main\(\["check", "--(commit|worktree)"(?![^\]]*--full-a)[^\]]*\]/, "no other entry calls a content-only check");
 });
@@ -2445,7 +2459,7 @@ test("unit snapshot check preserves Cargo closure before discovery/install & kee
     "package.json": JSON.stringify({ name: "repo", license: "MIT" }),
     "pnpm-workspace.yaml": "packages:\n  - 'packages/*'\n",
     "pnpm-lock.yaml": "lockfileVersion: '9.0'\nimporters: {}\n",
-    "ci/gate.config.json": JSON.stringify({ fixtures: ["fixtures"] }),
+    "ci/gate.config.json": SCOPED_GATE_CONFIG,
     "fixtures/invalid/Cargo.toml": "this fixture deliberately is not valid TOML {{{\n",
     "crates/rightkit-app/Cargo.toml": pkg("rightkit-app", "[workspace]\n[dependencies]\ncore={package='rightkit-core',path='../rightkit-core'}\n"),
     "crates/rightkit-app/Cargo.lock": "version = 4\n" + lockPkg("rightkit-app", "1.0.0", ["rightkit-core"]) + lockPkg("rightkit-core", "1.0.0"),
@@ -2489,7 +2503,10 @@ test("unit snapshot check preserves Cargo closure before discovery/install & kee
   assert.equal(result.code, 0, result.output);
   const plan = plans.at(-1); const ids = plan.scans.map((s) => s.id);
   assert.ok(ids.includes("check:rightkit-app") && ids.includes("check:rightkit-core"), "selected package & path dependency checks remain planned");
-  assert.ok(ids.includes("secret-scan") && ids.includes("cargo-deny:rightkit-other") && ids.includes("pnpm-lockfile:templates/desktop-app-template"), "repository-wide file-only checks remain");
+  assert.ok(ids.includes("cargo-deny:rightkit-app") && ids.includes("cargo-deny:rightkit-core"), "the closure's own Cargo workspaces keep their Class A Cargo scans");
+  assert.ok(ids.includes("secret-scan") && ids.includes("pnpm-lockfile:templates/desktop-app-template"), "repository-wide file-only checks remain");
+  // GC-A03: Class A covers only the unit's closure. A Cargo scan executes cargo, so an unrelated workspace's is not a file-only row and is scoped out.
+  assert.ok(!ids.includes("cargo-deny:rightkit-other") && !ids.includes("cargo-audit:rightkit-other") && !ids.includes("cargo-metadata:rightkit-other") && !ids.includes("cargo-package-list:rightkit-other"), "an unrelated Cargo workspace's Class A scans are scoped out");
   assert.ok(!ids.includes("check:rightkit-other") && !ids.includes("tsc:templates-desktop-app-template") && !ids.includes("test:npm:templates-desktop-app-template"));
   assert.deepEqual(installs, [], "Rust closure installs neither root npm workspace nor unrelated desktop template");
   assert.ok(metadata.length && metadata.every((d) => /\/crates\/rightkit-(app|core)$/.test(d)), "discovery asks Cargo only about selected dependency workspaces");
@@ -2507,8 +2524,10 @@ test("unit snapshot check preserves Cargo closure before discovery/install & kee
 // listening socket) hands the gate `cargo: [<absolute client>, "cargo"]`; planScans takes only the logical `["rustright","cargo"]`, so before this the gate died
 // with a TypeError the moment it planned. No broker answers here (the injected runScans runs nothing): what is pinned is the plan, the one name `rustright`
 // resolving to the validated client in every spawn the gate hands the scans, and the policy the scans get.
+/** Unix socket paths are limited to 103 bytes on macOS and a hosted runner's hermetic temp root leaves no room: a socket's directory falls back to /tmp when the socket's path would not fit under the temp directory. */
+const socketBase = (prefix, file) => (process.platform === "win32" || Buffer.byteLength(path.join(os.tmpdir(), `${prefix}XXXXXX`, file)) < 100 ? os.tmpdir() : "/tmp");
 async function declaredHost(t) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-linux-route-")));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(socketBase("rk-gate-linux-route-", "broker.sock"), "rk-gate-linux-route-")));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const socket = path.join(dir, "broker.sock");
   const server = net.createServer();
@@ -2528,6 +2547,7 @@ test("a declared Linux broker plans the scans with the logical rustright, starts
   git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
   fs.mkdirSync(path.join(repo, "src")); fs.writeFileSync(path.join(repo, "src", "lib.rs"), "");
   fs.writeFileSync(path.join(repo, "Cargo.toml"), pkg("x")); fs.writeFileSync(path.join(repo, "Cargo.lock"), lockPkg("x", "1.0.0"));
+  fs.mkdirSync(path.join(repo, "ci")); fs.writeFileSync(path.join(repo, "ci", "gate.config.json"), `${JSON.stringify({ cargoWorkspaces: ["."] })}\n`); // the committed build definition (#1325)
   git("add", "-A"); git("commit", "-q", "-m", "one");
   // An enrolled shellcheck: a real executable file, enrolled through the reviewed operation (which checks its digest).
   const analyzer = path.join(host.dir, "shellcheck"); fs.writeFileSync(analyzer, "#!/bin/sh\nexit 0\n"); fs.chmodSync(analyzer, 0o755);
@@ -2586,6 +2606,7 @@ test("check stage on a broker host (real broker): the class A cargo reads are ca
   fs.mkdirSync(path.join(repo, "crates", "a", "src"), { recursive: true });
   fs.writeFileSync(path.join(repo, "Cargo.toml"), '[workspace]\nmembers = ["crates/*"]\nresolver = "2"\n'); fs.writeFileSync(path.join(repo, "Cargo.lock"), "version = 4\n");
   fs.writeFileSync(path.join(repo, "crates", "a", "Cargo.toml"), '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n'); fs.writeFileSync(path.join(repo, "crates", "a", "src", "lib.rs"), "\n");
+  fs.mkdirSync(path.join(repo, "ci")); fs.writeFileSync(path.join(repo, "ci", "gate.config.json"), `${JSON.stringify({ cargoWorkspaces: ["."] })}\n`); // the committed build definition (#1325)
   git("add", "-A"); git("commit", "-q", "-m", "A"); const commit = git("rev-parse", "HEAD");
   const snap = syncSnapshot({ checkout: repo, rev: commit, root: mk("rk-gate-carried-snaps-") });
   // The REAL broker, isolated: the carried cargo reads of this stage go to its client and it answers them.
@@ -2615,7 +2636,7 @@ import { cargoMetadataFromManifests, closureOf, scopeScans } from "./app-closure
 const SCOPED_FILES = {
   ".rightkit-local-build.json": JSON.stringify({ repository: "fixture/repo", allow: "build-test-publish" }),
   "package.json": JSON.stringify({ name: "repo", license: "MIT" }),
-  "ci/gate.config.json": JSON.stringify({ fixtures: ["fixtures"] }),
+  "ci/gate.config.json": SCOPED_GATE_CONFIG,
   "fixtures/invalid/Cargo.toml": "this fixture deliberately is not valid TOML {{{\n",
   "crates/rightkit-app/Cargo.toml": pkg("rightkit-app", "[workspace]\n[dependencies]\ncore={package='rightkit-core',path='../rightkit-core'}\n"),
   "crates/rightkit-app/Cargo.lock": "version = 4\n" + lockPkg("rightkit-app", "1.0.0", ["rightkit-core"]) + lockPkg("rightkit-core", "1.0.0"),
@@ -2669,8 +2690,9 @@ function hostedHarness(fx) {
 
 test("hosted named cargo and npm `--to check` forward the literal selected SHA and the scope: the dependency's executing rows and the repository-wide file-only scans stay; unrelated cargo metadata, executing rows and npm installs are absent", async (t) => {
   for (const [selector, kept, dropped, fileOnly] of [
-    ["cargo:rightkit-app", ["check:rightkit-app", "check:rightkit-core"], ["check:rightkit-other", "test:npm:packages-alpha", "tsc:packages-gamma"], ["secret-scan", "cargo-deny:rightkit-other", "pnpm-lockfile:packages/gamma"]],
-    ["npm:@rightkit/alpha", ["test:npm:packages-alpha", "test:npm:packages-beta"], ["test:npm:packages-gamma", "tsc:packages-gamma", "check:rightkit-app", "check:rightkit-other"], ["secret-scan", "cargo-deny:rightkit-other", "pnpm-lockfile:packages/gamma"]],
+    // GC-A03: Class A covers only the unit's closure. Cargo scans execute cargo, so an unrelated workspace's cargo-deny is dropped with its other executing rows; the closure's own stay.
+    ["cargo:rightkit-app", ["check:rightkit-app", "check:rightkit-core", "cargo-deny:rightkit-app", "cargo-deny:rightkit-core"], ["check:rightkit-other", "cargo-deny:rightkit-other", "test:npm:packages-alpha", "tsc:packages-gamma"], ["secret-scan", "pnpm-lockfile:packages/gamma"]],
+    ["npm:@rightkit/alpha", ["test:npm:packages-alpha", "test:npm:packages-beta"], ["test:npm:packages-gamma", "tsc:packages-gamma", "check:rightkit-app", "check:rightkit-other", "cargo-deny:rightkit-app", "cargo-deny:rightkit-other"], ["secret-scan", "pnpm-lockfile:packages/gamma"]],
   ]) {
     const fx = scopedFixture(t); const h = hostedHarness(fx);
     const r = await h.run(["--to", "check", "--unit", selector]);
@@ -2707,7 +2729,8 @@ test("a scoped hosted check accepts a clean committed checkout and refuses --wor
   // an edit a clean filter normalizes away: git status is clean, the raw bytes are not.
   if (process.platform !== "win32") {
     const fx = scopedFixture(t, { ".gitattributes": `${lib} filter=hide\n` }); const h = hostedHarness(fx);
-    assert.equal(fx.git("config", "filter.hide.clean", "printf 'pub fn app() {}\\n'").status, 0); fs.writeFileSync(path.join(fx.root, lib), "pub fn evil() {}\n");
+    assert.equal(fx.git("config", "filter.hide.clean", "printf 'pub fn app() {}\\n'").status, 0); // The edit keeps the committed file's length: git calls a changed length modified without running the clean filter.
+    fs.writeFileSync(path.join(fx.root, lib), "pub fn evi() {}\n");
     assert.equal(fx.git("status", "--porcelain").stdout.trim(), "", "the clean filter hides the edit from git status");
     const r = await h.run(argvFor(fx.sha)); assert.equal(r.code, 2, r.output); assert.match(r.output, /raw tree/); assert.equal(h.plans.length, 0);
   }
@@ -2754,7 +2777,9 @@ test("data: closure discovery for a unit or a nested app reads only the selected
   assert.deepEqual([...app.npm], ["desktop"]);
   assert.deepEqual([...app.rust].sort(), ["core", "desktop-native"]);
   assert.ok(!app.dependencyDirs.some((d) => d.startsWith("apps/web") || d === "crates/other"), JSON.stringify(app.dependencyDirs));
-  assert.ok(reads.every((f) => !f.startsWith("fixtures/") && !f.startsWith("crates/other/") && !f.startsWith("apps/web/")), `never read: ${reads.join(", ")}`);
+  // An unrelated npm unit's package.json is read: workspace edges resolve by package name, so every committed npm manifest is named first (data only, nothing of the unit executes).
+  // Nothing else of an unrelated unit is read: no Rust manifest, no source, no fixture.
+  assert.ok(reads.every((f) => !f.startsWith("fixtures/") && !f.startsWith("crates/other/") && (!f.startsWith("apps/web/") || f === "apps/web/package.json")), `never read: ${reads.join(", ")}`);
   // Discovery metadata is built from the committed manifests the gate selects (fixtures are filtered out before this): an included invalid fixture would refuse, never be skipped silently.
   const sources = Object.keys(CLOSURE_FILES).filter((f) => f.endsWith("Cargo.toml") && !f.startsWith("fixtures/"));
   const metadata = cargoMetadataFromManifests({ manifests: sources, readFile: (f) => CLOSURE_FILES[f] });

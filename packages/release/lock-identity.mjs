@@ -12,6 +12,7 @@ export const LOCK_SAME_START_MS = 3000;
 const systemTool = (name, candidates) => candidates.find((c) => { try { return fs.statSync(c).isFile(); } catch { return false; } }) ?? name;
 const PS = () => systemTool("ps", ["/bin/ps", "/usr/bin/ps"]);
 const SYSCTL = () => systemTool("sysctl", ["/usr/sbin/sysctl", "/sbin/sysctl"]);
+const PERL = () => systemTool("perl", ["/usr/bin/perl"]);
 const run = (spawn, command, args, env = {}) => spawn(command, args, { encoding: "utf8", env: { ...process.env, ...env }, timeout: 30_000, maxBuffer: 1 << 20 });
 
 /** This boot's identity (Linux boot_id, macOS kern.bootsessionuuid); null where it cannot be read (Windows, a failure). */
@@ -91,6 +92,13 @@ export function darwinStartTimeMs(bytes) {
   return Number((sec * 1_000_000n + BigInt(usec)) / 1000n);
 }
 
+/** Prints the `kinfo_proc` row of the pid in $ARGV[0] (sysctl [CTL_KERN=1, KERN_PROC=14, KERN_PROC_PID=1, pid] through SYS___sysctl, 202), or exits 1 printing nothing. */
+const DARWIN_KINFO_PERL = [
+  'my $mib = pack("i4", 1, 14, 1, $ARGV[0]); my $buf = "\\0" x 1024; my $len = pack("Q", 1024);',
+  "syscall(202, $mib, 4, $buf, $len, 0, 0) == 0 or exit 1;",
+  'binmode STDOUT; print substr($buf, 0, unpack("Q", $len));',
+].join(" ");
+
 /** `pid`'s start time as RustRight's `start_time_ms` reads it, or null when it cannot be read (gone, denied, an unknown platform). `readFile`, `spawn` and `hz` are seams for a simulated host. */
 export function processStartTimeMs(pid, { platform = process.platform, readFile = fs.readFileSync, spawn = spawnSync, hz = null } = {}) {
   try {
@@ -101,8 +109,13 @@ export function processStartTimeMs(pid, { platform = process.platform, readFile 
       return linuxStartTimeMs(readFile(`/proc/${pid}/stat`, "utf8"), readFile("/proc/stat", "utf8"), clock);
     }
     if (platform === "darwin") {
-      const r = spawn(SYSCTL(), ["-b", `kern.proc.pid.${pid}`], { env: { ...process.env, LC_ALL: "C" }, timeout: 30_000, maxBuffer: 1 << 20 });
-      return r.error || r.status !== 0 ? null : darwinStartTimeMs(Buffer.isBuffer(r.stdout) ? r.stdout : Buffer.from(String(r.stdout ?? ""), "latin1"));
+      const options = { env: { ...process.env, LC_ALL: "C" }, timeout: 30_000, maxBuffer: 1 << 20 };
+      const read = (r) => (r.error || r.status !== 0 ? null : darwinStartTimeMs(Buffer.isBuffer(r.stdout) ? r.stdout : Buffer.from(String(r.stdout ?? ""), "latin1")));
+      const named = read(spawn(SYSCTL(), ["-b", `kern.proc.pid.${pid}`], options));
+      if (named !== null) return named;
+      // macOS 27's sysctl(8) no longer resolves `kern.proc.pid.<pid>` by name ("unknown oid"), so the row is read through the numeric MIB
+      // [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid] (the one RustRight reads, rustright-process macos.rs) by the system perl: the same bytes, the same figure.
+      return read(spawn(PERL(), ["-e", DARWIN_KINFO_PERL, String(pid)], options));
     }
     if (platform === "win32") {
       const script = `$p = Get-Process -Id ${Number(pid)} -ErrorAction SilentlyContinue; if ($p) { 'START:' + ([DateTimeOffset]$p.StartTime).ToUnixTimeMilliseconds() } else { 'GONE' }`;

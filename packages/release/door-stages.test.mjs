@@ -25,6 +25,11 @@ import { syncSnapshot } from "./snapshot.mjs";
 import { isCallHandleOf } from "./snapshot-request.mjs";
 import { startRealBroker } from "./test-support/real-broker.mjs";
 
+/** A `markBrokerSubmit` hook whose mark does not land (it answers null) but that still takes the call's sub-handle and asserts its shape (`<handle>#<id>`), so a wiring that drops the argument fails here. */
+const unlandedMarkStub = (handle) => (callHandle) => {
+  assert.ok(isCallHandleOf(callHandle, handle), `a broker submit is recorded for a carried request's sub-handle <handle>#<id>, not ${JSON.stringify(callHandle ?? null)}`);
+  return null;
+};
 /** A `markBrokerSubmit` hook that takes the call's sub-handle and asserts its shape (`<handle>#<id>`, the build ownership's own rule), so a wiring that drops the argument fails here. `onMark` sees each valid sub-handle. */
 const subHandleStub = (handle, onMark = () => {}) => (callHandle) => {
   assert.ok(isCallHandleOf(callHandle, handle), `a broker submit is recorded for a carried request's sub-handle <handle>#<id>, not ${JSON.stringify(callHandle ?? null)}`);
@@ -318,7 +323,7 @@ test("[7.02 e2e] through the real carrier install and the REAL broker: a stage's
   const door = async (args, extra = {}) => { try { return await fx.door(args, { snapshotRoot: snaps, ...extra }); } finally { fs.rmSync(path.join(fx.dir, "build-ownership"), { recursive: true, force: true }); } };
   const handleNow = () => process.env.RIGHTKIT_BUILD_OWNERSHIP ?? "own-7";
   // The production seam over the real broker: its own receipt reader (the real client's `status`), its managed output roots, and the pins enrolled for THIS instance.
-  const sbWith = (pins) => ({ ...createSnapshotBroker({ env: broker.env, platform: process.platform, checkout, commit: { sha: synced.commit, tree: synced.tree }, snapshot: { path: synced.path, expectedTree: synced.tree }, ownership: { handle: "own-7", markBrokerSubmit: () => null }, client: broker.clientPath, dataRoot: broker.dataRoot, loadPins: () => pins }),
+  const sbWith = (pins) => ({ ...createSnapshotBroker({ env: broker.env, platform: process.platform, checkout, commit: { sha: synced.commit, tree: synced.tree }, snapshot: { path: synced.path, expectedTree: synced.tree }, ownership: { handle: "own-7", markBrokerSubmit: unlandedMarkStub("own-7") }, client: broker.clientPath, dataRoot: broker.dataRoot, loadPins: () => pins }),
     get handle() { return handleNow(); }, markBrokerSubmit: (h) => ({ handle: handleNow(), broker: { submitted: true, handles: [h] } }) });
   const sb = sbWith(enrolledPinsOf(broker));
   const GATE = "/gate/bin/rightkit-gate.mjs";

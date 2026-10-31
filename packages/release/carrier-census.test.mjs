@@ -92,12 +92,24 @@ test("[GB-76] the gate's identity is the number RustRight reads: Linux boot time
   const calls = [];
   assert.equal(processStartTimeMs(77, { platform: "darwin", spawn: (cmd, args) => { calls.push([path.basename(cmd), ...args]); return { status: 0, stdout: kinfo }; } }), 1_730_000_123_456);
   assert.deepEqual(calls, [["sysctl", "-b", "kern.proc.pid.77"]]);
-  assert.equal(processStartTimeMs(77, { platform: "darwin", spawn: () => ({ status: 1, stdout: Buffer.alloc(0) }) }), null);
+  // macOS 27's sysctl(8) answers "unknown oid" for the by-name form: the same kinfo_proc row is then read through the numeric MIB by the system perl.
+  const fallback = [];
+  assert.equal(processStartTimeMs(77, { platform: "darwin", spawn: (cmd, args) => { fallback.push([path.basename(cmd), args[0], args.at(-1)]); return path.basename(cmd) === "sysctl" ? { status: 1, stdout: Buffer.alloc(0) } : { status: 0, stdout: kinfo }; } }), 1_730_000_123_456);
+  assert.deepEqual(fallback, [["sysctl", "-b", "kern.proc.pid.77"], ["perl", "-e", "77"]]);
+  assert.equal(processStartTimeMs(77, { platform: "darwin", spawn: () => ({ status: 1, stdout: Buffer.alloc(0) }) }), null, "neither read answers: unreadable, never a guess");
+  assert.equal(processStartTimeMs(77, { platform: "darwin", spawn: () => ({ status: 0, stdout: Buffer.alloc(0) }) }), null, "a gone pid prints no row");
   const script = [];
   assert.equal(processStartTimeMs(88, { platform: "win32", spawn: (cmd, args) => { script.push([cmd, ...args]); return { status: 0, stdout: "START:1730000999123\r\n" }; } }), 1_730_000_999_123);
   assert.match(script[0][0], /powershell/i);
   assert.equal(processStartTimeMs(88, { platform: "win32", spawn: () => ({ status: 0, stdout: "GONE" }) }), null);
   assert.equal(processStartTimeMs(88, { platform: "win32", spawn: () => ({ status: 1, stdout: "", stderr: "x" }) }), null);
+});
+
+test("[GB-76] this host's real reading of its own start time is a UNIX epoch ms within seconds of when this process started, on every platform (never null on a host that can run the gate)", () => {
+  const started = Date.now() - Math.round(process.uptime() * 1000);
+  const read = processStartTimeMs(process.pid);
+  assert.ok(Number.isInteger(read), `this host cannot read its own process start time (${process.platform}): every carrier owner record would carry null`);
+  assert.ok(Math.abs(read - started) < 30_000, `the reading ${read} is not this process's start ${started}`);
 });
 
 test("[GB-76] this host's own start time equals an independent reading of /proc (Linux), so a live gate reads Same at the broker, never Reused", { skip: process.platform === "linux" ? false : "the independent reading is /proc" }, () => {

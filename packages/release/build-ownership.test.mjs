@@ -1951,6 +1951,20 @@ function macFacts(pid) {
 }
 /** `launchctl blame` as the gate asks it, for a pid of the test's own making. */
 const blameOfPid = (pid) => { const r = spawnSync("launchctl", ["blame", String(pid)], { encoding: "utf8", env: { ...process.env, LC_ALL: "C" }, timeout: 5000 }); return { rc: r.status, line: `${r.stdout}${r.stderr}`.split("\n").find((l) => l.trim() !== "")?.trim() ?? "" }; };
+/**
+ * `ps eww` hides the environment of Apple platform binaries only where System Integrity Protection is on (a Mac). A host with it off (GitHub's hosted macOS
+ * runners) shows that environment, so the same orphan is attributable by the exact ownership token it carries: the token net holds the host while it lives
+ * and the next gate takes the host once it is gone. `macFacts(...).envShown` says which host this is; the tests branch on it and assert the rule of that host.
+ */
+async function assertVisibleOrphanHoldsByToken(t, file, g) {
+  const busy = gateStep(t, "acquire", { file }, process.env);
+  assert.equal(busy.ok, false, `an orphan whose environment \`ps eww\` shows carries the ownership token and holds the host: ${JSON.stringify(busy)}`);
+  assert.match(String(busy.message), new RegExp(`${g.child}\\b.*still carry`), "the token net names the orphan");
+  assert.doesNotThrow(() => process.kill(g.child, 0), "and it is left alive");
+  await g.kill(g.child);
+  const next = gateStep(t, "acquire", { file }, process.env);
+  assert.equal(next.ok, true, `with the orphan gone the host is free: ${JSON.stringify(next)}`); assert.equal(next.reclaimed.from, g.handle);
+}
 
 test("row 5.24a' [native macOS, G2 reproduction]: a gate descendant that is an Apple platform binary, started its own session, touches nothing in the snapshot and was orphaned to launchd is reported, never held: ownership releases while it lives (rightkit#1313)", { skip: process.platform !== "darwin" && "macOS: `ps eww` hides Apple platform binaries only there", timeout: 180_000 }, async (t) => {
   const base = tmp(t, "rk-own-hidden-"); const file = path.join(base, OWNERSHIP_DIRNAME, "owner.json"); const snapshot = path.join(base, "snapshots", "k");
@@ -1960,11 +1974,13 @@ test("row 5.24a' [native macOS, G2 reproduction]: a gate descendant that is an A
   t.diagnostic(`the descendant: pid ${g.child} ${JSON.stringify(facts)}`);
   assert.equal(facts.command, "/bin/sleep 120", "an Apple platform binary");
   assert.equal(facts.ppid, 1, "orphaned to launchd: macOS has no subreaper");
-  assert.equal(facts.envShown, false, "`ps eww` shows no environment for it, so the token net cannot see the handle it carries");
   assert.equal(blameKind(blameOfPid(g.child)), "unmanaged", "launchctl blame: a reparented orphan is not managed by launchd");
   const lsofPid = spawnSync("lsof", ["-n", "-P", "-p", String(g.child), "-Fn"], { encoding: "utf8" }).stdout;
   assert.equal(lsofPid.split("\n").some((l) => l.startsWith("n") && l.includes(snapshot)), false, "and it touches nothing in the snapshot at sampling time");
   await g.kill(g.gate);
+  // SIP on: `ps eww` shows no environment for the Apple platform binary, so the token net cannot see the handle it carries and the rule below applies.
+  // SIP off (a hosted runner): it shows the environment, the token net sees the handle and holds the host instead.
+  if (facts.envShown) return assertVisibleOrphanHoldsByToken(t, file, g);
   // rightkit#1313: hidden environment plus start time is no attribution. The unattributed orphan stays alive, is reported, and never holds the host.
   const next = gateStep(t, "acquire", { file }, process.env);
   assert.equal(next.ok, true, `an unattributed hidden orphan does not hold the host: ${JSON.stringify(next)}`); assert.equal(next.reclaimed.from, g.handle);
@@ -1984,9 +2000,10 @@ for (const shape of ["orphan-setsid", "orphan-subshell", "orphan-nohup"]) {
     t.diagnostic(`${shape}: pid ${g.child} ${JSON.stringify(facts)}`);
     assert.equal(facts.command, "/bin/sleep 120", "an Apple platform binary");
     assert.equal(facts.ppid, 1, "orphaned to launchd");
-    assert.equal(facts.envShown, false, "`ps eww` shows no environment for it");
     assert.equal(blameKind(blameOfPid(g.child)), "unmanaged", "launchctl blame: not managed by launchd");
     await g.kill(g.gate);
+    // SIP on: `ps eww` shows no environment for it and the rule below applies. SIP off (a hosted runner): the token net sees the handle and holds the host.
+    if (facts.envShown) return assertVisibleOrphanHoldsByToken(t, file, g);
     const next = gateStep(t, "acquire", { file }, process.env);
     assert.equal(next.ok, true, `an unattributed hidden orphan does not hold the host: ${JSON.stringify(next)}`); assert.equal(next.reclaimed.from, g.handle);
     assert.match(next.reclaimed.proofs.join("; "), new RegExp(`reported, not held:.*${g.child}`), "reported in the output");

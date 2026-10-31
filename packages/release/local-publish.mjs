@@ -547,6 +547,16 @@ async function publishUnit(parsed, deps, batch) {
   return result.value;
 }
 
+
+/**
+ * The host's scratch root for an npm pack: the disk policy's root (`/Volumes/D/scratch`, `D:\scratch`) where it exists, the system temp directory where it does not
+ * (a hosted runner, a cloud container, any host the disk policy does not govern). The pack destination is always a fresh child of the root that is returned.
+ */
+export function hostScratchRoot(platform, exists = fs.existsSync) {
+  const root = platform === "win32" ? "D:\\scratch" : "/Volumes/D/scratch";
+  return exists(root) ? root : os.tmpdir();
+}
+
 async function* publishUnitStages(parsed, deps, batch) {
   const log = deps.log ?? ((line) => process.stdout.write(`${line}\n`));
   const { kind, unit, allowIgnored, workspaceRoot } = parsed;
@@ -676,7 +686,7 @@ async function* publishUnitStages(parsed, deps, batch) {
   // An npm pack is a broker job whose --pack-destination the adapter accepts only as an empty child of the host's scratch root, so the
   // tarball goes there (the workspace rule for run output) rather than in the OS temp directory; the package itself is packed from the
   // snapshot (relative --dir).
-  const scratchRoot = deps.tmpdir ?? (kind === "npm" ? (platform === "win32" ? "D:\\scratch" : "/Volumes/D/scratch") : os.tmpdir());
+  const scratchRoot = deps.tmpdir ?? (kind === "npm" ? hostScratchRoot(platform, deps.exists ?? fs.existsSync) : os.tmpdir());
   const scratch = fs.mkdtempSync(path.join(scratchRoot, "rk-local-publish-"));
   const cleanup = () => fs.rmSync(scratch, { recursive: true, force: true });
   try {

@@ -5,8 +5,9 @@ import "./test-support/broker-guard.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { tempRoot } from "./test-support/temp-roots.mjs";
 import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, mergeCapabilityViews, parseHandshake, parseRuntimeIdentity, queryBrokerHandshake, readBrokerHandshake } from "./broker-handshake.mjs";
 import { brokerCapabilityStateWithHandshake } from "./bin/rightkit-gate.mjs";
@@ -17,9 +18,19 @@ const ALL = ["journal-v1", "snapshot-readonly-v1", "stage-grant-v1", "snapshot-a
 const handshake = (capabilities, extra = {}) => JSON.stringify({ type: "HANDSHAKE", runtime: IDENTITY, ...(capabilities === undefined ? {} : { capabilities }), ...extra });
 const status = JSON.stringify({ type: "STATUS", id: HANDSHAKE_PROBE_ID, state: "READY" });
 
+/** Unix socket paths are limited to 103 bytes on macOS and a hosted runner's hermetic temp root leaves no room: the socket's directory falls back to /tmp when the socket's path would not fit under the temp directory. */
+const shortRoots = [];
+after(() => { for (const d of shortRoots) fs.rmSync(d, { recursive: true, force: true }); });
+function socketRoot(prefix, file) {
+  if (process.platform === "win32" || Buffer.byteLength(path.join(os.tmpdir(), `${prefix}XXXXXX`, file)) < 100) return tempRoot(prefix);
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join("/tmp", prefix)));
+  shortRoots.push(dir);
+  return dir;
+}
+
 /** A fake broker on a real Unix socket: records each request line and answers with `reply(request)` (an array of lines, or a function that writes). */
 async function fakeBroker(reply) {
-  const dir = tempRoot("hs-broker-");
+  const dir = socketRoot("hs-broker-", "hs-fake.sock");
   const socket = path.join(dir, "hs-fake.sock");
   const requests = [];
   const server = net.createServer((conn) => {

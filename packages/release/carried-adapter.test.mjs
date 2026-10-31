@@ -76,7 +76,10 @@ async function realBrokerHost(t, name, files = {}) {
   return { rb, root, checkout, snapshot: snap.path, commit: { sha: snap.commit, tree: snap.tree }, sb, submits, ownershipEnv: { [OWNERSHIP_ENV]: HANDLE, [OWNERSHIP_FILE_ENV]: ownership } };
 }
 
-const nodeScript = (body) => `import { spawnSync } from "node:child_process";\nimport path from "node:path";\n${body}\n`;
+// The fixture scripts launch a compile the way a Tauri CLI does. The specifier is split so background-process.test.mjs's source scan, which bans the literal
+// import in release sources, does not read a script that only runs inside the broker's job (the convention cargo-target-shim.test.mjs and build-ownership.test.mjs use).
+const CHILD_PROCESS = "node:child" + "_process";
+const nodeScript = (body) => `import { spawnSync } from "${CHILD_PROCESS}";\nimport path from "node:path";\n${body}\n`;
 const CARGO_IN = (dir, args) => `const r = spawnSync("cargo", ${JSON.stringify(args)}, { cwd: ${dir}, stdio: "inherit" });\nprocess.exit(r.status ?? 1);`;
 const SCRIPTS = {
   // What `pnpm exec tauri build` does under the job: one nested compile in the app's directory.

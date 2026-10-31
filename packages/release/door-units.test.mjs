@@ -34,7 +34,13 @@ function unitFixture(t, { grant = true, manifest = true, npm = false } = {}) {
   if (manifest) { write("crates/rightkit-x/Cargo.toml", '[package]\nname = "rightkit-x"\nversion = "1.2.3"\nedition = "2021"\nlicense = "MIT"\n'); write("crates/rightkit-x/src/lib.rs", "pub fn committed() {}\n"); }
   write("ci/gate.config.json", "{}\n");
   write("Cargo.toml", '[workspace]\nmembers = ["crates/*"]\n'); write("Cargo.lock", "version = 4\n");
-  if (npm) write("packages/x/package.json", JSON.stringify({ name: "@rightkit/x", version: "1.2.3", license: "MIT" }));
+  // An npm unit is scoped to its own closure (GB-15): the pnpm workspace names it, and the crate is the unit's own native source, a workspace dependency whose
+  // directory is the crate's, so the crate's Rust unit and its Cargo workspace are in the unit's closure (a Cargo call outside the closure is refused).
+  if (npm) {
+    write("pnpm-workspace.yaml", 'packages:\n  - "packages/*"\n  - "crates/*"\n');
+    write("packages/x/package.json", JSON.stringify({ name: "@rightkit/x", version: "1.2.3", license: "MIT", dependencies: { "@rightkit/native": "workspace:*" } }));
+    write("crates/rightkit-x/package.json", JSON.stringify({ name: "@rightkit/native", version: "1.2.3", private: true }));
+  }
   git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "c1");
   const c1 = git(repo, "rev-parse", "HEAD").stdout.trim();
   write("crates/rightkit-x/src/lib.rs", "pub fn second() {}\n"); git(repo, "commit", "-qam", "c2"); // HEAD is ahead of c1
@@ -91,7 +97,7 @@ test("[7.06a] a unit stage builds the selected commit's snapshot: --workspace is
   // The class A the unit door runs is `check --commit <sha> --full-a --snapshot <dir>` (spawn-recorder form: the argv in the source).
   const src = fs.readFileSync(new URL("./bin/rightkit-gate.mjs", import.meta.url), "utf8");
   const unitBlock = src.slice(src.indexOf("async function runUnitSnapshot"), src.indexOf("export function snapshotRouteSelected"));
-  assert.match(unitBlock, /main\(\["check", "--commit", ds\.commit, "--full-a", "--snapshot", ds\.path, "--scope", path\.posix\.dirname\(manifest\), "--rule-tier", tier\]/, "the unit's Class A is scoped to the unit's own closure (GB-15)");
+  assert.match(unitBlock, /main\(\["check", "--commit", ds\.commit, "--full-a", "--snapshot", ds\.path, "--rule-tier", tier, "--scope", path\.posix\.dirname\(manifest\)\]/, "the unit's Class A is scoped to the unit's own closure (GB-15)");
   assert.doesNotMatch(unitBlock, /--worktree|rev-parse", "HEAD"|"status"/);
 });
 
@@ -221,7 +227,9 @@ test("[7.06a] on a broker host the unit cargo binding is the carrier (o.snapshot
 
 test("[B6] on a broker host the Cargo workspaces are the commit's own (read from its manifests): a checkout edit to a Cargo.toml changes nothing and no Cargo call is made against the checkout", { skip: POSIX_SIM }, async (t) => {
   const fx = unitFixture(t, { npm: true });
-  fx.write("native/Cargo.toml", '[workspace]\n[package]\nname = "native"\nversion = "0.1.0"\n'); fx.write("native/src/lib.rs", "\n");
+  // The nested workspace is the npm unit's own too (under packages/x), so it is in the unit's closure and its map.
+  // (a nested workspace is a unit only with its own committed Cargo.lock: a lockless nested manifest has no reproducible build and is gated through the consumer rows of the crate it exercises)
+  fx.write("packages/x/native/Cargo.toml", '[workspace]\n[package]\nname = "native"\nversion = "0.1.0"\n'); fx.write("packages/x/native/Cargo.lock", "version = 4\n"); fx.write("packages/x/native/src/lib.rs", "\n");
   git(fx.repo, "add", "-A"); git(fx.repo, "commit", "-q", "-m", "native workspace");
   const commit = git(fx.repo, "rev-parse", "HEAD").stdout.trim();
   const brokerExecutor = () => ({ kind: "broker", cargo: ["rustright", "cargo"] });
@@ -240,12 +248,12 @@ test("[B6] on a broker host the Cargo workspaces are the commit's own (read from
   };
   const real = fs.realpathSync(fx.repo);
   const committed = await bound();
-  assert.deepEqual(committed.map, { ".": real, native: path.join(real, "native") }, "the root workspace (its member crate included) and the nested one");
+  assert.deepEqual(committed.map, { ".": real, "packages/x/native": path.join(real, "packages", "x", "native") }, "the root workspace (its member crate included) and the nested one");
   assert.deepEqual(committed.metadata, [], "Cargo is asked nothing about the checkout");
   // Uncommitted edits to the checkout's manifests: the root stops being a workspace, the nested one is deleted, a crate becomes its own workspace.
   fx.write("Cargo.toml", "this is not toml\n");
   fx.write("crates/rightkit-x/Cargo.toml", '[workspace]\n[package]\nname = "rightkit-x"\nversion = "9.9.9"\n');
-  fs.rmSync(path.join(fx.repo, "native"), { recursive: true, force: true });
+  fs.rmSync(path.join(fx.repo, "packages", "x", "native"), { recursive: true, force: true });
   const edited = await bound();
   assert.deepEqual(edited.map, committed.map, "a checkout edit to a Cargo.toml does not change what the commit builds");
   assert.deepEqual(edited.metadata, []);

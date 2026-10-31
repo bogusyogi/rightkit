@@ -665,7 +665,8 @@ function instancePins(rb) {
 async function cargoScenario(t) {
   const repo = tmp(t, "rk-sc-cargo-");
   git(repo, "init", "-q", "-b", "main");
-  write(repo, { ".gitignore": "target/\n", "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\nresolver = "2"\n', "Cargo.lock": 'version = 4\n\n[[package]]\nname = "a"\nversion = "0.1.0"\n', "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n', "crates/a/src/lib.rs": "\n" });
+  // ci/gate.config.json: the committed build definition names the repository's one Cargo workspace (#1325: every repository but RightKit commits the list).
+  write(repo, { ".gitignore": "target/\n", "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\nresolver = "2"\n', "Cargo.lock": 'version = 4\n\n[[package]]\nname = "a"\nversion = "0.1.0"\n', "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n', "crates/a/src/lib.rs": "\n", "ci/gate.config.json": '{ "cargoWorkspaces": ["."] }\n' });
   const a = commitAll(repo, "A");
   // The REAL installed broker (an isolated instance) holds the gate's snapshot: it lives in the broker's own data root, and the snapshot broker the gate builds is the production one over it.
   const rb = await startRealBroker({ name: "snapshot-check" });

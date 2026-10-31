@@ -15,12 +15,16 @@ import {
   directHost, linuxBrokerDeclared, managedHost, resolveLinuxBrokerRoute, runCargoAsync, runCargoSync,
 } from "./managed-cargo.mjs";
 
+/** Unix socket paths are limited to 103 bytes on macOS and a hosted runner's hermetic temp root leaves no room: a socket's directory falls back to /tmp when the socket's path would not fit under the temp directory. */
+const socketBase = (prefix, file) => (process.platform === "win32" || Buffer.byteLength(path.join(os.tmpdir(), `${prefix}XXXXXX`, file)) < 100 ? os.tmpdir() : "/tmp");
 const BODY = "#!/bin/sh\nexit 0\n";
 const sha = (body) => createHash("sha256").update(body).digest("hex");
 
+/** Windows cannot hold the declared Linux broker route's endpoint: a unix socket file on a POSIX path (the route is Linux's only, and its judging reads POSIX paths). */
+const NO_UNIX_SOCKET = process.platform === "win32" && "a declared Linux broker names a unix socket file on a POSIX path, which Windows cannot hold";
 /** A real installed-looking tree under the temp directory: an executable client file and a listening unix socket. */
 async function installed(t) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-linux-broker-")));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(socketBase("rk-linux-broker-", "broker.sock"), "rk-linux-broker-")));
   const server = net.createServer();
   const socket = path.join(dir, "broker.sock");
   await new Promise((resolve, reject) => { server.once("error", reject); server.listen(socket, resolve); });
@@ -49,7 +53,7 @@ test("the declaration is Linux's only: Mac and Windows ignore it and keep their 
   assert.deepEqual(resolveLinuxBrokerRoute({ env, platform: "darwin" }), { declared: false });
 });
 
-test("a declared route with a real client and a real listening socket validates, and reports the client's identity", async (t) => {
+test("a declared route with a real client and a real listening socket validates, and reports the client's identity", { skip: NO_UNIX_SOCKET }, async (t) => {
   const host = await installed(t);
   const route = resolveLinuxBrokerRoute({ env: host.env, platform: "linux" });
   assert.deepEqual({ ...route }, { declared: true, ok: true, client: host.client, socket: host.socket, clientSha256: sha(BODY) });
@@ -65,7 +69,7 @@ test("a declared route with a real client and a real listening socket validates,
   }
 });
 
-test("every way a declared route can be wrong refuses with RK_LINUX_BROKER_UNAVAILABLE, naming the cause", async (t) => {
+test("every way a declared route can be wrong refuses with RK_LINUX_BROKER_UNAVAILABLE, naming the cause", { skip: NO_UNIX_SOCKET }, async (t) => {
   const host = await installed(t);
   const refused = (env, pattern, label) => {
     const r = resolveLinuxBrokerRoute({ env: { ...host.env, ...env }, platform: "linux" });
@@ -95,7 +99,7 @@ test("every way a declared route can be wrong refuses with RK_LINUX_BROKER_UNAVA
   refused({}, /group- or world-writable/, "a world-writable directory holds the client");
 });
 
-test("a declared route that refuses never runs cargo direct; a validated one launches the declared client at the declared endpoint", async (t) => {
+test("a declared route that refuses never runs cargo direct; a validated one launches the declared client at the declared endpoint", { skip: NO_UNIX_SOCKET }, async (t) => {
   const host = await installed(t);
   const calls = [];
   const unpinned = { ...host.env }; delete unpinned[LINUX_BROKER_CLIENT_SHA256_ENV];
@@ -117,7 +121,7 @@ test("a declared route that refuses never runs cargo direct; a validated one lau
   assert.deepEqual(calls, [], "a declaration without the client's pinned digest launches nothing");
 });
 
-test("a launched client's own unavailable answer is reported as the broker being unavailable on a declared Linux route", async (t) => {
+test("a launched client's own unavailable answer is reported as the broker being unavailable on a declared Linux route", { skip: NO_UNIX_SOCKET }, async (t) => {
   const host = await installed(t);
   const spawn = () => ({ status: 1, stdout: "", stderr: "RK_BROKER_UNAVAILABLE: connect refused" });
   const r = runCargoSync(["check"], { env: host.env }, { platform: "linux", exists: () => false, spawn });

@@ -8,7 +8,8 @@
 import "./test-support/broker-guard.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -25,6 +26,8 @@ import { RENAMED_AWAY, RENAMED_AWAY_NPM } from "./renamed-away.mjs";
 import { loadReleaseConfigSync } from "./release-config.mjs";
 import { parseInventory, sourceSwitchFindings } from "./release-switch-scan.mjs";
 import { checkApp } from "./ownership-mandatory-set.mjs";
+import { loadTrustedExternal } from "./ownership-approval.mjs";
+import { enrollScanTool } from "./scan-tool-enrolment.mjs";
 import { tempRoot } from "./test-support/temp-roots.mjs";
 import { managedEnv } from "./test-support/fixture.mjs";
 import { collectPreflight, preflightFailures } from "./preflight.mjs";
@@ -197,10 +200,27 @@ test("every journey and scenario the app declares exists, and every Rust test is
 const failLines = (text) => text.split("\n").filter((line) => line.startsWith("FAIL "));
 // On a broker-managed host the class A cargo scans of the instance go through the live broker, which tests never reach
 // (test-support/broker-guard.mjs); CI (direct executor) runs this one.
-test("`rightkit-gate check` and RightKit's own preflight pass on the instance with an empty baseline and no finding", { skip: brokerManagedHost(process.env) && "the class A cargo scans need the live broker on this managed host; CI runs it" }, () => {
+// Class A runs cargo-deny and cargo-audit only from an ENROLLED executable (an absolute path, its sha256 and its version), never from PATH (scan-tool-enrolment.mjs, RA-18). A direct host
+// enrols the tools it installed through the real enrolment operation, into the managed data root its gate reads; this test does the same, into a data root of its own, for the cargo-deny and
+// cargo-audit this host has (CI installs the pinned ones with taiki-e/install-action). A host with neither fails here, loudly: the real check of the instance cannot run without them.
+function enrolHostCargoScanTools(dataRoot) {
+  for (const tool of ["cargo-deny", "cargo-audit"]) {
+    const found = spawnSync(process.platform === "win32" ? "where" : "which", [tool], { encoding: "utf8" });
+    const file = found.status === 0 ? String(found.stdout).split(/\r?\n/).map((l) => l.trim()).find((l) => path.isAbsolute(l)) : undefined;
+    assert.ok(file, `${tool} is not installed on this host, so the real check of the instance cannot run: the class A cargo scans run only an enrolled ${tool}`);
+    const reported = spawnSync(file, ["--version"], { encoding: "utf8" });
+    const version = /\d+\.\d+\.\d+/.exec(String(reported.stdout))?.[0];
+    assert.ok(version, `${file} --version reports no version: ${reported.stdout}${reported.stderr}`);
+    enrollScanTool({ dataRoot, platform: process.platform, tool, path: file, sha256: createHash("sha256").update(readFileSync(file)).digest("hex"), version });
+  }
+}
+test("`rightkit-gate check` and RightKit's own preflight pass on the instance with an empty baseline and no finding", { skip: brokerManagedHost(process.env) && "the class A cargo scans need the live broker on this managed host; CI runs it" }, (t) => {
+  const dataRoot = realpathSync(mkdtempSync(path.join(os.tmpdir(), "rk-template-scan-tools-")));
+  t.after(() => rmSync(dataRoot, { recursive: true, force: true }));
+  enrolHostCargoScanTools(dataRoot);
   // The class A cargo scans run the real cargo (the direct executor). A child inherits the broker guard through NODE_OPTIONS and the guard refuses a build tool outside hosted CI, so this run, whose
   // point is the real tools on a direct host, clears it (as item7-linux.test.mjs does for its real doors).
-  const check = spawnSync(process.execPath, [path.join(here, "bin", "rightkit-gate.mjs"), "check", "--repo", instance(), "--commit", "HEAD"], { cwd: instance(), encoding: "utf8", env: { ...process.env, NODE_OPTIONS: "" } });
+  const check = spawnSync(process.execPath, [path.join(here, "bin", "rightkit-gate.mjs"), "check", "--repo", instance(), "--commit", "HEAD"], { cwd: instance(), encoding: "utf8", env: { ...process.env, NODE_OPTIONS: "", RIGHTKIT_DATA_ROOT: dataRoot, RUSTRIGHT_DATA_ROOT: dataRoot } });
   assert.equal(check.status, 0, `${check.stdout}\n${check.stderr}`);
   assert.deepEqual(failLines(check.stdout), [], check.stdout);
   assert.doesNotMatch(check.stdout + check.stderr, /KNOWN|STALE/, "a fresh app carries no baseline");
@@ -240,6 +260,11 @@ test("template preflight checks required host rows with fixture ownership and ho
 test("real doctor reports template rows and refuses the unregistered identity on both platforms", () => {
   const root = instance();
   const config = path.join(root, "right-release.config.json");
+  // The protected ownership trust is host state, read here as the product reads it. A host that holds a protected registry refuses a fresh identity (a FAIL row); a host that
+  // holds none (a hosted runner, where none can be enrolled) reports enrollment as a warning only (ownership-evidence.mjs: pending without trust is advisory, #262), so the
+  // doctor passes there and the row is a WARN.
+  const hostTrust = loadTrustedExternal();
+  const registryHost = hostTrust.protection?.ok === true && Boolean(hostTrust.trust);
   for (const platform of ["win", "mac"]) {
     const result = spawnSync(process.execPath, [path.join(here, "cli", "right-release.mjs"), "doctor", "--platform", platform], {
       cwd: root, encoding: "utf8", env: managedEnv(config, {
@@ -248,20 +273,22 @@ test("real doctor reports template rows and refuses the unregistered identity on
       }),
     });
     const output = `${result.stdout}\n${result.stderr}`;
-    assert.equal(result.status, 1, `${platform}:\n${output}`);
+    // Disk depends on this machine; ownership is expected for this unregistered identity on a registry host. Every other preflight FAIL remains visible.
+    const failedRows = output.split("\n").filter((line) => /^\s*\[FAIL\]\s/.test(line))
+      .map((line) => line.replace(/^\s*\[FAIL\]\s*/, "").split(":")[0]);
+    assert.equal(result.status, registryHost || failedRows.length ? 1 : 0, `${platform}:\n${output}`);
     assert.match(output, new RegExp(`platform: ${platform}\\b`), output);
     for (const row of ["target-bridge", "version"]) {
       assert.match(output, new RegExp(`\\[ok\\s*\\] ${row}:`), `${platform} ${row}:\n${output}`);
     }
-    assert.match(output, /\[FAIL\] ownership:/,
+    if (registryHost) assert.match(output, /\[FAIL\] ownership:/,
       `${platform}: the real doctor must require protected ownership registration for a fresh identity\n${output}`);
-    // Disk depends on this machine; ownership is expected for this unregistered identity. Every other preflight FAIL remains visible.
-    const failedRows = output.split("\n").filter((line) => /^\s*\[FAIL\]\s/.test(line))
-      .map((line) => line.replace(/^\s*\[FAIL\]\s*/, "").split(":")[0]);
+    else assert.match(output, /\[WARN\] ownership:.*enrollment is pending/,
+      `${platform}: with no protected trust registry on this host, ownership enrollment is a warning, never a failure\n${output}`);
     assert.deepEqual(failedRows.filter((row) => row !== "ownership" && row !== "disk"), [], `${platform}:\n${output}`);
     const totals = [...output.matchAll(/right-release: preflight found (\d+) blocking problem\(s\); the build would fail on these/g)];
-    assert.equal(totals.length, 1, `${platform}: expected one doctor summary\n${output}`);
-    assert.equal(Number(totals[0][1]), failedRows.length, `${platform}: unexpected config or admission failures\n${output}`);
+    assert.equal(totals.length, registryHost || failedRows.length ? 1 : 0, `${platform}: expected ${registryHost || failedRows.length ? "one doctor summary" : "no blocking summary"}\n${output}`);
+    if (totals.length) assert.equal(Number(totals[0][1]), failedRows.length, `${platform}: unexpected config or admission failures\n${output}`);
   }
 });
 

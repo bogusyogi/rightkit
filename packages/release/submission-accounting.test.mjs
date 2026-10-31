@@ -12,6 +12,7 @@ import path from "node:path";
 import test from "node:test";
 import { OwnershipBusy, acquireBuildOwnership, brokerLeaseState } from "./build-ownership.mjs";
 import { markBrokerUnsent } from "./ownership-mark.mjs";
+import { isCallHandleOf } from "./snapshot-request.mjs";
 import { brokerSection, carryBrokerCargo, createSnapshotBroker, provenNoSpawn } from "./snapshot-broker.mjs";
 import { startRealBroker } from "./test-support/real-broker.mjs";
 
@@ -66,7 +67,7 @@ test("real broker: [GB-69] a submit hook that records nothing sends zero request
   t.after(() => rb.stop());
   const fx = host(t, { rb });
   const atBroker = () => (fs.existsSync(rb.receiptsDir) ? fs.readdirSync(rb.receiptsDir).length : 0);
-  const none = cargo(fx, brokerSection({ ...fx.sb, handle: "own-1", markBrokerSubmit: () => undefined }));
+  const none = cargo(fx, brokerSection({ ...fx.sb, handle: "own-1", markBrokerSubmit: (callHandle) => { assert.ok(isCallHandleOf(callHandle, "own-1"), `the unlanded mark still takes the call's <handle>#<id> sub-handle, not ${JSON.stringify(callHandle ?? null)}`); return undefined; } }));
   assert.equal(none.outcome.code, "RK_CARGO_BROKER_OWNERSHIP");
   assert.equal(atBroker(), 0, "nothing was sent");
   const file = path.join(tmp(t, "rk-own-real-hook-"), "build-ownership", "owner.json");

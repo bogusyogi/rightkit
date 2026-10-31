@@ -176,7 +176,7 @@ test("[behavior] item 7 wrapper: with the wrapper installed the static walk is a
 test("[behavior] item 7 wrapper: the door's snapshot compile puts the wrapper first on PATH for every scan and records it in the direct receipt", { skip: POSIX }, async (t) => {
   const dir = tmp(t);
   const repo = path.join(dir, "repo");
-  write(repo, { "Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n', "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\n', "crates/a/src/lib.rs": "\n", "README.md": "r\n" });
+  write(repo, { "Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n', "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\n', "crates/a/src/lib.rs": "\n", "README.md": "r\n", "ci/gate.config.json": '{ "cargoWorkspaces": ["."] }\n' }); // ci/gate.config.json: the committed build definition names the repository's one Cargo workspace (#1325)
   const g = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
   g("init", "-q", "-b", "main"); g("add", "-A"); g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c");
   const sha = g("rev-parse", "HEAD").stdout.trim();
@@ -314,6 +314,7 @@ test("[behavior] E16 real cargo (review r1 #3): on Linux the door compiles the s
     const dir = tmp(t);
     const repo = path.join(dir, "repo");
     write(repo, {
+      "ci/gate.config.json": '{ "cargoWorkspaces": ["."] }\n',
       "Cargo.toml": '[workspace]\nmembers = ["crates/core"]\nresolver = "2"\n',
       "crates/core/Cargo.toml": '[package]\nname = "core"\nversion = "0.1.0"\nedition = "2021"\npublish = false\n',
       "crates/core/src/lib.rs": "/// Adds one.\npub fn one(x: u32) -> u32 { x + 1 }\n#[cfg(test)]\nmod tests { #[test] fn adds() { assert_eq!(super::one(1), 2); } }\n",
@@ -419,7 +420,7 @@ test("[behavior] item 7 wrapper (review r2 #3): the door removes the wrapper dir
   for (const failure of ["scans throw", "snapshot changed"]) {
     const dir = tmp(t);
     const repo = path.join(dir, "repo");
-    write(repo, { "Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n', "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\n', "crates/a/src/lib.rs": "\n", "README.md": "r\n" });
+    write(repo, { "Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n', "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\n', "crates/a/src/lib.rs": "\n", "README.md": "r\n", "ci/gate.config.json": '{ "cargoWorkspaces": ["."] }\n' });
     const g = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
     g("init", "-q", "-b", "main"); g("add", "-A"); g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c");
     const sha = g("rev-parse", "HEAD").stdout.trim();
@@ -476,7 +477,7 @@ test("[behavior] item 7 (map 7.14): a snapshot compile refuses a relative CARGO_
   const run = async (extraEnv) => {
     const dir = tmp(t);
     const repo = path.join(dir, "repo");
-    write(repo, { "Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n', "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\n', "crates/a/src/lib.rs": "\n" });
+    write(repo, { "Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n', "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\n', "crates/a/src/lib.rs": "\n", "ci/gate.config.json": '{ "cargoWorkspaces": ["."] }\n' });
     const g = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
     g("init", "-q", "-b", "main"); g("add", "-A"); g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c");
     const sha = g("rev-parse", "HEAD").stdout.trim();

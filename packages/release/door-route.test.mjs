@@ -442,8 +442,12 @@ test("[GB-appscope] the app scope is the SELECTED COMMIT's committed config inve
 // The real executor and the real production entry decide; the client file and the listening unix socket are real files on disk, and no test here
 // starts a compile. Whether a real installed broker then compiles the real HeardRight tree is the box's acceptance, not this file's.
 
+/** Unix socket paths are limited to 103 bytes on macOS and a hosted runner's hermetic temp root leaves no room: a socket's directory falls back to /tmp when the socket's path would not fit under the temp directory. */
+const socketBase = (prefix, file) => (process.platform === "win32" || Buffer.byteLength(path.join(os.tmpdir(), `${prefix}XXXXXX`, file)) < 100 ? os.tmpdir() : "/tmp");
+/** Windows cannot hold the declared Linux broker route's endpoint: a unix socket file on a POSIX path (the route is Linux's only, and its judging reads POSIX paths). */
+const NO_UNIX_SOCKET = process.platform === "win32" && "a declared Linux broker names a unix socket file on a POSIX path, which Windows cannot hold";
 async function declaredLinuxBroker(t) {
-  const dir = tmp(t, "rk-linux-route-");
+  const dir = tmp(t, "rk-linux-route-", socketBase("rk-linux-route-", "broker.sock"));
   const socket = path.join(dir, "broker.sock");
   const server = net.createServer();
   await new Promise((resolve, reject) => { server.once("error", reject); server.listen(socket, resolve); });
@@ -454,7 +458,7 @@ async function declaredLinuxBroker(t) {
   return { dir, client, socket, server, env: { [LINUX_BROKER_CLIENT_ENV]: client, [LINUX_BROKER_SOCKET_ENV]: socket, [LINUX_BROKER_CLIENT_SHA256_ENV]: pin } };
 }
 
-test("productionEntryDeps hands a declared Linux broker the production carrier (valid or not, so nothing is left to compile direct); an undeclared Linux gets none even with RustRight on PATH", async (t) => {
+test("productionEntryDeps hands a declared Linux broker the production carrier (valid or not, so nothing is left to compile direct); an undeclared Linux gets none even with RustRight on PATH", { skip: NO_UNIX_SOCKET }, async (t) => {
   const host = await declaredLinuxBroker(t);
   assert.deepEqual(await productionEntryDeps({ platform: "linux", env: host.env }), { snapshotBroker: PRODUCTION_SNAPSHOT_CARRIER });
   assert.deepEqual(await productionEntryDeps({ platform: "linux", env: { [LINUX_BROKER_CLIENT_ENV]: "/not/installed/rustright" } }), { snapshotBroker: PRODUCTION_SNAPSHOT_CARRIER }, "an invalid declaration still has the carrier; the executor refuses it");
@@ -462,7 +466,7 @@ test("productionEntryDeps hands a declared Linux broker the production carrier (
   assert.deepEqual(await productionEntryDeps({ platform: "linux", env: {} }), {});
 });
 
-test("routePlan on Linux with the real executor: undeclared is direct; a valid declaration takes the broker with the carrier; a stopped or invalid one refuses and never compiles direct", async (t) => {
+test("routePlan on Linux with the real executor: undeclared is direct; a valid declaration takes the broker with the carrier; a stopped or invalid one refuses and never compiles direct", { skip: NO_UNIX_SOCKET }, async (t) => {
   const host = await declaredLinuxBroker(t);
   const inputs = (env, over = {}) => ({ platform: "linux", env, spawn: () => ({ status: 1 }), exists: () => false, readFile: () => "", resolveExecutor: realResolveExecutor, snapshotBroker: PRODUCTION_SNAPSHOT_CARRIER, ...over });
   const decide = (env, to = "compile", capabilities = OK_CAPS()) => {
@@ -489,7 +493,7 @@ test("routePlan on Linux with the real executor: undeclared is direct; a valid d
   assert.equal(routePlan(inputs(host.env, { snapshotBroker: undefined }), { to: "compile", stages: ["check", "compile"], devTest: false, executor: realResolveExecutor({ env: host.env, platform: "linux", exists: () => false, which: () => [], readFile: () => "" }) }).refusal.code, "RK_SNAPSHOT_CARRIER_NOT_WIRED");
 });
 
-test("--route on Linux through the real entry's deps and the real executor reports the broker executor and carrier for a declaration, and direct without one", async (t) => {
+test("--route on Linux through the real entry's deps and the real executor reports the broker executor and carrier for a declaration, and direct without one", { skip: NO_UNIX_SOCKET }, async (t) => {
   const host = await declaredLinuxBroker(t);
   const fx = fixture(t);
   const probe = async (env, extra = {}) => fx.run(["--to", "compile", "--route"], { platform: "linux", snapshotRoot: path.join(fx.dir, "snapshots"), ...extra, env: { ...fx.env, ...env }, resolveExecutor: realResolveExecutor, brokerCapabilities: OK_CAPS, ...(await productionEntryDeps({ platform: "linux", env })) });
@@ -519,7 +523,7 @@ async function reportingBroker(t, dataRoot) {
   return { host, asked };
 }
 
-test("the declared Linux route refuses, before ownership or a sync, a snapshot root that is not under the broker's reported data root, naming both paths and the fix; the probe reports the same refusal", async (t) => {
+test("the declared Linux route refuses, before ownership or a sync, a snapshot root that is not under the broker's reported data root, naming both paths and the fix; the probe reports the same refusal", { skip: NO_UNIX_SOCKET }, async (t) => {
   const fx = fixture(t);
   const brokerData = path.join(fx.dir, "broker-data"); fs.mkdirSync(brokerData);
   const { host, asked } = await reportingBroker(t, brokerData);
@@ -540,7 +544,7 @@ test("the declared Linux route refuses, before ownership or a sync, a snapshot r
   assert.equal(ok.json.refusal, null);
 });
 
-test("when the broker reports no roots the declared data root of the environment is the comparison and is named as only a declaration; with neither nothing is refused here; a direct Linux host is never asked", async (t) => {
+test("when the broker reports no roots the declared data root of the environment is the comparison and is named as only a declaration; with neither nothing is refused here; a direct Linux host is never asked", { skip: NO_UNIX_SOCKET }, async (t) => {
   const fx = fixture(t);
   const host = await declaredLinuxBroker(t); // no manifest beside the client, a silent socket: nothing to report
   const declared = path.join(fx.dir, "declared");
@@ -554,7 +558,7 @@ test("when the broker reports no roots the declared data root of the environment
   assert.equal(direct.json.refusal, null);
 });
 
-test("the quiet-lease lane takes its lease from a declared Linux broker's own client and endpoint, and takes none on direct Linux", async (t) => {
+test("the quiet-lease lane takes its lease from a declared Linux broker's own client and endpoint, and takes none on direct Linux", { skip: NO_UNIX_SOCKET }, async (t) => {
   const host = await declaredLinuxBroker(t);
   const executor = realResolveExecutor({ env: host.env, platform: "linux", exists: () => false, which: () => [], readFile: () => "" });
   const calls = [];
