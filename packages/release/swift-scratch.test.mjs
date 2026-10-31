@@ -32,13 +32,6 @@ const realSpawn = (file, args, options) => realChildProcess.spawnSync(file, args
 const REAL_GATE = fileURLToPath(new URL("./bin/rightkit-gate.mjs", import.meta.url));
 const gitIn = (cwd, ...args) => { const r = spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd, encoding: "utf8" }); if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`); return r.stdout.trim(); };
 
-/** The enrollment of a started instance, as `rustright-broker --generate-attestation-key` prints it and `doctor --json` reports the runtime (the secret is never read). */
-function realPins(rb) {
-  const key = JSON.parse(fs.readFileSync(path.join(rb.controlRoot, "attestation", "key.json"), "utf8"));
-  const doctor = JSON.parse(rb.run(["doctor", "--json", "--no-scan"], {}).stdout);
-  return { host: process.platform === "win32" ? process.env.COMPUTERNAME : os.hostname(), keyId: key.keyId, publicKey: key.publicKey, brokerDigest: doctor.runtime.expectedBrokerDigest };
-}
-
 async function realHost(t, name, { files = {}, handle = "own-7" } = {}) {
   const rb = await startRealBroker({ name });
   t.after(() => rb.stop());
@@ -49,7 +42,7 @@ async function realHost(t, name, { files = {}, handle = "own-7" } = {}) {
   gitIn(checkout, "init", "-q", "-b", "main"); gitIn(checkout, "add", "-A"); gitIn(checkout, "commit", "-q", "-m", "A");
   const sha = gitIn(checkout, "rev-parse", "HEAD"); const tree = gitIn(checkout, "rev-parse", "HEAD^{tree}");
   const snap = syncSnapshot({ checkout, rev: sha, root: path.join(rb.dataRoot, "snapshots") });
-  const pins = realPins(rb);
+  const pins = rb.pins;
   const ownership = path.join(root, "build-ownership", "owner.json");
   fs.mkdirSync(path.dirname(ownership), { recursive: true });
   fs.writeFileSync(ownership, JSON.stringify({ handle, broker: { submitted: false } }));

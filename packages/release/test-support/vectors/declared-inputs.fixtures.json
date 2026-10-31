@@ -236,6 +236,46 @@
    "expect": {
     "error": "not a plain relative path"
    }
+  },
+  {
+   "name": "an absent input of a request that compiles nothing is recorded as absent",
+   "note": "A carried read-only request (version probe, locate-project, read-manifest, metadata, fetch, ...) may declare build outputs the dev stage produces later: the broker records exactly {path, absent: true} (no sha256), contributing 0 files and 0 bytes. The exit bind proves it is still absent. `allowAbsent` is the case's request class: true for a request that compiles nothing.",
+   "allowAbsent": true,
+   "files": {
+    "a.txt": "1"
+   },
+   "declarations": {
+    ".rustright/compile-inputs.json": "{\"inputs\": [\"dist\"]}"
+   },
+   "supplied": [
+    "dist"
+   ],
+   "expect": {
+    "declared": [
+     {
+      "path": "dist",
+      "absent": true
+     }
+    ],
+    "files": 0,
+    "bytes": 0
+   }
+  },
+  {
+   "name": "an absent input of a compile request is refused and named",
+   "allowAbsent": false,
+   "files": {
+    "a.txt": "1"
+   },
+   "declarations": {
+    ".rustright/compile-inputs.json": "{\"inputs\": [\"dist\"]}"
+   },
+   "supplied": [
+    "dist"
+   ],
+   "expect": {
+    "error": "dist: "
+   }
   }
  ]
 }

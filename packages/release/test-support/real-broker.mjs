@@ -7,7 +7,10 @@
 //     sccache gateway (disabled, its port a free one, never the live 4227). The same recipe as rustright-install `probe_config` and rustright-parity `derive_config`;
 //   - the client reaches that instance only through the environment `run()` builds: RUSTRIGHT_BUILD_BROKER_SOCKET, RUSTRIGHT_CONTROL_ROOT and the data-root names
 //     are set last, so a caller's `env` cannot point a run back at the live broker;
-//   - once the instance answers, the client's own `doctor --json` must report this instance's endpoint and control root, or the instance is stopped and the start fails.
+//   - once the instance is READY, the ANSWERING broker is asked over its own socket (`STATUS runtime-health-probe`, the client's health probe): the roots it reports on the wire
+//     (`rustright.answering-roots.v1`: data root, control root, endpoint, read from the configuration it was started from) must be this instance's, and the broker digest it reports
+//     (HANDSHAKE and STATUS `runtime.brokerDigest`) must be the installed manifest's, which is also the digest pinned for receipts; otherwise the instance is stopped and the start
+//     fails. The client's own `doctor --json` must agree about the endpoint and control root it was configured with. There is no doctor-optional branch and no hash of the launched file.
 // The live broker's socket, roots and state are never named, opened or written. If no installed broker exists the start THROWS: it never skips and never fakes.
 import fs from "node:fs";
 import net from "node:net";
@@ -17,6 +20,8 @@ import crypto from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { OPT_IN_ENV, realChildProcess } from "./broker-guard.mjs";
 import { validatePins } from "../broker-pins.mjs";
+import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, MAX_HANDSHAKE_LINE_BYTES, RUNTIME_MANIFEST_FILE, parseHandshake, parseRuntimeIdentity } from "../broker-handshake.mjs";
+import { envNamed, resolveManagedRoots } from "../managed-roots.mjs";
 import { syncSnapshot } from "../snapshot.mjs";
 
 const WINDOWS = process.platform === "win32";
@@ -27,8 +32,11 @@ const READY_TIMEOUT_MS = Number(process.env.RK_REAL_BROKER_READY_MS) > 0 ? Numbe
 const STOP_GRACE_MS = 15_000;
 const CLIENT_TIMEOUT_MS = 10 * 60_000;
 
-/** Interface names that would point the client or the gate at a root or socket other than the isolated one. Removed from every environment this module builds. */
-const ROOT_NAMES = ["CONTROL_ROOT", "DATA_ROOT", "MANAGED_ROOT", "EXTERNAL_ROOT", "BUILD_BROKER_SOCKET", "RUNTIME_ROOT"];
+/**
+ * Interface names that would point the client or the gate at a root, socket or broker config other than the isolated one. Removed from every environment this module builds
+ * (BUILD_BROKER_CONFIG is the one the broker itself reads for its config path when it is given none: server/broker.rs `CONFIG_ENV`; the isolated broker is given its config as an argument).
+ */
+const ROOT_NAMES = ["CONTROL_ROOT", "DATA_ROOT", "MANAGED_ROOT", "EXTERNAL_ROOT", "BUILD_BROKER_SOCKET", "BUILD_BROKER_CONFIG", "RUNTIME_ROOT"];
 const POINTING_ENV = new RegExp(`^(?:RUSTRIGHT|RIGHTKIT)_(?:${ROOT_NAMES.join("|")})$`, "i");
 
 let installed;
@@ -54,14 +62,52 @@ const isFile = (file) => {
   }
 };
 
+const realOr = (file) => {
+  try {
+    return fs.realpathSync(file);
+  } catch {
+    return path.resolve(file);
+  }
+};
+/** Whether two paths (or endpoints) name the same place: real paths where they exist, case-insensitive on Windows. A non-string or empty side never matches. */
+const samePath = (a, b) => typeof a === "string" && typeof b === "string" && a !== "" && b !== "" && (WINDOWS ? realOr(a).toLowerCase() === realOr(b).toLowerCase() : realOr(a) === realOr(b));
+
 /**
- * The installed RustRight: client and broker binaries (from `rustright doctor --json`: `runtime.path`) and the host's own broker config
- * (`roots.requestedByClient.configPath`). Throws a clear error when the host has none. Cached for the process.
+ * The environment the HOST gave this process. The broker guard (broker-guard.mjs installBrokerGuard) points RIGHTKIT_DATA_ROOT at a throwaway root of its own
+ * (RIGHTKIT_GUARD_DATA_ROOT) before any test runs; that is never the host's root, so it is dropped, as the guard's own realManagedRoots refuses it too. Where the
+ * control root defaults to the data root (Windows today, Linux) a config path resolved from the throwaway would name a file no broker has.
+ */
+function hostEnv() {
+  const env = { ...process.env };
+  const guard = env.RIGHTKIT_GUARD_DATA_ROOT;
+  if (guard !== undefined) {
+    if (env.RIGHTKIT_DATA_ROOT === guard) delete env.RIGHTKIT_DATA_ROOT;
+    delete env.RIGHTKIT_GUARD_DATA_ROOT;
+  }
+  return env;
+}
+
+/**
+ * The directory that holds `runtime-manifest.json` for a broker executable, by the broker's own rule (rustright-broker server/broker.rs `runtime_directory_of`): the
+ * executable's directory, or the directory that holds the app bundle when it runs as `<runtime>/<Name>.app/Contents/MacOS/<executable>`.
+ */
+function runtimeDirectoryOf(executable) {
+  const directory = path.dirname(executable);
+  const contents = path.dirname(directory);
+  const app = path.dirname(contents);
+  const inBundle = path.basename(directory) === "MacOS" && path.basename(contents) === "Contents" && path.extname(app) === ".app";
+  return inBundle ? path.dirname(app) : directory;
+}
+
+/**
+ * The installed RustRight: client and broker binaries (from `rustright doctor --json`: `runtime.path`), the host's own broker config (found as the broker finds it, below) and the
+ * installed runtime manifest's identity. Throws a clear error when the host has none. Cached for the process.
  */
 function installedRustRight() {
   if (installed) return installed;
   const what = "no installed RustRight broker on this host";
-  const probe = realChildProcess.spawnSync("rustright", ["doctor", "--json", "--no-scan"], { encoding: "utf8", timeout: 60_000, windowsHide: true });
+  const env = hostEnv();
+  const probe = realChildProcess.spawnSync("rustright", ["doctor", "--json", "--no-scan"], { encoding: "utf8", env, timeout: 60_000, windowsHide: true });
   if (probe.error?.code === "ENOENT") throw new Error(`${what}: the \`rustright\` client is not on PATH. These tests run against the installed broker and never skip or simulate it; install RustRight (tools/install).`);
   const report = parseDoctor(probe, what);
   const runtimeDir = report.runtime?.path;
@@ -82,13 +128,14 @@ function installedRustRight() {
   for (const [label, file] of [["client", clientPath], ["broker", brokerPath]]) {
     if (!isFile(file)) throw new Error(`${what}: the installed ${label} binary is missing at ${file} (runtime ${runtimeDir}).`);
   }
-  // The installed broker's config: what doctor names, else RUSTRIGHT_CONFIG, else the managed default the live broker is started with
-  // (macOS: ~/Library/Application Support/RightKit/build-control/config.json; Windows: %APPDATA%\RightKit\build-control\config.json).
-  const defaultConfig = process.platform === "darwin"
-    ? path.join(os.homedir(), "Library", "Application Support", "RightKit", "build-control", "config.json")
-    : process.platform === "win32" && process.env.APPDATA ? path.join(process.env.APPDATA, "RightKit", "build-control", "config.json") : null;
-  const configPath = report.roots?.requestedByClient?.configPath ?? process.env.RUSTRIGHT_CONFIG ?? defaultConfig;
-  if (typeof configPath !== "string" || !isFile(configPath)) throw new Error(`${what}: the host's broker config is not readable at ${JSON.stringify(configPath ?? null)}; the isolated instance is derived from it.`);
+  // The host's broker config, found as the live broker finds it (rustright-broker server/broker.rs:30-32 and :86-93): the path it is started with (the harness is given none: it
+  // reads the host's own file), else RUSTRIGHT_BUILD_BROKER_CONFIG (envNamed: the same current-then-legacy order the broker reads), else `<control root>/config.json` from the shared
+  // managed-roots resolver (managed-roots.mjs resolveManagedRoots; broker rustright-config managed_roots.rs:148-186). No other fallback: not doctor's report, not RUSTRIGHT_CONFIG
+  // (no RustRight code reads it) and no platform path of this harness's own (GC-I16).
+  const namedConfig = envNamed(env, "BUILD_BROKER_CONFIG");
+  const configPath = namedConfig ?? resolveManagedRoots({ env }).configPath;
+  const configSource = namedConfig !== undefined ? "RUSTRIGHT_BUILD_BROKER_CONFIG" : "<control root>/config.json from the managed-roots resolver";
+  if (typeof configPath !== "string" || !isFile(configPath)) throw new Error(`${what}: the host's broker config is not readable at ${JSON.stringify(configPath ?? null)} (from ${configSource}); the isolated instance is derived from it.`);
   let liveConfig;
   try {
     liveConfig = JSON.parse(fs.readFileSync(configPath, "utf8").replace(/^﻿/, ""));
@@ -96,7 +143,17 @@ function installedRustRight() {
     throw new Error(`${what}: the host's broker config ${configPath} is not JSON: ${error.message}`);
   }
   if (!liveConfig || typeof liveConfig !== "object" || typeof liveConfig.broker !== "object") throw new Error(`${what}: the host's broker config ${configPath} has no broker section.`);
-  installed = Object.freeze({ clientPath, brokerPath, runtimeDir, configPath, liveConfig, doctor: report });
+  // The installed runtime manifest the broker loads at start (broker.rs `runtime_manifest_path`): its identity is what the answering broker must report and what the gate pins (GC-I18).
+  const manifestPath = path.join(runtimeDirectoryOf(brokerPath), RUNTIME_MANIFEST_FILE);
+  let manifestText;
+  try {
+    manifestText = fs.readFileSync(manifestPath, "utf8");
+  } catch (error) {
+    throw new Error(`${what}: the installed runtime manifest is not readable at ${manifestPath} (${error.message}); the broker digest to pin is the installed manifest's and there is no other source.`);
+  }
+  const manifest = parseRuntimeIdentity(manifestText);
+  if (!manifest.ok) throw new Error(`${what}: ${manifestPath}: ${manifest.problem}`);
+  installed = Object.freeze({ clientPath, brokerPath, runtimeDir, configPath, configSource, liveConfig, manifestPath, manifest: manifest.identity, doctor: report });
   return installed;
 }
 
@@ -179,6 +236,77 @@ function isolatedEnv(base, { control, data, endpoint }) {
     RIGHTKIT_CONTROL_ROOT: control,
     RIGHTKIT_DATA_ROOT: data,
   };
+}
+
+const ANSWER_TIMEOUT_MS = 20_000;
+
+/**
+ * Asks the ANSWERING broker, over its own socket, what it says it is: sends the client's own health probe (`STATUS runtime-health-probe`, carrying `identity`, the runtime
+ * identity of the installed manifest) and reads the HANDSHAKE every reply begins with and the STATUS that answers the probe (rustright-broker job_service/service.rs `dispatch`:
+ * HANDSHAKE `runtime`, STATUS `state`, `runtime` and `roots`, which `answering_roots` reads from the configuration the broker was started from, never from the client). Resolves,
+ * never rejects: `{ ok: true, handshake, status }` (`handshake` as parseHandshake returns it, `status` the parsed event) or `{ ok: false, problem }`.
+ */
+function askAnsweringBroker({ endpoint, identity, timeoutMs = ANSWER_TIMEOUT_MS }) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let buffer = Buffer.alloc(0);
+    let handshake = null;
+    let conn = null;
+    let timer = null;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        conn?.destroy();
+      } catch {
+        // already gone
+      }
+      resolve(result);
+    };
+    const problem = (why) => finish({ ok: false, problem: why });
+    try {
+      conn = net.connect({ path: endpoint });
+    } catch (error) {
+      problem(`cannot connect to the broker at ${endpoint} (${error?.code ?? error?.message ?? error})`);
+      return;
+    }
+    timer = setTimeout(() => problem(`the broker at ${endpoint} did not answer the status probe within ${timeoutMs} ms`), timeoutMs);
+    conn.on("connect", () => {
+      try {
+        conn.write(`${JSON.stringify({ type: "STATUS", protocol: BUILD_CONTROL_PROTOCOL, runtime: identity, id: HANDSHAKE_PROBE_ID })}\n`);
+      } catch (error) {
+        problem(`cannot send the status probe to the broker at ${endpoint} (${error?.message ?? error})`);
+      }
+    });
+    conn.on("data", (chunk) => {
+      if (settled) return;
+      buffer = Buffer.concat([buffer, Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))]);
+      for (let at = buffer.indexOf(0x0a); at >= 0; at = buffer.indexOf(0x0a)) {
+        if (at + 1 > MAX_HANDSHAKE_LINE_BYTES) return problem(`a line of the broker's answer exceeds ${MAX_HANDSHAKE_LINE_BYTES} bytes`);
+        const line = buffer.subarray(0, at).toString("utf8");
+        buffer = buffer.subarray(at + 1);
+        if (handshake === null) {
+          const parsed = parseHandshake(line);
+          if (!parsed.ok) return problem(parsed.problem);
+          handshake = parsed;
+          continue;
+        }
+        let event;
+        try {
+          event = JSON.parse(line);
+        } catch {
+          return problem("the broker's status answer is not JSON");
+        }
+        if (event?.type !== "STATUS" || event.id !== HANDSHAKE_PROBE_ID) return problem(`the broker answered ${JSON.stringify(event?.type ?? null)} (id ${JSON.stringify(event?.id ?? null)}) to the status probe, not STATUS ${HANDSHAKE_PROBE_ID}${typeof event?.message === "string" ? `: ${event.message}` : ""}`);
+        return finish({ ok: true, handshake, status: event });
+      }
+      if (buffer.length > MAX_HANDSHAKE_LINE_BYTES) problem(`a line of the broker's answer exceeds ${MAX_HANDSHAKE_LINE_BYTES} bytes`);
+    });
+    conn.on("error", (error) => problem(`the broker connection at ${endpoint} failed (${error?.code ?? error?.message ?? error})`));
+    conn.on("close", () => problem(`the broker at ${endpoint} closed before it answered the status probe`));
+    conn.on("end", () => problem(`the broker at ${endpoint} closed before it answered the status probe`));
+  });
 }
 
 const live = new Set();
@@ -290,29 +418,62 @@ export async function startRealBroker({ name } = {}) {
         const report = parseDoctor(probe, "isolated broker");
         last = `phase ${JSON.stringify(report.broker?.phase ?? null)}, reachable ${report.broker?.reachable}, error ${JSON.stringify(report.broker?.error ?? null)}`;
         if (report.broker?.reachable === true && report.broker?.phase === "READY") {
-          const reportedControl = report.roots?.requestedByClient?.controlRoot;
-          const same = (a, b) => typeof a === "string" && path.resolve(a) === path.resolve(b);
-          const realOf = (p) => {
-            try {
-              return fs.realpathSync(p);
-            } catch {
-              return p;
-            }
-          };
-          // The endpoint must be this instance's; a broker version whose doctor reports no control root is checked by endpoint alone.
-          if (report.broker.endpoint !== endpoint || (reportedControl !== undefined && !same(realOf(reportedControl), realOf(control)))) {
-            throw new Error(`isolation check failed: the client reports endpoint ${JSON.stringify(report.broker.endpoint)} and control root ${JSON.stringify(reportedControl)}, expected ${endpoint} and ${control}`);
-          }
           readyReport = report;
           break;
         }
       } catch (error) {
-        if (/isolation check failed/.test(error.message)) throw error;
         last = error.message;
       }
       if (Date.now() > deadline) throw new Error(`isolated broker was not READY within ${READY_TIMEOUT_MS} ms (${last}); stderr tail: ${tail(path.join(logs, "broker.stderr.log"))}`);
       await sleep(250);
     }
+
+    // Isolation, part one: the client this module hands out was configured for THIS instance. This proves what the client asked for, not who answered, so it is only half the check.
+    // doctor must report both the endpoint and the control root (`.roots.requestedByClient.controlRoot`); a report without either is a failure, never a skip.
+    const clientEndpoint = readyReport.broker.endpoint;
+    const clientControl = readyReport.roots?.requestedByClient?.controlRoot;
+    // A client may name a Unix endpoint as `unix:<path>` (rustright-cli doctor `answering_findings` strips the same prefix before it compares).
+    if (!samePath(typeof clientEndpoint === "string" ? clientEndpoint.replace(/^unix:/, "") : clientEndpoint, endpoint) || !samePath(clientControl, control)) {
+      throw new Error(`isolation check failed: the client reports endpoint ${JSON.stringify(clientEndpoint ?? null)} and control root ${JSON.stringify(clientControl ?? null)}, expected ${endpoint} and ${control}`);
+    }
+
+    // Isolation, part two, and the digest to pin: what the ANSWERING broker says about itself on its own wire (GC-I17, GC-I18). A STATUS that carries no roots, or other roots, is a
+    // refusal. The probe connects to the isolated socket, which the broker guard refuses to a test that has not opted in, so the opt-in is held for the probe alone (the running
+    // instance holds it below, for as long as it runs).
+    const priorOptIn = process.env[OPT_IN_ENV];
+    process.env[OPT_IN_ENV] = "1";
+    let answered;
+    try {
+      answered = await askAnsweringBroker({ endpoint, identity: rr.manifest });
+    } finally {
+      if (priorOptIn === undefined) delete process.env[OPT_IN_ENV];
+      else process.env[OPT_IN_ENV] = priorOptIn;
+    }
+    if (!answered.ok) throw new Error(`isolation check failed: the answering broker could not be asked for its roots: ${answered.problem}`);
+    const { handshake, status } = answered;
+    if (status.state !== "READY") throw new Error(`isolation check failed: the answering broker's STATUS state is ${JSON.stringify(status.state ?? null)}, not READY`);
+    const roots = status.roots;
+    if (!roots || typeof roots !== "object" || roots.schema !== "rustright.answering-roots.v1") {
+      throw new Error(`isolation check failed: the answering broker's STATUS carries no rustright.answering-roots.v1 roots (schema ${JSON.stringify(roots?.schema ?? null)}); a broker that does not report them cannot be proven isolated`);
+    }
+    const wrong = [["dataRoot", data], ["controlRoot", control], ["endpoint", endpoint]].filter(([name, expected]) => !samePath(roots[name], expected));
+    if (wrong.length > 0) {
+      throw new Error(`isolation check failed: the answering broker reports ${wrong.map(([name, expected]) => `${name} ${JSON.stringify(roots[name] ?? null)} (expected ${expected})`).join(", ")}`);
+    }
+    // The broker digest: the answering broker's own word, in its HANDSHAKE and in its STATUS, both equal to the installed manifest's. There is no other source: a digest that is absent
+    // or differs refuses the start, and the launched file is never hashed (that would prove no broker reported anything).
+    const statusIdentity = parseRuntimeIdentity(JSON.stringify(status.runtime ?? null));
+    if (!statusIdentity.ok) throw new Error(`broker digest: the answering broker's STATUS carries no valid runtime identity (${statusIdentity.problem}), so it reports no brokerDigest`);
+    const brokerDigest = handshake.runtime.brokerDigest;
+    if (statusIdentity.identity.brokerDigest !== brokerDigest) {
+      throw new Error(`broker digest: the answering broker reports ${brokerDigest} in its HANDSHAKE and ${statusIdentity.identity.brokerDigest} in its STATUS`);
+    }
+    if (brokerDigest !== rr.manifest.brokerDigest) {
+      throw new Error(`broker digest: the answering broker reports brokerDigest ${brokerDigest}, not the installed manifest's ${rr.manifest.brokerDigest} (${rr.manifestPath}); no digest is pinned`);
+    }
+    // The pins the gate verifies receipts against (broker-pins.mjs): this instance's attestation key, this host's name (what the broker signs as `host`: its hostname) and the digest
+    // above. Validated by the gate's own validatePins; the secret key is never read. Built before the process environment is pointed at the instance, so a refusal leaves it untouched.
+    const pins = validatePins({ host: WINDOWS ? process.env.COMPUTERNAME : os.hostname(), keyId: enrolment.keyId, publicKey: enrolment.publicKey, brokerDigest }, "the isolated broker's enrolment");
 
     // Starting an instance is the test's opt-in (broker-guard.mjs OPT_IN_ENV). The production seams under test read process.env, so it is pointed at THIS
     // instance (endpoint and roots set last, live ones removed) for as long as the instance runs, and restored by stop(). Each test file is its own
@@ -346,12 +507,6 @@ export async function startRealBroker({ name } = {}) {
       return stopped;
     };
 
-    // The pins the gate verifies receipts against (broker-pins.mjs): this instance's attestation key, this host's name (what the broker signs as `host`: its
-    // hostname) and the broker digest of the runtime that is answering. Validated by the gate's own validatePins; the secret key is never read.
-    // The enrolled digest is the sha256 of the broker executable that runs (as pins/broker-<platform>.json records it); doctor fields when present.
-    const brokerDigest = readyReport.runtime?.expectedBrokerDigest ?? readyReport.answeringBroker?.handshakeRuntime?.brokerDigest
-      ?? crypto.createHash("sha256").update(fs.readFileSync(rr.brokerPath)).digest("hex");
-    const pins = validatePins({ host: WINDOWS ? process.env.COMPUTERNAME : os.hostname(), keyId: enrolment.keyId, publicKey: enrolment.publicKey, brokerDigest }, "the isolated broker's enrolment");
     const snapshotsRoot = path.join(data, "snapshots");
 
     return {

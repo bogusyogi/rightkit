@@ -25,8 +25,10 @@
       "schema": "rustright.control-status-vectors.v1"
     },
     "declared-inputs.fixtures.json": {
-      "sha256": "04d56a4cb5cdd9022f5bf15b96e9f00e144bdef75c7a2bb1d9948d4b4016f049",
-      "schema": "rustright.declared-inputs.fixtures.v1"
+      "sha256": "dbc485ef69c35f307fa4e8e23cec3fc042b6696b6c3841e75992cb8e9f7e2c40",
+      "schema": "rustright.declared-inputs.fixtures.v1",
+      "commit": "a6a2a5047b0916ac5885b4a5d4a4064af7966a29",
+      "note": "GC-I22: copied byte for byte from rustright docs/contracts at a6a2a50 (identical at main b0f14c7f), which adds the two absent-input cases of GC-I14 (14 cases; the pin at c839d1f held 12)"
     },
     "freshness-evidence-vectors.v1.json": {
       "sha256": "13a87427d659d33fb586dd284d652280663c02c437d4ad89cf440a0cd036b5a8",
