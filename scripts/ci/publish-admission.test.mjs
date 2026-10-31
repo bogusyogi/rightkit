@@ -5,7 +5,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { resolveManagedRoots } from "../../packages/release/managed-roots.mjs";
 import { npmContentDigest, SWAP_HELPER_ARCHIVE_BIN, SWAP_HELPER_ARCHIVE_RECEIPT, exclusionsFor } from "../../packages/release/pack-digest.mjs";
 import { carriedCallNonce, qualificationNonce } from "../../packages/release/provenance-verify.mjs";
 import { expectedStageCommands } from "../../packages/release/stage-commands.mjs";
@@ -196,6 +197,14 @@ test("the gate verdict needs exit 0, this commit's app-check pass line and the c
 
 // ---- the actual boundary: the real rightkit-gate on a committed tree --------------------------------------------------------
 const GATE_BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "packages", "release", "bin", "rightkit-gate.mjs");
+// The gate's snapshot route (every host but hosted CI) keeps its snapshots under the host's managed root. The gate never creates that root, and on
+// Mac and Windows no environment variable moves it (snapshotRoot resolves it with env: {}), so a hosted Mac or Windows runner, which has none, cannot
+// take the snapshot route at all. There the gate runs the route production runs in this same job (publish.yml's scans job runs this `check` with
+// GITHUB_ACTIONS=true: the checkout is the commit, content-checked in place), so GITHUB_ACTIONS and CI stay as the runner set them. Every other
+// host (Linux, a managed Mac or Dell, where the root exists) keeps the snapshot route, with both cleared as before.
+const HOSTED_WITHOUT_MANAGED_ROOT = process.env.GITHUB_ACTIONS === "true" && (process.platform === "darwin" || process.platform === "win32")
+  && !fs.existsSync(resolveManagedRoots({ env: {}, platform: process.platform }).dataRoot);
+const gateEnv = () => (HOSTED_WITHOUT_MANAGED_ROOT ? { ...process.env } : { ...process.env, GITHUB_ACTIONS: "", CI: "" });
 /** A committed repository holding one @rightkit/* package and `extra` files; returns { root, sha, git, runGate }. */
 function committedTree(t, extra = {}) {
   const root = fs.mkdtempSync(path.join(process.env.RIGHTKIT_TEST_SCRATCH ?? os.tmpdir(), "rk-admission-"));
@@ -210,7 +219,7 @@ function committedTree(t, extra = {}) {
   // The enrolled pins are committed at the dispatched commit in the real repository; this fixture keeps ci/ out of the tree the real gate
   // scans and serves the one file from the test's key, everything else (including the tree id) from real git.
   const gitRead = (...args) => (args[0] === "show" && args[1] === `${sha}:ci/rk-pipeline.json` ? PIPELINE : args[0] === "show" && args[1] === `${sha}:ci/gate.config.json` ? "{}" : realGit(...args));
-  const runGate = (commit) => spawnSync(process.execPath, [GATE_BIN, "check", "--repo", root, "--commit", commit, "--rule-tier", "release"], { cwd: root, encoding: "utf8", env: { ...process.env, GITHUB_ACTIONS: "", CI: "" } });
+  const runGate = (commit) => spawnSync(process.execPath, [GATE_BIN, "check", "--repo", root, "--commit", commit, "--rule-tier", "release"], { cwd: root, encoding: "utf8", env: gateEnv() });
   return { root, sha, tree, git: gitRead, runGate };
 }
 const boundaryEnv = (sha, tree, extra = {}) => ({ ...ACTIONS, GITHUB_SHA: sha, EXPECTED_SHA: sha, ADMISSION: "broker", REQUEST_ID: "req-boundary", QUALIFICATION: JSON.stringify(qual({ name: "@rightkit/foo", version: "1.0.0", commit: sha, tree })), REGISTRY: "npm", UNITS: "@rightkit/foo", ALLOW_HOST_EXCLUSION: "", ALLOW_NO_TEST: "", ALLOW_IGNORED: "", ALLOW_MISSING_ASSETS: "", ...extra });
@@ -543,7 +552,8 @@ const ra21StaticClosure = () => {
     const text = fs.readFileSync(path.join(RA21_REPO, file), "utf8");
     for (const match of text.matchAll(RA21_STATIC_IMPORT)) {
       const spec = match[1] ?? match[2] ?? match[3];
-      queue.push(path.relative(RA21_REPO, path.resolve(RA21_REPO, path.dirname(file), spec)));
+      // The sparse list and the entries are posix spellings; path.relative answers with backslashes on Windows, which would never match them.
+      queue.push(path.relative(RA21_REPO, path.resolve(RA21_REPO, path.dirname(file), spec)).split(path.sep).join("/"));
     }
   }
   return [...seen].sort();
@@ -554,6 +564,13 @@ test("RA-21: publish-direct's sparse checkout lists the whole static import clos
   const missing = ra21StaticClosure().filter((file) => !listed.has(file));
   assert.deepEqual(missing, [], "the sparse checkout omits modules the credentialed run loads before upload");
 });
+
+// pnpm on PATH is `pnpm.cmd` on Windows (pnpm/action-setup, as on the hosted runner), which spawn cannot start without a shell; cmd resolves it
+// the way the workflow's own `run:` step does. The arguments are the fixed literals below, never input. Nothing else about the call changes:
+// an absent pnpm, a wrong version or a failed install is still a failure of the test.
+const ra21Pnpm = (args, options = {}) => (process.platform === "win32"
+  ? spawnSync(["pnpm", ...args].join(" "), { ...options, shell: true })
+  : spawnSync("pnpm", args, options));
 
 // A sparse entry with one `*` (`packages/*/package.json`, `crates/*/Cargo.lock`) names every matching file the checkout holds.
 const ra21Expand = (entry) => {
@@ -567,7 +584,10 @@ const ra21Expand = (entry) => {
 };
 
 test("RA-21: after the workflow's frozen install, the run-qualified entries load from the sparse tree", { timeout: 900_000 }, () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ra21-sparse-"));
+  // The scratch convention of the other script tests: RIGHTKIT_TEST_SCRATCH, else the runner's temp (on the workspace's own drive, where pnpm's store
+  // lives on a hosted Windows runner), else the system temp.
+  const scratch = process.env.RIGHTKIT_TEST_SCRATCH ?? (process.env.GITHUB_ACTIONS === "true" ? process.env.RUNNER_TEMP : undefined) ?? os.tmpdir();
+  const dir = fs.mkdtempSync(path.join(scratch, "ra21-sparse-"));
   try {
     for (const entry of ra21SparseList()) {
       for (const file of ra21Expand(entry)) {
@@ -576,17 +596,19 @@ test("RA-21: after the workflow's frozen install, the run-qualified entries load
       }
     }
     // publish-direct.yml installs with the pnpm that pnpm/action-setup pins to 11.25.0 (the root packageManager); run the same install here.
-    const pnpmVersion = spawnSync("pnpm", ["--version"], { encoding: "utf8" });
+    const pnpmVersion = ra21Pnpm(["--version"], { encoding: "utf8" });
     assert.equal(pnpmVersion.status, 0, "pnpm must be on PATH to install the release closure the way publish-direct.yml does");
     assert.equal(pnpmVersion.stdout.trim(), "11.25.0", "the installed pnpm must be the version publish-direct.yml pins");
-    const install = spawnSync("pnpm", ["install", "--filter", "rightkit-shared", "--filter", "@rightkit/release...", "--frozen-lockfile", "--ignore-scripts"], { cwd: dir, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    const install = ra21Pnpm(["install", "--filter", "rightkit-shared", "--filter", "@rightkit/release...", "--frozen-lockfile", "--ignore-scripts"], { cwd: dir, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
     assert.equal(install.status, 0, `the workflow's install fails in the sparse tree:\n${install.stderr.split("\n").slice(-12).join("\n")}`);
     // Every module of the static closure is evaluated, not only the entries: a file a module reads while it loads must be in the tree.
-    const modules = ra21StaticClosure().map((file) => `file://${path.join(dir, file)}`);
-    const probe = spawnSync(process.execPath, ["--input-type=module", "-e", "const urls = JSON.parse(process.env.RA21_MODULES); for (const url of urls) { try { await import(url); } catch (error) { process.stderr.write(url + '\\n'); throw error; } }"], { cwd: dir, env: { PATH: process.env.PATH ?? "", RA21_MODULES: JSON.stringify(modules) }, encoding: "utf8" });
+    const modules = ra21StaticClosure().map((file) => pathToFileURL(path.join(dir, file)).href);
+    // Windows needs SystemRoot (and the temp variables) to start node at all; they carry no secret and no repository state.
+    const systemEnv = process.platform === "win32" ? { SystemRoot: process.env.SystemRoot, windir: process.env.windir, TEMP: process.env.TEMP, TMP: process.env.TMP } : {};
+    const probe = spawnSync(process.execPath, ["--input-type=module", "-e", "const urls = JSON.parse(process.env.RA21_MODULES); for (const url of urls) { try { await import(url); } catch (error) { process.stderr.write(url + '\\n'); throw error; } }"], { cwd: dir, env: { ...systemEnv, PATH: process.env.PATH ?? "", RA21_MODULES: JSON.stringify(modules) }, encoding: "utf8" });
     assert.equal(probe.status, 0, `a closure module does not load after the install:\n${probe.stderr.split("\n").slice(0, 8).join("\n")}`);
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 });
 

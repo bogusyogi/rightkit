@@ -931,19 +931,24 @@ test("publish-direct workflow: fires on completed publish runs of main, identifi
   for (const clause of ["github.event.workflow_run.conclusion == 'success'", "github.event.workflow_run.event == 'workflow_dispatch'", "github.event.workflow_run.head_branch == 'main'", "github.event.workflow_run.head_repository.full_name == 'bogusyogi/rightkit'", "github.ref == 'refs/heads/main'", "github.repository == 'bogusyogi/rightkit'"]) assert.ok(job.if.includes(clause), clause);
   assert.equal(job.environment, "release");
   assert.deepEqual(job.permissions, { contents: "read", actions: "read", "id-token": "write" });
-  const [checkout, node, identify, npm, crates, receipt] = job.steps;
-  assert.equal(job.steps.length, 6);
+  // The reviewed shape (aeb1c5122, RA-21): the checkout, the toolchain and the frozen, script-free install of the release closure all run before
+  // the identification, and none of them holds a credential; then identification, one credentialed step per registry, and the receipt.
+  const [checkout, node, pnpm, install, identify, npm, crates, receipt] = job.steps;
+  assert.equal(job.steps.length, 8);
   assert.equal(checkout.uses, "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1");
   assert.equal(checkout.with.ref, "${{ github.event.workflow_run.head_sha }}");
   assert.equal(String(checkout.with["persist-credentials"]), "false");
-  for (const input of ["crates/*/Cargo.toml", "crates/*/Cargo.lock", "packages/release/scan-digest.mjs", "scripts/ci/scan-receipt.mjs"]) assert.ok(String(checkout.with["sparse-checkout"]).split("\n").includes(input), input);
+  for (const input of ["crates/*/Cargo.toml", "crates/*/Cargo.lock", "/package.json", "/pnpm-workspace.yaml", "/pnpm-lock.yaml", "packages/*/package.json", "packages/release/scan-digest.mjs", "scripts/ci/scan-receipt.mjs"]) assert.ok(String(checkout.with["sparse-checkout"]).split("\n").includes(input), input);
   assert.ok(!String(checkout.with["sparse-checkout"]).includes("approved-artifacts"), "the committed approval file is not an input of direct publication");
   assert.equal(node.uses, "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020");
+  assert.equal(pnpm.uses, "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"); assert.equal(String(pnpm.with.version), "11.25.0"); assert.equal(String(pnpm.with.run_install), "false");
+  assert.equal(install.run, "pnpm install --filter rightkit-shared --filter @rightkit/release... --frozen-lockfile --ignore-scripts"); assert.equal(install.env, undefined, "the install step has no environment");
+  for (const step of [checkout, node, pnpm, install, identify]) assert.ok(!/\$\{\{\s*secrets\.|NODE_AUTH_TOKEN|CARGO_REGISTRY_TOKEN/.test(JSON.stringify(step)), `no credential reaches a step before the first registry step (${step.name ?? step.uses})`);
   const source = { GITHUB_TOKEN: "${{ github.token }}", PUBLISH_QUALIFIED_RUN_ID: "${{ github.event.workflow_run.id }}", PUBLISH_QUALIFIED_RUN_ATTEMPT: "${{ github.event.workflow_run.run_attempt }}", PUBLISH_QUALIFIED_SHA: "${{ github.event.workflow_run.head_sha }}" };
   assert.equal(identify.id, "qualified"); assert.equal(identify.run, "node scripts/ci/reviewed-candidate.mjs run-qualified --identify"); assert.deepEqual(identify.env, source);
   assert.equal(npm.if, "${{ steps.qualified.outputs.registry == 'npm' }}"); assert.deepEqual(npm.env, { ...source, PUBLISH_REGISTRY: "npm", NODE_AUTH_TOKEN: "${{ secrets.NPM_TOKEN }}" }); assert.equal(npm.run, "node scripts/ci/reviewed-candidate.mjs run-qualified");
   assert.equal(crates.if, "${{ steps.qualified.outputs.registry == 'crates' }}"); assert.deepEqual(crates.env, { ...source, PUBLISH_REGISTRY: "crates", CARGO_REGISTRY_TOKEN: "${{ secrets.CARGO_REGISTRY_TOKEN }}" }); assert.equal(crates.run, "node scripts/ci/reviewed-candidate.mjs run-qualified");
   assert.equal(receipt.uses, "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"); assert.equal(receipt.with.path, "${{ runner.temp }}/publication-receipt");
-  assert.equal((text.match(/secrets\./g) ?? []).length, 2, "exactly the two registry tokens, one per credentialed step");
+  assert.equal((text.match(/\$\{\{\s*secrets\./g) ?? []).length, 2, "exactly the two registry tokens, one per credentialed step");
   assert.deepEqual(Object.values(QUALIFIED_ARTIFACTS), ["publish-packed", "publish-receipt-verify-xcode-27", "publish-receipt-verify-windows-2025", "publish-receipt-verify-ubuntu-24.04"]);
 });
