@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 import { signingReceiptPath } from "./signing-receipts.mjs";
+import { platformDirOf } from "./platform-dir.mjs";
 import { notarizeMacosArtifact, validateNotarizationReceipt } from "./macos-notarization.mjs";
 import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
 import { assertUpdaterKeyId, assertUpdaterSignature, isSuiteUpdaterApp, resolveUpdaterTrust } from "./github-updater-release.mjs";
@@ -61,14 +62,14 @@ test("MailRight config seals current build receipts despite stale legacy & other
   const identityEnd = source.indexOf("  const cargoLock =", identityStart);
   const signingIdentity = runInNewContext(`${source.slice(identityStart, identityEnd)}\nsigningIdentity;`, {
     config, target, configPath, platform: "mac", appRoot: root, vaultRoot, shortCommit: "12345678", process,
-    requiredInputs: [], hashInputs: () => ({}), hashFile, hashFileText, path, PIPELINE_FINGERPRINT: "test", signingReceiptPath,
+    requiredInputs: [], hashInputs: () => ({}), hashFile, hashFileText, path, PIPELINE_FINGERPRINT: "test", signingReceiptPath, platformDirOf,
   });
   assert.deepEqual(Array.from(signingIdentity.receiptInputs), [path.join(stateRoot, "macos-signing.json"), path.join(stateRoot, "macos-notarization.json")]);
   const sealStart = source.indexOf("function sealRelease(");
   const sealEnd = source.indexOf("\nfunction collectToolVersions", sealStart);
   const validations = [];
   const seal = runInNewContext(`${source.slice(sealStart, sealEnd)}\nsealRelease;`, {
-    ...fs, path, process, hashFile, devtoolsEvidence, resolveDevtoolsAllowance, assertUpdaterSignature, isSuiteUpdaterApp,
+    ...fs, path, process, platformDirOf, hashFile, devtoolsEvidence, resolveDevtoolsAllowance, assertUpdaterSignature, isSuiteUpdaterApp,
     resolveUpdaterTrust: (args) => resolveUpdaterTrust({ ...args, keys: fixtureKeys }),
     assertUpdaterKeyId: (signature, keyId, label, options = {}) => assertUpdaterKeyId(signature, keyId, label, { ...options, keys: fixtureKeys }),
     writeJson: (file, value) => fs.writeFileSync(file, JSON.stringify(value)),
