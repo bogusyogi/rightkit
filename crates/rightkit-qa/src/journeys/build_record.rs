@@ -43,7 +43,7 @@ pub const REQUEST_ID_SOURCE: &str = "stderr_request_line";
 /// Hard deadline for the broker build (the broker has its own queue and caps).
 pub const BUILD_TIMEOUT: Duration = Duration::from_secs(45 * 60);
 /// The program whose `cargo` subcommand is the broker. Anything else is a compile outside the broker.
-const BROKER_PROGRAM: &str = "rustright";
+pub(super) const BROKER_PROGRAM: &str = "rustright";
 /// The RustRight client's retired name (rustright#91): refused by name, with the replacement.
 const RETIRED_BROKER: &str = "rightkit";
 /// Lockfiles recorded when found at or above the build directory (inside the repository).
@@ -412,7 +412,7 @@ fn manifest_path_arg(command: &[String]) -> Option<String> {
 
 // ------------------------------------------------------------------------ broker build output
 
-fn valid_request_id(id: &str) -> bool {
+pub(super) fn valid_request_id(id: &str) -> bool {
     (8..=64).contains(&id.len())
         && id
             .bytes()

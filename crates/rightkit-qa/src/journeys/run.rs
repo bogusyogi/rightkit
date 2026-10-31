@@ -960,6 +960,21 @@ pub fn run_journeys(opts: &JourneyRunOptions) -> Result<RunReport> {
     )
 }
 
+/// `journeys run` over the gate's carried, signed build (audit GB-79): the same run as [`run_journeys`], with the verified prebuilt
+/// input standing in for the broker spawn ([`prebuilt::build_from_prebuilt`]). Nothing compiles.
+pub fn run_journeys_prebuilt(opts: &JourneyRunOptions, input: &prebuilt::PrebuiltInput) -> Result<RunReport> {
+    let exe = opts.exe.clone();
+    run_with(
+        opts,
+        &Hooks {
+            broker: &|plan| prebuilt::build_from_prebuilt(plan, input),
+            worker: &|spec| supervise::run_worker(spec, &exe),
+            bridge_exec: &|tracker, inv| bridge::owned_exec(tracker.clone())(inv),
+            session: &|| interactive::non_interactive_reason(&interactive::session_facts()),
+        },
+    )
+}
+
 // ---- small helpers
 
 fn join_msg(m: &mut String, add: &str) {
