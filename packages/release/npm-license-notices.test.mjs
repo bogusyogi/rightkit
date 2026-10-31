@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { collectNpmPackages, escapeHtml, generateNpmNotices, parseNoticeArgs, renderNpmNotices, resolveNoticeOptions, SPDX_FALLBACK_TEXT } from "./npm-license-notices.mjs";
+import { collectNpmPackages, completeProductionGroups, productionClosure, escapeHtml, generateNpmNotices, parseNoticeArgs, renderNpmNotices, resolveNoticeOptions, SPDX_FALLBACK_TEXT } from "./npm-license-notices.mjs";
 
 const groups = {
   MIT: [
@@ -74,6 +74,7 @@ test("generateNpmNotices writes the page from pnpm output, records the lock hash
     const calls = [];
     const spawnSyncFn = (cmd, args) => {
       calls.push([cmd, ...args]);
+      if (args[0] === "list") return { status: 0, stdout: JSON.stringify([{ dependencies: { alpha: { version: "1.0.0", path: pkgDir } } }]) };
       return { status: 0, stdout: JSON.stringify({ MIT: [{ name: "alpha", versions: ["1.0.0"], paths: [pkgDir] }, { name: "@rightkit/x", versions: ["1"], paths: [pkgDir] }] }) };
     };
     const written = generateNpmNotices({ appRoot: dir, config, spawnSyncFn });
@@ -89,4 +90,31 @@ test("generateNpmNotices writes the page from pnpm output, records the lock hash
     assert.equal(generateNpmNotices({ appRoot: dir, config, spawnSyncFn, check: true }).upToDate, false);
     assert.throws(() => generateNpmNotices({ appRoot: dir, config, spawnSyncFn: () => ({ status: 1, stderr: "boom" }) }), /boom/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("productionClosure follows dependencies, optional dependencies and resolved peers, and ignores devDependencies and links", () => {
+  const closure = productionClosure([{
+    dependencies: { legal: { version: "1", path: "/p/legal", dependencies: { release: { version: "2", path: "/p/release", dependencies: { "smol-toml": { version: "1.9.1", path: "/p/smol" } } } } }, ws: { version: "link:../ws" } },
+    optionalDependencies: { opt: { version: "3", path: "/p/opt" } },
+    devDependencies: { dev: { version: "4", path: "/p/dev" } },
+  }]);
+  assert.deepEqual([...closure.keys()].sort(), ["legal@1", "opt@3", "release@2", "smol-toml@1.9.1"]);
+  assert.throws(() => productionClosure({}), /project array/);
+});
+
+test("completeProductionGroups adds closure packages the --prod listing dropped (pnpm 12 peer edge) and never goes silently short", () => {
+  const closure = new Map([
+    ["a@1", { name: "a", version: "1", path: "/p/a" }],
+    ["smol-toml@1.9.1", { name: "smol-toml", version: "1.9.1", path: "/p/smol" }],
+    ["@rightkit/release@2", { name: "@rightkit/release", version: "2", path: "/p/r" }],
+  ]);
+  const prod = { MIT: [{ name: "a", versions: ["1"], paths: ["/p/a"] }] };
+  let loads = 0;
+  const all = { MIT: [{ name: "a", versions: ["1"], paths: ["/p/a"] }, { name: "smol-toml", versions: ["1.9.1"], paths: ["/x/smol"] }] };
+  const done = completeProductionGroups(prod, closure, () => { loads++; return all; });
+  assert.deepEqual(done.MIT.map((e) => `${e.name}@${e.versions}`), ["a@1", "smol-toml@1.9.1"]);
+  assert.deepEqual(done.MIT[1].paths, ["/p/smol"]);
+  assert.equal(prod.MIT.length, 1, "input groups are not mutated");
+  assert.equal(completeProductionGroups(done, closure, () => assert.fail("complete listing needs no second query")), done);
+  assert.throws(() => completeProductionGroups(prod, closure, () => ({ MIT: [] })), /smol-toml@1.9.1 is in the production closure/);
 });

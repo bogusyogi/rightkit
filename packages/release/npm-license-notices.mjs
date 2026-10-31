@@ -47,6 +47,46 @@ export function collectNpmPackages(groups, exclude = ["@rightkit/"]) {
 }
 
 /**
+ * The production closure of `pnpm list --json --depth Infinity` output: every package reachable from a project's `dependencies` or
+ * `optionalDependencies` through the dependencies, optional dependencies and resolved peer dependencies pnpm lists, as
+ * `name@version` -> { name, version, path }. pnpm 12's `licenses list --prod` no longer follows a peer edge (an optional peer of a
+ * production package that the app also installs as a dev dependency, so `@rightkit/legal` -> `@rightkit/release` -> smol-toml went
+ * missing), but the package is still installed beside the production package and loadable by it; the notices must list it.
+ */
+export function productionClosure(tree) {
+  if (!Array.isArray(tree)) fail("pnpm list --json did not return a project array");
+  const closure = new Map(), seen = new Set();
+  const visit = (name, node) => {
+    if (!node || typeof node !== "object" || typeof node.version !== "string" || node.version.startsWith("link:")) return;
+    const id = `${name}@${node.version}`, at = `${id}|${node.path ?? ""}`;
+    if (seen.has(at)) return;
+    seen.add(at);
+    if (!closure.has(id)) closure.set(id, { name, version: node.version, path: node.path });
+    for (const section of ["dependencies", "optionalDependencies"]) for (const [child, value] of Object.entries(node[section] ?? {})) visit(child, value);
+  };
+  for (const project of tree) for (const section of ["dependencies", "optionalDependencies"]) for (const [name, node] of Object.entries(project?.[section] ?? {})) visit(name, node);
+  return closure;
+}
+
+/**
+ * `groups` (the `--prod` listing) plus every closure package it lacks, with its license read from `allGroups` (the full listing,
+ * fetched lazily by `loadAll`) and its installed path from the tree. A missing package that the full listing does not know is an
+ * error: a notice is never silently shorter than the production closure. Excluded prefixes are skipped before the lookup.
+ */
+export function completeProductionGroups(groups, closure, loadAll, exclude = ["@rightkit/"]) {
+  const listed = new Set(Object.values(groups).flatMap((entries) => entries.flatMap((entry) => entry.versions.map((v) => `${entry.name}@${v}`))));
+  const missing = [...closure].filter(([id, item]) => !listed.has(id) && !exclude.some((prefix) => item.name.startsWith(prefix)));
+  if (!missing.length) return groups;
+  const all = loadAll(), completed = Object.fromEntries(Object.entries(groups).map(([license, entries]) => [license, [...entries]]));
+  for (const [id, item] of missing) {
+    const hit = Object.entries(all).find(([, entries]) => entries.some((entry) => entry.name === item.name && entry.versions.includes(item.version)));
+    if (!hit || typeof item.path !== "string") fail(`${id} is in the production closure (pnpm list) but not in pnpm licenses list: its notice cannot be produced`);
+    (completed[hit[0]] ??= []).push({ name: item.name, versions: [item.version], paths: [item.path] });
+  }
+  return completed;
+}
+
+/**
  * Render the appendix. `readNames(dir)` lists a package directory and `readText(file)` reads one file (both injectable).
  * Returns `{ html, packageCount, fallbackCount }`.
  */
@@ -106,7 +146,15 @@ export function generateNpmNotices({ appRoot, config, flags = {}, check = false,
   });
   if (result.error) throw result.error;
   if (result.status !== 0) fail(result.stderr || "pnpm licenses list failed");
-  const packages = collectNpmPackages(JSON.parse(result.stdout), exclude);
+  const run = (args) => {
+    const out = spawnSyncFn("pnpm", args, { cwd: appRoot, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, shell: process.platform === "win32" });
+    if (out.error) throw out.error;
+    if (out.status !== 0) fail(out.stderr || `pnpm ${args.join(" ")} failed`);
+    return JSON.parse(out.stdout);
+  };
+  const closure = productionClosure(run(["list", "--json", "--depth", "Infinity"]));
+  const groups = completeProductionGroups(JSON.parse(result.stdout), closure, () => run(["licenses", "list", "--json"]), exclude);
+  const packages = collectNpmPackages(groups, exclude);
   const lockHash = createHash("sha256").update(readFileSync(path.join(appRoot, "pnpm-lock.yaml"))).digest("hex");
   const { html, packageCount, fallbackCount } = renderNpmNotices({ productName, version, lockHash, packages });
   const target = path.join(appRoot, output);

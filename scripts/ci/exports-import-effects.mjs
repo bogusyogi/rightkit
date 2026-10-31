@@ -204,14 +204,30 @@ export function pnpmEntryFile(file) {
   try { return fs.realpathSync(path.resolve(path.dirname(file), m[1].replace(/\\/g, "/"))); } catch { return file; }
 }
 
-/** The version named by the package.json of the pnpm package that owns `file` (walking up at most four directories), or null. */
+/** Package names that carry a pnpm release's version: the wrapper and its native-binary packages (pnpm 12 installs the native binary over the wrapper's bin file). */
+const PNPM_PACKAGE_NAME = /^(?:pnpm|@pnpm\/exe(?:\.[a-z0-9-]+)?)$/;
+
+function pnpmManifestVersion(dir) {
+  try { const j = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")); if (PNPM_PACKAGE_NAME.test(j.name) && typeof j.version === "string") return j.version; } catch {}
+  return null;
+}
+
+/**
+ * The version named by the package.json of the pnpm package that owns `file`, or null. The owner is the package directory above the
+ * file (at most four directories up); when the file sits outside any package (pnpm 12's installer copies the native binary to
+ * `node_modules/.bin/bin/pnpm`), it is the `pnpm` package installed in the nearest enclosing node_modules. The caller still requires
+ * the version the binary answers to equal this one, so a binary that is not this release is refused.
+ */
 export function pnpmPackageVersion(file) {
   let dir = path.dirname(file);
   for (let i = 0; i < 4; i++) {
-    try { const j = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")); if (j.name === "pnpm" && typeof j.version === "string") return j.version; } catch {}
+    const v = pnpmManifestVersion(dir); if (v) return v;
     const up = path.dirname(dir); if (up === dir) break; dir = up;
   }
-  return null;
+  for (dir = path.dirname(file); ; ) {
+    if (path.basename(dir) === "node_modules") return pnpmManifestVersion(path.join(dir, "pnpm"));
+    const up = path.dirname(dir); if (up === dir) return null; dir = up;
+  }
 }
 
 /** The pnpm version a tree pins through package.json `packageManager` (`pnpm@12.16.1` → `12.16.1`), or null. */

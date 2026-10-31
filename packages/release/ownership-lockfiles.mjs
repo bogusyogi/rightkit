@@ -244,8 +244,20 @@ function packageLockGraph(text, manifests, lockDir) {
   }
   return g;
 }
+/**
+ * pnpm 12 writes the lockfile as several YAML documents: leading ones carry the tooling pnpm installs for itself
+ * (configDependencies, packageManagerDependencies), and the last one is the project lock. Only the project's document is the
+ * dependency graph; pnpm 6/9/11 write a single document, which is returned unchanged.
+ */
+export function pnpmProjectDocument(text) {
+  const docs = text.split(/^---[ \t]*\r?$/m).filter((doc) => doc.trim());
+  if (docs.length <= 1) return text;
+  const last = docs.at(-1);
+  if (!/^lockfileVersion:/m.test(last)) fail("pnpm multi-document lockfile does not end with the project document");
+  return last;
+}
 function pnpmGraph(text, manifests, lockDir, workspaceBytes) {
-  const lock = parsePnpmYaml(text), version = String(lock.lockfileVersion), g = graph();
+  const lock = parsePnpmYaml(pnpmProjectDocument(text)), version = String(lock.lockfileVersion), g = graph();
   if (!/^(?:9|6)(?:\.\d+)?$/.test(version) || !object(lock.importers) || !object(lock.packages ?? {})) throw new LockError("lockfile-unsupported-format", "pnpm requires v6/v9 importers");
   const v9 = version.startsWith("9"), packages = lock.packages ?? {}, snapshots = v9 ? lock.snapshots ?? {} : packages;
   if (!object(snapshots)) fail("invalid pnpm snapshots");

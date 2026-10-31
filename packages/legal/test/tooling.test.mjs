@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { syncLegalSnapshot, assertFinalLegalSnapshot, generateNpmLicenseAppendix } from "../dist/tooling.js";
+import { syncLegalSnapshot, assertFinalLegalSnapshot, generateNpmLicenseAppendix, npmProductionClosure, completeNpmProductionGroups } from "../dist/tooling.js";
 
 function fixture(t) {
   const root = mkdtempSync(path.join(fileURLToPath(new URL("./", import.meta.url)), "fixture-"));
@@ -254,4 +254,18 @@ test("rightkit-legal rust-licenses names the missing piece instead of a blocked 
   const help = cli("rightkit-legal", ["rust-licenses", "--help"]);
   assert.equal(help.status, 0);
   assert.match(help.stdout, /rust-licenses .*--check/);
+});
+
+test("npm notices keep the production closure pnpm 12's --prod listing drops (resolved optional-peer edge)", () => {
+  const closure = npmProductionClosure([{
+    dependencies: { legal: { version: "1", path: "/p/legal", dependencies: { release: { version: "2", path: "/p/release", dependencies: { "smol-toml": { version: "1.9.1", path: "/p/smol" } } } } } },
+    devDependencies: { dev: { version: "4", path: "/p/dev" } },
+  }]);
+  assert.deepEqual([...closure.keys()].sort(), ["legal@1", "release@2", "smol-toml@1.9.1"]);
+  const prod = { MIT: [{ name: "legal", versions: ["1"], paths: ["/p/legal"] }, { name: "release", versions: ["2"], paths: ["/p/release"] }] };
+  const all = { ...prod, "MIT OR Apache-2.0": [{ name: "smol-toml", versions: ["1.9.1"], paths: ["/x/smol"] }] };
+  const done = completeNpmProductionGroups(prod, closure, () => all);
+  assert.deepEqual(done["MIT OR Apache-2.0"], [{ name: "smol-toml", versions: ["1.9.1"], paths: ["/p/smol"] }]);
+  assert.throws(() => completeNpmProductionGroups(prod, closure, () => prod), /smol-toml@1.9.1 is in the production closure/);
+  assert.throws(() => npmProductionClosure({}), /project array/);
 });

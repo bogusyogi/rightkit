@@ -218,6 +218,42 @@ THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH RE
 
 const escapeHtml = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 
+interface PnpmListNode { version?: string; path?: string; dependencies?: Record<string, PnpmListNode>; optionalDependencies?: Record<string, PnpmListNode> }
+
+/**
+ * Every package reachable from a project's dependencies or optionalDependencies in `pnpm list --json --depth Infinity` output,
+ * following resolved peer edges too: pnpm 12's `licenses list --prod` stopped following a peer edge (an optional peer of a production
+ * package that the app also installs as a dev dependency), which dropped `@rightkit/release`'s own dependencies from the notices.
+ */
+export function npmProductionClosure(tree: unknown): Map<string, { name: string; version: string; path?: string }> {
+  if (!Array.isArray(tree)) throw new Error("pnpm list --json did not return a project array");
+  const closure = new Map<string, { name: string; version: string; path?: string }>(), seen = new Set<string>();
+  const visit = (name: string, node?: PnpmListNode) => {
+    if (!node || typeof node !== "object" || typeof node.version !== "string" || node.version.startsWith("link:")) return;
+    const id = `${name}@${node.version}`, at = `${id}|${node.path ?? ""}`;
+    if (seen.has(at)) return;
+    seen.add(at);
+    if (!closure.has(id)) closure.set(id, { name, version: node.version, path: node.path });
+    for (const section of ["dependencies", "optionalDependencies"] as const) for (const [child, value] of Object.entries(node[section] ?? {})) visit(child, value);
+  };
+  for (const project of tree as PnpmListNode[]) for (const section of ["dependencies", "optionalDependencies"] as const) for (const [name, node] of Object.entries(project?.[section] ?? {})) visit(name, node);
+  return closure;
+}
+
+/** `groups` plus every closure package it lacks, licensed from the full listing; a package the full listing lacks is an error, never a shorter notice. */
+export function completeNpmProductionGroups(groups: NpmLicenseGroups, closure: ReturnType<typeof npmProductionClosure>, loadAll: () => NpmLicenseGroups): NpmLicenseGroups {
+  const listed = new Set(Object.values(groups).flatMap((entries) => entries.flatMap((entry) => entry.versions.map((v) => `${entry.name}@${v}`))));
+  const missing = [...closure].filter(([id, item]) => !listed.has(id) && !item.name.startsWith("@rightkit/"));
+  if (!missing.length) return groups;
+  const all = loadAll(), completed: NpmLicenseGroups = Object.fromEntries(Object.entries(groups).map(([license, entries]) => [license, [...entries]]));
+  for (const [id, item] of missing) {
+    const hit = Object.entries(all).find(([, entries]) => entries.some((entry) => entry.name === item.name && entry.versions.includes(item.version)));
+    if (!hit || typeof item.path !== "string") throw new Error(`${id} is in the production closure (pnpm list) but not in pnpm licenses list: its notice cannot be produced`);
+    (completed[hit[0]] ??= []).push({ name: item.name, versions: [item.version], paths: [item.path] });
+  }
+  return completed;
+}
+
 /** Generate production npm notices, excluding @rightkit/*, with escaped texts & lockfile provenance. */
 export function generateNpmLicenseAppendix(options: NpmLicenseAppendixOptions = {}) {
   const root = path.resolve(options.appRoot ?? process.cwd());
@@ -226,12 +262,19 @@ export function generateNpmLicenseAppendix(options: NpmLicenseAppendixOptions = 
   if (typeof productName !== "string" || !productName.trim()) throw new Error("productName is required");
   let groups = options.groups;
   if (!groups) {
-    const result = spawnSync("pnpm", ["licenses", "list", "--prod", "--json"], {
-      cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, shell: process.platform === "win32",
-    });
-    if (result.error) throw result.error;
-    if (result.status !== 0) throw new Error(result.stderr || "pnpm licenses list failed");
-    groups = JSON.parse(result.stdout) as NpmLicenseGroups;
+    const run = (args: string[]): unknown => {
+      const result = spawnSync("pnpm", args, {
+        cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, shell: process.platform === "win32",
+      });
+      if (result.error) throw result.error;
+      if (result.status !== 0) throw new Error(result.stderr || `pnpm ${args.join(" ")} failed`);
+      return JSON.parse(result.stdout);
+    };
+    groups = completeNpmProductionGroups(
+      run(["licenses", "list", "--prod", "--json"]) as NpmLicenseGroups,
+      npmProductionClosure(run(["list", "--json", "--depth", "Infinity"])),
+      () => run(["licenses", "list", "--json"]) as NpmLicenseGroups,
+    );
   }
   const packages = Object.entries(groups).flatMap(([license, entries]) => entries.map((entry) => ({ ...entry, license })))
     .filter((entry) => !entry.name.startsWith("@rightkit/"))

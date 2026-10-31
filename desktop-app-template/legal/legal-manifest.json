@@ -71,7 +71,7 @@
       "publicUrl": "https://rightapp.example/legal/notices/",
       "treatment": "notice",
       "material": false,
-      "sha256": "50b9f2f03d83054d34baebcff11d5bca638e6a16c5674595352dc812e22a34c7"
+      "sha256": "3e2ddebe919cb2bfbbe0e029e47207a34aff6ca847c9901e268cfee3595e2168"
     }
   ],
   "appendices": [
@@ -79,7 +79,7 @@
       "id": "npm",
       "title": "RightApp npm third-party licenses",
       "path": "THIRD_PARTY_NPM_LICENSES.html",
-      "sha256": "60c50788d6958701463aa871bb0f7da93a4cbcc9338c7d99677edde20ff83a9a"
+      "sha256": "ad84ce9c68b737bf3f71c5ebe87e1e8195f0fc1989ba102f71853099d8e92e3d"
     }
   ]
 }

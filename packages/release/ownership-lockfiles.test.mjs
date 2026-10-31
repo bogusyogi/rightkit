@@ -86,6 +86,17 @@ for (const version of [6, 9]) test(`pnpm v${version}: importers & resolved packa
     assert.equal(found[0].resolvedVersion, "24.1.0"); assert.deepEqual(scanApp(root, catalog, { trust: null }).coverage, []);
   });
 });
+test("pnpm v12: the leading tooling document is skipped and the project document is the graph", () => {
+  const tooling = "---\nlockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    configDependencies: {}\n    packageManagerDependencies:\n      pnpm:\n        specifier: 12.16.1\n        version: 12.16.1\n\npackages:\n\n  '@pnpm/exe.linux-x64@12.16.1':\n    resolution: {integrity: sha512-test}\n    cpu: [x64]\n    os: [linux]\n\n  pnpm@12.16.1:\n    resolution: {integrity: sha512-test}\n    hasBin: true\n\nsnapshots:\n\n  pnpm@12.16.1:\n    optionalDependencies:\n      '@pnpm/exe.linux-x64': 12.16.1\n\n";
+  fixture({ "package.json": npmManifest(), "pnpm-lock.yaml": tooling + "---\n" + pnpmLock(9) }, (root) => {
+    const found = transitive(root); assert.equal(found.length, 1);
+    assert.deepEqual(found[0].dependencyPath, ["app", "wrapper", "puppeteer-core"]);
+    assert.deepEqual(scanApp(root, catalog, { trust: null }).coverage, []);
+  });
+  fixture({ "package.json": npmManifest(), "pnpm-lock.yaml": tooling + "---\nsettings: {}\n" }, (root) => {
+    assert.ok(scanApp(root, catalog, { trust: null }).coverage.some((c) => c.path === "pnpm-lock.yaml" && c.status === "unscanned" && c.reason === "lockfile-parse-failed"));
+  });
+});
 test("pnpm workspace importers, links, aliases & peer-suffixed snapshots resolve from own members", () => {
   const lock = `lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      child:\n        version: link:apps/child\n  apps/child:\n    dependencies:\n      browser-alias:\n        version: wrapper@1.0.0(peer@2.0.0)\npackages:\n  wrapper@1.0.0: {}\n  puppeteer-core@24.1.0: {}\nsnapshots:\n  'wrapper@1.0.0(peer@2.0.0)':\n    dependencies:\n      puppeteer-core: 24.1.0\n  puppeteer-core@24.1.0: {}\n`;
   fixture({ "package.json": npmManifest({ child: "workspace:*" }), "apps/child/package.json": npmManifest({ "browser-alias": "npm:wrapper@1.0.0" }, "child"), "pnpm-lock.yaml": lock }, (root) => {
