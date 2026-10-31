@@ -13,6 +13,8 @@ import { brokerManagedHost } from "./cargo-contract.mjs";
 import {
   LINUX_BROKER_CLIENT_ENV, LINUX_BROKER_CLIENT_SHA256_ENV, LINUX_BROKER_REFUSAL, LINUX_BROKER_SOCKET_ENV,
   directHost, linuxBrokerDeclared, managedHost, resolveLinuxBrokerRoute, runCargoAsync, runCargoSync,
+  NO_BROKER_ENV,
+  gateNoBroker,
 } from "./managed-cargo.mjs";
 
 /** Unix socket paths are limited to 103 bytes on macOS and a hosted runner's hermetic temp root leaves no room: a socket's directory falls back to /tmp when the socket's path would not fit under the temp directory. */
@@ -126,4 +128,22 @@ test("a launched client's own unavailable answer is reported as the broker being
   const spawn = () => ({ status: 1, stdout: "", stderr: "RK_BROKER_UNAVAILABLE: connect refused" });
   const r = runCargoSync(["check"], { env: host.env }, { platform: "linux", exists: () => false, spawn });
   assert.equal(r.error.code, "RK_BROKER_UNAVAILABLE");
+});
+
+test("data: inside a gate run outside the broker by exception, cargo runs direct on the Mac and Windows, never through the installed client", () => {
+  for (const platform of ["darwin", "win32"]) {
+    const calls = [];
+    const env = { [NO_BROKER_ENV]: "adrian-2026-10-31-hr-blockers", RK_GATE_RUN: "run-1", PATH: "/usr/bin", HOME: "/Users/x" };
+    runCargoSync(["metadata", "--no-deps"], { env }, { platform, exists: () => true, spawn: (c, a) => { calls.push([c, ...a]); return { status: 0, stdout: "", stderr: "" }; } });
+    assert.deepEqual(calls, [["cargo", "metadata", "--no-deps"]], `${platform}: the real cargo, not the installed rustright client`);
+  }
+});
+
+test("data: the no-broker marker means nothing outside a live gate run", () => {
+  assert.equal(gateNoBroker({ [NO_BROKER_ENV]: "x" }), false, "no RK_GATE_RUN: not a door run");
+  assert.equal(gateNoBroker({ RK_GATE_RUN: "run-1" }), false, "a door run with no exception keeps the broker");
+  assert.equal(gateNoBroker({ [NO_BROKER_ENV]: "x", RK_GATE_RUN: "run-1" }), true);
+  const calls = [];
+  runCargoSync(["metadata"], { env: { [NO_BROKER_ENV]: "x", HOME: "/Users/x" } }, { platform: "darwin", exists: () => true, spawn: (c, a) => { calls.push([c, ...a]); return { status: 0, stdout: "", stderr: "" }; } });
+  assert.notEqual(calls[0]?.[0], "cargo", "outside a door run the Mac keeps the installed client route");
 });

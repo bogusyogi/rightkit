@@ -375,3 +375,10 @@ test("dev build steps go through the build door", () => {
     assert.deepEqual(ran, ["door-pnpm"]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("data: inside a gate run outside the broker by exception, `rustright cargo|rustc` resolves to the real tool on the Mac", () => {
+  const env = { RIGHTKIT_GATE_NO_BROKER: "adrian-2026-10-31-hr-blockers", RK_GATE_RUN: "run-1", PATH: "/usr/bin" };
+  assert.equal(resolveCommand("rustright", ["rustc", "-vV"], { env, platform: "darwin" }).command, "rustc");
+  assert.equal(resolveCommand("rustright", ["cargo", "build"], { env, platform: "darwin" }).command, "cargo");
+  assert.throws(() => resolveCommand("rustright", ["storage", "gc"], { env, platform: "darwin" }), /no direct form/);
+});

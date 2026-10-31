@@ -80,7 +80,7 @@ import { resolveExecutor } from "../gate-executor.mjs";
 import { ALL_UNITS_ERRORS, ALL_UNITS_EXCEPTIONS_FILE, BROKER_EXCEPTIONS_FILE, BROKER_EXCEPTION_ERRORS, CARGO_WORKSPACE_LIST_FILE, CARGO_WORKSPACE_LIST_KEY, RIGHTKIT_IDENTITY_FILE, authorizeAllUnits, authorizeNoBroker, checkCargoWorkspaceList, describeAllUnitsException, describeBrokerException, isRightKitIdentity, unitsOfSelector } from "../broker-exception.mjs";
 import { SIGNING_REFUSAL_CODES, suiteSigningRefusals } from "../suite-signing-policy.mjs";
 import { gitListRustFiles } from "../signing-files.mjs";
-import { LINUX_BROKER_ROUTE, directPlatform, linuxBrokerDeclared } from "../managed-cargo.mjs";
+import { LINUX_BROKER_ROUTE, NO_BROKER_ENV, directPlatform, linuxBrokerDeclared } from "../managed-cargo.mjs";
 import { bindingOf, compileOutputsRecord, compileReuseProblem, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, STAGE_SOURCES, writeReceipt } from "../gate-stages.mjs";
 import { spawnSync as spawnInherit } from "../background-process.mjs";
 import { readDiskPolicy, scratchRoots } from "../disk-policy.mjs";
@@ -2598,6 +2598,9 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
 /** A direct (Linux) executor's environment (PATH without RustRight shim directories) for every child this run starts. */
 function applyExecutorEnv(o, executor) {
   if (executor?.env && o.env) Object.assign(o.env, executor.env);
+  // Outside the broker by Adrian's recorded exception: every child's `rustright cargo|rustc|rustdoc` runs direct, never through the installed
+  // client (managed-cargo.mjs NO_BROKER_ENV; it holds only inside this live door run). Without it a child on the Mac or the Dell still reaches the broker.
+  if (o.brokerException && o.env && executor?.kind === "direct") o.env[NO_BROKER_ENV] = o.brokerException.exceptionId;
   if (executor?.note && o.out) o.out(`rightkit-gate: ${executor.note}`);
 }
 

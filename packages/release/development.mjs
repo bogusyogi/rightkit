@@ -11,7 +11,7 @@ import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { readSourceSplit } from "./source-split.mjs";
 import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
-import { acquireManagedRunLease, directCargoEnv, directPlatform, managedRuntimeClient, managedRuntimeCommand, runCargoSync } from "./managed-cargo.mjs";
+import { acquireManagedRunLease, directCargoEnv, directPlatform, gateNoBroker, managedRuntimeClient, managedRuntimeCommand, runCargoSync } from "./managed-cargo.mjs";
 import { BUNDLE_MARKERS, bundleMarkerBuffer, readTauriBundleMarkers } from "./tauri-bundle-marker.mjs";
 import { installPortableDevelopment } from "./portable-development.mjs";
 import { previousPathOf, stagingPathOf, swapInPlace } from "./in-place-install.mjs";
@@ -480,7 +480,8 @@ export function resolveCommand(command, args, { root, env = process.env, platfor
   if (command === "pnpm") return { command: process.execPath, args: [resolvePnpmCli({ root, env }), ...args] };
   if (command === "rightkit") throw new Error("`rightkit` is the retired name of the RustRight client (rustright#91); use rustright (cmd: \"rustright\")");
   // A direct (Linux) host has no broker: `rustright cargo <args>` runs the real cargo, RustRight shims off PATH (managed-cargo directPlatform).
-  if (command === "rustright" && directPlatform(platform)) {
+  // So does any host inside a gate run outside the broker by Adrian's recorded exception (managed-cargo.mjs NO_BROKER_ENV).
+  if (command === "rustright" && (directPlatform(platform) || gateNoBroker(env))) {
     if (!DIRECT_TOOLS.has(args[0])) throw new Error(`\`rustright ${args[0] ?? ""}\` has no direct form on this ${platform} host (no broker on Linux); only \`rustright cargo|rustc|rustdoc\` map to the toolchain`);
     return { command: args[0], args: args.slice(1), env: directCargoEnv(env, platform) };
   }

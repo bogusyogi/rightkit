@@ -32,8 +32,16 @@ export const LINUX_BROKER_REFUSAL = "RK_LINUX_BROKER_UNAVAILABLE";
 export const linuxBrokerDeclared = (env = process.env, platform = process.platform) =>
   directPlatform(platform) && [LINUX_BROKER_CLIENT_ENV, LINUX_BROKER_SOCKET_ENV, LINUX_BROKER_CLIENT_SHA256_ENV].some((name) => env?.[name] !== undefined);
 
-/** A host that compiles direct: a direct platform that declared no broker route. */
-export const directHost = (platform = process.platform, env = process.env) => directPlatform(platform) && !linuxBrokerDeclared(env, platform);
+/**
+ * A gate run outside the broker by Adrian's recorded exception (broker-exception.mjs, `rightkit-gate --no-broker <id>`): the gate hands its
+ * children this variable set to the exception id. Inside that live door run (`RK_GATE_RUN` set) every `rustright cargo|rustc|rustdoc` runs the real
+ * toolchain directly, RustRight shims off PATH, as on a direct Linux host; the installed client is never asked. Outside a door run it means nothing.
+ */
+export const NO_BROKER_ENV = "RIGHTKIT_GATE_NO_BROKER";
+export const gateNoBroker = (env = process.env) => Boolean(env?.[NO_BROKER_ENV] && env?.RK_GATE_RUN);
+
+/** A host that compiles direct: a direct platform that declared no broker route, or any host inside a gate run outside the broker by exception. */
+export const directHost = (platform = process.platform, env = process.env) => (directPlatform(platform) && !linuxBrokerDeclared(env, platform)) || gateNoBroker(env);
 
 const sha256Cache = new Map();
 const LINUX_ROUTE_FS = Object.freeze({
@@ -197,6 +205,8 @@ export function runCargoSync(args, options = {}, { platform = process.platform, 
   const env = options.env ?? process.env;
   const seam = carriedSeam(args, options, { platform, spawn });
   if (seam) return seam;
+  // A gate run outside the broker by Adrian's recorded exception: the real toolchain, shims off PATH, on every platform (NO_BROKER_ENV).
+  if (gateNoBroker(env)) return spawn("cargo", args, { ...options, env: directCargoEnv(env, platform, exists) });
   // A Linux host that declared a broker route: every call goes to the validated client at the declared endpoint, or is refused. Never direct.
   const linux = resolveLinuxBrokerRoute({ env, platform, fsOps });
   if (linux.declared) {
