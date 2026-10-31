@@ -810,6 +810,7 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
     "npm @rightkit/settings-ui@0.7.0 723b019f8f27f0d6c6600d846098040d21e28a17d0fb1cdf4e9b577f18000475",
     "npm @rightkit/tauri-shell@0.1.2 dd71d57ac0250c75a27871d5d6ae5231c05ec8033934ddf027be032ee5089952",
     "npm @rightkit/tauri@0.3.0 4441a7191e5da878dcd6029206cc0fafcc746de755282f6553183668eeb7a0b2",
+    "swift RightKitSwift@0.9.0 36069f56d1717d4b89bcfa3ad0928496851726827a7b6f61b9010d69abb6a234",
   ]);
   // Each approval names its exact reviewer: the first three compared exact CI archives with previously signed
   // Mac tar streams; later ones are R8 exact-archive SIGNs on a single-unit qualification run.
@@ -845,6 +846,7 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
     "rightkit-license@0.2.4": { reviewer: "Astra (gpt-6-astra high, adversarial review)", reviewRef: "https://github.com/bogusyogi/rightkit/issues/880#issuecomment-6326550593" },
     "rightkit-oauth@0.10.0": { reviewer: "Astra (gpt-6-astra high, adversarial review)", reviewRef: "https://github.com/bogusyogi/rightkit/issues/880#issuecomment-6326550593" },
     "rightkit-credentials@0.4.2": { reviewer: "Astra (gpt-6-astra high, adversarial review)", reviewRef: "https://github.com/bogusyogi/rightkit/issues/886#issuecomment-6328792371" },
+    "RightKitSwift@0.9.0": { reviewer: "Oracle (claude-opus-5-5, independent pre-tag review)", reviewRef: "https://github.com/bogusyogi/rightkit/issues/1302#issuecomment-6519518345" },
   };
   assert.deepEqual(Object.fromEntries(entries.map((e) => [`${e.name}@${e.version}`, { reviewer: e.reviewer, reviewRef: e.reviewRef }])), reviews);
 });
