@@ -103,7 +103,7 @@ export const PARTIAL_EXIT = 3;
 /** The platforms a door run can package: desktop (signed, sealed, installed QA, publisher upload) and mobile (signed, sealed, store test track). */
 export const PLATFORMS = Object.freeze(["mac", "win", "ios", "android"]);
 export const MOBILE_PLATFORMS = Object.freeze(new Set(["ios", "android"]));
-const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify --units-file <json {"units":[<selector>,...]} written for this run> | rightkit-gate --to check|compile|package|qualify --all-units-exception <id> (RightKit only: its unit is named on every run, or every unit by Adrian's entry in ci/all-units-exceptions.json of the commit) | rightkit-gate --to check|compile|package|qualify [--unit <selector>] --no-broker <exception-id> (Mac and Dell only; Adrian's recorded exception in .rightkit/broker-exceptions.json of the commit) | rightkit-gate --to dev|test [--commit <rev>] [-- <right-release args>] | rightkit-gate --to check|compile|package|qualify|dev|test --route [--platform mac|win|ios|android] [--commit <rev>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] | rightkit-gate install-hook | rightkit-gate env-digest | rightkit-gate snapshot [--commit <rev>] [--verify [--env <sha256>]] [--json] | rightkit-gate live-scans --repo <root> | rightkit-gate clippy [<cargo clippy args>] | rightkit-gate env-digest [--snapshot <dir> --commit <sha>] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | rightkit-gate check --commit <sha> --full-a --snapshot <dir> | --version`;
+const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to tool --unit cargo:rightkit-qa [--no-broker <exception-id>] [--receipt-out <file>] [--commit <rev>] (builds the unit's release binary from the commit and enrols it as the managed rightkit-qa runner; Mac and Windows) | rightkit-gate --to check|compile|package|qualify --units-file <json {"units":[<selector>,...]} written for this run> | rightkit-gate --to check|compile|package|qualify --all-units-exception <id> (RightKit only: its unit is named on every run, or every unit by Adrian's entry in ci/all-units-exceptions.json of the commit) | rightkit-gate --to check|compile|package|qualify [--unit <selector>] --no-broker <exception-id> (Mac and Dell only; Adrian's recorded exception in .rightkit/broker-exceptions.json of the commit) | rightkit-gate --to dev|test [--commit <rev>] [-- <right-release args>] | rightkit-gate --to check|compile|package|qualify|dev|test --route [--platform mac|win|ios|android] [--commit <rev>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] | rightkit-gate install-hook | rightkit-gate env-digest | rightkit-gate snapshot [--commit <rev>] [--verify [--env <sha256>]] [--json] | rightkit-gate live-scans --repo <root> | rightkit-gate clippy [<cargo clippy args>] | rightkit-gate env-digest [--snapshot <dir> --commit <sha>] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | rightkit-gate check --commit <sha> --full-a --snapshot <dir> | --version`;
 /** The host platform (process.platform) that constructs each platform's artifact; a platform missing here (android) builds on any host. */
 const STAGE_NATIVE_HOST = Object.freeze({ mac: "darwin", ios: "darwin", win: "win32" });
 
@@ -1343,7 +1343,7 @@ async function runStages(o, args, root, git, io) {
   // of the snapshot), then right-release dev|test with the snapshot's app root as its cwd. They have no stage list of their own.
   const devTest = to === "dev" || to === "test";
   let stages = devTest ? [] : stagesTo(to);
-  if (!stages) { o.err(`${tag} --to must be one of ${[...STAGES, "dev", "test"].join(", ")}`); return 2; }
+  if (!stages) { o.err(`${tag} --to must be one of ${[...STAGES, "dev", "test"].join(", ")}${to === "tool" ? " (--to tool builds one named tool unit: --to tool --unit cargo:rightkit-qa)" : ""}`); return 2; }
   // Every stage the door runs has a row naming where it reads its source from (gate-stages.mjs STAGE_SOURCES, drift-tested in
   // door-stages.test.mjs); a stage added without one is refused rather than run with an unstated source.
   if (!STAGE_SOURCES[to]) { o.err(`${tag} BLOCKED: stage ${to} has no STAGE_SOURCES row naming its source; nothing ran`); return 2; }
@@ -2148,9 +2148,9 @@ async function bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs, onl
     // A stage that builds exactly one of them (the package stage builds the app's own workspace, the one holding its release config) pins
     // that workspace's target; the others are not built by it (HeardRight: tauri-app-next built, tauri-app-next/qa-e2e not).
     const only = Array.isArray(onlyWorkspaces) ? workspaces.filter((w) => onlyWorkspaces.includes(w)) : [];
-    if (workspaces.length > 1 && only.length === 1) return { env: { CARGO_TARGET_DIR: targetDirs[only[0]] }, note: `output directory for the Cargo workspace ${only[0]}: ${targetDirs[only[0]]} (the checkout's); this stage builds no other workspace (${workspaces.filter((w) => w !== only[0]).join(", ")})`, cleanup() {} };
+    if (workspaces.length > 1 && only.length === 1) return { targetDirs, env: { CARGO_TARGET_DIR: targetDirs[only[0]] }, note: `output directory for the Cargo workspace ${only[0]}: ${targetDirs[only[0]]} (the checkout's); this stage builds no other workspace (${workspaces.filter((w) => w !== only[0]).join(", ")})`, cleanup() {} };
     if (workspaces.length > 1) return { refusal: `the commit holds ${workspaces.length} Cargo workspaces (${workspaces.join(", ")}) and a direct Windows host has no per-call wrapper to bind each to its own target directory` };
-    return { env: { CARGO_TARGET_DIR: Object.values(targetDirs)[0] }, note: `output directory for the Cargo workspace: ${Object.values(targetDirs)[0]} (the checkout's)`, cleanup() {} };
+    return { targetDirs, env: { CARGO_TARGET_DIR: Object.values(targetDirs)[0] }, note: `output directory for the Cargo workspace: ${Object.values(targetDirs)[0]} (the checkout's)`, cleanup() {} };
   }
   const shimModule = await import("../cargo-target-shim.mjs");
   let broker = null; let realCargo = null;
@@ -2172,6 +2172,7 @@ async function bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs, onl
   const delta = Object.fromEntries(Object.entries(scan).filter(([k, v]) => o.env[k] !== v));
   const { CARRIED_CARGO_MAP_ENV } = await import("../carried-cargo.mjs");
   return {
+    targetDirs, // { [cargoDir]: the checkout's target directory } on a direct host (null per workspace on a broker host, whose carried receipt names the output directory)
     env: { ...delta, ...(installed.mode === "broker" ? { [CARRIED_CARGO_MAP_ENV]: installed.mapFile } : {}) }, note: `runtime cargo wrapper ${installed.shim} (${installed.mode}): each cargo call a unit stage reaches binds its workspace's checkout target directory or is refused`,
     // Every call the wrapper decided is in the gate-owned ledger: a refused or unverified call fails the stage even when the test ignored cargo's exit (7.10, decision C).
     check: async () => { const { readLedger, UNSCOPED } = await import("../cargo-ledger.mjs"); return readLedger(installed.ledgerDir, UNSCOPED).problems ?? []; },
@@ -2194,6 +2195,12 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
   const match = /^(?:npm:@rightkit\/([a-z0-9-]+)|cargo:(rightkit-[a-z0-9-]+))$/.exec(selector);
   const manifest = match && (match[1] ? `packages/${match[1]}/package.json` : `crates/${match[2]}/Cargo.toml`);
   if (!manifest) { o.err(`${tag} BLOCKED: unit needs npm:@rightkit/<name> or cargo:rightkit-<name>`); return 1; }
+  // `--to tool` (tool-build.mjs) builds and enrols one named tool binary; its unit and host are decided here, before ownership, a snapshot or any process.
+  const toolRun = option("--to") === "tool";
+  if (toolRun) {
+    const { toolPlan } = await import("../tool-build.mjs");
+    try { toolPlan({ selector, platform: o.platform }); } catch (e) { o.err(`${tag} BLOCKED: ${e.message}; nothing ran`); return 1; }
+  }
   const snap = await import("../snapshot.mjs");
   const { acquireBuildOwnership, ownershipFile } = await import("../build-ownership.mjs");
   let selected;
@@ -2225,7 +2232,7 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
     // A unit's test or pack that reaches Cargo must never write `target/` into the snapshot (npm units included): see bindUnitCargo.
     // A check starts no unit command: its own Class A path binds read-only Cargo calls. Resolving every unit's compile output
     // here would run unrelated metadata before the scoped check even begins.
-    const bound = option("--to") === "check" ? { env: {}, cleanup() {} } : await bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs: [path.posix.dirname(manifest)] });
+    const bound = option("--to") === "check" ? { env: {}, cleanup() {} } : await bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs: [path.posix.dirname(manifest)], ...(toolRun ? { onlyWorkspaces: [path.posix.dirname(manifest)] } : {}) });
     if (bound.refusal) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_OUTPUT_UNPINNED: ${bound.refusal}; nothing ran`); return 1; }
     if (bound.note) o.out(`${tag} ${bound.note}`);
     const envExtra = bound.env;
@@ -2235,17 +2242,27 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
     const reportOut = option("--receipt-out");
     const { runUnitGate, resolveUnit } = await import("../unit-gate.mjs");
     const { localBuildGrantedAt } = await import("../local-publish.mjs");
-    return await runUnitGate({ selector, to: option("--to"), root: ds.path, commonDir: path.resolve(root, text(common).trim()), commit: ds.commit, tree: ds.tree, executor, env: o.env, platform: o.platform, source, envExtra,
-      resolve: (sel, r) => resolveUnit(sel, r, { granted: () => localBuildGrantedAt(source) }),
-      ...(o.loadUnitOwner ? { loadOwner: o.loadUnitOwner } : {}),
-      ...(o.unitGateDeps ?? {}), // test seam: fetchReceipt, stageCommands, verifyReceipts, selfGit
-      stageGuard: { start: (stage) => openSnapshotStage({ o, ds, root, stage: `unit:${stage}`, tag }), end: async (stage) => {
+    const stageGuard = { start: (stage) => openSnapshotStage({ o, ds, root, stage: `unit:${stage}`, tag }), end: async (stage) => {
         if (!(await closeSnapshotStage({ o, ds, root, stage: `unit:${stage}`, step: `unit:${stage}`, tag })).ok) return false;
         const calls = bound.check ? await bound.check() : [];
         for (const p of calls.slice(0, 10)) o.err(`${tag} RK_CHECK_ERROR: [unit:${stage}] a cargo call the unit stage made did not complete: ${typeof p === "string" ? p : JSON.stringify(p)}`);
         return calls.length === 0;
-      } },
-      check: (tier) => (o.runCheck ?? (() => main(["check", "--commit", ds.commit, "--full-a", "--snapshot", ds.path, "--rule-tier", tier, "--scope", path.posix.dirname(manifest)], { ...io, cwd: root, buildOwnership: own })))(tier), out: o.out, err: o.err,
+      } };
+    const runCheck = (tier) => (o.runCheck ?? (() => main(["check", "--commit", ds.commit, "--full-a", "--snapshot", ds.path, "--rule-tier", tier, "--scope", path.posix.dirname(manifest)], { ...io, cwd: root, buildOwnership: own })))(tier);
+    if (toolRun) {
+      const { runUnitTool } = await import("../tool-build.mjs");
+      return await runUnitTool({ selector, root: ds.path, commonDir: path.resolve(root, text(common).trim()), commit: ds.commit, tree: ds.tree, executor, env: o.env, platform: o.platform, source, envExtra, targetDirs: bound.targetDirs ?? {},
+        resolve: (sel, r) => resolveUnit(sel, r, { granted: () => localBuildGrantedAt(source) }),
+        ...(o.toolBuildDeps ?? {}), // test seam: run, enroll, dataRoot, readKnownRed
+        stageGuard, check: runCheck, out: o.out, err: o.err,
+        ...(reportOut ? { writeReport: (report) => o.writeFile(path.resolve(o.cwd, reportOut), `${JSON.stringify(o.brokerException ? { ...report, brokerException: o.brokerException } : report, null, 2)}\n`) } : {}),
+      });
+    }
+    return await runUnitGate({ selector, to: option("--to"), root: ds.path, commonDir: path.resolve(root, text(common).trim()), commit: ds.commit, tree: ds.tree, executor, env: o.env, platform: o.platform, source, envExtra,
+      resolve: (sel, r) => resolveUnit(sel, r, { granted: () => localBuildGrantedAt(source) }),
+      ...(o.loadUnitOwner ? { loadOwner: o.loadUnitOwner } : {}),
+      ...(o.unitGateDeps ?? {}), // test seam: fetchReceipt, stageCommands, verifyReceipts, selfGit
+      stageGuard, check: runCheck, out: o.out, err: o.err,
       ...(reportOut ? { writeReport: (report) => o.writeFile(path.resolve(o.cwd, reportOut), `${JSON.stringify(o.brokerException ? { ...report, brokerException: o.brokerException } : report, null, 2)}\n`) } : {}),
     });
     } finally { bound.cleanup(); }

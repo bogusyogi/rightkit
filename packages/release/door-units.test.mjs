@@ -301,3 +301,63 @@ test("[B8/B9] `--to qualify --unit` on a broker host is the no-upload route: the
   assert.equal(refused.code, 1, refused.all);
   assert.match(refused.err, /local check of the qualification's signed broker receipts failed.*carries no signed snapshotEvidence/);
 });
+
+// ---- `--to tool --unit cargo:rightkit-qa` (tool-build.mjs): the door wiring --------------------------------------------------------------------
+
+test("[tool] --to tool refuses a unit with no tool route and a host that enrols no runner before ownership, a snapshot or any process", { skip: POSIX_SIM }, async (t) => {
+  const fx = unitFixture(t);
+  const other = await fx.door(["--to", "tool", "--unit", "cargo:rightkit-x", "--commit", fx.c1], { platform: "darwin", resolveExecutor: () => ({ kind: "direct" }), toolBuildDeps: { run: () => { throw new Error("must not run"); } } });
+  assert.equal(other.code, 1, other.all);
+  assert.match(other.err, /BLOCKED: RK_TOOL_UNIT_UNSUPPORTED: .*nothing ran/);
+  const linux = await fx.door(["--to", "tool", "--unit", "cargo:rightkit-qa", "--commit", fx.c1], { platform: "linux" });
+  assert.equal(linux.code, 1, linux.all);
+  assert.match(linux.err, /BLOCKED: RK_TOOL_HOST: .*nothing ran/);
+  assert.equal(fs.existsSync(fx.snaps), false, "no snapshot was synced");
+  assert.ok(!fx.spawned.some((c) => c[0] === "which"), "no executor was resolved");
+});
+
+test("[tool] --to tool --unit cargo:rightkit-qa on a direct Mac host: class A (compile tier), then the cargo build from the committed snapshot into the checkout target, then the enrolment of that binary", { skip: POSIX_SIM }, async (t) => {
+  const fx = unitFixture(t);
+  fx.write("crates/rightkit-qa/Cargo.toml", '[package]\nname = "rightkit-qa"\nversion = "0.10.0"\nedition = "2021"\nlicense = "MIT"\n'); fx.write("crates/rightkit-qa/src/lib.rs", "pub fn committed() {}\n");
+  git(fx.repo, "add", "crates/rightkit-qa"); git(fx.repo, "commit", "-qm", "qa");
+  const qaCommit = git(fx.repo, "rev-parse", "HEAD").stdout.trim();
+  const target = path.join(fx.dir, "checkout-target");
+  const tiers = []; const built = []; const enrolled = [];
+  const r = await fx.door(["--to", "tool", "--unit", "cargo:rightkit-qa", "--commit", qaCommit], {
+    platform: "darwin", resolveExecutor: () => ({ kind: "direct" }), runCheck: async (tier) => { tiers.push(tier); return 0; },
+    toolBuildDeps: {
+      readKnownRed: () => "{}", dataRoot: path.join(fx.dir, "data"),
+      run: async (argv, options) => {
+        built.push({ argv, cwd: options.cwd, targetDir: options.env.CARGO_TARGET_DIR, gateRun: Boolean(options.env.RK_GATE_RUN), shimFirst: String(options.env.PATH).includes("rk-cargo-shim-") });
+        fs.mkdirSync(path.join(target, "release"), { recursive: true }); fs.writeFileSync(path.join(target, "release", "rightkit-qa"), "bin", { mode: 0o755 });
+        return { status: 0, stdout: "", stderr: "" };
+      },
+      enroll: (a) => { enrolled.push(a); return { file: path.join(a.dataRoot, "record.json"), runnerFile: path.join(a.dataRoot, "runner"), entry: { sha256: createHash("sha256").update("bin").digest("hex"), version: a.version, path: "x" }, rotated: false }; },
+    },
+  });
+  assert.equal(r.code, 0, r.all);
+  assert.deepEqual(tiers, ["compile"]);
+  assert.equal(built.length, 1);
+  assert.deepEqual(built[0].argv, ["build", "--release", "--locked", "--bin", "rightkit-qa"]);
+  assert.equal(built[0].cwd, path.join(fx.snapshot(), "crates", "rightkit-qa"), "the build runs in the unit's directory of the commit's snapshot");
+  assert.equal(built[0].gateRun, true);
+  assert.equal(built[0].shimFirst, true, "the runtime cargo wrapper is on PATH for the build, as for every other unit compile");
+  assert.equal(enrolled.length, 1);
+  assert.deepEqual({ platform: enrolled[0].platform, version: enrolled[0].version, runner: enrolled[0].runner }, { platform: "mac", version: "0.10.0", runner: path.join(target, "release", "rightkit-qa") });
+  assert.match(r.all, /\[tool\] built .*rightkit-qa \(sha256 [0-9a-f]{64}\)/);
+  assert.match(r.all, /\[tool\] enrolled rightkit-qa 0\.10\.0 for mac: .* sha256 [0-9a-f]{64}/);
+  assert.match(r.all, /\[tool\] cargo:rightkit-qa passed/);
+});
+
+test("[tool] --to tool takes --no-broker like every unit stage (the exception is printed, then the tool route's own refusal applies); --to tool with no unit is not a stage", { skip: POSIX_SIM }, async (t) => {
+  const fx = unitFixture(t);
+  fx.write(".rightkit/broker-exceptions.json", JSON.stringify({ schema: 1, exceptions: [{ id: "ex-1", approvedBy: "Adrian", quote: "q", issue: "https://github.com/o/rk/issues/1", units: ["*"], hosts: ["mac", "dell"] }] }));
+  git(fx.repo, "add", ".rightkit"); git(fx.repo, "commit", "-qm", "exception");
+  const head = git(fx.repo, "rev-parse", "HEAD").stdout.trim();
+  const refused = await fx.door(["--to", "tool", "--unit", "cargo:rightkit-x", "--no-broker", "ex-1", "--commit", head], { platform: "darwin" });
+  assert.equal(refused.code, 1, refused.all);
+  assert.match(refused.all, /BROKER EXCEPTION exceptionId=ex-1 host=mac/);
+  assert.match(refused.err, /RK_TOOL_UNIT_UNSUPPORTED/);
+  const none = await fx.door(["--to", "tool"], { platform: "darwin" });
+  assert.notEqual(none.code, 0, none.all);
+});

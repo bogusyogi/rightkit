@@ -54,6 +54,8 @@ export const STAGE_SOURCES = Object.freeze({
   "unit:compile": { compiles: true, packages: false, source: "snapshot" },
   "unit:package": { compiles: true, packages: true, source: "snapshot" },
   "unit:qualify": { compiles: false, packages: false, source: "snapshot" },
+  // `--to tool --unit <selector>` (tool-build.mjs): builds one named tool binary from the commit's snapshot and enrols it; it packages and uploads nothing.
+  "unit:tool": { compiles: true, packages: false, source: "snapshot" },
   "unit:release": { compiles: false, packages: false, source: "publisher", basis: "a unit release is dispatched to the trusted publisher (releaseUnit); it compiles nothing here" },
 });
 

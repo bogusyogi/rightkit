@@ -91,14 +91,14 @@ function fixture(t, files, prefix = "rk-ds-") {
 // ---- 7.06: the stage table cannot drift --------------------------------------------------------------------------------------
 
 test("[7.06] every stage the gate dispatches has a row in STAGE_SOURCES, and none that compiles or packages lacks a snapshot source, an exclusion basis or a registered gap", () => {
-  const expected = [...STAGES, "dev", "test", "stage", ...STAGES.map((s) => `unit:${s}`)].sort();
+  const expected = [...STAGES, "dev", "test", "stage", ...STAGES.map((s) => `unit:${s}`), "unit:tool"].sort();
   assert.deepEqual(Object.keys(STAGE_SOURCES).sort(), expected, "the table names STAGES, dev, test, stage and every per-unit stage, and nothing else");
   assert.deepEqual(stageSourceProblems(), [], "no compiling or packaging stage without a source");
   // The two stages the contract excludes carry their stated basis, not a bare flag.
   for (const stage of ["release", "stage", "unit:release"]) assert.match(STAGE_SOURCES[stage].basis, /.{40}/, `${stage} states why it reads no snapshot`);
   // Row 7.06a closed the unit-stage gap: no stage compiles or packages from the checkout any more, and a new one fails here.
   assert.deepEqual(stageSourceGaps(), [], "a new stage that compiles from the checkout fails here");
-  for (const stage of ["compile", "dev", "test", "package", "qualify", "unit:check", "unit:compile", "unit:package", "unit:qualify"]) assert.equal(STAGE_SOURCES[stage].source, "snapshot", `${stage} reads the commit's snapshot`);
+  for (const stage of ["compile", "dev", "test", "package", "qualify", "unit:check", "unit:compile", "unit:package", "unit:qualify", "unit:tool"]) assert.equal(STAGE_SOURCES[stage].source, "snapshot", `${stage} reads the commit's snapshot`);
   // GB-86: implementation support and host acceptance are separate facts; the old `wired: false` conflated them and described a refusal that no code applies.
   for (const stage of ["package", "qualify"]) {
     assert.equal(STAGE_SOURCES[stage].implemented, true, `${stage}: the executable route exists and runs (door-package.test.mjs runs it)`);
