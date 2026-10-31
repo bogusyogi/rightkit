@@ -581,11 +581,26 @@ test("RA-21: after the workflow's frozen install, the run-qualified entries load
     assert.equal(pnpmVersion.stdout.trim(), "11.25.0", "the installed pnpm must be the version publish-direct.yml pins");
     const install = spawnSync("pnpm", ["install", "--filter", "rightkit-shared", "--filter", "@rightkit/release...", "--frozen-lockfile", "--ignore-scripts"], { cwd: dir, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
     assert.equal(install.status, 0, `the workflow's install fails in the sparse tree:\n${install.stderr.split("\n").slice(-12).join("\n")}`);
-    for (const entry of RA21_ENTRIES) {
-      const probe = spawnSync(process.execPath, ["--input-type=module", "-e", "await import(process.env.RA21_ENTRY)"], { cwd: dir, env: { PATH: process.env.PATH ?? "", RA21_ENTRY: `file://${path.join(dir, entry)}` }, encoding: "utf8" });
-      assert.equal(probe.status, 0, `${entry} does not load after the install:\n${probe.stderr.split("\n").slice(0, 6).join("\n")}`);
-    }
+    // Every module of the static closure is evaluated, not only the entries: a file a module reads while it loads must be in the tree.
+    const modules = ra21StaticClosure().map((file) => `file://${path.join(dir, file)}`);
+    const probe = spawnSync(process.execPath, ["--input-type=module", "-e", "const urls = JSON.parse(process.env.RA21_MODULES); for (const url of urls) { try { await import(url); } catch (error) { process.stderr.write(url + '\\n'); throw error; } }"], { cwd: dir, env: { PATH: process.env.PATH ?? "", RA21_MODULES: JSON.stringify(modules) }, encoding: "utf8" });
+    assert.equal(probe.status, 0, `a closure module does not load after the install:\n${probe.stderr.split("\n").slice(0, 8).join("\n")}`);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("RA-21: every file a closure module reads at load time is in the sparse list", () => {
+  // A top-level `const X = readFileSync(new URL("./NAME", import.meta.url), ...)` runs while the module evaluates; NAME must be listed.
+  const topLevelData = /^(?:export )?const \w+ = (?:JSON\.parse\()?readFileSync\(\s*new URL\(\s*["']\.\/([^"']+)["'],\s*import\.meta\.url\s*\)/gm;
+  const listed = new Set(ra21SparseList());
+  const missing = [];
+  for (const file of ra21StaticClosure()) {
+    const text = fs.readFileSync(path.join(RA21_REPO, file), "utf8");
+    for (const match of text.matchAll(topLevelData)) {
+      const data = path.posix.join(path.posix.dirname(file), match[1]);
+      if (!listed.has(data)) missing.push(`${file} reads ${data} at load`);
+    }
+  }
+  assert.deepEqual(missing, [], "the sparse checkout omits files a closure module reads at load time");
 });

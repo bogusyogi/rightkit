@@ -129,6 +129,7 @@ jobs:
             packages/release/release-checks.mjs
             packages/release/release-source-brand.mjs
             packages/release/release-state.mjs
+            packages/release/release-switch-registry.json
             packages/release/rightkit-registry-resolver.mjs
             packages/release/rightkit-signing-agent.mjs
             packages/release/rightkit-sync.mjs
