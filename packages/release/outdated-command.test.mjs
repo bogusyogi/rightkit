@@ -4,7 +4,7 @@
 // @rightkit/release alone. The refusal for a stale pin therefore names `pnpm exec right-release update run`; these tests build the
 // installed layouts (npm-flat and pnpm virtual store) around the real CLI and prove the updater's bin is found and run from there.
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -27,8 +27,20 @@ const tempDir = (t) => {
 };
 const write = (file, text) => { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, text); };
 
-// The files of this package the CLI needs to run `update`: the CLI, its three small imports and the command module.
-const CLI_FILES = ["cli/right-release.mjs", "execution-policy.mjs", "host-upload-refusal.mjs", "background-process.mjs", "outdated-command.mjs", "app-check.mjs", "legion-semantic-contracts.mjs", "consumer-policy.mjs", "consumer-contracts.mjs", "consumer-contracts.json", "ownership-class-rules.mjs", "source-closure-rules.mjs", "shell-contract.mjs", "suite-trust-roots.mjs", "suite-api.generated.mjs", "consumer-input-contracts.mjs", "consumer-source-contracts.mjs", "workflow-yaml.mjs", "source-split.mjs", "gate-stages.mjs"];
+// The files of this package the CLI needs to run `update`: the CLI and every module it reaches. The set is the CLI's own relative-import closure (static `from "./x.mjs"` and
+// `import("./x.mjs")` specifiers), read from the sources, so a module the CLI starts importing is installed here too instead of failing this layout with ERR_MODULE_NOT_FOUND.
+function cliFiles() {
+  const seen = new Set(); const queue = ["cli/right-release.mjs"];
+  while (queue.length) {
+    const file = queue.pop();
+    if (seen.has(file)) continue;
+    seen.add(file);
+    const source = readFileSync(path.join(here, file), "utf8");
+    for (const m of source.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|^\s*import\s+)["'](\.{1,2}\/[^"']+)["']/gm)) queue.push(path.posix.normalize(path.posix.join(path.posix.dirname(file), m[1])));
+  }
+  return [...seen].filter((file) => /\.(mjs|js|json)$/.test(file));
+}
+const CLI_FILES = cliFiles();
 function installRelease(dir) {
   for (const file of CLI_FILES) { mkdirSync(path.dirname(path.join(dir, file)), { recursive: true }); cpSync(path.join(here, file), path.join(dir, file)); }
   write(path.join(dir, "package.json"), JSON.stringify({ name: "@rightkit/release", version: "9.9.9", type: "module", bin: { "right-release": "cli/right-release.mjs" } }));
