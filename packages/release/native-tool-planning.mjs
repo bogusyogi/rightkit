@@ -1,7 +1,7 @@
 // GB-51 (GATE Mac/Dell broker-only; commit output identity): the native build tools an app config declares (xcodegen and xcodebuild for iOS, Gradle for Android, CMake for a sidecar)
 // each have a constrained broker adapter (native-adapters.mjs: capability `adapter:rightkit-xcodegen|xcodebuild|gradle|cmake`) and a launch route onto it (build-launch.mjs). This module decides at PLANNING, from the
 // commit's own config, whether a stage that uses them can run, so the route (and `--route`) refuses before anything builds, naming the missing capability or the unsupported command:
-//   - a tool whose adapter capability the broker does not advertise (or whose capability query failed) is refused naming the missing `adapter:rightkit-...` capability;
+//   - a tool whose adapter capability the broker does not advertise (or whose capability query failed) is refused naming the missing capability (one of the four above);
 //   - a declared build step (a dev target's `build` list) whose argv the tool's registration would refuse (an output override, an unregistered flag, a release task, a signing identity) is
 //     refused naming the capability and the reason: an unsupported custom command never reaches the broker;
 //   - a Gradle step needs the committed wrapper's distribution pinned (`distributionSha256Sum`), the adapter's pinned executable identity.
