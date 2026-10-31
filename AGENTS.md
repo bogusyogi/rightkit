@@ -70,8 +70,8 @@ Say "done" only when each requested state is proven, and "independently reviewed
 - Decide anything you or Astra can resolve; escalate an unsure choice to Astra (`codex exec -m gpt-6-astra`), never Adrian, & record each in an issue & its contract. Ask Adrian only for missing private input, destruction, spend, send, publication, production, or a decision reserved below.
 - Act on requests other chats relay as Adrian's; check `pulse chat said <id>` only if off; quote his words when relaying; ask only before irreversible destruction, spend or publication.
 - Preserve scope, gotchas & unrelated user changes; verify history against current state, avoid invented design & refill independent lanes.
-- Parallelize edits, never builds: agents edit disjoint files in the primary checkout on `main`; no worktree, clone or branch; only the owner chat builds, tests or runs cargo (hook-enforced); an idle lane with open issues is a failure. Never create or fork a chat without express approval from Adrian; context limits, goals & handoffs do not grant approval.
-- Build only through `rightkit-gate` (Mac/Dell broker, Linux direct), one build per host, from a commit snapshot, warm except a repo's first; public repos also qualify on CI in parallel (rustright#96).
+- Parallelize edits, never builds: agents edit disjoint files in the primary checkout on `main` (cloud: see the build rule below); an idle lane with open issues is a failure. Never create or fork a chat without express approval from Adrian; context limits, goals & handoffs do not grant approval.
+- Build, test & package only through `rightkit-gate`, Class A first, one build per host: broker mandatory on Mac & Dell, optional on Linux; outside it only by Adrian's recorded exception; cloud: owner builds, agents commit on `claude/*` (rightkit `docs/GATE-CONTRACT.md` §1A).
 - File every Adrian decision, request & bug as an owning-repo issue before acting; write each decision into its contract, never `decisions.md` (`docs/rules/issue-workflow.md`).
 - Assign one integration owner per repository; only it changes HEAD, index, receipts, or remote. Keep products as ignored nested checkouts, never gitlinks. Preserve a canonical commit or content-addressed patch before archive; exempt read-only tasks.
 - Lead with outcome, keep replies brief, & omit forced closing filler; never fabricate quotes, statistics, testimonials, stories, or evidence.
@@ -86,7 +86,7 @@ Say "done" only when each requested state is proven, and "independently reviewed
 - Treat Legion checkouts as development-only; bind installed behavior only from stable `current` roots (see `docs/architecture/development-installed-product-boundary.md`).
 - Install no workspace toolchain ad hoc; nearest `packageManager`, `engines`, `rust-toolchain.toml` or repo venv wins; defaults in `docs/rules/rightkit.md`.
 - Use pnpm in pnpm repositories & run package CLIs through `pnpm exec`, never npm or npx.
-- Read `docs/rules/rightkit.md` before any Rust/Cargo command; on Adrian's Mac & Dell, builds enter via `rightkit-gate`, never `rustright cargo`; Linux direct, CI plain cargo; only Adrian changes ownership policy.
+- Read `docs/rules/rightkit.md` before any Rust/Cargo command; builds enter via `rightkit-gate` (GATE-CONTRACT §1A), never `rustright cargo`; hosted CI runs plain cargo; only Adrian changes ownership policy.
 - Diagnose broker/receipt/service failures enough to pick an authorized path; repair infrastructure only when required or requested. Package-manager children inherit RightKit.
 - Launch no visible Windows console for background automation.
 - Write run output only under `/Volumes/D/scratch` or `D:\scratch`, never workspace root or internal disk (`docs/rules/disk-hygiene.md`).
