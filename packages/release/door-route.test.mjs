@@ -12,7 +12,11 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
-import { REQUIRED_BROKER_CAPABILITIES, ROUTE_REFUSAL_CODES, ROUTE_SCHEMA, brokerCapabilityState, main, productionEntryDeps, queryBrokerCapabilities, routePlan } from "./bin/rightkit-gate.mjs";
+import { REQUIRED_BROKER_CAPABILITIES, ROUTE_REFUSAL_CODES, ROUTE_SCHEMA, brokerCapabilityState, main, productionEntryDeps, queryBrokerCapabilities, quietLeaseLane, routePlan, snapshotRouteRefusal } from "./bin/rightkit-gate.mjs";
+import net from "node:net";
+import { resolveExecutor as realResolveExecutor } from "./gate-executor.mjs";
+import { createHash } from "node:crypto";
+import { LINUX_BROKER_CLIENT_ENV, LINUX_BROKER_CLIENT_SHA256_ENV, LINUX_BROKER_SOCKET_ENV } from "./managed-cargo.mjs";
 import { compareCells } from "../../scripts/ci/rk-release-canary.mjs";
 import { parseRoute, routeStagesFor, runRouteProbe } from "../../scripts/ci/rk-release-canary-leg.mjs";
 import { PRODUCTION_SNAPSHOT_CARRIER } from "./snapshot-broker.mjs";
@@ -431,4 +435,84 @@ test("[GB-appscope] the app scope is the SELECTED COMMIT's committed config inve
   assert.deepEqual([...dirs], ["apps/one"]);
   assert.deepEqual(appRootOf({ root, cwd: at("apps/one/src"), exists: () => { throw new Error("the checkout is not asked"); }, configDirs: dirs }), { appRoot: at("apps/one"), appDir: "apps/one" });
   assert.match(committedConfigDirs({ git: (...a) => git(root, ...a), commit: "f".repeat(40) }).refusal, /cannot list the files/);
+});
+
+
+// ---- the optional Linux broker route (rightkit#1317: Linux needs no broker, but a broker is allowed on Linux) ---------------------------
+// The real executor and the real production entry decide; the client file and the listening unix socket are real files on disk, and no test here
+// starts a compile. Whether a real installed broker then compiles the real HeardRight tree is the box's acceptance, not this file's.
+
+async function declaredLinuxBroker(t) {
+  const dir = tmp(t, "rk-linux-route-");
+  const socket = path.join(dir, "broker.sock");
+  const server = net.createServer();
+  await new Promise((resolve, reject) => { server.once("error", reject); server.listen(socket, resolve); });
+  t.after(() => server.close());
+  const client = path.join(dir, "rustright");
+  fs.writeFileSync(client, "#!/bin/sh\nexit 1\n"); fs.chmodSync(client, 0o755);
+  const pin = createHash("sha256").update("#!/bin/sh\nexit 1\n").digest("hex");
+  return { dir, client, socket, env: { [LINUX_BROKER_CLIENT_ENV]: client, [LINUX_BROKER_SOCKET_ENV]: socket, [LINUX_BROKER_CLIENT_SHA256_ENV]: pin } };
+}
+
+test("productionEntryDeps hands a declared Linux broker the production carrier (valid or not, so nothing is left to compile direct); an undeclared Linux gets none even with RustRight on PATH", async (t) => {
+  const host = await declaredLinuxBroker(t);
+  assert.deepEqual(await productionEntryDeps({ platform: "linux", env: host.env }), { snapshotBroker: PRODUCTION_SNAPSHOT_CARRIER });
+  assert.deepEqual(await productionEntryDeps({ platform: "linux", env: { [LINUX_BROKER_CLIENT_ENV]: "/not/installed/rustright" } }), { snapshotBroker: PRODUCTION_SNAPSHOT_CARRIER }, "an invalid declaration still has the carrier; the executor refuses it");
+  assert.deepEqual(await productionEntryDeps({ platform: "linux", env: { PATH: `${path.dirname(host.client)}:/usr/bin`, RUSTRIGHT_BUILD_BROKER_SOCKET: host.socket } }), {}, "PATH and the older socket variable declare nothing");
+  assert.deepEqual(await productionEntryDeps({ platform: "linux", env: {} }), {});
+});
+
+test("routePlan on Linux with the real executor: undeclared is direct; a valid declaration takes the broker with the carrier; a stopped or invalid one refuses and never compiles direct", async (t) => {
+  const host = await declaredLinuxBroker(t);
+  const inputs = (env, over = {}) => ({ platform: "linux", env, spawn: () => ({ status: 1 }), exists: () => false, readFile: () => "", resolveExecutor: realResolveExecutor, snapshotBroker: PRODUCTION_SNAPSHOT_CARRIER, ...over });
+  const decide = (env, to = "compile", capabilities = OK_CAPS()) => {
+    const o = inputs(env);
+    const executor = realResolveExecutor({ env, platform: "linux", exists: o.exists, which: () => [], readFile: o.readFile });
+    return { executor, plan: routePlan(o, { to, stages: to === "check" ? ["check"] : ["check", to], devTest: false, executor, capabilities }) };
+  };
+  const direct = decide({ PATH: "/usr/bin" });
+  assert.deepEqual([direct.executor.kind, direct.plan.refusal], ["direct", null]);
+  const ok = decide(host.env);
+  assert.deepEqual([ok.executor.kind, ok.executor.route, ok.plan.refusal], ["broker", "linux-broker", null]);
+  // A declared broker that does not advertise what the carried stages need is refused, never routed direct.
+  assert.equal(decide(host.env, "compile", { ok: true, capabilities: [] }).plan.refusal.code, "RK_BROKER_CAPABILITY_MISSING");
+  assert.equal(decide(host.env, "compile", { ok: false, problem: "unreachable" }).plan.refusal.code, "RK_BROKER_CAPABILITY_MISSING");
+  // The broker is stopped (its socket is gone) or the declaration is wrong: refused on every stage, by the executor's own problem.
+  const { [LINUX_BROKER_CLIENT_SHA256_ENV]: _pin, ...unpinned } = host.env; void _pin;
+  for (const env of [{ ...host.env, [LINUX_BROKER_SOCKET_ENV]: path.join(host.dir, "stopped.sock") }, { [LINUX_BROKER_CLIENT_ENV]: host.client }, unpinned, { ...host.env, [LINUX_BROKER_CLIENT_SHA256_ENV]: "0".repeat(64) }]) {
+    assert.equal(decide(env).plan.refusal.code, "RK_SNAPSHOT_BROKER_UNAVAILABLE");
+    assert.match(decide(env).plan.refusal.message, /RK_LINUX_BROKER_UNAVAILABLE/);
+    assert.equal(decide(env, "check").plan.refusal.code, "RK_BROKER_UNAVAILABLE");
+    assert.match(snapshotRouteRefusal(inputs(env)).message, /never runs direct around a declared broker/);
+  }
+  // A declared broker with a gate started without its carrier is refused as on the Mac and Dell, never compiled direct.
+  assert.equal(routePlan(inputs(host.env, { snapshotBroker: undefined }), { to: "compile", stages: ["check", "compile"], devTest: false, executor: realResolveExecutor({ env: host.env, platform: "linux", exists: () => false, which: () => [], readFile: () => "" }) }).refusal.code, "RK_SNAPSHOT_CARRIER_NOT_WIRED");
+});
+
+test("--route on Linux through the real entry's deps and the real executor reports the broker executor and carrier for a declaration, and direct without one", async (t) => {
+  const host = await declaredLinuxBroker(t);
+  const fx = fixture(t);
+  const probe = async (env) => fx.run(["--to", "compile", "--route"], { platform: "linux", env: { ...fx.env, ...env }, resolveExecutor: realResolveExecutor, brokerCapabilities: OK_CAPS, ...(await productionEntryDeps({ platform: "linux", env })) });
+  const declared = await probe(host.env);
+  assert.deepEqual([declared.code, declared.json.executor, declared.json.carrier, declared.json.route, declared.json.refusal], [0, "broker", "production", "snapshot", null]);
+  const undeclared = await probe({});
+  assert.deepEqual([undeclared.code, undeclared.json.executor, undeclared.json.carrier, undeclared.json.refusal], [0, "direct", null, null]);
+  const stopped = await probe({ ...host.env, [LINUX_BROKER_SOCKET_ENV]: path.join(host.dir, "stopped.sock") });
+  assert.equal(stopped.json.refusal.code, "RK_SNAPSHOT_BROKER_UNAVAILABLE");
+});
+
+test("the quiet-lease lane takes its lease from a declared Linux broker's own client and endpoint, and takes none on direct Linux", async (t) => {
+  const host = await declaredLinuxBroker(t);
+  const executor = realResolveExecutor({ env: host.env, platform: "linux", exists: () => false, which: () => [], readFile: () => "" });
+  const calls = [];
+  const spawn = (c, a, opts) => { calls.push({ command: c, args: a, socket: opts?.env?.RUSTRIGHT_BUILD_BROKER_SOCKET }); return { status: 1, stdout: "", stderr: "refused" }; };
+  const base = { platform: "linux", env: { ...host.env }, spawn, out: () => {}, readFile: () => "" };
+  assert.equal(await quietLeaseLane(base, { executor }).acquire(), null, "a refused lease is no lease");
+  const lease = calls.find((c) => c.args?.includes("quiet"));
+  assert.ok(lease, "the lease was asked of the broker");
+  assert.equal(lease.command, host.client, "the declared client, not a PATH `rustright`");
+  assert.equal(lease.socket, host.socket);
+  calls.length = 0;
+  assert.equal(await quietLeaseLane({ ...base, env: {} }, { executor: { kind: "direct", cargo: ["cargo"] } }).acquire(), null);
+  assert.deepEqual(calls, [], "direct Linux asks no broker for anything");
 });

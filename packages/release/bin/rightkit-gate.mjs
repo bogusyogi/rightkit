@@ -79,7 +79,7 @@ import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
 import { SIGNING_REFUSAL_CODES, suiteSigningRefusals } from "../suite-signing-policy.mjs";
 import { gitListRustFiles } from "../signing-files.mjs";
-import { directPlatform } from "../managed-cargo.mjs";
+import { LINUX_BROKER_ROUTE, directPlatform, linuxBrokerDeclared } from "../managed-cargo.mjs";
 import { bindingOf, compileOutputsRecord, compileReuseProblem, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, STAGE_SOURCES, writeReceipt } from "../gate-stages.mjs";
 import { spawnSync as spawnInherit } from "../background-process.mjs";
 import { readDiskPolicy, scratchRoots } from "../disk-policy.mjs";
@@ -1065,7 +1065,9 @@ export const QUIET_LEASE_WAIT_DRAIN_MS = 2 * 60 * 1000;
  * Without `rustright` on PATH, or when the broker refuses, the lane runs without a lease and the gate says so: the tests still run,
  * their verdict is simply taken on a possibly busy host. `o.spawn` is the gate's synchronous spawner.
  */
-export function quietLeaseLane(o, { tag = "rightkit-gate:", reason = "rightkit-gate-quiet-tests", ttlMs: baseTtlMs = QUIET_LEASE_TTL_MS, waitDrainMs = QUIET_LEASE_WAIT_DRAIN_MS, pid = process.pid } = {}) {
+export function quietLeaseLane(o, { tag = "rightkit-gate:", reason = "rightkit-gate-quiet-tests", ttlMs: baseTtlMs = QUIET_LEASE_TTL_MS, waitDrainMs = QUIET_LEASE_WAIT_DRAIN_MS, pid = process.pid, executor = null } = {}) {
+  // The declared Linux broker route (managed-cargo.mjs): its validated client and endpoint, never a PATH lookup.
+  const linuxRoute = executor?.route === LINUX_BROKER_ROUTE && executor.kind === "broker" ? executor : null;
   const which = (cmd) => {
     const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]);
     return failed(r) ? null : (text(r).split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? null);
@@ -1074,6 +1076,7 @@ export function quietLeaseLane(o, { tag = "rightkit-gate:", reason = "rightkit-g
   // spawn, so its target .exe is read from the shim and started directly, without a shell.
   const clientCall = (client, args) => {
     const platform = o.platform ?? process.platform;
+    if (linuxRoute) return spawnBrokerClient(o.spawn, linuxRoute.client, args, { env: { ...o.env, ...linuxRoute.env } }, { platform, readFile: o.readFile });
     return spawnBrokerClient(o.spawn, platform === "win32" ? client : "rustright", args, {}, { platform, readFile: o.readFile });
   };
   return {
@@ -1081,9 +1084,9 @@ export function quietLeaseLane(o, { tag = "rightkit-gate:", reason = "rightkit-g
     // expire while a quiet suite still runs (each scan is killed at its timeout first).
     acquire: async (want = {}) => {
       const ttlMs = Number.isFinite(want.ttlMs) && want.ttlMs > baseTtlMs ? want.ttlMs : baseTtlMs;
-      // A direct (Linux) host never takes a broker lease, whatever is on PATH (managed-cargo directPlatform).
-      if (directPlatform(o.platform ?? process.platform)) { o.out(`${tag} note: direct host (no broker on ${o.platform ?? process.platform}); quiet test scans run without a broker lease`); return null; }
-      const client = which("rustright");
+      // A direct (Linux) host never takes a broker lease, whatever is on PATH (managed-cargo directPlatform); a declared Linux broker route does.
+      if (directPlatform(o.platform ?? process.platform) && !linuxRoute) { o.out(`${tag} note: direct host (no broker on ${o.platform ?? process.platform}); quiet test scans run without a broker lease`); return null; }
+      const client = linuxRoute ? linuxRoute.client : which("rustright");
       if (!client) { o.out(`${tag} note: no rustright on PATH; quiet test scans run without a broker lease`); return null; }
       const started = Date.now();
       const r = clientCall(client, ["quiet", "acquire", "--ttl-ms", String(ttlMs), "--reason", reason, "--wait-drain-ms", String(waitDrainMs), "--holder-pid", String(pid), "--json"]);
@@ -1096,7 +1099,7 @@ export function quietLeaseLane(o, { tag = "rightkit-gate:", reason = "rightkit-g
       return { id, env: { RUSTRIGHT_QUIET_LEASE: id }, at: Date.now() };
     },
     release: async (id) => {
-      const r = clientCall(which("rustright") ?? "rustright", ["quiet", "release", String(id)]);
+      const r = clientCall(linuxRoute ? linuxRoute.client : (which("rustright") ?? "rustright"), ["quiet", "release", String(id)]);
       if (failed(r)) o.out(`${tag} note: broker quiet lease ${id} release failed (${(why(r) || `exit ${r?.status}`).slice(0, 200)}); it expires on its own`);
       else o.out(`${tag} broker quiet lease ${id} released`);
     },
@@ -1326,7 +1329,7 @@ async function runStages(o, args, root, git, io) {
   }
   const binding = bindingOf({
     tree, lockFiles, gateFile: fileURLToPath(import.meta.url), executor: executor.kind,
-    toolchain: { classA: { "cargo-deny": version("cargo-deny", ["--version"]), "cargo-audit": version("cargo-audit", ["--version"]), actionlint: version("actionlint", ["-version"]), shellcheck: version("shellcheck", ["--version"]) }, node: process.version, rustc: version(executor.kind === "broker" && executor.cargo[0] === "rustright" ? "rustright" : "rustc", executor.kind === "broker" && executor.cargo[0] === "rustright" ? ["rustc", "-V"] : ["-V"]), pnpm: version("pnpm", ["--version"]) },
+    toolchain: { classA: { "cargo-deny": version("cargo-deny", ["--version"]), "cargo-audit": version("cargo-audit", ["--version"]), actionlint: version("actionlint", ["-version"]), shellcheck: version("shellcheck", ["--version"]) }, node: process.version, rustc: version(executor.kind === "broker" && executor.cargo.length > 1 ? executor.cargo[0] : "rustc", executor.kind === "broker" && executor.cargo.length > 1 ? ["rustc", "-V"] : ["-V"]), pnpm: version("pnpm", ["--version"]) },
   });
   // Release writes to R2. The write credential lives only in the trusted publisher: a GitHub Actions job in the protected
   // publication environment, which sets RIGHTKIT_PUBLISHER=github-environment. Hosts and agents never hold it, so the door refuses the
@@ -1836,7 +1839,7 @@ async function bindUnitCargo({ o, git, root, ds, executor, which }) {
   if (executor.kind === "broker") {
     if (!o.snapshotBroker) return { refusal: "a broker host reaches Cargo from a unit stage only through the snapshot carrier (deps.snapshotBroker), which this gate was started without" };
     let sb;
-    try { sb = await carrierBroker({ o, root, ds, which }); } catch (error) { return { refusal: `the snapshot carrier cannot be built (${error.code ?? "error"}: ${error.message})` }; }
+    try { sb = await carrierBroker({ o, root, ds, executor, which }); } catch (error) { return { refusal: `the snapshot carrier cannot be built (${error.code ?? "error"}: ${error.message})` }; }
     // Installing the carrier map sends nothing: the ownership records each carried request's sub-handle just before it is sent (snapshot-broker.mjs).
     const { brokerSection } = await import("../snapshot-broker.mjs");
     broker = { checkoutDirs: Object.fromEntries(workspaces.map((w) => [w, path.join(checkoutReal, ...(w === "." ? [] : w.split("/")))])), section: (o.brokerSection ?? brokerSection)(sb) };
@@ -1992,10 +1995,10 @@ export const REQUIRED_BROKER_CAPABILITIES = Object.freeze(["snapshot-readonly-v1
  * A missing client, a client that cannot run, a hung (20 s), unparsable or field-less answer is `ok: false`, which the route refuses (fail
  * closed). A doctor that reports an unhealthy host still prints its JSON: the field decides, not the exit status.
  */
-export function queryBrokerCapabilities(o) {
-  const client = whichIn(o)("rustright").find((c) => path.isAbsolute(c));
+export function queryBrokerCapabilities(o, { executor = null } = {}) {
+  const client = brokerClientOf(o, executor);
   if (!client) return { ok: false, problem: "the RustRight client is not on PATH" };
-  const r = spawnBrokerClient(o.spawn, client, ["doctor", "--json"], { env: o.env, encoding: "utf8", timeout: 20_000, windowsHide: true }, { platform: o.platform ?? process.platform, readFile: o.readFile });
+  const r = spawnBrokerClient(o.spawn, client, ["doctor", "--json"], { env: brokerEnvOf(o, executor), encoding: "utf8", timeout: 20_000, windowsHide: true }, { platform: o.platform ?? process.platform, readFile: o.readFile });
   if (r?.error || r?.status === null || r?.status === undefined) return { ok: false, problem: `\`rustright doctor --json\` did not finish: ${why(r)}` };
   let doc;
   try { doc = JSON.parse(text(r)); } catch { return { ok: false, problem: `\`rustright doctor --json\` printed no JSON${r.status ? ` (exit ${r.status})` : ""}` }; }
@@ -2016,7 +2019,7 @@ export function queryBrokerCapabilities(o) {
 export function brokerCapabilityState(o, { to, executor }) {
   if (executor?.kind !== "broker" || to === "check" || o.env.GITHUB_ACTIONS === "true") return null;
   if (typeof o.brokerCapabilities === "function") return o.brokerCapabilities(o);
-  return typeof o.snapshotBroker?.create === "function" ? queryBrokerCapabilities(o) : null;
+  return typeof o.snapshotBroker?.create === "function" ? queryBrokerCapabilities(o, { executor }) : null;
 }
 
 /**
@@ -2031,7 +2034,7 @@ export async function brokerCapabilityStateWithHandshake(o, { to, executor }) {
   if (!injected && typeof o.brokerCapabilities === "function") return doctor;
   let handshake;
   try {
-    handshake = injected ? await o.brokerHandshake(o) : await queryBrokerHandshake(o, { client: whichIn(o)("rustright").find((c) => path.isAbsolute(c)) });
+    handshake = injected ? await o.brokerHandshake(o) : await queryBrokerHandshake({ ...o, env: brokerEnvOf(o, executor) }, { client: brokerClientOf(o, executor) });
   } catch (error) { handshake = { ok: false, problem: `the broker's HANDSHAKE could not be read (${error?.message ?? error})` }; }
   return mergeCapabilityViews({ doctor, handshake });
 }
@@ -2171,6 +2174,10 @@ export function carriedEnv(carrier, base, extra = {}) {
   return { ...strip(base), ...carrier.env, ...strip(extra) };
 }
 
+/** The RustRight client this executor drives: the declared Linux route's validated client, else the absolute `rustright` on PATH (Mac, Dell). */
+const brokerClientOf = (o, executor) => (executor?.route === LINUX_BROKER_ROUTE && executor.kind === "broker" ? executor.client : whichIn(o)("rustright").find((c) => path.isAbsolute(c)));
+/** The environment the client runs in: the gate's, plus the endpoint the executor declared (the declared Linux route's socket). */
+const brokerEnvOf = (o, executor) => (executor?.route === LINUX_BROKER_ROUTE && executor.env ? { ...o.env, ...executor.env } : o.env);
 const whichIn = (o) => (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
 
 /**
@@ -2178,14 +2185,14 @@ const whichIn = (o) => (cmd) => { const r = o.spawn(o.platform === "win32" ? "wh
  * builds the broker once: the host's enrolled pins, the declared inputs read from the snapshot, the build ownership and the RustRight
  * client) or, in a test, a ready broker object. Built once per door run.
  */
-async function carrierBroker({ o, root, ds, which = whichIn(o) }) {
+async function carrierBroker({ o, root, ds, executor = null, which = whichIn(o) }) {
   if (ds.carrierBroker) return ds.carrierBroker;
   const carrier = o.snapshotBroker;
   let sb = carrier;
   if (typeof carrier?.create === "function") {
-    const client = which("rustright").find((c) => path.isAbsolute(c));
+    const client = executor?.route === LINUX_BROKER_ROUTE && executor.kind === "broker" ? executor.client : which("rustright").find((c) => path.isAbsolute(c));
     const { brokerLeaseState } = await import("../build-ownership.mjs");
-    sb = carrier.create({ lease: brokerLeaseState, env: o.env, platform: o.platform, checkout: root, commit: { sha: ds.commit, tree: ds.tree }, snapshot: { path: ds.path, expectedTree: ds.tree }, ownership: ds.own, client, gateFile: callingGatePath(), spawn: o.spawn });
+    sb = carrier.create({ lease: brokerLeaseState, env: brokerEnvOf(o, executor), platform: o.platform, checkout: root, commit: { sha: ds.commit, tree: ds.tree }, snapshot: { path: ds.path, expectedTree: ds.tree }, ownership: ds.own, client, gateFile: callingGatePath(), spawn: o.spawn });
   }
   ds.carrierBroker = sb;
   return sb;
@@ -2223,7 +2230,7 @@ async function carrierForChildren({ o, ds, root, git, executor, stage, tag = "ri
     if (!git) throw new Error("the gate's git reader is missing");
     const carried = await import("../carried-cargo.mjs");
     const { brokerSection } = await import("../snapshot-broker.mjs");
-    const sb = await carrierBroker({ o, root, ds });
+    const sb = await carrierBroker({ o, root, ds, executor });
     // Installing the carrier map sends nothing, so it records nothing: the child's own uncarried probes (`rustc -vV`, `--version`) never
     // reach the broker under a snapshot, and each carried request records its sub-handle just before it is sent (snapshot-broker.mjs).
     const checkoutDirs = await snapshotCargoWorkspaces({ git, ds, root });
@@ -2885,7 +2892,7 @@ export async function main(argv, io = {}) {
           if (o.snapshotBroker && typeof o.snapshotBroker.create !== "function") discoveryBroker = o.snapshotBroker; // a fixture broker (tests)
           else {
             const sc = snapshotCommitOf();
-            discoveryBroker = createSnapshotBroker({ env: o.env, platform: o.platform, checkout: root, commit: { sha: sc.commit, tree: sc.tree }, snapshot: { path: repo, expectedTree: sc.tree }, ownership: o.buildOwnership, client: which("rustright").find((c) => path.isAbsolute(c)), gateFile: callingGatePath(), spawn: o.spawn });
+            discoveryBroker = createSnapshotBroker({ env: o.env, platform: o.platform, checkout: root, commit: { sha: sc.commit, tree: sc.tree }, snapshot: { path: repo, expectedTree: sc.tree }, ownership: o.buildOwnership, client: executor.route === LINUX_BROKER_ROUTE ? executor.client : which("rustright").find((c) => path.isAbsolute(c)), gateFile: callingGatePath(), spawn: o.spawn });
           }
         } catch (error) { o.err(`${tag} BLOCKED: ${error.code ?? "RK_SNAPSHOT_BROKER"}: ${error.message}; nothing compiled`); return 1; }
         snapshotSpawn = snapshotCargoSpawn({ spawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, snapshotRoot: repo, env: o.env, err: o.err, broker: () => discoveryBroker });
@@ -2936,7 +2943,7 @@ export async function main(argv, io = {}) {
       if (executor.kind === "broker" && manifests.length) {
         try {
           const { createSnapshotBroker } = await import("../snapshot-broker.mjs");
-          const client = which("rustright").find((c) => path.isAbsolute(c));
+          const client = executor.route === LINUX_BROKER_ROUTE ? executor.client : which("rustright").find((c) => path.isAbsolute(c));
           snapshotBroker = discoveryBroker ?? createSnapshotBroker({ env: o.env, platform: o.platform, checkout: root, commit: { sha: snapshotBCommit.commit, tree: snapshotBCommit.tree }, snapshot: { path: snapshotB, expectedTree: snapshotBCommit.tree }, ownership: o.buildOwnership, client, gateFile: callingGatePath(), spawn: o.spawn });
         } catch (error) { o.err(`${tag} BLOCKED: ${error.code ?? "RK_SNAPSHOT_BROKER"}: ${error.message}; nothing compiled`); return 1; }
         o.out(`${tag} broker snapshot compile: pins ${snapshotBroker.pins.keyId.slice(0, 12)} from ${snapshotBroker.pinsSource}, ${snapshotBroker.declaredInputs.length} declared input(s) read from the snapshot, ownership ${snapshotBroker.handle}`);
@@ -3241,7 +3248,7 @@ export async function main(argv, io = {}) {
       // `executes`) run in the full gate (--all, the push hook, the door's compile stage), after the content checks and before any compile.
       ...(classAOnly && !fullA ? { exclude: (s) => s.executes === true } : {}),
       // A snapshot check names its commit; it never reads the checkout's HEAD.
-      quietLane: quietLeaseLane(o, { tag, reason: `rightkit-gate-quiet-tests@${snapshotCommitId ? snapshotCommitId.commit.slice(0, 12) : snapshotBCommit ? snapshotBCommit.commit.slice(0, 12) : text(git("rev-parse", "--short", "HEAD")).trim()}` }),
+      quietLane: quietLeaseLane(o, { tag, executor, reason: `rightkit-gate-quiet-tests@${snapshotCommitId ? snapshotCommitId.commit.slice(0, 12) : snapshotBCommit ? snapshotBCommit.commit.slice(0, 12) : text(git("rev-parse", "--short", "HEAD")).trim()}` }),
       // On a broker-managed host the quiet suites need the lease or they are refused (never run unleashed).
       requireQuietLease: executor.kind === "broker",
       // Failing scans' complete output: never inside the repository, on the host's scratch root (RIGHTKIT_SCRATCH_ROOT, else the
@@ -3407,8 +3414,10 @@ const SNAPSHOT_ABSOLUTE_ENV = ["CARGO_HOME", "RUSTUP_HOME", "SCCACHE_DIR", "TMPD
  * their own carrier through `main`; the contract test (door-route.test.mjs) runs the real entry. `platform` is the host whose deps are
  * asked for (the real entry passes none).
  */
-export async function productionEntryDeps({ platform = process.platform } = {}) {
-  if (directPlatform(platform)) return {};
+export async function productionEntryDeps({ platform = process.platform, env = process.env } = {}) {
+  // A direct Linux host carries nothing. A Linux host that DECLARED the broker route (managed-cargo.mjs linuxBrokerDeclared) gets the same carrier as the
+  // Mac and the Dell, valid declaration or not: an invalid one is refused by the executor (kind "refuse"), never left to compile direct without a carrier.
+  if (directPlatform(platform) && !linuxBrokerDeclared(env, platform)) return {};
   const { PRODUCTION_SNAPSHOT_CARRIER } = await import("../snapshot-broker.mjs");
   return { snapshotBroker: PRODUCTION_SNAPSHOT_CARRIER };
 }
