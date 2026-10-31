@@ -394,7 +394,7 @@ test("[7.05] stage-sidecar source split: caches and cmake trees go to the checko
   };
   await stageSidecars({ appRoot: snapshot, cacheRoot: checkout, manifest: [{ kind: "cargo-bin", package: "eng" }], target, deps: { run, env: {}, log: () => {}, now: () => "2026-10-29T00:00:00.000Z" } });
   const meta = calls.find((c) => c.args[1] === "metadata"); const build = calls.find((c) => c.args[1] === "build");
-  assert.equal(meta.options.cwd, checkout, "the output directory is resolved in the checkout");
+  assert.equal(meta.options.cwd, snapshot, "the output directory is resolved in the snapshot (the committed manifests), never by asking the checkout (GB-16)");
   assert.equal(build.options.cwd, snapshot, "the build reads the snapshot's sources");
   assert.equal(build.options.env.CARGO_TARGET_DIR, targetDir, "and writes to the checkout's target directory");
   assert.ok(!fs.existsSync(path.join(snapshot, "target")), "no target/ under the snapshot");

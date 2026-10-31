@@ -809,6 +809,38 @@ function requireSnapshotSource(ctx, file, label) {
   return file;
 }
 /**
+ * The Cargo output directory of the workspace a split run builds in, as the checkout's absolute path, or `{ error }`. Resolved from the SNAPSHOT: `cargo
+ * metadata --offline --no-deps` runs in the snapshot's app root (with `--manifest-path` the snapshot's manifest when the entry names one), so the
+ * committed manifests and Cargo configuration decide, and a path it reports under the snapshot is mapped lexically to the same relative path under the
+ * checkout (the output directory is the checkout's, GATE-CONTRACT "Output directory & cache"; cargoOutputPin does the same for the stage's own calls). The
+ * checkout is never asked: a newer HEAD that deleted the crate's directory, a dirty manifest or another build.target-dir there changes nothing (audit GB-16).
+ * A path outside the snapshot (an absolute CARGO_TARGET_DIR, a target-dir set in the user's Cargo home) stands as reported.
+ */
+function snapshotTargetDirectory(ctx, env, manifest) {
+  const resolved = ctx.run("rustright", ["cargo", "metadata", "--offline", "--format-version", "1", "--no-deps", ...(manifest ? ["--manifest-path", manifest] : [])], { cwd: ctx.appRoot, env });
+  let dir;
+  try { dir = JSON.parse(resolved?.stdout).target_directory; } catch { /* reported below */ }
+  if (resolved?.error || resolved?.status !== 0 || typeof dir !== "string" || !path.isAbsolute(dir)) return { error: resolved?.error?.message ?? `exit ${resolved?.status}` };
+  const roots = splitRoots(ctx);
+  for (const snapshot of roots.snapshots) {
+    const rel = path.relative(snapshot, dir);
+    if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) return { dir: path.join(roots.checkout, rel) };
+  }
+  return { dir: path.resolve(dir) };
+}
+
+/** The snapshot's and the checkout's roots of a split run: `appRoot` and `cacheRoot` are the same app directory in each, so what their paths do not share is the root. */
+function splitRoots(ctx) {
+  const a = path.resolve(ctx.appRoot).split(path.sep); const c = path.resolve(ctx.cacheRoot).split(path.sep);
+  let n = 0;
+  while (n < a.length - 1 && n < c.length - 1 && a[a.length - 1 - n] === c[c.length - 1 - n]) n += 1;
+  const snapshot = a.slice(0, a.length - n).join(path.sep) || path.sep;
+  const snapshots = [snapshot];
+  try { snapshots.push(nodeFs.realpathSync.native(snapshot)); } catch { /* the path as given */ }
+  return { snapshots, checkout: c.slice(0, c.length - n).join(path.sep) || path.sep };
+}
+
+/**
  * The environment a split run hands to the commands it starts (a `command` entry, an ffmpeg `stage` command): Cargo's output directory is
  * the checkout's, resolved there once and passed absolute, so a command that reaches Cargo (`rustright cargo run -p ...`) never writes
  * `target/` into the snapshot. Without a split, or when the checkout holds no Cargo workspace, the environment is returned as it is.
@@ -818,10 +850,8 @@ function splitCommandEnv(ctx) {
   // A carried stage (carried-cargo.mjs): the broker pins every Cargo output, so nothing is pinned here and the commands inherit the carrier.
   if (carriedCargoMapOf(ctx.env)?.map) return ctx.env;
   if (ctx.splitEnv === undefined) {
-    const resolved = ctx.run("rustright", ["cargo", "metadata", "--format-version", "1", "--no-deps"], { cwd: ctx.cacheRoot, env: ctx.env });
-    let dir;
-    try { dir = JSON.parse(resolved?.stdout).target_directory; } catch { /* no workspace in the checkout: nothing to pin */ }
-    ctx.splitEnv = !resolved?.error && resolved?.status === 0 && typeof dir === "string" && path.isAbsolute(dir) ? { ...ctx.env, CARGO_TARGET_DIR: path.resolve(dir) } : ctx.env;
+    const pinned = snapshotTargetDirectory(ctx, ctx.env, null); // no Cargo workspace in the snapshot: nothing to pin
+    ctx.splitEnv = pinned.dir ? { ...ctx.env, CARGO_TARGET_DIR: pinned.dir } : ctx.env;
   }
   return ctx.splitEnv;
 }
@@ -947,12 +977,9 @@ function stageCargoBuild(entry, ctx, triple) {
   // the directory the binary is read from is the signed receipt's `outputDir`, never a carrier-less `cargo metadata`.
   const carried = Boolean(carriedCargoMapOf(env)?.map);
   if (ctx.split && !carried) {
-    const checkoutManifest = entry.manifestPath ? ["--manifest-path", path.resolve(ctx.cacheRoot, entry.manifestPath)] : [];
-    const resolved = run("rustright", ["cargo", "metadata", "--format-version", "1", "--no-deps", ...checkoutManifest], { cwd: ctx.cacheRoot, env });
-    let pinned;
-    try { pinned = JSON.parse(resolved?.stdout).target_directory; } catch { /* refused below */ }
-    if (resolved?.error || resolved?.status !== 0 || typeof pinned !== "string" || !path.isAbsolute(pinned)) fail("STAGE_SIDECAR_BUILD_FAILED", `the checkout's cargo output directory for ${entry.package} cannot be resolved (${resolved?.error?.message ?? `exit ${resolved?.status}`}); nothing was built`, { package: entry.package });
-    buildEnv = { ...env, CARGO_TARGET_DIR: path.resolve(pinned) };
+    const pinned = snapshotTargetDirectory(ctx, env, entry.manifestPath ? path.resolve(appRoot, entry.manifestPath) : null);
+    if (!pinned.dir) fail("STAGE_SIDECAR_BUILD_FAILED", `the cargo output directory for ${entry.package} cannot be resolved from the snapshot (${pinned.error}); nothing was built`, { package: entry.package });
+    buildEnv = { ...env, CARGO_TARGET_DIR: pinned.dir };
   }
   const built = run("rustright", args, { cwd: appRoot, env: buildEnv });
   if (built?.error || built?.status !== 0) fail("STAGE_SIDECAR_BUILD_FAILED", `rustright cargo build of ${entry.package} failed (${built?.error?.message ?? `exit ${built?.status}`})`, { package: entry.package, stderr: tail(built?.stderr) });
