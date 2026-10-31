@@ -9,6 +9,14 @@
       "set_by": "adrian",
       "since": "2026-10-27",
       "note": "Dell runner, Adrian's go 2026-10-28, sha256 3c11788e…2986"
+    },
+    {
+      "sha256": "a1e84a19d1b75d49a98fbff34e4ac1001014ff0aafcd129ce23721eb3297e4b3",
+      "version": "0.10.0",
+      "platform": "mac",
+      "set_by": "adrian",
+      "since": "2026-10-31",
+      "note": "Mac runner built by rightkit-gate --to tool from 24c5a9281 (rightkit#1309: pins/trust routine)"
     }
   ]
 }
