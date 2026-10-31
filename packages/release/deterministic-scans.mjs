@@ -1685,7 +1685,11 @@ export function failureDetail(r) {
   const out = lines(r?.stdout); const err = lines(r?.stderr);
   const named = [...out, ...err].filter((l) => FAILURE_LINE.test(l)).slice(0, 12);
   const ends = [...out.slice(-4), ...err.slice(-4)];
-  return [...new Set([...auditVulnerabilities(r?.stdout), ...named, ...ends])].join(" | ");
+  // `cargo audit` / `cargo deny` without the cargo-audit / cargo-deny binary: cargo's own "no such command" text told a reader to
+  // search crates.io; the scan's tool is required and missing, which is what actionlint's row already says (E2E L9-02).
+  const missing = [...out, ...err].map((l) => l.match(/^error: no such command: `(audit|deny)`/)?.[1]).find(Boolean);
+  const lead = missing ? [`required tool cargo-${missing} is missing or not runnable (cargo has no \`${missing}\` subcommand); a required scan is never skipped`] : [];
+  return [...new Set([...lead, ...auditVulnerabilities(r?.stdout), ...named, ...ends])].join(" | ");
 }
 // cargo-audit prints one `Crate:/Version:/.../ID:` block per advisory: a vulnerability has no `Warning:` line, an unmaintained or unsound
 // crate has one and does not fail the scan. The failing blocks lead the detail (E2E L9-01); a tail of the output alone named a warning.

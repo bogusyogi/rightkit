@@ -2324,6 +2324,17 @@ test("E2E L9-01: a failed cargo-audit scan names the vulnerable crate and adviso
   assert.doesNotMatch(scansModule.failureDetail({ status: 1, stdout: block("x", "1", "RUSTSEC-2020-0001", "unmaintained"), stderr: "error: something\n" }), /vulnerable:/);
 });
 
+test("E2E L9-02: a missing cargo-deny or cargo-audit says the required tool is missing, like actionlint does", () => {
+  for (const sub of ["audit", "deny"]) {
+    const stderr = `error: no such command: \`${sub}\`\n\n\thelp: a command with a similar name exists: \`add\`\n\thelp: view all installed commands with \`cargo --list\`\n`;
+    const detail = scansModule.failureDetail({ status: 101, stdout: "", stderr });
+    assert.match(detail, new RegExp(`^required tool cargo-${sub} is missing or not runnable \\(cargo has no \`${sub}\` subcommand\\); a required scan is never skipped \\|`), detail);
+  }
+  // Other cargo subcommand errors and a real audit failure are not rewritten.
+  assert.doesNotMatch(scansModule.failureDetail({ status: 101, stderr: "error: no such command: `clippy`\n" }), /required tool/);
+  assert.doesNotMatch(scansModule.failureDetail({ status: 1, stdout: "ID: RUSTSEC-1\n", stderr: "error: 1 vulnerability found!\n" }), /required tool/);
+});
+
 // ---- B1: ci/gate.config.json npm.<unit>.requiresBroker ---------------------------------------------------------------------------------------------------------
 
 test("B1: declaredBrokerCall reads { reason } only; whitespace is collapsed, a long reason is cut, anything else is a problem or no declaration", () => {
