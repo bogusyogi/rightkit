@@ -399,7 +399,9 @@ function cargoRepo(dir, crates, { config = null } = {}) {
 }
 
 // The gate's own door run in a child process (the broker guard is off there), with the same real class B cargo scans the gate plans plus
-// any extra scan rows; `onlyExtra` runs the extra rows alone. Returns { code, out, receipt }.
+// any extra scan rows, which run in the COMPILE stage only (the stage whose scans carry the runtime cargo wrapper: `options.cargoLedger`); the check
+// stage also calls runScans (class A over its own snapshot, no wrapper, so no CARGO), and an extra row there judges the check, not the compile.
+// `onlyExtra` runs the extra rows alone. Returns { code, out, receipt }.
 function runDoor(dir, { repo, sha, extra = [], onlyExtra = false, forceCompile = false, env: envOver = {} }) {
   const driver = path.join(dir, `driver-${Math.random().toString(16).slice(2)}.mjs`);
   fs.writeFileSync(driver, `const { main } = await import(${JSON.stringify(pathToFileURL(path.join(HERE, "bin", "rightkit-gate.mjs")).href)});
@@ -409,7 +411,7 @@ const keep = (s) => (s.class === "B" ? s.tool === "cargo" : s.internal || s.tool
 const extra = ${JSON.stringify(extra)};
 const code = await main(["--to", "compile", "--commit", ${JSON.stringify(sha)}], { cwd: ${JSON.stringify(repo)}, platform: "linux", snapshotRoot: ${JSON.stringify(path.join(dir, "snaps"))},
   out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0,${forceCompile ? " compileReuseProblem: () => \"the test measures the census of this run's own compile (GB-13 would otherwise reuse the recorded one)\"," : ""}
-  runScans: (plan, options) => runScans({ ...plan, scans: [...(${onlyExtra ? "true" : "false"} ? [] : plan.scans.filter(keep)), ...extra] }, options) });
+  runScans: (plan, options) => runScans({ ...plan, scans: [...(${onlyExtra ? "true" : "false"} ? [] : plan.scans.filter(keep)), ...(options.cargoLedger ? extra : [])] }, options) });
 const line = out.find((l) => l.startsWith("rightkit-gate: direct receipt "));
 const snapLine = out.map((l) => / snapshot (\\S+) is commit /.exec(l)).find(Boolean);
 console.log(JSON.stringify({ code, out: out.join("\\n").slice(-30000), snapshot: snapLine ? snapLine[1] : null, receipt: line ? JSON.parse(line.slice("rightkit-gate: direct receipt ".length)) : null }));\n`);

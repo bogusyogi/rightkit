@@ -137,7 +137,8 @@ test("cargo in an unknown workspace", () => {
   });
   const env = { ...process.env, PATH: `${installed.bin}${path.delimiter}${process.env.PATH}`, NODE_OPTIONS: "" };
   delete env.CARGO_TARGET_DIR; delete env.NODE_TEST_CONTEXT;
-  const r = spawnSync(process.execPath, ["--test", "tests/spawns.test.mjs"], { cwd: snap, encoding: "utf8", env });
+  // The reporter is named: node picks the spec reporter on a TTY (and from v23) and TAP on a pipe, and the assertions below read the spec marks.
+  const r = spawnSync(process.execPath, ["--test", "--test-reporter=spec", "tests/spawns.test.mjs"], { cwd: snap, encoding: "utf8", env });
   assert.notEqual(r.status, 0, `the unit fails: one cargo was refused\n${r.stdout}\n${r.stderr}`);
   assert.match(r.stdout, new RegExp(`UNKNOWN ${SHIM_REFUSAL_STATUS} rightkit-gate: RK_CARGO_UNBOUND_WORKSPACE: \`cargo build\` builds the Cargo workspace ${path.join(dir, "outside").replaceAll("/", "\\/")}`), r.stdout);
   assert.match(r.stdout, /✔ cargo in A then B/, "the A+B test passed");
