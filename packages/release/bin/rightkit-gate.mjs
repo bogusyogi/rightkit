@@ -2062,7 +2062,7 @@ async function verifyCommittedCheckout({ git, root, commit, tree, when }) {
 }
 
 /** Select output-binding workspaces from committed source before any Cargo metadata process runs. */
-async function committedCargoManifests({ o, git, root, commit, scopeDirs }) {
+async function committedCargoManifests({ o, git, root, commit, scopeDirs, extraWorkspaces = [] }) {
   const listed = git("ls-tree", "-r", "--name-only", "-z", commit);
   if (failed(listed)) throw new Error(`cannot list the files of ${commit.slice(0, 12)}: ${why(listed)}`);
   const files = text(listed).split("\0").filter(Boolean).map(posix);
@@ -2089,7 +2089,9 @@ async function committedCargoManifests({ o, git, root, commit, scopeDirs }) {
   const inventory = discoverRustWorkspaces({ root, tracked, fixtures, readFile, metadata: sourceMetadata });
   const npm = discoverNpmUnits({ root, tracked, readFile, exists });
   const closure = tools.closureOf({ scopeDirs, npmUnits: npm, rustUnits: inventory.units, readFile: readCommitted });
-  const workspaces = [...new Set(inventory.units.filter((u) => closure.rust.has(u.name)).map((u) => u.cargoDir))].sort();
+  // Workspaces the unit's own compile builds beside its closure (a crate's consumer rows under ci/consumers/): bound when the commit tracks their manifest.
+  const extra = extraWorkspaces.filter((dir) => fileSet.has(`${dir}/Cargo.toml`));
+  const workspaces = [...new Set([...inventory.units.filter((u) => closure.rust.has(u.name)).map((u) => u.cargoDir), ...extra])].sort();
   o.out(`rightkit-gate: Cargo output scope ${scopeDirs.join(", ")}: ${workspaces.length} workspace(s) (${workspaces.join(", ") || "none"}); dependency directories ${closure.dependencyDirs.join(", ")}`);
   return { manifests: workspaces.map((dir) => path.posix.join(dir, "Cargo.toml")), hasCargo: allManifests.length > 0 };
 }
@@ -2100,9 +2102,9 @@ async function cargoOutputPinForScope(options) {
 }
 
 /** Bind only committed closure workspaces to checkout outputs; runtime Cargo outside that map refuses. */
-async function bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs, onlyWorkspaces = null }) {
+async function bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs, extraWorkspaces = [], onlyWorkspaces = null }) {
   let selection;
-  try { selection = await committedCargoManifests({ o, git, root, commit: ds.commit, scopeDirs }); }
+  try { selection = await committedCargoManifests({ o, git, root, commit: ds.commit, scopeDirs, extraWorkspaces }); }
   catch (error) { return { refusal: error.message }; }
   const { manifests, hasCargo } = selection;
   if (!hasCargo) return { env: {}, note: null, cleanup() {} };
@@ -2235,7 +2237,14 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
     // A unit's test or pack that reaches Cargo must never write `target/` into the snapshot (npm units included): see bindUnitCargo.
     // A check starts no unit command: its own Class A path binds read-only Cargo calls. Resolving every unit's compile output
     // here would run unrelated metadata before the scoped check even begins.
-    const bound = option("--to") === "check" ? { env: {}, cleanup() {} } : await bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs: [path.posix.dirname(manifest)], ...(toolRun ? { onlyWorkspaces: [path.posix.dirname(manifest)] } : {}) });
+    // A crate's consumer rows (ci/gate.config.json rust.<crate>.consumerRows, local-publish.mjs) build their own Cargo workspaces under ci/consumers/: they
+    // are part of this unit's compile, so they are bound beside the crate's workspace (read from the snapshot, which is the commit's tree).
+    let consumerScope = [];
+    if (match[2] && !toolRun) {
+      try { consumerScope = [...new Set((JSON.parse(fs.readFileSync(path.join(ds.path, "ci", "gate.config.json"), "utf8")).rust?.[match[2]]?.consumerRows ?? []).map((row) => path.posix.dirname(String(row.manifestPath))))]; }
+      catch { consumerScope = []; }
+    }
+    const bound = option("--to") === "check" ? { env: {}, cleanup() {} } : await bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs: [path.posix.dirname(manifest)], extraWorkspaces: consumerScope, ...(toolRun ? { onlyWorkspaces: [path.posix.dirname(manifest)] } : {}) });
     if (bound.refusal) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_OUTPUT_UNPINNED: ${bound.refusal}; nothing ran`); return 1; }
     if (bound.note) o.out(`${tag} ${bound.note}`);
     const envExtra = bound.env;
