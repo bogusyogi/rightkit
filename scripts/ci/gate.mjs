@@ -39,7 +39,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { crateWorkspaces, pathDependencies, reverseDependents } from "../../packages/release/crate-workspaces.mjs";
-import { checkArgs, clippyArgs, planScans, runScans, scanDeferrals, scanFailures } from "../../packages/release/deterministic-scans.mjs";
+import { checkArgs, clippyArgs, planScans, runScans, scanDeferrals, scanFailures, scanToolPolicyFromPipeline } from "../../packages/release/deterministic-scans.mjs";
 import { scanGatePassed } from "./scan-receipt.mjs";
 import { judgeUnit, mergeCounts, ResultScanner, TEST_COMMAND } from "./test-results.mjs";
 import { dependentClosureEvidence } from "./gate-evidence.mjs";
@@ -557,7 +557,11 @@ async function scansGate(selection) {
   const plan = { ...planned, scans: planned.scans.filter((s) => !(s.id === "generated-docs" && s.deferred)) };
   if (plan.scans.length !== planned.scans.length) console.log("generated-docs: checked by scripts/preflight.mjs (rule G10) in the plan job; this job has no trusted root to run the generator");
   console.log(`::group::scans: class A (${plan.scans.filter((x) => x.class === "A").length} scans)`);
-  const result = await runScans(plan, { classes: ["A"] });
+  // actionlint, shellcheck, cargo-deny and cargo-audit run only from an enrolled executable (TRUSTED_SCAN_TOOLS). The hosted enrolment is
+  // ci/rk-pipeline.json tools.<name>.<platform> of this checkout, the commit the job tests: the path the hygiene job's install steps
+  // put each binary at, its sha256 and its version (rightkit#1323). Without it every such scan is TOOL_UNTRUSTED.
+  const toolPolicy = scanToolPolicyFromPipeline(readJson("ci/rk-pipeline.json", {}).tools, process.platform);
+  const result = await runScans(plan, { classes: ["A"], toolPolicy });
   for (const line of scanDeferrals(result)) console.log(line);
   const failures = scanFailures(result);
   for (const line of failures) console.log(`FAIL ${line}`);

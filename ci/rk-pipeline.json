@@ -1,7 +1,17 @@
 {
   "schema": "rk-pipeline.v1",
   "tools": {
-    "actionlint": "1.7.12",
+    "actionlint": {
+      "version": "1.7.12",
+      "linux": {
+        "version": "1.7.12",
+        "path": "/home/runner/work/_temp/actionlint-bin/actionlint",
+        "sha256": "c872d6db8c6bf83a8eaa704fc93999f027d55dffbc63b8a6abdccb47df5f4cd4",
+        "source": "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz",
+        "archiveSha256": "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8",
+        "note": "Hosted Class A (ci.yml hygiene, ubuntu-24.04): the enrolment of the binary its install step puts at this path (rightkit#1323). scripts/ci/gate.mjs hands tools.<name>.linux to the scans as options.toolPolicy; sha256 is the binary's, archiveSha256 the release archive's."
+      }
+    },
     "shellcheck": {
       "note": "Class A accepts only ShellCheck 0.11.0 (PINNED_SCAN_TOOLS in packages/release/deterministic-scans.mjs; any other version fails TOOL_VERSION). The hosted scans install the checksum-verified 0.11.0 before actionlint; the Mac and Dell managed tool directories are provisioned with the same build by host provisioning.",
       "darwin": {
@@ -10,6 +20,34 @@
         "sha256": "61c17246d69f012cd458ae82f244c46023dac75d1b69733ca1cc7d28fb270fd7",
         "source": "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.darwin.aarch64.tar.xz",
         "archiveSha256": "56affdd8de5527894dca6dc3d7e0a99a873b0f004d7aabc30ae407d3f48b0a79"
+      },
+      "linux": {
+        "version": "0.11.0",
+        "path": "/home/runner/work/_temp/shellcheck-bin/shellcheck",
+        "sha256": "4da528ddb3a4d1b7b24a59d4e16eb2f5fd960f4bd9a3708a15baddbdf1d5a55b",
+        "source": "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz",
+        "archiveSha256": "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198",
+        "note": "Hosted Class A (ci.yml hygiene, ubuntu-24.04): the enrolment of the binary its install step puts at this path (rightkit#1323). scripts/ci/gate.mjs hands tools.<name>.linux to the scans as options.toolPolicy; sha256 is the binary's, archiveSha256 the release archive's."
+      }
+    },
+    "cargo-deny": {
+      "linux": {
+        "version": "0.20.2",
+        "path": "/home/runner/.cargo/bin/cargo-deny",
+        "sha256": "b329e25933d01c36dd7c47d84ea5716694f9b7caf53a5003d45674703a8ed54a",
+        "source": "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz",
+        "archiveSha256": "9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f",
+        "note": "Hosted Class A (ci.yml hygiene, ubuntu-24.04): the enrolment of the binary its install step puts at this path (rightkit#1323). scripts/ci/gate.mjs hands tools.<name>.linux to the scans as options.toolPolicy; sha256 is the binary's, archiveSha256 the release archive's."
+      }
+    },
+    "cargo-audit": {
+      "linux": {
+        "version": "0.22.2",
+        "path": "/home/runner/.cargo/bin/cargo-audit",
+        "sha256": "66f9c8f530950d106c1869ce27ef5a4008bcea53c7716c3ed8117586337ee7d8",
+        "source": "https://github.com/rustsec/rustsec/releases/download/cargo-audit/v0.22.2/cargo-audit-x86_64-unknown-linux-musl-v0.22.2.tgz",
+        "archiveSha256": "7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428",
+        "note": "Hosted Class A (ci.yml hygiene, ubuntu-24.04): the enrolment of the binary its install step puts at this path (rightkit#1323). scripts/ci/gate.mjs hands tools.<name>.linux to the scans as options.toolPolicy; sha256 is the binary's, archiveSha256 the release archive's."
       }
     },
     "rustfmt": {
