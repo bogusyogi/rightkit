@@ -84,4 +84,7 @@ jobs:
         env:
           CRATES: ${{ needs.verify.outputs.crates }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: node scripts/ci/owner-upload.mjs "$RUNNER_TEMP/owner-publish" $CRATES
+        run: |
+          set -euo pipefail
+          read -r -a crates <<< "$CRATES"
+          node scripts/ci/owner-upload.mjs "$RUNNER_TEMP/owner-publish" "${crates[@]}"
