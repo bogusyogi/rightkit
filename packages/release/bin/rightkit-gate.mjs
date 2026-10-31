@@ -2041,7 +2041,7 @@ export function routePlan(o, { to, stages, devTest, executor, capabilities = nul
   // GB-51: a declared native build tool with no carried adapter (xcodegen, xcodebuild, Gradle, CMake) refuses here, at planning, naming the missing
   // capability, instead of after the earlier stages built (the door's launch-time refusal remains the backstop).
   if (snapshot && executor?.kind === "broker" && appConfig?.config && to !== "check") {
-    const refusalText = nativeToolRefusal(nativeToolUses({ config: appConfig.config, to, devPlatform: appConfig.devPlatform ?? null }), { capabilities, readFile: appConfig.readFile ?? null });
+    const refusalText = nativeToolRefusal(nativeToolUses({ config: appConfig.config, to, devPlatform: appConfig.nativePlatform ?? appConfig.devPlatform ?? null, platform: appConfig.nativePlatform ?? null }), { capabilities, readFile: appConfig.readFile ?? null, listFiles: appConfig.listFiles ?? null });
     if (refusalText) return { route, refusal: refuse("RK_BROKER_CAPABILITY_MISSING", to, refusalText) };
   }
   // One signing identity per product, every build (rightkit#1303): on the Mac and the Dell a test or dev build that would run unsigned, ad hoc or under
@@ -2069,7 +2069,7 @@ export function routeAppConfig({ git, commit, appDir = ".", platform = null }) {
   let config;
   try { config = JSON.parse(raw); } catch { return null; }
   const list = (c, rel) => { const r = git("ls-tree", "-r", "--name-only", c, "--", rel); return failed(r) ? null : text(r).split(/\r?\n/).filter(Boolean); };
-  return { config, readFile: show, listFiles: gitListRustFiles(list, commit, appDir), devPlatform: platform === "mac" || platform === "win" ? platform : null };
+  return { config, readFile: show, listFiles: gitListRustFiles(list, commit, appDir), devPlatform: platform === "mac" || platform === "win" ? platform : null, nativePlatform: platform ?? null };
 }
 
 /** The `--platform` a dev or test run was given: before `--`, or in the arguments after it (a platform after `--` wins, as runDevTest hands it on). */

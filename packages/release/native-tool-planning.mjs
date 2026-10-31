@@ -8,6 +8,15 @@
 // There is no direct-session exemption: a tool leaves the refusal only when its adapter is advertised.
 import path from "node:path";
 import { NATIVE_ADAPTERS, gradleWrapperPinProblem, nativeToolLaunch } from "./native-adapters.mjs";
+import { validateAndroidNdk } from "./android-ndk.mjs";
+
+/**
+ * GB-62: `cargo ndk` is a pinned EXTERNAL tool: RustRight's `externalCommands` entry (shim cargo, command ndk, a toolId and the tool's digest; policy BUILD). The broker advertises it
+ * as this capability; a stage that builds JNI libraries is planned only when it is advertised.
+ */
+export const NDK_EXTERNAL_CAPABILITY = "external:cargo-ndk";
+/** The ABIs RustRight's ndk grammar accepts (`parse_ndk_argv`: arm64-v8a, x86_64); the gate's own validator also knows armeabi-v7a and x86, which the broker would refuse. */
+export const BROKER_NDK_ABIS = Object.freeze(["arm64-v8a", "x86_64"]);
 
 /** Tools with no carried adapter route, by the capability name a refusal reports. */
 /** The tools that run through a constrained adapter, by the capability name a refusal reports (xcodegen, xcodebuild, gradle and its wrapper, cmake). */
@@ -21,10 +30,13 @@ const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v)
  * test run (its declared build steps and, for iOS, the xcodegen/xcodebuild steps the gate itself generates are in play); a `cmake` sidecar is in play for
  * every stage that stages sidecars.
  */
-export function nativeToolUses({ config, to, devPlatform = null }) {
+export function nativeToolUses({ config, to, devPlatform = null, platform = null }) {
   const uses = [];
   const add = (command, where, args = null, cwd = ".") => { const tool = base(command); if (Object.hasOwn(NATIVE_TOOLS_WITHOUT_ADAPTER, tool)) uses.push({ tool, capability: NATIVE_TOOLS_WITHOUT_ADAPTER[tool], where, ...(args ? { args, cwd } : {}) }); };
   if (!isObject(config)) return uses;
+  const addNdk = (ndk, where, kind) => { if (ndk !== undefined) uses.push({ tool: "cargo-ndk", capability: NDK_EXTERNAL_CAPABILITY, where, ndk, kind }); };
+  if (to === "dev" || to === "test") addNdk(config.development?.targets?.android?.ndk, "development.targets.android.ndk", "dev");
+  if ((to === "package" || to === "release") && (platform ?? devPlatform) === "android") addNdk(config.targets?.android?.ndk, "targets.android.ndk", "release");
   if (to === "dev" || to === "test") {
     const target = config.development?.targets?.[devPlatform];
     if (isObject(target)) {
@@ -45,12 +57,13 @@ export function nativeToolUses({ config, to, devPlatform = null }) {
  * The refusal message for a stage's native-tool uses, or null. `capabilities` is the broker's advertised state (`{ ok, capabilities }` from `rustright doctor --json`, or null when it was not
  * queried: every use is then unsupported). `readFile(relative)` reads the COMMIT's bytes (a Gradle wrapper's properties).
  */
-export function nativeToolRefusal(uses, { capabilities = null, readFile = null } = {}) {
+export function nativeToolRefusal(uses, { capabilities = null, readFile = null, listFiles = null } = {}) {
   if (!uses.length) return null;
   const advertised = capabilities?.ok === true && Array.isArray(capabilities.capabilities) ? new Set(capabilities.capabilities) : new Set();
   const problems = [];
   for (const use of uses) {
     if (!advertised.has(use.capability)) { problems.push(`${use.tool} at ${use.where}: the broker does not advertise ${use.capability}${capabilities?.ok === true ? "" : ` (${capabilities?.problem ?? "its capabilities were not queried"})`}`); continue; }
+    if (use.tool === "cargo-ndk") { const problem = ndkBlockProblem(use, listFiles); if (problem) problems.push(`${use.tool} at ${use.where}: ${problem}`); continue; }
     if (use.args) {
       const launch = nativeToolLaunch(use.tool === "gradlew" ? "gradle" : use.tool, use.args, { cwd: path.posix.resolve("/", use.cwd ?? ".") });
       if (launch.refusal) { problems.push(`${use.tool} at ${use.where}: ${launch.refusal.message}`); continue; }
@@ -62,4 +75,21 @@ export function nativeToolRefusal(uses, { capabilities = null, readFile = null }
   }
   if (!problems.length) return null;
   return `${problems.join("; ")} (a broker-managed host never runs a build tool around the broker, rightkit#1241; the capability names are in docs/GATE-CONTRACT.md "Native tool adapters"); nothing ran`;
+}
+
+/**
+ * GB-62: the reason a declared ndk block cannot run through the pinned cargo-ndk registration, or null. The gate's own validator names a malformed block; the ABIs must be ones RustRight's
+ * ndk grammar accepts; and `jniLibs`, the controlled generated output (emptied before every build and bound as the run's output ledger), must hold no committed file.
+ */
+function ndkBlockProblem(use, listFiles) {
+  let ndk;
+  try { ndk = validateAndroidNdk(use.ndk, { root: "/app", kind: use.kind }); } catch (error) { return error.message; }
+  const refused = ndk.abis.filter((abi) => !BROKER_NDK_ABIS.includes(abi));
+  if (refused.length) return `ndk.abis names ${refused.join(", ")}, which the registered cargo-ndk grammar refuses (only ${BROKER_NDK_ABIS.join(", ")}; ${NDK_EXTERNAL_CAPABILITY})`;
+  if (typeof listFiles === "function") {
+    let tracked = null;
+    try { tracked = listFiles(ndk.jniLibsRelative); } catch { tracked = null; }
+    if (Array.isArray(tracked) && tracked.length) return `ndk.jniLibs ${ndk.jniLibsRelative} commits ${tracked.length} file(s) (${tracked.slice(0, 3).join(", ")}): it is the generated output directory (emptied before every build) and must hold no committed file`;
+  }
+  return null;
 }
