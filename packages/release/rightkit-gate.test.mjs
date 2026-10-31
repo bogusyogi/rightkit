@@ -11,7 +11,7 @@ import * as shipped from "./lock-graph.mjs";
 import * as ci from "../../scripts/ci/select.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { AGENT_SHIM_MARKER } from "./broker-client.mjs";
-import { PINNED_SCAN_TOOLS } from "./deterministic-scans.mjs";
+import { PINNED_SCAN_TOOLS, digestScanSet } from "./deterministic-scans.mjs";
 import { pathspecBatches, EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, lockScope, main as gateMain, manifestChangeIsLockReflected, PARTIAL_EXIT, manifestTables, parsePushLines, parseWorkspaceGlobs, quietLeaseLane, rustUnitName, rustUnitOfScanId, vendorOwners, tomlString, tomlStrings, tomlValue, workspaceExcludes, gateTmpRoot, appRootOf } from "./bin/rightkit-gate.mjs";
 import * as gateModule from "./bin/rightkit-gate.mjs";
 
@@ -2404,4 +2404,67 @@ test("the gate names itself to the broker by its own resolved entry path (RUSTRI
   assert.equal(callingGatePath(), entry);
   const source = fs.readFileSync(entry, "utf8");
   assert.match(source, /if \(invokedDirectly\) \{\s*\/\/[^\n]*\n\s*process\.env\.RUSTRIGHT_CALLING_GATE = callingGatePath\(\);\s*delete process\.env\.RIGHTKIT_CALLING_GATE;/);
+});
+
+test("unit snapshot check preserves Cargo closure before discovery/install & keeps repository file-only checks", async (t) => {
+  const root = mkRepo({
+    ".rightkit-local-build.json": JSON.stringify({ repository: "fixture/repo", allow: "build-test-publish" }),
+    "package.json": JSON.stringify({ name: "repo", license: "MIT" }),
+    "pnpm-workspace.yaml": "packages:\n  - 'packages/*'\n",
+    "pnpm-lock.yaml": "lockfileVersion: '9.0'\nimporters: {}\n",
+    "ci/gate.config.json": JSON.stringify({ fixtures: ["fixtures"] }),
+    "fixtures/invalid/Cargo.toml": "this fixture deliberately is not valid TOML {{{\n",
+    "crates/rightkit-app/Cargo.toml": pkg("rightkit-app", "[workspace]\n[dependencies]\ncore={package='rightkit-core',path='../rightkit-core'}\n"),
+    "crates/rightkit-app/Cargo.lock": "version = 4\n" + lockPkg("rightkit-app", "1.0.0", ["rightkit-core"]) + lockPkg("rightkit-core", "1.0.0"),
+    "crates/rightkit-app/src/lib.rs": "pub fn app() {}\n",
+    "crates/rightkit-core/Cargo.toml": pkg("rightkit-core", "[workspace]\n"),
+    "crates/rightkit-core/Cargo.lock": "version = 4\n" + lockPkg("rightkit-core", "1.0.0"),
+    "crates/rightkit-core/src/lib.rs": "pub fn core() {}\n",
+    "crates/rightkit-other/Cargo.toml": pkg("rightkit-other", "[workspace]\n"),
+    "crates/rightkit-other/Cargo.lock": "version = 4\n" + lockPkg("rightkit-other", "1.0.0"),
+    "crates/rightkit-other/src/lib.rs": "pub fn other() {}\n",
+    "templates/desktop-app-template/package.json": JSON.stringify({ name: "desktop", scripts: { test: "vitest run" }, dependencies: { "@rightkit/release": "0.6.13" } }),
+    "templates/desktop-app-template/pnpm-lock.yaml": "lockfileVersion: '9.0'\nimporters: {}\n",
+    "templates/desktop-app-template/tsconfig.json": "{}\n",
+  }, t);
+  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
+  for (const a of [["init", "-q"], ["config", "user.name", "fixture"], ["config", "user.email", "fixture@example.test"], ["config", "remote.origin.url", "https://github.com/fixture/repo.git"], ["add", "-A"], ["commit", "-qm", "fixture"]]) assert.equal(git(...a).status, 0);
+  const snapshots = path.join(root, "..", `rk-scoped-snaps-${path.basename(root)}`);
+  t.after(() => fs.rmSync(snapshots, { recursive: true, force: true }));
+  const env = { ...process.env }; delete env.GITHUB_ACTIONS; delete env.RIGHTKIT_BUILD_OWNERSHIP; delete env.RIGHTKIT_BUILD_OWNERSHIP_FILE;
+  const metadata = []; const installs = []; const plans = [];
+  const spawn = (cmd, a, opts = {}) => {
+    if (cmd === "cargo" && a.includes("metadata")) {
+      const dir = norm(opts.cwd); metadata.push(dir);
+      const name = path.basename(dir);
+      return ok(meta(path.dirname(path.dirname(dir)), `crates/${name}`, [[name, `crates/${name}`]]));
+    }
+    if (cmd === "pnpm") { if (a.includes("install")) installs.push(a); return ok("11.25.0\n"); }
+    return gitOnly(cmd, a, opts);
+  };
+  const run = async (red = []) => {
+    const c = capture();
+    const code = await gateMain(["--to", "check", "--unit", "cargo:rightkit-app"], { ...c.io, cwd: root, env, platform: "linux", snapshotRoot: snapshots, spawn, resolveExecutor: directExecutor, appCheck: async () => 0,
+      runScans: async (plan) => {
+        plans.push(plan);
+        return { scans: plan.scans.filter((s) => s.class === "A").map((s) => ({ ...s, status: red.includes(s.id) ? "fail" : "pass", ...(red.includes(s.id) ? { code: 1, detail: "fixture red" } : {}) })), notes: [], cacheHits: [], deferred: [] };
+      },
+    });
+    return { code, output: [...c.out, ...c.err].join("\n") };
+  };
+  const result = await run(["test:npm:templates-desktop-app-template", "check:rightkit-other"]);
+  assert.equal(result.code, 0, result.output);
+  const plan = plans.at(-1); const ids = plan.scans.map((s) => s.id);
+  assert.ok(ids.includes("check:rightkit-app") && ids.includes("check:rightkit-core"), "selected package & path dependency checks remain planned");
+  assert.ok(ids.includes("secret-scan") && ids.includes("cargo-deny:rightkit-other") && ids.includes("pnpm-lockfile:templates/desktop-app-template"), "repository-wide file-only checks remain");
+  assert.ok(!ids.includes("check:rightkit-other") && !ids.includes("tsc:templates-desktop-app-template") && !ids.includes("test:npm:templates-desktop-app-template"));
+  assert.deepEqual(installs, [], "Rust closure installs neither root npm workspace nor unrelated desktop template");
+  assert.ok(metadata.length && metadata.every((d) => /\/crates\/rightkit-(app|core)$/.test(d)), "discovery asks Cargo only about selected dependency workspaces");
+  assert.match(result.output, /dependency directories crates\/rightkit-app, crates\/rightkit-core/);
+  assert.doesNotMatch(result.output, /every Rust unit is in scope/);
+  assert.equal(plan.scanSetDigest, digestScanSet(plan.scans));
+  const red = await run(["cargo-package-list:rightkit-core"]);
+  assert.notEqual(red.code, 0, "dependency check red blocks selected unit");
+  const repositoryRed = await run(["secret-scan"]);
+  assert.notEqual(repositoryRed.code, 0, "repository-wide file-only red blocks selected unit");
 });

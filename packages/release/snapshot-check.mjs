@@ -22,7 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { LIVE_SCAN_IDS, defaultSpawn, isLiveScan, isRegistryScan, launchGuardEnv, planScans, runScans } from "./deterministic-scans.mjs";
 import { compileLaunch } from "./class-a-launch-guard.mjs";
-import { SnapshotError, isInside, snapshotProblem, snapshotTree, treeEntries } from "./snapshot.mjs";
+import { SnapshotError, dependencyDirs, isInside, snapshotProblem, snapshotTree, treeEntries } from "./snapshot.mjs";
 import { discoveryRun, sealedRun } from "./snapshot-git.mjs";
 
 export const CHECK_ERROR = "RK_CHECK_ERROR";
@@ -198,15 +198,92 @@ export function probeSkippedBuilds({ dir, root, names, spawn = defaultSpawn, env
 /**
  * Installs each pnpm root's dependencies into the snapshot from the commit's lockfile and the primary checkout's existing store.
  * Returns one record per root ({ root, storeDir, storeSource, pnpm, lockfileSha256, ms, allowedBuildsNotRun }); throws CheckError on a
- * store miss, a pnpm that is not the pinned one, or any install failure.
+ * store miss, a pnpm that is not the pinned one, or any install failure. A failed install invalidates only that root's generated
+ * dependency directories: remove them without following links before reporting the original error. Other roots and stores stay warm.
  */
-export function installSnapshotDependencies({ checkout, snapshot, roots, env = process.env, spawn = defaultSpawn, now = () => Date.now(), readFile, exists, probe = probeSkippedBuilds }) {
+export function installSnapshotDependencies({ checkout, snapshot, commit, tree, ledger, roots, packageDirs, env = process.env, spawn = defaultSpawn, now = () => Date.now(), readFile, exists, probe = probeSkippedBuilds }) {
   const records = [];
+  // Cleanup authority comes from the selected commit, never a path supplied by pnpm or an untracked manifest. Verify before any
+  // installer runs; a preflight failure has generated nothing and must not remove existing dependencies.
+  if (!commit || !tree) throw new CheckError("snapshot dependency install needs the selected commit and tree");
+  const base = path.resolve(snapshot);
+  try {
+    const st = fs.lstatSync(base);
+    if (!st.isDirectory() || fs.realpathSync.native(base) !== base) throw new Error("not a real directory");
+  } catch (error) { throw new CheckError(`snapshot dependency install needs a real snapshot directory: ${snapshot}: ${error.message}`); }
+  if (inside(base, checkout) || inside(checkout, base)) throw new CheckError(`snapshot ${base} and checkout ${checkout} overlap`);
+  verifySnapshotDir({ checkout, dir: base, commit, tree, when: "before dependency installation", ...(ledger !== undefined ? { ledger } : {}) });
+  const entries = treeEntries(checkout, commit);
+  const fold = (s) => process.platform === "darwin" || process.platform === "win32" ? s.toLowerCase() : s;
+  const dirOf = (p) => p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
+  const lockRoots = entries.filter((e) => e.path === "pnpm-lock.yaml" || e.path.endsWith("/pnpm-lock.yaml")).map((e) => fold(dirOf(e.path))).filter((p) => !p.split("/").includes("node_modules"));
+  // The verifier folds names on Mac/Windows. Filesystem operations retain committed spelling even on a case-sensitive Mac volume.
+  const generated = [...dependencyDirs(entries, "linux")];
+  const generatedFolded = new Set(generated.map(fold));
+  const nearestLock = (member) => lockRoots.filter((r) => !r || member === r || member.startsWith(`${r}/`)).sort((a, b) => b.length - a.length)[0];
+  const selectedByRoot = new Map();
+  if (packageDirs !== undefined) {
+    if (!Array.isArray(packageDirs)) throw new CheckError("snapshot dependency packageDirs must be an array of committed manifest directories");
+    const manifests = new Map(entries.filter((e) => e.path === "package.json" || e.path.endsWith("/package.json")).map((e) => [fold(dirOf(e.path)), dirOf(e.path)]));
+    const installRoots = new Set(roots.map((r) => fold(path.relative(base, path.resolve(base, r)).split(path.sep).join("/"))));
+    for (const selected of packageDirs) {
+      if (typeof selected !== "string" || path.isAbsolute(selected) || !inside(path.resolve(base, selected), base)) throw new CheckError(`dependency package ${String(selected)} is not relative to the snapshot`);
+      const relative = path.relative(base, path.resolve(base, selected)).split(path.sep).join("/");
+      const actual = manifests.get(fold(relative));
+      const owner = nearestLock(fold(relative));
+      if (actual === undefined || owner === undefined || !installRoots.has(owner) || /[*?\[\]{}!^()\\]/.test(actual) || actual.includes("...")) throw new CheckError(`dependency package ${selected} is not an exact committed manifest directory owned by an install root`);
+      if (!selectedByRoot.has(owner)) selectedByRoot.set(owner, new Set());
+      selectedByRoot.get(owner).add(actual);
+    }
+  }
+  const cleanupFor = (root) => {
+    const relative = path.relative(base, path.resolve(base, root)).split(path.sep).join("/");
+    const owner = fold(relative);
+    if (!inside(path.resolve(base, root), base) || !lockRoots.includes(owner) || !generatedFolded.has(owner ? `${owner}/node_modules` : "node_modules")) throw new CheckError(`root ${root}: not a committed pnpm install root inside the snapshot`);
+    const dirs = generated.filter((d) => {
+      const member = fold(dirOf(d));
+      return nearestLock(member) === owner;
+    });
+    for (const d of dirs) {
+      if (entries.some((e) => fold(e.path) === fold(d) || fold(e.path).startsWith(`${fold(d)}/`))) throw new CheckError(`root ${root}: cannot install over committed dependency path ${d}`);
+    }
+    // Capture physical source parents before pnpm starts. During cleanup check them from the snapshot down, never traversing a
+    // replaced parent or a junction. rmSync unlinks a dependency-directory symlink itself and never follows links within a tree.
+    const parents = new Map();
+    for (const d of dirs) {
+      const parts = d.split("/").slice(0, -1);
+      for (let i = 0; i <= parts.length; i++) {
+        const p = path.join(base, ...parts.slice(0, i));
+        if (!parents.has(p)) {
+          let stat;
+          try { stat = fs.lstatSync(p); }
+          catch (error) { throw new CheckError(`root ${root}: cannot inspect dependency parent ${p}: ${error.message}`); }
+          if (!stat.isDirectory()) throw new CheckError(`root ${root}: dependency parent is not a real directory: ${p}`);
+          parents.set(p, stat);
+        }
+      }
+    }
+    return () => {
+      for (const [p, before] of parents) {
+        const after = fs.lstatSync(p);
+        if (!after.isDirectory() || after.dev !== before.dev || after.ino !== before.ino) throw new Error(`dependency parent changed: ${p}`);
+      }
+      for (const d of dirs) fs.rmSync(path.join(base, ...d.split("/")), { recursive: true, force: true });
+      verifySnapshotDir({ checkout, dir: base, commit, tree, when: "after failed dependency installation cleanup", ...(ledger !== undefined ? { ledger } : {}) });
+    };
+  };
   const versionOf = (cwd) => { const r = spawn("pnpm", ["--version"], { cwd, env: { ...env, COREPACK_ENABLE_AUTO_PIN: "0" } }); return failed(r) ? null : text(r).trim().split(/\r?\n/).pop(); };
   for (const root of roots) {
-    const dir = path.join(snapshot, root);
+    const dir = path.resolve(base, root);
+    if (!inside(dir, base)) throw new CheckError(`root ${root}: dependency install is outside the snapshot`);
     // No lockfile: nothing to install from. Not an error here: the pnpm-lockfile scan judges it, and checks that need dependencies fail.
     if (!fs.existsSync(path.join(dir, "pnpm-lock.yaml"))) { records.push({ root, skipped: "no pnpm-lock.yaml in the commit: nothing to install from (the pnpm-lockfile scan judges it)" }); continue; }
+    const cleanup = cleanupFor(root);
+    const owner = fold(path.relative(base, dir).split(path.sep).join("/"));
+    const selected = selectedByRoot.get(owner);
+    if (packageDirs !== undefined && !selected?.size) throw new CheckError(`root ${root}: no dependency packages selected; refusing an unfiltered install`);
+    const filters = packageDirs === undefined ? [] : [...selected].sort().flatMap((p) => ["--filter", `./${path.relative(dir, path.join(base, p)).split(path.sep).join("/")}`]);
+    if (packageDirs !== undefined) filters.push("--fail-if-no-match", "--config.legacy-dir-filtering=false", "--config.include-workspace-root=false");
     const { storeDir, source } = resolvePrimaryStore({ checkout, root, env, spawn, ...(readFile ? { readFile } : {}), ...(exists ? { exists } : {}) });
     const pin = pinnedPnpm(dir) ?? pinnedPnpm(snapshot);
     // Asked where the install runs: pnpm switches itself to the root's packageManager version there (Dell 2026-10-29: an installed
@@ -217,15 +294,21 @@ export function installSnapshotDependencies({ checkout, snapshot, roots, env = p
     const started = now();
     // The virtual store is pinned inside the snapshot and the global virtual store off, whatever the host's pnpm config says: the
     // install writes nowhere but the snapshot (links to the existing store's content are the only reads outside it).
-    const r = spawn("pnpm", ["install", "--offline", "--frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile", "--store-dir", storeDir, "--virtual-store-dir", "node_modules/.pnpm", "--config.enable-global-virtual-store=false", "--reporter", "append-only"], {
-      cwd: dir, env: { ...env, COREPACK_ENABLE_AUTO_PIN: "0", CI: "true" }, maxBuffer: 1 << 28,
-    });
+    let r;
+    try {
+      r = spawn("pnpm", [...filters, "install", "--offline", "--frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile", "--store-dir", storeDir, "--virtual-store-dir", "node_modules/.pnpm", "--config.enable-global-virtual-store=false", "--reporter", "append-only"], {
+        cwd: dir, env: { ...env, COREPACK_ENABLE_AUTO_PIN: "0", CI: "true" }, maxBuffer: 1 << 28,
+      });
+    } catch (error) { r = { error }; }
     const ms = now() - started;
-    if (failed(r)) {
+    if (failed(r) || /No projects matched the filters/.test(`${r?.stdout ?? ""}\n${r?.stderr ?? ""}`)) {
       const out = `${r?.stdout ?? ""}\n${r?.stderr ?? ""}`;
       const miss = /ERR_PNPM_NO_OFFLINE_TARBALL[^\n]*?(https?:\/\/\S+?\/-\/(\S+?)\.tgz)/.exec(out);
-      if (miss) throw new CheckError(`root ${root}: ${miss[2]} is missing from the store ${storeDir} (offline install, no network fallback); install the checkout's dependencies so the store holds it, then run the check again`);
-      throw new CheckError(`root ${root}: offline dependency install failed (store ${storeDir}): ${tail(r) || r?.error?.message || `exit ${r?.status}`}`);
+      const message = miss
+        ? `root ${root}: ${miss[2]} is missing from the store ${storeDir} (offline install, no network fallback); install the checkout's dependencies so the store holds it, then run the check again`
+        : `root ${root}: offline dependency install failed (store ${storeDir}): ${tail(r) || r?.error?.message || `exit ${r?.status}`}`;
+      try { cleanup(); } catch (error) { throw new CheckError(`${message}; dependency cleanup failed: ${error.message}`); }
+      throw new CheckError(`${message}; invalidated generated dependency output for owning lockroot ${root}`);
     }
     const lockfileSha256 = crypto.createHash("sha256").update(fs.readFileSync(path.join(dir, "pnpm-lock.yaml"))).digest("hex");
     const skipped = probe ? probe({ dir, root, names: allowedBuilds(dir), spawn, env }) : [];

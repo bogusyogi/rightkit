@@ -67,7 +67,7 @@ function io(t, s, { scans = [], onScans = null, fakeInstall = false } = {}) {
     if (cmd === "pnpm" && args[0] === "--version") return { status: 0, stdout: "11.25.0\n", stderr: "" };
     // A root with a lockfile is installed into the snapshot; the install itself is faked (no network, no store) so the test owns node_modules.
     if (fakeInstall && cmd === "pnpm" && args[0] === "store") return { status: 0, stdout: `${store}\n`, stderr: "" };
-    if (fakeInstall && cmd === "pnpm" && args[0] === "install") return { status: 0, stdout: "", stderr: "" };
+    if (fakeInstall && cmd === "pnpm" && args.includes("install")) return { status: 0, stdout: "", stderr: "" };
     return defaultSpawn(cmd, args, opts);
   };
   const out = []; const err = [];
@@ -282,14 +282,14 @@ test("store: the storeDir the checkout's own install recorded wins; else `pnpm s
 
 test("install: pinned pnpm, --offline --frozen-lockfile --ignore-scripts --ignore-pnpmfile into the snapshot from the recorded store", (t) => {
   const store = tmp(t, "rk-sc-store-");
-  const checkout = tmp(t, "rk-sc-co-");
+  const s = scenario(t, { "package.json": JSON.stringify({ packageManager: "pnpm@11.25.0" }), "pnpm-lock.yaml": "lockfileVersion: '9.0'\n", "pnpm-workspace.yaml": "packages:\n  - packages/*\nallowBuilds:\n  # note\n  canvas: false\n  esbuild: true\n" });
+  const checkout = s.repo; const snapshot = s.dir;
+  const selected = { commit: s.a, tree: s.tree };
   write(checkout, { "node_modules/.modules.yaml": `"storeDir": ${JSON.stringify(store)}\n` });
-  const snapshot = tmp(t, "rk-sc-snap-");
-  write(snapshot, { "package.json": JSON.stringify({ packageManager: "pnpm@11.25.0" }), "pnpm-lock.yaml": "lockfileVersion: '9.0'\n", "pnpm-workspace.yaml": "packages:\n  - packages/*\nallowBuilds:\n  # note\n  canvas: false\n  esbuild: true\n" });
   const calls = [];
   const ok = (c, a, o) => { calls.push({ c, a, cwd: o.cwd }); return a[0] === "--version" ? { status: 0, stdout: "11.25.0\n" } : { status: 0, stdout: "Done\n" }; };
   let clock = 1000;
-  const [rec] = installSnapshotDependencies({ checkout, snapshot, roots: ["."], spawn: ok, now: () => (clock += 250) });
+  const [rec] = installSnapshotDependencies({ checkout, snapshot, ...selected, roots: ["."], spawn: ok, now: () => (clock += 250) });
   const install = calls.find((x) => x.a[0] === "install");
   assert.deepEqual(install.a, ["install", "--offline", "--frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile", "--store-dir", store, "--virtual-store-dir", "node_modules/.pnpm", "--config.enable-global-virtual-store=false", "--reporter", "append-only"]);
   assert.equal(install.cwd, path.join(snapshot, "."));
@@ -300,18 +300,125 @@ test("install: pinned pnpm, --offline --frozen-lockfile --ignore-scripts --ignor
   assert.deepEqual(rec.allowedBuildsNotRun, [], "esbuild is allowed to build but not installed here, so nothing is required of it");
   // The version is the one pnpm runs in the root (it switches to the packageManager pin there), not a neutral directory's.
   const switching = (c, a, o) => (a[0] === "--version" ? { status: 0, stdout: o.cwd === path.join(snapshot, ".") ? "11.25.0\n" : "11.24.0\n" } : { status: 0, stdout: "Done\n" });
-  assert.equal(installSnapshotDependencies({ checkout, snapshot, roots: ["."], spawn: switching })[0].pnpm, "11.25.0");
+  assert.equal(installSnapshotDependencies({ checkout, snapshot, ...selected, roots: ["."], spawn: switching })[0].pnpm, "11.25.0");
   // A pnpm that is not the pinned one refuses.
-  assert.throws(() => installSnapshotDependencies({ checkout, snapshot, roots: ["."], spawn: (c, a) => (a[0] === "--version" ? { status: 0, stdout: "10.0.0\n" } : { status: 0 }) }), /pins pnpm@11\.25\.0/);
+  assert.throws(() => installSnapshotDependencies({ checkout, snapshot, ...selected, roots: ["."], spawn: (c, a) => (a[0] === "--version" ? { status: 0, stdout: "10.0.0\n" } : { status: 0 }) }), /pins pnpm@11\.25\.0/);
   // A store miss names the package and the root, never a skip.
   const miss = (c, a) => (a[0] === "--version" ? { status: 0, stdout: "11.25.0\n" } : { status: 1, stdout: "", stderr: "[ERR_PNPM_NO_OFFLINE_TARBALL] A package is missing from the store but cannot download it in offline mode. The missing package may be downloaded from https://registry.npmjs.org/katex/-/katex-0.18.11.tgz." });
-  assert.throws(() => installSnapshotDependencies({ checkout, snapshot, roots: ["."], spawn: miss }), (e) => e instanceof CheckError && /root \.: katex-0\.18\.11 is missing from the store/.test(e.message));
+  assert.throws(() => installSnapshotDependencies({ checkout, snapshot, ...selected, roots: ["."], spawn: miss }), (e) => e instanceof CheckError && /root \.: katex-0\.18\.11 is missing from the store/.test(e.message));
   // No lockfile: nothing to install from; recorded as skipped (the pnpm-lockfile scan judges it), never an install.
-  fs.rmSync(path.join(snapshot, "pnpm-lock.yaml"));
+  const noLock = scenario(t);
   calls.length = 0;
-  const [none] = installSnapshotDependencies({ checkout, snapshot, roots: ["."], spawn: ok });
+  const [none] = installSnapshotDependencies({ checkout: noLock.repo, snapshot: noLock.dir, commit: noLock.a, tree: noLock.tree, roots: ["."], spawn: ok });
   assert.match(none.skipped, /no pnpm-lock\.yaml/);
   assert.equal(calls.length, 0);
+});
+
+test("scoped install: exact committed package filters, root auto-inclusion disabled, empty scope refuses", (t) => {
+  const s = scenario(t, { "package.json": "{}", "pnpm-lock.yaml": "lockfileVersion: '9.0'\n", "packages/chosen/package.json": "{}", "packages/unrelated/package.json": "{}" });
+  const store = tmp(t, "rk-sc-store-");
+  write(s.repo, { "node_modules/.modules.yaml": `storeDir: ${store}\n` });
+  const selected = { checkout: s.repo, snapshot: s.dir, commit: s.a, tree: s.tree, roots: ["."] };
+  const calls = [];
+  const spawn = (c, args) => { calls.push(args); return { status: 0, stdout: args[0] === "--version" ? "11.25.0\n" : "Done\n" }; };
+  installSnapshotDependencies({ ...selected, packageDirs: ["packages/chosen"], spawn });
+  assert.deepEqual(calls.find((args) => args.includes("install")).slice(0, 6), ["--filter", "./packages/chosen", "--fail-if-no-match", "--config.legacy-dir-filtering=false", "--config.include-workspace-root=false", "install"]);
+  calls.length = 0;
+  assert.throws(() => installSnapshotDependencies({ ...selected, packageDirs: [], spawn }), (e) => e.code === "RK_CHECK_ERROR" && /refusing an unfiltered install/.test(e.message));
+  assert.equal(calls.length, 0);
+  assert.throws(() => installSnapshotDependencies({ ...selected, packageDirs: ["packages/missing"], spawn }), (e) => e.code === "RK_CHECK_ERROR" && /exact committed manifest directory/.test(e.message));
+});
+
+test("install failure: discard only failed root's generated dependencies, including dangling and escaping links, before RK_CHECK_ERROR", (t) => {
+  const manifest = JSON.stringify({ packageManager: "pnpm@11.25.0" });
+  const lock = "lockfileVersion: '9.0'\n";
+  const s = scenario(t, {
+    "package.json": manifest, "pnpm-lock.yaml": lock,
+    "packages/member/package.json": manifest,
+    "desktop-app-template/package.json": manifest, "desktop-app-template/pnpm-lock.yaml": lock,
+    "other/package.json": manifest, "other/pnpm-lock.yaml": lock,
+  });
+  const store = tmp(t, "rk-sc-store-"); const outside = tmp(t, "rk-sc-outside-");
+  write(store, { "keep": "warm store\n" }); write(outside, { "keep": "outside output\n" });
+  write(s.repo, { "node_modules/.modules.yaml": `storeDir: ${store}\n`, "target/keep": "Cargo output\n" });
+  write(s.dir, { "node_modules/keep/index.js": "prior root dependency\n", "packages/member/node_modules/keep/index.js": "workspace dependency\n", "other/node_modules/keep/index.js": "other root dependency\n" });
+  const selected = { checkout: s.repo, snapshot: s.dir, commit: s.a, tree: s.tree };
+  const before = fs.readFileSync(path.join(s.dir, "desktop-app-template/package.json"));
+  const install = (c, args, opts) => {
+    if (args[0] === "--version") return { status: 0, stdout: "11.25.0\n" };
+    assert.equal(opts.cwd, path.join(s.dir, "desktop-app-template"));
+    const generated = path.join(opts.cwd, "node_modules");
+    write(generated, { ".pnpm/pkg@1/node_modules/partial/index.js": "partial\n" });
+    fs.symlinkSync(path.join(generated, "missing"), path.join(generated, ".pnpm/pkg@1/node_modules/dangling"), process.platform === "win32" ? "junction" : "dir");
+    fs.symlinkSync(outside, path.join(generated, "outside"), process.platform === "win32" ? "junction" : "dir");
+    return { status: 1, stderr: "ERR_PNPM_NO_OFFLINE_TARBALL https://registry.npmjs.org/release/-/release-0.6.13.tgz" };
+  };
+  assert.throws(() => installSnapshotDependencies({ ...selected, roots: ["desktop-app-template"], spawn: install }), (e) => e.code === "RK_CHECK_ERROR" && /release-0\.6\.13 is missing from the store/.test(e.message) && !/cleanup failed/.test(e.message));
+  assert.equal(fs.existsSync(path.join(s.dir, "desktop-app-template/node_modules")), false);
+  assert.deepEqual(fs.readFileSync(path.join(s.dir, "desktop-app-template/package.json")), before);
+  assert.equal(verifySnapshotDir({ checkout: s.repo, dir: s.dir, commit: s.a, tree: s.tree, when: "after failed install" }), s.tree);
+  for (const [root, name, value] of [[store, "keep", "warm store\n"], [outside, "keep", "outside output\n"], [s.repo, "target/keep", "Cargo output\n"], [s.dir, "node_modules/keep/index.js", "prior root dependency\n"], [s.dir, "packages/member/node_modules/keep/index.js", "workspace dependency\n"], [s.dir, "other/node_modules/keep/index.js", "other root dependency\n"]]) assert.equal(fs.readFileSync(path.join(root, name), "utf8"), value);
+});
+
+test("install failure: root rollback includes workspace members but preserves independent nested roots; thrown launch failures stay RK_CHECK_ERROR", (t) => {
+  const s = scenario(t, {
+    "package.json": "{}", "pnpm-lock.yaml": "lockfileVersion: '9.0'\n", "MixedCaseMember/package.json": "{}",
+    "nested/package.json": "{}", "nested/pnpm-lock.yaml": "lockfileVersion: '9.0'\n", "nested/member/package.json": "{}",
+  });
+  const store = tmp(t, "rk-sc-store-");
+  write(s.repo, { "node_modules/.modules.yaml": `storeDir: ${store}\n` });
+  write(s.dir, { "node_modules/old/index.js": "old root\n", "MixedCaseMember/node_modules/old/index.js": "old member\n", "nested/node_modules/keep/index.js": "keep\n", "nested/member/node_modules/keep/index.js": "keep member\n" });
+  fs.symlinkSync(path.join(s.dir, "node_modules/old"), path.join(s.dir, "MixedCaseMember/node_modules/shared"), process.platform === "win32" ? "junction" : "dir");
+  const selected = { checkout: s.repo, snapshot: s.dir, commit: s.a, tree: s.tree, roots: ["."] };
+  assert.throws(() => installSnapshotDependencies({ ...selected, spawn: () => ({ status: 1, stderr: "pnpm unavailable" }) }), (e) => e.code === "RK_CHECK_ERROR" && /pnpm is not runnable/.test(e.message));
+  assert.equal(fs.readFileSync(path.join(s.dir, "node_modules/old/index.js"), "utf8"), "old root\n");
+  assert.equal(fs.readFileSync(path.join(s.dir, "MixedCaseMember/node_modules/old/index.js"), "utf8"), "old member\n");
+  const spawn = (c, args) => {
+    if (args[0] === "--version") return { status: 0, stdout: "11.25.0\n" };
+    write(s.dir, { "node_modules/partial/index.js": "partial\n", "MixedCaseMember/node_modules/partial/index.js": "partial member\n" });
+    throw new Error("installer unavailable");
+  };
+  assert.throws(() => installSnapshotDependencies({ ...selected, spawn }), (e) => e.code === "RK_CHECK_ERROR" && /installer unavailable/.test(e.message));
+  assert.equal(fs.existsSync(path.join(s.dir, "node_modules")), false);
+  assert.equal(fs.existsSync(path.join(s.dir, "MixedCaseMember/node_modules")), false);
+  assert.equal(fs.readFileSync(path.join(s.dir, "nested/node_modules/keep/index.js"), "utf8"), "keep\n");
+  assert.equal(fs.readFileSync(path.join(s.dir, "nested/member/node_modules/keep/index.js"), "utf8"), "keep member\n");
+  assert.equal(verifySnapshotDir({ checkout: s.repo, dir: s.dir, commit: s.a, tree: s.tree, when: "after rollback" }), s.tree);
+});
+
+test("install failure: replaced source parent refuses cleanup without traversing its link and retains original failure", (t) => {
+  const s = scenario(t, { "app/package.json": "{}", "app/pnpm-lock.yaml": "lockfileVersion: '9.0'\n" });
+  const store = tmp(t, "rk-sc-store-"); const outside = tmp(t, "rk-sc-outside-");
+  write(s.repo, { "node_modules/.modules.yaml": `storeDir: ${store}\n` });
+  write(outside, { "node_modules/keep": "outside\n" });
+  const spawn = (c, args) => {
+    if (args[0] === "--version") return { status: 0, stdout: "11.25.0\n" };
+    fs.renameSync(path.join(s.dir, "app"), path.join(s.dir, "moved-app"));
+    fs.symlinkSync(outside, path.join(s.dir, "app"), process.platform === "win32" ? "junction" : "dir");
+    return { status: 1, stderr: "original offline failure" };
+  };
+  assert.throws(() => installSnapshotDependencies({ checkout: s.repo, snapshot: s.dir, commit: s.a, tree: s.tree, roots: ["app"], spawn }), (e) => e.code === "RK_CHECK_ERROR" && /original offline failure; dependency cleanup failed: dependency parent changed:/.test(e.message));
+  assert.equal(fs.readFileSync(path.join(outside, "node_modules/keep"), "utf8"), "outside\n");
+});
+
+test("install preflight: refuse uncommitted roots, tracked dependency paths and escaping roots without deleting dependencies", (t) => {
+  const s = scenario(t, { "package.json": "{}", "pnpm-lock.yaml": "lockfileVersion: '9.0'\n", "node_modules/committed.txt": "committed dependency\n" });
+  // scenario's initial add respects node_modules/, so bind this file explicitly in a new selected commit.
+  write(s.repo, { "node_modules/committed.txt": "committed dependency\n" });
+  git(s.repo, "add", "-f", "node_modules/committed.txt");
+  git(s.repo, "commit", "-q", "-m", "tracked dependency");
+  const commit = git(s.repo, "rev-parse", "HEAD");
+  const snap = syncSnapshot({ checkout: s.repo, rev: commit, root: s.root });
+  const tree = git(s.repo, "rev-parse", `${commit}^{tree}`);
+  const never = () => { throw new Error("preflight must not launch pnpm"); };
+  const selected = { checkout: s.repo, snapshot: snap.path, commit, tree, spawn: never };
+  assert.throws(() => installSnapshotDependencies({ ...selected, roots: ["."] }), (e) => e.code === "RK_CHECK_ERROR" && /cannot install over committed dependency path node_modules/.test(e.message));
+  assert.throws(() => installSnapshotDependencies({ ...selected, roots: ["../outside"] }), (e) => e.code === "RK_CHECK_ERROR" && /outside the snapshot/.test(e.message));
+  assert.equal(fs.readFileSync(path.join(snap.path, "node_modules/committed.txt"), "utf8"), "committed dependency\n");
+  const clean = scenario(t, { "package.json": "{}", "pnpm-lock.yaml": "lockfileVersion: '9.0'\n" });
+  write(clean.dir, { "rogue/package.json": "{}", "rogue/pnpm-lock.yaml": "lockfileVersion: '9.0'\n", "node_modules/keep/index.js": "keep\n" });
+  assert.throws(() => installSnapshotDependencies({ checkout: clean.repo, snapshot: clean.dir, commit: clean.a, tree: clean.tree, roots: ["rogue"], spawn: never }), (e) => e.code === "RK_CHECK_ERROR" && /before dependency installation/.test(e.message));
+  assert.equal(fs.readFileSync(path.join(clean.dir, "node_modules/keep/index.js"), "utf8"), "keep\n");
 });
 
 test("pins and allowed builds parse the repository's own forms", (t) => {

@@ -1858,7 +1858,9 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
     o.out(`${tag} snapshot ${synced.path} is commit ${synced.commit} tree ${synced.tree} (written=${synced.written} removed=${synced.removed} unchanged=${synced.unchanged})`);
     const ds = { own, path: synced.path, commit: synced.commit, tree: synced.tree, root: snapshotsAt, ledger: { entries: [] } };
     // A unit's test or pack that reaches Cargo must never write `target/` into the snapshot (npm units included): see bindUnitCargo.
-    const bound = await bindUnitCargo({ o, git, root, ds, executor, which });
+    // A check starts no unit command: its own Class A path binds read-only Cargo calls. Resolving every unit's compile output
+    // here would run unrelated metadata before the scoped check even begins.
+    const bound = option("--to") === "check" ? { env: {}, cleanup() {} } : await bindUnitCargo({ o, git, root, ds, executor, which });
     if (bound.refusal) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_OUTPUT_UNPINNED: ${bound.refusal}; nothing ran`); return 1; }
     if (bound.note) o.out(`${tag} ${bound.note}`);
     const envExtra = bound.env;
@@ -1878,7 +1880,7 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
         for (const p of calls.slice(0, 10)) o.err(`${tag} RK_CHECK_ERROR: [unit:${stage}] a cargo call the unit stage made did not complete: ${typeof p === "string" ? p : JSON.stringify(p)}`);
         return calls.length === 0;
       } },
-      check: (tier) => (o.runCheck ?? (() => main(["check", "--commit", ds.commit, "--full-a", "--snapshot", ds.path, "--rule-tier", tier], { ...io, cwd: root, buildOwnership: own })))(tier), out: o.out, err: o.err,
+      check: (tier) => (o.runCheck ?? (() => main(["check", "--commit", ds.commit, "--full-a", "--snapshot", ds.path, "--rule-tier", tier, "--scope", path.posix.dirname(manifest)], { ...io, cwd: root, buildOwnership: own })))(tier), out: o.out, err: o.err,
       ...(reportOut ? { writeReport: (report) => o.writeFile(path.resolve(o.cwd, reportOut), `${JSON.stringify(o.brokerException ? { ...report, brokerException: o.brokerException } : report, null, 2)}\n`) } : {}),
     });
     } finally { bound.cleanup(); }
@@ -2402,7 +2404,9 @@ export async function main(argv, io = {}) {
     // and package compile on the compile-tier rules, qualify and release name the release tier (rightkit#1296).
     const fullAdmission = args.includes("--full-a") && !args.includes("--list") && !args.includes("--print-baseline") && !args.includes("--only");
     const stripSnapshot = (list) => { const i = list.indexOf("--snapshot"); return i < 0 ? list : [...list.slice(0, i), ...list.slice(i + 2)]; };
-    const appArgs = stripSnapshot(args.slice(1).filter((a) => a !== "--full-a"));
+    const scopeForward = args.flatMap((a, i) => a === "--scope" ? [a, args[i + 1]] : []);
+    const withoutScope = args.slice(1).filter((a, i, list) => a !== "--scope" && list[i - 1] !== "--scope");
+    const appArgs = stripSnapshot(withoutScope.filter((a) => a !== "--full-a"));
     if (fullAdmission && !appArgs.includes("--rule-tier")) appArgs.push("--rule-tier", requestedTier);
     const appCheck = await (o.appCheck ?? (await import("../app-check.mjs")).main)(appArgs, { out: o.out, err: o.err, label: "check", cwd: o.cwd, ...(snapshotDir && !args.includes("--worktree") ? { snapshot: snapshotDir } : {}) });
     if (args.includes("--list") || args.includes("--print-baseline") || args.includes("--only") || o.classA === false) {
@@ -2420,7 +2424,7 @@ export async function main(argv, io = {}) {
     const checkCwd = repoArg ? path.resolve(o.cwd, repoArg) : o.cwd;
     // The app rules' tier is the stage's (rightkit#1296); class A's deterministic scans are the same at either tier.
     const ruleTier = requestedTier;
-    const classA = await main(["--class-a", "--rule-tier", ruleTier, ...(args.includes("--full-a") ? ["--full-a"] : []), ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", snapshotCommit?.commit ?? option("--commit") ?? "HEAD"]), ...(snapshotDir ? ["--snapshot", snapshotDir] : [])], { ...io, cwd: checkCwd });
+    const classA = await main(["--class-a", "--rule-tier", ruleTier, ...(args.includes("--full-a") ? ["--full-a"] : []), ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", snapshotCommit?.commit ?? option("--commit") ?? "HEAD"]), ...(snapshotDir ? ["--snapshot", snapshotDir] : []), ...scopeForward], { ...io, cwd: checkCwd });
     // RightKit checking itself: its own rules (line endings, consumer recipes, npm surface, version copies and the version feed, dispatcher
     // pins, consumer locks, generated docs, temp paths: scripts/preflight.mjs) and its exports' import safety are class A for the RightKit repository.
     let selfRules = 0;
@@ -2448,7 +2452,7 @@ export async function main(argv, io = {}) {
       const r = launch(process.execPath, [path.join(snapshotDir, "scripts", "preflight.mjs"), "--repo", root, "--commit", snapshotCommit.commit], { cwd: root, env: o.env });
       selfRules = r.status === 0 ? 0 : 1;
       const effects = path.join(snapshotDir, "scripts", "ci", "exports-import-effects.mjs");
-      if (selfRules === 0 && o.exists(effects)) {
+      if (selfRules === 0 && o.exists(effects) && scopeForward.length === 0) {
         const common = o.spawn("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: root });
         const report = path.join(failed(common) ? path.join(root, ".git") : text(common).trim(), "rightkit-gate", "import-effects", `snapshot-${snapshotCommit.commit}.json`);
         const e = launch(process.execPath, [effects, "--root", snapshotDir, "--no-export", "--report", report], { cwd: snapshotDir, env: o.env });
@@ -2529,6 +2533,11 @@ export async function main(argv, io = {}) {
     args.push("--worktree");
   }
   const classACommit = classAOnly && !args.includes("--worktree") ? (option("--commit") ?? "HEAD") : null;
+  const scopeDirs = args.flatMap((a, i) => a === "--scope" ? [args[i + 1]] : []);
+  if (scopeDirs.length) {
+    const bad = scopeDirs.find((d) => typeof d !== "string" || !d || d.startsWith("--") || path.isAbsolute(d) || /^[A-Za-z]:/.test(d) || /(^|[\\/])\.\.([\\/]|$)/.test(d));
+    if (!fullA || !snapshotA || bad !== undefined || scopeDirs.some((d) => d === undefined)) { o.err(`${tag} --scope needs full Class A of a snapshot & repository-relative directories`); return 2; }
+  }
   if (args.includes("--base") && (!option("--base") || option("--base").startsWith("--"))) { o.err("rightkit-gate: --base needs a ref"); return 2; }
 
   const top = o.spawn("git", ["rev-parse", "--show-toplevel"], { cwd: o.cwd });
@@ -2742,7 +2751,7 @@ export async function main(argv, io = {}) {
     const tracked = (name) => files.filter((f) => f === name || f.endsWith(`/${name}`));
     const readSnap = (f) => o.readFile(f);
 
-    let rust; let npm; let npmRoots = []; let manifests = [];
+    let rust; let npm; let npmRoots = []; let installRoots = []; let manifests = []; let closure = null; let closureTools = null;
     try {
       manifests = tracked("Cargo.toml");
       if (executor.kind === "refuse" && manifests.length) { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
@@ -2772,9 +2781,30 @@ export async function main(argv, io = {}) {
         snapshotSpawn = snapshotCargoSpawn({ spawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, snapshotRoot: repo, env: o.env, err: o.err, broker: () => discoveryBroker });
         scanSpawn = snapshotCargoSpawn({ spawn: defaultSpawnAsync, carrySpawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, snapshotRoot: repo, env: o.env, err: o.err, broker: () => discoveryBroker });
       }
-      rust = discoverRustWorkspaces({ root: repo, spawn: snapshotSpawn, cargoCommand, tracked, untracked, fixtures, readFile: readSnap });
       npm = discoverNpmUnits({ root: repo, tracked, readFile: readSnap, exists: o.exists });
       npmRoots = discoverPnpmRoots({ root: repo, tracked, exists: o.exists });
+      let metadata = null;
+      if (scopeDirs.length) {
+        closureTools = await import("../app-closure.mjs");
+        const readCommitted = (file) => {
+          if (!files.includes(file)) throw new Error(`${file} is absent from the committed tree`);
+          return readSnap(path.join(repo, file));
+        };
+        const sourceMetadata = closureTools.cargoMetadataFromManifests({ manifests: manifests.filter((m) => !fixtures.some((d) => m.startsWith(`${d.replace(/\/$/, "")}/`))), readFile: readCommitted });
+        const inventory = discoverRustWorkspaces({ root: repo, tracked, fixtures, readFile: readSnap, metadata: sourceMetadata });
+        closure = closureTools.closureOf({ scopeDirs, npmUnits: npm, rustUnits: inventory.units, readFile: readCommitted });
+        const selectedWorkspaces = new Set(inventory.units.filter((u) => closure.rust.has(u.name)).map((u) => u.cargoDir));
+        metadata = (dir) => {
+          const source = sourceMetadata(dir);
+          return selectedWorkspaces.has(source.cargoDir) ? workspaceMetadata({ root: repo, spawn: snapshotSpawn, cargoCommand, dir, realpath: fs.realpathSync }) : source;
+        };
+      }
+      rust = discoverRustWorkspaces({ root: repo, spawn: snapshotSpawn, cargoCommand, tracked, untracked, fixtures, readFile: readSnap, ...(metadata ? { metadata } : {}) });
+      if (closure) {
+        // Confirm membership discovered by Cargo; its closure must resolve without unrelated execution.
+        closure = closureTools.closureOf({ scopeDirs, npmUnits: npm, rustUnits: rust.units, readFile: (file) => { if (!files.includes(file)) throw new Error(`${file} is absent from the committed tree`); return readSnap(path.join(repo, file)); } });
+        installRoots = [...new Set(npm.filter((u) => closure.npm.has(u.name)).map((u) => u.root ?? "."))].sort();
+      } else installRoots = npmRoots;
     } catch (e) { o.err(`${tag} BLOCKED: cannot discover the repository's units: ${e.message}`); return 1; }
     for (const k of rust.skipped) o.out(`${tag} note: ${k.manifest} is skipped, not scanned: ${k.why}`);
 
@@ -2808,7 +2838,7 @@ export async function main(argv, io = {}) {
           directDeclaredNotes = judged.findings.map((f) => `declared compile input: ${f}`);
         }
         o.out(`${tag} snapshot ${snapshotB} is commit ${snapshotBCommit.commit} tree ${snapshotBCommit.tree} (verified before the compile)`);
-        for (const r of sc.installSnapshotDependencies({ checkout, snapshot: snapshotB, roots: npmRoots, env: o.env, spawn: o.spawn })) o.out(`${tag} ${sc.describeInstall(r)}`);
+        for (const r of sc.installSnapshotDependencies({ checkout, snapshot: snapshotB, ...snapshotBCommit, ...(o.snapshotLedger !== undefined ? { ledger: o.snapshotLedger } : {}), roots: installRoots, ...(closure ? { packageDirs: npm.filter((u) => closure.npm.has(u.name)).map((u) => u.dir) } : {}), env: o.env, spawn: o.spawn })) o.out(`${tag} ${sc.describeInstall(r)}`);
       } catch (error) { o.err(`${tag} ${error.code === "RK_CHECK_ERROR" ? "RK_CHECK_ERROR" : "BLOCKED"}: ${error.message}`); return error.code === "RK_CHECK_ERROR" ? 2 : 1; }
       // A broker host (item 7 rows 7.20 to 7.24): the compile goes through the RustRight snapshot carrier. The broker pins the output
       // directory (its managed generation target), so no checkout target is resolved here; the gate's broker is built once, with the
@@ -2954,6 +2984,17 @@ export async function main(argv, io = {}) {
     // broker is unreachable runs neither; the gate stops rather than skip them.
     if (executor.kind === "refuse" && fullPlan.scans.some((x) => x.class === "B" || (x.kind === "test" && (!classAOnly || fullA)))) { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
     let plan = fullPlan;
+    if (closure) {
+      let kept;
+      try {
+        kept = closureTools.scopeScans(fullPlan.scans, closure, { rustUnits: rust.units });
+        plan = closureTools.scopedPlan(fullPlan, kept.scans, closure);
+      } catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
+      plan.notes = plan.notes.filter((n) => !n.includes("every Rust unit is in scope"));
+      const classA = plan.scans.filter((s) => s.class === "A");
+      const executing = classA.filter((s) => s.executes === true || s.kind === "test" || s.id === "suite-api").length;
+      o.out(`${tag} scope ${closure.dirs.join(", ")}: dependency directories ${closure.dependencyDirs.join(", ")}; ${closure.npm.size} npm & ${closure.rust.size} Rust unit(s); Class A ${executing} executing scan(s), ${classA.length - executing} repository file-only scan(s); ${kept.dropped.length} unrelated executing scan(s) excluded; ${plan.scans.length - classA.length} closure Class B scan(s) do not run in this check; install roots ${installRoots.join(", ") || "none"}; scope digest ${plan.scopeDigest}`);
+    }
     const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? 4) || 4);
     const testJobs = Math.max(1, Number(o.env.RK_GATE_TEST_JOBS ?? jobs) || jobs);
     const classBJobs = Math.max(1, Number(o.env.RK_GATE_CLASS_B_JOBS ?? 3) || 3);
@@ -3026,7 +3067,7 @@ export async function main(argv, io = {}) {
         live = sc.commitFiles(checkout, ct.commit, o.spawn);
         // Dependencies for the checks that execute repository code: installed into the snapshot from the commit's lockfile and the
         // primary checkout's existing store (coordinator decision A, rightkit#1257). A store miss stops here, naming the package.
-        const installed = sc.installSnapshotDependencies({ checkout, snapshot: snapshotA, roots: npmRoots, env: o.env, spawn: o.spawn });
+        const installed = sc.installSnapshotDependencies({ checkout, snapshot: snapshotA, ...ct, roots: installRoots, ...(closure ? { packageDirs: npm.filter((u) => closure.npm.has(u.name)).map((u) => u.dir) } : {}), env: o.env, spawn: o.spawn });
         for (const r of installed) o.out(`${tag} ${sc.describeInstall(r)}`);
       } catch (error) { o.err(`${tag} ${error.code === "RK_CHECK_ERROR" ? "RK_CHECK_ERROR" : "BLOCKED"}: ${error.message}`); return error.code === "RK_CHECK_ERROR" ? 2 : 1; }
     }
@@ -3055,7 +3096,8 @@ export async function main(argv, io = {}) {
         // The verdict also depends on what is not in the tree: the gate's own code and advisory data, the node and pnpm that run
         // the checks, the installed dependencies (pnpm's install state) and the platform. Any change there is a cache miss.
         const environment = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files, spawn: o.spawn });
-        cache = { ...store, digest: `${buildCacheDigest({ objectId, headTree: digestOf(files), rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures, listFiles, readBlob })}:${environment}` };
+        const digest = buildCacheDigest({ objectId, headTree: digestOf(files), rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures, listFiles, readBlob });
+        cache = { ...store, digest: (scan) => { const key = digest(scan); return key === null ? null : `${key}:${environment}:${plan.scopeDigest ?? "repository"}:${plan.scanSetDigest}`; } };
       } catch { cache = null; }
     }
     if (!classAOnly && !args.includes("--no-cache") && o.env.RK_GATE_CACHE !== "0") {
@@ -3219,7 +3261,7 @@ export async function main(argv, io = {}) {
           if (binding.exit === 2) return 2;
         } else {
           for (const n of binding.notes) o.out(`${tag} ${n}`);
-          const marker = (await import("../snapshot-check.mjs")).deterministicMarker(scanResult, binding.env);
+          const marker = (await import("../snapshot-check.mjs")).deterministicMarker(scanResult, plan.scopeDigest ? createHash("sha256").update(`${binding.env}:${plan.scopeDigest}:${plan.scanSetDigest}`).digest("hex") : binding.env);
           if (marker) o.out(marker);
         }
       }
@@ -3239,9 +3281,9 @@ export async function main(argv, io = {}) {
         const trackedList = snapFullA ? null : git("ls-files", "-z", "--cached");
         if (trackedList && failed(trackedList)) { o.err(`${tag} BLOCKED: cannot list tracked files to name the checked bytes`); return 1; }
         const tracked = new Set(snapFullA ? live.files : text(trackedList).split("\0").filter(Boolean).map(posix));
-        o.out(`${tag} class A bytes tracked=${live.digestOf(live.files.filter((f) => tracked.has(f)))} all=${live.digest}${envStartWithCaches ? ` env-at-start=${envStartWithCaches}` : ""} env=${binding.env}`);
+        o.out(`${tag} class A bytes tracked=${live.digestOf(live.files.filter((f) => tracked.has(f)))} all=${live.digest}${envStartWithCaches ? ` env-at-start=${envStartWithCaches}` : ""} env=${plan.scopeDigest ? createHash("sha256").update(`${binding.env}:${plan.scopeDigest}:${plan.scanSetDigest}`).digest("hex") : binding.env}${plan.scopeDigest ? ` scope=${plan.scopeDigest} scans=${plan.scanSetDigest}` : ""}`);
       }
-      o.out(`${tag} class A full pass: ${scanResult.scans.length} deterministic check(s), the ones that execute repository code included, over ${changed.length} file(s) of ${base}`);
+      o.out(`${tag} class A ${plan.scopeDigest ? "scoped" : "full"} pass: ${scanResult.scans.length} deterministic check(s), the ones that execute repository code included, over ${changed.length} file(s) of ${base}`);
       return 0;
     }
     if (classAOnly) {
