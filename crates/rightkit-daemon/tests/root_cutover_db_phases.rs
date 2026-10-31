@@ -599,10 +599,12 @@ fn killed_after_completed_recovers_only_cleanup_before_retiring_old() {
     // A fresh process can refuse cleanup without losing its durable authority or opening either DB.
     let mut refused = f.participant();
     refused.fail_cleanup = true;
-    assert!(matches!(
-        f.cutover(refused).recover(),
-        Err(CutoverError::SettlementPending { .. })
-    ));
+    // Same predicate as before; the outcome is printed so a failure names the error it got.
+    let refusal = f.cutover(refused).recover();
+    assert!(
+        matches!(refusal, Err(CutoverError::SettlementPending { .. })),
+        "a refused cleanup must stay SettlementPending: {refusal:?}"
+    );
     assert_eq!(journal, file_evidence(&f.app.root().join(JOURNAL)));
     assert!(!settlement_complete(&f.app));
     let before = f.events().len();

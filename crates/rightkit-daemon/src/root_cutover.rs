@@ -68,7 +68,7 @@ use crate::app_root::{
     normalize_roots, roots_overlap, same_content, write_json_atomic, AppRoot, AppRootError,
     MigrateOptions, MigrationReport,
 };
-use crate::discovery::try_lock_exclusive;
+use crate::discovery::{try_lock_exclusive, LockedFile};
 
 /// The persisted selection: written at the new root, atomically, at every phase change.
 pub const CUTOVER_RECORD: &str = ".rightkit-root-cutover.json";
@@ -906,7 +906,7 @@ fn new_id() -> Result<String, CutoverError> {
     Ok(raw.iter().map(|b| format!("{b:02x}")).collect())
 }
 
-fn take_lock(new_root: &Path) -> Result<fs::File, CutoverError> {
+fn take_lock(new_root: &Path) -> Result<LockedFile, CutoverError> {
     let path = new_root.join(CUTOVER_LOCK);
     match try_lock_exclusive(&path) {
         Ok(Some(file)) => Ok(file),

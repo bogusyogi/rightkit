@@ -38,7 +38,7 @@ use std::path::{Component, Path, PathBuf};
 
 use rightkit_fs::{AtomicWriteOptions, AtomicWriter, FsError, ReplaceMode};
 
-use crate::discovery::try_lock_exclusive;
+use crate::discovery::{try_lock_exclusive, LockedFile};
 use crate::suite::{make_private_dir, Suite, SuiteError};
 
 /// The longest app name accepted, in bytes.
@@ -212,7 +212,7 @@ impl From<SuiteError> for AppRootError {
 /// Held while this process is the single writer of an app root. Released on drop or process
 /// death (OS lock).
 pub struct WriterLock {
-    _file: File,
+    _file: LockedFile,
 }
 
 /// What [`AppRoot::migrate_from`] did.
@@ -2218,35 +2218,6 @@ fn read_full(f: &mut File, buf: &mut [u8]) -> io::Result<usize> {
 
 #[cfg(test)]
 mod tests {
-    /// flock (Unix `File::try_lock`) belongs to the open file description, which a child forked by another test in
-    /// this binary shares until it execs (child-process spawns with pre_exec take the fork path on macOS). A lock
-    /// released by drop can therefore read as held for that instant: re-acquire with a short bound. Not a release bug:
-    /// the guard's drop closes our descriptor; the lock ends when the last shared copy closes (#788).
-    fn eventually<T, E>(mut f: impl FnMut() -> Result<T, E>) -> Result<T, E> {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        loop {
-            match f() {
-                Ok(v) => return Ok(v),
-                Err(e) if std::time::Instant::now() >= deadline => return Err(e),
-                Err(_) => std::thread::sleep(std::time::Duration::from_millis(20)),
-            }
-        }
-    }
-
-    /// [`eventually`] for calls that take the writer lock themselves (the migrations): retries only `WriterBusy`, so
-    /// every other outcome, including the errors a test expects, is returned at once.
-    fn settled<T>(mut f: impl FnMut() -> Result<T, AppRootError>) -> Result<T, AppRootError> {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        loop {
-            match f() {
-                Err(AppRootError::WriterBusy(_)) if std::time::Instant::now() < deadline => {
-                    std::thread::sleep(std::time::Duration::from_millis(20))
-                }
-                other => return other,
-            }
-        }
-    }
-
     use super::*;
 
     fn suite() -> (tempfile::TempDir, Suite) {
@@ -2351,7 +2322,7 @@ mod tests {
         let l = a.lock_writer().unwrap();
         assert!(matches!(a.lock_writer(), Err(AppRootError::WriterBusy(_))));
         drop(l);
-        eventually(|| a.lock_writer()).unwrap();
+        a.lock_writer().unwrap();
     }
 
     fn old_tree(d: &Path) -> PathBuf {
@@ -2368,7 +2339,7 @@ mod tests {
         let a = s.app_root("App").unwrap();
         let old = old_tree(d.path());
         assert_eq!(
-            settled(|| a.migrate_from(&old)).unwrap(),
+            a.migrate_from(&old).unwrap(),
             MigrationOutcome::Migrated {
                 files: 2,
                 bytes: 200_005
@@ -2379,7 +2350,7 @@ mod tests {
         assert!(a.root().join(MIGRATION_MARKER).is_file());
         assert!(old.join("a.txt").is_file(), "old root is left in place");
         assert_eq!(
-            settled(|| a.migrate_from(&old)).unwrap(),
+            a.migrate_from(&old).unwrap(),
             MigrationOutcome::AlreadyMigrated
         );
         assert_eq!(
@@ -2399,7 +2370,7 @@ mod tests {
         fs::write(a.root().join(format!("sub/b.bin{TMP_SUFFIX}")), b"par").unwrap();
         assert!(!a.root().join(MIGRATION_MARKER).exists());
         assert!(matches!(
-            settled(|| a.migrate_from(&old)).unwrap(),
+            a.migrate_from(&old).unwrap(),
             MigrationOutcome::Migrated { files: 2, .. }
         ));
         assert_eq!(fs::read(a.root().join("sub/b.bin")).unwrap().len(), 200_000);
@@ -2417,7 +2388,7 @@ mod tests {
             )
             .unwrap();
         }
-        settled(|| a.migrate_from(&old)).unwrap();
+        a.migrate_from(&old).unwrap();
         assert_eq!(fs::read(old.join("a.txt")).unwrap(), b"alpha");
         assert_eq!(fs::read(a.root().join("a.txt")).unwrap(), b"alpha");
         for name in ["a.txt", MIGRATION_STATE, MIGRATION_MARKER] {
@@ -2441,7 +2412,7 @@ mod tests {
             )
             .unwrap();
         }
-        settled(|| a.migrate_from(&old)).unwrap();
+        a.migrate_from(&old).unwrap();
         assert_eq!(fs::read(old.join("a.txt")).unwrap(), b"alpha");
         assert_eq!(fs::read(a.root().join("a.txt")).unwrap(), b"alpha");
         for name in ["a.txt", MIGRATION_STATE, MIGRATION_MARKER] {
@@ -2488,7 +2459,7 @@ mod tests {
         let rel = Path::new("sub/.record.rktmp-123-1-0");
         fs::write(old.join(rel), b"user data, not a migration temp").unwrap();
         assert!(matches!(
-            settled(|| a.migrate_from(&old)).unwrap(),
+            a.migrate_from(&old).unwrap(),
             MigrationOutcome::Migrated { files: 3, .. }
         ));
         assert_eq!(
@@ -2500,7 +2471,7 @@ mod tests {
             b"user data, not a migration temp"
         );
         assert_eq!(
-            settled(|| a.migrate_from(&old)).unwrap(),
+            a.migrate_from(&old).unwrap(),
             MigrationOutcome::AlreadyMigrated
         );
     }
@@ -2516,7 +2487,7 @@ mod tests {
         fs::create_dir(old.join(directory)).unwrap();
         fs::write(old.join(directory).join("entry"), b"user entry").unwrap();
         assert!(matches!(
-            settled(|| a.migrate_from(&old)).unwrap(),
+            a.migrate_from(&old).unwrap(),
             MigrationOutcome::Migrated { files: 4, .. }
         ));
         for root in [old.as_path(), a.root()] {
@@ -2568,7 +2539,7 @@ mod tests {
             a.migrate_from(Path::new("rel")),
             Err(AppRootError::PathEscape(_))
         ));
-        let _held = eventually(|| a.lock_writer()).unwrap();
+        let _held = a.lock_writer().unwrap();
         assert!(matches!(
             a.migrate_from(&old),
             Err(AppRootError::WriterBusy(_))
@@ -2688,7 +2659,7 @@ mod tests {
             assert_eq!(entry_count(&a.root().join("empty")), 0, "{name}");
             assert_eq!(entry_count(&a.root().join("sub/deep/emptier")), 0, "{name}");
             assert_eq!(
-                settled(|| a.migrate_from_with(&old, MigrateOptions::strict()))
+                a.migrate_from_with(&old, MigrateOptions::strict())
                     .unwrap()
                     .outcome(),
                 &MigrationOutcome::AlreadyMigrated
@@ -2725,7 +2696,7 @@ mod tests {
         // Resolve it and rerun: the same call finishes and writes the marker last.
         fs::remove_file(a.root().join("empty")).unwrap();
         assert!(matches!(
-            settled(|| a.migrate_from(&old)).unwrap(),
+            a.migrate_from(&old).unwrap(),
             MigrationOutcome::Migrated { files: 2, .. }
         ));
         assert!(a.root().join("empty").is_dir());
@@ -2759,7 +2730,7 @@ mod tests {
             Some(MigrationState::Incomplete)
         );
         assert!(!old_reader_sees_migrated(&a, &old));
-        let r = settled(|| a.migrate_from_with(&old, links_on())).unwrap();
+        let r = a.migrate_from_with(&old, links_on()).unwrap();
         assert!(matches!(
             r.outcome(),
             MigrationOutcome::Migrated { files: 2, .. }
@@ -2781,7 +2752,7 @@ mod tests {
         fs::remove_file(a.root().join(MIGRATION_MARKER)).unwrap();
         assert!(!old_reader_sees_migrated(&a, &old));
         assert_eq!(
-            settled(|| a.migrate_from(&old)).unwrap(),
+            a.migrate_from(&old).unwrap(),
             MigrationOutcome::AlreadyMigrated
         );
         assert!(old_reader_sees_migrated(&a, &old));
@@ -2816,7 +2787,7 @@ mod tests {
             write(v);
             for r in [
                 a.migration_state(&old).map(|_| ()),
-                settled(|| a.migrate_from(&old)).map(|_| ()),
+                a.migrate_from(&old).map(|_| ()),
             ] {
                 match r {
                     Err(AppRootError::Io(e)) => {
@@ -2834,7 +2805,7 @@ mod tests {
             assert!(a.read_state(&src).unwrap().is_none());
         }
         assert!(matches!(
-            settled(|| a.migrate_from(&old)).unwrap(),
+            a.migrate_from(&old).unwrap(),
             MigrationOutcome::Migrated { files: 2, .. }
         ));
     }
@@ -2874,7 +2845,7 @@ mod tests {
         assert_eq!(keys, ["bytes", "files", "source"]);
         // An opt-in call honours a marker written by a strict (old-format) migration.
         assert_eq!(
-            settled(|| a.migrate_from_with(&old, links_on().skip_ephemeral_specials(true)))
+            a.migrate_from_with(&old, links_on().skip_ephemeral_specials(true))
                 .unwrap()
                 .outcome(),
             &MigrationOutcome::AlreadyMigrated
@@ -3184,9 +3155,7 @@ mod tests {
             assert_eq!(fs::read(a.root().join("sub/b.bin")).unwrap().len(), 200_000);
             assert_eq!(read_link_text(a.root().join("top")), Path::new("sub"));
             assert_eq!(
-                settled(|| a.migrate_from_with(&old, links_on()))
-                    .unwrap()
-                    .outcome(),
+                a.migrate_from_with(&old, links_on()).unwrap().outcome(),
                 &MigrationOutcome::AlreadyMigrated
             );
         }
@@ -3206,14 +3175,14 @@ mod tests {
             // Strict, and links alone, still refuse.
             for o in [MigrateOptions::strict(), links_on()] {
                 assert!(matches!(
-                    settled(|| a.migrate_from_with(&old, o.clone())),
+                    a.migrate_from_with(&old, o.clone()),
                     Err(AppRootError::UnsupportedSource(_))
                 ));
             }
             assert!(!a.root().join(MIGRATION_MARKER).exists());
             let o = MigrateOptions::strict().skip_ephemeral_specials(true);
             let (files, links, specials, _) =
-                migrated(settled(|| a.migrate_from_with(&old, o.clone())).unwrap());
+                migrated(a.migrate_from_with(&old, o.clone()).unwrap());
             assert_eq!((files, links.len()), (2, 0));
             assert_eq!(
                 specials,
@@ -3259,7 +3228,7 @@ mod tests {
             {
                 let a = s.app_root(&format!("App{i}")).unwrap();
                 assert!(matches!(
-                    settled(|| a.migrate_from_with(&old, o.clone())),
+                    a.migrate_from_with(&old, o.clone()),
                     Err(AppRootError::UnsupportedSource(_))
                 ));
                 assert!(!a.root().join(MIGRATION_MARKER).exists());
@@ -3304,7 +3273,7 @@ mod tests {
             assert_eq!(snapshot(&old), before);
             // Retry once links work: the same call completes and writes the marker.
             let (files, links, _, omitted) =
-                migrated(settled(|| a.migrate_from_with(&old, links_on())).unwrap());
+                migrated(a.migrate_from_with(&old, links_on()).unwrap());
             assert_eq!((files, links.len(), omitted.len()), (2, 2, 0));
             assert!(a.root().join(MIGRATION_MARKER).is_file());
             assert_eq!(snapshot(&old), before);
@@ -3327,7 +3296,7 @@ mod tests {
                 .is_some());
             assert!(!a.root().join(MIGRATION_MARKER).exists());
             let opts = links_on().optional_links(|p| p.starts_with("skills"));
-            let report = settled(|| a.migrate_impl(&old, &opts, &denied)).unwrap();
+            let report = a.migrate_impl(&old, &opts, &denied).unwrap();
             assert!(!report.complete());
             let (files, links, _, omitted) = migrated(report);
             assert_eq!((files, links.len()), (2, 0));
@@ -3367,7 +3336,7 @@ mod tests {
             let first = a.migrate_impl(&old, &opts(), &denied).unwrap();
             assert_eq!(first.state(), MigrationState::ReadyWithOmissions);
             // Still denied: the rerun retries, finds the link still omitted and changes nothing.
-            let again = settled(|| a.migrate_impl(&old, &opts(), &denied)).unwrap();
+            let again = a.migrate_impl(&old, &opts(), &denied).unwrap();
             assert_eq!(again.outcome(), &MigrationOutcome::AlreadyMigrated);
             assert_eq!(again.state(), MigrationState::ReadyWithOmissions);
             assert_eq!(again.omitted_optional_links().len(), 1);
@@ -3376,7 +3345,7 @@ mod tests {
             // The app has been running on the destination: a file it changed must not turn the
             // retry into a collision, because files are not compared again.
             fs::write(a.root().join("a.txt"), b"edited by the app").unwrap();
-            let done = settled(|| a.migrate_from_with(&old, opts())).unwrap();
+            let done = a.migrate_from_with(&old, opts()).unwrap();
             assert_eq!(done.outcome(), &MigrationOutcome::AlreadyMigrated);
             assert_eq!(done.state(), MigrationState::Ready);
             assert!(done.complete() && done.omitted_optional_links().is_empty());
@@ -3396,7 +3365,7 @@ mod tests {
             assert_eq!(state_value(&a)["unresolved"], serde_json::json!([]));
             assert!(old_reader_sees_migrated(&a, &old), "now a complete move");
             // Ready is final.
-            let last = settled(|| a.migrate_from_with(&old, opts())).unwrap();
+            let last = a.migrate_from_with(&old, opts()).unwrap();
             assert_eq!(last.outcome(), &MigrationOutcome::AlreadyMigrated);
             assert!(last.complete() && last.migrated_links().is_empty());
             assert_eq!(snapshot(&old), before);
@@ -3414,7 +3383,7 @@ mod tests {
             assert_eq!(first.state(), MigrationState::ReadyWithOmissions);
             // The app put its own file where the omitted link belongs.
             fs::write(a.root().join("skills/tool"), b"the app's own file").unwrap();
-            let r = settled(|| a.migrate_from_with(&old, opts())).unwrap();
+            let r = a.migrate_from_with(&old, opts()).unwrap();
             assert_eq!(r.state(), MigrationState::ReadyWithOmissions);
             assert_eq!(r.omitted_optional_links().len(), 1);
             assert!(r.omitted_optional_links()[0].reason.contains("occupied"));
@@ -3433,7 +3402,7 @@ mod tests {
             fs::create_dir(old.join("empty")).unwrap();
             symlink("empty", old.join("to_empty")).unwrap();
             let before = snapshot(&old);
-            let r = settled(|| a.migrate_from_with(&old, links_on())).unwrap();
+            let r = a.migrate_from_with(&old, links_on()).unwrap();
             assert_eq!(r.state(), MigrationState::Ready);
             assert!(a.root().join("empty").is_dir());
             assert!(
@@ -3476,13 +3445,13 @@ mod tests {
                 .unwrap()
                 .contains("cannot create symlink"));
             // A second denied attempt is the same error and the same state, not a success.
-            assert!(settled(|| a.migrate_impl(&old, &links_on(), &denied)).is_err());
+            assert!(a.migrate_impl(&old, &links_on(), &denied).is_err());
             assert_eq!(
                 a.migration_state(&old).unwrap(),
                 Some(MigrationState::Incomplete)
             );
             // Links work now: the rerun finishes the whole copy.
-            let r = settled(|| a.migrate_from_with(&old, links_on())).unwrap();
+            let r = a.migrate_from_with(&old, links_on()).unwrap();
             assert_eq!(r.state(), MigrationState::Ready);
             assert_eq!(r.migrated_links().len(), 2);
             assert_eq!(

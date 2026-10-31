@@ -1,6 +1,6 @@
 use crate::contract::{new_context, Caller};
 pub use crate::contract::{CallContext, Emit, Handler};
-use crate::discovery::{record_process_matches, try_lock_exclusive};
+use crate::discovery::{record_process_matches, try_lock_exclusive, LockedFile};
 use crate::error::{ServiceError, ERROR_RESPONSE_TOO_LARGE};
 use crate::record::*;
 use crate::suite::{make_private_dir, valid_service_name, Suite, SuiteError};
@@ -388,7 +388,7 @@ struct Shared {
     handler: Arc<dyn Handler>,
     listener: Listener,
     // Held until endpoint cleanup completes; kernel releases it on process death.
-    election: Mutex<Option<std::fs::File>>,
+    election: Mutex<Option<LockedFile>>,
     record: ServiceRecord,
     stop: AtomicBool,
     handoff: Arc<AtomicBool>,
