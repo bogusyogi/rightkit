@@ -24,10 +24,10 @@
 //!
 //! Nothing here spawns a process, and an empty listing is never accepted: a journey set that built nothing cannot be green.
 use super::build_record::{
-    code, parse_cargo_json, select_artifact, valid_request_id, BuildPlan, MarkerPolicy, RawBuild,
+    parse_cargo_json, select_artifact, valid_request_id, BuildPlan, MarkerPolicy, RawBuild,
     BROKER_PROGRAM,
 };
-use super::{is_hex_lower, Problem};
+use super::{code, is_hex_lower, Problem};
 use crate::signing::Evidence;
 use crate::util::{err, Error, Result};
 use serde::{Deserialize, Serialize};
@@ -92,7 +92,10 @@ impl PrebuiltAttestation {
         if a.schema != PREBUILT_SCHEMA {
             return Err(coded(
                 prebuilt_code::NOT_ATTESTED,
-                format!("the prebuilt attestation schema is {:?}, not {PREBUILT_SCHEMA}", a.schema),
+                format!(
+                    "the prebuilt attestation schema is {:?}, not {PREBUILT_SCHEMA}",
+                    a.schema
+                ),
             ));
         }
         if !valid_request_id(&a.request_id) {
@@ -101,7 +104,10 @@ impl PrebuiltAttestation {
                 "the prebuilt attestation carries no valid broker request id",
             ));
         }
-        for (what, value) in [("request_sha256", &a.request_sha256), ("listing_sha256", &a.listing_sha256)] {
+        for (what, value) in [
+            ("request_sha256", &a.request_sha256),
+            ("listing_sha256", &a.listing_sha256),
+        ] {
             if !is_hex_lower(value, 64) {
                 return Err(coded(
                     prebuilt_code::NOT_ATTESTED,
@@ -110,7 +116,10 @@ impl PrebuiltAttestation {
             }
         }
         if a.command.is_empty() {
-            return Err(coded(prebuilt_code::NOT_ATTESTED, "the prebuilt attestation names no command"));
+            return Err(coded(
+                prebuilt_code::NOT_ATTESTED,
+                "the prebuilt attestation names no command",
+            ));
         }
         if a.outputs.is_empty() {
             return Err(coded(
@@ -118,10 +127,17 @@ impl PrebuiltAttestation {
                 "the prebuilt attestation attests no output: a build that produced nothing cannot be a journey run",
             ));
         }
-        if let Some(o) = a.outputs.iter().find(|o| o.path.is_empty() || !is_hex_lower(&o.sha256, 64)) {
+        if let Some(o) = a
+            .outputs
+            .iter()
+            .find(|o| o.path.is_empty() || !is_hex_lower(&o.sha256, 64))
+        {
             return Err(coded(
                 prebuilt_code::NOT_ATTESTED,
-                format!("the prebuilt attestation's output {:?} has no sha256", o.path),
+                format!(
+                    "the prebuilt attestation's output {:?} has no sha256",
+                    o.path
+                ),
             ));
         }
         Ok(a)
@@ -168,14 +184,20 @@ pub fn build_from_prebuilt(plan: &BuildPlan, input: &PrebuiltInput) -> Result<Ra
     let attestation_bytes = std::fs::read(&input.attestation).map_err(|e| {
         coded(
             prebuilt_code::NOT_ATTESTED,
-            format!("cannot read the prebuilt attestation {}: {e}", input.attestation.display()),
+            format!(
+                "cannot read the prebuilt attestation {}: {e}",
+                input.attestation.display()
+            ),
         )
     })?;
     let att = PrebuiltAttestation::parse(&attestation_bytes)?;
     let listing_bytes = std::fs::read(&input.listing).map_err(|e| {
         coded(
             prebuilt_code::LISTING_MISMATCH,
-            format!("cannot read the carried listing {}: {e}", input.listing.display()),
+            format!(
+                "cannot read the carried listing {}: {e}",
+                input.listing.display()
+            ),
         )
     })?;
     let listing_sha = sha256_text(&listing_bytes);
@@ -204,14 +226,24 @@ pub fn build_from_prebuilt(plan: &BuildPlan, input: &PrebuiltInput) -> Result<Ra
             ),
         ));
     }
-    let listing = String::from_utf8(listing_bytes)
-        .map_err(|_| coded(prebuilt_code::LISTING_MISMATCH, "the carried listing is not UTF-8 text"))?;
+    let listing = String::from_utf8(listing_bytes).map_err(|_| {
+        coded(
+            prebuilt_code::LISTING_MISMATCH,
+            "the carried listing is not UTF-8 text",
+        )
+    })?;
     let parsed = parse_cargo_json(&listing);
     if parsed.build_finished != Some(true) {
-        return Err(coded(code::BUILD_NOT_ATTESTED, "the carried listing has no successful build-finished record"));
+        return Err(coded(
+            code::BUILD_NOT_ATTESTED,
+            "the carried listing has no successful build-finished record",
+        ));
     }
     if !parsed.artifacts.iter().any(|a| a.executable.is_some()) {
-        return Err(coded(prebuilt_code::EMPTY_LISTING, "the carried listing names no executable: an empty build is never a journey run"));
+        return Err(coded(
+            prebuilt_code::EMPTY_LISTING,
+            "the carried listing names no executable: an empty build is never a journey run",
+        ));
     }
     // Every artifact the plan declares: attested, unchanged, and signed when it is a product.
     let mut launch: Vec<(String, String)> = Vec::new(); // (listing path, path to launch)
@@ -222,16 +254,26 @@ pub fn build_from_prebuilt(plan: &BuildPlan, input: &PrebuiltInput) -> Result<Ra
             .clone()
             .ok_or_else(|| Error(format!("role {:?} has no executable", spec.role)))?;
         let exe_text = exe.to_string_lossy().into_owned();
-        let attested = att.outputs.iter().find(|o| o.path == exe_text).ok_or_else(|| {
-            coded(
-                code::ARTIFACT_NOT_FROM_BUILD,
-                format!("{exe_text} (role {:?}) is not an output the gate attested for request {}", spec.role, att.request_id),
-            )
-        })?;
+        let attested = att
+            .outputs
+            .iter()
+            .find(|o| o.path == exe_text)
+            .ok_or_else(|| {
+                coded(
+                    code::ARTIFACT_NOT_FROM_BUILD,
+                    format!(
+                        "{exe_text} (role {:?}) is not an output the gate attested for request {}",
+                        spec.role, att.request_id
+                    ),
+                )
+            })?;
         match spec.marker {
             MarkerPolicy::NotApplicable => {
                 let actual = rightkit_fs::digest::sha256_file(&exe).map_err(|e| {
-                    coded(code::ARTIFACT_MISMATCH, format!("{exe_text} (role {:?}) cannot be hashed: {e}", spec.role))
+                    coded(
+                        code::ARTIFACT_MISMATCH,
+                        format!("{exe_text} (role {:?}) cannot be hashed: {e}", spec.role),
+                    )
                 })?;
                 if actual != attested.sha256 {
                     return Err(coded(
@@ -244,7 +286,10 @@ pub fn build_from_prebuilt(plan: &BuildPlan, input: &PrebuiltInput) -> Result<Ra
                 // A product that still sits at its build path must be the attested bytes; the launched file is the signed copy.
                 if exe.is_file() {
                     let actual = rightkit_fs::digest::sha256_file(&exe).map_err(|e| {
-                        coded(code::ARTIFACT_MISMATCH, format!("{exe_text} cannot be hashed: {e}"))
+                        coded(
+                            code::ARTIFACT_MISMATCH,
+                            format!("{exe_text} cannot be hashed: {e}"),
+                        )
                     })?;
                     if actual != attested.sha256 {
                         return Err(coded(
@@ -259,10 +304,15 @@ pub fn build_from_prebuilt(plan: &BuildPlan, input: &PrebuiltInput) -> Result<Ra
                         format!("{exe_text} (role {:?}) is a product and the gate handed no signing evidence: an unsigned product is never launched", spec.role),
                     ));
                 };
-                let base = exe.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let base = exe
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
                 let mut hits = evidence.records().iter().filter(|r| {
                     r.sha256_before.as_deref() == Some(attested.sha256.as_str())
-                        && Path::new(&r.file).file_name().is_some_and(|n| n.to_string_lossy() == base)
+                        && Path::new(&r.file)
+                            .file_name()
+                            .is_some_and(|n| n.to_string_lossy() == base)
                 });
                 let record = match (hits.next(), hits.next()) {
                     (Some(r), None) => r,
@@ -311,10 +361,63 @@ pub fn build_from_prebuilt(plan: &BuildPlan, input: &PrebuiltInput) -> Result<Ra
     })
 }
 
+/// The schema of [`plan_report`].
+pub const BUILD_PLAN_SCHEMA: &str = "rightkit.journeys.build-plan/1";
+
+/// What a gate needs to carry the build of a journeys run (`journeys run --print-build-plan [--from-cargo-json <listing>]`): the
+/// declared build command (the broker program included; the gate carries `command[1..]`), the working directory, and per declared
+/// role its marker policy, so the gate knows which roles are products it must sign. Given the carried `listing`, each role also
+/// names the executable [`select_artifact`] resolves for it, so the gate signs and attests exactly the files a run will launch.
+/// Nothing is created, built or launched.
+pub fn plan_report(plan: &BuildPlan, listing: Option<&Path>) -> Result<Value> {
+    let parsed = match listing {
+        Some(path) => {
+            let text = std::fs::read_to_string(path).map_err(|e| {
+                coded(
+                    prebuilt_code::LISTING_MISMATCH,
+                    format!("cannot read the carried listing {}: {e}", path.display()),
+                )
+            })?;
+            Some(parse_cargo_json(&text))
+        }
+        None => None,
+    };
+    let mut artifacts = Vec::new();
+    for spec in &plan.artifacts {
+        let executable = match &parsed {
+            Some(p) => select_artifact(spec, &p.artifacts)?
+                .executable
+                .as_ref()
+                .map(|e| e.to_string_lossy().into_owned()),
+            None => None,
+        };
+        artifacts.push(serde_json::json!({
+            "role": spec.role,
+            "marker": if spec.marker.required() { "required" } else { "not_applicable" },
+            "cargo_target": spec.cargo_target,
+            "cargo_package": spec.cargo_package,
+            "executable": executable,
+        }));
+    }
+    Ok(serde_json::json!({
+        "schema": BUILD_PLAN_SCHEMA,
+        "name": plan.name,
+        "command": plan.command,
+        "cwd": plan.cwd.to_string_lossy(),
+        "artifacts": artifacts,
+    }))
+}
+
 /// The same refusal as a list of problems, for a caller that reports instead of failing.
 pub fn problems_of(e: &Error) -> Vec<Problem> {
-    let (c, detail) = e.0.split_once(": ").unwrap_or(("prebuilt_not_attested", e.0.as_str()));
-    vec![Problem { code: c.to_string(), id: None, detail: detail.to_string() }]
+    let (c, detail) =
+        e.0.split_once(": ")
+            .unwrap_or(("prebuilt_not_attested", e.0.as_str()));
+    vec![Problem {
+        code: c.to_string(),
+        id: None,
+        detail: detail.to_string(),
+    }]
 }
 
 #[cfg(test)]
@@ -326,14 +429,21 @@ mod tests {
     const MARKER: &str = "RIGHTKIT-QA-CONTROL-SERVER-PRESENT";
 
     fn tmp(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("rkqa-prebuilt-{tag}-{}-{:x}", std::process::id(), rand_tail()));
+        let d = std::env::temp_dir().join(format!(
+            "rkqa-prebuilt-{tag}-{}-{:x}",
+            std::process::id(),
+            rand_tail()
+        ));
         std::fs::create_dir_all(&d).unwrap();
         d
     }
 
     fn rand_tail() -> u64 {
         use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() as u64
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64
     }
 
     fn argv(s: &str) -> Vec<String> {
@@ -381,21 +491,44 @@ mod tests {
             .to_string()
         };
         let listing_text = [
-            line("path+file:///x/fx#fx@0.1.0", "journeys_adapter", "test", true, &adapter),
-            line("path+file:///x/crates/fxapp#0.1.0", "fxapp", "bin", false, &app),
+            line(
+                "path+file:///x/fx#fx@0.1.0",
+                "journeys_adapter",
+                "test",
+                true,
+                &adapter,
+            ),
+            line(
+                "path+file:///x/crates/fxapp#0.1.0",
+                "fxapp",
+                "bin",
+                false,
+                &app,
+            ),
             r#"{"reason":"build-finished","success":true}"#.to_string(),
         ]
         .join("\n");
         let listing = dir.join("listing.jsonl");
         std::fs::write(&listing, &listing_text).unwrap();
-        let command = validate_build_command(&argv("rustright cargo build -p fxapp --features qa")).unwrap();
+        let command =
+            validate_build_command(&argv("rustright cargo build -p fxapp --features qa")).unwrap();
         let plan = BuildPlan::new(
             "fx",
             &command,
             dir.clone(),
             vec![
-                ArtifactSpec { role: "app".into(), cargo_target: None, cargo_package: Some("fxapp".into()), marker: MarkerPolicy::Required },
-                ArtifactSpec { role: "adapter".into(), cargo_target: Some("journeys_adapter".into()), cargo_package: None, marker: MarkerPolicy::NotApplicable },
+                ArtifactSpec {
+                    role: "app".into(),
+                    cargo_target: None,
+                    cargo_package: Some("fxapp".into()),
+                    marker: MarkerPolicy::Required,
+                },
+                ArtifactSpec {
+                    role: "adapter".into(),
+                    cargo_target: Some("journeys_adapter".into()),
+                    cargo_package: None,
+                    marker: MarkerPolicy::NotApplicable,
+                },
             ],
         )
         .unwrap();
@@ -407,15 +540,40 @@ mod tests {
             listing_sha256: sha256_text(listing_text.as_bytes()),
             command: command[1..].to_vec(),
             outputs: vec![
-                OutputHash { path: app.to_string_lossy().into(), sha256: sha(&app) },
-                OutputHash { path: adapter.to_string_lossy().into(), sha256: sha(&adapter) },
+                OutputHash {
+                    path: app.to_string_lossy().into(),
+                    sha256: sha(&app),
+                },
+                OutputHash {
+                    path: adapter.to_string_lossy().into(),
+                    sha256: sha(&adapter),
+                },
             ],
         };
         let attestation = dir.join("attestation.json");
         std::fs::write(&attestation, serde_json::to_vec(&att).unwrap()).unwrap();
-        let evidence = Evidence::parse(&evidence_json("debug/fxapp", &signed, &sha(&app), &sha(&signed))).unwrap();
-        let input = PrebuiltInput { listing: listing.clone(), attestation: attestation.clone(), evidence: Some(evidence) };
-        Fx { dir, plan, listing, attestation, app, adapter, signed, input }
+        let evidence = Evidence::parse(&evidence_json(
+            "debug/fxapp",
+            &signed,
+            &sha(&app),
+            &sha(&signed),
+        ))
+        .unwrap();
+        let input = PrebuiltInput {
+            listing: listing.clone(),
+            attestation: attestation.clone(),
+            evidence: Some(evidence),
+        };
+        Fx {
+            dir,
+            plan,
+            listing,
+            attestation,
+            app,
+            adapter,
+            signed,
+            input,
+        }
     }
 
     fn refused(r: Result<RawBuild>, c: &str) -> String {
@@ -430,13 +588,33 @@ mod tests {
         let raw = build_from_prebuilt(&f.plan, &f.input).unwrap();
         assert_eq!(raw.code, Some(0));
         assert!(!raw.timed_out);
-        assert_eq!(parse_request_id(&raw.stderr).unwrap(), REQ, "the build is tied to the attested broker request");
+        assert_eq!(
+            parse_request_id(&raw.stderr).unwrap(),
+            REQ,
+            "the build is tied to the attested broker request"
+        );
         let parsed = parse_cargo_json(&raw.stdout);
         assert_eq!(parsed.build_finished, Some(true));
-        let app = parsed.artifacts.iter().find(|a| a.target == "fxapp").unwrap();
-        assert_eq!(app.executable.as_deref(), Some(f.signed.as_path()), "the product is launched as the signed copy");
-        let adapter = parsed.artifacts.iter().find(|a| a.target == "journeys_adapter").unwrap();
-        assert_eq!(adapter.executable.as_deref(), Some(f.adapter.as_path()), "a test binary that is not a product stays as built");
+        let app = parsed
+            .artifacts
+            .iter()
+            .find(|a| a.target == "fxapp")
+            .unwrap();
+        assert_eq!(
+            app.executable.as_deref(),
+            Some(f.signed.as_path()),
+            "the product is launched as the signed copy"
+        );
+        let adapter = parsed
+            .artifacts
+            .iter()
+            .find(|a| a.target == "journeys_adapter")
+            .unwrap();
+        assert_eq!(
+            adapter.executable.as_deref(),
+            Some(f.adapter.as_path()),
+            "a test binary that is not a product stays as built"
+        );
         assert!(raw.broker.as_deref().unwrap().starts_with("carried:"));
     }
 
@@ -446,20 +624,29 @@ mod tests {
         let mut text = std::fs::read_to_string(&f.listing).unwrap();
         text.push_str("\n{\"reason\":\"compiler-artifact\",\"package_id\":\"x\",\"target\":{\"name\":\"evil\",\"kind\":[\"bin\"]},\"profile\":{\"test\":false},\"features\":[],\"executable\":\"/evil\",\"fresh\":false}");
         std::fs::write(&f.listing, text).unwrap();
-        refused(build_from_prebuilt(&f.plan, &f.input), prebuilt_code::LISTING_MISMATCH);
+        refused(
+            build_from_prebuilt(&f.plan, &f.input),
+            prebuilt_code::LISTING_MISMATCH,
+        );
     }
 
     #[test]
     fn a_changed_artifact_is_refused_for_a_test_binary_and_for_a_product() {
         let f = fx("artifact");
         std::fs::write(&f.adapter, vec![9u8; 300]).unwrap();
-        let m = refused(build_from_prebuilt(&f.plan, &f.input), code::ARTIFACT_MISMATCH);
+        let m = refused(
+            build_from_prebuilt(&f.plan, &f.input),
+            code::ARTIFACT_MISMATCH,
+        );
         assert!(m.contains("journeys_adapter"), "{m}");
         let f = fx("artifact2");
         let mut bytes = std::fs::read(&f.app).unwrap();
         bytes[0] ^= 0xff;
         std::fs::write(&f.app, bytes).unwrap();
-        refused(build_from_prebuilt(&f.plan, &f.input), code::ARTIFACT_MISMATCH);
+        refused(
+            build_from_prebuilt(&f.plan, &f.input),
+            code::ARTIFACT_MISMATCH,
+        );
     }
 
     #[test]
@@ -468,7 +655,10 @@ mod tests {
         let mut bytes = std::fs::read(&f.signed).unwrap();
         bytes.push(0);
         std::fs::write(&f.signed, bytes).unwrap();
-        let m = refused(build_from_prebuilt(&f.plan, &f.input), prebuilt_code::UNSIGNED_PRODUCT);
+        let m = refused(
+            build_from_prebuilt(&f.plan, &f.input),
+            prebuilt_code::UNSIGNED_PRODUCT,
+        );
         assert!(m.contains("not the evidence's"), "{m}");
     }
 
@@ -476,73 +666,177 @@ mod tests {
     fn an_unsigned_product_is_refused_with_no_evidence_or_no_record_for_it() {
         let mut f = fx("unsigned");
         f.input.evidence = None;
-        let m = refused(build_from_prebuilt(&f.plan, &f.input), prebuilt_code::UNSIGNED_PRODUCT);
+        let m = refused(
+            build_from_prebuilt(&f.plan, &f.input),
+            prebuilt_code::UNSIGNED_PRODUCT,
+        );
         assert!(m.contains("no signing evidence"), "{m}");
         // Evidence for another file (or another build's bytes) does not cover this product.
-        let other = Evidence::parse(&evidence_json("debug/other", &f.signed, &"cd".repeat(32), &rightkit_fs::digest::sha256_file(&f.signed).unwrap())).unwrap();
+        let other = Evidence::parse(&evidence_json(
+            "debug/other",
+            &f.signed,
+            &"cd".repeat(32),
+            &rightkit_fs::digest::sha256_file(&f.signed).unwrap(),
+        ))
+        .unwrap();
         f.input.evidence = Some(other);
-        let m = refused(build_from_prebuilt(&f.plan, &f.input), prebuilt_code::UNSIGNED_PRODUCT);
+        let m = refused(
+            build_from_prebuilt(&f.plan, &f.input),
+            prebuilt_code::UNSIGNED_PRODUCT,
+        );
         assert!(m.contains("no signing record names"), "{m}");
     }
 
     #[test]
     fn a_build_that_is_not_the_declared_one_is_refused() {
         let f = fx("command");
-        let mut att: PrebuiltAttestation = serde_json::from_slice(&std::fs::read(&f.attestation).unwrap()).unwrap();
+        let mut att: PrebuiltAttestation =
+            serde_json::from_slice(&std::fs::read(&f.attestation).unwrap()).unwrap();
         att.command = argv("cargo build -p fxapp --features other --message-format=json");
         std::fs::write(&f.attestation, serde_json::to_vec(&att).unwrap()).unwrap();
-        let m = refused(build_from_prebuilt(&f.plan, &f.input), prebuilt_code::COMMAND_MISMATCH);
+        let m = refused(
+            build_from_prebuilt(&f.plan, &f.input),
+            prebuilt_code::COMMAND_MISMATCH,
+        );
         assert!(m.contains("features other"), "{m}");
     }
 
     #[test]
     fn an_artifact_the_gate_did_not_attest_is_refused() {
         let f = fx("unattested");
-        let mut att: PrebuiltAttestation = serde_json::from_slice(&std::fs::read(&f.attestation).unwrap()).unwrap();
-        att.outputs.retain(|o| !o.path.ends_with("journeys_adapter-1234"));
+        let mut att: PrebuiltAttestation =
+            serde_json::from_slice(&std::fs::read(&f.attestation).unwrap()).unwrap();
+        att.outputs
+            .retain(|o| !o.path.ends_with("journeys_adapter-1234"));
         std::fs::write(&f.attestation, serde_json::to_vec(&att).unwrap()).unwrap();
-        refused(build_from_prebuilt(&f.plan, &f.input), code::ARTIFACT_NOT_FROM_BUILD);
+        refused(
+            build_from_prebuilt(&f.plan, &f.input),
+            code::ARTIFACT_NOT_FROM_BUILD,
+        );
     }
 
     #[test]
     fn an_empty_or_malformed_attestation_and_an_empty_listing_are_never_accepted() {
         let f = fx("empty");
-        let good: PrebuiltAttestation = serde_json::from_slice(&std::fs::read(&f.attestation).unwrap()).unwrap();
-        let write = |a: &PrebuiltAttestation| std::fs::write(&f.attestation, serde_json::to_vec(a).unwrap()).unwrap();
-        write(&PrebuiltAttestation { outputs: vec![], ..good.clone() });
-        refused(build_from_prebuilt(&f.plan, &f.input), prebuilt_code::EMPTY_LISTING);
-        write(&PrebuiltAttestation { schema: "other/1".into(), ..good.clone() });
-        refused(build_from_prebuilt(&f.plan, &f.input), prebuilt_code::NOT_ATTESTED);
-        write(&PrebuiltAttestation { request_id: "not an id".into(), ..good.clone() });
-        refused(build_from_prebuilt(&f.plan, &f.input), prebuilt_code::NOT_ATTESTED);
-        write(&PrebuiltAttestation { listing_sha256: "xyz".into(), ..good.clone() });
-        refused(build_from_prebuilt(&f.plan, &f.input), prebuilt_code::NOT_ATTESTED);
+        let good: PrebuiltAttestation =
+            serde_json::from_slice(&std::fs::read(&f.attestation).unwrap()).unwrap();
+        let write = |a: &PrebuiltAttestation| {
+            std::fs::write(&f.attestation, serde_json::to_vec(a).unwrap()).unwrap()
+        };
+        write(&PrebuiltAttestation {
+            outputs: vec![],
+            ..good.clone()
+        });
+        refused(
+            build_from_prebuilt(&f.plan, &f.input),
+            prebuilt_code::EMPTY_LISTING,
+        );
+        write(&PrebuiltAttestation {
+            schema: "other/1".into(),
+            ..good.clone()
+        });
+        refused(
+            build_from_prebuilt(&f.plan, &f.input),
+            prebuilt_code::NOT_ATTESTED,
+        );
+        write(&PrebuiltAttestation {
+            request_id: "not an id".into(),
+            ..good.clone()
+        });
+        refused(
+            build_from_prebuilt(&f.plan, &f.input),
+            prebuilt_code::NOT_ATTESTED,
+        );
+        write(&PrebuiltAttestation {
+            listing_sha256: "xyz".into(),
+            ..good.clone()
+        });
+        refused(
+            build_from_prebuilt(&f.plan, &f.input),
+            prebuilt_code::NOT_ATTESTED,
+        );
         std::fs::write(&f.attestation, b"{\"schema\":\"x\",\"extra\":1}").unwrap();
-        refused(build_from_prebuilt(&f.plan, &f.input), prebuilt_code::NOT_ATTESTED);
+        refused(
+            build_from_prebuilt(&f.plan, &f.input),
+            prebuilt_code::NOT_ATTESTED,
+        );
         // A listing with no executable, whose hash the gate "attested", is an empty build.
         write(&good);
         let text = r#"{"reason":"build-finished","success":true}"#;
         std::fs::write(&f.listing, text).unwrap();
-        write(&PrebuiltAttestation { listing_sha256: sha256_text(text.as_bytes()), ..good.clone() });
-        refused(build_from_prebuilt(&f.plan, &f.input), prebuilt_code::EMPTY_LISTING);
+        write(&PrebuiltAttestation {
+            listing_sha256: sha256_text(text.as_bytes()),
+            ..good.clone()
+        });
+        refused(
+            build_from_prebuilt(&f.plan, &f.input),
+            prebuilt_code::EMPTY_LISTING,
+        );
         // A listing whose build did not finish successfully is not attested either.
         let text = "{\"reason\":\"build-finished\",\"success\":false}";
         std::fs::write(&f.listing, text).unwrap();
-        write(&PrebuiltAttestation { listing_sha256: sha256_text(text.as_bytes()), ..good });
-        refused(build_from_prebuilt(&f.plan, &f.input), code::BUILD_NOT_ATTESTED);
+        write(&PrebuiltAttestation {
+            listing_sha256: sha256_text(text.as_bytes()),
+            ..good
+        });
+        refused(
+            build_from_prebuilt(&f.plan, &f.input),
+            code::BUILD_NOT_ATTESTED,
+        );
         let _ = std::fs::remove_dir_all(&f.dir);
     }
 
     #[test]
     fn the_two_options_go_together_and_a_missing_file_is_refused() {
         assert!(PrebuiltInput::from_args(None, None).unwrap().is_none());
-        assert!(PrebuiltInput::from_args(Some("l".into()), None).unwrap_err().0.contains("unverified input"));
-        assert!(PrebuiltInput::from_args(None, Some("a".into())).unwrap_err().0.contains(LISTING_FLAG));
+        assert!(PrebuiltInput::from_args(Some("l".into()), None)
+            .unwrap_err()
+            .0
+            .contains("unverified input"));
+        assert!(PrebuiltInput::from_args(None, Some("a".into()))
+            .unwrap_err()
+            .0
+            .contains(LISTING_FLAG));
         let f = fx("missing");
         std::fs::remove_file(&f.attestation).unwrap();
-        refused(build_from_prebuilt(&f.plan, &f.input), prebuilt_code::NOT_ATTESTED);
+        refused(
+            build_from_prebuilt(&f.plan, &f.input),
+            prebuilt_code::NOT_ATTESTED,
+        );
         let f = fx("missing2");
         std::fs::remove_file(&f.listing).unwrap();
-        refused(build_from_prebuilt(&f.plan, &f.input), prebuilt_code::LISTING_MISMATCH);
+        refused(
+            build_from_prebuilt(&f.plan, &f.input),
+            prebuilt_code::LISTING_MISMATCH,
+        );
+    }
+
+    #[test]
+    fn the_plan_report_names_the_build_to_carry_and_the_files_a_run_will_launch() {
+        let f = fx("report");
+        let before = plan_report(&f.plan, None).unwrap();
+        assert_eq!(before["schema"], BUILD_PLAN_SCHEMA);
+        assert_eq!(before["command"][0], "rustright");
+        assert_eq!(before["command"][1], "cargo");
+        assert_eq!(before["artifacts"][0]["role"], "app");
+        assert_eq!(before["artifacts"][0]["marker"], "required");
+        assert_eq!(before["artifacts"][1]["marker"], "not_applicable");
+        assert!(before["artifacts"][0]["executable"].is_null());
+        let after = plan_report(&f.plan, Some(&f.listing)).unwrap();
+        assert_eq!(
+            after["artifacts"][0]["executable"],
+            f.app.to_string_lossy().as_ref()
+        );
+        assert_eq!(
+            after["artifacts"][1]["executable"],
+            f.adapter.to_string_lossy().as_ref()
+        );
+        // A listing that lacks a declared artifact is refused, not reported with a hole.
+        std::fs::write(
+            &f.listing,
+            "{\"reason\":\"build-finished\",\"success\":true}",
+        )
+        .unwrap();
+        assert!(plan_report(&f.plan, Some(&f.listing)).is_err());
     }
 }

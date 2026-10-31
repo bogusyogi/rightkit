@@ -662,10 +662,17 @@ pub fn prepare(opts: &PrepareOptions) -> Result<Prepared> {
 /// Steps 1 to 3 with `build` standing in for the broker spawn (fixtures pass a fake). Selection and
 /// planning happen before anything is created or built. A failure after the run directory exists
 /// marks the run `failed`, writes `prepare-error.txt` into it and returns the error.
-pub fn prepare_with(
-    opts: &PrepareOptions,
-    build: &dyn Fn(&BuildPlan) -> Result<RawBuild>,
-) -> Result<Prepared> {
+/// Step 1 and the build plan, with no side effect: what a run would select and build. Zero selected, a scenario journey with no
+/// scenario file and a scenario file that is not a committed source are refused here, before anything is created or built.
+struct Planned {
+    app_root: PathBuf,
+    checked: manifest::Checked,
+    selected: Selected,
+    required: BTreeMap<String, Vec<String>>,
+    plan: BuildPlan,
+}
+
+fn select_and_plan(opts: &PrepareOptions) -> Result<Planned> {
     let app_root = canonical_plain(&opts.app_root)
         .map_err(|e| Error(format!("cannot resolve {}: {e}", opts.app_root.display())))?;
     // Step 1: select, entirely before any side effect.
@@ -707,6 +714,32 @@ pub fn prepare_with(
     }
     let required = required_by_platform(&checked.manifest);
     let plan = plan_build(&checked.manifest, &selected, &app_root)?;
+    Ok(Planned {
+        app_root,
+        checked,
+        selected,
+        required,
+        plan,
+    })
+}
+
+/// The build a run of `opts` would declare, for a gate that carries it (audit GB-79): selection and planning only, nothing created,
+/// nothing built. See [`super::prebuilt`].
+pub fn plan_only(opts: &PrepareOptions) -> Result<BuildPlan> {
+    Ok(select_and_plan(opts)?.plan)
+}
+
+pub fn prepare_with(
+    opts: &PrepareOptions,
+    build: &dyn Fn(&BuildPlan) -> Result<RawBuild>,
+) -> Result<Prepared> {
+    let Planned {
+        app_root,
+        checked,
+        selected,
+        required,
+        plan,
+    } = select_and_plan(opts)?;
     let app = checked.manifest.app.clone();
     let managed_root = storage::managed_root(opts.managed_root.as_deref());
     // The run store is bounded: make room first, and refuse to add to a store that cannot be made to fit.
@@ -962,12 +995,12 @@ pub fn run_journeys(opts: &JourneyRunOptions) -> Result<RunReport> {
 
 /// `journeys run` over the gate's carried, signed build (audit GB-79): the same run as [`run_journeys`], with the verified prebuilt
 /// input standing in for the broker spawn ([`prebuilt::build_from_prebuilt`]). Nothing compiles.
-pub fn run_journeys_prebuilt(opts: &JourneyRunOptions, input: &prebuilt::PrebuiltInput) -> Result<RunReport> {
+pub fn run_journeys_prebuilt(opts: &JourneyRunOptions, input: &super::prebuilt::PrebuiltInput) -> Result<RunReport> {
     let exe = opts.exe.clone();
     run_with(
         opts,
         &Hooks {
-            broker: &|plan| prebuilt::build_from_prebuilt(plan, input),
+            broker: &|plan| super::prebuilt::build_from_prebuilt(plan, input),
             worker: &|spec| supervise::run_worker(spec, &exe),
             bridge_exec: &|tracker, inv| bridge::owned_exec(tracker.clone())(inv),
             session: &|| interactive::non_interactive_reason(&interactive::session_facts()),
@@ -3366,6 +3399,85 @@ untagged_baseline = 0
         assert_eq!(ok.sha256, rec.artifact("app").unwrap().sha256);
         assert!(rec.verify_launch(&p.run.root, "adapter", &cur).is_ok());
         assert!(p.describe().contains(REQ));
+    }
+
+    /// The gate's carried build of the fixture app (audit GB-79): listing, attestation and signing evidence on disk beside the repo.
+    fn carried_input(r: &Repo, raw: &RawBuild, sign: bool) -> crate::journeys::prebuilt::PrebuiltInput {
+        use crate::journeys::prebuilt::{OutputHash, PrebuiltAttestation, PrebuiltInput, PREBUILT_SCHEMA};
+        let sha = |p: &Path| rightkit_fs::digest::sha256_file(p).unwrap();
+        let command = build_record::validate_build_command(&argv("rustright cargo test -p fx --no-run --features qa")).unwrap();
+        let parsed = build_record::parse_cargo_json(&raw.stdout);
+        let listing = r.base.join("carried-listing.jsonl");
+        std::fs::write(&listing, &raw.stdout).unwrap();
+        let outputs: Vec<OutputHash> = parsed
+            .artifacts
+            .iter()
+            .filter_map(|a| a.executable.as_ref())
+            .map(|p| OutputHash { path: p.to_string_lossy().into(), sha256: sha(p) })
+            .collect();
+        let att = PrebuiltAttestation {
+            schema: PREBUILT_SCHEMA.into(),
+            request_id: REQ.into(),
+            request_sha256: "ab".repeat(32),
+            listing_sha256: rightkit_fs::digest::sha256_bytes(raw.stdout.as_bytes()),
+            command: command[1..].to_vec(),
+            outputs,
+        };
+        let attestation = r.base.join("carried-attestation.json");
+        std::fs::write(&attestation, serde_json::to_vec(&att).unwrap()).unwrap();
+        let app = parsed.artifacts.iter().find(|a| a.target == "fxapp").unwrap().executable.clone().unwrap();
+        let evidence = sign.then(|| {
+            let signed = r.base.join("signed-fxapp.exe");
+            let mut bytes = std::fs::read(&app).unwrap();
+            bytes.extend_from_slice(b"SIGNATURE");
+            std::fs::write(&signed, bytes).unwrap();
+            crate::signing::Evidence::parse(
+                serde_json::json!({"schema": 1, "files": [{"file": "debug/fxapp.exe", "signed": signed.to_string_lossy(),
+                    "sha256Before": sha(&app), "sha256After": sha(&signed)}]})
+                .to_string()
+                .as_bytes(),
+            )
+            .unwrap()
+        });
+        PrebuiltInput { listing, attestation, evidence }
+    }
+
+    #[test]
+    fn a_prebuilt_input_reaches_the_build_record_without_a_spawn_and_an_unsigned_product_or_changed_listing_never_does() {
+        let r = repo("prebuilt");
+        let raw = broker_output(&r.base);
+        let input = carried_input(&r, &raw, true);
+        let p = prepare_with(&opts(&r, &["J-001"]), &|plan| {
+            crate::journeys::prebuilt::build_from_prebuilt(plan, &input)
+        })
+        .unwrap();
+        // The same record a spawned build produces: attested by the carried request, the signed copy stored, the marker measured.
+        assert_eq!(p.record.broker.request_id, REQ);
+        assert!(p.record.broker.attested && p.record.broker.exit_code == 0);
+        let app = p.record.artifact("app").unwrap();
+        assert!(app.qa_marker);
+        let signed = r.base.join("signed-fxapp.exe");
+        assert_eq!(app.sha256, rightkit_fs::digest::sha256_file(&signed).unwrap(), "the launched copy is the signed one");
+        assert!(p.run.root.join(&app.store_path).is_file());
+        // Unsigned product: refused, and the run is marked failed with the reason on disk.
+        let r2 = repo("prebuilt-unsigned");
+        let raw2 = broker_output(&r2.base);
+        let unsigned = carried_input(&r2, &raw2, false);
+        let e = match prepare_with(&opts(&r2, &["J-001"]), &|plan| crate::journeys::prebuilt::build_from_prebuilt(plan, &unsigned)) {
+            Err(e) => e,
+            Ok(_) => panic!("an unsigned product must be refused"),
+        };
+        assert!(e.0.starts_with("unsigned_product: "), "{e}");
+        // Changed listing: refused before any record.
+        let r3 = repo("prebuilt-listing");
+        let raw3 = broker_output(&r3.base);
+        let changed = carried_input(&r3, &raw3, true);
+        std::fs::write(&changed.listing, format!("{}\n", raw3.stdout)).unwrap();
+        let e = match prepare_with(&opts(&r3, &["J-001"]), &|plan| crate::journeys::prebuilt::build_from_prebuilt(plan, &changed)) {
+            Err(e) => e,
+            Ok(_) => panic!("a changed listing must be refused"),
+        };
+        assert!(e.0.starts_with("prebuilt_listing_mismatch: "), "{e}");
     }
 
     #[test]
