@@ -1,0 +1,8 @@
+{
+  "schema": 2,
+  "issue": "https://github.com/bogusyogi/rightkit/issues/1322",
+  "sourceSha": "9b37c141cb660f64925d28eaeefbcabf7e05aeca",
+  "ciRunId": 41219554447,
+  "ciRunAttempt": 1,
+  "units": [{ "name": "rightkit-license", "version": "0.2.6" }]
+}
