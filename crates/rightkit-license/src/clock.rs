@@ -23,7 +23,7 @@ use std::collections::hash_map::RandomState;
 use std::convert::Infallible;
 use std::fmt;
 use std::hash::{BuildHasher, Hasher};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -246,6 +246,16 @@ impl ProcessAnchor {
             format!("{}-{wall_now}-{nonce:016x}", std::process::id()),
             wall_now,
         )
+    }
+
+    /// The one anchor this process shares (rightkit#1320). The first call anchors the process at `wall_now`; every later
+    /// call returns a clone of that anchor (same id, same monotonic reference), whatever `wall_now` it passes. Every
+    /// clock in one process (the [`crate::LicenseClient`], a [`crate::NativeEngineEntitlements`], an engine snapshot
+    /// reader) must use it: two anchors in one process read each other's ledger writes in the same wall second as a
+    /// rollback.
+    pub fn process(wall_now: i64) -> Self {
+        static PROCESS: OnceLock<ProcessAnchor> = OnceLock::new();
+        PROCESS.get_or_init(|| Self::new(wall_now)).clone()
     }
 
     /// Anchor with an explicit id (tests, or hosts that already have a process identity).

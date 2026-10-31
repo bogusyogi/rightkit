@@ -831,3 +831,16 @@ fn a_first_anchor_ahead_of_real_time_is_repaired_by_the_next_refresh() {
         ClockReading::Trusted { .. }
     ));
 }
+
+/// rightkit#1320: every clock in one process shares one anchor, whatever wall time the later callers pass.
+#[test]
+fn the_process_anchor_is_shared_within_a_process() {
+    let first = ProcessAnchor::process(1_000);
+    let later = ProcessAnchor::process(2_000);
+    assert_eq!(first.id(), later.id());
+    assert_ne!(
+        first.id(),
+        ProcessAnchor::new(1_000).id(),
+        "new() still makes a separate anchor"
+    );
+}

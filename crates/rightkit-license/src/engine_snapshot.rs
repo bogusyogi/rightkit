@@ -325,7 +325,7 @@ impl EngineEntitlements<AntiRollbackClock<OwnerLedgerReader>> {
             cfg,
             AntiRollbackClock::new(
                 OwnerLedgerReader::new(license_dir),
-                ProcessAnchor::new(wall),
+                ProcessAnchor::process(wall),
             ),
         ))
     }

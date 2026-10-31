@@ -282,7 +282,7 @@ impl Core {
             records: RecordStore::new(cfg.store.clone(), cfg.account.clone(), cfg.persist_wait),
             clock: AntiRollbackClock::new(
                 ClientClockStore::from_config(&cfg),
-                ProcessAnchor::new(wall),
+                ProcessAnchor::process(wall),
             ),
             transport,
             device,
