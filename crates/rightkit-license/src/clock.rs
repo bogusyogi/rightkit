@@ -250,7 +250,7 @@ impl ProcessAnchor {
 
     /// The one anchor this process shares (rightkit#1320). The first call anchors the process at `wall_now`; every later
     /// call returns a clone of that anchor (same id, same monotonic reference), whatever `wall_now` it passes. Every
-    /// clock in one process (the [`crate::LicenseClient`], a [`crate::NativeEngineEntitlements`], an engine snapshot
+    /// clock in one process (the `LicenseClient`, a [`crate::NativeEngineEntitlements`], an engine snapshot
     /// reader) must use it: two anchors in one process read each other's ledger writes in the same wall second as a
     /// rollback.
     pub fn process(wall_now: i64) -> Self {

@@ -741,9 +741,21 @@ fn status_and_native_agree_on_every_record_shape() {
         client.native_entitlement_source().unwrap().read(),
         Ok(NativeCredential::Signed(_))
     ));
+    let primary = f.backend.text(ACCOUNT).unwrap();
+    // A malformed marker is recoverable unless its conditional cleanup fails.
+    f.backend.fail_marker_delete.store(true, SeqCst);
     f.leave_marker("unresolved");
-    assert_ne!(client.status().status, ViewStatus::Active);
-    assert!(client.native_entitlement_source().unwrap().read().is_err());
+    let view = client.status();
+    assert_eq!(view.status, ViewStatus::Unverifiable);
+    assert_eq!(view.message, MessageCode::Unresolved);
+    assert!(view.unresolved);
+    assert!(view.tier.is_none() && view.features.is_empty());
+    assert_eq!(f.backend.text(MARKER).as_deref(), Some("unresolved"));
+    assert_eq!(f.backend.text(ACCOUNT).as_deref(), Some(primary.as_str()));
+    assert!(matches!(
+        client.native_entitlement_source().unwrap().read(),
+        Err(NativeSourceError::Refused)
+    ));
     let f = fixture();
     let client = f.client();
     client.activate(SecretString::new(KEY)).unwrap();
@@ -753,6 +765,39 @@ fn status_and_native_agree_on_every_record_shape() {
         client.native_entitlement_source().unwrap().read(),
         Ok(NativeCredential::Absent)
     ));
+}
+
+#[test]
+fn malformed_marker_refuses_native_until_status_discards_it_without_changing_primary() {
+    let f = fixture();
+    let client = f.client();
+    client.activate(SecretString::new(KEY)).unwrap();
+    let source = client.native_entitlement_source().unwrap();
+    let before = signed(&source);
+    let primary = f.backend.text(ACCOUNT).unwrap();
+    let writes = f.backend.primary_sets.load(SeqCst);
+    f.leave_marker("unresolved");
+
+    // Native reads never authorize while a marker remains, even one status can recover.
+    assert!(matches!(source.read(), Err(NativeSourceError::Refused)));
+    assert_eq!(
+        client.last_native_refusal(),
+        Some(NativeRefusal::Unresolved)
+    );
+    assert_eq!(f.backend.text(MARKER).as_deref(), Some("unresolved"));
+
+    // Status reconciles under the operation lock: malformed markers are discarded, never
+    // promoted to credentials. Only the unchanged, verified primary can become active again.
+    let view = client.status();
+    assert_eq!(view.status, ViewStatus::Active);
+    assert!(!view.unresolved);
+    assert!(f.backend.text(MARKER).is_none());
+    assert_eq!(f.backend.text(ACCOUNT).as_deref(), Some(primary.as_str()));
+    assert_eq!(f.backend.primary_sets.load(SeqCst), writes);
+    let after = signed(&source);
+    assert_eq!(after.revision, before.revision);
+    assert_eq!(after.token, before.token);
+    assert_eq!(client.last_native_refusal(), None);
 }
 
 #[test]

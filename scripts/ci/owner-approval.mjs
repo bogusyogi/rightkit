@@ -44,9 +44,11 @@ git("merge-base", "--is-ancestor", approval.sourceSha, head);
 const changed = git("diff", "--name-only", approval.sourceSha, head).split("\n").filter(Boolean);
 need(changed.every((p) => p.startsWith("ci/owner-approvals/") && p.endsWith(".json")), `commits after the validated source change more than approval files: ${changed.join(", ")}`);
 
-// The exact CI attempt: hand-dispatched ci.yml of the source commit, green, Class A jobs green.
+// The exact CI attempt: a completed hand-dispatched ci.yml run of the source commit. Its overall conclusion is not required:
+// other units' red shards say nothing about the approved crates. What is required is below: every Class A job green, and
+// every macOS and Windows test shard of each approved crate green.
 const run = await api(`actions/runs/${approval.ciRunId}/attempts/${approval.ciRunAttempt}`);
-need(run.path === ".github/workflows/ci.yml" && run.event === "workflow_dispatch" && run.head_sha === approval.sourceSha && run.conclusion === "success", `CI run ${approval.ciRunId} attempt ${approval.ciRunAttempt} is not a green hand-dispatched ci.yml run of ${approval.sourceSha}`);
+need(run.path === ".github/workflows/ci.yml" && run.event === "workflow_dispatch" && run.head_sha === approval.sourceSha && run.status === "completed", `CI run ${approval.ciRunId} attempt ${approval.ciRunAttempt} is not a completed hand-dispatched ci.yml run of ${approval.sourceSha}`);
 const jobs = [];
 for (let page = 1; ; page++) {
   const batch = (await api(`actions/runs/${approval.ciRunId}/attempts/${approval.ciRunAttempt}/jobs?per_page=100&page=${page}`)).jobs;
@@ -70,8 +72,11 @@ for (const u of approval.units) {
     // A test shard names its crates as `rust:<name>` (scripts/ci/shards.mjs); a closure shard's `rust-check:<name>` only compiles.
     const covering = new Set(shardsByHost[os].filter((s) => s.kind === "rust" && s.tokens.includes(`rust:${u.name}`)).map((s) => s.id));
     need(covering.size > 0, `the plan scheduled no ${os} test shard for ${u.name}`);
-    const ran = jobs.filter((j) => j.name.startsWith(`${os} `) && covering.has(j.name.slice(os.length + 1)));
-    need(ran.length > 0 && ran.every((j) => j.conclusion === "success"), `${u.name}: ${os} shards ${[...covering].join(", ")} not all green (${ran.map((j) => `${j.name}=${j.conclusion}`).join(", ") || "none ran"})`);
+    // Every scheduled shard must have its own job, and each must be green: a missing job is a failure, not a pass.
+    for (const id of covering) {
+      const job = byName.get(`${os} ${id}`);
+      need(job?.conclusion === "success", `${u.name}: ${os} shard ${id} is ${job ? job.conclusion : "missing from the run"}`);
+    }
   }
 }
 
@@ -80,6 +85,15 @@ for (const u of approval.units) {
   need(version === u.version, `${u.name} is ${version} in source, approval says ${u.version}`);
   const res = await fetch(`https://crates.io/api/v1/crates/${u.name}/${u.version}`, { headers: { "user-agent": "rightkit-owner-approval" } });
   need(res.status === 404, `${u.name}@${u.version} is already on crates.io (or the registry answered ${res.status})`);
+  // Publication closure: every in-repo path dependency must already be on crates.io at the version the manifest names.
+  for (const line of fs.readFileSync(`crates/${u.name}/Cargo.toml`, "utf8").split("\n")) {
+    const dep = /^([a-z0-9_-]+)\s*=\s*\{[^}]*\bpath\s*=\s*"\.\.\/[^"]+"[^}]*\}/.exec(line);
+    if (!dep) continue;
+    const wanted = /\bversion\s*=\s*"=?([0-9][^"]*)"/.exec(dep[0])?.[1];
+    need(wanted, `${u.name}: path dependency ${dep[1]} names no version, so it cannot publish`);
+    const depRes = await fetch(`https://crates.io/api/v1/crates/${dep[1]}/${wanted}`, { headers: { "user-agent": "rightkit-owner-approval" } });
+    need(depRes.status === 200, `${u.name}: dependency ${dep[1]}@${wanted} is not on crates.io (${depRes.status})`);
+  }
 }
 fs.appendFileSync(process.env.GITHUB_OUTPUT, `crates=${approval.units.map((u) => u.name).join(" ")}\n`);
 console.log(`approved: ${approval.units.map((u) => `${u.name}@${u.version}`).join(", ")} from ${approval.sourceSha} (CI ${approval.ciRunId}/${approval.ciRunAttempt})`);
