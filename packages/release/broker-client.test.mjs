@@ -94,7 +94,7 @@ test("a carried call and a receipt read start the exe directly on win32; a carri
   const calls = [];
   const spawn = (file, args, options) => { calls.push({ file, args, options }); return { status: 0, stdout: "", stderr: "" }; };
   const env = { PATH: process.env.PATH, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs", RIGHTKIT_MANAGED_AGENT_SHIM: "1" };
-  const carry = (client) => carryBrokerCargo({ words: ["build", "--locked"], cwd: path.join(snapshotRoot, "crates", "a"), env, section: { ...brokerSection(fx.sb), markSend: () => ({}), client, platform: "win32" }, workspace: snapshotRoot, checkoutWorkspace: fx.checkout, record: () => {}, err: () => {}, stdio: "capture", spawn });
+  const carry = (client) => carryBrokerCargo({ words: ["build", "--locked"], cwd: path.join(snapshotRoot, "crates", "a"), env, section: { ...brokerSection(fx.sb), markSend: (h) => ({ broker: { submitted: true, handles: [h] } }), client, platform: "win32" }, workspace: snapshotRoot, checkoutWorkspace: fx.checkout, record: () => {}, err: () => {}, stdio: "capture", spawn });
   const good = carry(shimFile(t, SHIM()));
   assert.equal(good.outcome.status, "unverified", "the stub client prints no receipt");
   assert.equal(calls[0].file, EXE);
@@ -123,4 +123,62 @@ test("[M6] locateBrokerClient and brokerClientInvocation: POSIX keeps the bare n
   assert.equal(launched.command, EXE); assert.deepEqual(launched.args, ["run", "x"]);
   assert.equal(launched.options.shell, false); assert.deepEqual(launched.options.env, { A: "1" }); assert.equal(launched.options.cwd, "/c");
   refused(() => brokerClientInvocation("rustright", [], {}, { platform: "win32", probe: probe(`${CMD}\r\n`), readFile: () => "@echo off\r\nother\r\n" }));
+});
+
+// ---- GATE-3 (audit N33, B7, M46, M47) ----
+import { BROKER_CLIENT_QUERY_TIMEOUT_MS, BROKER_UNAVAILABLE, LEGACY_AGENT_SHIM_MARKER, OUTAGE_RECONNECT_WAIT_MS, brokerStagePreflight, spawnBrokerClientAsync, spawnClientProcess, withOutageReconnectBound } from "./broker-client.mjs";
+
+test("[N33] a shim installed before the rename (legacy marker, the same seven lines) is read as the installed shim; any other marker or shape is still refused", () => {
+  assert.equal(LEGACY_AGENT_SHIM_MARKER, "rightkit.build-control.agent-shims.install.v1");
+  const legacy = SHIM().replace(AGENT_SHIM_MARKER, LEGACY_AGENT_SHIM_MARKER);
+  assert.equal(parseAgentShim(legacy), EXE);
+  assert.equal(parseAgentShim(legacy.replaceAll("\r\n", "\n")), EXE);
+  assert.equal(resolveBrokerClient("C:\\agent-bin\\rustright.cmd", { platform: "win32", readFile: () => legacy }).file, EXE);
+  assert.throws(() => parseAgentShim(SHIM().replace(AGENT_SHIM_MARKER, "rightkit.build-control.agent-shims.install.v0")), (e) => e.code === BROKER_CLIENT_UNRESOLVED);
+  assert.throws(() => parseAgentShim(`${legacy}rem extra\r\n`), (e) => e.code === BROKER_CLIENT_UNRESOLVED, "a legacy marker does not loosen the exact shape");
+  assert.throws(() => parseAgentShim(legacy.replace("setlocal", "setlocal enabledelayedexpansion")), (e) => e.code === BROKER_CLIENT_UNRESOLVED);
+});
+
+test("[M46] short broker queries wait at least as long as the Windows client retries a busy pipe (120 s)", () => {
+  assert.ok(BROKER_CLIENT_QUERY_TIMEOUT_MS >= 130_000);
+  const seen = [];
+  brokerStagePreflight({ client: "/x/rustright", platform: "linux", spawn: (f, a, o) => { seen.push({ a, o }); return { status: 0 }; } });
+  assert.ok(seen[0].o.timeout >= 130_000);
+});
+
+test("[M47] the per-stage preflight is one `rustright doctor` question: READY passes, a dead broker or a client that cannot run is RK_BROKER_UNAVAILABLE before any carried call; its reconnect budget is short", () => {
+  const seen = [];
+  const run = (status, error) => (f, a, o) => { seen.push({ f, a, o }); return error ? { error } : { status }; };
+  assert.deepEqual(brokerStagePreflight({ client: "/x/rustright", platform: "linux", spawn: run(0) }), { ok: true });
+  assert.deepEqual(seen[0].a, ["doctor", "--json", "--no-scan"]);
+  assert.equal(seen[0].o.env.RUSTRIGHT_RECONNECT_WAIT_MS, String(OUTAGE_RECONNECT_WAIT_MS));
+  const down = brokerStagePreflight({ client: "/x/rustright", platform: "linux", spawn: run(1) });
+  assert.equal(down.ok, false); assert.equal(down.code, BROKER_UNAVAILABLE); assert.match(down.message, /not READY/);
+  const noRun = brokerStagePreflight({ client: "/x/rustright", platform: "linux", spawn: run(null, Object.assign(new Error("spawn ETIMEDOUT"), { code: "ETIMEDOUT" })) });
+  assert.equal(noRun.code, BROKER_UNAVAILABLE);
+  const shim = brokerStagePreflight({ client: "C:\\x\\rustright.cmd", platform: "win32", readFile: () => "@echo off\r\n", spawn: run(0) });
+  assert.equal(shim.code, BROKER_CLIENT_UNRESOLVED);
+  assert.equal(withOutageReconnectBound({ RUSTRIGHT_RECONNECT_WAIT_MS: "900000", X: "1" }).RUSTRIGHT_RECONNECT_WAIT_MS, "10000");
+  assert.equal(withOutageReconnectBound({ rustright_reconnect_wait_ms: "500" }).RUSTRIGHT_RECONNECT_WAIT_MS, "500");
+  assert.equal(withOutageReconnectBound({ RUSTRIGHT_RECONNECT_WAIT_MS: "junk" }).RUSTRIGHT_RECONNECT_WAIT_MS, "10000");
+});
+
+test("[B7/M45] spawnClientProcess is async, kills a client that outlives its timeout (ETIMEDOUT, killed), obeys an AbortSignal, reports a spawn failure as pid 0, and resolves the shim like the sync spawn", { skip: process.platform === "win32" }, async () => {
+  const node = process.execPath;
+  const ok = await spawnClientProcess(node, ["-e", "process.stdout.write('hi'); process.stderr.write('lo')"], { encoding: "utf8" });
+  assert.equal(ok.status, 0); assert.equal(ok.stdout, "hi"); assert.equal(ok.stderr, "lo");
+  const started = Date.now();
+  const slow = await spawnClientProcess(node, ["-e", "setTimeout(() => {}, 30000)"], { timeout: 200 });
+  assert.ok(Date.now() - started < 5000);
+  assert.equal(slow.timedOut, true); assert.equal(slow.error.code, "ETIMEDOUT"); assert.equal(slow.signal, "SIGTERM");
+  const ac = new AbortController(); setTimeout(() => ac.abort(), 150);
+  const aborted = await spawnClientProcess(node, ["-e", "setTimeout(() => {}, 30000)"], { signal: ac.signal });
+  assert.equal(aborted.aborted, true); assert.equal(aborted.signal, "SIGTERM");
+  const missing = await spawnClientProcess("/no/such/client", [], {});
+  assert.equal(missing.error.code, "ENOENT"); assert.ok(!missing.pid);
+  const calls = [];
+  const viaShim = await spawnBrokerClientAsync(async (f, a, o) => { calls.push({ f, o }); return { status: 0 }; }, "C:\\agent-bin\\rustright.cmd", ["status", "x"], { env: { RIGHTKIT_MANAGED_AGENT_SHIM: "1" } }, { platform: "win32", readFile: () => SHIM() });
+  assert.equal(viaShim.status, 0); assert.equal(calls[0].f, EXE); assert.equal(calls[0].o.shell, false); assert.equal(calls[0].o.env.RIGHTKIT_MANAGED_AGENT_SHIM, undefined);
+  const refused = await spawnBrokerClientAsync(async () => { throw new Error("must not start"); }, "C:\\agent-bin\\rustright.cmd", [], {}, { platform: "win32", readFile: () => "@echo off\r\n" });
+  assert.equal(refused.error.code, BROKER_CLIENT_UNRESOLVED);
 });

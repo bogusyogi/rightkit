@@ -12,7 +12,7 @@ import { WRAPPER_COMMANDS } from "./cargo-target-shim.mjs";
 import { installCarrier } from "./carried-cargo.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
 import { brokerSection } from "./snapshot-broker.mjs";
-import { cargoSubcommandOf, lockedArgv } from "./snapshot-request.mjs";
+import { cargoSubcommandOf, isCompileClass, lockedArgv } from "./snapshot-request.mjs";
 import { CARGO_CLASSIFICATION, READ_ONLY_NEEDS, acceptedAfterFix, classifyCargo } from "./test-support/cargo-classification.mjs";
 import { makeFakeBroker } from "./test-support/fake-broker.mjs";
 
@@ -70,7 +70,8 @@ test("the fixture broker accepts a compile and refuses every other class as a sn
     else {
       assert.notEqual(r.status, 0, `cargo ${row.argv.join(" ")} must be refused today`);
       assert.equal(r.outputDir, undefined, "an unverified call names no output directory");
-      assert.match(r.stderr, /RK_CARGO_BROKER_UNVERIFIED/);
+      // [M18] the seam's bare `audit` is not the broker's `audit --db <dir> --no-fetch`: refused gate-side by name, before it is sent.
+      assert.match(r.stderr, ["audit", "fmt"].includes(row.argv[0]) && row.class !== "compile" && !(row.argv[0] === "fmt" && row.class === "read-only") ? /RK_CARGO_BROKER_READ_ONLY_SHAPE/ : /RK_CARGO_BROKER_UNVERIFIED/);
     }
   }
   assert.equal(h.fx.calls().length, CARGO_CLASSIFICATION.filter((r) => r.class === "compile").length, "the fixture broker took exactly the compile requests and refused the rest before submitting them");
@@ -118,4 +119,38 @@ test("a build or run is sent locked: --locked is added after the subcommand unle
   assert.deepEqual(lockedArgv(["build", "--locked"]), ["build", "--locked"]);
   assert.deepEqual(lockedArgv(["run", "--", "--locked"]), ["run", "--locked", "--", "--locked"], "after -- the flag is the program's, not Cargo's");
   for (const argv of [["metadata", "--no-deps"], ["about", "generate"], ["--version"], ["fmt", "--check"]]) assert.deepEqual(lockedArgv(argv), argv);
+});
+
+test("[M13] the fixture broker models fmt_check_shape: the two exact shapes are accepted after the fix, every other fmt shape is not", () => {
+  for (const ok of [["fmt", "-p", "a", "--check"], ["fmt", "--all", "--check"]]) assert.equal(acceptedAfterFix(ok), true, ok.join(" "));
+  for (const no of [["fmt", "--check", "--", "--edition", "2021"], ["fmt", "--check"], ["fmt", "--all"], ["fmt"], ["fmt", "-p", "a"], ["fmt", "--check", "--all"]]) assert.equal(acceptedAfterFix(no), false, no.join(" "));
+});
+
+test("[M16] the classification fixture's compile set is the broker's BUILD set: bench, run, rustdoc, fix, publish, package, nextest, ndk", () => {
+  for (const argv of [["bench"], ["run"], ["rustdoc"], ["fix"], ["publish"], ["package", "-p", "a"], ["nextest", "run"], ["ndk", "-t", "x", "build"]]) {
+    assert.equal(classifyCargo(argv), "compile", argv.join(" "));
+    assert.equal(isCompileClass(argv), true, argv.join(" "));
+  }
+});
+
+test("[M15] an unexpanded alias is no broker command (read-only fallthrough, never a compile): the fixture refuses `cargo b`, the expanded `build` is accepted", () => {
+  for (const alias of ["b", "c", "t", "r", "d"]) { assert.equal(classifyCargo([alias]), "read-only", alias); assert.equal(acceptedAfterFix([alias]), false, alias); }
+  assert.equal(acceptedAfterFix(["build", "--locked"]), true);
+});
+
+test("[M12] `cargo tree` has no read-only arm at the broker (command_policy.rs snapshot_read_only): it stays refused, so a gate scan reads the graph from `cargo metadata --locked` (verifies) and not from tree", () => {
+  assert.equal(classifyCargo(["tree", "--locked"]), "read-only");
+  assert.equal(acceptedAfterFix(["tree", "--locked"]), false, "BLOCKED on a broker change (rustright command_policy.rs) or on release-switch-scan.mjs moving to metadata");
+  assert.equal(acceptedAfterFix(["metadata", "--locked", "--format-version", "1"]), true);
+});
+
+test("[M18] the audit shape is `audit --db <dir> --no-fetch`: the bare `audit` the deps seam still sends is outside the broker's allowlist", () => {
+  assert.equal(acceptedAfterFix(["audit"]), false);
+  assert.equal(acceptedAfterFix(["audit", "--db", "/db", "--no-fetch"]), true);
+});
+
+test("[M18] deps-cargo.mjs sends the audit seam as `audit --db <pinned advisory db> --no-fetch` (the exemption of the bare seam row is removed when this passes)", { todo: "deps-cargo.mjs is outside this lane: runCargoAudits still sends the bare [audit]" }, () => {
+  const text = fs.readFileSync(new URL("./deps-cargo.mjs", import.meta.url), "utf8");
+  assert.match(text, /"audit",\s*"--db"/);
+  assert.match(text, /"--no-fetch"/);
 });

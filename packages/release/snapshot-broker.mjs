@@ -16,12 +16,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
-import { BROKER_CLIENT_UNRESOLVED, resolveBrokerClient, spawnBrokerClient } from "./broker-client.mjs";
+import { BROKER_CLIENT_QUERY_TIMEOUT_MS, BROKER_CLIENT_UNRESOLVED, CARRIED_CALL_TIMEOUT_MS, resolveBrokerClient, spawnBrokerClient, spawnBrokerClientAsync, withOutageReconnectBound } from "./broker-client.mjs";
 import { loadBrokerPins } from "./broker-pins.mjs";
 import { ATTEST_STAGE_NONCE_ENV, canonicalJson, carriedCallNonce } from "./provenance-verify.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { forwardedAdapterEnv } from "./adapter-env.mjs";
-import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend } from "./ownership-mark.mjs";
+import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend, unmarkCarriedSend } from "./ownership-mark.mjs";
 import {
   MANAGED_RUST_ENVIRONMENT_KEYS, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, isCallHandleOf, lockedArgv, observedEnvOf, readDeclaredInputs, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest,
 } from "./snapshot-request.mjs";
@@ -47,7 +47,7 @@ export const brokerOutputRoots = ({ dataRoot }) => [path.join(dataRoot, "rightki
 
 /** The broker's receipt of one request, read through the RustRight client (`rustright status <id>`), synchronously. */
 export function receiptSync({ client, requestId, env, spawn = spawnSync, platform = process.platform }) {
-  const r = spawnBrokerClient(spawn, client, ["status", requestId], { encoding: "utf8", env, timeout: 60_000, maxBuffer: 64 * 1024 * 1024 }, { platform });
+  const r = spawnBrokerClient(spawn, client, ["status", requestId], { encoding: "utf8", env, timeout: BROKER_CLIENT_QUERY_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 }, { platform });
   if (r.error || r.status !== 0) throw new SnapshotRequestError("receipt", `rustright status ${requestId} failed (${r.error?.message ?? `exit ${r.status}`})`);
   let doc;
   try { doc = JSON.parse(String(r.stdout)); } catch { throw new SnapshotRequestError("receipt", `rustright status ${requestId} printed no JSON`); }
@@ -80,7 +80,8 @@ export function createSnapshotBroker({ env = process.env, platform = process.pla
   return {
     controlRoot: roots.controlRoot, commit: { sha: commit.sha, tree: commit.tree }, snapshot: { path: snapshot.path, expectedTree: snapshot.expectedTree },
     declaredInputs: readDeclaredInputs(snapshot.path), handle: ownership.handle, markBrokerSubmit: (callHandle) => ownership.markBrokerSubmit(callHandle),
-    pins: { host: pins.host, keyId: pins.keyId, publicKey: pins.publicKey, brokerDigest: pins.brokerDigest }, pinsSource: pins.source,
+    unmarkBrokerSubmit: typeof ownership.unmarkBrokerSubmit === "function" ? (callHandle) => ownership.unmarkBrokerSubmit(callHandle) : undefined,
+    pins: { host: pins.host, keyId: pins.keyId, publicKey: pins.publicKey, brokerDigest: pins.brokerDigest, ...(pins.brokerVersion !== undefined ? { brokerVersion: pins.brokerVersion } : {}), ...(pins.brokerSourceRevision !== undefined ? { brokerSourceRevision: pins.brokerSourceRevision } : {}) }, pinsSource: pins.source,
     checkout: fs.realpathSync.native(checkout), outputRoots: brokerOutputRoots({ dataRoot: managedData }), platform, client,
     receiptOf: async (requestId) => receiptSync({ client, requestId, env, spawn, platform }),
   };
@@ -102,6 +103,7 @@ export const brokerSection = (sb, { sentinel = null } = {}) => {
   // The gate's own carried calls record their sub-handle through the ownership object it holds. Not enumerable: it never reaches the carrier
   // map a child reads (JSON), whose carried calls record through the inherited ownership file instead (markCarriedRequest).
   if (typeof sb.markBrokerSubmit === "function") Object.defineProperty(section, "markSend", { value: (callHandle) => sb.markBrokerSubmit(callHandle), enumerable: false });
+  if (typeof sb.unmarkBrokerSubmit === "function") Object.defineProperty(section, "unmarkSend", { value: (callHandle) => sb.unmarkBrokerSubmit(callHandle), enumerable: false });
   return section;
 };
 
@@ -112,18 +114,99 @@ export const brokerSection = (sb, { sentinel = null } = {}) => {
  * seam for a caller that holds the ownership object (and for fixtures). Throws when the mark cannot land; the request is then not sent.
  */
 function markCarriedRequest({ section, env, callHandle }) {
-  if (typeof section.markSend === "function") return section.markSend(callHandle);
+  // The gate's own hook is held to the same two assertions as the inherited-file path: a hook that returns without recording (a silent no-op) sends nothing.
+  if (typeof section.markSend === "function") return assertMarked(section.markSend(callHandle), callHandle);
   const handle = env[OWNERSHIP_ENV] ?? process.env[OWNERSHIP_ENV];
   if (handle !== section.handle) throw new SnapshotRequestError("ownership", `the build ownership in the environment (${handle ?? "none"}) is not this call's (${section.handle}); the carried request is not sent`);
   const file = env[OWNERSHIP_FILE_ENV] ?? process.env[OWNERSHIP_FILE_ENV];
   if (!file) throw new SnapshotRequestError("ownership", `${OWNERSHIP_FILE_ENV} is not set: the carried request cannot be recorded in the build ownership, so it is not sent`);
-  const marked = markCarriedSend({ file, handle, callHandle });
+  return assertMarked(markCarriedSend({ file, handle, callHandle }), callHandle);
+}
+
+/** The record a mark returned must say that broker work may exist and list this call's sub-handle; anything else is refused (N8). */
+function assertMarked(marked, callHandle) {
   if (marked?.broker?.submitted !== true || !marked.broker.handles?.includes(callHandle)) throw new SnapshotRequestError("ownership", `the build ownership did not record the carried request ${callHandle}`);
   return marked;
 }
 
-const escapes = (rel) => rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);
-const inside = (child, parent) => { const rel = path.relative(parent, child); return rel === "" || !escapes(rel); };
+/**
+ * Takes back the mark of a request whose client provably never started (M5): the broker has no record of it and could never answer REAPED for
+ * it, so leaving it marked would hold the host until a manual clear. Returns whether the mark was taken back; a failure leaves it marked (held,
+ * never released early).
+ */
+function unmarkCarriedRequest({ section, env, callHandle }) {
+  try {
+    if (typeof section.unmarkSend === "function") { section.unmarkSend(callHandle); return true; }
+    const handle = env[OWNERSHIP_ENV] ?? process.env[OWNERSHIP_ENV];
+    const file = env[OWNERSHIP_FILE_ENV] ?? process.env[OWNERSHIP_FILE_ENV];
+    if (handle !== section.handle || !file) return false;
+    unmarkCarriedSend({ file, handle, callHandle });
+    return true;
+  } catch { return false; }
+}
+
+/** A client that failed to START (no pid): spawn error, a refused shim. A timeout or an output overflow means it ran, so it is never "unsent". */
+export const clientNeverStarted = (r) => Boolean(r?.error) && !r.pid && r.error.code !== "ETIMEDOUT" && r.error.code !== "ENOBUFS" && !r.timedOut && !r.aborted;
+
+/**
+ * Cancels the broker request a killed client had submitted (`rustright cancel <id>`, the id read from the request-reference file the client
+ * wrote when the broker accepted the job). On POSIX the client's own SIGTERM handler already sends one CANCEL; on Windows nothing reaches the
+ * client, and a client that died first cannot send one, so the gate sends it itself (cancel is idempotent). Returns `{ cancelled, requestId?, why }`.
+ */
+export function cancelBrokerRequest({ client, requestIdFile, env, spawn = spawnSync, platform = process.platform }) {
+  let ref;
+  try { ref = readRequestRef(requestIdFile); } catch { return { cancelled: false, why: "the client had written no request id, so the broker has nothing of this call to cancel" }; }
+  const r = spawnBrokerClient(spawn, client, ["cancel", ref.requestId], { encoding: "utf8", env, timeout: BROKER_CLIENT_QUERY_TIMEOUT_MS, maxBuffer: 1 << 24, windowsHide: true }, { platform });
+  if (r.error || r.status !== 0) return { cancelled: false, requestId: ref.requestId, why: `rustright cancel ${ref.requestId} failed (${r.error?.message ?? `exit ${r.status}`}); the job may run until the broker's disconnect grace ends it` };
+  return { cancelled: true, requestId: ref.requestId, why: `rustright cancel ${ref.requestId} was sent` };
+}
+
+const LEASE_STATUS_SCHEMA = "rustright.snapshot-lease-status.v1";
+const defaultSleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+/**
+ * After a kill and a cancel, whether the broker job is PROVEN stopped: its status reports a terminal receipt AND the snapshot lease of this call's
+ * sub-handle answers REAPED, both polled within `waitMs`. Anything less (the broker unreachable, still running, a lease UNKNOWN or ACTIVE) is not
+ * proof, and the call's submit mark stays: the ownership is held (never released on a client kill alone) and the next gate reclaims it on REAPED.
+ * Returns `{ terminal, reaped, why }`.
+ */
+export function awaitCancelledReaped({ client, snapshot, requestId, callHandle, env, spawn = spawnSync, platform = process.platform, waitMs = 60_000, sleep = defaultSleep }) {
+  const until = Date.now() + waitMs;
+  let terminal = false; let reaped = false; let why = "not asked";
+  for (;;) {
+    if (!terminal) {
+      const r = spawnBrokerClient(spawn, client, ["status", requestId], { encoding: "utf8", env, timeout: BROKER_CLIENT_QUERY_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 }, { platform });
+      try { const doc = JSON.parse(String(r.stdout ?? "")); terminal = !r.error && r.status === 0 && doc?.receipt !== null && typeof doc?.receipt === "object"; why = terminal ? "the job is terminal" : `the job is ${doc?.state ?? "not terminal"}`; } catch { why = `rustright status ${requestId} gave no answer`; }
+    }
+    if (terminal && !reaped) {
+      const r = spawnBrokerClient(spawn, client, ["snapshot-lease", "status", "--snapshot", snapshot, "--ownership", callHandle], { encoding: "utf8", env, timeout: BROKER_CLIENT_QUERY_TIMEOUT_MS, maxBuffer: 1 << 24 }, { platform });
+      let a = null; try { a = JSON.parse(String(r.stdout ?? "").trim().split(/\r?\n/).pop()); } catch { a = null; }
+      reaped = !r.error && r.status === 0 && a?.schema === LEASE_STATUS_SCHEMA && a.state === "REAPED" && a.snapshot === snapshot && a.ownership === callHandle;
+      why = reaped ? "the lease is REAPED" : `the lease of ${callHandle} is ${a?.state ?? "unreadable"}`;
+    }
+    if (terminal && reaped) return { terminal, reaped, why: `${requestId}: terminal and ${why}` };
+    if (Date.now() >= until) return { terminal, reaped, why: `${requestId} not proven stopped within ${waitMs} ms (${why})` };
+    sleep(Math.min(1000, Math.max(0, until - Date.now())));
+  }
+}
+
+/**
+ * Brokers found unreachable by a carried call of this process, by ownership handle. A later call of the same ownership starts its client with a short
+ * reconnect budget (withOutageReconnectBound), so N calls against a dead broker cost N short waits, not N x the client's 15 minutes (M47). A verified call clears it.
+ */
+const outages = new Set();
+export const resetBrokerOutages = () => outages.clear();
+export const brokerOutageObserved = (handle) => outages.has(handle);
+
+const flavour = (platform) => (platform === "win32" ? path.win32 : path);
+const escapes = (rel, platform = process.platform) => { const p = flavour(platform); return rel === ".." || rel.startsWith(`..${p.sep}`) || p.isAbsolute(rel); };
+/**
+ * Whether `child` is `parent` or below it, spelled by `platform`'s rules. No extra case fold: path.win32.relative already compares case-insensitively
+ * (N36d is falsified: `D:\Claude\App` and `d:\claude\app` are one directory to it), so a fold here would only repeat what node does.
+ */
+export function inside(child, parent, platform = process.platform) {
+  const rel = flavour(platform).relative(parent, child);
+  return rel === "" || !escapes(rel, platform);
+}
 
 /**
  * The primary-checkout counterpart of a directory of the snapshot, computed LEXICALLY: the logical checkout path `base` plus the snapshot-relative
@@ -134,11 +217,11 @@ const inside = (child, parent) => { const rel = path.relative(parent, child); re
  * vague cwd failure; the fix is RustRight's (map by the snapshot-relative cwd the carrier already binds). An existing counterpart is realpathed, so a link
  * that leaves the checkout is still refused. Returns `{ dir }` or `{ refusal: { code, message } }`.
  */
-export function checkoutCounterpart({ base, rel, checkout, absentCode }) {
+export function checkoutCounterpart({ base, rel, checkout, absentCode, platform = process.platform }) {
   // The logical base may be spelled through a link the checkout path is not (a map built from a realpath): resolve the base alone when it exists.
   let root = base; try { root = fs.realpathSync.native(base); } catch { /* an absent base is judged by its spelling */ }
   const lexical = path.join(root, rel);
-  if (!inside(lexical, checkout)) return { refusal: { code: absentCode.replace(/_ABSENT$/, "_ESCAPE"), message: `${lexical} is outside the primary checkout ${checkout}` } };
+  if (!inside(lexical, checkout, platform)) return { refusal: { code: absentCode.replace(/_ABSENT$/, "_ESCAPE"), message: `${lexical} is outside the primary checkout ${checkout}` } };
   let real;
   try { real = fs.realpathSync.native(lexical); }
   catch (e) {
@@ -146,7 +229,7 @@ export function checkoutCounterpart({ base, rel, checkout, absentCode }) {
     return { refusal: { code: absentCode, message: `${lexical} cannot be resolved (${e.code ?? e.message})` } };
   }
   try { if (!fs.statSync(real).isDirectory()) return { refusal: { code: absentCode, message: `${real} is not a directory` } }; } catch (e) { return { refusal: { code: absentCode, message: `${real} cannot be read (${e.code ?? e.message})` } }; }
-  if (!inside(real, checkout)) return { refusal: { code: absentCode.replace(/_ABSENT$/, "_ESCAPE"), message: `${real} is outside the primary checkout ${checkout}` } };
+  if (!inside(real, checkout, platform)) return { refusal: { code: absentCode.replace(/_ABSENT$/, "_ESCAPE"), message: `${real} is outside the primary checkout ${checkout}` } };
   return { dir: real };
 }
 
@@ -165,6 +248,55 @@ export function inheritedCarrierEnv(env) {
 }
 
 /**
+ * What happened to the client of one carried call, after it returned: whether it was killed (`interrupted`: "timeout" after `timeoutMs`, "aborted" by the gate's
+ * signal), the explicit cancel of its request (a killed client may not have sent one, and a Windows client never could), and, for a client that never started,
+ * whether the call's submit mark was taken back (M5). A timed-out or aborted call is never left to run on at the broker.
+ */
+function afterClient({ r, section, env, clientEnv, requestIdFile, callHandle, spawn, reapWaitMs, sleep }) {
+  const interrupted = r.aborted ? "aborted" : (r.timedOut || r.error?.code === "ETIMEDOUT") ? "timeout" : null;
+  const settled = { interrupted, cancel: null, reap: null, unmarked: false, unsent: false };
+  if (interrupted) {
+    settled.cancel = cancelBrokerRequest({ client: section.client, requestIdFile, env: clientEnv, spawn, platform: section.platform });
+    // Killing the client proves nothing about the broker job: wait, bounded, for its terminal state and the lease's REAPED. The mark stays either way.
+    settled.reap = settled.cancel.requestId
+      ? awaitCancelledReaped({ client: section.client, snapshot: section.snapshot.path, requestId: settled.cancel.requestId, callHandle, env: clientEnv, spawn, platform: section.platform, ...(reapWaitMs !== undefined ? { waitMs: reapWaitMs } : {}), ...(sleep ? { sleep } : {}) })
+      : { terminal: false, reaped: false, why: "no request id, so no job to prove stopped" };
+  }
+  else if (clientNeverStarted(r)) { settled.unsent = true; settled.unmarked = unmarkCarriedRequest({ section, env, callHandle }); }
+  return settled;
+}
+const interruption = (settled, timeoutMs) => `the RustRight client ${settled.interrupted === "timeout" ? `did not finish within ${timeoutMs} ms` : "was stopped with the gate"} and was killed; ${settled.cancel.why}; ${settled.reap.reaped ? settled.reap.why : `${settled.reap.why}: the build ownership stays held until the broker proves the job reaped`}`;
+/** Records, from a finished call, whether the broker looked unreachable (no request id ever came back, or the status could not be read): the next call of this ownership gets a short reconnect budget. */
+function noteOutage(handle, outcome, ref, settled) {
+  if (outcome.status === "verified") { outages.delete(handle); return; }
+  if (settled.interrupted || settled.unsent) return;
+  if (!ref || outcome.code === "receipt" || outcome.code === "receipt-not-ready") outages.add(handle);
+}
+
+/** Runs a carried call whose single `yield` is the client spawn, with spawnSync, bounded by `timeoutMs` (killed with SIGTERM, which the client turns into one CANCEL). */
+function driveSync(gen, { spawn = spawnSync, section, timeoutMs = CARRIED_CALL_TIMEOUT_MS }) {
+  let step = gen.next();
+  try {
+    while (!step.done) {
+      const q = step.value;
+      step = gen.next(spawnBrokerClient(spawn, section.client, q.args, { ...q.options, timeout: timeoutMs, killSignal: "SIGTERM" }, { platform: section.platform }));
+    }
+  } catch (e) { gen.return(); throw e; }
+  return step.value;
+}
+/** `driveSync` with the client as an async child (`spawnAsync`, default spawnClientProcess), killed on `timeoutMs` or when `signal` aborts. */
+async function driveAsync(gen, { spawnAsync, section, timeoutMs = CARRIED_CALL_TIMEOUT_MS, signal }) {
+  let step = gen.next();
+  try {
+    while (!step.done) {
+      const q = step.value;
+      step = gen.next(await spawnBrokerClientAsync(spawnAsync, section.client, q.args, { ...q.options, timeout: timeoutMs, killSignal: "SIGTERM", signal }, { platform: section.platform }));
+    }
+  } catch (e) { gen.return(); throw e; }
+  return step.value;
+}
+
+/**
  * One carried cargo call: its own fresh nonce and carrier, `primaryCwd` from the gate's snapshot-to-checkout map, `callingGate`
  * inherited and never forged, the carrier removed after the call, the signed receipt verified, and a ledger record either way.
  * `workspace` is the real snapshot path of the cargo workspace the call resolved; `checkoutWorkspace` its counterpart in the primary
@@ -173,7 +305,10 @@ export function inheritedCarrierEnv(env) {
  * Refused before anything runs: a carrier or per-call carrier variable already in the environment, no calling gate, a working
  * directory with no counterpart in the checkout. An output directory of the caller's is dropped (the broker pins it).
  */
-export function carryBrokerCargo({ words, cwd, env, section, workspace, checkoutWorkspace, record, spawn = spawnSync, err, tmp = os.tmpdir(), stdio = "inherit" }) {
+export function carryBrokerCargo(call) { return driveSync(cargoCore(call), call); }
+/** `carryBrokerCargo` with the client as an async child: `signal` (an AbortSignal) kills it and cancels its request; the gate's own signal handlers keep running meanwhile (M45). */
+export function carryBrokerCargoAsync(call) { return driveAsync(cargoCore(call), call); }
+function* cargoCore({ words, cwd, env, section, workspace, checkoutWorkspace, record, spawn = spawnSync, err, tmp = os.tmpdir(), stdio = "inherit", timeoutMs = CARRIED_CALL_TIMEOUT_MS, signal, reapWaitMs, sleep }) {
   words = lockedArgv(words); // a build or run is always locked (snapshot-request.mjs lockedArgv)
   const id = crypto.randomUUID();
   const base = { id, mode: "broker", cwd, argv: [...words] };
@@ -195,9 +330,9 @@ export function carryBrokerCargo({ words, cwd, env, section, workspace, checkout
   try {
     realCwd = fs.realpathSync.native(cwd);
     rel = path.relative(workspace, realCwd);
-    if (escapes(rel)) throw new Error(`${realCwd} is not inside the workspace ${workspace}`);
+    if (escapes(rel, section.platform)) throw new Error(`${realCwd} is not inside the workspace ${workspace}`);
   } catch (e) { return refuse("RK_CARGO_BROKER_CWD", `the call's working directory is not inside its workspace (${e.message})`); }
-  const counterpart = checkoutCounterpart({ base: checkoutWorkspace, rel, checkout: section.checkout, absentCode: "RK_CARGO_BROKER_COUNTERPART_ABSENT" });
+  const counterpart = checkoutCounterpart({ base: checkoutWorkspace, rel, checkout: section.checkout, absentCode: "RK_CARGO_BROKER_COUNTERPART_ABSENT", platform: section.platform });
   if (counterpart.refusal) return refuse(counterpart.refusal.code, counterpart.refusal.message);
   checkoutCwd = counterpart.dir;
   let inputs;
@@ -215,13 +350,17 @@ export function carryBrokerCargo({ words, cwd, env, section, workspace, checkout
     const childEnv = { ...clientEnv, ...made.env };
     const capture = stdio === "capture";
     // Broker work may exist from the next statement on: the ownership records this request's sub-handle first (a mark that does not land sends nothing).
+    if (signal?.aborted) { fs.rmSync(made.file, { force: true }); return refuse("RK_CARGO_BROKER_ABORTED", "the gate was stopped before this request was sent"); }
     try { markCarriedRequest({ section, env, callHandle: made.carrier.ownership.handle }); } catch (e) { fs.rmSync(made.file, { force: true }); return refuse("RK_CARGO_BROKER_OWNERSHIP", e.message); }
-    const r = spawnBrokerClient(spawn, section.client, ["cargo", ...words], capture ? { cwd: checkoutCwd, env: childEnv, encoding: "utf8", maxBuffer: 1 << 28, windowsHide: true } : { cwd: checkoutCwd, env: childEnv, stdio: "inherit" }, { platform: section.platform });
+    // After a broker outage this ownership has already seen, the client's reconnect budget is short (M47); the first call of an outage keeps the client's own.
+    const r = yield { args: ["cargo", ...words], options: capture ? { cwd: checkoutCwd, env: outages.has(section.handle) ? withOutageReconnectBound(childEnv) : childEnv, encoding: "utf8", maxBuffer: 1 << 28, windowsHide: true } : { cwd: checkoutCwd, env: outages.has(section.handle) ? withOutageReconnectBound(childEnv) : childEnv, stdio: "inherit" } };
     fs.rmSync(made.file, { force: true });
+    const settled = afterClient({ r, section, env, clientEnv, requestIdFile: path.join(refDir, "request.json"), callHandle: made.carrier.ownership.handle, spawn, reapWaitMs, sleep });
     let outcome;
     let ref = null;
     try {
-      if (r.error) throw new SnapshotRequestError(r.error.code === BROKER_CLIENT_UNRESOLVED ? BROKER_CLIENT_UNRESOLVED : "spawn", `the RustRight client did not start (${r.error.message})`);
+      if (settled.interrupted) throw new SnapshotRequestError(settled.interrupted, interruption(settled, timeoutMs));
+      if (r.error) throw new SnapshotRequestError(r.error.code === BROKER_CLIENT_UNRESOLVED ? BROKER_CLIENT_UNRESOLVED : "spawn", `the RustRight client did not start (${r.error.message})${settled.unmarked ? "; its submit mark was taken back" : ""}`);
       ref = readRequestRef(path.join(refDir, "request.json"));
       const receipt = receiptSync({ client: section.client, requestId: ref.requestId, env: clientEnv, spawn, platform: section.platform });
       const observedEnv = observedEnvOf(clientEnv, section.platform);
@@ -231,6 +370,7 @@ export function carryBrokerCargo({ words, cwd, env, section, workspace, checkout
     } catch (e) {
       outcome = { status: "unverified", code: e.code ?? "error", message: e.message, ...(ref ? { requestId: ref.requestId, workspace: ref.workspace } : {}) };
     }
+    noteOutage(section.handle, outcome, ref, settled);
     record({ ...base, ...outcome, nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd, clientExit: r.status ?? null });
     const out = capture ? { stdout: String(r.stdout ?? ""), stderr: String(r.stderr ?? "") } : { stdout: "", stderr: "" };
     if (outcome.status !== "verified") {
@@ -257,7 +397,10 @@ export function carryBrokerCargo({ words, cwd, env, section, workspace, checkout
  * Refused before anything runs: a carrier or per-call carrier variable already in the environment (so a call from inside a broker job, which
  * has a parent request, is refused), no calling gate, a working directory outside the snapshot or with no counterpart in the checkout.
  */
-export function carryBrokerAdapter({ adapter, words, cwd, env, section, record, spawn = spawnSync, err, tmp = os.tmpdir(), stdio = "inherit" }) {
+export function carryBrokerAdapter(call) { return driveSync(adapterCore(call), call); }
+/** `carryBrokerAdapter` with the client as an async child: `signal` (an AbortSignal) kills it and cancels its request (M45). */
+export function carryBrokerAdapterAsync(call) { return driveAsync(adapterCore(call), call); }
+function* adapterCore({ adapter, words, cwd, env, section, record, spawn = spawnSync, err, tmp = os.tmpdir(), stdio = "inherit", timeoutMs = CARRIED_CALL_TIMEOUT_MS, signal, reapWaitMs, sleep }) {
   const id = crypto.randomUUID();
   words = [...words].map(String);
   const base = { id, mode: "broker", shim: "adapter", adapter, cwd, argv: [...words] };
@@ -284,9 +427,9 @@ export function carryBrokerAdapter({ adapter, words, cwd, env, section, record, 
     const snapshotRoot = fs.realpathSync.native(section.snapshot.path);
     realCwd = fs.realpathSync.native(cwd);
     rel = path.relative(snapshotRoot, realCwd);
-    if (escapes(rel)) throw new Error(`${realCwd} is not inside the snapshot ${snapshotRoot}`);
+    if (escapes(rel, section.platform)) throw new Error(`${realCwd} is not inside the snapshot ${snapshotRoot}`);
   } catch (e) { return refuse("RK_ADAPTER_BROKER_CWD", `the step's working directory is not inside the snapshot (${e.message})`); }
-  const counterpart = checkoutCounterpart({ base: section.checkout, rel, checkout: section.checkout, absentCode: "RK_ADAPTER_BROKER_COUNTERPART_ABSENT" });
+  const counterpart = checkoutCounterpart({ base: section.checkout, rel, checkout: section.checkout, absentCode: "RK_ADAPTER_BROKER_COUNTERPART_ABSENT", platform: section.platform });
   if (counterpart.refusal) return refuse(counterpart.refusal.code, counterpart.refusal.message);
   checkoutCwd = counterpart.dir;
   let inputs;
@@ -302,25 +445,29 @@ export function carryBrokerAdapter({ adapter, words, cwd, env, section, record, 
     const childEnv = { ...clientEnv, ...made.env };
     const capture = stdio === "capture";
     // Broker work may exist from the next statement on: the ownership records this request's sub-handle first (a mark that does not land sends nothing).
+    if (signal?.aborted) { fs.rmSync(made.file, { force: true }); return refuse("RK_ADAPTER_BROKER_ABORTED", "the gate was stopped before this request was sent"); }
     try { markCarriedRequest({ section, env, callHandle: made.carrier.ownership.handle }); } catch (e) { fs.rmSync(made.file, { force: true }); return refuse("RK_ADAPTER_BROKER_OWNERSHIP", e.message); }
-    const r = spawnBrokerClient(spawn, section.client, ["run", adapter, "--", ...words], capture ? { cwd: checkoutCwd, env: childEnv, encoding: "utf8", maxBuffer: 1 << 28, windowsHide: true } : { cwd: checkoutCwd, env: childEnv, stdio: "inherit" }, { platform: section.platform });
+    const r = yield { args: ["run", adapter, "--", ...words], options: capture ? { cwd: checkoutCwd, env: outages.has(section.handle) ? withOutageReconnectBound(childEnv) : childEnv, encoding: "utf8", maxBuffer: 1 << 28, windowsHide: true } : { cwd: checkoutCwd, env: outages.has(section.handle) ? withOutageReconnectBound(childEnv) : childEnv, stdio: "inherit" } };
     fs.rmSync(made.file, { force: true });
+    const settled = afterClient({ r, section, env, clientEnv, requestIdFile: path.join(refDir, "request.json"), callHandle: made.carrier.ownership.handle, spawn, reapWaitMs, sleep });
     let outcome;
     let ref = null;
     try {
-      if (r.error) throw new SnapshotRequestError(r.error.code === BROKER_CLIENT_UNRESOLVED ? BROKER_CLIENT_UNRESOLVED : "spawn", `the RustRight client did not start (${r.error.message})`);
+      if (settled.interrupted) throw new SnapshotRequestError(settled.interrupted, interruption(settled, timeoutMs));
+      if (r.error) throw new SnapshotRequestError(r.error.code === BROKER_CLIENT_UNRESOLVED ? BROKER_CLIENT_UNRESOLVED : "spawn", `the RustRight client did not start (${r.error.message})${settled.unmarked ? "; its submit mark was taken back" : ""}`);
       ref = readRequestRef(path.join(refDir, "request.json"));
       // The request's workspace of a snapshot-bound adapter job is the directory the client ran in: the primary checkout's counterpart of the step's
       // snapshot directory (the broker, START: "the job runs where it was asked to (request.workspace, already the primary's counterpart of a
       // directory in the snapshot), which must be inside that root"). It is the carrier's primaryCwd, never the toplevel for a step run from a subfolder
       // (an app whose root is `app/`), and never a directory outside the primary checkout or one that is not this call's counterpart.
-      if (fs.realpathSync.native(ref.workspace) !== checkoutCwd || !inside(fs.realpathSync.native(ref.workspace), section.checkout)) throw new SnapshotRequestError("workspace", `the request's workspace ${ref.workspace} is not the primary checkout counterpart ${checkoutCwd} of the step's directory ${realCwd} (primary toplevel ${section.checkout})`);
+      if (fs.realpathSync.native(ref.workspace) !== checkoutCwd || !inside(fs.realpathSync.native(ref.workspace), section.checkout, section.platform)) throw new SnapshotRequestError("workspace", `the request's workspace ${ref.workspace} is not the primary checkout counterpart ${checkoutCwd} of the step's directory ${realCwd} (primary toplevel ${section.checkout})`);
       const receipt = receiptSync({ client: section.client, requestId: ref.requestId, env: clientEnv, spawn, platform: section.platform });
       const { evidence, attribution, toolchain, nestedChildren } = verifySnapshotReceipt(receipt, { pins: section.pins, jobId: ref.requestId, carrier: made.carrier, argv: words, workspace: ref.workspace, adapter, adapterEnv, checkout: section.checkout, outputRoots: section.outputRoots, platform: section.platform });
       outcome = { status: "verified", requestId: ref.requestId, workspace: ref.workspace, outputDir: evidence.outputDir, nestedChildren, treeAtStart: evidence.snapshot.treeAtStart, treeAtExit: evidence.snapshot.treeAtExit, attribution, toolchain };
     } catch (e) {
       outcome = { status: "unverified", code: e.code ?? "error", message: e.message, ...(ref ? { requestId: ref.requestId, workspace: ref.workspace } : {}) };
     }
+    noteOutage(section.handle, outcome, ref, settled);
     record({ ...base, ...outcome, nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd, clientExit: r.status ?? null });
     const out = capture ? { stdout: String(r.stdout ?? ""), stderr: String(r.stderr ?? "") } : { stdout: "", stderr: "" };
     if (outcome.status !== "verified") {
@@ -361,14 +508,14 @@ export async function verifyBrokerLedger(entries, sb, { seen = { nonces: new Set
       if (seen.handles.has(e.ownershipHandle)) throw new SnapshotRequestError("replay", `lease handle ${e.ownershipHandle} was used by two calls; each carried request has its own`);
       seen.nonces.add(e.nonce); seen.ids.add(e.requestId); seen.handles.add(e.ownershipHandle);
       const workspace = fs.realpathSync.native(e.workspace);
-      if (!inside(workspace, sb.checkout)) throw new SnapshotRequestError("ledger", `the request ran in ${workspace}, outside the primary checkout`);
+      if (!inside(workspace, sb.checkout, sb.platform)) throw new SnapshotRequestError("ledger", `the request ran in ${workspace}, outside the primary checkout`);
       if (adapter === null && fs.realpathSync.native(e.checkoutCwd) !== workspace) throw new SnapshotRequestError("ledger", "the request's working directory is not the one the call recorded");
       if (adapter !== null) {
         // The workspace is the directory the client ran in, the carrier's primaryCwd; the step's snapshot directory and that checkout directory are the
         // same path below their two roots.
         if (workspace !== fs.realpathSync.native(e.checkoutCwd)) throw new SnapshotRequestError("ledger", `the adapter request's workspace ${workspace} is not the primary checkout counterpart ${e.checkoutCwd} of the step's directory`);
         const below = path.relative(fs.realpathSync.native(sb.snapshot.path), fs.realpathSync.native(e.cwd));
-        if (escapes(below)) throw new SnapshotRequestError("ledger", `the step ran from ${e.cwd}, outside the snapshot`);
+        if (escapes(below, sb.platform)) throw new SnapshotRequestError("ledger", `the step ran from ${e.cwd}, outside the snapshot`);
         if (path.relative(sb.checkout, fs.realpathSync.native(e.checkoutCwd)) !== below) throw new SnapshotRequestError("ledger", `the carrier named ${e.checkoutCwd}, not the checkout counterpart of ${e.cwd}`);
       }
       // The gate's own truth: its commit, snapshot, handle and declared inputs; only the call's own argv, nonce and cwd come from the ledger.

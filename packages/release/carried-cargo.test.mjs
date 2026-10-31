@@ -306,3 +306,74 @@ test("runCarriedCargo records its own refusals in the stage's ledger under the s
   assert.equal(readLedger(h.installed.ledgerDir, token).entries.length, 1);
   assert.equal(h.entries().entries.length, 0, "filed under the token it ran with");
 });
+
+// ---- GATE-2 (docs/GATE-BROKER-AUDIT-2026-10-30.md section 7)
+
+test("[M15] a carried one-letter alias is sent as its full name: `cargo b -p a` verifies with the signed argv [build, --locked, -p, a]", { skip: POSIX }, async (t) => {
+  const h = host(t);
+  for (const [alias, full] of [["b", "build"], ["c", "check"], ["t", "test"]]) {
+    const r = h.cargo([alias, "-p", "a"]);
+    assert.equal(r.status, 0, `${alias}: ${r.stderr}`);
+    assert.deepEqual(h.fx.calls().at(-1).argv, [full, "--locked", "-p", "a"], alias);
+  }
+  assert.deepEqual(await h.installed.problems(h.fx.sb), []);
+});
+
+test("[M11] an attached -pa package and -FZed feature are cargo's own: carried, not refused as -C/-Z", { skip: POSIX }, (t) => {
+  const h = host(t);
+  const r = h.cargo(["build", "-pa", "-FZed"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(h.fx.calls().at(-1).argv, ["build", "--locked", "-pa", "-FZed"]);
+  assert.equal(h.cargo(["build", "-vZ", "x"]).refusal?.code, "RK_CARGO_REDIRECT");
+});
+
+test("[M13] fmt: -p <unit> --check and --all --check verify; `--check -- --edition 2021`, a bare --check and the write form are refused gate-side, naming the two shapes, and nothing is sent", { skip: POSIX }, (t) => {
+  const h = host(t, { readOnlySnapshots: true });
+  for (const ok of [["fmt", "-p", "a", "--check"], ["fmt", "--all", "--check"]]) { const r = h.cargo(ok); assert.equal(r.status, 0, `${ok.join(" ")}: ${r.stderr}`); }
+  const sent = h.fx.calls().length;
+  for (const bad of [["fmt", "--check", "--", "--edition", "2021"], ["fmt", "--check"], ["fmt"], ["fmt", "-p", "a"]]) {
+    const r = h.cargo(bad);
+    assert.notEqual(r.status, 0, bad.join(" "));
+    assert.equal(r.refusal?.code, "RK_CARGO_BROKER_READ_ONLY_SHAPE", bad.join(" "));
+    assert.match(r.stderr, /fmt -p <unit> --check.*fmt --all --check/);
+  }
+  assert.equal(h.fx.calls().length, sent, "a refused shape reaches no broker");
+});
+
+test("[M10] cargo about generate keeps its own --config; deny keeps its --config and --metadata-path: all verify, argv sent exactly as given; a deny with a relative or live-checkout file is refused", { skip: POSIX }, (t) => {
+  const h = host(t, { readOnlySnapshots: true });
+  const about = ["about", "generate", "--frozen", "--fail", "--config", "legal/about.toml", "legal/about.hbs"];
+  const r = h.cargo(about);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(h.fx.calls().at(-1).argv, about, "the tool's own --config is neither refused nor stripped");
+  const files = path.join(h.fx.root, "outside"); fs.mkdirSync(files, { recursive: true });
+  const cfg = path.join(files, "deny.toml"); const meta = path.join(files, "m.json"); fs.writeFileSync(cfg, ""); fs.writeFileSync(meta, "{}");
+  const deny = ["deny", "--frozen", "--metadata-path", meta, "--config", cfg, "check"];
+  const d = h.cargo(deny);
+  assert.equal(d.status, 0, d.stderr);
+  assert.deepEqual(h.fx.calls().at(-1).argv, deny);
+  const sent = h.fx.calls().length;
+  const rel = h.cargo(["deny", "--frozen", "--config", "deny.toml", "check"]);
+  assert.notEqual(rel.status, 0); assert.equal(rel.refusal?.code, "RK_CARGO_BROKER_READ_ONLY_SHAPE");
+  assert.equal(h.cargo(["build", "--config", "x=y"]).refusal?.code, "RK_CARGO_REDIRECT", "cargo's own --config on a build is still refused");
+  assert.equal(h.fx.calls().length, sent);
+});
+
+test("[M18] audit rides only as `audit --db <dir> --no-fetch` (the seam's bare `audit` is refused gate-side before it is sent)", { skip: POSIX }, (t) => {
+  const h = host(t, { readOnlySnapshots: true });
+  const bare = h.cargo(["audit"]);
+  assert.notEqual(bare.status, 0); assert.equal(bare.refusal?.code, "RK_CARGO_BROKER_READ_ONLY_SHAPE");
+  assert.equal(h.fx.calls().length, 0);
+  const db = path.join(h.fx.root, "advisory-db"); fs.mkdirSync(db, { recursive: true });
+  const ok = h.cargo(["audit", "--db", db, "--no-fetch"]);
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.deepEqual(h.fx.calls().at(-1).argv, ["audit", "--db", db, "--no-fetch"]);
+  assert.equal(h.cargo(["audit", "--db", db]).refusal?.code, "RK_CARGO_BROKER_READ_ONLY_SHAPE");
+});
+
+test("[B2] with only `.rustright/compile-inputs.json` in the snapshot, a carried call names the declared inputs and verifies (the gate reads the same file as the broker)", { skip: POSIX }, async (t) => {
+  const h = host(t, { inputs: ["gen/in.txt"], inputsAt: ".rustright/compile-inputs.json" });
+  const r = h.cargo(["build", "--locked", "-p", "a"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(await h.installed.problems(h.fx.sb), []);
+});

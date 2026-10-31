@@ -29,6 +29,15 @@
 //                                  the door's rules apply to it; any other `rustright <command>` there is refused (RK_BUILD_LAUNCH_REFUSED)
 // - pnpm exec <target>          -> only a target in EXEC_TARGETS (tauri, right-release, vite) on a broker host: the broker's pnpm entry
 //                                  has no target allowlist, so `pnpm exec node -e ...` would otherwise pass the node flag ban
+// - xcodegen, xcodebuild, gradlew -> <rustright> run rightkit-xcodegen|rightkit-xcodebuild|rightkit-gradle -- <args> (B5/B6: GATE-CONTRACT requires
+//                                  every Mac and Dell build to be a broker job, so no direct-session exemption exists). Each is a registered, constrained
+//                                  adapter: the door admits only the argv XCODEGEN_/XCODEBUILD_/GRADLE_ grammars list, and a snapshot stage carries it
+//                                  as a snapshot-bound adapter job. An unregistered adapter is the broker's refusal (RK_ADAPTER_UNKNOWN), never a bypass.
+// - cmake <args>               -> <rustright> run rightkit-cmake -- <args> (a snapshot-bound adapter job on a snapshot stage), only for the argv
+//                                  CMAKE_FLAGS admit: configure (-S -B -D -G -A) or build (--build --config --target --parallel); -E, -P, --install,
+//                                  --preset and any other flag are refused here (M28)
+// - this package's recipe-build.mjs and create-mac-updater.mjs (a package target's prePackage and postSign) -> in process like right-release: they
+//                                  orchestrate and each build they start comes back through this door; TAURI_SIGNING_* never rides a broker request (M4)
 // - anything else               -> refused on a managed host: no broker adapter runs it yet, and running it directly would bypass the
 //                                  broker (fail closed; the per-app impact is mapped in rightkit#1241)
 // A launch from inside a broker job is routed the same way: the broker attributes it to its parent job by the parent's own
@@ -53,8 +62,12 @@ const OWN_RIGHT_RELEASE = fileURLToPath(new URL("./cli/right-release.mjs", impor
 const CARRIED_RUN = fileURLToPath(new URL("./carried-cargo-run.mjs", import.meta.url));
 const CARRIED_ADAPTER_RUN = fileURLToPath(new URL("./carried-adapter-run.mjs", import.meta.url));
 const QA_SNAPSHOT_RUN = fileURLToPath(new URL("./qa-snapshot-run.mjs", import.meta.url));
-// pnpm options that take the next argument as their value (so that value is not the command).
-const PNPM_VALUE_OPTIONS = new Set(["--dir", "-C", "--filter", "-F", "--prefix", "--config", "--reporter", "--workspace-concurrency"]);
+// This package's own orchestrators that a package target's hooks name by absolute path (package-recipe-targets.mjs): they run in process, as right-release does.
+const OWN_SCRIPTS = Object.freeze([OWN_RIGHT_RELEASE, fileURLToPath(new URL("./recipe-build.mjs", import.meta.url)), fileURLToPath(new URL("./create-mac-updater.mjs", import.meta.url))]);
+// pnpm options that take the next argument as their value (so that value is not the command): every registered value flag of the adapter, plus the
+// two global options the adapter does not register (so a step naming them still finds its command token and is refused by the grammar check, never
+// misread: `--dir a --store-dir s exec node -e` must not read `s` as the command and skip the exec target rule).
+const PNPM_VALUE_OPTIONS = new Set([...Object.entries(PNPM_ADAPTER_GRAMMAR.flags).filter(([, kind]) => kind !== "none").map(([flag]) => flag), "--prefix", "--config"]);
 // Node flags that change no code path; everything else before the script (-e, --eval, -p, --import, -r, --require, --loader, …) refuses.
 const NODE_FLAGS = /^--(?:disable-warning=[A-Za-z0-9_-]+|no-experimental-webstorage|no-warnings|enable-source-maps|max-old-space-size=\d+|stack-size=\d+)$/;
 /** The pnpm `exec` targets the door admits (every app config's `pnpm exec <target>`: tauri and right-release; vite for a web build). */
@@ -62,7 +75,24 @@ export const EXEC_TARGETS = Object.freeze(["tauri", "right-release", "vite"]);
 /** The pnpm commands a snapshot-bound broker call admits (the registration's snapshotSubcommands; `install` is skipped before this). */
 const SNAPSHOT_PNPM_COMMANDS = new Set(["run", "exec", "pack"]);
 /** The broker adapter a `rustright run <adapter> -- ...` names, and the program whose door rules judge the step. */
-const ADAPTER_PROGRAMS = Object.freeze({ "rightkit-pnpm": "pnpm", "rightkit-node": "node", "rightkit-qa": "rightkit-qa", "rightkit-swift": "swift" });
+const ADAPTER_PROGRAMS = Object.freeze({ "rightkit-pnpm": "pnpm", "rightkit-node": "node", "rightkit-qa": "rightkit-qa", "rightkit-swift": "swift", "rightkit-cmake": "cmake", "rightkit-xcodegen": "xcodegen", "rightkit-xcodebuild": "xcodebuild", "rightkit-gradle": "gradlew" });
+/** The program of a step, to the adapter that runs it (the inverse of ADAPTER_PROGRAMS for the toolchain programs added by B5/B6). */
+const TOOLCHAIN_ADAPTERS = Object.freeze({ xcodegen: "rightkit-xcodegen", xcodebuild: "rightkit-xcodebuild", gradlew: "rightkit-gradle" });
+/** The programs the door admits at all (a `command` sidecar of a snapshot stage must be one of these, stage-sidecar.mjs). */
+export const DOOR_PROGRAMS = Object.freeze(["cargo", "pnpm", "node", "swift", "rustright", "rightkit-qa", "cmake", "right-release", "xcodegen", "xcodebuild", "gradlew"]);
+/** xcodegen: `generate --spec <file> --project <dir>` only. */
+export const XCODEGEN_FLAGS = Object.freeze({ subcommands: ["generate"], value: ["--spec", "--project"] });
+/** xcodebuild: these flags (value flags take the next word), these actions, and `NAME=value` build settings that are not code or path overrides. */
+export const XCODEBUILD_FLAGS = Object.freeze({
+  value: ["-project", "-workspace", "-scheme", "-configuration", "-destination", "-derivedDataPath", "-resultBundlePath", "-testPlan", "-sdk", "-archivePath", "-exportPath", "-exportOptionsPlist", "-xcconfig"],
+  plain: ["-allowProvisioningUpdates", "-allowProvisioningDeviceRegistration", "-quiet", "-exportArchive"],
+  actions: ["build", "test", "build-for-testing", "test-without-building", "clean", "archive"],
+  forbiddenSettings: /^(?:OTHER_[A-Z_]*FLAGS|[A-Z_]*_SCRIPT[A-Z_]*|SHELL|PATH|DYLD_[A-Z_]*|LD_[A-Z_]*|CC|CXX|LD|SWIFT_EXEC)$/,
+});
+/** gradlew: task names and these flags; no property (-P/-D), init script, project-dir or user-home redirect. */
+export const GRADLE_FLAGS = Object.freeze({ plain: ["--no-daemon", "--offline", "--stacktrace", "--info", "--warn", "--quiet", "-q", "--no-build-cache", "--rerun-tasks"], prefixed: ["--console=", "--warning-mode="] });
+/** The cmake arguments the `rightkit-cmake` adapter takes: a configure (-S -B -D -G -A) or a build (--build --config --target --parallel). */
+export const CMAKE_FLAGS = Object.freeze({ value: ["-S", "-B", "-G", "-A", "-D", "--build", "--config", "--target"], optionalNumber: ["--parallel"] });
 /** The tools a QA step must not start: running one is a build, and a QA step compiles nothing. */
 const QA_BUILD_PROGRAMS = new Set(["cargo", "rustc", "rustdoc", "rustright", "rightkit", "pnpm", "npm", "npx", "yarn", "swift", "swiftc", "xcodebuild", "gradle", "gradlew", "make", "cmake", "node-gyp"]);
 export { QA_VALUE_OPTIONS };
@@ -90,6 +120,133 @@ function refuse(message) {
   const error = new Error(message);
   error.code = BUILD_LAUNCH_REFUSED;
   throw error;
+}
+
+/**
+ * Why a cmake argv is not one the `rightkit-cmake` adapter takes, or null (M28). A configure is `-S <src> -B <build> [-D<NAME>=<VALUE>]... [-G <gen>] [-A <arch>]`,
+ * a build is `--build <dir> [--config <cfg>] [--target <t>] [--parallel [N]]`; `-E` (command mode), `-P` (script mode), `--install`, `--preset`, `-C`,
+ * `--toolchain` and every other flag or positional run code or move the build elsewhere and are refused.
+ */
+export function cmakeRefusal(args) {
+  const words = args.map(String);
+  if (words.length === 0) return "cmake needs a configure (-S -B) or a build (--build <dir>)";
+  const admissible = "admitted: -S -B -D -G -A (configure) and --build --config --target --parallel (build)";
+  for (let i = 0; i < words.length; i += 1) {
+    const word = words[i];
+    if (word.includes("\0")) return "an argument contains NUL";
+    if (word === "-D") { if (i + 1 >= words.length) return "-D needs NAME=VALUE"; i += 1; continue; }
+    if (word.startsWith("-D")) continue;
+    if (["-S", "-B", "-G", "-A"].some((flag) => word.startsWith(flag) && word.length > flag.length)) continue; // -Ssrc, -Bbuild, -GNinja
+    const name = word.startsWith("--") && word.includes("=") ? word.slice(0, word.indexOf("=")) : word;
+    if (CMAKE_FLAGS.value.includes(name)) { if (name === word) { if (i + 1 >= words.length) return `${word} needs a value`; i += 1; } continue; }
+    if (CMAKE_FLAGS.optionalNumber.includes(word)) { if (/^\d+$/.test(words[i + 1] ?? "")) i += 1; continue; }
+    return `${word} is not a cmake argument the rightkit-cmake adapter takes (${admissible}); -E, -P, --install, --preset and any positional are refused`;
+  }
+  return null;
+}
+
+const flagNameOf = (word) => (word.startsWith("--") && word.includes("=") ? word.slice(0, word.indexOf("=")) : word);
+
+/**
+ * The arguments AFTER the pnpm command token, judged as the broker's `scan` does (adapter.rs): every flag before the opaque tail is a registered flag
+ * with the value its kind needs; `--` ends the flags; after `pnpm exec <target>` the rest is the target's own. `pnpm run <script> --flag` is refused
+ * because `run` is not opaque after its script: write `pnpm run <script> -- --flag` (M13). Null when the tail is admissible.
+ */
+export function pnpmTailRefusal(words, grammar = PNPM_ADAPTER_GRAMMAR) {
+  const args = words.map(String);
+  const first = args[0];
+  if (first === undefined) return null;
+  let i = first.startsWith("-") && Object.hasOwn(grammar.flags, first) ? 0 : 1;
+  let awaiting = grammar.opaqueAfterTarget.includes(first);
+  let commandSeen = !first.startsWith("-");
+  let afterSeparator = false;
+  let command = commandSeen ? first : null;
+  while (i < args.length) {
+    const word = args[i];
+    i += 1;
+    if (!afterSeparator && word === "--") { afterSeparator = true; continue; }
+    if (afterSeparator || !word.startsWith("-") || word === "-") {
+      if (awaiting) return null; // the target: everything after it is its own
+      if (!commandSeen) { commandSeen = true; command = word; awaiting = grammar.opaqueAfterTarget.includes(word); }
+      continue;
+    }
+    const name = flagNameOf(word);
+    if (!Object.hasOwn(grammar.flags, name)) {
+      const hint = command === "run" ? `; to pass it to the script write \`pnpm run <script> -- ${word}\` (run is not opaque after its script, so the broker refuses a bare flag there)` : "";
+      return `flag ${name} is not a registered flag of rightkit-pnpm${hint}`;
+    }
+    const inline = word.startsWith("--") && word.includes("=");
+    const kind = grammar.flags[name];
+    if (kind === "none") { if (inline) return `flag ${name} takes no value`; continue; }
+    if (!inline) { if (i >= args.length) return `flag ${name} needs a value`; i += 1; }
+  }
+  return awaiting ? "pnpm exec needs a target" : null;
+}
+
+/**
+ * `cargo ndk` carries no `--locked` of its own: a stale Cargo.lock would be rewritten inside the snapshot and the gate would void the job (M31). The door
+ * adds `--locked` right after cargo-ndk's cargo subcommand (`build`, `check`, ...), before any `--`, unless `--locked` or `--frozen` is already there.
+ * cargo-ndk's own options come first: `--platform|-p`, `--target|-t` and `--output-dir|-o` take a value.
+ */
+export function lockedNdkArgs(args) {
+  const words = args.map(String);
+  if (words[0] !== "ndk") return words;
+  const valueOptions = new Set(["-t", "--target", "-p", "--platform", "-o", "--output-dir"]);
+  let i = 1;
+  for (; i < words.length; i += 1) {
+    if (words[i] === "--") return words;
+    if (valueOptions.has(words[i])) { i += 1; continue; }
+    if (words[i].startsWith("-")) continue;
+    break;
+  }
+  if (i >= words.length) return words;
+  const end = words.indexOf("--", i);
+  if ((end < 0 ? words : words.slice(0, end)).some((w) => w === "--locked" || w === "--frozen")) return words;
+  return [...words.slice(0, i + 1), "--locked", ...words.slice(i + 1)];
+}
+
+/** Why an xcodegen argv is not `generate --spec <file> --project <dir>`, or null (B5). */
+export function xcodegenRefusal(args) {
+  const words = args.map(String);
+  if (!XCODEGEN_FLAGS.subcommands.includes(words[0] ?? "")) return `xcodegen takes the subcommand ${XCODEGEN_FLAGS.subcommands.join(", ")} only`;
+  for (let i = 1; i < words.length; i += 1) {
+    if (!XCODEGEN_FLAGS.value.includes(words[i])) return `${words[i]} is not an xcodegen argument the rightkit-xcodegen adapter takes (admitted: ${XCODEGEN_FLAGS.value.join(" ")})`;
+    if (i + 1 >= words.length) return `${words[i]} needs a value`;
+    i += 1;
+  }
+  return null;
+}
+
+/** Why an xcodebuild argv is not one the `rightkit-xcodebuild` adapter takes, or null (B5): listed flags and actions, and plain build settings. */
+export function xcodebuildRefusal(args) {
+  const words = args.map(String);
+  if (words.length === 0) return "xcodebuild needs an action";
+  let action = false;
+  for (let i = 0; i < words.length; i += 1) {
+    const word = words[i];
+    if (word.includes("\0")) return "an argument contains NUL";
+    if (XCODEBUILD_FLAGS.value.includes(word)) { if (i + 1 >= words.length) return `${word} needs a value`; i += 1; continue; }
+    if (XCODEBUILD_FLAGS.plain.includes(word) || word.startsWith("-only-testing:") || word.startsWith("-skip-testing:")) continue;
+    if (XCODEBUILD_FLAGS.actions.includes(word)) { action = true; continue; }
+    const setting = /^([A-Z][A-Z0-9_]*)=/.exec(word);
+    if (setting) { if (XCODEBUILD_FLAGS.forbiddenSettings.test(setting[1])) return `build setting ${setting[1]} injects code or moves a tool and is refused`; continue; }
+    return `${word} is not an xcodebuild argument the rightkit-xcodebuild adapter takes (flags: ${[...XCODEBUILD_FLAGS.value, ...XCODEBUILD_FLAGS.plain].join(" ")}; actions: ${XCODEBUILD_FLAGS.actions.join(" ")}; NAME=value settings)`;
+  }
+  return action || words.includes("-exportArchive") ? null : "xcodebuild names no action (build, test, archive, ...)";
+}
+
+/** Why a gradlew argv is not one the `rightkit-gradle` adapter takes, or null (B6): task names and the listed flags; no -P/-D, init script, project dir or user home. */
+export function gradleRefusal(args) {
+  const words = args.map(String);
+  if (words.length === 0) return "gradlew needs a task";
+  let task = false;
+  for (const word of words) {
+    if (word.includes("\0")) return "an argument contains NUL";
+    if (GRADLE_FLAGS.plain.includes(word) || GRADLE_FLAGS.prefixed.some((p) => word.startsWith(p))) continue;
+    if (/^:?[A-Za-z0-9_-]+(?::[A-Za-z0-9_-]+)*$/.test(word)) { task = true; continue; }
+    return `${word} is not a gradlew argument the rightkit-gradle adapter takes (task names, and ${[...GRADLE_FLAGS.plain, ...GRADLE_FLAGS.prefixed.map((p) => `${p}<v>`)].join(" ")}); -P, -D, --init-script, --project-dir and --gradle-user-home are refused`;
+  }
+  return task ? null : "gradlew names no task";
 }
 
 /** The index of the pnpm command in an argv (the first word that is not an option or an option's value), or -1. */
@@ -156,15 +313,33 @@ export function buildLaunch(command, args = [], host = {}) {
   const carried = carriedArgs ? carriedCargoMapOf(env) : null;
   // A carrier map that cannot be read is a refusal, never a fallback to the uncarried client (rightkit#1301 M1).
   if (carried?.error) refuse(`${name(command)} ${args.join(" ")}: ${carried.error}; a snapshot stage's Cargo step is never sent to the client around its carrier`);
-  if (carriedArgs && carried?.map) return { command: process.execPath, args: [CARRIED_RUN, ...carriedArgs.map(String)] };
+  if (carriedArgs && carried?.map) return { command: process.execPath, args: [CARRIED_RUN, ...lockedNdkArgs(carriedArgs)] };
   const client = () => lookup("rustright")[0] ?? refuse(`rustright is not on PATH: on a broker-managed host ${program} runs only as a broker job`);
   // A snapshot stage's pnpm, node and swift steps are carried adapter jobs (carried-adapter-run.mjs); anywhere else they are the client's `run`.
   // A QA step is not one of them: it runs an already-built artifact (see the rightkit-qa branch below).
-  const adapterMap = ["pnpm", "node", "swift"].includes(program) ? carriedCargoMapOf(env) : null;
+  const adapterMap = ["pnpm", "node", "swift", "cmake", ...Object.keys(TOOLCHAIN_ADAPTERS)].includes(program) ? carriedCargoMapOf(env) : null;
   if (adapterMap?.error) refuse(`${name(command)} ${args.join(" ")}: ${adapterMap.error}; a snapshot stage's step is never sent to the client around its carrier`);
   // The step's own environment rides the adapter request (adapter-env.mjs): RUSTRIGHT_ADAPTER_ENV names exactly what the step declares.
+  // TAURI_SIGNING_* never rides a broker request (M4): the quiet values (empty key, empty password) only blank what a direct child would inherit, and a
+  // broker job's environment already holds none of them; a non-empty one is a signing secret and is refused, never forwarded.
+  const adapterStepEnv = () => {
+    const declared = host.stepEnv;
+    if (!declared || typeof declared !== "object") return declared;
+    const kept = {};
+    for (const [key, value] of Object.entries(declared)) {
+      if (!/^TAURI_SIGNING_/i.test(key)) { kept[key] = value; continue; }
+      if (String(value ?? "") !== "") {
+        const refusal = new Error(`${name(command)} ${args.join(" ")}: step env ${key} carries a signing secret, and no broker request may (signing belongs to the gate's session, never a broker job)`);
+        refusal.code = BUILD_LAUNCH_REFUSED;
+        refusal.reason = "RK_ADAPTER_ENV_SECRET";
+        throw refusal;
+      }
+    }
+    return kept;
+  };
   const stepEnvLaunch = () => {
-    try { return adapterEnvLaunch(host.stepEnv); } catch (error) {
+    try { return adapterEnvLaunch(adapterStepEnv()); } catch (error) {
+      if (error.code === BUILD_LAUNCH_REFUSED) throw error;
       const refusal = new Error(`${name(command)} ${args.join(" ")}: ${error.message}`);
       refusal.code = BUILD_LAUNCH_REFUSED;
       refusal.reason = error.code;
@@ -184,7 +359,7 @@ export function buildLaunch(command, args = [], host = {}) {
     // A snapshot stage: `rustright run <adapter> -- <args>` is that adapter's step (judged by the door's rules for its program, then carried);
     // any other `rustright <command>` is an uncarried client call that no registered adapter takes, so it is refused, naming the step.
     const adapterProgram = args[0] === "run" && args[2] === "--" ? ADAPTER_PROGRAMS[String(args[1])] : undefined;
-    if (!adapterProgram) refuse(`rustright ${args.join(" ")}: a snapshot stage carries every compile, and this client call maps to no registered adapter (rustright run rightkit-pnpm|rightkit-node|rightkit-qa|rightkit-swift -- <args>); it is never sent to the client uncarried`);
+    if (!adapterProgram) refuse(`rustright ${args.join(" ")}: a snapshot stage carries every compile, and this client call maps to no registered adapter (rustright run rightkit-pnpm|rightkit-node|rightkit-qa|rightkit-swift|rightkit-cmake -- <args>); it is never sent to the client uncarried`);
     return buildLaunch(adapterProgram, args.slice(3), host);
   }
   if (program === "rightkit-qa") {
@@ -208,11 +383,24 @@ export function buildLaunch(command, args = [], host = {}) {
     if (plan) return { command: process.execPath, args: [QA_SNAPSHOT_RUN, qa, "--", ...args.map(String)] };
     return { command: qa, args: args.map(String) };
   }
+  if (Object.hasOwn(TOOLCHAIN_ADAPTERS, program)) {
+    // B5/B6: every Mac and Dell build is a broker job (GATE-CONTRACT), so Xcode and Gradle are registered, constrained adapters like pnpm and swift:
+    // the door admits only the argv the adapter's grammar lists, and a snapshot stage carries the step as a snapshot-bound adapter job.
+    const judge = program === "xcodegen" ? xcodegenRefusal : program === "xcodebuild" ? xcodebuildRefusal : gradleRefusal;
+    const problem = judge(args);
+    if (problem) refuse(`${program} ${args.join(" ")}: ${problem} (rightkit#1241)`);
+    return adapterLaunch(TOOLCHAIN_ADAPTERS[program], args.map(String));
+  }
+  if (program === "cmake") {
+    const problem = cmakeRefusal(args);
+    if (problem) refuse(`cmake ${args.join(" ")}: ${problem} (rightkit#1241)`);
+    return adapterLaunch("rightkit-cmake", args.map(String));
+  }
   if (program === "swift") return adapterLaunch("rightkit-swift", args.map(String));
   // This package's own right-release, run by this very Node binary (not any executable named node), with no startup code added by
   // the caller: NODE_OPTIONS is empty or exactly this process's own string (a hook's env could otherwise --import code that builds
   // outside the broker; reordered tokens can re-pair an option with another value, so nothing short of equality is accepted).
-  if (command === process.execPath && path.resolve(String(args[0] ?? "")) === OWN_RIGHT_RELEASE) {
+  if (command === process.execPath && OWN_SCRIPTS.includes(path.resolve(String(args[0] ?? "")))) {
     const options = String(env.NODE_OPTIONS ?? "");
     if (options.trim() !== "" && options !== String(process.env.NODE_OPTIONS ?? "")) refuse(`right-release ${args.slice(1).join(" ")}: NODE_OPTIONS is neither empty nor exactly this process's own; on a broker-managed host the door's own right-release runs with no added startup code (rightkit#1241)`);
     return { command, args };
@@ -242,6 +430,8 @@ export function buildLaunch(command, args = [], host = {}) {
     // adapter does not register (a leading --if-present, --prefix, --config, ...) or a global option it does not register is refused here, naming the step.
     const grammarProblem = pnpmGrammarRefusal(words, (host.pnpmGrammar ?? liveAdapterGrammar({ env, platform, readFile: host.readFile })) ?? PNPM_ADAPTER_GRAMMAR);
     if (grammarProblem) refuse(`pnpm ${words.join(" ")}: ${grammarProblem}; the broker's rightkit-pnpm adapter would refuse it (rightkit#1241)`);
+    const tailProblem = pnpmTailRefusal(words, (host.pnpmGrammar ?? liveAdapterGrammar({ env, platform, readFile: host.readFile })) ?? PNPM_ADAPTER_GRAMMAR);
+    if (tailProblem) refuse(`pnpm ${words.join(" ")}: ${tailProblem}; the broker's rightkit-pnpm adapter would refuse it (rightkit#1241)`);
     return adapterLaunch("rightkit-pnpm", words);
   }
   return refuse(`${program} ${args.join(" ")}: no broker adapter runs this command yet, and on a broker-managed host a build or test command never runs around the broker (rightkit#1241)`);

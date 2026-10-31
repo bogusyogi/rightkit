@@ -14,6 +14,7 @@ import {
   BROKER_COMPILE_COMMANDS, CARGO_COMMAND_ALIASES, cargoSubcommandOf, isCallHandleOf, isCompileClass, isLockBound, isPackageObservation, lockedArgv, isGenerationTarget, isInsideGenerationTarget, GENERATION_LEAVES, nextCallHandle, ownershipOfHandle, observedEnvOf, readDeclaredInputs, readRequestRef, requestDigestOf, snapshotRequestCore, verifySnapshotEvidenceIdentity, verifySnapshotReceipt, writeSnapshotRequest,
 } from "./snapshot-request.mjs";
 import { makeFakeBroker, signedReceipt } from "./test-support/fake-broker.mjs";
+import { COMPILE_INPUTS, LEGACY_COMPILE_INPUTS, brokerCommandIndex, carriesRedirect, findDeclaration, isFmtCheckShape, readDeclaredInputs as readDeclaredInputsM, splitCarriedArgs, toolOwnArgsIndex, verifySnapshotReceipt as verifyReceiptM } from "./snapshot-request.mjs";
 
 const tmp = (t) => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-snapreq-"))); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex");
@@ -392,7 +393,9 @@ test("[GB-02] the compile table is the broker's: pinned to rustright b84ae605 co
   // The broker's own spellings, copied from the cited lines at b84ae605 (git show b84ae605:crates/rustright-policy/src/command_policy.rs): a change on either side shows here.
   const brokerBuildList = ["build", "check", "test", "bench", "clippy", "doc", "rustc", "rustdoc"]; // :619
   const brokerOthers = ["fix", "run", "package", "publish"]; // :581, :597, :611, :615
-  assert.deepEqual([...BROKER_COMPILE_COMMANDS].sort(), [...brokerBuildList, ...brokerOthers].sort());
+  const brokerExternal = ["nextest", "ndk"]; // external_policy :67-70, both BUILD
+  assert.deepEqual([...BROKER_COMPILE_COMMANDS].sort(), [...brokerBuildList, ...brokerOthers, ...brokerExternal].sort());
+  for (const command of brokerExternal) { assert.equal(isCompileClass([command]), true, command); assert.deepEqual(lockedArgv([command, "-x"]), [command, "-x"], `${command} owns its argv: --locked is never inserted`); assert.equal(isLockBound([command]), false, command); }
   for (const command of [...brokerBuildList, "fix", "run", "publish"]) assert.equal(isCompileClass([command]), true, command);
   assert.equal(isCompileClass(["+nightly", command0()]), true);
   // package compiles unless it is exactly the observation listing the broker admits (build_rules.rs observation_only_cargo).
@@ -585,4 +588,99 @@ test("[B9] the filesystem-free evidence identity: commit, handle, request id, sn
   refuses({ snapshot: undefined }, {}, /throughout/);
   assert.throws(() => verifySnapshotEvidenceIdentity(undefined, { commit, jobId: "job-1" }), /no snapshotEvidence/);
   assert.equal(ok({}, { snapshotPath: "/s/X", samePath: (a, b) => a.toLowerCase() === b.toLowerCase() }) === evidence.snapshot, true, "the gate compares real paths through its own comparator");
+});
+
+// ---- GATE-2 (docs/GATE-BROKER-AUDIT-2026-10-30.md section 7)
+
+test("[B2] the declaration is `.rustright/compile-inputs.json` first, the legacy `.rightkit` one only when it is absent, as check_admission.rs declared_inputs reads it", (t) => {
+  assert.equal(COMPILE_INPUTS, ".rustright/compile-inputs.json"); assert.equal(LEGACY_COMPILE_INPUTS, ".rightkit/compile-inputs.json");
+  const root = tmp(t);
+  const put = (rel, body) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), body); };
+  put("a.txt", "a"); put("b.txt", "b");
+  put(".rustright/compile-inputs.json", JSON.stringify({ inputs: ["a.txt"] }));
+  assert.deepEqual(readDeclaredInputsM(root), ["a.txt"], "only the .rustright declaration");
+  put(".rightkit/compile-inputs.json", JSON.stringify({ inputs: ["b.txt"] }));
+  assert.deepEqual(readDeclaredInputsM(root), ["a.txt"], "both files: .rustright wins, the legacy one is not read");
+  assert.equal(findDeclaration(root).name, COMPILE_INPUTS);
+  fs.rmSync(path.join(root, ".rustright"), { recursive: true });
+  assert.deepEqual(readDeclaredInputsM(root), ["b.txt"], "legacy only when .rustright is absent");
+  // A malformed .rustright declaration is a refusal, not a fall-through to the legacy file.
+  put(".rustright/compile-inputs.json", "{ not json");
+  assert.throws(() => readDeclaredInputsM(root), (e) => e instanceof SnapshotRequestError && /\.rustright\/compile-inputs\.json is not JSON/.test(e.message));
+  // The overlap guard covers BOTH declaration paths (the broker's plain_relative): the input may not be either file or a directory holding one.
+  put(".rustright/compile-inputs.json", JSON.stringify({ inputs: ["a.txt"] }));
+  for (const input of [".rustright", ".rustright/compile-inputs.json", ".rightkit", ".rightkit/compile-inputs.json"]) {
+    put(".rustright/compile-inputs.json", JSON.stringify({ inputs: [input] }));
+    assert.throws(() => readDeclaredInputsM(root), (e) => e.code === "declared-inputs" && /declaration file itself/.test(e.message), input);
+  }
+});
+
+test("[B2] the fixture broker with only `.rustright/compile-inputs.json` verifies a receipt whose carrier carries the gate's own read of it", (t) => {
+  const fx = makeFakeBroker(t, { inputs: ["gen/in.txt"], inputsAt: ".rustright/compile-inputs.json" });
+  assert.deepEqual(readDeclaredInputsM(fx.snapshot), ["gen/in.txt"]);
+  const argv = ["test", "-p", "a", "--locked"];
+  const made = writeSnapshotRequest({ controlRoot: fx.controlRoot, commit: fx.sb.commit, snapshot: fx.sb.snapshot, declaredInputs: readDeclaredInputsM(fx.snapshot), handle: fx.handle, primaryCwd: fx.checkout, argv, nonce: "b".repeat(64) });
+  const receipt = signedReceipt(fx, { id: JOB, carrier: made.carrier, argv, workspace: fx.checkout, tamper: "none", mutate: null });
+  const { evidence } = verifyReceiptM(receipt, { pins: fx.pins, jobId: JOB, carrier: made.carrier, argv, workspace: fx.checkout, checkout: fx.checkout, outputRoots: [fx.wsRoot], platform: process.platform });
+  assert.deepEqual(evidence.declaredInputDigests.map((d) => d.path), ["gen/in.txt"]);
+});
+
+test("[M11] -pCore and -FZed are a package and a feature, not -C/-Z; -vZ and -rC are still refused (the broker's cluster walk stops at j/p/F)", () => {
+  assert.deepEqual(splitCarriedArgs(["build", "-pCore", "-FZed", "-j4"]).words, ["build", "-pCore", "-FZed", "-j4"]);
+  for (const ok of ["-pCore", "-pZoo", "-FZed", "-j4", "-q", "-vv"]) assert.equal(carriesRedirect(ok), false, ok);
+  for (const bad of ["-vZ", "-rC", "-Z", "-C", "-Zunstable-options", "-qvC/dir", "--config", "--config=x"]) assert.equal(carriesRedirect(bad), true, bad);
+  for (const args of [["build", "-vZ", "x"], ["build", "-rC", "x"], ["build", "--config", "k=v"], ["build", "-Zfoo"]]) assert.equal(splitCarriedArgs(args).refusal?.code, "RK_CARGO_REDIRECT", args.join(" "));
+});
+
+test("[M10] deny/about carry their own --config (and about its --manifest-path): neither is refused nor stripped; cargo's own --config before the subcommand and every other command still is", () => {
+  const about = ["about", "generate", "--frozen", "--fail", "--config", "legal/about.toml", "--manifest-path", "app/Cargo.toml", "legal/about.hbs"];
+  assert.equal(toolOwnArgsIndex(about), 0);
+  assert.deepEqual(splitCarriedArgs(about), { words: about, manifestPath: null });
+  const deny = ["deny", "--frozen", "--config", "/abs/deny.toml", "check"];
+  assert.deepEqual(splitCarriedArgs(deny), { words: deny, manifestPath: null });
+  assert.equal(brokerCommandIndex(["--color", "always", "deny", "check"]), 2);
+  // Not the shapes: --config stays cargo's and refused (build, a deny with something extra, a --config BEFORE the subcommand).
+  for (const args of [["build", "--config", "x=y"], ["deny", "--config", "/d.toml", "check", "--extra"], ["--config", "x=y", "deny", "check"], ["about", "generate", "--config", "a.toml", "t.hbs"], ["about", "generate", "--frozen", "--fail", "--config", "a", "--config", "b", "t.hbs"]]) {
+    assert.equal(splitCarriedArgs(args).refusal?.code, "RK_CARGO_REDIRECT", args.join(" "));
+  }
+  // A non-tool call still has its --manifest-path turned into a working directory.
+  assert.deepEqual(splitCarriedArgs(["metadata", "--manifest-path", "n/Cargo.toml", "--no-deps"]), { words: ["metadata", "--no-deps"], manifestPath: "n/Cargo.toml" });
+});
+
+test("[M15] a carried one-letter alias is sent as the command it expands to, so the signed argv is the full name", () => {
+  for (const [alias, command] of Object.entries(CARGO_COMMAND_ALIASES)) assert.equal(splitCarriedArgs([alias, "-p", "a"]).words[0], command, alias);
+  assert.deepEqual(splitCarriedArgs(["+nightly", "b", "-p", "a"]).words, ["+nightly", "build", "-p", "a"]);
+  assert.deepEqual(splitCarriedArgs(["build", "--", "b"]).words, ["build", "--", "b"], "after -- the word is the program's");
+  assert.equal(carriedRequestOfM(["b", "-p", "a"]).argv[0], "build");
+  assert.deepEqual(carriedRequestOfM(["t"]).argv, ["test", "--locked"]);
+});
+import { carriedRequestOf as carriedRequestOfM } from "./snapshot-request.mjs";
+
+test("[M13] fmt is carried only as `-p <unit> --check` or `--all --check`; every other shape is refused gate-side naming the two shapes", () => {
+  for (const ok of [["fmt", "-p", "a", "--check"], ["fmt", "--all", "--check"]]) assert.deepEqual(splitCarriedArgs(ok).words, ok, ok.join(" "));
+  for (const bad of [["fmt", "--check", "--", "--edition", "2021"], ["fmt", "--check"], ["fmt", "--all"], ["fmt"], ["fmt", "-p", "a"], ["fmt", "--all", "--check", "--", "--edition", "2021"], ["fmt", "--check", "--all"], ["fmt", "-p", "--check"]]) {
+    const r = splitCarriedArgs(bad);
+    assert.equal(r.refusal?.code, "RK_CARGO_BROKER_READ_ONLY_SHAPE", bad.join(" "));
+    assert.match(r.refusal.message, /fmt -p <unit> --check.*fmt --all --check/);
+  }
+  assert.equal(isFmtCheckShape(["-p", "a", "--check"]), true); assert.equal(isFmtCheckShape(["--check"]), false);
+});
+
+test("[M16] nextest and ndk are compiles (their receipts carry freshness, attribution, toolchain) though the gate never edits their argv; dropping a field fails each", (t) => {
+  for (const argv of [["nextest", "run"], ["ndk", "-t", "arm64-v8a", "build"]]) {
+    assert.equal(isCompileClass(argv), true, argv.join(" "));
+    for (const field of ["freshness", "attribution", "toolchain"]) {
+      const c = receiptCase(t, { argv });
+      delete c.receipt[field]; delete c.receipt.provenance.payload.stageEvidence[field];
+      assert.throws(() => c.check(), (e) => e.code === "evidence" || e.code === "signature", `${argv.join(" ")} without ${field}`);
+    }
+  }
+});
+
+test("[M39] a pin that names a brokerVersion refuses a receipt of another version (the refusal carries the upgrade warning); an unversioned pin, or the same version, passes", (t) => {
+  const c = receiptCase(t);
+  const same = c.check({ pins: { ...c.fx.pins, brokerVersion: "rustright-test" } });
+  assert.deepEqual(same.brokerVersionCheck, { ok: true, compared: true });
+  assert.deepEqual(c.check().brokerVersionCheck, { ok: true, compared: false });
+  assert.throws(() => c.check({ pins: { ...c.fx.pins, brokerVersion: "rustright-other" } }), (e) => e.code === "broker-version" && /rustright-test/.test(e.message) && /rustright-other/.test(e.message));
 });

@@ -87,7 +87,9 @@ test("[behavior] item 7 wrapper: each cargo invocation binds its own workspace's
   for (const args of [["fmt"], ["fmt", "--all"], ["+nightly", "fmt", "--", "--emit", "files"]]) assert.equal(decide(args, snap).refuse?.code, "RK_CARGO_UNBOUND_COMMAND", args.join(" "));
   // Review item7-wrapper-r2 #2: every command that reads a workspace is bound to one the compile resolved and may not write a
   // Cargo.lock: tree/pkgid/... need --locked or --frozen; fmt and cargo-audit (no lock flag) need the workspace's committed lock.
-  for (const args of [["tree"], ["pkgid"], ["verify-project"], ["read-manifest"], ["locate-project"], ["deny", "check"]]) assert.equal(decide(args, snap).refuse?.code, "RK_CARGO_UNBOUND_COMMAND", `${args.join(" ")} without --locked`);
+  for (const args of [["tree"], ["pkgid"], ["verify-project"], ["deny", "check"]]) assert.equal(decide(args, snap).refuse?.code, "RK_CARGO_UNBOUND_COMMAND", `${args.join(" ")} without --locked`);
+  // [M14] locate-project and read-manifest have no lock flag and write nothing (the broker's offline_read_only takes them with any arguments): bound, no flag demanded.
+  for (const args of [["locate-project", "--workspace"], ["read-manifest"]]) assert.equal(decide(args, snap).exec?.env.CARGO_TARGET_DIR, targets["."], `${args.join(" ")} runs bound without a lock flag`);
   for (const args of [["tree", "--locked"], ["--frozen", "pkgid"], ["locate-project", "--locked"]]) assert.equal(decide(args, path.join(dir, "outside")).refuse?.code, "RK_CARGO_UNBOUND_WORKSPACE", `${args.join(" ")} outside the bound workspaces`);
   assert.equal(decide(["tree", "--locked"], path.join(snap, "native")).exec?.env.CARGO_TARGET_DIR, targets.native, "a locked tree in a bound workspace runs bound");
   assert.equal(decide(["deny", "--frozen", "--metadata-path", "m.json", "--config", "deny.toml", "check"], snap).exec?.env.CARGO_TARGET_DIR, targets["."], "cargo-deny's own --config is not a cargo redirect");
@@ -639,4 +641,22 @@ test("[behavior] item 7 row 7.10 real cargo, nested $CARGO (F7): a build script'
   assert.deepEqual(entries.map((e) => e.argv.join(" ")), ["build", "build"], "only the wrapped calls are ledgered; the nested metadata call is not");
   assert.ok(result.notes.includes(UNOBSERVED_NESTED_CARGO_NOTE), `the scan result notes the nested call as unobserved: ${JSON.stringify(result.notes)}`);
   assert.match(UNOBSERVED_NESTED_CARGO_NOTE, /unobserved/);
+});
+
+test("[M11] the wrapper reads -pCore/-FZed as a package and a feature, and still refuses -vZ and -rC", (t) => {
+  const { snap, targets } = mixedSnapshot(t);
+  const map = { shim: "/gate/bin/cargo", workspaces: { [snap]: targets["."], [path.join(snap, "native")]: targets.native } };
+  const decide = (args) => decideCargoInvocation({ args, cwd: snap, env: { PATH: "/bin" }, map, locate: locateIn, exists: () => false });
+  for (const args of [["build", "-pCore"], ["build", "-pZoo", "-FZed", "-j4"], ["--locked", "build", "-pCore"]]) assert.equal(decide(args).exec?.env.CARGO_TARGET_DIR, targets["."], args.join(" "));
+  for (const args of [["build", "-vZ", "x"], ["build", "-rC", "x"], ["-vZfoo", "build"]]) assert.equal(decide(args).refuse?.code, "RK_CARGO_REDIRECT", args.join(" "));
+});
+
+test("[M13][M15] broker mode: a one-letter alias is sent as its full name; fmt rides only as -p <unit> --check or --all --check", (t) => {
+  const { snap, targets } = mixedSnapshot(t);
+  const map = { shim: "/gate/bin/cargo", mode: "broker", broker: { snapshot: { path: snap }, checkout: path.join(path.dirname(snap), "checkout") }, workspaces: { [snap]: targets["."], [path.join(snap, "native")]: targets.native } };
+  const decide = (args) => decideCargoInvocation({ args, cwd: snap, env: { PATH: "/bin" }, map, locate: locateIn, exists: () => true });
+  for (const [alias, full] of [["b", "build"], ["c", "check"], ["t", "test"], ["r", "run"], ["d", "doc"]]) assert.deepEqual(decide([alias, "-p", "a"]).exec?.args, [full, "-p", "a"], alias);
+  for (const ok of [["fmt", "--all", "--check"], ["fmt", "-p", "a", "--check"]]) assert.ok(decide(ok).exec, ok.join(" "));
+  for (const bad of [["fmt", "--check", "--", "--edition", "2021"], ["fmt", "--check"], ["fmt", "-p", "a", "--check", "--all"]]) assert.equal(decide(bad).refuse?.code, "RK_CARGO_BROKER_READ_ONLY_SHAPE", bad.join(" "));
+  assert.ok(decide(["locate-project", "--workspace"]).exec, "[M14] locate-project needs no lock flag in broker mode either");
 });

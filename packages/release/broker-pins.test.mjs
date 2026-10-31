@@ -9,7 +9,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
-import { BrokerPinsError, PINS_SCHEMA, enrollBrokerPins, loadBrokerPins, main, pinsFile, readEnrolledPins, readGateRevisionPins, validatePins } from "./broker-pins.mjs";
+import { BrokerPinsError, PINS_SCHEMA, compareBrokerVersion, enrollBrokerPins, loadBrokerPins, main, pinsFile, readEnrolledPins, readGateRevisionPins, validatePins } from "./broker-pins.mjs";
 import { createSnapshotBroker } from "./snapshot-broker.mjs";
 import { makeFakeBroker, keyPair, signedReceipt, subHandleStub } from "./test-support/fake-broker.mjs";
 import { verifySnapshotReceipt, writeSnapshotRequest } from "./snapshot-request.mjs";
@@ -176,4 +176,60 @@ test("[7.21] RightKit's committed pins, read from this checkout's gate revision,
     const read = readGateRevisionPins({ gateFile: path.join(here, "bin", "rightkit-gate.mjs"), checkout: top.stdout.trim(), platform });
     assert.ok(read, platform); assert.equal(read.source, "rk-pipeline"); assert.match(read.keyId, /^[0-9a-f]{64}$/);
   }
+});
+
+// ---- GATE-4 M39/M58: the build the pins enroll is named, and an upgrade is warned about before the digest refusal ------------
+
+test("[M39] validatePins keeps an optional brokerVersion and brokerSourceRevision, rejects malformed ones, and enrollment records them", (t) => {
+  const { pins } = keyPair();
+  const revision = "b84ae605" + "0".repeat(32);
+  assert.deepEqual(validatePins(pins), pins, "a pin without them is unchanged");
+  assert.deepEqual(validatePins({ ...pins, brokerVersion: "rustright-b84ae60", brokerSourceRevision: revision }), { ...pins, brokerVersion: "rustright-b84ae60", brokerSourceRevision: revision });
+  for (const bad of [{ brokerVersion: "" }, { brokerVersion: 7 }, { brokerSourceRevision: "b84ae60" }, { brokerSourceRevision: revision.toUpperCase() }]) {
+    assert.throws(() => validatePins({ ...pins, ...bad }), (e) => e instanceof BrokerPinsError && e.code === "RK_BROKER_PINS_INVALID", JSON.stringify(bad));
+  }
+  const dataRoot = tmp(t);
+  enrollBrokerPins({ dataRoot, platform: "darwin", ...pins, brokerVersion: "rustright-b84ae60", brokerSourceRevision: revision });
+  const read = readEnrolledPins({ dataRoot, platform: "darwin" });
+  assert.equal(read.brokerVersion, "rustright-b84ae60"); assert.equal(read.brokerSourceRevision, revision);
+});
+
+test("[M39] compareBrokerVersion: a matching version, or a pin that names none, passes; another version is a clear upgrade warning, never a trust decision", () => {
+  const { pins } = keyPair();
+  const pinned = { ...pins, brokerVersion: "rustright-5af765b", brokerSourceRevision: "5af765bd92a52dcc5ceb8eb28bf561546acf7458" };
+  assert.deepEqual(compareBrokerVersion(pinned, "rustright-5af765b"), { ok: true, compared: true });
+  assert.deepEqual(compareBrokerVersion(pins, "anything"), { ok: true, compared: false }, "an unversioned pin compares nothing");
+  const upgraded = compareBrokerVersion(pinned, "rustright-b84ae60");
+  assert.equal(upgraded.ok, false);
+  assert.match(upgraded.warning, /rustright-b84ae60/); assert.match(upgraded.warning, /rustright-5af765b/); assert.match(upgraded.warning, /5af765bd92a5/);
+  assert.match(upgraded.warning, /upgraded or replaced/); assert.match(upgraded.warning, /re-enroll/);
+  assert.equal(compareBrokerVersion(pinned, undefined).ok, false, "a receipt with no version cannot match a versioned pin");
+  assert.equal(compareBrokerVersion(pinned, "").ok, false);
+});
+
+test("[M39/M58] the committed pins name their build: each platform's brokerVersion is `rustright-<first 7 of brokerSourceRevision>`, one build for both hosts", () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const pipeline = JSON.parse(fs.readFileSync(path.join(here, "..", "..", "ci", "rk-pipeline.json"), "utf8"));
+  const builds = new Set();
+  for (const platform of ["darwin", "win32"]) {
+    const pin = pipeline.attestation[platform];
+    assert.match(pin.brokerSourceRevision, /^[0-9a-f]{40}$/, platform);
+    assert.equal(pin.brokerVersion, `rustright-${pin.brokerSourceRevision.slice(0, 7)}`, platform);
+    assert.deepEqual(validatePins(pin, platform).brokerVersion, pin.brokerVersion);
+    builds.add(pin.brokerSourceRevision);
+  }
+  assert.equal(builds.size, 1, "both hosts enroll the same broker build");
+});
+
+// Opt-in live proof (M39/M58): on a broker host, `rustright doctor --json` `.runtime.version` is the version the committed pin names. A host that was upgraded
+// without a re-enrollment fails here with the warning an operator needs. RK_PINS_LIVE=1, on a broker host only: it asks the real client, so CI never runs it.
+test("[M39/M58] opt-in live: the installed broker's runtime.version equals the committed pin's brokerVersion", { skip: process.env.RK_PINS_LIVE !== "1" && "set RK_PINS_LIVE=1 on a broker host" }, () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const pipeline = JSON.parse(fs.readFileSync(path.join(here, "..", "..", "ci", "rk-pipeline.json"), "utf8"));
+  const pin = pipeline.attestation[process.platform];
+  assert.ok(pin, `${process.platform} is not a broker host`);
+  const doctor = spawnSync(pin.clientPath, ["doctor", "--json"], { encoding: "utf8", timeout: 60_000 });
+  const version = JSON.parse(doctor.stdout).runtime?.version;
+  const verdict = compareBrokerVersion(pin, version);
+  assert.ok(verdict.ok, verdict.warning);
 });

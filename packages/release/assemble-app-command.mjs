@@ -17,6 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assembleMacBundle, assembleWindowsPayload, AssembledAppError, loadStageReceipt, resolveAssembly, resolveNestedApp, verifyMacBundle, verifyReleaseBinding, verifyWindowsPayload, writeReleaseBinding } from "./assembled-app.mjs";
 import { buildOuterApp, outerProductPath, resolveAssemblyStorage } from "./install-assembled-app.mjs";
+import { BUILD_LAUNCH_REFUSED, buildLaunch } from "./build-launch.mjs";
 
 const SIGN_WINDOWS = fileURLToPath(new URL("./sign-windows.mjs", import.meta.url));
 const refuse = (code, message) => { throw new AssembledAppError(code, message); };
@@ -45,10 +46,24 @@ export function parseAssembleArgs(argv) {
   return opts;
 }
 
-function runPrepare({ root, spec, env, run, resolveCommand, log }) {
+/**
+ * The prepare steps go through the one door (build-launch.mjs), as recipe-build.mjs and development.mjs do (M27): on a broker host a cargo, pnpm or node
+ * step is a broker job (a carried one on a snapshot stage), and anything the door cannot carry is refused, never run around the broker from the
+ * checkout. Only this package's own right-release steps keep resolveCommand (they orchestrate; their builds come back through the door).
+ */
+export function runPrepare({ root, spec, env, run, resolveCommand, door = buildLaunch, log }) {
   for (const command of spec.prepare.release) {
-    const launch = resolveCommand(command.cmd, command.args, { root, env });
     const cwd = path.resolve(root, command.cwd ?? ".");
+    const own = command.cmd === "right-release" || (command.cmd === "pnpm" && ((command.args[0] === "exec" && command.args[1] === "right-release") || command.args[0] === "right-release"));
+    let launch;
+    if (own) launch = resolveCommand(command.cmd, command.args, { root, env });
+    else {
+      try { launch = door(command.cmd, command.args, { env, stepEnv: command.env, cwd, exists: nodeFs.existsSync }); } catch (error) {
+        if (error?.code === BUILD_LAUNCH_REFUSED) refuse("ASSEMBLY_BUILD_FAILED", `prepare command refused by the build door: ${error.message}`);
+        throw error;
+      }
+      launch = { ...launch, env: { ...env, ...(launch.env ?? {}) } };
+    }
     log(`assemble-app: prepare ${command.cmd} ${command.args.join(" ")}`);
     const result = run(launch.command, launch.args, { cwd, env: { ...(launch.env ?? env), ...(command.env ?? {}) }, stdio: "inherit", windowsHide: true, shell: false, timeout: command.timeoutMs });
     if (result.error || result.status !== 0) refuse("ASSEMBLY_BUILD_FAILED", `prepare command failed (${result.status ?? result.error?.message}): ${command.cmd} ${command.args.join(" ")}`);
@@ -112,7 +127,7 @@ export async function assembleApp({ root, config, opts, env = process.env, deps 
     return { installer: output };
   }
 
-  if (opts.build) runPrepare({ root, spec, env, run: d.run, resolveCommand: d.resolveCommand, log: d.log });
+  if (opts.build) runPrepare({ root, spec, env, run: d.run, resolveCommand: d.resolveCommand, ...(d.door ? { door: d.door } : {}), log: d.log });
   const receipt = loadStageReceipt({ root, spec, profile, fs: d.fs });
   if (spec.platform === "mac") {
     const storage = d.storage({ root, profile, env, run: d.run });

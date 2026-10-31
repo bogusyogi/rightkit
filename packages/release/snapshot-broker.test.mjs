@@ -318,9 +318,9 @@ test("[7.26] a dead owner's record is reclaimed only on the broker's REAPED for 
   const NOW = Date.now();
   const dead = { schema: OWNERSHIP_SCHEMA, handle, host: os.hostname(), platform: "darwin", pid: 999_999, startedMs: NOW - 120_000, containment: { kind: "group", group: 777 }, ancestors: [{ pid: 5000, startedMs: NOW - 500_000 }],
     stage: "compile", snapshot, commit: "c".repeat(40), acquiredAt: new Date(NOW - 100_000).toISOString(), broker: { submitted: true } };
-  // The host rebooted after the record was written, so every process proof is moot and the only question left is the broker's lease.
-  const probe = { platform: "darwin", identity: (pid) => (pid === process.pid ? { alive: true, startedMs: NOW - 60_000, group: 4242 } : { alive: false, startedMs: null, group: null }), bootTime: () => NOW,
-    groupSnapshot: () => { throw new Error("must not be asked"); }, tokenHolders: () => null, snapshotUsers: () => null, ancestors: () => [] };
+  // The host did NOT reboot (a reboot ends the broker's work too and is its own proof, M6), so the owner is gone and its group is empty, and the question left is the broker's lease.
+  const probe = { platform: "darwin", identity: (pid) => (pid === process.pid ? { alive: true, startedMs: NOW - 60_000, group: 4242 } : { alive: false, startedMs: null, group: null }), bootTime: () => NOW - 86_400_000,
+    groupSnapshot: () => ({ members: [], byPid: new Map([[1, { pid: 1, ppid: 0, startedMs: NOW - 9e7 }]]), own: new Set([process.pid]) }), tokenHolders: () => null, snapshotUsers: () => null, ancestors: () => [] };
   const tryAcquire = (lease) => () => acquireBuildOwnership({ file, platform: "darwin", probe, lease, env: {}, exportEnv: false, stage: "compile" });
   for (const [name, a, ok] of [["REAPED for the exact pair", { byPair: { [`${snapshot}|${handle}`]: status("REAPED") } }, true], ["REAPED for another snapshot", { byPair: { [`${snapshot}-x|${handle}`]: status("REAPED") } }, false],
     ["REAPED for another handle", { byPair: { [`${snapshot}|other`]: status("REAPED") } }, false], ["ACTIVE", { default: status("ACTIVE") }, false], ["UNKNOWN", { default: status("UNKNOWN") }, false], ["unreachable", { fail: true }, false], ["REAPED with no echo", { default: status("REAPED"), noEcho: true }, false]]) {
@@ -624,4 +624,186 @@ test("[GB-16] the output pin reads the selected commit's snapshot, not the check
   const two = run(["a/Cargo.toml", "b/Cargo.toml"], (file) => ({ workspace_root: path.dirname(file), target_directory: path.join(path.dirname(file), "target") }));
   assert.match(two.refusal, /holds 2 Cargo workspaces \(a, b\)/, "workspaces are named by their checkout-relative path");
   assert.match(run(["a/Cargo.toml"], () => ({})).refusal, /metadata in the snapshot reported no absolute target_directory for a\/Cargo\.toml/);
+});
+
+// ---- GATE-3: carried-call lifecycle (audit M5, N8, B7, M45, M46, M47, M39, N36d) ----
+import { carryBrokerAdapter, carryBrokerCargoAsync, resetBrokerOutages, brokerOutageObserved, awaitCancelledReaped, inside, receiptSync } from "./snapshot-broker.mjs";
+import { unmarkCarriedSend } from "./ownership-mark.mjs";
+import { BROKER_CLIENT_QUERY_TIMEOUT_MS, CARRIED_CALL_TIMEOUT_MS } from "./broker-client.mjs";
+
+/** A fixture whose client is `script` (a /bin/sh body), with the gate's real ownership file behind markSend/unmarkSend. */
+function lifecycle(t, scriptBody) {
+  const fx = makeFakeBroker(t, {});
+  const snapshotRoot = fs.realpathSync.native(fx.snapshot);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-life-")); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const log = path.join(dir, "client.log");
+  const client = path.join(dir, "rustright");
+  fs.writeFileSync(client, `#!/bin/sh\nLOG=${JSON.stringify(log)}\nDIR=${JSON.stringify(dir)}\n${scriptBody}\n`, { mode: 0o755 });
+  const section = { ...brokerSection(fx.sb), client, platform: process.platform,
+    markSend: (callHandle) => fx.sb.markBrokerSubmit(callHandle),
+    unmarkSend: (callHandle) => unmarkCarriedSend({ file: fx.ownership, handle: fx.handle, callHandle }) };
+  const records = [];
+  const call = (over = {}) => ({ words: ["build", "--locked"], cwd: path.join(snapshotRoot, "crates", "a"), env: { PATH: process.env.PATH, RUSTRIGHT_CALLING_GATE: GATE }, section, workspace: snapshotRoot, checkoutWorkspace: fx.checkout, record: (e) => records.push(e), err: () => {}, stdio: "capture", ...over });
+  const lines = () => (fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n").filter(Boolean) : []);
+  resetBrokerOutages(); t.after(() => resetBrokerOutages());
+  return { fx, call, records, lines, section, dir, snapshotRoot };
+}
+const REF = `printf '{"schema":"rustright.request-ref.v1","requestId":"job-1","workspace":"%s"}' "$PWD" > "$RUSTRIGHT_REQUEST_ID_FILE"`;
+const LEASE = (state) => `snapshot-lease) echo '{"schema":"rustright.snapshot-lease-status.v1","state":"${state}","snapshot":"'"$4"'","ownership":"'"$6"'"}';;`;
+/** A client that submits (writes its request id) and then runs for a long time; `cancel` ends the job; `status` and the lease answer from that. */
+const HANGING = (leaseState = "REAPED") => `echo "$1 $2 $3 $4 $5 $6 reconnect=$RUSTRIGHT_RECONNECT_WAIT_MS" >> "$LOG"
+case "$1" in
+  cargo|run) ${REF}; exec sleep 30;;
+  cancel) touch "$DIR/cancelled"; echo '{"type":"CANCEL"}';;
+  status) if [ -f "$DIR/cancelled" ]; then echo '{"type":"STATUS","id":"job-1","state":"CANCELLED","receipt":{"status":"CANCELLED"}}'; else echo '{"type":"STATUS","id":"job-1","state":"RUNNING","receipt":null}'; fi;;
+  ${LEASE(leaseState)}
+esac`;
+
+test("[M5] a carried call whose client never started takes its submit mark back, so the ownership is not held for a request the broker never saw; a client that started and failed keeps it", { skip: POSIX }, (t) => {
+  const h = lifecycle(t, "exit 0");
+  const noClient = Object.assign(new Error("spawn rustright ENOENT"), { code: "ENOENT" });
+  const r = carryBrokerCargo(h.call({ spawn: () => ({ error: noClient, status: null, signal: null, pid: 0, stdout: "", stderr: "" }) }));
+  assert.equal(r.outcome.status, "unverified"); assert.equal(r.outcome.code, "spawn"); assert.match(r.outcome.message, /submit mark was taken back/);
+  assert.equal(h.fx.submits.length, 1, "it was marked before the spawn");
+  assert.deepEqual(h.fx.owner().broker, { submitted: false }, "the record is as if nothing was ever sent");
+  // A real missing client (the real spawnSync's ENOENT, pid 0) does the same.
+  const real = carryBrokerCargo(h.call({ section: { ...h.section, client: path.join(h.dir, "no-such-client") } }));
+  assert.equal(real.outcome.code, "spawn"); assert.equal(h.fx.owner().broker.submitted, false);
+  // A client that started (pid) and exited 1 may have reached the broker: the mark stays.
+  const ran = carryBrokerCargo(h.call({ spawn: () => ({ status: 1, signal: null, pid: 4242, stdout: "", stderr: "" }) }));
+  assert.equal(ran.outcome.status, "unverified");
+  assert.equal(h.fx.owner().broker.submitted, true); assert.equal(h.fx.owner().broker.handles.length, 1);
+  // Two marked, one unsent: only the unsent one is taken back, and submitted stays true for the other.
+  carryBrokerCargo(h.call({ spawn: () => ({ error: noClient, status: null, pid: 0, stdout: "", stderr: "" }) }));
+  assert.equal(h.fx.owner().broker.submitted, true); assert.equal(h.fx.owner().broker.handles.length, 1);
+});
+
+test("[M5] the adapter path takes back an unsent mark too, and the inherited-file path (a right-release child with no ownership object) does the same", { skip: POSIX }, (t) => {
+  const h = lifecycle(t, "exit 0");
+  const noClient = Object.assign(new Error("spawn rustright EACCES"), { code: "EACCES" });
+  const stripped = { ...h.section }; delete stripped.markSend; delete stripped.unmarkSend; // as the map a child reads: no hooks, only the inherited ownership file
+  const r = carryBrokerAdapter({ adapter: "pnpm", words: ["build"], cwd: h.snapshotRoot, env: { PATH: process.env.PATH, RUSTRIGHT_CALLING_GATE: GATE, ...h.fx.ownershipEnv }, section: stripped, record: () => {}, err: () => {}, spawn: () => ({ error: noClient, status: null, pid: 0, stdout: "", stderr: "" }), stdio: "capture" });
+  assert.equal(r.outcome.status, "unverified", JSON.stringify(r.outcome)); assert.equal(h.fx.owner().broker.submitted, false);
+});
+
+test("[N8] a markSend hook that returns without recording the sub-handle sends nothing: RK_CARGO_BROKER_OWNERSHIP and no client call", { skip: POSIX }, (t) => {
+  const h = lifecycle(t, "exit 0");
+  let spawned = 0;
+  for (const bad of [() => ({}), () => ({ broker: { submitted: true, handles: [] } }), () => null, () => ({ broker: { submitted: false, handles: ["x"] } })]) {
+    const r = carryBrokerCargo(h.call({ section: { ...h.section, markSend: bad }, spawn: () => { spawned += 1; return { status: 0 }; } }));
+    assert.equal(r.outcome.status, "refused"); assert.equal(r.outcome.code, "RK_CARGO_BROKER_OWNERSHIP");
+  }
+  assert.equal(spawned, 0, "nothing was sent");
+});
+
+test("[B7] a carried call that never finishes is killed at its bound, its request is cancelled explicitly, and it is proven terminal and REAPED before the call returns RK_CARGO_BROKER_UNVERIFIED; the ownership mark stays", { skip: POSIX }, (t) => {
+  const h = lifecycle(t, HANGING("REAPED"));
+  const started = Date.now();
+  const r = carryBrokerCargo(h.call({ timeoutMs: 1500, reapWaitMs: 5000 }));
+  assert.ok(Date.now() - started < 8000, "bounded");
+  assert.equal(r.outcome.status, "unverified"); assert.equal(r.outcome.code, "timeout");
+  assert.equal(r.status, 101); assert.match(r.stderr, /RK_CARGO_BROKER_UNVERIFIED/);
+  assert.match(r.outcome.message, /did not finish within 1500 ms and was killed; rustright cancel job-1 was sent; job-1: terminal and the lease is REAPED/);
+  const lines = h.lines();
+  assert.ok(lines.some((l) => l.startsWith("cancel job-1")), `cancel was sent: ${lines.join(" | ")}`);
+  assert.ok(lines.some((l) => l.startsWith("status job-1")), "the terminal state was read");
+  const lease = lines.find((l) => l.startsWith("snapshot-lease status"));
+  assert.ok(lease, "the lease was asked");
+  assert.match(lease, /--ownership/);
+  assert.equal(h.fx.owner().broker.submitted, true, "a kill alone never un-marks the request");
+  assert.equal(h.records.at(-1).code, "timeout");
+});
+
+test("[B7] when the job cannot be proven reaped (lease ACTIVE) the call says the ownership stays held, and it stays marked: never released on a client kill alone", { skip: POSIX }, (t) => {
+  const h = lifecycle(t, HANGING("ACTIVE"));
+  const r = carryBrokerCargo(h.call({ timeoutMs: 1500, reapWaitMs: 300, sleep: () => {} }));
+  assert.equal(r.outcome.code, "timeout");
+  assert.match(r.outcome.message, /not proven stopped within 300 ms \(the lease of .* is ACTIVE\)/);
+  assert.match(r.outcome.message, /build ownership stays held until the broker proves the job reaped/);
+  assert.equal(h.fx.owner().broker.submitted, true);
+  // And the real reclaim of that record needs the lease's REAPED: UNKNOWN/ACTIVE hold it.
+});
+
+test("[B7] a client that wrote no request id when it was killed has nothing to cancel, and the call says so (the mark stays)", { skip: POSIX }, (t) => {
+  const h = lifecycle(t, `echo "$1" >> "$LOG"\ncase "$1" in cargo) exec sleep 30;; esac`);
+  const r = carryBrokerCargo(h.call({ timeoutMs: 300 }));
+  assert.equal(r.outcome.code, "timeout"); assert.match(r.outcome.message, /written no request id/); assert.match(r.outcome.message, /no request id, so no job to prove stopped/);
+  assert.ok(!h.lines().some((l) => l.startsWith("cancel")));
+  assert.equal(h.fx.owner().broker.submitted, true);
+});
+
+test("[M45] an async carried call keeps the gate's event loop and signal handlers running; aborting it kills the client, cancels the request and proves it reaped; an abort before the send sends nothing", { skip: POSIX }, async (t) => {
+  const h = lifecycle(t, HANGING("REAPED"));
+  const ac = new AbortController();
+  let ticks = 0; const tick = setInterval(() => { ticks += 1; }, 20);
+  setTimeout(() => ac.abort(), 1500);
+  const r = await carryBrokerCargoAsync(h.call({ signal: ac.signal, reapWaitMs: 5000 }));
+  clearInterval(tick);
+  assert.ok(ticks >= 20, `the event loop ran while the client did (${ticks} ticks): a spawnSync would have run none`);
+  assert.equal(r.outcome.code, "aborted"); assert.match(r.outcome.message, /was stopped with the gate and was killed; rustright cancel job-1 was sent; job-1: terminal and the lease is REAPED/);
+  assert.ok(h.lines().some((l) => l.startsWith("cancel job-1")));
+  const before = h.fx.submits.length;
+  const pre = new AbortController(); pre.abort();
+  const none = await carryBrokerCargoAsync(h.call({ signal: pre.signal }));
+  assert.equal(none.outcome.code, "RK_CARGO_BROKER_ABORTED"); assert.equal(h.fx.submits.length, before, "not even marked");
+  // The async timeout is the same bound.
+  const slow = await carryBrokerCargoAsync(h.call({ timeoutMs: 1500, reapWaitMs: 5000 }));
+  assert.equal(slow.outcome.code, "timeout");
+});
+
+test("[M45] awaitCancelledReaped waits for the terminal receipt and then the lease, each bounded", { skip: POSIX }, (t) => {
+  const answers = [["RUNNING", null], ["CANCELLED", {}], ["CANCELLED", {}]]; let statusN = 0; let leaseN = 0;
+  const spawn = (file, args) => {
+    if (args[0] === "status") { const [state, receipt] = answers[Math.min(statusN, 2)]; statusN += 1; return { status: 0, stdout: JSON.stringify({ state, receipt }) }; }
+    leaseN += 1; return { status: 0, stdout: JSON.stringify({ schema: "rustright.snapshot-lease-status.v1", state: leaseN < 2 ? "ACTIVE" : "REAPED", snapshot: "S", ownership: "H#1" }) };
+  };
+  const r = awaitCancelledReaped({ client: "/x/rustright", snapshot: "S", requestId: "j", callHandle: "H#1", env: {}, spawn, waitMs: 5000, sleep: () => {} });
+  assert.equal(r.reaped, true); assert.equal(r.terminal, true); assert.equal(statusN, 2); assert.equal(leaseN, 2);
+  const never = awaitCancelledReaped({ client: "/x/rustright", snapshot: "S", requestId: "j", callHandle: "H#1", env: {}, spawn: () => ({ status: 1, stdout: "" }), waitMs: 40, sleep: () => {} });
+  assert.equal(never.reaped, false); assert.match(never.why, /not proven stopped within 40 ms/);
+});
+
+test("[M47] after one call finds the broker unreachable, the next calls of that ownership start their client with a short reconnect budget; the first keeps the client's own; a verified call clears it", { skip: POSIX }, (t) => {
+  const h = lifecycle(t, `echo "$1 reconnect=$RUSTRIGHT_RECONNECT_WAIT_MS" >> "$LOG"\nexit 1`);
+  const run = (env = {}) => carryBrokerCargo(h.call({ env: { PATH: process.env.PATH, RUSTRIGHT_CALLING_GATE: GATE, ...env } }));
+  run(); assert.equal(brokerOutageObserved(h.fx.handle), true, "no request id came back: the broker looks down");
+  run(); run();
+  const seen = h.lines().filter((l) => l.startsWith("cargo")).map((l) => l.split("reconnect=")[1]);
+  assert.deepEqual(seen, ["", "10000", "10000"], "first: untouched; then bounded to 10 s each (not 3 x 15 min)");
+  // A caller's smaller budget stands; a larger one is cut.
+  run({ RUSTRIGHT_RECONNECT_WAIT_MS: "2000" }); run({ RUSTRIGHT_RECONNECT_WAIT_MS: "900000" });
+  assert.deepEqual(h.lines().filter((l) => l.startsWith("cargo")).slice(3).map((l) => l.split("reconnect=")[1]), ["2000", "10000"]);
+});
+
+test("[M46/B7] every short broker query waits for the client as long as it retries a busy Windows pipe; a carried call has a bound far above any build and below forever", () => {
+  assert.ok(BROKER_CLIENT_QUERY_TIMEOUT_MS >= 130_000);
+  assert.ok(CARRIED_CALL_TIMEOUT_MS >= 60 * 60_000 && Number.isFinite(CARRIED_CALL_TIMEOUT_MS));
+  const seen = [];
+  assert.throws(() => receiptSync({ client: "/x/rustright", requestId: "r", env: {}, platform: "linux", spawn: (f, a, o) => { seen.push(o); return { status: 1, stdout: "" }; } }), (e) => e.code === "receipt");
+  assert.ok(seen[0].timeout >= 130_000, `status timeout ${seen[0].timeout}`);
+  const spawned = [];
+  carryBrokerCargo({ ...{ words: ["build"], cwd: "/nope", env: {}, section: {}, workspace: "/", checkoutWorkspace: "/", record: () => {}, err: () => {} }, spawn: (...a) => spawned.push(a) });
+  assert.deepEqual(spawned, []);
+});
+
+test("[N36d] win32 containment compares like Windows: the checkout and its realpath in another case are one directory, a sibling or parent is not (node's win32.relative already folds case, so no extra fold is added)", () => {
+  assert.equal(path.win32.relative("D:\\Claude\\App", "d:\\claude\\app\\crates\\a"), "crates\\a", "node itself folds case");
+  assert.equal(inside("d:\\claude\\app\\crates\\a", "D:\\Claude\\App", "win32"), true);
+  assert.equal(inside("D:\\CLAUDE\\APP", "d:\\claude\\app", "win32"), true);
+  assert.equal(inside("D:\\Claude\\App2", "D:\\Claude\\App", "win32"), false);
+  assert.equal(inside("D:\\Claude", "D:\\Claude\\App", "win32"), false);
+  assert.equal(inside("E:\\Claude\\App\\x", "D:\\Claude\\App", "win32"), false);
+  assert.equal(inside("/a/b/c", "/a/b", "linux"), true); assert.equal(inside("/a/B/c", "/a/b", "linux"), false, "POSIX is case-sensitive");
+});
+
+test("[M39] the pins a carried call verifies with keep the enrolled brokerVersion and brokerSourceRevision when the host has them", (t) => {
+  const fx = makeFakeBroker(t, {});
+  const own = { handle: fx.handle, markBrokerSubmit: subHandleStub(fx.handle), release: () => ({ released: true }) };
+  const env = { RIGHTKIT_DATA_ROOT: fx.dataRoot, RIGHTKIT_CONTROL_ROOT: fx.controlRoot };
+  const make = (extra) => createSnapshotBroker({ env, platform: process.platform, checkout: fx.checkout, commit: { sha: fx.sb.commit.sha, tree: fx.sb.commit.tree }, snapshot: { path: fx.snapshot, expectedTree: fx.sb.snapshot.expectedTree }, ownership: own, client: fx.client, loadPins: () => ({ ...fx.pins, source: "test", ...extra }) });
+  const withVersion = make({ brokerVersion: "0.9.1", brokerSourceRevision: "ab".repeat(20) });
+  assert.equal(withVersion.pins.brokerVersion, "0.9.1"); assert.equal(withVersion.pins.brokerSourceRevision, "ab".repeat(20));
+  assert.equal(JSON.stringify(brokerSection(withVersion).pins).includes("0.9.1"), true, "and the carrier map hands them on");
+  const without = make({});
+  assert.equal(Object.hasOwn(without.pins, "brokerVersion"), false);
 });

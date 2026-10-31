@@ -227,9 +227,10 @@ test("[7.02] with the carrier wired a broker host takes the snapshot route: righ
   const envs = [];
   const launch = (c, a, opts) => { envs.push({ a: a.slice(1), env: opts.env, cwd: opts.cwd }); return { status: 0, stdout: JSON.stringify({ files: [], receiptPath: null }), stderr: "" }; };
   for (const to of ["dev", "test"]) {
-    const r = await door(["--to", to, "--commit", fx.sha], { ...carried, spawnInherit: launch });
+    const r = await door(["--to", to, "--commit", fx.sha], { ...carried, spawnInherit: launch, spawnCapture: launch });
     assert.equal(r.code, 0, `${to}: ${r.all}`);
     assert.match(r.out, /snapshot .* is commit/);
+    assert.equal(envs.at(-2).a[0], "stage-sidecar", `${to}: the declared sidecars were staged (M25) before right-release started`);
     assert.equal(envs.at(-1).env.RIGHTKIT_CARRIED_CARGO_MAP, MAP, `${to}: the child carries the stage's map`);
     assert.equal(envs.at(-1).env.CARGO_TARGET_DIR, undefined, "no output directory is passed: the broker pins it");
     assert.equal(fs.realpathSync(envs.at(-1).cwd), fs.realpathSync(fx.snapshot()), "right-release runs in the snapshot");
@@ -244,14 +245,14 @@ test("[7.02] with the carrier wired a broker host takes the snapshot route: righ
   assert.equal(envs.length, before + 1); assert.equal(envs.at(-1).a[0], "stage-sidecar"); assert.equal(envs.at(-1).env.RIGHTKIT_CARRIED_CARGO_MAP, MAP);
   // A refused, unverified or unfinished call in the ledger fails the stage even though the child exited 0.
   problems = ["cargo build --manifest-path x (from /s) was refused (RK_CARGO_REDIRECT)"];
-  r = await door(["--to", "dev", "--commit", fx.sha], { ...carried, spawnInherit: launch });
+  r = await door(["--to", "dev", "--commit", fx.sha], { ...carried, spawnInherit: launch, spawnCapture: launch });
   assert.equal(r.code, 1, r.all); assert.match(r.err, /RK_CHECK_ERROR: \[dev\] a broker call the right-release child made did not complete: cargo build .*RK_CARGO_REDIRECT/);
   r = await door(["--to", "compile", "--commit", fx.sha], { ...carried, spawnCapture: launch });
   assert.equal(r.code, 1, r.all); assert.match(r.err, /RK_CHECK_ERROR: \[compile\] a broker call the right-release child made did not complete/);
   // A carrier that cannot be installed refuses the stage before the child starts.
   const launches = [];
   r = await door(["--to", "dev", "--commit", fx.sha], { ...carried, installCarrier: () => { throw new Error("disk full"); }, spawnInherit: () => { launches.push("x"); return { status: 0 }; } });
-  assert.equal(r.code, 1, r.all); assert.match(r.err, /BLOCKED: RK_CARGO_CARRIER: the stage's cargo carrier cannot be installed \(disk full\); nothing compiled/); assert.deepEqual(launches, []);
+  assert.equal(r.code, 1, r.all); assert.match(r.err, /BLOCKED: RK_CARGO_CARRIER: the stage's cargo carrier cannot be installed \(disk full\); nothing (compiled|was staged)/); assert.deepEqual(launches, []);
   // A broker that is unreachable is still refused; TAURI_CONFIG is still refused.
   assert.match((await door(["--to", "compile", "--commit", fx.sha], { ...carried, resolveExecutor: () => ({ kind: "refuse", problem: "the RightKit broker is not reachable" }) })).err, /BLOCKED: RK_SNAPSHOT_BROKER_UNAVAILABLE: the RightKit broker is not reachable; nothing ran and the checkout is never built/);
   assert.match((await door(["--to", "dev", "--commit", fx.sha], { ...carried, env: { ...fx.env, TAURI_CONFIG: "{}" } })).err, /BLOCKED: RK_TAURI_CONFIG_OVERRIDE/);
@@ -348,6 +349,61 @@ test("[7.05] a commit that declares sidecars stages them ONCE from the snapshot'
   // TAURI_CONFIG in the environment is refused before anything runs, never passed on.
   const refused = await fx.door(["--to", "compile", "--commit", fx.sha], { env: { ...fx.env, TAURI_CONFIG: '{"bundle":{"externalBin":["x"]}}' }, runCheck: async () => 0, runCompile: async () => 0, spawnCapture: capture });
   assert.equal(refused.code, 1); assert.match(refused.err, /BLOCKED: RK_TAURI_CONFIG_OVERRIDE/);
+});
+
+test("[M25] --to dev|test stages the commit's declared sidecars ONCE from the snapshot before right-release starts (no prepare step in the app), the staged files become ledger entries, and a failing staging launches no right-release", { skip: POSIX_SIM }, async (t) => {
+  const fx = fixture(t, { "right-release.config.json": '{"sidecars":[{"name":"eng"}]}\n', "README.md": "r\n" }, "rk-ds-m25-");
+  for (const to of ["dev", "test"]) {
+    const order = [];
+    let seenBefore = null;
+    const capture = (c, a, opts) => {
+      order.push("stage-sidecar");
+      const file = path.join(opts.cwd, "src-tauri", "binaries", "eng-x86_64-unknown-linux-gnu");
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, "staged-bytes");
+      return { status: 0, stdout: JSON.stringify({ files: [{ path: "src-tauri/binaries/eng-x86_64-unknown-linux-gnu" }], receiptPath: null }), stderr: "" };
+    };
+    const inherit = (c, a, opts) => { order.push("right-release"); seenBefore = fs.existsSync(path.join(opts.cwd, "src-tauri", "binaries", "eng-x86_64-unknown-linux-gnu")); return { status: 0 }; };
+    const r = await fx.door(["--to", to, "--commit", fx.sha, "--", "--platform", "mac"], { runCheck: async () => 0, spawnCapture: capture, spawnInherit: inherit });
+    assert.equal(r.code, 0, `${to}: ${r.all}`);
+    assert.deepEqual(order, ["stage-sidecar", "right-release"], `${to}: staged once, before the build`);
+    assert.equal(seenBefore, true, `${to}: the staged file is in the snapshot when right-release starts`);
+    assert.match(r.all, /right-release stage-sidecar --config .*right-release\.config\.json/);
+    assert.doesNotMatch(r.all, /RK_CHECK_ERROR/, `${to}: the staged file was attributed to the staging step, so the snapshot verified`);
+  }
+  // A failing staging step: nothing is built.
+  let launched = 0;
+  const failed = await fx.door(["--to", "dev", "--commit", fx.sha, "--", "--platform", "mac"], { runCheck: async () => 0, spawnCapture: () => ({ status: 1, stdout: "", stderr: "boom" }), spawnInherit: () => { launched += 1; return { status: 0 }; } });
+  assert.equal(failed.code, 1, failed.all);
+  assert.equal(launched, 0, "right-release never started");
+  assert.match(failed.err, /sidecar staging failed; nothing compiled/);
+  // A commit with no declared sidecars launches no staging at all.
+  const plain = fixture(t, { "right-release.config.json": "{}\n" }, "rk-ds-m25b-");
+  let staging = 0;
+  const none = await plain.door(["--to", "dev", "--commit", plain.sha, "--", "--platform", "mac"], { runCheck: async () => 0, spawnCapture: () => { staging += 1; return { status: 0, stdout: "{}", stderr: "" }; }, spawnInherit: () => ({ status: 0 }) });
+  assert.equal(none.code, 0, none.all);
+  assert.equal(staging, 0);
+});
+
+test("[N21] the route decision and the `--route` answer carry the stage table's wired flag and blocker text, per stage; an unwired stage is announced, never presented as a normal route", async (t) => {
+  const { routePlan, ROUTE_PROBE_STAGES } = await import("./bin/rightkit-gate.mjs");
+  const o = { env: {}, platform: "linux", spawn: () => ({ status: 1, stdout: "", stderr: "" }), snapshotRoot: "/x" };
+  const executor = { kind: "direct", cargo: ["cargo"] };
+  for (const to of ROUTE_PROBE_STAGES) {
+    const plan = routePlan(o, { to, stages: [], devTest: to === "dev" || to === "test", executor });
+    const row = STAGE_SOURCES[to];
+    assert.equal(plan.wired, row.wired !== false, `${to}: wired matches the stage table`);
+    if (row.wired === false) { assert.equal(plan.blocker, row.blocker, `${to}: the blocker text is the table's`); assert.ok(plan.blocker.length > 20); }
+    else assert.equal(plan.blocker, null, `${to}: a wired stage has no blocker`);
+  }
+  assert.equal(routePlan(o, { to: "package", stages: [], devTest: false, executor }).wired, false, "package is still unwired in the table and says so");
+  const fx = fixture(t, { "right-release.config.json": "{}\n" }, "rk-ds-n21-");
+  const probe = await fx.door(["--to", "package", "--route", "--commit", fx.sha]);
+  assert.equal(probe.code, 0, probe.all);
+  const answer = JSON.parse(probe.out.split("\n").filter(Boolean).at(-1));
+  assert.equal(answer.wired, false); assert.equal(answer.blocker, STAGE_SOURCES.package.blocker);
+  const wired = JSON.parse((await fx.door(["--to", "compile", "--route", "--commit", fx.sha])).out.split("\n").filter(Boolean).at(-1));
+  assert.equal(wired.wired, true); assert.equal(wired.blocker, null);
 });
 
 test("[7.05] stage-sidecar source split: caches and cmake trees go to the checkout's app directory, the staged file to the snapshot; cargo output is pinned to the checkout's target; catalog kinds are refused", async (t) => {

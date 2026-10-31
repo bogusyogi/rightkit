@@ -3,7 +3,7 @@ import { spawnSync } from "./background-process.mjs";
 import { createHash } from "node:crypto";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, lstatSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
 import { buildLaunch } from "./build-launch.mjs";
-import { carriedOutputDir } from "./carried-cargo.mjs";
+import { carriedCargoMapOf, carriedOutputDir } from "./carried-cargo.mjs";
 import { lockedTauriArgs } from "./tauri-locked.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -110,6 +110,19 @@ export function validateDevelopmentConfig(config, platform, { root = process.cwd
   return target;
 }
 
+/**
+ * M29: on a snapshot stage the broker's Cargo output is under its own managed directory, never the snapshot's `target/`. A `stage[].source` that
+ * names a path under `target/` would be read from the snapshot and find nothing (or a stale file), so it is refused before the build, naming the
+ * form that resolves through the signed receipt (`manifestPath` + `bin`). Off a carrier nothing changes.
+ */
+export function assertCarriedStageSources(entries, env = process.env) {
+  if (!Array.isArray(entries) || !carriedCargoMapOf(env)?.map) return;
+  for (const [index, entry] of entries.entries()) {
+    if (!entry?.source) continue;
+    if (String(entry.source).replaceAll("\\", "/").split("/").includes("target")) throw new Error(`development stage[${index}].source ${JSON.stringify(entry.source)} is under target/, but a snapshot stage's Cargo output is the broker's, not the snapshot's: declare manifestPath and bin (and targetTriple) so the binary is found from the build's signed receipt`);
+  }
+}
+
 export function runDevelopment({ root, platform, config, buildOnly = false, dryRun = false, env = process.env, run = spawnSync, door = buildLaunch,
   codesignEnvironment = macosCodesignEnvironment, serial, uiTests = false, hostPlatform = process.platform }) {
   // UI test journeys (`right-release test --platform ios`): the declared XCUITest journeys on the dev device, under the same guards.
@@ -118,6 +131,7 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
   // iOS: --dry-run validates the config and prints the plan on any host; everything else needs macOS with Xcode.
   if (!(platform === "ios" && dryRun)) assertNativeDevelopmentHost(platform);
   const target = validateDevelopmentConfig(config, platform, { root });
+  assertCarriedStageSources(target.stage, env);
   // One signing policy, enforced here whatever the config's format (the route probe reads JSON configs only; a legacy .mjs config is judged now): a dev
   // target that would build ad hoc, unsigned or under another identifier is refused before it builds (rightkit#1303). Mac and Dell only.
   if (!dryRun && !uiTests) assertSuiteSigningPolicy({ config, platform: hostPlatform, env, to: "dev", devPlatform: platform, buildOnly, listFiles: fsListRustFiles(root), readFile: (rel) => { try { return readFileSync(path.resolve(root, rel), "utf8"); } catch { return null; } } });
@@ -341,10 +355,15 @@ export function resolveTauriArtifact(descriptor, { root, platform, env = process
 }
 
 export function resolveTauriBundleDirectory(descriptor, { root, platform, env = process.env, runCargo = runCargoSync, sinceMs = null }) {
-  const bundleRoot = descriptor.bundleDirectory
+  // Under a snapshot stage's carrier the broker's compile wrote the bundle under the signed receipt's output directory, never inside the snapshot (M29):
+  // a declared bundleDirectory (an app-relative path in the snapshot) would find nothing, so the receipt's directory decides and the declaration is
+  // ignored; with no manifestPath to find that receipt the declaration is refused, naming the fix.
+  const carried = Boolean(carriedCargoMapOf(env)?.map);
+  if (carried && descriptor.bundleDirectory && !descriptor.manifestPath) throw new Error("Tauri bundleDirectory cannot be read on a snapshot stage: the broker's build wrote the bundle under its own output directory, not the snapshot. Declare install.manifestPath (and targetTriple) so the bundle is found from the build's signed receipt");
+  const bundleRoot = descriptor.bundleDirectory && !carried
     ? path.resolve(root, descriptor.bundleDirectory)
     : resolveBundleRoot(descriptor, { root, env, runCargo });
-  if (descriptor.bundleDirectory && !inside(root, bundleRoot)) throw new Error("Tauri bundleDirectory must stay inside app root");
+  if (descriptor.bundleDirectory && !carried && !inside(root, bundleRoot)) throw new Error("Tauri bundleDirectory must stay inside app root");
   const entries = readdirSync(bundleRoot, { withFileTypes: true });
   const candidates = platform === "mac"
     ? entries.filter((entry) => entry.isDirectory() && entry.name === `${descriptor.productName}.app`).map((entry) => path.join(bundleRoot, entry.name))

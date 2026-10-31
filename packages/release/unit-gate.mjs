@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { locateBrokerClient, spawnBrokerClient } from "./broker-client.mjs";
+import { BROKER_CLIENT_QUERY_TIMEOUT_MS, locateBrokerClient, spawnBrokerClient } from "./broker-client.mjs";
 import { localBuildGranted } from "./execution-policy.mjs";
 import { readCargoPackage } from "./crate-graph.mjs";
 import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
@@ -46,7 +46,7 @@ export function defaultStageCommands({ unit, root, platform, readJson = defaultR
 export function readBrokerReceipt(id, { run = defaultRun, platform = process.platform, readFile } = {}) {
   // The client starts the one way every gate child starts it (broker-client.mjs): on Windows `rustright` is rustright.cmd, which node cannot
   // spawn, so its target .exe is read from the shim and started directly.
-  const r = spawnBrokerClient(run, locateBrokerClient({ platform, probe: run }), ["status", id], { encoding: "utf8", timeout: 60_000 }, { platform, readFile });
+  const r = spawnBrokerClient(run, locateBrokerClient({ platform, probe: run }), ["status", id], { encoding: "utf8", timeout: BROKER_CLIENT_QUERY_TIMEOUT_MS }, { platform, readFile });
   if (r.error || r.status !== 0) throw new Error(`the broker cannot report job ${id} (rustright status failed)`);
   let doc;
   try { doc = JSON.parse(r.stdout); } catch { throw new Error(`the broker's status of job ${id} is not JSON`); }

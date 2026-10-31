@@ -7,10 +7,12 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
-  StageSidecarError, builtBinaryCandidates, defaultExtractMember, defaultExtractNsisMember, sevenZipCandidates, defaultRun, isNestedBrokerContext, normalizeArchiveMember, parseTargetTriple, planSidecarStaging, resolveBuildMode, stageSidecars, validateSidecarManifest, validateStageSidecarReceipt,
+  StageSidecarError, assertCommandsAdmissible, builtBinaryCandidates, defaultExtractMember, defaultExtractNsisMember, sevenZipCandidates, defaultRun, isNestedBrokerContext, normalizeArchiveMember, parseTargetTriple, planSidecarStaging, resolveBuildMode, stageSidecars, validateSidecarManifest, validateStageSidecarReceipt,
 } from "./stage-sidecar.mjs";
 import { formatSidecarPlan, nodeHostTriple, parseStageSidecarArgs } from "./stage-sidecar-command.mjs";
 import { contentIdentity } from "./content-digest.mjs";
+import { SHIM_MAP_SCHEMA } from "./cargo-target-shim.mjs";
+import { CARRIED_CARGO_MAP_ENV } from "./carried-cargo.mjs";
 import { uncoveredBinaries } from "./binary-license-notices.mjs";
 
 const sha = (value) => createHash("sha256").update(value).digest("hex");
@@ -730,6 +732,39 @@ test("nested broker context fails fast with the prepare-step fix; the escape hat
   assert.equal(calls.length, 0, "no broker call was attempted");
   await stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "resource", from: "a.bin", to: "out/a.bin" }], deps: deps({ fs, env: nested }) });
   assert.ok(files.has(at("out", "a.bin")));
+});
+
+test("M33: with a snapshot stage's carrier map present the nested-broker heuristic never refuses (the nested route under a carried adapter job is supported); off a carrier, or with an unreadable map, it still does", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "rk-nested-carrier-"));
+  try {
+    const mapFile = path.join(dir, "map.json");
+    writeFileSync(mapFile, JSON.stringify({ schema: SHIM_MAP_SCHEMA, mode: "broker", broker: { checkout: dir }, ledgerDir: dir, workspaces: {} }));
+    const nested = { TAURI_ENV_PLATFORM: "darwin", TAURI_ENV_TARGET_TRIPLE: MAC, RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/broker.sock" };
+    const manifest = [{ kind: "cargo-bin", package: "eng" }];
+    assert.equal(isNestedBrokerContext(nested, "darwin"), true, "off a carrier the heuristic holds");
+    assert.equal(isNestedBrokerContext({ ...nested, [CARRIED_CARGO_MAP_ENV]: mapFile }, "darwin"), false, "a readable carrier map: nested under a carried adapter job is supported");
+    assert.equal(isNestedBrokerContext({ ...nested, [CARRIED_CARGO_MAP_ENV]: path.join(dir, "missing.json") }, "darwin"), true, "an unreadable map is not a carrier: the heuristic stays");
+    assert.equal(planSidecarStaging({ manifest, target: MAC, env: nested }).nestedBrokerRisk, process.platform === "linux" ? false : true);
+    assert.equal(planSidecarStaging({ manifest, target: MAC, env: { ...nested, [CARRIED_CARGO_MAP_ENV]: mapFile } }).nestedBrokerRisk, false, "the plan reports no nested risk under a carrier");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("M28: on a snapshot stage a command sidecar the door cannot carry fails the whole staging up front, naming the admissible programs; carried programs, own right-release and an off-carrier run pass", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "rk-cmd-carrier-"));
+  try {
+    const mapFile = path.join(dir, "map.json");
+    writeFileSync(mapFile, JSON.stringify({ schema: SHIM_MAP_SCHEMA, mode: "broker", broker: { checkout: dir }, ledgerDir: dir, workspaces: {} }));
+    const CLIENT = "/managed/agent-bin/rustright";
+    const host = { platform: "darwin", exists: (p) => p === CLIENT, which: (c) => (c === "rustright" ? [CLIENT] : []) };
+    const env = { PATH: "/managed/agent-bin", [CARRIED_CARGO_MAP_ENV]: mapFile };
+    const plan = (cmd, args = []) => validateSidecarManifest([{ kind: "command", name: "eng", cmd, args, output: "out/eng", externalBin: true }], { target: MAC });
+    const check = (cmd, args, e = env) => assertCommandsAdmissible(plan(cmd, args), e, { appRoot: APP, host });
+    assert.throws(() => check("python3", ["build.py"]), (e) => e.code === "STAGE_SIDECAR_STEP_REFUSED" && /command sidecar eng/.test(e.message) && /must be one of cargo, pnpm, node, swift, rustright, rightkit-qa, cmake, right-release, xcodegen, xcodebuild, gradlew/.test(e.message));
+    assert.throws(() => check("make", ["all"]), { code: "STAGE_SIDECAR_STEP_REFUSED" });
+    assert.throws(() => check("pnpm", ["run", "build", "--mode", "x"]), { code: "STAGE_SIDECAR_STEP_REFUSED" }, "an argv the pnpm adapter refuses is refused before anything is staged");
+    for (const [cmd, args] of [["pnpm", ["run", "build"]], ["cmake", ["--build", "b", "--target", "t"]], ["right-release", ["web-build"]], ["rustright", ["cargo", "build"]], ["pnpm", ["exec", "right-release", "web-build"]]]) check(cmd, args);
+    assert.doesNotThrow(() => check("python3", ["build.py"], { PATH: "/managed/agent-bin" }), "no carrier map: the step runs as before");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("managed target roots: CARGO_TARGET_DIR and the metadata target_directory are both searched, triple layout then plain", async () => {

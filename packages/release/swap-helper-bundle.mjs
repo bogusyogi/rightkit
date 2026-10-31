@@ -71,8 +71,9 @@ export function prepareSwapHelper({
   const built = run("cargo", SWAP_HELPER_CARGO_ARGS, { cwd: workspaceRoot, env });
   if (built.error || built.status !== 0) fail("SWAP_HELPER_BUILD_FAILED", `rustright cargo ${SWAP_HELPER_CARGO_ARGS.join(" ")} failed (${built.error?.message ?? `exit ${built.status}`})\n${tail(`${built.stdout ?? ""}\n${built.stderr ?? ""}`)}`);
   const meta = run("cargo", SWAP_HELPER_METADATA_ARGS, { cwd: workspaceRoot, env });
-  let targetDir;
-  try { targetDir = JSON.parse(meta.stdout).target_directory; } catch { /* refused below */ }
+  // The signed receipt's output directory first on a carried call (as cargo-target.mjs and development.mjs read it), what metadata prints only without one (N22).
+  let targetDir = typeof meta.outputDir === "string" && meta.outputDir ? meta.outputDir : undefined;
+  if (targetDir === undefined) try { targetDir = JSON.parse(meta.stdout).target_directory; } catch { /* refused below */ }
   if (meta.status !== 0 || typeof targetDir !== "string" || !path.isAbsolute(targetDir)) fail("SWAP_HELPER_BUILD_FAILED", "cannot read the Cargo target directory to find rightkit-swap");
   // The RustRight broker builds with an explicit --target triple (target/<triple>/release); plain cargo uses target/release.
   const triple = `${process.arch === "arm64" ? "aarch64" : "x86_64"}-apple-darwin`;

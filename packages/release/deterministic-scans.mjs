@@ -1916,6 +1916,22 @@ export function swiftScratchPath({ tmpRoot, roots, id }) {
 }
 
 /**
+ * `args` without a caller's SwiftPM build directory (the scan refuses when any was passed on the broker route, see SWIFT_SCRATCH_PINNED_CODE) (`--scratch-path <dir>`, `--scratch-path=<dir>`, `--build-path <dir>`, `--build-path=<dir>`), and the words removed.
+ */
+export const SWIFT_SCRATCH_PINNED_CODE = "RK_SWIFT_SCRATCH_BROKER_PINNED";
+export function stripSwiftScratchFlags(args) {
+  const kept = []; const removed = [];
+  for (let i = 0; i < args.length; i += 1) {
+    const a = args[i];
+    if (a === "--") { kept.push(...args.slice(i)); break; }
+    if (a === "--scratch-path" || a === "--build-path") { removed.push(a); if (i + 1 < args.length && !args[i + 1].startsWith("-")) { removed.push(args[i + 1]); i += 1; } continue; }
+    if (a.startsWith("--scratch-path=") || a.startsWith("--build-path=")) { removed.push(a); continue; }
+    kept.push(a);
+  }
+  return { args: kept, removed };
+}
+
+/**
  * Run a plan. Options: classes (default ["A","B"]), exclude(scan) => boolean (an explicit, recorded
  * omission such as a caller that runs its own tests), plus the injectable spawn/exists/readFile/readdir/env.
  * Class B runs only when every selected class A scan passed; otherwise each B scan is "not-run".
@@ -2274,6 +2290,12 @@ export async function runScans(plan, options = {}) {
           const finalArgs = args.map((a) => (a === "{contentRoot}" ? contentRoot : a));
           // SwiftPM writes its `.build/` inside the package by default: that must never land in the commit snapshot or the checkout, so the
           // build directory is the gate's own, keyed by the repository and the scan so it stays warm.
+          // On the broker route the broker places SwiftPM's scratch in its own canonical managed directory (`<outputDir>/swiftpm/<sha256(snapshot-relative package path)>`) and
+          // refuses a caller's `--scratch-path`/`--build-path` (RK_ADAPTER_ARGV_DENIED). One passed here is never dropped silently: the scan is refused, naming that directory.
+          if (s.tool === "swift" && finalArgs[0] === "build" && deps.snapshotBroker) {
+            const passed = stripSwiftScratchFlags(finalArgs).removed;
+            if (passed.length) { advisory?.cleanup?.(); clearTimeout(clock); return { ...row, status: "fail", code: SWIFT_SCRATCH_PINNED_CODE, detail: `${SWIFT_SCRATCH_PINNED_CODE}: ${s.id} passes ${passed.join(" ")}; on the broker route SwiftPM's scratch is the broker's canonical managed directory <outputDir>/swiftpm/<sha256 of the package path relative to the snapshot>, so a caller-passed build directory is refused, not dropped` }; }
+          }
           if (s.tool === "swift" && finalArgs[0] === "build" && !finalArgs.some((a) => a === "--scratch-path" || a === "--build-path" || a.startsWith("--scratch-path=") || a.startsWith("--build-path="))) {
             try { finalArgs.push("--scratch-path", swiftScratchPath({ tmpRoot, roots: [contentRoot, liveRoot, cargoLiveRoot], id: s.id })); }
             catch (e) { advisory?.cleanup?.(); return { ...row, status: "fail", code: "SWIFT_SCRATCH", detail: `${s.id}: ${e.message}` }; }

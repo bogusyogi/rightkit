@@ -17,7 +17,8 @@ export const SNAPSHOT_MUST_COMPILE = "RK_CHECK_ERROR: a snapshot request must co
 
 const CONTROL = ["--version", "-V", "-vV", "version", "help", "locate-project", "read-manifest", "logout", "owner", "yank"];
 const ANALYSIS = ["search", "info", "pkgid", "verify-project", "report", "config"];
-const COMPILE = ["build", "check", "test", "bench", "clippy", "doc", "rustc", "rustdoc", "fix", "publish", "run"];
+// :619 the BUILD list, :581 fix, :597 run, :615 publish, and the registered external BUILD commands (external_policy :67-70: nextest, ndk).
+const COMPILE = ["build", "check", "test", "bench", "clippy", "doc", "rustc", "rustdoc", "fix", "publish", "run", "nextest", "ndk"];
 const hasFlag = (argv, flag) => argv.includes(flag);
 const observationOnly = (argv) => {
   // build_rules.rs observation_only_cargo, reduced to what the carried calls pass: `package` with --list and one -p, `metadata` and `tree` without `--` or +toolchain.
@@ -85,6 +86,8 @@ export function acceptedAfterFix(argv, { checkout = null } = {}) {
     return f !== null && (!f.has("--format-version") || f.get("--format-version") === "1") && (f.has("--no-deps") || f.has("--locked") || f.has("--frozen"));
   }
   if (sub === "fetch") return rest.length === 1 && rest[0] === "--locked";
+  // command_policy.rs fmt_check_shape: exactly `-p <unit> --check` or `--all --check` (no `--`, so no rustfmt argument reaches it).
+  if (sub === "fmt") return (rest.length === 3 && rest[0] === "-p" && rest[1] !== "" && !rest[1].startsWith("-") && rest[2] === "--check") || (rest.length === 2 && rest[0] === "--all" && rest[1] === "--check");
   if (sub === "deny") {
     if (rest.at(-1) !== "check") return false;
     const f = parse(rest.slice(0, -1), { "--frozen": false, "--metadata-path": true, "--config": true });
@@ -128,7 +131,7 @@ export const CARGO_CLASSIFICATION = Object.freeze([
   { argv: ["pkgid", "--locked"], class: "read-only", callers: ["wrapper"], needs: READ_ONLY_NEEDS },
   { argv: ["verify-project", "--locked"], class: "read-only", callers: ["wrapper"], needs: READ_ONLY_NEEDS },
   { argv: ["fetch", "--locked"], class: "read-only", callers: ["wrapper"], needs: READ_ONLY_NEEDS },
-  { argv: ["fmt", "--check"], class: "read-only", callers: ["wrapper"], needs: READ_ONLY_NEEDS },
+  { argv: ["fmt", "--all", "--check"], class: "read-only", callers: ["wrapper"], needs: READ_ONLY_NEEDS },
   { argv: ["audit"], class: "read-only", callers: ["seam"], needs: READ_ONLY_NEEDS },
   { argv: ["deny", "check"], class: "read-only", callers: ["wrapper"], needs: READ_ONLY_NEEDS },
   { argv: ["about", "generate", "--frozen", "--fail"], class: "read-only", callers: ["seam"], needs: READ_ONLY_NEEDS },

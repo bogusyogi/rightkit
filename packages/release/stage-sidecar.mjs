@@ -39,7 +39,7 @@ import path from "node:path";
 import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
 import { resolveCommand } from "./development.mjs";
 import { carriedCargoMapOf } from "./carried-cargo.mjs";
-import { BUILD_LAUNCH_REFUSED, buildLaunch } from "./build-launch.mjs";
+import { BUILD_LAUNCH_REFUSED, DOOR_PROGRAMS, buildLaunch } from "./build-launch.mjs";
 import { directPlatform, managedHost, runCargoSync } from "./managed-cargo.mjs";
 import { APPROVAL_MACHO_STRIP_LINKEDIT_V1, APPROVAL_RAW_SHA256, approvalDigest } from "./macho-approval-hash.mjs";
 import {
@@ -1852,8 +1852,31 @@ export function isNestedBrokerContext(env = process.env, platform = process.plat
   // RIGHTSUITE_HEAVY_WORK_OWNER on every platform).
   if (directPlatform(platform)) return false;
   if (env?.RIGHTKIT_STAGE_SIDECAR_ALLOW_NESTED === "1") return false;
+  // A snapshot stage's carrier map decides this, not a guess from TAURI_ENV_* and the environment (M33): the broker attributes a nested child to its
+  // parent job by the parent's own capability token and supports nested children under a carried adapter job, so a Tauri hook that runs stage-sidecar
+  // inside one (the pnpm adapter job of a carried build) is the supported route and is never refused here. An unreadable map keeps the heuristic.
+  if (carriedCargoMapOf(env ?? {})?.map) return false;
   const insideTauri = Boolean(env?.TAURI_ENV_PLATFORM || env?.TAURI_ENV_TARGET_TRIPLE);
   return insideTauri && (managedHost(env ?? {}, platform) || env?.RIGHTSUITE_HEAVY_WORK_OWNER === "1");
+}
+
+/**
+ * On a snapshot stage with a carrier, every `command` sidecar is judged by the door BEFORE anything is staged (M28): a command the door cannot carry
+ * (a bare tool, `python`, `make`, an argv the pnpm adapter refuses) fails the whole staging up front, naming the admissible programs, instead of
+ * after earlier entries were already staged. Off a carrier nothing changes: the step runs as before.
+ */
+export function assertCommandsAdmissible(plan, env, { appRoot, fs = nodeFs, host = {} } = {}) {
+  if (!carriedCargoMapOf(env)?.map) return;
+  for (const entry of plan.entries) {
+    if (entry.skipped || entry.kind !== "command") continue;
+    const args = (entry.args ?? []).map(String);
+    if (entry.cmd === "right-release" || (entry.cmd === "rustright" && args[0] === "cargo")) continue;
+    if (entry.cmd === "pnpm" && ((args[0] === "exec" && args[1] === "right-release") || args[0] === "right-release")) continue;
+    try { buildLaunch(entry.cmd, args, { exists: fs?.existsSync, ...host, env, cwd: entry.cwd ? path.resolve(appRoot, entry.cwd) : appRoot }); } catch (error) {
+      if (error?.code === BUILD_LAUNCH_REFUSED) fail("STAGE_SIDECAR_STEP_REFUSED", `command sidecar ${entry.name} (\`${entry.cmd} ${args.join(" ")}\`) is refused on a snapshot stage: ${error.message}; a command sidecar there must be one of ${DOOR_PROGRAMS.join(", ")}`, { name: entry.name, command: entry.cmd });
+      throw error;
+    }
+  }
 }
 
 /** True when staging would call `rustright cargo` for a non-skipped entry. */
@@ -1903,6 +1926,7 @@ export async function stageSidecars({ appRoot, manifest, target, cacheRoot, deps
   const env = deps.env ?? process.env;
   const plan = validateSidecarManifest(manifest, { target, mode: resolveBuildMode(env) });
   assertNotNested(plan, env);
+  assertCommandsAdmissible(plan, env, { appRoot, fs: deps.fs ?? nodeFs });
   // A source split (source-split.mjs; rightkit-gate's snapshot route): `appRoot` is the snapshot of the commit, where the declared
   // sources are read and where the staged files and the receipt go (the Tauri build script reads them there). `cacheRoot` is the
   // checkout's app directory, which keeps every cache, archive, slice and build tree right-release owns (`.right-release/...`) and

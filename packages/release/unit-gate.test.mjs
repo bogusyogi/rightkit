@@ -470,3 +470,9 @@ test("a qualification the hosted admission would refuse stops the run before the
     stageCommands: () => ({ compile: [{ kind: "cargo", argvs: [["fmt"]] }], package: [{ kind: "adapter", adapter: "rightkit-pnpm", argvs: [["pack"]] }] }), selfGit: gitAt, releaser: async () => assert.fail("not released"), err: (l) => errs.push(l) }), 1);
   assert.match(errs.join("\n"), /local check of the qualification's signed broker receipts failed.*which ci\/rk-pipeline\.json does not enroll/);
 });
+
+test("[M46] readBrokerReceipt waits for the client at least as long as a Windows client retries a busy pipe (>= 130 s)", () => {
+  const seen = [];
+  assert.throws(() => readBrokerReceipt("j", { run: (f, a, o) => { seen.push(o); return { status: 1, stdout: "" }; } }), /cannot report job j/);
+  assert.ok(seen.at(-1).timeout >= 130_000, `timeout ${seen.at(-1).timeout}`);
+});

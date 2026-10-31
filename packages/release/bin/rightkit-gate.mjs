@@ -79,7 +79,8 @@ import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
 import { SIGNING_REFUSAL_CODES, suiteSigningRefusals } from "../suite-signing-policy.mjs";
 import { gitListRustFiles } from "../signing-files.mjs";
-import { directPlatform } from "../managed-cargo.mjs";
+import { directPlatform, managedRuntimeClient } from "../managed-cargo.mjs";
+import { declaresNdk, externalCommandRegistered, liveBrokerConfig } from "../broker-registrations.mjs";
 import { bindingOf, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, STAGE_SOURCES, writeReceipt } from "../gate-stages.mjs";
 import { spawnSync as spawnInherit } from "../background-process.mjs";
 import { readDiskPolicy, scratchRoots } from "../disk-policy.mjs";
@@ -1274,9 +1275,11 @@ async function runStages(o, args, root, git, io) {
     const whichRoute = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
     const routeExecutor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which: whichRoute, readFile: o.readFile });
     let decided;
-    try { decided = routePlan(o, { to, stages: devTest ? [] : stages, devTest, executor: routeExecutor, capabilities: brokerCapabilityState(o, { to, executor: routeExecutor }), appConfig: devTest && selected ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
+    try { decided = routePlan(o, { to, stages: devTest ? [] : stages, devTest, executor: routeExecutor, capabilities: brokerCapabilityState(o, { to, executor: routeExecutor }), appConfig: (devTest || to === "package") && selected ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
     catch (e) { o.err(`${tag} ${e.message}`); return 2; }
     if (decided.refusal) { o.err(`${tag} BLOCKED: ${decided.refusal.code}: ${decided.refusal.message}; nothing ran${decided.route === "snapshot" ? " and the checkout is never built" : ""}`); return 1; }
+    // N21: a stage the table calls unwired runs, and says so up front rather than surfacing the gap mid-run.
+    if (decided.wired === false) o.out(`${tag} note: stage ${to} is not yet wired on every host (docs table STAGE_SOURCES): ${decided.blocker}`);
   }
   if (!o.doorSnapshot && !hosted) {
     const snap = await import("../snapshot.mjs");
@@ -1380,11 +1383,7 @@ async function runStages(o, args, root, git, io) {
   // A later stage on the sealed bytes: check, compile and package already passed for them (in this receipt) and the bytes on disk are
   // the ones they sealed, so they are not run again.
   // The release configs of the commit (under this app) that declare `sidecars`: the commit's config decides on the snapshot route, never the checkout's.
-  const sidecarConfigsOf = () => {
-    const listedConfigs = git("ls-tree", "-r", "--name-only", "-z", commit);
-    return (failed(listedConfigs) ? [] : text(listedConfigs).split("\0").filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)).filter((f) => appDir === "." || f.startsWith(`${appDir}/`)))
-      .filter((f) => { try { return /\bsidecars\b/.test(o.readFile(path.join(ds ? ds.path : root, f))); } catch { return false; } });
-  };
+  const sidecarConfigsOf = () => sidecarConfigsOfCommit({ o, git, commit, appDir, root, ds });
   const sealedNow = receipt.stages.package?.ok ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;
   const sealedIntact = Boolean(sealedNow && sealedNow.id === receipt.stages.package.sealed && sealedNow.digest === receipt.stages.package.manifestSha256);
   // Every deterministic scan (full class A) runs before any compile, for every door stage. The app rules run at the tier the stage
@@ -1724,6 +1723,16 @@ export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appD
 }
 
 /**
+ * The release configs of the commit (under this app) that declare `sidecars`: the commit's config decides on the snapshot route, never the checkout's.
+ * One reader for compile, package and `--to dev|test` (M25), so no stage reads a different list.
+ */
+export function sidecarConfigsOfCommit({ o, git, commit, appDir, root, ds }) {
+  const listedConfigs = git("ls-tree", "-r", "--name-only", "-z", commit);
+  return (failed(listedConfigs) ? [] : text(listedConfigs).split("\0").filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)).filter((f) => appDir === "." || f.startsWith(`${appDir}/`)))
+    .filter((f) => { try { return /\bsidecars\b/.test(o.readFile(path.join(ds ? ds.path : root, f))); } catch { return false; } });
+}
+
+/**
  * The Cargo binding of a unit stage built from a snapshot (row 7.06a; decision 2 Q3, as for any npm unit): a unit's test or pack that
  * reaches Cargo must never write `target/` into the snapshot. On a broker host the workspaces are read from the commit's own manifests
  * (git objects, never the checkout: the broker pins every output). On a direct host every tracked Cargo.toml of the commit is asked, in the
@@ -1945,8 +1954,8 @@ export const REQUIRED_BROKER_CAPABILITIES = Object.freeze(["snapshot-readonly-v1
  * closed). A doctor that reports an unhealthy host still prints its JSON: the field decides, not the exit status.
  */
 export function queryBrokerCapabilities(o) {
-  const client = whichIn(o)("rustright").find((c) => path.isAbsolute(c));
-  if (!client) return { ok: false, problem: "the RustRight client is not on PATH" };
+  const client = rustrightClientOf(o);
+  if (!client) return { ok: false, problem: "the RustRight client is neither the installed runtime's nor on PATH" };
   const r = spawnBrokerClient(o.spawn, client, ["doctor", "--json"], { env: o.env, encoding: "utf8", timeout: 20_000, windowsHide: true }, { platform: o.platform ?? process.platform, readFile: o.readFile });
   if (r?.error || r?.status === null || r?.status === undefined) return { ok: false, problem: `\`rustright doctor --json\` did not finish: ${why(r)}` };
   let doc;
@@ -1980,7 +1989,15 @@ export function brokerCapabilityState(o, { to, executor }) {
  * `executor` is a resolved executor. Returns { route, refusal } with
  * refusal null or { code, stage, message }. Reads no checkout, takes no ownership, syncs no snapshot and spawns nothing itself.
  */
-export function routePlan(o, { to, stages, devTest, executor, capabilities = null, appConfig = null }) {
+export function routePlan(o, args) {
+  // N21: the stage table's `wired` flag and blocker text ride on every decision, so `--route` and a real run report a stage the table calls unwired as
+  // unwired (it still runs: wiredness is a statement of what is proven, not a refusal), instead of presenting it as a normal route.
+  const row = STAGE_SOURCES[args.to];
+  const wired = row?.wired !== false;
+  return { ...routePlanCore(o, args), wired, blocker: wired ? null : (row.blocker ?? null) };
+}
+
+function routePlanCore(o, { to, stages, devTest, executor, capabilities = null, appConfig = null }) {
   const refuse = (code, stage, message) => ({ code, stage, message });
   const hosted = o.env.GITHUB_ACTIONS === "true";
   const snapshot = !hosted && snapshotRouteSelected(o);
@@ -1993,6 +2010,13 @@ export function routePlan(o, { to, stages, devTest, executor, capabilities = nul
     if (capabilities && executor?.kind === "broker" && to !== "check") {
       const missing = capabilities.ok ? REQUIRED_BROKER_CAPABILITIES.filter((c) => !capabilities.capabilities.includes(c)) : REQUIRED_BROKER_CAPABILITIES;
       if (!capabilities.ok || missing.length) return { route, refusal: refuse("RK_BROKER_CAPABILITY_MISSING", to, `the broker ${capabilities.ok ? `does not advertise ${missing.join(", ")}` : `cannot be asked for its capabilities (${capabilities.problem})`} (\`rustright doctor --json\` \`.broker.capabilities\`); this release builds only against a broker that accepts snapshot-bound read-only Cargo and snapshot-bound adapter jobs (rightkit#1301, rustright#188, rustright#190)`) };
+    }
+    // M31: an app that builds with cargo-ndk needs `cargo ndk` REGISTERED on this host's broker (an external command; an unregistered one is
+    // RK_UNKNOWN_COMMAND, found only after class A and the whole build set-up). The host's own config says, so the route refuses first. An unreadable
+    // config is unverified, not a refusal: the broker still refuses an unregistered command itself.
+    if (executor?.kind === "broker" && to !== "check" && appConfig?.config && declaresNdk(appConfig.config)) {
+      const live = liveBrokerConfig({ env: o.env, platform: o.platform, readFile: o.readFile });
+      if (live && !externalCommandRegistered(live, "cargo", "ndk")) return { route, refusal: refuse("RK_BROKER_CAPABILITY_MISSING", to, "this app builds with cargo-ndk, and the host's broker config registers no external command `cargo ndk` (config.json `externalCommands`: shim cargo, command ndk, a digest-pinned cargo-ndk tool); an Android build here would be refused RK_UNKNOWN_COMMAND late, so the route refuses now") };
     }
   }
   // One signing identity per product, every build (rightkit#1303): on the Mac and the Dell a test or dev build that would run unsigned, ad hoc or under
@@ -2046,7 +2070,7 @@ async function runRouteProbe(o, args, root, git, { to, platform, stages, devTest
   const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
   let plan;
   const capabilities = brokerCapabilityState(o, { to, executor });
-  try { plan = routePlan(o, { to, stages, devTest, executor, capabilities, appConfig: devTest ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
+  try { plan = routePlan(o, { to, stages, devTest, executor, capabilities, appConfig: devTest || to === "package" ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
   catch (e) { o.err(`${tag} ${e.message}`); return 2; }
   // Read-only: GIT_OPTIONAL_LOCKS=0, so the probe's `git status` never refreshes the index or contends with a writer (rightkit#1297 L4).
   const dirty = o.spawn("git", ["status", "--porcelain", "--untracked-files=no"], { cwd: root, env: { ...o.env, GIT_OPTIONAL_LOCKS: "0" } });
@@ -2054,7 +2078,7 @@ async function runRouteProbe(o, args, root, git, { to, platform, stages, devTest
   o.out(JSON.stringify({
     schema: ROUTE_SCHEMA, gate: version, to, platform: platform ?? null, host: o.platform, app: appDir, commit: selected.commit,
     executor: executor.kind, carrier: o.snapshotBroker ? (o.snapshotBroker.kind ?? "injected") : null, route: plan.route,
-    brokerCapabilities: capabilities?.ok ? capabilities.capabilities : null, stages: devTest ? ["check", to] : stages, refusal: plan.refusal, checkoutClean: failed(dirty) ? null : !text(dirty).trim(),
+    brokerCapabilities: capabilities?.ok ? capabilities.capabilities : null, stages: devTest ? ["check", to] : stages, refusal: plan.refusal, wired: plan.wired, blocker: plan.blocker, checkoutClean: failed(dirty) ? null : !text(dirty).trim(),
   }));
   return 0;
 }
@@ -2079,6 +2103,16 @@ export function carriedEnv(carrier, base, extra = {}) {
 }
 
 const whichIn = (o) => (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
+/**
+ * The RustRight client the gate talks to (M40): the installed runtime's own (`managedRuntimeClient`, the same discovery the door and the carrier use)
+ * first, and only then the first absolute `rustright` on PATH. PATH-first would pick a stale agent-bin shim or a dev build over the installed runtime
+ * the broker's pins enrolled. `which` is the PATH lookup (default: this gate's `which`/`where`); `exists` is the file probe of the host.
+ */
+export function rustrightClientOf(o, which = whichIn(o)) {
+  const installed = managedRuntimeClient(o.env ?? process.env, o.platform ?? process.platform, o.exists ?? fs.existsSync);
+  if (installed && path.isAbsolute(installed)) return installed;
+  return which("rustright").find((c) => path.isAbsolute(c));
+}
 
 /**
  * The gate's snapshot broker for this door run: `o.snapshotBroker` is the production carrier statement (`{ kind, create }`, which
@@ -2090,7 +2124,7 @@ async function carrierBroker({ o, root, ds, which = whichIn(o) }) {
   const carrier = o.snapshotBroker;
   let sb = carrier;
   if (typeof carrier?.create === "function") {
-    const client = which("rustright").find((c) => path.isAbsolute(c));
+    const client = rustrightClientOf(o, which);
     sb = carrier.create({ env: o.env, platform: o.platform, checkout: root, commit: { sha: ds.commit, tree: ds.tree }, snapshot: { path: ds.path, expectedTree: ds.tree }, ownership: ds.own, client, gateFile: callingGatePath(), spawn: o.spawn });
   }
   ds.carrierBroker = sb;
@@ -2247,12 +2281,20 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
   if (pin.dir) o.out(`${tag} output directory for the Cargo workspace: ${pin.dir} (the checkout's)`);
   const commonDir = path.resolve(root, common);
   const source = ds ? sourceSplitOf({ root, ds, appDir }) : null;
+  const cli = fileURLToPath(new URL("../cli/right-release.mjs", import.meta.url));
+  // M25: a Tauri crate with externalBin needs its sidecars in src-tauri/binaries before its build script runs, and `--to dev|test` reaches that build too:
+  // the commit's declared sidecars are staged ONCE from the snapshot (as compile and package do), so a dev or test build of a fresh snapshot does not
+  // depend on the app duplicating a stage-sidecar prepare step. Their writes become staged ledger entries before right-release starts. This runs before
+  // the stage's own carrier exists: staging makes its own carrier per config, as in the compile stage.
+  if (ds) {
+    const staged = await stageSidecarsOnce({ o, ds, root, git, configs: sidecarConfigsOfCommit({ o, git, commit, appDir, root, ds }), appDir, cli, commonDir, commit, tree, stage: to, executor, tag });
+    if (!staged) { o.err(`${tag} --to ${to} stopped: sidecar staging failed; nothing compiled`); return 1; }
+  }
   // right-release dev and test, and the Tauri CLI and every other child they start, reach Cargo only through the stage's carrier on a broker host.
   const carrier = await carrierForChildren({ o, ds, root, git, executor, stage: to, tag });
   if (carrier.refusal) { o.err(`${tag} BLOCKED: ${carrier.refusal}; nothing compiled`); return 1; }
   const run = startRun({ commonDir, commit, tree, stage: to, ...(source ? { source } : {}) });
   try {
-    const cli = fileURLToPath(new URL("../cli/right-release.mjs", import.meta.url));
     // right-release reads its config from its cwd: the app root (appRootOf), inside the snapshot on the snapshot route, not the
     // directory the command was typed in (apps/foo/src is apps/foo; Astra, third pass).
     // The door's own RightKit runs every sub-step: a dev target's `right-release web-build|stage-sidecar` steps resolve `right-release`
@@ -2734,7 +2776,7 @@ export async function main(argv, io = {}) {
           if (o.snapshotBroker && typeof o.snapshotBroker.create !== "function") discoveryBroker = o.snapshotBroker; // a fixture broker (tests)
           else {
             const sc = snapshotCommitOf();
-            discoveryBroker = createSnapshotBroker({ env: o.env, platform: o.platform, checkout: root, commit: { sha: sc.commit, tree: sc.tree }, snapshot: { path: repo, expectedTree: sc.tree }, ownership: o.buildOwnership, client: which("rustright").find((c) => path.isAbsolute(c)), gateFile: callingGatePath(), spawn: o.spawn });
+            discoveryBroker = createSnapshotBroker({ env: o.env, platform: o.platform, checkout: root, commit: { sha: sc.commit, tree: sc.tree }, snapshot: { path: repo, expectedTree: sc.tree }, ownership: o.buildOwnership, client: rustrightClientOf(o, which), gateFile: callingGatePath(), spawn: o.spawn });
           }
         } catch (error) { o.err(`${tag} BLOCKED: ${error.code ?? "RK_SNAPSHOT_BROKER"}: ${error.message}; nothing compiled`); return 1; }
         snapshotSpawn = snapshotCargoSpawn({ spawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, snapshotRoot: repo, env: o.env, err: o.err, broker: () => discoveryBroker });
@@ -2785,8 +2827,8 @@ export async function main(argv, io = {}) {
       if (executor.kind === "broker" && manifests.length) {
         try {
           const { createSnapshotBroker } = await import("../snapshot-broker.mjs");
-          const client = which("rustright").find((c) => path.isAbsolute(c));
-          snapshotBroker = discoveryBroker ?? createSnapshotBroker({ env: o.env, platform: o.platform, checkout: root, commit: { sha: snapshotBCommit.commit, tree: snapshotBCommit.tree }, snapshot: { path: snapshotB, expectedTree: snapshotBCommit.tree }, ownership: o.buildOwnership, client, gateFile: callingGatePath(), spawn: o.spawn });
+          const client = rustrightClientOf(o, which);
+          snapshotBroker =discoveryBroker ?? createSnapshotBroker({ env: o.env, platform: o.platform, checkout: root, commit: { sha: snapshotBCommit.commit, tree: snapshotBCommit.tree }, snapshot: { path: snapshotB, expectedTree: snapshotBCommit.tree }, ownership: o.buildOwnership, client, gateFile: callingGatePath(), spawn: o.spawn });
         } catch (error) { o.err(`${tag} BLOCKED: ${error.code ?? "RK_SNAPSHOT_BROKER"}: ${error.message}; nothing compiled`); return 1; }
         o.out(`${tag} broker snapshot compile: pins ${snapshotBroker.pins.keyId.slice(0, 12)} from ${snapshotBroker.pinsSource}, ${snapshotBroker.declaredInputs.length} declared input(s) read from the snapshot, ownership ${snapshotBroker.handle}`);
       }

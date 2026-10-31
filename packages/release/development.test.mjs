@@ -200,6 +200,50 @@ test("Windows installer selection keeps older installers and picks this run's pr
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("M29: under a snapshot stage's carrier a declared bundleDirectory is ignored and the bundle is read from the signed receipt's output directory; without a manifestPath the declaration is refused", async () => {
+  const { resolveTauriBundleDirectory } = await import("./development.mjs");
+  const { SHIM_MAP_SCHEMA } = await import("./cargo-target-shim.mjs");
+  const { CARRIED_CARGO_MAP_ENV } = await import("./carried-cargo.mjs");
+  const root = realpathSync(temp());
+  const out = realpathSync(temp());
+  try {
+    writeFileSync(path.join(root, "Cargo.toml"), "[workspace]\nmembers = []\n");
+    // The broker's compile wrote the .app under the receipt's directory; the snapshot's own declared bundle directory holds nothing.
+    const bundle = path.join(out, "aarch64-apple-darwin", "debug", "bundle", "macos");
+    mkdirSync(path.join(bundle, "Demo.app"), { recursive: true });
+    mkdirSync(path.join(root, "inside", "bundle"), { recursive: true });
+    const mapFile = path.join(root, "map.json");
+    writeFileSync(mapFile, JSON.stringify({ schema: SHIM_MAP_SCHEMA, mode: "broker", broker: { checkout: root }, ledgerDir: root, workspaces: { [root]: "ws" }, knownOutputDirs: { ws: out } }));
+    const env = { [CARRIED_CARGO_MAP_ENV]: mapFile };
+    const descriptor = { productName: "Demo", bundleDirectory: "inside/bundle", manifestPath: "Cargo.toml", targetTriple: "aarch64-apple-darwin" };
+    const resolved = resolveTauriBundleDirectory(descriptor, { root, platform: "mac", env, runCargo: () => assert.fail("the receipt decides: no metadata call") });
+    assert.equal(resolved.bundleRoot, bundle);
+    assert.equal(resolved.installer, path.join(bundle, "Demo.app"));
+    // Off a carrier the declaration still decides (nothing changes for a direct host).
+    mkdirSync(path.join(root, "inside", "bundle", "Demo.app"));
+    assert.equal(resolveTauriBundleDirectory(descriptor, { root, platform: "mac", env: {} }).installer, path.join(root, "inside", "bundle", "Demo.app"));
+    // No manifestPath: nothing to find the receipt by, so the declaration is refused with the fix.
+    assert.throws(() => resolveTauriBundleDirectory({ productName: "Demo", bundleDirectory: "inside/bundle", targetTriple: "aarch64-apple-darwin" }, { root, platform: "mac", env }), /declare install\.manifestPath/);
+  } finally { rmSync(root, { recursive: true, force: true }); rmSync(out, { recursive: true, force: true }); }
+});
+
+test("M29: under a carrier a stage source under target/ is refused naming manifestPath+bin; other sources and an off-carrier run pass", async () => {
+  const { assertCarriedStageSources } = await import("./development.mjs");
+  const { SHIM_MAP_SCHEMA } = await import("./cargo-target-shim.mjs");
+  const { CARRIED_CARGO_MAP_ENV } = await import("./carried-cargo.mjs");
+  const dir = temp();
+  try {
+    const mapFile = path.join(dir, "map.json");
+    writeFileSync(mapFile, JSON.stringify({ schema: SHIM_MAP_SCHEMA, mode: "broker", broker: { checkout: dir }, ledgerDir: dir, workspaces: {} }));
+    const env = { [CARRIED_CARGO_MAP_ENV]: mapFile };
+    assert.throws(() => assertCarriedStageSources([{ source: "src-tauri/target/debug/helper" }], env), /declare manifestPath and bin/);
+    assert.throws(() => assertCarriedStageSources([{ source: "target\\debug\\helper.exe" }], env), /under target\//);
+    assert.doesNotThrow(() => assertCarriedStageSources([{ source: "tools/helper" }, { manifestPath: "src-tauri/Cargo.toml", bin: "helper" }], env));
+    assert.doesNotThrow(() => assertCarriedStageSources([{ source: "src-tauri/target/debug/helper" }], {}), "no carrier: unchanged");
+    assert.doesNotThrow(() => assertCarriedStageSources(undefined, env));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("managed run lease is written under the managed root and removed on release", async () => {
   const { existsSync, readFileSync } = await import("node:fs");
   const { acquireManagedRunLease } = await import("./managed-cargo.mjs");

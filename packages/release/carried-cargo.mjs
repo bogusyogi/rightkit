@@ -22,7 +22,11 @@ import { spawnSync } from "./background-process.mjs";
 import { appendLedger, readLedger, SCAN_TOKEN_ENV, UNSCOPED } from "./cargo-ledger.mjs";
 import { SHIM_MAP_SCHEMA, locateWorkspaceByWalk } from "./cargo-target-shim.mjs";
 import { BROKER_REFUSAL_STATUS, carryBrokerAdapter, carryBrokerCargo, verifyBrokerLedger } from "./snapshot-broker.mjs";
-import { splitCarriedArgs } from "./snapshot-request.mjs";
+import { carriedScanRefusal } from "./snapshot-metadata.mjs";
+import { brokerCommandIndex, splitCarriedArgs } from "./snapshot-request.mjs";
+
+// The read-only commands the broker carries only in one exact shape (snapshot-metadata.mjs carriedScanRefusal); judged here, before anything is sent, so the refusal names the shape.
+const EXACT_SHAPE_COMMANDS = new Set(["deny", "audit", "fmt"]);
 
 /** The environment variable that names the gate-written map of a snapshot stage's carried Cargo calls. */
 export const CARRIED_CARGO_MAP_ENV = "RIGHTKIT_CARRIED_CARGO_MAP";
@@ -65,6 +69,10 @@ export function runCarriedCargo(args, options = {}, { map, spawn = spawnSync, er
   const split = splitCarriedArgs(original);
   if (split.refusal) return refuse(split.refusal.code, split.refusal.message);
   const { words } = split;
+  if (brokerCommandIndex(words) === 0 && EXACT_SHAPE_COMMANDS.has(words[0])) {
+    const shaped = carriedScanRefusal(words);
+    if (shaped !== null) return refuse("RK_CARGO_BROKER_READ_ONLY_SHAPE", `\`cargo ${words.join(" ")}\` is not a shape the broker carries (${shaped})`);
+  }
   if (split.manifestPath !== null) from = path.dirname(path.resolve(cwd, split.manifestPath));
   let workspace;
   try {

@@ -189,7 +189,7 @@ const WORKSPACES = {
  * data root with the managed `ws` generation target, keys and pins, a control root, and a fake `rustright` client script whose
  * behaviour a test sets with `setBehavior({ tamper, exit, refuse })` (see client below). `sb` is the `deps.snapshotBroker` the gate builds.
  */
-export function makeFakeBroker(t, { inputs = null, readOnlySnapshots = false } = {}) {
+export function makeFakeBroker(t, { inputs = null, readOnlySnapshots = false, inputsAt = ".rightkit/compile-inputs.json" } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-fake-broker-")));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const checkout = path.join(root, "checkout"); const dataRoot = path.join(root, "data"); const controlRoot = path.join(root, "control");
@@ -200,7 +200,7 @@ export function makeFakeBroker(t, { inputs = null, readOnlySnapshots = false } =
   const scratchRoot = path.join(root, "scratch"); fs.mkdirSync(scratchRoot, { recursive: true });
   const adapterBin = path.join(root, "adapter-bin"); fs.mkdirSync(adapterBin, { recursive: true });
   write(checkout, WORKSPACES); write(snapshot, WORKSPACES);
-  if (inputs) { write(snapshot, { ".rightkit/compile-inputs.json": JSON.stringify({ inputs }), "gen/in.txt": "declared input\n" }); }
+  if (inputs) { write(snapshot, { [inputsAt]: JSON.stringify({ inputs }), "gen/in.txt": "declared input\n" }); }
   const { privateKey, pins } = keyPair();
   const fx = { root, checkout, dataRoot, controlRoot, snapshot, wsRoot, outputDir, privateKey, pins, handle: HANDLE, scratchRoot, adapterBin };
   const state = path.join(root, "client-state"); fs.mkdirSync(path.join(state, "db"), { recursive: true });
@@ -314,7 +314,14 @@ async function client(stateDir, [command, ...args]) {
     if (envVar("PARENT_REQUEST_ID") !== undefined) bad("a parent request is set");
     if (String(envVar("CHECK_ADMISSION") ?? "").trim() === "1") bad("an admission check is not a snapshot compile");
     if (!String(envVar("CALLING_GATE") ?? "").trim()) bad("no calling gate");
-    if (args.some((a) => a === "--manifest-path" || a.startsWith("--manifest-path="))) bad("attestation: the client would rewrite this invocation (--manifest-path); run from the manifest's directory without it");
+    // rustright-cli shims.rs normalized_invocation: the client resolves the first `--manifest-path` before `--` against the cwd and runs from its directory; an attested call may not be rewritten,
+    // so it passes only when that path is absolute and its directory IS the cwd (a tool's own `--manifest-path`, `cargo about`, is no exception).
+    const separator = args.indexOf("--");
+    const manifestAt = args.findIndex((a, k) => (separator < 0 || k < separator) && (a === "--manifest-path" || a.startsWith("--manifest-path=")));
+    if (manifestAt >= 0) {
+      const given = args[manifestAt] === "--manifest-path" ? args[manifestAt + 1] : args[manifestAt].slice("--manifest-path=".length);
+      if (!given || !path.isAbsolute(given) || (() => { try { return fs.realpathSync(path.dirname(given)) !== fs.realpathSync(process.cwd()); } catch { return true; } })()) bad("attestation: the client would rewrite this invocation (--manifest-path); run from the manifest's directory without it");
+    }
     // The broker admits a snapshot request only when it compiles (job_service/service.rs: "a snapshot request must compile"); read-only
     // subcommands (metadata, locate-project, --version, ...) are refused today. `readOnlySnapshots` models the broker after RustRight's change (the lock-bound allowlist, acceptedAfterFix).
     if (!(fx.readOnlySnapshots ? acceptedAfterFix(args, { checkout: fx.checkout }) : classifyCargo(args) === "compile")) { process.stderr.write(`${SNAPSHOT_MUST_COMPILE}\n`); process.exit(2); }
