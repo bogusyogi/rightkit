@@ -139,6 +139,32 @@ test("[7.04 positive] --to package seals the SELECTED commit from the snapshot t
   assert.equal(ledgerEntry.sha256, sha256("engine-bytes"));
 });
 
+test("[rightkit#1309] --to package hands the compile's recorded output directories to source QA only, while the record still proves them intact; the build never gets them", { skip: POSIX_SIM }, async (t) => {
+  const fx = appFixture(t);
+  const compiled = tmp(t, "rk-qa-compiled-");
+  fs.mkdirSync(path.join(compiled, "debug"), { recursive: true });
+  fs.writeFileSync(path.join(compiled, "debug", "shell"), "qa-shell");
+  const runCompile = async ({ reportOutputs } = {}) => { reportOutputs?.([compiled]); return 0; };
+  const r = await fx.door(["--to", "package", "--platform", "mac", "--commit", fx.c1], { runCompile });
+  assert.equal(r.code, 0, r.all);
+  const recorded = fx.receipts.get(fx.c1).stages.compile.outputs.dirs;
+  assert.deepEqual(recorded, [fs.realpathSync(compiled)]);
+  const [qa, build] = fx.launches;
+  assert.deepEqual(JSON.parse(qa.env.RIGHT_RELEASE_QA_COMPILED_DIRS), recorded, "source QA is handed exactly the directories the compile recorded");
+  assert.equal(Object.hasOwn(build.env, "RIGHT_RELEASE_QA_COMPILED_DIRS"), false, "the build is not");
+});
+
+test("[rightkit#1309] a compile record that no longer proves its outputs is not handed to source QA, and the run says why", { skip: POSIX_SIM }, async (t) => {
+  const fx = appFixture(t);
+  const compiled = tmp(t, "rk-qa-compiled-");
+  fs.mkdirSync(path.join(compiled, "debug"), { recursive: true });
+  const runCompile = async ({ reportOutputs } = {}) => { reportOutputs?.([compiled]); return 0; };
+  const r = await fx.door(["--to", "package", "--platform", "mac", "--commit", fx.c1], { runCompile, compileReuseProblem: () => "output directory X is gone" });
+  assert.equal(r.code, 0, r.all);
+  assert.match(r.all, /the compile outputs are not handed to source QA: output directory X is gone/);
+  assert.equal(Object.hasOwn(fx.launches[0].env, "RIGHT_RELEASE_QA_COMPILED_DIRS"), false);
+});
+
 test("[Q1 positive 3] --to package ALONE after a compile-only run re-stages (the sync removed the ledger) and seals; the sealed sidecar sha256 equals the ledger's", { skip: POSIX_SIM }, async (t) => {
   const fx = appFixture(t);
   let r = await fx.door(["--to", "compile", "--commit", fx.c1]);

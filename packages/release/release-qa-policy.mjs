@@ -278,10 +278,12 @@ export function approveRunner({
   if (!runner || !String(runner).trim()) throw new QaPolicyError("runner is required");
   if (!nonEmpty(version)) throw new QaPolicyError("version is required");
   if (note !== undefined && typeof note !== "string") throw new QaPolicyError("note must be a string");
-  let published;
-  try { published = JSON.parse(readFileSync(versionsFile, "utf8")).registry?.cargo?.["rightkit-qa"]; }
+  // A runner is the published version or the one RightKit has staged for its next publication (`stagedCargo`): an app's `qa.version` may name the staged one
+  // while the gate-built binary is what runs (qa-runner.mjs); admission is still by this sha256, never by the version string.
+  let published; let staged;
+  try { const feed = JSON.parse(readFileSync(versionsFile, "utf8")); published = feed.registry?.cargo?.["rightkit-qa"]; staged = feed.stagedCargo?.["rightkit-qa"]; }
   catch (error) { throw new QaPolicyError(`the published rightkit-qa version cannot be read (${versionsFile}): ${error.message}`); }
-  if (published !== version) throw new QaPolicyError(`rightkit-qa ${version} is not the published version (rightkit-versions.json registry.cargo has ${published ?? "no rightkit-qa"}); only the published runner can be approved`);
+  if (published !== version && staged !== version) throw new QaPolicyError(`rightkit-qa ${version} is not the published version (rightkit-versions.json registry.cargo has ${published ?? "no rightkit-qa"}); only the published runner can be approved`);
   // The file that is digested is the file that is run: an absolute path, never a PATH lookup, and re-digested after.
   const file = path.resolve(String(runner));
   const sha256 = sha256Of(readRunnerBytes(file));

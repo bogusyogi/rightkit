@@ -366,3 +366,11 @@ test("main: show, set (with and without --stage), approve-runner, usage and fail
   assert.equal(run(["show"]), 1);
   assert.match(err[0], /policy is unreadable/);
 }));
+
+test("approve-runner accepts the version RightKit has staged for publication (stagedCargo), and still only that one", () => withDir((ctx) => {
+  writeFileSync(ctx.versionsFile, JSON.stringify({ schema: 2, registry: { cargo: { "rightkit-qa": "0.9.0" } }, stagedCargo: { "rightkit-qa": "0.10.0" } }));
+  const entry = approve(ctx, { version: "0.10.0", spawn: reports("0.10.0") });
+  assert.equal(entry.version, "0.10.0");
+  assert.equal(entry.sha256, RUNNER_SHA);
+  assert.throws(() => approve(ctx, { version: "0.11.0", spawn: neverRuns }), /not the published version/);
+}));

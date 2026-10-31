@@ -1622,7 +1622,13 @@ async function runStages(o, args, root, git, io) {
         else if (packageMulti.note) o.out(`${tag} [package] ${packageMulti.note}`);
       }
       const packageEnv = packagePin.dir ? { CARGO_TARGET_DIR: packagePin.dir } : (packageMulti?.env ?? {});
-      ok = ok && (mobile || await rightRelease(stage, ["qa", "--stage", "source", "--platform", platform], packageEnv)) && await rightRelease(stage, ["build", "--platform", platform], packageEnv);
+      // The QA shell the compile built is source QA's binary (rightkit#1309): the compile's recorded output directories are handed to `right-release qa` only
+      // while that record still proves the outputs intact; it stages the declared layout from them in a run-scoped directory, never in the snapshot (qa-layout.mjs).
+      const compileDirs = receipt.stages.compile?.outputs?.dirs;
+      const compiledProblem = (o.compileReuseProblem ?? compileReuseProblem)(receipt.stages.compile, { env: o.env });
+      const qaEnv = !mobile && !compiledProblem && Array.isArray(compileDirs) && compileDirs.length ? { ...packageEnv, RIGHT_RELEASE_QA_COMPILED_DIRS: JSON.stringify(compileDirs) } : packageEnv;
+      if (ok && !mobile && compiledProblem && Array.isArray(compileDirs)) o.out(`${tag} [package] the compile outputs are not handed to source QA: ${compiledProblem}`);
+      ok = ok && (mobile || await rightRelease(stage, ["qa", "--stage", "source", "--platform", platform], qaEnv)) && await rightRelease(stage, ["build", "--platform", platform], packageEnv);
       const sealed = ok ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;
       if (ok && !sealed) { o.err(`${tag} [package] the build reported success but sealed nothing for ${commit.slice(0, 8)} on ${platform}`); ok = false; }
       if (sealed) extra = { platform, sealed: sealed.id, manifestSha256: sealed.digest };
