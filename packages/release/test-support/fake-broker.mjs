@@ -334,20 +334,44 @@ function claimHandle(stateDir, carrier, bad) {
  * `SNAPSHOT_LEASE_STATUS` as the production lease table answers it (snapshot.rs Leases::status; vector lease-status-vectors.v1.json): a handle covers its own lease and every
  * `<handle>#<suffix>`; a handle never held (and a prefix of one, and another suffix) is UNKNOWN, never REAPED; REAPED needs a durable completion; the answer carries
  * `members` {handle, state, spawned, refused?, job?} sorted by handle and its `state` is only the aggregate: ACTIVE when any member is held, REAPED when there is at
- * least one member and every member is REAPED, else UNKNOWN.
+ * least one member and every member is REAPED, else UNKNOWN. `settledAfterMs` models the lease table moving on while a caller waits: a held or unknown member of the behavior's
+ * `settleAfterMs` list of handles (or of every held handle when it is a number) completes (`REAPED`, `spawned: true`) once the call has waited that long.
  */
-function leaseStatus(stateDir, behavior, snapshot, wanted) {
+function leaseStatus(stateDir, behavior, snapshot, wanted, settledAfterMs = 0) {
   const covers = (h) => h === wanted || h.startsWith(`${wanted}#`);
+  const settles = typeof behavior.settleAfterMs === "number" ? behavior.settleAfterMs : null;
+  const settled = settles !== null && settledAfterMs >= settles;
   const members = new Map();
   let lines = []; try { lines = fs.readFileSync(path.join(stateDir, "leases.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)); } catch { /* none yet */ }
   for (const { handle, snapshot: where } of lines) if (where === snapshot && covers(handle)) members.set(handle, { handle, state: "REAPED", spawned: true });
   for (const handle of behavior.completedHandles ?? []) if (covers(handle)) members.set(handle, { handle, state: "REAPED", spawned: true });
   for (const [handle, code] of Object.entries(behavior.refusedHandles ?? {})) if (covers(handle)) members.set(handle, { handle, state: "REAPED", spawned: false, refused: code });
-  for (const handle of behavior.unknownHandles ?? []) if (covers(handle)) members.set(handle, { handle, state: "UNKNOWN", spawned: true });
-  for (const handle of behavior.heldHandles ?? []) if (covers(handle)) members.set(handle, { handle, state: "ACTIVE", spawned: true });
+  for (const handle of behavior.unknownHandles ?? []) if (covers(handle)) members.set(handle, { handle, state: settled ? "REAPED" : "UNKNOWN", spawned: true });
+  for (const handle of behavior.heldHandles ?? []) if (covers(handle)) members.set(handle, { handle, state: settled ? "REAPED" : "ACTIVE", spawned: true });
   const rows = [...members.values()].sort((a, b) => (a.handle < b.handle ? -1 : a.handle > b.handle ? 1 : 0));
   const state = rows.some((m) => m.state === "ACTIVE") ? "ACTIVE" : rows.length > 0 && rows.every((m) => m.state === "REAPED") ? "REAPED" : "UNKNOWN";
-  return { type: "SNAPSHOT_LEASE_STATUS", schema: "rustright.snapshot-lease-status.v1", state, snapshot, ownership: wanted, members: rows };
+  return { state, rows };
+}
+
+/** The longest wait a status query is given (rustright_protocol MAX_LEASE_STATUS_WAIT_MS); a larger one is clamped. The broker re-reads its table every 25 ms (LEASE_STATUS_POLL). */
+const MAX_LEASE_STATUS_WAIT_MS = 30_000;
+const LEASE_STATUS_POLL_MS = 25;
+
+/**
+ * The whole answer, as service.rs writes it: the aggregate state, the member rows, the snapshot and ownership as received, `waitedMs` (the time spent waiting) and `waitTimedOut`
+ * (a wait was asked and the state is not REAPED at its bound). With `waitMs` the call returns as soon as the aggregate is REAPED, or at the bound with the state it has.
+ */
+async function leaseStatusAnswer(stateDir, behavior, snapshot, wanted, waitMs) {
+  const wait = Math.min(Math.max(waitMs ?? 0, 0), MAX_LEASE_STATUS_WAIT_MS);
+  const since = Date.now();
+  let answer;
+  for (;;) {
+    const waited = Date.now() - since;
+    answer = leaseStatus(stateDir, behavior, snapshot, wanted, waited);
+    if (answer.state === "REAPED" || waited >= wait) break;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(LEASE_STATUS_POLL_MS, Math.max(1, wait - (Date.now() - since)))));
+  }
+  return { type: "SNAPSHOT_LEASE_STATUS", schema: "rustright.snapshot-lease-status.v1", state: answer.state, snapshot, ownership: wanted, members: answer.rows, waitedMs: Date.now() - since, waitTimedOut: wait > 0 && answer.state !== "REAPED" };
 }
 
 // ---- the fake client: `node fake-broker.mjs --client <state dir> cargo <args>` | `status <id>` ----
@@ -429,7 +453,10 @@ async function client(stateDir, [command, ...args]) {
     // rustright snapshot.rs:469: the status of a (bare) ownership handle covers every held handle equal to it or starting with `<it>#`.
     const flag = (name) => args[args.indexOf(name) + 1];
     const snapshot = flag("--snapshot"); const wanted = flag("--ownership");
-    process.stdout.write(`${JSON.stringify(leaseStatus(stateDir, behavior, snapshot, wanted))}\n`);
+    // `--wait-ms N` (GB-85): the CLI refuses anything but a non-negative integer, as its argument parser does.
+    let waitMs = 0;
+    if (args.includes("--wait-ms")) { const raw = flag("--wait-ms"); if (!/^\d+$/.test(String(raw))) { process.stderr.write(`error: invalid value '${raw}' for '--wait-ms <N>': not a non-negative integer\n`); process.exit(2); } waitMs = Number(raw); }
+    process.stdout.write(`${JSON.stringify(await leaseStatusAnswer(stateDir, behavior, snapshot, wanted, waitMs))}\n`);
     process.exit(0);
   }
   if (command === "status") {

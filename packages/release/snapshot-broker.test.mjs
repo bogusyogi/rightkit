@@ -298,8 +298,9 @@ test("[7.26] a dead owner's record is reclaimed only on the broker's REAPED for 
   const answers = path.join(root, "answers.json"); const asked = path.join(root, "asked.log");
   const client = path.join(root, "rustright");
   fs.writeFileSync(client, `#!/bin/sh\necho "$@" >> '${asked}'\nexec ${JSON.stringify(process.execPath)} -e 'const a = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); const args = process.argv.slice(2); const key = args[3] + "|" + args[5]; if (a.fail) process.exit(1); let v = a.byPair?.[key] ?? a.default; if (v === undefined) process.exit(1); if (v && typeof v === "object" && !a.noEcho) v = { snapshot: args[3], ownership: args[5], ...v }; console.log(typeof v === "string" ? v : JSON.stringify(v));' ${JSON.stringify(answers)} "$@"\n`, { mode: 0o755 });
-  const status = (state, extra = {}) => ({ schema: "rustright.snapshot-lease-status.v1", state, ...extra });
   const snapshot = path.join(root, "snapshots", "k"); const handle = "dead-owner-handle";
+  // The answer as the broker writes it (GB-23, GB-85): the member rows the aggregate state follows, and waitedMs / waitTimedOut.
+  const status = (state, extra = {}) => ({ schema: "rustright.snapshot-lease-status.v1", state, members: state === "UNKNOWN" ? [] : [{ handle, state, spawned: true }], waitedMs: 0, waitTimedOut: false, ...extra });
   const ask = (over = {}) => brokerLeaseState({ snapshot, handle, env: {}, platform: "darwin", client, ...over });
   const set = (a) => fs.writeFileSync(answers, JSON.stringify(a));
   // The states the gate accepts: only a well-formed REAPED for the asked pair is REAPED.

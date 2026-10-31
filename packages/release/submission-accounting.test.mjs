@@ -121,7 +121,7 @@ test("[GB-23] a completed sibling never stands in for an unknown or active submi
   crash(file);
   const done = (h) => ({ state: "REAPED", members: [{ handle: h, state: "REAPED", spawned: true }] });
   // The bare handle is REAPED (a completed): b is a claimed submission with no completion: UNKNOWN. The record is held.
-  assert.throws(() => acquire(file, table({ [own.handle]: { state: "REAPED", members: [{ handle: a, state: "REAPED" }, { handle: b, state: "UNKNOWN" }] }, [a]: done(a), [b]: { state: "UNKNOWN", members: [{ handle: b, state: "UNKNOWN" }] } })), (e) => /sub-handle .*#b and its lease is UNKNOWN/.test(e.message));
+  assert.throws(() => acquire(file, table({ [own.handle]: { state: "REAPED", members: [{ handle: a, state: "REAPED" }, { handle: b, state: "UNKNOWN" }] }, [a]: done(a), [b]: { state: "UNKNOWN", members: [{ handle: b, state: "UNKNOWN" }] } })), (e) => /#b( and its lease is UNKNOWN|.* as UNKNOWN among the members)/.test(e.message));
   // An ACTIVE sibling holds it.
   assert.throws(() => acquire(file, table({ [own.handle]: { state: "ACTIVE", members: [{ handle: a, state: "REAPED" }, { handle: b, state: "ACTIVE" }] } })), (e) => /ACTIVE/.test(e.message));
   // REAPED for a sub-handle whose answer lists no completed member of that name is inconsistent: held.
@@ -155,11 +155,11 @@ test("[GB-85] a stage's release waits for every handle to be REAPED by the broke
   assert.equal(ok.release().released, true);
   // The client command line.
   const argvs = [];
-  const spawn = (client, args) => { argvs.push(args); return args.includes("--wait-ms") ? { status: 2, stdout: "", stderr: "error: unexpected argument '--wait-ms'" } : { status: 0, stdout: JSON.stringify({ schema: "rustright.snapshot-lease-status.v1", state: "REAPED", snapshot: "/s", ownership: "h", members: [{ handle: "h#1", state: "REAPED" }] }) }; };
+  const spawn = (client, args) => { argvs.push(args); return args.includes("--wait-ms") ? { status: 2, stdout: "", stderr: "error: unexpected argument '--wait-ms'" } : { status: 0, stdout: JSON.stringify({ schema: "rustright.snapshot-lease-status.v1", state: "REAPED", snapshot: "/s", ownership: "h", members: [{ handle: "h#1", state: "REAPED" }], waitedMs: 0, waitTimedOut: false }) }; };
   const state = brokerLeaseState({ snapshot: "/s", handle: "h", client: "/c", spawn, waitMs: 500 });
   assert.equal(state.state, "REAPED");
   assert.deepEqual(argvs.map((a) => a.includes("--wait-ms") ? a.at(-1) : null), ["500", null], "asked with the wait, then plainly when the client predates it");
-  const timed = brokerLeaseState({ snapshot: "/s", handle: "h", client: "/c", waitMs: 99_999, spawn: (c, a) => ({ status: 0, stdout: JSON.stringify({ schema: "rustright.snapshot-lease-status.v1", state: "ACTIVE", snapshot: "/s", ownership: "h", waitedMs: 30000, waitTimedOut: true, members: [] }), stderr: String(a.at(-1)) }) });
+  const timed = brokerLeaseState({ snapshot: "/s", handle: "h", client: "/c", waitMs: 99_999, spawn: (c, a) => ({ status: 0, stdout: JSON.stringify({ schema: "rustright.snapshot-lease-status.v1", state: "ACTIVE", snapshot: "/s", ownership: "h", waitedMs: 30000, waitTimedOut: true, members: [{ handle: "h#1", state: "ACTIVE", spawned: true }] }), stderr: String(a.at(-1)) }) });
   assert.equal(timed.state, "UNKNOWN"); assert.equal(timed.waitTimedOut, true); assert.match(timed.why, /waitTimedOut/);
 });
 

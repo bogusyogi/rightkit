@@ -870,14 +870,22 @@ export function readHolder(file) {
 /**
  * RustRight's lease state for a snapshot & ownership handle (`rustright snapshot-lease status`). Anything but a well-formed
  * answer is UNKNOWN: a missing client, a failed or unknown command, a schema or state the gate does not know.
+ *
+ * The answer is read exactly as the broker writes it (BROKER-CONTRACT section 16, GB-23 and GB-85): `{ type, schema, state, snapshot, ownership, members, waitedMs, waitTimedOut }`.
+ * `members` is one row per submission under the handle and `state` is only their aggregate (ACTIVE while any is held, REAPED only with at least one member and every member REAPED, else
+ * UNKNOWN); a state that is not the aggregate of its own rows is a contradiction, never a result. A wait was asked with `--wait-ms` (clamped to 30000): the answer then always carries
+ * `waitedMs` (a count) and `waitTimedOut` (a boolean, true exactly when the state is not REAPED at the bound). A timeout is UNKNOWN with the reason; the gate never polls and never resubmits.
+ * The result carries `members`, `waitedMs` and `waitTimedOut` for the callers that account by name.
  */
 export function brokerLeaseState({ snapshot, handle, env = process.env, platform = process.platform, spawn = spawnSync, client = managedRuntimeClient(env, platform), waitMs = 0 }) {
   if (!client) return { state: "UNKNOWN", why: "no RustRight client on this host" };
   // GB-85: `--wait-ms N` makes the broker answer as soon as every submission under the handle is durably complete (REAPED), or at the bound with the state it has
   // (waitTimedOut: true). A client that predates the option answers with a usage error: the plain query is then made, never a guess.
-  const ask = (wait) => run(spawn, client, ["snapshot-lease", "status", "--snapshot", snapshot, "--ownership", handle, ...(wait > 0 ? ["--wait-ms", String(Math.min(Math.trunc(wait), 30_000))] : [])], env);
-  let r = ask(waitMs);
-  if (waitMs > 0 && r.status !== 0 && !r.error && /wait-ms|unknown|unexpected|unrecognized|usage/i.test(String(r.stderr ?? ""))) r = ask(0);
+  const clamp = (wait) => Math.min(Math.trunc(wait), 30_000);
+  const ask = (wait) => run(spawn, client, ["snapshot-lease", "status", "--snapshot", snapshot, "--ownership", handle, ...(wait > 0 ? ["--wait-ms", String(clamp(wait))] : [])], env);
+  let waited = Number.isFinite(waitMs) && waitMs > 0 ? waitMs : 0;
+  let r = ask(waited);
+  if (waited > 0 && r.status !== 0 && !r.error && /wait-ms|unknown|unexpected|unrecognized|usage/i.test(String(r.stderr ?? ""))) { waited = 0; r = ask(0); }
   if (r.error || r.status !== 0) return { state: "UNKNOWN", why: `rustright snapshot-lease status: ${r.error?.message ?? (String(r.stderr ?? "").trim().split(/\r?\n/).pop() || `exit ${r.status}`)}` };
   let answer = null;
   try { answer = JSON.parse(String(r.stdout ?? "").trim().split(/\r?\n/).pop()); } catch { answer = null; }
@@ -885,15 +893,25 @@ export function brokerLeaseState({ snapshot, handle, env = process.env, platform
   // The answer must echo what was asked (RustRight echoes `snapshot` as received and `ownership` as the handle): another pair's answer,
   // or no echo at all, binds nothing to this owner, so it is UNKNOWN and the record is held.
   if (answer.snapshot !== snapshot || answer.ownership !== handle) return { state: "UNKNOWN", why: `the lease status does not echo the queried snapshot and ownership handle (${JSON.stringify(answer.snapshot ?? null)}, ${JSON.stringify(answer.ownership ?? null)})` };
+  const unknown = (why) => ({ state: "UNKNOWN", why: `rustright snapshot-lease status: ${why}`, ...(Array.isArray(answer.members) ? { members: answer.members } : {}) });
   // GB-23: `members` is one row per submission the broker knows under the handle ({handle, state, spawned, refused?, job?}); the answer's own state is only the aggregate.
-  let members;
-  if (answer.members !== undefined) {
-    const covers = (h) => h === handle || String(h).startsWith(`${handle}#`);
-    if (!Array.isArray(answer.members) || answer.members.some((m) => !m || typeof m.handle !== "string" || !covers(m.handle) || !LEASE_STATES.has(m.state))) return { state: "UNKNOWN", why: `the lease status carries members that are not submissions under ${handle}` };
-    members = answer.members;
-  }
-  if (answer.waitTimedOut === true) return { state: "UNKNOWN", why: `rustright snapshot-lease status: still ${answer.state} after waiting ${answer.waitedMs ?? waitMs} ms (waitTimedOut); ownership stays UNKNOWN`, members, waitTimedOut: true };
-  return { state: answer.state, why: `rustright snapshot-lease status: ${answer.state}`, ...(members ? { members } : {}) };
+  const covers = (h) => h === handle || String(h).startsWith(`${handle}#`);
+  if (!Array.isArray(answer.members)) return unknown("the answer carries no members list (one row per submission under the handle), so no submission can be accounted for by name");
+  if (answer.members.some((m) => !m || typeof m.handle !== "string" || !covers(m.handle) || !LEASE_STATES.has(m.state))) return { state: "UNKNOWN", why: `the lease status carries members that are not submissions under ${handle}` };
+  const rows = answer.members;
+  const aggregate = rows.some((m) => m.state === "ACTIVE") ? "ACTIVE" : rows.length > 0 && rows.every((m) => m.state === "REAPED") ? "REAPED" : "UNKNOWN";
+  if (answer.state !== aggregate) return unknown(`the answer says ${answer.state} but its ${rows.length} member row(s) aggregate to ${aggregate} (REAPED needs at least one member and every member REAPED): it contradicts itself, so it is not read`);
+  // GB-85: waitedMs is a count and waitTimedOut a boolean; both are always sent by a broker that takes a wait, and are required once a wait was asked.
+  const hasWaited = answer.waitedMs !== undefined; const hasTimedOut = answer.waitTimedOut !== undefined;
+  if (hasWaited && !(Number.isInteger(answer.waitedMs) && answer.waitedMs >= 0)) return unknown(`waitedMs is not a non-negative integer (${JSON.stringify(answer.waitedMs)})`);
+  if (hasTimedOut && typeof answer.waitTimedOut !== "boolean") return unknown(`waitTimedOut is not a boolean (${JSON.stringify(answer.waitTimedOut)})`);
+  if (waited > 0 && (!hasWaited || !hasTimedOut)) return unknown(`a wait of ${clamp(waited)} ms was asked but the answer carries no ${!hasWaited ? "waitedMs" : "waitTimedOut"}`);
+  const timedOut = answer.waitTimedOut === true;
+  if (timedOut && (waited <= 0 || answer.state === "REAPED")) return unknown(`waitTimedOut is true although ${waited <= 0 ? "no wait was asked" : "the state is REAPED"}: it contradicts itself`);
+  if (waited > 0 && answer.state !== "REAPED" && !timedOut) return unknown(`the state is ${answer.state} after a wait without waitTimedOut: it contradicts itself`);
+  const timing = { ...(hasWaited ? { waitedMs: answer.waitedMs } : {}), ...(hasTimedOut ? { waitTimedOut: answer.waitTimedOut } : {}) };
+  if (timedOut) return { state: "UNKNOWN", why: `rustright snapshot-lease status: still ${answer.state} after waiting ${answer.waitedMs} ms (waitTimedOut); ownership stays UNKNOWN`, members: rows, ...timing };
+  return { state: answer.state, why: `rustright snapshot-lease status: ${answer.state}`, members: rows, ...timing };
 }
 
 function publish(target, text) {
@@ -1070,6 +1088,8 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0
     const status = lease({ snapshot: owner.snapshot, handle: owner.handle, ...waitOptions });
     if (status.state === "ACTIVE" || (status.state !== "REAPED" && !everyUnsent)) throw new Error(`broker work may exist under this handle and its lease is ${status.state} (${status.why})`);
     if (status.state === "REAPED") proofs.push(`broker lease for ${owner.handle} is REAPED`);
+    // GB-23: the answer's own member rows account for each recorded sub-handle too: a recorded one that the broker lists and does not list REAPED keeps ownership, whatever the aggregate said.
+    if (Array.isArray(status.members)) for (const sub of handles) { const row = status.members.find((m) => m.handle === sub); if (row && row.state !== "REAPED") throw new Error(`the broker lists sub-handle ${sub} as ${row.state} among the members of ${owner.handle}`); }
     let neverStarted = 0;
     for (const sub of handles) {
       if (typeof sub !== "string" || !sub.startsWith(`${owner.handle}#`) || sub.length <= owner.handle.length + 1) throw new Error(`the record lists ${JSON.stringify(sub)}, which is not a sub-handle of ${owner.handle}`);
