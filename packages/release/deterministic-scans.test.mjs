@@ -2312,6 +2312,18 @@ test("B4: a failed scan's detail leads with pnpm's bracketed [ERR_PNPM_...] line
   assert.match(scansModule.failureDetail({ stderr: "noise\nerror[E0308]: mismatched types\n" }), /^error\[E0308\]: mismatched types/);
 });
 
+test("E2E L9-01: a failed cargo-audit scan names the vulnerable crate and advisory first, not the unmaintained warnings printed after it", () => {
+  const block = (crate, version, id, warning) => `Crate:     ${crate}\nVersion:   ${version}\n${warning ? `Warning:   ${warning}\n` : ""}Title:     t\nDate:      2026-02-03\nID:        ${id}\nURL:       https://rustsec.org/advisories/${id}\n`;
+  const stdout = [block("bytes", "1.10.1", "RUSTSEC-2026-0007"), ...["a", "b", "c", "d", "e"].map((c, i) => block(`unic-${c}`, "0.9.0", `RUSTSEC-2025-000${i}`, "unmaintained"))].join("\n") + "\n";
+  const stderr = "      Loaded 1352 security advisories (from /db)\nerror: 1 vulnerability found!\nwarning: 5 allowed warnings found\n";
+  const detail = scansModule.failureDetail({ status: 1, stdout, stderr });
+  assert.match(detail, /vulnerable: bytes 1\.10\.1 RUSTSEC-2026-0007/, detail);
+  assert.ok(detail.indexOf("vulnerable: bytes") < detail.indexOf("error: 1 vulnerability found"), "the vulnerable crate leads");
+  assert.doesNotMatch(detail, /vulnerable: unic-/, "a warning-only advisory is not named as the vulnerability");
+  // Warning-only output (no vulnerability block) adds nothing.
+  assert.doesNotMatch(scansModule.failureDetail({ status: 1, stdout: block("x", "1", "RUSTSEC-2020-0001", "unmaintained"), stderr: "error: something\n" }), /vulnerable:/);
+});
+
 // ---- B1: ci/gate.config.json npm.<unit>.requiresBroker ---------------------------------------------------------------------------------------------------------
 
 test("B1: declaredBrokerCall reads { reason } only; whitespace is collapsed, a long reason is cut, anything else is a problem or no declaration", () => {

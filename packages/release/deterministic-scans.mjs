@@ -1685,7 +1685,19 @@ export function failureDetail(r) {
   const out = lines(r?.stdout); const err = lines(r?.stderr);
   const named = [...out, ...err].filter((l) => FAILURE_LINE.test(l)).slice(0, 12);
   const ends = [...out.slice(-4), ...err.slice(-4)];
-  return [...new Set([...named, ...ends])].join(" | ");
+  return [...new Set([...auditVulnerabilities(r?.stdout), ...named, ...ends])].join(" | ");
+}
+// cargo-audit prints one `Crate:/Version:/.../ID:` block per advisory: a vulnerability has no `Warning:` line, an unmaintained or unsound
+// crate has one and does not fail the scan. The failing blocks lead the detail (E2E L9-01); a tail of the output alone named a warning.
+function auditVulnerabilities(text) {
+  const out = [];
+  for (const block of String(text ?? "").split(/\r?\n[ \t]*\r?\n/)) {
+    const m = block.match(/^Crate:[ \t]+(\S+)[ \t]*\r?\nVersion:[ \t]+(\S+)/m);
+    if (!m || /^Warning:/m.test(block)) continue;
+    const id = block.match(/^ID:[ \t]+(\S+)/m)?.[1];
+    out.push(`vulnerable: ${m[1]} ${m[2]}${id ? ` ${id}` : ""}`);
+  }
+  return out.slice(0, 6);
 }
 const tail = failureDetail;
 
