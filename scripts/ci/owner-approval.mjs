@@ -58,9 +58,10 @@ for (const name of CLASS_A_JOBS) need(byName.get(name)?.conclusion === "success"
 
 // Coverage: every approved crate ran in a macOS shard AND a Windows shard, all green, proven from the plan job's own shard list.
 const planLog = (await api(`actions/jobs/${byName.get("plan").id}/logs`, true)).replace(/\\"/g, '"');
-const shards = [...planLog.matchAll(/\{"id":"([^"]+)","kind":"([^"]+)","tokens":"([^"]*)"/g)].map((m) => ({ id: m[1], tokens: m[3].split(/\s+/) }));
+const shards = [...planLog.matchAll(/\{"id":"([^"]+)","kind":"([^"]+)","tokens":"([^"]*)"/g)].map((m) => ({ id: m[1], kind: m[2], tokens: m[3].split(/\s+/) }));
 for (const u of approval.units) {
-  const covering = new Set(shards.filter((s) => s.tokens.some((t) => t.endsWith(`crates/${u.name}`))).map((s) => s.id));
+  // A test shard names its crates as `rust:<name>` (scripts/ci/shards.mjs); a closure shard's `rust-check:<name>` only compiles.
+  const covering = new Set(shards.filter((s) => s.kind === "rust" && s.tokens.includes(`rust:${u.name}`)).map((s) => s.id));
   need(covering.size > 0, `the plan scheduled no shard for ${u.name}`);
   for (const os of ["macos", "windows"]) {
     const ran = jobs.filter((j) => j.name.startsWith(`${os} `) && covering.has(j.name.slice(os.length + 1)));

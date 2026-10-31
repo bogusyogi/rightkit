@@ -60,42 +60,23 @@ jobs:
           out="$RUNNER_TEMP/owner-publish"
           mkdir -p "$out"
           for crate in $CRATES; do
+            version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' "crates/$crate/Cargo.toml" | head -1)
             (cd "crates/$crate" && cargo package --locked)
-            archive=$(ls "crates/$crate"/target/package/"$crate"-*.crate)
-            sha256sum "$archive" | cut -d' ' -f1 > "$out/$crate.sha256"
-            extracted=$(ls -d "crates/$crate"/target/package/"$crate"-*/)
-            node -e 'const c=require("./ci/gate.config.json");const u=(c.units??c)[process.argv[1]]??{};for(const s of [...(u.featureSets??[]),...(u.checkFeatureSets??[])])if(s.length)console.log(s.join(" "))' "$crate" > "$out/$crate.features"
+            archive="$PWD/crates/$crate/target/package/$crate-$version.crate"
+            sum=$(sha256sum "$archive" | cut -d' ' -f1)
+            printf '{"archive":"%s","sha256":"%s","version":"%s"}\n' "$archive" "$sum" "$version" > "$out/$crate.json"
+            extracted="$PWD/crates/$crate/target/package/$crate-$version"
+            # The feature rows gate.mjs runs: featureSets (default [[]]), then checkFeatureSets (default [["--all-features"]]) unless a test row already uses --all-features.
+            node -e 'const c=require("./ci/gate.config.json");const e=c.rust?.[process.argv[1]];if(!e){console.error("no ci/gate.config.json rust entry for "+process.argv[1]);process.exit(1)}const t=e.featureSets??[[]];const k=t.some(s=>s.includes("--all-features"))?[]:(e.checkFeatureSets??[["--all-features"]]);for(const s of [...t,...k])console.log(s.join(" ")||"(default)")' "$crate" > "$out/$crate.features"
+            test -s "$out/$crate.features"
             while IFS= read -r set; do
-              echo "cargo check $crate $set"
+              [ "$set" = "(default)" ] && set=""
+              echo "cargo check $crate ${set:-default features}"
               cargo check --manifest-path "$extracted/Cargo.toml" $set
             done < "$out/$crate.features"
           done
-      - name: Upload the packaged crates
+      - name: Upload the exact checked archives and read the index checksum back
         env:
           CRATES: ${{ needs.verify.outputs.crates }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: |
-          set -euo pipefail
-          for crate in $CRATES; do
-            (cd "crates/$crate" && cargo publish --locked --no-verify)
-          done
-      - name: Read each version back and require crates.io's checksum to equal the checked archive
-        env:
-          CRATES: ${{ needs.verify.outputs.crates }}
-        run: |
-          set -euo pipefail
-          for crate in $CRATES; do
-            version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' "crates/$crate/Cargo.toml" | head -1)
-            want=$(cat "$RUNNER_TEMP/owner-publish/$crate.sha256")
-            for _ in $(seq 1 30); do
-              got=$(curl -s -A rightkit-owner-approval "https://crates.io/api/v1/crates/$crate/$version" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const v=JSON.parse(s).version;console.log(v&&v.num===process.argv[1]?v.checksum:"")}catch{console.log("")}})' "$version")
-              if [ -n "$got" ]; then
-                [ "$got" = "$want" ] || { echo "::error::$crate@$version checksum $got differs from the checked archive $want"; exit 1; }
-                echo "$crate@$version is on crates.io with the checked archive's checksum $want"
-                continue 2
-              fi
-              sleep 10
-            done
-            echo "::error::$crate@$version did not appear on crates.io"
-            exit 1
-          done
+        run: node scripts/ci/owner-upload.mjs "$RUNNER_TEMP/owner-publish" $CRATES
