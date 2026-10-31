@@ -287,7 +287,7 @@ test("item 8 row 8.5: the route leaves the door receipts byte-identical, and nei
   const gitOnly = (cmd, a, opts) => (cmd === "git" ? spawnSync("git", a, { cwd: opts.cwd, encoding: "utf8" }) : { status: 127, stdout: "", stderr: "", error: new Error("not run") });
   for (const args of [["--to", "qualify", "--platform", "mac", "--tier", "patch", "--receipt-in", receiptFile], ["--to", "compile", "--receipt-in", receiptFile]]) {
     const out = [];
-    const code = await main(args, { cwd: fx.repo, platform: "linux", env: { PATH: "/usr/bin" }, snapshotRoot: fx.snaps, out: (m) => out.push(m), err: (m) => out.push(m), spawn: gitOnly, resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }), acquireOwnership: () => ({ handle: "own-1", joined: false, held: () => true, release: () => ({ released: true }) }), syncSnapshot });
+    const code = await main(args, { cwd: fx.repo, platform: args[1] === "qualify" ? "darwin" : "linux" /* a mac qualify is the Mac's (E2E L3-03) */, env: { PATH: "/usr/bin" }, snapshotRoot: fx.snaps, out: (m) => out.push(m), err: (m) => out.push(m), spawn: gitOnly, resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }), acquireOwnership: () => ({ handle: "own-1", joined: false, held: () => true, release: () => ({ released: true }) }), syncSnapshot });
     assert.equal(code, 1, `${args[1]}: ${out.join("\n")}`);
     assert.match(out.join("\n"), /is not a rightkit\.gate-receipt\/1 receipt/, args[1]);
   }
