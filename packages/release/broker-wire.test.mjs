@@ -140,7 +140,7 @@ test("[GB-54] pause and resume requests and the ADMISSION reply round-trip throu
 
 test("[GB-54] a paused carried submit is a typed no-spawn refusal, not a missing request reference", (t) => {
   const paused = { type: "RESULT", exitCode: 125, status: "REJECTED", error: "admission is paused; resume with 'rustright resume-admission'", code: "RK_ADMISSION_PAUSED" };
-  assert.deepEqual(refusalInCapturedOutput(`cargo noise\n${JSON.stringify(paused)}\n`), { code: "RK_ADMISSION_PAUSED", refusal: "paused", message: paused.error });
+  assert.deepEqual(refusalInCapturedOutput(`cargo noise\n${JSON.stringify(paused)}\n`), { code: "RK_ADMISSION_PAUSED", refusal: "paused", retryable: false, message: paused.error });
   assert.equal(refusalInCapturedOutput("plain output\n"), null);
   const fx = makeFakeBroker(t, { readOnlySnapshots: true });
   const section = brokerSection({ ...fx.sb, markBrokerSubmit: subHandleStub(fx.handle) });
@@ -223,7 +223,7 @@ test("[GB-52] the operation deadline is the call's own budget: a user-set cap is
 });
 
 test("[GB-52] the client's own words are read: deadline with cancel confirmation and terminal state, busy apart from unavailable", () => {
-  assert.deepEqual(operationOutcomeInOutput("rustright: operation deadline of 1500 ms passed; request 5e3f-aa: cancelConfirmed: true, terminal state: CANCELLED\n"), { code: "operation-deadline", deadlineMs: 1500, requestId: "5e3f-aa", cancelConfirmed: true, terminalState: "CANCELLED" });
+  assert.deepEqual(operationOutcomeInOutput("rustright: operation deadline of 1500 ms passed; request 5e3f-aa: cancelConfirmed: true, terminal state: CANCELLED\n"), { code: "operation-deadline", retryable: false, deadlineMs: 1500, requestId: "5e3f-aa", cancelConfirmed: true, terminalState: "CANCELLED" });
   assert.equal(operationOutcomeInOutput("operation deadline of 9 ms passed; request x1: cancelConfirmed: false, terminal state: not observed (the broker was unreachable)").terminalState, null);
   assert.equal(operationOutcomeInOutput("RK_BROKER_BUSY: every pipe instance is busy").code, "broker-busy");
   assert.equal(operationOutcomeInOutput("RK_BROKER_UNAVAILABLE: connection refused").code, "broker-unavailable");
@@ -243,7 +243,8 @@ test("[GB-52] a carried call whose client ran out its deadline, was stopped by t
   assert.equal(seen[0].env.RUSTRIGHT_OPERATION_DEADLINE_MS, "1500"); assert.equal(seen[0].timeout, 1500 + 30_000 + 15_000, "the outer guard follows the client's own cancel wait");
   const guarded = run(() => ({ error: Object.assign(new Error("spawnSync ETIMEDOUT"), { code: "ETIMEDOUT" }), status: null, stdout: "", stderr: "" }), { deadlineMs: 1000 });
   assert.equal(guarded.outcome.code, "operation-deadline"); assert.match(guarded.outcome.message, /outer guard/);
-  assert.equal(run(() => ({ status: 125, stdout: "", stderr: "RK_BROKER_BUSY: busy\n" })).outcome.code, "broker-busy");
+  // A busy broker is a wait the gate retries within the call's deadline (typed-refusals.test.mjs); with the deadline already spent the first answer is final and keeps its own code.
+  assert.equal(run(() => ({ status: 125, stdout: "", stderr: "RK_BROKER_BUSY: busy\n" }), { deadlineMs: 1 }).outcome.code, "broker-busy");
   assert.equal(run(() => ({ status: 125, stdout: "", stderr: "RK_BROKER_UNAVAILABLE: down\n" })).outcome.code, "broker-unavailable");
   assert.equal(marks.length, 4, "every sub-handle stays recorded: none is cleared by a timeout, a cancel or an outage (reconciled by the request id)");
   // Without a budget nothing is invented: no deadline variable, no guard.
