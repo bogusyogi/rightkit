@@ -39,8 +39,10 @@
       "schema": "rustright.lease-status-vectors.v1"
     },
     "managed-roots.fixtures.json": {
-      "sha256": "37f28219d64e4860c46db5498f28d0677c0077b0a8d03088c8a58d6177dc2e72",
-      "schema": "rustright.managed-roots.fixtures.v1"
+      "sha256": "9139b2de043f5db0b5df1e4f3ea102d6ebde073090ba4065044b2b0a59ea5d96",
+      "schema": "rustright.managed-roots.fixtures.v1",
+      "commit": "07829c05ad3a59332c70553189caca07f3d60e06",
+      "note": "copied byte for byte from rustright docs/contracts at 07829c05 (branch claude/wave4-partial): adds the case \"linux no-env defaults to the account state directory\" (14 cases, same key set)"
     },
     "receipt-vectors.v1.json": {
       "sha256": "51c104f94a19a12c92a7911491405fdfe05e754bfb91036280a19f2d694df848",

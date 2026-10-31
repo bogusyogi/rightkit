@@ -23,9 +23,9 @@ export const envNamed = (env, name) => {
  * other) host that names no data root gets `<home>/.local/state/rightkit` (the account's own state directory, where its runs, snapshots and build-ownership record
  * already live), never `/Volumes/D/.rightkit-managed`, a Mac volume that a Linux gate would otherwise create as root. Everything else is RustRight's order:
  * the data root is named by the same env, `controlRoot` = `dataRoot` off Mac, so a host that names its roots (every declared Linux broker, whose installer sets
- * RUSTRIGHT_DATA_ROOT / RUSTRIGHT_CONTROL_ROOT) resolves exactly as `rustright-config::managed_roots` does. RustRight's own default for such a host with NO
- * environment is still `legacy_root` (managed_roots.rs, 447d445): that only-the-default difference is RustRight's to align (the shared fixtures cover the
- * env-named Linux case only), and the broker's answering roots, not either resolver's guess, say where a running broker keeps its state.
+ * RUSTRIGHT_DATA_ROOT / RUSTRIGHT_CONTROL_ROOT) resolves exactly as `rustright-config::managed_roots` does. RustRight resolves a host with NO environment the same
+ * way (rustright 07829c05, pinned in the shared fixtures as "linux no-env defaults to the account state directory"). The broker's answering roots, not either
+ * resolver's guess, say where a running broker keeps its state.
  */
 export function resolveManagedRoots({ env = process.env, platform = process.platform, home = homedir(), controlRoot, dataRoot, runtimeRoot } = {}) {
   const paths = platform === 'win32' ? win32 : posix;

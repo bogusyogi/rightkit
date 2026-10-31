@@ -219,6 +219,28 @@
       }
     },
     {
+      "name": "linux no-env defaults to the account state directory",
+      "input": {
+        "platform": "linux",
+        "home": "/home/test",
+        "env": {},
+        "windowsControlDefault": "legacy"
+      },
+      "expected": {
+        "controlRoot": "/home/test/.local/state/rightkit",
+        "dataRoot": "/home/test/.local/state/rightkit",
+        "legacyRoot": "/Volumes/D/.rightkit-managed",
+        "runtimeCurrent": "/home/test/.local/state/rightkit/runtime",
+        "configPath": "/home/test/.local/state/rightkit/config.json",
+        "socket": "/home/test/.local/state/rightkit/broker.sock",
+        "logs": "/home/test/.local/state/rightkit/logs",
+        "agentBin": "/home/test/.local/state/rightkit/agent-bin",
+        "agentPolicy": "/home/test/.local/state/rightkit/agent-policy",
+        "ownershipInstall": "/home/test/.local/state/rightkit/ownership-install",
+        "signingAgent": "/home/test/.local/state/rightkit/signing-agent"
+      }
+    },
+    {
       "name": "linux control equals data root",
       "input": {
         "platform": "linux",
