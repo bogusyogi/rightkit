@@ -2047,6 +2047,7 @@ export async function runScans(plan, options = {}) {
   const selected = plan.scans.filter((s) => classes.includes(s.class) && !exclude(s));
   const ordered = [...selected.filter((s) => s.class === SCAN_CLASS.A), ...selected.filter((s) => s.class === SCAN_CLASS.B)];
   const ctx = { deps, contentRoot, read: (f) => deps.readFile(path.join(contentRoot, f)) };
+  const cargoReadsAreCarried = Boolean(deps.snapshotBroker) || options.cargoReadsCarried === true;
   const toolVersions = {}; const toolIdentities = {}; const probed = new Map(); const advisoryDbs = new Map();
   const results = [];
   // The gate-owned cargo ledger of a wrapped snapshot compile (options.cargoLedger = { dir }): every call the wrapper decided, filed
@@ -2285,7 +2286,8 @@ export async function runScans(plan, options = {}) {
         const p = await probe(s.tool, probeAt);
         row.toolVersion = p.ok ? p.version : null;
         // The broker runs the cargo-deny / cargo-audit a carried scan names: that identity is the broker's tool registration, not the gate's to bind.
-        const brokerCarried = Boolean(deps.snapshotBroker) && s.class === SCAN_CLASS.A && (s.tool === "rustright" || s.tool === "cargo");
+        // `options.cargoReadsCarried === true` (the gate, when its executor is the broker and cargo reads go through carried requests, as in the check stage that has no snapshotBroker) makes them carried exactly as snapshotBroker does; it waives nothing else (actionlint and shellcheck stay locally enrolled).
+        const brokerCarried = cargoReadsAreCarried && s.class === SCAN_CLASS.A && (s.tool === "rustright" || s.tool === "cargo");
         const advisoryTool = s.advisoryDb === "deny" ? "cargo-deny" : s.advisoryDb === "audit" ? "cargo-audit" : null;
         const trusts = advisoryTool && !brokerCarried ? [advisoryTool] : [];
         const identities = []; if (p.identity) identities.push(p.identity);
@@ -2309,7 +2311,7 @@ export async function runScans(plan, options = {}) {
           // A cargo request that builds the commit snapshot through the broker (options.snapshotBroker) is never served from or written
           // to the scan cache: each run must carry its own request and verify the broker's own signed evidence.
           const viaSnapshotBroker = Boolean(deps.snapshotBroker) && s.root === "cargoLive" && (s.tool === "rustright" || s.tool === "cargo");
-          const carriedRead = Boolean(deps.snapshotBroker) && s.class === SCAN_CLASS.A && (s.tool === "rustright" || s.tool === "cargo"); // a snapshot compile never reuses a cargo read either
+          const carriedRead = cargoReadsAreCarried && s.class === SCAN_CLASS.A && (s.tool === "rustright" || s.tool === "cargo"); // a snapshot compile never reuses a cargo read either
           if (cache && !viaSnapshotBroker && !carriedRead) {
             try {
               const digest = cache.digest(s);

@@ -3138,3 +3138,36 @@ test("[RA-18] resolveTrustedScanTool resolves through symlinks to the real file 
     assert.match(enrolledVersionProblem({ tool: "x", path: "/x", version: "1.7.1" }, "1.7.12"), /enrolment names 1\.7\.1/, "a prefix of the version is not the version");
   } finally { t.cleanup(); }
 });
+
+test("[RA-18] options.cargoReadsCarried === true makes cargo-deny and cargo-audit broker-carried (no local enrolment, source broker, no PATH prefix, no cache) and waives nothing else; false, absent or non-boolean change nothing", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
+  const seen = [];
+  const spawn = (command, args, options) => { seen.push({ command, args, env: options?.env }); return fakeSpawn()(command, args, options); };
+  const noAnalyzers = {}; // nothing enrolled: a local enrolment would be TOOL_UNTRUSTED
+  const carried = await runScans(plan, deps({ ...fs, classes: ["A"], spawn, toolPolicy: noAnalyzers, cargoReadsCarried: true }));
+  for (const id of ["cargo-deny", "cargo-audit"]) {
+    const row = carried.scans.find((s) => s.id === id);
+    assert.equal(row.status, "pass", JSON.stringify(row));
+    assert.deepEqual(row.identities.map((i) => [i.tool, i.source, i.path ?? null]), [[id, "broker", null]], "the broker's registration, never claimed as bound by the gate");
+  }
+  assert.ok(!seen.some((c) => c.env?.PATH?.includes("/opt/rk-tools")), "no enrolled directory is put on PATH for a carried read");
+  assert.equal(carried.toolIdentities["cargo-deny"], undefined);
+  // Anything but the boolean true, and the default, are unchanged: the local enrolment is demanded.
+  for (const over of [{}, { cargoReadsCarried: false }, { cargoReadsCarried: "true" }, { cargoReadsCarried: 1 }]) {
+    const local = await runScans(plan, deps({ ...fs, classes: ["A"], spawn, toolPolicy: noAnalyzers, ...over }));
+    assert.equal(local.scans.find((s) => s.id === "cargo-deny").code, "TOOL_UNTRUSTED", JSON.stringify(over));
+    assert.equal(local.scans.find((s) => s.id === "cargo-audit").code, "TOOL_UNTRUSTED", JSON.stringify(over));
+  }
+  // It waives only cargo's two reads: shellcheck and actionlint stay locally enrolled.
+  const wf = workflowPlan();
+  const strict = await runScans(wf.plan, deps({ ...wf.fs, classes: ["A"], exclude: onlyActionlint, spawn, toolPolicy: noAnalyzers, cargoReadsCarried: true }));
+  assert.equal(strict.scans.find((s) => s.id === "actionlint").code, "TOOL_UNTRUSTED");
+  const sh = planFor(["deploy/release.sh"], { "deploy/release.sh": "#!/bin/sh\necho hi\n" }, { all: true, tier: "release" });
+  const shRun = await runScans(sh.plan, deps({ ...sh.fs, classes: ["A"], exclude: (s) => s.id !== "shellcheck", spawn, toolPolicy: noAnalyzers, cargoReadsCarried: true }));
+  assert.equal(shRun.scans.find((s) => s.id === "shellcheck").code, "TOOL_UNTRUSTED");
+  // A carried read is never served from the scan cache (each request carries its own evidence), as with snapshotBroker.
+  const cache = memCache(() => "digest-1");
+  await runScans(plan, deps({ ...fs, classes: ["A"], spawn, cache, cargoReadsCarried: true }));
+  const again = await runScans(plan, deps({ ...fs, classes: ["A"], spawn, cache, cargoReadsCarried: true }));
+  assert.ok(!again.cacheHits.some((id) => id.startsWith("cargo-")), `no carried cargo read hit the cache: ${again.cacheHits}`);
+});
