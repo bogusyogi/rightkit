@@ -349,7 +349,7 @@ Every operative requirement id of this contract, its subject, status (`operative
 | GC-I09 | `cargo ndk` as a pinned external tool | operative | BR21, B35 |
 | GC-I10 | QA journeys on a snapshot stage (prebuilt input) | operative | - |
 | GC-I11 | Clippy route and batching | operative | B4, B5, B6, D3 |
-| GC-L01 | Direct Linux origin trust: direct-origin records are claims the hosted side re-derives, never broker receipts | proposed implementation; acceptance NOT RUN; activation held ([GC-L03]) | BR20, B3, BR22 |
+| GC-L01 | Direct Linux origin trust: direct-origin records are claims the hosted side re-derives, never broker receipts | proposed implementation; acceptance NOT RUN; activation held (see GC-L03 activation) | BR20, B3, BR22 |
 | GC-L02 | Private Linux qualifier only for a declared Linux target, hosted on Mac or Dell, pending candidate that resumes on exact bytes | proposed implementation; acceptance NOT RUN; activation held | B3 |
 | GC-L03 | Activation of direct-origin admission at publication is held for the reserved publication authorization | OPEN; activation held | BR30 |
 | GC-Q01 | Origin identity record (repository, commit, snapshot digest, lockfiles, policy, toolchain, versions, result) | operative | BR19 |
