@@ -2372,6 +2372,8 @@ export async function main(argv, io = {}) {
   const option = (name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
   // `clippy`: the Clippy route (../clippy-route.mjs; docs/GATE-CONTRACT.md §1 "Clippy route & batching"). Dispatched before the global
   // flags below because everything after `clippy` is cargo's own argv, verbatim (`-v`, `-h` and `--version` are cargo's).
+  // `candidate-receipt` (GB-73): the candidate build receipt the RustRight installer takes in place of a clean primary checkout.
+  if (args[0] === "candidate-receipt") return (await import("../candidate-receipt-command.mjs")).candidateReceiptCommand(o, args.slice(1));
   if (args[0] === "clippy") return (await import("../clippy-route.mjs")).clippyCommand(o, args.slice(1), { main, io, absoluteEnv: SNAPSHOT_ABSOLUTE_ENV });
   if (args.includes("--version") || args.includes("-v")) {
     o.out(JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version);
