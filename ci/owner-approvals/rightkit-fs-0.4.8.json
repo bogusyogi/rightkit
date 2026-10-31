@@ -1,0 +1,8 @@
+{
+  "schema": 2,
+  "issue": "https://github.com/bogusyogi/rightkit/issues/1322",
+  "sourceSha": "64a9c3bd27fc9f7cb88648403d7a5dac8652f267",
+  "ciRunId": 41243726064,
+  "ciRunAttempt": 1,
+  "units": [{ "name": "rightkit-fs", "version": "0.4.8" }]
+}
