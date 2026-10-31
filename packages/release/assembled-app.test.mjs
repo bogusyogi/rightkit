@@ -326,3 +326,25 @@ test("production assemble-app (win): payload, binding, then makensis before the 
   assert.match(log.at(-1), /sign-windows\.mjs .*Demo-Setup\.exe$/);
   assert.deepEqual(nsisArguments({ root: "/r", spec: validateWindowsAssembly(winSpec()), payload: "P", output: "O", version: "9" }), ["/V2", "/DSTAGE=P", "/DOUT=O", "/DVERSION=9", path.resolve("/r", "release/demo.nsi")]);
 });
+
+test("[GB-59] assemble --build: each prepare step takes the one build door (carried Cargo/pnpm launch with its declared env), an unsupported custom step is refused before anything is spawned, the dirty checkout is ignored", async (t) => {
+  const { buildLaunch, BUILD_LAUNCH_REFUSED } = await import("./build-launch.mjs");
+  const CLIENT = "/managed/agent-bin/rustright";
+  const managed = { env: { PATH: "/managed/agent-bin" }, platform: "darwin", exists: (p) => p === CLIENT, which: (c) => (c === "rustright" ? [CLIENT] : []) };
+  const door = (command, args, host) => buildLaunch(command, args, { ...managed, cwd: host.cwd, stepEnv: host.stepEnv });
+  const run = (spawned) => (command, args, options) => { spawned.push({ command, args, env: options?.env }); return { status: 0 }; };
+  const stepsOf = (release) => ({ assembly: { mac: macSpec({ prepare: { release } }) } });
+  const common = (spawned) => ({ run: run(spawned), log: () => {}, resolveCommand: (command, args) => ({ command, args }), door, storage: () => ({ derivedData: "x" }), buildOuter: () => { throw new Error("stop after prepare"); } });
+  // Cargo and pnpm: each is one broker-client launch (cargo by the client, pnpm as the rightkit-pnpm adapter job); never the raw tool.
+  const f = fixture(t); macTree(f);
+  f.receipt([{ name: "democli", profile: "release", content: "cli-bytes" }, { name: "smartctl", kind: "remote", content: "smart-bytes" }]);
+  const spawned = [];
+  await assert.rejects(assembleApp({ root: f.root, config: stepsOf([{ cmd: "cargo", args: ["build", "--release", "-p", "democli"] }, { cmd: "pnpm", args: ["run", "build"], env: { RK_ISOLATED_CHECKOUT: "1" } }]), opts: parseAssembleArgs(["--platform", "mac", "--build"]), env: {}, deps: common(spawned) }), /stop after prepare/);
+  assert.deepEqual(spawned.map((s) => [s.command, s.args.slice(0, 3)]), [[CLIENT, ["cargo", "build", "--release"]], [CLIENT, ["run", "rightkit-pnpm", "--"]]], "every admitted step is one door launch");
+  assert.ok(JSON.stringify(spawned[1]).includes("RK_ISOLATED_CHECKOUT"), "the step's declared env rides the adapter launch");
+  // An unsupported custom command refuses before any spawn, naming the step.
+  const refused = [];
+  await assert.rejects(assembleApp({ root: f.root, config: stepsOf([{ cmd: "make", args: ["all"] }]), opts: parseAssembleArgs(["--platform", "mac", "--build"]), env: {}, deps: common(refused) }), (e) => /prepare command refused before it started/.test(e.message) && /no broker adapter runs this command/.test(e.message));
+  assert.deepEqual(refused, [], "nothing was spawned");
+  assert.ok(BUILD_LAUNCH_REFUSED);
+});

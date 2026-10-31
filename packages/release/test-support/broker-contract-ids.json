@@ -1,0 +1,166 @@
+{
+ "schema": "rightkit.broker-contract-ids/1",
+ "note": "The ids of rustright/docs/BROKER-CONTRACT.md that docs/GATE-CONTRACT.md may link to (audit GB-30). Read only: refreshed by hand from the pinned file when RustRight publishes a new revision; gate-contract-links.test.mjs fails on a link that is not here.",
+ "source": {
+  "repo": "rustright",
+  "path": "docs/BROKER-CONTRACT.md",
+  "commit": "bf8a2bb4383cd1ff09c6760b695a9588e50d2844",
+  "sha256": "d992c426d828cc51ef61782975874e44ad0d0f70e21fe8f01a1f1047e762bcf6"
+ },
+ "decisions": [
+  "D1",
+  "D2",
+  "D3"
+ ],
+ "acceptance": [
+  "B1",
+  "B2",
+  "B3",
+  "B4",
+  "B5",
+  "B6",
+  "B7",
+  "B8",
+  "B9",
+  "B10",
+  "B11",
+  "B12",
+  "B13",
+  "B14",
+  "B15",
+  "B16",
+  "B17",
+  "B18",
+  "B19",
+  "B20",
+  "B21",
+  "B22",
+  "B23",
+  "B24",
+  "B25",
+  "B26",
+  "B27",
+  "B28",
+  "B29",
+  "B30",
+  "B31",
+  "B32",
+  "B33",
+  "B34",
+  "B35",
+  "B36",
+  "B37"
+ ],
+ "requirements": {
+  "BR1": {
+   "subject": "Candidate-first install, cutover, bootstrap, rollback",
+   "status": "operative"
+  },
+  "BR2": {
+   "subject": "Bounded switch, fence, shutdown, drain",
+   "status": "operative"
+  },
+  "BR3": {
+   "subject": "Preserve operator configuration, origin check, readback",
+   "status": "operative"
+  },
+  "BR4": {
+   "subject": "One signing identity and bundle id",
+   "status": "operative"
+  },
+  "BR5": {
+   "subject": "Environment forwarding and request identity",
+   "status": "operative"
+  },
+  "BR6": {
+   "subject": "Scheduler robustness, maintenance off the admission path",
+   "status": "operative"
+  },
+  "BR7": {
+   "subject": "Visible job state",
+   "status": "operative"
+  },
+  "BR8": {
+   "subject": "Release and heartbeat",
+   "status": "operative"
+  },
+  "BR9": {
+   "subject": "Named holders, atomic reclaim",
+   "status": "operative"
+  },
+  "BR10": {
+   "subject": "Pipes and scans",
+   "status": "operative"
+  },
+  "BR11": {
+   "subject": "Windows Job Object containment",
+   "status": "operative"
+  },
+  "BR12": {
+   "subject": "Atomic durable writes",
+   "status": "operative"
+  },
+  "BR13": {
+   "subject": "Cache gateway isolation",
+   "status": "operative"
+  },
+  "BR14": {
+   "subject": "Priority and parallelism",
+   "status": "operative"
+  },
+  "BR15": {
+   "subject": "Attestation keys",
+   "status": "operative"
+  },
+  "BR16": {
+   "subject": "Directory classes, census, creator cleanup",
+   "status": "operative"
+  },
+  "BR18": {
+   "subject": "Test isolation",
+   "status": "operative"
+  },
+  "BR19": {
+   "subject": "Receipt fields profile, stage, resources, environment",
+   "status": "operative"
+  },
+  "BR20": {
+   "subject": "Every build enters through the gate (cloud clause superseded, R2)",
+   "status": "operative"
+  },
+  "BR21": {
+   "subject": "Managed commands",
+   "status": "operative"
+  },
+  "BR22": {
+   "subject": "Host independence",
+   "status": "operative"
+  },
+  "BR29": {
+   "subject": "Every failure in one run",
+   "status": "operative"
+  },
+  "BR30": {
+   "subject": "Published, CI-qualified gate; candidate witnessed before apps",
+   "status": "operative"
+  }
+ },
+ "sections": [
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12,
+  13,
+  14,
+  15,
+  16
+ ]
+}

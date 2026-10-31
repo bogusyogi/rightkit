@@ -74,14 +74,14 @@ export function runCarriedCargo(args, options = {}, { map, spawn = spawnSync, er
   if (!Object.hasOwn(map.workspaces, workspace)) return refuse("RK_CARGO_UNBOUND_WORKSPACE", `\`cargo ${words.join(" ")}\` builds the Cargo workspace ${workspace}, which is not one this snapshot stage resolved (${Object.keys(map.workspaces).join(", ") || "none"})`);
   const capture = options.stdio === "inherit" ? "inherit" : "capture";
   const result = carryBrokerCargo({ words, cwd: from, env, section: map.broker, workspace, checkoutWorkspace: map.workspaces[workspace], record: (entry) => record({ ...entry, id: base.id }), spawn, err, stdio: capture });
-  return { status: result.status, signal: null, stdout: result.stdout, stderr: result.stderr, error: null, ...(result.outcome?.status === "verified" ? { outputDir: result.outcome.outputDir } : {}), ...(result.outcome?.status === "refused" ? { refusal: { code: result.outcome.code, message: result.outcome.message } } : {}) };
+  return { status: result.status, signal: null, stdout: result.stdout, stderr: result.stderr, error: null, ...(result.outcome?.status === "verified" ? { outputDir: result.outcome.outputDir, requestId: result.outcome.requestId, requestDigest: result.outcome.requestDigest } : {}), ...(result.outcome?.status === "refused" ? { refusal: { code: result.outcome.code, message: result.outcome.message } } : {}) };
 }
 
 /**
  * One right-release pnpm, node or QA step, carried as a broker adapter job. `adapter` is the registered adapter (`rightkit-pnpm`,
  * `rightkit-node`, `rightkit-qa`), `args` the adapter's arguments (what follows `--` in `rustright run <adapter> -- <args>`); `options` is
  * the spawn options of the step (`cwd`, `env`, `stdio`). Returns a `spawnSync`-shaped result with `outputDir` (the job's) and
- * `nestedChildren` (the verified signed list) when the call verified.
+ * `nestedChildren` (the verified signed list), `requestId` and, for a native build tool, `executable.managedOutputs` (the output mapping the broker signed) when the call verified.
  */
 export function runCarriedAdapter(adapter, args, options = {}, { map, spawn = spawnSync, err = (m) => process.stderr.write(`${m}\n`) } = {}) {
   const env = options.env ?? process.env;
@@ -91,7 +91,7 @@ export function runCarriedAdapter(adapter, args, options = {}, { map, spawn = sp
   const verified = result.outcome?.status === "verified";
   return {
     status: result.status, signal: null, stdout: result.stdout, stderr: result.stderr, error: null,
-    ...(verified ? { outputDir: result.outcome.outputDir, nestedChildren: result.outcome.nestedChildren } : {}),
+    ...(verified ? { outputDir: result.outcome.outputDir, requestId: result.outcome.requestId, nestedChildren: result.outcome.nestedChildren, ...(result.executable ? { executable: result.executable } : {}) } : {}),
     ...(result.outcome?.status === "refused" ? { refusal: { code: result.outcome.code, message: result.outcome.message } } : {}),
   };
 }
@@ -183,6 +183,19 @@ export function carriedOutputDirsSince(env = process.env, before = new Set()) {
   let entries = [];
   try { entries = readLedger(carried.map.ledgerDir, env[SCAN_TOKEN_ENV]).entries; } catch { return []; }
   return [...new Set(entries.filter((e) => e.status === "verified" && !before.has(e.id)).flatMap(outputsOf))];
+}
+
+/**
+ * The output directory the broker signed for the carried ADAPTER job of `adapter` (a native tool such as `rightkit-xcodebuild`) added to the ledger since `before`, or null: the last such
+ * verified call's own `outputDir` (the one managed root the adapter owns). A call that was refused, unverified or unfinished names none.
+ */
+export function carriedAdapterOutputDir(env, adapter, before = new Set()) {
+  const carried = carriedCargoMapOf(env);
+  if (!carried?.map) return null;
+  let entries = [];
+  try { entries = readLedger(carried.map.ledgerDir, env[SCAN_TOKEN_ENV]).entries; } catch { return null; }
+  const mine = entries.filter((e) => e.status === "verified" && e.shim === "adapter" && e.adapter === adapter && !before.has(e.id) && typeof e.outputDir === "string");
+  return mine.length ? mine.at(-1).outputDir : null;
 }
 
 /**

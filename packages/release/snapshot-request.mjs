@@ -20,7 +20,10 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { canonicalJson, ProvenanceError, verifyProvenance } from "./provenance-verify.mjs";
+import { REQUEST_OVER_CAP_CODE, requestOverCap } from "./broker-wire.mjs";
+import { ownerFileOf, writeCarrierOwner } from "./carrier-census.mjs";
+import { BROKER_COMPILE_COMMANDS, CARGO_COMMAND_ALIASES, cargoCommandIndex, cargoSubcommandOf, expandCargoAliases, isCompileCommand, isPackageObservation } from "./cargo-shapes.mjs";
+import { canonicalJson, CAUSE_EVIDENCE_SCHEMA, CAUSE_UNEXPLAINED, CAUSE_UNKNOWN, ProvenanceError, requireExplainedCauses, verifyBr19Evidence, verifyCauseEvidence, verifyProvenance, verifyReceiptCoverage, verifyResultEvidence } from "./provenance-verify.mjs";
 
 export const SNAPSHOT_REQUEST_SCHEMA = "rustright.snapshot-request/1";
 // One spelling per variable, the current one (rustright-cli shims.rs reads RUSTRIGHT_* first, then the legacy RIGHTKIT_* spelling, which task
@@ -45,68 +48,20 @@ export const STAGE_EVIDENCE_FIELDS = Object.freeze(["freshness", "attribution", 
 /** The result fields the broker signs in payload.resultEvidence and mirrors on the receipt (attestation.rs RESULT_EVIDENCE_FIELDS). */
 export const RESULT_EVIDENCE_FIELDS = Object.freeze(["exit", "signal", "timingsMs", "diagnosticsPath"]);
 const TIMING_KEYS =Object.freeze(["admission", "queue", "bind", "cargo", "afterExitBind", "diagnostics"]);
+/** The broker's code for a compile whose toolchain identity cannot be built (checked_toolchain_identity), and the gate's typed error code for it. */
+export const TOOLCHAIN_UNAVAILABLE_CODE = "RK_TOOLCHAIN_IDENTITY_UNAVAILABLE";
+export const TOOLCHAIN_UNAVAILABLE = "toolchain-unavailable";
+/** `{"state":"UNKNOWN","reason":<non-empty string>}` exactly: the one spelling of an identity the broker could not establish (BR19). */
+export const isToolchainUnknown = (v) => v !== null && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 2 && v.state === "UNKNOWN" && typeof v.reason === "string" && v.reason !== "";
 /** `<toolchain>|cargo:<sha256>|rustc:<sha256>` (rustright toolchain_identity). */
 const TOOLCHAIN_FORMAT = /^[^|\s][^|]*\|cargo:[0-9a-f]{64}\|rustc:[0-9a-f]{64}$/;
 
-/**
- * The ONE table of what the broker classifies as a compile (a Capability that builds: its receipt carries freshness, attribution and toolchain), read from
- * rustright b84ae605 crates/rustright-policy/src/command_policy.rs `cargo_capability`: `fix` (:581), `run` (:597, CARGO_RUN = BUILD that stays resident),
- * `package` unless it is the observation shape (:611, `observation_only_cargo`), `publish` (:615) and `build check test bench clippy doc rustc rustdoc` (:619).
- * Both decisions the gate makes from an argv derive from it: which evidence a receipt must carry (`isCompileClass`) and which commands get `--locked`
- * (`lockedArgv`). `package` is a compile only when it is not the exact `-p <crate> --list --locked [--allow-dirty]` listing (`isPackageObservation`).
- */
-export const BROKER_COMPILE_COMMANDS = Object.freeze(["fix", "run", "package", "publish", "build", "check", "test", "bench", "clippy", "doc", "rustc", "rustdoc"]);
-/**
- * The one-letter aliases of Cargo. The broker lists none (an alias is refused there); the gate reads one as the command it expands to, so an alias can only
- * make the gate demand MORE evidence and lock MORE, never less.
- */
-export const CARGO_COMMAND_ALIASES = Object.freeze({ b: "build", c: "check", t: "test", r: "run", d: "doc" });
-const canonicalCommand = (sub) => (typeof sub === "string" && Object.hasOwn(CARGO_COMMAND_ALIASES, sub) ? CARGO_COMMAND_ALIASES[sub] : sub);
-const GLOBAL_VALUE_OPTIONS = new Set(["--color", "--explain"]);
-
-/** The cargo subcommand of an argv (without `cargo`): after an optional `+toolchain` and the global options, before `--`; null when there is none. */
-export function cargoSubcommandOf(argv) {
-  const words = [...argv];
-  for (let i = words[0]?.startsWith("+") ? 1 : 0; i < words.length; i += 1) {
-    const w = words[i];
-    if (w === "--") return null;
-    if (GLOBAL_VALUE_OPTIONS.has(w)) { i += 1; continue; }
-    if (w.startsWith("-")) continue;
-    return w;
-  }
-  return null;
-}
-const PACKAGE_PLAIN_FLAGS = new Set(["--list", "--locked", "--allow-dirty"]);
-/**
- * Whether `argv` is the one package form the broker admits as an observation that compiles nothing (rustright build_rules.rs `observation_only_cargo`, package
- * arm): no `--`, no `+toolchain`, the subcommand as the one positional, `-p`/`--package` once with a value that is not a flag (`--package=x` is read, `-p=x` is not),
- * and only `--list`, `--locked` and `--allow-dirty` besides; it must carry `--list`, `--locked` and one package. Anything else is a compiling package.
- */
-export function isPackageObservation(argv) {
-  const words = [...argv];
-  if (words.includes("--") || words.some((w) => w.startsWith("+")) || cargoSubcommandOf(words) !== "package") return false;
-  let seen = false; let list = false; let locked = false; let packages = 0;
-  for (let i = 0; i < words.length; i += 1) {
-    const w = words[i];
-    if (!w.startsWith("-")) { if (seen || w !== "package") return false; seen = true; continue; }
-    const eq = w.startsWith("--") ? w.indexOf("=") : -1;
-    const name = eq >= 0 ? w.slice(0, eq) : w; const inline = eq >= 0 ? w.slice(eq + 1) : null;
-    if (name === "-p" || name === "--package") {
-      const value = inline ?? words[++i];
-      if (typeof value !== "string" || value === "" || value.startsWith("-")) return false;
-      packages += 1; if (packages > 1) return false;
-      continue;
-    }
-    if (!PACKAGE_PLAIN_FLAGS.has(name) || inline !== null) return false;
-    if (name === "--list") list = true; else if (name === "--locked") locked = true;
-  }
-  return seen && list && locked && packages === 1;
-}
+// GB-01/GB-02: the command-shape table is cargo-shapes.mjs (one versioned table, exercised against RustRight's cargo-shapes vector); these names
+// are its views for the carried call. `isCompileClass` decides which evidence a receipt must carry from the broker's own compile rule (the `compile`
+// column of the vector), so bench, run, rustdoc and a compiling `package` owe it too and a read-only metadata or `package --list` legitimately carries none.
+export { BROKER_COMPILE_COMMANDS, CARGO_COMMAND_ALIASES, cargoSubcommandOf, isPackageObservation };
 /** Whether the broker classifies this argv (without the tool name) as a compile. `package` is one unless it is the observation listing. */
-export const isCompileClass = (argv) => {
-  const sub = canonicalCommand(cargoSubcommandOf(argv));
-  return BROKER_COMPILE_COMMANDS.includes(sub) && !(sub === "package" && isPackageObservation(argv));
-};
+export const isCompileClass = (argv) => isCompileCommand(argv);
 /** The commands that build or run, and so can rewrite Cargo.lock inside a snapshot unless they are locked (rightkit#1301): the same table as `isCompileClass`. */
 export const isLockBound = (argv) => isCompileClass(argv);
 
@@ -116,18 +71,41 @@ export const isLockBound = (argv) => isCompileClass(argv);
  * Adding it, not refusing, is the less surprising rule: the call runs as the caller meant it, except that a stale lock fails instead of
  * being rewritten. The ledger and the signed request digest both carry the argv as sent.
  */
+/** cargo-ndk's own options that take a value (outer grammar): `cargo ndk [-t <abi>] [-p|--platform <api>] [-o <dir>] ... <cargo subcommand> [cargo args]`. */
+const NDK_VALUE_OPTIONS = new Set(["-t", "--target", "-o", "--output-dir", "-p", "--platform"]);
+const NDK_INNER_LOCKED = new Set(["build", "b", "check", "c", "test", "t", "bench", "clippy", "doc", "rustc", "rustdoc", "run", "r"]);
+
+/**
+ * GB-62: `cargo ndk <outer options> build <cargo args>` is two grammars. The immutable-dependency flag belongs to the INNER Cargo command, so it is
+ * inserted right after that inner subcommand (never after `ndk`, where cargo-ndk would read it as its own option, and never before it). Returns the argv
+ * unchanged when the inner command is not a locked-class command, already carries `--locked`/`--frozen` before `--`, or cannot be found.
+ */
+function lockedNdkArgv(words) {
+  const end = words.indexOf("--");
+  const own = end < 0 ? words : words.slice(0, end);
+  let i = words.findIndex((w) => w === "ndk");
+  if (i < 0) return words;
+  for (i += 1; i < own.length; i += 1) {
+    const w = own[i];
+    if (NDK_VALUE_OPTIONS.has(w)) { i += 1; continue; }
+    if (w.startsWith("-")) continue;
+    break;
+  }
+  if (i >= own.length || !NDK_INNER_LOCKED.has(own[i])) return words;
+  if (own.slice(i + 1).some((w) => w === "--locked" || w === "--frozen")) return words;
+  return [...words.slice(0, i + 1), "--locked", ...words.slice(i + 1)];
+}
+
 export function lockedArgv(argv) {
-  const words = [...argv];
+  // GB-01: the standard aliases are expanded BEFORE locking and hashing, so what the gate sends, signs and digests is what the broker classifies
+  // (a committed `.cargo/config.toml` [alias] can never redefine it). Only the subcommand token changes.
+  const words = expandCargoAliases(argv);
+  if (cargoSubcommandOf(words) === "ndk") return lockedNdkArgv(words);
   if (!isLockBound(words)) return words;
   const end = words.indexOf("--");
   if ((end < 0 ? words : words.slice(0, end)).some((w) => w === "--locked" || w === "--frozen")) return words;
-  let i = words[0]?.startsWith("+") ? 1 : 0;
-  for (; i < words.length; i += 1) {
-    if (words[i] === "--") break;
-    if (GLOBAL_VALUE_OPTIONS.has(words[i])) { i += 1; continue; }
-    if (words[i].startsWith("-")) continue;
-    break;
-  }
+  const i = cargoCommandIndex(words);
+  if (i === null) return words;
   return [...words.slice(0, i + 1), "--locked", ...words.slice(i + 1)];
 }
 
@@ -176,9 +154,15 @@ export function carriedRequestOf(args, cwd = ".") {
   return { argv: lockedArgv(split.words), cwd: dir === "" ? "." : dir };
 }
 
-/** Where the gate's declared compile inputs are listed, as read from the snapshot (GATE-CONTRACT "Request"; the broker's COMPILE_INPUTS). */
-export const COMPILE_INPUTS = ".rightkit/compile-inputs.json";
-export const MAX_DECLARATION_BYTES = 1024 * 1024;
+/**
+ * Where the declared compile inputs are listed, as read from the snapshot (the broker's COMPILE_INPUTS; GB-49): `.rustright/compile-inputs.json` first,
+ * `.rightkit/compile-inputs.json` ONLY when the canonical file is absent. A present but invalid canonical declaration is an error, never a fallback.
+ */
+export const COMPILE_INPUTS_CANONICAL = ".rustright/compile-inputs.json";
+export const COMPILE_INPUTS_LEGACY = ".rightkit/compile-inputs.json";
+export const COMPILE_INPUTS = COMPILE_INPUTS_CANONICAL;
+export const COMPILE_INPUT_DECLARATIONS = Object.freeze([COMPILE_INPUTS_CANONICAL, COMPILE_INPUTS_LEGACY]);
+export const MAX_DECLARATION_BYTES = 4 * 1024 * 1024;
 const MAX_INPUT_FILES = 200_000;
 const MAX_INPUT_BYTES = 4 * 1024 * 1024 * 1024;
 
@@ -257,11 +241,19 @@ export function writeSnapshotRequest({ controlRoot, commit, snapshot, declaredIn
   };
   const bytes = Buffer.from(JSON.stringify(carrier), "utf8");
   if (bytes.length > CARRIER_MAX_BYTES) fail("too-large", `the snapshot request is ${bytes.length} bytes, more than ${CARRIER_MAX_BYTES}`);
+  // GB-53: the request line is 1 MiB, newline included, one unit with the response limit. The declared inputs ride in it with the envelope: a request that cannot fit is
+  // refused here, before the carrier is written, before it counts as sent, so no job exists.
+  const overCap = requestOverCap(Buffer.byteLength(JSON.stringify(carrier.declaredInputs)) + Buffer.byteLength(JSON.stringify({ commit: carrier.commit, snapshot: carrier.snapshot, ownership: carrier.ownership, primaryCwd, argv })));
+  if (overCap) fail(REQUEST_OVER_CAP_CODE, overCap);
   const file = path.join(dir, `${uuid()}.json`);
-  fs.writeFileSync(file, bytes, { flag: "wx", mode: 0o600 });
   const digest = sha256(bytes);
   const descriptor = JSON.stringify({ path: file, sha256: digest });
-  if (Buffer.byteLength(descriptor) > DESCRIPTOR_MAX_BYTES) { fs.rmSync(file, { force: true }); fail("too-large", "the snapshot request descriptor exceeds 4096 bytes"); }
+  if (Buffer.byteLength(descriptor) > DESCRIPTOR_MAX_BYTES) fail("too-large", "the snapshot request descriptor exceeds 4096 bytes");
+  // GB-76 (BROKER-CONTRACT section 16): the creator is recorded FIRST, in `<carrier>.owner.json` (the gate's identity as RustRight reads it, the call's nonce and sub-handle, the creation time), then
+  // the carrier; both are removed in the call's `finally`. A broker sweep retires a leftover only on proof that the gate is gone and nothing is held under the handle, never on age alone. A
+  // record that cannot be written leaves no carrier.
+  try { writeCarrierOwner({ file, handle: carrier.ownership.handle, nonce }); } catch (e) { if (e.code !== "EEXIST") fs.rmSync(ownerFileOf(file), { force: true }); fail("invalid", `the carrier's owner record cannot be written (${e.code ?? e.message}), so no carrier is left behind`); }
+  try { fs.writeFileSync(file, bytes, { flag: "wx", mode: 0o600 }); } catch (e) { fs.rmSync(ownerFileOf(file), { force: true }); throw e; }
   const env = { [SNAPSHOT_REQUEST_ENV]: descriptor, [ATTEST_NONCE_ENV]: nonce, ...(requestIdFile ? { [REQUEST_ID_FILE_ENV]: requestIdFile } : {}) };
   return { file, sha256: digest, descriptor, carrier, env };
 }
@@ -296,49 +288,69 @@ const same = (a, b) => canonicalJson(a ?? null) === canonicalJson(b ?? null);
 const lstatOrNull = (p) => { try { return fs.lstatSync(p); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
 
 /**
- * The declared inputs of a snapshot: `inputs` of `.rightkit/compile-inputs.json` read FROM THE SNAPSHOT, never the checkout. No
- * manifest means an empty set; a link on its path, a file that is not regular, an oversized or malformed manifest, or an input that
- * is not a plain relative path (absolute, `.`/`..`, inside `.git`, the manifest itself) is refused before any request is made.
+ * The declared inputs of a snapshot, read FROM THE SNAPSHOT, never the checkout, by the one rule every RightKit reader shares (the broker's, vector
+ * docs/contracts/declared-inputs.fixtures.json): `.rustright/compile-inputs.json` when it exists, else `.rightkit/compile-inputs.json`, else none. Either file
+ * is judged by the same checks: no link on its path, a regular file of at most 4 MiB, JSON with `inputs` a list of plain relative paths (not absolute, no `.`,
+ * `..` or empty component, not inside `.git`) and no input that is, or holds, either declaration file. A present but invalid canonical declaration is an
+ * error: it is never read as the legacy one.
  */
 export function readDeclaredInputs(snapshotRoot) {
-  const parts = COMPILE_INPUTS.split("/");
-  let at = snapshotRoot; let meta = null;
-  for (const part of parts) {
-    at = path.join(at, part);
-    meta = lstatOrNull(at);
-    if (meta === null) return [];
-    if (meta.isSymbolicLink()) fail("declared-inputs", `${COMPILE_INPUTS} runs through a link at ${at}`);
+  let file = null; let at = null; let meta = null;
+  for (const candidate of COMPILE_INPUT_DECLARATIONS) {
+    let here = snapshotRoot; let found = true;
+    for (const part of candidate.split("/")) {
+      here = path.join(here, part);
+      const m = lstatOrNull(here);
+      if (m === null) { found = false; break; }
+      if (m.isSymbolicLink()) fail("declared-inputs", `${candidate} runs through a link at ${here}`);
+      meta = m;
+    }
+    if (found) { file = candidate; at = here; break; }
   }
-  if (!meta.isFile()) fail("declared-inputs", `${COMPILE_INPUTS} is not a regular file`);
-  if (meta.size > MAX_DECLARATION_BYTES) fail("declared-inputs", `${COMPILE_INPUTS} is larger than ${MAX_DECLARATION_BYTES} bytes`);
+  if (file === null) return [];
+  if (!meta.isFile()) fail("declared-inputs", `${file} is not a regular file`);
+  if (meta.size > MAX_DECLARATION_BYTES) fail("declared-inputs", `${file} is larger than ${MAX_DECLARATION_BYTES} bytes`);
   let value;
-  try { value = JSON.parse(fs.readFileSync(at, "utf8")); } catch (e) { fail("declared-inputs", `${COMPILE_INPUTS} is not JSON (${e.message})`); }
-  if (!value || typeof value !== "object" || !Array.isArray(value.inputs)) fail("declared-inputs", `${COMPILE_INPUTS}: \`inputs\` must be a list of paths`);
+  try { value = JSON.parse(fs.readFileSync(at, "utf8")); } catch (e) { fail("declared-inputs", `${file} is not JSON (${e.message})`); }
+  if (!value || typeof value !== "object" || !Array.isArray(value.inputs)) fail("declared-inputs", `${file}: \`inputs\` must be a list of paths`);
   for (const input of value.inputs) {
-    if (typeof input !== "string" || !input) fail("declared-inputs", `${COMPILE_INPUTS}: every input is a non-empty relative path`);
+    if (typeof input !== "string" || !input) fail("declared-inputs", `${file}: every input is a non-empty relative path`);
     const components = input.split(/[\\/]/);
-    if (path.isAbsolute(input) || path.posix.isAbsolute(input) || path.win32.isAbsolute(input) || components.some((c) => c === "" || c === "." || c === "..")) fail("declared-inputs", `${COMPILE_INPUTS}: ${input} is not a plain relative path inside the snapshot`);
-    if (components.some((c) => c.toLowerCase() === ".git")) fail("declared-inputs", `${COMPILE_INPUTS}: ${input} is inside .git; repository metadata is never a compile input`);
-    if (components.length <= parts.length && components.every((c, i) => c === parts[i])) fail("declared-inputs", `${COMPILE_INPUTS}: ${input} overlaps the declaration file itself`);
+    if (path.isAbsolute(input) || path.posix.isAbsolute(input) || path.win32.isAbsolute(input) || components.some((c) => c === "" || c === "." || c === "..")) fail("declared-inputs", `${file}: ${input} is not a plain relative path inside the snapshot`);
+    if (components.some((c) => c.toLowerCase() === ".git")) fail("declared-inputs", `${file}: ${input} is inside .git; repository metadata is never a compile input`);
+    for (const declaration of COMPILE_INPUT_DECLARATIONS) {
+      const parts = declaration.split("/");
+      if (components.length <= parts.length && components.every((c, i) => c === parts[i])) fail("declared-inputs", `${file}: ${input} overlaps the declaration file itself (${declaration})`);
+    }
   }
   return [...value.inputs];
+}
+
+/** The inputs a request supplied must be exactly the declaration the snapshot holds (the broker's check): a throw naming the difference. */
+export function assertSuppliedInputs(snapshotRoot, supplied) {
+  const declared = readDeclaredInputs(snapshotRoot);
+  if (!same(declared, supplied)) fail("declared-inputs", "the snapshot's declared inputs are not the ones this request carried (declaredInputs differs from the snapshot declaration)");
+  return declared;
 }
 
 /**
  * The `declaredInputDigests` the broker records for these inputs, computed here from the snapshot: per input, sha256 over, for each
  * regular file in directory order (names sorted by their bytes), the file's relative name, a NUL, its bytes and a NUL. A link
- * anywhere, a special file, or a limit breach is a refusal. Child names are joined with the platform's separator, as the broker's
- * `Path::join` does.
+ * anywhere, a special file, or a limit breach is a refusal. The name is the input's path components joined by `/` on EVERY platform (GB-49: RustRight hashes
+ * `/` on Windows too, so a `\` in a declaration or a platform separator never reaches the hash), UTF-8, no Unicode normalisation.
+ *
+ * `allowAbsent` is set ONLY for a non-compiling snapshot-bound request (the carried read-only set): a declared input that does not exist in the
+ * snapshot (ENOENT/ENOTDIR on a component; a link is still refused) is then the entry `{ path, absent: true }` (no `sha256`, 0 files, 0 bytes), the
+ * wire form RustRight signs. A compile request never allows it: a missing declared input is a refusal there (the build outputs must exist).
  */
-export function declaredInputDigestsOf(snapshotRoot, inputs, { platform = process.platform } = {}) {
-  const sep = platform === "win32" ? "\\" : "/";
+export function declaredInputDigestsOf(snapshotRoot, inputs, { allowAbsent = false } = {}) {
   let files = 0; let bytes = 0;
   const walk = (full, name, hasher) => {
     const meta = fs.lstatSync(full);
     if (meta.isSymbolicLink()) fail("declared-inputs", `declared compile input holds a link at ${name}`);
     if (meta.isDirectory()) {
       const children = fs.readdirSync(full).sort((a, b) => Buffer.compare(Buffer.from(a, "utf8"), Buffer.from(b, "utf8")));
-      for (const child of children) walk(path.join(full, child), name.endsWith("/") || name.endsWith("\\") ? `${name}${child}` : `${name}${sep}${child}`, hasher);
+      for (const child of children) walk(path.join(full, child), `${name}/${child}`, hasher);
       return;
     }
     if (!meta.isFile()) fail("declared-inputs", `declared compile input ${name} is not a regular file or directory`);
@@ -366,11 +378,14 @@ export function declaredInputDigestsOf(snapshotRoot, inputs, { platform = proces
     for (const part of input.split(/[\\/]/)) {
       at = path.join(at, part);
       let meta;
-      try { meta = fs.lstatSync(at); } catch (e) { fail("declared-inputs", `${input}: ${e.message}`); }
+      try { meta = fs.lstatSync(at); } catch (e) {
+        if (allowAbsent && (e.code === "ENOENT" || e.code === "ENOTDIR")) return { path: input, absent: true };
+        fail("declared-inputs", `${input}: ${e.message}`);
+      }
       if (meta.isSymbolicLink()) fail("declared-inputs", `${input} runs through a link at ${at}`);
     }
     const hasher = crypto.createHash("sha256");
-    walk(at, input, hasher);
+    walk(at, input.split(/[\\/]/).join("/"), hasher);
     return { path: input, sha256: hasher.digest("hex") };
   });
 }
@@ -491,7 +506,7 @@ export function verifyNestedChildren(evidence, receipt, { snapshotPath, checkout
 
 /**
  * Verifies the receipt of one snapshot request (a cargo call, or with `adapter` an adapter job). `pins` come from this host's enrollment, never from the receipt.
- * Returns `{ payload, evidence }`; throws ProvenanceError (legacy, signature, pins, job, nonce, request) or SnapshotRequestError (evidence).
+ * Returns `{ payload, evidence, attribution, toolchain, nestedChildren, requestDigest, causeEvidence }` (`causeEvidence` is null for a command that carries none); throws ProvenanceError (legacy, signature, pins, job, nonce, request, evidence, cause-unknown, cause-unexplained) or SnapshotRequestError (evidence).
  *
  * Beyond the signature, the job, the nonce and the request digest, the receipt must carry (item 7 row 7.22):
  *   - signed SUCCEEDED with exit 0, and signed snapshotEvidence equal to the receipt's copies (commit, ownership handle, request id,
@@ -499,7 +514,9 @@ export function verifyNestedChildren(evidence, receipt, { snapshotPath, checkout
  *   - `declaredInputDigests` equal to the gate's own digest of the snapshot's declared inputs, read from the snapshot now;
  *   - `outputDir` absolute, outside the snapshot and the checkout, and a managed generation target under one of `outputRoots`;
  *   - signed stageEvidence (freshness, attribution, toolchain) equal to the receipt's;
- *   - verdict, timingsMs, exit, diagnosticsPath, brokerVersion, executor and refreshed present with their types.
+ *   - for a compile, freshness.causeEvidence (rustright.cause-evidence.v1) coherent with its census and with a verdict of `explained`: refused as `evidence` when missing,
+ *     of another schema or incoherent, `cause-unknown` when the broker could not say why units were rebuilt, `cause-unexplained` when a rebuilt unit has no explained cause (RA-03);
+ *   - timingsMs, exit, diagnosticsPath, brokerVersion and executor present with their types; the retired `verdict` and `refreshed` are refused (GB-30: Class A and its verdict reuse are the gate's).
  * `checkout` and `outputRoots` are required: without them nothing can be said about where the outputs went, so it refuses.
  */
 export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, workspace, observedEnv = {}, adapter = null, adapterEnv = {}, checkout, outputRoots, platform = process.platform, canonicalPath = (p) => fs.realpathSync.native(p), digestInputs = declaredInputDigestsOf, readInputs = readDeclaredInputs }) {
@@ -514,6 +531,8 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
     // `snapshot exit bind: ...` message; the field that carries it is pending RustRight's confirmation, so the usual spellings are read).
     // The signed result of a broker verdict after a clean run (FAILED with exit 0: RR_UNEXPLAINED_COLD, ...) carries no reason; the receipt's own
     // unsigned `error` names it. It is shown for diagnosis only and decides nothing: the verdict is the signed status.
+    // GB-66: a compile the broker refused to run because it could not name its toolchain fails with this code (and an UNKNOWN toolchain on its receipt).
+    if ([result.code, receipt?.code].includes(TOOLCHAIN_UNAVAILABLE_CODE)) fail(TOOLCHAIN_UNAVAILABLE, `the broker did not run this compile: it could not build the toolchain identity (${TOOLCHAIN_UNAVAILABLE_CODE}${isToolchainUnknown(receipt?.toolchain) ? `: ${receipt.toolchain.reason}` : ""}); register the toolchain's cargo and rustc and its name, then ask again`);
     const why = [result.message, result.error, result.reason].find((v) => typeof v === "string" && v !== "");
     const unsigned = why ? "" : [receipt?.error, receipt?.code].find((v) => typeof v === "string" && v !== "");
     fail("result", `the broker signed ${result.status ?? "no status"} (exit ${result.exitCode ?? "none"}${result.signal ? `, signal ${result.signal}` : ""}${why ? `; ${why}` : ""}${unsigned ? `; the receipt's unsigned error: ${unsigned}` : ""}), not SUCCEEDED with exit 0`);
@@ -528,13 +547,20 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
     samePath: (a, b) => { try { return canonicalPath(a) === canonicalPath(b); } catch { return false; } },
   });
   // Declared inputs: what the broker digested in place must be what the gate digests in the snapshot, from the same manifest.
+  // An absent entry ({path, absent:true}) is evidence only for a non-compiling snapshot-bound request, and only when the gate's own read of the
+  // snapshot finds the input absent too: the gate digests with `allowAbsent` for that class alone, so a receipt that says absent where the gate
+  // sees the input present (or present where it is absent) differs below and is refused. A compile receipt never carries one.
+  const nonCompile = adapter === null && !isCompileClass(argv);
+  if (!nonCompile && Array.isArray(evidence.declaredInputDigests) && evidence.declaredInputDigests.some((d) => isObject(d) && (d.absent !== undefined || d.sha256 === undefined))) {
+    fail("evidence", "the signed declaredInputDigests carry an absent declared input on a compile request (cargo " + `${cargoSubcommandOf(argv)}); only a non-compiling request may record one`);
+  }
   let gateInputs; let gateDigests;
   try {
     gateInputs = readInputs(carrier.snapshot.path);
-    gateDigests = digestInputs(carrier.snapshot.path, gateInputs, { platform });
+    gateDigests = digestInputs(carrier.snapshot.path, gateInputs, { platform, allowAbsent: nonCompile });
   } catch (e) { fail("evidence", `the gate cannot digest the snapshot's declared inputs (${e.message})`); }
-  if (!same(gateInputs, carrier.declaredInputs?.inputs)) fail("evidence", "the snapshot's declared inputs are not the ones this request carried");
-  if (!same(evidence.declaredInputDigests, gateDigests)) fail("evidence", "the signed declaredInputDigests are not the gate's own digest of the snapshot's declared inputs");
+  if (!same(gateInputs, carrier.declaredInputs?.inputs)) fail("evidence", "the snapshot's declared inputs are not the ones this request carried (declaredInputs differs from the snapshot declaration)");
+  if (!same(evidence.declaredInputDigests, gateDigests)) fail("evidence", "the signed declaredInputDigests are not the gate's own digest of the snapshot's declared inputs (an input the receipt records absent must be absent in the snapshot, and the reverse)");
   // Output directory: where the outputs went must be the broker's managed generation target, never under the snapshot or the checkout.
   const out = evidence.outputDir;
   if (typeof out !== "string" || !path.isAbsolute(out) && !path.win32.isAbsolute(out)) fail("evidence", "the signed evidence names no absolute output directory");
@@ -562,12 +588,33 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   // Shapes RustRight emits (item 4 row 4.18): attribution is `{available, ...}`, and an unavailable one names its reason
   // (`cargo-json-message-format-not-requested` without a JSON message stream; a consumer that needs per-package attribution treats
   // `available:false` as FAILED, not partial); toolchain is `<toolchain>|cargo:<sha256>|rustc:<sha256>`.
+  // GB-02 (BROKER-CONTRACT section 14): a compile's freshness is an object with a boolean `available`, and `available: false` always names a reason: absence is never an
+  // unavailable census, and an unavailable one on a SUCCEEDED compile is the broker's own failure (RR_FRESHNESS_UNAVAILABLE), never evidence.
+  if (compile) {
+    const freshness = receipt.freshness;
+    if (!isObject(freshness) || typeof freshness.available !== "boolean") fail("evidence", "receipt freshness is not {available, ...}");
+    if (freshness.available === false && !(typeof freshness.reason === "string" && freshness.reason !== "")) fail("evidence", "receipt freshness is unavailable and names no reason");
+  }
   const attribution = receipt.attribution ?? null; const toolchain = receipt.toolchain ?? null;
   if (attribution !== null) {
     if (!isObject(attribution) || typeof attribution.available !== "boolean") fail("evidence", "receipt attribution is not {available, ...}");
     if (attribution.available === false && !(typeof attribution.reason === "string" && attribution.reason !== "")) fail("evidence", "receipt attribution is unavailable and names no reason");
   }
+  // GB-66: the broker signs `<name>|cargo:<sha256>|rustc:<sha256>` only when it could build that identity; when it could not (no configured name, an unregistered or
+  // changed cargo or rustc) the receipt's toolchain is exactly {"state":"UNKNOWN","reason":...}. That is a typed unavailable identity, never evidence and never a
+  // string with an empty component.
+  if (isToolchainUnknown(toolchain)) fail(TOOLCHAIN_UNAVAILABLE, `the broker could not name this compile's toolchain (${TOOLCHAIN_UNAVAILABLE_CODE}: UNKNOWN, ${toolchain.reason}); an unknown toolchain identity is not evidence, so the call is unverified and nothing is concluded from it`);
   if (toolchain !== null && !(typeof toolchain === "string" && TOOLCHAIN_FORMAT.test(toolchain))) fail("evidence", "receipt toolchain is not <toolchain>|cargo:<sha256>|rustc:<sha256>");
+  // RA-03: a census that counts rebuilt units says nothing about why they were rebuilt. A compile's signed freshness must carry `causeEvidence`
+  // (rustright.cause-evidence.v1: provenance-verify.mjs requireExplainedCauses, the one implementation) whose verdict is `explained`: a missing or unrecognized
+  // schema or an incoherent one is `evidence`, an `unknown` verdict (a quiet, caller-logged or artifact-running root whose log was not read, dropped output, an
+  // uncovered unit) is `cause-unknown`, and a unit rebuilt with no explained cause is `cause-unexplained`; none is a success, and none is relaxed for an older
+  // broker that signs no cause evidence. The judged object is the SIGNED copy (the receipt's equals it, checked above). A command that is not a compile
+  // legitimately carries no census; when one carries cause evidence anyway it must still be well formed, but nothing is judged for it (nothing was rebuilt).
+  const signedFreshness = stage.freshness ?? null;
+  let causeEvidence = null;
+  if (compile) causeEvidence = requireExplainedCauses(signedFreshness);
+  else if (isObject(signedFreshness) && signedFreshness.causeEvidence !== undefined) causeEvidence = verifyCauseEvidence(signedFreshness);
   // Fields the signature does not cover must still be present with their types (the consumer reads them). Every carried command:
   // exit (an integer, or null with a signal) and signal, timingsMs{admission, queue, bind, cargo, afterExitBind, diagnostics} (each a
   // number or null) and diagnosticsPath (a path, or null). Success needs exit 0 and no signal, as signed. `verdict` and `refreshed`
@@ -597,7 +644,13 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   for (const name of Object.keys(isObject(receipt.timingsMs) ? receipt.timingsMs : {})) if (!TIMING_KEYS.includes(name)) fail("evidence", `receipt timingsMs carries the unknown key ${name}`);
   // A snapshot-bound adapter job signs the compiles its own children made (rustright#190 D8).
   const nestedChildren = adapter === null ? null : verifyNestedChildren(evidence, receipt, { snapshotPath: carrier.snapshot.path, checkout, outputRoots, platform, canonicalPath, jobId });
-  return { payload, evidence, attribution, toolchain, nestedChildren };
+  // GB-10 / GB-11: whatever the checks above did not already name, the production strict verifier (`verify_receipt_strict`, provenance-verify.mjs, judged
+  // against RustRight's receipt vector case for case) must also accept: no signed-only or receipt-only field anywhere, the signed result evidence with exactly
+  // its four fields and six phases, and the BR19 shape (profile, stage, resources, environment; a value or a typed UNKNOWN, never absent).
+  verifyReceiptCoverage(receipt, payload);
+  verifyResultEvidence(receipt, payload);
+  verifyBr19Evidence(receipt, payload);
+  return { payload, evidence, attribution, toolchain, nestedChildren, requestDigest, causeEvidence };
 }
 
-export { ProvenanceError };
+export { CAUSE_EVIDENCE_SCHEMA, CAUSE_UNEXPLAINED, CAUSE_UNKNOWN, ProvenanceError };

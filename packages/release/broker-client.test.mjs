@@ -94,7 +94,7 @@ test("a carried call and a receipt read start the exe directly on win32; a carri
   const calls = [];
   const spawn = (file, args, options) => { calls.push({ file, args, options }); return { status: 0, stdout: "", stderr: "" }; };
   const env = { PATH: process.env.PATH, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs", RIGHTKIT_MANAGED_AGENT_SHIM: "1" };
-  const carry = (client) => carryBrokerCargo({ words: ["build", "--locked"], cwd: path.join(snapshotRoot, "crates", "a"), env, section: { ...brokerSection(fx.sb), markSend: () => ({}), client, platform: "win32" }, workspace: snapshotRoot, checkoutWorkspace: fx.checkout, record: () => {}, err: () => {}, stdio: "capture", spawn });
+  const carry = (client) => carryBrokerCargo({ words: ["build", "--locked"], cwd: path.join(snapshotRoot, "crates", "a"), env, section: { ...brokerSection(fx.sb), markSend: subHandleStub(fx.handle), client, platform: "win32" }, workspace: snapshotRoot, checkoutWorkspace: fx.checkout, record: () => {}, err: () => {}, stdio: "capture", spawn });
   const good = carry(shimFile(t, SHIM()));
   assert.equal(good.outcome.status, "unverified", "the stub client prints no receipt");
   assert.equal(calls[0].file, EXE);

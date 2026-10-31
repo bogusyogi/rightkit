@@ -12,6 +12,7 @@ import {
 import { formatSidecarPlan, nodeHostTriple, parseStageSidecarArgs } from "./stage-sidecar-command.mjs";
 import { contentIdentity } from "./content-digest.mjs";
 import { uncoveredBinaries } from "./binary-license-notices.mjs";
+import { simulateHostPlatform } from "./test-support/simulated-host.mjs";
 
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 const APP = path.resolve("/rk-fake-app");
@@ -714,13 +715,17 @@ test("a resource directory is copied recursively and every file is hashed into t
   await assert.rejects(stageSidecars({ appRoot: APP, target: WIN, manifest: [{ kind: "resource", from: "nope", to: "out" }], deps: deps({ fs }) }), { code: "STAGE_SIDECAR_RESOURCE_MISSING" });
 });
 
-test("nested broker context fails fast with the prepare-step fix; the escape hatch and non-broker entries are unaffected", async () => {
+test("nested broker context fails fast with the prepare-step fix; the escape hatch and non-broker entries are unaffected", async (t) => {
+  simulateHostPlatform(t, "darwin");
   const nested = { TAURI_ENV_PLATFORM: "darwin", TAURI_ENV_TARGET_TRIPLE: MAC, RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/broker.sock" };
-  assert.equal(isNestedBrokerContext(nested), true);
-  assert.equal(isNestedBrokerContext({ TAURI_ENV_PLATFORM: "darwin", RIGHTSUITE_HEAVY_WORK_OWNER: "1" }), true);
-  assert.equal(isNestedBrokerContext({ RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/broker.sock" }), false, "not inside a Tauri hook");
-  assert.equal(isNestedBrokerContext({ TAURI_ENV_PLATFORM: "darwin" }), false, "not a managed host");
-  assert.equal(isNestedBrokerContext({ ...nested, RIGHTKIT_STAGE_SIDECAR_ALLOW_NESTED: "1" }), false);
+  // The broker is the Mac's and the Dell's: the context is judged for the host asked about, not the machine the suite happens to run on (a Linux host has no broker).
+  assert.equal(isNestedBrokerContext(nested, "darwin"), true);
+  assert.equal(isNestedBrokerContext(nested, "win32"), true);
+  assert.equal(isNestedBrokerContext(nested, "linux"), false, "a Linux host has no outer broker build to nest in");
+  assert.equal(isNestedBrokerContext({ TAURI_ENV_PLATFORM: "darwin", RIGHTSUITE_HEAVY_WORK_OWNER: "1" }, "darwin"), true);
+  assert.equal(isNestedBrokerContext({ RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/broker.sock" }, "darwin"), false, "not inside a Tauri hook");
+  assert.equal(isNestedBrokerContext({ TAURI_ENV_PLATFORM: "darwin" }, "darwin"), false, "not a managed host");
+  assert.equal(isNestedBrokerContext({ ...nested, RIGHTKIT_STAGE_SIDECAR_ALLOW_NESTED: "1" }, "darwin"), false);
   const { fs, files } = fakeFs({ [at("a.bin")]: "a" });
   const calls = [];
   const run = (...args) => { calls.push(args); return { status: 0, stdout: "" }; };
@@ -2750,4 +2755,24 @@ test("nsis extraction runs 7z x -y -o<dir> installer member and fails closed on 
   assert.throws(() => defaultExtractNsisMember({ ...base, ...make("exe"), fileName: "../x.exe" }), { code: "STAGE_SIDECAR_EXTRACT_FAILED" });
   assert.deepEqual(sevenZipCandidates({ explicit: "/opt/7zz", env: {}, platform: "linux" }), ["/opt/7zz", "7z"]);
   assert.ok(sevenZipCandidates({ env: {}, platform: "win32" }).some((c) => c.endsWith("7z.exe")));
+});
+
+test("a staged file carries its source's mtime at millisecond precision, floored: never newer than the source, less than a millisecond older (Node's stat().mtime rounds, so x.6 ms must not become x+1 ms)", async () => {
+  const { fs } = fakeFs({ [at("a.bin")]: "a" });
+  const stat = fs.statSync;
+  const set = [];
+  fs.utimesSync = (file, atime, mtime) => set.push([path.resolve(file), atime, mtime]);
+  const stats = { [at("a.bin")]: { mtimeMs: 1793417797265.8967, mtime: new Date(1793417797266) } };
+  fs.statSync = (file) => ({ ...stat(file), ...(stats[path.resolve(file)] ?? {}) });
+  await stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "resource", from: "a.bin", to: "out/a.bin" }], deps: deps({ fs }) });
+  assert.deepEqual(set.map(([file, a, m]) => [file, a.getTime(), m.getTime()]), [[at("out", "a.bin"), 1793417797265, 1793417797265]], "the rounded-up Date is not what is carried");
+  // A whole-millisecond source is carried as it is; a double that gives only a Date (no mtimeMs) is carried as that Date.
+  set.length = 0; fs.rmSync(at("out", "a.bin"));
+  stats[at("a.bin")] = { mtimeMs: 1793417797266, mtime: new Date(1793417797266) };
+  await stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "resource", from: "a.bin", to: "out/a.bin" }], deps: deps({ fs }) });
+  assert.equal(set[0][2].getTime(), 1793417797266);
+  set.length = 0; fs.rmSync(at("out", "a.bin"));
+  stats[at("a.bin")] = { mtime: new Date(1793417797000) };
+  await stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "resource", from: "a.bin", to: "out/a.bin" }], deps: deps({ fs }) });
+  assert.equal(set[0][2].getTime(), 1793417797000);
 });

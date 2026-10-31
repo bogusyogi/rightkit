@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { ProvenanceError, brokerRequestIds, canonicalJson, carriedCallNonce, qualificationNonce, verifyProvenance } from "./provenance-verify.mjs";
+import { CAUSE_EVIDENCE_SCHEMA, CAUSE_UNEXPLAINED, CAUSE_UNKNOWN, EXPLAINED_CAUSES, ProvenanceError, brokerRequestIds, canonicalJson, carriedCallNonce, qualificationNonce, requireExplainedCauses, verifyCauseEvidence, verifyProvenance } from "./provenance-verify.mjs";
 import { makeSigner } from "./test-support/provenance-signer.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -142,4 +142,119 @@ test("golden vector: the carried-call nonce is sha256 of the domain, stage nonce
   assert.notEqual(carriedCallNonce({ stageNonce, cwd: "crates/rightkit-x", argv: [...argv, "--all"] }), base, "another argv");
   assert.notEqual(carriedCallNonce({ stageNonce, cwd: "crates/rightkit-x", argv }), stageNonce, "never the stage nonce itself");
   assert.match(base, /^[0-9a-f]{64}$/);
+});
+
+// ---- RA-03: the cause evidence a broker signs inside a compile's freshness (rustright.cause-evidence.v1, cargo_evidence.rs) ----
+// The freshness objects below are the compact forms `compact_freshness` signs (the keys of `Classification::compact`) for each state a real Cargo log and census can be
+// in (freshness_vectors.rs derives them from real log text). The verifier is a pure function of the object: no broker, no signer.
+const cause = (over = {}) => ({
+  schema: CAUSE_EVIDENCE_SCHEMA, state: "complete", verdict: "explained", basis: "reasons", unavailable: null, gaps: [], historyMigrationNeeded: false,
+  counts: { rows: 0, rowsDropped: 0, units: 0, unexplained: 0, uncovered: 0 }, unexplainedUnits: [], unexplainedUnitsTruncated: 0, uncoveredUnits: [], uncoveredUnitsTruncated: 0, ...over,
+});
+const rowCounts = (over = {}) => ({ rows: 1, rowsDropped: 0, units: 1, unexplained: 0, uncovered: 0, ...over });
+const unread = (reason, over = {}) => cause({ state: "unavailable", basis: "none", verdict: "unknown", unavailable: reason, gaps: ["log-not-read"], ...over });
+const census = (over = {}) => ({ available: true, unitsAtStart: 5, fresh: 5, notFresh: 0, parseErrors: 0, ...over });
+const evidenceRefusal = (fn, why) => assert.throws(fn, (e) => e instanceof ProvenanceError && e.code === "evidence" && why.test(e.message), why.source);
+const KEPT_UNIT = "app v0.1.0 (lib:app) [build]";
+const FORMS = {
+  sourceEdit: { freshness: census({ notFresh: 1, causeEvidence: cause({ counts: rowCounts() }), unexplainedCount: 0, causeCounts: { "source-or-dependency-changed": 1 } }), verdict: "explained", count: 0 },
+  everyExplainedCause: { freshness: census({ notFresh: 8, causeEvidence: cause({ counts: { rows: 8, rowsDropped: 0, units: 8, unexplained: 0, uncovered: 0 } }), unexplainedCount: 0, causeCounts: Object.fromEntries(EXPLAINED_CAUSES.map((name) => [name, 1])) }), verdict: "explained", count: 0 },
+  freshQuiet: { freshness: census({ invalidationReasonsUnavailable: "quiet-root", causeEvidence: cause({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "quiet-root" }), unexplainedCount: 0 }), verdict: "explained", count: 0 },
+  nothingCompiled: { freshness: { available: false, reason: "nothing-compiled", causeEvidence: cause({ state: "unavailable", basis: "nothing-compiled", unavailable: "not-read" }), unexplainedCount: 0 }, verdict: "explained", count: 0 },
+  removedFingerprint: { freshness: census({ notFresh: 1, causeEvidence: cause({ verdict: "unexplained", counts: rowCounts({ unexplained: 1 }), unexplainedUnits: [KEPT_UNIT] }), unexplainedCount: 1, causeCounts: { "fingerprint-missing": 1 } }), verdict: "unexplained", count: 1 },
+  quietRebuilt: { freshness: census({ notFresh: 1, invalidationReasonsUnavailable: "quiet-root", causeEvidence: unread("quiet-root"), unexplainedCount: null }), verdict: "unknown", count: null },
+  callerLogged: { freshness: census({ notFresh: 2, causeEvidence: unread("caller-cargo-log"), unexplainedCount: null }), verdict: "unknown", count: null },
+  testRun: { freshness: census({ notFresh: 3, causeEvidence: unread("root-executes-artifacts"), unexplainedCount: null }), verdict: "unknown", count: null },
+  outputDropped: { freshness: census({ notFresh: 1, causeEvidence: cause({ state: "incomplete", verdict: "unknown", gaps: ["output-dropped"] }), unexplainedCount: null, causeCounts: {} }), verdict: "unknown", count: null },
+};
+
+test("[RA-03] the schema and the set of explaining causes are pinned to the broker's", () => {
+  assert.equal(CAUSE_EVIDENCE_SCHEMA, "rustright.cause-evidence.v1");
+  assert.deepEqual([...EXPLAINED_CAUSES], ["first-build", "toolchain-changed", "source-or-dependency-changed", "env-rustflags-profile-features-or-target-changed", "generation-change", "authorized-eviction", "new-unit", "new-namespace"]);
+  assert.deepEqual([CAUSE_UNKNOWN, CAUSE_UNEXPLAINED], ["cause-unknown", "cause-unexplained"]);
+});
+
+test("[RA-03] verifyCauseEvidence reads every state a real log and census can be in, and the unexplained count is null exactly when the verdict is unknown", () => {
+  for (const [name, { freshness, verdict, count }] of Object.entries(FORMS)) {
+    const read = verifyCauseEvidence(structuredClone(freshness));
+    assert.equal(read.verdict, verdict, name);
+    assert.equal(read.unexplainedCount, count, name);
+    assert.equal(read.schema, CAUSE_EVIDENCE_SCHEMA, name);
+  }
+  // The returned evidence is a copy: editing it never changes the signed object it was read from.
+  const f = structuredClone(FORMS.removedFingerprint.freshness);
+  verifyCauseEvidence(f).unexplainedUnits.push("forged"); assert.deepEqual(f.causeEvidence.unexplainedUnits, [KEPT_UNIT]);
+});
+
+test("[RA-03] requireExplainedCauses accepts only an explained verdict: genuinely fresh quiet work passes; a removed fingerprint and every unread or incomplete log are typed refusals", () => {
+  for (const name of ["sourceEdit", "everyExplainedCause", "freshQuiet", "nothingCompiled"]) assert.equal(requireExplainedCauses(structuredClone(FORMS[name].freshness)).verdict, "explained", name);
+  assert.throws(() => requireExplainedCauses(FORMS.removedFingerprint.freshness), (e) => e instanceof ProvenanceError && e.code === CAUSE_UNEXPLAINED && e.message.includes(KEPT_UNIT));
+  for (const name of ["quietRebuilt", "callerLogged", "testRun", "outputDropped"]) {
+    assert.throws(() => requireExplainedCauses(FORMS[name].freshness), (e) => e instanceof ProvenanceError && e.code === CAUSE_UNKNOWN, name);
+  }
+  assert.throws(() => requireExplainedCauses(FORMS.quietRebuilt.freshness), (e) => e.code === CAUSE_UNKNOWN && /quiet-root/.test(e.message) && /never read as no unexplained unit/.test(e.message));
+  assert.throws(() => requireExplainedCauses(FORMS.outputDropped.freshness), (e) => e.code === CAUSE_UNKNOWN && /output-dropped/.test(e.message));
+});
+
+test("[RA-03] absent, null, foreign-schema and malformed cause evidence is refused as evidence, never read as the schema this gate knows", () => {
+  const base = FORMS.sourceEdit.freshness;
+  const without = (key) => { const f = structuredClone(base); delete f[key]; return f; };
+  const withCause = (over) => ({ ...structuredClone(base), causeEvidence: over });
+  for (const f of [undefined, null, "fresh", [], 3]) evidenceRefusal(() => verifyCauseEvidence(f), /no freshness object/);
+  evidenceRefusal(() => verifyCauseEvidence(without("causeEvidence")), /carries no causeEvidence/);
+  evidenceRefusal(() => verifyCauseEvidence(withCause(null)), /carries no causeEvidence/);
+  for (const bad of ["x", 1, [], true]) evidenceRefusal(() => verifyCauseEvidence(withCause(bad)), /is not an object/);
+  const noSchema = structuredClone(base.causeEvidence); delete noSchema.schema;
+  for (const foreign of [noSchema, { ...base.causeEvidence, schema: "rustright.cause-evidence.v2" }, { ...base.causeEvidence, schema: "rustright.cause-evidence.v0" }, { ...base.causeEvidence, schema: null }, { ...base.causeEvidence, schema: "" }]) {
+    evidenceRefusal(() => verifyCauseEvidence(withCause(foreign)), /does not read/);
+  }
+  for (const key of ["state", "verdict", "basis", "historyMigrationNeeded", "unavailable", "gaps", "counts", "unexplainedUnits", "unexplainedUnitsTruncated", "uncoveredUnits", "uncoveredUnitsTruncated"]) {
+    const broken = structuredClone(base.causeEvidence); delete broken[key];
+    assert.throws(() => verifyCauseEvidence(withCause(broken)), (e) => e instanceof ProvenanceError && e.code === "evidence", `missing ${key}`);
+  }
+  for (const field of ["rows", "rowsDropped", "units", "unexplained", "uncovered"]) {
+    const broken = structuredClone(base.causeEvidence); delete broken.counts[field];
+    evidenceRefusal(() => verifyCauseEvidence(withCause(broken)), /counts needs/);
+  }
+});
+
+test("[RA-03] every incoherence between state, verdict, basis, gaps, counts, the census and the sibling counts is refused", () => {
+  const f = (over, extra = {}) => ({ ...census(), unexplainedCount: 0, causeCounts: {}, ...extra, causeEvidence: cause(over) });
+  const cases = [
+    ["verdict explained over an unexplained unit", f({ counts: rowCounts({ unexplained: 1 }), unexplainedUnits: ["x"] }, { unexplainedCount: 1, causeCounts: { unexplained: 1 } }), /verdict explained disagrees/],
+    ["verdict explained over a gap", f({ state: "incomplete", gaps: ["output-dropped"] }), /verdict explained disagrees/],
+    ["verdict unexplained over no unit", f({ verdict: "unexplained" }), /verdict unexplained disagrees/],
+    ["state complete over a gap", f({ verdict: "unknown", gaps: ["output-dropped"] }, { unexplainedCount: null }), /state complete disagrees/],
+    ["state incomplete over no gap", f({ state: "incomplete" }), /state incomplete disagrees/],
+    ["reasons read with a reason they were not", f({ unavailable: "quiet-root" }), /names an unavailability reason/],
+    ["units above rows", f({ counts: rowCounts({ units: 2 }) }, { causeCounts: { "first-build": 1 } }), /not nested/],
+    ["unexplained above units", f({ verdict: "unexplained", counts: rowCounts({ unexplained: 2 }), unexplainedUnits: ["x", "y"] }, { unexplainedCount: 2, causeCounts: { unexplained: 1 } }), /not nested/],
+    ["dropped rows without the truncation gap", f({ counts: { rows: 0, rowsDropped: 3, units: 0, unexplained: 0, uncovered: 0 } }), /reasons-truncated gap disagree/],
+    ["the truncation gap without dropped rows", f({ state: "incomplete", verdict: "unknown", gaps: ["reasons-truncated"] }, { unexplainedCount: null }), /reasons-truncated gap disagree/],
+    ["an uncovered unit without its gap", f({ counts: { rows: 0, rowsDropped: 0, units: 0, unexplained: 0, uncovered: 1 }, uncoveredUnits: ["b v0.1.0"] }), /rebuilt-unit-without-reason gap disagree/],
+    ["unit labels that do not add up to the count", f({ counts: rowCounts({ unexplained: 2 }), verdict: "unexplained", unexplainedUnits: ["x"], unexplainedUnitsTruncated: 0 }, { unexplainedCount: 2, causeCounts: { unexplained: 2 } }), /do not add up/],
+    ["unread reasons in a reading state", f({ basis: "none", verdict: "unknown", unavailable: "quiet-root", gaps: ["log-not-read"] }, { unexplainedCount: null }), /state complete is not unavailable/],
+    ["unread reasons with no reason", f(unread("quiet-root", { unavailable: null }), { unexplainedCount: null }), /states no reason why/],
+    ["unread reasons with counts", f({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "quiet-root", counts: rowCounts() }), /counts reasons that were never read/],
+    ["basis none that is explained", f({ state: "unavailable", basis: "none", unavailable: "quiet-root" }), /basis none is the typed unknown/],
+    ["basis none without the log-not-read gap", f(unread("quiet-root", { gaps: ["census-unavailable"] }), { unexplainedCount: null }), /basis none is the typed unknown/],
+    ["census-nothing-rebuilt with a gap", f({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "quiet-root", gaps: ["output-dropped"] }), /explained verdict with no gap/],
+    ["census-nothing-rebuilt over rebuilt units", f({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "quiet-root" }, { notFresh: 2 }), /does not prove it/],
+    ["census-nothing-rebuilt over an unavailable census", f({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "quiet-root" }, { available: false }), /does not prove it/],
+    ["census-nothing-rebuilt over parse errors", f({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "quiet-root" }, { parseErrors: 1 }), /does not prove it/],
+    ["census-nothing-rebuilt over a truncated package list", f({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "quiet-root" }, { notFreshPackagesTruncated: 2 }), /does not prove it/],
+    ["nothing-compiled over an available census", f({ state: "unavailable", basis: "nothing-compiled", unavailable: "not-read" }), /nothing was compiled/],
+    ["nothing-compiled under another reason", f({ state: "unavailable", basis: "nothing-compiled", unavailable: "not-read" }, { available: false, reason: "timeout" }), /nothing was compiled/],
+    ["an unknown verdict counted as zero", f(unread("quiet-root"), { unexplainedCount: 0 }), /unexplainedCount \(0\) is not the projection/],
+    ["a verdict with no sibling count", { ...f({}), unexplainedCount: undefined }, /unexplainedCount \(absent\)/],
+    ["a sibling count that is not the unexplained count", f({}, { unexplainedCount: 1 }), /unexplainedCount \(1\) is not the projection/],
+    ["cause counts missing for read reasons", { ...f({}), causeCounts: undefined }, /causeCounts is missing/],
+    ["cause counts that are not counts", f({}, { causeCounts: { "first-build": -1 } }), /causeCounts is missing/],
+    ["cause counts that do not add up to the rows", f({}, { causeCounts: { "first-build": 2 } }), /add up to 2/],
+    ["an unexplained cause behind an explained verdict", f({ counts: rowCounts() }, { causeCounts: { "fingerprint-missing": 1 } }), /cannot give 0 unexplained/],
+    ["an unknown cause name behind an explained verdict", f({ counts: rowCounts() }, { causeCounts: { "made-up-cause": 1 } }), /cannot give 0 unexplained/],
+    ["an unexplained verdict whose causes all explain", f({ verdict: "unexplained", counts: rowCounts({ unexplained: 1 }), unexplainedUnits: ["x"] }, { unexplainedCount: 1, causeCounts: { "first-build": 1 } }), /cannot give 1 unexplained/],
+  ];
+  for (const [name, freshness, why] of cases) evidenceRefusal(() => verifyCauseEvidence(freshness), why);
+  assert.ok(cases.length > 30);
 });

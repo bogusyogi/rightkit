@@ -36,10 +36,122 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
           # rightkit#1285: each crate is its own Cargo workspace; the scan receipt binds each unit to its own crates/<x>/Cargo.lock.
+          # RA-21: the packages/release entries are the complete static import closure of `reviewed-candidate.mjs run-qualified`,
+          # checked by scripts/ci/publish-admission.test.mjs; keep the list in step with any new static import.
           sparse-checkout: |
             crates/*/Cargo.toml
             crates/*/Cargo.lock
+            /package.json
+            /pnpm-workspace.yaml
+            /pnpm-lock.yaml
+            packages/*/package.json
             packages/release/scan-digest.mjs
+            packages/release/adapter-env.mjs
+            packages/release/adhoc-entitlements.mjs
+            packages/release/admission-host.mjs
+            packages/release/atomic-write.mjs
+            packages/release/background-process.mjs
+            packages/release/broker-client.mjs
+            packages/release/broker-pins.mjs
+            packages/release/broker-wire.mjs
+            packages/release/build-launch.mjs
+            packages/release/cache-policy.mjs
+            packages/release/cargo-contract.mjs
+            packages/release/cargo-ledger.mjs
+            packages/release/cargo-manifest-text.mjs
+            packages/release/cargo-registry-readback.mjs
+            packages/release/cargo-shapes.mjs
+            packages/release/cargo-target-shim.mjs
+            packages/release/cargo-target.mjs
+            packages/release/carried-cargo.mjs
+            packages/release/carrier-census.mjs
+            packages/release/codesign-argv.mjs
+            packages/release/committed-source.mjs
+            packages/release/crate-graph.mjs
+            packages/release/development-signing.mjs
+            packages/release/devtools-policy.mjs
+            packages/release/execution-policy.mjs
+            packages/release/gate-executor.mjs
+            packages/release/gate-stages.mjs
+            packages/release/host-upload-refusal.mjs
+            packages/release/local-publish.mjs
+            packages/release/lock-identity.mjs
+            packages/release/mac-bundle-signing.mjs
+            packages/release/mac-sign-core.mjs
+            packages/release/mac-signing-matrix.mjs
+            packages/release/macos-file-evidence.mjs
+            packages/release/macos-signing-identity.mjs
+            packages/release/macos-signing-session.mjs
+            packages/release/managed-cargo.mjs
+            packages/release/managed-host-secrets.mjs
+            packages/release/managed-roots.mjs
+            packages/release/managed-target-stage.mjs
+            packages/release/media-sidecar-catalog.mjs
+            packages/release/media-sidecar.mjs
+            packages/release/msix-config.mjs
+            packages/release/native-adapters.mjs
+            packages/release/native-cargo-layout.mjs
+            packages/release/native-helpers.mjs
+            packages/release/notary-auth.mjs
+            packages/release/outdated-command.mjs
+            packages/release/ownership-approval.mjs
+            packages/release/ownership-dependency-allowlist.mjs
+            packages/release/ownership-evidence.mjs
+            packages/release/ownership-git-inventory.mjs
+            packages/release/ownership-key-authority.mjs
+            packages/release/ownership-key-log.mjs
+            packages/release/ownership-key-trust.mjs
+            packages/release/ownership-lockfiles.mjs
+            packages/release/ownership-mark.mjs
+            packages/release/ownership-policy-bundle.mjs
+            packages/release/ownership-scope.mjs
+            packages/release/ownership-source.mjs
+            packages/release/ownership-verdict.mjs
+            packages/release/ownership-windows-presence.mjs
+            packages/release/ownership.mjs
+            packages/release/pack-digest.mjs
+            packages/release/platform-dir.mjs
+            packages/release/pnpm-adapter-grammar.mjs
+            packages/release/preflight.mjs
+            packages/release/progress-control.mjs
+            packages/release/project-type.mjs
+            packages/release/provenance-verify.mjs
+            packages/release/publication-artifacts.mjs
+            packages/release/publication-gate.mjs
+            packages/release/publish-cargo.mjs
+            packages/release/qa-build-features.mjs
+            packages/release/qa-control-scan.mjs
+            packages/release/qa-journeys-prebuilt.mjs
+            packages/release/qa-snapshot.mjs
+            packages/release/qualification-verify.mjs
+            packages/release/recipe-build.mjs
+            packages/release/release-cache-mode.mjs
+            packages/release/release-checks.mjs
+            packages/release/release-source-brand.mjs
+            packages/release/release-state.mjs
+            packages/release/release-switch-registry.json
+            packages/release/rightkit-registry-resolver.mjs
+            packages/release/rightkit-signing-agent.mjs
+            packages/release/rightkit-sync.mjs
+            packages/release/runtime-budget-crates.mjs
+            packages/release/runtime-budgets.mjs
+            packages/release/rustright-names.mjs
+            packages/release/sign-windows.mjs
+            packages/release/signing-agent-client.mjs
+            packages/release/signing-agent-install.mjs
+            packages/release/signing-env.mjs
+            packages/release/signing-identity.mjs
+            packages/release/snapshot-broker.mjs
+            packages/release/snapshot-metadata.mjs
+            packages/release/snapshot-request.mjs
+            packages/release/source-gate.mjs
+            packages/release/stage-commands.mjs
+            packages/release/suite-signing-policy.mjs
+            packages/release/suite-signing.mjs
+            packages/release/swap-helper-bundle.mjs
+            packages/release/swift-mac-app.mjs
+            packages/release/swift-scratch.mjs
+            packages/release/tauri-locked.mjs
             scripts/ci/scan-receipt.mjs
             scripts/ci/upload.mjs
             scripts/ci/registry-spec.mjs
@@ -52,6 +164,15 @@ jobs:
         with:
           node-version: "26.8.1"
           package-manager-cache: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+        with:
+          version: 11.25.0
+          package_json_file: package.json
+          run_install: false
+      # RA-21: the install that puts smol-toml (packages/release/package.json) where the run-qualified modules resolve it. It runs before
+      # any step that holds a token, and it is the same frozen, script-free install publish-reviewed.yml runs.
+      - name: Install the RightKit release closure without lifecycle scripts
+        run: pnpm install --filter rightkit-shared --filter @rightkit/release... --frozen-lockfile --ignore-scripts
       - name: Identify the green qualification run without registry credentials
         id: qualified
         env:

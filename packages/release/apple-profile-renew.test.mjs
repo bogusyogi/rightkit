@@ -8,6 +8,7 @@ import { spawnSync } from "./background-process.mjs";
 import { MANAGED_HOST_ENV_SECRET_REFUSED } from "./managed-host-secrets.mjs";
 import { appleProfileAuth, configuredAppleProfile, decodeAppleProfile, describeAppleProfile, entitlementsSuperset, main, renewAppleProfile, signAppleApiJwt, signAppleApiJwtWithKey } from "./apple-profile-renew.mjs";
 import { fileURLToPath } from "node:url";
+import { simulateHostPlatform } from "./test-support/simulated-host.mjs";
 
 // Not run on Windows: Apple profile renewal runs on macOS.
 const WINDOWS_SKIP = process.platform === "win32" ? "Apple profile renewal runs on macOS" : false;
@@ -301,6 +302,7 @@ test("Apple auth: identifiers and .p8 path fall back to the environment on manag
 });
 
 test("Apple auth: managed hosts refuse an environment value carrying inline key material", (t) => {
+  simulateHostPlatform(t, "darwin");
   const f = fixture(t);
   for (const name of ["APPLE_API_KEY_PATH", "APPLE_API_KEY", "APPLE_API_ISSUER"]) {
     const env = { ...SOCKET_ENV, APPLE_API_KEY: "FAKEKEYID", APPLE_API_ISSUER: "fake-issuer", APPLE_API_KEY_PATH: f.keyPath, [name]: INLINE_PEM };

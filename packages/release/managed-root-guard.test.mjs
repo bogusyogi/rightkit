@@ -40,7 +40,13 @@ function git(cwd, ...args) {
 
 /** A temporary directory standing in for a real managed root, declared real to the guard, holding one entry in each protected directory. */
 function pretendRealRoot(t) {
-  const root = path.join(tmp(t, "rk-guard-real-"), ".rightkit-managed");
+  // Cleanup order matters: the root stays declared real until it is unprotected, and a recursive removal of it while protected is itself a refused mutation (Node's recursive rmSync removes
+  // directories through the patched fs on some platforms and natively on others), so the unprotect is registered BEFORE the removal and runs first.
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-guard-real-")));
+  const root = path.join(base, ".rightkit-managed");
+  let unprotect = () => {};
+  t.after(() => unprotect());
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
   for (const sub of ["snapshots", "build-ownership"]) {
     fs.mkdirSync(path.join(root, sub, "keep"), { recursive: true });
     fs.writeFileSync(path.join(root, sub, "keep", "bytes.txt"), `${sub} content\n`);
@@ -48,8 +54,7 @@ function pretendRealRoot(t) {
   fs.mkdirSync(path.join(root, "elsewhere"));
   // Private, as a real snapshot root is (row 5.22), so the F8 shape below reaches the guard and not the root-mode refusal.
   if (process.platform !== "win32") for (const sub of ["snapshots", "build-ownership"]) fs.chmodSync(path.join(root, sub), 0o700);
-  const unprotect = protectManagedRoot(root);
-  t.after(unprotect);
+  unprotect = protectManagedRoot(root);
   return { root, snapshots: path.join(root, "snapshots"), owners: path.join(root, "build-ownership"), unprotect };
 }
 

@@ -9,6 +9,7 @@
 // runner binary and the evidence bundle it produced, evaluates the protected QA floor, and MACs the result with a
 // key held in the protected credential store (Keychain / protected file / CI secret) — not app-writable JSON.
 // The floor, this verifier, and the receipt schema are pinned in the protected policy bundle.
+import { writeFileAtomic } from "./atomic-write.mjs";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -266,8 +267,8 @@ export function readQaReceipt(file) {
 }
 
 export function writeQaReceipt(file, receipt) {
-  mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, `${JSON.stringify(receipt, null, 2)}\n`);
+  // GB-26: the authoritative QA receipt is replaced atomically (temp, fsync, rename), never overwritten in place.
+  writeFileAtomic(file, `${JSON.stringify(receipt, null, 2)}\n`);
 }
 
 function loadKeyOrRefuse(opts, command) {

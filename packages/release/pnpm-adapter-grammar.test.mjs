@@ -10,19 +10,20 @@ import { PNPM_ADAPTER, PNPM_ADAPTER_GRAMMAR, grammarFromSpec, liveAdapterGrammar
 
 const refusal = (...words) => pnpmGrammarRefusal(words);
 
-test("[M12] the first argument must be a registered subcommand; a leading flag that is not registered, --prefix and --config as global options are refused", () => {
-  for (const words of [["run", "build"], ["exec", "tauri", "build", "--config", "{}"], ["pack", "--pack-destination", "/s/p"], ["install", "--frozen-lockfile"], ["--dir", "hub", "run", "x"], ["-C", "hub", "install"],
-    ["--filter", "@rightkit/x", "run", "test"], ["-F", "x", "run", "t"], ["-r", "--workspace-concurrency=1", "run", "test"], ["--workspace-concurrency=1", "run", "t"], ["--workspace-concurrency", "1", "run", "t"],
-    ["--silent", "run", "t"], ["--reporter", "append-only", "run", "t"], ["--recursive", "run", "t"], ["--version"], ["--dir", "a", "--filter", "b", "run", "t"], ["run", "--if-present", "test"], ["--dir", "hub", "--if-present", "run", "t"]]) {
+test("[M12] the first argument must be a registered subcommand; a leading flag that is not registered, --prefix and --config as global options are refused (the reference registration, GB-03)", () => {
+  for (const words of [["run", "build"], ["exec", "tauri", "build", "--config", "{}"], ["pack", "--pack-destination", "/s/p"], ["install"], ["--dir", "hub", "run", "x"], ["-C", "hub", "install"],
+    ["--filter", "@rightkit/x", "run", "test"], ["-r", "--workspace-concurrency=1", "run", "test"], ["--workspace-concurrency=1", "run", "t"], ["--dir", "a", "--filter", "b", "run", "t"], ["run", "--if-present", "test"], ["--dir", "hub", "--if-present", "run", "t"]]) {
     assert.equal(refusal(...words), null, words.join(" "));
   }
   for (const words of [[], ["build"], ["test"], ["--if-present", "run", "x"], ["--prefix", "hub", "run", "x"], ["--config", "x=y", "run", "x"], ["--config=x=y", "run", "x"], ["-w", "run", "x"], ["--store-dir", "/s", "install"], ["--frozen-lockfile", "install"],
-    ["--help"], ["dlx", "x"], ["add", "x"], ["--dir", "hub", "--prefix", "x", "run", "t"], ["--dir", "hub", "--config", "x", "run", "t"], ["--dir"], ["-r", "-r=1", "run", "t"]]) {
+    ["--help"], ["dlx", "x"], ["add", "x"], ["--dir", "hub", "--prefix", "x", "run", "t"], ["--dir", "hub", "--config", "x", "run", "t"], ["--dir"], ["-r", "-r=1", "run", "t"],
+    // The reference registration lists none of these (the earlier mirror did): they are refused with the registration named.
+    ["-F", "x", "run", "t"], ["--silent", "run", "t"], ["--recursive", "run", "t"], ["--version"], ["--reporter", "append-only", "run", "t"], ["install", "--frozen-lockfile"], ["exec", "node", "-e", "1"], ["exec", "sh", "-c", "true"]]) {
     assert.notEqual(refusal(...words), null, `${words.join(" ") || "(no arguments)"} is refused`);
   }
-  assert.match(refusal("--prefix", "x", "run", "t"), /--prefix and --config|leading flag/);
-  assert.match(refusal("--dir", "x", "--config", "y", "run", "t"), /--prefix and --config as global options are refused/);
-  // Arguments after the command are the broker's, not judged here (M13 is not the door's): the tail of an exec and a run's own flags pass.
+  assert.match(refusal("--prefix", "x", "run", "t"), /--prefix, --config|leading flag/);
+  assert.match(refusal("--dir", "x", "--config", "y", "run", "t"), /flag "--config" is not registered/);
+  // Arguments after the target of run and exec are the target's own: the tail of an exec and a run's own flags pass, unchanged.
   assert.equal(refusal("exec", "tauri", "build", "--config", "{}"), null);
   assert.equal(refusal("run", "test", "--anything"), null);
 });
@@ -37,7 +38,7 @@ test("[M12] the door refuses a pnpm step by the mirrored grammar, and reads the 
   const spec = { adapters: { [PNPM_ADAPTER]: { subcommands: ["run", "pack"], flags: [{ name: "--dir", value: "relpath" }] } } };
   const readFile = () => JSON.stringify(spec);
   assert.deepEqual(door(["pack"], { readFile }).args, ["run", "rightkit-pnpm", "--", "pack"]);
-  assert.throws(() => door(["exec", "tauri"], { readFile }), (e) => e.code === BUILD_LAUNCH_REFUSED && /not a registered first argument/.test(e.message));
+  assert.throws(() => door(["exec", "tauri"], { readFile }), (e) => e.code === BUILD_LAUNCH_REFUSED && /subcommand "exec" is not registered/.test(e.message));
   // An unreadable or malformed registration falls back to the constant.
   assert.equal(liveAdapterGrammar({ readFile: () => { throw new Error("ENOENT"); } }), null);
   assert.equal(liveAdapterGrammar({ readFile: () => "{}" }), null);
@@ -53,6 +54,8 @@ test("[M12] the constant equals the live rightkit-pnpm registration on this host
   const live = grammarFromSpec(spec);
   assert.ok(live, "the live registration has the fields the door reads");
   assert.deepEqual([...PNPM_ADAPTER_GRAMMAR.subcommands], [...live.subcommands], "registered first arguments");
+  assert.deepEqual([...PNPM_ADAPTER_GRAMMAR.env].sort(), [...live.env].sort(), "registered request-environment keys");
+  assert.deepEqual(JSON.parse(JSON.stringify(PNPM_ADAPTER_GRAMMAR.opaqueTargets)), JSON.parse(JSON.stringify(live.opaqueTargets)), "registered exec targets");
   assert.deepEqual(PNPM_ADAPTER_GRAMMAR.flags, live.flags, "registered flags and their value kinds");
   assert.deepEqual([...PNPM_ADAPTER_GRAMMAR.opaqueAfterTarget], [...live.opaqueAfterTarget]);
   assert.deepEqual([...PNPM_ADAPTER_GRAMMAR.snapshotSubcommands], [...live.snapshotSubcommands]);

@@ -198,7 +198,9 @@ const failLines = (text) => text.split("\n").filter((line) => line.startsWith("F
 // On a broker-managed host the class A cargo scans of the instance go through the live broker, which tests never reach
 // (test-support/broker-guard.mjs); CI (direct executor) runs this one.
 test("`rightkit-gate check` and RightKit's own preflight pass on the instance with an empty baseline and no finding", { skip: brokerManagedHost(process.env) && "the class A cargo scans need the live broker on this managed host; CI runs it" }, () => {
-  const check = spawnSync(process.execPath, [path.join(here, "bin", "rightkit-gate.mjs"), "check", "--repo", instance(), "--commit", "HEAD"], { cwd: instance(), encoding: "utf8" });
+  // The class A cargo scans run the real cargo (the direct executor). A child inherits the broker guard through NODE_OPTIONS and the guard refuses a build tool outside hosted CI, so this run, whose
+  // point is the real tools on a direct host, clears it (as item7-linux.test.mjs does for its real doors).
+  const check = spawnSync(process.execPath, [path.join(here, "bin", "rightkit-gate.mjs"), "check", "--repo", instance(), "--commit", "HEAD"], { cwd: instance(), encoding: "utf8", env: { ...process.env, NODE_OPTIONS: "" } });
   assert.equal(check.status, 0, `${check.stdout}\n${check.stderr}`);
   assert.deepEqual(failLines(check.stdout), [], check.stdout);
   assert.doesNotMatch(check.stdout + check.stderr, /KNOWN|STALE/, "a fresh app carries no baseline");

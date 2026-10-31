@@ -829,11 +829,11 @@ test("brokerLeaseState: only a well-formed rustright.snapshot-lease-status.v1 an
   assert.equal(brokerLeaseState({ ...q, spawn: answer('{"schema":"other","state":"REAPED"}') }).state, "UNKNOWN");
   assert.equal(brokerLeaseState({ ...q, spawn: answer('{"schema":"rustright.snapshot-lease-status.v1","state":"GONE"}') }).state, "UNKNOWN");
   let argv;
-  const spawnSpy = (cmd, args) => { argv = [cmd, ...args]; return { status: 0, stdout: 'log line\n{"schema":"rustright.snapshot-lease-status.v1","state":"REAPED","snapshot":"/s","ownership":"h"}\n' }; };
+  const spawnSpy = (cmd, args) => { argv = [cmd, ...args]; return { status: 0, stdout: 'log line\n{"schema":"rustright.snapshot-lease-status.v1","state":"REAPED","snapshot":"/s","ownership":"h","members":[{"handle":"h#1","state":"REAPED","spawned":true}]}\n' }; };
   assert.equal(brokerLeaseState({ ...q, spawn: spawnSpy }).state, "REAPED");
   assert.deepEqual(argv, ["/x/rustright", "snapshot-lease", "status", "--snapshot", "/s", "--ownership", "h"]);
   // The answer must echo the queried snapshot and handle (RustRight echoes both): no echo, or another pair's, is UNKNOWN (held).
-  const echo = (extra) => answer(JSON.stringify({ schema: "rustright.snapshot-lease-status.v1", state: "REAPED", ...extra }));
+  const echo = (extra) => answer(JSON.stringify({ schema: "rustright.snapshot-lease-status.v1", state: "REAPED", members: [{ handle: "h#1", state: "REAPED", spawned: true }], ...extra }));
   assert.equal(brokerLeaseState({ ...q, spawn: echo({}) }).state, "UNKNOWN", "no echo");
   assert.equal(brokerLeaseState({ ...q, spawn: echo({ snapshot: "/s" }) }).state, "UNKNOWN", "no ownership echo");
   assert.equal(brokerLeaseState({ ...q, spawn: echo({ snapshot: "/other", ownership: "h" }) }).state, "UNKNOWN", "another snapshot");

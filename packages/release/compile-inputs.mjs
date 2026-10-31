@@ -7,8 +7,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { SECRET_PATTERNS } from "./publish-cargo.mjs";
+import { COMPILE_INPUTS_CANONICAL, COMPILE_INPUTS_LEGACY, SnapshotRequestError, readDeclaredInputs } from "./snapshot-request.mjs";
 
-export const COMPILE_INPUTS_FILE = ".rightkit/compile-inputs.json";
+/** The canonical declaration (GB-49); the legacy `.rightkit/compile-inputs.json` is read only when it is absent (snapshot-request.mjs readDeclaredInputs, the one reader). */
+export const COMPILE_INPUTS_FILE = COMPILE_INPUTS_CANONICAL;
+export { COMPILE_INPUTS_LEGACY };
 
 /** Files of one declared input in the broker's order (children by name), refusing links; [{ name, abs }]. */
 function inputFiles(root, input) {
@@ -32,20 +35,14 @@ function inputFiles(root, input) {
  */
 export function judgeCompileInputs(root, { spawn = spawnSync, execPath = process.execPath } = {}) {
   const findings = [];
-  let declared = [];
-  const file = path.join(root, COMPILE_INPUTS_FILE);
-  if (!fs.existsSync(file)) return { inputs: [], findings };
-  try {
-    declared = JSON.parse(fs.readFileSync(file, "utf8")).inputs;
-    if (!Array.isArray(declared) || declared.some((p) => typeof p !== "string")) throw new Error("`inputs` must be a list of paths");
-  } catch (e) {
-    return { inputs: [], findings: [`${COMPILE_INPUTS_FILE}: ${e.message}`] };
-  }
+  // One reader for every consumer: canonical first, legacy only when the canonical file is absent, shared link, size, path and overlap checks.
+  let declared;
+  try { declared = readDeclaredInputs(root); } catch (e) { if (e instanceof SnapshotRequestError) return { inputs: [], findings: [e.message] }; throw e; }
+  if (declared.length === 0) return { inputs: [], findings };
   const inputs = [];
   for (const input of declared) {
-    if (path.isAbsolute(input) || input.split(/[\\/]/).some((part) => part === ".." || part === "." || part === "")) { findings.push(`${input}: not a plain relative path`); continue; }
     let files;
-    try { files = inputFiles(root, input); } catch (e) { findings.push(`${input}: ${e.code === "ENOENT" ? "missing from the captured tree" : e.message}`); continue; }
+    try { files = inputFiles(root, input.split(/[\\/]/).join("/")); } catch (e) { findings.push(`${input}: ${e.code === "ENOENT" ? "missing from the captured tree" : e.message}`); continue; }
     const hash = crypto.createHash("sha256");
     for (const f of files) {
       const bytes = fs.readFileSync(f.abs);

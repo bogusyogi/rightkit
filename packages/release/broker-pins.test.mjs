@@ -34,9 +34,63 @@ test("[7.21] enroll writes one owner-only record under the managed data root; a 
   const rotated = enrollBrokerPins({ dataRoot, platform: "darwin", ...other, rotate: true });
   assert.equal(rotated.rotated, true); assert.deepEqual(rotated.record.rotatedFrom, { keyId: pins.keyId, brokerDigest: pins.brokerDigest });
   assert.equal(readEnrolledPins({ dataRoot, platform: "darwin" }).keyId, other.keyId);
-  // Platforms are separate records; a Linux host has none (direct).
+  // Platforms are separate records; one enrollment never answers for another platform.
   assert.equal(readEnrolledPins({ dataRoot, platform: "win32" }), null);
-  assert.throws(() => pinsFile({ dataRoot, platform: "linux" }), /not a broker host/);
+  assert.equal(readEnrolledPins({ dataRoot, platform: "linux" }), null);
+  // Only the three broker platforms have a record; anything else is not a broker host.
+  for (const platform of ["freebsd", "aix", ""]) assert.throws(() => pinsFile({ dataRoot, platform }), (e) => e.code === "RK_BROKER_PINS_PLATFORM" && /not a broker host/.test(e.message), platform);
+});
+
+test("[7.21] linux is a broker platform (a broker is allowed on Linux): enroll and read round trip under pins/broker-linux.json, separate from darwin and win32", (t) => {
+  const dataRoot = tmp(t); const { pins } = keyPair(); const other = keyPair().pins;
+  assert.equal(pinsFile({ dataRoot, platform: "linux" }), path.join(dataRoot, "pins", "broker-linux.json"));
+  assert.equal(readEnrolledPins({ dataRoot, platform: "linux" }), null, "nothing is enrolled until someone enrolls");
+  const done = enrollBrokerPins({ dataRoot, platform: "linux", ...pins, now: () => new Date("2026-10-31T00:00:00Z") });
+  assert.equal(done.rotated, false); assert.equal(done.record.platform, "linux"); assert.equal(done.record.schema, PINS_SCHEMA);
+  if (process.platform !== "win32") { assert.equal(fs.statSync(done.file).mode & 0o777, 0o600); assert.equal(fs.statSync(path.dirname(done.file)).mode & 0o777, 0o700); }
+  const read = readEnrolledPins({ dataRoot, platform: "linux" });
+  assert.deepEqual({ host: read.host, keyId: read.keyId, publicKey: read.publicKey, brokerDigest: read.brokerDigest, source: read.source }, { ...pins, source: "enrolled" });
+  assert.equal(loadBrokerPins({ dataRoot, platform: "linux" }).keyId, pins.keyId, "the load path returns the enrolled linux record");
+  // The linux record is its own: darwin and win32 have none, and the same refusals as darwin apply (no silent replacement, rotation says so).
+  assert.equal(readEnrolledPins({ dataRoot, platform: "darwin" }), null); assert.equal(readEnrolledPins({ dataRoot, platform: "win32" }), null);
+  assert.throws(() => enrollBrokerPins({ dataRoot, platform: "linux", ...other }), (e) => e.code === "RK_BROKER_PINS_EXISTS");
+  const rotated = enrollBrokerPins({ dataRoot, platform: "linux", ...other, rotate: true });
+  assert.equal(rotated.rotated, true); assert.deepEqual(rotated.record.rotatedFrom, { keyId: pins.keyId, brokerDigest: pins.brokerDigest });
+  // Without any enrollment and outside the RightKit checkout the declared route refuses; nothing is enrolled by the gate.
+  const empty = tmp(t);
+  assert.throws(() => loadBrokerPins({ dataRoot: empty, platform: "linux" }), (e) => e.code === "RK_BROKER_PINS_MISSING" && /no broker enrollment for linux/.test(e.message));
+});
+
+test("[7.21] a linux record is refused under a darwin read and a darwin or win32 record under a linux read (a record is never read as another platform's)", { skip: POSIX }, (t) => {
+  const dataRoot = tmp(t); const { pins } = keyPair();
+  const linux = enrollBrokerPins({ dataRoot, platform: "linux", ...pins });
+  const darwin = enrollBrokerPins({ dataRoot, platform: "darwin", ...pins });
+  const win = enrollBrokerPins({ dataRoot, platform: "win32", ...pins });
+  const swap = (from, to) => { const text = JSON.parse(fs.readFileSync(from.file, "utf8")); fs.writeFileSync(to.file, JSON.stringify(text)); };
+  swap(linux, darwin); // pins/broker-darwin.json now claims to be linux
+  assert.throws(() => readEnrolledPins({ dataRoot, platform: "darwin" }), (e) => e.code === "RK_BROKER_PINS_INVALID" && /record of linux, not darwin/.test(e.message));
+  assert.throws(() => loadBrokerPins({ dataRoot, platform: "darwin" }), (e) => e.code === "RK_BROKER_PINS_INVALID", "a mismatched record is a refusal, never a missing one that falls back");
+  enrollBrokerPins({ dataRoot, platform: "darwin", ...pins, rotate: true }); // repaired
+  swap(darwin, linux); // pins/broker-linux.json now claims to be darwin
+  assert.throws(() => readEnrolledPins({ dataRoot, platform: "linux" }), (e) => e.code === "RK_BROKER_PINS_INVALID" && /record of darwin, not linux/.test(e.message));
+  swap(win, linux); // ... or win32
+  assert.throws(() => readEnrolledPins({ dataRoot, platform: "linux" }), (e) => e.code === "RK_BROKER_PINS_INVALID" && /record of win32, not linux/.test(e.message));
+  assert.equal(readEnrolledPins({ dataRoot, platform: "darwin" }).keyId, pins.keyId, "the darwin record itself is unaffected");
+});
+
+test("[7.21] a linux record that is a link, a non-file, writable by others or behind a linked directory is refused exactly like darwin", { skip: POSIX }, (t) => {
+  const dataRoot = tmp(t); const { pins } = keyPair();
+  const { file } = enrollBrokerPins({ dataRoot, platform: "linux", ...pins });
+  const refuse = (why) => assert.throws(() => readEnrolledPins({ dataRoot, platform: "linux" }), (e) => e.code === "RK_BROKER_PINS_INVALID" && why.test(e.message));
+  fs.chmodSync(file, 0o666); refuse(/writable by group or others/); fs.chmodSync(file, 0o600);
+  fs.chmodSync(path.dirname(file), 0o777); refuse(/writable by group or others/); fs.chmodSync(path.dirname(file), 0o700);
+  const text = fs.readFileSync(file, "utf8");
+  fs.rmSync(file); const real = path.join(dataRoot, "real.json"); fs.writeFileSync(real, text, { mode: 0o600 }); fs.symlinkSync(real, file); refuse(/not a regular file/);
+  fs.rmSync(file); fs.mkdirSync(file); refuse(/not a regular file/); fs.rmSync(file, { recursive: true });
+  fs.rmSync(path.join(dataRoot, "pins"), { recursive: true });
+  fs.mkdirSync(path.join(dataRoot, "elsewhere", "d"), { recursive: true }); fs.symlinkSync(path.join(dataRoot, "elsewhere", "d"), path.join(dataRoot, "pins"));
+  fs.writeFileSync(path.join(dataRoot, "elsewhere", "d", "broker-linux.json"), text, { mode: 0o600 });
+  assert.throws(() => readEnrolledPins({ dataRoot, platform: "linux" }), /not a real directory/, "a record behind a linked directory is refused");
 });
 
 test("[7.21] a pin that is not a well-formed enrollment is refused: key id not the key's hash, compressed or wrong-length key, bad digest, no host", (t) => {
@@ -97,9 +151,29 @@ test("[7.21] fallback: RightKit's own pins come from the running gate's revision
   const loose = tmp(t); fs.writeFileSync(path.join(loose, "rightkit-gate.mjs"), "//\n");
   assert.throws(() => loadBrokerPins({ dataRoot, platform: "darwin", gateFile: path.join(loose, "rightkit-gate.mjs"), checkout: root }), (e) => e.code === "RK_BROKER_PINS_MISSING");
   // A platform the file does not enroll, or an enrollment that is not well-formed, is not a pin.
-  assert.equal(readGateRevisionPins({ gateFile, checkout: root, platform: "linux" }), null);
+  assert.equal(readGateRevisionPins({ gateFile, checkout: root, platform: "linux" }), null, "ci/rk-pipeline.json carries no attestation.linux: the fallback is null");
+  assert.equal(readGateRevisionPins({ gateFile, checkout: root, platform: "freebsd" }), null);
   const broken = rightkitRepo(t, { darwin: { ...mine, keyId: "0".repeat(64) } });
   assert.throws(() => loadBrokerPins({ dataRoot, platform: "darwin", gateFile: broken.gateFile, checkout: broken.root }), (e) => e.code === "RK_BROKER_PINS_INVALID");
+});
+
+test("[7.21] linux has no gate-revision fallback unless ci/rk-pipeline.json carries attestation.linux; an enrolled linux record decides either way, and darwin or win32 entries never answer for linux", (t) => {
+  const dataRoot = tmp(t); const mine = keyPair().pins; const enrolled = keyPair().pins; const viaPipeline = keyPair().pins;
+  const without = rightkitRepo(t, { darwin: mine, win32: mine });
+  assert.equal(readGateRevisionPins({ gateFile: without.gateFile, checkout: without.root, platform: "linux" }), null);
+  assert.throws(() => loadBrokerPins({ dataRoot, platform: "linux", gateFile: without.gateFile, checkout: without.root }), (e) => e.code === "RK_BROKER_PINS_MISSING" && /no broker enrollment for linux/.test(e.message), "RightKit's own darwin/win32 pins are no linux pins");
+  // Enrolled beats nothing: the record alone satisfies the declared route inside the RightKit checkout.
+  enrollBrokerPins({ dataRoot, platform: "linux", ...enrolled });
+  const only = loadBrokerPins({ dataRoot, platform: "linux", gateFile: without.gateFile, checkout: without.root });
+  assert.equal(only.source, "enrolled"); assert.equal(only.keyId, enrolled.keyId);
+  // Were a linux attestation ever committed, the enrolled record would still beat it; without enrollment it is the fallback.
+  const withLinux = rightkitRepo(t, { darwin: mine, linux: viaPipeline });
+  assert.equal(loadBrokerPins({ dataRoot, platform: "linux", gateFile: withLinux.gateFile, checkout: withLinux.root }).keyId, enrolled.keyId, "enrolled beats fallback");
+  const fresh = tmp(t); const fb = loadBrokerPins({ dataRoot: fresh, platform: "linux", gateFile: withLinux.gateFile, checkout: withLinux.root });
+  assert.equal(fb.source, "rk-pipeline"); assert.equal(fb.keyId, viaPipeline.keyId);
+  // An app repository (not the RightKit checkout) never gets the fallback for linux either.
+  const app = rightkitRepo(t, { linux: viaPipeline });
+  assert.throws(() => loadBrokerPins({ dataRoot: fresh, platform: "linux", gateFile: withLinux.gateFile, checkout: app.root }), (e) => e.code === "RK_BROKER_PINS_MISSING");
 });
 
 test("[7.21] the enrolled record wins over the fallback; nothing in the environment, a flag or the receipt can supply a pin", (t) => {
@@ -165,6 +239,19 @@ test("[7.21] the enroll command: explicit values only, refuses to replace withou
   assert.equal(run("enroll", "--platform", "darwin", "--data-root", dataRoot, "--host", "h"), 1); assert.match(err.pop(), /RK_BROKER_PINS_INVALID/);
   assert.equal(run("nonsense"), 2);
   assert.equal(run("show", "--platform", "darwin"), 1); assert.match(err.pop(), /RK_BROKER_PINS_ROOT/);
+});
+
+test("[7.21] the enroll command accepts --platform linux, and a platform that is not a broker host is refused with the platform code", (t) => {
+  const dataRoot = tmp(t); const { pins } = keyPair(); const out = []; const err = [];
+  const run = (...argv) => main(argv, { out: (m) => out.push(m), err: (m) => err.push(m) });
+  const enroll = (platform) => ["enroll", "--platform", platform, "--data-root", dataRoot, "--host", pins.host, "--key-id", pins.keyId, "--public-key", pins.publicKey, "--broker-digest", pins.brokerDigest];
+  assert.equal(run("show", "--platform", "linux", "--data-root", dataRoot), 1); assert.match(out.pop(), /no enrollment/);
+  assert.equal(run(...enroll("linux")), 0); assert.match(out.pop(), /enrolled linux host-1 key [0-9a-f]{64} in .*broker-linux\.json/);
+  assert.equal(run("show", "--platform", "linux", "--data-root", dataRoot), 0); assert.equal(JSON.parse(out.pop()).keyId, pins.keyId);
+  assert.equal(run(...enroll("linux")), 1); assert.match(err.pop(), /RK_BROKER_PINS_EXISTS/);
+  assert.equal(run("show", "--platform", "darwin", "--data-root", dataRoot), 1, "the linux enrollment is not a darwin one");
+  assert.equal(run(...enroll("freebsd")), 1); assert.match(err.pop(), /RK_BROKER_PINS_PLATFORM: freebsd is not a broker host/);
+  assert.equal(fs.existsSync(path.join(dataRoot, "pins", "broker-freebsd.json")), false);
 });
 
 test("[7.21] RightKit's committed pins, read from this checkout's gate revision, are well-formed for both broker hosts", (t) => {

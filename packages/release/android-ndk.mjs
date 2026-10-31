@@ -35,6 +35,8 @@ export function validateAndroidNdk(ndk, { root, kind = "release" } = {}) {
     throw new Error(`ndk.abis must be a non-empty list of distinct ABIs from ${ANDROID_ABIS.join(", ")}`);
   }
   if (!nonEmpty(ndk.jniLibs) || path.isAbsolute(ndk.jniLibs) || path.win32.isAbsolute(ndk.jniLibs)) throw new Error("ndk.jniLibs must be a relative path inside the app");
+  // The directory is emptied before every build and holds only generated .so files: a `.git` segment would aim that cleanup (and cargo ndk -o) into repository metadata.
+  if (String(ndk.jniLibs).split(/[\\/]/).some((part) => part.toLowerCase() === ".git")) throw new Error("ndk.jniLibs must not contain a .git path segment: the generated jniLibs directory is emptied before every build and never lives in repository metadata");
   const jniLibs = path.resolve(root, ndk.jniLibs);
   if (!inside(root, jniLibs) || path.basename(jniLibs) !== "jniLibs") throw new Error("ndk.jniLibs must name a generated directory called jniLibs inside the app (it is emptied before every build)");
   if (ndk.manifestPath !== undefined && (!nonEmpty(ndk.manifestPath) || path.isAbsolute(ndk.manifestPath) || path.win32.isAbsolute(ndk.manifestPath) || ndk.manifestPath.split(/[\\/]/).includes(".."))) {
@@ -58,7 +60,9 @@ export function androidNdkCommand(ndk, { profile = "release" } = {}) {
   const args = ["ndk"];
   if (ndk.apiLevel !== undefined) args.push("--platform", String(ndk.apiLevel));
   for (const abi of ndk.abis) args.push("-t", abi);
-  args.push("-o", ndk.jniLibs, "build");
+  // GB-62 (GATE commit exactness; BR20): `--locked` goes at the INNER Cargo build boundary, right after `build`, where cargo-ndk hands its remaining
+  // arguments to Cargo; the outer ABI/API/output options stay as written (`--locked` before `build` would be cargo-ndk's own option to reject).
+  args.push("-o", ndk.jniLibs, "build", "--locked");
   if (profile === "release") args.push("--release");
   if (ndk.manifestPath) args.push("--manifest-path", ndk.manifestPath);
   if (ndk.package) args.push("-p", ndk.package);

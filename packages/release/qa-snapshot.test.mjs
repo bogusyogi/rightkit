@@ -2,7 +2,7 @@
 //  - runs a step that compiles nothing as a direct, gate-run step with the step's own environment, never an adapter job;
 //  - turns a `run-tests` step with no listing into two parts (qa-snapshot-run.mjs): a carried test build whose listing lands outside the
 //    snapshot and the checkout, then QA directly against it (the heardright native-journeys and genright e2e-fast steps);
-//  - refuses what it cannot carry (`journeys run`, `--build*`), a QA directory outside the snapshot, and an input that resolves into the checkout;
+//  - carries a `journeys run` step as a build-once route when rightkit-qa advertises journeys-prebuilt-input (GB-79), and refuses what it cannot carry (`--build*`), a QA directory outside the snapshot, and an input that resolves into the checkout;
 //  - reads `--from-cargo-json` in flag position only.
 // The broker is the fixture (test-support/fake-broker.mjs); no Cargo, no real broker.
 import "./test-support/broker-guard.mjs";
@@ -56,14 +56,15 @@ test("a QA step that compiles nothing runs outside the broker: a direct step wit
   assert.equal(ran.stdout, `/app|fast,local-models|${args.join(" ")}`);
   for (const ok of [["journeys", "receipt", "--root", s.cwd], ["run", "--tier", "fast"], ["--all"]]) assert.deepEqual(buildLaunch("rightkit-qa", ok, s.host), { command: s.qa, args: ok }, ok.join(" "));
   // Off the snapshot route the whole run is still one broker job (the client's `run`), as before.
-  assert.deepEqual(buildLaunch("rightkit-qa", ["run-tests", "--app", "a"], { ...s.host, env: { PATH: "/managed/agent-bin" } }), { command: CLIENT, args: ["run", "rightkit-qa", "--", "run-tests", "--app", "a"] });
+  assert.throws(() => buildLaunch("rightkit-qa", ["run-tests", "--app", "a"], { ...s.host, env: { PATH: "/managed/agent-bin" } }), (e) => e.code === BUILD_LAUNCH_REFUSED && /no uncarried route/.test(e.message), "GB-27: no carrier, no unregistered adapter request");
   assert.equal(Object.hasOwn(buildLaunch("rightkit-qa", ["--all"], { ...s.host, stepEnv: { HEARDRIGHT_QA_APP_ROOT: "/app" } }), "env"), false);
 });
 
 test("a QA step that would compile and cannot be carried is refused, naming the build it needs as its own carried step", { skip: POSIX }, (t) => {
   const s = snapshotHost(t);
   const compiles = [
-    ["journeys", "run", "--root", s.cwd],
+    ["journeys", "run", "--root", s.cwd, "--build"],
+    ["journeys", "run", "--from-cargo-json", path.join(s.dir, "l.jsonl")],
     ["run", "--tier", "fast", "--build"],
     ["run", "--build-ui"],
     ["run-tests", "--from-cargo-json", path.join(s.dir, "l.json"), "--build-with", "cargo"],
@@ -76,7 +77,10 @@ test("a QA step that would compile and cannot be carried is refused, naming the 
     assert.throws(() => buildLaunch("rightkit-qa", args, s.host), (e) => e.code === BUILD_LAUNCH_REFUSED && /rightkit-qa .*compiles nothing/s.test(e.message) && /its own carried build step/.test(e.message), args.join(" "));
     assert.throws(() => buildLaunch("rustright", ["run", "rightkit-qa", "--", ...args], s.host), (e) => e.code === BUILD_LAUNCH_REFUSED, `via the client spelling: ${args.join(" ")}`);
   }
-  assert.throws(() => buildLaunch("rightkit-qa", ["journeys", "run"], s.host), /no prebuilt mode/);
+  // GB-79: a plain `journeys run` is no longer refused as a build: the gate carries its build (qa-journeys-prebuilt.mjs, tested in qa-journeys-prebuilt.test.mjs); it is refused only
+  // when the installed rightkit-qa does not advertise the capability, naming it.
+  assert.throws(() => buildLaunch("rightkit-qa", ["journeys", "run"], { ...s.host, qaPrebuiltCapability: () => false }), /journeys-prebuilt-input/);
+  assert.equal(buildLaunch("rightkit-qa", ["journeys", "run"], { ...s.host, qaPrebuiltCapability: () => true }).command, process.execPath);
   assert.ok(qaBuildReason(["run-tests", "--app", "x"]), "without the gate's carried build, a run-tests step with no listing compiles");
   assert.equal(qaBuildReason(["run-tests", "--from-cargo-json", "/l.json", "--", "cargo"]), null, "arguments after -- go to the test binaries");
   assert.equal(qaBuildReason(["run-tests", "--from-cargo-json=/l.json", "--app", "x"]), null);

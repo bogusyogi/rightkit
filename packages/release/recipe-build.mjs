@@ -416,6 +416,7 @@ export function runRecipeBuild(rawPlan, { appRoot, env = process.env, platform =
     // passes through unchanged) the step runs as resolveLaunch decided.
     const own = launch.command === process.execPath && launch.args[0] === OWN_RIGHT_RELEASE;
     const routed = own ? null : door(step.cmd, stepArgs, { env: stepEnv, stepEnv: step.env, platform, cwd, exists: (fs?.existsSync ?? nodeExistsSync) });
+    if (routed?.signingEnvDropped?.length) log(`recipe-build: ${routed.signingEnvDropped.join(", ")} suppresses signing in a direct session and is not forwarded to the broker (GB-06: signing material never rides an adapter request); this carried step runs unsigned and the seal is made outside the broker`);
     const passthrough = !routed || (routed.command === step.cmd && routed.args.length === stepArgs.length && routed.args.every((a, i) => a === stepArgs[i]));
     const run = passthrough ? launch : { command: routed.command, args: routed.args, shell: false };
     const result = spawnSync(run.command, run.args, { cwd, env: { ...stepEnv, ...(!passthrough && routed.env ? routed.env : {}) }, stdio: "inherit", shell: run.shell, windowsHide: true });

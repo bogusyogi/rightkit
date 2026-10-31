@@ -1,0 +1,52 @@
+{
+  "schema": "rightkit.vectors-source/1",
+  "note": "RustRight production vectors (docs/contracts/*.json), copied byte for byte from the committed blobs. RightKit consumers must pass them; refresh by recopying from the named commit and updating this file. A vector whose bytes differ from the pinned sha256 fails the vectors test.",
+  "source": {
+    "repository": "rustright",
+    "branch": "claude/practical-clarke-tkufso",
+    "commit": "c839d1f55e6829bcfa6d943bca6bbfa646d33ff1",
+    "path": "docs/contracts"
+  },
+  "files": {
+    "adapter-argv.fixtures.json": {
+      "sha256": "d13615c6a4243e343564d968f9a35b7d4284824d9675bc2dfc8284861a31823d",
+      "schema": "rustright.adapter-argv.fixtures.v1"
+    },
+    "attribution-detail-vectors.v1.json": {
+      "sha256": "fa6fe4e8f746190339658fee64c666170bbb04106fb2fb582394e8af76f19c84",
+      "schema": "rustright.attribution-detail-vectors.v1"
+    },
+    "cargo-shapes.fixtures.json": {
+      "sha256": "fe1df98dcd7a58c6bcfc5b7f04424cf5d3bfba2a8ff80a2c288d4abfbb81f70c",
+      "schema": "rustright.cargo-shapes.fixtures.v1"
+    },
+    "control-status-vectors.v1.json": {
+      "sha256": "a3a1e7439918d931fc355c3a8314b4caffba6c520521f3075fc2875b5c240381",
+      "schema": "rustright.control-status-vectors.v1"
+    },
+    "declared-inputs.fixtures.json": {
+      "sha256": "04d56a4cb5cdd9022f5bf15b96e9f00e144bdef75c7a2bb1d9948d4b4016f049",
+      "schema": "rustright.declared-inputs.fixtures.v1"
+    },
+    "freshness-evidence-vectors.v1.json": {
+      "sha256": "13a87427d659d33fb586dd284d652280663c02c437d4ad89cf440a0cd036b5a8",
+      "schema": "rustright.freshness-evidence-vectors.v1",
+      "commit": "ddfb07b185d35cf3c0b7848c0a195ec34ac146dd",
+      "note": "copied byte for byte from rustright docs/contracts at ddfb07b (GB-68), identical at the branch tip 8a97e085830205ca633f092158aee650bab7d707"
+    },
+    "lease-status-vectors.v1.json": {
+      "sha256": "1e2bd4abca08932962c86c3e8e143ec56b08046a2f570b6e368e000c25b7ab46",
+      "schema": "rustright.lease-status-vectors.v1"
+    },
+    "managed-roots.fixtures.json": {
+      "sha256": "9139b2de043f5db0b5df1e4f3ea102d6ebde073090ba4065044b2b0a59ea5d96",
+      "schema": "rustright.managed-roots.fixtures.v1",
+      "commit": "07829c05ad3a59332c70553189caca07f3d60e06",
+      "note": "copied byte for byte from rustright docs/contracts at 07829c05 (branch claude/wave4-partial): adds the case \"linux no-env defaults to the account state directory\" (14 cases, same key set)"
+    },
+    "receipt-vectors.v1.json": {
+      "sha256": "51c104f94a19a12c92a7911491405fdfe05e754bfb91036280a19f2d694df848",
+      "schema": "rustright.receipt-vectors.v1"
+    }
+  }
+}

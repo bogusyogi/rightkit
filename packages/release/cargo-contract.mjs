@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
-import { directPlatform, managedRuntimeClient, runCargoSync } from "./managed-cargo.mjs";
+import { directPlatform, linuxBrokerDeclared, managedRuntimeClient, runCargoSync } from "./managed-cargo.mjs";
 
 const SKIP_DIRECTORIES = new Set([".audit", ".cache", ".git", ".claude", ".right-release", ".worktrees", "node_modules", "target", "vendor"]);
 const CRATES_IO_SOURCES = new Set([
@@ -30,7 +30,8 @@ export function managedCargoShimOnPath(env = process.env, platform = process.pla
 }
 
 export function brokerManagedHost(env = process.env, platform = process.platform, exists = existsSync) {
-  if (directPlatform(platform)) return false; // Linux is never broker-managed, whatever socket or control root the env names
+  // A Linux host is broker-managed only through its explicit declared route (managed-cargo linuxBrokerDeclared), whatever socket or control root the env names.
+  if (directPlatform(platform)) return linuxBrokerDeclared(env, platform);
   return Boolean(managedRuntimeClient(env, platform, exists)) || Boolean(env.RUSTRIGHT_BUILD_BROKER_SOCKET || env.RIGHTKIT_BUILD_BROKER_SOCKET) || managedCargoShimOnPath(env, platform, exists);
 }
 

@@ -1,0 +1,242 @@
+{
+  "cases": [
+    {
+      "detail": "{\"attribution\":{\"available\":true,\"source\":\"cargo-json\",\"truncated\":0,\"units\":[{\"errors\":0,\"fresh\":false,\"kind\":\"lib\",\"otherMessages\":0,\"package\":\"alpha\",\"packageId\":\"path+file:///w/alpha#0.1.0\",\"target\":\"alpha\",\"warnings\":1},{\"errors\":1,\"fresh\":null,\"kind\":\"lib\",\"otherMessages\":0,\"package\":\"beta\",\"packageId\":\"path+file:///w/beta#0.1.0\",\"target\":\"beta\",\"warnings\":0}]},\"freshness\":{\"available\":true,\"buildScriptExecutedEvents\":0,\"coldCause\":null,\"compilerArtifacts\":1,\"dirtyUnits\":1,\"fresh\":0,\"invalidationReasons\":[{\"cause\":\"source-or-dependency-changed\",\"kind\":\"FsStatusOutdated\",\"reason\":\"FsStatusOutdated(StaleItem(ChangedFile { stale: \\\"/w/alpha/src/lib.rs\\\" }))\",\"target\":\"alpha\",\"unit\":\"alpha v0.1.0\"}],\"invalidationReasonsComplete\":true,\"invalidationReasonsTruncated\":0,\"invalidationSource\":\"cargo-fingerprint-log\",\"notFresh\":1,\"notFreshPackages\":[\"path+file:///w/alpha#0.1.0\"],\"notFreshPackagesTruncated\":0,\"parseErrors\":0,\"unitsAtStart\":0},\"id\":\"e4a181a2-5ea7-4cc6-85f6-956e05bcda9b\",\"schema\":\"rustright.stage-evidence/1\",\"toolchain\":\"stable-aarch64-apple-darwin|cargo:5e99f2d3821d225a4a7eedb300359d2b35a82b5dc111a827ec39cce736ea2c33|rustc:cdefbb6f0f8a597aaa542158abdd02ec7790ac82547513b092423de77b672511\"}",
+      "expect": "ok:2:1",
+      "name": "the real producer's compact receipt with its full detail",
+      "receipt": {
+        "attribution": {
+          "available": true,
+          "detail": {
+            "path": "/jobs/<id>.evidence.json",
+            "sha256": "2dca8b907b3e8bae8543b652d7b935d19b042780cebaa4ed3f9013255a74f2fc"
+          },
+          "errors": 1,
+          "freshUnits": 0,
+          "otherMessages": 0,
+          "packages": 2,
+          "source": "cargo-json",
+          "truncated": 0,
+          "units": 2,
+          "warnings": 1
+        },
+        "id": "e4a181a2-5ea7-4cc6-85f6-956e05bcda9b",
+        "toolchain": "stable-aarch64-apple-darwin|cargo:5e99f2d3821d225a4a7eedb300359d2b35a82b5dc111a827ec39cce736ea2c33|rustc:cdefbb6f0f8a597aaa542158abdd02ec7790ac82547513b092423de77b672511"
+      }
+    },
+    {
+      "detail": "{\"attribution\":{\"available\":true,\"source\":\"cargo-json\",\"truncated\":0,\"units\":[{\"errors\":0,\"fresh\":false,\"kind\":\"lib\",\"otherMessages\":0,\"package\":\"alpha\",\"packageId\":\"path+file:///w/alpha#0.1.0\",\"target\":\"alpha\",\"warnings\":1},{\"errors\":1,\"fresh\":null,\"kind\":\"lib\",\"otherMessages\":0,\"package\":\"beta\",\"packageId\":\"path+file:///w/beta#0.1.0\",\"target\":\"beta\",\"warnings\":0}]},\"freshness\":{\"available\":true,\"buildScriptExecutedEvents\":0,\"coldCause\":null,\"compilerArtifacts\":1,\"dirtyUnits\":1,\"fresh\":0,\"invalidationReasons\":[{\"cause\":\"source-or-dependency-changed\",\"kind\":\"FsStatusOutdated\",\"reason\":\"FsStatusOutdated(StaleItem(ChangedFile { stale: \\\"/w/alpha/src/lib.rs\\\" }))\",\"target\":\"alpha\",\"unit\":\"alpha v0.1.0\"}],\"invalidationReasonsComplete\":true,\"invalidationReasonsTruncated\":0,\"invalidationSource\":\"cargo-fingerprint-log\",\"notFresh\":1,\"notFreshPackages\":[\"path+file:///w/alpha#0.1.0\"],\"notFreshPackagesTruncated\":0,\"parseErrors\":0,\"unitsAtStart\":0},\"id\":\"e4a181a2-5ea7-4cc6-85f6-956e05bcda9b\",\"schema\":\"rustright.stage-evidence/1\",\"toolchain\":\"stable-aarch64-apple-darwin|cargo:5e99f2d3821d225a4a7eedb300359d2b35a82b5dc111a827ec39cce736ea2c33|rustc:cdefbb6f0f8a597aaa542158abdd02ec7790ac82547513b092423de77b672511\"}",
+      "expect": "detail",
+      "name": "compact counts alone with no detail descriptor",
+      "receipt": {
+        "attribution": {
+          "available": true,
+          "errors": 1,
+          "freshUnits": 0,
+          "otherMessages": 0,
+          "packages": 2,
+          "source": "cargo-json",
+          "truncated": 0,
+          "units": 2,
+          "warnings": 1
+        },
+        "id": "e4a181a2-5ea7-4cc6-85f6-956e05bcda9b",
+        "toolchain": "stable-aarch64-apple-darwin|cargo:5e99f2d3821d225a4a7eedb300359d2b35a82b5dc111a827ec39cce736ea2c33|rustc:cdefbb6f0f8a597aaa542158abdd02ec7790ac82547513b092423de77b672511"
+      }
+    },
+    {
+      "detail": "{\"attribution\":{\"available\":true,\"source\":\"cargo-json\",\"truncated\":0,\"units\":[{\"errors\":0,\"fresh\":false,\"kind\":\"lib\",\"otherMessages\":0,\"package\":\"alpha\",\"packageId\":\"path+file:///w/alpha#0.1.0\",\"target\":\"alpha\",\"warnings\":1},{\"errors\":1,\"fresh\":null,\"kind\":\"lib\",\"otherMessages\":0,\"package\":\"beta\",\"packageId\":\"path+file:///w/beta#0.1.0\",\"target\":\"beta\",\"warnings\":0}]},\"freshness\":{\"available\":true,\"buildScriptExecutedEvents\":0,\"coldCause\":null,\"compilerArtifacts\":1,\"dirtyUnits\":1,\"fresh\":0,\"invalidationReasons\":[{\"cause\":\"source-or-dependency-changed\",\"kind\":\"FsStatusOutdated\",\"reason\":\"FsStatusOutdated(StaleItem(ChangedFile { stale: \\\"/w/alpha/src/lib.rs\\\" }))\",\"target\":\"alpha\",\"unit\":\"alpha v0.1.0\"}],\"invalidationReasonsComplete\":true,\"invalidationReasonsTruncated\":0,\"invalidationSource\":\"cargo-fingerprint-log\",\"notFresh\":1,\"notFreshPackages\":[\"path+file:///w/alpha#0.1.0\"],\"notFreshPackagesTruncated\":0,\"parseErrors\":0,\"unitsAtStart\":0},\"id\":\"e4a181a2-5ea7-4cc6-85f6-956e05bcda9b\",\"schema\":\"rustright.stage-evidence/1\",\"toolchain\":\"stable-aarch64-apple-darwin|cargo:5e99f2d3821d225a4a7eedb300359d2b35a82b5dc111a827ec39cce736ea2c33|rustc:cdefbb6f0f8a597aaa542158abdd02ec7790ac82547513b092423de77b672511\"}",
+      "expect": "detail",
+      "name": "a detail file that is not the one signed",
+      "receipt": {
+        "attribution": {
+          "available": true,
+          "detail": {
+            "path": "/jobs/<id>.evidence.json",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "errors": 1,
+          "freshUnits": 0,
+          "otherMessages": 0,
+          "packages": 2,
+          "source": "cargo-json",
+          "truncated": 0,
+          "units": 2,
+          "warnings": 1
+        },
+        "id": "e4a181a2-5ea7-4cc6-85f6-956e05bcda9b",
+        "toolchain": "stable-aarch64-apple-darwin|cargo:5e99f2d3821d225a4a7eedb300359d2b35a82b5dc111a827ec39cce736ea2c33|rustc:cdefbb6f0f8a597aaa542158abdd02ec7790ac82547513b092423de77b672511"
+      }
+    },
+    {
+      "detail": "{\"attribution\":{\"available\":true,\"source\":\"cargo-json\",\"truncated\":0,\"units\":[{\"errors\":0,\"fresh\":false,\"kind\":\"lib\",\"otherMessages\":0,\"package\":\"alpha\",\"packageId\":\"path+file:///w/alpha#0.1.0\",\"target\":\"alpha\",\"warnings\":1},{\"errors\":1,\"fresh\":null,\"kind\":\"lib\",\"otherMessages\":0,\"package\":\"beta\",\"packageId\":\"path+file:///w/beta#0.1.0\",\"target\":\"beta\",\"warnings\":0}]},\"freshness\":{\"available\":true,\"buildScriptExecutedEvents\":0,\"coldCause\":null,\"compilerArtifacts\":1,\"dirtyUnits\":1,\"fresh\":0,\"invalidationReasons\":[{\"cause\":\"source-or-dependency-changed\",\"kind\":\"FsStatusOutdated\",\"reason\":\"FsStatusOutdated(StaleItem(ChangedFile { stale: \\\"/w/alpha/src/lib.rs\\\" }))\",\"target\":\"alpha\",\"unit\":\"alpha v0.1.0\"}],\"invalidationReasonsComplete\":true,\"invalidationReasonsTruncated\":0,\"invalidationSource\":\"cargo-fingerprint-log\",\"notFresh\":1,\"notFreshPackages\":[\"path+file:///w/alpha#0.1.0\"],\"notFreshPackagesTruncated\":0,\"parseErrors\":0,\"unitsAtStart\":0},\"id\":\"e4a181a2-5ea7-4cc6-85f6-956e05bcda9b\",\"schema\":\"rustright.stage-evidence/1\",\"toolchain\":\"stable-aarch64-apple-darwin|cargo:5e99f2d3821d225a4a7eedb300359d2b35a82b5dc111a827ec39cce736ea2c33|rustc:cdefbb6f0f8a597aaa542158abdd02ec7790ac82547513b092423de77b672511\"}",
+      "expect": "job",
+      "name": "a detail file for another request",
+      "receipt": {
+        "attribution": {
+          "available": true,
+          "detail": {
+            "path": "/jobs/<id>.evidence.json",
+            "sha256": "2dca8b907b3e8bae8543b652d7b935d19b042780cebaa4ed3f9013255a74f2fc"
+          },
+          "errors": 1,
+          "freshUnits": 0,
+          "otherMessages": 0,
+          "packages": 2,
+          "source": "cargo-json",
+          "truncated": 0,
+          "units": 2,
+          "warnings": 1
+        },
+        "id": "other-request",
+        "toolchain": "stable-aarch64-apple-darwin|cargo:5e99f2d3821d225a4a7eedb300359d2b35a82b5dc111a827ec39cce736ea2c33|rustc:cdefbb6f0f8a597aaa542158abdd02ec7790ac82547513b092423de77b672511"
+      }
+    },
+    {
+      "detail": "{\"attribution\":{\"available\":true,\"source\":\"cargo-json\",\"truncated\":0,\"units\":[{\"errors\":0,\"fresh\":false,\"kind\":\"lib\",\"otherMessages\":0,\"package\":\"alpha\",\"packageId\":\"path+file:///w/alpha#0.1.0\",\"target\":\"alpha\",\"warnings\":1},{\"errors\":1,\"fresh\":null,\"kind\":\"lib\",\"otherMessages\":0,\"package\":\"beta\",\"packageId\":\"path+file:///w/beta#0.1.0\",\"target\":\"beta\",\"warnings\":0}]},\"freshness\":{\"available\":true,\"buildScriptExecutedEvents\":0,\"coldCause\":null,\"compilerArtifacts\":1,\"dirtyUnits\":1,\"fresh\":0,\"invalidationReasons\":[{\"cause\":\"source-or-dependency-changed\",\"kind\":\"FsStatusOutdated\",\"reason\":\"FsStatusOutdated(StaleItem(ChangedFile { stale: \\\"/w/alpha/src/lib.rs\\\" }))\",\"target\":\"alpha\",\"unit\":\"alpha v0.1.0\"}],\"invalidationReasonsComplete\":true,\"invalidationReasonsTruncated\":0,\"invalidationSource\":\"cargo-fingerprint-log\",\"notFresh\":1,\"notFreshPackages\":[\"path+file:///w/alpha#0.1.0\"],\"notFreshPackagesTruncated\":0,\"parseErrors\":0,\"unitsAtStart\":0},\"id\":\"e4a181a2-5ea7-4cc6-85f6-956e05bcda9b\",\"schema\":\"rustright.stage-evidence/1\",\"toolchain\":\"stable-aarch64-apple-darwin|cargo:5e99f2d3821d225a4a7eedb300359d2b35a82b5dc111a827ec39cce736ea2c33|rustc:cdefbb6f0f8a597aaa542158abdd02ec7790ac82547513b092423de77b672511\"}",
+      "expect": "evidence",
+      "name": "a receipt that names another toolchain",
+      "receipt": {
+        "attribution": {
+          "available": true,
+          "detail": {
+            "path": "/jobs/<id>.evidence.json",
+            "sha256": "2dca8b907b3e8bae8543b652d7b935d19b042780cebaa4ed3f9013255a74f2fc"
+          },
+          "errors": 1,
+          "freshUnits": 0,
+          "otherMessages": 0,
+          "packages": 2,
+          "source": "cargo-json",
+          "truncated": 0,
+          "units": 2,
+          "warnings": 1
+        },
+        "id": "e4a181a2-5ea7-4cc6-85f6-956e05bcda9b",
+        "toolchain": "stable|cargo:0|rustc:0"
+      }
+    },
+    {
+      "detail": "{\"attribution\":{\"available\":true,\"source\":\"cargo-json\",\"truncated\":0,\"units\":[{\"errors\":0,\"fresh\":false,\"kind\":\"lib\",\"otherMessages\":0,\"package\":\"alpha\",\"packageId\":\"path+file:///w/alpha#0.1.0\",\"target\":\"alpha\",\"warnings\":1},{\"errors\":1,\"fresh\":null,\"kind\":\"lib\",\"otherMessages\":0,\"package\":\"beta\",\"packageId\":\"path+file:///w/beta#0.1.0\",\"target\":\"beta\",\"warnings\":0}]},\"freshness\":{\"available\":true,\"buildScriptExecutedEvents\":0,\"coldCause\":null,\"compilerArtifacts\":1,\"dirtyUnits\":1,\"fresh\":0,\"invalidationReasons\":[{\"cause\":\"source-or-dependency-changed\",\"kind\":\"FsStatusOutdated\",\"reason\":\"FsStatusOutdated(StaleItem(ChangedFile { stale: \\\"/w/alpha/src/lib.rs\\\" }))\",\"target\":\"alpha\",\"unit\":\"alpha v0.1.0\"}],\"invalidationReasonsComplete\":true,\"invalidationReasonsTruncated\":0,\"invalidationSource\":\"cargo-fingerprint-log\",\"notFresh\":1,\"notFreshPackages\":[\"path+file:///w/alpha#0.1.0\"],\"notFreshPackagesTruncated\":0,\"parseErrors\":0,\"unitsAtStart\":0},\"id\":\"e4a181a2-5ea7-4cc6-85f6-956e05bcda9b\",\"schema\":\"rustright.stage-evidence/1\",\"toolchain\":\"stable-aarch64-apple-darwin|cargo:5e99f2d3821d225a4a7eedb300359d2b35a82b5dc111a827ec39cce736ea2c33|rustc:cdefbb6f0f8a597aaa542158abdd02ec7790ac82547513b092423de77b672511\"}",
+      "expect": "evidence",
+      "name": "compact units that disagree with the rows",
+      "receipt": {
+        "attribution": {
+          "available": true,
+          "detail": {
+            "path": "/jobs/<id>.evidence.json",
+            "sha256": "2dca8b907b3e8bae8543b652d7b935d19b042780cebaa4ed3f9013255a74f2fc"
+          },
+          "errors": 1,
+          "freshUnits": 0,
+          "otherMessages": 0,
+          "packages": 2,
+          "source": "cargo-json",
+          "truncated": 0,
+          "units": 3,
+          "warnings": 1
+        },
+        "id": "e4a181a2-5ea7-4cc6-85f6-956e05bcda9b",
+        "toolchain": "stable-aarch64-apple-darwin|cargo:5e99f2d3821d225a4a7eedb300359d2b35a82b5dc111a827ec39cce736ea2c33|rustc:cdefbb6f0f8a597aaa542158abdd02ec7790ac82547513b092423de77b672511"
+      }
+    },
+    {
+      "detail": "{\"attribution\":{\"available\":true,\"source\":\"cargo-json\",\"truncated\":0,\"units\":[{\"errors\":0,\"fresh\":false,\"kind\":\"lib\",\"otherMessages\":0,\"package\":\"alpha\",\"packageId\":\"path+file:///w/alpha#0.1.0\",\"target\":\"alpha\",\"warnings\":1},{\"errors\":1,\"fresh\":null,\"kind\":\"lib\",\"otherMessages\":0,\"package\":\"beta\",\"packageId\":\"path+file:///w/beta#0.1.0\",\"target\":\"beta\",\"warnings\":0}]},\"freshness\":{\"available\":true,\"buildScriptExecutedEvents\":0,\"coldCause\":null,\"compilerArtifacts\":1,\"dirtyUnits\":1,\"fresh\":0,\"invalidationReasons\":[{\"cause\":\"source-or-dependency-changed\",\"kind\":\"FsStatusOutdated\",\"reason\":\"FsStatusOutdated(StaleItem(ChangedFile { stale: \\\"/w/alpha/src/lib.rs\\\" }))\",\"target\":\"alpha\",\"unit\":\"alpha v0.1.0\"}],\"invalidationReasonsComplete\":true,\"invalidationReasonsTruncated\":0,\"invalidationSource\":\"cargo-fingerprint-log\",\"notFresh\":1,\"notFreshPackages\":[\"path+file:///w/alpha#0.1.0\"],\"notFreshPackagesTruncated\":0,\"parseErrors\":0,\"unitsAtStart\":0},\"id\":\"e4a181a2-5ea7-4cc6-85f6-956e05bcda9b\",\"schema\":\"rustright.stage-evidence/1\",\"toolchain\":\"stable-aarch64-apple-darwin|cargo:5e99f2d3821d225a4a7eedb300359d2b35a82b5dc111a827ec39cce736ea2c33|rustc:cdefbb6f0f8a597aaa542158abdd02ec7790ac82547513b092423de77b672511\"}",
+      "expect": "evidence",
+      "name": "compact errors that disagree with the rows",
+      "receipt": {
+        "attribution": {
+          "available": true,
+          "detail": {
+            "path": "/jobs/<id>.evidence.json",
+            "sha256": "2dca8b907b3e8bae8543b652d7b935d19b042780cebaa4ed3f9013255a74f2fc"
+          },
+          "errors": 0,
+          "freshUnits": 0,
+          "otherMessages": 0,
+          "packages": 2,
+          "source": "cargo-json",
+          "truncated": 0,
+          "units": 2,
+          "warnings": 1
+        },
+        "id": "e4a181a2-5ea7-4cc6-85f6-956e05bcda9b",
+        "toolchain": "stable-aarch64-apple-darwin|cargo:5e99f2d3821d225a4a7eedb300359d2b35a82b5dc111a827ec39cce736ea2c33|rustc:cdefbb6f0f8a597aaa542158abdd02ec7790ac82547513b092423de77b672511"
+      }
+    },
+    {
+      "detail": "{\"attribution\":{\"available\":true,\"source\":\"cargo-json\",\"truncated\":3,\"units\":[{\"errors\":0,\"fresh\":false,\"kind\":\"lib\",\"otherMessages\":0,\"package\":\"alpha\",\"packageId\":\"path+file:///w/alpha#0.1.0\",\"target\":\"alpha\",\"warnings\":1},{\"errors\":1,\"fresh\":null,\"kind\":\"lib\",\"otherMessages\":0,\"package\":\"beta\",\"packageId\":\"path+file:///w/beta#0.1.0\",\"target\":\"beta\",\"warnings\":0}]},\"freshness\":{\"available\":true,\"buildScriptExecutedEvents\":0,\"coldCause\":null,\"compilerArtifacts\":1,\"dirtyUnits\":1,\"fresh\":0,\"invalidationReasons\":[{\"cause\":\"source-or-dependency-changed\",\"kind\":\"FsStatusOutdated\",\"reason\":\"FsStatusOutdated(StaleItem(ChangedFile { stale: \\\"/w/alpha/src/lib.rs\\\" }))\",\"target\":\"alpha\",\"unit\":\"alpha v0.1.0\"}],\"invalidationReasonsComplete\":true,\"invalidationReasonsTruncated\":0,\"invalidationSource\":\"cargo-fingerprint-log\",\"notFresh\":1,\"notFreshPackages\":[\"path+file:///w/alpha#0.1.0\"],\"notFreshPackagesTruncated\":0,\"parseErrors\":0,\"unitsAtStart\":0},\"id\":\"e4a181a2-5ea7-4cc6-85f6-956e05bcda9b\",\"schema\":\"rustright.stage-evidence/1\",\"toolchain\":\"stable-aarch64-apple-darwin|cargo:5e99f2d3821d225a4a7eedb300359d2b35a82b5dc111a827ec39cce736ea2c33|rustc:cdefbb6f0f8a597aaa542158abdd02ec7790ac82547513b092423de77b672511\"}",
+      "expect": "truncated",
+      "name": "a truncated attribution",
+      "receipt": {
+        "attribution": {
+          "available": true,
+          "detail": {
+            "path": "/jobs/<id>.evidence.json",
+            "sha256": "9b5a4575c4fb93ef04350833d39c40bdc7bd3d49e18be707ed0c47456161cedc"
+          },
+          "errors": 1,
+          "freshUnits": 0,
+          "otherMessages": 0,
+          "packages": 2,
+          "source": "cargo-json",
+          "truncated": 3,
+          "units": 2,
+          "warnings": 1
+        },
+        "id": "e4a181a2-5ea7-4cc6-85f6-956e05bcda9b",
+        "toolchain": "stable-aarch64-apple-darwin|cargo:5e99f2d3821d225a4a7eedb300359d2b35a82b5dc111a827ec39cce736ea2c33|rustc:cdefbb6f0f8a597aaa542158abdd02ec7790ac82547513b092423de77b672511"
+      }
+    },
+    {
+      "detail": "{\"attribution\":{\"available\":true,\"source\":\"cargo-json\",\"truncated\":0,\"units\":[{\"errors\":0,\"fresh\":false,\"kind\":\"lib\",\"otherMessages\":0,\"package\":\"alpha\",\"packageId\":\"path+file:///w/alpha#0.1.0\",\"warnings\":1},{\"errors\":1,\"fresh\":null,\"kind\":\"lib\",\"otherMessages\":0,\"package\":\"beta\",\"packageId\":\"path+file:///w/beta#0.1.0\",\"target\":\"beta\",\"warnings\":0}]},\"freshness\":{\"available\":true,\"buildScriptExecutedEvents\":0,\"coldCause\":null,\"compilerArtifacts\":1,\"dirtyUnits\":1,\"fresh\":0,\"invalidationReasons\":[{\"cause\":\"source-or-dependency-changed\",\"kind\":\"FsStatusOutdated\",\"reason\":\"FsStatusOutdated(StaleItem(ChangedFile { stale: \\\"/w/alpha/src/lib.rs\\\" }))\",\"target\":\"alpha\",\"unit\":\"alpha v0.1.0\"}],\"invalidationReasonsComplete\":true,\"invalidationReasonsTruncated\":0,\"invalidationSource\":\"cargo-fingerprint-log\",\"notFresh\":1,\"notFreshPackages\":[\"path+file:///w/alpha#0.1.0\"],\"notFreshPackagesTruncated\":0,\"parseErrors\":0,\"unitsAtStart\":0},\"id\":\"e4a181a2-5ea7-4cc6-85f6-956e05bcda9b\",\"schema\":\"rustright.stage-evidence/1\",\"toolchain\":\"stable-aarch64-apple-darwin|cargo:5e99f2d3821d225a4a7eedb300359d2b35a82b5dc111a827ec39cce736ea2c33|rustc:cdefbb6f0f8a597aaa542158abdd02ec7790ac82547513b092423de77b672511\"}",
+      "expect": "evidence",
+      "name": "a unit row without its target",
+      "receipt": {
+        "attribution": {
+          "available": true,
+          "detail": {
+            "path": "/jobs/<id>.evidence.json",
+            "sha256": "352a43ad6148c686b7a55719def4a806853e30a64d722c166e6da76371685173"
+          },
+          "errors": 1,
+          "freshUnits": 0,
+          "otherMessages": 0,
+          "packages": 2,
+          "source": "cargo-json",
+          "truncated": 0,
+          "units": 2,
+          "warnings": 1
+        },
+        "id": "e4a181a2-5ea7-4cc6-85f6-956e05bcda9b",
+        "toolchain": "stable-aarch64-apple-darwin|cargo:5e99f2d3821d225a4a7eedb300359d2b35a82b5dc111a827ec39cce736ea2c33|rustc:cdefbb6f0f8a597aaa542158abdd02ec7790ac82547513b092423de77b672511"
+      }
+    },
+    {
+      "detail": "{\"attribution\":{\"available\":true,\"source\":\"cargo-json\",\"truncated\":0,\"units\":[{\"errors\":0,\"fresh\":false,\"kind\":\"lib\",\"otherMessages\":0,\"package\":\"alpha\",\"packageId\":\"path+file:///w/alpha#0.1.0\",\"target\":\"alpha\",\"warnings\":1},{\"errors\":1,\"fresh\":null,\"kind\":\"lib\",\"otherMessages\":0,\"package\":\"beta\",\"packageId\":\"path+file:///w/beta#0.1.0\",\"target\":\"beta\",\"warnings\":0}]},\"freshness\":{\"available\":true,\"buildScriptExecutedEvents\":0,\"coldCause\":null,\"compilerArtifacts\":1,\"dirtyUnits\":1,\"fresh\":0,\"invalidationReasons\":[{\"cause\":\"source-or-dependency-changed\",\"kind\":\"FsStatusOutdated\",\"reason\":\"FsStatusOutdated(StaleItem(ChangedFile { stale: \\\"/w/alpha/src/lib.rs\\\" }))\",\"target\":\"alpha\",\"unit\":\"alpha v0.1.0\"}],\"invalidationReasonsComplete\":true,\"invalidationReasonsTruncated\":0,\"invalidationSource\":\"cargo-fingerprint-log\",\"notFresh\":1,\"notFreshPackages\":[\"path+file:///w/alpha#0.1.0\"],\"notFreshPackagesTruncated\":0,\"parseErrors\":0,\"unitsAtStart\":0},\"id\":\"e4a181a2-5ea7-4cc6-85f6-956e05bcda9b\",\"schema\":\"rustright.stage-evidence/9\",\"toolchain\":\"stable-aarch64-apple-darwin|cargo:5e99f2d3821d225a4a7eedb300359d2b35a82b5dc111a827ec39cce736ea2c33|rustc:cdefbb6f0f8a597aaa542158abdd02ec7790ac82547513b092423de77b672511\"}",
+      "expect": "schema",
+      "name": "an unknown evidence schema",
+      "receipt": {
+        "attribution": {
+          "available": true,
+          "detail": {
+            "path": "/jobs/<id>.evidence.json",
+            "sha256": "3cda2c88c41c79c9eb14aac1f44dd6ce38a3c7c4b45945cefa914652b4bef1d0"
+          },
+          "errors": 1,
+          "freshUnits": 0,
+          "otherMessages": 0,
+          "packages": 2,
+          "source": "cargo-json",
+          "truncated": 0,
+          "units": 2,
+          "warnings": 1
+        },
+        "id": "e4a181a2-5ea7-4cc6-85f6-956e05bcda9b",
+        "toolchain": "stable-aarch64-apple-darwin|cargo:5e99f2d3821d225a4a7eedb300359d2b35a82b5dc111a827ec39cce736ea2c33|rustc:cdefbb6f0f8a597aaa542158abdd02ec7790ac82547513b092423de77b672511"
+      }
+    }
+  ],
+  "note": "GB-50. The first case is a receipt and evidence file the production broker wrote for a batched `clippy -p alpha -p beta` (beta carries one error); the rest are single edits of it. `receipt` holds only the fields the check reads (`id`, `toolchain`, the compact `attribution` with its `detail` descriptor); a consumer applies it to a receipt `verify_receipt_strict` already accepted, so those fields are signed. `detail` is the evidence file's exact text. `expect` is `ok:<units>:<failedUnits>` or the refusal code of rustright_protocol::attestation::verify_attribution_detail. Counts alone never pass.",
+  "schema": "rustright.attribution-detail-vectors.v1"
+}

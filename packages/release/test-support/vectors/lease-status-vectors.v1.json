@@ -1,0 +1,198 @@
+{
+ "schema": "rustright.lease-status-vectors.v1",
+ "note": "GB-82. Snapshot lease status as the production lease table answers it (snapshot.rs Leases::status behind SNAPSHOT_LEASE_STATUS). Each case is an ordered list of steps run against one lease table; a `query` step names the (snapshot, handle) asked about and the state the broker answers. A handle covers its own lease and every `<handle>#<suffix>` lease; a handle that was never held, a prefix of a handle, and a different suffix are UNKNOWN; REAPED needs a durable completion that outlives the process (`restart` builds a new table on the same directory). The answer echoes the queried snapshot and ownership: {type:SNAPSHOT_LEASE_STATUS, schema:rustright.snapshot-lease-status.v1, state, snapshot, ownership}. A fake broker must answer UNKNOWN, not REAPED, for a lease that was never held, and keep completed and never-held apart. GB-23: the answer also carries `members`, one row {handle,state,spawned,refused,job} per submission the broker knows under the queried handle (the handle itself or any `<handle>#...`), sorted by handle; `state` of the answer is only the aggregate: REAPED requires every member REAPED and at least one member, so a completed sibling never stands in for a claimed submission without a completion (a start that may have run: op `unknown-start`) or for a lease record that still stands. A client that recorded sub-handles reconciles each against `members`; a recorded sub-handle absent from `members` never reached the broker and is the client's own no-submit evidence, never a REAPED.",
+ "cases": [
+  {
+   "name": "a never-held handle is UNKNOWN, a held one ACTIVE, a completed one REAPED, durably",
+   "steps": [
+    {
+     "op": "query",
+     "handle": "owner",
+     "state": "UNKNOWN"
+    },
+    {
+     "op": "acquire",
+     "handle": "owner#x"
+    },
+    {
+     "op": "query",
+     "handle": "owner",
+     "state": "ACTIVE"
+    },
+    {
+     "op": "query",
+     "handle": "owner#x",
+     "state": "ACTIVE"
+    },
+    {
+     "op": "query",
+     "handle": "own",
+     "state": "UNKNOWN"
+    },
+    {
+     "op": "query",
+     "handle": "owner#y",
+     "state": "UNKNOWN"
+    },
+    {
+     "op": "complete"
+    },
+    {
+     "op": "query",
+     "handle": "owner",
+     "state": "REAPED"
+    },
+    {
+     "op": "query",
+     "handle": "owner#x",
+     "state": "REAPED"
+    },
+    {
+     "op": "query",
+     "handle": "own",
+     "state": "UNKNOWN"
+    },
+    {
+     "op": "query",
+     "handle": "owner#y",
+     "state": "UNKNOWN"
+    },
+    {
+     "op": "restart"
+    },
+    {
+     "op": "query",
+     "handle": "owner",
+     "state": "REAPED"
+    },
+    {
+     "op": "query",
+     "handle": "other",
+     "state": "UNKNOWN"
+    }
+   ]
+  },
+  {
+   "name": "a lease that ran nothing and was never held stays UNKNOWN",
+   "steps": [
+    {
+     "op": "query",
+     "handle": "owner",
+     "state": "UNKNOWN"
+    },
+    {
+     "op": "restart"
+    },
+    {
+     "op": "query",
+     "handle": "owner",
+     "state": "UNKNOWN"
+    }
+   ]
+  },
+  {
+   "name": "a completed sibling never stands in for an unknown submission (GB-23)",
+   "steps": [
+    {
+     "op": "acquire",
+     "handle": "owner#a"
+    },
+    {
+     "op": "complete"
+    },
+    {
+     "op": "query",
+     "handle": "owner",
+     "state": "REAPED",
+     "members": [
+      {
+       "handle": "owner#a",
+       "state": "REAPED"
+      }
+     ]
+    },
+    {
+     "op": "unknown-start",
+     "handle": "owner#b"
+    },
+    {
+     "op": "query",
+     "handle": "owner",
+     "state": "UNKNOWN",
+     "members": [
+      {
+       "handle": "owner#a",
+       "state": "REAPED"
+      },
+      {
+       "handle": "owner#b",
+       "state": "UNKNOWN"
+      }
+     ]
+    },
+    {
+     "op": "query",
+     "handle": "owner#a",
+     "state": "REAPED",
+     "members": [
+      {
+       "handle": "owner#a",
+       "state": "REAPED"
+      }
+     ]
+    },
+    {
+     "op": "query",
+     "handle": "owner#b",
+     "state": "UNKNOWN",
+     "members": [
+      {
+       "handle": "owner#b",
+       "state": "UNKNOWN"
+      }
+     ]
+    },
+    {
+     "op": "restart"
+    },
+    {
+     "op": "query",
+     "handle": "owner",
+     "state": "UNKNOWN",
+     "members": [
+      {
+       "handle": "owner#a",
+       "state": "REAPED"
+      },
+      {
+       "handle": "owner#b",
+       "state": "UNKNOWN"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "a refused handle is a settled member that ran nothing (GB-23, GB-25)",
+   "steps": [
+    {
+     "op": "refuse",
+     "handle": "owner#r"
+    },
+    {
+     "op": "query",
+     "handle": "owner",
+     "state": "REAPED",
+     "members": [
+      {
+       "handle": "owner#r",
+       "state": "REAPED",
+       "spawned": false,
+       "refused": "RK_CHECK_ERROR"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -65,7 +65,7 @@ import { spawn as spawnDetachedDefault, spawnSync } from "./background-process.m
 import { managedRuntimeClient } from "./managed-cargo.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { requireManagedRoot } from "./managed-root-guard.mjs";
-import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, OwnershipBusy, holds, markBrokerSubmit, markCarriedSend, markLockFile } from "./ownership-mark.mjs";
+import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, OwnershipBusy, holds, markBrokerSubmit, markBrokerUnsent, markCarriedSend, markLockFile } from "./ownership-mark.mjs";
 
 // The mark itself lives in a leaf module (ownership-mark.mjs): snapshot-broker.mjs records carried sends through it, and importing this
 // file from there would close a cycle (this file -> managed-cargo -> cargo-target-shim -> snapshot-broker).
@@ -74,6 +74,8 @@ export { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, OwnershipBusy, markCarriedSend, mark
 export const OWNERSHIP_SCHEMA = "rightkit.build-ownership/1";
 export const HOLDER_SCHEMA = "rightkit.build-ownership-holder/1";
 /** The owner record's path, exported beside the handle so every process under the ownership records detached children there. */
+/** GB-85: how long a successful stage's release waits for every submission under its handle to be durably complete (the broker's own bounded `--wait-ms`, never a poll of the build). */
+export const RELEASE_LEASE_WAIT_MS = 15_000;
 export const LEASE_STATUS_SCHEMA = "rustright.snapshot-lease-status.v1";
 const LEASE_STATES = new Set(["ACTIVE", "REAPED", "UNKNOWN"]);
 // A start time read from `ps` (or /proc/<pid>/stat) is never late, only early: ps prints whole seconds (up to 1 s early), and on
@@ -868,10 +870,22 @@ export function readHolder(file) {
 /**
  * RustRight's lease state for a snapshot & ownership handle (`rustright snapshot-lease status`). Anything but a well-formed
  * answer is UNKNOWN: a missing client, a failed or unknown command, a schema or state the gate does not know.
+ *
+ * The answer is read exactly as the broker writes it (BROKER-CONTRACT section 16, GB-23 and GB-85): `{ type, schema, state, snapshot, ownership, members, waitedMs, waitTimedOut }`.
+ * `members` is one row per submission under the handle and `state` is only their aggregate (ACTIVE while any is held, REAPED only with at least one member and every member REAPED, else
+ * UNKNOWN); a state that is not the aggregate of its own rows is a contradiction, never a result. A wait was asked with `--wait-ms` (clamped to 30000): the answer then always carries
+ * `waitedMs` (a count) and `waitTimedOut` (a boolean, true exactly when the state is not REAPED at the bound). A timeout is UNKNOWN with the reason; the gate never polls and never resubmits.
+ * The result carries `members`, `waitedMs` and `waitTimedOut` for the callers that account by name.
  */
-export function brokerLeaseState({ snapshot, handle, env = process.env, platform = process.platform, spawn = spawnSync, client = managedRuntimeClient(env, platform) }) {
+export function brokerLeaseState({ snapshot, handle, env = process.env, platform = process.platform, spawn = spawnSync, client = managedRuntimeClient(env, platform), waitMs = 0 }) {
   if (!client) return { state: "UNKNOWN", why: "no RustRight client on this host" };
-  const r = run(spawn, client, ["snapshot-lease", "status", "--snapshot", snapshot, "--ownership", handle], env);
+  // GB-85: `--wait-ms N` makes the broker answer as soon as every submission under the handle is durably complete (REAPED), or at the bound with the state it has
+  // (waitTimedOut: true). A client that predates the option answers with a usage error: the plain query is then made, never a guess.
+  const clamp = (wait) => Math.min(Math.trunc(wait), 30_000);
+  const ask = (wait) => run(spawn, client, ["snapshot-lease", "status", "--snapshot", snapshot, "--ownership", handle, ...(wait > 0 ? ["--wait-ms", String(clamp(wait))] : [])], env);
+  let waited = Number.isFinite(waitMs) && waitMs > 0 ? waitMs : 0;
+  let r = ask(waited);
+  if (waited > 0 && r.status !== 0 && !r.error && /wait-ms|unknown|unexpected|unrecognized|usage/i.test(String(r.stderr ?? ""))) { waited = 0; r = ask(0); }
   if (r.error || r.status !== 0) return { state: "UNKNOWN", why: `rustright snapshot-lease status: ${r.error?.message ?? (String(r.stderr ?? "").trim().split(/\r?\n/).pop() || `exit ${r.status}`)}` };
   let answer = null;
   try { answer = JSON.parse(String(r.stdout ?? "").trim().split(/\r?\n/).pop()); } catch { answer = null; }
@@ -879,7 +893,25 @@ export function brokerLeaseState({ snapshot, handle, env = process.env, platform
   // The answer must echo what was asked (RustRight echoes `snapshot` as received and `ownership` as the handle): another pair's answer,
   // or no echo at all, binds nothing to this owner, so it is UNKNOWN and the record is held.
   if (answer.snapshot !== snapshot || answer.ownership !== handle) return { state: "UNKNOWN", why: `the lease status does not echo the queried snapshot and ownership handle (${JSON.stringify(answer.snapshot ?? null)}, ${JSON.stringify(answer.ownership ?? null)})` };
-  return { state: answer.state, why: `rustright snapshot-lease status: ${answer.state}` };
+  const unknown = (why) => ({ state: "UNKNOWN", why: `rustright snapshot-lease status: ${why}`, ...(Array.isArray(answer.members) ? { members: answer.members } : {}) });
+  // GB-23: `members` is one row per submission the broker knows under the handle ({handle, state, spawned, refused?, job?}); the answer's own state is only the aggregate.
+  const covers = (h) => h === handle || String(h).startsWith(`${handle}#`);
+  if (!Array.isArray(answer.members)) return unknown("the answer carries no members list (one row per submission under the handle), so no submission can be accounted for by name");
+  if (answer.members.some((m) => !m || typeof m.handle !== "string" || !covers(m.handle) || !LEASE_STATES.has(m.state))) return { state: "UNKNOWN", why: `the lease status carries members that are not submissions under ${handle}` };
+  const rows = answer.members;
+  const aggregate = rows.some((m) => m.state === "ACTIVE") ? "ACTIVE" : rows.length > 0 && rows.every((m) => m.state === "REAPED") ? "REAPED" : "UNKNOWN";
+  if (answer.state !== aggregate) return unknown(`the answer says ${answer.state} but its ${rows.length} member row(s) aggregate to ${aggregate} (REAPED needs at least one member and every member REAPED): it contradicts itself, so it is not read`);
+  // GB-85: waitedMs is a count and waitTimedOut a boolean; both are always sent by a broker that takes a wait, and are required once a wait was asked.
+  const hasWaited = answer.waitedMs !== undefined; const hasTimedOut = answer.waitTimedOut !== undefined;
+  if (hasWaited && !(Number.isInteger(answer.waitedMs) && answer.waitedMs >= 0)) return unknown(`waitedMs is not a non-negative integer (${JSON.stringify(answer.waitedMs)})`);
+  if (hasTimedOut && typeof answer.waitTimedOut !== "boolean") return unknown(`waitTimedOut is not a boolean (${JSON.stringify(answer.waitTimedOut)})`);
+  if (waited > 0 && (!hasWaited || !hasTimedOut)) return unknown(`a wait of ${clamp(waited)} ms was asked but the answer carries no ${!hasWaited ? "waitedMs" : "waitTimedOut"}`);
+  const timedOut = answer.waitTimedOut === true;
+  if (timedOut && (waited <= 0 || answer.state === "REAPED")) return unknown(`waitTimedOut is true although ${waited <= 0 ? "no wait was asked" : "the state is REAPED"}: it contradicts itself`);
+  if (waited > 0 && answer.state !== "REAPED" && !timedOut) return unknown(`the state is ${answer.state} after a wait without waitTimedOut: it contradicts itself`);
+  const timing = { ...(hasWaited ? { waitedMs: answer.waitedMs } : {}), ...(hasTimedOut ? { waitTimedOut: answer.waitTimedOut } : {}) };
+  if (timedOut) return { state: "UNKNOWN", why: `rustright snapshot-lease status: still ${answer.state} after waiting ${answer.waitedMs} ms (waitTimedOut); ownership stays UNKNOWN`, members: rows, ...timing };
+  return { state: answer.state, why: `rustright snapshot-lease status: ${answer.state}`, members: rows, ...timing };
 }
 
 function publish(target, text) {
@@ -934,7 +966,7 @@ function coveredMember(m, owner, { byPid, own }) {
  * Whether the work `owner` covers, other than the process `self` (the live gate at release, null at reclaim), is proven gone.
  * Returns the proofs, or throws a reason that is busy.
  */
-function coveredWorkGone(owner, { probe, lease, file, selfPid = null }) {
+function coveredWorkGone(owner, { probe, lease, file, selfPid = null, waitMs = 0 }) {
   const proofs = [];
   let rebooted = false;
   // A reboot is only a question for a dead owner; a live gate releasing its own record has not outlived one.
@@ -1042,22 +1074,53 @@ function coveredWorkGone(owner, { probe, lease, file, selfPid = null }) {
     throw new Error(`the record names no containment (${JSON.stringify(c)})`);
   }
   if (owner.broker?.submitted) {
-    // A carried request was sent under this handle (recorded just before each send). The bare handle answers REAPED when ANY one sub-handle has completed and
-    // none is held (rustright snapshot.rs `status`: handle_covers), so it proves only that no lease is held now; it never proves every sent request returned.
-    const status = lease({ snapshot: owner.snapshot, handle: owner.handle });
-    if (status.state !== "REAPED") throw new Error(`broker work may exist under this handle and its lease is ${status.state} (${status.why})`);
-    proofs.push(`broker lease for ${owner.handle} is REAPED`);
-    // Every recorded sub-handle (broker.handles: each is recorded before its send) must itself answer REAPED, asked by its exact name: an UNKNOWN one is a
-    // request that may have run and left no completion, so the record is held. Fail closed on a handle that is not a sub-handle of this record.
-    const handles = Array.isArray(owner.broker.handles) ? owner.broker.handles : [];
-    for (const sub of [...new Set(handles)]) {
+    // Every submission under this handle must be accounted for by NAME, never by the bare handle (GB-21, GB-23, GB-85). The bare handle answers REAPED when at least one
+    // member completed and none is held (rustright snapshot.rs `status`), so it proves only that no lease is held now: a completed sibling never stands in for an
+    // unknown submission. Each recorded sub-handle (broker.handles, recorded before its send) is asked by its exact name and must be one of
+    //   - REAPED, as a member of that answer (a durable completion; `spawned: false` for a refusal that ran nothing), or
+    //   - UNSENT: the gate itself proved, under the record's lock, that its client never started (broker.unsent), AND the broker holds nothing under it (UNKNOWN, no members).
+    // An UNKNOWN or ACTIVE one, an ambiguous send, a start that may have run, keeps the record; nothing is counted complete on the absence of a completion.
+    const handles = [...new Set(Array.isArray(owner.broker.handles) ? owner.broker.handles : [])];
+    const unsent = owner.broker.unsent && typeof owner.broker.unsent === "object" ? owner.broker.unsent : {};
+    const waitOptions = waitMs > 0 ? { waitMs } : {};
+    const settled = (sub) => unsent[sub] && typeof unsent[sub].reason === "string";
+    const everyUnsent = handles.length > 0 && handles.every(settled);
+    const status = lease({ snapshot: owner.snapshot, handle: owner.handle, ...waitOptions });
+    if (status.state === "ACTIVE" || (status.state !== "REAPED" && !everyUnsent)) throw new Error(`broker work may exist under this handle and its lease is ${status.state} (${status.why})`);
+    if (status.state === "REAPED") proofs.push(`broker lease for ${owner.handle} is REAPED`);
+    // GB-23: the answer's own member rows account for each recorded sub-handle too: a recorded one that the broker lists and does not list REAPED keeps ownership, whatever the aggregate said.
+    if (Array.isArray(status.members)) for (const sub of handles) { const row = status.members.find((m) => m.handle === sub); if (row && row.state !== "REAPED") throw new Error(`the broker lists sub-handle ${sub} as ${row.state} among the members of ${owner.handle}`); }
+    let neverStarted = 0;
+    for (const sub of handles) {
       if (typeof sub !== "string" || !sub.startsWith(`${owner.handle}#`) || sub.length <= owner.handle.length + 1) throw new Error(`the record lists ${JSON.stringify(sub)}, which is not a sub-handle of ${owner.handle}`);
-      const one = lease({ snapshot: owner.snapshot, handle: sub });
-      if (one.state !== "REAPED") throw new Error(`broker work may exist under sub-handle ${sub} and its lease is ${one.state} (${one.why})`);
+      const one = lease({ snapshot: owner.snapshot, handle: sub, ...waitOptions });
+      const member = Array.isArray(one.members) ? one.members.find((m) => m.handle === sub) : null;
+      if (one.state === "REAPED") {
+        if (Array.isArray(one.members) && !(member && member.state === "REAPED")) throw new Error(`the broker answers REAPED for ${sub} but lists no completed submission under that name`);
+        continue;
+      }
+      if (settled(sub) && one.state === "UNKNOWN" && Array.isArray(one.members) && one.members.length === 0) { proofs.push(`${sub} never started (${unsent[sub].reason}) and the broker holds nothing under it`); neverStarted += 1; continue; }
+      throw new Error(`broker work may exist under sub-handle ${sub} and its lease is ${one.state} (${one.why})`);
     }
-    if (handles.length) proofs.push(`broker lease for each of ${new Set(handles).size} sub-handle(s) is REAPED`);
+    if (handles.length) proofs.push(neverStarted === 0 ? `broker lease for each of ${handles.length} sub-handle(s) is REAPED` : `every one of ${handles.length} sub-handle(s) is accounted for: ${handles.length - neverStarted} REAPED, ${neverStarted} proven never started`);
   }
   return proofs;
+}
+
+/**
+ * Whether the claimant a standing `.reclaim` body names is `"dead"` (proven), `"live"` or `"unknown"`. The body is the claimant's own owner record, so the same identity
+ * rules as the record's judge apply: another host or an unreadable body is unknown; a reboot since the claimant started, a gone pid, or a pid that now runs a process that
+ * started at another time is dead; the same process still alive is live.
+ */
+export function judgeClaimant(text, { probe, host }) {
+  let rec = null; try { rec = JSON.parse(text ?? ""); } catch { rec = null; }
+  if (rec?.schema !== OWNERSHIP_SCHEMA || typeof rec.handle !== "string" || !Number.isInteger(rec.pid) || rec.pid <= 0 || rec.pid > 0x7fffffff || !Number.isFinite(rec.startedMs)) return "unknown";
+  if (rec.host !== host) return "unknown";
+  try { const boot = probe.bootTime?.(); if (Number.isFinite(boot) && rec.startedMs < boot) return "dead"; } catch { /* the pid proof below decides */ }
+  let now; try { now = probe.identity(rec.pid); } catch { return "unknown"; }
+  if (!now.alive) return "dead";
+  if (!Number.isFinite(now.startedMs)) return "unknown";
+  return sameStart(now.startedMs, rec.startedMs) ? "live" : "dead";
 }
 
 /**
@@ -1121,7 +1184,7 @@ export function acquireBuildOwnership({
       if (!live.alive || (Number.isFinite(owner.startedMs) && Number.isFinite(live.startedMs) && !sameStart(live.startedMs, owner.startedMs))) {
         throw new OwnershipBusy(`build ownership ${file}: ${OWNERSHIP_ENV}=${inherited} names a record whose owner pid ${owner.pid} is no longer the process that took it; a nested gate joins only a live owner's record`);
       }
-      return { handle: inherited, file, joined: true, reclaimed: null, owner, markBrokerSubmit: (callHandle) => markBrokerSubmit(file, inherited, callHandle), held: () => holds(file, inherited), release: () => ({ released: false, joined: true }) };
+      return { handle: inherited, file, joined: true, reclaimed: null, owner, markBrokerSubmit: (callHandle) => markBrokerSubmit(file, inherited, callHandle), markBrokerUnsent: (callHandle, reason) => markBrokerUnsent(file, inherited, callHandle, reason), held: () => holds(file, inherited), release: () => ({ released: false, joined: true }) };
     }
     throw new OwnershipBusy(`build ownership ${file}: ${OWNERSHIP_ENV}=${inherited} is not the current owner; a nested gate never takes ownership of its own`);
   }
@@ -1157,7 +1220,7 @@ export function acquireBuildOwnership({
     if (!holds(file, handle)) return { released: false, why: "no longer the owner" };
     let proofs;
     // The record as it is now (a broker submit may have been marked since it was written).
-    try { proofs = coveredWorkGone(JSON.parse(readText(file)), { probe, lease, file, selfPid: process.pid }); }
+    try { proofs = coveredWorkGone(JSON.parse(readText(file)), { probe, lease, file, selfPid: process.pid, waitMs: RELEASE_LEASE_WAIT_MS }); }
     catch (e) { return { released: false, why: `left for the next gate to reclaim: ${e.message}` }; }
     finally { if (exportEnv && process.env[OWNERSHIP_ENV] === handle) { delete process.env[OWNERSHIP_ENV]; delete process.env[OWNERSHIP_FILE_ENV]; } }
     // Only a release that proved zero readers leaves the marker; a held one leaves none (and keeps the record).
@@ -1186,7 +1249,7 @@ export function acquireBuildOwnership({
       catch (e) { if (holds(file, handle)) fs.rmSync(file, { force: true }); throw new OwnershipBusy(`build ownership ${file}: the containment could not be recorded (${e.code ?? e.message}: ${e.message})`); }
     }
     if (exportEnv) { process.env[OWNERSHIP_ENV] = handle; process.env[OWNERSHIP_FILE_ENV] = file; }
-    return { handle, file, joined: false, reclaimed, owner: record, contained: platform === "win32" ? record.containment.contained === true : true, markBrokerSubmit: (callHandle) => markBrokerSubmit(file, handle, callHandle), held: () => holds(file, handle), release };
+    return { handle, file, joined: false, reclaimed, owner: record, contained: platform === "win32" ? record.containment.contained === true : true, markBrokerSubmit: (callHandle) => markBrokerSubmit(file, handle, callHandle), markBrokerUnsent: (callHandle, reason) => markBrokerUnsent(file, handle, callHandle, reason), held: () => holds(file, handle), release };
   };
   if (publish(file, body)) return done(null);
   const observed = readText(file);
@@ -1198,8 +1261,17 @@ export function acquireBuildOwnership({
   record.freeHost = false;
   const reclaimBody = JSON.stringify(record);
   const reclaim = `${file}.reclaim`;
-  if (!publish(reclaim, reclaimBody)) throw new OwnershipBusy(`build ownership ${file} is being reclaimed by another process (remove ${reclaim} only if no gate is running)`);
+  // GB-56: a `.reclaim` already there is judged by the identity its body carries (the claimant's owner record: pid, start, host, boot), never taken for a live claimant on its
+  // existence alone. A claimant PROVEN dead (its pid is gone, the pid now runs a process that started at another time, or the host rebooted since) is removed, compare-by-content,
+  // and the claim retried once; a live, unreadable or unprovable claimant keeps the lock. Bounded: one retry, so two reclaimers never loop.
+  if (!publish(reclaim, reclaimBody)) {
+    const standing = readText(reclaim);
+    const verdict = judgeClaimant(standing, { probe, host: os.hostname() });
+    if (verdict === "dead" && readText(reclaim) === standing) { fs.rmSync(reclaim, { force: true }); }
+    if (verdict !== "dead" || !publish(reclaim, reclaimBody)) throw new OwnershipBusy(`build ownership ${file} is being reclaimed by another process (${verdict === "dead" ? "its claim was dropped but another gate took it first" : verdict === "live" ? "a live gate holds the reclaim claim" : "the reclaim claim cannot be proven dead"}: remove ${reclaim} only if no gate is running)`);
+  }
   try {
+    hooks.afterClaim?.(reclaim);
     if (readText(file) !== observed) throw new OwnershipBusy(`build ownership ${file} changed before it could be reclaimed`);
     fs.rmSync(file, { force: true });
     fs.rmSync(markLockFile(file), { force: true });
@@ -1208,7 +1280,8 @@ export function acquireBuildOwnership({
     fs.rmSync(childrenDir(file, judged.owner.handle), { recursive: true, force: true });
     if (!publish(file, reclaimBody)) throw new OwnershipBusy(`build ownership ${file} was taken by another process`);
   } finally {
-    fs.rmSync(reclaim, { force: true });
+    // Token-checked: only this reclaim's own claim is removed (a successor's claim, published after this one was judged dead, stays).
+    if (readText(reclaim) === reclaimBody) fs.rmSync(reclaim, { force: true });
   }
   return done({ from: judged.owner.handle, pid: judged.owner.pid, proofs: judged.proofs });
 }

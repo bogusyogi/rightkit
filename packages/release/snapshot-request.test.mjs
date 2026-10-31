@@ -8,12 +8,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { canonicalJson, signedBytes } from "./provenance-verify.mjs";
+import { canonicalJson, CAUSE_EVIDENCE_SCHEMA, CAUSE_UNEXPLAINED, CAUSE_UNKNOWN, signedBytes, verifyAttributionDetail } from "./provenance-verify.mjs";
 import {
   ATTEST_NONCE_ENV, DESCRIPTOR_MAX_BYTES, REQUEST_ID_FILE_ENV, RESULT_EVIDENCE_FIELDS, SNAPSHOT_REQUEST_ENV, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, declaredInputDigestsOf, freshNonce,
   BROKER_COMPILE_COMMANDS, CARGO_COMMAND_ALIASES, cargoSubcommandOf, isCallHandleOf, isCompileClass, isLockBound, isPackageObservation, lockedArgv, isGenerationTarget, isInsideGenerationTarget, GENERATION_LEAVES, nextCallHandle, ownershipOfHandle, observedEnvOf, readDeclaredInputs, readRequestRef, requestDigestOf, snapshotRequestCore, verifySnapshotEvidenceIdentity, verifySnapshotReceipt, writeSnapshotRequest,
 } from "./snapshot-request.mjs";
 import { makeFakeBroker, signedReceipt } from "./test-support/fake-broker.mjs";
+import { loadVector } from "./test-support/vectors.mjs";
 
 const tmp = (t) => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-snapreq-"))); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex");
@@ -112,10 +113,31 @@ test("request digest: the extended core binds every field the broker adds for a 
 
 // ---- row 7.22: every returned-evidence field is required and matches the request; the signature covers the snapshot evidence ----
 const JOB = "11111111-1111-4111-8111-111111111111";
-function receiptCase(t, { tamper = "none", inputs = ["gen/in.txt"], carrierInputs = inputs ?? [], over = {}, mutate = null, argv = ["test", "-p", "a", "--locked"] } = {}) {
+// RA-03: the cause evidence a broker signs inside `freshness` (rustright.cause-evidence.v1). `causeOf` builds one in its production form (the keys of cargo_evidence.rs
+// `Classification::compact`), by default the whole, explained evidence of a census that rebuilt nothing.
+const causeOf = (over = {}) => ({
+  schema: CAUSE_EVIDENCE_SCHEMA, state: "complete", verdict: "explained", basis: "reasons", unavailable: null, gaps: [], historyMigrationNeeded: false,
+  counts: { rows: 0, rowsDropped: 0, units: 0, unexplained: 0, uncovered: 0 }, unexplainedUnits: [], unexplainedUnitsTruncated: 0, uncoveredUnits: [], uncoveredUnitsTruncated: 0, ...over,
+});
+/** A census whose log was never read (a quiet, caller-logged or artifact-running root): no reasons, the typed reason why. */
+const unreadCause = (reason, over = {}) => causeOf({ state: "unavailable", basis: "none", verdict: "unknown", unavailable: reason, gaps: ["log-not-read"], ...over });
+/** Marks a freshness field to delete (a `null` is a value: `unexplainedCount` is null when the verdict is unknown). */
+const DROP = Symbol("drop");
+const freshnessWith = (f, fields) => { for (const [name, value] of Object.entries(fields)) { if (value === DROP) delete f[name]; else f[name] = structuredClone(value); } };
+/**
+ * `freshness` is a map of fields (`DROP` deletes one) applied to BOTH copies of the receipt's freshness (the signed stage evidence and the receipt's own, so parity holds) after the default cause evidence is added to
+ * each that carries none: the fixture broker's freshness predates the schema, and a gate refuses cause evidence that is absent, so every case here states its own.
+ */
+function receiptCase(t, { tamper = "none", inputs = ["gen/in.txt"], carrierInputs = inputs ?? [], over = {}, mutate = null, argv = ["test", "-p", "a", "--locked"], freshness = null } = {}) {
   const fx = makeFakeBroker(t, { inputs });
   const made = writeSnapshotRequest({ controlRoot: fx.controlRoot, commit: fx.sb.commit, snapshot: fx.sb.snapshot, declaredInputs: carrierInputs, handle: fx.handle, primaryCwd: fx.checkout, argv, nonce: "a".repeat(64) });
-  const receipt = signedReceipt(fx, { id: JOB, carrier: made.carrier, argv, workspace: fx.checkout, tamper, mutate });
+  const edit = (f) => {
+    if (f === null || typeof f !== "object" || Array.isArray(f)) return;
+    if (f.causeEvidence === undefined) { f.causeEvidence = causeOf(); f.unexplainedCount = 0; f.causeCounts = {}; }
+    if (freshness) freshnessWith(f, freshness);
+  };
+  const receipt = signedReceipt(fx, { id: JOB, carrier: made.carrier, argv, workspace: fx.checkout, tamper, mutate: (p) => { edit(p.stageEvidence?.freshness); mutate?.(p); } });
+  edit(receipt.freshness);
   const check = (extra = {}) => verifySnapshotReceipt(receipt, { pins: fx.pins, jobId: JOB, carrier: made.carrier, argv, workspace: fx.checkout, checkout: fx.checkout, outputRoots: [fx.wsRoot], platform: process.platform, ...over, ...extra });
   return { fx, made, receipt, check, argv };
 }
@@ -171,6 +193,40 @@ test("[7.22] declared inputs: the signed digests must be the gate's own digest o
   fs.mkdirSync(path.join(c.fx.checkout, ".rightkit"), { recursive: true });
   fs.writeFileSync(path.join(c.fx.checkout, ".rightkit", "compile-inputs.json"), JSON.stringify({ inputs: ["Cargo.toml"] }));
   assert.equal(c.check().evidence.declaredInputDigests.length, 1);
+});
+
+test("declared inputs that are build outputs: a non-compiling request records a missing input as {path, absent:true}; a compile request refuses it", (t) => {
+  const NONCOMPILE = ["metadata", "--no-deps", "--locked"];
+  const ABSENT = [{ path: "gen/missing", absent: true }];
+  // Non-compile, input absent in the snapshot and signed absent: accepted, in the exact wire form (no sha256 key).
+  const ok = receiptCase(t, { inputs: ["gen/missing"], argv: NONCOMPILE });
+  const got = ok.check().evidence.declaredInputDigests;
+  assert.deepEqual(got, ABSENT);
+  assert.equal(Object.hasOwn(got[0], "sha256"), false);
+  // A mix: the present input keeps its digest, the missing one is absent.
+  const mixed = receiptCase(t, { inputs: ["gen/in.txt", "gen/missing"], argv: NONCOMPILE });
+  const mix = mixed.check().evidence.declaredInputDigests;
+  assert.equal(mix[0].sha256.length, 64); assert.deepEqual(mix[1], ABSENT[0]);
+  // Compile: the broker refuses a missing declared input, so a compile receipt that records one is refused, and the gate never digests it as absent.
+  const compile = receiptCase(t, { inputs: ["gen/in.txt"], argv: ["test", "-p", "a", "--locked"] });
+  fs.chmodSync(path.join(compile.fx.snapshot, "gen"), 0o755); fs.rmSync(path.join(compile.fx.snapshot, "gen", "in.txt"));
+  assert.throws(() => compile.check(), (e) => e.code === "evidence" && /cannot digest the snapshot's declared inputs \(.*ENOENT/.test(e.message));
+  const forged = receiptCase(t, { inputs: ["gen/in.txt"], argv: ["test", "-p", "a", "--locked"], tamper: "absentForged" });
+  assert.throws(() => forged.check(), (e) => e.code === "evidence" && /absent declared input on a compile request/.test(e.message));
+  // Disagreement, receipt absent but the gate sees the input present.
+  const present = receiptCase(t, { inputs: ["gen/missing"], argv: NONCOMPILE });
+  fs.mkdirSync(path.join(present.fx.snapshot, "gen"), { recursive: true });
+  fs.writeFileSync(path.join(present.fx.snapshot, "gen", "missing"), "built later\n");
+  assert.throws(() => present.check(), (e) => e.code === "evidence" && /not the gate's own digest/.test(e.message));
+  // Disagreement, receipt present but the gate sees the input absent.
+  const gone = receiptCase(t, { inputs: ["gen/in.txt"], argv: NONCOMPILE });
+  fs.chmodSync(path.join(gone.fx.snapshot, "gen"), 0o755); fs.rmSync(path.join(gone.fx.snapshot, "gen", "in.txt"));
+  assert.throws(() => gone.check(), (e) => e.code === "evidence" && /not the gate's own digest/.test(e.message));
+  // The digest function: absent only when asked; a link is never absent.
+  const snap = ok.fx.snapshot;
+  assert.deepEqual(declaredInputDigestsOf(snap, ["gen/missing", "nope/deeper"], { allowAbsent: true }), [{ path: "gen/missing", absent: true }, { path: "nope/deeper", absent: true }]);
+  assert.throws(() => declaredInputDigestsOf(snap, ["gen/missing"]), /ENOENT/);
+  assert.throws(() => declaredInputDigestsOf(snap, ["gen/missing"], { allowAbsent: false }), /ENOENT/);
 });
 
 test("[7.22] output directory: absolute, outside the snapshot and the checkout, and a managed generation target", (t) => {
@@ -438,12 +494,12 @@ test("[7.22] declared inputs are read from the snapshot and digested as the brok
   const inputs = readDeclaredInputs(snap);
   assert.deepEqual(inputs, ["a.txt", "dir"]);
   const h = (...parts) => crypto.createHash("sha256").update(Buffer.concat(parts.map((p) => (typeof p === "string" ? Buffer.from(p) : p)))).digest("hex");
-  // Per file, in sorted directory order: relative name, NUL, bytes, NUL (names joined with the platform separator).
+  // Per file, in sorted directory order: relative name, NUL, bytes, NUL (names joined with `/` on every platform, GB-49).
   assert.deepEqual(declaredInputDigestsOf(snap, inputs, { platform: "darwin" }), [
     { path: "a.txt", sha256: h("a.txt", "\0", "hello", "\0") },
     { path: "dir", sha256: h("dir/a", "\0", "A", "\0", "dir/b", "\0", "B", "\0", "dir/sub/c", "\0", "C", "\0") },
   ]);
-  assert.equal(declaredInputDigestsOf(snap, ["dir"], { platform: "win32" })[0].sha256, h("dir\\a", "\0", "A", "\0", "dir\\b", "\0", "B", "\0", "dir\\sub\\c", "\0", "C", "\0"), "Windows joins child names with a backslash, as Path::join does");
+  assert.equal(declaredInputDigestsOf(snap, ["dir"], { platform: "win32" })[0].sha256, h("dir/a", "\0", "A", "\0", "dir/b", "\0", "B", "\0", "dir/sub/c", "\0", "C", "\0"), "GB-49: RustRight now hashes names with `/` on Windows too (input_name), so the gate no longer joins with a backslash there");
   // A malformed or unsafe manifest is refused before any request.
   for (const [body, why] of [["not json", /not JSON/], [{ inputs: "x" }, /list of paths/], [{ inputs: [1] }, /non-empty relative path/], [{ inputs: ["/abs"] }, /plain relative path/], [{ inputs: ["../x"] }, /plain relative path/],
     [{ inputs: ["a/./b"] }, /plain relative path/], [{ inputs: ["a//b"] }, /plain relative path/], [{ inputs: [".git/config"] }, /inside \.git/], [{ inputs: [".rightkit/compile-inputs.json"] }, /declaration file itself/], [{ inputs: [".rightkit"] }, /declaration file itself/]]) {
@@ -585,4 +641,190 @@ test("[B9] the filesystem-free evidence identity: commit, handle, request id, sn
   refuses({ snapshot: undefined }, {}, /throughout/);
   assert.throws(() => verifySnapshotEvidenceIdentity(undefined, { commit, jobId: "job-1" }), /no snapshotEvidence/);
   assert.equal(ok({}, { snapshotPath: "/s/X", samePath: (a, b) => a.toLowerCase() === b.toLowerCase() }) === evidence.snapshot, true, "the gate compares real paths through its own comparator");
+});
+
+// ---- GB-02: the evidence a receipt owes is the broker's own compile classification (RustRight's cargo-shapes vector, `compile` column) ----
+test("[GB-02] for every compile form of the vector, removing both copies of freshness, attribution or toolchain is refused; a read-only form legitimately carries none", (t) => {
+  const rows = loadVector("cargo-shapes.fixtures.json").rows.filter((r) => !r.refused);
+  assert.ok(rows.some((r) => r.compile) && rows.some((r) => !r.compile));
+  for (const row of rows) {
+    const argv = row.normalizedArgv;
+    if (row.compile) {
+      for (const tamper of ["noFreshness", "noAttribution", "noToolchain", "noStageCensus"]) {
+        assert.throws(() => receiptCase(t, { argv, tamper }).check(), (e) => e.code === "evidence" && /is missing from the signed stage evidence or the receipt/.test(e.message), `${row.name} / ${tamper}`);
+      }
+      assert.equal(receiptCase(t, { argv }).check().payload.result.status, "SUCCEEDED", `${row.name}: the full evidence verifies`);
+    } else {
+      assert.equal(receiptCase(t, { argv, tamper: "noStageCensus" }).check().payload.result.status, "SUCCEEDED", `${row.name}: absence is valid for a form that compiles nothing`);
+      assert.throws(() => receiptCase(t, { argv, tamper: "attributionReceiptOnly" }).check(), (e) => e.code === "evidence", `${row.name}: one-sided evidence still fails`);
+    }
+  }
+});
+
+// ---- GB-10 / GB-11: the gate verifies a compile receipt with the strict verifier ----
+test("[GB-10] a receipt the strict verifier refuses never verifies: no or one-sided or malformed BR19 evidence, signed-only and receipt-only result evidence", (t) => {
+  assert.equal(receiptCase(t).check().payload.result.status, "SUCCEEDED");
+  for (const tamper of ["noBr19Evidence", "br19ReceiptOnly", "br19SignedOnly", "br19ProfileDiffers", "br19ResourcesNoPriority", "br19InventedZero", "br19DigestNotHex"]) {
+    assert.throws(() => receiptCase(t, { tamper }).check(), (e) => e.code === "evidence", tamper);
+  }
+  // A timing phase missing on BOTH sides: equal, but not the contract's six phases.
+  assert.throws(() => receiptCase(t, { mutate: (p) => { delete p.resultEvidence.timingsMs.queue; } }).check(), (e) => e.code === "evidence");
+});
+
+// ---- GB-66: the toolchain identity the broker could not build is a typed unavailable state ----
+test("[GB-66] an UNKNOWN toolchain is a typed unavailable identity, never evidence; an empty component or a malformed UNKNOWN is still refused; a compile refused for it names the broker's code", (t) => {
+  assert.equal(receiptCase(t).check().toolchain.startsWith("stable|cargo:"), true, "a full identity verifies");
+  assert.throws(() => receiptCase(t, { tamper: "toolchainUnknown" }).check(), (e) => e.code === "toolchain-unavailable" && /RK_TOOLCHAIN_IDENTITY_UNAVAILABLE: UNKNOWN, cargo is not registered/.test(e.message));
+  assert.throws(() => receiptCase(t, { tamper: "toolchainUnavailableFailed" }).check(), (e) => e.code === "toolchain-unavailable" && /did not run this compile.*rustc changed since registration/.test(e.message));
+  for (const tamper of ["toolchainUnknownMalformed", "toolchainEmptyName", "toolchainNoHashes", "toolchainObject"]) assert.throws(() => receiptCase(t, { tamper }).check(), (e) => e.code === "evidence", tamper);
+  // A read-only form carries no toolchain at all and is not made to.
+  assert.equal(receiptCase(t, { argv: ["metadata", "--no-deps"], tamper: "noStageCensus" }).check().toolchain, null);
+});
+
+// ---- RA-03: a census that counts rebuilt units proves nothing about why; a compile is accepted only on cause evidence that is whole and explained ----
+// Every case runs the real verifier over a signed receipt (both copies equal, the signature over the signed one). The cause evidence has the keys cargo_evidence.rs
+// `Classification::compact` signs; its forms are the ones freshness_vectors.rs derives from real Cargo log text for each command form.
+const KEPT = "app v0.1.0 (lib:app) [build]";
+const oneRow = (over = {}) => ({ rows: 1, rowsDropped: 0, units: 1, unexplained: 0, uncovered: 0, ...over });
+/** A compile's freshness with these cause fields (the census fields keep the fixture's, unless given). */
+const withCause = (cause, { count = 0, causeCounts = {}, ...census } = {}) => ({ causeEvidence: cause, unexplainedCount: count, causeCounts, ...census });
+const quietRebuilt = (reason) => withCause(unreadCause(reason), { count: null, causeCounts: DROP, invalidationReasons: DROP, notFresh: 1, invalidationReasonsUnavailable: reason });
+const removedFingerprint = withCause(causeOf({ verdict: "unexplained", counts: oneRow({ unexplained: 1 }), unexplainedUnits: [KEPT] }), { count: 1, causeCounts: { "fingerprint-missing": 1 }, notFresh: 1 });
+
+test("[RA-03] the typed codes of a verdict that is not explained are named", () => {
+  assert.deepEqual([CAUSE_UNKNOWN, CAUSE_UNEXPLAINED], ["cause-unknown", "cause-unexplained"]);
+  assert.equal(CAUSE_EVIDENCE_SCHEMA, "rustright.cause-evidence.v1");
+});
+
+test("[RA-03] a compile whose cause evidence is whole and explained verifies in every compile form, and the verified evidence is returned for the record", (t) => {
+  const forms = {
+    "a source edit: reasons read, every cause explained": withCause(causeOf({ counts: oneRow() }), { causeCounts: { "source-or-dependency-changed": 1 }, notFresh: 1 }),
+    "a first build": withCause(causeOf({ counts: oneRow() }), { causeCounts: { "first-build": 1 }, notFresh: 1 }),
+    "genuinely fresh quiet work: no log read, the census proves nothing was rebuilt": withCause(causeOf({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "quiet-root" }), { causeCounts: DROP, invalidationReasons: DROP, notFresh: 0, invalidationReasonsUnavailable: "quiet-root" }),
+    "a test run that executes artifacts but rebuilt nothing": withCause(causeOf({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "root-executes-artifacts" }), { causeCounts: DROP, invalidationReasons: DROP, notFresh: 0, invalidationReasonsUnavailable: "root-executes-artifacts" }),
+    "nothing compiled": withCause(causeOf({ state: "unavailable", basis: "nothing-compiled", unavailable: "not-read" }), { causeCounts: DROP, invalidationReasons: DROP, available: false, reason: "nothing-compiled" }),
+  };
+  for (const argv of COMPILE) {
+    for (const [name, freshness] of Object.entries(forms)) {
+      const verified = receiptCase(t, { argv, freshness }).check();
+      assert.equal(verified.payload.result.status, "SUCCEEDED", `${argv.join(" ")} / ${name}`);
+      assert.equal(verified.causeEvidence.verdict, "explained", `${argv.join(" ")} / ${name}`);
+      assert.equal(verified.causeEvidence.unexplainedCount, 0);
+    }
+  }
+  assert.equal(receiptCase(t).check().causeEvidence.basis, "reasons");
+});
+
+test("[RA-03] no compile succeeds without a valid cause: a removed fingerprint is unexplained, and quiet, caller-logged and artifact-running roots whose log was not read are unknown, in every compile form", (t) => {
+  for (const argv of COMPILE) {
+    assert.throws(() => receiptCase(t, { argv, freshness: removedFingerprint }).check(), (e) => e.code === CAUSE_UNEXPLAINED && e.message.includes(KEPT) && /1 rebuilt unit/.test(e.message), `${argv.join(" ")} / removed fingerprint`);
+    for (const reason of ["quiet-root", "caller-cargo-log", "root-executes-artifacts"]) {
+      assert.throws(() => receiptCase(t, { argv, freshness: quietRebuilt(reason) }).check(), (e) => e.code === CAUSE_UNKNOWN && e.message.includes(reason) && /never read as no unexplained unit/.test(e.message), `${argv.join(" ")} / ${reason}`);
+    }
+  }
+  // Incomplete evidence is unknown, never a pass: dropped output, an unattributable row, a rebuilt unit no reason covers, a census that is itself unavailable.
+  const incomplete = {
+    "output dropped": withCause(causeOf({ state: "incomplete", verdict: "unknown", gaps: ["output-dropped"] }), { count: null }),
+    "a rebuilt unit no row covers": withCause(causeOf({ state: "incomplete", verdict: "unknown", gaps: ["rebuilt-unit-without-reason"], counts: { rows: 0, rowsDropped: 0, units: 0, unexplained: 0, uncovered: 1 }, uncoveredUnits: ["b v0.1.0"] }), { count: null }),
+    "reasons truncated": withCause(causeOf({ state: "incomplete", verdict: "unknown", gaps: ["reasons-truncated"], counts: { rows: 0, rowsDropped: 3, units: 0, unexplained: 0, uncovered: 0 } }), { count: null }),
+    "census unavailable": withCause(unreadCause("not-read", { gaps: ["log-not-read", "census-unavailable"] }), { count: null, causeCounts: DROP, available: false, reason: "timeout" }),
+  };
+  for (const [name, freshness] of Object.entries(incomplete)) {
+    assert.throws(() => receiptCase(t, { freshness }).check(), (e) => e.code === CAUSE_UNKNOWN, name);
+  }
+  // The unexplained units of a verdict are named even when the receipt kept only some of them.
+  const many = withCause(causeOf({ verdict: "unexplained", counts: { rows: 40, rowsDropped: 0, units: 40, unexplained: 40, uncovered: 0 }, unexplainedUnits: Array.from({ length: 16 }, (_, i) => `u${i} v0.1.0 (lib:u${i}) [build]`), unexplainedUnitsTruncated: 24 }), { count: 40, causeCounts: { unexplained: 40 } });
+  assert.throws(() => receiptCase(t, { freshness: many }).check(), (e) => e.code === CAUSE_UNEXPLAINED && /40 rebuilt unit/.test(e.message) && /u0 v0\.1\.0/.test(e.message) && /more not listed/.test(e.message));
+});
+
+test("[RA-03] missing cause evidence, an unrecognized schema and every incoherent field are refused as evidence: an older broker is never trusted as if it had signed the schema", (t) => {
+  const noSchema = causeOf(); delete noSchema.schema;
+  const noMigration = causeOf(); delete noMigration.historyMigrationNeeded;
+  const absent = (cause, why) => assert.throws(() => receiptCase(t, { argv: ["build"], freshness: { causeEvidence: cause } }).check(), (e) => e.code === "evidence" && why.test(e.message), why.source);
+  absent(DROP, /carries no causeEvidence/); absent(null, /carries no causeEvidence/);
+  absent("explained", /is not an object/); absent([], /is not an object/);
+  absent(noSchema, /does not read/); absent(causeOf({ schema: "rustright.cause-evidence.v2" }), /rustright\.cause-evidence\.v2.*does not read/); absent(causeOf({ schema: "rustright.cause-evidence.v0" }), /does not read/); absent(causeOf({ schema: "" }), /does not read/);
+  absent(causeOf({ state: "done" }), /unknown state/); absent(causeOf({ verdict: "maybe" }), /unknown verdict/); absent(causeOf({ basis: "magic" }), /unknown basis/);
+  absent(noMigration, /migration/); absent(causeOf({ unavailable: "" }), /unavailable is neither null nor a reason/); absent(causeOf({ gaps: "none" }), /gaps is not a list/); absent(causeOf({ gaps: [""] }), /gaps is not a list/);
+  absent(causeOf({ counts: { rows: "1", rowsDropped: 0, units: 0, unexplained: 0, uncovered: 0 } }), /counts needs/); absent(causeOf({ counts: { rows: 0, rowsDropped: 0, units: 0, unexplained: 0 } }), /counts needs/); absent(causeOf({ counts: { rows: -1, rowsDropped: 0, units: 0, unexplained: 0, uncovered: 0 } }), /counts needs/);
+  absent(causeOf({ unexplainedUnits: "x" }), /not a list of labels/); absent(causeOf({ uncoveredUnitsTruncated: "0" }), /not a list of labels/);
+  absent(causeOf({ unexplainedUnits: ["x"] }), /do not add up/); absent(causeOf({ counts: oneRow({ unexplained: 2 }), unexplainedUnits: ["x"], verdict: "unexplained" }), /do not add up/);
+  const incoherent = [
+    ["an unexplained unit under an explained verdict", withCause(causeOf({ counts: oneRow({ unexplained: 1 }), unexplainedUnits: ["x"] }), { count: 1, causeCounts: { unexplained: 1 } }), /verdict explained disagrees/],
+    ["an explained verdict with a gap", withCause(causeOf({ state: "incomplete", gaps: ["output-dropped"] }), { count: 0 }), /verdict explained disagrees/],
+    ["a complete state with a gap", withCause(causeOf({ verdict: "unknown", gaps: ["output-dropped"] }), { count: null }), /state complete disagrees/],
+    ["an incomplete state with no gap", withCause(causeOf({ state: "incomplete" })), /state incomplete disagrees/],
+    ["an unexplained verdict with no unexplained unit", withCause(causeOf({ verdict: "unexplained" })), /verdict unexplained disagrees/],
+    ["counts that are not nested", withCause(causeOf({ counts: oneRow({ units: 2 }) }), { causeCounts: { "first-build": 1 } }), /not nested/],
+    ["rows dropped with no truncation gap", withCause(causeOf({ counts: { rows: 0, rowsDropped: 3, units: 0, unexplained: 0, uncovered: 0 } })), /reasons-truncated gap disagree/],
+    ["an uncovered unit with no gap", withCause(causeOf({ counts: { rows: 0, rowsDropped: 0, units: 0, unexplained: 0, uncovered: 1 }, uncoveredUnits: ["b v0.1.0"] })), /rebuilt-unit-without-reason gap disagree/],
+    ["reasons read but a reason they were not", withCause(causeOf({ unavailable: "quiet-root" })), /names an unavailability reason/],
+    ["unread reasons with a reason-bearing state", withCause(causeOf({ basis: "none", verdict: "unknown", unavailable: "quiet-root", gaps: ["log-not-read"] }), { count: null }), /state complete is not unavailable/],
+    ["unread reasons that state no reason", withCause(unreadCause("quiet-root", { unavailable: null }), { count: null }), /states no reason why/],
+    ["unread reasons that carry counts", withCause(causeOf({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "quiet-root", counts: oneRow() }), { causeCounts: DROP }), /counts reasons that were never read/],
+    ["basis none that is not the typed unknown", withCause(causeOf({ state: "unavailable", basis: "none", unavailable: "quiet-root" }), { causeCounts: DROP }), /basis none is the typed unknown/],
+    ["basis none without the log-not-read gap", withCause(unreadCause("quiet-root", { gaps: ["census-unavailable"] }), { count: null }), /basis none is the typed unknown/],
+    ["a census claim that does not hold: rebuilt units under census-nothing-rebuilt", withCause(causeOf({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "quiet-root" }), { causeCounts: DROP, notFresh: 2 }), /does not prove it/],
+    ["a census claim with parse errors", withCause(causeOf({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "quiet-root" }), { causeCounts: DROP, parseErrors: 1 }), /does not prove it/],
+    ["a census claim with a truncated list", withCause(causeOf({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "quiet-root" }), { causeCounts: DROP, notFreshPackagesTruncated: 1 }), /does not prove it/],
+    ["a census claim without a rebuilt count", withCause(causeOf({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "quiet-root" }), { causeCounts: DROP, notFresh: DROP }), /does not prove it/],
+    ["nothing compiled while the census compiled", withCause(causeOf({ state: "unavailable", basis: "nothing-compiled", unavailable: "not-read" }), { causeCounts: DROP }), /nothing was compiled/],
+    ["an unknown count read as zero", withCause(unreadCause("quiet-root"), { count: 0, causeCounts: DROP }), /unexplainedCount \(0\) is not the projection/],
+    ["an unexplained count that is missing", withCause(causeOf(), { count: DROP }), /unexplainedCount \(absent\)/],
+    ["an unexplained count that is not the projection", withCause(causeOf(), { count: 3 }), /unexplainedCount \(3\)/],
+    ["a cause count that is missing for read reasons", withCause(causeOf(), { causeCounts: DROP }), /causeCounts is missing/],
+    ["a cause count that is mistyped", withCause(causeOf(), { causeCounts: { "first-build": "1" } }), /causeCounts is missing/],
+    ["cause counts that do not add up to the rows", withCause(causeOf(), { causeCounts: { "first-build": 2 } }), /add up to 2/],
+    ["an unexplained cause behind an explained verdict", withCause(causeOf({ counts: oneRow() }), { causeCounts: { unexplained: 1 } }), /cannot give 0 unexplained/],
+    ["a verdict of unexplained units with explained causes only", withCause(causeOf({ verdict: "unexplained", counts: oneRow({ unexplained: 1 }), unexplainedUnits: ["x"] }), { count: 1, causeCounts: { "first-build": 1 } }), /cannot give 1 unexplained/],
+  ];
+  for (const [name, freshness, why] of incoherent) {
+    assert.throws(() => receiptCase(t, { argv: ["build"], freshness }).check(), (e) => e.code === "evidence" && why.test(e.message), name);
+  }
+});
+
+test("[RA-03] the cause evidence is signed and equal on both sides: a receipt-only or signed-only change, or a flipped verdict, never verifies", (t) => {
+  const flipped = receiptCase(t, { argv: ["build"], freshness: removedFingerprint });
+  flipped.receipt.freshness.causeEvidence.verdict = "explained";
+  assert.throws(() => flipped.check(), (e) => e.code === "evidence" && /receipt freshness differs from the signed stage evidence/.test(e.message), "the receipt claims an explained verdict the broker did not sign");
+  const loud = receiptCase(t, { argv: ["build"] });
+  loud.receipt.provenance.payload.stageEvidence.freshness.causeEvidence.verdict = "unexplained";
+  assert.throws(() => loud.check(), (e) => e.code === "signature", "the signed copy was altered after signing");
+  for (const tamper of ["freshnessReceiptOnly", "freshnessSignedOnly", "freshnessDiffers"]) {
+    assert.throws(() => receiptCase(t, { argv: ["build"], tamper }).check(), (e) => e.code === "evidence" && /freshness/.test(e.message), tamper);
+  }
+  // A broker that signs no cause evidence on either side (an older installed broker) is refused for every compile form, whatever else is right.
+  for (const argv of COMPILE) assert.throws(() => receiptCase(t, { argv, freshness: { causeEvidence: DROP, unexplainedCount: DROP, causeCounts: DROP } }).check(), (e) => e.code === "evidence" && /carries no causeEvidence/.test(e.message), argv.join(" "));
+});
+
+test("[RA-03] a command that is not a compile carries no census and owes no cause: absent is legitimate, a stray cause is read but not judged, a foreign schema is still refused", (t) => {
+  for (const argv of NON_COMPILE) {
+    const absent = receiptCase(t, { argv, freshness: { causeEvidence: DROP, unexplainedCount: DROP, causeCounts: DROP } }).check();
+    assert.equal(absent.causeEvidence, null, argv.join(" "));
+    assert.equal(receiptCase(t, { argv, tamper: "noStageCensus" }).check().causeEvidence, null, `${argv.join(" ")} / no census`);
+    assert.equal(receiptCase(t, { argv, freshness: quietRebuilt("quiet-root") }).check().causeEvidence.verdict, "unknown", `${argv.join(" ")}: read and recorded, not judged for a command that compiles nothing`);
+    assert.throws(() => receiptCase(t, { argv, freshness: { causeEvidence: causeOf({ schema: "rustright.cause-evidence.v2" }) } }).check(), (e) => e.code === "evidence" && /does not read/.test(e.message), argv.join(" "));
+  }
+});
+
+// ---- GB-82: the fixture broker's receipts are the production forms ----
+test("[GB-82] the fixture signs compact attribution with a detail file the production verifier accepts, an unavailable census fails the compile, and a nonzero exit is a signed FAILED", (t) => {
+  const c = receiptCase(t);
+  const { attribution } = c.check();
+  assert.equal(attribution.units, 1); assert.equal(Object.hasOwn(attribution, "rows"), false, "no manufactured full row set in the signed receipt");
+  const bytes = fs.readFileSync(attribution.detail.path);
+  assert.deepEqual(verifyAttributionDetail(c.receipt, bytes).failedUnits, 0);
+  // Unavailable census: typed unavailable evidence that fails a compile; without a reason, or not an object, it is refused as evidence.
+  assert.throws(() => receiptCase(t, { tamper: "censusUnavailable" }).check(), (e) => e.code === "result" && /the broker signed FAILED/.test(e.message));
+  for (const tamper of ["censusUnavailableNoReason", "freshnessNotObject"]) assert.throws(() => receiptCase(t, { tamper }).check(), (e) => e.code === "evidence", tamper);
+  // A read-only form that carries no census is unaffected.
+  assert.equal(receiptCase(t, { argv: ["metadata", "--no-deps"], tamper: "noStageCensus" }).check().payload.result.status, "SUCCEEDED");
+  // A depth-2 nested child keeps its lineage (its parent is the earlier child, not the root).
+  const fx = makeFakeBroker(t);
+  const made = writeSnapshotRequest({ controlRoot: fx.controlRoot, commit: fx.sb.commit, snapshot: fx.sb.snapshot, declaredInputs: [], handle: fx.handle, primaryCwd: fx.checkout, argv: ["run", "x"], nonce: "a".repeat(64) });
+  const child = (requestId, parentRequestId) => ({ requestId, parentRequestId, shim: "cargo", argv: ["build"], cwd: fx.snapshot, exitCode: 0, status: "SUCCEEDED", outputDir: path.join(fx.outputDir, "nested", requestId) });
+  const receipt = signedReceipt(fx, { id: JOB, carrier: made.carrier, argv: ["run", "x"], workspace: fx.checkout, adapter: "rightkit-pnpm", children: [child("c1", "root"), child("c2", "c1")] });
+  assert.deepEqual(receipt.nestedChildren.map((n) => [n.requestId, n.parentRequestId]), [["c1", JOB], ["c2", "c1"]]);
+  const verified = verifySnapshotReceipt(receipt, { pins: fx.pins, jobId: JOB, carrier: made.carrier, argv: ["run", "x"], workspace: fx.checkout, adapter: "rightkit-pnpm", checkout: fx.checkout, outputRoots: [fx.wsRoot], platform: process.platform });
+  assert.equal(verified.nestedChildren.length, 2);
 });

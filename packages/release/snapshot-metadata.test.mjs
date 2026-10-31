@@ -191,6 +191,8 @@ const ADMITTED_SCAN_SHAPES = [
   (a) => a.length === 2 && a[0] === "fetch" && a[1] === "--locked",
   (a) => a.length === 7 && a[0] === "deny" && a[1] === "--frozen" && a[2] === "--metadata-path" && path.isAbsolute(a[3]) && a[4] === "--config" && path.isAbsolute(a[5]) && a[6] === "check",
   (a) => a.length === 4 && a[0] === "audit" && a[1] === "--db" && path.isAbsolute(a[2]) && a[3] === "--no-fetch",
+  // The locked package listing (broker command_policy.rs / build_rules.rs observation form): GB-83 plans it at every tier, the compile tier included.
+  (a) => a.length === 6 && a[0] === "package" && a[1] === "-p" && /^[A-Za-z0-9_-]+$/.test(a[2]) && a[3] === "--list" && a[4] === "--allow-dirty" && a[5] === "--locked",
 ];
 
 test("[plain check] `check --commit` on a broker host reads the gate's warm snapshot: no tmp export, every class A cargo scan is carried in the snapshot, and an uncommitted Cargo edit in the checkout is ignored", async (t) => {

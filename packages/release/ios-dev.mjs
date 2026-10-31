@@ -13,13 +13,19 @@
 //           | { kind: "device",     device: "<devicectl identifier>", bundleId, productName?, launch?: true, launchArgs?: [] },
 //   }
 // The build commands are generated from the config (a hand-written `build` is refused). The device is chosen by id only, never
-// "the only device": `install.device`, `--serial` or RIGHTKIT_IOS_DEVICE. DerivedData comes from `rustright storage xcode-args`.
+// "the only device": `install.device`, `--serial` or RIGHTKIT_IOS_DEVICE.
+//
+// RA-09 / R3-M02: xcodegen and every xcodebuild call (build, build-for-testing, test-without-building) are typed native adapter jobs of the production runner (build-launch.mjs createNativeRunner,
+// `runIosDevelopmentCommands`): no -derivedDataPath, -resultBundlePath, -archivePath or -exportPath is ever named (the broker owns the output root), and the built .app and the result bundle are READ
+// BACK from the verified receipt's managed output roles (`derived-data`, `result-bundle`). A call the door or the broker's grammar refuses (no runner route, an unadvertised capability, an argv with
+// no managed form) is refused before anything is launched; there is no spawn fallback. simctl, devicectl and the app's own non-native `prepare` commands stay direct, non-compiling steps.
 import * as nodeFs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
-import { assertGuiSigningSession, IosHostError, outputTail, resolveXcodeStorage } from "./ios-host.mjs";
+import { assertGuiSigningSession, IosHostError, outputTail } from "./ios-host.mjs";
 import { SECRET_VALUE } from "./ios-package-recipe.mjs";
+import { NATIVE_STATE_LEAVES, nativeStateDir, nativeToolOf } from "./native-adapters.mjs";
 
 export class IosDevelopmentError extends Error {
   constructor(code, message) { super(message); this.name = "IosDevelopmentError"; this.code = code; }
@@ -117,14 +123,14 @@ export function validateIosDevelopment(target, { root, env = process.env } = {})
     uiTests = { scheme: t.scheme ?? target.scheme, ...(t.testPlan ? { testPlan: t.testPlan } : {}), onlyTesting: [...t.onlyTesting] };
   }
   const normalized = { project, projectSpec, scheme: target.scheme, configuration, teamId: target.teamId, extraBuildSettings, prepare, install, uiTests };
-  return { ...normalized, build: iosDevelopmentBuildCommands(normalized, { root, storage: { derivedData: "<rustright storage xcode-args -derivedDataPath>" }, destinationId: "<device or simulator id>" }) };
+  return { ...normalized, build: iosDevelopmentBuildCommands(normalized, { root, destinationId: "<device or simulator id>" }) };
 }
 
 const destinationFor = (install, id) => (install?.kind === "device" ? `id=${id}` : `platform=iOS Simulator,id=${id}`);
 export const productsDirectory = (dev) => `${dev.configuration}-${dev.install?.kind === "device" ? "iphoneos" : "iphonesimulator"}`;
 
-/** Pure: the generated argv commands, in order. No secret is ever part of them. */
-export function iosDevelopmentBuildCommands(dev, { root, storage, destinationId }) {
+/** Pure: the generated argv commands, in order. No secret is ever part of them, and none names where a build writes (the broker's xcodebuild adapter owns the output root). */
+export function iosDevelopmentBuildCommands(dev, { root, destinationId }) {
   const commands = [];
   if (dev.projectSpec) commands.push({ cmd: "xcodegen", args: ["generate", "--spec", path.resolve(root, dev.projectSpec), "--project", path.resolve(root, path.posix.dirname(dev.project))], name: "xcodegen generate" });
   for (const step of dev.prepare) commands.push({ ...step, name: step.cmd });
@@ -137,8 +143,7 @@ export function iosDevelopmentBuildCommands(dev, { root, storage, destinationId 
       "-scheme", dev.scheme,
       "-configuration", dev.configuration,
       "-destination", dev.install ? destinationFor(dev.install, destinationId) : "generic/platform=iOS Simulator",
-      "-derivedDataPath", storage.derivedData,
-      ...(storage.resultBundle ? ["-resultBundlePath", storage.resultBundle] : []),
+      // GB-51 / RA-09: the xcodebuild ADAPTER owns where the build writes (the one managed output root, named by the signed receipt): the step names no -derivedDataPath or -resultBundlePath.
       ...(dev.teamId ? [`DEVELOPMENT_TEAM=${dev.teamId}`] : []),
       ...Object.entries(dev.extraBuildSettings).map(([name, value]) => `${name}=${value}`),
       ...(device ? ["-allowProvisioningUpdates", "-allowProvisioningDeviceRegistration"] : []),
@@ -215,11 +220,11 @@ function listDevices({ run, fs, tmpRoot }) {
 }
 
 /**
- * Resolve the storage, the device or simulator and the final build commands BEFORE the (long) build, so a missing or
- * unready device is refused up front. Returns { build, install } with install carrying the resolved id and the .app path.
+ * Resolve the device or simulator and the final build commands BEFORE the (long) build, so a missing or unready device is refused up front.
+ * Returns { build, brokerOwned, install } with install carrying the resolved id. The built .app is known only after the build, from the verified
+ * receipt's managed `derived-data` role (`iosDevelopmentApp`, or `appFromOutputDir` for a caller that holds the job's output directory).
  */
 export function prepareIosDevelopment(dev, { root, env = process.env, run = spawnSync, fs = nodeFs, serial, tmpRoot = os.tmpdir() }) {
-  const storage = resolveXcodeStorage({ env, run, cwd: root, fallbackRoot: path.join(root, ".right-release", "ios-dev") });
   let resolved = null;
   if (dev.install) {
     const wanted = iosDevelopmentDevice({ descriptor: dev.install, serial, env });
@@ -231,9 +236,21 @@ export function prepareIosDevelopment(dev, { root, env = process.env, run = spaw
       resolved = { id: device.identifier, detail: device.detail };
     }
   }
-  const build = iosDevelopmentBuildCommands(dev, { root, storage, destinationId: resolved?.id });
-  const app = dev.install ? path.join(storage.derivedData, "Build", "Products", productsDirectory(dev), `${dev.install.productName}.app`) : null;
-  return { build, storage, install: dev.install ? { ...dev.install, resolved, app } : null };
+  const build = iosDevelopmentBuildCommands(dev, { root, destinationId: resolved?.id });
+  const appUnder = (derivedData) => path.join(derivedData, "Build", "Products", productsDirectory(dev), `${dev.install.productName}.app`);
+  // The managed DerivedData of a job's output directory for a call run in `relativeCwd` (snapshot-relative; "" for the snapshot root).
+  const appFromOutputDir = (outputDir, { relativeCwd = "" } = {}) => appUnder(path.join(nativeStateDir(outputDir, "xcodebuild", relativeCwd), NATIVE_STATE_LEAVES.derivedData));
+  return { build, brokerOwned: true, ...(dev.install ? { appFromOutputDir } : {}), install: dev.install ? { ...dev.install, resolved, app: null } : null };
+}
+
+/**
+ * The built .app of a dev build, from the managed outputs of the xcodebuild call that built it (`result.outputs` of the native runner, role `derived-data`). Refuses when the
+ * broker did not report the location: a broker-owned build's output is never guessed.
+ */
+export function iosDevelopmentApp(dev, outputs) {
+  const derived = outputs?.ok === true ? outputs.byRole?.["derived-data"] : undefined;
+  if (typeof derived !== "string" || !path.isAbsolute(derived)) refuse("DEV_IOS_OUTPUT_UNKNOWN", `the broker did not report the managed derived-data location (${outputs?.ok === false ? outputs.problem : "no verified output directory"}), so there is no built app to install`);
+  return path.join(derived, "Build", "Products", productsDirectory(dev), `${dev.install.productName}.app`);
 }
 
 // App arguments follow a "--" terminator so an argument such as --device or --json-output is passed to the app and can never be
@@ -242,10 +259,11 @@ const launchTail = (args) => (args.length ? ["--", ...args] : []);
 
 // ---- UI test journeys -------------------------------------------------------------------------------------------
 /**
- * Pure: `xcodebuild build-for-testing` then `test-without-building` of the declared journeys on the resolved device or simulator,
- * with the same project, configuration, signing and derived data as the dev build. The result bundle is a fresh path per run.
+ * Pure: `xcodebuild build-for-testing` then `test-without-building` of the declared journeys on the resolved device or simulator, with the same project, configuration and
+ * signing. Both calls run in the same directory, so the broker's managed DerivedData is shared between them; the result bundle is the broker's run-unique `result-bundle` role
+ * of the test call (no -derivedDataPath or -resultBundlePath is named). The test plan and each selection are admitted shapes (`-testPlan <name>`, `-only-testing:Target[/Class[/test]]`).
  */
-export function iosUiTestCommands(dev, { root, storage, destinationId, resultBundle }) {
+export function iosUiTestCommands(dev, { root, destinationId }) {
   if (!dev.uiTests) throw new Error("development.targets.ios.uiTests is not declared");
   const device = dev.install?.kind === "device";
   const common = [
@@ -254,23 +272,59 @@ export function iosUiTestCommands(dev, { root, storage, destinationId, resultBun
     ...(dev.uiTests.testPlan ? ["-testPlan", dev.uiTests.testPlan] : []),
     "-configuration", dev.configuration,
     "-destination", destinationFor(dev.install, destinationId),
-    "-derivedDataPath", storage.derivedData,
     ...(dev.teamId ? [`DEVELOPMENT_TEAM=${dev.teamId}`] : []),
     ...Object.entries(dev.extraBuildSettings).map(([name, value]) => `${name}=${value}`),
     ...(device ? ["-allowProvisioningUpdates", "-allowProvisioningDeviceRegistration"] : []),
   ];
   return [
     { cmd: "xcodebuild", name: "xcodebuild build-for-testing", args: [...common, "build-for-testing"] },
-    { cmd: "xcodebuild", name: "xcodebuild test-without-building", args: [...common, "-resultBundlePath", resultBundle, ...dev.uiTests.onlyTesting.map((x) => `-only-testing:${x}`), "test-without-building"] },
+    { cmd: "xcodebuild", name: "xcodebuild test-without-building", args: [...common, ...dev.uiTests.onlyTesting.map((x) => `-only-testing:${x}`), "test-without-building"] },
   ];
 }
 
-/** Resolve the device (waking a sleeping tunnel), then the UI test commands; the caller runs them under its lease. */
-export function prepareIosUiTests(dev, { root, env = process.env, run = spawnSync, fs = nodeFs, serial, tmpRoot = os.tmpdir(), now = Date.now }) {
+/** Resolve the device (waking a sleeping tunnel), then the UI test commands; the caller runs them with `runIosDevelopmentCommands` under its lease. */
+export function prepareIosUiTests(dev, { root, env = process.env, run = spawnSync, fs = nodeFs, serial, tmpRoot = os.tmpdir() }) {
   const prepared = prepareIosDevelopment(dev, { root, env, run, fs, serial, tmpRoot });
-  const base = prepared.storage.resultBundle ? path.dirname(prepared.storage.resultBundle) : path.join(root, ".right-release", "ios-dev");
-  const resultBundle = path.join(base, `ui-tests-${now()}.xcresult`);
-  return { ...prepared, resultBundle, tests: iosUiTestCommands(dev, { root, storage: prepared.storage, destinationId: prepared.install.resolved?.id, resultBundle }) };
+  // The result bundle is the broker's run-unique `result-bundle` role of the test call, known only from its outputs (`runIosDevelopmentCommands` returns it); there is no path to choose here.
+  return { ...prepared, resultBundle: null, tests: iosUiTestCommands(dev, { root, destinationId: prepared.install.resolved?.id }) };
+}
+
+// ---- running the generated commands ---------------------------------------------------------------------------------
+/**
+ * Runs generated commands in order through the production native runner (`native`, build-launch.mjs createNativeRunner): xcodegen and xcodebuild are broker adapter jobs and nothing
+ * else runs them. EVERY native command is planned first (the door's launch, the broker's grammar and capability), so a refusal stops the whole sequence before the first launch.
+ * A command that is not a native build tool (the app's own `prepare` commands) goes to `direct(command)` when the caller supplies one and is otherwise refused; it is never given to a
+ * native-tool spawn. Returns { steps: [{ name, result }], outputs } where `outputs` is the LAST xcodebuild call's managed mapping and `resultBundle` the test call's `result-bundle` role.
+ */
+export function runIosDevelopmentCommands(commands, { native, root, env = process.env, direct, log = console.log, timeout } = {}) {
+  if (!native || typeof native.run !== "function" || typeof native.plan !== "function") refuse("DEV_IOS_NATIVE_REQUIRED", "the iOS dev and test builds need the production native runner (build-launch.mjs createNativeRunner); xcodegen and xcodebuild run only as broker adapter jobs");
+  const cwdOf = (command) => path.resolve(root, command.cwd ?? ".");
+  for (const command of commands) {
+    if (nativeToolOf(command.cmd) === null) continue;
+    try { native.plan(command.cmd, command.args, { cwd: cwdOf(command), env }); } catch (error) {
+      if (error?.code === "RK_BUILD_LAUNCH_REFUSED") refuse("DEV_IOS_NATIVE_REFUSED", `${command.name ?? command.cmd} was refused before any launch (${error.reason ?? "refused"}): ${error.message}`);
+      throw error;
+    }
+  }
+  const steps = [];
+  let outputs = null;
+  let resultBundle = null;
+  for (const command of commands) {
+    const name = command.name ?? command.cmd;
+    log(`right-release: ios ${name}`);
+    if (nativeToolOf(command.cmd) === null) {
+      if (typeof direct !== "function") refuse("DEV_IOS_DIRECT_STEP_UNHANDLED", `${name} is not a native build tool and no direct runner was supplied; it is never run as a native-tool spawn`);
+      steps.push({ name, result: direct(command) });
+      continue;
+    }
+    const result = native.run(command.cmd, command.args, { cwd: cwdOf(command), env, ...(timeout ? { timeout } : {}) });
+    steps.push({ name, result });
+    if (result.refusal) refuse("DEV_IOS_NATIVE_REFUSED", `${name} was refused before any launch (${result.refusal.code}): ${result.refusal.message}`);
+    if (!result.ok) refuse("DEV_IOS_BUILD_FAILED", `${name} failed (${result.status ?? "unavailable"})${result.error ? `: ${result.error.message}` : ""}\n${outputTail(result, 20)}`);
+    if (command.cmd === "xcodebuild") outputs = result.outputs;
+    if (result.outputs?.ok === true && typeof result.outputs.byRole?.["result-bundle"] === "string") resultBundle = result.outputs.byRole["result-bundle"];
+  }
+  return { steps, outputs, resultBundle };
 }
 
 // ---- install ------------------------------------------------------------------------------------------------------

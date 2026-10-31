@@ -1697,6 +1697,21 @@ test("swift-check rejects private credential outside shared steps and on arbitra
   assertRefused(SWIFT_CHECK_ONLY, { "swift-check.yml": extraJob }, /job 'other'/, "wrong job");
 });
 
+test("[RA-07/RA-08/RA-09] the release door hands native phases to the real route: the signing-file path is a typed handoff out of the environment, and both native callers receive the production runner", () => {
+  const source = readFileSync(release, "utf8");
+  // runCommand takes the signing-properties path out of the environment the door sees (a native tool only) and hands it over as `signingFile`; nothing else is added to what it forwards.
+  assert.match(source, /const \{ \[NATIVE_SIGNING_FILE_ENV\]: signingFile, \.\.\.dynamicEnv \} = env;/);
+  assert.match(source, /\.\.\.\(nativeCommand \? dynamicEnv : env\)/);
+  assert.match(source, /\.\.\.\(nativeCommand && signingFile \? \{ signingFile \} : \{\}\)/);
+  // A direct host's Gradle still gets the path (target.env), a broker route refuses before launch.
+  assert.match(source, /return run\(target\.command, target\.args, cwd, \{ \.\.\.commandEnvironment, \.\.\.\(target\.env \?\? \{\}\) \}/);
+  // The Android and iOS production callers are handed the runner of build-launch.mjs: no injected executor, no spawn of their own.
+  assert.equal((source.match(/native: createNativeRunner\(\{ cwd: root, env: process\.env \}\)/g) ?? []).length, 2);
+  assert.match(source, /await runAndroidRelease\(\{[\s\S]*?native: createNativeRunner[\s\S]*?\}\);/);
+  assert.match(source, /await runIosPackageRecipe\(\{[\s\S]*?native: createNativeRunner[\s\S]*?\}\);/);
+  assert.doesNotMatch(source, /createNativeRunner\(\{[^}]*(?:spawn|run|executor)\b/);
+});
+
 test("postSign accepts one command or an ordered array, scanned and run fail-closed", () => {
   const source = readFileSync(release, "utf8");
   assert.match(source, /function commandList\(value\) \{\s*if \(value == null\) return \[\];\s*return Array\.isArray\(value\) \? value : \[value\];/);

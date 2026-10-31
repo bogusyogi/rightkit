@@ -19,6 +19,8 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { buildLaunch, BUILD_LAUNCH_REFUSED } from "./build-launch.mjs";
+import { doorRefusal } from "./door.mjs";
 import { resolveCommand } from "./development.mjs";
 import { verifyNsisEmbeddedBinary } from "./nsis-payload.mjs";
 import { resolveArtifactPath, splitArtifactContext } from "./release-artifact-path.mjs";
@@ -165,9 +167,19 @@ export function defaultWinPackageDeps({ appRoot, target, env }) {
     // shell would re-quote `tauri --config <json>` and let an argument inject (L8). Only a command resolved to something else keeps the old
     // rule (a shell for anything that is not an .exe or .com on Windows).
     const direct = command === "pnpm" || command === "node";
-    const launch = direct ? resolveCommand(command, args, { root: options?.cwd ?? appRoot, env: options?.env ?? env }) : { command, args };
+    // GB-28 (BR11): a compile-capable step takes the one door (build-launch.mjs) first. On a broker-managed host that is a carried adapter job
+    // (or a refusal, before anything starts); on a direct host it is the plain command, resolved to its argv form below. Nothing here reaches
+    // the shared toolchain around the door.
+    let launch = { command, args };
+    if (direct) {
+      const stepEnv = options?.env ?? env;
+      let planned;
+      try { planned = buildLaunch(command, args, { env: stepEnv, cwd: options?.cwd ?? appRoot, exists: existsSync }); }
+      catch (error) { if (error?.code === BUILD_LAUNCH_REFUSED) return { error, status: null, signal: null, stdout: "", stderr: String(error.message) }; throw error; }
+      launch = planned.command === command ? { ...resolveCommand(command, args, { root: options?.cwd ?? appRoot, env: stepEnv }), ...(planned.env ? { env: planned.env } : {}) } : planned;
+    }
     const shell = !direct && process.platform === "win32" && !/\.(?:exe|com)$/i.test(command);
-    return runSync(launch.command, launch.args, { ...options, shell, stdio: "inherit" });
+    return runSync(launch.command, launch.args, { ...options, ...(launch.env ? { env: { ...(options?.env ?? env), ...launch.env } } : {}), shell, windowsHide: true, stdio: "inherit" });
   };
   const receiptFor = (phase) => signingReceiptPath({ appRoot, target, platform: "win", phase, stateRoot: env.RIGHT_RELEASE_STATE_ROOT });
   return {
@@ -225,6 +237,12 @@ function locate(declared, { env, fs, split = false }) {
 export function runWinPackageRecipe({ appRoot, config = {}, target, deps = {} } = {}) {
   const plan = validateWinPackage({ appRoot, config, target });
   const env = deps.env ?? process.env;
+  // GB-28 (GATE one entry): this exported helper is not a door of its own. With its real effects (no injected spawn) it refuses, before any
+  // compile, unless a live door run launched it; a dry run and the fakes a test injects start nothing real.
+  if (!deps.spawn && deps.dryRun !== true) {
+    const refusal = (deps.doorRefusal ?? doorRefusal)({ cwd: plan.appRoot, env, command: "win-package-recipe" });
+    if (refusal) throw new WinPackageConfigError([refusal]);
+  }
   const base = defaultWinPackageDeps({ appRoot: plan.appRoot, target, env });
   const d = { ...base, ...deps, env, fs: { ...base.fs, ...(deps.fs ?? {}) } };
   const { fs } = d;

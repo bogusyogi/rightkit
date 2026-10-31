@@ -11,6 +11,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { writeFileAtomic } from "./atomic-write.mjs";
 import { platformDirOf } from "./platform-dir.mjs";
 
 export const STAGES = Object.freeze(["check", "compile", "package", "qualify", "release"]);
@@ -26,8 +27,11 @@ const sha256 = (data) => createHash("sha256").update(data).digest("hex");
  * `--to test` included, builds a commit; uncommitted changes never enter a build). One row per stage name the gate dispatches:
  * the STAGES, `dev` and `test`, `stage` (the hand-off to the publisher) and each STAGES entry again as a RightKit unit stage
  * (`--to <stage> --unit <selector>`). `compiles` and `packages` say whether the stage starts a compiler or seals bytes.
- *   source "snapshot": the gate-owned snapshot of the selected commit (`wired: false` names a stage whose snapshot route is
- *     refused today, `blocker` saying why; it still never reads the checkout).
+ *   source "snapshot": the gate-owned snapshot of the selected commit (the checkout is never a build source on any host: rightkit#1301 deleted
+ *     the checkout route, so no row carries an interim checkout rule). `implemented: true` says the executable route exists in code and runs;
+ *     `witnessed: false` with `pending` says which host acceptance (native fixture witness on the Mac and the Dell) has not yet been proved. The two
+ *     are separate facts (GB-86): an implemented route may run for its witness, and a route whose host acceptance is unproved is never presented as
+ *     ready for apps (`appFacingReady`). A stage the route planner cannot run fails at planning with a named capability, not through this table.
  *   source "sealed" or "publisher", with `basis`: the stage compiles nothing from source (it acts on bytes an earlier stage
  *     sealed, or runs only in the trusted publisher on hosted CI with its normal checkout, docs/GATE-CONTRACT.md).
  *   source "checkout", with `gap`: a known breach, listed so it cannot grow; stageSourceProblems ignores it, stageSourceGaps names it.
@@ -36,23 +40,34 @@ const sha256 = (data) => createHash("sha256").update(data).digest("hex");
  */
 export const STAGE_SOURCES = Object.freeze({
   check: { compiles: false, packages: false, source: "snapshot" },
-  compile: { compiles: true, packages: false, source: "snapshot", interim: "Mac and Dell: the clean-HEAD checkout route until the cutover" },
-  // Wired in code (row 7.04: build-release.mjs, release.mjs, cli/right-release.mjs, release-source-identity.mjs): right-release builds and seals the selected commit from the snapshot. `wired` becomes true when door-package.test.mjs passes on L and on M and D (dev broker).
-  package: { compiles: true, packages: true, source: "snapshot", wired: false, blocker: "wired in code (rows 7.04 and 7.04c: release-artifact-path.mjs binds each Cargo manifest's target, one resolver reads every declared artifact path); awaiting 7.04c green on L, M and D: the dev-broker rows need the snapshot carrier (rows 7.20 to 7.24) and RustRight's item-4 dev pins" },
+  compile: { compiles: true, packages: false, source: "snapshot" },
+  // Implemented in code (row 7.04: build-release.mjs, release.mjs, cli/right-release.mjs, release-source-identity.mjs): right-release builds and seals the selected commit from the snapshot. `witnessed` becomes true (and `pending` goes) when door-package.test.mjs passes on Linux and the native fixture witness passes on the Mac and the Dell (dev broker).
+  package: { compiles: true, packages: true, source: "snapshot", implemented: true, witnessed: false, pending: "route implemented in code (rows 7.04 and 7.04c: release-artifact-path.mjs binds each Cargo manifest's target, one resolver reads every declared artifact path); awaiting 7.04c green on L, M and D: the dev-broker rows need the snapshot carrier (rows 7.20 to 7.24) and RustRight's item-4 dev pins" },
   // Narrowed by decision 2 (7.06 correction): qualification rebuilds nothing, but its source reads (config, QA plan, test code) go through the split.
-  qualify: { compiles: false, packages: false, source: "snapshot", wired: false, blocker: "qa --stage installed takes its identity from the split (release-qa-command.mjs, row 7.04); awaiting its tests on every host" },
+  qualify: { compiles: false, packages: false, source: "snapshot", implemented: true, witnessed: false, pending: "qa --stage installed takes its identity from the split (release-qa-command.mjs, row 7.04); awaiting its tests on every host" },
   release: { compiles: false, packages: false, source: "publisher", basis: "--to release runs only in the trusted publisher on hosted CI with its normal checkout (docs/GATE-CONTRACT.md), and only uploads sealed bytes" },
-  dev: { compiles: true, packages: false, source: "snapshot", interim: "Mac and Dell: the checkout route (check --worktree) until the cutover" },
-  test: { compiles: true, packages: false, source: "snapshot", interim: "Mac and Dell: the checkout route (check --worktree) until the cutover" },
+  dev: { compiles: true, packages: false, source: "snapshot" },
+  test: { compiles: true, packages: false, source: "snapshot" },
   stage: { compiles: false, packages: false, source: "sealed", basis: "stage packs the sealed directory and its receipt into the publisher's draft release; it compiles nothing" },
-  // Row 7.06a: a unit stage builds the selected commit's snapshot (Linux now; Mac and Dell at the cutover commit, until which they take
-  // the clean-HEAD checkout route, decision 2 "Interim").
-  "unit:check": { compiles: false, packages: false, source: "snapshot", interim: "Mac and Dell: clean HEAD of the checkout until the cutover" },
-  "unit:compile": { compiles: true, packages: false, source: "snapshot", interim: "Mac and Dell: clean HEAD of the checkout until the cutover" },
-  "unit:package": { compiles: true, packages: true, source: "snapshot", interim: "Mac and Dell: clean HEAD of the checkout until the cutover" },
-  "unit:qualify": { compiles: false, packages: false, source: "snapshot", interim: "Mac and Dell: clean HEAD of the checkout until the cutover" },
+  // Row 7.06a: a unit stage builds the selected commit's snapshot on every host (runUnitSnapshot); hosted CI keeps its runner checkout, which is the commit.
+  "unit:check": { compiles: false, packages: false, source: "snapshot" },
+  "unit:compile": { compiles: true, packages: false, source: "snapshot" },
+  "unit:package": { compiles: true, packages: true, source: "snapshot" },
+  "unit:qualify": { compiles: false, packages: false, source: "snapshot" },
   "unit:release": { compiles: false, packages: false, source: "publisher", basis: "a unit release is dispatched to the trusted publisher (releaseUnit); it compiles nothing here" },
 });
+
+/**
+ * What a row says about readiness: `implemented` (the executable route exists), `witnessed` (host acceptance proved; absent means nothing is pending for the
+ * row) and `pending` (what remains). `appFacingReady` is true only for an implemented route with no pending host acceptance.
+ */
+export function stageReadiness(stage, table = STAGE_SOURCES) {
+  const row = table[stage];
+  if (!row) return null;
+  const implemented = row.source === "snapshot" ? row.implemented !== false : true;
+  const pending = typeof row.pending === "string" && row.pending ? row.pending : null;
+  return { stage, implemented, witnessed: pending === null && row.witnessed !== false, pending, appFacingReady: implemented && pending === null && row.witnessed !== false };
+}
 
 /** Rows of `table` that compile or package without a snapshot source, a stated exclusion basis or a registered gap. */
 export function stageSourceProblems(table = STAGE_SOURCES) {
@@ -149,7 +164,7 @@ export function readReceipt({ commonDir, commit, app = ".", readFile = (f) => fs
   return null;
 }
 
-export function writeReceipt({ commonDir, receipt, write = fs.writeFileSync, mkdir = fs.mkdirSync }) {
+export function writeReceipt({ commonDir, receipt, write = (file, data) => writeFileAtomic(file, data), mkdir = fs.mkdirSync }) {
   const dir = path.join(gateStateDir(commonDir), "receipts");
   mkdir(dir, { recursive: true });
   write(path.join(dir, `${receiptKey(receipt.commit, receipt.app ?? ".")}.json`), `${JSON.stringify(receipt, null, 2)}\n`);
@@ -172,6 +187,67 @@ export function sameBinding(a, b) {
 /** Same source: tree, lockfiles and gate digest equal (the host's toolchain and executor may differ). */
 export function sameSource(a, b) {
   return Boolean(a && b) && a.tree === b.tree && a.gate === b.gate && JSON.stringify(a.locks) === JSON.stringify(b.locks);
+}
+
+/** Entries a compile-output census walks before it gives up (and the compile is then run again, warm, rather than trusted). */
+export const OUTPUT_CENSUS_LIMIT = 250000;
+
+/**
+ * What the compile stage produced, as the door can prove it later (GB-13, GATE E6/E7/E16): for each output directory the broker's
+ * receipt (or the direct host's resolution) named, every file's relative path and size, digested together. `truncated` means the walk
+ * hit `limit`; such a census never proves anything. A missing directory is recorded as missing, never as empty.
+ */
+export function outputCensus(dirs = [], { limit = OUTPUT_CENSUS_LIMIT, readdir = (d) => fs.readdirSync(d, { withFileTypes: true }), stat = (f) => fs.statSync(f) } = {}) {
+  const unique = [...new Set(dirs.filter((d) => typeof d === "string" && d))].sort();
+  const lines = []; let truncated = false; const missing = [];
+  for (const dir of unique) {
+    const stack = [""];
+    let exists = true;
+    while (stack.length && !truncated) {
+      const rel = stack.pop();
+      let entries;
+      try { entries = readdir(path.join(dir, rel)); } catch { if (rel === "") exists = false; continue; }
+      for (const e of entries) {
+        const next = rel ? `${rel}/${e.name}` : e.name;
+        if (e.isDirectory()) { stack.push(next); continue; }
+        let size = -1; try { size = stat(path.join(dir, next)).size; } catch { /* vanished while walking: recorded as -1 */ }
+        lines.push(`${dir}\0${next}\0${size}`);
+        if (lines.length > limit) { truncated = true; break; }
+      }
+    }
+    if (!exists) missing.push(dir);
+  }
+  lines.sort();
+  return { dirs: unique, entries: lines.length, truncated, missing, digest: sha256(lines.join("\n")) };
+}
+
+/** The environment a Cargo compile reads that picks its profile, target or flags: part of what a compile result is valid for. */
+const COMPILE_ENV = /^(CARGO_(?!HOME$|TARGET_DIR$|BUILD_TARGET_DIR$|REGISTRIES_|NET_|HTTP_|TERM_)|RUSTFLAGS$|RUSTDOCFLAGS$|RUSTC(_|$)|RUSTUP_TOOLCHAIN$)/;
+export function compileKeyOf(env = {}) {
+  const picked = Object.entries(env).filter(([k, v]) => COMPILE_ENV.test(k) && v !== undefined).sort(([a], [b]) => a.localeCompare(b));
+  return sha256(JSON.stringify(picked));
+}
+
+/** What a passed compile stage records about its outputs: the directories, their census and the key of the compile environment. */
+export function compileOutputsRecord({ dirs = [], env = {}, census = outputCensus }) {
+  const c = census(dirs);
+  return { dirs: c.dirs, entries: c.entries, digest: c.digest, truncated: c.truncated, key: compileKeyOf(env) };
+}
+
+/**
+ * Whether a recorded compile still stands for the outputs on disk now: null when it does, else the reason it does not. A record with no
+ * `outputs` (a receipt from before this binding) proves nothing and does not stand.
+ */
+export function compileReuseProblem(recorded, { env = {}, census = outputCensus } = {}) {
+  const out = recorded?.outputs;
+  if (!out || typeof out !== "object" || !Array.isArray(out.dirs) || typeof out.digest !== "string") return "the compile result records no outputs";
+  if (out.truncated) return "the recorded output census was incomplete";
+  if (out.key !== compileKeyOf(env)) return "the compile environment (profile, target or flags) differs from the recorded one";
+  const now = census(out.dirs);
+  if (now.missing.length) return `output directory ${now.missing[0]} is gone`;
+  if (now.truncated) return "the output census is too large to prove";
+  if (now.digest !== out.digest || now.entries !== out.entries) return "the compile outputs on disk differ from the recorded census (a required output was removed, replaced or added)";
+  return null;
 }
 
 /** The sealed release directory build-release wrote for `commit` on `platform`: { id, manifest, digest } or null. */

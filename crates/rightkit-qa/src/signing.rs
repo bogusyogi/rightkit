@@ -12,8 +12,8 @@
 //! signed copy, and the file actually launched must hash to that record's `sha256After`. Anything
 //! else (no receipt, a malformed one, no record, several records, a mismatch) is an [`Error`].
 //!
-//! Only `schema`, `files`, and each record's `file`, `signed` and `sha256After` are read, and read
-//! strictly; every other field (`file`, `sha256Before`, the platform fields) is ignored, so the
+//! Only `schema`, `files`, and each record's `file`, `signed` and `sha256After` are required, and read
+//! strictly; `sha256Before` is read when present (a malformed one is refused) and every other field (the platform fields) is ignored, so the
 //! signer can add fields without breaking a consumer. An error names the receipt or file path and
 //! quotes no other receipt content than a digest: a hash mismatch prints the receipt's `sha256After` beside the file's own digest.
 
@@ -192,6 +192,9 @@ pub struct Record {
     pub signed: PathBuf,
     /// The signed copy's lowercase hex SHA-256.
     pub sha256_after: String,
+    /// The unsigned build output's lowercase hex SHA-256, when the receipt carries it (the `sign` step always does): what ties a
+    /// signed copy to the attested build output it was made from (GB-79).
+    pub sha256_before: Option<String>,
 }
 
 /// A parsed schema 1 signing receipt.
@@ -276,10 +279,21 @@ impl Evidence {
             }
             let signed = field("signed")?;
             let file = field("file")?;
+            let sha256_before = match entry.get("sha256Before") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(s)) if is_sha256_hex(s) => Some(s.clone()),
+                Some(_) => {
+                    return Err(Error::BadSha {
+                        receipt: receipt(),
+                        index,
+                    })
+                }
+            };
             records.push(Record {
                 file: file.to_owned(),
                 signed: PathBuf::from(signed),
                 sha256_after: sha256_after.to_owned(),
+                sha256_before,
             });
         }
         Ok(Evidence {

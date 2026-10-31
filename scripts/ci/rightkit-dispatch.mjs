@@ -9,10 +9,21 @@
 //
 //   rightkit-dispatch --probe
 //   rightkit-dispatch --workflow ci --sha <40 hex>
-//   rightkit-dispatch --workflow publish --registry crates|npm --unit <one name> --sha <40 hex>
+//   rightkit-dispatch --workflow publish --registry crates|npm --unit <one name> --sha <40 hex> --qualification <file>
 //                     [--allow-host-exclusion <s>] [--allow-no-test <s>] [--allow-ignored <s>] [--allow-missing-assets <s>]
 //
-// Exit 0: dispatched and discovered. Exit 2: refused (usage, main moved, no broker request id, run not found). Exit 3: gh failed.
+// Every mode is covered: --probe sends nothing; --workflow ci is a parsed mode whose production admission is a TYPED refusal
+// ([ci-not-admitted]: there is no local admission for broad CI dispatch), and when an admission is injected it takes the same claim path as publish;
+// --workflow publish is the admitted route. Each dispatch binds the source commit, the commit's real git tree (read from GitHub and compared with the
+// qualification receipt's tree BEFORE any claim or POST), the artifact digest, the allow-set policy and the route into one candidate identity.
+//
+// Exit 0: dispatched and discovered, or joined to the candidate's existing run. Exit 2: refused or pending (usage, main moved, tree mismatch, no broker
+// request id, typed admission refusal, conflicting or pending claim, run not found or ambiguous). Exit 3: gh failed or the claim could not be proved.
+// A pending outcome also prints one JSON line {"pending":true,...} (no runId): the dispatch may have been accepted and is NEVER re-sent.
+//
+// SELF-CONTAINED CLOSURE: the broker pins this one file by digest, so its executable closure is this file plus node built-ins. The shared claim code is
+// inlined below (a static import of a sibling helper would be evaluated before any digest check could cover it); the admission helpers are digest-checked
+// and only then imported (requirePreflight). scripts/ci/dispatch-claim.mjs is a non-pinned re-export shim of the exports below and is never imported here.
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
@@ -130,9 +141,196 @@ export function matchRun(runs, query) {
   return matches.length === 1 ? matches[0] : null;
 }
 
+// ---- GB-47 / RA-04 / RA-05: the shared candidate claim at the authenticated dispatch boundary (inlined: see SELF-CONTAINED CLOSURE above) ------------
+// Hosts keep local pipeline state, but nothing local stops the Mac and the Dell (or two requests) from both dispatching one candidate. The one place every
+// origin goes through is GitHub, so ONE claim per registry/package/version (the publication conflict identity; GC-T21) lives there:
+//   refs/rightkit-claims/<registry>/<unit hash>/<version>
+// The ref is created atomically (creation fails if it exists) and points at a claim COMMIT whose message is the claim JSON; the candidate's digest is a
+// VALUE inside it, never part of the key, so a different digest for the same version meets the same ref and is refused. Every later transition is a
+// compare-and-swap: a new claim commit whose parent is the revision the writer read, moved onto the ref with force=false (GitHub accepts only a
+// fast-forward), so a writer holding a stale revision is rejected. States:
+//   reserved   one request owns the claim; NOTHING has been sent (a POST only ever follows a successful reserved -> sending swap);
+//   sending    the send intent is persisted BEFORE the POST: from here the dispatch is sent-or-unknown, and absence of a run is never read as
+//              "not sent": no request (not even the same request id) sends again; the run is discovered by the effect token (the request id);
+//   dispatched the run id is recorded; later requests verify it through the Actions API and join it.
+// A reserved claim whose owner died before sending is reclaimed by a swap only after CLAIM_STALE_MS (or at once by a retry of the same request id); the old
+// owner's own sending swap then fails, so it cannot send. Unreadable or corrupt claims are conflicts (fail closed); an unreadable namespace is unavailable.
+export const CLAIM_SCHEMA = "rightkit.dispatch-claim/2";
+export const CLAIM_STALE_MS = 10 * 60_000;
+const RUNS_PER_PAGE = 100;
+const RUNS_MAX_PAGES = 10;
+// Adrian (rustright#200): a claim in `sending` reconciles AUTOMATICALLY by its stable request token (carried in the dispatch inputs and the run name), by a
+// paged, retried lookup on every later request. An empty or incomplete listing, an API error or an expired visibility window is NEVER proof that nothing was
+// sent: the claim stays UNKNOWN (recorded explicitly as `reconciliation.state = "unknown"`) and keeps reconciling. There is no manual release. A re-send would
+// need idempotency or consumption proof for the dispatch's effects (the workflow can do work before the publish; a registry's duplicate-version refusal is
+// not enough), and none exists, so no path here ever POSTs again once the send intent is persisted.
+const RECONCILE_LOOKUPS = 3;
+const RECONCILE_RECORD_MS = 60_000;
+const CLAIM_STATES = ["reserved", "sending", "dispatched"];
+const sha256Hex = (text) => crypto.createHash("sha256").update(text).digest("hex");
+const sortKeys = (v) => (Array.isArray(v) ? v.map(sortKeys) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortKeys(v[k])])) : v);
+const canonical = (value) => JSON.stringify(sortKeys(value));
+const parseJson = (text) => { try { return JSON.parse(text); } catch { return null; } };
+const isoAt = (ms) => new Date(ms).toISOString();
+const refused = (status, code, message, extra = {}) => ({ status, code, message, ...extra });
+
+/** What a candidate IS: any difference is a different candidate (and, for one version, a conflict). `tree` is the commit's real git tree proved from GitHub. */
+export function claimIdentity({ repo, workflow, sha, tree, registry, unit, version, artifactSha256 = null, allow = {} }) {
+  if (!/^[0-9a-f]{40}$/.test(tree ?? "")) throw new Error("a claim identity binds the proved git tree of the source commit");
+  return { schema: CLAIM_SCHEMA, repo, workflow, sha, tree, registry, unit, version, artifactSha256, policy: sha256Hex(canonical(allow)), route: "broker" };
+}
+export const claimDigest = (identity) => sha256Hex(canonical(identity));
+/** The ONE conflict key of a registry/package/version (the unit is hashed: a scoped npm name is not a safe ref segment). No candidate digest is in it. */
+export function claimKey({ registry, unit, version }) {
+  let safe = String(version).replace(/[^0-9A-Za-z._+-]/g, "_");
+  if (/\.\.|\.lock$|\.$|^\./.test(safe) || !safe) safe = `v-${sha256Hex(String(version)).slice(0, 16)}`;
+  return `rightkit-claims/${registry}/${sha256Hex(String(unit)).slice(0, 16)}/${safe}`;
+}
+
+function claimProblem(claim, key) {
+  if (!claim || typeof claim !== "object" || claim.schema !== CLAIM_SCHEMA) return "it is not a dispatch claim of this schema";
+  if (claim.key !== key || !claim.identity || typeof claim.identity !== "object" || claimKey(claim.identity) !== key) return "it names another conflict key";
+  if (claimDigest(claim.identity) !== claim.identityDigest) return "its identity does not match its digest";
+  if (typeof claim.requestId !== "string" || !claim.requestId || typeof claim.attempt !== "string" || !claim.attempt) return "it has no owner";
+  if (!CLAIM_STATES.includes(claim.state) || !Number.isInteger(claim.seq) || !Number.isFinite(Date.parse(claim.at))) return "its state is malformed";
+  if (claim.state === "dispatched" && !claim.run?.id) return "it is dispatched without a run";
+  return null;
+}
+
+/** Reads the claim of one conflict key: absent | present { revision, claim } | corrupt | legacy | unavailable. Absent is only ever an explicit empty listing. */
+export function readClaim({ gh, env, repo, key }) {
+  const listed = gh(["api", `repos/${repo}/git/matching-refs/${key}?per_page=100`], env);
+  const refs = listed.ok ? parseJson(listed.stdout) : null;
+  if (!Array.isArray(refs) || refs.length >= 100) return { status: "unavailable" };
+  const exact = `refs/${key}`;
+  if (refs.some((r) => String(r?.ref).startsWith(`${exact}/`))) return { status: "legacy" };
+  const mine = refs.find((r) => r?.ref === exact);
+  if (!mine) return { status: "absent" };
+  const revision = mine.object?.sha;
+  if (mine.object?.type !== "commit" || !/^[0-9a-f]{40}$/.test(revision ?? "")) return { status: "corrupt", reason: "the claim ref does not point at a claim commit" };
+  const got = gh(["api", `repos/${repo}/git/commits/${revision}`], env);
+  const body = got.ok ? parseJson(got.stdout) : null;
+  if (!body || typeof body !== "object") return { status: "unavailable" };
+  const claim = parseJson(body.message ?? "");
+  const problem = claimProblem(claim, key);
+  if (problem) return { status: "corrupt", revision, reason: problem };
+  return { status: "present", revision, claim };
+}
+
+function writeClaimCommit({ gh, env, repo, tree, parent, claim, now }) {
+  const date = isoAt(now());
+  const args = ["api", "-X", "POST", `repos/${repo}/git/commits`, "-f", `message=${JSON.stringify(claim)}`, "-f", `tree=${tree}`];
+  if (parent) args.push("-f", `parents[]=${parent}`);
+  for (const who of ["author", "committer"]) args.push("-f", `${who}[name]=rightkit-dispatch`, "-f", `${who}[email]=noreply@rightkit.invalid`, "-f", `${who}[date]=${date}`);
+  const made = gh(args, env);
+  const sha = made.ok ? parseJson(made.stdout)?.sha : null;
+  return /^[0-9a-f]{40}$/.test(sha ?? "") ? sha : null;
+}
+
+/** Compare-and-swap: the new claim commit descends from `revision`; force=false means GitHub moves the ref only if `revision` is still its value.
+ * A failed move is read back once: a lost acknowledgement of a move that did happen is recognised by the ref being exactly our new commit. */
+function advanceClaim({ gh, env, repo, key, revision, tree, claim, now }) {
+  const commit = writeClaimCommit({ gh, env, repo, tree, parent: revision, claim, now });
+  if (!commit) return null;
+  if (gh(["api", "-X", "PATCH", `repos/${repo}/git/refs/${key}`, "-f", `sha=${commit}`, "-F", "force=false"], env).ok) return commit;
+  const back = readClaim({ gh, env, repo, key });
+  return back.status === "present" && back.revision === commit ? commit : null;
+}
+
+/** Pages through the workflow_dispatch runs of one commit. complete is true only when every page was read; an error or a page cap is never "no runs". */
+export function listRuns({ gh, env, repo, sha }) {
+  const runs = [];
+  for (let page = 1; page <= RUNS_MAX_PAGES; page += 1) {
+    const listed = gh(["api", `repos/${repo}/actions/runs?event=workflow_dispatch&head_sha=${sha}&per_page=${RUNS_PER_PAGE}&page=${page}`], env);
+    const body = listed.ok ? parseJson(listed.stdout) : null;
+    if (!body || !Array.isArray(body.workflow_runs)) return { ok: false, complete: false, runs };
+    runs.push(...body.workflow_runs);
+    if (body.workflow_runs.length < RUNS_PER_PAGE || (Number.isInteger(body.total_count) && runs.length >= body.total_count)) return { ok: true, complete: true, runs };
+  }
+  return { ok: true, complete: false, runs };
+}
+
+/**
+ * Decides before any send. Returns:
+ *   { status: "reserved", ref, beginSend(), record(run) }  this request owns the claim. beginSend() persists the send intent by swap and returns false
+ *                                                        when it cannot (then NOTHING may be sent); only after it returns true may the POST happen;
+ *                                                        record(run) swaps the run onto the claim (a failure never enables a resend);
+ *   { status: "joined", run, claim, adopt? }              an existing run of this very candidate: send nothing (adopt() records it, best effort);
+ *   { status: "conflict" | "pending" | "unavailable", code, message }   refuse. pending = sent-or-unknown or owned by a live request.
+ * `discover(token)` returns { ok, complete, runs } for the runs carrying the effect token; `verifyRun(id, token)` returns { status: "confirmed", run } or
+ * { status: "unconfirmed" }.
+ */
+export function reserveClaim({ gh, env, repo, identity, requestId, discover, verifyRun, now = Date.now, staleMs = CLAIM_STALE_MS, attempt = crypto.randomUUID() }) {
+  const digest = claimDigest(identity);
+  const key = claimKey(identity);
+  const ref = `refs/${key}`;
+  const label = `${identity.unit}@${identity.version}`;
+  const own = (start) => {
+    let state = start;
+    const step = (next) => {
+      const revision = advanceClaim({ gh, env, repo, key, revision: state.revision, tree: identity.tree, claim: next, now });
+      if (!revision) return false;
+      state = { revision, claim: next };
+      return true;
+    };
+    return {
+      status: "reserved", ref, token: requestId,
+      beginSend: () => step({ ...state.claim, state: "sending", seq: state.claim.seq + 1, at: isoAt(now()) }),
+      record: (run) => step({ ...state.claim, state: "dispatched", seq: state.claim.seq + 1, run: { id: run.id, attempt: run.run_attempt ?? null, url: run.html_url ?? null }, reconciliation: { state: "found", at: isoAt(now()), by: requestId }, at: isoAt(now()) }),
+      /** Records the sent-or-unknown state explicitly (best effort; it never changes `state`, so it can never enable a resend). */
+      markUnknown: (reason) => step({ ...state.claim, seq: state.claim.seq + 1, reconciliation: { state: "unknown", reason, at: isoAt(now()), attempts: (state.claim.reconciliation?.attempts ?? 0) + 1, by: requestId } }),
+    };
+  };
+  for (let pass = 0; pass < 3; pass += 1) {
+    const read = readClaim({ gh, env, repo, key });
+    if (read.status === "unavailable") return refused("unavailable", "claim-unavailable", "the shared claim namespace cannot be read, so a candidate claim cannot be proved; nothing was sent");
+    if (read.status === "legacy") return refused("conflict", "claim-legacy", `${label} has claims in the retired per-digest layout; reconcile them before any send`);
+    if (read.status === "corrupt") return refused("conflict", "claim-unreadable", `the claim for ${label} cannot be read (${read.reason}); it is treated as a conflicting claim and nothing is sent`);
+    if (read.status === "absent") {
+      const claim = { schema: CLAIM_SCHEMA, key, identity, identityDigest: digest, requestId, attempt, state: "reserved", seq: 0, at: isoAt(now()), effect: { kind: "workflow_dispatch", workflow: identity.workflow, token: requestId } };
+      const commit = writeClaimCommit({ gh, env, repo, tree: identity.tree, parent: null, claim, now });
+      if (!commit) return refused("unavailable", "claim-unavailable", "the candidate claim object could not be written; nothing was sent");
+      // Creation fails when another origin created the ref first; the next pass reads theirs. A lost acknowledgement of our own creation reads back as ours.
+      if (gh(["api", "-X", "POST", `repos/${repo}/git/refs`, "-f", `ref=${ref}`, "-f", `sha=${commit}`], env).ok) return own({ revision: commit, claim });
+      continue;
+    }
+    const { claim, revision } = read;
+    const token = claim.requestId;
+    if (claim.identityDigest !== digest) return refused("conflict", "claim-conflict", `${label} is already claimed for different bytes, source or policy (${claim.identityDigest.slice(0, 12)}); this candidate (${digest.slice(0, 12)}) is refused`);
+    const adopt = (run) => () => advanceClaim({ gh, env, repo, key, revision, tree: identity.tree, claim: { ...claim, state: "dispatched", seq: claim.seq + 1, run: { id: run.id, attempt: run.run_attempt ?? null, url: run.html_url ?? null }, adoptedBy: { requestId, attempt }, reconciliation: { state: "found", at: isoAt(now()), by: requestId }, at: isoAt(now()) }, now });
+    if (claim.state === "dispatched") {
+      const verified = verifyRun(claim.run.id, token);
+      if (verified?.status !== "confirmed") return refused("pending", "claim-run-unconfirmed", `the claim for ${label} names run ${claim.run.id}, which the Actions API does not confirm; it stays UNKNOWN, nothing is re-sent, and every later request re-verifies it`, { token, reconciliation: "UNKNOWN" });
+      return { status: "joined", run: verified.run, claim };
+    }
+    if (claim.state === "sending") {
+      // Automatic reconciliation by the effect token: a paged lookup, retried while it errors or is incomplete. Only a complete listing with exactly one
+      // matching run proves the send; nothing else (empty, partial, error, timeout) proves the absence of one.
+      let found = discover(token);
+      for (let retry = 1; retry < RECONCILE_LOOKUPS && !(found.ok && found.complete); retry += 1) found = discover(token);
+      if (found.ok && found.complete && found.runs.length === 1) return { status: "joined", run: found.runs[0], claim, adopt: adopt(found.runs[0]) };
+      const reason = found.ok && found.runs.length > 1 ? "ambiguous" : found.ok && found.complete ? "no-run-visible" : "listing-unavailable-or-incomplete";
+      const prior = claim.reconciliation;
+      if (!(prior?.state === "unknown" && now() - Date.parse(prior.at) < RECONCILE_RECORD_MS)) {
+        advanceClaim({ gh, env, repo, key, revision, tree: identity.tree, claim: { ...claim, seq: claim.seq + 1, reconciliation: { state: "unknown", reason, at: isoAt(now()), attempts: (prior?.attempts ?? 0) + 1, by: requestId } }, now });
+      }
+      if (reason === "ambiguous") return refused("pending", "claim-ambiguous", `${found.runs.length} runs carry the claim's request token ${token}; ambiguous, nothing is sent`, { token, reconciliation: "UNKNOWN" });
+      return refused("pending", "claim-sent-or-unknown", `${label} is claimed by request ${token} (send intent recorded ${claim.at}); a dispatch may already have been accepted and ${reason === "no-run-visible" ? "no run of it is visible yet" : "its run listing is unavailable or incomplete, so no run of it is visible yet"}: the state is UNKNOWN, nothing is re-sent, and every later request reconciles it by the request token`, { token, reconciliation: "UNKNOWN" });
+    }
+    // reserved: nothing has been sent by its owner (a send follows only a successful swap to "sending"), so a takeover cannot duplicate an effect.
+    if (claim.attempt === attempt) return own({ revision, claim });
+    const age = now() - Date.parse(claim.at);
+    if (claim.requestId !== requestId && !(age >= staleMs)) return refused("pending", "claim-reserved-elsewhere", `${label} is reserved by request ${token} (at ${claim.at}) and not yet sent; wait for it or for ${Math.round(staleMs / 60_000)} minutes before reclaiming`, { token });
+    const taken = { ...claim, requestId, attempt, seq: claim.seq + 1, at: isoAt(now()), takeover: { requestId: token, attempt: claim.attempt, at: claim.at }, effect: { kind: "workflow_dispatch", workflow: identity.workflow, token: requestId } };
+    const next = advanceClaim({ gh, env, repo, key, revision, tree: identity.tree, claim: taken, now });
+    if (next) return own({ revision: next, claim: taken });
+  }
+  return refused("unavailable", "claim-unavailable", "the candidate claim could not be created, reclaimed or read after three attempts; nothing was sent");
+}
+
 // Broker pins this adapter. Pin its admission implementation too: importing mutable helpers would defeat that pin.
-const PREFLIGHT_SHA256 = "cb2d11828852504fc3706157b1482b89ad0568b77d55c3a654607263b20eaebb";
-const NPM_PREFLIGHT_SHA256 = "efe9e94fbe5c831b699d1ed9764a31b7fc86ec7412112b6e570aa99deeda40d6";
+const PREFLIGHT_SHA256 = "4985ce98802c106fd3b30c1d026adc79fb6f6d16bd8e631d9b68d62b613d836b";
+const NPM_PREFLIGHT_SHA256 = "3e8fbfdcf2a42a0dfd1c50515a8ec781603d1774c64c7c7a0987cf4e25d5583f";
 const NPM_SELECT_SHA256 = "7ca660e23cc584242f0fd7e973f7475b5142c9bb1249f80650a2662adf84423b";
 // rk-npm-preflight.mjs imports this module (its version-pin plan-check); a pinned importer that trusts an unpinned module is not pinned.
 const NPM_VERSION_PINS_SHA256 = "5f490eb13c11dab32bb57a0d4b95eea94564e75ec1d853af5dbc1093a215b7a8";
@@ -143,10 +341,10 @@ const ADMISSION_DEPENDENCIES = {
   "scripts/ci/consumer-recipes.mjs": "919a1f28d6b005ea963d7e1f9958aebdb34c0ca2a9696ba3eecee475b426bcb8",
   "scripts/ci/workflow-yaml.mjs": "c9e6fe758036e9e246915b2205d520e7ffc8e9f0e0a1a4117c2affc96dd015f5",
   "packages/release/workflow-yaml.mjs": "13491a0cbebe60575f459be004333d4782c1dbe66fe18963c1b1eba0410f4ced",
-  "packages/release/broker-client.mjs": "9037947b6b216e53573ead100eb61aec1c730db909885cb86d07de707d31c176",
+  "packages/release/broker-client.mjs": "0beb5d9b953fe9048944c594dc91c61f5edcc1f4fad2fa8c56eeedff8e434198",
 };
 export async function requirePreflight(opts) {
-  if (opts.workflow !== "publish" || !["crates", "npm"].includes(opts.registry)) throw new Error("only scoped crates/npm publication has local admission; general CI dispatch is not admitted");
+  if (opts.workflow !== "publish" || !["crates", "npm"].includes(opts.registry)) throw Object.assign(new Error("only scoped crates/npm publication has local admission; general CI dispatch is not admitted"), { code: "ci-not-admitted" });
   const npm = opts.registry === "npm";
   if (npm && !/^@rightkit\/[a-z][a-z0-9-]{0,63}$/.test(opts.unit ?? "")) throw new Error("npm admission requires exactly one @rightkit/* package");
   // The broker runs the digest-pinned copy of this file from its policy directory, so the repository is the adapter's
@@ -272,44 +470,88 @@ export async function main(argv, deps = {}) {
     return 2;
   }
   try { await (deps.admission ?? requirePreflight)(opts); }
-  catch (error) { err(`rightkit-dispatch: preflight refused: ${error.message}`); return 2; }
+  catch (error) { err(`rightkit-dispatch: preflight refused${error.code ? ` [${error.code}]` : ""}: ${error.message}`); return 2; }
   let qualification = null;
   if (opts.workflow === "publish") {
     try { qualification = (deps.readQualification ?? readQualification)(opts.qualification, { sha: opts.sha, unit: opts.unit, registry: opts.registry }); }
     catch (error) { err(`rightkit-dispatch: refused, ${error.message}`); return 2; }
   }
+  // R3-X04: bind the source before any effect. The commit's real git tree is read from GitHub (the source the workflow will run) and must be the tree the
+  // qualification receipt was made for; a mismatch is refused here, before any claim or POST, not left to the hosted admission.
+  const treeRead = gh(["api", `repos/${REPO}/git/commits/${opts.sha}`], env);
+  const commitBody = treeRead.ok ? parseJson(treeRead.stdout) : null;
+  const tree = commitBody?.tree?.sha;
+  if (!/^[0-9a-f]{40}$/.test(tree ?? "") || (commitBody.sha !== undefined && commitBody.sha !== opts.sha)) {
+    err("rightkit-dispatch: cannot read the requested commit's tree through gh");
+    return 3;
+  }
+  if (qualification && qualification.tree !== tree) {
+    err(`rightkit-dispatch: refused [tree-mismatch]: the qualification receipt is for tree ${String(qualification.tree).slice(0, 12)}, but commit ${opts.sha.slice(0, 12)} has tree ${tree.slice(0, 12)}; nothing was claimed or sent`);
+    return 2;
+  }
+  // GB-47 / RA-04 / RA-05: every mode (publish and ci) claims its candidate in the shared GitHub namespace before anything is sent: the same candidate joins
+  // its existing run, a different candidate for the same registry/package/version is refused, the send intent is persisted before the POST, and a sent or
+  // unknown dispatch is reconciled by its effect token, never re-sent.
+  const identity = claimIdentity({ repo: REPO, workflow: WORKFLOWS[opts.workflow], sha: opts.sha, tree, registry: opts.registry ?? "ci", unit: opts.unit ?? "ci", version: qualification?.unit.version ?? opts.sha, artifactSha256: qualification?.artifactSha256 ?? null, allow: opts.allow });
+  const discoverRuns = (token) => { const listed = listRuns({ gh, env, repo: REPO, sha: opts.sha }); return { ok: listed.ok, complete: listed.ok && listed.complete, runs: matchingRuns(listed.runs, { workflow: opts.workflow, sha: opts.sha, requestId: token }) }; };
+  const verifyRun = (id, token) => {
+    const got = gh(["api", `repos/${REPO}/actions/runs/${id}`], env);
+    const r = got.ok ? parseJson(got.stdout) : null;
+    return r && String(r.id) === String(id) && matchingRuns([r], { workflow: opts.workflow, sha: opts.sha, requestId: token }).length === 1 ? { status: "confirmed", run: r } : { status: "unconfirmed" };
+  };
+  const record = (extra) => JSON.stringify({ repo: REPO, workflow: WORKFLOWS[opts.workflow], sha: opts.sha, unit: opts.unit ?? null, registry: opts.registry ?? null, allowsets: opts.allow, ...extra });
+  const claim = (deps.claim ?? reserveClaim)({ gh, env, repo: REPO, identity, requestId, now, discover: discoverRuns, verifyRun });
+  if (claim.status === "joined") {
+    claim.adopt?.();
+    out(record({ requestId: claim.claim.requestId, runId: claim.run.id, runAttempt: claim.run.run_attempt, runUrl: claim.run.html_url ?? null, joined: true }));
+    return 0;
+  }
+  if (claim.status !== "reserved" || typeof claim.beginSend !== "function") {
+    const known = ["unavailable", "conflict", "pending"].includes(claim.status);
+    const prefix = { unavailable: "claim unavailable: ", conflict: "refused, conflicting candidate: ", pending: "pending, claimed elsewhere: " }[claim.status] ?? "claim unavailable: ";
+    err(`rightkit-dispatch: ${prefix}${claim.code ? `[${claim.code}] ` : ""}${known ? claim.message : "the claim step did not return a reservation; nothing was sent"}`);
+    if (claim.status === "pending") out(record({ pending: true, code: claim.code ?? null, requestId: claim.token ?? null, reconciliation: claim.reconciliation ?? "UNKNOWN" }));
+    return claim.status === "conflict" || claim.status === "pending" ? 2 : 3;
+  }
+  // RA-05: persist the send intent BEFORE the POST. From here the dispatch is sent-or-unknown; if the intent cannot be persisted (the claim moved, or the
+  // namespace is unreadable) nothing is sent.
+  if (!claim.beginSend()) {
+    err("rightkit-dispatch: claim unavailable: [claim-intent-unpersisted] the send intent could not be persisted on the claim (it moved or the namespace is unreadable); nothing was sent");
+    return 3;
+  }
   const inputs = dispatchInputs(opts, requestId, qualification);
   const fields = ["-f", "ref=main"];
   for (const [key, value] of Object.entries(inputs)) fields.push("-f", `inputs[${key}]=${value}`);
   const posted = gh(["api", "-X", "POST", `repos/${REPO}/actions/workflows/${WORKFLOWS[opts.workflow]}/dispatches`, ...fields], env);
-  if (!posted.ok) {
-    err(`rightkit-dispatch: GitHub refused the ${WORKFLOWS[opts.workflow]} dispatch`);
-    return 3;
-  }
-  const deadline = now() + DISCOVERY_MS;
-  let matches = [];
+  // A POST that did not confirm (error, timeout, dropped response) may still have been accepted: it is never re-sent and its absence of a run is not proof.
+  // One listing is still taken, because a dropped response with a visible run is a success; a confirmed POST is polled for until DISCOVERY_MS.
+  const deadline = now() + (posted.ok ? DISCOVERY_MS : 0);
+  let found = { ok: false, complete: false, runs: [] };
   for (;;) {
-    const listed = gh(["api", `repos/${REPO}/actions/runs?event=workflow_dispatch&head_sha=${opts.sha}&per_page=30`], env);
-    if (listed.ok) {
-      try {
-        matches = matchingRuns(JSON.parse(listed.stdout).workflow_runs ?? [], { workflow: opts.workflow, sha: opts.sha, requestId });
-      } catch {
-        matches = [];
-      }
-    }
-    if (matches.length > 0 || now() >= deadline) break;
+    found = discoverRuns(requestId);
+    if ((found.complete && found.runs.length > 0) || now() >= deadline) break;
     await sleep(POLL_MS);
   }
-  if (matches.length > 1) {
-    err(`rightkit-dispatch: ambiguous, ${matches.length} ${WORKFLOWS[opts.workflow]} runs for ${opts.sha.slice(0, 12)} carry the token ${requestId}; nothing is reported as this request's run`);
+  if (found.complete && found.runs.length > 1) {
+    claim.markUnknown?.("ambiguous");
+    err(`rightkit-dispatch: ambiguous, ${found.runs.length} ${WORKFLOWS[opts.workflow]} runs for ${opts.sha.slice(0, 12)} carry the token ${requestId}; nothing is reported as this request's run, and the claim stays pending`);
     return 2;
   }
-  if (matches.length === 0) {
-    err(`rightkit-dispatch: dispatched but no ${WORKFLOWS[opts.workflow]} run for ${opts.sha.slice(0, 12)} named ${requestId} appeared within ${DISCOVERY_MS / 1000}s`);
+  if (!(found.complete && found.runs.length === 1)) {
+    // Record UNKNOWN explicitly on the claim (best effort; `state` stays "sending", so this can never enable a resend). An expired window, an empty or
+    // partial listing and a listing error are all UNKNOWN, never "not sent"; every later request reconciles it by the request token.
+    claim.markUnknown?.(found.ok && found.complete ? "no-run-visible" : "listing-unavailable-or-incomplete");
+    out(record({ pending: true, code: "claim-sent-or-unknown", requestId, accepted: posted.ok, state: "sending", reconciliation: "UNKNOWN" }));
+    if (!posted.ok) {
+      err(`rightkit-dispatch: GitHub did not confirm the ${WORKFLOWS[opts.workflow]} dispatch; it may still have been accepted, so the claim stays pending and nothing is re-sent`);
+      return 3;
+    }
+    err(`rightkit-dispatch: pending, dispatched but no ${WORKFLOWS[opts.workflow]} run for ${opts.sha.slice(0, 12)} named ${requestId} is visible after ${DISCOVERY_MS / 1000}s${found.complete ? "" : " (the run listing is unavailable or incomplete)"}; the claim stays pending and nothing is re-sent`);
     return 2;
   }
-  const run = matches[0];
-  out(JSON.stringify({ repo: REPO, workflow: WORKFLOWS[opts.workflow], sha: opts.sha, unit: opts.unit ?? null, registry: opts.registry ?? null, allowsets: opts.allow, requestId, runId: run.id, runAttempt: run.run_attempt, runUrl: run.html_url ?? null, dispatchedAt: new Date(now()).toISOString() }));
+  const run = found.runs[0];
+  if (!claim.record(run)) err(`rightkit-dispatch: the run ${run.id} could not be written onto the claim; the claim stays at its send intent and a retry finds the run by this request's token`);
+  out(record({ requestId, runId: run.id, runAttempt: run.run_attempt, runUrl: run.html_url ?? null, dispatchedAt: new Date(now()).toISOString() }));
   return 0;
 }
 

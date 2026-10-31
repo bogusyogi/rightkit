@@ -6,8 +6,19 @@
 //
 // The door (build-launch.mjs) sets RUSTRIGHT_ADAPTER_ENV for a step from the env the step itself declares (`adapterEnvLaunch`); the carrier
 // (snapshot-broker.mjs carryBrokerAdapter) reads back what the client will forward (`forwardedAdapterEnv`), with the client's own refusals.
+import path from "node:path";
+
 export const ADAPTER_ENV_VAR = "RUSTRIGHT_ADAPTER_ENV";
-const LEGACY_ADAPTER_ENV_VAR = "RIGHTKIT_ADAPTER_ENV";
+
+/**
+ * RA-08: the path of the transient Android signing-properties file (android-release.mjs ANDROID_SIGNING_PROPERTIES_ENV). It is a typed FILE handoff of the provisioned signer session (native-adapters.mjs
+ * `signingFileProblem`, `nativeSigningFileRefusal`), never an adapter request environment: no adapter registers it (it is `RIGHTKIT_`-prefixed, so reserved), the door refuses a step that declares it, the
+ * carrier's client never receives it, and `RUSTRIGHT_ADAPTER_ENV` never names it. Only the path exists in the environment of a direct host's own Gradle; the file holds the secrets.
+ */
+export const SIGNING_FILE_ENV = "RIGHTKIT_ANDROID_SIGNING_PROPERTIES";
+export const ADAPTER_ENV_SIGNING_FILE = "RK_ADAPTER_ENV_SIGNING_FILE";
+/** Whether `key` names the signing-properties file handoff (case-insensitive, as RustRight compares). */
+export const isSigningFileEnvKey = (key) => String(key).toUpperCase() === SIGNING_FILE_ENV;
 
 export const ADAPTER_ENV_RESERVED = "RK_ADAPTER_ENV_RESERVED";
 export const ADAPTER_ENV_UNSET = "RK_ADAPTER_ENV_UNSET";
@@ -23,10 +34,74 @@ const RESERVED_EXACT = new Set([
 ]);
 const RESERVED_PREFIXES = ["RUSTRIGHT_", "RIGHTKIT_", "LD_", "DYLD_", "CARGO", "RUST", "SCCACHE", "COR_", "CORECLR_", "DOTNET_HOST"];
 
-/** Whether the broker refuses `key` in a request environment (adapter.rs is_reserved_env_key, case-insensitive). */
+/**
+ * GB-06 (BROKER-CONTRACT section 16): signing material never rides an adapter request. RustRight reserves `TAURI_SIGNING_*` (the empty value that suppresses signing included), the legacy
+ * `TAURI_PRIVATE_KEY` and `TAURI_KEY_PASSWORD` (adapter.rs RESERVED_ENV_PREFIXES): they cannot be registered under an adapter's `env` and a request that names one is refused
+ * (RK_ADAPTER_ENV_DENIED). Signing, the updater seal and their read-back stay in the provisioned signer session, so a carried Tauri build runs unsigned and RightKit seals outside the broker.
+ * `TAURI_DEBUG` and the other Tauri variables are not signing material.
+ */
+export const SIGNING_ENV_PREFIXES = Object.freeze(["TAURI_SIGNING_", "TAURI_PRIVATE_KEY", "TAURI_KEY_PASSWORD"]);
+export const ADAPTER_ENV_SIGNING = "RK_ADAPTER_ENV_SIGNING";
+/** Whether `key` is signing material (case-insensitive, as RustRight compares). */
+export const isSigningEnvKey = (key) => { const upper = String(key).toUpperCase(); return SIGNING_ENV_PREFIXES.some((prefix) => upper.startsWith(prefix)); };
+/** `env` without any signing variable: what a carried call's client process receives (the client forwards only what RUSTRIGHT_ADAPTER_ENV names, but it never needs these to exist). */
+export function withoutSigningEnv(env) {
+  const out = { ...env };
+  for (const key of Object.keys(out)) if (isSigningEnvKey(key) || isSigningFileEnvKey(key)) delete out[key];
+  return out;
+}
+
+/**
+ * The signed-artifact handoff (GB-05; adapter.rs QA_HANDOFF_ENV): the sign step's two outputs reach a consumer under exactly these two names. They are
+ * not secrets and not broker-owned, so the broker exempts exactly these two from the reserved RIGHTKIT_ prefix; they must be registered in the adapter's
+ * `env` and carry an absolute path with no `..`.
+ */
+export const QA_HANDOFF_ENV = Object.freeze(["RIGHTKIT_QA_APP_BINARY", "RIGHTKIT_QA_SIGNING_EVIDENCE"]);
+export const isQaHandoffKey = (key) => QA_HANDOFF_ENV.includes(String(key).toUpperCase());
+export const ADAPTER_ENV_UNREGISTERED = "RK_ADAPTER_ENV_UNREGISTERED";
+export const ADAPTER_ENV_HANDOFF_PATH = "RK_ADAPTER_ENV_HANDOFF_PATH";
+
+/** Whether the broker refuses `key` in a request environment (adapter.rs is_reserved_env_key, case-insensitive; the QA handoff names are exempt). */
 export function isReservedAdapterEnvKey(key) {
   const upper = String(key).toUpperCase();
-  return upper === "" || upper.includes("=") || RESERVED_EXACT.has(upper) || RESERVED_PREFIXES.some((prefix) => upper.startsWith(prefix));
+  if (isQaHandoffKey(upper)) return false;
+  return upper === "" || upper.includes("=") || RESERVED_EXACT.has(upper) || RESERVED_PREFIXES.some((prefix) => upper.startsWith(prefix)) || isSigningEnvKey(upper);
+}
+
+/**
+ * The candidate registration manifest of the request-environment keys, per adapter (GB-04): the inventory of every non-reserved key the gate's planners
+ * send, by step. Each adapter's registration must list exactly these in its `env`; the installed registration must equal this manifest, and a key outside
+ * it refuses at planning, before any process. `pnpm` is the reference registration RustRight published (docs/contracts/adapter-argv.fixtures.json
+ * `adapter.env`); `node` takes the same keys (a step script reads the test knob and the signed handoff); `swift` takes none (the gate sends no environment
+ * to a SwiftPM job).
+ *   RK_ISOLATED_CHECKOUT   test knob of a broker-admitted test row (right-suite-contract.test.mjs, release-exports.test.mjs): "1" runs it from an isolated checkout
+ *   RIGHTKIT_QA_APP_BINARY / RIGHTKIT_QA_SIGNING_EVIDENCE   the signed-artifact handoff (GB-05), set by the sign step only
+ */
+export const ADAPTER_ENV_MANIFEST = Object.freeze({
+  "rightkit-pnpm": Object.freeze(["RK_ISOLATED_CHECKOUT", ...QA_HANDOFF_ENV]),
+  "rightkit-node": Object.freeze(["RK_ISOLATED_CHECKOUT", ...QA_HANDOFF_ENV]),
+  "rightkit-swift": Object.freeze([]),
+  // GB-51: the native-tool adapters take no request environment (a step's own environment is refused before launch, naming the key).
+  "rightkit-xcodegen": Object.freeze([]), "rightkit-xcodebuild": Object.freeze([]), "rightkit-gradle": Object.freeze([]), "rightkit-cmake": Object.freeze([]),
+});
+
+/**
+ * Why the broker would refuse this request environment for an adapter whose registration lists `registered` (adapter.rs `check_environment`), or null: a
+ * reserved key (broker-controlled, loader or interpreter path), a signed-artifact handoff key whose value is not an absolute path with no `..`, and any key the
+ * registration does not list. One refusal names every unregistered key and the registered set; nothing is dropped silently.
+ */
+export function adapterEnvRefusal(env, registered) {
+  const keys = Object.keys(env ?? {});
+  const reserved = keys.find((key) => isReservedAdapterEnvKey(key));
+  if (reserved !== undefined) return { code: ADAPTER_ENV_RESERVED, message: `environment key ${JSON.stringify(reserved)} is broker-controlled or redirects code loading, so no adapter request may carry it (reserved: RUSTRIGHT_*, RIGHTKIT_* except the two signed-artifact handoff names, CARGO*, RUST*, PATH, loader and interpreter-path variables)` };
+  const listed = new Set((registered ?? []).map(String));
+  for (const key of keys) {
+    const value = String(env[key]);
+    if (isQaHandoffKey(key) && listed.has(key) && !(isAbsolutePath(value) && !value.split(/[\\/]/).includes(".."))) return { code: ADAPTER_ENV_HANDOFF_PATH, message: `environment key ${JSON.stringify(key)} must be an absolute path with no '..' (the signed artifact's exact path)` };
+  }
+  const unregistered = keys.filter((key) => !listed.has(key));
+  if (unregistered.length === 0) return null;
+  return { code: ADAPTER_ENV_UNREGISTERED, message: `environment key(s) ${unregistered.map((k) => JSON.stringify(k)).join(", ")} are not registered for this adapter (registered: ${[...listed].sort().join(", ") || "none"}); register the key in the adapter's \`env\` (the candidate manifest is ADAPTER_ENV_MANIFEST) or remove it from the step; nothing is dropped to make the call pass` };
 }
 
 function fail(code, message) {
@@ -35,6 +110,7 @@ function fail(code, message) {
   throw error;
 }
 
+const isAbsolutePath = (value) => path.isAbsolute(value) || path.posix.isAbsolute(value) || path.win32.isAbsolute(value);
 const validName = (name) => typeof name === "string" && name !== "" && !/[,=\0\s]/.test(name);
 const validValue = (value) => typeof value === "string" && !value.includes("\0");
 
@@ -43,17 +119,31 @@ const validValue = (value) => typeof value === "string" && !value.includes("\0")
  * all), else RUSTRIGHT_ADAPTER_ENV naming exactly the step's variables, plus those variables with their values. A reserved name, a name that
  * cannot ride a comma list, a declared name with no value, or a value that is not a string is refused with a coded error.
  */
-export function adapterEnvLaunch(stepEnv) {
-  const names = Object.keys(stepEnv ?? {}).sort();
-  if (names.length === 0) return {};
+export function adapterEnvLaunch(stepEnv, { registered = null } = {}) {
+  // GB-06: signing material is never forwarded. A signing variable the step declares with a value is material and refuses the step at planning (the name, never the value, is reported); one the
+  // recipe sets EMPTY only suppresses signing in a direct session, carries nothing, and is not forwarded (the carried build runs unsigned; the seal is made outside the broker).
+  const declared = Object.keys(stepEnv ?? {});
+  const handoff = declared.find((name) => isSigningFileEnvKey(name));
+  if (handoff !== undefined) fail(ADAPTER_ENV_SIGNING_FILE, `step env ${JSON.stringify(handoff)} is the signing-properties file handoff: its path travels only as the typed signing-file handoff of a native job (native-adapters.mjs nativeSigningFileRefusal), never as an adapter request environment, and no adapter registers it`);
+  const material = declared.filter((name) => isSigningEnvKey(name) && String(stepEnv[name] ?? "") !== "");
+  if (material.length) fail(ADAPTER_ENV_SIGNING, `step env ${material.map((n) => JSON.stringify(n)).join(", ")} is signing material: it never rides an adapter request (RustRight reserves TAURI_SIGNING_*, TAURI_PRIVATE_KEY and TAURI_KEY_PASSWORD, RK_ADAPTER_ENV_DENIED); signing and the updater seal stay in the provisioned signer session, and a carried Tauri build runs unsigned`);
+  const droppedSigning = declared.filter((name) => isSigningEnvKey(name)).sort();
+  const names = declared.filter((name) => !isSigningEnvKey(name)).sort();
+  const launch = (value) => { if (droppedSigning.length) Object.defineProperty(value, "signingEnvDropped", { value: droppedSigning, enumerable: false }); return value; };
+  if (names.length === 0) return launch({});
   for (const name of names) {
-    if (isReservedAdapterEnvKey(name)) fail(ADAPTER_ENV_RESERVED, `step env ${JSON.stringify(name)} is broker-controlled or redirects code loading, so no adapter request may carry it (reserved: RUSTRIGHT_*, RIGHTKIT_*, CARGO*, RUST*, loader and interpreter-path variables)`);
+    if (isReservedAdapterEnvKey(name)) fail(ADAPTER_ENV_RESERVED, `step env ${JSON.stringify(name)} is broker-controlled or redirects code loading, so no adapter request may carry it (reserved: RUSTRIGHT_*, RIGHTKIT_* except the two signed-artifact handoff names, CARGO*, RUST*, loader and interpreter-path variables)`);
     if (!validName(name)) fail(ADAPTER_ENV_INVALID, `step env name ${JSON.stringify(name)} cannot be forwarded to an adapter`);
     const value = stepEnv[name];
     if (value === undefined || value === null) fail(ADAPTER_ENV_UNSET, `step env ${name} is declared but has no value`);
     if (!validValue(String(value))) fail(ADAPTER_ENV_INVALID, `step env ${name} has a value that cannot be forwarded`);
   }
-  return { [ADAPTER_ENV_VAR]: names.join(","), ...Object.fromEntries(names.map((name) => [name, String(stepEnv[name])])) };
+  // GB-04: judged against the adapter's registration (its `env`) before anything is launched; one refusal names every unregistered key.
+  if (registered !== null) {
+    const refusal = adapterEnvRefusal(Object.fromEntries(names.map((name) => [name, String(stepEnv[name])])), registered);
+    if (refusal) fail(refusal.code, refusal.message);
+  }
+  return launch({ [ADAPTER_ENV_VAR]: names.join(","), ...Object.fromEntries(names.map((name) => [name, String(stepEnv[name])])) });
 }
 
 /**
@@ -61,9 +151,11 @@ export function adapterEnvLaunch(stepEnv) {
  * from `env`. A reserved name, or a named variable that is not set, is refused (the client refuses the same two ways).
  */
 export function forwardedAdapterEnv(env) {
-  const raw = env?.[ADAPTER_ENV_VAR] ?? env?.[LEGACY_ADAPTER_ENV_VAR] ?? "";
+  const raw = env?.[ADAPTER_ENV_VAR] ?? "";
   const forwarded = {};
   for (const name of String(raw).split(",").map((part) => part.trim()).filter(Boolean)) {
+    if (isSigningFileEnvKey(name)) fail(ADAPTER_ENV_SIGNING_FILE, `${ADAPTER_ENV_VAR} names ${name}, the signing-properties file handoff: its path is never forwarded as an adapter request environment`);
+    if (isSigningEnvKey(name)) fail(ADAPTER_ENV_SIGNING, `${ADAPTER_ENV_VAR} names ${name}, which is signing material and is never forwarded to an adapter (signing stays in the provisioned signer session)`);
     if (isReservedAdapterEnvKey(name)) fail(ADAPTER_ENV_RESERVED, `${ADAPTER_ENV_VAR} names ${name}, which is broker-controlled and cannot be forwarded to an adapter`);
     const value = env[name];
     if (value === undefined) fail(ADAPTER_ENV_UNSET, `${ADAPTER_ENV_VAR} names ${name}, which is not set`);

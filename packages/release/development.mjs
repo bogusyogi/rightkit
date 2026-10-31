@@ -2,8 +2,8 @@ import { discoverBrokerSocket, resolveManagedRoots } from './managed-roots.mjs';
 import { spawnSync } from "./background-process.mjs";
 import { createHash } from "node:crypto";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, lstatSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
-import { buildLaunch } from "./build-launch.mjs";
-import { carriedOutputDir } from "./carried-cargo.mjs";
+import { buildLaunch, createNativeRunner } from "./build-launch.mjs";
+import { carriedOutputDir, carriedOutputDirsSince } from "./carried-cargo.mjs";
 import { lockedTauriArgs } from "./tauri-locked.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +24,7 @@ import { signWindowsFiles, verifyWindowsFiles } from "./sign-windows.mjs";
 import { assertSuiteSigningPolicy } from "./suite-signing-policy.mjs";
 import { fsListRustFiles } from "./signing-files.mjs";
 import { ASSEMBLED_APP_KIND, installAssembledMac, installAssembledWindows, resolveAssembledInstall } from "./install-assembled-app.mjs";
-import { assertIosDevelopmentSession, installIosDevelopment, iosUiTestCommands, prepareIosDevelopment, prepareIosUiTests, validateIosDevelopment } from "./ios-dev.mjs";
+import { assertIosDevelopmentSession, installIosDevelopment, iosDevelopmentApp, iosUiTestCommands, prepareIosDevelopment, prepareIosUiTests, runIosDevelopmentCommands, validateIosDevelopment } from "./ios-dev.mjs";
 import { packLinuxArtifacts, validateLinuxArchive } from "./linux-artifacts.mjs";
 import { buildAndEmbedNativeHelpers, nativeHelpersFromConfig } from "./native-helpers.mjs";
 import { androidDevelopmentNdkCommand, androidDevelopmentSerial, installAndroidDevelopment, validateAndroidDevelopment } from "./android-dev.mjs";
@@ -54,9 +54,12 @@ export function developmentEnvironment(env = process.env, platform = process.pla
   delete result.CARGO_INCREMENTAL;
   // A dev build is debug-signed: a release signing-properties path never reaches it.
   delete result.RIGHTKIT_ANDROID_SIGNING_PROPERTIES;
-  const client = managedRuntimeClient(result);
+  // A direct (Linux) host never gets the managed agent-bin on PATH or a discovered socket, even when it DECLARES a broker route: managedRuntimeClient then returns the declared,
+  // pinned client, but the agent-bin directory and socket here come from environment-derived managed roots that nothing validated. Whatever the build needs from the broker
+  // goes through the executor's validated client (buildLaunch / createNativeRunner), never a PATH lookup, and a second endpoint variable would make the declared route ambiguous.
+  const client = directPlatform(platform) ? undefined : managedRuntimeClient(result, platform);
   if (client) {
-    const { agentBin } = resolveManagedRoots({ env: result });
+    const { agentBin } = resolveManagedRoots({ env: result, platform });
     if (agentBin && existsSync(agentBin)) {
       const pathKey = Object.keys(result).find((key) => key.toLowerCase() === "path") ?? "PATH";
       result[pathKey] = [agentBin, result[pathKey]].filter(Boolean).join(path.delimiter);
@@ -111,12 +114,14 @@ export function validateDevelopmentConfig(config, platform, { root = process.cwd
 }
 
 export function runDevelopment({ root, platform, config, buildOnly = false, dryRun = false, env = process.env, run = spawnSync, door = buildLaunch,
-  codesignEnvironment = macosCodesignEnvironment, serial, uiTests = false, hostPlatform = process.platform }) {
+  codesignEnvironment = macosCodesignEnvironment, serial, uiTests = false, hostPlatform = process.platform, nativeHost = process.platform }) {
   // UI test journeys (`right-release test --platform ios`): the declared XCUITest journeys on the dev device, under the same guards.
   if (uiTests && platform !== "ios") throw new Error("UI test journeys run for --platform ios only");
   if (!new Set(["win", "mac", "linux", "android", "ios"]).has(platform)) throw new Error("--platform must be win, mac, linux, android or ios");
   // iOS: --dry-run validates the config and prints the plan on any host; everything else needs macOS with Xcode.
-  if (!(platform === "ios" && dryRun)) assertNativeDevelopmentHost(platform);
+  // `nativeHost` is the kernel the build runs on (assertNativeDevelopmentHost), `hostPlatform` the host the suite signing policy judges: the same on a real host, apart only in a fixture that
+  // runs the Mac or Windows build mechanics on another kernel under a host the signing policy exempts.
+  if (!(platform === "ios" && dryRun)) assertNativeDevelopmentHost(platform, nativeHost);
   const target = validateDevelopmentConfig(config, platform, { root });
   // One signing policy, enforced here whatever the config's format (the route probe reads JSON configs only; a legacy .mjs config is judged now): a dev
   // target that would build ad hoc, unsigned or under another identifier is refused before it builds (rightkit#1303). Mac and Dell only.
@@ -128,7 +133,7 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
   assertPrimaryReleaseCheckout(repoRoot, env);
   if (dryRun && uiTests) {
     if (!target.uiTests) throw new Error("development.targets.ios.uiTests is not declared: list the journeys in uiTests.onlyTesting");
-    return { built: false, installed: false, plan: { tests: iosUiTestCommands(target, { root, storage: { derivedData: "<rustright storage xcode-args -derivedDataPath>" }, destinationId: "<device or simulator id>", resultBundle: "<fresh .xcresult per run>" }) } };
+    return { built: false, installed: false, plan: { tests: iosUiTestCommands(target, { root, destinationId: "<device or simulator id>" }) } };
   }
   if (dryRun) return { built: false, installed: false, plan: { ...(target.ndk ? { ndk: androidDevelopmentNdkCommand(target.ndk) } : {}), build: target.build, install: buildOnly ? null : target.install ?? null, profile: DEVELOPMENT_PROFILE } };
   assertReleaseExecutionAllowed({ cwd: repoRoot, environment: env, command: `right-release dev --platform ${platform}` });
@@ -151,15 +156,25 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
     const startedMs = Date.now();
     // Android: cargo-ndk (Cargo dev profile) fills the generated jniLibs, then the Gradle debug build packages it.
     if (target.ndk) { rmSync(target.ndk.jniLibs, { recursive: true, force: true }); execute(androidDevelopmentNdkCommand(target.ndk), { root, env: childEnv, dryRun, run, door, label: "native build" }); }
+    // RA-09: the iOS compile steps (xcodegen, xcodebuild build / build-for-testing / test-without-building) are broker adapter jobs of the production native runner, planned together before the first
+    // launch; there is no execute() of this file's own for them. The app's own non-native `prepare` commands are the only direct steps and keep going through the door. The built app and the
+    // result bundle are read back from the verified receipt's managed output roles.
+    const iosNative = (commands) => runIosDevelopmentCommands(commands, {
+      native: createNativeRunner({ cwd: root, env: childEnv }), root, env: childEnv,
+      direct: (command) => { execute(command, { root, env: childEnv, dryRun, run, door, label: "prepare" }); return { status: 0 }; },
+    });
     if (uiTests) {
-      for (const command of iosPrepared.tests) execute(command, { root, env: childEnv, dryRun, run, door, label: "ui tests" });
-      console.log(`right-release test: ios journeys passed (${target.uiTests.onlyTesting.join(", ")}); result bundle ${iosPrepared.resultBundle}`);
-      return { built: true, installed: false, tested: true, resultBundle: iosPrepared.resultBundle };
+      const tested = iosNative(iosPrepared.tests);
+      console.log(`right-release test: ios journeys passed (${target.uiTests.onlyTesting.join(", ")}); result bundle ${tested.resultBundle ?? "(not reported)"}`);
+      return { built: true, installed: false, tested: true, resultBundle: tested.resultBundle };
     }
-    for (const command of iosPrepared ? iosPrepared.build : target.build) execute(command, { root, env: childEnv, dryRun, run, door, label: "build" });
+    let built = null;
+    if (iosPrepared) built = iosNative(iosPrepared.build);
+    else for (const command of target.build) execute(command, { root, env: childEnv, dryRun, run, door, label: "build" });
+    if (iosPrepared?.install && !dryRun) iosPrepared.install.app = iosDevelopmentApp(target, built.outputs);
     // Dev and QA binaries run from one stable staged path, copied in place (no backup of the old copy), never from the
     // broker's per-generation target folder or a hashed dev-targets folder.
-    const staged = target.stage?.length ? stageDevelopmentBinaries(target.stage, { root, platform: platform === "win" ? "win32" : process.platform }) : [];
+    const staged = target.stage?.length ? stageDevelopmentBinaries(target.stage, { root, platform: platform === "win" ? "win32" : process.platform, managedOutputDirs: carriedOutputDirsSince(childEnv) }) : [];
     for (const file of staged) console.log(`right-release dev: staged ${file}`);
     // Linux: the declared files become one tarball per architecture plus the digest manifest a guest link pins (rightkit#1230).
     // Only from a clean checkout: an artifact others install must name the exact commit it was built from.
@@ -340,11 +355,36 @@ export function resolveTauriArtifact(descriptor, { root, platform, env = process
   return resolveTauriBundleDirectory(descriptor, { root, platform, env, runCargo }).installer;
 }
 
+/**
+ * GB-60 (GATE output pinning; E16/E19): a build whose compile is receipt-managed (a broker host's carried build) writes its outputs under the broker's
+ * output directory a signed receipt named, never under the source tree or the snapshot. A configured path that reads "target/..." (relative to the Cargo
+ * workspace) is therefore migrated EXPLICITLY onto that directory; a source-relative output path that is not under a `target` directory cannot hold what that
+ * build wrote and is refused with a typed error. It is never silently ignored, never resolved to a stale same-name file in the snapshot, and never
+ * replaced by a scan for the newest match. `declared` is the configured path relative to `root`; `manifestDir` the Cargo manifest's directory relative to it.
+ */
+export function receiptRelativeOutputPath({ declared, root, manifestDir = ".", managedOutputDir, label }) {
+  const relative = path.relative(path.resolve(root), path.resolve(root, declared)).split(path.sep).join("/");
+  const segments = relative.split("/").filter(Boolean);
+  const manifestParts = String(manifestDir).split(/[\\/]/).filter((part) => part && part !== ".");
+  const at = segments.findIndex((segment, index) => segment === "target" && segments.slice(0, index).every((part, i) => part === manifestParts[i]));
+  if (at < 0) {
+    const error = new Error(`${label} ${JSON.stringify(declared)} is a source-relative path, but this build is receipt-managed: its outputs are under ${managedOutputDir}, not the source tree or the snapshot. Declare it relative to the Cargo target directory (target/<triple>/debug/bundle/...), or omit it so the receipt's directory is used`);
+    error.code = "DEV_OUTPUT_SOURCE_RELATIVE";
+    throw error;
+  }
+  return path.join(managedOutputDir, ...segments.slice(at + 1));
+}
+
 export function resolveTauriBundleDirectory(descriptor, { root, platform, env = process.env, runCargo = runCargoSync, sinceMs = null }) {
-  const bundleRoot = descriptor.bundleDirectory
-    ? path.resolve(root, descriptor.bundleDirectory)
-    : resolveBundleRoot(descriptor, { root, env, runCargo });
-  if (descriptor.bundleDirectory && !inside(root, bundleRoot)) throw new Error("Tauri bundleDirectory must stay inside app root");
+  let bundleRoot;
+  if (descriptor.bundleDirectory) {
+    const declared = path.resolve(root, descriptor.bundleDirectory);
+    if (!inside(root, declared)) throw new Error("Tauri bundleDirectory must stay inside app root");
+    const managed = descriptor.manifestPath ? carriedOutputDir(env, path.resolve(root, descriptor.manifestPath), { preferNested: true }) : null;
+    bundleRoot = managed
+      ? receiptRelativeOutputPath({ declared: descriptor.bundleDirectory, root, manifestDir: path.dirname(descriptor.manifestPath), managedOutputDir: managed, label: "Tauri bundleDirectory" })
+      : declared;
+  } else bundleRoot = resolveBundleRoot(descriptor, { root, env, runCargo });
   const entries = readdirSync(bundleRoot, { withFileTypes: true });
   const candidates = platform === "mac"
     ? entries.filter((entry) => entry.isDirectory() && entry.name === `${descriptor.productName}.app`).map((entry) => path.join(bundleRoot, entry.name))

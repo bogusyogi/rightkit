@@ -15,7 +15,7 @@ import test from "node:test";
 import { createHash } from "node:crypto";
 import { spawnSync } from "./background-process.mjs";
 import { main, snapshotAppRootOf } from "./bin/rightkit-gate.mjs";
-import { STAGE_SOURCES, STAGES, stageSourceGaps, stageSourceProblems } from "./gate-stages.mjs";
+import { STAGE_SOURCES, STAGES, stageReadiness, stageSourceGaps, stageSourceProblems } from "./gate-stages.mjs";
 import { SourceSplitError, doorContextFor, readSourceSplit } from "./source-split.mjs";
 import { stageSidecars } from "./stage-sidecar.mjs";
 import { runCarriedAdapter } from "./carried-cargo.mjs";
@@ -72,8 +72,21 @@ test("[7.06] every stage the gate dispatches has a row in STAGE_SOURCES, and non
   // Row 7.06a closed the unit-stage gap: no stage compiles or packages from the checkout any more, and a new one fails here.
   assert.deepEqual(stageSourceGaps(), [], "a new stage that compiles from the checkout fails here");
   for (const stage of ["compile", "dev", "test", "package", "qualify", "unit:check", "unit:compile", "unit:package", "unit:qualify"]) assert.equal(STAGE_SOURCES[stage].source, "snapshot", `${stage} reads the commit's snapshot`);
-  assert.equal(STAGE_SOURCES.qualify.wired, false, "qualify's source reads go through the split, which waits for the identity module (7.04)");
-  assert.equal(STAGE_SOURCES.package.wired, false, "package's snapshot route is refused today, and the table says so (row 7.04 blocker)");
+  // GB-86: implementation support and host acceptance are separate facts; the old `wired: false` conflated them and described a refusal that no code applies.
+  for (const stage of ["package", "qualify"]) {
+    assert.equal(STAGE_SOURCES[stage].implemented, true, `${stage}: the executable route exists and runs (door-package.test.mjs runs it)`);
+    assert.equal(STAGE_SOURCES[stage].witnessed, false, `${stage}: host acceptance is pending, and the table says so`);
+    assert.match(STAGE_SOURCES[stage].pending, /.{40}/, `${stage}: it names what is pending`);
+    assert.equal(Object.hasOwn(STAGE_SOURCES[stage], "wired"), false, "the ambiguous flag is gone");
+    assert.equal(stageReadiness(stage).appFacingReady, false, `${stage}: unproved host acceptance is never presented as ready for apps`);
+  }
+  for (const [stage, row] of Object.entries(STAGE_SOURCES)) {
+    assert.equal(Object.hasOwn(row, "interim"), false, `${stage}: no stale checkout-route text (the checkout route is deleted, rightkit#1301)`);
+    assert.equal(Object.hasOwn(row, "blocker"), false, `${stage}: pending host acceptance is \`pending\`, not a blocker the code never applies`);
+  }
+  for (const stage of ["check", "compile", "dev", "test", "unit:check", "unit:compile", "unit:package", "unit:qualify"]) assert.deepEqual(stageReadiness(stage), { stage, implemented: true, witnessed: true, pending: null, appFacingReady: true }, stage);
+  assert.equal(stageReadiness("nope"), null);
+  assert.equal(stageReadiness("x", { x: { compiles: true, source: "snapshot", implemented: false } }).implemented, false, "an unimplemented route is reported as such");
 });
 
 test("[7.06] negative: a stage stub that compiles from the checkout, or packages with no basis, fails the table check", () => {
@@ -103,14 +116,14 @@ test("[7.06] behavior: each stage that reads a snapshot reads the selected commi
     assert.equal(r.code, 0, r.all);
   }
   // package: right-release (source QA, then the build) starts with its cwd in the snapshot (row 7.04).
-  r = await fx.door(["--to", "package", "--platform", "mac", "--commit", fx.sha], { runCheck: async () => 0, runCompile: async () => 0, sealedFor: () => ({ id: "x-1.0.0-00000000", manifest: "m", digest: "d".repeat(64) }), spawnInherit: (c, a, opts) => { note("package", opts.cwd); return { status: 0 }; } });
+  r = await fx.door(["--to", "package", "--platform", "mac", "--commit", fx.sha], { platform: "darwin", runCheck: async () => 0, runCompile: async () => 0, sealedFor: () => ({ id: "x-1.0.0-00000000", manifest: "m", digest: "d".repeat(64) }), spawnInherit: (c, a, opts) => { note("package", opts.cwd); return { status: 0 }; } });
   assert.equal(r.code, 0, r.all);
   for (const [stage, roots] of Object.entries(observed)) {
     assert.ok(roots.length > 0, `${stage} was observed`);
     for (const root of roots) assert.ok(inside(root, fx.snaps) && !inside(root, fx.repo), `${stage} reads ${root}, which is not the snapshot under ${fx.snaps}`);
   }
   assert.deepEqual(Object.keys(observed).sort(), ["check", "compile", "dev", "package", "test"]);
-  for (const [stage, row] of Object.entries(STAGE_SOURCES)) if (row.source === "snapshot" && row.wired !== false && !stage.startsWith("unit:")) assert.ok(observed[stage], `${stage} is declared a snapshot stage and was observed on the snapshot`);
+  for (const [stage, row] of Object.entries(STAGE_SOURCES)) if (row.source === "snapshot" && row.witnessed !== false && !stage.startsWith("unit:")) assert.ok(observed[stage], `${stage} is declared a snapshot stage and was observed on the snapshot`);
 });
 
 // ---- 7.03: --to dev and --to test build a commit ----------------------------------------------------------------------------------
@@ -227,7 +240,7 @@ test("[7.02] with the carrier wired a broker host takes the snapshot route: righ
   const envs = [];
   const launch = (c, a, opts) => { envs.push({ a: a.slice(1), env: opts.env, cwd: opts.cwd }); return { status: 0, stdout: JSON.stringify({ files: [], receiptPath: null }), stderr: "" }; };
   for (const to of ["dev", "test"]) {
-    const r = await door(["--to", to, "--commit", fx.sha], { ...carried, spawnInherit: launch });
+    const r = await door(["--to", to, "--commit", fx.sha], { ...carried, spawnInherit: launch, spawnCapture: launch });
     assert.equal(r.code, 0, `${to}: ${r.all}`);
     assert.match(r.out, /snapshot .* is commit/);
     assert.equal(envs.at(-1).env.RIGHTKIT_CARRIED_CARGO_MAP, MAP, `${to}: the child carries the stage's map`);
@@ -244,14 +257,14 @@ test("[7.02] with the carrier wired a broker host takes the snapshot route: righ
   assert.equal(envs.length, before + 1); assert.equal(envs.at(-1).a[0], "stage-sidecar"); assert.equal(envs.at(-1).env.RIGHTKIT_CARRIED_CARGO_MAP, MAP);
   // A refused, unverified or unfinished call in the ledger fails the stage even though the child exited 0.
   problems = ["cargo build --manifest-path x (from /s) was refused (RK_CARGO_REDIRECT)"];
-  r = await door(["--to", "dev", "--commit", fx.sha], { ...carried, spawnInherit: launch });
+  r = await door(["--to", "dev", "--commit", fx.sha], { ...carried, spawnInherit: launch, spawnCapture: launch });
   assert.equal(r.code, 1, r.all); assert.match(r.err, /RK_CHECK_ERROR: \[dev\] a broker call the right-release child made did not complete: cargo build .*RK_CARGO_REDIRECT/);
   r = await door(["--to", "compile", "--commit", fx.sha], { ...carried, spawnCapture: launch });
   assert.equal(r.code, 1, r.all); assert.match(r.err, /RK_CHECK_ERROR: \[compile\] a broker call the right-release child made did not complete/);
   // A carrier that cannot be installed refuses the stage before the child starts.
   const launches = [];
   r = await door(["--to", "dev", "--commit", fx.sha], { ...carried, installCarrier: () => { throw new Error("disk full"); }, spawnInherit: () => { launches.push("x"); return { status: 0 }; } });
-  assert.equal(r.code, 1, r.all); assert.match(r.err, /BLOCKED: RK_CARGO_CARRIER: the stage's cargo carrier cannot be installed \(disk full\); nothing compiled/); assert.deepEqual(launches, []);
+  assert.equal(r.code, 1, r.all); assert.match(r.err, /BLOCKED: RK_CARGO_CARRIER: the stage's cargo carrier cannot be installed \(disk full\); nothing was staged/); assert.deepEqual(launches, []);
   // A broker that is unreachable is still refused; TAURI_CONFIG is still refused.
   assert.match((await door(["--to", "compile", "--commit", fx.sha], { ...carried, resolveExecutor: () => ({ kind: "refuse", problem: "the RightKit broker is not reachable" }) })).err, /BLOCKED: RK_SNAPSHOT_BROKER_UNAVAILABLE: the RightKit broker is not reachable; nothing ran and the checkout is never built/);
   assert.match((await door(["--to", "dev", "--commit", fx.sha], { ...carried, env: { ...fx.env, TAURI_CONFIG: "{}" } })).err, /BLOCKED: RK_TAURI_CONFIG_OVERRIDE/);
@@ -381,7 +394,7 @@ test("[7.05] stage-sidecar source split: caches and cmake trees go to the checko
   };
   await stageSidecars({ appRoot: snapshot, cacheRoot: checkout, manifest: [{ kind: "cargo-bin", package: "eng" }], target, deps: { run, env: {}, log: () => {}, now: () => "2026-10-29T00:00:00.000Z" } });
   const meta = calls.find((c) => c.args[1] === "metadata"); const build = calls.find((c) => c.args[1] === "build");
-  assert.equal(meta.options.cwd, checkout, "the output directory is resolved in the checkout");
+  assert.equal(meta.options.cwd, snapshot, "the output directory is resolved in the snapshot (the committed manifests), never by asking the checkout (GB-16)");
   assert.equal(build.options.cwd, snapshot, "the build reads the snapshot's sources");
   assert.equal(build.options.env.CARGO_TARGET_DIR, targetDir, "and writes to the checkout's target directory");
   assert.ok(!fs.existsSync(path.join(snapshot, "target")), "no target/ under the snapshot");
@@ -535,7 +548,10 @@ console.log("\\n" + JSON.stringify({ code, out: out.join("\\n") }));\n`);
   const snapshot = path.join(snaps, fs.readdirSync(snaps).find((n) => !n.includes(".")));
   const ran = fs.readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l));
   const resolved = ran.filter((c) => c.args[0] === "metadata");
-  assert.ok(resolved.length > 0 && resolved.every((c) => fs.realpathSync(c.cwd) === fs.realpathSync(repo)), "the output directory was resolved in the checkout");
+  // GB-16/GB-17 (GATE-CONTRACT "Commit-only build"): a direct host resolves the workspace and its `target_directory` from the SELECTED COMMIT's snapshot (its committed manifests and Cargo
+  // configuration) and maps the answer lexically to the checkout's counterpart; the live checkout's manifests are never asked, so a manifest the checkout edited, moved or deleted changes nothing.
+  assert.ok(resolved.length > 0 && resolved.every((c) => fs.realpathSync(c.cwd) === fs.realpathSync(snapshot) && fs.realpathSync(path.dirname(c.args[c.args.indexOf("--manifest-path") + 1])) === fs.realpathSync(snapshot)), `the output directory was resolved from the commit's snapshot: ${JSON.stringify(ran)}`);
+  assert.equal(ran.some((c) => fs.realpathSync(c.cwd) === fs.realpathSync(repo)), false, `no Cargo call ran in the live checkout: ${JSON.stringify(ran)}`);
   const built = ran.filter((c) => c.args[0] === "build");
   assert.equal(built.length, 1, JSON.stringify(ran));
   assert.equal(fs.realpathSync(built[0].cwd), fs.realpathSync(snapshot), "the build step ran in the snapshot's app root");
@@ -546,15 +562,28 @@ console.log("\\n" + JSON.stringify({ code, out: out.join("\\n") }));\n`);
   assert.equal(fs.readFileSync(path.join(snapshot, "src", "lib.rs"), "utf8"), "pub fn committed() {}\n", "and the snapshot holds the commit's bytes");
 });
 
-test("[7.03] --to dev|test: more than one Cargo workspace is refused (RK_SNAPSHOT_OUTPUT_UNPINNED) rather than pointed at one shared target directory", { skip: POSIX_SIM }, async (t) => {
+test("[7.03] --to dev|test: more than one Cargo workspace is bound per workspace (GB-17), never pointed at one shared target directory; one workspace is pinned", { skip: POSIX_SIM }, async (t) => {
   const fx = fixture(t, { "a/Cargo.toml": "[package]\nname=\"a\"\n", "b/Cargo.toml": "[package]\nname=\"b\"\n" }, "rk-ds-pin-");
   const spawn = (c, a, opts) => {
     if (c === "cargo" && a[0] === "metadata") { const m = a[a.indexOf("--manifest-path") + 1]; return { status: 0, stdout: JSON.stringify({ workspace_root: path.dirname(m), target_directory: path.join(path.dirname(m), "target") }), stderr: "" }; }
+    if (c === "which" && a[0] === "cargo") return { status: 0, stdout: `${process.execPath}\n`, stderr: "" }; // a real executable for the per-call wrapper to wrap; nothing runs through it here
     return c === "git" ? spawnSync(c, a, { ...opts, encoding: "utf8" }) : { status: 1, stdout: "", stderr: "" };
   };
   const launches = [];
-  let r = await fx.door(["--to", "dev", "--commit", fx.sha], { spawn, runCheck: async () => 0, spawnInherit: () => { launches.push("x"); return { status: 0 }; } });
-  assert.equal(r.code, 1, r.all); assert.match(r.err, /BLOCKED: RK_SNAPSHOT_OUTPUT_UNPINNED: the commit holds 2 Cargo workspaces \(a, b\)/); assert.deepEqual(launches, []);
+  let r = await fx.door(["--to", "dev", "--commit", fx.sha], { spawn, runCheck: async () => 0, spawnInherit: (c, a, opts) => { launches.push(opts.env); return { status: 0 }; } });
+  assert.equal(r.code, 0, r.all); assert.doesNotMatch(r.all, /RK_SNAPSHOT_OUTPUT_UNPINNED/);
+  assert.equal(launches.length, 1, "right-release started: two workspaces are no refusal");
+  assert.equal(launches[0].CARGO_TARGET_DIR === undefined || /rk-cargo-target|t-/.test(String(launches[0].CARGO_TARGET_DIR)), true, "no single shared CARGO_TARGET_DIR is imposed on both");
+  assert.match(r.all, /runtime cargo wrapper .*each cargo call a unit stage reaches binds its workspace's checkout target directory or is refused/, "the per-workspace binding is reported");
+  assert.match(launches[0].PATH.split(path.delimiter)[0], /rk-cargo-shim-[0-9a-f]+[\\/]bin$/, "the wrapper is first on the child's PATH, so every cargo call finds its own workspace's target");
+  // GB-16: the selected commit is what is bound: a workspace directory the newer checkout deleted, or a manifest it edited dirty, changes nothing (the checkout's files are never read).
+  const old = fixture(t, { "a/Cargo.toml": "[package]\nname=\"a\"\n", "b/Cargo.toml": "[package]\nname=\"b\"\n" }, "rk-ds-pin-old-");
+  fs.rmSync(path.join(old.repo, "b"), { recursive: true, force: true });
+  fs.writeFileSync(path.join(old.repo, "a", "Cargo.toml"), "THIS IS NOT A MANIFEST\n");
+  const oldLaunches = [];
+  r = await old.door(["--to", "dev", "--commit", old.sha], { spawn, runCheck: async () => 0, spawnInherit: (c, a, opts) => { oldLaunches.push(opts.env); return { status: 0 }; } });
+  assert.equal(r.code, 0, `an older commit still builds with the checkout's directory deleted and its manifest edited: ${r.all}`);
+  assert.doesNotMatch(r.all, /the checkout has no/); assert.equal(oldLaunches.length, 1);
   // One workspace is pinned; metadata that fails is refused.
   const one = fixture(t, { "a/Cargo.toml": "[package]\nname=\"a\"\n" }, "rk-ds-pin1-");
   const seen = [];

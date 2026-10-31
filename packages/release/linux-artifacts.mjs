@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import nodeFs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
+import { readSourceSplit } from "./source-split.mjs";
 
 export const LINUX_ARTIFACTS_SCHEMA = "rightkit.linux-artifacts/1";
 export const LINUX_ARCHES = Object.freeze(["x86_64", "aarch64"]);
@@ -58,10 +59,24 @@ function listFiles(fs, root, rel) {
 }
 
 /**
- * Pack `archive.include` (relative to `root`) into `<outDir>/<name>-<version>-linux-<arch>.tar.gz`, then write or merge
- * `<outDir>/linux-artifacts.json`. A manifest of another version or commit is replaced, never mixed.
+ * Where the archive and its manifest go: `<app root>/.right-release/linux`. Inside the door's source split (docs/GATE-CONTRACT.md "Commit-only build") `root`
+ * is the SNAPSHOT of the commit, and `.right-release` is a reserved path segment of the stage-output ledger: a file there is never an admissible ledger
+ * entry, so the stage would end "result covers no known bytes" (exit 2) after a good build. Every output right-release owns stays with the CHECKOUT
+ * (source-split.mjs; build-release.mjs puts the vault, state and sealed there), so a split packs into the checkout's same app-relative
+ * `.right-release/linux`, which is also where an unsplit run writes it. The split is the live door run's (readSourceSplit: proven, or a refusal), never
+ * a path the caller names. `split` overrides the lookup (a caller that has already read it).
  */
-export function packLinuxArtifacts({ root, archive, app, version, commit, outDir = path.join(root, ".right-release", "linux"), run = spawnSync, fs = nodeFs, log = console.log }) {
+export function linuxArtifactsOutDir({ root, split, env = process.env, run = spawnSync }) {
+  const found = split !== undefined ? split : readSourceSplit({ env, cwd: root, run });
+  return path.join(found ? found.checkoutAppRoot : root, ".right-release", "linux");
+}
+
+/**
+ * Pack `archive.include` (relative to `root`) into `<outDir>/<name>-<version>-linux-<arch>.tar.gz`, then write or merge
+ * `<outDir>/linux-artifacts.json`. A manifest of another version or commit is replaced, never mixed. `outDir` defaults to
+ * linuxArtifactsOutDir: under `root` itself, except inside a source split, where it is the checkout's (never the snapshot's).
+ */
+export function packLinuxArtifacts({ root, archive, app, version, commit, split, env = process.env, outDir = linuxArtifactsOutDir({ root, split, env }), run = spawnSync, fs = nodeFs, log = console.log }) {
   if (!/^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$/.test(String(version ?? ""))) throw new Error(`linux artifacts: version ${JSON.stringify(version)} is not semver`);
   if (!/^[0-9a-f]{40}$/.test(String(commit ?? ""))) throw new Error("linux artifacts: commit must be the 40-hex source commit");
   const arch = linuxArch(run);

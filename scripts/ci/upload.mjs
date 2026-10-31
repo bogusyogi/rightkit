@@ -27,6 +27,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { shippedDependencyProblems } from "./registry-spec.mjs";
 
+// The two success outcomes of a publication row. packages/release/publication-outcomes.mjs is their one definition (the consumer, unit-gate.mjs,
+// reads it); the credentialed upload jobs' sparse checkouts (publish-reviewed.yml, publish-direct.yml) carry no packages/ path by contract, so this
+// file may not import it. publish.test.mjs holds these equal to that module.
+export const PUBLISHED = "published";
+export const PUBLISHED_BY_EARLIER_ATTEMPT = "published-by-earlier-attempt";
+
 export const REPOSITORY = "bogusyogi/rightkit"; // moved 2026-10-17 (#342)
 export const REQUIRED_HOSTS = ["macos", "windows"];
 export const LINUX_HOST = "linux";
@@ -791,7 +797,7 @@ export async function executeUpload({ env, packDir, receiptsDir, approvedFile, p
       }
       const earlier = receipt.earlier(unit.name);
       if (state === "same") {
-        receipt.record({ ...base, published: true, registryVerified: true, outcome: "published-by-earlier-attempt", publishedBy: "earlier-attempt", earlierAttempt: earlier?.attempt ?? null, earlierOutcome: earlier?.outcome ?? null });
+        receipt.record({ ...base, published: true, registryVerified: true, outcome: PUBLISHED_BY_EARLIER_ATTEMPT, publishedBy: "earlier-attempt", earlierAttempt: earlier?.attempt ?? null, earlierOutcome: earlier?.outcome ?? null });
         log(`${unit.name}@${unit.version} is already on ${registry} with the sealed hash: published by an earlier attempt`);
         done.add(unit.name);
       } else if (earlier?.registryVerified === true) {
@@ -824,7 +830,7 @@ export async function executeUpload({ env, packDir, receiptsDir, approvedFile, p
           published = true;
           receipt.record({ ...base, published: true, registryVerified: false, outcome: "published-unverified" });
           await waitForNpmBytes({ name: unit.name, version: unit.version, sha1: unit.sha1, integrity: unit.integrity, fetchImpl, pause });
-          receipt.record({ ...base, published: true, registryVerified: true, outcome: "published" });
+          receipt.record({ ...base, published: true, registryVerified: true, outcome: PUBLISHED });
         } catch (error) {
           receipt.record({ ...base, published, registryVerified: false, outcome: published ? "published-unverified" : "failed", error: redact(error.message).slice(0, 300) });
           throw error;
@@ -852,7 +858,7 @@ export async function executeUpload({ env, packDir, receiptsDir, approvedFile, p
         published = true;
         receipt.record({ ...base, published: true, registryVerified: false, outcome: "published-unverified", warnings: answer.warnings });
         await waitForCrateIndex({ name: unit.name, version: unit.version, cksum: unit.sha256, fetchImpl, pause: pause * 1.5 });
-        receipt.record({ ...base, published: true, registryVerified: true, outcome: "published", warnings: answer.warnings });
+        receipt.record({ ...base, published: true, registryVerified: true, outcome: PUBLISHED, warnings: answer.warnings });
       } catch (error) {
         // A network failure leaves the outcome ambiguous: the row says so, and the next attempt reconciles with the registry.
         receipt.record({ ...base, published, registryVerified: false, outcome: published ? "published-unverified" : "failed", error: redact(error.message).slice(0, 300) });

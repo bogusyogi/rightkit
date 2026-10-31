@@ -86,7 +86,7 @@ test("[7.06a] a unit stage builds the selected commit's snapshot: --workspace is
   // The class A the unit door runs is `check --commit <sha> --full-a --snapshot <dir>` (spawn-recorder form: the argv in the source).
   const src = fs.readFileSync(new URL("./bin/rightkit-gate.mjs", import.meta.url), "utf8");
   const unitBlock = src.slice(src.indexOf("async function runUnitSnapshot"), src.indexOf("export function snapshotRouteSelected"));
-  assert.match(unitBlock, /main\(\["check", "--commit", ds\.commit, "--full-a", "--snapshot", ds\.path, "--rule-tier", tier\]/);
+  assert.match(unitBlock, /main\(\["check", "--commit", ds\.commit, "--full-a", "--snapshot", ds\.path, "--scope", path\.posix\.dirname\(manifest\), "--rule-tier", tier\]/, "the unit's Class A is scoped to the unit's own closure (GB-15)");
   assert.doesNotMatch(unitBlock, /--worktree|rev-parse", "HEAD"|"status"/);
 });
 

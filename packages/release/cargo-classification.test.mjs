@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { carriedShapeDecision } from "./cargo-shapes.mjs";
 import { WRAPPER_COMMANDS } from "./cargo-target-shim.mjs";
 import { installCarrier } from "./carried-cargo.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
@@ -33,7 +34,7 @@ test("the table is the broker's classification: only BUILD capabilities compile;
   assert.equal(classifyCargo(["metadata", "--locked"]), "read-only");
   assert.equal(classifyCargo(["metadata"]), "write");
   assert.equal(classifyCargo(["package", "-p", "a", "--list", "--locked"]), "read-only", "the observation form of package compiles nothing");
-  assert.equal(classifyCargo(["+nightly", "build"]), "compile");
+  assert.equal(classifyCargo(["+nightly", "build"]), "denied", "GB-82: RustRight refuses a +toolchain of a managed request (RK_REDIRECT_REFUSED), so it is no compile there");
 });
 
 test("the table covers every subcommand the wrapper binds or passes through, and every subcommand right-release's own calls carry", () => {
@@ -62,15 +63,17 @@ function host(t, options) {
   return { fx, call: (argv) => runCargoSync(argv, { cwd: path.join(fx.snapshot, "crates", "a"), env, encoding: "utf8" }, { platform: "darwin" }) };
 }
 
-test("the fixture broker accepts a compile and refuses every other class as a snapshot request, as the real one does today", { skip: POSIX }, (t) => {
-  const h = host(t);
+test("a broker that predates read-only snapshot acceptance (readOnlySnapshots: false) accepts a compile and refuses every other class as a snapshot request", { skip: POSIX }, (t) => {
+  const h = host(t, { readOnlySnapshots: false });
   for (const row of CARGO_CLASSIFICATION) {
     const r = h.call(row.argv);
     if (row.class === "compile") assert.equal(r.status, 0, `cargo ${row.argv.join(" ")}: ${r.stderr}`);
     else {
       assert.notEqual(r.status, 0, `cargo ${row.argv.join(" ")} must be refused today`);
       assert.equal(r.outputDir, undefined, "an unverified call names no output directory");
-      assert.match(r.stderr, /RK_CARGO_BROKER_UNVERIFIED/);
+      // GB-01: a shape the broker refuses inside a snapshot is refused by the gate's command-shape table BEFORE submission (typed, nothing marked or sent);
+      // a carried read-only shape is sent, and this pre-fix fixture broker then refuses it (unverified).
+      assert.match(r.stderr, carriedShapeDecision(row.argv).ok ? /RK_CARGO_BROKER_UNVERIFIED/ : /RK_(CARGO_BROKER_READ_ONLY_SHAPE|CARGO_BROKER_CARRIED_REFUSED|UNKNOWN_COMMAND|COMMAND_DENIED|REDIRECT_REFUSED)|RR_CLEAN_REFUSED/, `cargo ${row.argv.join(" ")}`);
     }
   }
   assert.equal(h.fx.calls().length, CARGO_CLASSIFICATION.filter((r) => r.class === "compile").length, "the fixture broker took exactly the compile requests and refused the rest before submitting them");
@@ -118,4 +121,19 @@ test("a build or run is sent locked: --locked is added after the subcommand unle
   assert.deepEqual(lockedArgv(["build", "--locked"]), ["build", "--locked"]);
   assert.deepEqual(lockedArgv(["run", "--", "--locked"]), ["run", "--locked", "--", "--locked"], "after -- the flag is the program's, not Cargo's");
   for (const argv of [["metadata", "--no-deps"], ["about", "generate"], ["--version"], ["fmt", "--check"]]) assert.deepEqual(lockedArgv(argv), argv);
+});
+
+test("[GB-82] the fixture broker's admission IS the vector's grammar: every row of RustRight's cargo-shapes vector that the broker accepts as a carried snapshot request is served, every refusal launches nothing", { skip: POSIX }, async (t) => {
+  const { loadVector } = await import("./test-support/vectors.mjs");
+  const h = host(t);
+  const rows = loadVector("cargo-shapes.fixtures.json").rows.filter((r) => !r.refused);
+  for (const row of rows) {
+    const expected = !row.carriedRefusal && (row.compile || (row.carriedReadOnly && !["deny", "audit"].includes(row.command)));
+    const accepted = acceptedAfterFix(row.normalizedArgv, { checkout: h.fx.checkout });
+    assert.equal(accepted, expected, `${row.name}: the fixture's admission`);
+  }
+  // The version probes are matched as the WHOLE argv, never as a flag anywhere: `build --version`-like forms are no probe.
+  const { isVersionProbe } = await import("./cargo-shapes.mjs");
+  for (const argv of [["-V"], ["--version"], ["-vV"], ["-Vv"], ["version"], ["--version", "--verbose"], ["-V", "--verbose"], ["-v", "-V"]]) assert.equal(isVersionProbe(argv), true, argv.join(" "));
+  for (const argv of [["build", "--version"], ["--version", "build"], ["check", "-V"], ["version", "--verbose"], ["-V", "-V"], []]) assert.equal(isVersionProbe(argv), false, argv.join(" "));
 });

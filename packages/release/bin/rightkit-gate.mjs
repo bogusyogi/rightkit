@@ -68,25 +68,28 @@
 // SIGINT/SIGTERM stop scheduling, kill every running scan's process tree and exit non-zero listing the scans not run.
 import fs from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
-import { resolveManagedRoots } from "../managed-roots.mjs";
-import { spawnBrokerClient } from "../broker-client.mjs";
+import { envNamed, gateRunsRoot, resolveManagedRoots } from "../managed-roots.mjs";
+import { resolveBrokerClient, spawnBrokerClient } from "../broker-client.mjs";
 import os from "node:os";
 import path from "node:path";
 import { FOREIGN_PRE_COMMIT, retireHooksIn } from "../hook-retirement.mjs";
 import { fileURLToPath } from "node:url";
-import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
+import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanToolPolicyFromPipeline, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
 import { BROKER_EXCEPTIONS_FILE, BROKER_EXCEPTION_ERRORS, authorizeNoBroker, describeBrokerException, unitsOfSelector } from "../broker-exception.mjs";
 import { SIGNING_REFUSAL_CODES, suiteSigningRefusals } from "../suite-signing-policy.mjs";
 import { gitListRustFiles } from "../signing-files.mjs";
-import { directPlatform } from "../managed-cargo.mjs";
-import { bindingOf, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, STAGE_SOURCES, writeReceipt } from "../gate-stages.mjs";
+import { LINUX_BROKER_ROUTE, directPlatform, linuxBrokerDeclared } from "../managed-cargo.mjs";
+import { bindingOf, compileOutputsRecord, compileReuseProblem, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, STAGE_SOURCES, writeReceipt } from "../gate-stages.mjs";
 import { spawnSync as spawnInherit } from "../background-process.mjs";
 import { readDiskPolicy, scratchRoots } from "../disk-policy.mjs";
 import { buildDirectReceipt, directVerdict, resolveTargetDirectory, verifyDirectReceipt, writeDirectDiagnostics } from "../direct-receipt.mjs";
 import { createFreshnessCensus } from "../freshness-census.mjs";
 import { platformDirOf } from "../platform-dir.mjs";
+import { nativeToolRefusal, nativeToolUses } from "../native-tool-planning.mjs";
+import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, mergeCapabilityViews, parseRuntimeIdentity, queryBrokerHandshake } from "../broker-handshake.mjs";
+import net from "node:net";
 
 const ZERO = /^0+$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -101,6 +104,8 @@ export const PARTIAL_EXIT = 3;
 export const PLATFORMS = Object.freeze(["mac", "win", "ios", "android"]);
 export const MOBILE_PLATFORMS = Object.freeze(new Set(["ios", "android"]));
 const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify [--unit <selector>] --no-broker <exception-id> (Mac and Dell only; Adrian's recorded exception in .rightkit/broker-exceptions.json of the commit) | rightkit-gate --to dev|test [--commit <rev>] [-- <right-release args>] | rightkit-gate --to check|compile|package|qualify|dev|test --route [--platform mac|win|ios|android] [--commit <rev>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] | rightkit-gate install-hook | rightkit-gate env-digest | rightkit-gate snapshot [--commit <rev>] [--verify [--env <sha256>]] [--json] | rightkit-gate live-scans --repo <root> | rightkit-gate clippy [<cargo clippy args>] | rightkit-gate env-digest [--snapshot <dir> --commit <sha>] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | rightkit-gate check --commit <sha> --full-a --snapshot <dir> | --version`;
+/** The host platform (process.platform) that constructs each platform's artifact; a platform missing here (android) builds on any host. */
+const STAGE_NATIVE_HOST = Object.freeze({ mac: "darwin", ios: "darwin", win: "win32" });
 
 // ---- pure helpers (exported for tests) ----------------------------------------------------------------------
 
@@ -1062,7 +1067,9 @@ export const QUIET_LEASE_WAIT_DRAIN_MS = 2 * 60 * 1000;
  * Without `rustright` on PATH, or when the broker refuses, the lane runs without a lease and the gate says so: the tests still run,
  * their verdict is simply taken on a possibly busy host. `o.spawn` is the gate's synchronous spawner.
  */
-export function quietLeaseLane(o, { tag = "rightkit-gate:", reason = "rightkit-gate-quiet-tests", ttlMs: baseTtlMs = QUIET_LEASE_TTL_MS, waitDrainMs = QUIET_LEASE_WAIT_DRAIN_MS, pid = process.pid } = {}) {
+export function quietLeaseLane(o, { tag = "rightkit-gate:", reason = "rightkit-gate-quiet-tests", ttlMs: baseTtlMs = QUIET_LEASE_TTL_MS, waitDrainMs = QUIET_LEASE_WAIT_DRAIN_MS, pid = process.pid, executor = null } = {}) {
+  // The declared Linux broker route (managed-cargo.mjs): its validated client and endpoint, never a PATH lookup.
+  const linuxRoute = executor?.route === LINUX_BROKER_ROUTE && executor.kind === "broker" ? executor : null;
   const which = (cmd) => {
     const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]);
     return failed(r) ? null : (text(r).split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? null);
@@ -1071,6 +1078,7 @@ export function quietLeaseLane(o, { tag = "rightkit-gate:", reason = "rightkit-g
   // spawn, so its target .exe is read from the shim and started directly, without a shell.
   const clientCall = (client, args) => {
     const platform = o.platform ?? process.platform;
+    if (linuxRoute) return spawnBrokerClient(o.spawn, linuxRoute.client, args, { env: { ...o.env, ...linuxRoute.env } }, { platform, readFile: o.readFile });
     return spawnBrokerClient(o.spawn, platform === "win32" ? client : "rustright", args, {}, { platform, readFile: o.readFile });
   };
   return {
@@ -1078,10 +1086,10 @@ export function quietLeaseLane(o, { tag = "rightkit-gate:", reason = "rightkit-g
     // expire while a quiet suite still runs (each scan is killed at its timeout first).
     acquire: async (want = {}) => {
       const ttlMs = Number.isFinite(want.ttlMs) && want.ttlMs > baseTtlMs ? want.ttlMs : baseTtlMs;
-      // A direct (Linux) host never takes a broker lease, whatever is on PATH (managed-cargo directPlatform).
       if (o.brokerException) { o.out(`${tag} note: ${o.brokerException.note} (${o.brokerException.exceptionId}); quiet test scans run without a broker lease`); return null; }
-      if (directPlatform(o.platform ?? process.platform)) { o.out(`${tag} note: direct host (no broker on ${o.platform ?? process.platform}); quiet test scans run without a broker lease`); return null; }
-      const client = which("rustright");
+      // A direct (Linux) host never takes a broker lease, whatever is on PATH (managed-cargo directPlatform); a declared Linux broker route does.
+      if (directPlatform(o.platform ?? process.platform) && !linuxRoute) { o.out(`${tag} note: direct host (no broker on ${o.platform ?? process.platform}); quiet test scans run without a broker lease`); return null; }
+      const client = linuxRoute ? linuxRoute.client : which("rustright");
       if (!client) { o.out(`${tag} note: no rustright on PATH; quiet test scans run without a broker lease`); return null; }
       const started = Date.now();
       const r = clientCall(client, ["quiet", "acquire", "--ttl-ms", String(ttlMs), "--reason", reason, "--wait-drain-ms", String(waitDrainMs), "--holder-pid", String(pid), "--json"]);
@@ -1094,7 +1102,7 @@ export function quietLeaseLane(o, { tag = "rightkit-gate:", reason = "rightkit-g
       return { id, env: { RUSTRIGHT_QUIET_LEASE: id }, at: Date.now() };
     },
     release: async (id) => {
-      const r = clientCall(which("rustright") ?? "rustright", ["quiet", "release", String(id)]);
+      const r = clientCall(linuxRoute ? linuxRoute.client : (which("rustright") ?? "rustright"), ["quiet", "release", String(id)]);
       if (failed(r)) o.out(`${tag} note: broker quiet lease ${id} release failed (${(why(r) || `exit ${r?.status}`).slice(0, 200)}); it expires on its own`);
       else o.out(`${tag} broker quiet lease ${id} released`);
     },
@@ -1276,9 +1284,17 @@ async function runStages(o, args, root, git, io) {
     const whichRoute = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
     const routeExecutor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which: whichRoute, readFile: o.readFile });
     let decided;
-    try { decided = routePlan(o, { to, stages: devTest ? [] : stages, devTest, executor: routeExecutor, capabilities: brokerCapabilityState(o, { to, executor: routeExecutor }), appConfig: devTest && selected ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
+    try { decided = routePlan(o, { to, stages: devTest ? [] : stages, devTest, executor: routeExecutor, stagePlatform: platform, capabilities: await brokerCapabilityStateWithHandshake(o, { to, executor: routeExecutor }), appConfig: selected && to !== "check" ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
     catch (e) { o.err(`${tag} ${e.message}`); return 2; }
     if (decided.refusal) { o.err(`${tag} BLOCKED: ${decided.refusal.code}: ${decided.refusal.message}; nothing ran${decided.route === "snapshot" ? " and the checkout is never built" : ""}`); return 1; }
+    const notPublisher = decided.route === "snapshot" ? releaseRouteRefusal(o, { stages, platform }) : null;
+    if (notPublisher) { o.err(`${tag} BLOCKED: ${notPublisher.code}: ${notPublisher.message}; nothing ran and the checkout is never built`); return 1; }
+    // The declared Linux broker admits snapshots only under its own data root: refused before any ownership or sync when the gate's root is elsewhere.
+    if (decided.route === "snapshot" && !hosted) {
+      const snapSync = await import("../snapshot.mjs");
+      const mismatch = await declaredSnapshotRootRefusal(o, routeExecutor, o.snapshotRoot ?? snapSync.snapshotRoot({ platform: o.platform, env: o.env }));
+      if (mismatch) { o.err(`${tag} BLOCKED: ${mismatch.code}: ${mismatch.message}; nothing ran`); return 1; }
+    }
   }
   if (!o.doorSnapshot && !hosted) {
     const snap = await import("../snapshot.mjs");
@@ -1322,7 +1338,7 @@ async function runStages(o, args, root, git, io) {
   }
   const binding = bindingOf({
     tree, lockFiles, gateFile: fileURLToPath(import.meta.url), executor: o.brokerException ? `${executor.kind}:exception:${o.brokerException.exceptionId}` : executor.kind,
-    toolchain: { classA: { "cargo-deny": version("cargo-deny", ["--version"]), "cargo-audit": version("cargo-audit", ["--version"]), actionlint: version("actionlint", ["-version"]), shellcheck: version("shellcheck", ["--version"]) }, node: process.version, rustc: version(executor.kind === "broker" && executor.cargo[0] === "rustright" ? "rustright" : "rustc", executor.kind === "broker" && executor.cargo[0] === "rustright" ? ["rustc", "-V"] : ["-V"]), pnpm: version("pnpm", ["--version"]) },
+    toolchain: { classA: { "cargo-deny": version("cargo-deny", ["--version"]), "cargo-audit": version("cargo-audit", ["--version"]), actionlint: version("actionlint", ["-version"]), shellcheck: version("shellcheck", ["--version"]) }, node: process.version, rustc: version(executor.kind === "broker" && executor.cargo.length > 1 ? executor.cargo[0] : "rustc", executor.kind === "broker" && executor.cargo.length > 1 ? ["rustc", "-V"] : ["-V"]), pnpm: version("pnpm", ["--version"]) },
   });
   // Release writes to R2. The write credential lives only in the trusted publisher: a GitHub Actions job in the protected
   // publication environment, which sets RIGHTKIT_PUBLISHER=github-environment. Hosts and agents never hold it, so the door refuses the
@@ -1385,12 +1401,14 @@ async function runStages(o, args, root, git, io) {
   // A later stage on the sealed bytes: check, compile and package already passed for them (in this receipt) and the bytes on disk are
   // the ones they sealed, so they are not run again.
   // The release configs of the commit (under this app) that declare `sidecars`: the commit's config decides on the snapshot route, never the checkout's.
-  const sidecarConfigsOf = () => {
-    const listedConfigs = git("ls-tree", "-r", "--name-only", "-z", commit);
-    return (failed(listedConfigs) ? [] : text(listedConfigs).split("\0").filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)).filter((f) => appDir === "." || f.startsWith(`${appDir}/`)))
-      .filter((f) => { try { return /\bsidecars\b/.test(o.readFile(path.join(ds ? ds.path : root, f))); } catch { return false; } });
-  };
+  const sidecarConfigsOf = () => committedSidecarConfigs({ o, git, commit, appDir, base: ds ? ds.path : root });
   const sealedNow = receipt.stages.package?.ok ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;
+  // The protected-receipt verifier pulls in the ownership policy modules (and their dependencies): loaded only for a run that qualifies or releases,
+  // so an installed copy that only checks or compiles never needs them (GB-14).
+  const qualifyReuse = stages.includes("qualify") || stages.includes("release") ? await import("../qualify-reuse.mjs") : null;
+  const installedQaReceiptDigest = (...a) => qualifyReuse.installedQaReceiptDigest(...a);
+  const qualifyReuseProblem = (...a) => qualifyReuse.qualifyReuseProblem(...a);
+  const qualifyRecordProblem = (recorded) => (o.qualifyReuseProblem ?? qualifyReuseProblem)({ recorded, sealedNow, repoRoot: appRoot, platform, ...(o.verifyQa !== undefined ? { verify: o.verifyQa } : (o.env.GITHUB_ACTIONS === "true" && o.env.RIGHTKIT_PUBLISHER === "github-environment" ? { verify: null } : {})) });
   const sealedIntact = Boolean(sealedNow && sealedNow.id === receipt.stages.package.sealed && sealedNow.digest === receipt.stages.package.manifestSha256);
   // Every deterministic scan (full class A) runs before any compile, for every door stage. The app rules run at the tier the stage
   // owes: dev, test and package take the compile-tier rules; qualify and release add the release-only rules (approvals, ratified
@@ -1398,16 +1416,36 @@ async function runStages(o, args, root, git, io) {
   // 2026-10-28 change to release tier everywhere was never his decision and blocked HeardRight's dev and test builds).
   const earlyTier = ["qualify", "release"].includes(to) ? "release" : "compile";
   const tierAtLeast = (have, need) => have === "release" || need === "compile";
+  // GB-12 (GATE 36/44/86, E18): Class A admission runs at every stage boundary a door run crosses; an outer receipt boolean or an intact
+  // sealed set never stands in for it. The deterministic scans reuse through their own complete result-cache key (never this receipt's
+  // coarse binding, which names the entry file only), and the live scans (cargo-deny, cargo-audit, pnpm-audit, pnpm-lockfile,
+  // advisory-exceptions) are never cached, so the day's advisories are re-asked on every reuse. The one exception is the trusted
+  // publisher's upload (`--to release` on a desktop platform): it runs no build environment, only uploads bytes whose earlier stages
+  // (Class A included) another job of the same pipeline recorded in the receipt it imported (--receipt-in).
+  const publisherUploadOnly = to === "release" && !mobile;
+  // GB-15: a nested app's Class A runs its executing scans for that app's dependency closure; an app at the repository root is the repository.
+  const appScope = appDir === "." ? [] : ["--scope", appDir];
   for (const stage of stages) {
-    if (stage === "check" && receipt.stages.check?.ok && tierAtLeast(receipt.stages.check.ruleTier ?? "compile", earlyTier)) { o.out(`${tag} [check] already passed (${receipt.stages.check.ruleTier ?? "compile"} tier) for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
-    if (stage === "compile" && receipt.stages.compile?.ok) { o.out(`${tag} [${stage}] already passed for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
-    if ((stage === "check" || stage === "compile" || stage === "package") && sealedIntact) {
+    if (stage === "check" && publisherUploadOnly && receipt.stages.check?.ok && tierAtLeast(receipt.stages.check.ruleTier ?? "compile", earlyTier)) { o.out(`${tag} [check] already passed (${receipt.stages.check.ruleTier ?? "compile"} tier) for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
+    if (stage === "compile" && receipt.stages.compile?.ok) {
+      // GB-13 (GATE E6/E7/E16): a recorded compile stands only while the outputs it recorded are still on disk and the compile environment is
+      // the one it ran in; otherwise the compile runs again, warm (never a cleared target), unless the sealed bytes below carry it.
+      const outputsProblem = (o.compileReuseProblem ?? compileReuseProblem)(receipt.stages.compile, { env: o.env });
+      if (!outputsProblem) { o.out(`${tag} [${stage}] already passed for this exact input (commit, tree, lockfiles, gate, toolchain) and its outputs are intact`); continue; }
+      if (!sealedIntact) o.out(`${tag} [${stage}] the recorded compile no longer stands: ${outputsProblem}; running it again (warm)`);
+    }
+    if (((stage === "check" && publisherUploadOnly) || stage === "compile" || stage === "package") && sealedIntact) {
       o.out(`${tag} [${stage}] already passed for the sealed set ${sealedNow.id} (manifest ${sealedNow.digest.slice(0, 12)})`); continue;
     }
     // The publisher (another runner, often another OS) cannot repeat installed QA; it takes the qualify result recorded for exactly
     // these sealed bytes. --to qualify itself always runs it.
+    // GB-14: the record is reused only while the protected installed-QA receipt it names still verifies over the current state (the existing
+    // verifier: policy bundle, floor, required checks, source, artifact hashes); the publisher, which holds no receipt key, is held to the
+    // recorded receipt digest and the manifest digest, and the upload admission verifies the receipt itself.
     if (stage === "qualify" && to !== "qualify" && sealedIntact && receipt.stages.qualify?.ok && receipt.stages.qualify.manifestSha256 === sealedNow.digest) {
-      o.out(`${tag} [qualify] already passed for the sealed set ${sealedNow.id} (manifest ${sealedNow.digest.slice(0, 12)})`); continue;
+      const problem = qualifyRecordProblem(receipt.stages.qualify);
+      if (!problem) { o.out(`${tag} [qualify] already passed for the sealed set ${sealedNow.id} (manifest ${sealedNow.digest.slice(0, 12)}; protected QA receipt ${receipt.stages.qualify.qaReceiptDigest.slice(0, 12)} verified)`); continue; }
+      o.out(`${tag} [qualify] the recorded result no longer stands: ${problem}; it runs again`);
     }
     // The publisher only uploads. It never checks out a build environment, signs or runs installed QA, so every earlier stage must
     // already stand in its receipt for exactly the sealed bytes on disk; anything else is refused, never rebuilt or requalified here.
@@ -1419,7 +1457,7 @@ async function runStages(o, args, root, git, io) {
     if (ds && !(await openSnapshotStage({ o, ds, root, stage, tag }))) { receipt.stages[stage] = { ok: false, at: new Date().toISOString(), snapshot: { path: ds.path, tree: ds.tree, intactAfter: false }, ownership: ds.own.handle }; save(); o.err(`${tag} --to ${to} stopped before ${stage}: the snapshot is not the commit's bytes plus the ledger; nothing ran`); return 2; }
     let ok = false; const at = new Date().toISOString(); let extra = {}; let directReceipt = null;
     if (stage === "check") {
-      ok = (await (o.runCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), "--rule-tier", earlyTier], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))(earlyTier)) === 0;
+      ok = (await (o.runCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path, ...appScope] : []), "--rule-tier", earlyTier], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))(earlyTier)) === 0;
       extra = { ruleTier: earlyTier };
     }
     else if (stage === "compile") {
@@ -1434,8 +1472,12 @@ async function runStages(o, args, root, git, io) {
       // On the snapshot route sidecars are staged ONCE per door run by the ledger bookkeeping (attribution diff, immutable staged entries).
       if (ok && ds) ok = await stageSidecarsOnce({ o, ds, root, git, configs: sidecarConfigs, appDir, cli, commonDir, commit, tree, stage, executor });
       else for (const config of ok ? sidecarConfigs : []) if (!await rightRelease(stage, ["stage-sidecar", "--config", path.join(root, config)])) { ok = false; break; }
-      if (ok) ok = (await (o.runCompile ?? (() => main(ds ? ["--all", "--commit", commit, "--snapshot", ds.path] : ["--all"], { ...io, cwd: root, readStdin: () => "", ...(ds ? { buildOwnership: ds.own, snapshotLedger: ds.ledger?.entries ?? [], onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, onDirectReceipt: (r) => { directReceipt = r; } } : {}) })))()) === 0;
+      let compiledDirs = [];
+      const reportOutputs = (dirs) => { compiledDirs = [...dirs]; };
+      if (ok) ok = (await (o.runCompile ?? (() => main(ds ? ["--all", "--commit", commit, "--snapshot", ds.path] : ["--all"], { ...io, cwd: root, readStdin: () => "", ...(ds ? { buildOwnership: ds.own, snapshotLedger: ds.ledger?.entries ?? [], onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, onDirectReceipt: (r) => { directReceipt = r; }, onCompileOutputs: reportOutputs } : {}) })))({ reportOutputs })) === 0;
       if (directReceipt) extra = { ...extra, direct: directReceipt };
+      // What this compile produced, recorded with its result so a later run can prove the outputs are still there (GB-13).
+      if (ok) extra = { ...extra, outputs: compileOutputsRecord({ dirs: compiledDirs, env: o.env }) };
       // The cross-check with `.rightkit/compile-inputs.json`: a declared input that covers ledger entries must carry the digest of those
       // very bytes in the compile receipt (the broker digests declared inputs in place in the snapshot, BC:39).
       if (ok && ds && directReceipt?.declaredInputDigests) {
@@ -1462,17 +1504,25 @@ async function runStages(o, args, root, git, io) {
         if (packagePin.refusal) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_OUTPUT_UNPINNED: [package] ${packagePin.refusal}; nothing was built`); ok = false; }
         else if (packagePin.dir) o.out(`${tag} [package] output directory for the Cargo workspace: ${packagePin.dir} (the checkout's)`);
       }
-      const packageEnv = packagePin.dir ? { CARGO_TARGET_DIR: packagePin.dir } : {};
+      // GB-17: several Cargo workspaces: each of right-release's and its children's Cargo calls is bound to ITS workspace's target through the per-call wrapper.
+      let packageMulti = null;
+      if (ok && packagePin.dirs?.length > 1) {
+        packageMulti = await bindUnitCargo({ o, git, root, ds, executor, which: whichIn(o) });
+        if (packageMulti.refusal) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_OUTPUT_UNPINNED: [package] ${packageMulti.refusal}; nothing was built`); ok = false; }
+        else if (packageMulti.note) o.out(`${tag} [package] ${packageMulti.note}`);
+      }
+      const packageEnv = packagePin.dir ? { CARGO_TARGET_DIR: packagePin.dir } : (packageMulti?.env ?? {});
       ok = ok && (mobile || await rightRelease(stage, ["qa", "--stage", "source", "--platform", platform], packageEnv)) && await rightRelease(stage, ["build", "--platform", platform], packageEnv);
       const sealed = ok ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;
       if (ok && !sealed) { o.err(`${tag} [package] the build reported success but sealed nothing for ${commit.slice(0, 8)} on ${platform}`); ok = false; }
       if (sealed) extra = { platform, sealed: sealed.id, manifestSha256: sealed.digest };
       // The cross-check: the Cargo targets the sealed manifest records are the directory this door resolved itself. A different one voids the stage.
-      if (ok && sealed && ds && packagePin.dir) {
+      try { packageMulti?.cleanup?.(); } catch { /* the wrapper's map is the gate's own temp directory */ }
+      if (ok && sealed && ds && (packagePin.dir || packagePin.dirs?.length > 1)) {
         let recorded = null;
         try { recorded = JSON.parse(String(o.readFile(sealed.manifest))).boundTargets ?? null; } catch { recorded = null; }
         const { crossCheckBoundTargets, SPLIT_TARGET_DRIFT_CODE } = await import("../release-artifact-path.mjs");
-        const drift = crossCheckBoundTargets({ recorded, expected: [packagePin.dir] });
+        const drift = crossCheckBoundTargets({ recorded, expected: packagePin.dirs });
         if (drift.length) {
           for (const problem of drift.slice(0, 10)) o.err(`${tag} ${SPLIT_TARGET_DRIFT_CODE}: [package] ${problem}`);
           const closedDrift = await closeSnapshotStage({ o, ds, root, stage, step: stage, tag });
@@ -1517,7 +1567,7 @@ async function runStages(o, args, root, git, io) {
         // store); the release tier is owed first, as for desktop qualification.
         const releaseTier = receipt.stages.check?.ok && receipt.stages.check.ruleTier === "release"
           ? (o.out(`${tag} [release] the release tier already passed at check for this exact input; not run again`), 0)
-          : await (o.runReleaseCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), "--rule-tier", "release"], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))();
+          : await (o.runReleaseCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path, ...appScope] : []), "--rule-tier", "release"], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))();
         if (releaseTier !== 0) { o.err(`${tag} [release] the release tier (every rule and scan) is red for ${commit.slice(0, 12)}; nothing was uploaded`); ok = false; }
         else ok = await rightRelease(stage, ["upload", "--platform", platform, "--release", sealed.sealed, "--apply"]);
         extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, track: platform === "ios" ? "testflight" : "play-internal", ruleTier: "release" };
@@ -1525,12 +1575,14 @@ async function runStages(o, args, root, git, io) {
         // Qualification owes the release tier: every rule and scan, the ones held out of compile admission included (app-check.mjs TIERS).
         const releaseTier = receipt.stages.check?.ok && receipt.stages.check.ruleTier === "release"
           ? (o.out(`${tag} [qualify] the release tier already passed at check for this exact input; not run again`), 0)
-          : await (o.runReleaseCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), "--rule-tier", "release"], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))();
+          : await (o.runReleaseCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path, ...appScope] : []), "--rule-tier", "release"], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))();
         if (releaseTier !== 0) { o.err(`${tag} [qualify] the release tier (every rule and scan) is red for ${commit.slice(0, 12)}; nothing was qualified`); ok = false; }
         else ok = await rightRelease(stage, ["qa", "--stage", "installed", "--platform", platform, "--release", sealed.sealed]);
-        extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, ruleTier: "release" };
+        // The protected installed-QA receipt this run produced is journaled by digest (GB-14), so the record can be re-verified before any reuse.
+        extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, ruleTier: "release", ...(ok ? { qaReceiptDigest: (o.installedQaReceiptDigest ?? installedQaReceiptDigest)({ repoRoot: appRoot, releaseId: sealed.sealed, platform }) } : {}) };
       } else {
         if (!receipt.stages.qualify?.ok || receipt.stages.qualify.manifestSha256 !== sealed.manifestSha256) { o.err(`${tag} BLOCKED: [release] the sealed set was not qualified (installed QA) in this door run's receipt`); ok = false; }
+        else if (qualifyRecordProblem(receipt.stages.qualify)) { o.err(`${tag} BLOCKED: [release] the recorded qualification no longer stands: ${qualifyRecordProblem(receipt.stages.qualify)}; nothing was uploaded`); ok = false; }
         else { ok = await rightRelease(stage, ["upload", "--release", sealed.sealed, "--platform", platform, "--tier", tier]); extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, tier }; }
       }
     }
@@ -1685,6 +1737,13 @@ export async function closeSnapshotStage({ o, ds, root, stage, step = "stage", t
   return { ok: true, entries };
 }
 
+/** The release configs of `commit` (under `appDir`) that declare `sidecars`, read from `base` (the snapshot on the snapshot route): the commit's config decides, never the checkout's. */
+export function committedSidecarConfigs({ o, git, commit, appDir = ".", base }) {
+  const listedConfigs = git("ls-tree", "-r", "--name-only", "-z", commit);
+  return (failed(listedConfigs) ? [] : text(listedConfigs).split("\0").filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)).filter((f) => appDir === "." || f.startsWith(`${appDir}/`)))
+    .filter((f) => { try { return /\bsidecars\b/.test(o.readFile(path.join(base, f))); } catch { return false; } });
+}
+
 /**
  * Sidecars are staged ONCE per door run, after the sync and before the first stage that builds the Tauri crate. The step is
  * right-release's own `stage-sidecar --json` run inside the snapshot (the split); this gate then walks the snapshot itself and the
@@ -1773,15 +1832,14 @@ async function bindUnitCargo({ o, git, root, ds, executor, which }) {
       targetDirs[found ?? nearest ?? path.posix.dirname(m)] = null;
     }
   }
-  for (const m of executor.kind === "broker" ? [] : manifests) {
-    const file = path.join(root, ...m.split("/"));
-    if (!o.exists(file)) return { refusal: `the checkout has no ${m}, so its Cargo output directory cannot be resolved` };
-    const r = o.spawn(cargo[0], [...cargo.slice(1), "metadata", "--offline", "--format-version", "1", "--no-deps", "--manifest-path", file], { cwd: path.dirname(file), env: o.env });
-    let doc = null;
-    try { doc = failed(r) ? null : JSON.parse(text(r)); } catch { doc = null; }
-    if (!doc || typeof doc.target_directory !== "string" || !path.isAbsolute(doc.target_directory) || typeof doc.workspace_root !== "string") return { refusal: `cargo metadata in the checkout reported no absolute target_directory for ${m}${failed(r) ? ` (${why(r)})` : ""}` };
-    const cargoDir = posix(path.relative(checkoutReal, (() => { try { return fs.realpathSync.native(doc.workspace_root); } catch { return doc.workspace_root; } })())) || ".";
-    targetDirs[cargoDir] = path.resolve(doc.target_directory);
+  // GB-16/GB-17: a direct host's workspaces and target directories are resolved from the SELECTED COMMIT's snapshot (its committed manifests and `.cargo/config.toml`) and mapped
+  // lexically to the checkout's counterpart, exactly as cargoOutputPin does: the live checkout's manifests are never read, so a directory the newer checkout deleted or moved, or a dirty or
+  // untracked manifest there, changes nothing.
+  if (executor.kind !== "broker") {
+    const resolved = cargoOutputPin({ o, git, root, commit: ds.commit, executor, snapshot: ds.path });
+    if (resolved.refusal) return { refusal: resolved.refusal };
+    const relOf = (w) => { for (const base of [root, checkoutReal]) { const r = path.relative(base, w); if (!r.startsWith("..") && !path.isAbsolute(r)) return posix(r) || "."; } return posix(w); };
+    for (const [workspaceRoot, target] of resolved.workspaces ?? []) targetDirs[relOf(workspaceRoot)] = target;
   }
   const workspaces = Object.keys(targetDirs);
   if (o.platform === "win32" && executor.kind !== "broker") {
@@ -1793,7 +1851,7 @@ async function bindUnitCargo({ o, git, root, ds, executor, which }) {
   if (executor.kind === "broker") {
     if (!o.snapshotBroker) return { refusal: "a broker host reaches Cargo from a unit stage only through the snapshot carrier (deps.snapshotBroker), which this gate was started without" };
     let sb;
-    try { sb = await carrierBroker({ o, root, ds, which }); } catch (error) { return { refusal: `the snapshot carrier cannot be built (${error.code ?? "error"}: ${error.message})` }; }
+    try { sb = await carrierBroker({ o, root, ds, executor, which }); } catch (error) { return { refusal: `the snapshot carrier cannot be built (${error.code ?? "error"}: ${error.message})` }; }
     // Installing the carrier map sends nothing: the ownership records each carried request's sub-handle just before it is sent (snapshot-broker.mjs).
     const { brokerSection } = await import("../snapshot-broker.mjs");
     broker = { checkoutDirs: Object.fromEntries(workspaces.map((w) => [w, path.join(checkoutReal, ...(w === "." ? [] : w.split("/")))])), section: (o.brokerSection ?? brokerSection)(sb) };
@@ -1841,12 +1899,13 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
   const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
   const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile }); applyExecutorEnv(o, executor);
   if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
-  { const decided = routePlan(o, { to: option("--to"), stages: [], devTest: true, executor, capabilities: brokerCapabilityState(o, { to: option("--to"), executor }) });
+  { const decided = routePlan(o, { to: option("--to"), stages: [], devTest: true, executor, capabilities: await brokerCapabilityStateWithHandshake(o, { to: option("--to"), executor }) });
     if (decided.refusal?.code === "RK_BROKER_CAPABILITY_MISSING") { o.err(`${tag} BLOCKED: ${decided.refusal.code}: ${decided.refusal.message}; nothing ran`); return 1; } }
   if (executor.kind === "broker" && !o.snapshotBroker) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_CARRIER_NOT_WIRED: a broker host builds a unit snapshot only through the snapshot carrier; nothing ran`); return 1; }
   const common = git("rev-parse", "--git-common-dir");
   if (failed(common) || !text(common).trim()) { o.err(`${tag} cannot read the git directory`); return 2; }
   const snapshotsAt = o.snapshotRoot ?? snap.snapshotRoot({ platform: o.platform, env: o.env });
+  { const mismatch = await declaredSnapshotRootRefusal(o, executor, snapshotsAt); if (mismatch) { o.err(`${tag} BLOCKED: ${mismatch.code}: ${mismatch.message}; nothing ran`); return 1; } }
   let own;
   try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot }), stage: `door:unit:${option("--to")}`, snapshot: path.join(snapshotsAt, snap.repositoryOf(root).key), commit, platform: o.platform, env: o.env }); }
   catch (e) { if (e.code !== "busy" && e.code !== "refused") throw e; o.err(`${tag} BLOCKED: ${e.message}; nothing ran${e.code === "refused" ? ", nothing created" : ""}`); return 1; }
@@ -1927,7 +1986,7 @@ export function snapshotRouteRefusal(o) {
 }
 
 /** The refusal codes a route probe can answer with: the codes the stages themselves print (`BLOCKED: <code>: ...`). */
-export const ROUTE_REFUSAL_CODES = Object.freeze(["RK_TAURI_CONFIG_OVERRIDE", "RK_SNAPSHOT_BROKER_UNAVAILABLE", "RK_SNAPSHOT_CARRIER_NOT_WIRED", "RK_BROKER_CAPABILITY_MISSING", "RK_BROKER_UNAVAILABLE",
+export const ROUTE_REFUSAL_CODES = Object.freeze(["RK_TAURI_CONFIG_OVERRIDE", "RK_STAGE_HOST_MISMATCH", "RK_SNAPSHOT_BROKER_UNAVAILABLE", "RK_SNAPSHOT_CARRIER_NOT_WIRED", "RK_BROKER_CAPABILITY_MISSING", "RK_BROKER_UNAVAILABLE",
   // One signing identity per product (rightkit#1303): the Mac and the Dell refuse an unsigned, ad hoc or re-identified test or dev build.
   ...SIGNING_REFUSAL_CODES]);
 /** The stages `--route` can answer for (`release` writes to the publisher and has no route of its own on a host). */
@@ -1951,15 +2010,19 @@ export const REQUIRED_BROKER_CAPABILITIES = Object.freeze(["snapshot-readonly-v1
  * A missing client, a client that cannot run, a hung (20 s), unparsable or field-less answer is `ok: false`, which the route refuses (fail
  * closed). A doctor that reports an unhealthy host still prints its JSON: the field decides, not the exit status.
  */
-export function queryBrokerCapabilities(o) {
-  const client = whichIn(o)("rustright").find((c) => path.isAbsolute(c));
+export function queryBrokerCapabilities(o, { executor = null } = {}) {
+  const client = brokerClientOf(o, executor);
   if (!client) return { ok: false, problem: "the RustRight client is not on PATH" };
-  const r = spawnBrokerClient(o.spawn, client, ["doctor", "--json"], { env: o.env, encoding: "utf8", timeout: 20_000, windowsHide: true }, { platform: o.platform ?? process.platform, readFile: o.readFile });
+  const r = spawnBrokerClient(o.spawn, client, ["doctor", "--json"], { env: brokerEnvOf(o, executor), encoding: "utf8", timeout: 20_000, windowsHide: true }, { platform: o.platform ?? process.platform, readFile: o.readFile });
   if (r?.error || r?.status === null || r?.status === undefined) return { ok: false, problem: `\`rustright doctor --json\` did not finish: ${why(r)}` };
   let doc;
   try { doc = JSON.parse(text(r)); } catch { return { ok: false, problem: `\`rustright doctor --json\` printed no JSON${r.status ? ` (exit ${r.status})` : ""}` }; }
   const caps = doc?.broker?.capabilities;
   if (!Array.isArray(caps) || !caps.every((c) => typeof c === "string")) return { ok: false, problem: "`rustright doctor --json` reports no `.broker.capabilities` (a broker that predates snapshot-readonly-v1 and snapshot-adapter-v1)" };
+  // The list is the broker's HANDSHAKE.capabilities only when the client received that handshake: an unreachable broker (doctor reports an empty list for it) advertises nothing, which is a
+  // different statement from a broker that advertises few capabilities, so it is a problem naming why, never a list. Each name is advertised once.
+  if (doc.broker.reachable !== true) return { ok: false, problem: `the broker is not reachable, so its HANDSHAKE.capabilities were not received (\`rustright doctor --json\` .broker.reachable is ${JSON.stringify(doc.broker.reachable ?? null)}${typeof doc.broker.error === "string" && doc.broker.error ? `: ${doc.broker.error}` : ""})` };
+  if (new Set(caps).size !== caps.length) return { ok: false, problem: "`rustright doctor --json` lists a capability twice: the broker's HANDSHAKE.capabilities are not read from an answer that repeats itself" };
   return { ok: true, capabilities: caps };
 }
 
@@ -1971,7 +2034,35 @@ export function queryBrokerCapabilities(o) {
 export function brokerCapabilityState(o, { to, executor }) {
   if (executor?.kind !== "broker" || to === "check" || o.env.GITHUB_ACTIONS === "true") return null;
   if (typeof o.brokerCapabilities === "function") return o.brokerCapabilities(o);
-  return typeof o.snapshotBroker?.create === "function" ? queryBrokerCapabilities(o) : null;
+  return typeof o.snapshotBroker?.create === "function" ? queryBrokerCapabilities(o, { executor }) : null;
+}
+
+/**
+ * GB-51 / GB-62: the capability state a route plans from, with the broker's HANDSHAKE received by the gate itself (broker-handshake.mjs) beside `rustright doctor --json`: both are asked, they must agree,
+ * and a plan sees only names advertised by what answered. Not asked (null) exactly when `brokerCapabilityState` asks nothing; an injected fixture broker that declares its own capabilities
+ * (`o.brokerCapabilities`) keeps them unless it also declares a handshake (`o.brokerHandshake`, a function returning a parsed handshake or `{ ok: false, problem }`).
+ */
+export async function brokerCapabilityStateWithHandshake(o, { to, executor }) {
+  const doctor = brokerCapabilityState(o, { to, executor });
+  if (doctor === null) return null;
+  const injected = typeof o.brokerHandshake === "function";
+  if (!injected && typeof o.brokerCapabilities === "function") return doctor;
+  let handshake;
+  try {
+    handshake = injected ? await o.brokerHandshake(o) : await queryBrokerHandshake({ ...o, env: brokerEnvOf(o, executor) }, { client: brokerClientOf(o, executor) });
+  } catch (error) { handshake = { ok: false, problem: `the broker's HANDSHAKE could not be read (${error?.message ?? error})` }; }
+  return mergeCapabilityViews({ doctor, handshake });
+}
+
+/**
+ * The refusal of `--to release` on a host that is not the trusted publisher, or null: a release uploads sealed bytes and runs only in the release workflow's
+ * protected publication job (GITHUB_ACTIONS with RIGHTKIT_PUBLISHER=github-environment); a mobile platform's store upload has its own tier-less route. Asked by a real
+ * run before it takes ownership or syncs the snapshot (E2E L3-03); the probe has no release route, so this is not a probe code.
+ */
+export function releaseRouteRefusal(o, { stages, platform }) {
+  if (!stages.includes("release") || MOBILE_PLATFORMS.has(platform)) return null;
+  if (o.env.GITHUB_ACTIONS === "true" && o.env.RIGHTKIT_PUBLISHER === "github-environment") return null;
+  return { code: "RK_RELEASE_PUBLISHER_ONLY", message: "--to release runs only in the trusted publisher (the release workflow's protected publication job). Run --to qualify on the native host, then dispatch the release workflow for the commit" };
 }
 
 /**
@@ -1987,13 +2078,20 @@ export function brokerCapabilityState(o, { to, executor }) {
  * `executor` is a resolved executor. Returns { route, refusal } with
  * refusal null or { code, stage, message }. Reads no checkout, takes no ownership, syncs no snapshot and spawns nothing itself.
  */
-export function routePlan(o, { to, stages, devTest, executor, capabilities = null, appConfig = null }) {
+export function routePlan(o, { to, stages, devTest, executor, capabilities = null, appConfig = null, stagePlatform = null }) {
   const refuse = (code, stage, message) => ({ code, stage, message });
   const hosted = o.env.GITHUB_ACTIONS === "true";
   const snapshot = !hosted && snapshotRouteSelected(o);
   const route = hosted ? "hosted" : "snapshot";
   if (snapshot) {
     if (o.env.TAURI_CONFIG !== undefined) return { route, refusal: refuse("RK_TAURI_CONFIG_OVERRIDE", to, "TAURI_CONFIG is set in the environment; it would replace the commit's Tauri configuration (externalBin included) for every build below, so a commit-only build refuses it") };
+    // A stage that packages or qualifies a platform's artifact runs on that platform's own host: Mac and Windows artifacts are constructed on their
+    // native platform and never cross-built (GATE-CONTRACT s1 "Native build target"; PLATFORM-MATRIX: packages only on the matching native host).
+    // Refused here, before ownership, a snapshot or any process, so `--route` and a real run say the same thing (E2E L3-03).
+    const hostNeeded = STAGE_NATIVE_HOST[stagePlatform];
+    if (stagePlatform && (stages.includes("package") || stages.includes("qualify")) && hostNeeded && o.platform !== hostNeeded) {
+      return { route, refusal: refuse("RK_STAGE_HOST_MISMATCH", to, `--to ${to} --platform ${stagePlatform} builds the ${stagePlatform} artifact, which is constructed only on a ${hostNeeded === "darwin" ? "Mac" : "Windows"} host (this host is ${o.platform}); a Mac or Windows artifact is never cross-built from another platform, so nothing was started`) };
+    }
     const refused = to === "check" ? null : snapshotRouteRefusal(o);
     if (refused) return { route, refusal: refuse(refused.code, to, refused.message) };
     // The broker must accept what the carried stages ask of it (rightkit#1301 B2): a missing or failing capability query refuses.
@@ -2001,6 +2099,12 @@ export function routePlan(o, { to, stages, devTest, executor, capabilities = nul
       const missing = capabilities.ok ? REQUIRED_BROKER_CAPABILITIES.filter((c) => !capabilities.capabilities.includes(c)) : REQUIRED_BROKER_CAPABILITIES;
       if (!capabilities.ok || missing.length) return { route, refusal: refuse("RK_BROKER_CAPABILITY_MISSING", to, `the broker ${capabilities.ok ? `does not advertise ${missing.join(", ")}` : `cannot be asked for its capabilities (${capabilities.problem})`} (\`rustright doctor --json\` \`.broker.capabilities\`); this release builds only against a broker that accepts snapshot-bound read-only Cargo and snapshot-bound adapter jobs (rightkit#1301, rustright#188, rustright#190)`) };
     }
+  }
+  // GB-51: a declared native build tool with no carried adapter (xcodegen, xcodebuild, Gradle, CMake) refuses here, at planning, naming the missing
+  // capability, instead of after the earlier stages built (the door's launch-time refusal remains the backstop).
+  if (snapshot && executor?.kind === "broker" && appConfig?.config && to !== "check") {
+    const refusalText = nativeToolRefusal(nativeToolUses({ config: appConfig.config, to, devPlatform: appConfig.nativePlatform ?? appConfig.devPlatform ?? null, platform: appConfig.nativePlatform ?? null }), { capabilities, readFile: appConfig.readFile ?? null, listFiles: appConfig.listFiles ?? null });
+    if (refusalText) return { route, refusal: refuse("RK_BROKER_CAPABILITY_MISSING", to, refusalText) };
   }
   // One signing identity per product, every build (rightkit#1303): on the Mac and the Dell a test or dev build that would run unsigned, ad hoc or under
   // another identifier is refused here, from the commit's own config, so `--route` and a real run decide alike. Linux and hosted CI are exempt.
@@ -2027,7 +2131,7 @@ export function routeAppConfig({ git, commit, appDir = ".", platform = null }) {
   let config;
   try { config = JSON.parse(raw); } catch { return null; }
   const list = (c, rel) => { const r = git("ls-tree", "-r", "--name-only", c, "--", rel); return failed(r) ? null : text(r).split(/\r?\n/).filter(Boolean); };
-  return { config, readFile: show, listFiles: gitListRustFiles(list, commit, appDir), devPlatform: platform === "mac" || platform === "win" ? platform : null };
+  return { config, readFile: show, listFiles: gitListRustFiles(list, commit, appDir), devPlatform: platform === "mac" || platform === "win" ? platform : null, nativePlatform: platform ?? null };
 }
 
 /** The `--platform` a dev or test run was given: before `--`, or in the arguments after it (a platform after `--` wins, as runDevTest hands it on). */
@@ -2052,9 +2156,15 @@ async function runRouteProbe(o, args, root, git, { to, platform, stages, devTest
   const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
   const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
   let plan;
-  const capabilities = brokerCapabilityState(o, { to, executor });
-  try { plan = routePlan(o, { to, stages, devTest, executor, capabilities, appConfig: devTest ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
+  const capabilities = await brokerCapabilityStateWithHandshake(o, { to, executor });
+  try { plan = routePlan(o, { to, stages, devTest, executor, stagePlatform: platform, capabilities, appConfig: to !== "check" ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
   catch (e) { o.err(`${tag} ${e.message}`); return 2; }
+  // The declared Linux broker's snapshot root: the probe reports the refusal a real run would meet (read-only: one status probe of the broker).
+  if (!plan.refusal && plan.route === "snapshot") {
+    let at = null; try { at = o.snapshotRoot ?? snap.snapshotRoot({ platform: o.platform, env: o.env }); } catch { at = null; }
+    const mismatch = at ? await declaredSnapshotRootRefusal(o, executor, at) : null;
+    if (mismatch) plan = { ...plan, refusal: { code: mismatch.code, stage: to, message: mismatch.message } };
+  }
   // Read-only: GIT_OPTIONAL_LOCKS=0, so the probe's `git status` never refreshes the index or contends with a writer (rightkit#1297 L4).
   const dirty = o.spawn("git", ["status", "--porcelain", "--untracked-files=no"], { cwd: root, env: { ...o.env, GIT_OPTIONAL_LOCKS: "0" } });
   const version = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
@@ -2085,6 +2195,82 @@ export function carriedEnv(carrier, base, extra = {}) {
   return { ...strip(base), ...carrier.env, ...strip(extra) };
 }
 
+// ---- the declared Linux broker's snapshot root --------------------------------------------------------------------------------------------------
+// The broker admits a snapshot only under `<its data root>/snapshots`. On Linux the gate's snapshot root is `~/.config/rightkit/gate.json` `snapshotRoot`, else
+// `~/.local/state/rightkit/snapshots` (snapshot.mjs snapshotRoot); a host whose broker keeps its data elsewhere would sync thousands of files, take build ownership and submit,
+// only to be refused at admission with the ownership left unknown. So the declared route compares the two BEFORE ownership or a sync, and refuses typed.
+export const LINUX_SNAPSHOT_ROOT_MISMATCH = "RK_LINUX_BROKER_SNAPSHOT_ROOT_MISMATCH";
+const ANSWERING_ROOTS_TIMEOUT_MS = 10_000;
+
+/**
+ * What the answering broker says its roots are: the health probe's `STATUS` carries `roots` (`rustright.answering-roots.v1`: dataRoot, controlRoot, ...), after the HANDSHAKE the first event
+ * is. Reads lines until a STATUS with roots (or any other end) and resolves `{ ok: true, dataRoot }` or `{ ok: false, problem }`; never rejects. `connect` is the transport (tests, `net.connect`).
+ */
+export function readAnsweringRoots({ endpoint, identity, connect = (target) => net.connect({ path: target }), timeoutMs = ANSWERING_ROOTS_TIMEOUT_MS }) {
+  return new Promise((resolve) => {
+    let settled = false; let conn = null; let timer = null; let buffer = "";
+    const finish = (result) => { if (settled) return; settled = true; clearTimeout(timer); try { conn?.destroy(); } catch { /* gone */ } resolve(result); };
+    const problem = (why) => finish({ ok: false, problem: why });
+    try { conn = connect(endpoint); } catch (e) { problem(`cannot connect to the broker at ${endpoint} (${e?.code ?? e?.message ?? e})`); return; }
+    timer = setTimeout(() => problem(`the broker at ${endpoint} reported no roots within ${timeoutMs} ms`), timeoutMs);
+    conn.on("connect", () => { try { conn.write(`${JSON.stringify({ type: "STATUS", protocol: BUILD_CONTROL_PROTOCOL, runtime: identity, id: HANDSHAKE_PROBE_ID })}\n`); } catch (e) { problem(`cannot send the probe to the broker at ${endpoint} (${e?.message ?? e})`); } });
+    conn.on("data", (chunk) => {
+      buffer += String(chunk);
+      if (buffer.length > (1 << 21)) { problem("the broker's reply is too large"); return; }
+      for (let at = buffer.indexOf("\n"); at >= 0; at = buffer.indexOf("\n")) {
+        const line = buffer.slice(0, at); buffer = buffer.slice(at + 1);
+        let event; try { event = JSON.parse(line); } catch { problem("the broker's reply is not JSON"); return; }
+        if (event?.type === "STATUS" && event.roots && typeof event.roots === "object") {
+          const root = event.roots.dataRoot;
+          if (event.roots.schema !== "rustright.answering-roots.v1" || typeof root !== "string" || !path.isAbsolute(root)) { problem("the broker's STATUS roots are not rustright.answering-roots.v1 with an absolute dataRoot"); return; }
+          finish({ ok: true, dataRoot: root }); return;
+        }
+        if (event?.type !== "HANDSHAKE" && event?.type !== "STATUS") { problem(`the broker answered ${event?.type ?? "something"} to the roots probe`); return; }
+      }
+    });
+    const closed = () => problem(`the broker at ${endpoint} closed without reporting its roots (a broker that predates the answering roots)`);
+    conn.on("error", (e) => problem(`the broker connection at ${endpoint} failed (${e?.code ?? e?.message ?? e})`));
+    conn.on("close", closed); conn.on("end", closed);
+  });
+}
+
+/** The declared Linux broker's data root: what it reports on the wire (the validated client, its runtime manifest, the declared endpoint), `{ ok, dataRoot }` or `{ ok: false, problem }`. */
+export async function queryBrokerDataRoot(o, executor) {
+  try {
+    const exe = resolveBrokerClient(executor.client, { platform: o.platform, readFile: o.readFile }).file;
+    let real = exe; try { real = fs.realpathSync.native(exe); } catch { real = exe; }
+    const identity = parseRuntimeIdentity(fs.readFileSync(path.join(path.dirname(real), RUNTIME_MANIFEST_FILE), "utf8"));
+    if (!identity.ok) return { ok: false, problem: identity.problem };
+    return await readAnsweringRoots({ endpoint: executor.socket, identity: identity.identity, ...(o.connectBroker ? { connect: o.connectBroker } : {}) });
+  } catch (e) { return { ok: false, problem: e.message }; }
+}
+
+/**
+ * null, or `{ code, message }` when the declared Linux broker would refuse this gate's snapshots. Only the declared route is asked (a Linux host with no declared broker stays direct and
+ * has no broker root). The broker's own report decides; when it reports none (a broker that predates it, or an unreadable answer) the DECLARED data root (RUSTRIGHT_DATA_ROOT, else
+ * RIGHTKIT_DATA_ROOT, MANAGED_ROOT or EXTERNAL_ROOT) is the comparison, and the message says it is only a declaration; with neither nothing is known and nothing is refused here.
+ * `snapshotsAt` is the gate's snapshot root.
+ */
+export async function declaredSnapshotRootRefusal(o, executor, snapshotsAt) {
+  if (executor?.kind !== "broker" || executor.route !== LINUX_BROKER_ROUTE) return null;
+  const answered = await (o.queryBrokerDataRoot ?? queryBrokerDataRoot)(o, executor);
+  let dataRoot; let basis;
+  if (answered?.ok) { dataRoot = answered.dataRoot; basis = "the broker reports its data root"; }
+  else {
+    dataRoot = envNamed(o.env, "DATA_ROOT") || envNamed(o.env, "MANAGED_ROOT") || envNamed(o.env, "EXTERNAL_ROOT");
+    basis = `the broker did not report its roots (${answered?.problem ?? "no answer"}), so the DECLARED data root from the environment is the comparison (a declaration, not the broker's word)`;
+  }
+  if (!dataRoot) return null;
+  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
+  const expected = path.join(dataRoot, "snapshots");
+  if (real(expected) === real(snapshotsAt)) return null;
+  return { code: LINUX_SNAPSHOT_ROOT_MISMATCH, message: `the gate's snapshot root is ${snapshotsAt}, but the declared Linux broker admits snapshots only under ${expected} (${basis}); set "snapshotRoot": ${JSON.stringify(expected)} in ~/.config/rightkit/gate.json (the gate host configuration), then run again. Nothing was synced and no build ownership was taken` };
+}
+
+/** The RustRight client this executor drives: the declared Linux route's validated client, else the absolute `rustright` on PATH (Mac, Dell). */
+const brokerClientOf = (o, executor) => (executor?.route === LINUX_BROKER_ROUTE && executor.kind === "broker" ? executor.client : whichIn(o)("rustright").find((c) => path.isAbsolute(c)));
+/** The environment the client runs in: the gate's, plus the endpoint the executor declared (the declared Linux route's socket). */
+const brokerEnvOf = (o, executor) => (executor?.route === LINUX_BROKER_ROUTE && executor.env ? { ...o.env, ...executor.env } : o.env);
 const whichIn = (o) => (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
 
 /**
@@ -2092,13 +2278,14 @@ const whichIn = (o) => (cmd) => { const r = o.spawn(o.platform === "win32" ? "wh
  * builds the broker once: the host's enrolled pins, the declared inputs read from the snapshot, the build ownership and the RustRight
  * client) or, in a test, a ready broker object. Built once per door run.
  */
-async function carrierBroker({ o, root, ds, which = whichIn(o) }) {
+async function carrierBroker({ o, root, ds, executor = null, which = whichIn(o) }) {
   if (ds.carrierBroker) return ds.carrierBroker;
   const carrier = o.snapshotBroker;
   let sb = carrier;
   if (typeof carrier?.create === "function") {
-    const client = which("rustright").find((c) => path.isAbsolute(c));
-    sb = carrier.create({ env: o.env, platform: o.platform, checkout: root, commit: { sha: ds.commit, tree: ds.tree }, snapshot: { path: ds.path, expectedTree: ds.tree }, ownership: ds.own, client, gateFile: callingGatePath(), spawn: o.spawn });
+    const client = executor?.route === LINUX_BROKER_ROUTE && executor.kind === "broker" ? executor.client : which("rustright").find((c) => path.isAbsolute(c));
+    const { brokerLeaseState } = await import("../build-ownership.mjs");
+    sb = carrier.create({ lease: brokerLeaseState, env: brokerEnvOf(o, executor), platform: o.platform, checkout: root, commit: { sha: ds.commit, tree: ds.tree }, snapshot: { path: ds.path, expectedTree: ds.tree }, ownership: ds.own, client, gateFile: callingGatePath(), spawn: o.spawn });
   }
   ds.carrierBroker = sb;
   return sb;
@@ -2136,7 +2323,7 @@ async function carrierForChildren({ o, ds, root, git, executor, stage, tag = "ri
     if (!git) throw new Error("the gate's git reader is missing");
     const carried = await import("../carried-cargo.mjs");
     const { brokerSection } = await import("../snapshot-broker.mjs");
-    const sb = await carrierBroker({ o, root, ds });
+    const sb = await carrierBroker({ o, root, ds, executor });
     // Installing the carrier map sends nothing, so it records nothing: the child's own uncarried probes (`rustc -vV`, `--version`) never
     // reach the broker under a snapshot, and each carried request records its sub-handle just before it is sent (snapshot-broker.mjs).
     const checkoutDirs = await snapshotCargoWorkspaces({ git, ds, root });
@@ -2203,8 +2390,11 @@ export function cargoOutputPin({ o, git, root, commit, executor, snapshot }) {
     if (!doc || typeof doc.target_directory !== "string" || !path.isAbsolute(doc.target_directory) || typeof doc.workspace_root !== "string") return { refusal: `cargo metadata in the snapshot reported no absolute target_directory for ${m}${failed(r) ? ` (${why(r)})` : ""}` };
     workspaces.set(path.resolve(toCheckout(path.resolve(doc.workspace_root))), path.resolve(toCheckout(path.resolve(doc.target_directory))));
   }
-  if (workspaces.size > 1) return { refusal: `the commit holds ${workspaces.size} Cargo workspaces (${[...workspaces.keys()].map((w) => posix(path.relative(root, w)) || ".").join(", ")}); one directory cannot serve them all, and right-release's own Cargo calls carry no per-workspace wrapper` };
-  return { dir: workspaces.size ? [...workspaces.values()][0] : null };
+  // GB-17: several Cargo workspaces are independent components with their own target caches (GATE-CONTRACT, mixed workspaces never share a target): the per-workspace mapping
+  // (workspace root of the checkout -> its own target directory, all resolved from the commit's snapshot) is returned, never one shared directory and no refusal. The caller binds
+  // each of right-release's and its children's Cargo calls to its own workspace through the per-call wrapper (bindUnitCargo).
+  if (workspaces.size > 1) return { dir: null, workspaces, dirs: [...workspaces.values()] };
+  return { dir: workspaces.size ? [...workspaces.values()][0] : null, workspaces, dirs: [...workspaces.values()] };
 }
 
 /**
@@ -2240,7 +2430,7 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
   if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
   o.out(`${tag} --to ${to} for ${commit.slice(0, 12)}${appDir === "." ? "" : ` (app ${appDir})`}: check (class A) -> right-release ${to}; executor ${executor.kind}${ds ? `; snapshot ${ds.path}` : ""}`);
   // Full class A of the commit before right-release compiles anything: of the snapshot, the checks that execute repository code included.
-  const checked = await (o.runCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : [])], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))();
+  const checked = await (o.runCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path, ...(appDir === "." ? [] : ["--scope", appDir])] : [])], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))();
   if (checked !== 0) { o.err(`${tag} --to ${to} stopped at check: nothing compiled`); return 1; }
   // The snapshot is exactly tree + dependencies + the ledger before right-release starts; what it wrote may remain only as ledger
   // entries (a generated `gen/schemas`, a dist), recorded by this gate's own walk (stage-ledger.mjs, decision 2 Q1).
@@ -2252,8 +2442,23 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
   const pin = ds && executor.kind !== "broker" ? cargoOutputPin({ o, git, root, commit, executor, snapshot: ds.path }) : { dir: null };
   if (pin.refusal) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_OUTPUT_UNPINNED: ${pin.refusal}; nothing compiled`); return 1; }
   if (pin.dir) o.out(`${tag} output directory for the Cargo workspace: ${pin.dir} (the checkout's)`);
+  // GB-17: several workspaces, each with its own target (never one shared directory): the per-call wrapper binds every Cargo call to its workspace's target, from the snapshot's mapping.
+  let pinMulti = null;
+  if (pin.dirs?.length > 1) {
+    pinMulti = await bindUnitCargo({ o, git, root, ds, executor, which: whichIn(o) });
+    if (pinMulti.refusal) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_OUTPUT_UNPINNED: ${pinMulti.refusal}; nothing compiled`); return 1; }
+    if (pinMulti.note) o.out(`${tag} ${pinMulti.note}`);
+  }
   const commonDir = path.resolve(root, common);
   const source = ds ? sourceSplitOf({ root, ds, appDir }) : null;
+  // GB-58 (GATE dev/test exact stage; E19): the selected app's declared sidecars are staged ONCE under this snapshot's ownership before the dependent
+  // build, through the same planner and ledger as the compile and package stages (a Tauri crate with externalBin refuses to build without them). The
+  // app's own prepare step may stage them too; the ledger's attribution check, not an environment marker, is what keeps that single and exact.
+  if (ds) {
+    const sidecarConfigs = committedSidecarConfigs({ o, git, commit, appDir, base: ds.path });
+    const staged = await stageSidecarsOnce({ o, ds, root, git, configs: sidecarConfigs, appDir, cli: fileURLToPath(new URL("../cli/right-release.mjs", import.meta.url)), commonDir, commit, tree, stage: to, executor, tag });
+    if (!staged) { o.err(`${tag} --to ${to} stopped: the declared sidecars could not be staged; nothing compiled`); return 1; }
+  }
   // right-release dev and test, and the Tauri CLI and every other child they start, reach Cargo only through the stage's carrier on a broker host.
   const carrier = await carrierForChildren({ o, ds, root, git, executor, stage: to, tag });
   if (carrier.refusal) { o.err(`${tag} BLOCKED: ${carrier.refusal}; nothing compiled`); return 1; }
@@ -2265,11 +2470,11 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
     // The door's own RightKit runs every sub-step: a dev target's `right-release web-build|stage-sidecar` steps resolve `right-release`
     // on PATH, which found the app's node_modules copy (HeardRight on the Dell, 2026-10-27: the app's 0.6.8 guard refused what the
     // door's 0.6.9 admitted). An installed gate (node_modules/@rightkit/release/bin) has its package's bin shims two levels up.
-    const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, to, ...passthrough], { cwd: source ? snapshotAppRootOf(ds.path, appDir) : appRoot, env: carriedEnv(carrier, { ...o.env, ...run.env }, { ...doorPath({ ...o, env: { ...o.env, ...carrier.env } }), ...(pin.dir ? { CARGO_TARGET_DIR: pin.dir } : {}) }) });
+    const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, to, ...passthrough], { cwd: source ? snapshotAppRootOf(ds.path, appDir) : appRoot, env: carriedEnv(carrier, { ...o.env, ...run.env }, { ...doorPath({ ...o, env: { ...o.env, ...carrier.env } }), ...(pin.dir ? { CARGO_TARGET_DIR: pin.dir } : (pinMulti?.env ?? {})) }) });
     const carriedOk = await carrier.finish({ stage: to });
     if (ds && !(await closeSnapshotStage({ o, ds, root, stage: to, step: to, tag })).ok) { o.err(`${tag} --to ${to} stopped: the result covers no known bytes`); return 2; }
     return r.status === 0 && carriedOk ? 0 : 1;
-  } finally { endRun(run); carrier.cleanup(); }
+  } finally { endRun(run); carrier.cleanup(); try { pinMulti?.cleanup?.(); } catch { /* the wrapper map is the gate's own temp directory */ } }
 }
 
 /** A direct (Linux) executor's environment (PATH without RustRight shim directories) for every child this run starts. */
@@ -2295,6 +2500,32 @@ export function doorPath(o, gateFile = o.gateFile ?? fileURLToPath(import.meta.u
  * readStdin, out, err, cwd, env, platform, abort (an AbortController), runScans and findRustfmt (the scan runner and the
  * lookup of a usable rustfmt, which the deferred Rust gate needs).
  */
+/** The gate flags a `--to <stage>` invocation takes (before a `--` separator, after which the arguments belong to right-release), and whether each takes a value. */
+const STAGE_VALUE_FLAGS = Object.freeze(["--to", "--platform", "--tier", "--commit", "--receipt-in", "--receipt-out", "--unit"]);
+const STAGE_BOOLEAN_FLAGS = Object.freeze(["--route"]);
+
+/**
+ * Why `args` (a `--to <stage>` invocation) is not a well-formed request, or null. Every value flag needs a value that is not another flag and may be
+ * given once; `--flag=value`, unknown flags and stray words are refused. The arguments after a `--` separator are right-release's and are not read.
+ */
+export function stageArgsProblem(args) {
+  const at = args.indexOf("--");
+  const gate = at < 0 ? args : args.slice(0, at);
+  const seen = new Set();
+  for (let i = 0; i < gate.length; i += 1) {
+    const a = gate[i];
+    if (STAGE_BOOLEAN_FLAGS.includes(a)) continue;
+    if (STAGE_VALUE_FLAGS.includes(a)) {
+      const value = gate[i + 1];
+      if (value === undefined || value.startsWith("--")) return a === "--to" ? `--to needs a stage (${[...STAGES, "dev", "test"].join("|")})` : `${a} needs a value`;
+      if (seen.has(a)) return `${a} was given twice`;
+      seen.add(a); i += 1; continue;
+    }
+    return a.startsWith("-") ? `unknown option ${JSON.stringify(a)} (a value follows its flag as the next word: \`--commit <rev>\`, not \`--commit=<rev>\`)` : `unexpected argument ${JSON.stringify(a)}`;
+  }
+  return null;
+}
+
 export async function main(argv, io = {}) {
   const o = {
     spawn: defaultSpawn, exists: fs.existsSync, readFile: (f) => fs.readFileSync(f, "utf8"), writeFile: fs.writeFileSync, mkdir: fs.mkdirSync, chmod: fs.chmodSync, readdir: fs.readdirSync,
@@ -2307,6 +2538,8 @@ export async function main(argv, io = {}) {
   const option = (name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
   // `clippy`: the Clippy route (../clippy-route.mjs; docs/GATE-CONTRACT.md §1 "Clippy route & batching"). Dispatched before the global
   // flags below because everything after `clippy` is cargo's own argv, verbatim (`-v`, `-h` and `--version` are cargo's).
+  // `candidate-receipt` (GB-73): the candidate build receipt the RustRight installer takes in place of a clean primary checkout.
+  if (args[0] === "candidate-receipt") return (await import("../candidate-receipt-command.mjs")).candidateReceiptCommand(o, args.slice(1));
   if (args[0] === "clippy") return (await import("../clippy-route.mjs")).clippyCommand(o, args.slice(1), { main, io, absoluteEnv: SNAPSHOT_ABSOLUTE_ENV });
   if (args.includes("--version") || args.includes("-v")) {
     o.out(JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version);
@@ -2335,8 +2568,10 @@ export async function main(argv, io = {}) {
   // every `--to` stage selects it: host-wide build ownership first, then one sync of the commit into the gate-owned source directory, then the
   // check of that snapshot below. There is no export and no copy of the source (docs/GATE-CONTRACT.md, 2026-10-29); the checkout's own files are
   // never read, so an uncommitted edit in it is ignored. Hosted CI has no warm snapshot: its runner checkout is the commit, scanned in place.
+  // `check --commit <sha> --full-a` takes the same route (GB-48, GATE 34/36/44, E17): the selected commit's snapshot, never a conversion to
+  // `--worktree` that reads the live checkout after a momentary cleanliness check. Only hosted CI keeps the in-place full check.
   const commitCheck = sub === "check"
-    && !["--full-a", "--snapshot", "--worktree", "--plan", "--list", "--print-baseline", "--only"].some((f) => args.includes(f)) && o.classA !== false && snapshotRouteSelected(o);
+    && !["--snapshot", "--worktree", "--plan", "--list", "--print-baseline", "--only"].some((f) => args.includes(f)) && o.classA !== false && snapshotRouteSelected(o);
   if (commitCheck) {
     const sc = await import("../snapshot-check.mjs");
     const snap = await import("../snapshot.mjs");
@@ -2600,6 +2835,13 @@ export async function main(argv, io = {}) {
     io = { ...io, resolveExecutor: o.resolveExecutor, brokerException: granted };
     o.out(`rightkit-gate: BROKER EXCEPTION ${describeBrokerException(granted)}`);
   }
+  // The door's stage arguments are read strictly (E2E L3-02): a flag with no value, `--flag=value`, an unknown flag, a repeated value flag or a stray
+  // word is refused before git, ownership or any process, never ignored (`--commit=<old sha>` used to build HEAD, a trailing `--to` ran the default gate).
+  // A unit run (`--unit`) validates its own, narrower vocabulary below ("unit stages take only ...").
+  if (!sub && !unitFlag && args.some((a) => a === "--to" || a.startsWith("--to="))) {
+    const problem = stageArgsProblem(args);
+    if (problem) { o.err(`rightkit-gate: ${problem}\n${USAGE}`); return 2; }
+  }
   // `--route` is a gate flag only before a `--` separator (after it the arguments belong to right-release). It answers which route a
   // stage takes and runs nothing, so it takes no unit, receipt or release stage (rightkit#1297).
   const gateArgs = separator < 0 ? args : args.slice(0, separator);
@@ -2682,6 +2924,16 @@ export async function main(argv, io = {}) {
   // A broker-managed host whose broker is unreachable refuses the moment a Cargo manifest is in the snapshot (below): a repository
   // with no Rust owes nothing to the broker (a git hook's minimal PATH, a JS-only app), and the class A scans never compile.
   const cargoCommand = executor.cargo ?? ["cargo"];
+  // The declared Linux broker route's cargo is `[<absolute validated client>, "cargo"]`, which the scan planner (planScans: `["rustright","cargo"]` or
+  // `["cargo"]`) refuses, and a PATH `rustright` is never the client. So the scans are PLANNED with the logical `["rustright","cargo"]` and every spawn the
+  // gate hands the scans, the discovery of the snapshot's workspaces and the tool probes resolves that one name to the executor's validated client,
+  // with the endpoint the executor declared (`withDeclaredClient`); nothing starts a `rustright` found on PATH. The carried requests
+  // (snapshotCargoSpawn's carrySpawn, the snapshot carrier) name the client by absolute path already. Every other route plans `cargoCommand` itself.
+  const declaredClient = executor.kind === "broker" && executor.route === LINUX_BROKER_ROUTE && typeof executor.client === "string" ? executor.client : null;
+  const planCargoCommand = declaredClient ? ["rustright", ...cargoCommand.slice(1)] : cargoCommand;
+  const withDeclaredClient = (spawn) => (declaredClient
+    ? (command, args, opts = {}) => (command === "rustright" ? spawn(declaredClient, args, { ...opts, env: { ...(opts.env ?? o.env), ...(executor.env ?? {}) } }) : spawn(command, args, opts))
+    : spawn);
   // A broker host (Mac, Dell) compiles a commit snapshot through the RustRight snapshot carrier: `deps.snapshotBroker`, built in the
   // snapshot-compile region below (item 7 rows 7.20 to 7.24). A broker-managed host whose broker cannot be reached is refused with
   // the executor's own problem, never compiled around.
@@ -2711,7 +2963,7 @@ export async function main(argv, io = {}) {
     // On a broker host the gate's snapshot is the broker's managed one, where RustRight refuses a root request ("a root request cannot run inside a
     // managed snapshot", rightkit#1311): the gate's own Cargo reads there (unit discovery, workspace members) are carried read-only requests,
     // with the broker's signed receipt verified (snapshot-metadata.mjs). The checkout, git and a direct host keep the plain spawn.
-    let snapshotSpawn = (c, a, opts) => o.spawn(c, a, opts);
+    let snapshotSpawn = withDeclaredClient((c, a, opts) => o.spawn(c, a, opts));
     let discoveryBroker = null;
     // On a broker host, the spawn every Class A Cargo scan of the snapshot runs through: a Cargo call inside the snapshot is a carried read-only
     // request of one of the exact admitted shapes (snapshot-metadata.mjs), anything else passes through (node, git, the client's probe).
@@ -2775,11 +3027,11 @@ export async function main(argv, io = {}) {
           if (o.snapshotBroker && typeof o.snapshotBroker.create !== "function") discoveryBroker = o.snapshotBroker; // a fixture broker (tests)
           else {
             const sc = snapshotCommitOf();
-            discoveryBroker = createSnapshotBroker({ env: o.env, platform: o.platform, checkout: root, commit: { sha: sc.commit, tree: sc.tree }, snapshot: { path: repo, expectedTree: sc.tree }, ownership: o.buildOwnership, client: which("rustright").find((c) => path.isAbsolute(c)), gateFile: callingGatePath(), spawn: o.spawn });
+            discoveryBroker = createSnapshotBroker({ env: o.env, platform: o.platform, checkout: root, commit: { sha: sc.commit, tree: sc.tree }, snapshot: { path: repo, expectedTree: sc.tree }, ownership: o.buildOwnership, client: executor.route === LINUX_BROKER_ROUTE ? executor.client : which("rustright").find((c) => path.isAbsolute(c)), gateFile: callingGatePath(), spawn: o.spawn });
           }
         } catch (error) { o.err(`${tag} BLOCKED: ${error.code ?? "RK_SNAPSHOT_BROKER"}: ${error.message}; nothing compiled`); return 1; }
-        snapshotSpawn = snapshotCargoSpawn({ spawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, snapshotRoot: repo, env: o.env, err: o.err, broker: () => discoveryBroker });
-        scanSpawn = snapshotCargoSpawn({ spawn: defaultSpawnAsync, carrySpawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, snapshotRoot: repo, env: o.env, err: o.err, broker: () => discoveryBroker });
+        snapshotSpawn = snapshotCargoSpawn({ spawn: withDeclaredClient((c, a, opts) => o.spawn(c, a, opts)), cargoCommand: planCargoCommand, snapshotRoot: repo, env: o.env, err: o.err, broker: () => discoveryBroker });
+        scanSpawn = snapshotCargoSpawn({ spawn: withDeclaredClient(defaultSpawnAsync), carrySpawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand: planCargoCommand, snapshotRoot: repo, env: o.env, err: o.err, broker: () => discoveryBroker });
       }
       npm = discoverNpmUnits({ root: repo, tracked, readFile: readSnap, exists: o.exists });
       npmRoots = discoverPnpmRoots({ root: repo, tracked, exists: o.exists });
@@ -2796,10 +3048,10 @@ export async function main(argv, io = {}) {
         const selectedWorkspaces = new Set(inventory.units.filter((u) => closure.rust.has(u.name)).map((u) => u.cargoDir));
         metadata = (dir) => {
           const source = sourceMetadata(dir);
-          return selectedWorkspaces.has(source.cargoDir) ? workspaceMetadata({ root: repo, spawn: snapshotSpawn, cargoCommand, dir, realpath: fs.realpathSync }) : source;
+          return selectedWorkspaces.has(source.cargoDir) ? workspaceMetadata({ root: repo, spawn: snapshotSpawn, cargoCommand: planCargoCommand, dir, realpath: fs.realpathSync }) : source;
         };
       }
-      rust = discoverRustWorkspaces({ root: repo, spawn: snapshotSpawn, cargoCommand, tracked, untracked, fixtures, readFile: readSnap, ...(metadata ? { metadata } : {}) });
+      rust = discoverRustWorkspaces({ root: repo, spawn: snapshotSpawn, cargoCommand: planCargoCommand, tracked, untracked, fixtures, readFile: readSnap, ...(metadata ? { metadata } : {}) });
       if (closure) {
         // Confirm membership discovered by Cargo; its closure must resolve without unrelated execution.
         closure = closureTools.closureOf({ scopeDirs, npmUnits: npm, rustUnits: rust.units, readFile: (file) => { if (!files.includes(file)) throw new Error(`${file} is absent from the committed tree`); return readSnap(path.join(repo, file)); } });
@@ -2847,7 +3099,7 @@ export async function main(argv, io = {}) {
       if (executor.kind === "broker" && manifests.length) {
         try {
           const { createSnapshotBroker } = await import("../snapshot-broker.mjs");
-          const client = which("rustright").find((c) => path.isAbsolute(c));
+          const client = executor.route === LINUX_BROKER_ROUTE ? executor.client : which("rustright").find((c) => path.isAbsolute(c));
           snapshotBroker = discoveryBroker ?? createSnapshotBroker({ env: o.env, platform: o.platform, checkout: root, commit: { sha: snapshotBCommit.commit, tree: snapshotBCommit.tree }, snapshot: { path: snapshotB, expectedTree: snapshotBCommit.tree }, ownership: o.buildOwnership, client, gateFile: callingGatePath(), spawn: o.spawn });
         } catch (error) { o.err(`${tag} BLOCKED: ${error.code ?? "RK_SNAPSHOT_BROKER"}: ${error.message}; nothing compiled`); return 1; }
         o.out(`${tag} broker snapshot compile: pins ${snapshotBroker.pins.keyId.slice(0, 12)} from ${snapshotBroker.pinsSource}, ${snapshotBroker.declaredInputs.length} declared input(s) read from the snapshot, ownership ${snapshotBroker.handle}`);
@@ -2965,7 +3217,7 @@ export async function main(argv, io = {}) {
     fullPlan = planScans({
       // Class A of a commit or tree reads only that snapshot: every scan, cargo's included, runs in the snapshot, never in the live
       // checkout (which may hold other bytes). Compiles (class B) use the live checkout, whose tree the dirty check pinned to HEAD.
-      changed, contentRoot: repo, liveRoot: (classAOnly && snapshot) || snapshotB ? repo : root, trustedRoot: snapshotA ?? snapshotB ?? root, includeTests: true, rustScope, cargoCommand, targetDirs, cargoShim: Boolean(cargoShim),
+      changed, contentRoot: repo, liveRoot: (classAOnly && snapshot) || snapshotB ? repo : root, trustedRoot: snapshotA ?? snapshotB ?? root, includeTests: true, rustScope, cargoCommand: planCargoCommand, targetDirs, cargoShim: Boolean(cargoShim),
       tier: fullA ? "release" : (option("--rule-tier") ?? "compile"), cargoLiveRoot,
       // The quiet tests (port, pipe, desktop and wall-clock bound) are proven by the CI shards, one crate per runner, unless
       // RK_GATE_QUIET_TESTS=local asks for the serial quiet lane here (no CI, or a CI outage).
@@ -3127,6 +3379,18 @@ export async function main(argv, io = {}) {
         }
       } catch { cache = null; }
     }
+    // The scan-tool policy (RA-18 / L9-03): the analyzers class A accepts (shellcheck, actionlint, cargo-deny, cargo-audit) run only from an enrolled
+    // executable. It comes from this host's enrolment record under the managed data root, else (RightKit's own checkout only) from the RUNNING
+    // gate's revision of ci/rk-pipeline.json `tools` (scan-tool-enrolment.mjs), never the checked repository, the snapshot or an environment variable.
+    // An unreadable or malformed record refuses the run: a scan tool is never judged against a policy that could not be read.
+    let scanTools;
+    try {
+      scanTools = await (o.loadScanToolPolicy ?? (async (q) => (await import("../scan-tool-enrolment.mjs")).loadScanToolPolicy(q)))({
+        dataRoot: resolveManagedRoots({ env: o.env, platform: o.platform }).dataRoot, platform: o.platform, gateFile: callingGatePath(), checkout: root, fromPipeline: scanToolPolicyFromPipeline, // reads the gate's own repository with real git, never the run's (possibly injected) spawn
+      });
+    } catch (error) { o.err(`${tag} BLOCKED: ${error.code ?? "RK_SCAN_TOOLS"}: ${error.message}; no scan ran`); return 1; }
+    const enrolledTools = Object.keys(scanTools?.policy ?? {});
+    if (enrolledTools.length) o.out(`${tag} scan-tool policy: ${enrolledTools.map((name) => `${name} (${scanTools.sources?.[name] ?? "enrolled"})`).join(", ")}`);
     // The direct compile's freshness census (row 7.19): the fingerprint units before the scans, and the fingerprint log of each cargo
     // process that compiles (CARGO_LOG on that process only, read from its own standard error). A broker host's census is the broker's.
     const census = snapshotB && !snapshotBroker ? createFreshnessCensus({ targetDirs }) : null;
@@ -3135,6 +3399,13 @@ export async function main(argv, io = {}) {
     const scanResult = await (o.runScans ?? runScans)(plan, {
       classes: classAOnly ? ["A"] : ["A", "B"], jobs, testJobs, classBJobs, signal: ac.signal, ...(cache ? { cache } : {}),
       ...(census ? { spawn: census.wrapSpawn(defaultSpawnAsync) } : {}),
+      // The declared Linux broker route: the scans are planned with the logical `rustright`, which this spawn (and scanSpawn's pass-through below) starts as the
+      // executor's validated client, never a PATH lookup (withDeclaredClient).
+      ...(declaredClient && !scanSpawn ? { spawn: withDeclaredClient(census ? census.wrapSpawn(defaultSpawnAsync) : defaultSpawnAsync) } : {}),
+      toolPolicy: scanTools?.policy ?? {},
+      // The class A cargo reads (deny, audit, metadata, fetch) are carried requests the broker executes (scanSpawn): cargo-deny and cargo-audit are then the
+      // broker's registered tools, in the check stage too (which has no snapshotBroker). Only when the reads really go to the broker.
+      ...(executor.kind === "broker" && scanSpawn ? { cargoReadsCarried: true } : {}),
       // A broker host: every Cargo call a class A scan makes inside the snapshot is a carried read-only request; the gate's own temporary files
       // (cargo-deny's metadata and config) live in a gate-owned directory the broker can read, outside the checkout.
       ...(scanSpawn ? { spawn: scanSpawn, tmpRoot: gateTmpRoot({ env: o.env, platform: o.platform, exists: o.exists }) } : {}),
@@ -3148,14 +3419,14 @@ export async function main(argv, io = {}) {
       // `executes`) run in the full gate (--all, the push hook, the door's compile stage), after the content checks and before any compile.
       ...(classAOnly && !fullA ? { exclude: (s) => s.executes === true } : {}),
       // A snapshot check names its commit; it never reads the checkout's HEAD.
-      quietLane: quietLeaseLane(o, { tag, reason: `rightkit-gate-quiet-tests@${snapshotCommitId ? snapshotCommitId.commit.slice(0, 12) : snapshotBCommit ? snapshotBCommit.commit.slice(0, 12) : text(git("rev-parse", "--short", "HEAD")).trim()}` }),
+      quietLane: quietLeaseLane(o, { tag, executor, reason: `rightkit-gate-quiet-tests@${snapshotCommitId ? snapshotCommitId.commit.slice(0, 12) : snapshotBCommit ? snapshotBCommit.commit.slice(0, 12) : text(git("rev-parse", "--short", "HEAD")).trim()}` }),
       // On a broker-managed host the quiet suites need the lease or they are refused (never run unleashed).
       requireQuietLease: executor.kind === "broker",
       // Failing scans' complete output: never inside the repository, on the host's scratch root (RIGHTKIT_SCRATCH_ROOT, else the
       // managed data root's runs/), in a folder unique to this run so evidence is never overwritten.
       scanLogDir: (() => {
         try {
-          const base = o.env.RIGHTKIT_SCRATCH_ROOT || path.join(resolveManagedRoots({ env: o.env }).dataRoot, "runs");
+          const base = gateRunsRoot({ env: o.env, platform: o.platform });
           const stamp = new Date().toISOString().replace(/[:.]/g, "-");
           return path.join(base, "rightkit-gate-scan-logs", `${path.basename(root)}-${stamp}-${process.pid}`);
         } catch { return null; }
@@ -3217,6 +3488,8 @@ export async function main(argv, io = {}) {
       o.out(`${tag} snapshot ${snapshotB} is still tree ${snapshotBCommit.tree} after the compile`);
       // A broker host's evidence is the broker's own signed receipts (each carried scan's row.snapshotEvidence, verified above); the
       // gate writes no receipt that says `executor: direct` for it.
+      // The output directories this compile's evidence names (GB-13): the broker's signed receipts' `outputDir`, or the direct host's resolved targets.
+      o.onCompileOutputs?.(snapshotBroker ? scanResult.scans.map((r) => r.snapshotEvidence?.outputDir).filter(Boolean) : Object.values(targetDirs ?? {}).filter(Boolean));
       if (snapshotBroker) o.out(`${tag} broker compile: ${scanResult.scans.filter((r) => r.snapshotEvidence).length} carried request(s) with verified signed receipts; no direct receipt on a broker host`);
       else {
         // The direct host's own receipt (GATE-CONTRACT "Broker interface", row 7.18): the contract's returned-evidence names minus the
@@ -3227,7 +3500,7 @@ export async function main(argv, io = {}) {
         const requestId = randomUUID();
         const exitCode = failures.length ? 1 : 0;
         const diagnosticsDir = (() => {
-          try { return path.join(o.env.RIGHTKIT_SCRATCH_ROOT || path.join(resolveManagedRoots({ env: o.env }).dataRoot, "runs"), "rightkit-gate-direct-diagnostics"); } catch { return path.join(os.tmpdir(), "rightkit-gate-direct-diagnostics"); }
+          try { return path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-gate-direct-diagnostics"); } catch { return path.join(os.tmpdir(), "rightkit-gate-direct-diagnostics"); }
         })();
         let directReceipt;
         try {
@@ -3312,8 +3585,10 @@ const SNAPSHOT_ABSOLUTE_ENV = ["CARGO_HOME", "RUSTUP_HOME", "SCCACHE_DIR", "TMPD
  * their own carrier through `main`; the contract test (door-route.test.mjs) runs the real entry. `platform` is the host whose deps are
  * asked for (the real entry passes none).
  */
-export async function productionEntryDeps({ platform = process.platform } = {}) {
-  if (directPlatform(platform)) return {};
+export async function productionEntryDeps({ platform = process.platform, env = process.env } = {}) {
+  // A direct Linux host carries nothing. A Linux host that DECLARED the broker route (managed-cargo.mjs linuxBrokerDeclared) gets the same carrier as the
+  // Mac and the Dell, valid declaration or not: an invalid one is refused by the executor (kind "refuse"), never left to compile direct without a carrier.
+  if (directPlatform(platform) && !linuxBrokerDeclared(env, platform)) return {};
   const { PRODUCTION_SNAPSHOT_CARRIER } = await import("../snapshot-broker.mjs");
   return { snapshotBroker: PRODUCTION_SNAPSHOT_CARRIER };
 }

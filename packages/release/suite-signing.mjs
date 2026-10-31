@@ -35,7 +35,7 @@ import { runMacCodesignCommands } from "./macos-signing-session.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { isInside, realish } from "./qa-snapshot.mjs";
 import { requireSignerToken, signWindowsFiles, verifyWindowsFiles } from "./sign-windows.mjs";
-import { QA_APP_BINARY_ENV, SIGN_SUBJECT, SIGN_TEAM, SuiteSigningError, assertBundleIdMatches, containedRelative, productIdentity } from "./suite-signing-policy.mjs";
+import { QA_APP_BINARY_ENV, QA_SIGNED_FILES_ENV, SIGN_SUBJECT, SIGN_TEAM, SuiteSigningError, assertBundleIdMatches, containedRelative, productIdentity } from "./suite-signing-policy.mjs";
 
 const refuse = (code, message, details) => { throw new SuiteSigningError(code, message, details); };
 const sha256 = (file) => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
@@ -210,7 +210,8 @@ export function runSignStep({ name, sign, appRoot, config, env = process.env, pl
     const evidenceFile = path.join(signedDir, "signing-evidence.json");
     fs.writeFileSync(evidenceFile, `${JSON.stringify({ schema: 1, step: name, ...(host === "mac" ? { identifier, team: SIGN_TEAM } : { subject: SIGN_SUBJECT }), files: evidence }, null, 2)}\n`);
     record({ status: "ran", step: name, signing: evidence });
-    return { appBinary: mainIndex >= 0 ? copies[mainIndex].file : null, evidence, evidenceFile, signedDir };
+    // Every signed file by its declared path (main binary and every sidecar), for the consumer that is handed the signed bytes.
+    return { appBinary: mainIndex >= 0 ? copies[mainIndex].file : null, signedFiles: Object.fromEntries(copies.map((copy) => [copy.path, copy.file])), evidence, evidenceFile, signedDir };
   } catch (error) {
     // A step that failed leaves no signed copy behind.
     if (signedDir) { try { fs.rmSync(signedDir, { recursive: true, force: true }); } catch { /* the managed root is pruned */ } }
@@ -219,4 +220,4 @@ export function runSignStep({ name, sign, appRoot, config, env = process.env, pl
   }
 }
 
-export { QA_APP_BINARY_ENV };
+export { QA_APP_BINARY_ENV, QA_SIGNED_FILES_ENV };

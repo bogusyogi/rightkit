@@ -1,0 +1,477 @@
+{
+ "schema": "rustright.freshness-evidence-vectors.v1",
+ "description": "Shared evidence semantics for a Cargo compile's freshness census (BROKER-CONTRACT section 16, GB-68). RustRight's broker (rustright-policy cargo_freshness, rustright-broker cargo_evidence) is tested against these; RightKit's direct census (packages/release/freshness-census.mjs) is expected to produce the same unit, kind, cause, scope and completeness for the same inputs. A census that cannot read what exists is unavailable, never empty, and never a first build.",
+ "caps": {
+  "reasons": 200,
+  "reasonTextChars": 512
+ },
+ "causes": {
+  "FreshBuild": "first-build",
+  "FingerprintMissing": "fingerprint-missing",
+  "RustcChanged": "toolchain-changed",
+  "FsStatusOutdated": "source-or-dependency-changed",
+  "PathToSourceChanged": "source-or-dependency-changed",
+  "EnvVarChanged": "env-rustflags-profile-features-or-target-changed",
+  "RustflagsChanged": "env-rustflags-profile-features-or-target-changed",
+  "FeaturesChanged": "env-rustflags-profile-features-or-target-changed",
+  "ProfileConfigurationChanged": "env-rustflags-profile-features-or-target-changed",
+  "CompileKindChanged": "env-rustflags-profile-features-or-target-changed",
+  "NothingObvious": "unexplained",
+  "Forced": "unexplained",
+  "SomethingCargoAddsLater": "unexplained"
+ },
+ "profileDirectory": [
+  {
+   "argv": [
+    "build"
+   ],
+   "directory": "debug"
+  },
+  {
+   "argv": [
+    "build",
+    "--release"
+   ],
+   "directory": "release"
+  },
+  {
+   "argv": [
+    "build",
+    "-r"
+   ],
+   "directory": "release"
+  },
+  {
+   "argv": [
+    "build",
+    "--profile",
+    "dev"
+   ],
+   "directory": "debug"
+  },
+  {
+   "argv": [
+    "test"
+   ],
+   "directory": "debug"
+  },
+  {
+   "argv": [
+    "build",
+    "--profile=test"
+   ],
+   "directory": "debug"
+  },
+  {
+   "argv": [
+    "bench"
+   ],
+   "directory": "debug",
+   "note": "the profile flag, not the subcommand, picks the directory in the census; `bench` runs the release profile through Cargo's own default, which the broker's cache bucket models separately"
+  },
+  {
+   "argv": [
+    "build",
+    "--profile",
+    "bench"
+   ],
+   "directory": "release"
+  },
+  {
+   "argv": [
+    "build",
+    "--profile",
+    "ci-fast"
+   ],
+   "directory": "ci-fast"
+  },
+  {
+   "argv": [
+    "build",
+    "--profile=ci-fast",
+    "--release"
+   ],
+   "directory": "ci-fast"
+  },
+  {
+   "argv": [
+    "run",
+    "--",
+    "--release"
+   ],
+   "directory": "debug",
+   "note": "after `--` is the program's"
+  }
+ ],
+ "wantsJson": [
+  {
+   "argv": [
+    "build",
+    "--message-format=json"
+   ],
+   "expect": true
+  },
+  {
+   "argv": [
+    "build",
+    "--message-format",
+    "json-diagnostic-rendered-ansi"
+   ],
+   "expect": true
+  },
+  {
+   "argv": [
+    "build",
+    "--message-format=short,json"
+   ],
+   "expect": true
+  },
+  {
+   "argv": [
+    "build",
+    "--message-format=short"
+   ],
+   "expect": false
+  },
+  {
+   "argv": [
+    "run",
+    "--",
+    "--message-format=json"
+   ],
+   "expect": false,
+   "note": "after `--` is the program's"
+  }
+ ],
+ "logs": [
+  {
+   "name": "nested Cargo chatter after the first execution status is not the root's",
+   "strip": true,
+   "chunks": [
+    " Updating crates.io index\n",
+    " INFO prepare_target{force=false package_id=alpha v0.1.0 (path+file:///w/alpha) target=\"alpha\"}: cargo::core::compiler::fingerprint: fingerprint dirty for alpha v0.1.0 (/w/alpha)/Check { test: false }/TargetInner { name: \"alpha\" }\n",
+    " INFO prepare_target{force=false package_id=alpha v0.1.0 (path+file:///w/alpha) target=\"alpha\"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated { stale: StaleItem::ChangedFile }\n",
+    "   Compiling alpha v0.1.0 (/w/alpha)\n",
+    " INFO prepare_target{force=false package_id=nested v0.1.0 (path+file:///w/nested) target=\"nested\"}: cargo::core::compiler::fingerprint: fingerprint dirty for nested v0.1.0 (/w/nested)/Check { test: false }/TargetInner { name: \"nested\" }\n",
+    " INFO prepare_target{force=false package_id=nested v0.1.0 (path+file:///w/nested) target=\"nested\"}: cargo::core::compiler::fingerprint:     dirty: FreshBuild\n",
+    "    Finished `dev` profile\n"
+   ],
+   "expect": {
+    "dirtyUnits": 1,
+    "truncated": 0,
+    "reasons": [
+     {
+      "unit": "alpha v0.1.0",
+      "target": "alpha",
+      "kind": "FsStatusOutdated",
+      "cause": "source-or-dependency-changed"
+     }
+    ],
+    "shownContains": [
+     "fingerprint dirty for nested"
+    ],
+    "shownLacks": [
+     "fingerprint dirty for alpha"
+    ]
+   }
+  },
+  {
+   "name": "pre-resolution lines do not end the root window",
+   "strip": true,
+   "chunks": [
+    "    Locking 3 packages\n",
+    " Downloading crates ...\n",
+    " INFO prepare_target{force=false package_id=beta v0.1.0 (path+file:///w/beta) target=\"beta\"}: cargo::core::compiler::fingerprint: fingerprint dirty for beta v0.1.0 (/w/beta)/Check { test: false }/TargetInner { name: \"beta\" }\n",
+    " INFO prepare_target{force=false package_id=beta v0.1.0 (path+file:///w/beta) target=\"beta\"}: cargo::core::compiler::fingerprint:     dirty: RustflagsChanged { old: [], new: [\"-O\"] }\n",
+    "   Compiling beta v0.1.0\n"
+   ],
+   "expect": {
+    "dirtyUnits": 1,
+    "truncated": 0,
+    "reasons": [
+     {
+      "unit": "beta v0.1.0",
+      "target": "beta",
+      "kind": "RustflagsChanged",
+      "cause": "env-rustflags-profile-features-or-target-changed"
+     }
+    ]
+   }
+  },
+  {
+   "name": "a missing fingerprint file (Unix os error 2) is FingerprintMissing",
+   "strip": true,
+   "chunks": [
+    " INFO cargo::core::compiler::fingerprint: fingerprint error for gamma v0.1.0 (/w/gamma)/Build/TargetInner { .. }\n",
+    " INFO cargo::core::compiler::fingerprint:     err: failed to read `/t/debug/.fingerprint/gamma-1/lib-gamma`\n",
+    "\n",
+    "Caused by:\n",
+    "    No such file or directory (os error 2)\n",
+    "   Compiling gamma v0.1.0\n"
+   ],
+   "expect": {
+    "dirtyUnits": 1,
+    "truncated": 0,
+    "reasons": [
+     {
+      "unit": "gamma v0.1.0",
+      "target": null,
+      "kind": "FingerprintMissing",
+      "cause": "fingerprint-missing"
+     }
+    ],
+    "stripped": true
+   }
+  },
+  {
+   "name": "a missing fingerprint path on Windows (os error 3) is FingerprintMissing",
+   "strip": true,
+   "chunks": [
+    " INFO cargo::core::compiler::fingerprint: fingerprint error for delta v0.1.0 (C:/w/delta)/Build/TargetInner { .. }\n",
+    " INFO cargo::core::compiler::fingerprint:     err: failed to read `C:\\t\\debug\\.fingerprint\\delta-1\\lib-delta`\n",
+    "Caused by:\n",
+    "    The system cannot find the path specified. (os error 3)\n"
+   ],
+   "expect": {
+    "dirtyUnits": 1,
+    "truncated": 0,
+    "reasons": [
+     {
+      "unit": "delta v0.1.0",
+      "target": null,
+      "kind": "FingerprintMissing",
+      "cause": "fingerprint-missing"
+     }
+    ]
+   }
+  },
+  {
+   "name": "any other read failure stays unexplained",
+   "strip": true,
+   "chunks": [
+    " INFO cargo::core::compiler::fingerprint: fingerprint error for eps v0.1.0 (/w/eps)/Build/TargetInner { .. }\n",
+    " INFO cargo::core::compiler::fingerprint:     err: failed to read `/t/debug/.fingerprint/eps-1/lib-eps`\n",
+    "Caused by:\n",
+    "    Permission denied (os error 13)\n"
+   ],
+   "expect": {
+    "dirtyUnits": 1,
+    "truncated": 0,
+    "reasons": [
+     {
+      "unit": "eps v0.1.0",
+      "target": null,
+      "kind": "failed",
+      "cause": "unexplained"
+     }
+    ]
+   }
+  },
+  {
+   "name": "a log line split across chunks and colour codes",
+   "strip": true,
+   "chunks": [
+    "\u001b[32m INFO\u001b[0m cargo::core::compiler::fingerprint: fingerprint dirty for zeta v0.1.0 (/w/zeta)/Check { test: false }/TargetInner { .. }\n \u001b[32mINFO\u001b[0m cargo::core::compiler::fingerprint:     dir",
+    "ty: FeaturesChanged { old: \"\", new: \"x\" }\n"
+   ],
+   "expect": {
+    "dirtyUnits": 1,
+    "truncated": 0,
+    "reasons": [
+     {
+      "unit": "zeta v0.1.0",
+      "target": null,
+      "kind": "FeaturesChanged",
+      "cause": "env-rustflags-profile-features-or-target-changed"
+     }
+    ]
+   }
+  },
+  {
+   "name": "the reason cap keeps 200 reasons and counts the rest",
+   "strip": true,
+   "repeat": {
+    "count": 205,
+    "unitPrefix": "u",
+    "template": "dirty"
+   },
+   "expect": {
+    "dirtyUnits": 205,
+    "truncated": 5,
+    "reasonCount": 200
+   }
+  },
+  {
+   "name": "a long reason keeps 512 characters and an ellipsis",
+   "strip": true,
+   "chunks": [
+    " INFO prepare_target{force=false package_id=long v0.1.0 (path+file:///w/long) target=\"long\"}: cargo::core::compiler::fingerprint: fingerprint dirty for long v0.1.0 (/w/long)/Check { test: false }/TargetInner { name: \"long\" }\n",
+    " INFO prepare_target{force=false package_id=long v0.1.0 (path+file:///w/long) target=\"long\"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated { éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé }\n"
+   ],
+   "expect": {
+    "dirtyUnits": 1,
+    "truncated": 0,
+    "reasons": [
+     {
+      "unit": "long v0.1.0",
+      "target": "long",
+      "kind": "FsStatusOutdated",
+      "cause": "source-or-dependency-changed",
+      "reasonChars": 513
+     }
+    ]
+   }
+  }
+ ],
+ "scope": [
+  {
+   "name": "the selected profile's directory only, never every profile or triple",
+   "files": [
+    "debug/.fingerprint/a-1/x",
+    "debug/.fingerprint/b-1/x",
+    "release/.fingerprint/c-1/x",
+    "aarch64-apple-darwin/debug/.fingerprint/d-1/x",
+    "aarch64-apple-darwin/release/.fingerprint/e-1/x",
+    "doc/.fingerprint/f-1/x"
+   ],
+   "argv": [
+    "build"
+   ],
+   "triple": null,
+   "directories": [
+    "debug/.fingerprint"
+   ],
+   "unitsAtStart": 2
+  },
+  {
+   "name": "a selected triple adds its profile directory and keeps the plain one",
+   "files": [
+    "debug/.fingerprint/a-1/x",
+    "aarch64-apple-darwin/debug/.fingerprint/d-1/x",
+    "aarch64-apple-darwin/release/.fingerprint/e-1/x"
+   ],
+   "argv": [
+    "build"
+   ],
+   "triple": "aarch64-apple-darwin",
+   "directories": [
+    "aarch64-apple-darwin/debug/.fingerprint",
+    "debug/.fingerprint"
+   ],
+   "unitsAtStart": 2
+  },
+  {
+   "name": "a release build reads release only",
+   "files": [
+    "debug/.fingerprint/a-1/x",
+    "release/.fingerprint/c-1/x",
+    "release/.fingerprint/c-2/x"
+   ],
+   "argv": [
+    "build",
+    "--release"
+   ],
+   "triple": null,
+   "directories": [
+    "release/.fingerprint"
+   ],
+   "unitsAtStart": 2
+  },
+  {
+   "name": "a profile never built here is an empty profile, not an error",
+   "files": [
+    "debug/.fingerprint/a-1/x"
+   ],
+   "argv": [
+    "build",
+    "--release"
+   ],
+   "triple": null,
+   "directories": [
+    "release/.fingerprint"
+   ],
+   "unitsAtStart": 0
+  }
+ ],
+ "census": [
+  {
+   "name": "units written before the start are fresh",
+   "files": [
+    "debug/.fingerprint/a-1/x",
+    "debug/.fingerprint/b-1/x"
+   ],
+   "argv": [
+    "build"
+   ],
+   "since": "future",
+   "expect": {
+    "outcome": "available",
+    "fresh": 2,
+    "notFresh": 0
+   }
+  },
+  {
+   "name": "units written at or after the start are rebuilt",
+   "files": [
+    "debug/.fingerprint/a-1/x",
+    "debug/.fingerprint/b-1/x"
+   ],
+   "argv": [
+    "build"
+   ],
+   "since": "past",
+   "expect": {
+    "outcome": "available",
+    "fresh": 0,
+    "notFresh": 2
+   }
+  },
+  {
+   "name": "an empty profile counts nothing and is unavailable, not a first build",
+   "files": [
+    "debug/.fingerprint/a-1/x"
+   ],
+   "argv": [
+    "build",
+    "--release"
+   ],
+   "since": "past",
+   "expect": {
+    "outcome": "unavailable",
+    "reason": "no-fingerprint-units-found"
+   }
+  },
+  {
+   "name": "a fingerprint directory that is not a directory is a read failure, not an empty census",
+   "files": [
+    "debug/.fingerprint"
+   ],
+   "argv": [
+    "build"
+   ],
+   "since": "past",
+   "expect": {
+    "outcome": "unavailable",
+    "reason": "fingerprint-census-read-failed"
+   }
+  },
+  {
+   "name": "more entries than the cap is unavailable, never partial",
+   "files": [
+    "debug/.fingerprint/a-1/x",
+    "debug/.fingerprint/b-1/x",
+    "debug/.fingerprint/c-1/x",
+    "debug/.fingerprint/d-1/x"
+   ],
+   "argv": [
+    "build"
+   ],
+   "since": "past",
+   "cap": 3,
+   "expect": {
+    "outcome": "unavailable",
+    "reason": "fingerprint-census-entry-cap-exceeded"
+   }
+  }
+ ]
+}

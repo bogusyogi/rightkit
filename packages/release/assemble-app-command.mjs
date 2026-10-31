@@ -12,13 +12,16 @@
 //   assemble-app --platform win --package
 //       makensis from assembly.win.nsis over the staged payload, then Authenticode-signs the installer (sign-windows).
 import { spawnSync } from "./background-process.mjs";
-import nodeFs, { realpathSync } from "node:fs";
+import nodeFs, { existsSync, realpathSync } from "node:fs";
+import { BUILD_LAUNCH_REFUSED, buildLaunch } from "./build-launch.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assembleMacBundle, assembleWindowsPayload, AssembledAppError, loadStageReceipt, resolveAssembly, resolveNestedApp, verifyMacBundle, verifyReleaseBinding, verifyWindowsPayload, writeReleaseBinding } from "./assembled-app.mjs";
 import { buildOuterApp, outerProductPath, resolveAssemblyStorage } from "./install-assembled-app.mjs";
 
 const SIGN_WINDOWS = fileURLToPath(new URL("./sign-windows.mjs", import.meta.url));
+/** This package's own right-release entry: it comes back through the door for its own children (development.mjs OWN_RIGHT_RELEASE). */
+const OWN_RIGHT_RELEASE = fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url));
 const refuse = (code, message) => { throw new AssembledAppError(code, message); };
 
 export function parseAssembleArgs(argv) {
@@ -45,13 +48,27 @@ export function parseAssembleArgs(argv) {
   return opts;
 }
 
-function runPrepare({ root, spec, env, run, resolveCommand, log }) {
+/**
+ * GB-59 (GATE commit/broker entry; BR20): every compile-capable prepare step goes through the one build door (build-launch.mjs), like a dev build step: on a
+ * broker host it is a carried or adapter job with the step's declared env (a refusal comes before anything is spawned), anywhere else the plain command.
+ * This package's own `right-release` keeps its process order (its children come back through the door). Trusted release orchestration stays session-side.
+ */
+function runPrepare({ root, spec, env, run, resolveCommand, log, door = buildLaunch, exists = existsSync }) {
   for (const command of spec.prepare.release) {
-    const launch = resolveCommand(command.cmd, command.args, { root, env });
+    const args = (command.args ?? []).map(String);
     const cwd = path.resolve(root, command.cwd ?? ".");
-    log(`assemble-app: prepare ${command.cmd} ${command.args.join(" ")}`);
-    const result = run(launch.command, launch.args, { cwd, env: { ...(launch.env ?? env), ...(command.env ?? {}) }, stdio: "inherit", windowsHide: true, shell: false, timeout: command.timeoutMs });
-    if (result.error || result.status !== 0) refuse("ASSEMBLY_BUILD_FAILED", `prepare command failed (${result.status ?? result.error?.message}): ${command.cmd} ${command.args.join(" ")}`);
+    const ownReleaseStep = (args[0] === "exec" && args[1] === "right-release") || args[0] === "right-release";
+    const resolved = command.cmd === "pnpm" && !ownReleaseStep ? { command: "pnpm", args } : resolveCommand(command.cmd, args, { root, env });
+    const own = resolved.command === process.execPath && resolved.args[0] === OWN_RIGHT_RELEASE;
+    let launch = resolved;
+    if (!own) {
+      try { launch = { ...resolved, ...door(command.cmd === "pnpm" ? "pnpm" : resolved.command, command.cmd === "pnpm" ? args : resolved.args, { env: resolved.env ?? env, stepEnv: command.env, cwd, exists }) }; }
+      catch (error) { if (error?.code === BUILD_LAUNCH_REFUSED) refuse("ASSEMBLY_BUILD_REFUSED", `prepare command refused before it started: ${error.message}`); throw error; }
+    }
+    log(`assemble-app: prepare ${command.cmd} ${args.join(" ")}`);
+    const baseEnv = launch.env && launch.env !== resolved.env ? { ...(resolved.env ?? env), ...launch.env } : (launch.env ?? env);
+    const result = run(launch.command, launch.args, { cwd, env: { ...baseEnv, ...(command.env ?? {}) }, stdio: "inherit", windowsHide: true, shell: false, timeout: command.timeoutMs });
+    if (result.error || result.status !== 0) refuse("ASSEMBLY_BUILD_FAILED", `prepare command failed (${result.status ?? result.error?.message}): ${command.cmd} ${args.join(" ")}`);
   }
 }
 
@@ -112,7 +129,7 @@ export async function assembleApp({ root, config, opts, env = process.env, deps 
     return { installer: output };
   }
 
-  if (opts.build) runPrepare({ root, spec, env, run: d.run, resolveCommand: d.resolveCommand, log: d.log });
+  if (opts.build) runPrepare({ root, spec, env, run: d.run, resolveCommand: d.resolveCommand, log: d.log, ...(d.door ? { door: d.door } : {}), ...(d.exists ? { exists: d.exists } : {}) });
   const receipt = loadStageReceipt({ root, spec, profile, fs: d.fs });
   if (spec.platform === "mac") {
     const storage = d.storage({ root, profile, env, run: d.run });

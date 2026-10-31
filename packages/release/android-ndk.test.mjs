@@ -26,7 +26,7 @@ test("the release default is arm64-v8a with --release; the dev default adds the 
   assert.deepEqual(release.abis, ["arm64-v8a"]);
   const command = androidNdkCommand(release);
   assert.equal(command.cmd, "cargo");
-  assert.deepEqual(command.args, ["ndk", "-t", "arm64-v8a", "-o", path.join(root, ...JNI.split("/")), "build", "--release"]);
+  assert.deepEqual(command.args, ["ndk", "-t", "arm64-v8a", "-o", path.join(root, ...JNI.split("/")), "build", "--locked", "--release"]);
   const dev = validateAndroidNdk({ jniLibs: JNI }, { root, kind: "dev" });
   assert.deepEqual(dev.abis, ["arm64-v8a", "x86_64"]);
   const devArgs = androidNdkCommand(dev, { profile: "dev" }).args;
@@ -116,4 +116,32 @@ test("the release lane builds the native libraries before Gradle and plans them 
   assert.deepEqual(calls[0][2], {});
   const argv = JSON.stringify(calls);
   assert.ok(!/pass|secret/i.test(argv));
+});
+
+test("[GB-62] every ABI/profile/manifest form puts --locked at the inner Cargo boundary (right after `build`), keeping the outer ABI/API/output flags; the carried-argv rule agrees and never appends to the wrong parser", async (t) => {
+  const { root } = workspace(t);
+  const { lockedArgv } = await import("./snapshot-request.mjs");
+  for (const kind of ["release", "dev"]) {
+    for (const abis of [["arm64-v8a"], ["arm64-v8a", "x86_64"], ["armeabi-v7a", "x86"]]) {
+      for (const extra of [{}, { manifestPath: "rust/Cargo.toml" }, { package: "heardright-android", features: ["a"] }, { apiLevel: 26, manifestPath: "rust/Cargo.toml", package: "p" }]) {
+        const ndk = validateAndroidNdk({ abis, jniLibs: JNI, ...extra }, { root, kind });
+        const { args } = androidNdkCommand(ndk, { profile: kind });
+        const build = args.indexOf("build");
+        assert.equal(args[build + 1], "--locked", `${kind} ${abis} ${JSON.stringify(extra)}: --locked is the first inner argument`);
+        assert.equal(args.filter((a) => a === "--locked").length, 1);
+        assert.deepEqual(args.slice(0, build).filter((a) => a === "-t").length, abis.length, "outer ABI flags intact");
+        assert.ok(!args.slice(0, build).includes("--locked"), "never before `build`: cargo-ndk's own grammar");
+        assert.deepEqual(lockedArgv(args), args, "an argv that already carries it is sent as it is (no second flag)");
+      }
+    }
+  }
+  // The carried-call rule for an argv WITHOUT the flag: inserted after the inner subcommand, after every outer option and its value.
+  const unlocked = ["ndk", "--platform", "26", "-t", "arm64-v8a", "-o", "app/jniLibs", "build", "--release", "-p", "x"];
+  assert.deepEqual(lockedArgv(unlocked), ["ndk", "--platform", "26", "-t", "arm64-v8a", "-o", "app/jniLibs", "build", "--locked", "--release", "-p", "x"], "-p after `ndk` is cargo-ndk's platform, not a package: the flag lands after `build`");
+  assert.deepEqual(lockedArgv(["ndk", "-t", "arm64-v8a", "build", "--", "--locked"]), ["ndk", "-t", "arm64-v8a", "build", "--locked", "--", "--locked"], "a --locked after `--` is the program's, not Cargo's");
+  assert.deepEqual(lockedArgv(["ndk", "-t", "arm64-v8a", "build", "--frozen"]), ["ndk", "-t", "arm64-v8a", "build", "--frozen"]);
+  assert.deepEqual(lockedArgv(["ndk", "-t", "arm64-v8a", "--no-strip", "check"]), ["ndk", "-t", "arm64-v8a", "--no-strip", "check", "--locked"]);
+  assert.deepEqual(lockedArgv(["ndk", "-t", "arm64-v8a"]), ["ndk", "-t", "arm64-v8a"], "no inner command: nothing to lock");
+  assert.deepEqual(lockedArgv(["ndk", "-t", "arm64-v8a", "metadata"]), ["ndk", "-t", "arm64-v8a", "metadata"], "an inner command that compiles nothing is left alone");
+  assert.deepEqual(lockedArgv(["build", "-p", "x"]), ["build", "--locked", "-p", "x"], "plain cargo is unchanged");
 });

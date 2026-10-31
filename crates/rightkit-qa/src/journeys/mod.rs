@@ -12,6 +12,8 @@
 //!   attested exit), staleness and the launch-time re-check.
 //! * `run`: `journeys run` steps 1 to 3 (select, source identity, broker build), the qualifying-mode
 //!   refusals and the run-store cleanup.
+//! * `prebuilt`: `journeys run --from-cargo-json <listing> --prebuilt-attestation <file>`: the gate's carried, signed build consumed
+//!   without compiling (audit GB-79, capability `journeys-prebuilt-input`).
 //! * `lint`: `journeys check` guardrails (W2-H, `src/journeys/lint.rs`).
 //!
 //! Not here yet: `census` and `gate`. (`journeys run` does all five steps: see `run`.) The CLI
@@ -28,6 +30,7 @@ pub mod bridge;
 pub mod build_record;
 pub mod lint;
 pub mod manifest;
+pub mod prebuilt;
 pub mod receipt;
 pub mod run;
 

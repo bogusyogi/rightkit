@@ -4,11 +4,16 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { spawn } from "./background-process.mjs";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
-  ANDROID_ENV_SECRET_REFUSED, ANDROID_RECEIPT_NAME, ANDROID_SECRET_MISSING, ANDROID_SIGNING_CONTRACT, ANDROID_SIGNING_PROPERTIES_ENV,
+  ANDROID_ENV_SECRET_REFUSED, ANDROID_RECEIPT_NAME, ANDROID_RELEASE_CANCELLED, ANDROID_SECRET_MISSING, ANDROID_SIGNING_CONTRACT, ANDROID_SIGNING_PROPERTIES_ENV,
   androidEnvSecretNames, androidSealEntry, createAndroidCredentialStore, createSigningProperties, escapeJavaProperty,
   readSecretFile, refuseAndroidEnvSecrets, resolveAndroidSecret, runAndroidRelease, validateAndroidTarget, verifyAndroidReceipt, verifyAabSigner,
 } from "./android-release.mjs";
+import { createNativeRunner } from "./build-launch.mjs";
+import { managedRuntimeClient } from "./managed-roots.mjs";
+import { NATIVE_SIGNING_FILE_ENV } from "./native-adapters.mjs";
 import { FIXTURE_CERT_SHA256, aab, fakeCertificate, markedLib } from "./android-test-fixtures.mjs";
 
 const PASSWORD = "S3cret pass=word#\u00e9";
@@ -314,4 +319,108 @@ test("a receipt no longer matches a changed bundle", async (t) => {
   assert.doesNotThrow(() => verifyAndroidReceipt(receiptPath, aabPath));
   writeFileSync(aabPath, aab({ extra: [{ name: "base/assets/late.txt", data: Buffer.from("added after signing") }] }));
   assert.throws(() => verifyAndroidReceipt(receiptPath, aabPath), /differ from the build receipt/);
+});
+
+// ---- RA-08: the signing file's lifetime and the door's verdict on its handoff --------------------------------------------------------------------
+// Real host descriptions of createNativeRunner (build-launch.mjs), never an executor: `plan` maps and spawns nothing. A direct Linux host has no broker (its own Gradle gets the path);
+// a Mac host is a broker route, where bundle<Variant>Release is refused by the grammar and the signing file has no capability yet (native-signing-file-v1; the signed phase is OPEN and off).
+const directHost = (root) => createNativeRunner({ cwd: root, env: { PATH: "/usr/bin" }, platform: "linux", exists: () => false, which: () => [], readFile: () => "" });
+const brokerHost = (root) => {
+  const env = { PATH: "/usr/bin", HOME: "/Users/rk" };
+  const client = managedRuntimeClient(env, "darwin", () => true);
+  return createNativeRunner({ cwd: root, env, platform: "darwin", exists: (file) => file === client, which: (command) => (command === "rustright" ? ["/elsewhere/on/path/rustright"] : []), readFile: () => "" });
+};
+
+test("release lane: the broker route refuses the signed phase before any secret is read or any file is written", async (t) => {
+  const ws = workspace(t);
+  let read = false;
+  const { run, record } = runner(ws, targetConfig(ws));
+  await assert.rejects(run({ native: brokerHost(ws.root), credentialStore: { read: () => { read = true; return "x"; } } }),
+    (error) => error.code === "RK_NATIVE_TOOL_REFUSED" && /bundleRelease/.test(error.message) && /no secret was read and no signing file was written/.test(error.message) && !error.message.includes(PASSWORD));
+  assert.equal(read, false);
+  assert.equal(record.gradleCalls.length, 0);
+  assert.equal(readdirSync(ws.scratch).length, 0, "no signing directory, not even the probe path, was created");
+  assert.equal(existsSync(path.join(ws.root, ".right-release")), false);
+});
+
+test("release lane: a direct host's door carries the handoff, and the lane still hands Gradle only the path", async (t) => {
+  const ws = workspace(t);
+  const { run, record } = runner(ws, targetConfig(ws));
+  const result = await run({ native: directHost(ws.root) });
+  assert.equal(record.gradleCalls.length, 1);
+  assert.deepEqual(Object.keys(record.gradleCalls[0].extraEnv), [NATIVE_SIGNING_FILE_ENV]);
+  assert.equal(NATIVE_SIGNING_FILE_ENV, ANDROID_SIGNING_PROPERTIES_ENV);
+  assert.equal(existsSync(record.propsFile), false);
+  assert.equal(readdirSync(ws.scratch).length, 0);
+  assert.equal(result.receipt.signer.certSha256, FIXTURE_CERT_SHA256);
+});
+
+test("release lane dry run on a broker route reports the door's refusal and still reads no secret", async (t) => {
+  const ws = workspace(t);
+  let read = false;
+  const { run, record } = runner(ws, targetConfig(ws));
+  const result = await run({ dryRun: true, native: brokerHost(ws.root), credentialStore: { read: () => { read = true; return "x"; } }, runGradle: async () => {} });
+  assert.equal(result.dryRun, true);
+  assert.equal(read, false);
+  assert.ok(record.logs.some((line) => /dry-run: the door refuses this Gradle step.*RK_NATIVE_TOOL_REFUSED/.test(line)));
+  assert.equal(readdirSync(ws.scratch).length, 0);
+});
+
+test("release lane: cancelling before the signing phase reads no secret; cancelling during Gradle removes the signing file and writes no receipt", async (t) => {
+  const ws = workspace(t);
+  let read = false;
+  const early = new AbortController(); early.abort();
+  const first = runner(ws, targetConfig(ws));
+  await assert.rejects(first.run({ signal: early.signal, credentialStore: { read: () => { read = true; return "x"; } } }), (error) => error.code === ANDROID_RELEASE_CANCELLED);
+  assert.equal(read, false);
+  assert.equal(first.record.gradleCalls.length, 0);
+
+  const during = new AbortController();
+  const second = runner(ws, targetConfig(ws), { gradle: async ({ aabPath }) => { mkdirSync(path.dirname(aabPath), { recursive: true }); writeFileSync(aabPath, aab()); during.abort(); } });
+  await assert.rejects(second.run({ signal: during.signal }), (error) => error.code === ANDROID_RELEASE_CANCELLED);
+  assert.equal(existsSync(second.record.propsFile), false);
+  assert.equal(readdirSync(ws.scratch).length, 0);
+  assert.equal(existsSync(path.join(ws.root, ".right-release", "receipts", ANDROID_RECEIPT_NAME)), false);
+});
+
+test("release lane: the owned signing file is private, its directory is private, and only its path is handed to Gradle", { skip: !posix }, async (t) => {
+  const ws = workspace(t);
+  let modes;
+  const { run } = runner(ws, targetConfig(ws), { gradle: async ({ aabPath }) => {
+    const file = readdirSync(ws.scratch).map((name) => path.join(ws.scratch, name, "signing.properties"))[0];
+    modes = { file: statSync(file).mode & 0o777, dir: statSync(path.dirname(file)).mode & 0o777 };
+    mkdirSync(path.dirname(aabPath), { recursive: true }); writeFileSync(aabPath, aab());
+  } });
+  await run();
+  assert.deepEqual(modes, { file: 0o600, dir: 0o700 });
+});
+
+// A cancelling signal ends the process by its default action; the signing file must be gone by then. Real child process, real signal (the handlers are holdSigningFile's).
+for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) {
+  test(`the signing file is removed when ${signal} cancels the process, and the process still dies of the signal`, { skip: !posix }, async (t) => {
+    const ws = workspace(t);
+    const module = pathToFileURL(fileURLToPath(new URL("./android-release.mjs", import.meta.url))).href;
+    const code = `import { createSigningProperties, holdSigningFile } from ${JSON.stringify(module)};
+      const props = createSigningProperties({ keystore: "/keys/upload.jks", alias: "upload", storePassword: "pw", keyPassword: "pw", tmpRoot: process.env.RK_SCRATCH });
+      holdSigningFile(props); process.stdout.write(props.file + "\\n"); setInterval(() => {}, 1000);`;
+    const child = spawn(process.execPath, ["--input-type=module", "-e", code], { cwd: path.dirname(fileURLToPath(import.meta.url)), env: { PATH: process.env.PATH, RK_SCRATCH: ws.scratch }, stdio: ["ignore", "pipe", "inherit"] });
+    t.after(() => child.kill("SIGKILL"));
+    const file = await new Promise((resolve, reject) => { let out = ""; child.stdout.on("data", (chunk) => { out += chunk; if (out.includes("\n")) resolve(out.trim()); }); child.once("error", reject); child.once("exit", () => reject(new Error("child ended early"))); });
+    assert.equal(existsSync(file), true, "the file exists while the phase is held");
+    const ended = new Promise((resolve) => child.once("exit", (status, sig) => resolve({ status, sig })));
+    child.kill(signal);
+    assert.deepEqual(await ended, { status: null, sig: signal });
+    assert.equal(existsSync(file), false);
+    assert.equal(existsSync(path.dirname(file)), false);
+  });
+}
+
+test("ndk.jniLibs with a .git path segment is refused (the directory is emptied before every build)", (t) => {
+  const ws = workspace(t);
+  const refused = (jniLibs) => assert.throws(() => validateAndroidTarget(targetConfig(ws, { ndk: { jniLibs } }), { root: ws.root }), /\.git path segment/);
+  refused(".git/jniLibs");
+  refused("android/.GIT/app/jniLibs");
+  refused("android\\.git\\jniLibs");
+  assert.doesNotThrow(() => validateAndroidTarget(targetConfig(ws, { ndk: { jniLibs: "android/app/src/main/jniLibs" } }), { root: ws.root }));
+  assert.doesNotThrow(() => validateAndroidTarget(targetConfig(ws, { ndk: { jniLibs: "android/.github-libs/jniLibs" } }), { root: ws.root }));
 });

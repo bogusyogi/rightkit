@@ -12,6 +12,15 @@
 // Counts come from the target directory the way the broker takes them (rustright-policy cargo_freshness.rs): a unit is one directory
 // of a `.fingerprint`; a unit whose newest file is at or after the census start was rebuilt (`notFresh`, a new unit included), the
 // others were reused (`fresh`). Judging unexplained rebuilds belongs to item 11; this module only measures and records.
+//
+// GB-68 (BROKER-CONTRACT section 16; the shared vector test-support/vectors/freshness-evidence-vectors.v1.json, held by freshness-vectors.test.mjs):
+//   - the log reader reads only the ROOT's lines: those before Cargo's first execution status word (`Compiling`, `Checking`, ... `Finished`); nested
+//     Cargo chatter after it is neither counted nor stripped; a `failed to read ...fingerprint...` reason followed by a `Caused by:` not-found cause
+//     (Unix `os error 2`, Windows `os error 3`) is `FingerprintMissing`, any other cause stays `unexplained`; every reason carries its `cause`;
+//   - the census reads the SELECTED scope only: `<target>/<profile>/.fingerprint` and, for a `--target` triple, `<target>/<triple>/<profile>/.fingerprint`
+//     (never every profile or triple, never `doc` or `package`), taken from the compiling process's own arguments and environment;
+//   - a fingerprint directory or unit that exists and cannot be read is `fingerprint-census-read-failed`: unavailable, never an empty census and never a
+//     first build. Only an absent directory is empty.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -27,6 +36,86 @@ export const REASON_TEXT_CAP = 512;
 export const CENSUS_ENTRY_CAP = 250_000;
 // A held partial line longer than this is not a log line.
 const PARTIAL_CAP = 64 * 1024;
+
+/** Cargo's execution-phase status words: the first one ends the window in which fingerprint lines are the root's (pre-resolution words do not). */
+export const EXECUTION_STATUS = Object.freeze(["Compiling", "Checking", "Documenting", "Fresh", "Dirty", "Running", "Finished", "Scraping"]);
+const EXECUTION_WORDS = new Set(EXECUTION_STATUS);
+
+const SOURCE_OR_DEPENDENCY = new Set(["FsStatusOutdated", "PathToSourceChanged", "NumberOfDependenciesChanged", "UnitDependencyNameChanged", "UnitDependencyInfoChanged", "LocalLengthsChanged", "PrecalculatedComponentsChanged", "DepInfoOutputChanged", "RerunIfChangedOutputFileChanged", "RerunIfChangedOutputPathsChanged"]);
+const ENV_RUSTFLAGS_PROFILE_FEATURES_TARGET = new Set(["EnvVarChanged", "EnvVarsChanged", "RustflagsChanged", "ProfileConfigurationChanged", "FeaturesChanged", "DeclaredFeaturesChanged", "TargetConfigurationChanged", "CompileKindChanged", "LocalFingerprintTypeChanged", "FingerprintMethodChanged", "ConfigSettingsChanged"]);
+
+/**
+ * The cause a reason's `kind` explains (RustRight cargo_evidence.rs `cause_of`; the vector's `causes`): the first build, a missing fingerprint (named apart, and still unexplained
+ * by itself), a toolchain change, a source or dependency change, an environment, rustflags, profile, features or target change. Any other kind, one Cargo adds later included, is `unexplained`.
+ */
+export function causeOf(kind) {
+  if (kind === "FreshBuild") return "first-build";
+  if (kind === "FingerprintMissing") return "fingerprint-missing";
+  if (kind === "RustcChanged") return "toolchain-changed";
+  if (SOURCE_OR_DEPENDENCY.has(kind)) return "source-or-dependency-changed";
+  if (ENV_RUSTFLAGS_PROFILE_FEATURES_TARGET.has(kind)) return "env-rustflags-profile-features-or-target-changed";
+  return "unexplained";
+}
+
+/** Whether a `Caused by:` line says the fingerprint file was absent: `No such file or directory (os error 2)` on Unix, `... (os error 2)` or `... path specified. (os error 3)` on Windows. */
+const missingFingerprint = (cause) => cause.endsWith("(os error 2)") || cause.endsWith("(os error 3)");
+
+/** The profile directory a command line selects (RustRight `cargo_profile_directory`): `--release`/`-r`, `--profile X` (`dev` and `test` are `debug`, `bench` is `release`, a custom name is itself); nothing after `--`. */
+export function cargoProfileDirectory(argv) {
+  let profile = null; let release = false;
+  const words = Array.isArray(argv) ? argv.map(String) : [];
+  for (let i = 0; i < words.length && words[i] !== "--"; i += 1) {
+    const item = words[i];
+    if (item === "--release" || item === "-r") release = true;
+    else if (item === "--profile") profile = words[i + 1] ?? null;
+    else if (item.startsWith("--profile=")) profile = item.slice("--profile=".length);
+  }
+  if (profile === "dev" || profile === "test") return "debug";
+  if (profile === "bench") return "release";
+  if (profile !== null) return profile;
+  return release ? "release" : "debug";
+}
+
+/** Whether a command line asks for JSON messages (`--message-format json*` in any spelling, before `--`). */
+export function wantsCargoJson(argv) {
+  const words = Array.isArray(argv) ? argv.map(String) : [];
+  for (let i = 0; i < words.length; i += 1) {
+    const item = words[i];
+    if (item === "--") break;
+    const value = item === "--message-format" ? words[i + 1] : item.startsWith("--message-format=") ? item.slice("--message-format=".length) : undefined;
+    if (value !== undefined && value.split(",").some((segment) => segment.startsWith("json"))) return true;
+  }
+  return false;
+}
+
+/** The triples a command line names with `--target` (before `--`), then `CARGO_BUILD_TARGET` when the line names none. */
+export function cargoTargetTriples(argv, env = {}) {
+  const words = Array.isArray(argv) ? argv.map(String) : [];
+  const found = [];
+  for (let i = 0; i < words.length && words[i] !== "--"; i += 1) {
+    const item = words[i];
+    const value = item === "--target" ? words[i + 1] : item.startsWith("--target=") ? item.slice("--target=".length) : undefined;
+    if (typeof value === "string" && value !== "" && !found.includes(value)) found.push(value);
+  }
+  if (found.length === 0) {
+    const named = Object.entries(env ?? {}).find(([key]) => key.toUpperCase() === "CARGO_BUILD_TARGET");
+    if (named && typeof named[1] === "string" && named[1].trim() !== "") for (const t of named[1].trim().split(/\s+/)) if (!found.includes(t)) found.push(t);
+  }
+  return found;
+}
+
+/**
+ * The `.fingerprint` directories one compile selects in a target directory: `<target>/<triple>/<profile>/.fingerprint` for each selected triple, then `<target>/<profile>/.fingerprint`
+ * (RustRight `fingerprint_census_start`). Never every profile or triple, never `doc` or `package`.
+ */
+export function selectedFingerprintDirectories(targetDir, { argv = [], triples = [] } = {}) {
+  const profile = cargoProfileDirectory(argv);
+  const found = [];
+  for (const triple of triples) { const dir = path.join(targetDir, triple, profile, ".fingerprint"); if (!found.includes(dir)) found.push(dir); }
+  const plain = path.join(targetDir, profile, ".fingerprint");
+  if (!found.includes(plain)) found.push(plain);
+  return found;
+}
 
 const stripAnsi = (text) => text.replace(/\u001b\[[^A-Za-z]*[A-Za-z]/g, "");
 const afterPrefix = (message, prefixes) => {
@@ -63,6 +152,10 @@ export class FingerprintLog {
     this.dirtyUnits = 0;
     this.reasons = [];
     this.truncated = 0;
+    // Cargo printed its first execution-phase status line: later fingerprint lines are not the root's (a nested Cargo's).
+    this.executing = false;
+    // The reason just recorded was Cargo's `failed to read` of a `.fingerprint` file: its `Caused by:` chain follows on the next lines and says whether the file was simply absent.
+    this.awaitingCause = null;
   }
 
   /** One chunk of standard error in; what the caller sees out. Without stripping that is the chunk itself. */
@@ -91,8 +184,25 @@ export class FingerprintLog {
     return rest;
   }
 
+  /** Whether `raw` is one of the ROOT's fingerprint lines (counted, and stripped when stripping). */
   #line(raw) {
     const line = stripAnsi(raw.replace(/\s+$/, ""));
+    // GB-68: after the first execution status word nothing is the root's: nested Cargo chatter is neither counted nor stripped.
+    if (this.executing) { this.awaitingCause = null; return false; }
+    const first = line.trim().split(/\s+/)[0];
+    if (EXECUTION_WORDS.has(first)) { this.executing = true; return false; }
+    // The `Caused by:` chain of a `failed to read` reason: the heading, then the cause, indented. Blank lines inside the chain belong to it.
+    if (this.awaitingCause !== null) {
+      const text = line.trim();
+      if (text === "") return true;
+      if (!this.awaitingCause.headingSeen && text === "Caused by:") { this.awaitingCause.headingSeen = true; return true; }
+      const { index, headingSeen } = this.awaitingCause;
+      this.awaitingCause = null;
+      if (headingSeen && /^\s/.test(line)) {
+        if (missingFingerprint(text) && this.reasons[index]) { this.reasons[index].kind = "FingerprintMissing"; this.reasons[index].cause = causeOf("FingerprintMissing"); }
+        return true;
+      }
+    }
     const at = line.indexOf(FINGERPRINT_TARGET);
     if (at < 0) return false;
     const message = line.slice(at + FINGERPRINT_TARGET.length).replace(/^:+/, "").trim();
@@ -111,8 +221,11 @@ export class FingerprintLog {
     if (this.reasons.length >= REASONS_CAP) { this.truncated += 1; return; }
     const { unit, target } = this.current ?? { unit: "unknown", target: null };
     const chars = Array.from(reason);
-    const text = chars.length > REASON_TEXT_CAP ? `${chars.slice(0, REASON_TEXT_CAP).join("")}…` : reason;
-    this.reasons.push({ unit, target, kind: reasonKind(reason), reason: text });
+    const text = chars.length > REASON_TEXT_CAP ? `${chars.slice(0, REASON_TEXT_CAP).join("")}\u2026` : reason;
+    const kind = reasonKind(reason);
+    this.reasons.push({ unit, target, kind, cause: causeOf(kind), reason: text });
+    const readsFingerprint = reason.startsWith("failed to read `") && (reason.includes("/.fingerprint/") || reason.includes("\\.fingerprint\\"));
+    this.awaitingCause = readsFingerprint ? { index: this.reasons.length - 1, headingSeen: false } : null;
   }
 
   /** What another log's reading adds to this one (the census keeps one aggregate over every compiling process). */
@@ -146,76 +259,108 @@ export function compilesWorkspace(command, args) {
   return false;
 }
 
-// Directories never searched for `.fingerprint`s: rustdoc output and packaging verification are not a profile's units.
-const NOT_PROFILES = new Set(["doc", "package", "tmp", "incremental"]);
+/** An error that says the path is not there (an empty profile), as opposed to being there and unreadable. */
+const isAbsent = (error) => error?.code === "ENOENT";
 
-/** The `.fingerprint` directories of one target directory: `<target>/<profile>/.fingerprint` and `<target>/<triple>/<profile>/.fingerprint`. */
-export function fingerprintDirectories(targetDir, fsApi = fs) {
-  const found = [];
-  const subdirs = (dir) => {
-    try { return fsApi.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && !NOT_PROFILES.has(e.name)).map((e) => e.name); } catch { return []; }
-  };
-  const has = (dir) => { try { return fsApi.statSync(dir).isDirectory(); } catch { return false; } };
-  for (const first of subdirs(targetDir)) {
-    const direct = path.join(targetDir, first, ".fingerprint");
-    if (has(direct)) { found.push(direct); continue; }
-    for (const second of subdirs(path.join(targetDir, first))) {
-      const nested = path.join(targetDir, first, second, ".fingerprint");
-      if (has(nested)) found.push(nested);
-    }
-  }
-  return found;
+/** The fingerprint directory's entries: `{ names }`, `{ names: [] }` when it is absent, or `{ error }` when it exists and cannot be read (a file, permission, I/O: never read as empty). */
+function readFingerprintDirectory(dir, fsApi) {
+  try { return { names: fsApi.readdirSync(dir) }; } catch (error) { return isAbsent(error) ? { names: [] } : { error: `${dir}: ${error?.code ?? error?.message ?? "unreadable"}` }; }
 }
 
 /**
- * Walks every fingerprint directory of `targetDirs`. `withTimes: false` only counts units; `withTimes: true` also takes each unit's
- * newest file time. `capped` is set when more than `cap` entries (units and files) were visited.
+ * The `build.target` triples `.cargo/config.toml` / `.cargo/config` name for a compile run from `cwd` (the process's own directory upward, then `$CARGO_HOME`): the compile's output then
+ * sits under `<target>/<triple>/<profile>`, so the selected scope must name it as `--target` would. A simple reader of the `[build]` table's `target` string or string list.
  */
-export function walkFingerprints(targetDirs, { withTimes, cap = CENSUS_ENTRY_CAP, fsApi = fs } = {}) {
-  const units = new Map();
-  let visited = 0;
-  for (const targetDir of targetDirs) {
-    for (const fpDir of fingerprintDirectories(targetDir, fsApi)) {
-      let names;
-      try { names = fsApi.readdirSync(fpDir); } catch { continue; }
-      for (const name of names) {
-        visited += 1;
-        if (visited > cap) return { units, capped: true };
-        const unitDir = path.join(fpDir, name);
-        if (!withTimes) { units.set(unitDir, 0); continue; }
-        let newest = 0;
-        try {
-          const own = fsApi.statSync(unitDir);
-          newest = own.mtimeMs;
-          if (own.isDirectory()) {
-            for (const file of fsApi.readdirSync(unitDir)) {
-              visited += 1;
-              if (visited > cap) return { units, capped: true };
-              try { newest = Math.max(newest, fsApi.statSync(path.join(unitDir, file)).mtimeMs); } catch { /* vanished: ignore */ }
-            }
-          }
-        } catch { /* vanished: counted with the time it had */ }
-        units.set(unitDir, newest);
-      }
+export function configuredBuildTargets(cwd, { env = {}, fsApi = fs } = {}) {
+  const files = [];
+  if (typeof cwd === "string" && cwd) for (let dir = path.resolve(cwd); ; dir = path.dirname(dir)) { files.push(path.join(dir, ".cargo", "config.toml"), path.join(dir, ".cargo", "config")); if (path.dirname(dir) === dir) break; }
+  const home = Object.entries(env ?? {}).find(([key]) => key.toUpperCase() === "CARGO_HOME")?.[1];
+  if (typeof home === "string" && home) files.push(path.join(home, "config.toml"), path.join(home, "config"));
+  for (const file of files) {
+    let text;
+    try { text = fsApi.readFileSync(file, "utf8"); } catch { continue; }
+    let inBuild = false;
+    for (const raw of String(text).split(/\r?\n/)) {
+      const line = raw.replace(/#.*$/, "").trim();
+      const table = /^\[\s*([^\]]+?)\s*\]$/.exec(line);
+      if (table) { inBuild = table[1] === "build"; continue; }
+      const dotted = /^build\.target\s*=\s*(.+)$/.exec(line);
+      const plain = inBuild ? /^target\s*=\s*(.+)$/.exec(line) : null;
+      const value = (dotted ?? plain)?.[1];
+      if (value !== undefined) return [...value.matchAll(/["']([^"']+)["']/g)].map((m) => m[1]);
     }
   }
-  return { units, capped: false };
+  return [];
 }
 
 /**
- * One census for one stage of a direct compile: `start()` before the scans, `wrapSpawn(spawn)` around the scan runner's spawner
- * (it turns the fingerprint log on for the compiling cargo processes only), `finish()` after them.
+ * One census for one stage of a direct compile: `start()` before the scans, `wrapSpawn(spawn)` around the scan runner's spawner (it selects each compiling cargo process's scope and
+ * turns the fingerprint log on for it only), `finish()` after them. `start({ argv, triples, env })` selects a scope itself (a caller that knows the command).
+ *
+ * The scope is what the compiling processes SELECT (cargoProfileDirectory, cargoTargetTriples), not every profile directory of the target: each selected directory's baseline is read
+ * before the first process that selects it, and `since` is the census start. A directory that exists and cannot be read, at the baseline or in the walk, makes the census
+ * unavailable (`fingerprint-census-read-failed`); with no compiling process there is no scope and the census is unavailable (`fingerprint-census-no-compiling-process`).
  */
 export function createFreshnessCensus({ targetDirs, now = Date.now, fsApi = fs, cap = CENSUS_ENTRY_CAP } = {}) {
   const dirs = [...new Set(Object.values(targetDirs ?? {}).filter((d) => typeof d === "string" && d))];
   const log = new FingerprintLog({ strip: false });
-  let since = null; let atStart = null; let processes = 0; let outputCut = false;
+  let since = null; let processes = 0; let outputCut = false;
+  const baselines = new Map(); // fingerprint directory -> { count } | { error }
+  let unitsAtStart = 0; let capped = false; let readError = null; let selected = false;
+
+  const select = ({ argv = [], triples = null, env = {}, cwd = null } = {}) => {
+    const named = triples ?? [...cargoTargetTriples(argv, env), ...(cargoTargetTriples(argv, env).length === 0 ? configuredBuildTargets(cwd, { env, fsApi }) : [])];
+    for (const targetDir of dirs) {
+      for (const dir of selectedFingerprintDirectories(targetDir, { argv, triples: [...new Set(named)] })) {
+        selected = true;
+        if (baselines.has(dir)) continue;
+        const read = readFingerprintDirectory(dir, fsApi);
+        if (read.error !== undefined) { baselines.set(dir, { error: read.error }); readError ??= read.error; continue; }
+        baselines.set(dir, { count: read.names.length });
+        unitsAtStart += read.names.length;
+        if (unitsAtStart > cap) capped = true;
+      }
+    }
+  };
+
+  /** Walks the selected directories: the units' newest file times, or why the walk cannot be trusted. */
+  const walk = () => {
+    const units = new Map();
+    let visited = 0;
+    for (const dir of baselines.keys()) {
+      const read = readFingerprintDirectory(dir, fsApi);
+      if (read.error !== undefined) return { reason: "fingerprint-census-read-failed" };
+      for (const name of read.names) {
+        visited += 1;
+        if (visited > cap) return { reason: "fingerprint-census-entry-cap-exceeded" };
+        const unitDir = path.join(dir, name);
+        let newest = 0;
+        let files = [];
+        try { files = fsApi.readdirSync(unitDir); } catch (error) {
+          // A unit that vanished meanwhile, or is a plain file, holds no files; any other failure means its freshness was never read.
+          if (!isAbsent(error) && error?.code !== "ENOTDIR") return { reason: "fingerprint-census-read-failed" };
+        }
+        for (const file of files) {
+          visited += 1;
+          if (visited > cap) return { reason: "fingerprint-census-entry-cap-exceeded" };
+          try { newest = Math.max(newest, fsApi.statSync(path.join(unitDir, file)).mtimeMs); } catch { /* vanished: it holds no time */ }
+        }
+        units.set(unitDir, newest);
+      }
+    }
+    return { units };
+  };
+
   return {
-    start() { since = now(); atStart = walkFingerprints(dirs, { withTimes: false, cap, fsApi }); },
+    start(selection) { since = now(); if (selection) select(selection); },
+    select,
+    /** What the selection reads at the start: the directories, the units counted there, whether the entry cap was passed and the first read error. */
+    scope() { return { directories: [...baselines.keys()], unitsAtStart, capped, readError }; },
     wrapSpawn(spawn) {
       return async (command, args, options = {}) => {
         if (!compilesWorkspace(command, args)) return spawn(command, args, options);
         const env = options.env ?? process.env;
+        if (since !== null) select({ argv: Array.isArray(args) ? args : [], env, cwd: options.cwd ?? process.cwd() });
         // A caller's own CARGO_LOG stands and stays visible; the gate's own is kept out of the output.
         const ours = !Object.keys(env).some((k) => k.toUpperCase() === "CARGO_LOG");
         const result = await spawn(command, args, ours ? { ...options, env: { ...env, CARGO_LOG: FINGERPRINT_LOG_FILTER } } : options);
@@ -231,13 +376,16 @@ export function createFreshnessCensus({ targetDirs, now = Date.now, fsApi = fs, 
     finish() {
       const base = { source: FRESHNESS_SOURCE, cargoProcesses: processes, dirtyUnits: log.dirtyUnits, truncated: log.truncated, ...(outputCut ? { outputCut: true } : {}) };
       const unavailable = (reason) => ({ unitsAtStart: 0, fresh: 0, notFresh: 0, invalidationReasons: log.reasons, available: false, reason, ...base });
-      if (since === null || atStart === null) return unavailable("fingerprint-census-not-started");
-      const end = walkFingerprints(dirs, { withTimes: true, cap, fsApi });
-      if (atStart.capped || end.capped) return unavailable("fingerprint-census-entry-cap-exceeded");
+      if (since === null) return unavailable("fingerprint-census-not-started");
+      if (!selected) return unavailable("fingerprint-census-no-compiling-process");
+      if (capped) return unavailable("fingerprint-census-entry-cap-exceeded");
+      if (readError !== null) return unavailable("fingerprint-census-read-failed");
+      const end = walk();
+      if (end.reason) return unavailable(end.reason);
       if (end.units.size === 0) return unavailable("no-fingerprint-units-found");
       let notFresh = 0;
       for (const newest of end.units.values()) if (newest >= since) notFresh += 1;
-      return { unitsAtStart: atStart.units.size, fresh: end.units.size - notFresh, notFresh, invalidationReasons: log.reasons, available: true, ...base };
+      return { unitsAtStart, fresh: end.units.size - notFresh, notFresh, invalidationReasons: log.reasons, available: true, ...base };
     },
   };
 }
@@ -250,7 +398,7 @@ export function validateFreshness(freshness) {
   if (!freshness || typeof freshness !== "object" || Array.isArray(freshness)) return ["freshness is absent"];
   for (const key of ["unitsAtStart", "fresh", "notFresh"]) if (!isCount(freshness[key])) problems.push(`freshness.${key} is not a count`);
   if (!Array.isArray(freshness.invalidationReasons)) problems.push("freshness.invalidationReasons is not a list");
-  else freshness.invalidationReasons.forEach((r, i) => { if (!r || typeof r.unit !== "string" || typeof r.kind !== "string" || typeof r.reason !== "string") problems.push(`freshness.invalidationReasons[${i}] has no unit, kind and reason`); });
+  else freshness.invalidationReasons.forEach((r, i) => { if (!r || typeof r.unit !== "string" || typeof r.kind !== "string" || typeof r.reason !== "string") problems.push(`freshness.invalidationReasons[${i}] has no unit, kind and reason`); else if (r.cause !== undefined && typeof r.cause !== "string") problems.push(`freshness.invalidationReasons[${i}].cause is not a string`); });
   if (freshness.available !== undefined && typeof freshness.available !== "boolean") problems.push("freshness.available is not a boolean");
   if (freshness.available === false && typeof freshness.reason !== "string") problems.push("an unavailable census names no reason");
   return problems;

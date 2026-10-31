@@ -165,7 +165,7 @@ test("release worker injects PATH after command env overrides before spawning pr
   const start = source.indexOf("function run(cmd, runArgs, cwd"), end = source.indexOf("function ", start + 9);
   const calls = [];
   const context = { process: { platform: "darwin", env: { PATH: "/cargo-shims:/usr/bin", SSH_CONNECTION: "fixture", RIGHTKIT_MANAGED_ROOT: f.managed } },
-    opts: { dryRun: false }, Date, console: { log() {} }, macosCodesignEnvironment, productionBuildEnv,
+    opts: { dryRun: false }, Date, console: { log() {} }, macosCodesignEnvironment: (env) => macosCodesignEnvironment(env, { platform: "darwin" }), productionBuildEnv,
     spawn(command, argv, options) { calls.push({ command, argv, options }); const child = new EventEmitter(); queueMicrotask(() => child.emit("exit", 0)); return child; } };
   runInNewContext(`${source.slice(start, end)};globalThis.launch = run;`, context);
   for (const phase of ["build", "prePackage", "package"]) await context.launch("tool", [phase], f.cwd, { PATH: "/command/bin:/cargo-shims:/usr/bin", CI: "false", TAURI_BUNDLER_DMG_IGNORE_CI: "true" });
@@ -183,7 +183,7 @@ test("build runner injects shim into environment inherited by release worker", {
   const f = fixture(t), source = fs.readFileSync(new URL("./build-release.mjs", import.meta.url), "utf8");
   const start = source.indexOf("  const pathPrefix = buildPathPrefix"), end = source.indexOf("  if (managedCargoTarget)", start);
   const context = { process: { env: { PATH: "/cargo-shims:/usr/bin", SSH_CONNECTION: "fixture", RIGHTKIT_MANAGED_ROOT: f.managed } },
-    swiftPlan: null, buildPathPrefix: () => "", platform: "mac", macosCodesignEnvironment, heavyCommandEnvironment: (env) => env,
+    swiftPlan: null, buildPathPrefix: () => "", platform: "mac", macosCodesignEnvironment: (env) => macosCodesignEnvironment(env, { platform: "darwin" }), heavyCommandEnvironment: (env) => env,
     releaseEnvironment: () => ({}), vaultRoot: f.home, sharedCacheRoot: f.home, cacheIdentity: { architecture: "arm64" },
     config: { app: "fixture", version: "1" }, cacheKey: "fixture", appRoot: f.cwd, cacheMode: "legacy", layout: { repoRoot: f.cwd, appRoot: f.cwd },
     splitSource: false, resolveManagedRoot: () => f.managed, resolveArtifactDir: () => f.managed, path };
@@ -197,7 +197,7 @@ test("right-release dev passes installed shim to every build & install child", {
   const f = fixture(t);
   for (const args of [["init", "--initial-branch", "main"]]) assert.equal(spawnSync("git", args, { cwd: f.cwd }).status, 0);
   const platform = process.platform === "win32" ? "win" : "mac", seen = [];
-  runDevelopment({ hostPlatform: "linux", door: (command, args) => ({ command, args }), root: f.cwd, platform, config: { development: { targets: { [platform]: {
+  runDevelopment({ hostPlatform: "linux", nativeHost: process.platform === "win32" ? "win32" : "darwin", door: (command, args) => ({ command, args }), root: f.cwd, platform, config: { development: { targets: { [platform]: {
     build: [{ cmd: "build" }, { cmd: "build2" }], install: { kind: "command", cmd: "install" },
   } } } }, env: { PATH: "/cargo-shims:/usr/bin", RIGHTKIT_MANAGED_ROOT: f.managed, SSH_CONNECTION: "fixture" },
     codesignEnvironment: (env) => macosCodesignEnvironment(env, { platform: "darwin" }),

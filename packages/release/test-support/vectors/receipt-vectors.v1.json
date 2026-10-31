@@ -1,0 +1,3986 @@
+{
+  "cases": [
+    {
+      "lenient": "ok",
+      "name": "a successful signed result",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "3d66b1d7a220d99ea1efeb869644a37c51cf654ca936bbbb8c6ee4ce1456ed5fb5af079b866c37da653ef2760bf023896c7281399cc05c091dac99c17755abd9"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "ok"
+    },
+    {
+      "lenient": "ok",
+      "name": "a failed signed result keeps its failure",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 101,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 101,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "0e20186bd17e8db38f8712cd28e96b086c42ee35ceaf5a140738ae4130a8e3a6bd82ea5931063539fba73ac590fb5c44cd044deed2299d92ed901079ab9fa368"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "ok"
+    },
+    {
+      "lenient": "ok",
+      "name": "a signalled signed result with null fields",
+      "receipt": {
+        "diagnosticsPath": null,
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": null,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": null,
+              "exit": null,
+              "signal": "SIGKILL",
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "b5fea3967ff9cf97c000d306da0539224bf26f9ecccabffec9608c1887554b9e8602dcafd4bda2c5c1724344835b16133974cff0641d55665f69514ca5372ceb"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": "SIGKILL",
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "ok"
+    },
+    {
+      "lenient": "ok",
+      "name": "BR19 values that are UNKNOWN with a reason are valid",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": {
+                  "reason": "uncosted job",
+                  "state": "UNKNOWN"
+                },
+                "memoryReservation": {
+                  "reason": "no scheduler grant",
+                  "state": "UNKNOWN"
+                },
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "2e053bb9308d44aa9e1b16570c2808e495c5f0eec4b7c97990659a3cec57f7e4f2ea032da5efef418f3c934ae9f4af87381e8c4ae506a0d95453776b777ff181"
+          }
+        },
+        "resources": {
+          "grantedJobs": {
+            "reason": "uncosted job",
+            "state": "UNKNOWN"
+          },
+          "memoryReservation": {
+            "reason": "no scheduler grant",
+            "state": "UNKNOWN"
+          },
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "ok"
+    },
+    {
+      "lenient": "evidence",
+      "name": "receipt exit differs from the signed copy",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": "tampered",
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "3d66b1d7a220d99ea1efeb869644a37c51cf654ca936bbbb8c6ee4ce1456ed5fb5af079b866c37da653ef2760bf023896c7281399cc05c091dac99c17755abd9"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "receipt exit dropped, signed copy kept",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "3d66b1d7a220d99ea1efeb869644a37c51cf654ca936bbbb8c6ee4ce1456ed5fb5af079b866c37da653ef2760bf023896c7281399cc05c091dac99c17755abd9"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "signed exit dropped, receipt copy kept",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "5415b8b9317930a67dafd21b1d4ebaa645fbb5fc87dc74bc92612bcd011c8b17a9aae60ae7181dbcd13b6a4836e2fdce85f5b52c1c3e09212afd4a2e0a55c942"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "receipt signal differs from the signed copy",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "3d66b1d7a220d99ea1efeb869644a37c51cf654ca936bbbb8c6ee4ce1456ed5fb5af079b866c37da653ef2760bf023896c7281399cc05c091dac99c17755abd9"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": "tampered",
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "receipt signal dropped, signed copy kept",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "3d66b1d7a220d99ea1efeb869644a37c51cf654ca936bbbb8c6ee4ce1456ed5fb5af079b866c37da653ef2760bf023896c7281399cc05c091dac99c17755abd9"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "signed signal dropped, receipt copy kept",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "10dd4aef4788cf9685349eb9420c0150996cabaf5b4d048a23fd9d121fab93f7b62d01462b22e04a139f6a12399d2d8bdb131a1c65610f26e54cfb1bdc65d184"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "receipt timingsMs differs from the signed copy",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "3d66b1d7a220d99ea1efeb869644a37c51cf654ca936bbbb8c6ee4ce1456ed5fb5af079b866c37da653ef2760bf023896c7281399cc05c091dac99c17755abd9"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 41,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "receipt timingsMs dropped, signed copy kept",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "3d66b1d7a220d99ea1efeb869644a37c51cf654ca936bbbb8c6ee4ce1456ed5fb5af079b866c37da653ef2760bf023896c7281399cc05c091dac99c17755abd9"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "signed timingsMs dropped, receipt copy kept",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "f756b51d6d1e9560fa9d0990846f68f1f78f1284e304abb414c56988d72041f2db64986fe071f0d775f708e65cbf564982d55502381739d7b3481de803afa97c"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "receipt diagnosticsPath differs from the signed copy",
+      "receipt": {
+        "diagnosticsPath": "tampered",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "3d66b1d7a220d99ea1efeb869644a37c51cf654ca936bbbb8c6ee4ce1456ed5fb5af079b866c37da653ef2760bf023896c7281399cc05c091dac99c17755abd9"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "receipt diagnosticsPath dropped, signed copy kept",
+      "receipt": {
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "3d66b1d7a220d99ea1efeb869644a37c51cf654ca936bbbb8c6ee4ce1456ed5fb5af079b866c37da653ef2760bf023896c7281399cc05c091dac99c17755abd9"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "signed diagnosticsPath dropped, receipt copy kept",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "01c303c507b64446a40aa91b66534280e0231e93321a3028643a91259a5efe10a4f07f94f41bf50215f2126002a238fb83a8515151101add63df874a7118db98"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "a timing subfield differs",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "3d66b1d7a220d99ea1efeb869644a37c51cf654ca936bbbb8c6ee4ce1456ed5fb5af079b866c37da653ef2760bf023896c7281399cc05c091dac99c17755abd9"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 7,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "ok",
+      "name": "signed and receipt timings both miss a phase",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "d00b86779ceb1c8038553420298f9f3f4750b854c9da62b12a06c6c0be88c2a58640525ddc33ff4c16ac21e245f1be39f47e1342587e02050cc767431929ff7e"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "a retired verdict field in the signed result evidence",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              },
+              "verdict": {
+                "status": "passed"
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "2cbdb099aedf6781df1f30a0cc5fd4a387da545742189b69d6f379db6aab79d8f3f77868d664e81f9f9983c354f80e412e100715d62718db34c99663ae464cb8"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "a retired refreshed field on the receipt",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "3d66b1d7a220d99ea1efeb869644a37c51cf654ca936bbbb8c6ee4ce1456ed5fb5af079b866c37da653ef2760bf023896c7281399cc05c091dac99c17755abd9"
+          }
+        },
+        "refreshed": [],
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "ok",
+      "name": "no signed result evidence and no receipt copy",
+      "receipt": {
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "97a51baedcedc680a48ebc3e2b6772da42af229b138aa5d5c9df61792f4a7ec1b145ed6b882d0ae9d9de56cd0b1ff7513f5f246ff5936a1068e82b085c4c8b47"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "stage": {
+          "name": "check",
+          "source": "command"
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "no signed result evidence but an unsigned receipt copy",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "97a51baedcedc680a48ebc3e2b6772da42af229b138aa5d5c9df61792f4a7ec1b145ed6b882d0ae9d9de56cd0b1ff7513f5f246ff5936a1068e82b085c4c8b47"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "receipt BR19 profile differs from the signed copy",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "tampered",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "3d66b1d7a220d99ea1efeb869644a37c51cf654ca936bbbb8c6ee4ce1456ed5fb5af079b866c37da653ef2760bf023896c7281399cc05c091dac99c17755abd9"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "signed BR19 profile dropped, receipt copy kept",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "dd414146b997412b76b18377ed479538de2811c58b0b674686905a73fe8fb050b161c3e7cc2cd084e218a5faeb2afbd2314bcf1b8e60e9586d72c90d04e82b39"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "receipt BR19 profile dropped, signed copy kept",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "3d66b1d7a220d99ea1efeb869644a37c51cf654ca936bbbb8c6ee4ce1456ed5fb5af079b866c37da653ef2760bf023896c7281399cc05c091dac99c17755abd9"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "receipt BR19 stage differs from the signed copy",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "3d66b1d7a220d99ea1efeb869644a37c51cf654ca936bbbb8c6ee4ce1456ed5fb5af079b866c37da653ef2760bf023896c7281399cc05c091dac99c17755abd9"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": "tampered",
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "signed BR19 stage dropped, receipt copy kept",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "59befba981c278730e9c90dda9b2407bb1f7caf5fc17d36908136a54c7acee099dc2fe370417dac7facf4b052dae0ffff0ea34738e0ec20119b3981d692b53fb"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "receipt BR19 stage dropped, signed copy kept",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "3d66b1d7a220d99ea1efeb869644a37c51cf654ca936bbbb8c6ee4ce1456ed5fb5af079b866c37da653ef2760bf023896c7281399cc05c091dac99c17755abd9"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "receipt BR19 resources differs from the signed copy",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "3d66b1d7a220d99ea1efeb869644a37c51cf654ca936bbbb8c6ee4ce1456ed5fb5af079b866c37da653ef2760bf023896c7281399cc05c091dac99c17755abd9"
+          }
+        },
+        "resources": "tampered",
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "signed BR19 resources dropped, receipt copy kept",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "b3238ee59cf6e8219c37abf5d7588f5d1470ac18d2d63b05f72436201bd905e199c387abb4a8c22899ecb19e87b7b301d4d803f74b40fa9b67bd8b8fb122f692"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "receipt BR19 resources dropped, signed copy kept",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "3d66b1d7a220d99ea1efeb869644a37c51cf654ca936bbbb8c6ee4ce1456ed5fb5af079b866c37da653ef2760bf023896c7281399cc05c091dac99c17755abd9"
+          }
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "receipt BR19 environment differs from the signed copy",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": "tampered",
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "3d66b1d7a220d99ea1efeb869644a37c51cf654ca936bbbb8c6ee4ce1456ed5fb5af079b866c37da653ef2760bf023896c7281399cc05c091dac99c17755abd9"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "signed BR19 environment dropped, receipt copy kept",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "84a1f976981ad6e004bd00441fec4fc4e9c8a227bde5561f17d19974156b1fb0d7fe9641836a6b89d80a463d4a846d4f1466b23f35c0df5496b5a130a4016120"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "receipt BR19 environment dropped, signed copy kept",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "3d66b1d7a220d99ea1efeb869644a37c51cf654ca936bbbb8c6ee4ce1456ed5fb5af079b866c37da653ef2760bf023896c7281399cc05c091dac99c17755abd9"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "ok",
+      "name": "both sides carry a malformed BR19 value: resources lacks grantedJobs",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "f847eb96be3139db62e77af87fe9d24c0e11c225387eed106d182fdadb84b315ed3720ee2caae081cbb74abc8fbb082bf5c8005bfbe698c68b62dde62c5cebfd"
+          }
+        },
+        "resources": {
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "ok",
+      "name": "both sides carry a malformed BR19 value: resources lacks memoryReservation",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "2e0726334466c5ee6a28da7fbdf62c3465a9855a974da3417cca58c2c1cc0e582943f4523d252dcd4b0a911b215b0cf04793e785fd64e52098a9dd1d38395070"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "ok",
+      "name": "both sides carry a malformed BR19 value: resources lacks priority",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "623f75a784e7b0eee0ea5ba1443d56916ab457991e545350ca9cd69f2623d06fa1ec59f0d5818ab712dc712331a3789ad0c1544fd2b03f4fdd9618c5164b8ebd"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "ok",
+      "name": "both sides carry a malformed BR19 value: an invented zero is not UNKNOWN",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": "0",
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "cb4c9a2c2604fc89a64a4d470feb36941c8b27552a752f3c70358d7180da3f6f326e3e6ef5e54f6482dd186233cb84c7ec80b830426c47d4f679b970737d8a5e"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": "0",
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "ok",
+      "name": "both sides carry a malformed BR19 value: UNKNOWN without a reason",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": {
+                  "state": "UNKNOWN"
+                },
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "9bc4acc4ce8b6e3eb9d7c97e240aa500db32b20ce774892568758545451fe5d02be197b19fa99360adafba678a02b696529d86de44b13dea328df2d4331ccbab"
+          }
+        },
+        "resources": {
+          "grantedJobs": {
+            "state": "UNKNOWN"
+          },
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "ok",
+      "name": "both sides carry a malformed BR19 value: environment digest is not hex",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "xyz",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "xyz",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "734198f16d111174effdce31aeefa05d5e17d58aee2baea8ccf75beca1d07e100fa6c8710520c4ff9401c4b2ccc64a36a031f3055845cfdf7603b1d235a8419e"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "ok",
+      "name": "both sides carry a malformed BR19 value: environment lacks dropped",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "d08ed358ceff988f358e0b2d5e70398ae8310c5aec9bed14ae94dda3eb5eb437079b85fcfceed3169bd0f536fdb71a43bde76b87318b35a0fc39dc01a51ef5fe"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "ok",
+      "name": "both sides carry a malformed BR19 value: stage without a name",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "release-iterate",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "7c77cdf54a91295d554011b024664a5fa734fdf1585ac053447e0ffafbd2bc133eb7c94977e99b8e7ee6d7c5cfc1aaade538ed1b4f4293179b5e1d5e984d757a"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "ok",
+      "name": "both sides carry a malformed BR19 value: an empty profile",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "",
+        "provenance": {
+          "payload": {
+            "br19Evidence": {
+              "environment": {
+                "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "dropped": [],
+                "forwarded": [
+                  "RK_ISOLATED_CHECKOUT"
+                ]
+              },
+              "profile": "",
+              "resources": {
+                "grantedJobs": 4,
+                "memoryReservation": 4294967296,
+                "peakRssBytes": 123456789,
+                "priority": "SECOND",
+                "sampledEveryMs": 100,
+                "samples": 12
+              },
+              "stage": {
+                "name": "check",
+                "source": "command"
+              }
+            },
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "6e4b6dafe17d438d1ff99cf390931510bc260e7fb3c5fc77ddf785464e40701d998d84ee32348d97da59bd367c4e242ac41cd2400d2d32f88131a4dac985b8bc"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "ok",
+      "name": "no signed BR19 evidence and no receipt copy",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "exit": 0,
+        "id": "job-1",
+        "provenance": {
+          "payload": {
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "fac86e652dbe76cf94896d2476ad9abfde16c2e1475f20a0543c900334238ca9d8e8f50b9fbcacf368148b52e60e3359ae1d90921b4a6374df500bc98fe2339f"
+          }
+        },
+        "signal": null,
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    },
+    {
+      "lenient": "evidence",
+      "name": "no signed BR19 evidence but an unsigned receipt copy",
+      "receipt": {
+        "diagnosticsPath": "/logs/job-1.log",
+        "environment": {
+          "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "dropped": [],
+          "forwarded": [
+            "RK_ISOLATED_CHECKOUT"
+          ]
+        },
+        "exit": 0,
+        "id": "job-1",
+        "profile": "release-iterate",
+        "provenance": {
+          "payload": {
+            "broker": {
+              "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "host": "host-1",
+            "jobId": "job-1",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "resultEvidence": {
+              "diagnosticsPath": "/logs/job-1.log",
+              "exit": 0,
+              "signal": null,
+              "timingsMs": {
+                "admission": 1,
+                "afterExitBind": 5,
+                "bind": 3,
+                "cargo": 40,
+                "diagnostics": 6,
+                "queue": 2
+              }
+            }
+          },
+          "schema": "rustright.provenance.v1",
+          "signature": {
+            "alg": "ES256",
+            "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+            "value": "fac86e652dbe76cf94896d2476ad9abfde16c2e1475f20a0543c900334238ca9d8e8f50b9fbcacf368148b52e60e3359ae1d90921b4a6374df500bc98fe2339f"
+          }
+        },
+        "resources": {
+          "grantedJobs": 4,
+          "memoryReservation": 4294967296,
+          "peakRssBytes": 123456789,
+          "priority": "SECOND",
+          "sampledEveryMs": 100,
+          "samples": 12
+        },
+        "signal": null,
+        "stage": {
+          "name": "check",
+          "source": "command"
+        },
+        "timingsMs": {
+          "admission": 1,
+          "afterExitBind": 5,
+          "bind": 3,
+          "cargo": 40,
+          "diagnostics": 6,
+          "queue": 2
+        }
+      },
+      "strict": "evidence"
+    }
+  ],
+  "expected": {
+    "jobId": "job-1",
+    "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+    "requestDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "note": "GB-10. Generated by rustright-protocol tests/receipt_vectors.rs with the production signing bytes. `lenient` is verify_receipt (a payload with no resultEvidence verifies); `strict` is verify_receipt_strict, which a gate applies to a compile receipt: it requires the signed resultEvidence object with exactly exit, signal, timingsMs, diagnosticsPath, timingsMs with exactly admission, queue, bind, cargo, afterExitBind, diagnostics, and every receipt copy equal to the signed value.",
+  "pins": {
+    "brokerDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "host": "host-1",
+    "keyId": "c8f193e678e762f9c4b28fc9e11a6e43d5cd792d2e1e376e56b80a76f22744ac",
+    "publicKey": "041e18532fd4754c02f3041d9c75ceb33b83ffd81ac7ce4fe882ccb1c98bc5896ea46c311c4e2ff40dd96a3653e6e45445d32dfe486eced75c7a90c6a18881c0a3"
+  },
+  "schema": "rustright.receipt-vectors.v1"
+}

@@ -597,9 +597,12 @@ fn journeys(a: &Args) -> Result<i32> {
 /// `journeys run`: select, source identity, broker build and build record (steps 1 to 3), then
 /// launch, collect and the validated receipt (steps 4 and 5). `--prepare-only` stops after step 3.
 fn journeys_run(a: &Args) -> Result<i32> {
+    use rightkit_qa::journeys::prebuilt::{
+        build_from_prebuilt, plan_report, PrebuiltInput, ATTESTATION_FLAG, LISTING_FLAG,
+    };
     use rightkit_qa::journeys::run::{
-        close_prepared, prepare, refuse_flags_in_qualifying, run_journeys, JourneyRunOptions,
-        PrepareOptions, RunMode, StoreCap,
+        close_prepared, plan_only, prepare_with, refuse_flags_in_qualifying, run_journeys,
+        run_journeys_prebuilt, JourneyRunOptions, PrepareOptions, RunMode, StoreCap,
     };
     // `journeys run` is always a qualifying run: no build flags, no quiet orphan kills.
     refuse_flags_in_qualifying(&a.0)?;
@@ -613,8 +616,24 @@ fn journeys_run(a: &Args) -> Result<i32> {
         managed_root: None,
         store_cap: cap,
     };
+    // What a gate would carry for this run (audit GB-79): the declared build and the roles, nothing created or built. With the carried
+    // listing it also names the executable of each role.
+    if a.has("--print-build-plan") {
+        let plan = plan_only(&options)?;
+        let listing = a.value(LISTING_FLAG).map(PathBuf::from);
+        println!(
+            "{}",
+            serde_json::to_string(&plan_report(&plan, listing.as_deref())?)?
+        );
+        return Ok(0);
+    }
+    // The gate's carried, signed build (audit GB-79): consumed, never rebuilt. Both options or neither.
+    let prebuilt = PrebuiltInput::from_args(a.value(LISTING_FLAG), a.value(ATTESTATION_FLAG))?;
     if a.has("--prepare-only") {
-        let prepared = prepare(&options)?;
+        let prepared = match &prebuilt {
+            Some(input) => prepare_with(&options, &|plan| build_from_prebuilt(plan, input))?,
+            None => prepare_with(&options, &rightkit_qa::journeys::build_record::spawn_broker)?,
+        };
         println!("{}", prepared.describe());
         // Nothing was launched: close the run without an outcome and bring the store under its cap.
         let report = close_prepared(&prepared.run, cap);
@@ -624,11 +643,15 @@ fn journeys_run(a: &Args) -> Result<i32> {
         }
         return Ok(0);
     }
-    let report = run_journeys(&JourneyRunOptions {
+    let run_options = JourneyRunOptions {
         prepare: options,
         exe: std::env::current_exe()?,
         mode: RunMode::Qualifying,
-    })?;
+    };
+    let report = match &prebuilt {
+        Some(input) => run_journeys_prebuilt(&run_options, input)?,
+        None => run_journeys(&run_options)?,
+    };
     println!("{}", report.describe());
     Ok(report.exit_code())
 }
@@ -686,7 +709,7 @@ fn journeys_usage(sub: Option<&str>) -> String {
     let line = match sub {
         Some("check") => "usage: rightkit-qa journeys check [--root <dir>]",
         Some("validate-receipt") => "usage: rightkit-qa journeys validate-receipt <receipt.json> [--tree <40-hex>] [--manifest <path>] [--results <file>] [--evidence-root <dir>] [--allow-dirty]",
-        Some("run") => "usage: rightkit-qa journeys run [--qualifying] [--prepare-only] [--config rightkit-qa.toml] ...",
+        Some("run") => "usage: rightkit-qa journeys run [--qualifying] [--prepare-only] [--from-cargo-json <listing> --prebuilt-attestation <file>] [--print-build-plan] [--config rightkit-qa.toml] ...\n  --from-cargo-json/--prebuilt-attestation (capability journeys-prebuilt-input): consume the gate's carried, signed build; nothing compiles\n  --print-build-plan [--from-cargo-json <listing>]: print the declared build and the role to executable mapping as JSON; nothing is built",
         _ => "usage: rightkit-qa journeys <check|validate-receipt|run> ...",
     };
     line.to_string()

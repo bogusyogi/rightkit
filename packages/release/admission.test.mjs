@@ -11,6 +11,7 @@ import { ManagedHostEnvSecretError } from "./managed-host-secrets.mjs";
 import { execWithUpdaterCredential } from "./protected-credentials.mjs";
 import { RightKitRegistryError } from "./rightkit-registry-resolver.mjs";
 import { tempRoot } from "./test-support/temp-roots.mjs";
+import { simulateHostPlatform } from "./test-support/simulated-host.mjs";
 
 const rowOf = (id) => ADMISSION_ROWS.find((row) => row.id === id);
 
@@ -327,7 +328,8 @@ test("host-tools: node, pnpm, cargo and rustc are present; pnpm is the packageMa
   assert.deepEqual((await unit("host-tools", { root: "/app", config: iosApp, platform: "ios", target: iosApp.targets.ios, feed, ...cargoless })).details, []);
 });
 
-test("host-secret-env: the signing secrets are not taken from the shell, whatever the host", async () => {
+test("host-secret-env: the signing secrets are not taken from the shell, whatever the host", async (t) => {
+  simulateHostPlatform(t, "darwin");
   const updater = { updater: { artifacts: [{ file: "a.exe" }] } };
   const managed = { PATH: "/home/u/.rightkit-managed/agent-bin:/bin" };
   // the acceptance case: TAURI_SIGNING_PRIVATE_KEY on a managed host

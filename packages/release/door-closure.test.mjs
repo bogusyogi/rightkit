@@ -9,6 +9,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { BUILD_LAUNCH_REFUSED, EXEC_TARGETS, buildLaunch } from "./build-launch.mjs";
+import { PNPM_ADAPTER_GRAMMAR } from "./pnpm-adapter-grammar.mjs";
 import { readLedger, UNSCOPED } from "./cargo-ledger.mjs";
 import { installCarrier } from "./carried-cargo.mjs";
 import { buildAndEmbedNativeHelpers } from "./native-helpers.mjs";
@@ -100,7 +101,7 @@ test("a non-Cargo `rustright` step on the snapshot route is carried when it name
   assert.deepEqual(h.door("rustright", ["run", "rightkit-node", "--", "scripts/x.mjs", "--platform", "win"]).args, [ADAPTER_RUN, "rightkit-node", "--", "scripts/x.mjs", "--platform", "win"]);
   // The program's rules still apply: this is not a way around the node flag ban or the exec target allowlist.
   assert.throws(() => h.door("rustright", ["run", "rightkit-node", "--", "-e", "process.exit(0)"]), refused(/node flag -e is not allowed/));
-  assert.throws(() => h.door("rustright", ["run", "rightkit-pnpm", "--", "exec", "node", "-e", "1"]), refused(/exec target "node" is not allowed/));
+  assert.throws(() => h.door("rustright", ["run", "rightkit-pnpm", "--", "exec", "node", "-e", "1"]), refused(/target "node" is not registered for exec \(registered targets: tauri\)/));
   // Anything else is an uncarried client call: refused, naming the step.
   for (const args of [["status", "abc"], ["run", "rightkit-unknown", "--", "x"], ["run", "rightkit-pnpm", "x"], ["doctor"], []]) {
     assert.throws(() => h.door("rustright", args), refused(new RegExp(`rustright ${args.join(" ").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: a snapshot stage carries every compile`)), args.join(" "));
@@ -132,7 +133,7 @@ test("stage-sidecar's step commands (stage.cmd, a command entry's cmd, cmake) of
   for (const [command, args, pattern] of [
     ["cmake", ["-S", "src", "-B", "build"], /cmake -S src -B build.*no broker adapter runs this command yet/],
     ["rustright", ["status", "x"], /maps to no registered adapter/],
-    ["pnpm", ["exec", "node", "-e", "1"], /exec target "node" is not allowed/],
+    ["pnpm", ["exec", "node", "-e", "1"], /target "node" is not registered for exec/],
     ["/usr/bin/make", ["all"], /no broker adapter runs this command yet/],
   ]) {
     const before = ran.length;
@@ -146,17 +147,22 @@ test("stage-sidecar's step commands (stage.cmd, a command entry's cmd, cmake) of
   assert.deepEqual(ran.map((r) => [r.command, r.args]), [["cmake", ["--build", "b"]]]);
 });
 
-test("pnpm exec reaches a broker adapter only for tauri, right-release and vite; node, sh and an option in the target's place are refused at the door, with or without the snapshot route", { skip: POSIX }, (t) => {
+test("pnpm exec reaches a broker adapter only for a target the registration admits and the door allows (GB-03: the reference registration admits tauri only); node, sh and an option in the target's place are refused, with or without the snapshot route", { skip: POSIX }, (t) => {
   const h = host(t);
   const CLIENT = path.join(h.fx.root, "rustright");
   const { RIGHTKIT_CARRIED_CARGO_MAP: _, ...bare } = h.env;
+  assert.deepEqual([...EXEC_TARGETS].sort(), ["right-release", "tauri", "vite"], "the door's own allowlist");
+  // The reference registration (RustRight's `opaqueTargets: {exec: [tauri]}`) admits tauri alone: the other two are refused at planning with the registration named.
+  for (const target of ["right-release", "vite"]) assert.throws(() => h.door("pnpm", ["exec", target, "build"]), refused(new RegExp(`target "${target}" is not registered for exec \\(registered targets: tauri\\)`)), target);
+  // A registration that lists all three (an operator's choice, read live) admits each, still never an arbitrary executable.
+  const registered = { ...PNPM_ADAPTER_GRAMMAR, opaqueTargets: { exec: ["tauri", "right-release", "vite"] } };
   for (const target of EXEC_TARGETS) {
-    assert.deepEqual(h.door("pnpm", ["exec", target, "build"]).args.slice(0, 3), [ADAPTER_RUN, "rightkit-pnpm", "--"], target);
-    assert.deepEqual(h.door("pnpm", ["--dir", "hub", "exec", target, "build"], { env: bare }), { command: CLIENT, args: ["run", "rightkit-pnpm", "--", "--dir", "hub", "exec", target, "build"] }, target);
+    assert.deepEqual(h.door("pnpm", ["exec", target, "build"], { pnpmGrammar: registered }).args.slice(0, 3), [ADAPTER_RUN, "rightkit-pnpm", "--"], target);
+    assert.deepEqual(h.door("pnpm", ["--dir", "hub", "exec", target, "build"], { env: bare, pnpmGrammar: registered }), { command: CLIENT, args: ["run", "rightkit-pnpm", "--", "--dir", "hub", "exec", target, "build"] }, target);
   }
-  assert.deepEqual([...EXEC_TARGETS].sort(), ["right-release", "tauri", "vite"]);
-  for (const args of [["exec", "node", "-e", "require('fs')"], ["exec", "sh", "-c", "id"], ["exec", "rightkit", "cargo", "build"], ["--dir", "hub", "exec", "node", "x.js"], ["exec", "--", "tauri"], ["exec", "-r", "tauri"], ["exec"]]) {
-    for (const env of [h.env, bare]) assert.throws(() => h.door("pnpm", args, { env }), refused(/pnpm exec target .* is not allowed \(allowed: tauri, right-release, vite\)/), args.join(" "));
+  assert.deepEqual(h.door("pnpm", ["exec", "tauri", "build"]).args.slice(0, 3), [ADAPTER_RUN, "rightkit-pnpm", "--"]);
+  for (const args of [["exec", "node", "-e", "require('fs')"], ["exec", "sh", "-c", "id"], ["exec", "rightkit", "cargo", "build"], ["--dir", "hub", "exec", "node", "x.js"], ["exec", "-r", "tauri"], ["exec"], ["exec", "--", "node", "-e", "1"]]) {
+    for (const env of [h.env, bare]) for (const grammar of [undefined, registered]) assert.throws(() => h.door("pnpm", args, { env, pnpmGrammar: grammar }), refused(/is not registered for exec|is not allowed \(allowed: tauri, right-release, vite\)|is not registered for rightkit-pnpm|requires a target|not allowed/), `${args.join(" ")} ${grammar ? "(wide registration)" : ""}`);
   }
   // `run`'s script name and `--filter`'s value are not exec targets.
   assert.ok(h.door("pnpm", ["--filter", "exec", "run", "node"]).args.includes("rightkit-pnpm"));
@@ -165,9 +171,11 @@ test("pnpm exec reaches a broker adapter only for tauri, right-release and vite;
 test("a snapshot call admits pnpm run, exec and pack only: a bare script name is refused at the door naming the step (the broker's snapshotSubcommands would refuse it too); outside the snapshot route it is the client's", { skip: POSIX }, (t) => {
   const h = host(t);
   for (const args of [["run", "build"], ["pack"], ["--dir", "packages/release", "pack", "--pack-destination", "/s/rk-local-publish-x/p"], ["-r", "--workspace-concurrency=1", "run", "test"]]) assert.equal(h.door("pnpm", args).args[1], "rightkit-pnpm", args.join(" "));
-  for (const args of [["build"], ["native:assemble", "--", "--profile", "release"], ["windows:package"], ["--dir", "hub", "dev"]]) assert.throws(() => h.door("pnpm", args), refused(new RegExp(`a snapshot stage runs pnpm run, exec and pack only.*pnpm run ${args.find((a) => !a.startsWith("-") && a !== "hub").replace(/[:.]/g, ".")}`)), args.join(" "));
+  // GB-03: the registration's parser refuses a bare script name (no registered first argument), and a registered command that is not snapshot-bound (install).
+  for (const args of [["build"], ["native:assemble", "--", "--profile", "release"], ["windows:package"], ["--dir", "hub", "dev"]]) assert.throws(() => h.door("pnpm", args), refused(/is not registered for rightkit-pnpm|is not allowed in a snapshot-bound call/), args.join(" "));
+  assert.equal(h.door("pnpm", ["--dir", "hub", "install"]).args[1], "--skip-install", "an install step of a snapshot stage is skipped before the grammar is asked (the gate installed the snapshot)");
   const { RIGHTKIT_CARRIED_CARGO_MAP: _, ...bare } = h.env;
   assert.deepEqual(h.door("pnpm", ["run", "build"], { env: bare }).args, ["run", "rightkit-pnpm", "--", "run", "build"]);
   // The broker's rightkit-pnpm grammar (M12): a bare script name is no registered first argument on any route, so the door refuses it too.
-  assert.throws(() => h.door("pnpm", ["build"], { env: bare }), refused(/"build" is not a registered first argument of rightkit-pnpm/));
+  assert.throws(() => h.door("pnpm", ["build"], { env: bare }), refused(/subcommand "build" is not registered for rightkit-pnpm/));
 });

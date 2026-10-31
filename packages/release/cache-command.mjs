@@ -30,13 +30,18 @@ export async function runCacheCommand(args = process.argv.slice(2), { env = proc
   const [command, ...rest] = args;
   const json = rest.includes("--json");
   const platform = platformFrom(env);
-  const cacheRoot = resolveSharedCacheRoot({ platform, env });
+  // GB-65: the broker-owned route is decided BEFORE the Cache V2 root is resolved. A broker Mac sets no RIGHT_RELEASE_CACHE_ROOT (the broker
+  // owns the target), and resolving the unused root first threw for all three commands before the intended skip. Arguments are still
+  // validated, and nothing is inspected, migrated or pruned on this route.
   if (BROKER_GATED_COMMANDS.has(command) && isBrokerHost(env)) {
-    const result = { schema: 1, command, cacheRoot, brokerManaged: true, skipped: true, message: BROKER_MANAGED_MESSAGE };
+    rejectUnknown(rest.filter((value, i) => !(command === "migrate" && (value === "--config" || rest[i - 1] === "--config"))), new Set(command === "status" ? ["--json"] : ["--json", "--dry-run", "--apply"]));
+    if (command !== "status" && rest.includes("--dry-run") && rest.includes("--apply")) throw new Error(`cache ${command} accepts either --dry-run or --apply`);
+    const result = { schema: 1, command, cacheRoot: null, brokerManaged: true, skipped: true, message: BROKER_MANAGED_MESSAGE };
     if (json) stdout(JSON.stringify(result));
     else stdout(BROKER_MANAGED_MESSAGE);
     return result;
   }
+  const cacheRoot = resolveSharedCacheRoot({ platform, env });
   if (command === "status") {
     rejectUnknown(rest, new Set(["--json"]));
     const snapshot = inspectCache({ cacheRoot });

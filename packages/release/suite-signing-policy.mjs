@@ -18,6 +18,9 @@ export const SIGN_SUBJECT = WINDOWS_SIGNER_SUBJECT;
 export const QA_APP_BINARY_ENV = "RIGHTKIT_QA_APP_BINARY";
 /** The environment variable a successful `sign` step sets beside it: the path of the signing evidence file (signed files, sha256 before and after, identity). */
 export const QA_SIGNING_EVIDENCE_ENV = "RIGHTKIT_QA_SIGNING_EVIDENCE";
+/** GB-42: set beside the two above: a JSON object mapping each file a `sign` step signed (its `path`, relative to the output layout) to its signed copy, so a
+ * consumer is handed every declared sidecar's signed bytes, not only the main binary's. */
+export const QA_SIGNED_FILES_ENV = "RIGHTKIT_QA_SIGNED_FILES";
 export const SIGN_STEP_KEYS = Object.freeze(["name", "sign"]);
 export const WINDOWS_TAURI_KIND = "tauri";
 export const WINDOWS_SIGNED_KIND = "tauri-authenticode";
@@ -342,9 +345,17 @@ export function classifyStepArtifacts(step, targets = { packages: new Set(), man
   }
   const integration = none || selectors.has("--test") || selectors.has("--tests") || selectors.has("--all-targets");
   if (!integration) return out;
+  // GB-43 (GATE Class A inventory/42, E19): `--no-run` (before the `--` boundary; after it the flag is the test harness's, not Cargo's) builds the test
+  // executables and runs none of them. It PRODUCES the bins an integration test would later launch (CARGO_BIN_EXE_), so those still need a later sign
+  // step before any consumer runs them, but it launches nothing, so it needs no earlier one. Produced and executed artifacts are modelled separately.
+  const ownWords = cargoWords.indexOf("--") < 0 ? cargoWords : cargoWords.slice(0, cargoWords.indexOf("--"));
+  const compileOnly = ownWords.includes("--no-run");
   for (const name of selected) {
     if (targets.testsUnknown?.has(name)) out.unknown.push(`${name}'s integration tests cannot be read, so it cannot be shown they never launch its bin`);
-    else if (targets.testsLaunch?.has(name)) {
+    else if (targets.testsLaunch?.has(name) && compileOnly) {
+      out.product = true;
+      out.packages.add(name);
+    } else if (targets.testsLaunch?.has(name)) {
       out.launches = true;
       out.packages.add(name);
       // Every bin the package's test sources launch, whatever `--test` selects (no narrowing).
@@ -378,6 +389,15 @@ function signPathNames(file, layout, bin) {
   if (segments.length !== expected.length + 1) return false;
   return expected.every((segment, i) => segments[i] === segment) && segments[segments.length - 1].replace(/\.exe$/i, "") === bin;
 }
+
+/**
+ * GB-42 (GATE 42, E19; stable identity before launch): why an earlier sign step never makes `cargo run` or an integration test that uses
+ * CARGO_BIN_EXE_ safe. The signer signs a COPY outside the build's output directory, and neither Cargo nor a compile-time literal is redirected to it
+ * (RIGHTKIT_QA_APP_BINARY changes nothing for them), so such a step starts the raw, unsigned bytes in the target directory even though the sign
+ * declaration names the right paths. The supported route is: compile only (`cargo test --no-run`, a build), sign, then a consumer that is handed the
+ * signed path (the QA runner, which reads RIGHTKIT_QA_APP_BINARY and RIGHTKIT_QA_SIGNED_FILES) and runs prebuilt bytes.
+ */
+export const RAW_TARGET_LAUNCH = "launches a product bin Cargo resolves inside the build's target directory (cargo run, or an integration test using CARGO_BIN_EXE_): the signer signs a copy elsewhere and nothing redirects Cargo or a compile-time literal to it, so an earlier sign step does not bind the bytes that run. Build compile-only (cargo test --no-run), sign, then run a consumer that is handed the signed path (RIGHTKIT_QA_APP_BINARY, RIGHTKIT_QA_SIGNED_FILES)";
 
 /**
  * Launch binding (rightkit#1303): the earlier sign steps that satisfy a launching suite must name, in `sign.files`, each executable it launches. `launch` is
@@ -535,6 +555,7 @@ export function suiteSigningRefusals({ config, platform, env = {}, to, devPlatfo
       if (!earlier.length) add("RK_SUITE_UNSIGNED_BUILD", `${label} launches a product bin (cargo run, or an integration test that uses CARGO_BIN_EXE_) and no earlier sign step signs one; products are signed before any launch`);
       else {
         const missing = uncoveredLaunchBins(artifacts, earlier, (from) => { const built = classified.get(from); return built && built.index < index ? built.found : null; }, (pkg) => targets.declaredBins.get(pkg) ?? null);
+        if (!missing.length) add("RK_SUITE_LAUNCH_UNBOUND", `${label}: ${RAW_TARGET_LAUNCH}`);
         if (missing.length) add("RK_SUITE_LAUNCH_UNBOUND", `${label} launches ${missing.join(", ")} and no earlier sign step names it: a sign.files entry { from: <the suite that builds it>, path: <triple>/<profile>/<bin>[.exe] } must cover the executable the suite launches`);
       }
     }
@@ -608,6 +629,7 @@ export function planSigningRefusals({ config, plan, platform, env = {}, readFile
           return built ? classifyStepArtifacts({ ...built.step, args: [...(Array.isArray(built.step?.args) ? built.step.args : []), ...(Array.isArray(built.extraArgs) ? built.extraArgs : [])] }, targets) : null;
         };
         const missing = uncoveredLaunchBins(artifacts, earlier, classOf, (pkg) => targets.declaredBins.get(pkg) ?? null);
+        if (!missing.length) add("RK_SUITE_LAUNCH_UNBOUND", `${label}: ${RAW_TARGET_LAUNCH}`);
         if (missing.length) add("RK_SUITE_LAUNCH_UNBOUND", `${label} launches ${missing.join(", ")} and no earlier sign step of this plan names it: a sign.files entry { from: <the suite that builds it>, path: <triple>/<profile>/<bin>[.exe] } must cover the executable the suite launches`);
       }
     }

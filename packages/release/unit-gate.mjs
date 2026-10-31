@@ -2,16 +2,20 @@
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { locateBrokerClient, spawnBrokerClient } from "./broker-client.mjs";
+import { publicationRowProblem } from "./publication-outcomes.mjs";
 import { localBuildGranted } from "./execution-policy.mjs";
 import { readCargoPackage } from "./crate-graph.mjs";
 import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
 import { endRun, startRun, stagesTo } from "./gate-stages.mjs";
+import { RIGHTKIT_REPOSITORY, buildDirectOrigin, directStageEvidence, verifyDirectOrigin } from "./direct-origin.mjs";
 import { exclusionsFor } from "./pack-digest.mjs";
 import { ATTEST_STAGE_NONCE_ENV, qualificationNonce } from "./provenance-verify.mjs";
 import { verifyQualificationReceipts } from "./qualification-verify.mjs";
 import { assignJobs, describeCommand, expectedStageCommands } from "./stage-commands.mjs";
+import { resolveManagedRoots } from "./managed-roots.mjs";
+import { controlPlaneProblem } from "./control-plane.mjs";
 
 const GH = process.platform === "win32" ? "C:\\Program Files\\GitHub CLI\\gh.exe" : "/opt/homebrew/bin/gh";
 const defaultRun = (cmd, args, options = {}) => nodeSpawnSync(cmd, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, ...options });
@@ -43,10 +47,10 @@ export function defaultStageCommands({ unit, root, platform, readJson = defaultR
   return expectedStageCommands({ kind: unit.kind, unit: unit.name, config: readJson(path.join(root, "ci", "gate.config.json")), manifest, platform });
 }
 
-export function readBrokerReceipt(id, { run = defaultRun, platform = process.platform, readFile } = {}) {
+export function readBrokerReceipt(id, { run = defaultRun, platform = process.platform, readFile, env = process.env, installed } = {}) {
   // The client starts the one way every gate child starts it (broker-client.mjs): on Windows `rustright` is rustright.cmd, which node cannot
   // spawn, so its target .exe is read from the shim and started directly.
-  const r = spawnBrokerClient(run, locateBrokerClient({ platform, probe: run }), ["status", id], { encoding: "utf8", timeout: 60_000 }, { platform, readFile });
+  const r = spawnBrokerClient(run, locateBrokerClient({ platform, env, probe: run, ...(installed ? { installed } : {}) }), ["status", id], { encoding: "utf8", timeout: 60_000, windowsHide: true, shell: false }, { platform, readFile });
   if (r.error || r.status !== 0) throw new Error(`the broker cannot report job ${id} (rustright status failed)`);
   let doc;
   try { doc = JSON.parse(r.stdout); } catch { throw new Error(`the broker's status of job ${id} is not JSON`); }
@@ -55,7 +59,7 @@ export function readBrokerReceipt(id, { run = defaultRun, platform = process.pla
   return { id, provenance: receipt.provenance };
 }
 /** `<bundle>/qualification.json`: the local stages that passed and the one artifact sha256 they bound, for the dispatcher. */
-export function writeQualification({ report, artifact, unit, commit, tree, runtime, executor, write = fs.writeFileSync }) {
+export function writeQualification({ report, artifact, unit, commit, tree, runtime, executor, directOrigin = null, write = fs.writeFileSync }) {
   for (const stage of ["check", "compile", "package", "qualify"]) if (report.stages?.[stage]?.ok !== true) throw new Error(`release needs stage ${stage} ok before it runs`);
   if (!artifact?.artifactFile || !/^[0-9a-f]{64}$/.test(artifact.artifactSha256 ?? "")) throw new Error("release needs the qualified artifact");
   // An npm unit is bound hosted by its content digest (pack-digest.mjs), not by the archive's bytes; for @rightkit/release the local archive
@@ -72,11 +76,18 @@ export function writeQualification({ report, artifact, unit, commit, tree, runti
   }
   const receipt = { schema: QUALIFICATION_SCHEMA, unit: { kind: unit.kind, name: unit.name, version: unit.version }, commit, tree, runtime, executor: executor?.kind ?? null,
     stages: Object.fromEntries(["check", "compile", "package", "qualify"].map((s) => [s, { ...report.stages[s] }])), artifactSha256: artifact.artifactSha256, ...content, writtenAt: new Date().toISOString() };
-  // The broker's signed receipts for the compile and package stages are what the hosted admission verifies; without them the
-  // booleans above are only this process's say-so.
-  for (const stage of ATTESTED_STAGES) {
-    const list = report.stages[stage].receipts;
-    if (!Array.isArray(list) || list.length < 1 || list.length > MAX_STAGE_RECEIPTS) throw new Error(`release needs 1 to ${MAX_STAGE_RECEIPTS} signed broker receipts of the ${stage} stage (found ${Array.isArray(list) ? list.length : "none"})`);
+  // GB-29: a direct Linux origin has no broker and so no signed receipts; it carries its direct-origin record instead (direct-origin.mjs), which the hosted side re-derives and never trusts
+  // by itself. Every other host owes the broker's signed receipts for the compile and package stages.
+  if (executor?.kind === "direct") {
+    if (!directOrigin) throw new Error("a direct origin's qualification needs its direct-origin record");
+    receipt.directOrigin = directOrigin;
+  } else {
+    // The broker's signed receipts for the compile and package stages are what the hosted admission verifies; without them the
+    // booleans above are only this process's say-so.
+    for (const stage of ATTESTED_STAGES) {
+      const list = report.stages[stage].receipts;
+      if (!Array.isArray(list) || list.length < 1 || list.length > MAX_STAGE_RECEIPTS) throw new Error(`release needs 1 to ${MAX_STAGE_RECEIPTS} signed broker receipts of the ${stage} stage (found ${Array.isArray(list) ? list.length : "none"})`);
+    }
   }
   if (JSON.stringify(receipt).length > MAX_QUALIFICATION_BYTES) throw new Error("the qualification receipt with its broker receipts exceeds the workflow dispatch input limit");
   const file = path.join(path.dirname(artifact.artifactFile), "qualification.json");
@@ -84,10 +95,63 @@ export function writeQualification({ report, artifact, unit, commit, tree, runti
   return file;
 }
 
+/**
+ * GB-07 (BROKER-CONTRACT section 16): the coordinator that dispatches and pre-flights a unit is the TRUSTED, INSTALLED one: the running gate's own `scripts/ci/rk-pipeline.mjs`, found from this
+ * module's own location (never from the `root` snapshot or the `checkout` the release was asked about, so a modified or planted coordinator there cannot change the candidate's logic) with the
+ * digest of its bytes, which the release reports. Throws when the gate has none beside it.
+ */
+export function trustedCoordinator({ moduleUrl = import.meta.url, exists = fs.existsSync, readFile = fs.readFileSync } = {}) {
+  const file = path.resolve(path.dirname(fileURLToPath(moduleUrl)), "..", "..", "scripts", "ci", "rk-pipeline.mjs");
+  if (!exists(file)) throw new Error(`the installed coordinator ${file} is not beside the running gate; dispatch and pre-flight run only the gate's own installed rk-pipeline (never one under the snapshot or the checkout), so nothing was started`);
+  return { file, sha256: createHash("sha256").update(readFile(file)).digest("hex") };
+}
+
+export { controlPlaneProblem };
+
+/**
+ * GB-07: the in-gate-process entry to the trusted, installed coordinator. The coordinator's own module is imported into THIS (the gate's) process, from the gate's own installed location
+ * (trustedCoordinator), and its `runPipeline` runs the canary, pre-flight, dispatch and watch as in-process calls over the explicit root, commit and qualification the release passes: no child
+ * process is started from a path under the snapshot or the checkout, and the coordinator derives no root from where it lives. `expectedSha256` is a registered pin (the digest the host enrolled for
+ * the installed coordinator); the file is hashed before and again after it is imported, so bytes that change under the gate are refused. A coordinator that sits inside the managed snapshots root
+ * or inside the source snapshot is refused (it would be the candidate's own bytes), and so is a module without the entry.
+ */
+export async function loadInGatePipeline({ coordinator = trustedCoordinator(), expectedSha256 = null, snapshotsRoot = null, root = null, pathApi = path, importModule = (url) => import(url), readFile = fs.readFileSync } = {}) {
+  const fold = (p) => { const r = pathApi.resolve(String(p)); return pathApi === path.win32 ? r.toLowerCase() : r; };
+  const inside = (child, parent) => { const rel = pathApi.relative(fold(parent), fold(child)); return rel === "" || (!rel.startsWith("..") && !pathApi.isAbsolute(rel)); };
+  if (!coordinator?.file || !/^[0-9a-f]{64}$/.test(coordinator.sha256 ?? "")) throw new Error("the in-gate coordinator needs its installed file and the sha256 of its bytes; nothing was started");
+  if (expectedSha256 !== null && coordinator.sha256 !== expectedSha256) throw new Error(`the installed coordinator ${coordinator.file} is ${coordinator.sha256.slice(0, 12)}, not the pinned ${String(expectedSha256).slice(0, 12)}; the gate runs only the coordinator the host registered, so nothing was started`);
+  for (const [where, parent] of [["the managed snapshots root", snapshotsRoot], ["the source snapshot", root]]) {
+    if (parent && inside(coordinator.file, parent)) throw new Error(`the coordinator ${coordinator.file} is inside ${where} ${parent}: it would be the candidate's own bytes, never the trusted installed coordinator; nothing was started`);
+  }
+  const digest = () => createHash("sha256").update(readFile(coordinator.file)).digest("hex");
+  if (digest() !== coordinator.sha256) throw new Error(`the installed coordinator ${coordinator.file} changed after its digest was taken; nothing was started`);
+  const loaded = await importModule(pathToFileURL(coordinator.file).href);
+  if (digest() !== coordinator.sha256) throw new Error(`the installed coordinator ${coordinator.file} changed while it was loaded; nothing was started`);
+  if (typeof loaded?.runPipeline !== "function") throw new Error(`the installed coordinator ${coordinator.file} has no in-gate entry (runPipeline); nothing was started`);
+  return { runPipeline: loaded.runPipeline, coordinator: { file: coordinator.file, sha256: coordinator.sha256 } };
+}
+
+/** The managed snapshots root of this host (`<data root>/snapshots`), or null when the host's roots cannot be resolved. */
+const managedSnapshotsRoot = ({ env, platform }) => { try { return (platform === "win32" ? path.win32 : path.posix).join(resolveManagedRoots({ env, platform }).dataRoot, "snapshots"); } catch { return null; } };
+
 const requireBrokerHost = (executor) => { if (executor?.kind !== "broker") throw new Error("unit release runs only on a broker-managed host (the hosted qualification is dispatched by the RustRight rightkit-dispatch adapter); a direct host has no gate-owned release route, so no upload was started"); };
 
-export async function releaseUnit({ unit, root, checkout = root, commit, executor, env, artifact, qualification, platform = process.platform, run = defaultRun, readJson = defaultReadJson, out = console.log, scratch = platform === "win32" ? "D:\\scratch" : "/Volumes/D/scratch", registryBytes = defaultRegistryBytes }) {
+export async function releaseUnit({ unit, root, checkout = root, commit, tree = null, coordinator = null, pipeline = null, executor, env, artifact, qualification, platform = process.platform, run = defaultRun, readJson = defaultReadJson, out = console.log, scratch = platform === "win32" ? "D:\\scratch" : "/Volumes/D/scratch", registryBytes = defaultRegistryBytes }) {
   requireBrokerHost(executor);
+  // GB-07: the source root and the control-plane checkout are apart, and the coordinator is the gate's own installed one.
+  const snapshotsRoot = managedSnapshotsRoot({ env, platform });
+  const apart = controlPlaneProblem({ root, checkout, snapshotsRoot, pathApi: platform === "win32" ? path.win32 : path.posix });
+  if (apart) throw new Error(`${apart}; nothing was started`);
+  // The coordinator runs in this process when the gate loaded its in-gate entry (`pipeline`, loadInGatePipeline: production); otherwise the installed file runs as a child process (the older route).
+  const installed = pipeline?.coordinator ?? coordinator ?? trustedCoordinator();
+  if (pipeline) {
+    if (typeof pipeline.runPipeline !== "function") throw new Error("the in-gate coordinator entry has no runPipeline; nothing was started");
+    const api = platform === "win32" ? path.win32 : path.posix;
+    const fold = (p) => { const r = api.resolve(String(p)); return platform === "win32" ? r.toLowerCase() : r; };
+    const inside = (child, parent) => { const rel = api.relative(fold(parent), fold(child)); return rel === "" || (!rel.startsWith("..") && !api.isAbsolute(rel)); };
+    if (snapshotsRoot && inside(installed.file, snapshotsRoot)) throw new Error(`the coordinator ${installed.file} is inside the managed snapshots root ${snapshotsRoot}: only the installed coordinator runs; nothing was started`);
+    if (inside(installed.file, root) && checkout !== root) throw new Error(`the coordinator ${installed.file} is inside the source snapshot ${root}: it would be the candidate's own bytes, never the trusted installed coordinator; nothing was started`);
+  }
   if (typeof qualification !== "string" || !fs.existsSync(qualification)) throw new Error("release needs the unit qualification receipt (written by the gate after the qualify stage); nothing is dispatched without it");
   const registry = unit.kind === "npm" ? "npm" : "crates";
   // rk-pipeline (the canary, the preflight rows, the dispatch) makes its broker calls as ROOT and ADAPTER requests, and the broker refuses any
@@ -100,11 +164,24 @@ export async function releaseUnit({ unit, root, checkout = root, commit, executo
     const head = run("git", ["rev-parse", "HEAD"], { cwd: checkout, encoding: "utf8" });
     if (head.status !== 0 || String(head.stdout ?? "").trim() !== commit) throw new Error(`the primary checkout ${checkout} is not at the qualified commit ${commit.slice(0, 12)} (HEAD ${String(head.stdout ?? "").trim().slice(0, 12) || "unreadable"}); the release runs rk-pipeline from the checkout, so it proves nothing else, and nothing was started`);
   }
-  const pipeline = path.join(checkout, "scripts", "ci", "rk-pipeline.mjs");
+  // GB-07: the coordinator judges the primary checkout (the broker refuses a root request whose workspace is inside a managed snapshot), and the candidate's logic is protected as well: HEAD is the
+  // qualified commit (above) AND the checkout holds exactly that commit's bytes: no tracked file modified and nothing untracked under scripts/ci or packages/release (an untracked sibling is
+  // importable), checked BEFORE the first coordinator step starts. A modified or newer coordinator in the live checkout therefore can never stand in for the candidate's own.
+  if (checkout !== root) {
+    const dirty = run("git", ["status", "--porcelain", "--", "scripts/ci", "packages/release"], { cwd: checkout, encoding: "utf8" });
+    const tracked = run("git", ["status", "--porcelain", "--untracked-files=no"], { cwd: checkout, encoding: "utf8" });
+    const changed = [dirty, tracked].map((r) => (r.status === 0 ? String(r.stdout ?? "").trim() : null));
+    if (changed.some((c) => c === null)) throw new Error(`the primary checkout ${checkout} cannot be read for modified coordinator files; nothing is dispatched`);
+    const lines = [...new Set(changed.flatMap((c) => c.split("\n").filter(Boolean)))];
+    if (lines.length) throw new Error(`the primary checkout ${checkout} holds modified or untracked files (${lines.slice(0, 4).map((l) => l.trim()).join("; ")}${lines.length > 4 ? "; ..." : ""}); the coordinator that dispatches ${unit.name} must be exactly the qualified commit ${commit.slice(0, 12)}'s bytes, so nothing is dispatched`);
+  }
   const stateFile = platform === "win32" ? "D:\\scratch\\rk-pipeline\\state.json" : "/Volumes/D/scratch/rk-pipeline/state.json";
-  const step = (label, args, { accept = [0], acceptWhen = null } = {}) => {
+  const stepRun = pipeline
+    ? (args) => pipeline.runPipeline({ argv: args, root: checkout, env, platform, stateFile })
+    : (args) => run(process.execPath, [installed.file, ...args], { cwd: checkout, env, stdio: ["ignore", "pipe", "pipe"] });
+  const step = async (label, args, { accept = [0], acceptWhen = null } = {}) => {
     out(`rightkit-gate: [release] ${label}`);
-    const r = run(process.execPath, [pipeline, ...args], { cwd: checkout, env, stdio: ["ignore", "pipe", "pipe"] });
+    const r = await stepRun(args);
     const accepted = r.status === 0 || (accept.includes(r.status) && (!acceptWhen || acceptWhen(r)));
     if (!accepted) {
       const said = `${String(r.stdout ?? "")}\n${String(r.stderr ?? "")}`.split("\n").map((l) => l.trim()).filter((l) => l && !l.includes("note:")).slice(-4).join(" | ");
@@ -112,21 +189,30 @@ export async function releaseUnit({ unit, root, checkout = root, commit, executo
     }
     return r;
   };
+  // The candidate's identity is explicit: the commit and tree the gate qualified and the artifact digest it packaged (never read from files under the checkout). A dispatch record for the commit is the
+  // call's own only when it names the same tree and the same artifact digest; one that names another, or none, is ambiguous and never adopted.
+  const identity = { tree, artifactSha256: artifact?.artifactSha256 ?? null };
   const findDispatch = () => {
     const found = Object.values(readJson(stateFile).dispatches ?? {}).filter((d) => d.unit === unit.name && d.sha === commit && d.registry === registry);
     if (found.length > 1) throw new Error(`${found.length} dispatch records for ${unit.name} at ${commit.slice(0, 12)} in rk-pipeline state; reconcile before any retry`);
-    return found[0];
+    const [record] = found;
+    if (record) {
+      if (identity.tree !== null && record.tree === undefined || identity.artifactSha256 !== null && record.artifactSha256 === undefined) throw new Error(`the dispatch record of ${unit.name} at ${commit.slice(0, 12)} names no tree or artifact digest (no identity), so it cannot be reconciled with this candidate; reconcile rk-pipeline state by hand`);
+      if (identity.tree !== null && record.tree !== identity.tree) throw new Error(`the dispatch record of ${unit.name} at ${commit.slice(0, 12)} names tree ${String(record.tree).slice(0, 12)}, not the candidate's ${identity.tree.slice(0, 12)}; reconcile rk-pipeline state by hand`);
+      if (identity.artifactSha256 !== null && record.artifactSha256 !== identity.artifactSha256) throw new Error(`the dispatch record of ${unit.name} at ${commit.slice(0, 12)} names artifact digest ${String(record.artifactSha256).slice(0, 12)}, not the candidate's ${identity.artifactSha256.slice(0, 12)}; reconcile rk-pipeline state by hand`);
+    }
+    return record;
   };
   // The pipeline canary (rk-release-canary: the candidate's `right-release doctor` against every app on both hosts, versus the
   // registry's version) runs before the pre-flight. rk-pipeline exits 2 both for "no pipeline canary for this unit" and for any
   // internal error, so 2 is accepted only when it says the former (reviewer, 2026-10-27); a canary error never reads as no canary.
-  step(`pipeline canary of ${unit.name} (doctor on every app, both hosts, candidate vs registry)`, ["canary", unit.name],
+  await step(`pipeline canary of ${unit.name} (doctor on every app, both hosts, candidate vs registry)`, ["canary", unit.name, "--sha", commit],
     { accept: [2], acceptWhen: (r) => /no pipeline canary for this unit/.test(`${r.stdout ?? ""}\n${r.stderr ?? ""}`) });
-  step(`local pre-flight of ${unit.name} through the broker`, ["preflight", unit.name, "--registry", registry]);
-  step(`broker-admitted hosted qualification dispatch of ${unit.name} at ${commit.slice(0, 12)}`, ["dispatch", unit.name, "--registry", registry, "--qualification", qualification]);
+  await step(`local pre-flight of ${unit.name} through the broker`, ["preflight", unit.name, "--registry", registry, "--sha", commit]);
+  await step(`broker-admitted hosted qualification dispatch of ${unit.name} at ${commit.slice(0, 12)}`, ["dispatch", unit.name, "--registry", registry, "--sha", commit, "--qualification", qualification]);
   const dispatched = findDispatch();
   if (!dispatched?.runId || !dispatched.runAttempt) throw new Error(`no dispatch record with a run for ${unit.name} at ${commit.slice(0, 12)}; nothing is claimed (reconcile rk-pipeline state before any retry)`);
-  step(`waiting for publish.yml run ${dispatched.runId}, its publish-direct upload run and the registry`, ["watch", "--wait"]);
+  await step(`waiting for publish.yml run ${dispatched.runId}, its publish-direct upload run and the registry`, ["watch", "--wait"]);
   const done = findDispatch();
   if (done?.status !== "published" || done.version !== unit.version || !done.uploadRunId) throw new Error(`${unit.name}: the watch ended without a published record (${done?.status ?? "none"}${done?.conclusion ? `: ${done.conclusion}` : ""}); nothing is claimed`);
   const receipt = readPublicationReceipt({ uploadRunId: done.uploadRunId, runId: done.runId, runAttempt: done.runAttempt, run, env, scratch });
@@ -143,7 +229,10 @@ export async function releaseUnit({ unit, root, checkout = root, commit, executo
   const rows = (receipt.receipts ?? []).filter((r) => r.unit === unit.name && r.version === unit.version);
   if (rows.length !== 1) throw new Error(`${unit.name}@${unit.version}: the publication receipt holds ${rows.length} row(s) for this unit; exactly one is required`);
   const [row] = rows;
-  if (row.published !== true || row.registryVerified !== true || row.outcome !== "published" || !/^[0-9a-f]{64}$/.test(row.sha256 ?? "")) throw new Error(`${unit.name}@${unit.version}: the publication receipt of upload run ${done.uploadRunId} records no verified publication (${row.outcome})`);
+  // The shared success definition (publication-outcomes.mjs, GB-45): `published` and the uploader's verified reconciliation of an earlier attempt's
+  // identical bytes (`published-by-earlier-attempt`) are both success; the registry readback below still has to serve the receipt's own hash.
+  const rowProblem = publicationRowProblem(row);
+  if (rowProblem) throw new Error(`${unit.name}@${unit.version}: the publication receipt of upload run ${done.uploadRunId} records no verified publication (${row.outcome}): ${rowProblem}`);
   // Read the registry back independently of the upload run: npm's dist.shasum (sha1) and the served tarball's sha256 (the receipt
   // row carries sha256 + sha1, not the sha512 integrity); crates: the sparse index cksum (sha256).
   const served = await registryBytes({ unit, registry, run, env, expected: row, scratch });
@@ -153,6 +242,7 @@ export async function releaseUnit({ unit, root, checkout = root, commit, executo
     registry, runId: done.runId, runAttempt: done.runAttempt, requestId: done.requestId ?? null, uploadRunId: done.uploadRunId,
     hostedSha256: row.sha256, hostedSha1: row.sha1 ?? null, registryVerified: true,
     localArtifactSha256: artifact?.artifactSha256 ?? null, hostedEqualsLocal: artifact ? artifact.artifactSha256 === row.sha256 : null,
+    coordinator: installed,
   };
 }
 
@@ -244,7 +334,7 @@ export function knownRedEntry({ unit, root, platform, toRelease = false, readTex
  * ({ start(stage), end(stage) } returning true or false) is the door's ledger verify around each stage (7.08); `envExtra` carries the
  * Cargo output pin. Without `source` every behavior is the checkout route's, unchanged.
  */
-export async function runUnitGate({ selector, to, root, commonDir, commit, tree, executor, env, platform, check, source = null, stageGuard = null, envExtra = {}, loadOwner = () => import("./local-publish.mjs"), out = console.log, err = console.error, releaser = null, resolve = resolveUnit, writeReport, fetchReceipt = readBrokerReceipt, stageCommands = defaultStageCommands, readKnownRed, verifyReceipts = verifyQualificationReceipts, selfGit = null }) {
+export async function runUnitGate({ selector, to, root, commonDir, commit, tree, executor, env, platform, check, source = null, stageGuard = null, envExtra = {}, loadOwner = () => import("./local-publish.mjs"), out = console.log, err = console.error, releaser = null, loadPipeline = loadInGatePipeline, resolve = resolveUnit, writeReport, fetchReceipt = readBrokerReceipt, stageCommands = defaultStageCommands, readKnownRed, verifyReceipts = verifyQualificationReceipts, selfGit = null }) {
   const stages = stagesTo(to);
   if (!stages) { err(`rightkit-gate: invalid unit stage ${to}`); return 2; }
   let unit;
@@ -256,7 +346,8 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
       if (red) { err(`rightkit-gate: BLOCKED: ${selector} is listed in ci/known-red.json for ${red.host} (${red.key}: ${red.reason}); a known-red unit is not compiled, packaged, qualified or published. Fix the defect and remove the entry first`); return 1; }
     } catch (error) { err(`rightkit-gate: BLOCKED: ${error.message}`); return 1; }
   }
-  const scratch = platform === "win32" ? "D:\\scratch" : "/Volumes/D/scratch";
+  // GB-29: a Linux origin has no managed volume; its scratch is the gate's own state directory (XDG state), never a Mac path.
+  const scratch = platform === "win32" ? "D:\\scratch" : platform === "linux" ? path.join(env.XDG_STATE_HOME || path.join(env.HOME || "/tmp", ".local", "state"), "rightkit", "scratch") : "/Volumes/D/scratch";
   const bundle = path.join(scratch, `rk-unit-${randomBytes(12).toString("hex")}`);
   const argv = ["--local", unit.kind === "npm" ? "--package" : "--crate", unit.name, "--workspace", root, "--qualify-only", "--bundle", bundle];
   const runtimeDir = path.dirname(fileURLToPath(import.meta.url));
@@ -270,6 +361,15 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
   // signed receipt can be verified hosted for exactly that and nothing else. `--to qualify` is the sanctioned no-upload route to that
   // evidence: it writes the qualification and verifies it locally exactly as the hosted admission will, and stops there.
   const attested = stages.includes("qualify") && executor?.kind === "broker";
+  // GB-29: a direct Linux origin has no broker to attest its stages; it records its own direct-origin evidence (direct-origin.mjs), verified locally as the hosted side will.
+  const directLinux = stages.includes("qualify") && executor?.kind === "direct" && platform === "linux";
+  const directStages = {};
+  const directQualification = () => {
+    const registry = unit.kind === "npm" ? "npm" : "crates";
+    const record = buildDirectOrigin({ repository: RIGHTKIT_REPOSITORY, commit, tree, unit, registry, platform, artifact: { artifactSha256: artifact.artifactSha256, contentSha256: artifact.contentSha256 }, stages: directStages });
+    verifyDirectOrigin(record, { repository: RIGHTKIT_REPOSITORY, commit, tree, unit, registry, ...(unit.kind === "npm" ? { contentSha256: artifact.contentSha256 } : { artifactSha256: artifact.artifactSha256 }) });
+    return writeQualification({ report, artifact, unit, commit, tree, runtime, executor, directOrigin: record });
+  };
   const stageEnv = async (stage, action) => {
     const run = startRun({ commonDir, commit, tree, stage });
     const nonce = attested && ATTESTED_STAGES.includes(stage) ? { [ATTEST_STAGE_NONCE_ENV]: qualificationNonce({ commit, tree, unit: `${unit.kind}:${unit.name}`, stage }) } : {};
@@ -324,15 +424,36 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
       let released = null;
       if (stage === "release") {
         // The qualification receipt the dispatcher carries to publish.yml: the hosted run is bound to these bytes and stages.
+        if (directLinux) {
+          // GB-29: the direct-origin qualification is written and verified exactly as the hosted side will. Dispatching it needs the publish workflow's `direct` admission input, which is the
+          // reserved publication authorization (GC-T22): nothing is dispatched from a direct host until that input exists.
+          const written = directQualification();
+          throw new Error(`RK_DIRECT_RELEASE_HELD: the direct-origin qualification ${written} was written and verified; the committed publish workflow admits \`broker\` only, and adding \`direct\` is the reserved publication authorization (GATE-CONTRACT GC-T22, GC-L01), so nothing was dispatched`);
+        }
         requireBrokerHost(executor); // a direct host has no broker receipts to carry: refuse for that reason, not for the missing receipts
         const qualification = writeQualification({ report, artifact, unit, commit, tree, runtime, executor });
         selfCheck(qualification);
-        released = await stageEnv(stage, (runEnv) => (releaser ?? releaseUnit)({ unit, root, checkout: source?.checkout ?? root, commit, executor, env: runEnv, artifact, qualification, platform, out }));
+        // GB-07: the default release runs the trusted installed coordinator IN this process (loadInGatePipeline: pinned to the gate's own installed bytes, never a file under the snapshot or the checkout);
+        // a coordinator that cannot be loaded starts nothing. An injected releaser (a test, or another route) owns its own coordinator.
+        released = await stageEnv(stage, async (runEnv) => (releaser ?? releaseUnit)({ unit, root, checkout: source?.checkout ?? root, commit, tree, executor, env: runEnv, artifact, qualification, platform, out,
+          ...(releaser ? {} : { pipeline: await loadPipeline({ root: source ? root : null, snapshotsRoot: managedSnapshotsRoot({ env: runEnv, platform }), pathApi: platform === "win32" ? path.win32 : path.posix }) }) }));
       }
       if (stageGuard && !(await stageGuard.end(stage))) throw new Error(`RK_CHECK_ERROR: the ${stage} stage's result covers no known bytes (a snapshot byte changed, or a write is outside the ledger)`);
+      if (directLinux && (stage === "compile" || stage === "package")) {
+        // The stage guard confirmed the snapshot was the commit's bytes at start and at exit; without one a direct origin has no such evidence and records none.
+        if (!stageGuard) throw new Error(`a direct Linux origin needs the snapshot stage guard to evidence the ${stage} stage (RK_DIRECT_ORIGIN_REFUSED)`);
+        let command = `${stage} ${unit.kind}:${unit.name}`;
+        try { command = (stageCommands({ unit, root, platform })[stage] ?? []).map(describeCommand).join("; ") || command; } catch { /* the stage name alone identifies the command */ }
+        directStages[stage] = directStageEvidence({ stage, commit, tree, command, ...(stage === "package" ? { outputSha256: artifact.artifactSha256 } : {}) });
+      }
       report.stages[stage] = { ok: true, ...(stage === "package" || stage === "qualify" ? { artifactFile: artifact.artifactFile, artifactSha256: artifact.artifactSha256, ...(artifact.contentSha256 ? { contentSha256: artifact.contentSha256 } : {}) } : {}), ...(receipts[stage] ? { receipts: receipts[stage] } : {}), ...(released ?? {}) };
       save();
       out(`rightkit-gate: [${stage}] ${unit.kind}:${unit.name} passed`);
+    }
+    if (directLinux && !stages.includes("release")) {
+      currentStage = "qualify";
+      const qualification = directQualification();
+      out(`rightkit-gate: [qualify] ${unit.kind}:${unit.name} direct-origin qualification ${qualification} verified locally; nothing was dispatched`);
     }
     if (attested && !stages.includes("release")) {
       // --to qualify on a broker host: the qualification is written beside the artifact and verified as the hosted run will, and no upload exists.
