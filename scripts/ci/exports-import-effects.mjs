@@ -161,7 +161,7 @@ export function installEnvironment(from = process.env) {
   const keep = ["PATH", "HOME", "USERPROFILE", "TMPDIR", "TEMP", "TMP", "SYSTEMROOT", "COMSPEC", "PATHEXT", "LANG", "LC_ALL", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "PNPM_HOME", "COREPACK_HOME"];
   const env = {};
   for (const k of keep) if (from[k] !== undefined) env[k] = from[k];
-  Object.assign(env, { CI: "1", NODE_OPTIONS: "", NODE_ENV: "production", npm_config_ignore_scripts: "true", npm_config_ignore_pnpmfile: "true", npm_config_frozen_lockfile: "true", npm_config_offline: "true", npm_config_package_import_method: "copy", npm_config_side_effects_cache: "false", npm_config_manage_package_manager_versions: "false" });
+  Object.assign(env, { CI: "1", NODE_OPTIONS: "", NODE_ENV: "production", npm_config_ignore_scripts: "true", npm_config_ignore_pnpmfile: "true", npm_config_frozen_lockfile: "true", npm_config_offline: "true", npm_config_package_import_method: "copy", npm_config_side_effects_cache: "false", npm_config_manage_package_manager_versions: "false", pnpm_config_manage_package_manager_versions: "false" });
   return env;
 }
 
@@ -190,7 +190,11 @@ export function pnpmIdentity({ spawn = spawnSync, env = installEnvironment() } =
   if (version.status !== 0) return { problem: `pnpm at ${real} does not report a version` };
   const answered = String(version.stdout).trim();
   const declared = pnpmPackageVersion(real);
-  if (!declared) return { problem: `pnpm at ${real} has no package.json naming its version; its identity cannot be bound` };
+  // A native pnpm 12 binary self-updated in place (pnpm/action-setup 6.1, `pnpm self-update`) has no package.json of its own. With
+  // package-manager version management off (installEnvironment, npm_ and pnpm_ prefixes) it cannot exec another pnpm, so the
+  // version it answers is its own: the identity is these bytes (sha256) and that answer. A JavaScript entry still needs its manifest.
+  if (!declared && /\.[cm]?js$/i.test(real)) return { problem: `pnpm at ${real} has no package.json naming its version; its identity cannot be bound` };
+  if (!declared) return { path: onPath.trim(), realPath: real, sha256, version: answered, versionSource: "native binary, version management off", node: process.version };
   if (declared !== answered) return { problem: `pnpm at ${real} is version ${declared} but "pnpm --version" answered ${answered}: another pnpm executable would run (package manager version management); refusing to bind the identity` };
   return { path: onPath.trim(), realPath: real, sha256, version: answered, node: process.version };
 }
@@ -224,10 +228,9 @@ export function pnpmPackageVersion(file) {
     const v = pnpmManifestVersion(dir); if (v) return v;
     const up = path.dirname(dir); if (up === dir) break; dir = up;
   }
-  for (dir = path.dirname(file); ; ) {
-    if (path.basename(dir) === "node_modules") return pnpmManifestVersion(path.join(dir, "pnpm"));
-    const up = path.dirname(dir); if (up === dir) return null; dir = up;
-  }
+  // No manifest of its own: the version cannot be read from a package. A node_modules/pnpm elsewhere is NOT this binary's
+  // package (pnpm/action-setup 6.1 bootstraps pnpm 12.3.4 there and self-updates the native binary in place to 12.16.1).
+  return null;
 }
 
 /** The pnpm version a tree pins through package.json `packageManager` (`pnpm@12.16.1` → `12.16.1`), or null. */

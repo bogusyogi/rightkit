@@ -15,11 +15,11 @@ test("pnpm 11 layout: the binary sits inside the pnpm package", () => {
   assert.equal(pnpmPackageVersion(path.join(root, "node_modules/pnpm/bin/pnpm.cjs")), "11.25.0");
 });
 
-test("pnpm 12 layout: the native binary copied to node_modules/.bin/bin/pnpm binds to the installed pnpm package", () => {
+test("pnpm 12 self-updated native binary: a bootstrap node_modules/pnpm beside it is not its package", () => {
   const root = tmp();
   write(path.join(root, "node_modules/pnpm/package.json"), JSON.stringify({ name: "pnpm", version: "12.16.1" }));
   write(path.join(root, "node_modules/.bin/bin/pnpm"), "");
-  assert.equal(pnpmPackageVersion(path.join(root, "node_modules/.bin/bin/pnpm")), "12.16.1");
+  assert.equal(pnpmPackageVersion(path.join(root, "node_modules/.bin/bin/pnpm")), null);
 });
 
 test("a native binary inside its @pnpm/exe package binds to that package's version", () => {
