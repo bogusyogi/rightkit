@@ -1617,7 +1617,9 @@ async function runStages(o, args, root, git, io) {
       // GB-17: several Cargo workspaces: each of right-release's and its children's Cargo calls is bound to ITS workspace's target through the per-call wrapper.
       let packageMulti = null;
       if (ok && packagePin.dirs?.length > 1) {
-        packageMulti = await bindUnitCargo({ o, git, root, ds, executor, which: whichIn(o), ...(appDir === "." ? {} : { scopeDirs: [appDir] }) });
+        // The package stage builds the workspace that holds the app's release config (its Tauri app), never a test-only workspace beside it.
+        const builtWorkspaces = [...new Set(sidecarConfigsOf().map((c) => path.posix.dirname(String(c).replaceAll("\\", "/"))))];
+        packageMulti = await bindUnitCargo({ o, git, root, ds, executor, which: whichIn(o), onlyWorkspaces: builtWorkspaces, ...(appDir === "." ? {} : { scopeDirs: [appDir] }) });
         if (packageMulti.refusal) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_OUTPUT_UNPINNED: [package] ${packageMulti.refusal}; nothing was built`); ok = false; }
         else if (packageMulti.note) o.out(`${tag} [package] ${packageMulti.note}`);
       }
@@ -2095,7 +2097,7 @@ async function cargoOutputPinForScope(options) {
 }
 
 /** Bind only committed closure workspaces to checkout outputs; runtime Cargo outside that map refuses. */
-async function bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs }) {
+async function bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs, onlyWorkspaces = null }) {
   let selection;
   try { selection = await committedCargoManifests({ o, git, root, commit: ds.commit, scopeDirs }); }
   catch (error) { return { refusal: error.message }; }
@@ -2143,6 +2145,10 @@ async function bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs }) {
   const workspaces = Object.keys(targetDirs);
   if (o.platform === "win32" && executor.kind !== "broker") {
     if (workspaces.length === 0) return { refusal: "the selected closure has no Cargo workspace; a direct Windows host cannot wrap undeclared Cargo calls" };
+    // A stage that builds exactly one of them (the package stage builds the app's own workspace, the one holding its release config) pins
+    // that workspace's target; the others are not built by it (HeardRight: tauri-app-next built, tauri-app-next/qa-e2e not).
+    const only = Array.isArray(onlyWorkspaces) ? workspaces.filter((w) => onlyWorkspaces.includes(w)) : [];
+    if (workspaces.length > 1 && only.length === 1) return { env: { CARGO_TARGET_DIR: targetDirs[only[0]] }, note: `output directory for the Cargo workspace ${only[0]}: ${targetDirs[only[0]]} (the checkout's); this stage builds no other workspace (${workspaces.filter((w) => w !== only[0]).join(", ")})`, cleanup() {} };
     if (workspaces.length > 1) return { refusal: `the commit holds ${workspaces.length} Cargo workspaces (${workspaces.join(", ")}) and a direct Windows host has no per-call wrapper to bind each to its own target directory` };
     return { env: { CARGO_TARGET_DIR: Object.values(targetDirs)[0] }, note: `output directory for the Cargo workspace: ${Object.values(targetDirs)[0]} (the checkout's)`, cleanup() {} };
   }
