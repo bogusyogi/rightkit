@@ -25,6 +25,14 @@
       "set_by": "adrian",
       "since": "2026-11-01",
       "note": "Dell runner built and enrolled by rightkit-gate --to tool from 05eb0d689 on BOGUS-DELL (rightkit#1309: pins/trust routine)"
+    },
+    {
+      "sha256": "9cb7835258ac541a733374143ab3972387d900efb5b965c4c7694e452fff92b8",
+      "version": "0.10.1",
+      "platform": "win",
+      "set_by": "adrian",
+      "since": "2026-11-01",
+      "note": "Dell runner built and enrolled by rightkit-gate --to tool from a2ecdb2c7 on BOGUS-DELL (rightkit#1309: pins/trust routine)"
     }
   ]
 }
