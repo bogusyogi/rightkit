@@ -8,9 +8,9 @@
 //! `{ "schema": 1, "step": "..", "files": [{ "file", "signed", "sha256Before", "sha256After", .. }] }`
 //!
 //! `signed` is the absolute path of the signed copy and `sha256After` its lowercase hex SHA-256.
-//! A QA run that launches a file must call [`Evidence::require`]: exactly one record must name the
+//! A QA run that launches a file must call [`Evidence::require`](crate::signing::Evidence::require): exactly one record must name the
 //! signed copy, and the file actually launched must hash to that record's `sha256After`. Anything
-//! else (no receipt, a malformed one, no record, several records, a mismatch) is an [`Error`].
+//! else (no receipt, a malformed one, no record, several records, a mismatch) is an [`Error`](crate::signing::Error).
 //!
 //! Only `schema`, `files`, and each record's `file`, `signed` and `sha256After` are required, and read
 //! strictly; `sha256Before` is read when present (a malformed one is refused) and every other field (the platform fields) is ignored, so the

@@ -1612,12 +1612,17 @@ mod tests {
         assert!(!hidden_requested(None));
         assert_eq!(ENV_HIDDEN, "RIGHTKIT_QA_HIDDEN");
     }
+    /// `TEST_CAPABILITY` is a `const`, so the check is a compile-time assertion: a build of this test that
+    /// unified `rightkit-daemon/test-mode` into the `control` feature fails to compile, which is stricter than
+    /// a runtime failure (and what clippy's `assertions_on_constants` asks for).
     #[test]
     fn control_does_not_compile_daemon_test_mode() {
-        assert!(
-            !rightkit_daemon::mode::TEST_CAPABILITY,
-            "the `control` feature must not enable rightkit-daemon/test-mode"
-        );
+        const {
+            assert!(
+                !rightkit_daemon::mode::TEST_CAPABILITY,
+                "the `control` feature must not enable rightkit-daemon/test-mode"
+            );
+        }
     }
 
     #[test]

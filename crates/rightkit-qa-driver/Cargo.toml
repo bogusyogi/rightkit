@@ -44,6 +44,12 @@ tauri = { version = "2", optional = true }
 [dev-dependencies]
 rightkit-daemon = { version = "0.5.0", path = "../rightkit-daemon" }
 serde_json = "1.0.154"
+# Lock pin, not a use (the same pin as rightkit-qa and rightkit-tauri-shell): keeps this crate's own Cargo.lock on the Tauri 2.11 graph
+# (tauri 2.11.6 needs tauri-utils ^2.9.3, wry 0.55.1, webview2-com 0.38 / windows 0.61) that the `qa-control,wv2-0_38` gate row compiles
+# against. Without it a fresh lock resolves Tauri 2.12 (tauri-utils ~2.10.2, wry 0.57, webview2-com 0.39 / windows 0.62) and
+# rightkit-qa's `wv2-0_38` code meets 0.39 types on Windows. A dev-dependency is never part of a consumer's resolve, so apps stay free to
+# pick Tauri 2.12. Lift with the Tauri 2.12 move, and then switch the row to `wv2-0_39`.
+tauri-utils = { version = ">=2.9.3, <2.10" }
 
 [target.'cfg(windows)'.dependencies]
 windows_061 = { package = "windows", version = "0.61", optional = true }

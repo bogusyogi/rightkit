@@ -63,6 +63,13 @@ path = "src/bin/rightkit-qa.rs"
 
 [dev-dependencies]
 rightkit-fs = { version = "0.4.4", path = "../rightkit-fs", default-features = false, features = ["test-mode"] }
+# Lock pin, not a use (the same pin as rightkit-tauri-shell): keeps this crate's own Cargo.lock on the Tauri 2.11 graph
+# (tauri 2.11.6 needs tauri-utils ^2.9.3, wry 0.55.1, webview2-com 0.38 / windows 0.61) that the `control,wv2-0_38` gate rows compile
+# against. Without it a fresh lock resolves Tauri 2.12 (tauri-utils ~2.10.2, wry 0.57, webview2-com 0.39 / windows 0.62) and the
+# `wv2-0_38` code in `embedded/win_view.rs` meets 0.39 types (E0277 `&HSTRING: Param<PCWSTR>`, E0308 `*mut RECT`) on Windows. The
+# `wv2-0_39` generation is compiled on a Tauri 2.12 lock by the ci/consumers/wv2-0_39 `qa` row. A dev-dependency is never part of a
+# consumer's resolve, so apps stay free to pick Tauri 2.12. Lift with the Tauri 2.12 move, and then switch the rows to `wv2-0_39`.
+tauri-utils = { version = ">=2.9.3, <2.10" }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_UI_Accessibility", "Win32_UI_WindowsAndMessaging"] }
