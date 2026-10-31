@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.6.15 (unpublished)
+## 0.6.16 (unpublished)
+
+- **Compile-stage cargo-deny under the cargo wrapper (rightkit#1327):** the scan put cargo-deny's enrolled directory (~/.cargo/bin, which also holds rustup's cargo) ahead of the wrapper on PATH, so `cargo deny` bypassed it and tripped the unbound-output sentinel in multi-workspace apps; the wrapper now comes first (2082965e3).
+
+## 0.6.15
+
 
 - **`--no-broker` reaches the compile stage (rightkit#1326):** every child the gate starts under a `--no-broker` exception runs `rustright cargo|rustc|rustdoc` directly instead of through the installed client, so `right-release stage-sidecar` and the other compile steps no longer stop with "a root request cannot run inside a managed snapshot" (9401214a6).
 - 0.6.14 was published by the owner from 0e0784779 without npm provenance; 0.6.15 is published from GitHub with provenance (publish-npm-owner.yml).
