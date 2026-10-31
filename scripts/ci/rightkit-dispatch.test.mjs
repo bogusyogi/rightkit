@@ -604,3 +604,87 @@ test("[GB-47] readClaim distinguishes absent (an explicit empty listing) from un
   assert.equal(readClaim({ gh: fakeGh().gh, env: {}, repo: REPO, key }).status, "absent");
   assert.equal(readClaim({ gh: fakeGh({ claimsOk: false }).gh, env: {}, repo: REPO, key }).status, "unavailable");
 });
+
+// ---- rustright#200 (Adrian): a sent-or-unknown claim reconciles automatically by its request token and stays UNKNOWN; no empty/partial/failed lookup is "not sent" ----
+
+const lostAck = (store, time, gh = {}) => origin("req-m1", store, { time, gh: { dispatchMode: "drop-response", visibleAfterListings: 100_000, ...gh } });
+
+test("[#200] an empty listing, an expired visibility window and a listing error are UNKNOWN, recorded explicitly on the claim; nothing is ever re-sent, however much time passes", async () => {
+  const store = newStore();
+  const time = newClock();
+  // Confirmed POST whose run stays invisible for the whole discovery window: the window expiring is not proof of non-dispatch.
+  const sent = origin("req-m1", store, { time, gh: { visibleAfterListings: 100_000 } });
+  assert.equal(await sent.run(), 2);
+  assert.match(sent.err.join("\n"), /pending, dispatched but no publish\.yml run/);
+  assert.equal(pendingLine(sent).reconciliation, "UNKNOWN");
+  assert.deepEqual([claimOf(store).state, claimOf(store).reconciliation.state, claimOf(store).reconciliation.reason, claimOf(store).reconciliation.attempts], ["sending", "unknown", "no-run-visible", 1]);
+  // Later requests (another origin, the same request id) inside the record throttle keep the state and send nothing.
+  for (const id of ["req-d1", "req-m1"]) { const o = origin(id, store, { time }); assert.equal(await o.run(), 2); assert.equal(pendingLine(o).reconciliation, "UNKNOWN"); }
+  assert.equal(claimOf(store).reconciliation.attempts, 1, "the unknown record is throttled, not rewritten on every request");
+  // A listing ERROR on a later request: the lookup is retried (RECONCILE_LOOKUPS = 3) and the claim stays UNKNOWN with the error reason.
+  time.c.t += 61_000;
+  store.listingDown = true;
+  const before = store.listings;
+  const errored = origin("req-d2", store, { time });
+  assert.equal(await errored.run(), 2);
+  assert.equal(store.listings - before, 3, "an errored lookup is retried, not accepted once");
+  assert.equal(pendingLine(errored).reconciliation, "UNKNOWN");
+  assert.equal(claimOf(store).reconciliation.reason, "listing-unavailable-or-incomplete");
+  assert.equal(claimOf(store).reconciliation.attempts, 2);
+  store.listingDown = false;
+  // Thirty days later the claim is still UNKNOWN and still not re-sendable: only the run (found by its token) can resolve it.
+  time.c.t += 30 * 24 * 3_600_000;
+  const much = origin("req-d3", store, { time });
+  assert.equal(await much.run(), 2);
+  assert.equal(posts(store), 1, "no timeout, empty listing or error ever licenses a second POST");
+  assert.equal(claimOf(store).state, "sending");
+  // The run becomes visible: the next request reconciles AUTOMATICALLY, joins it, and records it (found marks it sent).
+  store.runs[0].visibleAt = 0;
+  const later = origin("req-d4", store, { time });
+  assert.equal(await later.run(), 0, later.err.join("\n"));
+  assert.equal(JSON.parse(later.out[0]).joined, true); assert.equal(JSON.parse(later.out[0]).requestId, "req-m1");
+  assert.equal(posts(store), 1);
+  assert.deepEqual([claimOf(store).state, claimOf(store).reconciliation.state], ["dispatched", "found"]);
+});
+
+test("[#200] a lost acknowledgement is reconciled by a PAGED lookup on a later request: a run on page 2 is found and joined without a POST", async () => {
+  const store = newStore();
+  const time = newClock();
+  const first = lostAck(store, time, { fillerRuns: 150 });
+  assert.equal(await first.run(), 3);
+  assert.equal(claimOf(store).reconciliation.state, "unknown");
+  store.runs[0].visibleAt = 0;
+  const calls = store.listings;
+  const retry = origin("req-m1", store, { time, gh: { fillerRuns: 150 } });
+  assert.equal(await retry.run(), 0, retry.err.join("\n"));
+  assert.ok(store.listings - calls >= 2, "both pages were read");
+  assert.equal(posts(store), 1);
+  assert.equal(JSON.parse(retry.out[0]).runId, 5001);
+  assert.equal(claimOf(store).reconciliation.state, "found");
+});
+
+test("[#200] a partially readable listing (page cap reached) is never 'not sent' and never a join of one seen run; the claim stays UNKNOWN", async () => {
+  const store = newStore();
+  const time = newClock();
+  const first = lostAck(store, time, { fillerRuns: 1100 });
+  assert.equal(await first.run(), 3);
+  store.runs[0].visibleAt = 0;
+  const retry = origin("req-d1", store, { time, gh: { fillerRuns: 1100 } });
+  assert.equal(await retry.run(), 2);
+  assert.equal(pendingLine(retry).reconciliation, "UNKNOWN");
+  assert.equal(posts(store), 1);
+  assert.equal(claimOf(store).state, "sending");
+});
+
+test("[#200] there is no manual release path: no flag, and a sending claim is never reclaimed by a stale window, a takeover or a force", async () => {
+  for (const flag of ["--release", "--force", "--resend", "--reset"]) assert.throws(() => parseArgs(["--workflow", "ci", "--sha", SHA, flag]), /unknown argument/);
+  const store = newStore();
+  const time = newClock();
+  assert.equal(await lostAck(store, time).run(), 3);
+  time.c.t += 10 * CLAIM_STALE_MS;
+  const same = origin("req-m1", store, { time });
+  const other = origin("req-d1", store, { time });
+  assert.deepEqual([await same.run(), await other.run()], [2, 2]);
+  assert.equal(posts(store), 1, "stale takeover is only for a reserved claim that never sent");
+  assert.equal(claimOf(store).takeover, undefined);
+});

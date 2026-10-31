@@ -159,6 +159,13 @@ export const CLAIM_SCHEMA = "rightkit.dispatch-claim/2";
 export const CLAIM_STALE_MS = 10 * 60_000;
 const RUNS_PER_PAGE = 100;
 const RUNS_MAX_PAGES = 10;
+// Adrian (rustright#200): a claim in `sending` reconciles AUTOMATICALLY by its stable request token (carried in the dispatch inputs and the run name), by a
+// paged, retried lookup on every later request. An empty or incomplete listing, an API error or an expired visibility window is NEVER proof that nothing was
+// sent: the claim stays UNKNOWN (recorded explicitly as `reconciliation.state = "unknown"`) and keeps reconciling. There is no manual release. A re-send would
+// need idempotency or consumption proof for the dispatch's effects (the workflow can do work before the publish; a registry's duplicate-version refusal is
+// not enough), and none exists, so no path here ever POSTs again once the send intent is persisted.
+const RECONCILE_LOOKUPS = 3;
+const RECONCILE_RECORD_MS = 60_000;
 const CLAIM_STATES = ["reserved", "sending", "dispatched"];
 const sha256Hex = (text) => crypto.createHash("sha256").update(text).digest("hex");
 const sortKeys = (v) => (Array.isArray(v) ? v.map(sortKeys) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortKeys(v[k])])) : v);
@@ -269,7 +276,9 @@ export function reserveClaim({ gh, env, repo, identity, requestId, discover, ver
     return {
       status: "reserved", ref, token: requestId,
       beginSend: () => step({ ...state.claim, state: "sending", seq: state.claim.seq + 1, at: isoAt(now()) }),
-      record: (run) => step({ ...state.claim, state: "dispatched", seq: state.claim.seq + 1, run: { id: run.id, attempt: run.run_attempt ?? null, url: run.html_url ?? null }, at: isoAt(now()) }),
+      record: (run) => step({ ...state.claim, state: "dispatched", seq: state.claim.seq + 1, run: { id: run.id, attempt: run.run_attempt ?? null, url: run.html_url ?? null }, reconciliation: { state: "found", at: isoAt(now()), by: requestId }, at: isoAt(now()) }),
+      /** Records the sent-or-unknown state explicitly (best effort; it never changes `state`, so it can never enable a resend). */
+      markUnknown: (reason) => step({ ...state.claim, seq: state.claim.seq + 1, reconciliation: { state: "unknown", reason, at: isoAt(now()), attempts: (state.claim.reconciliation?.attempts ?? 0) + 1, by: requestId } }),
     };
   };
   for (let pass = 0; pass < 3; pass += 1) {
@@ -288,17 +297,25 @@ export function reserveClaim({ gh, env, repo, identity, requestId, discover, ver
     const { claim, revision } = read;
     const token = claim.requestId;
     if (claim.identityDigest !== digest) return refused("conflict", "claim-conflict", `${label} is already claimed for different bytes, source or policy (${claim.identityDigest.slice(0, 12)}); this candidate (${digest.slice(0, 12)}) is refused`);
-    const adopt = (run) => () => advanceClaim({ gh, env, repo, key, revision, tree: identity.tree, claim: { ...claim, state: "dispatched", seq: claim.seq + 1, run: { id: run.id, attempt: run.run_attempt ?? null, url: run.html_url ?? null }, adoptedBy: { requestId, attempt }, at: isoAt(now()) }, now });
+    const adopt = (run) => () => advanceClaim({ gh, env, repo, key, revision, tree: identity.tree, claim: { ...claim, state: "dispatched", seq: claim.seq + 1, run: { id: run.id, attempt: run.run_attempt ?? null, url: run.html_url ?? null }, adoptedBy: { requestId, attempt }, reconciliation: { state: "found", at: isoAt(now()), by: requestId }, at: isoAt(now()) }, now });
     if (claim.state === "dispatched") {
       const verified = verifyRun(claim.run.id, token);
-      if (verified?.status !== "confirmed") return refused("pending", "claim-run-unconfirmed", `the claim for ${label} names run ${claim.run.id}, which the Actions API does not confirm; reconcile it before any send`, { token });
+      if (verified?.status !== "confirmed") return refused("pending", "claim-run-unconfirmed", `the claim for ${label} names run ${claim.run.id}, which the Actions API does not confirm; it stays UNKNOWN, nothing is re-sent, and every later request re-verifies it`, { token, reconciliation: "UNKNOWN" });
       return { status: "joined", run: verified.run, claim };
     }
     if (claim.state === "sending") {
-      const found = discover(token);
+      // Automatic reconciliation by the effect token: a paged lookup, retried while it errors or is incomplete. Only a complete listing with exactly one
+      // matching run proves the send; nothing else (empty, partial, error, timeout) proves the absence of one.
+      let found = discover(token);
+      for (let retry = 1; retry < RECONCILE_LOOKUPS && !(found.ok && found.complete); retry += 1) found = discover(token);
       if (found.ok && found.complete && found.runs.length === 1) return { status: "joined", run: found.runs[0], claim, adopt: adopt(found.runs[0]) };
-      if (found.ok && found.runs.length > 1) return refused("pending", "claim-ambiguous", `${found.runs.length} runs carry the claim's request token ${token}; ambiguous, nothing is sent`, { token });
-      return refused("pending", "claim-sent-or-unknown", `${label} is claimed by request ${token} (send intent recorded ${claim.at}); a dispatch may already have been accepted and ${found.ok && found.complete ? "no run of it is visible yet" : "its run listing is unavailable or incomplete, so no run of it is visible yet"}: nothing is re-sent; reconcile that request's run before any further send`, { token });
+      const reason = found.ok && found.runs.length > 1 ? "ambiguous" : found.ok && found.complete ? "no-run-visible" : "listing-unavailable-or-incomplete";
+      const prior = claim.reconciliation;
+      if (!(prior?.state === "unknown" && now() - Date.parse(prior.at) < RECONCILE_RECORD_MS)) {
+        advanceClaim({ gh, env, repo, key, revision, tree: identity.tree, claim: { ...claim, seq: claim.seq + 1, reconciliation: { state: "unknown", reason, at: isoAt(now()), attempts: (prior?.attempts ?? 0) + 1, by: requestId } }, now });
+      }
+      if (reason === "ambiguous") return refused("pending", "claim-ambiguous", `${found.runs.length} runs carry the claim's request token ${token}; ambiguous, nothing is sent`, { token, reconciliation: "UNKNOWN" });
+      return refused("pending", "claim-sent-or-unknown", `${label} is claimed by request ${token} (send intent recorded ${claim.at}); a dispatch may already have been accepted and ${reason === "no-run-visible" ? "no run of it is visible yet" : "its run listing is unavailable or incomplete, so no run of it is visible yet"}: the state is UNKNOWN, nothing is re-sent, and every later request reconciles it by the request token`, { token, reconciliation: "UNKNOWN" });
     }
     // reserved: nothing has been sent by its owner (a send follows only a successful swap to "sending"), so a takeover cannot duplicate an effect.
     if (claim.attempt === attempt) return own({ revision, claim });
@@ -493,7 +510,7 @@ export async function main(argv, deps = {}) {
     const known = ["unavailable", "conflict", "pending"].includes(claim.status);
     const prefix = { unavailable: "claim unavailable: ", conflict: "refused, conflicting candidate: ", pending: "pending, claimed elsewhere: " }[claim.status] ?? "claim unavailable: ";
     err(`rightkit-dispatch: ${prefix}${claim.code ? `[${claim.code}] ` : ""}${known ? claim.message : "the claim step did not return a reservation; nothing was sent"}`);
-    if (claim.status === "pending") out(record({ pending: true, code: claim.code ?? null, requestId: claim.token ?? null }));
+    if (claim.status === "pending") out(record({ pending: true, code: claim.code ?? null, requestId: claim.token ?? null, reconciliation: claim.reconciliation ?? "UNKNOWN" }));
     return claim.status === "conflict" || claim.status === "pending" ? 2 : 3;
   }
   // RA-05: persist the send intent BEFORE the POST. From here the dispatch is sent-or-unknown; if the intent cannot be persisted (the claim moved, or the
@@ -516,11 +533,15 @@ export async function main(argv, deps = {}) {
     await sleep(POLL_MS);
   }
   if (found.complete && found.runs.length > 1) {
+    claim.markUnknown?.("ambiguous");
     err(`rightkit-dispatch: ambiguous, ${found.runs.length} ${WORKFLOWS[opts.workflow]} runs for ${opts.sha.slice(0, 12)} carry the token ${requestId}; nothing is reported as this request's run, and the claim stays pending`);
     return 2;
   }
   if (!(found.complete && found.runs.length === 1)) {
-    out(record({ pending: true, code: "claim-sent-or-unknown", requestId, accepted: posted.ok, state: "sending" }));
+    // Record UNKNOWN explicitly on the claim (best effort; `state` stays "sending", so this can never enable a resend). An expired window, an empty or
+    // partial listing and a listing error are all UNKNOWN, never "not sent"; every later request reconciles it by the request token.
+    claim.markUnknown?.(found.ok && found.complete ? "no-run-visible" : "listing-unavailable-or-incomplete");
+    out(record({ pending: true, code: "claim-sent-or-unknown", requestId, accepted: posted.ok, state: "sending", reconciliation: "UNKNOWN" }));
     if (!posted.ok) {
       err(`rightkit-dispatch: GitHub did not confirm the ${WORKFLOWS[opts.workflow]} dispatch; it may still have been accepted, so the claim stays pending and nothing is re-sent`);
       return 3;
