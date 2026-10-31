@@ -23,7 +23,7 @@ function sh(cwd, args) {
 }
 
 // A committed app with a qa config and resources, a compile output directory holding a QA shell and an engine, a managed runner file, a runs root.
-async function withApp(body, { qa = qaPlan() } = {}) {
+async function withApp(body, { qa = qaPlan(), tests = null } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "rk-qa-layout-run-"));
   try {
     const root = path.join(dir, "repo");
@@ -35,7 +35,7 @@ async function withApp(body, { qa = qaPlan() } = {}) {
     writeFileSync(path.join(root, ".gitignore"), ".right-release/\n");
     writeFileSync(path.join(root, "rightkit-qa.toml"), "app = 'demo'\napp_root = '.'\n");
     writeFileSync(path.join(root, "src-tauri", "resources", "a.txt"), "resource-a");
-    writeFileSync(path.join(root, "right-release.config.mjs"), `export default { app: "demo", version: "1.0.0", qa: ${JSON.stringify(qa)} };\n`);
+    writeFileSync(path.join(root, "right-release.config.mjs"), `export default { app: "demo", version: "1.0.0", qa: ${JSON.stringify(qa)}${tests ? `, tests: ${JSON.stringify(tests)}` : ""} };\n`);
     sh(root, ["add", "-A"]); sh(root, ["commit", "-q", "-m", "init"]);
     const built = path.join(dir, "target");
     mkdirSync(path.join(built, "debug"), { recursive: true });
@@ -115,3 +115,26 @@ test("the runner's own failure still cleans the run-scoped directory", async () 
   await assert.rejects(run(ctx, { ...managed(ctx), spawnRunner: () => { throw new Error("spawn exploded"); } }), /spawn exploded/);
   assert.equal(readdirSync(ctx.runsRoot).length, 0);
 }));
+
+test("qa.layout.build: source QA runs the app's build and sign suites first and stages the signed shell and engine from their outputs, not the compile's", async () => {
+  const tests = { suites: [{ name: "qa-build-shell", cmd: "node", args: ["build.mjs"] }, { name: "qa-sign", sign: { files: [{ from: "qa-build-shell", path: "debug/shell" }, { from: "qa-build-shell", path: "debug/engine" }] } }, { name: "unit", cmd: "node", args: ["unit.mjs"] }] };
+  await withApp(async (ctx) => {
+    const signedDir = path.join(ctx.dir, "signed");
+    mkdirSync(signedDir);
+    writeFileSync(path.join(signedDir, "shell"), `${QA_CONTROL_MARKER} signed`);
+    writeFileSync(path.join(signedDir, "engine"), "engine signed");
+    const ran = []; let staged = null;
+    const runSuites = async (plan, { within }) => {
+      ran.push(...plan.map((item) => item.name));
+      const within_ = await within({ outputs: new Map([["qa-build-shell", [ctx.built]]]), env: { RIGHTKIT_QA_SIGNED_FILES: JSON.stringify({ "debug/shell": path.join(signedDir, "shell"), "debug/engine": path.join(signedDir, "engine") }) } });
+      staged = within_;
+      return { exitCode: 0, results: [], within: within_ };
+    };
+    const { receipt } = await run(ctx, { ...managed(ctx), runSuites, env: { ...process.env } });
+    assert.deepEqual(ran, ["qa-build-shell", "qa-sign"], "only the declared build suites run, in declared order");
+    assert.equal(receipt.layout.signed, true);
+    assert.ok(staged.evidence.beside.some((e) => e.path === "engine"));
+    const failing = async () => ({ exitCode: 1, results: [{ suite: "qa-build-shell", exitCode: 1 }] });
+    await assert.rejects(() => run(ctx, { ...managed(ctx), runSuites: failing }), /qa.layout.build: the QA shell build failed \(qa-build-shell\); no QA ran/);
+  }, { qa: qaPlan({ layout: { ...LAYOUT, build: ["qa-build-shell", "qa-sign"] } }), tests });
+});

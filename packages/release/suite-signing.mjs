@@ -175,7 +175,8 @@ export function runSignStep({ name, sign, appRoot, config, env = process.env, pl
     // 3. A gate-managed copy, outside everything the build owns.
     const signingRoot = deps.signingDirectory ?? defaultSigningDirectory({ env, platform });
     signedDir = path.join(signingRoot, `${name}-${process.pid}-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`);
-    const section = carried.map.broker ?? {};
+    // A direct host (no carrier) has no broker section: the checkout and the suites' own output directories are still forbidden.
+    const section = carried?.map?.broker ?? {};
     const forbidden = [section.snapshot?.path, section.checkout, env.RK_GATE_CHECKOUT, ...sources.flatMap((source) => source.dirs)].filter((p) => typeof p === "string" && p);
     for (const place of forbidden) if (isInside(signedDir, place)) refuse("SIGN_COPY_PLACE", `${name}: the signing directory ${signedDir} is inside ${place} (the snapshot, the checkout or a broker output directory)`);
     fs.mkdirSync(signedDir, { recursive: true, mode: 0o700 });

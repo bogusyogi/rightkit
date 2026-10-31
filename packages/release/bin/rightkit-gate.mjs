@@ -1628,7 +1628,10 @@ async function runStages(o, args, root, git, io) {
       // while that record still proves the outputs intact; it stages the declared layout from them in a run-scoped directory, never in the snapshot (qa-layout.mjs).
       const compileDirs = receipt.stages.compile?.outputs?.dirs;
       const compiledProblem = (o.compileReuseProblem ?? compileReuseProblem)(receipt.stages.compile, { env: o.env });
-      const qaEnv = !mobile && !compiledProblem && Array.isArray(compileDirs) && compileDirs.length ? { ...packageEnv, RIGHT_RELEASE_QA_COMPILED_DIRS: JSON.stringify(compileDirs) } : packageEnv;
+      // A direct host's suites (qa.layout.build) have no carried receipts: what they build lands in the output directories pinned here (test-command.mjs).
+      const pinnedDirs = packagePin.dirs ?? (packagePin.dir ? [packagePin.dir] : []);
+      const buildEnv = pinnedDirs.length ? { ...packageEnv, RIGHTKIT_GATE_TARGET_DIRS: JSON.stringify(pinnedDirs) } : packageEnv;
+      const qaEnv = !mobile && !compiledProblem && Array.isArray(compileDirs) && compileDirs.length ? { ...buildEnv, RIGHT_RELEASE_QA_COMPILED_DIRS: JSON.stringify(compileDirs) } : buildEnv;
       if (ok && !mobile && compiledProblem && Array.isArray(compileDirs)) o.out(`${tag} [package] the compile outputs are not handed to source QA: ${compiledProblem}`);
       ok = ok && (mobile || await rightRelease(stage, ["qa", "--stage", "source", "--platform", platform], qaEnv)) && await rightRelease(stage, ["build", "--platform", platform], packageEnv);
       const sealed = ok ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;

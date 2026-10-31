@@ -141,3 +141,24 @@ test("stage refuses: no binary, a plain app without the QA marker, an invalid la
     assert.throws(() => stage(ctx, { qaConfigFile: stray }), /RK_QA_LAYOUT_CONFIG/);
   });
 });
+
+test("qa.layout.build: a non-empty list of distinct suite names; anything else is reported", () => {
+  assert.deepEqual(validateQaLayout({ ...LAYOUT, build: ["qa-build-shell", "qa-sign"] }), []);
+  for (const build of [[], ["a", "a"], [""], "qa-build-shell", [1]]) assert.ok(validateQaLayout({ ...LAYOUT, build }).some((p) => p.includes("qa.layout.build")), JSON.stringify(build));
+});
+
+test("stage with a sign step's copies: the shell and every built entry are the signed bytes; one it did not sign is refused", () => withFixture((ctx) => {
+  const signedDir = path.join(ctx.dir, "signed");
+  mkdirSync(signedDir);
+  writeFileSync(path.join(signedDir, "shell"), `ELF ${QA_CONTROL_MARKER} shell signed`);
+  writeFileSync(path.join(signedDir, "engine"), "engine-bytes signed");
+  const signed = { "debug/shell": path.join(signedDir, "shell"), "debug/engine": path.join(signedDir, "engine") };
+  const staged = stage(ctx, { signed });
+  try {
+    assert.equal(readFileSync(staged.binary, "utf8"), `ELF ${QA_CONTROL_MARKER} shell signed`);
+    assert.equal(readFileSync(path.join(path.dirname(staged.binary), "engine"), "utf8"), "engine-bytes signed");
+    assert.equal(staged.evidence.signed, true);
+  } finally { staged.cleanup(); }
+  assert.throws(() => stage(ctx, { signed: { "debug/shell": signed["debug/shell"] } }), /RK_QA_LAYOUT_UNSIGNED.*debug\/engine/);
+  assert.throws(() => stage(ctx, { signed: {} }), /RK_QA_LAYOUT_UNSIGNED.*debug\/shell/);
+}));

@@ -30,6 +30,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawn } from "./background-process.mjs";
 import { carriedCargoMapOf, carriedLedgerIds, carriedOutputDirsSince } from "./carried-cargo.mjs";
+import { GATE_TARGET_DIRS_ENV } from "./qa-layout.mjs";
 import { CommandSpecError, loadAppConfig, resolveInvocation, validateStep } from "./command-spec.mjs";
 import { defaultReleaseConfigFile } from "./release-config.mjs";
 import { fsListRustFiles } from "./signing-files.mjs";
@@ -167,6 +168,11 @@ export function planTests(config, { suites = [], runner, passthrough = [], appRo
 }
 
 /** The refusal code of a planned `rightkit-qa journeys run` suite (GB-79). */
+/** RIGHTKIT_GATE_TARGET_DIRS: the absolute directories the gate pinned; none when unset or malformed. */
+function directOutputDirs(env) {
+  try { const dirs = JSON.parse(env[GATE_TARGET_DIRS_ENV] ?? "[]"); return Array.isArray(dirs) ? dirs.filter((d) => typeof d === "string" && path.isAbsolute(d)) : []; } catch { return []; }
+}
+
 export const QA_JOURNEYS_UNSUPPORTED = "RK_QA_JOURNEYS_PREBUILT_UNSUPPORTED";
 /** True when a suite step is `rightkit-qa journeys run ...` (by command or by node script name, extra args included). */
 export function qaJourneysRunStep(step, extraArgs = []) {
@@ -187,8 +193,10 @@ export function eventPrefix(config) {
  * Resolves `{ exitCode, results: [{ suite, exitCode, durationMs, skipped?, reason?, error? }] }`; a signal (cancellation) rejects.
  * A `sign` step (suite-signing.mjs) runs IN THIS PROCESS, never through `door` (it is no command and never a broker job); it signs what an earlier
  * suite built, named by that suite's verified carried receipts, and only a success sets RIGHTKIT_QA_APP_BINARY for the suites after it.
+ * On a direct host (no carrier) a suite's outputs are the Cargo output directories the gate pinned for the stage (RIGHTKIT_GATE_TARGET_DIRS).
+ * `within({ outputs, env })`, when given, runs once every suite passed and before the signed copies are removed; its result is returned as `within`.
  */
-export async function runSuites(plan, { appRoot, prefix = "test", env = process.env, spawnFn = spawn, log = console.log, errLog = console.error, door = buildLaunch, config = null, platform = process.platform, signDeps = {}, signStep = runSignStep, snapshotStage = Boolean(carriedCargoMapOf(env)?.map), qaCapability = (qa) => qaPrebuiltCapability(qa, { env }) } = {}) {
+export async function runSuites(plan, { appRoot, prefix = "test", env = process.env, spawnFn = spawn, log = console.log, errLog = console.error, door = buildLaunch, config = null, platform = process.platform, signDeps = {}, signStep = runSignStep, within = null, snapshotStage = Boolean(carriedCargoMapOf(env)?.map), qaCapability = (qa) => qaPrebuiltCapability(qa, { env }) } = {}) {
   const results = [];
   // One signing policy, enforced here whatever the config's format (the route probe reads JSON configs only; a legacy .mjs config is judged now): an
   // unsigned or ad hoc product build, or an identifier override, is refused before any suite runs (rightkit#1303). Mac and Dell only.
@@ -294,14 +302,16 @@ export async function runSuites(plan, { appRoot, prefix = "test", env = process.
       const durationMs = Date.now() - started;
       // Only a suite that passed hands its receipts to a sign step.
       if (exitCode === 0) {
-        const dirs = carriedOutputDirsSince(env, before);
+        const dirs = carriedCargoMapOf(env)?.map ? carriedOutputDirsSince(env, before) : directOutputDirs(env);
         for (const key of new Set([item.name, item.group])) outputs.set(key, [...new Set([...(outputs.get(key) ?? []), ...dirs])]);
       }
       log(JSON.stringify({ event: `${prefix}_suite_completed`, suite: item.name, exitCode, durationMs }));
       results.push({ suite: item.name, exitCode, durationMs, ...(failure ? { error: String(failure.message ?? failure) } : {}) });
       record(item, exitCode === 0 ? "passed" : "failed");
     }
-    return { exitCode: results.some((r) => r.skipped !== true && r.exitCode !== 0) || results.some((r) => r.skipped) ? firstFailure() : 0, results };
+    const exitCode = results.some((r) => r.skipped !== true && r.exitCode !== 0) || results.some((r) => r.skipped) ? firstFailure() : 0;
+    if (exitCode !== 0 || !within) return { exitCode, results };
+    return { exitCode, results, within: await within({ outputs, env: suiteEnv }) };
   } finally {
     // The signed copies live only as long as the run that signed them.
     for (const dir of signedDirs) { try { rmSync(dir, { recursive: true, force: true }); } catch { /* the managed root is pruned */ } }

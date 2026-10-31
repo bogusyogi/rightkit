@@ -16,6 +16,7 @@
 //
 //   qa.layout = {
 //     binary: "heardright_next_bin",                              // cargo bin target of the QA shell
+//     build: ["qa-build-shell", "qa-build-engine", "qa-sign"],    // tests.suites that build (and sign) the QA shell and what sits beside it
 //     beside: [                                                    // staged beside the shell, in order
 //       { built: "heardright-engine" },                            // another executable of the same compile output (same profile directory)
 //       { built: "heardright-engine", optional: true },            // ... absent is allowed
@@ -24,6 +25,10 @@
 //     ],
 //   }
 //
+// `build` names suites of the app's own `tests.suites` (the steps `--to test` runs): source QA runs them first, through the same door and signing policy
+// (test-command.mjs runSuites), and the shell and `built` entries are then found in THOSE suites' output directories, never the release compile's. When a
+// sign step is among them, the shell and every `built` entry are staged from its signed copies (rightkit#1303), and one it did not sign is refused.
+// Without `build` the shell is looked for in the compile outputs the gate hands over.
 // `from` stays inside the snapshot app root (links resolved), `to` stays beside the shell. Scenario state (a seeded settings.json) is the scenario's
 // own `write_file` step inside the runner's isolated data directory, not this layout. Every file staged is digested into the receipt.
 import crypto from "node:crypto";
@@ -33,12 +38,14 @@ import { QA_CONTROL_MARKER } from "./qa-control-scan.mjs";
 import { realish } from "./qa-snapshot.mjs";
 
 export const QA_COMPILED_DIRS_ENV = "RIGHT_RELEASE_QA_COMPILED_DIRS";
+/** A direct host's Cargo output directories the gate pinned for this stage (JSON list): what a suite built there lands in (test-command.mjs). */
+export const GATE_TARGET_DIRS_ENV = "RIGHTKIT_GATE_TARGET_DIRS";
 export const QA_APP_BINARY_ENV = "RIGHTKIT_QA_APP_BINARY";
 export const STASH_DIR = ".rightkit-qa-bin";
 /** The profile directories the runner reads for a dev build (binary.rs DEV_PROFILES); `release` is never one. */
 export const DEV_PROFILES = Object.freeze(["release-iterate", "debug", "dev"]);
 
-const LAYOUT_KEYS = new Set(["binary", "beside"]);
+const LAYOUT_KEYS = new Set(["binary", "beside", "build"]);
 const BESIDE_KEYS = new Set(["built", "from", "to", "optional"]);
 const BARE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 
@@ -55,6 +62,7 @@ export function validateQaLayout(layout) {
   for (const key of Object.keys(layout)) if (!LAYOUT_KEYS.has(key)) problems.push(`qa.layout has unknown key ${JSON.stringify(key)} (allowed: ${[...LAYOUT_KEYS].join(", ")})`);
   if (typeof layout.binary !== "string" || !BARE_NAME.test(layout.binary) || /\.exe$/i.test(layout.binary)) problems.push("qa.layout.binary must be a bare cargo bin target name (no path, no .exe)");
   if (layout.beside !== undefined && !Array.isArray(layout.beside)) problems.push("qa.layout.beside must be a list");
+  if (layout.build !== undefined && (!Array.isArray(layout.build) || !layout.build.length || layout.build.some((name) => typeof name !== "string" || !name) || new Set(layout.build).size !== layout.build.length)) problems.push("qa.layout.build must be a non-empty list of distinct tests.suites names");
   const tos = new Set();
   (Array.isArray(layout.beside) ? layout.beside : []).forEach((item, index) => {
     const at = `qa.layout.beside[${index}]`;
@@ -101,7 +109,7 @@ export function findBuiltExecutables(dirs, name, platform) {
     for (const { root, triple } of profileRoots) {
       for (const profile of DEV_PROFILES) {
         const file = path.join(root, profile, exeName(name, platform));
-        try { const meta = fs.statSync(file); if (meta.isFile()) found.push({ file, profileDir: path.dirname(file), triple, mtimeMs: meta.mtimeMs }); } catch { /* not built here */ }
+        try { const meta = fs.statSync(file); if (meta.isFile()) found.push({ file, dir, profileDir: path.dirname(file), triple, mtimeMs: meta.mtimeMs }); } catch { /* not built here */ }
       }
     }
   }
@@ -140,9 +148,10 @@ function mirror(src, dst, relParts, copyFile) {
  * Stage the run-scoped overlay app root, the QA shell and its declared layout. Returns
  * `{ runDir, appRoot, configFile, binary, evidence, cleanup }`; `cleanup()` removes `runDir`. Nothing is written under `appRoot` of the snapshot.
  * `snapshotAppRoot` is the app root the release config lives in, `qaConfigFile` the absolute qa config inside it, `runsRoot` the gate's runs root
- * (outside every repository and snapshot), `dirs` the compile output directories.
+ * (outside every repository and snapshot), `dirs` the compile output directories. `signed` (a sign step's `{ "<path in its output dir>": "<signed copy>" }`)
+ * makes the shell and every `built` entry come from their signed copies; a file it does not name is refused.
  */
-export function stageQaLayout({ layout, snapshotAppRoot, qaConfigFile, runsRoot, dirs, platform, now = () => Date.now() }) {
+export function stageQaLayout({ layout, snapshotAppRoot, qaConfigFile, runsRoot, dirs, platform, signed = null, now = () => Date.now() }) {
   const problems = validateQaLayout(layout);
   if (problems.length) throw fail("RK_QA_LAYOUT_INVALID", problems.join("; "));
   const sourceRoot = fs.realpathSync.native(snapshotAppRoot);
@@ -152,6 +161,14 @@ export function stageQaLayout({ layout, snapshotAppRoot, qaConfigFile, runsRoot,
 
   const candidates = findBuiltExecutables(dirs, layout.binary, platform);
   if (!candidates.length) throw fail("RK_QA_LAYOUT_NO_BINARY", `no ${exeName(layout.binary, platform)} in a ${DEV_PROFILES.join("/")} directory of the compile outputs (${dirs.join(", ")}); the compile did not build the QA shell`);
+  // The bytes staged for a built file: its signed copy when a sign step ran, keyed by its path inside the output directory it was found in.
+  const bytesOf = (file, dir) => {
+    if (!signed) return file;
+    const rel = path.relative(dir, file).split(path.sep).join("/");
+    const copy = signed[rel];
+    if (typeof copy !== "string" || !fs.existsSync(copy)) throw fail("RK_QA_LAYOUT_UNSIGNED", `${file} (${rel}) has no signed copy; the declared sign step signed ${Object.keys(signed).join(", ") || "nothing"}`);
+    return copy;
+  };
   const shell = candidates.find((candidate) => hasMarker(candidate.file));
   if (!shell) throw fail("RK_QA_LAYOUT_NOT_QA", `${candidates.map((c) => c.file).join(", ")} carry no QA control marker; the compile built a plain app, not the QA shell`);
 
@@ -166,16 +183,16 @@ export function stageQaLayout({ layout, snapshotAppRoot, qaConfigFile, runsRoot,
     const besideDir = path.join(appRoot, STASH_DIR, shell.triple);
     fs.mkdirSync(besideDir, { recursive: true });
     const binary = path.join(besideDir, exeName(layout.binary, platform));
-    fs.copyFileSync(shell.file, binary);
+    fs.copyFileSync(bytesOf(shell.file, shell.dir), binary);
     fs.chmodSync(binary, 0o755);
-    const evidence = { source: shell.file, binary: { name: path.basename(binary), sha256: sha256Of(fs.readFileSync(binary)) }, qaConfig: { sha256: sha256Of(fs.readFileSync(configFile)) }, beside: [] };
+    const evidence = { source: shell.file, ...(signed ? { signed: true } : {}), binary: { name: path.basename(binary), sha256: sha256Of(fs.readFileSync(binary)) }, qaConfig: { sha256: sha256Of(fs.readFileSync(configFile)) }, beside: [] };
     for (const item of layout.beside ?? []) {
       const optional = item.optional === true;
       if (item.built !== undefined) {
         const from = path.join(shell.profileDir, exeName(item.built, platform));
         const toName = cleanRel(item.to) ?? exeName(item.built, platform);
         if (!fs.existsSync(from)) { if (optional) continue; throw fail("RK_QA_LAYOUT_MISSING", `layout names built executable ${item.built}, but ${from} is not in the QA shell's output directory`); }
-        copyTree(from, path.join(besideDir, toName), evidence.beside, toName);
+        copyTree(bytesOf(from, shell.dir), path.join(besideDir, toName), evidence.beside, toName);
         continue;
       }
       const options = (Array.isArray(item.from) ? item.from : [item.from]).map(cleanRel);

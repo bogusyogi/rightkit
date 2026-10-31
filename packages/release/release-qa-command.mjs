@@ -13,7 +13,7 @@
 //         args?: { source?: [..], installed?: [..] },                                   // {sealedDir} {releaseId} expand; installed also {installedApp} {installedDir} {qaRoot}
 //         installed?: { installDir?: "<abs dir>" },                                       // opt in: mount the sealed DMG (mac) / run the sealed NSIS installer (win, needs RIGHT_RELEASE_QA_ALLOW_INSTALL=1 off CI), see release-qa-installed.mjs
 //         journeys?: { manifest?: "journeys.toml", receipt?: "<path to a rightkit.journeys.receipt/1>", args?: { source?: [..], installed?: [..] } },
-//         layout?: { binary: "<bin target of the QA shell>", beside?: [..] },              // source stage: run against the gate-built QA shell in the layout an install has, see qa-layout.mjs
+//         layout?: { binary: "<bin target of the QA shell>", beside?: [..], build?: [<tests.suites names>] },   // source stage: run against the gate-built QA shell in the layout an install has, see qa-layout.mjs
 //         checks: { "smoke.launch": ["app.launch"], journey: ["journey.*"] } }          // floor id -> evidence check names
 // `qa.version` that is a rightkit-qa version (0.10.0) names the runner: the managed, digest-recorded one enrolled by `right-release qa runner enroll`
 // (qa-runner.mjs), never a PATH binary. A legacy plan version ("1") with no `qa.runner` still takes the first `rightkit-qa` on PATH.
@@ -44,6 +44,8 @@ import { platformDirOf } from "./platform-dir.mjs";
 import { isRunnerVersion, main as runnerMain, resolveManagedQaRunner } from "./qa-runner.mjs";
 import { compiledDirsFromEnv, QA_APP_BINARY_ENV, stageQaLayout, validateQaLayout } from "./qa-layout.mjs";
 import { gateRunsRoot, resolveManagedRoots } from "./managed-roots.mjs";
+import { planTests, runSuites } from "./test-command.mjs";
+import { QA_SIGNED_FILES_ENV } from "./suite-signing-policy.mjs";
 
 const sha256File = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
 
@@ -182,7 +184,20 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, carryTo
   let layoutStage = null;
   try {
     // Source stage with a declared layout: the QA shell and its layout are staged in a run-scoped directory from the gate's compile outputs (qa-layout.mjs); the snapshot is never written.
-    if (stage === "source" && config.qa.layout) {
+    if (stage === "source" && config.qa.layout?.build) {
+      // The QA shell is built here, by the app's own build (and sign) suites, never by the release compile (qa-layout.mjs `build`).
+      const env = deps.env ?? process.env;
+      const plan = planTests(config, { suites: config.qa.layout.build, appRoot });
+      const stageFrom = ({ outputs, env: suiteEnv }) => {
+        const dirs = [...new Set(plan.filter((item) => !item.sign).flatMap((item) => outputs.get(item.name) ?? []))];
+        if (!dirs.length) throw new Error(`qa.layout.build: ${plan.map((item) => item.name).join(", ")} passed but named no output directory (no carried receipt, and no RIGHTKIT_GATE_TARGET_DIRS from the gate)`);
+        const signed = plan.some((item) => item.sign) ? JSON.parse(suiteEnv[QA_SIGNED_FILES_ENV] ?? "{}") : null;
+        return (deps.stageLayout ?? stageQaLayout)({ layout: config.qa.layout, snapshotAppRoot: appRoot, qaConfigFile: qaConfig, runsRoot: deps.runsRoot ?? gateRunsRoot({ env }), dirs, platform, signed });
+      };
+      const built = await (deps.runSuites ?? runSuites)(plan, { appRoot, prefix: "qa_build", env, config, log: (line) => console.error(line), errLog: (line) => console.error(line), within: stageFrom });
+      if (built.exitCode !== 0) throw new Error(`qa.layout.build: the QA shell build failed (${built.results.filter((r) => r.exitCode !== 0).map((r) => r.suite).join(", ")}); no QA ran`);
+      layoutStage = built.within;
+    } else if (stage === "source" && config.qa.layout) {
       const dirs = deps.compiledDirs ?? compiledDirsFromEnv(deps.env ?? process.env);
       if (!dirs) throw new Error("qa.layout needs the gate's compile outputs (RIGHT_RELEASE_QA_COMPILED_DIRS names none): run source QA through `rightkit-gate --to package`, after its compile");
       layoutStage = (deps.stageLayout ?? stageQaLayout)({ layout: config.qa.layout, snapshotAppRoot: appRoot, qaConfigFile: qaConfig, runsRoot: deps.runsRoot ?? gateRunsRoot({ env: deps.env ?? process.env }), dirs, platform });

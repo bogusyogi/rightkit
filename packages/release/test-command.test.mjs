@@ -255,3 +255,22 @@ test("[GB-79] a planned `rightkit-qa journeys run` suite fails at planning with 
     assert.match(ownErrs.join("\n"), new RegExp(`${flag[0]} is the gate's own`));
   }
 });
+
+test("a direct host's suite outputs are the gate's pinned target directories; `within` sees them and the signed files before the signed copies go", async () => {
+  const cfg = { tests: { suites: [
+    { name: "build", cmd: "node", args: ["build.mjs"] },
+    { name: "sign", sign: { files: [{ from: "build", path: "debug/rightapp" }] } },
+  ] } };
+  const plan = planTests(cfg, { appRoot });
+  const target = path.join(appRoot, "target");
+  const seen = [];
+  const signStep = ({ outputDirsOf }) => { seen.push(outputDirsOf("build")); return { appBinary: "/signed/rightapp", signedFiles: { "debug/rightapp": "/signed/rightapp" }, evidence: {}, evidenceFile: "/signed/e.json", signedDir: path.join(appRoot, "no-such-signed-dir") }; };
+  const result = await runSuites(plan, { door: (c, a) => ({ command: c, args: a }), appRoot, env: { RIGHTKIT_GATE_TARGET_DIRS: JSON.stringify([target, "relative/ignored"]) }, spawnFn: fakeSpawn([0], []), log: () => {}, errLog: () => {}, signStep,
+    within: ({ outputs, env }) => ({ dirs: outputs.get("build"), signed: JSON.parse(env.RIGHTKIT_QA_SIGNED_FILES) }) });
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual(seen, [[target]]);
+  assert.deepEqual(result.within, { dirs: [target], signed: { "debug/rightapp": "/signed/rightapp" } });
+  const failed = await runSuites(plan, { door: (c, a) => ({ command: c, args: a }), appRoot, env: {}, spawnFn: fakeSpawn([1], []), log: () => {}, errLog: () => {}, signStep, within: () => assert.fail("within runs only when every suite passed") });
+  assert.equal(failed.exitCode, 1);
+  assert.equal(failed.within, undefined);
+});
