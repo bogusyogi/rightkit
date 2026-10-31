@@ -24,7 +24,7 @@ import { forwardedAdapterEnv } from "./adapter-env.mjs";
 import { carriedShapeDecision } from "./cargo-shapes.mjs";
 import { swiftScratchRefusal } from "./swift-scratch.mjs";
 import { removeCarrier, sweepSnapshotRequests } from "./carrier-census.mjs";
-import { clientGuardMs, diagnoseControlReply, drainFrames, operationDeadlineEnv, operationOutcomeInOutput, overCapProblem, refusalInCapturedOutput } from "./broker-wire.mjs";
+import { DEFAULT_RETRY_WINDOW_MS, RETRYABLE_OUTCOME_CODES, clientGuardMs, diagnoseControlReply, drainFrames, operationDeadlineEnv, operationOutcomeInOutput, overCapProblem, refusalInCapturedOutput, retryPauseMs, sleepSync } from "./broker-wire.mjs";
 import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend, markCarriedUnsent } from "./ownership-mark.mjs";
 import {
   MANAGED_RUST_ENVIRONMENT_KEYS, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, isCallHandleOf, lockedArgv, observedEnvOf, readDeclaredInputs, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest,
@@ -114,6 +114,15 @@ export function createSnapshotBroker({ env = process.env, platform = process.pla
  * reader) is built by `createSnapshotBroker` where the snapshot compile runs.
  */
 export const PRODUCTION_SNAPSHOT_CARRIER = Object.freeze({ kind: "production", create: createSnapshotBroker });
+
+/** What a typed refusal means for the caller, appended to the outcome's message: nothing was spawned, and whether waiting helps (BROKER-CONTRACT section 16). */
+function refusalAdvice(refused) {
+  if (refused.refusal === "paused") return ": admission is paused and nothing was spawned";
+  if (refused.refusal === "recovery-pending") return ": restart recovery of the workspace is still running and nothing was admitted; the call is retried within its deadline";
+  if (refused.refusal === "storage-budget-unavailable") return ": the storage budget could not be settled (a maintenance pass is running) and nothing was admitted; the call is retried within its deadline";
+  if (refused.refusal === "adapter-pin-required") return ": nothing was spawned; the commit's gradle/wrapper/gradle-wrapper.properties must carry distributionSha256Sum=<64 lowercase hex> for its distribution (the pin is the commit's, so this is not retried)";
+  return "";
+}
 
 /** The part of a snapshot broker the wrapper process needs, as the map file carries it (public values only). */
 export const brokerSection = (sb, { sentinel = null } = {}) => {
@@ -220,6 +229,44 @@ export function inheritedCarrierEnv(env) {
 }
 
 /**
+ * GB-52, GB-78, GB-39 (BROKER-CONTRACT section 16): a carried call the broker answered with a refusal that clears on its own (RK_RECOVERY_PENDING, RK_STORAGE_BUDGET_UNAVAILABLE) or whose
+ * connection never opened (RK_BROKER_BUSY: every pipe instance busy, no byte sent) is a wait. The gate pauses (250 ms doubling to 5 s) and sends the call again within the call's own
+ * deadline (`deadlineMs`, else DEFAULT_RETRY_WINDOW_MS), each attempt with its own carrier, nonce and sub-handle (a handle is spent once; the refused attempt is a settled, spawned:false
+ * submission, a busy one is recorded unsent) and under ONE ledger id, so the final record is the call's. It is never success and never a generic failure: when the deadline passes the
+ * outcome keeps the broker's own code (`broker-refused-recovery-pending`, `broker-refused-storage-budget-unavailable`, `broker-busy`) and says how long it waited. Every other outcome, a
+ * verified one, RK_ADAPTER_PIN_REQUIRED and RK_OPERATION_DEADLINE included, is returned at once. `now` and `sleep` are seams for tests.
+ */
+function carryWithRetries(once, call) {
+  const { deadlineMs = null, now = Date.now, sleep = sleepSync, err = () => {}, record = () => {}, ...rest } = call;
+  const window = deadlineMs !== null && Number.isFinite(deadlineMs) ? Math.max(1, Math.trunc(deadlineMs)) : DEFAULT_RETRY_WINDOW_MS;
+  const started = now();
+  const ledgerId = crypto.randomUUID();
+  let attempt = 0; let held = []; let result;
+  for (;;) {
+    attempt += 1;
+    held = [];
+    const remaining = Math.max(1, window - (now() - started));
+    result = once({ ...rest, record, err: (m) => held.push(m), deadlineMs: deadlineMs === null ? null : remaining, ledgerId });
+    const code = result.outcome?.status === "unverified" ? result.outcome.code : null;
+    if (code === null || !RETRYABLE_OUTCOME_CODES.has(code)) break;
+    const pause = retryPauseMs(attempt);
+    if (window - (now() - started) <= pause) {
+      const elapsed = now() - started;
+      const message = `${result.outcome.message}; retried ${attempt - 1} time(s) over ${elapsed} ms and the call's ${window} ms deadline passed before the broker would take it: it is a wait that did not clear, never a result`;
+      result = { ...result, outcome: { ...result.outcome, message, attempts: attempt, retried: attempt - 1 } };
+      try { record({ id: ledgerId, mode: "broker", status: "unverified", code: result.outcome.code, message }); } catch { /* the final record above stands */ }
+      held.push(`rightkit-gate: ${result.outcome.code}: ${message}`);
+      break;
+    }
+    sleep(pause);
+    // The next attempt's pending record replaces this attempt's outcome fields in the ledger (one id).
+    try { record({ id: ledgerId, mode: "broker", status: "pending", code: null, message: null }); } catch { /* the attempt records its own pending state */ }
+  }
+  for (const m of held) err(m);
+  return result;
+}
+
+/**
  * One carried cargo call: its own fresh nonce and carrier, `primaryCwd` from the gate's snapshot-to-checkout map, `callingGate`
  * inherited and never forged, the carrier removed after the call, the signed receipt verified, and a ledger record either way.
  * `workspace` is the real snapshot path of the cargo workspace the call resolved; `checkoutWorkspace` its counterpart in the primary
@@ -228,9 +275,11 @@ export function inheritedCarrierEnv(env) {
  * Refused before anything runs: a carrier or per-call carrier variable already in the environment, no calling gate, a working
  * directory with no counterpart in the checkout. An output directory of the caller's is dropped (the broker pins it).
  */
-export function carryBrokerCargo({ words, cwd, env, section, workspace, checkoutWorkspace, record, spawn = spawnSync, err, tmp = os.tmpdir(), stdio = "inherit", deadlineMs = null }) {
+export function carryBrokerCargo(call) { return carryWithRetries(carryBrokerCargoOnce, call); }
+
+function carryBrokerCargoOnce({ words, cwd, env, section, workspace, checkoutWorkspace, record, spawn = spawnSync, err, tmp = os.tmpdir(), stdio = "inherit", deadlineMs = null, ledgerId = null }) {
   words = lockedArgv(words); // a build or run is always locked, and a standard alias is expanded first (snapshot-request.mjs lockedArgv)
-  const id = crypto.randomUUID();
+  const id = ledgerId ?? crypto.randomUUID();
   const base = { id, mode: "broker", cwd, argv: [...words] };
   const refuse = (code, message) => { record({ ...base, status: "refused", code, message }); err(`rightkit-gate: ${code}: ${message}`); return { status: BROKER_REFUSAL_STATUS, outcome: { status: "refused", code, message }, stdout: "", stderr: `rightkit-gate: ${code}: ${message}\n` }; };
   // GB-01: the one command-shape table (cargo-shapes.mjs, exercised against RustRight's cargo-shapes vector) decides BEFORE anything is marked or sent:
@@ -302,7 +351,7 @@ export function carryBrokerCargo({ words, cwd, env, section, workspace, checkout
     if (outcome.status !== "verified" && capture) {
       const refused = refusalInCapturedOutput(`${out.stdout}\n${out.stderr}`);
       if (refused?.code === "RK_TOOLCHAIN_IDENTITY_UNAVAILABLE") outcome = { status: "unverified", code: "toolchain-unavailable", message: `the broker refused the compile before it started: it could not build the toolchain identity (RK_TOOLCHAIN_IDENTITY_UNAVAILABLE: ${refused.message}); nothing ran`, ...(outcome.requestId ? { requestId: outcome.requestId, workspace: outcome.workspace } : {}) };
-      else if (refused) outcome = { status: "unverified", code: `broker-refused-${refused.refusal}`, message: `the broker refused the request (${refused.code ?? "no code"}: ${refused.message || refused.refusal})${refused.refusal === "paused" ? ": admission is paused and nothing was spawned" : ""}`, ...(outcome.requestId ? { requestId: outcome.requestId, workspace: outcome.workspace } : {}) };
+      else if (refused) outcome = { status: "unverified", code: `broker-refused-${refused.refusal}`, message: `the broker refused the request (${refused.code ?? "no code"}: ${refused.message || refused.refusal})${refusalAdvice(refused)}`, ...(outcome.requestId ? { requestId: outcome.requestId, workspace: outcome.workspace } : {}) };
     }
     // GB-52: a call that ran out its operation deadline, or whose client was stopped by the outer guard, is NOT a build outcome: the client cancelled by id and watched for the terminal
     // state, and an unobserved state keeps ownership UNKNOWN (the sub-handle stays recorded; reconciled by the request id, never resubmitted). Busy and unavailable are named apart.
@@ -310,6 +359,9 @@ export function carryBrokerCargo({ words, cwd, env, section, workspace, checkout
       const seen = operationOutcomeInOutput(`${out.stdout}\n${out.stderr}`) ?? (r.error?.code === "ETIMEDOUT" ? { code: "operation-deadline", deadlineMs: null, requestId: ref?.requestId ?? null, cancelConfirmed: null, terminalState: null, guard: true } : null);
       if (seen) outcome = { status: "unverified", code: seen.code, message: seen.code === "operation-deadline" ? `the operation deadline${seen.deadlineMs ? ` of ${seen.deadlineMs} ms` : ""} passed${seen.guard ? " and the client was stopped by the gate's outer guard" : ""}; request ${seen.requestId ?? ref?.requestId ?? "unknown"}: cancelConfirmed: ${seen.cancelConfirmed ?? "unknown"}, terminal state: ${seen.terminalState ?? "not observed"}; the job is neither abandoned nor resubmitted and ownership stays UNKNOWN until every sub-handle is REAPED` : seen.code === "broker-busy" ? "every broker connection was busy (RK_BROKER_BUSY: a wait, not an outage); nothing was admitted" : "the broker was unavailable (RK_BROKER_UNAVAILABLE)", ...(ref ? { requestId: ref.requestId, workspace: ref.workspace } : {}) };
     }
+    // RK_BROKER_BUSY with no request reference: the connection never opened, so no byte reached the broker. That is the gate's own proof that this sub-handle was never sent (GB-21), recorded under
+    // the ownership lock so the retry's own sub-handle, not this one, is what the stage waits on; a busy answer after a reference exists (a reconnect) proves nothing of the kind.
+    if (outcome.status === "unverified" && outcome.code === "broker-busy" && ref === null) markCarriedUnsentRequest({ section, env, callHandle: made.carrier.ownership.handle, reason: "every broker connection was busy (RK_BROKER_BUSY): the connection never opened and no byte was sent" });
     // GB-53: captured output that lost a frame to FRAME_OVER_CAP (or a result the broker replaced with RK_RESPONSE_OVER_CAP) is truncated: refused, never read as complete.
     if (outcome.status === "verified" && capture) {
       const drained = drainFrames(`${out.stdout}\n${out.stderr}`);
@@ -341,8 +393,10 @@ export function carryBrokerCargo({ words, cwd, env, section, workspace, checkout
  * Refused before anything runs: a carrier or per-call carrier variable already in the environment (so a call from inside a broker job, which
  * has a parent request, is refused), no calling gate, a working directory outside the snapshot or with no counterpart in the checkout.
  */
-export function carryBrokerAdapter({ adapter, words, cwd, env, section, record, spawn = spawnSync, err, tmp = os.tmpdir(), stdio = "inherit", deadlineMs = null }) {
-  const id = crypto.randomUUID();
+export function carryBrokerAdapter(call) { return carryWithRetries(carryBrokerAdapterOnce, call); }
+
+function carryBrokerAdapterOnce({ adapter, words, cwd, env, section, record, spawn = spawnSync, err, tmp = os.tmpdir(), stdio = "inherit", deadlineMs = null, ledgerId = null }) {
+  const id = ledgerId ?? crypto.randomUUID();
   words = [...words].map(String);
   const base = { id, mode: "broker", shim: "adapter", adapter, cwd, argv: [...words] };
   const refuse = (code, message) => { record({ ...base, status: "refused", code, message }); err(`rightkit-gate: ${code}: ${message}`); return { status: BROKER_REFUSAL_STATUS, outcome: { status: "refused", code, message }, stdout: "", stderr: `rightkit-gate: ${code}: ${message}\n` }; };
@@ -419,7 +473,7 @@ export function carryBrokerAdapter({ adapter, words, cwd, env, section, record, 
     if (outcome.status !== "verified" && capture) {
       const refused = refusalInCapturedOutput(`${out.stdout}\n${out.stderr}`);
       if (refused?.code === "RK_TOOLCHAIN_IDENTITY_UNAVAILABLE") outcome = { status: "unverified", code: "toolchain-unavailable", message: `the broker refused the compile before it started: it could not build the toolchain identity (RK_TOOLCHAIN_IDENTITY_UNAVAILABLE: ${refused.message}); nothing ran`, ...(outcome.requestId ? { requestId: outcome.requestId, workspace: outcome.workspace } : {}) };
-      else if (refused) outcome = { status: "unverified", code: `broker-refused-${refused.refusal}`, message: `the broker refused the request (${refused.code ?? "no code"}: ${refused.message || refused.refusal})${refused.refusal === "paused" ? ": admission is paused and nothing was spawned" : ""}`, ...(outcome.requestId ? { requestId: outcome.requestId, workspace: outcome.workspace } : {}) };
+      else if (refused) outcome = { status: "unverified", code: `broker-refused-${refused.refusal}`, message: `the broker refused the request (${refused.code ?? "no code"}: ${refused.message || refused.refusal})${refusalAdvice(refused)}`, ...(outcome.requestId ? { requestId: outcome.requestId, workspace: outcome.workspace } : {}) };
     }
     // GB-52: a call that ran out its operation deadline, or whose client was stopped by the outer guard, is NOT a build outcome: the client cancelled by id and watched for the terminal
     // state, and an unobserved state keeps ownership UNKNOWN (the sub-handle stays recorded; reconciled by the request id, never resubmitted). Busy and unavailable are named apart.
@@ -427,6 +481,9 @@ export function carryBrokerAdapter({ adapter, words, cwd, env, section, record, 
       const seen = operationOutcomeInOutput(`${out.stdout}\n${out.stderr}`) ?? (r.error?.code === "ETIMEDOUT" ? { code: "operation-deadline", deadlineMs: null, requestId: ref?.requestId ?? null, cancelConfirmed: null, terminalState: null, guard: true } : null);
       if (seen) outcome = { status: "unverified", code: seen.code, message: seen.code === "operation-deadline" ? `the operation deadline${seen.deadlineMs ? ` of ${seen.deadlineMs} ms` : ""} passed${seen.guard ? " and the client was stopped by the gate's outer guard" : ""}; request ${seen.requestId ?? ref?.requestId ?? "unknown"}: cancelConfirmed: ${seen.cancelConfirmed ?? "unknown"}, terminal state: ${seen.terminalState ?? "not observed"}; the job is neither abandoned nor resubmitted and ownership stays UNKNOWN until every sub-handle is REAPED` : seen.code === "broker-busy" ? "every broker connection was busy (RK_BROKER_BUSY: a wait, not an outage); nothing was admitted" : "the broker was unavailable (RK_BROKER_UNAVAILABLE)", ...(ref ? { requestId: ref.requestId, workspace: ref.workspace } : {}) };
     }
+    // RK_BROKER_BUSY with no request reference: the connection never opened, so no byte reached the broker. That is the gate's own proof that this sub-handle was never sent (GB-21), recorded under
+    // the ownership lock so the retry's own sub-handle, not this one, is what the stage waits on; a busy answer after a reference exists (a reconnect) proves nothing of the kind.
+    if (outcome.status === "unverified" && outcome.code === "broker-busy" && ref === null) markCarriedUnsentRequest({ section, env, callHandle: made.carrier.ownership.handle, reason: "every broker connection was busy (RK_BROKER_BUSY): the connection never opened and no byte was sent" });
     // GB-53: captured output that lost a frame to FRAME_OVER_CAP (or a result the broker replaced with RK_RESPONSE_OVER_CAP) is truncated: refused, never read as complete.
     if (outcome.status === "verified" && capture) {
       const drained = drainFrames(`${out.stdout}\n${out.stderr}`);

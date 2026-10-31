@@ -321,6 +321,33 @@ function carrierValuesProblem(c) {
  * The broker's one-completion-per-(snapshot, lease handle) rule (rustright snapshot.rs:330-343): a second carried request under a handle the
  * snapshot already has a completion for is refused ("snapshot ownership handle has a prior or unreadable completion").
  */
+/**
+ * A typed refusal the broker answers before it spawns anything (`behavior.refuseWith`: the RESULT event, exit 125), and a connection the busy pipe never opened (`behavior.busy`: the client's
+ * RK_BROKER_BUSY failure, no byte sent). `refuseTimes` / `busyTimes` limit either to the first N calls (a refusal that clears, as recovery and the storage pass do). A refusal is a durable,
+ * settled submission as the real broker records it (`record_refused`): the handle reads REAPED, `spawned: false`, `refused: <code>` in SNAPSHOT_LEASE_STATUS.members.
+ */
+function takeCount(stateDir, name, limit) {
+  const file = path.join(stateDir, name);
+  let n = 0; try { n = Number(fs.readFileSync(file, "utf8")) || 0; } catch { n = 0; }
+  if (typeof limit === "number" && n >= limit) return false;
+  fs.writeFileSync(file, String(n + 1));
+  return true;
+}
+function maybeBusy(stateDir, behavior) {
+  if (!behavior.busy || !takeCount(stateDir, "busy.count", behavior.busyTimes)) return;
+  process.stderr.write("rustright: RK_BROKER_BUSY: RustRight broker busy: every pipe instance of \\\\.\\pipe\\rustright-broker stayed busy for 120s: All pipe instances are busy. (os error 231)\n");
+  process.exit(1);
+}
+function maybeRefuse(stateDir, behavior, descriptor) {
+  if (!behavior.refuseWith || !takeCount(stateDir, "refused.count", behavior.refuseTimes)) return;
+  try {
+    const carrier = JSON.parse(fs.readFileSync(descriptor.path, "utf8"));
+    fs.appendFileSync(path.join(stateDir, "refusals.jsonl"), `${JSON.stringify({ snapshot: carrier.snapshot?.path, handle: carrier.ownership?.handle, code: behavior.refuseWith.code ?? "REFUSED" })}\n`);
+  } catch { /* the carrier is read only to record the refused submission */ }
+  process.stdout.write(`${JSON.stringify(behavior.refuseWith)}\n`);
+  process.exit(125);
+}
+
 function claimHandle(stateDir, carrier, bad) {
   const dir = path.join(stateDir, "handles"); fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, sha(`${carrier.snapshot.path}\0${carrier.ownership.handle}`));
@@ -346,6 +373,8 @@ function leaseStatus(stateDir, behavior, snapshot, wanted, settledAfterMs = 0) {
   for (const { handle, snapshot: where } of lines) if (where === snapshot && covers(handle)) members.set(handle, { handle, state: "REAPED", spawned: true });
   for (const handle of behavior.completedHandles ?? []) if (covers(handle)) members.set(handle, { handle, state: "REAPED", spawned: true });
   for (const [handle, code] of Object.entries(behavior.refusedHandles ?? {})) if (covers(handle)) members.set(handle, { handle, state: "REAPED", spawned: false, refused: code });
+  let refusals = []; try { refusals = fs.readFileSync(path.join(stateDir, "refusals.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)); } catch { /* none yet */ }
+  for (const { handle, snapshot: where, code } of refusals) if (where === snapshot && covers(handle)) members.set(handle, { handle, state: "REAPED", spawned: false, refused: code });
   for (const handle of behavior.unknownHandles ?? []) if (covers(handle)) members.set(handle, { handle, state: settled ? "REAPED" : "UNKNOWN", spawned: true });
   for (const handle of behavior.heldHandles ?? []) if (covers(handle)) members.set(handle, { handle, state: settled ? "REAPED" : "ACTIVE", spawned: true });
   const rows = [...members.values()].sort((a, b) => (a.handle < b.handle ? -1 : a.handle > b.handle ? 1 : 0));
@@ -381,6 +410,7 @@ async function client(stateDir, [command, ...args]) {
   if (fx.snapshotsRoot) fx.snapshot = path.join(fx.snapshotsRoot, fs.readdirSync(fx.snapshotsRoot).find((n) => !n.includes(".") && fs.statSync(path.join(fx.snapshotsRoot, n)).isDirectory()));
   const behavior = read("behavior.json", {});
   if (fx.requestLog) logRequest(fx, command, args);
+  if (command === "cargo" || command === "run") maybeBusy(stateDir, behavior);
   if (command === "run") return adapterRun(stateDir, fx, behavior, args);
   if (command === "nested-cargo") return nestedCargo(stateDir, fx, behavior, args);
   if (command === "cargo") {
@@ -409,7 +439,7 @@ async function client(stateDir, [command, ...args]) {
     if (Buffer.byteLength(raw) > 4096) bad("descriptor exceeds 4096 bytes");
     let descriptor; try { descriptor = JSON.parse(raw); } catch { bad("descriptor is not JSON"); }
     if (!descriptor || typeof descriptor !== "object" || Object.keys(descriptor).sort().join() !== "path,sha256" || !/^[0-9a-f]{64}$/.test(descriptor.sha256) || !path.isAbsolute(descriptor.path)) bad("descriptor fields");
-    if (behavior.refuseWith) { process.stdout.write(`${JSON.stringify(behavior.refuseWith)}\n`); process.exit(125); } // GB-54: a typed REJECTED result, nothing spawned
+    maybeRefuse(stateDir, behavior, descriptor); // GB-54: a typed REJECTED result, nothing spawned
     if (behavior.refuse) bad("refused by the broker");
     if (envVar("PARENT_REQUEST_ID") !== undefined) bad("a parent request is set");
     if (String(envVar("CHECK_ADMISSION") ?? "").trim() === "1") bad("an admission check is not a snapshot compile");
@@ -564,7 +594,7 @@ function adapterRun(stateDir, fx, behavior, argv) {
   if (Buffer.byteLength(raw) > 4096) bad("descriptor exceeds 4096 bytes");
   let descriptor; try { descriptor = JSON.parse(raw); } catch { bad("descriptor is not JSON"); }
   if (!descriptor || typeof descriptor !== "object" || Object.keys(descriptor).sort().join() !== "path,sha256" || !/^[0-9a-f]{64}$/.test(descriptor.sha256) || !path.isAbsolute(descriptor.path)) bad("descriptor fields");
-  if (behavior.refuseWith) { process.stdout.write(`${JSON.stringify(behavior.refuseWith)}\n`); process.exit(125); } // GB-54: a typed REJECTED result, nothing spawned
+  maybeRefuse(stateDir, behavior, descriptor); // GB-54: a typed REJECTED result, nothing spawned
   if (behavior.refuse) bad("refused by the broker");
   if (envVar("PARENT_REQUEST_ID") !== undefined || envVar("PARENT_CAPABILITY_TOKEN") !== undefined) bad("a parent request is set: a root snapshot request is never nested");
   if (!String(envVar("CALLING_GATE") ?? "").trim()) bad("no calling gate");

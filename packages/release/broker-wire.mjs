@@ -63,6 +63,37 @@ const TERMINAL_STATES = new Set(["SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT"
 const REFUSAL_CLASSES = Object.freeze({ RK_ADMISSION_PAUSED: "paused", RK_JOB_SUSPENDED: "suspended", RK_JOB_NOT_FOUND: "not-found", RK_ACTIVATION_PENDING: "activation-pending", RK_CUTOVER_DRAIN_PENDING: "cutover-drain" });
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
+// ---- the typed refusals of BROKER-CONTRACT section 16: each its own diagnosis, and whether waiting clears it ----
+//   RK_BROKER_BUSY                  GB-52  every pipe instance stayed busy: the connection never opened, no byte was sent (a wait, not an outage)           retryable
+//   RK_RECOVERY_PENDING             GB-78  restart recovery of the workspace is still running after the bounded wait: nothing was admitted                  retryable
+//   RK_STORAGE_BUDGET_UNAVAILABLE   GB-39  the storage budget could not be settled within bounds.budgetAdmissionWaitMs: the root was not admitted           retryable
+//   RK_ADAPTER_PIN_REQUIRED         GB-51  a Gradle wrapper without a pinned distributionSha256Sum: START failed before any spawn                         not retryable (the commit must pin it)
+//   RK_OPERATION_DEADLINE           GB-52  the client's operation deadline passed: it cancelled by id and watched for the terminal state                   not retryable (never resubmitted)
+// A retryable refusal is a wait the gate makes within its own deadline (each retry a new carrier and sub-handle, a refused submission being a settled, spawned:false member); it is never
+// success and never a generic failure. `refusal` is the class name a diagnosis carries.
+export const TYPED_REFUSALS = Object.freeze({
+  RK_BROKER_BUSY: Object.freeze({ refusal: "broker-busy", retryable: true }),
+  RK_RECOVERY_PENDING: Object.freeze({ refusal: "recovery-pending", retryable: true }),
+  RK_STORAGE_BUDGET_UNAVAILABLE: Object.freeze({ refusal: "storage-budget-unavailable", retryable: true }),
+  RK_ADAPTER_PIN_REQUIRED: Object.freeze({ refusal: "adapter-pin-required", retryable: false }),
+  RK_OPERATION_DEADLINE: Object.freeze({ refusal: "operation-deadline", retryable: false }),
+});
+
+/**
+ * The typed refusal one reply names, or null: the event's (or its receipt's) `code`, else a message that STARTS with the code (`RK_RECOVERY_PENDING: restart recovery ...`, which is how the
+ * broker words them). A code merely mentioned inside other text is not a refusal. `{ code, refusal, retryable }`.
+ */
+export function typedRefusalOf(...sources) {
+  for (const source of sources) {
+    if (!isObject(source)) continue;
+    const named = typeof source.code === "string" && Object.hasOwn(TYPED_REFUSALS, source.code) ? source.code : null;
+    const prefixed = named === null ? ["error", "message"].map((key) => (typeof source[key] === "string" ? /^\s*(?:error:\s*)?(RK_[A-Z0-9_]+)\b/.exec(source[key])?.[1] : null)).find((code) => code && Object.hasOwn(TYPED_REFUSALS, code)) ?? null : null;
+    const code = named ?? prefixed;
+    if (code !== null) return { code, ...TYPED_REFUSALS[code] };
+  }
+  return null;
+}
+
 /**
  * What a client concludes from one STATUS or RESULT line about a request it knows by id. Only `terminal` is a build outcome, and only after the receipt's own signed
  * validation; every other kind keeps the broker's code, state and identity instead of collapsing into a generic receipt failure, and a known request is reconciled by
@@ -85,6 +116,10 @@ export function diagnoseControlReply(event, expectedId = null) {
       const want = expectedId ?? id;
       if (want !== null && receiptId !== null && want !== receiptId) return malformed("the receipt is for another request");
       if (want !== null && receiptId === null) return malformed("the receipt names no request");
+      // A root the broker refused before it ran (a storage budget that could not be settled, a recovery still running, a wrapper without a pinned distribution) ends FAILED with its code:
+      // it is the typed refusal, never a receipt to validate and never a build outcome. Only a failed or rejected state is read so; a SUCCEEDED receipt is never turned into a refusal.
+      const typed = state === "FAILED" || state === "REJECTED" ? typedRefusalOf(receipt, { error: event.error }) : null;
+      if (typed) return { kind: "refused", id, state, code: typed.code, refusal: typed.refusal, retryable: typed.retryable, message: typeof receipt.error === "string" ? receipt.error : typeof event.error === "string" ? event.error : "" };
       return { kind: "terminal", id, state, receipt };
     }
     if (receipt === undefined || receipt === null) return TERMINAL_STATES.has(state) ? malformed("a finished job's reply carries no receipt") : { kind: "live", id, state };
@@ -101,7 +136,9 @@ export function diagnoseControlReply(event, expectedId = null) {
   if (event.type === "RESULT") {
     if (event.status === "REJECTED") {
       const code = typeof event.code === "string" ? event.code : null;
-      return { kind: "refused", code, refusal: (code !== null && Object.hasOwn(REFUSAL_CLASSES, code) ? REFUSAL_CLASSES[code] : "other"), message: typeof event.error === "string" ? event.error : "" };
+      const typed = typedRefusalOf(event);
+      if (typed) return { kind: "refused", code: typed.code, refusal: typed.refusal, retryable: typed.retryable, message: typeof event.error === "string" ? event.error : "" };
+      return { kind: "refused", code, refusal: (code !== null && Object.hasOwn(REFUSAL_CLASSES, code) ? REFUSAL_CLASSES[code] : "other"), retryable: false, message: typeof event.error === "string" ? event.error : "" };
     }
     return typeof event.status === "string" && TERMINAL_STATES.has(event.status) ? receiptOf(event.status) : malformed("the result carries no terminal status");
   }
@@ -166,7 +203,7 @@ export function refusalInCapturedOutput(text) {
     if (!frame.startsWith("{")) continue;
     let event; try { event = JSON.parse(frame); } catch { continue; }
     const diagnosis = diagnoseControlReply(event);
-    if (diagnosis.kind === "refused") return { code: diagnosis.code, refusal: diagnosis.refusal, message: diagnosis.message };
+    if (diagnosis.kind === "refused") return { code: diagnosis.code, refusal: diagnosis.refusal, retryable: diagnosis.retryable === true, message: diagnosis.message };
   }
   return null;
 }
@@ -207,9 +244,19 @@ export function clientGuardMs(env, { margin = 15_000 } = {}) {
 export function operationOutcomeInOutput(text) {
   const t = String(text ?? "");
   const deadline = /operation deadline of (\d+) ms passed; request ([0-9A-Za-z._-]+): cancelConfirmed: (true|false), terminal state: (not observed|[A-Z_]+)/.exec(t);
-  if (deadline) return { code: "operation-deadline", deadlineMs: Number(deadline[1]), requestId: deadline[2], cancelConfirmed: deadline[3] === "true", terminalState: deadline[4].trim().startsWith("not observed") ? null : deadline[4].trim() };
-  if (/RK_OPERATION_DEADLINE/.test(t)) return { code: "operation-deadline", deadlineMs: null, requestId: null, cancelConfirmed: null, terminalState: null };
-  if (/RK_BROKER_BUSY/.test(t)) return { code: "broker-busy" };
-  if (/RK_BROKER_UNAVAILABLE/.test(t)) return { code: "broker-unavailable" };
+  if (deadline) return { code: "operation-deadline", retryable: false, deadlineMs: Number(deadline[1]), requestId: deadline[2], cancelConfirmed: deadline[3] === "true", terminalState: deadline[4].trim().startsWith("not observed") ? null : deadline[4].trim() };
+  if (/RK_OPERATION_DEADLINE/.test(t)) return { code: "operation-deadline", retryable: false, deadlineMs: null, requestId: null, cancelConfirmed: null, terminalState: null };
+  if (/RK_BROKER_BUSY/.test(t)) return { code: "broker-busy", retryable: true };
+  if (/RK_BROKER_UNAVAILABLE/.test(t)) return { code: "broker-unavailable", retryable: false };
   return null;
 }
+
+// ---- retrying what waiting clears (GB-52, GB-78, GB-39) ----
+/** The outcome codes (snapshot-broker.mjs) of the refusals that clear on their own: the gate waits and retries these within its deadline. */
+export const RETRYABLE_OUTCOME_CODES = Object.freeze(new Set(["broker-busy", "broker-refused-recovery-pending", "broker-refused-storage-budget-unavailable"]));
+/** How long a retrying call keeps waiting when it was given no deadline of its own (recovery's bounded wait is 120 s; the budget gate's 600 s is the broker's own). */
+export const DEFAULT_RETRY_WINDOW_MS = 180_000;
+/** The pause before retry number `attempt` (1 for the first): 250 ms doubling to 5 s. */
+export const retryPauseMs = (attempt) => Math.min(5000, 250 * 2 ** Math.max(0, attempt - 1));
+/** A synchronous sleep (the carried call is synchronous): never busy-waits. */
+export function sleepSync(ms) { if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
