@@ -294,7 +294,10 @@ const lstatOrNull = (p) => { try { return fs.lstatSync(p); } catch (e) { if (e.c
  * `..` or empty component, not inside `.git`) and no input that is, or holds, either declaration file. A present but invalid canonical declaration is an
  * error: it is never read as the legacy one.
  */
-export function readDeclaredInputs(snapshotRoot) {
+/** Host platform names a declared input may scope itself to (`{ path, platforms }`). */
+export const DECLARED_INPUT_PLATFORMS = Object.freeze({ darwin: "mac", win32: "win", linux: "linux" });
+
+export function readDeclaredInputs(snapshotRoot, { platform = process.platform } = {}) {
   let file = null; let at = null; let meta = null;
   for (const candidate of COMPILE_INPUT_DECLARATIONS) {
     let here = snapshotRoot; let found = true;
@@ -313,8 +316,21 @@ export function readDeclaredInputs(snapshotRoot) {
   let value;
   try { value = JSON.parse(fs.readFileSync(at, "utf8")); } catch (e) { fail("declared-inputs", `${file} is not JSON (${e.message})`); }
   if (!value || typeof value !== "object" || !Array.isArray(value.inputs)) fail("declared-inputs", `${file}: \`inputs\` must be a list of paths`);
-  for (const input of value.inputs) {
+  // An entry is a path (every platform) or { path, platforms }: a platform-scoped input (a Windows-only identity package) is declared
+  // only on the hosts it names, so another host neither requires nor digests it. Unknown keys or platform names refuse.
+  const host = DECLARED_INPUT_PLATFORMS[platform] ?? platform;
+  const kept = [];
+  for (const entry of value.inputs) {
+    let input = entry;
+    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      const extra = Object.keys(entry).filter((k) => k !== "path" && k !== "platforms");
+      if (extra.length) fail("declared-inputs", `${file}: an input object has only path and platforms (found ${extra.join(", ")})`);
+      const names = Object.values(DECLARED_INPUT_PLATFORMS);
+      if (!Array.isArray(entry.platforms) || !entry.platforms.length || entry.platforms.some((x) => !names.includes(x))) fail("declared-inputs", `${file}: ${JSON.stringify(entry.path)}: platforms must be a non-empty list of ${names.join(", ")}`);
+      input = entry.path;
+    }
     if (typeof input !== "string" || !input) fail("declared-inputs", `${file}: every input is a non-empty relative path`);
+    const here = !(entry && typeof entry === "object") || entry.platforms.includes(host);
     const components = input.split(/[\\/]/);
     if (path.isAbsolute(input) || path.posix.isAbsolute(input) || path.win32.isAbsolute(input) || components.some((c) => c === "" || c === "." || c === "..")) fail("declared-inputs", `${file}: ${input} is not a plain relative path inside the snapshot`);
     if (components.some((c) => c.toLowerCase() === ".git")) fail("declared-inputs", `${file}: ${input} is inside .git; repository metadata is never a compile input`);
@@ -322,8 +338,9 @@ export function readDeclaredInputs(snapshotRoot) {
       const parts = declaration.split("/");
       if (components.length <= parts.length && components.every((c, i) => c === parts[i])) fail("declared-inputs", `${file}: ${input} overlaps the declaration file itself (${declaration})`);
     }
+    if (here) kept.push(input);
   }
-  return [...value.inputs];
+  return kept;
 }
 
 /** The inputs a request supplied must be exactly the declaration the snapshot holds (the broker's check): a throw naming the difference. */

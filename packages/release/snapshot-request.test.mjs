@@ -1060,3 +1060,19 @@ test("data: [GB-82] the fixture signs compact attribution with a detail file the
   const verified = verifySnapshotReceipt(receipt, { pins: fx.pins, jobId: JOB, carrier: made.carrier, argv: ["run", "x"], workspace: fx.checkout, adapter: "rightkit-pnpm", checkout: fx.checkout, outputRoots: [fx.wsRoot], platform: process.platform });
   assert.equal(verified.nestedChildren.length, 2);
 });
+
+test("a declared input may name its platforms: { path, platforms } is declared only on those hosts; a plain path is every host; bad shapes refuse", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-inputs-"));
+  try {
+    fs.mkdirSync(path.join(dir, ".rightkit"));
+    const declare = (inputs) => fs.writeFileSync(path.join(dir, ".rightkit", "compile-inputs.json"), JSON.stringify({ inputs }));
+    declare(["app/dist", { path: "app/windows/identity/dist", platforms: ["win"] }, { path: "app/mac-only", platforms: ["mac", "linux"] }]);
+    assert.deepEqual(readDeclaredInputs(dir, { platform: "win32" }), ["app/dist", "app/windows/identity/dist"]);
+    assert.deepEqual(readDeclaredInputs(dir, { platform: "darwin" }), ["app/dist", "app/mac-only"]);
+    assert.deepEqual(readDeclaredInputs(dir, { platform: "linux" }), ["app/dist", "app/mac-only"]);
+    for (const bad of [[{ path: "a", platforms: [] }], [{ path: "a", platforms: ["windows"] }], [{ path: "a", platforms: ["win"], extra: 1 }], [{ path: "../x", platforms: ["mac"] }], [{ platforms: ["win"] }]]) {
+      declare(bad);
+      assert.throws(() => readDeclaredInputs(dir, { platform: "darwin" }), /declared-inputs|compile-inputs/, JSON.stringify(bad));
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
