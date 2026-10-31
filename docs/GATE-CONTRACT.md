@@ -305,7 +305,7 @@ Resolutions of stale or contradictory rules, applied under decisions already rec
 
 ### Requirement index
 
-Every operative requirement id of this contract, its subject, status (`operative`, `superseded` or `history`) and the broker-contract items it links to (`BR` requirements, `B` acceptance cases, `D` decisions, `§` sections; `-` when the requirement is the gate's alone). The link check reads this table: a tag in the text with no row, a row with no tag, a duplicate id, or a link that is not in the broker contract's own index is a failing test (`packages/release/gate-contract-links.test.mjs`). The origin-by-product ids (`R-M` to `A-L`, §2) and the acceptance ids `E1` to `E19` (§6) are their own stable ids and are not repeated here.
+Every operative requirement id of this contract, its subject, status (`operative`, `superseded`, `history`, `proposed` or `open`; the cell holds exactly one of these, and any further detail lives in the subject) and the broker-contract items it links to (`BR` requirements, `B` acceptance cases, `D` decisions, `§` sections; `-` when the requirement is the gate's alone). The link check reads this table: a tag in the text with no row, a row with no tag, a duplicate id, or a link that is not in the broker contract's own index is a failing test (`packages/release/gate-contract-links.test.mjs`). The origin-by-product ids (`R-M` to `A-L`, §2) and the acceptance ids `E1` to `E19` (§6) are their own stable ids and are not repeated here.
 
 | ID | Subject | Status | Broker contract |
 |---|---|---|---|
@@ -349,9 +349,9 @@ Every operative requirement id of this contract, its subject, status (`operative
 | GC-I09 | `cargo ndk` as a pinned external tool | operative | BR21, B35 |
 | GC-I10 | QA journeys on a snapshot stage (prebuilt input) | operative | - |
 | GC-I11 | Clippy route and batching | operative | B4, B5, B6, D3 |
-| GC-L01 | Direct Linux origin trust: direct-origin records are claims the hosted side re-derives, never broker receipts | proposed implementation; acceptance NOT RUN; activation held (see GC-L03 activation) | BR20, B3, BR22 |
-| GC-L02 | Private Linux qualifier only for a declared Linux target, hosted on Mac or Dell, pending candidate that resumes on exact bytes | proposed implementation; acceptance NOT RUN; activation held | B3 |
-| GC-L03 | Activation of direct-origin admission at publication is held for the reserved publication authorization | OPEN; activation held | BR30 |
+| GC-L01 | Direct Linux origin trust: direct-origin records are claims the hosted side re-derives, never broker receipts (proposed implementation; acceptance NOT RUN; activation held, see GC-L03) | proposed | BR20, B3, BR22 |
+| GC-L02 | Private Linux qualifier only for a declared Linux target, hosted on Mac or Dell, pending candidate that resumes on exact bytes (proposed implementation; acceptance NOT RUN; activation held) | proposed | B3 |
+| GC-L03 | Activation of direct-origin admission at publication is held for the reserved publication authorization (activation held while GB-29 is OPEN) | open | BR30 |
 | GC-Q01 | Origin identity record (repository, commit, snapshot digest, lockfiles, policy, toolchain, versions, result) | operative | BR19 |
 | GC-Q02 | Local compile output digests and candidate identity | operative | - |
 | GC-Q03 | Native target-build record when origin cannot produce a target | operative | - |

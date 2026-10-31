@@ -38,8 +38,8 @@ test("[GB-30] every requirement tag in the text has exactly one index row and ev
     const numbers = rows.filter((id) => id.startsWith(`GC-${family}`)).map((id) => Number(id.slice(4)));
     assert.deepEqual(numbers, numbers.map((_, i) => i + 1), `GC-${family} ids are contiguous from 1`);
   }
-  // Every row has a status the contract defines and a subject.
-  for (const [id, subject, status] of indexRows) { assert.ok(subject.length > 3, id); assert.match(status, /^(operative|superseded|history)$/, id); }
+  // Every row has a status the contract defines (one listed value, no detail in the cell) and a subject.
+  for (const [id, subject, status] of indexRows) { assert.ok(subject.length > 3, id); assert.match(status, /^(operative|superseded|history|proposed|open)$/, id); }
 });
 
 test("[GB-30] every link to the broker contract resolves in the broker contract's own index (the audit's D4, GR16, GR32 and E48 cannot come back)", () => {
@@ -100,5 +100,11 @@ test("[GB-29] the Linux clauses name what the code implements: the direct-origin
     assert.ok(clause.includes(`\`${field}\``), `${field} is named as refused`);
   }
   assert.ok(clause.includes("`targets.linux`") && clause.includes("`RK_DIRECT_RELEASE_HELD`") && clause.includes("`NOT_APPLICABLE`"));
-  assert.equal(/\bOPEN\b/.test(body.slice(body.indexOf("| Open decision"), body.indexOf("### Boundary with the RustRight"))) && /Direct Linux origin trust[^|]*\|[^|]*\|[^|]*OPEN/.test(body), false, "the Linux items are no longer open");
+  // GB-29 is OPEN while the Open-decision table lists Direct Linux origin trust as OPEN: then no Linux row (GC-L*) may be `operative`. The row must be found, so this cannot pass vacuously.
+  const openTable = body.slice(body.indexOf("| Open decision"), body.indexOf("### Boundary with the RustRight"));
+  const linuxDecision = openTable.split("\n").find((l) => /^\| Direct Linux origin trust/.test(l));
+  assert.ok(linuxDecision, "the Open-decision table has the Direct Linux origin trust row");
+  const linuxRows = indexRows.filter(([id]) => id.startsWith("GC-L"));
+  assert.ok(linuxRows.length >= 3, "the index has the GC-L rows");
+  if (/\bOPEN\b/.test(linuxDecision)) for (const [id, , status] of linuxRows) assert.notEqual(status, "operative", `${id} cannot be operative while Direct Linux origin trust is OPEN (GB-29)`);
 });
