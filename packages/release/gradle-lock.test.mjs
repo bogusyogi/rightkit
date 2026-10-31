@@ -82,3 +82,10 @@ test("helpers: version order, lockfile, catalog, owner", () => {
   const anc = (d) => (d === "." ? ["."] : [".", ...d.split("/").map((_, i, a) => a.slice(0, i + 1).join("/"))]);
   assert.equal(gradleOwnerOf("x/app/build.gradle.kts", { exists: (f) => f in files, ancestorDirs: anc }), "x");
 });
+
+test("a catalog alias wrapped in platform(...) is read: implementation(platform(libs.compose.bom)) is the alias compose.bom (hrwin false positive)", () => {
+  const deps = parseBuildDependencies("dependencies {\n    implementation(platform(libs.compose.bom))\n    implementation(platform(libs.bundles.compose))\n}\n");
+  assert.ok(deps.some((d) => d.kind === "alias" && d.alias === "compose.bom"), JSON.stringify(deps));
+  assert.ok(deps.some((d) => d.kind === "bundle" && d.alias === "compose"), JSON.stringify(deps));
+  assert.ok(!deps.some((d) => d.kind === "unreadable"), JSON.stringify(deps));
+});

@@ -126,8 +126,8 @@ export function parseBuildDependencies(source) {
     let r;
     if ((r = /^["']([^"':\s]+):([^"':\s]+)(?::([^"':\s]*))?["']/.exec(rest))) { out.push({ line, config, kind: "gav", group: r[1], name: r[2], version: r[3] ?? null }); return; }
     if ((r = /^group\s*[:=]\s*["']([^"']+)["']\s*,\s*name\s*[:=]\s*["']([^"']+)["'](?:\s*,\s*version\s*[:=]\s*["']([^"']+)["'])?/.exec(rest))) { out.push({ line, config, kind: "gav", group: r[1], name: r[2], version: r[3] ?? null }); return; }
-    if ((r = /^libs\.bundles\.([\w.]+?)(?:\.get\(\))?\s*\)?\s*$/.exec(rest))) { out.push({ line, config, kind: "bundle", alias: r[1] }); return; }
-    if ((r = /^libs\.((?!plugins\.|versions\.)[\w.]+?)(?:\.get\(\))?\s*\)?\s*$/.exec(rest))) { out.push({ line, config, kind: "alias", alias: r[1] }); return; }
+    if ((r = /^libs\.bundles\.([\w.]+?)(?:\.get\(\))?\s*\)*\s*$/.exec(rest))) { out.push({ line, config, kind: "bundle", alias: r[1] }); return; }
+    if ((r = /^libs\.((?!plugins\.|versions\.)[\w.]+?)(?:\.get\(\))?\s*\)*\s*$/.exec(rest))) { out.push({ line, config, kind: "alias", alias: r[1] }); return; }
     if ((r = /^kotlin\(\s*["']([\w.-]+)["']/.exec(rest))) { out.push({ line, config, kind: "gav", group: "org.jetbrains.kotlin", name: `kotlin-${r[1]}`, version: null }); return; }
     out.push({ line, config, kind: "unreadable", text: rest.slice(0, 70) });
   });
