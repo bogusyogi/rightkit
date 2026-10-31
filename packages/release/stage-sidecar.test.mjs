@@ -1335,6 +1335,9 @@ test("a member path selects the one archive member at exactly that path among du
   assert.deepEqual(dotted.extracted(), ["./runtimes/win-x64/native/onnxruntime.dll"], "the listed spelling is what tar is asked for");
 });
 
+/** The extractor's tar: plain `tar`, or the System32 tar.exe archiveTar() names on Windows. */
+const isTar = (command) => /(^|[\\/])tar(\.exe)?$/i.test(String(command));
+
 test("archives are listed and unpacked with the System32 bsdtar on Windows, never a tar found first on PATH (Git for Windows' GNU tar reads D:\\ as a host)", () => {
   assert.equal(archiveTar({ platform: "win32", env: { SystemRoot: "C:\\Windows" } }), "C:\\Windows\\System32\\tar.exe");
   assert.equal(archiveTar({ platform: "win32", env: {} }), "C:\\Windows\\System32\\tar.exe");
@@ -1679,8 +1682,8 @@ function nativeKit({ rows, archives = [], files: seeded = {}, target = WIN, lipo
   const archiveAt = (file) => byText.get(String(files.get(path.resolve(file))));
   const run = (command, args) => {
     calls.push([command, ...args]);
-    if (command === "tar" && args[0] === "-tf") return { status: 0, stdout: Object.keys(archiveAt(args[1])?.members ?? {}).join("\n"), stderr: "" };
-    if (command === "tar" && args[0] === "-xf") { files.set(path.join(args[3], ...args[4].split("/")), archiveAt(args[1]).members[args[4]]); return { status: 0, stdout: "", stderr: "" }; }
+    if (isTar(command) && args[0] === "-tf") return { status: 0, stdout: Object.keys(archiveAt(args[1])?.members ?? {}).join("\n"), stderr: "" };
+    if (isTar(command) && args[0] === "-xf") { files.set(path.join(args[3], ...args[4].split("/")), archiveAt(args[1]).members[args[4]]); return { status: 0, stdout: "", stderr: "" }; }
     if (command === "lipo" && args[0] === "-archs") return { status: 0, stdout: lipoArchs, stderr: "" };
     if (command === "lipo" && args[0] === "-create") files.set(args[args.indexOf("-output") + 1], Buffer.from(`fat:${args.slice(3).map((file) => files.get(path.resolve(file))).join("+")}`));
     return { status: 0, stdout: "", stderr: "" };
@@ -1695,7 +1698,7 @@ function nativeKit({ rows, archives = [], files: seeded = {}, target = WIN, lipo
   });
   /** Everything stage-sidecar wrote under src-tauri (the staged libraries, notices and receipt). */
   const written = () => [...files.keys()].filter((key) => key.startsWith(at("src-tauri") + path.sep)).map((key) => path.relative(APP, key).split(path.sep).join("/")).sort();
-  const extracted = () => calls.filter((call) => call[0] === "tar" && call[1] === "-xf").map((call) => call[5]);
+  const extracted = () => calls.filter((call) => isTar(call[0]) && call[1] === "-xf").map((call) => call[5]);
   return { fs, files, log, calls, fetched, messages, stage, written, extracted };
 }
 
@@ -1883,7 +1886,7 @@ test("native-library stages a multi-file library (ggml) and whisper.cpp from sou
   assert.deepEqual(result.files.map((file) => file.library), [...GGML_FILES.map(() => "ggml"), "whisper-cpp"]);
   assert.deepEqual(kit.fetched, []);
   assert.ok(kit.fs.existsSync(licenseAt("ggml-MIT.txt")) && kit.fs.existsSync(licenseAt("whisper-cpp-MIT.txt")));
-  assert.equal(kit.calls.filter((call) => call[0] === "tar").length, 0);
+  assert.equal(kit.calls.filter((call) => isTar(call[0])).length, 0);
 });
 
 test("native-library from source.dir fails closed: a tampered file, a missing file and a row with no source write nothing", async () => {
