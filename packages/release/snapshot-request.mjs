@@ -505,7 +505,7 @@ export function verifyNestedChildren(evidence, receipt, { snapshotPath, checkout
  *   - `declaredInputDigests` equal to the gate's own digest of the snapshot's declared inputs, read from the snapshot now;
  *   - `outputDir` absolute, outside the snapshot and the checkout, and a managed generation target under one of `outputRoots`;
  *   - signed stageEvidence (freshness, attribution, toolchain) equal to the receipt's;
- *   - verdict, timingsMs, exit, diagnosticsPath, brokerVersion, executor and refreshed present with their types.
+ *   - timingsMs, exit, diagnosticsPath, brokerVersion and executor present with their types; the retired `verdict` and `refreshed` are refused (GB-30: Class A and its verdict reuse are the gate's).
  * `checkout` and `outputRoots` are required: without them nothing can be said about where the outputs went, so it refuses.
  */
 export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, workspace, observedEnv = {}, adapter = null, adapterEnv = {}, checkout, outputRoots, platform = process.platform, canonicalPath = (p) => fs.realpathSync.native(p), digestInputs = declaredInputDigestsOf, readInputs = readDeclaredInputs }) {
