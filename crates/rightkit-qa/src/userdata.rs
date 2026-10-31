@@ -250,6 +250,24 @@ fn default_temp_roots() -> Vec<PathBuf> {
     roots
 }
 
+/// Where a QA home may be: directly under a `rightkit-qa` directory (a single-scenario run), or the
+/// home of a scenario world the pool created for a run under one (`<rightkit-qa>/<run>/worlds/wNNN/home`,
+/// `crate::pool::WorldPlan::world`).
+fn is_qa_home_location(home: &Path) -> bool {
+    let named = |p: Option<&Path>, name: &str| p.and_then(Path::file_name) == Some(std::ffi::OsStr::new(name));
+    if named(home.parent(), "rightkit-qa") {
+        return true;
+    }
+    let world = home.parent();
+    let is_world = world
+        .and_then(Path::file_name)
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.len() == 4 && n.starts_with('w') && n[1..].bytes().all(|b| b.is_ascii_digit()));
+    let worlds = world.and_then(Path::parent);
+    let run = worlds.and_then(Path::parent);
+    named(Some(home), "home") && is_world && named(worlds, "worlds") && named(run.and_then(Path::parent), "rightkit-qa")
+}
+
 impl Guard {
     /// Guard for an engine or any launch without a workspace: paths must sit in a system temp
     /// root and break no forbidden-location rule.
@@ -285,10 +303,10 @@ impl Guard {
             .get("app")
             .and_then(|v| v.as_str())
             .map(str::to_owned);
-        if home.parent().and_then(Path::file_name) != Some(std::ffi::OsStr::new("rightkit-qa")) {
+        if !is_qa_home_location(&home) {
             return Err(fail(
                 Rule::NotQaRoot,
-                "the home is not directly under a rightkit-qa directory".into(),
+                "the home is neither directly under a rightkit-qa directory nor a scenario world's home (<rightkit-qa>/<run>/worlds/wNNN/home)".into(),
             ));
         }
         guard.judge_outside_workspace(&home)?;
@@ -935,6 +953,17 @@ mod tests {
         ws.home = f.root.clone();
         assert_eq!(Guard::for_workspace(&ws).unwrap_err().rule, Rule::NotQaRoot);
         done(f);
+    }
+
+    #[test]
+    fn a_scenario_world_home_under_a_rightkit_qa_run_is_a_qa_home_location() {
+        let base = Path::new("/tmp/rightkit-qa/heardright-ab12");
+        assert!(is_qa_home_location(&base.join("worlds/w001/home")));
+        assert!(is_qa_home_location(Path::new("/tmp/rightkit-qa/home-x")));
+        for bad in ["worlds/w001/data", "worlds/x001/home", "worlds/w01/home", "other/w001/home"] {
+            assert!(!is_qa_home_location(&base.join(bad)), "{bad}");
+        }
+        assert!(!is_qa_home_location(Path::new("/tmp/elsewhere/run/worlds/w001/home")));
     }
 
     #[cfg(unix)]
