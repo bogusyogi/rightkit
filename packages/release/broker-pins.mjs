@@ -10,6 +10,11 @@
 // Never read here: the broker's control root, its runtime manifest, `attestation/key.json` (it holds the SECRET key), an environment
 // variable, a flag, the snapshot or a receipt. A missing record in any repository but RightKit refuses the snapshot compile; nothing
 // is enrolled automatically.
+//
+// Platforms: darwin and win32 (every build on those hosts goes through the broker) and linux (a broker is ALLOWED on Linux, never
+// required: GATE-CONTRACT "Linux needs no broker, but a broker is allowed on Linux"). A Linux host with no declared broker stays direct
+// and never reaches this file; only the declared route (managed-cargo.mjs, RIGHTKIT_LINUX_BROKER_*) loads pins, and there the enrolled
+// record decides: the running-gate fallback for linux is null unless ci/rk-pipeline.json carries `attestation.linux`.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -28,10 +33,12 @@ const fail = (code, message) => { throw new BrokerPinsError(code, message); };
 const sha256 = (data) => crypto.createHash("sha256").update(data).digest("hex");
 const HEX = /^(?:[0-9a-f]{2})+$/;
 
+export const BROKER_PLATFORMS = Object.freeze(["darwin", "win32", "linux"]);
+
 /** The pin record of one platform under the managed data root. */
 export const pinsFile = ({ dataRoot, platform = process.platform }) => {
   if (!dataRoot || !path.isAbsolute(dataRoot)) fail("RK_BROKER_PINS_ROOT", "the managed data root must be an absolute path");
-  if (!["darwin", "win32"].includes(platform)) fail("RK_BROKER_PINS_PLATFORM", `${platform} is not a broker host (darwin and win32 only)`);
+  if (!BROKER_PLATFORMS.includes(platform)) fail("RK_BROKER_PINS_PLATFORM", `${platform} is not a broker host (${BROKER_PLATFORMS.join(", ")} only)`);
   return path.join(dataRoot, PINS_DIR, `broker-${platform}.json`);
 };
 
@@ -128,7 +135,7 @@ export function enrollBrokerPins({ dataRoot, platform = process.platform, host, 
   return { file, record, rotated: Boolean(existing) };
 }
 
-/** `node broker-pins.mjs enroll --platform <darwin|win32> --data-root <dir> --host H --key-id K --public-key P --broker-digest D [--rotate]` or `show`. */
+/** `node broker-pins.mjs enroll --platform <darwin|win32|linux> --data-root <dir> --host H --key-id K --public-key P --broker-digest D [--rotate]` or `show`. */
 export function main(argv, { out = (m) => process.stdout.write(`${m}\n`), err = (m) => process.stderr.write(`${m}\n`) } = {}) {
   const [command, ...rest] = argv;
   const opt = (name) => { const i = rest.indexOf(name); return i < 0 ? undefined : rest[i + 1]; };
@@ -144,7 +151,7 @@ export function main(argv, { out = (m) => process.stdout.write(`${m}\n`), err = 
       out(pins ? JSON.stringify(pins) : "no enrollment");
       return pins ? 0 : 1;
     }
-    err("usage: broker-pins.mjs enroll|show --platform <darwin|win32> --data-root <dir> [--host H --key-id K --public-key P --broker-digest D [--rotate]]");
+    err("usage: broker-pins.mjs enroll|show --platform <darwin|win32|linux> --data-root <dir> [--host H --key-id K --public-key P --broker-digest D [--rotate]]");
     return 2;
   } catch (e) { err(`${e.code ?? "error"}: ${e.message}`); return 1; }
 }
