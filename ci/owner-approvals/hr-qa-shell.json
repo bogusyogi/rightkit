@@ -1,0 +1,11 @@
+{
+  "schema": 2,
+  "issue": "https://github.com/bogusyogi/rightkit/issues/1322",
+  "sourceSha": "23f7772fdf78c03b3dc208585439cd385a9d27b2",
+  "ciRunId": 41224605227,
+  "ciRunAttempt": 1,
+  "units": [
+    { "name": "rightkit-qa", "version": "0.10.0" },
+    { "name": "rightkit-tauri-shell", "version": "0.7.0" }
+  ]
+}
