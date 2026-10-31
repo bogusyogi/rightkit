@@ -11,12 +11,12 @@
       "note": "Dell runner, Adrian's go 2026-10-28, sha256 3c11788e…2986"
     },
     {
-      "sha256": "a1e84a19d1b75d49a98fbff34e4ac1001014ff0aafcd129ce23721eb3297e4b3",
-      "version": "0.10.0",
+      "sha256": "785b2ec61db1de083c0f0c9cc6e753b588ce21520d9191b4207f99c6fdd05389",
+      "version": "0.10.1",
       "platform": "mac",
       "set_by": "adrian",
       "since": "2026-10-31",
-      "note": "Mac runner built by rightkit-gate --to tool from 24c5a9281 (rightkit#1309: pins/trust routine)"
+      "note": "Mac runner built and enrolled by rightkit-gate --to tool from a2ecdb2c7 (rightkit#1309: pins/trust routine)"
     },
     {
       "sha256": "974b646b50f4630ff829c96e3747f800d17cf5125667ead0fa43ee809de4781f",
@@ -33,6 +33,14 @@
       "set_by": "adrian",
       "since": "2026-11-01",
       "note": "Dell runner built and enrolled by rightkit-gate --to tool from a2ecdb2c7 on BOGUS-DELL (rightkit#1309: pins/trust routine)"
+    },
+    {
+      "sha256": "a1e84a19d1b75d49a98fbff34e4ac1001014ff0aafcd129ce23721eb3297e4b3",
+      "version": "0.10.0",
+      "platform": "mac",
+      "set_by": "adrian",
+      "since": "2026-10-31",
+      "note": "Mac runner built by rightkit-gate --to tool from 24c5a9281 (rightkit#1309: pins/trust routine)"
     }
   ]
 }
