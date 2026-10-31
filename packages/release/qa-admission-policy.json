@@ -11,6 +11,14 @@
       "note": "Dell runner, Adrian's go 2026-10-28, sha256 3c11788e…2986"
     },
     {
+      "sha256": "569069fee0feb5f9d60e75ef8a5825fbff44edbffd5aa927c25d4032e9dca7a0",
+      "version": "0.10.1",
+      "platform": "win",
+      "set_by": "adrian",
+      "since": "2026-11-01",
+      "note": "Dell runner built by rightkit-gate --to tool from e2f2d2152 (world QA root fix) on BOGUS-DELL, rotated in; replaces 9cb78352 (rightkit#1309: pins/trust routine)"
+    },
+    {
       "sha256": "974b646b50f4630ff829c96e3747f800d17cf5125667ead0fa43ee809de4781f",
       "version": "0.10.0",
       "platform": "win",
