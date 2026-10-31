@@ -1996,6 +1996,10 @@ export function queryBrokerCapabilities(o) {
   try { doc = JSON.parse(text(r)); } catch { return { ok: false, problem: `\`rustright doctor --json\` printed no JSON${r.status ? ` (exit ${r.status})` : ""}` }; }
   const caps = doc?.broker?.capabilities;
   if (!Array.isArray(caps) || !caps.every((c) => typeof c === "string")) return { ok: false, problem: "`rustright doctor --json` reports no `.broker.capabilities` (a broker that predates snapshot-readonly-v1 and snapshot-adapter-v1)" };
+  // The list is the broker's HANDSHAKE.capabilities only when the client received that handshake: an unreachable broker (doctor reports an empty list for it) advertises nothing, which is a
+  // different statement from a broker that advertises few capabilities, so it is a problem naming why, never a list. Each name is advertised once.
+  if (doc.broker.reachable !== true) return { ok: false, problem: `the broker is not reachable, so its HANDSHAKE.capabilities were not received (\`rustright doctor --json\` .broker.reachable is ${JSON.stringify(doc.broker.reachable ?? null)}${typeof doc.broker.error === "string" && doc.broker.error ? `: ${doc.broker.error}` : ""})` };
+  if (new Set(caps).size !== caps.length) return { ok: false, problem: "`rustright doctor --json` lists a capability twice: the broker's HANDSHAKE.capabilities are not read from an answer that repeats itself" };
   return { ok: true, capabilities: caps };
 }
 

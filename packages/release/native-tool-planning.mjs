@@ -1,7 +1,7 @@
 // GB-51 (GATE Mac/Dell broker-only; commit output identity): the native build tools an app config declares (xcodegen and xcodebuild for iOS, Gradle for Android, CMake for a sidecar)
-// each have a constrained broker adapter (native-adapters.mjs: capability `adapter:rightkit-<tool>`) and a launch route onto it (build-launch.mjs). This module decides at PLANNING, from the
+// each have a constrained broker adapter (native-adapters.mjs: capability `adapter:rightkit-xcodegen|xcodebuild|gradle|cmake`) and a launch route onto it (build-launch.mjs). This module decides at PLANNING, from the
 // commit's own config, whether a stage that uses them can run, so the route (and `--route`) refuses before anything builds, naming the missing capability or the unsupported command:
-//   - a tool whose adapter capability the broker does not advertise (or whose capability query failed) is refused naming `adapter:rightkit-<tool>`;
+//   - a tool whose adapter capability the broker does not advertise (or whose capability query failed) is refused naming the missing `adapter:rightkit-...` capability;
 //   - a declared build step (a dev target's `build` list) whose argv the tool's registration would refuse (an output override, an unregistered flag, a release task, a signing identity) is
 //     refused naming the capability and the reason: an unsupported custom command never reaches the broker;
 //   - a Gradle step needs the committed wrapper's distribution pinned (`distributionSha256Sum`), the adapter's pinned executable identity.
@@ -18,7 +18,6 @@ export const NDK_EXTERNAL_CAPABILITY = "external:cargo-ndk";
 /** The ABIs RustRight's ndk grammar accepts (`parse_ndk_argv`: arm64-v8a, x86_64); the gate's own validator also knows armeabi-v7a and x86, which the broker would refuse. */
 export const BROKER_NDK_ABIS = Object.freeze(["arm64-v8a", "x86_64"]);
 
-/** Tools with no carried adapter route, by the capability name a refusal reports. */
 /** The tools that run through a constrained adapter, by the capability name a refusal reports (xcodegen, xcodebuild, gradle and its wrapper, cmake). */
 export const NATIVE_TOOLS_WITHOUT_ADAPTER = Object.freeze({ xcodegen: NATIVE_ADAPTERS.xcodegen.capability, xcodebuild: NATIVE_ADAPTERS.xcodebuild.capability, gradle: NATIVE_ADAPTERS.gradle.capability, gradlew: NATIVE_ADAPTERS.gradle.capability, cmake: NATIVE_ADAPTERS.cmake.capability });
 
