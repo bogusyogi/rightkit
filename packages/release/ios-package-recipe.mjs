@@ -13,14 +13,24 @@
 //
 // Upload is a separate command (ios-upload.mjs): `build` never uploads, `upload` never builds. Nothing here reads an App Store
 // Connect credential: archive and export sign through the Xcode account of the GUI session. Fails closed: every problem
-// throws IosPackageError, and once an archive or an IPA exists a failure deletes them (and any stale receipt) so a later
-// seal cannot pick up a half-verified artifact. Every external effect is injectable through `deps`.
+// throws IosPackageError, and once an IPA exists a failure deletes it (and any stale receipt) so a later
+// seal cannot pick up a half-verified artifact (the broker-owned archive and export directory are the broker's to keep and reap). Every external effect is injectable through `deps`.
+//
+// RA-09 / R3-M02: every compiler-capable phase (xcodegen generate, xcodebuild archive, xcodebuild -exportArchive and any prepare step that names a native build
+// tool) is a typed native adapter job of the production runner (`deps.native`, build-launch.mjs createNativeRunner: the carrier or the resolved executor's client),
+// never a spawn of this recipe's own. The broker owns the output root, so the call names neither -derivedDataPath, -archivePath, -exportPath nor -resultBundlePath:
+// the archive and the export directory are READ BACK from the verified receipt's managed output roles (`outputs.byRole.archive` / `.export`), and the export must read
+// the very archive that was verified. The ExportOptions.plist is a regular XML file inside the step directory (the snapshot), not under the receipt directory. Signing stays
+// the provisioned GUI session's (assertGuiSigningSession) with automatic signing and -allowProvisioningUpdates; no alternate signer exists. A missing runner, an unadvertised
+// capability or an argv the broker's grammar refuses is refused BEFORE the first tool is launched. The non-compiling queries (`xcodebuild -version`, `xcodegen --version`,
+// plutil, codesign, security, ditto, git) are this recipe's own direct steps through `deps.run`.
 import { createHash } from "node:crypto";
 import * as nodeFs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
-import { assertGuiSigningSession, IosHostError, outputTail, resolveXcodeStorage } from "./ios-host.mjs";
+import { assertGuiSigningSession, IosHostError, outputTail } from "./ios-host.mjs";
+import { nativeToolOf } from "./native-adapters.mjs";
 
 export const IOS_SIGNING_CONTRACT = "ios-xcodebuild-archive-automatic-v1";
 export const IOS_RECEIPT_NAME = "ios-archive.json";
@@ -30,7 +40,8 @@ export const IOS_DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 /**
  * Codes: IOS_PACKAGE_CONFIG_INVALID, IOS_PACKAGE_HOST_UNSUPPORTED, IOS_PACKAGE_TOOL_MISSING, IOS_PACKAGE_GENERATE_FAILED,
  * IOS_PACKAGE_PREPARE_FAILED, IOS_PACKAGE_ARCHIVE_FAILED, IOS_PACKAGE_SOURCE_CHANGED, IOS_PACKAGE_VERIFY_FAILED,
- * IOS_PACKAGE_EXPORT_FAILED, IOS_PACKAGE_BUILD_NUMBER, IOS_PACKAGE_RECEIPT_FAILED.
+ * IOS_PACKAGE_EXPORT_FAILED, IOS_PACKAGE_BUILD_NUMBER, IOS_PACKAGE_RECEIPT_FAILED, IOS_PACKAGE_NATIVE_REQUIRED (no production native runner was supplied),
+ * IOS_PACKAGE_NATIVE_REFUSED (the door or the broker's grammar refused a native call before any launch; the message names the capability).
  */
 export class IosPackageError extends Error {
   constructor(code, message, options) { super(message, options); this.name = "IosPackageError"; this.code = code; }
@@ -39,6 +50,8 @@ const invalid = (message) => new IosPackageError("IOS_PACKAGE_CONFIG_INVALID", `
 const isPlainObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 
 // ---- config ------------------------------------------------------------------------------------------------------
+/** The ExportOptions.plist the export reads: a regular XML file inside the step directory (the snapshot), relative to the app root. It is never under the receipt directory. */
+export const IOS_EXPORT_OPTIONS_RELATIVE = ".right-release/ios-export-options.plist";
 const IOS_KEYS = ["project", "projectSpec", "scheme", "configuration", "teamId", "bundleId", "exportMethod", "signing", "buildNumber", "extraBuildSettings", "packageResolved", "trustedSwiftMacros", "trustedSwiftPlugins", "prepare", "cleanup", "checks", "archive", "ipa", "timeoutMs"];
 const CLEANUP_KEYS = ["derivedData"];
 const CHECK_KEYS = ["versionIdentity", "forbidStrings", "plist"];
@@ -138,7 +151,9 @@ export function validateIosPackageConfig(spec) {
     const bad = Object.keys(spec.cleanup).filter((key) => !CLEANUP_KEYS.includes(key));
     if (bad.length) throw invalid(`cleanup has unknown key(s): ${bad.join(", ")} (allowed: ${CLEANUP_KEYS.join(", ")})`);
     if (spec.cleanup.derivedData !== undefined && typeof spec.cleanup.derivedData !== "boolean") throw invalid("cleanup.derivedData must be a boolean");
-    cleanup.derivedData = spec.cleanup.derivedData === true;
+    // The broker owns DerivedData and its lifetime (the xcodebuild adapter's managed output root): a recipe cannot delete it, and silently ignoring the request would be a lie.
+    if (spec.cleanup.derivedData === true) throw invalid("cleanup.derivedData cannot be honoured: the broker owns the DerivedData root and its lifetime (RA-09); remove it");
+    cleanup.derivedData = false;
   }
 
   const checks = { versionIdentity: true, forbidStrings: [], plist: {} };
@@ -183,6 +198,7 @@ export function validateIosPackageConfig(spec) {
     prepare: spec.prepare === undefined ? [] : commandList(spec.prepare, "prepare"),
     cleanup,
     checks,
+    // Kept for config compatibility only: the broker owns where the archive is written (a caller names no -archivePath), so this path is validated but never used to build or read.
     archive: relativeInside(spec.archive, "archive", /\.xcarchive$/i),
     ipa: relativeInside(spec.ipa, "ipa", /\.ipa$/i),
     timeoutMs,
@@ -343,16 +359,17 @@ export function installSwiftTrustSource({ trust, root, fs = nodeFs }) {
   assertSwiftTrustUnchanged({ trust, root, fs });
 }
 
-export function archiveArgv(spec, { root, buildNumber, storage, trusted }) {
+/**
+ * The archive call as the broker's xcodebuild adapter admits it: no -archivePath, -derivedDataPath or -resultBundlePath (the broker owns the output root and names the archive by
+ * its managed `archive` role in the signed receipt). Signing is automatic through the provisioned session.
+ */
+export function archiveArgv(spec, { root, buildNumber, trusted }) {
   const trustFlags = swiftTrustFlags(spec, trusted);
   return [
     "-project", path.resolve(root, spec.project),
     "-scheme", spec.scheme,
     "-configuration", spec.configuration,
     "-destination", "generic/platform=iOS",
-    "-archivePath", path.resolve(root, spec.archive),
-    "-derivedDataPath", storage.derivedData,
-    ...(storage.resultBundle ? ["-resultBundlePath", storage.resultBundle] : []),
     `DEVELOPMENT_TEAM=${spec.teamId}`,
     `CURRENT_PROJECT_VERSION=${buildNumber}`,
     ...Object.entries(spec.extraBuildSettings).map(([name, value]) => `${name}=${value}`),
@@ -362,11 +379,9 @@ export function archiveArgv(spec, { root, buildNumber, storage, trusted }) {
   ];
 }
 
-/** A dedicated directory beside the IPA (never the IPA's own directory, which may be the app root): xcodebuild fills it with logs and plists. */
-export const exportDirectory = (spec, root) => path.join(path.dirname(path.resolve(root, spec.ipa)), `${path.basename(spec.ipa, ".ipa")}.export`);
-
-export function exportArgv(spec, { root, optionsFile }) {
-  return ["-exportArchive", "-archivePath", path.resolve(root, spec.archive), "-exportPath", exportDirectory(spec, root), "-exportOptionsPlist", optionsFile, "-allowProvisioningUpdates"];
+/** The export call: `-exportArchive` stands alone with its options file; the broker reads the managed archive the archive call wrote and names the export directory (role `export`). */
+export function exportArgv(spec, { optionsFile }) {
+  return ["-exportArchive", "-exportOptionsPlist", optionsFile, "-allowProvisioningUpdates"];
 }
 
 /** Dry-run display only: the flags the run would add once its own check passes. The real run never uses this. */
@@ -377,27 +392,26 @@ const plannedTrust = (spec) => {
   return planned;
 };
 
-/** The ordered plan (pure; no secret is part of any argument). Used by --dry-run and by the run itself. */
-export function iosPackagePlan(spec, { root, buildNumber = "<YYYYMMDDNN>", storage = { derivedData: "<rustright storage xcode-args -derivedDataPath>" }, receiptDir }) {
-  const optionsFile = path.join(receiptDir, "ios-export-options.plist");
+/** The ordered plan (pure; no secret is part of any argument). Used by --dry-run and by the run itself. `native` names the broker adapter that runs the step. */
+export function iosPackagePlan(spec, { root, buildNumber = "<YYYYMMDDNN>", receiptDir }) {
+  const optionsFile = path.join(root, IOS_EXPORT_OPTIONS_RELATIVE);
   return {
     steps: [
-      { id: "preflight", description: "macOS host, GUI signing session, xcodebuild" + (spec.projectSpec ? ", xcodegen (required)" : "") },
-      ...(spec.projectSpec ? [{ id: "generate", cmd: "xcodegen", args: xcodegenArgv(spec, root) }] : []),
-      ...spec.prepare.map((step, index) => ({ id: "prepare", index, cmd: step.cmd, args: step.args, cwd: step.cwd ?? "." })),
+      { id: "preflight", description: "macOS host, GUI signing session, xcodebuild" + (spec.projectSpec ? ", xcodegen (required)" : "") + "; every compiler-capable call is planned against the broker's adapter grammar before the first launch" },
+      ...(spec.projectSpec ? [{ id: "generate", cmd: "xcodegen", args: xcodegenArgv(spec, root), native: "rightkit-xcodegen" }] : []),
+      ...spec.prepare.map((step, index) => ({ id: "prepare", index, cmd: step.cmd, args: step.args, cwd: step.cwd ?? ".", ...(nativeToolOf(step.cmd) ? { native: true } : {}) })),
       ...(spec.trustedSwiftMacros.length || spec.trustedSwiftPlugins.length
         ? [{ id: "trust-check", description: `Package.resolved (${spec.packageResolved ?? defaultPackageResolvedPath(spec.project)}) tracked and equal to HEAD; ${[...spec.trustedSwiftMacros, ...spec.trustedSwiftPlugins].map((entry) => entry.package).join(", ")} pinned to the reviewed revisions; the skip flags below are added only after this passes` }]
         : []),
-      { id: "archive", cmd: "xcodebuild", args: archiveArgv(spec, { root, buildNumber, storage, trusted: plannedTrust(spec) }) },
+      { id: "archive", cmd: "xcodebuild", args: archiveArgv(spec, { root, buildNumber, trusted: plannedTrust(spec) }), native: "rightkit-xcodebuild", outputs: "managed role archive (read back from the signed receipt)" },
       { id: "verify-archive", description: "version identity across app, appex and Watch plists; bundle id; build number; QA scan; forbidden strings" },
-      { id: "export", cmd: "xcodebuild", args: exportArgv(spec, { root, optionsFile }), optionsFile },
+      { id: "export", cmd: "xcodebuild", args: exportArgv(spec, { optionsFile }), optionsFile, native: "rightkit-xcodebuild", outputs: "managed roles archive (must equal the verified one) and export (read back from the signed receipt)" },
       { id: "verify-ipa", description: "extracted IPA: version identity, entitlements, embedded.mobileprovision, code signature" },
       { id: "receipt", file: path.join(receiptDir, IOS_RECEIPT_NAME) },
     ],
     teamId: spec.teamId,
     bundleId: spec.bundleId,
     ipa: path.resolve(root, spec.ipa),
-    archive: path.resolve(root, spec.archive),
   };
 }
 
@@ -499,24 +513,23 @@ export function scanForbiddenStrings(dir, strings, fs = nodeFs) {
 // ---- the recipe --------------------------------------------------------------------------------------------------
 /**
  * Runs the steps. `root` is the app root. `deps` (all optional, defaults are the real host):
- *   run(cmd, args, options)      spawnSync-shaped; fakes in tests
+ *   native                       REQUIRED: the production native runner ({ plan, run }, build-launch.mjs createNativeRunner). Every compiler-capable call goes through it; there is no spawn fallback
+ *   run(cmd, args, options)      spawnSync-shaped, for the NON-compiling direct steps only (xcodebuild -version, xcodegen --version, plutil, codesign, security, ditto, git)
  *   fs                           node:fs-shaped
  *   scanFiles(label, files, o)   release.mjs's assertNoQaControlBinaries (QA rules plus the release-switch binary layer)
  *   detectSession / route        GUI signing session seams (ios-host.mjs)
  *   gitHead()                    the source commit; it must not change during the build
- *   storage()                    DerivedData and result bundle (rustright storage xcode-args)
  *   scanForbidden(dir, strings)  forbidden-string scan
  *   counterDir                   where the per-app build number counter lives (the vault state root under right-release build)
  */
 export async function runIosPackageRecipe({
   root, app = "app", spec, dryRun = false, env = process.env, platform = process.platform,
   receiptDir = path.join(root, ".right-release", "receipts"), stateDir = path.join(root, ".right-release"), counterDir = stateDir,
-  run = spawnSync, fs = nodeFs, scanFiles, detectSession, route, gitHead, storage, scanForbidden = scanForbiddenStrings,
+  native, run = spawnSync, fs = nodeFs, scanFiles, detectSession, route, gitHead, scanForbidden = scanForbiddenStrings,
   now = () => new Date(), tmpRoot = os.tmpdir(), log = console.log,
 }) {
   if (!path.isAbsolute(root)) throw invalid("root must be an absolute path");
   const ipa = path.resolve(root, spec.ipa);
-  const archive = path.resolve(root, spec.archive);
   const receiptPath = path.join(receiptDir, IOS_RECEIPT_NAME);
 
   if (dryRun) {
@@ -526,6 +539,9 @@ export async function runIosPackageRecipe({
     return { dryRun: true, plan, ipa };
   }
   if (platform !== "darwin") throw new IosPackageError("IOS_PACKAGE_HOST_UNSUPPORTED", `the iOS package recipe needs macOS with Xcode; this host is ${platform} (only config validation and --dry-run run elsewhere)`);
+
+  // ---- the production native runner: there is no spawn route for a compiler-capable phase ----
+  if (!native || typeof native.run !== "function" || typeof native.plan !== "function") throw new IosPackageError("IOS_PACKAGE_NATIVE_REQUIRED", "the iOS package recipe needs the production native runner (build-launch.mjs createNativeRunner): xcodegen and xcodebuild archive/export run only as typed broker adapter jobs, never as a spawn of this recipe's own");
 
   // ---- preflight: before any effect ----
   let session;
@@ -541,18 +557,17 @@ export async function runIosPackageRecipe({
     if (gen.error || gen.status !== 0) throw new IosPackageError("IOS_PACKAGE_TOOL_MISSING", `xcodegen is required because iosPackage.projectSpec names ${spec.projectSpec}; install it (brew install xcodegen). A committed xcodeproj is never used instead`);
   }
   if (!fs.existsSync(path.resolve(root, spec.projectSpec ?? spec.project))) throw new IosPackageError("IOS_PACKAGE_CONFIG_INVALID", `${spec.projectSpec ?? spec.project} does not exist`);
-  const resolvedStorage = (storage ?? (() => resolveXcodeStorage({ env, run, cwd: root, fallbackRoot: path.join(stateDir, "ios") })))();
   const head = gitHead ?? (() => { const r = run("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8", windowsHide: true }); if (r.status !== 0) throw new IosPackageError("IOS_PACKAGE_SOURCE_CHANGED", "git rev-parse HEAD failed"); return String(r.stdout).trim(); });
   const sourceCommit = head();
 
   // ---- stale outputs go first, so an old IPA is never mistaken for this build's ----
-  const exportDir = exportDirectory(spec, root);
-  const stale = [archive, ipa, exportDir, receiptPath, path.join(receiptDir, "ios-export-options.plist"), ...(resolvedStorage.resultBundle ? [resolvedStorage.resultBundle] : []), ...(spec.cleanup.derivedData ? [resolvedStorage.derivedData] : [])];
+  const optionsFile = path.join(root, IOS_EXPORT_OPTIONS_RELATIVE);
+  const stale = [ipa, receiptPath, optionsFile];
   for (const file of stale) fs.rmSync(file, { recursive: true, force: true });
   fs.mkdirSync(receiptDir, { recursive: true });
   fs.mkdirSync(path.dirname(ipa), { recursive: true });
 
-  const cleanupOutputs = () => { for (const file of [ipa, archive, exportDir, receiptPath]) { try { fs.rmSync(file, { recursive: true, force: true }); } catch { /* best effort */ } } };
+  const cleanupOutputs = () => { for (const file of [ipa, receiptPath]) { try { fs.rmSync(file, { recursive: true, force: true }); } catch { /* best effort */ } } };
   const step = (id, code, cmd, args, options = {}) => {
     log(`right-release: ios ${id}: ${cmd}`);
     const { logFile, ...runOptions } = options;
@@ -561,6 +576,34 @@ export async function runIosPackageRecipe({
     if (result.error || result.status !== 0) throw new IosPackageError(code, `${cmd} ${id} failed (${result.status ?? "unavailable"})${result.error ? `: ${result.error.message}` : ""}\n${outputTail(result)}`);
     return result;
   };
+  // A compiler-capable call: the production runner only. A refusal (no runner route, an unadvertised capability, an argv the broker's grammar refuses) happened BEFORE any launch and names the capability.
+  const refusedNative = (cmd, refusal) => new IosPackageError("IOS_PACKAGE_NATIVE_REFUSED", `${cmd} was refused before any launch (${refusal.code ?? "refused"}): ${refusal.message}`);
+  const planNative = (cmd, args, options = {}) => {
+    try { native.plan(cmd, args, { cwd: root, env, ...options }); } catch (error) {
+      if (error?.code === "RK_BUILD_LAUNCH_REFUSED") throw refusedNative(cmd, { code: error.reason, message: error.message });
+      throw error;
+    }
+  };
+  const nativeStep = (id, code, cmd, args, options = {}) => {
+    log(`right-release: ios ${id}: ${cmd} (broker adapter job)`);
+    const { logFile, cwd = root } = options;
+    const result = native.run(cmd, args, { cwd, env, timeout: spec.timeoutMs });
+    if (logFile) { try { fs.writeFileSync(logFile, `${outputTail(result, 4000)}\n`); } catch { /* diagnostics only */ } }
+    if (result.refusal) throw refusedNative(cmd, result.refusal);
+    if (!result.ok) throw new IosPackageError(code, `${cmd} ${id} failed (${result.status ?? "unavailable"})${result.error ? `: ${result.error.message}` : ""}\n${outputTail(result)}`);
+    return result;
+  };
+  // The managed location of a role, read back from the verified receipt's output mapping: never a path this recipe composed.
+  const located = (result, role, code) => {
+    const outputs = result.outputs;
+    const found = outputs?.ok === true ? outputs.byRole?.[role] : undefined;
+    if (typeof found !== "string" || !path.isAbsolute(found)) throw new IosPackageError(code, `the broker did not report the managed ${role} location of ${result.tool} (${outputs && outputs.ok === false ? outputs.problem : "no verified output directory"}); a broker-owned build's output is never guessed`);
+    return found;
+  };
+  const nativeEvidence = (result) => ({
+    tool: result.tool, adapter: result.adapter, capability: result.capability, carried: result.carried, relativeCwd: result.relativeCwd, requestId: result.requestId, outputDir: result.outputDir,
+    outputsSource: result.outputs?.source ?? null, argv: result.argv, outputs: result.outputs?.outputs ?? [],
+  });
   const plist = (file) => {
     const result = sh("plutil", ["-convert", "json", "-o", "-", "--", file], { timeout: 60_000 });
     try { if (result.status === 0) return JSON.parse(String(result.stdout)); } catch { /* reported below */ }
@@ -582,23 +625,35 @@ export async function runIosPackageRecipe({
 
   let tempDir;
   try {
+    // ---- plan every compiler-capable call against the broker's grammar BEFORE the first launch: a missing capability or a refused argv stops here, with nothing sent ----
+    // The export reads an options file of the step directory, so it is written first; the build number is a placeholder here (the real one is drawn from the counter just before the archive).
+    const optionsText = exportOptionsPlist(spec);
+    fs.mkdirSync(path.dirname(optionsFile), { recursive: true });
+    fs.writeFileSync(optionsFile, optionsText);
+    const plannedBuild = `${now().toISOString().slice(0, 10).replaceAll("-", "")}01`;
+    if (spec.projectSpec) planNative("xcodegen", xcodegenArgv(spec, root));
+    planNative("xcodebuild", archiveArgv(spec, { root, buildNumber: plannedBuild, trusted: plannedTrust(spec) }));
+    planNative("xcodebuild", exportArgv(spec, { optionsFile }));
     // ---- trust-check: reviewed Swift macro/plugin pins, before anything is generated or built ----
     const trust = verifySwiftTrustSource({ spec, root, sh, fs });
     // ---- generate ----
     if (spec.projectSpec) {
-      step("generate", "IOS_PACKAGE_GENERATE_FAILED", "xcodegen", xcodegenArgv(spec, root));
+      nativeStep("generate", "IOS_PACKAGE_GENERATE_FAILED", "xcodegen", xcodegenArgv(spec, root));
       if (!fs.existsSync(path.resolve(root, spec.project))) throw new IosPackageError("IOS_PACKAGE_GENERATE_FAILED", `xcodegen did not produce ${spec.project}`);
     }
     // ---- prepare ----
     for (const [index, command] of spec.prepare.entries()) {
       const cwd = path.resolve(root, command.cwd ?? ".");
-      step(`prepare ${index + 1}`, "IOS_PACKAGE_PREPARE_FAILED", command.cmd, command.args, { cwd });
+      // A prepare step that names a native build tool is a broker adapter job like any other; the app's own non-native commands stay direct steps.
+      if (nativeToolOf(command.cmd) !== null) nativeStep(`prepare ${index + 1}`, "IOS_PACKAGE_PREPARE_FAILED", command.cmd, command.args, { cwd });
+      else step(`prepare ${index + 1}`, "IOS_PACKAGE_PREPARE_FAILED", command.cmd, command.args, { cwd });
     }
     if (trust) installSwiftTrustSource({ trust, root, fs });
     // ---- archive ----
     const buildNumber = nextDateBuildNumber({ now: now(), stateFile: path.join(counterDir, `ios-build-number.${spec.bundleId}.json`), fs });
-    step("archive", "IOS_PACKAGE_ARCHIVE_FAILED", "xcodebuild", archiveArgv(spec, { root, buildNumber, storage: resolvedStorage, trusted: trust?.evidence }), { logFile: path.join(receiptDir, "ios-archive.log") });
+    const archived = nativeStep("archive", "IOS_PACKAGE_ARCHIVE_FAILED", "xcodebuild", archiveArgv(spec, { root, buildNumber, trusted: trust?.evidence }), { logFile: path.join(receiptDir, "ios-archive.log") });
     if (trust) assertSwiftTrustUnchanged({ trust, root, fs });
+    const archive = located(archived, "archive", "IOS_PACKAGE_ARCHIVE_FAILED");
     const appsDir = path.join(archive, "Products", "Applications");
     const apps = fs.existsSync(appsDir) ? fs.readdirSync(appsDir).filter((name) => name.endsWith(".app")) : [];
     if (apps.length !== 1) throw new IosPackageError("IOS_PACKAGE_ARCHIVE_FAILED", `the archive must hold exactly one app under Products/Applications, found ${apps.length}`);
@@ -620,17 +675,20 @@ export async function runIosPackageRecipe({
     if (head() !== sourceCommit) throw new IosPackageError("IOS_PACKAGE_SOURCE_CHANGED", "the repository HEAD changed during the archive; refusing to export a mixed-source build");
 
     // ---- export ----
-    const optionsFile = path.join(receiptDir, "ios-export-options.plist");
-    const optionsText = exportOptionsPlist(spec);
-    fs.writeFileSync(optionsFile, optionsText);
     // Taken just before the export: xcodebuild registers a build upload for this version and build during it (see ios-build-upload.mjs).
     const exportStartedAt = now().toISOString();
-    step("export", "IOS_PACKAGE_EXPORT_FAILED", "xcodebuild", exportArgv(spec, { root, optionsFile }), { logFile: path.join(receiptDir, "ios-export.log") });
+    const exported = nativeStep("export", "IOS_PACKAGE_EXPORT_FAILED", "xcodebuild", exportArgv(spec, { optionsFile }), { logFile: path.join(receiptDir, "ios-export.log") });
     {
+      // The export must have read the very archive that was verified, and its directory is the broker's managed `export` role.
+      const exportedArchive = located(exported, "archive", "IOS_PACKAGE_EXPORT_FAILED");
+      if (path.normalize(exportedArchive) !== path.normalize(archive)) throw new IosPackageError("IOS_PACKAGE_EXPORT_FAILED", `the export read ${exportedArchive}, not the verified archive ${archive}`);
+      const exportDir = located(exported, "export", "IOS_PACKAGE_EXPORT_FAILED");
       const produced = fs.existsSync(exportDir) ? fs.readdirSync(exportDir).filter((name) => name.endsWith(".ipa")) : [];
-      if (produced.length !== 1) throw new IosPackageError("IOS_PACKAGE_EXPORT_FAILED", `the export must produce exactly one .ipa in ${path.basename(exportDir)}, found ${produced.length}`);
+      if (produced.length !== 1) throw new IosPackageError("IOS_PACKAGE_EXPORT_FAILED", `the export must produce exactly one .ipa in the managed export directory, found ${produced.length}`);
+      const source = path.join(exportDir, produced[0]);
       fs.mkdirSync(path.dirname(ipa), { recursive: true });
-      fs.renameSync(path.join(exportDir, produced[0]), ipa);
+      fs.copyFileSync(source, ipa);
+      if (sha256Bytes(fs.readFileSync(source)) !== sha256Bytes(fs.readFileSync(ipa))) throw new IosPackageError("IOS_PACKAGE_EXPORT_FAILED", "the IPA copied out of the managed export directory differs from the exported bytes");
     }
     if (!fs.statSync(ipa).size) throw new IosPackageError("IOS_PACKAGE_EXPORT_FAILED", "the exported IPA is empty");
 
@@ -690,6 +748,8 @@ export async function runIosPackageRecipe({
       profile,
       bundles: ipaInfos.map((bundle) => ({ role: bundle.role, name: bundle.label, bundleId: String(bundle.info.CFBundleIdentifier ?? "") })),
       archiveVersion: identity,
+      // RA-09: the broker's output readback. The archive and the export directory are the managed roles of the signed receipts of the archive and export calls (never paths this recipe chose).
+      native: { archivePath: archive, archive: nativeEvidence(archived), export: nativeEvidence(exported) },
       // Present only when the app trusts reviewed Swift macros/plugins: what was trusted and the exact pins file it was checked against.
       ...(trust ? { swiftTrust: { packageResolved: { path: trust.sourceRel, sha256: trust.sha256 }, macros: trust.evidence.macros, plugins: trust.evidence.plugins } } : {}),
     };
@@ -701,7 +761,6 @@ export async function runIosPackageRecipe({
     cleanupOutputs();
     throw error instanceof IosPackageError ? error : new IosPackageError("IOS_PACKAGE_VERIFY_FAILED", `iOS package failed: ${error.message}`, { cause: error });
   } finally {
-    try { fs.rmSync(exportDir, { recursive: true, force: true }); } catch { /* best effort */ }
     if (tempDir) { try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
 }

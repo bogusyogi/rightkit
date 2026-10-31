@@ -1,3 +1,4 @@
+import "./test-support/broker-guard.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import nodeFs, { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -7,9 +8,12 @@ import { tempRoot } from "./test-support/temp-roots.mjs";
 import {
   IOS_PACKAGE_STEPS, IOS_RECEIPT_NAME, IOS_SIGNING_CONTRACT, IosPackageError, archiveArgv, assertDistributionEntitlements, assertDistributionProfile,
   assertVersionIdentity, exportArgv, exportOptionsPlist, iosPackagePlan, iosSealEntry, nextDateBuildNumber, runIosPackageRecipe, validateIosPackageConfig,
-  jsonSafePlistText, verifyIosReceipt, xcodegenArgv, assertTrustedPins, parsePackageResolved, swiftTrustFlags,
+  jsonSafePlistText, verifyIosReceipt, xcodegenArgv, assertTrustedPins, parsePackageResolved, swiftTrustFlags, IOS_EXPORT_OPTIONS_RELATIVE,
 } from "./ios-package-recipe.mjs";
 import { outputTail } from "./ios-host.mjs";
+import { createNativeRunner } from "./build-launch.mjs";
+import { managedRuntimeClient } from "./managed-roots.mjs";
+import { NATIVE_ADAPTERS, nativeManagedOutputs, nativeStateDir, nativeToolOf } from "./native-adapters.mjs";
 
 const TEAM = "6KLGD3LLKF";
 const BUNDLE = "dev.orthic.pulse.ios";
@@ -32,6 +36,9 @@ test("a valid config normalizes with the documented defaults", () => {
   assert.deepEqual(spec.prepare, []);
   assert.equal(spec.cleanup.derivedData, false);
   assert.equal(spec.teamId, TEAM);
+  // The broker owns DerivedData and its lifetime: a recipe cannot clean it, and a request to is refused rather than silently ignored.
+  invalid(baseSpec({ cleanup: { derivedData: true } }), /cleanup\.derivedData cannot be honoured: the broker owns/);
+  assert.equal(validateIosPackageConfig(baseSpec({ cleanup: { derivedData: false } })).cleanup.derivedData, false);
 });
 
 test("unknown keys are rejected at every level", () => {
@@ -141,19 +148,44 @@ test("the counter is written atomically: a temporary file in the same directory,
   assert.deepEqual(JSON.parse(readFileSync(stateFile, "utf8")), { day: "20261018", seq: 5 });
 });
 
-test("the archive command carries the configured team, automatic provisioning and the recipe's build number, and no ASC credential", () => {
+test("the archive command carries the configured team, automatic provisioning and the recipe's build number, no ASC credential, and names no output location (the broker owns them)", () => {
   const spec = validateIosPackageConfig(baseSpec({ extraBuildSettings: { HR_FLAG: "1" } }));
   const root = path.resolve("fixture-app");
-  const args = archiveArgv(spec, { root, buildNumber: "2026101801", storage: { derivedData: "/managed/DerivedData", resultBundle: "/managed/r.xcresult" } });
+  const args = archiveArgv(spec, { root, buildNumber: "2026101801" });
   assert.deepEqual(args.slice(0, 2), ["-project", path.join(root, "ios", "Pulse.xcodeproj")]);
   for (const expected of [`DEVELOPMENT_TEAM=${TEAM}`, "CURRENT_PROJECT_VERSION=2026101801", "HR_FLAG=1", "-allowProvisioningUpdates", "archive"]) assert.ok(args.includes(expected), expected);
-  assert.equal(args[args.indexOf("-derivedDataPath") + 1], "/managed/DerivedData");
-  assert.equal(args[args.indexOf("-resultBundlePath") + 1], "/managed/r.xcresult");
+  for (const owned of ["-derivedDataPath", "-archivePath", "-resultBundlePath", "-exportPath", "-clonedSourcePackagesDirPath", "-packageCachePath"]) assert.ok(!args.includes(owned), `${owned} is the broker's`);
   assert.equal(args[args.indexOf("-destination") + 1], "generic/platform=iOS");
   assert.equal(args.at(-1), "archive");
   assert.ok(!args.some((arg) => /authenticationKey|AuthKey|\.p8/i.test(arg)));
   assert.deepEqual(xcodegenArgv(spec, root), ["generate", "--spec", path.join(root, "ios", "project.yml"), "--project", path.join(root, "ios")]);
-  assert.ok(exportArgv(spec, { root, optionsFile: "/x/o.plist" }).includes("-exportArchive"));
+  const exported = exportArgv(spec, { optionsFile: "/x/o.plist" });
+  assert.deepEqual(exported, ["-exportArchive", "-exportOptionsPlist", "/x/o.plist", "-allowProvisioningUpdates"]);
+  assert.ok(!exported.includes("-archivePath") && !exported.includes("-exportPath"), "the export reads the managed archive and writes the managed export directory");
+});
+
+test("the argv the recipe sends is exactly what the real native door and the broker's grammar admit (xcodegen, archive, export), with the managed roles the receipt will name", () => {
+  const root = tempRoot("rk-ios-door-");
+  mkdirSync(path.join(root, ".right-release"), { recursive: true });
+  const spec = validateIosPackageConfig(baseSpec({ extraBuildSettings: { HR_FLAG: "1" } }));
+  const optionsFile = path.join(root, IOS_EXPORT_OPTIONS_RELATIVE);
+  writeFileSync(optionsFile, exportOptionsPlist(spec));
+  const runner = realRunner(root);
+  const generate = runner.plan("xcodegen", xcodegenArgv(spec, root), { cwd: root });
+  assert.deepEqual(generate.native.args, ["generate", "--spec", "ios/project.yml", "--project", "ios"]);
+  const archive = runner.plan("xcodebuild", archiveArgv(spec, { root, buildNumber: "2026101801" }), { cwd: root });
+  assert.deepEqual([archive.command, archive.args.slice(0, 3)], [MAC_CLIENT, ["run", "rightkit-xcodebuild", "--"]]);
+  assert.equal(archive.native.args[archive.native.args.indexOf("-project") + 1], "ios/Pulse.xcodeproj", "paths are made relative to the step's directory");
+  const exported = runner.plan("xcodebuild", exportArgv(spec, { optionsFile }), { cwd: root });
+  assert.equal(exported.native.args[exported.native.args.indexOf("-exportOptionsPlist") + 1], ".right-release/ios-export-options.plist");
+  const state = nativeStateDir(path.join(root, "out"), "xcodebuild", "");
+  assert.deepEqual(nativeManagedOutputs("xcodebuild", archive.native.args, { state }).outputs.map((entry) => entry.role), ["derived-data", "archive"]);
+  assert.deepEqual(nativeManagedOutputs("xcodebuild", exported.native.args, { state }).outputs.map((entry) => entry.role), ["archive", "export"]);
+  // The old spellings the broker owns are refused by the real door, never sent.
+  for (const owned of [["-archivePath", "/x/A.xcarchive"], ["-derivedDataPath", "/x/dd"], ["-resultBundlePath", "/x/r.xcresult"]]) {
+    assert.throws(() => runner.plan("xcodebuild", [...archiveArgv(spec, { root, buildNumber: "2026101801" }), ...owned], { cwd: root }), (error) => error.code === "RK_BUILD_LAUNCH_REFUSED" && error.reason === "RK_NATIVE_TOOL_REFUSED", owned[0]);
+  }
+  assert.throws(() => runner.plan("xcodebuild", ["-exportArchive", "-exportPath", "/x/e", "-exportOptionsPlist", optionsFile], { cwd: root }), (error) => error.reason === "RK_NATIVE_TOOL_REFUSED");
 });
 
 test("version identity: one version across app, appex and Watch, no unresolved $(...), the recipe's build number", () => {
@@ -224,7 +256,7 @@ test("trustedSwiftMacros config is validated strictly: 40 hex revisions, no dupl
 test("no trust list: the archive has no skip or resolution flag, the plan has no trust step and the receipt has no swiftTrust (Pulse unchanged)", async () => {
   const spec = validateIosPackageConfig(baseSpec());
   assert.deepEqual([spec.packageResolved, spec.trustedSwiftMacros, spec.trustedSwiftPlugins], [null, [], []]);
-  const args = archiveArgv(spec, { root: path.resolve("fixture-app"), buildNumber: "2026101801", storage: { derivedData: "/d" } });
+  const args = archiveArgv(spec, { root: path.resolve("fixture-app"), buildNumber: "2026101801" });
   for (const flag of [...SKIP_FLAGS, "-disableAutomaticPackageResolution", "-onlyUsePackageVersionsFromResolvedFile"]) assert.ok(!args.includes(flag), flag);
   assert.ok(!iosPackagePlan(spec, { root: "/app", receiptDir: "/r" }).steps.some((step) => step.id === "trust-check"));
   const f = fixture();
@@ -258,18 +290,57 @@ test("assertTrustedPins names every mismatching package; skip flags need its ver
   // Fail closed: a list without verified evidence (absent, or a forged object) never yields a skip flag.
   assert.throws(() => swiftTrustFlags(spec), (error) => error.code === "IOS_PACKAGE_TRUST_FAILED");
   assert.throws(() => swiftTrustFlags(spec, { macros: [], plugins: [] }), (error) => error.code === "IOS_PACKAGE_TRUST_FAILED");
-  assert.throws(() => archiveArgv(spec, { root: "/app", buildNumber: "1", storage: { derivedData: "/d" } }), /not verified/);
+  assert.throws(() => archiveArgv(spec, { root: "/app", buildNumber: "1" }), /not verified/);
   const good = assertTrustedPins(parsePackageResolved(resolvedFile({ ...CODERIGHT_PINS, "swiftlint-plugin": "1".repeat(40) })), spec);
   assert.deepEqual(swiftTrustFlags(spec, good), ["-skipMacroValidation", "-skipPackagePluginValidation", "-disableAutomaticPackageResolution", "-onlyUsePackageVersionsFromResolvedFile"]);
 });
 
 // ---- the run, with every dependency injected ----------------------------------------------------------------------
+// The native runner. `planner` is the REAL production runner's planner (build-launch.mjs createNativeRunner on a Mac host description): every native call the recipe makes is judged by the real
+// door, the real adapter grammar and the real capability check, and a refusal is the real runner's own typed result (it launches nothing). Only the broker's EXECUTION is stood in for (`execute`): the
+// output roles the stand-in hands back are computed by the real grammar (`nativeManagedOutputs`) under a job output directory, exactly the mapping a carrier reads back from a signed receipt.
+// It is a unit seam for the recipe's own logic, never evidence that a Mac fixture archives or exports: that is root's (a real Xcode, the installed broker).
+const MAC_ENV = { PATH: "/usr/bin", HOME: "/Users/rk" };
+const MAC_CLIENT = managedRuntimeClient(MAC_ENV, "darwin", () => true);
+const realRunner = (cwd, brokerCapabilities) => createNativeRunner({
+  cwd, env: MAC_ENV, platform: "darwin", exists: (p) => p === MAC_CLIENT, which: (c) => (c === "rustright" ? ["/elsewhere/on/path/rustright"] : []), readFile: () => "",
+  ...(brokerCapabilities ? { brokerCapabilities } : {}),
+});
+function brokerStandIn({ cwd, execute, brokerCapabilities, enforceGrammar = true, outputDir = path.join(cwd, "broker-output"), outputsOf }) {
+  const real = realRunner(cwd, brokerCapabilities);
+  const launched = [];
+  let jobs = 0;
+  // Only for the trust-flow tests (see `enforceGrammar`): the door's relativization of absolute paths is kept, its grammar is not.
+  const permissive = (command, args) => ({ native: { tool: nativeToolOf(command), args: args.map(String).map((word, index, all) => (all[index - 1] === "-exportOptionsPlist" && path.isAbsolute(word) ? path.relative(cwd, word) : word)) } });
+  // The stand-in is its own host description (MAC_ENV): the recipe's `env` is the step's launch environment, which the runner never forwards.
+  const hostOptions = (options) => ({ ...options, cwd: options.cwd ?? cwd, env: MAC_ENV });
+  const planner = enforceGrammar ? (command, args, options = {}) => real.plan(command, args, hostOptions(options)) : permissive;
+  return {
+    launched,
+    plan: planner,
+    run(command, args = [], options = {}) {
+      let launch;
+      try { launch = planner(command, args, options); } catch { return real.run(command, args, hostOptions(options)); }
+      jobs += 1;
+      const jobId = `job-${jobs}`;
+      const { tool, args: sent } = launch.native;
+      const state = nativeStateDir(outputDir, tool, "");
+      const mapped = nativeManagedOutputs(tool, sent, { state, jobId });
+      const byRole = Object.fromEntries((mapped.outputs ?? []).map((entry) => [entry.role, entry.path]));
+      launched.push({ command, args: [...sent] });
+      const raw = execute({ command, args: [...sent], options, byRole, jobId });
+      const ok = raw.status === 0 && !raw.error;
+      const outputs = ok ? (outputsOf ? outputsOf({ tool, byRole, mapped, state }) : { ok: true, source: "receipt", state, outputs: mapped.outputs, byRole }) : null;
+      return { ok, status: raw.status ?? null, signal: null, stdout: raw.stdout ?? "", stderr: raw.stderr ?? "", error: raw.error ?? null, refusal: null, tool, adapter: NATIVE_ADAPTERS[tool].adapter, capability: NATIVE_ADAPTERS[tool].capability, argv: [...sent], carried: true, relativeCwd: "", requestId: jobId, outputDir, outputs, nestedChildren: null };
+    },
+  };
+}
+
 function fixture(over = {}) {
   const root = tempRoot("rk-ios-recipe-");
   mkdirSync(path.join(root, "ios"), { recursive: true });
   writeFileSync(path.join(root, "ios", "project.yml"), "name: Pulse\n");
   const spec = validateIosPackageConfig(baseSpec(over.spec));
-  const managed = path.join(root, "managed");
   const calls = [];
   const scans = [];
   let head = "a".repeat(40);
@@ -277,16 +348,14 @@ function fixture(over = {}) {
   const writeBundle = (dir, info, binary = "fake-macho") => { mkdirSync(dir, { recursive: true }); writeFileSync(path.join(dir, "Info.plist"), JSON.stringify(info)); writeFileSync(path.join(dir, "exe"), binary); };
   const ok = (stdout = "") => ({ status: 0, stdout, stderr: "" });
   let lastArchive;
-  const run = (cmd, args, options = {}) => {
-    calls.push({ cmd, args: [...args], cwd: options.cwd, input: options.input });
-    const id = `${cmd} ${args[0]}`;
-    if (over.fail === id || (over.fail === "xcodebuild archive" && args.includes("archive"))) return { status: 1, stdout: "", stderr: "boom: sensitive Bearer abcdefghijklmnop" };
-    if (cmd === "xcodebuild" && args[0] === "-version") return ok("Xcode 26.0\nBuild version 17A324\n");
-    if (cmd === "xcodegen" && args[0] === "--version") return over.noXcodegen ? { status: 127, error: new Error("spawn xcodegen ENOENT") } : ok("2.43.0");
-    if (cmd === "xcodegen" && args[0] === "generate") { mkdirSync(path.join(root, "ios", "Pulse.xcodeproj"), { recursive: true }); return ok(); }
-    if (cmd === "node") return ok();
-    if (cmd === "xcodebuild" && args.includes("archive")) {
-      const archive = args[args.indexOf("-archivePath") + 1];
+  const failing = (cmd, args) => over.fail === `${cmd} ${args[0]}` || (over.fail === "xcodebuild archive" && cmd === "xcodebuild" && args.includes("archive"));
+  // The broker's side: what a managed xcodegen / xcodebuild job does. Output goes only where the grammar's managed roles say.
+  const execute = ({ command, args, byRole }) => {
+    calls.push({ cmd: command, args: [...args], via: "native" });
+    if (failing(command, args)) return { status: 1, stdout: "", stderr: "boom: sensitive Bearer abcdefghijklmnop" };
+    if (command === "xcodegen" && args[0] === "generate") { mkdirSync(path.join(root, "ios", "Pulse.xcodeproj"), { recursive: true }); return ok(); }
+    if (command === "xcodebuild" && args.includes("archive")) {
+      const archive = byRole.archive;
       const build = args.find((arg) => arg.startsWith("CURRENT_PROJECT_VERSION=")).split("=")[1];
       const app = path.join(archive, "Products", "Applications", "Pulse.app");
       writeBundle(app, bundleInfo(over.archiveBuild ?? build, over.archiveInfo), over.binary);
@@ -295,12 +364,29 @@ function fixture(over = {}) {
       lastArchive = archive;
       return ok("** ARCHIVE SUCCEEDED **");
     }
-    if (cmd === "xcodebuild" && args[0] === "-exportArchive") {
-      const dir = args[args.indexOf("-exportPath") + 1];
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(path.join(dir, over.ipaName ?? "Pulse.ipa"), `IPA-BYTES-${calls.length}`);
+    if (command === "xcodebuild" && args[0] === "-exportArchive") {
+      mkdirSync(byRole.export, { recursive: true });
+      writeFileSync(path.join(byRole.export, over.ipaName ?? "Pulse.ipa"), `IPA-BYTES-${calls.length}`);
+      if (over.extraIpa) writeFileSync(path.join(byRole.export, "Second.ipa"), "x");
       return ok("** EXPORT SUCCEEDED **");
     }
+    return { status: 1, stdout: "", stderr: `unexpected native call ${command} ${args.join(" ")}` };
+  };
+  const standIn = brokerStandIn({
+    cwd: root, execute, brokerCapabilities: over.brokerCapabilities,
+    // The reviewed-trust flags (-skipMacroValidation, ...) are not in the broker's registered xcodebuild grammar today: the trust-flow tests exercise the recipe's own logic with a permissive planner, and the
+    // dedicated refusal test below pins the real door's verdict.
+    enforceGrammar: over.enforceGrammar ?? !(over.spec?.trustedSwiftMacros || over.spec?.trustedSwiftPlugins),
+    outputsOf: over.outputsOf ? (info) => over.outputsOf(info) : undefined,
+  });
+  // The direct, non-compiling steps (queries, plutil, codesign, security, ditto, git and the app's own non-native prepare commands).
+  const run = (cmd, args, options = {}) => {
+    calls.push({ cmd, args: [...args], cwd: options.cwd, input: options.input, via: "direct" });
+    const id = `${cmd} ${args[0]}`;
+    if (over.fail === id) return { status: 1, stdout: "", stderr: "boom: sensitive Bearer abcdefghijklmnop" };
+    if (cmd === "xcodebuild" && args[0] === "-version") return ok("Xcode 26.0\nBuild version 17A324\n");
+    if (cmd === "xcodegen" && args[0] === "--version") return over.noXcodegen ? { status: 127, error: new Error("spawn xcodegen ENOENT") } : ok("2.43.0");
+    if (cmd === "node") return ok();
     if (cmd === "ditto") {
       const target = args.at(-1);
       cpSync(path.join(lastArchive, "Products", "Applications", "Pulse.app"), path.join(target, "Payload", "Pulse.app"), { recursive: true });
@@ -326,6 +412,8 @@ function fixture(over = {}) {
     }
     if (cmd === "git" && args[0] === "ls-files") return over.untrackedPins ? { status: 1, stdout: "", stderr: "error: pathspec did not match" } : ok(args.at(-1));
     if (cmd === "git" && args[0] === "diff") return over.dirtyPins ? { status: 1, stdout: "", stderr: "" } : ok();
+    // A compiler-capable tool reaching the direct runner is the bug under test: it must never happen.
+    if (nativeToolOf(cmd) !== null) return { status: 1, stdout: "", stderr: `a native build tool reached the direct runner: ${cmd} ${args.join(" ")}` };
     return { status: 1, stdout: "", stderr: `unexpected command ${cmd} ${args.join(" ")}` };
   };
   if (over.pins !== undefined) {
@@ -334,14 +422,14 @@ function fixture(over = {}) {
     writeFileSync(pinsFile, typeof over.pins === "string" ? over.pins : resolvedFile(over.pins));
   }
   const deps = {
-    root, spec, env: { PATH: "/usr/bin" }, platform: "darwin", run, now: () => NOW, log: () => {}, tmpRoot: root, counterDir: path.join(root, "vault-state", "ios-build-numbers"),
+    root, spec, env: { PATH: "/usr/bin" }, platform: "darwin", run, native: standIn, now: () => NOW, log: () => {}, tmpRoot: root, counterDir: path.join(root, "vault-state", "ios-build-numbers"),
     detectSession: () => ({ guiRunner: false, reason: "Aqua security session" }),
-    storage: () => ({ derivedData: path.join(managed, "DerivedData"), resultBundle: path.join(managed, "r.xcresult") }),
     gitHead: () => head,
     scanFiles: (label, files, scanOptions) => { scans.push({ label, files, scanOptions }); over.onScan?.(label); },
     ...over.deps,
   };
-  return { root, spec, calls, scans, deps, setHead: (value) => { head = value; }, ipa: path.join(root, "build", "ios", "export", "Pulse.ipa"), archive: path.join(root, "build", "ios", "Pulse.xcarchive"), receipt: path.join(root, ".right-release", "receipts", IOS_RECEIPT_NAME) };
+  const managedState = path.join(root, "broker-output", "native", "xcodebuild", createHash("sha256").update("").digest("hex"));
+  return { root, spec, calls, scans, deps, standIn, setHead: (value) => { head = value; }, ipa: path.join(root, "build", "ios", "export", "Pulse.ipa"), managedArchive: path.join(managedState, "archive", "App.xcarchive"), managedExport: path.join(managedState, "export"), optionsFile: path.join(root, ".right-release", "ios-export-options.plist"), receipt: path.join(root, ".right-release", "receipts", IOS_RECEIPT_NAME) };
 }
 const rejects = (promise, code, pattern) => assert.rejects(promise, (error) => error instanceof IosPackageError && error.code === code && (!pattern || pattern.test(error.message)), `${code} ${pattern ?? ""}`);
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
@@ -385,6 +473,9 @@ test("the full run executes the steps in order and writes a receipt over the fin
   const result = await runIosPackageRecipe(f.deps);
   const order = f.calls.map((call) => `${call.cmd}:${call.args[0]}`);
   assert.deepEqual(order.slice(0, 6), ["xcodebuild:-version", "xcodegen:--version", "xcodegen:generate", "node:scripts/prep.mjs", "xcodebuild:-project", "plutil:-convert"]);
+  // Compiler-capable calls are native adapter jobs; only the queries and the app's own non-native prepare step ran directly.
+  assert.deepEqual(f.calls.filter((call) => call.via === "native").map((call) => `${call.cmd}:${call.args.includes("archive") ? "archive" : call.args[0]}`), ["xcodegen:generate", "xcodebuild:archive", "xcodebuild:-exportArchive"]);
+  assert.deepEqual(f.calls.filter((call) => call.via === "direct" && ["xcodegen", "xcodebuild"].includes(call.cmd)).map((call) => call.args[0]), ["-version", "--version"]);
   assert.ok(order.indexOf("xcodebuild:-exportArchive") > order.indexOf("xcodebuild:-project"));
   assert.ok(order.indexOf("ditto:-x") > order.indexOf("xcodebuild:-exportArchive"));
   assert.equal(path.resolve(f.calls.find((call) => call.cmd === "node").cwd), path.join(f.root, "ios"));
@@ -405,10 +496,21 @@ test("the full run executes the steps in order and writes a receipt over the fin
   assert.deepEqual(receipt.bundles.map((bundle) => bundle.role), ["app", "appex", "watch"]);
   assert.deepEqual(result.sealEntry, { role: "ipa", name: "Pulse.ipa", sha256: receipt.file.sha256, sizeBytes: receipt.file.sizeBytes });
   assert.equal(verifyIosReceipt(f.receipt, f.ipa).file.sha256, receipt.file.sha256);
-  assert.ok(existsSync(path.join(f.root, ".right-release", "receipts", "ios-export-options.plist")));
+  assert.ok(existsSync(f.optionsFile));
+  assert.equal(receipt.exportOptionsSha256, sha(readFileSync(f.optionsFile)));
+  // RA-09: the broker's output readback is in the receipt: the archive and the export are the managed roles, never paths the recipe chose.
+  assert.equal(receipt.native.archivePath, f.managedArchive);
+  assert.deepEqual(receipt.native.archive.outputs.map((entry) => entry.role), ["derived-data", "archive"]);
+  assert.deepEqual(receipt.native.export.outputs, [{ role: "archive", path: f.managedArchive }, { role: "export", path: f.managedExport }]);
+  assert.equal(receipt.native.archive.adapter, "rightkit-xcodebuild");
+  assert.equal(receipt.native.archive.capability, "adapter:rightkit-xcodebuild");
+  assert.equal(receipt.native.archive.outputsSource, "receipt");
+  assert.match(receipt.native.export.requestId, /^job-\d+$/);
+  assert.equal(readFileSync(f.ipa, "utf8"), readFileSync(path.join(f.managedExport, "Pulse.ipa"), "utf8"), "the IPA is a verified copy of the managed export");
+  assert.ok(existsSync(path.join(f.managedExport, "Pulse.ipa")), "the broker's managed export is left to the broker");
 });
 
-test("archive and export run with automatic provisioning, the configured team and no App Store Connect credential", async () => {
+test("archive and export run with automatic provisioning, the configured team and no App Store Connect credential, and never name an output location", async () => {
   const f = fixture({ spec: { extraBuildSettings: { HR_FLAG: "1" } } });
   await runIosPackageRecipe({ ...f.deps, env: { PATH: "/usr/bin", APPLE_API_KEY_PATH: "/Users/me/AuthKey_X.p8" } });
   const archive = f.calls.find((call) => call.cmd === "xcodebuild" && call.args.includes("archive")).args;
@@ -416,9 +518,71 @@ test("archive and export run with automatic provisioning, the configured team an
   for (const args of [archive, exported]) {
     assert.ok(args.includes("-allowProvisioningUpdates"));
     assert.ok(!args.some((arg) => /authenticationKey|AuthKey|\.p8/i.test(arg)));
+    for (const owned of ["-derivedDataPath", "-archivePath", "-exportPath", "-resultBundlePath"]) assert.ok(!args.includes(owned), owned);
   }
   assert.ok(archive.includes(`DEVELOPMENT_TEAM=${TEAM}`) && archive.includes("CURRENT_PROJECT_VERSION=2026101801") && archive.includes("HR_FLAG=1"));
-  assert.equal(slashed(archive[archive.indexOf("-derivedDataPath") + 1]), slashed(path.join(f.root, "managed", "DerivedData")));
+  assert.deepEqual(exported, ["-exportArchive", "-exportOptionsPlist", slashed(IOS_EXPORT_OPTIONS_RELATIVE), "-allowProvisioningUpdates"]);
+});
+
+test("the ExportOptions.plist is a regular XML file inside the step directory (the snapshot), never under the receipt directory", async () => {
+  const f = fixture();
+  const receiptDir = path.join(f.root, "elsewhere", "receipts");
+  await runIosPackageRecipe({ ...f.deps, receiptDir });
+  assert.ok(existsSync(f.optionsFile) && nodeFs.lstatSync(f.optionsFile).isFile());
+  assert.ok(readFileSync(f.optionsFile, "utf8").startsWith("<?xml"));
+  assert.ok(!existsSync(path.join(receiptDir, "ios-export-options.plist")), "nothing the broker reads lives under the receipt directory");
+  assert.equal(path.relative(f.root, f.optionsFile).startsWith(".."), false);
+});
+
+test("no native runner, no spawn: a missing runner is refused before any command, and a compiler-capable tool never reaches the direct runner", async () => {
+  const f = fixture();
+  await rejects(runIosPackageRecipe({ ...f.deps, native: undefined }), "IOS_PACKAGE_NATIVE_REQUIRED", /createNativeRunner/);
+  await rejects(runIosPackageRecipe({ ...f.deps, native: { run: () => ({}) } }), "IOS_PACKAGE_NATIVE_REQUIRED");
+  assert.equal(f.calls.length, 0);
+  assert.ok(!existsSync(path.join(f.root, ".right-release")));
+  // A full run leaves the direct runner with the non-compiling steps only (the fixture's direct runner fails any xcodegen/xcodebuild call that is not a version query).
+  await runIosPackageRecipe(f.deps);
+  assert.ok(f.calls.filter((call) => call.via === "direct" && ["xcodegen", "xcodebuild"].includes(call.cmd)).every((call) => ["-version", "--version"].includes(call.args[0])));
+});
+
+test("a missing broker capability refuses BEFORE the first launch: nothing generated, archived or exported, and the typed capability is named", async () => {
+  const f = fixture({ brokerCapabilities: ["adapter:rightkit-xcodegen"] });
+  await rejects(runIosPackageRecipe(f.deps), "IOS_PACKAGE_NATIVE_REFUSED", /RK_NATIVE_CAPABILITY_MISSING[^]*adapter:rightkit-xcodebuild/);
+  assert.equal(f.standIn.launched.length, 0, "not even xcodegen was launched");
+  assert.ok(!f.calls.some((call) => call.via === "native"));
+  assert.ok(!existsSync(f.ipa) && !existsSync(f.receipt));
+  assert.ok(!existsSync(path.join(f.root, "ios", "Pulse.xcodeproj")));
+});
+
+test("an argv the real grammar refuses is refused before any launch with no generic spawn to fall back to (a trust list whose skip flags the broker does not register)", async () => {
+  const spec = trustSpec();
+  const root = tempRoot("rk-ios-verdict-");
+  const probe = validateIosPackageConfig(baseSpec(spec));
+  const plannerRefuses = (() => {
+    try { realRunner(root).plan("xcodebuild", archiveArgv(probe, { root, buildNumber: "2026101801", trusted: assertTrustedPins(parsePackageResolved(resolvedFile(CODERIGHT_PINS)), probe) }), { cwd: root }); return false; } catch (error) { return error.code === "RK_BUILD_LAUNCH_REFUSED"; }
+  })();
+  const f = fixture({ spec, pins: CODERIGHT_PINS, enforceGrammar: true });
+  if (plannerRefuses) {
+    await rejects(runIosPackageRecipe(f.deps), "IOS_PACKAGE_NATIVE_REFUSED", /was refused before any launch/);
+    assert.equal(f.standIn.launched.length, 0);
+    assert.ok(!f.calls.some((call) => call.cmd === "xcodebuild" && call.via === "direct" && call.args.includes("archive")), "no direct xcodebuild archive");
+  } else {
+    await runIosPackageRecipe(f.deps);
+  }
+});
+
+test("an output the broker does not report is never guessed: no archive role, an export that read another archive, no or several IPAs fail closed and clean up", async () => {
+  const noRoles = fixture({ outputsOf: () => null });
+  await rejects(runIosPackageRecipe(noRoles.deps), "IOS_PACKAGE_ARCHIVE_FAILED", /did not report the managed archive location/);
+  assertCleaned(noRoles);
+  const problem = fixture({ outputsOf: () => ({ ok: false, problem: "the receipt carries no managedOutputs" }) });
+  await rejects(runIosPackageRecipe(problem.deps), "IOS_PACKAGE_ARCHIVE_FAILED", /the receipt carries no managedOutputs/);
+  const other = fixture({ outputsOf: ({ tool, byRole, state, mapped }) => ({ ok: true, source: "receipt", state, outputs: mapped.outputs, byRole: byRole.export ? { ...byRole, archive: path.join(state, "archive", "Other.xcarchive") } : byRole }) });
+  await rejects(runIosPackageRecipe(other.deps), "IOS_PACKAGE_EXPORT_FAILED", /not the verified archive/);
+  assertCleaned(other);
+  const several = fixture({ extraIpa: true });
+  await rejects(runIosPackageRecipe(several.deps), "IOS_PACKAGE_EXPORT_FAILED", /exactly one \.ipa in the managed export directory, found 2/);
+  assertCleaned(several);
 });
 
 test("QA and release scans run over the archived app and the app inside the IPA, as pre-pack scans", async () => {
@@ -461,11 +625,10 @@ test("a missing xcodebuild is reported before anything is written", async () => 
 
 function assertCleaned(f) {
   assert.ok(!existsSync(f.ipa), "the IPA is deleted");
-  assert.ok(!existsSync(f.archive), "the archive is deleted");
   assert.ok(!existsSync(f.receipt), "no receipt is left for a seal to find");
 }
 
-test("every failure after the build starts deletes the archive, the IPA and the receipt", async () => {
+test("every failure after the build starts deletes the IPA and the receipt (the broker-owned archive and export are the broker's to reap)", async () => {
   const cases = [
     ["archive fails", { fail: "xcodebuild archive" }, "IOS_PACKAGE_ARCHIVE_FAILED"],
     ["export fails", { fail: "xcodebuild -exportArchive" }, "IOS_PACKAGE_EXPORT_FAILED"],
@@ -566,15 +729,13 @@ test("a corrupt counter stops the run before the archive and leaves nothing behi
   assert.ok(!existsSync(f.ipa));
 });
 
-test("export goes to a dedicated subdirectory: the app root's ipa directory holds only the final IPA, and the export directory is gone", async () => {
+test("the export is the broker's managed directory: the IPA is copied out beside the app's own files, which are never touched, and no -exportPath is named", async () => {
   const f = fixture({ spec: { ipa: "build/ios/Pulse.ipa" } });
   await runIosPackageRecipe(f.deps);
   const exported = f.calls.find((call) => call.args[0] === "-exportArchive").args;
-  const exportPath = exported[exported.indexOf("-exportPath") + 1];
-  assert.notEqual(path.resolve(exportPath), path.join(f.root, "build", "ios"), "never the directory that holds the IPA and the archive");
-  assert.equal(path.dirname(path.resolve(exportPath)), path.join(f.root, "build", "ios"));
-  assert.ok(!existsSync(exportPath), "the export directory is removed after success");
+  assert.ok(!exported.includes("-exportPath") && !exported.includes("-archivePath"));
   assert.ok(existsSync(path.join(f.root, "build", "ios", "Pulse.ipa")));
+  assert.deepEqual(readdirSync(path.join(f.root, "build", "ios")), ["Pulse.ipa"], "no export or archive directory beside the IPA");
   // a neighbour in the ipa directory is never touched by the export or its cleanup
   const g = fixture({ spec: { ipa: "build/ios/Pulse.ipa" } });
   mkdirSync(path.join(g.root, "build", "ios"), { recursive: true });
@@ -587,6 +748,14 @@ test("export goes to a dedicated subdirectory: the app root's ipa directory hold
   await rejects(runIosPackageRecipe(h.deps), "IOS_PACKAGE_EXPORT_FAILED");
   assert.equal(readFileSync(path.join(h.root, "build", "ios", "keep.txt"), "utf8"), "mine", "a failed export leaves the neighbour alone too");
   assert.deepEqual(readdirSync(path.join(h.root, "build", "ios")), ["keep.txt"]);
+});
+
+test("a native prepare step (a tool the door knows) is a broker adapter job; the app's own commands stay direct", async () => {
+  const f = fixture({ spec: { prepare: [{ cmd: "xcodegen", args: ["generate", "--spec", "ios/project.yml", "--project", "ios"] }, { cmd: "node", args: ["scripts/prep.mjs"] }] } });
+  await runIosPackageRecipe(f.deps);
+  const prepared = f.calls.filter((call) => call.cmd === "xcodegen" && call.args[0] === "generate");
+  assert.deepEqual(prepared.map((call) => call.via), ["native", "native"], "the generate step and the native prepare step");
+  assert.equal(f.calls.find((call) => call.cmd === "node").via, "direct");
 });
 
 test("every bundle in the IPA carries its own distribution profile: a missing or foreign appex or watch profile fails the run", async () => {
@@ -737,14 +906,13 @@ test("pins that change between the check and the archive, or during the archive,
   };
   await rejects(runIosPackageRecipe({ ...f.deps, run: tamper }), "IOS_PACKAGE_TRUST_FAILED", /already exists and differs/);
   const g = fixture({ spec: trustSpec(), pins: CODERIGHT_PINS });
-  const inner2 = g.deps.run;
-  const moveDuringArchive = (cmd, args, options) => {
-    const result = inner2(cmd, args, options);
+  const moveDuringArchive = { ...g.standIn, run: (cmd, args, options) => {
+    const result = g.standIn.run(cmd, args, options);
     if (cmd === "xcodebuild" && args.includes("archive")) writeFileSync(path.join(g.root, DEFAULT_PINS_PATH), resolvedFile({ ...CODERIGHT_PINS, "swift-perception": "d".repeat(40) }));
     return result;
-  };
-  await rejects(runIosPackageRecipe({ ...g.deps, run: moveDuringArchive }), "IOS_PACKAGE_TRUST_FAILED", /differs from the verified Package\.resolved/);
-  assert.ok(!existsSync(g.archive) && !existsSync(g.receipt));
+  } };
+  await rejects(runIosPackageRecipe({ ...g.deps, native: moveDuringArchive }), "IOS_PACKAGE_TRUST_FAILED", /differs from the verified Package\.resolved/);
+  assert.ok(!existsSync(g.ipa) && !existsSync(g.receipt));
 });
 
 test("the dry run shows the trust step and the flags without reading the pins file", async () => {
