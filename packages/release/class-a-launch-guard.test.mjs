@@ -176,7 +176,7 @@ test("through the guarded production runner, shell expansion and control forms s
   assert.deepEqual(starts(), [], "zero compiler starts for every refused form");
 
   // A Node child the shell starts inherits the guard: a substitution inside its own launch is refused there, and nothing starts.
-  const nested = `'${process.execPath}' -e 'require("node:child_process").execSync("echo $(cargo nested)")'`;
+  const nested = `'${process.execPath}' -e 'require("${CP}").execSync("echo $(cargo nested)")'`;
   const [inner] = run(guarded, [nested], ["execSync"]);
   assert.equal(inner.ran, false, "the nested Node child fails (its launch was refused)");
   assert.deepEqual(starts(), [], "zero compiler starts through a nested Node child");
