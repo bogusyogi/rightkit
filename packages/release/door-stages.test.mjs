@@ -548,7 +548,10 @@ console.log("\\n" + JSON.stringify({ code, out: out.join("\\n") }));\n`);
   const snapshot = path.join(snaps, fs.readdirSync(snaps).find((n) => !n.includes(".")));
   const ran = fs.readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l));
   const resolved = ran.filter((c) => c.args[0] === "metadata");
-  assert.ok(resolved.length > 0 && resolved.every((c) => fs.realpathSync(c.cwd) === fs.realpathSync(repo)), "the output directory was resolved in the checkout");
+  // GB-16/GB-17 (GATE-CONTRACT "Commit-only build"): a direct host resolves the workspace and its `target_directory` from the SELECTED COMMIT's snapshot (its committed manifests and Cargo
+  // configuration) and maps the answer lexically to the checkout's counterpart; the live checkout's manifests are never asked, so a manifest the checkout edited, moved or deleted changes nothing.
+  assert.ok(resolved.length > 0 && resolved.every((c) => fs.realpathSync(c.cwd) === fs.realpathSync(snapshot) && fs.realpathSync(path.dirname(c.args[c.args.indexOf("--manifest-path") + 1])) === fs.realpathSync(snapshot)), `the output directory was resolved from the commit's snapshot: ${JSON.stringify(ran)}`);
+  assert.equal(ran.some((c) => fs.realpathSync(c.cwd) === fs.realpathSync(repo)), false, `no Cargo call ran in the live checkout: ${JSON.stringify(ran)}`);
   const built = ran.filter((c) => c.args[0] === "build");
   assert.equal(built.length, 1, JSON.stringify(ran));
   assert.equal(fs.realpathSync(built[0].cwd), fs.realpathSync(snapshot), "the build step ran in the snapshot's app root");
