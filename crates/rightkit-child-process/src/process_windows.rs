@@ -7,25 +7,30 @@ use std::{
     },
     process::Command,
 };
-use windows::Win32::{
-    Foundation::HANDLE,
-    System::{
-        Diagnostics::ToolHelp::{
-            CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
-        },
-        JobObjects::{
-            AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
-            SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-            JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-            JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK,
-        },
-        Threading::{
-            OpenThread, ProcessPowerThrottling, ResumeThread, SetProcessInformation,
-            TerminateProcess, BELOW_NORMAL_PRIORITY_CLASS, CREATE_BREAKAWAY_FROM_JOB,
-            CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, CREATE_SUSPENDED, DETACHED_PROCESS,
-            IDLE_PRIORITY_CLASS, PROCESS_CREATION_FLAGS, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
-            PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_STATE,
-            THREAD_SUSPEND_RESUME,
+use windows::{
+    core::BOOL,
+    Win32::{
+        Foundation::{HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT},
+        System::{
+            Diagnostics::ToolHelp::{
+                CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD,
+                THREADENTRY32,
+            },
+            JobObjects::{
+                AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob,
+                JobObjectExtendedLimitInformation, SetInformationJobObject, TerminateJobObject,
+                JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_BREAKAWAY_OK,
+                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK,
+            },
+            Threading::{
+                OpenProcess, OpenThread, ProcessPowerThrottling, ResumeThread,
+                SetProcessInformation, TerminateProcess, WaitForSingleObject,
+                BELOW_NORMAL_PRIORITY_CLASS, CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP,
+                CREATE_NO_WINDOW, CREATE_SUSPENDED, DETACHED_PROCESS, IDLE_PRIORITY_CLASS,
+                PROCESS_CREATION_FLAGS, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+                PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_STATE,
+                PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, THREAD_SUSPEND_RESUME,
+            },
         },
     },
 };
@@ -244,6 +249,58 @@ pub(crate) fn raw_job(job: &KillOnCloseJob) -> HANDLE {
     raw(&job.0)
 }
 
+/// The processes that were in a job when [`KillOnCloseJob::hold_members`] ran, each held open
+/// (process id and handle). The handle keeps the process object alive after the process exits,
+/// so its exit can still be waited for once the job no longer lists it.
+#[derive(Debug, Default)]
+pub(crate) struct JobMembers(Vec<(u32, OwnedHandle)>);
+
+impl JobMembers {
+    /// Test only: the process ids held.
+    #[cfg(test)]
+    pub(crate) fn pids(&self) -> Vec<u32> {
+        self.0.iter().map(|(pid, _)| *pid).collect()
+    }
+
+    /// Waits until `deadline` (the absolute instant shared with the caller's other steps; `None`
+    /// waits as long as it takes) for every held process to have exited: its process object is
+    /// signalled, so it holds no handle, lock or file any more. `Ok(false)` once the deadline has
+    /// passed with one still running. A job's `ActiveProcesses` can reach zero earlier than this,
+    /// when a process's last thread has exited (rightkit#1260 follow-up).
+    ///
+    /// Deadline-safe like [`KillOnCloseJob::wait_empty_until`]: exits confirmed only after
+    /// `deadline` are `Ok(false)`.
+    pub(crate) fn wait_exited_until(
+        &self,
+        deadline: Option<std::time::Instant>,
+    ) -> io::Result<bool> {
+        // INFINITE (u32::MAX) is reserved for an unbounded wait; this is just very long.
+        const LONG_WAIT_MS: u32 = u32::MAX - 1;
+        for (_, process) in &self.0 {
+            loop {
+                let millis = deadline.map_or(LONG_WAIT_MS, |d| {
+                    let left = d.saturating_duration_since(std::time::Instant::now());
+                    // Round up sub-millisecond waits so a remainder still waits.
+                    let millis = left.as_millis()
+                        + u128::from(!left.subsec_nanos().is_multiple_of(1_000_000));
+                    millis.min(u128::from(LONG_WAIT_MS)) as u32
+                });
+                // SAFETY: the handle is open with PROCESS_SYNCHRONIZE.
+                match unsafe { WaitForSingleObject(raw(process), millis) } {
+                    WAIT_OBJECT_0 => break,
+                    WAIT_TIMEOUT => {
+                        if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+                            return Ok(false);
+                        }
+                    }
+                    _ => return Err(io::Error::last_os_error()),
+                }
+            }
+        }
+        Ok(!deadline.is_some_and(|d| std::time::Instant::now() > d))
+    }
+}
+
 impl KillOnCloseJob {
     /// Waits until `deadline` (an absolute instant shared with the caller's other steps; `None`
     /// waits as long as it takes) for the job to hold no active process
@@ -284,6 +341,41 @@ impl KillOnCloseJob {
     /// included. A snapshot; see [`crate::WindowsJob::process_ids`].
     pub(crate) fn process_ids(&self) -> io::Result<Vec<u32>> {
         crate::windows_job::WindowsJob::ids_of(raw(&self.0), 32)
+    }
+
+    /// Opens, for waiting, every process in the job now. Call it before the kill: a process is
+    /// out of the job's accounting (and unlistable) once its last thread has exited, which can
+    /// be before the kernel has closed its handles and signalled its process object, so only a
+    /// handle taken beforehand can still wait for that last step (rightkit#1260 follow-up).
+    ///
+    /// Best effort by design: the job-emptiness wait stays the primary proof, and this only adds
+    /// to it. A listing that fails holds nothing, and a member that cannot be opened (or that
+    /// left before it was opened) is skipped.
+    pub(crate) fn hold_members(&self) -> JobMembers {
+        let Ok(pids) = self.process_ids() else {
+            return JobMembers::default();
+        };
+        let mut held = Vec::with_capacity(pids.len());
+        for pid in pids {
+            if let Some(process) = self.open_member(pid) {
+                held.push((pid, process));
+            }
+        }
+        JobMembers(held)
+    }
+
+    /// The process object of `pid`, opened with the rights to wait on it, only if that process is
+    /// in this job. The check is what keeps a pid that was listed, exited and was handed to an
+    /// unrelated process before this open from being held and waited for. The handle pins the
+    /// process object, so once it is held the pid cannot name anything else.
+    pub(crate) fn open_member(&self, pid: u32) -> Option<OwnedHandle> {
+        let access = PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION;
+        // SAFETY: OpenProcess takes plain values and returns a new handle, owned from here on.
+        let process = own(unsafe { OpenProcess(access, false, pid) }.ok()?);
+        let mut inside = BOOL(0);
+        // SAFETY: both handles are open and `inside` is a valid out parameter.
+        unsafe { IsProcessInJob(raw(&process), Some(raw(&self.0)), &mut inside) }.ok()?;
+        inside.as_bool().then_some(process)
     }
 
     fn assign(process: &ProcessHandle, breakaway: crate::owned::BreakawayMode) -> io::Result<Self> {

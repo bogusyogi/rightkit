@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.8 (unpublished)
+
+rightkit#1260 follow-up. Written without compiling or running Cargo; CI builds and runs the Windows tests. 0.5.7 is on crates.io, so this cannot be published under that number: bump `Cargo.toml` to 0.5.8 and re-pin the path consumers' lockfiles in the same push.
+
+- **Fixed (Windows): `terminate_tree_bounded` and `terminate_tree_bounded_with_options` report `ReapOutcome::Exited` only once every process that was in the child's private Job Object when the kill was issued has itself exited**, on top of the 0.5.7 conditions (the root exited and the job's `ActiveProcesses == 0`), within the same absolute deadline. A job drops a process from its accounting when the process's last thread has exited, which can be before the kernel signals the process object and closes its handles, so 0.5.7 could return `Exited` while a swept descendant still held its handles and locks for a few more milliseconds (`owned::tests::bounded_reap_sweeps_descendants_of_an_already_exited_root` failed with "descendant was not swept" on every hosted windows-2025 run that executed it). The call now lists the job's members and opens each one for waiting before it kills (a pid is kept only if `IsProcessInJob` says it is in the job, so a pid recycled between the listing and the open is never waited for), then waits on those process objects before the job-emptiness wait; a held handle pins the process object, so the pid cannot name anything else meanwhile. A listing that fails, a member this process cannot open, and a process created after the listing are covered by the job-emptiness wait only (the 0.5.7 guarantee), never by a wait that could not be made. A process still running at the deadline is `TimedOut`. No signature change; Unix and children without a private job (`spawn_uncontained_detached*`, a failed non-strict assignment) are unchanged.
+- Tests (Windows, unit tests in `src/owned.rs`): a held member is not running as soon as the wait on the members returns, and the wait cannot be confirmed while it is alive; a pid that is not in the job (this test process) is not held, with the leader as the control. The existing `bounded_reap_*` tests are unchanged and now rest on the stronger guarantee.
+
 ## 0.5.7
 
 rightkit#1260. Published from the Mac under the local-build grant (Adrian, 2026-10-29: "run it, do both").

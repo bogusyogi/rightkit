@@ -1077,6 +1077,14 @@ impl OwnedChild {
         self.terminate_tree_bounded_with_options(timeout, TerminationOptions::default())
     }
     /// timeout covers grace plus reap; grace is clipped to timeout.
+    ///
+    /// Windows: `Exited` means the leader has exited, the retained job holds no active process,
+    /// and every process that was in the job when the kill was issued (grandchildren included,
+    /// also after the leader exited) has itself exited, so it holds no handle or lock any more.
+    /// The job's accounting alone is not enough: it drops a process when its last thread has
+    /// exited, which can be before the kernel has signalled the process and closed its handles.
+    /// A process the OS would not list or this process could not open is covered by the
+    /// job-emptiness wait only. Anything not confirmed by the deadline is `TimedOut`.
     pub fn terminate_tree_bounded_with_options(
         &mut self,
         timeout: Duration,
@@ -1093,6 +1101,11 @@ impl OwnedChild {
             })
         };
         options.grace = options.grace.min(timeout);
+        // Windows: the processes in the retained job right now, held open before the kill. The
+        // job stops listing a process when its last thread exits, which can be before the kernel
+        // signals it, so only a handle taken now can still be waited on afterwards.
+        #[cfg(windows)]
+        let members = self.job.as_ref().map(|job| job.hold_members());
         self.start_termination_within(options, deadline)?;
         #[cfg(test)]
         if cleanup_test_fault::refuse(left()) {
@@ -1103,14 +1116,21 @@ impl OwnedChild {
             None => return Ok(ReapOutcome::TimedOut),
         };
         // Windows: the leader's exit does not prove the tree is gone (TerminateJobObject is
-        // asynchronous). Exited is reported only once the retained job holds no active process,
-        // within the same deadline; otherwise the outcome stays unconfirmed (rightkit#1260). A
-        // child with no retained job (detached or uncontained) has no tree to prove: its leader's
-        // exit stands, as before.
+        // asynchronous). Exited is reported only once every process held above has exited and
+        // the retained job holds no active process, within the same deadline; otherwise the
+        // outcome stays unconfirmed (rightkit#1260). The job's count alone is not that proof: it
+        // can reach zero before a process is signalled and its handles are closed. A child with
+        // no retained job (detached or uncontained) has no tree to prove: its leader's exit
+        // stands, as before.
         #[cfg(windows)]
         if let Some(job) = self.job.as_ref() {
             #[cfg(test)]
             cleanup_test_fault::handoff_delay();
+            if let Some(members) = members.as_ref() {
+                if !members.wait_exited_until(deadline)? {
+                    return Ok(ReapOutcome::TimedOut);
+                }
+            }
             if !job.wait_empty_until(deadline)? {
                 return Ok(ReapOutcome::TimedOut);
             }
@@ -2245,6 +2265,57 @@ mod tests {
             !grandchild.is_running().unwrap_or(false),
             "descendant was not swept"
         );
+        let _ = std::fs::remove_file(&pid_file);
+    }
+
+    /// rightkit#1260 follow-up: the job can drop a process from its accounting when its last
+    /// thread exits, before the process is signalled and its handles are closed, so a bounded
+    /// reap waits on the members it held before the kill. Once that wait returns, each of them
+    /// is gone, read with no wait.
+    #[cfg(windows)]
+    #[test]
+    fn held_job_members_are_gone_once_their_wait_returns() {
+        use std::time::{Duration, Instant};
+        let pid_file =
+            std::env::temp_dir().join(format!("rightkit-1260-held-{}.pid", std::process::id()));
+        let (mut owned, grandchild) = tree_with_grandchild(&pid_file, true);
+        let job = owned.job.clone().expect("private job");
+        let members = job.hold_members();
+        assert!(
+            members.pids().contains(&grandchild),
+            "the grandchild is held: {:?}",
+            members.pids()
+        );
+        let grandchild = super::AdoptedProcess::new(std::num::NonZeroU32::new(grandchild).unwrap());
+        assert!(grandchild.is_running().unwrap());
+        // Everything held is alive, so no exit can be confirmed within a short budget.
+        let soon = Instant::now() + Duration::from_millis(100);
+        assert!(!members.wait_exited_until(Some(soon)).unwrap());
+
+        owned.terminate_tree().unwrap();
+        let in_time = Instant::now() + Duration::from_secs(10);
+        assert!(members.wait_exited_until(Some(in_time)).unwrap());
+        assert!(
+            !grandchild.is_running().unwrap_or(false),
+            "a held member was still running after its wait returned"
+        );
+        let _ = std::fs::remove_file(&pid_file);
+    }
+
+    /// rightkit#1260 follow-up: a listed pid is held only if that process is in the job, so a pid
+    /// that exited after it was listed and went to an unrelated process is never waited for.
+    #[cfg(windows)]
+    #[test]
+    fn a_process_outside_the_job_is_not_held() {
+        let pid_file =
+            std::env::temp_dir().join(format!("rightkit-1260-outside-{}.pid", std::process::id()));
+        let (owned, _) = tree_with_grandchild(&pid_file, true);
+        let job = owned.job.clone().expect("private job");
+        // Control: the leader is in the job.
+        assert!(job.open_member(owned.id()).is_some());
+        // This test process is not in the child's private job.
+        assert!(job.open_member(std::process::id()).is_none());
+        drop(owned);
         let _ = std::fs::remove_file(&pid_file);
     }
 
