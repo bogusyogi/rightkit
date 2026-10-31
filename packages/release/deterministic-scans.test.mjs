@@ -2335,6 +2335,18 @@ test("E2E L9-02: a missing cargo-deny or cargo-audit says the required tool is m
   assert.doesNotMatch(scansModule.failureDetail({ status: 1, stdout: "ID: RUSTSEC-1\n", stderr: "error: 1 vulnerability found!\n" }), /required tool/);
 });
 
+test("E2E L9-04: a pnpm audit that cannot reach the registry names the failure, not the last stack frames", () => {
+  const stdout = [
+    "[WARN] POST https://registry.npmjs.org/-/npm/v1/security/advisories/bulk error (ECONNREFUSED). Will retry in 10 seconds. 2 retries left.",
+    "[ERROR] fetch failed", "", "TypeError: fetch failed",
+    "    at Object.processResponse (file:///x/pnpm.mjs:82959:20)", "    at file:///x/pnpm.mjs:83340:23", "    at node:internal/process/task_queues:151:7",
+    "    at AsyncResource.runInAsyncScope (node:async_hooks:214:14)", "    at AsyncResource.runMicrotask (node:internal/process/task_queues:148:8)", "    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)",
+  ].join("\n");
+  const detail = scansModule.failureDetail({ status: 1, stdout, stderr: "" });
+  assert.match(detail, /\[ERROR\] fetch failed \| TypeError: fetch failed/, detail);
+  assert.match(detail, /ECONNREFUSED/, detail);
+});
+
 // ---- B1: ci/gate.config.json npm.<unit>.requiresBroker ---------------------------------------------------------------------------------------------------------
 
 test("B1: declaredBrokerCall reads { reason } only; whitespace is collapsed, a long reason is cut, anything else is a problem or no declaration", () => {

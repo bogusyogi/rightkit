@@ -1679,7 +1679,7 @@ export function laneOf(scan) {
 // The lines a reader needs from a failed scan: every line that names a failure (a failed test, a panic, a compiler or tool error,
 // cargo test's `failures:` block header, pnpm's ERR_ codes), at most twelve of them, then the last four lines of stdout and of
 // stderr. cargo test writes results to stdout and "Running ..." to stderr, so a plain tail showed only harness chatter.
-const FAILURE_LINE = /(^|[\s\[])(FAILED|panicked at|error(\[E\d+\])?:|error\[|^failures:|ERR_PNPM_\w+|Error:|assertion `?left|^thread '.*' panicked)/;
+const FAILURE_LINE = /(^|[\s\[])(FAILED|panicked at|error(\[E\d+\])?:|error\[|^failures:|ERR_PNPM_\w+|Error:|assertion `?left|^thread '.*' panicked)|^\[ERROR\]|^\w+Error:|error \(E[A-Z]+\)/;
 export function failureDetail(r) {
   const lines = (text) => String(text ?? "").split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim());
   const out = lines(r?.stdout); const err = lines(r?.stderr);
