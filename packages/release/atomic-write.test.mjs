@@ -68,3 +68,18 @@ test("[GB-26] the gate's stage journal and the protected QA receipt are written 
   assert.match(source, /export function writeQaReceipt[\s\S]*?writeFileAtomic\(/, "no direct overwrite of the authoritative QA receipt");
   assert.doesNotMatch(source.slice(source.indexOf("export function writeQaReceipt"), source.indexOf("function loadKeyOrRefuse")), /writeFileSync/);
 });
+
+test("[GB-26, E2E L3-01] a stage-journal writer killed by a real file-size limit mid-write leaves the previous receipt readable (no torn JSON)", { skip: process.platform === "win32" && "needs a POSIX RLIMIT_FSIZE" }, async (t) => {
+  const commonDir = tmpDir(t, "rk-l3-fsize-");
+  const commit = "a".repeat(40);
+  const base = { schema: RECEIPT_SCHEMA, commit, app: ".", binding: { tree: "t" } };
+  writeReceipt({ commonDir, receipt: { ...base, stages: { check: { ok: true } } } });
+  // The child writes a 200 KB receipt under `ulimit -f 8` (8 blocks): the kernel stops the write part way, as a full disk would.
+  const child = `import { writeReceipt } from ${JSON.stringify(new URL("./gate-stages.mjs", import.meta.url).href)};
+    writeReceipt({ commonDir: ${JSON.stringify(commonDir)}, receipt: { ...${JSON.stringify(base)}, stages: { check: { ok: true }, compile: { ok: true, pad: "x".repeat(200000) } } } });`;
+  const { spawnSync } = await import("node:child_process");
+  const r = spawnSync("sh", ["-c", `ulimit -f 8; exec "${process.execPath}" --input-type=module -e '${child.replaceAll("'", "'\\''")}'`], { encoding: "utf8" });
+  assert.notEqual(r.status, 0, "the writer really was stopped by the limit");
+  assert.deepEqual(readReceipt({ commonDir, commit })?.stages, { check: { ok: true } }, "the previous receipt is still whole and readable");
+  assert.deepEqual(leftovers(path.join(commonDir, "rightkit-gate", "receipts")), [], "no temp file is left behind");
+});
