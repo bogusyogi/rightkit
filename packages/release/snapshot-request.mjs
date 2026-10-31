@@ -23,7 +23,7 @@ import path from "node:path";
 import { REQUEST_OVER_CAP_CODE, requestOverCap } from "./broker-wire.mjs";
 import { ownerFileOf, writeCarrierOwner } from "./carrier-census.mjs";
 import { BROKER_COMPILE_COMMANDS, CARGO_COMMAND_ALIASES, cargoCommandIndex, cargoSubcommandOf, expandCargoAliases, isCompileCommand, isPackageObservation } from "./cargo-shapes.mjs";
-import { canonicalJson, ProvenanceError, verifyBr19Evidence, verifyProvenance, verifyReceiptCoverage, verifyResultEvidence } from "./provenance-verify.mjs";
+import { canonicalJson, CAUSE_EVIDENCE_SCHEMA, CAUSE_UNEXPLAINED, CAUSE_UNKNOWN, ProvenanceError, requireExplainedCauses, verifyBr19Evidence, verifyCauseEvidence, verifyProvenance, verifyReceiptCoverage, verifyResultEvidence } from "./provenance-verify.mjs";
 
 export const SNAPSHOT_REQUEST_SCHEMA = "rustright.snapshot-request/1";
 // One spelling per variable, the current one (rustright-cli shims.rs reads RUSTRIGHT_* first, then the legacy RIGHTKIT_* spelling, which task
@@ -499,7 +499,7 @@ export function verifyNestedChildren(evidence, receipt, { snapshotPath, checkout
 
 /**
  * Verifies the receipt of one snapshot request (a cargo call, or with `adapter` an adapter job). `pins` come from this host's enrollment, never from the receipt.
- * Returns `{ payload, evidence }`; throws ProvenanceError (legacy, signature, pins, job, nonce, request) or SnapshotRequestError (evidence).
+ * Returns `{ payload, evidence, attribution, toolchain, nestedChildren, requestDigest, causeEvidence }` (`causeEvidence` is null for a command that carries none); throws ProvenanceError (legacy, signature, pins, job, nonce, request, evidence, cause-unknown, cause-unexplained) or SnapshotRequestError (evidence).
  *
  * Beyond the signature, the job, the nonce and the request digest, the receipt must carry (item 7 row 7.22):
  *   - signed SUCCEEDED with exit 0, and signed snapshotEvidence equal to the receipt's copies (commit, ownership handle, request id,
@@ -507,6 +507,8 @@ export function verifyNestedChildren(evidence, receipt, { snapshotPath, checkout
  *   - `declaredInputDigests` equal to the gate's own digest of the snapshot's declared inputs, read from the snapshot now;
  *   - `outputDir` absolute, outside the snapshot and the checkout, and a managed generation target under one of `outputRoots`;
  *   - signed stageEvidence (freshness, attribution, toolchain) equal to the receipt's;
+ *   - for a compile, freshness.causeEvidence (rustright.cause-evidence.v1) coherent with its census and with a verdict of `explained`: refused as `evidence` when missing,
+ *     of another schema or incoherent, `cause-unknown` when the broker could not say why units were rebuilt, `cause-unexplained` when a rebuilt unit has no explained cause (RA-03);
  *   - timingsMs, exit, diagnosticsPath, brokerVersion and executor present with their types; the retired `verdict` and `refreshed` are refused (GB-30: Class A and its verdict reuse are the gate's).
  * `checkout` and `outputRoots` are required: without them nothing can be said about where the outputs went, so it refuses.
  */
@@ -589,6 +591,16 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   // string with an empty component.
   if (isToolchainUnknown(toolchain)) fail(TOOLCHAIN_UNAVAILABLE, `the broker could not name this compile's toolchain (${TOOLCHAIN_UNAVAILABLE_CODE}: UNKNOWN, ${toolchain.reason}); an unknown toolchain identity is not evidence, so the call is unverified and nothing is concluded from it`);
   if (toolchain !== null && !(typeof toolchain === "string" && TOOLCHAIN_FORMAT.test(toolchain))) fail("evidence", "receipt toolchain is not <toolchain>|cargo:<sha256>|rustc:<sha256>");
+  // RA-03: a census that counts rebuilt units says nothing about why they were rebuilt. A compile's signed freshness must carry `causeEvidence`
+  // (rustright.cause-evidence.v1: provenance-verify.mjs requireExplainedCauses, the one implementation) whose verdict is `explained`: a missing or unrecognized
+  // schema or an incoherent one is `evidence`, an `unknown` verdict (a quiet, caller-logged or artifact-running root whose log was not read, dropped output, an
+  // uncovered unit) is `cause-unknown`, and a unit rebuilt with no explained cause is `cause-unexplained`; none is a success, and none is relaxed for an older
+  // broker that signs no cause evidence. The judged object is the SIGNED copy (the receipt's equals it, checked above). A command that is not a compile
+  // legitimately carries no census; when one carries cause evidence anyway it must still be well formed, but nothing is judged for it (nothing was rebuilt).
+  const signedFreshness = stage.freshness ?? null;
+  let causeEvidence = null;
+  if (compile) causeEvidence = requireExplainedCauses(signedFreshness);
+  else if (isObject(signedFreshness) && signedFreshness.causeEvidence !== undefined) causeEvidence = verifyCauseEvidence(signedFreshness);
   // Fields the signature does not cover must still be present with their types (the consumer reads them). Every carried command:
   // exit (an integer, or null with a signal) and signal, timingsMs{admission, queue, bind, cargo, afterExitBind, diagnostics} (each a
   // number or null) and diagnosticsPath (a path, or null). Success needs exit 0 and no signal, as signed. `verdict` and `refreshed`
@@ -624,7 +636,7 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   verifyReceiptCoverage(receipt, payload);
   verifyResultEvidence(receipt, payload);
   verifyBr19Evidence(receipt, payload);
-  return { payload, evidence, attribution, toolchain, nestedChildren, requestDigest };
+  return { payload, evidence, attribution, toolchain, nestedChildren, requestDigest, causeEvidence };
 }
 
-export { ProvenanceError };
+export { CAUSE_EVIDENCE_SCHEMA, CAUSE_UNEXPLAINED, CAUSE_UNKNOWN, ProvenanceError };

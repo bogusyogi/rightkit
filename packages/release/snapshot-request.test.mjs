@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { canonicalJson, signedBytes, verifyAttributionDetail } from "./provenance-verify.mjs";
+import { canonicalJson, CAUSE_EVIDENCE_SCHEMA, CAUSE_UNEXPLAINED, CAUSE_UNKNOWN, signedBytes, verifyAttributionDetail } from "./provenance-verify.mjs";
 import {
   ATTEST_NONCE_ENV, DESCRIPTOR_MAX_BYTES, REQUEST_ID_FILE_ENV, RESULT_EVIDENCE_FIELDS, SNAPSHOT_REQUEST_ENV, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, declaredInputDigestsOf, freshNonce,
   BROKER_COMPILE_COMMANDS, CARGO_COMMAND_ALIASES, cargoSubcommandOf, isCallHandleOf, isCompileClass, isLockBound, isPackageObservation, lockedArgv, isGenerationTarget, isInsideGenerationTarget, GENERATION_LEAVES, nextCallHandle, ownershipOfHandle, observedEnvOf, readDeclaredInputs, readRequestRef, requestDigestOf, snapshotRequestCore, verifySnapshotEvidenceIdentity, verifySnapshotReceipt, writeSnapshotRequest,
@@ -113,10 +113,31 @@ test("request digest: the extended core binds every field the broker adds for a 
 
 // ---- row 7.22: every returned-evidence field is required and matches the request; the signature covers the snapshot evidence ----
 const JOB = "11111111-1111-4111-8111-111111111111";
-function receiptCase(t, { tamper = "none", inputs = ["gen/in.txt"], carrierInputs = inputs ?? [], over = {}, mutate = null, argv = ["test", "-p", "a", "--locked"] } = {}) {
+// RA-03: the cause evidence a broker signs inside `freshness` (rustright.cause-evidence.v1). `causeOf` builds one in its production form (the keys of cargo_evidence.rs
+// `Classification::compact`), by default the whole, explained evidence of a census that rebuilt nothing.
+const causeOf = (over = {}) => ({
+  schema: CAUSE_EVIDENCE_SCHEMA, state: "complete", verdict: "explained", basis: "reasons", unavailable: null, gaps: [], historyMigrationNeeded: false,
+  counts: { rows: 0, rowsDropped: 0, units: 0, unexplained: 0, uncovered: 0 }, unexplainedUnits: [], unexplainedUnitsTruncated: 0, uncoveredUnits: [], uncoveredUnitsTruncated: 0, ...over,
+});
+/** A census whose log was never read (a quiet, caller-logged or artifact-running root): no reasons, the typed reason why. */
+const unreadCause = (reason, over = {}) => causeOf({ state: "unavailable", basis: "none", verdict: "unknown", unavailable: reason, gaps: ["log-not-read"], ...over });
+/** Marks a freshness field to delete (a `null` is a value: `unexplainedCount` is null when the verdict is unknown). */
+const DROP = Symbol("drop");
+const freshnessWith = (f, fields) => { for (const [name, value] of Object.entries(fields)) { if (value === DROP) delete f[name]; else f[name] = structuredClone(value); } };
+/**
+ * `freshness` is a map of fields (`DROP` deletes one) applied to BOTH copies of the receipt's freshness (the signed stage evidence and the receipt's own, so parity holds) after the default cause evidence is added to
+ * each that carries none: the fixture broker's freshness predates the schema, and a gate refuses cause evidence that is absent, so every case here states its own.
+ */
+function receiptCase(t, { tamper = "none", inputs = ["gen/in.txt"], carrierInputs = inputs ?? [], over = {}, mutate = null, argv = ["test", "-p", "a", "--locked"], freshness = null } = {}) {
   const fx = makeFakeBroker(t, { inputs });
   const made = writeSnapshotRequest({ controlRoot: fx.controlRoot, commit: fx.sb.commit, snapshot: fx.sb.snapshot, declaredInputs: carrierInputs, handle: fx.handle, primaryCwd: fx.checkout, argv, nonce: "a".repeat(64) });
-  const receipt = signedReceipt(fx, { id: JOB, carrier: made.carrier, argv, workspace: fx.checkout, tamper, mutate });
+  const edit = (f) => {
+    if (f === null || typeof f !== "object" || Array.isArray(f)) return;
+    if (f.causeEvidence === undefined) { f.causeEvidence = causeOf(); f.unexplainedCount = 0; f.causeCounts = {}; }
+    if (freshness) freshnessWith(f, freshness);
+  };
+  const receipt = signedReceipt(fx, { id: JOB, carrier: made.carrier, argv, workspace: fx.checkout, tamper, mutate: (p) => { edit(p.stageEvidence?.freshness); mutate?.(p); } });
+  edit(receipt.freshness);
   const check = (extra = {}) => verifySnapshotReceipt(receipt, { pins: fx.pins, jobId: JOB, carrier: made.carrier, argv, workspace: fx.checkout, checkout: fx.checkout, outputRoots: [fx.wsRoot], platform: process.platform, ...over, ...extra });
   return { fx, made, receipt, check, argv };
 }
@@ -624,6 +645,132 @@ test("[GB-66] an UNKNOWN toolchain is a typed unavailable identity, never eviden
   for (const tamper of ["toolchainUnknownMalformed", "toolchainEmptyName", "toolchainNoHashes", "toolchainObject"]) assert.throws(() => receiptCase(t, { tamper }).check(), (e) => e.code === "evidence", tamper);
   // A read-only form carries no toolchain at all and is not made to.
   assert.equal(receiptCase(t, { argv: ["metadata", "--no-deps"], tamper: "noStageCensus" }).check().toolchain, null);
+});
+
+// ---- RA-03: a census that counts rebuilt units proves nothing about why; a compile is accepted only on cause evidence that is whole and explained ----
+// Every case runs the real verifier over a signed receipt (both copies equal, the signature over the signed one). The cause evidence has the keys cargo_evidence.rs
+// `Classification::compact` signs; its forms are the ones freshness_vectors.rs derives from real Cargo log text for each command form.
+const KEPT = "app v0.1.0 (lib:app) [build]";
+const oneRow = (over = {}) => ({ rows: 1, rowsDropped: 0, units: 1, unexplained: 0, uncovered: 0, ...over });
+/** A compile's freshness with these cause fields (the census fields keep the fixture's, unless given). */
+const withCause = (cause, { count = 0, causeCounts = {}, ...census } = {}) => ({ causeEvidence: cause, unexplainedCount: count, causeCounts, ...census });
+const quietRebuilt = (reason) => withCause(unreadCause(reason), { count: null, causeCounts: DROP, invalidationReasons: DROP, notFresh: 1, invalidationReasonsUnavailable: reason });
+const removedFingerprint = withCause(causeOf({ verdict: "unexplained", counts: oneRow({ unexplained: 1 }), unexplainedUnits: [KEPT] }), { count: 1, causeCounts: { "fingerprint-missing": 1 }, notFresh: 1 });
+
+test("[RA-03] the typed codes of a verdict that is not explained are named", () => {
+  assert.deepEqual([CAUSE_UNKNOWN, CAUSE_UNEXPLAINED], ["cause-unknown", "cause-unexplained"]);
+  assert.equal(CAUSE_EVIDENCE_SCHEMA, "rustright.cause-evidence.v1");
+});
+
+test("[RA-03] a compile whose cause evidence is whole and explained verifies in every compile form, and the verified evidence is returned for the record", (t) => {
+  const forms = {
+    "a source edit: reasons read, every cause explained": withCause(causeOf({ counts: oneRow() }), { causeCounts: { "source-or-dependency-changed": 1 }, notFresh: 1 }),
+    "a first build": withCause(causeOf({ counts: oneRow() }), { causeCounts: { "first-build": 1 }, notFresh: 1 }),
+    "genuinely fresh quiet work: no log read, the census proves nothing was rebuilt": withCause(causeOf({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "quiet-root" }), { causeCounts: DROP, invalidationReasons: DROP, notFresh: 0, invalidationReasonsUnavailable: "quiet-root" }),
+    "a test run that executes artifacts but rebuilt nothing": withCause(causeOf({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "root-executes-artifacts" }), { causeCounts: DROP, invalidationReasons: DROP, notFresh: 0, invalidationReasonsUnavailable: "root-executes-artifacts" }),
+    "nothing compiled": withCause(causeOf({ state: "unavailable", basis: "nothing-compiled", unavailable: "not-read" }), { causeCounts: DROP, invalidationReasons: DROP, available: false, reason: "nothing-compiled" }),
+  };
+  for (const argv of COMPILE) {
+    for (const [name, freshness] of Object.entries(forms)) {
+      const verified = receiptCase(t, { argv, freshness }).check();
+      assert.equal(verified.payload.result.status, "SUCCEEDED", `${argv.join(" ")} / ${name}`);
+      assert.equal(verified.causeEvidence.verdict, "explained", `${argv.join(" ")} / ${name}`);
+      assert.equal(verified.causeEvidence.unexplainedCount, 0);
+    }
+  }
+  assert.equal(receiptCase(t).check().causeEvidence.basis, "reasons");
+});
+
+test("[RA-03] no compile succeeds without a valid cause: a removed fingerprint is unexplained, and quiet, caller-logged and artifact-running roots whose log was not read are unknown, in every compile form", (t) => {
+  for (const argv of COMPILE) {
+    assert.throws(() => receiptCase(t, { argv, freshness: removedFingerprint }).check(), (e) => e.code === CAUSE_UNEXPLAINED && e.message.includes(KEPT) && /1 rebuilt unit/.test(e.message), `${argv.join(" ")} / removed fingerprint`);
+    for (const reason of ["quiet-root", "caller-cargo-log", "root-executes-artifacts"]) {
+      assert.throws(() => receiptCase(t, { argv, freshness: quietRebuilt(reason) }).check(), (e) => e.code === CAUSE_UNKNOWN && e.message.includes(reason) && /never read as no unexplained unit/.test(e.message), `${argv.join(" ")} / ${reason}`);
+    }
+  }
+  // Incomplete evidence is unknown, never a pass: dropped output, an unattributable row, a rebuilt unit no reason covers, a census that is itself unavailable.
+  const incomplete = {
+    "output dropped": withCause(causeOf({ state: "incomplete", verdict: "unknown", gaps: ["output-dropped"] }), { count: null }),
+    "a rebuilt unit no row covers": withCause(causeOf({ state: "incomplete", verdict: "unknown", gaps: ["rebuilt-unit-without-reason"], counts: { rows: 0, rowsDropped: 0, units: 0, unexplained: 0, uncovered: 1 }, uncoveredUnits: ["b v0.1.0"] }), { count: null }),
+    "reasons truncated": withCause(causeOf({ state: "incomplete", verdict: "unknown", gaps: ["reasons-truncated"], counts: { rows: 0, rowsDropped: 3, units: 0, unexplained: 0, uncovered: 0 } }), { count: null }),
+    "census unavailable": withCause(unreadCause("not-read", { gaps: ["log-not-read", "census-unavailable"] }), { count: null, causeCounts: DROP, available: false, reason: "timeout" }),
+  };
+  for (const [name, freshness] of Object.entries(incomplete)) {
+    assert.throws(() => receiptCase(t, { freshness }).check(), (e) => e.code === CAUSE_UNKNOWN, name);
+  }
+  // The unexplained units of a verdict are named even when the receipt kept only some of them.
+  const many = withCause(causeOf({ verdict: "unexplained", counts: { rows: 40, rowsDropped: 0, units: 40, unexplained: 40, uncovered: 0 }, unexplainedUnits: Array.from({ length: 16 }, (_, i) => `u${i} v0.1.0 (lib:u${i}) [build]`), unexplainedUnitsTruncated: 24 }), { count: 40, causeCounts: { unexplained: 40 } });
+  assert.throws(() => receiptCase(t, { freshness: many }).check(), (e) => e.code === CAUSE_UNEXPLAINED && /40 rebuilt unit/.test(e.message) && /u0 v0\.1\.0/.test(e.message) && /more not listed/.test(e.message));
+});
+
+test("[RA-03] missing cause evidence, an unrecognized schema and every incoherent field are refused as evidence: an older broker is never trusted as if it had signed the schema", (t) => {
+  const noSchema = causeOf(); delete noSchema.schema;
+  const noMigration = causeOf(); delete noMigration.historyMigrationNeeded;
+  const absent = (cause, why) => assert.throws(() => receiptCase(t, { argv: ["build"], freshness: { causeEvidence: cause } }).check(), (e) => e.code === "evidence" && why.test(e.message), why.source);
+  absent(DROP, /carries no causeEvidence/); absent(null, /carries no causeEvidence/);
+  absent("explained", /is not an object/); absent([], /is not an object/);
+  absent(noSchema, /does not read/); absent(causeOf({ schema: "rustright.cause-evidence.v2" }), /rustright\.cause-evidence\.v2.*does not read/); absent(causeOf({ schema: "rustright.cause-evidence.v0" }), /does not read/); absent(causeOf({ schema: "" }), /does not read/);
+  absent(causeOf({ state: "done" }), /unknown state/); absent(causeOf({ verdict: "maybe" }), /unknown verdict/); absent(causeOf({ basis: "magic" }), /unknown basis/);
+  absent(noMigration, /migration/); absent(causeOf({ unavailable: "" }), /unavailable is neither null nor a reason/); absent(causeOf({ gaps: "none" }), /gaps is not a list/); absent(causeOf({ gaps: [""] }), /gaps is not a list/);
+  absent(causeOf({ counts: { rows: "1", rowsDropped: 0, units: 0, unexplained: 0, uncovered: 0 } }), /counts needs/); absent(causeOf({ counts: { rows: 0, rowsDropped: 0, units: 0, unexplained: 0 } }), /counts needs/); absent(causeOf({ counts: { rows: -1, rowsDropped: 0, units: 0, unexplained: 0, uncovered: 0 } }), /counts needs/);
+  absent(causeOf({ unexplainedUnits: "x" }), /not a list of labels/); absent(causeOf({ uncoveredUnitsTruncated: "0" }), /not a list of labels/);
+  absent(causeOf({ unexplainedUnits: ["x"] }), /do not add up/); absent(causeOf({ counts: oneRow({ unexplained: 2 }), unexplainedUnits: ["x"], verdict: "unexplained" }), /do not add up/);
+  const incoherent = [
+    ["an unexplained unit under an explained verdict", withCause(causeOf({ counts: oneRow({ unexplained: 1 }), unexplainedUnits: ["x"] }), { count: 1, causeCounts: { unexplained: 1 } }), /verdict explained disagrees/],
+    ["an explained verdict with a gap", withCause(causeOf({ state: "incomplete", gaps: ["output-dropped"] }), { count: 0 }), /verdict explained disagrees/],
+    ["a complete state with a gap", withCause(causeOf({ verdict: "unknown", gaps: ["output-dropped"] }), { count: null }), /state complete disagrees/],
+    ["an incomplete state with no gap", withCause(causeOf({ state: "incomplete" })), /state incomplete disagrees/],
+    ["an unexplained verdict with no unexplained unit", withCause(causeOf({ verdict: "unexplained" })), /verdict unexplained disagrees/],
+    ["counts that are not nested", withCause(causeOf({ counts: oneRow({ units: 2 }) }), { causeCounts: { "first-build": 1 } }), /not nested/],
+    ["rows dropped with no truncation gap", withCause(causeOf({ counts: { rows: 0, rowsDropped: 3, units: 0, unexplained: 0, uncovered: 0 } })), /reasons-truncated gap disagree/],
+    ["an uncovered unit with no gap", withCause(causeOf({ counts: { rows: 0, rowsDropped: 0, units: 0, unexplained: 0, uncovered: 1 }, uncoveredUnits: ["b v0.1.0"] })), /rebuilt-unit-without-reason gap disagree/],
+    ["reasons read but a reason they were not", withCause(causeOf({ unavailable: "quiet-root" })), /names an unavailability reason/],
+    ["unread reasons with a reason-bearing state", withCause(causeOf({ basis: "none", verdict: "unknown", unavailable: "quiet-root", gaps: ["log-not-read"] }), { count: null }), /state complete is not unavailable/],
+    ["unread reasons that state no reason", withCause(unreadCause("quiet-root", { unavailable: null }), { count: null }), /states no reason why/],
+    ["unread reasons that carry counts", withCause(causeOf({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "quiet-root", counts: oneRow() }), { causeCounts: DROP }), /counts reasons that were never read/],
+    ["basis none that is not the typed unknown", withCause(causeOf({ state: "unavailable", basis: "none", unavailable: "quiet-root" }), { causeCounts: DROP }), /basis none is the typed unknown/],
+    ["basis none without the log-not-read gap", withCause(unreadCause("quiet-root", { gaps: ["census-unavailable"] }), { count: null }), /basis none is the typed unknown/],
+    ["a census claim that does not hold: rebuilt units under census-nothing-rebuilt", withCause(causeOf({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "quiet-root" }), { causeCounts: DROP, notFresh: 2 }), /does not prove it/],
+    ["a census claim with parse errors", withCause(causeOf({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "quiet-root" }), { causeCounts: DROP, parseErrors: 1 }), /does not prove it/],
+    ["a census claim with a truncated list", withCause(causeOf({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "quiet-root" }), { causeCounts: DROP, notFreshPackagesTruncated: 1 }), /does not prove it/],
+    ["a census claim without a rebuilt count", withCause(causeOf({ state: "unavailable", basis: "census-nothing-rebuilt", unavailable: "quiet-root" }), { causeCounts: DROP, notFresh: DROP }), /does not prove it/],
+    ["nothing compiled while the census compiled", withCause(causeOf({ state: "unavailable", basis: "nothing-compiled", unavailable: "not-read" }), { causeCounts: DROP }), /nothing was compiled/],
+    ["an unknown count read as zero", withCause(unreadCause("quiet-root"), { count: 0, causeCounts: DROP }), /unexplainedCount \(0\) is not the projection/],
+    ["an unexplained count that is missing", withCause(causeOf(), { count: DROP }), /unexplainedCount \(absent\)/],
+    ["an unexplained count that is not the projection", withCause(causeOf(), { count: 3 }), /unexplainedCount \(3\)/],
+    ["a cause count that is missing for read reasons", withCause(causeOf(), { causeCounts: DROP }), /causeCounts is missing/],
+    ["a cause count that is mistyped", withCause(causeOf(), { causeCounts: { "first-build": "1" } }), /causeCounts is missing/],
+    ["cause counts that do not add up to the rows", withCause(causeOf(), { causeCounts: { "first-build": 2 } }), /add up to 2/],
+    ["an unexplained cause behind an explained verdict", withCause(causeOf({ counts: oneRow() }), { causeCounts: { unexplained: 1 } }), /cannot give 0 unexplained/],
+    ["a verdict of unexplained units with explained causes only", withCause(causeOf({ verdict: "unexplained", counts: oneRow({ unexplained: 1 }), unexplainedUnits: ["x"] }), { count: 1, causeCounts: { "first-build": 1 } }), /cannot give 1 unexplained/],
+  ];
+  for (const [name, freshness, why] of incoherent) {
+    assert.throws(() => receiptCase(t, { argv: ["build"], freshness }).check(), (e) => e.code === "evidence" && why.test(e.message), name);
+  }
+});
+
+test("[RA-03] the cause evidence is signed and equal on both sides: a receipt-only or signed-only change, or a flipped verdict, never verifies", (t) => {
+  const flipped = receiptCase(t, { argv: ["build"], freshness: removedFingerprint });
+  flipped.receipt.freshness.causeEvidence.verdict = "explained";
+  assert.throws(() => flipped.check(), (e) => e.code === "evidence" && /receipt freshness differs from the signed stage evidence/.test(e.message), "the receipt claims an explained verdict the broker did not sign");
+  const loud = receiptCase(t, { argv: ["build"] });
+  loud.receipt.provenance.payload.stageEvidence.freshness.causeEvidence.verdict = "unexplained";
+  assert.throws(() => loud.check(), (e) => e.code === "signature", "the signed copy was altered after signing");
+  for (const tamper of ["freshnessReceiptOnly", "freshnessSignedOnly", "freshnessDiffers"]) {
+    assert.throws(() => receiptCase(t, { argv: ["build"], tamper }).check(), (e) => e.code === "evidence" && /freshness/.test(e.message), tamper);
+  }
+  // A broker that signs no cause evidence on either side (an older installed broker) is refused for every compile form, whatever else is right.
+  for (const argv of COMPILE) assert.throws(() => receiptCase(t, { argv, freshness: { causeEvidence: DROP, unexplainedCount: DROP, causeCounts: DROP } }).check(), (e) => e.code === "evidence" && /carries no causeEvidence/.test(e.message), argv.join(" "));
+});
+
+test("[RA-03] a command that is not a compile carries no census and owes no cause: absent is legitimate, a stray cause is read but not judged, a foreign schema is still refused", (t) => {
+  for (const argv of NON_COMPILE) {
+    const absent = receiptCase(t, { argv, freshness: { causeEvidence: DROP, unexplainedCount: DROP, causeCounts: DROP } }).check();
+    assert.equal(absent.causeEvidence, null, argv.join(" "));
+    assert.equal(receiptCase(t, { argv, tamper: "noStageCensus" }).check().causeEvidence, null, `${argv.join(" ")} / no census`);
+    assert.equal(receiptCase(t, { argv, freshness: quietRebuilt("quiet-root") }).check().causeEvidence.verdict, "unknown", `${argv.join(" ")}: read and recorded, not judged for a command that compiles nothing`);
+    assert.throws(() => receiptCase(t, { argv, freshness: { causeEvidence: causeOf({ schema: "rustright.cause-evidence.v2" }) } }).check(), (e) => e.code === "evidence" && /does not read/.test(e.message), argv.join(" "));
+  }
 });
 
 // ---- GB-82: the fixture broker's receipts are the production forms ----
