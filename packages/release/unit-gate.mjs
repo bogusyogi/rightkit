@@ -9,6 +9,7 @@ import { localBuildGranted } from "./execution-policy.mjs";
 import { readCargoPackage } from "./crate-graph.mjs";
 import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
 import { endRun, startRun, stagesTo } from "./gate-stages.mjs";
+import { RIGHTKIT_REPOSITORY, buildDirectOrigin, directStageEvidence, verifyDirectOrigin } from "./direct-origin.mjs";
 import { exclusionsFor } from "./pack-digest.mjs";
 import { ATTEST_STAGE_NONCE_ENV, qualificationNonce } from "./provenance-verify.mjs";
 import { verifyQualificationReceipts } from "./qualification-verify.mjs";
@@ -56,7 +57,7 @@ export function readBrokerReceipt(id, { run = defaultRun, platform = process.pla
   return { id, provenance: receipt.provenance };
 }
 /** `<bundle>/qualification.json`: the local stages that passed and the one artifact sha256 they bound, for the dispatcher. */
-export function writeQualification({ report, artifact, unit, commit, tree, runtime, executor, write = fs.writeFileSync }) {
+export function writeQualification({ report, artifact, unit, commit, tree, runtime, executor, directOrigin = null, write = fs.writeFileSync }) {
   for (const stage of ["check", "compile", "package", "qualify"]) if (report.stages?.[stage]?.ok !== true) throw new Error(`release needs stage ${stage} ok before it runs`);
   if (!artifact?.artifactFile || !/^[0-9a-f]{64}$/.test(artifact.artifactSha256 ?? "")) throw new Error("release needs the qualified artifact");
   // An npm unit is bound hosted by its content digest (pack-digest.mjs), not by the archive's bytes; for @rightkit/release the local archive
@@ -73,11 +74,18 @@ export function writeQualification({ report, artifact, unit, commit, tree, runti
   }
   const receipt = { schema: QUALIFICATION_SCHEMA, unit: { kind: unit.kind, name: unit.name, version: unit.version }, commit, tree, runtime, executor: executor?.kind ?? null,
     stages: Object.fromEntries(["check", "compile", "package", "qualify"].map((s) => [s, { ...report.stages[s] }])), artifactSha256: artifact.artifactSha256, ...content, writtenAt: new Date().toISOString() };
-  // The broker's signed receipts for the compile and package stages are what the hosted admission verifies; without them the
-  // booleans above are only this process's say-so.
-  for (const stage of ATTESTED_STAGES) {
-    const list = report.stages[stage].receipts;
-    if (!Array.isArray(list) || list.length < 1 || list.length > MAX_STAGE_RECEIPTS) throw new Error(`release needs 1 to ${MAX_STAGE_RECEIPTS} signed broker receipts of the ${stage} stage (found ${Array.isArray(list) ? list.length : "none"})`);
+  // GB-29: a direct Linux origin has no broker and so no signed receipts; it carries its direct-origin record instead (direct-origin.mjs), which the hosted side re-derives and never trusts
+  // by itself. Every other host owes the broker's signed receipts for the compile and package stages.
+  if (executor?.kind === "direct") {
+    if (!directOrigin) throw new Error("a direct origin's qualification needs its direct-origin record");
+    receipt.directOrigin = directOrigin;
+  } else {
+    // The broker's signed receipts for the compile and package stages are what the hosted admission verifies; without them the
+    // booleans above are only this process's say-so.
+    for (const stage of ATTESTED_STAGES) {
+      const list = report.stages[stage].receipts;
+      if (!Array.isArray(list) || list.length < 1 || list.length > MAX_STAGE_RECEIPTS) throw new Error(`release needs 1 to ${MAX_STAGE_RECEIPTS} signed broker receipts of the ${stage} stage (found ${Array.isArray(list) ? list.length : "none"})`);
+    }
   }
   if (JSON.stringify(receipt).length > MAX_QUALIFICATION_BYTES) throw new Error("the qualification receipt with its broker receipts exceeds the workflow dispatch input limit");
   const file = path.join(path.dirname(artifact.artifactFile), "qualification.json");
@@ -272,7 +280,8 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
       if (red) { err(`rightkit-gate: BLOCKED: ${selector} is listed in ci/known-red.json for ${red.host} (${red.key}: ${red.reason}); a known-red unit is not compiled, packaged, qualified or published. Fix the defect and remove the entry first`); return 1; }
     } catch (error) { err(`rightkit-gate: BLOCKED: ${error.message}`); return 1; }
   }
-  const scratch = platform === "win32" ? "D:\\scratch" : "/Volumes/D/scratch";
+  // GB-29: a Linux origin has no managed volume; its scratch is the gate's own state directory (XDG state), never a Mac path.
+  const scratch = platform === "win32" ? "D:\\scratch" : platform === "linux" ? path.join(env.XDG_STATE_HOME || path.join(env.HOME || "/tmp", ".local", "state"), "rightkit", "scratch") : "/Volumes/D/scratch";
   const bundle = path.join(scratch, `rk-unit-${randomBytes(12).toString("hex")}`);
   const argv = ["--local", unit.kind === "npm" ? "--package" : "--crate", unit.name, "--workspace", root, "--qualify-only", "--bundle", bundle];
   const runtimeDir = path.dirname(fileURLToPath(import.meta.url));
@@ -286,6 +295,15 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
   // signed receipt can be verified hosted for exactly that and nothing else. `--to qualify` is the sanctioned no-upload route to that
   // evidence: it writes the qualification and verifies it locally exactly as the hosted admission will, and stops there.
   const attested = stages.includes("qualify") && executor?.kind === "broker";
+  // GB-29: a direct Linux origin has no broker to attest its stages; it records its own direct-origin evidence (direct-origin.mjs), verified locally as the hosted side will.
+  const directLinux = stages.includes("qualify") && executor?.kind === "direct" && platform === "linux";
+  const directStages = {};
+  const directQualification = () => {
+    const registry = unit.kind === "npm" ? "npm" : "crates";
+    const record = buildDirectOrigin({ repository: RIGHTKIT_REPOSITORY, commit, tree, unit, registry, platform, artifact: { artifactSha256: artifact.artifactSha256, contentSha256: artifact.contentSha256 }, stages: directStages });
+    verifyDirectOrigin(record, { repository: RIGHTKIT_REPOSITORY, commit, tree, unit, registry, ...(unit.kind === "npm" ? { contentSha256: artifact.contentSha256 } : { artifactSha256: artifact.artifactSha256 }) });
+    return writeQualification({ report, artifact, unit, commit, tree, runtime, executor, directOrigin: record });
+  };
   const stageEnv = async (stage, action) => {
     const run = startRun({ commonDir, commit, tree, stage });
     const nonce = attested && ATTESTED_STAGES.includes(stage) ? { [ATTEST_STAGE_NONCE_ENV]: qualificationNonce({ commit, tree, unit: `${unit.kind}:${unit.name}`, stage }) } : {};
@@ -340,15 +358,33 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
       let released = null;
       if (stage === "release") {
         // The qualification receipt the dispatcher carries to publish.yml: the hosted run is bound to these bytes and stages.
+        if (directLinux) {
+          // GB-29: the direct-origin qualification is written and verified exactly as the hosted side will. Dispatching it needs the publish workflow's `direct` admission input, which is the
+          // reserved publication authorization (GC-T22): nothing is dispatched from a direct host until that input exists.
+          const written = directQualification();
+          throw new Error(`RK_DIRECT_RELEASE_HELD: the direct-origin qualification ${written} was written and verified; the committed publish workflow admits \`broker\` only, and adding \`direct\` is the reserved publication authorization (GATE-CONTRACT GC-T22, GC-L01), so nothing was dispatched`);
+        }
         requireBrokerHost(executor); // a direct host has no broker receipts to carry: refuse for that reason, not for the missing receipts
         const qualification = writeQualification({ report, artifact, unit, commit, tree, runtime, executor });
         selfCheck(qualification);
         released = await stageEnv(stage, (runEnv) => (releaser ?? releaseUnit)({ unit, root, checkout: source?.checkout ?? root, commit, executor, env: runEnv, artifact, qualification, platform, out }));
       }
       if (stageGuard && !(await stageGuard.end(stage))) throw new Error(`RK_CHECK_ERROR: the ${stage} stage's result covers no known bytes (a snapshot byte changed, or a write is outside the ledger)`);
+      if (directLinux && (stage === "compile" || stage === "package")) {
+        // The stage guard confirmed the snapshot was the commit's bytes at start and at exit; without one a direct origin has no such evidence and records none.
+        if (!stageGuard) throw new Error(`a direct Linux origin needs the snapshot stage guard to evidence the ${stage} stage (RK_DIRECT_ORIGIN_REFUSED)`);
+        let command = `${stage} ${unit.kind}:${unit.name}`;
+        try { command = (stageCommands({ unit, root, platform })[stage] ?? []).map(describeCommand).join("; ") || command; } catch { /* the stage name alone identifies the command */ }
+        directStages[stage] = directStageEvidence({ stage, commit, tree, command, ...(stage === "package" ? { outputSha256: artifact.artifactSha256 } : {}) });
+      }
       report.stages[stage] = { ok: true, ...(stage === "package" || stage === "qualify" ? { artifactFile: artifact.artifactFile, artifactSha256: artifact.artifactSha256, ...(artifact.contentSha256 ? { contentSha256: artifact.contentSha256 } : {}) } : {}), ...(receipts[stage] ? { receipts: receipts[stage] } : {}), ...(released ?? {}) };
       save();
       out(`rightkit-gate: [${stage}] ${unit.kind}:${unit.name} passed`);
+    }
+    if (directLinux && !stages.includes("release")) {
+      currentStage = "qualify";
+      const qualification = directQualification();
+      out(`rightkit-gate: [qualify] ${unit.kind}:${unit.name} direct-origin qualification ${qualification} verified locally; nothing was dispatched`);
     }
     if (attested && !stages.includes("release")) {
       // --to qualify on a broker host: the qualification is written beside the artifact and verified as the hosted run will, and no upload exists.

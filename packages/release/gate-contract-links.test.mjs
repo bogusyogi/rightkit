@@ -23,8 +23,8 @@ const brokerIds = new Set([...broker.decisions, ...broker.acceptance, ...Object.
 
 test("[GB-30] every requirement tag in the text has exactly one index row and every row has exactly one tag: no orphan, no duplicate", () => {
   assert.ok(INDEX_AT > 0 && RESOLUTIONS_AT > 0, "the contract has its index and resolutions");
-  const tags = [...body.matchAll(/\[(GC-[ATIQ]\d+)\]/g)].map((m) => m[1]);
-  const defined = [...body.matchAll(/(?:^|\n)(?:- |\d\. |\*\*[^*\n]+\*\* |### [^\n]*? |)\[(GC-[ATIQ]\d+)\]/g)].map((m) => m[1]);
+  const tags = [...body.matchAll(/\[(GC-[ATIQL]\d+)\]/g)].map((m) => m[1]);
+  const defined = [...body.matchAll(/(?:^|\n)(?:- |\d\. |\*\*[^*\n]+\*\* |### [^\n]*? |)\[(GC-[ATIQL]\d+)\]/g)].map((m) => m[1]);
   const rows = indexRows.map((r) => r[0]);
   assert.equal(new Set(rows).size, rows.length, `duplicate index row: ${rows.filter((id, i) => rows.indexOf(id) !== i)}`);
   // A tag may be cited again elsewhere (a resolution says "[GC-A05]"), but each id is DEFINED once, at the requirement itself.
@@ -34,7 +34,7 @@ test("[GB-30] every requirement tag in the text has exactly one index row and ev
   for (const id of new Set(tags)) assert.ok(rows.includes(id), `${id} is tagged in the text but has no index row`);
   for (const id of definitions.keys()) assert.ok(rows.includes(id), `${id} is defined in the text but has no index row`);
   // Ids are contiguous per family, so a deleted requirement leaves a visible hole rather than a silent renumbering.
-  for (const family of ["A", "T", "I", "Q"]) {
+  for (const family of ["A", "T", "I", "Q", "L"]) {
     const numbers = rows.filter((id) => id.startsWith(`GC-${family}`)).map((id) => Number(id.slice(4)));
     assert.deepEqual(numbers, numbers.map((_, i) => i + 1), `GC-${family} ids are contiguous from 1`);
   }
@@ -89,4 +89,16 @@ test("[GB-30] the boundary table no longer gives the broker Class A verdict reus
   assert.ok(broker && gate);
   assert.equal(/verdict reuse/i.test(broker), false, "the broker row does not own Class A verdict reuse");
   assert.match(gate, /Class A ordering, inventory & verdict reuse/);
+});
+
+test("[GB-29] the Linux clauses name what the code implements: the direct-origin schema, the refused broker fields, the declared-target key, the held release code", async () => {
+  const { BROKER_ONLY_FIELDS, DIRECT_ORIGIN_SCHEMA } = await import("./direct-origin.mjs");
+  const clause = body.slice(body.indexOf("### Linux direct origin trust"), body.indexOf("### Clippy route"));
+  assert.ok(clause.includes(`\`${DIRECT_ORIGIN_SCHEMA}\``), "the schema is named");
+  for (const field of ["verdict", "refreshed", "provenance", "signature", "payload", "jobId", "requestId", "brokerVersion", "nonce"]) {
+    assert.ok(BROKER_ONLY_FIELDS.includes(field), `${field} is refused by the code`);
+    assert.ok(clause.includes(`\`${field}\``), `${field} is named as refused`);
+  }
+  assert.ok(clause.includes("`targets.linux`") && clause.includes("`RK_DIRECT_RELEASE_HELD`") && clause.includes("`NOT_APPLICABLE`"));
+  assert.equal(/\bOPEN\b/.test(body.slice(body.indexOf("| Open decision"), body.indexOf("### Boundary with the RustRight"))) && /Direct Linux origin trust[^|]*\|[^|]*\|[^|]*OPEN/.test(body), false, "the Linux items are no longer open");
 });

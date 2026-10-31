@@ -6,7 +6,7 @@ import test from "node:test";
 import { tempRoot } from "./test-support/temp-roots.mjs";
 import { qualificationNonce } from "./provenance-verify.mjs";
 import { AGENT_SHIM_MARKER } from "./broker-client.mjs";
-import { readBrokerReceipt, releaseUnit, resolveUnit, runUnitGate } from "./unit-gate.mjs";
+import { readBrokerReceipt, releaseUnit, resolveUnit, runUnitGate, writeQualification } from "./unit-gate.mjs";
 
 const commit = "a".repeat(40), tree = "b".repeat(40);
 const unit = { kind: "npm", name: "@rightkit/demo", version: "1.0.0" };
@@ -410,7 +410,10 @@ test("known red: the host table decides compile, package and qualify; a release 
   assert.equal(await runUnitGate({ ...s.args, to: "release", err: (l) => errs.push(l) }), 1);
   assert.deepEqual(s.calls, []);
   // Linux has no known-red table: the host entry does not apply there, so only a release is barred.
-  assert.equal(await runUnitGate({ ...s.args, platform: "linux" }), 0);
+  // A direct Linux origin evidences its stages with the snapshot stage guard the door always passes (GB-29).
+  const withContent = (fn) => async (...a) => ({ ...(await fn(...a)), contentSha256: "c".repeat(64) });
+  s.owner.packageLocalUnit = withContent(s.owner.packageLocalUnit); s.owner.qualifyLocalUnit = withContent(s.owner.qualifyLocalUnit);
+  assert.equal(await runUnitGate({ ...s.args, platform: "linux", stageCommands: () => ({}), stageGuard: { start: async () => true, end: async () => true }, env: { HOME: "/home/u" } }), 0);
 });
 
 test("known red: --to check compiles nothing and still runs; a missing or empty table lists nothing; an unreadable one refuses", async () => {
@@ -521,4 +524,65 @@ test("[GB-07] unit release refuses to start the coordinator from a primary check
   // An unreadable status is not a clean one.
   const unreadable = { calls: [], run: (cmd, args) => (cmd === "git" && args[0] === "rev-parse" ? { status: 0, stdout: `${commit}\n` } : cmd === "git" ? { status: 128, stdout: "" } : { status: 1 }) };
   await assert.rejects(releaseUnit(base(unreadable.run)), /cannot be read for modified coordinator files/);
+});
+
+function linuxDirect() {
+  const s = setup();
+  const sha = createHash("sha256").update("artifact").digest("hex");
+  const packaged = { ...unit, commit, artifactFile: s.artifactFile, artifactSha256: sha, contentSha256: "c".repeat(64) };
+  s.owner.packageLocalUnit = async () => { s.calls.push("package"); return packaged; };
+  s.owner.qualifyLocalUnit = async () => { s.calls.push("qualify"); return { ...packaged, qualifiedOnly: true, evidencePath: "gate.json" }; };
+  const guard = []; const stageGuard = { start: async (stage) => { guard.push(`start:${stage}`); return true; }, end: async (stage) => { guard.push(`end:${stage}`); return true; } };
+  const outs = []; const errs = [];
+  const stageCommands = () => ({ compile: [{ kind: "cargo", argvs: [["build"]] }], package: [{ kind: "adapter", adapter: "rightkit-pnpm", argvs: [["pack"]] }] });
+  const run = (over = {}) => runUnitGate({ ...s.args, platform: "linux", executor: { kind: "direct" }, stageGuard, stageCommands, env: { HOME: "/home/u" }, out: (l) => outs.push(l), err: (l) => errs.push(l), ...over });
+  const qualification = () => JSON.parse(fs.readFileSync(path.join(path.dirname(s.artifactFile), "qualification.json"), "utf8"));
+  return { s, run, outs, errs, qualification, guard, sha };
+}
+
+test("[GB-29] a direct Linux origin's --to qualify writes a direct-origin qualification (no broker receipts), verifies it as the hosted side will and dispatches nothing", async () => {
+  const { s, run, outs, errs, qualification, sha } = linuxDirect();
+  const bundle = { value: null };
+  s.owner.compileLocalUnit = async (_kind, args) => { bundle.value = args[args.indexOf("--bundle") + 1]; s.calls.push("compile"); return {}; };
+  assert.equal(await run(), 0, errs.join("\n"));
+  const q = qualification();
+  assert.equal(q.executor, "direct");
+  assert.equal(q.directOrigin.executor.platform, "linux");
+  assert.deepEqual(q.directOrigin.stages.map((x) => [x.stage, x.treeAtStart, x.treeAtExit]), [["compile", tree, tree], ["package", tree, tree]]);
+  assert.equal(q.directOrigin.stages[1].outputSha256, sha);
+  assert.equal(q.directOrigin.artifact.contentSha256, "c".repeat(64));
+  assert.equal(JSON.stringify(q).includes("provenance"), false, "no fabricated broker receipt");
+  assert.match(outs.join("\n"), /direct-origin qualification .* verified locally; nothing was dispatched/);
+  assert.deepEqual(s.calls, ["check:release", "compile", "package", "qualify", "close"]);
+  // The Linux scratch is the gate's own state directory, never a Mac volume.
+  assert.match(bundle.value, /^\/home\/u\/\.local\/state\/rightkit\/scratch\/rk-unit-/);
+});
+
+test("[GB-29] negative: a direct Linux origin without the stage guard records no evidence and so writes no qualification; a darwin or win32 direct host is still refused as before", async () => {
+  const { run, errs } = linuxDirect();
+  assert.equal(await run({ stageGuard: null }), 1);
+  assert.match(errs.join("\n"), /needs the snapshot stage guard/);
+  for (const platform of ["darwin", "win32"]) {
+    const other = linuxDirect();
+    assert.equal(await other.run({ platform, to: "release" }), 1, platform);
+    assert.match(other.errs.join("\n"), /broker-managed host/, `${platform}: a Mac or Windows direct host never releases`);
+    assert.equal(fs.existsSync(path.join(path.dirname(other.s.artifactFile), "qualification.json")), false);
+  }
+});
+
+test("[GB-29] --to release on a direct Linux origin writes and verifies the direct-origin qualification, then stops: the publish workflow's `direct` admission is the reserved publication authorization", async () => {
+  const { s, run, errs, qualification } = linuxDirect();
+  let released = 0;
+  assert.equal(await run({ to: "release", releaser: async () => { released += 1; return {}; } }), 1);
+  assert.equal(released, 0, "nothing is dispatched");
+  assert.match(errs.join("\n"), /RK_DIRECT_RELEASE_HELD: the direct-origin qualification .* was written and verified; the committed publish workflow admits `broker` only/);
+  assert.equal(qualification().directOrigin.executor.kind, "direct");
+  assert.equal(s.reports.at(-1).stages.release.ok, false);
+});
+
+test("[GB-29] a qualification written for a direct origin refuses without its record, and a broker host still owes signed receipts", () => {
+  const report = { stages: { check: { ok: true }, compile: { ok: true }, package: { ok: true }, qualify: { ok: true } } };
+  const artifact = { artifactFile: path.join(tempRoot("qual-"), "a.tgz"), artifactSha256: "a".repeat(64), contentSha256: "c".repeat(64) };
+  assert.throws(() => writeQualification({ report, artifact, unit, commit, tree, runtime: "r", executor: { kind: "direct" }, write: () => {} }), /needs its direct-origin record/);
+  assert.throws(() => writeQualification({ report, artifact, unit, commit, tree, runtime: "r", executor: { kind: "broker" }, write: () => {} }), /signed broker receipts/);
 });
