@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { ATOMIC_WRITE_FAILED, AtomicWriteError, writeFileAtomic } from "./atomic-write.mjs";
+import { spawnSync } from "./background-process.mjs";
 import { QA_RECEIPT_SCHEMA, readQaReceipt, writeQaReceipt } from "./release-qa-receipt.mjs";
 import { RECEIPT_SCHEMA, readReceipt, receiptKey, writeReceipt } from "./gate-stages.mjs";
 import { tmpDir } from "./test-support/door-fixture.mjs";
@@ -69,7 +70,7 @@ test("[GB-26] the gate's stage journal and the protected QA receipt are written 
   assert.doesNotMatch(source.slice(source.indexOf("export function writeQaReceipt"), source.indexOf("function loadKeyOrRefuse")), /writeFileSync/);
 });
 
-test("[GB-26, E2E L3-01] a stage-journal writer killed by a real file-size limit mid-write leaves the previous receipt readable (no torn JSON)", { skip: process.platform === "win32" && "needs a POSIX RLIMIT_FSIZE" }, async (t) => {
+test("[GB-26, E2E L3-01] a stage-journal writer killed by a real file-size limit mid-write leaves the previous receipt readable (no torn JSON)", { skip: process.platform === "win32" && "needs a POSIX RLIMIT_FSIZE" }, (t) => {
   const commonDir = tmpDir(t, "rk-l3-fsize-");
   const commit = "a".repeat(40);
   const base = { schema: RECEIPT_SCHEMA, commit, app: ".", binding: { tree: "t" } };
@@ -77,8 +78,10 @@ test("[GB-26, E2E L3-01] a stage-journal writer killed by a real file-size limit
   // The child writes a 200 KB receipt under `ulimit -f 8` (8 blocks): the kernel stops the write part way, as a full disk would.
   const child = `import { writeReceipt } from ${JSON.stringify(new URL("./gate-stages.mjs", import.meta.url).href)};
     writeReceipt({ commonDir: ${JSON.stringify(commonDir)}, receipt: { ...${JSON.stringify(base)}, stages: { check: { ok: true }, compile: { ok: true, pad: "x".repeat(200000) } } } });`;
-  const { spawnSync } = await import("node:child_process");
-  const r = spawnSync("sh", ["-c", `ulimit -f 8; exec "${process.execPath}" --input-type=module -e '${child.replaceAll("'", "'\\''")}'`], { encoding: "utf8" });
+  // `ulimit` needs a shell. The class A launch guard refuses `exec "$0" "$@"` (an exec'd word built by expansion), so the program and the child
+  // text are single-quoted literals in the shell text, which the guard reads to the end.
+  const sq = (text) => `'${text.replaceAll("'", "'\\''")}'`;
+  const r = spawnSync("sh", ["-c", `ulimit -f 8; exec ${sq(process.execPath)} --input-type=module -e ${sq(child)}`], { encoding: "utf8" });
   assert.notEqual(r.status, 0, "the writer really was stopped by the limit");
   assert.deepEqual(readReceipt({ commonDir, commit })?.stages, { check: { ok: true } }, "the previous receipt is still whole and readable");
   assert.deepEqual(leftovers(path.join(commonDir, "rightkit-gate", "receipts")), [], "no temp file is left behind");
