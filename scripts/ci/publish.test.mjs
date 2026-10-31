@@ -851,6 +851,16 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
   assert.deepEqual(Object.fromEntries(entries.map((e) => [`${e.name}@${e.version}`, { reviewer: e.reviewer, reviewRef: e.reviewRef }])), reviews);
 });
 
+test("the uploader's two success outcomes equal packages/release/publication-outcomes.mjs, and the uploader imports nothing outside its sparse checkout", async () => {
+  const text = fs.readFileSync(new URL("./upload.mjs", import.meta.url), "utf8");
+  const shared = await import("../../packages/release/publication-outcomes.mjs");
+  const uploader = await import("./upload.mjs");
+  assert.equal(uploader.PUBLISHED, shared.PUBLISHED);
+  assert.equal(uploader.PUBLISHED_BY_EARLIER_ATTEMPT, shared.PUBLISHED_BY_EARLIER_ATTEMPT);
+  const imports = [...text.matchAll(/^import\s[^;]*?from\s+"([^"]+)";/gm)].map((m) => m[1]).filter((spec) => spec.startsWith("."));
+  assert.deepEqual(imports, ["./registry-spec.mjs"], "publish-reviewed.yml and publish-direct.yml check out scripts/ci/registry-spec.mjs beside upload.mjs and nothing from packages/");
+});
+
 test("the uploader keeps its reviewer-approval gate, and every weakening of it is rejected by the contract", () => {
   const text = fs.readFileSync(new URL("./upload.mjs", import.meta.url), "utf8");
   assert.equal(assertUploadScript(text), true);

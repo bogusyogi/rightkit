@@ -26,7 +26,12 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { shippedDependencyProblems } from "./registry-spec.mjs";
-import { PUBLISHED, PUBLISHED_BY_EARLIER_ATTEMPT } from "../../packages/release/publication-outcomes.mjs";
+
+// The two success outcomes of a publication row. packages/release/publication-outcomes.mjs is their one definition (the consumer, unit-gate.mjs,
+// reads it); the credentialed upload jobs' sparse checkouts (publish-reviewed.yml, publish-direct.yml) carry no packages/ path by contract, so this
+// file may not import it. publish.test.mjs holds these equal to that module.
+export const PUBLISHED = "published";
+export const PUBLISHED_BY_EARLIER_ATTEMPT = "published-by-earlier-attempt";
 
 export const REPOSITORY = "bogusyogi/rightkit"; // moved 2026-10-17 (#342)
 export const REQUIRED_HOSTS = ["macos", "windows"];
