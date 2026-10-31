@@ -35,7 +35,7 @@ export function nativeToolUses({ config, to, devPlatform = null, platform = null
   const add = (command, where, args = null, cwd = ".") => { const tool = base(command); if (Object.hasOwn(NATIVE_TOOLS_WITHOUT_ADAPTER, tool)) uses.push({ tool, capability: NATIVE_TOOLS_WITHOUT_ADAPTER[tool], where, ...(args ? { args, cwd } : {}) }); };
   if (!isObject(config)) return uses;
   const addNdk = (ndk, where, kind) => { if (ndk !== undefined) uses.push({ tool: "cargo-ndk", capability: NDK_EXTERNAL_CAPABILITY, where, ndk, kind }); };
-  if (to === "dev" || to === "test") addNdk(config.development?.targets?.android?.ndk, "development.targets.android.ndk", "dev");
+  if ((to === "dev" || to === "test") && (platform ?? devPlatform) === "android") addNdk(config.development?.targets?.android?.ndk, "development.targets.android.ndk", "dev");
   if ((to === "package" || to === "release") && (platform ?? devPlatform) === "android") addNdk(config.targets?.android?.ndk, "targets.android.ndk", "release");
   if (to === "dev" || to === "test") {
     const target = config.development?.targets?.[devPlatform];

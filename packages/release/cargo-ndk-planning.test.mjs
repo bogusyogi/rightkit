@@ -23,6 +23,7 @@ test("[GB-62] the capability is named from the commit's own config, for a dev/te
   assert.deepEqual(nativeToolUses({ config: releaseConfig({ jniLibs: JNI }), to: "release", devPlatform: null, platform: "android" }).map((u) => u.tool), ["cargo-ndk"]);
   assert.deepEqual(nativeToolUses({ config: releaseConfig({ jniLibs: JNI }), to: "package", devPlatform: null, platform: "android" }).map((u) => u.tool), ["cargo-ndk"]);
   assert.deepEqual(nativeToolUses({ config: devConfig({ jniLibs: JNI }), to: "dev", devPlatform: "mac" }), [], "another platform does not use it");
+  assert.deepEqual(nativeToolUses({ config: devConfig({ jniLibs: JNI }), to: "dev", devPlatform: null }), [], "no platform, no android use");
   assert.deepEqual(nativeToolUses({ config: devConfig({ jniLibs: JNI }), to: "compile", devPlatform: null }), [], "a compile stage does not run it");
   assert.deepEqual(nativeToolUses({ config: devConfig(undefined), to: "dev", devPlatform: "android" }), [], "no ndk block, no use");
 });
@@ -53,7 +54,7 @@ test("[GB-62] negative: an ABI RustRight's ndk grammar refuses (armeabi-v7a, x86
   assert.equal(plan(devConfig({ jniLibs: JNI }), "dev", "android", advertised).refusal, null, "the default ABIs are the accepted ones");
   // The command the gate sends carries --locked at the inner boundary and exactly the accepted options.
   const ndk = validateAndroidNdk({ jniLibs: JNI, abis: ["x86_64"], apiLevel: 26 }, { root: "/app", kind: "release" });
-  assert.deepEqual(androidNdkCommand(ndk).args.slice(0, 9), ["ndk", "--platform", "26", "-t", "x86_64", "-o", JNI, "build", "--locked"]);
+  assert.deepEqual(androidNdkCommand(ndk).args.slice(0, 9), ["ndk", "--platform", "26", "-t", "x86_64", "-o", ndk.jniLibs, "build", "--locked"]);
 });
 
 test("[GB-62] negative: the JNI output must be a generated directory: a committed file under jniLibs refuses, and a malformed ndk block refuses naming its reason", () => {
