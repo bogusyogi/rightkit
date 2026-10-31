@@ -324,7 +324,7 @@ const ADMISSION_DEPENDENCIES = {
   "scripts/ci/consumer-recipes.mjs": "919a1f28d6b005ea963d7e1f9958aebdb34c0ca2a9696ba3eecee475b426bcb8",
   "scripts/ci/workflow-yaml.mjs": "c9e6fe758036e9e246915b2205d520e7ffc8e9f0e0a1a4117c2affc96dd015f5",
   "packages/release/workflow-yaml.mjs": "13491a0cbebe60575f459be004333d4782c1dbe66fe18963c1b1eba0410f4ced",
-  "packages/release/broker-client.mjs": "9037947b6b216e53573ead100eb61aec1c730db909885cb86d07de707d31c176",
+  "packages/release/broker-client.mjs": "0beb5d9b953fe9048944c594dc91c61f5edcc1f4fad2fa8c56eeedff8e434198",
 };
 export async function requirePreflight(opts) {
   if (opts.workflow !== "publish" || !["crates", "npm"].includes(opts.registry)) throw Object.assign(new Error("only scoped crates/npm publication has local admission; general CI dispatch is not admitted"), { code: "ci-not-admitted" });

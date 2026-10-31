@@ -267,6 +267,15 @@ test("the dispatcher's pinned helper digests match the helper files committed be
   assert.match(source, /release-version-pins\.mjs"\), NPM_VERSION_PINS_SHA256\]/, "the pins module is checked in the npm admission list");
 });
 
+test("every ADMISSION_DEPENDENCIES pin equals the digest of the committed file it names (a stale pin would make the production admission refuse every dispatch)", () => {
+  const root = fileURLToPath(new URL("../../", import.meta.url));
+  const source = fs.readFileSync(new URL("./rightkit-dispatch.mjs", import.meta.url), "utf8");
+  const table = /const ADMISSION_DEPENDENCIES = \{([\s\S]*?)\};/.exec(source)[1];
+  const pins = [...table.matchAll(/"([^"]+)":\s*"([0-9a-f]{64})"/g)];
+  assert.ok(pins.length >= 6);
+  for (const [, rel, expected] of pins) assert.equal(crypto.createHash("sha256").update(fs.readFileSync(path.join(root, rel))).digest("hex"), expected, `${rel} changed: re-pin it in scripts/ci/rightkit-dispatch.mjs`);
+});
+
 test("the qualification receipt is re-read by the pinned adapter: commit, unit, every local stage ok, one artifact sha; only facts are forwarded", () => {
   const read = (over = {}) => readQualification(QFILE, { sha: SHA, unit: "rightkit-daemon", registry: "crates", readFile: () => JSON.stringify({ ...QUAL, ...over }) });
   assert.deepEqual(read(), FORWARDED);
