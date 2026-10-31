@@ -74,7 +74,7 @@ function main() {
     const { args: extra, how } = selectionArgs({ event, request, base, parent });
     if (event === "push" && !base) console.log(`ci-plan: ${runner.label} has no last-green baseline; selecting the push diff ${parent.slice(0, 10)}..HEAD, not every unit`);
     const selection = gatePlan(runner.host, extra);
-    if (selection.all && request?.kind !== "all") throw new Error(`${runner.label}: the gate selected every unit (${how}); only an all-units exception may`);
+    if ((selection.all || selection.rust?.all || selection.npm?.all) && request?.kind !== "all") throw new Error(`${runner.label}: the gate selected every unit (${how}); only an all-units exception may`);
     selections.push(selection);
     const plan = planHost({ host: runner.host, label: runner.label, universe, selection, config, shards });
     for (const [step, jobs] of [["test", plan.shards], ["closure", plan.closure]]) {

@@ -81,7 +81,7 @@ test("per-crate selection: transitive path dependents are checked, never tested;
   assert.deepEqual(selectRust({ changedPaths: ["crates/rightkit-x/src/lib.rs", "crates/rightkit-y/src/lib.rs"], members: chain, dependents: reach2 }), { all: false, test: ["rightkit-x", "rightkit-y"], check: ["rightkit-z"] });
   assert.deepEqual(selectRust({ changedPaths: ["crates/rightkit-solo/src/lib.rs"], members: chain, dependents: reach2 }), { all: false, test: ["rightkit-solo"], check: [] });
   for (const root of ["Cargo.toml", "Cargo.lock"]) assert.equal(selectRust({ changedPaths: [root], members: chain, dependents: reach2 }).all, false, `${root} is no longer a global input`);
-  assert.deepEqual(selectRust({ changedPaths: ["rust-toolchain.toml"], members: chain, dependents: reach2 }).all, true);
+  assert.throws(() => selectRust({ changedPaths: ["rust-toolchain.toml"], members: chain, dependents: reach2 }), /Rust global input.*name bounded units/);
 });
 
 test("vendor/citationberg selects rightkit-typeset and its dependents (shared input listed explicitly)", () => {
@@ -91,21 +91,24 @@ test("vendor/citationberg selects rightkit-typeset and its dependents (shared in
   assert.deepEqual(selectRust({ changedPaths: ["vendor/tauri-runtime-wry/src/lib.rs"], members: typeset, dependents: (n) => reverseDependents(n, typesetDeps) }), { all: false, test: [], check: [] });
 });
 
-test("extra paths and config edits select their crate; the workspace manifest selects all", () => {
+test("extra paths and config edits select their crate; global inputs require explicit selection", () => {
   assert.deepEqual(selectRust({ changedPaths: ["contracts/x.schema.json"], members, dependents }).test, ["rightkit-c"]);
   assert.deepEqual(selectRust({ changedPaths: [], members, dependents, configChanged: new Set(["rightkit-b"]) }).test, ["rightkit-b"]);
-  assert.equal(selectRust({ changedPaths: ["rust-toolchain.toml"], members, dependents }).all, true);
+  assert.throws(() => selectRust({ changedPaths: ["rust-toolchain.toml"], members, dependents }), /Rust global input.*name bounded units/);
   assert.deepEqual([...changedConfigCrates({ rust: { a: { os: ["macos"] } } }, { rust: { a: {}, b: {} } })].sort(), ["a", "b"]);
 });
 
-test("test-result parsers, CI provisioners and their pinned inputs invalidate both registries", () => {
-  for (const path of ["scripts/ci/test-results.mjs", "scripts/ci/provision-chrome.mjs", "scripts/ci/provision-ort.mjs", "ci/chrome-for-testing.json", "crates/rightkit-ffmpeg/catalog/native-libraries.json"]) {
-    assert.equal(selectRust({ changedPaths: [path], members, dependents }).all, true, `Rust full selection for ${path}`);
-    assert.equal(selectNpm({ changedPaths: [path], packages: [] }).all, true, `npm full selection for ${path}`);
+test("global gate, parser, provisioner and pinned input edits cannot silently select both registries", () => {
+  const packages = [{ name: "@rightkit/example", dir: "packages/example", deps: [] }];
+  for (const path of ["scripts/ci/gate.mjs", "scripts/ci/select.mjs", "scripts/ci/ci-plan.mjs", "scripts/ci/test-results.mjs", "scripts/ci/provision-chrome.mjs", "scripts/ci/provision-ort.mjs", "ci/chrome-for-testing.json", "crates/rightkit-ffmpeg/catalog/native-libraries.json"]) {
+    assert.throws(() => selectRust({ changedPaths: [path], members, dependents }), /Rust global input.*--all-units-exception/, `Rust refusal for ${path}`);
+    assert.throws(() => selectNpm({ changedPaths: [path], packages }), /npm global input.*--all-units-exception/, `npm refusal for ${path}`);
+    assert.deepEqual(selectRust({ changedPaths: [path], members, dependents, all: true }), { all: true, test: members.map((m) => m.name), check: [] });
+    assert.deepEqual(selectNpm({ changedPaths: [path], packages, all: true }), { all: true, test: ["packages/example"] });
   }
 });
 
-test("only shared CI workflow and setup action changes fan out globally", () => {
+test("only shared CI workflow and setup action changes require explicit global scope", () => {
   const packages = [{ name: "@rightkit/example", dir: "packages/example", deps: [] }];
   for (const path of [
     ".github/workflows/publish.yml",
@@ -117,8 +120,8 @@ test("only shared CI workflow and setup action changes fan out globally", () => 
     assert.equal(selectNpm({ changedPaths: [path], packages }).all, false, `npm selection for ${path}`);
   }
   for (const path of [".github/workflows/ci.yml", ".github/actions/rk-setup/action.yml"]) {
-    assert.equal(selectRust({ changedPaths: [path], members, dependents }).all, true, `Rust selection for ${path}`);
-    assert.equal(selectNpm({ changedPaths: [path], packages }).all, true, `npm selection for ${path}`);
+    assert.throws(() => selectRust({ changedPaths: [path], members, dependents }), /Rust global input.*name bounded units/, `Rust refusal for ${path}`);
+    assert.throws(() => selectNpm({ changedPaths: [path], packages }), /npm global input.*name bounded units/, `npm refusal for ${path}`);
   }
   assert.deepEqual(selectRust({ changedPaths: ["crates/rightkit-a/src/lib.rs"], members, dependents }), { all: false, test: ["rightkit-a"], check: ["rightkit-b"] });
   assert.deepEqual(selectNpm({ changedPaths: ["packages/example/src/index.ts"], packages }), { all: false, test: ["packages/example"] });
@@ -132,7 +135,7 @@ test("npm selection follows dependents; path suites match by directory", () => {
   ];
   assert.deepEqual(selectNpm({ changedPaths: ["packages/ui/src/a.ts"], packages }).test, ["packages/tauri-shell", "packages/ui"]);
   assert.deepEqual(selectNpm({ changedPaths: ["docs/x.md"], packages }).test, []);
-  assert.equal(selectNpm({ changedPaths: ["pnpm-lock.yaml"], packages }).all, true);
+  assert.throws(() => selectNpm({ changedPaths: ["pnpm-lock.yaml"], packages }), /npm global input.*name bounded units/);
   const suites = [{ id: "swift/A", paths: ["swift/A"] }, { id: "swift/AB", paths: ["swift/AB"] }];
   assert.deepEqual(selectByPaths({ changedPaths: ["swift/AB/x.swift"], suites }), ["swift/AB"]);
 });
@@ -250,4 +253,18 @@ test("the build closure tolerates a unit without a build script and keeps --if-p
   // pnpm parses options placed before the command; anything after the script name is forwarded to the script.
   assert.ok(args.indexOf("--if-present") < args.indexOf("run"));
   assert.equal(args.filter((a) => a === "--if-present").length, 1);
+});
+
+test("a package diff produces build filters only for selected packages and their dependency closures", () => {
+  const packages = [
+    { name: "@rightkit/base", dir: "packages/base", deps: [] },
+    { name: "@rightkit/client", dir: "packages/client", deps: ["@rightkit/base"] },
+    { name: "@rightkit/unrelated", dir: "packages/unrelated", deps: [] },
+  ];
+  const selected = selectNpm({ changedPaths: ["packages/client/src/index.js"], packages });
+  assert.deepEqual(selected, { all: false, test: ["packages/client"] });
+  const args = pnpmBuildClosureArgs(selected.test.map((dir) => packages.find((p) => p.dir === dir)?.name));
+  assert.deepEqual(args, ["--workspace-concurrency=1", "--if-present", "--filter", "@rightkit/client...", "run", "build"]);
+  assert.ok(!args.includes("-r"), "a diff never requests a recursive whole-workspace build");
+  assert.throws(() => pnpmBuildClosureArgs([undefined]), /unsafe package name/, "missing package mappings fail closed");
 });

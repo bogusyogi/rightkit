@@ -28,6 +28,13 @@ const INERT = [/(^|\/)CHANGELOG\.md$/, /(^|\/)runtime-budget\.evidence\//];
 const inert = (p) => INERT.some((re) => re.test(p));
 const under = (p, dir) => p === dir || p.startsWith(`${dir}/`);
 
+// A global input invalidates every unit, but is never authority to schedule every unit.
+// Named selection bypasses diff selection; only the gate's validated all-units route passes all=true.
+function refuseGlobalExpansion(changedPaths, patterns, registry) {
+  const global = changedPaths.filter((p) => patterns.some((re) => re.test(p)));
+  if (global.length) throw new Error(`${registry} global input(s) changed: ${global.join(", ")}; name bounded units with --select/--units, or use --all --all-units-exception <id> naming a committed exception`);
+}
+
 /**
  * Parse Cargo.lock into name -> { signatures: string[], deps: Set<name> }.
  * A package's signature covers version, source, checksum and its dependency list, so any change
@@ -86,9 +93,10 @@ export function reach(lock, name, memo = new Map()) {
  */
 export function selectRust({ changedPaths, members, dependents = () => new Set(), configChanged = new Set(), all = false }) {
   const names = members.map((m) => m.name).sort();
-  if (all || changedPaths.some((p) => RUST_GLOBAL.some((re) => re.test(p)))) {
+  if (all) {
     return { all: true, test: names, check: [] };
   }
+  refuseGlobalExpansion(changedPaths, RUST_GLOBAL, "Rust");
   const memberNames = new Set(names);
   const test = new Set();
   for (const member of members) {
@@ -109,7 +117,8 @@ export function selectRust({ changedPaths, members, dependents = () => new Set()
  */
 export function selectNpm({ changedPaths, packages, all = false }) {
   const dirs = packages.map((p) => p.dir).sort();
-  if (all || changedPaths.some((p) => NPM_GLOBAL.some((re) => re.test(p)))) return { all: true, test: dirs };
+  if (all) return { all: true, test: dirs };
+  refuseGlobalExpansion(changedPaths, NPM_GLOBAL, "npm");
   const selected = new Set(packages.filter((pkg) => changedPaths.some((p) => !inert(p) && under(p, pkg.dir))).map((p) => p.name));
   for (let grew = true; grew;) {
     grew = false;

@@ -64,13 +64,31 @@ fn other_pid() -> u32 {
 
 /// A client that connected and sent nothing.
 fn stall(hosted: &Hosted) -> UnixStream {
-    let stream = UnixStream::connect(&hosted.record().endpoint).expect("raw connect");
-    // Arm the read bound while the peer is certainly open: macOS refuses setsockopt (EINVAL) on a
-    // socket whose peer has already closed it, which the handshake deadline does to a stall.
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .expect("read timeout");
-    stream
+    UnixStream::connect(&hosted.record().endpoint).expect("raw connect")
+}
+
+/// Read without setting socket timeouts: an immediately refused peer may already be closed, and
+/// macOS can reject SO_RCVTIMEO on that socket. Nonblocking mode only changes our descriptor.
+fn read_byte_with_timeout(stream: &mut UnixStream, timeout: Duration) -> std::io::Result<usize> {
+    stream.set_nonblocking(true)?;
+    let until = Instant::now() + timeout;
+    while Instant::now() < until {
+        match stream.read(&mut [0u8; 1]) {
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(
+                    until
+                        .saturating_duration_since(Instant::now())
+                        .min(Duration::from_millis(10)),
+                );
+            }
+            result => return result,
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::TimedOut,
+        "timed out waiting for a byte or EOF",
+    ))
 }
 
 fn connect(suite: &Suite) -> Result<Client, ServiceError> {
@@ -123,14 +141,9 @@ fn wait_for(what: &str, mut ok: impl FnMut() -> bool) {
 
 /// Is the host still holding `stream` open and quiet? A closed one answers EOF at once.
 fn held_open(stream: &mut UnixStream) -> bool {
-    stream
-        .set_read_timeout(Some(Duration::from_millis(100)))
-        .unwrap();
-    match stream.read(&mut [0u8; 1]) {
-        Err(e) => matches!(
-            e.kind(),
-            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-        ),
+    match read_byte_with_timeout(stream, Duration::from_millis(100)) {
+        Err(e) if e.kind() == std::io::ErrorKind::TimedOut => true,
+        Err(e) => panic!("could not inspect stalled connection: {e}"),
         Ok(read) => {
             // The host never sends before `hello`: anything it gives back is the close.
             assert_eq!(read, 0, "the host wrote to a connection that sent nothing");
@@ -296,7 +309,7 @@ fn stalled_connections_are_closed_after_the_handshake_deadline() {
     let mut stalled = [stall(&hosted), stall(&hosted)];
     let mut turned_away = stall(&hosted);
     assert_eq!(
-        turned_away.read(&mut [0u8; 1]).unwrap(),
+        read_byte_with_timeout(&mut turned_away, Duration::from_secs(5)).unwrap(),
         0,
         "a connection past the table is closed unread"
     );
@@ -308,7 +321,7 @@ fn stalled_connections_are_closed_after_the_handshake_deadline() {
     // The host closes each stalled connection once the deadline passes: the read is EOF.
     for s in &mut stalled {
         assert_eq!(
-            s.read(&mut [0u8; 1]).unwrap(),
+            read_byte_with_timeout(s, Duration::from_secs(5)).unwrap(),
             0,
             "closed by the host, not by us"
         );

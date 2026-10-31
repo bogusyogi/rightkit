@@ -51,6 +51,8 @@ import { changedConfigCrates, parseLock, pnpmBuildClosureArgs, selectByPaths, se
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const WIN = process.platform === "win32";
 const PLAN = process.argv.includes("--plan");
+const UNIVERSE = process.argv.includes("--universe");
+if (UNIVERSE && !PLAN) { console.error("gate: --universe only lists units with --plan; it never runs them"); process.exit(2); }
 const argOf = (flag) => { const i = process.argv.indexOf(flag); return i > 0 ? process.argv[i + 1] : undefined; };
 // Only `--plan` may name another host (ci-plan.mjs plans both runner OSes on one Linux job); a run always uses its own.
 const PLAN_HOST = PLAN ? argOf("--host") : undefined;
@@ -180,24 +182,23 @@ function plan() {
   if (UNIT_MODE) return unitPlan();
   if (SELECT_MODE) return selectPlan();
   const config = readJson("ci/gate.config.json", {});
-  const base = resolveBase();
+  const base = UNIVERSE ? null : resolveBase();
   // Never every unit by default (Adrian, 2026-10-31; GATE-CONTRACT §1A): no base means name the units with --select or
   // a --base; every unit only with --all and a valid ci/all-units-exceptions.json entry.
   // `--plan --universe` only lists every unit (ci-plan's catalogue) and never runs one; it needs no exception.
-  const universe = process.argv.includes("--universe");
-  if (universe && !process.argv.includes("--plan")) {
-    console.error("gate: --universe only lists units with --plan; it never runs them");
-    process.exit(2);
-  }
-  const wantsAll = universe || process.argv.includes("--all");
-  if (wantsAll && !universe) {
+  const wantsAll = UNIVERSE || process.argv.includes("--all");
+  if (wantsAll && !UNIVERSE) {
     try {
-      resolveDispatchRequest({ exceptionId: argOf("--all-units-exception") ?? "", read: (file) => fs.readFileSync(path.join(ROOT, file), "utf8") });
+      resolveDispatchRequest({ exceptionId: argOf("--all-units-exception") ?? "", read: (file) => {
+        const committed = git("show", `HEAD:${file}`);
+        if (committed.status !== 0) throw new Error(`${file} is not readable from the selected commit`);
+        return committed.stdout;
+      } });
     } catch (error) {
       console.error(`gate: --all refused: ${error.message}. Pass --all-units-exception <id> naming a valid ci/all-units-exceptions.json entry.`);
       process.exit(2);
     }
-  } else if (!base) {
+  } else if (!base && !UNIVERSE) {
     console.error('gate: no base commit and no unit selection; RightKit never runs every unit by default. Use --select "rust:<crate> npm:<dir> ...", --base <sha>, or --all --all-units-exception <id>.');
     process.exit(2);
   }
@@ -572,12 +573,10 @@ async function npmGate(selection) {
   const { npm, root, packages } = selection;
   if (npm.test.length) {
     // Workspace packages resolve each other through built output, so build them in dependency order before any
-    // selected package is tested. A publish verification builds only the requested packages and their workspace
-    // dependency closure, so an unrelated package that does not build cannot block them.
-    let buildArgs = ["-r", "--workspace-concurrency=1", "run", "build"];
-    if (UNIT_MODE || SELECT_MODE) {
-      try { buildArgs = pnpmBuildClosureArgs(npm.test.map((dir) => packages.find((p) => p.dir === dir)?.name)); } catch (error) { results.push({ unit: "npm:build", command: `pnpm build closure: ${error.message}`, ok: false, code: 1, seconds: 0 }); buildArgs = null; }
-    }
+    // selected package is tested. Every mode builds only selected packages and their workspace dependency
+    // closure; a validated all-units selection already names every package.
+    let buildArgs;
+    try { buildArgs = pnpmBuildClosureArgs(npm.test.map((dir) => packages.find((p) => p.dir === dir)?.name)); } catch (error) { results.push({ unit: "npm:build", command: `pnpm build closure: ${error.message}`, ok: false, code: 1, seconds: 0 }); buildArgs = null; }
     const built = buildArgs ? await run("npm:build", "pnpm", buildArgs, { timeoutMinutes: 30 }) : false;
     for (const dir of npm.test) {
       const pkg = packages.find((p) => p.dir === dir);
