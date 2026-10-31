@@ -316,6 +316,21 @@ test("[RA-19] an installed-policy copy of the dispatcher alone (no checkout sibl
   assert.match(result.stderr, /RUSTRIGHT_JOB_ID/, "the module evaluated and main refused for the missing broker marker (a missing sibling would be ERR_MODULE_NOT_FOUND)");
 });
 
+test("[RA-19] the entry guard also runs when the installed copy is launched through a link (a `current` link, a Windows junction, macOS /var): a refusal, never a silent exit 0", (t) => {
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-dispatch-linked-")));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const target = path.join(base, "v1"); fs.mkdirSync(target);
+  fs.copyFileSync(fileURLToPath(new URL("./rightkit-dispatch.mjs", import.meta.url)), path.join(target, "rightkit-dispatch.mjs"));
+  const link = path.join(base, "current");
+  fs.symlinkSync(target, link, "junction"); // a junction on Windows (no privilege needed), an ordinary directory link elsewhere
+  const spelled = path.join(link, "rightkit-dispatch.mjs");
+  assert.notEqual(fs.realpathSync(spelled), spelled, "the launch path really goes through a link, so Node's main-module path differs from argv[1]");
+  const result = spawnSync(process.execPath, [spelled, "--probe"], { encoding: "utf8", env: { PATH: process.env.PATH }, cwd: target, timeout: 20_000 });
+  assert.equal(result.status, 2, `status ${result.status}, stderr ${JSON.stringify(result.stderr)}: a launch through a link must run main() and refuse for the missing broker marker`);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /RUSTRIGHT_JOB_ID/);
+});
+
 test("[RA-19] tampering any admission helper or dependency is refused BEFORE any of that code is evaluated (a sentinel module would write a marker)", async () => {
   const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
   const source = fs.readFileSync(new URL("./rightkit-dispatch.mjs", import.meta.url), "utf8");

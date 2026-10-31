@@ -220,11 +220,16 @@ export function packageManagerPin(dir) {
 }
 
 /** pnpm state metadata with its timestamp fields and the export's own path removed; every other field stays. */
-export function normalizeInstalledMetadata(name, text, exportDir) {
-  const real = (() => { try { return fs.realpathSync(exportDir); } catch { return exportDir; } })();
+export function normalizeInstalledMetadata(name, text, exportDir, { resolvers = [fs.realpathSync, fs.realpathSync.native] } = {}) {
   // The export's path appears as written by pnpm: raw in YAML, JSON-escaped in pnpm 11's JSON state files (on Windows its backslashes
   // are doubled there, so the raw form never matched and two exports of one commit digested differently, rightkit#1261/#1258).
-  const forms = [...new Set([real, exportDir].flatMap((p) => [JSON.stringify(p).slice(1, -1), p]))].sort((x, y) => y.length - x.length);
+  // It also appears in the spelling pnpm resolved it to: pnpm finds its workspace directory with fs.realpath.native, which expands a
+  // Windows 8.3 short name (C:\Users\RUNNER~1\... on hosted runners, whose TEMP is the short form that os.tmpdir() and the JavaScript
+  // realpathSync keep) to the long one (C:\Users\runneradmin\...). Every spelling Node can give the one directory is replaced, so the
+  // per-export temp name never reaches the digest (rightkit#1323).
+  const spellings = [exportDir];
+  for (const resolve of resolvers) { try { spellings.push(resolve(exportDir)); } catch { /* an alias that cannot be resolved is not a spelling pnpm wrote */ } }
+  const forms = [...new Set(spellings.flatMap((p) => [JSON.stringify(p).slice(1, -1), p]))].sort((x, y) => y.length - x.length);
   const unpath = (t) => forms.reduce((acc, f) => acc.split(f).join("<export>"), t);
   if (name === ".modules.yaml") {
     // pnpm ≤10 writes YAML; pnpm 11 writes JSON under the same name. Either way only the TOP-LEVEL prunedAt goes; a nested key of

@@ -224,6 +224,28 @@ test("exports-import-effects: installed-state metadata is normalized for the exp
   assert.notEqual(normalizeInstalledMetadata(".modules.yaml", modules(one), one), normalizeInstalledMetadata(".modules.yaml", modules(one).replace('"layoutVersion":5', '"layoutVersion":6'), one));
 });
 
+test("exports-import-effects: the export's path is normalized in the spelling pnpm resolved it to, not only the one it was given (a Windows 8.3 short TEMP against fs.realpath.native, rightkit#1323)", () => {
+  // Hosted Windows runners: os.tmpdir() (hence the export directory) is C:\Users\RUNNER~1\..., while pnpm resolves its workspace directory with
+  // fs.realpath.native and writes C:\Users\runneradmin\... into its state files. `resolvers` stands in for that native resolution of the short spelling.
+  const short = (id) => `C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\rk-import-effects-${id}`;
+  const long = (id) => `C:\\Users\\runneradmin\\AppData\\Local\\Temp\\rk-import-effects-${id}`;
+  const state = (dir) => JSON.stringify({ lastValidatedTimestamp: 1, projects: { [long(dir)]: { name: "root" }, [`${long(dir)}\\packages\\a`]: { name: "a" } }, settings: { virtualStoreDir: `${long(dir)}\\node_modules\\.pnpm` } }, null, 2);
+  const modules = (dir, layoutVersion = 5) => JSON.stringify({ layoutVersion, prunedAt: "x", virtualStoreDir: `${long(dir)}\\node_modules\\.pnpm` });
+  const norm = (file, text, id, resolvers) => normalizeInstalledMetadata(file, text, short(id), { resolvers });
+  const native = (id) => [() => long(id)];
+  for (const [file, make] of [[".pnpm-workspace-state-v1.json", state], [".modules.yaml", modules]]) {
+    const a = norm(file, make("AAAAAA"), "AAAAAA", native("AAAAAA")); const b = norm(file, make("BBBBBB"), "BBBBBB", native("BBBBBB"));
+    assert.equal(a, b, `${file}: two exports of one commit normalize to the same metadata`);
+    assert.ok(!a.includes("rk-import-effects-") && !a.includes("runneradmin"), a);
+    // Control: with only the spelling the export was given (the former behaviour) the per-export name survives into the digest input.
+    assert.notEqual(norm(file, make("AAAAAA"), "AAAAAA", []), norm(file, make("BBBBBB"), "BBBBBB", []), `${file}: the short spelling alone does not remove the long one`);
+  }
+  // Semantic content still shows: a layout change is another closure even though the path is normalized.
+  assert.notEqual(norm(".modules.yaml", modules("AAAAAA"), "AAAAAA", native("AAAAAA")), norm(".modules.yaml", modules("AAAAAA", 6), "AAAAAA", native("AAAAAA")));
+  // A resolver that throws (a directory that no longer exists) contributes no spelling and never fails the normalization.
+  assert.equal(norm(".modules.yaml", modules("AAAAAA"), "AAAAAA", [() => { throw new Error("ENOENT"); }, ...native("AAAAAA")]), norm(".modules.yaml", modules("BBBBBB"), "BBBBBB", native("BBBBBB")));
+});
+
 test("exports-import-effects: dependency bytes are bound, not metadata: two exports of one commit digest equal; a mutated dependency file inside an export changes the digest while lockfile and installed-state digests stay identical; the live node_modules is never consulted", (t) => {
   const { repo, git } = gitRepoFixture(t);
   const commit = git("rev-parse", "HEAD").trim();
@@ -297,7 +319,11 @@ test("exports-import-effects: dependency setup executes no candidate code — pn
   git("add", "-A"); git("commit", "-qm", "hostile config");
   const commit = git("rev-parse", "HEAD").trim();
   // Positive control: a plain `pnpm install` of the same tree runs the hook and the scripts (the markers are real).
-  const plain = tmp(t); execFileSync("tar", ["-x", "-C", plain], { input: execFileSync("git", ["-C", repo, "archive", "--format=tar", commit]) });
+  // The tree is written by git itself, as exportTree does, never by a host `tar`: on a Windows runner whose PATH leads with Git's usr/bin, `tar` is GNU tar,
+  // which unquotes backslash escapes in its `-C` argument, so `...\Temp\rk-source-gate-X` became `...\Temp<CR>k-source-gate-X` and nothing was extracted (rightkit#1323).
+  const plain = tmp(t); const plainEnv = { ...process.env, GIT_INDEX_FILE: mark("plain.index") };
+  execFileSync("git", ["-C", repo, "read-tree", commit], { env: plainEnv });
+  execFileSync("git", ["-C", repo, "checkout-index", "--all", "--force", `--prefix=${plain}${path.sep}`], { env: plainEnv });
   // (not frozen: with hooks enabled pnpm compares the lockfile's pnpmfile checksum, which the committed hook-less lockfile lacks)
   try { packageManager("pnpm", ["install", "--no-frozen-lockfile", "--offline"], { cwd: plain, encoding: "utf8", env: { ...process.env, CI: "1" }, stdio: ["ignore", "pipe", "pipe"] }); }
   catch (error) { assert.fail(`positive-control install failed: ${error.stderr}\n${error.stdout}`); }

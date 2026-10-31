@@ -555,6 +555,11 @@ export async function main(argv, deps = {}) {
   return 0;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// Entry guard: main() runs only when this file is the program Node was started on. Both sides are compared as real paths: Node resolves the main
+// module through links (macOS /var -> /private/var, an installed `current` link, a Windows junction), so import.meta.url is the target while
+// argv[1] keeps the spelling it was started with. Comparing the raw spellings skipped main() for any launch through a link: exit 0, no output,
+// no refusal, nothing dispatched. A side that cannot be resolved falls back to its resolved spelling, the comparison this guard made before.
+const realOrSelf = (file) => { try { return fs.realpathSync(file); } catch { return path.resolve(file); } };
+if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) {
   process.exit(await main(process.argv.slice(2)));
 }
