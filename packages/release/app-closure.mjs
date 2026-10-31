@@ -179,7 +179,8 @@ export function scopeScans(scans, closure, { rustUnits = [] } = {}) {
     const rust = /^(?:clippy|check|check-features|check-dependent|doc|test:rust|test:rust-serial):(.+)$/.exec(s.id);
     const cargoList = CARGO_PACKAGE_LIST.exec(s.id);
     let include = true;
-    if (npm) include = closure.npm.has(npm[1]);
+    if (s.internal === "refuse" && s.unit?.npm) include = closure.npm.has(s.unit.npm);
+    else if (npm) include = closure.npm.has(npm[1]);
     else if (cargoList) {
       if (!names.includes(cargoList[1])) throw problem(`scan ${s.id} has no known Rust owner`);
       include = closure.rust.has(cargoList[1]);

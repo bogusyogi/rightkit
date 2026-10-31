@@ -956,7 +956,8 @@ export function planScans({
     scans.push(entry);
   };
   const A = SCAN_CLASS.A; const B = SCAN_CLASS.B;
-  const refuse = (what, why) => add({ id: `path-policy:${sha256(`${what}\0${why}`).slice(0, 12)}`, class: A, internal: "refuse", detail: `${what}: ${why}; refused, never run` });
+  // `unit` names the npm or Rust unit a refusal belongs to, so a unit-scoped check drops it with that unit (app-closure.mjs scopeScans).
+  const refuse = (what, why, unit = null) => add({ id: `path-policy:${sha256(`${what}\0${why}`).slice(0, 12)}`, class: A, internal: "refuse", detail: `${what}: ${why}; refused, never run`, ...(unit ? { unit } : {}) });
   for (const r of refusals) refuse(`changed path ${JSON.stringify(r.raw)}`, r.why);
   // A rust unit's name may be `<cargoDir>:<crate>`; the part that reaches argv (`-p`) is the crate, and the workspace directory is
   // checked as a plain path where the unit is registered.
@@ -1476,7 +1477,7 @@ export function planScans({
         const reach = cargoReachOf({ unitDir, scripts: manifest.scripts, declared, readScripts: scriptsOf, packageDirOf });
         const hasRust = Object.keys(targetDirs).length > 0;
         if (reach.unprovable) {
-          if (hasRust) { refuse(`npm unit ${name}`, `its test reaches cargo while the compile reads a commit snapshot, and which workspace's outputs it writes cannot be proven (${reach.unprovable}); outputs must be the checkout's`); continue; }
+          if (hasRust) { refuse(`npm unit ${name}`, `its test reaches cargo while the compile reads a commit snapshot, and which workspace's outputs it writes cannot be proven (${reach.unprovable}); outputs must be the checkout's`, { npm: name }); continue; }
         } else if (reach.dir !== undefined || reach.dirs) {
           const workspaceOf = (from) => {
             let manifestDir = null;
@@ -1489,9 +1490,9 @@ export function planScans({
           };
           const found = (reach.dirs ?? [reach.dir]).map(workspaceOf);
           const unknown = found.find((f) => f.why);
-          if (unknown) { refuse(`npm unit ${name}`, unknown.why); continue; }
+          if (unknown) { refuse(`npm unit ${name}`, unknown.why, { npm: name }); continue; }
           const workspaces = [...new Set(found.map((f) => f.ws))];
-          if (workspaces.length > 1) { refuse(`npm unit ${name}`, `its test reaches cargo in more than one workspace (${workspaces.join(", ")} from ${reach.dirs.join(", ")}); one CARGO_TARGET_DIR binds the whole test, so one of them would write into another's outputs`); continue; }
+          if (workspaces.length > 1) { refuse(`npm unit ${name}`, `its test reaches cargo in more than one workspace (${workspaces.join(", ")} from ${reach.dirs.join(", ")}); one CARGO_TARGET_DIR binds the whole test, so one of them would write into another's outputs`, { npm: name }); continue; }
           cargoTarget = targetDirs[workspaces[0]];
         }
       }

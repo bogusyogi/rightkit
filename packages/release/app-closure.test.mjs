@@ -50,6 +50,16 @@ test("selected Rust scope retains dependencies & repository file-only scans, exc
   assert.equal(blockedBy(["secret-scan"]), true);
 });
 
+test("a path-policy refusal tagged with its npm unit leaves a Rust-unit scope with that unit; an untagged refusal stays repository-wide", () => {
+  const refusal = (id, unit) => ({ id, class: "A", internal: "refuse", ...(unit ? { unit } : {}) });
+  const rows = [refusal("path-policy:aaa", { npm: "desktop" }), refusal("path-policy:bbb", { npm: "@rightkit/release" }), refusal("path-policy:ccc")];
+  const c = closure();
+  c.npm.add("@rightkit/release");
+  const { scans, dropped } = scopeScans(rows, c, { rustUnits });
+  assert.deepEqual(scans.map((s) => s.id), ["path-policy:bbb", "path-policy:ccc"]);
+  assert.deepEqual(dropped.map((s) => s.id), ["path-policy:aaa"]);
+});
+
 // ---- GC-A03 / GC-I03: a unit-scoped check runs Cargo scans only for the unit's Rust closure --------------------------------------
 // The plan below is the real planner's (planScans over an in-memory repository of three Cargo workspaces), so the ids and `cwd` the scoping reads are
 // the ones the gate really plans. Evidence of the defect on HEAD: gate-check-release.log:85, "0 Rust unit(s)" yet 282 Cargo scans ran.
