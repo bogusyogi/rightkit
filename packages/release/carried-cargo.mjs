@@ -74,7 +74,7 @@ export function runCarriedCargo(args, options = {}, { map, spawn = spawnSync, er
   if (!Object.hasOwn(map.workspaces, workspace)) return refuse("RK_CARGO_UNBOUND_WORKSPACE", `\`cargo ${words.join(" ")}\` builds the Cargo workspace ${workspace}, which is not one this snapshot stage resolved (${Object.keys(map.workspaces).join(", ") || "none"})`);
   const capture = options.stdio === "inherit" ? "inherit" : "capture";
   const result = carryBrokerCargo({ words, cwd: from, env, section: map.broker, workspace, checkoutWorkspace: map.workspaces[workspace], record: (entry) => record({ ...entry, id: base.id }), spawn, err, stdio: capture });
-  return { status: result.status, signal: null, stdout: result.stdout, stderr: result.stderr, error: null, ...(result.outcome?.status === "verified" ? { outputDir: result.outcome.outputDir } : {}), ...(result.outcome?.status === "refused" ? { refusal: { code: result.outcome.code, message: result.outcome.message } } : {}) };
+  return { status: result.status, signal: null, stdout: result.stdout, stderr: result.stderr, error: null, ...(result.outcome?.status === "verified" ? { outputDir: result.outcome.outputDir, requestId: result.outcome.requestId, requestDigest: result.outcome.requestDigest } : {}), ...(result.outcome?.status === "refused" ? { refusal: { code: result.outcome.code, message: result.outcome.message } } : {}) };
 }
 
 /**

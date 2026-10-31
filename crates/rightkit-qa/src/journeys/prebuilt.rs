@@ -14,7 +14,7 @@
 //! * the sha256 of the **listing** bytes: a changed listing is refused (`prebuilt_listing_mismatch`);
 //! * the **command** the carried build ran, which must equal the build the journeys manifest declares: an input that was built by
 //!   another command, or a hidden second build, is refused (`prebuilt_command_mismatch`);
-//! * the sha256 of every **output** the listing names: a changed or unlisted artifact is refused (`artifact_mismatch`,
+//! * the sha256 of every **output** (every executable a declared role resolves to): a changed or unlisted artifact is refused (`artifact_mismatch`,
 //!   `artifact_not_from_build`).
 //!
 //! A product that must carry the QA control marker (every role but the adapter and engine, [`super::build_record::MarkerPolicy`])
@@ -76,7 +76,7 @@ pub struct PrebuiltAttestation {
     pub listing_sha256: String,
     /// The carried cargo argv, without the broker program: `cargo test -p x --no-run --message-format=json`.
     pub command: Vec<String>,
-    /// Every executable the listing names, with its verified sha256.
+    /// Every executable a declared role resolves to, with its verified sha256.
     pub outputs: Vec<OutputHash>,
 }
 

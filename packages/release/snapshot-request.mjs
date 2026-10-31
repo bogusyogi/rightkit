@@ -622,7 +622,7 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
   verifyReceiptCoverage(receipt, payload);
   verifyResultEvidence(receipt, payload);
   verifyBr19Evidence(receipt, payload);
-  return { payload, evidence, attribution, toolchain, nestedChildren };
+  return { payload, evidence, attribution, toolchain, nestedChildren, requestDigest };
 }
 
 export { ProvenanceError };

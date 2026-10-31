@@ -33,6 +33,7 @@ import { carriedCargoMapOf, carriedLedgerIds, carriedOutputDirsSince } from "./c
 import { CommandSpecError, loadAppConfig, resolveInvocation, validateStep } from "./command-spec.mjs";
 import { defaultReleaseConfigFile } from "./release-config.mjs";
 import { fsListRustFiles } from "./signing-files.mjs";
+import { journeysCapabilityRefusal, journeysRunRefusal, qaPrebuiltCapability } from "./qa-journeys-prebuilt.mjs";
 import { SIGN_STEP_KEYS, QA_APP_BINARY_ENV, QA_SIGNING_EVIDENCE_ENV, QA_SIGNED_FILES_ENV, SuiteSigningError, assertPlanSigningPolicy, assertSuiteSigningPolicy, validateSignSpec } from "./suite-signing-policy.mjs";
 import { runSignStep } from "./suite-signing.mjs";
 
@@ -187,7 +188,7 @@ export function eventPrefix(config) {
  * A `sign` step (suite-signing.mjs) runs IN THIS PROCESS, never through `door` (it is no command and never a broker job); it signs what an earlier
  * suite built, named by that suite's verified carried receipts, and only a success sets RIGHTKIT_QA_APP_BINARY for the suites after it.
  */
-export async function runSuites(plan, { appRoot, prefix = "test", env = process.env, spawnFn = spawn, log = console.log, errLog = console.error, door = buildLaunch, config = null, platform = process.platform, signDeps = {}, signStep = runSignStep, snapshotStage = Boolean(carriedCargoMapOf(env)?.map) } = {}) {
+export async function runSuites(plan, { appRoot, prefix = "test", env = process.env, spawnFn = spawn, log = console.log, errLog = console.error, door = buildLaunch, config = null, platform = process.platform, signDeps = {}, signStep = runSignStep, snapshotStage = Boolean(carriedCargoMapOf(env)?.map), qaCapability = (qa) => qaPrebuiltCapability(qa, { env }) } = {}) {
   const results = [];
   // One signing policy, enforced here whatever the config's format (the route probe reads JSON configs only; a legacy .mjs config is judged now): an
   // unsigned or ad hoc product build, or an identifier override, is refused before any suite runs (rightkit#1303). Mac and Dell only.
@@ -202,15 +203,21 @@ export async function runSuites(plan, { appRoot, prefix = "test", env = process.
     errLog(`right-release test: [${error.code}] ${error.message}`);
     return { exitCode: 1, results };
   }
-  // GB-79 (GATE test stage/E1/E6/E11): `rightkit-qa journeys run` builds through the broker before it launches and has no prebuilt-input form, so on
-  // a snapshot stage the door refuses it at launch (build-launch.mjs qaBuildReason). That refusal came after every earlier suite had already built.
-  // It is now a PLANNING failure naming the missing capability, before any suite runs; nothing is silently skipped and an empty journey set is never green.
-  // Only a gate-carried snapshot stage (a carrier map in the environment) has the one-build rule; a direct host starts it as it always did.
-  const unsupported = snapshotStage ? plan.filter((item) => !item.sign && item.step && qaJourneysRunStep(item.step, item.extraArgs)) : [];
-  if (unsupported.length) {
-    for (const item of unsupported) errLog(`right-release test: [${QA_JOURNEYS_UNSUPPORTED}] ${item.name}: \`rightkit-qa journeys run\` has no prebuilt-input mode (capability "journeys-prebuilt-input" is not implemented): it compiles through the broker itself, and a gate-carried stage must build once, sign, then run prebuilt bytes. Nothing ran`);
-    return { exitCode: 1, results };
+  // GB-79 (GATE test stage/E1/E6/E11): `rightkit-qa journeys run` spawns its own broker build, which a gate-carried snapshot stage cannot allow. When the installed rightkit-qa
+  // advertises `journeys-prebuilt-input` the door carries the build itself, signs the products and hands QA the verified listing and attestation (qa-journeys-prebuilt.mjs).
+  // Without the capability it is a PLANNING failure naming it, before any suite runs; nothing is silently skipped and an empty journey set is never green. A step that names
+  // its own listing, attestation or plan flag is refused too (an input the gate did not verify). Only a gate-carried snapshot stage (a carrier map in the environment) has the
+  // one-build rule; a direct host starts it as it always did.
+  const journeys = snapshotStage ? plan.filter((item) => !item.sign && item.step && qaJourneysRunStep(item.step, item.extraArgs)) : [];
+  const unsupported = [];
+  for (const item of journeys) {
+    const argv = [item.step.cmd ?? item.step.node, ...(item.step.args ?? []), ...(item.extraArgs ?? [])].filter((w) => typeof w === "string");
+    const at = argv.findIndex((w) => /(^|[\\/])rightkit-qa(\.exe)?$/.test(w));
+    const own = journeysRunRefusal(argv.slice(at + 1));
+    if (own) { errLog(`right-release test: [${QA_JOURNEYS_UNSUPPORTED}] ${item.name}: ${own}. Nothing ran`); unsupported.push(item); continue; }
+    if (!qaCapability(argv[at], item.step)) { errLog(`right-release test: [${QA_JOURNEYS_UNSUPPORTED}] ${journeysCapabilityRefusal(item.name)}`); unsupported.push(item); }
   }
+  if (unsupported.length) return { exitCode: 1, results };
   // The environment later suites get: the caller's, plus RIGHTKIT_QA_APP_BINARY and RIGHTKIT_QA_SIGNING_EVIDENCE once a sign step succeeded.
   let suiteEnv = env;
   // The verified carried receipts' output directories of each suite that passed, by name and by group (a sign step reads them).

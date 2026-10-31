@@ -12,7 +12,7 @@
 //                                  already-built artifact and compiles nothing, so it stays a direct, gate-run step with its GUI session and
 //                                  unscrubbed environment. A `run-tests` step with no `--from-cargo-json` is two parts (qa-snapshot-run.mjs): a
 //                                  carried test build whose listing lands under the carrier's managed directory, then QA directly against
-//                                  it. Any other QA step whose argv would build (`journeys run`, `--build*`) is refused (`qaBuildReason`), as
+//                                  it. A `journeys run` step is the same two parts (qa-journeys-prebuilt-run.mjs, GB-79: the gate carries the build, signs the products, hands QA the verified input) when rightkit-qa advertises `journeys-prebuilt-input`, else refused naming it. Any other QA step whose argv would build (`--build*`) is refused (`qaBuildReason`), as
 //                                  is a QA directory outside the snapshot or an input that resolves into the primary checkout (`qaPathReason`)
 // - this package's right-release -> unchanged (same NODE_OPTIONS as this process): it orchestrates, and every build it starts comes back
 //                                  through this door
@@ -44,6 +44,7 @@ import { cargoSubcommandOf, canonicalCargoCommand } from "./cargo-shapes.mjs";
 import { swiftScratchRefusal } from "./swift-scratch.mjs";
 import { NATIVE_ADAPTERS, nativeToolLaunch, nativeToolOf } from "./native-adapters.mjs";
 import { PNPM_ADAPTER_GRAMMAR, adapterArgvRefusal, liveAdapterGrammar, scanAdapterArgv } from "./pnpm-adapter-grammar.mjs";
+import { isJourneysRun, journeysCapabilityRefusal, journeysRunRefusal, qaPrebuiltCapability } from "./qa-journeys-prebuilt.mjs";
 import { QA_VALUE_OPTIONS, hasListing, isBuildFlag, ownWords, qaPathReason, qaSnapshotPlan } from "./qa-snapshot.mjs";
 
 /** The environment variable the door sets for a stage that runs from a commit snapshot (gate-stages.mjs CHECKOUT_ENV). */
@@ -62,6 +63,7 @@ export const INTERNAL_RELEASE_HELPERS = Object.freeze([OWN_RIGHT_RELEASE, RECIPE
 const CARRIED_RUN = fileURLToPath(new URL("./carried-cargo-run.mjs", import.meta.url));
 const CARRIED_ADAPTER_RUN = fileURLToPath(new URL("./carried-adapter-run.mjs", import.meta.url));
 const QA_SNAPSHOT_RUN = fileURLToPath(new URL("./qa-snapshot-run.mjs", import.meta.url));
+const QA_JOURNEYS_RUN = fileURLToPath(new URL("./qa-journeys-prebuilt-run.mjs", import.meta.url));
 // pnpm options that take the next argument as their value (so that value is not the command).
 const PNPM_VALUE_OPTIONS = new Set(["--dir", "-C", "--filter", "-F", "--prefix", "--config", "--reporter", "--workspace-concurrency"]);
 // Node flags that change no code path; everything else before the script (-e, --eval, -p, --import, -r, --require, --loader, …) refuses.
@@ -85,7 +87,10 @@ export function qaBuildReason(args, { carried = false } = {}) {
   // Args::has / value ignore `--`), so for those a build flag or tool anywhere is the build.
   const own = words[0] === "run-tests" ? ownWords(words) : words;
   if (words[0] === "run-tests" && !hasListing(words) && !carried) return "`rightkit-qa run-tests` without --from-cargo-json compiles its test binaries (`cargo test --no-run`)";
-  if (words[0] === "journeys" && words[1] === "run") return "`rightkit-qa journeys run` builds through the broker before it launches, and rightkit-qa has no prebuilt mode for it (it spawns its own `rustright cargo ... --no-run`)";
+  // GB-79: `journeys run` spawns its own `rustright cargo ... --no-run`. On a gate-carried stage the gate carries that build itself and hands QA the verified, signed input
+  // (qa-journeys-prebuilt.mjs, capability journeys-prebuilt-input), so there it is not a build; anywhere else it is, and a listing or attestation the step names is unverified input.
+  if (words[0] === "journeys" && words[1] === "run" && !carried) return "`rightkit-qa journeys run` builds through the broker before it launches (it spawns its own `rustright cargo ... --no-run`); only a gate-carried stage runs it, on the gate's own verified prebuilt input (capability journeys-prebuilt-input)";
+  if (words[0] === "journeys" && words[1] === "run") { const own = journeysRunRefusal(words); if (own) return own; }
   if (own.some(isBuildFlag)) return "a --build, --build-ui or --build-with flag makes the QA run build";
   const tool = own.find((w) => QA_BUILD_PROGRAMS.has(name(w)));
   if (tool !== undefined) return `the argument ${JSON.stringify(tool)} names a build tool (${name(tool)}); a QA step compiles nothing`;
@@ -243,6 +248,12 @@ export function buildLaunch(command, args = [], host = {}) {
     if (reason) refuse(`rightkit-qa ${args.join(" ")}: ${reason}; a QA step of a snapshot stage runs the already-built artifact and compiles nothing, so a build it needs is its own carried build step (a test build with --no-run --message-format=json, then run-tests --from-cargo-json)`);
     const qa = lookup("rightkit-qa")[0] ?? "rightkit-qa";
     // `run-tests` with no listing: the gate carries its test build, then runs QA directly against the listing (qa-snapshot-run.mjs).
+    // GB-79: a `journeys run` step is the gate's build-once route (carry the build, sign the products, hand QA the verified input) when QA implements the prebuilt input.
+    if (isJourneysRun(args)) {
+      const capable = (host.qaPrebuiltCapability ?? ((binary) => qaPrebuiltCapability(binary, { env: { ...env, ...host.stepEnv } })))(qa);
+      if (!capable) refuse(journeysCapabilityRefusal(`rightkit-qa ${args.join(" ")}`));
+      return { command: process.execPath, args: [QA_JOURNEYS_RUN, qa, "--", ...args.map(String)] };
+    }
     const plan = qaSnapshotPlan(args);
     if (plan?.refusal) refuse(`rightkit-qa ${args.join(" ")}: ${plan.refusal}`);
     if (plan) return { command: process.execPath, args: [QA_SNAPSHOT_RUN, qa, "--", ...args.map(String)] };

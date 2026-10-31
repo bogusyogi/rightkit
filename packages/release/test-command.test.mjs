@@ -228,11 +228,11 @@ test("[GB-79] a planned `rightkit-qa journeys run` suite fails at planning with 
   ] } };
   const plan = planTests(cfg, { appRoot });
   const calls = []; const errs = [];
-  const result = await runSuites(plan, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn([0, 0], calls), log: () => {}, errLog: (l) => errs.push(l), snapshotStage: true });
+  const result = await runSuites(plan, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn([0, 0], calls), log: () => {}, errLog: (l) => errs.push(l), snapshotStage: true, qaCapability: () => false });
   assert.equal(result.exitCode, 1);
   assert.deepEqual(calls, [], "the earlier build suite never ran: planning refused first");
   const directCalls = [];
-  const direct = await runSuites(plan, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn([0, 0], directCalls), log: () => {}, errLog: () => {}, snapshotStage: false });
+  const direct = await runSuites(plan, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn([0, 0], directCalls), log: () => {}, errLog: () => {}, snapshotStage: false, qaCapability: () => false });
   assert.equal(direct.exitCode, 0);
   assert.equal(directCalls.length, 2, "outside a gate-carried snapshot stage the suite starts as before");
   assert.match(errs.join("\n"), new RegExp(`\\[${QA_JOURNEYS_UNSUPPORTED}\\] journeys:.*journeys-prebuilt-input`));
@@ -240,4 +240,18 @@ test("[GB-79] a planned `rightkit-qa journeys run` suite fails at planning with 
   assert.equal(qaJourneysRunStep({ cmd: "/x/rightkit-qa", args: ["journeys", "run"] }), true);
   assert.equal(qaJourneysRunStep({ cmd: "rightkit-qa", args: ["journeys"] }, ["run"]), true, "passthrough arguments count");
   assert.equal(qaJourneysRunStep({ cmd: "rightkit-qa", args: ["journeys", "receipt", "--root", "."] }), false, "reading a receipt compiles nothing");
+  // With the capability (rightkit-qa implements the prebuilt journey input) the same plan starts both suites; the door carries the build.
+  const capableCalls = [];
+  const capable = await runSuites(plan, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn([0, 0], capableCalls), log: () => {}, errLog: () => {}, snapshotStage: true, qaCapability: () => true });
+  assert.equal(capable.exitCode, 0);
+  assert.equal(capableCalls.length, 2, "with journeys-prebuilt-input both suites start");
+  // A step that names its own listing, attestation or plan flag is an input the gate did not verify: refused at planning, whatever the capability.
+  for (const flag of [["--from-cargo-json", "/x/l.jsonl"], ["--prebuilt-attestation", "/x/a.json"], ["--print-build-plan"]]) {
+    const own = planTests({ tests: { suites: [{ name: "build", cmd: "node", args: ["build.mjs"] }, { name: "journeys", cmd: "rightkit-qa", args: ["journeys", "run", ...flag] }] } }, { appRoot });
+    const ownCalls = []; const ownErrs = [];
+    const refused = await runSuites(own, { door: (command, args) => ({ command, args }), appRoot, env: {}, spawnFn: fakeSpawn([0, 0], ownCalls), log: () => {}, errLog: (l) => ownErrs.push(l), snapshotStage: true, qaCapability: () => true });
+    assert.equal(refused.exitCode, 1, flag.join(" "));
+    assert.deepEqual(ownCalls, [], `${flag[0]}: refused before any suite ran`);
+    assert.match(ownErrs.join("\n"), new RegExp(`${flag[0]} is the gate's own`));
+  }
 });

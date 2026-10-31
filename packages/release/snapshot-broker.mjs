@@ -290,9 +290,9 @@ export function carryBrokerCargo({ words, cwd, env, section, workspace, checkout
       ref = readRequestRef(path.join(refDir, "request.json"));
       const receipt = receiptSync({ client: section.client, requestId: ref.requestId, env: clientEnv, spawn, platform: section.platform });
       const observedEnv = observedEnvOf(clientEnv, section.platform);
-      const { evidence, attribution, toolchain } = verifySnapshotReceipt(receipt, { pins: section.pins, jobId: ref.requestId, carrier: made.carrier, argv: words, workspace: ref.workspace, observedEnv, checkout: section.checkout, outputRoots: section.outputRoots, platform: section.platform });
+      const { evidence, attribution, toolchain, requestDigest } = verifySnapshotReceipt(receipt, { pins: section.pins, jobId: ref.requestId, carrier: made.carrier, argv: words, workspace: ref.workspace, observedEnv, checkout: section.checkout, outputRoots: section.outputRoots, platform: section.platform });
       // attribution and toolchain are recorded as the broker signed them (a consumer that needs per-package attribution treats available:false as FAILED).
-      outcome = { status: "verified", requestId: ref.requestId, workspace: ref.workspace, observedEnv, outputDir: evidence.outputDir, treeAtStart: evidence.snapshot.treeAtStart, treeAtExit: evidence.snapshot.treeAtExit, attribution, toolchain };
+      outcome = { status: "verified", requestId: ref.requestId, requestDigest, workspace: ref.workspace, observedEnv, outputDir: evidence.outputDir, treeAtStart: evidence.snapshot.treeAtStart, treeAtExit: evidence.snapshot.treeAtExit, attribution, toolchain };
     } catch (e) {
       outcome = { status: "unverified", code: e.code ?? "error", message: e.message, ...(ref ? { requestId: ref.requestId, workspace: ref.workspace } : {}) };
     }
