@@ -99,23 +99,69 @@ fn artifact_digest_mismatch_fails_before_ort_loading() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// The files `cargo package` ships for this crate: the `include` globs of its Cargo.toml. The
+/// crate directory also holds `target/` (the build output of this crate's own workspace), which is
+/// not a packaged path, so it is never walked. Only `dir/**` and exact file entries are understood;
+/// any other pattern fails the test instead of being skipped.
+fn packaged_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+    let mut patterns = Vec::new();
+    let mut in_include = false;
+    for line in manifest.lines().map(str::trim) {
+        if line.starts_with("include = [") {
+            in_include = true;
+        }
+        if in_include {
+            patterns.extend(line.split('"').skip(1).step_by(2).map(str::to_owned));
+            if line.ends_with(']') {
+                break;
+            }
+        }
+    }
+    assert!(!patterns.is_empty(), "Cargo.toml declares no include list");
+
+    let mut files = Vec::new();
+    for pattern in patterns {
+        if let Some(dir) = pattern.strip_suffix("/**") {
+            let mut pending = vec![root.join(dir)];
+            while let Some(dir) = pending.pop() {
+                for entry in std::fs::read_dir(dir).unwrap() {
+                    let entry = entry.unwrap();
+                    if entry.file_type().unwrap().is_dir() {
+                        pending.push(entry.path());
+                    } else {
+                        files.push(entry.path());
+                    }
+                }
+            }
+        } else {
+            assert!(
+                !pattern.contains(['*', '?', '[']),
+                "unsupported include pattern {pattern:?}"
+            );
+            let path = root.join(&pattern);
+            if path.is_file() {
+                files.push(path);
+            }
+        }
+    }
+    files
+}
+
 #[test]
 fn crate_bundles_no_model_or_runtime_binary() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let mut pending = vec![root.to_path_buf()];
-    while let Some(dir) = pending.pop() {
-        for entry in std::fs::read_dir(dir).unwrap() {
-            let entry = entry.unwrap();
-            if entry.file_type().unwrap().is_dir() {
-                pending.push(entry.path());
-                continue;
-            }
-            let path = entry.path();
-            let extension = path
-                .extension()
-                .and_then(|value| value.to_str())
-                .unwrap_or("");
-            assert!(!["onnx", "dll", "dylib", "so"].contains(&extension));
-        }
+    let files = packaged_files(root);
+    assert!(!files.is_empty(), "no packaged files found");
+    for path in files {
+        let extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("");
+        assert!(
+            !["onnx", "dll", "dylib", "so"].contains(&extension),
+            "{} is a model or runtime binary inside the packaged set",
+            path.display()
+        );
     }
 }
