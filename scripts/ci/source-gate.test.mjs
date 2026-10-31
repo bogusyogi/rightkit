@@ -430,7 +430,10 @@ test("exports-import-effects: edits, restores and a HEAD ABA performed while an 
   write(repo, "packages/z/src/stray.mjs", "console.log('stray');\n");
   git("add", "-A"); git("commit", "-qm", "while blocked"); git("reset", "-q", "--hard", base);
   write(repo, "packages/w/src/wait.mjs", "console.log('dirty again');\n");
-  fs.writeFileSync(barrier, ""); const done = await blocked; assert.equal(done.code, 0, done.err);
+  fs.writeFileSync(barrier, ""); const done = await blocked;
+  // A probe whose installed closure was mutated while it ran fails closed (exit 1, UNSTABLE) yet still writes its report, which no verify accepts; without
+  // a mutated byte it is a clean exit 0.
+  if (target) { assert.equal(done.code, 1, done.err); assert.match(done.err, /UNSTABLE: the exported dependency closure changed while the probe ran/); } else assert.equal(done.code, 0, done.err);
   git("checkout", "-q", "--", "."); assert.equal(git("rev-parse", "HEAD").trim(), base);
   const strip = (r) => ({ commit: r.commit, tree: r.tree, stable: r.stable, findings: r.findings, incomplete: r.incomplete.map((x) => x.key).sort(), covered: r.covered.map((x) => x.key).sort(), store: r.closure.deps.store });
   assert.deepEqual(strip(done.report), strip(quiet.report), "nothing done to the live checkout while the import was blocked reached the probe");
