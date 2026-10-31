@@ -47,6 +47,12 @@ kotlin {
     jvmToolchain(17)
 }
 
+// Every resolved dependency is locked (gradle.lockfile, committed): Class A refuses a build whose lockfile does not match
+// (gradle-lock). Regenerate with `gradle dependencies --write-locks` after a dependency change and commit the lockfile with it.
+dependencyLocking {
+    lockAllConfigurations()
+}
+
 dependencies {
     // UniFFI's generated Kotlin loads the library through JNA.
     api("net.java.dev.jna:jna:5.14.0@aar")
