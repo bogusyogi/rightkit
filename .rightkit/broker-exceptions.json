@@ -6,9 +6,17 @@
       "approvedBy": "Adrian",
       "quote": "i expressly approved building outside of the gate, which means direct on path, same as how hr has been building on both machines since this morning. ... the only way to build outside the broker is with my express asking, it has to be documented as Adrian asked or expressly approved building outside the broker. so always gate, on strict exception outside the broker but still throigh the gate.",
       "issue": "https://github.com/bogusyogi/rightkit/issues/1322",
-      "units": ["rust:rightkit-license", "rust:rightkit-models", "rust:rightkit-daemon", "npm:@rightkit/app-update", "npm:@rightkit/qa-chrome", "npm:@rightkit/build-control-policy"],
-      "hosts": ["mac", "dell"],
-      "expires": "2026-11-07T00:00:00Z"
+      "units": [
+        "rust:rightkit-models",
+        "rust:rightkit-daemon",
+        "npm:@rightkit/build-control-policy",
+        "npm:@rightkit/release"
+      ],
+      "hosts": [
+        "mac",
+        "dell"
+      ],
+      "note": "Lasts until these units are published (Adrian 2026-10-31: 'exception lasts for what i asked for, till the time it's published'). rightkit-license removed: 0.2.6 published 2026-10-31. npm:@rightkit/release added: HeardRight needs the --no-broker gate it carries ('Any blockers it has must be ... published. Immediately.')."
     }
   ]
 }

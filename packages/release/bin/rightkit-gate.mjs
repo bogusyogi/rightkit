@@ -77,7 +77,7 @@ import { fileURLToPath } from "node:url";
 import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanToolPolicyFromPipeline, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
-import { BROKER_EXCEPTIONS_FILE, BROKER_EXCEPTION_ERRORS, authorizeNoBroker, describeBrokerException, unitsOfSelector } from "../broker-exception.mjs";
+import { ALL_UNITS_ERRORS, ALL_UNITS_EXCEPTIONS_FILE, BROKER_EXCEPTIONS_FILE, BROKER_EXCEPTION_ERRORS, CARGO_WORKSPACE_LIST_FILE, CARGO_WORKSPACE_LIST_KEY, RIGHTKIT_IDENTITY_FILE, authorizeAllUnits, authorizeNoBroker, checkCargoWorkspaceList, describeAllUnitsException, describeBrokerException, isRightKitIdentity, unitsOfSelector } from "../broker-exception.mjs";
 import { SIGNING_REFUSAL_CODES, suiteSigningRefusals } from "../suite-signing-policy.mjs";
 import { gitListRustFiles } from "../signing-files.mjs";
 import { LINUX_BROKER_ROUTE, directPlatform, linuxBrokerDeclared } from "../managed-cargo.mjs";
@@ -103,7 +103,7 @@ export const PARTIAL_EXIT = 3;
 /** The platforms a door run can package: desktop (signed, sealed, installed QA, publisher upload) and mobile (signed, sealed, store test track). */
 export const PLATFORMS = Object.freeze(["mac", "win", "ios", "android"]);
 export const MOBILE_PLATFORMS = Object.freeze(new Set(["ios", "android"]));
-const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify [--unit <selector>] --no-broker <exception-id> (Mac and Dell only; Adrian's recorded exception in .rightkit/broker-exceptions.json of the commit) | rightkit-gate --to dev|test [--commit <rev>] [-- <right-release args>] | rightkit-gate --to check|compile|package|qualify|dev|test --route [--platform mac|win|ios|android] [--commit <rev>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] | rightkit-gate install-hook | rightkit-gate env-digest | rightkit-gate snapshot [--commit <rev>] [--verify [--env <sha256>]] [--json] | rightkit-gate live-scans --repo <root> | rightkit-gate clippy [<cargo clippy args>] | rightkit-gate env-digest [--snapshot <dir> --commit <sha>] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | rightkit-gate check --commit <sha> --full-a --snapshot <dir> | --version`;
+const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify --units-file <json {"units":[<selector>,...]} written for this run> | rightkit-gate --to check|compile|package|qualify --all-units-exception <id> (RightKit only: its unit is named on every run, or every unit by Adrian's entry in ci/all-units-exceptions.json of the commit) | rightkit-gate --to check|compile|package|qualify [--unit <selector>] --no-broker <exception-id> (Mac and Dell only; Adrian's recorded exception in .rightkit/broker-exceptions.json of the commit) | rightkit-gate --to dev|test [--commit <rev>] [-- <right-release args>] | rightkit-gate --to check|compile|package|qualify|dev|test --route [--platform mac|win|ios|android] [--commit <rev>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] | rightkit-gate install-hook | rightkit-gate env-digest | rightkit-gate snapshot [--commit <rev>] [--verify [--env <sha256>]] [--json] | rightkit-gate live-scans --repo <root> | rightkit-gate clippy [<cargo clippy args>] | rightkit-gate env-digest [--snapshot <dir> --commit <sha>] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | rightkit-gate check --commit <sha> --full-a --snapshot <dir> | --version`;
 /** The host platform (process.platform) that constructs each platform's artifact; a platform missing here (android) builds on any host. */
 const STAGE_NATIVE_HOST = Object.freeze({ mac: "darwin", ios: "darwin", win: "win32" });
 
@@ -1229,6 +1229,78 @@ export function committedConfigDirs({ git, commit }) {
   if (failed(listed)) return { refusal: `cannot list the files of ${String(commit).slice(0, 12)}: ${why(listed)}` };
   const dirs = new Set(text(listed).split("\0").filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)).map((f) => path.posix.dirname(f)));
   return { dirs };
+}
+
+/** True when `commit` is RightKit's own repository: its tree holds packages/release/package.json named @rightkit/release (the identity `check` uses for RightKit's own rules). Read from the commit, never the checkout. */
+export function rightkitIdentityAt(git, commit) {
+  const shown = git("show", `${commit}:${RIGHTKIT_IDENTITY_FILE}`);
+  return !failed(shown) && isRightKitIdentity(text(shown));
+}
+
+const UNIT_SELECTOR = /^(?:npm:@rightkit\/[a-z0-9-]+|cargo:rightkit-[a-z0-9-]+)$/;
+
+/**
+ * The unit list of `--units-file <file>`: JSON `{ "units": [ "cargo:rightkit-x", "npm:@rightkit/y", ... ] }` written for this run (not a
+ * committed file: Adrian, 2026-10-31: "a JSON file that is created at that time"). Every entry is a `--unit` selector, once. Throws a usage error.
+ */
+export function readUnitList(readFile, file) {
+  const usage = (what) => Object.assign(new Error(`RK_UNITS_FILE: ${file} ${what}`), { code: "RK_UNITS_FILE" });
+  let parsed;
+  try { parsed = JSON.parse(readFile(file)); } catch (e) { throw usage(`cannot be read as JSON (${e.message})`); }
+  const units = parsed?.units;
+  if (!Array.isArray(units) || !units.length || !units.every((u) => typeof u === "string" && UNIT_SELECTOR.test(u))) throw usage('must be { "units": [ "cargo:rightkit-<name>" | "npm:@rightkit/<name>", ... ] } with at least one unit');
+  const duplicate = units.find((u, i) => units.indexOf(u) !== i);
+  if (duplicate !== undefined) throw usage(`names ${duplicate} more than once`);
+  return units;
+}
+
+/**
+ * RightKit names its unit on every run (#1325, Adrian 2026-10-31: "the unit has to be mentioned. Okay, so either it is one specific unit, or it is
+ * a JSON file that is created at that time, or all with my exception"). A door run with no `--unit` is accepted in RightKit only with
+ * `--units-file` (each listed unit runs as its own unit run, in order, on the one selected commit, stopping at the first that fails) or
+ * `--all-units-exception <id>` (the whole-repository run, by Adrian's entry in the commit's ci/all-units-exceptions.json). Both flags name RightKit
+ * units, so a repository that is not RightKit refuses them. Returns `{ exit }` when the run ends here, or `{}` to go on as a whole door run (the
+ * all-units flag and its id are removed from `args`). An unresolvable commit is runStages' own refusal, so it goes on.
+ */
+export async function rightkitDoorRule(o, args, root, git, io, { unitsFileFlag, allUnitsFlag, unitList }) {
+  const tag = "rightkit-gate:";
+  const option = (name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
+  let pinned;
+  try { pinned = (await import("../snapshot.mjs")).resolveCommit(root, option("--commit") ?? "HEAD"); } catch { return {}; }
+  const inRightKit = rightkitIdentityAt(git, pinned.commit);
+  if (!inRightKit) {
+    if (!unitsFileFlag && !allUnitsFlag) return {};
+    o.err(`${tag} BLOCKED: ${unitsFileFlag ? "--units-file" : "--all-units-exception"} names RightKit units and ${pinned.commit.slice(0, 12)} is not RightKit; every other repository is built whole from the ${CARGO_WORKSPACE_LIST_KEY} list committed in ${CARGO_WORKSPACE_LIST_FILE}, with no unit named; nothing ran`);
+    return { exit: 1 };
+  }
+  if (unitsFileFlag) {
+    const stage = option("--to");
+    const given = args.filter((a, i) => a.startsWith("--") && args[i - 1] !== "--units-file" && a !== "--units-file");
+    if (given.some((a) => a !== "--to" && a !== "--commit")) { o.err(`${tag} a unit list run takes only --to, --units-file and optional --commit (a receipt is written per unit run: run the unit alone with --receipt-out)`); return { exit: 2 }; }
+    for (const [i, selector] of unitList.entries()) {
+      o.out(`${tag} unit list ${i + 1}/${unitList.length}: ${selector} on commit ${pinned.commit.slice(0, 12)}`);
+      const code = await main(["--to", stage, "--unit", selector, "--commit", pinned.commit], io);
+      if (code !== 0) { o.err(`${tag} BLOCKED: unit ${selector} ended with exit ${code}; ${unitList.length - i - 1} unit(s) of the list did not run`); return { exit: code }; }
+    }
+    return { exit: 0 };
+  }
+  if (allUnitsFlag) {
+    const id = option("--all-units-exception");
+    let granted;
+    try {
+      const shown = git("show", `${pinned.commit}:${ALL_UNITS_EXCEPTIONS_FILE}`);
+      granted = authorizeAllUnits({ id, record: failed(shown) ? null : text(shown), now: o.now ? o.now() : Date.now() });
+    } catch (e) {
+      if (!e.code?.startsWith("RK_ALL_UNITS_")) throw e;
+      o.err(`${tag} BLOCKED: ${e.message}; nothing ran`);
+      return { exit: e.code === ALL_UNITS_ERRORS.usage ? 2 : 1 };
+    }
+    args.splice(args.indexOf("--all-units-exception"), 2);
+    o.out(`${tag} ALL UNITS EXCEPTION ${describeAllUnitsException(granted)}`);
+    return {};
+  }
+  o.err(`${tag} BLOCKED: RK_UNIT_NOT_NAMED: RightKit names its unit on every run: --unit <cargo:rightkit-name|npm:@rightkit/name>, --units-file <json written for this run>, or --all-units-exception <id> (Adrian's entry in ${ALL_UNITS_EXCEPTIONS_FILE}); a whole-repository run is never the default; nothing ran`);
+  return { exit: 1 };
 }
 
 async function runStages(o, args, root, git, io) {
@@ -2547,7 +2619,7 @@ export function doorPath(o, gateFile = o.gateFile ?? fileURLToPath(import.meta.u
  * lookup of a usable rustfmt, which the deferred Rust gate needs).
  */
 /** The gate flags a `--to <stage>` invocation takes (before a `--` separator, after which the arguments belong to right-release), and whether each takes a value. */
-const STAGE_VALUE_FLAGS = Object.freeze(["--to", "--platform", "--tier", "--commit", "--receipt-in", "--receipt-out", "--unit"]);
+const STAGE_VALUE_FLAGS = Object.freeze(["--to", "--platform", "--tier", "--commit", "--receipt-in", "--receipt-out", "--unit", "--units-file", "--all-units-exception"]);
 const STAGE_BOOLEAN_FLAGS = Object.freeze(["--route"]);
 
 /**
@@ -2719,7 +2791,7 @@ export async function main(argv, io = {}) {
     // In snapshot mode RightKit's own scripts are the snapshot's (the commit's code), never the live checkout's.
     const selfRoot = snapshotDir ?? root;
     const rightkitRepository = root && (() => {
-      try { return JSON.parse(o.readFile(path.join(selfRoot, "packages", "release", "package.json"))).name === "@rightkit/release"; }
+      try { return isRightKitIdentity(o.readFile(path.join(selfRoot, ...RIGHTKIT_IDENTITY_FILE.split("/")))); }
       catch { return false; }
     })();
     if (rightkitRepository && (!o.exists(path.join(selfRoot, "scripts", "preflight.mjs")) || !o.exists(path.join(selfRoot, "scripts", "ci", "exports-import-effects.mjs")))) {
@@ -2866,6 +2938,21 @@ export async function main(argv, io = {}) {
   // `--unit` is a gate flag only before a `--` separator: after it the arguments belong to right-release (an app's `--to dev -- …`).
   const separator = args.indexOf("--");
   const unitFlag = args.includes("--unit") && (separator < 0 || args.indexOf("--unit") < separator);
+  // RightKit names its unit on every run (rightkitDoorRule): `--unit <selector>`, `--units-file <json written for this run>` or
+  // `--all-units-exception <id>`; exactly one. The unit list is read here, before anything runs, so a bad file is a usage error (exit 2).
+  const gateFlag = (name) => args.includes(name) && (separator < 0 || args.indexOf(name) < separator);
+  const unitsFileFlag = gateFlag("--units-file"); const allUnitsFlag = gateFlag("--all-units-exception");
+  let unitList = null;
+  if (unitsFileFlag || allUnitsFlag) {
+    const flag = unitsFileFlag ? "--units-file" : "--all-units-exception";
+    if (option("--to") === undefined) { o.err(`rightkit-gate: ${flag} applies to a --to stage\n${USAGE}`); return 2; }
+    if ([unitFlag, unitsFileFlag, allUnitsFlag].filter(Boolean).length > 1) { o.err("rightkit-gate: name the unit once: --unit, --units-file or --all-units-exception, not several"); return 2; }
+    if (!option(flag) || option(flag).startsWith("--")) { o.err(`rightkit-gate: ${flag} needs a value\n${USAGE}`); return 2; }
+    if (unitsFileFlag) {
+      try { unitList = readUnitList((f) => o.readFile(path.resolve(o.cwd, f)), option("--units-file")); }
+      catch (e) { o.err(`rightkit-gate: ${e.message}`); return 2; }
+    }
+  }
   // `--no-broker <exception-id>`: the one documented exception to the mandatory broker on Mac and Dell (broker-exception.mjs). The record is
   // read from the selected commit, never the working tree; every refusal is typed and nothing runs. The run then takes the same stages
   // with the direct executor, and prints and records the exception.
@@ -2876,13 +2963,17 @@ export async function main(argv, io = {}) {
     args.splice(noBrokerAt, typeof brokerId === "string" && !brokerId.startsWith("--") ? 2 : 1);
     let granted;
     try {
-      let record = null;
+      let record = null; let inRightKit = true;
       if (typeof brokerId === "string" && !brokerId.startsWith("--")) {
         const pinned = (await import("../snapshot.mjs")).resolveCommit(root, option("--commit") ?? "HEAD");
         const shown = git("show", `${pinned.commit}:${BROKER_EXCEPTIONS_FILE}`);
         record = failed(shown) ? null : text(shown);
+        // The repository identity of the commit decides what an exception must name: RightKit's units, or (every other repository, built whole) nothing.
+        inRightKit = rightkitIdentityAt(git, pinned.commit);
       }
-      granted = authorizeNoBroker({ id: brokerId, record, platform: o.platform, units: unitsOfSelector(unitFlag ? option("--unit") : undefined), now: o.now ? o.now() : Date.now() });
+      // A unit list run covers every listed unit; a run that names no unit (the whole repository) selects every unit.
+      const selected = unitFlag ? unitsOfSelector(option("--unit")) : unitList ? unitList.flatMap((u) => unitsOfSelector(u)) : unitsOfSelector(undefined);
+      granted = authorizeNoBroker({ id: brokerId, record, platform: o.platform, units: selected, now: o.now ? o.now() : Date.now(), inRightKit });
     } catch (e) {
       if (!e.code?.startsWith("RK_BROKER_EXCEPTION_")) { o.err(`rightkit-gate: cannot resolve ${option("--commit") ?? "HEAD"} to a commit: ${e.message}`); return 2; }
       o.err(`rightkit-gate: BLOCKED: ${e.message}; nothing ran`); return e.code === BROKER_EXCEPTION_ERRORS.usage ? 2 : 1;
@@ -2905,7 +2996,7 @@ export async function main(argv, io = {}) {
   const gateArgs = separator < 0 ? args : args.slice(0, separator);
   if (gateArgs.includes("--route")) {
     const routeTo = option("--to");
-    const clash = ["--unit", "--receipt-in", "--receipt-out"].filter((f) => gateArgs.includes(f));
+    const clash = ["--unit", "--units-file", "--all-units-exception", "--receipt-in", "--receipt-out"].filter((f) => gateArgs.includes(f));
     if (routeTo === undefined) { o.err(`rightkit-gate: --route needs --to ${ROUTE_PROBE_STAGES.join("|")}\n${USAGE}`); return 2; }
     if (routeTo === "release") { o.err("rightkit-gate: --route answers for --to check|compile|package|qualify|dev|test; release uploads and has no route of its own"); return 2; }
     if (clash.length) { o.err(`rightkit-gate: --route runs nothing and takes no ${clash.join(" or ")}`); return 2; }
@@ -2945,7 +3036,12 @@ export async function main(argv, io = {}) {
     });
   }
   if (unitFlag) { o.err("rightkit-gate: --unit requires --to"); return 2; }
-  if (option("--to") !== undefined) return await runStages(o, args, root, git, io);
+  if (option("--to") !== undefined) {
+    // A door run that names no unit: RightKit refuses it unless Adrian's exception or a unit list names what runs (rightkitDoorRule).
+    const door = await rightkitDoorRule(o, args, root, git, io, { unitsFileFlag, allUnitsFlag, unitList });
+    if (door.exit !== undefined) return door.exit;
+    return await runStages(o, args, root, git, io);
+  }
   if (sub === "stage") return stageForPublisher(o, args, root, git);
 
   const planOnly = args.includes("--plan");
@@ -3122,6 +3218,21 @@ export async function main(argv, io = {}) {
       } else installRoots = npmRoots;
     } catch (e) { o.err(`${tag} BLOCKED: cannot discover the repository's units: ${e.message}`); return 1; }
     for (const k of rust.skipped) o.out(`${tag} note: ${k.manifest} is skipped, not scanned: ${k.why}`);
+    // Every repository but RightKit commits one fixed build definition that lists every Cargo workspace; a run builds all of them and nothing is
+    // chosen per run (#1325, Adrian 2026-10-31). The workspaces this commit holds and the committed list must be the same set, missing or extra,
+    // or nothing runs. RightKit is judged per unit instead (rightkitDoorRule). `--plan` builds nothing, so it only says what a run would meet.
+    {
+      let rightkitHere = false;
+      if (files.includes(RIGHTKIT_IDENTITY_FILE)) { try { rightkitHere = isRightKitIdentity(readSnap(path.join(repo, ...RIGHTKIT_IDENTITY_FILE.split("/")))); } catch { rightkitHere = false; } }
+      if (!rightkitHere) {
+        try { checkCargoWorkspaceList({ discovered: rust.workspaces.map((w) => w.cargoDir), record: files.includes(CARGO_WORKSPACE_LIST_FILE) ? readSnap(path.join(repo, CARGO_WORKSPACE_LIST_FILE)) : null }); }
+        catch (e) {
+          if (!e.code?.startsWith("RK_CARGO_WORKSPACE_LIST_")) throw e;
+          if (args.includes("--plan")) o.out(`${tag} note: a run would be refused: ${e.message}`);
+          else { o.err(`${tag} BLOCKED: ${e.message}; nothing ran`); return 1; }
+        }
+      }
+    }
 
     // The snapshot compile: verified as the commit's tree before anything runs, dependencies installed into it offline from the
     // checkout's store, and every Cargo workspace's output pinned to the target directory cargo resolves for it IN THE CHECKOUT
@@ -3307,8 +3418,12 @@ export async function main(argv, io = {}) {
       } catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
       plan.notes = plan.notes.filter((n) => !n.includes("every Rust unit is in scope"));
       const classA = plan.scans.filter((s) => s.class === "A");
-      const executing = classA.filter((s) => s.executes === true || s.kind === "test" || s.id === "suite-api").length;
-      o.out(`${tag} scope ${closure.dirs.join(", ")}: dependency directories ${closure.dependencyDirs.join(", ")}; ${closure.npm.size} npm & ${closure.rust.size} Rust unit(s); Class A ${executing} executing scan(s), ${classA.length - executing} repository file-only scan(s); ${kept.dropped.length} unrelated executing scan(s) excluded; ${plan.scans.length - classA.length} closure Class B scan(s) do not run in this check; install roots ${installRoots.join(", ") || "none"}; scope digest ${plan.scopeDigest}`);
+      // What actually executes: tests, executing rows and every Cargo scan (metadata, package list, deny, audit run cargo, through the broker
+      // on a broker host), never only the rows that carry `executes`. The Cargo counts are named so a scoped run shows how much cargo it starts.
+      const executing = classA.filter((s) => closureTools.isExecutingScan(s)).length;
+      const cargoRun = classA.filter((s) => closureTools.isCargoScan(s)).length;
+      const cargoExcluded = kept.dropped.filter((s) => closureTools.isCargoScan(s)).length;
+      o.out(`${tag} scope ${closure.dirs.join(", ")}: dependency directories ${closure.dependencyDirs.join(", ")}; ${closure.npm.size} npm & ${closure.rust.size} Rust unit(s); Class A ${executing} executing scan(s) (${cargoRun} Cargo), ${classA.length - executing} repository file-only scan(s); ${kept.dropped.length} unrelated executing scan(s) excluded (${cargoExcluded} Cargo); ${plan.scans.length - classA.length} closure Class B scan(s) do not run in this check; install roots ${installRoots.join(", ") || "none"}; scope digest ${plan.scopeDigest}`);
     }
     const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? 4) || 4);
     const testJobs = Math.max(1, Number(o.env.RK_GATE_TEST_JOBS ?? jobs) || jobs);
@@ -3479,6 +3594,10 @@ export async function main(argv, io = {}) {
       // A broker host: every Cargo call a class A scan makes inside the snapshot is a carried read-only request; the gate's own temporary files
       // (cargo-deny's metadata and config) live in a gate-owned directory the broker can read, outside the checkout.
       ...(scanSpawn ? { spawn: scanSpawn, tmpRoot: gateTmpRoot({ env: o.env, platform: o.platform, exists: o.exists }) } : {}),
+      // A host with no broker runs its Class A Cargo scans itself, in the snapshot: cargo would write target/.rustc_info.json beside each manifest
+      // it reads and the snapshot would no longer be the commit's tree. Each such scan gets an output directory of its own under the gate's
+      // scratch root, removed when it ends (deterministic-scans.mjs cargoReadTargetDir). A broker host carries these reads and the broker owns the output.
+      ...(!scanSpawn ? { cargoReadTargetRoot: gateTmpRoot({ env: o.env, platform: o.platform, exists: o.exists }) } : {}),
       // The runtime cargo wrapper is first on PATH and named in CARGO for every scan of a snapshot compile; CARGO (a path named by the
       // wrapper's identity) is in every scan's cache key, so no result cached without the wrapper or with another map is reused.
       ...(cargoShim ? { env: cargoShim.scanEnv, ...(cargoShim.sentinel ? { cargoSentinel: cargoShim.sentinel } : {}), cargoLedger: { dir: cargoShim.ledgerDir } } : {}),

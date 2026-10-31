@@ -1,4 +1,6 @@
 // Executing scans follow the selected unit's committed dependency closure. File-only scans stay repository-wide.
+// A Cargo scan (metadata, package list, deny, audit) executes cargo, through the broker on a broker host: it is an executing scan,
+// never a file-only one, and follows the Rust closure (no Rust unit in the closure, no Cargo scan).
 // Unknown local dependency edges refuse; they never silently omit checks or authorize every repository unit.
 import path from "node:path";
 import { createHash } from "node:crypto";
@@ -153,15 +155,37 @@ export function closureOf({ scopeDirs, npmUnits = [], rustUnits = [], readFile }
   return { npm, rust, dirs, dependencyDirs: [...dependencyDirs].sort(), widened: [] };
 }
 
-/** Keep file-only checks; filter every executing unit check & refuse unclassified repository execution. */
+// The Class A Cargo scans deterministic-scans.mjs plans: `cargo-metadata|cargo-deny|cargo-audit[:<workspace label>]` run in the Cargo workspace
+// named by the scan's `cwd` (none = the repository root workspace); `cargo-package-list:<unit name>` runs for one unit. The workspace label
+// in an id is not always the directory (a crate-per-workspace layout labels by crate), so the workspace is read from `cwd`, never the id.
+const CARGO_WORKSPACE_SCAN = /^cargo-(?:metadata|deny|audit)(?::.+)?$/;
+const CARGO_PACKAGE_LIST = /^cargo-package-list:(.+)$/;
+const cleanWorkspace = (dir) => posix(dir ?? ".").replace(/^\.\//, "").replace(/\/+$/, "") || ".";
+
+/** A Class A scan that runs cargo (resolves metadata, lists a package, or runs cargo-deny / cargo-audit). */
+export const isCargoScan = (s) => CARGO_WORKSPACE_SCAN.test(String(s.id)) || CARGO_PACKAGE_LIST.test(String(s.id));
+
+/** A scan that runs repository code or cargo: tests, executing rows (tsc, eslint, biome, generators), the suite API contract, and every Cargo scan. */
+export const isExecutingScan = (s) => s.executes === true || s.kind === "test" || s.id === "suite-api" || isCargoScan(s);
+
+/** Keep file-only checks; filter every executing unit check (Cargo scans included) & refuse unclassified repository execution. */
 export function scopeScans(scans, closure, { rustUnits = [] } = {}) {
   const names = rustUnits.map((u) => u.name).sort((a, b) => b.length - a.length);
+  // The Cargo workspaces that hold a unit of the closure: a workspace-level Cargo scan (metadata, deny, audit) runs only for these.
+  const closureWorkspaces = new Set(rustUnits.filter((u) => closure.rust.has(u.name)).map((u) => cleanWorkspace(u.cargoDir)));
   const kept = []; const dropped = [];
   for (const s of scans) {
     const npm = /^(?:tsc|eslint|biome|test:npm):(.+)$/.exec(s.id);
     const rust = /^(?:clippy|check|check-features|check-dependent|doc|test:rust|test:rust-serial):(.+)$/.exec(s.id);
+    const cargoList = CARGO_PACKAGE_LIST.exec(s.id);
     let include = true;
     if (npm) include = closure.npm.has(npm[1]);
+    else if (cargoList) {
+      if (!names.includes(cargoList[1])) throw problem(`scan ${s.id} has no known Rust owner`);
+      include = closure.rust.has(cargoList[1]);
+    }
+    else if (CARGO_WORKSPACE_SCAN.test(s.id)) include = closureWorkspaces.has(cleanWorkspace(s.cwd));
+    else if (/^cargo-/.test(s.id)) throw problem(`executing scan ${s.id} has no exact scope owner`);
     else if (Array.isArray(s.batch?.units)) {
       const selected = s.batch.units.filter((n) => closure.rust.has(n));
       if (selected.length && selected.length !== s.batch.units.length && s.class !== "B") throw problem(`mixed executing batch ${s.id} cannot be scoped exactly`);

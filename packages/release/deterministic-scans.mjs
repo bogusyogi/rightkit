@@ -962,7 +962,9 @@ export function planScans({
   const cargoBase = (ws, args) => ({ tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...everyFailure(args)], ...(ws !== "." ? { cwd: ws } : {}), ...(targetDirs?.[ws] ? { env: { CARGO_TARGET_DIR: targetDirs[ws] } } : {}) });
   // Class B (compiles): started from the primary checkout on a broker host, the snapshot carrier names the source.
   const cargoIn = (ws, ...args) => ({ ...cargoBase(ws, args), ...(cargoLiveRoot ? { root: "cargoLive" } : {}) });
-  // Class A (reads Cargo inputs, compiles nothing): always the content root, the snapshot or the commit's own tree.
+  // Class A (reads Cargo inputs, compiles nothing): always the content root, the snapshot or the commit's own tree. These still execute
+  // cargo (through the broker on a broker host), so a unit-scoped check follows the Rust closure for them (app-closure.mjs scopeScans reads
+  // the ids `cargo-metadata|cargo-deny|cargo-audit[:<label>]` and `cargo-package-list:<unit>` and the scan's `cwd`; rename one there too).
   const cargoReadIn = (ws, ...args) => cargoBase(ws, args);
   const unitMap = (units, kind) => {
     if (units === null) return null;
@@ -2021,9 +2023,29 @@ export function swiftScratchPath({ tmpRoot, roots, id }) {
 }
 
 /**
+ * The output directory of ONE Class A Cargo scan that runs natively (no broker carries it): a fresh directory under `tmpRoot`, outside every
+ * root the scan reads (the commit snapshot, the checkout). Cargo writes `target/.rustc_info.json` (and CACHEDIR.TAG) beside the manifest it
+ * reads, so a scan run with no CARGO_TARGET_DIR leaves a `target/` in the snapshot, which must stay exactly the commit's tree (E6). The caller
+ * removes the directory when the scan ends. Throws, removing it, when it would land inside one of `roots`.
+ */
+export function cargoReadTargetDir({ tmpRoot, roots }) {
+  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
+  const dir = real(fs.mkdtempSync(path.join(real(tmpRoot), "rk-cargo-read-")));
+  for (const root of roots.filter(Boolean)) {
+    const rel = path.relative(real(root), dir);
+    if (rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel))) {
+      fs.rmSync(dir, { recursive: true, force: true });
+      throw new Error(`the Cargo output directory ${dir} would be inside ${real(root)}; set RK_GATE_TMPDIR outside the repository`);
+    }
+  }
+  return dir;
+}
+
+/**
  * Run a plan. Options: classes (default ["A","B"]), exclude(scan) => boolean (an explicit, recorded
  * omission such as a caller that runs its own tests), plus the injectable spawn/exists/readFile/readdir/env.
  * Class B runs only when every selected class A scan passed; otherwise each B scan is "not-run".
+ * `cargoReadTargetRoot` (default `tmpRoot`) is where a natively run Class A Cargo scan's own output directory is made (cargoReadTargetDir).
  */
 export async function runScans(plan, options = {}) {
   const deps = {
@@ -2255,6 +2277,11 @@ export async function runScans(plan, options = {}) {
 
   // `extraEnv` (the quiet lease id) reaches the child but never the cache key: a lease changes nothing a scan proves.
   async function scanRow(s, extraEnv = null) {
+    // What one scan makes outside the plan and must remove when it ends: a Class A Cargo scan's output directory (cargoReadTargetDir).
+    const owned = { cargoReadTarget: null };
+    try { return await scanRowIn(s, extraEnv, owned); } finally { if (owned.cargoReadTarget) fs.rmSync(owned.cargoReadTarget, { recursive: true, force: true }); }
+  }
+  async function scanRowIn(s, extraEnv, owned) {
     const row = { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: null, status: "fail" };
     if (s.class === SCAN_CLASS.B && classBBlocked) {
       return { ...row, status: "not-run", code: "CLASS_A_REQUIRED", detail: "class B refused: class A did not run in this call and no valid prior class A evidence for the same scan set was supplied" };
@@ -2328,6 +2355,22 @@ export async function runScans(plan, options = {}) {
               return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}`, ...(s.kind === "test" ? { results: hit.row.results } : {}) };
             }
           }
+          // Every cargo call the wrapper decides during this scan is filed under this token in the gate's ledger: the scan's own call AND the
+          // calls the scan itself makes before it (the cargo-deny row's prefetch and its full metadata), so none is filed "unscoped" and fails the run.
+          const ledgerToken = cargoLedger ? scanTokenOf(s.id) : null;
+          if (ledgerToken) claimedTokens.add(ledgerToken);
+          const ledgerEnv = ledgerToken ? { [SCAN_TOKEN_ENV]: ledgerToken } : {};
+          // A Class A Cargo scan that runs here, not through the broker, never writes into the tree it reads: cargo puts target/.rustc_info.json
+          // beside the manifest, and the snapshot must stay exactly the commit's tree after class A. It gets an output directory of its own
+          // outside every root, removed when the scan ends (scanRow). Left alone: a scan that names its own CARGO_TARGET_DIR (a compile's
+          // checkout-pinned output), a wrapped snapshot compile (the wrapper binds every cargo call; the sentinel asserts none escapes), a
+          // carried read (the broker owns the output and a carried child gets no CARGO_TARGET_DIR) and the broker client itself.
+          let readTargetEnv = {};
+          if (s.class === SCAN_CLASS.A && s.tool === "cargo" && !cargoReadsAreCarried && !cargoLedger && !options.cargoSentinel && !Object.hasOwn(s.env ?? {}, "CARGO_TARGET_DIR")) {
+            try { owned.cargoReadTarget = cargoReadTargetDir({ tmpRoot: options.cargoReadTargetRoot ?? tmpRoot, roots: [contentRoot, liveRoot, cargoLiveRoot] }); }
+            catch (e) { return { ...row, status: "fail", code: "CARGO_READ_TARGET", detail: `${s.id}: ${e.message}` }; }
+            readTargetEnv = { CARGO_TARGET_DIR: owned.cargoReadTarget };
+          }
           let advisory = null; let args = s.args;
           if (s.advisoryDb) {
             try { advisory = prepareAdvisory(s); } catch (e) { return { ...row, status: "fail", code: "ADVISORY_DB", detail: e.message }; }
@@ -2346,7 +2389,7 @@ export async function runScans(plan, options = {}) {
               const fetchTimer = new AbortController();
               const fetchClock = setTimeout(() => fetchTimer.abort(), fetchLimit);
               let fetched;
-              try { fetched = await deps.spawn(p.command, [...args.slice(0, at), "fetch", "--locked"], { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env }, signal: signal ? AbortSignal.any([signal, fetchTimer.signal]) : fetchTimer.signal, timeout: fetchLimit }); } finally { clearTimeout(fetchClock); }
+              try { fetched = await deps.spawn(p.command, [...args.slice(0, at), "fetch", "--locked"], { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...readTargetEnv, ...s.env, ...ledgerEnv }, signal: signal ? AbortSignal.any([signal, fetchTimer.signal]) : fetchTimer.signal, timeout: fetchLimit }); } finally { clearTimeout(fetchClock); }
               if (!fetched || fetched.error || fetched.status !== 0) {
                 advisory.cleanup?.();
                 if (signal?.aborted) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
@@ -2355,7 +2398,7 @@ export async function runScans(plan, options = {}) {
               }
               const metadataDir = fs.mkdtempSync(path.join(tmpRoot, "rk-deny-metadata-"));
               const metadataFile = path.join(metadataDir, "metadata.json");
-              const metadata = await deps.spawn(p.command, [...args.slice(0, at), ...metadataArgs({ noDeps: false })], { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env }, stdoutFile: metadataFile, ...sig });
+              const metadata = await deps.spawn(p.command, [...args.slice(0, at), ...metadataArgs({ noDeps: false })], { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...readTargetEnv, ...s.env, ...ledgerEnv }, stdoutFile: metadataFile, ...sig });
               // AUX_METADATA: the auxiliary metadata that feeds deny could not be produced; not a deny finding, so never a deterministic red (rightkit#1257).
               if (!metadata || metadata.error || metadata.status !== 0) { fs.rmSync(metadataDir, { recursive: true, force: true }); advisory.cleanup?.(); return { ...row, status: "fail", code: "AUX_METADATA", detail: `cargo metadata for cargo-deny failed: ${metadata?.error?.message ?? (tail(metadata) || `exit ${metadata?.status}`)}` }; }
               if (!fs.existsSync(metadataFile)) fs.writeFileSync(metadataFile, String(metadata.stdout ?? ""));
@@ -2428,10 +2471,6 @@ export async function runScans(plan, options = {}) {
             fs.mkdirSync(sentinel, { recursive: true });
           }
           const sentinelEnv = sentinel ? { CARGO_TARGET_DIR: sentinel, CARGO_BUILD_TARGET_DIR: sentinel } : {};
-          // Every cargo call the wrapper decides during this scan is filed under this token in the gate's ledger.
-          const ledgerToken = cargoLedger ? scanTokenOf(s.id) : null;
-          if (ledgerToken) claimedTokens.add(ledgerToken);
-          const ledgerEnv = ledgerToken ? { [SCAN_TOKEN_ENV]: ledgerToken } : {};
           try {
           // The ownership records this request's sub-handle immediately before it is sent (the reclaim proof reads broker.submitted): a
           // missing hook or a mark that did not land sends nothing.
@@ -2462,7 +2501,7 @@ export async function runScans(plan, options = {}) {
           const trustedDirs = trusts.map((tool) => identities.find((i) => i.tool === tool)).filter(Boolean).map((i) => path.dirname(i.path));
           const pathKey = Object.keys({ ...deps.env, ...s.env }).find((k) => k.toLowerCase() === "path") ?? "PATH";
           const trustEnv = trustedDirs.length ? { [pathKey]: [...trustedDirs, ({ ...deps.env, ...s.env })[pathKey]].filter(Boolean).join(deps.platform === "win32" ? ";" : ":") } : {};
-          try { r = await deps.spawn(p.command, spawnArgs, { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...(carrier ? carrier.made.env : {}), ...(carrier ? scanOperationEnv({ ...deps.env, ...s.env }, limitMs) : {}), ...trustEnv }, signal: scanSignal, timeout: limitMs }); } finally { clearTimeout(clock); advisory?.cleanup?.(); }
+          try { r = await deps.spawn(p.command, spawnArgs, { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...readTargetEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...(carrier ? carrier.made.env : {}), ...(carrier ? scanOperationEnv({ ...deps.env, ...s.env }, limitMs) : {}), ...trustEnv }, signal: scanSignal, timeout: limitMs }); } finally { clearTimeout(clock); advisory?.cleanup?.(); }
           }
           if (signal?.aborted && (!r || r.error || r.status !== 0)) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
           if ((timer.signal.aborted || r?.error?.code === "ETIMEDOUT") && (!r || r.error || r.status !== 0)) return { ...row, status: "fail", code: "TIMEOUT", detail: `${s.id} ran longer than ${Math.round(limitMs / 60000)} min and was killed with its process tree; a scan that does not finish fails` };
