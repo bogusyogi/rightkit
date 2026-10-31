@@ -3,7 +3,7 @@
 import "./test-support/broker-guard.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { closureOf, manifestDependencyFacts, scopeScans } from "./app-closure.mjs";
+import { closureOf, ManifestParseError, manifestDependencyFacts, scopeScans } from "./app-closure.mjs";
 import { doorFixture } from "./test-support/door-fixture.mjs";
 
 const POSIX_SIM = process.platform === "win32" ? "simulates a Linux host, whose ownership reads ps" : false;
@@ -45,6 +45,29 @@ test("[GB-15] Rust closure follows path dependencies; an inherited workspace dep
   assert.deepEqual([...unreadable.rust], ["x"], "a single-crate workspace widens to itself");
   assert.deepEqual(scopeScans(scansOf("test:rust:app", "clippy:core:1", "check:x", "doc:w2", "cargo-deny", "test:rust-serial:x"), c, { rustUnits }).dropped.map((s) => s.id), ["check:x", "doc:w2", "test:rust-serial:x"]);
   assert.deepEqual(manifestDependencyFacts('[dependencies]\na = { path = "../a" }\n[target.\'cfg(unix)\'.dev-dependencies]\nb = { workspace = true }\n'), { paths: ["../a"], inherits: true });
+});
+
+test("[GB-15] Cargo path dependencies in TOML literal strings, inline-table spacing variants, dotted and quoted keys are all read; a path key it cannot read throws, naming the line", () => {
+  const facts = (body) => manifestDependencyFacts(`[dependencies]\n${body}\n`).paths;
+  assert.deepEqual(facts("a = { path = '../a' }"), ["../a"], "single-quoted literal string");
+  assert.deepEqual(facts("a = {path='../a'}"), ["../a"], "no spaces");
+  assert.deepEqual(facts('a = {   path   =   "../a" , version = "1" }'), ["../a"], "extra spaces and a following key");
+  assert.deepEqual(facts("a = { version = '1', path = '../a' } # path = '../ignored'"), ["../a"], "comment text is not read");
+  assert.deepEqual(facts(`a.path = '../a'\n"b" = { "path" = "../b" }\nc = { 'path' = '../c' }`), ["../a", "../b", "../c"], "dotted and quoted keys");
+  assert.deepEqual(facts(String.raw`a = { path = "../we\\ird#x" }`), ["../we\\ird#x"], "escapes and # inside a basic string");
+  assert.deepEqual(manifestDependencyFacts("[dependencies.a]\npath = '../a'\n[workspace.dependencies]\nb = { path = '../b' }\n").paths, ["../a", "../b"], "key in a dependency table and in workspace.dependencies");
+  assert.deepEqual(facts(`a = { git = "https://x/path = '../no'" }`), [], "a path inside another string is not a key");
+  const unparseable = ["a = { path = ../a }", 'a = { path = "../a }', "a = { path = '''../a''' }", 'a = { path = """../a""" }', 'a = { path = ["../a"] }', String.raw`a = { path = "../\q" }`, "a = { path ="];
+  for (const bad of unparseable) {
+    assert.throws(() => manifestDependencyFacts(`[package]\nname = "x"\n[dependencies]\n${bad}\n`), (error) => error instanceof ManifestParseError && error.code === "APP_CLOSURE_MANIFEST_UNPARSEABLE" && /line 4/.test(error.message) && error.message.includes(bad.trim()), bad);
+  }
+  assert.doesNotThrow(() => manifestDependencyFacts("[lib]\npath = unquoted\n"), "a path key outside a dependency table is not a dependency");
+  const rustUnits = [{ name: "app", dir: "app", cargoDir: "." }, { name: "core", dir: "core", cargoDir: "." }, { name: "other", dir: "other", cargoDir: "." }];
+  const literal = closureOf({ scopeDirs: ["app"], npmUnits: [], rustUnits, readFile: (r) => (r === "app/Cargo.toml" ? "[dependencies]\ncore = { path = '../core' }\n" : "") });
+  assert.deepEqual([...literal.rust].sort(), ["app", "core"], "a literal-string path dependency is followed");
+  const bad = closureOf({ scopeDirs: ["app"], npmUnits: [], rustUnits, readFile: () => "[dependencies]\ncore = { path = ../core }\n" });
+  assert.deepEqual([...bad.rust].sort(), ["app", "core", "other"], "an unparseable path key widens to the whole Cargo workspace, never omits");
+  assert.match(bad.widened.join("\n"), /Cargo\.toml line 2.*core = \{ path = \.\.\/core \}/);
 });
 
 test("[GB-15] a red unit outside the app's closure does not block the app; a red one inside does; repository-wide scans keep their coverage (real snapshot route)", { skip: POSIX_SIM }, async (t) => {

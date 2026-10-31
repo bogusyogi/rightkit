@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { spawn } from "node:child_process";
+import { spawn } from "./background-process.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   ANDROID_ENV_SECRET_REFUSED, ANDROID_RECEIPT_NAME, ANDROID_RELEASE_CANCELLED, ANDROID_SECRET_MISSING, ANDROID_SIGNING_CONTRACT, ANDROID_SIGNING_PROPERTIES_ENV,

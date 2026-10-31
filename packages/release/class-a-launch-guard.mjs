@@ -198,8 +198,23 @@ function commandWhy(cmd, dialect, depth) {
   return launchWhy(words, { text: true, strict: true, dialect }, depth);
 }
 
+/**
+ * cmd.exe delayed expansion (`!var!`, `!var:~0,5!`) builds words after the guard has read the text, so it fails closed: text that turns
+ * it on (`setlocal enabledelayedexpansion`) or holds a `!name!` pair is refused, because the registry default can leave it on and the
+ * guard cannot tell. A lone `!` (an echoed "wow!") is not a reference and stays allowed, like a lone `%`-free word.
+ */
+function cmdDelayedExpansionWhy(text) {
+  if (/enabledelayedexpansion/i.test(text)) return "cmd.exe delayed expansion (setlocal EnableDelayedExpansion)";
+  if (/![^!\r\n]+!/.test(text)) return "cmd.exe delayed expansion (!name! reference)";
+  return null;
+}
+
+/** Whether a cmd.exe option word (`/v`, `/V:ON`, `/q/v:on`) enables delayed expansion; `/v:off` does not. */
+const cmdSwitchEnablesDelay = (w) => w.startsWith("/") && /\/v(?!:off$)/i.test(w) && !/^\/v:off$/i.test(w);
+
 /** Why shell text is a compile or unreadable, or null. */
 function shellTextWhy(text, dialect = "sh", depth = 0) {
+  if (dialect === "cmd") { const delayed = cmdDelayedExpansionWhy(String(text)); if (delayed) return `shell syntax refused before launch: ${delayed}`; }
   const parsed = parseShell(text, dialect);
   if (parsed.hazard) return `shell syntax refused before launch: ${parsed.hazard}`;
   for (const cmd of parsed.commands) { const why = commandWhy(cmd, dialect, depth); if (why) return why; }
@@ -213,6 +228,13 @@ function shellLaunchWhy(name, words, ctx, depth) {
   const flag = dialect === "cmd" ? /^\/[ckr]$/i : dialect === "pwsh" ? /^-(c|command)$/i : /^-[A-Za-z]*c[A-Za-z]*$/;
   const at = rest.findIndex((w) => flag.test(w));
   if (dialect === "pwsh" && rest.some((w) => /^-(e|ec|enc|encodedcommand)$/i.test(w))) return `${name} -EncodedCommand (text the guard cannot read)`;
+  if (dialect === "cmd") {
+    // Options come before the command text (after /c, /k or /r everything is text); a /V switch in any spelling is refused.
+    for (let k = 0; k < rest.length && (at < 0 || k < at); k++) {
+      if (!rest[k].startsWith("/") && !isDyn(rest[k])) break;
+      if (cmdSwitchEnablesDelay(plain(rest[k]))) return `shell syntax refused before launch: cmd.exe delayed expansion (${plain(rest[k])})`;
+    }
+  }
   if (at >= 0) {
     let j = at + 1;
     if (dialect === "sh") { while (rest[j] === "--") j++; }

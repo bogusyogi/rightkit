@@ -20,7 +20,7 @@ import { adapterArgvRefusal } from "../pnpm-adapter-grammar.mjs";
 import { verifyAttributionDetail } from "../provenance-verify.mjs";
 import { ATTEST_STAGE_NONCE_ENV, canonicalJson, signedBytes } from "../provenance-verify.mjs";
 import { SNAPSHOT_MUST_COMPILE, acceptedAfterFix } from "./cargo-classification.mjs";
-import { MANAGED_RUST_ENVIRONMENT_KEYS, argvSha256, cargoSubcommandOf, declaredInputDigestsOf, isCallHandleOf, observedEnvOf, readDeclaredInputs, requestDigestOf, snapshotRequestCore } from "../snapshot-request.mjs";
+import { MANAGED_RUST_ENVIRONMENT_KEYS, argvSha256, cargoSubcommandOf, declaredInputDigestsOf, isCallHandleOf, isCompileClass, observedEnvOf, readDeclaredInputs, requestDigestOf, snapshotRequestCore } from "../snapshot-request.mjs";
 
 /**
  * A `markBrokerSubmit` fake that takes the call's sub-handle and asserts its shape (`<handle>#<id>`, the build ownership's own rule), so a
@@ -83,6 +83,8 @@ export const TAMPERS = {
   outputNotTarget: { evidence: (e, fx) => { e.outputDir = path.join(fx.wsRoot, "0123456789ab", "g", "002", "debug"); } },
   outputRelative: { evidence: (e) => { e.outputDir = "target"; } },
   digestWrong: { evidence: (e) => { e.declaredInputDigests = [{ path: "gen/in.txt", sha256: "0".repeat(64) }]; } },
+  /** An absent entry for an input the snapshot holds (and, on a compile request, any absent entry): a forged absent. */
+  absentForged: { evidence: (e) => { e.declaredInputDigests = e.declaredInputDigests.map((d) => ({ path: d.path, absent: true })); } },
   digestsDropped: { evidence: (e) => { e.declaredInputDigests = []; } },
   noFreshness: { payload: (p) => { delete p.stageEvidence.freshness; }, receipt: (r) => { delete r.freshness; } },
   /** GB-19/GB-82: a census that could not be taken is {available:false, reason} and FAILS a compile that would otherwise have succeeded (RR_FRESHNESS_UNAVAILABLE). */
@@ -187,7 +189,7 @@ export function signedReceipt(fx, { id, carrier, argv, workspace, observedEnv = 
   const inputs = readDeclaredInputs(carrier.snapshot.path);
   const evidence = {
     requestId: id, brokerVersion: "rustright-test", executor: fx.pins.host, commit: carrier.commit,
-    snapshot: { path: carrier.snapshot.path, treeAtStart: carrier.snapshot.expectedTree, treeAtExit: carrier.snapshot.expectedTree }, declaredInputDigests: declaredInputDigestsOf(carrier.snapshot.path, inputs),
+    snapshot: { path: carrier.snapshot.path, treeAtStart: carrier.snapshot.expectedTree, treeAtExit: carrier.snapshot.expectedTree }, declaredInputDigests: declaredInputDigestsOf(carrier.snapshot.path, inputs, { allowAbsent: adapter === null && !isCompileClass(argv) }),
     ownership: carrier.ownership, outputDir: fx.outputDir,
     // rustright#190 (final): an adapter job's nested children are signed INSIDE snapshotEvidence and mirrored on the receipt (the evidence copy below).
     // The lineage is kept: a child names its own parent (a depth-2 child names an earlier child), and only a child with no parent is the root's.

@@ -195,6 +195,40 @@ test("[7.22] declared inputs: the signed digests must be the gate's own digest o
   assert.equal(c.check().evidence.declaredInputDigests.length, 1);
 });
 
+test("declared inputs that are build outputs: a non-compiling request records a missing input as {path, absent:true}; a compile request refuses it", (t) => {
+  const NONCOMPILE = ["metadata", "--no-deps", "--locked"];
+  const ABSENT = [{ path: "gen/missing", absent: true }];
+  // Non-compile, input absent in the snapshot and signed absent: accepted, in the exact wire form (no sha256 key).
+  const ok = receiptCase(t, { inputs: ["gen/missing"], argv: NONCOMPILE });
+  const got = ok.check().evidence.declaredInputDigests;
+  assert.deepEqual(got, ABSENT);
+  assert.equal(Object.hasOwn(got[0], "sha256"), false);
+  // A mix: the present input keeps its digest, the missing one is absent.
+  const mixed = receiptCase(t, { inputs: ["gen/in.txt", "gen/missing"], argv: NONCOMPILE });
+  const mix = mixed.check().evidence.declaredInputDigests;
+  assert.equal(mix[0].sha256.length, 64); assert.deepEqual(mix[1], ABSENT[0]);
+  // Compile: the broker refuses a missing declared input, so a compile receipt that records one is refused, and the gate never digests it as absent.
+  const compile = receiptCase(t, { inputs: ["gen/in.txt"], argv: ["test", "-p", "a", "--locked"] });
+  fs.chmodSync(path.join(compile.fx.snapshot, "gen"), 0o755); fs.rmSync(path.join(compile.fx.snapshot, "gen", "in.txt"));
+  assert.throws(() => compile.check(), (e) => e.code === "evidence" && /cannot digest the snapshot's declared inputs \(.*ENOENT/.test(e.message));
+  const forged = receiptCase(t, { inputs: ["gen/in.txt"], argv: ["test", "-p", "a", "--locked"], tamper: "absentForged" });
+  assert.throws(() => forged.check(), (e) => e.code === "evidence" && /absent declared input on a compile request/.test(e.message));
+  // Disagreement, receipt absent but the gate sees the input present.
+  const present = receiptCase(t, { inputs: ["gen/missing"], argv: NONCOMPILE });
+  fs.mkdirSync(path.join(present.fx.snapshot, "gen"), { recursive: true });
+  fs.writeFileSync(path.join(present.fx.snapshot, "gen", "missing"), "built later\n");
+  assert.throws(() => present.check(), (e) => e.code === "evidence" && /not the gate's own digest/.test(e.message));
+  // Disagreement, receipt present but the gate sees the input absent.
+  const gone = receiptCase(t, { inputs: ["gen/in.txt"], argv: NONCOMPILE });
+  fs.chmodSync(path.join(gone.fx.snapshot, "gen"), 0o755); fs.rmSync(path.join(gone.fx.snapshot, "gen", "in.txt"));
+  assert.throws(() => gone.check(), (e) => e.code === "evidence" && /not the gate's own digest/.test(e.message));
+  // The digest function: absent only when asked; a link is never absent.
+  const snap = ok.fx.snapshot;
+  assert.deepEqual(declaredInputDigestsOf(snap, ["gen/missing", "nope/deeper"], { allowAbsent: true }), [{ path: "gen/missing", absent: true }, { path: "nope/deeper", absent: true }]);
+  assert.throws(() => declaredInputDigestsOf(snap, ["gen/missing"]), /ENOENT/);
+  assert.throws(() => declaredInputDigestsOf(snap, ["gen/missing"], { allowAbsent: false }), /ENOENT/);
+});
+
 test("[7.22] output directory: absolute, outside the snapshot and the checkout, and a managed generation target", (t) => {
   for (const [tamper, why] of [["outputInsideSnapshot", /inside the snapshot/], ["outputInsideCheckout", /inside the checkout/], ["outputOutsideWs", /not a managed generation target/], ["outputNotTarget", /not a managed generation target/], ["outputRelative", /no absolute output directory/]]) {
     const c = receiptCase(t, { tamper });

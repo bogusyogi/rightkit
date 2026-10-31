@@ -101,6 +101,21 @@ test("compileLaunch refuses shell text it cannot read safely: substitutions, bac
   // Nesting that exceeds the bounded depth is refused, not passed.
   assert.ok(compileLaunch("sh", ["-c", `${Array(30).fill("env").join(" ")} true`]), "a wrapper chain deeper than the bound is refused");
   assert.ok(compileLaunch("cmd", ["/c", "cargo check"]) && compileLaunch("cmd", ["/c", "echo ^c^argo"]) && compileLaunch("cmd", ["/c", "%CC% check"]), "cmd text");
+  // cmd.exe delayed expansion builds words after the text is read: refused, with a reason naming it, in every spelling.
+  const delayed = [
+    ["cmd", ["/v:on", "/c", "set p=cargo&!p! build"]], ["cmd", ["/V:ON", "/C", "set p=cargo&!p! build"]], ["cmd", ["/v", "/c", "set p=cargo&!p! build"]],
+    ["cmd", ["/v:on/c", "set p=cargo&!p! build"]], ["cmd", ["/q", "/v:on", "/c", "echo hi"]], ["cmd", ["/v:on", "script.bat"]],
+    ["cmd", ["/c", "setlocal enabledelayedexpansion & set p=cargo & !p! build"]], ["cmd", ["/c", "setlocal EnableDelayedExpansion&echo hi"]],
+    ["cmd", ["/c", "set p=cargo&!p! build"]], ["cmd", ["/c", "set p=cargo&!p:~0,5! build"]], ["cmd", ["/c", "set p=xcargo&!p:~1,5! build"]],
+    ["env", ["cmd", "/v:on", "/c", "set p=cargo&!p! build"]], ["sh", ["-c", "cmd /v:on /c \"set p=cargo&!p! build\""]], ["cmd", ["/c", "cmd /v:on /c \"set p=cargo&!p! build\""]],
+    ["cmd", ["/c", "echo hi", "&", "cmd", "/v:on", "/c", "!p!"]],
+  ];
+  for (const [program, args] of delayed) assert.match(String(compileLaunch(program, args)), /delayed expansion/, `${program} ${args.join(" ")}`);
+  // A lone `!` in quoted echo text is not a reference (no `!name!` pair) and /v:off keeps expansion off: allowed, as a lone % is not.
+  // Anything with a `!x!` pair is refused even when quoted, because the registry default can leave expansion on.
+  assert.equal(compileLaunch("cmd", ["/c", "echo \"wow!\""]), null, "a lone ! in a quoted echo");
+  assert.equal(compileLaunch("cmd", ["/v:off", "/c", "echo \"wow!\""]), null, "/v:off with a lone !");
+  assert.match(String(compileLaunch("cmd", ["/c", "echo \"hi! there!\""])), /delayed expansion/, "a !..! pair is refused even in quotes (fail closed)");
   assert.ok(compileLaunch("pwsh", ["-Command", "cargo check"]) && compileLaunch("pwsh", ["-Command", "echo $(cargo check)"]) && compileLaunch("pwsh", ["-EncodedCommand", "Y2FyZ28="]), "pwsh text");
   // What is named, not launched, stays allowed; so do ordinary commands with plain, quoted or $VAR arguments.
   const allowed = [

@@ -338,8 +338,12 @@ export function assertSuppliedInputs(snapshotRoot, supplied) {
  * regular file in directory order (names sorted by their bytes), the file's relative name, a NUL, its bytes and a NUL. A link
  * anywhere, a special file, or a limit breach is a refusal. The name is the input's path components joined by `/` on EVERY platform (GB-49: RustRight hashes
  * `/` on Windows too, so a `\` in a declaration or a platform separator never reaches the hash), UTF-8, no Unicode normalisation.
+ *
+ * `allowAbsent` is set ONLY for a non-compiling snapshot-bound request (the carried read-only set): a declared input that does not exist in the
+ * snapshot (ENOENT/ENOTDIR on a component; a link is still refused) is then the entry `{ path, absent: true }` (no `sha256`, 0 files, 0 bytes), the
+ * wire form RustRight signs. A compile request never allows it: a missing declared input is a refusal there (the build outputs must exist).
  */
-export function declaredInputDigestsOf(snapshotRoot, inputs) {
+export function declaredInputDigestsOf(snapshotRoot, inputs, { allowAbsent = false } = {}) {
   let files = 0; let bytes = 0;
   const walk = (full, name, hasher) => {
     const meta = fs.lstatSync(full);
@@ -374,7 +378,10 @@ export function declaredInputDigestsOf(snapshotRoot, inputs) {
     for (const part of input.split(/[\\/]/)) {
       at = path.join(at, part);
       let meta;
-      try { meta = fs.lstatSync(at); } catch (e) { fail("declared-inputs", `${input}: ${e.message}`); }
+      try { meta = fs.lstatSync(at); } catch (e) {
+        if (allowAbsent && (e.code === "ENOENT" || e.code === "ENOTDIR")) return { path: input, absent: true };
+        fail("declared-inputs", `${input}: ${e.message}`);
+      }
       if (meta.isSymbolicLink()) fail("declared-inputs", `${input} runs through a link at ${at}`);
     }
     const hasher = crypto.createHash("sha256");
@@ -540,13 +547,20 @@ export function verifySnapshotReceipt(receipt, { pins, jobId, carrier, argv, wor
     samePath: (a, b) => { try { return canonicalPath(a) === canonicalPath(b); } catch { return false; } },
   });
   // Declared inputs: what the broker digested in place must be what the gate digests in the snapshot, from the same manifest.
+  // An absent entry ({path, absent:true}) is evidence only for a non-compiling snapshot-bound request, and only when the gate's own read of the
+  // snapshot finds the input absent too: the gate digests with `allowAbsent` for that class alone, so a receipt that says absent where the gate
+  // sees the input present (or present where it is absent) differs below and is refused. A compile receipt never carries one.
+  const nonCompile = adapter === null && !isCompileClass(argv);
+  if (!nonCompile && Array.isArray(evidence.declaredInputDigests) && evidence.declaredInputDigests.some((d) => isObject(d) && (d.absent !== undefined || d.sha256 === undefined))) {
+    fail("evidence", "the signed declaredInputDigests carry an absent declared input on a compile request (cargo " + `${cargoSubcommandOf(argv)}); only a non-compiling request may record one`);
+  }
   let gateInputs; let gateDigests;
   try {
     gateInputs = readInputs(carrier.snapshot.path);
-    gateDigests = digestInputs(carrier.snapshot.path, gateInputs, { platform });
+    gateDigests = digestInputs(carrier.snapshot.path, gateInputs, { platform, allowAbsent: nonCompile });
   } catch (e) { fail("evidence", `the gate cannot digest the snapshot's declared inputs (${e.message})`); }
   if (!same(gateInputs, carrier.declaredInputs?.inputs)) fail("evidence", "the snapshot's declared inputs are not the ones this request carried (declaredInputs differs from the snapshot declaration)");
-  if (!same(evidence.declaredInputDigests, gateDigests)) fail("evidence", "the signed declaredInputDigests are not the gate's own digest of the snapshot's declared inputs");
+  if (!same(evidence.declaredInputDigests, gateDigests)) fail("evidence", "the signed declaredInputDigests are not the gate's own digest of the snapshot's declared inputs (an input the receipt records absent must be absent in the snapshot, and the reverse)");
   // Output directory: where the outputs went must be the broker's managed generation target, never under the snapshot or the checkout.
   const out = evidence.outputDir;
   if (typeof out !== "string" || !path.isAbsolute(out) && !path.win32.isAbsolute(out)) fail("evidence", "the signed evidence names no absolute output directory");

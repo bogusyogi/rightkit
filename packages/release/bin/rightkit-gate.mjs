@@ -68,8 +68,8 @@
 // SIGINT/SIGTERM stop scheduling, kill every running scan's process tree and exit non-zero listing the scans not run.
 import fs from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
-import { gateRunsRoot, resolveManagedRoots } from "../managed-roots.mjs";
-import { spawnBrokerClient } from "../broker-client.mjs";
+import { envNamed, gateRunsRoot, resolveManagedRoots } from "../managed-roots.mjs";
+import { resolveBrokerClient, spawnBrokerClient } from "../broker-client.mjs";
 import os from "node:os";
 import path from "node:path";
 import { FOREIGN_PRE_COMMIT, retireHooksIn } from "../hook-retirement.mjs";
@@ -87,7 +87,8 @@ import { buildDirectReceipt, directVerdict, resolveTargetDirectory, verifyDirect
 import { createFreshnessCensus } from "../freshness-census.mjs";
 import { platformDirOf } from "../platform-dir.mjs";
 import { nativeToolRefusal, nativeToolUses } from "../native-tool-planning.mjs";
-import { mergeCapabilityViews, queryBrokerHandshake } from "../broker-handshake.mjs";
+import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, mergeCapabilityViews, parseRuntimeIdentity, queryBrokerHandshake } from "../broker-handshake.mjs";
+import net from "node:net";
 
 const ZERO = /^0+$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -1286,6 +1287,12 @@ async function runStages(o, args, root, git, io) {
     if (decided.refusal) { o.err(`${tag} BLOCKED: ${decided.refusal.code}: ${decided.refusal.message}; nothing ran${decided.route === "snapshot" ? " and the checkout is never built" : ""}`); return 1; }
     const notPublisher = decided.route === "snapshot" ? releaseRouteRefusal(o, { stages, platform }) : null;
     if (notPublisher) { o.err(`${tag} BLOCKED: ${notPublisher.code}: ${notPublisher.message}; nothing ran and the checkout is never built`); return 1; }
+    // The declared Linux broker admits snapshots only under its own data root: refused before any ownership or sync when the gate's root is elsewhere.
+    if (decided.route === "snapshot" && !hosted) {
+      const snapSync = await import("../snapshot.mjs");
+      const mismatch = await declaredSnapshotRootRefusal(o, routeExecutor, o.snapshotRoot ?? snapSync.snapshotRoot({ platform: o.platform, env: o.env }));
+      if (mismatch) { o.err(`${tag} BLOCKED: ${mismatch.code}: ${mismatch.message}; nothing ran`); return 1; }
+    }
   }
   if (!o.doorSnapshot && !hosted) {
     const snap = await import("../snapshot.mjs");
@@ -1893,6 +1900,7 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
   const common = git("rev-parse", "--git-common-dir");
   if (failed(common) || !text(common).trim()) { o.err(`${tag} cannot read the git directory`); return 2; }
   const snapshotsAt = o.snapshotRoot ?? snap.snapshotRoot({ platform: o.platform, env: o.env });
+  { const mismatch = await declaredSnapshotRootRefusal(o, executor, snapshotsAt); if (mismatch) { o.err(`${tag} BLOCKED: ${mismatch.code}: ${mismatch.message}; nothing ran`); return 1; } }
   let own;
   try { own = (o.acquireOwnership ?? acquireBuildOwnership)({ file: ownershipFile({ platform: o.platform, beside: o.snapshotRoot }), stage: `door:unit:${option("--to")}`, snapshot: path.join(snapshotsAt, snap.repositoryOf(root).key), commit, platform: o.platform, env: o.env }); }
   catch (e) { if (e.code !== "busy" && e.code !== "refused") throw e; o.err(`${tag} BLOCKED: ${e.message}; nothing ran${e.code === "refused" ? ", nothing created" : ""}`); return 1; }
@@ -2144,6 +2152,12 @@ async function runRouteProbe(o, args, root, git, { to, platform, stages, devTest
   const capabilities = await brokerCapabilityStateWithHandshake(o, { to, executor });
   try { plan = routePlan(o, { to, stages, devTest, executor, stagePlatform: platform, capabilities, appConfig: to !== "check" ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
   catch (e) { o.err(`${tag} ${e.message}`); return 2; }
+  // The declared Linux broker's snapshot root: the probe reports the refusal a real run would meet (read-only: one status probe of the broker).
+  if (!plan.refusal && plan.route === "snapshot") {
+    let at = null; try { at = o.snapshotRoot ?? snap.snapshotRoot({ platform: o.platform, env: o.env }); } catch { at = null; }
+    const mismatch = at ? await declaredSnapshotRootRefusal(o, executor, at) : null;
+    if (mismatch) plan = { ...plan, refusal: { code: mismatch.code, stage: to, message: mismatch.message } };
+  }
   // Read-only: GIT_OPTIONAL_LOCKS=0, so the probe's `git status` never refreshes the index or contends with a writer (rightkit#1297 L4).
   const dirty = o.spawn("git", ["status", "--porcelain", "--untracked-files=no"], { cwd: root, env: { ...o.env, GIT_OPTIONAL_LOCKS: "0" } });
   const version = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
@@ -2172,6 +2186,78 @@ export function carriedEnv(carrier, base, extra = {}) {
     return out;
   };
   return { ...strip(base), ...carrier.env, ...strip(extra) };
+}
+
+// ---- the declared Linux broker's snapshot root --------------------------------------------------------------------------------------------------
+// The broker admits a snapshot only under `<its data root>/snapshots`. On Linux the gate's snapshot root is `~/.config/rightkit/gate.json` `snapshotRoot`, else
+// `~/.local/state/rightkit/snapshots` (snapshot.mjs snapshotRoot); a host whose broker keeps its data elsewhere would sync thousands of files, take build ownership and submit,
+// only to be refused at admission with the ownership left unknown. So the declared route compares the two BEFORE ownership or a sync, and refuses typed.
+export const LINUX_SNAPSHOT_ROOT_MISMATCH = "RK_LINUX_BROKER_SNAPSHOT_ROOT_MISMATCH";
+const ANSWERING_ROOTS_TIMEOUT_MS = 10_000;
+
+/**
+ * What the answering broker says its roots are: the health probe's `STATUS` carries `roots` (`rustright.answering-roots.v1`: dataRoot, controlRoot, ...), after the HANDSHAKE the first event
+ * is. Reads lines until a STATUS with roots (or any other end) and resolves `{ ok: true, dataRoot }` or `{ ok: false, problem }`; never rejects. `connect` is the transport (tests, `net.connect`).
+ */
+export function readAnsweringRoots({ endpoint, identity, connect = (target) => net.connect({ path: target }), timeoutMs = ANSWERING_ROOTS_TIMEOUT_MS }) {
+  return new Promise((resolve) => {
+    let settled = false; let conn = null; let timer = null; let buffer = "";
+    const finish = (result) => { if (settled) return; settled = true; clearTimeout(timer); try { conn?.destroy(); } catch { /* gone */ } resolve(result); };
+    const problem = (why) => finish({ ok: false, problem: why });
+    try { conn = connect(endpoint); } catch (e) { problem(`cannot connect to the broker at ${endpoint} (${e?.code ?? e?.message ?? e})`); return; }
+    timer = setTimeout(() => problem(`the broker at ${endpoint} reported no roots within ${timeoutMs} ms`), timeoutMs);
+    conn.on("connect", () => { try { conn.write(`${JSON.stringify({ type: "STATUS", protocol: BUILD_CONTROL_PROTOCOL, runtime: identity, id: HANDSHAKE_PROBE_ID })}\n`); } catch (e) { problem(`cannot send the probe to the broker at ${endpoint} (${e?.message ?? e})`); } });
+    conn.on("data", (chunk) => {
+      buffer += String(chunk);
+      if (buffer.length > (1 << 21)) { problem("the broker's reply is too large"); return; }
+      for (let at = buffer.indexOf("\n"); at >= 0; at = buffer.indexOf("\n")) {
+        const line = buffer.slice(0, at); buffer = buffer.slice(at + 1);
+        let event; try { event = JSON.parse(line); } catch { problem("the broker's reply is not JSON"); return; }
+        if (event?.type === "STATUS" && event.roots && typeof event.roots === "object") {
+          const root = event.roots.dataRoot;
+          if (event.roots.schema !== "rustright.answering-roots.v1" || typeof root !== "string" || !path.isAbsolute(root)) { problem("the broker's STATUS roots are not rustright.answering-roots.v1 with an absolute dataRoot"); return; }
+          finish({ ok: true, dataRoot: root }); return;
+        }
+        if (event?.type !== "HANDSHAKE" && event?.type !== "STATUS") { problem(`the broker answered ${event?.type ?? "something"} to the roots probe`); return; }
+      }
+    });
+    const closed = () => problem(`the broker at ${endpoint} closed without reporting its roots (a broker that predates the answering roots)`);
+    conn.on("error", (e) => problem(`the broker connection at ${endpoint} failed (${e?.code ?? e?.message ?? e})`));
+    conn.on("close", closed); conn.on("end", closed);
+  });
+}
+
+/** The declared Linux broker's data root: what it reports on the wire (the validated client, its runtime manifest, the declared endpoint), `{ ok, dataRoot }` or `{ ok: false, problem }`. */
+export async function queryBrokerDataRoot(o, executor) {
+  try {
+    const exe = resolveBrokerClient(executor.client, { platform: o.platform, readFile: o.readFile }).file;
+    let real = exe; try { real = fs.realpathSync.native(exe); } catch { real = exe; }
+    const identity = parseRuntimeIdentity(fs.readFileSync(path.join(path.dirname(real), RUNTIME_MANIFEST_FILE), "utf8"));
+    if (!identity.ok) return { ok: false, problem: identity.problem };
+    return await readAnsweringRoots({ endpoint: executor.socket, identity: identity.identity, ...(o.connectBroker ? { connect: o.connectBroker } : {}) });
+  } catch (e) { return { ok: false, problem: e.message }; }
+}
+
+/**
+ * null, or `{ code, message }` when the declared Linux broker would refuse this gate's snapshots. Only the declared route is asked (a Linux host with no declared broker stays direct and
+ * has no broker root). The broker's own report decides; when it reports none (a broker that predates it, or an unreadable answer) the DECLARED data root (RUSTRIGHT_DATA_ROOT, else
+ * RIGHTKIT_DATA_ROOT, MANAGED_ROOT or EXTERNAL_ROOT) is the comparison, and the message says it is only a declaration; with neither nothing is known and nothing is refused here.
+ * `snapshotsAt` is the gate's snapshot root.
+ */
+export async function declaredSnapshotRootRefusal(o, executor, snapshotsAt) {
+  if (executor?.kind !== "broker" || executor.route !== LINUX_BROKER_ROUTE) return null;
+  const answered = await (o.queryBrokerDataRoot ?? queryBrokerDataRoot)(o, executor);
+  let dataRoot; let basis;
+  if (answered?.ok) { dataRoot = answered.dataRoot; basis = "the broker reports its data root"; }
+  else {
+    dataRoot = envNamed(o.env, "DATA_ROOT") || envNamed(o.env, "MANAGED_ROOT") || envNamed(o.env, "EXTERNAL_ROOT");
+    basis = `the broker did not report its roots (${answered?.problem ?? "no answer"}), so the DECLARED data root from the environment is the comparison (a declaration, not the broker's word)`;
+  }
+  if (!dataRoot) return null;
+  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
+  const expected = path.join(dataRoot, "snapshots");
+  if (real(expected) === real(snapshotsAt)) return null;
+  return { code: LINUX_SNAPSHOT_ROOT_MISMATCH, message: `the gate's snapshot root is ${snapshotsAt}, but the declared Linux broker admits snapshots only under ${expected} (${basis}); set "snapshotRoot": ${JSON.stringify(expected)} in ~/.config/rightkit/gate.json (the gate host configuration), then run again. Nothing was synced and no build ownership was taken` };
 }
 
 /** The RustRight client this executor drives: the declared Linux route's validated client, else the absolute `rustright` on PATH (Mac, Dell). */
