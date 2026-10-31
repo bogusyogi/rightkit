@@ -5,13 +5,15 @@
 //
 //   node scripts/ci/ci-plan.mjs [--last-green <authenticated-results.json>] [--out <file>]
 //
-// last-green.mjs resolves successful per-OS jobs through Actions API. Unknown evidence means a full
-// run for that OS. Pull requests use their merge base (gate.mjs resolves it); caches never prove green.
+// A dispatch names its units (RK_UNITS or RK_UNITS_FILE) or an all-units exception (RK_ALL_UNITS_EXCEPTION): exactly one,
+// else the plan fails. A push uses last-green.mjs's authenticated per-OS base (Actions API); with none recorded it selects
+// the push's own diff (parent..sha). Nothing expands to every unit because evidence is missing. Pull requests use their
+// merge base (gate.mjs resolves it); caches never prove green.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { planHost, planHygiene, requiredShardCommands, scanBase, shardsConfig } from "./shards.mjs";
+import { planHost, planHygiene, requiredShardCommands, resolveDispatchRequest, scanBase, selectionArgs, shardsConfig } from "./shards.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const RUNNERS = [
@@ -47,11 +49,17 @@ function gatePlan(host, extra) {
 
 function main() {
   const event = process.env.GITHUB_EVENT_NAME ?? "push";
+  const request = event === "workflow_dispatch" ? resolveDispatchRequest({
+    units: process.env.RK_UNITS, unitsFile: process.env.RK_UNITS_FILE, exceptionId: process.env.RK_ALL_UNITS_EXCEPTION,
+    read: (file) => fs.readFileSync(path.join(ROOT, file), "utf8"),
+    isTracked: (file) => git("ls-files", "--error-unmatch", "--", file).status === 0,
+  }) : null;
+  const parent = event === "push" ? git("rev-parse", "--verify", "HEAD^").stdout.trim() : null;
   const markers = argOf("--last-green");
   const config = JSON.parse(fs.readFileSync(path.join(ROOT, "ci/gate.config.json"), "utf8"));
   const shards = shardsConfig(JSON.parse(fs.readFileSync(path.join(ROOT, "ci/shards.json"), "utf8")));
 
-  const everything = gatePlan("linux", ["--all"]);
+  const everything = gatePlan("linux", ["--universe"]); // the catalogue of every unit; lists, never runs
   const universe = { rust: everything.rust.test, npm: everything.npm.test };
   const packages = universe.npm.map((dir) => ({ ...JSON.parse(fs.readFileSync(path.join(ROOT, dir, "package.json"), "utf8")), dir }));
   const swiftTests = ["swift/RightKitSwift"].filter((dir) => fs.existsSync(path.join(ROOT, dir, "Tests")));
@@ -61,10 +69,12 @@ function main() {
   const evidence = [];
   const summary = ["## RightKit CI plan", "", "| Runner | Base | Rust crates | Dependents | npm | Root | Swift | Shard jobs | Closure jobs |", "|---|---|---|---|---|---|---|---|---|"];
   for (const runner of RUNNERS) {
-    const base = event === "pull_request" ? null : markerBase(markers, runner);
-    // A pull request leaves --base off: the gate compares it with its merge base. No base and no PR means a full run.
-    const extra = event === "pull_request" ? [] : base ? ["--base", base] : ["--all"];
+    // A dispatch never reads the baseline: it names its units. A pull request leaves --base off (the gate compares it with its merge base).
+    const base = event === "push" ? markerBase(markers, runner) : null;
+    const { args: extra, how } = selectionArgs({ event, request, base, parent });
+    if (event === "push" && !base) console.log(`ci-plan: ${runner.label} has no last-green baseline; selecting the push diff ${parent.slice(0, 10)}..HEAD, not every unit`);
     const selection = gatePlan(runner.host, extra);
+    if (selection.all && request?.kind !== "all") throw new Error(`${runner.label}: the gate selected every unit (${how}); only an all-units exception may`);
     selections.push(selection);
     const plan = planHost({ host: runner.host, label: runner.label, universe, selection, config, shards });
     for (const [step, jobs] of [["test", plan.shards], ["closure", plan.closure]]) {
@@ -75,10 +85,12 @@ function main() {
     output[`${runner.key}_closure`] = JSON.stringify({ include: plan.closure });
     output[`${runner.key}_closure_count`] = String(plan.closure.length);
     output[`${runner.key}_base`] = selection.base ?? "";
-    summary.push(`| ${runner.label} | ${selection.base ? selection.base.slice(0, 10) : selection.all ? "full run" : "merge base"} | ${selection.rust.test.length} | ${selection.rust.check.length} | ${selection.npm.test.length} | ${selection.root.length} | ${selection.swift.length} | ${plan.shards.length} | ${plan.closure.length} |`);
+    summary.push(`| ${runner.label} | ${how}${selection.base ? ` ${selection.base.slice(0, 10)}` : ""} | ${selection.rust.test.length} | ${selection.rust.check.length} | ${selection.npm.test.length} | ${selection.root.length} | ${selection.swift.length} | ${plan.shards.length} | ${plan.closure.length} |`);
   }
   const hygiene = planHygiene(selections);
   output.evidence = JSON.stringify(evidence);
+  // A run proves a baseline for later diffs only if it verified every unit; a named subset proves just itself.
+  output.proves_baseline = String(request?.kind === "all");
   output.hygiene_tokens = hygiene.tokens;
   output.scan_base = scanBase(selections, (...args) => git(...args));
   output.scan_crates = hygiene.crates.join(" ");

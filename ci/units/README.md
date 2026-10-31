@@ -1,0 +1,3 @@
+# CI unit lists
+
+A manual `ci.yml` dispatch must name what it verifies: `units` (space separated gate tokens such as `rust:rightkit-license npm:packages/app-update`), `units_file` (a committed `ci/units/<name>.json` of the form `{ "units": ["rust:rightkit-license", "npm:packages/app-update"] }`, easier for many units), or `all_units_exception` (the id of an unexpired entry of `ci/all-units-exceptions.json`, the only way to run every unit). Exactly one is required; a dispatch with none, or an unknown or expired exception, fails in the plan job. Tokens use the `gate.mjs --select` grammar (`rust:`, `rust-check:`, `npm:`, `root:`, `swift:`).

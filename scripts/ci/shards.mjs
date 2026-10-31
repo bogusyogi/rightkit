@@ -211,6 +211,63 @@ export function scanBase(selections, gitRun) {
 }
 
 /**
+ * Which units a CI run verifies (`ci-plan.mjs`). The standard is never "every unit": a run names its units, or takes them
+ * from a diff. A manual dispatch must carry exactly one selector:
+ *   units                 space separated gate tokens (rust:<crate> npm:<dir> ...), the `--select` grammar
+ *   units_file            ci/units/<name>.json, a committed `{ "units": [ ...tokens ] }`
+ *   all_units_exception   the id of an unexpired entry of ci/all-units-exceptions.json (every unit; strict exception)
+ * `read(path)` returns file text, `isTracked(path)` says whether the file is committed. Throws on anything else.
+ * Returns { kind: "select", tokens, source } or { kind: "all", exception }.
+ */
+export const UNITS_FILE_PATTERN = /^ci\/units\/[A-Za-z0-9][A-Za-z0-9._-]*\.json$/;
+export const EXCEPTIONS_FILE = "ci/all-units-exceptions.json";
+export function resolveDispatchRequest({ units = "", unitsFile = "", exceptionId = "", read, isTracked = () => true, now = new Date() }) {
+  const given = [["units", String(units ?? "").trim()], ["units_file", String(unitsFile ?? "").trim()], ["all_units_exception", String(exceptionId ?? "").trim()]].filter(([, value]) => value);
+  if (given.length !== 1) {
+    throw new Error(`a dispatch must set exactly one of units, units_file or all_units_exception (got ${given.length ? given.map(([name]) => name).join(" and ") : "none"}); CI never defaults to every unit`);
+  }
+  const [[name, value]] = given;
+  if (name === "units") {
+    if (/[^\w:@./ -]/.test(value)) throw new Error("units holds characters outside space separated gate tokens");
+    return { kind: "select", tokens: value.split(/\s+/).join(" "), source: "units" };
+  }
+  if (name === "units_file") {
+    if (!UNITS_FILE_PATTERN.test(value)) throw new Error(`units_file must be a ci/units/<name>.json path, got ${JSON.stringify(value)}`);
+    if (!isTracked(value)) throw new Error(`units_file ${value} is not a committed file`);
+    let parsed;
+    try { parsed = JSON.parse(read(value)); } catch (error) { throw new Error(`units_file ${value} is unreadable JSON: ${error.message}`); }
+    const list = parsed?.units;
+    if (!Array.isArray(list) || !list.length || list.some((t) => typeof t !== "string" || !t || /\s/.test(t))) throw new Error(`units_file ${value} must be { "units": [ one or more gate tokens ] }`);
+    return { kind: "select", tokens: list.join(" "), source: value };
+  }
+  let registry;
+  try { registry = JSON.parse(read(EXCEPTIONS_FILE)); } catch (error) { throw new Error(`${EXCEPTIONS_FILE} is unreadable JSON: ${error.message}`); }
+  const entry = (Array.isArray(registry?.exceptions) ? registry.exceptions : []).find((e) => e?.id === value);
+  if (!entry) throw new Error(`all_units_exception ${JSON.stringify(value)} names no entry of ${EXCEPTIONS_FILE}; an all-units run is a strict exception`);
+  if (entry.approvedBy !== "Adrian" || !String(entry.quote ?? "").trim() || !String(entry.issue ?? "").trim()) throw new Error(`exception ${value} needs approvedBy "Adrian", a quote and an issue`);
+  const expires = Date.parse(entry.expires ?? "");
+  if (!Number.isFinite(expires)) throw new Error(`exception ${value} has no valid expires date`);
+  if (expires <= now.getTime()) throw new Error(`exception ${value} expired ${entry.expires}`);
+  return { kind: "all", exception: value };
+}
+
+/**
+ * The `gate.mjs --plan` arguments of one runner, and how they were chosen. Never `--all` unless the request is an all-units
+ * exception. `request` is a dispatch request (above); a push uses its last-green `base`, else its own diff from `parent`;
+ * a pull request leaves the base to the gate's merge base.
+ */
+export function selectionArgs({ event, request = null, base = null, parent = null }) {
+  if (event === "workflow_dispatch") {
+    if (!request) throw new Error("a dispatch has no unit request");
+    return request.kind === "all" ? { args: ["--all", "--all-units-exception", request.exception], how: `all units (exception ${request.exception})` } : { args: ["--select", request.tokens], how: `units from ${request.source}` };
+  }
+  if (event === "pull_request") return { args: [], how: "merge base" };
+  if (base) return { args: ["--base", base], how: "last-green" };
+  if (/^[0-9a-f]{40}$/i.test(parent ?? "")) return { args: ["--base", parent], how: "push diff (no last-green baseline)" };
+  throw new Error("no last-green baseline and no parent commit to diff the push against; refusing to run every unit");
+}
+
+/**
  * Parse the gate's `--select` list. Tokens (space separated):
  *   rust:<crate>        test, clippy and feature rows of a crate        rust-check:<crate>   compile a dependent
  *   npm:<dir>           npm package tests (dir as in packages/<name>)    root:<suite id>      root node suites

@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
-import { appliesOn, groupUnits, parseSelectTokens, parseSteps, planHost, planHygiene, rustWeight, sanitizeId, shardsConfig, summaryVerdict, evidenceVerdict, requiredConsumerLockCommands, requiredShardCommands, scanBase, SWIFT_ROOT_MANIFEST, swiftXcodebuilds } from "./shards.mjs";
+import { appliesOn, groupUnits, parseSelectTokens, parseSteps, planHost, planHygiene, resolveDispatchRequest, rustWeight, sanitizeId, selectionArgs, shardsConfig, summaryVerdict, evidenceVerdict, requiredConsumerLockCommands, requiredShardCommands, scanBase, SWIFT_ROOT_MANIFEST, swiftXcodebuilds } from "./shards.mjs";
 import { scanTargets } from "./secret-scan.mjs";
 
 const crates = ["rightkit-a", "rightkit-b", "rightkit-c", "rightkit-d", "rightkit-e", "rightkit-heavy", "rightkit-win"];
@@ -414,4 +414,57 @@ test("scanBase is the oldest runner base, and empty (scan everything) whenever a
   assert.equal(scanBase([{ base: a, all: true }], git), "", "--all wins over a resolved base");
   assert.equal(scanBase([{ base: b, all: false }, { base: a, all: false }], git), "", "an unresolvable merge base scans every file");
   assert.equal(scanBase([], git), "");
+});
+
+const EXCEPTIONS = JSON.stringify({ exceptions: [
+  { id: "ok", approvedBy: "Adrian", quote: "run it all", issue: "rightkit#1", expires: "2026-12-01T00:00:00Z" },
+  { id: "old", approvedBy: "Adrian", quote: "run it all", issue: "rightkit#1", expires: "2026-01-01T00:00:00Z" },
+  { id: "other", approvedBy: "someone", quote: "run it all", issue: "rightkit#1", expires: "2026-12-01T00:00:00Z" },
+] });
+const NOW = new Date("2026-10-31T00:00:00Z");
+const files = { "ci/units/mine.json": JSON.stringify({ units: ["rust:rightkit-a", "npm:packages/p1"] }), "ci/all-units-exceptions.json": EXCEPTIONS };
+const dispatch = (input) => resolveDispatchRequest({ read: (file) => { if (!(file in files)) throw new Error("ENOENT"); return files[file]; }, now: NOW, ...input });
+
+test("a dispatch with no selector, or more than one, is refused", () => {
+  assert.throws(() => dispatch({}), /exactly one of units, units_file or all_units_exception \(got none\)/);
+  assert.throws(() => dispatch({ units: "  ", unitsFile: "", exceptionId: "" }), /got none/);
+  assert.throws(() => dispatch({ units: "rust:rightkit-a", exceptionId: "ok" }), /units and all_units_exception/);
+});
+
+test("units selects exactly the named tokens through the --select grammar", () => {
+  const request = dispatch({ units: "rust:rightkit-a  npm:packages/p1" });
+  assert.deepEqual(request, { kind: "select", tokens: "rust:rightkit-a npm:packages/p1", source: "units" });
+  assert.deepEqual(selectionArgs({ event: "workflow_dispatch", request }).args, ["--select", "rust:rightkit-a npm:packages/p1"]);
+  assert.throws(() => dispatch({ units: "rust:a; rm -rf /" }), /characters outside/);
+  assert.throws(() => parseSelectTokens("all", { rust: crates }), /unknown selection token/);
+});
+
+test("units_file reads a committed ci/units JSON list and refuses anything else", () => {
+  assert.deepEqual(dispatch({ unitsFile: "ci/units/mine.json" }), { kind: "select", tokens: "rust:rightkit-a npm:packages/p1", source: "ci/units/mine.json" });
+  assert.throws(() => dispatch({ unitsFile: "../etc/passwd" }), /ci\/units\/<name>\.json/);
+  assert.throws(() => dispatch({ unitsFile: "ci/units/x/../../gate.config.json" }), /ci\/units\/<name>\.json/);
+  assert.throws(() => dispatch({ unitsFile: "ci/units/mine.json", isTracked: () => false }), /not a committed file/);
+  assert.throws(() => dispatch({ unitsFile: "ci/units/none.json" }), /unreadable JSON/);
+  files["ci/units/empty.json"] = JSON.stringify({ units: [] });
+  assert.throws(() => dispatch({ unitsFile: "ci/units/empty.json" }), /one or more gate tokens/);
+});
+
+test("all units runs only with an exact, approved, unexpired exception", () => {
+  assert.deepEqual(dispatch({ exceptionId: "ok" }), { kind: "all", exception: "ok" });
+  assert.deepEqual(selectionArgs({ event: "workflow_dispatch", request: { kind: "all", exception: "ok" } }).args, ["--all", "--all-units-exception", "ok"]);
+  assert.throws(() => dispatch({ exceptionId: "missing" }), /names no entry/);
+  assert.throws(() => dispatch({ exceptionId: "OK" }), /names no entry/);
+  assert.throws(() => dispatch({ exceptionId: "old" }), /expired/);
+  assert.throws(() => dispatch({ exceptionId: "other" }), /approvedBy "Adrian"/);
+  assert.throws(() => dispatch({ exceptionId: "ok", now: new Date("2027-01-01T00:00:00Z") }), /expired/);
+});
+
+test("a push with no last-green baseline selects its own diff, never every unit", () => {
+  const parent = "a".repeat(40);
+  const base = "b".repeat(40);
+  assert.deepEqual(selectionArgs({ event: "push", base: null, parent }).args, ["--base", parent]);
+  assert.deepEqual(selectionArgs({ event: "push", base, parent }).args, ["--base", base]);
+  assert.throws(() => selectionArgs({ event: "push", base: null, parent: "" }), /refusing to run every unit/);
+  for (const event of ["push", "pull_request"]) assert.ok(!selectionArgs({ event, base: null, parent }).args.includes("--all"));
+  assert.throws(() => selectionArgs({ event: "workflow_dispatch" }), /no unit request/);
 });

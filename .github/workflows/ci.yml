@@ -13,6 +13,21 @@ on:
         description: Full commit SHA admitted by broker
         type: string
         required: true
+      units:
+        description: "Space separated gate tokens (rust:<crate> npm:<dir> ...). Set exactly one of units, units_file, all_units_exception"
+        type: string
+        required: false
+        default: ""
+      units_file:
+        description: "Committed ci/units/<name>.json holding { units: [...] }"
+        type: string
+        required: false
+        default: ""
+      all_units_exception:
+        description: "Strict exception: id of an unexpired entry of ci/all-units-exceptions.json (runs every unit)"
+        type: string
+        required: false
+        default: ""
   pull_request:
   push:
     branches: [main]
@@ -67,6 +82,7 @@ jobs:
       scan_base: ${{ steps.plan.outputs.scan_base }}
       scan_crates: ${{ steps.plan.outputs.scan_crates }}
       scan_packages: ${{ steps.plan.outputs.scan_packages }}
+      proves_baseline: ${{ steps.plan.outputs.proves_baseline }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -88,6 +104,10 @@ jobs:
       - name: Plan shards
         id: plan
         shell: bash
+        env:
+          RK_UNITS: ${{ inputs.units }}
+          RK_UNITS_FILE: ${{ inputs.units_file }}
+          RK_ALL_UNITS_EXCEPTION: ${{ inputs.all_units_exception }}
         run: node scripts/ci/ci-plan.mjs --last-green "$RUNNER_TEMP/last-green.json" --evidence-out "$RUNNER_TEMP/ci-plan/evidence.json"
       # The evidence plan reaches the summary as a file: as a job output it exceeds the 128 KiB one environment string holds
       # once a run touches most units (run 40034020934, "Argument list too long").
@@ -524,7 +544,7 @@ jobs:
   # Known-red failures & missing reports block markers. Ownership still blocks overall summary.
   mark-green-windows:
     needs: [private-repo-guard, plan, hygiene, shards-windows, closure-windows, summary]
-    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.private-repo-guard.result == 'success' && needs.plan.result == 'success' && needs.hygiene.result == 'success' && needs.summary.outputs.windows_green == 'true' && (needs.shards-windows.result == 'success' || needs.closure-windows.result == 'success') }}
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.private-repo-guard.result == 'success' && needs.plan.result == 'success' && needs.hygiene.result == 'success' && needs.plan.outputs.proves_baseline == 'true' && needs.summary.outputs.windows_green == 'true' && (needs.shards-windows.result == 'success' || needs.closure-windows.result == 'success') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -533,7 +553,7 @@ jobs:
 
   mark-green-macos:
     needs: [private-repo-guard, plan, hygiene, shards-macos, closure-macos, summary]
-    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.private-repo-guard.result == 'success' && needs.plan.result == 'success' && needs.hygiene.result == 'success' && needs.summary.outputs.macos_green == 'true' && (needs.shards-macos.result == 'success' || needs.closure-macos.result == 'success') }}
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.private-repo-guard.result == 'success' && needs.plan.result == 'success' && needs.hygiene.result == 'success' && needs.plan.outputs.proves_baseline == 'true' && needs.summary.outputs.macos_green == 'true' && (needs.shards-macos.result == 'success' || needs.closure-macos.result == 'success') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

@@ -43,6 +43,7 @@ import { checkArgs, clippyArgs, planScans, runScans, scanDeferrals, scanFailures
 import { scanGatePassed } from "./scan-receipt.mjs";
 import { judgeUnit, mergeCounts, ResultScanner, TEST_COMMAND } from "./test-results.mjs";
 import { dependentClosureEvidence } from "./gate-evidence.mjs";
+import { resolveDispatchRequest } from "./shards.mjs";
 import { needsChrome, provisionForTests } from "./provision-chrome.mjs";
 import { parseSelectTokens, parseSteps, requiredConsumerLockCommands, swiftXcodebuilds } from "./shards.mjs";
 import { changedConfigCrates, parseLock, pnpmBuildClosureArgs, selectByPaths, selectNpm, selectRust, selectUnits } from "./select.mjs";
@@ -180,7 +181,27 @@ function plan() {
   if (SELECT_MODE) return selectPlan();
   const config = readJson("ci/gate.config.json", {});
   const base = resolveBase();
-  const all = !base || process.argv.includes("--all");
+  // Never every unit by default (Adrian, 2026-10-31; GATE-CONTRACT §1A): no base means name the units with --select or
+  // a --base; every unit only with --all and a valid ci/all-units-exceptions.json entry.
+  // `--plan --universe` only lists every unit (ci-plan's catalogue) and never runs one; it needs no exception.
+  const universe = process.argv.includes("--universe");
+  if (universe && !process.argv.includes("--plan")) {
+    console.error("gate: --universe only lists units with --plan; it never runs them");
+    process.exit(2);
+  }
+  const wantsAll = universe || process.argv.includes("--all");
+  if (wantsAll && !universe) {
+    try {
+      resolveDispatchRequest({ exceptionId: argOf("--all-units-exception") ?? "", read: (file) => fs.readFileSync(path.join(ROOT, file), "utf8") });
+    } catch (error) {
+      console.error(`gate: --all refused: ${error.message}. Pass --all-units-exception <id> naming a valid ci/all-units-exceptions.json entry.`);
+      process.exit(2);
+    }
+  } else if (!base) {
+    console.error('gate: no base commit and no unit selection; RightKit never runs every unit by default. Use --select "rust:<crate> npm:<dir> ...", --base <sha>, or --all --all-units-exception <id>.');
+    process.exit(2);
+  }
+  const all = wantsAll;
   const changedPaths = all ? [] : git("diff", "--name-only", "--diff-filter=ACDMRTUXB", base, "HEAD").stdout.split("\n").filter(Boolean);
   let configChanged = new Set();
   if (!all) {

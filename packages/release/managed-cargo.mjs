@@ -25,17 +25,21 @@ function fileHead(file) {
  * RIGHTKIT_MANAGED_AGENT_BIN, or a script that routes through the broker, read 4 KiB at most), and the first real cargo left on it.
  * Plain `cargo` then can only be a real toolchain; with none, a cargo launch fails as missing, never through a shim.
  */
-export function directCargoPath({ env = process.env, exists = existsSync, readHead = fileHead } = {}) {
-  const configured = env.RIGHTKIT_MANAGED_AGENT_BIN ? path.posix.resolve(env.RIGHTKIT_MANAGED_AGENT_BIN) : null;
+export function directCargoPath({ env = process.env, exists = existsSync, readHead = fileHead, platform = process.platform } = {}) {
+  // `platform` only matters for a forced direct run on Windows (a recorded broker exception): ";" separators, backslash paths, cargo.exe.
+  const win = platform === "win32";
+  const norm = (d) => (win ? String(d).replaceAll("\\", "/") : d);
+  const configured = env.RIGHTKIT_MANAGED_AGENT_BIN ? path.posix.resolve(norm(env.RIGHTKIT_MANAGED_AGENT_BIN)) : null;
   const kept = []; const dropped = []; let cargo = null;
-  for (const dir of String(env.PATH ?? "").split(":").filter(Boolean)) {
-    const candidate = path.posix.join(dir, "cargo");
-    const isShim = exists(candidate) && (MANAGED_AGENT_BIN.test(dir) || (configured && path.posix.resolve(dir) === configured) || /cargo-guard\.mjs|rustright/i.test(readHead(candidate)));
+  for (const dir of String(env.PATH ?? "").split(win ? ";" : ":").filter(Boolean)) {
+    const candidates = win ? ["cargo.exe", "cargo.cmd", "cargo.bat", "cargo"].map((n) => path.win32.join(dir, n)) : [path.posix.join(dir, "cargo")];
+    const found = candidates.find((c) => exists(c));
+    const isShim = Boolean(found) && (MANAGED_AGENT_BIN.test(norm(dir)) || (configured && path.posix.resolve(norm(dir)) === configured) || /cargo-guard\.mjs|rustright/i.test(readHead(found)));
     if (isShim) { dropped.push(dir); continue; }
     kept.push(dir);
-    if (!cargo && exists(candidate)) cargo = candidate;
+    if (!cargo && found) cargo = found;
   }
-  return { path: kept.join(":"), dropped, cargo };
+  return { path: kept.join(win ? ";" : ":"), dropped, cargo };
 }
 
 /** `env` for a direct host: PATH without RustRight shim directories. Unchanged on Mac and Windows. */

@@ -77,6 +77,7 @@ import { fileURLToPath } from "node:url";
 import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
+import { BROKER_EXCEPTIONS_FILE, BROKER_EXCEPTION_ERRORS, authorizeNoBroker, describeBrokerException, unitsOfSelector } from "../broker-exception.mjs";
 import { SIGNING_REFUSAL_CODES, suiteSigningRefusals } from "../suite-signing-policy.mjs";
 import { gitListRustFiles } from "../signing-files.mjs";
 import { directPlatform } from "../managed-cargo.mjs";
@@ -99,7 +100,7 @@ export const PARTIAL_EXIT = 3;
 /** The platforms a door run can package: desktop (signed, sealed, installed QA, publisher upload) and mobile (signed, sealed, store test track). */
 export const PLATFORMS = Object.freeze(["mac", "win", "ios", "android"]);
 export const MOBILE_PLATFORMS = Object.freeze(new Set(["ios", "android"]));
-const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to dev|test [--commit <rev>] [-- <right-release args>] | rightkit-gate --to check|compile|package|qualify|dev|test --route [--platform mac|win|ios|android] [--commit <rev>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] | rightkit-gate install-hook | rightkit-gate env-digest | rightkit-gate snapshot [--commit <rev>] [--verify [--env <sha256>]] [--json] | rightkit-gate live-scans --repo <root> | rightkit-gate clippy [<cargo clippy args>] | rightkit-gate env-digest [--snapshot <dir> --commit <sha>] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | rightkit-gate check --commit <sha> --full-a --snapshot <dir> | --version`;
+const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win|ios|android] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify|release --unit npm:@rightkit/<name>|cargo:rightkit-<name> [--receipt-out <file>] | rightkit-gate --to check|compile|package|qualify [--unit <selector>] --no-broker <exception-id> (Mac and Dell only; Adrian's recorded exception in .rightkit/broker-exceptions.json of the commit) | rightkit-gate --to dev|test [--commit <rev>] [-- <right-release args>] | rightkit-gate --to check|compile|package|qualify|dev|test --route [--platform mac|win|ios|android] [--commit <rev>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] | rightkit-gate install-hook | rightkit-gate env-digest | rightkit-gate snapshot [--commit <rev>] [--verify [--env <sha256>]] [--json] | rightkit-gate live-scans --repo <root> | rightkit-gate clippy [<cargo clippy args>] | rightkit-gate env-digest [--snapshot <dir> --commit <sha>] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--rule-tier compile|release] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | rightkit-gate check --commit <sha> --full-a --snapshot <dir> | --version`;
 
 // ---- pure helpers (exported for tests) ----------------------------------------------------------------------
 
@@ -1078,6 +1079,7 @@ export function quietLeaseLane(o, { tag = "rightkit-gate:", reason = "rightkit-g
     acquire: async (want = {}) => {
       const ttlMs = Number.isFinite(want.ttlMs) && want.ttlMs > baseTtlMs ? want.ttlMs : baseTtlMs;
       // A direct (Linux) host never takes a broker lease, whatever is on PATH (managed-cargo directPlatform).
+      if (o.brokerException) { o.out(`${tag} note: ${o.brokerException.note} (${o.brokerException.exceptionId}); quiet test scans run without a broker lease`); return null; }
       if (directPlatform(o.platform ?? process.platform)) { o.out(`${tag} note: direct host (no broker on ${o.platform ?? process.platform}); quiet test scans run without a broker lease`); return null; }
       const client = which("rustright");
       if (!client) { o.out(`${tag} note: no rustright on PATH; quiet test scans run without a broker lease`); return null; }
@@ -1319,7 +1321,7 @@ async function runStages(o, args, root, git, io) {
     const shown = git("show", `${commit}:${f}`); if (!failed(shown)) lockFiles[f] = text(shown);
   }
   const binding = bindingOf({
-    tree, lockFiles, gateFile: fileURLToPath(import.meta.url), executor: executor.kind,
+    tree, lockFiles, gateFile: fileURLToPath(import.meta.url), executor: o.brokerException ? `${executor.kind}:exception:${o.brokerException.exceptionId}` : executor.kind,
     toolchain: { classA: { "cargo-deny": version("cargo-deny", ["--version"]), "cargo-audit": version("cargo-audit", ["--version"]), actionlint: version("actionlint", ["-version"]), shellcheck: version("shellcheck", ["--version"]) }, node: process.version, rustc: version(executor.kind === "broker" && executor.cargo[0] === "rustright" ? "rustright" : "rustc", executor.kind === "broker" && executor.cargo[0] === "rustright" ? ["rustc", "-V"] : ["-V"]), pnpm: version("pnpm", ["--version"]) },
   });
   // Release writes to R2. The write credential lives only in the trusted publisher: a GitHub Actions job in the protected
@@ -1336,6 +1338,7 @@ async function runStages(o, args, root, git, io) {
   if (receiptIn !== undefined) {
     let imported = null;
     try { imported = JSON.parse(o.readFile(path.resolve(o.cwd, receiptIn))); } catch { /* refused below */ }
+    if (imported?.brokerException) { o.err(`${tag} BLOCKED: --receipt-in ${receiptIn} was built outside the broker by exception ${imported.brokerException.exceptionId}; it is never taken as a broker-built receipt`); return 1; }
     if (!imported || imported.schema !== RECEIPT_SCHEMA || imported.commit !== commit || !sameSource(imported.binding, binding)) {
       o.err(`${tag} BLOCKED: --receipt-in ${receiptIn} is not a ${RECEIPT_SCHEMA} receipt for ${commit.slice(0, 12)} with this tree, these lockfiles and this gate`);
       return 1;
@@ -1348,6 +1351,8 @@ async function runStages(o, args, root, git, io) {
   const receipt = previous && sameBinding(previous.binding, binding) ? previous
     : previous && sameSource(previous.binding, binding) ? { ...previous, binding, stages: Object.fromEntries(Object.entries(previous.stages ?? {}).filter(([k]) => k !== "check" && k !== "compile")) }
       : { schema: RECEIPT_SCHEMA, commit, app: appDir, binding, stages: {} };
+  // Every run under a broker exception records it in the receipt (broker-exception.mjs): id, Adrian's quote, issue, units and host.
+  if (o.brokerException) receipt.brokerException = o.brokerException;
   const receiptOut = option("--receipt-out");
   const save = () => {
     (o.writeReceipt ?? writeReceipt)({ commonDir, receipt });
@@ -1874,7 +1879,7 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
         return calls.length === 0;
       } },
       check: (tier) => (o.runCheck ?? (() => main(["check", "--commit", ds.commit, "--full-a", "--snapshot", ds.path, "--rule-tier", tier], { ...io, cwd: root, buildOwnership: own })))(tier), out: o.out, err: o.err,
-      ...(reportOut ? { writeReport: (report) => o.writeFile(path.resolve(o.cwd, reportOut), `${JSON.stringify(report, null, 2)}\n`) } : {}),
+      ...(reportOut ? { writeReport: (report) => o.writeFile(path.resolve(o.cwd, reportOut), `${JSON.stringify(o.brokerException ? { ...report, brokerException: o.brokerException } : report, null, 2)}\n`) } : {}),
     });
     } finally { bound.cleanup(); }
   } finally {
@@ -2559,6 +2564,33 @@ export async function main(argv, io = {}) {
   // `--unit` is a gate flag only before a `--` separator: after it the arguments belong to right-release (an app's `--to dev -- …`).
   const separator = args.indexOf("--");
   const unitFlag = args.includes("--unit") && (separator < 0 || args.indexOf("--unit") < separator);
+  // `--no-broker <exception-id>`: the one documented exception to the mandatory broker on Mac and Dell (broker-exception.mjs). The record is
+  // read from the selected commit, never the working tree; every refusal is typed and nothing runs. The run then takes the same stages
+  // with the direct executor, and prints and records the exception.
+  const noBrokerAt = args.indexOf("--no-broker");
+  if (noBrokerAt >= 0 && (separator < 0 || noBrokerAt < separator)) {
+    const brokerId = args[noBrokerAt + 1];
+    if (option("--to") === undefined) { o.err(`rightkit-gate: ${BROKER_EXCEPTION_ERRORS.usage}: --no-broker <exception-id> applies to a --to stage\n${USAGE}`); return 2; }
+    args.splice(noBrokerAt, typeof brokerId === "string" && !brokerId.startsWith("--") ? 2 : 1);
+    let granted;
+    try {
+      let record = null;
+      if (typeof brokerId === "string" && !brokerId.startsWith("--")) {
+        const pinned = (await import("../snapshot.mjs")).resolveCommit(root, option("--commit") ?? "HEAD");
+        const shown = git("show", `${pinned.commit}:${BROKER_EXCEPTIONS_FILE}`);
+        record = failed(shown) ? null : text(shown);
+      }
+      granted = authorizeNoBroker({ id: brokerId, record, platform: o.platform, units: unitsOfSelector(unitFlag ? option("--unit") : undefined), now: o.now ? o.now() : Date.now() });
+    } catch (e) {
+      if (!e.code?.startsWith("RK_BROKER_EXCEPTION_")) { o.err(`rightkit-gate: cannot resolve ${option("--commit") ?? "HEAD"} to a commit: ${e.message}`); return 2; }
+      o.err(`rightkit-gate: BLOCKED: ${e.message}; nothing ran`); return e.code === BROKER_EXCEPTION_ERRORS.usage ? 2 : 1;
+    }
+    const brokerResolver = o.resolveExecutor ?? resolveExecutor;
+    o.resolveExecutor = (a) => brokerResolver({ ...a, forceDirect: true });
+    o.brokerException = granted;
+    io = { ...io, resolveExecutor: o.resolveExecutor, brokerException: granted };
+    o.out(`rightkit-gate: BROKER EXCEPTION ${describeBrokerException(granted)}`);
+  }
   // `--route` is a gate flag only before a `--` separator (after it the arguments belong to right-release). It answers which route a
   // stage takes and runs nothing, so it takes no unit, receipt or release stage (rightkit#1297).
   const gateArgs = separator < 0 ? args : args.slice(0, separator);

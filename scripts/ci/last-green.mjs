@@ -328,7 +328,8 @@ async function cli() {
   const result = await resolveLastGreen();
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, `${JSON.stringify(result, null, 2)}\n`);
-  console.log(`last-green: windows=${result.results.windows.base || "full baseline"}; macos=${result.results.macos.base || "full baseline"}; output=${target}`);
+  const none = "no baseline (a push selects its own diff, never every unit)";
+  console.log(`last-green: windows=${result.results.windows.base || none}; macos=${result.results.macos.base || none}; output=${target}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
