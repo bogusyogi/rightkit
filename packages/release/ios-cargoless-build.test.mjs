@@ -9,6 +9,9 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync } from "./background-process.mjs";
 import { collectIosNativeToolVersions, collectIosXcodeToolVersions, iosPrepareExecutables, planIosNativeBuild, releaseSwitchInputs, resolveIosBuildContext, stripRustEnvironment } from "./ios-build-context.mjs";
+import { createNativeRunner } from "./build-launch.mjs";
+import { managedRuntimeClient } from "./managed-roots.mjs";
+import { NATIVE_ADAPTERS, nativeManagedOutputs, nativeStateDir } from "./native-adapters.mjs";
 import { IOS_RECEIPT_NAME, IOS_SIGNING_CONTRACT, runIosPackageRecipe, validateIosPackageConfig, verifyIosReceipt, iosSealEntry } from "./ios-package-recipe.mjs";
 import { releaseEnvironment, verifySealedRelease } from "./release-state.mjs";
 import { verifyPublicationRelease } from "./publication-artifacts.mjs";
@@ -380,21 +383,44 @@ test("the environment reaching the recipe's commands drops the release lane's Ru
     const app = iosApp();
     const plan = planIosNativeBuild({ appRoot: app.root, vaultRoot: path.resolve("/vault"), toolVersions: { xcodebuild: "Xcode 16.2", xcodegen: "2.44" }, hostArch: "arm64", hostEnv });
     const env = plan.sanitizeEnv(baseEnv);
-    // Reaches the real recipe; each command's env is recorded and the archive step is made to stop it.
+    // Reaches the real recipe; each command's env is recorded and the archive step is made to stop it. The compiler-capable calls (xcodegen generate, xcodebuild archive) go to the native runner:
+    // the REAL production runner plans them (the door, the adapter grammar, the capability check) and only the broker's execution is stood in for, with the output roles computed by the real
+    // grammar. The runner forwards none of the env to the broker job, but the recipe hands it the same env it hands its direct steps, which is what this test pins.
     const seen = [];
     const spec = validateIosPackageConfig(iosPackage());
     const run = (cmd, args, options = {}) => {
       seen.push({ cmd, env: options.env });
       if (cmd === "xcodebuild" && args[0] === "-version") return { status: 0, stdout: "Xcode 16.2\n", stderr: "" };
       if (cmd === "xcodegen" && args[0] === "--version") return { status: 0, stdout: "2.44\n", stderr: "" };
-      if (cmd === "xcodegen") { mkdirSync(path.join(app.root, "CodeRight.xcodeproj"), { recursive: true }); return { status: 0, stdout: "", stderr: "" }; }
-      return { status: 1, stdout: "", stderr: "stop at archive" };
+      return { status: 1, stdout: "", stderr: `unexpected direct command ${cmd}` };
+    };
+    const macEnv = { PATH: "/usr/bin", HOME: "/Users/rk" };
+    const macClient = managedRuntimeClient(macEnv, "darwin", () => true);
+    const real = createNativeRunner({ cwd: app.root, env: macEnv, platform: "darwin", exists: (p) => p === macClient, which: (c) => (c === "rustright" ? ["/elsewhere/on/path/rustright"] : []), readFile: () => "" });
+    const launched = [];
+    const native = {
+      // The stand-in is its own host description (macEnv); the recipe's `env` is the step's launch environment, which the runner never forwards.
+      plan: (command, args, options = {}) => real.plan(command, args, { ...options, env: macEnv }),
+      run(command, args = [], options = {}) {
+        const hostOptions = { ...options, cwd: options.cwd ?? app.root, env: macEnv };
+        let launch;
+        try { launch = real.plan(command, args, hostOptions); } catch { return real.run(command, args, hostOptions); }
+        seen.push({ cmd: command, env: options.env, native: true });
+        const { tool, args: sent } = launch.native;
+        launched.push(`${command} ${sent.includes("archive") ? "archive" : sent[0]}`);
+        const outputDir = path.join(app.root, "broker-output");
+        const mapped = nativeManagedOutputs(tool, sent, { state: nativeStateDir(outputDir, tool, ""), jobId: "job-1" });
+        if (command === "xcodegen") { mkdirSync(path.join(app.root, "CodeRight.xcodeproj"), { recursive: true }); }
+        const ok = command === "xcodegen";
+        return { ok, status: ok ? 0 : 1, signal: null, stdout: "", stderr: ok ? "" : "stop at archive", error: null, refusal: null, tool, adapter: NATIVE_ADAPTERS[tool].adapter, capability: NATIVE_ADAPTERS[tool].capability, argv: [...sent], carried: true, relativeCwd: "", requestId: "job-1", outputDir,
+          outputs: ok ? { ok: true, source: "receipt", state: nativeStateDir(outputDir, tool, ""), outputs: mapped.outputs, byRole: Object.fromEntries(mapped.outputs.map((entry) => [entry.role, entry.path])) } : null, nestedChildren: null };
+      },
     };
     await assert.rejects(runIosPackageRecipe({
-      root: app.root, spec, env, platform: "darwin", run, log: () => {}, now: () => new Date("2026-10-19T09:00:00Z"), tmpRoot: app.root,
-      counterDir: path.join(app.root, "counter"), detectSession: () => ({ guiRunner: false, reason: "Aqua security session" }),
-      storage: () => ({ derivedData: path.join(app.root, "dd"), resultBundle: path.join(app.root, "r.xcresult") }), gitHead: () => "a".repeat(40), scanFiles: () => {},
+      root: app.root, spec, env, platform: "darwin", run, native, log: () => {}, now: () => new Date("2026-10-19T09:00:00Z"), tmpRoot: app.root,
+      counterDir: path.join(app.root, "counter"), detectSession: () => ({ guiRunner: false, reason: "Aqua security session" }), gitHead: () => "a".repeat(40), scanFiles: () => {},
     }), /archive/);
+    assert.deepEqual(launched, ["xcodegen generate", "xcodebuild archive"], "the compile phases ran as native jobs; nothing compiler-capable ran directly");
     assert.ok(seen.some((call) => call.cmd === "xcodegen") && seen.some((call) => call.cmd === "xcodebuild"));
     for (const call of seen) {
       for (const name of ["RUSTFLAGS", "CARGO_TARGET_DIR", "RUSTC_WRAPPER", "SCCACHE_DIR", "SCCACHE_CACHE_SIZE", "SCCACHE_BASEDIRS", "SCCACHE_IGNORE_SERVER_IO_ERROR", "RIGHT_RELEASE_CACHE_OWNER"]) {

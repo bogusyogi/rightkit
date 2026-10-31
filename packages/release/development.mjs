@@ -2,8 +2,8 @@ import { discoverBrokerSocket, resolveManagedRoots } from './managed-roots.mjs';
 import { spawnSync } from "./background-process.mjs";
 import { createHash } from "node:crypto";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, lstatSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
-import { buildLaunch } from "./build-launch.mjs";
-import { carriedAdapterOutputDir, carriedCargoMapOf, carriedLedgerIds, carriedOutputDir, carriedOutputDirsSince } from "./carried-cargo.mjs";
+import { buildLaunch, createNativeRunner } from "./build-launch.mjs";
+import { carriedOutputDir, carriedOutputDirsSince } from "./carried-cargo.mjs";
 import { lockedTauriArgs } from "./tauri-locked.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +24,7 @@ import { signWindowsFiles, verifyWindowsFiles } from "./sign-windows.mjs";
 import { assertSuiteSigningPolicy } from "./suite-signing-policy.mjs";
 import { fsListRustFiles } from "./signing-files.mjs";
 import { ASSEMBLED_APP_KIND, installAssembledMac, installAssembledWindows, resolveAssembledInstall } from "./install-assembled-app.mjs";
-import { assertIosDevelopmentSession, installIosDevelopment, iosUiTestCommands, prepareIosDevelopment, prepareIosUiTests, validateIosDevelopment } from "./ios-dev.mjs";
+import { assertIosDevelopmentSession, installIosDevelopment, iosDevelopmentApp, iosUiTestCommands, prepareIosDevelopment, prepareIosUiTests, runIosDevelopmentCommands, validateIosDevelopment } from "./ios-dev.mjs";
 import { packLinuxArtifacts, validateLinuxArchive } from "./linux-artifacts.mjs";
 import { buildAndEmbedNativeHelpers, nativeHelpersFromConfig } from "./native-helpers.mjs";
 import { androidDevelopmentNdkCommand, androidDevelopmentSerial, installAndroidDevelopment, validateAndroidDevelopment } from "./android-dev.mjs";
@@ -54,9 +54,12 @@ export function developmentEnvironment(env = process.env, platform = process.pla
   delete result.CARGO_INCREMENTAL;
   // A dev build is debug-signed: a release signing-properties path never reaches it.
   delete result.RIGHTKIT_ANDROID_SIGNING_PROPERTIES;
-  const client = managedRuntimeClient(result);
+  // A direct (Linux) host never gets the managed agent-bin on PATH or a discovered socket, even when it DECLARES a broker route: managedRuntimeClient then returns the declared,
+  // pinned client, but the agent-bin directory and socket here come from environment-derived managed roots that nothing validated. Whatever the build needs from the broker
+  // goes through the executor's validated client (buildLaunch / createNativeRunner), never a PATH lookup, and a second endpoint variable would make the declared route ambiguous.
+  const client = directPlatform(platform) ? undefined : managedRuntimeClient(result, platform);
   if (client) {
-    const { agentBin } = resolveManagedRoots({ env: result });
+    const { agentBin } = resolveManagedRoots({ env: result, platform });
     if (agentBin && existsSync(agentBin)) {
       const pathKey = Object.keys(result).find((key) => key.toLowerCase() === "path") ?? "PATH";
       result[pathKey] = [agentBin, result[pathKey]].filter(Boolean).join(path.delimiter);
@@ -130,7 +133,7 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
   assertPrimaryReleaseCheckout(repoRoot, env);
   if (dryRun && uiTests) {
     if (!target.uiTests) throw new Error("development.targets.ios.uiTests is not declared: list the journeys in uiTests.onlyTesting");
-    return { built: false, installed: false, plan: { tests: iosUiTestCommands(target, { root, storage: { derivedData: "<rustright storage xcode-args -derivedDataPath>" }, destinationId: "<device or simulator id>", resultBundle: "<fresh .xcresult per run>" }) } };
+    return { built: false, installed: false, plan: { tests: iosUiTestCommands(target, { root, destinationId: "<device or simulator id>" }) } };
   }
   if (dryRun) return { built: false, installed: false, plan: { ...(target.ndk ? { ndk: androidDevelopmentNdkCommand(target.ndk) } : {}), build: target.build, install: buildOnly ? null : target.install ?? null, profile: DEVELOPMENT_PROFILE } };
   assertReleaseExecutionAllowed({ cwd: repoRoot, environment: env, command: `right-release dev --platform ${platform}` });
@@ -141,7 +144,7 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
   if (platform === "ios") {
     assertIosDevelopmentSession(target, { env, run });
     if (uiTests && !target.uiTests) throw new Error("development.targets.ios.uiTests is not declared: list the journeys in uiTests.onlyTesting");
-    iosPrepared = uiTests ? prepareIosUiTests(target, { root, env, run, serial }) : prepareIosDevelopment(target, { root, env, run, serial, brokerOwned: Boolean(carriedCargoMapOf(env)?.map) });
+    iosPrepared = uiTests ? prepareIosUiTests(target, { root, env, run, serial }) : prepareIosDevelopment(target, { root, env, run, serial });
   }
   // Android: the device serial is required, so a missing one is refused before the (long) build too.
   if (!buildOnly && platform === "android" && target.install) androidDevelopmentSerial({ descriptor: target.install, serial, env });
@@ -153,19 +156,22 @@ export function runDevelopment({ root, platform, config, buildOnly = false, dryR
     const startedMs = Date.now();
     // Android: cargo-ndk (Cargo dev profile) fills the generated jniLibs, then the Gradle debug build packages it.
     if (target.ndk) { rmSync(target.ndk.jniLibs, { recursive: true, force: true }); execute(androidDevelopmentNdkCommand(target.ndk), { root, env: childEnv, dryRun, run, door, label: "native build" }); }
+    // RA-09: the iOS compile steps (xcodegen, xcodebuild build / build-for-testing / test-without-building) are broker adapter jobs of the production native runner, planned together before the first
+    // launch; there is no execute() of this file's own for them. The app's own non-native `prepare` commands are the only direct steps and keep going through the door. The built app and the
+    // result bundle are read back from the verified receipt's managed output roles.
+    const iosNative = (commands) => runIosDevelopmentCommands(commands, {
+      native: createNativeRunner({ cwd: root, env: childEnv }), root, env: childEnv,
+      direct: (command) => { execute(command, { root, env: childEnv, dryRun, run, door, label: "prepare" }); return { status: 0 }; },
+    });
     if (uiTests) {
-      for (const command of iosPrepared.tests) execute(command, { root, env: childEnv, dryRun, run, door, label: "ui tests" });
-      console.log(`right-release test: ios journeys passed (${target.uiTests.onlyTesting.join(", ")}); result bundle ${iosPrepared.resultBundle}`);
-      return { built: true, installed: false, tested: true, resultBundle: iosPrepared.resultBundle };
+      const tested = iosNative(iosPrepared.tests);
+      console.log(`right-release test: ios journeys passed (${target.uiTests.onlyTesting.join(", ")}); result bundle ${tested.resultBundle ?? "(not reported)"}`);
+      return { built: true, installed: false, tested: true, resultBundle: tested.resultBundle };
     }
-    const ledgerBefore = carriedLedgerIds(childEnv);
-    for (const command of iosPrepared ? iosPrepared.build : target.build) execute(command, { root, env: childEnv, dryRun, run, door, label: "build" });
-    // GB-51: a broker-owned iOS build wrote under the output directory the xcodebuild adapter's signed receipt names; the .app to install is found there, never from host storage.
-    if (iosPrepared?.brokerOwned && iosPrepared.install && !dryRun) {
-      const out = carriedAdapterOutputDir(childEnv, "rightkit-xcodebuild", ledgerBefore);
-      if (!out) throw new Error("the carried xcodebuild step has no verified output directory, so there is no built app to install (the broker owns the build's output root)");
-      iosPrepared.install.app = iosPrepared.appFromOutputDir(out);
-    }
+    let built = null;
+    if (iosPrepared) built = iosNative(iosPrepared.build);
+    else for (const command of target.build) execute(command, { root, env: childEnv, dryRun, run, door, label: "build" });
+    if (iosPrepared?.install && !dryRun) iosPrepared.install.app = iosDevelopmentApp(target, built.outputs);
     // Dev and QA binaries run from one stable staged path, copied in place (no backup of the old copy), never from the
     // broker's per-generation target folder or a hashed dev-targets folder.
     const staged = target.stage?.length ? stageDevelopmentBinaries(target.stage, { root, platform: platform === "win" ? "win32" : process.platform, managedOutputDirs: carriedOutputDirsSince(childEnv) }) : [];
