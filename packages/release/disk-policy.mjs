@@ -1,4 +1,4 @@
-import { closeSync, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, opendirSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, statfsSync, appendFileSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, opendirSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, statfsSync, appendFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1031,7 +1031,20 @@ function newestWriteMs(dir) {
  * moved into or written in the dir within the last `days` either, so every item is held at least `days` even though the
  * folder name carries only a date. Only dirs this tool created: the base must carry the holding marker (or, for the legacy
  * heavy dir, the tool's own log), the child must be a real directory named YYYY-MM-DD, never a symlink. */
-export function purgeHoldings({ policy, platform = process.platform, env = process.env, home = os.homedir(), now = Date.now(), days = policy.holdingDays ?? 3, dryRun = false, bases, remove = (p) => rmSync(p, { recursive: true, force: true }), size = walkSize } = {}) {
+/** Remove a held tree whose items arrived read-only (frozen sources, Go module caches): make every real directory owner-writable
+ * first, never following symlinks, since `rmSync` cannot unlink entries inside a directory it may not write. */
+function removeHeld(dir) {
+  const walk = (d) => {
+    try { chmodSync(d, lstatSync(d).mode | 0o700); } catch { return; }
+    let names = [];
+    try { names = readdirSync(d); } catch { return; }
+    for (const n of names) { const c = path.join(d, n); try { if (lstatSync(c).isDirectory()) walk(c); } catch { /* vanished */ } }
+  };
+  walk(dir);
+  rmSync(dir, { recursive: true, force: true });
+}
+
+export function purgeHoldings({ policy, platform = process.platform, env = process.env, home = os.homedir(), now = Date.now(), days = policy.holdingDays ?? 3, dryRun = false, bases, remove = removeHeld, size = walkSize } = {}) {
   const key = platformKey(platform);
   const legacy = policy.heavyVolume?.[key];
   const list = bases ?? [...knownHoldingBases({ policy, platform, env, home }), ...(legacy ? [legacy] : [])];

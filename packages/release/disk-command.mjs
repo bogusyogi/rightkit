@@ -822,6 +822,7 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     if (!purged) {
       purged = purgeHoldings({ policy, platform, env, ...deps.purge });
       stdout(`purged ${purged.results.filter((r) => r.ok).length} holding dir(s), ${formatBytes(purged.purgedBytes)}`);
+      for (const r of purged.results.filter((x) => !x.ok)) stdout(`purge FAILED: ${r.path}: ${r.error}`);
     }
     const after = check();
     const warn = after.warn;

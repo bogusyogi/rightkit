@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFileSync, existsSync, lutimesSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync, lstatSync, readdirSync, realpathSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, lutimesSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync, lstatSync, readdirSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -346,6 +346,19 @@ test("purge: only tool-created, date-named holding dirs a full 3 days past their
   assert.equal(existsSync(path.join(keepTarget, "f")), true);
   assert.equal(existsSync(path.join(stranger, "2026-01-01", "f")), true);
   assert.equal(lstatSync(path.join(base, "2026-09-30")).isSymbolicLink(), true);
+});
+
+test("purgeHoldings removes a held tree that arrived read-only", { skip: process.platform === "win32" }, () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "rk-purge-ro-"));
+  const base = path.join(root, ".rightkit-swept");
+  file(path.join(base, HOLDING_MARKER), 1);
+  const frozen = path.join(base, "2026-10-01", "scratch-root", "frozen-source");
+  file(path.join(frozen, "pkg", "a.txt"), 10);
+  chmodSync(path.join(frozen, "pkg"), 0o555);
+  chmodSync(frozen, 0o555);
+  const res = purgeHoldings({ policy: { holdingDays: 3 }, platform: "darwin", now: Date.now() + 10 * 86400_000, bases: [base] });
+  assert.deepEqual(res.results.map((r) => r.ok), [true]);
+  assert.equal(existsSync(path.join(base, "2026-10-01")), false);
 });
 
 test("run purges old holding dirs after sweeping (the dir's own mtime is old too)", async () => {
