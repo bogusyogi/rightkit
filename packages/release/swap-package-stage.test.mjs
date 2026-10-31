@@ -23,6 +23,7 @@ import { prepareSwapHelper, SWAP_HELPER_CARGO_ARGS, SWAP_HELPER_METADATA_ARGS, S
 import { defaultStageCommands } from "./unit-gate.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { startRealBroker } from "./test-support/real-broker.mjs";
+import { fileURLToPath } from "node:url";
 
 const POSIX = process.platform === "win32" ? "the carried adapter PATH is POSIX only" : false;
 const GATE = "/gate/bin/rightkit-gate.mjs";
@@ -136,7 +137,7 @@ test("end to end on the real broker: the real swap step through the real seam se
   assert.equal(pack.status, 0, pack.stderr);
 
   // The gate's own collection over the REAL expected commands of npm:@rightkit/release (ci/gate.config.json and its package.json at the repository).
-  const expected = defaultStageCommands({ unit, root: path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", ".."), platform: "darwin" });
+  const expected = defaultStageCommands({ unit, root: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".."), platform: "darwin" });
   const jobs = await jobsOf(h);
   const collected = assignJobs(expected.package, jobs.map((j) => ({ id: j.id, payload: j.payload })), { checkout: h.fx.checkout });
   assert.deepEqual(collected.missing, [], "every expected command has a receipt of its own job");
