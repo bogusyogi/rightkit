@@ -46,6 +46,19 @@ export function keyPair() {
   return { privateKey, pins: { publicKey: sec1, keyId: sha(Buffer.from(sec1, "hex")), host: "host-1", brokerDigest: "b".repeat(64) } };
 }
 
+/**
+ * RA-03: the cause evidence a real broker signs inside a compile's compact freshness (rustright-broker cargo_evidence.rs `Classification::compact`, schema
+ * rustright.cause-evidence.v1). The default is the whole, explained evidence of a census that rebuilt nothing; `over` replaces fields of the evidence.
+ */
+export const causeEvidence = (over = {}) => ({
+  schema: "rustright.cause-evidence.v1", state: "complete", verdict: "explained", basis: "reasons", unavailable: null, gaps: [], historyMigrationNeeded: false,
+  counts: { rows: 0, rowsDropped: 0, units: 0, unexplained: 0, uncovered: 0 }, unexplainedUnits: [], unexplainedUnitsTruncated: 0, uncoveredUnits: [], uncoveredUnitsTruncated: 0, ...over,
+});
+/** A compile's compact freshness as `compact_freshness` signs it: the census, the per-cause counts, the unexplained count (null when unknown) and the cause evidence. */
+export const explainedFreshness = (over = {}) => ({
+  available: true, unitsAtStart: 3, fresh: 3, notFresh: 0, invalidationCounts: {}, causeCounts: {}, rebuiltUnits: [], rebuiltUnitsTotal: 0, unexplainedCount: 0, causeEvidence: causeEvidence(), ...over,
+});
+
 /** Receipt tampers, by name: each returns what a hostile or faulty broker could do. `payload` is signed after; `receipt` edits are applied after signing. */
 export const TAMPERS = {
   none: {},
@@ -100,6 +113,11 @@ export const TAMPERS = {
   attributionReceiptOnly: { payload: (p) => { delete p.stageEvidence.attribution; } },
   attributionSignedOnly: { receipt: (r) => { delete r.attribution; } },
   noStageCensus: { payload: (p) => { for (const f of ["freshness", "attribution", "toolchain"]) delete p.stageEvidence[f]; }, receipt: (r) => { for (const f of ["freshness", "attribution", "toolchain"]) delete r[f]; } },
+  /** RA-03: cause evidence a gate must refuse. Each edits freshness on both sides (signed and receipt), as a broker that signed it would. */
+  causeUnexplained: { stage: (g) => { g.freshness = explainedFreshness({ notFresh: 1, unexplainedCount: 1, causeCounts: { "fingerprint-missing": 1 }, causeEvidence: causeEvidence({ verdict: "unexplained", counts: { rows: 1, rowsDropped: 0, units: 1, unexplained: 1, uncovered: 0 }, unexplainedUnits: ["a v0.1.0 (lib:a) [build]"] }) }); } },
+  causeUnknownQuiet: { stage: (g) => { g.freshness = explainedFreshness({ notFresh: 1, unexplainedCount: null, causeCounts: undefined, invalidationReasonsUnavailable: "quiet-root", causeEvidence: causeEvidence({ state: "unavailable", basis: "none", verdict: "unknown", unavailable: "quiet-root", gaps: ["log-not-read"] }) }); delete g.freshness.causeCounts; } },
+  causeMissing: { stage: (g) => { delete g.freshness.causeEvidence; delete g.freshness.unexplainedCount; delete g.freshness.causeCounts; } },
+  causeForeignSchema: { stage: (g) => { g.freshness.causeEvidence.schema = "rustright.cause-evidence.v2"; } },
   freshnessReceiptOnly: { receipt: (r) => { delete r.freshness; } },
   freshnessSignedOnly: { payload: (p) => { delete p.stageEvidence.freshness; } },
   freshnessDiffers: { receipt: (r) => { r.freshness = { unitsAtStart: 9, fresh: 9, notFresh: 0, invalidationReasons: [] }; } },
@@ -183,7 +201,7 @@ export function signedReceipt(fx, { id, carrier, argv, workspace, observedEnv = 
   const evidenceDir = path.join(fx.root, "evidence"); fs.mkdirSync(evidenceDir, { recursive: true });
   const detailPath = path.join(evidenceDir, `${id}.evidence.json`); fs.writeFileSync(detailPath, detailBytes);
   const stage = {
-    freshness: { available: true, unitsAtStart: 3, fresh: 3, notFresh: 0, invalidationReasons: [] },
+    freshness: explainedFreshness(),
     attribution: { available: true, source: "cargo-json", packages: 1, units: rows.length, errors: 0, warnings: 0, otherMessages: 0, freshUnits: 1, truncated: 0, detail: { path: detailPath, sha256: sha(detailBytes) } },
     toolchain: TOOLCHAIN,
   };
