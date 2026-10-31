@@ -57,13 +57,19 @@ const byName = new Map(jobs.map((j) => [j.name, j]));
 for (const name of CLASS_A_JOBS) need(byName.get(name)?.conclusion === "success", `Class A job ${name} is not green`);
 
 // Coverage: every approved crate ran in a macOS shard AND a Windows shard, all green, proven from the plan job's own shard list.
-const planLog = (await api(`actions/jobs/${byName.get("plan").id}/logs`, true)).replace(/\\"/g, '"');
-const shards = [...planLog.matchAll(/\{"id":"([^"]+)","kind":"([^"]+)","tokens":"([^"]*)"/g)].map((m) => ({ id: m[1], kind: m[2], tokens: m[3].split(/\s+/) }));
+const planLog = execFileSync("gh", ["run", "view", "--repo", process.env.GITHUB_REPOSITORY, "--log", "--job", String(byName.get("plan").id)], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GH_TOKEN: process.env.GH_TOKEN } }).replace(/\\"/g, '"');
+// Each host has its own shard list (the plan's macos_shards and windows_shards outputs); ids may repeat across hosts.
+const hostShards = (os) => {
+  const list = new RegExp(`"${os}_shards": "(\\{.*?\\]\\})"`).exec(planLog)?.[1];
+  need(list, `the plan log has no ${os}_shards output`);
+  return [...list.matchAll(/\{"id":"([^"]+)","kind":"([^"]+)","tokens":"([^"]*)"/g)].map((m) => ({ id: m[1], kind: m[2], tokens: m[3].split(/\s+/) }));
+};
+const shardsByHost = { macos: hostShards("macos"), windows: hostShards("windows") };
 for (const u of approval.units) {
-  // A test shard names its crates as `rust:<name>` (scripts/ci/shards.mjs); a closure shard's `rust-check:<name>` only compiles.
-  const covering = new Set(shards.filter((s) => s.kind === "rust" && s.tokens.includes(`rust:${u.name}`)).map((s) => s.id));
-  need(covering.size > 0, `the plan scheduled no shard for ${u.name}`);
   for (const os of ["macos", "windows"]) {
+    // A test shard names its crates as `rust:<name>` (scripts/ci/shards.mjs); a closure shard's `rust-check:<name>` only compiles.
+    const covering = new Set(shardsByHost[os].filter((s) => s.kind === "rust" && s.tokens.includes(`rust:${u.name}`)).map((s) => s.id));
+    need(covering.size > 0, `the plan scheduled no ${os} test shard for ${u.name}`);
     const ran = jobs.filter((j) => j.name.startsWith(`${os} `) && covering.has(j.name.slice(os.length + 1)));
     need(ran.length > 0 && ran.every((j) => j.conclusion === "success"), `${u.name}: ${os} shards ${[...covering].join(", ")} not all green (${ran.map((j) => `${j.name}=${j.conclusion}`).join(", ") || "none ran"})`);
   }
