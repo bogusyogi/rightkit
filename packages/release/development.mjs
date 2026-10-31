@@ -111,12 +111,14 @@ export function validateDevelopmentConfig(config, platform, { root = process.cwd
 }
 
 export function runDevelopment({ root, platform, config, buildOnly = false, dryRun = false, env = process.env, run = spawnSync, door = buildLaunch,
-  codesignEnvironment = macosCodesignEnvironment, serial, uiTests = false, hostPlatform = process.platform }) {
+  codesignEnvironment = macosCodesignEnvironment, serial, uiTests = false, hostPlatform = process.platform, nativeHost = process.platform }) {
   // UI test journeys (`right-release test --platform ios`): the declared XCUITest journeys on the dev device, under the same guards.
   if (uiTests && platform !== "ios") throw new Error("UI test journeys run for --platform ios only");
   if (!new Set(["win", "mac", "linux", "android", "ios"]).has(platform)) throw new Error("--platform must be win, mac, linux, android or ios");
   // iOS: --dry-run validates the config and prints the plan on any host; everything else needs macOS with Xcode.
-  if (!(platform === "ios" && dryRun)) assertNativeDevelopmentHost(platform);
+  // `nativeHost` is the kernel the build runs on (assertNativeDevelopmentHost), `hostPlatform` the host the suite signing policy judges: the same on a real host, apart only in a fixture that
+  // runs the Mac or Windows build mechanics on another kernel under a host the signing policy exempts.
+  if (!(platform === "ios" && dryRun)) assertNativeDevelopmentHost(platform, nativeHost);
   const target = validateDevelopmentConfig(config, platform, { root });
   // One signing policy, enforced here whatever the config's format (the route probe reads JSON configs only; a legacy .mjs config is judged now): a dev
   // target that would build ad hoc, unsigned or under another identifier is refused before it builds (rightkit#1303). Mac and Dell only.

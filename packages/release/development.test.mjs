@@ -14,7 +14,9 @@ const WINDOWS_SKIP = process.platform === "win32" ? "installs a macOS app bundle
 const nativePlatform = process.platform === "win32" ? "win" : "mac";
 // These fixtures test development mechanics without installing host shims. They run as a Linux host, which the suite signing policy exempts (rightkit#1303 M2
 // is exercised in suite-signing-policy tests); a fixture may still pass its own hostPlatform.
-const runDevelopment = (options) => runDevelopmentActual({ codesignEnvironment: (env) => env, hostPlatform: "linux", ...options });
+// The native-host guard is its own test below ("native target selection fails closed on another host"); a fixture names the kernel its target needs, so the same mechanics run on any developer host.
+const NATIVE_KERNEL = { mac: "darwin", win: "win32", linux: "linux" };
+const runDevelopment = (options) => runDevelopmentActual({ codesignEnvironment: (env) => env, hostPlatform: "linux", ...(NATIVE_KERNEL[options.platform] ? { nativeHost: NATIVE_KERNEL[options.platform] } : {}), ...options });
 
 test("dev configuration requires explicit build commands and valid installers", () => {
   assert.throws(() => validateDevelopmentConfig({}, "win"), /non-empty command array/);
@@ -27,6 +29,20 @@ test("native target selection fails closed on another host", () => {
   assert.throws(() => assertNativeDevelopmentHost("win", "darwin"), /requires its native host/);
   assert.throws(() => assertNativeDevelopmentHost("mac", "win32"), /requires its native host/);
   assert.doesNotThrow(() => assertNativeDevelopmentHost("win", "win32"));
+});
+
+test("runDevelopment judges the native host from its own `nativeHost` (the kernel the build runs on), apart from the `hostPlatform` the signing policy judges: a mac or win target refuses on another kernel before any command, whatever hostPlatform says", () => {
+  const config = { development: { targets: { mac: { build: [{ cmd: "pnpm", args: ["build"] }] }, win: { build: [{ cmd: "pnpm", args: ["build"] }] } } } };
+  const never = () => assert.fail("no command runs on a host that is not native for the target");
+  for (const [platform, wrong, right] of [["mac", "linux", "darwin"], ["mac", "win32", "darwin"], ["win", "darwin", "win32"], ["win", "linux", "win32"]]) {
+    for (const hostPlatform of ["linux", "darwin", "win32"]) {
+      assert.throws(() => runDevelopmentActual({ root: process.cwd(), platform, config, dryRun: true, run: never, hostPlatform, nativeHost: wrong }), /requires its native host/, `${platform} on ${wrong} (signing host ${hostPlatform})`);
+    }
+    // The native kernel passes the guard: what follows is judged by its own tests (here only that the refusal is not the host's).
+    let reason = null;
+    try { runDevelopmentActual({ root: process.cwd(), platform, config, dryRun: true, run: () => ({ status: 0, stdout: "", stderr: "" }), hostPlatform: "linux", nativeHost: right }); } catch (error) { reason = error.message; }
+    assert.doesNotMatch(String(reason), /requires its native host/, `${platform} on ${right}`);
+  }
 });
 
 test("development environment preserves Team identity and disables release-only signing material", () => {
