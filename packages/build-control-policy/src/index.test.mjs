@@ -19,7 +19,7 @@ test('agent door blocks recognized direct builds and permits the managed entries
 });
 
 test('public agent hooks apply the door policy in a managed repository', async () => {
-  const scratch = process.env.RIGHTKIT_SCRATCH_ROOT ?? (process.platform === 'darwin' ? '/Volumes/D/scratch' : process.platform === 'win32' ? 'D:\\scratch' : tmpdir());
+  const scratch = process.env.RIGHTKIT_SCRATCH_ROOT ?? tmpdir();
   const root = await mkdtemp(join(scratch, 'rightkit-hook-door-'));
   try {
     const repo = join(root, 'repo');

@@ -481,7 +481,8 @@ fn explicit_well_formed_pins_make_the_spec_on_this_platform() {
         spec.retired_store_ids,
         [
             "parakeet_tdt_v3_static1500_qint8_20260722",
-            "parakeet-tdt-v3-coreml-compiled-5f8888117f47"
+            "parakeet-tdt-v3-coreml-compiled-5f8888117f47",
+            "parakeet_tdt_v3_dynamic_b64_fp16storage_20260720"
         ]
     );
     let listed: BTreeSet<&str> = spec.files.iter().map(|f| f.path).collect();

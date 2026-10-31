@@ -64,7 +64,13 @@ fn other_pid() -> u32 {
 
 /// A client that connected and sent nothing.
 fn stall(hosted: &Hosted) -> UnixStream {
-    UnixStream::connect(&hosted.record().endpoint).expect("raw connect")
+    let stream = UnixStream::connect(&hosted.record().endpoint).expect("raw connect");
+    // Arm the read bound while the peer is certainly open: macOS refuses setsockopt (EINVAL) on a
+    // socket whose peer has already closed it, which the handshake deadline does to a stall.
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .expect("read timeout");
+    stream
 }
 
 fn connect(suite: &Suite) -> Result<Client, ServiceError> {
@@ -289,9 +295,6 @@ fn stalled_connections_are_closed_after_the_handshake_deadline() {
     // Two stalled connections fill the table; a third arrives at once and is turned away.
     let mut stalled = [stall(&hosted), stall(&hosted)];
     let mut turned_away = stall(&hosted);
-    turned_away
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .unwrap();
     assert_eq!(
         turned_away.read(&mut [0u8; 1]).unwrap(),
         0,
@@ -304,7 +307,6 @@ fn stalled_connections_are_closed_after_the_handshake_deadline() {
 
     // The host closes each stalled connection once the deadline passes: the read is EOF.
     for s in &mut stalled {
-        s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         assert_eq!(
             s.read(&mut [0u8; 1]).unwrap(),
             0,

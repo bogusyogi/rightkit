@@ -1602,11 +1602,14 @@ pub fn embedding_gemma2_platform_specs() -> Vec<ModelSpec> {
 /// Onboarding, setup-complete checks and size estimates iterate this. Every entry carries
 /// per-file size and SHA-256 pins (the `builtin_catalog_pins_every_file` test enforces it).
 pub fn base_catalog() -> Vec<ModelSpec> {
-    #[allow(unused_mut)]
-    let mut specs = Vec::new();
     #[cfg(windows)]
-    specs.push(ocr_spec());
-    specs
+    {
+        vec![ocr_spec()]
+    }
+    #[cfg(not(windows))]
+    {
+        Vec::new()
+    }
 }
 
 /// Optional downloads, each offered on demand and never part of setup: the entitlement-gated
