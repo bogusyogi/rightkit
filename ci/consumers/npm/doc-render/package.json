@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.25.0",
+  "packageManager": "pnpm@12.16.1",
   "dependencies": {
     "@types/mdast": "4.0.4",
     "dompurify": "3.4.17",

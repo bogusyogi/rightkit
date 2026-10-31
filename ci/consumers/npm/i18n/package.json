@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.25.0",
+  "packageManager": "pnpm@12.16.1",
   "scripts": { "consumer": "node consumer.mjs" },
   "dependencies": {
     "@testing-library/dom": "10.4.2",

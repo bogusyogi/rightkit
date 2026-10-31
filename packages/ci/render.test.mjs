@@ -27,7 +27,7 @@ const FULL_MANIFEST = {
   compile: "github-actions-only",
   lanes: [...KNOWN_LANES],
   matrix: { os: ["ubuntu-latest", "macos-latest", "windows-latest"], node: ["22.13", "24"] },
-  packageManager: "pnpm@11.25.0",
+  packageManager: "pnpm@12.16.1",
   publish: {
     npm: { oidc: true, provenance: true },
     homebrew: { tap: "acme/homebrew-tap", formulaName: "widgets" },
@@ -701,7 +701,7 @@ test("render determinism: same manifest renders byte-identical output every time
 });
 
 test("rendered workflows never request pnpm or yarn setup-node caching before package-manager activation", () => {
-  for (const packageManager of ["pnpm@11.25.0", "yarn@4.6.0"]) {
+  for (const packageManager of ["pnpm@12.16.1", "yarn@4.6.0"]) {
     const rendered = renderAllLanes({ ...FULL_MANIFEST, packageManager }, "/repos/widgets");
     for (const [lane, content] of Object.entries(rendered)) {
       assert.doesNotMatch(
@@ -714,7 +714,7 @@ test("rendered workflows never request pnpm or yarn setup-node caching before pa
 });
 
 test("rendered workflows bootstrap each declared package manager safely", () => {
-  const pnpm = renderAllLanes({ ...FULL_MANIFEST, packageManager: "pnpm@11.25.0" }, "/repos/widgets");
+  const pnpm = renderAllLanes({ ...FULL_MANIFEST, packageManager: "pnpm@12.16.1" }, "/repos/widgets");
   for (const content of Object.values(pnpm)) {
     assert.match(content, /uses: pnpm\/action-setup@[a-f0-9]{40}/);
     assert.match(content, /version: 11\.25\.0/);
@@ -911,7 +911,7 @@ function environmentManifest(environments) {
     schemaVersion: 1,
     compile: "github-actions-only",
     lanes: ["ci", "release-candidate"],
-    packageManager: "pnpm@11.25.0",
+    packageManager: "pnpm@12.16.1",
     profile: "rust-hybrid",
     gate: { path: "scripts/gate.sh" },
     candidate: {
@@ -1511,7 +1511,7 @@ test("devArtifact.parallel validates its own runners, buildScript and flag; ciAl
 // The configure step sits right before the first build or test step; the cleanup step
 // runs always, after the gate. The secret is referenced only from step env, never a run script.
 const SWIFT_ONE = [{ host: "github.com", secret: "RIGHTKIT_SWIFT_TOKEN" }];
-const NODE_CI_BASE = { schemaVersion: 1, compile: "github-actions-only", lanes: ["ci"], matrix: { os: ["ubuntu-latest"], node: ["24"] }, packageManager: "pnpm@11.25.0", templateVersion: "1.0.0" };
+const NODE_CI_BASE = { schemaVersion: 1, compile: "github-actions-only", lanes: ["ci"], matrix: { os: ["ubuntu-latest"], node: ["24"] }, packageManager: "pnpm@12.16.1", templateVersion: "1.0.0" };
 const renderNodeCi = (manifest) => renderTemplate(
   fs.readFileSync(path.join(templatesDir, "ci.yml"), "utf8"),
   buildRenderContext(structuredClone(manifest), "/repos/widgets"),
@@ -2123,7 +2123,7 @@ test("dev-qualification gates a Windows-only signing job and renders without a r
 });
 
 // ---- gate.shards / gate.quick (rightkit#950) -------------------------------------------------------------
-const SHARD_BASE = { schemaVersion: 1, compile: "github-actions-only", lanes: ["ci"], matrix: { os: ["windows-2025", "macos-15"], node: ["24"] }, packageManager: "pnpm@11.25.0", templateVersion: "1.8.0", profile: "rust-hybrid", gate: { path: "scripts/gate.sh" } };
+const SHARD_BASE = { schemaVersion: 1, compile: "github-actions-only", lanes: ["ci"], matrix: { os: ["windows-2025", "macos-15"], node: ["24"] }, packageManager: "pnpm@12.16.1", templateVersion: "1.8.0", profile: "rust-hybrid", gate: { path: "scripts/gate.sh" } };
 const SHARD_TEMPLATE = () => fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/ci.yml"), "utf8");
 const shardRender = (manifest) => renderTemplate(SHARD_TEMPLATE(), buildRenderContext(manifest, "/repos/widgets"));
 
@@ -2279,7 +2279,7 @@ test("check job: publish-npm publishes only after the check passed on the releas
 // The check job installs with the manager's own frozen install (parsePackageManager), plus --ignore-scripts, so it cannot drift
 // from the install every build job runs. The publish-npm lane installs with the same command without the flag.
 test("check job: its install is the manager's frozen install without lifecycle scripts, derived from the same source as the build's", () => {
-  for (const packageManager of ["pnpm@11.25.0", "npm@10.9.2", "yarn@1.22.22"]) {
+  for (const packageManager of ["pnpm@12.16.1", "npm@10.9.2", "yarn@1.22.22"]) {
     const { installCommand } = parsePackageManager(packageManager);
     const manifest = { ...FULL_MANIFEST, packageManager };
     const rendered = renderAllLanes(manifest, "/repos/widgets");
@@ -2304,7 +2304,7 @@ test("check job: the ci lane prints the stale-lockfile hint after its install, s
 
 test("check job: npm and yarn call the installed bin by path, and install without scripts", () => {
   const expected = {
-    "pnpm@11.25.0": ["pnpm install --frozen-lockfile --ignore-scripts", "pnpm exec rightkit-gate check --commit HEAD"],
+    "pnpm@12.16.1": ["pnpm install --frozen-lockfile --ignore-scripts", "pnpm exec rightkit-gate check --commit HEAD"],
     "npm@10.9.2": ["npm ci --ignore-scripts", "./node_modules/.bin/rightkit-gate check --commit HEAD"],
     "yarn@1.22.22": ["yarn install --frozen-lockfile --ignore-scripts", "./node_modules/.bin/rightkit-gate check --commit HEAD"],
   };

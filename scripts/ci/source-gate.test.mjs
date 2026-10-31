@@ -92,7 +92,7 @@ test("exports-import-effects: wildcard exports are expanded and probed; a missin
   assert.equal(raw.commit, null); assert.equal(raw.closure.kind, "working-dir"); assert.match(readIncompleteReport(reportFile).problem, /no checkout commit\/tree recorded/);
   assert.match(raw.probe, /^[0-9a-f]{64}$/); assert.equal(raw.node, process.version);
   const SHA40 = "a".repeat(40); const D64 = "d".repeat(64);
-  const DEPS = { lock: D64, installed: D64, store: D64, files: 3, hardlinks: 0, externalLinks: 0, pnpm: "11.25.0", install: INSTALL_COMMAND, pnpmIdentity: { path: "/usr/bin/pnpm", realPath: "/opt/pnpm/bin/pnpm.cjs", sha256: D64, version: "11.25.0", node: process.version }, closureStable: true };
+  const DEPS = { lock: D64, installed: D64, store: D64, files: 3, hardlinks: 0, externalLinks: 0, pnpm: "12.16.1", install: INSTALL_COMMAND, pnpmIdentity: { path: "/usr/bin/pnpm", realPath: "/opt/pnpm/bin/pnpm.cjs", sha256: D64, version: "12.16.1", node: process.version }, closureStable: true };
   const good = { schema: "rightkit.import-effects/1", commit: SHA40, tree: "b".repeat(40), clean: true, dirty: 0, probe: raw.probe, node: raw.node, stable: true, closure: { kind: "exported-tree", deps: DEPS }, checked: 0, findings: 0, incomplete: raw.incomplete, covered: [] };
   const rf = (patch, expect = {}) => { write(dir, "r.json", JSON.stringify({ ...good, ...patch })); return readIncompleteReport(path.join(dir, "r.json"), { commit: SHA40, tree: "b".repeat(40), probe: raw.probe, node: raw.node, ...expect }); };
   assert.ok(rf({}).report, "positive control: exact closure, trusted probe and qualified Node");

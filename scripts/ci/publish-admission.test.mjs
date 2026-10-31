@@ -595,10 +595,10 @@ test("RA-21: after the workflow's frozen install, the run-qualified entries load
         fs.copyFileSync(path.join(RA21_REPO, file), path.join(dir, file));
       }
     }
-    // publish-direct.yml installs with the pnpm that pnpm/action-setup pins to 11.25.0 (the root packageManager); run the same install here.
+    // publish-direct.yml installs with the pnpm that pnpm/action-setup pins to 12.16.1 (the root packageManager); run the same install here.
     const pnpmVersion = ra21Pnpm(["--version"], { encoding: "utf8" });
     assert.equal(pnpmVersion.status, 0, "pnpm must be on PATH to install the release closure the way publish-direct.yml does");
-    assert.equal(pnpmVersion.stdout.trim(), "11.25.0", "the installed pnpm must be the version publish-direct.yml pins");
+    assert.equal(pnpmVersion.stdout.trim(), "12.16.1", "the installed pnpm must be the version publish-direct.yml pins");
     const install = ra21Pnpm(["install", "--filter", "rightkit-shared", "--filter", "@rightkit/release...", "--frozen-lockfile", "--ignore-scripts"], { cwd: dir, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
     assert.equal(install.status, 0, `the workflow's install fails in the sparse tree:\n${install.stderr.split("\n").slice(-12).join("\n")}`);
     // Every module of the static closure is evaluated, not only the entries: a file a module reads while it loads must be in the tree.

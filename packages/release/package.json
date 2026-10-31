@@ -97,7 +97,7 @@
     "url": "git+https://github.com/bogusyogi/rightkit.git",
     "directory": "packages/release"
   },
-  "packageManager": "pnpm@11.25.0",
+  "packageManager": "pnpm@12.16.1",
   "dependencies": {
     "@rightkit/outdated": "0.3.0",
     "smol-toml": "1.9.1"

@@ -58,7 +58,7 @@
     "url": "git+https://github.com/bogusyogi/rightkit.git",
     "directory": "packages/platform-ui"
   },
-  "packageManager": "pnpm@11.25.0",
+  "packageManager": "pnpm@12.16.1",
   "peerDependenciesMeta": {
     "@tauri-apps/plugin-os": {
       "optional": true

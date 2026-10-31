@@ -53,7 +53,7 @@ try {
   const repoPath = path.join(fixtureRoot, 'widgets');
   const rustHybrid = (extra = {}) => ({
     schemaVersion: 1, compile: 'github-actions-only', lanes: ['ci'], matrix: { os: ['windows-2025', 'macos-15'], node: ['24'] },
-    packageManager: 'pnpm@11.25.0', templateVersion: '1.8.0', profile: 'rust-hybrid', gate: { path: 'scripts/gate.sh' }, ...extra,
+    packageManager: 'pnpm@12.16.1', templateVersion: '1.8.0', profile: 'rust-hybrid', gate: { path: 'scripts/gate.sh' }, ...extra,
   });
   const shards = [{ id: 'workspace' }, { id: 'linters' }, { id: 'rust-tools' }];
   const shardTokens = /matrix\.shard|ci-summary|^ {2}quick:|--group|--quick|QUICK_RESULT/m;
@@ -127,7 +127,7 @@ try {
     for (const action of uses) assert.match(action, /@[0-9a-f]{40}$/);
     assert.equal(renderLanes(rustHybrid(), repoPath)[0].content, ci);
     const nodeLanes = ['ci', 'qualification', 'package-smoke'];
-    const node = renderLanes({ schemaVersion: 1, compile: 'github-actions-only', lanes: nodeLanes, matrix: { os: ['ubuntu-latest'], node: ['24'] }, packageManager: 'pnpm@11.25.0', templateVersion: '1.8.0' }, repoPath);
+    const node = renderLanes({ schemaVersion: 1, compile: 'github-actions-only', lanes: nodeLanes, matrix: { os: ['ubuntu-latest'], node: ['24'] }, packageManager: 'pnpm@12.16.1', templateVersion: '1.8.0' }, repoPath);
     assert.deepEqual(node.map(({ lane }) => lane), nodeLanes);
     assert.deepEqual(node.map(({ filename }) => filename), ['ci.yml', 'qualification.yml', 'package-smoke.yml']);
     for (const { content } of node) assert.ok(content.startsWith('# Managed by right-git'));

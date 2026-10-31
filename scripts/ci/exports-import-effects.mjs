@@ -214,7 +214,7 @@ export function pnpmPackageVersion(file) {
   return null;
 }
 
-/** The pnpm version a tree pins through package.json `packageManager` (`pnpm@11.25.0` → `11.25.0`), or null. */
+/** The pnpm version a tree pins through package.json `packageManager` (`pnpm@12.16.1` → `12.16.1`), or null. */
 export function packageManagerPin(dir) {
   try { const m = /^pnpm@(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)/.exec(JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")).packageManager ?? ""); return m ? m[1] : null; } catch { return null; }
 }
