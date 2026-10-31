@@ -2378,6 +2378,32 @@ export function doorPath(o, gateFile = o.gateFile ?? fileURLToPath(import.meta.u
  * readStdin, out, err, cwd, env, platform, abort (an AbortController), runScans and findRustfmt (the scan runner and the
  * lookup of a usable rustfmt, which the deferred Rust gate needs).
  */
+/** The gate flags a `--to <stage>` invocation takes (before a `--` separator, after which the arguments belong to right-release), and whether each takes a value. */
+const STAGE_VALUE_FLAGS = Object.freeze(["--to", "--platform", "--tier", "--commit", "--receipt-in", "--receipt-out", "--unit"]);
+const STAGE_BOOLEAN_FLAGS = Object.freeze(["--route"]);
+
+/**
+ * Why `args` (a `--to <stage>` invocation) is not a well-formed request, or null. Every value flag needs a value that is not another flag and may be
+ * given once; `--flag=value`, unknown flags and stray words are refused. The arguments after a `--` separator are right-release's and are not read.
+ */
+export function stageArgsProblem(args) {
+  const at = args.indexOf("--");
+  const gate = at < 0 ? args : args.slice(0, at);
+  const seen = new Set();
+  for (let i = 0; i < gate.length; i += 1) {
+    const a = gate[i];
+    if (STAGE_BOOLEAN_FLAGS.includes(a)) continue;
+    if (STAGE_VALUE_FLAGS.includes(a)) {
+      const value = gate[i + 1];
+      if (value === undefined || value.startsWith("--")) return a === "--to" ? `--to needs a stage (${[...STAGES, "dev", "test"].join("|")})` : `${a} needs a value`;
+      if (seen.has(a)) return `${a} was given twice`;
+      seen.add(a); i += 1; continue;
+    }
+    return a.startsWith("-") ? `unknown option ${JSON.stringify(a)} (a value follows its flag as the next word: \`--commit <rev>\`, not \`--commit=<rev>\`)` : `unexpected argument ${JSON.stringify(a)}`;
+  }
+  return null;
+}
+
 export async function main(argv, io = {}) {
   const o = {
     spawn: defaultSpawn, exists: fs.existsSync, readFile: (f) => fs.readFileSync(f, "utf8"), writeFile: fs.writeFileSync, mkdir: fs.mkdirSync, chmod: fs.chmodSync, readdir: fs.readdirSync,
@@ -2652,6 +2678,12 @@ export async function main(argv, io = {}) {
     return 0;
   }
   if (args.includes("--plan") && option("--to") !== undefined) { o.err("rightkit-gate: --plan plans the class A scans and runs nothing; it takes no --to stage (Astra, second pass)"); return 2; }
+  // The door's stage arguments are read strictly (E2E L3-02): a flag with no value, `--flag=value`, an unknown flag, a repeated value flag or a stray
+  // word is refused before git, ownership or any process, never ignored (`--commit=<old sha>` used to build HEAD, a trailing `--to` ran the default gate).
+  if (!sub && args.some((a) => a === "--to" || a.startsWith("--to="))) {
+    const problem = stageArgsProblem(args);
+    if (problem) { o.err(`rightkit-gate: ${problem}\n${USAGE}`); return 2; }
+  }
   // `--unit` is a gate flag only before a `--` separator: after it the arguments belong to right-release (an app's `--to dev -- …`).
   const separator = args.indexOf("--");
   const unitFlag = args.includes("--unit") && (separator < 0 || args.indexOf("--unit") < separator);
