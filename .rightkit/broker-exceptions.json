@@ -10,7 +10,8 @@
         "rust:rightkit-models",
         "rust:rightkit-daemon",
         "npm:@rightkit/build-control-policy",
-        "npm:@rightkit/release"
+        "npm:@rightkit/release",
+        "rust:rightkit-qa"
       ],
       "hosts": [
         "mac",
