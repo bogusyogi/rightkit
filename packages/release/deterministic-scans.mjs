@@ -1367,7 +1367,9 @@ export function planScans({
       const reason = typeof declared?.reason === "string" && declared.reason.trim() !== "" ? declared.reason.replace(/\s+/g, " ").trim() : null;
       if (declared && !reason) notes.push(`ci/gate.config.json swift.${dir}.qualifyOnly is ignored: it must be { "reason": "<why this package cannot build from the bare snapshot>" } with a non-empty reason; ${id} is planned`);
       if (reason) { qualifyOwed.push({ id, kind: "swift-build", dir: dir === "" ? "." : dir, reason }); notes.push(`${id} is not built by class B (ci/gate.config.json swift.${dir}.qualifyOnly: ${reason}); it is owed to the qualify stage`); }
-      else if (platform === "darwin") add({ id, class: B, tool: "swift", args: ["build"], ...(dir === "" || dir === "." ? {} : { cwd: dir }) });
+      // The committed Package.resolved is the lockfile: like cargo --locked and pnpm --frozen-lockfile, a stale one fails here with
+      // SwiftPM's own message instead of SwiftPM rewriting it inside the snapshot (seen only after the compile as a changed tree).
+      else if (platform === "darwin") add({ id, class: B, tool: "swift", args: ["build", "--disable-automatic-resolution"], ...(dir === "" || dir === "." ? {} : { cwd: dir }) });
       else notes.push(`swift files changed in ${dir === "" || dir === "." ? "the root package" : dir}; \`swift build\` is required on the Mac host before its push`);
     }
   }

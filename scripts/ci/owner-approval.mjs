@@ -21,6 +21,7 @@ const ALLOWED = {
   "rightkit-qa": "0.10.0",
   "rightkit-speech-client": "0.4.1",
   "rightkit-tauri-shell": "0.7.0",
+  "rightkit-fs": "0.4.8",
 };
 const CLASS_A_JOBS = ["private-repo-guard", "plan", "hygiene", "ownership"];
 

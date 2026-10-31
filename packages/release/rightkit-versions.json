@@ -478,7 +478,7 @@
     "rightkit-embed": "0.6.2",
     "rightkit-ffmpeg": "0.2.11",
     "rightkit-file-watch": "0.4.2",
-    "rightkit-fs": "0.4.7",
+    "rightkit-fs": "0.4.8",
     "rightkit-fsindex": "0.6.0",
     "rightkit-google-identity": "0.2.0",
     "rightkit-hooks": "0.2.0",
@@ -860,7 +860,8 @@
       "0.4.3",
       "0.4.4",
       "0.4.5",
-      "0.4.6"
+      "0.4.6",
+      "0.4.7"
     ],
     "rightkit-service": [
       "0.1.0",

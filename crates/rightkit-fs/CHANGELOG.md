@@ -1,6 +1,17 @@
 # Changelog
 
-## 0.4.7 — unpublished
+## 0.4.8 (unpublished)
+
+- Performance: the Windows known-folder answers (`SHGetKnownFolderPath`, and the `User Shell Folders`
+  read plus `ExpandEnvironmentStringsForUserW` for Roaming and Local AppData) are memoized per
+  process, keyed by the folder id (rightkit#1337). They depend only on the process token and the
+  user hive, which are fixed for the life of the process, so the cache is complete; failures are
+  not cached. A resolve cost about 12 ms (~91 ms measured under load) and now costs the legacy-name
+  `is_dir` checks only after the first call. The QA overrides, `Options`, legacy-name existence and
+  the injected environment are still read on every call, so changed inputs get fresh answers and
+  no returned value changes.
+
+## 0.4.7
 
 - `app_dirs::account_home()` (re-exported as `rightkit_fs::account_home`): the real home of the
   account the process runs as. Unix: `getpwuid_r(geteuid())` (promoted from the test-mode-only

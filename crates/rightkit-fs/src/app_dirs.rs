@@ -635,6 +635,39 @@ fn passwd_home() -> Result<PathBuf> {
     }
 }
 
+/// A per-process memo of operating-system folder answers, keyed by what the answer depends on.
+///
+/// Only successes are kept: a failed lookup (for example while the environment block changes) is
+/// retried on the next call, never remembered. The lock is held while a missing entry is resolved,
+/// so concurrent first callers run the lookup once and the rest wait for that answer.
+#[cfg_attr(not(windows), allow(dead_code))]
+struct FolderCache<K> {
+    entries: std::sync::Mutex<Vec<(K, PathBuf)>>,
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+impl<K: PartialEq> FolderCache<K> {
+    const fn new() -> FolderCache<K> {
+        FolderCache {
+            entries: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// The cached answer for `key`, else `resolve()`'s, which is cached when it is `Some`.
+    fn get_or_resolve(&self, key: K, resolve: impl FnOnce() -> Option<PathBuf>) -> Option<PathBuf> {
+        let mut entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some((_, path)) = entries.iter().find(|(k, _)| *k == key) {
+            return Some(path.clone());
+        }
+        let path = resolve()?;
+        entries.push((key, path.clone()));
+        Some(path)
+    }
+}
+
 #[cfg(windows)]
 mod known {
     use std::ffi::c_void;
@@ -648,6 +681,18 @@ mod known {
         data2: u16,
         data3: u16,
         data4: [u8; 8],
+    }
+
+    impl Guid {
+        /// All 128 bits, the cache key.
+        fn key(&self) -> u128 {
+            let mut bytes = [0u8; 16];
+            bytes[..4].copy_from_slice(&self.data1.to_le_bytes());
+            bytes[4..6].copy_from_slice(&self.data2.to_le_bytes());
+            bytes[6..8].copy_from_slice(&self.data3.to_le_bytes());
+            bytes[8..].copy_from_slice(&self.data4);
+            u128::from_le_bytes(bytes)
+        }
     }
 
     /// `FOLDERID_RoamingAppData`.
@@ -877,7 +922,18 @@ mod known {
     /// the account's own environment block. An absent value means the Windows default under the
     /// Profile folder. Any failure is `None`: there is no fallback to the process environment.
     /// The Profile folder comes from the account token and is returned by the API directly.
+    ///
+    /// The answer is memoized per process, keyed by the folder id: it depends only on the process
+    /// token and the user hive (never on the process environment), which are fixed for the life
+    /// of the process. The uncached lookup costs about 12 ms (`ExpandEnvironmentStringsForUserW`
+    /// alone is about 9 ms), so call sites on a hot path rely on this. Failures are not cached.
     pub(super) fn known_folder(id: &Guid) -> Option<PathBuf> {
+        static CACHE: super::FolderCache<u128> = super::FolderCache::new();
+        CACHE.get_or_resolve(id.key(), || resolve_known_folder(id))
+    }
+
+    /// [`known_folder`] without the memo.
+    fn resolve_known_folder(id: &Guid) -> Option<PathBuf> {
         let (value, default) = if *id == ROAMING_APP_DATA {
             ("AppData", r"AppData\Roaming")
         } else if *id == LOCAL_APP_DATA {
@@ -2049,5 +2105,105 @@ mod tests {
         assert_eq!(b.local.as_ref(), Some(&local));
         assert_eq!(b.cache.as_ref(), Some(&local));
         assert_eq!(b.home.as_ref(), Some(&profile));
+    }
+    #[test]
+    fn folder_cache_resolves_once_per_key_and_keeps_keys_apart() {
+        use std::cell::Cell;
+        let cache: FolderCache<&'static str> = FolderCache::new();
+        let runs = Cell::new(0u32);
+        let answer = |path: &'static str| {
+            runs.set(runs.get() + 1);
+            Some(PathBuf::from(path))
+        };
+        assert_eq!(
+            cache.get_or_resolve("roaming", || answer("/r")),
+            Some(p("/r"))
+        );
+        assert_eq!(
+            cache.get_or_resolve("roaming", || answer("/changed")),
+            Some(p("/r")),
+            "a second call must not resolve again"
+        );
+        assert_eq!(runs.get(), 1);
+        assert_eq!(
+            cache.get_or_resolve("local", || answer("/l")),
+            Some(p("/l")),
+            "another key is its own entry"
+        );
+        assert_eq!(runs.get(), 2);
+        assert_eq!(
+            cache.get_or_resolve("roaming", || answer("/changed")),
+            Some(p("/r"))
+        );
+        assert_eq!(runs.get(), 2);
+    }
+
+    #[test]
+    fn folder_cache_does_not_remember_a_failure() {
+        let cache: FolderCache<u8> = FolderCache::new();
+        assert_eq!(cache.get_or_resolve(1, || None), None);
+        assert_eq!(cache.get_or_resolve(1, || Some(p("/ok"))), Some(p("/ok")));
+        assert_eq!(cache.get_or_resolve(1, || None), Some(p("/ok")));
+    }
+
+    #[test]
+    fn folder_cache_concurrent_first_callers_resolve_once() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let cache: FolderCache<u8> = FolderCache::new();
+        let runs = AtomicU32::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| {
+                    let got = cache.get_or_resolve(7, || {
+                        runs.fetch_add(1, Ordering::SeqCst);
+                        std::thread::sleep(std::time::Duration::from_millis(20));
+                        Some(p("/once"))
+                    });
+                    assert_eq!(got, Some(p("/once")));
+                });
+            }
+        });
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+    }
+
+    /// The memo sits under the OS lookups only: the QA overrides and the injected environment are
+    /// read on every call, so a changed input still gets a fresh answer.
+    #[test]
+    fn resolution_still_follows_changed_inputs() {
+        let app = AppId::new("CacheProbe");
+        let opts = Options::new(Os::Linux);
+        let at = |home: &'static str| {
+            AppDirs::resolve_with(&app, &opts, &env_of(&[("HOME", home)])).unwrap()
+        };
+        let (a, b) = (at("/home/a"), at("/home/b"));
+        assert_ne!(a, b);
+        assert_eq!(a, at("/home/a"));
+        let dev = AppDirs::resolve_with(
+            &app,
+            &opts.clone().dev(true),
+            &env_of(&[("HOME", "/home/a")]),
+        )
+        .unwrap();
+        assert_ne!(dev, a);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn known_folder_is_memoized_and_matches_the_uncached_lookup() {
+        let first = known::known_folder(&known::LOCAL_APP_DATA).expect("LocalAppData");
+        let started = std::time::Instant::now();
+        for _ in 0..50 {
+            assert_eq!(
+                known::known_folder(&known::LOCAL_APP_DATA).as_ref(),
+                Some(&first)
+            );
+        }
+        // 50 uncached lookups would take hundreds of milliseconds.
+        assert!(started.elapsed() < std::time::Duration::from_millis(100));
+        assert_ne!(
+            known::known_folder(&known::ROAMING_APP_DATA),
+            known::known_folder(&known::PROFILE),
+            "distinct folder ids are distinct entries"
+        );
     }
 }

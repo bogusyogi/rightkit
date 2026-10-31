@@ -543,6 +543,13 @@ function inspectSnapshot({ dir, entries, checkout, platform = process.platform, 
   }
   // Every candidate, ledger or new, must be ignored by the commit's own rules, as the neutral oracle judges them.
   const ignored = neutralIgnored(dir, candidates.map((c) => c.path));
+  // Git's own semantics for a directory: `git status` shows nothing for one whose every entry is ignored (or that holds nothing), even
+  // when no rule names the directory itself (a root rule `src-tauri/gen/schemas/` leaves `src-tauri/gen` unnamed). Judged deepest
+  // first, so a directory counts as ignored exactly when every file and subdirectory below it does; a single unignored file still refuses.
+  for (const d of candidates.filter((c) => c.type === "dir" && !ignored.has(c.path)).sort((a, b) => b.path.length - a.path.length)) {
+    const below = candidates.filter((c) => c.path.startsWith(`${d.path}/`));
+    if (below.every((c) => ignored.has(c.path))) ignored.add(d.path);
+  }
   for (const c of candidates) if (!ignored.has(c.path)) return problem(`${c.path} is not in the commit's tree and is not ignored by the commit's own ignore rules (the checkout's info/exclude and global excludes do not count)`);
   return { problem: null, admitted: [...candidates].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)) };
 }

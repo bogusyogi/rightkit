@@ -1905,3 +1905,16 @@ test("D3 the sealed invocation is one exported constant: the -c flags in order, 
   const sha256Dir = createSealedGitDir({ commonDir: "/x/.git", objectFormat: "sha256" });
   try { assert.match(fs.readFileSync(path.join(sha256Dir, "config"), "utf8"), /repositoryformatversion = 1\n\tbare = false\n\[extensions\]\n\tobjectFormat = sha256\n/); } finally { fs.rmSync(sha256Dir, { recursive: true, force: true }); }
 });
+
+test("5.09e a directory whose every entry is ignored counts as ignored, as git status sees it (HeardRight: only src-tauri/gen/schemas/ is ignored)", (t) => {
+  // Only the subdirectory is named by a rule: src-tauri/gen itself is not, exactly HeardRight's root .gitignore.
+  const files = { ...APP_FILES, ".gitignore": APP_FILES[".gitignore"].replace("src-tauri/gen/\n", "src-tauri/gen/schemas/\n") };
+  const f = fixture(t, files);
+  syncSnapshot({ checkout: f.repo, rev: f.commit, root: f.root });
+  write(f.dir, { "src-tauri/gen/schemas/acl.json": "{}\n" });
+  const admitted = endVerify(f).ledger.map((e) => e.path);
+  assert.ok(admitted.includes("src-tauri/gen") && admitted.includes("src-tauri/gen/schemas/acl.json"), admitted.join(", "));
+  // One unignored file under the same directory still refuses, naming the directory.
+  write(f.dir, { "src-tauri/gen/notes.txt": "not ignored\n" });
+  refusesLedger(() => endVerify(f), /src-tauri\/gen is not in the commit's tree and is not ignored/, "a directory with one unignored file");
+});
