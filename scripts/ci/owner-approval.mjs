@@ -3,13 +3,16 @@
 // outside the gate on my explicit approval. Once validated and discussed with validate"; then "Heardright HAS to go live
 // asap ... Any blockers it has must be [peer] validated ... and published. Immediately. And outside the gate means outside
 // the broker. Not outside the class a". publish.yml (broker admission) stays as it is. This path is scoped to the #1322
-// license unit below; an approval file can only narrow it. Authorization is the owner's push of the approval file to main and the
+// units below; an approval file can only narrow it. Authorization is the owner's push of the approval file to main and the
 // write access a workflow_dispatch needs; the file's text is a record, not a credential.
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 
 const ISSUE = "https://github.com/bogusyogi/rightkit/issues/1322";
-const ALLOWED = { "rightkit-license": "0.2.6" };
+// The 4 HeardRight units whose CI reds b92b06cb7 and bb097ac49 fixed (Adrian: "why wouldn't we fix the ones that hr uses an
+// publish them?"); @rightkit/build-control-policy is private and never uploads. daemon 0.5.0 must be on crates.io before models
+// 0.5.2 (path dependency), so models goes in a later approval file than daemon.
+const ALLOWED = { "rightkit-license": "0.2.6", "rightkit-daemon": "0.5.0", "rightkit-models": "0.5.2" };
 const CLASS_A_JOBS = ["private-repo-guard", "plan", "hygiene", "ownership"];
 
 const fail = (message) => {

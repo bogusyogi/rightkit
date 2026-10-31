@@ -50,7 +50,7 @@ app-lock = ["host-services", "dep:rightkit-credentials", "rightkit-credentials/o
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
-rightkit-daemon = { version = "0.4.0", path = "../rightkit-daemon" }
+rightkit-daemon = { version = "0.5.0", path = "../rightkit-daemon" }
 rightkit-job-queue = { version = "0.5.0", path = "../rightkit-job-queue", default-features = false, features = ["supervisor"], optional = true }
 rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
 rightkit-app-settings = { version = "0.3.0", path = "../rightkit-app-settings", default-features = false, optional = true }

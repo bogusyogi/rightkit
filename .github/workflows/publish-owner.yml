@@ -1,5 +1,5 @@
 # One-off owner-approved crate publication outside the gate and broker (rightkit#1322), with Class A kept. It uploads only
-# the #1322 license crate a committed ci/owner-approvals/*.json names, after scripts/ci/owner-approval.mjs proves the source
+# the #1322 HeardRight crates (ALLOWED in scripts/ci/owner-approval.mjs) a committed ci/owner-approvals/*.json names, after scripts/ci/owner-approval.mjs proves the source
 # commit (which already contains this workflow and its checker, so its Class A covers them), the green hand-dispatched
 # native CI attempt of that commit (Class A jobs plus a green macOS and Windows shard for every crate), and that only
 # approval files changed since. publish.yml (broker admission) is untouched.
