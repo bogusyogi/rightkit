@@ -16,7 +16,7 @@ import { SCAN_TOKEN_ENV, appendLedger, readLedger, scanTokenOf, unclaimedLedgers
 import { decideCargoInvocation, installCargoShim, locateWorkspaceByWalk, shimScanEnv } from "./cargo-target-shim.mjs";
 import { runScans } from "./deterministic-scans.mjs";
 import { acquireBuildOwnership } from "./build-ownership.mjs";
-import { brokerSection, carryBrokerCargo, createSnapshotBroker, verifyBrokerLedger } from "./snapshot-broker.mjs";
+import { brokerSection, carryBrokerAdapter, carryBrokerCargo, createSnapshotBroker, lexicalCounterpart, nearestExistingDirectory, verifyBrokerLedger } from "./snapshot-broker.mjs";
 import { carriedCallNonce } from "./provenance-verify.mjs";
 import { argvSha256, isCallHandleOf, writeSnapshotRequest } from "./snapshot-request.mjs";
 import { makeFakeBroker, subHandleStub } from "./test-support/fake-broker.mjs";
@@ -194,13 +194,16 @@ test("[7.24] negatives: an unverified receipt, a broker that fails or cannot be 
   fs.mkdirSync(path.join(h.a, "src", "only-in-snapshot"), { recursive: true });
   r = h.row(await h.run([h.scan("manifest", swallow(h.a, ["build", "--manifest-path", "Cargo.toml", "--locked"]))]), "manifest");
   assert.match(r.detail, /RK_CARGO_BROKER_MANIFEST_PATH/);
+  // A directory the snapshot has and the checkout does not is carried (GB-16: the client starts from the nearest existing ancestor and the carrier names the lexical counterpart).
   r = h.row(await h.run([h.scan("cwd", swallow(path.join(h.a, "src", "only-in-snapshot")))]), "cwd");
-  assert.match(r.detail, /RK_CARGO_BROKER_COUNTERPART_ABSENT/);
+  assert.doesNotMatch(String(r.detail ?? ""), /COUNTERPART_ABSENT/);
+  const afterCarried = h.fx.calls().length;
+  assert.equal(afterCarried, before + 1, "that one call reached the broker; the refusals around it did not");
   // A malformed declared-inputs manifest is refused before any request is made.
   fs.writeFileSync(path.join(h.fx.snapshot, ".rightkit", "compile-inputs.json"), "{ not json");
   r = h.row(await h.run([h.scan("manifest-bad", swallow())]), "manifest-bad");
   assert.match(r.detail, /RK_CARGO_BROKER_DECLARED_INPUTS/);
-  assert.equal(h.fx.calls().length, before, "none of the refused calls was launched at the broker");
+  assert.equal(h.fx.calls().length, afterCarried, "none of the refused calls was launched at the broker");
   assert.deepEqual(fs.readdirSync(path.join(h.fx.controlRoot, "snapshot-requests")), [], "no carrier is left behind by any outcome");
 });
 
@@ -578,29 +581,89 @@ test("[submit wiring] every markBrokerSubmit fake in the tests receives the call
   assert.deepEqual(offenders, [], "a markBrokerSubmit stub must take the call handle and assert its shape (see assertSubHandle)");
 });
 
-test("[GB-16] the checkout counterpart of the snapshot cwd is computed lexically: a directory the newer checkout no longer has is a typed broker-side refusal naming it (nothing sent, nothing marked), an existing one maps by snapshot-relative path, a link out of the checkout is refused", { skip: POSIX }, (t) => {
+test("[GB-16] a commit whose directory the checkout has removed is carried: primaryCwd is the lexical counterpart, the client is spawned from the nearest existing ancestor, the workspace is that counterpart, the ledger verifies; only a counterpart that leaves the checkout is refused", { skip: POSIX }, async (t) => {
   const fx = makeFakeBroker(t, {});
   const snapshotRoot = fs.realpathSync.native(fx.snapshot);
   const records = [];
   const call = (rel, words = ["build", "--locked"]) => carryBrokerCargo({ words, cwd: path.join(snapshotRoot, rel), env: { PATH: process.env.PATH, RUSTRIGHT_CALLING_GATE: GATE, ...fx.ownershipEnv }, section: brokerSection(fx.sb), workspace: snapshotRoot, checkoutWorkspace: fx.checkout, record: (e) => records.push(e), err: () => {}, stdio: "capture" });
-  // Present: maps by the snapshot-relative path.
+  // Present: maps by the snapshot-relative path, spawned from the counterpart itself.
   const ok = call("crates/a");
   assert.equal(ok.outcome.status, "verified", JSON.stringify(ok.outcome));
-  assert.equal(records.find((r) => r.status === "pending").checkoutCwd, path.join(fx.checkout, "crates", "a"));
-  const calls = fx.calls().length; const marks = fx.submits.length;
-  // The selected (older) commit has crates/a; the newer checkout deleted it: refused with a typed, named, broker-side reason, before any mark or send.
+  const present = records.find((r) => r.status === "pending");
+  assert.equal(present.checkoutCwd, path.join(fx.checkout, "crates", "a"));
+  assert.equal(present.spawnCwd, path.join(fx.checkout, "crates", "a"));
+  // The selected (older) commit has crates/a; the newer checkout deleted it. The call is carried: no ABSENT refusal, the carrier names the lexical counterpart, and the client starts in the
+  // nearest directory of it that still exists (crates/).
   fs.rmSync(path.join(fx.checkout, "crates", "a"), { recursive: true, force: true });
+  const marks = fx.submits.length; records.length = 0;
   const gone = call("crates/a");
-  assert.equal(gone.outcome.status, "refused");
-  assert.equal(gone.outcome.code, "RK_CARGO_BROKER_COUNTERPART_ABSENT");
-  assert.match(gone.outcome.message, /crates\/a has no counterpart .* in the primary checkout/); assert.match(gone.outcome.message, /broker-side/); assert.match(gone.outcome.message, /shims\.rs:241/);
-  assert.equal(fx.calls().length, calls, "nothing was sent to the broker"); assert.equal(fx.submits.length, marks, "nothing was marked in the ownership");
-  // A counterpart that is a link leaving the checkout is still refused.
+  assert.equal(gone.outcome.status, "verified", JSON.stringify(gone.outcome));
+  assert.notEqual(gone.outcome.code, "RK_CARGO_BROKER_COUNTERPART_ABSENT");
+  const pending = records.find((r) => r.status === "pending");
+  assert.equal(pending.checkoutCwd, path.join(fx.checkout, "crates", "a"), "primaryCwd is the lexical counterpart (absolute, no . or ..), though it no longer exists");
+  assert.equal(fs.existsSync(pending.checkoutCwd), false);
+  assert.equal(pending.spawnCwd, path.join(fx.checkout, "crates"), "the client runs from the nearest existing ancestor");
+  assert.equal(fx.submits.length, marks + 1, "one sub-handle recorded for the carried call");
+  const sent = fx.calls().at(-1);
+  assert.equal(sent.cwd, path.join(fx.checkout, "crates", "a"), "the request's workspace is the lexical counterpart the carrier named");
+  assert.equal(gone.outcome.workspace, path.join(fx.checkout, "crates", "a"));
+  // The gate's own re-verification of the ledger accepts a record whose counterpart is gone.
+  const verified = records.filter((r) => r.status === "verified");
+  assert.equal(verified.length, 1);
+  assert.deepEqual(await verifyBrokerLedger(verified, fx.sb), []);
+  // Several levels removed: the nearest existing ancestor is the checkout itself, and a directory that became a plain file is passed over (the nearest DIRECTORY).
+  fs.rmSync(path.join(fx.checkout, "crates"), { recursive: true, force: true });
+  fs.writeFileSync(path.join(fx.checkout, "crates"), "now a file\n");
+  records.length = 0;
+  const deep = call("crates/a");
+  assert.equal(deep.outcome.status, "verified", JSON.stringify(deep.outcome));
+  assert.equal(records.find((r) => r.status === "pending").spawnCwd, fx.checkout);
+  // Negative: a counterpart whose existing ancestor is a link leaving the checkout is still refused, before any mark or send.
+  fs.rmSync(path.join(fx.checkout, "crates"), { force: true });
   const outside = fs.mkdtempSync(path.join(fx.root, "outside-")); fs.mkdirSync(path.join(outside, "x"));
-  fs.symlinkSync(path.join(outside, "x"), path.join(fx.checkout, "crates", "a"));
+  fs.symlinkSync(path.join(outside, "x"), path.join(fx.checkout, "crates"));
+  const calls = fx.calls().length; const marked = fx.submits.length;
   const escaped = call("crates/a");
+  assert.equal(escaped.outcome.status, "refused");
   assert.equal(escaped.outcome.code, "RK_CARGO_BROKER_COUNTERPART_ESCAPE"); assert.match(escaped.outcome.message, /outside the primary checkout/);
-  assert.equal(fx.calls().length, calls); assert.equal(fx.submits.length, marks);
+  assert.equal(fx.calls().length, calls); assert.equal(fx.submits.length, marked);
+  // Negative: an existing counterpart that is a link leaving the checkout is refused as before.
+  fs.rmSync(path.join(fx.checkout, "crates"), { force: true });
+  fs.mkdirSync(path.join(fx.checkout, "crates"));
+  fs.symlinkSync(path.join(outside, "x"), path.join(fx.checkout, "crates", "a"));
+  assert.equal(call("crates/a").outcome.code, "RK_CARGO_BROKER_COUNTERPART_ESCAPE");
+});
+
+test("[GB-16] an adapter step of a commit whose directory the checkout has removed is carried the same way (RK_ADAPTER_BROKER_COUNTERPART_ABSENT is no longer raised for it); the workspace is the lexical counterpart and the ledger verifies", { skip: POSIX }, async (t) => {
+  const fx = makeFakeBroker(t, {});
+  const snapshotRoot = fs.realpathSync.native(fx.snapshot);
+  fs.mkdirSync(path.join(snapshotRoot, "apps", "web"), { recursive: true });
+  const records = [];
+  const call = () => carryBrokerAdapter({ adapter: "rightkit-pnpm", words: ["run", "build"], cwd: path.join(snapshotRoot, "apps", "web"), env: { PATH: process.env.PATH, RUSTRIGHT_CALLING_GATE: GATE, ...fx.ownershipEnv }, section: brokerSection(fx.sb), record: (e) => records.push(e), err: () => {}, stdio: "capture" });
+  assert.equal(fs.existsSync(path.join(fx.checkout, "apps", "web")), false, "the checkout never had apps/web");
+  const r = call();
+  assert.equal(r.outcome.status, "verified", JSON.stringify(r.outcome));
+  const pending = records.find((e) => e.status === "pending");
+  assert.equal(pending.checkoutCwd, path.join(fx.checkout, "apps", "web"));
+  assert.equal(pending.spawnCwd, fx.checkout);
+  assert.equal(r.outcome.workspace, path.join(fx.checkout, "apps", "web"));
+  assert.deepEqual(await verifyBrokerLedger(records.filter((e) => e.status === "verified"), fx.sb), []);
+  assert.equal(fx.adapterCalls().at(-1).primaryCwd, path.join(fx.checkout, "apps", "web"));
+  assert.equal(fx.adapterCalls().at(-1).jobCwd, path.join(fx.snapshot, "apps", "web"), "the job runs in the snapshot's directory");
+});
+
+test("[GB-16] the counterpart is computed lexically for Windows and Mac spellings too: `.` and `..` never appear, the nearest existing directory is found by walking up whatever the platform's separators", () => {
+  const win = { base: "C:\\Users\\dev\\repo", rel: "crates\\a\\sub" };
+  assert.equal(lexicalCounterpart({ ...win, pathApi: path.win32 }), "C:\\Users\\dev\\repo\\crates\\a\\sub");
+  assert.equal(lexicalCounterpart({ base: "/Users/dev/repo", rel: "crates/a", pathApi: path.posix }), "/Users/dev/repo/crates/a");
+  assert.equal(lexicalCounterpart({ base: "/Users/dev/repo", rel: "", pathApi: path.posix }), "/Users/dev/repo");
+  const exists = (set, api) => (p) => set.has(api.normalize(p));
+  const winDirs = new Set(["C:\\", "C:\\Users", "C:\\Users\\dev", "C:\\Users\\dev\\repo", "C:\\Users\\dev\\repo\\crates"]);
+  assert.equal(nearestExistingDirectory("C:\\Users\\dev\\repo\\crates\\a\\sub", { isDirectory: exists(winDirs, path.win32), pathApi: path.win32 }), "C:\\Users\\dev\\repo\\crates");
+  assert.equal(nearestExistingDirectory("C:\\Users\\dev\\repo\\crates", { isDirectory: exists(winDirs, path.win32), pathApi: path.win32 }), "C:\\Users\\dev\\repo\\crates");
+  const macDirs = new Set(["/", "/Users", "/Users/dev", "/Users/dev/repo"]);
+  assert.equal(nearestExistingDirectory("/Users/dev/repo/crates/a", { isDirectory: exists(macDirs, path.posix), pathApi: path.posix }), "/Users/dev/repo");
+  assert.equal(nearestExistingDirectory("/nowhere/at/all", { isDirectory: () => false, pathApi: path.posix }), null, "no ancestor at all is no answer, never a guess");
 });
 
 test("[GB-16] the output pin reads the selected commit's snapshot, not the checkout: a directory the newer checkout deleted, a dirty or added manifest there, change nothing; an absolute target outside the snapshot stands; several workspaces still refuse", async (t) => {

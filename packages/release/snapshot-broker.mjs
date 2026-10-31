@@ -190,28 +190,58 @@ const escapes = (rel) => rel === ".." || rel.startsWith(`..${path.sep}`) || path
 const inside = (child, parent) => { const rel = path.relative(parent, child); return rel === "" || !escapes(rel); };
 
 /**
- * The primary-checkout counterpart of a directory of the snapshot, computed LEXICALLY: the logical checkout path `base` plus the snapshot-relative
- * `rel`, checked to stay inside `checkout` by its spelling alone. Nothing about the checkout's present state decides the mapping. The directory is then
- * required to exist because RustRight requires it: the client canonicalizes the carrier's primaryCwd and compares it with its own working directory
- * (rustright-cli shims.rs:241, b84ae605), and the broker canonicalizes the request workspace for an adapter root (service.rs:4116-4119), so a counterpart
- * the newer checkout deleted or moved cannot be served today. That is reported as a typed BROKER-SIDE refusal naming the missing directory, never as a
- * vague cwd failure; the fix is RustRight's (map by the snapshot-relative cwd the carrier already binds). An existing counterpart is realpathed, so a link
- * that leaves the checkout is still refused. Returns `{ dir }` or `{ refusal: { code, message } }`.
+ * The primary-checkout counterpart of a snapshot directory, spelled lexically (BROKER-CONTRACT section 16, GB-16): `base` (the logical checkout path) joined with the snapshot-relative `rel`,
+ * which `join` normalises, so the result is absolute and holds no `.` or `..`. Nothing about the checkout's present state decides it. `pathApi` is the platform's path module (a Windows
+ * spelling is judged with `path.win32`).
+ */
+export const lexicalCounterpart = ({ base, rel, pathApi = path }) => pathApi.join(base, rel);
+
+/**
+ * The nearest directory at or above `lexical` that exists (`isDirectory(p)`), or null when none does. A path that became a plain file is passed over: the nearest DIRECTORY is what a client
+ * can start in.
+ */
+export function nearestExistingDirectory(lexical, { isDirectory = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } }, pathApi = path } = {}) {
+  for (let p = lexical; ; p = pathApi.dirname(p)) {
+    if (isDirectory(p)) return p;
+    if (pathApi.dirname(p) === p) return null;
+  }
+}
+
+/** `p` as the file system names it when it exists; when it is gone, the real path of its nearest existing directory plus what is left below it (a lexical path stays one). */
+export function canonicalCounterpart(p) {
+  try { return fs.realpathSync.native(p); } catch (e) { if (e.code !== "ENOENT" && e.code !== "ENOTDIR") throw e; }
+  const ancestor = nearestExistingDirectory(p);
+  if (ancestor === null) throw Object.assign(new Error(`${p} has no existing ancestor`), { code: "ENOENT" });
+  return path.join(fs.realpathSync.native(ancestor), path.relative(ancestor, p));
+}
+
+/**
+ * The primary-checkout counterpart of a directory of the snapshot (GB-16). The carrier's `primaryCwd` is that counterpart spelled lexically; the RustRight client accepts it when its own working
+ * directory is it, or, when it is gone (an older commit built after the primary checkout removed the directory), the nearest directory of it that still exists, and then names the
+ * counterpart as the request's workspace (the attestation hashes that workspace). The broker maps by the snapshot-relative path. So a removed counterpart is no refusal: this returns
+ * `{ dir, spawnCwd, removed }`: `dir` the lexical counterpart (what the carrier names), `spawnCwd` the real directory the client is started in (the counterpart itself when it exists, else the
+ * real path of its nearest existing ancestor inside the checkout). An existing counterpart, and the ancestor of a removed one, are realpathed, so a link that leaves the checkout is still
+ * refused (`..._ESCAPE`); anything else the file system will not say (permission) is `..._UNREADABLE`. Returns `{ dir, spawnCwd, removed }` or `{ refusal: { code, message } }`.
  */
 export function checkoutCounterpart({ base, rel, checkout, absentCode }) {
+  const escapeCode = absentCode.replace(/_ABSENT$/, "_ESCAPE"); const unreadableCode = absentCode.replace(/_ABSENT$/, "_UNREADABLE");
   // The logical base may be spelled through a link the checkout path is not (a map built from a realpath): resolve the base alone when it exists.
   let root = base; try { root = fs.realpathSync.native(base); } catch { /* an absent base is judged by its spelling */ }
-  const lexical = path.join(root, rel);
-  if (!inside(lexical, checkout)) return { refusal: { code: absentCode.replace(/_ABSENT$/, "_ESCAPE"), message: `${lexical} is outside the primary checkout ${checkout}` } };
+  const lexical = lexicalCounterpart({ base: root, rel });
+  if (!inside(lexical, checkout)) return { refusal: { code: escapeCode, message: `${lexical} is outside the primary checkout ${checkout}` } };
   let real;
   try { real = fs.realpathSync.native(lexical); }
   catch (e) {
-    if (e.code === "ENOENT" || e.code === "ENOTDIR") return { refusal: { code: absentCode, message: `the selected commit's directory ${rel === "" ? "." : rel.split(path.sep).join("/")} has no counterpart ${lexical} in the primary checkout (deleted or moved since the commit); RustRight's client requires the carrier's primaryCwd to exist and be its working directory (shims.rs:241), so this is a broker-side limit: the snapshot-relative cwd is already bound by the carrier and RustRight must map by it. The gate does not recreate the directory` } };
-    return { refusal: { code: absentCode, message: `${lexical} cannot be resolved (${e.code ?? e.message})` } };
+    if (e.code !== "ENOENT" && e.code !== "ENOTDIR") return { refusal: { code: unreadableCode, message: `${lexical} cannot be resolved (${e.code ?? e.message})` } };
+    const ancestor = nearestExistingDirectory(lexical);
+    let spawnCwd = null;
+    try { spawnCwd = ancestor === null ? null : fs.realpathSync.native(ancestor); } catch (error) { return { refusal: { code: unreadableCode, message: `${ancestor} cannot be resolved (${error.code ?? error.message})` } }; }
+    if (spawnCwd === null || !inside(spawnCwd, checkout)) return { refusal: { code: escapeCode, message: `${spawnCwd ?? ancestor ?? lexical} is outside the primary checkout ${checkout}` } };
+    return { dir: lexical, spawnCwd, removed: true };
   }
-  try { if (!fs.statSync(real).isDirectory()) return { refusal: { code: absentCode, message: `${real} is not a directory` } }; } catch (e) { return { refusal: { code: absentCode, message: `${real} cannot be read (${e.code ?? e.message})` } }; }
-  if (!inside(real, checkout)) return { refusal: { code: absentCode.replace(/_ABSENT$/, "_ESCAPE"), message: `${real} is outside the primary checkout ${checkout}` } };
-  return { dir: real };
+  try { if (!fs.statSync(real).isDirectory()) return { refusal: { code: unreadableCode, message: `${real} is not a directory` } }; } catch (e) { return { refusal: { code: unreadableCode, message: `${real} cannot be read (${e.code ?? e.message})` } }; }
+  if (!inside(real, checkout)) return { refusal: { code: escapeCode, message: `${real} is outside the primary checkout ${checkout}` } };
+  return { dir: real, spawnCwd: real, removed: false };
 }
 
 /** Per-call carrier variables, in both spellings (rustright-cli shims.rs LEGACY_ENV_SPELLINGS: the current RUSTRIGHT_* name wins over the legacy one). */
@@ -307,7 +337,7 @@ function carryBrokerCargoOnce({ words, cwd, env, section, workspace, checkoutWor
   } catch (e) { return refuse("RK_CARGO_BROKER_CWD", `the call's working directory is not inside its workspace (${e.message})`); }
   const counterpart = checkoutCounterpart({ base: checkoutWorkspace, rel, checkout: section.checkout, absentCode: "RK_CARGO_BROKER_COUNTERPART_ABSENT" });
   if (counterpart.refusal) return refuse(counterpart.refusal.code, counterpart.refusal.message);
-  checkoutCwd = counterpart.dir;
+  checkoutCwd = counterpart.dir; const spawnCwd = counterpart.spawnCwd;
   let inputs;
   try { inputs = readDeclaredInputs(section.snapshot.path); } catch (e) { return refuse("RK_CARGO_BROKER_DECLARED_INPUTS", e.message); }
   const refDir = fs.mkdtempSync(path.join(tmp, "rk-snapreq-"));
@@ -319,7 +349,7 @@ function carryBrokerCargoOnce({ words, cwd, env, section, workspace, checkoutWor
       const nonce = /^[0-9a-f]{64}$/.test(stageNonce ?? "") ? carriedCallNonce({ stageNonce, cwd: path.relative(section.checkout, checkoutCwd).split(path.sep).join("/") || ".", argv: words }) : undefined;
       made = writeSnapshotRequest({ controlRoot: section.controlRoot, commit: section.commit, snapshot: section.snapshot, declaredInputs: inputs, handle: section.handle, primaryCwd: checkoutCwd, argv: words, nonce, requestIdFile: path.join(refDir, "request.json") });
     } catch (e) { return refuse("RK_CARGO_BROKER_CARRIER", e.message); }
-    try { record({ ...base, status: "pending", nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd }); } catch (e) { removeCarrier(made.file); return refuse("RK_CARGO_LEDGER_ERROR", `the call cannot be recorded (${e.message}); it does not run`); }
+    try { record({ ...base, status: "pending", nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd, spawnCwd }); } catch (e) { removeCarrier(made.file); return refuse("RK_CARGO_LEDGER_ERROR", `the call cannot be recorded (${e.message}); it does not run`); }
     // GB-52: the call's operation deadline (the caller's own cap is never replaced) and an outer guard past the client's own cancel wait.
     const childEnv = { ...clientEnv, ...made.env, ...operationDeadlineEnv({ env: clientEnv, deadlineMs }) };
     const guard = clientGuardMs(childEnv);
@@ -327,7 +357,7 @@ function carryBrokerCargoOnce({ words, cwd, env, section, workspace, checkoutWor
     // Broker work may exist from the next statement on: the ownership records this request's sub-handle first (a mark that does not land sends nothing).
     { const startable = clientStartable(section.client, section.platform); if (startable) { removeCarrier(made.file); return refuse("RK_CARGO_BROKER_CLIENT", `${startable}; nothing was marked or sent`); } }
     try { markCarriedRequest({ section, env, callHandle: made.carrier.ownership.handle }); } catch (e) { removeCarrier(made.file); return refuse("RK_CARGO_BROKER_OWNERSHIP", e.message); }
-    const r = spawnBrokerClient(spawn, section.client, ["cargo", ...words], capture ? { cwd: checkoutCwd, env: childEnv, encoding: "utf8", maxBuffer: 1 << 28, windowsHide: true, ...(guard ? { timeout: guard } : {}) } : { cwd: checkoutCwd, env: childEnv, stdio: "inherit", ...(guard ? { timeout: guard } : {}) }, { platform: section.platform });
+    const r = spawnBrokerClient(spawn, section.client, ["cargo", ...words], capture ? { cwd: spawnCwd, env: childEnv, encoding: "utf8", maxBuffer: 1 << 28, windowsHide: true, ...(guard ? { timeout: guard } : {}) } : { cwd: spawnCwd, env: childEnv, stdio: "inherit", ...(guard ? { timeout: guard } : {}) }, { platform: section.platform });
     removeCarrier(made.file);
     // GB-21: a client that provably never started sent nothing: that sub-handle is recorded unsent under the ownership lock, so it does not wedge a later reclaim. Any other
     // failure after a start (a lost connection, a timeout, an exit before a reference) is ambiguous and stays held, reconciled by the request id.
@@ -368,7 +398,7 @@ function carryBrokerCargoOnce({ words, cwd, env, section, workspace, checkoutWor
       const lost = drained.error ? { code: "frame-over-cap", message: drained.error } : drained.overCap.map(overCapProblem)[0];
       if (lost) outcome = { status: "unverified", code: lost.code, message: lost.message, requestId: outcome.requestId, workspace: outcome.workspace };
     }
-    record({ ...base, ...outcome, nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd, clientExit: r.status ?? null });
+    record({ ...base, ...outcome, nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd, spawnCwd, clientExit: r.status ?? null });
     if (outcome.status !== "verified") {
       const message = `rightkit-gate: RK_CARGO_BROKER_UNVERIFIED: \`cargo ${words.join(" ")}\` has no verified signed receipt (${outcome.code}: ${outcome.message}); the scan fails`;
       err(message);
@@ -428,7 +458,7 @@ function carryBrokerAdapterOnce({ adapter, words, cwd, env, section, record, spa
   } catch (e) { return refuse("RK_ADAPTER_BROKER_CWD", `the step's working directory is not inside the snapshot (${e.message})`); }
   const counterpart = checkoutCounterpart({ base: section.checkout, rel, checkout: section.checkout, absentCode: "RK_ADAPTER_BROKER_COUNTERPART_ABSENT" });
   if (counterpart.refusal) return refuse(counterpart.refusal.code, counterpart.refusal.message);
-  checkoutCwd = counterpart.dir;
+  checkoutCwd = counterpart.dir; const spawnCwd = counterpart.spawnCwd;
   let inputs;
   try { inputs = readDeclaredInputs(section.snapshot.path); } catch (e) { return refuse("RK_ADAPTER_BROKER_DECLARED_INPUTS", e.message); }
   const refDir = fs.mkdtempSync(path.join(tmp, "rk-snapreq-"));
@@ -438,7 +468,7 @@ function carryBrokerAdapterOnce({ adapter, words, cwd, env, section, record, spa
       const nonce = /^[0-9a-f]{64}$/.test(stageNonce ?? "") ? carriedCallNonce({ stageNonce, cwd: path.relative(section.checkout, checkoutCwd).split(path.sep).join("/") || ".", argv: words }) : undefined;
       made = writeSnapshotRequest({ controlRoot: section.controlRoot, commit: section.commit, snapshot: section.snapshot, declaredInputs: inputs, handle: section.handle, primaryCwd: checkoutCwd, argv: words, nonce, requestIdFile: path.join(refDir, "request.json") });
     } catch (e) { return refuse("RK_ADAPTER_BROKER_CARRIER", e.message); }
-    try { record({ ...base, status: "pending", nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd }); } catch (e) { removeCarrier(made.file); return refuse("RK_CARGO_LEDGER_ERROR", `the call cannot be recorded (${e.message}); it does not run`); }
+    try { record({ ...base, status: "pending", nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd, spawnCwd }); } catch (e) { removeCarrier(made.file); return refuse("RK_CARGO_LEDGER_ERROR", `the call cannot be recorded (${e.message}); it does not run`); }
     // GB-52: the call's operation deadline (the caller's own cap is never replaced) and an outer guard past the client's own cancel wait.
     const childEnv = { ...clientEnv, ...made.env, ...operationDeadlineEnv({ env: clientEnv, deadlineMs }) };
     const guard = clientGuardMs(childEnv);
@@ -446,7 +476,7 @@ function carryBrokerAdapterOnce({ adapter, words, cwd, env, section, record, spa
     // Broker work may exist from the next statement on: the ownership records this request's sub-handle first (a mark that does not land sends nothing).
     { const startable = clientStartable(section.client, section.platform); if (startable) { removeCarrier(made.file); return refuse("RK_ADAPTER_BROKER_CLIENT", `${startable}; nothing was marked or sent`); } }
     try { markCarriedRequest({ section, env, callHandle: made.carrier.ownership.handle }); } catch (e) { removeCarrier(made.file); return refuse("RK_ADAPTER_BROKER_OWNERSHIP", e.message); }
-    const r = spawnBrokerClient(spawn, section.client, ["run", adapter, "--", ...words], capture ? { cwd: checkoutCwd, env: childEnv, encoding: "utf8", maxBuffer: 1 << 28, windowsHide: true, ...(guard ? { timeout: guard } : {}) } : { cwd: checkoutCwd, env: childEnv, stdio: "inherit", ...(guard ? { timeout: guard } : {}) }, { platform: section.platform });
+    const r = spawnBrokerClient(spawn, section.client, ["run", adapter, "--", ...words], capture ? { cwd: spawnCwd, env: childEnv, encoding: "utf8", maxBuffer: 1 << 28, windowsHide: true, ...(guard ? { timeout: guard } : {}) } : { cwd: spawnCwd, env: childEnv, stdio: "inherit", ...(guard ? { timeout: guard } : {}) }, { platform: section.platform });
     removeCarrier(made.file);
     // GB-21: a client that provably never started sent nothing: that sub-handle is recorded unsent under the ownership lock, so it does not wedge a later reclaim. Any other
     // failure after a start (a lost connection, a timeout, an exit before a reference) is ambiguous and stays held, reconciled by the request id.
@@ -460,7 +490,7 @@ function carryBrokerAdapterOnce({ adapter, words, cwd, env, section, record, spa
       // snapshot directory (the broker, START: "the job runs where it was asked to (request.workspace, already the primary's counterpart of a
       // directory in the snapshot), which must be inside that root"). It is the carrier's primaryCwd, never the toplevel for a step run from a subfolder
       // (an app whose root is `app/`), and never a directory outside the primary checkout or one that is not this call's counterpart.
-      if (fs.realpathSync.native(ref.workspace) !== checkoutCwd || !inside(fs.realpathSync.native(ref.workspace), section.checkout)) throw new SnapshotRequestError("workspace", `the request's workspace ${ref.workspace} is not the primary checkout counterpart ${checkoutCwd} of the step's directory ${realCwd} (primary toplevel ${section.checkout})`);
+      if (canonicalCounterpart(ref.workspace) !== canonicalCounterpart(checkoutCwd) || !inside(canonicalCounterpart(ref.workspace), section.checkout)) throw new SnapshotRequestError("workspace", `the request's workspace ${ref.workspace} is not the primary checkout counterpart ${checkoutCwd} of the step's directory ${realCwd} (primary toplevel ${section.checkout})`);
       const receipt = receiptSync({ client: section.client, requestId: ref.requestId, env: clientEnv, spawn, platform: section.platform });
       const { evidence, attribution, toolchain, nestedChildren } = verifySnapshotReceipt(receipt, { pins: section.pins, jobId: ref.requestId, carrier: made.carrier, argv: words, workspace: ref.workspace, adapter, adapterEnv, checkout: section.checkout, outputRoots: section.outputRoots, platform: section.platform });
       outcome = { status: "verified", requestId: ref.requestId, workspace: ref.workspace, outputDir: evidence.outputDir, nestedChildren, treeAtStart: evidence.snapshot.treeAtStart, treeAtExit: evidence.snapshot.treeAtExit, attribution, toolchain };
@@ -490,7 +520,7 @@ function carryBrokerAdapterOnce({ adapter, words, cwd, env, section, record, spa
       const lost = drained.error ? { code: "frame-over-cap", message: drained.error } : drained.overCap.map(overCapProblem)[0];
       if (lost) outcome = { status: "unverified", code: lost.code, message: lost.message, requestId: outcome.requestId, workspace: outcome.workspace };
     }
-    record({ ...base, ...outcome, nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd, clientExit: r.status ?? null });
+    record({ ...base, ...outcome, nonce: made.carrier.nonce, ownershipHandle: made.carrier.ownership.handle, checkoutCwd, spawnCwd, clientExit: r.status ?? null });
     if (outcome.status !== "verified") {
       const message = `rightkit-gate: RK_ADAPTER_BROKER_UNVERIFIED: \`${describe}\` has no verified signed receipt (${outcome.code}: ${outcome.message}); the stage fails`;
       err(message);
@@ -528,21 +558,22 @@ export async function verifyBrokerLedger(entries, sb, { seen = { nonces: new Set
       if (!isCallHandleOf(e.ownershipHandle, sb.handle)) throw new SnapshotRequestError("ledger", `the record names no sub-handle of the build ownership ${sb.handle}`);
       if (seen.handles.has(e.ownershipHandle)) throw new SnapshotRequestError("replay", `lease handle ${e.ownershipHandle} was used by two calls; each carried request has its own`);
       seen.nonces.add(e.nonce); seen.ids.add(e.requestId); seen.handles.add(e.ownershipHandle);
-      const workspace = fs.realpathSync.native(e.workspace);
+      // GB-16: a counterpart the primary checkout no longer has is the lexical path the carrier named (the client names it as the workspace); it is judged by its nearest existing ancestor.
+      const workspace = canonicalCounterpart(e.workspace);
       if (!inside(workspace, sb.checkout)) throw new SnapshotRequestError("ledger", `the request ran in ${workspace}, outside the primary checkout`);
-      if (adapter === null && fs.realpathSync.native(e.checkoutCwd) !== workspace) throw new SnapshotRequestError("ledger", "the request's working directory is not the one the call recorded");
+      if (adapter === null && canonicalCounterpart(e.checkoutCwd) !== workspace) throw new SnapshotRequestError("ledger", "the request's working directory is not the one the call recorded");
       if (adapter !== null) {
         // The workspace is the directory the client ran in, the carrier's primaryCwd; the step's snapshot directory and that checkout directory are the
         // same path below their two roots.
-        if (workspace !== fs.realpathSync.native(e.checkoutCwd)) throw new SnapshotRequestError("ledger", `the adapter request's workspace ${workspace} is not the primary checkout counterpart ${e.checkoutCwd} of the step's directory`);
+        if (workspace !== canonicalCounterpart(e.checkoutCwd)) throw new SnapshotRequestError("ledger", `the adapter request's workspace ${workspace} is not the primary checkout counterpart ${e.checkoutCwd} of the step's directory`);
         const below = path.relative(fs.realpathSync.native(sb.snapshot.path), fs.realpathSync.native(e.cwd));
         if (escapes(below)) throw new SnapshotRequestError("ledger", `the step ran from ${e.cwd}, outside the snapshot`);
-        if (path.relative(sb.checkout, fs.realpathSync.native(e.checkoutCwd)) !== below) throw new SnapshotRequestError("ledger", `the carrier named ${e.checkoutCwd}, not the checkout counterpart of ${e.cwd}`);
+        if (path.relative(sb.checkout, canonicalCounterpart(e.checkoutCwd)) !== below) throw new SnapshotRequestError("ledger", `the carrier named ${e.checkoutCwd}, not the checkout counterpart of ${e.cwd}`);
       }
       // The gate's own truth: its commit, snapshot, handle and declared inputs; only the call's own argv, nonce and cwd come from the ledger.
       const carrier = {
         schema: SNAPSHOT_REQUEST_SCHEMA, commit: sb.commit, snapshot: sb.snapshot, declaredInputs: { inputs: readDeclaredInputs(sb.snapshot.path) },
-        ownership: { handle: e.ownershipHandle }, primaryCwd: fs.realpathSync.native(e.checkoutCwd), argvSha256: argvSha256(e.argv), nonce: e.nonce,
+        ownership: { handle: e.ownershipHandle }, primaryCwd: e.checkoutCwd, argvSha256: argvSha256(e.argv), nonce: e.nonce,
       };
       const receipt = await sb.receiptOf(e.requestId);
       const verified = verifySnapshotReceipt(receipt, { pins: sb.pins, jobId: e.requestId, carrier, argv: e.argv, workspace: e.workspace, observedEnv: e.observedEnv ?? {}, adapter, adapterEnv: e.adapterEnv ?? {}, checkout: sb.checkout, outputRoots: sb.outputRoots, platform: sb.platform });

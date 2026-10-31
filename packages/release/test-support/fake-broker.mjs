@@ -322,6 +322,26 @@ function carrierValuesProblem(c) {
  * snapshot already has a completion for is refused ("snapshot ownership handle has a prior or unreadable completion").
  */
 /**
+ * rustright-cli shims.rs (GB-16): the carrier is accepted when canonicalize(primaryCwd) is the client's working directory (as before), or when primaryCwd is gone and the nearest existing directory
+ * above it is the working directory; the request's workspace is then primaryCwd itself (the attestation hashes that workspace), else the working directory. Anything else is `bad("primaryCwd")`.
+ */
+function acceptedWorkspace(primaryCwd, bad) {
+  const cwd = fs.realpathSync(process.cwd());
+  let canonical = null;
+  try { canonical = fs.realpathSync(primaryCwd); } catch (e) { if (e.code !== "ENOENT" && e.code !== "ENOTDIR") bad("primaryCwd"); }
+  if (canonical !== null) { if (canonical !== cwd) bad("primaryCwd"); return cwd; }
+  let ancestor = path.dirname(primaryCwd);
+  for (;;) {
+    try { if (fs.statSync(ancestor).isDirectory()) break; } catch { /* keep walking up */ }
+    const up = path.dirname(ancestor);
+    if (up === ancestor) bad("primaryCwd");
+    ancestor = up;
+  }
+  if (fs.realpathSync(ancestor) !== cwd) bad("primaryCwd");
+  return primaryCwd;
+}
+
+/**
  * A typed refusal the broker answers before it spawns anything (`behavior.refuseWith`: the RESULT event, exit 125), and a connection the busy pipe never opened (`behavior.busy`: the client's
  * RK_BROKER_BUSY failure, no byte sent). `refuseTimes` / `busyTimes` limit either to the first N calls (a refusal that clears, as recovery and the storage pass do). A refusal is a durable,
  * settled submission as the real broker records it (`record_refused`): the handle reads REAPED, `spawned: false`, `refused: <code>` in SNAPSHOT_LEASE_STATUS.members.
@@ -464,14 +484,14 @@ async function client(stateDir, [command, ...args]) {
     exactly(carrier.commit, ["sha", "tree"], "commit"); exactly(carrier.snapshot, ["path", "expectedTree"], "snapshot"); exactly(carrier.declaredInputs, ["inputs"], "declaredInputs"); exactly(carrier.ownership, ["handle"], "ownership");
     if (carrier.nonce !== envVar("ATTEST_NONCE")) bad("nonce");
     if (carrier.argvSha256 !== argvSha256(args)) bad("argv");
-    if (fs.realpathSync(carrier.primaryCwd) !== fs.realpathSync(process.cwd())) bad("primaryCwd");
+    const named = acceptedWorkspace(carrier.primaryCwd, bad);
     // A used carrier is a replay: the broker accepts each nonce once.
     const used = path.join(stateDir, "nonces"); fs.mkdirSync(used, { recursive: true });
     if (fs.existsSync(path.join(used, carrier.nonce))) bad("nonce replayed");
     claimHandle(stateDir, carrier, bad);
     fs.writeFileSync(path.join(used, carrier.nonce), "");
     const id = crypto.randomUUID();
-    const workspace = fs.realpathSync(process.cwd());
+    const workspace = named;
     fs.writeFileSync(envVar("REQUEST_ID_FILE"), JSON.stringify({ schema: "rustright.request-ref.v1", requestId: id, submittedAt: new Date().toISOString(), workspace }));
     fs.writeFileSync(path.join(stateDir, "db", `${id}.json`), JSON.stringify({ id, carrier, argv: args, workspace, observedEnv: observedEnvOf(env, process.platform), tamper: behavior.tamper ?? "none", exit: behavior.exit ?? 0 }));
     fs.appendFileSync(path.join(stateDir, "calls.jsonl"), `${JSON.stringify({ id, carrierEnvNames: Object.keys(env).filter((k) => /^(RUSTRIGHT|RIGHTKIT)_(SNAPSHOT_REQUEST|ATTEST_NONCE|REQUEST_ID_FILE|CALLING_GATE|PARENT_REQUEST_ID)$/.test(k)).sort(), argv: args, cwd: workspace, stageNonceSeen: env.RIGHTKIT_ATTEST_STAGE_NONCE !== undefined, managedEnvNames: Object.keys(env).filter((k) => MANAGED_RUST_ENVIRONMENT_KEYS.includes(k.toUpperCase())).sort(), env: { CARGO_TARGET_DIR: env.CARGO_TARGET_DIR ?? null, CARGO_BUILD_TARGET_DIR: env.CARGO_BUILD_TARGET_DIR ?? null } })}\n`);
@@ -610,7 +630,7 @@ function adapterRun(stateDir, fx, behavior, argv) {
   { const problem = carrierValuesProblem(carrier); if (problem) bad(problem); }
   if (carrier.nonce !== envVar("ATTEST_NONCE")) bad("nonce");
   if (carrier.argvSha256 !== argvSha256(args)) bad("argv");
-  if (fs.realpathSync(carrier.primaryCwd) !== fs.realpathSync(process.cwd())) bad("primaryCwd");
+  const named = acceptedWorkspace(carrier.primaryCwd, bad);
   if (fs.realpathSync(process.cwd()) !== fs.realpathSync(fx.checkout) && !fs.realpathSync(process.cwd()).startsWith(`${fs.realpathSync(fx.checkout)}${path.sep}`)) bad("the request's workspace is not inside the primary checkout");
   // The request environment: what the client forwards (shims.rs adapter_environment) and the broker's check_environment (a reserved or
   // unregistered name is refused; the registration is `behavior.registeredEnv[adapter]`, empty by default).
@@ -633,7 +653,7 @@ function adapterRun(stateDir, fx, behavior, argv) {
   fs.writeFileSync(path.join(used, carrier.nonce), "");
   const id = crypto.randomUUID();
   // The request workspace of a snapshot-bound adapter job is the cwd the client ran in: the primary counterpart of the step's snapshot directory.
-  const clientCwd = fs.realpathSync(process.cwd());
+  const clientCwd = named;
   const workspace = behavior.workspaceIsToplevel ? fs.realpathSync(fx.checkout) : behavior.workspaceOutside ? fs.realpathSync(os.tmpdir()) : clientCwd; // the broker: request.workspace is the cwd the client ran in; workspaceIsToplevel models the old answer, workspaceOutside a workspace outside the checkout
   fs.writeFileSync(envVar("REQUEST_ID_FILE"), JSON.stringify({ schema: "rustright.request-ref.v1", requestId: id, submittedAt: new Date().toISOString(), workspace }));
   fs.writeFileSync(path.join(stateDir, "db", `${id}.json`), JSON.stringify({ id, carrier, argv: args, adapter, workspace, observedEnv: {}, adapterEnv: forwarded, tamper: behavior.tamper ?? "none" }));
