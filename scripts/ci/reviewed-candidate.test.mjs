@@ -941,7 +941,7 @@ test("publish-direct workflow: fires on completed publish runs of main, identifi
   for (const input of ["crates/*/Cargo.toml", "crates/*/Cargo.lock", "/package.json", "/pnpm-workspace.yaml", "/pnpm-lock.yaml", "packages/*/package.json", "packages/release/scan-digest.mjs", "scripts/ci/scan-receipt.mjs"]) assert.ok(String(checkout.with["sparse-checkout"]).split("\n").includes(input), input);
   assert.ok(!String(checkout.with["sparse-checkout"]).includes("approved-artifacts"), "the committed approval file is not an input of direct publication");
   assert.equal(node.uses, "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020");
-  assert.equal(pnpm.uses, "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"); assert.equal(String(pnpm.with.version), "12.16.1"); assert.equal(String(pnpm.with.run_install), "false");
+  assert.equal(pnpm.uses, "pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413"); assert.equal(String(pnpm.with.version), "12.16.1"); assert.equal(String(pnpm.with.run_install), "false");
   assert.equal(install.run, "pnpm install --filter rightkit-shared --filter @rightkit/release... --frozen-lockfile --ignore-scripts"); assert.equal(install.env, undefined, "the install step has no environment");
   for (const step of [checkout, node, pnpm, install, identify]) assert.ok(!/\$\{\{\s*secrets\.|NODE_AUTH_TOKEN|CARGO_REGISTRY_TOKEN/.test(JSON.stringify(step)), `no credential reaches a step before the first registry step (${step.name ?? step.uses})`);
   const source = { GITHUB_TOKEN: "${{ github.token }}", PUBLISH_QUALIFIED_RUN_ID: "${{ github.event.workflow_run.id }}", PUBLISH_QUALIFIED_RUN_ATTEMPT: "${{ github.event.workflow_run.run_attempt }}", PUBLISH_QUALIFIED_SHA: "${{ github.event.workflow_run.head_sha }}" };

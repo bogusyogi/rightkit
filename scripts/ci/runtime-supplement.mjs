@@ -138,7 +138,7 @@ export function validateRuntimeWorkflow(text) {
     if (step.uses) need([
       "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
       "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
-      "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86",
+      "pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413",
       "dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0",
       "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
       "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
