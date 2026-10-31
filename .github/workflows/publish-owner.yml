@@ -1,6 +1,8 @@
-# One-off owner-approved crate publication outside the gate and broker (rightkit#1322). It uploads only what a committed
-# ci/owner-approvals/*.json names, after scripts/ci/owner-approval.mjs proves the validated source commit, its green
-# native CI run and that nothing but the approval changed since. publish.yml (broker admission) is untouched.
+# One-off owner-approved crate publication outside the gate and broker (rightkit#1322), with Class A kept. It uploads only
+# the #1322 crates a committed ci/owner-approvals/*.json names, after scripts/ci/owner-approval.mjs proves the source
+# commit (which already contains this workflow and its checker, so its Class A covers them), the green hand-dispatched
+# native CI attempt of that commit (Class A jobs plus a green macOS and Windows shard for every crate), and that only
+# approval files changed since. publish.yml (broker admission) is untouched.
 name: publish-owner
 run-name: publish-owner ${{ inputs.approval }}
 on:
@@ -42,12 +44,33 @@ jobs:
     needs: verify
     runs-on: ubuntu-24.04
     environment: release
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Publish the approved crates (the native CI run already built and tested this source)
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "26.8.1"
+      - name: Package each approved crate once and check the archive against registry dependencies
+        env:
+          CRATES: ${{ needs.verify.outputs.crates }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/owner-publish"
+          mkdir -p "$out"
+          for crate in $CRATES; do
+            (cd "crates/$crate" && cargo package --locked)
+            archive=$(ls "crates/$crate"/target/package/"$crate"-*.crate)
+            sha256sum "$archive" | cut -d' ' -f1 > "$out/$crate.sha256"
+            extracted=$(ls -d "crates/$crate"/target/package/"$crate"-*/)
+            node -e 'const c=require("./ci/gate.config.json");const u=(c.units??c)[process.argv[1]]??{};for(const s of [...(u.featureSets??[]),...(u.checkFeatureSets??[])])if(s.length)console.log(s.join(" "))' "$crate" > "$out/$crate.features"
+            while IFS= read -r set; do
+              echo "cargo check $crate $set"
+              cargo check --manifest-path "$extracted/Cargo.toml" $set
+            done < "$out/$crate.features"
+          done
+      - name: Upload the packaged crates
         env:
           CRATES: ${{ needs.verify.outputs.crates }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -56,17 +79,23 @@ jobs:
           for crate in $CRATES; do
             (cd "crates/$crate" && cargo publish --locked --no-verify)
           done
-      - name: Read every approved version back from crates.io
+      - name: Read each version back and require crates.io's checksum to equal the checked archive
         env:
           CRATES: ${{ needs.verify.outputs.crates }}
         run: |
           set -euo pipefail
           for crate in $CRATES; do
             version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' "crates/$crate/Cargo.toml" | head -1)
+            want=$(cat "$RUNNER_TEMP/owner-publish/$crate.sha256")
             for _ in $(seq 1 30); do
-              code=$(curl -s -o /dev/null -w '%{http_code}' -A rightkit-owner-approval "https://crates.io/api/v1/crates/$crate/$version")
-              [ "$code" = 200 ] && { echo "$crate@$version is on crates.io"; continue 2; }
+              got=$(curl -s -A rightkit-owner-approval "https://crates.io/api/v1/crates/$crate/$version" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const v=JSON.parse(s).version;console.log(v&&v.num===process.argv[1]?v.checksum:"")}catch{console.log("")}})' "$version")
+              if [ -n "$got" ]; then
+                [ "$got" = "$want" ] || { echo "::error::$crate@$version checksum $got differs from the checked archive $want"; exit 1; }
+                echo "$crate@$version is on crates.io with the checked archive's checksum $want"
+                continue 2
+              fi
               sleep 10
             done
-            echo "::error::$crate@$version did not appear on crates.io"; exit 1
+            echo "::error::$crate@$version did not appear on crates.io"
+            exit 1
           done
