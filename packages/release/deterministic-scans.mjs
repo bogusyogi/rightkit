@@ -28,6 +28,9 @@ import { checkAdvisoryExceptions } from "./advisory-exceptions.mjs";
 import { CLIPPY_UNIVERSAL_FEATURE_FLAGS, canonicalJson, clippyBatchPlan, clippySelectionOf, digestScanSet, requiredScanIds, rustCratePlan, rustScanId } from "./scan-digest.mjs";
 import { reach } from "./lock-graph.mjs";
 import { cargoManifestState } from "./cargo-manifest-text.mjs";
+import { GRADLE_BUILD_FILE, gradleLockProblems, gradleOwnerOf } from "./gradle-lock.mjs";
+import { PYTHON_LOCK_FILE, pythonLockProblems } from "./python-lock.mjs";
+import { lockOwnerOf, packageLockProblems, xcodeProjectLockProblems } from "./swift-lock.mjs";
 import { LAUNCH_GUARD_IMPORT } from "./class-a-launch-guard.mjs";
 import { advisoryCacheRoot, ensureAdvisoryDb, prepareDenyOverlay, readAdvisoryPin } from "./advisory-db.mjs";
 import { observedEnvOf, readRequestRef, verifySnapshotReceipt, writeSnapshotRequest } from "./snapshot-request.mjs";
@@ -46,7 +49,7 @@ export const CHECKER_IDENTITY = (() => {
   try {
     const p = JSON.parse(fs.readFileSync(new URL("./package.json", import.meta.url), "utf8"));
     const h = crypto.createHash("sha256");
-    for (const f of ["./deterministic-scans.mjs", "./scan-digest.mjs"]) { h.update(f); h.update("\0"); h.update(fs.readFileSync(new URL(f, import.meta.url))); h.update("\0"); }
+    for (const f of ["./deterministic-scans.mjs", "./scan-digest.mjs", "./swift-lock.mjs", "./gradle-lock.mjs", "./python-lock.mjs"]) { h.update(f); h.update("\0"); h.update(fs.readFileSync(new URL(f, import.meta.url))); h.update("\0"); }
     return `${p.name}@${p.version}#${h.digest("hex").slice(0, 16)}`;
   } catch { return null; }
 })();
@@ -64,7 +67,7 @@ const PROBE_LEDGER_TOKEN = scanTokenOf("tool-probe");
 /** Scan id prefixes (the text before the first ":") that belong to each class. */
 export const CLASS_A_SCAN_PREFIXES = Object.freeze([
   "rustfmt", "node-check", "json-parse", "toml-parse", "yaml-parse", "ownership-catalog",
-  "actionlint", "shellcheck", "pnpm-lockfile", "pnpm-audit", "cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list",
+  "actionlint", "shellcheck", "pnpm-lockfile", "swift-lock", "gradle-lock", "python-lock", "pnpm-audit", "cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list",
   "changelog-version", "license", "secret-scan", "path-policy", "advisory-exceptions", "suite-api",
   // Everything mechanical and deterministic that does not compile is class A (Adrian, 2026-10-27): typecheck, lint, generated docs.
   "tsc", "eslint", "biome", "generated-docs",
@@ -1373,6 +1376,33 @@ export function planScans({
       else notes.push(`swift files changed in ${dir === "" || dir === "." ? "the root package" : dir}; \`swift build\` is required on the Mac host before its push`);
     }
   }
+  // Class A, file-only (rightkit swift-lock.mjs): the committed Package.resolved (or an Xcode project's) must match the declared dependencies, like
+  // cargo --locked and pnpm --frozen-lockfile (Adrian, 2026-11-01: a stale lockfile must never reach the compile). One scan per Swift package or
+  // .xcodeproj a changed file belongs to, planned on every platform and for qualify-only packages too: it reads files and builds nothing. It sets no
+  // `executes`, so a scoped class A run keeps it (app-closure.mjs scopeScans keeps file-only checks), and it never needs a live checkout.
+  const lockOwners = new Map();
+  for (const f of files) {
+    if (!(f.startsWith("swift/") || /(^|\/)(Package\.swift|Package\.resolved)$/.test(f) || /(^|\/)[^/]+\.xcodeproj\//.test(f))) continue;
+    const o = lockOwnerOf(f, { exists: (d) => exists(path.join(contentRoot, d)), ancestorDirs: ancestorDirsOf });
+    if (o) lockOwners.set(`${o.kind}:${o.dir}`, o);
+  }
+  for (const o of [...lockOwners.values()].sort((a, b) => (a.dir < b.dir ? -1 : a.dir > b.dir ? 1 : 0))) {
+    const resolved = o.kind === "xcode" ? `${o.dir}/project.xcworkspace/xcshareddata/swiftpm/Package.resolved` : inDir(o.dir, "Package.resolved");
+    add({ id: o.dir === "." ? "swift-lock" : `swift-lock:${o.dir}`, class: A, internal: "swift-lock", lock: o, files: [o.kind === "xcode" ? `${o.dir}/project.pbxproj` : inDir(o.dir, "Package.swift"), resolved] });
+  }
+  // The same file-only lock check for Gradle (`gradle-lock`: committed dependency locking must cover every direct dependency) and Python
+  // (`python-lock`: pins and uv/poetry locks must agree with their requirements), one scan per build root or directory a changed file belongs to.
+  const gradleRoots = new Set();
+  for (const f of files) {
+    if (!(GRADLE_BUILD_FILE.test(f) || /(^|\/)(gradle\.lockfile|libs\.versions\.toml)$/.test(f) || /(^|\/)gradle\/dependency-locks\//.test(f))) continue;
+    const g = f.includes("/gradle/") && !GRADLE_BUILD_FILE.test(f) ? f.slice(0, f.indexOf("/gradle/") + 1) + "x" : f;
+    const root = gradleOwnerOf(g, { exists: (d) => exists(path.join(contentRoot, d)), ancestorDirs: ancestorDirsOf });
+    if (root !== null) gradleRoots.add(root);
+  }
+  for (const dir of [...gradleRoots].sort()) add({ id: dir === "." ? "gradle-lock" : `gradle-lock:${dir}`, class: A, internal: "gradle-lock", dir, files: [] });
+  const pythonDirs = new Set();
+  for (const f of files) if (PYTHON_LOCK_FILE.test(f)) pythonDirs.add(path.posix.dirname(f));
+  for (const dir of [...pythonDirs].sort()) add({ id: dir === "." ? "python-lock" : `python-lock:${dir}`, class: A, internal: "python-lock", dir, files: [] });
   if (includeTests) {
     const deferredToCi = [];
     // Tests per declared feature set, serially too where the crate asks for it, as CI's gate runs them. `quietTests: true` marks
@@ -1956,6 +1986,22 @@ const INTERNAL = {
     const bad = [];
     for (const f of s.files) { try { parse(ctx.read(f)); } catch (e) { bad.push(`${f}: ${String(e.message).split("\n")[0]}`); } }
     return bad;
+  },
+  // File-only SwiftPM lockfile check (swift-lock.mjs): runs no SwiftPM, reads Package.swift / project.pbxproj and Package.resolved as committed.
+  "swift-lock": (s, ctx) => {
+    const exists = (f) => ctx.deps.exists(path.join(ctx.contentRoot, f));
+    return s.lock.kind === "xcode" ? xcodeProjectLockProblems({ project: s.lock.dir, read: ctx.read, exists }) : packageLockProblems({ dir: s.lock.dir, read: ctx.read, exists });
+  },
+  // File-only Gradle dependency-locking check (gradle-lock.mjs): no Gradle is run.
+  "gradle-lock": (s, ctx) => gradleLockProblems({
+    dir: s.dir, read: ctx.read, exists: (f) => ctx.deps.exists(path.join(ctx.contentRoot, f)),
+    list: (d) => ctx.deps.readdir(path.join(ctx.contentRoot, d), { withFileTypes: true }).map((e) => ({ name: e.name, isDir: e.isDirectory() })),
+  }),
+  // File-only Python lock check (python-lock.mjs): no pip, uv or poetry is run.
+  "python-lock": async (s, ctx) => {
+    let parseToml;
+    try { parseToml = await ctx.deps.loadToml(); } catch (e) { return { missing: `TOML parser unavailable: ${e.message}` }; }
+    return pythonLockProblems({ dir: s.dir, names: ctx.deps.readdir(path.join(ctx.contentRoot, s.dir)).map(String), read: ctx.read, parseToml });
   },
   "yaml-parse": async (s, ctx) => {
     let parse;
