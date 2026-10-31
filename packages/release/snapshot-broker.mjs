@@ -508,6 +508,7 @@ function carryBrokerAdapterOnce({ adapter, words, cwd, env, section, record, spa
     if (r.error && provenNoSpawn(r.error)) markCarriedUnsentRequest({ section, env, callHandle: made.carrier.ownership.handle, reason: `the RustRight client did not start (${r.error.code})` });
     let outcome;
     let ref = null;
+    let nativeManaged = null;
     try {
       if (r.error) throw new SnapshotRequestError(r.error.code === BROKER_CLIENT_UNRESOLVED ? BROKER_CLIENT_UNRESOLVED : "spawn", `the RustRight client did not start (${r.error.message})`);
       ref = readRequestRef(path.join(refDir, "request.json"));
@@ -517,7 +518,8 @@ function carryBrokerAdapterOnce({ adapter, words, cwd, env, section, record, spa
       // (an app whose root is `app/`), and never a directory outside the primary checkout or one that is not this call's counterpart.
       if (canonicalCounterpart(ref.workspace) !== canonicalCounterpart(checkoutCwd) || !inside(canonicalCounterpart(ref.workspace), section.checkout)) throw new SnapshotRequestError("workspace", `the request's workspace ${ref.workspace} is not the primary checkout counterpart ${checkoutCwd} of the step's directory ${realCwd} (primary toplevel ${section.checkout})`);
       const receipt = receiptSync({ client: section.client, requestId: ref.requestId, env: clientEnv, spawn, platform: section.platform });
-      const { evidence, attribution, toolchain, nestedChildren } = verifySnapshotReceipt(receipt, { pins: section.pins, jobId: ref.requestId, carrier: made.carrier, argv: words, workspace: ref.workspace, adapter, adapterEnv, checkout: section.checkout, outputRoots: section.outputRoots, platform: section.platform });
+      const { payload, evidence, attribution, toolchain, nestedChildren } = verifySnapshotReceipt(receipt, { pins: section.pins, jobId: ref.requestId, carrier: made.carrier, argv: words, workspace: ref.workspace, adapter, adapterEnv, checkout: section.checkout, outputRoots: section.outputRoots, platform: section.platform });
+      nativeManaged = signedNativeOutputs(receipt, payload);
       outcome = { status: "verified", requestId: ref.requestId, workspace: ref.workspace, outputDir: evidence.outputDir, nestedChildren, treeAtStart: evidence.snapshot.treeAtStart, treeAtExit: evidence.snapshot.treeAtExit, attribution, toolchain };
     } catch (e) {
       outcome = { status: "unverified", code: e.code ?? "error", message: e.message, ...(ref ? { requestId: ref.requestId, workspace: ref.workspace } : {}) };
@@ -555,12 +557,33 @@ function carryBrokerAdapterOnce({ adapter, words, cwd, env, section, record, spa
       err(message);
       return { status: r.status ? r.status : BROKER_REFUSAL_STATUS, outcome, ...out, stderr: `${out.stderr}${message}\n` };
     }
-    return { status: r.status ?? (r.signal ? 128 : BROKER_REFUSAL_STATUS), outcome, ...out };
+    // RA-07/RA-09: the native call's output mapping, as the broker SIGNED it (`executable.managedOutputs`); kept out of the ledger record, which is unchanged.
+    return { status: r.status ?? (r.signal ? 128 : BROKER_REFUSAL_STATUS), outcome, ...out, ...(nativeManaged ? { executable: { managedOutputs: nativeManaged } } : {}) };
   } finally {
     if (made) removeCarrier(made.file);
     fs.rmSync(refDir, { recursive: true, force: true });
   }
 }
+
+/**
+ * The native build tool's output mapping of a verified adapter receipt (RustRight service.rs: a native call's `executable.managedOutputs` is `{ tool, state, outputs: [{ role, path }] }`, signed in
+ * `payload.executable` with `argv` removed, and mirrored at the receipt's `nativeOutputs`), or null when the call has none (xcodegen without `--use-cache`, every non-native adapter, an older broker).
+ * Only the SIGNED copy is read; a receipt mirror that is present must equal it, and a mirror with nothing signed is refused: the receipt's own say-so is never the mapping.
+ */
+export function signedNativeOutputs(receipt, payload) {
+  const signed = payload?.executable?.managedOutputs;
+  const mirror = receipt?.nativeOutputs;
+  if (signed === undefined || signed === null) {
+    if (mirror !== undefined && mirror !== null) throw new SnapshotRequestError("evidence", "the receipt carries nativeOutputs that the signed payload does not (executable.managedOutputs): the mapping is not covered by the signature");
+    return null;
+  }
+  if (mirror !== undefined && mirror !== null && JSON.stringify(canonicalValue(mirror)) !== JSON.stringify(canonicalValue(signed))) throw new SnapshotRequestError("evidence", "receipt nativeOutputs differs from the signed executable.managedOutputs");
+  const shaped = signed !== null && typeof signed === "object" && typeof signed.tool === "string" && typeof signed.state === "string" && Array.isArray(signed.outputs)
+    && signed.outputs.every((o) => o !== null && typeof o === "object" && typeof o.role === "string" && typeof o.path === "string");
+  if (!shaped) throw new SnapshotRequestError("evidence", "the signed executable.managedOutputs is not { tool, state, outputs: [{ role, path }] }");
+  return signed;
+}
+const canonicalValue = (v) => (Array.isArray(v) ? v.map(canonicalValue) : v !== null && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canonicalValue(v[k])])) : v);
 
 /** One cargo call of a test, carried through the broker (`carryBrokerCargo`). Returns cargo's exit status. */
 export const runBrokerCargo = (call) => carryBrokerCargo(call).status;

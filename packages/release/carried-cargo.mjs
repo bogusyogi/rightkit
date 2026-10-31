@@ -81,7 +81,7 @@ export function runCarriedCargo(args, options = {}, { map, spawn = spawnSync, er
  * One right-release pnpm, node or QA step, carried as a broker adapter job. `adapter` is the registered adapter (`rightkit-pnpm`,
  * `rightkit-node`, `rightkit-qa`), `args` the adapter's arguments (what follows `--` in `rustright run <adapter> -- <args>`); `options` is
  * the spawn options of the step (`cwd`, `env`, `stdio`). Returns a `spawnSync`-shaped result with `outputDir` (the job's) and
- * `nestedChildren` (the verified signed list) when the call verified.
+ * `nestedChildren` (the verified signed list), `requestId` and, for a native build tool, `executable.managedOutputs` (the output mapping the broker signed) when the call verified.
  */
 export function runCarriedAdapter(adapter, args, options = {}, { map, spawn = spawnSync, err = (m) => process.stderr.write(`${m}\n`) } = {}) {
   const env = options.env ?? process.env;
@@ -91,7 +91,7 @@ export function runCarriedAdapter(adapter, args, options = {}, { map, spawn = sp
   const verified = result.outcome?.status === "verified";
   return {
     status: result.status, signal: null, stdout: result.stdout, stderr: result.stderr, error: null,
-    ...(verified ? { outputDir: result.outcome.outputDir, nestedChildren: result.outcome.nestedChildren } : {}),
+    ...(verified ? { outputDir: result.outcome.outputDir, requestId: result.outcome.requestId, nestedChildren: result.outcome.nestedChildren, ...(result.executable ? { executable: result.executable } : {}) } : {}),
     ...(result.outcome?.status === "refused" ? { refusal: { code: result.outcome.code, message: result.outcome.message } } : {}),
   };
 }
