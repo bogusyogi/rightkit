@@ -27,13 +27,19 @@ const COMPUTED_HELPER_IMPORTS = Object.freeze({
     paths: Object.freeze(["scripts/ci/test-results.mjs", "scripts/ci/upload.mjs"]),
   }),
 });
+/**
+ * The most files the trusted helper closure may hold: a bound on the traversal (a closure that keeps growing is refused rather than hashed without limit). The real closure is the transitive relative
+ * imports of runtime-budgets.mjs and runtime-qualify.mjs (139 files when this was set: upload.mjs and the publication modules it reaches are part of what the proof's helpers consume), and it grows
+ * with the code, so the bound is the closure's size with room to grow, not a number the next import can cross; a test holds both that the real closure fits and that a larger one still refuses.
+ */
+export const RUNTIME_HELPER_CLOSURE_LIMIT = 256;
 /** Relative helper closure is discovered from trusted files, never producer imports. */
-export function trustedRuntimeHelperPaths() {
+export function trustedRuntimeHelperPaths({ limit = RUNTIME_HELPER_CLOSURE_LIMIT } = {}) {
   const pending = ["packages/release/runtime-budgets.mjs", "scripts/ci/runtime-qualify.mjs"], seen = new Set();
   while (pending.length) {
     const name = pending.pop();
     if (seen.has(name)) continue;
-    need(safe(name) && seen.size < 128, "helper closure exceeds supported boundary");
+    need(safe(name) && seen.size < limit, "helper closure exceeds supported boundary");
     seen.add(name);
     const text = fs.readFileSync(path.join(TRUST_ROOT, name), "utf8");
     const computed = COMPUTED_HELPER_IMPORTS[name];

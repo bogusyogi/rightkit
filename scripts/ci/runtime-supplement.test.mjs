@@ -7,7 +7,7 @@ import { sha, REPOSITORY } from "./upload.mjs";
 import { candidateHash } from "./supplemental-proof.mjs";
 import { workloadsFor, supportedPrescription } from "./runtime-qualify.mjs";
 import test from "node:test";
-import { validateRuntimeWorkflow, authenticatedRuntimeProof, verifyRuntimeSupplement, validateFrozenRuntimeBudget, validateRuntimeRecords, trustedRuntimeHelperPaths } from "./runtime-supplement.mjs";
+import { validateRuntimeWorkflow, authenticatedRuntimeProof, verifyRuntimeSupplement, validateFrozenRuntimeBudget, validateRuntimeRecords, trustedRuntimeHelperPaths, RUNTIME_HELPER_CLOSURE_LIMIT } from "./runtime-supplement.mjs";
 import { runtimeFeatureProofPolicy } from "./semantic-admission.mjs";
 // The proof names its crate; this lane's fixture is rightkit-logs, passed explicitly to every helper.
 const CRATE = "rightkit-logs";
@@ -388,4 +388,15 @@ test("runtime admission qualifies each trusted crate by its own handle and trust
   // A crate without trusted coverage cannot be qualified even with an authenticated handle for another crate.
   const { f, handle } = made[CRATE];
   assert.equal(runtimeFeatureProofPolicy({ crate: "rightkit-job-queue", meta: {}, hasFile: true, runtimeProofs: [handle], candidate: f.candidate, unit: { ...f.unit, name: "rightkit-job-queue" } }).status, "HOLD");
+});
+
+test("trusted helper closure is bounded: the real closure fits with headroom, and a closure larger than the limit is refused, not hashed", (t) => {
+  const real = trustedRuntimeHelperPaths();
+  assert.ok(real.length < RUNTIME_HELPER_CLOSURE_LIMIT - 32, `the real closure (${real.length} files) leaves headroom under the limit ${RUNTIME_HELPER_CLOSURE_LIMIT}`);
+  assert.throws(() => trustedRuntimeHelperPaths({ limit: 5 }), /helper closure exceeds supported boundary/, "a limit below the real closure refuses");
+  const sources = new Map([["packages/release/runtime-budgets.mjs", "import './a1.mjs';"], ["scripts/ci/runtime-qualify.mjs", ""]]);
+  for (let i = 1; i <= 8; i += 1) sources.set(`packages/release/a${i}.mjs`, i < 8 ? `import './a${i + 1}.mjs';` : "");
+  mockTrustedHelperSources(t, sources);
+  assert.equal(trustedRuntimeHelperPaths({ limit: 10 }).length, 10 + 3, "ten sources fit a limit of ten");
+  assert.throws(() => trustedRuntimeHelperPaths({ limit: 9 }), /helper closure exceeds supported boundary/);
 });
