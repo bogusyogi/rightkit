@@ -1,0 +1,71 @@
+# Owner-run npm publication with provenance (Adrian, 2026-10-31: "isn't there a way to go via path, to git and publish that i can run?").
+# The owner starts it by hand for one package directory and one commit on main; it publishes exactly that commit's package with
+# `npm publish --provenance`, so the version carries the signed GitHub build attestation pnpm's trust policy expects. It does not
+# require a green CI run: starting it is the owner's decision, the same as an owner publish from a terminal (rightkit#1326).
+#   gh workflow run publish-npm-owner.yml --repo bogusyogi/rightkit --ref main -f package=packages/release -f commit=<sha>
+name: publish-npm-owner
+run-name: publish-npm-owner ${{ inputs.package }} @ ${{ inputs.commit }}
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Package directory (packages/<name>)
+        type: string
+        required: true
+      commit:
+        description: Full commit SHA on main to publish from
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: publish
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    environment: release
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check the inputs
+        env:
+          PACKAGE: ${{ inputs.package }}
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          [[ "$PACKAGE" =~ ^packages/[a-z0-9][a-z0-9-]*$ ]] || { echo "::error::package must be packages/<name>"; exit 1; }
+          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::commit must be a full 40-character SHA"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The commit is on main
+        env:
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$COMMIT" origin/main || { echo "::error::$COMMIT is not on main"; exit 1; }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "26.8.1"
+          registry-url: https://registry.npmjs.org
+      - name: Publish with provenance and read it back
+        working-directory: ${{ inputs.package }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then echo "::error::$name@$version is already on npm"; exit 1; fi
+          npm publish --provenance --access public --ignore-scripts
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            if npm view "$name@$version" version >/dev/null 2>&1; then echo "$name@$version published with provenance"; exit 0; fi
+            sleep 15
+          done
+          echo "::error::$name@$version not visible on npm after publish"; exit 1

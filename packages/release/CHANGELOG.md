@@ -1,6 +1,12 @@
 # Changelog
 
-## 0.6.14 (unpublished)
+## 0.6.15 (unpublished)
+
+- **`--no-broker` reaches the compile stage (rightkit#1326):** every child the gate starts under a `--no-broker` exception runs `rustright cargo|rustc|rustdoc` directly instead of through the installed client, so `right-release stage-sidecar` and the other compile steps no longer stop with "a root request cannot run inside a managed snapshot" (9401214a6).
+- 0.6.14 was published by the owner from 0e0784779 without npm provenance; 0.6.15 is published from GitHub with provenance (publish-npm-owner.yml).
+
+## 0.6.14
+
 
 One release: the route probe and the carrier cutover.
 
