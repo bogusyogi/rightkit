@@ -157,6 +157,9 @@ jobs:
             scripts/ci/registry-spec.mjs
             scripts/ci/reviewed-candidate.mjs
             scripts/ci/publish-admission.mjs
+            packages/release/pack-digest.mjs
+            packages/release/qualification-verify.mjs
+            packages/release/swap-helper-bundle.mjs
             scripts/ci/supplemental-proof.mjs
             ci/linux-required.json
           sparse-checkout-cone-mode: false
