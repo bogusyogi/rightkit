@@ -68,13 +68,13 @@
 // SIGINT/SIGTERM stop scheduling, kill every running scan's process tree and exit non-zero listing the scans not run.
 import fs from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
-import { gateRunsRoot } from "../managed-roots.mjs";
+import { gateRunsRoot, resolveManagedRoots } from "../managed-roots.mjs";
 import { spawnBrokerClient } from "../broker-client.mjs";
 import os from "node:os";
 import path from "node:path";
 import { FOREIGN_PRE_COMMIT, retireHooksIn } from "../hook-retirement.mjs";
 import { fileURLToPath } from "node:url";
-import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
+import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanToolPolicyFromPipeline, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
 import { SIGNING_REFUSAL_CODES, suiteSigningRefusals } from "../suite-signing-policy.mjs";
@@ -2799,6 +2799,16 @@ export async function main(argv, io = {}) {
   // A broker-managed host whose broker is unreachable refuses the moment a Cargo manifest is in the snapshot (below): a repository
   // with no Rust owes nothing to the broker (a git hook's minimal PATH, a JS-only app), and the class A scans never compile.
   const cargoCommand = executor.cargo ?? ["cargo"];
+  // The declared Linux broker route's cargo is `[<absolute validated client>, "cargo"]`, which the scan planner (planScans: `["rustright","cargo"]` or
+  // `["cargo"]`) refuses, and a PATH `rustright` is never the client. So the scans are PLANNED with the logical `["rustright","cargo"]` and every spawn the
+  // gate hands the scans, the discovery of the snapshot's workspaces and the tool probes resolves that one name to the executor's validated client,
+  // with the endpoint the executor declared (`withDeclaredClient`); nothing starts a `rustright` found on PATH. The carried requests
+  // (snapshotCargoSpawn's carrySpawn, the snapshot carrier) name the client by absolute path already. Every other route plans `cargoCommand` itself.
+  const declaredClient = executor.kind === "broker" && executor.route === LINUX_BROKER_ROUTE && typeof executor.client === "string" ? executor.client : null;
+  const planCargoCommand = declaredClient ? ["rustright", ...cargoCommand.slice(1)] : cargoCommand;
+  const withDeclaredClient = (spawn) => (declaredClient
+    ? (command, args, opts = {}) => (command === "rustright" ? spawn(declaredClient, args, { ...opts, env: { ...(opts.env ?? o.env), ...(executor.env ?? {}) } }) : spawn(command, args, opts))
+    : spawn);
   // A broker host (Mac, Dell) compiles a commit snapshot through the RustRight snapshot carrier: `deps.snapshotBroker`, built in the
   // snapshot-compile region below (item 7 rows 7.20 to 7.24). A broker-managed host whose broker cannot be reached is refused with
   // the executor's own problem, never compiled around.
@@ -2828,7 +2838,7 @@ export async function main(argv, io = {}) {
     // On a broker host the gate's snapshot is the broker's managed one, where RustRight refuses a root request ("a root request cannot run inside a
     // managed snapshot", rightkit#1311): the gate's own Cargo reads there (unit discovery, workspace members) are carried read-only requests,
     // with the broker's signed receipt verified (snapshot-metadata.mjs). The checkout, git and a direct host keep the plain spawn.
-    let snapshotSpawn = (c, a, opts) => o.spawn(c, a, opts);
+    let snapshotSpawn = withDeclaredClient((c, a, opts) => o.spawn(c, a, opts));
     let discoveryBroker = null;
     // On a broker host, the spawn every Class A Cargo scan of the snapshot runs through: a Cargo call inside the snapshot is a carried read-only
     // request of one of the exact admitted shapes (snapshot-metadata.mjs), anything else passes through (node, git, the client's probe).
@@ -2895,10 +2905,10 @@ export async function main(argv, io = {}) {
             discoveryBroker = createSnapshotBroker({ env: o.env, platform: o.platform, checkout: root, commit: { sha: sc.commit, tree: sc.tree }, snapshot: { path: repo, expectedTree: sc.tree }, ownership: o.buildOwnership, client: executor.route === LINUX_BROKER_ROUTE ? executor.client : which("rustright").find((c) => path.isAbsolute(c)), gateFile: callingGatePath(), spawn: o.spawn });
           }
         } catch (error) { o.err(`${tag} BLOCKED: ${error.code ?? "RK_SNAPSHOT_BROKER"}: ${error.message}; nothing compiled`); return 1; }
-        snapshotSpawn = snapshotCargoSpawn({ spawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, snapshotRoot: repo, env: o.env, err: o.err, broker: () => discoveryBroker });
-        scanSpawn = snapshotCargoSpawn({ spawn: defaultSpawnAsync, carrySpawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, snapshotRoot: repo, env: o.env, err: o.err, broker: () => discoveryBroker });
+        snapshotSpawn = snapshotCargoSpawn({ spawn: withDeclaredClient((c, a, opts) => o.spawn(c, a, opts)), cargoCommand: planCargoCommand, snapshotRoot: repo, env: o.env, err: o.err, broker: () => discoveryBroker });
+        scanSpawn = snapshotCargoSpawn({ spawn: withDeclaredClient(defaultSpawnAsync), carrySpawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand: planCargoCommand, snapshotRoot: repo, env: o.env, err: o.err, broker: () => discoveryBroker });
       }
-      rust = discoverRustWorkspaces({ root: repo, spawn: snapshotSpawn, cargoCommand, tracked, untracked, fixtures, readFile: readSnap });
+      rust = discoverRustWorkspaces({ root: repo, spawn: snapshotSpawn, cargoCommand: planCargoCommand, tracked, untracked, fixtures, readFile: readSnap });
       npm = discoverNpmUnits({ root: repo, tracked, readFile: readSnap, exists: o.exists });
       npmRoots = discoverPnpmRoots({ root: repo, tracked, exists: o.exists });
     } catch (e) { o.err(`${tag} BLOCKED: cannot discover the repository's units: ${e.message}`); return 1; }
@@ -3061,7 +3071,7 @@ export async function main(argv, io = {}) {
     fullPlan = planScans({
       // Class A of a commit or tree reads only that snapshot: every scan, cargo's included, runs in the snapshot, never in the live
       // checkout (which may hold other bytes). Compiles (class B) use the live checkout, whose tree the dirty check pinned to HEAD.
-      changed, contentRoot: repo, liveRoot: (classAOnly && snapshot) || snapshotB ? repo : root, trustedRoot: snapshotA ?? snapshotB ?? root, includeTests: true, rustScope, cargoCommand, targetDirs, cargoShim: Boolean(cargoShim),
+      changed, contentRoot: repo, liveRoot: (classAOnly && snapshot) || snapshotB ? repo : root, trustedRoot: snapshotA ?? snapshotB ?? root, includeTests: true, rustScope, cargoCommand: planCargoCommand, targetDirs, cargoShim: Boolean(cargoShim),
       tier: fullA ? "release" : (option("--rule-tier") ?? "compile"), cargoLiveRoot,
       // The quiet tests (port, pipe, desktop and wall-clock bound) are proven by the CI shards, one crate per runner, unless
       // RK_GATE_QUIET_TESTS=local asks for the serial quiet lane here (no CI, or a CI outage).
@@ -3227,6 +3237,18 @@ export async function main(argv, io = {}) {
         }
       } catch { cache = null; }
     }
+    // The scan-tool policy (RA-18 / L9-03): the analyzers class A accepts (shellcheck, actionlint, cargo-deny, cargo-audit) run only from an enrolled
+    // executable. It comes from this host's enrolment record under the managed data root, else (RightKit's own checkout only) from the RUNNING
+    // gate's revision of ci/rk-pipeline.json `tools` (scan-tool-enrolment.mjs), never the checked repository, the snapshot or an environment variable.
+    // An unreadable or malformed record refuses the run: a scan tool is never judged against a policy that could not be read.
+    let scanTools;
+    try {
+      scanTools = await (o.loadScanToolPolicy ?? (async (q) => (await import("../scan-tool-enrolment.mjs")).loadScanToolPolicy(q)))({
+        dataRoot: resolveManagedRoots({ env: o.env, platform: o.platform }).dataRoot, platform: o.platform, gateFile: callingGatePath(), checkout: root, fromPipeline: scanToolPolicyFromPipeline, // reads the gate's own repository with real git, never the run's (possibly injected) spawn
+      });
+    } catch (error) { o.err(`${tag} BLOCKED: ${error.code ?? "RK_SCAN_TOOLS"}: ${error.message}; no scan ran`); return 1; }
+    const enrolledTools = Object.keys(scanTools?.policy ?? {});
+    if (enrolledTools.length) o.out(`${tag} scan-tool policy: ${enrolledTools.map((name) => `${name} (${scanTools.sources?.[name] ?? "enrolled"})`).join(", ")}`);
     // The direct compile's freshness census (row 7.19): the fingerprint units before the scans, and the fingerprint log of each cargo
     // process that compiles (CARGO_LOG on that process only, read from its own standard error). A broker host's census is the broker's.
     const census = snapshotB && !snapshotBroker ? createFreshnessCensus({ targetDirs }) : null;
@@ -3235,6 +3257,13 @@ export async function main(argv, io = {}) {
     const scanResult = await (o.runScans ?? runScans)(plan, {
       classes: classAOnly ? ["A"] : ["A", "B"], jobs, testJobs, classBJobs, signal: ac.signal, ...(cache ? { cache } : {}),
       ...(census ? { spawn: census.wrapSpawn(defaultSpawnAsync) } : {}),
+      // The declared Linux broker route: the scans are planned with the logical `rustright`, which this spawn (and scanSpawn's pass-through below) starts as the
+      // executor's validated client, never a PATH lookup (withDeclaredClient).
+      ...(declaredClient && !scanSpawn ? { spawn: withDeclaredClient(census ? census.wrapSpawn(defaultSpawnAsync) : defaultSpawnAsync) } : {}),
+      toolPolicy: scanTools?.policy ?? {},
+      // The class A cargo reads (deny, audit, metadata, fetch) are carried requests the broker executes (scanSpawn): cargo-deny and cargo-audit are then the
+      // broker's registered tools, in the check stage too (which has no snapshotBroker). Only when the reads really go to the broker.
+      ...(executor.kind === "broker" && scanSpawn ? { cargoReadsCarried: true } : {}),
       // A broker host: every Cargo call a class A scan makes inside the snapshot is a carried read-only request; the gate's own temporary files
       // (cargo-deny's metadata and config) live in a gate-owned directory the broker can read, outside the checkout.
       ...(scanSpawn ? { spawn: scanSpawn, tmpRoot: gateTmpRoot({ env: o.env, platform: o.platform, exists: o.exists }) } : {}),

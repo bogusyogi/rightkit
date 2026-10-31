@@ -12,6 +12,11 @@ import * as ci from "../../scripts/ci/select.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { AGENT_SHIM_MARKER } from "./broker-client.mjs";
 import { PINNED_SCAN_TOOLS } from "./deterministic-scans.mjs";
+import net from "node:net";
+import { enrollScanTool } from "./scan-tool-enrolment.mjs";
+import { syncSnapshot } from "./snapshot.mjs";
+import { makeFakeBroker, subHandleStub } from "./test-support/fake-broker.mjs";
+import { LINUX_BROKER_CLIENT_ENV, LINUX_BROKER_CLIENT_SHA256_ENV, LINUX_BROKER_SOCKET_ENV } from "./managed-cargo.mjs";
 import { pathspecBatches, EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, lockScope, main as gateMain, manifestChangeIsLockReflected, PARTIAL_EXIT, manifestTables, parsePushLines, parseWorkspaceGlobs, quietLeaseLane, rustUnitName, rustUnitOfScanId, vendorOwners, tomlString, tomlStrings, tomlValue, workspaceExcludes, gateTmpRoot, appRootOf } from "./bin/rightkit-gate.mjs";
 import * as gateModule from "./bin/rightkit-gate.mjs";
 
@@ -1000,6 +1005,22 @@ const SC_CASES = [
 const scBytes = (c) => fs.readFileSync(new URL(c.file, SC_FIXTURES));
 const SC_PIN = PINNED_SCAN_TOOLS.shellcheck;
 const SC_FOUND = (() => { const r = spawnSync("shellcheck", ["--version"], { encoding: "utf8" }); return r.status === 0 ? (/^version:\s*(\S+)/m.exec(String(r.stdout))?.[1] ?? "unreadable") : null; })();
+// The analyzer a run trusts is the one ENROLLED in the host's scan-tool record under the managed data root (never PATH): this enrols the shellcheck found
+// first on PATH (`binDir` first) through the reviewed operation, with the digest of its own bytes and the version it answers, into a fresh data root.
+function enrolShellcheck(t, binDir) {
+  const dataRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-sc-data-")));
+  t.after(() => fs.rmSync(dataRoot, { recursive: true, force: true }));
+  const which = spawnSync(process.platform === "win32" ? "where" : "which", ["shellcheck"], { encoding: "utf8", env: { ...process.env, PATH: `${binDir ? `${binDir}${path.delimiter}` : ""}${process.env.PATH}` } });
+  const file = which.status === 0 ? String(which.stdout).split(/\r?\n/).find(Boolean) : null;
+  if (file) {
+    const real = fs.realpathSync(file);
+    const asked = spawnSync(real, ["--version"], { encoding: "utf8" });
+    const version = /^version:\s*(\S+)/m.exec(String(asked.stdout))?.[1];
+    if (version) enrollScanTool({ dataRoot, platform: process.platform, tool: "shellcheck", path: real, sha256: crypto.createHash("sha256").update(fs.readFileSync(real)).digest("hex"), version });
+  }
+  return dataRoot;
+}
+
 // One commit holding one script at its SellRight path, checked by `rightkit-gate check` (real class A, real runScans) with
 // `binDir` first on PATH. The app check is not under test here.
 async function checkScript(t, bytes, at, binDir = null) {
@@ -1017,7 +1038,8 @@ async function checkScript(t, bytes, at, binDir = null) {
   try {
     const c = capture();
     // The shellcheck scan is release tier (added after 0.6.6): these tests ask for it by tier.
-    const code = await main(["check", "--repo", repo, "--commit", "HEAD", "--rule-tier", "release"], { ...c.io, appCheck: async () => 0 });
+    const dataRoot = enrolShellcheck(t, binDir);
+    const code = await main(["check", "--repo", repo, "--commit", "HEAD", "--rule-tier", "release"], { ...c.io, env: { ...process.env, RUSTRIGHT_DATA_ROOT: dataRoot, RIGHTKIT_DATA_ROOT: dataRoot }, appCheck: async () => 0 });
     return { code, out: c.out.join("\n"), err: c.err.join("\n") };
   } finally { process.env.PATH = saved; }
 }
@@ -2407,4 +2429,109 @@ test("the gate names itself to the broker by its own resolved entry path (RUSTRI
   assert.equal(callingGatePath(), entry);
   const source = fs.readFileSync(entry, "utf8");
   assert.match(source, /if \(invokedDirectly\) \{\s*\/\/[^\n]*\n\s*process\.env\.RUSTRIGHT_CALLING_GATE = callingGatePath\(\);\s*delete process\.env\.RIGHTKIT_CALLING_GATE;/);
+});
+
+// ---- the declared Linux broker route reaches the scans: logical plan, client alias, enrolled scan-tool policy -----------------------------------
+// The real executor (resolveExecutor on a Linux host that declares RIGHTKIT_LINUX_BROKER_CLIENT/_SOCKET/_CLIENT_SHA256 with a real client file and a real
+// listening socket) hands the gate `cargo: [<absolute client>, "cargo"]`; planScans takes only the logical `["rustright","cargo"]`, so before this the gate died
+// with a TypeError the moment it planned. No broker answers here (the injected runScans runs nothing): what is pinned is the plan, the one name `rustright`
+// resolving to the validated client in every spawn the gate hands the scans, and the policy the scans get.
+async function declaredHost(t) {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-linux-route-")));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const socket = path.join(dir, "broker.sock");
+  const server = net.createServer();
+  await new Promise((resolve, reject) => { server.once("error", reject); server.listen(socket, resolve); });
+  t.after(() => server.close());
+  const body = '#!/bin/sh\necho "client:$*:sock=$RUSTRIGHT_BUILD_BROKER_SOCKET"\n';
+  const client = path.join(dir, "rustright"); fs.writeFileSync(client, body); fs.chmodSync(client, 0o755);
+  const dataRoot = path.join(dir, "data"); fs.mkdirSync(dataRoot);
+  return { dir, socket, client, dataRoot, env: { ...process.env, [LINUX_BROKER_CLIENT_ENV]: client, [LINUX_BROKER_SOCKET_ENV]: socket, [LINUX_BROKER_CLIENT_SHA256_ENV]: createHash("sha256").update(body).digest("hex"), RUSTRIGHT_DATA_ROOT: dataRoot, RIGHTKIT_DATA_ROOT: dataRoot } };
+}
+
+test("a declared Linux broker plans the scans with the logical rustright, starts the validated client for it (never a PATH rustright), and hands the scans the enrolled tool policy", { skip: process.platform === "win32" && "a POSIX shell script is the client" }, async (t) => {
+  const host = await declaredHost(t);
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-linux-repo-")));
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.mkdirSync(path.join(repo, "src")); fs.writeFileSync(path.join(repo, "src", "lib.rs"), "");
+  fs.writeFileSync(path.join(repo, "Cargo.toml"), pkg("x")); fs.writeFileSync(path.join(repo, "Cargo.lock"), lockPkg("x", "1.0.0"));
+  git("add", "-A"); git("commit", "-q", "-m", "one");
+  // An enrolled shellcheck: a real executable file, enrolled through the reviewed operation (which checks its digest).
+  const analyzer = path.join(host.dir, "shellcheck"); fs.writeFileSync(analyzer, "#!/bin/sh\nexit 0\n"); fs.chmodSync(analyzer, 0o755);
+  const sha256 = createHash("sha256").update(fs.readFileSync(analyzer)).digest("hex");
+  enrollScanTool({ dataRoot: host.dataRoot, platform: "linux", tool: "shellcheck", path: analyzer, sha256, version: "0.11.0" });
+  const calls = []; const seen = [];
+  const spawn = (cmd, args, opts) => {
+    calls.push([cmd, ...args]);
+    if (cmd === host.client && args[0] === "cargo" && args.includes("metadata")) return ok(JSON.stringify({ workspace_root: repo, packages: [{ name: "x", manifest_path: path.join(repo, "Cargo.toml"), publish: null }] }));
+    return spawnSync(cmd, args, { ...opts, encoding: "utf8" });
+  };
+  const c = capture();
+  const code = await main(["--class-a", "--full-a", "--worktree", "--no-cache"], { ...c.io, cwd: repo, env: host.env, platform: "linux", spawn, appCheck: async () => 0, runScans: fakeRun(seen) });
+  assert.equal(code, 0, `${c.out.join("\n")}\n${c.err.join("\n")}`);
+  assert.match(c.out.join("\n"), /executor: broker \(.*rustright cargo\)/);
+  // The plan names the logical `rustright cargo`, never the absolute client; the discovery read ran the client by path, and nothing ran a bare rustright.
+  const scans = seen[0].plan.scans.filter((x) => x.tool === "rustright" || x.tool === host.client);
+  assert.ok(scans.length > 0 && scans.every((x) => x.tool === "rustright" && x.args[0] === "cargo"), JSON.stringify(scans.map((x) => [x.tool, x.args[0]])));
+  assert.ok(calls.some(([cmd, first]) => cmd === host.client && first === "cargo"), "the workspace discovery started the validated client");
+  assert.ok(!calls.some(([cmd]) => cmd === "rustright"), "a PATH rustright is never started");
+  // The spawn the scans use turns `rustright` into that client, with the declared endpoint, and leaves every other command alone.
+  const via = await seen[0].options.spawn("rustright", ["cargo", "--version"], { cwd: repo, env: { PATH: process.env.PATH } });
+  assert.equal(via.status, 0); assert.equal(via.stdout.trim(), `client:cargo --version:sock=${host.socket}`);
+  const other = await seen[0].options.spawn("git", ["--version"], { cwd: repo });
+  assert.match(other.stdout, /^git version/);
+  // The scans get the host's enrolled policy; tools no one enrolled are absent, so they are TOOL_UNTRUSTED where a scan needs them.
+  assert.deepEqual(seen[0].options.toolPolicy, { shellcheck: { path: analyzer, sha256, version: "0.11.0" } });
+  assert.match(c.out.join("\n"), /scan-tool policy: shellcheck \(enrolled\)/);
+  assert.equal(seen[0].options.cargoReadsCarried, undefined, "no snapshot, no carried reads: the check demands nothing it has not got");
+});
+
+test("the scan-tool policy: an enrolled record is read from the managed data root, a malformed or foreign record refuses the run before any scan, and none enrolled passes an empty policy", async (t) => {
+  const dataRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-policy-")));
+  t.after(() => fs.rmSync(dataRoot, { recursive: true, force: true }));
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-policy-repo-")));
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT" })); git("add", "-A"); git("commit", "-q", "-m", "one");
+  const run = async () => { const seen = []; const c = capture(); const code = await main(["--class-a", "--full-a", "--worktree", "--no-cache"], { ...c.io, cwd: repo, env: { ...process.env, RUSTRIGHT_DATA_ROOT: dataRoot, RIGHTKIT_DATA_ROOT: dataRoot }, platform: "linux", resolveExecutor: directExecutor, spawn: withPnpm, appCheck: async () => 0, runScans: fakeRun(seen) }); return { code, seen, err: c.err.join("\n") }; };
+  const none = await run();
+  assert.equal(none.code, 0, none.err); assert.deepEqual(none.seen[0].options.toolPolicy, {}, "nothing enrolled: an empty policy, never PATH");
+  // A record of another platform under this platform's name is refused, and the refusal stops the run before any scan.
+  fs.mkdirSync(path.join(dataRoot, "scan-tools"), { mode: 0o700 });
+  fs.writeFileSync(path.join(dataRoot, "scan-tools", "linux.json"), JSON.stringify({ schema: "rightkit.scan-tools/1", platform: "darwin", tools: {} }), { mode: 0o600 });
+  const refused = await run();
+  assert.equal(refused.code, 1); assert.equal(refused.seen.length, 0, "no scan ran");
+  assert.match(refused.err, /BLOCKED: RK_SCAN_TOOLS_INVALID: .*record of darwin, not linux/);
+});
+
+test("check stage on a broker host: the class A cargo reads are carried requests, so cargo-deny and cargo-audit count as the broker's (options.cargoReadsCarried), though the check stage has no compile carrier", async (t) => {
+  const mk = (prefix) => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix))); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
+  const repo = mk("rk-gate-carried-");
+  const git = (...a) => { const r = spawnSync("git", a, { cwd: repo, encoding: "utf8" }); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
+  git("init", "-q", "-b", "main"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.mkdirSync(path.join(repo, "crates", "a", "src"), { recursive: true });
+  fs.writeFileSync(path.join(repo, "Cargo.toml"), '[workspace]\nmembers = ["crates/*"]\nresolver = "2"\n'); fs.writeFileSync(path.join(repo, "Cargo.lock"), "version = 4\n");
+  fs.writeFileSync(path.join(repo, "crates", "a", "Cargo.toml"), '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n'); fs.writeFileSync(path.join(repo, "crates", "a", "src", "lib.rs"), "\n");
+  git("add", "-A"); git("commit", "-q", "-m", "A"); const commit = git("rev-parse", "HEAD");
+  const snap = syncSnapshot({ checkout: repo, rev: commit, root: mk("rk-gate-carried-snaps-") });
+  const broker = makeFakeBroker(t, { readOnlySnapshots: true });
+  broker.rebase({ checkout: fs.realpathSync.native(repo), snapshotsRoot: path.dirname(snap.path) });
+  // The carried cargo metadata read is answered by the fixture broker's own client; plain `cargo` here is never run.
+  const run = async (executor, extra = {}) => {
+    const seen = []; const c = capture();
+    const code = await main(["check", "--commit", commit, "--full-a", "--snapshot", snap.path], {
+      ...c.io, cwd: repo, env: { ...process.env, RK_GATE_CACHE: "0", RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs", RUSTRIGHT_DATA_ROOT: mk("rk-gate-carried-data-") }, snapshotRoot: path.join(mk("rk-gate-carried-own-"), "snapshots"), appCheck: async () => 0,
+      snapshotBroker: { ...broker.sb, checkout: fs.realpathSync.native(repo), markBrokerSubmit: subHandleStub(broker.sb.handle), get snapshot() { return { path: snap.path, expectedTree: broker.sb.snapshot.expectedTree }; } },
+      spawn: (cmd, args, opts = {}) => (cmd === "pnpm" && args[0] === "--version" ? { status: 0, stdout: "11.25.0\n", stderr: "" } : spawnSync(cmd, args, { ...opts, encoding: "utf8" })),
+      resolveExecutor: () => executor, runScans: fakeRun(seen), ...extra,
+    });
+    return { code, seen, err: c.err.join("\n") };
+  };
+  const brokered = await run({ kind: "broker", cargo: ["cargo"] });
+  assert.equal(brokered.code, 0, brokered.err);
+  assert.equal(brokered.seen[0].options.cargoReadsCarried, true, "the reads go to the broker: deny and audit are its registered tools");
+  assert.equal(brokered.seen[0].options.snapshotBroker, undefined, "the check stage has no compile carrier; the option is what marks its reads as carried");
 });

@@ -79,10 +79,12 @@ const git = (spawn, cwd, args) => {
 };
 
 /**
- * RightKit's own pins, from the revision of the running gate: the repository that holds `gateFile` and its HEAD commit, only when
- * that repository IS the checkout being compiled (RightKit itself). Null when the gate is not run from a RightKit checkout.
+ * The parsed `ci/rk-pipeline.json` of the running gate's own revision: the repository that holds `gateFile` and its HEAD commit, only when
+ * that repository IS the checkout being compiled (RightKit itself). Null when the gate is not run from a RightKit checkout or the file is absent;
+ * a revision that cannot be read, or a file that is not the pipeline schema, is a refusal. Never the working tree, the selected commit or the snapshot.
+ * `{ pipeline, revision }`. Shared by the pins fallback below and the scan-tool policy fallback (scan-tool-enrolment.mjs).
  */
-export function readGateRevisionPins({ gateFile, checkout, platform = process.platform, spawn = spawnSync, realpath = (p) => fs.realpathSync.native(p) }) {
+export function readGateRevisionPipeline({ gateFile, checkout, spawn = spawnSync, realpath = (p) => fs.realpathSync.native(p) }) {
   const here = path.dirname(gateFile);
   const top = git(spawn, here, ["rev-parse", "--show-toplevel"]);
   if (!top) return null;
@@ -96,9 +98,19 @@ export function readGateRevisionPins({ gateFile, checkout, platform = process.pl
   let pipeline;
   try { pipeline = JSON.parse(String(blob.stdout)); } catch (e) { fail("RK_BROKER_PINS_INVALID", `${PIPELINE_FILE} at the gate's revision ${revision.slice(0, 12)} is not JSON (${e.message})`); }
   if (pipeline?.schema !== PIPELINE_SCHEMA) fail("RK_BROKER_PINS_INVALID", `${PIPELINE_FILE} at the gate's revision is not ${PIPELINE_SCHEMA}`);
-  const entry = pipeline.attestation?.[platform];
+  return { pipeline, revision };
+}
+
+/**
+ * RightKit's own pins, from the revision of the running gate: `attestation.<platform>` of readGateRevisionPipeline. Null when the gate is
+ * not run from a RightKit checkout or the file carries no entry for the platform (linux has none unless the file adds `attestation.linux`).
+ */
+export function readGateRevisionPins({ gateFile, checkout, platform = process.platform, spawn = spawnSync, realpath = (p) => fs.realpathSync.native(p) }) {
+  const read = readGateRevisionPipeline({ gateFile, checkout, spawn, realpath });
+  if (!read) return null;
+  const entry = read.pipeline.attestation?.[platform];
   if (!entry) return null;
-  return { ...validatePins(entry, `${PIPELINE_FILE} (${platform}) at the gate's revision ${revision.slice(0, 12)}`), source: "rk-pipeline", revision };
+  return { ...validatePins(entry, `${PIPELINE_FILE} (${platform}) at the gate's revision ${read.revision.slice(0, 12)}`), source: "rk-pipeline", revision: read.revision };
 }
 
 /**
