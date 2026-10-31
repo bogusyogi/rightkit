@@ -33,7 +33,8 @@ test("[GB-12] an intact sealed package set does not stand in for Class A either:
   const fx = doorFixture(t);
   const ran = [];
   const sealed = { id: "app-1.0.0-00000000", manifest: "m", digest: "d".repeat(64) };
-  const seams = { sealedFor: () => sealed, runCheck: async () => { ran.push("check"); return 0; }, runCompile: async () => { ran.push("compile"); return 0; }, spawnInherit: () => { ran.push("right-release"); return { status: 0 }; } };
+  // A package run is the native host's: this simulates the Mac, since a Linux host refuses `--platform mac` (E2E L3-03).
+  const seams = { platform: "darwin", sealedFor: () => sealed, runCheck: async () => { ran.push("check"); return 0; }, runCompile: async () => { ran.push("compile"); return 0; }, spawnInherit: () => { ran.push("right-release"); return { status: 0 }; } };
   const first = await fx.door(["--to", "package", "--platform", "mac"], seams);
   assert.equal(first.code, 0, first.all);
   const ranFirst = ran.length;

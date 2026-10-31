@@ -45,32 +45,33 @@ test("[GB-14] door: qualify journals the receipt digest; an unchanged repeat reu
   const launches = [];
   const sealed = { id: "app-1.0.0-00000000", manifest: "m", digest: MANIFEST };
   let admit = DIGEST;
+  // A qualify is the native host's: the door run simulates the Mac (a simulated Windows host would start cmd.exe), since a Linux host refuses `--to qualify --platform mac|win` (E2E L3-03).
   const seams = () => ({
-    sealedFor: () => sealed, installedQaReceiptDigest: () => DIGEST, spawnInherit: (c, a) => { launches.push(a[1]); return { status: 0 }; },
+    platform: "darwin", sealedFor: () => sealed, installedQaReceiptDigest: () => DIGEST, spawnInherit: (c, a) => { launches.push(a[1]); return { status: 0 }; },
     verifyQa: () => { if (admit instanceof Error) throw admit; return { digest: admit }; },
   });
-  const first = await fx.door(["--to", "qualify", "--platform", "win"], seams());
+  const first = await fx.door(["--to", "qualify", "--platform", "mac"], seams());
   assert.equal(first.code, 0, first.all);
   assert.equal(fx.receipts.get(fx.commit()).stages.qualify.qaReceiptDigest, DIGEST, "the protected receipt's digest is in the stage journal");
   assert.deepEqual(launches, ["qa", "build", "qa"]);
 
   launches.length = 0;
-  const again = await fx.door(["--to", "qualify", "--platform", "win"], seams());
+  const again = await fx.door(["--to", "qualify", "--platform", "mac"], seams());
   assert.equal(again.code, 0, again.all);
   assert.deepEqual(launches.filter((v) => v === "qa"), ["qa"], "--to qualify itself always runs installed QA");
 
   // --to qualify always runs QA, so reuse is observed through a later stage target on the host: `stage`-like reuse is `to !== qualify` with sealed intact.
-  const reuse = await fx.door(["--to", "release", "--platform", "win", "--tier", "patch"], { ...seams(), env: { ...fx.env, GITHUB_ACTIONS: "true", RIGHTKIT_PUBLISHER: "github-environment" } });
+  const reuse = await fx.door(["--to", "release", "--platform", "mac", "--tier", "patch"], { ...seams(), env: { ...fx.env, GITHUB_ACTIONS: "true", RIGHTKIT_PUBLISHER: "github-environment" } });
   assert.match(reuse.all, /\[qualify\] already passed for the sealed set .*protected QA receipt cccccccccccc verified/);
   launches.length = 0;
   admit = new QaAdmissionError("protected policy bundle changed since the receipt was written");
-  const changed = await fx.door(["--to", "release", "--platform", "win", "--tier", "patch"], { ...seams(), env: { ...fx.env, GITHUB_ACTIONS: "true", RIGHTKIT_PUBLISHER: "github-environment" } });
+  const changed = await fx.door(["--to", "release", "--platform", "mac", "--tier", "patch"], { ...seams(), env: { ...fx.env, GITHUB_ACTIONS: "true", RIGHTKIT_PUBLISHER: "github-environment" } });
   assert.match(changed.all, /\[qualify\] the recorded result no longer stands: .*policy bundle changed/);
   assert.notEqual(changed.code, 0, "the publisher never requalifies: it refuses rather than trust the stale record");
   assert.deepEqual(launches, [], "nothing was uploaded");
   admit = DIGEST;
   delete fx.receipts.get(fx.commit()).stages.qualify.qaReceiptDigest;
-  const nodigest = await fx.door(["--to", "release", "--platform", "win", "--tier", "patch"], { ...seams(), env: { ...fx.env, GITHUB_ACTIONS: "true", RIGHTKIT_PUBLISHER: "github-environment" } });
+  const nodigest = await fx.door(["--to", "release", "--platform", "mac", "--tier", "patch"], { ...seams(), env: { ...fx.env, GITHUB_ACTIONS: "true", RIGHTKIT_PUBLISHER: "github-environment" } });
   assert.match(nodigest.all, /carries no protected QA receipt digest/);
   assert.notEqual(nodigest.code, 0);
 });

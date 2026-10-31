@@ -78,7 +78,8 @@ test("[GB-13] sealed bytes carry compile and package on their own: the package s
   const out = path.join(tmpDir(t, "rk-gb13-sealed-"), "target");
   const calls = [];
   const sealed = { id: "app-1.0.0-00000000", manifest: "m", digest: "d".repeat(64) };
-  const seams = { runCompile: compiler(out, calls), sealedFor: () => sealed, spawnInherit: () => { fs.writeFileSync(path.join(out, "debug", "bundle.dmg"), "packaged"); return { status: 0 }; } };
+  // A package run is the native host's: this simulates the Mac, since a Linux host refuses `--platform mac` (E2E L3-03).
+  const seams = { platform: "darwin", runCompile: compiler(out, calls), sealedFor: () => sealed, spawnInherit: () => { fs.writeFileSync(path.join(out, "debug", "bundle.dmg"), "packaged"); return { status: 0 }; } };
   assert.equal((await fx.door(["--to", "package", "--platform", "mac"], seams)).code, 0);
   const again = await fx.door(["--to", "package", "--platform", "mac"], seams);
   assert.equal(again.code, 0, again.all);
