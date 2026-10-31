@@ -1109,18 +1109,18 @@
     "rightkit-daemon": {
       "pkId": "PK07",
       "id": "ci/consumers/rightkit-daemon/src/main.rs",
-      "dependency": "rightkit-daemon = { version = \"=0.4.0\" }",
+      "dependency": "rightkit-daemon = { version = \"=0.5.0\" }",
       "extraDependencies": [
         "serde_json = \"1\""
       ],
       "gateEvidence": "per-run private temp suites removed on drop; local current-user IPC to same process for PK07 R2; no TCP or real user data",
       "consumes": "PK07 named consumers per docs/plans/2026-10-20-rightkit-implementation/01-packages.md: HeardRight and ScrapeRight data-folder move; Pulse migrated_app_root() retirement (PK07-3); CutoverParticipant surface at crates/rightkit-daemon/src/root_cutover.rs:231; PK07 R2 Service builder/local host, Client::connect_expecting, echo, method/app denial & executable mismatch",
       "files": {
-        "Cargo.toml": "613e0506819f53d190b3353508dfaedf93c3123d249fe9c155f7dc6d5e7b4670",
+        "Cargo.toml": "29099a1d12ec0668542a3d0057b6b29a310e95e52f0660b2167ecd88bf762bcd",
         "README.md": "c8089bb550515c35b36ec6d5c496a0ad1e889add6111ae86ea1adcb7b6d55fff",
         "src/main.rs": "120b5b7a5d097644a630f3ba038140f2e9a9442556f6a8235918dbe8be979827"
       },
-      "aggregateSha256": "efd4060a9205c3e68bb43a88c4d2490e16750bf76ac546bf0c87a5bc61a614df"
+      "aggregateSha256": "75617aa99be365faf2e0a6f0753133e6cbc3c08864f89f258e5ac0d7414826a0"
     },
     "rightkit-qa": {
       "pkId": "PK14",
