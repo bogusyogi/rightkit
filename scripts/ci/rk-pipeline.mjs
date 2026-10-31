@@ -949,6 +949,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   // The CLI wrapper keeps today's behavior: the workspace is the checkout this script is installed in, and the stages run as child processes from it.
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
   try {
+    // A malformed command line is refused before the coordinator's lock (and with it the workspace scratch directory) is touched, as runPipeline does: usage errors need no state volume.
+    parseArgs(process.argv.slice(2));
     process.exitCode = await withCoordinatorLock(process.argv[2], STATE_FILE, () => main(process.argv.slice(2), { root, stateFile: STATE_FILE }));
   } catch (error) { fail(error.message); process.exitCode = 2; }
 }

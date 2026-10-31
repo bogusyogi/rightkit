@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import { packageRows } from "./rk-npm-preflight.mjs";
 import { dispatchIdentity, explicitShaRefusal, openClaim, needsReconcile, acquireLock, releaseLock, closureOf, dispatchRefusal, holdReason, satisfiesAny, readiness, allowsetsFor, cmdCanary, cmdDispatch, cmdLoop, cmdPreflight, cmdWatch, matchingUploadRuns, uploadRunsQuery, parseArgs, readQualification, registryVersion, satisfies, stateKey, waves, hostedRunsInFlight } from "./rk-pipeline.mjs";
@@ -844,7 +844,9 @@ test("[GB-07] the in-gate stages are the INSTALLED gate's modules judging the ro
   assert.deepEqual([...new Set(loaded)].sort(), ["scripts/ci/rk-npm-preflight.mjs", "scripts/ci/rk-preflight.mjs", "scripts/ci/rk-release-canary.mjs", "scripts/preflight.mjs"], "only the four installed modules are loaded, by path under the tools root");
   // The default tools root is where THIS module is installed, never the root a call is about.
   assert.equal(installedToolsRoot(), REPO_ROOT);
-  assert.equal(installedToolsRoot("file:///opt/rightkit/current/scripts/ci/rk-pipeline.mjs"), path.resolve("/opt/rightkit/current"));
+  // The module URL is built with pathToFileURL: a POSIX-spelled `file:///opt/...` is not a valid file URL on Windows (it needs a drive letter), where fileURLToPath refuses it.
+  const installedRoot = path.resolve("/opt/rightkit/current");
+  assert.equal(installedToolsRoot(pathToFileURL(path.join(installedRoot, "scripts", "ci", "rk-pipeline.mjs")).href), installedRoot);
 });
 
 test("[GB-07] a state-changing in-gate call takes the coordinator's lock like the command line does: a live holder refuses it before anything dispatches, and the lock is released after", async () => {

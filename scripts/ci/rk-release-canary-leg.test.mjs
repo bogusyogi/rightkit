@@ -8,6 +8,10 @@ import test from "node:test";
 import zlib from "node:zlib";
 import { GATES_REQUIRED_FROM, ROUTE_REQUIRED_FROM, ROUTE_STAGES, contentStatus, detectRoute, parseRoute, routeRequired, routeStagesFor, runRouteProbe, scratchRoot, admissionCodeOf, detectGates, extractTarball, gatesRequired, normalize, parseDoctor, pool, prepareLive, prepareSide, readTarball, runDoctor, runLeg as runLegOn, treeDigest } from "./rk-release-canary-leg.mjs";
 
+// The workspace scratch volume (/Volumes/D, D:) exists only on Adrian's hosts. A hosted runner has none (macOS: mkdir /Volumes/D/scratch is EACCES), so there the
+// throwaway index of contentStatus goes to the OS temp dir, as scratchRoot already does for any host without the rule; RIGHTKIT_SCRATCH_ROOT still wins when set.
+if (!process.env.RIGHTKIT_SCRATCH_ROOT && !fs.existsSync(path.dirname(scratchRoot({}, process.platform)))) process.env.RIGHTKIT_SCRATCH_ROOT = os.tmpdir();
+
 const tmp = (t, prefix = "rk-leg-") => { const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
 const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
 const git = (cwd, ...args) => { const r = spawnSync("git", args, { cwd, encoding: "utf8" }); assert.equal(r.status, 0, `git ${args.join(" ")}: ${r.stderr}`); return r.stdout.trim(); };
