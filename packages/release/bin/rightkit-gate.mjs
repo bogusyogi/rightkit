@@ -2700,15 +2700,16 @@ export async function main(argv, io = {}) {
     return 0;
   }
   if (args.includes("--plan") && option("--to") !== undefined) { o.err("rightkit-gate: --plan plans the class A scans and runs nothing; it takes no --to stage (Astra, second pass)"); return 2; }
-  // The door's stage arguments are read strictly (E2E L3-02): a flag with no value, `--flag=value`, an unknown flag, a repeated value flag or a stray
-  // word is refused before git, ownership or any process, never ignored (`--commit=<old sha>` used to build HEAD, a trailing `--to` ran the default gate).
-  if (!sub && args.some((a) => a === "--to" || a.startsWith("--to="))) {
-    const problem = stageArgsProblem(args);
-    if (problem) { o.err(`rightkit-gate: ${problem}\n${USAGE}`); return 2; }
-  }
   // `--unit` is a gate flag only before a `--` separator: after it the arguments belong to right-release (an app's `--to dev -- …`).
   const separator = args.indexOf("--");
   const unitFlag = args.includes("--unit") && (separator < 0 || args.indexOf("--unit") < separator);
+  // The door's stage arguments are read strictly (E2E L3-02): a flag with no value, `--flag=value`, an unknown flag, a repeated value flag or a stray
+  // word is refused before git, ownership or any process, never ignored (`--commit=<old sha>` used to build HEAD, a trailing `--to` ran the default gate).
+  // A unit run (`--unit`) validates its own, narrower vocabulary below ("unit stages take only ...").
+  if (!sub && !unitFlag && args.some((a) => a === "--to" || a.startsWith("--to="))) {
+    const problem = stageArgsProblem(args);
+    if (problem) { o.err(`rightkit-gate: ${problem}\n${USAGE}`); return 2; }
+  }
   // `--route` is a gate flag only before a `--` separator (after it the arguments belong to right-release). It answers which route a
   // stage takes and runs nothing, so it takes no unit, receipt or release stage (rightkit#1297).
   const gateArgs = separator < 0 ? args : args.slice(0, separator);
