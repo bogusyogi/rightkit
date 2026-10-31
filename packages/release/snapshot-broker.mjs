@@ -223,8 +223,8 @@ export function canonicalCounterpart(p) {
  * real path of its nearest existing ancestor inside the checkout). An existing counterpart, and the ancestor of a removed one, are realpathed, so a link that leaves the checkout is still
  * refused (`..._ESCAPE`); anything else the file system will not say (permission) is `..._UNREADABLE`. Returns `{ dir, spawnCwd, removed }` or `{ refusal: { code, message } }`.
  */
-export function checkoutCounterpart({ base, rel, checkout, absentCode }) {
-  const escapeCode = absentCode.replace(/_ABSENT$/, "_ESCAPE"); const unreadableCode = absentCode.replace(/_ABSENT$/, "_UNREADABLE");
+export function checkoutCounterpart({ base, rel, checkout, codePrefix }) {
+  const escapeCode = `${codePrefix}_ESCAPE`; const unreadableCode = `${codePrefix}_UNREADABLE`;
   // The logical base may be spelled through a link the checkout path is not (a map built from a realpath): resolve the base alone when it exists.
   let root = base; try { root = fs.realpathSync.native(base); } catch { /* an absent base is judged by its spelling */ }
   const lexical = lexicalCounterpart({ base: root, rel });
@@ -335,7 +335,7 @@ function carryBrokerCargoOnce({ words, cwd, env, section, workspace, checkoutWor
     rel = path.relative(workspace, realCwd);
     if (escapes(rel)) throw new Error(`${realCwd} is not inside the workspace ${workspace}`);
   } catch (e) { return refuse("RK_CARGO_BROKER_CWD", `the call's working directory is not inside its workspace (${e.message})`); }
-  const counterpart = checkoutCounterpart({ base: checkoutWorkspace, rel, checkout: section.checkout, absentCode: "RK_CARGO_BROKER_COUNTERPART_ABSENT" });
+  const counterpart = checkoutCounterpart({ base: checkoutWorkspace, rel, checkout: section.checkout, codePrefix: "RK_CARGO_BROKER_COUNTERPART" });
   if (counterpart.refusal) return refuse(counterpart.refusal.code, counterpart.refusal.message);
   checkoutCwd = counterpart.dir; const spawnCwd = counterpart.spawnCwd;
   let inputs;
@@ -456,7 +456,7 @@ function carryBrokerAdapterOnce({ adapter, words, cwd, env, section, record, spa
     rel = path.relative(snapshotRoot, realCwd);
     if (escapes(rel)) throw new Error(`${realCwd} is not inside the snapshot ${snapshotRoot}`);
   } catch (e) { return refuse("RK_ADAPTER_BROKER_CWD", `the step's working directory is not inside the snapshot (${e.message})`); }
-  const counterpart = checkoutCounterpart({ base: section.checkout, rel, checkout: section.checkout, absentCode: "RK_ADAPTER_BROKER_COUNTERPART_ABSENT" });
+  const counterpart = checkoutCounterpart({ base: section.checkout, rel, checkout: section.checkout, codePrefix: "RK_ADAPTER_BROKER_COUNTERPART" });
   if (counterpart.refusal) return refuse(counterpart.refusal.code, counterpart.refusal.message);
   checkoutCwd = counterpart.dir; const spawnCwd = counterpart.spawnCwd;
   let inputs;
