@@ -109,3 +109,19 @@ test("[GB-73] `rightkit-gate candidate-receipt` writes the receipt from the comm
   // The entry point dispatches it: no arguments is a usage refusal from the real main.
   const real = []; assert.equal(await main(["candidate-receipt"], { err: (m) => real.push(m), out: () => {} }), 2); assert.match(real.join("\n"), /usage: rightkit-gate candidate-receipt/);
 });
+
+test("[T13] with no --out and no RIGHTKIT_SCRATCH_ROOT a direct (Linux) host keeps the receipt under the account's state directory, never /Volumes/D", async () => {
+  const home = path.join(path.sep, "home", "gate-user");
+  const written = [];
+  const spawn = (cmd, args) => (cmd === "git" && args.join(" ") === `rev-parse --verify --quiet ${COMMIT}^{tree}` ? { status: 0, stdout: `${TREE}\n` } : { status: 1, stdout: "" });
+  const o = { out: () => {}, err: (m) => assert.fail(m), spawn, cwd: home, env: { HOME: home }, platform: "linux" };
+  const files = { broker: "broker bytes", client: "client bytes" };
+  const code = await candidateReceiptCommand(o, ["--commit", COMMIT, "--broker", "broker", "--client", "client"], { artifact: (f) => sha(files[f]), write: ({ dir }) => { written.push(dir); return { file: path.join(dir, "candidate-build-receipt.json"), recordFile: path.join(dir, "candidate-build-receipt.record.json"), sha256: "0".repeat(64), commit: COMMIT, tree: TREE }; } });
+  assert.equal(code, 0);
+  assert.deepEqual(written, [path.join(home, ".local", "state", "rightkit", "runs", "candidate-receipts", COMMIT)]);
+  assert.ok(!written[0].includes("Volumes"), "no fixed /Volumes/D fallback on a direct host");
+  // An explicit data root still names the runs directory, and RIGHTKIT_SCRATCH_ROOT still wins (gateRunsRoot's own rules).
+  written.length = 0;
+  await candidateReceiptCommand({ ...o, env: { HOME: home, RIGHTKIT_MANAGED_ROOT: "/data" } }, ["--commit", COMMIT, "--broker", "broker", "--client", "client"], { artifact: (f) => sha(files[f]), write: ({ dir }) => { written.push(dir); return { file: "f", recordFile: "r", sha256: "0".repeat(64) }; } });
+  assert.deepEqual(written, [path.join("/data", "runs", "candidate-receipts", COMMIT)]);
+});
