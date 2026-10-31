@@ -1209,6 +1209,26 @@ mod tests {
             assert_eq!(w.env["TMP"], world.temp.to_string_lossy());
             assert_eq!(w.env[WORLD_MARKER_ENV], world.env_marker.value);
             assert!(world.home.join(BINDING_FILE).is_file());
+            // The launch guard admits the world as a QA root and every path the world hands the
+            // app (home, data, temp, control socket and token file), as `control::launch` judges them.
+            let guard = crate::userdata::Guard::for_workspace(w).unwrap();
+            guard.check_dir(&w.home).unwrap();
+            let env: Vec<(String, String)> = w.env.clone().into_iter().collect();
+            guard.check_env(&env).unwrap();
+            for p in [
+                &world.control_socket,
+                &world.control_token_file,
+                &world.temp,
+                &world.data_dir,
+            ] {
+                guard.check_dir(p).unwrap();
+            }
+            // Another world's directory is outside this world's root.
+            let other = if world.dir == wa.dir { &wb } else { &wa };
+            assert_eq!(
+                guard.check_dir(&other.control_socket).unwrap_err().rule,
+                crate::userdata::Rule::OutsideQaRoot
+            );
             // A scenario dir is created under this world's data dir and bound to the run.
             let d = w.scenario_dir("s").unwrap();
             assert!(d.starts_with(&world.data_dir));

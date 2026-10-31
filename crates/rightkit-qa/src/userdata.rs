@@ -250,15 +250,17 @@ fn default_temp_roots() -> Vec<PathBuf> {
     roots
 }
 
-/// Where a QA home may be: directly under a `rightkit-qa` directory (a single-scenario run), or the
-/// home of a scenario world the pool created for a run under one (`<rightkit-qa>/<run>/worlds/wNNN/home`,
-/// `crate::pool::WorldPlan::world`).
-fn is_qa_home_location(home: &Path) -> bool {
+/// The QA root of a QA home, or `None` when the home is in no place this runner creates one:
+/// - a home directly under a `rightkit-qa` directory (a single-scenario run) is its own root;
+/// - the home of a scenario world the pool created (`<rightkit-qa>/<run>/worlds/wNNN/home`,
+///   `crate::pool::WorldPlan::world`) has the world directory `wNNN` as its root, because the
+///   world's control socket and token file live there beside the home (`pool::world_env`).
+fn qa_root_of(home: &Path) -> Option<PathBuf> {
     let named = |p: Option<&Path>, name: &str| {
         p.and_then(Path::file_name) == Some(std::ffi::OsStr::new(name))
     };
     if named(home.parent(), "rightkit-qa") {
-        return true;
+        return Some(home.to_path_buf());
     }
     let world = home.parent();
     let is_world = world
@@ -269,10 +271,11 @@ fn is_qa_home_location(home: &Path) -> bool {
         });
     let worlds = world.and_then(Path::parent);
     let run = worlds.and_then(Path::parent);
-    named(Some(home), "home")
+    let pooled = named(Some(home), "home")
         && is_world
         && named(worlds, "worlds")
-        && named(run.and_then(Path::parent), "rightkit-qa")
+        && named(run.and_then(Path::parent), "rightkit-qa");
+    pooled.then(|| world.expect("a world home has a parent").to_path_buf())
 }
 
 impl Guard {
@@ -310,14 +313,14 @@ impl Guard {
             .get("app")
             .and_then(|v| v.as_str())
             .map(str::to_owned);
-        if !is_qa_home_location(&home) {
+        let Some(root) = qa_root_of(&home) else {
             return Err(fail(
                 Rule::NotQaRoot,
                 "the home is neither directly under a rightkit-qa directory nor a scenario world's home (<rightkit-qa>/<run>/worlds/wNNN/home)".into(),
             ));
-        }
-        guard.judge_outside_workspace(&home)?;
-        guard.qa_root = Some(home);
+        };
+        guard.judge_outside_workspace(&root)?;
+        guard.qa_root = Some(root);
         Ok(guard)
     }
 
@@ -963,21 +966,28 @@ mod tests {
     }
 
     #[test]
-    fn a_scenario_world_home_under_a_rightkit_qa_run_is_a_qa_home_location() {
+    fn a_scenario_world_home_has_its_world_directory_as_the_qa_root() {
         let base = Path::new("/tmp/rightkit-qa/heardright-ab12");
-        assert!(is_qa_home_location(&base.join("worlds/w001/home")));
-        assert!(is_qa_home_location(Path::new("/tmp/rightkit-qa/home-x")));
+        let world = base.join("worlds/w001");
+        // The world's control socket and token file sit beside the home, inside the root.
+        assert_eq!(qa_root_of(&world.join("home")), Some(world.clone()));
+        assert!(world
+            .join("control.sock")
+            .starts_with(qa_root_of(&world.join("home")).unwrap()));
+        let single = Path::new("/tmp/rightkit-qa/home-x");
+        assert_eq!(qa_root_of(single), Some(single.to_path_buf()));
         for bad in [
             "worlds/w001/data",
             "worlds/x001/home",
             "worlds/w01/home",
             "other/w001/home",
         ] {
-            assert!(!is_qa_home_location(&base.join(bad)), "{bad}");
+            assert_eq!(qa_root_of(&base.join(bad)), None, "{bad}");
         }
-        assert!(!is_qa_home_location(Path::new(
-            "/tmp/elsewhere/run/worlds/w001/home"
-        )));
+        assert_eq!(
+            qa_root_of(Path::new("/tmp/elsewhere/run/worlds/w001/home")),
+            None
+        );
     }
 
     #[cfg(unix)]
