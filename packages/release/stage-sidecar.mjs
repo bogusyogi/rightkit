@@ -765,12 +765,16 @@ function cleanDest(ctx, entry, dest, { directory = false } = {}) {
 function carryMtime(ctx, dest, sources) {
   const { fs } = ctx;
   if (typeof fs.utimesSync !== "function") return;
+  // Millisecond precision (a Date), FLOORED: Node's `stat().mtime` rounds the file's sub-millisecond part to the nearest millisecond, so a source whose mtime is x.6 ms would be carried
+  // as x+1 ms, newer than the source it was copied from; floored, the carried mtime is never newer than the source and less than a millisecond older. `mtimeMs` carries the
+  // fraction; a file system double that gives only a `mtime` Date is carried as that Date.
   let newest = null;
   for (const source of sources) {
     let st; try { st = fs.statSync(source); } catch { continue; }
-    if (st?.mtime instanceof Date && (!newest || st.mtime > newest)) newest = st.mtime;
+    const ms = Number.isFinite(st?.mtimeMs) ? Math.floor(st.mtimeMs) : st?.mtime instanceof Date ? st.mtime.getTime() : null;
+    if (ms !== null && (newest === null || ms > newest)) newest = ms;
   }
-  if (newest) { try { fs.utimesSync(dest, newest, newest); } catch { /* the mtime is a cache hint, never a binding */ } }
+  if (newest !== null) { const carried = new Date(newest); try { fs.utimesSync(dest, carried, carried); } catch { /* the mtime is a cache hint, never a binding */ } }
 }
 
 function copyInto(ctx, source, dest, { executable }) {

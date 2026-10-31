@@ -2753,3 +2753,23 @@ test("nsis extraction runs 7z x -y -o<dir> installer member and fails closed on 
   assert.deepEqual(sevenZipCandidates({ explicit: "/opt/7zz", env: {}, platform: "linux" }), ["/opt/7zz", "7z"]);
   assert.ok(sevenZipCandidates({ env: {}, platform: "win32" }).some((c) => c.endsWith("7z.exe")));
 });
+
+test("a staged file carries its source's mtime at millisecond precision, floored: never newer than the source, less than a millisecond older (Node's stat().mtime rounds, so x.6 ms must not become x+1 ms)", async () => {
+  const { fs } = fakeFs({ [at("a.bin")]: "a" });
+  const stat = fs.statSync;
+  const set = [];
+  fs.utimesSync = (file, atime, mtime) => set.push([path.resolve(file), atime, mtime]);
+  const stats = { [at("a.bin")]: { mtimeMs: 1793417797265.8967, mtime: new Date(1793417797266) } };
+  fs.statSync = (file) => ({ ...stat(file), ...(stats[path.resolve(file)] ?? {}) });
+  await stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "resource", from: "a.bin", to: "out/a.bin" }], deps: deps({ fs }) });
+  assert.deepEqual(set.map(([file, a, m]) => [file, a.getTime(), m.getTime()]), [[at("out", "a.bin"), 1793417797265, 1793417797265]], "the rounded-up Date is not what is carried");
+  // A whole-millisecond source is carried as it is; a double that gives only a Date (no mtimeMs) is carried as that Date.
+  set.length = 0; fs.rmSync(at("out", "a.bin"));
+  stats[at("a.bin")] = { mtimeMs: 1793417797266, mtime: new Date(1793417797266) };
+  await stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "resource", from: "a.bin", to: "out/a.bin" }], deps: deps({ fs }) });
+  assert.equal(set[0][2].getTime(), 1793417797266);
+  set.length = 0; fs.rmSync(at("out", "a.bin"));
+  stats[at("a.bin")] = { mtime: new Date(1793417797000) };
+  await stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "resource", from: "a.bin", to: "out/a.bin" }], deps: deps({ fs }) });
+  assert.equal(set[0][2].getTime(), 1793417797000);
+});

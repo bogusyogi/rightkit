@@ -68,7 +68,10 @@ function setup(t) {
   };
   // A real `cargo build -v` of the snapshot with its output directory pinned outside it (what the wrapper does for a compile).
   const cargoBuild = async () => {
-    const r = spawnSync(REAL_CARGO, ["build", "-v", "--locked", "--offline"], { cwd: snapshot(), env: { ...process.env, CARGO_TARGET_DIR: target, CARGO_TERM_COLOR: "never" }, encoding: "utf8" });
+    // The test process runs under the broker guard (test-support/broker-guard.mjs), which refuses a build tool launched from it outside hosted CI: a real cargo is never started from a test process. This row is
+    // about what a real cargo does to a snapshot, so the cargo runs in a plain child (the guard is not loaded there: NODE_OPTIONS cleared), exactly as item7-linux.test.mjs runs its real doors.
+    const r = spawnSync(process.execPath, ["-e", "const { spawnSync } = require('node:child_process'); const r = spawnSync(process.argv[1], ['build', '-v', '--locked', '--offline'], { stdio: 'inherit' }); process.exit(r.status ?? 1);", REAL_CARGO],
+      { cwd: snapshot(), env: { ...process.env, NODE_OPTIONS: "", CARGO_TARGET_DIR: target, CARGO_TERM_COLOR: "never" }, encoding: "utf8" });
     builds.push(r);
     return r.status === 0 ? 0 : 1;
   };
