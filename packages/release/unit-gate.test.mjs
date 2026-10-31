@@ -3,11 +3,13 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { tempRoot } from "./test-support/temp-roots.mjs";
 import { qualificationNonce } from "./provenance-verify.mjs";
 import { AGENT_SHIM_MARKER } from "./broker-client.mjs";
 import { readBrokerReceipt, releaseUnit, resolveUnit, runUnitGate, trustedCoordinator, writeQualification } from "./unit-gate.mjs";
 
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 const commit = "a".repeat(40), tree = "b".repeat(40);
 const unit = { kind: "npm", name: "@rightkit/demo", version: "1.0.0" };
 function setup() {
@@ -305,6 +307,37 @@ test("a release run sends each compile and package broker job a nonce bound to c
   assert.equal(await runUnitGate({ ...s.args, to: "qualify", fetchReceipt, stageCommands }), 0);
   assert.deepEqual([envs.compile, envs.package, envs.qualify], [undefined, undefined, undefined]);
   assert.deepEqual(fetched, []);
+});
+
+test("[GB-07] the gate's default release runs the in-gate coordinator entry it loaded (explicit root, commit, qualification), a coordinator that cannot be loaded starts nothing, and an injected releaser is never handed one", async () => {
+  const s = setup();
+  const stageCommands = () => ({ compile: [{ kind: "cargo", argvs: [["fmt"]] }], package: [{ kind: "adapter", adapter: "rightkit-pnpm", argvs: [["pack"]] }] });
+  const fetchReceipt = (id) => ({ id, provenance: { schema: "rustright.provenance.v1", payload: { jobId: id, request: id === "p-1" ? { kind: "adapter", adapter: "rightkit-pnpm", requestedArgv: ["pack"] } : { kind: "cargo", requestedArgv: ["fmt"] } }, signature: { alg: "ES256", keyId: "k", value: "ab" } } });
+  s.owner.localUnitCompileRequests = () => ["c-1"];
+  const packaged = { ...unit, commit, artifactFile: s.artifactFile, artifactSha256: createHash("sha256").update("artifact").digest("hex"), contentSha256: "c".repeat(64) };
+  s.owner.packageLocalUnit = async () => ({ ...packaged, brokerRequests: ["p-1"] });
+  s.owner.qualifyLocalUnit = async () => ({ ...packaged, qualifiedOnly: true, evidencePath: "gate.json" });
+  const errs = [];
+  const run = (over = {}) => runUnitGate({ ...s.args, executor: { kind: "broker" }, verifyReceipts: () => {}, to: "release", fetchReceipt, stageCommands, err: (l) => errs.push(l), ...over });
+  // The default route loads the entry through loadPipeline and hands it to releaseUnit, which runs the canary step in this process over the explicit root and commit.
+  const entries = [];
+  const pipeline = { coordinator: { file: path.resolve(HERE, "..", "..", "scripts", "ci", "rk-pipeline.mjs"), sha256: "a".repeat(64) }, runPipeline: async (call) => { entries.push(call); return { status: 1, stdout: "", stderr: "rk-pipeline: boom\n" }; } };
+  const loads = [];
+  assert.equal(await run({ loadPipeline: async (o) => { loads.push(o); return pipeline; } }), 1);
+  assert.match(errs.join("\n"), /pipeline canary of @rightkit\/demo.*failed \(exit 1\).*boom/s);
+  assert.equal(entries.length, 1, "the canary step ran through the loaded entry and stopped the release");
+  assert.deepEqual(entries[0].argv, ["canary", unit.name, "--sha", commit]);
+  assert.equal(entries[0].root, s.args.root);
+  assert.equal(loads[0].root, null, "an unsnapshotted source is its own control plane, so the coordinator may not be judged as inside it");
+  // A coordinator that cannot be loaded starts nothing.
+  errs.length = 0; entries.length = 0;
+  assert.equal(await run({ loadPipeline: async () => { throw new Error("the installed coordinator is gone; nothing was started"); } }), 1);
+  assert.match(errs.join("\n"), /installed coordinator is gone/);
+  assert.deepEqual(entries, []);
+  // An injected releaser owns its own coordinator: the gate loads nothing for it.
+  let handed;
+  assert.equal(await run({ releaser: async (call) => { handed = call; return {}; }, loadPipeline: async () => assert.fail("not loaded for an injected releaser") }), 0);
+  assert.equal("pipeline" in handed, false);
 });
 
 test("readBrokerReceipt reduces `rustright status <id>` to the id and signed envelope, and refuses anything unsigned or foreign", () => {

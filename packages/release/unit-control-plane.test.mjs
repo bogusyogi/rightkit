@@ -10,7 +10,7 @@ import test from "node:test";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { tempRoot } from "./test-support/temp-roots.mjs";
-import { controlPlaneProblem, releaseUnit, trustedCoordinator } from "./unit-gate.mjs";
+import { controlPlaneProblem, loadInGatePipeline, releaseUnit, runUnitGate, trustedCoordinator } from "./unit-gate.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const commit = "a".repeat(40), tree = "b".repeat(40);
@@ -111,4 +111,84 @@ test("[GB-07] a retry reconciles by the same commit, tree and artifact digest: a
   }
   const good = harness({ states: [dispatched, published] });
   assert.equal((await releaseUnit(good.base)).uploadRunId, 20);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// GB-07, the in-gate-process entry (BROKER-CONTRACT section 16: "either in the gate's own process or as a registered pinned adapter").
+// ---------------------------------------------------------------------------------------------------------------------
+const descriptor = { file: INSTALLED, sha256: createHash("sha256").update(fs.readFileSync(INSTALLED)).digest("hex") };
+const inGate = (h, over = {}) => {
+  const entries = [];
+  const runPipeline = async (call) => {
+    entries.push(call);
+    return { status: call.argv[0] === "canary" ? 2 : 0, stdout: "", stderr: call.argv[0] === "canary" ? "rk-pipeline: @rightkit/demo: no pipeline canary for this unit\n" : "" };
+  };
+  return { entries, pipeline: { runPipeline, coordinator: descriptor, ...over } };
+};
+
+test("[GB-07] the in-gate entry: dispatch, canary, preflight and watch run as in-process calls over the explicit root, commit, qualification and state; no child process is started from any path, and a planted checkout coordinator is never reached", async () => {
+  const h = harness({ states: [dispatched, published], checkoutFiles: { "scripts/ci/rk-pipeline.mjs": "throw new Error('a planted coordinator ran');\n" } });
+  const g = inGate(h);
+  const done = await releaseUnit({ ...h.base, pipeline: g.pipeline });
+  assert.equal(done.registryVerified, true);
+  assert.deepEqual(coordinatorCalls(h.calls), [], "no child process runs the coordinator: it is the gate's own process");
+  assert.deepEqual(g.entries.map((e) => e.argv[0]), ["canary", "preflight", "dispatch", "watch"]);
+  for (const e of g.entries) {
+    assert.equal(e.root, h.checkout, "the control-plane checkout is the root the coordinator judges, not the installed coordinator's own checkout and not the snapshot");
+    assert.notEqual(e.root, h.root);
+    assert.equal(e.platform, "darwin");
+    assert.equal(e.stateFile, "/Volumes/D/scratch/rk-pipeline/state.json");
+    assert.equal(e.env.RK_GATE_RUN, "x", "the release run's environment rides the call");
+  }
+  for (const e of g.entries.filter((x) => ["canary", "preflight", "dispatch"].includes(x.argv[0]))) { const at = e.argv.indexOf("--sha"); assert.ok(at > 0 && e.argv[at + 1] === commit, `${e.argv[0]} carries the explicit commit`); }
+  const dispatch = g.entries.find((e) => e.argv[0] === "dispatch");
+  assert.equal(dispatch.argv[dispatch.argv.indexOf("--qualification") + 1], h.qualification, "the qualification receipt is an explicit input");
+  assert.deepEqual(done.coordinator, descriptor);
+});
+
+test("[GB-07] the in-gate entry keeps every control-plane refusal: a checkout inside the managed snapshots root or the source snapshot, and HEAD at another commit, start nothing", async () => {
+  const dataRoot = tempRoot("gb07-ig-data-"); const snapshots = path.join(dataRoot, "snapshots"); fs.mkdirSync(snapshots, { recursive: true });
+  const a = harness({ states: [dispatched, published], env: { RIGHTKIT_DATA_ROOT: dataRoot } });
+  const inner = path.join(snapshots, "k1"); fs.mkdirSync(inner, { recursive: true });
+  const ga = inGate(a);
+  await assert.rejects(releaseUnit({ ...a.base, root: inner, checkout: inner, pipeline: ga.pipeline }), /inside the managed snapshots root/);
+  assert.deepEqual(ga.entries, []);
+  const b = harness({ states: [dispatched, published] }); const gb = inGate(b);
+  const sub = path.join(b.root, "sub"); fs.mkdirSync(sub);
+  await assert.rejects(releaseUnit({ ...b.base, checkout: sub, pipeline: gb.pipeline }), /inside the source root/);
+  assert.deepEqual(gb.entries, []);
+  const c = harness({ states: [dispatched, published] }); const gc = inGate(c);
+  const run = (cmd, args, options) => (cmd === "git" && args[0] === "rev-parse" ? { status: 0, stdout: `${"c".repeat(40)}\n` } : c.base.run(cmd, args, options));
+  await assert.rejects(releaseUnit({ ...c.base, run, pipeline: gc.pipeline }), /not at the qualified commit/);
+  assert.deepEqual(gc.entries, []);
+  // A coordinator that sits inside the managed snapshots root or the source snapshot is the candidate's own bytes, never the trusted installed one.
+  const d = harness({ states: [dispatched, published] });
+  for (const where of [path.join(snapshots, "k2", "scripts", "ci", "rk-pipeline.mjs"), path.join(d.root, "scripts", "ci", "rk-pipeline.mjs")]) {
+    const g = inGate(d, { coordinator: { file: where, sha256: descriptor.sha256 } });
+    await assert.rejects(releaseUnit({ ...d.base, env: { ...d.base.env, RIGHTKIT_DATA_ROOT: dataRoot }, pipeline: g.pipeline }), /inside the (managed snapshots root|source snapshot)/, where);
+    assert.deepEqual(g.entries, []);
+  }
+  await assert.rejects(releaseUnit({ ...d.base, pipeline: { coordinator: descriptor } }), /no runPipeline/);
+});
+
+test("[GB-07] loadInGatePipeline imports the installed coordinator into the gate process: pinned digest, no coordinator under the managed snapshots root or the source snapshot, bytes that change under the gate refused, a module without the entry refused", async () => {
+  const real = await loadInGatePipeline();
+  assert.equal(typeof real.runPipeline, "function", "the real installed rk-pipeline exports its in-gate entry");
+  assert.deepEqual(real.coordinator, descriptor);
+  const seen = [];
+  const fake = (extra = {}) => ({ coordinator: descriptor, importModule: async (url) => { seen.push(url); return { runPipeline: async () => ({ status: 0 }) }; }, ...extra });
+  const ok = await loadInGatePipeline(fake({ expectedSha256: descriptor.sha256 }));
+  assert.equal(seen[0], new URL(`file://${INSTALLED}`).href, "imported by the installed file's own URL");
+  assert.equal(typeof ok.runPipeline, "function");
+  await assert.rejects(loadInGatePipeline(fake({ expectedSha256: "0".repeat(64) })), /not the pinned 000000000000.*registered/s);
+  await assert.rejects(loadInGatePipeline(fake({ coordinator: { file: INSTALLED, sha256: "short" } })), /sha256 of its bytes/);
+  await assert.rejects(loadInGatePipeline(fake({ coordinator: { ...descriptor, sha256: "1".repeat(64) } })), /changed after its digest was taken/);
+  let reads = 0;
+  await assert.rejects(loadInGatePipeline(fake({ readFile: () => Buffer.from(reads++ === 0 ? fs.readFileSync(INSTALLED) : "swapped") })), /changed while it was loaded/);
+  await assert.rejects(loadInGatePipeline(fake({ importModule: async () => ({}) })), /no in-gate entry/);
+  const snapshots = "/Volumes/D/.rightkit-managed/snapshots";
+  await assert.rejects(loadInGatePipeline(fake({ coordinator: { file: `${snapshots}/k1/scripts/ci/rk-pipeline.mjs`, sha256: descriptor.sha256 }, snapshotsRoot: snapshots })), /inside the managed snapshots root/);
+  await assert.rejects(loadInGatePipeline(fake({ root: path.dirname(path.dirname(path.dirname(INSTALLED))) })), /inside the source snapshot/);
+  // Windows spellings: a coordinator under D:\.rightkit-managed\snapshots is refused whatever its case.
+  await assert.rejects(loadInGatePipeline(fake({ coordinator: { file: "d:\\.RIGHTKIT-MANAGED\\snapshots\\k1\\scripts\\ci\\rk-pipeline.mjs", sha256: descriptor.sha256 }, snapshotsRoot: "D:\\.rightkit-managed\\snapshots", pathApi: path.win32 })), /inside the managed snapshots root/);
 });

@@ -418,6 +418,8 @@ export async function main(argv, deps = {}) {
     return 2;
   }
   const root = deps.root ?? ROOT;
+  // GB-07: the deterministic scans are the gate's own installed tool (`deps.toolsRoot`, the in-gate route); the command line runs the checkout's own.
+  const toolsRoot = deps.toolsRoot ?? root;
   const git = (...args) => {
     const r = spawnSync("git", args, { cwd: root, encoding: "utf8" });
     if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr.trim()}`);
@@ -460,13 +462,14 @@ export async function main(argv, deps = {}) {
     return 2;
   }
   const scPath = path.dirname(pipeline.tools.shellcheck[process.platform].path);
-  const env = { ...process.env, PATH: `${scPath}${path.delimiter}${process.env.PATH ?? ""}`, CARGO_TERM_COLOR: "never", RUSTFMT: tools.observed.rustfmt.path, RUSTUP_TOOLCHAIN: pipeline.tools.rustfmt.toolchain };
+  const base = deps.env ?? process.env; // the in-gate route hands the release run's environment (RK_GATE_RUN, the stage ledger) down; the command line inherits its own
+  const env = { ...base, PATH: `${scPath}${path.delimiter}${base.PATH ?? ""}`, CARGO_TERM_COLOR: "never", RUSTFMT: tools.observed.rustfmt.path, RUSTUP_TOOLCHAIN: pipeline.tools.rustfmt.toolchain };
 
   // 2. Deterministic scans, the hosted `scans` job on the same module with the same unit scope.
   {
     const scansOut = path.join(logDir, "scans");
     fs.rmSync(scansOut, { recursive: true, force: true });
-    const r = await run(process.execPath, [path.join(root, "scripts", "ci", "run-deterministic-scans.mjs"), "--content-root", root, "--live-root", root, "--out", scansOut], {
+    const r = await run(process.execPath, [path.join(toolsRoot, "scripts", "ci", "run-deterministic-scans.mjs"), "--content-root", root, "--live-root", root, "--out", scansOut], {
       cwd: root,
       env: { ...env, PUBLISH_REGISTRY: opts.registry, PUBLISH_UNITS: opts.unit, GITHUB_SHA: sha },
       timeoutMinutes: 20,

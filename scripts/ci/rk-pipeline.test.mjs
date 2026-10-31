@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { packageRows } from "./rk-npm-preflight.mjs";
 import { dispatchIdentity, explicitShaRefusal, openClaim, needsReconcile, acquireLock, releaseLock, closureOf, dispatchRefusal, holdReason, satisfiesAny, readiness, allowsetsFor, cmdCanary, cmdDispatch, cmdLoop, cmdPreflight, cmdWatch, matchingUploadRuns, uploadRunsQuery, parseArgs, readQualification, registryVersion, satisfies, stateKey, waves, hostedRunsInFlight } from "./rk-pipeline.mjs";
+// GB-07: the coordinator takes its workspace root as a parameter; these tests judge this repository.
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const SHA = "f".repeat(40);
 const index = (...versions) => new Map(versions.map((v) => [v, { yanked: false, cksum: "0".repeat(64) }]));
 
@@ -58,7 +62,7 @@ test("fast green dispatches while slow local peer is still running; failed peer 
   const slow = new Promise((resolve) => { releaseSlow = resolve; });
   const published = new Set(), calls = [];
   const readiness = async () => ({ unpublished: new Set(["fast", "slow"].filter((u) => !published.has(u))), waves: [["fast", "slow"].filter((u) => !published.has(u))] });
-  const result = await cmdLoop({ registry: "crates", units: [], jobs: 2 }, {
+  const result = await cmdLoop({ root: REPO_ROOT, registry: "crates", units: [], jobs: 2 }, {
     check: async () => ({ code: 0, out: "" }), head: () => SHA, readiness, readState: () => structuredClone(state), writeState: (s) => { state = structuredClone(s); },
     preflight: async (unit) => { calls.push(unit); if (unit === "slow") return slow; return { code: 0 }; },
     dispatch: async ({ units }) => {
@@ -76,7 +80,7 @@ test("fast green dispatches while slow local peer is still running; failed peer 
 test("resume watches existing dispatch & reports blocked work instead of false completion", async () => {
   let watched = 0;
   const d = { unit: "unit", sha: SHA, registry: "crates", status: "dispatched" };
-  const result = await cmdLoop({ registry: "crates", units: [], jobs: 2 }, {
+  const result = await cmdLoop({ root: REPO_ROOT, registry: "crates", units: [], jobs: 2 }, {
     check: async () => ({ code: 0, out: "" }), head: () => SHA, readiness: async () => ({ unpublished: new Set(["unit"]), waves: [["unit"]] }),
     readState: () => ({ dispatches: { [stateKey("crates", SHA, "unit")]: { ...d } } }),
     watch: async () => { watched++; d.status = "failed"; return 1; },
@@ -96,12 +100,12 @@ test("watch stores dispatched version & preserves unrelated concurrent state; up
     uploadRun: () => [{ id: 20, status: "completed", conclusion: "success" }],
     registryVersion: async () => { state.dispatches.concurrent = { status: "dispatched" }; return index("1.0.0", "2.0.0"); },
   };
-  assert.equal(await cmdWatch({ wait: false }, deps), 0);
+  assert.equal(await cmdWatch({ root: REPO_ROOT, wait: false }, deps), 0);
   assert.equal(state.dispatches[key].published, "1.0.0");
   assert.ok(state.dispatches.concurrent);
   state = { dispatches: { [key]: { ...dispatch, status: "dispatched" } } };
   deps.uploadRun = () => [{ id: 20, status: "completed", conclusion: "failure" }];
-  assert.equal(await cmdWatch({ wait: false }, deps), 1);
+  assert.equal(await cmdWatch({ root: REPO_ROOT, wait: false }, deps), 1);
   assert.equal(state.dispatches[key].status, "failed");
 });
 
@@ -109,7 +113,7 @@ test("dependent enters once its registry prerequisite is live while unrelated sl
   let releaseSlow;
   const slow = new Promise((r) => { releaseSlow = r; });
   const done = new Set(), entered = [];
-  const result = await cmdLoop({ registry: "crates", units: [], jobs: 2 }, {
+  const result = await cmdLoop({ root: REPO_ROOT, registry: "crates", units: [], jobs: 2 }, {
     check: async () => ({ code: 0, out: "" }), head: () => SHA,
     readiness: async () => ({ unpublished: new Set(["parent", "slow", "child"].filter((u) => !done.has(u))), waves: [[...(done.has("parent") ? [] : ["parent"]), "slow", ...(done.has("parent") && !done.has("child") ? ["child"] : [])]] }),
     readState: () => ({ dispatches: {} }),
@@ -175,7 +179,7 @@ test("loop: a readiness exception drains the live preflight worker and the dispa
     dispatch: async (o) => { dispatched.push(o.units[0]); return 0; },
     pause: async () => {},
   };
-  const loop = cmdLoop({ registry: "crates", units: ["rightkit-x"], jobs: 2, wait: false }, deps);
+  const loop = cmdLoop({ root: REPO_ROOT, registry: "crates", units: ["rightkit-x"], jobs: 2, wait: false }, deps);
   let settled = false;
   loop.then(() => { settled = true; }, () => { settled = true; });
   await new Promise((r) => setTimeout(r, 30));
@@ -223,7 +227,7 @@ test("a unit whose record at this SHA is a preflight-phase failure is attempted 
   let state = { dispatches: { [key("retry")]: { unit: "retry", sha: SHA, status: "failed", phase: "preflight", detail: "tree changed" }, [key("done")]: { unit: "done", sha: SHA, status: "failed", runId: 5 } } };
   const calls = [];
   const readiness = async () => ({ unpublished: new Set(["retry", "done"]), waves: [["retry", "done"]], crates: new Map() });
-  const result = await cmdLoop({ registry: "crates", units: [], jobs: 2 }, {
+  const result = await cmdLoop({ root: REPO_ROOT, registry: "crates", units: [], jobs: 2 }, {
     check: async () => ({ code: 0, out: "" }), head: () => SHA, readiness, readState: () => structuredClone(state), writeState: (s) => { state = structuredClone(s); },
     preflight: async (unit) => { calls.push(unit); return { code: 1, last: "still red" }; },
     dispatch: async () => { throw new Error("nothing green to dispatch"); },
@@ -275,7 +279,7 @@ test("loop --registry all runs crates and npm units in one coordinator; npm does
   let release;
   const crateGate = new Promise((r) => { release = r; });
   const ready = { crates: ["rightkit-x"], npm: ["@rightkit/y"] };
-  const result = cmdLoop({ registry: "all", units: [], jobs: 1 }, {
+  const result = cmdLoop({ root: REPO_ROOT, registry: "all", units: [], jobs: 1 }, {
     check: async () => ({ code: 0, out: "" }), head: () => "a".repeat(40),
     readiness: async ({ registry }) => ({ unpublished: new Set(ready[registry]), waves: [ready[registry]], crates: [] }),
     readState: () => state, writeState: () => {},
@@ -300,7 +304,7 @@ test("loop --registry all: a crate whose preflight fails does not block the npm 
   const state = { dispatches: {} };
   const dispatches = [];
   const ready = { crates: ["rightkit-bad"], npm: ["@rightkit/y"] };
-  const code = await cmdLoop({ registry: "all", units: [], jobs: 2 }, {
+  const code = await cmdLoop({ root: REPO_ROOT, registry: "all", units: [], jobs: 2 }, {
     check: async () => ({ code: 0, out: "" }), head: () => "b".repeat(40),
     readiness: async ({ registry }) => ({ unpublished: new Set(ready[registry]), waves: [ready[registry]], crates: [] }),
     readState: () => state, writeState: () => {},
@@ -339,7 +343,7 @@ function freshProcessRestart({ registry, recorded, planned, status = "dispatched
     const read = () => JSON.parse(fs.readFileSync(file, "utf8")); const write = (s) => fs.writeFileSync(file, JSON.stringify(s));
     const keyA = ${JSON.stringify(`${registry}:${A}:${unit}`)};
     const published = () => { const d = read().dispatches; return d[keyA]?.status === "published" && d[keyA].version === ${JSON.stringify(planned)} || calls.includes("dispatch"); };
-    const code = await cmdLoop({ registry: ${JSON.stringify(registry)}, units: [], jobs: 2 }, {
+    const code = await cmdLoop({ root: ${JSON.stringify(REPO_ROOT)}, registry: ${JSON.stringify(registry)}, units: [], jobs: 2 }, {
       check: async () => ({ code: 0, out: "" }), head: () => ${JSON.stringify(B)},
       readiness: async () => ({ unpublished: new Set(published() ? [] : [${JSON.stringify(unit)}]), waves: [published() ? [] : [${JSON.stringify(unit)}]], crates: new Map([[${JSON.stringify(unit)}, { version: ${JSON.stringify(planned)} }]]) }),
       readState: read, writeState: write,
@@ -389,7 +393,7 @@ async function restartWithRealWatch(record) {
   const A = "e".repeat(40), B = "f".repeat(40), unit = "rightkit-x";
   const state = { dispatches: { [stateKey("crates", A, unit)]: { unit, registry: "crates", sha: A, version: "1.0.0", ...record } } };
   const calls = [];
-  const code = await cmdLoop({ registry: "crates", units: [], jobs: 2 }, {
+  const code = await cmdLoop({ root: REPO_ROOT, registry: "crates", units: [], jobs: 2 }, {
     check: async () => ({ code: 0, out: "" }), head: () => B,
     readiness: async () => ({ unpublished: new Set([unit]), waves: [[unit]], crates: new Map([[unit, { version: "1.0.0" }]]) }),
     readState: () => state, writeState: () => {},
@@ -426,7 +430,7 @@ async function watchWithFailingRead(read) {
   const write = process.stdout.write;
   process.stdout.write = (chunk) => { lines.push(String(chunk)); return true; };
   try {
-    const code = await cmdWatch({ wait: false }, {
+    const code = await cmdWatch({ root: REPO_ROOT, wait: false }, {
       readState: () => structuredClone(state), writeState: (s) => { state = s; },
       runState: () => ({ status: "completed", conclusion: "success", head_sha: SHA, run_attempt: 1, path: ".github/workflows/publish.yml", event: "workflow_dispatch", display_title: "publish req-1" }),
       ...read,
@@ -480,7 +484,7 @@ function canaryLoopHarness({ sha = "c".repeat(40), units = ["@rightkit/release",
   let state = { dispatches: {} };
   const events = [];
   const pending = new Set(units);
-  const run = (code) => cmdLoop({ registry: "npm", units: [], jobs: 2 }, {
+  const run = (code) => cmdLoop({ root: REPO_ROOT, registry: "npm", units: [], jobs: 2 }, {
     check: async () => ({ code: 0, out: "" }), head: () => sha,
     readiness: async () => ({ unpublished: new Set(pending), waves: [[...pending]], crates: [] }),
     readState: () => structuredClone(state), writeState: (s) => { state = structuredClone(s); },
@@ -546,7 +550,7 @@ const RED_CHECK = async () => ({ code: 1, out: "FAIL consumer-locks (G08): ci/co
 
 test("P1: a red check stops the loop before any canary, pre-flight or dispatch", async () => {
   const events = [];
-  const code = await cmdLoop({ registry: "npm", units: [], jobs: 2 }, {
+  const code = await cmdLoop({ root: REPO_ROOT, registry: "npm", units: [], jobs: 2 }, {
     check: async (...a) => { events.push("check"); return RED_CHECK(...a); },
     head: () => "c".repeat(40),
     readiness: async () => { events.push("readiness"); return { unpublished: new Set(["@rightkit/release"]), waves: [["@rightkit/release"]], crates: [] }; },
@@ -563,18 +567,18 @@ test("P1: a red check stops the loop before any canary, pre-flight or dispatch",
 test("P1: pre-flight runs the check first and compiles nothing when it is red", async () => {
   const compiled = [];
   const many = async (units) => { compiled.push(...units); return new Map(units.map((u) => [u, { code: 0, last: "GREEN" }])); };
-  assert.equal(await cmdPreflight({ registry: "crates", units: ["rightkit-a"], jobs: 1 }, { head: () => "c".repeat(40), check: RED_CHECK, preflightMany: many }), 1);
+  assert.equal(await cmdPreflight({ root: REPO_ROOT, registry: "crates", units: ["rightkit-a"], jobs: 1 }, { head: () => "c".repeat(40), check: RED_CHECK, preflightMany: many }), 1);
   assert.deepEqual(compiled, []);
-  assert.equal(await cmdPreflight({ registry: "crates", units: ["rightkit-a"], jobs: 1 }, { head: () => "c".repeat(40), check: async () => ({ code: 0 }), preflightMany: many }), 0);
+  assert.equal(await cmdPreflight({ root: REPO_ROOT, registry: "crates", units: ["rightkit-a"], jobs: 1 }, { head: () => "c".repeat(40), check: async () => ({ code: 0 }), preflightMany: many }), 0);
   assert.deepEqual(compiled, ["rightkit-a"]);
 });
 
 test("P1: a direct canary runs the check first and starts no canary when it is red", async () => {
   const canaried = [];
   const canary = async (unit) => { canaried.push(unit); return { code: 0, last: "GREEN" }; };
-  assert.equal(await cmdCanary({ units: ["@rightkit/release"] }, { head: () => "c".repeat(40), check: RED_CHECK, canary }), 1);
+  assert.equal(await cmdCanary({ root: REPO_ROOT, units: ["@rightkit/release"] }, { head: () => "c".repeat(40), check: RED_CHECK, canary }), 1);
   assert.deepEqual(canaried, []);
-  assert.equal(await cmdCanary({ units: ["@rightkit/release"] }, { head: () => "c".repeat(40), check: async () => ({ code: 0 }), canary }), 0);
+  assert.equal(await cmdCanary({ root: REPO_ROOT, units: ["@rightkit/release"] }, { head: () => "c".repeat(40), check: async () => ({ code: 0 }), canary }), 0);
   assert.deepEqual(canaried, ["@rightkit/release"]);
 });
 
@@ -583,9 +587,9 @@ test("runner-aware dispatch: at maxInFlightRuns hosted runs the dispatcher holds
   const planFn = async () => { planned = true; return { units: [] }; };
   const green = async () => ({ code: 0, out: "" });
   const pipeline = { dispatch: { maxInFlightRuns: 2 } };
-  assert.equal(await cmdDispatch({ registry: "npm", units: ["@rightkit/release"] }, { head: () => "c".repeat(40), check: green, planFn, pipeline, inFlight: async () => 2 }), 3);
+  assert.equal(await cmdDispatch({ root: REPO_ROOT, registry: "npm", units: ["@rightkit/release"] }, { head: () => "c".repeat(40), check: green, planFn, pipeline, inFlight: async () => 2 }), 3);
   assert.equal(planned, false, "a hold reaches no plan or dispatch");
-  assert.equal(await cmdDispatch({ registry: "npm", units: ["@rightkit/release"] }, { head: () => "c".repeat(40), check: green, planFn, pipeline, inFlight: async () => null }), 2);
+  assert.equal(await cmdDispatch({ root: REPO_ROOT, registry: "npm", units: ["@rightkit/release"] }, { head: () => "c".repeat(40), check: green, planFn, pipeline, inFlight: async () => null }), 2);
   assert.equal(planned, false);
   // Below the limit the dispatcher goes on to the tree checks (git state, origin/main), which this unit test does not own.
 });
@@ -601,7 +605,7 @@ test("hostedRunsInFlight counts queued, waiting and running publish and publish-
 test("P1: a direct dispatch runs the check first and dispatches nothing when it is red", async () => {
   let planned = false;
   const planFn = async () => { planned = true; return { units: [] }; };
-  assert.equal(await cmdDispatch({ registry: "npm", units: ["@rightkit/release"] }, { head: () => "c".repeat(40), check: RED_CHECK, planFn }), 1);
+  assert.equal(await cmdDispatch({ root: REPO_ROOT, registry: "npm", units: ["@rightkit/release"] }, { head: () => "c".repeat(40), check: RED_CHECK, planFn }), 1);
   assert.equal(planned, false, "a red check reaches no receipt, plan or dispatch");
 });
 
@@ -634,7 +638,7 @@ test("P1: the check reads the captured commit, and HEAD moving while it runs sta
 
 test("P1: the canary child is handed the checked commit", async () => {
   const seen = [];
-  const code = await cmdCanary({ units: ["@rightkit/release"] }, { head: () => A, check: async () => ({ code: 0 }), canary: async (unit, sha) => { seen.push([unit, sha]); return { code: 0, last: "GREEN" }; } });
+  const code = await cmdCanary({ root: REPO_ROOT, units: ["@rightkit/release"] }, { head: () => A, check: async () => ({ code: 0 }), canary: async (unit, sha) => { seen.push([unit, sha]); return { code: 0, last: "GREEN" }; } });
   assert.equal(code, 0);
   assert.deepEqual(seen, [["@rightkit/release", A]]);
 });
@@ -642,7 +646,7 @@ test("P1: the canary child is handed the checked commit", async () => {
 test("P1: pre-flight results from a HEAD that moved while they ran do not count", async () => {
   const h = movingHead();
   const many = async (units) => { h.move(); return new Map(units.map((u) => [u, { code: 0, last: "GREEN" }])); };
-  assert.equal(await cmdPreflight({ registry: "crates", units: ["rightkit-a"], jobs: 1 }, { head: h.head, check: async () => ({ code: 0 }), preflightMany: many }), 1);
+  assert.equal(await cmdPreflight({ root: REPO_ROOT, registry: "crates", units: ["rightkit-a"], jobs: 1 }, { head: h.head, check: async () => ({ code: 0 }), preflightMany: many }), 1);
 });
 
 test("dispatch reads the gate's qualification receipt for exactly HEAD and the one unit; without it nothing is dispatched", () => {
@@ -741,4 +745,154 @@ test("[GB-07] a dispatch record keeps the candidate's tree and artifact digest f
   const q = { commit: "c".repeat(40), tree: "e".repeat(40), artifactSha256: "9".repeat(64), unit: { kind: "npm", name: "@rightkit/release", version: "1.2.3" } };
   assert.deepEqual(dispatchIdentity(q), { tree: "e".repeat(40), artifactSha256: "9".repeat(64) });
   assert.deepEqual(dispatchIdentity({}), { tree: undefined, artifactSha256: undefined });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// GB-07 (BROKER-CONTRACT section 16): the coordinator takes its root and explicit inputs as parameters, and has an in-gate-process entry.
+// Test: `gb07_an_uncarried_control_plane_adapter_runs_from_the_primary_and_never_from_the_managed_snapshot` (the wire RightKit follows).
+// ---------------------------------------------------------------------------------------------------------------------
+import fs from "node:fs";
+import os from "node:os";
+import { spawnSync } from "node:child_process";
+import { inGateDeps, installedToolsRoot, main as pipelineMain, readCrates, readPackages, readUnits, rootOf, runPipeline, stateFileFor } from "./rk-pipeline.mjs";
+
+const scratch = (prefix) => { const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix))); process.on("exit", () => fs.rmSync(dir, { recursive: true, force: true })); return dir; };
+function gitRepo() {
+  const dir = scratch("gb07-pipeline-checkout-");
+  const git = (...args) => spawnSync("git", ["-c", "user.email=t@example.test", "-c", "user.name=t", ...args], { cwd: dir, encoding: "utf8" });
+  git("init", "-q"); fs.writeFileSync(path.join(dir, "f.txt"), "x"); git("add", "."); git("commit", "-q", "-m", "c");
+  return { dir, head: git("rev-parse", "HEAD").stdout.trim() };
+}
+
+test("[GB-07] no function of the coordinator derives a root from where the coordinator lives: every reader and command refuses a call without an explicit absolute root", async () => {
+  for (const bad of [undefined, "", "relative/dir", null, 7]) assert.throws(() => rootOf(bad), /workspace root as an absolute-path parameter/);
+  assert.equal(rootOf(REPO_ROOT), REPO_ROOT);
+  assert.equal(rootOf("D:\\work\\rightkit"), "D:\\work\\rightkit", "a Windows absolute root is accepted on any host");
+  for (const read of [() => readCrates(), () => readPackages(), () => readUnits("crates"), () => readUnits("npm", undefined)]) assert.throws(read, /workspace root as an absolute-path parameter/);
+  await assert.rejects(cmdPreflight({ registry: "crates", units: ["rightkit-a"], jobs: 1 }, { check: async () => ({ code: 0 }), preflightMany: async () => new Map() }), /workspace root as an absolute-path parameter/, "HEAD is read from the root, so no root reads no HEAD");
+  assert.equal(await pipelineMain(["preflight", "rightkit-a"], { root: undefined }), 2, "a main without a root exits 2 and starts nothing");
+  // The one place a root comes from a location is the command line wrapper; the modules exported to a gate hold no ROOT constant at all.
+  const source = fs.readFileSync(path.join(REPO_ROOT, "scripts", "ci", "rk-pipeline.mjs"), "utf8");
+  assert.doesNotMatch(source.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, ""), /\bROOT\b/, "no ROOT constant (the root of THIS checkout) survives in the coordinator");
+});
+
+test("[GB-07] the root is read where the caller points it: HEAD, the explicit --sha and the check all follow the root parameter, not the installed coordinator's checkout", async () => {
+  const checkout = gitRepo();
+  const seen = [];
+  const deps = { check: async (sha, opts) => { seen.push(["check", sha, opts.root]); return { code: 0, out: "" }; }, preflightMany: async (units, opts) => { seen.push(["preflight", units, opts.root]); return new Map(units.map((u) => [u, { code: 0, last: "" }])); } };
+  const ok = await runPipeline({ argv: ["preflight", "rightkit-a", "--sha", checkout.head], root: checkout.dir, stateFile: path.join(scratch("gb07-state-"), "state.json"), deps });
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.deepEqual(seen, [["check", checkout.head, checkout.dir], ["preflight", ["rightkit-a"], checkout.dir]]);
+  // HEAD of the installed repository is not the explicit candidate commit of the (temporary) control-plane checkout, and the converse refuses too.
+  seen.length = 0;
+  const other = await runPipeline({ argv: ["preflight", "rightkit-a", "--sha", "9".repeat(40)], root: checkout.dir, deps });
+  assert.equal(other.status, 2);
+  assert.match(other.stderr, /not the explicit candidate commit/);
+  assert.deepEqual(seen, [], "another HEAD than the explicit commit starts nothing");
+});
+
+test("[GB-07] runPipeline runs in the calling process and returns what a child would have: status, stdout (log) and stderr (refusals), per call", async () => {
+  const checkout = gitRepo();
+  const deps = { check: async () => ({ code: 1, out: "FAIL some-rule\n     fix: do it\n" }) };
+  const red = await runPipeline({ argv: ["canary", "@rightkit/release", "--sha", checkout.head], root: checkout.dir, deps });
+  assert.equal(red.status, 1);
+  assert.match(red.stdout, /FAIL some-rule/);
+  assert.match(red.stdout, /check RED at/);
+  const none = await runPipeline({ argv: ["canary", "@rightkit/other", "--sha", checkout.head], root: checkout.dir, deps: { check: async () => ({ code: 0, out: "" }) } });
+  assert.equal(none.status, 2);
+  assert.match(none.stderr, /no pipeline canary for this unit/, "the gate's `release` step recognises exactly this sentence");
+  const usage = await runPipeline({ argv: ["frobnicate"], root: checkout.dir, deps });
+  assert.equal(usage.status, 2);
+  assert.match(usage.stderr, /command must be/);
+  // Two overlapping runs keep their own output (the sinks are per run, not module state).
+  const [a, b] = await Promise.all([
+    runPipeline({ argv: ["canary", "@rightkit/release", "--sha", checkout.head], root: checkout.dir, deps: { check: async () => { await new Promise((r) => setTimeout(r, 20)); return { code: 1, out: "FAIL a-only\n" }; } } }),
+    runPipeline({ argv: ["canary", "@rightkit/release", "--sha", checkout.head], root: checkout.dir, deps: { check: async () => ({ code: 1, out: "FAIL b-only\n" }) } }),
+  ]);
+  assert.match(a.stdout, /a-only/); assert.doesNotMatch(a.stdout, /b-only/);
+  assert.match(b.stdout, /b-only/); assert.doesNotMatch(b.stdout, /a-only/);
+});
+
+test("[GB-07] the in-gate stages are the INSTALLED gate's modules judging the root as data: the check gets --repo <root>, the pre-flight gets root plus the installed tools root and the run's environment, the canary gets the root and the explicit commit, and the stages are in-process calls, not child processes", async () => {
+  const checkout = gitRepo();
+  const toolsRoot = scratch("gb07-installed-");
+  const calls = [];
+  const loaded = [];
+  const load = async (rel) => {
+    loaded.push(rel);
+    if (rel === "scripts/preflight.mjs") return { main: async (argv, io) => { calls.push(["check", argv, io.cwd]); io.out("checked"); return 0; } };
+    if (rel === "scripts/ci/rk-preflight.mjs") return { main: async (argv, deps) => { calls.push(["preflight-crates", argv, deps.root, deps.toolsRoot, deps.env.RK_GATE_RUN]); deps.stdout("compile rows green"); return 0; } };
+    if (rel === "scripts/ci/rk-npm-preflight.mjs") return { main: async (argv, deps) => { calls.push(["preflight-npm", argv, deps.root, deps.toolsRoot, deps.env.RK_GATE_RUN]); deps.stderr("npm rows red"); return 1; } };
+    if (rel === "scripts/ci/rk-release-canary.mjs") return { runCanary: async (o) => { calls.push(["canary", o.root, o.toolsRoot, o.unit, o.expectSha]); return { code: 0, lines: ["GREEN canary"] }; } };
+    throw new Error(`unexpected module ${rel}`);
+  };
+  const env = { ...process.env, RK_GATE_RUN: "run-1" };
+  const opts = { root: checkout.dir, registry: "npm", jobs: 2 };
+  const deps = inGateDeps(opts, { toolsRoot, env, load });
+  assert.deepEqual(await deps.check(checkout.head), { code: 0, out: "checked" });
+  const npm = await deps.preflightMany(["@rightkit/x"], opts);
+  assert.deepEqual(npm.get("@rightkit/x"), { code: 1, last: "npm rows red" });
+  const crates = await deps.preflightMany(["rightkit-a"], { ...opts, registry: "crates" });
+  assert.deepEqual(crates.get("rightkit-a"), { code: 0, last: "compile rows green" });
+  assert.deepEqual(await deps.canary("@rightkit/release", checkout.head), { code: 0, last: "GREEN canary" });
+  assert.deepEqual(calls, [
+    ["check", ["--commit", checkout.head, "--repo", checkout.dir], checkout.dir],
+    ["preflight-npm", ["--registry", "npm", "--unit", "@rightkit/x"], checkout.dir, toolsRoot, "run-1"],
+    ["preflight-crates", ["--registry", "crates", "--unit", "rightkit-a"], checkout.dir, toolsRoot, "run-1"],
+    ["canary", checkout.dir, toolsRoot, "@rightkit/release", checkout.head],
+  ]);
+  assert.deepEqual([...new Set(loaded)].sort(), ["scripts/ci/rk-npm-preflight.mjs", "scripts/ci/rk-preflight.mjs", "scripts/ci/rk-release-canary.mjs", "scripts/preflight.mjs"], "only the four installed modules are loaded, by path under the tools root");
+  // The default tools root is where THIS module is installed, never the root a call is about.
+  assert.equal(installedToolsRoot(), REPO_ROOT);
+  assert.equal(installedToolsRoot("file:///opt/rightkit/current/scripts/ci/rk-pipeline.mjs"), path.resolve("/opt/rightkit/current"));
+});
+
+test("[GB-07] a state-changing in-gate call takes the coordinator's lock like the command line does: a live holder refuses it before anything dispatches, and the lock is released after", async () => {
+  const checkout = gitRepo();
+  const stateFile = path.join(scratch("gb07-lock-"), "state.json");
+  const held = acquireLock(`${stateFile}.lock`);
+  const deps = { check: async () => assert.fail("a refused call starts nothing") };
+  const busy = await runPipeline({ argv: ["dispatch", "rightkit-a", "--sha", checkout.head], root: checkout.dir, stateFile, deps });
+  assert.equal(busy.status, 2);
+  assert.match(busy.stderr, /another coordinator/);
+  releaseLock(`${stateFile}.lock`, { nonce: held.nonce });
+  const free = await runPipeline({ argv: ["watch"], root: checkout.dir, stateFile, deps: {} });
+  assert.equal(free.status, 0, "nothing pending, lock free: the call runs");
+  assert.equal(fs.existsSync(`${stateFile}.lock`), false, "the lock is released after the call");
+  // A read-only command needs no lock.
+  const held2 = acquireLock(`${stateFile}.lock`);
+  const ready = await runPipeline({ argv: ["preflight", "rightkit-a", "--sha", checkout.head], root: checkout.dir, stateFile, deps: { check: async () => ({ code: 0 }), preflightMany: async () => new Map([["rightkit-a", { code: 0, last: "" }]]) } });
+  assert.equal(ready.status, 0);
+  releaseLock(`${stateFile}.lock`, { nonce: held2.nonce });
+});
+
+test("[GB-07] refusals of the in-gate entry: a root inside the managed snapshots root (Mac and Windows spellings), a relative root and a root that is a snapshot used as its own control plane start nothing and say RK_CHECK_ERROR", async () => {
+  const dataRoot = scratch("gb07-data-");
+  const inner = path.join(dataRoot, "snapshots", "k1"); fs.mkdirSync(inner, { recursive: true });
+  const deps = { check: async () => assert.fail("a refused call starts nothing"), preflightMany: async () => assert.fail("a refused call starts nothing") };
+  const refused = await runPipeline({ argv: ["preflight", "rightkit-a"], root: inner, env: { ...process.env, RIGHTKIT_DATA_ROOT: dataRoot }, deps });
+  assert.equal(refused.status, 2);
+  assert.match(refused.stderr, /inside the managed snapshots root.*RK_CHECK_ERROR/s);
+  const relative = await runPipeline({ argv: ["preflight", "rightkit-a"], root: "some/checkout", deps });
+  assert.equal(relative.status, 2);
+  assert.match(relative.stderr, /absolute-path/);
+  // Windows spellings are judged by the Windows path rules: a drive-letter root under D:\.rightkit-managed\snapshots, whatever its case.
+  const win = await runPipeline({ argv: ["preflight", "rightkit-a"], root: "d:\\.RIGHTKIT-MANAGED\\snapshots\\k9", platform: "win32", env: { ...process.env, RIGHTKIT_DATA_ROOT: "D:\\.rightkit-managed" }, deps });
+  assert.equal(win.status, 2);
+  assert.match(win.stderr, /inside the managed snapshots root/);
+});
+
+test("[GB-07] the command line keeps today's behavior: the wrapper takes the root from where the script is installed, parses the same arguments and exits the same codes", () => {
+  const script = path.join(REPO_ROOT, "scripts", "ci", "rk-pipeline.mjs");
+  const run = (...args) => spawnSync(process.execPath, [script, ...args], { encoding: "utf8", cwd: scratch("gb07-cli-cwd-") });
+  const usage = run("frobnicate");
+  assert.equal(usage.status, 2); assert.match(usage.stderr, /rk-pipeline: command must be ready, preflight, canary, dispatch, watch or loop/);
+  const registry = run("loop", "--registry", "pypi");
+  assert.equal(registry.status, 2); assert.match(registry.stderr, /--registry must be crates or npm/);
+  const noUnits = run("preflight");
+  assert.equal(noUnits.status, 2); assert.match(noUnits.stderr, /name at least one unit/);
+  const badSha = run("dispatch", "u", "--sha", "abc");
+  assert.equal(badSha.status, 2); assert.match(badSha.stderr, /full lowercase commit id/);
+  assert.equal(stateFileFor("win32"), "D:\\scratch\\rk-pipeline\\state.json");
+  assert.equal(stateFileFor("darwin"), "/Volumes/D/scratch/rk-pipeline/state.json");
 });

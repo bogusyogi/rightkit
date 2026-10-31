@@ -465,7 +465,7 @@ export function writeReceipt(out, sha, receipt) {
  * `expectSha` (--sha) is the commit the caller already checked: the canary refuses unless HEAD is that commit when it
  * starts, and a run whose HEAD moved before the verdict is incomplete, never green (a second chat may commit to this
  * checkout while it runs). */
-export async function runCanary({ root = ROOT, out = DEFAULT_OUT, unit = UNIT, expectSha = null, deps = {} } = {}) {
+export async function runCanary({ root = ROOT, toolsRoot = root, out = DEFAULT_OUT, unit = UNIT, expectSha = null, deps = {} } = {}) {
   const lines = [];
   const say = (l) => lines.push(l);
   const run = deps.exec ?? exec;
@@ -519,7 +519,7 @@ export async function runCanary({ root = ROOT, out = DEFAULT_OUT, unit = UNIT, e
 
   const manifest = buildManifest({ sha, version, matrix, repos, candidate, baseline, dependency });
   fs.writeFileSync(path.join(bundleDir, "manifest.json"), JSON.stringify(manifest, null, 2));
-  fs.copyFileSync(path.join(root, "scripts", "ci", "rk-release-canary-leg.mjs"), path.join(bundleDir, "canary-leg.mjs"));
+  fs.copyFileSync(path.join(toolsRoot, "scripts", "ci", "rk-release-canary-leg.mjs"), path.join(bundleDir, "canary-leg.mjs"));
 
   const hosts = ["darwin", "win32"].filter((h) => matrix.apps.some((a) => a.platforms.some((p) => HOST_FOR_PLATFORM[p] === h)));
   const legs = await Promise.all(hosts.map((h) => (deps.runLeg ?? runLeg)(h, { bundleDir, matrix, sha, run, node: deps.node })));

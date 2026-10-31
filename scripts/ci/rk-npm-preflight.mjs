@@ -111,9 +111,9 @@ export function npmRecipePolicy(root, unit) {
  * seal check pins against. Publishing it while that list is behind crates.io/npm ships a doctor that refuses versions
  * already published: HeardRight's seal was blocked twice that way (bogusyogi/rightkit#912 on 0.4.1, then 0.5.0 on
  * 2026-10-23). Same comparison as `node packages/release/rightkit-sync.mjs --check`, as a blocking pre-flight row. */
-export async function releaseFeedPolicy(root, unit, { sync } = {}) {
+export async function releaseFeedPolicy(root, unit, { sync, toolsRoot = root } = {}) {
   if (unit !== "@rightkit/release") return { ok: true, skipped: true };
-  const run = sync ?? (await import(pathToFileURL(path.join(root, "packages", "release", "rightkit-sync.mjs")).href)).syncRightkitVersions;
+  const run = sync ?? (await import(pathToFileURL(path.join(toolsRoot, "packages", "release", "rightkit-sync.mjs")).href)).syncRightkitVersions;
   let result;
   try { result = await run({ check: true, file: path.join(root, "packages", "release", "rightkit-versions.json"), root, log: () => {} }); }
   catch (error) { return { ok: false, reason: `release version feed could not be checked against the registries: ${error.message ?? error}` }; }
@@ -185,6 +185,7 @@ export async function main(argv, deps = {}) {
     return 2;
   }
   const root = deps.root ?? ROOT;
+  const toolsRoot = deps.toolsRoot ?? root; // GB-07: the gate's own installed tools (the in-gate route); the command line runs the checkout's own
   const git = (...args) => {
     const r = spawnSync("git", args, { cwd: root, encoding: "utf8" });
     if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr.trim()}`);
@@ -232,13 +233,14 @@ export async function main(argv, deps = {}) {
     return 2;
   }
   const scPath = path.dirname(pipeline.tools.shellcheck[process.platform].path);
-  const env = { ...process.env, PATH: `${scPath}${path.delimiter}${process.env.PATH ?? ""}`, RUSTFMT: tools.observed.rustfmt.path, RUSTUP_TOOLCHAIN: pipeline.tools.rustfmt.toolchain };
+  const base = deps.env ?? process.env; // the in-gate route hands the release run's environment down; the command line inherits its own
+  const env = { ...base, PATH: `${scPath}${path.delimiter}${base.PATH ?? ""}`, RUSTFMT: tools.observed.rustfmt.path, RUSTUP_TOOLCHAIN: pipeline.tools.rustfmt.toolchain };
 
   // 2. Deterministic scans with the npm unit scope.
   {
     const scansOut = path.join(logDir, "scans");
     fs.rmSync(scansOut, { recursive: true, force: true });
-    const r = await run(process.execPath, [path.join(root, "scripts", "ci", "run-deterministic-scans.mjs"), "--content-root", root, "--live-root", root, "--out", scansOut], {
+    const r = await run(process.execPath, [path.join(toolsRoot, "scripts", "ci", "run-deterministic-scans.mjs"), "--content-root", root, "--live-root", root, "--out", scansOut], {
       cwd: root, env: { ...env, PUBLISH_REGISTRY: "npm", PUBLISH_UNITS: opts.unit, GITHUB_SHA: sha }, timeoutMinutes: 20, logFile: path.join(logDir, "scans.log"),
     });
     receipt.scans = { ok: r.code === 0 && !r.timedOut && unchanged(), timedOut: r.timedOut, exit: r.code, seconds: r.seconds, log: path.join(logDir, "scans.log") };
@@ -271,7 +273,7 @@ export async function main(argv, deps = {}) {
     }
     if (!failed) {
       const recipe = npmRecipePolicy(root, opts.unit);
-      const feed = await releaseFeedPolicy(root, opts.unit);
+      const feed = await releaseFeedPolicy(root, opts.unit, { toolsRoot });
       receipt.releaseFeed = feed;
       if (!feed.ok) failed = { index: 0, command: "release version feed vs registries", exit: 1, timedOut: false, lines: [feed.reason] };
       receipt.npmRecipe = recipe;

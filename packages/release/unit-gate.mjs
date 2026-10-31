@@ -2,7 +2,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { locateBrokerClient, spawnBrokerClient } from "./broker-client.mjs";
 import { publicationRowProblem } from "./publication-outcomes.mjs";
 import { localBuildGranted } from "./execution-policy.mjs";
@@ -15,6 +15,7 @@ import { ATTEST_STAGE_NONCE_ENV, qualificationNonce } from "./provenance-verify.
 import { verifyQualificationReceipts } from "./qualification-verify.mjs";
 import { assignJobs, describeCommand, expectedStageCommands } from "./stage-commands.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
+import { controlPlaneProblem } from "./control-plane.mjs";
 
 const GH = process.platform === "win32" ? "C:\\Program Files\\GitHub CLI\\gh.exe" : "/opt/homebrew/bin/gh";
 const defaultRun = (cmd, args, options = {}) => nodeSpawnSync(cmd, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, ...options });
@@ -105,31 +106,52 @@ export function trustedCoordinator({ moduleUrl = import.meta.url, exists = fs.ex
   return { file, sha256: createHash("sha256").update(readFile(file)).digest("hex") };
 }
 
+export { controlPlaneProblem };
+
 /**
- * GB-07: why the source root (the snapshot, where the carried build and pack steps stay bound) and the control-plane checkout (the primary checkout, where the coordinator's uncarried root
- * requests are admitted) are not apart, or null. The broker refuses a root request whose working directory is inside a managed snapshot or a path a live snapshot lease holds (RK_CHECK_ERROR:
- * "a root request cannot run inside a managed snapshot"), so the control plane may not be inside the managed snapshots root or inside the source; a source that is itself a snapshot may not
- * be its own control plane. A direct, unsnapshotted source keeps one root for both. `pathApi` is the platform's path module; comparison folds case on Windows.
+ * GB-07: the in-gate-process entry to the trusted, installed coordinator. The coordinator's own module is imported into THIS (the gate's) process, from the gate's own installed location
+ * (trustedCoordinator), and its `runPipeline` runs the canary, pre-flight, dispatch and watch as in-process calls over the explicit root, commit and qualification the release passes: no child
+ * process is started from a path under the snapshot or the checkout, and the coordinator derives no root from where it lives. `expectedSha256` is a registered pin (the digest the host enrolled for
+ * the installed coordinator); the file is hashed before and again after it is imported, so bytes that change under the gate are refused. A coordinator that sits inside the managed snapshots root
+ * or inside the source snapshot is refused (it would be the candidate's own bytes), and so is a module without the entry.
  */
-export function controlPlaneProblem({ root, checkout, snapshotsRoot = null, pathApi = path }) {
-  const fold = (p) => { const n = pathApi.normalize(String(p)); return pathApi === path.win32 ? n.toLowerCase() : n; };
+export async function loadInGatePipeline({ coordinator = trustedCoordinator(), expectedSha256 = null, snapshotsRoot = null, root = null, pathApi = path, importModule = (url) => import(url), readFile = fs.readFileSync } = {}) {
+  const fold = (p) => { const r = pathApi.resolve(String(p)); return pathApi === path.win32 ? r.toLowerCase() : r; };
   const inside = (child, parent) => { const rel = pathApi.relative(fold(parent), fold(child)); return rel === "" || (!rel.startsWith("..") && !pathApi.isAbsolute(rel)); };
-  if (typeof checkout !== "string" || !pathApi.isAbsolute(checkout)) return `the control-plane checkout ${JSON.stringify(checkout)} must be an absolute path`;
-  if (snapshotsRoot && inside(checkout, snapshotsRoot)) return `the control-plane checkout ${checkout} is inside the managed snapshots root ${snapshotsRoot}: the broker refuses an uncarried root request there (RK_CHECK_ERROR: a root request cannot run inside a managed snapshot); the coordinator runs from the primary checkout, apart from the source snapshot`;
-  if (fold(checkout) !== fold(root) && inside(checkout, root)) return `the control-plane checkout ${checkout} is inside the source root ${root}: the source (the snapshot) and the control plane (the primary checkout) are separate roots`;
-  return null;
+  if (!coordinator?.file || !/^[0-9a-f]{64}$/.test(coordinator.sha256 ?? "")) throw new Error("the in-gate coordinator needs its installed file and the sha256 of its bytes; nothing was started");
+  if (expectedSha256 !== null && coordinator.sha256 !== expectedSha256) throw new Error(`the installed coordinator ${coordinator.file} is ${coordinator.sha256.slice(0, 12)}, not the pinned ${String(expectedSha256).slice(0, 12)}; the gate runs only the coordinator the host registered, so nothing was started`);
+  for (const [where, parent] of [["the managed snapshots root", snapshotsRoot], ["the source snapshot", root]]) {
+    if (parent && inside(coordinator.file, parent)) throw new Error(`the coordinator ${coordinator.file} is inside ${where} ${parent}: it would be the candidate's own bytes, never the trusted installed coordinator; nothing was started`);
+  }
+  const digest = () => createHash("sha256").update(readFile(coordinator.file)).digest("hex");
+  if (digest() !== coordinator.sha256) throw new Error(`the installed coordinator ${coordinator.file} changed after its digest was taken; nothing was started`);
+  const loaded = await importModule(pathToFileURL(coordinator.file).href);
+  if (digest() !== coordinator.sha256) throw new Error(`the installed coordinator ${coordinator.file} changed while it was loaded; nothing was started`);
+  if (typeof loaded?.runPipeline !== "function") throw new Error(`the installed coordinator ${coordinator.file} has no in-gate entry (runPipeline); nothing was started`);
+  return { runPipeline: loaded.runPipeline, coordinator: { file: coordinator.file, sha256: coordinator.sha256 } };
 }
+
+/** The managed snapshots root of this host (`<data root>/snapshots`), or null when the host's roots cannot be resolved. */
+const managedSnapshotsRoot = ({ env, platform }) => { try { return (platform === "win32" ? path.win32 : path.posix).join(resolveManagedRoots({ env, platform }).dataRoot, "snapshots"); } catch { return null; } };
 
 const requireBrokerHost = (executor) => { if (executor?.kind !== "broker") throw new Error("unit release runs only on a broker-managed host (the hosted qualification is dispatched by the RustRight rightkit-dispatch adapter); a direct host has no gate-owned release route, so no upload was started"); };
 
-export async function releaseUnit({ unit, root, checkout = root, commit, tree = null, coordinator = null, executor, env, artifact, qualification, platform = process.platform, run = defaultRun, readJson = defaultReadJson, out = console.log, scratch = platform === "win32" ? "D:\\scratch" : "/Volumes/D/scratch", registryBytes = defaultRegistryBytes }) {
+export async function releaseUnit({ unit, root, checkout = root, commit, tree = null, coordinator = null, pipeline = null, executor, env, artifact, qualification, platform = process.platform, run = defaultRun, readJson = defaultReadJson, out = console.log, scratch = platform === "win32" ? "D:\\scratch" : "/Volumes/D/scratch", registryBytes = defaultRegistryBytes }) {
   requireBrokerHost(executor);
   // GB-07: the source root and the control-plane checkout are apart, and the coordinator is the gate's own installed one.
-  let snapshotsRoot = null;
-  try { snapshotsRoot = path.join(resolveManagedRoots({ env, platform }).dataRoot, "snapshots"); } catch { snapshotsRoot = null; }
+  const snapshotsRoot = managedSnapshotsRoot({ env, platform });
   const apart = controlPlaneProblem({ root, checkout, snapshotsRoot, pathApi: platform === "win32" ? path.win32 : path.posix });
   if (apart) throw new Error(`${apart}; nothing was started`);
-  const installed = coordinator ?? trustedCoordinator();
+  // The coordinator runs in this process when the gate loaded its in-gate entry (`pipeline`, loadInGatePipeline: production); otherwise the installed file runs as a child process (the older route).
+  const installed = pipeline?.coordinator ?? coordinator ?? trustedCoordinator();
+  if (pipeline) {
+    if (typeof pipeline.runPipeline !== "function") throw new Error("the in-gate coordinator entry has no runPipeline; nothing was started");
+    const api = platform === "win32" ? path.win32 : path.posix;
+    const fold = (p) => { const r = api.resolve(String(p)); return platform === "win32" ? r.toLowerCase() : r; };
+    const inside = (child, parent) => { const rel = api.relative(fold(parent), fold(child)); return rel === "" || (!rel.startsWith("..") && !api.isAbsolute(rel)); };
+    if (snapshotsRoot && inside(installed.file, snapshotsRoot)) throw new Error(`the coordinator ${installed.file} is inside the managed snapshots root ${snapshotsRoot}: only the installed coordinator runs; nothing was started`);
+    if (inside(installed.file, root) && checkout !== root) throw new Error(`the coordinator ${installed.file} is inside the source snapshot ${root}: it would be the candidate's own bytes, never the trusted installed coordinator; nothing was started`);
+  }
   if (typeof qualification !== "string" || !fs.existsSync(qualification)) throw new Error("release needs the unit qualification receipt (written by the gate after the qualify stage); nothing is dispatched without it");
   const registry = unit.kind === "npm" ? "npm" : "crates";
   // rk-pipeline (the canary, the preflight rows, the dispatch) makes its broker calls as ROOT and ADAPTER requests, and the broker refuses any
@@ -142,10 +164,9 @@ export async function releaseUnit({ unit, root, checkout = root, commit, tree = 
     const head = run("git", ["rev-parse", "HEAD"], { cwd: checkout, encoding: "utf8" });
     if (head.status !== 0 || String(head.stdout ?? "").trim() !== commit) throw new Error(`the primary checkout ${checkout} is not at the qualified commit ${commit.slice(0, 12)} (HEAD ${String(head.stdout ?? "").trim().slice(0, 12) || "unreadable"}); the release runs rk-pipeline from the checkout, so it proves nothing else, and nothing was started`);
   }
-  // GB-07: the coordinator must run from the primary checkout (its ROOT is derived from its own location, and the broker refuses a root request whose workspace is inside a managed
-  // snapshot), so the candidate's logic is protected differently: HEAD is the qualified commit (above) AND the coordinator and the release code it imports are exactly that commit's
-  // bytes: no tracked file modified and nothing untracked under scripts/ci or packages/release (an untracked sibling is importable), checked BEFORE the first coordinator step starts. A
-  // modified or newer coordinator in the live checkout therefore can never stand in for the candidate's own.
+  // GB-07: the coordinator judges the primary checkout (the broker refuses a root request whose workspace is inside a managed snapshot), and the candidate's logic is protected as well: HEAD is the
+  // qualified commit (above) AND the checkout holds exactly that commit's bytes: no tracked file modified and nothing untracked under scripts/ci or packages/release (an untracked sibling is
+  // importable), checked BEFORE the first coordinator step starts. A modified or newer coordinator in the live checkout therefore can never stand in for the candidate's own.
   if (checkout !== root) {
     const dirty = run("git", ["status", "--porcelain", "--", "scripts/ci", "packages/release"], { cwd: checkout, encoding: "utf8" });
     const tracked = run("git", ["status", "--porcelain", "--untracked-files=no"], { cwd: checkout, encoding: "utf8" });
@@ -154,11 +175,13 @@ export async function releaseUnit({ unit, root, checkout = root, commit, tree = 
     const lines = [...new Set(changed.flatMap((c) => c.split("\n").filter(Boolean)))];
     if (lines.length) throw new Error(`the primary checkout ${checkout} holds modified or untracked files (${lines.slice(0, 4).map((l) => l.trim()).join("; ")}${lines.length > 4 ? "; ..." : ""}); the coordinator that dispatches ${unit.name} must be exactly the qualified commit ${commit.slice(0, 12)}'s bytes, so nothing is dispatched`);
   }
-  const pipeline = installed.file;
   const stateFile = platform === "win32" ? "D:\\scratch\\rk-pipeline\\state.json" : "/Volumes/D/scratch/rk-pipeline/state.json";
-  const step = (label, args, { accept = [0], acceptWhen = null } = {}) => {
+  const stepRun = pipeline
+    ? (args) => pipeline.runPipeline({ argv: args, root: checkout, env, platform, stateFile })
+    : (args) => run(process.execPath, [installed.file, ...args], { cwd: checkout, env, stdio: ["ignore", "pipe", "pipe"] });
+  const step = async (label, args, { accept = [0], acceptWhen = null } = {}) => {
     out(`rightkit-gate: [release] ${label}`);
-    const r = run(process.execPath, [pipeline, ...args], { cwd: checkout, env, stdio: ["ignore", "pipe", "pipe"] });
+    const r = await stepRun(args);
     const accepted = r.status === 0 || (accept.includes(r.status) && (!acceptWhen || acceptWhen(r)));
     if (!accepted) {
       const said = `${String(r.stdout ?? "")}\n${String(r.stderr ?? "")}`.split("\n").map((l) => l.trim()).filter((l) => l && !l.includes("note:")).slice(-4).join(" | ");
@@ -183,13 +206,13 @@ export async function releaseUnit({ unit, root, checkout = root, commit, tree = 
   // The pipeline canary (rk-release-canary: the candidate's `right-release doctor` against every app on both hosts, versus the
   // registry's version) runs before the pre-flight. rk-pipeline exits 2 both for "no pipeline canary for this unit" and for any
   // internal error, so 2 is accepted only when it says the former (reviewer, 2026-10-27); a canary error never reads as no canary.
-  step(`pipeline canary of ${unit.name} (doctor on every app, both hosts, candidate vs registry)`, ["canary", unit.name, "--sha", commit],
+  await step(`pipeline canary of ${unit.name} (doctor on every app, both hosts, candidate vs registry)`, ["canary", unit.name, "--sha", commit],
     { accept: [2], acceptWhen: (r) => /no pipeline canary for this unit/.test(`${r.stdout ?? ""}\n${r.stderr ?? ""}`) });
-  step(`local pre-flight of ${unit.name} through the broker`, ["preflight", unit.name, "--registry", registry, "--sha", commit]);
-  step(`broker-admitted hosted qualification dispatch of ${unit.name} at ${commit.slice(0, 12)}`, ["dispatch", unit.name, "--registry", registry, "--sha", commit, "--qualification", qualification]);
+  await step(`local pre-flight of ${unit.name} through the broker`, ["preflight", unit.name, "--registry", registry, "--sha", commit]);
+  await step(`broker-admitted hosted qualification dispatch of ${unit.name} at ${commit.slice(0, 12)}`, ["dispatch", unit.name, "--registry", registry, "--sha", commit, "--qualification", qualification]);
   const dispatched = findDispatch();
   if (!dispatched?.runId || !dispatched.runAttempt) throw new Error(`no dispatch record with a run for ${unit.name} at ${commit.slice(0, 12)}; nothing is claimed (reconcile rk-pipeline state before any retry)`);
-  step(`waiting for publish.yml run ${dispatched.runId}, its publish-direct upload run and the registry`, ["watch", "--wait"]);
+  await step(`waiting for publish.yml run ${dispatched.runId}, its publish-direct upload run and the registry`, ["watch", "--wait"]);
   const done = findDispatch();
   if (done?.status !== "published" || done.version !== unit.version || !done.uploadRunId) throw new Error(`${unit.name}: the watch ended without a published record (${done?.status ?? "none"}${done?.conclusion ? `: ${done.conclusion}` : ""}); nothing is claimed`);
   const receipt = readPublicationReceipt({ uploadRunId: done.uploadRunId, runId: done.runId, runAttempt: done.runAttempt, run, env, scratch });
@@ -311,7 +334,7 @@ export function knownRedEntry({ unit, root, platform, toRelease = false, readTex
  * ({ start(stage), end(stage) } returning true or false) is the door's ledger verify around each stage (7.08); `envExtra` carries the
  * Cargo output pin. Without `source` every behavior is the checkout route's, unchanged.
  */
-export async function runUnitGate({ selector, to, root, commonDir, commit, tree, executor, env, platform, check, source = null, stageGuard = null, envExtra = {}, loadOwner = () => import("./local-publish.mjs"), out = console.log, err = console.error, releaser = null, resolve = resolveUnit, writeReport, fetchReceipt = readBrokerReceipt, stageCommands = defaultStageCommands, readKnownRed, verifyReceipts = verifyQualificationReceipts, selfGit = null }) {
+export async function runUnitGate({ selector, to, root, commonDir, commit, tree, executor, env, platform, check, source = null, stageGuard = null, envExtra = {}, loadOwner = () => import("./local-publish.mjs"), out = console.log, err = console.error, releaser = null, loadPipeline = loadInGatePipeline, resolve = resolveUnit, writeReport, fetchReceipt = readBrokerReceipt, stageCommands = defaultStageCommands, readKnownRed, verifyReceipts = verifyQualificationReceipts, selfGit = null }) {
   const stages = stagesTo(to);
   if (!stages) { err(`rightkit-gate: invalid unit stage ${to}`); return 2; }
   let unit;
@@ -410,7 +433,10 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
         requireBrokerHost(executor); // a direct host has no broker receipts to carry: refuse for that reason, not for the missing receipts
         const qualification = writeQualification({ report, artifact, unit, commit, tree, runtime, executor });
         selfCheck(qualification);
-        released = await stageEnv(stage, (runEnv) => (releaser ?? releaseUnit)({ unit, root, checkout: source?.checkout ?? root, commit, tree, executor, env: runEnv, artifact, qualification, platform, out }));
+        // GB-07: the default release runs the trusted installed coordinator IN this process (loadInGatePipeline: pinned to the gate's own installed bytes, never a file under the snapshot or the checkout);
+        // a coordinator that cannot be loaded starts nothing. An injected releaser (a test, or another route) owns its own coordinator.
+        released = await stageEnv(stage, async (runEnv) => (releaser ?? releaseUnit)({ unit, root, checkout: source?.checkout ?? root, commit, tree, executor, env: runEnv, artifact, qualification, platform, out,
+          ...(releaser ? {} : { pipeline: await loadPipeline({ root: source ? root : null, snapshotsRoot: managedSnapshotsRoot({ env: runEnv, platform }), pathApi: platform === "win32" ? path.win32 : path.posix }) }) }));
       }
       if (stageGuard && !(await stageGuard.end(stage))) throw new Error(`RK_CHECK_ERROR: the ${stage} stage's result covers no known bytes (a snapshot byte changed, or a write is outside the ledger)`);
       if (directLinux && (stage === "compile" || stage === "package")) {
