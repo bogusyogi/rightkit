@@ -64,3 +64,62 @@ export function selfLockIdentity(options = {}) {
   if (options.fresh !== true) cachedSelf = self;
   return self;
 }
+
+// ---- the gate's identity as RustRight reads it (BROKER-CONTRACT section 16, GB-76) ----
+// The carrier owner record names the gate by `{ pid, startTimeMs }`, and the broker judges it with `rustright_process::identity_state`: the recorded start time must EQUAL what RustRight reads
+// for that pid (Same), or the pid is `Reused`. The lock identity above tolerates a few seconds; this does not, so it computes RustRight's own figure on each platform:
+//   Linux    `/proc/<pid>/stat` field 22 (start ticks since boot) and `/proc/stat` btime: `btime * 1000 + ticks * 1000 / CLK_TCK` (integer division)
+//   macOS    the process's kernel start timeval (kinfo_proc's first field, `sysctl -b kern.proc.pid.<pid>`: int64 seconds, int32 microseconds), `(sec * 1e6 + usec) / 1000` floored
+//   Windows  GetProcessTimes' creation time as UNIX milliseconds (`Process.StartTime`, floored to a millisecond)
+// `null` when the figure cannot be read: the owner record then carries null and the broker keeps the carrier for ever (unverifiable), never retires it.
+
+/** Linux: the start time in epoch ms from a `/proc/<pid>/stat` text, `/proc/stat` text and CLK_TCK, or null. The command name may hold spaces and parentheses: fields count from the LAST `)`. */
+export function linuxStartTimeMs(stat, procStat, hz) {
+  const close = String(stat).lastIndexOf(")");
+  if (close < 0) return null;
+  const ticks = Number(String(stat).slice(close + 1).trim().split(/\s+/)[19]);
+  const boot = Number(/^btime\s+(\d+)/m.exec(String(procStat))?.[1]);
+  if (!Number.isInteger(ticks) || ticks < 0 || !Number.isInteger(boot) || !Number.isFinite(hz) || hz <= 0) return null;
+  return boot * 1000 + Math.floor((ticks * 1000) / hz);
+}
+
+/** macOS: the start time in epoch ms from the bytes `sysctl -b kern.proc.pid.<pid>` prints (the start timeval leads kinfo_proc), or null. */
+export function darwinStartTimeMs(bytes) {
+  if (!Buffer.isBuffer(bytes) || bytes.length < 12) return null;
+  const sec = bytes.readBigInt64LE(0); const usec = bytes.readInt32LE(8);
+  if (sec <= 0n || usec < 0 || usec >= 1_000_000) return null;
+  return Number((sec * 1_000_000n + BigInt(usec)) / 1000n);
+}
+
+/** `pid`'s start time as RustRight's `start_time_ms` reads it, or null when it cannot be read (gone, denied, an unknown platform). `readFile`, `spawn` and `hz` are seams for a simulated host. */
+export function processStartTimeMs(pid, { platform = process.platform, readFile = fs.readFileSync, spawn = spawnSync, hz = null } = {}) {
+  try {
+    if (!Number.isInteger(pid) || pid <= 0) return null;
+    if (platform === "linux") {
+      let clock = hz;
+      if (clock === null) { const r = run(spawn, "getconf", ["CLK_TCK"]); const n = Number(String(r.stdout ?? "").trim()); clock = !r.error && r.status === 0 && Number.isInteger(n) && n > 0 ? n : 100; }
+      return linuxStartTimeMs(readFile(`/proc/${pid}/stat`, "utf8"), readFile("/proc/stat", "utf8"), clock);
+    }
+    if (platform === "darwin") {
+      const r = spawn(SYSCTL(), ["-b", `kern.proc.pid.${pid}`], { env: { ...process.env, LC_ALL: "C" }, timeout: 30_000, maxBuffer: 1 << 20 });
+      return r.error || r.status !== 0 ? null : darwinStartTimeMs(Buffer.isBuffer(r.stdout) ? r.stdout : Buffer.from(String(r.stdout ?? ""), "latin1"));
+    }
+    if (platform === "win32") {
+      const script = `$p = Get-Process -Id ${Number(pid)} -ErrorAction SilentlyContinue; if ($p) { 'START:' + ([DateTimeOffset]$p.StartTime).ToUnixTimeMilliseconds() } else { 'GONE' }`;
+      const r = run(spawn, "powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")]);
+      if (r.error || r.status !== 0) return null;
+      const m = /START:(\d+)/.exec(String(r.stdout ?? ""));
+      return m ? Number(m[1]) : null;
+    }
+  } catch { /* unreadable: null */ }
+  return null;
+}
+
+/** This process's own start time as RustRight reads it. Cached: a process's start never changes. A null (unreadable) is retried on the next call. */
+let cachedSelfStart = null;
+export function selfStartTimeMs(options = {}) {
+  if (options.fresh !== true && cachedSelfStart !== null) return cachedSelfStart;
+  const ms = processStartTimeMs(process.pid, options);
+  if (options.fresh !== true && ms !== null) cachedSelfStart = ms;
+  return ms;
+}
