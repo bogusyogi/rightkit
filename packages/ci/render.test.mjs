@@ -71,7 +71,7 @@ test("rust-hybrid ci renders its pinned package manager and gate", () => {
   assert.match(content, /uses: pnpm\/action-setup@[a-f0-9]{40}/);
   assert.match(content, /fetch-depth: 0/);
   assert.match(content, /^name: widgets-ci$/m);
-  assert.match(content, /version: 11\.25\.0/);
+  assert.match(content, /version: 12\.16\.1/);
   assert.match(content, /components: rustfmt, clippy/);
   assert.doesNotMatch(content, /toolchain:/);
   assert.match(content, /group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.event_name == 'push'[^\n]*github\.run_id \|\| github\.ref \}\}/);
@@ -717,7 +717,7 @@ test("rendered workflows bootstrap each declared package manager safely", () => 
   const pnpm = renderAllLanes({ ...FULL_MANIFEST, packageManager: "pnpm@12.16.1" }, "/repos/widgets");
   for (const content of Object.values(pnpm)) {
     assert.match(content, /uses: pnpm\/action-setup@[a-f0-9]{40}/);
-    assert.match(content, /version: 11\.25\.0/);
+    assert.match(content, /version: 12\.16\.1/);
     assert.doesNotMatch(content, /corepack enable/);
   }
 
@@ -1746,36 +1746,36 @@ const swRender = (manifest, lane, swift) => {
 // (regenerate x2, publish-package-managers) keep their hashes. SW_PRE_CHECK_BASELINE keeps the previous nine: the new render
 // without the check job still hashes to them.
 const SW_BASELINE = {
-  "node/ci": "3b4c93fd96fc6f1ade578b7f3a22a6b7ed3f93ad3085ed5dc59497e80fdc3dfb",
-  "node/qualification": "5898512fdb6f9375bf96cf017020be2ba586bdea4e76b2163d95c1e54a6e0ad7",
-  "node/package-smoke": "9e76080b2bf76ca94350296b423b85cccf282e136f2a06eb0564077c2f9a8e2f",
-  "node/release-candidate": "3573ef81f9fb63fd011dfad786cf133946a4f63291fe31384d3f293d545abe74",
-  "node/regenerate": "82bfa3063ae0bc04ba52fecc14d562b418037716283648a887c206683a4e1c14",
-  "node/publish-npm": "e5e890ca301def1db0c7908392d9ef584b24afa51f21d863cd3fbc1544db604a",
-  "node/publish-package-managers": "106b8d28ed76d916afe68808388cd5dc0de0ddd719b566832a6e8280410f9d7f",
-  "rust-hybrid/ci": "ba1f0a4b912e03262d4749b1785971e26c1c3aaa7c7345e22bfd9cdfd3782396",
-  "rust-hybrid/release-candidate": "cecba15af6a09ed1db2f8ed09700fefc4b49a486e8d0e9526773f977578b9f80",
-  "rust-hybrid/regenerate": "1871862b821c8882c14d5913ba85ee2ebc6a93ea1830377e7a4205ad1a2a147e",
-  "rust-hybrid-chain/ci": "5ef75b51f70f45a6677b5a8806a082806229a65f6e1d1b3b22348dfadd10c4be",
-  "rust-hybrid-chain/release-candidate": "a78f51f88443833dd14811067379f12819003776d857d56b07e12d506ee0bb85",
+  "node/ci": "618b9c68d14351949238f71fffdecfff002847d93f914d2629a7603d2646dcc0",
+  "node/qualification": "f7853bdc89ec6ba8ddcfb6cd64f7836975d8f6959e2f4640700b0cfe23706bba",
+  "node/package-smoke": "caf1edc1674241304cc4db7bda5d9a3058f92ef76f850eb48ee6e2f086c63786",
+  "node/release-candidate": "8ad6a74a9646f37778f177de0e791204cc42f58b1fbc2949bb408269c228c1aa",
+  "node/regenerate": "ee6c164d91ba501ea4656c4c8579d1aef9584201d0ec419cc01bf6b6d5b91d0d",
+  "node/publish-npm": "f5b5b1e7c741efea9287cad1e46b5730ab77ca77ddd2187ed765bb78518e9a1e",
+  "node/publish-package-managers": "c946d11a64605c90d27bbfa4052d77d4a756ddf085d8c87e229cf54e73f412b1",
+  "rust-hybrid/ci": "2c576bb336cb73f99e07d9e5b0ee9ae47e1db381cdba6fbe4c55e45fd47eaac3",
+  "rust-hybrid/release-candidate": "ec0eef2e76c69f79408e14e67c8778fdd995f70d4483cf689a98c2d1422235f6",
+  "rust-hybrid/regenerate": "82ae425d7536e10f356db4c88e023004ee5e037863ecdb6fc4265ea2aa1c7823",
+  "rust-hybrid-chain/ci": "2180a683441c91d5bb965f3e0c1cd6225b8d72b990724133e819260434b8224e",
+  "rust-hybrid-chain/release-candidate": "33c6cc1d0396bc924ebc3dff4cf439ee7d58327a07cab0464e44a0b47306a840",
 };
 const SW_PRE_CHECK_BASELINE = {
   // 0.4 (one door): the rust-hybrid ci jobs run `rightkit-gate --to compile` instead of the repository gate script, so their
   // pre-check hashes were retaken; everything else in those renders is unchanged.
   // 0.2.49 (#338): the three ci lanes render the supersede job and job-level concurrency (hashes from the Dell render; the other nine lanes match CI byte for byte).
-  "node/ci": "1e44d86e2d9c46f21992ca236da797a7f8751e8622902157fbaa87e28e9b3431",
-  "node/qualification": "730cc94fde3400079c2a4e66effed0e8957de2b75576d13f02b9398059ccc921",
-  "node/package-smoke": "bc981ccb7248cc022cb8157c1fbdb7895c48f6a3fe4eeaf5a76eb5bba4206517",
-  "node/release-candidate": "6ff48f01cadc95e5e92cc225432aa280a7baac46017ae30e54a165e3db2d1539",
+  "node/ci": "a8d0e2e9ab33c184b381065450bdb8f6460fd36765a6cd69a4a80c0c2d44c9b0",
+  "node/qualification": "258b1d534006793887e5e9aee3688cd9c4e6aedd6554509f21597a28e1b8998b",
+  "node/package-smoke": "c0f9bc21b5e2b1788aafc45daf9e9e0882baf54194a5afe46b673201347baadb",
+  "node/release-candidate": "02ecb899a8452971cb4a9a49158fa8bad59c3ee5734a9e24a48beb9ef73cd7b2",
   // The 0.2.41 publish-npm render, before the check job (the lane was exempt for one revision; it builds, so it is not).
-  "node/publish-npm": "50882207659dfb6e0207fc0d9b33d86b7c10a2d2e3e6c65b2db05d5261982834",
-  "rust-hybrid/ci": "1f73d46e4767db35417e32010348a89ff31de9c7f91e49c8cd1a022a7a104dcd",
+  "node/publish-npm": "94b1289b89c64e22e6601b2d2f63774975f2f2f12cdc5898b1993c56c0b0c17f",
+  "rust-hybrid/ci": "6d5efef63c75fad88903ff46d90766b8bf5d9eb335dd494fd24a5442c14ac695",
   // 0.2.44/0.2.45: the 0.2.41 render with the admission and regenerate jobs on macos-15 (ownership approval does not run on Linux).
   // 0.2.46 (#168): plus RIGHTKIT_DEV_SIGNING: "ci-adhoc" on the candidate job. Hash taken from CI 38978333900 (xcode and windows agree).
-  "rust-hybrid/release-candidate": "8e108084b910f3edd35b197b920b1f5beb7da339f87a1ac90e258fda5d9ea467",
-  "rust-hybrid-chain/ci": "785f5a710acb56989ea9ed0edb426452e498eb8011877042ea43833f7ff29fc4",
+  "rust-hybrid/release-candidate": "5da60a753879325f05cbffe39ec5996c1920fb2120709f06830c0f55f6e8aecc",
+  "rust-hybrid-chain/ci": "fb993ccfc00be979ecd3a28a5ab23c3ca321835ba4497125b3662eae090de356",
   // 0.2.46 (#168): the chain candidate job also sets RIGHTKIT_DEV_SIGNING: "ci-adhoc". Hash taken from CI 38986615056 (xcode; the excerpt has no windows).
-  "rust-hybrid-chain/release-candidate": "c118e1c555e1de603f61acfde0b4749d519b97ec3815fc53b024b22d1e5cb3b9",
+  "rust-hybrid-chain/release-candidate": "cfe9e1aded8b4c1a242329a0c522038664c0565c0be5325e15d88340bccf788d",
 };
 
 // Each lane that builds Swift renders the shared configure and cleanup steps into exactly these jobs.

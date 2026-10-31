@@ -145,7 +145,7 @@ export function exportTree(root, { commit, tree = null, spawn = spawnSync, mkdte
     const pinned = packageManagerPin(dir);
     if (pinned && pinned !== deps.pnpm) return { problem: `the exported tree pins pnpm@${pinned} (package.json packageManager) but the pnpm on PATH is ${deps.pnpm} (${deps.pnpmIdentity.path}); the dependency closure would not be the tree's` };
     // The identified bytes run: a JavaScript entry through node (as pnpmIdentity asked it its version), a native pnpm as found.
-    const launch = /\.[cm]?js$/i.test(deps.pnpmIdentity.realPath) ? { command: process.execPath, args: [deps.pnpmIdentity.realPath] } : { command: deps.pnpmIdentity.path, args: [] };
+    const launch = pnpmLaunch(deps.pnpmIdentity);
     const installed = spawn(launch.command, [...launch.args, ...INSTALL], { encoding: "utf8", windowsHide: true, cwd: dir, env, maxBuffer: 64 * 1024 * 1024, timeout: 10 * 60_000 });
     if (installed.error || installed.status !== 0) return { problem: `installing the exported tree's dependencies offline from the lockfile failed (the store must already hold them; run pnpm install in the checkout first): ${tail(installed.stderr || installed.stdout || installed.error?.message)}` };
     // Every node_modules the install produced (the workspace root's and each package's), by bytes. pnpm's `.modules.yaml`
@@ -177,7 +177,7 @@ export function pnpmIdentity({ spawn = spawnSync, env = installEnvironment() } =
   const sha256 = crypto.createHash("sha256").update(fs.readFileSync(real)).digest("hex");
   // What runs is the file whose bytes are bound: a JavaScript entry is started as node + that entry (a shim cannot be started without
   // a shell on Windows: the extensionless sh shim and pnpm.CMD both fail there, rightkit#1261); a native pnpm runs as found.
-  const launch = /\.[cm]?js$/i.test(real) ? { command: process.execPath, args: [real] } : { command: onPath.trim(), args: [] };
+  const launch = pnpmLaunch({ path: onPath.trim(), realPath: real });
   // pnpm's `manage-package-manager-versions` silently execs ANOTHER pnpm (the tree's `packageManager` pin, fetched into
   // `<pnpm home>/.tools`), so the file on PATH would not be the pnpm that installs. The install environment disables that, and the
   // version the runtime answers is checked against the package.json beside the resolved file: a mismatch means a different
@@ -197,6 +197,32 @@ export function pnpmIdentity({ spawn = spawnSync, env = installEnvironment() } =
   if (!declared) return { path: onPath.trim(), realPath: real, sha256, version: answered, versionSource: "native binary, version management off", node: process.version };
   if (declared !== answered) return { problem: `pnpm at ${real} is version ${declared} but "pnpm --version" answered ${answered}: another pnpm executable would run (package manager version management); refusing to bind the identity` };
   return { path: onPath.trim(), realPath: real, sha256, version: answered, node: process.version };
+}
+
+/**
+ * A native PE that has no `.exe` extension, as pnpm 12's installer leaves it (`node_modules/.bin/bin/pnpm`), cannot be started from
+ * Node on Windows: libuv resolves an extensionless name only by appending `.com`/`.exe`. The identified bytes are therefore run from a
+ * content-addressed copy named `pnpm.exe` (same sha256, same bytes) under the temp directory. Anywhere else, or for a file that is
+ * not a PE or already has an executable extension, the file is returned unchanged.
+ */
+export function nativeLaunchPath(file, { platform = process.platform, tmpdir = os.tmpdir() } = {}) {
+  if (platform !== "win32" || /\.(?:exe|com)$/i.test(file)) return file;
+  let bytes; try { bytes = fs.readFileSync(file); } catch { return file; }
+  if (bytes.length < 2 || bytes[0] !== 0x4d || bytes[1] !== 0x5a) return file;
+  const digest = crypto.createHash("sha256").update(bytes).digest("hex");
+  const target = path.join(tmpdir, `rk-pnpm-exe-${digest.slice(0, 16)}`, "pnpm.exe");
+  try {
+    if (fs.existsSync(target) && crypto.createHash("sha256").update(fs.readFileSync(target)).digest("hex") === digest) return target;
+    fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, bytes);
+    return target;
+  } catch { return file; }
+}
+
+/** How the identified pnpm is started: a JavaScript entry through node (a shim cannot be started without a shell on Windows), a native pnpm as found. */
+export function pnpmLaunch({ path: onPath, realPath }, options) {
+  if (/\.[cm]?js$/i.test(realPath)) return { command: process.execPath, args: [realPath] };
+  const platform = options?.platform ?? process.platform;
+  return { command: platform === "win32" ? nativeLaunchPath(realPath, options) : onPath, args: [] };
 }
 
 /** The JavaScript entry a pnpm shim execs (resolved and real), or `file` itself when it is already the entry. */
@@ -257,7 +283,17 @@ export function normalizeInstalledMetadata(name, text, exportDir, { resolvers = 
     return unpath(text.split(/\r?\n/).filter((l) => !/^prunedAt:/.test(l)).join("\n"));
   }
   if (name === ".pnpm-workspace-state-v1.json") {
-    try { const j = JSON.parse(text); delete j.lastValidatedTimestamp; return unpath(JSON.stringify(j, null, 1)); } catch { return unpath(text); }
+    // pnpm 12 adds `validation`: the instant it recorded the state (`recordedAtNs`) and each validated file's mtime/ctime in ns. Those
+    // are the install's own clock readings and differ between two exports of one commit; the file's size and content digest, the
+    // lockfile digest and the manifest digests beside them stay.
+    try {
+      const j = JSON.parse(text); delete j.lastValidatedTimestamp;
+      if (j.validation && typeof j.validation === "object") {
+        delete j.validation.recordedAtNs;
+        for (const f of Object.values(j.validation.files ?? {})) if (f && typeof f === "object") { delete f.mtimeNs; delete f.ctimeNs; }
+      }
+      return unpath(JSON.stringify(j, null, 1));
+    } catch { return unpath(text); }
   }
   return unpath(text);
 }

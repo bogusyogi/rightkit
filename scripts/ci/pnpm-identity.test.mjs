@@ -44,3 +44,21 @@ test("a non-pnpm package in node_modules/pnpm is not accepted", () => {
   write(path.join(root, "node_modules/.bin/bin/pnpm"), "");
   assert.equal(pnpmPackageVersion(path.join(root, "node_modules/.bin/bin/pnpm")), null);
 });
+
+test("a native PE without an .exe extension is run from a content-addressed pnpm.exe copy on Windows only", async () => {
+  const { nativeLaunchPath, pnpmLaunch } = await import("./exports-import-effects.mjs");
+  const root = tmp(); const tmpdir = path.join(root, "tmp"); fs.mkdirSync(tmpdir);
+  const pe = path.join(root, "bin", "pnpm"); fs.mkdirSync(path.dirname(pe)); fs.writeFileSync(pe, Buffer.from([0x4d, 0x5a, 1, 2, 3]));
+  const copy = nativeLaunchPath(pe, { platform: "win32", tmpdir });
+  assert.match(copy, /rk-pnpm-exe-[0-9a-f]{16}[\\/]pnpm\.exe$/);
+  assert.deepEqual([...fs.readFileSync(copy)], [0x4d, 0x5a, 1, 2, 3], "the copy carries the identified bytes");
+  assert.equal(nativeLaunchPath(pe, { platform: "win32", tmpdir }), copy, "a second ask reuses the verified copy");
+  assert.equal(nativeLaunchPath(pe, { platform: "linux", tmpdir }), pe, "no copy off Windows");
+  const exe = path.join(root, "bin", "pnpm.exe"); fs.writeFileSync(exe, Buffer.from([0x4d, 0x5a]));
+  assert.equal(nativeLaunchPath(exe, { platform: "win32", tmpdir }), exe, "an .exe is run as it is");
+  const text = path.join(root, "bin", "sh-shim"); fs.writeFileSync(text, "#!/bin/sh\n");
+  assert.equal(nativeLaunchPath(text, { platform: "win32", tmpdir }), text, "a non-PE file is returned unchanged");
+  assert.deepEqual(pnpmLaunch({ path: "/x/pnpm", realPath: "/x/pnpm" }, { platform: "linux" }), { command: "/x/pnpm", args: [] });
+  assert.equal(pnpmLaunch({ path: pe, realPath: pe }, { platform: "win32", tmpdir }).command, copy);
+  assert.deepEqual(pnpmLaunch({ path: "/x/p", realPath: "/x/pnpm.cjs" }), { command: process.execPath, args: ["/x/pnpm.cjs"] });
+});

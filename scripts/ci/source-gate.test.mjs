@@ -291,8 +291,11 @@ test("exports-import-effects: dependency bytes are bound, not metadata: two expo
     fs.writeFileSync(state, JSON.stringify(j));
   }
   // An escaping link (resolving outside the export) is counted and the report that carries it is refused.
+  // pnpm 12 hoists workspace packages into node_modules/.pnpm/node_modules, so the same escaping link is reached again through that
+  // in-export link (the resolved closure follows it): the count is one per reach, never fewer than the one link the test placed.
+  assert.equal(hashInstalled(two.dir).externalLinks, 0, "no escaping link before the test places one");
   fs.symlinkSync(os.tmpdir(), path.join(two.dir, "packages", "a", "node_modules", "escape"), "dir");
-  const escaped = hashInstalled(two.dir); assert.equal(escaped.externalLinks, 1);
+  const escaped = hashInstalled(two.dir); assert.ok(escaped.externalLinks >= 1, "the placed escaping link is counted");
   fs.unlinkSync(path.join(two.dir, "packages", "a", "node_modules", "escape"));
   // The live checkout's node_modules (a link to a dirty package) is irrelevant: tamper it and re-export → same digest as `one`.
   fs.mkdirSync(path.join(repo, "node_modules", "@rk"), { recursive: true }); fs.symlinkSync(path.join(repo, "packages", "a"), path.join(repo, "node_modules", "@rk", "a"), "dir");
@@ -378,8 +381,14 @@ test("exports-import-effects: dependency setup executes no candidate code — pn
   fs.rmSync(mark("pnpmfile"), { force: true });
   // (The query is made as a developer shell would: PATH and HOME only. pnpm 10.28 skips the file when npm_config_ignore_pnpmfile is
   // set; pnpm 11.25 loads it regardless — so the install environment alone is not what keeps the identity query clean.)
+  // A native pnpm 12 binary answers `--version` before it loads any configuration (verified: no .pnpmfile.cjs runs, whatever the
+  // directory), so the in-tree positive control holds only for the JavaScript pnpm (10.x, 11.x). For a native pnpm the observed fact is
+  // pinned the other way round: the raw query in the hostile tree runs nothing, and the identity query stays in an empty directory regardless.
+  const nativePnpm = !/\.[cm]?js$/i.test(id.realPath);
   const raw = packageManager("pnpm", ["--version"], { cwd: repo, encoding: "utf8", env: { PATH: process.env.PATH, HOME: process.env.HOME, npm_config_manage_package_manager_versions: "false" } }).trim();
-  assert.ok(/^\d+\.\d+\.\d+/.test(raw)); assert.equal(existsSync(mark("pnpmfile")), true, "positive control: `pnpm --version` inside the tree ran its .pnpmfile.cjs");
+  assert.ok(/^\d+\.\d+\.\d+/.test(raw));
+  if (nativePnpm) assert.equal(existsSync(mark("pnpmfile")), false, "native pnpm: `pnpm --version` answers before it loads the tree's configuration");
+  else assert.equal(existsSync(mark("pnpmfile")), true, "positive control: `pnpm --version` inside the tree ran its .pnpmfile.cjs");
   fs.rmSync(mark("pnpmfile"), { force: true });
   const quietId = pnpmIdentity(); assert.equal(quietId.version, id.version); assert.equal(existsSync(mark("pnpmfile")), false, "the identity query never loads the tree's configuration");
   // Normalization removes only the top-level prunedAt; a nested key of the same name is semantic and stays.

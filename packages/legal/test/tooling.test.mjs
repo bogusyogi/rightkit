@@ -159,16 +159,18 @@ test("npm CLI consumes captured pnpm JSON & package exposes shipped bins/API", (
 test("npm generator invokes production pnpm scanner in app root & preserves output on failure", { skip: process.platform === "win32" }, (t) => {
   const { root, write } = fixture(t);
   write("deps/pkg/LICENSE", "License");
-  const scanner = `#!${process.execPath}\nimport {writeFileSync} from 'node:fs';\nwriteFileSync('scanner-call.json', JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2)}));\nconsole.log(JSON.stringify({MIT:[{name:'pkg',versions:['1'],paths:['deps/pkg']}]}));\n`;
+  const scanner = `#!${process.execPath}\nimport {appendFileSync} from 'node:fs';\nconst args = process.argv.slice(2);\nappendFileSync('scanner-calls.jsonl', JSON.stringify({cwd:process.cwd(),args}) + '\\n');\nconst out = args[0] === 'list' ? [{dependencies:{pkg:{version:'1',path:'deps/pkg'}}}] : {MIT:[{name:'pkg',versions:['1'],paths:['deps/pkg']}]};\nconsole.log(JSON.stringify(out));\n`;
   write("bin/pnpm", scanner);
   chmodSync(path.join(root, "bin/pnpm"), 0o755);
   const oldPath = process.env.PATH;
   process.env.PATH = `${path.join(root, "bin")}${path.delimiter}${oldPath}`;
   t.after(() => { process.env.PATH = oldPath; });
   const result = generateNpmLicenseAppendix({ appRoot: root });
-  assert.deepEqual(JSON.parse(readFileSync(path.join(root, "scanner-call.json"), "utf8")), {
-    cwd: root, args: ["licenses", "list", "--prod", "--json"],
-  });
+  const calls = readFileSync(path.join(root, "scanner-calls.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.deepEqual(calls, [
+    { cwd: root, args: ["licenses", "list", "--prod", "--json"] },
+    { cwd: root, args: ["list", "--json", "--depth", "Infinity"] },
+  ]);
   const previous = readFileSync(result.output, "utf8");
   write("bin/pnpm", `#!${process.execPath}\nconsole.error('scanner failed'); process.exit(3);\n`);
   assert.throws(() => generateNpmLicenseAppendix({ appRoot: root }), /scanner failed/);
