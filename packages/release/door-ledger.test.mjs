@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
-import { closeSnapshotStage, main, openSnapshotStage, stageSidecarsOnce, stageWebBuildOnce, qualifyOwedProblem } from "./bin/rightkit-gate.mjs";
+import { closeSnapshotStage, main, openSnapshotStage, stageSidecarsOnce, stageWebBuildOnce, stageWindowsIdentityOnce, qualifyOwedProblem } from "./bin/rightkit-gate.mjs";
 import { attributionProblems, declaredInputProblems, diffEntries, neutralIgnored, receiptLedger, reportedPaths, walkSnapshot } from "./stage-ledger.mjs";
 import { stageSidecars } from "./stage-sidecar.mjs";
 
@@ -415,4 +415,73 @@ test("[rightkit#1332/#1333] qualification refuses what compile left to it unless
   assert.match(problems[1], /swift-build:ios-native\/Tests\/E2E .*needs a prebuilt core library/);
   const withJourneys = await fixture(t, { ...APP_FILES, "right-release.config.json": JSON.stringify({ schema: 1, app: "app", version: "1.0.0", qa: { config: "q.mjs", journeys: { manifest: "journeys.toml" } } }) + "\n" }, "rk-owed-b-");
   assert.deepEqual(qualifyOwedProblem(args(withJourneys, owed)), []);
+});
+
+// ---- the Windows package-identity (sparse MSIX) producer declared in the release config (windows.identity) ------------------------------
+
+const IDENTITY_DECL = { manifest: "src-tauri/windows/identity/AppxManifest.xml", out: "src-tauri/windows/identity/dist", package: "App.Identity.msix", assets: { files: [{ from: "src-tauri/icons/StoreLogo.png", to: "AppStoreLogo.png" }] } };
+const IDENTITY_FILES = {
+  ...APP_FILES,
+  "right-release.config.json": JSON.stringify({ schema: 1, app: "app", version: "1.0.0", windows: { identity: IDENTITY_DECL } }) + "\n",
+  ".rightkit/compile-inputs.json": JSON.stringify({ inputs: ["src-tauri/windows/identity/dist"] }) + "\n",
+};
+const identityArgs = (fx, spawnCapture, platform = "win32") => ({ o: { ...fx.o, platform, spawnCapture }, ds: fx.ds, root: fx.repo, git: (...a) => git(fx.repo, ...a), appDir: ".", cli: "/x/cli/right-release.mjs", commonDir: path.join(fx.repo, ".git"), commit: fx.sha, tree: fx.tree, stage: "compile" });
+const identityDouble = (fx, { extra = [], status = 0, skipped = null, out = "src-tauri/windows/identity/dist" } = {}) => {
+  const calls = [];
+  const fn = (cmd, args) => {
+    calls.push([cmd, ...args]);
+    if (status !== 0) return { status, stdout: "", stderr: "" };
+    if (!skipped) { fx.write(`${out}/App.Identity.msix`, "signed-msix"); fx.write(`${out}/external-assets/Assets/AppStoreLogo.png`, "png"); }
+    for (const f of extra) fx.write(f, "stray");
+    return { status: 0, stderr: "", stdout: JSON.stringify({ skipped, out: IDENTITY_DECL.out, package: IDENTITY_DECL.package, files: [] }) };
+  };
+  fn.calls = calls; return fn;
+};
+
+test("[windows.identity positive] on Windows a declared input the snapshot lacks is produced by windows-identity inside the snapshot, as generated ledger entries bound to the compile's digest", { skip: POSIX_SIM }, async (t) => {
+  const fx = await fixture(t, IDENTITY_FILES, "rk-ledger-id-");
+  const spawn = identityDouble(fx);
+  assert.equal(await stageWindowsIdentityOnce(identityArgs(fx, spawn)), true, fx.lines.join("\n"));
+  assert.deepEqual(spawn.calls.map((c) => c.slice(1)), [[path.join("/x/cli", "..", "windows-identity.mjs"), "--config", path.join(fx.snapshot, "right-release.config.json"), "--json"]]);
+  assert.deepEqual(fx.ds.ledger.entries.map((e) => [e.path, e.kind, e.producer.stage]), [
+    ["src-tauri/windows/identity/dist/App.Identity.msix", "generated", "windows-identity"],
+    ["src-tauri/windows/identity/dist/external-assets/Assets/AppStoreLogo.png", "generated", "windows-identity"],
+  ]);
+  const { judgeCompileInputs } = await import("./compile-inputs.mjs");
+  const judged = judgeCompileInputs(fx.snapshot);
+  assert.deepEqual(judged.findings, []);
+  const digest = judged.inputs.find((i) => i.path === "src-tauri/windows/identity/dist").sha256;
+  const problems = (d) => declaredInputProblems({ snapshot: fx.snapshot, entries: fx.ds.ledger.entries, receiptDigests: [{ path: "src-tauri/windows/identity/dist", sha256: d, files: 2 }], judge: judgeCompileInputs });
+  assert.deepEqual(problems(digest), []);
+  assert.match(problems("0".repeat(64))[0], /differs from the gate's digest/);
+  assert.equal(await stageWindowsIdentityOnce(identityArgs(fx, spawn)), true);
+  assert.equal(spawn.calls.length, 1, "once per door run");
+});
+
+test("[windows.identity negative] not Windows, inputs present, or no declaration: nothing runs; a failure, a stray write, an out outside the declared inputs, or a write after a skip refuses", { skip: POSIX_SIM }, async (t) => {
+  const mac = await fixture(t, IDENTITY_FILES, "rk-ledger-id-a-");
+  const never = identityDouble(mac);
+  assert.equal(await stageWindowsIdentityOnce(identityArgs(mac, never, "darwin")), true);
+  assert.equal(never.calls.length, 0); refused(mac, /declares windows\.identity; not a Windows host/);
+  const present = await fixture(t, IDENTITY_FILES, "rk-ledger-id-b-");
+  present.write("src-tauri/windows/identity/dist/App.Identity.msix", "x");
+  const none = identityDouble(present);
+  assert.equal(await stageWindowsIdentityOnce(identityArgs(present, none)), true);
+  assert.equal(none.calls.length, 0, "every declared input present: no build");
+  const bare = await fixture(t, { ...APP_FILES, ".rightkit/compile-inputs.json": IDENTITY_FILES[".rightkit/compile-inputs.json"] }, "rk-ledger-id-c-");
+  const bareSpawn = identityDouble(bare);
+  assert.equal(await stageWindowsIdentityOnce(identityArgs(bare, bareSpawn)), true);
+  assert.equal(bareSpawn.calls.length, 0);
+  const failing = await fixture(t, IDENTITY_FILES, "rk-ledger-id-d-");
+  assert.equal(await stageWindowsIdentityOnce(identityArgs(failing, identityDouble(failing, { status: 1 }))), false);
+  refused(failing, /windows-identity for right-release\.config\.json failed/);
+  const stray = await fixture(t, IDENTITY_FILES, "rk-ledger-id-e-");
+  assert.equal(await stageWindowsIdentityOnce(identityArgs(stray, identityDouble(stray, { extra: ["src-tauri/binaries/stray.bin"] }))), false);
+  refused(stray, /RK_CHECK_ERROR: \[compile\] windows-identity right-release\.config\.json: src-tauri\/binaries\/stray\.bin was written by the Windows identity build but lies outside its out src-tauri\/windows\/identity\/dist/);
+  const outside = await fixture(t, { ...IDENTITY_FILES, ".rightkit/compile-inputs.json": JSON.stringify({ inputs: ["dist"] }) + "\n" }, "rk-ledger-id-f-");
+  assert.equal(await stageWindowsIdentityOnce(identityArgs(outside, identityDouble(outside))), false);
+  refused(outside, /windows\.identity\.out src-tauri\/windows\/identity\/dist lies under no declared compile input/);
+  const skippedWrite = await fixture(t, IDENTITY_FILES, "rk-ledger-id-g-");
+  assert.equal(await stageWindowsIdentityOnce(identityArgs(skippedWrite, identityDouble(skippedWrite, { skipped: "present", extra: ["src-tauri/windows/identity/dist/x"] }))), false);
+  refused(skippedWrite, /was written although the identity build reported a skip/);
 });

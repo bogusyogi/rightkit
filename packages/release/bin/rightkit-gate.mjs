@@ -1578,6 +1578,8 @@ async function runStages(o, args, root, git, io) {
       else for (const config of ok ? sidecarConfigs : []) if (!await rightRelease(stage, ["stage-sidecar", "--config", path.join(root, config)])) { ok = false; break; }
       // rightkit#1331: the declared compile inputs that are the app's web build output are produced in the snapshot before the compile reads them.
       if (ok && ds) ok = await stageWebBuildOnce({ o, ds, root, git, appDir, cli, commonDir, commit, tree, stage, executor });
+      // The Windows package-identity MSIX a Tauri app bundles (its release config's windows.identity), produced in the snapshot on Windows only.
+      if (ok && ds) ok = await stageWindowsIdentityOnce({ o, ds, root, git, appDir, cli, commonDir, commit, tree, stage, executor });
       let compiledDirs = []; let qualifyOwed = [];
       const reportOutputs = (dirs) => { compiledDirs = [...dirs]; };
       if (ok) ok = (await (o.runCompile ?? (() => main(ds ? ["--all", "--commit", commit, "--snapshot", ds.path] : ["--all"], { ...io, cwd: root, readStdin: () => "", ...(ds ? { buildOwnership: ds.own, classAEarlier: true, snapshotLedger: ds.ledger?.entries ?? [], onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, onDirectReceipt: (r) => { directReceipt = r; }, onCompileOutputs: reportOutputs, onQualifyOwed: (list) => { qualifyOwed = list; } } : {}) })))({ reportOutputs })) === 0;
@@ -1974,6 +1976,66 @@ export async function stageWebBuildOnce({ o, ds, root, git = null, appDir, cli, 
   }
   return true;
 }
+
+/**
+ * The Windows package-identity (sparse MSIX) an app bundles, produced INSIDE the snapshot before the compile, like stageWebBuildOnce: the
+ * app's committed release config declares `windows.identity` (windows-identity-plan.mjs) and windows-identity.mjs (RightKit's msix tooling, the
+ * provisioned signer; never app code) builds and signs it. Windows hosts only: elsewhere nothing runs and a declared input that stays absent is
+ * left to the compile, which names it (platform scoping of the declared input itself is a separate decision). The child reports what it wrote
+ * (`--json`); this gate's own walk must then find additions only under the producer's `out`, which must lie under a declared compile input
+ * (identityOutputProblems). They become `generated` ledger entries, and the compile's declared-input digest covers those very bytes.
+ * Nothing runs when every declared input is present or no committed config declares windows.identity (the package itself already being
+ * present is the child's skip). Returns true when nothing is owed or the build passed.
+ */
+export async function stageWindowsIdentityOnce({ o, ds, root, git = null, appDir, cli, commonDir, commit, tree, stage, executor = null, tag = "rightkit-gate:" }) {
+  if (ds.identityBuilt) return true;
+  ds.identityBuilt = true;
+  const { readDeclaredInputs, SnapshotRequestError } = await import("../snapshot-request.mjs");
+  let declared;
+  try { declared = readDeclaredInputs(ds.path).map((x) => x.split(/[\\/]/).join("/")); }
+  catch (e) { if (e instanceof SnapshotRequestError) return true; throw e; }
+  const absent = () => declared.filter((rel) => !(o.exists ?? fs.existsSync)(path.join(ds.path, ...rel.split("/"))));
+  if (!absent().length || !git) return true;
+  const { committedWindowsIdentityConfigs } = await import("../windows-identity-plan.mjs");
+  const listed = git("ls-tree", "-r", "--name-only", "-z", commit);
+  const all = failed(listed) ? [] : text(listed).split("\0").filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)).filter((f) => appDir === "." || f.startsWith(`${appDir}/`));
+  const configs = committedWindowsIdentityConfigs({ readFile: o.readFile, listConfigs: all, base: ds.path });
+  if (!configs.length) return true;
+  if ((o.platform ?? process.platform) !== "win32") { o.out(`${tag} [${stage}] ${configs.join(", ")} declares windows.identity; not a Windows host, so the identity package is not built here`); return true; }
+  const { identityOutputProblems } = await import("../windows-identity-plan.mjs");
+  const source = sourceSplitOf({ root, ds, appDir });
+  const { TAURI_CONFIG: inherited, ...cleanEnv } = o.env; void inherited;
+  const producer = path.join(path.dirname(cli), "..", "windows-identity.mjs");
+  for (const config of configs) {
+    const before = ds.ledger?.entries ?? [];
+    const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag });
+    if (carrier.refusal) { o.err(`${tag} BLOCKED: ${carrier.refusal}; the Windows identity package did not build`); return false; }
+    const run = startRun({ commonDir, commit, tree, stage, source });
+    let r;
+    try {
+      o.out(`${tag} [${stage}] windows-identity --config ${path.join(ds.path, config)} (from the snapshot ${ds.path})`);
+      r = (o.spawnCapture ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, encoding: "utf8", maxBuffer: 1 << 26 })))(process.execPath, [producer, "--config", path.join(ds.path, config), "--json"], { cwd: snapshotAppRootOf(ds.path, appDir), env: carriedEnv(carrier, { ...cleanEnv, ...run.env }) });
+    } finally { endRun(run); }
+    const carriedOk = await carrier.finish({ stage });
+    if (r?.stderr) o.err(String(r.stderr).trimEnd());
+    if (!r || r.status !== 0) { o.err(`${tag} [${stage}] windows-identity for ${config} failed${r?.error ? ` (${r.error.message})` : ""}`); return false; }
+    if (!carriedOk) return false;
+    let result;
+    try { result = JSON.parse(String(r.stdout ?? "").trim()); } catch { o.err(`${tag} RK_CHECK_ERROR: [${stage}] windows-identity --json for ${config} did not print its result; its writes cannot be attributed`); return false; }
+    let walked;
+    try { walked = await walkDoorSnapshot(o, ds, root); } catch (e) { o.err(`${tag} RK_CHECK_ERROR: [${stage}] ${e.message}`); return false; }
+    const configDir = path.posix.dirname(String(config).replaceAll("\\", "/"));
+    const underApp = (rel) => (configDir === "." ? rel : `${configDir}/${rel}`);
+    let problems = walked.problems;
+    if (result.skipped) problems = [...problems, ...diffProblems(before, walked.entries)];
+    else problems = [...problems, ...identityOutputProblems({ before, after: walked.entries, out: underApp(result.out), declared, packageFile: result.package })];
+    if (problems.length) { for (const p of problems.slice(0, 10)) o.err(`${tag} RK_CHECK_ERROR: [${stage}] windows-identity ${config}: ${p}`); return false; }
+    const priorByPath = new Map(before.map((e) => [e.path, e]));
+    ds.ledger = { entries: walked.entries.map((e) => (priorByPath.get(e.path)?.sha256 === e.sha256 ? priorByPath.get(e.path) : { ...e, kind: "generated", producer: { stage: "windows-identity", step: config } })) };
+  }
+  return true;
+}
+const diffProblems = (before, after) => { const b = new Map(before.map((e) => [e.path, e.sha256])); return after.filter((e) => b.get(e.path) !== e.sha256).map((e) => `${e.path} was written although the identity build reported a skip`); };
 
 /** Hosted CI scans its committed runner checkout. Raw-tree verification defeats filters or a stale index hiding edits. */
 async function verifyCommittedCheckout({ git, root, commit, tree, when }) {
