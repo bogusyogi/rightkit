@@ -718,11 +718,14 @@ test("a resource directory is copied recursively and every file is hashed into t
 test("nested broker context fails fast with the prepare-step fix; the escape hatch and non-broker entries are unaffected", async (t) => {
   simulateHostPlatform(t, "darwin");
   const nested = { TAURI_ENV_PLATFORM: "darwin", TAURI_ENV_TARGET_TRIPLE: MAC, RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/broker.sock" };
-  assert.equal(isNestedBrokerContext(nested), true);
-  assert.equal(isNestedBrokerContext({ TAURI_ENV_PLATFORM: "darwin", RIGHTSUITE_HEAVY_WORK_OWNER: "1" }), true);
-  assert.equal(isNestedBrokerContext({ RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/broker.sock" }), false, "not inside a Tauri hook");
-  assert.equal(isNestedBrokerContext({ TAURI_ENV_PLATFORM: "darwin" }), false, "not a managed host");
-  assert.equal(isNestedBrokerContext({ ...nested, RIGHTKIT_STAGE_SIDECAR_ALLOW_NESTED: "1" }), false);
+  // The broker is the Mac's and the Dell's: the context is judged for the host asked about, not the machine the suite happens to run on (a Linux host has no broker).
+  assert.equal(isNestedBrokerContext(nested, "darwin"), true);
+  assert.equal(isNestedBrokerContext(nested, "win32"), true);
+  assert.equal(isNestedBrokerContext(nested, "linux"), false, "a Linux host has no outer broker build to nest in");
+  assert.equal(isNestedBrokerContext({ TAURI_ENV_PLATFORM: "darwin", RIGHTSUITE_HEAVY_WORK_OWNER: "1" }, "darwin"), true);
+  assert.equal(isNestedBrokerContext({ RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/broker.sock" }, "darwin"), false, "not inside a Tauri hook");
+  assert.equal(isNestedBrokerContext({ TAURI_ENV_PLATFORM: "darwin" }, "darwin"), false, "not a managed host");
+  assert.equal(isNestedBrokerContext({ ...nested, RIGHTKIT_STAGE_SIDECAR_ALLOW_NESTED: "1" }, "darwin"), false);
   const { fs, files } = fakeFs({ [at("a.bin")]: "a" });
   const calls = [];
   const run = (...args) => { calls.push(args); return { status: 0, stdout: "" }; };
