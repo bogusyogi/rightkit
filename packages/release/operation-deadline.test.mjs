@@ -42,7 +42,6 @@ test("[GB-52] after the client's deadline and cancel the gate asks the broker fo
   // The broker settles the cancelled job while the gate waits: REAPED.
   fx.setBehavior({ stdout: DEADLINE_OUT, exit: 1 });
   const submitsBefore = fx.submits.length;
-  const settledSpawn = null; void settledSpawn;
   const first = cargo(fx, { deadlineMs: 5000 });
   assert.equal(first.outcome.code, "operation-deadline");
   assert.equal(fx.submits.length, submitsBefore + 1, "never resubmitted");
@@ -51,13 +50,14 @@ test("[GB-52] after the client's deadline and cancel the gate asks the broker fo
   assert.equal(first.outcome.subHandle.state, "REAPED");
   assert.equal(first.outcome.reaped, true);
   assert.match(first.outcome.message, /after the cancel the broker reports sub-handle .* REAPED/);
-  // The broker still holds the cancelled job: ACTIVE after the wait is a held ownership, said so, never released.
-  fx.setBehavior({ stdout: DEADLINE_OUT, exit: 1, heldHandles: [] });
-  const held = cargo(fx, { deadlineMs: 5000, spawn: (file, args, options) => { const r = fx.realSpawn(file, args, options); fx.setBehavior({ stdout: DEADLINE_OUT, exit: 1, heldHandles: [fx.submits.at(-1)] }); return r; } });
+  // The broker still holds the cancelled job: after the (bounded) wait it is still ACTIVE, so the broker's answer is a timeout: ownership stays held, said so, never released.
+  fx.setBehavior({ stdout: DEADLINE_OUT, exit: 1 });
+  const held = cargo(fx, { deadlineMs: 5000, spawn: (file, args, options) => { const r = fx.realSpawn(file, args, options); fx.setBehavior({ stdout: DEADLINE_OUT, exit: 1, heldHandles: [fx.submits.at(-1)] }); return r; } }, env(fx, { RUSTRIGHT_CANCEL_WAIT_MS: "300" }));
   assert.equal(held.outcome.code, "operation-deadline");
   assert.equal(held.outcome.reaped, false);
-  assert.equal(held.outcome.subHandle.state, "ACTIVE");
-  assert.match(held.outcome.message, /still ACTIVE.*ownership stays held until it is REAPED/s);
+  assert.deepEqual([held.outcome.subHandle.state, held.outcome.subHandle.waitTimedOut], ["UNKNOWN", true], "a wait that timed out keeps ownership UNKNOWN");
+  assert.deepEqual(held.outcome.subHandle.members.map((m) => m.state), ["ACTIVE"], "the member rows travel with the answer");
+  assert.match(held.outcome.message, /ACTIVE after waiting \d+ ms.*ownership stays held until it is REAPED/s);
   assert.notEqual(held.status, 0);
 });
 

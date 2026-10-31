@@ -276,7 +276,7 @@ function reconcileAfterCancel({ section, callHandle, childEnv }) {
   const state = status?.state ?? "UNKNOWN";
   const subHandle = { handle: callHandle, state, why: status?.why ?? null, ...(status?.waitedMs !== undefined ? { waitedMs: status.waitedMs } : {}), ...(status?.waitTimedOut !== undefined ? { waitTimedOut: status.waitTimedOut } : {}), ...(Array.isArray(status?.members) ? { members: status.members } : {}) };
   if (state === "REAPED") return { reaped: true, subHandle, note: `after the cancel the broker reports sub-handle ${callHandle} REAPED (every submission under it is settled)` };
-  return { reaped: false, subHandle, note: `after the cancel the broker reports sub-handle ${callHandle} still ${state}${status?.why ? ` (${status.why})` : ""}: ownership stays held until it is REAPED, and ownership stays UNKNOWN meanwhile; the job is not resubmitted` };
+  return { reaped: false, subHandle, note: `after the cancel the broker reports sub-handle ${callHandle} still ${state}${status?.why ? ` (${status.why})` : ""}: ownership stays held until it is REAPED; the job is not resubmitted` };
 }
 
 /**
