@@ -10,6 +10,11 @@
       "version": "7.1.5",
       "status": "approved",
       "sha256": "ded75c0edf344b9eed5876cd6cc469b7366b00c4dd0f25b3965062965c33990d",
+      "archive": {
+        "url": "https://raw.githubusercontent.com/bogusyogi/rightkit/16422e2c18c9f6d85612f30eda9645eef8924ebc/crates/rightkit-ffmpeg/artifacts/ffmpeg-7.1.5-windows-x64.tar.gz",
+        "sha256": "663381a94ae12a819b8e412950973cbbd765ec863e1c058e6e1de8730b991ae3",
+        "member": "ffmpeg.exe"
+      },
       "contentSha256": "293f16076954e8b53ac70908b1b29ae49a1bed2f9b0dc9fccb7f95aef49d297a",
       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
       "attribution": {
@@ -65,6 +70,11 @@
       "version": "7.1.5",
       "status": "approved",
       "sha256": "a42a50dbfa8502481db21da247f7fe45ee0c8e8b1bb98bd68558faf64faf4258",
+      "archive": {
+        "url": "https://raw.githubusercontent.com/bogusyogi/rightkit/16422e2c18c9f6d85612f30eda9645eef8924ebc/crates/rightkit-ffmpeg/artifacts/ffmpeg-7.1.5-macos-arm64.tar.gz",
+        "sha256": "010d32bbb3f51c9cc9eb90dce5160e67038acd3a7f0e02201d0db6796856ff78",
+        "member": "ffmpeg"
+      },
       "contentSha256": "3703e58129e2090ebb1bf705c34d3130fe094179bbdb55aebd558d13f6bca1ab",
       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
       "attribution": {
@@ -91,6 +101,11 @@
       "version": "7.1.5",
       "status": "approved",
       "sha256": "2ba456b336d5faa75e2783e4e2c49434d9b26e765621eae6669d10e5b4303929",
+      "archive": {
+        "url": "https://raw.githubusercontent.com/bogusyogi/rightkit/16422e2c18c9f6d85612f30eda9645eef8924ebc/crates/rightkit-ffmpeg/artifacts/ffmpeg-7.1.5-macos-x86_64.tar.gz",
+        "sha256": "c0d9b550936144dd7460d39b617e6bc0b65bc1e0f5a622940ebef34cb344adfa",
+        "member": "ffmpeg"
+      },
       "contentSha256": "6684862b8fb65fe71547a7e921a0f878c9f098c6d5a9afa6bee406b907417efc",
       "sourceSha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
       "attribution": {

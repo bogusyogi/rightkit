@@ -361,6 +361,11 @@ pub struct Artifact {
     pub required_configure_flags: Vec<String>,
     #[serde(default)]
     pub pending: Option<PendingBuild>,
+    /// Where the retained bytes can be fetched: an https archive pinned by its own sha256 whose
+    /// `member` is the tool's bare file name (`ffmpeg`, `ffmpeg.exe`) holding exactly the bytes
+    /// `sha256` names. Absent where the bytes are not published.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive: Option<native::ArchiveRef>,
 }
 
 impl Artifact {
@@ -441,6 +446,24 @@ impl Artifact {
             (_, Some(_), Some(_)) => return Err(MediaError::PendingWithDigest(self.id.clone())),
         }
         validate_digest("sourceSha256", &self.source_sha256)?;
+        if let Some(archive) = &self.archive {
+            let invalid = |reason| MediaError::InvalidArchive {
+                id: self.id.clone(),
+                reason,
+            };
+            if self.sha256.is_none() {
+                return Err(invalid("needs the sha256 of the bytes it holds"));
+            }
+            if !archive.url.starts_with("https://") || archive.url.contains(char::is_whitespace) {
+                return Err(invalid("url must be an https:// URL"));
+            }
+            validate_digest("archive.sha256", &archive.sha256)?;
+            if archive.member.as_deref() != Some(self.tool.file_name(&self.os).as_str()) {
+                return Err(invalid(
+                    "member must be the tool's bare file name for the row's os",
+                ));
+            }
+        }
         self.attribution.validate(self.status)?;
         if self.required_configure_flags.is_empty() {
             return Err(MediaError::MissingMetadata("requiredConfigureFlags"));
@@ -688,6 +711,11 @@ pub enum MediaError {
         variant: String,
         component: String,
     },
+    /// A catalog row's `archive` cannot fetch the row's bytes as written.
+    InvalidArchive {
+        id: String,
+        reason: &'static str,
+    },
 }
 
 impl MediaError {
@@ -731,7 +759,8 @@ impl MediaError {
             | Self::UnverifiedNotFound
             | Self::StagingFailed(_)
             | Self::MalformedBinary(_)
-            | Self::ComponentNotAllowed { .. } => false,
+            | Self::ComponentNotAllowed { .. }
+            | Self::InvalidArchive { .. } => false,
         }
     }
 }
@@ -746,6 +775,7 @@ impl fmt::Display for MediaError {
             }
             Self::MissingMetadata(field) => write!(f, "artifact metadata is missing {field}"),
             Self::InvalidDigest { field } => write!(f, "{field} is not a SHA-256 digest"),
+            Self::InvalidArchive { id, reason } => write!(f, "{id}: archive {reason}"),
             Self::UnapprovedLicense(license) => write!(f, "unapproved FFmpeg license {license}"),
             Self::MissingAttribution(item) => write!(f, "FFmpeg attribution is missing {item}"),
             Self::MissingConfigureFlag(flag) => write!(f, "FFmpeg is missing required flag {flag}"),
@@ -1336,6 +1366,7 @@ mod tests {
                 "--disable-autodetect".into(),
             ],
             pending: None,
+            archive: None,
         }
     }
 
@@ -1443,6 +1474,64 @@ mod tests {
         value["artifacts"][0]["unreviewedPolicy"] = serde_json::Value::Bool(true);
         let result = ArtifactCatalog::parse(&serde_json::to_string(&value).unwrap());
         assert!(matches!(result, Err(MediaError::CatalogJson(_))));
+    }
+
+    #[test]
+    fn an_archive_is_https_pinned_and_holds_the_tools_file() {
+        let digest = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
+        let with = |url: &str, sha256: &str, member: Option<&str>| {
+            let mut artifact = approved_artifact(digest);
+            artifact.archive = Some(native::ArchiveRef {
+                url: url.into(),
+                sha256: sha256.into(),
+                member: member.map(Into::into),
+            });
+            artifact.validate()
+        };
+        let url = "https://example.com/ffmpeg.tar.gz";
+        with(url, digest, Some("ffmpeg.exe")).unwrap();
+        for (url, member) in [
+            ("http://example.com/ffmpeg.tar.gz", Some("ffmpeg.exe")),
+            (url, Some("ffmpeg")),
+            (url, Some("bin/ffmpeg.exe")),
+            (url, None),
+        ] {
+            assert!(
+                matches!(
+                    with(url, digest, member),
+                    Err(MediaError::InvalidArchive { .. })
+                ),
+                "{url} {member:?}"
+            );
+        }
+        assert!(matches!(
+            with(url, "not-a-digest", Some("ffmpeg.exe")),
+            Err(MediaError::InvalidDigest {
+                field: "archive.sha256"
+            })
+        ));
+    }
+
+    /// Every embedded `archive` that points into this repository's `artifacts/` names an
+    /// archive committed there with exactly that digest. The folder is outside the published
+    /// crate, so outside a checkout there is nothing to compare.
+    #[test]
+    fn embedded_archives_match_the_committed_files() {
+        const PREFIX: &str = "/crates/rightkit-ffmpeg/artifacts/";
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("artifacts");
+        if !root.is_dir() {
+            return;
+        }
+        for artifact in ArtifactCatalog::embedded().unwrap().artifacts {
+            let Some(archive) = artifact.archive else {
+                continue;
+            };
+            let Some((_, name)) = archive.url.split_once(PREFIX) else {
+                continue;
+            };
+            let actual = rightkit_fs::digest::sha256_file(&root.join(name)).unwrap();
+            assert_eq!(actual, archive.sha256, "{}: {name}", artifact.id);
+        }
     }
 
     #[test]
@@ -2320,6 +2409,10 @@ mod tests {
             MediaError::ComponentNotAllowed {
                 variant: s(),
                 component: s(),
+            },
+            MediaError::InvalidArchive {
+                id: s(),
+                reason: "x",
             },
         ];
         assert!(not_in_catalog.iter().all(MediaError::is_not_in_catalog));

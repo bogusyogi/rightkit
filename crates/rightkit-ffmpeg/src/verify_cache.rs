@@ -174,6 +174,7 @@ mod tests {
                 "--disable-autodetect".into(),
             ],
             pending: None,
+            archive: None,
         }
     }
 

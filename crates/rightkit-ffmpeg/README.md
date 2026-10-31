@@ -55,6 +55,12 @@ let resolved = resolve_ffmpeg(artifact, &request)?;
 let verified = verify_ffmpeg(resolved, Duration::from_secs(10))?;
 ```
 
+## Retained binaries
+
+The approved `decode` rows for ffmpeg 7.1.5 (`ffmpeg-7.1.5-macos-arm64`, `-macos-x86_64`, `-windows-x64`) carry an `archive`: an https URL pinned to the RightKit commit that added the file, the archive's own `sha256`, and `member`, the tool's bare file name. The archives are committed under `artifacts/` (a deterministic `tar.gz` per row, one member whose bytes are the row's `sha256`); that folder is outside the published crate. `Artifact::validate` refuses an `archive` that is not https, has no row `sha256` beside it, or whose `member` is not the tool's file name for the row's OS.
+
+A gate build takes these bytes through the stage-sidecar `sources` route, never from a machine-local path (a snapshot build refuses one with `STAGE_SIDECAR_SOURCE_OUTSIDE_SNAPSHOT`). Copy the row's `archive` into the app's `ffmpeg` entry: `sources: { ffmpeg: { aarch64: { url, sha256, member }, x86_64: { url, sha256, member } } }` for `universal-apple-darwin`, `sources: { ffmpeg: { url, sha256, member } }` for Windows. The gate downloads each archive once into its cache, checks the archive digest and then the member's content digest against the row.
+
 ## Native library catalog
 
 `native::NativeCatalog` (`catalog/native-libraries.json`, feature `native`) pins every native file the suite ships: FFmpeg, ONNX Runtime, DirectML, PDFium, sqlite-vec, libgit2, ggml, whisper.cpp and sherpa-onnx. One row is one file for one OS and architecture. Statuses: `approved` (digest verified against a real artifact), `pinned` (version and digests pinned, not yet proven on a host), `planned` (no digest, never resolvable) and `stale-unverified` (history). Only `approved` and `pinned` rows serve a file (`NativeStatus::serves`); a planned or stale row never does.
