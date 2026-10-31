@@ -995,7 +995,10 @@ pub fn run_journeys(opts: &JourneyRunOptions) -> Result<RunReport> {
 
 /// `journeys run` over the gate's carried, signed build (audit GB-79): the same run as [`run_journeys`], with the verified prebuilt
 /// input standing in for the broker spawn ([`prebuilt::build_from_prebuilt`]). Nothing compiles.
-pub fn run_journeys_prebuilt(opts: &JourneyRunOptions, input: &super::prebuilt::PrebuiltInput) -> Result<RunReport> {
+pub fn run_journeys_prebuilt(
+    opts: &JourneyRunOptions,
+    input: &super::prebuilt::PrebuiltInput,
+) -> Result<RunReport> {
     let exe = opts.exe.clone();
     run_with(
         opts,
@@ -3402,10 +3405,19 @@ untagged_baseline = 0
     }
 
     /// The gate's carried build of the fixture app (audit GB-79): listing, attestation and signing evidence on disk beside the repo.
-    fn carried_input(r: &Repo, raw: &RawBuild, sign: bool) -> crate::journeys::prebuilt::PrebuiltInput {
-        use crate::journeys::prebuilt::{OutputHash, PrebuiltAttestation, PrebuiltInput, PREBUILT_SCHEMA};
+    fn carried_input(
+        r: &Repo,
+        raw: &RawBuild,
+        sign: bool,
+    ) -> crate::journeys::prebuilt::PrebuiltInput {
+        use crate::journeys::prebuilt::{
+            OutputHash, PrebuiltAttestation, PrebuiltInput, PREBUILT_SCHEMA,
+        };
         let sha = |p: &Path| rightkit_fs::digest::sha256_file(p).unwrap();
-        let command = build_record::validate_build_command(&argv("rustright cargo test -p fx --no-run --features qa")).unwrap();
+        let command = build_record::validate_build_command(&argv(
+            "rustright cargo test -p fx --no-run --features qa",
+        ))
+        .unwrap();
         let parsed = build_record::parse_cargo_json(&raw.stdout);
         let listing = r.base.join("carried-listing.jsonl");
         std::fs::write(&listing, &raw.stdout).unwrap();
@@ -3413,7 +3425,10 @@ untagged_baseline = 0
             .artifacts
             .iter()
             .filter_map(|a| a.executable.as_ref())
-            .map(|p| OutputHash { path: p.to_string_lossy().into(), sha256: sha(p) })
+            .map(|p| OutputHash {
+                path: p.to_string_lossy().into(),
+                sha256: sha(p),
+            })
             .collect();
         let att = PrebuiltAttestation {
             schema: PREBUILT_SCHEMA.into(),
@@ -3425,7 +3440,14 @@ untagged_baseline = 0
         };
         let attestation = r.base.join("carried-attestation.json");
         std::fs::write(&attestation, serde_json::to_vec(&att).unwrap()).unwrap();
-        let app = parsed.artifacts.iter().find(|a| a.target == "fxapp").unwrap().executable.clone().unwrap();
+        let app = parsed
+            .artifacts
+            .iter()
+            .find(|a| a.target == "fxapp")
+            .unwrap()
+            .executable
+            .clone()
+            .unwrap();
         let evidence = sign.then(|| {
             let signed = r.base.join("signed-fxapp.exe");
             let mut bytes = std::fs::read(&app).unwrap();
@@ -3439,11 +3461,16 @@ untagged_baseline = 0
             )
             .unwrap()
         });
-        PrebuiltInput { listing, attestation, evidence }
+        PrebuiltInput {
+            listing,
+            attestation,
+            evidence,
+        }
     }
 
     #[test]
-    fn a_prebuilt_input_reaches_the_build_record_without_a_spawn_and_an_unsigned_product_or_changed_listing_never_does() {
+    fn a_prebuilt_input_reaches_the_build_record_without_a_spawn_and_an_unsigned_product_or_changed_listing_never_does(
+    ) {
         let r = repo("prebuilt");
         let raw = broker_output(&r.base);
         let input = carried_input(&r, &raw, true);
@@ -3457,13 +3484,19 @@ untagged_baseline = 0
         let app = p.record.artifact("app").unwrap();
         assert!(app.qa_marker);
         let signed = r.base.join("signed-fxapp.exe");
-        assert_eq!(app.sha256, rightkit_fs::digest::sha256_file(&signed).unwrap(), "the launched copy is the signed one");
+        assert_eq!(
+            app.sha256,
+            rightkit_fs::digest::sha256_file(&signed).unwrap(),
+            "the launched copy is the signed one"
+        );
         assert!(p.run.root.join(&app.store_path).is_file());
         // Unsigned product: refused, and the run is marked failed with the reason on disk.
         let r2 = repo("prebuilt-unsigned");
         let raw2 = broker_output(&r2.base);
         let unsigned = carried_input(&r2, &raw2, false);
-        let e = match prepare_with(&opts(&r2, &["J-001"]), &|plan| crate::journeys::prebuilt::build_from_prebuilt(plan, &unsigned)) {
+        let e = match prepare_with(&opts(&r2, &["J-001"]), &|plan| {
+            crate::journeys::prebuilt::build_from_prebuilt(plan, &unsigned)
+        }) {
             Err(e) => e,
             Ok(_) => panic!("an unsigned product must be refused"),
         };
@@ -3473,7 +3506,9 @@ untagged_baseline = 0
         let raw3 = broker_output(&r3.base);
         let changed = carried_input(&r3, &raw3, true);
         std::fs::write(&changed.listing, format!("{}\n", raw3.stdout)).unwrap();
-        let e = match prepare_with(&opts(&r3, &["J-001"]), &|plan| crate::journeys::prebuilt::build_from_prebuilt(plan, &changed)) {
+        let e = match prepare_with(&opts(&r3, &["J-001"]), &|plan| {
+            crate::journeys::prebuilt::build_from_prebuilt(plan, &changed)
+        }) {
             Err(e) => e,
             Ok(_) => panic!("a changed listing must be refused"),
         };
