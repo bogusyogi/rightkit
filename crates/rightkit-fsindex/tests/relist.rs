@@ -46,7 +46,13 @@ fn excluded_folders_never_enter_the_gate_and_status_reports_the_gate() {
     let t = tree();
     write(&t.root.join("src/seed.txt"), 1);
     write(&t.root.join("target/debug/seed.o"), 1);
-    let idx = Index::open(config(&t.root)).unwrap();
+    // `config()` sets `relist_min_interval` to zero, which disables the gate: it then tracks no
+    // folder state at all, so `gate_entries` would read 0 whatever was excluded and this test
+    // would prove nothing. Enable the gate, as the burst test above does.
+    let mut cfg = config(&t.root);
+    cfg.relist_min_interval = Duration::from_millis(500);
+    cfg.relist_max_interval = Duration::from_secs(2);
+    let idx = Index::open(cfg).unwrap();
 
     // 40 distinct folders under the default-excluded `target`, then one change in `src`.
     for i in 0..40 {
