@@ -75,9 +75,10 @@ jobs:
             node -e 'const c=require("./ci/gate.config.json");const e=c.rust?.[process.argv[1]];if(!e){console.error("no ci/gate.config.json rust entry for "+process.argv[1]);process.exit(1)}const t=e.featureSets??[[]];const k=t.some(s=>s.includes("--all-features"))?[]:(e.checkFeatureSets??[["--all-features"]]);for(const s of [...t,...k])console.log(s.join(" ")||"(default)")' "$crate" > "$out/$crate.features"
             test -s "$out/$crate.features"
             while IFS= read -r set; do
-              [ "$set" = "(default)" ] && set=""
-              echo "cargo check $crate ${set:-default features}"
-              cargo check --locked --manifest-path "$extracted/Cargo.toml" $set
+              args=()
+              [ "$set" = "(default)" ] || read -r -a args <<< "$set"
+              echo "cargo check $crate ${set}"
+              cargo check --locked --manifest-path "$extracted/Cargo.toml" "${args[@]}"
             done < "$out/$crate.features"
           done
       - name: Upload the exact checked archives and read the index checksum back
