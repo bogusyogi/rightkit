@@ -399,7 +399,9 @@ function cargoRepo(dir, crates, { config = null } = {}) {
 }
 
 // The gate's own door run in a child process (the broker guard is off there), with the same real class B cargo scans the gate plans plus
-// any extra scan rows; `onlyExtra` runs the extra rows alone. Returns { code, out, receipt }.
+// any extra scan rows, which run in the COMPILE stage only (the stage whose scans carry the runtime cargo wrapper: `options.cargoLedger`); the check
+// stage also calls runScans (class A over its own snapshot, no wrapper, so no CARGO), and an extra row there judges the check, not the compile.
+// `onlyExtra` runs the extra rows alone. Returns { code, out, receipt }.
 function runDoor(dir, { repo, sha, extra = [], onlyExtra = false, forceCompile = false, env: envOver = {} }) {
   const driver = path.join(dir, `driver-${Math.random().toString(16).slice(2)}.mjs`);
   fs.writeFileSync(driver, `const { main } = await import(${JSON.stringify(pathToFileURL(path.join(HERE, "bin", "rightkit-gate.mjs")).href)});
@@ -409,7 +411,7 @@ const keep = (s) => (s.class === "B" ? s.tool === "cargo" : s.internal || s.tool
 const extra = ${JSON.stringify(extra)};
 const code = await main(["--to", "compile", "--commit", ${JSON.stringify(sha)}], { cwd: ${JSON.stringify(repo)}, platform: "linux", snapshotRoot: ${JSON.stringify(path.join(dir, "snaps"))},
   out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0,${forceCompile ? " compileReuseProblem: () => \"the test measures the census of this run's own compile (GB-13 would otherwise reuse the recorded one)\"," : ""}
-  runScans: (plan, options) => runScans({ ...plan, scans: [...(${onlyExtra ? "true" : "false"} ? [] : plan.scans.filter(keep)), ...extra] }, options) });
+  runScans: (plan, options) => runScans({ ...plan, scans: [...(${onlyExtra ? "true" : "false"} ? [] : plan.scans.filter(keep)), ...(options.cargoLedger ? extra : [])] }, options) });
 const line = out.find((l) => l.startsWith("rightkit-gate: direct receipt "));
 const snapLine = out.map((l) => / snapshot (\\S+) is commit /.exec(l)).find(Boolean);
 console.log(JSON.stringify({ code, out: out.join("\\n").slice(-30000), snapshot: snapLine ? snapLine[1] : null, receipt: line ? JSON.parse(line.slice("rightkit-gate: direct receipt ".length)) : null }));\n`);
@@ -509,24 +511,37 @@ test("[behavior] item 7 row 7.12 real cargo: a cargo that bypasses the wrapper a
   }
 });
 
-test("[behavior] item 7 row 7.12 real cargo: through the wrapper, each of --target-dir target, CARGO_TARGET_DIR=target and --config build.target-dir is refused as RK_CARGO_REDIRECT", { skip: NEEDS_REAL }, (t) => {
+test("[behavior] item 7 row 7.12 real cargo: through the wrapper, --target-dir target and --config build.target-dir are refused as RK_CARGO_REDIRECT, and CARGO_TARGET_DIR=target is overridden by the wrapper's binding: the build lands in the checkout's target and nothing is written under the snapshot", { skip: NEEDS_REAL }, (t) => {
   const wrapped = (args, env = {}) => ({
     id: `wrapped:${args.join("_")}${Object.keys(env).join("")}`, class: "A", tool: "node", root: "content", cwd: "crates/core", env: {}, command: "wrapped",
     args: ["-e", `const { spawnSync } = require("node:child" + "_process"); const r = spawnSync(process.env.CARGO, ${JSON.stringify(args)}, { stdio: "inherit", env: { ...process.env, ...${JSON.stringify(env)} } }); process.exit(r.status ?? 1);`],
   });
+  // An option moves the output, so the wrapper refuses it. A variable cannot be refused or honored: the wrapper's contract (GATE-CONTRACT "Output directory & cache": the gate passes the
+  // resolved absolute path as CARGO_TARGET_DIR to every Cargo invocation in the snapshot; cargo-target-shim.mjs decideCargoInvocation) sets CARGO_TARGET_DIR and CARGO_BUILD_TARGET_DIR per
+  // invocation, so a caller's value never reaches cargo; the outcome row 7.12 asks for (no second output directory) is that the build is bound, not that it fails.
   const variants = [
-    ["--target-dir target", wrapped(["build", "--locked", "--target-dir", "target"])],
-    ["--config build.target-dir", wrapped(["build", "--locked", "--config", 'build.target-dir="target"'])],
-    ["CARGO_TARGET_DIR=target", wrapped(["build", "--locked"], { CARGO_TARGET_DIR: "target" })],
+    ["--target-dir target", wrapped(["build", "--locked", "--target-dir", "target"]), "refused"],
+    ["--config build.target-dir", wrapped(["build", "--locked", "--config", 'build.target-dir="target"']), "refused"],
+    ["CARGO_TARGET_DIR=target", wrapped(["build", "--locked"], { CARGO_TARGET_DIR: "target" }), "bound"],
   ];
-  for (const [label, scan] of variants) {
+  for (const [label, scan, outcome] of variants) {
     const dir = tmp(t);
     const { repo, sha } = cargoRepo(dir, [{ name: "core" }]);
     const res = runDoor(dir, { repo, sha, extra: [scan], onlyExtra: true });
-    assert.notEqual(res.code, 0, `${label}: refused\n${res.out.slice(-3000)}`);
-    assert.match(res.out, /RK_CARGO_REDIRECT/, `${label}: ${res.out.slice(-3000)}`);
     const snap = snapshotOf(res);
+    assert.ok(snap, `${label}: the door synced a snapshot`);
     for (const stray of ["target", path.join("crates", "core", "target")]) assert.equal(fs.existsSync(path.join(snap, stray)), false, `${label}: nothing written under the snapshot (${stray})`);
+    if (outcome === "refused") {
+      assert.notEqual(res.code, 0, `${label}: refused\n${res.out.slice(-3000)}`);
+      assert.match(res.out, /RK_CARGO_REDIRECT/, `${label}: ${res.out.slice(-3000)}`);
+      assert.equal(libArtifacts(path.join(repo, "target"), "core").length, 0, `${label}: a refused call built nothing`);
+    } else {
+      assert.equal(res.code, 0, `${label}: bound, not refused\n${res.out.slice(-3000)}`);
+      assert.doesNotMatch(res.out, /RK_CARGO_REDIRECT/, label);
+      assert.ok(libArtifacts(path.join(repo, "target"), "core").length > 0, `${label}: the build wrote the crate's outputs to the checkout's target, whatever the variable said`);
+      assert.equal(fs.existsSync(path.join(repo, "crates", "core", "target")), false, `${label}: the relative value was never honored`);
+      assert.equal(res.receipt.outputDir, path.join(repo, "target"), `${label}: the receipt names the checkout's directory`);
+    }
   }
 });
 
