@@ -867,6 +867,14 @@ export function planScans({
   crateFeatures = {},
   // ci/gate.config.json `npm`: per-package gate settings (`quietTests`), read by the package's unit name (packages/<dir> → rightkit-<dir>).
   packageFeatures = {},
+  // rightkit#1333 (PIPELINE-ARCHITECTURE P7: no e2e through the cargo test runner): the repository-relative directories of the end-to-end crates
+  // (app-check.mjs e2eCrates: a non-optional rightkit-qa dependency and a driver module), computed by the caller from the commit's files. Such a
+  // crate's test scan keeps its id and its class B compile but runs with --no-run: its tests need a built app and run only in the qualify stage
+  // (`qa.journeys` of the release config, outside the broker), where the gate owes them (result.qualifyOwed).
+  e2eCrateDirs = null,
+  // rightkit#1332: ci/gate.config.json `swift`: { "<package dir>": { qualifyOnly: { reason } } }. A Swift package that cannot build from the bare
+  // snapshot (a prep step, a prebuilt native library) is not built by class B; it stays in result.qualifyOwed with its reason. Never silent.
+  swiftPackages = {},
   // True for full class A on the live checkout, which runs the repository's own code anyway (tests, typecheck, lint).
   liveExecution = false,
   // Crates a workspace-wide Rust change (Cargo.lock, vendor/) actually reaches, computed by the caller from
@@ -934,7 +942,7 @@ export function planScans({
   const inputDigest = sha256(canonicalJson({ files: [...files].sort().map((f) => [f, bytesDigest(f)]), refused: refusals.map((r) => r.raw).sort() }));
   const under = (prefix) => files.filter((f) => f.startsWith(prefix));
   if (!["compile", "release"].includes(tier)) throw new Error(`planScans: tier must be compile or release, not ${JSON.stringify(tier)}`);
-  let scans = []; const notes = [];
+  let scans = []; const notes = []; const qualifyOwed = [];
   if (cargoLiveRoot) notes.push(`broker host: class A cargo scans run in the snapshot as carried read-only requests, class B compiles are carried requests started from the primary checkout ${cargoLiveRoot} (uncommitted edits there never reach a scan)`);
   // A snapshot compile's scans carry its target map (item 7): the map is part of every scan's cache key, so no result cached by a
   // live-checkout run (or a compile with another map) is taken for one that writes to these directories.
@@ -1355,7 +1363,11 @@ export function planScans({
     }
     for (const dir of [...packages].sort()) {
       const id = dir === "" || dir === "." ? "swift-build" : `swift-build:${dir}`;
-      if (platform === "darwin") add({ id, class: B, tool: "swift", args: ["build"], ...(dir === "" || dir === "." ? {} : { cwd: dir }) });
+      const declared = swiftPackages?.[dir === "" ? "." : dir]?.qualifyOnly;
+      const reason = typeof declared?.reason === "string" && declared.reason.trim() !== "" ? declared.reason.replace(/\s+/g, " ").trim() : null;
+      if (declared && !reason) notes.push(`ci/gate.config.json swift.${dir}.qualifyOnly is ignored: it must be { "reason": "<why this package cannot build from the bare snapshot>" } with a non-empty reason; ${id} is planned`);
+      if (reason) { qualifyOwed.push({ id, kind: "swift-build", dir: dir === "" ? "." : dir, reason }); notes.push(`${id} is not built by class B (ci/gate.config.json swift.${dir}.qualifyOnly: ${reason}); it is owed to the qualify stage`); }
+      else if (platform === "darwin") add({ id, class: B, tool: "swift", args: ["build"], ...(dir === "" || dir === "." ? {} : { cwd: dir }) });
       else notes.push(`swift files changed in ${dir === "" || dir === "." ? "the root package" : dir}; \`swift build\` is required on the Mac host before its push`);
     }
   }
@@ -1371,9 +1383,12 @@ export function planScans({
         deferredToCi.push(...sets.map((set, i) => rustScanId.testRust(name, sets.length, i)), ...(own.alsoSerial ? sets.map((set, i) => rustScanId.testRustSerial(name, sets.length, i)) : []));
         continue;
       }
+      // An end-to-end crate compiles here and runs in qualify (P7): --no-run, the same id, the same feature sets, the same class B compile.
+      const e2e = e2eCrateDirs instanceof Set && e2eCrateDirs.has(rustDir(name));
+      if (e2e) { qualifyOwed.push({ id: rustScanId.testRust(name, sets.length, 0), kind: "e2e-crate", dir: rustDir(name), crate: crateOf(name), reason: "end-to-end crate: its tests drive a built app and never run as class B unit tests (P7)" }); notes.push(`${crateOf(name)} is an end-to-end crate: its test scan compiles with --no-run here; its tests run in the qualify stage against the built app (qa.journeys), never as class B unit tests`); }
       sets.forEach((set, i) => {
-        add({ id: rustScanId.testRust(name, sets.length, i), class: B, ...quiet, ...cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-fail-fast") });
-        if (own.alsoSerial) add({ id: rustScanId.testRustSerial(name, sets.length, i), class: B, ...quiet, ...cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-fail-fast", "--", "--test-threads=1") });
+        add({ id: rustScanId.testRust(name, sets.length, i), class: B, ...quiet, ...(e2e ? { e2e: true } : {}), ...cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", ...(e2e ? ["--no-run"] : ["--no-fail-fast"])) });
+        if (own.alsoSerial) add({ id: rustScanId.testRustSerial(name, sets.length, i), class: B, ...quiet, ...(e2e ? { e2e: true } : {}), ...cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", ...(e2e ? ["--no-run"] : ["--no-fail-fast", "--", "--test-threads=1"])) });
       });
     }
     for (const name of pkgNames) {
@@ -1500,7 +1515,7 @@ export function planScans({
   if (dup) throw new Error(`planScans: duplicate scan id ${dup}`);
   const classDigest = (cls) => digestScanSet(scans.filter((s) => s.class === cls));
   return {
-    schema: SCAN_RESULT_SCHEMA, roots: { contentRoot, liveRoot, ...(cargoLiveRoot ? { cargoLiveRoot } : {}) }, changed: files, inputDigest, scans, notes, deferred,
+    schema: SCAN_RESULT_SCHEMA, roots: { contentRoot, liveRoot, ...(cargoLiveRoot ? { cargoLiveRoot } : {}) }, changed: files, inputDigest, scans, notes, deferred, qualifyOwed,
     scanSetDigest: digestScanSet(scans), classDigests: { A: classDigest(A), B: classDigest(B) },
   };
 }
@@ -2097,7 +2112,8 @@ export async function runScans(plan, options = {}) {
   // excluding every class A scan (or a plan with none) never unlocks class B; explicit prior evidence is needed.
   const planA = plan.scans.filter((x) => x.class === SCAN_CLASS.A);
   const inCallA = classes.includes(SCAN_CLASS.A) && planA.length > 0 && selected.filter((x) => x.class === SCAN_CLASS.A).length === planA.length;
-  const classBBlocked = !inCallA && !priorClassAValid;
+  // `classAEarlier`: the caller ran full class A of these same bytes once, before this call (the door's check stage before its compile pass, rightkit#1328).
+  const classBBlocked = !inCallA && !priorClassAValid && options.classAEarlier !== true;
 
   const toolCommand = (tool) => (tool === "node" ? deps.execPath : tool === "rustfmt" ? deps.findRustfmt({ env: deps.env, exists: deps.exists, readdir: deps.readdir, platform: deps.platform, spawn: deps.lookupSpawn }) : tool);
   async function probe(tool, scanDir = null) {

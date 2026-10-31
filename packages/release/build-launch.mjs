@@ -41,6 +41,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveExecutor } from "./gate-executor.mjs";
+import { gateNoBroker } from "./managed-cargo.mjs";
 import { resolveExecutable } from "./admission-host.mjs";
 import { CARRIED_CARGO_MAP_ENV as CARRIED_MAP_ENV, carriedCargoMapOf, runCarriedAdapter } from "./carried-cargo.mjs";
 import { spawnSync } from "./background-process.mjs";
@@ -176,7 +177,9 @@ export function buildLaunch(command, args = [], host = {}) {
   const lookup = (cmd) => { const found = resolveExecutable(cmd, { env, hostPlatform: platform, exists: exists ?? (() => false) }); return found ? [found] : []; };
   // A snapshot stage never installs into the snapshot (the gate did): the step is a logged no-op, on every host.
   if (snapshotInstallSkip(command, args, env)) return { command: process.execPath, args: [CARRIED_ADAPTER_RUN, "--skip-install", ...args.map(String)] };
-  const executor = resolveExecutor({ env, platform, exists, which: host.which ?? lookup, readFile: host.readFile ?? ((file) => readFileSync(file, "utf8")) });
+  // Inside a gate run outside the broker by Adrian's recorded exception (managed-cargo.mjs NO_BROKER_ENV, set only for that live door run's
+  // children), a child step (web-build's tsc, a native helper) takes the same direct route as the gate's own cargo children, not a refusal.
+  const executor = resolveExecutor({ env, platform, exists, which: host.which ?? lookup, readFile: host.readFile ?? ((file) => readFileSync(file, "utf8")), forceDirect: gateNoBroker(env) });
   if (executor.kind === "refuse") refuse(`${name(command)} ${args.join(" ")}: ${executor.problem}`);
   // A direct (Linux) host: the real toolchain, RustRight shim directories off PATH (`env`, to merge into the launch env); a configured
   // `rustright cargo|rustc|rustdoc …` runs that tool directly; any other `rustright` command has no direct form and is refused.

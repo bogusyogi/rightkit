@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
-import { closeSnapshotStage, main, openSnapshotStage, stageSidecarsOnce } from "./bin/rightkit-gate.mjs";
+import { closeSnapshotStage, main, openSnapshotStage, stageSidecarsOnce, stageWebBuildOnce, qualifyOwedProblem } from "./bin/rightkit-gate.mjs";
 import { attributionProblems, declaredInputProblems, diffEntries, neutralIgnored, receiptLedger, reportedPaths, walkSnapshot } from "./stage-ledger.mjs";
 import { stageSidecars } from "./stage-sidecar.mjs";
 
@@ -352,4 +352,67 @@ test("[5.09d] the compile's own verify returns the entries it admitted; the door
   assert.match(src, /ledger: o\.snapshotLedger, admitNew: true/);
   assert.match(src, /o\.onCompileLedger\?\.\(Array\.isArray\(verified\?\.ledger\) \? verified\.ledger : null\)/);
   assert.match(src, /onCompileLedger: \(entries\) => \{ ds\.compileAdmitted = entries; \}/);
+});
+
+// ---- rightkit#1331: the declared compile inputs that are the app's web build output --------------------------------------------------
+
+const WEB_FILES = {
+  ...APP_FILES,
+  "right-release.config.json": JSON.stringify({ schema: 1, app: "app", version: "1.0.0", web: { build: [{ node: "node_modules/vite/bin/vite.js", args: ["build"] }] } }) + "\n",
+  ".rightkit/compile-inputs.json": JSON.stringify({ inputs: ["dist"] }) + "\n",
+};
+const webArgs = (fx, spawnInherit, files = ["right-release.config.json"]) => ({ o: { ...fx.o, spawnInherit }, ds: fx.ds, root: fx.repo, git: (...a) => git(fx.repo, ...a), appDir: ".", cli: "/x/right-release.mjs", commonDir: path.join(fx.repo, ".git"), commit: fx.sha, tree: fx.tree, stage: "compile", files });
+const webBuildDouble = (fx, { extra = [], status = 0 } = {}) => { const calls = []; const fn = (cmd, args) => { calls.push(args); if (status === 0) { fx.write("dist/index.html", "<html>app</html>"); fx.write("dist/assets/app.js", "console.log(1)"); for (const f of extra) fx.write(f, "stray"); } return { status }; }; fn.calls = calls; return fn; };
+
+test("[rightkit#1331 positive] a declared input the snapshot lacks is produced by right-release web-build inside the snapshot, recorded as generated ledger entries, and its digest binds to the compile's", { skip: POSIX_SIM }, async (t) => {
+  const fx = await fixture(t, WEB_FILES, "rk-ledger-web-");
+  const spawn = webBuildDouble(fx);
+  assert.equal(await stageWebBuildOnce(webArgs(fx, spawn)), true, fx.lines.join("\n"));
+  assert.deepEqual(spawn.calls.map((a) => a.slice(1)), [["web-build", "--config", path.join(fx.snapshot, "right-release.config.json")]]);
+  assert.deepEqual(fx.ds.ledger.entries.map((e) => [e.path, e.kind, e.producer.stage]), [["dist/assets/app.js", "generated", "web-build"], ["dist/index.html", "generated", "web-build"]]);
+  const { judgeCompileInputs } = await import("./compile-inputs.mjs");
+  const judged = judgeCompileInputs(fx.snapshot);
+  assert.deepEqual(judged.findings, []);
+  const digest = judged.inputs.find((i) => i.path === "dist").sha256;
+  const problems = (receiptDigests) => declaredInputProblems({ snapshot: fx.snapshot, entries: fx.ds.ledger.entries, receiptDigests, judge: judgeCompileInputs });
+  assert.deepEqual(problems([{ path: "dist", sha256: digest, files: 2 }]), []);
+  assert.match(problems([{ path: "dist", sha256: "0".repeat(64), files: 2 }])[0], /differs from the gate's digest/);
+  assert.equal(await stageWebBuildOnce(webArgs(fx, spawn)), true);
+  assert.equal(spawn.calls.length, 1, "once per door run");
+  // The stage's end admits them as generated entries (a later web build, the package stage's, may rewrite them).
+  assert.equal((await closeSnapshotStage({ o: fx.o, ds: fx.ds, root: fx.repo, stage: "compile", step: "compile" })).ok, true, fx.lines.join("\n"));
+});
+
+test("[rightkit#1331 negative] nothing runs when the inputs are present or no web.build is declared; a failed build, a write outside the declared inputs, or a removal refuses", { skip: POSIX_SIM }, async (t) => {
+  const present = await fixture(t, WEB_FILES, "rk-ledger-web-a-");
+  present.write("dist/index.html", "x"); present.ds.ledger = { entries: [{ path: "dist/index.html", type: "file", size: 1, sha256: sha256("x"), execBit: false, kind: "generated", producer: { stage: "x", step: "x" } }] };
+  const never = webBuildDouble(present);
+  assert.equal(await stageWebBuildOnce(webArgs(present, never)), true);
+  assert.equal(never.calls.length, 0, "every declared input present: no build");
+  const bare = await fixture(t, { ...APP_FILES, ".rightkit/compile-inputs.json": WEB_FILES[".rightkit/compile-inputs.json"] }, "rk-ledger-web-b-");
+  const none = webBuildDouble(bare);
+  assert.equal(await stageWebBuildOnce(webArgs(bare, none)), true);
+  assert.equal(none.calls.length, 0); refused(bare, /no release config .* declares web\.build; the compile will report them missing/);
+  const failing = await fixture(t, WEB_FILES, "rk-ledger-web-c-");
+  assert.equal(await stageWebBuildOnce(webArgs(failing, webBuildDouble(failing, { status: 1 }))), false);
+  refused(failing, /web-build for right-release\.config\.json failed/);
+  const stray = await fixture(t, WEB_FILES, "rk-ledger-web-d-");
+  assert.equal(await stageWebBuildOnce(webArgs(stray, webBuildDouble(stray, { extra: ["src-tauri/binaries/stray.bin"] }))), false);
+  refused(stray, /RK_CHECK_ERROR: \[compile\] web-build right-release\.config\.json: src-tauri\/binaries\/stray\.bin was written by the web build but lies under no declared compile input/);
+  const { declaredOutputProblems } = await import("./stage-ledger.mjs");
+  const e = (p) => ({ path: p, type: "file", size: 1, sha256: "a", execBit: false });
+  assert.deepEqual(declaredOutputProblems({ before: [e("dist/a"), e("other/b")], after: [e("dist/a")], declared: ["dist"] }), ["other/b was removed by the web build"]);
+});
+
+test("[rightkit#1332/#1333] qualification refuses what compile left to it unless the release config declares qa.journeys; nothing owed passes", { skip: POSIX_SIM }, async (t) => {
+  const owed = [{ id: "test:rust:tauri-app-next/qa-e2e:heardright-native-e2e", kind: "e2e-crate", dir: "tauri-app-next/qa-e2e", reason: "end-to-end crate" }, { id: "swift-build:ios-native/Tests/E2E", kind: "swift-build", dir: "ios-native/Tests/E2E", reason: "needs a prebuilt core library" }];
+  const without = await fixture(t, APP_FILES, "rk-owed-a-");
+  const args = (fx, list) => ({ o: fx.o, git: (...a) => git(fx.repo, ...a), commit: fx.sha, appDir: ".", base: fx.snapshot, owed: list });
+  assert.deepEqual(qualifyOwedProblem(args(without, [])), []);
+  const problems = qualifyOwedProblem(args(without, owed));
+  assert.equal(problems.length, 2);
+  assert.match(problems[0], /test:rust:.*heardright-native-e2e \(e2e-crate tauri-app-next\/qa-e2e\) is owed to qualification .* no release config under \. declares qa\.journeys/);
+  assert.match(problems[1], /swift-build:ios-native\/Tests\/E2E .*needs a prebuilt core library/);
+  const withJourneys = await fixture(t, { ...APP_FILES, "right-release.config.json": JSON.stringify({ schema: 1, app: "app", version: "1.0.0", qa: { config: "q.mjs", journeys: { manifest: "journeys.toml" } } }) + "\n" }, "rk-owed-b-");
+  assert.deepEqual(qualifyOwedProblem(args(withJourneys, owed)), []);
 });

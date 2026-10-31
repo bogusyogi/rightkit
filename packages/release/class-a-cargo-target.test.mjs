@@ -187,11 +187,13 @@ test("the gate hands a direct host's scans its scratch root as their output root
   const f = fixture(t);
   const ok = (stdout = "") => ({ status: 0, stdout, stderr: "" });
   const spawn = (cmd, args, opts = {}) => {
-    if (cmd === "cargo" && args[0] === "metadata") return ok(JSON.stringify({ workspace_root: opts.cwd, packages: [{ name: "foo", manifest_path: path.join(opts.cwd, "Cargo.toml"), publish: null }] }));
+    if (cmd === "cargo" && args[0] === "metadata") return ok(JSON.stringify({ workspace_root: opts.cwd, target_directory: path.join(f.base, "checkout-target"), packages: [{ name: "foo", manifest_path: path.join(opts.cwd, "Cargo.toml"), publish: null }] }));
     if (cmd === "cargo") return ok("cargo 1.0.0\n");
     if (cmd === "pnpm" && args[0] === "--version") return ok("11.25.0\n");
+    if ((cmd === "which" || cmd === "where") && args[0] === "cargo") return ok(`${fakeCargo}\n`);
     return spawnSync(cmd, args, { ...opts, encoding: "utf8" });
   };
+  const fakeCargo = path.join(f.base, "bin", "cargo"); fs.mkdirSync(path.dirname(fakeCargo)); fs.writeFileSync(fakeCargo, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   const seen = [];
   const fakeRun = async (plan, options) => { seen.push({ plan, options }); return { scans: plan.scans.map((s) => ({ id: s.id, class: s.class, status: "pass" })), notes: plan.notes, cacheHits: [], deferred: [] }; };
   const out = []; const err = [];
@@ -203,7 +205,45 @@ test("the gate hands a direct host's scans its scratch root as their output root
   });
   assert.equal(code, 0, `${out.join("\n")}\n${err.join("\n")}`);
   assert.equal(seen[0].options.cargoReadTargetRoot, f.scratch);
+  // rightkit#1328: the one Class A pass runs under the runtime cargo wrapper, with the per-scan sentinel and the ledger, before any compile.
+  assert.deepEqual(seen[0].options.classes, ["A"]);
+  assert.ok(seen[0].options.cargoLedger?.dir, "the wrapper's ledger is bound for class A (the sentinel exists once a repository has several Cargo workspaces)");
+  assert.equal(path.dirname(seen[0].options.env.CARGO), seen[0].options.env.PATH.split(path.delimiter)[0], "the wrapper is CARGO and first on PATH");
+  assert.match(out.join("\n"), /runtime cargo wrapper /);
   assert.equal(seen[0].options.tmpRoot, undefined, "the deny and swift temporary files stay where they were on a direct host");
   assert.ok(seen[0].plan.scans.some((s) => s.class === "A" && s.tool === "cargo"), "the plan is the direct host's: plain cargo");
   assert.equal(f.verify(), f.tree);
+});
+
+test("rightkit#1328: the door's compile pass (--all on the snapshot, classAEarlier) runs class B only, under the same wrapper; without the door's flag the pass still runs A and B", async (t) => {
+  const f = fixture(t);
+  const ok = (stdout = "") => ({ status: 0, stdout, stderr: "" });
+  const fakeCargo = path.join(f.base, "bin", "cargo"); fs.mkdirSync(path.dirname(fakeCargo)); fs.writeFileSync(fakeCargo, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  const spawn = (cmd, args, opts = {}) => {
+    if (cmd === "cargo" && args[0] === "metadata") return ok(JSON.stringify({ workspace_root: opts.cwd, target_directory: path.join(f.base, "checkout-target"), packages: [{ name: "foo", manifest_path: path.join(opts.cwd, "Cargo.toml"), publish: null }] }));
+    if (cmd === "cargo") return ok("cargo 1.0.0\n");
+    if (cmd === "pnpm" && args[0] === "--version") return ok("11.25.0\n");
+    if ((cmd === "which" || cmd === "where") && args[0] === "cargo") return ok(`${fakeCargo}\n`);
+    return spawnSync(cmd, args, { ...opts, encoding: "utf8" });
+  };
+  const gatePackage = path.join(f.base, "gate-package"); fs.mkdirSync(gatePackage); fs.writeFileSync(path.join(gatePackage, "stub.mjs"), "// stand-in gate package\n");
+  const run = async (extra) => {
+    const seen = []; const out = []; const err = [];
+    const fakeRun = async (plan, options) => { seen.push(options); return { scans: plan.scans.map((s) => ({ id: s.id, class: s.class, status: "pass" })), notes: plan.notes, cacheHits: [], deferred: [] }; };
+    const code = await main(["--all", "--commit", f.commit, "--snapshot", f.snap], {
+      out: (m) => out.push(m), err: (m) => err.push(m), cwd: f.repo, gatePackage, env: { ...process.env, RK_GATE_CACHE: "0", RK_GATE_TMPDIR: f.scratch }, platform: process.platform,
+      snapshotRoot: path.join(f.base, `ownership-${seen.length}-${Math.random()}`), selfPath: path.join(f.base, "elsewhere", "rightkit-gate.mjs"), appCheck: async () => 0, spawn, resolveExecutor: () => ({ kind: "direct", cargo: ["cargo"] }), runScans: fakeRun,
+      readStdin: () => "", buildOwnership: { handle: "h", joined: false, release: () => ({ released: true }) }, ...extra,
+    });
+    return { code, seen, out: out.join("\n"), err: err.join("\n") };
+  };
+  const door = await run({ classAEarlier: true });
+  assert.equal(door.seen.length, 1, `${door.out}\n${door.err}`);
+  assert.deepEqual(door.seen[0].classes, ["B"], "the compile pass runs no class A");
+  assert.equal(door.seen[0].classAEarlier, true);
+  assert.ok(door.seen[0].cargoLedger?.dir && door.seen[0].env.CARGO, "class B still runs under the wrapper");
+  assert.match(door.out, /class A is not repeated/);
+  const plain = await run({});
+  assert.deepEqual(plain.seen[0].classes, ["A", "B"], "no door flag: both classes, as before");
+  assert.equal(plain.seen[0].classAEarlier, undefined);
 });

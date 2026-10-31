@@ -148,6 +148,21 @@ export function attributionProblems({ before, after, reported, receipt }) {
   return problems;
 }
 
+/**
+ * The attribution of a step that reports no file list (an app's web build, `right-release web-build`): the declared compile inputs
+ * (`.rightkit/compile-inputs.json`) are the only paths it may write, so every path it added or changed must lie under one of them and
+ * nothing may be removed. Anything else is an unattributed write. `declared` are snapshot-relative posix paths.
+ */
+export function declaredOutputProblems({ before, after, declared }) {
+  const d = diffEntries(before, after);
+  const roots = declared.map((x) => x.replaceAll("\\", "/").replace(/\/+$/, ""));
+  const under = (p) => roots.some((r) => p === r || p.startsWith(`${r}/`));
+  const problems = [];
+  for (const p of [...d.added, ...d.changed]) if (!under(p)) problems.push(`${p} was written by the web build but lies under no declared compile input`);
+  for (const p of d.removed) problems.push(`${p} was removed by the web build`);
+  return problems;
+}
+
 /** Every `path` string a staging receipt or its `--json` result carries (files, their notices), app-relative. */
 export function reportedPaths(result) {
   const out = new Set();

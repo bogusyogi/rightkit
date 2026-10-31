@@ -3199,3 +3199,28 @@ test("[RA-18] options.cargoReadsCarried === true makes cargo-deny and cargo-audi
   const again = await runScans(plan, deps({ ...fs, classes: ["A"], spawn, cache, cargoReadsCarried: true }));
   assert.ok(!again.cacheHits.some((id) => id.startsWith("cargo-")), `no carried cargo read hit the cache: ${again.cacheHits}`);
 });
+
+test("rightkit#1333: an end-to-end crate's test scan keeps its id and class B compile but runs --no-run, and is owed to qualify; other crates are untouched", () => {
+  const p = multi(["hub/src-tauri/src/lib.rs", "crates/core/src/lib.rs"], { e2eCrateDirs: new Set(["hub/src-tauri"]), crateFeatures: { "hub/src-tauri:app": { alsoSerial: true } } });
+  const e2e = scanOf(p, "test:rust:hub/src-tauri:app");
+  assert.ok(e2e.args.includes("--no-run") && e2e.class === "B" && e2e.e2e === true, e2e.command);
+  assert.ok(scanOf(p, "test:rust-serial:hub/src-tauri:app").args.includes("--no-run"), "the serial row is a compile too");
+  const other = scanOf(p, "test:rust:core");
+  assert.ok(other.args.includes("--no-fail-fast") && !other.args.includes("--no-run") && !other.e2e);
+  assert.deepEqual(p.qualifyOwed.map((x) => [x.id, x.kind, x.dir]), [["test:rust:hub/src-tauri:app", "e2e-crate", "hub/src-tauri"]]);
+  assert.ok(p.notes.some((n) => /app is an end-to-end crate.*--no-run.*qualify stage/.test(n)));
+  assert.equal(multi(["hub/src-tauri/src/lib.rs"]).qualifyOwed.length, 0, "no e2e crate declared: nothing owed, tests run as before");
+  assert.notEqual(multi(["hub/src-tauri/src/lib.rs"], { e2eCrateDirs: new Set(["hub/src-tauri"]) }).scanSetDigest, multi(["hub/src-tauri/src/lib.rs"]).scanSetDigest, "the command is in the digest");
+});
+
+test("rightkit#1332: a Swift package declared qualifyOnly is not built by class B, stays named in qualifyOwed with its reason; an empty reason is ignored and the package is built", () => {
+  const files = { "ios-native/Tests/E2E/Package.swift": "", "ios-native/Tests/E2E/a.swift": "", "ios-native/Package.swift": "", "ios-native/Sources/b.swift": "" };
+  const reason = "needs a prebuilt core library";
+  const { plan } = planFor(Object.keys(files), files, { platform: "darwin", swiftPackages: { "ios-native/Tests/E2E": { qualifyOnly: { reason } } } });
+  assert.deepEqual(plan.scans.filter((s) => s.tool === "swift").map((s) => s.id), ["swift-build:ios-native"], "the declared package is not built, its sibling is");
+  assert.deepEqual(plan.qualifyOwed.map((x) => [x.id, x.kind, x.reason]), [["swift-build:ios-native/Tests/E2E", "swift-build", reason]]);
+  assert.ok(plan.notes.some((n) => n.includes("owed to the qualify stage")));
+  const blank = planFor(Object.keys(files), files, { platform: "darwin", swiftPackages: { "ios-native/Tests/E2E": { qualifyOnly: { reason: " " } } } }).plan;
+  assert.ok(blank.scans.some((s) => s.id === "swift-build:ios-native/Tests/E2E") && blank.qualifyOwed.length === 0);
+  assert.ok(blank.notes.some((n) => /qualifyOnly is ignored/.test(n)));
+});

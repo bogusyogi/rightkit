@@ -272,6 +272,7 @@ export function gateTmpRoot({ env = process.env, platform = process.platform, ex
  */
 /** Longest the class A environment waits for `pnpm --version`. */
 export const PNPM_PROBE_TIMEOUT_MS = 60_000;
+export const PNPM_PIN_REFUSAL = "RK_PNPM_VERSION_MISMATCH";
 export const TOOL_CACHE_DIRS = new Set([".vite", ".vite-temp", ".vitest-cache", ".cache"]);
 export const INSTALL_STATE_NOT_COVERED = new Set([".pnpm-task-run-state-v1"]);
 const nodeModulesDirs = (root, files) => [...new Set(files.filter((f) => /(^|\/)package\.json$/.test(f)).map((f) => path.join(path.dirname(path.join(root, f)), "node_modules")))].sort();
@@ -431,6 +432,37 @@ export function classAEnvironmentDigest({ root, files, spawn = defaultSpawn, inc
   })();
   const installState = files.filter((f) => /(^|\/)package\.json$/.test(f)).map((f) => path.join(path.dirname(path.join(root, f)), "node_modules", ".modules.yaml")).map((m) => `${path.relative(root, m)}:${fileDigest(m, { optional: true })}`);
   return createHash("sha256").update([`node ${process.version}`, `pnpm ${pnpmVersion}`, `platform ${process.platform}-${process.arch}`, ...gateFiles, ...installState, `installed ${installedDependencyDigest({ root, files, includeCaches })}`].join("\n")).digest("hex");
+}
+
+/** The pnpm a package.json pins (`packageManager: "pnpm@12.16.1+sha512.."` -> `12.16.1`), or null for no pnpm pin. */
+export function pnpmPinOf(packageJsonText) {
+  let pm; try { pm = JSON.parse(packageJsonText)?.packageManager; } catch { return null; }
+  const m = typeof pm === "string" ? /^pnpm@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\+.*)?$/.exec(pm.trim()) : null;
+  return m ? m[1] : null;
+}
+
+/**
+ * Class A runs the pnpm it bound, never a pnpm that relaunches another one: a pnpm older than a package's `packageManager` pin switches
+ * itself to the pinned version through a nested shell (on Windows `cmd /d /s /c` with ^-escaped text), which the class A launch guard
+ * refuses mid-row as an unreadable launch. This compares the pnpm on PATH, asked from a directory with no package.json so it cannot
+ * switch, with every pnpm pin of the checked tree BEFORE any class A row launches, and returns a typed problem naming both versions
+ * and the fix, or null. Nothing is admitted: the guard keeps refusing any relaunch.
+ */
+export function pnpmPinProblem({ root, files, spawn = defaultSpawn, readFile = (f) => fs.readFileSync(f, "utf8"), neutralCwd = os.tmpdir() }) {
+  const pins = new Map();
+  for (const f of files.filter((x) => /(^|\/)package\.json$/.test(x))) {
+    let pin = null; try { pin = pnpmPinOf(readFile(path.join(root, f))); } catch { pin = null; }
+    if (pin) pins.set(f, pin);
+  }
+  if (!pins.size) return null;
+  const r = spawn("pnpm", ["--version"], { cwd: neutralCwd, boundedMs: PNPM_PROBE_TIMEOUT_MS });
+  const onPath = failed(r) ? "" : text(r).trim();
+  const fix = (pin) => `install the pinned pnpm as the pnpm on PATH (for example \`pnpm self-update ${pin}\`) and run again`;
+  if (!onPath) { const [pin] = new Set(pins.values()); return { code: PNPM_PIN_REFUSAL, message: `${PNPM_PIN_REFUSAL}: cannot read the version of the pnpm on PATH (${r?.error ? r.error.code ?? r.error.message : why(r)}); ${fix(pin)}` }; }
+  const bad = [...pins].filter(([, pin]) => pin !== onPath);
+  if (!bad.length) return null;
+  const [file, pin] = bad[0];
+  return { code: PNPM_PIN_REFUSAL, message: `${PNPM_PIN_REFUSAL}: the pnpm on PATH is ${onPath} but ${file} pins packageManager pnpm@${pin}${bad.length > 1 ? ` (${bad.length} package.json files differ)` : ""}; a different pnpm relaunches the pinned one through a shell, which class A refuses (RK_CLASS_A_COMPILE_LAUNCH); ${fix(pin)}` };
 }
 
 /** Split pathspecs into batches whose joined length stays under `limit` characters (well below Windows' 32767 command line). */
@@ -1544,10 +1576,14 @@ async function runStages(o, args, root, git, io) {
       // On the snapshot route sidecars are staged ONCE per door run by the ledger bookkeeping (attribution diff, immutable staged entries).
       if (ok && ds) ok = await stageSidecarsOnce({ o, ds, root, git, configs: sidecarConfigs, appDir, cli, commonDir, commit, tree, stage, executor });
       else for (const config of ok ? sidecarConfigs : []) if (!await rightRelease(stage, ["stage-sidecar", "--config", path.join(root, config)])) { ok = false; break; }
-      let compiledDirs = [];
+      // rightkit#1331: the declared compile inputs that are the app's web build output are produced in the snapshot before the compile reads them.
+      if (ok && ds) ok = await stageWebBuildOnce({ o, ds, root, git, appDir, cli, commonDir, commit, tree, stage, executor });
+      let compiledDirs = []; let qualifyOwed = [];
       const reportOutputs = (dirs) => { compiledDirs = [...dirs]; };
-      if (ok) ok = (await (o.runCompile ?? (() => main(ds ? ["--all", "--commit", commit, "--snapshot", ds.path] : ["--all"], { ...io, cwd: root, readStdin: () => "", ...(ds ? { buildOwnership: ds.own, snapshotLedger: ds.ledger?.entries ?? [], onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, onDirectReceipt: (r) => { directReceipt = r; }, onCompileOutputs: reportOutputs } : {}) })))({ reportOutputs })) === 0;
+      if (ok) ok = (await (o.runCompile ?? (() => main(ds ? ["--all", "--commit", commit, "--snapshot", ds.path] : ["--all"], { ...io, cwd: root, readStdin: () => "", ...(ds ? { buildOwnership: ds.own, classAEarlier: true, snapshotLedger: ds.ledger?.entries ?? [], onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, onDirectReceipt: (r) => { directReceipt = r; }, onCompileOutputs: reportOutputs, onQualifyOwed: (list) => { qualifyOwed = list; } } : {}) })))({ reportOutputs })) === 0;
       if (directReceipt) extra = { ...extra, direct: directReceipt };
+      // What the plan left to the qualify stage is recorded with the compile, so qualification can prove it is not lost (rightkit#1332, #1333).
+      if (qualifyOwed.length) extra = { ...extra, qualifyOwed };
       // What this compile produced, recorded with its result so a later run can prove the outputs are still there (GB-13).
       if (ok) extra = { ...extra, outputs: compileOutputsRecord({ dirs: compiledDirs, env: o.env }) };
       // The cross-check with `.rightkit/compile-inputs.json`: a declared input that covers ledger entries must carry the digest of those
@@ -1649,7 +1685,12 @@ async function runStages(o, args, root, git, io) {
           ? (o.out(`${tag} [qualify] the release tier already passed at check for this exact input; not run again`), 0)
           : await (o.runReleaseCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), ...appScope, "--rule-tier", "release"], { ...io, cwd: root, ...(ds ? { buildOwnership: ds.own } : {}) })))();
         if (releaseTier !== 0) { o.err(`${tag} [qualify] the release tier (every rule and scan) is red for ${commit.slice(0, 12)}; nothing was qualified`); ok = false; }
-        else ok = await rightRelease(stage, ["qa", "--stage", "installed", "--platform", platform, "--release", sealed.sealed]);
+        else {
+          // rightkit#1332, #1333: what compile left to qualification (end-to-end crates, declared Swift packages) must have a declared run route here.
+          const owedProblems = qualifyOwedProblem({ o, git, commit, appDir, base: ds ? ds.path : root, owed: receipt.stages.compile?.qualifyOwed ?? [] });
+          for (const p of owedProblems) o.err(`${tag} BLOCKED: [qualify] ${p}`);
+          ok = owedProblems.length === 0 && await rightRelease(stage, ["qa", "--stage", "installed", "--platform", platform, "--release", sealed.sealed]);
+        }
         // The protected installed-QA receipt this run produced is journaled by digest (GB-14), so the record can be re-verified before any reuse.
         extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, ruleTier: "release", ...(ok ? { qaReceiptDigest: (o.installedQaReceiptDigest ?? installedQaReceiptDigest)({ repoRoot: appRoot, releaseId: sealed.sealed, platform }) } : {}) };
       } else {
@@ -1848,13 +1889,88 @@ export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appD
     try { result = JSON.parse(String(r.stdout ?? "").trim()); } catch { o.err(`${tag} RK_CHECK_ERROR: [${stage}] stage-sidecar --json for ${config} did not print its result; its writes cannot be attributed`); return false; }
     let walked;
     try { walked = await walkDoorSnapshot(o, ds, root); } catch (e) { o.err(`${tag} RK_CHECK_ERROR: [${stage}] ${e.message}`); return false; }
-    const underApp = (rel) => (appDir === "." ? rel : `${appDir}/${rel}`).replaceAll("\\", "/");
+    // stage-sidecar reports its files relative to ITS app root, the directory of the config it was given (stage-sidecar-command.mjs
+    // appRoot = dirname(config)), not the gate's appDir: a gate run at the repository root with the config in tauri-app-next/ would
+    // otherwise find every staged file "not reported".
+    const configDir = path.posix.dirname(String(config).replaceAll("\\", "/"));
+    const underApp = (rel) => (configDir === "." ? rel : `${configDir}/${rel}`).replaceAll("\\", "/");
     const receiptAbs = typeof result.receiptPath === "string" ? path.relative(ds.path, result.receiptPath).split(path.sep).join("/") : null;
     const problems = [...walked.problems, ...attributionProblems({ before, after: walked.entries, reported: [...reportedPaths(result)].map(underApp), receipt: receiptAbs })];
     if (problems.length) { for (const p of problems.slice(0, 10)) o.err(`${tag} RK_CHECK_ERROR: [${stage}] stage-sidecar ${config}: ${p}`); return false; }
     const priorPaths = new Set(before.map((e) => e.path));
     const priorByPath = new Map(before.map((e) => [e.path, e]));
     ds.ledger = { entries: walked.entries.map((e) => (priorPaths.has(e.path) && priorByPath.get(e.path).sha256 === e.sha256 ? priorByPath.get(e.path) : { ...e, kind: "staged", producer: { stage: "sidecar", step: config } })) };
+  }
+  return true;
+}
+
+/**
+ * rightkit#1332, #1333: what the compile stage left to qualification must not be lost. Each owed item (an end-to-end crate whose tests need
+ * the built app; a Swift package declared `qualifyOnly`) needs the run route the pipeline has for it: the app's release config declares
+ * `qa.journeys`, so `right-release qa --stage installed` runs `rightkit-qa journeys run` against the sealed app and validates its receipt
+ * (release-qa-command.mjs). Without it each owed item is named and qualification stops. Returns the problems (empty when nothing is owed or covered).
+ */
+export function qualifyOwedProblem({ o, git, commit, appDir = ".", base, owed }) {
+  if (!Array.isArray(owed) || !owed.length) return [];
+  const listed = git("ls-tree", "-r", "--name-only", "-z", commit);
+  const configs = (failed(listed) ? [] : text(listed).split("\0").filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)).filter((f) => appDir === "." || f.startsWith(`${appDir}/`)));
+  const declared = configs.some((f) => { try { return /\bqa\b[\s\S]*(^|[\s,{])["']?journeys["']?\s*:/m.test(o.readFile(path.join(base, f))); } catch { return false; } });
+  if (declared) return [];
+  return owed.map((x) => `${x.id} (${x.kind}${x.dir ? ` ${x.dir}` : ""}) is owed to qualification (${x.reason}) but no release config under ${appDir} declares qa.journeys, so nothing would run it; declare qa.journeys with a journeys.toml that covers it`);
+}
+
+/** The release configs of `commit` (under `appDir`) that declare a `web` block (`web.build` steps), read from `base`: the commit's config decides, never the checkout's. */
+export function committedWebBuildConfigs({ o, git, commit, appDir = ".", base }) {
+  const listedConfigs = git("ls-tree", "-r", "--name-only", "-z", commit);
+  return (failed(listedConfigs) ? [] : text(listedConfigs).split("\0").filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)).filter((f) => appDir === "." || f.startsWith(`${appDir}/`)))
+    .filter((f) => { try { return /(^|[\s,{])["']?web["']?\s*:\s*\{/.test(o.readFile(path.join(base, f))); } catch { return false; } });
+}
+
+/**
+ * rightkit#1331: the declared compile inputs (`.rightkit/compile-inputs.json`) that are an app's web build output (a Tauri `frontendDist`)
+ * exist in the snapshot before the compile reads them. The broker's capture copies a declared path in from the checkout; the snapshot route
+ * has no copy ("digested in place", GATE-CONTRACT GC-I14), so the door produces them the one way the contract allows: the app's own
+ * `right-release web-build` (its release config's `web.build` steps) runs INSIDE the snapshot, once per door run, before the compile.
+ * What it wrote may remain only under a declared input (declaredOutputProblems), ignored by the commit's own rules and recorded by this
+ * gate's own walk as `generated` ledger entries (never `staged`: the package stage's own web build rewrites them). The compile's declared
+ * input digest (compile-inputs.mjs, the broker's algorithm) then covers those very bytes and declaredInputProblems cross-checks it.
+ * Nothing runs when every declared input is already present or the app declares no `web.build`; an input still absent afterwards is left
+ * to the compile, which refuses a missing input and names it. Returns true when nothing is owed or the build passed.
+ */
+export async function stageWebBuildOnce({ o, ds, root, git = null, appDir, cli, commonDir, commit, tree, stage, executor = null, tag = "rightkit-gate:" }) {
+  if (ds.webBuilt) return true;
+  ds.webBuilt = true;
+  const { readDeclaredInputs, SnapshotRequestError } = await import("../snapshot-request.mjs");
+  let declared;
+  try { declared = readDeclaredInputs(ds.path).map((x) => x.split(/[\\/]/).join("/")); }
+  catch (e) { if (e instanceof SnapshotRequestError) return true; throw e; } // a malformed declaration refuses in the compile, which names it
+  const absent = () => declared.filter((rel) => !(o.exists ?? fs.existsSync)(path.join(ds.path, ...rel.split("/"))));
+  if (!absent().length) return true;
+  const configs = git ? committedWebBuildConfigs({ o, git, commit, appDir, base: ds.path }) : [];
+  if (!configs.length) { o.out(`${tag} [${stage}] declared compile input(s) ${absent().join(", ")} are absent from the snapshot and no release config under ${appDir} declares web.build; the compile will report them missing`); return true; }
+  const { declaredOutputProblems } = await import("../stage-ledger.mjs");
+  const source = sourceSplitOf({ root, ds, appDir });
+  const { TAURI_CONFIG: inherited, ...cleanEnv } = o.env; void inherited;
+  for (const config of configs) {
+    if (!absent().length) break;
+    const before = ds.ledger?.entries ?? [];
+    const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag });
+    if (carrier.refusal) { o.err(`${tag} BLOCKED: ${carrier.refusal}; the web build did not run`); return false; }
+    const run = startRun({ commonDir, commit, tree, stage, source });
+    let r;
+    try {
+      o.out(`${tag} [${stage}] right-release web-build --config ${path.join(ds.path, config)} (from the snapshot ${ds.path}; declared input(s) ${absent().join(", ")} are absent)`);
+      r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, "web-build", "--config", path.join(ds.path, config)], { cwd: snapshotAppRootOf(ds.path, appDir), env: carriedEnv(carrier, { ...cleanEnv, ...run.env }) });
+    } finally { endRun(run); }
+    const carriedOk = await carrier.finish({ stage });
+    if (!r || r.status !== 0) { o.err(`${tag} [${stage}] web-build for ${config} failed${r?.error ? ` (${r.error.message})` : ""}`); return false; }
+    if (!carriedOk) return false;
+    let walked;
+    try { walked = await walkDoorSnapshot(o, ds, root); } catch (e) { o.err(`${tag} RK_CHECK_ERROR: [${stage}] ${e.message}`); return false; }
+    const problems = [...walked.problems, ...declaredOutputProblems({ before, after: walked.entries, declared })];
+    if (problems.length) { for (const p of problems.slice(0, 10)) o.err(`${tag} RK_CHECK_ERROR: [${stage}] web-build ${config}: ${p}`); return false; }
+    const priorByPath = new Map(before.map((e) => [e.path, e]));
+    ds.ledger = { entries: walked.entries.map((e) => (priorByPath.get(e.path)?.sha256 === e.sha256 ? priorByPath.get(e.path) : { ...e, kind: "generated", producer: { stage: "web-build", step: config } })) };
   }
   return true;
 }
@@ -3245,6 +3361,51 @@ export async function main(argv, io = {}) {
     // digested in the snapshot, and the stage's own timings.
     let outputResolution = {}; let directDeclared = []; let directDeclaredNotes = [];
     const directTiming = { bindStart: 0, bindEnd: 0, cargoStart: 0, cargoEnd: 0, afterStart: 0, afterEnd: 0, diagnostics: 0 };
+    // The wrapper and each workspace's output directory, resolved before ANY scan runs (rightkit#1328): Class A runs once, before the compile,
+    // under this wrapper and its per-scan sentinel, so a cargo that bypasses it fails the Class A row, not a later pass. Nothing compiles here.
+    // `wrapRoot` is the verified snapshot, `wrapBroker` the broker of a broker host (the compile's, or the check's discovery broker).
+    const bindCargoWrapper = async (wrapRoot, wrapBroker) => {
+      targetDirs = {};
+      for (const ws of wrapBroker ? [] : rust.workspaces) {
+        const manifest = path.join(root, ws.cargoDir, "Cargo.toml");
+        if (!o.exists(manifest)) { o.err(`${tag} BLOCKED: the checkout has no ${posix(path.relative(root, manifest))}, so the output directory of workspace ${ws.cargoDir} cannot be resolved; nothing compiled`); return 1; }
+        // Resolved in the PRIMARY CHECKOUT with the stage's environment, before the source location changes (row 7.09: CARGO_TARGET_DIR,
+        // a relative or absolute build.target-dir, or the default target/ all resolve as for a developer's own build); the cwd and
+        // environment used are recorded. A directory inside the snapshot is refused before anything compiles (a second output).
+        let resolved;
+        try { resolved = resolveTargetDirectory({ spawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, manifest, env: o.env, checkoutRoot: root, snapshotRoot: wrapRoot, workspace: ws.cargoDir }); }
+        catch (error) { o.err(`${tag} BLOCKED: ${error.message}; nothing compiled`); return 1; }
+        targetDirs[ws.cargoDir] = resolved.dir; outputResolution[ws.cargoDir] = resolved.inputs;
+        o.out(`${tag} output directory for workspace ${ws.cargoDir}: ${targetDirs[ws.cargoDir]} (the checkout's)`);
+      }
+      // CARGO_HOME, sccache & temp are inherited as absolute values, never snapshot-relative (GATE-CONTRACT "Output directory & cache"):
+      // a relative one would be resolved inside the snapshot, a second cache or output location. Refused before anything compiles.
+      const relativeEnv = SNAPSHOT_ABSOLUTE_ENV.filter((name) => typeof o.env[name] === "string" && o.env[name] !== "" && !path.isAbsolute(o.env[name]));
+      if (relativeEnv.length) { o.err(`${tag} BLOCKED: ${relativeEnv.map((n) => `${n}=${o.env[n]}`).join(", ")} ${relativeEnv.length > 1 ? "are" : "is"} relative; a snapshot compile inherits CARGO_HOME, sccache and temp only as absolute paths, never resolved inside the snapshot; nothing compiled`); return 1; }
+      // The runtime cargo wrapper (item 7): first on PATH and named in CARGO for every scan, it binds each real cargo invocation to its
+      // own workspace's checkout target directory or refuses it (RK_CARGO_*), whatever path reaches cargo. Direct POSIX hosts only (a
+      // broker host never reaches here; a direct Windows host keeps the fail-closed static walk). Removed when the gate ends (cleanup).
+      if (o.platform !== "win32" && rust.workspaces.length) {
+        const realCargo = which("cargo").find((c) => path.isAbsolute(c));
+        if (!realCargo && !wrapBroker) { o.err(`${tag} BLOCKED: no cargo on PATH to wrap for the snapshot compile; nothing compiled`); return 1; }
+        try {
+          const shimModule = await import("../cargo-target-shim.mjs");
+          let broker = null;
+          if (wrapBroker) {
+            // Broker mode (the Mac, decision C): every cargo a test reaches is its own carried request. The gate's own snapshot-to-checkout
+            // map is the only source of a request's primaryCwd; each carried request records its sub-handle in the ownership just before it is sent.
+            const checkoutRoot = fs.realpathSync.native(root);
+            const checkoutDirs = Object.fromEntries(rust.workspaces.map((ws) => [ws.cargoDir, path.join(checkoutRoot, ...(ws.cargoDir === "." ? [] : ws.cargoDir.split("/")))]));
+            const { brokerSection } = await import("../snapshot-broker.mjs");
+            broker = { checkoutDirs, section: brokerSection(wrapBroker) };
+          }
+          cargoShim = shimModule.installCargoShim({ base: os.tmpdir(), snapshotRoot: wrapRoot, targetDirs, broker, realCargo: realCargo ?? null, platform: o.platform, onDir: (dir) => { cargoShimDir = dir; } });
+          cargoShim.scanEnv = shimModule.shimScanEnv(o.env, cargoShim);
+        } catch (error) { o.err(`${tag} BLOCKED: the runtime cargo wrapper cannot be installed (${error.message}); nothing compiled`); return 1; }
+        o.out(`${tag} runtime cargo wrapper ${cargoShim.shim} (identity ${cargoShim.identity.slice(0, 16)}, ${cargoShim.mode}) -> ${cargoShim.mode === "broker" ? "the RustRight broker, one carried request per call" : realCargo}: each cargo invocation ${cargoShim.mode === "broker" ? "is carried with its own receipt, verified by the gate," : "binds its workspace's checkout target directory"} or is refused`);
+      }
+      return 0;
+    };
     if (snapshotB) {
       const sc = await import("../snapshot-check.mjs");
       try {
@@ -3281,45 +3442,14 @@ export async function main(argv, io = {}) {
         } catch (error) { o.err(`${tag} BLOCKED: ${error.code ?? "RK_SNAPSHOT_BROKER"}: ${error.message}; nothing compiled`); return 1; }
         o.out(`${tag} broker snapshot compile: pins ${snapshotBroker.pins.keyId.slice(0, 12)} from ${snapshotBroker.pinsSource}, ${snapshotBroker.declaredInputs.length} declared input(s) read from the snapshot, ownership ${snapshotBroker.handle}`);
       }
-      targetDirs = {};
-      for (const ws of snapshotBroker ? [] : rust.workspaces) {
-        const manifest = path.join(root, ws.cargoDir, "Cargo.toml");
-        if (!o.exists(manifest)) { o.err(`${tag} BLOCKED: the checkout has no ${posix(path.relative(root, manifest))}, so the output directory of workspace ${ws.cargoDir} cannot be resolved; nothing compiled`); return 1; }
-        // Resolved in the PRIMARY CHECKOUT with the stage's environment, before the source location changes (row 7.09: CARGO_TARGET_DIR,
-        // a relative or absolute build.target-dir, or the default target/ all resolve as for a developer's own build); the cwd and
-        // environment used are recorded. A directory inside the snapshot is refused before anything compiles (a second output).
-        let resolved;
-        try { resolved = resolveTargetDirectory({ spawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, manifest, env: o.env, checkoutRoot: root, snapshotRoot: snapshotB, workspace: ws.cargoDir }); }
-        catch (error) { o.err(`${tag} BLOCKED: ${error.message}; nothing compiled`); return 1; }
-        targetDirs[ws.cargoDir] = resolved.dir; outputResolution[ws.cargoDir] = resolved.inputs;
-        o.out(`${tag} output directory for workspace ${ws.cargoDir}: ${targetDirs[ws.cargoDir]} (the checkout's)`);
-      }
-      // CARGO_HOME, sccache & temp are inherited as absolute values, never snapshot-relative (GATE-CONTRACT "Output directory & cache"):
-      // a relative one would be resolved inside the snapshot, a second cache or output location. Refused before anything compiles.
-      const relativeEnv = SNAPSHOT_ABSOLUTE_ENV.filter((name) => typeof o.env[name] === "string" && o.env[name] !== "" && !path.isAbsolute(o.env[name]));
-      if (relativeEnv.length) { o.err(`${tag} BLOCKED: ${relativeEnv.map((n) => `${n}=${o.env[n]}`).join(", ")} ${relativeEnv.length > 1 ? "are" : "is"} relative; a snapshot compile inherits CARGO_HOME, sccache and temp only as absolute paths, never resolved inside the snapshot; nothing compiled`); return 1; }
-      // The runtime cargo wrapper (item 7): first on PATH and named in CARGO for every scan, it binds each real cargo invocation to its
-      // own workspace's checkout target directory or refuses it (RK_CARGO_*), whatever path reaches cargo. Direct POSIX hosts only (a
-      // broker host never reaches here; a direct Windows host keeps the fail-closed static walk). Removed when the gate ends (cleanup).
-      if (o.platform !== "win32" && rust.workspaces.length) {
-        const realCargo = which("cargo").find((c) => path.isAbsolute(c));
-        if (!realCargo && !snapshotBroker) { o.err(`${tag} BLOCKED: no cargo on PATH to wrap for the snapshot compile; nothing compiled`); return 1; }
-        try {
-          const shimModule = await import("../cargo-target-shim.mjs");
-          let broker = null;
-          if (snapshotBroker) {
-            // Broker mode (the Mac, decision C): every cargo a test reaches is its own carried request. The gate's own snapshot-to-checkout
-            // map is the only source of a request's primaryCwd; each carried request records its sub-handle in the ownership just before it is sent.
-            const checkoutRoot = fs.realpathSync.native(root);
-            const checkoutDirs = Object.fromEntries(rust.workspaces.map((ws) => [ws.cargoDir, path.join(checkoutRoot, ...(ws.cargoDir === "." ? [] : ws.cargoDir.split("/")))]));
-            const { brokerSection } = await import("../snapshot-broker.mjs");
-            broker = { checkoutDirs, section: brokerSection(snapshotBroker) };
-          }
-          cargoShim = shimModule.installCargoShim({ base: os.tmpdir(), snapshotRoot: snapshotB, targetDirs, broker, realCargo: realCargo ?? null, platform: o.platform, onDir: (dir) => { cargoShimDir = dir; } });
-          cargoShim.scanEnv = shimModule.shimScanEnv(o.env, cargoShim);
-        } catch (error) { o.err(`${tag} BLOCKED: the runtime cargo wrapper cannot be installed (${error.message}); nothing compiled`); return 1; }
-        o.out(`${tag} runtime cargo wrapper ${cargoShim.shim} (identity ${cargoShim.identity.slice(0, 16)}, ${cargoShim.mode}) -> ${cargoShim.mode === "broker" ? "the RustRight broker, one carried request per call" : realCargo}: each cargo invocation ${cargoShim.mode === "broker" ? "is carried with its own receipt, verified by the gate," : "binds its workspace's checkout target directory"} or is refused`);
-      }
+      { const rc = await bindCargoWrapper(snapshotB, snapshotBroker); if (rc) return rc; }
+    }
+
+    // Full class A of a snapshot (the door's check stage): the same wrapper, sentinel and ledger as the compile, installed BEFORE the scans so
+    // the one Class A pass is the one that sees a cargo bypass (rightkit#1328). The compile pass runs class B only.
+    if (!planOnly && fullA && snapshotA && rust.workspaces.length) {
+      const rc = await bindCargoWrapper(snapshotA, executor.kind === "broker" ? discoveryBroker : null);
+      if (rc) return rc;
     }
 
     // Class B scans (compile, lint, tests) run in the live checkout, so it must equal HEAD where they read it: an uncommitted fix could
@@ -3347,8 +3477,15 @@ export async function main(argv, io = {}) {
     const changed = allFilesMode ? files : [...new Set(text(diff).split(/\r?\n/).map((f) => f.trim()).filter(Boolean))].filter((f) => o.exists(path.join(repo, f)));
     if (allFilesMode) base = snapshot ?? "the working tree";
 
-    let crateFeatures = {}; let packageFeatures = {};
-    try { const gateConfig = JSON.parse(o.readFile(path.join(repo, "ci/gate.config.json"))); crateFeatures = gateConfig.rust ?? {}; packageFeatures = gateConfig.npm ?? {}; } catch { /* no config: default feature sets */ }
+    let crateFeatures = {}; let packageFeatures = {}; let swiftPackages = {};
+    try { const gateConfig = JSON.parse(o.readFile(path.join(repo, "ci/gate.config.json"))); crateFeatures = gateConfig.rust ?? {}; packageFeatures = gateConfig.npm ?? {}; swiftPackages = gateConfig.swift && typeof gateConfig.swift === "object" ? gateConfig.swift : {}; } catch { /* no config: default feature sets */ }
+    // rightkit#1333 (P7): the end-to-end crates of the tree (a non-optional rightkit-qa dependency and a driver module), found from the files alone by the
+    // same reader the G22 check rule uses; their test scans compile with --no-run and their tests are owed to the qualify stage (planScans e2eCrateDirs).
+    let e2eCrateDirs = null;
+    if (rust.units.length) {
+      try { const { e2eCrates } = await import("../app-check.mjs"); e2eCrateDirs = new Set(e2eCrates(repo, files).crates.map((c) => c.dir)); }
+      catch (e) { o.err(`${tag} BLOCKED: cannot tell which crates are end-to-end crates (${e.message}); their tests would run as class B unit tests, so nothing is planned`); return 1; }
+    }
     // One lock and one lock scope per Cargo workspace. A workspace whose lock-only change reaches a subset puts only that subset's
     // units (by unit name) in scope; every other workspace keeps all of its units in scope (planScans reads the scope only for the
     // workspaces whose own root files changed).
@@ -3402,6 +3539,7 @@ export async function main(argv, io = {}) {
       // The door's snapshot compile already executes the repository's own code (its tests) in the verified snapshot, guarded like
       // full class A, so the docs generator runs there too instead of being deferred (step 4c review).
       quietTests: fullA || o.env.RK_GATE_QUIET_TESTS === "local" ? "local" : "ci", packageFeatures, liveExecution: (fullA && (args.includes("--worktree") || Boolean(snapshotA))) || Boolean(snapshotB),
+      e2eCrateDirs, swiftPackages,
       rustUnits: rust.units, npmUnits: npm, npmRoots, cargoDir: ".", rustLocks, crateFeatures, crateDependents, externalInputs,
       // The broker (or, on a direct host, the gate itself) admits compiles; no separate grant file decides it here.
       localCompile: true,
@@ -3428,6 +3566,9 @@ export async function main(argv, io = {}) {
       const cargoExcluded = kept.dropped.filter((s) => closureTools.isCargoScan(s)).length;
       o.out(`${tag} scope ${closure.dirs.join(", ")}: dependency directories ${closure.dependencyDirs.join(", ")}; ${closure.npm.size} npm & ${closure.rust.size} Rust unit(s); Class A ${executing} executing scan(s) (${cargoRun} Cargo), ${classA.length - executing} repository file-only scan(s); ${kept.dropped.length} unrelated executing scan(s) excluded (${cargoExcluded} Cargo); ${plan.scans.length - classA.length} closure Class B scan(s) do not run in this check; install roots ${installRoots.join(", ") || "none"}; scope digest ${plan.scopeDigest}`);
     }
+    // What the plan leaves to the qualify stage (end-to-end crates, declared Swift packages): handed to the door, which records it in the compile
+    // receipt and refuses to qualify without a declared run route (rightkit#1332, #1333). Never dropped silently.
+    o.onQualifyOwed?.((plan.qualifyOwed ?? []).filter((x) => x.kind !== "e2e-crate" || plan.scans.some((s) => s.id === x.id)));
     const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? 4) || 4);
     const testJobs = Math.max(1, Number(o.env.RK_GATE_TEST_JOBS ?? jobs) || jobs);
     const classBJobs = Math.max(1, Number(o.env.RK_GATE_CLASS_B_JOBS ?? 3) || 3);
@@ -3520,6 +3661,8 @@ export async function main(argv, io = {}) {
     if (boundFullA) {
       const orphans = orphanedPnpmStores({ root: liveBase, files: live.files });
       if (orphans.length) { o.err(`${tag} BLOCKED: orphaned nested pnpm store(s) ${orphans.join(", ")}: left by a standalone install in a workspace member; they can hold stale dependencies and make concurrent vitest runs clear their shared module cache under each other. Move them aside (or reinstall) and run again.`); return 1; }
+      const pinProblem = pnpmPinProblem({ root: liveBase, files: live.files, spawn: o.spawn, readFile: o.readFile });
+      if (pinProblem) { o.err(`${tag} BLOCKED: ${pinProblem.message}; no class A row ran`); return 1; }
       try { envAtStart = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files: live.files, spawn: o.spawn, includeCaches: false }); envStartWithCaches = classAEnvironmentDigest({ root: liveBase, gatePackage: o.gatePackage, files: live.files, spawn: o.spawn }); cachesAtStart = toolCacheManifest({ root: liveBase, files: live.files }); }
       catch (error) { o.err(`${tag} BLOCKED: ${error.message}`); return 1; }
     }
@@ -3581,11 +3724,15 @@ export async function main(argv, io = {}) {
     if (enrolledTools.length) o.out(`${tag} scan-tool policy: ${enrolledTools.map((name) => `${name} (${scanTools.sources?.[name] ?? "enrolled"})`).join(", ")}`);
     // The direct compile's freshness census (row 7.19): the fingerprint units before the scans, and the fingerprint log of each cargo
     // process that compiles (CARGO_LOG on that process only, read from its own standard error). A broker host's census is the broker's.
+    // The door's compile stage runs only after its check stage passed full class A of this same snapshot, once, before the compile and under the
+    // cargo wrapper (rightkit#1328): this pass runs class B alone. Set by the door (io option), never by a command-line flag.
+    const classAEarlier = Boolean(snapshotB && o.classAEarlier === true);
+    if (classAEarlier) o.out(`${tag} class A is not repeated: it ran once before the compile, under the cargo wrapper, on this snapshot`);
     const census = snapshotB && !snapshotBroker ? createFreshnessCensus({ targetDirs }) : null;
     directTiming.cargoStart = Date.now();
     census?.start();
     const scanResult = await (o.runScans ?? runScans)(plan, {
-      classes: classAOnly ? ["A"] : ["A", "B"], jobs, testJobs, classBJobs, signal: ac.signal, ...(cache ? { cache } : {}),
+      classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], ...(classAEarlier ? { classAEarlier: true } : {}), jobs, testJobs, classBJobs, signal: ac.signal, ...(cache ? { cache } : {}),
       ...(census ? { spawn: census.wrapSpawn(defaultSpawnAsync) } : {}),
       // The declared Linux broker route: the scans are planned with the logical `rustright`, which this spawn (and scanSpawn's pass-through below) starts as the
       // executor's validated client, never a PATH lookup (withDeclaredClient).
