@@ -384,6 +384,7 @@ const GENERATOR_INPUT = /^(crates\/[^/]+\/(Cargo\.toml|README\.md)|packages\/[^/
 const PROBES = Object.freeze({
   rustfmt: ["--version"], node: ["--version"], rustright: ["cargo", "--version"], pnpm: ["--version"],
   actionlint: ["-version"], shellcheck: ["--version"], "right-git": ["--version"], swift: ["--version"],
+  "cargo-deny": ["--version"], "cargo-audit": ["audit", "--version"], // as cargo itself starts the subcommand binaries
 });
 /**
  * The one version of each analyzer whose verdict class A accepts. A class A finding must not depend on which build of the
@@ -423,6 +424,80 @@ export function pinnedVersionProblem(tool, version) {
   const required = PINNED_SCAN_TOOLS[tool];
   if (!required || version === `${tool} ${required}`) return null;
   return `${tool} found ${version ? `"${version}"` : "with no readable version"}, class A requires ${tool} ${required} (PINNED_SCAN_TOOLS in @rightkit/release deterministic-scans.mjs); another version judges scripts differently, so it is refused, never passed or skipped`;
+}
+
+/**
+ * RA-18 / L9-03: the analyzers whose verdict class A accepts run only from an ENROLLED executable. The scan-tool policy is data the host
+ * owner enrols (ci/rk-pipeline.json `tools.<name>.<platform>`: an absolute `path`, the file's `sha256` and the `version`), handed to
+ * runScans as `options.toolPolicy` (scanToolPolicyFromPipeline reads it). A tool is resolved ONCE per run from that entry, never from PATH: the
+ * file's real path must be an executable regular file whose SHA-256 is the enrolled one, its `--version` must name the enrolled version, and the
+ * same digest is read again immediately before every scan that runs it. The path, digest and version are bound into the scan's evidence
+ * (`row.identities`, `result.toolIdentities`) and into its cache key. A tool with no enrolment is TOOL_UNTRUSTED, an enrolled file that
+ * is absent or not runnable is TOOL_MISSING, a file whose bytes are not the enrolled ones (at resolution or after the probe) is TOOL_REPLACED,
+ * another version is TOOL_VERSION: never a pass, never a skip, and a PATH stub that answers `--version` convincingly changes none of this.
+ * A scan the broker carries (a snapshot-broker host's cargo-deny / cargo-audit) runs the broker's own registered tool: its identity is the
+ * broker's tool registration (RustRight), recorded here as `source: "broker"` and never claimed as bound by the gate.
+ */
+export const TRUSTED_SCAN_TOOLS = Object.freeze(["actionlint", "shellcheck", "cargo-deny", "cargo-audit"]);
+const SHA256_HEX = /^[0-9a-f]{64}$/i;
+
+/** The scan-tool policy of a pipeline file's `tools` object for `platform`: `{ [tool]: { path, sha256, version } }` for each trusted tool that has a `<platform>` entry (shape unchecked here; resolveTrustedScanTool judges it). */
+export function scanToolPolicyFromPipeline(tools, platform = process.platform) {
+  const policy = {};
+  for (const name of TRUSTED_SCAN_TOOLS) {
+    const entry = tools && typeof tools === "object" && Object.hasOwn(tools, name) ? tools[name] : null;
+    const host = entry && typeof entry === "object" && Object.hasOwn(entry, platform) ? entry[platform] : null;
+    if (host && typeof host === "object") policy[name] = { path: host.path, sha256: host.sha256, version: host.version ?? entry.version };
+  }
+  return policy;
+}
+
+const sha256OfFile = (file) => {
+  const hash = crypto.createHash("sha256"); const fd = fs.openSync(file, "r");
+  try { const buffer = Buffer.alloc(1 << 20); for (let n = fs.readSync(fd, buffer, 0, buffer.length, null); n > 0; n = fs.readSync(fd, buffer, 0, buffer.length, null)) hash.update(buffer.subarray(0, n)); } finally { fs.closeSync(fd); }
+  return hash.digest("hex");
+};
+const DEFAULT_TOOL_OPS = Object.freeze({ realpath: (p) => fs.realpathSync.native(p), stat: (p) => fs.statSync(p), digestFile: sha256OfFile });
+
+/** `{ ok: true, identity: { tool, path, enrolledPath, sha256, version, source: "policy" } }` or `{ ok: false, code, why }` (TOOL_UNTRUSTED | TOOL_MISSING | TOOL_REPLACED). `ops` (realpath/stat/digestFile) is for tests of the judging only. */
+export function resolveTrustedScanTool(tool, { policy, platform = process.platform, ops } = {}) {
+  const o = { ...DEFAULT_TOOL_OPS, ...ops };
+  const where = `ci/rk-pipeline.json tools.${tool}.${platform}`;
+  const entry = policy && typeof policy === "object" && Object.hasOwn(policy, tool) ? policy[tool] : null;
+  const untrusted = (why) => ({ ok: false, code: "TOOL_UNTRUSTED", why: `${why}; a binary found on PATH is never trusted and an unenrolled scan tool is never passed (the host's scan-tool policy owner enrols it: ${where} with an absolute path, the file's sha256 and its version, handed to the gate as options.toolPolicy)` });
+  if (!entry || typeof entry !== "object") return untrusted(`${tool} is not enrolled in the scan-tool policy`);
+  const paths = platform === "win32" ? path.win32 : path.posix;
+  if (typeof entry.path !== "string" || !paths.isAbsolute(entry.path) || entry.path.split(/[\\/]/).includes("..") || entry.path.includes("\0")) return untrusted(`the ${tool} enrolment has no absolute path without '..'`);
+  if (typeof entry.sha256 !== "string" || !SHA256_HEX.test(entry.sha256)) return untrusted(`the ${tool} enrolment has no sha256`);
+  if (typeof entry.version !== "string" || !entry.version.trim()) return untrusted(`the ${tool} enrolment has no version`);
+  let real; let meta;
+  try { real = o.realpath(entry.path); meta = o.stat(real); } catch (e) { return { ok: false, code: "TOOL_MISSING", why: `the enrolled ${tool} ${entry.path} cannot be resolved (${e.code ?? e.message})` }; }
+  if (!meta.isFile?.()) return { ok: false, code: "TOOL_MISSING", why: `the enrolled ${tool} ${real} is not a regular file` };
+  if (platform !== "win32" && (meta.mode & 0o111) === 0) return { ok: false, code: "TOOL_MISSING", why: `the enrolled ${tool} ${real} is not executable` };
+  let digest;
+  try { digest = o.digestFile(real); } catch (e) { return { ok: false, code: "TOOL_MISSING", why: `the enrolled ${tool} ${real} cannot be read for its identity (${e.code ?? e.message})` }; }
+  if (digest !== entry.sha256.toLowerCase()) return { ok: false, code: "TOOL_REPLACED", why: `the ${tool} at ${real} has digest ${digest}, not the enrolled ${entry.sha256.toLowerCase()}` };
+  return { ok: true, identity: Object.freeze({ tool, path: real, enrolledPath: entry.path, sha256: digest, version: entry.version.trim(), source: "policy" }) };
+}
+
+/** null while the executable still is the one resolved (same real path, same digest), else `{ code: "TOOL_REPLACED", detail }`: read again immediately before a scan runs it. */
+export function trustedScanToolProblem(identity, { ops } = {}) {
+  const o = { ...DEFAULT_TOOL_OPS, ...ops };
+  try {
+    const real = o.realpath(identity.enrolledPath);
+    if (real !== identity.path) return { code: "TOOL_REPLACED", detail: `${identity.tool}: ${identity.enrolledPath} now resolves to ${real}, not the ${identity.path} that was verified` };
+    const digest = o.digestFile(real);
+    if (digest !== identity.sha256) return { code: "TOOL_REPLACED", detail: `${identity.tool}: ${real} was replaced after it was verified (digest ${digest}, verified ${identity.sha256})` };
+  } catch (e) { return { code: "TOOL_REPLACED", detail: `${identity.tool}: ${identity.path} can no longer be verified (${e.code ?? e.message})` }; }
+  return null;
+}
+
+/** null when the probe's answer names the enrolled version (a whole token of its first line, a leading `v` ignored), else the problem. */
+export function enrolledVersionProblem(identity, probeText) {
+  const bare = (text) => String(text).trim().replace(/^v(?=\d)/i, "");
+  const line = String(probeText ?? "").split(/\r?\n/).find((l) => l.trim()) ?? "";
+  if (line.split(/\s+/).some((token) => bare(token) === bare(identity.version))) return null;
+  return `${identity.tool} at ${identity.path} answers ${line.trim() ? `"${line.trim().slice(0, 120)}"` : "with no readable version"}, the enrolment names ${identity.version}`;
 }
 
 function commandText(d) {
@@ -1972,7 +2047,7 @@ export async function runScans(plan, options = {}) {
   const selected = plan.scans.filter((s) => classes.includes(s.class) && !exclude(s));
   const ordered = [...selected.filter((s) => s.class === SCAN_CLASS.A), ...selected.filter((s) => s.class === SCAN_CLASS.B)];
   const ctx = { deps, contentRoot, read: (f) => deps.readFile(path.join(contentRoot, f)) };
-  const toolVersions = {}; const probed = new Map(); const advisoryDbs = new Map();
+  const toolVersions = {}; const toolIdentities = {}; const probed = new Map(); const advisoryDbs = new Map();
   const results = [];
   // The gate-owned cargo ledger of a wrapped snapshot compile (options.cargoLedger = { dir }): every call the wrapper decided, filed
   // under its scan's token. `ledgerSeen` is the run's one-use record of carriers and request ids across every scan.
@@ -2005,8 +2080,11 @@ export async function runScans(plan, options = {}) {
   async function probe(tool, scanDir = null) {
     if (probed.has(tool)) return probed.get(tool);
     let outcome;
-    const command = toolCommand(tool);
-    if (!command) outcome = { ok: false, why: "not found" };
+    // A trusted analyzer is resolved ONCE, from its enrolment (never PATH), and its bytes verified before this probe runs it.
+    const trust = TRUSTED_SCAN_TOOLS.includes(tool) ? resolveTrustedScanTool(tool, { policy: options.toolPolicy, platform: deps.platform, ops: options.toolOps }) : null;
+    const command = trust ? (trust.ok ? trust.identity.path : null) : toolCommand(tool);
+    if (trust && !trust.ok) outcome = { ok: false, code: trust.code, why: trust.why };
+    else if (!command) outcome = { ok: false, why: "not found" };
     else {
       // A version probe never runs inside the repository: a tool started there reads the repository's own configuration first
       // (pnpm's .npmrc and pnpmfile, corepack's packageManager pin, cargo's .cargo/config), before any scan's protections apply.
@@ -2027,7 +2105,9 @@ export async function runScans(plan, options = {}) {
       else {
         const text = String(r.stdout || r.stderr || "");
         const version = PROBE_VERSION[tool] ? PROBE_VERSION[tool](text) : text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? "unknown";
-        outcome = { ok: true, command, version: version ?? "unknown", pinProblem: pinnedVersionProblem(tool, version) };
+        const identity = trust?.identity ?? null;
+        outcome = { ok: true, command, version: version ?? "unknown", pinProblem: pinnedVersionProblem(tool, version) ?? (identity ? enrolledVersionProblem(identity, version ?? text) : null), ...(identity ? { identity } : {}) };
+        if (identity) toolIdentities[tool] = { ...identity, probed: version ?? "unknown" };
       }
     }
     toolVersions[tool] = outcome.ok ? outcome.version : null;
@@ -2204,15 +2284,24 @@ export async function runScans(plan, options = {}) {
         }
         const p = await probe(s.tool, probeAt);
         row.toolVersion = p.ok ? p.version : null;
-        let missingDep = null; let depVersionProblem = null; const depVersions = [];
-        for (const dep of s.requires ?? []) {
+        // The broker runs the cargo-deny / cargo-audit a carried scan names: that identity is the broker's tool registration, not the gate's to bind.
+        const brokerCarried = Boolean(deps.snapshotBroker) && s.class === SCAN_CLASS.A && (s.tool === "rustright" || s.tool === "cargo");
+        const advisoryTool = s.advisoryDb === "deny" ? "cargo-deny" : s.advisoryDb === "audit" ? "cargo-audit" : null;
+        const trusts = advisoryTool && !brokerCarried ? [advisoryTool] : [];
+        const identities = []; if (p.identity) identities.push(p.identity);
+        let missingDep = null; let depVersionProblem = null; let depTrust = null; const depVersions = [];
+        for (const dep of [...(s.requires ?? []), ...trusts]) {
           const d = await probe(dep, scanDir);
-          if (!d.ok) { missingDep = `${dep} (${d.why})`; break; }
+          if (!d.ok) { if (d.code && d.code !== "TOOL_MISSING") depTrust = { code: d.code, why: d.why, dep }; else missingDep = `${dep} (${d.why})`; break; }
           if (d.pinProblem) { depVersionProblem = d.pinProblem; break; }
-          depVersions.push(d.version);
+          depVersions.push(d.identity ? `${d.version}@${d.identity.sha256}` : d.version);
+          if (d.identity) identities.push(d.identity);
         }
-        if (!p.ok) { status = "fail"; code = "TOOL_MISSING"; detail = `required tool ${s.tool} is missing or not runnable (${p.why}); a required scan is never skipped`; }
+        if (advisoryTool && brokerCarried) row.identities = [{ tool: advisoryTool, source: "broker", note: "the broker runs its own registered tool; its identity is the broker's tool registration, not bound by the gate" }];
+        else if (identities.length) row.identities = identities.map((i) => ({ tool: i.tool, path: i.path, sha256: i.sha256, version: i.version, source: i.source }));
+        if (!p.ok) { status = "fail"; code = p.code ?? "TOOL_MISSING"; detail = p.code && p.code !== "TOOL_MISSING" ? `${p.code}: ${p.why}` : `required tool ${s.tool} is missing or not runnable (${p.why}); a required scan is never skipped`; }
         else if (p.pinProblem) { status = "fail"; code = "TOOL_VERSION"; detail = `TOOL_VERSION: ${p.pinProblem} (at ${p.command})`; }
+        else if (depTrust) { status = "fail"; code = depTrust.code; detail = `${depTrust.code}: ${s.tool} needs ${depTrust.dep}: ${depTrust.why}`; }
         else if (missingDep) { status = "fail"; code = "TOOL_MISSING"; detail = `${s.tool} needs ${missingDep}, which is missing or not runnable; without it the scan would pass unchecked, so it fails`; }
         else if (depVersionProblem) { status = "fail"; code = "TOOL_VERSION"; detail = `TOOL_VERSION: ${s.tool} runs ${depVersionProblem}`; }
         else {
@@ -2225,7 +2314,7 @@ export async function runScans(plan, options = {}) {
             try {
               const digest = cache.digest(s);
               // The analyzers a scan runs through (actionlint's shellcheck) judge it too, so their versions key it as well.
-              const toolVersion = [p.version, ...depVersions].join(" + ");
+              const toolVersion = [p.identity ? `${p.version}@${p.identity.sha256}` : p.version, ...depVersions].join(" + ");
               if (digest) cacheKey = scanCacheKey({ id: s.id, command: s.command, toolVersion, env: s.env ?? {}, inheritedEnv: inheritedEnvDigest({ ...deps.env, ...s.env }), digest });
             } catch { cacheKey = null; }
             const hit = cacheKey ? cache.read(cacheKey) : null;
@@ -2359,8 +2448,20 @@ export async function runScans(plan, options = {}) {
               const carried = carryBrokerAdapter({ adapter: "rightkit-swift", words: finalArgs, cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, section: brokerSection(deps.snapshotBroker), record: (entry) => { if (cargoLedger && ledgerToken) appendLedger(cargoLedger.dir, ledgerToken, entry); }, err: () => {}, stdio: "capture" });
               r = { status: carried.status, stdout: carried.stdout, stderr: carried.stderr };
             } catch (e) { r = { error: e }; } finally { clearTimeout(clock); advisory?.cleanup?.(); }
-          } else
-          try { r = await deps.spawn(p.command, finalArgs, { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...(carrier ? carrier.made.env : {}), ...(carrier ? scanOperationEnv({ ...deps.env, ...s.env }, limitMs) : {}) }, signal: scanSignal, timeout: limitMs }); } finally { clearTimeout(clock); advisory?.cleanup?.(); }
+          } else {
+          // The executables this scan runs are the ones resolved and verified above: read their bytes again now, immediately before the launch
+          // (a replaced binary is TOOL_REPLACED), and hand the scan only those paths: actionlint its shellcheck, cargo its cargo-deny / cargo-audit.
+          for (const identity of identities) {
+            const swapped = trustedScanToolProblem(identity, { ops: options.toolOps });
+            if (swapped) { clearTimeout(clock); advisory?.cleanup?.(); return { ...row, status: "fail", code: swapped.code, detail: `${swapped.code}: ${swapped.detail}; the scan did not run` }; }
+          }
+          const shellcheckIdentity = s.tool === "actionlint" ? identities.find((i) => i.tool === "shellcheck") : null;
+          const spawnArgs = shellcheckIdentity ? ["-shellcheck", shellcheckIdentity.path, ...finalArgs] : finalArgs;
+          const trustedDirs = trusts.map((tool) => identities.find((i) => i.tool === tool)).filter(Boolean).map((i) => path.dirname(i.path));
+          const pathKey = Object.keys({ ...deps.env, ...s.env }).find((k) => k.toLowerCase() === "path") ?? "PATH";
+          const trustEnv = trustedDirs.length ? { [pathKey]: [...trustedDirs, ({ ...deps.env, ...s.env })[pathKey]].filter(Boolean).join(deps.platform === "win32" ? ";" : ":") } : {};
+          try { r = await deps.spawn(p.command, spawnArgs, { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...(carrier ? carrier.made.env : {}), ...(carrier ? scanOperationEnv({ ...deps.env, ...s.env }, limitMs) : {}), ...trustEnv }, signal: scanSignal, timeout: limitMs }); } finally { clearTimeout(clock); advisory?.cleanup?.(); }
+          }
           if (signal?.aborted && (!r || r.error || r.status !== 0)) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
           if ((timer.signal.aborted || r?.error?.code === "ETIMEDOUT") && (!r || r.error || r.status !== 0)) return { ...row, status: "fail", code: "TIMEOUT", detail: `${s.id} ran longer than ${Math.round(limitMs / 60000)} min and was killed with its process tree; a scan that does not finish fails` };
           if (!r || r.error) { status = "fail"; code = "SPAWN_ERROR"; detail = r?.error?.message ?? "no result"; }
@@ -2448,7 +2549,7 @@ export async function runScans(plan, options = {}) {
     schema: SCAN_RESULT_SCHEMA, ok: !cancelled && results.every((r) => r.status === "pass"), complete: !cancelled && results.every((r) => r.status === "pass"), classes, checker, ...(cancelled ? { cancelled: true } : {}),
     inputDigest: plan.inputDigest ?? null,
     deferred: results.filter((r) => r.status === "deferred").map((r) => r.id),
-    scans: results, toolVersions, cacheHits: [...cacheHits].sort(), notes: [...(plan.notes ?? []), ...(cargoLedger ? [UNOBSERVED_NESTED_CARGO_NOTE] : [])],
+    scans: results, toolVersions, toolIdentities, cacheHits: [...cacheHits].sort(), notes: [...(plan.notes ?? []), ...(cargoLedger ? [UNOBSERVED_NESTED_CARGO_NOTE] : [])],
     scanSetDigest: digestScanSet(results),
     classDigests: { A: digestScanSet(results.filter((r) => r.class === "A")), B: digestScanSet(results.filter((r) => r.class === "B")) },
   };

@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { userInfo } from 'node:os';
+import crypto from 'node:crypto';
+import net from 'node:net';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir, userInfo } from 'node:os';
 import path from 'node:path';
 import { CANONICAL_WINDOWS_PIPE, LEGACY_WINDOWS_PIPE, discoverBrokerSocket, gateRunsRoot, resolveManagedRoots } from './managed-roots.mjs';
 import { loadVector } from './test-support/vectors.mjs';
-import { managedRuntimeClient, runCargoSync } from './managed-cargo.mjs';
+import { managedRuntimeClient, resolveLinuxBrokerRoute, runCargoSync } from './managed-cargo.mjs';
 
 const options = { platform: 'darwin', home: '/Users/test', env: {} };
 test('Mac control is internal & bulk data remains external; Windows keeps one root', () => {
@@ -144,4 +147,69 @@ test('the gate runs root is the managed data root on Mac and Windows and a per-a
   assert.equal(gateRunsRoot({ platform: 'linux', env: { RIGHTKIT_MANAGED_ROOT: '/data' }, home: '/home/test' }), '/data/runs', 'an explicit data root still wins on Linux');
   assert.equal(gateRunsRoot({ platform: 'linux', env: { RUSTRIGHT_DATA_ROOT: '/rr-data', RIGHTKIT_DATA_ROOT: '/old' }, home: '/home/test' }), '/rr-data/runs', 'GB-63: the RUSTRIGHT_ name names the data root too, and beats its legacy spelling');
   assert.equal(gateRunsRoot({ platform: 'linux', env: { RIGHTKIT_SCRATCH_ROOT: '/scratch', RIGHTKIT_MANAGED_ROOT: '/data' }, home: '/home/test' }), '/scratch', 'RIGHTKIT_SCRATCH_ROOT wins everywhere');
+});
+
+// RA-18 / L3-10: one resolver. A Linux host that names no data root never defaults to the Mac volume; one that names its roots resolves as RustRight's does.
+test('[RA-18] a Linux or other host with no named data root defaults to the account state directory, never the Mac volume; a named root resolves exactly as the shared fixtures say', () => {
+  for (const platform of ['linux', 'freebsd']) {
+    const roots = resolveManagedRoots({ platform, home: '/home/test', env: {} });
+    assert.equal(roots.dataRoot, '/home/test/.local/state/rightkit');
+    assert.equal(roots.controlRoot, roots.dataRoot, 'control equals data off Mac, as RustRight resolves it');
+    assert.equal(roots.socket, '/home/test/.local/state/rightkit/broker.sock');
+    assert.equal(roots.runtimeCurrent, '/home/test/.local/state/rightkit/runtime');
+    assert.equal(roots.liveRuntime, '/home/test/.local/state/rightkit/runtime', 'no runtime root of its own off Mac and Windows: the control root');
+    assert.equal(roots.legacyRoot, '/Volumes/D/.rightkit-managed', 'the shared fixtures pin legacyRoot on every platform; it is a name, not a default');
+    for (const value of Object.values(roots)) assert.ok(!String(value).startsWith('/Volumes') || value === roots.legacyRoot, String(value));
+    assert.equal(gateRunsRoot({ platform, env: {}, home: '/home/test' }), `${roots.dataRoot}/runs`, 'the runs root is the data root\'s: one answer');
+  }
+  const named = resolveManagedRoots({ platform: 'linux', home: '/home/test', env: { RUSTRIGHT_DATA_ROOT: '/srv/rk', RUSTRIGHT_CONTROL_ROOT: '/srv/ctl' } });
+  assert.deepEqual([named.dataRoot, named.controlRoot, named.socket], ['/srv/rk', '/srv/ctl', '/srv/ctl/broker.sock']);
+  // The managed platforms keep their defaults.
+  assert.equal(resolveManagedRoots({ platform: 'darwin', home: '/Users/test', env: {} }).dataRoot, '/Volumes/D/.rightkit-managed');
+  assert.equal(resolveManagedRoots({ platform: 'win32', home: 'C:\\Users\\t', env: {} }).dataRoot, 'D:\\.rightkit-managed');
+});
+
+// The declared Linux route, over real files, a real symlink and a real unix socket: the lookup answers with the client the gate's executor drives, or with none.
+async function declaredLinuxHost(run) {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'rk-lbc-')));
+  const client = path.join(root, 'bin', 'rustright'); mkdirSync(path.dirname(client));
+  writeFileSync(client, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const link = path.join(root, 'rustright-link'); symlinkSync(client, link);
+  const socket = path.join(root, 'b.sock');
+  const server = net.createServer(); await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socket, resolve); });
+  const digest = crypto.createHash('sha256').update('#!/bin/sh\nexit 0\n').digest('hex');
+  const env = { HOME: '/home/test', RIGHTKIT_LINUX_BROKER_CLIENT: link, RIGHTKIT_LINUX_BROKER_SOCKET: socket, RIGHTKIT_LINUX_BROKER_CLIENT_SHA256: digest };
+  try { await run({ root, client, link, socket, digest, env }); } finally { server.close(); rmSync(root, { recursive: true, force: true }); }
+}
+const unixOnly = { skip: process.platform === 'win32' ? 'unix sockets and POSIX modes' : false };
+
+test('[RA-18] a declared Linux broker route resolves to the very client the gate executor validates (real path, pinned digest); an undeclared Linux host stays direct with no client', unixOnly, async () => {
+  await declaredLinuxHost(({ client, link, env, digest, socket }) => {
+    const route = resolveLinuxBrokerRoute({ env, platform: 'linux' });
+    assert.equal(route.ok, true, JSON.stringify(route));
+    assert.equal(managedRuntimeClient(env, 'linux'), route.client, 'one client: the executor\'s');
+    assert.equal(route.client, client, 'resolved through the symlink to the real file');
+    // The legacy endpoint spelling is fine when it is the same endpoint; another endpoint is ambiguous for the executor and for the lookup alike.
+    for (const same of [{ RUSTRIGHT_BUILD_BROKER_SOCKET: socket }, { RIGHTKIT_BUILD_BROKER_SOCKET: socket }]) assert.equal(managedRuntimeClient({ ...env, ...same }, 'linux'), client);
+    for (const bad of [
+      { RUSTRIGHT_BUILD_BROKER_SOCKET: '/elsewhere/broker.sock' },
+      { RIGHTKIT_LINUX_BROKER_CLIENT_SHA256: 'f'.repeat(64) },
+      { RIGHTKIT_LINUX_BROKER_CLIENT_SHA256: undefined },
+      { RIGHTKIT_LINUX_BROKER_CLIENT_SHA256: digest.slice(1) },
+      { RIGHTKIT_LINUX_BROKER_SOCKET: undefined },
+      { RIGHTKIT_LINUX_BROKER_CLIENT: 'rustright' },
+      { RIGHTKIT_LINUX_BROKER_CLIENT: `${path.dirname(client)}/../bin/rustright` },
+      { RIGHTKIT_LINUX_BROKER_CLIENT: `${link}-gone` },
+    ]) {
+      const declared = { ...env, ...bad };
+      for (const key of Object.keys(declared)) if (declared[key] === undefined) delete declared[key];
+      assert.equal(resolveLinuxBrokerRoute({ env: declared, platform: 'linux' }).ok, false, JSON.stringify(bad));
+      assert.equal(managedRuntimeClient(declared, 'linux'), undefined, `the lookup agrees with the executor's refusal: ${JSON.stringify(bad)}`);
+    }
+    // A client sitting where the managed roots and PATH would put one never makes an undeclared Linux host a broker host.
+    const undeclared = { HOME: '/home/test', PATH: `${path.dirname(client)}:/usr/bin`, RUSTRIGHT_CONTROL_ROOT: path.dirname(path.dirname(client)), RUSTRIGHT_BUILD_BROKER_SOCKET: socket };
+    assert.equal(managedRuntimeClient(undeclared, 'linux', () => true), undefined);
+    assert.equal(managedRuntimeClient({}, 'linux'), undefined);
+    assert.equal(managedRuntimeClient(env, 'freebsd'), client, 'every non-Mac, non-Windows platform follows the same declaration rule as managed-cargo directPlatform');
+  });
 });

@@ -204,7 +204,7 @@ function fakeSpawn({ missing = [], failing = [], log = [], shellcheckVersion = P
     log.push([command, ...args]);
     const name = path.basename(command).replace(/\.exe$/, "");
     if (missing.includes(name)) return { error: Object.assign(new Error(`spawn ${name} ENOENT`), { code: "ENOENT" }), status: null };
-    const isProbe = args.length === 1 && args[0].includes("version") || (args.length === 2 && args[0] === "cargo" && args[1] === "--version");
+    const isProbe = args.length === 1 && args[0].includes("version") || (args.length === 2 && args[0] === "cargo" && args[1] === "--version") || (args.length === 2 && args[0] === "audit" && args[1] === "--version");
     // ShellCheck answers as the real one does (a banner, then its version), at the version class A accepts.
     if (isProbe && name === "shellcheck") return { status: 0, stdout: `ShellCheck - shell script analysis tool\nversion: ${shellcheckVersion}\nlicense: GNU General Public License, version 3\n`, stderr: "" };
     if (isProbe) return { status: 0, stdout: `${name} 1.0.0\n`, stderr: "" };
@@ -215,7 +215,14 @@ function fakeSpawn({ missing = [], failing = [], log = [], shellcheckVersion = P
   };
 }
 const TEST_SUMMARY = "ℹ tests 3\nℹ pass 3\nℹ fail 0\nℹ skipped 0\n";
-const deps = (over = {}) => ({ spawn: fakeSpawn(), ...fakeFs({}), findRustfmt: () => "rustfmt", loadToml: async () => () => ({}), scanSecrets: async () => () => [], env: {}, execPath: "node", ensureAdvisoryDb: () => "/cache/advisory-db/pinned", prepareDenyOverlay: () => ({ configPath: "/tmp/rk-deny/deny.toml", cleanup() {} }), ...over });
+// RA-18: every scan analyzer runs from an enrolled executable (the scan-tool policy), never from PATH. The enrolment is a described tree: an absolute
+// path, the digest of its bytes and the version its probe answers, judged by the module's own resolver over `toolOps` (the tests of the judging itself
+// are the "[RA-18]" tests below); no analyzer is faked beyond what fakeSpawn already stands in for.
+const toolBytesDigest = (tool) => crypto.createHash("sha256").update(`${tool} enrolled bytes`).digest("hex");
+const enrolledTool = (tool, version = tool === "shellcheck" ? PINNED_SCAN_TOOLS.shellcheck : "1.0.0") => ({ path: `/opt/rk-tools/${tool}/${tool}`, sha256: toolBytesDigest(tool), version });
+const TOOL_POLICY = Object.freeze(Object.fromEntries(["actionlint", "shellcheck", "cargo-deny", "cargo-audit"].map((tool) => [tool, enrolledTool(tool)])));
+const toolOps = (bytes = {}) => ({ realpath: (p) => p, stat: () => ({ isFile: () => true, mode: 0o755 }), digestFile: (p) => bytes[p] ?? toolBytesDigest(path.posix.basename(p)) });
+const deps = (over = {}) => ({ toolPolicy: TOOL_POLICY, toolOps: toolOps(), spawn: fakeSpawn(), ...fakeFs({}), findRustfmt: () => "rustfmt", loadToml: async () => () => ({}), scanSecrets: async () => () => [], env: {}, execPath: "node", ensureAdvisoryDb: () => "/cache/advisory-db/pinned", prepareDenyOverlay: () => ({ configPath: "/tmp/rk-deny/deny.toml", cleanup() {} }), ...over });
 
 test("runner: all scans pass and the result is a plain receipt-ready object", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
@@ -2556,9 +2563,10 @@ test("shellcheck version pin: a cached pass never admits another version, and th
   assert.deepEqual(wrong.cacheHits.filter((id) => id === "shellcheck" || id === "actionlint"), [], "a cached pass is not a pass under another analyzer");
   assert.equal(wrong.scans.find((r) => r.id === "shellcheck").code, "TOOL_VERSION");
   const key = (id, toolVersion) => scanCacheKey({ id, command: plan.scans.find((s) => s.id === id).command, toolVersion, env: {}, inheritedEnv: inheritedEnvDigest({}), digest: "digest-1" });
-  assert.ok(keys.includes(key("shellcheck", "shellcheck 0.11.0")), "shellcheck's key carries its version");
-  assert.ok(keys.includes(key("actionlint", "actionlint 1.0.0 + shellcheck 0.11.0")), "actionlint's key carries the shellcheck it runs");
-  assert.notEqual(key("shellcheck", "shellcheck 0.11.0"), key("shellcheck", "shellcheck 0.10.0"));
+  const bound = (tool, version) => `${version}@${toolBytesDigest(tool)}`; // RA-18: the enrolled file's digest keys the cache with its version
+  assert.ok(keys.includes(key("shellcheck", bound("shellcheck", "shellcheck 0.11.0"))), "shellcheck's key carries its version and the digest of the file that ran");
+  assert.ok(keys.includes(key("actionlint", `${bound("actionlint", "actionlint 1.0.0")} + ${bound("shellcheck", "shellcheck 0.11.0")}`)), "actionlint's key carries the shellcheck it runs");
+  assert.notEqual(key("shellcheck", bound("shellcheck", "shellcheck 0.11.0")), key("shellcheck", bound("shellcheck", "shellcheck 0.10.0")));
 });
 
 // ---- class A order (Adrian, 2026-10-27: class A is everything mechanical and deterministic, before any compile) -----------------------------
@@ -2955,4 +2963,178 @@ test("[GB-67] on a broker host a swift scan is the carried adapter job and sends
     assert.ok(sent, `the adapter request is ledgered: ${JSON.stringify(entries)}`);
     assert.deepEqual(sent.argv, ["build", "--package-path", "."], "no --scratch-path, no --build-path");
   } finally { rmSync(ledgerDir, { recursive: true, force: true }); }
+});
+
+// ---- RA-18 / L9-03: scan analyzers run only from an enrolled executable; PATH is never a source of trust ------------------------------------------------
+// The judging runs over REAL files in a temp directory (their real bytes, mode and SHA-256) and the real defaultSpawn: a stub on PATH, a binary
+// replaced after its probe and an enrolled digest that no longer matches are the actual attacks, not a described tree. (The `deps()` helper's
+// described tree stands in only for the unrelated tests above.) No broker, executor or platform is faked here.
+const { resolveTrustedScanTool, scanToolPolicyFromPipeline, trustedScanToolProblem, enrolledVersionProblem, TRUSTED_SCAN_TOOLS } = scansModule;
+const unixOnly = { skip: process.platform === "win32" ? "POSIX shell stubs" : false };
+
+function realTools({ actionlintVersion = "1.7.12", shellcheckVersion = PINNED_SCAN_TOOLS.shellcheck } = {}) {
+  const root = fsModule.realpathSync(mkdtempSync(path.join(os.tmpdir(), "rk-scan-tools-")));
+  const calls = path.join(root, "calls.log");
+  const stub = (tool, body) => { const file = path.join(root, "enrolled", tool); mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, `#!/bin/sh\necho "${tool} $*" >> "${calls}"\n${body}\n`, { mode: 0o755 }); return file; };
+  const files = {
+    actionlint: stub("actionlint", `case "$1" in -version) echo "${actionlintVersion}";; esac`),
+    shellcheck: stub("shellcheck", `echo "ShellCheck - shell script analysis tool"; echo "version: ${shellcheckVersion}"`),
+  };
+  const digest = (file) => crypto.createHash("sha256").update(readFileSync(file)).digest("hex");
+  const policy = { actionlint: { path: files.actionlint, sha256: digest(files.actionlint), version: "1.7.12" }, shellcheck: { path: files.shellcheck, sha256: digest(files.shellcheck), version: PINNED_SCAN_TOOLS.shellcheck } };
+  // A decoy earlier on PATH: same names, believable `--version`, and it records that it ran.
+  const decoys = path.join(root, "decoys"); mkdirSync(decoys);
+  for (const [tool, version] of [["actionlint", "1.7.12"], ["shellcheck", `ShellCheck - x\nversion: ${PINNED_SCAN_TOOLS.shellcheck}`]]) writeFileSync(path.join(decoys, tool), `#!/bin/sh\necho "DECOY ${tool} $*" >> "${calls}"\necho '${version}'\n`, { mode: 0o755 });
+  const log = () => (existsSync(calls) ? readFileSync(calls, "utf8").split("\n").filter(Boolean) : []);
+  return { root, files, policy, decoys, log, env: { PATH: `${decoys}:${process.env.PATH}` }, digest, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+// The real spawn, run from a real directory (the planned content root is a described path) and optionally observed.
+const realSpawnIn = (cwd, after = () => {}) => (command, args, options) => { const r = defaultSpawn(command, args, { ...options, cwd }); after(command, args, r); return r; };
+const onlyActionlint = (s) => s.id !== "actionlint";
+const workflowPlan = () => planFor([".github/workflows/ci.yml"], { ".github/workflows/ci.yml": "on: push\njobs: {}\n" }, { all: true, tier: "release" });
+
+test("[RA-18] an enrolled actionlint and shellcheck run from their enrolled paths, never PATH: identity (path, digest, version) is bound to the row and the result, and actionlint is handed that shellcheck", unixOnly, async () => {
+  const t = realTools();
+  try {
+    const { fs, plan } = workflowPlan();
+    const result = await runScans(plan, { ...fs, exclude: onlyActionlint, classes: ["A"], env: t.env, toolPolicy: t.policy, spawn: realSpawnIn(t.root), findRustfmt: () => "rustfmt", loadToml: async () => () => ({}), scanSecrets: async () => () => [] });
+    const row = result.scans.find((s) => s.id === "actionlint");
+    assert.equal(row.status, "pass", JSON.stringify(row));
+    assert.deepEqual(row.identities.map((i) => [i.tool, i.path, i.sha256, i.source]).sort(), [["actionlint", t.files.actionlint, t.digest(t.files.actionlint), "policy"], ["shellcheck", t.files.shellcheck, t.digest(t.files.shellcheck), "policy"]]);
+    assert.equal(result.toolIdentities.actionlint.sha256, t.digest(t.files.actionlint));
+    assert.equal(result.toolIdentities.shellcheck.path, t.files.shellcheck);
+    const calls = t.log();
+    assert.ok(!calls.some((c) => c.startsWith("DECOY")), `a PATH decoy ran: ${calls.join(" | ")}`);
+    const run = calls.find((c) => c.startsWith("actionlint ") && c.includes("ci.yml"));
+    assert.ok(run, `actionlint was run on the workflow: ${calls.join(" | ")}`);
+    assert.ok(run.includes(`-shellcheck ${t.files.shellcheck}`), `actionlint is told which shellcheck to use: ${run}`);
+  } finally { t.cleanup(); }
+});
+
+test("[RA-18] a PATH stub that answers --version convincingly is never trusted: with no enrolment the scan fails TOOL_UNTRUSTED naming the policy owner, and the stub never runs", unixOnly, async () => {
+  const t = realTools();
+  try {
+    const { fs, plan } = workflowPlan();
+    for (const toolPolicy of [undefined, {}, { actionlint: t.policy.actionlint }]) {
+      const result = await runScans(plan, { ...fs, exclude: onlyActionlint, classes: ["A"], env: t.env, toolPolicy, spawn: realSpawnIn(t.root), findRustfmt: () => "rustfmt", loadToml: async () => () => ({}), scanSecrets: async () => () => [] });
+      const row = result.scans.find((s) => s.id === "actionlint");
+      assert.equal(result.ok, false);
+      assert.equal(row.status, "fail");
+      assert.equal(row.code, "TOOL_UNTRUSTED");
+      assert.match(row.detail, /never trusted/);
+      assert.match(row.detail, /ci\/rk-pipeline\.json tools\./);
+      assert.ok(!t.log().some((c) => c.startsWith("DECOY")), "the decoy on PATH never ran");
+    }
+    // Only shellcheck unenrolled (actionlint enrolled): the dependency is judged the same way.
+    assert.ok(!t.log().some((c) => c.includes("ci.yml")), "actionlint never ran without its shellcheck");
+  } finally { t.cleanup(); }
+});
+
+test("[RA-18] a binary replaced after its probe fails TOOL_REPLACED before the scan launches; an enrolled digest that does not match the file fails TOOL_REPLACED before it is probed", unixOnly, async () => {
+  const t = realTools();
+  try {
+    const { fs, plan } = workflowPlan();
+    const run = (policy, spawn) => runScans(plan, { ...fs, exclude: onlyActionlint, classes: ["A"], env: t.env, toolPolicy: policy, spawn, findRustfmt: () => "rustfmt", loadToml: async () => () => ({}), scanSecrets: async () => () => [] });
+    // The file is swapped (same path, same mode, still prints a believable version) right after the gate probed it.
+    const swapped = await run(t.policy, realSpawnIn(t.root, (command, args) => {
+      if (path.basename(command) === "actionlint" && args[0] === "-version") writeFileSync(command, `#!/bin/sh\necho "actionlint $*" >> "${path.join(t.root, "calls.log")}"\necho EVIL >> "${path.join(t.root, "evil.log")}"\necho 1.7.12\n`);
+    }));
+    const row = swapped.scans.find((s) => s.id === "actionlint");
+    assert.equal(row.status, "fail");
+    assert.equal(row.code, "TOOL_REPLACED");
+    assert.match(row.detail, /replaced after it was verified/);
+    assert.ok(!existsSync(path.join(t.root, "evil.log")), "the replacement never ran as the scan");
+    assert.ok(!t.log().some((c) => c.startsWith("actionlint ") && c.includes("ci.yml")), "no scan launch of actionlint");
+    // An enrolment whose digest is not the file's bytes (the file is now the swapped one).
+    const probes = () => t.log().filter((c) => c.startsWith("actionlint ")).length;
+    const calls = probes();
+    const stale = await run(t.policy, realSpawnIn(t.root));
+    assert.equal(stale.scans.find((s) => s.id === "actionlint").code, "TOOL_REPLACED");
+    assert.match(stale.scans.find((s) => s.id === "actionlint").detail, /not the enrolled/);
+    assert.equal(probes(), calls, "a file that is not the enrolled one is not even probed");
+  } finally { t.cleanup(); }
+});
+
+test("[RA-18] an enrolled tool that is absent, not executable, of another version, or enrolled without an absolute path / digest / version is a typed failure, never a pass", unixOnly, async () => {
+  const t = realTools();
+  try {
+    const { fs, plan } = workflowPlan();
+    const run = (policy) => runScans(plan, { ...fs, exclude: onlyActionlint, classes: ["A"], env: t.env, toolPolicy: policy, spawn: realSpawnIn(t.root), findRustfmt: () => "rustfmt", loadToml: async () => () => ({}), scanSecrets: async () => () => [] });
+    const codeOf = async (policy) => (await run(policy)).scans.find((s) => s.id === "actionlint");
+    assert.equal((await codeOf({ ...t.policy, actionlint: { ...t.policy.actionlint, path: path.join(t.root, "enrolled", "gone") } })).code, "TOOL_MISSING");
+    const plain = path.join(t.root, "enrolled", "plain"); writeFileSync(plain, "not executable", { mode: 0o644 });
+    assert.equal((await codeOf({ ...t.policy, actionlint: { ...t.policy.actionlint, path: plain, sha256: t.digest(plain) } })).code, "TOOL_MISSING");
+    const wrongVersion = await codeOf({ ...t.policy, actionlint: { ...t.policy.actionlint, version: "9.9.9" } });
+    assert.equal(wrongVersion.code, "TOOL_VERSION");
+    assert.match(wrongVersion.detail, /enrolment names 9\.9\.9/);
+    for (const broken of [{ ...t.policy.actionlint, path: "relative/actionlint" }, { ...t.policy.actionlint, path: "/opt/../actionlint" }, { ...t.policy.actionlint, sha256: "abc" }, { ...t.policy.actionlint, version: "" }, { ...t.policy.actionlint, sha256: undefined }]) {
+      const row = await codeOf({ ...t.policy, actionlint: broken });
+      assert.equal(row.code, "TOOL_UNTRUSTED", JSON.stringify(broken));
+      assert.equal(row.status, "fail");
+    }
+    // The pinned shellcheck version still rules: a shellcheck enrolled at another version judges scripts differently.
+    const old = realTools({ shellcheckVersion: "0.10.0" });
+    try { const row = (await runScans(plan, { ...fs, exclude: onlyActionlint, classes: ["A"], env: old.env, toolPolicy: { ...old.policy, shellcheck: { ...old.policy.shellcheck, version: "0.10.0" } }, spawn: realSpawnIn(old.root), findRustfmt: () => "rustfmt", loadToml: async () => () => ({}), scanSecrets: async () => () => [] })).scans.find((s) => s.id === "actionlint"); assert.equal(row.code, "TOOL_VERSION"); assert.match(row.detail, /requires shellcheck 0\.11\.0/); } finally { old.cleanup(); }
+  } finally { t.cleanup(); }
+});
+
+test("[RA-18] cargo-deny and cargo-audit scans need their enrolled executable on a direct host, run with its directory first on PATH, and carry its identity; a carried scan records the broker as the identity's source", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
+  const seen = [];
+  const spawn = (command, args, options) => { seen.push({ command, args, env: options?.env }); return fakeSpawn()(command, args, options); };
+  const ok = await runScans(plan, deps({ ...fs, classes: ["A"], spawn }));
+  const deny = ok.scans.find((s) => s.id === "cargo-deny"); const audit = ok.scans.find((s) => s.id === "cargo-audit");
+  assert.equal(deny.status, "pass", JSON.stringify(deny)); assert.equal(audit.status, "pass", JSON.stringify(audit));
+  assert.deepEqual(deny.identities.map((i) => [i.tool, i.path, i.sha256]), [["cargo-deny", "/opt/rk-tools/cargo-deny/cargo-deny", toolBytesDigest("cargo-deny")]]);
+  assert.deepEqual(audit.identities.map((i) => i.tool), ["cargo-audit"]);
+  const denyRun = seen.find((c) => c.args.includes("deny") && c.args.includes("check"));
+  assert.equal(denyRun.env.PATH.split(":")[0], "/opt/rk-tools/cargo-deny", `cargo finds the enrolled cargo-deny first: ${denyRun.env.PATH}`);
+  // Not enrolled: that scan fails typed (the other still passes), and nothing of it runs.
+  seen.length = 0;
+  const { "cargo-deny": _omitted, ...withoutDeny } = TOOL_POLICY;
+  const partial = await runScans(plan, deps({ ...fs, classes: ["A"], spawn, toolPolicy: withoutDeny }));
+  assert.equal(partial.scans.find((s) => s.id === "cargo-deny").code, "TOOL_UNTRUSTED");
+  assert.equal(partial.scans.find((s) => s.id === "cargo-audit").status, "pass");
+  assert.ok(!seen.some((c) => c.args.includes("deny") && c.args.includes("check")), "cargo deny never started");
+  // The enrolled file's bytes changed after the probe: the scan never launches.
+  const bytes = { "/opt/rk-tools/cargo-audit/cargo-audit": toolBytesDigest("cargo-audit") };
+  const flip = { ...toolOps(bytes), digestFile: (p) => (p.endsWith("cargo-audit") && bytes.flipped ? "f".repeat(64) : toolOps().digestFile(p)) };
+  seen.length = 0;
+  const replaced = await runScans(plan, deps({ ...fs, classes: ["A"], toolOps: flip, spawn: (command, args, options) => { if (args.includes("audit") && args.includes("--version")) bytes.flipped = true; return spawn(command, args, options); } }));
+  assert.equal(replaced.scans.find((s) => s.id === "cargo-audit").code, "TOOL_REPLACED");
+  assert.ok(!seen.some((c) => c.args.includes("--db")), "cargo audit never launched");
+});
+
+test("[RA-18] the policy owner's data: scanToolPolicyFromPipeline reads ci/rk-pipeline.json tools for the host platform, and a tool that file does not enrol is TOOL_UNTRUSTED naming exactly where to enrol it", () => {
+  const pipeline = JSON.parse(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "ci", "rk-pipeline.json"), "utf8"));
+  const darwin = scanToolPolicyFromPipeline(pipeline.tools, "darwin");
+  assert.equal(darwin.shellcheck.sha256, pipeline.tools.shellcheck.darwin.sha256);
+  assert.equal(darwin.shellcheck.version, "0.11.0");
+  for (const name of Object.keys(darwin)) assert.ok(TRUSTED_SCAN_TOOLS.includes(name), `${name} is a trusted scan tool`);
+  assert.deepEqual(scanToolPolicyFromPipeline(pipeline.tools, "linux"), {}, "no linux enrolment exists: nothing is invented for a host the owner did not enrol");
+  assert.deepEqual(scanToolPolicyFromPipeline(undefined), {});
+  const untrusted = resolveTrustedScanTool("actionlint", { policy: darwin, platform: "darwin" });
+  assert.equal(untrusted.ok, false);
+  assert.equal(untrusted.code, "TOOL_UNTRUSTED");
+  assert.match(untrusted.why, /ci\/rk-pipeline\.json tools\.actionlint\.darwin/);
+});
+
+test("[RA-18] resolveTrustedScanTool resolves through symlinks to the real file and binds that path; trustedScanToolProblem catches a swapped link target and a changed file", unixOnly, () => {
+  const t = realTools();
+  try {
+    const link = path.join(t.root, "link-to-actionlint"); fsModule.symlinkSync(t.files.actionlint, link);
+    const resolved = resolveTrustedScanTool("actionlint", { policy: { actionlint: { ...t.policy.actionlint, path: link } } });
+    assert.equal(resolved.ok, true);
+    assert.equal(resolved.identity.path, t.files.actionlint, "the identity is the real file, not the link");
+    assert.equal(trustedScanToolProblem(resolved.identity), null);
+    const other = path.join(t.root, "other"); writeFileSync(other, readFileSync(t.files.actionlint), { mode: 0o755 });
+    fsModule.rmSync(link); fsModule.symlinkSync(other, link);
+    assert.match(trustedScanToolProblem(resolved.identity).detail, /now resolves to/, "the link was repointed to a file with the same bytes: still not the verified path");
+    fsModule.rmSync(link); fsModule.symlinkSync(t.files.actionlint, link);
+    writeFileSync(t.files.actionlint, "#!/bin/sh\nexit 0\n");
+    assert.equal(trustedScanToolProblem(resolved.identity).code, "TOOL_REPLACED");
+    assert.equal(enrolledVersionProblem({ tool: "x", path: "/x", version: "1.7.12" }, "1.7.12\n"), null);
+    assert.equal(enrolledVersionProblem({ tool: "x", path: "/x", version: "v0.18.3" }, "cargo-deny 0.18.3\n"), null);
+    assert.match(enrolledVersionProblem({ tool: "x", path: "/x", version: "1.7.1" }, "1.7.12"), /enrolment names 1\.7\.1/, "a prefix of the version is not the version");
+  } finally { t.cleanup(); }
 });
