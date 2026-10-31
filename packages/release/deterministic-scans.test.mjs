@@ -3139,6 +3139,23 @@ test("[RA-18] resolveTrustedScanTool resolves through symlinks to the real file 
   } finally { t.cleanup(); }
 });
 
+test("[rightkit#1327] under the gate's cargo wrapper the enrolled cargo-deny directory goes right after the wrapper, never ahead of it: a real cargo beside cargo-deny (~/.cargo/bin) must not answer the scan's cargo", async (t) => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
+  const sentinel = mkdtempSync(path.join(os.tmpdir(), "rk-1327-"));
+  t.after(() => rmSync(sentinel, { recursive: true, force: true }));
+  const seen = [];
+  const spawn = (command, args, options) => { seen.push({ command, args, env: options?.env }); return fakeSpawn()(command, args, options); };
+  const env = { PATH: "/w/shim/bin:/usr/bin", CARGO: "/w/shim/bin/cargo" };
+  const wrapped = await runScans(plan, deps({ ...fs, classes: ["A"], spawn, env, cargoSentinel: sentinel }));
+  assert.equal(wrapped.scans.find((s) => s.id === "cargo-deny").status, "pass");
+  const denyRun = seen.find((c) => c.args.includes("deny") && c.args.includes("check"));
+  assert.deepEqual(denyRun.env.PATH.split(":"), ["/w/shim/bin", "/opt/rk-tools/cargo-deny", "/usr/bin"], denyRun.env.PATH);
+  // Without a wrapper the enrolled directory still leads: cargo finds the enrolled cargo-deny before any other.
+  seen.length = 0;
+  await runScans(plan, deps({ ...fs, classes: ["A"], spawn, env }));
+  assert.equal(seen.find((c) => c.args.includes("deny") && c.args.includes("check")).env.PATH.split(":")[0], "/opt/rk-tools/cargo-deny");
+});
+
 test("[RA-18] options.cargoReadsCarried === true makes cargo-deny and cargo-audit broker-carried (no local enrolment, source broker, no PATH prefix, no cache) and waives nothing else; false, absent or non-boolean change nothing", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
   const seen = [];

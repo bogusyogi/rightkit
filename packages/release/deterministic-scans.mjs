@@ -2500,7 +2500,15 @@ export async function runScans(plan, options = {}) {
           const spawnArgs = shellcheckIdentity ? ["-shellcheck", shellcheckIdentity.path, ...finalArgs] : finalArgs;
           const trustedDirs = trusts.map((tool) => identities.find((i) => i.tool === tool)).filter(Boolean).map((i) => path.dirname(i.path));
           const pathKey = Object.keys({ ...deps.env, ...s.env }).find((k) => k.toLowerCase() === "path") ?? "PATH";
-          const trustEnv = trustedDirs.length ? { [pathKey]: [...trustedDirs, ({ ...deps.env, ...s.env })[pathKey]].filter(Boolean).join(deps.platform === "win32" ? ";" : ":") } : {};
+          // The gate's cargo wrapper stays first on PATH, ahead of the trusted directories: an enrolled analyzer's directory may also hold
+          // a real cargo (cargo-deny in ~/.cargo/bin beside rustup's cargo), which would otherwise answer the scan's `cargo` unbound and,
+          // with several workspaces, write into the sentinel (rightkit#1327).
+          const scanPath = ({ ...deps.env, ...s.env })[pathKey];
+          const pathSep = deps.platform === "win32" ? ";" : ":";
+          const scanCargo = ({ ...deps.env, ...s.env }).CARGO;
+          const wrapperBin = (cargoLedger || options.cargoSentinel) && typeof scanCargo === "string" && typeof scanPath === "string" ? (deps.platform === "win32" ? path.win32 : path.posix).dirname(scanCargo) : null;
+          const wrapperFirst = wrapperBin !== null && scanPath.split(pathSep)[0] === wrapperBin;
+          const trustEnv = trustedDirs.length ? { [pathKey]: (wrapperFirst ? [wrapperBin, ...trustedDirs, scanPath.slice(wrapperBin.length + 1)] : [...trustedDirs, scanPath]).filter(Boolean).join(pathSep) } : {};
           try { r = await deps.spawn(p.command, spawnArgs, { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...sentinelEnv, ...readTargetEnv, ...s.env, ...(extraEnv ?? {}), ...guardEnv, ...ledgerEnv, ...(carrier ? carrier.made.env : {}), ...(carrier ? scanOperationEnv({ ...deps.env, ...s.env }, limitMs) : {}), ...trustEnv }, signal: scanSignal, timeout: limitMs }); } finally { clearTimeout(clock); advisory?.cleanup?.(); }
           }
           if (signal?.aborted && (!r || r.error || r.status !== 0)) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
