@@ -40,7 +40,7 @@ import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
 import { resolveCommand } from "./development.mjs";
 import { carriedCargoMapOf } from "./carried-cargo.mjs";
 import { BUILD_LAUNCH_REFUSED, buildLaunch } from "./build-launch.mjs";
-import { directPlatform, managedHost, runCargoSync } from "./managed-cargo.mjs";
+import { directHost, managedHost, runCargoSync } from "./managed-cargo.mjs";
 import { APPROVAL_MACHO_STRIP_LINKEDIT_V1, APPROVAL_RAW_SHA256, approvalDigest } from "./macho-approval-hash.mjs";
 import {
   bundledFileName, planMediaSidecar, sourceOfferText, stagedFileName, validateMediaSidecarConfig, verifyStagedSidecars, writeMediaSidecarNotices,
@@ -1880,8 +1880,8 @@ function wipeStaleStageDir(ctx, plan, produced) {
  */
 export function isNestedBrokerContext(env = process.env, platform = process.platform) {
   // A direct (Linux) host has no broker, so no outer broker build to nest in, whatever flag or socket the env carries (heavy-command sets
-  // RIGHTSUITE_HEAVY_WORK_OWNER on every platform).
-  if (directPlatform(platform)) return false;
+  // RIGHTSUITE_HEAVY_WORK_OWNER on every platform). A Linux host that declared the broker route (managed-cargo linuxBrokerDeclared) is a broker host.
+  if (directHost(platform, env ?? {})) return false;
   if (env?.RIGHTKIT_STAGE_SIDECAR_ALLOW_NESTED === "1") return false;
   const insideTauri = Boolean(env?.TAURI_ENV_PLATFORM || env?.TAURI_ENV_TARGET_TRIPLE);
   return insideTauri && (managedHost(env ?? {}, platform) || env?.RIGHTSUITE_HEAVY_WORK_OWNER === "1");
