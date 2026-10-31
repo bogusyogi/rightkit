@@ -2182,13 +2182,20 @@ export async function runScans(plan, options = {}) {
       // A version probe is bounded (PROBE_TIMEOUT_MS): a hung tool reads as unavailable instead of holding a lane, or a quiet
       // lease, open.
       const probeMs = Number.isFinite(options.probeTimeoutMs) && options.probeTimeoutMs > 0 ? options.probeTimeoutMs : PROBE_TIMEOUT_MS;
-      const probeSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(probeMs)]) : AbortSignal.timeout(probeMs);
+      const signalFor = (ms) => (signal ? AbortSignal.any([signal, AbortSignal.timeout(ms)]) : AbortSignal.timeout(ms));
       // The gate's own version probes reach the wrapper too (cargo is first on PATH): they are filed under the probe token, which the
       // gate claims and checks like a scan's.
       const probeLedgerEnv = cargoLedger ? { [SCAN_TOKEN_ENV]: PROBE_LEDGER_TOKEN } : {};
       if (cargoLedger) claimedTokens.add(PROBE_LEDGER_TOKEN);
-      const r = await deps.spawn(command, PROBES[tool] ?? ["--version"], { cwd, env: { ...deps.env, ...PNPM_NO_HOOKS_ENV, COREPACK_ENABLE_AUTO_PIN: "0", ...probeLedgerEnv }, signal: probeSignal });
-      if (!r || r.error || r.status !== 0) outcome = { ok: false, why: r?.error?.message ?? `exit ${r?.status}` };
+      const probeOnce = (ms) => deps.spawn(command, PROBES[tool] ?? ["--version"], { cwd, env: { ...deps.env, ...PNPM_NO_HOOKS_ENV, COREPACK_ENABLE_AUTO_PIN: "0", ...probeLedgerEnv }, signal: signalFor(ms) });
+      // One retry, with three times the bound, when only the bound stopped it (the run itself was not aborted).
+      let r = await probeOnce(probeMs);
+      if (r?.cancelled && !signal?.aborted) r = await probeOnce(probeMs * 3);
+      // A probe stopped by its own timeout (not by the run being aborted) says the host was busy, not that the tool is missing: it is
+      // named as a timeout and not remembered, so the next scan probes again (on a loaded Dell `cargo --version` outlived the 60 s
+      // bound while three compiles ran, and the cached failure then failed every later class B row at 0 s, hrwin 4ccadec2).
+      const timedOut = Boolean(r?.cancelled) && !signal?.aborted;
+      if (!r || r.error || r.status !== 0) outcome = { ok: false, transient: timedOut, why: timedOut ? `${tool} --version did not answer within ${Math.round(probeMs / 1000)} s and again within ${Math.round((probeMs * 3) / 1000)} s (host busy)` : r?.error?.message ?? `exit ${r?.status}` };
       else {
         const text = String(r.stdout || r.stderr || "");
         const version = PROBE_VERSION[tool] ? PROBE_VERSION[tool](text) : text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? "unknown";
@@ -2198,7 +2205,7 @@ export async function runScans(plan, options = {}) {
       }
     }
     toolVersions[tool] = outcome.ok ? outcome.version : null;
-    probed.set(tool, outcome);
+    if (!outcome.transient) probed.set(tool, outcome);
     return outcome;
   }
 

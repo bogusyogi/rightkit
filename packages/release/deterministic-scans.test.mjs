@@ -3224,3 +3224,19 @@ test("rightkit#1332: a Swift package declared qualifyOnly is not built by class 
   assert.ok(blank.scans.some((s) => s.id === "swift-build:ios-native/Tests/E2E") && blank.qualifyOwed.length === 0);
   assert.ok(blank.notes.some((n) => /qualifyOnly is ignored/.test(n)));
 });
+
+test("a tool probe stopped only by its own bound (busy host) is retried with a longer bound and never remembered as missing (hrwin 4ccadec2)", async () => {
+  const pkg = { "package.json": '{"name":"app","license":"MIT","scripts":{"test":"node --test"}}', "src/a.ts": "" };
+  const { fs, plan } = planFor(["src/a.ts"], pkg, { npmUnits: [{ name: "app", dir: "." }] });
+  const base = fakeSpawn();
+  let probes = 0;
+  const spawn = (command, args, options) => {
+    if (args.length === 1 && args[0] === "--version" && /pnpm/.test(String(command)) && probes++ === 0) {
+      return new Promise((resolve) => options?.signal?.addEventListener("abort", () => resolve({ status: null, stdout: "", stderr: "", error: new Error("cancelled"), cancelled: true }), { once: true }));
+    }
+    return base(command, args, options);
+  };
+  const result = await runScans(plan, { ...deps({ ...fs, spawn }), probeTimeoutMs: 100 });
+  assert.ok(probes >= 2, `the timed-out probe was retried (${probes} probe call(s))`);
+  assert.ok(!result.scans.some((r) => /missing or not runnable|did not answer/.test(String(r.detail ?? ""))), JSON.stringify(result.scans.map((r) => [r.id, r.status, r.detail])));
+});
