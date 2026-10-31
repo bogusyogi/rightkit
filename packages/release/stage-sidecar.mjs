@@ -603,17 +603,25 @@ export function defaultRun(command, args, { cwd, env = process.env } = {}) {
  */
 const isDebugSymbolMember = (member) => member.split("/").some((part) => part.toLowerCase().endsWith(".dsym"));
 
-export function defaultExtractMember({ archive, fileName, destDir, run = defaultRun }) {
+/**
+ * The tar that lists and unpacks archives. On Windows it is the System32 bsdtar, named explicitly: PATH often finds Git for Windows'
+ * GNU tar first, which reads the colon in `D:\...` as a remote host and cannot list the cached archive (as direct-bootstrap.mjs).
+ */
+export function archiveTar({ platform = process.platform, env = process.env } = {}) {
+  return platform === "win32" ? path.win32.join(env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
+}
+
+export function defaultExtractMember({ archive, fileName, destDir, run = defaultRun, tar = archiveTar() }) {
   const wanted = normalizeArchiveMember(fileName);
   if (wanted.error) fail("STAGE_SIDECAR_EXTRACT_FAILED", `archive member ${JSON.stringify(fileName)} ${wanted.error}`);
-  const listing = run("tar", ["-tf", archive], { cwd: path.dirname(archive) });
+  const listing = run(tar, ["-tf", archive], { cwd: path.dirname(archive) });
   if (listing.status !== 0) fail("STAGE_SIDECAR_EXTRACT_FAILED", `cannot list ${archive}`);
   const lines = String(listing.stdout).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const members = wanted.byPath
     ? lines.filter((line) => (line.startsWith("./") ? line.slice(2) : line) === wanted.value)
     : lines.filter((line) => path.posix.basename(line) === wanted.value && !isDebugSymbolMember(line));
   if (members.length !== 1) fail("STAGE_SIDECAR_EXTRACT_FAILED", `${archive} has ${members.length} members ${wanted.byPath ? "at the path" : "named"} ${wanted.value}, expected exactly one`);
-  const extracted = run("tar", ["-xf", archive, "-C", destDir, members[0]], { cwd: path.dirname(archive) });
+  const extracted = run(tar, ["-xf", archive, "-C", destDir, members[0]], { cwd: path.dirname(archive) });
   if (extracted.status !== 0) fail("STAGE_SIDECAR_EXTRACT_FAILED", `cannot extract ${members[0]} from ${archive}`);
   const out = path.join(destDir, ...members[0].split("/"));
   const inside = path.relative(path.resolve(destDir), path.resolve(out));

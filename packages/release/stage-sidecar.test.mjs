@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
-  StageSidecarError, builtBinaryCandidates, defaultExtractMember, defaultExtractNsisMember, sevenZipCandidates, defaultRun, isNestedBrokerContext, normalizeArchiveMember, parseTargetTriple, planSidecarStaging, resolveBuildMode, stageSidecars, validateSidecarManifest, validateStageSidecarReceipt,
+  StageSidecarError, archiveTar, builtBinaryCandidates, defaultExtractMember, defaultExtractNsisMember, sevenZipCandidates, defaultRun, isNestedBrokerContext, normalizeArchiveMember, parseTargetTriple, planSidecarStaging, resolveBuildMode, stageSidecars, validateSidecarManifest, validateStageSidecarReceipt,
 } from "./stage-sidecar.mjs";
 import { formatSidecarPlan, nodeHostTriple, parseStageSidecarArgs } from "./stage-sidecar-command.mjs";
 import { contentIdentity } from "./content-digest.mjs";
@@ -1333,6 +1333,15 @@ test("a member path selects the one archive member at exactly that path among du
   const dotted = fakeTar("./runtimes/win-x64/native/onnxruntime.dll\n./runtimes/win-arm64/native/onnxruntime.dll\n");
   defaultExtractMember({ archive: path.resolve("/rk-cache/a.tgz"), fileName: "runtimes/win-x64/native/onnxruntime.dll", destDir, run: dotted.run });
   assert.deepEqual(dotted.extracted(), ["./runtimes/win-x64/native/onnxruntime.dll"], "the listed spelling is what tar is asked for");
+});
+
+test("archives are listed and unpacked with the System32 bsdtar on Windows, never a tar found first on PATH (Git for Windows' GNU tar reads D:\\ as a host)", () => {
+  assert.equal(archiveTar({ platform: "win32", env: { SystemRoot: "C:\\Windows" } }), "C:\\Windows\\System32\\tar.exe");
+  assert.equal(archiveTar({ platform: "win32", env: {} }), "C:\\Windows\\System32\\tar.exe");
+  assert.equal(archiveTar({ platform: "darwin", env: {} }), "tar");
+  const tar = fakeTar("ffmpeg.exe\n");
+  defaultExtractMember({ archive: path.resolve("/rk-cache/a.tgz"), fileName: "ffmpeg.exe", destDir: path.resolve("/rk-extract-dest"), run: tar.run, tar: "C:\\Windows\\System32\\tar.exe" });
+  assert.deepEqual(tar.calls.map((call) => call[0]), ["C:\\Windows\\System32\\tar.exe", "C:\\Windows\\System32\\tar.exe"], "both the listing and the extraction");
 });
 
 test("a member path must match the full path exactly once and case-sensitively", () => {
