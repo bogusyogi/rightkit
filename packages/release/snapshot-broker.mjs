@@ -20,7 +20,7 @@ import { BROKER_CLIENT_UNRESOLVED, resolveBrokerClient, spawnBrokerClient } from
 import { loadBrokerPins } from "./broker-pins.mjs";
 import { ATTEST_STAGE_NONCE_ENV, canonicalJson, carriedCallNonce } from "./provenance-verify.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
-import { forwardedAdapterEnv } from "./adapter-env.mjs";
+import { forwardedAdapterEnv, withoutSigningEnv } from "./adapter-env.mjs";
 import { carriedShapeDecision } from "./cargo-shapes.mjs";
 import { swiftScratchRefusal } from "./swift-scratch.mjs";
 import { removeCarrier, sweepSnapshotRequests } from "./carrier-census.mjs";
@@ -37,7 +37,7 @@ import {
  * caller's shell held (CARGO_HOME, RUSTFLAGS, RUSTC_WRAPPER, ...).
  */
 export function withoutManagedRustEnv(env) {
-  const out = { ...env };
+  const out = withoutSigningEnv(env); // GB-06: signing material (TAURI_SIGNING_*, TAURI_PRIVATE_KEY, TAURI_KEY_PASSWORD) never reaches the client of a carried call
   for (const key of Object.keys(out)) if (MANAGED_RUST_ENVIRONMENT_KEYS.includes(key.toUpperCase())) delete out[key];
   return out;
 }

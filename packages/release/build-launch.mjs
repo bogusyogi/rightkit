@@ -211,7 +211,7 @@ export function buildLaunch(command, args = [], host = {}) {
   };
   const adapterLaunch = (adapter, adapterArgs) => {
     const stepLaunchEnv = stepEnvLaunch(adapter);
-    const launchEnv = Object.keys(stepLaunchEnv).length ? { env: stepLaunchEnv } : {};
+    const launchEnv = { ...(Object.keys(stepLaunchEnv).length ? { env: stepLaunchEnv } : {}), ...(stepLaunchEnv.signingEnvDropped?.length ? { signingEnvDropped: stepLaunchEnv.signingEnvDropped } : {}) };
     return adapterMap?.map ? { command: process.execPath, args: [CARRIED_ADAPTER_RUN, adapter, "--", ...adapterArgs], ...launchEnv } : { command: client(), args: ["run", adapter, "--", ...adapterArgs], ...launchEnv };
   };
   if (program === "cargo") return { command: client(), args: ["cargo", ...args.map(String)], ...cargoHandoffEnv(args) };
