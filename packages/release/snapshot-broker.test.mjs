@@ -1,11 +1,14 @@
 // Item 7 rows 7.10, 7.20 and 7.24 (decision C) on a broker host: cargo reached by tests goes through the runtime wrapper's broker
 // mode, one carried request per call, every call in the gate-owned ledger, and the scan fails on any refused or unverified call
-// even when the test ignores cargo's exit status. The broker here is a FIXTURE (a fake `rustright` client that applies the reader's
-// carrier rules and serves receipts signed in-test with a real P-256 key); native runs against RustRight's item-4 dev install
-// are separate evidence and BLOCKED until it exists. Row 7.26 (lease lifetime) is exercised through the real `brokerLeaseState`
-// and the real ownership reclaim with a fake client.
+// even when the test ignores cargo's exit status.
+//
+// Evidence labels. There is no simulated broker in this file. "real broker:" titles run the installed RustRight client against an isolated instance of the installed
+// broker (test-support/real-broker.mjs) and assert on what it answers. "data:" titles call the real production functions with constructed inputs (a recording spawn,
+// argv, wire-shaped lease answers, plain directories) and are NOT broker evidence. A call here never reaches a snapshot the broker holds (the snapshot is a plain
+// directory under the instance's data root, not one the production sync made), so the real broker never answers a verified result: nothing below claims one.
 import "./test-support/broker-guard.mjs";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -15,74 +18,129 @@ import { fileURLToPath } from "node:url";
 import { SCAN_TOKEN_ENV, appendLedger, readLedger, scanTokenOf, unclaimedLedgers } from "./cargo-ledger.mjs";
 import { decideCargoInvocation, installCargoShim, locateWorkspaceByWalk, shimScanEnv } from "./cargo-target-shim.mjs";
 import { runScans } from "./deterministic-scans.mjs";
-import { acquireBuildOwnership } from "./build-ownership.mjs";
-import { brokerSection, carryBrokerAdapter, carryBrokerCargo, createSnapshotBroker, lexicalCounterpart, nearestExistingDirectory, verifyBrokerLedger } from "./snapshot-broker.mjs";
+import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, OWNERSHIP_SCHEMA, OwnershipBusy, acquireBuildOwnership, brokerLeaseState } from "./build-ownership.mjs";
+import { brokerSection, carryBrokerAdapter, carryBrokerCargo, createSnapshotBroker, lexicalCounterpart, nearestExistingDirectory, receiptSync } from "./snapshot-broker.mjs";
 import { carriedCallNonce } from "./provenance-verify.mjs";
-import { argvSha256, isCallHandleOf, writeSnapshotRequest } from "./snapshot-request.mjs";
-import { makeFakeBroker, subHandleStub } from "./test-support/fake-broker.mjs";
+import { isCallHandleOf, writeSnapshotRequest } from "./snapshot-request.mjs";
+import { startRealBroker } from "./test-support/real-broker.mjs";
+import { main } from "./bin/rightkit-gate.mjs";
+import { enrollBrokerPins } from "./broker-pins.mjs";
 
 const POSIX = process.platform === "win32" ? "the runtime wrapper is POSIX only: a Windows child finds only an .exe on PATH; the Dell refuses by the static walk" : false;
 const GATE = "/gate/bin/rightkit-gate.mjs";
+const COMMIT = { sha: "c".repeat(40), tree: "e".repeat(40) };
+/** The gate's pins for this host: a real P-256 public key (so enrollment accepts them) with the matching key id. Nothing in this file judges a receipt against them. */
+const PINS = (() => {
+  const { publicKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const jwk = publicKey.export({ format: "jwk" });
+  const sec1 = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, "base64url"), Buffer.from(jwk.y, "base64url")]).toString("hex");
+  return { host: "host-1", keyId: crypto.createHash("sha256").update(Buffer.from(sec1, "hex")).digest("hex"), publicKey: sec1, brokerDigest: "b".repeat(64) };
+})();
+const WORKSPACES = {
+  "Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n', "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\n', "crates/a/src/lib.rs": "\n",
+  "native/Cargo.toml": '[workspace]\nmembers = []\n[package]\nname = "b"\nversion = "0.1.0"\n', "native/src/lib.rs": "\n",
+};
+const writeTree = (root, files) => { for (const [rel, body] of Object.entries(files)) { const f = path.join(root, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, body); } };
+const NOW = Date.now();
+const probe = () => ({ platform: "darwin", identity: (pid) => (pid === process.pid ? { alive: true, startedMs: NOW - 60_000, group: 4242 } : { alive: false, startedMs: null, group: null }), bootTime: () => NOW - 86_400_000, groupSnapshot: () => ({ members: [], byPid: new Map([[1, { pid: 1, ppid: 0, startedMs: NOW - 9e7 }]]), own: new Set([process.pid]) }), tokenHolders: () => null, snapshotUsers: () => null, ancestors: () => [{ pid: 5000, startedMs: NOW - 9e6 }] });
+const noLease = () => { throw new Error("no lease query expected"); };
+const tmpRoot = (t, prefix = "rk-sb-") => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix))); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })); return d; };
 
-/** A fixture broker host with the broker-mode wrapper installed, and a runner for `node -e` scans that reach cargo through it. */
-function host(t, { inputs = null } = {}) {
-  const fx = makeFakeBroker(t, { inputs });
+/** Plain checkout and snapshot directories (two Cargo workspaces, the root and `native`). */
+function hostDirs(t) {
+  const root = tmpRoot(t);
+  const checkout = path.join(root, "checkout"); const snapshot = path.join(root, "data", "snapshots", "0123456789abcdef");
+  writeTree(checkout, WORKSPACES); writeTree(snapshot, WORKSPACES);
+  return { root, checkout, snapshot };
+}
+
+/**
+ * A broker host with the broker-mode wrapper installed, the REAL build ownership and a runner for `node -e` scans that reach cargo through it. With `rb` (an isolated real broker) the
+ * client, the carrier root and the lease reader are the installed broker's; without it the client is a file that is never started (a test that sends passes its own `spawn`).
+ */
+function host(t, { inputs = null, rb = null } = {}) {
+  const root = tmpRoot(t);
+  const dataRoot = rb?.dataRoot ?? path.join(root, "data"); const controlRoot = rb?.controlRoot ?? path.join(root, "control");
+  const checkout = path.join(root, "checkout"); const snapshot = path.join(dataRoot, "snapshots", "0123456789abcdef"); const wsRoot = path.join(dataRoot, "rightkit-build-control", "ws");
+  writeTree(checkout, WORKSPACES); writeTree(snapshot, WORKSPACES);
+  if (inputs) writeTree(snapshot, { ".rightkit/compile-inputs.json": JSON.stringify({ inputs }), "gen/in.txt": "declared input\n" });
+  const own = acquireBuildOwnership({ file: path.join(root, "build-ownership", "owner.json"), platform: "darwin", probe: probe(), lease: noLease, env: {}, exportEnv: false, stage: "compile", snapshot });
+  const marks = []; const carriers = [];
+  const readCarriers = () => { const dir = path.join(controlRoot, "snapshot-requests"); try { return fs.readdirSync(dir).filter((n) => n.endsWith(".json") && !n.endsWith(".owner.json")).map((n) => JSON.parse(fs.readFileSync(path.join(dir, n), "utf8"))); } catch { return []; } };
+  const client = rb?.clientPath ?? process.execPath;
+  const sb = {
+    controlRoot, commit: COMMIT, snapshot: { path: snapshot, expectedTree: COMMIT.tree }, declaredInputs: inputs ?? [], handle: own.handle, pins: PINS,
+    markBrokerSubmit: (callHandle) => { marks.push(callHandle); carriers.push(...readCarriers()); return own.markBrokerSubmit(callHandle); }, markBrokerUnsent: own.markBrokerUnsent,
+    checkout, outputRoots: [wsRoot], platform: process.platform, client,
+    ...(rb ? { leaseStatus: ({ handle, waitMs = 0 }) => brokerLeaseState({ snapshot, handle, env: rb.env, platform: process.platform, client: rb.clientPath, waitMs }) } : {}),
+  };
+  const ownershipEnv = { [OWNERSHIP_ENV]: own.handle, [OWNERSHIP_FILE_ENV]: own.file };
+  const fx = { root, checkout, dataRoot, controlRoot, snapshot, wsRoot, handle: own.handle, pins: PINS, sb, own, marks, carriers, ownershipEnv, owner: () => JSON.parse(fs.readFileSync(own.file, "utf8")), sent: () => (JSON.parse(fs.readFileSync(own.file, "utf8")).broker?.handles ?? []).length, requestsAtBroker: () => (rb && fs.existsSync(rb.receiptsDir) ? fs.readdirSync(rb.receiptsDir).length : 0) };
   const installed = installCargoShim({
-    base: path.join(fx.root, "shim"), snapshotRoot: fx.snapshot, realCargo: null,
-    broker: { checkoutDirs: { ".": fx.checkout, native: path.join(fx.checkout, "native") }, section: brokerSection(fx.sb) },
+    base: path.join(root, "shim"), snapshotRoot: snapshot, realCargo: null,
+    broker: { checkoutDirs: { ".": checkout, native: path.join(checkout, "native") }, section: brokerSection(sb) },
   });
   t.after(() => fs.rmSync(installed.dir, { recursive: true, force: true }));
-  const clean = { ...process.env, NODE_OPTIONS: "", RUSTRIGHT_CALLING_GATE: GATE, ...fx.ownershipEnv };
+  const clean = { ...process.env, NODE_OPTIONS: "", RUSTRIGHT_CALLING_GATE: GATE, ...(rb?.env ?? {}), ...ownershipEnv };
   for (const k of ["CARGO_TARGET_DIR", "CARGO", "NODE_TEST_CONTEXT", SCAN_TOKEN_ENV]) delete clean[k];
   const scanEnv = shimScanEnv(clean, installed);
   const cargo = (cwd, args) => `spawnSync("cargo", ${JSON.stringify(args)}, { cwd: ${JSON.stringify(cwd)}, stdio: "inherit" }).status`;
   const scan = (id, body, extra = {}) => ({ id, class: "A", tool: "node", args: ["-e", `const { spawnSync } = require("node:child" + "_process"); const fs = require("node:fs"); ${body}`], env: {}, root: "content", command: id, ...extra });
   const run = (scans, over = {}) => {
-    const plan = { scans, roots: { contentRoot: fx.snapshot, liveRoot: fx.snapshot }, notes: [], deferred: [], inputDigest: "d", classDigests: {} };
-    return runScans(plan, { classes: ["A"], env: scanEnv, cargoSentinel: installed.sentinel, cargoLedger: { dir: installed.ledgerDir }, snapshotBroker: fx.sb, platform: process.platform, ...over });
+    const plan = { scans, roots: { contentRoot: snapshot, liveRoot: snapshot }, notes: [], deferred: [], inputDigest: "d", classDigests: {} };
+    return runScans(plan, { classes: ["A"], env: scanEnv, cargoSentinel: installed.sentinel, cargoLedger: { dir: installed.ledgerDir }, snapshotBroker: sb, platform: process.platform, ...over });
   };
   const row = (result, id) => result.scans.find((r) => r.id === id);
-  return { fx, installed, scanEnv, cargo, scan, run, row, a: path.join(fx.snapshot, "crates", "a"), native: path.join(fx.snapshot, "native"), ledger: (id) => readLedger(installed.ledgerDir, scanTokenOf(id)) };
+  /** One carried call in this process (the section holds the real ownership hooks); `spawn` is the OS seam of a data test. */
+  const carry = (words, { cwd = path.join(snapshot, "crates", "a"), env = { PATH: process.env.PATH, RUSTRIGHT_CALLING_GATE: GATE, ...(rb?.env ?? {}) }, records = [], ...extra } = {}) => carryBrokerCargo({ words, cwd, env, section: brokerSection(sb), workspace: snapshot, checkoutWorkspace: checkout, record: (e) => records.push(e), err: () => {}, stdio: "capture", ...extra });
+  return { fx, installed, scanEnv, cargo, scan, run, row, carry, a: path.join(snapshot, "crates", "a"), native: path.join(snapshot, "native"), ledger: (id) => readLedger(installed.ledgerDir, scanTokenOf(id)) };
 }
+const recording = (reply = { status: 0, stdout: "", stderr: "" }) => { const calls = []; const spawn = (file, args, options) => { calls.push({ file, args, options }); return reply; }; spawn.calls = calls; return spawn; };
+const carrierLeft = (fx) => { try { return fs.readdirSync(path.join(fx.controlRoot, "snapshot-requests")); } catch { return []; } };
 
-test("[7.24] a node unit spawning cargo in two workspaces gets two verified receipts with different argv digests; each request carries the checkout cwd from the gate's map and a fresh nonce", { skip: POSIX }, async (t) => {
-  const h = host(t);
-  const result = await h.run([h.scan("two", `process.exit(${h.cargo(h.a, ["build", "--locked"])} || ${h.cargo(h.native, ["test", "--locked", "-p", "b"])})`)]);
+
+test("real broker: [7.24] a node unit spawning cargo in two workspaces sends two carried requests to the real broker, each from the checkout cwd of the gate's map with a fresh nonce and its own sub-handle; no carrier is left behind and the snapshot holds no target/; a snapshot the real broker does not hold is never verified, so the scan fails RK_CARGO_LEDGER", { skip: POSIX }, async (t) => {
+  const rb = await startRealBroker({ name: "sb-two" });
+  t.after(() => rb.stop());
+  const h = host(t, { rb });
+  const result = await h.run([h.scan("two", `${h.cargo(h.a, ["build", "--locked"])}; ${h.cargo(h.native, ["test", "--locked", "-p", "b"])}; process.exit(0)`)]);
   const r = h.row(result, "two");
-  assert.equal(r.status, "pass", JSON.stringify(r));
-  const calls = h.fx.calls();
-  assert.deepEqual(calls.map((c) => c.argv), [["build", "--locked"], ["test", "--locked", "-p", "b"]]);
+  assert.equal(r.status, "fail", JSON.stringify(r)); assert.equal(r.code, "RK_CARGO_LEDGER");
+  const { entries } = h.ledger("two");
+  assert.deepEqual(entries.map((e) => e.argv), [["build", "--locked"], ["test", "--locked", "-p", "b"]]);
+  assert.ok(entries.every((e) => e.status !== "verified"), "the real broker holds no such snapshot: nothing is verified");
   // primaryCwd comes only from the gate's snapshot-to-checkout map: the client ran in the checkout, never in the snapshot.
-  assert.deepEqual(calls.map((c) => c.cwd), [path.join(h.fx.checkout, "crates", "a"), path.join(h.fx.checkout, "native")]);
-  assert.notEqual(argvSha256(calls[0].argv), argvSha256(calls[1].argv), "two different argv digests");
-  const { entries, problems } = h.ledger("two");
-  assert.deepEqual(problems, []);
-  assert.deepEqual(entries.map((e) => e.status), ["verified", "verified"]);
+  assert.deepEqual(entries.map((e) => e.checkoutCwd), [path.join(h.fx.checkout, "crates", "a"), path.join(h.fx.checkout, "native")]);
+  assert.deepEqual(entries.map((e) => e.spawnCwd), entries.map((e) => e.checkoutCwd));
   assert.equal(new Set(entries.map((e) => e.nonce)).size, 2, "a fresh nonce per call");
   assert.equal(new Set(entries.map((e) => e.ownershipHandle)).size, 2, "and its own lease sub-handle");
   for (const e of entries) assert.equal(isCallHandleOf(e.ownershipHandle, h.fx.handle), true, e.ownershipHandle);
-  assert.equal(new Set(entries.map((e) => e.requestId)).size, 2);
-  assert.deepEqual(entries.map((e) => e.outputDir), [h.fx.outputDir, h.fx.outputDir]);
-  // The broker never sees the gate's sentinel as an output directory (it pins the output itself) and a carrier is used once and removed.
-  assert.deepEqual(calls.map((c) => c.env), [{ CARGO_TARGET_DIR: null, CARGO_BUILD_TARGET_DIR: null }, { CARGO_TARGET_DIR: null, CARGO_BUILD_TARGET_DIR: null }]);
-  assert.deepEqual(fs.readdirSync(path.join(h.fx.controlRoot, "snapshot-requests")), [], "no carrier is left behind");
+  assert.deepEqual(h.fx.owner().broker.handles, entries.map((e) => e.ownershipHandle), "the real ownership recorded each sub-handle before its send");
+  assert.deepEqual(carrierLeft(h.fx), [], "no carrier is left behind");
   assert.equal(fs.existsSync(path.join(h.fx.snapshot, "target")), false, "the snapshot holds no target/");
-  assert.deepEqual(unclaimedLedgers(h.installed.ledgerDir, new Set([scanTokenOf("two")])), []);
 });
 
-test("[7.20] the declared inputs of a carried request are the snapshot's manifest, never the checkout's; a malformed manifest is refused before the request", { skip: POSIX }, async (t) => {
+test("data: [7.20] the declared inputs of a carried request are the snapshot's manifest, never the checkout's; a malformed manifest is refused before the request", { skip: POSIX }, (t) => {
   const h = host(t, { inputs: ["gen/in.txt"] });
   fs.mkdirSync(path.join(h.fx.checkout, ".rightkit"), { recursive: true });
   fs.writeFileSync(path.join(h.fx.checkout, ".rightkit", "compile-inputs.json"), JSON.stringify({ inputs: ["Cargo.toml"] }));
-  const r = h.row(await h.run([h.scan("inputs", `process.exit(${h.cargo(h.a, ["check", "--locked"])})`)]), "inputs");
-  assert.equal(r.status, "pass", JSON.stringify(r));
-  const [entry] = fs.readdirSync(path.join(h.fx.state, "db")).map((f) => JSON.parse(fs.readFileSync(path.join(h.fx.state, "db", f), "utf8")));
-  assert.deepEqual(entry.carrier.declaredInputs, { inputs: ["gen/in.txt"] }, "the request carries the snapshot's declared inputs");
-  assert.equal(isCallHandleOf(entry.carrier.ownership.handle, h.fx.handle), true, "the request names a sub-handle of the gate's ownership"); assert.deepEqual(Object.keys(entry.carrier.ownership), ["handle"]); assert.deepEqual(entry.carrier.commit, h.fx.sb.commit);
-  assert.deepEqual(entry.carrier.snapshot, h.fx.sb.snapshot); assert.equal(entry.carrier.primaryCwd, path.join(h.fx.checkout, "crates", "a"));
+  const spawn = recording();
+  h.carry(["check", "--locked"], { spawn });
+  const [carrier] = h.fx.carriers;
+  assert.deepEqual(carrier.declaredInputs, { inputs: ["gen/in.txt"] }, "the request carries the snapshot's declared inputs");
+  assert.equal(isCallHandleOf(carrier.ownership.handle, h.fx.handle), true, "the request names a sub-handle of the gate's ownership"); assert.deepEqual(Object.keys(carrier.ownership), ["handle"]); assert.deepEqual(carrier.commit, h.fx.sb.commit);
+  assert.deepEqual(carrier.snapshot, h.fx.sb.snapshot); assert.equal(carrier.primaryCwd, path.join(h.fx.checkout, "crates", "a"));
+  assert.equal(spawn.calls.length, 1);
+  // A malformed declared-inputs manifest is refused before any request is made.
+  fs.writeFileSync(path.join(h.fx.snapshot, ".rightkit", "compile-inputs.json"), "{ not json");
+  const marks = h.fx.marks.length;
+  const bad = h.carry(["check", "--locked"], { spawn });
+  assert.equal(bad.outcome.code, "RK_CARGO_BROKER_DECLARED_INPUTS");
+  assert.equal(h.fx.marks.length, marks); assert.equal(spawn.calls.length, 1, "nothing was launched");
+  assert.deepEqual(carrierLeft(h.fx), []);
 });
 
-test("[7.10] a refused wrapper call fails its unit even when the test swallows cargo's exit status; the unit that does not reach cargo passes", { skip: POSIX }, async (t) => {
+test("data: [7.10] a refused wrapper call fails its unit even when the test swallows cargo's exit status; the unit that does not reach cargo passes; no refused call reaches the client", { skip: POSIX }, async (t) => {
   const h = host(t);
   fs.mkdirSync(path.join(h.fx.root, "outside"), { recursive: true }); fs.writeFileSync(path.join(h.fx.root, "outside", "Cargo.toml"), "[workspace]\n");
   const result = await h.run([
@@ -95,58 +153,53 @@ test("[7.10] a refused wrapper call fails its unit even when the test swallows c
     const r = h.row(result, id);
     assert.equal(r.status, "fail", `${id}: ${JSON.stringify(r)}`); assert.equal(r.code, "RK_CARGO_LEDGER", id);
     assert.match(r.detail, /did not complete as a verified success/);
+    assert.ok(h.ledger(id).entries.every((e) => e.status === "refused"), `${id}: the wrapper refused it`);
   }
   assert.match(h.row(result, "swallows-unknown").detail, /RK_CARGO_UNBOUND_WORKSPACE/);
   assert.match(h.row(result, "swallows-redirect").detail, /RK_CARGO_REDIRECT/);
   assert.match(h.row(result, "swallows-unbound-command").detail, /RK_CARGO_UNBOUND_COMMAND/);
   assert.equal(h.row(result, "quiet").status, "pass");
-  assert.deepEqual(h.fx.calls(), [], "no refused call ever reached the broker");
+  assert.equal(h.fx.sent(), 0, "no refused call was ever marked or sent");
 });
 
-test("[7.24] one completion per (snapshot, lease handle): N carried requests in one stage succeed under distinct sub-handles; reusing a sub-handle is refused by the broker; a receipt naming another sub-handle fails; the bare handle's lease status is ACTIVE while any sub-handle is held", { skip: POSIX }, async (t) => {
-  const h = host(t);
-  const result = await h.run([h.scan("many", `process.exit(${[0, 1, 2, 3].map((i) => h.cargo(i % 2 ? h.native : h.a, ["build", "--locked", ...(i > 1 ? ["-q"] : [])])).join(" || ")})`)]);
+test("real broker: [7.24] one completion per (snapshot, lease handle): N carried requests in one stage go out under distinct sub-handles; the real broker never completes a reused sub-handle for a snapshot it does not hold; the bare handle's lease status is UNKNOWN with no members, never REAPED", { skip: POSIX }, async (t) => {
+  const rb = await startRealBroker({ name: "sb-handles" });
+  t.after(() => rb.stop());
+  const h = host(t, { rb });
+  const result = await h.run([h.scan("many", `${[0, 1, 2, 3].map((i) => h.cargo(i % 2 ? h.native : h.a, ["build", "--locked", ...(i > 1 ? ["-q"] : [])])).join("; ")}; process.exit(0)`)]);
   const r = h.row(result, "many");
-  assert.equal(r.status, "pass", JSON.stringify(r));
-  const { entries, problems } = h.ledger("many");
-  assert.deepEqual(problems, []);
-  assert.equal(entries.filter((e) => e.status === "verified").length, 4);
+  assert.equal(r.status, "fail", JSON.stringify(r)); assert.equal(r.code, "RK_CARGO_LEDGER");
+  const { entries } = h.ledger("many");
+  assert.equal(entries.length, 4);
   const handles = entries.map((e) => e.ownershipHandle);
   assert.equal(new Set(handles).size, 4, "four calls, four sub-handles");
   assert.ok(handles.every((x) => isCallHandleOf(x, h.fx.handle)));
-  // The gate's own re-verification binds the exact sub-handle each call sent, once each: a ledger that names the same sub-handle twice, the bare handle or another's is a problem.
-  assert.deepEqual(await verifyBrokerLedger(entries, h.fx.sb), []);
-  const verified = entries.filter((e) => e.status === "verified");
-  assert.match((await verifyBrokerLedger([verified[0], { ...verified[1], ownershipHandle: verified[0].ownershipHandle }], h.fx.sb)).join("\n"), /(replay|lease handle|handle is not this gate's)/);
-  assert.match((await verifyBrokerLedger([{ ...verified[0], ownershipHandle: h.fx.handle }], h.fx.sb)).join("\n"), /names no sub-handle/);
-  assert.match((await verifyBrokerLedger([{ ...verified[0], ownershipHandle: `${h.fx.handle}#not-the-one-sent` }], h.fx.sb)).join("\n"), /request digest|handle is not this gate's/, "a ledger whose sub-handle is not the one sent fails (the request digest binds the carrier's handle, the evidence binds it again)");
-  // The broker refuses a second carried request under a handle the snapshot already completed (snapshot.rs:330-343).
+  // Two carried requests under one sub-handle, sent to the real client by hand: neither can succeed against a snapshot the real broker does not hold.
   const sendTwice = () => {
     const cwd = h.fx.checkout; const argv = ["build", "--locked"];
     return [1, 2].map(() => {
       const made = writeSnapshotRequest({ controlRoot: h.fx.controlRoot, commit: h.fx.sb.commit, snapshot: h.fx.sb.snapshot, declaredInputs: [], handle: h.fx.handle, callHandle: `${h.fx.handle}#reused`, primaryCwd: cwd, argv, requestIdFile: path.join(h.fx.root, "ref.json") });
-      const res = spawnSync(h.fx.client, ["cargo", ...argv], { cwd, env: { ...process.env, ...made.env, RUSTRIGHT_CALLING_GATE: GATE }, encoding: "utf8" });
+      const res = rb.run(["cargo", ...argv], { cwd, env: { ...made.env, RUSTRIGHT_CALLING_GATE: GATE } });
       fs.rmSync(made.file, { force: true });
       return res;
     });
   };
   const [first, second] = sendTwice();
-  assert.equal(first.status, 0, first.stderr);
-  assert.notEqual(second.status, 0); assert.match(second.stderr, /prior or unreadable completion/);
-  // `snapshot-lease status --ownership <bare>` aggregates its `#` sub-handles: ACTIVE while any is held, REAPED when none.
-  const status = (held) => { h.fx.setBehavior({ heldHandles: held }); return JSON.parse(spawnSync(h.fx.client, ["snapshot-lease", "status", "--snapshot", h.fx.snapshot, "--ownership", h.fx.handle], { encoding: "utf8" }).stdout).state; };
-  assert.equal(status([`${h.fx.handle}#a-1`, `${h.fx.handle}#a-2`]), "ACTIVE");
-  assert.equal(status([`${h.fx.handle}#a-2`]), "ACTIVE");
-  assert.equal(status([`${h.fx.handle}x#a-1`, "other#1"]), "REAPED", "another ownership's sub-handles do not count");
-  assert.equal(status([]), "REAPED");
+  assert.notEqual(first.status, 0, "the real broker holds no such snapshot");
+  assert.notEqual(second.status, 0, "a reused sub-handle never completes");
+  // `snapshot-lease status --ownership <bare>` for a handle the real broker never completed anything under: UNKNOWN, no members (GB-23: never REAPED without a completed member).
+  const status = JSON.parse(rb.run(["snapshot-lease", "status", "--snapshot", h.fx.snapshot, "--ownership", `${h.fx.handle}-never-held`]).stdout);
+  assert.equal(status.schema, "rustright.snapshot-lease-status.v1");
+  assert.equal(status.state, "UNKNOWN"); assert.deepEqual(status.members, []);
 });
 
-test("[7.24] sub-handles are per invocation: two sequential calls on the same workspace, two independently launched callers, and the parent's lease is ACTIVE while the last child runs and REAPED only after the final completion with the ledger drained", { skip: POSIX }, async (t) => {
-  const h = host(t);
-  // Two calls from one workspace (a check, then a test: the same directory, as metadata then check are) draw two different handles.
-  const same = h.row(await h.run([h.scan("same-ws", `process.exit(${h.cargo(h.a, ["build", "--locked"])} || ${h.cargo(h.a, ["test", "--locked"])})`)]), "same-ws");
-  assert.equal(same.status, "pass", JSON.stringify(same));
-  const entries = h.ledger("same-ws").entries.filter((e) => e.status === "verified");
+test("real broker: [7.24] sub-handles are per invocation: two sequential calls on the same workspace and two independently launched callers draw different handles, each a random UUID under the gate's handle", { skip: POSIX }, async (t) => {
+  const rb = await startRealBroker({ name: "sb-uuid" });
+  t.after(() => rb.stop());
+  const h = host(t, { rb });
+  const same = h.row(await h.run([h.scan("same-ws", `${h.cargo(h.a, ["build", "--locked"])}; ${h.cargo(h.a, ["test", "--locked"])}; process.exit(0)`)]), "same-ws");
+  assert.equal(same.code, "RK_CARGO_LEDGER", JSON.stringify(same));
+  const entries = h.ledger("same-ws").entries;
   assert.equal(entries.length, 2);
   assert.notEqual(entries[0].ownershipHandle, entries[1].ownershipHandle);
   for (const e of entries) assert.match(e.ownershipHandle, new RegExp(`^${h.fx.handle}#[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`), "a random UUID, never an index");
@@ -154,39 +207,18 @@ test("[7.24] sub-handles are per invocation: two sequential calls on the same wo
   const draw = () => spawnSync(process.execPath, ["--input-type=module", "-e", `import { nextCallHandle } from ${JSON.stringify(new URL("./snapshot-request.mjs", import.meta.url).href)}; process.stdout.write(nextCallHandle(${JSON.stringify(h.fx.handle)}))`], { encoding: "utf8" }).stdout;
   const [x, y] = [draw(), draw()];
   assert.ok(isCallHandleOf(x, h.fx.handle) && isCallHandleOf(y, h.fx.handle)); assert.notEqual(x, y);
-  // A receipt for the wrong child is rejected: the ledger names child 2's handle on child 1's receipt.
-  const swapped = [{ ...entries[0], ownershipHandle: entries[1].ownershipHandle }];
-  assert.match((await verifyBrokerLedger(swapped, h.fx.sb)).join("\n"), /request digest|handle is not this gate's/);
-  assert.deepEqual(await verifyBrokerLedger(entries, h.fx.sb), [], "the exact recorded children verify");
-  assert.match((await verifyBrokerLedger(entries, h.fx.sb, { seen: { nonces: new Set(), ids: new Set(), handles: new Set([entries[0].ownershipHandle]) } })).join("\n"), /used by two calls/, "a handle used twice is a replay");
-  // Lease status for the bare parent: ACTIVE while child 2 runs; REAPED only once none is held, and only then does the gate drain.
-  const lease = (held) => { h.fx.setBehavior({ heldHandles: held }); return JSON.parse(spawnSync(h.fx.client, ["snapshot-lease", "status", "--snapshot", h.fx.snapshot, "--ownership", h.fx.handle], { encoding: "utf8" }).stdout).state; };
-  assert.equal(lease([entries[1].ownershipHandle]), "ACTIVE", "child 2 still running");
-  assert.equal(lease([]), "REAPED", "after the final completion");
-  assert.equal(h.ledger("same-ws").problems.length, 0, "the gate ledger is drained: no pending call");
 });
 
-test("[7.24] negatives: an unverified receipt, a broker that fails or cannot be asked, no calling gate, and a call the checkout cannot host each fail the scan; nothing launches when the request cannot be built", { skip: POSIX }, async (t) => {
-  const h = host(t, { inputs: ["gen/in.txt"] });
+test("real broker: [7.24] negatives: an unverified result, no calling gate and a call the checkout cannot host each fail the scan; nothing launches when the request cannot be built", { skip: POSIX }, async (t) => {
+  const rb = await startRealBroker({ name: "sb-neg" });
+  t.after(() => rb.stop());
+  const h = host(t, { inputs: ["gen/in.txt"], rb });
   const swallow = (cwd = h.a, args = ["build", "--locked"]) => `${h.cargo(cwd, args)}; process.exit(0)`;
-  // The broker authentically signed a failure, tampered evidence or the wrong request: the wrapper's own verification fails the call.
-  for (const [tamper, why] of [["failed", /signed FAILED/], ["treeAtExit", /throughout/], ["requestOtherArgv", /request digest/], ["otherHandle", /handle is not this gate's/], ["outputInsideSnapshot", /inside the snapshot/], ["digestWrong", /declaredInputDigests/], ["noFreshness", /freshness/], ["signedByOtherKey", /does not verify/], ["noProvenance", /no provenance/]]) {
-    h.fx.setBehavior({ tamper });
-    const id = `t-${tamper}`;
-    const r = h.row(await h.run([h.scan(id, swallow())]), id);
-    assert.equal(r.status, "fail", `${tamper}: ${JSON.stringify(r)}`); assert.equal(r.code, "RK_CARGO_LEDGER", tamper);
-    assert.match(r.detail, why, tamper);
-    assert.equal(h.ledger(id).entries.at(-1).status, "unverified", tamper);
-  }
-  // The client refuses the carrier, or the broker cannot be asked for the receipt: unverified, never passed.
-  h.fx.setBehavior({ refuse: true });
-  let r = h.row(await h.run([h.scan("refused-by-client", swallow())]), "refused-by-client");
-  assert.equal(r.code, "RK_CARGO_LEDGER"); assert.match(r.detail, /RK_CARGO_BROKER_UNVERIFIED|no request reference/);
-  h.fx.setBehavior({ statusFail: true });
-  r = h.row(await h.run([h.scan("unreachable", swallow())]), "unreachable");
-  assert.equal(r.code, "RK_CARGO_LEDGER"); assert.match(r.detail, /rustright status .* failed/);
-  h.fx.setBehavior({});
-  const before = h.fx.calls().length;
+  // The real broker does not hold this snapshot: whatever it answers, the call is unverified and the scan fails, never passed.
+  let r = h.row(await h.run([h.scan("unheld", swallow())]), "unheld");
+  assert.equal(r.status, "fail"); assert.equal(r.code, "RK_CARGO_LEDGER"); assert.match(r.detail, /RK_CARGO_BROKER_UNVERIFIED|did not complete as a verified success|no request reference/);
+  assert.notEqual(h.ledger("unheld").entries.at(-1).status, "verified");
+  const before = h.fx.sent();
   // No calling gate in the environment: the wrapper never forges one.
   r = h.row(await h.run([h.scan("no-gate", `${h.cargo(h.a, ["build", "--locked"])} ; process.exit(0)`, { env: {} })], { env: { ...h.scanEnv, RUSTRIGHT_CALLING_GATE: "" } }), "no-gate");
   assert.equal(r.code, "RK_CARGO_LEDGER"); assert.match(r.detail, /RK_CARGO_BROKER_NO_GATE/);
@@ -194,55 +226,34 @@ test("[7.24] negatives: an unverified receipt, a broker that fails or cannot be 
   fs.mkdirSync(path.join(h.a, "src", "only-in-snapshot"), { recursive: true });
   r = h.row(await h.run([h.scan("manifest", swallow(h.a, ["build", "--manifest-path", "Cargo.toml", "--locked"]))]), "manifest");
   assert.match(r.detail, /RK_CARGO_BROKER_MANIFEST_PATH/);
+  assert.equal(h.fx.sent(), before, "neither refusal was sent");
   // A directory the snapshot has and the checkout does not is carried (GB-16: the client starts from the nearest existing ancestor and the carrier names the lexical counterpart).
   r = h.row(await h.run([h.scan("cwd", swallow(path.join(h.a, "src", "only-in-snapshot")))]), "cwd");
   assert.doesNotMatch(String(r.detail ?? ""), /COUNTERPART_ABSENT/);
-  const afterCarried = h.fx.calls().length;
-  assert.equal(afterCarried, before + 1, "that one call reached the broker; the refusals around it did not");
+  const afterCarried = h.fx.sent();
+  assert.equal(afterCarried, before + 1, "that one call was sent; the refusals around it were not");
   // A malformed declared-inputs manifest is refused before any request is made.
   fs.writeFileSync(path.join(h.fx.snapshot, ".rightkit", "compile-inputs.json"), "{ not json");
   r = h.row(await h.run([h.scan("manifest-bad", swallow())]), "manifest-bad");
   assert.match(r.detail, /RK_CARGO_BROKER_DECLARED_INPUTS/);
-  assert.equal(h.fx.calls().length, afterCarried, "none of the refused calls was launched at the broker");
-  assert.deepEqual(fs.readdirSync(path.join(h.fx.controlRoot, "snapshot-requests")), [], "no carrier is left behind by any outcome");
+  assert.equal(h.fx.sent(), afterCarried, "none of the refused calls was launched at the broker");
+  assert.deepEqual(carrierLeft(h.fx), [], "no carrier is left behind by any outcome");
 });
 
-test("[7.24] the gate verifies every ledgered receipt again itself: a receipt that was fine for the wrapper and is not for the gate fails the scan; a carrier or request used twice is a replay", { skip: POSIX }, async (t) => {
-  const h = host(t);
-  const behavior = path.join(h.fx.state, "behavior.json");
-  // The broker's answer changes after the wrapper accepted it (or the wrapper lied): the gate's own check fails the scan.
-  let r = h.row(await h.run([h.scan("lied", `${h.cargo(h.a, ["build", "--locked"])}; fs.writeFileSync(${JSON.stringify(behavior)}, JSON.stringify({ statusTamper: "treeAtExit" })); process.exit(0)`)]), "lied");
-  h.fx.setBehavior({});
-  assert.equal(r.code, "RK_CARGO_LEDGER"); assert.match(r.detail, /the gate's own verification of the broker's receipt failed \(evidence: .*throughout/);
-  assert.equal(h.ledger("lied").entries[0].status, "verified", "the wrapper had accepted it");
-  // A ledger line copied with a new call id but the same nonce and request id: the carrier would have been used twice.
-  const ledgerFile = path.join(h.installed.ledgerDir, `${scanTokenOf("replay")}.jsonl`);
-  r = h.row(await h.run([h.scan("replay", `${h.cargo(h.a, ["build", "--locked"])}; const l = fs.readFileSync(${JSON.stringify(ledgerFile)}, "utf8").trim().split("\\n").map(JSON.parse).at(-1); fs.appendFileSync(${JSON.stringify(ledgerFile)}, JSON.stringify({ ...l, id: "copy" }) + "\\n"); process.exit(0)`)]), "replay");
-  assert.equal(r.code, "RK_CARGO_LEDGER"); assert.match(r.detail, /used twice/);
-  // The run-wide record spans scans: the same request id in two scans is the same replay.
-  const seen = { nonces: new Set(), ids: new Set() };
-  const one = h.ledger("replay").entries.find((e) => e.id !== "copy");
-  assert.deepEqual(await verifyBrokerLedger([one], h.fx.sb, { seen }), []);
-  assert.match((await verifyBrokerLedger([one], h.fx.sb, { seen }))[0], /used twice/);
-  // Entries the gate cannot tie to its own checkout or to a verified receipt are refused whatever the ledger claims.
-  const forged = { ...one, workspace: h.fx.root, checkoutCwd: h.fx.root };
-  assert.match((await verifyBrokerLedger([forged], h.fx.sb))[0], /outside the primary checkout/);
-  assert.match((await verifyBrokerLedger([{ ...one, requestId: "no-such-request" }], h.fx.sb))[0], /status no-such-request|rustright status|failed/);
-  assert.match((await verifyBrokerLedger([{ ...one, nonce: undefined }], h.fx.sb))[0], /record is incomplete/);
-});
-
-test("[7.24] a cargo that bypasses the wrapper by absolute path writes into the per-scan sentinel and fails the scan RK_CARGO_UNBOUND; a scan that clears its scan token files its calls where no scan owns them", { skip: POSIX }, async (t) => {
-  const h = host(t);
+test("real broker: [7.24] a cargo that bypasses the wrapper by absolute path writes into the per-scan sentinel and fails the scan RK_CARGO_UNBOUND; a wrapped call is not flagged unbound; a scan that clears its scan token files its calls where no scan owns them", { skip: POSIX }, async (t) => {
+  const rb = await startRealBroker({ name: "sb-bypass" });
+  t.after(() => rb.stop());
+  const h = host(t, { rb });
   const bypass = path.join(h.fx.root, "toolchain", "cargo");
   fs.mkdirSync(path.dirname(bypass), { recursive: true });
   fs.writeFileSync(bypass, '#!/bin/sh\nmkdir -p "$CARGO_TARGET_DIR/debug" && echo built > "$CARGO_TARGET_DIR/debug/out-$$"\nexit 0\n', { mode: 0o755 });
   assert.ok(h.installed.sentinel, "broker mode always has a sentinel: there is no checkout target to inherit");
   assert.equal(h.scanEnv.CARGO_TARGET_DIR, undefined, "and no scan-wide CARGO_TARGET_DIR");
   const abs = (cwd) => `spawnSync(${JSON.stringify(bypass)}, ["build"], { cwd: ${JSON.stringify(cwd)}, stdio: "inherit" }).status`;
-  let result = await h.run([h.scan("bypass", `process.exit(${abs(h.a)})`), h.scan("wrapped", `process.exit(${h.cargo(h.a, ["build", "--locked"])})`), h.scan("own-target", `process.exit(${abs(h.a)})`, { env: { CARGO_TARGET_DIR: path.join(h.fx.root, "declared") } })]);
+  let result = await h.run([h.scan("bypass", `process.exit(${abs(h.a)})`), h.scan("wrapped", `${h.cargo(h.a, ["build", "--locked"])}; process.exit(0)`), h.scan("own-target", `process.exit(${abs(h.a)})`, { env: { CARGO_TARGET_DIR: path.join(h.fx.root, "declared") } })]);
   assert.equal(h.row(result, "bypass").status, "fail"); assert.equal(h.row(result, "bypass").code, "RK_CARGO_UNBOUND");
   assert.match(h.row(result, "bypass").detail, /bypassed the gate's wrapper wrote debug into the unbound sentinel/);
-  assert.equal(h.row(result, "wrapped").status, "pass");
+  assert.notEqual(h.row(result, "wrapped").code, "RK_CARGO_UNBOUND", "a wrapped call writes nothing into the sentinel");
   assert.equal(h.row(result, "own-target").status, "pass", "a scan that binds its own CARGO_TARGET_DIR gets no sentinel");
   // The code under test removes the scan token from the cargo's environment: the call is recorded, and the run fails on it.
   const env = JSON.stringify(Object.fromEntries(Object.entries(h.scanEnv).filter(([k]) => k !== SCAN_TOKEN_ENV)));
@@ -253,7 +264,230 @@ test("[7.24] a cargo that bypasses the wrapper by absolute path writes into the 
   assert.equal(result.ok, false);
 });
 
-test("[7.10] the ledger itself: unfinished and unreadable records fail, a later record replaces an earlier one, and a call that cannot be recorded does not run", (t) => {
+// ---- row 7.26: the snapshot is not re-synced while a broker job may still read it ----
+test("data: [7.26] a dead owner's record is reclaimed only on the broker's REAPED for exactly its handle and snapshot; ACTIVE, UNKNOWN, malformed, stale, unreachable and another handle or snapshot hold it (the answers are wire-shaped inputs to the real lease parser)", { skip: POSIX }, (t) => {
+  const root = tmpRoot(t, "rk-lease-");
+  // What `rustright snapshot-lease status --snapshot S --ownership H` printed, per pair: the real parser reads it through the OS seam (`spawn`); no client runs.
+  const asked = []; let answers = {};
+  const client = "/x/rustright";
+  const spawn = (file, args) => {
+    asked.push(args.join(" "));
+    if (answers.fail) return { status: 1, stdout: "", stderr: "" };
+    const key = `${args[3]}|${args[5]}`;
+    let v = answers.byPair?.[key] ?? answers.default;
+    if (v === undefined) return { status: 1, stdout: "", stderr: "" };
+    if (v && typeof v === "object" && !answers.noEcho) v = { snapshot: args[3], ownership: args[5], ...v };
+    return { status: 0, stdout: `${typeof v === "string" ? v : JSON.stringify(v)}\n`, stderr: "" };
+  };
+  const snapshot = path.join(root, "snapshots", "k"); const handle = "dead-owner-handle";
+  // The answer as the broker writes it (GB-23, GB-85): the member rows the aggregate state follows, and waitedMs / waitTimedOut.
+  const status = (state, extra = {}) => ({ schema: "rustright.snapshot-lease-status.v1", state, members: state === "UNKNOWN" ? [] : [{ handle, state, spawned: true }], waitedMs: 0, waitTimedOut: false, ...extra });
+  const ask = (over = {}) => brokerLeaseState({ snapshot, handle, env: {}, platform: "darwin", client, spawn, ...over });
+  const set = (a) => { answers = a; };
+  // The states the gate accepts: only a well-formed REAPED for the asked pair is REAPED.
+  set({ byPair: { [`${snapshot}|${handle}`]: status("REAPED") } }); assert.equal(ask().state, "REAPED");
+  assert.equal(ask({ snapshot: path.join(root, "snapshots", "other") }).state, "UNKNOWN", "the broker knows nothing of another snapshot: held");
+  assert.equal(ask({ handle: "another-handle" }).state, "UNKNOWN", "or of another handle: held");
+  assert.ok(asked.some((line) => line.includes(`snapshot-lease status --snapshot ${snapshot} --ownership ${handle}`)));
+  for (const [name, a, state] of [["ACTIVE", { default: status("ACTIVE") }, "ACTIVE"], ["UNKNOWN", { default: status("UNKNOWN") }, "UNKNOWN"], ["malformed", { default: "{ nope" }, "UNKNOWN"], ["stale schema", { default: { schema: "rustright.snapshot-lease-status.v0", state: "REAPED" } }, "UNKNOWN"],
+    ["unknown state", { default: status("CLEAR") }, "UNKNOWN"], ["unreachable", { fail: true }, "UNKNOWN"],
+    ["REAPED with no echo of the pair", { default: status("REAPED"), noEcho: true }, "UNKNOWN"], ["REAPED echoing another snapshot", { default: status("REAPED", { snapshot: "/elsewhere" }) }, "UNKNOWN"], ["REAPED echoing another handle", { default: status("REAPED", { ownership: "another" }) }, "UNKNOWN"]]) {
+    set(a); assert.equal(ask().state, state, name);
+  }
+  assert.equal(ask({ client: null }).state, "UNKNOWN", "no RustRight client: held");
+  // And through the real reclaim: a dead owner whose broker work may exist (broker.submitted) is held unless REAPED.
+  const file = path.join(root, "own", "owner.json"); fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 }); fs.chmodSync(path.dirname(file), 0o700);
+  const dead = { schema: OWNERSHIP_SCHEMA, handle, host: os.hostname(), platform: "darwin", pid: 999_999, startedMs: NOW - 120_000, containment: { kind: "group", group: 777 }, ancestors: [{ pid: 5000, startedMs: NOW - 500_000 }],
+    stage: "compile", snapshot, commit: "c".repeat(40), acquiredAt: new Date(NOW - 100_000).toISOString(), broker: { submitted: true } };
+  // The host rebooted after the record was written, so every process proof is moot and the only question left is the broker's lease.
+  const rebooted = { platform: "darwin", identity: (pid) => (pid === process.pid ? { alive: true, startedMs: NOW - 60_000, group: 4242 } : { alive: false, startedMs: null, group: null }), bootTime: () => NOW,
+    groupSnapshot: () => { throw new Error("must not be asked"); }, tokenHolders: () => null, snapshotUsers: () => null, ancestors: () => [] };
+  const tryAcquire = (lease) => () => acquireBuildOwnership({ file, platform: "darwin", probe: rebooted, lease, env: {}, exportEnv: false, stage: "compile" });
+  for (const [name, a, ok] of [["REAPED for the exact pair", { byPair: { [`${snapshot}|${handle}`]: status("REAPED") } }, true], ["REAPED for another snapshot", { byPair: { [`${snapshot}-x|${handle}`]: status("REAPED") } }, false],
+    ["REAPED for another handle", { byPair: { [`${snapshot}|other`]: status("REAPED") } }, false], ["ACTIVE", { default: status("ACTIVE") }, false], ["UNKNOWN", { default: status("UNKNOWN") }, false], ["unreachable", { fail: true }, false], ["REAPED with no echo", { default: status("REAPED"), noEcho: true }, false]]) {
+    fs.writeFileSync(file, JSON.stringify(dead)); set(a);
+    const go = tryAcquire((q) => brokerLeaseState({ ...q, env: {}, platform: "darwin", client, spawn }));
+    if (ok) { const own = go(); assert.match(own.reclaimed.proofs.join("; "), /lease for dead-owner-handle is REAPED/, name); own.release(); } else assert.throws(go, /broker work may exist under this handle and its lease is (ACTIVE|UNKNOWN)/, name);
+  }
+});
+
+test("real broker: [7.26] a dead owner whose broker work may exist is held on the real broker's answer: a pair the real broker holds nothing for is UNKNOWN, never REAPED", { skip: POSIX }, async (t) => {
+  const rb = await startRealBroker({ name: "sb-lease" });
+  t.after(() => rb.stop());
+  const root = tmpRoot(t, "rk-lease-real-");
+  const snapshot = path.join(rb.dataRoot, "snapshots", "k"); const handle = "dead-owner-handle";
+  const real = brokerLeaseState({ snapshot, handle, env: rb.env, platform: process.platform, client: rb.clientPath });
+  assert.equal(real.state, "UNKNOWN", JSON.stringify(real));
+  assert.notEqual(real.state, "REAPED");
+  const file = path.join(root, "own", "owner.json"); fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 }); fs.chmodSync(path.dirname(file), 0o700);
+  const dead = { schema: OWNERSHIP_SCHEMA, handle, host: os.hostname(), platform: "darwin", pid: 999_999, startedMs: NOW - 120_000, containment: { kind: "group", group: 777 }, ancestors: [{ pid: 5000, startedMs: NOW - 500_000 }],
+    stage: "compile", snapshot, commit: "c".repeat(40), acquiredAt: new Date(NOW - 100_000).toISOString(), broker: { submitted: true } };
+  fs.writeFileSync(file, JSON.stringify(dead));
+  const rebooted = { platform: "darwin", identity: (pid) => (pid === process.pid ? { alive: true, startedMs: NOW - 60_000, group: 4242 } : { alive: false, startedMs: null, group: null }), bootTime: () => NOW,
+    groupSnapshot: () => { throw new Error("must not be asked"); }, tokenHolders: () => null, snapshotUsers: () => null, ancestors: () => [] };
+  assert.throws(() => acquireBuildOwnership({ file, platform: "darwin", probe: rebooted, lease: (q) => brokerLeaseState({ ...q, env: rb.env, platform: process.platform, client: rb.clientPath }), env: {}, exportEnv: false, stage: "compile" }), (e) => e instanceof OwnershipBusy && /broker work may exist under this handle and its lease is UNKNOWN/.test(e.message));
+});
+
+// ---- row 7.20: `deps.snapshotBroker` is wired in production on broker hosts, in the gate's snapshot-compile region ----
+test("real broker: [7.20] the gate refuses before anything compiles without an enrollment or with a broker it cannot reach (the positive wiring needs a snapshot the real broker holds and is not expressed here)", { skip: POSIX }, async (t) => {
+  const run = async ({ enroll = true, executor = { kind: "broker", cargo: ["rustright", "cargo"] } } = {}) => {
+    const rb = await startRealBroker({ name: "sb-gate" });
+    t.after(() => rb.stop());
+    const root = tmpRoot(t, "rk-gate-");
+    const repo = path.join(root, "checkout"); fs.mkdirSync(repo, { recursive: true });
+    writeTree(repo, WORKSPACES);
+    // The commit tracks its declaration and the input it names, so the snapshot (the commit's bytes) carries both.
+    fs.mkdirSync(path.join(repo, ".rightkit")); fs.writeFileSync(path.join(repo, ".rightkit", "compile-inputs.json"), JSON.stringify({ inputs: ["gen/in.txt"] }));
+    fs.mkdirSync(path.join(repo, "gen")); fs.writeFileSync(path.join(repo, "gen", "in.txt"), "declared input\n");
+    const g = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
+    g("init", "-q", "-b", "main"); g("add", "-A"); g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c");
+    const sha = g("rev-parse", "HEAD").stdout.trim();
+    const snap = path.join(root, "gate-snapshots", "gate-snapshot"); fs.mkdirSync(snap, { recursive: true });
+    for (const f of g("ls-files", "-z").stdout.split("\0").filter(Boolean)) { fs.mkdirSync(path.dirname(path.join(snap, f)), { recursive: true }); fs.copyFileSync(path.join(repo, f), path.join(snap, f)); }
+    if (enroll) enrollBrokerPins({ dataRoot: rb.dataRoot, platform: "darwin", ...PINS });
+    const env = { ...process.env, ...rb.env, XDG_STATE_HOME: root, RUSTRIGHT_CALLING_GATE: GATE };
+    for (const k of ["GITHUB_ACTIONS", "RIGHTKIT_BUILD_OWNERSHIP", "RIGHTKIT_BUILD_OWNERSHIP_FILE", "CARGO_TARGET_DIR"]) delete env[k];
+    const spawn = (c, a, opts) => {
+      if (c === "git" || c === rb.clientPath) return spawnSync(c, a, { ...opts, encoding: "utf8" });
+      if (c === "which" && a[0] === "rustright") return { status: 0, stdout: `${rb.clientPath}\n`, stderr: "" };
+      if (c === "which" && a[0] === "cargo") return { status: 0, stdout: "/opt/toolchain/bin/cargo\n", stderr: "" };
+      return { status: 1, stdout: "", stderr: `not in this test: ${c} ${a.join(" ")}` };
+    };
+    const own = acquireBuildOwnership({ file: path.join(root, "build-ownership", "owner.json"), platform: "darwin", probe: probe(), lease: noLease, env: {}, exportEnv: false, stage: "compile", snapshot: snap });
+    const seen = []; const out = [];
+    const code = await main(["--all", "--commit", sha, "--snapshot", snap], { cwd: repo, platform: "darwin", env, spawn, out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0, buildOwnership: own, readStdin: () => "", resolveExecutor: () => executor,
+      runScans: async (plan, options) => { seen.push({ plan, options }); return { scans: [], notes: [], cacheHits: [] }; } });
+    return { code, seen, out: out.join("\n") };
+  };
+  // An app repository with no enrollment compiles nothing through a broker.
+  const none = await run({ enroll: false });
+  assert.equal(none.code, 1, none.out); assert.match(none.out, /BLOCKED: RK_BROKER_PINS_MISSING: no broker enrollment/); assert.equal(none.seen.length, 0, "nothing was planned or compiled");
+  // A broker-managed host whose broker cannot be reached is refused, never compiled around.
+  const refused = await run({ executor: { kind: "refuse", cargo: null, problem: "the broker is not reachable" } });
+  assert.equal(refused.code, 1); assert.match(refused.out, /BLOCKED: the broker is not reachable; nothing ran/); assert.equal(refused.seen.length, 0);
+});
+
+test("data: [RR status envelope] the receipt is read from `{type:\"STATUS\", state, receipt}`; a null receipt (job still live) after the cargo process exited is a clear not-ready error and never a poll; a bare receipt with no envelope is refused", () => {
+  const read = (doc) => receiptSync({ client: "/x/rustright", requestId: "job-1", env: {}, spawn: () => ({ status: 0, stdout: JSON.stringify(doc), stderr: "" }) });
+  assert.throws(() => read({ type: "STATUS", id: "job-1", state: "RUNNING", receipt: null }), (e) => e.code === "receipt-not-ready" && /no receipt yet, although its cargo process exited; the gate does not poll/.test(e.message));
+  assert.throws(() => read({ id: "job-1", state: "SUCCEEDED", exitCode: 0 }), (e) => e.code === "receipt" && /the reply is not a valid status for this request \(the reply is not a typed object\)/.test(e.message));
+  // The full terminal envelope returns the receipt it carries (its signature and evidence are judged by verifySnapshotReceipt, not here).
+  const receipt = { id: "job-1", state: "SUCCEEDED", exitCode: 0 };
+  assert.deepEqual(read({ type: "STATUS", id: "job-1", state: "SUCCEEDED", receipt }), receipt);
+});
+
+test("data: [B8] a carried call under a release-bound stage derives its nonce from the stage's, its directory (relative to the primary checkout) and its argv; otherwise it is fresh; the stage nonce never reaches the client", { skip: POSIX }, (t) => {
+  const h = host(t);
+  const records = []; const spawn = recording();
+  const stageNonce = "ab".repeat(32);
+  const call = (env, { cwd = path.join(h.fx.snapshot, "crates", "a"), words = ["build", "--locked"] } = {}) => {
+    const r = h.carry(words, { cwd, env: { PATH: process.env.PATH, RUSTRIGHT_CALLING_GATE: GATE, ...env }, records, spawn });
+    assert.notEqual(r.outcome.status, "refused", JSON.stringify(r.outcome));
+    return { nonce: records.filter((e) => e.status === "pending").at(-1).nonce, sentEnv: spawn.calls.at(-1).options.env };
+  };
+  const inCrate = call({ RIGHTKIT_ATTEST_STAGE_NONCE: stageNonce });
+  assert.equal(inCrate.nonce, carriedCallNonce({ stageNonce, cwd: "crates/a", argv: ["build", "--locked"] }));
+  assert.ok(!Object.keys(inCrate.sentEnv).some((k) => k.toUpperCase() === "RIGHTKIT_ATTEST_STAGE_NONCE"), "stripped from the client's environment");
+  // Another directory or another argv is another nonce.
+  assert.equal(call({ RIGHTKIT_ATTEST_STAGE_NONCE: stageNonce }, { cwd: h.fx.snapshot }).nonce, carriedCallNonce({ stageNonce, cwd: ".", argv: ["build", "--locked"] }));
+  assert.equal(call({ RIGHTKIT_ATTEST_STAGE_NONCE: stageNonce }, { words: ["check"] }).nonce, carriedCallNonce({ stageNonce, cwd: "crates/a", argv: ["check", "--locked"] }), "another command, another nonce");
+  // Without a stage nonce, or with a malformed one, the nonce is fresh and different every call.
+  const fresh = [call({}), call({}), call({ RIGHTKIT_ATTEST_STAGE_NONCE: "not-hex" }), call({ RIGHTKIT_ATTEST_STAGE_NONCE: "AB".repeat(32) })].map((c) => c.nonce);
+  assert.equal(new Set(fresh).size, 4);
+  for (const n of fresh) { assert.match(n, /^[0-9a-f]{64}$/); assert.notEqual(n, inCrate.nonce); }
+});
+
+test("real broker: [submit wiring] createSnapshotBroker with the REAL build ownership passes each carried call's sub-handle through: a carried metadata call and a carried cargo call are both sent and the owner record lists both sub-handles", { skip: POSIX }, async (t) => {
+  const rb = await startRealBroker({ name: "sb-wiring" });
+  t.after(() => rb.stop());
+  const h = host(t, { rb });
+  const file = path.join(h.fx.root, "real-ownership", "build-ownership", "owner.json");
+  fs.mkdirSync(path.dirname(path.dirname(file)), { recursive: true, mode: 0o700 });
+  const own = acquireBuildOwnership({ file, platform: "darwin", probe: probe(), lease: (q) => brokerLeaseState({ ...q, env: rb.env, platform: process.platform, client: rb.clientPath }), env: {}, exportEnv: false, stage: "compile", snapshot: h.fx.snapshot });
+  t.after(() => { try { own.release(); } catch { /* the real broker holds the sub-handles: the record stays held */ } });
+  const sb = createSnapshotBroker({ env: { RIGHTKIT_DATA_ROOT: rb.dataRoot, RIGHTKIT_CONTROL_ROOT: rb.controlRoot, XDG_STATE_HOME: h.fx.root }, platform: process.platform, checkout: h.fx.checkout, commit: COMMIT, snapshot: { path: h.fx.snapshot, expectedTree: COMMIT.tree }, ownership: own, client: rb.clientPath, dataRoot: rb.dataRoot, loadPins: () => ({ ...PINS, source: "test" }) });
+  const records = [];
+  const call = (words) => carryBrokerCargo({ words, cwd: path.join(h.fx.snapshot, "crates", "a"), env: { PATH: process.env.PATH, RUSTRIGHT_CALLING_GATE: GATE, ...rb.env }, section: brokerSection(sb), workspace: h.fx.snapshot, checkoutWorkspace: h.fx.checkout, record: (e) => records.push(e), err: () => {}, stdio: "capture" });
+  const metadata = call(["metadata", "--no-deps", "--format-version", "1"]);
+  assert.notEqual(metadata.outcome.status, "refused", JSON.stringify(metadata.outcome));
+  const build = call(["build", "--locked"]);
+  assert.notEqual(build.outcome.status, "refused", JSON.stringify(build.outcome));
+  const sent = records.filter((r) => r.status === "pending").map((r) => r.ownershipHandle);
+  assert.equal(sent.length, 2);
+  for (const sub of sent) assert.ok(isCallHandleOf(sub, own.handle), `${sub} is a sub-handle of ${own.handle}`);
+  assert.equal(new Set(sent).size, 2, "each call has its own sub-handle");
+  const owner = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(owner.broker.submitted, true);
+  assert.deepEqual(owner.broker.handles, sent, "the owner record lists both sub-handles, in send order");
+});
+
+test("data: [GB-16] a commit whose directory the checkout has removed is carried: primaryCwd is the lexical counterpart, the client is spawned from the nearest existing ancestor; only a counterpart that leaves the checkout is refused", { skip: POSIX }, (t) => {
+  const h = host(t);
+  const fx = h.fx;
+  const records = []; const spawn = recording();
+  const call = (rel) => h.carry(["build", "--locked"], { cwd: path.join(fx.snapshot, rel), records, spawn });
+  // Present: maps by the snapshot-relative path, spawned from the counterpart itself.
+  const ok = call("crates/a");
+  assert.notEqual(ok.outcome.status, "refused", JSON.stringify(ok.outcome));
+  const present = records.find((r) => r.status === "pending");
+  assert.equal(present.checkoutCwd, path.join(fx.checkout, "crates", "a"));
+  assert.equal(present.spawnCwd, path.join(fx.checkout, "crates", "a"));
+  assert.equal(spawn.calls.at(-1).options.cwd, path.join(fx.checkout, "crates", "a"));
+  // The selected (older) commit has crates/a; the newer checkout deleted it. The call is carried: no ABSENT refusal, the carrier names the lexical counterpart, and the client starts in the
+  // nearest directory of it that still exists (crates/).
+  fs.rmSync(path.join(fx.checkout, "crates", "a"), { recursive: true, force: true });
+  const marks = fx.marks.length; records.length = 0;
+  const gone = call("crates/a");
+  assert.notEqual(gone.outcome.status, "refused", JSON.stringify(gone.outcome));
+  assert.notEqual(gone.outcome.code, "RK_CARGO_BROKER_COUNTERPART_ABSENT");
+  const pending = records.find((r) => r.status === "pending");
+  assert.equal(pending.checkoutCwd, path.join(fx.checkout, "crates", "a"), "primaryCwd is the lexical counterpart (absolute, no . or ..), though it no longer exists");
+  assert.equal(fs.existsSync(pending.checkoutCwd), false);
+  assert.equal(pending.spawnCwd, path.join(fx.checkout, "crates"), "the client runs from the nearest existing ancestor");
+  assert.equal(spawn.calls.at(-1).options.cwd, path.join(fx.checkout, "crates"));
+  assert.equal(fx.marks.length, marks + 1, "one sub-handle recorded for the carried call");
+  assert.equal(fx.carriers.at(-1).primaryCwd, path.join(fx.checkout, "crates", "a"), "the carrier names the lexical counterpart");
+  // Several levels removed: the nearest existing ancestor is the checkout itself, and a directory that became a plain file is passed over (the nearest DIRECTORY).
+  fs.rmSync(path.join(fx.checkout, "crates"), { recursive: true, force: true });
+  fs.writeFileSync(path.join(fx.checkout, "crates"), "now a file\n");
+  records.length = 0;
+  const deep = call("crates/a");
+  assert.notEqual(deep.outcome.status, "refused", JSON.stringify(deep.outcome));
+  assert.equal(records.find((r) => r.status === "pending").spawnCwd, fx.checkout);
+  // Negative: a counterpart whose existing ancestor is a link leaving the checkout is still refused, before any mark or send.
+  fs.rmSync(path.join(fx.checkout, "crates"), { force: true });
+  const outside = fs.mkdtempSync(path.join(fx.root, "outside-")); fs.mkdirSync(path.join(outside, "x"));
+  fs.symlinkSync(path.join(outside, "x"), path.join(fx.checkout, "crates"));
+  const calls = spawn.calls.length; const marked = fx.marks.length;
+  const escaped = call("crates/a");
+  assert.equal(escaped.outcome.status, "refused");
+  assert.equal(escaped.outcome.code, "RK_CARGO_BROKER_COUNTERPART_ESCAPE"); assert.match(escaped.outcome.message, /outside the primary checkout/);
+  assert.equal(spawn.calls.length, calls); assert.equal(fx.marks.length, marked);
+  // Negative: an existing counterpart that is a link leaving the checkout is refused as before.
+  fs.rmSync(path.join(fx.checkout, "crates"), { force: true });
+  fs.mkdirSync(path.join(fx.checkout, "crates"));
+  fs.symlinkSync(path.join(outside, "x"), path.join(fx.checkout, "crates", "a"));
+  assert.equal(call("crates/a").outcome.code, "RK_CARGO_BROKER_COUNTERPART_ESCAPE");
+});
+
+test("data: [GB-16] an adapter step of a commit whose directory the checkout has removed is carried the same way (RK_ADAPTER_BROKER_COUNTERPART_ABSENT is no longer raised for it); the carrier's primaryCwd is the lexical counterpart", { skip: POSIX }, (t) => {
+  const h = host(t);
+  const fx = h.fx;
+  fs.mkdirSync(path.join(fx.snapshot, "apps", "web"), { recursive: true });
+  const records = []; const spawn = recording();
+  const call = () => carryBrokerAdapter({ adapter: "rightkit-pnpm", words: ["run", "build"], cwd: path.join(fx.snapshot, "apps", "web"), env: { PATH: process.env.PATH, RUSTRIGHT_CALLING_GATE: GATE }, section: brokerSection(fx.sb), record: (e) => records.push(e), err: () => {}, stdio: "capture", spawn });
+  assert.equal(fs.existsSync(path.join(fx.checkout, "apps", "web")), false, "the checkout never had apps/web");
+  const r = call();
+  assert.notEqual(r.outcome.status, "refused", JSON.stringify(r.outcome));
+  const pending = records.find((e) => e.status === "pending");
+  assert.equal(pending.checkoutCwd, path.join(fx.checkout, "apps", "web"));
+  assert.equal(pending.spawnCwd, fx.checkout);
+  assert.equal(spawn.calls.at(-1).options.cwd, fx.checkout);
+  assert.equal(fx.carriers.at(-1).primaryCwd, path.join(fx.checkout, "apps", "web"));
+});
+
+
+test("data: [7.10] the ledger itself: unfinished and unreadable records fail, a later record replaces an earlier one, and a call that cannot be recorded does not run", (t) => {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-ledger-"))); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const token = scanTokenOf("x");
   assert.deepEqual(readLedger(dir, token), { entries: [], problems: [] });
@@ -274,7 +508,7 @@ test("[7.10] the ledger itself: unfinished and unreadable records fail, a later 
   assert.equal(r.status, 101); assert.match(r.stderr, /RK_CARGO_LEDGER_ERROR: the call cannot be recorded/);
 });
 
-test("[7.24] the broker wrapper resolves workspaces from the files alone (no cargo outside the broker) and passes nothing else through", { skip: POSIX }, (t) => {
+test("data: [7.24] the broker wrapper resolves workspaces from the files alone (no cargo outside the broker) and passes nothing else through", { skip: POSIX }, (t) => {
   const h = host(t);
   assert.equal(locateWorkspaceByWalk(null, path.join(h.a, "src")), path.join(h.fx.snapshot, "Cargo.toml"), "a member resolves to its workspace root");
   assert.equal(locateWorkspaceByWalk(null, path.join(h.native, "src")), path.join(h.native, "Cargo.toml"));
@@ -293,144 +527,8 @@ test("[7.24] the broker wrapper resolves workspaces from the files alone (no car
   assert.throws(() => installCargoShim({ base: path.join(h.fx.root, "shim4"), snapshotRoot: h.fx.snapshot, realCargo: null, broker: { checkoutDirs: {}, section: {} }, platform: "win32" }), /needs a POSIX host/);
 });
 
-// ---- row 7.26: the snapshot is not re-synced while a broker job may still read it ----
-test("[7.26] a dead owner's record is reclaimed only on the broker's REAPED for exactly its handle and snapshot; ACTIVE, UNKNOWN, malformed, stale, unreachable and another handle or snapshot hold it", { skip: POSIX }, async (t) => {
-  const { OWNERSHIP_SCHEMA, acquireBuildOwnership, brokerLeaseState } = await import("./build-ownership.mjs");
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-lease-"))); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  // A fake `rustright snapshot-lease status --snapshot S --ownership H` that answers per behavior file for the pair it is asked about.
-  const answers = path.join(root, "answers.json"); const asked = path.join(root, "asked.log");
-  const client = path.join(root, "rustright");
-  fs.writeFileSync(client, `#!/bin/sh\necho "$@" >> '${asked}'\nexec ${JSON.stringify(process.execPath)} -e 'const a = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); const args = process.argv.slice(2); const key = args[3] + "|" + args[5]; if (a.fail) process.exit(1); let v = a.byPair?.[key] ?? a.default; if (v === undefined) process.exit(1); if (v && typeof v === "object" && !a.noEcho) v = { snapshot: args[3], ownership: args[5], ...v }; console.log(typeof v === "string" ? v : JSON.stringify(v));' ${JSON.stringify(answers)} "$@"\n`, { mode: 0o755 });
-  const snapshot = path.join(root, "snapshots", "k"); const handle = "dead-owner-handle";
-  // The answer as the broker writes it (GB-23, GB-85): the member rows the aggregate state follows, and waitedMs / waitTimedOut.
-  const status = (state, extra = {}) => ({ schema: "rustright.snapshot-lease-status.v1", state, members: state === "UNKNOWN" ? [] : [{ handle, state, spawned: true }], waitedMs: 0, waitTimedOut: false, ...extra });
-  const ask = (over = {}) => brokerLeaseState({ snapshot, handle, env: {}, platform: "darwin", client, ...over });
-  const set = (a) => fs.writeFileSync(answers, JSON.stringify(a));
-  // The states the gate accepts: only a well-formed REAPED for the asked pair is REAPED.
-  set({ byPair: { [`${snapshot}|${handle}`]: status("REAPED") } }); assert.equal(ask().state, "REAPED");
-  assert.equal(ask({ snapshot: path.join(root, "snapshots", "other") }).state, "UNKNOWN", "the broker knows nothing of another snapshot: held");
-  assert.equal(ask({ handle: "another-handle" }).state, "UNKNOWN", "or of another handle: held");
-  assert.match(fs.readFileSync(asked, "utf8"), new RegExp(`snapshot-lease status --snapshot ${snapshot} --ownership ${handle}`));
-  for (const [name, a, state] of [["ACTIVE", { default: status("ACTIVE") }, "ACTIVE"], ["UNKNOWN", { default: status("UNKNOWN") }, "UNKNOWN"], ["malformed", { default: "{ nope" }, "UNKNOWN"], ["stale schema", { default: { schema: "rustright.snapshot-lease-status.v0", state: "REAPED" } }, "UNKNOWN"],
-    ["unknown state", { default: status("CLEAR") }, "UNKNOWN"], ["unreachable", { fail: true }, "UNKNOWN"],
-    ["REAPED with no echo of the pair", { default: status("REAPED"), noEcho: true }, "UNKNOWN"], ["REAPED echoing another snapshot", { default: status("REAPED", { snapshot: "/elsewhere" }) }, "UNKNOWN"], ["REAPED echoing another handle", { default: status("REAPED", { ownership: "another" }) }, "UNKNOWN"]]) {
-    set(a); assert.equal(ask().state, state, name);
-  }
-  assert.equal(ask({ client: null }).state, "UNKNOWN", "no RustRight client: held");
-  // And through the real reclaim: a dead owner whose broker work may exist (broker.submitted) is held unless REAPED.
-  const file = path.join(root, "own", "owner.json"); fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 }); fs.chmodSync(path.dirname(file), 0o700);
-  const NOW = Date.now();
-  const dead = { schema: OWNERSHIP_SCHEMA, handle, host: os.hostname(), platform: "darwin", pid: 999_999, startedMs: NOW - 120_000, containment: { kind: "group", group: 777 }, ancestors: [{ pid: 5000, startedMs: NOW - 500_000 }],
-    stage: "compile", snapshot, commit: "c".repeat(40), acquiredAt: new Date(NOW - 100_000).toISOString(), broker: { submitted: true } };
-  // The host rebooted after the record was written, so every process proof is moot and the only question left is the broker's lease.
-  const probe = { platform: "darwin", identity: (pid) => (pid === process.pid ? { alive: true, startedMs: NOW - 60_000, group: 4242 } : { alive: false, startedMs: null, group: null }), bootTime: () => NOW,
-    groupSnapshot: () => { throw new Error("must not be asked"); }, tokenHolders: () => null, snapshotUsers: () => null, ancestors: () => [] };
-  const tryAcquire = (lease) => () => acquireBuildOwnership({ file, platform: "darwin", probe, lease, env: {}, exportEnv: false, stage: "compile" });
-  for (const [name, a, ok] of [["REAPED for the exact pair", { byPair: { [`${snapshot}|${handle}`]: status("REAPED") } }, true], ["REAPED for another snapshot", { byPair: { [`${snapshot}-x|${handle}`]: status("REAPED") } }, false],
-    ["REAPED for another handle", { byPair: { [`${snapshot}|other`]: status("REAPED") } }, false], ["ACTIVE", { default: status("ACTIVE") }, false], ["UNKNOWN", { default: status("UNKNOWN") }, false], ["unreachable", { fail: true }, false], ["REAPED with no echo", { default: status("REAPED"), noEcho: true }, false]]) {
-    fs.writeFileSync(file, JSON.stringify(dead)); set(a);
-    const go = tryAcquire((q) => brokerLeaseState({ ...q, env: {}, platform: "darwin", client }));
-    if (ok) { const own = go(); assert.match(own.reclaimed.proofs.join("; "), /lease for dead-owner-handle is REAPED/, name); own.release(); } else assert.throws(go, /broker work may exist under this handle and its lease is (ACTIVE|UNKNOWN)/, name);
-  }
-});
-
-// ---- row 7.20: `deps.snapshotBroker` is wired in production on broker hosts, in the gate's snapshot-compile region ----
-import { main } from "./bin/rightkit-gate.mjs";
-import { enrollBrokerPins } from "./broker-pins.mjs";
-
-test("[7.20] the gate builds deps.snapshotBroker on a broker host (enrolled pins, the snapshot's declared inputs, the ownership handle), runs scans in the checkout with the broker-mode wrapper, and refuses before anything compiles without an enrollment or with a broker it cannot reach", { skip: POSIX }, async (t) => {
-  const run = async ({ enroll = true, executor = { kind: "broker", cargo: ["rustright", "cargo"] } } = {}) => {
-    const fx = makeFakeBroker(t, { inputs: ["gen/in.txt"], readOnlySnapshots: true });
-    const repo = fx.checkout;
-    // The commit tracks its declaration and the input it names, so the snapshot (the commit's bytes) carries both.
-    fs.mkdirSync(path.join(repo, ".rightkit")); fs.writeFileSync(path.join(repo, ".rightkit", "compile-inputs.json"), JSON.stringify({ inputs: ["gen/in.txt"] }));
-    fs.mkdirSync(path.join(repo, "gen")); fs.writeFileSync(path.join(repo, "gen", "in.txt"), "declared input\n");
-    const g = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
-    g("init", "-q", "-b", "main"); g("add", "-A"); g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c");
-    const sha = g("rev-parse", "HEAD").stdout.trim();
-    // The snapshot is the commit's bytes (plus the declared input it digests in place), outside the checkout.
-    const snap = path.join(fx.root, "gate-snapshots", "gate-snapshot"); fs.mkdirSync(snap, { recursive: true });
-    // The gate reads the snapshot's metadata as a carried read-only request (rightkit#1311): the fixture broker serves it from this snapshot.
-    fx.rebase({ snapshotsRoot: path.dirname(snap) });
-    for (const f of g("ls-files", "-z").stdout.split("\0").filter(Boolean)) { fs.mkdirSync(path.dirname(path.join(snap, f)), { recursive: true }); fs.copyFileSync(path.join(repo, f), path.join(snap, f)); }
-    if (enroll) enrollBrokerPins({ dataRoot: fx.dataRoot, platform: "darwin", ...fx.pins });
-    const env = { ...process.env, RIGHTKIT_DATA_ROOT: fx.dataRoot, RIGHTKIT_CONTROL_ROOT: fx.controlRoot, XDG_STATE_HOME: fx.root, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs" };
-    for (const k of ["GITHUB_ACTIONS", "RIGHTKIT_BUILD_OWNERSHIP", "RIGHTKIT_BUILD_OWNERSHIP_FILE", "CARGO_TARGET_DIR"]) delete env[k];
-    const spawn = (c, a, opts) => {
-      if (c === "git" || c === fx.client) return spawnSync(c, a, { ...opts, encoding: "utf8" });
-      if (c === "which" && a[0] === "rustright") return { status: 0, stdout: `${fx.client}\n`, stderr: "" };
-      if (c === "which" && a[0] === "cargo") return { status: 0, stdout: "/opt/toolchain/bin/cargo\n", stderr: "" };
-      if (c === "rustright" && a.includes("metadata")) return { status: 0, stdout: JSON.stringify({ workspace_root: opts.cwd, target_directory: "/never", packages: [{ name: "a", manifest_path: path.join(opts.cwd, "crates", "a", "Cargo.toml") }] }), stderr: "" };
-      return { status: 1, stdout: "", stderr: `not in this fixture: ${c} ${a.join(" ")}` };
-    };
-    const seen = []; const out = [];
-    const ownership = { handle: fx.handle, markBrokerSubmit: subHandleStub(fx.handle, (h) => fx.submits.push(h)) };
-    const code = await main(["--all", "--commit", sha, "--snapshot", snap], { cwd: repo, platform: "darwin", env, spawn, out: (m) => out.push(m), err: (m) => out.push(m), appCheck: async () => 0, buildOwnership: ownership, readStdin: () => "", resolveExecutor: () => executor,
-      runScans: async (plan, options) => {
-        const bin = options.env?.PATH?.split(path.delimiter)[0];
-        seen.push({ plan, options, map: bin ? JSON.parse(fs.readFileSync(path.join(path.dirname(bin), "cargo-target-map.json"), "utf8")) : null, wrapperDir: bin ? path.dirname(bin) : null });
-        return { scans: [], notes: [], cacheHits: [] };
-      } });
-    return { code, seen, out: out.join("\n"), fx, repo, snap, sha };
-  };
-  const ok = await run();
-  assert.equal(ok.code, 0, ok.out);
-  const [call] = ok.seen; const sb = call.options.snapshotBroker;
-  assert.ok(sb, "runScans received deps.snapshotBroker");
-  assert.equal(sb.pinsSource, "enrolled"); assert.deepEqual(sb.pins, ok.fx.pins); assert.equal(sb.handle, ok.fx.handle);
-  assert.deepEqual(sb.declaredInputs, ["gen/in.txt"], "the declared inputs come from the snapshot's manifest");
-  assert.equal(sb.snapshot.path, ok.snap); assert.equal(sb.commit.sha, ok.sha); assert.equal(sb.snapshot.expectedTree, sb.commit.tree);
-  assert.equal(sb.checkout, ok.repo); assert.deepEqual(sb.outputRoots, [path.join(ok.fx.dataRoot, "rightkit-build-control", "ws")]); assert.equal(sb.client, ok.fx.client);
-  assert.ok(ok.fx.submits.length >= 1, "the ownership recorded the broker submit before the gate's first carried request (discovery) and before the wrapper could carry one");
-  // The wrapper is the broker's: the gate's own snapshot-to-checkout map, the sentinel, the ledger, and no scan-wide target directory.
-  assert.equal(call.map.mode, "broker"); assert.deepEqual(call.map.workspaces, { [ok.snap]: ok.repo }); assert.equal(call.options.env.CARGO_TARGET_DIR, undefined);
-  assert.ok(call.options.cargoSentinel); assert.equal(call.options.cargoLedger.dir, path.join(call.wrapperDir, "ledger")); assert.deepEqual(call.map.broker.pins, ok.fx.pins);
-  assert.equal(call.plan.roots.cargoLiveRoot, ok.repo, "cargo scans are carried requests that run from the primary checkout");
-  const cargoScans = call.plan.scans.filter((s) => s.tool === "rustright"); assert.ok(cargoScans.length > 0, "cargo scans go through the client");
-  assert.ok(cargoScans.every((s) => s.root === (s.class === "B" ? "cargoLive" : "live")), "class B compiles start in the checkout; class A cargo scans read the snapshot");
-  assert.match(ok.out, /broker snapshot compile: pins [0-9a-f]{12} from enrolled, 1 declared input\(s\) read from the snapshot/);
-  assert.doesNotMatch(ok.out, /direct receipt \{/, "a broker host writes no receipt that says executor direct");
-  assert.equal(fs.existsSync(call.wrapperDir), false, "the wrapper directory is removed after the compile");
-  // An app repository with no enrollment compiles nothing through a broker.
-  const none = await run({ enroll: false });
-  assert.equal(none.code, 1, none.out); assert.match(none.out, /BLOCKED: RK_BROKER_PINS_MISSING: no broker enrollment/); assert.equal(none.seen.length, 0, "nothing was planned or compiled");
-  // A broker-managed host whose broker cannot be reached is refused, never compiled around.
-  const refused = await run({ executor: { kind: "refuse", cargo: null, problem: "the broker is not reachable" } });
-  assert.equal(refused.code, 1); assert.match(refused.out, /BLOCKED: the broker is not reachable; nothing ran/); assert.equal(refused.seen.length, 0);
-});
-
-test("[RR status envelope] the receipt is read from `{type:\"STATUS\", state, receipt}`; a null receipt (job still live) after the cargo process exited is a clear not-ready error and never a poll; a bare receipt with no envelope is refused", { skip: POSIX }, async (t) => {
-  const h = host(t);
-  const unit = (id) => h.scan(id, `${h.cargo(h.a, ["build", "--locked"])}; process.exit(0)`);
-  h.fx.setBehavior({ statusLive: true });
-  let r = h.row(await h.run([unit("live")]), "live");
-  assert.equal(r.status, "fail"); assert.equal(r.code, "RK_CARGO_LEDGER"); assert.match(r.detail, /receipt-not-ready|no receipt yet, although its cargo process exited; the gate does not poll/);
-  assert.equal(h.ledger("live").entries[0].status, "unverified");
-  h.fx.setBehavior({ statusBare: true });
-  r = h.row(await h.run([unit("bare")]), "bare");
-  assert.equal(r.code, "RK_CARGO_LEDGER"); assert.match(r.detail, /the reply is not a valid status for this request \(the reply is not a typed object\)/);
-  h.fx.setBehavior({});
-  assert.equal(h.row(await h.run([unit("envelope")]), "envelope").status, "pass", "the full envelope of a terminal job verifies");
-  const entry = h.ledger("envelope").entries[0];
-  assert.deepEqual({ ...entry.attribution, detail: undefined }, { available: true, source: "cargo-json", packages: 1, units: 1, errors: 0, warnings: 0, otherMessages: 0, freshUnits: 1, truncated: 0, detail: undefined }, "the compact attribution the broker signs (GB-82/GB-50), its rows in the detail file"); assert.match(entry.attribution.detail.sha256, /^[0-9a-f]{64}$/); assert.match(entry.toolchain, /^stable\|cargo:1{64}\|rustc:2{64}$/, "attribution and toolchain are recorded in the ledger");
-});
-
-test("[7.07 M/D, gate half] a generator that writes an ignored path inside the snapshot passes; one that rewrites a tracked file is refused at the after-exit bind with the app owner's fix named, and its result is discarded (the broker's own bind is item 2: dev-broker run BLOCKED-on-item-4)", { skip: POSIX }, async (t) => {
-  const h = host(t);
-  const unit = (id) => h.scan(id, `process.exit(${h.cargo(h.a, ["build", "--locked"])})`);
-  // Ignored path written: the broker's tree at exit is the commit's tree, so the signed evidence is clean and the unit passes.
-  h.fx.setBehavior({});
-  assert.equal(h.row(await h.run([unit("ignored-output")]), "ignored-output").status, "pass");
-  // A tracked file rewritten (or one added or removed) during the build: the broker signs the changed tree at exit and the unit fails.
-  h.fx.setBehavior({ tamper: "treeAtExit" });
-  const r = h.row(await h.run([unit("tracked-rewrite")]), "tracked-rewrite");
-  assert.equal(r.status, "fail"); assert.ok(["EXIT", "RK_CARGO_LEDGER"].includes(r.code), r.code);
-  assert.match(r.detail, /at exit, not [0-9a-f]{40} throughout.*the app owner's defect to fix/);
-  assert.equal(h.ledger("tracked-rewrite").entries[0].status, "unverified", "the result is not accepted");
-});
-
-test("[7.24] broker-mode decisions: the workspace's counterpart in the checkout, no output variable, and --manifest-path, --target-dir, redirects and unbound commands refused with their codes", (t) => {
-  const fx = makeFakeBroker(t);
+test("data: [7.24] broker-mode decisions: the workspace's counterpart in the checkout, no output variable, and --manifest-path, --target-dir, redirects and unbound commands refused with their codes", (t) => {
+  const fx = hostDirs(t);
   const map = { mode: "broker", shim: "/gate/bin/cargo", workspaces: { [fx.snapshot]: fx.checkout, [path.join(fx.snapshot, "native")]: path.join(fx.checkout, "native") } };
   const locate = (manifest, cwd) => locateWorkspaceByWalk(manifest, cwd);
   const decide = (args, cwd) => decideCargoInvocation({ args, cwd, env: { PATH: "/bin" }, map, locate, exists: () => false });
@@ -447,8 +545,8 @@ test("[7.24] broker-mode decisions: the workspace's counterpart in the checkout,
   assert.equal(decide(["--version"], fx.root).exec.workspace, undefined, "a call that reads no workspace is passed through");
 });
 
-test("[M8-M11] broker-mode wrapper: metadata, deny, audit and fmt are carried only in the broker's exact shapes; aliases are expanded before classification and sending; help, --list and every other uncarried call inside the snapshot are refused", (t) => {
-  const fx = makeFakeBroker(t);
+test("data: [M8-M11] broker-mode wrapper: metadata, deny, audit and fmt are carried only in the broker's exact shapes; aliases are expanded before classification and sending; help, --list and every other uncarried call inside the snapshot are refused", (t) => {
+  const fx = hostDirs(t);
   const abs = (name) => path.join(fx.root, name);
   fs.writeFileSync(abs("deny.toml"), ""); fs.writeFileSync(abs("meta.json"), "{}"); fs.mkdirSync(abs("advisory-db"));
   const map = { mode: "broker", shim: "/gate/bin/cargo", workspaces: { [fx.snapshot]: fx.checkout }, broker: { snapshot: { path: fx.snapshot }, checkout: fx.checkout } };
@@ -499,7 +597,7 @@ test("[M8-M11] broker-mode wrapper: metadata, deny, audit and fmt are carried on
   assert.deepEqual(decide(["metadata", "--no-deps"]).exec.args, ["metadata", "--no-deps"]);
 });
 
-test("[7.20] production hands the door the carrier seam: a broker host takes the snapshot route with it and is refused RK_SNAPSHOT_CARRIER_NOT_WIRED without it; a host whose broker is unreachable is refused whichever", async () => {
+test("data: [7.20] production hands the door the carrier seam: a broker host takes the snapshot route with it and is refused RK_SNAPSHOT_CARRIER_NOT_WIRED without it; a host whose broker is unreachable is refused whichever", async () => {
   const { snapshotRouteRefusal } = await import("./bin/rightkit-gate.mjs");
   const { PRODUCTION_SNAPSHOT_CARRIER, createSnapshotBroker } = await import("./snapshot-broker.mjs");
   const door = (over) => snapshotRouteRefusal({ spawn: () => ({ status: 1, stdout: "", stderr: "" }), platform: "darwin", env: {}, exists: () => false, readFile: () => "", resolveExecutor: () => ({ kind: "broker", cargo: ["rustright", "cargo"] }), ...over });
@@ -516,59 +614,7 @@ test("[7.20] production hands the door the carrier seam: a broker host takes the
   assert.deepEqual(await productionEntryDeps({ platform: "linux" }), {});
 });
 
-test("[B8] a carried call under a release-bound stage derives its nonce from the stage's, its directory (relative to the primary checkout) and its argv; otherwise it is fresh; the stage nonce never reaches the client", { skip: POSIX }, async (t) => {
-  const fx = makeFakeBroker(t, {});
-  const records = [];
-  const snapshotRoot = fs.realpathSync.native(fx.snapshot);
-  const stageNonce = "ab".repeat(32);
-  const call = (env, { cwd = path.join(snapshotRoot, "crates", "a"), words = ["build", "--locked"] } = {}) => {
-    const before = fx.calls().length;
-    const r = carryBrokerCargo({ words, cwd, env: { PATH: process.env.PATH, RUSTRIGHT_CALLING_GATE: GATE, ...fx.ownershipEnv, ...env }, section: brokerSection(fx.sb), workspace: snapshotRoot, checkoutWorkspace: fx.checkout, record: (e) => records.push(e), err: () => {}, stdio: "capture" });
-    assert.equal(r.outcome.status, "verified", JSON.stringify(r.outcome));
-    const sent = fx.calls()[before];
-    return { nonce: records.filter((e) => e.status === "pending").at(-1).nonce, sent };
-  };
-  const inCrate = call({ RIGHTKIT_ATTEST_STAGE_NONCE: stageNonce });
-  assert.equal(inCrate.nonce, carriedCallNonce({ stageNonce, cwd: "crates/a", argv: ["build", "--locked"] }));
-  assert.equal(inCrate.sent.stageNonceSeen, false, "stripped from the client's environment");
-  // Another directory or another argv is another nonce; a stage runs each command once (the broker refuses a nonce used twice, so a repeated identical call in one stage is refused).
-  assert.equal(call({ RIGHTKIT_ATTEST_STAGE_NONCE: stageNonce }, { cwd: snapshotRoot }).nonce, carriedCallNonce({ stageNonce, cwd: ".", argv: ["build", "--locked"] }));
-  assert.equal(call({ RIGHTKIT_ATTEST_STAGE_NONCE: stageNonce }, { words: ["check"] }).nonce, carriedCallNonce({ stageNonce, cwd: "crates/a", argv: ["check", "--locked"] }), "another command, another nonce");
-  // Without a stage nonce, or with a malformed one, the nonce is fresh and different every call.
-  const fresh = [call({}), call({}), call({ RIGHTKIT_ATTEST_STAGE_NONCE: "not-hex" }), call({ RIGHTKIT_ATTEST_STAGE_NONCE: "AB".repeat(32) })].map((c) => c.nonce);
-  assert.equal(new Set(fresh).size, 4);
-  for (const n of fresh) { assert.match(n, /^[0-9a-f]{64}$/); assert.notEqual(n, inCrate.nonce); }
-  // The receipt the broker signed carries the nonce the call sent, so the hosted admission can recompute it.
-  assert.equal((await fx.sb.receiptOf(inCrate.sent.id)).provenance.payload.nonce, inCrate.nonce);
-});
-
-test("[submit wiring] createSnapshotBroker with the REAL build ownership passes each carried call's sub-handle through: a carried metadata call and a carried cargo call both succeed and the owner record lists both sub-handles", { skip: POSIX }, (t) => {
-  const fx = makeFakeBroker(t, { readOnlySnapshots: true });
-  const file = path.join(fx.root, "real-ownership", "build-ownership", "owner.json");
-  fs.mkdirSync(path.dirname(path.dirname(file)), { recursive: true, mode: 0o700 });
-  const NOW = Date.now();
-  const probe = { platform: "darwin", identity: (pid) => (pid === process.pid ? { alive: true, startedMs: NOW - 60_000, group: 4242 } : { alive: false, startedMs: null, group: null }), bootTime: () => NOW - 86_400_000, ancestors: () => [], groupSnapshot: () => ({ members: [], byPid: new Map(), own: new Set([process.pid]) }), tokenHolders: () => null, snapshotUsers: () => null };
-  const own = acquireBuildOwnership({ file, platform: "darwin", probe, lease: () => { throw new Error("no lease query expected"); }, env: {}, exportEnv: false, stage: "compile", snapshot: fx.snapshot });
-  t.after(() => own.release());
-  const env = { RIGHTKIT_DATA_ROOT: fx.dataRoot, RIGHTKIT_CONTROL_ROOT: fx.controlRoot, XDG_STATE_HOME: fx.root };
-  const sb = createSnapshotBroker({ env, platform: process.platform, checkout: fx.checkout, commit: { sha: fx.sb.commit.sha, tree: fx.sb.commit.tree }, snapshot: { path: fx.snapshot, expectedTree: fx.sb.snapshot.expectedTree }, ownership: own, client: fx.client, dataRoot: fx.dataRoot, loadPins: () => ({ ...fx.pins, source: "test" }) });
-  const records = [];
-  const snapshotRoot = fs.realpathSync.native(fx.snapshot);
-  const call = (words) => carryBrokerCargo({ words, cwd: path.join(snapshotRoot, "crates", "a"), env: { PATH: process.env.PATH, RUSTRIGHT_CALLING_GATE: GATE }, section: brokerSection(sb), workspace: snapshotRoot, checkoutWorkspace: fx.checkout, record: (e) => records.push(e), err: () => {}, stdio: "capture" });
-  const metadata = call(["metadata", "--no-deps", "--format-version", "1"]);
-  assert.equal(metadata.outcome.status, "verified", JSON.stringify(metadata.outcome));
-  const build = call(["build", "--locked"]);
-  assert.equal(build.outcome.status, "verified", JSON.stringify(build.outcome));
-  const sent = records.filter((r) => r.status === "pending").map((r) => r.ownershipHandle);
-  assert.equal(sent.length, 2);
-  for (const sub of sent) assert.ok(isCallHandleOf(sub, own.handle), `${sub} is a sub-handle of ${own.handle}`);
-  assert.equal(new Set(sent).size, 2, "each call has its own sub-handle");
-  const owner = JSON.parse(fs.readFileSync(file, "utf8"));
-  assert.equal(owner.broker.submitted, true);
-  assert.deepEqual(owner.broker.handles, sent, "the owner record lists both sub-handles, in send order");
-});
-
-test("[submit wiring] every markBrokerSubmit fake in the tests receives the call's `<handle>#<id>` sub-handle", () => {
+test("data: [submit wiring] every markBrokerSubmit fake in the tests receives the call's `<handle>#<id>` sub-handle", () => {
   // A fake that ignores its argument is the shape of the defect that sent no sub-handle to the real ownership: this scan finds them.
   const dir = path.dirname(fileURLToPath(import.meta.url));
   const offenders = [];
@@ -581,78 +627,7 @@ test("[submit wiring] every markBrokerSubmit fake in the tests receives the call
   assert.deepEqual(offenders, [], "a markBrokerSubmit stub must take the call handle and assert its shape (see assertSubHandle)");
 });
 
-test("[GB-16] a commit whose directory the checkout has removed is carried: primaryCwd is the lexical counterpart, the client is spawned from the nearest existing ancestor, the workspace is that counterpart, the ledger verifies; only a counterpart that leaves the checkout is refused", { skip: POSIX }, async (t) => {
-  const fx = makeFakeBroker(t, {});
-  const snapshotRoot = fs.realpathSync.native(fx.snapshot);
-  const records = [];
-  const call = (rel, words = ["build", "--locked"]) => carryBrokerCargo({ words, cwd: path.join(snapshotRoot, rel), env: { PATH: process.env.PATH, RUSTRIGHT_CALLING_GATE: GATE, ...fx.ownershipEnv }, section: brokerSection(fx.sb), workspace: snapshotRoot, checkoutWorkspace: fx.checkout, record: (e) => records.push(e), err: () => {}, stdio: "capture" });
-  // Present: maps by the snapshot-relative path, spawned from the counterpart itself.
-  const ok = call("crates/a");
-  assert.equal(ok.outcome.status, "verified", JSON.stringify(ok.outcome));
-  const present = records.find((r) => r.status === "pending");
-  assert.equal(present.checkoutCwd, path.join(fx.checkout, "crates", "a"));
-  assert.equal(present.spawnCwd, path.join(fx.checkout, "crates", "a"));
-  // The selected (older) commit has crates/a; the newer checkout deleted it. The call is carried: no ABSENT refusal, the carrier names the lexical counterpart, and the client starts in the
-  // nearest directory of it that still exists (crates/).
-  fs.rmSync(path.join(fx.checkout, "crates", "a"), { recursive: true, force: true });
-  const marks = fx.submits.length; records.length = 0;
-  const gone = call("crates/a");
-  assert.equal(gone.outcome.status, "verified", JSON.stringify(gone.outcome));
-  assert.notEqual(gone.outcome.code, "RK_CARGO_BROKER_COUNTERPART_ABSENT");
-  const pending = records.find((r) => r.status === "pending");
-  assert.equal(pending.checkoutCwd, path.join(fx.checkout, "crates", "a"), "primaryCwd is the lexical counterpart (absolute, no . or ..), though it no longer exists");
-  assert.equal(fs.existsSync(pending.checkoutCwd), false);
-  assert.equal(pending.spawnCwd, path.join(fx.checkout, "crates"), "the client runs from the nearest existing ancestor");
-  assert.equal(fx.submits.length, marks + 1, "one sub-handle recorded for the carried call");
-  const sent = fx.calls().at(-1);
-  assert.equal(sent.cwd, path.join(fx.checkout, "crates", "a"), "the request's workspace is the lexical counterpart the carrier named");
-  assert.equal(gone.outcome.workspace, path.join(fx.checkout, "crates", "a"));
-  // The gate's own re-verification of the ledger accepts a record whose counterpart is gone.
-  const verified = records.filter((r) => r.status === "verified");
-  assert.equal(verified.length, 1);
-  assert.deepEqual(await verifyBrokerLedger(verified, fx.sb), []);
-  // Several levels removed: the nearest existing ancestor is the checkout itself, and a directory that became a plain file is passed over (the nearest DIRECTORY).
-  fs.rmSync(path.join(fx.checkout, "crates"), { recursive: true, force: true });
-  fs.writeFileSync(path.join(fx.checkout, "crates"), "now a file\n");
-  records.length = 0;
-  const deep = call("crates/a");
-  assert.equal(deep.outcome.status, "verified", JSON.stringify(deep.outcome));
-  assert.equal(records.find((r) => r.status === "pending").spawnCwd, fx.checkout);
-  // Negative: a counterpart whose existing ancestor is a link leaving the checkout is still refused, before any mark or send.
-  fs.rmSync(path.join(fx.checkout, "crates"), { force: true });
-  const outside = fs.mkdtempSync(path.join(fx.root, "outside-")); fs.mkdirSync(path.join(outside, "x"));
-  fs.symlinkSync(path.join(outside, "x"), path.join(fx.checkout, "crates"));
-  const calls = fx.calls().length; const marked = fx.submits.length;
-  const escaped = call("crates/a");
-  assert.equal(escaped.outcome.status, "refused");
-  assert.equal(escaped.outcome.code, "RK_CARGO_BROKER_COUNTERPART_ESCAPE"); assert.match(escaped.outcome.message, /outside the primary checkout/);
-  assert.equal(fx.calls().length, calls); assert.equal(fx.submits.length, marked);
-  // Negative: an existing counterpart that is a link leaving the checkout is refused as before.
-  fs.rmSync(path.join(fx.checkout, "crates"), { force: true });
-  fs.mkdirSync(path.join(fx.checkout, "crates"));
-  fs.symlinkSync(path.join(outside, "x"), path.join(fx.checkout, "crates", "a"));
-  assert.equal(call("crates/a").outcome.code, "RK_CARGO_BROKER_COUNTERPART_ESCAPE");
-});
-
-test("[GB-16] an adapter step of a commit whose directory the checkout has removed is carried the same way (RK_ADAPTER_BROKER_COUNTERPART_ABSENT is no longer raised for it); the workspace is the lexical counterpart and the ledger verifies", { skip: POSIX }, async (t) => {
-  const fx = makeFakeBroker(t, {});
-  const snapshotRoot = fs.realpathSync.native(fx.snapshot);
-  fs.mkdirSync(path.join(snapshotRoot, "apps", "web"), { recursive: true });
-  const records = [];
-  const call = () => carryBrokerAdapter({ adapter: "rightkit-pnpm", words: ["run", "build"], cwd: path.join(snapshotRoot, "apps", "web"), env: { PATH: process.env.PATH, RUSTRIGHT_CALLING_GATE: GATE, ...fx.ownershipEnv }, section: brokerSection(fx.sb), record: (e) => records.push(e), err: () => {}, stdio: "capture" });
-  assert.equal(fs.existsSync(path.join(fx.checkout, "apps", "web")), false, "the checkout never had apps/web");
-  const r = call();
-  assert.equal(r.outcome.status, "verified", JSON.stringify(r.outcome));
-  const pending = records.find((e) => e.status === "pending");
-  assert.equal(pending.checkoutCwd, path.join(fx.checkout, "apps", "web"));
-  assert.equal(pending.spawnCwd, fx.checkout);
-  assert.equal(r.outcome.workspace, path.join(fx.checkout, "apps", "web"));
-  assert.deepEqual(await verifyBrokerLedger(records.filter((e) => e.status === "verified"), fx.sb), []);
-  assert.equal(fx.adapterCalls().at(-1).primaryCwd, path.join(fx.checkout, "apps", "web"));
-  assert.equal(fx.adapterCalls().at(-1).jobCwd, path.join(fx.snapshot, "apps", "web"), "the job runs in the snapshot's directory");
-});
-
-test("[GB-16] the counterpart is computed lexically for Windows and Mac spellings too: `.` and `..` never appear, the nearest existing directory is found by walking up whatever the platform's separators", () => {
+test("data: [GB-16] the counterpart is computed lexically for Windows and Mac spellings too: `.` and `..` never appear, the nearest existing directory is found by walking up whatever the platform's separators", () => {
   const win = { base: "C:\\Users\\dev\\repo", rel: "crates\\a\\sub" };
   assert.equal(lexicalCounterpart({ ...win, pathApi: path.win32 }), "C:\\Users\\dev\\repo\\crates\\a\\sub");
   assert.equal(lexicalCounterpart({ base: "/Users/dev/repo", rel: "crates/a", pathApi: path.posix }), "/Users/dev/repo/crates/a");
@@ -666,7 +641,7 @@ test("[GB-16] the counterpart is computed lexically for Windows and Mac spelling
   assert.equal(nearestExistingDirectory("/nowhere/at/all", { isDirectory: () => false, pathApi: path.posix }), null, "no ancestor at all is no answer, never a guess");
 });
 
-test("[GB-16] the output pin reads the selected commit's snapshot, not the checkout: a directory the newer checkout deleted, a dirty or added manifest there, change nothing; an absolute target outside the snapshot stands; several workspaces still refuse", async (t) => {
+test("data: [GB-16] the output pin reads the selected commit's snapshot, not the checkout: a directory the newer checkout deleted, a dirty or added manifest there, change nothing; an absolute target outside the snapshot stands; several workspaces still refuse", async (t) => {
   const { cargoOutputPin } = await import("./bin/rightkit-gate.mjs");
   const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-pin-"))); t.after(() => fs.rmSync(base, { recursive: true, force: true }));
   const root = path.join(base, "checkout"); const snapshot = path.join(base, "snap");

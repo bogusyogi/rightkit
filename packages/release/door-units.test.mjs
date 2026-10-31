@@ -8,13 +8,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { subHandleStub } from "./test-support/fake-broker.mjs";
+import { isCallHandleOf } from "./snapshot-request.mjs";
 import { createHash } from "node:crypto";
 import { qualificationNonce } from "./provenance-verify.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { main } from "./bin/rightkit-gate.mjs";
 import { localBuildGrantedAt, sourceGit } from "./local-publish.mjs";
 
+/** The ownership hook of a gate that holds a build ownership: it asserts the call's sub-handle shape (`<handle>#<id>`, the real rule) and records it. No unit stage here submits to a broker. */
+const subHandleStub = (handle) => (callHandle) => {
+  assert.ok(isCallHandleOf(callHandle, handle), `a broker submit is recorded for a carried request's sub-handle <handle>#<id>, not ${JSON.stringify(callHandle ?? null)}`);
+  return { handle, broker: { submitted: true, handles: [callHandle] } };
+};
 const POSIX_SIM = process.platform === "win32" ? "simulates a Linux host, whose ownership reads ps" : false;
 const git = (cwd, ...a) => spawnSync("git", a, { cwd, encoding: "utf8" });
 

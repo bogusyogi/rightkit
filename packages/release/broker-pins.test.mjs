@@ -3,6 +3,7 @@
 // revision of ci/rk-pipeline.json; an app repository without an enrollment compiles nothing through a broker.
 import "./test-support/broker-guard.mjs";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -11,8 +12,18 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { BrokerPinsError, PINS_SCHEMA, enrollBrokerPins, loadBrokerPins, main, pinsFile, readEnrolledPins, readGateRevisionPins, validatePins } from "./broker-pins.mjs";
 import { createSnapshotBroker } from "./snapshot-broker.mjs";
-import { makeFakeBroker, keyPair, signedReceipt, subHandleStub } from "./test-support/fake-broker.mjs";
-import { verifySnapshotReceipt, writeSnapshotRequest } from "./snapshot-request.mjs";
+import { startRealBroker } from "./test-support/real-broker.mjs";
+import { loadVector } from "./test-support/vectors.mjs";
+import { signedBytes, verifyProvenance } from "./provenance-verify.mjs";
+
+/** A real P-256 broker key and the pins an enrollment of it records (the key RustRight's attestation signs with). */
+function keyPair() {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const jwk = publicKey.export({ format: "jwk" });
+  const sec1 = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, "base64url"), Buffer.from(jwk.y, "base64url")]).toString("hex");
+  return { privateKey, pins: { publicKey: sec1, keyId: crypto.createHash("sha256").update(Buffer.from(sec1, "hex")).digest("hex"), host: "host-1", brokerDigest: "b".repeat(64) } };
+}
+const subHandleStub = (handle) => (callHandle) => ({ handle, broker: { submitted: true, handles: [callHandle] } });
 
 const POSIX = process.platform === "win32" ? "POSIX file modes" : false;
 const tmp = (t) => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-pins-"))); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
@@ -176,7 +187,7 @@ test("[7.21] linux has no gate-revision fallback unless ci/rk-pipeline.json carr
   assert.throws(() => loadBrokerPins({ dataRoot: fresh, platform: "linux", gateFile: withLinux.gateFile, checkout: app.root }), (e) => e.code === "RK_BROKER_PINS_MISSING");
 });
 
-test("[7.21] the enrolled record wins over the fallback; nothing in the environment, a flag or the receipt can supply a pin", (t) => {
+test("[7.21] the enrolled record wins over the fallback; nothing in the environment, a flag or the receipt can supply a pin", async (t) => {
   const dataRoot = tmp(t); const mine = keyPair().pins; const enrolled = keyPair().pins;
   const { root, gateFile } = rightkitRepo(t, { darwin: mine, win32: mine });
   enrollBrokerPins({ dataRoot, platform: "darwin", ...enrolled });
@@ -188,43 +199,49 @@ test("[7.21] the enrolled record wins over the fallback; nothing in the environm
   for (const n of names) process.env[n] = JSON.stringify({ publicKey: "04", keyId: "x" });
   assert.deepEqual(loadBrokerPins({ dataRoot, platform: "darwin", gateFile, checkout: root }), before, "no environment variable changes the pins");
   // The production factory has no pin parameter at all: pins handed to it are ignored, and a missing record refuses the compile.
-  const fx = makeFakeBroker(t);
+  const rb = await startRealBroker({ name: "broker-pins" });
+  t.after(() => rb.stop());
+  const checkout = tmp(t); const snapshotDir = tmp(t); const commit = { sha: "c".repeat(40), tree: "e".repeat(40) };
+  const hostPins = keyPair().pins;
   const own = { handle: "h", markBrokerSubmit: subHandleStub("h") };
-  const make = (extra = {}) => createSnapshotBroker({ env: { RIGHTKIT_DATA_ROOT: fx.dataRoot, RIGHTKIT_CONTROL_ROOT: fx.controlRoot }, platform: platformKey, checkout: fx.checkout, commit: fx.sb.commit, snapshot: fx.sb.snapshot, ownership: own, client: fx.client, gateFile: path.join(fx.root, "x", "rightkit-gate.mjs"), ...extra });
+  const make = (extra = {}) => createSnapshotBroker({ env: { RIGHTKIT_DATA_ROOT: rb.dataRoot, RIGHTKIT_CONTROL_ROOT: rb.controlRoot }, platform: platformKey, checkout, commit, snapshot: { path: snapshotDir, expectedTree: commit.tree }, ownership: own, client: rb.clientPath, gateFile: path.join(checkout, "x", "rightkit-gate.mjs"), ...extra });
   assert.throws(() => make({ pins: enrolled }), (e) => e.code === "RK_BROKER_PINS_MISSING", "an app repository with no enrollment compiles nothing; a pins argument does not help");
-  enrollBrokerPins({ dataRoot: fx.dataRoot, platform: platformKey, ...fx.pins });
+  enrollBrokerPins({ dataRoot: rb.dataRoot, platform: platformKey, ...hostPins });
   const sb = make({ pins: enrolled });
-  assert.equal(sb.pins.keyId, fx.pins.keyId, "the enrolled record decides, whatever was passed");
-  assert.equal(sb.pinsSource, "enrolled"); assert.deepEqual(sb.outputRoots, [path.join(fx.dataRoot, "rightkit-build-control", "ws")]);
-  assert.equal(sb.checkout, fx.checkout); assert.equal(sb.handle, "h");
+  assert.equal(sb.pins.keyId, hostPins.keyId, "the enrolled record decides, whatever was passed");
+  assert.equal(sb.pinsSource, "enrolled"); assert.deepEqual(sb.outputRoots, [path.join(rb.dataRoot, "rightkit-build-control", "ws")]);
+  assert.equal(sb.checkout, fs.realpathSync.native(checkout)); assert.equal(sb.handle, "h");
   assert.throws(() => make({ ownership: null }), /build ownership/); assert.throws(() => make({ client: "rustright" }), /by absolute path/);
 });
 
-test("[7.21] a receipt is checked against the enrolled pins only: another key, another broker digest, another host, a pin offered by the receipt, and a legacy receipt are each refused", (t) => {
-  const fx = makeFakeBroker(t);
-  const argv = ["test", "--locked"]; const id = "11111111-1111-4111-8111-111111111111";
-  const made = writeSnapshotRequest({ controlRoot: fx.controlRoot, commit: fx.sb.commit, snapshot: fx.sb.snapshot, declaredInputs: [], handle: fx.handle, primaryCwd: fx.checkout, argv, nonce: "a".repeat(64) });
-  const receipt = signedReceipt(fx, { id, carrier: made.carrier, argv, workspace: fx.checkout });
-  const verify = (r, pins) => verifySnapshotReceipt(r, { pins, jobId: id, carrier: made.carrier, argv, workspace: fx.checkout, checkout: fx.checkout, outputRoots: [fx.wsRoot], platform: process.platform });
-  assert.equal(verify(receipt, fx.pins).payload.jobId, id, "the enrolled pins verify the installed broker's receipt");
+test("[7.21] data: a receipt is checked against the enrolled pins only: another key, another broker digest, another host, a pin offered by the receipt, and a legacy receipt are each refused", (t) => {
+  const vector = loadVector("receipt-vectors.v1.json"); // RustRight's own production-signed receipt and its pins (rustright-protocol tests/receipt_vectors.rs)
+  const receipt = structuredClone(vector.cases.find((c) => c.name === "a successful signed result").receipt);
+  const verify = (r, pins) => verifyProvenance(structuredClone(r), pins, vector.expected);
+  const resign = (r, { key, mutate = () => {}, keyId = r.provenance.signature.keyId }) => {
+    const out = structuredClone(r); const p = out.provenance.payload; p.keyId = keyId; mutate(p);
+    out.provenance.signature = { alg: "ES256", keyId, value: crypto.sign("sha256", signedBytes(p), { key, dsaEncoding: "ieee-p1363" }).toString("hex") };
+    return out;
+  };
+  assert.equal(verify(receipt, vector.pins).jobId, vector.expected.jobId, "the enrolled pins verify the broker's own receipt");
   // A changed pin: another enrolled key (a rotation the broker did not follow), or another runtime or host.
   const rotated = keyPair().pins;
-  assert.throws(() => verify(receipt, { ...rotated, host: fx.pins.host, brokerDigest: fx.pins.brokerDigest }), (e) => e.code === "key");
-  assert.throws(() => verify(receipt, { ...fx.pins, brokerDigest: "f".repeat(64) }), (e) => e.code === "runtime");
-  assert.throws(() => verify(receipt, { ...fx.pins, host: "host-9" }), (e) => e.code === "host");
-  // The negative the lead asked for: a receipt signed by a key or brokerDigest other than the enrolled pins fails.
-  for (const tamper of ["signedByOtherKey", "otherBrokerDigest"]) {
-    const r = signedReceipt(fx, { id, carrier: made.carrier, argv, workspace: fx.checkout, tamper });
-    assert.throws(() => verify(r, fx.pins), (e) => ["signature", "runtime", "key"].includes(e.code), tamper);
-  }
+  assert.throws(() => verify(receipt, { ...rotated, host: vector.pins.host, brokerDigest: vector.pins.brokerDigest }), (e) => e.code === "key");
+  assert.throws(() => verify(receipt, { ...vector.pins, brokerDigest: "f".repeat(64) }), (e) => e.code === "runtime");
+  assert.throws(() => verify(receipt, { ...vector.pins, host: "host-9" }), (e) => e.code === "host");
+  // A receipt that claims the pinned key id but is signed by another key fails the signature.
+  const other = keyPair();
+  assert.throws(() => verify(resign(receipt, { key: other.privateKey }), vector.pins), (e) => e.code === "signature");
+  // A receipt signed by a runtime other than the enrolled pin's: consistent under its own key, refused when pinned to another broker digest.
+  const otherRuntime = resign(receipt, { key: other.privateKey, keyId: other.pins.keyId, mutate: (p) => { p.host = vector.pins.host; p.broker = { brokerDigest: "a".repeat(64) }; } });
+  assert.throws(() => verify(otherRuntime, { ...other.pins, host: vector.pins.host, brokerDigest: vector.pins.brokerDigest }), (e) => e.code === "runtime");
   // A pin taken from the receipt: the receipt carries its own public key and key id; the verifier uses neither.
-  const foreign = keyPair();
-  const forged = signedReceipt({ ...fx, privateKey: foreign.privateKey, pins: { ...foreign.pins, host: fx.pins.host, brokerDigest: fx.pins.brokerDigest } }, { id, carrier: made.carrier, argv, workspace: fx.checkout });
-  forged.provenance.publicKey = foreign.pins.publicKey; forged.provenance.payload.publicKey = foreign.pins.publicKey; forged.publicKey = foreign.pins.publicKey;
-  assert.throws(() => verify(forged, fx.pins), (e) => e.code === "key", "the receipt's own key is not a pin");
+  const forged = resign(receipt, { key: other.privateKey, keyId: other.pins.keyId });
+  forged.provenance.publicKey = other.pins.publicKey; forged.provenance.payload.publicKey = other.pins.publicKey; forged.publicKey = other.pins.publicKey;
+  assert.throws(() => verify(forged, vector.pins), (e) => e.code === "key", "the receipt's own key is not a pin");
   // A receipt with no provenance at all (legacy) is never attested.
   const legacy = { ...receipt }; delete legacy.provenance;
-  assert.throws(() => verify(legacy, fx.pins), (e) => e.code === "legacy");
+  assert.throws(() => verify(legacy, vector.pins), (e) => e.code === "legacy");
 });
 
 test("[7.21] the enroll command: explicit values only, refuses to replace without --rotate, prints what it wrote", (t) => {

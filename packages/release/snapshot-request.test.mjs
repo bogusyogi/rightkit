@@ -13,12 +13,239 @@ import {
   ATTEST_NONCE_ENV, DESCRIPTOR_MAX_BYTES, REQUEST_ID_FILE_ENV, RESULT_EVIDENCE_FIELDS, SNAPSHOT_REQUEST_ENV, SNAPSHOT_REQUEST_SCHEMA, SnapshotRequestError, argvSha256, declaredInputDigestsOf, freshNonce,
   BROKER_COMPILE_COMMANDS, CARGO_COMMAND_ALIASES, cargoSubcommandOf, isCallHandleOf, isCompileClass, isLockBound, isPackageObservation, lockedArgv, isGenerationTarget, isInsideGenerationTarget, GENERATION_LEAVES, nextCallHandle, ownershipOfHandle, observedEnvOf, readDeclaredInputs, readRequestRef, requestDigestOf, snapshotRequestCore, verifySnapshotEvidenceIdentity, verifySnapshotReceipt, writeSnapshotRequest,
 } from "./snapshot-request.mjs";
-import { makeFakeBroker, signedReceipt } from "./test-support/fake-broker.mjs";
+import { startRealBroker } from "./test-support/real-broker.mjs";
 import { loadVector } from "./test-support/vectors.mjs";
 
 const tmp = (t) => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-snapreq-"))); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex");
 const C = "c".repeat(40); const T = "e".repeat(40);
+
+// ---- Data fixtures: receipts signed in-test with a REAL P-256 key, the way rustright-protocol attestation.rs signs them, judged by the production verifier. ----
+// These are plain data (a key, constructed inputs, named mutations of a signed payload). No broker, client or process is involved, so no test that uses them is broker evidence;
+// every test that does is named "data:". The behaviour of the real broker is asserted only in the tests that start it (startRealBroker).
+const COMMIT = "c".repeat(40);
+const TREE = "e".repeat(40);
+const HANDLE = "own-7";
+/** `<toolchain>|cargo:<sha256>|rustc:<sha256>` */
+const TOOLCHAIN = `stable|cargo:${"1".repeat(64)}|rustc:${"2".repeat(64)}`;
+
+
+function keyPair() {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const jwk = publicKey.export({ format: "jwk" });
+  const sec1 = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, "base64url"), Buffer.from(jwk.y, "base64url")]).toString("hex");
+  return { privateKey, pins: { publicKey: sec1, keyId: sha(Buffer.from(sec1, "hex")), host: "host-1", brokerDigest: "b".repeat(64) } };
+}
+
+/**
+ * RA-03: the cause evidence a real broker signs inside a compile's compact freshness (rustright-broker cargo_evidence.rs `Classification::compact`, schema
+ * rustright.cause-evidence.v1). The default is the whole, explained evidence of a census that rebuilt nothing; `over` replaces fields of the evidence.
+ */
+const causeEvidence = (over = {}) => ({
+  schema: "rustright.cause-evidence.v1", state: "complete", verdict: "explained", basis: "reasons", unavailable: null, gaps: [], historyMigrationNeeded: false,
+  counts: { rows: 0, rowsDropped: 0, units: 0, unexplained: 0, uncovered: 0 }, unexplainedUnits: [], unexplainedUnitsTruncated: 0, uncoveredUnits: [], uncoveredUnitsTruncated: 0, ...over,
+});
+/** A compile's compact freshness as `compact_freshness` signs it: the census, the per-cause counts, the unexplained count (null when unknown) and the cause evidence. */
+const explainedFreshness = (over = {}) => ({
+  available: true, unitsAtStart: 3, fresh: 3, notFresh: 0, invalidationCounts: {}, causeCounts: {}, rebuiltUnits: [], rebuiltUnitsTotal: 0, unexplainedCount: 0, causeEvidence: causeEvidence(), ...over,
+});
+
+/** Receipt tampers, by name: each returns what a hostile or faulty broker could do. `payload` is signed after; `receipt` edits are applied after signing. */
+const TAMPERS = {
+  none: {},
+  treeAtExit: { evidence: (e) => { e.snapshot.treeAtExit = "f".repeat(40); } },
+  treeAtStart: { evidence: (e) => { e.snapshot.treeAtStart = "f".repeat(40); } },
+  otherSubHandle: { evidence: (e) => { e.ownership = { handle: `${String(e.ownership.handle).split("#")[0]}#not-the-one-sent` }; } },
+  bareHandle: { evidence: (e) => { e.ownership = { handle: String(e.ownership.handle).split("#")[0] }; } },
+  otherHandle: { evidence: (e) => { e.ownership = { handle: "someone-else" }; } },
+  otherCommit: { evidence: (e) => { e.commit = { sha: "d".repeat(40), tree: TREE }; } },
+  otherSnapshotPath: { evidence: (e, fx) => { e.snapshot.path = path.join(fx.dataRoot, "snapshots", "ffffffffffffffff"); } },
+  otherRequestId: { evidence: (e) => { e.requestId = "33333333-3333-4333-8333-333333333333"; } },
+  noSnapshotEvidence: { payload: (p) => { delete p.snapshotEvidence; } },
+  failed: { payload: (p) => { p.result = { status: "FAILED", exitCode: 0, signal: null, reap: { reaped: true } }; } },
+  // RustRight refuses a tracked write at exit: the job's terminal receipt is FAILED and its message starts `snapshot exit bind:` (not `changed during execution`).
+  exitBindRefused: { payload: (p) => { p.result = { status: "FAILED", exitCode: 1, signal: null, message: "snapshot exit bind: tracked path src/main.rs was written during the job", reap: { reaped: true } }; } },
+  // The signed request core carries a variable the client did not forward (a broker that digested a different environment).
+  adapterEnvChanged: { adapterEnv: (env) => ({ ...env, EXTRA: "1" }) },
+  noResult: { payload: (p) => { delete p.result; } },
+  outputInsideSnapshot: { evidence: (e, fx) => { e.outputDir = path.join(fx.snapshot, "target"); } },
+  outputInsideCheckout: { evidence: (e, fx) => { e.outputDir = path.join(fx.checkout, "target"); } },
+  outputOutsideWs: { evidence: (e, fx) => { e.outputDir = path.join(fx.root, "elsewhere", "target"); } },
+  outputNotTarget: { evidence: (e, fx) => { e.outputDir = path.join(fx.wsRoot, "0123456789ab", "g", "002", "debug"); } },
+  outputRelative: { evidence: (e) => { e.outputDir = "target"; } },
+  digestWrong: { evidence: (e) => { e.declaredInputDigests = [{ path: "gen/in.txt", sha256: "0".repeat(64) }]; } },
+  /** An absent entry for an input the snapshot holds (and, on a compile request, any absent entry): a forged absent. */
+  absentForged: { evidence: (e) => { e.declaredInputDigests = e.declaredInputDigests.map((d) => ({ path: d.path, absent: true })); } },
+  digestsDropped: { evidence: (e) => { e.declaredInputDigests = []; } },
+  noFreshness: { payload: (p) => { delete p.stageEvidence.freshness; }, receipt: (r) => { delete r.freshness; } },
+  /** GB-19/GB-82: a census that could not be taken is {available:false, reason} and FAILS a compile that would otherwise have succeeded (RR_FRESHNESS_UNAVAILABLE). */
+  censusUnavailable: { stage: (g) => { g.freshness = { available: false, reason: "timeout" }; }, payload: (p) => { p.result = { status: "FAILED", exitCode: 1, signal: null, code: "RR_FRESHNESS_UNAVAILABLE", reap: { reaped: true } }; } },
+  censusUnavailableNoReason: { stage: (g) => { g.freshness = { available: false }; } },
+  freshnessNotObject: { stage: (g) => { g.freshness = "fresh"; } },
+  attributionUnavailable: { stage: (g) => { g.attribution = { available: false, reason: "cargo-json-message-format-not-requested" }; } },
+  attributionNoReason: { stage: (g) => { g.attribution = { available: false, reason: "" }; } },
+  attributionNotObject: { stage: (g) => { g.attribution = "none"; } },
+  toolchainObject: { stage: (g) => { g.toolchain = { rustc: "1.98.0" }; } },
+  toolchainNoHashes: { stage: (g) => { g.toolchain = "stable|cargo:abc|rustc:def"; } },
+  /** GB-66: the toolchain identity the broker could not build is exactly {state:"UNKNOWN",reason}; a failed job names the code. */
+  toolchainUnknown: { stage: (g) => { g.toolchain = { state: "UNKNOWN", reason: "cargo is not registered" }; } },
+  toolchainUnknownMalformed: { stage: (g) => { g.toolchain = { state: "UNKNOWN" }; } },
+  toolchainEmptyName: { stage: (g) => { g.toolchain = `|cargo:${"1".repeat(64)}|rustc:${"2".repeat(64)}`; } },
+  toolchainUnavailableFailed: { stage: (g) => { g.toolchain = { state: "UNKNOWN", reason: "rustc changed since registration" }; }, payload: (p) => { p.result = { status: "FAILED", exitCode: 1, signal: null, code: "RK_TOOLCHAIN_IDENTITY_UNAVAILABLE", reap: { reaped: true } }; } },
+  diagnosticsNull: { top: (x) => { x.diagnosticsPath = null; } },
+  timingsMissingKey: { top: (x) => { delete x.timingsMs.queue; } },
+  timingsNulls: { top: (x) => { x.timingsMs = { admission: null, queue: null, bind: 1, cargo: 2, afterExitBind: null, diagnostics: null }; } },
+  /** Retired fields (rustright bc24d55): a receipt that carries either is refused. */
+  retiredVerdict: { receipt: (r) => { r.verdict = { status: "passed" }; } },
+  retiredRefreshed: { receipt: (r) => { r.refreshed = []; } },
+  exitNullNoSignal: { top: (x) => { x.exit = null; } },
+  noAttribution: { payload: (p) => { delete p.stageEvidence.attribution; }, receipt: (r) => { delete r.attribution; } },
+  noToolchain: { payload: (p) => { delete p.stageEvidence.toolchain; }, receipt: (r) => { delete r.toolchain; } },
+  /** What a broker emits for a non-compile command: freshness only. */
+  freshnessOnly: { payload: (p) => { delete p.stageEvidence.attribution; delete p.stageEvidence.toolchain; }, receipt: (r) => { delete r.attribution; delete r.toolchain; } },
+  attributionReceiptOnly: { payload: (p) => { delete p.stageEvidence.attribution; } },
+  attributionSignedOnly: { receipt: (r) => { delete r.attribution; } },
+  noStageCensus: { payload: (p) => { for (const f of ["freshness", "attribution", "toolchain"]) delete p.stageEvidence[f]; }, receipt: (r) => { for (const f of ["freshness", "attribution", "toolchain"]) delete r[f]; } },
+  /** RA-03: cause evidence a gate must refuse. Each edits freshness on both sides (signed and receipt), as a broker that signed it would. */
+  causeUnexplained: { stage: (g) => { g.freshness = explainedFreshness({ notFresh: 1, unexplainedCount: 1, causeCounts: { "fingerprint-missing": 1 }, causeEvidence: causeEvidence({ verdict: "unexplained", counts: { rows: 1, rowsDropped: 0, units: 1, unexplained: 1, uncovered: 0 }, unexplainedUnits: ["a v0.1.0 (lib:a) [build]"] }) }); } },
+  causeUnknownQuiet: { stage: (g) => { g.freshness = explainedFreshness({ notFresh: 1, unexplainedCount: null, causeCounts: undefined, invalidationReasonsUnavailable: "quiet-root", causeEvidence: causeEvidence({ state: "unavailable", basis: "none", verdict: "unknown", unavailable: "quiet-root", gaps: ["log-not-read"] }) }); delete g.freshness.causeCounts; } },
+  causeMissing: { stage: (g) => { delete g.freshness.causeEvidence; delete g.freshness.unexplainedCount; delete g.freshness.causeCounts; } },
+  causeForeignSchema: { stage: (g) => { g.freshness.causeEvidence.schema = "rustright.cause-evidence.v2"; } },
+  freshnessReceiptOnly: { receipt: (r) => { delete r.freshness; } },
+  freshnessSignedOnly: { payload: (p) => { delete p.stageEvidence.freshness; } },
+  freshnessDiffers: { receipt: (r) => { r.freshness = { unitsAtStart: 9, fresh: 9, notFresh: 0, invalidationReasons: [] }; } },
+  noStageEvidence: { payload: (p) => { delete p.stageEvidence; } },
+  /** resultEvidence (attestation.rs RESULT_EVIDENCE_FIELDS): absent, partial, or disagreeing with the receipt's copy. */
+  noResultEvidence: { payload: (p) => { delete p.resultEvidence; } },
+  resultEvidenceTopLevelOnly: { payload: (p) => { Object.assign(p, structuredClone(p.resultEvidence)); delete p.resultEvidence; } },
+  resultEvidenceEmpty: { payload: (p) => { p.resultEvidence = {}; } },
+  resultEvidenceNoExit: { payload: (p) => { delete p.resultEvidence.exit; } },
+  resultEvidenceNoSignal: { payload: (p) => { delete p.resultEvidence.signal; } },
+  resultEvidenceNoTimings: { payload: (p) => { delete p.resultEvidence.timingsMs; } },
+  resultEvidenceNoDiagnostics: { payload: (p) => { delete p.resultEvidence.diagnosticsPath; } },
+  resultEvidenceExitDiffers: { payload: (p) => { p.resultEvidence.exit = 1; } },
+  resultEvidenceSignalDiffers: { payload: (p) => { p.resultEvidence.signal = "SIGKILL"; } },
+  resultEvidenceTimingsDiffer: { payload: (p) => { p.resultEvidence.timingsMs = { ...p.resultEvidence.timingsMs, cargo: 999 }; } },
+  resultEvidenceDiagnosticsDiffers: { payload: (p) => { p.resultEvidence.diagnosticsPath = "/diag/other.json"; } },
+  resultEvidenceAddedField: { payload: (p) => { p.resultEvidence.extra = 1; } },
+  resultEvidenceTimingsAddedKey: { payload: (p) => { p.resultEvidence.timingsMs = { ...p.resultEvidence.timingsMs, bogus: 1 }; }, receipt: (r) => { r.timingsMs = { ...r.timingsMs, bogus: 1 }; } },
+  resultEvidenceRetiredVerdict: { payload: (p) => { p.resultEvidence.verdict = { status: "passed" }; } },
+  /** BR19 evidence (GB-11): absent, one-sided or malformed. */
+  noBr19Evidence: { payload: (p) => { delete p.br19Evidence; } },
+  br19ReceiptOnly: { payload: (p) => { delete p.br19Evidence; }, receipt: (r) => { r.profile = "release-iterate"; } },
+  br19SignedOnly: { receipt: (r) => { delete r.profile; } },
+  br19ProfileDiffers: { receipt: (r) => { r.profile = "development"; } },
+  br19ResourcesNoPriority: { br19: (b) => { delete b.resources.priority; } },
+  br19InventedZero: { br19: (b) => { b.resources.grantedJobs = { state: "UNKNOWN" }; } },
+  br19DigestNotHex: { br19: (b) => { b.environment.digest = "xyz"; } },
+  noTimings: { receipt: (r) => { delete r.timingsMs; } },
+  noExit: { receipt: (r) => { delete r.exit; } },
+  noDiagnostics: { receipt: (r) => { delete r.diagnosticsPath; } },
+  noBrokerVersion: { evidence: (e) => { delete e.brokerVersion; } },
+  noExecutor: { evidence: (e) => { delete e.executor; } },
+  noProvenance: { receipt: (r) => { delete r.provenance; } },
+  otherNonce: { payload: (p) => { p.nonce = "9".repeat(64); } },
+  otherJob: { payload: (p) => { p.jobId = "22222222-2222-4222-8222-222222222222"; } },
+  otherHost: { payload: (p) => { p.host = "host-2"; } },
+  otherBrokerDigest: { payload: (p) => { p.broker = { brokerDigest: "a".repeat(64) }; } },
+  signedByOtherKey: { signer: "other" },
+  requestOtherArgv: { argv: (argv) => [...argv, "--other"] },
+  /** A signed payload edited after signing. */
+  editedAfterSigning: { receipt: (r) => { r.provenance.payload.snapshotEvidence.snapshot.treeAtExit = "f".repeat(40); } },
+  receiptCopyDiffers: { receipt: (r) => { r.outputDir = "/tampered"; } },
+  /** The signed list of an adapter job's nested children (rustright#190, final), as a hostile or faulty broker could sign it. */
+  noNestedChildren: { evidence: (e) => { delete e.nestedChildren; }, receipt: (r) => { delete r.nestedChildren; } },
+  nestedChildrenNotSigned: { payload: (p) => { delete p.snapshotEvidence.nestedChildren; } },
+  nestedChildrenNotMirrored: { receipt: (r) => { delete r.nestedChildren; } },
+  nestedCopyDiffers: { receipt: (r) => { r.nestedChildren = []; } },
+  childFailed: { evidence: (e) => { e.nestedChildren[0].exitCode = 1; e.nestedChildren[0].status = "FAILED"; } },
+  childNullExit: { evidence: (e) => { e.nestedChildren[0].exitCode = null; } },
+  childUnfinished: { evidence: (e) => { e.nestedChildren[0].exitCode = null; e.nestedChildren[0].status = "UNFINISHED"; } },
+  childOtherParent: { evidence: (e) => { e.nestedChildren[0].parentRequestId = "44444444-4444-4444-8444-444444444444"; } },
+  childOutsideSnapshot: { evidence: (e, fx) => { e.nestedChildren[0].cwd = path.join(fx.checkout, "native"); } },
+  childOutputInsideSnapshot: { evidence: (e, fx) => { e.nestedChildren[0].outputDir = path.join(fx.snapshot, "target"); } },
+  childOutputUnmanaged: { evidence: (e, fx) => { e.nestedChildren[0].outputDir = path.join(fx.root, "elsewhere", "nested", "x"); } },
+  childOutputRelative: { evidence: (e) => { e.nestedChildren[0].outputDir = "target/nested/x"; } },
+  childExtraField: { evidence: (e) => { e.nestedChildren[0].extra = true; } },
+  childDuplicated: { evidence: (e) => { e.nestedChildren.push(structuredClone(e.nestedChildren[0])); } },
+  childrenOverCap: { evidence: (e) => { const c = e.nestedChildren[0]; e.nestedChildren = Array.from({ length: 8193 }, (_, i) => ({ ...c, requestId: `child-${i}` })); } },
+};
+
+/**
+ * One receipt, signed. `carrier` is the carrier the gate wrote; `argv`, `workspace` and `observedEnv` are what the client submitted.
+ * `fx` is the fixture (paths, keys, pins).
+ */
+function signedReceipt(fx, { id, carrier, argv, workspace, observedEnv = {}, adapterEnv = {}, tamper = "none", mutate = null, adapter = null, children = null, exit = 0 }) {
+  const t = TAMPERS[tamper] ?? fail(`unknown tamper ${tamper}`);
+  const inputs = readDeclaredInputs(carrier.snapshot.path);
+  const evidence = {
+    requestId: id, brokerVersion: "rustright-test", executor: fx.pins.host, commit: carrier.commit,
+    snapshot: { path: carrier.snapshot.path, treeAtStart: carrier.snapshot.expectedTree, treeAtExit: carrier.snapshot.expectedTree }, declaredInputDigests: declaredInputDigestsOf(carrier.snapshot.path, inputs, { allowAbsent: adapter === null && !isCompileClass(argv) }),
+    ownership: carrier.ownership, outputDir: fx.outputDir,
+    // rustright#190 (final): an adapter job's nested children are signed INSIDE snapshotEvidence and mirrored on the receipt (the evidence copy below).
+    // The lineage is kept: a child names its own parent (a depth-2 child names an earlier child), and only a child with no parent is the root's.
+    ...(adapter ? { nestedChildren: structuredClone(children ?? []).map((c) => ({ ...c, parentRequestId: c.parentRequestId && c.parentRequestId !== "root" ? c.parentRequestId : id })) } : {}),
+  };
+  t.evidence?.(evidence, fx);
+  // GB-82: the broker signs COMPACT attribution (counts and a `detail` descriptor {path, sha256}); the per package and target rows live in the evidence file
+  // `<id>.evidence.json` (schema rustright.stage-evidence/1, carrying the request id and the toolchain). Freshness states whether it is available.
+  const rows = [{ package: "a", target: "a", kind: "lib", errors: 0, warnings: 0, fresh: true }];
+  const detailBytes = Buffer.from(JSON.stringify({ schema: "rustright.stage-evidence/1", id, toolchain: TOOLCHAIN, attribution: { available: true, truncated: 0, units: rows } }));
+  const evidenceDir = path.join(fx.root, "evidence"); fs.mkdirSync(evidenceDir, { recursive: true });
+  const detailPath = path.join(evidenceDir, `${id}.evidence.json`); fs.writeFileSync(detailPath, detailBytes);
+  const stage = {
+    freshness: explainedFreshness(),
+    attribution: { available: true, source: "cargo-json", packages: 1, units: rows.length, errors: 0, warnings: 0, otherMessages: 0, freshUnits: 1, truncated: 0, detail: { path: detailPath, sha256: sha(detailBytes) } },
+    toolchain: TOOLCHAIN,
+  };
+  t.stage?.(stage);
+  // The contract-named top-level fields every carried command's receipt has (item 4 row 4.18), signed with the rest.
+  const top = { exit, signal: null, timingsMs: { admission: 1, queue: 0, bind: 1, cargo: 2, afterExitBind: 1, diagnostics: 1 }, diagnosticsPath: "/diag/x.json" };
+  t.top?.(top);
+  // GB-11: every receipt carries, and an attested receipt signs, the BR19 profile, stage, resources and environment (BROKER-CONTRACT section 14).
+  const br19 = { profile: "release-iterate", stage: { name: argv.find((w) => !w.startsWith("-") && !w.startsWith("+")) ?? "check", source: adapter ? "adapter" : "command" }, resources: { grantedJobs: 4, memoryReservation: 4294967296, peakRssBytes: 1, samples: 1, sampledEveryMs: 100, priority: "SECOND" }, environment: { digest: "e".repeat(64), forwarded: Object.keys(adapterEnv).sort(), dropped: [] } };
+  t.br19?.(br19);
+  const payload = {
+    host: fx.pins.host, broker: { brokerDigest: fx.pins.brokerDigest }, keyId: fx.pins.keyId, jobId: id, nonce: carrier.nonce,
+    requestDigest: requestDigestOf(snapshotRequestCore({ argv: t.argv ? t.argv(argv) : argv, workspace, observedEnv, carrier, adapter, adapterEnv: t.adapterEnv ? t.adapterEnv(adapterEnv) : adapterEnv })),
+    // GB-82: a nonzero exit is a signed FAILED carrying that exit, never a signed success (rustright-broker a_nonzero_exit_is_signed_as_a_failure_never_as_success).
+    result: exit === 0 ? { status: "SUCCEEDED", exitCode: 0, signal: null, reap: { reaped: true } } : { status: "FAILED", exitCode: exit, signal: null, reap: { reaped: true } }, snapshotEvidence: structuredClone(evidence), stageEvidence: structuredClone(stage),
+    // As the real broker signs them (service.rs provenance_payload): the result fields ride under resultEvidence, never at the payload's top level.
+    resultEvidence: structuredClone(top),
+    br19Evidence: structuredClone(br19),
+  };
+  t.payload?.(payload, fx);
+  mutate?.(payload);
+  const signer = t.signer === "other" ? crypto.generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey : fx.privateKey;
+  const value = crypto.sign("sha256", signedBytes(payload), { key: signer, dsaEncoding: "ieee-p1363" }).toString("hex");
+  const receipt = {
+    id, ...structuredClone(evidence), ...structuredClone(stage), ...structuredClone(top), ...structuredClone(br19),
+    provenance: { schema: "rustright.provenance.v1", payload, signature: { alg: "ES256", keyId: fx.pins.keyId, value } },
+  };
+  t.receipt?.(receipt);
+  return receipt;
+}
+const fail = (m) => { throw new Error(m); };
+
+const write = (root, files) => { for (const [rel, body] of Object.entries(files)) { const f = path.join(root, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, body); } };
+const WORKSPACES = {
+  "Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n', "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\n', "crates/a/src/lib.rs": "\n",
+  "native/Cargo.toml": '[workspace]\nmembers = []\n[package]\nname = "b"\nversion = "0.1.0"\n', "native/src/lib.rs": "\n",
+};
+
+/** A host's directories for a data test: a checkout and a snapshot (two Cargo workspaces), a managed `ws` generation target, a control root, and a fresh real key with its pins. */
+function dataHost(t, { inputs = null } = {}) {
+  const root = tmp(t);
+  const checkout = path.join(root, "checkout"); const dataRoot = path.join(root, "data"); const controlRoot = path.join(root, "control");
+  const snapshot = path.join(dataRoot, "snapshots", "0123456789abcdef");
+  const wsRoot = path.join(dataRoot, "rightkit-build-control", "ws");
+  const outputDir = path.join(wsRoot, "0123456789ab", "g", "002", "target");
+  fs.mkdirSync(controlRoot, { recursive: true }); fs.mkdirSync(outputDir, { recursive: true });
+  write(checkout, WORKSPACES); write(snapshot, WORKSPACES);
+  if (inputs) write(snapshot, { ".rightkit/compile-inputs.json": JSON.stringify({ inputs }), "gen/in.txt": "declared input\n" });
+  const { privateKey, pins } = keyPair();
+  return { root, checkout, dataRoot, controlRoot, snapshot, wsRoot, outputDir, privateKey, pins, handle: HANDLE, sb: { commit: { sha: COMMIT, tree: TREE }, snapshot: { path: snapshot, expectedTree: TREE } } };
+}
 
 function request(t, over = {}) {
   const root = tmp(t);
@@ -29,11 +256,11 @@ function request(t, over = {}) {
   return { root, snapshot, cwd, argv, made };
 }
 
-test("canonical JSON is RustRight's: its own test vector (attestation.rs canonical_json_sorts_keys_by_bytes_and_escapes_minimally)", () => {
+test("data: canonical JSON is RustRight's: its own test vector (attestation.rs canonical_json_sorts_keys_by_bytes_and_escapes_minimally)", () => {
   assert.equal(canonicalJson({ b: 1, a: [true, null, 'x"y\\z\n'], B: { d: 2, c: "é" } }), '{"B":{"c":"é","d":2},"a":[true,null,"x\\"y\\\\z\\u000a"],"b":1}');
 });
 
-test("carrier: the file and descriptor pass every rule RustRight's reader applies", (t) => {
+test("data: carrier: the file and descriptor pass every rule RustRight's reader applies", (t) => {
   const { root, snapshot, cwd, argv, made } = request(t);
   const dir = path.join(root, "control", "snapshot-requests");
   // Under <control root>/snapshot-requests, a real directory and a regular file, owner-only on POSIX.
@@ -58,7 +285,7 @@ test("carrier: the file and descriptor pass every rule RustRight's reader applie
   assert.equal(made.env[SNAPSHOT_REQUEST_ENV], made.descriptor);
 });
 
-test("carrier: anything the reader would refuse is refused before a file is written", (t) => {
+test("data: carrier: anything the reader would refuse is refused before a file is written", (t) => {
   const bad = [
     [{ commit: { sha: "abc", tree: T } }, /full lowercase object ids/],
     [{ snapshot: { path: "/x", expectedTree: "f".repeat(40) } }, /expectedTree/],
@@ -82,7 +309,7 @@ test("carrier: anything the reader would refuse is refused before a file is writ
   assert.equal(freshNonce().length, 64); assert.match(freshNonce(), /^[0-9a-f]{64}$/); assert.notEqual(freshNonce(), freshNonce());
 });
 
-test("observedEnv: the managed Rust variables as the client records them, matched case-insensitively, spelling kept", (t) => {
+test("data: observedEnv: the managed Rust variables as the client records them, matched case-insensitively, spelling kept", (t) => {
   assert.deepEqual(observedEnvOf({ PATH: "/x", CARGO_TARGET_DIR: "/t", RUSTFLAGS: "-D warnings", HOME: "/h" }, "darwin"), { CARGO_TARGET_DIR: "/t", RUSTFLAGS: "-D warnings" });
   // RustRight keeps the key as captured (shims.rs capture_managed_rust_environment: key.clone()), on every platform.
   assert.deepEqual(observedEnvOf({ Cargo_Home: "C:\\c", Path: "x" }, "win32"), { Cargo_Home: "C:\\c" });
@@ -96,7 +323,7 @@ test("observedEnv: the managed Rust variables as the client records them, matche
     requestDigestOf(snapshotRequestCore({ argv, workspace: cwd, observedEnv: { CARGO_HOME: "C:\\c" }, carrier: made.carrier })));
 });
 
-test("request digest: the extended core binds every field the broker adds for a snapshot request", (t) => {
+test("data: request digest: the extended core binds every field the broker adds for a snapshot request", (t) => {
   const { made, argv, cwd } = request(t);
   const base = requestDigestOf(snapshotRequestCore({ argv, workspace: cwd, carrier: made.carrier }));
   assert.match(base, /^[0-9a-f]{64}$/);
@@ -129,7 +356,7 @@ const freshnessWith = (f, fields) => { for (const [name, value] of Object.entrie
  * each that carries none: the fixture broker's freshness predates the schema, and a gate refuses cause evidence that is absent, so every case here states its own.
  */
 function receiptCase(t, { tamper = "none", inputs = ["gen/in.txt"], carrierInputs = inputs ?? [], over = {}, mutate = null, argv = ["test", "-p", "a", "--locked"], freshness = null } = {}) {
-  const fx = makeFakeBroker(t, { inputs });
+  const fx = dataHost(t, { inputs });
   const made = writeSnapshotRequest({ controlRoot: fx.controlRoot, commit: fx.sb.commit, snapshot: fx.sb.snapshot, declaredInputs: carrierInputs, handle: fx.handle, primaryCwd: fx.checkout, argv, nonce: "a".repeat(64) });
   const edit = (f) => {
     if (f === null || typeof f !== "object" || Array.isArray(f)) return;
@@ -142,7 +369,7 @@ function receiptCase(t, { tamper = "none", inputs = ["gen/in.txt"], carrierInput
   return { fx, made, receipt, check, argv };
 }
 
-test("[7.22] a fully formed receipt verifies, with and without declared inputs", (t) => {
+test("data: [7.22] a fully formed receipt verifies, with and without declared inputs", (t) => {
   for (const inputs of [["gen/in.txt"], null]) {
     const c = receiptCase(t, { inputs });
     const { evidence, payload } = c.check();
@@ -152,13 +379,13 @@ test("[7.22] a fully formed receipt verifies, with and without declared inputs",
   }
 });
 
-test("a broker verdict after a clean run (FAILED, exit 0) is refused and the message carries the receipt's unsigned error for diagnosis", (t) => {
+test("data: a broker verdict after a clean run (FAILED, exit 0) is refused and the message carries the receipt's unsigned error for diagnosis", (t) => {
   const c = receiptCase(t, { tamper: "failed" });
   c.receipt.error = "RR_UNEXPLAINED_COLD: 1 rebuilt unit(s) have no explained cause";
   assert.throws(() => c.check(), (e) => e.code === "result" && /signed FAILED \(exit \d+; the receipt's unsigned error: RR_UNEXPLAINED_COLD/.test(e.message) && /not SUCCEEDED with exit 0/.test(e.message));
 });
 
-test("[7.22] each refusal: provenance, signature, pins, request, job, nonce, signed outcome and snapshot evidence", (t) => {
+test("data: [7.22] each refusal: provenance, signature, pins, request, job, nonce, signed outcome and snapshot evidence", (t) => {
   const cases = [
     // [tamper, error code, message pattern]
     ["noProvenance", "legacy", /no provenance envelope/], ["editedAfterSigning", "signature", /does not verify/], ["signedByOtherKey", "signature", /does not verify/],
@@ -176,7 +403,7 @@ test("[7.22] each refusal: provenance, signature, pins, request, job, nonce, sig
   }
 });
 
-test("[7.22] declared inputs: the signed digests must be the gate's own digest of the snapshot's declared inputs, from the manifest it carried", (t) => {
+test("data: [7.22] declared inputs: the signed digests must be the gate's own digest of the snapshot's declared inputs, from the manifest it carried", (t) => {
   for (const tamper of ["digestWrong", "digestsDropped"]) {
     const c = receiptCase(t, { tamper });
     assert.throws(() => c.check(), (e) => e.code === "evidence" && /declaredInputDigests are not the gate's own digest/.test(e.message), tamper);
@@ -195,7 +422,7 @@ test("[7.22] declared inputs: the signed digests must be the gate's own digest o
   assert.equal(c.check().evidence.declaredInputDigests.length, 1);
 });
 
-test("declared inputs that are build outputs: a non-compiling request records a missing input as {path, absent:true}; a compile request refuses it", (t) => {
+test("data: declared inputs that are build outputs: a non-compiling request records a missing input as {path, absent:true}; a compile request refuses it", (t) => {
   const NONCOMPILE = ["metadata", "--no-deps", "--locked"];
   const ABSENT = [{ path: "gen/missing", absent: true }];
   // Non-compile, input absent in the snapshot and signed absent: accepted, in the exact wire form (no sha256 key).
@@ -229,7 +456,7 @@ test("declared inputs that are build outputs: a non-compiling request records a 
   assert.throws(() => declaredInputDigestsOf(snap, ["gen/missing"], { allowAbsent: false }), /ENOENT/);
 });
 
-test("[7.22] output directory: absolute, outside the snapshot and the checkout, and a managed generation target", (t) => {
+test("data: [7.22] output directory: absolute, outside the snapshot and the checkout, and a managed generation target", (t) => {
   for (const [tamper, why] of [["outputInsideSnapshot", /inside the snapshot/], ["outputInsideCheckout", /inside the checkout/], ["outputOutsideWs", /not a managed generation target/], ["outputNotTarget", /not a managed generation target/], ["outputRelative", /no absolute output directory/]]) {
     const c = receiptCase(t, { tamper });
     assert.throws(() => c.check(), (e) => e.code === "evidence" && why.test(e.message), tamper);
@@ -261,7 +488,7 @@ test("[7.22] output directory: absolute, outside the snapshot and the checkout, 
   assert.deepEqual([...GENERATION_LEAVES], ["target", "t"]);
 });
 
-test("[7.22] a nested compile's directory is inside a generation target with either leaf on either platform, and nowhere else", () => {
+test("data: [7.22] a nested compile's directory is inside a generation target with either leaf on either platform, and nowhere else", () => {
   const winWs = "D:\\ws"; const gen = `${winWs}\\0123456789ab\\g\\001`;
   for (const leaf of ["t", "target"]) {
     assert.equal(isInsideGenerationTarget(`${gen}\\${leaf}`, [winWs], "win32"), true, leaf);
@@ -274,7 +501,7 @@ test("[7.22] a nested compile's directory is inside a generation target with eit
   assert.equal(isInsideGenerationTarget("/elsewhere/0123456789ab/g/001/t/x", ["/w/ws"], "linux"), false);
 });
 
-test("[7.22] lease handles: each carrier names its own `<ownership>#<n>`; the bare handle, another ownership's and a malformed one are refused; receipts bind the exact sub-handle", (t) => {
+test("data: [7.22] lease handles: each carrier names its own `<ownership>#<n>`; the bare handle, another ownership's and a malformed one are refused; receipts bind the exact sub-handle", (t) => {
   const a = nextCallHandle("own-1"); const b = nextCallHandle("own-1");
   assert.notEqual(a, b); assert.equal(isCallHandleOf(a, "own-1"), true); assert.equal(ownershipOfHandle(a), "own-1");
   for (const bad of ["own-1", "own-1#", "own-10#1", "own-1#a b", "own-1##1", undefined, 7]) assert.equal(isCallHandleOf(bad, "own-1"), false, String(bad));
@@ -288,7 +515,7 @@ test("[7.22] lease handles: each carrier names its own `<ownership>#<n>`; the ba
   for (const tamper of ["otherSubHandle", "bareHandle", "otherHandle"]) assert.throws(() => receiptCase(t, { tamper }).check(), (e) => e.code === "evidence" && /handle is not this gate's/.test(e.message), tamper);
 });
 
-test("[7.22] stage evidence and the unsigned fields: freshness, attribution and toolchain are signed and equal; timingsMs, exit, diagnosticsPath, executor are present with their types, and the retired verdict and refreshed are refused", (t) => {
+test("data: [7.22] stage evidence and the unsigned fields: freshness, attribution and toolchain are signed and equal; timingsMs, exit, diagnosticsPath, executor are present with their types, and the retired verdict and refreshed are refused", (t) => {
   for (const [tamper, why] of [["noStageEvidence", /no stageEvidence/], ["noFreshness", /freshness is missing/], ["freshnessReceiptOnly", /freshness is missing/], ["freshnessSignedOnly", /freshness is missing/], ["freshnessDiffers", /freshness differs from the signed stage evidence/]]) {
     const c = receiptCase(t, { tamper });
     assert.throws(() => c.check(), (e) => e.code === "evidence" && why.test(e.message), tamper);
@@ -311,7 +538,7 @@ test("[7.22] stage evidence and the unsigned fields: freshness, attribution and 
 const NON_COMPILE = [["metadata", "--format-version", "1", "--offline"], ["fetch", "--locked"], ["fmt", "--check"], ["tree", "--locked"], ["--frozen", "pkgid"], ["version"]];
 const COMPILE = [["check", "--locked"], ["clippy", "--", "-D", "warnings"], ["build"], ["doc", "--no-deps"], ["rustc", "--", "-Zx"], ["test", "-p", "a"], ["+stable", "--locked", "build"], ["--color", "always", "test"], ["b"], ["t"]];
 
-test("[F7 #4] a non-compile command (metadata, fetch --locked, fmt --check, tree --locked) verifies without attribution and toolchain, with or without them present", (t) => {
+test("data: [F7 #4] a non-compile command (metadata, fetch --locked, fmt --check, tree --locked) verifies without attribution and toolchain, with or without them present", (t) => {
   for (const argv of NON_COMPILE) {
     for (const tamper of ["freshnessOnly", "none"]) {
       const c = receiptCase(t, { argv, tamper });
@@ -320,7 +547,7 @@ test("[F7 #4] a non-compile command (metadata, fetch --locked, fmt --check, tree
   }
 });
 
-test("[F7 #4] a compile-class command (check, clippy, build, doc, rustc, test, and their aliases) fails without attribution or without toolchain", (t) => {
+test("data: [F7 #4] a compile-class command (check, clippy, build, doc, rustc, test, and their aliases) fails without attribution or without toolchain", (t) => {
   for (const argv of COMPILE) {
     assert.equal(receiptCase(t, { argv }).check().payload.result.status, "SUCCEEDED", `${argv.join(" ")} verifies with both`);
     for (const [tamper, name] of [["noAttribution", "attribution"], ["noToolchain", "toolchain"], ["freshnessOnly", "attribution"]]) {
@@ -330,7 +557,7 @@ test("[F7 #4] a compile-class command (check, clippy, build, doc, rustc, test, a
   }
 });
 
-test("[#1311] a read-only carried command's receipt passes with freshness (or the whole census) absent on both sides", (t) => {
+test("data: [#1311] a read-only carried command's receipt passes with freshness (or the whole census) absent on both sides", (t) => {
   for (const argv of NON_COMPILE) {
     for (const tamper of ["noFreshness", "freshnessOnly", "none"]) {
       assert.equal(receiptCase(t, { argv, tamper }).check().payload.result.status, "SUCCEEDED", `${argv.join(" ")} / ${tamper}`);
@@ -340,7 +567,7 @@ test("[#1311] a read-only carried command's receipt passes with freshness (or th
   }
 });
 
-test("[#1311] a compile-class receipt without a census fails; freshness on one side only fails (either side); a tampered freshness fails; the parity check is unchanged for read-only commands", (t) => {
+test("data: [#1311] a compile-class receipt without a census fails; freshness on one side only fails (either side); a tampered freshness fails; the parity check is unchanged for read-only commands", (t) => {
   for (const argv of COMPILE) {
     assert.throws(() => receiptCase(t, { argv, tamper: "noStageCensus" }).check(), (e) => e.code === "evidence" && /is missing from the signed stage evidence or the receipt/.test(e.message), `${argv.join(" ")} / no census`);
     assert.throws(() => receiptCase(t, { argv, tamper: "noFreshness" }).check(), (e) => e.code === "evidence" && /freshness is missing from the signed stage evidence or the receipt/.test(e.message), `${argv.join(" ")} / no freshness on either side`);
@@ -366,11 +593,11 @@ test("[#1311] a compile-class receipt without a census fails; freshness on one s
   }
 });
 
-test("[#1311] a nested adapter job's compile children are still validated when the job signs no freshness, attribution or toolchain", (t) => {
+test("data: [#1311] a nested adapter job's compile children are still validated when the job signs no freshness, attribution or toolchain", (t) => {
   const JOBID = JOB; const argv = ["exec", "tauri", "build"];
   const child = (fx, over = {}) => ({ requestId: "22222222-2222-4222-8222-222222222222", parentRequestId: JOBID, shim: "cargo", argv: ["build", "--locked"], cwd: path.join(fx.snapshot, "native"), exitCode: 0, status: "SUCCEEDED", outputDir: path.join(fx.outputDir, "nested", "native"), ...over });
   const run = (tamper, over = {}) => {
-    const fx = makeFakeBroker(t, { inputs: ["gen/in.txt"] });
+    const fx = dataHost(t, { inputs: ["gen/in.txt"] });
     const made = writeSnapshotRequest({ controlRoot: fx.controlRoot, commit: fx.sb.commit, snapshot: fx.sb.snapshot, declaredInputs: ["gen/in.txt"], handle: fx.handle, primaryCwd: fx.checkout, argv, nonce: "a".repeat(64) });
     const receipt = signedReceipt(fx, { id: JOBID, carrier: made.carrier, argv, workspace: fx.checkout, tamper, adapter: "rightkit-pnpm", children: [child(fx, over)] });
     return () => verifySnapshotReceipt(receipt, { pins: fx.pins, jobId: JOBID, carrier: made.carrier, argv, workspace: fx.checkout, checkout: fx.checkout, outputRoots: [fx.wsRoot], platform: process.platform, adapter: "rightkit-pnpm" });
@@ -384,7 +611,7 @@ test("[#1311] a nested adapter job's compile children are still validated when t
 });
 
 // ---- RR's receipt shapes (item 4 row 4.18, answers at rustright HEAD f4cf1170) ----
-test("[RR 4.18] attribution: `{available:false, reason}` is accepted and recorded when the reason is a non-empty string; no reason, or not an object, is refused", (t) => {
+test("data: [RR 4.18] attribution: `{available:false, reason}` is accepted and recorded when the reason is a non-empty string; no reason, or not an object, is refused", (t) => {
   const ok = receiptCase(t, { tamper: "attributionUnavailable" }).check();
   assert.deepEqual(ok.attribution, { available: false, reason: "cargo-json-message-format-not-requested" }, "recorded for the consumer, which must treat available:false as FAILED where per-package attribution is needed");
   assert.equal(receiptCase(t).check().attribution.available, true);
@@ -392,12 +619,12 @@ test("[RR 4.18] attribution: `{available:false, reason}` is accepted and recorde
   assert.throws(() => receiptCase(t, { tamper: "attributionNotObject" }).check(), (e) => e.code === "evidence" && /not \{available/.test(e.message));
 });
 
-test("[RR 4.18] toolchain is `<toolchain>|cargo:<sha256>|rustc:<sha256>`, and is returned for the record; another shape is refused", (t) => {
+test("data: [RR 4.18] toolchain is `<toolchain>|cargo:<sha256>|rustc:<sha256>`, and is returned for the record; another shape is refused", (t) => {
   assert.match(receiptCase(t).check().toolchain, /^stable\|cargo:1{64}\|rustc:2{64}$/);
   for (const tamper of ["toolchainObject", "toolchainNoHashes"]) assert.throws(() => receiptCase(t, { tamper }).check(), (e) => e.code === "evidence" && /toolchain is not <toolchain>\|cargo:<sha256>\|rustc:<sha256>/.test(e.message), tamper);
 });
 
-test("[RR 4.18] top-level fields: diagnosticsPath may be null, timingsMs needs all six keys (each a number or null), exit may be null only with a signal and a null exit without one is not a success, and a receipt copy that differs from the signed one is refused", (t) => {
+test("data: [RR 4.18] top-level fields: diagnosticsPath may be null, timingsMs needs all six keys (each a number or null), exit may be null only with a signal and a null exit without one is not a success, and a receipt copy that differs from the signed one is refused", (t) => {
   assert.equal(receiptCase(t, { tamper: "diagnosticsNull" }).check().payload.result.status, "SUCCEEDED");
   assert.equal(receiptCase(t, { tamper: "timingsNulls" }).check().payload.result.status, "SUCCEEDED");
   assert.throws(() => receiptCase(t, { tamper: "timingsMissingKey" }).check(), /receipt timingsMs is missing or has the wrong type/);
@@ -408,7 +635,7 @@ test("[RR 4.18] top-level fields: diagnosticsPath may be null, timingsMs needs a
   assert.throws(() => signalled.check(), (e) => e.code === "signature" || /not a success/.test(e.message), "a signalled run is never a success (editing the signed payload breaks the signature)");
 });
 
-test("[L1] the signed result fields are compared where the broker signs them (payload.resultEvidence): a missing, partial or disagreeing resultEvidence fails, a matching one passes", (t) => {
+test("data: [L1] the signed result fields are compared where the broker signs them (payload.resultEvidence): a missing, partial or disagreeing resultEvidence fails, a matching one passes", (t) => {
   assert.equal(receiptCase(t).check().payload.result.status, "SUCCEEDED");
   assert.deepEqual(Object.keys(receiptCase(t).check().payload.resultEvidence).sort(), [...RESULT_EVIDENCE_FIELDS].sort());
   assert.equal(Object.hasOwn(receiptCase(t).check().payload, "exit"), false, "the fake signs them as the real broker does: not at the top level");
@@ -437,14 +664,14 @@ test("[L1] the signed result fields are compared where the broker signs them (pa
   }
 });
 
-test("[F7 #4] the subcommand is read from the argv the way cargo reads it: after +toolchain and global options, before --", () => {
+test("data: [F7 #4] the subcommand is read from the argv the way cargo reads it: after +toolchain and global options, before --", () => {
   for (const [argv, sub] of [[["build"], "build"], [["+nightly", "test"], "test"], [["--color", "always", "check"], "check"], [["--locked", "-q", "metadata"], "metadata"], [["--", "build"], null], [[], null], [["--explain", "E0001", "doc"], "doc"]]) {
     assert.equal(cargoSubcommandOf(argv), sub, argv.join(" "));
   }
   assert.equal(isCompileClass(["clippy"]), true); assert.equal(isCompileClass(["run"]), true); assert.equal(isCompileClass(["metadata"]), false); assert.equal(isCompileClass([]), false);
 });
 
-test("[GB-02] the compile table is the broker's: pinned to rustright b84ae605 command_policy.rs cargo_capability (:581 fix, :597 run, :611 package, :615 publish, :619 the BUILD list)", () => {
+test("data: [GB-02] the compile table is the broker's: pinned to rustright b84ae605 command_policy.rs cargo_capability (:581 fix, :597 run, :611 package, :615 publish, :619 the BUILD list)", () => {
   // The broker's own spellings, copied from the cited lines at b84ae605 (git show b84ae605:crates/rustright-policy/src/command_policy.rs): a change on either side shows here.
   const brokerBuildList = ["build", "check", "test", "bench", "clippy", "doc", "rustc", "rustdoc"]; // :619
   const brokerOthers = ["fix", "run", "package", "publish"]; // :581, :597, :611, :615
@@ -473,7 +700,7 @@ test("[GB-02] the compile table is the broker's: pinned to rustright b84ae605 co
 });
 const command0 = () => "build";
 
-test("[GB-02] every compile command's receipt must carry freshness, attribution and toolchain: dropping a field from BOTH the signed evidence and the receipt fails for each; a read-only command passes without them", (t) => {
+test("data: [GB-02] every compile command's receipt must carry freshness, attribution and toolchain: dropping a field from BOTH the signed evidence and the receipt fails for each; a read-only command passes without them", (t) => {
   for (const argv of [["bench"], ["run"], ["rustdoc"], ["package", "-p", "a"], ["fix"], ["publish"], ["clippy"], ["build"]]) {
     for (const field of ["freshness", "attribution", "toolchain"]) {
       const c = receiptCase(t, { argv });
@@ -483,7 +710,7 @@ test("[GB-02] every compile command's receipt must carry freshness, attribution 
   }
 });
 
-test("[7.22] declared inputs are read from the snapshot and digested as the broker digests them (check_admission.rs snapshot_inputs)", (t) => {
+test("data: [7.22] declared inputs are read from the snapshot and digested as the broker digests them (check_admission.rs snapshot_inputs)", (t) => {
   const root = tmp(t);
   const snap = path.join(root, "snap"); fs.mkdirSync(path.join(snap, ".rightkit"), { recursive: true });
   assert.deepEqual(readDeclaredInputs(snap), [], "no manifest: an empty declared set");
@@ -519,7 +746,7 @@ test("[7.22] declared inputs are read from the snapshot and digested as the brok
   if (link(path.join(root, "real", "m.json"), path.join(snap, ".rightkit", "compile-inputs.json"))) assert.throws(() => readDeclaredInputs(snap), /runs through a link/, "a manifest that is a link is refused");
 });
 
-test("request reference: the client's rustright.request-ref.v1, or a refusal", (t) => {
+test("data: request reference: the client's rustright.request-ref.v1, or a refusal", (t) => {
   const root = tmp(t); const f = path.join(root, "ref.json");
   fs.writeFileSync(f, JSON.stringify({ schema: "rustright.request-ref.v1", requestId: "r-1", submittedAt: "2026-10-29T00:00:00Z", workspace: root }));
   assert.equal(readRequestRef(f).requestId, "r-1");
@@ -528,85 +755,90 @@ test("request reference: the client's rustright.request-ref.v1, or a refusal", (
   assert.throws(() => readRequestRef(path.join(root, "missing.json")), /no request reference/);
 });
 
-test("runScans: a broker cargo request builds the snapshot under its own carrier and passes only on the broker's verified evidence", async (t) => {
+/**
+ * The pins a gate enrolls for one isolated instance: the PUBLIC half of its own attestation key (`<control root>/attestation/key.json`, never its secret) and its runtime's broker digest, read from
+ * the real client's own `doctor --json`. The gate never reads a key from a receipt; this is the enrollment a host operator performs for the instance a test started.
+ */
+function enrolledPinsOf(broker) {
+  const key = JSON.parse(fs.readFileSync(path.join(broker.controlRoot, "attestation", "key.json"), "utf8"));
+  const doctor = JSON.parse(broker.run(["doctor", "--json", "--no-scan"]).stdout);
+  const find = (v, name) => { if (v && typeof v === "object") { if (typeof v[name] === "string") return v[name]; for (const x of Object.values(v)) { const r = find(x, name); if (r) return r; } } return null; };
+  const brokerDigest = find(doctor, "brokerDigest"); const host = find(doctor, "host") ?? os.hostname();
+  assert.match(String(brokerDigest), /^[0-9a-f]{64}$/, "the real client reports the installed broker's digest");
+  return { host, keyId: key.keyId, publicKey: key.publicKey, brokerDigest };
+}
+
+test("runScans (real broker): a broker cargo request builds a real snapshot under its own carrier and passes only on the real broker's verified evidence; the mark is recorded before launch or nothing launches; every exit removes the carrier", async (t) => {
   const { runScans } = await import("./deterministic-scans.mjs");
-  const fx = makeFakeBroker(t);
-  const { root, checkout, snapshot: snap, pins } = fx;
+  const { createSnapshotBroker } = await import("./snapshot-broker.mjs");
+  const { syncSnapshot } = await import("./snapshot.mjs");
+  const { spawnSync: realSpawn } = await import("./background-process.mjs");
+  const broker = await startRealBroker({ name: "runscans" });
+  t.after(() => broker.stop());
+  const repo = tmp(t);
+  const git = (...a) => { const r = realSpawn("git", a, { cwd: repo, encoding: "utf8" }); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
+  git("init", "-q", "-b", "main"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  write(repo, { "Cargo.toml": '[workspace]\nmembers = ["crates/core"]\nresolver = "2"\n', "Cargo.lock": "version = 4\n", "crates/core/Cargo.toml": '[package]\nname = "core"\nversion = "0.1.0"\nedition = "2021"\n', "crates/core/src/lib.rs": "\n" });
+  git("add", "-A"); git("commit", "-q", "-m", "A"); const sha1 = git("rev-parse", "HEAD");
+  const snap = syncSnapshot({ checkout: repo, rev: sha1, root: path.join(broker.dataRoot, "snapshots") });
+  const checkout = fs.realpathSync.native(repo);
+  const handle = "own-9";
+  const baseBroker = (mark) => createSnapshotBroker({ env: broker.env, platform: process.platform, checkout, commit: { sha: snap.commit, tree: snap.tree }, snapshot: { path: snap.path, expectedTree: snap.tree }, ownership: { handle, markBrokerSubmit: mark }, client: broker.clientPath, dataRoot: broker.dataRoot, loadPins: () => enrolledPinsOf(broker) });
   const scan = { id: "check:core", class: "B", tool: "rustright", args: ["cargo", "check", "-p", "core", "--locked"], root: "cargoLive", env: {}, command: "rustright cargo check -p core --locked" };
-  // Class B runs only after class A ran in the same call: one passing class A row.
   const classA = { id: "a:noop", class: "A", tool: "node", args: ["-e", "0"], root: "live", env: {}, command: "node -e 0" };
-  const plan = { roots: { contentRoot: snap, liveRoot: snap, cargoLiveRoot: checkout }, scans: [classA, scan], notes: [], deferred: [] };
-  // A fake client that applies RustRight's reader rules, records the request reference, and keeps what it saw.
-  const run = async ({ tamper = null, badCarrier = false, mark, launch = null } = {}) => {
-    const seen = { submitsBefore: 0, launched: false }; let submits = 0;
-    const spawn = (command, args, opts = {}) => {
-      const env = opts.env ?? {};
-      // Tool probes and the class A row: anything that is not the carried request.
-      if (!env.RUSTRIGHT_SNAPSHOT_REQUEST) { if (args.includes("check")) seen.launched = true; return { status: 0, stdout: "v1\n", stderr: "" }; }
-      seen.launched = true;
-      const d = JSON.parse(env.RUSTRIGHT_SNAPSHOT_REQUEST);
-      seen.file = d.path; seen.refDir = path.dirname(env.RUSTRIGHT_REQUEST_ID_FILE);
-      if (launch) return launch(opts);
-      const bytes = fs.readFileSync(d.path);
-      const carrier = JSON.parse(bytes);
-      seen.ok = sha(bytes) === d.sha256 && carrier.nonce === env.RUSTRIGHT_ATTEST_NONCE && carrier.argvSha256 === sha(canonicalJson(args.slice(1))) && fs.realpathSync(carrier.primaryCwd) === fs.realpathSync(opts.cwd) && !badCarrier;
-      seen.submitsBefore = submits; seen.carrier = carrier; seen.file = d.path;
-      fs.writeFileSync(env.RUSTRIGHT_REQUEST_ID_FILE, JSON.stringify({ schema: "rustright.request-ref.v1", requestId: "job-1", submittedAt: "x", workspace: fs.realpathSync(opts.cwd) }));
-      return seen.ok ? { status: 0, stdout: "", stderr: "" } : { status: 2, stdout: "", stderr: "invalid snapshot request carrier" };
-    };
-    const receiptOf = async (id) => signedReceipt(fx, { id, carrier: seen.carrier, argv: args0, workspace: fs.realpathSync(checkout), tamper: tamper ?? "none" });
-    const args0 = scan.args.slice(1);
-    const result = await runScans(plan, { spawn, lookupSpawn: spawn, env: { PATH: process.env.PATH }, classes: ["A", "B"],
-      signal: launchSignal,
-      snapshotBroker: { controlRoot: path.join(root, "control"), commit: { sha: C, tree: T }, snapshot: { path: snap, expectedTree: T }, handle: "own-9", pins, checkout, outputRoots: [fx.wsRoot], platform: process.platform,
-        ...(mark === null ? {} : { markBrokerSubmit: mark ?? ((h) => { assert.ok(isCallHandleOf(h, "own-9"), `a broker submit is recorded for a sub-handle <handle>#<id>, not ${JSON.stringify(h ?? null)}`); submits += 1; return { handle: "own-9", broker: { submitted: true, handles: [h] } }; }) }), receiptOf } }).catch((e) => ({ thrown: e, scans: [] }));
-    return { row: result.scans.find((r) => r.id === "check:core"), result, seen, submits };
-  };
+  const plan = { roots: { contentRoot: snap.path, liveRoot: snap.path, cargoLiveRoot: checkout }, scans: [classA, scan], notes: [], deferred: [] };
   let launchSignal;
+  // `inject` fails the launch at the spawn seam (an exception, an abort, a timeout); every other spawn, the carried request included, is the real client against the real broker.
+  const run = async ({ mark, inject = null } = {}) => {
+    const seen = { launched: false, submitsBefore: 0, file: null, refDir: null }; let submits = 0;
+    const defaultMark = (h) => { assert.ok(isCallHandleOf(h, handle), `a broker submit is recorded for a sub-handle <handle>#<id>, not ${JSON.stringify(h ?? null)}`); submits += 1; return { handle, broker: { submitted: true, handles: [h] } }; };
+    const sb = baseBroker(mark === undefined ? defaultMark : mark ?? (() => null));
+    if (mark === null) delete sb.markBrokerSubmit;
+    const spawn = (command, args, opts = {}) => {
+      const env = { ...(opts.env ?? {}), ...broker.env };
+      if (!env.RUSTRIGHT_SNAPSHOT_REQUEST) { if (args.includes("check")) seen.launched = true; return realSpawn(command, args, { ...opts, env, encoding: "utf8" }); }
+      seen.launched = true; seen.submitsBefore = submits;
+      const d = JSON.parse(env.RUSTRIGHT_SNAPSHOT_REQUEST); seen.file = d.path; seen.refDir = path.dirname(env.RUSTRIGHT_REQUEST_ID_FILE);
+      if (inject) return inject(opts);
+      return realSpawn(command, args, { ...opts, env, encoding: "utf8" });
+    };
+    const result = await runScans(plan, { spawn, lookupSpawn: spawn, env: { PATH: process.env.PATH, ...broker.env }, classes: ["A", "B"], signal: launchSignal, snapshotBroker: sb }).catch((e) => ({ thrown: e, scans: [] }));
+    return { row: result.scans.find((r) => r.id === "check:core"), result, seen, submits, sb };
+  };
   const good = await run();
-  assert.equal(good.seen.ok, true, `the client accepted the carrier (${JSON.stringify(good.row)})`);
-  assert.equal(good.submits, 1); assert.equal(good.seen.submitsBefore, 1, "the ownership recorded the broker submit before the request ran");
   assert.equal(good.row.status, "pass", JSON.stringify(good.row));
-  assert.deepEqual(good.row.snapshotEvidence, { requestId: "job-1", outputDir: fx.outputDir, treeAtStart: T, treeAtExit: T });
+  assert.equal(good.submits, 1); assert.equal(good.seen.submitsBefore, 1, "the ownership recorded the broker submit before the request ran");
+  assert.equal(typeof good.row.snapshotEvidence.requestId, "string");
+  assert.ok(good.row.snapshotEvidence.outputDir.startsWith(path.join(broker.dataRoot, "rightkit-build-control", "ws")), "the broker's own managed output directory");
+  assert.equal(good.row.snapshotEvidence.treeAtStart, snap.tree); assert.equal(good.row.snapshotEvidence.treeAtExit, snap.tree);
   assert.equal(fs.existsSync(good.seen.file), false, "the carrier file is removed after the request");
-  // The broker built from a snapshot that changed, or for another handle: the row fails even though cargo exited 0.
-  const moved = await run({ tamper: "treeAtExit" });
-  assert.equal(moved.row.status, "fail"); assert.equal(moved.row.code, "SNAPSHOT_EVIDENCE"); assert.match(moved.row.detail, /throughout/);
-  const other = await run({ tamper: "otherHandle" });
-  assert.equal(other.row.code, "SNAPSHOT_EVIDENCE");
-  const legacy = await run({ tamper: "noSnapshotEvidence" });
-  assert.equal(legacy.row.code, "SNAPSHOT_EVIDENCE"); assert.match(legacy.row.detail, /no snapshotEvidence/);
-  // cargo exited 0, but the broker authentically signed a failure, or signed no result: the row fails.
-  const failed = await run({ tamper: "failed" });
-  assert.equal(failed.row.status, "fail"); assert.equal(failed.row.code, "SNAPSHOT_EVIDENCE"); assert.match(failed.row.detail, /signed FAILED/);
-  const silent = await run({ tamper: "noResult" });
-  assert.equal(silent.row.code, "SNAPSHOT_EVIDENCE"); assert.match(silent.row.detail, /no result/);
+  const carriers = () => fs.readdirSync(path.join(good.sb.controlRoot, "snapshot-requests"));
   // The submit is recorded before launch, or nothing launches: no hook, a hook that throws, a mark that did not land.
   for (const [mark, why] of [
     [null, /no build-ownership submit hook/],
     [() => { throw new Error("build ownership is no longer held"); }, /no longer held/],
-    [() => ({ handle: "own-9", broker: {} }), /did not record the broker submit/],
+    [() => ({ handle, broker: {} }), /did not record the broker submit/],
     [() => ({ handle: "someone-else", broker: { submitted: true } }), /did not record the broker submit/],
   ]) {
     const refused = await run({ mark });
     assert.equal(refused.row.status, "fail"); assert.equal(refused.row.code, "SNAPSHOT_REQUEST"); assert.match(refused.row.detail, why);
     assert.equal(refused.seen.launched, false, "the cargo request was never launched");
-    assert.deepEqual(fs.readdirSync(path.join(root, "control", "snapshot-requests")), [], "no carrier is left behind");
+    assert.deepEqual(carriers(), [], "no carrier is left behind");
   }
   // Every exit after the carrier exists removes it and the request reference: a thrown spawn, a cancel, a timeout.
   const gone = (seen) => { assert.ok(seen.file && seen.refDir); assert.equal(fs.existsSync(seen.file), false, seen.file); assert.equal(fs.existsSync(seen.refDir), false, seen.refDir); };
-  const thrown = await run({ launch: () => { throw new Error("spawn exploded"); } });
+  const thrown = await run({ inject: () => { throw new Error("spawn exploded"); } });
   assert.equal(thrown.row.status, "fail"); assert.equal(thrown.row.code, "SCAN_ERROR"); assert.match(thrown.row.detail, /spawn exploded/); gone(thrown.seen);
   const ac = new AbortController(); launchSignal = ac.signal;
-  const cancelled = await run({ launch: () => { ac.abort(); return { status: null, error: Object.assign(new Error("aborted"), { code: "ABORT_ERR" }) }; } });
+  const cancelled = await run({ inject: () => { ac.abort(); return { status: null, error: Object.assign(new Error("aborted"), { code: "ABORT_ERR" }) }; } });
   assert.equal(cancelled.row.code, "CANCELLED"); gone(cancelled.seen);
   launchSignal = undefined;
-  const late = await run({ launch: () => ({ status: null, error: Object.assign(new Error("timed out"), { code: "ETIMEDOUT" }) }) });
+  const late = await run({ inject: () => ({ status: null, error: Object.assign(new Error("timed out"), { code: "ETIMEDOUT" }) }) });
   assert.equal(late.row.code, "TIMEOUT"); gone(late.seen);
-  assert.deepEqual(fs.readdirSync(path.join(root, "control", "snapshot-requests")), []);
+  assert.deepEqual(carriers(), []);
 });
 
-test("[7.22] a sibling directory whose name merely begins with two dots is not inside the snapshot or the checkout", (t) => {
+test("data: [7.22] a sibling directory whose name merely begins with two dots is not inside the snapshot or the checkout", (t) => {
   const c = receiptCase(t);
   // `<checkout>/..x/target` is inside the checkout; `<root>/..snap-sibling` is not inside the snapshot (a path-prefix check would say both).
   const out = (dir) => signedReceiptWithOutput(c, dir);
@@ -623,7 +855,7 @@ function signedReceiptWithOutput(c, outputDir) {
   return { check: () => verifySnapshotReceipt(rebuilt, { pins: c.fx.pins, jobId: JOB, carrier: c.made.carrier, argv: c.argv, workspace: c.fx.checkout, checkout: c.fx.checkout, outputRoots: [c.fx.wsRoot], platform: process.platform }) };
 }
 
-test("[B9] the filesystem-free evidence identity: commit, handle, request id, snapshot path and the tree at start and exit, in the gate's order", () => {
+test("data: [B9] the filesystem-free evidence identity: commit, handle, request id, snapshot path and the tree at start and exit, in the gate's order", () => {
   const commit = { sha: "a".repeat(40), tree: "b".repeat(40) };
   const evidence = { requestId: "job-1", commit, snapshot: { path: "/s/x", treeAtStart: commit.tree, treeAtExit: commit.tree }, ownership: { handle: "h" } };
   const ok = (over = {}, expect = {}) => verifySnapshotEvidenceIdentity({ ...evidence, ...over }, { commit, jobId: "job-1", ...expect });
@@ -644,7 +876,7 @@ test("[B9] the filesystem-free evidence identity: commit, handle, request id, sn
 });
 
 // ---- GB-02: the evidence a receipt owes is the broker's own compile classification (RustRight's cargo-shapes vector, `compile` column) ----
-test("[GB-02] for every compile form of the vector, removing both copies of freshness, attribution or toolchain is refused; a read-only form legitimately carries none", (t) => {
+test("data: [GB-02] for every compile form of the vector, removing both copies of freshness, attribution or toolchain is refused; a read-only form legitimately carries none", (t) => {
   const rows = loadVector("cargo-shapes.fixtures.json").rows.filter((r) => !r.refused);
   assert.ok(rows.some((r) => r.compile) && rows.some((r) => !r.compile));
   for (const row of rows) {
@@ -662,7 +894,7 @@ test("[GB-02] for every compile form of the vector, removing both copies of fres
 });
 
 // ---- GB-10 / GB-11: the gate verifies a compile receipt with the strict verifier ----
-test("[GB-10] a receipt the strict verifier refuses never verifies: no or one-sided or malformed BR19 evidence, signed-only and receipt-only result evidence", (t) => {
+test("data: [GB-10] a receipt the strict verifier refuses never verifies: no or one-sided or malformed BR19 evidence, signed-only and receipt-only result evidence", (t) => {
   assert.equal(receiptCase(t).check().payload.result.status, "SUCCEEDED");
   for (const tamper of ["noBr19Evidence", "br19ReceiptOnly", "br19SignedOnly", "br19ProfileDiffers", "br19ResourcesNoPriority", "br19InventedZero", "br19DigestNotHex"]) {
     assert.throws(() => receiptCase(t, { tamper }).check(), (e) => e.code === "evidence", tamper);
@@ -672,7 +904,7 @@ test("[GB-10] a receipt the strict verifier refuses never verifies: no or one-si
 });
 
 // ---- GB-66: the toolchain identity the broker could not build is a typed unavailable state ----
-test("[GB-66] an UNKNOWN toolchain is a typed unavailable identity, never evidence; an empty component or a malformed UNKNOWN is still refused; a compile refused for it names the broker's code", (t) => {
+test("data: [GB-66] an UNKNOWN toolchain is a typed unavailable identity, never evidence; an empty component or a malformed UNKNOWN is still refused; a compile refused for it names the broker's code", (t) => {
   assert.equal(receiptCase(t).check().toolchain.startsWith("stable|cargo:"), true, "a full identity verifies");
   assert.throws(() => receiptCase(t, { tamper: "toolchainUnknown" }).check(), (e) => e.code === "toolchain-unavailable" && /RK_TOOLCHAIN_IDENTITY_UNAVAILABLE: UNKNOWN, cargo is not registered/.test(e.message));
   assert.throws(() => receiptCase(t, { tamper: "toolchainUnavailableFailed" }).check(), (e) => e.code === "toolchain-unavailable" && /did not run this compile.*rustc changed since registration/.test(e.message));
@@ -691,12 +923,12 @@ const withCause = (cause, { count = 0, causeCounts = {}, ...census } = {}) => ({
 const quietRebuilt = (reason) => withCause(unreadCause(reason), { count: null, causeCounts: DROP, invalidationReasons: DROP, notFresh: 1, invalidationReasonsUnavailable: reason });
 const removedFingerprint = withCause(causeOf({ verdict: "unexplained", counts: oneRow({ unexplained: 1 }), unexplainedUnits: [KEPT] }), { count: 1, causeCounts: { "fingerprint-missing": 1 }, notFresh: 1 });
 
-test("[RA-03] the typed codes of a verdict that is not explained are named", () => {
+test("data: [RA-03] the typed codes of a verdict that is not explained are named", () => {
   assert.deepEqual([CAUSE_UNKNOWN, CAUSE_UNEXPLAINED], ["cause-unknown", "cause-unexplained"]);
   assert.equal(CAUSE_EVIDENCE_SCHEMA, "rustright.cause-evidence.v1");
 });
 
-test("[RA-03] a compile whose cause evidence is whole and explained verifies in every compile form, and the verified evidence is returned for the record", (t) => {
+test("data: [RA-03] a compile whose cause evidence is whole and explained verifies in every compile form, and the verified evidence is returned for the record", (t) => {
   const forms = {
     "a source edit: reasons read, every cause explained": withCause(causeOf({ counts: oneRow() }), { causeCounts: { "source-or-dependency-changed": 1 }, notFresh: 1 }),
     "a first build": withCause(causeOf({ counts: oneRow() }), { causeCounts: { "first-build": 1 }, notFresh: 1 }),
@@ -715,7 +947,7 @@ test("[RA-03] a compile whose cause evidence is whole and explained verifies in 
   assert.equal(receiptCase(t).check().causeEvidence.basis, "reasons");
 });
 
-test("[RA-03] no compile succeeds without a valid cause: a removed fingerprint is unexplained, and quiet, caller-logged and artifact-running roots whose log was not read are unknown, in every compile form", (t) => {
+test("data: [RA-03] no compile succeeds without a valid cause: a removed fingerprint is unexplained, and quiet, caller-logged and artifact-running roots whose log was not read are unknown, in every compile form", (t) => {
   for (const argv of COMPILE) {
     assert.throws(() => receiptCase(t, { argv, freshness: removedFingerprint }).check(), (e) => e.code === CAUSE_UNEXPLAINED && e.message.includes(KEPT) && /1 rebuilt unit/.test(e.message), `${argv.join(" ")} / removed fingerprint`);
     for (const reason of ["quiet-root", "caller-cargo-log", "root-executes-artifacts"]) {
@@ -737,7 +969,7 @@ test("[RA-03] no compile succeeds without a valid cause: a removed fingerprint i
   assert.throws(() => receiptCase(t, { freshness: many }).check(), (e) => e.code === CAUSE_UNEXPLAINED && /40 rebuilt unit/.test(e.message) && /u0 v0\.1\.0/.test(e.message) && /more not listed/.test(e.message));
 });
 
-test("[RA-03] missing cause evidence, an unrecognized schema and every incoherent field are refused as evidence: an older broker is never trusted as if it had signed the schema", (t) => {
+test("data: [RA-03] missing cause evidence, an unrecognized schema and every incoherent field are refused as evidence: an older broker is never trusted as if it had signed the schema", (t) => {
   const noSchema = causeOf(); delete noSchema.schema;
   const noMigration = causeOf(); delete noMigration.historyMigrationNeeded;
   const absent = (cause, why) => assert.throws(() => receiptCase(t, { argv: ["build"], freshness: { causeEvidence: cause } }).check(), (e) => e.code === "evidence" && why.test(e.message), why.source);
@@ -783,7 +1015,7 @@ test("[RA-03] missing cause evidence, an unrecognized schema and every incoheren
   }
 });
 
-test("[RA-03] the cause evidence is signed and equal on both sides: a receipt-only or signed-only change, or a flipped verdict, never verifies", (t) => {
+test("data: [RA-03] the cause evidence is signed and equal on both sides: a receipt-only or signed-only change, or a flipped verdict, never verifies", (t) => {
   const flipped = receiptCase(t, { argv: ["build"], freshness: removedFingerprint });
   flipped.receipt.freshness.causeEvidence.verdict = "explained";
   assert.throws(() => flipped.check(), (e) => e.code === "evidence" && /receipt freshness differs from the signed stage evidence/.test(e.message), "the receipt claims an explained verdict the broker did not sign");
@@ -797,7 +1029,7 @@ test("[RA-03] the cause evidence is signed and equal on both sides: a receipt-on
   for (const argv of COMPILE) assert.throws(() => receiptCase(t, { argv, freshness: { causeEvidence: DROP, unexplainedCount: DROP, causeCounts: DROP } }).check(), (e) => e.code === "evidence" && /carries no causeEvidence/.test(e.message), argv.join(" "));
 });
 
-test("[RA-03] a command that is not a compile carries no census and owes no cause: absent is legitimate, a stray cause is read but not judged, a foreign schema is still refused", (t) => {
+test("data: [RA-03] a command that is not a compile carries no census and owes no cause: absent is legitimate, a stray cause is read but not judged, a foreign schema is still refused", (t) => {
   for (const argv of NON_COMPILE) {
     const absent = receiptCase(t, { argv, freshness: { causeEvidence: DROP, unexplainedCount: DROP, causeCounts: DROP } }).check();
     assert.equal(absent.causeEvidence, null, argv.join(" "));
@@ -808,7 +1040,7 @@ test("[RA-03] a command that is not a compile carries no census and owes no caus
 });
 
 // ---- GB-82: the fixture broker's receipts are the production forms ----
-test("[GB-82] the fixture signs compact attribution with a detail file the production verifier accepts, an unavailable census fails the compile, and a nonzero exit is a signed FAILED", (t) => {
+test("data: [GB-82] the fixture signs compact attribution with a detail file the production verifier accepts, an unavailable census fails the compile, and a nonzero exit is a signed FAILED", (t) => {
   const c = receiptCase(t);
   const { attribution } = c.check();
   assert.equal(attribution.units, 1); assert.equal(Object.hasOwn(attribution, "rows"), false, "no manufactured full row set in the signed receipt");
@@ -820,7 +1052,7 @@ test("[GB-82] the fixture signs compact attribution with a detail file the produ
   // A read-only form that carries no census is unaffected.
   assert.equal(receiptCase(t, { argv: ["metadata", "--no-deps"], tamper: "noStageCensus" }).check().payload.result.status, "SUCCEEDED");
   // A depth-2 nested child keeps its lineage (its parent is the earlier child, not the root).
-  const fx = makeFakeBroker(t);
+  const fx = dataHost(t);
   const made = writeSnapshotRequest({ controlRoot: fx.controlRoot, commit: fx.sb.commit, snapshot: fx.sb.snapshot, declaredInputs: [], handle: fx.handle, primaryCwd: fx.checkout, argv: ["run", "x"], nonce: "a".repeat(64) });
   const child = (requestId, parentRequestId) => ({ requestId, parentRequestId, shim: "cargo", argv: ["build"], cwd: fx.snapshot, exitCode: 0, status: "SUCCEEDED", outputDir: path.join(fx.outputDir, "nested", requestId) });
   const receipt = signedReceipt(fx, { id: JOB, carrier: made.carrier, argv: ["run", "x"], workspace: fx.checkout, adapter: "rightkit-pnpm", children: [child("c1", "root"), child("c2", "c1")] });

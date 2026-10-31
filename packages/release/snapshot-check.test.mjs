@@ -17,7 +17,10 @@ import {
   modulesStoreDir, pinnedPnpm, resolvePrimaryStore, snapshotOption, verifySnapshotDir,
 } from "./snapshot-check.mjs";
 import { main, discoverPnpmRoots, discoverNpmUnits } from "./bin/rightkit-gate.mjs";
-import { makeFakeBroker, subHandleStub } from "./test-support/fake-broker.mjs";
+import { startRealBroker } from "./test-support/real-broker.mjs";
+import { enrollBrokerPins } from "./broker-pins.mjs";
+import { brokerLeaseState, markCarriedSend } from "./build-ownership.mjs";
+import { createSnapshotBroker } from "./snapshot-broker.mjs";
 
 const emptyConfig = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-sc-cfg-"))), "gitconfig");
 fs.writeFileSync(emptyConfig, "");
@@ -649,49 +652,50 @@ test("rightkit#1257: a pnpm-lockfile failure (registry-dependent) never yields a
 
 // (2) On a broker host the cargo scans read the SNAPSHOT: what the checkout's workspace holds (an untracked member, a stray directory a
 // members glob matches) is never read, so it neither refuses the check nor reaches its verdict.
-function cargoScenario(t) {
+/** The enrolled pins of the broker instance `rb`: its own attestation key (public fields only), host and broker digest as its own `doctor --json` reports them. */
+function instancePins(rb) {
+  const key = JSON.parse(fs.readFileSync(path.join(rb.controlRoot, "attestation", "key.json"), "utf8"));
+  const run = rb.run(["doctor", "--json", "--no-scan"], {});
+  const doctor = JSON.parse(run.stdout);
+  const find = (value, name) => { if (value && typeof value === "object") { if (typeof value[name] === "string") return value[name]; for (const inner of Object.values(value)) { const hit = find(inner, name); if (hit) return hit; } } return null; };
+  const host = find(doctor, "hostName") ?? find(doctor, "host"); const brokerDigest = find(doctor, "brokerDigest");
+  if (!host || !brokerDigest) throw new Error(`the isolated broker's doctor report names no host or brokerDigest to enroll: ${run.stdout.slice(0, 300)}`);
+  return { publicKey: key.publicKey, keyId: key.keyId, host, brokerDigest };
+}
+async function cargoScenario(t) {
   const repo = tmp(t, "rk-sc-cargo-");
   git(repo, "init", "-q", "-b", "main");
-  write(repo, { ".gitignore": "target/\n", "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\nresolver = "2"\n', "Cargo.lock": "version = 4\n", "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n', "crates/a/src/lib.rs": "\n" });
+  write(repo, { ".gitignore": "target/\n", "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\nresolver = "2"\n', "Cargo.lock": 'version = 4\n\n[[package]]\nname = "a"\nversion = "0.1.0"\n', "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n', "crates/a/src/lib.rs": "\n" });
   const a = commitAll(repo, "A");
-  const snap = syncSnapshot({ checkout: repo, rev: a, root: tmp(t, "rk-sc-cargo-snaps-") });
-  // The gate reads the SNAPSHOT's members as a carried read-only request (rightkit#1311: a root request inside a managed snapshot is refused):
-  // a fixture broker serves it, with the snapshot and the checkout this scenario made.
-  const broker = makeFakeBroker(t, { readOnlySnapshots: true });
-  broker.rebase({ checkout: fs.realpathSync.native(repo), snapshotsRoot: path.dirname(snap.path) });
-  const bin = tmp(t, "rk-sc-fakecargo-");
-  const sentinel = path.join(bin, "non-metadata-cargo-ran");
-  const fake = path.join(bin, "fake-cargo.mjs");
-  // cargo's rule for `members = ["crates/*"]`: every directory under crates/ is a member; one without a Cargo.toml is an error.
-  fs.writeFileSync(fake, `import fs from "node:fs"; import path from "node:path";
-const args = process.argv.slice(2);
-if (args[0] !== "metadata") { fs.writeFileSync(${JSON.stringify(sentinel)}, args.join(" ")); process.exit(0); }
-const root = process.cwd(); const crates = path.join(root, "crates");
-const packages = [];
-for (const d of fs.existsSync(crates) ? fs.readdirSync(crates, { withFileTypes: true }).filter((e) => e.isDirectory()) : []) {
-  const m = path.join(crates, d.name, "Cargo.toml");
-  if (!fs.existsSync(m)) { console.error("error: failed to load manifest for workspace member \`" + path.join(crates, d.name) + "\`"); process.exit(101); }
-  packages.push({ name: d.name, manifest_path: m, publish: null, id: d.name, targets: [] });
-}
-console.log(JSON.stringify({ packages, workspace_members: packages.map((p) => p.id), workspace_root: root, target_directory: path.join(root, "target"), version: 1 }));
-`);
-  return { repo, a, dir: snap.path, fake, sentinel, broker };
+  // The REAL installed broker (an isolated instance) holds the gate's snapshot: it lives in the broker's own data root, and the snapshot broker the gate builds is the production one over it.
+  const rb = await startRealBroker({ name: "snapshot-check" });
+  t.after(() => rb.stop());
+  const snap = syncSnapshot({ checkout: repo, rev: a, root: path.join(rb.dataRoot, "snapshots"), managedRoot: rb.dataRoot });
+  const platformKey = process.platform === "win32" ? "win32" : process.platform === "darwin" ? "darwin" : "linux";
+  enrollBrokerPins({ dataRoot: rb.dataRoot, platform: platformKey, ...instancePins(rb) });
+  const ownershipFile = path.join(tmp(t, "rk-sc-own-record-"), "owner.json");
+  fs.writeFileSync(ownershipFile, JSON.stringify({ handle: "own-7", broker: { submitted: false } }));
+  const sb = createSnapshotBroker({
+    env: rb.env, platform: process.platform, checkout: fs.realpathSync.native(repo), commit: { sha: snap.commit, tree: snap.tree }, snapshot: { path: snap.path, expectedTree: snap.tree },
+    ownership: { handle: "own-7", markBrokerSubmit: (callHandle) => markCarriedSend({ file: ownershipFile, handle: "own-7", callHandle }) },
+    client: rb.clientPath, gateFile: path.join(repo, "x", "rightkit-gate.mjs"), dataRoot: rb.dataRoot, lease: (q) => brokerLeaseState(q),
+  });
+  return { repo, a, dir: snap.path, sb, rb };
 }
 function brokerIo(t, s) {
-  const out = []; const err = []; const plans = [];
-  return { out, err, plans, io: {
+  const out = []; const err = []; const plans = []; const cargoRan = [];
+  return { out, err, plans, cargoRan, io: {
     cwd: s.repo, env: { ...process.env, RK_GATE_CACHE: "0", RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs" }, snapshotRoot: path.join(tmp(t, "rk-sc-own-"), "snapshots"), out: (m) => out.push(m), err: (m) => err.push(m), appCheck: async () => 0,
-    snapshotBroker: { ...s.broker.sb, checkout: fs.realpathSync.native(s.repo), markBrokerSubmit: subHandleStub(s.broker.sb.handle), get snapshot() { return { path: s.dir, expectedTree: s.broker.sb.snapshot.expectedTree }; } },
-    // `cargo` is answered by the fake (never a real cargo, never the broker): metadata per cargo's member rule, anything else a sentinel.
-    spawn: (cmd, args, opts = {}) => (cmd === "pnpm" && args[0] === "--version" ? { status: 0, stdout: "11.25.0\n", stderr: "" }
-      : cmd === "cargo" ? defaultSpawn(process.execPath, [s.fake, ...args], opts) : defaultSpawn(cmd, args, opts)),
+    snapshotBroker: s.sb,
+    // The gate's own `cargo` calls run for real (a recorder, not a stand-in): only the pnpm version probe is answered.
+    spawn: (cmd, args, opts = {}) => { if (cmd === "cargo") cargoRan.push(args.join(" ")); return cmd === "pnpm" && args[0] === "--version" ? { status: 0, stdout: "11.25.0\n", stderr: "" } : defaultSpawn(cmd, args, opts); },
     resolveExecutor: () => ({ kind: "broker", cargo: ["cargo"] }),
     runScans: async (plan) => { plans.push(plan); return { scans: [], notes: [], cacheHits: [] }; },
   } };
 }
 
 test("Oracle (79c4427b), reversed by the contract (no dirty-tree condition): an untracked member and a stray members-glob directory in the checkout are ignored; the check runs on the commit's own workspace", async (t) => {
-  const s = cargoScenario(t);
+  const s = await cargoScenario(t);
   const ok = brokerIo(t, s);
   assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], ok.io), 0, ok.err.join("\n"));
   assert.equal(fs.realpathSync.native(ok.plans[0].roots.cargoLiveRoot), fs.realpathSync.native(s.repo), "the checkout is only where the client starts");
@@ -703,7 +707,7 @@ test("Oracle (79c4427b), reversed by the contract (no dirty-tree condition): an 
   assert.equal(await main(["check", "--commit", s.a, "--full-a", "--snapshot", s.dir], run.io), 0, run.err.join("\n"));
   assert.equal(run.plans.length, 1, "the scans were planned from the commit's members");
   assert.deepEqual(run.plans[0].scans.filter((x) => x.id.startsWith("cargo-metadata")).map((x) => x.cwd ?? "."), ["."], "crates/b is not in the commit, so no scan names it");
-  assert.equal(fs.existsSync(s.sentinel), false, "only cargo metadata ran");
+  assert.ok(run.cargoRan.every((c) => c.startsWith("metadata")), `only cargo metadata ran: ${run.cargoRan.join(" | ")}`);
 });
 
 // ============================================================================================================================

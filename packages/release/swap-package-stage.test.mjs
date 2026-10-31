@@ -1,51 +1,95 @@
 // The package stage of `rightkit-gate --to release --unit npm:@rightkit/release` on a broker host, end to end up to the broker: the
 // REAL swap-helper step (prepareSwapHelper) runs through the REAL carried seam (runCargoSync -> runCarriedCargo -> carryBrokerCargo)
-// against the fixture broker (test-support/fake-broker.mjs: a fake `rustright` client that applies the reader's carrier rules and
-// signs receipts in-test), and the argv and directory the broker actually received are what the stage's expected commands
-// (stage-commands.mjs, the same rows the gate and the hosted admission use) are checked against, through the gate's real
-// receipt collection (runUnitGate). No cargo, no real broker, no signing identity.
+// against the REAL installed RustRight broker (an isolated instance, test-support/real-broker.mjs) over the gate's real snapshot of a real git checkout,
+// and the argv and directory the broker actually signed are what the stage's expected commands (stage-commands.mjs, the same rows the gate and the
+// hosted admission use) are checked against, through the gate's real receipt matching (assignJobs). The signing step's own tools (identity lookup,
+// codesign) are the only stand-ins: they are not the broker.
 import "./test-support/broker-guard.mjs";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
-import { installCarrier } from "./carried-cargo.mjs";
+import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, brokerLeaseState, markCarriedSend } from "./build-ownership.mjs";
+import { enrollBrokerPins } from "./broker-pins.mjs";
+import { readLedger, UNSCOPED } from "./cargo-ledger.mjs";
+import { CARRIED_CARGO_MAP_ENV, installCarrier, runCarriedAdapter } from "./carried-cargo.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
 import { carriedCallNonce, qualificationNonce } from "./provenance-verify.mjs";
-import { brokerSection } from "./snapshot-broker.mjs";
+import { syncSnapshot } from "./snapshot.mjs";
+import { brokerSection, createSnapshotBroker } from "./snapshot-broker.mjs";
 import { expectedStageCommands, ANY_ABSOLUTE_PATH, assignJobs } from "./stage-commands.mjs";
 import { prepareSwapHelper, SWAP_HELPER_CARGO_ARGS, SWAP_HELPER_METADATA_ARGS, SWAP_HELPER_PACKAGE } from "./swap-helper-bundle.mjs";
-import { defaultStageCommands, runUnitGate } from "./unit-gate.mjs";
-import { makeFakeBroker } from "./test-support/fake-broker.mjs";
+import { defaultStageCommands } from "./unit-gate.mjs";
+import { spawnSync } from "./background-process.mjs";
+import { startRealBroker } from "./test-support/real-broker.mjs";
 
-const POSIX = process.platform === "win32" ? "the fixture wrapper is POSIX only" : false;
-const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const POSIX = process.platform === "win32" ? "the carried adapter PATH is POSIX only" : false;
 const GATE = "/gate/bin/rightkit-gate.mjs";
 const IDENTITY = "Developer ID Application: Orthic Labs (TEAM123456)";
-const commit = "a".repeat(40), tree = "b".repeat(40);
 const unit = { kind: "npm", name: SWAP_HELPER_PACKAGE, version: "1.0.0" };
-const sha = (s) => createHash("sha256").update(s).digest("hex");
 
-/** A fixture broker host whose snapshot and checkout both hold crates/rightkit-fs as its own Cargo workspace (rightkit#1285), with the carrier installed. */
-function host(t) {
-  const fx = makeFakeBroker(t, { readOnlySnapshots: true });
-  for (const root of [fx.checkout, fx.snapshot]) {
-    fs.mkdirSync(path.join(root, "crates", "rightkit-fs", "src"), { recursive: true });
-    fs.writeFileSync(path.join(root, "crates", "rightkit-fs", "Cargo.toml"), '[workspace]\n[package]\nname = "rightkit-fs"\nversion = "0.1.0"\n');
-    fs.writeFileSync(path.join(root, "crates", "rightkit-fs", "src", "lib.rs"), "\n");
-  }
-  const installed = installCarrier({ base: fs.mkdtempSync(path.join(fx.root, "carrier-")), snapshotRoot: fx.snapshot, checkoutDirs: { "crates/rightkit-fs": path.join(fx.checkout, "crates", "rightkit-fs") }, section: brokerSection(fx.sb), platform: process.platform, env: {} });
+// ---- the real broker host: the installed RustRight broker (an isolated instance), a real git checkout, the gate's real snapshot of it, the enrolled pins of THAT broker, and the production snapshot broker over them ----
+const HANDLE = "own-7";
+const PLATFORM_KEY = process.platform === "win32" ? "win32" : process.platform === "darwin" ? "darwin" : "linux";
+const LOCK = (name) => `version = 4\n\n[[package]]\nname = "${name}"\nversion = "0.1.0"\n`;
+const BASE_FILES = {
+  ".gitignore": "target/\nnode_modules/\n",
+  "Cargo.toml": '[workspace]\nmembers = ["crates/a"]\nresolver = "2"\n', "Cargo.lock": LOCK("a"), "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n', "crates/a/src/lib.rs": "\n",
+  "native/Cargo.toml": '[workspace]\nmembers = []\n[package]\nname = "b"\nversion = "0.1.0"\nedition = "2021"\n', "native/Cargo.lock": LOCK("b"), "native/src/lib.rs": "\n",
+  "packages/release/package.json": '{"name":"@x/release","version":"0.0.0"}\n',
+};
+const gitIn = (cwd, ...args) => { const r = spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd, encoding: "utf8" }); if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`); return String(r.stdout).trim(); };
+/** The enrolled pins of the broker instance `rb`: its own attestation key (public fields only), host and broker digest as its own `doctor --json` reports them. */
+function instancePins(rb) {
+  const key = JSON.parse(fs.readFileSync(path.join(rb.controlRoot, "attestation", "key.json"), "utf8"));
+  const run = rb.run(["doctor", "--json", "--no-scan"], {});
+  const doctor = JSON.parse(run.stdout);
+  const find = (value, name) => { if (value && typeof value === "object") { if (typeof value[name] === "string") return value[name]; for (const inner of Object.values(value)) { const hit = find(inner, name); if (hit) return hit; } } return null; };
+  const host = find(doctor, "hostName") ?? find(doctor, "host"); const brokerDigest = find(doctor, "brokerDigest");
+  if (!host || !brokerDigest) throw new Error(`the isolated broker's doctor report names no host or brokerDigest to enroll: ${run.stdout.slice(0, 300)}`);
+  return { publicKey: key.publicKey, keyId: key.keyId, host, brokerDigest };
+}
+/** `files` are committed over BASE_FILES; the snapshot is the gate's own (syncSnapshot) inside the broker's data root; `sb` is createSnapshotBroker's. */
+async function realBrokerHost(t, name, files = {}) {
+  const rb = await startRealBroker({ name });
+  t.after(() => rb.stop());
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `rk-${name}-`)));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+  const checkout = path.join(root, "checkout"); fs.mkdirSync(checkout);
+  for (const [rel, body] of Object.entries({ ...BASE_FILES, ...files })) { const f = path.join(checkout, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, body); }
+  gitIn(checkout, "init", "-q", "-b", "main"); gitIn(checkout, "add", "-A"); gitIn(checkout, "commit", "-q", "-m", "c");
+  const snap = syncSnapshot({ checkout, rev: "HEAD", root: path.join(rb.dataRoot, "snapshots"), managedRoot: rb.dataRoot });
+  enrollBrokerPins({ dataRoot: rb.dataRoot, platform: PLATFORM_KEY, ...instancePins(rb) });
+  const ownership = path.join(root, "build-ownership", "owner.json");
+  fs.mkdirSync(path.dirname(ownership), { recursive: true });
+  fs.writeFileSync(ownership, JSON.stringify({ handle: HANDLE, broker: { submitted: false } }));
+  const submits = [];
+  const sb = createSnapshotBroker({
+    env: rb.env, platform: process.platform, checkout, commit: { sha: snap.commit, tree: snap.tree }, snapshot: { path: snap.path, expectedTree: snap.tree },
+    ownership: { handle: HANDLE, markBrokerSubmit: (callHandle) => { submits.push(callHandle); return markCarriedSend({ file: ownership, handle: HANDLE, callHandle }); } },
+    client: rb.clientPath, gateFile: path.join(checkout, "x", "rightkit-gate.mjs"), dataRoot: rb.dataRoot, lease: (q) => brokerLeaseState(q),
+  });
+  return { rb, root, checkout, snapshot: snap.path, commit: { sha: snap.commit, tree: snap.tree }, sb, submits, ownershipEnv: { [OWNERSHIP_ENV]: HANDLE, [OWNERSHIP_FILE_ENV]: ownership } };
+}
+
+const FS_FILES = {
+  "crates/rightkit-fs/Cargo.toml": '[workspace]\n[package]\nname = "rightkit-fs"\nversion = "0.1.0"\nedition = "2021"\n[features]\nfs = []\n[[bin]]\nname = "rightkit-swap"\npath = "src/main.rs"\nrequired-features = ["fs"]\n',
+  "crates/rightkit-fs/Cargo.lock": LOCK("rightkit-fs"), "crates/rightkit-fs/src/lib.rs": "\n", "crates/rightkit-fs/src/main.rs": "fn main() {}\n",
+};
+
+/** A real broker host whose snapshot and checkout both hold crates/rightkit-fs as its own Cargo workspace (rightkit#1285), with the carrier installed. */
+async function host(t) {
+  const fx = await realBrokerHost(t, "swap-package", FS_FILES);
+  const crateDir = path.join(fx.snapshot, "crates", "rightkit-fs");
+  const installed = installCarrier({ base: fs.mkdtempSync(path.join(fx.root, "carrier-")), snapshotRoot: fx.snapshot, checkoutDirs: { "crates/rightkit-fs": path.join(fx.checkout, "crates", "rightkit-fs"), ".": fx.checkout }, section: brokerSection(fx.sb), platform: process.platform, env: {} });
   t.after(() => installed.cleanup());
-  // What the build leaves and what metadata prints: the broker's pinned output directory.
-  fs.mkdirSync(path.join(fx.outputDir, "release"), { recursive: true });
-  fs.writeFileSync(path.join(fx.outputDir, "release", "rightkit-swap"), "macho-bytes");
-  fx.setBehavior({ stdout: `${JSON.stringify({ target_directory: fx.outputDir })}\n` });
-  const env = { PATH: process.env.PATH, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, ...fx.ownershipEnv, ...installed.env };
+  const env = { ...fx.rb.env, PATH: process.env.PATH, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, ...fx.ownershipEnv, ...installed.env };
   // `run` as local-publish hands it to prepareSwapHelper: a `cargo` step of a snapshot stage, which build-launch.mjs turns into the carried seam.
-  const run = (_command, args, options) => runCargoSync(args, { ...options, encoding: "utf8" }, { platform: "darwin" });
-  return { fx, installed, env, run };
+  const run = (_command, args, options) => runCargoSync(args, { ...options, encoding: "utf8" }, { platform: process.platform });
+  const entries = () => readLedger(installed.ledgerDir, UNSCOPED).entries;
+  const adapter = (name, args, cwd = fx.snapshot) => runCarriedAdapter(name, args, { cwd, env, stdio: "capture" }, { map: JSON.parse(fs.readFileSync(installed.env[CARRIED_CARGO_MAP_ENV], "utf8")), err: () => {} });
+  return { fx, installed, env, run, entries, adapter, crateDir };
 }
 
 const swapDeps = (h, packageDir, over = {}) => ({
@@ -56,11 +100,10 @@ const swapDeps = (h, packageDir, over = {}) => ({
   ...over,
 });
 
-/** The jobs the broker would report for what the fixture client received, as the gate fetches them (`rustright status <id>`). */
-const jobsOf = (fx) => fx.calls().map((c) => ({ id: c.id, payload: { request: { kind: "cargo", requestedArgv: c.argv, workspace: c.cwd } } }));
+/** The jobs the broker signed, as the gate fetches them: each ledgered request's real signed receipt (`rustright status <id>`). */
+const jobsOf = async (h) => Promise.all(h.entries().map(async (e) => { const r = await h.fx.sb.receiptOf(e.requestId); return { id: e.requestId, receipt: r, payload: r.provenance.payload }; }));
 
-test("the swap helper's build and metadata reach the broker in the carried form and run in the crate's checkout directory; the package stage's expected commands are exactly that", { skip: POSIX }, () => {
-  // (the carried form is asserted against the fixture client's own record below)
+test("data: the swap helper's build and metadata are expected in the carried form and in the crate's checkout directory; the package stage's expected commands are exactly that", () => {
   const rows = expectedStageCommands({ kind: "npm", unit: SWAP_HELPER_PACKAGE, config: {}, manifest: { scripts: { test: "x" } }, platform: "darwin" }).package;
   const [build, metadata, pack] = rows;
   assert.deepEqual(build.argvs, [["build", "--locked", "--release", "-p", "rightkit-fs", "--features", "fs", "--bin", "rightkit-swap"]]);
@@ -69,96 +112,71 @@ test("the swap helper's build and metadata reach the broker in the carried form 
   assert.deepEqual(pack.argvs[0], ["--dir", "packages/release", "pack", "--pack-destination", ANY_ABSOLUTE_PATH], "packed from the snapshot: a relative --dir");
 });
 
-test("end to end: the real swap step through the real seam sends the fixture broker what the stage expects, and the gate's receipt collection accepts it for npm:@rightkit/release", { skip: POSIX }, async (t) => {
-  const h = host(t);
-  const scratch = fs.mkdtempSync(path.join(h.fx.root, "pack-"));
+test("end to end on the real broker: the real swap step through the real seam sends the broker what the stage expects, and the gate's receipt matching accepts the broker's signed receipts for npm:@rightkit/release's package stage", { skip: POSIX }, async (t) => {
+  const h = await host(t);
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "rk-local-publish-"));
+  t.after(() => fs.rmSync(scratch, { recursive: true, force: true }));
   // The helper is written into the unit's own directory of the snapshot (a declared stage output), not a scratch copy.
   const packDir = path.join(h.fx.snapshot, "packages", "release");
-  fs.mkdirSync(packDir, { recursive: true });
   const built = prepareSwapHelper(swapDeps(h, packDir));
   assert.equal(built.signed, true);
-  assert.equal(fs.readFileSync(path.join(packDir, "bin", "darwin", "rightkit-swap"), "utf8"), "macho-bytes");
-  // What the broker actually received.
-  const calls = h.fx.calls();
-  assert.deepEqual(calls.map((c) => c.argv), [
+  assert.ok(fs.statSync(path.join(packDir, "bin", "darwin", "rightkit-swap")).size > 0, "the broker's own build output was copied");
+  // What the broker actually signed.
+  const swapJobs = await jobsOf(h);
+  assert.deepEqual(swapJobs.map((j) => j.payload.request.requestedArgv), [
     ["build", "--locked", "--release", "-p", "rightkit-fs", "--features", "fs", "--bin", "rightkit-swap"],
     ["metadata", "--format-version", "1", "--no-deps"],
   ], "no --manifest-path (the client refuses to rewrite an attested call), --locked added");
-  assert.deepEqual(calls.map((c) => c.cwd), [path.join(h.fx.checkout, "crates", "rightkit-fs"), path.join(h.fx.checkout, "crates", "rightkit-fs")], "run in the crate's directory of the checkout");
+  assert.deepEqual(swapJobs.map((j) => j.payload.request.workspace), [h.crateDir, h.crateDir].map((d) => path.join(h.fx.checkout, path.relative(h.fx.snapshot, d))), "run in the crate's directory of the checkout");
   assert.deepEqual(await h.installed.problems(h.fx.sb), [], "both calls verified against the broker's signed receipts");
 
+  // The package stage's pack, a real carried adapter job on the same broker.
+  const out = path.join(scratch, "pack"); fs.mkdirSync(out);
+  const pack = h.adapter("rightkit-pnpm", ["--dir", "packages/release", "pack", "--pack-destination", out]);
+  assert.equal(pack.status, 0, pack.stderr);
+
   // The gate's own collection over the REAL expected commands of npm:@rightkit/release (ci/gate.config.json and its package.json at the repository).
-  const stageCommands = ({ unit: u, platform }) => defaultStageCommands({ unit: u, root: REPO, platform });
-  const expected = stageCommands({ unit, platform: "darwin" });
-  const fill = (row) => row.argvs[0].map((a) => (typeof a === "string" ? a : path.join(scratch, "x")));
-  const pnpmJob = (id, row) => ({ id, payload: { request: { kind: "adapter", adapter: "rightkit-pnpm", requestedArgv: fill(row), workspace: h.fx.snapshot } } });
-  const packJobs = [...jobsOf(h.fx), pnpmJob("pack-1", expected.package.at(-1))];
-  const compileJobs = expected.compile.map((row, i) => pnpmJob(`compile-${i + 1}`, row));
-  const byId = new Map([...packJobs, ...compileJobs].map((j) => [j.id, j]));
-  const fetchReceipt = (id) => ({ id, provenance: { schema: "rustright.provenance.v1", payload: { jobId: id, ...byId.get(id).payload }, signature: { alg: "ES256", keyId: "k", value: "ab" } } });
+  const expected = defaultStageCommands({ unit, root: path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", ".."), platform: "darwin" });
+  const jobs = await jobsOf(h);
+  const collected = assignJobs(expected.package, jobs.map((j) => ({ id: j.id, payload: j.payload })), { checkout: h.fx.checkout });
+  assert.deepEqual(collected.missing, [], "every expected command has a receipt of its own job");
+  assert.deepEqual(collected.unmatched, [], "and every job is one of the stage's commands");
 
-  // The package stage's collection: every expected command has a receipt of its own job.
-  assert.deepEqual(assignJobs(expected.package, packJobs.map((j) => ({ id: j.id, payload: j.payload })), { checkout: h.fx.checkout }).missing, []);
-  assert.deepEqual(assignJobs(expected.package, packJobs.map((j) => ({ id: j.id, payload: j.payload })), { checkout: h.fx.checkout }).unmatched, []);
-
-  // The same through runUnitGate (release: attested stages), with the owner returning the broker job ids of each stage.
-  const artifactFile = path.join(scratch, "artifact.tgz"); fs.writeFileSync(artifactFile, "artifact");
-  const result = { ...unit, commit, artifactFile, artifactSha256: sha("artifact"), contentSha256: sha("content"), contentExcluded: ["package/bin/darwin/rightkit-swap", "package/bin/darwin/rightkit-swap.sign.json"] };
-  const owner = {
-    compileLocalUnit: async () => ({}), localUnitCompileRequests: () => compileJobs.map((j) => j.id),
-    packageLocalUnit: async () => ({ ...result, brokerRequests: packJobs.map((j) => j.id) }),
-    qualifyLocalUnit: async () => ({ ...result, qualifiedOnly: true, evidencePath: "gate.json" }), closeLocalUnit: async () => {},
-  };
-  let qualification;
-  const errs = [];
-  const run = (over = {}) => runUnitGate({ selector: `npm:${SWAP_HELPER_PACKAGE}`, to: "release", root: h.fx.snapshot, commonDir: h.fx.snapshot, commit, tree, executor: { kind: "broker" }, env: {}, platform: "darwin", resolve: () => unit, verifyReceipts: () => {}, check: async () => 0, loadOwner: async () => owner, out: () => {}, err: (l) => errs.push(l), source: { checkout: h.fx.checkout, commit, tree }, fetchReceipt, stageCommands,
-    releaser: async ({ qualification: file }) => { qualification = JSON.parse(fs.readFileSync(file, "utf8")); return { registry: "npm" }; }, ...over });
-  assert.equal(await run(), 0, errs.join("\n"));
-  assert.deepEqual(qualification.stages.package.receipts.map((r) => r.id).sort(), packJobs.map((j) => j.id).sort(), "the build, the metadata read and the pack each carry their own signed receipt");
-
-  // The same argv from another crate's directory is not the stage's command: nothing is carried and the stage owes the receipt.
-  const other = (job) => (job.payload.request.kind === "cargo" ? { ...job, payload: { request: { ...job.payload.request, workspace: path.join(h.fx.checkout, "crates", "rightkit-other") } } } : job);
-  for (const job of packJobs.map(other)) byId.set(job.id, job);
-  errs.length = 0;
-  assert.equal(await run({ releaser: async () => assert.fail("not released") }), 1);
-  assert.match(errs.join("\n"), /package stage's cargo build --locked --release -p rightkit-fs --features fs --bin rightkit-swap has no broker job receipt/);
+  // The same argv from another crate's directory is not the stage's command: nothing is matched and the stage owes the receipt (data: the real signed payload with its workspace edited).
+  const moved = (workspace) => jobs.map((j) => ({ id: j.id, payload: j.payload.request.kind === "cargo" ? { ...j.payload, request: { ...j.payload.request, workspace } } : j.payload }));
+  const owed = assignJobs(expected.package, moved(path.join(h.fx.checkout, "crates", "rightkit-other")), { checkout: h.fx.checkout });
+  assert.ok(owed.missing.some((row) => row.argvs[0].includes("--bin")), "the build has no broker job receipt from another crate's directory");
   // ... and from the checkout's root, or from the snapshot instead of the checkout.
   for (const where of [h.fx.checkout, path.join(h.fx.snapshot, "crates", "rightkit-fs")]) {
-    for (const job of packJobs) byId.set(job.id, job.payload.request.kind === "cargo" ? { ...job, payload: { request: { ...job.payload.request, workspace: where } } } : job);
-    errs.length = 0;
-    assert.equal(await run({ releaser: async () => assert.fail("not released") }), 1, where);
+    assert.ok(assignJobs(expected.package, moved(where), { checkout: h.fx.checkout }).missing.length > 0, where);
   }
 });
 
-test("B8: a carried call in a release-bound stage derives its nonce from the stage nonce, its directory and its argv: the very nonce the hosted admission recomputes from the stage's rows; the stage nonce never reaches the client", { skip: POSIX }, async (t) => {
-  const h = host(t);
-  const stageNonce = qualificationNonce({ commit, tree, unit: `${unit.kind}:${unit.name}`, stage: "package" });
+test("B8: a carried call in a release-bound stage derives its nonce from the stage nonce, its directory and its argv: the very nonce the hosted admission recomputes from the stage's rows, as the real broker signs it", { skip: POSIX }, async (t) => {
+  const h = await host(t);
+  const stageNonce = qualificationNonce({ commit: h.fx.commit.sha, tree: h.fx.commit.tree, unit: `${unit.kind}:${unit.name}`, stage: "package" });
   const rows = expectedStageCommands({ kind: "npm", unit: SWAP_HELPER_PACKAGE, config: {}, manifest: { scripts: { test: "x" } }, platform: "darwin" }).package;
-  // The environment a release-bound package stage hands its steps (unit-gate.mjs stageEnv, then testEnv in local-publish.mjs): the stage nonce
-  // in RIGHTKIT_ATTEST_STAGE_NONCE, which is no carrier variable, so the seam accepts it.
+  // The environment a release-bound package stage hands its steps: the stage nonce in RIGHTKIT_ATTEST_STAGE_NONCE, which is no carrier variable, so the seam accepts it.
   const staged = { ...h.env, RIGHTKIT_ATTEST_STAGE_NONCE: stageNonce };
   for (const args of [SWAP_HELPER_CARGO_ARGS, SWAP_HELPER_METADATA_ARGS]) {
-    const r = runCargoSync(args, { cwd: h.fx.snapshot, env: staged, encoding: "utf8" }, { platform: "darwin" });
+    const r = runCargoSync(args, { cwd: h.crateDir, env: staged, encoding: "utf8" }, { platform: process.platform });
     assert.equal(r.status, 0, r.stderr);
   }
-  const calls = h.fx.calls();
-  assert.equal(calls.length, 2);
+  const jobs = await jobsOf(h);
+  assert.equal(jobs.length, 2);
   for (const [i, row] of rows.slice(0, 2).entries()) {
-    const receipt = await h.fx.sb.receiptOf(calls[i].id);
-    assert.deepEqual(calls[i].argv, row.argvs[0]);
-    assert.equal(receipt.provenance.payload.nonce, carriedCallNonce({ stageNonce, cwd: row.cwd, argv: row.argvs[0] }), `${row.argvs[0][0]}: the nonce the admission derives from the row's directory and argv`);
-    assert.notEqual(receipt.provenance.payload.nonce, stageNonce);
+    assert.deepEqual(jobs[i].payload.request.requestedArgv, row.argvs[0]);
+    assert.equal(jobs[i].payload.nonce, carriedCallNonce({ stageNonce, cwd: row.cwd, argv: row.argvs[0] }), `${row.argvs[0][0]}: the nonce the admission derives from the row's directory and argv`);
+    assert.notEqual(jobs[i].payload.nonce, stageNonce);
   }
-  assert.notEqual((await h.fx.sb.receiptOf(calls[0].id)).provenance.payload.nonce, (await h.fx.sb.receiptOf(calls[1].id)).provenance.payload.nonce, "two commands, two nonces");
-  assert.deepEqual(calls.map((c) => c.stageNonceSeen), [false, false], "the client never sees the stage nonce");
-  assert.deepEqual(calls.map((c) => c.carrierEnvNames), calls.map(() => ["RUSTRIGHT_ATTEST_NONCE", "RUSTRIGHT_CALLING_GATE", "RUSTRIGHT_REQUEST_ID_FILE", "RUSTRIGHT_SNAPSHOT_REQUEST"]), "only the per-call carrier");
+  assert.notEqual(jobs[0].payload.nonce, jobs[1].payload.nonce, "two commands, two nonces");
   assert.deepEqual(await h.installed.problems(h.fx.sb), [], "and the gate's own ledger verification accepts the derived nonces");
   // Without a stage nonce (a run that is not headed to qualify) the nonce is fresh, never derived; a malformed one is no stage nonce either.
   for (const bad of [undefined, "not-hex", "AB".repeat(32), "ab".repeat(31)]) {
-    const before = h.fx.calls().length;
-    const r = runCargoSync(SWAP_HELPER_METADATA_ARGS, { cwd: h.fx.snapshot, env: { ...h.env, ...(bad === undefined ? {} : { RIGHTKIT_ATTEST_STAGE_NONCE: bad }) }, encoding: "utf8" }, { platform: "darwin" });
+    const before = h.entries().length;
+    const r = runCargoSync(SWAP_HELPER_METADATA_ARGS, { cwd: h.crateDir, env: { ...h.env, ...(bad === undefined ? {} : { RIGHTKIT_ATTEST_STAGE_NONCE: bad }) }, encoding: "utf8" }, { platform: process.platform });
     assert.equal(r.status, 0, r.stderr);
-    const id = h.fx.calls()[before].id;
-    assert.notEqual((await h.fx.sb.receiptOf(id)).provenance.payload.nonce, carriedCallNonce({ stageNonce: bad ?? "", cwd: "crates/rightkit-fs", argv: rows[1].argvs[0] }), String(bad));
+    const receipt = await h.fx.sb.receiptOf(h.entries()[before].requestId);
+    assert.notEqual(receipt.provenance.payload.nonce, carriedCallNonce({ stageNonce: bad ?? "", cwd: "crates/rightkit-fs", argv: rows[1].argvs[0] }), String(bad));
   }
 });

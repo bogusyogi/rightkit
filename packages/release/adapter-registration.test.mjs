@@ -1,26 +1,23 @@
 // GB-03, GB-04, GB-05: the pnpm argv, the request environment and the signed-artifact handoff the gate sends are judged against the adapter's
 // registration BEFORE they are sent, by a port of RustRight's production parser exercised against its vector
-// (test-support/vectors/adapter-argv.fixtures.json, pinned in vectors-source.json). The broker is the fixture; no real broker, no Cargo.
+// (test-support/vectors/adapter-argv.fixtures.json, pinned in vectors-source.json). Pure data and the door's own functions: no broker is started and no process is launched here.
 import "./test-support/broker-guard.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 import { ADAPTER_ENV_MANIFEST, ADAPTER_ENV_VAR, QA_HANDOFF_ENV, adapterEnvRefusal, isReservedAdapterEnvKey } from "./adapter-env.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { BUILD_LAUNCH_REFUSED, buildLaunch } from "./build-launch.mjs";
 import { CARRIED_CARGO_MAP_ENV, installCarrier } from "./carried-cargo.mjs";
+import { brokerSection, createSnapshotBroker } from "./snapshot-broker.mjs";
+import { syncSnapshot } from "./snapshot.mjs";
+import { startRealBroker } from "./test-support/real-broker.mjs";
 import { PNPM_ADAPTER_GRAMMAR, adapterArgvRefusal, grammarFromSpec, scanAdapterArgv } from "./pnpm-adapter-grammar.mjs";
-import { brokerSection } from "./snapshot-broker.mjs";
-import { makeFakeBroker } from "./test-support/fake-broker.mjs";
 import { loadVector } from "./test-support/vectors.mjs";
 
 const vector = loadVector("adapter-argv.fixtures.json");
-const POSIX = process.platform === "win32" ? "the fixture client and adapter PATH are POSIX only" : false;
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const ADAPTER_RUN = path.join(HERE, "carried-adapter-run.mjs");
 const GATE = "/gate/bin/rightkit-gate.mjs";
 
 test("[GB-03] the door's reference registration IS RustRight's: subcommands, flags with value kinds, positionals, env, opaque launcher targets, snapshot subcommands", () => {
@@ -84,31 +81,36 @@ test("[GB-04] an unregistered key refuses at the door before any process, naming
 
 // ---- GB-05: the signed-artifact handoff across the adapter and Cargo boundaries ----
 
-function host(t, behavior = {}) {
-  const fx = makeFakeBroker(t, { readOnlySnapshots: true });
-  fx.setBehavior({ registeredEnv: { "rightkit-pnpm": [...vector.adapter.env], "rightkit-node": [...vector.adapter.env] }, ...behavior });
-  const installed = installCarrier({ base: fs.mkdtempSync(path.join(fx.root, "carrier-")), snapshotRoot: fx.snapshot, checkoutDirs: { ".": fx.checkout }, section: brokerSection(fx.sb), platform: process.platform, env: {} });
+/**
+ * Plain data for the door: a checkout and snapshot tree on disk, a carrier map installed from a literal broker section (the real `installCarrier`, which only writes a map file),
+ * and the caller's environment. Nothing is launched and no broker runs; the door's answers are judged, never the broker's.
+ */
+function host(t) {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-adapter-host-")));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const checkout = path.join(root, "checkout"); const snapshot = path.join(root, "snapshots", "0123456789abcdef");
+  for (const d of [checkout, snapshot]) fs.mkdirSync(d, { recursive: true });
+  const client = path.join(root, "rustright");
+  const commit = { sha: "c".repeat(40), tree: "e".repeat(40) };
+  const section = { client, controlRoot: path.join(root, "control"), commit, snapshot: { path: snapshot, expectedTree: commit.tree }, handle: "own-7", checkout, pins: { host: "host-1", keyId: "0".repeat(64), publicKey: "04".padEnd(130, "0"), brokerDigest: "b".repeat(64) }, outputRoots: [path.join(root, "data", "rightkit-build-control", "ws")], platform: process.platform, sentinel: null };
+  const installed = installCarrier({ base: fs.mkdtempSync(path.join(root, "carrier-")), snapshotRoot: snapshot, checkoutDirs: { ".": checkout }, section, platform: process.platform, env: {} });
   t.after(() => installed.cleanup());
-  const signed = { [QA_HANDOFF_ENV[0]]: path.join(fx.root, "signed", "app"), [QA_HANDOFF_ENV[1]]: path.join(fx.root, "signed", "evidence.json") };
-  const env = { PATH: fx.root, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, ...fx.ownershipEnv, ...installed.env };
-  const door = (command, args, over = {}) => buildLaunch(command, args, { env, platform: "darwin", exists: (p) => p === path.join(fx.root, "rustright"), cwd: fx.snapshot, ...over });
-  const run = (launch, runEnv) => spawnSync(launch.command, launch.args, { cwd: fx.snapshot, env: { ...runEnv, ...(launch.env ?? {}) }, encoding: "utf8" });
-  return { fx, env, signed, door, run, installed };
+  const signed = { [QA_HANDOFF_ENV[0]]: path.join(root, "signed", "app"), [QA_HANDOFF_ENV[1]]: path.join(root, "signed", "evidence.json") };
+  const env = { PATH: root, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, ...installed.env };
+  const door = (command, args, over = {}) => buildLaunch(command, args, { env, platform: "darwin", exists: (p) => p === client, cwd: snapshot, ...over });
+  return { root, snapshot, env, signed, door, installed };
 }
 
-test("[GB-05] a pnpm or node consumer after a sign step receives exactly the signed binary and evidence paths as the adapter request's environment; they are part of the signed request", { skip: POSIX }, (t) => {
+test("data: [GB-05] a pnpm or node consumer after a sign step is told to forward exactly the signed binary and evidence paths as the adapter request's environment", (t) => {
   const h = host(t);
   const envAfterSign = { ...h.env, ...h.signed };
   const launch = h.door("pnpm", ["run", "qa"], { env: envAfterSign });
   assert.equal(launch.env[ADAPTER_ENV_VAR], "RIGHTKIT_QA_APP_BINARY,RIGHTKIT_QA_SIGNING_EVIDENCE");
   assert.deepEqual({ a: launch.env.RIGHTKIT_QA_APP_BINARY, b: launch.env.RIGHTKIT_QA_SIGNING_EVIDENCE }, { a: h.signed.RIGHTKIT_QA_APP_BINARY, b: h.signed.RIGHTKIT_QA_SIGNING_EVIDENCE });
-  const r = h.run(launch, envAfterSign);
-  assert.equal(r.status, 0, r.stderr);
-  assert.deepEqual(h.fx.adapterCalls()[0].forwardedEnv, h.signed, "the broker job received the exact signed paths");
   // Before a sign step there is nothing to forward, and no RUSTRIGHT_ADAPTER_ENV at all.
   assert.equal(Object.hasOwn(h.door("pnpm", ["run", "qa"]), "env"), false);
   // A changed path is a changed request: the same argv with another evidence path signs another digest (never coalesced, GB-04).
-  const node = h.door("node", ["scripts/qa.mjs"], { env: envAfterSign, cwd: h.fx.snapshot });
+  const node = h.door("node", ["scripts/qa.mjs"], { env: envAfterSign, cwd: h.snapshot });
   assert.equal(node.env[ADAPTER_ENV_VAR], "RIGHTKIT_QA_APP_BINARY,RIGHTKIT_QA_SIGNING_EVIDENCE");
   // A relative or escaping path is refused before launch; the consumer is never started with a path that is not the signed artifact's.
   for (const bad of ["app", "../signed/app", "/signed/../app"]) assert.throws(() => h.door("pnpm", ["run", "qa"], { env: { ...h.env, RIGHTKIT_QA_APP_BINARY: bad } }), (e) => e.code === BUILD_LAUNCH_REFUSED && e.reason === "RK_ADAPTER_ENV_HANDOFF_PATH", bad);
@@ -116,7 +118,7 @@ test("[GB-05] a pnpm or node consumer after a sign step receives exactly the sig
   assert.deepEqual(Object.keys(launch.env).sort(), [ADAPTER_ENV_VAR, ...QA_HANDOFF_ENV].sort());
 });
 
-test("[GB-05] a Cargo suite consumer (test, bench, run, nextest) is told to forward the two handoff names; a build or a missing handoff forwards none", { skip: POSIX }, (t) => {
+test("data: [GB-05] a Cargo suite consumer (test, bench, run, nextest) is told to forward the two handoff names; a build or a missing handoff forwards none", (t) => {
   const h = host(t);
   const envAfterSign = { ...h.env, ...h.signed };
   for (const args of [["test", "--locked"], ["t"], ["bench"], ["run", "-p", "x"], ["nextest", "run"]]) {
@@ -130,4 +132,41 @@ test("[GB-05] a Cargo suite consumer (test, bench, run, nextest) is told to forw
   // On the carried route the forward list rides to the carrier's client call (the door returns the environment to merge, the values are the caller's).
   const launch = h.door("cargo", ["test", "--locked"], { env: envAfterSign });
   assert.equal(path.basename(launch.args[0]), "carried-cargo-run.mjs");
+});
+
+/** The PUBLIC half of one isolated instance's own attestation key and its runtime's broker digest (the pins a gate enrolls for it); a receipt never supplies its own. */
+function enrolledPinsOf(broker) {
+  const key = JSON.parse(fs.readFileSync(path.join(broker.controlRoot, "attestation", "key.json"), "utf8"));
+  const doctor = JSON.parse(broker.run(["doctor", "--json", "--no-scan"]).stdout);
+  const find = (v, name) => { if (v && typeof v === "object") { if (typeof v[name] === "string") return v[name]; for (const x of Object.values(v)) { const r = find(x, name); if (r) return r; } } return null; };
+  const brokerDigest = find(doctor, "brokerDigest"); const host = find(doctor, "host") ?? os.hostname();
+  assert.match(String(brokerDigest), /^[0-9a-f]{64}$/, "the real client reports the installed broker's digest");
+  return { host, keyId: key.keyId, publicKey: key.publicKey, brokerDigest };
+}
+
+test("[GB-05] (real broker) a pnpm step after a sign step reaches the REAL broker's adapter job with exactly the signed binary and evidence paths in its environment, and the carried call verifies", { skip: process.platform === "win32" ? "POSIX fixture" : false }, async (t) => {
+  const broker = await startRealBroker({ name: "adapter-handoff" });
+  t.after(() => broker.stop());
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-adapter-real-")));
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const git = (...a) => { const r = spawnSync("git", a, { cwd: repo, encoding: "utf8" }); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
+  git("init", "-q", "-b", "main"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  const script = `node -e "console.log('HANDOFF=' + JSON.stringify([process.env.RIGHTKIT_QA_APP_BINARY, process.env.RIGHTKIT_QA_SIGNING_EVIDENCE]))"`;
+  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ name: "handoff", version: "0.0.0", private: true, scripts: { qa: script } }));
+  git("add", "-A"); git("commit", "-q", "-m", "A");
+  const synced = syncSnapshot({ checkout: repo, rev: git("rev-parse", "HEAD"), root: path.join(broker.dataRoot, "snapshots") });
+  const handle = "own-7";
+  const own = path.join(os.tmpdir(), `rk-adapter-owner-${process.pid}.json`);
+  fs.writeFileSync(own, JSON.stringify({ handle, broker: { submitted: false } }));
+  t.after(() => fs.rmSync(own, { force: true }));
+  const sb = createSnapshotBroker({ env: broker.env, platform: process.platform, checkout: repo, commit: { sha: synced.commit, tree: synced.tree }, snapshot: { path: synced.path, expectedTree: synced.tree }, ownership: { handle, markBrokerSubmit: (h) => ({ handle, broker: { submitted: true, handles: [h] } }) }, client: broker.clientPath, dataRoot: broker.dataRoot, loadPins: () => enrolledPinsOf(broker) });
+  const installed = installCarrier({ base: fs.mkdtempSync(path.join(os.tmpdir(), "rk-adapter-carrier-")), snapshotRoot: synced.path, checkoutDirs: { ".": repo }, section: brokerSection(sb), platform: process.platform, env: {} });
+  t.after(() => installed.cleanup());
+  const signed = { [QA_HANDOFF_ENV[0]]: path.join(os.tmpdir(), "signed", "app"), [QA_HANDOFF_ENV[1]]: path.join(os.tmpdir(), "signed", "evidence.json") };
+  const env = { PATH: process.env.PATH, HOME: process.env.HOME, ...broker.env, RUSTRIGHT_CALLING_GATE: GATE, RIGHTKIT_BUILD_OWNERSHIP: handle, RIGHTKIT_BUILD_OWNERSHIP_FILE: own, ...installed.env, ...signed };
+  const launch = buildLaunch("pnpm", ["run", "qa"], { env, platform: process.platform, cwd: synced.path });
+  const r = spawnSync(launch.command, launch.args, { cwd: synced.path, env: { ...env, ...(launch.env ?? {}) }, encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, new RegExp(`HANDOFF=${JSON.stringify([signed[QA_HANDOFF_ENV[0]], signed[QA_HANDOFF_ENV[1]]]).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`), "the broker's adapter job received the exact signed paths");
+  assert.ok(fs.readdirSync(installed.ledgerDir).length > 0, "the call is ledgered");
 });

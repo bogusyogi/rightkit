@@ -12,12 +12,19 @@ import test from "node:test";
 import { CARRIER_OWNER_SCHEMA, FINISHED_CARRIER_RETENTION_MS, ownerFileOf, removeCarrier, sweepSnapshotRequests, writeCarrierOwner } from "./carrier-census.mjs";
 import { darwinStartTimeMs, linuxStartTimeMs, processStartTimeMs } from "./lock-identity.mjs";
 import { writeSnapshotRequest } from "./snapshot-request.mjs";
-import { makeFakeBroker } from "./test-support/fake-broker.mjs";
 
 const NOW = Date.now();
 const tmp = (t) => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-carrier-census-"))); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
 // Process identity as the broker reads it: a live process has a start time, a pid with no process is gone, a start time that is not the recorded one is a reused pid.
 const identity = { probe: (pid) => (pid === process.pid ? { alive: true, startTimeMs: NOW - 60_000 } : pid === 4321 ? { alive: true, startTimeMs: NOW - 5_000 } : pid === 5555 ? { alive: true, startTimeMs: null } : { alive: false, startTimeMs: null }) };
+/** Plain request inputs for writeSnapshotRequest: a control root, a checkout, and a commit with its snapshot path. Data only; no broker is involved. */
+const requestInputs = (t) => {
+  const root = tmp(t);
+  const controlRoot = path.join(root, "control"); const checkout = path.join(root, "checkout"); const snapshot = path.join(root, "snapshots", "0123456789abcdef");
+  for (const d of [controlRoot, checkout, snapshot]) fs.mkdirSync(d, { recursive: true });
+  const commit = { sha: "c".repeat(40), tree: "e".repeat(40) };
+  return { controlRoot, checkout, commit, snapshot: { path: snapshot, expectedTree: commit.tree }, handle: "own-7" };
+};
 const GATE_DEAD = { pid: 999_999, startTimeMs: NOW - 50_000 };
 
 /** A carrier on disk with an owner record in RustRight's wire written beside it. */
@@ -32,12 +39,12 @@ const lease = (answers) => (q) => answers[q.handle] ?? { state: "UNKNOWN", why: 
 const sweep = (root, answers = {}, extra = {}) => sweepSnapshotRequests({ controlRoot: root, lease: lease(answers), now: NOW, identity, snapshot: "/snap/x", ...extra });
 const reaped = (handle) => ({ state: "REAPED", members: [{ handle, state: "REAPED" }] });
 
-test("[GB-76] the owner record is RustRight's wire: <carrier>.owner.json beside the carrier, exactly {schema, gate:{pid,startTimeMs}, nonce, handle, createdAtMs}, written BEFORE the carrier", (t) => {
-  const fx = makeFakeBroker(t);
+test("data: [GB-76] the owner record is RustRight's wire: <carrier>.owner.json beside the carrier, exactly {schema, gate:{pid,startTimeMs}, nonce, handle, createdAtMs}, written BEFORE the carrier", (t) => {
+  const fx = requestInputs(t);
   const order = []; const write = fs.writeFileSync;
   fs.writeFileSync = (file, ...rest) => { order.push(path.basename(String(file))); return write(file, ...rest); };
   let made; const before = Date.now();
-  try { made = writeSnapshotRequest({ controlRoot: fx.controlRoot, commit: fx.sb.commit, snapshot: fx.sb.snapshot, declaredInputs: [], handle: fx.handle, primaryCwd: fx.checkout, argv: ["check"], nonce: "a".repeat(64) }); } finally { fs.writeFileSync = write; }
+  try { made = writeSnapshotRequest({ controlRoot: fx.controlRoot, commit: fx.commit, snapshot: fx.snapshot, declaredInputs: [], handle: fx.handle, primaryCwd: fx.checkout, argv: ["check"], nonce: "a".repeat(64) }); } finally { fs.writeFileSync = write; }
   const after = Date.now();
   assert.equal(ownerFileOf(made.file), `${made.file}.owner.json`, "named after the carrier file, extension included");
   const written = order.filter((n) => n.includes(path.basename(made.file)));
@@ -57,12 +64,12 @@ test("[GB-76] the owner record is RustRight's wire: <carrier>.owner.json beside 
   assert.deepEqual(fs.readdirSync(path.join(fx.controlRoot, "snapshot-requests")), [], "the finally removes both");
 });
 
-test("[GB-76] negative: an owner record that cannot be written leaves no carrier, and an existing owner record is never overwritten", (t) => {
-  const fx = makeFakeBroker(t);
+test("data: [GB-76] negative: an owner record that cannot be written leaves no carrier, and an existing owner record is never overwritten", (t) => {
+  const fx = requestInputs(t);
   const dir = path.join(fx.controlRoot, "snapshot-requests"); fs.mkdirSync(dir, { recursive: true });
   const uuid = () => "11111111-1111-4111-8111-111111111111";
   fs.writeFileSync(path.join(dir, `${uuid()}.json.owner.json`), "taken");
-  assert.throws(() => writeSnapshotRequest({ controlRoot: fx.controlRoot, commit: fx.sb.commit, snapshot: fx.sb.snapshot, declaredInputs: [], handle: fx.handle, primaryCwd: fx.checkout, argv: ["check"], nonce: "b".repeat(64), uuid }), /owner record/);
+  assert.throws(() => writeSnapshotRequest({ controlRoot: fx.controlRoot, commit: fx.commit, snapshot: fx.snapshot, declaredInputs: [], handle: fx.handle, primaryCwd: fx.checkout, argv: ["check"], nonce: "b".repeat(64), uuid }), /owner record/);
   assert.equal(fs.existsSync(path.join(dir, `${uuid()}.json`)), false, "no carrier without its owner record");
   assert.equal(fs.readFileSync(path.join(dir, `${uuid()}.json.owner.json`), "utf8"), "taken", "never overwritten");
 });

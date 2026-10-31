@@ -12,11 +12,10 @@ import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "./background-process.mjs";
-import { OWNERSHIP_SCHEMA, OwnershipBusy, acquireBuildOwnership, markCarriedSend, markLockFile } from "./build-ownership.mjs";
+import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, OWNERSHIP_SCHEMA, OwnershipBusy, acquireBuildOwnership, markCarriedSend, markLockFile } from "./build-ownership.mjs";
 import { MARK_LOCK_SCHEMA, markBrokerSubmit, withMarkLock } from "./ownership-mark.mjs";
 import { CARRIED_CARGO_MAP_ENV, installCarrier } from "./carried-cargo.mjs";
-import { brokerSection } from "./snapshot-broker.mjs";
-import { makeFakeBroker } from "./test-support/fake-broker.mjs";
+import { startRealBroker } from "./test-support/real-broker.mjs";
 
 const tmp = (t, prefix) => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix))); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 })); return d; };
 const POSIX = process.platform === "win32" ? "the fixture client is POSIX only" : false;
@@ -32,18 +31,43 @@ const probe = () => ({
   tokenHolders: () => null, snapshotUsers: () => null, ancestors: () => [{ pid: 5000, startedMs: NOW - 9e6 }],
 });
 const leaseOf = (state) => { const asked = []; const lease = (q) => { asked.push(q); return { state, why: `fake ${state}` }; }; lease.asked = asked; return lease; };
+const HOST_HANDLE = "own-7";
+const COMMIT = { sha: "c".repeat(40), tree: "e".repeat(40) };
+const WORKSPACES = { "Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n', "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\n', "crates/a/src/lib.rs": "\n" };
+const writeTree = (root, files) => { for (const [rel, body] of Object.entries(files)) { const f = path.join(root, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, body); } };
+/**
+ * Plain data for the carrier: a checkout and a snapshot tree, the gate's ownership record and a broker section naming `client`. No broker runs here; a test that
+ * needs one passes the real isolated broker's client. The pins are placeholders (never a receipt): no test below judges a receipt.
+ */
+function hostData(t, { snapshotsRoot, client }) {
+  const root = tmp(t, "rk-own-host-");
+  const checkout = path.join(root, "checkout"); const snapshot = path.join(snapshotsRoot ?? path.join(root, "snapshots"), "0123456789abcdef");
+  writeTree(checkout, WORKSPACES); writeTree(snapshot, WORKSPACES);
+  const ownership = path.join(root, "build-ownership", "owner.json");
+  fs.mkdirSync(path.dirname(ownership), { recursive: true });
+  fs.writeFileSync(ownership, JSON.stringify({ handle: HOST_HANDLE, broker: { submitted: false } }));
+  const section = { client, controlRoot: path.join(root, "control"), commit: COMMIT, snapshot: { path: snapshot, expectedTree: COMMIT.tree }, handle: HOST_HANDLE, checkout, pins: { host: "host-1", keyId: "0".repeat(64), publicKey: "04".padEnd(130, "0"), brokerDigest: "b".repeat(64) }, outputRoots: [], platform: process.platform, sentinel: null };
+  return { root, checkout, snapshot, ownership, ownershipEnv: { [OWNERSHIP_ENV]: HOST_HANDLE, [OWNERSHIP_FILE_ENV]: ownership }, section, owner: () => JSON.parse(fs.readFileSync(ownership, "utf8")) };
+}
+/** The real installed broker as an isolated instance, with the host data's snapshot under its own data root. */
+async function realHost(t, name) {
+  const broker = await startRealBroker({ name });
+  t.after(() => broker.stop());
+  return { broker, ...hostData(t, { snapshotsRoot: path.join(broker.dataRoot, "snapshots"), client: broker.clientPath }) };
+}
+const requestsAtBroker = (broker) => (fs.existsSync(broker.receiptsDir) ? fs.readdirSync(broker.receiptsDir).length : 0);
 const noLease = () => { throw new Error("the broker lease must not be asked when no carried request was sent"); };
 const acquire = (file, lease, extra = {}) => acquireBuildOwnership({ file, platform: "darwin", probe: probe(), lease, env: {}, exportEnv: false, stage: "compile", snapshot: "/snap/x", ...extra });
 /** The held record, as if its gate had died (a crash): another pid, the same handle, snapshot and broker state. */
 const crash = (file) => { const rec = JSON.parse(fs.readFileSync(file, "utf8")); fs.writeFileSync(file, JSON.stringify({ ...rec, pid: 999_999, startedMs: NOW - 120_000, acquiredAt: new Date(NOW - 100_000).toISOString() })); return rec; };
 
-test("a stage that installs its carrier and sends only an uncarried probe, then fails, leaves a reclaimable ownership", { skip: POSIX }, (t) => {
+test("data: a stage that installs its carrier and sends only an uncarried probe, then fails, leaves a reclaimable ownership", (t) => {
   const dir = tmp(t, "rk-own-sub-");
   const file = path.join(dir, "build-ownership", "owner.json");
-  const fx = makeFakeBroker(t);
+  const fx = hostData(t, { client: path.join(dir, "no-client") });
   const own = acquire(file, noLease);
   // Installing the carrier map for the stage's children sends nothing and records nothing.
-  const installed = installCarrier({ base: fs.mkdtempSync(path.join(fx.root, "carrier-")), snapshotRoot: fx.snapshot, checkoutDirs: { ".": fx.checkout }, section: { ...brokerSection(fx.sb), handle: own.handle }, platform: "darwin", env: {} });
+  const installed = installCarrier({ base: fs.mkdtempSync(path.join(fx.root, "carrier-")), snapshotRoot: fx.snapshot, checkoutDirs: { ".": fx.checkout }, section: { ...fx.section, handle: own.handle }, platform: "darwin", env: {} });
   t.after(() => installed.cleanup());
   assert.ok(installed.env[CARRIED_CARGO_MAP_ENV]);
   // The child's only broker call is an uncarried toolchain probe (no snapshot carrier): it is not a carried send, so the record is untouched.
@@ -92,54 +116,55 @@ test("a mark names exactly a sub-handle of the holder: the bare handle, another'
   own.release();
 });
 
-test("a child process's carried send marks the shared owner record; a child that sends nothing, or only an uncarried probe, does not", { skip: POSIX }, (t) => {
-  const fx = makeFakeBroker(t);
-  const installed = installCarrier({ base: fs.mkdtempSync(path.join(fx.root, "carrier-")), snapshotRoot: fx.snapshot, checkoutDirs: { ".": fx.checkout, native: path.join(fx.checkout, "native") }, section: brokerSection(fx.sb), platform: "darwin", env: {} });
+test("a child process's carried send marks the shared owner record; a child that sends nothing, or only an uncarried probe, does not (real broker)", { skip: POSIX }, async (t) => {
+  const fx = await realHost(t, "own-child-send");
+  const installed = installCarrier({ base: fs.mkdtempSync(path.join(fx.root, "carrier-")), snapshotRoot: fx.snapshot, checkoutDirs: { ".": fx.checkout }, section: fx.section, platform: "darwin", env: {} });
   t.after(() => installed.cleanup());
   const cwd = path.join(fx.snapshot, "crates", "a");
   // The child is a separate process that holds no ownership object: it inherits the handle and the record's path (as a right-release child of the gate does).
-  const child = (script, env = {}) => spawnSync(process.execPath, ["--input-type=module", "-e", script], { cwd, encoding: "utf8", env: { PATH: process.env.PATH, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, ...installed.env, ...env } });
+  const child = (script, env = {}) => spawnSync(process.execPath, ["--input-type=module", "-e", script], { cwd, encoding: "utf8", env: { PATH: process.env.PATH, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, ...fx.broker.env, ...installed.env, ...env } });
   const managed = pathToFileURL(path.join(import.meta.dirname, "managed-cargo.mjs")).href;
   const carriedBuild = `import { runCargoSync } from ${JSON.stringify(managed)}; const r = runCargoSync(["build"], { cwd: ${JSON.stringify(cwd)}, env: process.env, encoding: "utf8" }, { platform: "darwin" }); process.stderr.write(r.stderr ?? ""); process.exit(r.status ?? 1);`;
   // A child that only exits (or fails on a config error before any call) sends nothing.
   assert.equal(child("process.exit(3)", fx.ownershipEnv).status, 3);
   assert.equal(fx.owner().broker.submitted, false);
   // The child's carried call: the record is marked before the send, with that request's sub-handle.
+  // The real broker judges the call (the snapshot here is not one it made, so it may refuse): the mark landing before the send is the assertion, not the compile's outcome.
   const sent = child(carriedBuild, fx.ownershipEnv);
-  assert.equal(sent.status, 0, sent.stderr);
+  assert.doesNotMatch(sent.stderr, /RK_CARGO_BROKER_OWNERSHIP/, sent.stderr);
   const rec = fx.owner();
   assert.equal(rec.broker.submitted, true);
   assert.equal(rec.broker.handles.length, 1);
   assert.match(rec.broker.handles[0], /^own-7#[0-9a-f-]{36}$/);
-  assert.equal(fx.calls().length, 1);
   // A second child call appends its own sub-handle; the first stays.
   const again = child(carriedBuild, fx.ownershipEnv);
-  assert.equal(again.status, 0, again.stderr);
+  assert.doesNotMatch(again.stderr, /RK_CARGO_BROKER_OWNERSHIP/, again.stderr);
   const after = fx.owner();
   assert.equal(after.broker.handles.length, 2);
   assert.equal(after.broker.handles[0], rec.broker.handles[0]);
   assert.notEqual(after.broker.handles[1], rec.broker.handles[0]);
 });
 
-test("a carried request is not sent when its mark cannot land: no ownership in the environment, another handle's, or a record that is gone", { skip: POSIX }, (t) => {
-  const fx = makeFakeBroker(t);
-  const installed = installCarrier({ base: fs.mkdtempSync(path.join(fx.root, "carrier-")), snapshotRoot: fx.snapshot, checkoutDirs: { ".": fx.checkout }, section: brokerSection(fx.sb), platform: "darwin", env: {} });
+test("a carried request is not sent when its mark cannot land: no ownership in the environment, another handle's, or a record that is gone (real broker)", { skip: POSIX }, async (t) => {
+  const fx = await realHost(t, "own-mark-refused");
+  const installed = installCarrier({ base: fs.mkdtempSync(path.join(fx.root, "carrier-")), snapshotRoot: fx.snapshot, checkoutDirs: { ".": fx.checkout }, section: fx.section, platform: "darwin", env: {} });
   t.after(() => installed.cleanup());
   const cwd = path.join(fx.snapshot, "crates", "a");
   const managed = pathToFileURL(path.join(import.meta.dirname, "managed-cargo.mjs")).href;
   const script = `import { runCargoSync } from ${JSON.stringify(managed)}; const r = runCargoSync(["build"], { cwd: ${JSON.stringify(cwd)}, env: process.env, encoding: "utf8" }, { platform: "darwin" }); process.stderr.write(r.stderr ?? ""); process.exit(r.status ?? 1);`;
-  const run = (env) => spawnSync(process.execPath, ["--input-type=module", "-e", script], { cwd, encoding: "utf8", env: { PATH: process.env.PATH, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, ...installed.env, ...env } });
+  const run = (env) => spawnSync(process.execPath, ["--input-type=module", "-e", script], { cwd, encoding: "utf8", env: { PATH: process.env.PATH, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, ...fx.broker.env, ...installed.env, ...env } });
   const key = Object.keys(fx.ownershipEnv);
   for (const [name, env] of [["no ownership", {}], ["another handle", { [key[0]]: "someone-else", [key[1]]: fx.ownership }]]) {
     const r = run(env);
     assert.notEqual(r.status, 0, name);
     assert.match(r.stderr, /RK_CARGO_BROKER_OWNERSHIP/, name);
+    assert.equal(fx.owner().broker.submitted, false, `${name}: nothing was recorded`);
   }
   fs.rmSync(fx.ownership);
   const gone = run(fx.ownershipEnv);
   assert.notEqual(gone.status, 0);
   assert.match(gone.stderr, /RK_CARGO_BROKER_OWNERSHIP/);
-  assert.deepEqual(fx.calls(), [], "nothing reached the broker");
+  assert.equal(requestsAtBroker(fx.broker), 0, "nothing reached the real broker (it holds no receipt or request)");
 });
 
 test("parallel carried sends from several processes all land in the record", { skip: POSIX }, async (t) => {

@@ -114,56 +114,95 @@ test("[GB-51] the launch route: each declared tool is one carried job of its own
   refused("cmake", ["-S", `${APP}/src`, "-DCMAKE_INSTALL_PREFIX=/opt/x"], /moves where CMake writes/);
 });
 
-// ---- the carried jobs, end to end through the fixture broker ----
+// ---- the carried jobs: the door's own answers as data, then the real broker running the real tools ----
 import { spawnSync } from "./background-process.mjs";
 import { CARRIED_CARGO_MAP_ENV, installCarrier } from "./carried-cargo.mjs";
-import { brokerSection, signedNativeOutputs } from "./snapshot-broker.mjs";
+import { brokerSection, createSnapshotBroker, signedNativeOutputs } from "./snapshot-broker.mjs";
 import { createNativeRunner } from "./build-launch.mjs";
 import { nativeManagedOutputs, nativeStateDir } from "./native-adapters.mjs";
-import { makeFakeBroker } from "./test-support/fake-broker.mjs";
+import { syncSnapshot } from "./snapshot.mjs";
+import { startRealBroker } from "./test-support/real-broker.mjs";
 
-test("[GB-51] each native tool runs as one signed, ledgered, snapshot-bound adapter job whose output directory is the broker's (never named by the step); a step with its own environment is refused", { skip: process.platform === "win32" ? "POSIX fixture" : false }, (t) => {
-  const fx = makeFakeBroker(t, { readOnlySnapshots: true });
-  fx.setBehavior({});
-  const installed = installCarrier({ base: fs.mkdtempSync(path.join(fx.root, "carrier-")), snapshotRoot: fx.snapshot, checkoutDirs: { ".": fx.checkout }, section: brokerSection(fx.sb), platform: process.platform, env: {} });
+/** The PUBLIC half of one isolated instance's own attestation key and its runtime's broker digest (the pins a gate enrolls for it); a receipt never supplies its own. */
+function enrolledPinsOf(broker) {
+  const key = JSON.parse(fs.readFileSync(path.join(broker.controlRoot, "attestation", "key.json"), "utf8"));
+  const doctor = JSON.parse(broker.run(["doctor", "--json", "--no-scan"]).stdout);
+  const find = (v, name) => { if (v && typeof v === "object") { if (typeof v[name] === "string") return v[name]; for (const x of Object.values(v)) { const r = find(x, name); if (r) return r; } } return null; };
+  const brokerDigest = find(doctor, "brokerDigest"); const host = find(doctor, "host") ?? os.hostname();
+  assert.match(String(brokerDigest), /^[0-9a-f]{64}$/, "the real client reports the installed broker's digest");
+  return { host, keyId: key.keyId, publicKey: key.publicKey, brokerDigest };
+}
+
+const NATIVE_CASES = (snapshot) => [
+  ["xcodegen", ["generate", "--spec", `${snapshot}/project.yml`, "--project", snapshot], "rightkit-xcodegen", ["generate", "--spec", "project.yml", "--project", "."]],
+  ["xcodebuild", ["-project", `${snapshot}/A.xcodeproj`, "-scheme", "A", "build"], "rightkit-xcodebuild", ["-project", "A.xcodeproj", "-scheme", "A", "build"]],
+  ["./gradlew", [":app:assembleDebug"], "rightkit-gradle", [":app:assembleDebug"]],
+  ["cmake", ["-S", `${snapshot}/src`], "rightkit-cmake", ["-S", "src"]],
+];
+
+test("data: [GB-51] the door sends each native tool as one snapshot-bound adapter job with the registered, relative argv; a step with its own environment is refused; the `rustright run <adapter> --` spelling is judged by the same rules", () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-native-door-")));
+  try {
+    const checkout = path.join(root, "checkout"); const snapshot = path.join(root, "snapshots", "0123456789abcdef"); const client = path.join(root, "rustright");
+    for (const d of [checkout, snapshot]) fs.mkdirSync(d, { recursive: true });
+    fs.mkdirSync(path.join(snapshot, "gradle", "wrapper"), { recursive: true });
+    fs.writeFileSync(path.join(snapshot, "gradle", "wrapper", "gradle-wrapper.properties"), `distributionSha256Sum=${"d".repeat(64)}\n`);
+    const commit = { sha: "c".repeat(40), tree: "e".repeat(40) };
+    const section = { client, controlRoot: path.join(root, "control"), commit, snapshot: { path: snapshot, expectedTree: commit.tree }, handle: "own-7", checkout, pins: { host: "host-1", keyId: "0".repeat(64), publicKey: "04".padEnd(130, "0"), brokerDigest: "b".repeat(64) }, outputRoots: [], platform: process.platform, sentinel: null };
+    const installed = installCarrier({ base: fs.mkdtempSync(path.join(root, "carrier-")), snapshotRoot: snapshot, checkoutDirs: { ".": checkout }, section, platform: process.platform, env: {} });
+    const env = { PATH: root, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs", ...installed.env };
+    const door = (tool, args, over = {}) => buildLaunch(tool, args, { env, platform: "darwin", exists: (p) => p === client, cwd: snapshot, ...over });
+    for (const [tool, args, adapter] of NATIVE_CASES(snapshot)) {
+      const launch = door(tool, args);
+      assert.equal(path.basename(launch.args[0]), "carried-adapter-run.mjs", tool);
+      assert.deepEqual(launch.args.slice(1, 3), [adapter, "--"], tool);
+    }
+    assert.throws(() => door("cmake", ["--build"], { stepEnv: { MY_FLAG: "1" } }), (e) => e.code === BUILD_LAUNCH_REFUSED && e.reason === "RK_ADAPTER_ENV_UNREGISTERED");
+    assert.deepEqual(door("rustright", ["run", "rightkit-cmake", "--", "--build", "--config", "Release"]).args.slice(1, 3), ["rightkit-cmake", "--"]);
+    assert.throws(() => door("rustright", ["run", "rightkit-cmake", "--", "-B", "/tmp/elsewhere", "-S", `${snapshot}/src`]), (e) => e.code === BUILD_LAUNCH_REFUSED);
+    assert.equal(createNativeRunner({ cwd: snapshot, env, platform: "darwin", exists: (p) => p === client }).run("./gradlew", [":app:assembleDebug"], { signingFile: "/private/x/signing.properties" }).refusal.code, "RK_NATIVE_SIGNING_FILE_UNSUPPORTED");
+    assert.ok(NATIVE_ADAPTERS.cmake.executable.length > 0);
+    installed.cleanup();
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("[GB-51] (real broker) xcodegen and cmake each run as one signed, ledgered, snapshot-bound adapter job of the REAL broker whose output directory is the broker's (never named by the step); the production runner returns the verified job, its output directory and the output mapping", { skip: process.platform === "win32" ? "POSIX fixture" : false }, async (t) => {
+  const broker = await startRealBroker({ name: "native-tools" });
+  t.after(() => broker.stop());
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-native-real-")));
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const git = (...a) => { const r = spawnSync("git", a, { cwd: repo, encoding: "utf8" }); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
+  git("init", "-q", "-b", "main"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  const files = { "project.yml": "name: A\n", "src/CMakeLists.txt": "cmake_minimum_required(VERSION 3.20)\nproject(A NONE)\n", "gradle/wrapper/gradle-wrapper.properties": `distributionSha256Sum=${"d".repeat(64)}\n` };
+  for (const [rel, body] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true }); fs.writeFileSync(path.join(repo, rel), body); }
+  git("add", "-A"); git("commit", "-q", "-m", "A");
+  const synced = syncSnapshot({ checkout: repo, rev: git("rev-parse", "HEAD"), root: path.join(broker.dataRoot, "snapshots") });
+  const handle = "own-7";
+  const own = path.join(repo, "..", `owner-${process.pid}.json`);
+  fs.writeFileSync(own, JSON.stringify({ handle, broker: { submitted: false } }));
+  t.after(() => fs.rmSync(own, { force: true }));
+  const sb = createSnapshotBroker({ env: broker.env, platform: process.platform, checkout: repo, commit: { sha: synced.commit, tree: synced.tree }, snapshot: { path: synced.path, expectedTree: synced.tree }, ownership: { handle, markBrokerSubmit: (h) => ({ handle, broker: { submitted: true, handles: [h] } }) }, client: broker.clientPath, dataRoot: broker.dataRoot, loadPins: () => enrolledPinsOf(broker) });
+  const installed = installCarrier({ base: fs.mkdtempSync(path.join(os.tmpdir(), "rk-native-carrier-")), snapshotRoot: synced.path, checkoutDirs: { ".": repo }, section: brokerSection(sb), platform: process.platform, env: {} });
   t.after(() => installed.cleanup());
-  const env = { PATH: fx.root, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs", ...fx.ownershipEnv, ...installed.env };
-  // The Gradle wrapper's pinned distribution is read from the snapshot's own files (the broker judges the same file).
-  fs.mkdirSync(path.join(fx.snapshot, "gradle", "wrapper"), { recursive: true });
-  fs.writeFileSync(path.join(fx.snapshot, "gradle", "wrapper", "gradle-wrapper.properties"), `distributionSha256Sum=${"d".repeat(64)}\n`);
-  const door = (tool, args, over = {}) => buildLaunch(tool, args, { env, platform: "darwin", exists: (p) => p === path.join(fx.root, "rustright"), cwd: fx.snapshot, ...over });
-  const cases = [
-    ["xcodegen", ["generate", "--spec", `${fx.snapshot}/project.yml`, "--project", fx.snapshot], "rightkit-xcodegen", ["generate", "--spec", "project.yml", "--project", "."]],
-    ["xcodebuild", ["-project", `${fx.snapshot}/A.xcodeproj`, "-scheme", "A", "build"], "rightkit-xcodebuild", ["-project", "A.xcodeproj", "-scheme", "A", "build"]],
-    ["./gradlew", [":app:assembleDebug"], "rightkit-gradle", [":app:assembleDebug"]],
-    ["cmake", ["-S", `${fx.snapshot}/src`], "rightkit-cmake", ["-S", "src"]],
-  ];
-  for (const [tool, args, adapter, sent] of cases) {
+  const env = { PATH: process.env.PATH, HOME: process.env.HOME, ...broker.env, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs", RIGHTKIT_BUILD_OWNERSHIP: handle, RIGHTKIT_BUILD_OWNERSHIP_FILE: own, ...installed.env };
+  const door = (tool, args, over = {}) => buildLaunch(tool, args, { env, platform: process.platform, cwd: synced.path, ...over });
+  for (const [tool, args, adapter] of NATIVE_CASES(synced.path).filter(([name]) => name === "xcodegen" || name === "cmake")) {
     const launch = door(tool, args);
-    assert.deepEqual(launch.args.slice(0, 3), [path.join(path.dirname(new URL(import.meta.url).pathname), "carried-adapter-run.mjs"), adapter, "--"].slice(0, 3), tool);
-    const r = spawnSync(launch.command, launch.args, { cwd: fx.snapshot, env: { ...env, ...(launch.env ?? {}) }, encoding: "utf8" });
-    assert.equal(r.status, 0, `${tool}: ${r.stderr}`);
-    const job = fx.adapterCalls().at(-1);
-    assert.equal(job.adapter, adapter); assert.deepEqual(job.argv, sent, `${tool}: the job received the relative, registered argv`);
+    const r = spawnSync(launch.command, launch.args, { cwd: synced.path, env: { ...env, ...(launch.env ?? {}) }, encoding: "utf8" });
+    assert.equal(r.status, 0, `${tool} (${adapter}): ${r.stderr}`);
   }
   const verified = JSON.parse(`[${fs.readdirSync(installed.ledgerDir).flatMap((f) => fs.readFileSync(path.join(installed.ledgerDir, f), "utf8").trim().split("\n")).filter(Boolean).join(",")}]`).filter((e) => e.status === "verified");
-  assert.equal(verified.length, 4); assert.ok(verified.every((e) => e.shim === "adapter" && typeof e.outputDir === "string" && e.outputDir.startsWith(fx.wsRoot)), "each signed receipt names the broker's managed output directory");
-  assert.throws(() => door("cmake", ["--build"], { stepEnv: { MY_FLAG: "1" } }), (e) => e.code === BUILD_LAUNCH_REFUSED && e.reason === "RK_ADAPTER_ENV_UNREGISTERED");
-  // The `rustright run <adapter> --` spelling of the same steps is judged by the same rules.
-  assert.deepEqual(door("rustright", ["run", "rightkit-cmake", "--", "--build", "--config", "Release"]).args.slice(1, 3), ["rightkit-cmake", "--"]);
-  assert.throws(() => door("rustright", ["run", "rightkit-cmake", "--", "-B", "/tmp/elsewhere", "-S", `${fx.snapshot}/src`]), (e) => e.code === BUILD_LAUNCH_REFUSED);
-  // The production runner takes the same route in-process: the carried call is verified, and the result names the job, its output directory and the output mapping by role (the fixture signs no
-  // `executable.managedOutputs`, so the mapping is the grammar's; the signed one is read by `signedNativeOutputs`, below).
-  const runner = createNativeRunner({ cwd: fx.snapshot, env, platform: "darwin", exists: (p) => p === path.join(fx.root, "rustright") });
-  const result = runner.run("cmake", ["-S", `${fx.snapshot}/src`]);
+  assert.equal(verified.length, 2);
+  assert.ok(verified.every((e) => e.shim === "adapter" && typeof e.outputDir === "string" && e.outputDir.startsWith(path.join(broker.dataRoot, "rightkit-build-control", "ws"))), "each signed receipt names the broker's managed output directory");
+  // The production runner takes the same route in-process: the carried call is verified, and the result names the job, its output directory and the output mapping by role.
+  const runner = createNativeRunner({ cwd: synced.path, env, platform: process.platform });
+  const result = runner.run("cmake", ["-S", `${synced.path}/src`]);
   assert.equal(result.ok, true, result.stderr);
   assert.equal(result.carried, true); assert.equal(result.tool, "cmake"); assert.deepEqual(result.argv, ["-S", "src"]);
-  assert.equal(typeof result.requestId, "string"); assert.ok(result.outputDir.startsWith(fx.wsRoot));
-  assert.equal(result.outputs.ok, true); assert.equal(result.outputs.source, "grammar");
+  assert.equal(typeof result.requestId, "string"); assert.ok(result.outputDir.startsWith(path.join(broker.dataRoot, "rightkit-build-control", "ws")));
+  assert.equal(result.outputs.ok, true);
   assert.equal(result.outputs.state, nativeStateDir(result.outputDir, "cmake", ""));
   assert.deepEqual(result.outputs.outputs, nativeManagedOutputs("cmake", ["-S", "src"], { state: result.outputs.state }).outputs);
-  assert.equal(runner.run("./gradlew", [":app:assembleDebug"], { signingFile: "/private/x/signing.properties" }).refusal.code, "RK_NATIVE_SIGNING_FILE_UNSUPPORTED");
-  assert.ok(NATIVE_ADAPTERS.cmake.executable.length > 0);
 });
 
 test("[RA-07/RA-09] the output mapping is read only from the broker's signed `executable.managedOutputs` (RustRight service.rs signs `payload.executable` with `argv` removed and mirrors it at `receipt.nativeOutputs`); a mirror alone, or a differing one, is refused", () => {

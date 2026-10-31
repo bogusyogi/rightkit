@@ -106,6 +106,12 @@ const original = {
   connect: net.connect,
 };
 
+/**
+ * The unpatched child_process launchers, for test-support/real-broker.mjs only: they start and talk to an ISOLATED RustRight instance (own socket, own roots) with an
+ * explicit environment that real-broker.mjs builds. Everything else under test stays on the guarded launchers, so a test still cannot reach the live broker.
+ */
+export const realChildProcess = Object.freeze({ spawn: original.spawn, spawnSync: original.spawnSync });
+
 let pythonRunner;
 
 function enforcing() {

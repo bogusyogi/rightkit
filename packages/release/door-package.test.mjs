@@ -13,7 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { subHandleStub } from "./test-support/fake-broker.mjs";
+import { isCallHandleOf } from "./snapshot-request.mjs";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { main } from "./bin/rightkit-gate.mjs";
@@ -166,10 +166,10 @@ test("[7.04 negative] a snapshot byte changed during package voids the stage (ex
   assert.equal(fx.receipts.get(fx.c1).stages.package.ok, false);
 });
 
-test("[7.04c broker] on a broker host the package stage binds no CARGO_TARGET_DIR: its children carry the stage's carrier, and the sealed manifest may record only a target a verified receipt of the stage named (RK_SPLIT_TARGET_DRIFT otherwise)", { skip: POSIX_SIM }, async (t) => {
+test("data: [7.04c broker] (the real door with the carrier and the receipts' output directories as constructed inputs; not broker evidence) on a broker host the package stage binds no CARGO_TARGET_DIR: its children carry the stage's carrier, and the sealed manifest may record only a target a verified receipt of the stage named (RK_SPLIT_TARGET_DRIFT otherwise)", { skip: POSIX_SIM }, async (t) => {
   const OUT = "/managed/rightkit-build-control/ws/0123456789ab/g/001/target";
   const broker = (fx, outputDirs) => ({ platform: "darwin", resolveExecutor: () => ({ kind: "broker", cargo: ["rustright", "cargo"] }),
-    snapshotBroker: { handle: "own-1", markBrokerSubmit: subHandleStub("own-1") }, brokerSection: () => ({ client: "/x/rustright" }),
+    snapshotBroker: { handle: "own-1", markBrokerSubmit: (callHandle) => { assert.ok(isCallHandleOf(callHandle, "own-1"), `a broker submit is recorded for a sub-handle <handle>#<id>, not ${JSON.stringify(callHandle ?? null)}`); return { handle: "own-1", broker: { submitted: true, handles: [callHandle] } }; } }, brokerSection: () => ({ client: "/x/rustright" }),
     installCarrier: () => ({ mode: "test", env: { RIGHTKIT_CARRIED_CARGO_MAP: "/x/map.json" }, problems: async () => [], outputDirs: () => (typeof outputDirs === "function" ? outputDirs() : outputDirs) }),
     spawnInherit: (cmd, args, opts) => { assert.equal(opts.env.CARGO_TARGET_DIR, undefined, "no output directory is bound"); assert.equal(opts.env.RIGHTKIT_CARRIED_CARGO_MAP, "/x/map.json"); return fx.spawnInherit(cmd, args, { ...opts, env: { ...opts.env, CARGO_TARGET_DIR: OUT } }); } });
   const fx = appFixture(t);

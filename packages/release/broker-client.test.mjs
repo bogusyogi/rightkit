@@ -1,6 +1,7 @@
 // The one rule for starting the RustRight client (broker-client.mjs): on win32 the agent shim is never spawned (Node's EINVAL for a
 // .cmd/.bat without a shell); its target .exe is, directly, with `shell: false` and the shim's own environment; a shim of another shape
-// is refused with RK_BROKER_CLIENT_UNRESOLVED and never falls back to a shell. POSIX is unchanged. No real broker.
+// is refused with RK_BROKER_CLIENT_UNRESOLVED and never falls back to a shell. POSIX is unchanged. Every test here is a data test of the real
+// production functions with constructed inputs (a recording spawn, shim text); none is broker evidence.
 import "./test-support/broker-guard.mjs";
 // build-ownership.mjs first: it, managed-cargo, the target shim and snapshot-broker import one another, and this order is the one that loads.
 import "./build-ownership.mjs";
@@ -11,15 +12,34 @@ import path from "node:path";
 import test from "node:test";
 import { AGENT_SHIM_MARKER, BROKER_CLIENT_UNRESOLVED, brokerClientInvocation, locateBrokerClient, parseAgentShim, resolveBrokerClient, spawnBrokerClient, withoutAgentShimEnv } from "./broker-client.mjs";
 import { brokerSection, carryBrokerCargo, createSnapshotBroker, receiptSync } from "./snapshot-broker.mjs";
-import { makeFakeBroker, subHandleStub } from "./test-support/fake-broker.mjs";
+import { isCallHandleOf } from "./snapshot-request.mjs";
 
 const EXE = "D:\\.rustright\\runtime\\rustright.exe";
 const SHIM = (exe = EXE) => `@echo off\r\nrem ${AGENT_SHIM_MARKER}\r\nsetlocal\r\nset "RUSTRIGHT_MANAGED_AGENT_SHIM="\r\nset "RIGHTKIT_MANAGED_AGENT_SHIM="\r\n"${exe}" %*\r\nexit /b %ERRORLEVEL%\r\n`;
 const tmp = (t) => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-bc-"))); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
 const shimFile = (t, text) => { const f = path.join(tmp(t), "rustright.cmd"); fs.writeFileSync(f, text); return f; };
+const COMMIT = "c".repeat(40);
+const TREE = "e".repeat(40);
+const HANDLE = "own-7";
+/** The ownership hook of a gate that holds a build ownership: asserts the call's sub-handle shape (the real rule) and records it. */
+const subHandleStub = (handle) => (callHandle) => {
+  assert.ok(isCallHandleOf(callHandle, handle), `a broker submit is recorded for a carried request's sub-handle <handle>#<id>, not ${JSON.stringify(callHandle ?? null)}`);
+  return { handle, broker: { submitted: true, handles: [callHandle] } };
+};
+/** Plain directories a carried call reads (a checkout and a snapshot with one Cargo workspace, a data and a control root) and inert pins. No broker, no client. */
+function hostRoots(t) {
+  const root = tmp(t);
+  const checkout = path.join(root, "checkout"); const dataRoot = path.join(root, "data"); const controlRoot = path.join(root, "control");
+  const snapshot = path.join(dataRoot, "snapshots", "0123456789abcdef");
+  for (const base of [checkout, snapshot]) { fs.mkdirSync(path.join(base, "crates", "a", "src"), { recursive: true }); fs.writeFileSync(path.join(base, "Cargo.toml"), '[workspace]\nmembers = ["crates/a"]\n'); fs.writeFileSync(path.join(base, "crates", "a", "Cargo.toml"), '[package]\nname = "a"\nversion = "0.1.0"\n'); fs.writeFileSync(path.join(base, "crates", "a", "src", "lib.rs"), "\n"); }
+  fs.mkdirSync(controlRoot, { recursive: true });
+  const pins = { publicKey: `04${"0".repeat(128)}`, keyId: "k".repeat(64), host: "host-1", brokerDigest: "b".repeat(64) };
+  const wsRoot = path.join(dataRoot, "rightkit-build-control", "ws");
+  return { root, checkout, dataRoot, controlRoot, snapshot, pins, wsRoot, commit: { sha: COMMIT, tree: TREE }, snapshotRef: { path: snapshot, expectedTree: TREE } };
+}
 const refused = (fn) => assert.throws(fn, (e) => e.code === BROKER_CLIENT_UNRESOLVED);
 
-test("shim parsing: the installed shim yields its quoted exe (CRLF or LF); a missing marker, a different shape and an unsafe exe are refused", () => {
+test("data: shim parsing: the installed shim yields its quoted exe (CRLF or LF); a missing marker, a different shape and an unsafe exe are refused", () => {
   assert.equal(parseAgentShim(SHIM()), EXE);
   assert.equal(parseAgentShim(SHIM().replaceAll("\r\n", "\n")), EXE);
   refused(() => parseAgentShim(SHIM().replace(`rem ${AGENT_SHIM_MARKER}\r\n`, "")));
@@ -35,7 +55,7 @@ test("shim parsing: the installed shim yields its quoted exe (CRLF or LF); a mis
   refused(() => parseAgentShim('@echo off\r\n"D:\\x\\rustright.exe" %*\r\n'));
 });
 
-test("win32: a .cmd client is spawned as the shim's .exe with the argv array, shell false and the shim variables cleared; the caller's options are otherwise kept", (t) => {
+test("data: win32: a .cmd client is spawned as the shim's .exe with the argv array, shell false and the shim variables cleared; the caller's options are otherwise kept", (t) => {
   const client = shimFile(t, SHIM());
   const calls = [];
   const spawn = (file, args, options) => { calls.push({ file, args, options }); return { status: 0 }; };
@@ -52,7 +72,7 @@ test("win32: a .cmd client is spawned as the shim's .exe with the argv array, sh
   assert.equal(calls.at(-1).options.shell, false);
 });
 
-test("win32: a client that is not a shim of the installed shape is refused and nothing is spawned (never a shell)", (t) => {
+test("data: win32: a client that is not a shim of the installed shape is refused and nothing is spawned (never a shell)", (t) => {
   let spawned = 0;
   const spawn = () => { spawned += 1; return { status: 0 }; };
   for (const text of [SHIM().replace(AGENT_SHIM_MARKER, "other"), '@echo off\r\n"D:\\x\\rustright.exe" %*\r\n', SHIM().replace("%*", "%* extra")]) {
@@ -64,7 +84,7 @@ test("win32: a client that is not a shim of the installed shape is refused and n
   assert.equal(resolveBrokerClient("D:\\a\\rustright.exe", { platform: "win32" }).shim, false, "an .exe is spawned as given");
 });
 
-test("POSIX is unchanged: the client is spawned as given with the caller's options and environment, even one named like a shim", () => {
+test("data: POSIX is unchanged: the client is spawned as given with the caller's options and environment, even one named like a shim", () => {
   const calls = [];
   const spawn = (file, args, options) => { calls.push({ file, args, options }); return { status: 0 }; };
   const options = { cwd: "/w", env: { RUSTRIGHT_MANAGED_AGENT_SHIM: "1" }, stdio: "inherit" };
@@ -76,10 +96,10 @@ test("POSIX is unchanged: the client is spawned as given with the caller's optio
   for (const c of calls) { assert.equal(c.options, options, "the options object is passed through untouched"); assert.equal("shell" in c.options, false); }
 });
 
-test("the carried map carries the exe: a win32 broker built with the .cmd shim hands brokerSection (the map) the resolved .exe, and a refused shim builds no broker", (t) => {
-  const fx = makeFakeBroker(t);
+test("data: the carried map carries the exe: a win32 broker built with the .cmd shim hands brokerSection (the map) the resolved .exe, and a refused shim builds no broker", (t) => {
+  const fx = hostRoots(t);
   const own = { handle: "h", markBrokerSubmit: subHandleStub("h") };
-  const make = (client) => createSnapshotBroker({ env: { RIGHTKIT_DATA_ROOT: fx.dataRoot, RIGHTKIT_CONTROL_ROOT: fx.controlRoot }, platform: "win32", checkout: fx.checkout, commit: fx.sb.commit, snapshot: fx.sb.snapshot, ownership: own, client, gateFile: path.join(fx.root, "x", "rightkit-gate.mjs"), loadPins: () => ({ ...fx.pins, source: "enrolled" }) });
+  const make = (client) => createSnapshotBroker({ env: { RIGHTKIT_DATA_ROOT: fx.dataRoot, RIGHTKIT_CONTROL_ROOT: fx.controlRoot }, platform: "win32", checkout: fx.checkout, commit: fx.commit, snapshot: fx.snapshotRef, ownership: own, client, gateFile: path.join(fx.root, "x", "rightkit-gate.mjs"), loadPins: () => ({ ...fx.pins, source: "enrolled" }) });
   const sb = make(shimFile(t, SHIM()));
   assert.equal(sb.client, EXE);
   assert.equal(brokerSection(sb).client, EXE, "the map section the children read names the exe, never the .cmd");
@@ -88,15 +108,16 @@ test("the carried map carries the exe: a win32 broker built with the .cmd shim h
   assert.throws(() => make("rustright"), /by absolute path/);
 });
 
-test("a carried call and a receipt read start the exe directly on win32; a carried call whose client shim is refused is unverified RK_BROKER_CLIENT_UNRESOLVED and starts nothing", (t) => {
-  const fx = makeFakeBroker(t, {});
+test("data: a carried call and a receipt read start the exe directly on win32; a carried call whose client shim is refused is unverified RK_BROKER_CLIENT_UNRESOLVED and starts nothing", (t) => {
+  const fx = hostRoots(t);
   const snapshotRoot = fs.realpathSync.native(fx.snapshot);
+  const base = brokerSection({ controlRoot: fx.controlRoot, commit: fx.commit, snapshot: fx.snapshotRef, handle: HANDLE, pins: fx.pins, checkout: fx.checkout, outputRoots: [fx.wsRoot], platform: "win32", client: EXE });
   const calls = [];
   const spawn = (file, args, options) => { calls.push({ file, args, options }); return { status: 0, stdout: "", stderr: "" }; };
   const env = { PATH: process.env.PATH, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs", RIGHTKIT_MANAGED_AGENT_SHIM: "1" };
-  const carry = (client) => carryBrokerCargo({ words: ["build", "--locked"], cwd: path.join(snapshotRoot, "crates", "a"), env, section: { ...brokerSection(fx.sb), markSend: subHandleStub(fx.handle), client, platform: "win32" }, workspace: snapshotRoot, checkoutWorkspace: fx.checkout, record: () => {}, err: () => {}, stdio: "capture", spawn });
+  const carry = (client) => carryBrokerCargo({ words: ["build", "--locked"], cwd: path.join(snapshotRoot, "crates", "a"), env, section: { ...base, markSend: subHandleStub(HANDLE), client, platform: "win32" }, workspace: snapshotRoot, checkoutWorkspace: fx.checkout, record: () => {}, err: () => {}, stdio: "capture", spawn });
   const good = carry(shimFile(t, SHIM()));
-  assert.equal(good.outcome.status, "unverified", "the stub client prints no receipt");
+  assert.equal(good.outcome.status, "unverified", "the recording spawn prints no receipt");
   assert.equal(calls[0].file, EXE);
   assert.deepEqual(calls[0].args.slice(0, 3), ["cargo", "build", "--locked"]);
   assert.equal(calls[0].options.shell, false);
@@ -109,7 +130,7 @@ test("a carried call and a receipt read start the exe directly on win32; a carri
   assert.throws(() => receiptSync({ client: shimFile(t, "@echo off\r\n"), requestId: "x", env: {}, spawn, platform: "win32" }), (e) => e.code === "receipt");
 });
 
-test("[M6] locateBrokerClient and brokerClientInvocation: POSIX keeps the bare name; win32 finds the shim with `where` and starts its .exe with no shell; anything but `rustright` is unchanged; a foreign shim is refused", () => {
+test("data: [M6] locateBrokerClient and brokerClientInvocation: POSIX keeps the bare name; win32 finds the shim with `where` and starts its .exe with no shell; anything but `rustright` is unchanged; a foreign shim is refused", () => {
   assert.equal(locateBrokerClient({ platform: "darwin" }), "rustright");
   assert.deepEqual(brokerClientInvocation("rustright", ["status", "x"], { cwd: "/c" }, { platform: "darwin" }), { command: "rustright", args: ["status", "x"], options: { cwd: "/c" } });
   assert.deepEqual(brokerClientInvocation("node", ["a"], { cwd: "/c" }, { platform: "win32" }), { command: "node", args: ["a"], options: { cwd: "/c" } });

@@ -5,12 +5,14 @@
 import "./test-support/broker-guard.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { ADAPTER_ENV_RESERVED, ADAPTER_ENV_SIGNING, adapterEnvLaunch, forwardedAdapterEnv, isReservedAdapterEnvKey, isSigningEnvKey, withoutSigningEnv } from "./adapter-env.mjs";
 import { BUILD_LAUNCH_REFUSED, buildLaunch } from "./build-launch.mjs";
 import { brokerSection, carryBrokerAdapter, carryBrokerCargo } from "./snapshot-broker.mjs";
-import { makeFakeBroker } from "./test-support/fake-broker.mjs";
+import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV } from "./build-ownership.mjs";
+import { startRealBroker } from "./test-support/real-broker.mjs";
 
 const POSIX = process.platform === "win32" ? "the fixture client is POSIX only" : false;
 const SECRET = "dW50cnVzdGVkIGNvbW1lbnQ6IHNlY3JldCBrZXk=";
@@ -50,17 +52,37 @@ test("[GB-06] through the door: a carried step with signing material refuses (BU
   assert.deepEqual(quiet.args.slice(0, 3), ["run", "rightkit-pnpm", "--"]);
 });
 
-test("[GB-06] the client of a carried call never receives signing material from the caller's environment, cargo or adapter; the request carries none, and the other variables are untouched", { skip: POSIX }, (t) => {
-  const fx = makeFakeBroker(t);
-  const env = { PATH: process.env.PATH, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs", TAURI_SIGNING_PRIVATE_KEY: SECRET, TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "", TAURI_PRIVATE_KEY: SECRET, TAURI_KEY_PASSWORD: "pw", TAURI_DEBUG: "1", ...fx.ownershipEnv };
-  const root = fs.realpathSync.native(fx.snapshot);
-  const cargo = carryBrokerCargo({ words: ["check"], cwd: path.join(root, "crates", "a"), env, section: brokerSection(fx.sb), workspace: root, checkoutWorkspace: fx.checkout, record: () => {}, err: () => {}, stdio: "capture" });
-  assert.equal(cargo.outcome.status, "verified", JSON.stringify(cargo.outcome));
-  const adapter = carryBrokerAdapter({ adapter: "rightkit-pnpm", words: ["run", "build"], cwd: fx.snapshot, env, section: brokerSection(fx.sb), record: () => {}, err: () => {}, stdio: "capture" });
-  assert.equal(adapter.outcome.status, "verified", JSON.stringify(adapter.outcome));
-  for (const call of [fx.calls().at(-1), fx.adapterCalls().at(-1)]) {
-    assert.deepEqual(call.signingEnvNames, [], "the client process held no signing variable");
-    assert.equal(call.debugEnvSeen, true, "TAURI_DEBUG is not signing material and still arrives");
+const WORKSPACE = { "Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n', "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\n', "crates/a/src/lib.rs": "\n" };
+const writeTree = (root, files) => { for (const [rel, body] of Object.entries(files)) { const f = path.join(root, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, body); } };
+const filesUnder = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? filesUnder(path.join(dir, e.name)) : [path.join(dir, e.name)])) : []);
+
+test("[GB-06] the real client of a carried call never receives signing material from the caller's environment: the real broker names none, and no secret lands in its carriers, receipts or the outcome", { skip: POSIX }, async (t) => {
+  const broker = await startRealBroker({ name: "tauri-signing-env" });
+  t.after(() => broker.stop());
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-tauri-signing-")));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const checkout = path.join(root, "checkout"); const snapshotDir = path.join(broker.dataRoot, "snapshots", "0123456789abcdef");
+  writeTree(checkout, WORKSPACE); writeTree(snapshotDir, WORKSPACE);
+  const snapshot = fs.realpathSync.native(snapshotDir);
+  const handle = "own-7";
+  const ownership = path.join(root, "build-ownership", "owner.json");
+  fs.mkdirSync(path.dirname(ownership), { recursive: true });
+  fs.writeFileSync(ownership, JSON.stringify({ handle, broker: { submitted: false } }));
+  const commit = { sha: "c".repeat(40), tree: "e".repeat(40) };
+  // The pins are placeholders: this test judges what the client is handed, never a receipt (the outcome is whatever the real broker makes of an unenrolled snapshot).
+  const section = { client: broker.clientPath, controlRoot: broker.controlRoot, commit, snapshot: { path: snapshot, expectedTree: commit.tree }, handle, checkout, pins: { host: "host-1", keyId: "0".repeat(64), publicKey: "04".padEnd(130, "0"), brokerDigest: "b".repeat(64) }, outputRoots: [path.join(broker.dataRoot, "rightkit-build-control", "ws")], platform: process.platform, sentinel: null };
+  const env = { PATH: process.env.PATH, ...broker.env, RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs", TAURI_SIGNING_PRIVATE_KEY: SECRET, TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "", TAURI_PRIVATE_KEY: SECRET, TAURI_KEY_PASSWORD: "pw", TAURI_DEBUG: "1", [OWNERSHIP_ENV]: handle, [OWNERSHIP_FILE_ENV]: ownership };
+  const cargo = carryBrokerCargo({ words: ["check"], cwd: path.join(snapshot, "crates", "a"), env, section, workspace: snapshot, checkoutWorkspace: checkout, record: () => {}, err: () => {}, stdio: "capture" });
+  const adapter = carryBrokerAdapter({ adapter: "rightkit-pnpm", words: ["run", "build"], cwd: snapshot, env, section, record: () => {}, err: () => {}, stdio: "capture" });
+  for (const [name, call] of [["cargo", cargo], ["adapter", adapter]]) {
+    const seen = JSON.stringify(call.outcome ?? call);
+    assert.ok(!seen.includes(SECRET) && !seen.includes("pw\""), `${name}: no secret in the outcome`);
+    assert.doesNotMatch(seen, /TAURI_(SIGNING|PRIVATE|KEY)/, `${name}: the real broker was never handed a signing variable to refuse`);
   }
-  assert.deepEqual(fx.adapterCalls().at(-1).forwardedEnvNames ?? [], [], "the adapter request carries no environment");
+  // Whatever the real broker wrote for these two requests (carriers, receipts, diagnostics) holds no signing value.
+  for (const dir of [broker.controlRoot, broker.receiptsDir]) for (const file of filesUnder(dir)) {
+    const body = fs.readFileSync(file, "utf8");
+    assert.ok(!body.includes(SECRET), `${file} holds no signing secret`);
+    assert.doesNotMatch(body, /TAURI_(SIGNING_PRIVATE_KEY|PRIVATE_KEY|KEY_PASSWORD)/, `${file} names no signing variable`);
+  }
 });

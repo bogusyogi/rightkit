@@ -1,10 +1,13 @@
 // rightkit#1301, one model (rustright#190): every compile of a snapshot stage on a Mac or Dell broker host is a carried request or nested under a
 // carried, snapshot-bound adapter job. This file pins the steps that used to reach the broker client uncarried (a swift step, a non-Cargo
 // `rustright` step, a stage-sidecar command or cmake step) and the door's own admission rules (the pnpm exec target allowlist, run/exec/pack
-// only in a snapshot call), against the fixture broker (test-support/fake-broker.mjs). No real broker, no Cargo, no Swift.
+// only in a snapshot call). The host is an isolated instance of the REAL installed RustRight broker (test-support/real-broker.mjs); the door's planning
+// (buildLaunch, runStep, the native-helpers seam) needs no broker answer, and a step that is actually run reaches the real broker. No fake broker, no Cargo, no Swift.
 import "./test-support/broker-guard.mjs";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -16,52 +19,76 @@ import { buildAndEmbedNativeHelpers } from "./native-helpers.mjs";
 import { brokerSection } from "./snapshot-broker.mjs";
 import { runStep } from "./stage-sidecar.mjs";
 import { spawnSync } from "./background-process.mjs";
-import { makeFakeBroker } from "./test-support/fake-broker.mjs";
+import { startRealBroker } from "./test-support/real-broker.mjs";
+import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend } from "./build-ownership.mjs";
 
-const POSIX = process.platform === "win32" ? "the fixture client and adapter PATH are POSIX only" : false;
+const POSIX = process.platform === "win32" ? "the carried adapter PATH is POSIX only" : false;
 const MAC = process.platform === "darwin" ? false : "the broker route is the Mac and Windows hosts' (resolveExecutor); this host runs direct";
 const GATE = "/gate/bin/rightkit-gate.mjs";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ADAPTER_RUN = path.join(HERE, "carried-adapter-run.mjs");
 
-/** A broker host with a carrier: `env` is a snapshot stage's (the map in it, PATH holding the fixture client), `door` a buildLaunch from the snapshot. */
-function host(t) {
-  const fx = makeFakeBroker(t, { readOnlySnapshots: true });
-  const installed = installCarrier({ base: fs.mkdtempSync(path.join(fx.root, "carrier-")), snapshotRoot: fx.snapshot, checkoutDirs: { ".": fx.checkout }, section: brokerSection(fx.sb), platform: process.platform, env: {} });
+const COMMIT = "c".repeat(40); const TREE = "e".repeat(40); const HANDLE = "own-7";
+const WORKSPACES = { "Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n', "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\n', "crates/a/src/lib.rs": "\n" };
+/** The gate's pins for this host. They are the gate's own record; nothing in this file verifies a receipt against them. */
+function hostPins() {
+  const { publicKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const jwk = publicKey.export({ format: "jwk" });
+  const sec1 = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, "base64url"), Buffer.from(jwk.y, "base64url")]).toString("hex");
+  return { publicKey: sec1, keyId: crypto.createHash("sha256").update(Buffer.from(sec1, "hex")).digest("hex"), host: "host-1", brokerDigest: "b".repeat(64) };
+}
+
+/**
+ * A broker host with a carrier on the REAL installed broker: `rb` is an isolated instance (its own socket and roots), `fx` the checkout, the gate's snapshot
+ * and the build-ownership record around it, `env` a snapshot stage's (the map in it, PATH holding the real client), `door` a buildLaunch from the snapshot.
+ */
+async function host(t) {
+  const rb = await startRealBroker({ name: "door-closure" });
+  t.after(() => rb.stop());
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-door-closure-")));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const checkout = path.join(root, "checkout"); const snapshot = path.join(root, "snapshots", "0123456789abcdef");
+  for (const dir of [checkout, snapshot]) for (const [rel, body] of Object.entries(WORKSPACES)) { const f = path.join(dir, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, body); }
+  const ownership = path.join(root, "build-ownership", "owner.json");
+  fs.mkdirSync(path.dirname(ownership), { recursive: true });
+  fs.writeFileSync(ownership, JSON.stringify({ handle: HANDLE, broker: { submitted: false } }));
+  const sb = {
+    controlRoot: rb.controlRoot, commit: { sha: COMMIT, tree: TREE }, snapshot: { path: snapshot, expectedTree: TREE }, declaredInputs: [], handle: HANDLE, pins: hostPins(),
+    markBrokerSubmit: (callHandle) => markCarriedSend({ file: ownership, handle: HANDLE, callHandle }),
+    checkout, outputRoots: [path.join(rb.dataRoot, "rightkit-build-control", "ws")], platform: process.platform, client: rb.clientPath,
+  };
+  const fx = { root, checkout, snapshot, client: rb.clientPath, sb, ownershipEnv: { [OWNERSHIP_ENV]: HANDLE, [OWNERSHIP_FILE_ENV]: ownership } };
+  const installed = installCarrier({ base: fs.mkdtempSync(path.join(root, "carrier-")), snapshotRoot: snapshot, checkoutDirs: { ".": checkout }, section: brokerSection(sb), platform: process.platform, env: {} });
   t.after(() => installed.cleanup());
-  const env = { PATH: fx.root, HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, ...fx.ownershipEnv, ...installed.env };
-  const door = (command, args, over = {}) => buildLaunch(command, args, { env, platform: "darwin", exists: (p) => p === path.join(fx.root, "rustright"), cwd: fx.snapshot, ...over });
+  const env = { ...rb.env, PATH: path.dirname(rb.clientPath), HOME: process.env.HOME, RUSTRIGHT_CALLING_GATE: GATE, ...fx.ownershipEnv, ...installed.env };
+  const door = (command, args, over = {}) => buildLaunch(command, args, { env, platform: "darwin", exists: (p) => p === rb.clientPath, cwd: snapshot, ...over });
   const entries = () => readLedger(installed.ledgerDir, UNSCOPED);
-  return { fx, installed, env, door, entries };
+  return { rb, fx, installed, env, door, entries };
 }
 const refused = (pattern) => (error) => error.code === BUILD_LAUNCH_REFUSED && pattern.test(error.message);
 
-test("a swift step of a snapshot stage is a carried rightkit-swift adapter job, not an uncarried client call; without a carrier it is the client's, as before", { skip: POSIX }, (t) => {
-  const h = host(t);
+test("a swift step of a snapshot stage is planned as a carried rightkit-swift adapter job, not an uncarried client call, and run against the real broker it never verifies for a snapshot it does not hold; without a carrier it is the client's, as before", { skip: POSIX }, async (t) => {
+  const h = await host(t);
   const args = ["build", "-c", "release", "--package-path", "macos-native/Pkg", "--product", "tool", "--arch", "arm64", "--arch", "x86_64"];
   const launch = h.door("swift", args);
   assert.deepEqual(launch, { command: process.execPath, args: [ADAPTER_RUN, "rightkit-swift", "--", ...args] });
-  // Run it: one signed, ledgered adapter request in the snapshot's checkout counterpart, verified by the gate's own checks.
+  // Run it against the real broker: the snapshot is the gate's own directory, not one this broker holds, so the call is never a verified one.
   const ran = spawnSync(launch.command, launch.args, { cwd: h.fx.snapshot, env: h.env, encoding: "utf8" });
-  assert.equal(ran.status, 0, ran.stderr);
-  const jobs = h.fx.adapterCalls();
-  assert.deepEqual(jobs.map((j) => [j.adapter, j.argv, j.cwd]), [["rightkit-swift", args, h.fx.checkout]]);
-  const { entries, problems } = h.entries();
-  assert.deepEqual(problems, []);
-  assert.deepEqual(entries.map((e) => [e.status, e.shim, e.adapter]), [["verified", "adapter", "rightkit-swift"]]);
-  // Swift's own grammar in a snapshot call: `build` only, one relative --package-path (the fixture models check_swift_package).
+  assert.notEqual(ran.status, 0, "the real broker holds no such snapshot: the carried job does not succeed");
+  assert.ok(h.entries().entries.every((e) => e.status !== "verified"), "nothing the real broker did not complete is a verified ledger entry");
+  // Swift's own grammar in a snapshot call: `build` only, one relative --package-path (a bad step never succeeds against the real broker or at the door).
   for (const bad of [["package", "resolve"], ["build", "--package-path", "/elsewhere/pkg"], ["build", "--product", "x"]]) {
     const denied = spawnSync(process.execPath, [ADAPTER_RUN, "rightkit-swift", "--", ...bad], { cwd: h.fx.snapshot, env: h.env, encoding: "utf8" });
     assert.notEqual(denied.status, 0, bad.join(" "));
   }
   // No carrier map: the client's `run rightkit-swift`, unchanged.
-  const client = path.join(h.fx.root, "rustright");
+  const client = h.fx.client;
   const { RIGHTKIT_CARRIED_CARGO_MAP: _, ...bare } = h.env;
   assert.deepEqual(h.door("swift", args, { env: bare }), { command: client, args: ["run", "rightkit-swift", "--", ...args] });
 });
 
-test("a Swift package outside the commit snapshot is refused with NATIVE_HELPERS_SNAPSHOT_SOURCE; sharedPackage is retired; a package inside the snapshot is built as a carried swift job from the snapshot", { skip: MAC }, (t) => {
-  const h = host(t);
+test("a Swift package outside the commit snapshot is refused with NATIVE_HELPERS_SNAPSHOT_SOURCE; sharedPackage is retired; a package inside the snapshot is built as a carried swift job from the snapshot", { skip: MAC }, async (t) => {
+  const h = await host(t);
   const app = path.join(h.fx.snapshot, "app");
   fs.mkdirSync(path.join(app, "dist", "Demo.app", "Contents"), { recursive: true });
   fs.writeFileSync(path.join(app, "dist", "Demo.app", "Contents", "Info.plist"), "<plist/>");
@@ -93,8 +120,8 @@ test("a Swift package outside the commit snapshot is refused with NATIVE_HELPERS
   assert.ok(calls[0].args.includes(path.join("app", "macos-native", "Pkg")), "the package path is relative to the snapshot root, which is the job's directory");
 });
 
-test("a non-Cargo `rustright` step on the snapshot route is carried when it names a registered adapter (judged by that program's door rules) and refused with its code otherwise", { skip: POSIX }, (t) => {
-  const h = host(t);
+test("a non-Cargo `rustright` step on the snapshot route is carried when it names a registered adapter (judged by that program's door rules) and refused with its code otherwise", { skip: POSIX }, async (t) => {
+  const h = await host(t);
   // `rustright run <adapter> -- <args>` is the adapter's own step.
   assert.deepEqual(h.door("rustright", ["run", "rightkit-pnpm", "--", "exec", "tauri", "build"]), { command: process.execPath, args: [ADAPTER_RUN, "rightkit-pnpm", "--", "exec", "tauri", "build"] });
   assert.deepEqual(h.door("rustright", ["run", "rightkit-swift", "--", "build", "--package-path", "p"]).args.slice(0, 3), [ADAPTER_RUN, "rightkit-swift", "--"]);
@@ -109,11 +136,11 @@ test("a non-Cargo `rustright` step on the snapshot route is carried when it name
   // `rustright cargo` stays the carried Cargo seam; with no carrier the client takes every rustright command as before.
   assert.equal(h.door("rustright", ["cargo", "build", "--locked"]).args[0].endsWith("carried-cargo-run.mjs"), true);
   const { RIGHTKIT_CARRIED_CARGO_MAP: _, ...bare } = h.env;
-  assert.deepEqual(h.door("rustright", ["status", "abc"], { env: bare }), { command: path.join(h.fx.root, "rustright"), args: ["status", "abc"] });
+  assert.deepEqual(h.door("rustright", ["status", "abc"], { env: bare }), { command: h.fx.client, args: ["status", "abc"] });
 });
 
-test("stage-sidecar's step commands (stage.cmd, a command entry's cmd, cmake) of a carried stage are carried adapter jobs, the carried Cargo seam or the door's own right-release, and any other is refused with STAGE_SIDECAR_STEP_REFUSED", { skip: MAC }, (t) => {
-  const h = host(t);
+test("stage-sidecar's step commands (stage.cmd, a command entry's cmd, cmake) of a carried stage are carried adapter jobs, the carried Cargo seam or the door's own right-release, and any other is refused with STAGE_SIDECAR_STEP_REFUSED", { skip: MAC }, async (t) => {
+  const h = await host(t);
   const ran = [];
   const ctx = (env) => ({ env, fs: { existsSync: fs.existsSync }, run: (command, args, options) => { ran.push({ command, args, options }); return { status: 0 }; } });
   const own = path.join(HERE, "cli", "right-release.mjs");
@@ -147,9 +174,9 @@ test("stage-sidecar's step commands (stage.cmd, a command entry's cmd, cmake) of
   assert.deepEqual(ran.map((r) => [r.command, r.args]), [["cmake", ["--build", "b"]]]);
 });
 
-test("pnpm exec reaches a broker adapter only for a target the registration admits and the door allows (GB-03: the reference registration admits tauri only); node, sh and an option in the target's place are refused, with or without the snapshot route", { skip: POSIX }, (t) => {
-  const h = host(t);
-  const CLIENT = path.join(h.fx.root, "rustright");
+test("pnpm exec reaches a broker adapter only for a target the registration admits and the door allows (GB-03: the reference registration admits tauri only); node, sh and an option in the target's place are refused, with or without the snapshot route", { skip: POSIX }, async (t) => {
+  const h = await host(t);
+  const CLIENT = h.fx.client;
   const { RIGHTKIT_CARRIED_CARGO_MAP: _, ...bare } = h.env;
   assert.deepEqual([...EXEC_TARGETS].sort(), ["right-release", "tauri", "vite"], "the door's own allowlist");
   // The reference registration (RustRight's `opaqueTargets: {exec: [tauri]}`) admits tauri alone: the other two are refused at planning with the registration named.
@@ -168,8 +195,8 @@ test("pnpm exec reaches a broker adapter only for a target the registration admi
   assert.ok(h.door("pnpm", ["--filter", "exec", "run", "node"]).args.includes("rightkit-pnpm"));
 });
 
-test("a snapshot call admits pnpm run, exec and pack only: a bare script name is refused at the door naming the step (the broker's snapshotSubcommands would refuse it too); outside the snapshot route it is the client's", { skip: POSIX }, (t) => {
-  const h = host(t);
+test("a snapshot call admits pnpm run, exec and pack only: a bare script name is refused at the door naming the step (the broker's snapshotSubcommands would refuse it too); outside the snapshot route it is the client's", { skip: POSIX }, async (t) => {
+  const h = await host(t);
   for (const args of [["run", "build"], ["pack"], ["--dir", "packages/release", "pack", "--pack-destination", "/s/rk-local-publish-x/p"], ["-r", "--workspace-concurrency=1", "run", "test"]]) assert.equal(h.door("pnpm", args).args[1], "rightkit-pnpm", args.join(" "));
   // GB-03: the registration's parser refuses a bare script name (no registered first argument), and a registered command that is not snapshot-bound (install).
   for (const args of [["build"], ["native:assemble", "--", "--profile", "release"], ["windows:package"], ["--dir", "hub", "dev"]]) assert.throws(() => h.door("pnpm", args), refused(/is not registered for rightkit-pnpm|is not allowed in a snapshot-bound call/), args.join(" "));

@@ -10,21 +10,32 @@ import { installCarrier } from "./carried-cargo.mjs";
 import { receiptRelativeOutputPath, resolveTauriBundleDirectory } from "./development.mjs";
 import { resolveStageSource, stageDevelopmentBinaries } from "./stage-binary.mjs";
 import { brokerSection } from "./snapshot-broker.mjs";
-import { makeFakeBroker } from "./test-support/fake-broker.mjs";
 
 const POSIX = process.platform === "win32" ? "the fixture wrapper is POSIX only" : false;
+const COMMIT = { sha: "c".repeat(40), tree: "e".repeat(40) };
+const WORKSPACES = { "Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n', "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\n', "crates/a/src/lib.rs": "\n", "native/Cargo.toml": '[workspace]\n[package]\nname = "b"\nversion = "0.1.0"\n', "native/src/lib.rs": "\n" };
+const writeTree = (root, files) => { for (const [rel, body] of Object.entries(files)) { const f = path.join(root, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, body); } };
 const TRIPLE = "aarch64-apple-darwin";
 
+/**
+ * Plain directories (a checkout, a snapshot, a managed output directory) and a broker section naming a client that is never started: the carrier map this test reads is
+ * written without any broker. Nothing here answers a request; the receipt's output directory is the `known` map the gate would read from a verified receipt.
+ */
 function managedHost(t) {
-  const fx = makeFakeBroker(t);
-  const checkoutDirs = { ".": fx.checkout, native: path.join(fx.checkout, "native") };
-  const installed = installCarrier({ base: fs.mkdtempSync(path.join(fx.root, "carrier-")), snapshotRoot: fx.snapshot, checkoutDirs, section: brokerSection(fx.sb), known: { [path.join(fx.checkout, "native")]: fx.outputDir }, platform: process.platform, env: {} });
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(fs.realpathSync(process.env.TMPDIR ?? "/tmp"), "rk-devout-")));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const checkout = path.join(root, "checkout"); const snapshot = path.join(root, "data", "snapshots", "0123456789abcdef");
+  const outputDir = path.join(root, "data", "rightkit-build-control", "ws", "0123456789ab", "g", "002", "target");
+  writeTree(checkout, WORKSPACES); writeTree(snapshot, WORKSPACES); fs.mkdirSync(outputDir, { recursive: true });
+  const section = brokerSection({ controlRoot: path.join(root, "control"), commit: COMMIT, snapshot: { path: snapshot, expectedTree: COMMIT.tree }, handle: "own-7", checkout, pins: { host: "host-1", keyId: "0".repeat(64), publicKey: "04".padEnd(130, "0"), brokerDigest: "b".repeat(64) }, outputRoots: [path.join(root, "data", "rightkit-build-control", "ws")], platform: process.platform, client: path.join(root, "never-started-rustright") });
+  const checkoutDirs = { ".": checkout, native: path.join(checkout, "native") };
+  const installed = installCarrier({ base: fs.mkdtempSync(path.join(root, "carrier-")), snapshotRoot: snapshot, checkoutDirs, section, known: { [path.join(checkout, "native")]: outputDir }, platform: process.platform, env: {} });
   t.after(() => installed.cleanup());
-  const appRoot = path.join(fx.snapshot, "native");
-  return { fx, env: { ...installed.env }, appRoot };
+  const appRoot = path.join(snapshot, "native");
+  return { fx: { root, checkout, snapshot, outputDir }, env: { ...installed.env }, appRoot };
 }
 
-test("[GB-60] a receipt-managed build's bundleDirectory is the receipt's output directory: a target-relative setting is migrated, a stale same-name installer in the snapshot cannot win, a source-relative one is refused", { skip: POSIX }, (t) => {
+test("data: [GB-60] a receipt-managed build's bundleDirectory is the receipt's output directory: a target-relative setting is migrated, a stale same-name installer in the snapshot cannot win, a source-relative one is refused", { skip: POSIX }, (t) => {
   const h = managedHost(t);
   const bundle = path.join(h.fx.outputDir, TRIPLE, "debug", "bundle", "macos");
   fs.mkdirSync(path.join(bundle, "Fixture.app"), { recursive: true });
@@ -47,7 +58,7 @@ test("[GB-60] a receipt-managed build's bundleDirectory is the receipt's output 
   assert.equal(plain.bundleRoot, path.join(direct, "out"));
 });
 
-test("[GB-60] a stage entry's source under a target directory resolves to the receipt's output directory; several output directories are ambiguous and refused; outside a target directory it is used as written; direct hosts are unchanged", () => {
+test("data: [GB-60] a stage entry's source under a target directory resolves to the receipt's output directory; several output directories are ambiguous and refused; outside a target directory it is used as written; direct hosts are unchanged", () => {
   const root = path.resolve("/app");
   const out = path.resolve("/managed/ws/abc/g/001/target");
   const entry = { source: `src-tauri/target/${TRIPLE}/debug/rightapp` };
@@ -59,7 +70,7 @@ test("[GB-60] a stage entry's source under a target directory resolves to the re
   assert.equal(resolveStageSource({ manifestPath: "src-tauri/Cargo.toml", bin: "rightapp", targetTriple: TRIPLE }, { root, resolveTarget: () => out }), path.join(out, TRIPLE, "debug", "rightapp"), "the manifest form resolves through the receipt-aware target");
 });
 
-test("[GB-60] staging copies the receipt's bytes, never a stale snapshot file of the same name", () => {
+test("data: [GB-60] staging copies the receipt's bytes, never a stale snapshot file of the same name", () => {
   const root = fs.mkdtempSync(path.join(fs.realpathSync(process.env.TMPDIR ?? "/tmp"), "rk-gb60-"));
   try {
     const out = path.join(root, "managed-out"); fs.mkdirSync(path.join(out, "debug"), { recursive: true });

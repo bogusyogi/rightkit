@@ -15,7 +15,15 @@ import { PINNED_SCAN_TOOLS, digestScanSet } from "./deterministic-scans.mjs";
 import net from "node:net";
 import { enrollScanTool } from "./scan-tool-enrolment.mjs";
 import { syncSnapshot } from "./snapshot.mjs";
-import { makeFakeBroker, subHandleStub } from "./test-support/fake-broker.mjs";
+import { isCallHandleOf } from "./snapshot-request.mjs";
+import { startRealBroker } from "./test-support/real-broker.mjs";
+
+/** A `markBrokerSubmit` hook that takes the call's sub-handle and asserts its shape (`<handle>#<id>`, the build ownership's own rule). */
+const subHandleStub = (handle, onMark = () => {}) => (callHandle) => {
+  assert.ok(isCallHandleOf(callHandle, handle), `a broker submit is recorded for a carried request's sub-handle <handle>#<id>, not ${JSON.stringify(callHandle ?? null)}`);
+  onMark(callHandle);
+  return { handle, broker: { submitted: true, handles: [callHandle] } };
+};
 import { LINUX_BROKER_CLIENT_ENV, LINUX_BROKER_CLIENT_SHA256_ENV, LINUX_BROKER_SOCKET_ENV } from "./managed-cargo.mjs";
 import { pathspecBatches, EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, lockScope, main as gateMain, manifestChangeIsLockReflected, PARTIAL_EXIT, manifestTables, parsePushLines, parseWorkspaceGlobs, quietLeaseLane, rustUnitName, rustUnitOfScanId, vendorOwners, tomlString, tomlStrings, tomlValue, workspaceExcludes, gateTmpRoot, appRootOf } from "./bin/rightkit-gate.mjs";
 import * as gateModule from "./bin/rightkit-gate.mjs";
@@ -2570,7 +2578,7 @@ test("the scan-tool policy: an enrolled record is read from the managed data roo
   assert.match(refused.err, /BLOCKED: RK_SCAN_TOOLS_INVALID: .*record of darwin, not linux/);
 });
 
-test("check stage on a broker host: the class A cargo reads are carried requests, so cargo-deny and cargo-audit count as the broker's (options.cargoReadsCarried), though the check stage has no compile carrier", async (t) => {
+test("check stage on a broker host (real broker): the class A cargo reads are carried requests, so cargo-deny and cargo-audit count as the broker's (options.cargoReadsCarried), though the check stage has no compile carrier", async (t) => {
   const mk = (prefix) => { const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix))); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
   const repo = mk("rk-gate-carried-");
   const git = (...a) => { const r = spawnSync("git", a, { cwd: repo, encoding: "utf8" }); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
@@ -2580,14 +2588,16 @@ test("check stage on a broker host: the class A cargo reads are carried requests
   fs.writeFileSync(path.join(repo, "crates", "a", "Cargo.toml"), '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n'); fs.writeFileSync(path.join(repo, "crates", "a", "src", "lib.rs"), "\n");
   git("add", "-A"); git("commit", "-q", "-m", "A"); const commit = git("rev-parse", "HEAD");
   const snap = syncSnapshot({ checkout: repo, rev: commit, root: mk("rk-gate-carried-snaps-") });
-  const broker = makeFakeBroker(t, { readOnlySnapshots: true });
-  broker.rebase({ checkout: fs.realpathSync.native(repo), snapshotsRoot: path.dirname(snap.path) });
-  // The carried cargo metadata read is answered by the fixture broker's own client; plain `cargo` here is never run.
+  // The REAL broker, isolated: the carried cargo reads of this stage go to its client and it answers them.
+  const broker = await startRealBroker({ name: "gate-check" });
+  t.after(() => broker.stop());
+  // The carried cargo metadata read is answered by the real broker through its own client; plain `cargo` here is never run.
   const run = async (executor, extra = {}) => {
     const seen = []; const c = capture();
     const code = await main(["check", "--commit", commit, "--full-a", "--snapshot", snap.path], {
-      ...c.io, cwd: repo, env: { ...process.env, RK_GATE_CACHE: "0", RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs", RUSTRIGHT_DATA_ROOT: mk("rk-gate-carried-data-") }, snapshotRoot: path.join(mk("rk-gate-carried-own-"), "snapshots"), appCheck: async () => 0,
-      snapshotBroker: { ...broker.sb, checkout: fs.realpathSync.native(repo), markBrokerSubmit: subHandleStub(broker.sb.handle), get snapshot() { return { path: snap.path, expectedTree: broker.sb.snapshot.expectedTree }; } },
+      ...c.io, cwd: repo, env: { ...process.env, ...broker.env, RK_GATE_CACHE: "0", RUSTRIGHT_CALLING_GATE: "/gate/bin/rightkit-gate.mjs" }, snapshotRoot: path.join(mk("rk-gate-carried-own-"), "snapshots"), appCheck: async () => 0,
+      snapshotBroker: { controlRoot: broker.controlRoot, commit: { sha: commit, tree: snap.tree }, snapshot: { path: snap.path, expectedTree: snap.tree }, declaredInputs: [], handle: "own-7", markBrokerSubmit: subHandleStub("own-7"),
+        pins: { host: "host-1", keyId: "0".repeat(64), publicKey: "04".padEnd(130, "0"), brokerDigest: "b".repeat(64) }, checkout: fs.realpathSync.native(repo), outputRoots: [path.join(broker.dataRoot, "rightkit-build-control", "ws")], platform: process.platform, client: broker.clientPath },
       spawn: (cmd, args, opts = {}) => (cmd === "pnpm" && args[0] === "--version" ? { status: 0, stdout: "11.25.0\n", stderr: "" } : spawnSync(cmd, args, { ...opts, encoding: "utf8" })),
       resolveExecutor: () => executor, runScans: fakeRun(seen), ...extra,
     });
@@ -2597,4 +2607,171 @@ test("check stage on a broker host: the class A cargo reads are carried requests
   assert.equal(brokered.code, 0, brokered.err);
   assert.equal(brokered.seen[0].options.cargoReadsCarried, true, "the reads go to the broker: deny and audit are its registered tools");
   assert.equal(brokered.seen[0].options.snapshotBroker, undefined, "the check stage has no compile carrier; the option is what marks its reads as carried");
+});
+
+// ---- hosted scoped checks: named unit scope, committed-checkout proof, closure-limited discovery (regression tests; planning level, never broker acceptance) ----
+import { cargoMetadataFromManifests, closureOf, scopeScans } from "./app-closure.mjs";
+
+const SCOPED_FILES = {
+  ".rightkit-local-build.json": JSON.stringify({ repository: "fixture/repo", allow: "build-test-publish" }),
+  "package.json": JSON.stringify({ name: "repo", license: "MIT" }),
+  "ci/gate.config.json": JSON.stringify({ fixtures: ["fixtures"] }),
+  "fixtures/invalid/Cargo.toml": "this fixture deliberately is not valid TOML {{{\n",
+  "crates/rightkit-app/Cargo.toml": pkg("rightkit-app", "[workspace]\n[dependencies]\ncore={package='rightkit-core',path='../rightkit-core'}\n"),
+  "crates/rightkit-app/Cargo.lock": "version = 4\n" + lockPkg("rightkit-app", "1.0.0", ["rightkit-core"]) + lockPkg("rightkit-core", "1.0.0"),
+  "crates/rightkit-app/src/lib.rs": "pub fn app() {}\n",
+  "crates/rightkit-core/Cargo.toml": pkg("rightkit-core", "[workspace]\n"),
+  "crates/rightkit-core/Cargo.lock": "version = 4\n" + lockPkg("rightkit-core", "1.0.0"),
+  "crates/rightkit-core/src/lib.rs": "pub fn core() {}\n",
+  "crates/rightkit-other/Cargo.toml": pkg("rightkit-other", "[workspace]\n"),
+  "crates/rightkit-other/Cargo.lock": "version = 4\n" + lockPkg("rightkit-other", "1.0.0"),
+  "crates/rightkit-other/src/lib.rs": "pub fn other() {}\n",
+  "packages/alpha/package.json": JSON.stringify({ name: "@rightkit/alpha", scripts: { test: "vitest run" }, dependencies: { "@rightkit/beta": "workspace:../beta" } }),
+  "packages/alpha/pnpm-lock.yaml": "lockfileVersion: '9.0'\nimporters: {}\n", "packages/alpha/tsconfig.json": "{}\n",
+  "packages/beta/package.json": JSON.stringify({ name: "@rightkit/beta", scripts: { test: "vitest run" } }),
+  "packages/beta/pnpm-lock.yaml": "lockfileVersion: '9.0'\nimporters: {}\n", "packages/beta/tsconfig.json": "{}\n",
+  "packages/gamma/package.json": JSON.stringify({ name: "@rightkit/gamma", scripts: { test: "vitest run" } }),
+  "packages/gamma/pnpm-lock.yaml": "lockfileVersion: '9.0'\nimporters: {}\n", "packages/gamma/tsconfig.json": "{}\n",
+};
+
+function scopedFixture(t, over = {}) {
+  const root = mkRepo({ ...SCOPED_FILES, ...over }, t);
+  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
+  for (const a of [["init", "-q"], ["config", "user.name", "fixture"], ["config", "user.email", "fixture@example.test"], ["config", "remote.origin.url", "https://github.com/fixture/repo.git"], ["add", "-A"], ["commit", "-qm", "fixture"]]) assert.equal(git(...a).status, 0, a.join(" "));
+  return { root, git, sha: git("rev-parse", "HEAD").stdout.trim() };
+}
+
+/** A hosted runner (GITHUB_ACTIONS) over a committed checkout: real git, injected Cargo metadata (recorded), pnpm answering only its version probe (installs recorded), scans stubbed (plans recorded). */
+function hostedHarness(fx) {
+  const metadata = []; const installs = []; const calls = []; const plans = [];
+  const env = { ...process.env, GITHUB_ACTIONS: "true", RK_GATE_CACHE: "0" };
+  for (const k of ["RIGHTKIT_BUILD_OWNERSHIP", "RIGHTKIT_BUILD_OWNERSHIP_FILE", "RIGHTKIT_PUBLISHER"]) delete env[k];
+  const spawn = (cmd, a, opts = {}) => {
+    calls.push([cmd, ...a]);
+    if (cmd === "cargo" && a.includes("metadata")) {
+      const dir = norm(opts.cwd); metadata.push(dir);
+      const name = path.basename(dir);
+      return ok(meta(path.dirname(path.dirname(dir)), `crates/${name}`, [[name, `crates/${name}`]]));
+    }
+    if (cmd === "pnpm") { if (a.includes("install")) installs.push(a); return ok("11.25.0\n"); }
+    return gitOnly(cmd, a, opts);
+  };
+  const run = async (argv, { during = null, extra = {} } = {}) => {
+    const c = capture(); let code;
+    try {
+      code = await gateMain(argv, { ...c.io, cwd: fx.root, env, platform: "linux", spawn, resolveExecutor: directExecutor, appCheck: async () => 0,
+        runScans: async (plan) => { plans.push(plan); if (during) await during(); return { scans: plan.scans.filter((s) => s.class === "A").map((s) => ({ ...s, status: "pass" })), notes: [], cacheHits: [], deferred: [] }; }, ...extra });
+    } catch (error) { code = -1; c.err.push(`threw: ${error.message}`); }
+    return { code, output: [...c.out, ...c.err].join("\n") };
+  };
+  return { run, metadata, installs, calls, plans };
+}
+
+test("hosted named cargo and npm `--to check` forward the literal selected SHA and the scope: the dependency's executing rows and the repository-wide file-only scans stay; unrelated cargo metadata, executing rows and npm installs are absent", async (t) => {
+  for (const [selector, kept, dropped, fileOnly] of [
+    ["cargo:rightkit-app", ["check:rightkit-app", "check:rightkit-core"], ["check:rightkit-other", "test:npm:packages-alpha", "tsc:packages-gamma"], ["secret-scan", "cargo-deny:rightkit-other", "pnpm-lockfile:packages/gamma"]],
+    ["npm:@rightkit/alpha", ["test:npm:packages-alpha", "test:npm:packages-beta"], ["test:npm:packages-gamma", "tsc:packages-gamma", "check:rightkit-app", "check:rightkit-other"], ["secret-scan", "cargo-deny:rightkit-other", "pnpm-lockfile:packages/gamma"]],
+  ]) {
+    const fx = scopedFixture(t); const h = hostedHarness(fx);
+    const r = await h.run(["--to", "check", "--unit", selector]);
+    assert.equal(r.code, 0, `${selector}: ${r.output}`);
+    const plan = h.plans.at(-1); const ids = plan.scans.map((s) => s.id);
+    assert.ok(h.calls.some(([cmd, ...a]) => cmd === "git" && a.includes(`${fx.sha}^{commit}`)), `${selector}: the hosted check selected the literal SHA ${fx.sha.slice(0, 12)}, not the symbolic HEAD`);
+    assert.ok(plan.scopeDigest, `${selector}: the plan is scoped`);
+    for (const id of kept) assert.ok(ids.includes(id), `${selector}: ${id} is the unit's or its dependency's executing row`);
+    for (const id of fileOnly) assert.ok(ids.includes(id), `${selector}: ${id} is a repository-wide file-only scan and stays`);
+    for (const id of dropped) assert.ok(!ids.includes(id), `${selector}: ${id} is unrelated and never executes`);
+    assert.deepEqual(h.installs, [], `${selector}: no npm install`);
+    assert.ok(h.metadata.every((d) => !/rightkit-other$/.test(d)), `${selector}: no unrelated Cargo metadata (${h.metadata.join(", ")})`);
+    if (selector.startsWith("cargo:")) assert.ok(h.metadata.every((d) => /\/crates\/rightkit-(app|core)$/.test(d)), "Cargo is asked only about the selected workspace and its path dependency");
+  }
+});
+
+test("a scoped hosted check accepts a clean committed checkout and refuses --worktree, a moved HEAD, a tracked byte edit (also hidden by assume-unchanged or a git clean filter) and an edit made during the scans", async (t) => {
+  const argvFor = (sha) => ["check", "--commit", sha, "--full-a", "--scope", "crates/rightkit-app"];
+  const lib = "crates/rightkit-app/src/lib.rs";
+  // accepted: HEAD is the commit, the tree is clean and raw-identical.
+  { const fx = scopedFixture(t); const h = hostedHarness(fx); const r = await h.run(argvFor(fx.sha)); assert.equal(r.code, 0, r.output); assert.ok(h.plans.at(-1).scopeDigest, "the accepted check ran the scoped plan"); }
+  // --worktree reads the live tree: refused for a scope.
+  { const fx = scopedFixture(t); const h = hostedHarness(fx); const r = await h.run([...argvFor(fx.sha), "--worktree"]); assert.equal(r.code, 2, r.output); assert.match(r.output, /--scope needs full Class A of a snapshot or committed hosted CI checkout/); assert.equal(h.plans.length, 0, "no scan ran"); }
+  // a moved HEAD: the named commit is no longer the checkout.
+  { const fx = scopedFixture(t); const h = hostedHarness(fx); fs.writeFileSync(path.join(fx.root, "more.txt"), "m\n"); fx.git("add", "-A"); fx.git("commit", "-qm", "two");
+    const r = await h.run(argvFor(fx.sha)); assert.equal(r.code, 2, r.output); assert.match(r.output, /only when it is HEAD of this checkout/); assert.equal(h.plans.length, 0); }
+  // a raw byte edit of a tracked file.
+  { const fx = scopedFixture(t); const h = hostedHarness(fx); fs.appendFileSync(path.join(fx.root, lib), "// edited\n");
+    const r = await h.run(argvFor(fx.sha)); assert.equal(r.code, 2, r.output); assert.match(r.output, /needs a clean checkout|not clean commit/); assert.equal(h.plans.length, 0); }
+  // an edit git status cannot see: assume-unchanged hides it from the index, never from the raw tree.
+  { const fx = scopedFixture(t); const h = hostedHarness(fx); assert.equal(fx.git("update-index", "--assume-unchanged", lib).status, 0); fs.writeFileSync(path.join(fx.root, lib), "pub fn evil() {}\n");
+    assert.equal(fx.git("status", "--porcelain").stdout.trim(), "", "the edit is invisible to git status");
+    const r = await h.run(argvFor(fx.sha)); assert.equal(r.code, 2, r.output); assert.match(r.output, /raw tree/); assert.equal(h.plans.length, 0); }
+  // an edit a clean filter normalizes away: git status is clean, the raw bytes are not.
+  if (process.platform !== "win32") {
+    const fx = scopedFixture(t, { ".gitattributes": `${lib} filter=hide\n` }); const h = hostedHarness(fx);
+    assert.equal(fx.git("config", "filter.hide.clean", "printf 'pub fn app() {}\\n'").status, 0); fs.writeFileSync(path.join(fx.root, lib), "pub fn evil() {}\n");
+    assert.equal(fx.git("status", "--porcelain").stdout.trim(), "", "the clean filter hides the edit from git status");
+    const r = await h.run(argvFor(fx.sha)); assert.equal(r.code, 2, r.output); assert.match(r.output, /raw tree/); assert.equal(h.plans.length, 0);
+  }
+  // an edit during the scans voids the verdict.
+  { const fx = scopedFixture(t); const h = hostedHarness(fx);
+    const r = await h.run(argvFor(fx.sha), { during: () => fs.appendFileSync(path.join(fx.root, lib), "// edited while the scans ran\n") });
+    assert.notEqual(r.code, 0, r.output); assert.match(r.output, /after class A/); }
+});
+
+test("a hosted unit check whose local dependency closure is unknown fails with RK_SCOPE_CLOSURE before any Cargo metadata, install or scan", async (t) => {
+  const fx = scopedFixture(t, { "crates/rightkit-app/Cargo.toml": pkg("rightkit-app", "[workspace]\n[dependencies]\nmissing={path='../rightkit-missing'}\n") });
+  const h = hostedHarness(fx);
+  const r = await h.run(["--to", "check", "--unit", "cargo:rightkit-app"]);
+  assert.notEqual(r.code, 0, r.output);
+  assert.match(r.output, /RK_SCOPE_CLOSURE/);
+  assert.deepEqual(h.metadata, [], "no Cargo metadata ran");
+  assert.deepEqual(h.installs, [], "no install ran");
+  assert.equal(h.plans.length, 0, "no scan ran");
+});
+
+const CLOSURE_FILES = {
+  "crates/app/Cargo.toml": '[package]\nname = "app"\nversion = "1.0.0"\n[dependencies]\ncore = { path = "../core" }\nvend = { path = "../../vendor/vend" }\n',
+  "crates/core/Cargo.toml": '[package]\nname = "core"\nversion = "1.0.0"\n',
+  "crates/other/Cargo.toml": '[package]\nname = "other"\nversion = "1.0.0"\n',
+  "vendor/vend/Cargo.toml": '[package]\nname = "vend"\nversion = "1.0.0"\n[dependencies]\nleaf = { path = "../leaf" }\n',
+  "vendor/leaf/Cargo.toml": '[package]\nname = "leaf"\nversion = "1.0.0"\n',
+  "fixtures/bad/Cargo.toml": "this fixture deliberately is not valid TOML {{{\n",
+  "apps/desktop/package.json": JSON.stringify({ name: "desktop" }), "apps/web/package.json": JSON.stringify({ name: "web" }),
+  "apps/desktop/src-tauri/Cargo.toml": '[package]\nname = "desktop-native"\nversion = "1.0.0"\n[dependencies]\ncore = { path = "../../../crates/core" }\n',
+  "apps/web/src-tauri/Cargo.toml": '[package]\nname = "web-native"\nversion = "1.0.0"\n',
+};
+const rustUnit = (name, dir) => ({ name, dir, cargoDir: dir });
+const CLOSURE_RUST = [rustUnit("app", "crates/app"), rustUnit("core", "crates/core"), rustUnit("other", "crates/other"), rustUnit("desktop-native", "apps/desktop/src-tauri"), rustUnit("web-native", "apps/web/src-tauri")];
+const CLOSURE_NPM = [{ name: "desktop", dir: "apps/desktop", root: "." }, { name: "web", dir: "apps/web", root: "." }];
+
+test("data: closure discovery for a unit or a nested app reads only the selected unit, its path dependencies (excluded vendored crates followed) and never an excluded fixture or an unrelated unit", () => {
+  const reads = [];
+  const readFile = (file) => { reads.push(file); if (!(file in CLOSURE_FILES)) throw new Error(`absent ${file}`); return CLOSURE_FILES[file]; };
+  const unit = closureOf({ scopeDirs: ["crates/app"], npmUnits: CLOSURE_NPM, rustUnits: CLOSURE_RUST, readFile });
+  assert.deepEqual([...unit.rust].sort(), ["app", "core"]);
+  assert.deepEqual(unit.dependencyDirs, ["crates/app", "crates/core", "vendor/leaf", "vendor/vend"]);
+  // A nested app: its own package and native crate, and what they depend on; the sibling app and unrelated crates are out.
+  const app = closureOf({ scopeDirs: ["apps/desktop"], npmUnits: CLOSURE_NPM, rustUnits: CLOSURE_RUST, readFile });
+  assert.deepEqual([...app.npm], ["desktop"]);
+  assert.deepEqual([...app.rust].sort(), ["core", "desktop-native"]);
+  assert.ok(!app.dependencyDirs.some((d) => d.startsWith("apps/web") || d === "crates/other"), JSON.stringify(app.dependencyDirs));
+  assert.ok(reads.every((f) => !f.startsWith("fixtures/") && !f.startsWith("crates/other/") && !f.startsWith("apps/web/")), `never read: ${reads.join(", ")}`);
+  // Discovery metadata is built from the committed manifests the gate selects (fixtures are filtered out before this): an included invalid fixture would refuse, never be skipped silently.
+  const sources = Object.keys(CLOSURE_FILES).filter((f) => f.endsWith("Cargo.toml") && !f.startsWith("fixtures/"));
+  const metadata = cargoMetadataFromManifests({ manifests: sources, readFile: (f) => CLOSURE_FILES[f] });
+  assert.deepEqual(metadata("crates/app").members.map((m) => m.name), ["app"]);
+  assert.throws(() => cargoMetadataFromManifests({ manifests: [...sources, "fixtures/bad/Cargo.toml"], readFile: (f) => CLOSURE_FILES[f] }), /RK_SCOPE_CLOSURE/);
+  assert.throws(() => metadata("fixtures/bad"), /RK_SCOPE_CLOSURE: unknown Cargo manifest/);
+  // An unknown local edge refuses before anything executes.
+  assert.throws(() => closureOf({ scopeDirs: ["crates/app"], npmUnits: [], rustUnits: CLOSURE_RUST, readFile: (f) => (f.startsWith("vendor/leaf") ? (() => { throw new Error("absent"); })() : CLOSURE_FILES[f]) }), /RK_SCOPE_CLOSURE/);
+  assert.throws(() => closureOf({ scopeDirs: ["nowhere"], npmUnits: CLOSURE_NPM, rustUnits: CLOSURE_RUST, readFile }), /RK_SCOPE_CLOSURE: scope nowhere contains no committed npm or Rust unit/);
+});
+
+test("data: scoped scans keep every file-only row, keep only the closure's executing rows, and refuse an executing row that has no scope owner", () => {
+  const closure = closureOf({ scopeDirs: ["apps/desktop"], npmUnits: CLOSURE_NPM, rustUnits: CLOSURE_RUST, readFile: (f) => CLOSURE_FILES[f] });
+  const rows = [{ id: "secret-scan", class: "A" }, { id: "cargo-deny:other", class: "A" }, { id: "check:core", class: "A" }, { id: "check:desktop-native", class: "A" }, { id: "check:other", class: "A" }, { id: "test:npm:desktop", class: "A" }, { id: "test:npm:web", class: "A" }, { id: "custom-in", class: "A", executes: true, cwd: "apps/desktop" }, { id: "custom-out", class: "A", executes: true, cwd: "apps/web" }];
+  const { scans, dropped } = scopeScans(rows, closure, { rustUnits: CLOSURE_RUST });
+  assert.deepEqual(scans.map((s) => s.id), ["secret-scan", "cargo-deny:other", "check:core", "check:desktop-native", "test:npm:desktop", "custom-in"]);
+  assert.deepEqual(dropped.map((s) => s.id), ["check:other", "test:npm:web", "custom-out"]);
+  assert.throws(() => scopeScans([{ id: "mystery", class: "A", executes: true }], closure, { rustUnits: CLOSURE_RUST }), /RK_SCOPE_CLOSURE: executing scan mystery has no exact scope owner/);
+  assert.throws(() => scopeScans([{ id: "check:stranger", class: "A" }], closure, { rustUnits: CLOSURE_RUST }), /RK_SCOPE_CLOSURE: scan check:stranger has no known Rust owner/);
 });
