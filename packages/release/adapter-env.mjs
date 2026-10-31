@@ -10,6 +10,16 @@ import path from "node:path";
 
 export const ADAPTER_ENV_VAR = "RUSTRIGHT_ADAPTER_ENV";
 
+/**
+ * RA-08: the path of the transient Android signing-properties file (android-release.mjs ANDROID_SIGNING_PROPERTIES_ENV). It is a typed FILE handoff of the provisioned signer session (native-adapters.mjs
+ * `signingFileProblem`, `nativeSigningFileRefusal`), never an adapter request environment: no adapter registers it (it is `RIGHTKIT_`-prefixed, so reserved), the door refuses a step that declares it, the
+ * carrier's client never receives it, and `RUSTRIGHT_ADAPTER_ENV` never names it. Only the path exists in the environment of a direct host's own Gradle; the file holds the secrets.
+ */
+export const SIGNING_FILE_ENV = "RIGHTKIT_ANDROID_SIGNING_PROPERTIES";
+export const ADAPTER_ENV_SIGNING_FILE = "RK_ADAPTER_ENV_SIGNING_FILE";
+/** Whether `key` names the signing-properties file handoff (case-insensitive, as RustRight compares). */
+export const isSigningFileEnvKey = (key) => String(key).toUpperCase() === SIGNING_FILE_ENV;
+
 export const ADAPTER_ENV_RESERVED = "RK_ADAPTER_ENV_RESERVED";
 export const ADAPTER_ENV_UNSET = "RK_ADAPTER_ENV_UNSET";
 export const ADAPTER_ENV_INVALID = "RK_ADAPTER_ENV_INVALID";
@@ -37,7 +47,7 @@ export const isSigningEnvKey = (key) => { const upper = String(key).toUpperCase(
 /** `env` without any signing variable: what a carried call's client process receives (the client forwards only what RUSTRIGHT_ADAPTER_ENV names, but it never needs these to exist). */
 export function withoutSigningEnv(env) {
   const out = { ...env };
-  for (const key of Object.keys(out)) if (isSigningEnvKey(key)) delete out[key];
+  for (const key of Object.keys(out)) if (isSigningEnvKey(key) || isSigningFileEnvKey(key)) delete out[key];
   return out;
 }
 
@@ -113,6 +123,8 @@ export function adapterEnvLaunch(stepEnv, { registered = null } = {}) {
   // GB-06: signing material is never forwarded. A signing variable the step declares with a value is material and refuses the step at planning (the name, never the value, is reported); one the
   // recipe sets EMPTY only suppresses signing in a direct session, carries nothing, and is not forwarded (the carried build runs unsigned; the seal is made outside the broker).
   const declared = Object.keys(stepEnv ?? {});
+  const handoff = declared.find((name) => isSigningFileEnvKey(name));
+  if (handoff !== undefined) fail(ADAPTER_ENV_SIGNING_FILE, `step env ${JSON.stringify(handoff)} is the signing-properties file handoff: its path travels only as the typed signing-file handoff of a native job (native-adapters.mjs nativeSigningFileRefusal), never as an adapter request environment, and no adapter registers it`);
   const material = declared.filter((name) => isSigningEnvKey(name) && String(stepEnv[name] ?? "") !== "");
   if (material.length) fail(ADAPTER_ENV_SIGNING, `step env ${material.map((n) => JSON.stringify(n)).join(", ")} is signing material: it never rides an adapter request (RustRight reserves TAURI_SIGNING_*, TAURI_PRIVATE_KEY and TAURI_KEY_PASSWORD, RK_ADAPTER_ENV_DENIED); signing and the updater seal stay in the provisioned signer session, and a carried Tauri build runs unsigned`);
   const droppedSigning = declared.filter((name) => isSigningEnvKey(name)).sort();
@@ -142,6 +154,7 @@ export function forwardedAdapterEnv(env) {
   const raw = env?.[ADAPTER_ENV_VAR] ?? "";
   const forwarded = {};
   for (const name of String(raw).split(",").map((part) => part.trim()).filter(Boolean)) {
+    if (isSigningFileEnvKey(name)) fail(ADAPTER_ENV_SIGNING_FILE, `${ADAPTER_ENV_VAR} names ${name}, the signing-properties file handoff: its path is never forwarded as an adapter request environment`);
     if (isSigningEnvKey(name)) fail(ADAPTER_ENV_SIGNING, `${ADAPTER_ENV_VAR} names ${name}, which is signing material and is never forwarded to an adapter (signing stays in the provisioned signer session)`);
     if (isReservedAdapterEnvKey(name)) fail(ADAPTER_ENV_RESERVED, `${ADAPTER_ENV_VAR} names ${name}, which is broker-controlled and cannot be forwarded to an adapter`);
     const value = env[name];

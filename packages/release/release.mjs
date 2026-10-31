@@ -3,7 +3,8 @@ import { expandPackageRecipeTarget } from "./package-recipe-targets.mjs";
 import { access, readFile, readdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
-import { buildLaunch } from "./build-launch.mjs";
+import { buildLaunch, createNativeRunner } from "./build-launch.mjs";
+import { NATIVE_SIGNING_FILE_ENV, nativeToolOf } from "./native-adapters.mjs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -735,6 +736,9 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
   await runAndroidRelease({
     root, app: config.app ?? path.basename(root), target: androidTarget, dryRun: opts.dryRun,
     runGradle: (gradle, env) => runCommand(gradle, root, { env }),
+    // RA-07/RA-08: the production runner of the native compile phases (build-launch.mjs createNativeRunner): the carrier or the resolved executor's client, never a spawn of its own, a fixed result shape with the
+    // receipt's output mapping, and the signing-properties file as a typed path handoff (`signingFile`), never an environment. An injected executor is not accepted here.
+    native: createNativeRunner({ cwd: root, env: process.env }),
     resolveArtifact: (declared) => resolveReleaseArtifactPath(root, declared),
     scanFiles: (label, files, scanOptions) => assertNoQaControlBinaries(label, files, scanOptions),
     receiptDir: path.resolve(process.env.RIGHT_RELEASE_STATE_ROOT ?? path.join(root, ".right-release", "receipts")),
@@ -745,6 +749,8 @@ if (opts.platform === "win" && target.signingContract === MSIX_SIGNING_CONTRACT)
   // --dry-run prints the plan anywhere). Upload is a separate command: `right-release upload --platform ios`.
   await runIosPackageRecipe({
     root, app: config.app ?? path.basename(root), spec: iosSpec, dryRun: opts.dryRun,
+    // RA-09: the production runner of the native compile phases (xcodegen, xcodebuild archive/export/test), never an injected executor or a spawn: build-launch.mjs createNativeRunner.
+    native: createNativeRunner({ cwd: root, env: process.env }),
     receiptDir: path.resolve(process.env.RIGHT_RELEASE_STATE_ROOT ?? path.join(root, ".right-release", "receipts")),
     scanFiles: (label, files, scanOptions) => assertNoQaControlBinaries(label, files, scanOptions),
     // The build number counter outlives every release id: it lives in the vault state root that right-release build exports.
@@ -1198,8 +1204,13 @@ async function runCommands(value, root, options) {
 // on a broker-managed host (rightkit#1241).
 async function runCommand(command, root, { env = {}, captureStdout = false } = {}) {
   const cwd = path.resolve(root, command.cwd ?? ".");
-  const commandEnvironment = { ...(await commandEnv(command, root)), ...env };
-  const target = buildLaunch(command.cmd, command.args ?? [], { env: { ...process.env, ...commandEnvironment }, stepEnv: command.env, cwd, exists: existsSync });
+  // RA-08: the dynamic signing-properties file path of a native tool (Gradle) is a typed FILE handoff of the provisioned signer session, not a step environment: it is taken out of the environment the door
+  // sees (so it never reaches RUSTRIGHT_ADAPTER_ENV or a client's environment) and handed to the door as `signingFile`. A broker route refuses it before launch when no broker can carry it (build-launch.mjs,
+  // nativeSigningFileRefusal); a direct host's launch puts the same path back in its own Gradle's environment (`target.env`). No password is in it: only the file's path.
+  const nativeCommand = nativeToolOf(command.cmd) !== null;
+  const { [NATIVE_SIGNING_FILE_ENV]: signingFile, ...dynamicEnv } = env;
+  const commandEnvironment = { ...(await commandEnv(command, root)), ...(nativeCommand ? dynamicEnv : env) };
+  const target = buildLaunch(command.cmd, command.args ?? [], { env: { ...process.env, ...commandEnvironment }, stepEnv: command.env, cwd, exists: existsSync, ...(nativeCommand && signingFile ? { signingFile } : {}) });
   // A direct (Linux) launch carries PATH without RustRight shim directories (build-launch `env`).
   return run(target.command, target.args, cwd, { ...commandEnvironment, ...(target.env ?? {}) }, {
     ...command,

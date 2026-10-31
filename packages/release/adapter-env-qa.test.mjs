@@ -11,12 +11,13 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { ADAPTER_ENV_RESERVED, ADAPTER_ENV_UNSET, ADAPTER_ENV_VAR, adapterEnvLaunch, forwardedAdapterEnv, isReservedAdapterEnvKey } from "./adapter-env.mjs";
+import { ADAPTER_ENV_MANIFEST, ADAPTER_ENV_RESERVED, ADAPTER_ENV_SIGNING_FILE, ADAPTER_ENV_UNSET, ADAPTER_ENV_VAR, SIGNING_FILE_ENV, adapterEnvLaunch, forwardedAdapterEnv, isReservedAdapterEnvKey, isSigningFileEnvKey, withoutSigningEnv } from "./adapter-env.mjs";
 import { readLedger, UNSCOPED } from "./cargo-ledger.mjs";
 import { BUILD_LAUNCH_REFUSED, buildLaunch } from "./build-launch.mjs";
 import { SHIM_MAP_SCHEMA } from "./cargo-target-shim.mjs";
 import { CARRIED_CARGO_MAP_ENV, installCarrier, runCarriedAdapter } from "./carried-cargo.mjs";
 import { spawnSync } from "./background-process.mjs";
+import { managedRuntimeClient } from "./managed-roots.mjs";
 import { brokerSection, verifyBrokerLedger } from "./snapshot-broker.mjs";
 import { requestDigestOf, snapshotRequestCore } from "./snapshot-request.mjs";
 import { makeFakeBroker } from "./test-support/fake-broker.mjs";
@@ -184,6 +185,42 @@ test("a tracked write refused at exit (`snapshot exit bind: ...`) is a terminal 
     assert.notEqual(g.adapter("rightkit-pnpm", ARGS).status, 0, tamper);
     assert.equal(g.entries().entries[0].status, "unverified", tamper);
   }
+});
+
+// ---- RA-08: the Android signing-properties file path is a typed handoff, never an adapter request environment ----
+
+test("[RA-08] the signing-properties file handoff is never an adapter environment: a step may not declare it, RUSTRIGHT_ADAPTER_ENV may not name it, and the carried client never receives it; no native adapter registers any environment", () => {
+  assert.equal(SIGNING_FILE_ENV, "RIGHTKIT_ANDROID_SIGNING_PROPERTIES");
+  const path = "/private/rk-android-sign-x/signing.properties";
+  for (const name of [SIGNING_FILE_ENV, SIGNING_FILE_ENV.toLowerCase()]) {
+    assert.equal(isSigningFileEnvKey(name), true, name);
+    assert.equal(isReservedAdapterEnvKey(name), true, "RIGHTKIT_ is reserved, so no adapter can register it either");
+    assert.throws(() => adapterEnvLaunch({ [name]: path }, { registered: [name] }), (e) => e.code === ADAPTER_ENV_SIGNING_FILE && !e.message.includes(path), name);
+    assert.throws(() => adapterEnvLaunch({ [name]: "" }), (e) => e.code === ADAPTER_ENV_SIGNING_FILE, "even an empty declaration is refused");
+    assert.throws(() => forwardedAdapterEnv({ [ADAPTER_ENV_VAR]: name, [name]: path }), (e) => e.code === ADAPTER_ENV_SIGNING_FILE && !e.message.includes(path), name);
+  }
+  assert.equal(isSigningFileEnvKey("RIGHTKIT_ANDROID_SIGNING_PROPERTIES_OTHER"), false);
+  // The environment of a carried call's client has neither the path nor the TAURI signing material.
+  assert.deepEqual(withoutSigningEnv({ PATH: "/bin", [SIGNING_FILE_ENV]: path, TAURI_SIGNING_PRIVATE_KEY: "k", HOME: "/h" }), { PATH: "/bin", HOME: "/h" });
+  // The four native adapters declare no environment at all: nothing a step names could be admitted for them.
+  for (const adapter of ["rightkit-xcodegen", "rightkit-xcodebuild", "rightkit-gradle", "rightkit-cmake"]) {
+    assert.deepEqual(ADAPTER_ENV_MANIFEST[adapter], [], adapter);
+    assert.throws(() => adapterEnvLaunch({ SOME_FLAG: "1" }, { registered: ADAPTER_ENV_MANIFEST[adapter] }), (e) => e.code === "RK_ADAPTER_ENV_UNREGISTERED", adapter);
+  }
+});
+
+test("[RA-08] through the door a Gradle step's own signing-file variable is refused before launch, naming the typed code; a step with no environment sends none", (t) => {
+  const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gradle-env-")));
+  t.after(() => fs.rmSync(project, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(project, "gradle", "wrapper"), { recursive: true });
+  fs.writeFileSync(path.join(project, "gradle", "wrapper", "gradle-wrapper.properties"), `distributionSha256Sum=${"b".repeat(64)}\n`);
+  const env = { PATH: "/usr/bin", HOME: "/Users/rk" };
+  const client = managedRuntimeClient(env, "darwin", () => true);
+  const gradle = { env, platform: "darwin", exists: (p) => p === client, which: (c) => (c === "rustright" ? ["/elsewhere/rustright"] : []), readFile: () => "", cwd: project };
+  assert.throws(() => buildLaunch("./gradlew", ["--offline", ":app:assembleDebug"], { ...gradle, stepEnv: { [SIGNING_FILE_ENV]: "/private/x/signing.properties" } }), (e) => e.code === BUILD_LAUNCH_REFUSED && e.reason === ADAPTER_ENV_SIGNING_FILE && !e.message.includes("/private/x"));
+  const clean = buildLaunch("./gradlew", ["--offline", ":app:assembleDebug"], gradle);
+  assert.equal(clean.command, client);
+  assert.equal(clean.env, undefined, "no RUSTRIGHT_ADAPTER_ENV, no variable");
 });
 
 // QA on the snapshot route (a direct step, the carried build of a run-tests step, the path rules): qa-snapshot.test.mjs.
