@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.1 (unpublished)
+
+- Fixed (`userdata::Guard::for_workspace`): a scenario world's home, which the pool creates at `<rightkit-qa>/<run>/worlds/wNNN/home` (`pool::WorldPlan::world`), is accepted as a QA home location. 0.10.0 accepted only a home directly under a `rightkit-qa` directory, so every pooled `ui_launch` refused itself with `not-a-qa-root` and nothing launched (HeardRight source QA). Any other place is still refused. Test: `a_scenario_world_home_under_a_rightkit_qa_run_is_a_qa_home_location`.
+
 ## 0.9.2 (unpublished; rightkit#1222)
 
 - Dependency: `toml` 0.9 -> 1; no source change. (rightkit#1284)

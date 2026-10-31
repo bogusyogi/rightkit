@@ -254,7 +254,9 @@ fn default_temp_roots() -> Vec<PathBuf> {
 /// home of a scenario world the pool created for a run under one (`<rightkit-qa>/<run>/worlds/wNNN/home`,
 /// `crate::pool::WorldPlan::world`).
 fn is_qa_home_location(home: &Path) -> bool {
-    let named = |p: Option<&Path>, name: &str| p.and_then(Path::file_name) == Some(std::ffi::OsStr::new(name));
+    let named = |p: Option<&Path>, name: &str| {
+        p.and_then(Path::file_name) == Some(std::ffi::OsStr::new(name))
+    };
     if named(home.parent(), "rightkit-qa") {
         return true;
     }
@@ -262,10 +264,15 @@ fn is_qa_home_location(home: &Path) -> bool {
     let is_world = world
         .and_then(Path::file_name)
         .and_then(|n| n.to_str())
-        .is_some_and(|n| n.len() == 4 && n.starts_with('w') && n[1..].bytes().all(|b| b.is_ascii_digit()));
+        .is_some_and(|n| {
+            n.len() == 4 && n.starts_with('w') && n[1..].bytes().all(|b| b.is_ascii_digit())
+        });
     let worlds = world.and_then(Path::parent);
     let run = worlds.and_then(Path::parent);
-    named(Some(home), "home") && is_world && named(worlds, "worlds") && named(run.and_then(Path::parent), "rightkit-qa")
+    named(Some(home), "home")
+        && is_world
+        && named(worlds, "worlds")
+        && named(run.and_then(Path::parent), "rightkit-qa")
 }
 
 impl Guard {
@@ -960,10 +967,17 @@ mod tests {
         let base = Path::new("/tmp/rightkit-qa/heardright-ab12");
         assert!(is_qa_home_location(&base.join("worlds/w001/home")));
         assert!(is_qa_home_location(Path::new("/tmp/rightkit-qa/home-x")));
-        for bad in ["worlds/w001/data", "worlds/x001/home", "worlds/w01/home", "other/w001/home"] {
+        for bad in [
+            "worlds/w001/data",
+            "worlds/x001/home",
+            "worlds/w01/home",
+            "other/w001/home",
+        ] {
             assert!(!is_qa_home_location(&base.join(bad)), "{bad}");
         }
-        assert!(!is_qa_home_location(Path::new("/tmp/elsewhere/run/worlds/w001/home")));
+        assert!(!is_qa_home_location(Path::new(
+            "/tmp/elsewhere/run/worlds/w001/home"
+        )));
     }
 
     #[cfg(unix)]
