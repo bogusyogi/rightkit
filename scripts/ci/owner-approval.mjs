@@ -11,8 +11,17 @@ import { execFileSync } from "node:child_process";
 const ISSUE = "https://github.com/bogusyogi/rightkit/issues/1322";
 // The 4 HeardRight units whose CI reds b92b06cb7 and bb097ac49 fixed (Adrian: "why wouldn't we fix the ones that hr uses an
 // publish them?"); @rightkit/build-control-policy is private and never uploads. daemon 0.5.0 must be on crates.io before models
-// 0.5.2 (path dependency), so models goes in a later approval file than daemon.
-const ALLOWED = { "rightkit-license": "0.2.6", "rightkit-daemon": "0.5.0", "rightkit-models": "0.5.2" };
+// 0.5.2 (path dependency), so models goes in a later approval file than daemon. The HeardRight consumers then need the
+// daemon-0.5.0 line of qa, speech-client and tauri-shell (their published versions still pull daemon 0.4.0): qa 0.10.0,
+// speech-client 0.4.1 and tauri-shell 0.7.0 publish in a later approval file than models.
+const ALLOWED = {
+  "rightkit-license": "0.2.6",
+  "rightkit-daemon": "0.5.0",
+  "rightkit-models": "0.5.2",
+  "rightkit-qa": "0.10.0",
+  "rightkit-speech-client": "0.4.1",
+  "rightkit-tauri-shell": "0.7.0",
+};
 const CLASS_A_JOBS = ["private-repo-guard", "plan", "hygiene", "ownership"];
 
 const fail = (message) => {

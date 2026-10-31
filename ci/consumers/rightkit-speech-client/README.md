@@ -1,6 +1,6 @@
-# rightkit-speech-client 0.4.0 registry consumer (PK15)
+# rightkit-speech-client 0.4.1 registry consumer (PK15)
 
-Standalone consumer, outside the workspace, pinning `rightkit-speech-client =0.4.0` exactly.
+Standalone consumer, outside the workspace, pinning `rightkit-speech-client =0.4.1` exactly.
 It exercises the direct admission and wire surface: role rank/wire names, endpoint and path
 derivation, empty-root discovery (`read_live_record` none, `plan_host` HostMyself), takeover
 publish/read/clear, `TranscribeOptions` builders with staging fields, `preflight_file`, SRT

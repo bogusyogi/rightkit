@@ -1,4 +1,4 @@
-// rightkit-speech-client 0.4.0 registry consumer, outside the workspace.
+// rightkit-speech-client 0.4.1 registry consumer, outside the workspace.
 //
 // Exercises the direct admission/transport surface a suite author uses without
 // connecting, launching, or mocking any OS transport: role ranking and wire
@@ -232,6 +232,6 @@ fn main() -> Result<(), Failure> {
     );
 
     std::fs::remove_dir_all(&root).ok();
-    println!("speech-client 0.4.0 consumer assertions passed");
+    println!("speech-client 0.4.1 consumer assertions passed");
     Ok(())
 }

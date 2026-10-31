@@ -1093,18 +1093,18 @@
     "rightkit-speech-client": {
       "pkId": "PK15",
       "id": "ci/consumers/rightkit-speech-client/src/main.rs",
-      "dependency": "rightkit-speech-client = { version = \"=0.4.0\" }",
+      "dependency": "rightkit-speech-client = { version = \"=0.4.1\" }",
       "extraDependencies": [
         "serde_json = \"1\""
       ],
       "gateEvidence": "no models or network; temp-root admission/takeover files & current-process liveness only; no host launch or transport connection",
       "consumes": "PK15 speech-client floor 0.4.0 per docs/plans/2026-10-20-rightkit-implementation/01-packages.md:341; role/discovery, options/preflight, SRT, TimedWord source_ms wire, schemas/capabilities & capture arbitration; no live transport proof",
       "files": {
-        "Cargo.toml": "9ac217b82013d2608740a21eb4d89e1ad7e65dc99085054b82bbe2bb7ef19d09",
-        "README.md": "457e47b39f4216507afc699dacc8129bd87578f3d55db317bde1846e70f01960",
-        "src/main.rs": "4c0c9101e285c5f4a7bd0056ef16448e3e5a8eed3f8565e2cb5956c937ee572e"
+        "Cargo.toml": "3182283866c0df2cb3bd7c99225e2a9a8b480ad1041da7bb1c09593010deeff4",
+        "README.md": "dffc53b6e0528256205c91b28e38897efd145c505545cedc8bbe13867a9ad8cb",
+        "src/main.rs": "549296eba61ec8dd7ca555f68cda7ca52cd915a844fd32142048ce4812a3d822"
       },
-      "aggregateSha256": "1534bcab39a25752eaa7d9e983d7cbf446e6f3275d3ecf16161aee1c7530d3e3"
+      "aggregateSha256": "9835e7b91aa79bfc9f52552b3ecebfed6dcaf49374193052517c4b6f5a02c690"
     },
     "rightkit-daemon": {
       "pkId": "PK07",

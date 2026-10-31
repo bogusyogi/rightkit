@@ -3,6 +3,10 @@
 All notable changes to `rightkit-speech-client`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.4.1 — unpublished staging
+
+- Dependencies: rightkit-daemon 0.4.0 -> 0.5.0 (the daemon version published for HeardRight, rightkit#1322). No public item of this crate exposes a `rightkit_daemon` type (the daemon types stay private to `lib.rs`), so the public API is unchanged and the bump is patch-level.
+
 ## 0.4.0 — unpublished staging
 
 - BREAKING (D23): rightkit-transcript 0.3 -> 0.4. `TimedWord` (re-exported from `protocol` and the crate root, and carried in `words: Vec<TimedWord>`) gains a public `source_ms` field, so struct literals and cross-version type identity break. Supersedes the unpublished 0.3.7 staging number.

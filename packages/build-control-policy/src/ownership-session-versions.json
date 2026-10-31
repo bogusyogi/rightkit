@@ -509,7 +509,7 @@
     "rightkit-search": "0.4.1",
     "rightkit-send": "0.3.0",
     "rightkit-sidecar": "0.3.0",
-    "rightkit-speech-client": "0.4.0",
+    "rightkit-speech-client": "0.4.1",
     "rightkit-spend": "0.2.0",
     "rightkit-sync": "0.2.2",
     "rightkit-tauri-shell": "0.7.0",
@@ -892,7 +892,8 @@
       "0.3.2",
       "0.3.4",
       "0.3.5",
-      "0.3.6"
+      "0.3.6",
+      "0.4.0"
     ],
     "rightkit-crash": [
       "0.1.0",
