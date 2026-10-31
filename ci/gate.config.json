@@ -455,6 +455,11 @@
     },
     "rightkit-asr": {
       "allowIgnored": "tests/e2e_parakeet.rs::onnx_transducer_decodes_the_fixtures_when_the_export_is_present is #[ignore] on purpose: it needs an ONNX Parakeet TDT export (RK_PARAKEET_ONNX_DIR) and the ORT dylib (RK_ORT_TEST_DYLIB) that no runner provisions, and runs by hand with --ignored (1 ignored per default run); every other asr test runs and asserts on every default run, with the asset-gated ones recording SKIP markers in the receipts"
+    },
+    "rightkit-speech-client": {
+      "featureSets": [
+        []
+      ]
     }
   },
   "fixtures": [
@@ -496,6 +501,9 @@
     "rightkit-ci": {
       "classATests": {
         "evidence": "launch-guard run plus launch observer and import inspection, 2026-10-29: docs/GATE-CLASS-A-INVENTORY.md (Test units); decisions.md (Class A placement adjudication)"
+      },
+      "afterClassA": {
+        "reason": "The render tests execute generated workflow steps (bash text with command substitution, e.g. \"$(git rev-parse HEAD)\"); the class A launch guard's shell parser refuses command substitution fail-closed, so these rows cannot run under it. They compile nothing; they run after class A."
       }
     },
     "rightkit-hooks": {

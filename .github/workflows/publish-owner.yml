@@ -54,6 +54,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
         with:
           toolchain: 1.98.0
+      # Tauri-based crates (rightkit-qa, rightkit-tauri-shell) link GTK/WebKitGTK on Linux; without these system headers
+      # the archive check below fails in glib-sys (publish-owner 41226779529), not in the crate (rightkit#1323).
+      - name: Install the Linux system libraries Tauri crates build against
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
       - name: Package each approved crate once and check the archive against registry dependencies
         env:
           CRATES: ${{ needs.verify.outputs.crates }}
