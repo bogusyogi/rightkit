@@ -68,7 +68,7 @@ const OUTPUT_OWNED = Object.freeze({ xcodebuild: ["-derivedDataPath", "-resultBu
 export function nativeToolLaunch(tool, args, { cwd }) {
   const entry = NATIVE_ADAPTERS[tool];
   const words = args.map(String);
-  const refuse = (message) => ({ refusal: { code: "RK_NATIVE_TOOL_REFUSED", message: `${tool} ${words.join(" ")}: ${message}; the broker's ${entry.adapter} adapter (capability ${entry.capability}) would refuse it, so it is not sent` } });
+  const refuse = (message) => ({ refusal: { code: "RK_NATIVE_TOOL_REFUSED", message: `${tool} ${words.join(" ")}: ${message}; the broker's ${entry.adapter} adapter (capability ${entry.capability}) would refuse it (rightkit#1241), so it is not sent` } });
   const owned = words.find((w) => (OUTPUT_OWNED[tool] ?? []).includes(w.includes("=") && w.startsWith("--") ? w.slice(0, w.indexOf("=")) : w));
   if (owned !== undefined) return refuse(`${owned.split("=")[0]} names where the build writes, and the broker owns the output root (it supplies the one managed location); send the step without it`);
   const out = [];
