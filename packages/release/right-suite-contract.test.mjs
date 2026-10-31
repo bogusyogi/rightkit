@@ -28,6 +28,7 @@ import { parseYaml } from "../../scripts/ci/workflow-yaml.mjs";
 
 import { pendingUpdaterEndpoint, SUITE_API_CONTRACT_HOSTS } from "./suite-api-literal.mjs";
 import { validateDevelopmentConfig } from "./development.mjs";
+import { simulateHostPlatform } from "./test-support/simulated-host.mjs";
 
 const workspace = path.resolve(
   process.env.RIGHT_SUITE_CONTRACT_WORKSPACE
@@ -601,7 +602,8 @@ test("Cargo metadata uses managed Cargo directly on Windows", () => {
   assert.equal(cargoExecutable("darwin"), "cargo");
 });
 
-test("Cargo metadata delegates controlled storage to managed RightKit", () => {
+test("Cargo metadata delegates controlled storage to managed RightKit", (t) => {
+  simulateHostPlatform(t, "darwin");
   const ambient = {
     CARGO_HOME: "/ambient/cargo",
     CARGO_TARGET_DIR: "/ambient/target",

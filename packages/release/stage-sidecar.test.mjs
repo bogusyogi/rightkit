@@ -12,6 +12,7 @@ import {
 import { formatSidecarPlan, nodeHostTriple, parseStageSidecarArgs } from "./stage-sidecar-command.mjs";
 import { contentIdentity } from "./content-digest.mjs";
 import { uncoveredBinaries } from "./binary-license-notices.mjs";
+import { simulateHostPlatform } from "./test-support/simulated-host.mjs";
 
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 const APP = path.resolve("/rk-fake-app");
@@ -714,7 +715,8 @@ test("a resource directory is copied recursively and every file is hashed into t
   await assert.rejects(stageSidecars({ appRoot: APP, target: WIN, manifest: [{ kind: "resource", from: "nope", to: "out" }], deps: deps({ fs }) }), { code: "STAGE_SIDECAR_RESOURCE_MISSING" });
 });
 
-test("nested broker context fails fast with the prepare-step fix; the escape hatch and non-broker entries are unaffected", async () => {
+test("nested broker context fails fast with the prepare-step fix; the escape hatch and non-broker entries are unaffected", async (t) => {
+  simulateHostPlatform(t, "darwin");
   const nested = { TAURI_ENV_PLATFORM: "darwin", TAURI_ENV_TARGET_TRIPLE: MAC, RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/broker.sock" };
   assert.equal(isNestedBrokerContext(nested), true);
   assert.equal(isNestedBrokerContext({ TAURI_ENV_PLATFORM: "darwin", RIGHTSUITE_HEAVY_WORK_OWNER: "1" }), true);

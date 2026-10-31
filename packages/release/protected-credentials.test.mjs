@@ -18,6 +18,7 @@ import {
 import { pruneReleaseObjects } from "./prune-r2.mjs";
 import { runLargeUpload } from "./upload-large.mjs";
 import { spawnSync } from "./background-process.mjs";
+import { simulateHostPlatform } from "./test-support/simulated-host.mjs";
 
 const SOCKET_ENV = { RIGHTKIT_BUILD_BROKER_SOCKET: "/fake/rightkit-broker.sock" };
 const REFUSED = { code: MANAGED_HOST_ENV_SECRET_REFUSED };
@@ -142,7 +143,8 @@ test("platforms without a protected store report absence without a store command
   assert.throws(() => store.read("cloudflare-api-token"), (error) => error.code === PROTECTED_SECRET_MISSING && error.storeCommand === null);
 });
 
-test("managed hosts refuse the environment variable even when the protected store holds a value", () => {
+test("managed hosts refuse the environment variable even when the protected store holds a value", (t) => {
+  simulateHostPlatform(t, "darwin");
   const { readKeychain, reads } = fakeKeychain({ "rightkit-cloudflare-api-token": "fake-store-token" });
   const store = createCredentialStore({ env: { USER: "fake-user" }, platform: "darwin", readKeychain });
   assert.throws(() => resolveEnvBackedSecret({ name: "cloudflare-api-token", envName: "CLOUDFLARE_API_TOKEN", env: { ...SOCKET_ENV, CLOUDFLARE_API_TOKEN: "fake-env-token" }, credentialStore: store }), REFUSED);
@@ -160,7 +162,8 @@ test("unmanaged hosts prefer the protected store, then the environment, then fai
   assert.throws(() => resolveCloudflareApiToken({ env: {}, credentialStore: emptyDarwinStore() }), (error) => error.code === PROTECTED_SECRET_MISSING && /store it once with: security add-generic-password/.test(error.message));
 });
 
-test("unmanaged resolution skipped entirely for dry runs; refusal still applies on managed hosts", () => {
+test("unmanaged resolution skipped entirely for dry runs; refusal still applies on managed hosts", (t) => {
+  simulateHostPlatform(t, "darwin");
   const { readKeychain, reads } = fakeKeychain({});
   const store = createCredentialStore({ env: {}, platform: "darwin", readKeychain });
   assert.equal(resolveCloudflareApiToken({ env: {}, credentialStore: store, required: false }), undefined);
@@ -186,7 +189,8 @@ test("R2 add-on publish: the protected token is resolved before the manifest rea
   assert.equal(calls.length, 0);
 });
 
-test("prune: managed hosts refuse the environment token before any Cloudflare request, dry run included", async () => {
+test("prune: managed hosts refuse the environment token before any Cloudflare request, dry run included", async (t) => {
+  simulateHostPlatform(t, "darwin");
   let fetched = 0;
   await withFetch(async () => { fetched += 1; throw new Error("no request expected"); }, async () => {
     for (const dryRun of [false, true]) {
@@ -261,6 +265,7 @@ test("large upload: a real upload with no token fails with the store command bef
 });
 
 test("large upload: dry runs need no token on unmanaged hosts; managed hosts still refuse the environment token", (t) => {
+  simulateHostPlatform(t, "darwin");
   const { file, evidence } = uploadFixture(t);
   const wrangler = fakeWrangler();
   const dry = { RIGHT_RELEASE_UPLOAD_DRY_RUN: "1" };

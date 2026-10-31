@@ -10,6 +10,7 @@ import {
   IOS_DISTRIBUTED_MARKER, IOS_EVIDENCE_NAME, IOS_UPLOADED_MARKER, IosUploadError, authorizeIosUpload, buildUploadJournal, iosUploadPlan, main, resolveAscAppId, runIosUpload, validateIosDistribution,
 } from "./ios-upload.mjs";
 import { readVerifiedArtifact } from "./publication-artifacts.mjs";
+import { simulateHostPlatform } from "./test-support/simulated-host.mjs";
 
 const APP_ID = "6806854037";
 const BUNDLE = "app.heardright.ios.native";
@@ -102,7 +103,8 @@ test("apply is refused off macOS, and --apply with --dry-run is a usage error", 
   assert.equal(await main({ releaseId: RELEASE, apply: true, dryRun: true }), 2);
 });
 
-test("ASC key material in the environment is refused on any host, and ASC variables on a managed host, before anything else", async () => {
+test("ASC key material in the environment is refused on any host, and ASC variables on a managed host, before anything else", async (t) => {
+  simulateHostPlatform(t, "darwin");
   const f = fixture();
   const authorize = () => assert.fail("refused before the seal is even read");
   await assert.rejects(runIosUpload({ ...f.deps, authorize, env: { ...f.deps.env, SOME_VAR: "-----BEGIN " + "PRIVATE KEY-----\nabc" } }), (error) => error.code === "IOS_ASC_ENV_SECRET_REFUSED");

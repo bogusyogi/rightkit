@@ -5,6 +5,7 @@ import {
   ASC_ENV_NAMES, DEFAULT_ASC_SERVICES, IosCredentialsError, checkAscCredentials, parseAscPrivateKey, readAscCredentials,
   refuseIosAscEnv, resolveAscCredentialSource, storeAscCredentials,
 } from "./ios-asc-credentials.mjs";
+import { simulateHostPlatform } from "./test-support/simulated-host.mjs";
 
 const KEY_ID = "ABC123DEFG";
 const ISSUER = "69a6de80-0b1c-47e3-e053-5b8c7c11a4d1";
@@ -60,7 +61,8 @@ test("a key path, key id, issuer, inline key or env name in the credentials bloc
   }
 });
 
-test("key material in ANY environment variable is refused on every host; ASC variable names are refused on managed hosts", () => {
+test("key material in ANY environment variable is refused on every host; ASC variable names are refused on managed hosts", (t) => {
+  simulateHostPlatform(t, "darwin");
   assert.doesNotThrow(() => refuseIosAscEnv({ PATH: "/usr/bin", APPLE_API_KEY_PATH: "/Users/me/AuthKey.p8" }));
   coded("IOS_ASC_ENV_SECRET_REFUSED", () => refuseIosAscEnv({ SOMETHING: EC_PEM }));
   for (const name of ASC_ENV_NAMES) coded("MANAGED_HOST_ENV_SECRET_REFUSED", () => refuseIosAscEnv({ ...MANAGED, [name]: "value" }));
@@ -102,7 +104,8 @@ test("credentials are read on macOS only, and a bad key, key id or issuer fails 
   coded("IOS_ASC_KEY_ID_INVALID", () => readAscCredentials({ env, platform: "darwin", run: badId.run }));
 });
 
-test("a managed host with an ASC variable set refuses before any Keychain read", () => {
+test("a managed host with an ASC variable set refuses before any Keychain read", (t) => {
+  simulateHostPlatform(t, "darwin");
   const keychain = seeded();
   coded("MANAGED_HOST_ENV_SECRET_REFUSED", () => readAscCredentials({ env: { ...env, ...MANAGED, APPLE_API_KEY_PATH: "/x/AuthKey.p8" }, platform: "darwin", run: keychain.run }));
   assert.equal(keychain.calls.length, 0);
