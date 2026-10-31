@@ -114,7 +114,9 @@ export function closureOf({ scopeDirs, npmUnits = [], rustUnits = [], readFile }
     }
   }
   const byDir = new Map(rustUnits.map((u) => [u.dir, u]));
-  const queue = rustUnits.filter((u) => dirs.some((d) => within(u.dir, d)));
+  // A local npm dependency can own native Cargo sources too. Its executing checks & output binding share that same closure.
+  const rustScopes = [...new Set([...dirs, ...dependencyDirs])];
+  const queue = rustUnits.filter((u) => rustScopes.some((d) => within(u.dir, d)));
   for (const u of queue) rust.add(u.name);
   const seen = new Set();
   while (queue.length) {
