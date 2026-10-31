@@ -590,6 +590,16 @@ test("resolveInvocation: Windows .cmd shims take only strictly plain arguments; 
   assert.deepEqual(resolveInvocation("rustright", ["cargo", "a&b"], { platform: "linux" }), { file: "rustright", args: ["cargo", "a&b"], verbatim: false });
 });
 
+test("runner: classAEarlier (the door's compile pass after its once-only class A, rightkit#1328) lets class B run alone; only the caller's explicit option does", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
+  const log = [];
+  const early = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ log }), classes: ["B"], classAEarlier: true }));
+  assert.ok(early.scans.length > 0 && early.scans.every((s) => s.class === "B" && s.code !== "CLASS_A_REQUIRED"), "class B was not refused");
+  assert.ok(early.scans.every((s) => s.class !== "A"), "no class A row ran in this pass");
+  const truthy = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ log }), classes: ["B"], classAEarlier: "yes" }));
+  assert.ok(truthy.scans.every((s) => s.code === "CLASS_A_REQUIRED"), "only `true` counts");
+});
+
 test("runner: class B alone is refused without valid class A evidence, and runs with it", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
   const log = [];
@@ -3145,15 +3155,16 @@ test("[rightkit#1327] under the gate's cargo wrapper the enrolled cargo-deny dir
   t.after(() => rmSync(sentinel, { recursive: true, force: true }));
   const seen = [];
   const spawn = (command, args, options) => { seen.push({ command, args, env: options?.env }); return fakeSpawn()(command, args, options); };
-  const env = { PATH: "/w/shim/bin:/usr/bin", CARGO: "/w/shim/bin/cargo" };
+  // PATH in this host's own form: the gate splits and joins it with the host's delimiter (";" on Windows).
+  const env = { PATH: ["/w/shim/bin", "/usr/bin"].join(path.delimiter), CARGO: "/w/shim/bin/cargo" };
   const wrapped = await runScans(plan, deps({ ...fs, classes: ["A"], spawn, env, cargoSentinel: sentinel }));
   assert.equal(wrapped.scans.find((s) => s.id === "cargo-deny").status, "pass");
   const denyRun = seen.find((c) => c.args.includes("deny") && c.args.includes("check"));
-  assert.deepEqual(denyRun.env.PATH.split(":"), ["/w/shim/bin", "/opt/rk-tools/cargo-deny", "/usr/bin"], denyRun.env.PATH);
+  assert.deepEqual(denyRun.env.PATH.split(path.delimiter), ["/w/shim/bin", "/opt/rk-tools/cargo-deny", "/usr/bin"], denyRun.env.PATH);
   // Without a wrapper the enrolled directory still leads: cargo finds the enrolled cargo-deny before any other.
   seen.length = 0;
   await runScans(plan, deps({ ...fs, classes: ["A"], spawn, env }));
-  assert.equal(seen.find((c) => c.args.includes("deny") && c.args.includes("check")).env.PATH.split(":")[0], "/opt/rk-tools/cargo-deny");
+  assert.equal(seen.find((c) => c.args.includes("deny") && c.args.includes("check")).env.PATH.split(path.delimiter)[0], "/opt/rk-tools/cargo-deny");
 });
 
 test("[RA-18] options.cargoReadsCarried === true makes cargo-deny and cargo-audit broker-carried (no local enrolment, source broker, no PATH prefix, no cache) and waives nothing else; false, absent or non-boolean change nothing", async () => {
