@@ -6,7 +6,7 @@ import test from "node:test";
 import { tempRoot } from "./test-support/temp-roots.mjs";
 import { qualificationNonce } from "./provenance-verify.mjs";
 import { AGENT_SHIM_MARKER } from "./broker-client.mjs";
-import { readBrokerReceipt, releaseUnit, resolveUnit, runUnitGate, writeQualification } from "./unit-gate.mjs";
+import { readBrokerReceipt, releaseUnit, resolveUnit, runUnitGate, trustedCoordinator, writeQualification } from "./unit-gate.mjs";
 
 const commit = "a".repeat(40), tree = "b".repeat(40);
 const unit = { kind: "npm", name: "@rightkit/demo", version: "1.0.0" };
@@ -61,7 +61,7 @@ test("release stage: the gate owns pre-flight, broker dispatch, the wait and the
   const artifact = { artifactSha256: "1".repeat(64) };
   const qualification = path.join(tempRoot("unit-qualification-"), "qualification.json");
   fs.writeFileSync(qualification, "{}");
-  const base = { unit, root: "/repo", commit, executor: { kind: "broker" }, env: { RK_GATE_RUN: "x" }, artifact, qualification, platform: "darwin", out: () => {}, scratch: tempRoot("unit-release-") };
+  const base = { unit, root: "/repo", commit, tree, coordinator: { file: "/repo/scripts/ci/rk-pipeline.mjs", sha256: "e".repeat(64) }, executor: { kind: "broker" }, env: { RK_GATE_RUN: "x" }, artifact, qualification, platform: "darwin", out: () => {}, scratch: tempRoot("unit-release-") };
   const row = { unit: unit.name, version: unit.version, published: true, registryVerified: true, outcome: "published", sha256: "2".repeat(64), sha1: "s1" };
   // As upload.mjs writes it: runId/runAttempt are the upload run's; `candidate` names the qualification run it consumed.
   const meta = { schema: 1, registry: "npm", dryRun: false, commit, repository: "bogusyogi/rightkit", runId: "20", runAttempt: "1", promotionCommit: commit, candidate: { id: "qualified-10-1", source: "qualified", sourceSha: commit, runId: "10", runAttempt: "1" } };
@@ -81,13 +81,13 @@ test("release stage: the gate owns pre-flight, broker dispatch, the wait and the
     const readJson = () => ({ dispatches: { k: states[Math.min(reads++, states.length - 1)] } });
     return { ...f, calls, run, readJson, registryBytes: async () => served };
   };
-  const dispatched = { unit: unit.name, sha: commit, registry: "npm", runId: 10, runAttempt: 1, requestId: "req" };
+  const dispatched = { unit: unit.name, sha: commit, tree, artifactSha256: artifact.artifactSha256, registry: "npm", runId: 10, runAttempt: 1, requestId: "req" };
   const published = { ...dispatched, status: "published", version: unit.version, uploadRunId: 20 };
   // success: order and the reported record
   let f = make({ states: [dispatched, published] });
   const ok = await releaseUnit({ ...base, ...f });
   assert.deepEqual(f.calls.slice(0, 5), ["canary", "preflight", "dispatch", "watch", "gh:api"]);
-  assert.deepEqual(f.dispatches[0], ["dispatch", unit.name, "--registry", "npm", "--qualification", qualification], "the dispatch carries the gate's qualification receipt");
+  assert.deepEqual(f.dispatches[0], ["dispatch", unit.name, "--registry", "npm", "--sha", commit, "--qualification", qualification], "the dispatch carries the candidate's commit and the gate's qualification receipt as explicit inputs");
   // no qualification receipt: nothing runs, not even the canary
   const g = make({ states: [dispatched, published] });
   await assert.rejects(releaseUnit({ ...base, ...g, qualification: undefined }), /qualification receipt/);
@@ -340,7 +340,7 @@ test("[M6] readBrokerReceipt starts the client the way every gate child does: on
   assert.throws(() => readBrokerReceipt("j", { run, platform: "win32", readFile: () => "@echo off\r\ncalc\r\n" }), /cannot report job j/);
 });
 
-test("[M5] releaseUnit runs rk-pipeline from the PRIMARY CHECKOUT, never from the managed snapshot, and only when HEAD is the qualified commit", async () => {
+test("[M5] releaseUnit runs the INSTALLED coordinator with the PRIMARY CHECKOUT as its working directory, never from the managed snapshot, and only when HEAD is the qualified commit", async () => {
   const qualification = path.join(tempRoot("unit-qualification-m5-"), "qualification.json"); fs.writeFileSync(qualification, "{}");
   const snapshot = "/managed/snapshots/abc/snap", checkout = "/primary/rightkit";
   const calls = [];
@@ -356,8 +356,8 @@ test("[M5] releaseUnit runs rk-pipeline from the PRIMARY CHECKOUT, never from th
   const pipelineCalls = calls.filter((c) => c.cmd !== "git");
   assert.ok(pipelineCalls.length >= 1);
   for (const c of pipelineCalls) {
-    assert.equal(c.args[0], path.join(checkout, "scripts", "ci", "rk-pipeline.mjs"), "the primary checkout's pipeline script");
-    assert.equal(c.cwd, checkout, "from the primary checkout");
+    assert.equal(c.args[0], trustedCoordinator().file, "the gate's own installed coordinator (GB-07), not the primary checkout's file");
+    assert.equal(c.cwd, checkout, "the primary checkout is the working directory (the control plane)");
     assert.ok(!c.args[0].startsWith(snapshot) && !String(c.cwd).startsWith(snapshot), "never from inside the snapshot");
   }
   // HEAD elsewhere: the pre-flight and the dispatch would prove another commit; nothing starts.
@@ -510,11 +510,11 @@ test("[GB-07] unit release refuses to start the coordinator from a primary check
     return { status: 1, stdout: "", stderr: "stop here" };
   }; return { calls, run }; };
   const base = (run) => ({ unit, root: "/snap/commit", checkout: "/repo", commit, executor: { kind: "broker" }, env: {}, artifact: { artifactSha256: "1".repeat(64) }, qualification, platform: "darwin", out: () => {}, scratch: tempRoot("unit-release-"), run });
-  // Clean and at the commit: the coordinator starts from the primary checkout (cwd too).
+  // Clean and at the commit: the gate's installed coordinator starts with the primary checkout as its working directory (GB-07: never the checkout's own copy).
   const clean = make();
   await assert.rejects(releaseUnit(base(clean.run)), /canary/);
   const started = clean.calls.find((c) => c.args[0]?.endsWith("rk-pipeline.mjs"));
-  assert.equal(started.args[0], path.join("/repo", "scripts", "ci", "rk-pipeline.mjs")); assert.equal(started.cwd, "/repo");
+  assert.equal(started.args[0], trustedCoordinator().file); assert.equal(started.cwd, "/repo");
   // A modified tracked file, or an untracked one beside the coordinator: nothing is dispatched, the coordinator never starts.
   for (const [name, over] of [["a modified tracked file", { tracked: " M scripts/ci/rk-pipeline.mjs\n" }], ["an untracked sibling the coordinator could import", { scoped: "?? scripts/ci/rk-evil.mjs\n" }]]) {
     const dirty = make(over);

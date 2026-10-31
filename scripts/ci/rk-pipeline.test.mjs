@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 import test from "node:test";
 import { packageRows } from "./rk-npm-preflight.mjs";
-import { openClaim, needsReconcile, acquireLock, releaseLock, closureOf, dispatchRefusal, holdReason, satisfiesAny, readiness, allowsetsFor, cmdCanary, cmdDispatch, cmdLoop, cmdPreflight, cmdWatch, matchingUploadRuns, uploadRunsQuery, parseArgs, readQualification, registryVersion, satisfies, stateKey, waves, hostedRunsInFlight } from "./rk-pipeline.mjs";
+import { dispatchIdentity, explicitShaRefusal, openClaim, needsReconcile, acquireLock, releaseLock, closureOf, dispatchRefusal, holdReason, satisfiesAny, readiness, allowsetsFor, cmdCanary, cmdDispatch, cmdLoop, cmdPreflight, cmdWatch, matchingUploadRuns, uploadRunsQuery, parseArgs, readQualification, registryVersion, satisfies, stateKey, waves, hostedRunsInFlight } from "./rk-pipeline.mjs";
 const SHA = "f".repeat(40);
 const index = (...versions) => new Map(versions.map((v) => [v, { yanked: false, cksum: "0".repeat(64) }]));
 
@@ -718,4 +718,27 @@ test("[GB-46] coordinator lock: published complete or not at all; pause between 
   assert.throws(() => acquireLock(lock, { ...idle, pid: 32, alive: () => true }), /another coordinator \(pid 31\)/);
   acquireLock(lock, { ...idle, pid: 32, alive: () => false });
   assert.equal(JSON.parse(fs.readFileSync(lock, "utf8")).pid, 32);
+});
+
+test("[GB-07] --sha is the candidate's commit as an explicit input: it parses, HEAD must be exactly it for canary, preflight and dispatch (nothing starts otherwise), and no --sha keeps the old behaviour", async () => {
+  const SHA40 = "c".repeat(40), OTHER = "d".repeat(40);
+  assert.equal(parseArgs(["dispatch", "u", "--sha", SHA40]).sha, SHA40);
+  assert.equal(parseArgs(["dispatch", "u"]).sha, undefined);
+  assert.throws(() => parseArgs(["dispatch", "u", "--sha", "abc"]), /full lowercase commit id/);
+  assert.equal(explicitShaRefusal({ sha: SHA40 }, SHA40), null);
+  assert.match(explicitShaRefusal({ sha: SHA40 }, OTHER), /not the explicit candidate commit/);
+  assert.equal(explicitShaRefusal({}, OTHER), null);
+  let started = false;
+  const check = async () => { started = true; return { code: 0, out: "" }; };
+  const head = () => OTHER;
+  for (const [cmd, extra] of [[cmdCanary, { canary: async () => { started = true; return { code: 0 }; } }], [cmdPreflight, { preflightMany: async () => { started = true; return new Map(); } }], [cmdDispatch, { planFn: async () => { started = true; return { units: [] }; }, inFlight: async () => { started = true; return 0; } }]]) {
+    assert.equal(await cmd({ registry: "npm", units: ["@rightkit/release"], sha: SHA40 }, { head, check, ...extra }), 2);
+    assert.equal(started, false, "another HEAD than the explicit commit starts nothing, not even the check");
+  }
+});
+
+test("[GB-07] a dispatch record keeps the candidate's tree and artifact digest from the qualification receipt it was dispatched with", () => {
+  const q = { commit: "c".repeat(40), tree: "e".repeat(40), artifactSha256: "9".repeat(64), unit: { kind: "npm", name: "@rightkit/release", version: "1.2.3" } };
+  assert.deepEqual(dispatchIdentity(q), { tree: "e".repeat(40), artifactSha256: "9".repeat(64) });
+  assert.deepEqual(dispatchIdentity({}), { tree: undefined, artifactSha256: undefined });
 });

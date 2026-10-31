@@ -38,6 +38,7 @@ export function parseArgs(argv) {
     const arg = rest[i];
     if (arg === "--registry") opts.registry = rest[++i];
     else if (arg === "--qualification") opts.qualification = rest[++i];
+    else if (arg === "--sha") opts.sha = rest[++i]; // GB-07: the candidate's commit as an explicit input (the gate's release); HEAD must be exactly it
     else if (arg === "--jobs") opts.jobs = Number(rest[++i]);
     else if (arg === "--wait") opts.wait = true;
     else if (arg.startsWith("--")) throw new Error(`unknown argument ${arg}`);
@@ -46,6 +47,7 @@ export function parseArgs(argv) {
   if (!["ready", "preflight", "canary", "dispatch", "watch", "loop"].includes(command)) throw new Error("command must be ready, preflight, canary, dispatch, watch or loop");
   if (!["crates", "npm"].includes(opts.registry) && !(command === "loop" && opts.registry === "all")) throw new Error("--registry must be crates or npm (loop also accepts all)");
   if (!Number.isInteger(opts.jobs) || opts.jobs < 1) throw new Error("--jobs must be a positive integer");
+  if (opts.sha !== undefined && !/^[0-9a-f]{40}$/.test(opts.sha)) throw new Error("--sha must be a full lowercase commit id");
   opts.units = [...new Set(opts.units)];
   return opts;
 }
@@ -191,6 +193,9 @@ export function readQualification(file, { sha, units, registry, readFile = (f) =
   if (!/^[0-9a-f]{64}$/.test(q.artifactSha256 ?? "") || q.stages.qualify.artifactSha256 !== q.artifactSha256 || q.stages.package.artifactSha256 !== q.artifactSha256) throw new Error("qualification receipt does not bind one artifact sha256 across package and qualify");
   return { file: path.resolve(file), ...q };
 }
+
+/** GB-07: what a dispatch record keeps of the candidate beside its commit, so a retry reconciles by the same commit, tree and artifact digest (the gate's releaseUnit refuses a record that names another or none). */
+export const dispatchIdentity = (qualification) => ({ tree: qualification.tree, artifactSha256: qualification.artifactSha256 });
 
 export function receiptFor(unit, sha, out = DEFAULT_OUT) {
   const file = path.join(out, sha, `${unit.replaceAll("/", "__")}.json`);
@@ -348,11 +353,18 @@ async function runCanaryChild(unit, sha) {
   return { code: r.code, last };
 }
 
+/** GB-07: a call made with an explicit candidate commit (`--sha`, from the gate's release) proves and dispatches exactly that commit: another HEAD refuses before anything starts. */
+export function explicitShaRefusal(opts, sha) {
+  return opts.sha !== undefined && opts.sha !== sha ? `HEAD ${String(sha).slice(0, 12)} is not the explicit candidate commit ${opts.sha.slice(0, 12)} (--sha); nothing was started` : null;
+}
+
+
 export async function cmdCanary(opts, deps = {}) {
   if (!opts.units.length) { fail("name at least one unit"); return 2; }
   // P1: the canary is expensive work (it builds and runs every app against the candidate); the check runs first, on the same commit.
   const head = deps.head ?? (() => git("rev-parse", "HEAD"));
   const sha = head();
+  { const refused = explicitShaRefusal(opts, sha); if (refused) { fail(refused); return 2; } }
   if (!(await checkPasses(deps.check ?? runCheckChild, sha, head))) return 1;
   let worst = 0;
   for (const unit of opts.units) {
@@ -371,6 +383,7 @@ export async function cmdPreflight(opts, deps = {}) {
   }
   const head = deps.head ?? (() => git("rev-parse", "HEAD"));
   const sha = head();
+  { const refused = explicitShaRefusal(opts, sha); if (refused) { fail(refused); return 2; } }
   if (!(await checkPasses(deps.check ?? runCheckChild, sha, head))) return 1;
   const results = await (deps.preflightMany ?? preflightMany)(opts.units, opts);
   // The pre-flight children (digest-pinned) read HEAD themselves: results from a moved HEAD prove nothing about the checked commit.
@@ -385,6 +398,7 @@ export async function cmdDispatch(opts, deps = {}) {
   }
   const head = deps.head ?? (() => git("rev-parse", "HEAD"));
   const sha = head();
+  { const refused = explicitShaRefusal(opts, sha); if (refused) { fail(refused); return 2; } }
   // P1: a dispatch starts hosted runners; the check runs first, on the commit it dispatches, whatever pre-flight receipts say.
   if (!(await checkPasses(deps.check ?? runCheckChild, sha, head))) return 1;
   // Runner-aware (Adrian, 2026-10-26: "managed properly with how many runners are available"): every hosted qualification takes one
@@ -433,7 +447,7 @@ export async function cmdDispatch(opts, deps = {}) {
       fail(`${unit}: attempt already recorded as ${previous.status}; reconcile it before retrying`); exit = 1; continue;
     }
     // Persist intent before external effect. Ambiguous POST/discovery failures must never auto-retry.
-    state.dispatches[key] = { unit, registry: opts.registry, sha, version: planned.version, status: "dispatching", ownerPid: process.pid, attempts: 1, dispatchedAt: new Date().toISOString() };
+    state.dispatches[key] = { unit, registry: opts.registry, sha, ...dispatchIdentity(qualification), version: planned.version, status: "dispatching", ownerPid: process.pid, attempts: 1, dispatchedAt: new Date().toISOString() };
     writeState(state);
     if (inFlight >= maxInFlight) { fail(`hold: ${unit} not dispatched, ${inFlight} hosted publish run(s) in flight, limit ${maxInFlight}; run again when one ends`); exit = exit || 3; const held = readState(); delete held.dispatches[key]; writeState(held); break; }
     const nonce = crypto.randomBytes(32).toString("hex");
@@ -457,7 +471,7 @@ export async function cmdDispatch(opts, deps = {}) {
     }
     const current = readState();
     const prior = (current.dispatches[key]?.attempts ?? 1) - 1;
-    current.dispatches[key] = { unit, version: planned.version, runAttempt: record.runAttempt, registry: opts.registry, sha, runId: record.runId, runUrl: record.runUrl, requestId: record.requestId, brokerRequest: request, nonce, attempts: prior + 1, dispatchedAt: record.dispatchedAt, status: "dispatched" };
+    current.dispatches[key] = { unit, version: planned.version, runAttempt: record.runAttempt, registry: opts.registry, sha, ...dispatchIdentity(qualification), runId: record.runId, runUrl: record.runUrl, requestId: record.requestId, brokerRequest: request, nonce, attempts: prior + 1, dispatchedAt: record.dispatchedAt, status: "dispatched" };
     writeState(current);
     log(`dispatched ${unit}: run ${record.runId} (${record.runUrl ?? "no url"}), broker request ${request}, attempt ${prior + 1}`);
     inFlight += 1;
