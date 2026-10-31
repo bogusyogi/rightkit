@@ -10,7 +10,9 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { buildCrateUploadMetadata, readCargoMetadata } from "./publish.mjs";
-import { CRATES_PUBLISH_URL, buildCratePublishBody, parseCratesResponse, sha, waitForCrateIndex } from "./upload.mjs";
+import { CRATES_PUBLISH_URL, buildCratePublishBody, childEnv, parseCratesResponse, sha, waitForCrateIndex } from "./upload.mjs";
+
+const spawn = (command, args, options = {}) => spawnSync(command, args, { ...options, env: childEnv(options.env ?? process.env) });
 
 const [outDir, ...crates] = process.argv.slice(2);
 const token = process.env.CARGO_REGISTRY_TOKEN;
@@ -21,10 +23,10 @@ for (const name of crates) {
   const bytes = fs.readFileSync(record.archive);
   if (sha("sha256", bytes) !== record.sha256) throw new Error(`${name}: archive changed since it was packaged and checked`);
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "rk-owner-"));
-  const unpack = spawnSync("tar", ["-xzf", record.archive, "-C", scratch], { encoding: "utf8" });
+  const unpack = spawn("tar", ["-xzf", record.archive, "-C", scratch], { encoding: "utf8" });
   if (unpack.status !== 0) throw new Error(`${name}: cannot unpack ${record.archive}`);
   const inner = path.join(scratch, `${name}-${record.version}`);
-  const pkg = readCargoMetadata(inner, spawnSync, ["--manifest-path", path.join(inner, "Cargo.toml")]).packages.find((p) => p.name === name && p.version === record.version);
+  const pkg = readCargoMetadata(inner, spawn, ["--manifest-path", path.join(inner, "Cargo.toml")]).packages.find((p) => p.name === name && p.version === record.version);
   if (!pkg) throw new Error(`${name}: packaged Cargo.toml does not describe ${name}@${record.version}`);
   const readme = pkg.readme ? fs.readFileSync(path.join(inner, pkg.readme), "utf8") : null;
   const body = buildCratePublishBody(JSON.stringify(buildCrateUploadMetadata(pkg, readme)), bytes);
