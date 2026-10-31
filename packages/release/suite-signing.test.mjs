@@ -234,6 +234,13 @@ test("sources: `from` must be a suite that ran; a path may not leave the receipt
   assert.equal(code(() => run(f, fakeMac(), { env: {} })), "SIGN_RECEIPT_MISSING");
 });
 
+test("direct host: with the gate's pinned output directories and no carrier, the suite's file is signed as a copy from that directory", (t) => {
+  const f = fixture(t);
+  const out = run(f, fakeMac(), { env: { RIGHTKIT_GATE_TARGET_DIRS: JSON.stringify([f.outputDir]) } });
+  assert.ok(out.appBinary && !out.appBinary.startsWith(f.outputDir), out.appBinary);
+  assert.equal(fs.readFileSync(path.join(f.outputDir, "aarch64-apple-darwin", "debug", "rightapp"), "utf8"), "UNSIGNED-MAIN", "the source bytes never change");
+});
+
 test("sources: the signed copy never lives in the snapshot, the checkout or a broker output directory", (t) => {
   const f = fixture(t);
   for (const inside of [path.join(f.snapshot, "signed"), path.join(f.checkout, "signed"), path.join(f.outputDir, "signed")]) {

@@ -34,6 +34,7 @@ import { signMacosEntries } from "./mac-sign-core.mjs";
 import { runMacCodesignCommands } from "./macos-signing-session.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
 import { isInside, realish } from "./qa-snapshot.mjs";
+import { GATE_TARGET_DIRS_ENV } from "./qa-layout.mjs";
 import { requireSignerToken, signWindowsFiles, verifyWindowsFiles } from "./sign-windows.mjs";
 import { QA_APP_BINARY_ENV, QA_SIGNED_FILES_ENV, SIGN_SUBJECT, SIGN_TEAM, SuiteSigningError, assertBundleIdMatches, containedRelative, productIdentity } from "./suite-signing-policy.mjs";
 
@@ -164,7 +165,9 @@ export function runSignStep({ name, sign, appRoot, config, env = process.env, pl
     const { identifier, mainBinaryName } = productIdentity({ readFile: read, manifestPath: install.manifestPath });
     assertBundleIdMatches(config, identifier);
     // 2. Where each file comes from.
-    if (!carried?.map) refuse("SIGN_RECEIPT_MISSING", `${name}: no carried receipts in this environment (${carried?.error ?? "RIGHTKIT_CARRIED_CARGO_MAP is not set"}); a sign step signs a file named by an earlier suite's signed receipt`);
+    // A broker host names a suite's outputs by its carried receipts; a direct host by the output directories the gate pinned for the stage
+    // (RIGHTKIT_GATE_TARGET_DIRS, test-command.mjs). With neither, nothing says where a suite's files are, and nothing is signed.
+    if (!carried?.map && !env[GATE_TARGET_DIRS_ENV]) refuse("SIGN_RECEIPT_MISSING", `${name}: no carried receipts in this environment (${carried?.error ?? "RIGHTKIT_CARRIED_CARGO_MAP is not set"}) and no gate-pinned output directories (${GATE_TARGET_DIRS_ENV}); a sign step signs a file an earlier suite built`);
     if (typeof outputDirsOf !== "function") refuse("SIGN_RECEIPT_MISSING", `${name}: the run has no receipt reader`);
     const sources = sign.files.map((item, index) => {
       const file = { ...item, path: containedRelative(item.path, `${name}.files[${index}].path`) };
