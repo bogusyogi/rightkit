@@ -8,7 +8,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test from "./test-support/broker-test.mjs";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend, brokerLeaseState } from "./build-ownership.mjs";

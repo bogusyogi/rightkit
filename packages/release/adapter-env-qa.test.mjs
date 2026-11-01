@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test from "./test-support/broker-test.mjs";
 import { fileURLToPath } from "node:url";
 import { ADAPTER_ENV_MANIFEST, ADAPTER_ENV_RESERVED, ADAPTER_ENV_SIGNING_FILE, ADAPTER_ENV_UNSET, ADAPTER_ENV_VAR, SIGNING_FILE_ENV, adapterEnvLaunch, forwardedAdapterEnv, isReservedAdapterEnvKey, isSigningFileEnvKey, withoutSigningEnv } from "./adapter-env.mjs";
 import { readLedger, UNSCOPED } from "./cargo-ledger.mjs";

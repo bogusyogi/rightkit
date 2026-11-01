@@ -6,7 +6,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test from "./test-support/broker-test.mjs";
 import { BUILD_LAUNCH_REFUSED, buildLaunch } from "./build-launch.mjs";
 import { SWIFT_SCRATCH_REFUSED, swiftScratchOption, swiftScratchRefusal } from "./swift-scratch.mjs";
 import { spawnSync } from "./background-process.mjs";

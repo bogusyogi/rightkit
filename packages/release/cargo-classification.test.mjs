@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test from "./test-support/broker-test.mjs";
 import { GATE_EXTERNAL_COMMANDS, carriedShapeDecision, classifyCargoArgv } from "./cargo-shapes.mjs";
 import { WRAPPER_COMMANDS } from "./cargo-target-shim.mjs";
 import { acquireBuildOwnership, brokerLeaseState } from "./build-ownership.mjs";

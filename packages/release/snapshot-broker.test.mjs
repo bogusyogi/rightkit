@@ -12,7 +12,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test from "./test-support/broker-test.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath } from "node:url";
 import { SCAN_TOKEN_ENV, appendLedger, readLedger, scanTokenOf, unclaimedLedgers } from "./cargo-ledger.mjs";
