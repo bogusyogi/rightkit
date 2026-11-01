@@ -9,6 +9,9 @@
 //!
 //! The types here are plain data so a host can fill them from whatever skill format it owns.
 
+#[allow(missing_docs)]
+pub mod skill_host;
+
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
