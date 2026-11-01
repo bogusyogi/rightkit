@@ -1632,6 +1632,15 @@
         "README.md": "66ebdb971f0abd4fc4e4bca0e67c6264bd6e9ee1c0873568c73744c694f91c77",
         "src/main.rs": "b5c4e08aa4ac47506bf22eac31a70e4aa049b2c40fe7d2ef21ef079fb72a33d8"
       }
+    },
+    "rightkit-pipeline": {
+      "pkId": "PK60",
+      "id": "ci/consumers/rightkit-pipeline/src/main.rs",
+      "files": {
+        "Cargo.toml": "ea81f9034614f6e78ca7eea9c7d67e28b4213e729bd13fcd888adbf0fc4c765f",
+        "README.md": "4cde8c62d876108f131d57bd93dab4df2ea8796ca43e3ae270e60454a48dca5b",
+        "src/main.rs": "2feb88526a133e54c81c6bd93325f358266abd2e3e35e4f2bf1170abc8553635"
+      }
     }
   }
 }

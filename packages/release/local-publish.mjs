@@ -409,12 +409,14 @@ function testEnv(deps, isAssetGated) {
   return { ...inherited, RIGHTKIT_REQUIRE_ASSETS: isAssetGated ? "0" : "1", RIGHTKIT_ISOLATED_CHECKOUT: "1", CARGO_TERM_COLOR: "never" };
 }
 
-function assertLocalHost(deps, workspaceRoot, kind) {
+function assertLocalHost(deps, workspaceRoot, kind, { qualifyOnly = false, unit = null } = {}) {
   const platform = deps.platform ?? process.platform;
   if (!(deps.localBuildGranted ?? localBuildGranted)(workspaceRoot)) refuse(`--local needs the local-build grant: a committed ${LOCAL_BUILD_FILE} (allow "build-test-publish") naming this repository at ${workspaceRoot}`);
   if (!Object.hasOwn(LOCAL_HOST_POLICIES, platform)) refuse(`--local runs on the Mac (host policy: darwin-only), Windows (host policy: win32-only) or a Linux direct origin (linux-direct); this host is ${platform}`);
-  // The npm path reads the registry token from the macOS Keychain and ships a Developer-ID-signed helper: Mac only.
-  if (kind === "npm" && platform !== "darwin") refuse(`publish npm --local needs the macOS Keychain npm token and runs on the Mac only; Windows publishes crates (publish cargo --local); this host is ${platform}`);
+  // The npm upload reads the registry token from the macOS Keychain and @rightkit/release ships a Developer-ID-signed helper: Mac only.
+  // A Linux direct origin only qualifies (no token; the upload is publish.yml, GB-29), so it may qualify every other npm package.
+  const linuxNpmQualify = platform === "linux" && qualifyOnly && unit !== SWAP_HELPER_PACKAGE;
+  if (kind === "npm" && platform !== "darwin" && !linuxNpmQualify) refuse(`publish npm --local needs the macOS Keychain npm token and runs on the Mac only; Windows publishes crates (publish cargo --local); this host is ${platform}`);
   return platform;
 }
 
@@ -584,7 +586,7 @@ async function* publishUnitStages(parsed, deps, batch) {
 
 
   // 1. Preconditions, fail closed.
-  const platform = assertLocalHost(deps, workspaceRoot, kind);
+  const platform = assertLocalHost(deps, workspaceRoot, kind, { qualifyOnly: parsed.qualifyOnly, unit: parsed.unit });
   if (platform === "linux" && !parsed.qualifyOnly) refuse("a Linux direct origin qualifies only (--qualify-only); the upload is publish.yml with admission=direct (GB-29, rightkit#1341)");
   if (parsed.qualifyOnly && fs.existsSync(parsed.bundleDir)) refuse(`qualification bundle already exists: ${parsed.bundleDir}`);
   const dir = kind === "npm" ? `packages/${unit.slice("@rightkit/".length)}` : `crates/${unit}`;
