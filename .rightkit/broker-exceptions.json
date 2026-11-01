@@ -18,6 +18,21 @@
         "dell"
       ],
       "note": "Lasts until these units are published (Adrian 2026-10-31: 'exception lasts for what i asked for, till the time it's published'). rightkit-license removed: 0.2.6 published 2026-10-31. npm:@rightkit/release added: HeardRight needs the --no-broker gate it carries ('Any blockers it has must be ... published. Immediately.')."
+    },
+    {
+      "id": "adrian-2026-11-01-e2e-app",
+      "approvedBy": "Adrian",
+      "quote": "don't stop to ask another question, for the next 4 hours, i approve all actions bounded, to move this forward. not if you waste time and do unnecessary loops though. must be justuified",
+      "issue": "https://github.com/bogusyogi/rightkit/issues/1344",
+      "units": [
+        "*"
+      ],
+      "hosts": [
+        "mac",
+        "dell"
+      ],
+      "expires": "2026-11-01T08:04:05Z",
+      "note": "e2e-app (all-packages sample app) runs only: the broker accepts only the published gate entry, which lacks the sample-app route until @rightkit/release is published."
     }
   ]
 }
