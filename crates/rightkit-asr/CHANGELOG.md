@@ -3,6 +3,10 @@
 All notable changes to `rightkit-asr`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.3.5 (unreleased)
+
+- New `kws` module, moved from HeardRight's vendored copy: streaming Zipformer2 keyword spotting on `rightkit-onnx` (Rust port of the Sherpa-ONNX 1.13.4 spotter with kaldi-native-fbank features). Additive; no feature gate.
+
 ## 0.3.4 (unreleased)
 
 - New `onnx-tdt` feature and `onnx_tdt` module, moved from HeardRight `heardright-onnx-asr`: ONNX Runtime execution for Parakeet TDT (mel, encoder and decoder-joint sessions, per-stage threading, DirectML adapter preference, batched decoder runs).
