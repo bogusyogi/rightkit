@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-transcript-library"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Transcript library: delivery records (outcome, target, timings, source), history store contract with filters, paging, retention, scoped deletes and an in-memory store."
@@ -13,10 +13,25 @@ include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LI
 name = "rightkit_transcript_library"
 path = "src/lib.rs"
 
+[features]
+# The encrypted SQLite store (SQLCipher), key rotation, legacy JSON migration and lost-key recovery.
+# The application selects the SQLCipher build by enabling a `sqlcipher*` feature of rightkit-db itself
+# (`sqlcipher` with vendored OpenSSL on Windows, `sqlcipher-system` on Apple); this feature only
+# compiles the keyed-open and rekey paths.
+sqlcipher = ["dep:rightkit-db", "rightkit-db/cipher"]
+# Compiles the test-only fault-injection switches. Never in a release build.
+test-mode = []
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 http = "1"
+rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "digest"], path = "../rightkit-fs" }
+
+rightkit-db = { version = "0.5.3", default-features = false, features = ["statement-cache"], optional = true, path = "../rightkit-db" }
+
+[dev-dependencies]
+rightkit-db = { version = "0.5.3", default-features = false, features = ["bundled"], path = "../rightkit-db" }
 
 [workspace]
 
