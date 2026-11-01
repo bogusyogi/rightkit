@@ -2,7 +2,7 @@
 //!
 //! Pipeline (all Rust, no Swift, nothing Node/Python at runtime):
 //!
-//! 1. [`analyze`]: sample frames with the editing ffmpeg (reduced fps/size, raw RGB), detect
+//! 1. [`analyze()`](fn@analyze): sample frames with the editing ffmpeg (reduced fps/size, raw RGB), detect
 //!    faces with YuNet through ONNX Runtime (CoreML on macOS, DirectML on Windows, CPU
 //!    fallback — [`ort_rt`]), track them ([`tracker`]), pick the active speaker from VAD
 //!    speech spans plus per-face mouth-region motion energy, fall back to motion saliency

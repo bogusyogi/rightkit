@@ -94,7 +94,7 @@ pub fn sanitize_out_name(name: &str) -> Result<String, ProjectError> {
     }
 }
 
-/// Resolves the encoder against what the bundled ffmpeg lists (see [`crate::encoders`]):
+/// Resolves the encoder against what the bundled ffmpeg lists (see [`rightkit_ffmpeg::encoders`]):
 /// `auto` takes the platform order; an explicit choice must be listed.
 pub fn resolve_encoder(
     choice: EncoderChoice,
