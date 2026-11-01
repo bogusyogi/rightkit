@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T10:17:16Z",
-  "rightkitHead": "890133f",
+  "generatedAt": "2026-11-01T10:17:32Z",
+  "rightkitHead": "8df3c35",
   "legend": [
     {
       "state": "adopted",
@@ -22438,7 +22438,7 @@
       "private": false,
       "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-apple-ops",
       "toMoveFrom": {},
       "cells": {
@@ -22706,7 +22706,7 @@
       "private": false,
       "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-autoedit",
       "toMoveFrom": {},
       "cells": {
@@ -23527,7 +23527,7 @@
       "private": false,
       "source": "0.2.2",
       "registry": "0.2.0",
-      "staged": "0.2.1",
+      "staged": "0.2.2",
       "dir": "crates/rightkit-compose",
       "toMoveFrom": {},
       "cells": {
@@ -23661,7 +23661,7 @@
       "private": false,
       "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-content-plan",
       "toMoveFrom": {},
       "cells": {
@@ -25687,7 +25687,7 @@
       "private": false,
       "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-document-workspace",
       "toMoveFrom": {},
       "cells": {
@@ -25821,7 +25821,7 @@
       "private": false,
       "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-engine-host",
       "toMoveFrom": {},
       "cells": {
@@ -26574,7 +26574,7 @@
       "private": false,
       "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-github",
       "toMoveFrom": {},
       "cells": {
@@ -27143,7 +27143,7 @@
       "private": false,
       "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-library",
       "toMoveFrom": {},
       "cells": {
@@ -27512,7 +27512,7 @@
       "private": false,
       "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-mail",
       "toMoveFrom": {},
       "cells": {
@@ -27646,7 +27646,7 @@
       "private": false,
       "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-media-fetch",
       "toMoveFrom": {},
       "cells": {
@@ -28048,7 +28048,7 @@
       "private": false,
       "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-mesh",
       "toMoveFrom": {},
       "cells": {
@@ -28184,7 +28184,7 @@
       "private": false,
       "source": "0.2.1",
       "registry": "0.2.0",
-      "staged": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-motion",
       "toMoveFrom": {},
       "cells": {
@@ -28787,7 +28787,7 @@
       "private": false,
       "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-pipeline",
       "toMoveFrom": {},
       "cells": {
@@ -29673,7 +29673,7 @@
       "private": false,
       "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-research",
       "toMoveFrom": {},
       "cells": {
@@ -30075,7 +30075,7 @@
       "private": false,
       "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-shorts",
       "toMoveFrom": {},
       "cells": {
@@ -30223,7 +30223,7 @@
       "private": false,
       "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-social-analytics",
       "toMoveFrom": {},
       "cells": {
@@ -30290,7 +30290,7 @@
       "private": false,
       "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-social-inbox",
       "toMoveFrom": {},
       "cells": {
@@ -30357,7 +30357,7 @@
       "private": false,
       "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-social-publish",
       "toMoveFrom": {},
       "cells": {
@@ -31778,7 +31778,7 @@
       "private": false,
       "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-web-extract",
       "toMoveFrom": {},
       "cells": {

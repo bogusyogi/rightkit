@@ -2280,7 +2280,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-compose"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "image",
  "rightkit-crypto",
@@ -2517,7 +2517,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-motion"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "image",
  "rightkit-ffmpeg",
