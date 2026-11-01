@@ -3433,7 +3433,8 @@ mod tests {
         assert_eq!(t.cursor(), 3);
     }
 
-    #[cfg_attr(not(windows), ignore = "AltGr modifier only applies on Windows")]
+    // AltGr (Ctrl+Alt) only applies on Windows: the test exists, and runs, there.
+    #[cfg(windows)]
     #[test]
     fn altgr_ctrl_alt_char_inserts_literal() {
         let mut t = ta_with("");
