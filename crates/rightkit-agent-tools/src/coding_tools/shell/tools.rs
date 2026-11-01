@@ -84,11 +84,17 @@ impl Tool for ShellTool {
         // `git log`, `ls`, `cat`, `grep`, ...) persists nothing, so content the session read
         // from outside cannot turn it into a durable write. Everything else, including
         // interpreters and network tools, stays a durable write.
-        let command = args.get("command").and_then(Value::as_str).unwrap_or_default();
+        let command = args
+            .get("command")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         if !cfg!(windows)
             && !command.trim().is_empty()
             && matches!(
-                rightkit_agent_policy::classify_shell_command(command, rightkit_agent_policy::ShellDialect::Posix),
+                rightkit_agent_policy::classify_shell_command(
+                    command,
+                    rightkit_agent_policy::ShellDialect::Posix
+                ),
                 rightkit_agent_policy::ShellCommandClassification::Routine
             )
         {

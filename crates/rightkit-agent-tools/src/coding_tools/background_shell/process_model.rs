@@ -290,7 +290,9 @@ impl BgShell {
     /// True when the launch proof says the process runs outside the sandbox (`enforced: false`),
     /// like the operator terminal. A confined agent must not type into such a process (rule 55).
     pub fn launched_unconfined(&self) -> bool {
-        self.launch_proof.as_ref().is_some_and(|proof| !proof.enforced)
+        self.launch_proof
+            .as_ref()
+            .is_some_and(|proof| !proof.enforced)
     }
 
     fn append(&self, chunk: &[u8]) {
@@ -585,7 +587,8 @@ impl BgShell {
                 continue;
             }
             if let Err(error) = self.write_stdin_bytes(&queued.bytes).await {
-                let lost: usize = queued.bytes.len() + remaining.map(|q| q.bytes.len()).sum::<usize>();
+                let lost: usize =
+                    queued.bytes.len() + remaining.map(|q| q.bytes.len()).sum::<usize>();
                 self.report_lost_input(format!(
                     "{lost} bytes of held input could not be written: {error}"
                 ));

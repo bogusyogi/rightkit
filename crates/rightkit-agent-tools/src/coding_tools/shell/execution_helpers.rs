@@ -1067,8 +1067,11 @@ pub(crate) fn sandbox_disabled_for_workspace(workspace_root: &Path) -> bool {
 /// tier is not disabled on a platform with a sandbox backend. The shell refuses to run when
 /// the sandbox cannot start, so `true` means "confined or not run at all".
 pub fn os_sandbox_enforced(workspace_root: &Path) -> bool {
-    cfg!(any(target_os = "linux", target_os = "macos", target_os = "windows"))
-        && !sandbox_disabled_for_workspace(workspace_root)
+    cfg!(any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows"
+    )) && !sandbox_disabled_for_workspace(workspace_root)
 }
 
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -1083,7 +1086,9 @@ pub(crate) fn local_sandbox_config_for_tier(
     local_sandbox_config_with_home(
         workspace_root,
         tier,
-        std::env::var_os("HOME").map(std::path::PathBuf::from).as_deref(),
+        std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .as_deref(),
     )
 }
 
@@ -1146,7 +1151,11 @@ pub(crate) fn local_sandbox_config_with_home(
             .iter()
             .fold(config, |config, file| config.allow_read(*file));
         home.into_iter()
-            .flat_map(|home| LINUX_HOME_READ_FILES.iter().map(move |file| home.join(file)))
+            .flat_map(|home| {
+                LINUX_HOME_READ_FILES
+                    .iter()
+                    .map(move |file| home.join(file))
+            })
             .fold(config, |config, path| config.allow_read(path))
     };
     #[cfg(not(target_os = "linux"))]

@@ -34,7 +34,8 @@ impl Tool for ApplyPatchTool {
         let mut targets: Vec<PathBuf> = Vec::new();
         for line in parse_patch(patch) {
             if let PatchLine::FilePath(path) = line {
-                if let Ok(resolved) = crate::coding_tools::read_file::resolve_in_workspace(&path, &ctx.workspace_root)
+                if let Ok(resolved) =
+                    crate::coding_tools::read_file::resolve_in_workspace(&path, &ctx.workspace_root)
                 {
                     if !targets.contains(&resolved) {
                         targets.push(resolved);
