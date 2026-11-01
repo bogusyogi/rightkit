@@ -368,9 +368,9 @@ export function installBrokerGuard() {
   // broker, which points TMPDIR under its managed root) hands this process. A test that wrote a fake `target` under such a
   // name passed by hand and failed through the broker (2026-10-27). One per-run temp root, free of those names, is set as
   // TMPDIR/TEMP/TMP so os.tmpdir() in this process and every child answers the same.
-  process.env.RIGHTKIT_TEST_TMP ??= realpathSync(mkdtempSync(path.join(hermeticTempBase(), "rk-hermetic-")));
+  process.env.RIGHTKIT_TEST_TMP ??= realpathSync.native(mkdtempSync(path.join(hermeticTempBase(), "rk-hermetic-")));
   for (const name of ["TMPDIR", "TEMP", "TMP"]) process.env[name] = process.env.RIGHTKIT_TEST_TMP;
-  process.env.RIGHTKIT_GUARD_DATA_ROOT ??= realpathSync(mkdtempSync(path.join(os.tmpdir(), "rightkit-release-test-root-")));
+  process.env.RIGHTKIT_GUARD_DATA_ROOT ??= realpathSync.native(mkdtempSync(path.join(os.tmpdir(), "rightkit-release-test-root-")));
   process.env.RIGHTKIT_DATA_ROOT = process.env.RIGHTKIT_GUARD_DATA_ROOT;
   // Child Node processes (release.mjs, build-release.mjs, cargo-target.mjs, fixtures) load the guard too.
   const current = process.env.NODE_OPTIONS ?? "";
