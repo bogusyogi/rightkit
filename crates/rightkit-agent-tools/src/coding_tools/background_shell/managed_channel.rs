@@ -67,6 +67,7 @@ pub async fn spawn_managed_channel_with_kind(
         // persistence, operator-terminal ownership or a second registry.
         process_kind,
         execution_target,
+        launch_proof: child.sandbox_proof(),
         pid: Mutex::new(child.pid()),
         started_at_ns: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

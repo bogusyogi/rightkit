@@ -32,7 +32,8 @@ pub mod background_shell;
 pub mod brief_tool;
 #[cfg(feature = "coding_tools-host")]
 pub mod browser;
-pub mod browser_control;
+#[cfg(feature = "coding_tools-host")]
+pub mod browser_consent;
 pub mod browser_fetch;
 #[cfg(feature = "coding_tools-host")]
 pub mod check_runner;
@@ -41,6 +42,7 @@ pub mod cloud_workspace;
 pub mod cloudflare;
 #[cfg(feature = "coding_tools-code-mode")]
 pub mod code_mode;
+pub mod computer_use;
 pub mod config_tool;
 pub mod context;
 pub mod context7;
@@ -75,7 +77,6 @@ pub mod lock_recover;
 pub mod lsp_tool;
 #[cfg(feature = "coding_tools-host")]
 pub mod managed_pty;
-pub mod mcp_auth;
 pub mod mcp_tools;
 #[cfg(feature = "coding_tools-host")]
 pub mod media_tools;

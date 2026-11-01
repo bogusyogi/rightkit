@@ -119,8 +119,32 @@ pub trait Tool: Send + Sync {
         None
     }
 
+    /// The workspace files this call may write, resolved the way `execute`
+    /// resolves them (sessions rule 41). The engine's write path snapshots each
+    /// one before the call runs, and fails the call with `history_unavailable`
+    /// when it cannot; a tool never writes snapshots itself. Read-only tools and
+    /// tools that write nothing in the workspace return none.
+    fn write_targets(&self, _args: &Value, _ctx: &ToolContext) -> Vec<std::path::PathBuf> {
+        Vec::new()
+    }
+
     fn capability_class(&self) -> Option<rightkit_agent_policy::CapabilityClass> {
         None
+    }
+
+    /// What a call of this tool does to the world (rule 50a). Derived from the declared
+    /// capability class; a tool overrides it only to say something more specific.
+    fn effect_class(&self) -> rightkit_agent_policy::EffectClass {
+        rightkit_agent_policy::effect_class_for_tool(
+            self.name(),
+            self.capability_class(),
+            self.is_read_only(),
+        )
+    }
+
+    /// Who may approve a call of this tool (rule 50a).
+    fn approval_class(&self) -> rightkit_agent_policy::ApprovalClass {
+        self.effect_class().approval_class()
     }
 
     fn capability_class_for(

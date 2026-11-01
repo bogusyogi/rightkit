@@ -79,7 +79,21 @@ impl Tool for ShellTool {
         Some(rightkit_agent_engine_runtime_resources::ResourceKind::ChildProcess)
     }
 
-    fn durable_write_kind(&self, _args: &Value) -> Option<rightkit_agent_policy::DurableWriteKind> {
+    fn durable_write_kind(&self, args: &Value) -> Option<rightkit_agent_policy::DurableWriteKind> {
+        // A strictly read-only command (the AutoSafe allowlist without the sandbox tier:
+        // `git log`, `ls`, `cat`, `grep`, ...) persists nothing, so content the session read
+        // from outside cannot turn it into a durable write. Everything else, including
+        // interpreters and network tools, stays a durable write.
+        let command = args.get("command").and_then(Value::as_str).unwrap_or_default();
+        if !cfg!(windows)
+            && !command.trim().is_empty()
+            && matches!(
+                rightkit_agent_policy::classify_shell_command(command, rightkit_agent_policy::ShellDialect::Posix),
+                rightkit_agent_policy::ShellCommandClassification::Routine
+            )
+        {
+            return None;
+        }
         Some(rightkit_agent_policy::DurableWriteKind::ShellCommand)
     }
 
@@ -225,8 +239,13 @@ pub(crate) async fn execute_shell(
         ShellFlavor::Platform if cfg!(windows) => ShellDialect::PowerShell,
         ShellFlavor::Platform => ShellDialect::Posix,
     };
-    let verdict =
-        engine.evaluate_shell_command(ctx.permission_mode, ctx.workspace_trust, &cmd, dialect);
+    let verdict = engine.evaluate_shell_command_in(
+        ctx.permission_mode,
+        ctx.workspace_trust,
+        &cmd,
+        dialect,
+        os_sandbox_enforced(&ctx.workspace_root),
+    );
 
     match verdict.decision {
         PermissionDecision::Deny => {

@@ -19,6 +19,7 @@ pub fn record_foreground_process(
         command,
         process_kind: "foregroundShell".to_string(),
         execution_target,
+        launch_proof: None,
         pid: Mutex::new(
             process_id
                 .as_deref()
@@ -144,6 +145,11 @@ impl Tool for ProcessTool {
                 )
             }
             "input" | "eof" => {
+                // Rule 55: a confined agent cannot type into an unconfined shell. The operator
+                // terminal launches with `sandbox_required = false` and records `enforced: false`.
+                if shell.launched_unconfined() {
+                    return ToolResult::error(UNCONFINED_PROCESS_INPUT_REFUSAL);
+                }
                 if !rightkit_agent_policy::durable_write_is_authorized(
                     &ctx.content_provenance,
                     ctx.durable_write_approved,
@@ -287,6 +293,10 @@ impl Tool for ProcessTool {
     }
 }
 
+/// Refusal text for agent `process` input or EOF aimed at a process whose launch proof says
+/// `enforced: false` (rule 55).
+pub(crate) const UNCONFINED_PROCESS_INPUT_REFUSAL: &str = "refused: this process was launched outside the sandbox (launch proof enforced:false, such as the operator terminal), and a sandboxed agent cannot type into an unconfined process";
+
 fn process_row(id: &str, shell: &BgShell) -> Value {
     let target = shell.execution_target();
     json!({
@@ -295,6 +305,7 @@ fn process_row(id: &str, shell: &BgShell) -> Value {
         "kind": shell.process_kind(),
         "executionChannel": shell.execution_channel(),
         "persistence": shell.persistence().label(),
+        "unconfined": shell.launched_unconfined(),
         "attached": shell.lease_snapshot_now().attached,
         "leaseEpoch": shell.lease_snapshot_now().epoch,
         "nextInputSequence": shell.lease_snapshot_now().next_input_sequence,
@@ -484,11 +495,17 @@ impl Tool for KillShellTool {
                 let sent = sh.kill();
                 // The runner terminates the whole process tree and waits on the
                 // child before publishing a terminal status; wait for that.
+                // Wait on the shared shell-event signal, not on a timer (#377): the wait costs no
+                // wakeups until a shell changes state, and ends at the reap deadline otherwise.
+                // Subscribe before the first status read so a change cannot be missed.
+                let mut events = subscribe_shell_events();
                 let deadline = tokio::time::Instant::now() + KILL_REAP_TIMEOUT;
-                while matches!(sh.status(), BgStatus::Running)
-                    && tokio::time::Instant::now() < deadline
-                {
-                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                while matches!(sh.status(), BgStatus::Running) {
+                    let now = tokio::time::Instant::now();
+                    if now >= deadline {
+                        break;
+                    }
+                    let _ = tokio::time::timeout(deadline - now, events.changed()).await;
                 }
                 match sh.exit_status() {
                     Some(exit) => {

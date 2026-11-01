@@ -368,6 +368,7 @@ fn spawn_background_program_with_kind_and_target_using(
         command: display_command,
         process_kind: process_kind.to_string(),
         execution_target,
+        launch_proof: None,
         pid: Mutex::new(None),
         started_at_ns: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

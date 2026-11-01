@@ -61,11 +61,7 @@ impl Tool for GitHubTool {
     async fn execute(&self, args: Value, ctx: &ToolContext) -> ToolResult {
         let token = match &ctx.github_token {
             Some(t) => t.clone(),
-            None => {
-                return ToolResult::error(
-                    "No GitHub credentials found. Sign in with GitHub in Agent, run `gh auth login`, or set GH_TOKEN.",
-                )
-            }
+            None => return ToolResult::error("Connect GitHub in Settings."),
         };
 
         let action = match args["action"].as_str() {

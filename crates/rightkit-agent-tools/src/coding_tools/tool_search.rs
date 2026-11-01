@@ -5,12 +5,10 @@ use crate::coding_tools::registry::CapabilityDescriptor;
 use crate::coding_tools::tool_trait::{Tool, ToolResult};
 use serde_json::{json, Value};
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering as AtomicOrdering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const TOOL_SEARCH_DESCRIPTION: &str =
-    "Discover available tools with a ranked semantic shortlist; falls back to case-insensitive substring matching when semantic retrieval is unavailable.";
+    "Discover available tools with a ranked shortlist from case-insensitive substring matching over tool names and descriptions.";
 
 const SHORTLIST_MIN: usize = 5;
 const SHORTLIST_DEFAULT: usize = 7;
@@ -21,134 +19,9 @@ const CATALOG_DUMP_MAX_BYTES: usize = 2048;
 const QUERY_RESULT_MAX_BYTES: usize = 8192;
 const MAX_QUERY_BYTES: usize = 1024;
 
-/// Every query that degrades to the substring fallback is counted so the
-/// token cost of retrieval without embeddings is attributable.
-static EMBEDDER_UNAVAILABLE: AtomicU64 = AtomicU64::new(0);
-
-/// Number of queries served by the substring fallback because no semantic
-/// embedder was available (feature off, init failure, or embedding error).
-pub fn embedder_unavailable_count() -> u64 {
-    EMBEDDER_UNAVAILABLE.load(AtomicOrdering::Relaxed)
-}
-
-trait SemanticEmbedder: Send + Sync {
-    fn try_embed_document(&self, text: &str) -> Result<Vec<f32>, String>;
-    fn try_embed_query(&self, text: &str) -> Result<Vec<f32>, String>;
-    fn model_id(&self) -> &'static str;
-}
-
-type CachedEmbedding = Arc<OnceLock<Result<Vec<f32>, String>>>;
-static DOCUMENT_EMBEDDINGS: OnceLock<Mutex<HashMap<String, CachedEmbedding>>> = OnceLock::new();
-
-fn cached_document_embedding(
-    embedder: &dyn SemanticEmbedder,
-    text: &str,
-) -> Result<Vec<f32>, String> {
-    let key = format!("{}\0{text}", embedder.model_id());
-    let cell = {
-        let mut cache = DOCUMENT_EMBEDDINGS
-            .get_or_init(|| Mutex::new(HashMap::new()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        cache
-            .entry(key)
-            .or_insert_with(|| Arc::new(OnceLock::new()))
-            .clone()
-    };
-    cell.get_or_init(|| embedder.try_embed_document(text))
-        .clone()
-}
-
-/// RightKit-backed semantic embedder (`rightkit-embed`, EmbeddingGemma). Thin adapter:
-/// RightKit owns tokenisation, ONNX session setup, accelerator parity and normalisation.
-/// the host app only supplies the model directory and ONNX Runtime path, which startup
-/// resolves into `RIGHTKIT_EMBED_MODEL_DIR` / `ORT_DYLIB_PATH` (`host_ort_common`).
-#[cfg(feature = "coding_tools-embeddings")]
-struct RightKitEmbedder(rightkit_embed::Embedder);
-
-#[cfg(feature = "coding_tools-embeddings")]
-impl SemanticEmbedder for RightKitEmbedder {
-    fn try_embed_document(&self, text: &str) -> Result<Vec<f32>, String> {
-        self.0.embed(text).map_err(|error| error.to_string())
-    }
-    fn try_embed_query(&self, text: &str) -> Result<Vec<f32>, String> {
-        self.0.embed_query(text).map_err(|error| error.to_string())
-    }
-    fn model_id(&self) -> &'static str {
-        // One embedder per process; the document cache is process-local.
-        "rightkit-embed"
-    }
-}
-
-#[cfg(feature = "coding_tools-embeddings")]
-fn default_semantic_embedder() -> Option<Arc<dyn SemanticEmbedder>> {
-    static EMBEDDER: OnceLock<Option<Arc<dyn SemanticEmbedder>>> = OnceLock::new();
-    EMBEDDER
-        .get_or_init(|| {
-            let env_path = |name: &str| {
-                std::env::var(name)
-                    .ok()
-                    .map(|value| value.trim().to_string())
-                    .filter(|value| !value.is_empty())
-                    .map(std::path::PathBuf::from)
-            };
-            let model_dir = env_path("RIGHTKIT_EMBED_MODEL_DIR")?;
-            let runtime = env_path("ORT_DYLIB_PATH")?;
-            match rightkit_embed::Embedder::load(rightkit_embed::EmbedderConfig::new(
-                model_dir, runtime,
-            )) {
-                Ok(embedder) => Some(Arc::new(RightKitEmbedder(embedder)) as Arc<dyn SemanticEmbedder>),
-                Err(error) => {
-                    tracing::warn!(%error, "tool_search embedder unavailable; using substring fallback");
-                    None
-                }
-            }
-        })
-        .clone()
-}
-
-#[cfg(not(feature = "coding_tools-embeddings"))]
-fn default_semantic_embedder() -> Option<Arc<dyn SemanticEmbedder>> {
-    None
-}
-
 pub struct ToolSearchTool {
     descriptors: Vec<CapabilityDescriptor>,
     detailed: bool,
-    semantic_embedder: Option<Arc<dyn SemanticEmbedder>>,
-    use_default_embedder: bool,
-    semantic_index: Arc<OnceLock<Result<Vec<Vec<f32>>, String>>>,
-    /// `WARM_IDLE`: nothing started, a query may build the index inline.
-    /// `WARMING`: a background thread is loading the model/index; queries
-    /// answer lexically instead of blocking. `WARM_DONE`: index is ready (or
-    /// permanently unavailable) and the normal path applies.
-    warm_state: Arc<AtomicU8>,
-}
-
-const WARM_IDLE: u8 = 0;
-const WARMING: u8 = 1;
-const WARM_DONE: u8 = 2;
-
-fn index_texts(descriptors: &[CapabilityDescriptor]) -> Vec<String> {
-    descriptors
-        .iter()
-        .map(|descriptor| {
-            format!(
-                "Tool: {}. Capability: {}",
-                descriptor.name, descriptor.description
-            )
-        })
-        .collect()
-}
-
-fn build_semantic_index(
-    embedder: &dyn SemanticEmbedder,
-    texts: &[String],
-) -> Result<Vec<Vec<f32>>, String> {
-    texts
-        .iter()
-        .map(|text| cached_document_embedding(embedder, text))
-        .collect()
 }
 
 fn placeholder_descriptor(name: String, description: String) -> CapabilityDescriptor {
@@ -179,73 +52,7 @@ impl ToolSearchTool {
         Self {
             descriptors,
             detailed,
-            semantic_embedder: None,
-            use_default_embedder: true,
-            semantic_index: Arc::new(OnceLock::new()),
-            warm_state: Arc::new(AtomicU8::new(WARM_IDLE)),
         }
-    }
-
-    /// Load the embedder and embed every descriptor on a background thread so
-    /// the first `tool_search` query never pays the model-load cost. Until it
-    /// finishes, queries are served by the lexical path. No-op when no
-    /// embedder can exist (feature off) or a warm-up is already running.
-    pub(crate) fn start_warmup(&self) {
-        let embedder_possible = if self.use_default_embedder {
-            cfg!(feature = "coding_tools-embeddings")
-        } else {
-            self.semantic_embedder.is_some()
-        };
-        if !embedder_possible {
-            return;
-        }
-        if self
-            .warm_state
-            .compare_exchange(
-                WARM_IDLE,
-                WARMING,
-                AtomicOrdering::AcqRel,
-                AtomicOrdering::Acquire,
-            )
-            .is_err()
-        {
-            return;
-        }
-        let use_default = self.use_default_embedder;
-        let injected = self.semantic_embedder.clone();
-        let texts = index_texts(&self.descriptors);
-        let index = Arc::clone(&self.semantic_index);
-        let state = Arc::clone(&self.warm_state);
-        let spawned = std::thread::Builder::new()
-            .name("tool-search-warmup".into())
-            .spawn({
-                let state = Arc::clone(&state);
-                move || {
-                    let embedder = if use_default {
-                        default_semantic_embedder()
-                    } else {
-                        injected
-                    };
-                    if let Some(embedder) = embedder {
-                        let built = index
-                            .get_or_init(|| build_semantic_index(embedder.as_ref(), &texts))
-                            .is_ok();
-                        if built {
-                            // Warm the query path (first query embed is also lazy).
-                            let _ = embedder.try_embed_query("warmup");
-                        }
-                    }
-                    state.store(WARM_DONE, AtomicOrdering::Release);
-                }
-            });
-        if spawned.is_err() {
-            state.store(WARM_IDLE, AtomicOrdering::Release);
-        }
-    }
-
-    /// True while a background warm-up has not finished.
-    fn is_warming(&self) -> bool {
-        self.warm_state.load(AtomicOrdering::Acquire) == WARMING
     }
 
     pub(crate) fn self_descriptor() -> CapabilityDescriptor {
@@ -258,24 +65,6 @@ impl ToolSearchTool {
             input_schema,
             read_only: true,
             availability: "available".to_string(),
-        }
-    }
-
-    #[cfg(test)]
-    fn new_with_optional_embedder(
-        tools: Vec<(String, String)>,
-        semantic_embedder: Option<Arc<dyn SemanticEmbedder>>,
-    ) -> Self {
-        Self {
-            descriptors: tools
-                .into_iter()
-                .map(|(name, description)| placeholder_descriptor(name, description))
-                .collect(),
-            detailed: false,
-            semantic_embedder,
-            use_default_embedder: false,
-            semantic_index: Arc::new(OnceLock::new()),
-            warm_state: Arc::new(AtomicU8::new(WARM_IDLE)),
         }
     }
 
@@ -312,66 +101,9 @@ impl ToolSearchTool {
         )
     }
 
-    fn semantic_ranked_indices(&self, query: &str) -> Option<Vec<usize>> {
-        if self.is_warming() {
-            // Never block a query on model load; the lexical path answers.
-            return None;
-        }
-        let embedder = if self.use_default_embedder {
-            default_semantic_embedder()
-        } else {
-            self.semantic_embedder.clone()
-        }?;
-        let index = self
-            .semantic_index
-            .get_or_init(|| {
-                build_semantic_index(embedder.as_ref(), &index_texts(&self.descriptors))
-            })
-            .as_ref()
-            .map_err(|error| {
-                tracing::warn!(
-                    error,
-                    "tool_search semantic index unavailable; using substring fallback"
-                );
-            })
-            .ok()?;
-        let query_embedding = embedder.try_embed_query(query).map_err(|error| {
-            tracing::warn!(
-                error,
-                "tool_search query embedding failed; using substring fallback"
-            );
-        });
-        let query_embedding = query_embedding.ok()?;
-        let normalized_query = normalize_text(query);
-        let mut ranked: Vec<(usize, f32)> = index
-            .iter()
-            .enumerate()
-            .map(|(index, embedding)| {
-                let descriptor = &self.descriptors[index];
-                let score = rightkit_embed::cosine_similarity(&query_embedding, embedding)
-                    + lexical_bonus(&normalized_query, &descriptor.name, &descriptor.description);
-                (index, score)
-            })
-            .collect();
-        ranked.sort_by(|left, right| {
-            right
-                .1
-                .partial_cmp(&left.1)
-                .unwrap_or(Ordering::Equal)
-                .then_with(|| {
-                    self.descriptors[left.0]
-                        .name
-                        .cmp(&self.descriptors[right.0].name)
-                })
-        });
-        let scores: Vec<f32> = ranked.iter().map(|(_, score)| *score).collect();
-        ranked.truncate(adaptive_shortlist_len(&scores));
-        Some(ranked.into_iter().map(|(index, _)| index).collect())
-    }
-
-    /// Bounded substring fallback. Matches are scored with the same lexical
-    /// tiers as the semantic path so the adaptive shortlist applies, and the
-    /// (score, name) ordering is deterministic across calls.
+    /// Bounded substring search. Matches are scored by lexical tiers so the
+    /// adaptive shortlist applies, and the (score, name) ordering is
+    /// deterministic across calls.
     fn substring_indices(&self, query: &str) -> Vec<usize> {
         let normalized_query = normalize_text(query);
         let query_lower = query.to_lowercase();
@@ -535,13 +267,7 @@ impl Tool for ToolSearchTool {
         match query {
             None | Some("") => ToolResult::ok(compact_catalog_index(&self.descriptors)),
             Some(query) => {
-                let indices = match self.semantic_ranked_indices(query) {
-                    Some(indices) => indices,
-                    None => {
-                        EMBEDDER_UNAVAILABLE.fetch_add(1, AtomicOrdering::Relaxed);
-                        self.substring_indices(query)
-                    }
-                };
+                let indices = self.substring_indices(query);
                 let results = self.result_values(indices);
                 let cap = if self.detailed {
                     QUERY_RESULT_MAX_BYTES
@@ -660,39 +386,6 @@ mod tests {
         )
     }
 
-    struct FixtureEmbedder {
-        fail: bool,
-    }
-
-    impl SemanticEmbedder for FixtureEmbedder {
-        fn try_embed_document(&self, text: &str) -> Result<Vec<f32>, String> {
-            if self.fail {
-                return Err("fixture unavailable".into());
-            }
-            if text.contains("view_image") {
-                Ok(vec![1.0, 0.0])
-            } else {
-                Ok(vec![0.0, 1.0])
-            }
-        }
-
-        fn try_embed_query(&self, _text: &str) -> Result<Vec<f32>, String> {
-            if self.fail {
-                Err("fixture unavailable".into())
-            } else {
-                Ok(vec![1.0, 0.0])
-            }
-        }
-
-        fn model_id(&self) -> &'static str {
-            if self.fail {
-                "fixture-failing"
-            } else {
-                "fixture-semantic"
-            }
-        }
-    }
-
     fn descriptors_of(tools: Vec<(String, String)>) -> Vec<CapabilityDescriptor> {
         tools
             .into_iter()
@@ -728,42 +421,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unavailable_embedder_preserves_substring_filter() {
-        let tool = ToolSearchTool::new_with_optional_embedder(
-            fixture_tools(),
-            Some(Arc::new(FixtureEmbedder { fail: true })),
-        );
-        let result = tool.execute(json!({"query": "git"}), &ctx()).await;
-        assert!(!result.is_error);
-        let tools: Value = serde_json::from_str(&result.content).unwrap();
-        let names: Vec<&str> = tools
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|tool| tool["name"].as_str())
-            .collect();
-        assert_eq!(names, vec!["git_diff"]);
-    }
-
-    #[tokio::test]
-    async fn semantic_search_ranks_paraphrase_and_returns_adaptive_shortlist() {
-        let tool = ToolSearchTool::new_with_optional_embedder(
-            fixture_tools(),
-            Some(Arc::new(FixtureEmbedder { fail: false })),
-        );
-        let result = tool
-            .execute(json!({"query": "look at a picture"}), &ctx())
-            .await;
-        assert!(!result.is_error);
-        let tools: Value = serde_json::from_str(&result.content).unwrap();
-        let tools = tools.as_array().unwrap();
-        assert_eq!(tools.len(), SHORTLIST_MIN);
-        assert_eq!(tools[0]["name"], "view_image");
-    }
-
-    #[tokio::test]
     async fn finds_tools_by_name_or_description_keyword() {
-        let tool = ToolSearchTool::new_with_optional_embedder(fixture_tools(), None);
+        let tool = ToolSearchTool::new(fixture_tools());
         for query in ["schedule_cron", "recurring"] {
             let result = tool.execute(json!({"query": query}), &ctx()).await;
             assert!(!result.is_error);
@@ -774,7 +433,7 @@ mod tests {
 
     #[tokio::test]
     async fn invalid_query_is_typed_error() {
-        let tool = ToolSearchTool::new_with_optional_embedder(fixture_tools(), None);
+        let tool = ToolSearchTool::new(fixture_tools());
         let result = tool.execute(json!({"query": 42}), &ctx()).await;
         assert!(result.is_error);
         assert!(result.content.starts_with("invalid_argument:"));
@@ -785,7 +444,7 @@ mod tests {
 
     #[tokio::test]
     async fn fallback_no_match_returns_empty_array() {
-        let tool = ToolSearchTool::new_with_optional_embedder(fixture_tools(), None);
+        let tool = ToolSearchTool::new(fixture_tools());
         let result = tool.execute(json!({"query": "zzznomatch"}), &ctx()).await;
         assert!(!result.is_error);
         let tools: Value = serde_json::from_str(&result.content).unwrap();
@@ -821,7 +480,7 @@ mod tests {
                 )
             })
             .collect();
-        let tool = ToolSearchTool::new_with_optional_embedder(tools, None);
+        let tool = ToolSearchTool::new(tools);
         let result = tool.execute(json!({"query": "widget"}), &ctx()).await;
         assert!(!result.is_error);
         let tools: Value = serde_json::from_str(&result.content).unwrap();
@@ -838,7 +497,7 @@ mod tests {
                 )
             })
             .collect();
-        let tool = ToolSearchTool::new_with_optional_embedder(tools, None);
+        let tool = ToolSearchTool::new(tools);
         let first = tool.execute(json!({"query": "widget"}), &ctx()).await;
         let second = tool.execute(json!({"query": "widget"}), &ctx()).await;
         assert_eq!(first.content, second.content);
@@ -889,18 +548,6 @@ mod tests {
         );
         // UTF-8 safe: serialized string is valid UTF-8 and byte length == char boundary.
         assert!(serialized.is_char_boundary(serialized.len()));
-    }
-
-    #[tokio::test]
-    async fn degraded_retrieval_increments_embedder_unavailable_counter() {
-        let before = embedder_unavailable_count();
-        let tool = ToolSearchTool::new_with_optional_embedder(fixture_tools(), None);
-        let result = tool.execute(json!({"query": "git"}), &ctx()).await;
-        assert!(!result.is_error);
-        // The counter is process-global and sibling fallback tests increment
-        // it on parallel test threads; assert this test's increment as a
-        // lower bound rather than an exact delta.
-        assert!(embedder_unavailable_count() > before);
     }
 
     // P0-D: exact-ceiling — serialized length equals cap exactly, no marker.
@@ -998,15 +645,14 @@ mod tests {
         serde_json::from_str::<Value>(&out2).expect("valid JSON after emoji truncation");
     }
 
-    // P0-D: no-embedder path respects byte cap and increments counter.
+    // P0-D: queried path respects byte cap.
     #[tokio::test]
-    async fn no_embedder_queried_path_respects_byte_cap() {
-        // 30 tools with large descriptions, all matching "widget", no embedder.
+    async fn queried_path_respects_byte_cap() {
+        // 30 tools with large descriptions, all matching "widget".
         let tools: Vec<(String, String)> = (0..30)
             .map(|i| (format!("widget_tool_{i:02}"), "🔬 ".repeat(200) + "widget"))
             .collect();
-        let before = embedder_unavailable_count();
-        let tool = ToolSearchTool::new_with_optional_embedder(tools, None);
+        let tool = ToolSearchTool::new(tools);
         let result = tool.execute(json!({"query": "widget"}), &ctx()).await;
         assert!(!result.is_error);
         assert!(result.content.len() <= QUERY_RESULT_MAX_BYTES);
@@ -1015,8 +661,6 @@ mod tests {
         let arr = parsed.as_array().unwrap();
         // Bounded by shortlist max or by byte cap truncation
         assert!(arr.len() <= SHORTLIST_MAX || arr.iter().any(|v| v.get("truncated").is_some()));
-        // Counter incremented (handles parallel test noise via >=)
-        assert!(embedder_unavailable_count() > before);
         if arr.iter().any(|v| v.get("truncated").is_some()) {
             let marker = arr.last().unwrap();
             assert_eq!(marker["truncated"], true);
@@ -1035,7 +679,7 @@ mod tests {
         let tools: Vec<(String, String)> = (0..15)
             .map(|i| (format!("tool_{i:02}"), "widget ops".to_string()))
             .collect();
-        let tool = ToolSearchTool::new_with_optional_embedder(tools.clone(), None);
+        let tool = ToolSearchTool::new(tools.clone());
         let first = tool.execute(json!({"query": "widget"}), &ctx()).await;
         let second = tool.execute(json!({"query": "widget"}), &ctx()).await;
         assert_eq!(first.content, second.content);
@@ -1066,7 +710,7 @@ mod tests {
         let tools: Vec<(String, String)> = (0..20)
             .map(|i| (format!("search_tool_{i:02}"), "a".repeat(600) + " search"))
             .collect();
-        let tool = ToolSearchTool::new_with_optional_embedder(tools, None);
+        let tool = ToolSearchTool::new(tools);
         let result = tool.execute(json!({"query": "search"}), &ctx()).await;
         assert!(!result.is_error);
         assert!(result.content.len() <= QUERY_RESULT_MAX_BYTES);
@@ -1162,10 +806,10 @@ mod tests {
 
     #[tokio::test]
     async fn oversized_description_keeps_tool_discoverable() {
-        let tool = ToolSearchTool::new_with_optional_embedder(
-            vec![("run_program".into(), "generated API: 🔬 ".repeat(1000))],
-            None,
-        );
+        let tool = ToolSearchTool::new(vec![(
+            "run_program".into(),
+            "generated API: 🔬 ".repeat(1000),
+        )]);
         let result = tool.execute(json!({"query": "run_program"}), &ctx()).await;
         assert!(!result.is_error);
         assert!(result.content.len() <= CATALOG_DUMP_MAX_BYTES);

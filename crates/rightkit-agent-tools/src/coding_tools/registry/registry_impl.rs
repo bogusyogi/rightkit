@@ -186,9 +186,6 @@ impl ToolRegistry {
             descriptors,
             self.model_interface == ModelToolInterface::FixedV1,
         );
-        // Load the embedder and index off the query path so the first
-        // tool_search call is not a multi-second cold start.
-        tool_search.start_warmup();
         self.register(Box::new(tool_search));
     }
 
@@ -220,6 +217,8 @@ impl ToolRegistry {
                 description: tool.description().to_string(),
                 category: tool_category(tool.name()).to_string(),
                 read_only: tool.is_read_only(),
+                effect_class: tool.effect_class().as_str().to_string(),
+                approval_class: tool.approval_class().as_str().to_string(),
             })
             .collect();
         caps.sort_by(|left, right| {
@@ -269,10 +268,6 @@ impl ToolRegistry {
         use crate::coding_tools::browser::{
             BrowserActTool, BrowserCloseTool, BrowserConsoleTool, BrowserOpenTool, BrowserReadTool,
             BrowserScreenshotTool,
-        };
-        use crate::coding_tools::browser_control::{
-            BrowserControlClickTool, BrowserControlNavigateTool, BrowserControlReadTool,
-            BrowserControlScreenshotTool, BrowserControlTypeTool,
         };
         use crate::coding_tools::browser_fetch::BrowserFetchTool;
         use crate::coding_tools::cloudflare::CloudflareTool;
@@ -338,6 +333,11 @@ impl ToolRegistry {
                 || true,
                 || Some(Box::new(crate::coding_tools::view_image::ViewImageTool)),
             ),
+            (
+                "computer",
+                crate::coding_tools::computer_use::computer_use_available,
+                || Some(Box::new(crate::coding_tools::computer_use::ComputerUseTool)),
+            ),
             ("write_file", || true, || Some(Box::new(WriteFileTool))),
             (
                 "file_service",
@@ -383,12 +383,6 @@ impl ToolRegistry {
                 "ocr_onnx",
                 || true,
                 || media(rightkit_ffmpeg::agent_media::MediaToolKind::OcrOnnx),
-            ),
-            #[cfg(feature = "coding_tools-host")]
-            (
-                "transcribe",
-                || true,
-                || media(rightkit_ffmpeg::agent_media::MediaToolKind::Transcribe),
             ),
             #[cfg(feature = "coding_tools-host")]
             (
@@ -477,31 +471,6 @@ impl ToolRegistry {
                 "artifact_update",
                 || true,
                 || Some(Box::new(ArtifactUpdateTool)),
-            ),
-            (
-                "browser_control_click",
-                crate::coding_tools::browser_control::client_browser_surface_attached,
-                || Some(Box::new(BrowserControlClickTool)),
-            ),
-            (
-                "browser_control_navigate",
-                crate::coding_tools::browser_control::client_browser_surface_attached,
-                || Some(Box::new(BrowserControlNavigateTool)),
-            ),
-            (
-                "browser_control_read",
-                crate::coding_tools::browser_control::client_browser_surface_attached,
-                || Some(Box::new(BrowserControlReadTool)),
-            ),
-            (
-                "browser_control_screenshot",
-                crate::coding_tools::browser_control::client_browser_surface_attached,
-                || Some(Box::new(BrowserControlScreenshotTool)),
-            ),
-            (
-                "browser_control_type",
-                crate::coding_tools::browser_control::client_browser_surface_attached,
-                || Some(Box::new(BrowserControlTypeTool)),
             ),
             ("async_inbox", || true, || Some(Box::new(AsyncInboxTool))),
             (
@@ -770,11 +739,6 @@ impl ToolRegistry {
                     ))
                 },
             ),
-            (
-                "mcp_auth",
-                || true,
-                || Some(Box::new(crate::coding_tools::mcp_auth::McpAuthTool)),
-            ),
             #[cfg(feature = "coding_tools-host")]
             (
                 "worktree_enter",
@@ -1008,7 +972,6 @@ impl ToolRegistry {
                 "media" => {
                     permitted.insert("ocr".into());
                     permitted.insert("ocr_onnx".into());
-                    permitted.insert("transcribe".into());
                     permitted.insert("web_extract".into());
                     permitted.insert("media_fetch".into());
                     permitted.insert("ffmpeg_extract".into());
@@ -1120,16 +1083,12 @@ pub(crate) fn tool_category(name: &str) -> &'static str {
         | "workspace_checkpoint"
         | "file_service" => "files",
         "shell" | "powershell" | "get_shell_output" | "kill_shell" | "repl" | "ocr" | "process"
-        | "ocr_onnx" | "transcribe" | "web_extract" | "media_fetch" | "ffmpeg_extract" => {
-            "execution"
-        }
+        | "ocr_onnx" | "web_extract" | "media_fetch" | "ffmpeg_extract" => "execution",
         "git_read" | "git_diff" | "git_write" | "enter_worktree" | "exit_worktree" => "git",
         "browser_fetch" | "web_search" | "recursive_fetch" | "github" => "web",
         "browser_open" | "browser_read" | "browser_act" | "browser_screenshot"
         | "browser_console" | "browser_close" => "browser",
-        "list_mcp_tools" | "mcp_call" | "list_mcp_resources" | "read_mcp_resource" | "mcp_auth" => {
-            "mcp"
-        }
+        "list_mcp_tools" | "mcp_call" | "list_mcp_resources" | "read_mcp_resource" => "mcp",
         "spawn_subagent" | "send_message" | "team_create" | "team_delete" | "followup_subagent"
         | "wait_for_subagents" | "interrupt_subagent" => "agents",
         "task_create" | "task_update" | "task_get" | "task_list" | "task_output" | "task_stop"
@@ -1189,16 +1148,12 @@ pub(crate) const BUILTIN_CAPABILITY_META: &[(&str, &str, bool)] = &[
     ("browser_act", "Act on an open browser session: click, type, press a key, navigate, scroll, wait for an element to appear, choose a dropdown option, hover, or go back/forward/reload. Get selectors from browser_read first. Returns the page state after the action, flagging any console errors it triggered. Fail: unknown session, or no element matches the selector.", false),
     ("browser_close", "Close a browser session and shut down its Chrome process. Call this when done \u{2014} an open session holds a real browser.", true),
     ("browser_console", "Read everything an open browser session has logged since it opened \u{2014} console output and uncaught exceptions. This is where a broken frontend actually tells you what is wrong. Fail: unknown session id.", true),
-    ("browser_control_click", "Click one element in the client-owned browser surface by CSS selector (get selectors from browser_control_read). If the element is a link to a non-http(s) scheme, the client stops short and reports it via pending_external_scheme rather than opening it. Fail: unknown session, ambiguous or missing selector.", false),
-    ("browser_control_navigate", "Navigate the client-owned browser surface (a WKWebView on the user's device, not a daemon-local Chrome) to an http(s) URL and return what rendered. Never accepts non-http(s) schemes \u{2014} those require the client's external-scheme consent flow, never this tool. Fail: no client browser surface attached, invalid URL, or the client refused.", false),
-    ("browser_control_read", "Read what the client-owned browser surface is currently showing: rendered page text and interactive elements with their selectors. Fail: no client browser surface attached, or unknown session.", true),
-    ("browser_control_screenshot", "Capture what the client-owned browser surface currently shows as a PNG screenshot, base64-encoded and capped like browser_screenshot. Fail: no client browser surface attached, or the capture exceeds the size cap.", true),
-    ("browser_control_type", "Type text into one element in the client-owned browser surface by CSS selector. Fail: unknown session, ambiguous or missing selector, or text exceeds the input bound.", false),
     ("browser_fetch", "Fetch a URL and extract readable text (title+body). tier='auto' (default) tries plain HTTP, retries with stealth headers, then falls back to JS rendering if the site blocks both. tier='native' stops at HTTP; tier='js' renders JavaScript via TinyFish (needs a TinyFish key). Fail: network error, SSRF-guarded host, or a site that blocks every tier. This tool reads pages \u{2014} it cannot click, type, or run a browser session.", true),
-    ("browser_open", "Open a real Chrome browser at a URL and return a session id. Use this to look at a running app \u{2014} including a local dev server (http://localhost:5173) \u{2014} then drive it with browser_read, browser_act, browser_screenshot, and browser_console. Close it with browser_close when done. Fail: no Chrome or Edge installed, or the URL does not load.", false),
+    ("browser_open", "Open a real Chrome browser at a URL and return a session id. Use this to look at a running app \u{2014} including a local dev server (http://localhost:5173) \u{2014} then drive it with browser_read, browser_act, browser_screenshot, and browser_console. Close it with browser_close when done. To reuse the user's signed-in session, pass `consent` with the id of a consent the user already granted (you cannot grant one); the page then runs on a private copy of their profile, limited to the domains they consented to. Fail: no Chrome or Edge installed, the URL does not load, or the consent is unknown, revoked, expired or does not cover the URL.", false),
     ("browser_read", "Read what an open browser session is currently showing: the rendered page text, and every interactive element with the CSS selector needed to act on it. Pass those selectors to browser_act. Fail: unknown session id.", true),
     ("browser_screenshot", "Capture what an open browser session looks like right now, as a PNG you can see. Use it to check layout, styling, and visual regressions \u{2014} things page text cannot tell you. Fail: unknown session id.", true),
     ("cloudflare", "Cloudflare account API: inspect Pages, R2 & Workers; upload one workspace file to R2; retry/rollback Pages deployments; trigger an existing Workers Build. Uses host-stored OAuth/API-token credentials. Git-linked Pages/Workers deploy automatically after git push.", false),
+    ("computer", "Operate the desktop: screenshot, move, click, type, press keys, scroll (Linux X11 with xdotool and ImageMagick). Every action returns a screenshot; actions other than screenshot need approval.", false),
     ("config", "Read/set/list daemon config keys. Ops: get(key), set(key, value), list(). Returns JSON values. Fail: key not found (get), invalid key format (set).", false),
     ("context7", "Fetch up-to-date library documentation from context7.com. Use 'resolve-library-id' first to find the library's context7 ID, then 'get-library-docs' to retrieve focused docs. Always use this before answering questions about library APIs, configuration options, or version-specific behaviour.", true),
     ("dev_tunnel_proxy", "Expose a local development server through a registered tunnel provider and return the provider's public handle.", false),
@@ -1230,7 +1185,6 @@ pub(crate) const BUILTIN_CAPABILITY_META: &[(&str, &str, bool)] = &[
     ("list_mcp_resources", "List the resources available from a configured MCP server. Use read_mcp_resource to fetch the content of a specific resource by URI.", true),
     ("list_mcp_tools", "List the tools available from configured MCP servers, with their qualified names and descriptions. Call mcp_call to invoke one.", true),
     ("lsp", "Semantic code navigation. Ops: status, workspace_symbols(query), goto_definition(path,line,character), references(path,line,character), hover(path,line,character), diagnostics(path). Reuses one live language server per workspace. Definition and hover can use a local fallback; workspace symbols, references and diagnostics require a real server. Line is 1-based to match read_file output.", true),
-    ("mcp_auth", "Authorize an MCP server by storing its credentials in ~/.rightkit/mcp-auth/<server>.json (owner-only via rightkit-fs). Supported auth_type values: 'bearer', 'api_key'. Returns 'Authorized MCP server: {server}' on success.", false),
     ("mcp_call", "Invoke a tool on a configured MCP server by its qualified name (mcp__server__tool). Use list_mcp_tools first to discover names and schemas.", false),
     ("media_fetch", "Run yt-dlp to fetch media or media metadata from a URL.", false),
     ("multi_edit", "Apply multiple edits atomically to one file. Edits array: each {old_string, new_string, replace_all?} runs on prior result. Hashline-prefixed old_string values from read_file are validated against their line anchors. All succeed or none written.", false),
@@ -1260,8 +1214,7 @@ pub(crate) const BUILTIN_CAPABILITY_META: &[(&str, &str, bool)] = &[
     ("team_create", "Create an agent team configuration file at ~/.rightkit/teams/<name>.toml. Defines a named group of agent roles that can be spawned together. Returns 'Team created: {name}' on success.", false),
     ("team_delete", "Delete an agent team configuration file at ~/.rightkit/teams/<name>.toml. Returns 'Team deleted: {name}' on success or an error if not found.", false),
     ("todo_write", "Record and update your task list for the current work. Call this at the start of any multi-step task and after each step completes. Pass the COMPLETE list every time \u{2014} it replaces the previous list. Each item has `content` (imperative, e.g. 'Add the login route'), `status` (pending | in_progress | completed), and optional `activeForm` (present continuous, e.g. 'Adding the login route'). Keep exactly one item in_progress at a time. Mark an item completed the moment it is done \u{2014} don't batch completions.", true),
-    ("tool_search", "Discover available tools with a ranked semantic shortlist; falls back to case-insensitive substring matching when semantic retrieval is unavailable.", true),
-    ("transcribe", "Run a local speech-to-text binary such as whisper or parakeet on an audio/video file.", false),
+    ("tool_search", "Discover available tools with a ranked shortlist from case-insensitive substring matching over tool names and descriptions.", true),
     ("tunnel", "Optional, guarded exposure of a local host:port over an external tunnel provider. Lists providers, stores a managed token, and starts/stops/checks a public exposure. Exposure never survives the session that opened it unless keep_alive is set.", false),
     ("undo_edit", "Restore file to its snapshot before the most recent edit (edit_file/write_file/multi_edit). Fail: no edit history for this file, or (when target_receipt_id is given) a later conflicting effect has already landed on this path.", false),
     ("view_image", "Load a local image file and render it as an inline image in the transcript. Takes a path (relative to workspace or absolute within workspace). Supports PNG, JPEG, GIF, WebP, BMP, SVG, TIFF, ICO. The image must be under the workspace root; read-deny glob rules apply.", true),
@@ -1293,14 +1246,44 @@ fn advertised_builtin_names() -> std::collections::HashSet<&'static str> {
 /// instantiated for a capability listing.
 pub fn default_tool_capabilities() -> Vec<ToolCapability> {
     let advertised = advertised_builtin_names();
+    // Effect and approval class come from the tool itself. The factories build the same unit
+    // handlers the registry holds; none of them is run.
+    let classes: std::collections::HashMap<&'static str, (String, String)> =
+        ToolRegistry::builtin_tool_factories()
+            .into_iter()
+            .filter(|(_, available, _)| available())
+            .filter_map(|(name, _, factory)| {
+                factory().map(|tool| {
+                    (
+                        name,
+                        (
+                            tool.effect_class().as_str().to_string(),
+                            tool.approval_class().as_str().to_string(),
+                        ),
+                    )
+                })
+            })
+            .collect();
     let mut caps: Vec<_> = BUILTIN_CAPABILITY_META
         .iter()
         .filter(|(name, _, _)| advertised.contains(name))
-        .map(|(name, description, read_only)| ToolCapability {
-            name: (*name).to_string(),
-            description: (*description).to_string(),
-            category: tool_category(name).to_string(),
-            read_only: *read_only,
+        .map(|(name, description, read_only)| {
+            let (effect_class, approval_class) = classes.get(name).cloned().unwrap_or_else(|| {
+                // Generated tools such as `tool_search` have no factory.
+                let effect = rightkit_agent_policy::effect_class_for_tool(name, None, *read_only);
+                (
+                    effect.as_str().to_string(),
+                    effect.approval_class().as_str().to_string(),
+                )
+            });
+            ToolCapability {
+                name: (*name).to_string(),
+                description: (*description).to_string(),
+                category: tool_category(name).to_string(),
+                read_only: *read_only,
+                effect_class,
+                approval_class,
+            }
         })
         .collect();
     caps.sort_by(|left, right| {

@@ -32,11 +32,7 @@ pub fn resolve_api_key(config_key: Option<&str>) -> Result<String, String> {
     if let Some(k) = rightkit_llm::agent_providers::load_api_key("tinyfish") {
         return Ok(k);
     }
-    #[cfg(feature = "coding_tools-host")]
-    let hint = "TinyFish API key not set. Add it under Settings > Providers > TinyFish Search, \
-         or set TINYFISH_API_KEY. Search and Fetch are free — get a key at https://agent.tinyfish.ai.";
-    // The mobile build takes keys only from the app's settings, never the environment.
-    #[cfg(not(feature = "coding_tools-host"))]
+    // Keys come from the app's settings (the OS credential store), never the environment.
     let hint = "TinyFish API key not set. Add it under Settings > Providers > TinyFish Search. Search and Fetch are free, get a key at https://agent.tinyfish.ai.";
     Err(hint.to_string())
 }

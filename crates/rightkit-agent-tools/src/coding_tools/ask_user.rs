@@ -13,16 +13,7 @@ use crate::coding_tools::context::ToolContext;
 use crate::coding_tools::tool_trait::{Tool, ToolResult};
 use serde_json::{json, Value};
 
-/// How long to wait for an operator before giving up.
-///
-/// "Without a driver wired in it fails cleanly" only covers a *missing*
-/// questioner. A driver that is attached but has nobody behind it — an API-driven
-/// or otherwise unattended session — left `ask()` awaiting forever, wedging the
-/// turn with no reply and no report. Mirrors `APPROVAL_WAIT_TIMEOUT` on the
-/// sub-agent approval path, which had the identical defect.
-const ANSWER_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
-
-/// Told to the model on both the no-driver and the timed-out paths, so an
+/// Told to the model on the no-driver and no-answer paths, so an
 /// unattended run keeps going with a stated assumption instead of stalling.
 const NO_ANSWER_GUIDANCE: &str =
     "Proceed with a sensible default and state the assumption you made.";
@@ -128,35 +119,49 @@ impl Tool for AskUserTool {
             }
         };
 
-        match tokio::time::timeout(ANSWER_WAIT_TIMEOUT, questioner.ask(json!(questions))).await {
-            Ok(Ok(answers)) if answers.get("__declined").and_then(Value::as_bool) == Some(true) => {
-                ToolResult::ok(
-                    "The user declined to answer this question. Do not ask it again; \
-                     proceed with a sensible default and state the assumption you made.",
-                )
-            }
-            Ok(Ok(answers)) => ToolResult::ok(render_answers(questions, &answers)),
-            Ok(Err(e)) => ToolResult::error(format!("Question was not answered: {e}")),
-            Err(_) => ToolResult::error(format!(
-                "No answer after {}s — nobody appears to be attached to answer. \
-                 {NO_ANSWER_GUIDANCE}",
-                ANSWER_WAIT_TIMEOUT.as_secs()
+        // Contract rule 1: no timeout. The wait ends on an answer, a client
+        // detach or a cancelled turn (the questioner returns `Err`), never on a timer.
+        match questioner.ask(json!(questions)).await {
+            // Headless R8 / client-api R36: the host declines for an unattended turn with
+            // `{declined: true, reason: "unattended"}`; the model is told nobody could answer.
+            Ok(answers) if is_unattended_decline(&answers) => ToolResult::ok(format!(
+                "The question was declined because no human is attached to answer it (unattended). \
+                 Do not ask again. {NO_ANSWER_GUIDANCE}"
+            )),
+            Ok(answers) if is_declined(&answers) => ToolResult::ok(
+                "The user declined to answer; no option was chosen. Do not ask these questions \
+                 again. Proceed with a sensible default and state the assumption you made.",
+            ),
+            Ok(answers) => ToolResult::ok(render_answers(questions, &answers)),
+            Err(e) => ToolResult::error(format!(
+                "Question was not answered: {e}. {NO_ANSWER_GUIDANCE}"
             )),
         }
     }
 }
 
-/// Render the operator's answers as readable text for the transcript. `answers`
-/// is expected to be an object keyed by question header (or index), each value a
-/// string or array of strings.
+/// `{"__declined": true}`: the marker for a declined question (at its index)
+/// or, at the top level, for the whole call.
+fn is_declined(value: &Value) -> bool {
+    value.get("__declined").and_then(Value::as_bool) == Some(true)
+        || value.get("declined").and_then(Value::as_bool) == Some(true)
+}
+
+/// A whole-call decline made because no human could answer.
+fn is_unattended_decline(value: &Value) -> bool {
+    is_declined(value) && value.get("reason").and_then(Value::as_str) == Some("unattended")
+}
+
+/// Render the operator's answers as readable text for the transcript.
+/// `answers` is an object keyed by question index (R40: never by header, which
+/// two questions can share); each value is a string, an array of strings, or
+/// the per-question declined marker.
 fn render_answers(questions: &[Value], answers: &Value) -> String {
     let mut out = Vec::new();
     for (i, q) in questions.iter().enumerate() {
         let header = q["header"].as_str().unwrap_or("");
-        let key_by_header = answers.get(header);
-        let key_by_index = answers.get(i.to_string());
-        let ans = key_by_header.or(key_by_index);
-        let rendered = match ans {
+        let rendered = match answers.get(i.to_string()) {
+            Some(value) if is_declined(value) => "declined".to_string(),
             Some(Value::String(s)) => s.clone(),
             Some(Value::Array(items)) => items
                 .iter()
@@ -200,33 +205,18 @@ mod tests {
         }
     }
 
-    /// A driver that is attached but has nobody behind it — the unattended case.
-    struct SilentQuestioner;
-    impl UserQuestioner for SilentQuestioner {
-        fn ask(
-            &self,
-            _questions: Value,
-        ) -> Pin<Box<dyn std::future::Future<Output = Result<Value, String>> + Send>> {
-            Box::pin(std::future::pending())
-        }
-    }
-
-    /// An attached-but-unanswered driver used to await forever, wedging the turn
-    /// with no reply and no report — observed on a live unattended run.
-    #[tokio::test(start_paused = true)]
-    async fn attached_but_unanswered_questioner_times_out() {
+    /// The host declines a whole call for an unattended turn (no human attached).
+    #[tokio::test]
+    async fn unattended_decline_is_a_non_error_result_that_says_nobody_could_answer() {
         let dir = tempfile::tempdir().unwrap();
-        let mut c = ctx(dir.path());
-        c = c.with_questioner(Arc::new(SilentQuestioner));
+        let c = ctx(dir.path()).with_questioner(Arc::new(StubQuestioner(
+            json!({ "declined": true, "reason": "unattended" }),
+        )));
 
         let r = AskUserTool.execute(one_question(), &c).await;
 
-        assert!(r.is_error, "an unanswered question must not report success");
-        assert!(
-            r.content.contains("No answer after 300s"),
-            "must say nobody answered: {}",
-            r.content
-        );
+        assert!(!r.is_error, "{}", r.content);
+        assert!(r.content.contains("unattended"), "{}", r.content);
         assert!(
             r.content.contains("state the assumption"),
             "must tell the model how to continue: {}",
@@ -250,7 +240,7 @@ mod tests {
             r.content
         );
         assert!(r.content.contains("declined"), "{}", r.content);
-        assert!(r.content.contains("proceed"), "{}", r.content);
+        assert!(r.content.contains("Proceed"), "{}", r.content);
     }
 
     fn one_question() -> Value {
@@ -276,7 +266,7 @@ mod tests {
     async fn returns_rendered_answer() {
         let dir = tempdir().unwrap();
         let mut c = ctx(dir.path());
-        c = c.with_questioner(Arc::new(StubQuestioner(json!({"Database": "Postgres"}))));
+        c = c.with_questioner(Arc::new(StubQuestioner(json!({"0": "Postgres"}))));
         let r = AskUserTool.execute(one_question(), &c).await;
         assert!(!r.is_error, "{}", r.content);
         assert!(r.content.contains("Database: Postgres"));

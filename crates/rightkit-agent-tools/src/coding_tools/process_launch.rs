@@ -138,7 +138,34 @@ impl ProcessLaunchAdapter for LocalProcessLaunchAdapter {
     }
 }
 
-/// Every licence- or device-named variable in the inherited environment or in `spec.env`.
+/// Whether `name` must never reach a child: a licence or device locator (licensing), or a
+/// provider or host credential, a daemon token or any other name providers R4 lists (providers
+/// R46, D39). The one launcher applies this to every child: tools, hooks, plugins, MCP stdio
+/// servers, LSP servers, vendor CLI drivers and the browser.
+fn is_scrubbed_env_name(name: &str) -> bool {
+    rightkit_app_settings::agent_config::licence_env::is_licence_env_name(name)
+        || rightkit_llm::agent_providers::host_credentials::is_credential_env_name(name)
+}
+
+/// `spec` with every scrubbed variable dropped from its layered environment, so no spawn arm
+/// (confined or not) can pass one on.
+fn scrub_spec_env(mut spec: CommandLaunchSpec) -> CommandLaunchSpec {
+    spec.env
+        .retain(|(name, _)| !is_scrubbed_env_name(name) || is_driver_gateway_name(name));
+    spec
+}
+
+/// The driver-gateway secrets the daemon layers onto a vendor driver's launch on purpose, so
+/// the driver's session-bound MCP helper can reach the gateway (providers R46's one exception).
+/// They are kept only when set on the launch spec; an inherited copy is still removed.
+fn is_driver_gateway_name(name: &str) -> bool {
+    matches!(
+        name,
+        "RIGHTKIT_GATEWAY_TOKEN" | "RIGHTKIT_DRIVER_INSTANCE_SECRET"
+    )
+}
+
+/// Every scrubbed variable in the inherited environment or in `spec.env`.
 fn licence_env_names(spec: &CommandLaunchSpec) -> Vec<std::ffi::OsString> {
     std::env::vars_os()
         .map(|(name, _)| name)
@@ -147,9 +174,13 @@ fn licence_env_names(spec: &CommandLaunchSpec) -> Vec<std::ffi::OsString> {
                 .iter()
                 .map(|(name, _)| std::ffi::OsString::from(name)),
         )
+        .filter(|name| name.to_str().is_some_and(is_scrubbed_env_name))
         .filter(|name| {
-            name.to_str()
-                .is_some_and(rightkit_app_settings::agent_config::licence_env::is_licence_env_name)
+            !(name.to_str().is_some_and(is_driver_gateway_name)
+                && spec
+                    .env
+                    .iter()
+                    .any(|(set, _)| std::ffi::OsStr::new(set) == name.as_os_str()))
         })
         .collect()
 }
@@ -184,15 +215,18 @@ fn build_command(
     }
     #[cfg(not(windows))]
     command.args(argv);
+    command.current_dir(&spec.cwd);
+    if spec.starts_from_empty_env() {
+        // Plugin children see exactly `spec.env` (contract R6).
+        command.env_clear();
+    }
     command
-        .current_dir(&spec.cwd)
         .envs(spec.env.iter().cloned())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    // Defence in depth: no licence or device variable reaches a tool, hook or script process,
-    // whether inherited from the daemon or layered on by the caller. The daemon holds none (it
-    // opens the licence record itself), so this only closes a variable that appears later.
+    // No licence, device or credential variable reaches a child process (providers R46), whether
+    // inherited from the daemon or layered on by the caller.
     for name in licence_env_names(spec) {
         command.env_remove(name);
     }
@@ -227,6 +261,7 @@ async fn spawn_with_decision(
     spec: CommandLaunchSpec,
     decision: SandboxDecision,
 ) -> Result<Box<dyn ManagedChild>, EffectExecutionError> {
+    let spec = scrub_spec_env(spec);
     if !decision.enforce {
         // Explicit, typed unsandboxed escape hatch: the caller's
         // `ProcessLaunchContext` set `sandbox_required: false` deliberately.
@@ -272,6 +307,7 @@ async fn spawn_pty_with_decision(
     decision: SandboxDecision,
     size: PtySize,
 ) -> Result<Box<dyn ManagedChild>, EffectExecutionError> {
+    let spec = scrub_spec_env(spec);
     if spec.context.sandbox_required && decision.tier.is_disabled() {
         return Err(EffectExecutionError::SandboxMissing);
     }
@@ -463,8 +499,19 @@ async fn spawn_enforced(
     decision: SandboxDecision,
 ) -> Result<Box<dyn ManagedChild>, EffectExecutionError> {
     let workspace_root = Path::new(&spec.context.workspace_root);
-    let config =
+    let mut config =
         crate::coding_tools::shell::local_sandbox_config_for_tier(workspace_root, decision.tier);
+    // The launched program itself must be readable and executable: a vendor CLI
+    // usually lives outside the workspace and the system paths (`~/.local/bin`).
+    for dir in program_dirs(&spec) {
+        config = config.allow_read(dir);
+    }
+    // A vendor driver's MCP config launches the host app's own executable (the session gateway).
+    if decision.profile.starts_with("driver") {
+        if let Ok(own) = std::env::current_exe() {
+            config = config.allow_read(own);
+        }
+    }
     let proof = SandboxProcessProof {
         backend: "landlock-seccomp".to_string(),
         profile: decision.profile,
@@ -638,6 +685,41 @@ impl ManagedChild for LocalManagedChild {
             }
         }
     }
+}
+
+/// The directories holding the program a launch names: where `PATH` (the launch's
+/// own, else the host's) finds it, and where a symlink there resolves to.
+#[cfg(target_os = "linux")]
+pub(crate) fn program_dirs(spec: &CommandLaunchSpec) -> Vec<std::path::PathBuf> {
+    let program = Path::new(&spec.program);
+    let found = if program.components().count() > 1 {
+        Some(program.to_path_buf())
+    } else {
+        let path_var = spec
+            .env
+            .iter()
+            .find(|(name, _)| name == "PATH")
+            .map(|(_, value)| std::ffi::OsString::from(value))
+            .or_else(|| std::env::var_os("PATH"));
+        path_var.and_then(|paths| {
+            std::env::split_paths(&paths)
+                .map(|dir| dir.join(program))
+                .find(|candidate| candidate.is_file())
+        })
+    };
+    let Some(found) = found else {
+        return Vec::new();
+    };
+    let mut dirs = Vec::new();
+    if let Some(parent) = found.parent() {
+        dirs.push(parent.to_path_buf());
+    }
+    if let Some(parent) = found.canonicalize().ok().as_deref().and_then(Path::parent) {
+        if !dirs.iter().any(|dir| dir == parent) {
+            dirs.push(parent.to_path_buf());
+        }
+    }
+    dirs
 }
 
 #[cfg(test)]

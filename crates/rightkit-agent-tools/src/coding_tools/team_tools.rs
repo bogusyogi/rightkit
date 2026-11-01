@@ -47,7 +47,7 @@ impl Tool for TeamCreateTool {
                 "max_workers": {
                     "type": "integer",
                     "minimum": 1,
-                    "description": "Optional default concurrency cap for this team when used as a planning template."
+                    "description": "Optional default concurrency cap for this team when used as a team preset."
                 },
                 "budget_usd": {
                     "type": "number",

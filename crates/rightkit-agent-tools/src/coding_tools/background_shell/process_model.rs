@@ -204,6 +204,9 @@ pub struct BgShell {
     pub command: String,
     process_kind: String,
     execution_target: BgExecutionTarget,
+    /// What the launch adapter reported about the process boundary (rule 55). `None` when the
+    /// launch path reports no proof.
+    launch_proof: Option<rightkit_sandbox::execution::SandboxProcessProof>,
     pid: Mutex<Option<u32>>,
     started_at_ns: u128,
     output: Mutex<BoundedOutput>,
@@ -243,6 +246,8 @@ struct HumanInput {
     last_input: Option<std::time::Instant>,
     queue: Vec<QueuedAgentInput>,
     drain_running: bool,
+    /// Held writes that could not be delivered (rule 29, D31), oldest first, until taken.
+    failures: Vec<String>,
 }
 
 impl HumanInput {
@@ -282,6 +287,12 @@ type BackgroundStdin = crate::coding_tools::sandbox::AsyncStdin;
 type BackgroundStdin = std::pin::Pin<Box<dyn AsyncWrite + Send>>;
 
 impl BgShell {
+    /// True when the launch proof says the process runs outside the sandbox (`enforced: false`),
+    /// like the operator terminal. A confined agent must not type into such a process (rule 55).
+    pub fn launched_unconfined(&self) -> bool {
+        self.launch_proof.as_ref().is_some_and(|proof| !proof.enforced)
+    }
+
     fn append(&self, chunk: &[u8]) {
         lock_recover(&self.output, "background_shell.output").push(chunk);
     }
@@ -557,21 +568,46 @@ impl BgShell {
             queued_bytes,
         })
     }
-    /// Send every held agent write, in order. Stale-epoch entries are dropped.
+    /// Send every held agent write, in order. A held write that cannot be delivered (a stale
+    /// lease epoch, or the process refusing the bytes) is reported to the agent in the process
+    /// output and kept in [`Self::take_input_failures`], never dropped silently (rule 29, D31).
     async fn flush_agent_queue(&self) -> Result<(), String> {
         let pending =
             std::mem::take(&mut lock_recover(&self.human, "background_shell.human").queue);
-        for queued in pending {
+        let mut remaining = pending.into_iter();
+        while let Some(queued) = remaining.next() {
             let mut lease = self.lease.lock().await;
             if lease.epoch != queued.epoch {
+                self.report_lost_input(format!(
+                    "{} bytes of held input were dropped: the process lease changed (stale epoch)",
+                    queued.bytes.len()
+                ));
                 continue;
             }
-            self.write_stdin_bytes(&queued.bytes).await?;
+            if let Err(error) = self.write_stdin_bytes(&queued.bytes).await {
+                let lost: usize = queued.bytes.len() + remaining.map(|q| q.bytes.len()).sum::<usize>();
+                self.report_lost_input(format!(
+                    "{lost} bytes of held input could not be written: {error}"
+                ));
+                return Err(error);
+            }
             if queued.sequence >= lease.last_acked_input_sequence {
                 lease.last_acked_input_sequence = queued.sequence;
             }
         }
         Ok(())
+    }
+    /// Tell the agent a held write was lost: a line in the process output (read with the next
+    /// output poll) and an entry for [`Self::take_input_failures`].
+    fn report_lost_input(&self, reason: String) {
+        self.append(format!("\n[rightkit: {reason}]\n").as_bytes());
+        lock_recover(&self.human, "background_shell.human")
+            .failures
+            .push(reason);
+    }
+    /// Held-write failures recorded since the last call (rule 29).
+    pub fn take_input_failures(&self) -> Vec<String> {
+        std::mem::take(&mut lock_recover(&self.human, "background_shell.human").failures)
     }
     /// Background task that returns the lease to the agent once the human is
     /// idle (or detached) and sends what it queued.
@@ -595,6 +631,7 @@ impl BgShell {
                     human.wait_until_idle(std::time::Instant::now())
                 };
                 if wait.is_zero() {
+                    // A failure is already reported to the agent by `flush_agent_queue`.
                     let _ = shell.flush_agent_queue().await;
                 } else {
                     tokio::time::sleep(wait).await;

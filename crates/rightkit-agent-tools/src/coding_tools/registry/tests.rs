@@ -248,13 +248,7 @@ fn default_registry_exposes_background_task_tools() {
 #[test]
 fn default_registry_exposes_media_tools() {
     let reg = ToolRegistry::build_default();
-    for name in [
-        "ocr",
-        "transcribe",
-        "web_extract",
-        "media_fetch",
-        "ffmpeg_extract",
-    ] {
+    for name in ["ocr", "web_extract", "media_fetch", "ffmpeg_extract"] {
         assert!(reg.get(name).is_some(), "{name} should be registered");
     }
 }
@@ -262,13 +256,7 @@ fn default_registry_exposes_media_tools() {
 #[test]
 fn shell_allowed_registry_excludes_media_tools() {
     let reg = ToolRegistry::build_for_allowed(&["shell".into()]);
-    for name in [
-        "ocr",
-        "transcribe",
-        "web_extract",
-        "media_fetch",
-        "ffmpeg_extract",
-    ] {
+    for name in ["ocr", "web_extract", "media_fetch", "ffmpeg_extract"] {
         assert!(
             reg.get(name).is_none(),
             "{name} must require a separate media grant"
@@ -282,7 +270,6 @@ fn media_allowed_registry_includes_media_without_shell() {
     for name in [
         "ocr",
         "ocr_onnx",
-        "transcribe",
         "web_extract",
         "media_fetch",
         "ffmpeg_extract",
