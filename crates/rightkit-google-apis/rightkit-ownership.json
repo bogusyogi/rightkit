@@ -2,7 +2,7 @@
   "package": "rightkit-google-apis",
   "capabilities": [
     {
-      "capability": "google workspace apis",
+      "capability": "google-workspace-apis",
       "summary": "Async Google Workspace REST clients: Gmail (sync, history, batch fetch, MIME, compose, labels, filters, settings, drafts, attachments), Calendar, Drive, People, Tasks and Meet, with desktop OAuth and shared retry/backoff.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",

@@ -2,7 +2,7 @@
   "package": "rightkit-social-publish",
   "capabilities": [
     {
-      "capability": "social publish",
+      "capability": "social-publish",
       "summary": "Social platform publish adapters (X, Bluesky, Mastodon, Threads, Instagram, Facebook, LinkedIn, Pinterest, TikTok, YouTube) with a no-retry HTTP layer, Retry-After parsing, media checks, pinned API versions and error-text redaction.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",

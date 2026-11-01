@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T09:04:03Z",
-  "rightkitHead": "2245a8a",
+  "generatedAt": "2026-11-01T09:04:20Z",
+  "rightkitHead": "2ccea7f",
   "legend": [
     {
       "state": "adopted",
@@ -6480,7 +6480,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "adapt"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -6545,7 +6547,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "adaptive-learning"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -6610,7 +6614,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-api-platform"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -6675,7 +6681,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-api-sessions"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -6740,7 +6748,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-api-workflows"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -6805,7 +6815,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-attention"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -6870,7 +6882,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-cli"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -6935,7 +6949,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-history"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -7000,7 +7016,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-protocol"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -7065,7 +7083,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-runtime-middleware"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -7130,7 +7150,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-runtime-resources"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -7195,7 +7217,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-storage"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -7260,7 +7284,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-tasks"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -7325,7 +7351,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-orchestration"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -7390,7 +7418,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-orchestration-handoff"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -7455,7 +7485,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-policy"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -7613,7 +7645,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-transcript"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -7899,7 +7933,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "app-manager"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -8366,7 +8402,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "benchmark-harness"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -8431,7 +8469,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "bot-messaging"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -8898,7 +8938,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "code-audit-provider-sdk"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -9164,7 +9206,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "context-client"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -9229,7 +9273,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "context-budget"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -9294,7 +9340,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "context-federation"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -9359,7 +9407,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "context-protocol"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -9424,7 +9474,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "context-provider-sdk"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -10252,7 +10304,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "dictation"
+      ],
       "private": false,
       "source": "0.2.0",
       "registry": "",
@@ -10317,7 +10371,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "disk-cleanup"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -10453,7 +10509,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "document-workspace"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -10585,7 +10643,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "evidence"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -10650,7 +10710,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "evidence-contracts"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -10715,7 +10777,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "evidence-decisions"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -10780,7 +10844,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "evidence-effects"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -10845,7 +10911,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "evidence-governance"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -10910,7 +10978,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "evidence-report"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -11337,7 +11407,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "github"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -11402,7 +11474,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "google-workspace-apis"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -11983,7 +12057,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "local-artifact-library"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -12297,7 +12373,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "local-image-generation"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -12507,7 +12585,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "mail-client-core"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -12639,7 +12719,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "media-fetch"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -12704,7 +12786,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "generative-media"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -12769,7 +12853,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "media-production-pipelines"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -12834,7 +12920,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-memory"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -12899,7 +12987,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "durable-memory-core"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -12964,7 +13054,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "durable-memory"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -13986,7 +14078,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "privileged-helper"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -14368,7 +14462,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "remote-compute"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -14433,7 +14529,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "repo-graph"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -14498,7 +14596,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "repo-graph-grammars"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -14563,7 +14663,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "research"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -15111,7 +15213,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "social-inbox"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -15176,7 +15280,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "social-publish"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -15539,7 +15645,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "system-monitor"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -15771,7 +15879,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "terminal-ui"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -15836,7 +15946,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "text-polish"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -16142,7 +16254,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "transcript-library"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -16676,7 +16790,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "voice-commands"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -16741,7 +16857,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "article-extraction"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
