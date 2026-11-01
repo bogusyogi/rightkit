@@ -145,7 +145,7 @@ impl DaemonState {
                 runtime: crate::telegram_task::new_telegram_runtime_status_store(),
                 ..TelegramRemoteStatus::default()
             },
-            specs: Arc::new(Mutex::new(rightkit_evidence::specs::SpecStore::new())),
+            specs: Arc::new(Mutex::new(rightkit_evidence::SpecStore::new())),
             spec_store_path: None,
             execution_backends: Arc::new(Mutex::new(
                 rightkit_sandbox::execution::ExecutionBackendRegistry::default(),
@@ -155,7 +155,7 @@ impl DaemonState {
             presence: Arc::new(rightkit_daemon::loopback::Presence::new(
                 rightkit_daemon::loopback::PresenceConfig::default(),
             )),
-            workflows_feature: rightkit_workflow::prelude::FeatureGate::v1_default(),
+            workflows_feature: rightkit_workflow::control_plane::prelude::FeatureGate::v1_default(),
             workflow_api_state: None,
             shutdown_tx: Arc::new(tokio::sync::watch::channel(false).0),
             routing_cache: Arc::new(Mutex::new(HashMap::new())),

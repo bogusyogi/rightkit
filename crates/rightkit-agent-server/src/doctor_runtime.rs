@@ -34,7 +34,7 @@ pub fn run(json: bool, verbose: bool, clipboard: bool) -> i32 {
     let rendered = if json {
         cli_json(&report, verbose)
     } else {
-        report.render_text()
+        report.render_text("RightKit")
     };
     if clipboard {
         match try_copy_to_clipboard(&rendered) {

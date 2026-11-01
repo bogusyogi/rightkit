@@ -17,7 +17,7 @@ fn apply_budget_to_store(
 }
 
 fn configured_toolset_profiles(
-    config: &rightkit_app_settings::agent_config::RightKitConfig,
+    config: &rightkit_app_settings::agent_config::HostConfig,
 ) -> Vec<ToolsetSettingsProfile> {
     config
         .toolsets

@@ -14,17 +14,17 @@ use rightkit_agent_engine_storage::{
     JournalAppend, ProjectionUpdate, WorkflowCommandRow, WorkflowJournalWriter, WorkflowQueueRow,
     WorkflowRepository, WorkflowRunRow,
 };
-use rightkit_workflow::a2a::workspace_contains;
-use rightkit_workflow::context::ContextManifest;
-use rightkit_workflow::domain::{
+use rightkit_workflow::control_plane::a2a::workspace_contains;
+use rightkit_workflow::control_plane::context::ContextManifest;
+use rightkit_workflow::control_plane::domain::{
     run_id, workflow_id, workflow_version_id, ContentHash, FailureClass, LifecyclePhase,
     LifecycleState, Revision,
 };
-use rightkit_workflow::executors::{
+use rightkit_workflow::control_plane::executors::{
     ExecutorAdapter, ExecutorError, NodeOutput as AdapterNodeOutput,
 };
-use rightkit_workflow::prelude::{CompiledPlan, NodeConfig, NodeKind, NodeSpec};
-use rightkit_workflow::reducer::Command;
+use rightkit_workflow::control_plane::prelude::{CompiledPlan, NodeConfig, NodeKind, NodeSpec};
+use rightkit_workflow::control_plane::reducer::Command;
 
 use crate::workflow::executors::{A2aAdapter, A2aAttempt};
 
@@ -682,7 +682,7 @@ impl RuntimeNodeDispatcher {
 }
 
 fn execution_timeout(
-    budget: &rightkit_workflow::context::ContextBudget,
+    budget: &rightkit_workflow::control_plane::context::ContextBudget,
     max_runtime_ms: u64,
 ) -> Result<std::time::Duration, DispatcherError> {
     let mut milliseconds = max_runtime_ms;
@@ -871,14 +871,15 @@ impl ExecuteNode for RuntimeNodeDispatcher {
                     }
                     _ => {}
                 }
-                let eval = rightkit_workflow::expression::EvalContext {
+                let eval = rightkit_workflow::control_plane::expression::EvalContext {
                     inputs,
                     node_outputs: ctx.node_outputs.clone().into_iter().collect(),
                     iteration_index: iteration_index
                         .or_else(|| ctx.iteration_index.map(|value| value as usize)),
                     ..Default::default()
                 };
-                let control = rightkit_workflow::control::ControlPlan::plan_for(&spec.kind);
+                let control =
+                    rightkit_workflow::control_plane::control::ControlPlan::plan_for(&spec.kind);
                 control
                     .check_entry(&ctx.compiled_plan, &eval)
                     .map_err(|error| DispatcherError::Runtime(format!("control entry: {error}")))?;
@@ -959,9 +960,9 @@ impl NodeDispatchContext {
     /// Test-only empty context. Production construction happens in
     /// `NodeExecutor::build_dispatch_context` after durable authority lookup.
     pub fn for_test() -> Self {
-        use rightkit_workflow::context::{ContextBudget, ContextBuilder};
-        use rightkit_workflow::domain::{NodeId, RunId};
-        use rightkit_workflow::ids::Prefix;
+        use rightkit_workflow::control_plane::context::{ContextBudget, ContextBuilder};
+        use rightkit_workflow::control_plane::domain::{NodeId, RunId};
+        use rightkit_workflow::control_plane::ids::Prefix;
 
         let manifest = ContextBuilder::new("v1")
             .with_provenance(
@@ -981,7 +982,8 @@ impl NodeDispatchContext {
             compiled_plan: CompiledPlan {
                 entry_node: "test".into(),
                 nodes: Vec::new(),
-                effective_capabilities: rightkit_workflow::domain::CapabilitySet::empty(),
+                effective_capabilities:
+                    rightkit_workflow::control_plane::domain::CapabilitySet::empty(),
             },
             version_id: "wfv_test".into(),
             iteration_index: None,
@@ -1043,7 +1045,9 @@ impl ExecuteNode for NodeDispatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rightkit_workflow::prelude::{Capability, CapabilitySet, EdgeSpec, RetryPolicy};
+    use rightkit_workflow::control_plane::prelude::{
+        Capability, CapabilitySet, EdgeSpec, RetryPolicy,
+    };
 
     fn spec(kind: NodeKind) -> NodeSpec {
         NodeSpec {
@@ -1054,7 +1058,9 @@ mod tests {
             edges: Vec::<EdgeSpec>::new(),
             retry: RetryPolicy {
                 max_attempts: 1,
-                backoff: rightkit_workflow::prelude::BackoffStrategy::Fixed { delay_ms: 100 },
+                backoff: rightkit_workflow::control_plane::prelude::BackoffStrategy::Fixed {
+                    delay_ms: 100,
+                },
                 retryable: Vec::new(),
             },
             config: Default::default(),

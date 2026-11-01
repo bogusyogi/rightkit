@@ -1,7 +1,7 @@
 use axum::{http::StatusCode, response::Json, routing::get, Router};
 #[cfg(test)]
 use rightkit_agent_tools::coding_tools::registry::ToolRegistry;
-use rightkit_app_settings::agent_config::{RightKitConfig, ToolsetConfig};
+use rightkit_app_settings::agent_config::{HostConfig, ToolsetConfig};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashSet};
@@ -143,7 +143,7 @@ pub(crate) fn toolset_gateways_response_schema() -> Value {
     json!({"$ref": "#/components/schemas/ToolGatewayStatusResponse"})
 }
 
-fn tool_gateway_statuses(config: &RightKitConfig) -> Vec<ToolGatewayStatus> {
+fn tool_gateway_statuses(config: &HostConfig) -> Vec<ToolGatewayStatus> {
     let available_tools = crate::session_tool_catalog::default_tool_capabilities()
         .into_iter()
         .map(|tool| tool.name)
@@ -247,7 +247,7 @@ pub(crate) fn resolve_toolset_profile(id: &str) -> Result<ToolsetProfile, Status
 
 pub(crate) fn resolve_toolset_profile_with_config(
     id: &str,
-    config: &RightKitConfig,
+    config: &HostConfig,
 ) -> Result<ToolsetProfile, StatusCode> {
     toolset_profiles_for_config(config)
         .into_iter()
@@ -255,7 +255,7 @@ pub(crate) fn resolve_toolset_profile_with_config(
         .ok_or(StatusCode::BAD_REQUEST)
 }
 
-pub(crate) fn toolset_profiles_for_config(config: &RightKitConfig) -> Vec<ToolsetProfile> {
+pub(crate) fn toolset_profiles_for_config(config: &HostConfig) -> Vec<ToolsetProfile> {
     let mut profiles = builtin_toolset_profiles();
     let configured = config.toolsets.iter().collect::<BTreeMap<_, _>>();
     for (id, config) in configured {

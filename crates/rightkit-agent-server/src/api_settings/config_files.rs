@@ -1,11 +1,11 @@
 fn load_workspace_config_only(
     workspace: &FsPath,
-) -> Result<rightkit_app_settings::agent_config::RightKitConfig, rightkit_app_settings::agent_config::ConfigError> {
+) -> Result<rightkit_app_settings::agent_config::HostConfig, rightkit_app_settings::agent_config::ConfigError> {
     let path = workspace_config_path(workspace);
     match fs::read_to_string(&path) {
         Ok(content) => rightkit_app_settings::agent_config::ConfigLoader::new().load_str(&content),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            Ok(rightkit_app_settings::agent_config::RightKitConfig::default())
+            Ok(rightkit_app_settings::agent_config::HostConfig::default())
         }
         Err(err) => Err(rightkit_app_settings::agent_config::ConfigError::Io(err.to_string())),
     }
@@ -106,7 +106,7 @@ fn config_state_dir() -> Option<PathBuf> {
 /// (the file is malformed), a lock or write failure a server error.
 async fn update_workspace_config_blocking(
     workspace: std::path::PathBuf,
-    edit: impl FnOnce(&mut rightkit_app_settings::agent_config::RightKitConfig) + Send + 'static,
+    edit: impl FnOnce(&mut rightkit_app_settings::agent_config::HostConfig) + Send + 'static,
 ) -> Result<(), StatusCode> {
     let outcome = tokio::task::spawn_blocking(move || {
         let read_failed = std::cell::Cell::new(false);
@@ -230,7 +230,7 @@ mod workspace_lock_tests {
                     || {
                         held_tx.send(()).unwrap();
                         std::thread::sleep(std::time::Duration::from_millis(700));
-                        Ok(rightkit_app_settings::agent_config::RightKitConfig::default())
+                        Ok(rightkit_app_settings::agent_config::HostConfig::default())
                     },
                     |_| {},
                 )

@@ -9,7 +9,7 @@ impl DaemonState {
         goal: &str,
         repeats: u32,
         session_id: &str,
-    ) -> rightkit_agent_orchestration::BenchmarkReport {
+    ) -> rightkit_agent_orchestration::coding::BenchmarkReport {
         use rightkit_agent_tools::coding_tools::SubagentSpawner;
 
         // A temporary state whose registry forces the benchmarked role onto the
@@ -61,7 +61,7 @@ impl DaemonState {
                 successes += 1;
             }
         }
-        rightkit_agent_orchestration::BenchmarkReport::new(role, model_id, repeats, successes)
+        rightkit_agent_orchestration::coding::BenchmarkReport::new(role, model_id, repeats, successes)
     }
 
     /// Run a champion/challenger comparison for a role and, if the challenger
@@ -73,7 +73,7 @@ impl DaemonState {
         goal: &str,
         repeats: u32,
         session_id: &str,
-    ) -> rightkit_agent_orchestration::PromotionDecision {
+    ) -> rightkit_agent_orchestration::coding::PromotionDecision {
         let champion_model = self
             .agent_registry
             .get(role)
@@ -86,13 +86,13 @@ impl DaemonState {
         let challenger = self
             .benchmark_role(role, challenger_model, goal, repeats, session_id)
             .await;
-        let decision = rightkit_agent_orchestration::decide_promotion(
+        let decision = rightkit_agent_orchestration::coding::decide_promotion(
             &champion,
             &challenger,
-            &rightkit_agent_orchestration::PromotionConfig::default(),
+            &rightkit_agent_orchestration::coding::PromotionConfig::default(),
         );
 
-        if let rightkit_agent_orchestration::PromotionDecision::Promote { to_model, .. } = &decision {
+        if let rightkit_agent_orchestration::coding::PromotionDecision::Promote { to_model, .. } = &decision {
             // Apply as a canary and begin a staged rollout: subsequent live runs
             // for this role advance it to Full or auto-roll-back.
             persist_agent_model(role, to_model);
@@ -148,7 +148,7 @@ impl DaemonState {
     fn build_llm_for_role_in_workspace(
         &self,
         role: &str,
-        workspace_config: &rightkit_app_settings::agent_config::RightKitConfig,
+        workspace_config: &rightkit_app_settings::agent_config::HostConfig,
         selected_model: Option<&str>,
     ) -> Result<Arc<dyn LlmClient>, String> {
         use rightkit_llm::agent_providers::OpenAiCompatClient;

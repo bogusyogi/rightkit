@@ -1,7 +1,7 @@
 use rightkit_agent_engine_protocol::{ScheduleRunEvent, ScheduleRunState};
-use rightkit_workflow::ids::{Prefix, StableId};
-use rightkit_workflow::trigger::{CausalReceipt, CausalReceiptKind};
-use rightkit_workflow::waits::TaskIsolationV1;
+use rightkit_workflow::control_plane::ids::{Prefix, StableId};
+use rightkit_workflow::control_plane::trigger::{CausalReceipt, CausalReceiptKind};
+use rightkit_workflow::control_plane::waits::TaskIsolationV1;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 

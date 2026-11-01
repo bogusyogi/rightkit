@@ -12,7 +12,7 @@ use std::collections::HashMap;
 pub use crate::membrane_binding::host_observation::{
     LoadedContextIdentitiesV1, PacketDeliveryAcknowledgementV1,
 };
-use rightkit_agent_orchestration::{
+use rightkit_agent_orchestration::coding::{
     compute_taste_score, propose, DurationBucket, RunRecord, TasteEngineConfig,
 };
 use serde::{Deserialize, Serialize};

@@ -166,7 +166,7 @@ pub(crate) fn subagent_error_kind(error: &str) -> SubagentErrorKind {
 /// indicate the agent is looping.
 fn detect_mop_in_output(output: &str) -> bool {
     use rightkit_agent_engine_core::mop::{signature, MopDetector};
-    use rightkit_agent_orchestration::SequenceAnomalyDetector;
+    use rightkit_agent_orchestration::coding::SequenceAnomalyDetector;
 
     // Extract action-like patterns from the transcript: tool calls, bash commands, etc.
     // Each line or action-like unit becomes a signature in the MOP detector.

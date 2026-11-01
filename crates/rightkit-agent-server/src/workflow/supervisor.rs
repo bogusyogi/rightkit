@@ -25,12 +25,12 @@ use rightkit_agent_engine_storage::{
     WorkflowNodeStateRow, WorkflowRepository, WorkflowRunLeaseRow, WorkflowRunRow,
     WorkflowVersionRow,
 };
-use rightkit_workflow::prelude::FailureClass;
-use rightkit_workflow::prelude::{
+use rightkit_workflow::control_plane::prelude::FailureClass;
+use rightkit_workflow::control_plane::prelude::{
     Clock, CompiledPlan, FeatureGate, LifecyclePhase, LifecycleState, Prefix, Revision, WorkflowId,
     WorkflowVersionId,
 };
-use rightkit_workflow::reducer::Command;
+use rightkit_workflow::control_plane::reducer::Command;
 
 /// Lease TTL knobs supplied by the daemon. `initial_secs` is what a fresh claim
 /// writes into `workflow_run_lease.lease_expires_at`; `renewal_secs` is the
@@ -548,7 +548,7 @@ impl RunSupervisor {
             let reducer_command = Command {
                 command_id,
                 kind: command_kind.to_string(),
-                run_id: rightkit_workflow::prelude::RunId::new(
+                run_id: rightkit_workflow::control_plane::prelude::RunId::new(
                     Prefix::WorkflowRun,
                     run_id_owned.clone(),
                 ),
@@ -633,8 +633,8 @@ fn lifecycle_phase_from_str(s: &str) -> LifecyclePhase {
 mod tests {
     use super::*;
     use rightkit_agent_engine_storage::Storage;
-    use rightkit_workflow::clock::TestClock;
-    use rightkit_workflow::prelude::CapabilitySet;
+    use rightkit_workflow::control_plane::clock::TestClock;
+    use rightkit_workflow::control_plane::prelude::CapabilitySet;
 
     fn open_storage() -> SharedStorage {
         SharedStorage::new(Storage::open_in_memory().expect("open_in_memory"))

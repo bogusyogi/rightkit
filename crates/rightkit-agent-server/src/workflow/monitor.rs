@@ -29,8 +29,8 @@ use rightkit_agent_engine_storage::{
     JournalAppend, ProjectionUpdate, TriggerRunAdmission, WorkflowRepository,
     WorkflowTriggerEventRow, WorkflowTriggerRow, WorkflowTriggerWriter,
 };
-use rightkit_workflow::{clock::Clock, domain::ContentHash};
-pub use rightkit_workflow::{InternalMonitorEvent, MonitorEventQueue};
+use rightkit_workflow::control_plane::{clock::Clock, domain::ContentHash};
+pub use rightkit_workflow::control_plane_host::{InternalMonitorEvent, MonitorEventQueue};
 
 /// Daemon-owned worker that drains `MonitorEventQueue` and admits each
 /// queued signal through the existing occurrence-admission pipeline,
@@ -39,7 +39,7 @@ pub use rightkit_workflow::{InternalMonitorEvent, MonitorEventQueue};
 pub struct MonitorWorker {
     storage: SharedStorage,
     queue: std::sync::Arc<MonitorEventQueue>,
-    clock: rightkit_workflow::clock::SystemClock,
+    clock: rightkit_workflow::control_plane::clock::SystemClock,
 }
 
 impl MonitorWorker {
@@ -47,7 +47,7 @@ impl MonitorWorker {
         Self {
             storage,
             queue,
-            clock: rightkit_workflow::clock::SystemClock::new(),
+            clock: rightkit_workflow::control_plane::clock::SystemClock::new(),
         }
     }
 
@@ -154,7 +154,7 @@ fn admit(
         Some(v) if v.workflow_id == trigger.workflow_id && v.publication_state == "published" => v,
         _ => return Ok(()),
     };
-    let clock = rightkit_workflow::clock::SystemClock::new();
+    let clock = rightkit_workflow::control_plane::clock::SystemClock::new();
     let now = crate::workflow::triggers::format_unix_ms_as_iso(now_ms);
     let source = "coderight:monitor".to_string();
     let content_hash = ContentHash::sha256(event.data.to_string().as_bytes());
@@ -181,10 +181,12 @@ fn admit(
     };
     let normalized = crate::workflow::triggers::NormalizedTriggerEvent {
         spec_version: crate::workflow::triggers::NormalizedTriggerEvent::SPEC_VERSION.into(),
-        id: rightkit_workflow::domain::trigger_event_id(
+        id: rightkit_workflow::control_plane::domain::trigger_event_id(
             row.id.strip_prefix("wf_evt_").unwrap_or(&row.id),
         ),
-        trigger_id: Some(rightkit_workflow::domain::trigger_id(trigger.id.clone())),
+        trigger_id: Some(rightkit_workflow::control_plane::domain::trigger_id(
+            trigger.id.clone(),
+        )),
         external_id: row.external_id.clone(),
         source: row.source.clone(),
         type_: row.event_type.clone(),

@@ -24,7 +24,7 @@
 use std::collections::BTreeMap;
 
 use rightkit_agent_engine_protocol::{TaskNode, TaskState};
-use rightkit_agent_orchestration::task_list_projection::{
+use rightkit_agent_orchestration::coding::task_list_projection::{
     assign_owner, create_task, mark_active, mark_done, update_task, CreateTaskInput,
     ProjectionError, TaskPatch,
 };

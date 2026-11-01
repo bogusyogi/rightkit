@@ -6,8 +6,8 @@ use super::lifecycle::scheduled_workspace_roots;
 use super::persistence::{
     append_run_event, load_run_state, replay_causal_receipts, runs_path, schedules_path,
 };
-use rightkit_workflow::trigger::{CausalReceipt, CausalReceiptKind};
-use rightkit_workflow::waits::TaskIsolationV1;
+use rightkit_workflow::control_plane::trigger::{CausalReceipt, CausalReceiptKind};
+use rightkit_workflow::control_plane::waits::TaskIsolationV1;
 use serde_json::json;
 
 #[test]

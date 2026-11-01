@@ -509,7 +509,7 @@ pub fn build_config_with_notice(settings: &TuiSettings, notice: Option<&str>) ->
 
 /// Applies one validated TUI setting to `config`; the error names an unknown key or bad value.
 pub fn apply_tui_setting(
-    config: &mut rightkit_app_settings::agent_config::RightKitConfig,
+    config: &mut rightkit_app_settings::agent_config::HostConfig,
     key: &str,
     value: &str,
 ) -> Result<(), String> {

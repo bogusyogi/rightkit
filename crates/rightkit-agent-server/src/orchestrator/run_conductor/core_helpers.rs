@@ -80,7 +80,7 @@ impl DaemonState {
         session_id: &str,
         session: &LiveSession,
         conduit: &rightkit_agent_engine_core::Conduit,
-        workspace_config: &rightkit_app_settings::agent_config::RightKitConfig,
+        workspace_config: &rightkit_app_settings::agent_config::HostConfig,
     ) -> Option<RunOutcome> {
         let pre_gate_specs =
             crate::pre_gate::specs_from_config(&workspace_config.orchestration.pre_gate_checks);
@@ -163,7 +163,7 @@ impl DaemonState {
         let recovery_conduit = conduit.clone();
         let recovery_sid = session_id.to_string();
         let worker = Arc::new(
-            rightkit_agent_orchestration::RecoveringWorker::new(
+            rightkit_agent_orchestration::coding::RecoveringWorker::new(
                 mechanism_worker,
                 max_attempts,
                 stall_timeout,

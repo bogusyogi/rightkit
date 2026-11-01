@@ -33,7 +33,7 @@
 
 use serde_json::Value;
 
-use rightkit_workflow::domain::{trigger_event_id, ContentHash, TriggerEventId};
+use rightkit_workflow::control_plane::domain::{trigger_event_id, ContentHash, TriggerEventId};
 
 /// Maximum length, in bytes, of a derived dedupe key. The schema caps it
 /// at 1024 bytes; we truncate defensively so a misbehaving caller cannot
@@ -176,7 +176,7 @@ fn sort_object_keys(value: Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rightkit_workflow::domain::ContentHash;
+    use rightkit_workflow::control_plane::domain::ContentHash;
 
     #[test]
     fn raw_event_id_hash_has_the_exact_22_hex_digest_prefix() {

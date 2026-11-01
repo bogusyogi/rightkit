@@ -205,7 +205,7 @@ telegram-token = "workspace-token"
 
 #[test]
 fn resolve_engine_config_uses_keyless_configured_local_route() {
-    let mut cfg = rightkit_app_settings::agent_config::RightKitConfig::default();
+    let mut cfg = rightkit_app_settings::agent_config::HostConfig::default();
     cfg.model.default_model = "qwen2.5-coder:7b".to_string();
     cfg.provider_routes.insert(
         "ollama-local".to_string(),
@@ -296,7 +296,7 @@ mode = "ask"
 
 #[test]
 fn remote_setup_updates_only_requested_config_fields() {
-    let mut cfg = rightkit_app_settings::agent_config::RightKitConfig::default();
+    let mut cfg = rightkit_app_settings::agent_config::HostConfig::default();
     cfg.remote.telegram_token = Some("old-token".into());
     cfg.remote.telegram_allowed_users = vec![1, 2];
     cfg.remote.web_enabled = Some(false);
@@ -323,7 +323,7 @@ fn remote_setup_updates_only_requested_config_fields() {
 
 #[test]
 fn remote_setup_next_steps_guide_user_discovery_when_allowlist_missing() {
-    let mut cfg = rightkit_app_settings::agent_config::RightKitConfig::default();
+    let mut cfg = rightkit_app_settings::agent_config::HostConfig::default();
     cfg.remote.telegram_token = Some("token".into());
 
     let steps = remote_setup_next_steps(&cfg);
@@ -349,7 +349,7 @@ fn remote_setup_next_steps_guide_user_discovery_when_allowlist_missing() {
 
 #[test]
 fn remote_setup_next_steps_include_final_smoke_when_allowlist_ready() {
-    let mut cfg = rightkit_app_settings::agent_config::RightKitConfig::default();
+    let mut cfg = rightkit_app_settings::agent_config::HostConfig::default();
     cfg.remote.telegram_token = Some("token".into());
     cfg.remote.telegram_allowed_users = vec![123];
 

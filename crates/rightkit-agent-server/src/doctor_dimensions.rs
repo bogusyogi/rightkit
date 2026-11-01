@@ -3,34 +3,10 @@
 
 use std::collections::BTreeMap;
 
-/// One security/runtime dimension probe result.
-#[derive(Debug, Clone, Serialize)]
-pub struct Dimension {
-    /// `pass` | `warn` | `block` | `unknown` — lowercase for stable JSON keys.
-    pub status: &'static str,
-    /// Human-readable summary of what was found.
-    pub detail: String,
-    /// Per-dimension evidence (only present with `--verbose` and non-empty).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub evidence: Option<Vec<Evidence>>,
-}
-
-/// One piece of evidence inside a dimension — used for `--verbose`.
-#[derive(Debug, Clone, Serialize)]
-pub struct Evidence {
-    pub id: String,
-    pub label: String,
-    /// `pass` | `warn` | `block` | `unknown`
-    pub status: &'static str,
-    pub detail: String,
-}
+pub use rightkit_doctor::verdict::{Dimension, Evidence};
 
 pub(crate) fn dim(status: &'static str, detail: impl Into<String>) -> Dimension {
-    Dimension {
-        status,
-        detail: detail.into(),
-        evidence: None,
-    }
+    Dimension::new(status, detail)
 }
 
 pub(crate) fn dim_with_evidence(
@@ -38,17 +14,7 @@ pub(crate) fn dim_with_evidence(
     detail: impl Into<String>,
     evidence: Vec<Evidence>,
 ) -> Dimension {
-    Dimension {
-        status,
-        detail: detail.into(),
-        // Skip empty arrays so verbose mode doesn't emit `"evidence": []` for
-        // dimensions with no sub-checks.
-        evidence: if evidence.is_empty() {
-            None
-        } else {
-            Some(evidence)
-        },
-    }
+    Dimension::with_evidence(status, detail, evidence)
 }
 
 /// Collect every dimension probe into a stable-key map. Output order in JSON

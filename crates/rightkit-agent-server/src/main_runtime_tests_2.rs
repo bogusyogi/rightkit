@@ -1,6 +1,6 @@
 #[test]
 fn remote_setup_summary_redacts_token_and_preserves_guidance() {
-    let mut cfg = rightkit_app_settings::agent_config::RightKitConfig::default();
+    let mut cfg = rightkit_app_settings::agent_config::HostConfig::default();
     cfg.remote.telegram_token = Some("123456:secret-bot-token".into());
     cfg.remote.telegram_allowed_users = vec![123];
     cfg.remote.web_enabled = Some(true);
@@ -237,7 +237,7 @@ fn telegram_live_smoke_passes_when_ready_and_chat_observed() {
 
 #[test]
 fn configured_boss_model_resolves_agent_aliases_before_startup() {
-    let mut registry = rightkit_agent_orchestration::registry::AgentRegistry::with_builtins();
+    let mut registry = rightkit_agent_orchestration::coding::registry::AgentRegistry::with_builtins();
     let conductor = registry.get("conductor").unwrap().model_id.clone();
     assert_ne!(conductor, "conductor");
     assert_eq!(

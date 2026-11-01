@@ -62,12 +62,12 @@ impl DaemonState {
     /// caller — the thin-diff reviewer is this lane's review gate). Returns
     /// `Ok(None)` to **escalate**: the gate failed or the reviewer rejected, so
     /// the caller falls through to the `ArchitectPlan` path (the v1 one-hop
-    /// escalation — see [`rightkit_agent_orchestration::escalation::should_escalate`]).
+    /// escalation — see [`rightkit_agent_orchestration::coding::escalation::should_escalate`]).
     async fn run_direct_edit(
         &self,
         session_id: &str,
         goal: &str,
-        workspace_config: &rightkit_app_settings::agent_config::RightKitConfig,
+        workspace_config: &rightkit_app_settings::agent_config::HostConfig,
     ) -> Result<Option<RunOutcome>, String> {
         let session = self
             .get_session(session_id)
@@ -198,7 +198,7 @@ impl DaemonState {
             // `already_escalated` is false on the first hop; a retry of the
             // DirectEdit path within the same run would set it true to block
             // a second hop (today that loop is in caller, not here).
-            let escalate = rightkit_agent_orchestration::escalation::should_escalate_direct_edit(
+            let escalate = rightkit_agent_orchestration::coding::escalation::should_escalate_direct_edit(
                 gate_ok, review_ok, false,
             );
             if escalate {

@@ -12,7 +12,7 @@ use crate::{
     observation, scheduler, telegram_task, trajectory,
 };
 use clap::{CommandFactory, Parser};
-use rightkit_agent_orchestration::registry::AgentRegistry;
+use rightkit_agent_orchestration::coding::registry::AgentRegistry;
 use rightkit_agent_recipes::{
     build_recipe_deeplink, recipe_checksum, render_recipe, stable_recipe_id,
     validate_recipe_with_catalog, InstalledRecipe, Recipe, RecipeRun, RecipeRunStatus,

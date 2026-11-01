@@ -28,7 +28,7 @@ fn command_spec_plan(state: &DaemonState, spec_id: &str, args: &[String]) -> Com
         }
         let tasks = store.tasks(spec_id);
         let decisions = store.constitution_decisions(spec_id);
-        let analysis = rightkit_evidence::specs::analyze_spec_with_constitution_decisions(
+        let analysis = rightkit_evidence::analyze_spec_with_constitution_decisions(
             &spec,
             &tasks,
             &decisions,
@@ -37,7 +37,7 @@ fn command_spec_plan(state: &DaemonState, spec_id: &str, args: &[String]) -> Com
         );
         store.record_analysis(analysis.clone());
         if let Some(updated) = store.spec_mut(spec_id) {
-            updated.status = rightkit_evidence::specs::SpecStatus::Planned;
+            updated.status = rightkit_evidence::SpecStatus::Planned;
             updated.updated_at = crate::api::now_iso();
         }
         let persist_result = persist_slash_spec_store(state, &store);
@@ -68,7 +68,7 @@ fn command_spec_checklist(state: &DaemonState, spec_id: &str, args: &[String]) -
         };
         let tasks = store.tasks(spec_id);
         let decisions = store.constitution_decisions(spec_id);
-        let analysis = rightkit_evidence::specs::analyze_spec_with_constitution_decisions(
+        let analysis = rightkit_evidence::analyze_spec_with_constitution_decisions(
             &spec,
             &tasks,
             &decisions,
@@ -79,13 +79,13 @@ fn command_spec_checklist(state: &DaemonState, spec_id: &str, args: &[String]) -
             .findings
             .iter()
             .filter(|finding| {
-                matches!(finding.severity, rightkit_evidence::specs::FindingSeverity::Critical)
+                matches!(finding.severity, rightkit_evidence::FindingSeverity::Critical)
             })
             .count();
         let warning_count = analysis
             .findings
             .iter()
-            .filter(|finding| matches!(finding.severity, rightkit_evidence::specs::FindingSeverity::Warning))
+            .filter(|finding| matches!(finding.severity, rightkit_evidence::FindingSeverity::Warning))
             .count();
         let findings = analysis.findings.clone();
         store.record_analysis(analysis);
@@ -136,7 +136,7 @@ async fn command_spec_implement(
         };
         let tasks = store.tasks(spec_id);
         let decisions = store.constitution_decisions(spec_id);
-        let analysis = rightkit_evidence::specs::analyze_spec_with_constitution_decisions(
+        let analysis = rightkit_evidence::analyze_spec_with_constitution_decisions(
             &spec,
             &tasks,
             &decisions,
@@ -145,9 +145,9 @@ async fn command_spec_implement(
         );
         let prompt = slash_implementation_prompt(&spec, &tasks, &analysis);
         store.record_analysis(analysis.clone());
-        if analysis.status != rightkit_evidence::specs::AnalysisStatus::Block && !dry_run {
+        if analysis.status != rightkit_evidence::AnalysisStatus::Block && !dry_run {
             if let Some(updated) = store.spec_mut(spec_id) {
-                updated.status = rightkit_evidence::specs::SpecStatus::Implementing;
+                updated.status = rightkit_evidence::SpecStatus::Implementing;
                 updated.updated_at = crate::api::now_iso();
             }
         }
@@ -159,7 +159,7 @@ async fn command_spec_implement(
             "Spec implementation check ran but could not be persisted: {error}"
         ));
     }
-    if analysis.status == rightkit_evidence::specs::AnalysisStatus::Block {
+    if analysis.status == rightkit_evidence::AnalysisStatus::Block {
         return command_err(format!(
             "Spec cannot enter implementation while critical checklist blockers remain. Findings: {}",
             analysis.findings.len()

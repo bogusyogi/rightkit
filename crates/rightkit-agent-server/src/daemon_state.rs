@@ -15,7 +15,9 @@
 use rightkit_agent_engine_core::conduit::ConduitReceive;
 use rightkit_agent_engine_protocol::ProtocolEvent;
 use rightkit_agent_engine_runtime_middleware::MiddlewarePhase;
-use rightkit_agent_orchestration::subagent_routing::{resolve_invocation, Profile, TaskSpec};
+use rightkit_agent_orchestration::coding::subagent_routing::{
+    resolve_invocation, Profile, TaskSpec,
+};
 
 use crate::api::DaemonSubagentSupervisor;
 use crate::api::{
@@ -1296,7 +1298,7 @@ mod tests {
     fn native_task_spec_keeps_explicit_route_outside_profile_state() {
         let options = rightkit_agent_tools::coding_tools::SubagentSpawnOptions {
             runtime: Some(
-                rightkit_agent_tools::coding_tools::SpawnRuntimeKind::RightKitNative {
+                rightkit_agent_tools::coding_tools::SpawnRuntimeKind::CodeRightNative {
                     provider_id: Some("anthropic".into()),
                     model_id: "claude-haiku".into(),
                 },

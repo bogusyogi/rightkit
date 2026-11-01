@@ -389,7 +389,7 @@ impl rightkit_agent_tools::coding_tools::SubagentSpawner for CliSubagentSpawner 
         let task = task.to_string();
         let workspace_root = self.workspace_root.clone();
         Box::pin(async move {
-            let mut registry = rightkit_agent_orchestration::registry::AgentRegistry::with_builtins();
+            let mut registry = rightkit_agent_orchestration::coding::registry::AgentRegistry::with_builtins();
             let merged_config = load_merged_config_for_workspace(
                 &workspace_root,
                 &std::env::vars().collect::<std::collections::HashMap<_, _>>(),

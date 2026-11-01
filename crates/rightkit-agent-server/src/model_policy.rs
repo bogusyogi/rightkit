@@ -1,5 +1,5 @@
-use rightkit_agent_orchestration::registry::AgentRegistry;
-use rightkit_app_settings::agent_config::RightKitConfig;
+use rightkit_agent_orchestration::coding::registry::AgentRegistry;
+use rightkit_app_settings::agent_config::HostConfig;
 
 pub(crate) const ROLE_MODEL_MODE_SINGLE: &str = "single";
 pub(crate) const ROLE_MODEL_MODE_SPLIT: &str = "split";
@@ -18,10 +18,10 @@ where
 /// agent while this function derived the real provider, so routing worked and
 /// every UI reading `provider_id` lied.
 pub(crate) fn provider_id_for_model_slug(slug: &str) -> &'static str {
-    rightkit_agent_orchestration::registry::provider_id_for_model_slug(slug)
+    rightkit_agent_orchestration::coding::registry::provider_id_for_model_slug(slug)
 }
 
-pub(crate) fn role_model_mode(config: &RightKitConfig, split_entitled: bool) -> &'static str {
+pub(crate) fn role_model_mode(config: &HostConfig, split_entitled: bool) -> &'static str {
     let requested = config.orchestration.role_model_mode.trim();
     if requested.eq_ignore_ascii_case(ROLE_MODEL_MODE_SPLIT) && split_entitled {
         ROLE_MODEL_MODE_SPLIT
@@ -30,7 +30,7 @@ pub(crate) fn role_model_mode(config: &RightKitConfig, split_entitled: bool) -> 
     }
 }
 
-pub(crate) fn uses_single_role_model(config: &RightKitConfig, split_entitled: bool) -> bool {
+pub(crate) fn uses_single_role_model(config: &HostConfig, split_entitled: bool) -> bool {
     role_model_mode(config, split_entitled) == ROLE_MODEL_MODE_SINGLE
 }
 
@@ -47,7 +47,7 @@ pub(crate) fn resolve_configured_model_alias(configured: &str, registry: &AgentR
 }
 
 pub(crate) fn single_role_model_for_config(
-    config: &RightKitConfig,
+    config: &HostConfig,
     registry: &AgentRegistry,
     engine_default_model: Option<&str>,
 ) -> Option<String> {
@@ -64,7 +64,7 @@ pub(crate) fn single_role_model_for_config(
 
 pub(crate) fn apply_effective_role_model_policy(
     registry: &mut AgentRegistry,
-    config: &RightKitConfig,
+    config: &HostConfig,
     split_entitled: bool,
     engine_default_model: Option<&str>,
 ) {
@@ -79,7 +79,7 @@ pub(crate) fn apply_effective_role_model_policy(
 
 pub(crate) fn apply_effective_role_model_policy_with_override(
     registry: &mut AgentRegistry,
-    config: &RightKitConfig,
+    config: &HostConfig,
     split_entitled: bool,
     engine_default_model: Option<&str>,
     session_model_override: Option<&str>,
@@ -129,7 +129,7 @@ mod tests {
 
     #[test]
     fn default_policy_is_single_even_without_a_split_license() {
-        let cfg = RightKitConfig::default();
+        let cfg = HostConfig::default();
 
         assert_eq!(role_model_mode(&cfg, false), ROLE_MODEL_MODE_SINGLE);
         assert!(uses_single_role_model(&cfg, false));
@@ -137,7 +137,7 @@ mod tests {
 
     #[test]
     fn split_policy_requires_entitlement() {
-        let mut cfg = RightKitConfig::default();
+        let mut cfg = HostConfig::default();
         cfg.orchestration.role_model_mode = ROLE_MODEL_MODE_SPLIT.into();
 
         assert_eq!(role_model_mode(&cfg, false), ROLE_MODEL_MODE_SINGLE);
@@ -146,7 +146,7 @@ mod tests {
 
     #[test]
     fn single_policy_applies_selected_minimax_model_to_every_role() {
-        let mut cfg = RightKitConfig::default();
+        let mut cfg = HostConfig::default();
         cfg.orchestration.boss_model = "minimax/minimax-m3".into();
         let mut registry = AgentRegistry::with_builtins();
 
@@ -164,7 +164,7 @@ mod tests {
 
     #[test]
     fn session_model_override_wins_for_single_model_mode() {
-        let mut cfg = RightKitConfig::default();
+        let mut cfg = HostConfig::default();
         cfg.orchestration.boss_model = "conductor".into();
         let mut registry = AgentRegistry::with_builtins();
 

@@ -31,12 +31,12 @@ fn command_option_value(args: &[String], flag: &str) -> Option<String> {
 }
 
 fn slash_generated_plan_tasks(
-    spec: &rightkit_evidence::specs::FeatureSpec,
-    existing_tasks: &[rightkit_evidence::specs::FeatureTask],
+    spec: &rightkit_evidence::FeatureSpec,
+    existing_tasks: &[rightkit_evidence::FeatureTask],
     constraints: Option<&str>,
     include_verification: bool,
     now: String,
-) -> Vec<rightkit_evidence::specs::FeatureTask> {
+) -> Vec<rightkit_evidence::FeatureTask> {
     let mut out = Vec::new();
     let mut next_id = existing_tasks.len() + 1;
     let constraints = constraints.map(str::trim).filter(|value| !value.is_empty());
@@ -45,7 +45,7 @@ fn slash_generated_plan_tasks(
         if existing_tasks
             .iter()
             .chain(out.iter())
-            .any(|task: &rightkit_evidence::specs::FeatureTask| {
+            .any(|task: &rightkit_evidence::FeatureTask| {
                 task.requirement_ids.iter().any(|id| id == &req.id)
             })
         {
@@ -55,7 +55,7 @@ fn slash_generated_plan_tasks(
         if let Some(constraints) = constraints {
             description.push_str(&format!(" Constraints: {constraints}"));
         }
-        out.push(rightkit_evidence::specs::FeatureTask {
+        out.push(rightkit_evidence::FeatureTask {
             id: format!("T{next_id:03}"),
             spec_id: spec.id.clone(),
             story_id: req.source_story_id.clone(),
@@ -65,7 +65,7 @@ fn slash_generated_plan_tasks(
             description,
             paths: Vec::new(),
             parallelizable: true,
-            status: rightkit_evidence::specs::TaskStatus::Todo,
+            status: rightkit_evidence::TaskStatus::Todo,
             evidence_ids: Vec::new(),
             created_at: now.clone(),
             updated_at: now.clone(),
@@ -82,7 +82,7 @@ fn slash_generated_plan_tasks(
             if existing_tasks
                 .iter()
                 .chain(out.iter())
-                .any(|task: &rightkit_evidence::specs::FeatureTask| {
+                .any(|task: &rightkit_evidence::FeatureTask| {
                     task.success_criterion_ids
                         .iter()
                         .any(|id| id == &criterion.id)
@@ -90,7 +90,7 @@ fn slash_generated_plan_tasks(
             {
                 continue;
             }
-            out.push(rightkit_evidence::specs::FeatureTask {
+            out.push(rightkit_evidence::FeatureTask {
                 id: format!("T{next_id:03}"),
                 spec_id: spec.id.clone(),
                 story_id: None,
@@ -103,7 +103,7 @@ fn slash_generated_plan_tasks(
                 ),
                 paths: Vec::new(),
                 parallelizable: false,
-                status: rightkit_evidence::specs::TaskStatus::Todo,
+                status: rightkit_evidence::TaskStatus::Todo,
                 evidence_ids: vec![format!("EV-{}", criterion.id)],
                 created_at: now.clone(),
                 updated_at: now.clone(),
@@ -123,9 +123,9 @@ fn slash_looks_placeholder(text: &str) -> bool {
 }
 
 fn slash_implementation_prompt(
-    spec: &rightkit_evidence::specs::FeatureSpec,
-    tasks: &[rightkit_evidence::specs::FeatureTask],
-    analysis: &rightkit_evidence::specs::SpecAnalysisRun,
+    spec: &rightkit_evidence::FeatureSpec,
+    tasks: &[rightkit_evidence::FeatureTask],
+    analysis: &rightkit_evidence::SpecAnalysisRun,
 ) -> String {
     let mut prompt = format!(
         "Implement the bound RightKit feature spec.\n\nSpec: {} ({})\nWorkspace: {}\nStatus: {:?}\n\n",
@@ -167,7 +167,7 @@ fn command_spec_workspace_and_rest(args: &[String]) -> (Option<String>, Vec<Stri
 
 fn persist_slash_spec_store(
     state: &DaemonState,
-    store: &rightkit_evidence::specs::SpecStore,
+    store: &rightkit_evidence::SpecStore,
 ) -> Result<(), String> {
     let Some(path) = state.spec_store_path.as_deref() else {
         return Ok(());
@@ -175,20 +175,20 @@ fn persist_slash_spec_store(
     crate::api_specs::write_spec_store(path, store)
 }
 
-fn slash_spec_status(status: &rightkit_evidence::specs::SpecStatus) -> &'static str {
+fn slash_spec_status(status: &rightkit_evidence::SpecStatus) -> &'static str {
     match status {
-        rightkit_evidence::specs::SpecStatus::Draft => "draft",
-        rightkit_evidence::specs::SpecStatus::Planned => "planned",
-        rightkit_evidence::specs::SpecStatus::Implementing => "implementing",
-        rightkit_evidence::specs::SpecStatus::Done => "done",
-        rightkit_evidence::specs::SpecStatus::Blocked => "blocked",
+        rightkit_evidence::SpecStatus::Draft => "draft",
+        rightkit_evidence::SpecStatus::Planned => "planned",
+        rightkit_evidence::SpecStatus::Implementing => "implementing",
+        rightkit_evidence::SpecStatus::Done => "done",
+        rightkit_evidence::SpecStatus::Blocked => "blocked",
     }
 }
 
-fn slash_analysis_status(status: &rightkit_evidence::specs::AnalysisStatus) -> &'static str {
+fn slash_analysis_status(status: &rightkit_evidence::AnalysisStatus) -> &'static str {
     match status {
-        rightkit_evidence::specs::AnalysisStatus::Pass => "pass",
-        rightkit_evidence::specs::AnalysisStatus::Warn => "warn",
-        rightkit_evidence::specs::AnalysisStatus::Block => "block",
+        rightkit_evidence::AnalysisStatus::Pass => "pass",
+        rightkit_evidence::AnalysisStatus::Warn => "warn",
+        rightkit_evidence::AnalysisStatus::Block => "block",
     }
 }

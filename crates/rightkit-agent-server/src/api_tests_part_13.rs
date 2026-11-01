@@ -17,7 +17,7 @@ async fn benchmark_proof_route_reports_aggregate_numbers() {
             "bench-b",
             "coder",
             "model-a",
-            rightkit_agent_orchestration::TbenchCatalog::suite_id(),
+            rightkit_agent_orchestration::coding::TbenchCatalog::suite_id(),
             1,
             1,
             "2026-06-06T00:01:00Z",

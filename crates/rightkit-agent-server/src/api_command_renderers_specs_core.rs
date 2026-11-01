@@ -77,7 +77,7 @@ fn command_spec_analyze(state: &DaemonState, spec_id: &str) -> CommandResult {
             return command_err(format!("Spec not found: `{spec_id}`"));
         };
         let tasks = store.tasks(spec_id);
-        let run = rightkit_evidence::specs::analyze_spec(
+        let run = rightkit_evidence::analyze_spec(
             &spec,
             &tasks,
             format!("spec-slash-analysis-{}", crate::api::now_millis()),
@@ -122,7 +122,7 @@ fn command_spec_trace(state: &DaemonState, spec_id: &str) -> CommandResult {
         return command_err(format!("Spec not found: `{spec_id}`"));
     };
     let tasks = store.tasks(spec_id);
-    let trace = rightkit_evidence::specs::build_trace(
+    let trace = rightkit_evidence::build_trace(
         &spec,
         &tasks,
         store.latest_analysis(spec_id),

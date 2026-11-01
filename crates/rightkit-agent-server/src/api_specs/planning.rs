@@ -84,7 +84,7 @@ fn generated_plan_tasks(
 fn checklist_items(
     spec: &FeatureSpec,
     tasks: &[FeatureTask],
-    analysis: &rightkit_evidence::specs::SpecAnalysisRun,
+    analysis: &rightkit_evidence::SpecAnalysisRun,
     focus: Option<&str>,
 ) -> Vec<SpecChecklistItem> {
     let mut items = Vec::new();
@@ -96,7 +96,7 @@ fn checklist_items(
             id: format!("check-{}", req.id),
             label: format!("Requirement {} has implementation task coverage", req.id),
             status: if mapped { "done" } else { "blocked" }.to_string(),
-            source_kind: rightkit_evidence::specs::TraceKind::Requirement,
+            source_kind: rightkit_evidence::TraceKind::Requirement,
             source_id: req.id.clone(),
             detail: if mapped {
                 "At least one task maps to this requirement.".to_string()
@@ -124,7 +124,7 @@ fn checklist_items(
                 criterion.id
             ),
             status: if evidenced { "done" } else { "warn" }.to_string(),
-            source_kind: rightkit_evidence::specs::TraceKind::SuccessCriterion,
+            source_kind: rightkit_evidence::TraceKind::SuccessCriterion,
             source_id: criterion.id.clone(),
             detail: if evidenced {
                 "At least one mapped task declares evidence for this criterion.".to_string()
@@ -143,7 +143,7 @@ fn checklist_items(
             id: format!("check-{}", task.id),
             label: format!("Task {} is trace-mapped", task.id),
             status: if mapped { "done" } else { "blocked" }.to_string(),
-            source_kind: rightkit_evidence::specs::TraceKind::Task,
+            source_kind: rightkit_evidence::TraceKind::Task,
             source_id: task.id.clone(),
             detail: if mapped {
                 "Task has a story, requirement, criterion, or foundation-phase mapping.".to_string()
@@ -155,16 +155,16 @@ fn checklist_items(
     }
 
     for finding in &analysis.findings {
-        if matches!(finding.severity, rightkit_evidence::specs::FindingSeverity::Info) {
+        if matches!(finding.severity, rightkit_evidence::FindingSeverity::Info) {
             continue;
         }
         items.push(SpecChecklistItem {
             id: format!("finding-{}", finding.id),
             label: finding.kind.clone(),
             status: match finding.severity {
-                rightkit_evidence::specs::FindingSeverity::Critical => "blocked",
-                rightkit_evidence::specs::FindingSeverity::Warning => "warn",
-                rightkit_evidence::specs::FindingSeverity::Info => "open",
+                rightkit_evidence::FindingSeverity::Critical => "blocked",
+                rightkit_evidence::FindingSeverity::Warning => "warn",
+                rightkit_evidence::FindingSeverity::Info => "open",
             }
             .to_string(),
             source_kind: finding.source_kind.clone(),
@@ -188,7 +188,7 @@ fn checklist_items(
 fn implementation_prompt(
     spec: &FeatureSpec,
     tasks: &[FeatureTask],
-    analysis: &rightkit_evidence::specs::SpecAnalysisRun,
+    analysis: &rightkit_evidence::SpecAnalysisRun,
 ) -> String {
     let mut prompt = format!(
         "Implement the bound RightKit feature spec.\n\nSpec: {} ({})\nWorkspace: {}\nStatus: {:?}\n\n",
@@ -221,7 +221,7 @@ fn implementation_prompt(
             .findings
             .iter()
             .filter(|finding| {
-                matches!(finding.severity, rightkit_evidence::specs::FindingSeverity::Critical)
+                matches!(finding.severity, rightkit_evidence::FindingSeverity::Critical)
             })
             .count()
     ));

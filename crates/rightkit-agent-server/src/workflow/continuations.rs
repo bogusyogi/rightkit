@@ -6,7 +6,7 @@ use rightkit_agent_engine_storage::{
     JournalAppend, ProjectionUpdate, WorkflowAttentionRow, WorkflowCommandRow, WorkflowEffectClaim,
     WorkflowEffectOutcome, WorkflowJournalWriter, WorkflowRepository,
 };
-use rightkit_workflow::{
+use rightkit_workflow::control_plane::{
     clock::{Clock, SystemClock},
     domain::Revision,
     reducer::{CommandKind, EffectObservationKind, NodeCommand, NodeLifecycleState, NodePhase},

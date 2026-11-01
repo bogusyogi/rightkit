@@ -7,8 +7,8 @@
 // prove the downgrade mapping (`Achieved → Unmet`) the seam applies on
 // `UnbackedVerdict::Refused`.
 
-use rightkit_agent_orchestration::completion::{CompletionInput, CompletionState};
-use rightkit_agent_orchestration::run_governance::{
+use rightkit_agent_orchestration::coding::completion::{CompletionInput, CompletionState};
+use rightkit_agent_orchestration::coding::run_governance::{
     GovernedArbiter, GovernedArbitration, GovernedCompletionInput, RunDomain, RunGovernancePolicy,
     UnbackedVerdict,
 };

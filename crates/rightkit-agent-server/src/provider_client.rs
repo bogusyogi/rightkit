@@ -923,19 +923,19 @@ impl DaemonSmallModelClient {
 }
 
 #[async_trait]
-impl rightkit_agent_orchestration::small_model_utility::SmallModelClient
+impl rightkit_agent_orchestration::coding::small_model_utility::SmallModelClient
     for DaemonSmallModelClient
 {
     async fn run(
         &self,
-        task: rightkit_agent_orchestration::small_model_utility::SmallModelTask,
-        input: &rightkit_agent_orchestration::small_model_utility::SmallModelInput,
-        budget: &rightkit_agent_orchestration::small_model_utility::SmallModelBudget,
+        task: rightkit_agent_orchestration::coding::small_model_utility::SmallModelTask,
+        input: &rightkit_agent_orchestration::coding::small_model_utility::SmallModelInput,
+        budget: &rightkit_agent_orchestration::coding::small_model_utility::SmallModelBudget,
     ) -> Result<
-        rightkit_agent_orchestration::small_model_utility::SmallModelOutput,
-        rightkit_agent_orchestration::small_model_utility::SmallModelError,
+        rightkit_agent_orchestration::coding::small_model_utility::SmallModelOutput,
+        rightkit_agent_orchestration::coding::small_model_utility::SmallModelError,
     > {
-        use rightkit_agent_orchestration::small_model_utility::{
+        use rightkit_agent_orchestration::coding::small_model_utility::{
             parse_small_model_output, SmallModelError, DEFAULT_CALL_TOKEN_ESTIMATE,
         };
 
@@ -982,9 +982,9 @@ impl rightkit_agent_orchestration::small_model_utility::SmallModelClient
 }
 
 fn small_model_instruction(
-    task: &rightkit_agent_orchestration::small_model_utility::SmallModelTask,
+    task: &rightkit_agent_orchestration::coding::small_model_utility::SmallModelTask,
 ) -> String {
-    use rightkit_agent_orchestration::small_model_utility::SmallModelTask;
+    use rightkit_agent_orchestration::coding::small_model_utility::SmallModelTask;
 
     match task {
         SmallModelTask::Recap => {

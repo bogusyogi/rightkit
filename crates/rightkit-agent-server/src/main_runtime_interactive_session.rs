@@ -1487,7 +1487,7 @@ mod interactive_session {
         // boundaries only. `/model <id>` queues a switch that takes effect
         // starting the *next* turn (`begin_turn` below); it never rewrites
         // the turn currently in flight and never ends the session.
-        let mut turn_model = rightkit_agent_orchestration::SessionTurnModel::new(
+        let mut turn_model = rightkit_agent_orchestration::coding::SessionTurnModel::new(
             session_id,
             provider,
             initial_model.unwrap_or(""),
@@ -1561,7 +1561,7 @@ mod interactive_session {
                             turn_model.request_switch_for_next_turn(
                                 switch_provider,
                                 selection.model,
-                                rightkit_agent_orchestration::PrefixChangeReason::UserRequestedSwitch,
+                                rightkit_agent_orchestration::coding::PrefixChangeReason::UserRequestedSwitch,
                             );
                         }
                         Err(reason) => eprintln!("[interactive] {reason}"),
@@ -2169,7 +2169,7 @@ mod interactive_session {
     /// consumer was removed with the 1C renderer-ownership work.
 
     /// Bridges [`crate::tui_host::TurnHost`] to the concrete engine: owns the
-    /// per-turn model-switch bookkeeping ([`rightkit_agent_orchestration::SessionTurnModel`])
+    /// per-turn model-switch bookkeeping ([`rightkit_agent_orchestration::coding::SessionTurnModel`])
     /// behind a mutex so `spawn_turn`/`execute_command` can take `&self` (the
     /// trait's contract -- see its doc for why) while still mutating turn
     /// state, and resolves/gates commands through the one shared registry
@@ -2181,7 +2181,7 @@ mod interactive_session {
         provider: String,
         plain_output: bool,
         reduced_motion: bool,
-        turn_model: std::sync::Mutex<rightkit_agent_orchestration::SessionTurnModel>,
+        turn_model: std::sync::Mutex<rightkit_agent_orchestration::coding::SessionTurnModel>,
         /// Exclusive-pause handshake shared with the TUI input reader.
         /// `/onboard` requests it and BLOCKS until the reader has exited
         /// poll/read and acknowledged (P1-10), so the flow's line-based
@@ -2352,7 +2352,7 @@ mod interactive_session {
             plain_output: bool,
             reduced_motion: bool,
         ) -> Self {
-            let turn_model = rightkit_agent_orchestration::SessionTurnModel::new(
+            let turn_model = rightkit_agent_orchestration::coding::SessionTurnModel::new(
                 session_id.clone(),
                 provider.clone(),
                 "",
@@ -2463,7 +2463,7 @@ mod interactive_session {
                 return;
             }
             *self.turn_model.lock().unwrap_or_else(|e| e.into_inner()) =
-                rightkit_agent_orchestration::SessionTurnModel::new(
+                rightkit_agent_orchestration::coding::SessionTurnModel::new(
                     self.session_id.clone(),
                     self.provider.clone(),
                     model,
@@ -2721,7 +2721,7 @@ mod interactive_session {
                 .unwrap_or_else(|e| e.into_inner())
                 .insert(next_session.clone(), root.clone());
             *self.turn_model.lock().unwrap_or_else(|e| e.into_inner()) =
-                rightkit_agent_orchestration::SessionTurnModel::new(
+                rightkit_agent_orchestration::coding::SessionTurnModel::new(
                     next_session.clone(),
                     provider.clone(),
                     model.clone().unwrap_or_default(),
@@ -2911,7 +2911,7 @@ mod interactive_session {
                     .request_switch_for_next_turn(
                         provider.to_string(),
                         model_id.to_string(),
-                        rightkit_agent_orchestration::PrefixChangeReason::UserRequestedSwitch,
+                        rightkit_agent_orchestration::coding::PrefixChangeReason::UserRequestedSwitch,
                     );
                 *self.pending_route.lock().unwrap_or_else(|e| e.into_inner()) = None;
                 return Ok(());
@@ -2998,7 +2998,7 @@ mod interactive_session {
             model.request_switch_for_next_turn(
                 provider_id.unwrap_or(&self.provider).to_string(),
                 model_id.to_string(),
-                rightkit_agent_orchestration::PrefixChangeReason::UserRequestedSwitch,
+                rightkit_agent_orchestration::coding::PrefixChangeReason::UserRequestedSwitch,
             );
             *self.pending_route.lock().unwrap_or_else(|e| e.into_inner()) = None;
             Ok(())
@@ -3338,7 +3338,7 @@ mod interactive_session {
             };
             if kind == "task" {
                 let mut tasks = live.tasks.lock().unwrap_or_else(|e| e.into_inner());
-                let cancelled = rightkit_agent_orchestration::task_list_projection::mark_cancelled(
+                let cancelled = rightkit_agent_orchestration::coding::task_list_projection::mark_cancelled(
                     &mut tasks,
                     id,
                     format!(
@@ -3641,7 +3641,7 @@ mod interactive_session {
                         model.request_switch_for_next_turn(
                             provider_id,
                             model_id,
-                            rightkit_agent_orchestration::PrefixChangeReason::UserRequestedSwitch,
+                            rightkit_agent_orchestration::coding::PrefixChangeReason::UserRequestedSwitch,
                         );
                     }
                     if let Some(level) = effort_id {
@@ -4714,7 +4714,7 @@ mod interactive_session {
             // with no durable route falls back to the host's configured
             // default provider with an empty model — never the previous
             // session's pair.
-            *turn_model = rightkit_agent_orchestration::SessionTurnModel::new(
+            *turn_model = rightkit_agent_orchestration::coding::SessionTurnModel::new(
                 id.0.clone(),
                 restored_provider.unwrap_or_else(|| self.provider.clone()),
                 restored_model.unwrap_or_default(),
@@ -5647,7 +5647,7 @@ mod interactive_session {
             // Validate against a scratch config first, so an invalid key or value never reaches the
             // locked read-modify-write below.
             crate::tui_projects::apply_tui_setting(
-                &mut rightkit_app_settings::agent_config::RightKitConfig::default(),
+                &mut rightkit_app_settings::agent_config::HostConfig::default(),
                 key,
                 value,
             )?;
@@ -5658,7 +5658,7 @@ mod interactive_session {
                     |loader| match std::fs::read_to_string(&config_path) {
                         Ok(contents) => loader.load_str(&contents),
                         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                            Ok(rightkit_app_settings::agent_config::RightKitConfig::default())
+                            Ok(rightkit_app_settings::agent_config::HostConfig::default())
                         }
                         Err(error) => Err(rightkit_app_settings::agent_config::ConfigError::Io(error.to_string())),
                     },
@@ -7061,7 +7061,7 @@ mod interactive_session {
                         turn_model.request_switch_for_next_turn(
                             provider.clone(),
                             model.clone(),
-                            rightkit_agent_orchestration::PrefixChangeReason::UserRequestedSwitch,
+                            rightkit_agent_orchestration::coding::PrefixChangeReason::UserRequestedSwitch,
                         );
                     }
                     println!("Onboarding complete — next turns will use {provider}/{model}.");
@@ -7742,7 +7742,7 @@ mod interactive_session {
         /// absent — are filtered before the catalog ever sees them.
         #[test]
         fn configured_catalog_routes_admits_ready_rows_only() {
-            let mut config = rightkit_app_settings::agent_config::RightKitConfig::default();
+            let mut config = rightkit_app_settings::agent_config::HostConfig::default();
             config.provider_routes.insert(
                 "qa-pty-alt".to_string(),
                 rightkit_app_settings::agent_config::ProviderRouteConfig {

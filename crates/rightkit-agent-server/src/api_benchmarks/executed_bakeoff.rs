@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use rightkit_agent_orchestration::{
+use rightkit_agent_orchestration::coding::{
     evaluate_bakeoff, run_executed_bakeoff, to_membrane_comparison, ArtifactDigestVerifier,
     ArtifactRequirement, BakeoffError, BakeoffExecutor, BakeoffGateConfig, BakeoffGateDecision,
     BakeoffReport, Conductor, ConductorPlan, ContextClass, EvaluationTask, EvidencePolicy,
@@ -730,7 +730,7 @@ async fn execute_routed_candidate(
         draft_tasks,
         true,
         &parent_id,
-        rightkit_agent_orchestration::conductor_day_from_iso(&now_iso()),
+        rightkit_agent_orchestration::coding::conductor_day_from_iso(&now_iso()),
     );
     let final_role = config
         .candidate_roles

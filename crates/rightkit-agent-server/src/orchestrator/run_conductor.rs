@@ -6,11 +6,11 @@
 /// else. This folds each successful agent's output into the message, longest
 /// first (the substantive deliverable, rather than a one-line signoff), with a
 /// per-agent cap so one verbose worker can't bury the rest.
-fn compose_run_report(summary: &str, results: &[rightkit_agent_orchestration::WorkerResult]) -> String {
+fn compose_run_report(summary: &str, results: &[rightkit_agent_orchestration::coding::WorkerResult]) -> String {
     const MAX_PER_AGENT: usize = 8_000;
     const MAX_AGENTS: usize = 6;
 
-    let mut substantive: Vec<&rightkit_agent_orchestration::WorkerResult> = results
+    let mut substantive: Vec<&rightkit_agent_orchestration::coding::WorkerResult> = results
         .iter()
         .filter(|r| r.success && !r.output.trim().is_empty())
         .collect();
@@ -147,7 +147,7 @@ impl DaemonState {
                         self.finalize_goal(
                             session_id,
                             &conduit,
-                            rightkit_agent_orchestration::CompletionState::Accepted,
+                            rightkit_agent_orchestration::coding::CompletionState::Accepted,
                         )
                         .await;
                         let seq = conduit.next_seq();
@@ -337,11 +337,11 @@ impl DaemonState {
             .await
         } else {
             // Not all tasks finished — band by GDS rather than a flat failure.
-            let cfg = rightkit_agent_orchestration::CompletionConfig::default();
+            let cfg = rightkit_agent_orchestration::coding::CompletionConfig::default();
             let state = if gds >= cfg.partial_threshold {
-                rightkit_agent_orchestration::CompletionState::PartiallyComplete
+                rightkit_agent_orchestration::coding::CompletionState::PartiallyComplete
             } else {
-                rightkit_agent_orchestration::CompletionState::Rejected
+                rightkit_agent_orchestration::coding::CompletionState::Rejected
             };
             (
                 state,
@@ -484,7 +484,7 @@ impl DaemonState {
 
             // Feed any staged rollout for this role; auto-roll-back on degradation.
             if let Some((event, snap)) = self.rollouts.record(&r.agent, r.success) {
-                use rightkit_agent_orchestration::{RolloutEvent, RolloutStage};
+                use rightkit_agent_orchestration::coding::{RolloutEvent, RolloutStage};
                 match event {
                     RolloutEvent::RolledBack => {
                         persist_agent_model(&snap.role, &snap.from_model);
@@ -529,7 +529,7 @@ impl DaemonState {
 #[cfg(test)]
 mod run_report_tests {
     use super::compose_run_report;
-    use rightkit_agent_orchestration::{WorkerOutcome, WorkerResult};
+    use rightkit_agent_orchestration::coding::{WorkerOutcome, WorkerResult};
 
     fn result(agent: &str, output: &str, success: bool) -> WorkerResult {
         WorkerResult {

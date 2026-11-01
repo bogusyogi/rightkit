@@ -84,7 +84,7 @@ async fn run_promotion_handler(
         )
         .await;
     let json = match decision {
-        rightkit_agent_orchestration::PromotionDecision::Promote {
+        rightkit_agent_orchestration::coding::PromotionDecision::Promote {
             role,
             from_model,
             to_model,
@@ -93,7 +93,7 @@ async fn run_promotion_handler(
             "promoted": true, "role": role, "fromModel": from_model,
             "toModel": to_model, "delta": delta,
         }),
-        rightkit_agent_orchestration::PromotionDecision::Reject { reason } => serde_json::json!({
+        rightkit_agent_orchestration::coding::PromotionDecision::Reject { reason } => serde_json::json!({
             "promoted": false, "reason": reason,
         }),
     };

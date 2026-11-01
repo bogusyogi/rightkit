@@ -166,12 +166,12 @@ impl DaemonState {
     }
 
     /// Override the resolved workflow feature gate. The merged
-    /// `RightKitConfig.features.workflows_enabled` is the canonical source
+    /// `HostConfig.features.workflows_enabled` is the canonical source
     /// for this value; tests may flip the gate at will.
     #[allow(dead_code)]
     pub fn with_workflows_feature(
         mut self,
-        feature: rightkit_workflow::prelude::FeatureGate,
+        feature: rightkit_workflow::control_plane::prelude::FeatureGate,
     ) -> Self {
         self.workflows_feature = feature;
         self
@@ -307,7 +307,7 @@ impl DaemonState {
     #[allow(clippy::too_many_arguments)]
     fn configured_provider_route(
         &self,
-        config: &rightkit_app_settings::agent_config::RightKitConfig,
+        config: &rightkit_app_settings::agent_config::HostConfig,
         provider_id: &str,
         model: &str,
         fallback: &EngineConfig,
@@ -341,7 +341,7 @@ impl DaemonState {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn configured_provider_route_exact(
         &self,
-        config: &rightkit_app_settings::agent_config::RightKitConfig,
+        config: &rightkit_app_settings::agent_config::HostConfig,
         provider_id: &str,
         model: &str,
         _fallback: &EngineConfig,
@@ -372,7 +372,7 @@ impl DaemonState {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn explicit_provider_route(
         &self,
-        config: &rightkit_app_settings::agent_config::RightKitConfig,
+        config: &rightkit_app_settings::agent_config::HostConfig,
         provider_id: &str,
         model: &str,
         fallback: &EngineConfig,
@@ -404,7 +404,7 @@ impl DaemonState {
 
     pub(crate) fn provider_route_for_model(
         &self,
-        workspace_config: &rightkit_app_settings::agent_config::RightKitConfig,
+        workspace_config: &rightkit_app_settings::agent_config::HostConfig,
         model: &str,
         fallback: &EngineConfig,
         effort: Option<String>,
@@ -494,7 +494,7 @@ impl DaemonState {
     /// persist `providerId` alongside model-only route updates.
     pub(crate) fn resolved_provider_id_for_model(
         &self,
-        workspace_config: &rightkit_app_settings::agent_config::RightKitConfig,
+        workspace_config: &rightkit_app_settings::agent_config::HostConfig,
         model: &str,
     ) -> Option<String> {
         let trimmed = model.trim();
@@ -530,7 +530,7 @@ impl DaemonState {
 
     pub(crate) fn agent_registry_with_workspace_config(
         &self,
-        workspace_config: &rightkit_app_settings::agent_config::RightKitConfig,
+        workspace_config: &rightkit_app_settings::agent_config::HostConfig,
     ) -> AgentRegistry {
         let mut registry = AgentRegistry::new();
         for descriptor in self.agent_registry.all() {
@@ -566,9 +566,9 @@ impl DaemonState {
 
     pub(crate) fn agent_descriptor_with_workspace_config(
         &self,
-        workspace_config: &rightkit_app_settings::agent_config::RightKitConfig,
+        workspace_config: &rightkit_app_settings::agent_config::HostConfig,
         role: &str,
-    ) -> Option<rightkit_agent_orchestration::registry::AgentDescriptor> {
+    ) -> Option<rightkit_agent_orchestration::coding::registry::AgentDescriptor> {
         self.agent_registry_with_workspace_config(workspace_config)
             .get(role)
             .cloned()
@@ -626,7 +626,7 @@ impl rightkit_agents::driver_host::cli_runtime::AttestationStore for StorageAtte
             )
         })?;
         let isolation_mode = match row.isolation_mode.as_str() {
-            "exclusive_coderight_gateway" => rightkit_agents::driver_host::cli_runtime::HarnessIsolationMode::ExclusiveRightKitGateway,
+            "exclusive_coderight_gateway" => rightkit_agents::driver_host::cli_runtime::HarnessIsolationMode::ExclusiveCodeRightGateway,
             "native_read_only_compatibility" => rightkit_agents::driver_host::cli_runtime::HarnessIsolationMode::NativeReadOnlyCompatibility,
             _ => return Err(rightkit_agents::driver_host::cli_runtime::AttestationStoreError::Backend(
                 "invalid attestation isolation_mode".into(),

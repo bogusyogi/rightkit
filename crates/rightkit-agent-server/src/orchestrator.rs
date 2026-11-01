@@ -19,16 +19,16 @@ use rightkit_agent_engine_core::llm::LlmClient;
 use rightkit_agent_engine_protocol::ArtifactRow as ProtocolArtifact;
 use rightkit_agent_engine_protocol::{ProtocolEvent, TaskNode, TaskState, TranscriptMessage};
 use rightkit_agent_engine_tasks::TaskGraph;
-use rightkit_agent_orchestration::catalog::{build_catalog, roster_entries};
-use rightkit_agent_orchestration::conductor_day_from_iso;
-use rightkit_agent_orchestration::evolution::DurationAwareRouter;
-use rightkit_agent_orchestration::orchestrator::RunOutcome;
-use rightkit_agent_orchestration::registry::AgentRegistry;
-use rightkit_agent_orchestration::router::AgentRouter;
-use rightkit_agent_orchestration::trigger::{
+use rightkit_agent_orchestration::coding::catalog::{build_catalog, roster_entries};
+use rightkit_agent_orchestration::coding::conductor_day_from_iso;
+use rightkit_agent_orchestration::coding::evolution::DurationAwareRouter;
+use rightkit_agent_orchestration::coding::orchestrator::RunOutcome;
+use rightkit_agent_orchestration::coding::registry::AgentRegistry;
+use rightkit_agent_orchestration::coding::router::AgentRouter;
+use rightkit_agent_orchestration::coding::trigger::{
     parse_announced_path, Path as RoutePath, TRIGGER_RULE,
 };
-use rightkit_agent_orchestration::{
+use rightkit_agent_orchestration::coding::{
     run_graph_resumable_with_conductor_and_handoff_archive, EvolutionHarness, FailureKind,
     GraphCheckpointStore, HandoffArchiveConfig, JurorVerdict, JuryDecision, JurySystem, Worker,
     WorkerOutcome, WorkerResult, WorkerTask,

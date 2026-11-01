@@ -116,7 +116,7 @@ async fn patch_spec_handler(
             .findings
             .iter()
             .filter(|finding| {
-                matches!(finding.severity, rightkit_evidence::specs::FindingSeverity::Critical)
+                matches!(finding.severity, rightkit_evidence::FindingSeverity::Critical)
             })
             .map(|finding| finding.kind.as_str())
             .collect::<Vec<_>>()
@@ -166,7 +166,7 @@ async fn clarify_spec_handler(
         if req.needs_clarification || looks_placeholder(&req.text) {
             questions.push(SpecClarification {
                 id: format!("clarify-{}", req.id),
-                source_kind: rightkit_evidence::specs::TraceKind::Requirement,
+                source_kind: rightkit_evidence::TraceKind::Requirement,
                 source_id: req.id.clone(),
                 question: format!(
                     "What exact behavior, edge cases, and acceptance evidence are required for {}?",
@@ -180,7 +180,7 @@ async fn clarify_spec_handler(
         if looks_placeholder(&story.independent_test) {
             questions.push(SpecClarification {
                 id: format!("clarify-{}", story.id),
-                source_kind: rightkit_evidence::specs::TraceKind::Story,
+                source_kind: rightkit_evidence::TraceKind::Story,
                 source_id: story.id.clone(),
                 question: format!(
                     "What independent user-observable test proves story {} is complete?",

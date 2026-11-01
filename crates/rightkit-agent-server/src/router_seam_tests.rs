@@ -14,7 +14,7 @@
 mod router_seam_tests {
     use std::collections::HashMap;
 
-    use rightkit_agent_orchestration::registry::AgentDescriptor;
+    use rightkit_agent_orchestration::coding::registry::AgentDescriptor;
 
     use crate::api::DaemonState;
     use crate::router_seam::{apply_capability_routing, RoutingInputs, RoutingSource};
@@ -26,7 +26,7 @@ mod router_seam_tests {
     }
 
     fn inputs<'a>(
-        cfg: &'a rightkit_app_settings::agent_config::RightKitConfig,
+        cfg: &'a rightkit_app_settings::agent_config::HostConfig,
         role: &'a str,
         run_id: Option<&'a str>,
     ) -> RoutingInputs<'a> {
@@ -48,7 +48,7 @@ mod router_seam_tests {
     #[test]
     fn flag_off_leaves_descriptor_unchanged() {
         let state = DaemonState::new("test-token");
-        let cfg = rightkit_app_settings::agent_config::RightKitConfig::default();
+        let cfg = rightkit_app_settings::agent_config::HostConfig::default();
         // capability_router default = false.
         assert!(!cfg.orchestration.routing.capability_router());
 
@@ -66,7 +66,7 @@ mod router_seam_tests {
     #[test]
     fn flag_on_with_role_override_skips_router() {
         let state = DaemonState::new("test-token");
-        let mut cfg = rightkit_app_settings::agent_config::RightKitConfig::default();
+        let mut cfg = rightkit_app_settings::agent_config::HostConfig::default();
         cfg.orchestration.routing.capability_router = Some(true);
         cfg.orchestration.agents.insert(
             "coder".to_string(),
@@ -89,7 +89,7 @@ mod router_seam_tests {
     #[test]
     fn flag_on_no_pin_no_override_routes() {
         let state = DaemonState::new("test-token");
-        let mut cfg = rightkit_app_settings::agent_config::RightKitConfig::default();
+        let mut cfg = rightkit_app_settings::agent_config::HostConfig::default();
         cfg.orchestration.routing.capability_router = Some(true);
         cfg.orchestration.routing.aggressiveness = "conservative".to_string();
 
@@ -127,7 +127,7 @@ mod router_seam_tests {
     #[test]
     fn sibling_workers_of_same_run_get_same_routed_model() {
         let state = DaemonState::new("test-token");
-        let mut cfg = rightkit_app_settings::agent_config::RightKitConfig::default();
+        let mut cfg = rightkit_app_settings::agent_config::HostConfig::default();
         cfg.orchestration.routing.capability_router = Some(true);
 
         // First sibling — should populate the cache (or bypass on license).
@@ -180,7 +180,7 @@ mod router_seam_tests {
     #[test]
     fn different_runs_get_independent_decisions() {
         let state = DaemonState::new("test-token");
-        let mut cfg = rightkit_app_settings::agent_config::RightKitConfig::default();
+        let mut cfg = rightkit_app_settings::agent_config::HostConfig::default();
         cfg.orchestration.routing.capability_router = Some(true);
 
         // Two distinct conductor runs — neither should see a cache hit
@@ -209,7 +209,7 @@ mod router_seam_tests {
     #[test]
     fn stalled_run_invalidates_cached_pick_and_pivots_through_live_seam() {
         let state = DaemonState::new("test-token").with_license_features(["routing"]);
-        let mut cfg = rightkit_app_settings::agent_config::RightKitConfig::default();
+        let mut cfg = rightkit_app_settings::agent_config::HostConfig::default();
         cfg.orchestration.routing.capability_router = Some(true);
         cfg.orchestration.routing.aggressiveness = "conservative".to_string();
 
@@ -276,7 +276,7 @@ mod router_seam_tests {
         let state = DaemonState::new("test-token")
             .with_license_features::<std::iter::Empty<&str>, &str>(std::iter::empty());
 
-        let mut cfg = rightkit_app_settings::agent_config::RightKitConfig::default();
+        let mut cfg = rightkit_app_settings::agent_config::HostConfig::default();
         cfg.orchestration.routing.capability_router = Some(true);
 
         let mut d = descriptor("anthropic/claude-3.5-sonnet");
@@ -317,7 +317,7 @@ mod router_seam_tests {
         // escalation module's public surface does not consume
         // descriptor.model_id (no API change to it was made by this
         // lane, per CONSTRAINTS).
-        use rightkit_agent_orchestration::escalation;
+        use rightkit_agent_orchestration::coding::escalation;
         let _ = escalation::should_escalate(false, false, false);
         let _ = escalation::should_escalate(true, true, true);
         // If escalation.rs ever grew a `model_id` parameter, this
@@ -330,7 +330,7 @@ mod router_seam_tests {
     #[test]
     fn flag_on_with_session_pin_passes_pin_to_router() {
         let state = DaemonState::new("test-token");
-        let mut cfg = rightkit_app_settings::agent_config::RightKitConfig::default();
+        let mut cfg = rightkit_app_settings::agent_config::HostConfig::default();
         cfg.orchestration.routing.capability_router = Some(true);
 
         let mut d = descriptor("anthropic/claude-3.5-sonnet");
@@ -387,9 +387,11 @@ mod router_seam_tests {
     #[test]
     fn duration_aware_router_forwards_to_inner_when_no_taste_data() {
         use rightkit_agent_engine_protocol::{TaskNode, TaskState};
-        use rightkit_agent_orchestration::evolution::{DurationAwareRouter, DurationBucket};
-        use rightkit_agent_orchestration::registry::AgentRegistry;
-        use rightkit_agent_orchestration::router::AgentRouter;
+        use rightkit_agent_orchestration::coding::evolution::{
+            DurationAwareRouter, DurationBucket,
+        };
+        use rightkit_agent_orchestration::coding::registry::AgentRegistry;
+        use rightkit_agent_orchestration::coding::router::AgentRouter;
 
         let registry = AgentRegistry::with_builtins();
         let task = TaskNode {

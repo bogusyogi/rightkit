@@ -6,7 +6,7 @@ use axum::{
     Router,
 };
 use rightkit_agent_engine_protocol::{ProtocolEvent, TaskState, TranscriptMessage};
-use rightkit_evidence::specs::{
+use rightkit_evidence::{
     analyze_spec_with_constitution_decisions, build_trace_with_evidence,
     spec_has_placeholder_heavy_content, AcceptanceScenario, AnalysisStatus, ConstitutionDecision,
     ConstitutionDecisionVerdict, ConstitutionSource, FeatureSpec, FeatureTask, Requirement,
@@ -40,7 +40,7 @@ pub(crate) fn spec_routes() -> Router<DaemonState> {
         .route("/specs/{id}/trace", get(get_spec_trace_handler))
 }
 
-pub(crate) fn load_spec_store(path: &FsPath) -> rightkit_evidence::specs::SpecStore {
+pub(crate) fn load_spec_store(path: &FsPath) -> rightkit_evidence::SpecStore {
     std::fs::read_to_string(path)
         .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok())
@@ -49,7 +49,7 @@ pub(crate) fn load_spec_store(path: &FsPath) -> rightkit_evidence::specs::SpecSt
 
 pub(crate) fn write_spec_store(
     path: &FsPath,
-    store: &rightkit_evidence::specs::SpecStore,
+    store: &rightkit_evidence::SpecStore,
 ) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -63,7 +63,7 @@ pub(crate) fn write_spec_store(
 
 fn persist_spec_store(
     state: &DaemonState,
-    store: &rightkit_evidence::specs::SpecStore,
+    store: &rightkit_evidence::SpecStore,
 ) -> Result<(), SpecError> {
     let Some(path) = state.spec_store_path.as_deref() else {
         return Ok(());

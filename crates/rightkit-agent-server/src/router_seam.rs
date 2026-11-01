@@ -28,7 +28,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 
 use rightkit_agent_engine_protocol::{ModelRouteDecisionPayload, PriceSnapshot};
-use rightkit_agent_orchestration::registry::AgentDescriptor;
+use rightkit_agent_orchestration::coding::registry::AgentDescriptor;
 use rightkit_llm::agent_router::{
     BudgetCeiling, PinContext, RouteDecision, RoutingPolicy, TaskSignal, TaskSignalBuilder,
     TurnType,
@@ -100,7 +100,7 @@ pub(crate) fn runtime_task_signals_from_parts(
 #[derive(Debug, Clone)]
 pub struct RoutingInputs<'a> {
     pub role: Option<&'a str>,
-    pub workspace_config: &'a rightkit_app_settings::agent_config::RightKitConfig,
+    pub workspace_config: &'a rightkit_app_settings::agent_config::HostConfig,
     pub goal_text: &'a str,
     pub scoped_files: &'a [String],
     pub tool_call_density: u32,
@@ -652,8 +652,8 @@ fn runtime_task_signals_from_slices(
 mod tests {
     use super::*;
 
-    fn empty_workspace_config() -> rightkit_app_settings::agent_config::RightKitConfig {
-        rightkit_app_settings::agent_config::RightKitConfig::default()
+    fn empty_workspace_config() -> rightkit_app_settings::agent_config::HostConfig {
+        rightkit_app_settings::agent_config::HostConfig::default()
     }
 
     #[allow(dead_code)]
@@ -665,7 +665,7 @@ mod tests {
 
     #[allow(dead_code)]
     fn inputs<'a>(
-        cfg: &'a rightkit_app_settings::agent_config::RightKitConfig,
+        cfg: &'a rightkit_app_settings::agent_config::HostConfig,
         role: &'a str,
         goal: &'a str,
         run_id: Option<&'a str>,

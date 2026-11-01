@@ -32,7 +32,7 @@ use rightkit_agent_engine_storage::{
     DriverBindingRow, DriverEventClaim, DriverEventInboxRow, SessionCapabilityLeaseRow, Storage,
     StorageError,
 };
-use rightkit_agent_orchestration::supervision::{
+use rightkit_agent_orchestration::coding::supervision::{
     enter_worktree, exit_worktree, SystemGitWorktreeExecutor, WorktreeEnterRequest,
 };
 use rightkit_agent_tools::coding_tools::{
@@ -864,7 +864,7 @@ pub fn build_delegate_request(
             model_id: model_id.clone(),
             account_profile_id: account_profile_id.clone(),
         }),
-        Some(SpawnRuntimeKind::RightKitNative { .. }) | None => None,
+        Some(SpawnRuntimeKind::CodeRightNative { .. }) | None => None,
     };
     DelegateTaskRequest {
         parent_kind,
@@ -1261,7 +1261,7 @@ mod tests {
     #[test]
     fn build_delegate_request_handles_native_runtime() {
         let options = SubagentSpawnOptions {
-            runtime: Some(SpawnRuntimeKind::RightKitNative {
+            runtime: Some(SpawnRuntimeKind::CodeRightNative {
                 provider_id: None,
                 model_id: "sonnet".into(),
             }),

@@ -167,7 +167,7 @@ fn persist_agent_model(role: &str, model_id: &str) {
 fn publish_recovery(
     conduit: &rightkit_agent_engine_core::Conduit,
     session_id: &str,
-    note: &rightkit_agent_orchestration::RecoveryNote,
+    note: &rightkit_agent_orchestration::coding::RecoveryNote,
 ) {
     let mut fields = std::collections::HashMap::new();
     fields.insert("attempt".to_string(), note.attempt.to_string());
@@ -398,8 +398,8 @@ fn git_rev_parse_head(workspace_root: &str) -> Option<String> {
 fn run_eval_hack_detection(
     workspace_root: &str,
     initial_ref: Option<&str>,
-    workers: &[rightkit_agent_orchestration::WorkerResult],
-) -> Vec<rightkit_agent_orchestration::EvalHackFinding> {
+    workers: &[rightkit_agent_orchestration::coding::WorkerResult],
+) -> Vec<rightkit_agent_orchestration::coding::EvalHackFinding> {
     let ref_ = match initial_ref {
         Some(r) if !r.is_empty() => r,
         _ => return vec![],
@@ -416,7 +416,7 @@ fn run_eval_hack_detection(
     if output.is_empty() {
         return vec![];
     }
-    rightkit_agent_orchestration::detect_eval_hacks(&output, workers)
+    rightkit_agent_orchestration::coding::detect_eval_hacks(&output, workers)
 }
 
 fn managed_git_output(

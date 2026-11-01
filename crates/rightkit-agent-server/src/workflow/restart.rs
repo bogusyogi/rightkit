@@ -44,12 +44,12 @@ use rightkit_agent_engine_storage::{
     WorkflowJournalRow, WorkflowJournalWriter, WorkflowRepository, WorkflowRunLeaseRow,
     WorkflowRunRow,
 };
-use rightkit_workflow::domain::{
+use rightkit_workflow::control_plane::domain::{
     run_id as domain_run_id, workflow_id as domain_workflow_id,
     workflow_version_id as domain_workflow_version_id, LifecyclePhase, LifecycleState,
 };
-use rightkit_workflow::prelude::{Clock, Revision};
-use rightkit_workflow::reducer::{reduce, Command, ReducerOutcome};
+use rightkit_workflow::control_plane::prelude::{Clock, Revision};
+use rightkit_workflow::control_plane::reducer::{reduce, Command, ReducerOutcome};
 
 use crate::api::SharedStorage;
 use crate::workflow::supervisor::SupervisorError;
@@ -469,7 +469,7 @@ mod tests {
     use rightkit_agent_engine_storage::{JournalAppend, ProjectionUpdate};
     use rightkit_agent_engine_storage::{Storage, WorkflowJournalWriter, WorkflowRepository};
     use rightkit_db::rusqlite::{params, Connection};
-    use rightkit_workflow::clock::TestClock;
+    use rightkit_workflow::control_plane::clock::TestClock;
 
     fn open_storage() -> SharedStorage {
         SharedStorage::new(Storage::open_in_memory().expect("in-memory storage"))

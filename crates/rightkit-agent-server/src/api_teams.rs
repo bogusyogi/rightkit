@@ -1,5 +1,5 @@
 //! HTTP surface for VG-007 durable peer-team coordination
-//! (`rightkit_agent_orchestration::teams`): a shared task board, mailbox, and
+//! (`rightkit_agent_orchestration::coding::teams`): a shared task board, mailbox, and
 //! mission log across independent sessions/processes — distinct from the
 //! existing `/teams` roster endpoints in `api_coordination.rs`, which manage
 //! parent-child subagent team *definitions*, not peer runtime coordination.
@@ -22,7 +22,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use rightkit_agent_orchestration::teams::{TaskBoardStatus, TeamCoordinationStore};
+use rightkit_agent_orchestration::coding::teams::{TaskBoardStatus, TeamCoordinationStore};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::PathBuf;

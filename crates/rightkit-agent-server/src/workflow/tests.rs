@@ -3,7 +3,7 @@
 //! These tests exercise the **public** surface of `crate::workflow` — the
 //! re-exports declared in [`super::mod`] — together with the durable storage
 //! layer (`rightkit_agent_engine_storage`) and the pure workflow domain
-//! (`rightkit_workflow::prelude`). They do **not** reach into the
+//! (`rightkit_workflow::control_plane::prelude`). They do **not** reach into the
 //! `supervisor` / `restart` / `dispatcher` / `executor` submodules directly;
 //! every claim, release, recovery, and lifecycle outcome is observed through
 //! `RunSupervisor` / `RecoveryWorker` so the test suite survives internal
@@ -49,9 +49,9 @@ use rightkit_agent_engine_storage::{
     WorkflowRepository,
 };
 // `LifecycleState` / `LifecyclePhase` and the `workflow_id` /
-// `workflow_version_id` / `run_id` helpers live in `rightkit_workflow::domain`
+// `workflow_version_id` / `run_id` helpers live in `rightkit_workflow::control_plane::domain`
 // but are **not** re-exported by `prelude`.
-use rightkit_workflow::domain::{
+use rightkit_workflow::control_plane::domain::{
     run_id as domain_run_id, workflow_id as domain_workflow_id,
     workflow_version_id as domain_workflow_version_id, LifecyclePhase, LifecycleState,
 };
@@ -63,8 +63,8 @@ use rightkit_workflow::domain::{
 // and the typed release failure path (`FailureClass` lives in the prelude
 // and is reached transitively through `SupervisorError`, but the test
 // surface here only ever passes `None` for the terminal failure).
-use rightkit_workflow::prelude::{reduce, ReducerOutcome, Revision, TestClock};
-use rightkit_workflow::reducer::Command;
+use rightkit_workflow::control_plane::prelude::{reduce, ReducerOutcome, Revision, TestClock};
+use rightkit_workflow::control_plane::reducer::Command;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -370,7 +370,7 @@ async fn recovery_replays_journal_to_same_lifecycle_state() -> Result<(), Box<dy
 
     let worker = RecoveryWorker::new(
         storage.clone(),
-        Arc::new(rightkit_workflow::prelude::TestClock::new(
+        Arc::new(rightkit_workflow::control_plane::prelude::TestClock::new(
             1_700_000_000_000,
         )),
     );

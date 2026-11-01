@@ -8,7 +8,7 @@ use crate::api::lock_recover;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use rightkit_agent_orchestration::{Rollout, RolloutConfig, RolloutEvent, RolloutStage};
+use rightkit_agent_orchestration::coding::{Rollout, RolloutConfig, RolloutEvent, RolloutStage};
 
 #[derive(Clone, Default)]
 pub struct RolloutStore {

@@ -452,7 +452,7 @@ async fn provider_route_for_model_uses_workspace_agent_override_for_alias() {
         base_url: "http://127.0.0.1:9".into(),
         fallback_models: Vec::new(),
     });
-    let mut workspace_config = rightkit_app_settings::agent_config::RightKitConfig::default();
+    let mut workspace_config = rightkit_app_settings::agent_config::HostConfig::default();
     workspace_config.orchestration.boss_model = "conductor".into();
     workspace_config.orchestration.agents.insert(
         "conductor".into(),

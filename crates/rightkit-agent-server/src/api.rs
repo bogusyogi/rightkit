@@ -96,8 +96,8 @@ use rightkit_agent_engine_protocol::{
 };
 use rightkit_agent_engine_runtime_middleware::{MiddlewarePhase, RuntimeSpan};
 use rightkit_agent_host_traits::skill_host::{CommandAction, CommandResult, SlashCommand};
-use rightkit_agent_orchestration::registry::AgentRegistry;
-use rightkit_agent_orchestration::{
+use rightkit_agent_orchestration::coding::registry::AgentRegistry;
+use rightkit_agent_orchestration::coding::{
     ClassifierComplexity, ClassifierOutcome, DispatchClassifier, DispatchDecision, DispatchRouter,
     ExecutionStrategy, JudgeSource,
 };

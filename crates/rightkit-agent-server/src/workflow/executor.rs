@@ -33,7 +33,7 @@
 //!    for every failure path. Tests may use `expect` for fixture setup.
 //! 5. **Reducer is authoritative.** The executor never edits lifecycle
 //!    projections directly; the journal writer and the reducer in
-//!    `rightkit_workflow::reducer` own every state transition.
+//!    `rightkit_workflow::control_plane::reducer` own every state transition.
 
 #![forbid(unsafe_code)]
 #![allow(clippy::needless_return)]
@@ -53,13 +53,15 @@ use rightkit_agent_engine_storage::{
     WorkflowAttentionRow, WorkflowCommandRow, WorkflowEffectRow, WorkflowJournalWriter,
     WorkflowNodeStateRow, WorkflowOutboxRow, WorkflowQueueRow, WorkflowRepository, WorkflowWaitRow,
 };
-use rightkit_workflow::context::{ContextBudget, ContextBuilder, ContextSection, IterationKind};
-use rightkit_workflow::domain::{
+use rightkit_workflow::control_plane::context::{
+    ContextBudget, ContextBuilder, ContextSection, IterationKind,
+};
+use rightkit_workflow::control_plane::domain::{
     BackoffStrategy, CompiledPlan, ContentHash, NodeConfig, NodeId, NodeSpec, RunId,
 };
-use rightkit_workflow::ids::Prefix;
-use rightkit_workflow::prelude::{Clock, FailureClass};
-use rightkit_workflow::reducer::{
+use rightkit_workflow::control_plane::ids::Prefix;
+use rightkit_workflow::control_plane::prelude::{Clock, FailureClass};
+use rightkit_workflow::control_plane::reducer::{
     reduce_node, CommandKind, NodeCommand, NodeLifecycleState, NodePhase,
 };
 
@@ -1088,13 +1090,13 @@ impl NodeExecutor {
 /// by the declared `items` array; malformed ids never gain iteration context.
 fn iteration_scope(
     node_id: &str,
-    kind: rightkit_workflow::prelude::NodeKind,
+    kind: rightkit_workflow::control_plane::prelude::NodeKind,
     input: &serde_json::Value,
 ) -> Option<(u64, IterationKind, serde_json::Value)> {
     let index = node_id.rsplit_once("__iter_")?.1.parse::<u64>().ok()?;
     let iteration_kind = match kind {
-        rightkit_workflow::prelude::NodeKind::Map => IterationKind::Map,
-        rightkit_workflow::prelude::NodeKind::Loop => IterationKind::Loop,
+        rightkit_workflow::control_plane::prelude::NodeKind::Map => IterationKind::Map,
+        rightkit_workflow::control_plane::prelude::NodeKind::Loop => IterationKind::Loop,
         _ => return None,
     };
     let item = input
@@ -1115,7 +1117,8 @@ fn materialize_control_children(
     for control in source.nodes.iter().filter(|node| {
         matches!(
             node.kind,
-            rightkit_workflow::prelude::NodeKind::Map | rightkit_workflow::prelude::NodeKind::Loop
+            rightkit_workflow::control_plane::prelude::NodeKind::Map
+                | rightkit_workflow::control_plane::prelude::NodeKind::Loop
         )
     }) {
         let Some(ids) = selections.get(&control.id) else {
@@ -1142,10 +1145,11 @@ fn materialize_control_children(
         for node in &mut plan.nodes {
             if node.id == *control_id {
                 node.edges.retain(|edge| edge.target != *template_id);
-                node.edges.push(rightkit_workflow::prelude::EdgeSpec {
-                    target: child.id.clone(),
-                    when: None,
-                });
+                node.edges
+                    .push(rightkit_workflow::control_plane::prelude::EdgeSpec {
+                        target: child.id.clone(),
+                        when: None,
+                    });
             }
         }
         plan.nodes.retain(|node| node.id != *template_id);
@@ -1233,7 +1237,8 @@ fn reachable_nodes(
             .iter()
             .filter(|node| reachable.contains(&node.id))
             .flat_map(|node| {
-                let selected = (node.kind == rightkit_workflow::prelude::NodeKind::Condition)
+                let selected = (node.kind
+                    == rightkit_workflow::control_plane::prelude::NodeKind::Condition)
                     .then(|| selections.get(&node.id))
                     .flatten();
                 node.edges
@@ -1341,33 +1346,34 @@ fn durable_hold(
         updated_at: now.clone(),
     };
     match (&spec.kind, &spec.config) {
-        (rightkit_workflow::prelude::NodeKind::WaitTimer, NodeConfig::Wait { timeout_ms, .. }) => {
-            Ok(DurableHold {
-                wait: Some(WorkflowWaitRow {
-                    id: id("wait"),
-                    run_id: run_id.into(),
-                    node_id: node_id.into(),
-                    kind: "timer".into(),
-                    state: "open".into(),
-                    correlation_key: format!("{run_id}:{node_id}"),
-                    topic: None,
-                    filter_expression: None,
-                    filter_hash: None,
-                    wake_at_unix_ms: Some(now_unix_ms.saturating_add(*timeout_ms as i64)),
-                    deadline_unix_ms: Some(now_unix_ms.saturating_add(*timeout_ms as i64)),
-                    matched_count: 0,
-                    max_matches: 1,
-                    created_at: now.clone(),
-                    updated_at: now.clone(),
-                }),
-                approval: None,
-                effect: None,
-                attention: None,
-                outbox: None,
-            })
-        }
         (
-            rightkit_workflow::prelude::NodeKind::WaitEvent,
+            rightkit_workflow::control_plane::prelude::NodeKind::WaitTimer,
+            NodeConfig::Wait { timeout_ms, .. },
+        ) => Ok(DurableHold {
+            wait: Some(WorkflowWaitRow {
+                id: id("wait"),
+                run_id: run_id.into(),
+                node_id: node_id.into(),
+                kind: "timer".into(),
+                state: "open".into(),
+                correlation_key: format!("{run_id}:{node_id}"),
+                topic: None,
+                filter_expression: None,
+                filter_hash: None,
+                wake_at_unix_ms: Some(now_unix_ms.saturating_add(*timeout_ms as i64)),
+                deadline_unix_ms: Some(now_unix_ms.saturating_add(*timeout_ms as i64)),
+                matched_count: 0,
+                max_matches: 1,
+                created_at: now.clone(),
+                updated_at: now.clone(),
+            }),
+            approval: None,
+            effect: None,
+            attention: None,
+            outbox: None,
+        }),
+        (
+            rightkit_workflow::control_plane::prelude::NodeKind::WaitEvent,
             NodeConfig::Wait {
                 max_matches,
                 timeout_ms,
@@ -1386,9 +1392,9 @@ fn durable_hold(
                 state: "open".into(),
                 correlation_key: correlation_key.clone(),
                 topic: Some(topic.clone()),
-                filter_expression: Some(rightkit_workflow::expression::canonical_text(
-                    filter_expression,
-                )),
+                filter_expression: Some(
+                    rightkit_workflow::control_plane::expression::canonical_text(filter_expression),
+                ),
                 filter_hash: Some(filter_hash.clone()),
                 wake_at_unix_ms: None,
                 deadline_unix_ms: Some(now_unix_ms.saturating_add(*timeout_ms as i64)),
@@ -1403,7 +1409,7 @@ fn durable_hold(
             outbox: None,
         }),
         (
-            rightkit_workflow::prelude::NodeKind::Approval,
+            rightkit_workflow::control_plane::prelude::NodeKind::Approval,
             NodeConfig::Approval {
                 role,
                 expires_after_ms,
@@ -1463,7 +1469,7 @@ fn durable_hold(
             })
         }
         (
-            rightkit_workflow::prelude::NodeKind::Effect,
+            rightkit_workflow::control_plane::prelude::NodeKind::Effect,
             NodeConfig::Effect {
                 adapter,
                 operation,
@@ -1569,7 +1575,7 @@ fn node_snapshot(states: &[WorkflowNodeStateRow], node_id: &str) -> NodeLifecycl
     });
     NodeLifecycleState {
         node_id: node_id.to_string(),
-        revision: rightkit_workflow::prelude::Revision(
+        revision: rightkit_workflow::control_plane::prelude::Revision(
             row.map(|state| state.last_reducer_revision.max(0) as u64)
                 .unwrap_or(0),
         ),
@@ -1587,9 +1593,11 @@ mod tests {
     use async_trait::async_trait;
     use rightkit_agent_engine_storage::{Storage, WorkflowRepository};
     use rightkit_db::rusqlite::{params, Connection};
-    use rightkit_workflow::clock::TestClock;
-    use rightkit_workflow::domain::{Capability, CapabilitySet, EdgeSpec, NodeKind, RetryPolicy};
-    use rightkit_workflow::prelude::FeatureGate;
+    use rightkit_workflow::control_plane::clock::TestClock;
+    use rightkit_workflow::control_plane::domain::{
+        Capability, CapabilitySet, EdgeSpec, NodeKind, RetryPolicy,
+    };
+    use rightkit_workflow::control_plane::prelude::FeatureGate;
 
     fn open_storage() -> SharedStorage {
         SharedStorage::new(Storage::open_in_memory().expect("in-memory storage"))

@@ -22,7 +22,7 @@ use axum::Router;
 
 use crate::api::{DaemonState, SharedStorage};
 
-use rightkit_workflow::prelude::FeatureGate;
+use rightkit_workflow::control_plane::prelude::FeatureGate;
 
 /// Concrete verifier built at daemon startup from configured public trust
 /// roots. Invalid config entries are ignored; an empty valid set rejects all.
@@ -47,10 +47,12 @@ impl Ed25519PackageVerifier {
     }
 }
 
-impl rightkit_workflow::import_export::PackageSignatureVerifier for Ed25519PackageVerifier {
+impl rightkit_workflow::control_plane::import_export::PackageSignatureVerifier
+    for Ed25519PackageVerifier
+{
     fn verify(
         &self,
-        manifest: &rightkit_workflow::import_export::PackageManifest,
+        manifest: &rightkit_workflow::control_plane::import_export::PackageManifest,
         payload: &[u8],
         signature: &[u8],
     ) -> Result<(), String> {
@@ -96,7 +98,8 @@ pub struct WorkflowApiState {
     pub feature: FeatureGate,
     /// Injected cryptographic package verifier. Default rejects imports until
     /// a daemon trust provider supplies a real verifier.
-    pub import_verifier: Arc<dyn rightkit_workflow::import_export::PackageSignatureVerifier>,
+    pub import_verifier:
+        Arc<dyn rightkit_workflow::control_plane::import_export::PackageSignatureVerifier>,
 }
 
 impl WorkflowApiState {
@@ -107,14 +110,16 @@ impl WorkflowApiState {
         Self::new_with_import_verifier(
             storage,
             feature,
-            Arc::new(rightkit_workflow::import_export::RejectUnsignedPackage),
+            Arc::new(rightkit_workflow::control_plane::import_export::RejectUnsignedPackage),
         )
     }
 
     pub fn new_with_import_verifier(
         storage: SharedStorage,
         feature: FeatureGate,
-        import_verifier: Arc<dyn rightkit_workflow::import_export::PackageSignatureVerifier>,
+        import_verifier: Arc<
+            dyn rightkit_workflow::control_plane::import_export::PackageSignatureVerifier,
+        >,
     ) -> Arc<Self> {
         Arc::new(Self {
             storage,
@@ -128,17 +133,17 @@ impl WorkflowApiState {
 mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
-    use rightkit_workflow::import_export::PackageSignatureVerifier;
+    use rightkit_workflow::control_plane::import_export::PackageSignatureVerifier;
 
     #[test]
     fn empty_trust_roots_fail_closed() {
         let verifier = Ed25519PackageVerifier::from_config(&[]);
-        let manifest = rightkit_workflow::import_export::PackageManifest {
+        let manifest = rightkit_workflow::control_plane::import_export::PackageManifest {
             name: "n".into(),
             version: "1".into(),
             content_hash: "sha256:x".into(),
-            intended_state: rightkit_workflow::domain::PublicationState::Draft,
-            declared_capabilities: rightkit_workflow::domain::CapabilitySet::empty(),
+            intended_state: rightkit_workflow::control_plane::domain::PublicationState::Draft,
+            declared_capabilities: rightkit_workflow::control_plane::domain::CapabilitySet::empty(),
             schema_version: 1,
             declared_effects: Vec::new(),
             signing_key_id: "missing".into(),
@@ -154,12 +159,12 @@ mod tests {
             public_key_base64: rightkit_crypto::base64_encode(signing.verifying_key().as_bytes()),
         };
         let verifier = Ed25519PackageVerifier::from_config(&[config]);
-        let manifest = rightkit_workflow::import_export::PackageManifest {
+        let manifest = rightkit_workflow::control_plane::import_export::PackageManifest {
             name: "n".into(),
             version: "1".into(),
             content_hash: "sha256:x".into(),
-            intended_state: rightkit_workflow::domain::PublicationState::Draft,
-            declared_capabilities: rightkit_workflow::domain::CapabilitySet::empty(),
+            intended_state: rightkit_workflow::control_plane::domain::PublicationState::Draft,
+            declared_capabilities: rightkit_workflow::control_plane::domain::CapabilitySet::empty(),
             schema_version: 1,
             declared_effects: Vec::new(),
             signing_key_id: "test".into(),

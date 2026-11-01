@@ -430,18 +430,18 @@ mod live_plugin_catalog_tests {
         );
         let mut ctx = crate::workflow::dispatcher::NodeDispatchContext::for_test();
         ctx.workspace_root = root.path().to_string_lossy().into_owned();
-        let spec = rightkit_workflow::domain::NodeSpec {
+        let spec = rightkit_workflow::control_plane::domain::NodeSpec {
             id: "node-eff001-workflow".into(),
-            kind: rightkit_workflow::domain::NodeKind::Agent,
+            kind: rightkit_workflow::control_plane::domain::NodeKind::Agent,
             label: Some("EFF-001 workflow fixture".into()),
             capabilities: Default::default(),
             edges: vec![],
-            retry: rightkit_workflow::domain::RetryPolicy {
+            retry: rightkit_workflow::control_plane::domain::RetryPolicy {
                 max_attempts: 1,
-                backoff: rightkit_workflow::domain::BackoffStrategy::Fixed { delay_ms: 0 },
+                backoff: rightkit_workflow::control_plane::domain::BackoffStrategy::Fixed { delay_ms: 0 },
                 retryable: vec![],
             },
-            config: rightkit_workflow::domain::NodeConfig::Execution {
+            config: rightkit_workflow::control_plane::domain::NodeConfig::Execution {
                 runtime: "native".into(),
                 instruction: "run workflow effect".into(),
                 runtime_target: None,
@@ -454,7 +454,7 @@ mod live_plugin_catalog_tests {
                 output_schema: "schema://reference/opaque".into(),
             },
         };
-        ctx.compiled_plan = rightkit_workflow::prelude::CompiledPlan {
+        ctx.compiled_plan = rightkit_workflow::control_plane::prelude::CompiledPlan {
             entry_node: spec.id.clone(),
             nodes: vec![spec.clone()],
             effective_capabilities: spec.capabilities.clone(),

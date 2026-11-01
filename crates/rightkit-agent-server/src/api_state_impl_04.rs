@@ -1,7 +1,7 @@
 /// Effective deny-glob lists: built-in defaults plus `[permissions]
 /// deny-read-globs` / `deny-write-globs`. `None` when nothing is configured.
 fn deny_globs_for_config(
-    config: &rightkit_app_settings::agent_config::RightKitConfig,
+    config: &rightkit_app_settings::agent_config::HostConfig,
 ) -> Option<Arc<rightkit_agent_policy::DenyGlobSet>> {
     let permissions = &config.permissions;
     if permissions.deny_read_globs.is_empty() && permissions.deny_write_globs.is_empty() {
@@ -1889,23 +1889,23 @@ impl DaemonState {
                 let client = crate::provider_client::DaemonSmallModelClient::new(
                     provider_route.clone(),
                 );
-                let config = rightkit_agent_orchestration::goal_loop::GoalLoopConfig {
+                let config = rightkit_agent_orchestration::coding::goal_loop::GoalLoopConfig {
                     max_iterations: 1,
                     max_wall_clock: std::time::Duration::from_secs(10),
-                    input_byte_cap: rightkit_agent_orchestration::small_model_utility::DEFAULT_INPUT_BYTE_CAP,
+                    input_byte_cap: rightkit_agent_orchestration::coding::small_model_utility::DEFAULT_INPUT_BYTE_CAP,
                     interval: std::time::Duration::ZERO,
                 };
-                let budget = rightkit_agent_orchestration::small_model_utility::SmallModelBudget::new(
+                let budget = rightkit_agent_orchestration::coding::small_model_utility::SmallModelBudget::new(
                     1,
-                    rightkit_agent_orchestration::small_model_utility::DEFAULT_CALL_TOKEN_ESTIMATE,
+                    rightkit_agent_orchestration::coding::small_model_utility::DEFAULT_CALL_TOKEN_ESTIMATE,
                 );
-                match rightkit_agent_orchestration::goal_loop::run_goal_loop(
+                match rightkit_agent_orchestration::coding::goal_loop::run_goal_loop(
                     &client,
                     &goal,
                     &audit_context,
                     budget,
                     config,
-                    rightkit_agent_orchestration::watchdog::RunWatchdog::new(
+                    rightkit_agent_orchestration::coding::watchdog::RunWatchdog::new(
                         rightkit_agent_engine_core::GoalState::MAX_NO_PROGRESS as u32,
                     ),
                 )
@@ -2350,7 +2350,7 @@ run_budget: tokio::sync::Mutex::new(RunBudgetLedger::new(RunSubagentBudget::defa
 // Lane C3 (task 3): per-run governed completion arbiter. Tracks
 // unbacked-victory-claim attempts and refuses a goal after the policy
 // cap when the run claims done without typed mutations.
-governed_arbiter: tokio::sync::Mutex::new(rightkit_agent_orchestration::run_governance::GovernedArbiter::default()), });
+governed_arbiter: tokio::sync::Mutex::new(rightkit_agent_orchestration::coding::run_governance::GovernedArbiter::default()), });
         lock_recover(&self.sessions, "sessions").insert(id.to_string(), live.clone());
         live
     }
@@ -2394,7 +2394,7 @@ mod native_provider_route_tests {
             base_url: "https://global.invalid/v1".into(),
             fallback_models: vec!["another-provider/another-model".into()],
         });
-        let mut config = rightkit_app_settings::agent_config::RightKitConfig::default();
+        let mut config = rightkit_app_settings::agent_config::HostConfig::default();
         config.provider_routes.insert(
             "requested-provider".into(),
             rightkit_app_settings::agent_config::ProviderRouteConfig {

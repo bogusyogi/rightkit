@@ -2,7 +2,7 @@
 async fn get_terminal_bench_tasks(
     State(_state): State<DaemonState>,
 ) -> Json<Vec<serde_json::Value>> {
-    use rightkit_agent_orchestration::TbenchCatalog;
+    use rightkit_agent_orchestration::coding::TbenchCatalog;
     let tasks = TbenchCatalog::all_tasks();
     let json: Vec<serde_json::Value> = tasks
         .iter()
@@ -50,7 +50,7 @@ pub(crate) async fn run_terminal_bench_task(
     state: &DaemonState,
     body: TerminalBenchRunRequest,
 ) -> Result<serde_json::Value, StatusCode> {
-    use rightkit_agent_orchestration::TbenchCatalog;
+    use rightkit_agent_orchestration::coding::TbenchCatalog;
     use rightkit_agent_tools::coding_tools::SubagentSpawner;
 
     let tasks = TbenchCatalog::all_tasks();
@@ -120,7 +120,7 @@ pub(crate) async fn run_terminal_bench_task(
         let _ = std::fs::remove_dir_all(cleanup_workspace);
     });
 
-    let report = rightkit_agent_orchestration::BenchmarkReport::new(
+    let report = rightkit_agent_orchestration::coding::BenchmarkReport::new(
         &body.agent,
         &model_id,
         1,

@@ -258,7 +258,7 @@ async fn terminal_bench_run_records_benchmark_history() {
     assert_eq!(first["role"], "coder");
     assert_eq!(
         first["suite"],
-        rightkit_agent_orchestration::TbenchCatalog::suite_id()
+        rightkit_agent_orchestration::coding::TbenchCatalog::suite_id()
     );
     assert_eq!(first["repeats"], 1);
     assert_eq!(first["taskId"], "tb-001");

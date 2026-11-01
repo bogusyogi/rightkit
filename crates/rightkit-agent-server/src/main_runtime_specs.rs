@@ -108,7 +108,7 @@ async fn cli_spec(command: SpecCommand) -> i32 {
                 return 1;
             };
             let tasks = store.tasks(&spec_id);
-            let run = rightkit_evidence::specs::analyze_spec(
+            let run = rightkit_evidence::analyze_spec(
                 &spec,
                 &tasks,
                 format!("spec-cli-analysis-{}", unix_millis()),
@@ -152,7 +152,7 @@ async fn cli_spec(command: SpecCommand) -> i32 {
                 return 1;
             };
             let tasks = store.tasks(&spec_id);
-            let trace = rightkit_evidence::specs::build_trace(
+            let trace = rightkit_evidence::build_trace(
                 &spec,
                 &tasks,
                 store.latest_analysis(&spec_id),
@@ -243,9 +243,9 @@ fn default_cli_workspace() -> String {
 }
 
 fn print_spec_status(
-    spec: &rightkit_evidence::specs::FeatureSpec,
+    spec: &rightkit_evidence::FeatureSpec,
     task_count: usize,
-    latest: Option<&rightkit_evidence::specs::SpecAnalysisRun>,
+    latest: Option<&rightkit_evidence::SpecAnalysisRun>,
     store_path: &std::path::Path,
 ) {
     println!(
@@ -271,20 +271,20 @@ fn print_spec_status(
     }
 }
 
-fn format_spec_status(status: &rightkit_evidence::specs::SpecStatus) -> &'static str {
+fn format_spec_status(status: &rightkit_evidence::SpecStatus) -> &'static str {
     match status {
-        rightkit_evidence::specs::SpecStatus::Draft => "draft",
-        rightkit_evidence::specs::SpecStatus::Planned => "planned",
-        rightkit_evidence::specs::SpecStatus::Implementing => "implementing",
-        rightkit_evidence::specs::SpecStatus::Done => "done",
-        rightkit_evidence::specs::SpecStatus::Blocked => "blocked",
+        rightkit_evidence::SpecStatus::Draft => "draft",
+        rightkit_evidence::SpecStatus::Planned => "planned",
+        rightkit_evidence::SpecStatus::Implementing => "implementing",
+        rightkit_evidence::SpecStatus::Done => "done",
+        rightkit_evidence::SpecStatus::Blocked => "blocked",
     }
 }
 
-fn format_analysis_status(status: &rightkit_evidence::specs::AnalysisStatus) -> &'static str {
+fn format_analysis_status(status: &rightkit_evidence::AnalysisStatus) -> &'static str {
     match status {
-        rightkit_evidence::specs::AnalysisStatus::Pass => "pass",
-        rightkit_evidence::specs::AnalysisStatus::Warn => "warn",
-        rightkit_evidence::specs::AnalysisStatus::Block => "block",
+        rightkit_evidence::AnalysisStatus::Pass => "pass",
+        rightkit_evidence::AnalysisStatus::Warn => "warn",
+        rightkit_evidence::AnalysisStatus::Block => "block",
     }
 }

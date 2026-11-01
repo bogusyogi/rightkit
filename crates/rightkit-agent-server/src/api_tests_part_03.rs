@@ -54,7 +54,7 @@ fn license_feature_check_recovers_from_poisoned_mutex() {
 #[test]
 fn free_workspace_registry_inherits_the_conductor_model_for_every_role() {
     let state = DaemonState::new("");
-    let mut config = rightkit_app_settings::agent_config::RightKitConfig::default();
+    let mut config = rightkit_app_settings::agent_config::HostConfig::default();
     config.orchestration.boss_model = "minimax/minimax-m3".to_string();
     config.orchestration.role_model_mode = "split".to_string();
     config.orchestration.agents.insert(

@@ -1,5 +1,5 @@
 //! HTTP surface for PL-006 — lightweight task-list projection over the
-//! canonical TaskGraph (`rightkit_agent_orchestration::task_list_projection`).
+//! canonical TaskGraph (`rightkit_agent_orchestration::coding::task_list_projection`).
 //!
 //! Route-function shape matches `api_teams.rs::peer_team_routes()` exactly
 //! (per the lane packet): a `pub fn ..._routes() -> Router<DaemonState>`
@@ -29,7 +29,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use rightkit_agent_orchestration::task_list_projection::{
+use rightkit_agent_orchestration::coding::task_list_projection::{
     self, CreateTaskInput, ProjectionError, TaskPatch,
 };
 use serde::Deserialize;

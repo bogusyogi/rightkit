@@ -63,7 +63,7 @@ fn cli_remote_setup(
     0
 }
 
-fn remote_setup_summary_payload(cfg: &rightkit_app_settings::agent_config::RightKitConfig) -> serde_json::Value {
+fn remote_setup_summary_payload(cfg: &rightkit_app_settings::agent_config::HostConfig) -> serde_json::Value {
     serde_json::json!({
         "saved": true,
         "configPath": user_config_path().map(|p| p.display().to_string()),
@@ -77,7 +77,7 @@ fn remote_setup_summary_payload(cfg: &rightkit_app_settings::agent_config::Right
     })
 }
 
-fn remote_setup_next_steps(cfg: &rightkit_app_settings::agent_config::RightKitConfig) -> Vec<&'static str> {
+fn remote_setup_next_steps(cfg: &rightkit_app_settings::agent_config::HostConfig) -> Vec<&'static str> {
     if cfg.remote.telegram_token.is_none() {
         return vec![
             "Create a bot with Telegram BotFather, then run `coderight remote setup --telegram-token <token>`.",
@@ -103,13 +103,13 @@ fn remote_setup_next_steps(cfg: &rightkit_app_settings::agent_config::RightKitCo
 }
 
 fn apply_remote_setup_to_config(
-    mut cfg: rightkit_app_settings::agent_config::RightKitConfig,
+    mut cfg: rightkit_app_settings::agent_config::HostConfig,
     telegram_token: Option<&str>,
     allowed_users: &[u64],
     clear_token: bool,
     enable_web: bool,
     disable_web: bool,
-) -> rightkit_app_settings::agent_config::RightKitConfig {
+) -> rightkit_app_settings::agent_config::HostConfig {
     if clear_token {
         cfg.remote.telegram_token = None;
     } else if let Some(token) = telegram_token

@@ -509,7 +509,7 @@ async fn serve(
     // `api_workflows::routes` is the defence-in-depth fallback for the
     // (currently impossible) case where the gate is on but state is None.
     let workflows_feature =
-        rightkit_workflow::prelude::FeatureGate::from_config(config.features.workflows_enabled);
+        rightkit_workflow::control_plane::prelude::FeatureGate::from_config(config.features.workflows_enabled);
     state = state.with_workflows_feature(workflows_feature);
     if workflows_feature.is_enabled() {
         if let Some(store) = storage.clone() {
@@ -763,12 +763,12 @@ async fn serve(
             let supervisor = crate::workflow::maybe_build_supervisor(
                 workflow_storage.clone(),
                 workflows_feature,
-                std::sync::Arc::new(rightkit_workflow::prelude::SystemClock::new()),
+                std::sync::Arc::new(rightkit_workflow::control_plane::prelude::SystemClock::new()),
             );
             if let Some(supervisor) = supervisor {
                 let recovery = crate::workflow::RecoveryWorker::new(
                     workflow_storage.clone(),
-                    std::sync::Arc::new(rightkit_workflow::prelude::SystemClock::new()),
+                    std::sync::Arc::new(rightkit_workflow::control_plane::prelude::SystemClock::new()),
                 );
                 let workflow_state = std::sync::Arc::new(state.clone());
                 let mut workflow_shutdown = state.shutdown_tx.subscribe();
@@ -793,7 +793,7 @@ async fn serve(
                         workflow_storage.clone(),
                         supervisor.clone(),
                         dispatcher,
-                        std::sync::Arc::new(rightkit_workflow::prelude::SystemClock::new()),
+                        std::sync::Arc::new(rightkit_workflow::control_plane::prelude::SystemClock::new()),
                         crate::workflow::ResourceLimiters {
                             max_concurrent_per_run: 1,
                             max_total_concurrent: 4,
@@ -1326,7 +1326,7 @@ fn init_daemon_telemetry() {
 
 fn resolve_configured_model_alias(
     configured: &str,
-    registry: &rightkit_agent_orchestration::registry::AgentRegistry,
+    registry: &rightkit_agent_orchestration::coding::registry::AgentRegistry,
 ) -> String {
     let trimmed = configured.trim();
     if trimmed.is_empty() {

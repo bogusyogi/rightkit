@@ -361,7 +361,7 @@ async fn add_local_model_provider(
     );
     let set_default = body.set_default;
     let default_model = suggestion.model.clone();
-    let apply = move |config: &mut rightkit_app_settings::agent_config::RightKitConfig| {
+    let apply = move |config: &mut rightkit_app_settings::agent_config::HostConfig| {
         config.provider_routes.insert(route.0, route.1);
         if set_default {
             config.model.default_model = default_model;
@@ -468,16 +468,16 @@ fn user_config_path() -> Option<std::path::PathBuf> {
 }
 
 fn load_user_config_only() -> Result<
-    rightkit_app_settings::agent_config::RightKitConfig,
+    rightkit_app_settings::agent_config::HostConfig,
     rightkit_app_settings::agent_config::ConfigError,
 > {
     let Some(path) = user_config_path() else {
-        return Ok(rightkit_app_settings::agent_config::RightKitConfig::default());
+        return Ok(rightkit_app_settings::agent_config::HostConfig::default());
     };
     match std::fs::read_to_string(&path) {
         Ok(content) => rightkit_app_settings::agent_config::ConfigLoader::new().load_str(&content),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            Ok(rightkit_app_settings::agent_config::RightKitConfig::default())
+            Ok(rightkit_app_settings::agent_config::HostConfig::default())
         }
         Err(err) => Err(rightkit_app_settings::agent_config::ConfigError::Io(
             err.to_string(),
@@ -717,14 +717,14 @@ fn workspace_config_path(workspace: &std::path::Path) -> std::path::PathBuf {
 fn load_workspace_config_only(
     workspace: &std::path::Path,
 ) -> Result<
-    rightkit_app_settings::agent_config::RightKitConfig,
+    rightkit_app_settings::agent_config::HostConfig,
     rightkit_app_settings::agent_config::ConfigError,
 > {
     let path = workspace_config_path(workspace);
     match std::fs::read_to_string(&path) {
         Ok(content) => rightkit_app_settings::agent_config::ConfigLoader::new().load_str(&content),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            Ok(rightkit_app_settings::agent_config::RightKitConfig::default())
+            Ok(rightkit_app_settings::agent_config::HostConfig::default())
         }
         Err(err) => Err(rightkit_app_settings::agent_config::ConfigError::Io(
             err.to_string(),

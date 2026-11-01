@@ -8,7 +8,7 @@ use rightkit_agent_engine_storage::{
     JournalAppend, ProjectionUpdate, TriggerRunAdmission, WorkflowRepository,
     WorkflowTriggerEventRow, WorkflowTriggerWriter,
 };
-use rightkit_workflow::{
+use rightkit_workflow::control_plane::{
     clock::{Clock, SystemClock},
     domain::ContentHash,
     trigger::DstResolutionPolicy,
@@ -99,10 +99,12 @@ fn admit(
     };
     let normalized = crate::workflow::triggers::NormalizedTriggerEvent {
         spec_version: crate::workflow::triggers::NormalizedTriggerEvent::SPEC_VERSION.into(),
-        id: rightkit_workflow::domain::trigger_event_id(
+        id: rightkit_workflow::control_plane::domain::trigger_event_id(
             event.id.strip_prefix("wf_evt_").unwrap_or(&event.id),
         ),
-        trigger_id: Some(rightkit_workflow::domain::trigger_id(trigger.id.clone())),
+        trigger_id: Some(rightkit_workflow::control_plane::domain::trigger_id(
+            trigger.id.clone(),
+        )),
         external_id: event.external_id.clone(),
         source: event.source.clone(),
         type_: event.event_type.clone(),

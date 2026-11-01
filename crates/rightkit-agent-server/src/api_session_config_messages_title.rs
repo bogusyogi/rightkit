@@ -171,7 +171,7 @@ pub struct SetGoal {
 /// requiring a concise handoff at the end so the Conductor and downstream
 /// agents get a usable result.
 pub(crate) fn compose_agent_persona(
-    d: &rightkit_agent_orchestration::registry::AgentDescriptor,
+    d: &rightkit_agent_orchestration::coding::registry::AgentDescriptor,
 ) -> String {
     let tools = if d.allowed_tools.is_empty() {
         "none — read-only reasoning".to_string()

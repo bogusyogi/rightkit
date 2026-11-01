@@ -46,8 +46,10 @@ use tracing::debug;
 use rightkit_agent_engine_storage::{
     StorageError, TriggerEventInsert, WorkflowTriggerEventRow, WorkflowTriggerWriter,
 };
-use rightkit_workflow::clock::{Clock, UnixMs};
-use rightkit_workflow::domain::{trigger_event_id, ContentHash, TriggerEventId, TriggerId};
+use rightkit_workflow::control_plane::clock::{Clock, UnixMs};
+use rightkit_workflow::control_plane::domain::{
+    trigger_event_id, ContentHash, TriggerEventId, TriggerId,
+};
 
 use super::dedupe;
 use super::event::{
@@ -456,7 +458,7 @@ pub use super::dedupe::{
 // `ContentHash` is re-exported so test code can construct one without
 // reaching into the workflow crate.
 #[allow(unused_imports)]
-pub use rightkit_workflow::domain::ContentHash as ReexportedContentHash;
+pub use rightkit_workflow::control_plane::domain::ContentHash as ReexportedContentHash;
 #[allow(unused_imports)]
 type _RawArtifactMarker = RawArtifact;
 
@@ -465,7 +467,7 @@ mod tests {
     use super::*;
     use crate::workflow::triggers::event::{TrustLevel, TrustOrigin};
     use rightkit_agent_engine_storage::Storage;
-    use rightkit_workflow::clock::TestClock;
+    use rightkit_workflow::control_plane::clock::TestClock;
 
     fn test_event(now_ms: UnixMs) -> NormalizedTriggerEvent {
         let external_id = "deliv-1".to_string();
@@ -475,7 +477,7 @@ mod tests {
         )
         .expect("canonical");
         let content_hash = compute_content_hash(&canonical);
-        let trigger_id = rightkit_workflow::domain::trigger_id("wft_test_trigger");
+        let trigger_id = rightkit_workflow::control_plane::domain::trigger_id("wft_test_trigger");
         let dedupe_key = derive_dedupe_key(
             "github:o/r",
             &external_id,

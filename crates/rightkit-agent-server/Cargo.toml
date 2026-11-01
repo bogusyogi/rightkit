@@ -1,4 +1,6 @@
 [package]
+autotests = false
+autobins = false
 name = "rightkit-agent-server"
 version = "0.1.0"
 edition = "2021"
@@ -11,6 +13,21 @@ include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENS
 
 [workspace]
 
+[[bin]]
+name = "coderight"
+path = "src/bin/coderight.rs"
+required-features = ["e2e-harness"]
+
+[[bin]]
+name = "ops004_driver_fixture"
+path = "src/bin/ops004_driver_fixture.rs"
+required-features = ["e2e-harness"]
+
+[[test]]
+name = "e2e"
+path = "tests/e2e/main.rs"
+required-features = ["e2e-harness"]
+
 [lib]
 name = "rightkit_agent_server"
 path = "src/lib.rs"
@@ -18,10 +35,13 @@ path = "src/lib.rs"
 [features]
 default = []
 test-mode = []
+# Builds the black-box test binaries and enables the end-to-end tests (they also need a product skill host).
+e2e-harness = []
 qualification = ["rightkit-agent-engine-core/qualification"]
 fastembed = ["rightkit-onnx/session", "rightkit-agent-tools/coding_tools-embeddings"]
 
 [dependencies]
+rightkit-doctor = { version = "0.1.0", path = "../rightkit-doctor" }
 rightkit-agent-host-traits = { version = "0.1.1", path = "../rightkit-agent-host-traits" }
 rightkit-agent-plugins = { version = "0.1.0", path = "../rightkit-agent-plugins" }
 rightkit-agent-recipes = { version = "0.1.0", path = "../rightkit-agent-recipes" }
@@ -35,7 +55,7 @@ rightkit-agent-policy = { version = "0.1.0", path = "../rightkit-agent-policy" }
 rightkit-logs = { version = "0.3.7", path = "../rightkit-logs", features = ["agent_telemetry", "tracing"], default-features = false }
 rightkit-agent-tools = { version = "0.3.1", path = "../rightkit-agent-tools", features = ["coding_tools"] }
 rightkit-app-settings = { version = "0.3.1", path = "../rightkit-app-settings", features = ["agent_config", "agent_config-host-env"] }
-rightkit-agent-orchestration = { version = "0.1.1", path = "../rightkit-agent-orchestration" }
+rightkit-agent-orchestration = { version = "0.1.1", path = "../rightkit-agent-orchestration" , features = ["coding"] }
 rightkit-adapt = { version = "0.1.0", path = "../rightkit-adapt" }
 rightkit-terminal-ui = { version = "0.1.0", path = "../rightkit-terminal-ui" }
 rightkit-agent-engine-tasks = { version = "0.1.0", path = "../rightkit-agent-engine-tasks" }
@@ -45,7 +65,7 @@ rightkit-models = { version = "0.5.3", path = "../rightkit-models", features = [
 rightkit-agent-engine-runtime-middleware = { version = "0.1.0", path = "../rightkit-agent-engine-runtime-middleware" }
 rightkit-agent-engine-runtime-resources = { version = "0.1.0", path = "../rightkit-agent-engine-runtime-resources" }
 rightkit-agent-engine-storage = { version = "0.1.0", path = "../rightkit-agent-engine-storage" }
-rightkit-workflow = { version = "0.2.1", path = "../rightkit-workflow" }
+rightkit-workflow = { version = "0.2.1", path = "../rightkit-workflow" , features = ["control_plane", "control_plane_host"] }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", features = ["digest", "fs", "json", "lock", "transaction"] }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }

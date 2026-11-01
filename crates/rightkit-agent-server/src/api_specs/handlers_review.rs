@@ -22,12 +22,12 @@ async fn checklist_spec_handler(
     let blocker_count = analysis
         .findings
         .iter()
-        .filter(|finding| matches!(finding.severity, rightkit_evidence::specs::FindingSeverity::Critical))
+        .filter(|finding| matches!(finding.severity, rightkit_evidence::FindingSeverity::Critical))
         .count();
     let warning_count = analysis
         .findings
         .iter()
-        .filter(|finding| matches!(finding.severity, rightkit_evidence::specs::FindingSeverity::Warning))
+        .filter(|finding| matches!(finding.severity, rightkit_evidence::FindingSeverity::Warning))
         .count();
     store.record_analysis(analysis.clone());
     persist_spec_store(&state, &store)?;
@@ -46,7 +46,7 @@ async fn analyze_spec_handler(
     State(state): State<DaemonState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-) -> Result<Json<rightkit_evidence::specs::SpecAnalysisRun>, SpecError> {
+) -> Result<Json<rightkit_evidence::SpecAnalysisRun>, SpecError> {
     enforce_spec_trusted_source_authority(&headers)?;
     let mut store = lock_recover(&state.specs, "state.specs");
     let spec = store
@@ -169,7 +169,7 @@ async fn implement_spec_handler(
 async fn get_spec_trace_handler(
     State(state): State<DaemonState>,
     Path(id): Path<String>,
-) -> Result<Json<rightkit_evidence::specs::SpecTrace>, SpecError> {
+) -> Result<Json<rightkit_evidence::SpecTrace>, SpecError> {
     let (spec, tasks, latest, decisions) = {
         let store = lock_recover(&state.specs, "state.specs");
         let spec = store

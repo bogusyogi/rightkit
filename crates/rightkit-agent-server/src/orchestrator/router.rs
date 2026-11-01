@@ -7,15 +7,15 @@
 // Two resolution paths are exposed:
 // - [`RolePackResolver`] wraps `rightkit_agent_policy::role_pack_resolver`
 //   (model-assignment validation only, no persona).
-// - [`SpawnRolePackResolver`] wraps `rightkit_agent_orchestration::role_pack`
+// - [`SpawnRolePackResolver`] wraps `rightkit_agent_orchestration::coding::role_pack`
 //   (FM-088/FM-104/S:F8): it additionally binds the role's `PersonaContract`
 //   from a `PersonaRegistry`, so a spawn gets its system prompt from the
 //   same versioned pack instead of the registry's single fixed prompt
 //   (`AgentRegistry::with_prompt`). `DaemonState::spawn` consumes this full
 //   resolved binding for built-in role-pack children.
 
-use rightkit_agent_orchestration::personas::PersonaRegistry;
-use rightkit_agent_orchestration::role_pack::{
+use rightkit_agent_orchestration::coding::personas::PersonaRegistry;
+use rightkit_agent_orchestration::coding::role_pack::{
     self, RolePackCatalogEntry, RolePackError as SpawnRolePackError,
 };
 use rightkit_agent_policy::role_pack_resolver::{
@@ -146,7 +146,7 @@ fn builtin_role_pack_source(role: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod router_tests {
     use super::*;
-    use rightkit_agent_orchestration::personas::PersonaContract;
+    use rightkit_agent_orchestration::coding::personas::PersonaContract;
 
     fn catalog() -> Vec<RolePackCatalogEntry> {
         vec![

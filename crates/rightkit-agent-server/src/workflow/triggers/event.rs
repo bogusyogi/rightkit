@@ -34,8 +34,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use rightkit_workflow::clock::UnixMs;
-use rightkit_workflow::domain::{
+use rightkit_workflow::control_plane::clock::UnixMs;
+use rightkit_workflow::control_plane::domain::{
     ContentHash, OccurrenceId, TriggerEventId, TriggerId, WorkflowVersionId,
 };
 

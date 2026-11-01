@@ -20,75 +20,7 @@
 use serde::Serialize;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Status {
-    Pass,
-    Warn,
-    Block,
-}
-
-impl Status {
-    fn symbol(self) -> &'static str {
-        match self {
-            Status::Pass => "\u{2713}",
-            Status::Warn => "\u{26a0}",
-            Status::Block => "\u{2717}",
-        }
-    }
-    fn rank(self) -> u8 {
-        match self {
-            Status::Pass => 0,
-            Status::Warn => 1,
-            Status::Block => 2,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct Check {
-    pub id: String,
-    pub label: String,
-    pub status: Status,
-    pub detail: String,
-    /// What to do about it (empty for a clean Pass).
-    pub fix: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct DiagnosticsReport {
-    pub verdict: Status,
-    pub checks: Vec<Check>,
-}
-
-impl DiagnosticsReport {
-    /// Process exit code: 0 ready, 1 warnings, 2 blocked.
-    pub fn exit_code(&self) -> i32 {
-        self.verdict.rank() as i32
-    }
-
-    pub fn render_text(&self) -> String {
-        let mut out = String::from("RightKit doctor\n\n");
-        for c in &self.checks {
-            out.push_str(&format!(
-                "  {} {} \u{2014} {}\n",
-                c.status.symbol(),
-                c.label,
-                c.detail
-            ));
-            if !c.fix.is_empty() && c.status != Status::Pass {
-                out.push_str(&format!("      \u{2192} {}\n", c.fix));
-            }
-        }
-        let verdict = match self.verdict {
-            Status::Pass => "READY",
-            Status::Warn => "READY WITH WARNINGS",
-            Status::Block => "BLOCKED",
-        };
-        out.push_str(&format!("\nVerdict: {verdict}\n"));
-        out
-    }
-}
+pub use rightkit_doctor::verdict::{Check, Status, VerdictReport as DiagnosticsReport};
 
 /// How the configured route selected by the default model authenticates.
 /// Presence only — never a credential value.
@@ -159,7 +91,9 @@ include!("doctor_impl.rs");
 include!("doctor_dimension_probes.rs");
 include!("doctor_dimensions.rs");
 include!("doctor_runtime.rs");
-include!("doctor_clipboard.rs");
+use rightkit_doctor::probe::{
+    clipboard_candidates as candidate_clipboard_bins, copy_to_clipboard as try_copy_to_clipboard,
+};
 
 #[cfg(test)]
 #[path = "doctor_dimensions_tests.rs"]
@@ -191,7 +125,7 @@ mod tests {
         let r = evaluate(&all_pass_facts());
         assert_eq!(r.verdict, Status::Pass);
         assert_eq!(r.exit_code(), 0);
-        assert!(r.render_text().contains("READY"));
+        assert!(r.render_text("RightKit").contains("READY"));
     }
 
     #[test]
@@ -268,7 +202,7 @@ mod tests {
 
     #[test]
     fn default_route_auth_follows_engine_route_resolution() {
-        let mut cfg = rightkit_app_settings::agent_config::RightKitConfig::default();
+        let mut cfg = rightkit_app_settings::agent_config::HostConfig::default();
         cfg.model.default_model = "qwen2.5-coder:7b".to_string();
         let route = rightkit_app_settings::agent_config::ProviderRouteConfig {
             display_name: "Local".to_string(),

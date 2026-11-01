@@ -30,7 +30,7 @@ pub(crate) async fn ensure_workflow_schedule_mapping(
     let existing_trigger = repo
         .find_trigger_by_dedupe_key(&key)
         .map_err(|e| e.to_string())?;
-    let legacy = rightkit_workflow::migration::LegacySchedule {
+    let legacy = rightkit_workflow::control_plane::migration::LegacySchedule {
         id: entry.id.clone(),
         prompt: entry.prompt.clone(),
         cron: Some(entry.cron_expr.clone()),
@@ -47,28 +47,32 @@ pub(crate) async fn ensure_workflow_schedule_mapping(
         mode: Some(entry.mode.clone()),
         paused: entry.paused,
     };
-    let source = rightkit_workflow::migration::migrate_to_source(&legacy, "pending")
+    let source = rightkit_workflow::control_plane::migration::migrate_to_source(&legacy, "pending")
         .map_err(|e| e.to_string())?
         .source;
-    rightkit_workflow::compiler::validate_source_authority(&source).map_err(|e| e.to_string())?;
+    rightkit_workflow::control_plane::compiler::validate_source_authority(&source)
+        .map_err(|e| e.to_string())?;
     let now = crate::api::now_iso();
     let workflow_id = source.definition.id.stable().as_str().to_string();
-    let compiled =
-        match rightkit_workflow::compiler::compile(&source.definition, &source.nodes, &now) {
-            rightkit_workflow::compiler::CompilerOutcome::Compiled {
-                version_id,
-                content_hash,
-                plan,
-            } => (
-                version_id.stable().as_str().to_string(),
-                content_hash.as_str().to_string(),
-                serde_json::to_string(&plan).map_err(|e| e.to_string())?,
-            ),
-            rightkit_workflow::compiler::CompilerOutcome::Failed { diagnostics } => {
-                return Err(serde_json::to_string(&diagnostics)
-                    .unwrap_or_else(|_| "workflow compile failed".into()))
-            }
-        };
+    let compiled = match rightkit_workflow::control_plane::compiler::compile(
+        &source.definition,
+        &source.nodes,
+        &now,
+    ) {
+        rightkit_workflow::control_plane::compiler::CompilerOutcome::Compiled {
+            version_id,
+            content_hash,
+            plan,
+        } => (
+            version_id.stable().as_str().to_string(),
+            content_hash.as_str().to_string(),
+            serde_json::to_string(&plan).map_err(|e| e.to_string())?,
+        ),
+        rightkit_workflow::control_plane::compiler::CompilerOutcome::Failed { diagnostics } => {
+            return Err(serde_json::to_string(&diagnostics)
+                .unwrap_or_else(|_| "workflow compile failed".into()))
+        }
+    };
     let definition_json = serde_json::to_string(&source).map_err(|e| e.to_string())?;
     let next_fire_at_unix_ms = next_due_epoch_minute_in_time_zone(
         &entry.cron_expr,

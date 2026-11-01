@@ -143,7 +143,7 @@ pub(crate) async fn session_spec_completion_summary(
         }
         let tasks = store.tasks(&spec_id);
         let decisions = store.constitution_decisions(&spec_id);
-        let run = rightkit_evidence::specs::analyze_spec_with_constitution_decisions(
+        let run = rightkit_evidence::analyze_spec_with_constitution_decisions(
             &spec,
             &tasks,
             &decisions,
@@ -156,7 +156,7 @@ pub(crate) async fn session_spec_completion_summary(
             .filter(|finding| {
                 matches!(
                     finding.severity,
-                    rightkit_evidence::specs::FindingSeverity::Critical
+                    rightkit_evidence::FindingSeverity::Critical
                 )
             })
             .cloned()
@@ -167,13 +167,13 @@ pub(crate) async fn session_spec_completion_summary(
             .filter(|finding| {
                 matches!(
                     finding.severity,
-                    rightkit_evidence::specs::FindingSeverity::Warning
+                    rightkit_evidence::FindingSeverity::Warning
                 )
             })
             .cloned()
             .collect::<Vec<_>>();
         let status = run.status.clone();
-        let can_complete = status != rightkit_evidence::specs::AnalysisStatus::Block;
+        let can_complete = status != rightkit_evidence::AnalysisStatus::Block;
         let summary = serde_json::json!({
             "sessionId": id,
             "bound": true,

@@ -39,7 +39,7 @@ use rightkit_agent_engine_storage::{
     WorkflowTriggerEventRow, WorkflowTriggerRawArtifactRow, WorkflowTriggerRawArtifactWrite,
     WorkflowTriggerWriter,
 };
-use rightkit_workflow::{
+use rightkit_workflow::control_plane::{
     clock::{Clock, SystemClock},
     compiler::{compile, parse_authoring_json, parse_json, validate_source_authority},
     domain::CompilerOutcome,
@@ -83,7 +83,7 @@ impl WorkflowTriggerArtifactStore for LocalTriggerArtifactStore {
         &self,
         artifact: &WorkflowTriggerRawArtifactWrite,
     ) -> rightkit_agent_engine_storage::Result<WorkflowTriggerArtifactPut> {
-        if rightkit_workflow::domain::ContentHash::sha256(&artifact.bytes).as_str()
+        if rightkit_workflow::control_plane::domain::ContentHash::sha256(&artifact.bytes).as_str()
             != artifact.content_hash
         {
             return Err(rightkit_agent_engine_storage::StorageError::Serde(
@@ -258,7 +258,7 @@ async fn admit_authenticated_delivery_via_coordinator(
     let normalized_payload = redact_trigger_payload(delivery.payload.clone());
     let raw_bytes = serde_json::to_vec(&raw_payload)
         .map_err(|error| WorkflowApiError::bad_request(error.to_string()))?;
-    let content_hash = rightkit_workflow::domain::ContentHash::sha256(&raw_bytes);
+    let content_hash = rightkit_workflow::control_plane::domain::ContentHash::sha256(&raw_bytes);
     let raw_artifact_id = format!(
         "wfa_{}",
         content_hash.as_str().trim_start_matches("sha256:")
@@ -296,7 +296,9 @@ async fn admit_authenticated_delivery_via_coordinator(
     let event_for_policy = crate::workflow::triggers::NormalizedTriggerEvent {
         spec_version: crate::workflow::triggers::NormalizedTriggerEvent::SPEC_VERSION.into(),
         id: event_id,
-        trigger_id: Some(rightkit_workflow::domain::trigger_id(trigger.id.clone())),
+        trigger_id: Some(rightkit_workflow::control_plane::domain::trigger_id(
+            trigger.id.clone(),
+        )),
         external_id: Some(delivery.delivery_id.clone()),
         source: event.source.clone(),
         type_: event.event_type.clone(),
@@ -535,7 +537,7 @@ pub(crate) fn trigger_run_admission(
     let command = Command {
         command_id: command_id.clone(),
         kind: "start".into(),
-        run_id: rightkit_workflow::domain::run_id(&run_id),
+        run_id: rightkit_workflow::control_plane::domain::run_id(&run_id),
         expected_revision: Revision(0),
         payload_json: input.clone(),
     };
@@ -708,8 +710,8 @@ async fn submit_import(
     }
     let now = now_string();
     let id = format!("wfimp_{}", unique_suffix());
-    let allowed = rightkit_workflow::domain::CapabilitySet::empty();
-    let verification = rightkit_workflow::import_export::verify_import(
+    let allowed = rightkit_workflow::control_plane::domain::CapabilitySet::empty();
+    let verification = rightkit_workflow::control_plane::import_export::verify_import(
         &req.package,
         &allowed,
         wf.import_verifier.as_ref(),
@@ -900,7 +902,8 @@ async fn promote_optimization(
         .and_then(|value| value.to_str().ok())
         .filter(|value| value.starts_with("Bearer "))
         .ok_or_else(|| WorkflowApiError::bad_request("authenticated actor is required"))?;
-    let actor_hash = rightkit_workflow::domain::ContentHash::sha256(authorization.as_bytes());
+    let actor_hash =
+        rightkit_workflow::control_plane::domain::ContentHash::sha256(authorization.as_bytes());
     let actor = format!("local:{}", &actor_hash.as_str()[7..19]);
     if [
         req.benchmark_id.as_str(),
@@ -1296,7 +1299,7 @@ async fn start_run(
     let reducer_command = Command {
         command_id,
         kind: "start".into(),
-        run_id: rightkit_workflow::domain::run_id(&run_id),
+        run_id: rightkit_workflow::control_plane::domain::run_id(&run_id),
         expected_revision: Revision(0),
         payload_json: input.clone(),
     };
@@ -1498,8 +1501,8 @@ fn project_mcp_task(
         .map_err(WorkflowApiError::from)?
         .map(|definition| definition.name)
         .unwrap_or_else(|| "Workflow".into());
-    let projection = rightkit_workflow::interop::project_run_to_mcp(
-        &rightkit_workflow::interop::WorkflowRunRow {
+    let projection = rightkit_workflow::control_plane::interop::project_run_to_mcp(
+        &rightkit_workflow::control_plane::interop::WorkflowRunRow {
             id: run.id.clone(),
             workflow_id: run.workflow_id.clone(),
             workflow_version_id: run.workflow_version_id.clone(),
@@ -1557,7 +1560,7 @@ async fn create_mcp_task(
     State(state): State<DaemonState>,
     Json(payload): Json<Value>,
 ) -> Result<(axum::http::StatusCode, Json<Value>), WorkflowApiError> {
-    rightkit_workflow::interop::validate_external_task_create_request(&payload)
+    rightkit_workflow::control_plane::interop::validate_external_task_create_request(&payload)
         .map_err(|e| WorkflowApiError::bad_request(e.to_string()))?;
     let workflow_id = payload
         .get("workflowId")
@@ -1986,7 +1989,8 @@ async fn create_trigger(
         let timezone = req.timezone.as_deref().ok_or_else(|| {
             WorkflowApiError::bad_request("cron trigger requires an IANA timezone")
         })?;
-        let now_ms = rightkit_workflow::clock::Clock::now_unix_ms(&SystemClock::new());
+        let now_ms =
+            rightkit_workflow::control_plane::clock::Clock::now_unix_ms(&SystemClock::new());
         crate::workflow::triggers::occurrence::resolve_cron_due(
             req.cron_expression
                 .as_deref()
@@ -2122,7 +2126,8 @@ async fn admit_occurrence(
     let now = crate::workflow::triggers::format_unix_ms_as_iso(now_ms);
     let delivery_id = format!("manual-{}", unique_suffix());
     let source = "coderight:manual".to_string();
-    let content_hash = rightkit_workflow::domain::ContentHash::sha256(b"{\"manual\":true}");
+    let content_hash =
+        rightkit_workflow::control_plane::domain::ContentHash::sha256(b"{\"manual\":true}");
     let event_id = crate::workflow::triggers::derive_event_id(&source, &delivery_id, now_ms);
     let dedupe_key = crate::workflow::triggers::derive_dedupe_key(
         &source,
@@ -2147,7 +2152,9 @@ async fn admit_occurrence(
     let normalized = crate::workflow::triggers::NormalizedTriggerEvent {
         spec_version: crate::workflow::triggers::NormalizedTriggerEvent::SPEC_VERSION.into(),
         id: event_id,
-        trigger_id: Some(rightkit_workflow::domain::trigger_id(trigger.id.clone())),
+        trigger_id: Some(rightkit_workflow::control_plane::domain::trigger_id(
+            trigger.id.clone(),
+        )),
         external_id: Some(delivery_id),
         source,
         type_: "manual".into(),
@@ -2409,7 +2416,8 @@ async fn decide_inbox_item(
         .and_then(|value| value.to_str().ok())
         .filter(|value| value.starts_with("Bearer "))
         .ok_or_else(|| WorkflowApiError::bad_request("authenticated actor is required"))?;
-    let actor_hash = rightkit_workflow::domain::ContentHash::sha256(authorization.as_bytes());
+    let actor_hash =
+        rightkit_workflow::control_plane::domain::ContentHash::sha256(authorization.as_bytes());
     let actor = format!("local:{}", &actor_hash.as_str()[7..19]);
     let storage = wf.storage.lock().await;
     let repo = WorkflowRepository::new(storage.conn());
@@ -2620,7 +2628,7 @@ mod daemon_router_gate_tests {
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
     use rightkit_agent_engine_storage::Storage;
-    use rightkit_workflow::prelude::FeatureGate;
+    use rightkit_workflow::control_plane::prelude::FeatureGate;
     use tower::ServiceExt;
 
     fn open_storage() -> SharedStorage {
@@ -2778,7 +2786,7 @@ mod tests {
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
     use rightkit_agent_engine_storage::Storage;
-    use rightkit_workflow::prelude::FeatureGate;
+    use rightkit_workflow::control_plane::prelude::FeatureGate;
     use tower::ServiceExt;
 
     fn open_storage() -> SharedStorage {

@@ -62,7 +62,7 @@ use std::fmt::Write as _;
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 
-use rightkit_app_settings::agent_config::{RightKitConfig, ConfigLoader, ProviderRouteConfig};
+use rightkit_app_settings::agent_config::{HostConfig, ConfigLoader, ProviderRouteConfig};
 use rightkit_agent_engine_protocol::TranscriptMessage;
 use rightkit_agent_tools::coding_tools::ToolRegistry;
 
@@ -148,7 +148,7 @@ impl OnboardingState {
 /// checked only — the value is never printed, returned, or logged.
 pub fn detect_from_config<B: rightkit_llm::agent_providers::KeyStoreBackend>(
     backend: &B,
-    config: &RightKitConfig,
+    config: &HostConfig,
 ) -> OnboardingState {
     let has_model = !config.model.default_model.trim().is_empty();
     let has_route = !config.provider_routes.is_empty();
@@ -191,7 +191,7 @@ pub fn detect_from_config<B: rightkit_llm::agent_providers::KeyStoreBackend>(
 /// configured credential without exposing credential material.
 pub async fn detect_from_config_with_native_auth<B: rightkit_llm::agent_providers::KeyStoreBackend>(
     backend: &B,
-    config: &RightKitConfig,
+    config: &HostConfig,
 ) -> OnboardingState {
     let mut state = detect_from_config(backend, config);
     if config
@@ -210,7 +210,7 @@ pub async fn detect_from_config_with_native_auth<B: rightkit_llm::agent_provider
 }
 
 /// Load the current merged user config (user-global + workspace layers).
-pub fn load_current_config() -> RightKitConfig {
+pub fn load_current_config() -> HostConfig {
     ConfigLoader::new().load_files_default()
 }
 
@@ -1119,7 +1119,7 @@ mod tests {
     fn route_api_key_env_counts_as_configured_credential() {
         let var = "CR_ONBOARD_API_KEY_ENV_TEST";
         std::env::set_var(var, "present");
-        let mut config = RightKitConfig::default();
+        let mut config = HostConfig::default();
         config.model.default_model = "env-model".into();
         config.provider_routes.insert(
             "envroute".into(),
@@ -1143,7 +1143,7 @@ mod tests {
         // openrouter key under the process env lock, so take it to keep the
         // baseline stable across this test's reads.
         let _env_guard = crate::test_support::process_env_lock();
-        let mut config = RightKitConfig::default();
+        let mut config = HostConfig::default();
         config.model.default_model = "fixture-model".into();
         let backend = InMemoryKeyStore::new();
         let baseline = detect_from_config(&backend, &config).has_credential;

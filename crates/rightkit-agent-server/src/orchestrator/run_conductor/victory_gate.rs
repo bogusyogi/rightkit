@@ -76,10 +76,10 @@ impl DaemonState {
         goal: &str,
         outcome: &RunOutcome,
         gds: f64,
-        workspace_config: &rightkit_app_settings::agent_config::RightKitConfig,
+        workspace_config: &rightkit_app_settings::agent_config::HostConfig,
         initial_git_ref: Option<&str>,
-    ) -> (rightkit_agent_orchestration::CompletionState, String) {
-        use rightkit_agent_orchestration::CompletionState;
+    ) -> (rightkit_agent_orchestration::coding::CompletionState, String) {
+        use rightkit_agent_orchestration::coding::CompletionState;
 
         let session = match self.get_session(session_id) {
             Some(s) => s,
@@ -184,15 +184,15 @@ impl DaemonState {
                 );
             }
             // Verification present but failed → arbiter bands by GDS.
-            let arb = rightkit_agent_orchestration::arbitrate(
-                &rightkit_agent_orchestration::CompletionInput {
+            let arb = rightkit_agent_orchestration::coding::arbitrate(
+                &rightkit_agent_orchestration::coding::CompletionInput {
                     gds,
                     verification_present: true,
                     jury_consensus: true,
                     verification_approved: false,
                     escalate: false,
                 },
-                &rightkit_agent_orchestration::CompletionConfig::default(),
+                &rightkit_agent_orchestration::coding::CompletionConfig::default(),
             );
             return (
                 arb.state,
@@ -277,15 +277,15 @@ impl DaemonState {
         );
 
         // The arbiter maps GDS + the gate evidence to the terminal state.
-        let arb = rightkit_agent_orchestration::arbitrate(
-            &rightkit_agent_orchestration::CompletionInput {
+        let arb = rightkit_agent_orchestration::coding::arbitrate(
+            &rightkit_agent_orchestration::coding::CompletionInput {
                 gds,
                 verification_present: true,
                 jury_consensus: consensus,
                 verification_approved: approved,
                 escalate: false,
             },
-            &rightkit_agent_orchestration::CompletionConfig::default(),
+            &rightkit_agent_orchestration::coding::CompletionConfig::default(),
         );
         let approve_count = verdicts.iter().filter(|v| v.approve).count();
         {
@@ -298,7 +298,7 @@ impl DaemonState {
             goal.verification_present = true;
             goal.verification_approved = approved;
             goal.verification_state =
-                if approved && arb.state == rightkit_agent_orchestration::CompletionState::Accepted {
+                if approved && arb.state == rightkit_agent_orchestration::coding::CompletionState::Accepted {
                     "verified".into()
                 } else if approved {
                     "pending".into()

@@ -402,7 +402,7 @@ pub(crate) fn native_spawn_route(
     options: &rightkit_agent_tools::coding_tools::SubagentSpawnOptions,
 ) -> Option<(String, String)> {
     let runtime = options.runtime.as_ref()?;
-    let rightkit_agent_tools::coding_tools::SpawnRuntimeKind::RightKitNative { model_id, .. } = runtime else {
+    let rightkit_agent_tools::coding_tools::SpawnRuntimeKind::CodeRightNative { model_id, .. } = runtime else {
         return None;
     };
     if model_id.trim().is_empty() {
@@ -514,16 +514,16 @@ impl SubagentFork {
     /// assignment so a child cannot silently fall back after admission.
     pub(crate) fn apply_resolved_role_pack(
         &mut self,
-        resolved: &rightkit_agent_orchestration::role_pack::ResolvedRolePack,
+        resolved: &rightkit_agent_orchestration::coding::role_pack::ResolvedRolePack,
     ) -> Result<(), String> {
         // Bind role-pack capabilities to the channel that will actually own
         // this child session.  Keep this at the spawn seam so a resolved pack
         // cannot be admitted while its MCP channel remains merely metadata.
         let available_channels =
-            rightkit_agent_orchestration::role_pack_mcp::McpChannelSet::from_channels([self
+            rightkit_agent_orchestration::coding::role_pack_mcp::McpChannelSet::from_channels([self
                 .mcp_channel
                 .as_str()]);
-        let mcp_binding = rightkit_agent_orchestration::role_pack_mcp::bind_role_pack_mcp(
+        let mcp_binding = rightkit_agent_orchestration::coding::role_pack_mcp::bind_role_pack_mcp(
             resolved,
             std::slice::from_ref(&self.mcp_channel),
             &available_channels,
@@ -1433,7 +1433,7 @@ mod native_route_tests {
     #[test]
     fn explicit_native_route_reaches_child_descriptor_inputs() {
         let options = rightkit_agent_tools::coding_tools::SubagentSpawnOptions {
-            runtime: Some(rightkit_agent_tools::coding_tools::SpawnRuntimeKind::RightKitNative {
+            runtime: Some(rightkit_agent_tools::coding_tools::SpawnRuntimeKind::CodeRightNative {
                 provider_id: Some("anthropic".into()),
                 model_id: "claude-haiku".into(),
             }),

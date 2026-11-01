@@ -61,7 +61,7 @@ async fn run_model_compare(
             Ok(turn) => turn.text,
             Err(e) => format!("(model error: {e})"),
         };
-        candidates.push(rightkit_agent_orchestration::Candidate {
+        candidates.push(rightkit_agent_orchestration::coding::Candidate {
             model_id: model.clone(),
             output,
         });
@@ -69,7 +69,7 @@ async fn run_model_compare(
 
     let id = format!("cmp-{}", now_millis());
     let seed = now_millis() as u64;
-    let comparison = rightkit_agent_orchestration::BlindComparison::new(&id, &prompt, candidates, seed);
+    let comparison = rightkit_agent_orchestration::coding::BlindComparison::new(&id, &prompt, candidates, seed);
     let entries = serde_json::to_value(comparison.blinded()).unwrap_or(serde_json::Value::Null);
     state
         .comparisons
@@ -119,11 +119,11 @@ async fn run_agent_compare(
     };
 
     let candidates = vec![
-        rightkit_agent_orchestration::Candidate {
+        rightkit_agent_orchestration::coding::Candidate {
             model_id: variant_a.clone(),
             output: output_a,
         },
-        rightkit_agent_orchestration::Candidate {
+        rightkit_agent_orchestration::coding::Candidate {
             model_id: variant_b.clone(),
             output: output_b,
         },
@@ -131,7 +131,7 @@ async fn run_agent_compare(
 
     let id = format!("cmp-{}", now_millis());
     let seed = now_millis() as u64;
-    let comparison = rightkit_agent_orchestration::BlindComparison::new(&id, &task, candidates, seed);
+    let comparison = rightkit_agent_orchestration::coding::BlindComparison::new(&id, &task, candidates, seed);
     let entries = serde_json::to_value(comparison.blinded()).unwrap_or(serde_json::Value::Null);
     state
         .comparisons
@@ -208,14 +208,14 @@ fn bounded_benchmark_output(text: impl Into<String>) -> String {
 
 pub(crate) async fn record_benchmark_history(
     state: &DaemonState,
-    report: &rightkit_agent_orchestration::BenchmarkReport,
+    report: &rightkit_agent_orchestration::coding::BenchmarkReport,
 ) {
     record_benchmark_history_with_detail(state, report, None).await;
 }
 
 async fn record_benchmark_history_with_detail(
     state: &DaemonState,
-    report: &rightkit_agent_orchestration::BenchmarkReport,
+    report: &rightkit_agent_orchestration::coding::BenchmarkReport,
     detail: Option<rightkit_agent_engine_storage::BenchmarkDetail>,
 ) {
     if let Some(storage) = &state.storage {

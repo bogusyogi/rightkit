@@ -14,19 +14,19 @@ use rightkit_http::Client as BlockingClient;
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
-use rightkit_workflow::a2a::{
+use rightkit_workflow::control_plane::a2a::{
     classify_output, validate_admission, validate_descriptor, workspace_contains,
     A2aExecutorDescriptor, A2aIdentityProof, A2aIdentityVerifier, A2aResult,
 };
-use rightkit_workflow::context::ContextManifest;
-use rightkit_workflow::domain::{Capability, FailureClass, NodeKind, NodeSpec};
-use rightkit_workflow::executors::{ExecutorAdapter, ExecutorError, NodeOutput};
+use rightkit_workflow::control_plane::context::ContextManifest;
+use rightkit_workflow::control_plane::domain::{Capability, FailureClass, NodeKind, NodeSpec};
+use rightkit_workflow::control_plane::executors::{ExecutorAdapter, ExecutorError, NodeOutput};
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
 /// Typed failures specific to the native / conductor adapters. These are
 /// *adapter-side* errors distinct from
-/// [`ExecutorError`](rightkit_workflow::executors::ExecutorError) which is
+/// [`ExecutorError`](rightkit_workflow::control_plane::executors::ExecutorError) which is
 /// the cross-adapter contract error. Daemon-side errors are richer because
 /// they have access to runtime state (storage, providers, telemetry).
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -37,7 +37,7 @@ pub enum AdapterError {
     MissingRuntime(&'static str, String),
     /// The adapter failed to translate the manifest into a runtime
     /// request shape. The reducer maps this to
-    /// [`FailureClass::InvalidBinding`](rightkit_workflow::domain::FailureClass::InvalidBinding).
+    /// [`FailureClass::InvalidBinding`](rightkit_workflow::control_plane::domain::FailureClass::InvalidBinding).
     #[error("adapter `{adapter}` could not project manifest: {reason}")]
     ProjectionFailed {
         /// Name of the adapter that failed.
@@ -380,7 +380,7 @@ impl From<AdapterError> for ExecutorError {
 
 /// Capability strings the native / conductor adapters advertise they need
 /// to run any `Agent` / `Recipe` node. The reducer uses these to verify
-/// the manifest's [`CapabilitySet`](rightkit_workflow::domain::CapabilitySet)
+/// the manifest's [`CapabilitySet`](rightkit_workflow::control_plane::domain::CapabilitySet)
 /// before dispatch.
 const REQUIRED_CAPABILITIES_AGENT: &[&str] = &["model.call", "tool.read", "fs.read_workspace"];
 
@@ -933,13 +933,13 @@ pub fn try_build_daemon_a2a_adapter() -> Option<Arc<A2aAdapter>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rightkit_workflow::context::{ContextBudget, ContextBuilder};
-    use rightkit_workflow::domain::{
+    use rightkit_workflow::control_plane::context::{ContextBudget, ContextBuilder};
+    use rightkit_workflow::control_plane::domain::{
         BackoffStrategy, CapabilitySet, EdgeSpec, NodeSpec as DomainNodeSpec, RetryPolicy,
     };
-    use rightkit_workflow::domain::{NodeId, RunId};
-    use rightkit_workflow::executors::ExecutorError;
-    use rightkit_workflow::ids::Prefix;
+    use rightkit_workflow::control_plane::domain::{NodeId, RunId};
+    use rightkit_workflow::control_plane::executors::ExecutorError;
+    use rightkit_workflow::control_plane::ids::Prefix;
     use std::sync::atomic::AtomicUsize;
 
     fn run_id(s: &str) -> RunId {

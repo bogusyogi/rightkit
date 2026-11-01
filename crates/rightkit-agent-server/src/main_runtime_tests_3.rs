@@ -256,10 +256,10 @@ fn completion_scripts_cover_every_supported_shell_from_canonical_cli_grammar() {
 
 #[test]
 fn cli_acquisition_v1_defaults_enabled() {
-    let cfg = rightkit_app_settings::agent_config::RightKitConfig::default();
+    let cfg = rightkit_app_settings::agent_config::HostConfig::default();
     assert!(cli_acquisition_v1_enabled_from_config(&cfg));
 
-    let mut cfg = rightkit_app_settings::agent_config::RightKitConfig::default();
+    let mut cfg = rightkit_app_settings::agent_config::HostConfig::default();
     cfg.features.cli_acquisition_v1 = Some(false);
     assert!(!cli_acquisition_v1_enabled_from_config(&cfg));
 }

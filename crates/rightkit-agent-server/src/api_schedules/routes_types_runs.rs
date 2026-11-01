@@ -683,7 +683,7 @@ async fn import_bot_handler(
 ) -> Result<(StatusCode, Json<BotProfileV1>), StatusCode> {
     enforce_trusted_source_authority(&headers)?;
     require_license_feature(&state, "schedules")?;
-    let package = rightkit_workflow::import_export::import_authority_free_bot_package(&body)
+    let package = rightkit_workflow::control_plane::import_export::import_authority_free_bot_package(&body)
         .map_err(|_| StatusCode::BAD_REQUEST)?;
     let profile = BotProfileV1 {
         schema_version: 1,
@@ -713,7 +713,7 @@ async fn export_bot_handler(
     Path(id): Path<String>,
 ) -> Result<Json<Value>, StatusCode> {
     let profile = read_bot_profile(&state, &id).await?;
-    let package = rightkit_workflow::import_export::AuthorityFreeBotPackage {
+    let package = rightkit_workflow::control_plane::import_export::AuthorityFreeBotPackage {
         schema_version: 1,
         id: profile.id,
         display_name: profile.name,
@@ -724,7 +724,7 @@ async fn export_bot_handler(
         provenance: "coderight:authority-free-export".into(),
         content_hash: String::new(),
     };
-    let bytes = rightkit_workflow::import_export::export_authority_free_bot_package(&package)
+    let bytes = rightkit_workflow::control_plane::import_export::export_authority_free_bot_package(&package)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     serde_json::from_slice(&bytes)
         .map(Json)

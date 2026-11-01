@@ -11,7 +11,7 @@ fn native_harness_repository_uses_committed_switch_before_first_turn() {
         .request_switch_for_next_turn(
             "openai",
             "gpt-6.1-sol",
-            rightkit_agent_orchestration::PrefixChangeReason::UserRequestedSwitch,
+            rightkit_agent_orchestration::coding::PrefixChangeReason::UserRequestedSwitch,
         );
     *host.committed_route_state.lock().unwrap() = crate::tui_host::CommittedRoute {
         model: Some("gpt-6.1-sol".into()),
@@ -491,7 +491,7 @@ fn turn_args_silent_suppresses_streamed_text_projection() {
 
 #[test]
 fn resolve_default_provider_id_prefers_matching_configured_route() {
-    let mut config = rightkit_app_settings::agent_config::RightKitConfig::default();
+    let mut config = rightkit_app_settings::agent_config::HostConfig::default();
     config.model.default_model = "qwen2.5-coder:7b".to_string();
     config.provider_routes.insert(
         "ollama-local".to_string(),
@@ -511,7 +511,7 @@ fn resolve_default_provider_id_falls_back_to_hosted_default() {
     // No configured route matches and (in the test environment) no hosted
     // key is guaranteed, so resolution must land on the hosted default
     // rather than fail.
-    let config = rightkit_app_settings::agent_config::RightKitConfig::default();
+    let config = rightkit_app_settings::agent_config::HostConfig::default();
     assert_eq!(
         super::super::resolve_default_provider_id(&config),
         "openrouter"

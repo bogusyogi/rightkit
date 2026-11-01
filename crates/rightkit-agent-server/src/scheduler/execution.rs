@@ -2,11 +2,11 @@ use crate::api::{lock_recover, DaemonState};
 use rightkit_agent_engine_protocol::{ScheduleRunEvent, TranscriptMessage};
 use rightkit_agent_engine_runtime_middleware::{MiddlewarePhase, RuntimeSpan};
 use rightkit_agent_recipes::{render_recipe, RecipeRun, RecipeRunStatus};
-use rightkit_workflow::trigger::CausalReceipt;
-use rightkit_workflow::verifier_binding::{
+use rightkit_workflow::control_plane::trigger::CausalReceipt;
+use rightkit_workflow::control_plane::verifier_binding::{
     classify_verdict, gate_terminal_status, verifier_prompt, VerifierVerdict,
 };
-use rightkit_workflow::waits::TaskIsolationV1;
+use rightkit_workflow::control_plane::waits::TaskIsolationV1;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::io::AsyncReadExt;

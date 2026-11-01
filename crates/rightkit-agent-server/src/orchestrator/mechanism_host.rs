@@ -3,7 +3,7 @@
 // Capability descriptors are projected from the daemon's existing default
 // tool registry. This deliberately owns no second capability registry.
 
-use rightkit_agent_orchestration::mechanism::{
+use rightkit_agent_orchestration::coding::mechanism::{
     CapabilityDescriptor, CapabilitySource, MechanismDecision, MechanismRequest, MechanismResolver,
     StaticCapabilitySource, StructuredSignals,
 };
@@ -184,7 +184,7 @@ impl Worker for ConductorMechanismWorker {
 /// decision receipt already published and bound into the task payload, until
 /// an executor host can run the bound mechanism.
 fn mechanism_decision_is_terminal(decision: &MechanismDecision) -> bool {
-    use rightkit_agent_orchestration::mechanism::MechanismOutcome;
+    use rightkit_agent_orchestration::coding::mechanism::MechanismOutcome;
     decision.outcome == MechanismOutcome::Denied
         || (!decision.needs_model() && decision.outcome != MechanismOutcome::Completed)
 }
@@ -197,7 +197,7 @@ fn mechanism_receipt_failure(task: &WorkerTask, error: String) -> WorkerResult {
         output: format!("mechanism resolution receipt failed: {error}"),
         input_tokens: 0,
         mop_fired: false,
-        failure_kind: Some(rightkit_agent_orchestration::FailureKind::Unknown),
+        failure_kind: Some(rightkit_agent_orchestration::coding::FailureKind::Unknown),
         agent_version: task.agent_version.clone(),
         rollback_step: None,
         outcome: WorkerOutcome::ApiError {
@@ -210,7 +210,7 @@ fn mechanism_receipt_failure(task: &WorkerTask, error: String) -> WorkerResult {
 #[cfg(test)]
 mod pl010_mechanism_host_tests {
     use super::*;
-    use rightkit_agent_orchestration::mechanism::{
+    use rightkit_agent_orchestration::coding::mechanism::{
         MechanismDecision, MechanismOutcome, RequestScope, ResolutionStage,
     };
 
@@ -419,7 +419,7 @@ mechanism resolution ended terminally before model routing: {}",
         ),
         input_tokens: 0,
         mop_fired: false,
-        failure_kind: Some(rightkit_agent_orchestration::FailureKind::Unknown),
+        failure_kind: Some(rightkit_agent_orchestration::coding::FailureKind::Unknown),
         agent_version: task.agent_version.clone(),
         rollback_step: None,
         outcome: WorkerOutcome::ApiError {

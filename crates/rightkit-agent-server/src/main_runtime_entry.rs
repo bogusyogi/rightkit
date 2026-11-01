@@ -596,7 +596,7 @@ fn cli_acquisition_v1_enabled() -> bool {
     cli_acquisition_v1_enabled_from_config(&load_current_merged_config())
 }
 
-fn cli_acquisition_v1_enabled_from_config(config: &rightkit_app_settings::agent_config::RightKitConfig) -> bool {
+fn cli_acquisition_v1_enabled_from_config(config: &rightkit_app_settings::agent_config::HostConfig) -> bool {
     config.features.cli_acquisition_v1.unwrap_or(true)
 }
 

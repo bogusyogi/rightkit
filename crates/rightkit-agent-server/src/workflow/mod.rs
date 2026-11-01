@@ -2,7 +2,7 @@
 //!
 //! WP-03 scope: **supervisor, leased queue, lifecycle, restart recovery**. The
 //! modules below sit *behind* the workflow feature gate (see
-//! `rightkit_workflow::prelude::FeatureGate`) and own nothing but the
+//! `rightkit_workflow::control_plane::prelude::FeatureGate`) and own nothing but the
 //! durable outer workflow DAG. They never touch the chat, the conductor, or
 //! any bounded inner executor — those live in WP-04 / WP-05.
 //!
@@ -68,7 +68,7 @@ pub use triggers::{
     TrustLevel, TrustOrigin, TrustSeverity,
 };
 
-use rightkit_workflow::prelude::{Clock, FeatureGate};
+use rightkit_workflow::control_plane::prelude::{Clock, FeatureGate};
 use std::sync::Arc;
 
 /// Convenience wiring used by the daemon main_runtime when it wants to

@@ -105,7 +105,7 @@ pub(crate) fn command_caps() -> CommandResult {
 
 pub(crate) fn command_doctor() -> CommandResult {
     let report = crate::doctor::gather_runtime();
-    command_ok(format!("```text\n{}```", report.render_text().trim_end()))
+    command_ok(format!("```text\n{}```", report.render_text("RightKit").trim_end()))
 }
 
 pub(crate) fn command_instructions(args: &[String]) -> CommandResult {

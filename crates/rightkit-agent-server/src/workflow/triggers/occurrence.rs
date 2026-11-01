@@ -41,9 +41,13 @@ use rightkit_agent_engine_storage::{
     OccurrenceAdmission, StorageError, WorkflowOccurrenceRow, WorkflowRepository,
     WorkflowTriggerEventRow, WorkflowTriggerRow, WorkflowTriggerWriter,
 };
-use rightkit_workflow::clock::{Clock, UnixMs};
-use rightkit_workflow::domain::{occurrence_id, workflow_version_id, TriggerId, WorkflowVersionId};
-use rightkit_workflow::prelude::{DedupeStrategy, MisfirePolicy, OccurrencePolicy, OverlapPolicy};
+use rightkit_workflow::control_plane::clock::{Clock, UnixMs};
+use rightkit_workflow::control_plane::domain::{
+    occurrence_id, workflow_version_id, TriggerId, WorkflowVersionId,
+};
+use rightkit_workflow::control_plane::prelude::{
+    DedupeStrategy, MisfirePolicy, OccurrencePolicy, OverlapPolicy,
+};
 
 use super::event::NormalizedTriggerEvent;
 
@@ -54,7 +58,7 @@ pub(crate) fn resolve_cron_due(
     cron: &str,
     timezone: &str,
     after_unix_ms: i64,
-    policy: rightkit_workflow::trigger::DstResolutionPolicy,
+    policy: rightkit_workflow::control_plane::trigger::DstResolutionPolicy,
 ) -> Result<Option<i64>, OccurrenceError> {
     let timezone = crate::scheduler::time::normalize_time_zone(timezone).map_err(|error| {
         OccurrenceError::InvalidDecision {
@@ -89,31 +93,30 @@ pub(crate) fn resolve_cron_due(
             },
         )? {
             crate::scheduler::time::LocalMinuteResolution::Gap => {
-                rightkit_workflow::trigger::LocalTimeResolution::Gap
+                rightkit_workflow::control_plane::trigger::LocalTimeResolution::Gap
             }
             crate::scheduler::time::LocalMinuteResolution::Unique(minute) => {
-                rightkit_workflow::trigger::LocalTimeResolution::Unique {
+                rightkit_workflow::control_plane::trigger::LocalTimeResolution::Unique {
                     unix_ms: minute.saturating_mul(60_000),
                 }
             }
             crate::scheduler::time::LocalMinuteResolution::Overlap { earlier, later } => {
-                rightkit_workflow::trigger::LocalTimeResolution::Overlap {
+                rightkit_workflow::control_plane::trigger::LocalTimeResolution::Overlap {
                     earlier_unix_ms: earlier.saturating_mul(60_000),
                     later_unix_ms: later.saturating_mul(60_000),
                 }
             }
         };
-    let normalized = rightkit_workflow::trigger::NormalizedOccurrence {
+    let normalized = rightkit_workflow::control_plane::trigger::NormalizedOccurrence {
         timezone,
         local_key: format!("{cron}:{local_minute}"),
         resolution,
     };
-    rightkit_workflow::trigger::resolve_normalized_occurrence(&normalized, policy).map_err(
-        |error| OccurrenceError::InvalidDecision {
+    rightkit_workflow::control_plane::trigger::resolve_normalized_occurrence(&normalized, policy)
+        .map_err(|error| OccurrenceError::InvalidDecision {
             decision: "dst",
             message: error.to_string(),
-        },
-    )
+        })
 }
 
 /// Typed outcome of one occurrence admission. The `Admit` / `Coalesce` /
@@ -621,8 +624,8 @@ mod tests {
         NormalizedData, NormalizedTriggerEvent, TrustInfo, TrustLevel, TrustOrigin,
     };
     use rightkit_agent_engine_storage::Storage;
-    use rightkit_workflow::clock::TestClock;
-    use rightkit_workflow::domain::trigger_id;
+    use rightkit_workflow::control_plane::clock::TestClock;
+    use rightkit_workflow::control_plane::domain::trigger_id;
 
     fn now_iso(ms: i64) -> String {
         crate::workflow::triggers::event::format_unix_ms_as_iso(ms)

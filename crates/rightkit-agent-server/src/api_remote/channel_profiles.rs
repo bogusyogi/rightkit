@@ -153,7 +153,7 @@ fn profiles_from_channels(
 
 fn apply_configured_channel_profile(
     channel: &mut rightkit_bot_messaging::RemoteChannelDescriptor,
-    config: &rightkit_app_settings::agent_config::RightKitConfig,
+    config: &rightkit_app_settings::agent_config::HostConfig,
 ) {
     let Some(profile) = config.channel_profiles.get(&channel.id) else {
         return;

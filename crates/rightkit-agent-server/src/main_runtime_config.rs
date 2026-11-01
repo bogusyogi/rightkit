@@ -327,14 +327,14 @@ mod model_visibility_store_tests {
     }
 }
 
-pub(crate) fn load_current_merged_config() -> rightkit_app_settings::agent_config::RightKitConfig {
+pub(crate) fn load_current_merged_config() -> rightkit_app_settings::agent_config::HostConfig {
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let env_vars: std::collections::HashMap<String, String> = std::env::vars().collect();
     load_merged_config_for_workspace(&cwd, &env_vars)
 }
 
 fn web_search_config_from_config(
-    config: &rightkit_app_settings::agent_config::RightKitConfig,
+    config: &rightkit_app_settings::agent_config::HostConfig,
 ) -> Option<rightkit_agent_tools::coding_tools::WebSearchConfig> {
     let provider = config
         .tools
@@ -365,7 +365,7 @@ fn web_search_config_from_config(
 }
 
 pub(crate) fn resolve_engine_config(
-    config: &rightkit_app_settings::agent_config::RightKitConfig,
+    config: &rightkit_app_settings::agent_config::HostConfig,
     requested_model: Option<&str>,
     requested_provider: Option<&str>,
 ) -> Option<api::EngineConfig> {
@@ -472,7 +472,7 @@ where
 /// provider with a stored key, then the hosted default. Callers that only
 /// need a provider *id* (not a full engine config) — such as the bare
 /// interactive REPL — use this instead of hardcoding one.
-fn resolve_default_provider_id(config: &rightkit_app_settings::agent_config::RightKitConfig) -> String {
+fn resolve_default_provider_id(config: &rightkit_app_settings::agent_config::HostConfig) -> String {
     let default_model = config.model.default_model.trim();
     if !default_model.is_empty() {
         if let Some((provider_id, _)) = config
@@ -501,7 +501,7 @@ fn resolve_default_provider_id(config: &rightkit_app_settings::agent_config::Rig
 /// instead of `resolve_default_provider_id`, whose fallback return value
 /// stays unchanged for its own existing callers.
 fn resolve_default_provider_id_checked(
-    config: &rightkit_app_settings::agent_config::RightKitConfig,
+    config: &rightkit_app_settings::agent_config::HostConfig,
 ) -> Option<String> {
     let default_model = config.model.default_model.trim();
     if !default_model.is_empty() {
@@ -527,7 +527,7 @@ fn resolve_default_provider_id_checked(
 /// the hosted default). The resolved credential never leaves this function;
 /// `coderight doctor` reports presence only.
 pub(crate) fn default_route_auth(
-    config: &rightkit_app_settings::agent_config::RightKitConfig,
+    config: &rightkit_app_settings::agent_config::HostConfig,
 ) -> Option<(String, crate::doctor::RouteAuth)> {
     let default_model = config.model.default_model.trim();
     if default_model.is_empty() {
@@ -659,7 +659,7 @@ where
 /// required credential that is absent) are never offered. Credential
 /// resolution uses the existing credential resolver. Native OpenAI routes
 /// remain owned by the broker's account catalog. Sorted for stable order.
-fn configured_catalog_routes(config: &rightkit_app_settings::agent_config::RightKitConfig) -> Vec<(String, String)> {
+fn configured_catalog_routes(config: &rightkit_app_settings::agent_config::HostConfig) -> Vec<(String, String)> {
     let mut rows: Vec<(String, String)> = config
         .provider_routes
         .iter()
@@ -681,7 +681,7 @@ fn configured_catalog_routes(config: &rightkit_app_settings::agent_config::Right
 fn load_merged_config_for_workspace(
     workspace: &std::path::Path,
     env_vars: &std::collections::HashMap<String, String>,
-) -> rightkit_app_settings::agent_config::RightKitConfig {
+) -> rightkit_app_settings::agent_config::HostConfig {
     let loader = rightkit_app_settings::agent_config::ConfigLoader::new();
     let base = loader.load_files_for_workspace(workspace);
     loader.apply_env(base, env_vars)

@@ -384,7 +384,7 @@ async fn finalize_agent_run(
             .as_ref()
             .map(|binding| binding.required)
             .unwrap_or(false);
-        if let rightkit_workflow::verifier_binding::TerminalGate::Blocked { reason } =
+        if let rightkit_workflow::control_plane::verifier_binding::TerminalGate::Blocked { reason } =
             gate_terminal_status(verdict, required)
         {
             // A required verifier that does not approve holds the run out of
@@ -411,8 +411,8 @@ async fn finalize_agent_run(
 /// Map the stored API binding onto the pure workflow-crate spec.
 fn verifier_spec(
     binding: &crate::api_schedules::VerifierBinding,
-) -> rightkit_workflow::verifier_binding::VerifierBindingSpec {
-    rightkit_workflow::verifier_binding::VerifierBindingSpec {
+) -> rightkit_workflow::control_plane::verifier_binding::VerifierBindingSpec {
+    rightkit_workflow::control_plane::verifier_binding::VerifierBindingSpec {
         role_pack: binding.role_pack.clone(),
         model: binding.model.clone(),
         required: binding.required,

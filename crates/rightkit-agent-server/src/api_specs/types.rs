@@ -138,7 +138,7 @@ struct SpecEnvelope {
 #[serde(rename_all = "camelCase")]
 struct SpecClarification {
     id: String,
-    source_kind: rightkit_evidence::specs::TraceKind,
+    source_kind: rightkit_evidence::TraceKind,
     source_id: String,
     question: String,
     required: bool,
@@ -160,7 +160,7 @@ struct SpecPlanResponse {
     tasks: Vec<FeatureTask>,
     created_task_count: usize,
     skipped_existing_count: usize,
-    analysis: rightkit_evidence::specs::SpecAnalysisRun,
+    analysis: rightkit_evidence::SpecAnalysisRun,
 }
 
 #[derive(Debug, Serialize)]
@@ -169,7 +169,7 @@ struct SpecChecklistItem {
     id: String,
     label: String,
     status: String,
-    source_kind: rightkit_evidence::specs::TraceKind,
+    source_kind: rightkit_evidence::TraceKind,
     source_id: String,
     detail: String,
 }
@@ -183,7 +183,7 @@ struct SpecChecklistResponse {
     blocker_count: usize,
     warning_count: usize,
     items: Vec<SpecChecklistItem>,
-    analysis: rightkit_evidence::specs::SpecAnalysisRun,
+    analysis: rightkit_evidence::SpecAnalysisRun,
 }
 
 #[derive(Debug, Serialize)]
@@ -194,5 +194,5 @@ struct SpecImplementResponse {
     accepted: bool,
     dry_run: bool,
     prompt: String,
-    analysis: rightkit_evidence::specs::SpecAnalysisRun,
+    analysis: rightkit_evidence::SpecAnalysisRun,
 }

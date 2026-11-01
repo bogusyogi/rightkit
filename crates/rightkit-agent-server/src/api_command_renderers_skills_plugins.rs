@@ -115,11 +115,11 @@ pub(crate) async fn command_terminal_bench(
 }
 
 fn command_terminal_bench_tasks() -> CommandResult {
-    let tasks = rightkit_agent_orchestration::TbenchCatalog::all_tasks();
+    let tasks = rightkit_agent_orchestration::coding::TbenchCatalog::all_tasks();
     let mut output = format!(
         "**RightKit Internal Tasks:** {} available\nSuite: {}",
         tasks.len(),
-        rightkit_agent_orchestration::TbenchCatalog::suite_id()
+        rightkit_agent_orchestration::coding::TbenchCatalog::suite_id()
     );
     if !tasks.is_empty() {
         output.push('\n');

@@ -20,7 +20,7 @@ impl DaemonState {
         &self,
         session_id: &str,
         conduit: &rightkit_agent_engine_core::Conduit,
-        state: rightkit_agent_orchestration::CompletionState,
+        state: rightkit_agent_orchestration::coding::CompletionState,
     ) {
         let Some(session) = self.get_session(session_id) else {
             return;
@@ -39,11 +39,11 @@ impl DaemonState {
                 evidence_guard.verification_approved,
             )
         };
-        let jury_consensus = state == rightkit_agent_orchestration::CompletionState::Accepted
-            || state == rightkit_agent_orchestration::CompletionState::Rejected
-            || state == rightkit_agent_orchestration::CompletionState::Escalate
-            || state == rightkit_agent_orchestration::CompletionState::PartiallyComplete;
-        let escalate = state == rightkit_agent_orchestration::CompletionState::Escalate;
+        let jury_consensus = state == rightkit_agent_orchestration::coding::CompletionState::Accepted
+            || state == rightkit_agent_orchestration::coding::CompletionState::Rejected
+            || state == rightkit_agent_orchestration::coding::CompletionState::Escalate
+            || state == rightkit_agent_orchestration::coding::CompletionState::PartiallyComplete;
+        let escalate = state == rightkit_agent_orchestration::coding::CompletionState::Escalate;
         let mut mapped_status = crate::goal_terminal::goal_status_from_completion(state);
         // The unbacked-victory gate runs whenever the conductor arbitration
         // reports the run claimed done (`state == Accepted`) but the typed
@@ -55,14 +55,14 @@ impl DaemonState {
         let typed_mutations = session
             .typed_mutations
             .load(std::sync::atomic::Ordering::Relaxed);
-        let claim_suggests_done = state == rightkit_agent_orchestration::CompletionState::Accepted;
+        let claim_suggests_done = state == rightkit_agent_orchestration::coding::CompletionState::Accepted;
         let mut downgrade_to_unmet: Option<String> = None;
         let mut downgrade_to_active = false;
         if claim_suggests_done {
             // FM-188: assemble itemized per-task evidence from the live task
             // graph + per-task mutation map. Stable identity is TaskNode.id
             // (or job_id when the task was dispatched as a job).
-            let task_evidence: Vec<rightkit_agent_orchestration::unbacked_work_gate::TaskEvidence> = {
+            let task_evidence: Vec<rightkit_agent_orchestration::coding::unbacked_work_gate::TaskEvidence> = {
                 let tasks = lock_recover(&session.tasks, "session.tasks").clone();
                 let per_task =
                     lock_recover(&session.task_typed_evidence, "session.task_typed_evidence")
@@ -77,7 +77,7 @@ impl DaemonState {
                         .map(|(task_id, typed_mutations)| {
                             let job_id = job_ids.get(&task_id).cloned();
                             let mut ev =
-                                rightkit_agent_orchestration::unbacked_work_gate::TaskEvidence::new(
+                                rightkit_agent_orchestration::coding::unbacked_work_gate::TaskEvidence::new(
                                     task_id,
                                     typed_mutations,
                                     claim_suggests_done,
@@ -95,7 +95,7 @@ impl DaemonState {
                             let typed = per_task.get(&node.id).copied().unwrap_or(0);
                             let job_id = job_ids.get(&node.id).cloned();
                             let mut ev =
-                                rightkit_agent_orchestration::unbacked_work_gate::TaskEvidence::new(
+                                rightkit_agent_orchestration::coding::unbacked_work_gate::TaskEvidence::new(
                                     node.id.clone(),
                                     typed,
                                     claim_suggests_done,
@@ -110,9 +110,9 @@ impl DaemonState {
             };
             let has_itemized = !task_evidence.is_empty();
             let governed_input = {
-                let base = rightkit_agent_orchestration::run_governance::GovernedCompletionInput::new(
-                    rightkit_agent_orchestration::run_governance::RunDomain::new(session_id, session_id),
-                    rightkit_agent_orchestration::completion::CompletionInput {
+                let base = rightkit_agent_orchestration::coding::run_governance::GovernedCompletionInput::new(
+                    rightkit_agent_orchestration::coding::run_governance::RunDomain::new(session_id, session_id),
+                    rightkit_agent_orchestration::coding::completion::CompletionInput {
                         gds,
                         verification_present,
                         jury_consensus,
@@ -133,10 +133,10 @@ impl DaemonState {
                 arbiter.arbitrate(&governed_input).unbacked
             };
             match verdict {
-                rightkit_agent_orchestration::run_governance::UnbackedVerdict::Backed => {
+                rightkit_agent_orchestration::coding::run_governance::UnbackedVerdict::Backed => {
                     // mapped_status (likely Achieved) passes through.
                 }
-                rightkit_agent_orchestration::run_governance::UnbackedVerdict::Unbacked {
+                rightkit_agent_orchestration::coding::run_governance::UnbackedVerdict::Unbacked {
                     attempts,
                     ..
                 } => {
@@ -163,7 +163,7 @@ impl DaemonState {
                     });
                     downgrade_to_active = true;
                 }
-                rightkit_agent_orchestration::run_governance::UnbackedVerdict::Refused {
+                rightkit_agent_orchestration::coding::run_governance::UnbackedVerdict::Refused {
                     reason,
                     ..
                 } => {
@@ -318,7 +318,7 @@ mod finalize_goal_integration_tests {
     use axum::body::Body;
     use axum::http::Request;
     use rightkit_agent_engine_core::{Conduit, GoalState};
-    use rightkit_agent_orchestration::CompletionState;
+    use rightkit_agent_orchestration::coding::CompletionState;
     use rightkit_agent_engine_protocol::event::GoalStepV1;
     use rightkit_agent_engine_protocol::ProtocolEvent;
     use http_body_util::BodyExt;

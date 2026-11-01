@@ -290,7 +290,7 @@ async fn slash_benchmarks_and_terminal_bench_tasks_report_real_state() {
             "bench-fixture",
             "coder",
             "model-fixture",
-            rightkit_agent_orchestration::TbenchCatalog::suite_id(),
+            rightkit_agent_orchestration::coding::TbenchCatalog::suite_id(),
             2,
             1,
             "2026-06-06T00:00:00Z",
@@ -311,5 +311,5 @@ async fn slash_benchmarks_and_terminal_bench_tasks_report_real_state() {
     let output = tasks["output"].as_str().unwrap();
     assert!(output.contains("RightKit Internal Tasks"), "{output}");
     assert!(output.contains("tb-001"), "{output}");
-    assert!(output.contains(rightkit_agent_orchestration::TbenchCatalog::suite_id()));
+    assert!(output.contains(rightkit_agent_orchestration::coding::TbenchCatalog::suite_id()));
 }

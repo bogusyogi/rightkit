@@ -81,7 +81,7 @@ pub struct LiveSession {
     /// `max_unbacked_reenter` cap. Reset between goals so a new attempt
     /// starts fresh.
     pub governed_arbiter:
-        tokio::sync::Mutex<rightkit_agent_orchestration::run_governance::GovernedArbiter>,
+        tokio::sync::Mutex<rightkit_agent_orchestration::coding::run_governance::GovernedArbiter>,
     pub created_at: String,
     pub updated_at: Arc<Mutex<String>>,
     pub conduit: Arc<Conduit>,
@@ -534,7 +534,7 @@ pub struct DaemonState {
     pub cli_recovery_deferred_updates:
         Arc<rightkit_agents::driver_host::cli_runtime::DeferredBindingUpdates>,
     /// Pending blind model comparisons, keyed by comparison id.
-    pub comparisons: Arc<Mutex<HashMap<String, rightkit_agent_orchestration::BlindComparison>>>,
+    pub comparisons: Arc<Mutex<HashMap<String, rightkit_agent_orchestration::coding::BlindComparison>>>,
     /// Captured high-quality run trajectories for fine-tuning export.
     pub trajectories: crate::trajectory::TrajectoryStore,
     /// Directory containing installed plugin folders with `plugin.json` manifests.
@@ -580,7 +580,7 @@ pub struct DaemonState {
     pub telegram_status: TelegramRemoteStatus,
     /// Explicit spec-mode artifact store. Normal sessions do not consult it
     /// unless the operator chooses to create or bind a spec.
-    pub specs: Arc<Mutex<rightkit_evidence::specs::SpecStore>>,
+    pub specs: Arc<Mutex<rightkit_evidence::SpecStore>>,
     /// Durable file backing specs, tasks, and spec analysis runs when configured.
     pub spec_store_path: Option<PathBuf>,
     /// Named execution backend registry. Tool routing still uses the existing
@@ -595,10 +595,10 @@ pub struct DaemonState {
     /// dev/test) never self-exits.
     pub presence: Arc<rightkit_daemon::loopback::Presence>,
     /// Resolved workflow feature gate (ADR-0021 / WP-09). Mirrors
-    /// `RightKitConfig.features.workflows_enabled`. The router mount in
+    /// `HostConfig.features.workflows_enabled`. The router mount in
     /// [`api_router::build_router`] consults this to decide whether to merge
     /// the workflow surface into the daemon's main router.
-    pub workflows_feature: rightkit_workflow::prelude::FeatureGate,
+    pub workflows_feature: rightkit_workflow::control_plane::prelude::FeatureGate,
     /// Per-router state for the workflow control plane REST surface. Built
     /// only when storage is available; `None` lets the daemon serve without
     /// the workflow surface even if the feature flag is on (e.g. a dev
