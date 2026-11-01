@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "./test-support/broker-test.mjs";
+import test from "node:test";
 import crypto, { createHash } from "node:crypto";
 import { spawnSync } from "./background-process.mjs";
 import { main, snapshotAppRootOf } from "./bin/rightkit-gate.mjs";

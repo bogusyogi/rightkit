@@ -9,7 +9,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
-import test from "./test-support/broker-test.mjs";
+import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 import { discoverRustWorkspaces, main } from "./bin/rightkit-gate.mjs";
 import { carriedReadOnlyScan, carriedScanRefusal, snapshotCargoSpawn } from "./snapshot-metadata.mjs";

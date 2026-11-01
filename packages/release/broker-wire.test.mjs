@@ -8,7 +8,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
-import test from "./test-support/broker-test.mjs";
+import test from "node:test";
 import { FRAME_OVER_CAP, MAX_BROKER_LINE_BYTES, MAX_REQUEST_BYTES, REQUEST_ENVELOPE_RESERVE_BYTES, drainFrames, lineFits, overCapProblem, requestOverCap } from "./broker-wire.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, markCarriedSend } from "./build-ownership.mjs";

@@ -32,7 +32,7 @@ let smolTomlParse;
 const parseToml = (text) => (smolTomlParse ??= createRequire(import.meta.url)("smol-toml").parse)(text);
 import { isExcludedScanDirectory } from "./cargo-contract.mjs";
 import { resolveSharedCacheRoot } from "./cache-policy.mjs";
-import { parsePnpmYaml } from "./ownership-lockfiles.mjs";
+import { parsePnpmYaml, pnpmProjectDocument } from "./ownership-lockfiles.mjs";
 import { UPDATE_COMMAND } from "./outdated-command.mjs";
 import { compareVersions } from "./rightkit-sync.mjs";
 
@@ -136,7 +136,7 @@ function cargoLockEntries(file) {
 
 function pnpmLockEntries(file) {
   let lock;
-  try { lock = parsePnpmYaml(readFileSync(file, "utf8")); } catch (error) { throw new RightKitRegistryError("bad-lock", `${file} is not a readable pnpm-lock.yaml: ${error.message}`); }
+  try { lock = parsePnpmYaml(pnpmProjectDocument(readFileSync(file, "utf8"))); } catch (error) { throw new RightKitRegistryError("bad-lock", `${file} is not a readable pnpm-lock.yaml: ${error.message}`); }
   const entries = [];
   for (const [key, meta] of Object.entries(lock.packages ?? {})) {
     const match = /^(@[^/]+\/[^@]+|[^@]+)@(.+)$/.exec(String(key).replace(/^\//, ""));

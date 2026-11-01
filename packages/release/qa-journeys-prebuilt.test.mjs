@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "./test-support/broker-test.mjs";
+import test from "node:test";
 import { BUILD_LAUNCH_REFUSED, buildLaunch, qaBuildReason } from "./build-launch.mjs";
 import { OWNERSHIP_ENV, OWNERSHIP_FILE_ENV, brokerLeaseState, markCarriedSend } from "./build-ownership.mjs";
 import { enrollBrokerPins } from "./broker-pins.mjs";

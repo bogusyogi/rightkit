@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "./test-support/broker-test.mjs";
+import test from "node:test";
 import { acquireBuildOwnership, brokerLeaseState } from "./build-ownership.mjs";
 import { brokerSection, carryBrokerAdapter, carryBrokerCargo } from "./snapshot-broker.mjs";
 import { STAGE_DEADLINE_AT_ENV } from "./broker-wire.mjs";

@@ -358,6 +358,7 @@ function runnableRustfmt() {
 }
 const RUSTFMT = runnableRustfmt();
 const LEGION_CARGO = {
+  "ci/gate.config.json": '{ "cargoWorkspaces": ["engine"] }\n', // #1325: a repository outside RightKit commits the list of its Cargo workspaces
   "engine/Cargo.toml": '[workspace]\nmembers = ["crates/legion-audit"]\nresolver = "2"\n\n[workspace.package]\nedition = "2021"\nlicense = "MIT"\n',
   "engine/crates/legion-audit/Cargo.toml": '[package]\nname = "legion-audit"\nversion = "0.1.0"\nedition.workspace = true\nlicense.workspace = true\n\n[lib]\npath = "src/source_cache.rs"\n',
 };

@@ -9,7 +9,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "./test-support/broker-test.mjs";
+import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { BUILD_LAUNCH_REFUSED, EXEC_TARGETS, buildLaunch } from "./build-launch.mjs";
 import { PNPM_ADAPTER_GRAMMAR } from "./pnpm-adapter-grammar.mjs";

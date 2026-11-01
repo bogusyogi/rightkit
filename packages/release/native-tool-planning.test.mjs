@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "./test-support/broker-test.mjs";
+import test from "node:test";
 import { BUILD_LAUNCH_REFUSED, buildLaunch } from "./build-launch.mjs";
 import { routePlan } from "./bin/rightkit-gate.mjs";
 import { nativeToolRefusal, nativeToolUses } from "./native-tool-planning.mjs";

@@ -8,7 +8,7 @@ import "./test-support/broker-guard.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import test from "./test-support/broker-test.mjs";
+import test from "node:test";
 import { TYPED_REFUSALS, diagnoseControlReply, operationOutcomeInOutput, refusalInCapturedOutput, typedRefusalOf } from "./broker-wire.mjs";
 import { brokerSection, carryBrokerAdapter, carryBrokerCargo } from "./snapshot-broker.mjs";
 import os from "node:os";

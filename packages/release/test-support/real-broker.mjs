@@ -103,18 +103,12 @@ function runtimeDirectoryOf(executable) {
  * The installed RustRight: client and broker binaries (from `rustright doctor --json`: `runtime.path`), the host's own broker config (found as the broker finds it, below) and the
  * installed runtime manifest's identity. Throws a clear error when the host has none. Cached for the process.
  */
-export const BROKER_HOST_ABSENT = "RK_TEST_BROKER_HOST_ABSENT";
-
 function installedRustRight() {
   if (installed) return installed;
   const what = "no installed RustRight broker on this host";
   const env = hostEnv();
   const probe = realChildProcess.spawnSync("rustright", ["doctor", "--json", "--no-scan"], { encoding: "utf8", env, timeout: 60_000, windowsHide: true });
-  if (probe.error?.code === "ENOENT") {
-    const absent = new Error(`${what}: the \`rustright\` client is not on PATH. These tests run against the installed broker and never simulate it; install RustRight (tools/install). A Linux direct origin has none by contract (GC-T04): test-support/broker-test.mjs records the test as skipped there.`);
-    absent.code = BROKER_HOST_ABSENT;
-    throw absent;
-  }
+  if (probe.error?.code === "ENOENT") throw new Error(`${what}: the \`rustright\` client is not on PATH. These tests run against the installed broker and never skip or simulate it; install RustRight (tools/install).`);
   const report = parseDoctor(probe, what);
   const runtimeDir = report.runtime?.path;
   if (typeof runtimeDir !== "string" || report.runtime?.binaryPresent !== true) {

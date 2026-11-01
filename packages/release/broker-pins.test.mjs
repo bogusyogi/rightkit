@@ -7,7 +7,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "./test-support/broker-test.mjs";
+import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { BrokerPinsError, PINS_SCHEMA, enrollBrokerPins, loadBrokerPins, main, pinsFile, readEnrolledPins, readGateRevisionPins, validatePins } from "./broker-pins.mjs";

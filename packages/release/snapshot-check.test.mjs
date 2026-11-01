@@ -8,7 +8,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "./test-support/broker-test.mjs";
+import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 import { defaultSpawn, isLiveScan, LIVE_SCAN_IDS } from "./deterministic-scans.mjs";
 import { repoKey, keyPath, syncSnapshot } from "./snapshot.mjs";

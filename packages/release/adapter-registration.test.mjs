@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "./test-support/broker-test.mjs";
+import test from "node:test";
 import { ADAPTER_ENV_MANIFEST, ADAPTER_ENV_VAR, QA_HANDOFF_ENV, adapterEnvRefusal, isReservedAdapterEnvKey } from "./adapter-env.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { BUILD_LAUNCH_REFUSED, buildLaunch } from "./build-launch.mjs";

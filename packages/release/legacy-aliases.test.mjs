@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import test from "./test-support/broker-test.mjs";
+import test from "node:test";
 import { spawnBrokerClient } from "./broker-client.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { SNAPSHOT_REQUEST_SCHEMA, writeSnapshotRequest } from "./snapshot-request.mjs";

@@ -1199,6 +1199,10 @@ const RIGHTKIT_DIRECT_PUBLISHING_WORKFLOWS = ["publish-direct.yml"];
 const RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS = ["publish-swift.yml"];
 // Owner-approved one-off crate publication outside the gate and broker (rightkit#1322): the crates come from a committed owner approval file, Class A kept.
 const RIGHTKIT_OWNER_PUBLISHING_WORKFLOWS = ["publish-owner.yml"];
+// Linux direct origin (GB-29, rightkit#1341): qualify-direct qualifies on a GitHub runner and dispatches publish.yml; publish-relay hands green publish.yml runs to publish-direct.yml. Neither publishes or reads a secret.
+const RIGHTKIT_DIRECT_ORIGIN_WORKFLOWS = ["qualify-direct.yml", "publish-relay.yml"];
+// Owner-run npm publication with provenance (rightkit#1326): one package directory and one commit on main, by hand, in the protected release environment.
+const RIGHTKIT_NPM_OWNER_WORKFLOWS = ["publish-npm-owner.yml"];
 const publishWorkflowPresent = existsSync(new URL("../../.github/workflows/publish.yml", import.meta.url));
 const reviewedWorkflowPresent = existsSync(new URL("../../.github/workflows/publish-reviewed.yml", import.meta.url));
 const PUBLISHING_WORKFLOW = /secrets\.|right-release\s+(?:build|upload|publish)|gh\s+release|action-gh-release/;
@@ -1239,11 +1243,14 @@ function assertReviewedWorkflow(text, name) {
 /** Direct publication: triggered only by a completed publish.yml run on main, uploads only when that run succeeded from a
  * workflow_dispatch, checks out the qualified commit itself, top-level permissions read-only, no manual or push trigger. */
 function assertDirectPublishWorkflow(text, name) {
-  assert.match(text, /^on:\n  workflow_run:\n    workflows: \[publish\]\n    types: \[completed\]\n    branches: \[main\]\n/m, `${name} must run only after publish.yml completes on main`);
-  assert.doesNotMatch(text, /^  (?:push|pull_request|pull_request_target|schedule|workflow_dispatch|release):/m, `${name} must have no other trigger`);
+  assert.match(text, /^on:\n  workflow_run:\n    workflows: \[publish\]\n    types: \[completed\]\n    branches: \[main\]\n/m, `${name} must run after publish.yml completes on main`);
+  // A publish.yml run dispatched by a workflow token raises no workflow_run event (qualify-direct.yml), so a maintainer or publish-relay.yml names the completed run by workflow_dispatch; the uploader re-reads it through the API.
+  assert.doesNotMatch(text, /^  (?:push|pull_request|pull_request_target|schedule|release):/m, `${name} must have no other trigger`);
+  assert.match(text, /^  workflow_dispatch:\n    inputs:\n      run_id:\n/m, `${name}'s dispatch names the completed run`);
   assert.match(text, /^permissions:\n  contents: read\n/m, `${name} top-level permissions must be contents: read only`);
-  assert.match(text, /if: \$\{\{ github\.event\.workflow_run\.conclusion == 'success' && github\.event\.workflow_run\.event == 'workflow_dispatch' && github\.event\.workflow_run\.head_branch == 'main'/, `${name} must upload only a successful workflow_dispatch qualification of main`);
-  assert.match(text, /ref: \$\{\{ github\.event\.workflow_run\.head_sha \}\}/, `${name} must check out the qualified commit, never the default branch`);
+  assert.match(text, /if: \$\{\{ \(github\.event_name == 'workflow_run' && github\.event\.workflow_run\.conclusion == 'success' && github\.event\.workflow_run\.event == 'workflow_dispatch' && github\.event\.workflow_run\.head_branch == 'main'/, `${name} must upload only a successful workflow_dispatch qualification of main`);
+  assert.match(text, /\|\| \(github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main' && github\.repository == 'bogusyogi\/rightkit'\)/, `${name}'s manual dispatch runs only from main of this repository`);
+  assert.match(text, /ref: \$\{\{ github\.event\.workflow_run\.head_sha \|\| inputs\.head_sha \}\}/, `${name} must check out the qualified commit, never the default branch`);
   assert.match(text, /persist-credentials: false/, `${name} must not persist checkout credentials`);
   assert.doesNotMatch(text, /pull_request_target/, `${name} must not use pull_request_target`);
   pinnedActionLines(text, name);
@@ -1310,6 +1317,25 @@ function assertOwnerPublishWorkflow(text, name) {
   pinnedActionLines(text, name);
 }
 
+function assertDirectOriginWorkflow(text, name) {
+  assert.doesNotMatch(text, /secrets\.(?!GITHUB_TOKEN)/, `${name} reads no secret but the workflow token`);
+  assert.doesNotMatch(text, /id-token:|contents:\s*write|packages:\s*write|environment:/, `${name} requests no OIDC, content or package write permission and joins no environment`);
+  assert.doesNotMatch(text, PUBLISHING_WORKFLOW_COMMANDS, `${name} publishes nothing: it only dispatches publish.yml or publish-direct.yml`);
+  assert.doesNotMatch(text, /pull_request_target/, `${name} must not use pull_request_target`);
+  assert.match(text, /^permissions:\n  contents: read\n(?!  )/m, `${name} top-level permissions must be contents: read only`);
+  if (/^\s+(?:- )?uses:/m.test(text)) pinnedActionLines(text, name);
+}
+function assertNpmOwnerWorkflow(text, name) {
+  assert.match(text, /^on:\n  workflow_dispatch:\n/m, `${name} must be triggered by workflow_dispatch`);
+  assert.doesNotMatch(text, /^  (?:push|pull_request|pull_request_target|schedule|workflow_run|release):/m, `${name} must have no automatic trigger`);
+  assert.match(text, /^permissions:\n  contents: read\n(?!  )/m, `${name} top-level permissions must be contents: read only`);
+  assert.match(text, /^    environment: release$/m, `${name}: publication joins the protected release environment`);
+  assert.deepEqual([...new Set(text.match(/secrets\.[A-Z_]+/g) ?? [])], ["secrets.NPM_TOKEN"], `${name} may read only the npm token`);
+  assert.match(text, /npm publish --provenance /, `${name} publishes with provenance`);
+  assert.doesNotMatch(text, /pull_request_target/, `${name} must not use pull_request_target`);
+  pinnedActionLines(text, name);
+}
+
 function assertAdminWorkflow(text, name) {
   assert.match(text, /^on:\n  workflow_dispatch:/m, `${name} must be manually dispatched`);
   assert.doesNotMatch(text, /^  (?:push|pull_request|pull_request_target|schedule|workflow_run|release):/m, `${name} must have no automatic trigger`);
@@ -1330,7 +1356,7 @@ test("Right Suite hosts no hosted workflow except rightkit's reviewed workflows"
       assert.deepEqual(workflows, [], `${root} must not contain hosted workflow files`);
       continue;
     }
-    const allowed = [...RIGHTKIT_VERIFICATION_WORKFLOWS, ...RIGHTKIT_EVIDENCE_WORKFLOWS, ...RIGHTKIT_EXCEPTION_WORKFLOWS, ...RIGHTKIT_QUALIFICATION_WORKFLOWS, ...RIGHTKIT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_DIRECT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_ADMIN_WORKFLOWS, ...RIGHTKIT_APP_PUBLISHING_WORKFLOWS, ...RIGHTKIT_OWNER_PUBLISHING_WORKFLOWS];
+    const allowed = [...RIGHTKIT_VERIFICATION_WORKFLOWS, ...RIGHTKIT_EVIDENCE_WORKFLOWS, ...RIGHTKIT_EXCEPTION_WORKFLOWS, ...RIGHTKIT_QUALIFICATION_WORKFLOWS, ...RIGHTKIT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_DIRECT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_ADMIN_WORKFLOWS, ...RIGHTKIT_APP_PUBLISHING_WORKFLOWS, ...RIGHTKIT_OWNER_PUBLISHING_WORKFLOWS, ...RIGHTKIT_DIRECT_ORIGIN_WORKFLOWS, ...RIGHTKIT_NPM_OWNER_WORKFLOWS];
     assert.deepEqual(workflows.filter((name) => !allowed.includes(name)), [], `rightkit may host only ${allowed.join(", ")}; any other hosted workflow needs an explicit decision`);
     for (const name of workflows) {
       const text = readFileSync(path.join(workflowDir, name), "utf8").replace(/\r\n/g, "\n");
@@ -1340,6 +1366,8 @@ test("Right Suite hosts no hosted workflow except rightkit's reviewed workflows"
       if (RIGHTKIT_ADMIN_WORKFLOWS.includes(name)) { assertAdminWorkflow(text, name); continue; }
       if (RIGHTKIT_APP_PUBLISHING_WORKFLOWS.includes(name)) { assertAppPublishWorkflow(text, name); continue; }
       if (RIGHTKIT_OWNER_PUBLISHING_WORKFLOWS.includes(name)) { assertOwnerPublishWorkflow(text, name); continue; }
+      if (RIGHTKIT_DIRECT_ORIGIN_WORKFLOWS.includes(name)) { assertDirectOriginWorkflow(text, name); continue; }
+      if (RIGHTKIT_NPM_OWNER_WORKFLOWS.includes(name)) { assertNpmOwnerWorkflow(text, name); continue; }
       if (RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS.includes(name)) {
         const doc = parseYaml(text);
         assertSwiftDoc(doc);
