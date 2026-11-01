@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T11:09:49Z",
-  "rightkitHead": "a020d11",
+  "generatedAt": "2026-11-01T12:27:23Z",
+  "rightkitHead": "a41795d",
   "legend": [
     {
       "state": "adopted",
@@ -946,9 +946,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-agent-engine-api-platform",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-agent-engine-api-platform (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-agent-engine-api-platform (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-agent-engine-api-sessions",
@@ -985,9 +985,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-agent-engine-attention",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-agent-engine-attention (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-agent-engine-attention (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-agent-engine-cli",
@@ -1024,9 +1024,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-agent-engine-history",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-agent-engine-history (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-agent-engine-history (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-agent-engine-mobile-runtime",
@@ -1050,9 +1050,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-agent-engine-protocol",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-agent-engine-protocol (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-agent-engine-protocol (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-agent-engine-runtime-middleware",
@@ -2324,9 +2324,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-agent-engine-api-platform",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-agent-engine-api-platform (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-agent-engine-api-platform (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-agent-engine-api-sessions",
@@ -2363,9 +2363,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-agent-engine-attention",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-agent-engine-attention (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-agent-engine-attention (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-agent-engine-cli",
@@ -2402,9 +2402,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-agent-engine-history",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-agent-engine-history (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-agent-engine-history (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-agent-engine-mobile-runtime",
@@ -2428,9 +2428,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-agent-engine-protocol",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-agent-engine-protocol (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-agent-engine-protocol (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-agent-engine-runtime-middleware",
@@ -20469,9 +20469,9 @@
         "agent-api-platform"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-agent-engine-api-platform",
       "toMoveFrom": {},
       "cells": {
@@ -20670,9 +20670,9 @@
         "agent-attention"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-agent-engine-attention",
       "toMoveFrom": {},
       "cells": {
@@ -20871,9 +20871,9 @@
         "agent-history"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-agent-engine-history",
       "toMoveFrom": {},
       "cells": {
@@ -21005,9 +21005,9 @@
         "agent-protocol"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-agent-engine-protocol",
       "toMoveFrom": {},
       "cells": {
@@ -29819,9 +29819,9 @@
         "os-sandbox"
       ],
       "private": false,
-      "source": "0.6.2",
+      "source": "0.6.3",
       "registry": "0.6.1",
-      "staged": "0.6.2",
+      "staged": "0.6.3",
       "dir": "crates/rightkit-sandbox",
       "toMoveFrom": {},
       "cells": {

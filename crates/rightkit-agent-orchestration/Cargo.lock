@@ -2959,7 +2959,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-time",
  "serde",
@@ -3081,7 +3081,6 @@ dependencies = [
  "rightkit-crypto",
  "rightkit-daemon",
  "rightkit-db",
- "rightkit-embed",
  "rightkit-ffmpeg",
  "rightkit-fs",
  "rightkit-http",

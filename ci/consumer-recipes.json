@@ -1144,7 +1144,7 @@
       "pkId": "PK12",
       "id": "ci/consumers/rightkit-sandbox/src/main.rs",
       "files": {
-        "Cargo.toml": "4de2d1db672b1fcb88b77b960a0d84b3673224023fd491d02d8bbb6991462522",
+        "Cargo.toml": "d3c4ea88337654cf2dc29ce89f7b2ec78d1bb79e12e2f194845553fd2a476cb0",
         "README.md": "388ca08f57a2a388768bb88dc3b9f94e5686f2f8bbf9199a52c51b059945544c",
         "src/main.rs": "682329c712d2d565265b2cb63caafedd38ba75a141677d5ff79f77040f874302"
       }
@@ -1666,7 +1666,7 @@
       "pkId": "PK63",
       "id": "ci/consumers/rightkit-agent-engine-api-platform/src/main.rs",
       "files": {
-        "Cargo.toml": "5dd99eb94ab42c638e0d3900d6199f0405b7748cdaee64f1f0a08c5cab08230f",
+        "Cargo.toml": "c4e233985534189e3e7c4c31caa534a309569f57ae9dcfdf6739404411f9bde6",
         "README.md": "4a2d62fd2e2da8920b980163a4be0a458f56330536ddaf222c0f00f48bf584bd",
         "src/main.rs": "6c611514d7846bab184df3ff53838813e927f220fe763e34225fe89f5d2fe067"
       }
@@ -1693,7 +1693,7 @@
       "pkId": "PK66",
       "id": "ci/consumers/rightkit-agent-engine-attention/src/main.rs",
       "files": {
-        "Cargo.toml": "c859ff9b3f1a8339e7531b98036a963e4aa00f1e4bbfd2e6cbcb319d7c49e2d8",
+        "Cargo.toml": "8eea476ae0bd1281576642afc24f731ee872d5651695847e336fa5d0744cc09e",
         "README.md": "ce8350b8b9a5f0166502984aa93172d5989e9a6223cdd0e94ff037da8d22876f",
         "src/main.rs": "6b15cf421749a4ec98bdd32362fd7068f375f2871026a8bea8dbf2be8b206511"
       }
@@ -1711,7 +1711,7 @@
       "pkId": "PK68",
       "id": "ci/consumers/rightkit-agent-engine-history/src/main.rs",
       "files": {
-        "Cargo.toml": "d28ddf67aee0c8e4d7ac9f1b7c6aab0badd70c1350c20f66715cde01c740fd87",
+        "Cargo.toml": "ed0b24363dbc20813d46d448d0cca41993246714b8eb4446daed4a9790c2eff1",
         "README.md": "792d487a563eb985a94bf339938bc8f3d658eaa5d13c04fca0ade259cd1c49e3",
         "src/main.rs": "866088425aa135d7c1623da43303327111cb8cc9328ab38e018a10087486147d"
       }
@@ -1720,7 +1720,7 @@
       "pkId": "PK69",
       "id": "ci/consumers/rightkit-agent-engine-protocol/src/main.rs",
       "files": {
-        "Cargo.toml": "6bced776fbb5b69d3c0cd64d537d9df455e83c3fb0d58e09b4c3c1f15e1257b9",
+        "Cargo.toml": "5c845b7b75798ad2a8bb7c7e6132ed92cd60db522e890d21484afe3a165f0ef0",
         "README.md": "97be1f861cddc689daca2c7f71585ac54b31c91810930ef9d635eda2e7c817a1",
         "src/main.rs": "746b26ce31a67e4420a9334d926c1a6f891357fc1e971e9001086e3cb2f28dc2"
       }

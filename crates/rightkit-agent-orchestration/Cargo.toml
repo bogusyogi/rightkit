@@ -29,12 +29,12 @@ toml = { version = "1.1", optional = true }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto", optional = true }
 rightkit-agent-engine-tasks = { version = "0.1.0", path = "../rightkit-agent-engine-tasks", optional = true }
 rightkit-cache = { version = "0.2.3", path = "../rightkit-cache", optional = true }
-rightkit-agent-engine-protocol = { version = "0.1.0", path = "../rightkit-agent-engine-protocol", optional = true }
+rightkit-agent-engine-protocol = { version = "0.1.1", path = "../rightkit-agent-engine-protocol", optional = true }
 rightkit-agent-host-traits = { version = "0.1.0", path = "../rightkit-agent-host-traits", optional = true }
 rightkit-llm = { version = "0.3.2", path = "../rightkit-llm", features = ["agent_providers", "agent_router"], optional = true }
 rightkit-repo-graph = { version = "0.1.0", path = "../rightkit-repo-graph", optional = true }
 rightkit-logs = { version = "0.3.7", path = "../rightkit-logs", features = ["agent_telemetry"], optional = true }
-rightkit-sandbox = { version = "0.6.2", path = "../rightkit-sandbox", features = ["execution"], optional = true }
+rightkit-sandbox = { version = "0.6.3", path = "../rightkit-sandbox", features = ["execution"], optional = true }
 rightkit-agent-tools = { version = "0.3.1", path = "../rightkit-agent-tools", features = ["coding_tools"], optional = true }
 rightkit-db = { version = "0.5.3", path = "../rightkit-db", features = ["bundled", "statement-cache"], optional = true }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", features = ["fs", "lock", "json", "digest", "transaction"], optional = true }

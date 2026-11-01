@@ -46,7 +46,7 @@ flate2 = "1"
 dirs = "7"
 getrandom = "0.4"
 zip = { version = "9", default-features = false, features = ["deflate"] }
-rightkit-sandbox = {version = "0.6.2", path = "../rightkit-sandbox", features = ["execution"], optional = true}
+rightkit-sandbox = {version = "0.6.3", path = "../rightkit-sandbox", features = ["execution"], optional = true}
 tokio = {version = "1", features = ["io-util", "macros", "time"], optional = true}
 
 [dev-dependencies]

@@ -2340,7 +2340,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-time",
  "serde",
@@ -2431,7 +2431,6 @@ dependencies = [
  "rightkit-crypto",
  "rightkit-daemon",
  "rightkit-db",
- "rightkit-embed",
  "rightkit-ffmpeg",
  "rightkit-fs",
  "rightkit-http",
@@ -2559,15 +2558,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rightkit-embed"
-version = "0.6.2"
-dependencies = [
- "rightkit-db",
- "rusqlite",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "rightkit-ffmpeg"
 version = "0.2.13"
 dependencies = [
@@ -2599,6 +2589,7 @@ dependencies = [
  "regex",
  "rightkit-agent-engine-protocol",
  "rightkit-child-process",
+ "rightkit-llm",
  "rightkit-sandbox",
  "serde",
  "serde_json",
