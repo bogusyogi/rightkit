@@ -5,7 +5,7 @@ impl SessionEngine {
         // Prefer a tool-declared capability class; fall back to name inference
         // only when the tool doesn't declare one. This stops a renamed or newly
         // added tool from being silently mis-gated by the name table.
-        let capability = self.auto_approval_capability_for(call);
+        let capability = self.capability_for_call(call);
         // ABAC + engine evaluation: hard denials remain the backstop, but ABAC
         // is consulted before the `RuleStore` seam (FM-026).
         let path_arg = extract_path_arg(&call.arguments_json);
@@ -21,7 +21,7 @@ impl SessionEngine {
         if let Some(pdp) = &self.abac_pdp {
             engine.set_pdp((**pdp).clone());
         }
-        let base = engine.evaluate_with_request(
+        let mut base = engine.evaluate_with_request(
             Some(&request),
             capability,
             self.permission_mode,
@@ -29,13 +29,61 @@ impl SessionEngine {
             path_arg.as_deref(),
             false,
         );
+        // Test-file protection guards existing tests from being rewritten to pass. A test
+        // file that does not exist yet weakens nothing, so creating one keeps the mode's
+        // allow (the protection was the only escalation when it is the verdict's source).
+        if base.policy_source == "test-file:protected" {
+            let is_new_file = path_arg.as_deref().is_some_and(|path| {
+                let path = std::path::Path::new(path);
+                let full = if path.is_absolute() {
+                    path.to_path_buf()
+                } else {
+                    self.workspace_root.join(path)
+                };
+                !full.exists()
+            });
+            if is_new_file {
+                base = rightkit_agent_policy::PermissionVerdict::new(
+                    PermissionDecision::Allow,
+                    "a new test file weakens no existing test",
+                    "test-file:new",
+                );
+            }
+        }
 
         // If ABAC matched, `base` already carries `abac:<id>` and we must not
         // let the glob `RuleStore` overwrite it (ABAC first, glob second).
         let is_abac = base.policy_source.starts_with("abac:");
 
-        let verdict = if is_hard_denial(&base) || is_abac {
+        let verdict = if is_hard_denial(&base) {
             base
+        } else if is_abac {
+            // Rule 51: an ABAC match keeps its own verdict, except that a persisted or session
+            // Deny rule (including the fail-closed `*` deny of a corrupt rule file) still wins
+            // over an ABAC Allow or Ask.
+            let mut v = base;
+            if v.decision != PermissionDecision::Deny {
+                if let Some(rules) = &self.permission_rules {
+                    let target = rule_target_for_call(call);
+                    let denied = rules
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .effective_match_for(&target)
+                        .filter(|rule| rule.effect == PermissionDecision::Deny);
+                    if let Some(rule) = denied {
+                        v = PermissionVerdict::new(
+                            PermissionDecision::Deny,
+                            format!(
+                                "Deny by {} permission rule '{}' (outranks ABAC)",
+                                rule_source_label(rule.source),
+                                rule.pattern
+                            ),
+                            format!("rule:{}:{}", rule_source_label(rule.source), rule.pattern),
+                        );
+                    }
+                }
+            }
+            v
         } else {
             let mut v = base;
             // A base Deny (mode/trust/capability) is never overridden by a
@@ -78,74 +126,7 @@ impl SessionEngine {
             None => verdict,
         };
 
-        // --- Adaptive Ask→Allow cache (FM-029, Goose discipline) ---
-        // Bind every lookup/insertion to current call features and authority
-        // context. Missing context skips cache reuse/insertion fail-closed.
-        if final_verdict.decision == PermissionDecision::Ask {
-            let features = self.auto_approval_features_for(call, capability);
-            let context = self.auto_approval_context_for(capability);
-            let cached = context.as_ref().is_some_and(|context| {
-                self.is_auto_approved_cached(&features, &call.arguments_json, context)
-            });
-            if cached {
-                tracing::info!(
-                    tool = %call.name,
-                    "auto-approval cache hit → Allow (Goose negative-only)"
-                );
-                final_verdict = PermissionVerdict::new(
-                    PermissionDecision::Allow,
-                    "auto-approval:cached allow (Goose: negative-only cache)",
-                    "auto_approval:cached",
-                );
-            } else {
-                let score = self.auto_approval_classifier.score(&features);
-                let (tier, gray_zone) =
-                    self.auto_approval_classifier.classify_reviewable(&features);
-                // classify() is FM-029 decision seam; cache insertion is deferred
-                // until dispatch has received final positive permission resolution.
-                //
-                // S:B4: a near-threshold result is never an auto-allow. Route
-                // it through the existing approval path; unavailable review
-                // times out as denial, so uncertainty cannot reach an effect.
-                if tier == AutoApprovalTier::AutoEdit && !gray_zone {
-                    tracing::info!(
-                        tool = %call.name,
-                        score = score,
-                        gray_zone = gray_zone,
-                        "auto-approval classify → Allow (cache deferred until positive resolution)"
-                    );
-                    final_verdict = PermissionVerdict::new(
-                        PermissionDecision::Allow,
-                        format!(
-                            "auto-approval:allow score={:.2} (Goose: negative-only cache)",
-                            score
-                        ),
-                        "auto_approval:allow",
-                    );
-                } else {
-                    tracing::info!(
-                        tool = %call.name,
-                        score = score,
-                        tier = ?tier,
-                        gray_zone = gray_zone,
-                        "auto-approval classify → Ask (uncertainty or gray-zone, not cached)"
-                    );
-                    if gray_zone {
-                        final_verdict = PermissionVerdict::new(
-                            PermissionDecision::Ask,
-                            format!(
-                                "auto-approval gray-zone score={:.2}; explicit review required",
-                                score
-                            ),
-                            "auto_approval:gray-zone-review",
-                        );
-                    }
-                }
-            }
-        }
-
-        // Command classification is escalation-only & must also fence cached
-        // adaptive allows. Windows shell calls use PowerShell, whose classifier
+        // Command classification is escalation-only. Windows shell calls use PowerShell, whose classifier
         // deliberately requires explicit approval until parsing is supported.
         if capability == rightkit_agent_policy::CapabilityClass::Shell
             && self.permission_mode == PermissionMode::AutoSafe
@@ -157,11 +138,12 @@ impl SessionEngine {
             } else {
                 rightkit_agent_policy::ShellDialect::Posix
             };
-            let shell_verdict = engine.evaluate_shell_command(
+            let shell_verdict = engine.evaluate_shell_command_in(
                 self.permission_mode,
                 self.workspace_trust,
                 &command,
                 dialect,
+                self.os_sandbox_enforced,
             );
             if shell_verdict.decision != PermissionDecision::Allow {
                 final_verdict = shell_verdict;
@@ -342,215 +324,7 @@ mod tests {
     }
 
     #[test]
-    fn auto_approval_cache_upgrades_ask_to_allow() {
-        let tools = Arc::new(rightkit_agent_tools::coding_tools::ToolRegistry::new());
-        let conduit = Arc::new(crate::conduit::Conduit::new(16));
-        let cfg = crate::engine::SessionEngineConfig {
-            session_id: "sess-aaa".into(),
-            permission_mode: rightkit_agent_policy::PermissionMode::Ask,
-            workspace_trust: rightkit_agent_policy::WorkspaceTrust::Trusted,
-            workspace_root: std::env::temp_dir(),
-            ..Default::default()
-        };
-        let engine = crate::engine::SessionEngine::new(
-            Arc::new(crate::llm::ScriptedLlm::new(vec![])),
-            tools,
-            conduit,
-            cfg,
-        );
-        // Edit to a non-test file under Ask mode would normally be Ask; classifier
-        // should promote to Allow and cache it (file_tool + low destructiveness).
-        let call = ToolCall {
-            id: "tc2".into(),
-            name: "Edit".into(),
-            arguments_json: serde_json::json!({"path": "src/main.rs", "edits": []}).to_string(),
-        };
-        let verdict = engine.permission_verdict_for(&call);
-        assert_eq!(
-            verdict.decision,
-            rightkit_agent_policy::PermissionDecision::Allow,
-            "classifier should upgrade Ask→Allow for benign Edit"
-        );
-        assert!(
-            verdict.policy_source.starts_with("auto_approval"),
-            "upgraded verdict must be tagged auto_approval, got {}",
-            verdict.policy_source
-        );
-        // Runtime dispatch inserts only after final positive resolution.
-        assert!(engine.cache_auto_approval_after_positive_resolution(&call));
-        // Second call with same (tool,args) should hit context-bound cache.
-        let verdict2 = engine.permission_verdict_for(&call);
-        assert_eq!(
-            verdict2.decision,
-            rightkit_agent_policy::PermissionDecision::Allow
-        );
-        assert_eq!(verdict2.policy_source, "auto_approval:cached");
-    }
-
-    #[test]
-    fn gray_zone_auto_approval_routes_to_explicit_review() {
-        let tools = Arc::new(rightkit_agent_tools::coding_tools::ToolRegistry::new());
-        let conduit = Arc::new(crate::conduit::Conduit::new(16));
-        let cfg = crate::engine::SessionEngineConfig {
-            session_id: "sess-gray".into(),
-            permission_mode: rightkit_agent_policy::PermissionMode::Ask,
-            workspace_trust: rightkit_agent_policy::WorkspaceTrust::Trusted,
-            workspace_root: std::env::temp_dir(),
-            ..Default::default()
-        };
-        let mut engine = crate::engine::SessionEngine::new(
-            Arc::new(crate::llm::ScriptedLlm::new(vec![])),
-            tools,
-            conduit,
-            cfg,
-        );
-        let call = ToolCall {
-            id: "tc-gray".into(),
-            name: "Edit".into(),
-            arguments_json: serde_json::json!({"path": "src/main.rs", "edits": []}).to_string(),
-        };
-        let capability = rightkit_agent_policy::parse_capability(Some(&call.name));
-        let features = engine.auto_approval_features_for(&call, capability);
-        for _ in 0..6 {
-            engine.auto_approval_classifier.train(&features, false);
-        }
-        assert!(engine.auto_approval_classifier.is_gray_zone(&features));
-
-        let verdict = engine.permission_verdict_for(&call);
-        assert_eq!(
-            verdict.decision,
-            rightkit_agent_policy::PermissionDecision::Ask
-        );
-        assert_eq!(verdict.policy_source, "auto_approval:gray-zone-review");
-        assert!(verdict.reason.contains("explicit review required"));
-    }
-
-    #[test]
-    fn auto_approval_cache_negative_only_uncertainty_stays_ask() {
-        let tools = Arc::new(rightkit_agent_tools::coding_tools::ToolRegistry::new());
-        let conduit = Arc::new(crate::conduit::Conduit::new(16));
-        let cfg = crate::engine::SessionEngineConfig {
-            session_id: "sess-bbb".into(),
-            permission_mode: rightkit_agent_policy::PermissionMode::Ask,
-            workspace_trust: rightkit_agent_policy::WorkspaceTrust::Trusted,
-            workspace_root: std::env::temp_dir(),
-            ..Default::default()
-        };
-        let engine = crate::engine::SessionEngine::new(
-            Arc::new(crate::llm::ScriptedLlm::new(vec![])),
-            tools,
-            conduit,
-            cfg,
-        );
-        // Destructive Bash should stay Ask (AlwaysAsk, score <= -0.2) and never be cached
-        let call = ToolCall {
-            id: "tc3".into(),
-            name: "Bash".into(),
-            arguments_json: serde_json::json!({"command": "rm -rf /tmp/foo"}).to_string(),
-        };
-        let verdict = engine.permission_verdict_for(&call);
-        assert_eq!(
-            verdict.decision,
-            rightkit_agent_policy::PermissionDecision::Ask
-        );
-        // No context-bound cache entry for this destructive call
-        let capability = rightkit_agent_policy::parse_capability(Some(&call.name));
-        let features = engine.auto_approval_features_for(&call, capability);
-        let context = engine
-            .auto_approval_context_for(capability)
-            .expect("temporary workspace should provide cache authority context");
-        let cache = engine.auto_approval_cache();
-        let guard = cache.lock().unwrap();
-        assert!(
-            !guard.contains_call(&features, &call.arguments_json, &context),
-            "destructive Ask must not be cached (negative-only)"
-        );
-    }
-
-    #[test]
-    fn auto_approval_cache_key_normalized() {
-        let tools = Arc::new(rightkit_agent_tools::coding_tools::ToolRegistry::new());
-        let conduit = Arc::new(crate::conduit::Conduit::new(16));
-        let cfg = crate::engine::SessionEngineConfig {
-            session_id: "sess-ccc".into(),
-            permission_mode: rightkit_agent_policy::PermissionMode::Ask,
-            workspace_trust: rightkit_agent_policy::WorkspaceTrust::Trusted,
-            workspace_root: std::env::temp_dir(),
-            ..Default::default()
-        };
-        let engine = crate::engine::SessionEngine::new(
-            Arc::new(crate::llm::ScriptedLlm::new(vec![])),
-            tools,
-            conduit,
-            cfg,
-        );
-        let call_a = ToolCall {
-            id: "tc4".into(),
-            name: "Edit".into(),
-            arguments_json: r#"{"path":"src/a.rs","edits":[]}"#.to_string(),
-        };
-        let call_b = ToolCall {
-            id: "tc5".into(),
-            name: "edit".into(),
-            arguments_json: r#"{"edits":[],"path":"src/a.rs"}"#.to_string(),
-        };
-        // Both should be auto-allowed and share the same cache key (normalized)
-        let v_a = engine.permission_verdict_for(&call_a);
-        assert_eq!(
-            v_a.decision,
-            rightkit_agent_policy::PermissionDecision::Allow
-        );
-        assert!(engine.cache_auto_approval_after_positive_resolution(&call_a));
-        // call_b should hit the cache populated by call_a (same normalized args, case-insensitive tool)
-        let v_b = engine.permission_verdict_for(&call_b);
-        assert_eq!(
-            v_b.decision,
-            rightkit_agent_policy::PermissionDecision::Allow
-        );
-        assert_eq!(v_b.policy_source, "auto_approval:cached");
-    }
-
-    #[test]
-    fn auto_approval_cache_is_bound_to_live_authority_context() {
-        let tools = Arc::new(rightkit_agent_tools::coding_tools::ToolRegistry::new());
-        let conduit = Arc::new(crate::conduit::Conduit::new(16));
-        let cfg = crate::engine::SessionEngineConfig {
-            session_id: "sess-context".into(),
-            permission_mode: rightkit_agent_policy::PermissionMode::Ask,
-            workspace_trust: rightkit_agent_policy::WorkspaceTrust::Trusted,
-            workspace_root: std::env::temp_dir(),
-            ..Default::default()
-        };
-        let engine = crate::engine::SessionEngine::new(
-            Arc::new(crate::llm::ScriptedLlm::new(vec![])),
-            tools,
-            conduit,
-            cfg,
-        );
-        let call = ToolCall {
-            id: "tc-context".into(),
-            name: "Edit".into(),
-            arguments_json: serde_json::json!({"path": "src/main.rs", "edits": []}).to_string(),
-        };
-        let capability = rightkit_agent_policy::parse_capability(Some(&call.name));
-        let features = engine.auto_approval_features_for(&call, capability);
-        let context = engine
-            .auto_approval_context_for(capability)
-            .expect("temporary workspace should provide cache authority context");
-        assert!(engine.cache_auto_approval(&features, &call.arguments_json, &context));
-        assert!(engine.is_auto_approved_cached(&features, &call.arguments_json, &context));
-
-        let changed_context = rightkit_agent_policy::AutoApprovalContext::new(
-            context.policy_revision.clone(),
-            context.rules_revision.clone(),
-            context.workspace_identity.clone(),
-            "session=sess-context;mode=FullAccess;trust=Trusted",
-        );
-        assert!(!engine.is_auto_approved_cached(&features, &call.arguments_json, &changed_context));
-    }
-
-    #[test]
-    fn auto_approval_rule_revision_is_unambiguous_for_delimiter_bearing_rules() {
+    fn rule_revision_is_unambiguous_for_delimiter_bearing_rules() {
         let mut first = rightkit_agent_policy::RuleStore::new();
         first.add(rightkit_agent_policy::Rule::new(
             "tool|one",
@@ -582,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn auto_approval_does_not_upgrade_hard_denial() {
+    fn hard_denial_is_not_upgraded_by_the_mode() {
         let tracker = Arc::new(Mutex::new(rightkit_agent_policy::DenialTracker::new()));
         let tools = Arc::new(rightkit_agent_tools::coding_tools::ToolRegistry::new());
         let conduit = Arc::new(crate::conduit::Conduit::new(16));

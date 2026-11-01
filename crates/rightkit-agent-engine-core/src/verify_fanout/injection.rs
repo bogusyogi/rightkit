@@ -61,9 +61,14 @@ fn render_finding_line(finding: &VerifiedFinding) -> String {
         finding.category.as_str(),
         finding.source,
         finding.severity.as_str(),
-        finding.message
+        crate::post_turn_gate::bound_text(&finding.message, MAX_FINDING_MESSAGE_BYTES)
     )
 }
+
+/// Longest finding message one rendered line carries. The renderer caps the
+/// number of lines; this caps each line too (audit M9), so a verifier that
+/// emits one enormous message cannot defeat compaction.
+const MAX_FINDING_MESSAGE_BYTES: usize = 400;
 
 fn render_outcome_line(outcome: &VerifierOutcome, reason: &str) -> String {
     let subject = match &outcome.subject {

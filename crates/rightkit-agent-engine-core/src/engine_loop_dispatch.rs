@@ -205,10 +205,6 @@ impl SessionEngine {
         post_turn_gate: &mut crate::post_turn_gate::PostTurnGateState,
         pending_verify: &mut crate::verify_fanout::PendingVerification,
     ) -> ToolDispatchOutcome {
-        use crate::engine::stall_guardrail::{
-            block_message, skipped_message, warn_message, StallSeverity,
-        };
-
         // Plan approval can change mode while an earlier tool is awaiting
         // operator input. Apply that live authority before the next batch.
         self.refresh_permission_mode();
@@ -224,117 +220,15 @@ impl SessionEngine {
             rightkit_agent_tools::coding_tools::ToolResult,
         > = std::collections::HashMap::new();
 
-        // [FEATURE-MATRIX par §#120] Graduate per-tool-signature stall
-        // guardrail before partition. Hermes's `ToolCallGuardrailController`
-        // shape: `Allow < Warn < Skip < Block`, thresholds 2 / 4 / 6. The
-        // existing flat `MAX_NO_PROGRESS=3` cap is preserved as a SEPARATE
-        // safety net (spec: ADD, not REPLACE).
-        let mut blocked_info: Option<(u32, String)> = None;
-        let mut kept_calls: Vec<ToolCall> = Vec::with_capacity(response.tool_calls.len());
-        let mut skipped_calls: Vec<(u32, ToolCall)> = Vec::new();
+        // Sessions rule 32: count identical calls in a row. The fourth is an
+        // Ask with reason `repeated_call`, raised by the permission path
+        // (`resolve_single_tool_permission`) when the call is dispatched; the
+        // call stays in the batch so the Ask, not a silent drop, decides it.
         for call in response.tool_calls.iter() {
-            let sev = self.stall_guardrail.record_call(call);
-            match sev {
-                StallSeverity::Allow => kept_calls.push(call.clone()),
-                StallSeverity::Warn { count } => {
-                    // Warn runs but the nudge is appended to the assistant
-                    // turn text so the model reads it in the NEXT turn's
-                    // context (response.text persists to the transcript).
-                    let w = warn_message(&call.name, count);
-                    if response.text.is_empty() {
-                        response.text = w;
-                    } else {
-                        response.text.push_str("\n\n");
-                        response.text.push_str(&w);
-                    }
-                    kept_calls.push(call.clone());
-                }
-                StallSeverity::Skip { count } => {
-                    // Drop from dispatch set; synthetic result injected below.
-                    skipped_calls.push((count, call.clone()));
-                }
-                StallSeverity::Block { count } => {
-                    blocked_info = Some((count, call.name.clone()));
-                    break;
-                }
+            if self.stall_guardrail.record_call(call).is_ask() {
+                self.repeated_call_ids.insert(call.id.clone());
             }
         }
-
-        if let Some((count, name)) = blocked_info {
-            let block_msg = block_message(&name, count);
-            // Drain any Skip-grade calls that accumulated BEFORE the Block:
-            // their synthetic tool results must reach the model even on the
-            // Block path so it sees what happened to every call it issued, not
-            // just a vanishing subset.
-            for (skip_count, skip_call) in &skipped_calls {
-                self.record_tool_error(
-                    sid,
-                    skip_call,
-                    skipped_message(&skip_call.name, *skip_count),
-                    &mut turn_results,
-                );
-            }
-            response.text = block_msg.clone();
-            response.tool_calls.clear();
-            // Block closes the goal as blocked through the SAME
-            // MAX_NO_PROGRESS path the flat counter uses (and bumps it high
-            // enough so the existing `update_goal_state` Close("blocked")
-            // terminal fires). We also emit the terminal `GoalProgressUpdated`
-            // event + a `stalled`-shaped OrchestrationObservation so observers
-            // see one consistent "blocked" shape, not two.
-            let snapshot = {
-                let mut guard = self.goal_state.lock().unwrap();
-                if let Some(gs) = guard.as_mut() {
-                    gs.no_progress_count = std::cmp::max(
-                        gs.no_progress_count,
-                        crate::goal_state::GoalState::MAX_NO_PROGRESS,
-                    );
-                    if gs.status == "active" || gs.status == "paused" {
-                        gs.status = "blocked".into();
-                    }
-                    Some(gs.snapshot())
-                } else {
-                    None
-                }
-            };
-            if let Some(snapshot) = snapshot {
-                self.emit(|seq| ProtocolEvent::GoalProgressUpdated {
-                    session_id: sid.to_string(),
-                    seq,
-                    created_at: now_iso(),
-                    snapshot,
-                });
-            }
-            self.emit(|seq| ProtocolEvent::OrchestrationObservationRecorded {
-                session_id: sid.to_string(),
-                seq,
-                created_at: now_iso(),
-                observation: rightkit_agent_engine_protocol::OrchestrationObservation {
-                    id: format!("stall-guardrail-{iteration}"),
-                    kind: "stalled".into(),
-                    subject: sid.to_string(),
-                    summary: crate::stall_strategy::stalled_reason(&block_msg),
-                    fields: std::collections::HashMap::new(),
-                    created_at: now_iso(),
-                },
-            });
-            return ToolDispatchOutcome::Finished(block_msg);
-        }
-
-        // Skip'd calls: inject synthetic tool-result events so the model
-        // sees the explanation AS the tool outcome (the call itself does
-        // NOT execute). The result is also added to `turn_results` so the
-        // post-edit guard sees the failure as `is_error == true` and skips
-        // it (a skipped call never edits the workspace).
-        for (count, call) in &skipped_calls {
-            self.record_tool_error(
-                sid,
-                call,
-                skipped_message(&call.name, *count),
-                &mut turn_results,
-            );
-        }
-        response.tool_calls = kept_calls;
 
         // Fold the ORIGINAL call sequence into consecutive runs (Book A §5a:
         // "a batch of safe reads together, an unsafe call alone" — consecutive

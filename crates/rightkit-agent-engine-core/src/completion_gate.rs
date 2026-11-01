@@ -106,14 +106,14 @@ impl<'a> CompletionEvidence<'a> {
     }
 }
 
-/// Lane FM-079 unbacked-work verification gate. Runs BEFORE the engine emits an
-/// `AssistantMessageCompleted` claim of victory ("I've finished…"). The gate
-/// uses the typed A2 mutation set carried on the tool's `ToolResult` to confirm
-/// the assistant actually performed the work it claims; otherwise the gate
-/// forces a reenter with a typed finding.
-///
-/// This struct is intentionally separate from `PostTurnGateState` so the
-/// concurrency, persistence, and reschedule knobs can evolve independently.
+// Lane FM-079 unbacked-work verification gate. Runs BEFORE the engine emits an
+// `AssistantMessageCompleted` claim of victory ("I've finished…"). The gate
+// uses the typed A2 mutation set carried on the tool's `ToolResult` to confirm
+// the assistant actually performed the work it claims; otherwise the gate
+// forces a reenter with a typed finding.
+//
+// This struct is intentionally separate from `PostTurnGateState` so the
+// concurrency, persistence, and reschedule knobs can evolve independently.
 // ---------------------------------------------------------------------------
 // Duplicate-type reconciliation (Refactor 0.5 Dispatch A, item 3)
 //

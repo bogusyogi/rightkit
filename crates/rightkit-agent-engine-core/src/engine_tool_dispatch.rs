@@ -273,6 +273,9 @@ impl SessionEngine {
     }
 
     pub(super) fn observe_tool_result_provenance(&mut self, tool_name: &str) {
+        if !tool_result_carries_content(tool_name) {
+            return;
+        }
         self.content_provenance
             .absorb(tool_source_provenance(tool_name));
     }
@@ -412,6 +415,8 @@ impl SessionEngine {
             .unwrap_or(false)
             && call.name != "exec"
             && self.hook_bus.is_none()
+            // A repeated call is an Ask, so it never takes the no-approval fast path.
+            && !self.repeated_call_ids.contains(&call.id)
             && self.permission_verdict_for(call).decision == PermissionDecision::Allow
             && !pre_tool_middleware_matches_call(&pre_tool_middleware, call)
             && assurance_ok
@@ -1163,6 +1168,15 @@ fn pre_tool_middleware_matches_call(definitions: &[MiddlewareDefinition], call: 
         .any(|definition| middleware_matches_call(definition, call, &args))
 }
 
+/// `tool_search` only lists the tool catalog the session already offers; its
+/// result carries no repository, web or MCP content, so loading a deferred
+/// tool must not move later durable writes (`memory_save`, contract rules 16
+/// and 45) out of the user's own session origin.
+pub(super) fn tool_result_carries_content(tool_name: &str) -> bool {
+    let name = tool_name.strip_prefix("tool:").unwrap_or(tool_name);
+    !name.eq_ignore_ascii_case("tool_search")
+}
+
 pub(super) fn tool_source_provenance(source: &str) -> rightkit_agent_policy::ContentProvenance {
     use rightkit_agent_policy::{ContentOrigin, ContentProvenance};
 
@@ -1724,10 +1738,13 @@ mod lane_5b_stream_dispatch_tests {
     #[tokio::test]
     async fn approval_gated_call_waits_before_serial_execution() {
         let llm = Arc::new(ScriptedLlm::new(vec![]));
+        let conduit = Arc::new(Conduit::new(128));
+        // A human client must be attached, or the approval is denied as unattended.
+        let _human = conduit.subscribe_human();
         let mut engine = SessionEngine::new(
             llm,
             Arc::new(ToolRegistry::build_default()),
-            Arc::new(Conduit::new(128)),
+            conduit,
             SessionEngineConfig {
                 permission_mode: PermissionMode::Ask,
                 ..Default::default()

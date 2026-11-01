@@ -105,7 +105,7 @@ impl SessionEngine {
                                 Some(format!("PreToolUse hook requires approval: {reason}"));
                         }
                         rightkit_hooks::agent_hooks::bus::PreToolUseOutcome::Error(message) => {
-                            eprintln!("[hook] PreToolUse error (non-blocking): {message}");
+                            tracing::warn!(tool = %call.name, %message, "PreToolUse hook error (non-blocking)");
                         }
                         rightkit_hooks::agent_hooks::bus::PreToolUseOutcome::Proceed => {}
                     }
@@ -254,6 +254,7 @@ impl SessionEngine {
     ) {
         let sid = self.session_id.clone();
         let mut result = result;
+        self.emit_sandbox_refusal_events(&sid, &call.id, &result);
         if let Err(error) = self.record_assurance_receipt(&call, &result) {
             result.is_error = true;
             result.content = format!(
@@ -680,7 +681,7 @@ impl SessionEngine {
                                 rightkit_hooks::agent_hooks::bus::PreToolUseOutcome::Error(
                                     message,
                                 ) => {
-                                    eprintln!("[hook] PreToolUse error (non-blocking): {message}");
+                                    tracing::warn!(tool = %call.name, %message, "PreToolUse hook error (non-blocking)");
                                 }
                                 rightkit_hooks::agent_hooks::bus::PreToolUseOutcome::Proceed => {}
                             }
@@ -832,6 +833,8 @@ impl SessionEngine {
             // another fails), and the engine must observe the union, not
             // whichever call returned last.
             let mut result = result;
+            let batch_sid = self.session_id.clone();
+            self.emit_sandbox_refusal_events(&batch_sid, &call.id, &result);
             if let Err(error) = self.record_assurance_receipt(&call, &result) {
                 result.is_error = true;
                 result.content = format!(

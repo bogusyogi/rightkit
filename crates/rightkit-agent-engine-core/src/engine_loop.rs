@@ -817,6 +817,15 @@ impl SessionEngine {
         // cannot miss one.
         self.end_active_run();
         self.prune_resolved_approval_markers();
+        // Tools rule 58 `Interrupt`: fires once when a turn is interrupted
+        // (user stop, live cancel, or interrupt during a provider request). A
+        // latched persistence failure stops the loop through the same path but
+        // is not a user interrupt, so it fires nothing.
+        if matches!(result, Err(EngineError::Interrupted))
+            && self.conduit.persistence_failure().is_none()
+        {
+            self.run_lifecycle_hooks("Interrupt", &[]).await;
+        }
         result
     }
 
@@ -855,14 +864,13 @@ impl SessionEngine {
                     )
                     .map_err(|error| EngineError::Assurance(error.to_string()))?;
             }
-            if !self.assurance_context_injected {
+            // Only an authoritative gate gives the model something to act on. A
+            // degraded line carried fresh ids every engine start and, never being
+            // persisted, broke the resumed provider prefix; it stays in the broker.
+            if !self.assurance_context_injected && sentinel_host_authorized {
                 if let Ok(broker) = broker.lock() {
                     if let Some(contract) = broker.contract() {
-                        let gate_state = if sentinel_host_authorized {
-                            "Beacon-authoritative"
-                        } else {
-                            "degraded: Sentinel client unavailable"
-                        };
+                        let gate_state = "Beacon-authoritative";
                         self.transcript.push_system(format!(
                             "[Assurance contract] task_id={} trace_id={} issuer={} receipts=host-issued; gate={gate_state}; repair=exact-missing-evidence",
                             contract.task_id,
@@ -1458,11 +1466,31 @@ impl SessionEngine {
                 request_metadata.stable_prefix_key.as_deref(),
                 &promoted_for_cache,
             );
+            // Tools rule 58: `PreModelRequest` fires before each provider
+            // request and `PostModelRequest` after it, with its outcome.
+            self.run_lifecycle_hooks(
+                "PreModelRequest",
+                &[("RIGHTKIT_HOOK_ITERATION", iteration.to_string())],
+            )
+            .await;
+            let model_request = self
+                .collect_streaming_response(&stream_messages, &request_metadata, &sid)
+                .await;
+            let model_request_status = match &model_request {
+                Ok(_) => "ok",
+                Err(EngineError::Interrupted) => "interrupted",
+                Err(_) => "error",
+            };
+            self.run_lifecycle_hooks(
+                "PostModelRequest",
+                &[
+                    ("RIGHTKIT_HOOK_ITERATION", iteration.to_string()),
+                    ("RIGHTKIT_HOOK_STATUS", model_request_status.to_string()),
+                ],
+            )
+            .await;
             let (mut response, streamed_tool_calls, streamed_results, stream_persistence) =
-                match self
-                    .collect_streaming_response(&stream_messages, &request_metadata, &sid)
-                    .await
-                {
+                match model_request {
                     Ok(result) => {
                         // One completed provider round trip per LLM response,
                         // attributed to the session (the stable task identity
@@ -2253,29 +2281,11 @@ impl SessionEngine {
                         }
                     }
 
-                    match self.stall_guardrail.record_call(&call) {
-                        crate::engine::stall_guardrail::StallSeverity::Allow
-                        | crate::engine::stall_guardrail::StallSeverity::Warn { .. } => {}
-                        crate::engine::stall_guardrail::StallSeverity::Skip { count } => {
-                            response.tool_calls.retain(|item| item.id != call.id);
-                            self.record_tool_error(
-                                sid,
-                                &call,
-                                crate::engine::stall_guardrail::skipped_message(&call.name, count),
-                                &mut turn_results,
-                            );
-                            continue;
-                        }
-                        crate::engine::stall_guardrail::StallSeverity::Block { count } => {
-                            response.tool_calls.retain(|item| item.id != call.id);
-                            self.record_tool_error(
-                                sid,
-                                &call,
-                                crate::engine::stall_guardrail::block_message(&call.name, count),
-                                &mut turn_results,
-                            );
-                            continue;
-                        }
+                    // Sessions rule 32: the fourth identical call in a row is an
+                    // Ask with reason `repeated_call`, raised by the permission
+                    // path when the call is dispatched.
+                    if self.stall_guardrail.record_call(&call).is_ask() {
+                        self.repeated_call_ids.insert(call.id.clone());
                     }
 
                     // EFF-009 is a generation-level gate: no model tool call
