@@ -474,7 +474,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ffmpeg"
-version = "0.3.0"
+version = "0.2.12"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -493,7 +493,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.3.0"
+version = "0.2.9"
 dependencies = [
  "ort",
  "serde",

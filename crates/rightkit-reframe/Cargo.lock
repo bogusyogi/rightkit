@@ -715,7 +715,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.6.0"
+version = "0.5.0"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-child-process",
@@ -729,7 +729,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ffmpeg"
-version = "0.3.0"
+version = "0.2.12"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -759,7 +759,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.6.0"
+version = "0.5.3"
 dependencies = [
  "dirs",
  "flate2",
@@ -776,7 +776,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.3.0"
+version = "0.2.9"
 dependencies = [
  "ort",
  "serde",

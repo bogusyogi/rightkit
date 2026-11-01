@@ -2188,7 +2188,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-asr"
-version = "0.4.0"
+version = "0.3.3"
 dependencies = [
  "half",
  "hound",
@@ -2229,7 +2229,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.7.0"
+version = "0.6.3"
 dependencies = [
  "core-foundation",
  "core-graphics",
@@ -2263,7 +2263,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "getrandom 0.4.3",
  "secret-service",
@@ -2487,7 +2487,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ffmpeg"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -2530,7 +2530,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-llm"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "rightkit-http",
  "serde",
@@ -2539,7 +2539,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -2555,7 +2555,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "dirs",
  "flate2",
@@ -2572,7 +2572,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "half",
  "ndarray",
@@ -2623,7 +2623,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "rightkit-transcript"

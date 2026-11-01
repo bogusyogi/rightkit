@@ -1083,7 +1083,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-review"
-version = "0.5.0"
+version = "0.4.1"
 dependencies = [
  "hex",
  "icu_normalizer",
@@ -1098,7 +1098,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sandbox"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "libc 0.2.191",
  "portable-pty",

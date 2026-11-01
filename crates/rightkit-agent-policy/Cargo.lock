@@ -978,7 +978,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sandbox"
-version = "0.7.0"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "libc",
@@ -994,7 +994,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ring"

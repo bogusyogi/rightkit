@@ -3462,7 +3462,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.4.0"
+version = "0.3.1"
 dependencies = [
  "rightkit-fs",
  "serde",
@@ -3491,7 +3491,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "block2",
  "getrandom 0.4.3",
@@ -3508,7 +3508,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.6.0"
+version = "0.5.0"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-child-process",
@@ -3566,7 +3566,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.4.0"
+version = "0.3.7"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -3581,7 +3581,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.6.0"
+version = "0.5.3"
 dependencies = [
  "dirs 7.0.0",
  "flate2",

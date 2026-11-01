@@ -2501,7 +2501,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-tools"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rightkit-daemon",
  "serde",
@@ -2510,7 +2510,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agents"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "rightkit-child-process",
  "serde",
@@ -2684,7 +2684,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-hooks"
-version = "0.3.0"
+version = "0.2.1"
 dependencies = [
  "rightkit-evidence-application",
  "rightkit-evidence-contracts",
@@ -2713,7 +2713,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sandbox"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "libc 0.2.191",
  "portable-pty",

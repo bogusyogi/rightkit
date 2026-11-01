@@ -2851,7 +2851,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-tools"
-version = "0.4.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2904,7 +2904,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.4.0"
+version = "0.3.1"
 dependencies = [
  "dirs",
  "rightkit-agent-policy",
@@ -2918,7 +2918,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.6.1"
+version = "0.6.3"
 dependencies = [
  "windows",
 ]
@@ -2953,7 +2953,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "getrandom 0.4.3",
  "secret-service",
@@ -2974,7 +2974,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.6.0"
+version = "0.5.0"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-child-process",
@@ -3015,7 +3015,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ffmpeg"
-version = "0.3.0"
+version = "0.2.12"
 dependencies = [
  "rightkit-agent-policy",
  "rightkit-child-process",
@@ -3057,7 +3057,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-llm"
-version = "0.4.0"
+version = "0.3.2"
 dependencies = [
  "async-stream",
  "bytes",
@@ -3084,7 +3084,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.4.0"
+version = "0.3.7"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -3102,7 +3102,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-mcp"
-version = "0.8.0"
+version = "0.7.2"
 dependencies = [
  "async-trait",
  "futures",
@@ -3152,7 +3152,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.3.0"
+version = "0.2.9"
 dependencies = [
  "half",
  "ort",
@@ -3164,7 +3164,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sandbox"
-version = "0.7.0"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "libc",
@@ -3201,7 +3201,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-time"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "rightkit-transcript"
