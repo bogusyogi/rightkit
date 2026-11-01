@@ -34,9 +34,11 @@
 //! assert!(store.get("abc123").unwrap().is_some());
 //! ```
 
+pub mod artifacts;
 pub mod enrichment;
 pub mod history;
 pub mod history_types;
+mod path_policy;
 
 pub use history_types::{
     HistoryPage, HistoryRow, HistorySettings, HistorySort, Kind, TranscriptDetail,
