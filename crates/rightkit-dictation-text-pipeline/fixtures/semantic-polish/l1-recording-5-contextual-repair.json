@@ -1,0 +1,14 @@
+{
+  "schema": "heardright.semantic_polish_fixture.v1",
+  "id": "recording-5-l1-contextual-repair",
+  "lane": "L1",
+  "source": "Tell me four attempts. First one was regular transcription. Should I have had L1? Second was L2, which failed. Check what exactly was transcribed. Third was summarized by selecting test, which also failed. We just fixed the AX, etc. So how is it possible that that failed? And four was summarized, and there is that issue you said yeah about, uh, the speaker perspective. But check all and tell me what is wrong and what needs to be fixed.",
+  "target": "There were four attempts.\n\n1. The first was regular transcription. Should I have had L1?\n2. The second was L2, which failed. Check exactly what was transcribed.\n3. The third was summarized by selecting text, which also failed. We just fixed AX, so how is it possible that it failed?\n4. The fourth was summarized, and there is the issue you mentioned about the speaker perspective.\n\nCheck all four and tell me what is wrong and what needs to be fixed.",
+  "required_behaviors": [
+    "resolve contextual contradiction: Tell me four attempts -> There were four attempts",
+    "remove meaningless fillers: yeah, uh",
+    "format explicit First/Second/Third/four enumeration as a numbered list",
+    "repair selecting test -> selecting text when context makes the intended phrase unambiguous",
+    "preserve speaker perspective and every requested action"
+  ]
+}

@@ -11,9 +11,6 @@ fn check(ok: bool, what: &str) {
 
 fn main() {
     let langs = [ql::LANGUAGE, systemrdl::LANGUAGE, vue::LANGUAGE];
-    check(
-        langs.len() == 3,
-        "ql, systemrdl and vue language functions link",
-    );
+    check(langs.len() == 3, "ql, systemrdl and vue language functions link");
     println!("rightkit-repo-graph-grammars consumer: all checks passed");
 }

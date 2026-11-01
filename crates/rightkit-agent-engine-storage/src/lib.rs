@@ -22,6 +22,8 @@ mod soak_health;
 mod tasks;
 mod tool_invocations;
 mod transcript_export;
+#[cfg(feature = "workflow")]
+mod workflow;
 
 pub use adapt::{
     AdaptApplicationReceiptRow, AdaptGuidanceRow, AdaptGuidanceWrite, AdaptReceiptAppend,
@@ -69,6 +71,22 @@ pub use tool_invocations::{
     ToolInvocationCancellationRow, ToolInvocationEventStoreRow, ToolInvocationStoreRow,
 };
 pub use transcript_export::TranscriptExportCursor;
+#[cfg(feature = "workflow")]
+pub use workflow::{
+    parse_payload_json, HmacAdmittedTriggerEnvelope, JournalAppend, JournalAppendOutcome,
+    LeaseRelease, LeaseUpdate, OccurrenceAdmission, ProjectionUpdate, TriggerAdmissionOutcome,
+    TriggerEventInsert, TriggerRunAdmission, WorkflowApprovalDecision, WorkflowApprovalRow,
+    WorkflowAttemptRow, WorkflowAttemptUpdate, WorkflowAttentionRow, WorkflowClaimEvidenceRow,
+    WorkflowClaimRow, WorkflowCommandApplyOutcome, WorkflowCommandBoundary, WorkflowCommandRow,
+    WorkflowDefinitionRow, WorkflowDefinitionWriter, WorkflowDeliveryRow, WorkflowEffectClaim,
+    WorkflowEffectOutcome, WorkflowEffectRow, WorkflowEvidenceRow, WorkflowImportQuarantineRow,
+    WorkflowJournalRow, WorkflowJournalWriter, WorkflowMonitoringReceiptRow, WorkflowNodeStateRow,
+    WorkflowOccurrenceRow, WorkflowOutboxRow, WorkflowPromotionReceiptRow, WorkflowQueueRow,
+    WorkflowRepository, WorkflowRunLeaseRow, WorkflowRunRow, WorkflowTriggerArtifactPut,
+    WorkflowTriggerArtifactStore, WorkflowTriggerEventRow, WorkflowTriggerRawArtifactRow,
+    WorkflowTriggerRawArtifactWrite, WorkflowTriggerRow, WorkflowTriggerWriter, WorkflowVersionRow,
+    WorkflowWaitRow,
+};
 
 #[derive(Debug, Clone)]
 pub struct BenchmarkRow {

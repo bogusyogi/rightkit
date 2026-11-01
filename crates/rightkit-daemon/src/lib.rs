@@ -53,6 +53,7 @@ mod client;
 pub mod contract;
 mod discovery;
 mod error;
+pub mod event_log;
 mod fail_limit;
 mod host_identity;
 pub mod lifecycle;

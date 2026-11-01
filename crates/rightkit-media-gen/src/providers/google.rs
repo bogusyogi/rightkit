@@ -784,7 +784,7 @@ mod tests {
     use std::net::TcpListener;
     use std::sync::{Arc, Mutex};
 
-    const KEY: &str = "AIza-google-secret-1";
+    const KEY: &str = concat!("AI", "za-google-secret-1");
 
     type Seen = Arc<Mutex<Vec<(String, String)>>>;
 

@@ -23,7 +23,7 @@ rightkit-http = { version = "0.3.9", features = ["gzip", "untrusted", "async"], 
 rightkit-oauth = { version = "0.10.0", default-features = false, features = ["google"], path = "../rightkit-oauth" }
 rightkit-fs = { version = "0.4.8", default-features = false, features = ["digest"], path = "../rightkit-fs" }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
-rightkit-time = { version = "0.1.0", path = "../rightkit-time" }
+rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 [dev-dependencies]
 tokio = { version = "1", features = ["sync", "time", "rt", "rt-multi-thread", "macros"] }
 

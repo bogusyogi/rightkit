@@ -1,58 +1,37 @@
-//! Registry consumer for rightkit-library 0.1.0: builds against the published API only.
-use rightkit_library::enrichment::{enrich, EnrichmentInput};
-use rightkit_library::{HistoryRecord, Store};
+// rightkit-library 0.1.0 consumed by exact registry pin (default features), outside the workspace.
+use std::path::Path;
+
+use rightkit_library::artifacts::{self, ArtifactKind, IndexFilter};
+use serde_json::json;
 
 fn check(ok: bool, what: &str) {
-    if !ok {
+    if ok {
+        println!("ok: {what}");
+    } else {
         eprintln!("FAIL: {what}");
         std::process::exit(1);
     }
-    println!("ok: {what}");
 }
 
 fn main() {
-    let store = Store::open_in_memory();
-    let rec = HistoryRecord {
-        id: "consumer-1".into(),
-        url: "https://example.com/clip".into(),
-        kind: "article".into(),
-        title: Some("Consumer".into()),
-        lang: None,
-        duration_s: None,
-        created_at: "2026-11-01T00:00:00Z".into(),
-        txt_path: None,
-        md_path: None,
-        srt_path: None,
-        slide_dir: None,
-        tags: None,
-        snippet: None,
-        media_path: None,
-        media_meta: None,
-        media_action: None,
-        srt_text: None,
-        truncated_at_s: None,
-    };
-    check(store.upsert(&rec).is_ok(), "a record is stored");
-    check(
-        store.get("consumer-1").ok().flatten().is_some(),
-        "the stored record reads back",
+    check(artifacts::classify(Path::new("a.png")) == ArtifactKind::Image, "png is an image");
+    check(artifacts::classify(Path::new("a.mp4")) == ArtifactKind::Video, "mp4 is a video");
+    let catalog = json!({"default_code": "NA", "brands": [{"code": "AB", "segment_prefixes": ["alpha"]}]});
+    check(artifacts::infer_brand_code_with("/x/alpha-1/p.png", &catalog) == "AB", "brand prefix match");
+    check(artifacts::infer_brand_code("/x/y.png") == "NA", "unregistered default");
+
+    let dir = std::env::temp_dir().join(format!("rightkit-library-consumer-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    std::fs::write(dir.join("one.png"), [0x89, b'P', b'N', b'G', 13, 10, 26, 10]).expect("write");
+    let r = artifacts::index_roots(
+        &[dir.to_string_lossy().to_string()],
+        None,
+        None,
+        None,
+        false,
+        &IndexFilter::default(),
     );
-    let input = EnrichmentInput {
-        source_url: "https://example.com/post",
-        kind: "article",
-        title: Some("Rust release notes"),
-        text: "Read more at https://example.com/notes #rustlang",
-        markdown_text: None,
-        slide_sections: None,
-        word_tokens: None,
-        article_metadata: None,
-        language: Some("en"),
-        duration_s: None,
-    };
-    let out = enrich(&input);
-    check(
-        !out.links.is_empty(),
-        "enrichment finds the link in the text",
-    );
-    println!("rightkit-library consumer: all checks passed");
+    let _ = std::fs::remove_dir_all(&dir);
+    check(matches!(&r, Ok(resp) if resp.artifacts.len() == 1), "index finds the one image");
 }

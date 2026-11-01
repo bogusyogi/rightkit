@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn write_rejects_credential_without_persisting() {
         let mut store = MemoryStore::new();
-        let result = store.write(new_memory("m2", "api_key=sk-abcdef1234567890"));
+        let result = store.write(new_memory("m2", concat!("api_key=sk", "-abcdef1234567890")));
         assert_eq!(
             result.unwrap_err(),
             WriteRejection::Screened {

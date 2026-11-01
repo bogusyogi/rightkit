@@ -2,7 +2,7 @@
   "package": "rightkit-social-inbox",
   "capabilities": [
     {
-      "capability": "social-inbox",
+      "capability": "social inbox",
       "summary": "Signed social webhook inbox core: constant-time HMAC-SHA256 signature verification, bounded body decoding, app-secret handling, Meta delivery parsing into bounded events, and keyword matching for comment automation.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",

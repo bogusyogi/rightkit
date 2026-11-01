@@ -45,7 +45,7 @@ getrandom = "0.4"
 hound = "3.5.1"
 rustfft = "6.4.1"
 prost = "0.14"
-rightkit-onnx = { path = "../rightkit-onnx", version = "0.2.6", features = ["tracing"] }
+rightkit-onnx = { path = "../rightkit-onnx", version = "0.2.9", features = ["tracing"] }
 
 
 

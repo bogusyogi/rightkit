@@ -8,10 +8,12 @@
 //! - [`fold`](mod@fold) / [`matcher`]: case-folded substring matching over explicit haystacks (no index).
 //! - [`page`]: keyset paging over compiled predicates, with opaque cursors.
 //! - [`scan`]: budgeted, resumable scans over sources that cannot be filtered in SQL.
+//! - [`html_text`]: HTML to indexable plain text (visible text only, entities decoded).
 //! - `filename` (feature `filename-index`): Cockpit-derived in-memory filename index.
 
 pub mod ast;
 pub mod fold;
+pub mod html_text;
 pub mod lexer;
 pub mod matcher;
 pub mod page;

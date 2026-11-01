@@ -3,7 +3,7 @@
   "capabilities": [
     {
       "capability": "repo-graph",
-      "summary": "Repository code graph: tree-sitter extraction across 30+ languages, symbol/reference graph store, freshness tracking, watch and query.; declaration-only detection (no precise implementation fingerprint)",
+      "summary": "Repository skeletonization: compact structural outlines of source files for agent context; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

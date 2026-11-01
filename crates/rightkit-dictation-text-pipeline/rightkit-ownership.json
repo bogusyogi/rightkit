@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-dictation-text-pipeline",
+  "capabilities": [
+    {
+      "capability": "dictation-text-pipeline",
+      "summary": "Dictation text pipeline: LLM cleanup (L1-L3) with provider transports and policy, provider keys, runtime settings, screen-context vocabulary and the text polish orchestration.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

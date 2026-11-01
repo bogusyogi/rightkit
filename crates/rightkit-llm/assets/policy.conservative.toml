@@ -1,0 +1,37 @@
+# Conservative routing policy for coderight-router (ADR
+# docs/canon/daemon-master-canon-atoms.md §D3).
+#
+# One numeric knob controls aggressiveness: `route_down_confidence_threshold`.
+# The heuristic only routes a task DOWN to the cheap tier when its computed
+# confidence meets or exceeds this threshold; any uncertainty routes UP
+# (capable). The sensitive-surface floor is a fixed invariant and is NOT a
+# tunable field in this file — it always wins regardless of threshold.
+#
+# balanced = 0.7 (threshold - 0.1), aggressive = 0.6 (threshold - 0.2) are
+# derived from this file's threshold at load time; they are not separate
+# committed files (see policy::RoutingPolicy::balanced/aggressive).
+
+name = "conservative"
+route_down_confidence_threshold = 0.8
+
+# Context-window headroom margin required beyond current context size before
+# a candidate model is eligible (ADR risk: context-window truncation on
+# down-route). 20% per ADR §D1/§4. Declared before [weights] below —
+# top-level keys must precede any table header in TOML, or they are parsed
+# as belonging to that table instead.
+context_window_headroom_ratio = 0.20
+
+# Per-signal weights feeding the route-down confidence score. Every signal
+# consulted by `triage()` must have a named weight here — no silent
+# unweighted signal.
+[weights]
+# Low tool-call density and no failure history push confidence toward "cheap
+# is fine".
+low_tool_call_density = 0.15
+no_failure_streak = 0.15
+# Short, single-file, non-broad-scope prompts are the strongest cheap signal.
+narrow_prompt_shape = 0.35
+single_file_scope = 0.20
+# Ample remaining budget is a weak positive signal (does not on its own make
+# a task cheap-appropriate).
+budget_headroom = 0.15

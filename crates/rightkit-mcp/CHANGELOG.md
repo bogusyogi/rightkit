@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.2 (unreleased)
+
+- Feature `agent_mcp`: agent MCP client manager, server config and tool bridging moved from CodeRight `coderight-mcp`.
+
 ## 0.7.1 (unpublished)
 
 - Dependency: `ureq` 3.4 -> 3.5 (minimum version); no source change. (rightkit#1284)

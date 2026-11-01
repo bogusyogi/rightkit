@@ -13,50 +13,26 @@ fn check(ok: bool, what: &str) {
 
 fn main() {
     let cfg = host::HostConfig::default();
-    check(
-        cfg.env_prefix == "RIGHTKIT",
-        "default host config is product-neutral",
-    );
-    check(
-        host::env_name("MODEL_ROOT") == "RIGHTKIT_MODEL_ROOT",
-        "env_name prefixes",
-    );
+    check(cfg.env_prefix == "RIGHTKIT", "default host config is product-neutral");
+    check(host::env_name("MODEL_ROOT") == "RIGHTKIT_MODEL_ROOT", "env_name prefixes");
 
-    check(
-        matches!(memory::parse_requested("auto"), Ok(None)),
-        "memory auto parses to None",
-    );
+    check(matches!(memory::parse_requested("auto"), Ok(None)), "memory auto parses to None");
     check(
         memory::Mode::ALL
             .iter()
             .all(|m| memory::parse_requested(m.as_str()) == Ok(Some(*m))),
         "memory modes round-trip",
     );
-    check(
-        memory::parse_requested("turbo").is_err(),
-        "unknown memory mode refused",
-    );
+    check(memory::parse_requested("turbo").is_err(), "unknown memory mode refused");
 
-    check(
-        model_store::sdcpp_revision(3) == "r3",
-        "sdcpp revision label",
-    );
-    check(
-        model_store::sdcpp_quant("x-q6") == "Q6_K",
-        "sdcpp quant label",
-    );
+    check(model_store::sdcpp_revision(3) == "r3", "sdcpp revision label");
+    check(model_store::sdcpp_quant("x-q6") == "Q6_K", "sdcpp quant label");
 
     let env = roots::EnvValues {
         workspace_root: Some("/ws".into()),
         ..Default::default()
     };
-    check(
-        roots::workspace_root(&env) == "/ws",
-        "workspace root from env values",
-    );
-    check(
-        roots::content_root(&env) == "/ws/Content",
-        "content root default",
-    );
+    check(roots::workspace_root(&env) == "/ws", "workspace root from env values");
+    check(roots::content_root(&env) == "/ws/Content", "content root default");
     check(roots::tools_root(&env) == "/ws/tools", "tools root default");
 }

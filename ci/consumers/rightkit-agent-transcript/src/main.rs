@@ -10,25 +10,13 @@ fn check(ok: bool, what: &str) {
 }
 
 fn main() {
-    check(
-        PARSER_VERSION.ends_with(".v1"),
-        "the parser version is a v1 id",
-    );
-    let dir = std::env::temp_dir().join(format!(
-        "rightkit-agent-transcript-consumer-{}",
-        std::process::id()
-    ));
+    check(PARSER_VERSION.ends_with(".v1"), "the parser version is a v1 id");
+    let dir = std::env::temp_dir().join(format!("rightkit-agent-transcript-consumer-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
     let file = dir.join("session.jsonl");
     std::fs::write(&file, "{\"type\":\"session_meta\",\"payload\":{}}\n").expect("write fixture");
-    check(
-        detect_host(&file).ok() == Some("codex"),
-        "a session_meta line is a Codex transcript",
-    );
-    check(
-        detect_host(&dir.join("missing.jsonl")).is_err(),
-        "a missing transcript is an error",
-    );
+    check(detect_host(&file).ok() == Some("codex"), "a session_meta line is a Codex transcript");
+    check(detect_host(&dir.join("missing.jsonl")).is_err(), "a missing transcript is an error");
     let _ = std::fs::remove_dir_all(&dir);
     println!("rightkit-agent-transcript consumer: all checks passed");
 }

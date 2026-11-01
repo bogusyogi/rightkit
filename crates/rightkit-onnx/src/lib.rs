@@ -34,6 +34,8 @@ pub use half;
 #[cfg(feature = "ndarray")]
 pub use ndarray;
 
+#[cfg(feature = "agent_ort")]
+pub mod agent_ort;
 /// Find, verify, bind and report the installed runtime in one call ([`bind_installed_runtime`]).
 pub mod bind;
 #[cfg(feature = "session")]

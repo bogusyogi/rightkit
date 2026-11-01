@@ -2172,6 +2172,276 @@
         "README.md": "3cf070c066b24186b97abe112225f95b163e6e6037fc525d6d5910d9a62202e0",
         "src/main.rs": "215c99eca4c14d1d1037d7a352b62e42e9e8475c45c59e62045e0425e9c6d967"
       }
+    },
+    "rightkit-agent-engine-api-integrations": {
+      "pkId": "PK124",
+      "id": "ci/consumers/rightkit-agent-engine-api-integrations/src/main.rs",
+      "files": {
+        "Cargo.toml": "ac46edcbac37b3eecbb179e7f45241772dbe1731dd7334d53bccd2982abc5e73",
+        "README.md": "05ac734bd1d7ab7180c7be11e0c6482b8bd63c6450b5b22b158058c74894220f",
+        "src/main.rs": "83dacf45d090a491e471b2382e77341c7eb682d8c68091e9131cfcf1fc683365"
+      }
+    },
+    "rightkit-agent-engine-core": {
+      "pkId": "PK125",
+      "id": "ci/consumers/rightkit-agent-engine-core/src/main.rs",
+      "files": {
+        "Cargo.toml": "725f179666c20877f6a9019f4c297e882ce9567bafa51c4385776de537d2b69b",
+        "README.md": "fec1f84333d677725e9c5f37281264f6e94f98573a36c1c71bd61f3af940d318",
+        "src/main.rs": "02b9514066b4ac2d5bc5f6a2b43592073330373b8e14d3f06046ca2422c18da8"
+      }
+    },
+    "rightkit-agent-engine-mobile-runtime": {
+      "pkId": "PK126",
+      "id": "ci/consumers/rightkit-agent-engine-mobile-runtime/src/main.rs",
+      "files": {
+        "Cargo.toml": "ae18c0c541163e3c8b374d00d5439890bc14b864ae28d76e306df00664801149",
+        "README.md": "f17ba8cec47b768bdcb4a3b33b3d66d079b337a8d15a6d8f2395e56d89a152fd",
+        "src/main.rs": "fddaf293530f847e22b223976664f3e5be4ccff6ccdaf7fc296d6026287e9f92"
+      }
+    },
+    "rightkit-agent-plugins": {
+      "pkId": "PK127",
+      "id": "ci/consumers/rightkit-agent-plugins/src/main.rs",
+      "files": {
+        "Cargo.toml": "6abc3e5e712f47c43449226610a100ce1017303791941cd7a9ea9136c14e1000",
+        "README.md": "8713b2189242d102932fe67d652b7a107b09b27797cdba20062cf65536577d4e",
+        "src/main.rs": "f3ba30ae2f3505c0f7ca6f393626c85c9e6b7549356254d0156f1180d342f2e9"
+      }
+    },
+    "rightkit-agent-recipes": {
+      "pkId": "PK128",
+      "id": "ci/consumers/rightkit-agent-recipes/src/main.rs",
+      "files": {
+        "Cargo.toml": "1d5780ce5a0a1645cfab57442b42e4615a57079b41dc891cb39cd246e3d2ca8b",
+        "README.md": "bc49ee8ffc96de6fcbf291160474319b2b3a710ef5a0950e54b32cfe3bce7b49",
+        "src/main.rs": "deaa105e400b0db63aa6f22fcaaa69fe1fc7b859987eb0b9b31b2ef4c382d688"
+      }
+    },
+    "rightkit-agent-skills": {
+      "pkId": "PK129",
+      "id": "ci/consumers/rightkit-agent-skills/src/main.rs",
+      "files": {
+        "Cargo.toml": "ba311315efcaba399008cd8e6a7c5140db5df25229c33c6b6abfe74f93307654",
+        "README.md": "485358983737e213a7319276415d2fea5ad25071906b3d3123973de98c052628",
+        "src/main.rs": "f83669f2c33a06c11811be08dfcb04e6ee40617809756581ae24d4166f11752e"
+      }
+    },
+    "rightkit-ai-accounts": {
+      "pkId": "PK130",
+      "id": "ci/consumers/rightkit-ai-accounts/src/main.rs",
+      "files": {
+        "Cargo.toml": "1d61376d1b7a5d5a33eb6bf7a8758ca3db73ab616ef30b31231f7af2deed9ce2",
+        "README.md": "e7c6ee9f660ff32d8aa9ee561723471aaf4b7f8c37f418c4b258f49521259bd6",
+        "src/main.rs": "64a37190f3ddce227083b5c7d11926ed0e68ffcea800a366b824f28e4de55c4f"
+      }
+    },
+    "rightkit-app-host": {
+      "pkId": "PK131",
+      "id": "ci/consumers/rightkit-app-host/src/main.rs",
+      "files": {
+        "Cargo.toml": "29e5c13cb5f3eae6342415ac72acfb4be1ca41dee57ad0659c7193f600cd44b8",
+        "README.md": "043c0613589ab02aede991a5f933729d7bd5426a502b5800f2b5e2bfb047616c",
+        "src/main.rs": "03c138dbeb0b47d2cf9e3b440cfebe7fc4aedddcf006bc9a9dc14834f8fbc742"
+      }
+    },
+    "rightkit-apple-ops": {
+      "pkId": "PK132",
+      "id": "ci/consumers/rightkit-apple-ops/src/main.rs",
+      "files": {
+        "Cargo.toml": "719dd017ba411f7743ee7e53bf1092b58f04bea12f9c8249930a49c4c64b774e",
+        "README.md": "de512e7535ea6f04093c5e08086aa3266ec4e86d4e24d30f34399da06f60bdd6",
+        "src/main.rs": "afdf7b2e718aa7a1e5e024e72969c1985b49471751cc6fa09f86140737fa998e"
+      }
+    },
+    "rightkit-approvals": {
+      "pkId": "PK133",
+      "id": "ci/consumers/rightkit-approvals/src/main.rs",
+      "files": {
+        "Cargo.toml": "169dc67cf36fc9f0e125efbb9339dc00664b71212f8355af4aa7b5c9fa4e0ab4",
+        "README.md": "6867f9185b312d635bc0e95a339ed750868ac375e79cee5d4bcf24b18de7676c",
+        "src/main.rs": "256d97c462a6f7e75324488aef14482eab4b824e06ab3faa576da325550afa01"
+      }
+    },
+    "rightkit-code-audit-commands": {
+      "pkId": "PK134",
+      "id": "ci/consumers/rightkit-code-audit-commands/src/main.rs",
+      "files": {
+        "Cargo.toml": "512f36b109b3b9b8088325af80fed5fcecdfba529949843d0cdf8b1e29ea1765",
+        "README.md": "160612f1d8c07622568b6e92d81d774cbc802c02fdde11423de203faea986f6d",
+        "src/main.rs": "48832600fb80929db2569c0b5427b329635da9c36a72e4395beb7092682fa9ca"
+      }
+    },
+    "rightkit-code-audit-engine": {
+      "pkId": "PK135",
+      "id": "ci/consumers/rightkit-code-audit-engine/src/main.rs",
+      "files": {
+        "Cargo.toml": "fc81af44f8722b810a305171e3e2a8581d23e7452ad91fdffc80680c605baadd",
+        "README.md": "9e14378fef71844b8c512459721533b926f34a4131f4d3e42167250a4a912b31",
+        "src/main.rs": "44c2259c2c8ce4b600dd46566fe5a0fffcb126b39d2b31586941a0cfca7b341d"
+      }
+    },
+    "rightkit-content-plan": {
+      "pkId": "PK136",
+      "id": "ci/consumers/rightkit-content-plan/src/main.rs",
+      "files": {
+        "Cargo.toml": "18ad9cdec02c420c2c97b7604a0ebf2b5759b0604fcb68c2bc10fc1f175e154f",
+        "README.md": "f3d27e1673e61819b9bb70ae7ed8bdfaafd9a7a2f8be99536ed405caff74fdd3",
+        "src/main.rs": "08e85f3106ebd2898d66c8b7ebf2a1060761007ce92f556347267a4d8c0fb3de"
+      }
+    },
+    "rightkit-content-proof": {
+      "pkId": "PK137",
+      "id": "ci/consumers/rightkit-content-proof/src/main.rs",
+      "files": {
+        "Cargo.toml": "371fbe7242552a7a647ed8b4730b81ababa70dd126926eea8fb7e62f633bf8e4",
+        "README.md": "d6f9c78a0c9fe934dbf37c0a6966ba617bad48a84c0a108332a3536025f8b715",
+        "src/main.rs": "0554072f63c1ca1ac1e016d3e93b153f2ad6bd8a3f122d0eb7b3c6ef9e908080"
+      }
+    },
+    "rightkit-context-runtime": {
+      "pkId": "PK138",
+      "id": "ci/consumers/rightkit-context-runtime/src/main.rs",
+      "files": {
+        "Cargo.toml": "d06f1da611f9712cf3f9529ccb024c8d183a1c151b0f13336ae6132db98660bd",
+        "README.md": "0e5e1c94397bda2b321da46201415e0836e0b90628a871ab02d8f662bc13a619",
+        "src/main.rs": "d064f9cb2b34d4f6d47821ad2d41a7e5ee67304a16d15ed37e168d41ebb81bc4"
+      }
+    },
+    "rightkit-context": {
+      "pkId": "PK139",
+      "id": "ci/consumers/rightkit-context/src/main.rs",
+      "files": {
+        "Cargo.toml": "7dc4913446863bef0fb71f6ba58590ab64829c0a72054597a0067342b2322587",
+        "README.md": "42f61f38971e8bdf2e717fef6846757537bcc5f0d557f4c649369bf9a84f06a1",
+        "src/main.rs": "880da119ccefb720cfd04d3fdfd7748a63b9690c5e6f37ff6e28015ec84157b5"
+      }
+    },
+    "rightkit-dictation-app-runtime": {
+      "pkId": "PK140",
+      "id": "ci/consumers/rightkit-dictation-app-runtime/src/main.rs",
+      "files": {
+        "Cargo.toml": "d4b5827e827ed52f313e38131719b8c6e5278f9e0559a49b566198ac88c6e751",
+        "README.md": "860ae30124c7ddee0d0f17e4bf28cf949aeb9fc1e7ee7c794da6a46db53ea42f",
+        "src/main.rs": "9fe0e5c15a625c3a8d2c8e01a319ea90be50a59a82febb06a1506f6cdd0a25b0"
+      }
+    },
+    "rightkit-dictation-command-host": {
+      "pkId": "PK141",
+      "id": "ci/consumers/rightkit-dictation-command-host/src/main.rs",
+      "files": {
+        "Cargo.toml": "19b02b224c0b84e71f1b2039ad7f015d18861bd640b38d1a6331a12865323e96",
+        "README.md": "87bb5a18330267d23b7bacf026a37a70d5f5cb642dfb28ebd1ee1e89d8ea7f93",
+        "src/main.rs": "bf1d1a83945e1844dc0a41762e23bb4a42794fcc0201041be7202d32a882f59d"
+      }
+    },
+    "rightkit-dictation-engine": {
+      "pkId": "PK142",
+      "id": "ci/consumers/rightkit-dictation-engine/src/main.rs",
+      "files": {
+        "Cargo.toml": "a720671f159e8054119e3dd328f0b1aaed8df5a118ed8c7aad936e6101ffaea4",
+        "README.md": "fdafd5548ddda95c6a727acc7d00ca8f986653788cbaac5128ecab833e95f0b0",
+        "src/main.rs": "8886ed0af0273c46f19fb3fcac36275b5987a4305e5d7187018408409a8e8866"
+      }
+    },
+    "rightkit-dictation-inference": {
+      "pkId": "PK143",
+      "id": "ci/consumers/rightkit-dictation-inference/src/main.rs",
+      "files": {
+        "Cargo.toml": "3c12e9a9a36ffbf4f4cc4dc79797cfdd4e77dee933e01b125540a59c1e7cd555",
+        "README.md": "89cd6b543c65c2c41f57858e5c509ac1b6ccf1b6203962a630c557029f9dc0a6",
+        "src/main.rs": "0cacc582546eab94785a38b3920ee28457c3c0bdc9c0fefad6e42038a282f2b4"
+      }
+    },
+    "rightkit-dictation-models": {
+      "pkId": "PK144",
+      "id": "ci/consumers/rightkit-dictation-models/src/main.rs",
+      "files": {
+        "Cargo.toml": "2ad0f7c63ca76f61da059cfec92bfed0b8ae8674ec4e2cd8fbc860805d2eaa6c",
+        "README.md": "d34a2cdd83beafcdd984ae88a09b0340482df751004919b4d15018d1ecdfc93a",
+        "src/main.rs": "17a85e3343a4442627c8195e143860371bda09b820b0683bcffac897c099c3f1"
+      }
+    },
+    "rightkit-dictation-runtime": {
+      "pkId": "PK145",
+      "id": "ci/consumers/rightkit-dictation-runtime/src/main.rs",
+      "files": {
+        "Cargo.toml": "f68b1f3da817e66ca1024e73fec61c05a931a93543fb3abc473c66e94263d55f",
+        "README.md": "5c5d15313087a1644b9180193a9ad68f0277b0445d710e5330ed40833cea7f6b",
+        "src/main.rs": "a0034cee9bf7df975f1593bb7e83fc7b60ff0af3547e9391c5de79170179a493"
+      }
+    },
+    "rightkit-dictation-telemetry": {
+      "pkId": "PK146",
+      "id": "ci/consumers/rightkit-dictation-telemetry/src/main.rs",
+      "files": {
+        "Cargo.toml": "50f3a01a109714a8fbdc988a164a8fa49f6453bfdc39c00fd63578438db16bc6",
+        "README.md": "52bc30f694b39eb31ba0ed2e19f0e92dfb72a9b9a391d634d168dcdf82237e96",
+        "src/main.rs": "928dd4e419d7c63baae490e069a538a302eef1c5bd53d848a55eda5f746cf3e5"
+      }
+    },
+    "rightkit-dictation-text-pipeline": {
+      "pkId": "PK147",
+      "id": "ci/consumers/rightkit-dictation-text-pipeline/src/main.rs",
+      "files": {
+        "Cargo.toml": "e832b556c60fbe449c544faa3d013fcb506e95fc7c401b1d8f699f8cd2e6b3db",
+        "README.md": "de8bb2a52c0ec97b08dba01753129658b62b60fcb487d46ddc54098fc7a89cca",
+        "src/main.rs": "7e1ff4091a3d2e1d897454c6cb44fa9fc6e2bcfedcd46227076f8754a890365b"
+      }
+    },
+    "rightkit-engine-host": {
+      "pkId": "PK148",
+      "id": "ci/consumers/rightkit-engine-host/src/main.rs",
+      "files": {
+        "Cargo.toml": "1fe5f1686baf2ca155ec034e862d65321b13bfd74570743f86dec11ec596aa47",
+        "README.md": "bd1a37d1d63ecebaaca2e397e8904678a645f5a79214a6e8d235ff7e61fd6ec7",
+        "src/main.rs": "25150a8b61b4798bf068ece12a5cbff600aab1c33fae26f2fb4c7fdbd7cf5815"
+      }
+    },
+    "rightkit-evidence-application": {
+      "pkId": "PK149",
+      "id": "ci/consumers/rightkit-evidence-application/src/main.rs",
+      "files": {
+        "Cargo.toml": "ccb2f57628179c759a20d1e206d5a6ee50c179878ae42318f64bc9e7164668c0",
+        "README.md": "4f0a90a1ad4c12a681f0508f8a0dc1fe33f1606729c6147462c991b75ccb7c03",
+        "src/main.rs": "f831e4a1a77f77a8cc409589b37954e79f9e7cd2e24eafb4627cbc64c3496677"
+      }
+    },
+    "rightkit-evidence-commands": {
+      "pkId": "PK150",
+      "id": "ci/consumers/rightkit-evidence-commands/src/main.rs",
+      "files": {
+        "Cargo.toml": "31a41cbbdfe1d3e72cc687bc9236874ac541cdefd705d1d6664e7d1892db6732",
+        "README.md": "710d657261e186431a26ecdca482947fd67525a64737c99ebe6ef24a90b45d37",
+        "src/main.rs": "916f09d569e886ca00e90b7bea4c80dd95b2e3149b5dbfbb3246af486cdedd5b"
+      }
+    },
+    "rightkit-policy-rules": {
+      "pkId": "PK151",
+      "id": "ci/consumers/rightkit-policy-rules/src/main.rs",
+      "files": {
+        "Cargo.toml": "4d854dc5dbdf27e60445e43d00c9d20ab613645fa534359a71549492523a5ee3",
+        "README.md": "35802569badc75e415ed7f1fe5bd4db7486f018cf04afe7c2de255787e26011b",
+        "src/main.rs": "e811bb4d83c30f70ccc92e00f9776609fff9d086f4f08fd3863262ec1a991354"
+      }
+    },
+    "rightkit-scheduler": {
+      "pkId": "PK152",
+      "id": "ci/consumers/rightkit-scheduler/src/main.rs",
+      "files": {
+        "Cargo.toml": "b52dacd196093845dc0a7cf8b8cbdb1aa80f969e1a16660db2e25c46be8e7ed4",
+        "README.md": "b25004b76fcc45e1e09c86d0d6cb0480c8802cd7e57d6fe060cb57e952224960",
+        "src/main.rs": "0c6ccf89d53a3b872201bfd29b53ef70ba0b283e1e8d1204567e382be16e48f6"
+      }
+    },
+    "rightkit-social-analytics": {
+      "pkId": "PK153",
+      "id": "ci/consumers/rightkit-social-analytics/src/main.rs",
+      "files": {
+        "Cargo.toml": "b3735f666da15cc8c9c170b0d43fc97b55758e4daa19de1d8c6e5053141204f0",
+        "README.md": "824788d5f7b74a5a19054d5a2ab2c5234702afe101831f6d75392ff782c48421",
+        "src/main.rs": "2a262fbf0631f74ba58cb807603c494ca87e3828d4d4985ab2bbe875fd699b81"
+      }
     }
   }
 }

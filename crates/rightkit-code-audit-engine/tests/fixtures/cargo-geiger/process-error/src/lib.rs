@@ -1,0 +1,1 @@
+compile_error!("RIGHTKIT_GEIGER_PROCESS_ERROR_CONTROL");

@@ -3,7 +3,7 @@
   "capabilities": [
     {
       "capability": "agent-orchestration",
-      "summary": "Agent orchestration runtime: plans, routes, tasks, budgets, grants, escalation, scheduling, delivery, inventories and platform layers; declaration-only detection (no precise implementation fingerprint)",
+      "summary": "Agent orchestration: multi-agent planning, worker dispatch, routing between cheap and capable models, and task graph execution; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

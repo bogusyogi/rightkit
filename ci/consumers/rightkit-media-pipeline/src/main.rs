@@ -19,18 +19,12 @@ fn main() {
         "command list",
     );
     let ctx = Context::new(std::env::temp_dir().join("rightkit-media-pipeline-consumer"));
-    check(
-        handle(&ctx, "nope.unknown", &json!({})).is_none(),
-        "unknown command not handled",
-    );
+    check(handle(&ctx, "nope.unknown", &json!({})).is_none(), "unknown command not handled");
     let t = handle(&ctx, "studio.pipelines.templates", &json!({}));
     check(
         matches!(&t, Some(Ok(v)) if v["templates"].is_array() || v["templates"].is_object()),
         "pipeline templates from embedded data",
     );
     let p = handle(&ctx, "studio.production.templates", &json!({}));
-    check(
-        matches!(&p, Some(Ok(v)) if v.is_object()),
-        "production templates from embedded data",
-    );
+    check(matches!(&p, Some(Ok(v)) if v.is_object()), "production templates from embedded data");
 }

@@ -1,7 +1,4 @@
-# rightkit-repo-graph 0.1.0 registry consumer
+# rightkit-repo-graph registry consumer
 
-Standalone consumer, outside the workspace, pinning `rightkit-repo-graph =0.1.0` exactly. It installs the crate from the sealed archive through the offline directory registry and runs `src/main.rs`, which exits non-zero on the first failed check.
-
-## What it proves
-
-That the published crate links every grammar, pins its protocol version, and maps an unknown error to a lifecycle state.
+Standalone package that depends on `rightkit-repo-graph` by exact registry pin (`=0.1.0`) outside the RightKit workspace and
+exercises a few cheap public API checks with no external assets. Each passing check prints an `ok:` line; a failure exits 1.

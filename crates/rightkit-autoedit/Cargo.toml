@@ -17,7 +17,7 @@ path = "src/lib.rs"
 blake3 = "1.8"
 rightkit-timeline = { version = "0.1.0", path = "../rightkit-timeline" }
 rightkit-video-project = { version = "0.1.0", path = "../rightkit-video-project" }
-rightkit-ffmpeg = { version = "0.2.10", default-features = false, features = ["native"], path = "../rightkit-ffmpeg" }
+rightkit-ffmpeg = { version = "0.2.12", default-features = false, features = ["native"], path = "../rightkit-ffmpeg" }
 rightkit-fs = { version = "0.4.7", default-features = false, features = ["fs", "blake3"], path = "../rightkit-fs" }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
 serde = { version = "1.0", features = ["derive"] }
@@ -25,7 +25,7 @@ serde_json = "1.0"
 thiserror = "2.0"
 
 [dev-dependencies]
-rightkit-ffmpeg = { version = "0.2.10", default-features = false, features = ["native", "dev-overrides"], path = "../rightkit-ffmpeg" }
+rightkit-ffmpeg = { version = "0.2.12", default-features = false, features = ["native", "dev-overrides"], path = "../rightkit-ffmpeg" }
 tempfile = "3"
 # rightkit-typeset's citationberg 0.7.0 pins quick-xml 0.38.4 (RUSTSEC-2026-0194, RUSTSEC-2026-0195); a [patch] does not reach
 # dependents, so every workspace that links rightkit-typeset carries the same vendored fix (vendor/citationberg/VENDORED.md).

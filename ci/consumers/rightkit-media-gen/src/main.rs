@@ -16,39 +16,18 @@ fn check(ok: bool, what: &str) {
 fn main() {
     let reg = providers::registry();
     let ids: BTreeSet<&str> = reg.iter().map(|p| p.id()).collect();
-    check(
-        !reg.is_empty() && ids.len() == reg.len(),
-        "provider ids are unique",
-    );
-    check(
-        ids.iter().all(|id| !id.is_empty()),
-        "provider ids are non-empty",
-    );
+    check(!reg.is_empty() && ids.len() == reg.len(), "provider ids are unique");
+    check(ids.iter().all(|id| !id.is_empty()), "provider ids are non-empty");
 
     let root = std::env::temp_dir().join("rightkit-media-gen-consumer");
     let ctx = Context::new(root.clone());
-    check(
-        ctx.db_path() == root.join("media-gen.sqlite3"),
-        "default db file name",
-    );
-    check(
-        ctx.library_dir() == root.join("library"),
-        "default library folder",
-    );
+    check(ctx.db_path() == root.join("media-gen.sqlite3"), "default db file name");
+    check(ctx.library_dir() == root.join("library"), "default library folder");
     let ctx = ctx.with_db_file_name("host.sqlite3");
-    check(
-        ctx.db_path() == root.join("host.sqlite3"),
-        "db file name override",
-    );
+    check(ctx.db_path() == root.join("host.sqlite3"), "db file name override");
 
     let caller = host::parse_caller("My App").expect("valid caller");
     check(caller.slug == "my-app", "caller slug");
-    check(
-        host::parse_caller("../etc").is_err(),
-        "unsafe caller refused",
-    );
-    check(
-        credentials::service() == "dev.rightkit.app",
-        "neutral default keychain service",
-    );
+    check(host::parse_caller("../etc").is_err(), "unsafe caller refused");
+    check(credentials::service() == "dev.rightkit.app", "neutral default keychain service");
 }

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-onnx"
-version = "0.2.8"
+version = "0.2.9"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -62,6 +62,7 @@ tvm = ["session", "ort/tvm"]
 vitis = ["session", "ort/vitis"]
 webgpu = ["session", "ort/webgpu"]
 xnnpack = ["session", "ort/xnnpack"]
+agent_ort = []
 
 [dependencies]
 half = { version = "2", optional = true }
@@ -76,8 +77,8 @@ serde_json = "1.0.154"
 sha2 = "0.11"
 # `catalog` and `provision`: the native-library catalog. `provision` also needs the vetted download and
 # archive extraction.
-rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.11", optional = true }
-rightkit-models = { path = "../rightkit-models", version = "0.5.0", optional = true, default-features = false }
+rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.12", optional = true }
+rightkit-models = { path = "../rightkit-models", version = "0.5.3", optional = true, default-features = false }
 
 # Platform accelerators. ort rc.15 compiles an execution provider only when its
 # Cargo feature is on, so each OS enables its own EP on the same pinned dep:
@@ -107,7 +108,7 @@ required-features = ["provision"]
 
 [dev-dependencies]
 # E2E checks the real runtime file against the approved native-library catalog.
-rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.11" }
+rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.12" }
 # `provision` test fixtures: a tiny zip and tar.gz built in the test, and a scratch directory.
 tempfile = "3"
 tar = "0.4"

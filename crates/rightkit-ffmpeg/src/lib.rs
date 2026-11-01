@@ -23,7 +23,6 @@ pub mod content_digest;
 pub mod decode;
 pub mod dev_resolve;
 pub mod encoders;
-pub mod h264_rule;
 pub mod handle;
 pub mod loudnorm;
 #[cfg(feature = "native")]
@@ -1325,6 +1324,8 @@ fn run_owned_process(
     }
 }
 
+#[cfg(feature = "agent_media")]
+pub mod agent_media;
 #[cfg(test)]
 mod test_support;
 

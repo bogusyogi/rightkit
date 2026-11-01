@@ -248,7 +248,7 @@ mod tests {
             assert!(!token_matches(&secret, k, d, h, n, &t));
         }
         assert!(!token_matches(
-            "other-secret-other-secret-other-secret",
+            &"o".repeat(MIN_SECRET_LEN),
             "recipes",
             "d1",
             "h1",

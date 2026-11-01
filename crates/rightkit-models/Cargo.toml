@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-models"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -26,11 +26,12 @@ dev-worker-override = []
 # `ORTHIC_SHARED_DIR`) by forwarding `rightkit-daemon/test-mode`. Apps enable it from their own
 # test-mode feature. Never enable it in a release build: without it no override is read.
 test-mode = ["rightkit-daemon/test-mode"]
+agent_local_models = ["dep:rightkit-sandbox", "dep:tokio"]
 
 [dependencies]
 rightkit-fs = { version = "0.4.3", path = "../rightkit-fs", default-features = false, features = ["digest", "fs", "lock"] }
 # One suite-root rule for every Right Suite crate: `Suite::resolve`, overrides only with `test-mode`.
-rightkit-daemon = { version = "0.5.0", path = "../rightkit-daemon", default-features = false }
+rightkit-daemon = { version = "0.6.0", path = "../rightkit-daemon", default-features = false }
 # Every outbound request goes through rightkit-http: address policy, per-hop redirect vetting.
 rightkit-http = { version = "0.3.0", path = "../rightkit-http", default-features = false }
 ed25519-dalek = { version = "3", optional = true }
@@ -45,6 +46,8 @@ flate2 = "1"
 dirs = "7"
 getrandom = "0.4"
 zip = { version = "9", default-features = false, features = ["deflate"] }
+rightkit-sandbox = {version = "0.6.2", path = "../rightkit-sandbox", features = ["execution"], optional = true}
+tokio = {version = "1", features = ["io-util", "macros", "time"], optional = true}
 
 [dev-dependencies]
 # Independent SHA-256 reference for tests (the crate itself hashes via rightkit-fs).
@@ -53,6 +56,7 @@ tempfile = "3"
 # Existing HTTP testing owner provides transport; test support supplies model fixtures. 0.3.8 is the
 # first rightkit-http with `MockServer::start_declared_length`.
 rightkit-http = { version = "0.3.8", path = "../rightkit-http", default-features = false, features = ["testing"] }
+serde_json = {version = "1"}
 
 [package.metadata.rightkit]
 continuous = false

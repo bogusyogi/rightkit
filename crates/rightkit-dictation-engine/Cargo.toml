@@ -1,0 +1,166 @@
+[package]
+name = "rightkit-dictation-engine"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Dictation engine: the speech engine sidecar binary and library facade over the dictation runtime, inference, text pipeline and command host, with engine contract tests and fixtures."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+include = ["src/**", "tests/fixtures/**", "examples/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_dictation_engine"
+path = "src/lib.rs"
+
+[features]
+default = []
+test-mode = ["rightkit-daemon/test-mode", "rightkit-dictation-core/test-mode", "rightkit-dictation-runtime/test-mode", "rightkit-dictation-inference/test-mode"]
+cuda-bench = ["rightkit-dictation-inference/cuda-bench"]
+rust-kws = ["rightkit-dictation-inference/rust-kws", "rightkit-dictation-runtime/rust-kws"]
+
+[dependencies]
+rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core" }
+rightkit-text-polish = { version = "0.1.0", path = "../rightkit-text-polish" }
+rightkit-transcript-library = { version = "0.1.0", path = "../rightkit-transcript-library" }
+rightkit-dictation-text-pipeline = { version = "0.1.0", path = "../rightkit-dictation-text-pipeline" }
+rightkit-dictation-inference = { version = "0.1.0", path = "../rightkit-dictation-inference" }
+rightkit-dictation-command-host = { version = "0.1.0", path = "../rightkit-dictation-command-host" }
+rightkit-dictation-runtime = { version = "0.1.0", path = "../rightkit-dictation-runtime" }
+rightkit-daemon = { version = "0.5.0", default-features = false, path = "../rightkit-daemon" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+anyhow = { version = "1" }
+
+[dev-dependencies]
+rightkit-dictation-models = { version = "0.1.0", path = "../rightkit-dictation-models" }
+rightkit-automation = { version = "0.6.3", path = "../rightkit-automation", features = ["desktop-context"] }
+rightkit-job-queue = { version = "0.5.1", default-features = false, features = ["supervisor"], path = "../rightkit-job-queue" }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+libc = { version = "0.2" }
+tempfile = { version = "3" }
+dirs = { version = "7" }
+rightkit-speech-client = { version = "0.4.1", path = "../rightkit-speech-client" }
+chrono = { version = "0.4" }
+rightkit-audio = { version = "0.3.1", default-features = false, features = ["capture"], path = "../rightkit-audio" }
+libloading = { version = "0.9" }
+rightkit-onnx = { version = "0.2.8", default-features = false, features = ["session"], path = "../rightkit-onnx" }
+
+
+[[example]]
+name = "av_decode_dump"
+path = "examples/av_decode_dump.rs"
+
+[[example]]
+name = "av_decode_check"
+path = "examples/av_decode_check.rs"
+
+[[example]]
+name = "cond_vs_decode_split"
+path = "examples/cond_vs_decode_split.rs"
+
+[[example]]
+name = "screen_vocab_smoke"
+path = "examples/screen_vocab_smoke.rs"
+
+[[example]]
+name = "bias_sweep"
+required-features = ["test-mode"]
+
+[[example]]
+name = "dml_probe_contention_ab"
+required-features = ["test-mode"]
+
+[[example]]
+name = "dml_session_residency_ab"
+required-features = ["test-mode"]
+
+[[example]]
+name = "openasr_controls"
+required-features = ["test-mode"]
+
+
+[[example]]
+name = "parakeet_hypothesis_batch"
+required-features = ["test-mode"]
+
+
+[[example]]
+name = "static15_l1_chunk_smoke"
+required-features = ["test-mode"]
+
+
+[[example]]
+name = "whisper_kws_cleanup_replay"
+required-features = ["test-mode"]
+
+[[example]]
+name = "whisper_omission_ablation"
+required-features = ["test-mode"]
+
+[[example]]
+name = "whisper_omission_diagnostic"
+required-features = ["test-mode"]
+
+[[example]]
+name = "whisper_policy_eval"
+required-features = ["test-mode"]
+
+[[example]]
+name = "whisper_termination_trace"
+required-features = ["test-mode"]
+
+[[example]]
+name = "whisper_timestamp_mass_probe"
+required-features = ["test-mode"]
+
+[[example]]
+name = "win_parakeet_smoke"
+required-features = ["test-mode"]
+
+[[bin]]
+name = "rightkit-dictation-engine"
+path = "src/main.rs"
+
+[[test]]
+name = "owner_diagnostics_runtime"
+required-features = ["test-mode"]
+
+[[test]]
+name = "contract"
+required-features = ["test-mode"]
+
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

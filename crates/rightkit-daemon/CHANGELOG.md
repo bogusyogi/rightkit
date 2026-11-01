@@ -2,6 +2,7 @@
 
 ## Unreleased (rightkit#1222)
 
+- Added: `event_log` module, moved from the Pulse engine: `EventLog` (`push`, `poll(after, topics, wait)`, `close`), a bounded (512 events, 4 MiB) log of recent service events with process-unique sequence numbers and bounded waits, for clients that poll instead of streaming. Additive.
 - Test: no source change. `Suite::resolve` in a `test-mode` build already honours `RIGHTKIT_SUITE_ROOT` and otherwise follows the real HOME/LOCALAPPDATA, and `mode::decide` returns `Mode::Release` when neither selector is set; the refusal was in `rightkit-models`. Release builds still read no selector. Added a test that pins both.
 
 ## 0.5.0 (unpublished)

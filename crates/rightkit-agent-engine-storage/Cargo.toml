@@ -24,6 +24,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }
 tracing = { version = "0.1" }
+rightkit-workflow = { version = "0.2.1", path = "../rightkit-workflow", features = ["control_plane"], optional = true }
+
+[features]
+# Durable storage for the agent workflow control plane (journal writer, repository, triggers).
+workflow = ["dep:rightkit-workflow"]
 
 [dev-dependencies]
 tempfile = { version = "3" }

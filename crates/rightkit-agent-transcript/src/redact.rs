@@ -85,9 +85,7 @@ mod tests {
 
     #[test]
     fn github_token_is_redacted() {
-        // Built at run time so the source holds no token-shaped literal (secret scans read sources).
-        let input = format!("see {}_abcdefghijklmnopqrstuvwx here", "ghp");
-        let out = redact(&input);
+        let out = redact("see ghp_abcdefghijklmnopqrstuvwx here");
         assert!(out.contains("[REDACTED]"));
     }
 
@@ -100,12 +98,8 @@ mod tests {
 
     #[test]
     fn private_key_block_is_removed() {
-        // Built at run time so the source holds no PEM header (secret scans read sources).
-        let pem = format!(
-            "-----BEGIN {k}-----\nabc\ndef\n-----END {k}-----",
-            k = "RSA PRIVATE KEY"
-        );
-        assert_eq!(redact(&pem), "[BINARY_BLOB_REMOVED]");
+        let pem = "-----BEGIN RSA PRIVATE KEY-----\nabc\ndef\n-----END RSA PRIVATE KEY-----";
+        assert_eq!(redact(pem), "[BINARY_BLOB_REMOVED]");
     }
 
     #[test]

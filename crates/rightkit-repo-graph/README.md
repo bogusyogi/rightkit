@@ -1,5 +1,5 @@
 # rightkit-repo-graph
 
-Repository code graph: tree-sitter extraction across 30+ languages, symbol/reference graph store, freshness tracking, watch and query.
+Repository skeletonization: compact structural outlines of source files for agent context
 
-Moved into RightKit from `membrane-blueprint` (engine) on 2026-11-01.
+Moved into RightKit from `coderight-skeletonization` (CodeRight) on 2026-11-01.

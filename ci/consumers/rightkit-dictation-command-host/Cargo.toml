@@ -1,0 +1,10 @@
+[package]
+name = "rightkit-dictation-command-host-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-dictation-command-host = { version = "=0.1.0" }

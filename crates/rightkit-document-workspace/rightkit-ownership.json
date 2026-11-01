@@ -2,7 +2,7 @@
   "package": "rightkit-document-workspace",
   "capabilities": [
     {
-      "capability": "document-workspace",
+      "capability": "document workspace",
       "summary": "Document workspace store: recent files, pinned files and folders, per-document view state and tab session in one SQLite file, with corruption quarantine and path purge.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",

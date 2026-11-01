@@ -18,7 +18,7 @@ rightkit-fs = { version = "0.4.7", default-features = false, features = ["blake3
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 thiserror = { version = "2.0" }
-rightkit-ffmpeg = { version = "0.2.10", default-features = false, features = ["native"], path = "../rightkit-ffmpeg" }
+rightkit-ffmpeg = { version = "0.2.12", default-features = false, features = ["native"], path = "../rightkit-ffmpeg" }
 
 [dev-dependencies]
 tempfile = "3"

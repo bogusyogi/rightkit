@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-app-settings"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Versioned per-app settings persistence: migrations, typed defaults, atomic writes, corruption recovery, change events."
@@ -16,6 +16,9 @@ default = []
 # `SqlSettings`: settings in a SQL table through a borrowed `rusqlite::Connection` or
 # `Transaction` (SQLCipher works when the app enables a rightkit-db `sqlcipher*` feature).
 sql = ["dep:rightkit-db"]
+agent_config-host-env = ["agent_config"]
+agent_config-test-mode = ["agent_config", "rightkit-daemon/test-mode"]
+agent_config = ["dep:rightkit-daemon", "dep:rightkit-agent-policy", "dep:toml", "dep:dirs", "rightkit-fs/lock", "rightkit-fs/json", "rightkit-fs/digest", "rightkit-fs/transaction"]
 
 [dependencies]
 rightkit-db = { version = "0.5.0", path = "../rightkit-db", default-features = false, optional = true }
@@ -23,6 +26,10 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["raw_value"] }
 thiserror = "2"
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+rightkit-daemon = {version = "0.6.0", default-features = false, features = ["local"], path = "../rightkit-daemon", optional = true}
+rightkit-agent-policy = {version = "0.1.0", path = "../rightkit-agent-policy", optional = true}
+toml = {version = "1.1", optional = true}
+dirs = {version = "7", optional = true}
 
 [dev-dependencies]
 tempfile = "3"
@@ -30,6 +37,7 @@ rightkit-db = { version = "0.5.0", path = "../rightkit-db", default-features = f
 # Fault hook around the replace call (debug and test builds only): proves the configured replace
 # mode and flags reach the platform call.
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs", "testing"] }
+rightkit-daemon = {version = "0.6.0", default-features = false, features = ["local", "test-mode"], path = "../rightkit-daemon"}
 
 [package.metadata.rightkit]
 continuous = false

@@ -2,6 +2,7 @@
 
 ## 0.1.3 (unpublished)
 
+- Feature `files` (off by default): `files` module with the document format table (`data/document_formats.tsv`), `format_of`, `document_mime`, `openable_extensions`, `text_extensions`, encoding-detecting `read`, re-encoding conflict-checked `write`, `write_bytes`, `copy_document`, `fingerprint`. Moved from ViewRight (src-tauri documents.rs). Existing API unchanged.
 - Dependencies: `lopdf` 0.45 -> 0.46 (more lenient loading: damaged xref data is repaired) and `rust_xlsxwriter` 0.101 -> 0.102; no source change. (rightkit#1284)
 
 ## 0.1.2 (2026-10-22)

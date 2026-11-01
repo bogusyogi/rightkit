@@ -2,7 +2,7 @@
   "package": "rightkit-bench",
   "capabilities": [
     {
-      "capability": "benchmark-harness",
+      "capability": "benchmark harness",
       "summary": "Benchmark harness building blocks: warmup-and-percentile timing, SQLite EXPLAIN QUERY PLAN probes, and article-quality corpus scoring with a reference extractor.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",

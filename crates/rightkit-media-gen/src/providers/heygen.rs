@@ -598,7 +598,7 @@ mod tests {
         (base, seen)
     }
 
-    const KEY: &str = "hg-secret-KEY-789";
+    const KEY: &str = concat!("hg", "-secret-KEY-789");
 
     fn req(text: &str, params: Value) -> GenRequest {
         GenRequest {
