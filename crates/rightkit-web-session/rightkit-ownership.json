@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-web-session",
+  "capabilities": [
+    {
+      "capability": "web-session",
+      "summary": "Agent browser logins: one owner-approved Chromium session at a time on the login profile, with a network policy limited to the approved sites, a live view for the owner and signed approvals.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}
