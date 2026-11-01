@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 (unreleased)
+
+- New, additive (feature `engine-commands`, off by default): `cmd::thumb` (`media.thumbnail`: cached typed-FFmpeg frame extraction from a source or render, with a host-supplied `GradeLookup` for graded source frames) and `cmd::contactsheet` (`contactsheet.make`: a PNG contact sheet of a render bound to its revision and hash), moved from CutRight's `cutright-engine`. The on-disk sheet schema id `cutright.contactsheet.v1` is kept.
+
 ## 0.2.0 — unpublished staging (2026-10-18)
 
 - New, additive (GenRight EXTEND, 2026-11-01): `composition`, the composition document a render takes (frames are a pure function of `n / fps`; HTML projects are one `html` layer; the beat template names in `KNOWN_TEMPLATES`), from `genright-engine/src/motion_doc.rs`. Feature `server` (off by default): `project_server`, the loopback HTTP host for one HTML composition project (127.0.0.1 only, `Host` origin check against DNS rebinding, never a path outside the project lexically or through a link, byte ranges for media, `/__hf/log` capture, the deterministic runtime `RUNTIME_JS` injected into the entry page), from `genright-engine/src/motion_server.rs`. GSAP is not bundled: `ProjectServer::start` takes the GSAP build to serve in place of remote GSAP URLs, or `None` to leave them. Adds optional `rightkit-http` 0.3.9 (default features off).

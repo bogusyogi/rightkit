@@ -22,6 +22,8 @@
 //! diffs), and its capability `motion-takes` is declaration-only until then.
 
 pub mod beats;
+#[cfg(feature = "engine-commands")]
+pub mod cmd;
 pub mod composition;
 #[cfg(feature = "encode")]
 pub mod encoder;

@@ -25,6 +25,17 @@
       ]
     },
     {
+      "package": "rightkit-agent-demo",
+      "capability": "agent-demo-mode",
+      "summary": "Consented agent demo mode for Tauri hosts: an agent drives one catalog app through rightkit-automation, the host records that app's window into a sealed bundle, with a badge window, kill hotkey, tray stop item and audit log; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-agent-engine-api-integrations",
       "capability": "agent-api-integrations",
       "summary": "Agent engine integrations HTTP API: plugin discovery, manifest projection and plugin middleware wiring; declaration-only detection (no precise implementation fingerprint)",
@@ -171,6 +182,17 @@
       "package": "rightkit-agent-engine-tasks",
       "capability": "agent-tasks",
       "summary": "Agent engine task model: task records, states and transitions for agent hosts; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-agent-gateway",
+      "capability": "agent-gateway",
+      "summary": "Local agent gateway for a mail-style app: pairing registry, append-only audit log, request gate profiles, untrusted-content wrapping and the user-approval flow.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
@@ -891,6 +913,17 @@
       ]
     },
     {
+      "package": "rightkit-chat-bridge",
+      "capability": "chat-bridge",
+      "summary": "Chat between AI chats: envelopes, linked computers and the device link, native delivery into running Claude and Codex chats (hooks, desktop), receipts, the chat skill and hook installer. The host app supplies its brand and state folder.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-child-process",
       "capability": "owned-processes",
       "summary": "Child processes owned as a tree: process groups / kill-on-close jobs, hidden windows",
@@ -1323,6 +1356,17 @@
       ]
     },
     {
+      "package": "rightkit-device-link-types",
+      "capability": "device-link-types",
+      "summary": "Record types of the device link: device reference, effect classes, principals, paired-device registry records and the signed device-circle records.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-dictation-app-runtime",
       "capability": "dictation-app-runtime",
       "summary": "Dictation app runtime: the shell-side engine supervisor (spawn, launch frame, health, restart, sidecar logs) and engine process handle for a dictation app.; declaration-only detection (no precise implementation fingerprint)",
@@ -1648,6 +1692,17 @@
       "detection": "declaration-only",
       "policyNotes": [
         "Discovery alias so `rustright owns spreadsheet` resolves to the document-io owner; carries no fingerprints of its own."
+      ]
+    },
+    {
+      "package": "rightkit-doctor",
+      "capability": "doctor",
+      "summary": "Doctor framework: check rows, verdicts, engine doctor report, neutral probes; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
       ]
     },
     {
@@ -3207,6 +3262,17 @@
       ]
     },
     {
+      "package": "rightkit-owner-approvals",
+      "capability": "owner-approvals",
+      "summary": "Signed owner approvals for privileged and reserved actions: owner-check and approver keys, key bindings, secret redaction and the security audit trail.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-ownership",
       "capability": "ownership-scanner",
       "summary": "RightKit's ownership scanner, verdict and admission: committed-tree inventory, dependency and source fingerprint findings, signed exception evaluation, the six-binding cache key, and single-flight admission for brokers.",
@@ -3578,6 +3644,17 @@
       "package": "rightkit-remote-compute",
       "capability": "remote-compute",
       "summary": "Rented GPU workers (Vast/SSH) lifecycle and time-billed spend; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-remote-gateway",
+      "capability": "remote-agent-gateway",
+      "summary": "Remote tools for agents on this computer: files, documents, terminals, processes, screen, app launch, media, clipboard, chat read and start, saved logins and payments; folder confinement, per-chat unlock, local approvals, owner settings and the activity trail.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
@@ -4449,6 +4526,17 @@
       "package": "rightkit-web-extract",
       "capability": "article-extraction",
       "summary": "Article extraction without transport: readable-text parsing, title and redirect resolution, blocked-page detection, BM25 fit filtering, and extraction-ladder decisions.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-web-session",
+      "capability": "web-session",
+      "summary": "Agent browser logins: one owner-approved Chromium session at a time on the login profile, with a network policy limited to the approved sites, a live view for the owner and signed approvals.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

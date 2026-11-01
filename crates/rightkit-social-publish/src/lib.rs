@@ -10,15 +10,35 @@
 //! - [`redact`]: secret scrubbing for platform error text.
 //! - [`wire`]: the post payload the adapters read.
 //!
-//! The durable job store and phase machine that drive these adapters belong to the host app.
+//! - [`protocol`]: the publish job, command inputs/outputs and the channel [`protocol::Scope`].
+//! - [`quota`]: per-account pacing and the `publish.next` selector over a host-implemented
+//!   [`quota::PublishQuotaStore`].
+//! - [`jobs`]: the [`jobs::PublishJobStore`] trait the host implements over its job table.
+//! - [`accounts`]: connected platform accounts, readiness, pause and disconnect over an [`accounts::AccountStore`].
+//! - [`deletion`]: deletion requests and the Meta callback over a [`deletion::DeletionStore`].
+//! - [`machine`]: the publish phase machine (`step_once`, `reconcile_once`) over a [`machine::MachineStore`].
+//! - [`resolve`]: a person closes an `outcome_unknown` job by hand.
+//! - [`calendar_time`]: UTC instants and local-time conversion for the supported zones.
+//! - [`util`]: error constructors, input checks and the channel lookup the store-bound modules share.
+//!
+//! The durable job store and its schema belong to the host app; it implements the store traits.
 //! Errors are [`Fail`]: a stable machine code plus a human message.
 
+pub mod accounts;
 pub mod api_versions;
+pub mod calendar_time;
+pub mod deletion;
 pub mod http;
+pub mod jobs;
+pub mod machine;
 pub mod media;
 pub mod platform;
 pub mod platforms;
+pub mod protocol;
+pub mod quota;
 pub mod redact;
+pub mod resolve;
+pub mod util;
 pub mod wire;
 
 /// An error: a stable machine-readable code and a human-readable message.

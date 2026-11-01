@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-agent-gateway",
+  "capabilities": [
+    {
+      "capability": "agent-gateway",
+      "summary": "Local agent gateway for a mail-style app: pairing registry, append-only audit log, request gate profiles, untrusted-content wrapping and the user-approval flow.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

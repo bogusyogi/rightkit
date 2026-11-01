@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-github"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "GitHub App authority contracts, forge request specs, App state store, webhook verification, installation tokens and device-flow sign-in"
@@ -23,6 +23,16 @@ rightkit-oauth = { version = "0.10.0", path = "../rightkit-oauth", default-featu
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 url = "2"
+rightkit-agent-orchestration = { version = "0.1.1", path = "../rightkit-agent-orchestration", optional = true }
+rightkit-code-audit-provider-sdk = { version = "0.1.0", path = "../rightkit-code-audit-provider-sdk", optional = true }
+rightkit-review = { version = "0.4.1", path = "../rightkit-review", features = ["code"], optional = true }
+tokio-util = { version = "0.7.20", features = ["rt"], optional = true }
+
+[features]
+default = []
+# Read-only delivery observation and engineering diagnostics (moved from Legion's github_observer.rs
+# and engineering.rs).
+observer = ["dep:rightkit-agent-orchestration", "dep:rightkit-code-audit-provider-sdk", "dep:rightkit-review", "dep:tokio-util"]
 
 [dev-dependencies]
 tempfile = "3"

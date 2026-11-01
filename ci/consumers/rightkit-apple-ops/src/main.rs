@@ -29,4 +29,23 @@ fn main() {
         rightkit_apple_ops::preflight::invoke(&json!({"list": "yes"})).is_err(),
         "malformed list refused",
     );
+    let (targets, _) = rightkit_apple_ops::gate::bound_targets(
+        "project.build",
+        &json!({"project": "App.xcodeproj"}),
+        None,
+    )
+    .expect("targets");
+    check(targets == ["App.xcodeproj"], "gate binds project targets");
+    let effects =
+        rightkit_apple_ops::gate::required_effects("project.build", &json!({"execute": true}))
+            .expect("effects");
+    check(
+        effects.contains(&rightkit_apple_ops::gate::Effect::ProcessSpawn)
+            && effects.contains(&rightkit_apple_ops::gate::Effect::FileWrite),
+        "gate derives build effects",
+    );
+    check(
+        rightkit_apple_ops::cli::read_input(Some("[]"), None, false).is_err(),
+        "cli input must be an object",
+    );
 }

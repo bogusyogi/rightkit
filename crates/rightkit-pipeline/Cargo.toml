@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-pipeline"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Generation pipeline client: drive an installed generation engine (submit, follow, import), crash-safe journal and recovery, model catalog checks."
@@ -14,10 +14,15 @@ name = "rightkit_pipeline"
 path = "src/lib.rs"
 
 [features]
+# Channel recipe validation (`channel_recipe`): checks a recipe body against the presets a render accepts.
+channel-recipe = ["dep:rightkit-captions", "dep:rightkit-color", "dep:rightkit-audio"]
 default = []
 fake-engine = []
 
 [dependencies]
+rightkit-captions = { version = "0.1.0", path = "../rightkit-captions", optional = true }
+rightkit-color = { version = "0.1.0", path = "../rightkit-color", optional = true }
+rightkit-audio = { version = "0.3.1", path = "../rightkit-audio", default-features = false, optional = true }
 tempfile = { version = "3" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
@@ -38,6 +43,10 @@ required-features = ["fake-engine"]
 name = "orchestration"
 path = "tests/orchestration.rs"
 required-features = ["fake-engine"]
+
+# Citationberg is pulled by rightkit-typeset through rightkit-captions; see the vendored fix.
+[patch.crates-io]
+citationberg = { path = "../../vendor/citationberg" }
 
 [workspace]
 

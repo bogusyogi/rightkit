@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-autoedit = { version = "=0.1.0" }
+rightkit-autoedit = { version = "=0.1.1" }

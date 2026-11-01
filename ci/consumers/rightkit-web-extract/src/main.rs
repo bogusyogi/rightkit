@@ -1,4 +1,4 @@
-//! Registry consumer for rightkit-web-extract 0.1.0: builds against the published API only.
+//! Registry consumer for rightkit-web-extract 0.1.1: builds against the published API only.
 use rightkit_web_extract::filters::apply_article_filters;
 use rightkit_web_extract::{is_hard_article_error, readable_text, static_text_needs_browser};
 
@@ -27,6 +27,20 @@ fn main() {
     check(
         static_text_needs_browser("Loading"),
         "a JS shell escalates to the browser",
+    );
+    check(
+        rightkit_web_extract::fetch::rendered_text_ready("\"4096\""),
+        "a rendered text length over the minimum is ready",
+    );
+    let profile = rightkit_web_extract::fetch::platform_profile_dir(
+        "threads",
+        None,
+        None,
+        &std::env::temp_dir(),
+    );
+    check(
+        profile.ends_with("threads"),
+        "the default profile directory is per platform",
     );
     println!("rightkit-web-extract consumer: all checks passed");
 }

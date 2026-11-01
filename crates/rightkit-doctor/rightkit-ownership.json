@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-doctor",
+  "capabilities": [
+    {
+      "capability": "doctor",
+      "summary": "Doctor framework: check rows, verdicts, engine doctor report, neutral probes; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

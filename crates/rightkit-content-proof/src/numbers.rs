@@ -110,11 +110,8 @@ pub fn tokens(text: &str) -> Vec<Token> {
                 i += 1;
             }
             while i < c.len() {
-                if c[i].is_ascii_digit() {
-                    i += 1;
-                } else if c[i] == ',' && c.get(i + 1).is_some_and(|d| d.is_ascii_digit()) {
-                    i += 1;
-                } else if c[i] == '.' && c.get(i + 1).is_some_and(|d| d.is_ascii_digit()) {
+                let next_is_digit = c.get(i + 1).is_some_and(|d| d.is_ascii_digit());
+                if c[i].is_ascii_digit() || (matches!(c[i], ',' | '.') && next_is_digit) {
                     i += 1;
                 } else {
                     break;

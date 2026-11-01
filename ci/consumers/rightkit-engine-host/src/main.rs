@@ -83,4 +83,10 @@ fn main() {
     };
     let (m, p) = req.to_wire();
     check(EngineRequest::from_wire(&m, p) == req, "wire round trip");
+
+    let caller = rightkit_engine_host::caller::parse_caller("Consumer App").expect("caller");
+    check(
+        caller.slug == "consumer-app" && rightkit_engine_host::caller::parse_caller("a/b").is_err(),
+        "caller names become slugs and unsafe names are refused",
+    );
 }

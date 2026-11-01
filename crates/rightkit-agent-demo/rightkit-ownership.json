@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-agent-demo",
+  "capabilities": [
+    {
+      "capability": "agent-demo-mode",
+      "summary": "Consented agent demo mode for Tauri hosts: an agent drives one catalog app through rightkit-automation, the host records that app's window into a sealed bundle, with a badge window, kill hotkey, tray stop item and audit log; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}
