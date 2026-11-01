@@ -1930,7 +1930,8 @@ test("lanes: class B scans of different components run concurrently; one compone
     assert.match(row.detail, /not a count/);
     assert.match(row.detail, /cancelled at the broker by id/);
     assert.deepEqual([...new Set(cancels)], ["req-wedged"], "cancelled by id at the ceiling");
-    assert.ok(heldMs >= 150, `the scan was held for the ceiling (4 x 40 ms), not stopped at its own 40 ms limit (${heldMs} ms)`);
+    // Well past its own 40 ms limit; the floor leaves room for timer jitter on a hosted runner (148 ms was seen against a 160 ms ceiling).
+    assert.ok(heldMs >= 120, `the scan was held toward the ceiling (4 x 40 ms), not stopped at its own 40 ms limit (${heldMs} ms)`);
   });
 
   test("a watched scan leaves no timer of the gate's behind: the status poller, run clock, ceiling and kill grace are all cleared once the run resolves (normal end, run-limit stop and ceiling stop)", async () => {

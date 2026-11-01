@@ -195,7 +195,7 @@ function wrapperEnv(t, w, workspaces) {
   return { CARGO: shim };
 }
 
-test("[N6 wrapper] under a two-workspace cargo wrapper the drift check compares with that manifest's workspace binding, never CARGO_TARGET_DIR (ambient or a sentinel)", (t) => {
+test("[N6 wrapper] under a two-workspace cargo wrapper the drift check compares with that manifest's workspace binding, never CARGO_TARGET_DIR (ambient or a sentinel)", { skip: process.platform === "win32" ? "the direct multi-workspace cargo wrapper exists on POSIX hosts only" : false }, (t) => {
   const w = world(t);
   const other = path.join(w.root, "another-generation");
   const workspaces = { [path.join(w.snapshot, "src-tauri")]: w.bound, [path.join(w.snapshot, "qa-e2e")]: other };

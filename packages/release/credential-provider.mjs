@@ -94,7 +94,8 @@ export function enrollCredentialProvider({ dataRoot, platform, binary, version, 
   let source; let meta;
   try { source = fs.realpathSync.native(binary); meta = fs.statSync(source); } catch (error) { fail("RK_CRED_PROVIDER_PATH", `the provider ${binary} cannot be resolved (${error.code ?? error.message})`); }
   if (!meta.isFile()) fail("RK_CRED_PROVIDER_PATH", `${source} is not a regular file`);
-  if (platform !== "win" && (meta.mode & 0o111) === 0) fail("RK_CRED_PROVIDER_PATH", `${source} is not executable`);
+  // The execute bit is the real file system's, so it is read only where that file system has one (never on Windows, whatever host is simulated).
+  if (platform !== "win" && process.platform !== "win32" && (meta.mode & 0o111) === 0) fail("RK_CRED_PROVIDER_PATH", `${source} is not executable`);
   assertIsCredentialCli(source, spawn);
   const existing = readRecord({ dataRoot, platform });
   const had = existing?.record.providers?.[version] ?? null;

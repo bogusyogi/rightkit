@@ -167,7 +167,8 @@ test("the managed shim resolver accepts every PATHEXT extension the shim predica
   for (const name of ["cargo.com", "cargo.exe", "cargo.bat", "cargo.cmd"]) assert.equal(resolveManagedCargoShim({ env, platform: "win32", exists: only(name) }), path.join(dir, name), name);
   assert.equal(resolveManagedCargoShim({ env: { PATH: dir }, platform: "win32", exists: only("cargo.bat") }), path.join(dir, "cargo.bat"), "no PATHEXT: the default list");
   assert.equal(resolveManagedCargoShim({ env, platform: "win32", exists: () => false }), null);
-  assert.equal(resolveManagedCargoShim({ env: { PATH: "/usr/bin:/Users/a/.rightkit-managed/agent-bin" }, platform: "darwin", exists: (c) => c === "/Users/a/.rightkit-managed/agent-bin/cargo" }), "/Users/a/.rightkit-managed/agent-bin/cargo");
+  // POSIX paths are joined with this host's separator, so the darwin case is checked on a POSIX host only.
+  if (process.platform !== "win32") assert.equal(resolveManagedCargoShim({ env: { PATH: "/usr/bin:/Users/a/.rightkit-managed/agent-bin" }, platform: "darwin", exists: (c) => c === "/Users/a/.rightkit-managed/agent-bin/cargo" }), "/Users/a/.rightkit-managed/agent-bin/cargo");
 });
 
 test("Cargo guard routes heavy and light commands without recursion", async () => {
