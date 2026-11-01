@@ -8,7 +8,7 @@ Owners come from `packages/release/rightkit-ownership.json`, which the ownership
 - Detection: `fingerprinted` when the owner declares dependency or source fingerprints; `declaration-only` when it declares ownership without a precise fingerprint. A declared dependency alone does not prove integration.
 - Published availability: `published` means a registry version is recorded. `staged` means a version is prepared and unverified on the registry.
 
-Capabilities: 186 (58 with fingerprints, 128 declaration-only). Internal owners that are not application capabilities are excluded.
+Capabilities: 192 (58 with fingerprints, 134 declaration-only). Internal owners that are not application capabilities are excluded.
 
 | Capability | Owner | Tier | Detection | Fingerprints | Published availability |
 |---|---|---|---|---|---|
@@ -20,9 +20,12 @@ Capabilities: 186 (58 with fingerprints, 128 declaration-only). Internal owners 
 | agent-api-workflows | `rightkit-agent-engine-api-workflows` | none | declaration-only | 0 | rightkit-agent-engine-api-workflows: staged 0.1.0, not published |
 | agent-attention | `rightkit-agent-engine-attention` | none | declaration-only | 0 | rightkit-agent-engine-attention: staged 0.1.0, not published |
 | agent-cli | `rightkit-agent-engine-cli` | none | declaration-only | 0 | rightkit-agent-engine-cli: staged 0.1.0, not published |
+| agent-engine | `rightkit-agent-engine-core` | none | declaration-only | 0 | rightkit-agent-engine-core: staged 0.1.0, not published |
 | agent-experience-gates | `@rightkit/ax` | none | declaration-only | 0 | @rightkit/ax: published 0.3.2 (npm) |
 | agent-history | `rightkit-agent-engine-history` | none | declaration-only | 0 | rightkit-agent-engine-history: staged 0.1.0, not published |
+| agent-host-traits | `rightkit-agent-host-traits` | none | declaration-only | 0 | rightkit-agent-host-traits: staged 0.1.0, not published |
 | agent-memory | `rightkit-memory` | none | declaration-only | 0 | rightkit-memory: staged 0.1.0, not published |
+| agent-mobile-runtime | `rightkit-agent-engine-mobile-runtime` | none | declaration-only | 0 | rightkit-agent-engine-mobile-runtime: staged 0.1.0, not published |
 | agent-orchestration | `rightkit-agent-orchestration` | none | declaration-only | 0 | rightkit-agent-orchestration: staged 0.1.0, not published |
 | agent-orchestration-handoff | `rightkit-agent-orchestration-handoff` | none | declaration-only | 0 | rightkit-agent-orchestration-handoff: staged 0.1.0, not published |
 | agent-plugins | `rightkit-agent-plugins` | none | declaration-only | 0 | rightkit-agent-plugins: staged 0.1.0, not published |
@@ -52,6 +55,7 @@ Capabilities: 186 (58 with fingerprints, 128 declaration-only). Internal owners 
 | browser-qa | `@rightkit/qa-chrome` | advise | fingerprinted | 5 (0 block, 5 advise) | @rightkit/qa-chrome: published 0.1.12 (npm) |
 | channel-memory | `rightkit-channel-memory` | none | declaration-only | 0 | rightkit-channel-memory: published 0.2.1 (crates.io) |
 | cloud-sync | `rightkit-sync` | none | declaration-only | 0 | rightkit-sync: published 0.2.2 (crates.io) |
+| code-audit-commands | `rightkit-code-audit-commands` | none | declaration-only | 0 | rightkit-code-audit-commands: staged 0.1.0, not published |
 | code-audit-provider-sdk | `rightkit-code-audit-provider-sdk` | none | declaration-only | 0 | rightkit-code-audit-provider-sdk: staged 0.1.0, not published |
 | composition-model | `rightkit-compose` | none | declaration-only | 0 | rightkit-compose: published 0.2.0 (crates.io) |
 | content-contracts | `rightkit-contracts` | none | declaration-only | 0 | rightkit-contracts: published 0.1.7 (crates.io) |
@@ -93,6 +97,8 @@ Capabilities: 186 (58 with fingerprints, 128 declaration-only). Internal owners 
 | embeddings | `rightkit-embed` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-embed: published 0.6.1 (crates.io) |
 | engine-host | `rightkit-engine-host` | none | declaration-only | 0 | rightkit-engine-host: staged 0.1.0, not published |
 | evidence | `rightkit-evidence` | none | declaration-only | 0 | rightkit-evidence: staged 0.1.0, not published |
+| evidence-application | `rightkit-evidence-application` | none | declaration-only | 0 | rightkit-evidence-application: staged 0.1.0, not published |
+| evidence-commands | `rightkit-evidence-commands` | none | declaration-only | 0 | rightkit-evidence-commands: staged 0.1.0, not published |
 | evidence-contracts | `rightkit-evidence-contracts` | none | declaration-only | 0 | rightkit-evidence-contracts: staged 0.1.0, not published |
 | evidence-decisions | `rightkit-evidence-decisions` | none | declaration-only | 0 | rightkit-evidence-decisions: staged 0.1.0, not published |
 | evidence-effects | `rightkit-evidence-effects` | none | declaration-only | 0 | rightkit-evidence-effects: staged 0.1.0, not published |

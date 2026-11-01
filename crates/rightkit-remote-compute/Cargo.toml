@@ -20,16 +20,16 @@ test-mode = ["rightkit-media-gen/test-mode"]
 [dependencies]
 rightkit-media-gen = { version = "0.1.0", path = "../rightkit-media-gen" }
 rightkit-local-gen = { version = "0.1.0", path = "../rightkit-local-gen" }
-rightkit-models = { version = "0.5.2", path = "../rightkit-models" }
+rightkit-models = { version = "0.5.3", path = "../rightkit-models" }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
-rightkit-fs = { version = "0.4.8", default-features = false, features = ["fs", "lock", "digest", "app-dirs"], path = "../rightkit-fs" }
-rightkit-logs = { version = "0.3.6", default-features = false, path = "../rightkit-logs" }
+rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "lock", "digest", "app-dirs"], path = "../rightkit-fs" }
+rightkit-logs = { version = "0.3.7", default-features = false, path = "../rightkit-logs" }
 
 [dev-dependencies]
 ctor = { version = "1.0" }
-rightkit-models = { version = "0.5.2", features = ["test-mode"], path = "../rightkit-models" }
+rightkit-models = { version = "0.5.3", features = ["test-mode"], path = "../rightkit-models" }
 
 [workspace]
 

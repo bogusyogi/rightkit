@@ -1,0 +1,16 @@
+schema_version = 1
+role = "orchestrator"
+system_prompt = "You are the orchestrator role. Use the orchestration-readonly toolset with supervise permissions in fresh-task isolation."
+primary = "openai/gpt-5.6"
+cheap_candidate = "deepseek/deepseek-v4-flash"
+fallbacks = ["anthropic/claude-sonnet-5", "google/gemini-3-pro"]
+verifier = "qwen/qwen3.7-max"
+reasoning = "high"
+context_budget = 100000
+toolset = ["orchestration-readonly"]
+permissions = ["supervise"]
+isolation = "fresh-task"
+max_turns = 30
+max_cost_usd = 8.0
+retry_limit = 1
+escalate_on = ["invalid_plan", "verifier_reject", "context_pressure", "provider_failure"]

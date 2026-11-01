@@ -34,13 +34,13 @@ wv2-0_38 = ["dep:windows_061", "dep:webview2_com_038"]
 wv2-0_39 = ["dep:windows_062", "dep:webview2_com_039"]
 
 [dependencies]
-rightkit-fs = { version = "0.4.4", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }
 rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
-rightkit-daemon = { version = "0.6.0", path = "../rightkit-daemon" }
-rightkit-child-process = { version = "0.5.6", path = "../rightkit-child-process" }
-rightkit-browser = { version = "0.3.0", path = "../rightkit-browser", optional = true }
+rightkit-daemon = { version = "0.5.1", path = "../rightkit-daemon" }
+rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
+rightkit-browser = { version = "0.3.7", path = "../rightkit-browser", optional = true }
 # Generic input, admission, lease and key code (and `macos::background::frontmost_*` for the guard).
-rightkit-automation = { version = "0.6.0", path = "../rightkit-automation" }
+rightkit-automation = { version = "0.6.4", path = "../rightkit-automation" }
 tauri = { version = "2", optional = true }
 tokio = { version = "1", features = ["rt", "time"], optional = true }
 png = "0.18"
@@ -62,7 +62,7 @@ name = "rightkit-qa"
 path = "src/bin/rightkit-qa.rs"
 
 [dev-dependencies]
-rightkit-fs = { version = "0.4.4", path = "../rightkit-fs", default-features = false, features = ["test-mode"] }
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["test-mode"] }
 # Lock pin, not a use (the same pin as rightkit-tauri-shell): keeps this crate's own Cargo.lock on the Tauri 2.11 graph
 # (tauri 2.11.6 needs tauri-utils ^2.9.3, wry 0.55.1, webview2-com 0.38 / windows 0.61) that the `control,wv2-0_38` gate rows compile
 # against. Without it a fresh lock resolves Tauri 2.12 (tauri-utils ~2.10.2, wry 0.57, webview2-com 0.39 / windows 0.62) and the

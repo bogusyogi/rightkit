@@ -3,7 +3,7 @@
 All notable changes to `rightkit-asr`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
-## 0.3.3 (unreleased)
+## 0.3.4 (unreleased)
 
 - New `onnx-tdt` feature and `onnx_tdt` module, moved from HeardRight `heardright-onnx-asr`: ONNX Runtime execution for Parakeet TDT (mel, encoder and decoder-joint sessions, per-stage threading, DirectML adapter preference, batched decoder runs).
 - `parakeet_core`: cached vocabulary index and bias cache (`bias::VocabIndex`, `bias::ContextBiasCache`, `ContextBias::from_phrases_uncached`, `history_window`), `command_alignment` (spoken-command locator frames, fast-pass encoder hand-off) and `TDT_WINDOW_SEC`, from HeardRight `heardright-parakeet-core`.

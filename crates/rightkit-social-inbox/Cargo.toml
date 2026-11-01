@@ -16,7 +16,7 @@ path = "src/lib.rs"
 [dependencies]
 serde_json = { version = "1" }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
-rightkit-logs = { version = "0.3.6", default-features = false, path = "../rightkit-logs" }
+rightkit-logs = { version = "0.3.7", default-features = false, path = "../rightkit-logs" }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 
 [workspace]

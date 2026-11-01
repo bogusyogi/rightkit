@@ -24,7 +24,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process", features = ["tokio"] }
-rightkit-time = { version = "0.1.0", path = "../rightkit-time" }
+rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 async-trait = "0.1"
 tokio-util = "0.7"
 tokio = { version = "1", features = ["rt", "time", "macros"] }

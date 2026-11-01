@@ -2,4 +2,4 @@
 
 ## 0.1.0 (unreleased)
 
-- First RightKit release, moved from `coderight-skeletonization` (CodeRight).
+- First RightKit release, moved from `membrane-blueprint` (engine).

@@ -32,7 +32,7 @@ window-errors = []
 diagnostics = ["dep:tracing", "rightkit-logs/tracing"]
 
 [dependencies]
-rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs"] }
 rightkit-logs = { version = "0.3.7", path = "../rightkit-logs", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

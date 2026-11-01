@@ -14,10 +14,19 @@ fn main() {
     check(ran == 7, "work without elevation runs directly");
     if cfg!(unix) {
         let polled = next(&serde_json::json!({"waitMs": 0})).expect("poll");
-        check(polled["request"].is_null(), "an empty poll answers no request");
+        check(
+            polled["request"].is_null(),
+            "an empty poll answers no request",
+        );
     } else {
-        check(next(&serde_json::json!({})).is_err(), "Windows has no helper");
+        check(
+            next(&serde_json::json!({})).is_err(),
+            "Windows has no helper",
+        );
     }
-    check(complete(&serde_json::json!({"id": 999, "moved": []})).is_err(), "an unknown answer is refused");
+    check(
+        complete(&serde_json::json!({"id": 999, "moved": []})).is_err(),
+        "an unknown answer is refused",
+    );
     println!("rightkit-privileged-helper consumer: all checks passed");
 }

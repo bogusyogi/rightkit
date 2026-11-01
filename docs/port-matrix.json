@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T09:14:44Z",
-  "rightkitHead": "7f55a22",
+  "generatedAt": "2026-11-01T09:29:58Z",
+  "rightkitHead": "dfdd84f",
   "legend": [
     {
       "state": "adopted",
@@ -127,7 +127,7 @@
     {
       "id": "other",
       "name": "Other (no domain assigned)",
-      "packages": 90
+      "packages": 96
     }
   ],
   "triage": null,
@@ -149,8 +149,8 @@
       "scan": {
         "manifests": 280,
         "parseErrors": 0,
-        "pins": 581,
-        "vendored": 129
+        "pins": 585,
+        "vendored": 131
       },
       "progress": {
         "foundation": {
@@ -1009,11 +1009,11 @@
           "kind": "cargo",
           "version": "0.0.0",
           "publish": "publish = false",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
+          "status": "duplicate",
+          "owner": "rightkit-agent-engine-core",
+          "ownerVersion": "0.1.0",
           "ownerPublished": false,
-          "statusText": "awaiting promotion"
+          "statusText": "duplicate of owner rightkit-agent-engine-core (source 0.1.0, not published)"
         },
         {
           "path": "ci/consumers/rightkit-agent-engine-history",
@@ -1035,11 +1035,11 @@
           "kind": "cargo",
           "version": "0.0.0",
           "publish": "publish = false",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
+          "status": "duplicate",
+          "owner": "rightkit-agent-engine-mobile-runtime",
+          "ownerVersion": "0.1.0",
           "ownerPublished": false,
-          "statusText": "awaiting promotion"
+          "statusText": "duplicate of owner rightkit-agent-engine-mobile-runtime (source 0.1.0, not published)"
         },
         {
           "path": "ci/consumers/rightkit-agent-engine-protocol",
@@ -1115,9 +1115,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-agent-orchestration",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-agent-orchestration (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-agent-orchestration (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-agent-plugins",
@@ -2387,11 +2387,11 @@
           "kind": "cargo",
           "version": "0.1.0",
           "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
+          "status": "duplicate",
+          "owner": "rightkit-agent-engine-core",
+          "ownerVersion": "0.1.0",
           "ownerPublished": false,
-          "statusText": "awaiting promotion"
+          "statusText": "duplicate of owner rightkit-agent-engine-core (source 0.1.0, not published)"
         },
         {
           "path": "crates/rightkit-agent-engine-history",
@@ -2413,11 +2413,11 @@
           "kind": "cargo",
           "version": "0.1.0",
           "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
+          "status": "duplicate",
+          "owner": "rightkit-agent-engine-mobile-runtime",
+          "ownerVersion": "0.1.0",
           "ownerPublished": false,
-          "statusText": "awaiting promotion"
+          "statusText": "duplicate of owner rightkit-agent-engine-mobile-runtime (source 0.1.0, not published)"
         },
         {
           "path": "crates/rightkit-agent-engine-protocol",
@@ -2493,9 +2493,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-agent-orchestration",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-agent-orchestration (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-agent-orchestration (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-agent-plugins",
@@ -14875,8 +14875,8 @@
       "scan": {
         "manifests": 279,
         "parseErrors": 0,
-        "pins": 420,
-        "vendored": 116
+        "pins": 427,
+        "vendored": 119
       },
       "progress": {
         "foundation": {
@@ -15316,9 +15316,9 @@
           "publish": "publish = false",
           "status": "duplicate",
           "owner": "rightkit-agent-orchestration",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-agent-orchestration (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-agent-orchestration (source 0.1.1, not published)"
         },
         {
           "path": "ci/consumers/rightkit-agent-orchestration-handoff",
@@ -15535,11 +15535,11 @@
           "kind": "cargo",
           "version": "0.0.0",
           "publish": "publish = false",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
+          "status": "duplicate",
+          "owner": "rightkit-code-audit-commands",
+          "ownerVersion": "0.1.0",
           "ownerPublished": false,
-          "statusText": "awaiting promotion"
+          "statusText": "duplicate of owner rightkit-code-audit-commands (source 0.1.0, not published)"
         },
         {
           "path": "ci/consumers/rightkit-code-audit-engine",
@@ -15730,11 +15730,11 @@
           "kind": "cargo",
           "version": "0.0.0",
           "publish": "publish = false",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
+          "status": "duplicate",
+          "owner": "rightkit-evidence-application",
+          "ownerVersion": "0.1.0",
           "ownerPublished": false,
-          "statusText": "awaiting promotion"
+          "statusText": "duplicate of owner rightkit-evidence-application (source 0.1.0, not published)"
         },
         {
           "path": "ci/consumers/rightkit-evidence-commands",
@@ -15743,11 +15743,11 @@
           "kind": "cargo",
           "version": "0.0.0",
           "publish": "publish = false",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
+          "status": "duplicate",
+          "owner": "rightkit-evidence-commands",
+          "ownerVersion": "0.1.0",
           "ownerPublished": false,
-          "statusText": "awaiting promotion"
+          "statusText": "duplicate of owner rightkit-evidence-commands (source 0.1.0, not published)"
         },
         {
           "path": "ci/consumers/rightkit-evidence-contracts",
@@ -16538,9 +16538,9 @@
           "publish": "publishable",
           "status": "duplicate",
           "owner": "rightkit-agent-orchestration",
-          "ownerVersion": "0.1.0",
+          "ownerVersion": "0.1.1",
           "ownerPublished": false,
-          "statusText": "duplicate of owner rightkit-agent-orchestration (source 0.1.0, not published)"
+          "statusText": "duplicate of owner rightkit-agent-orchestration (source 0.1.1, not published)"
         },
         {
           "path": "crates/rightkit-agent-orchestration-handoff",
@@ -16757,11 +16757,11 @@
           "kind": "cargo",
           "version": "0.1.0",
           "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
+          "status": "duplicate",
+          "owner": "rightkit-code-audit-commands",
+          "ownerVersion": "0.1.0",
           "ownerPublished": false,
-          "statusText": "awaiting promotion"
+          "statusText": "duplicate of owner rightkit-code-audit-commands (source 0.1.0, not published)"
         },
         {
           "path": "crates/rightkit-code-audit-engine",
@@ -16952,11 +16952,11 @@
           "kind": "cargo",
           "version": "0.1.0",
           "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
+          "status": "duplicate",
+          "owner": "rightkit-evidence-application",
+          "ownerVersion": "0.1.0",
           "ownerPublished": false,
-          "statusText": "awaiting promotion"
+          "statusText": "duplicate of owner rightkit-evidence-application (source 0.1.0, not published)"
         },
         {
           "path": "crates/rightkit-evidence-commands",
@@ -16965,11 +16965,11 @@
           "kind": "cargo",
           "version": "0.1.0",
           "publish": "publishable",
-          "status": "awaiting promotion",
-          "owner": "",
-          "ownerVersion": "",
+          "status": "duplicate",
+          "owner": "rightkit-evidence-commands",
+          "ownerVersion": "0.1.0",
           "ownerPublished": false,
-          "statusText": "awaiting promotion"
+          "statusText": "duplicate of owner rightkit-evidence-commands (source 0.1.0, not published)"
         },
         {
           "path": "crates/rightkit-evidence-contracts",
@@ -20727,6 +20727,73 @@
       }
     },
     {
+      "name": "rightkit-agent-engine-core",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "agent-engine"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-agent-engine-core",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "local",
+          "detail": "path, 2 pins; also 1 ahead"
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "postright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "not present",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
       "name": "rightkit-agent-engine-history",
       "kind": "cargo",
       "class": "tool",
@@ -20746,6 +20813,73 @@
         "coderight": {
           "state": "local",
           "detail": "path, 2 pins; also 1 ahead"
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "postright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "not present",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
+      "name": "rightkit-agent-engine-mobile-runtime",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "agent-mobile-runtime"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-agent-engine-mobile-runtime",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "ahead",
+          "detail": "0.1.0 (no published version)"
         },
         "cutright": {
           "state": "not present",
@@ -21129,6 +21263,73 @@
       }
     },
     {
+      "name": "rightkit-agent-host-traits",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "agent-host-traits"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-agent-host-traits",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "postright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "not present",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "unused",
+          "detail": ""
+        }
+      }
+    },
+    {
       "name": "rightkit-agent-orchestration",
       "kind": "cargo",
       "class": "tool",
@@ -21139,7 +21340,7 @@
         "agent-orchestration"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
       "staged": "0.1.0",
       "dir": "crates/rightkit-agent-orchestration",
@@ -21476,7 +21677,7 @@
         "agent-tools"
       ],
       "private": false,
-      "source": "0.3.0",
+      "source": "0.3.1",
       "registry": "0.3.0",
       "staged": "0.3.0",
       "dir": "crates/rightkit-agent-tools",
@@ -21622,7 +21823,7 @@
         "agent-sessions"
       ],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.2.1",
       "registry": "0.2.0",
       "staged": "0.2.0",
       "dir": "crates/rightkit-agents",
@@ -22239,9 +22440,9 @@
         "speech-recognition"
       ],
       "private": false,
-      "source": "0.3.3",
+      "source": "0.3.4",
       "registry": "0.3.0",
-      "staged": "0.3.3",
+      "staged": "0.3.4",
       "dir": "crates/rightkit-asr",
       "toMoveFrom": {},
       "cells": {
@@ -22440,9 +22641,9 @@
         "desktop-automation"
       ],
       "private": false,
-      "source": "0.6.3",
+      "source": "0.6.4",
       "registry": "0.6.1",
-      "staged": "0.6.3",
+      "staged": "0.6.4",
       "dir": "crates/rightkit-automation",
       "toMoveFrom": {},
       "cells": {
@@ -22981,6 +23182,73 @@
         "legion": {
           "state": "local",
           "detail": "path, 24 pins; also 2 adopted"
+        }
+      }
+    },
+    {
+      "name": "rightkit-code-audit-commands",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "code-audit-commands"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-code-audit-commands",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "postright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "not present",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "ahead",
+          "detail": "0.1.0 (no published version)"
         }
       }
     },
@@ -24034,9 +24302,9 @@
         "local-services"
       ],
       "private": false,
-      "source": "0.5.0",
+      "source": "0.5.1",
       "registry": "0.4.0",
-      "staged": "0.5.0",
+      "staged": "0.5.1",
       "dir": "crates/rightkit-daemon",
       "toMoveFrom": {},
       "cells": {
@@ -25283,6 +25551,140 @@
       }
     },
     {
+      "name": "rightkit-evidence-application",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "evidence-application"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-evidence-application",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "postright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "not present",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "local",
+          "detail": "path, 3 pins; also 1 ahead"
+        }
+      }
+    },
+    {
+      "name": "rightkit-evidence-commands",
+      "kind": "cargo",
+      "class": "tool",
+      "domain": "other",
+      "mandatoryRows": [],
+      "pendingRows": [],
+      "capabilities": [
+        "evidence-commands"
+      ],
+      "private": false,
+      "source": "0.1.0",
+      "registry": "",
+      "staged": "0.1.0",
+      "dir": "crates/rightkit-evidence-commands",
+      "toMoveFrom": {},
+      "cells": {
+        "coderight": {
+          "state": "unused",
+          "detail": ""
+        },
+        "cutright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "ember": {
+          "state": "not present",
+          "detail": ""
+        },
+        "genright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "heardright": {
+          "state": "unused",
+          "detail": ""
+        },
+        "mailright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "postright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "pulse": {
+          "state": "unused",
+          "detail": ""
+        },
+        "scraperight": {
+          "state": "not present",
+          "detail": ""
+        },
+        "viewright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "sellright": {
+          "state": "not present",
+          "detail": ""
+        },
+        "legion": {
+          "state": "local",
+          "detail": "path; also 1 ahead"
+        }
+      }
+    },
+    {
       "name": "rightkit-evidence-contracts",
       "kind": "cargo",
       "class": "tool",
@@ -25628,9 +26030,9 @@
         "media-pipelines"
       ],
       "private": false,
-      "source": "0.2.12",
+      "source": "0.2.13",
       "registry": "0.2.10",
-      "staged": "0.2.12",
+      "staged": "0.2.13",
       "dir": "crates/rightkit-ffmpeg",
       "toMoveFrom": {},
       "cells": {
@@ -25766,9 +26168,9 @@
         "safe-filesystem"
       ],
       "private": false,
-      "source": "0.4.8",
+      "source": "0.4.9",
       "registry": "0.4.7",
-      "staged": "0.4.8",
+      "staged": "0.4.9",
       "dir": "crates/rightkit-fs",
       "toMoveFrom": {},
       "cells": {
@@ -26113,7 +26515,7 @@
         "lifecycle-hooks"
       ],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.2.1",
       "registry": "0.2.0",
       "staged": "0.2.0",
       "dir": "crates/rightkit-hooks",

@@ -3,25 +3,70 @@ name = "rightkit-repo-graph"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.98.0"
-description = "Repository skeletonization: compact structural outlines of source files for agent context"
+description = "Repository code graph: tree-sitter extraction across 30+ languages, symbol/reference graph store, freshness tracking, watch and query."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE", "assets/**"]
 
 [lib]
 name = "rightkit_repo_graph"
 path = "src/lib.rs"
 
 [dependencies]
-tree-sitter = {version = "0.27"}
-tree-sitter-rust = {version = "0.24"}
-tree-sitter-python = {version = "0.25"}
-tree-sitter-javascript = {version = "0.25.0"}
-tree-sitter-typescript = {version = "0.23"}
+rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
+rightkit-fs = { version = "0.4.9", features = ["fs", "digest"], path = "../rightkit-fs" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+thiserror = { version = "2" }
+regex = { version = "1" }
+ignore = { version = "=0.4.33" }
+getrandom = { version = "0.4" }
+tree-sitter = { version = "0.27" }
+tree-sitter-rust = { version = "0.24" }
+tree-sitter-python = { version = "0.25" }
+tree-sitter-javascript = { version = "0.25" }
+tree-sitter-typescript = { version = "0.23" }
+tree-sitter-go = { version = "0.25" }
+tree-sitter-java = { version = "0.23" }
+tree-sitter-c = { version = "0.24" }
+tree-sitter-cpp = { version = "0.23" }
+tree-sitter-c-sharp = { version = "0.23" }
+tree-sitter-ruby = { version = "0.23" }
+tree-sitter-php = { version = "0.25" }
+tree-sitter-bash = { version = "0.25" }
+tree-sitter-kotlin-ng = { version = "1" }
+tree-sitter-swift = { version = "0.7" }
+tree-sitter-scala = { version = "0.26" }
+tree-sitter-dart = { version = "0.2" }
+tree-sitter-lua = { version = "0.5" }
+tree-sitter-json = { version = "0.24" }
+tree-sitter-yaml = { version = "0.7" }
+tree-sitter-toml-ng = { version = "0.7" }
+tree-sitter-html = { version = "0.23" }
+tree-sitter-css = { version = "0.25" }
+tree-sitter-objc = { version = "3" }
+tree-sitter-ocaml = { version = "0.26" }
+tree-sitter-elixir = { version = "0.3" }
+tree-sitter-zig = { version = "1" }
+tree-sitter-elm = { version = "5.9.4" }
+tree-sitter-elisp = { version = "=1.7.2" }
+tree-sitter-embedded-template = { version = "=0.25.0" }
+tree-sitter-solidity = { version = "=1.2.13" }
+tree-sitter-tlaplus = { version = "=1.5.0" }
+arborium-rescript = { version = "=2.18.2" }
+rightkit-repo-graph-grammars = { version = "0.1.0", path = "../rightkit-repo-graph-grammars" }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+unicode-normalization = { version = "0.1" }
+rightkit-embed = { version = "0.6.2", path = "../rightkit-embed" }
+rightkit-onnx = { version = "0.2.9", path = "../rightkit-onnx" }
+rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db" }
+rightkit-file-watch = { version = "0.4.2", path = "../rightkit-file-watch" }
+rightkit-context-core = { version = "0.1.0", path = "../rightkit-context-core" }
+rightkit-context-protocol = { version = "0.1.0", path = "../rightkit-context-protocol" }
 
-[features]
-default = []
+[dev-dependencies]
+tempfile = { version = "3" }
 
 [workspace]
 

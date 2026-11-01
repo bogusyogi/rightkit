@@ -17,7 +17,7 @@ path = "src/lib.rs"
 rightkit-agent-engine-protocol = { version = "0.1.0", path = "../rightkit-agent-engine-protocol" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rightkit-time = { version = "0.1.0", path = "../rightkit-time" }
+rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 
 [workspace]
 

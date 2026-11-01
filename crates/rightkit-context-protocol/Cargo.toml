@@ -14,11 +14,11 @@ name = "rightkit_context_protocol"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-logs = { version = "0.3.6", default-features = false, path = "../rightkit-logs" }
+rightkit-logs = { version = "0.3.7", default-features = false, path = "../rightkit-logs" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 thiserror = { version = "2" }
-rightkit-fs = { version = "0.4.8", features = ["digest"], path = "../rightkit-fs" }
+rightkit-fs = { version = "0.4.9", features = ["digest"], path = "../rightkit-fs" }
 
 [workspace]
 

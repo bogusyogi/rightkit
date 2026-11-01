@@ -1824,7 +1824,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-asr"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "half",
  "hound",
@@ -1857,7 +1857,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "core-foundation",
  "core-graphics",
@@ -1892,7 +1892,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-child-process",
@@ -1978,7 +1978,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ffmpeg"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -1988,7 +1988,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "libc",
  "serde",

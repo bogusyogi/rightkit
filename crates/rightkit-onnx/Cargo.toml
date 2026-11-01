@@ -77,7 +77,7 @@ serde_json = "1.0.154"
 sha2 = "0.11"
 # `catalog` and `provision`: the native-library catalog. `provision` also needs the vetted download and
 # archive extraction.
-rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.12", optional = true }
+rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.13", optional = true }
 rightkit-models = { path = "../rightkit-models", version = "0.5.3", optional = true, default-features = false }
 
 # Platform accelerators. ort rc.15 compiles an execution provider only when its
@@ -108,7 +108,7 @@ required-features = ["provision"]
 
 [dev-dependencies]
 # E2E checks the real runtime file against the approved native-library catalog.
-rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.12" }
+rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.13" }
 # `provision` test fixtures: a tiny zip and tar.gz built in the test, and a scratch directory.
 tempfile = "3"
 tar = "0.4"

@@ -41,7 +41,7 @@ ring = "0.17"
 # Wipes mailbox keys on drop; already in the lock through pulse-core.
 zeroize = "1"
 # Atomic store writes and hex (mailbox/store.rs, caps.rs, util.rs).
-rightkit-fs = { version = "0.4.7", path = "../rightkit-fs", default-features = false, features = ["fs", "digest"] }
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "digest"] }
 # Structured mailbox event lines (mailbox/server.rs, bin/rightkit-mesh-mailbox.rs).
 rightkit-logs = { version = "0.3.7", path = "../rightkit-logs", default-features = false }
 

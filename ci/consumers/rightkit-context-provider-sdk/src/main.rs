@@ -10,8 +10,17 @@ fn check(ok: bool, what: &str) {
 }
 
 fn main() {
-    check(ProviderRegistry::new(Vec::new()).is_ok(), "an empty provider registry is valid");
-    check(!operations_slice().is_empty(), "the operation index is re-exported");
-    check(canonicalize(&serde_json::json!({"z": 0, "a": 1})) == r#"{"a":1,"z":0}"#, "canonical JSON sorts keys");
+    check(
+        ProviderRegistry::new(Vec::new()).is_ok(),
+        "an empty provider registry is valid",
+    );
+    check(
+        !operations_slice().is_empty(),
+        "the operation index is re-exported",
+    );
+    check(
+        canonicalize(&serde_json::json!({"z": 0, "a": 1})) == r#"{"a":1,"z":0}"#,
+        "canonical JSON sorts keys",
+    );
     println!("rightkit-context-provider-sdk consumer: all checks passed");
 }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 (unreleased)
+
+- Feature `agent_hooks`: agent lifecycle hook runner and hook protocol moved from CodeRight `coderight-hooks`.
+- Feature `guard`: module `guard`, the native policy guard moved from Legion's `legion-hook` binary (`dispatch`, `run_cli`, typed `protocol` frames, Codex transport). Host-owned texts and names (session-start context and message, Stop evidence reminder, installed product directory, extra read-only MCP tools, hook name) are declared with `guard::set_guard_host`. Configuration comes from `RIGHTKIT_NATIVE_APPLICATION_CONFIG` and `RIGHTKIT_SOURCE_REVISION`.
+- Default features and the existing API are unchanged.
+
 ## 0.2.0 (2026-10-17)
 
 - `compose_reply` keeps a notice-only reply: a `systemMessage` with no decision and no context prints `{"systemMessage": ...}` instead of nothing.

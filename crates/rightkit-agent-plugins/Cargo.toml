@@ -15,7 +15,7 @@ path = "src/lib.rs"
 
 [dependencies]
 rightkit-sandbox = {version = "0.6.2", path = "../rightkit-sandbox", features = ["execution"]}
-rightkit-fs = {version = "0.4.8", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs"}
+rightkit-fs = {version = "0.4.9", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs"}
 rightkit-child-process = {version = "0.5.7", features = ["tokio"], path = "../rightkit-child-process"}
 serde = {version = "1", features = ["derive"]}
 serde_json = {version = "1"}

@@ -27,14 +27,14 @@ rightkit-dictation-text-pipeline = { version = "0.1.0", path = "../rightkit-dict
 rightkit-dictation-inference = { version = "0.1.0", path = "../rightkit-dictation-inference" }
 rightkit-dictation-command-host = { version = "0.1.0", path = "../rightkit-dictation-command-host" }
 rightkit-dictation-runtime = { version = "0.1.0", path = "../rightkit-dictation-runtime" }
-rightkit-daemon = { version = "0.5.0", default-features = false, path = "../rightkit-daemon" }
+rightkit-daemon = { version = "0.5.1", default-features = false, path = "../rightkit-daemon" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 anyhow = { version = "1" }
 
 [dev-dependencies]
 rightkit-dictation-models = { version = "0.1.0", path = "../rightkit-dictation-models" }
-rightkit-automation = { version = "0.6.3", path = "../rightkit-automation", features = ["desktop-context"] }
+rightkit-automation = { version = "0.6.4", path = "../rightkit-automation", features = ["desktop-context"] }
 rightkit-job-queue = { version = "0.5.1", default-features = false, features = ["supervisor"], path = "../rightkit-job-queue" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 libc = { version = "0.2" }
@@ -44,7 +44,7 @@ rightkit-speech-client = { version = "0.4.1", path = "../rightkit-speech-client"
 chrono = { version = "0.4" }
 rightkit-audio = { version = "0.3.1", default-features = false, features = ["capture"], path = "../rightkit-audio" }
 libloading = { version = "0.9" }
-rightkit-onnx = { version = "0.2.8", default-features = false, features = ["session"], path = "../rightkit-onnx" }
+rightkit-onnx = { version = "0.2.9", default-features = false, features = ["session"], path = "../rightkit-onnx" }
 
 
 [[example]]

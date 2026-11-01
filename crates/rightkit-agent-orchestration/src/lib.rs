@@ -7,6 +7,8 @@ pub(crate) fn hex_digest(bytes: &[u8]) -> String {
 }
 
 pub mod budget;
+#[cfg(feature = "coding")]
+pub mod coding;
 pub mod delivery;
 pub mod engine;
 pub mod error;

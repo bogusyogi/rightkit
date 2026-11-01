@@ -698,7 +698,7 @@
       "pkId": "PK01",
       "id": "ci/consumers/rightkit-fs/src/main.rs",
       "files": {
-        "Cargo.toml": "252c3f4a88ebd508a79c98aa173d727782668534b088b9e62394d3dccbc625d5",
+        "Cargo.toml": "63e2bbd4849b297c5d5a79576973f6e3ecc3cfd76639c1dda606fee0cdf7c997",
         "README.md": "1e8c1f28c4b7e9d594c89bf23b6881c9b51a3d226091823cda07971d3e3da1bf",
         "src/main.rs": "3c0690a863a9bc587ff49a4b6805e2ce05764ca03133f97dd16d723538513208"
       }
@@ -876,7 +876,7 @@
       "gateEvidence": "ffmpeg is never resolved, verified or run; no assets needed; the embedded catalog is parsed only. Default feature native stays on (no extra gate row needed for pure items)",
       "consumes": "motion dependency (PK19 proposal; rightkit-motion encode feature uses rightkit-ffmpeg =0.2.9 per PROPOSAL.txt:157); rightkit-ffmpeg public items used: lib.rs pcm_s16le_16khz_mono_args (src/lib.rs ~1136), command::extract_args and command::transcode_audio_command (src/command.rs:220,276), encoders::EncoderInventory::parse and pick_h264 (src/encoders.rs:115,203), ArtifactCatalog::embedded and parse (src/lib.rs:237-245), MediaError (src/lib.rs:628)",
       "files": {
-        "Cargo.toml": "18f08d8594c44ab07b49fa89e6ed6b7dd5dae637cd86a5c1a79f8c5c6d8a8cfd",
+        "Cargo.toml": "fd905762190ad1bad5e63807e56728e9562b5d0b67d6ae97a186099f202ae1b0",
         "README.md": "6c8c8889252efa82ac7ee302918bb288591aac87b52e9ca808910e699ac42dfd",
         "src/main.rs": "fcd2cf237f28083e92e235c0682df4a8cabe260a57df6320c65e707c2da38820"
       },
@@ -940,7 +940,7 @@
       "pkId": "PK15",
       "id": "ci/consumers/rightkit-automation/src/main.rs",
       "files": {
-        "Cargo.toml": "c1d9510f664f889b0cb760919ba2c0dfc22ac8308b1113a976a43b2265949c8f",
+        "Cargo.toml": "f471793998c1359b821422cbf63e783fb75d42d1128583debdd9516fb52a24d6",
         "README.md": "7e6256207f36119308357bc0ace7a3b0f9a696e92dcad2859597ca77188b9bbd",
         "src/main.rs": "0dc6091e9811e1daac8b41a2d6fa4c2e214f11bb6b9f2227547fcc1789cc4754"
       }
@@ -1071,7 +1071,7 @@
         "serde_json = \"1\""
       ],
       "files": {
-        "Cargo.toml": "cbfa1939b8f35c88d9b4e5e95fc8d1d9a0f3ddb725ea205b4f139356277a482c",
+        "Cargo.toml": "1307dcac65f6c21319f6aaf412a650643cfb609d4f1425ea0214dd7b50368f15",
         "README.md": "5e12707d11b0b88c7f82541808ee5260136e5aad4ec3a74bfb958568988e73e0",
         "src/main.rs": "77a1fdae68ad0faca0ff96168d26c4a24ebcc33100724b4db7443408ecbae07e"
       },
@@ -1116,7 +1116,7 @@
       "gateEvidence": "per-run private temp suites removed on drop; local current-user IPC to same process for PK07 R2; no TCP or real user data",
       "consumes": "PK07 named consumers per docs/plans/2026-10-20-rightkit-implementation/01-packages.md: HeardRight and ScrapeRight data-folder move; Pulse migrated_app_root() retirement (PK07-3); CutoverParticipant surface at crates/rightkit-daemon/src/root_cutover.rs:231; PK07 R2 Service builder/local host, Client::connect_expecting, echo, method/app denial & executable mismatch",
       "files": {
-        "Cargo.toml": "29099a1d12ec0668542a3d0057b6b29a310e95e52f0660b2167ecd88bf762bcd",
+        "Cargo.toml": "e2d0b60d50a16dd50d0fc98842c6219b482f85f2c22384de4c04a253726b74f8",
         "README.md": "c8089bb550515c35b36ec6d5c496a0ad1e889add6111ae86ea1adcb7b6d55fff",
         "src/main.rs": "120b5b7a5d097644a630f3ba038140f2e9a9442556f6a8235918dbe8be979827"
       },
@@ -1486,7 +1486,7 @@
       "files": {
         "Cargo.toml": "da6f01c69877c798b48b67da964684388cc293b33522deca2991613085e0daa3",
         "README.md": "c3748246bcfa54dc359f4b19f7fa90edf3c8600f6ebd564b787015be470b2aa4",
-        "src/main.rs": "8939d529cd52d101650bf69752f699dae1d57bddda26267336178de92df0727b"
+        "src/main.rs": "382533804f513a27677da4c5f9ad5cc1f9313b0e8e6db7f7ca2e3bb4961d05be"
       }
     },
     "rightkit-transcript": {
@@ -2360,6 +2360,60 @@
         "Cargo.toml": "b3735f666da15cc8c9c170b0d43fc97b55758e4daa19de1d8c6e5053141204f0",
         "README.md": "824788d5f7b74a5a19054d5a2ab2c5234702afe101831f6d75392ff782c48421",
         "src/main.rs": "2a262fbf0631f74ba58cb807603c494ca87e3828d4d4985ab2bbe875fd699b81"
+      }
+    },
+    "rightkit-agent-engine-core": {
+      "pkId": "PK154",
+      "id": "ci/consumers/rightkit-agent-engine-core/src/main.rs",
+      "files": {
+        "Cargo.toml": "725f179666c20877f6a9019f4c297e882ce9567bafa51c4385776de537d2b69b",
+        "README.md": "fec1f84333d677725e9c5f37281264f6e94f98573a36c1c71bd61f3af940d318",
+        "src/main.rs": "02b9514066b4ac2d5bc5f6a2b43592073330373b8e14d3f06046ca2422c18da8"
+      }
+    },
+    "rightkit-agent-engine-mobile-runtime": {
+      "pkId": "PK155",
+      "id": "ci/consumers/rightkit-agent-engine-mobile-runtime/src/main.rs",
+      "files": {
+        "Cargo.toml": "ae18c0c541163e3c8b374d00d5439890bc14b864ae28d76e306df00664801149",
+        "README.md": "f17ba8cec47b768bdcb4a3b33b3d66d079b337a8d15a6d8f2395e56d89a152fd",
+        "src/main.rs": "fddaf293530f847e22b223976664f3e5be4ccff6ccdaf7fc296d6026287e9f92"
+      }
+    },
+    "rightkit-agent-host-traits": {
+      "pkId": "PK156",
+      "id": "ci/consumers/rightkit-agent-host-traits/src/main.rs",
+      "files": {
+        "Cargo.toml": "45f32a76ae7ce73da6effb7de67be3a652586f79832e216511ed88036e15245a",
+        "README.md": "0a2b6fa4150c7c1b7aba6d74ee7cc2fc681955c82fcd9a8c02cbc4bfd6b9c7ee",
+        "src/main.rs": "482c0be836ad062e0927d34f055d1d8e060eea3fe0afc69c4223056aa9d5a9a8"
+      }
+    },
+    "rightkit-code-audit-commands": {
+      "pkId": "PK157",
+      "id": "ci/consumers/rightkit-code-audit-commands/src/main.rs",
+      "files": {
+        "Cargo.toml": "512f36b109b3b9b8088325af80fed5fcecdfba529949843d0cdf8b1e29ea1765",
+        "README.md": "160612f1d8c07622568b6e92d81d774cbc802c02fdde11423de203faea986f6d",
+        "src/main.rs": "48832600fb80929db2569c0b5427b329635da9c36a72e4395beb7092682fa9ca"
+      }
+    },
+    "rightkit-evidence-application": {
+      "pkId": "PK158",
+      "id": "ci/consumers/rightkit-evidence-application/src/main.rs",
+      "files": {
+        "Cargo.toml": "ccb2f57628179c759a20d1e206d5a6ee50c179878ae42318f64bc9e7164668c0",
+        "README.md": "4f0a90a1ad4c12a681f0508f8a0dc1fe33f1606729c6147462c991b75ccb7c03",
+        "src/main.rs": "f831e4a1a77f77a8cc409589b37954e79f9e7cd2e24eafb4627cbc64c3496677"
+      }
+    },
+    "rightkit-evidence-commands": {
+      "pkId": "PK159",
+      "id": "ci/consumers/rightkit-evidence-commands/src/main.rs",
+      "files": {
+        "Cargo.toml": "31a41cbbdfe1d3e72cc687bc9236874ac541cdefd705d1d6664e7d1892db6732",
+        "README.md": "710d657261e186431a26ecdca482947fd67525a64737c99ebe6ef24a90b45d37",
+        "src/main.rs": "916f09d569e886ca00e90b7bea4c80dd95b2e3149b5dbfbb3246af486cdedd5b"
       }
     }
   }

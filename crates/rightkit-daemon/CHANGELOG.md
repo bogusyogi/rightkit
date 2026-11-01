@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1 (unreleased)
+
+- Features `agent_daemon_core` (source-trust authority, daemon discovery) and `agent_daemon_runtime` moved from CodeRight `coderight-daemon-core` and `coderight-daemon-runtime`.
+
 ## Unreleased (rightkit#1222)
 
 - Added: `event_log` module, moved from the Pulse engine: `EventLog` (`push`, `poll(after, topics, wait)`, `close`), a bounded (512 events, 4 MiB) log of recent service events with process-unique sequence numbers and bounded waits, for clients that poll instead of streaming. Additive.

@@ -91,9 +91,31 @@
       ]
     },
     {
+      "package": "rightkit-agent-engine-core",
+      "capability": "agent-engine",
+      "summary": "Agent engine core: the agent turn loop, tool dispatch, permission and approval flow, compaction, goals, guardian and worker agents; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-agent-engine-history",
       "capability": "agent-history",
       "summary": "Agent engine conversation history store helpers; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-agent-engine-mobile-runtime",
+      "capability": "agent-mobile-runtime",
+      "summary": "Agent engine mobile runtime: in-process engine host for platforms without fork/exec (iOS), with journal, FFI-friendly session API and portable tool profile; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
@@ -149,6 +171,17 @@
       "package": "rightkit-agent-engine-tasks",
       "capability": "agent-tasks",
       "summary": "Agent engine task model: task records, states and transitions for agent hosts; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-agent-host-traits",
+      "capability": "agent-host-traits",
+      "summary": "Host traits for agent runtimes: a skill catalog the host implements and installs; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
@@ -900,6 +933,17 @@
       ]
     },
     {
+      "package": "rightkit-code-audit-commands",
+      "capability": "code-audit-commands",
+      "summary": "Code audit command logic; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-code-audit-provider-sdk",
       "capability": "code-audit-provider-sdk",
       "summary": "Code audit provider SDK: provider registry, source and effect interfaces for audit providers; declaration-only detection (no precise implementation fingerprint)",
@@ -1648,6 +1692,28 @@
       "package": "rightkit-evidence",
       "capability": "evidence",
       "summary": "Evidence and spec records: requirement specs, acceptance evidence and verification status for agent work; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-evidence-application",
+      "capability": "evidence-application",
+      "summary": "In-process evidence application composition; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-evidence-commands",
+      "capability": "evidence-commands",
+      "summary": "Evidence and run command logic; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
@@ -3533,7 +3599,7 @@
     {
       "package": "rightkit-repo-graph",
       "capability": "repo-graph",
-      "summary": "Repository skeletonization: compact structural outlines of source files for agent context; declaration-only detection (no precise implementation fingerprint)",
+      "summary": "Repository code graph: tree-sitter extraction across 30+ languages, symbol/reference graph store, freshness tracking, watch and query.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

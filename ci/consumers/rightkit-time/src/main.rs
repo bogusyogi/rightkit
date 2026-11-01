@@ -280,8 +280,12 @@ fn http_dates() {
 }
 
 fn zones_and_stamps() {
-    let utc = rightkit_time::zones::to_utc("Asia/Kolkata", "2026-01-01T05:30", None).expect("tabled zone");
-    assert_eq!(rightkit_time::zones::format_instant(utc), "2026-01-01T00:00:00Z");
+    let utc = rightkit_time::zones::to_utc("Asia/Kolkata", "2026-01-01T05:30", None)
+        .expect("tabled zone");
+    assert_eq!(
+        rightkit_time::zones::format_instant(utc),
+        "2026-01-01T00:00:00Z"
+    );
     assert!(rightkit_time::zones::to_utc("Mars/Base", "2026-01-01T00:00", None).is_err());
     assert_eq!(rightkit_time::stamp::compact().len(), 16);
 }

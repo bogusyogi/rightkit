@@ -14,7 +14,7 @@ name = "rightkit_agent_engine_runtime_middleware"
 path = "src/lib.rs"
 
 [dependencies]
-rightkit-fs = { version = "0.4.8", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs" }
+rightkit-fs = { version = "0.4.9", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 tracing = { version = "0.1" }

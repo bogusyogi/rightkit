@@ -22,8 +22,8 @@ rightkit-media-gen = { version = "0.1.0", path = "../rightkit-media-gen" }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-contracts = { version = "0.1.8", path = "../rightkit-contracts" }
-rightkit-daemon = { version = "0.5.0", path = "../rightkit-daemon" }
-rightkit-fs = { version = "0.4.8", default-features = false, features = ["fs", "lock", "digest", "app-dirs"], path = "../rightkit-fs" }
+rightkit-daemon = { version = "0.5.1", path = "../rightkit-daemon" }
+rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "lock", "digest", "app-dirs"], path = "../rightkit-fs" }
 
 [dev-dependencies]
 ctor = { version = "1.0" }

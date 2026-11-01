@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-ffmpeg"
-version = "0.2.12"
+version = "0.2.13"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines."
@@ -24,8 +24,8 @@ dev-overrides = []
 agent_media = ["dep:rightkit-agent-policy", "dep:rightkit-ocr", "dep:tokio"]
 
 [dependencies]
-rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }
-rightkit-child-process = { path = "../rightkit-child-process", version = "0.5.0" }
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }
+rightkit-child-process = { path = "../rightkit-child-process", version = "0.5.7" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 rightkit-agent-policy = {version = "0.1.0", path = "../rightkit-agent-policy", optional = true}

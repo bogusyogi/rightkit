@@ -21,14 +21,14 @@ rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-cor
 rightkit-text-polish = { version = "0.1.0", path = "../rightkit-text-polish" }
 rightkit-voice-commands = { version = "0.1.0", path = "../rightkit-voice-commands" }
 rightkit-transcript-library = { version = "0.1.0", path = "../rightkit-transcript-library" }
-rightkit-automation = { version = "0.6.3", path = "../rightkit-automation", features = ["desktop-context"] }
-rightkit-credentials = { version = "0.4.2", path = "../rightkit-credentials" }
+rightkit-automation = { version = "0.6.4", path = "../rightkit-automation", features = ["desktop-context"] }
+rightkit-credentials = { version = "0.4.3", path = "../rightkit-credentials" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 tracing = { version = "0.1" }
-rightkit-llm = { version = "0.3.1", path = "../rightkit-llm" }
-rightkit-fs = { version = "0.4.8", default-features = false, features = ["fs"], path = "../rightkit-fs" }
-rightkit-logs = { version = "0.3.6", default-features = false, path = "../rightkit-logs" }
+rightkit-llm = { version = "0.3.2", path = "../rightkit-llm" }
+rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs"], path = "../rightkit-fs" }
+rightkit-logs = { version = "0.3.7", default-features = false, path = "../rightkit-logs" }
 parking_lot = { version = "0.13" }
 chrono = { version = "0.4" }
 iana-time-zone = { version = "0.1" }

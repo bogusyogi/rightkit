@@ -24,14 +24,18 @@ assemble = ["dep:image"]
 # Render and encode: the `FrameSource` driver, encoder pick, ProRes 4444 / VP9 alpha, PNG to PPM/PAM and stills.
 # Runs ffmpeg through `rightkit-ffmpeg` (owned child process); PNG decode uses `image`.
 encode = ["dep:rightkit-ffmpeg", "dep:image"]
+# Loopback HTTP host for an HTML composition project (`project_server`): serves the project, injects the
+# deterministic runtime and swaps remote GSAP for a caller-supplied copy. Adds `rightkit-http` (path decoding).
+server = ["dep:rightkit-http"]
 
 [dependencies]
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 thiserror = "2"
-rightkit-ffmpeg = { version = "0.2.12", path = "../rightkit-ffmpeg", default-features = false, optional = true }
+rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg", default-features = false, optional = true }
 image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+rightkit-http = { version = "0.3.9", path = "../rightkit-http", default-features = false, optional = true }
 
 [dev-dependencies]
 tempfile = "3"

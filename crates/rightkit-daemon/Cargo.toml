@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-daemon"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist."
@@ -13,8 +13,8 @@ include = ["src/**", "schemas/**", "tests/**", "README.md", "CHANGELOG.md", "LIC
 rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-rightkit-fs = { version = "0.4.6", path = "../rightkit-fs", default-features = false, features = ["fs", "transaction"] }
-rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "transaction"] }
+rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 # Private per-run child service (`private`): constant-time secret check and the secret itself.
 subtle = "2.6"
 getrandom = "0.4"
@@ -27,7 +27,7 @@ form_urlencoded = { version = "1", optional = true }
 ring = { version = "0.17", optional = true }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
 # `remote` only.
-rightkit-contracts = { version = "0.1.5", path = "../rightkit-contracts", default-features = false, optional = true }
+rightkit-contracts = { version = "0.1.8", path = "../rightkit-contracts", default-features = false, optional = true }
 rightkit-oauth = { version = "0.10.0", path = "../rightkit-oauth", default-features = false, features = ["server"], optional = true }
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio"], optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util"], optional = true }
@@ -40,6 +40,8 @@ tempfile = { version = "3", optional = true }
 
 # Windows named pipes with a current-user-only DACL. cfg(windows) only: this
 # backend compiles on the Windows host (see API.md for the exact command).
+rightkit-agent-engine-protocol = {version = "0.1.0", path = "../rightkit-agent-engine-protocol", optional = true}
+async-trait = {version = "0.1", optional = true}
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
   "Win32_Foundation",
@@ -89,6 +91,8 @@ testing = ["remote", "dep:rcgen", "dep:tempfile"]
 # `RIGHTKIT-TEST-MODE-COMPILED` marker). Off by default. Apps expose their own `test-mode` feature that
 # enables it, only from qa-native/dev-native; `@rightkit/release` refuses a release build that has it.
 test-mode = ["rightkit-fs/test-mode"]
+agent_daemon_core = ["dep:axum", "dep:rightkit-agent-engine-protocol"]
+agent_daemon_runtime = ["dep:async-trait", "dep:tokio", "tokio/rt"]
 
 [[bench]]
 name = "budget"
@@ -157,9 +161,9 @@ required-features = ["testing"]
 
 [dev-dependencies]
 tempfile = "3"
-rightkit-contracts = { version = "0.1.5", path = "../rightkit-contracts", features = ["schema"] }
+rightkit-contracts = { version = "0.1.8", path = "../rightkit-contracts", features = ["schema"] }
 tower = { version = "0.5", features = ["util"] }
-rightkit-http = { version = "0.3.0", path = "../rightkit-http", features = ["testing"] }
+rightkit-http = { version = "0.3.9", path = "../rightkit-http", features = ["testing"] }
 
 # One Cargo workspace and lock per crate (rightkit#1285).
 [workspace]

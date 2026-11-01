@@ -21,8 +21,8 @@ test-mode = ["rightkit-dictation-core/test-mode"]
 rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core" }
 rightkit-dictation-telemetry = { version = "0.1.0", path = "../rightkit-dictation-telemetry" }
 rightkit-transcript-library = { version = "0.1.0", path = "../rightkit-transcript-library" }
-rightkit-models = { version = "0.5.2", path = "../rightkit-models" }
-rightkit-fs = { version = "0.4.8", default-features = false, features = ["fs", "digest"], path = "../rightkit-fs" }
+rightkit-models = { version = "0.5.3", path = "../rightkit-models" }
+rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "digest"], path = "../rightkit-fs" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
@@ -34,7 +34,7 @@ rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-cor
 tempfile = { version = "3" }
 flate2 = { version = "1" }
 tar = { version = "0.4" }
-rightkit-models = { version = "0.5.2", features = ["test-mode"], path = "../rightkit-models" }
+rightkit-models = { version = "0.5.3", features = ["test-mode"], path = "../rightkit-models" }
 
 [workspace]
 

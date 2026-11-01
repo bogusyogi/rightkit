@@ -20,17 +20,17 @@ name = "rightkit-record-helper"
 path = "src/bin/rightkit-record-helper/main.rs"
 
 [dependencies]
-rightkit-contracts = { version = "0.1.5", path = "../rightkit-contracts" }
+rightkit-contracts = { version = "0.1.8", path = "../rightkit-contracts" }
 rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 blake3 = "1.8"
 hmac-sha256 = "1.1.15"
-rightkit-credentials = { version = "0.4.0", path = "../rightkit-credentials" }
+rightkit-credentials = { version = "0.4.3", path = "../rightkit-credentials" }
 
 # The macOS backend launches its Swift helper through rightkit-child-process.
 [target.'cfg(target_os = "macos")'.dependencies]
-rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
+rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 
 # WGC + Media Foundation capture; folded in from the retired helpers/record-windows (RK3).
 [target.'cfg(windows)'.dependencies]

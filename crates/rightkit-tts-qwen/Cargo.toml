@@ -39,7 +39,7 @@ webgpu = ["rightkit-onnx/webgpu"]
 xnnpack = ["rightkit-onnx/xnnpack"]
 
 [dependencies]
-rightkit-tts-qwen-sys = { path = "../rightkit-tts-qwen-sys", version = "0.1.0", default-features = false }
+rightkit-tts-qwen-sys = { path = "../rightkit-tts-qwen-sys", version = "0.1.2", default-features = false }
 thiserror = "2"
 getrandom = "0.4"
 hound = "3.5.1"

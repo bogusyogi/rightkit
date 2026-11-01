@@ -14,15 +14,25 @@ fn check(ok: bool, what: &str) {
 
 fn main() {
     let now = 10_000.0;
-    check(rental::rental_due(&json!({}), now).is_none(), "no limits, never due");
+    check(
+        rental::rental_due(&json!({}), now).is_none(),
+        "no limits, never due",
+    );
     let long = json!({"rental": {"rented_at_epoch": 1000.0, "max_duration_min": 60.0}});
     check(
-        matches!(rental::rental_due(&long, now), Some(rental::Reason::Duration)),
+        matches!(
+            rental::rental_due(&long, now),
+            Some(rental::Reason::Duration)
+        ),
         "duration limit due",
     );
-    let pricey = json!({"rental": {"rented_at_epoch": 1000.0, "dph_total": 10.0, "reserved_usd": 1.0}});
+    let pricey =
+        json!({"rental": {"rented_at_epoch": 1000.0, "dph_total": 10.0, "reserved_usd": 1.0}});
     check(
-        matches!(rental::rental_due(&pricey, now), Some(rental::Reason::Budget)),
+        matches!(
+            rental::rental_due(&pricey, now),
+            Some(rental::Reason::Budget)
+        ),
         "budget limit due",
     );
     check(

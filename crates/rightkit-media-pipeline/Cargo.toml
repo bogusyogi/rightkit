@@ -30,10 +30,10 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 time = { version = "0.3", features = ["formatting", "macros"] }
 rightkit-audio = { version = "0.3.1", default-features = false, path = "../rightkit-audio" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
-rightkit-ffmpeg = { version = "0.2.11", path = "../rightkit-ffmpeg" }
-rightkit-fs = { version = "0.4.8", default-features = false, features = ["fs", "lock", "digest", "app-dirs"], path = "../rightkit-fs" }
-rightkit-logs = { version = "0.3.6", default-features = false, path = "../rightkit-logs" }
-rightkit-models = { version = "0.5.2", path = "../rightkit-models" }
+rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg" }
+rightkit-fs = { version = "0.4.9", default-features = false, features = ["fs", "lock", "digest", "app-dirs"], path = "../rightkit-fs" }
+rightkit-logs = { version = "0.3.7", default-features = false, path = "../rightkit-logs" }
+rightkit-models = { version = "0.5.3", path = "../rightkit-models" }
 rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
 rightkit-browser = { version = "0.3.7", path = "../rightkit-browser", optional = true }
 rightkit-motion = { version = "0.2.0", default-features = false, features = ["encode", "server"], path = "../rightkit-motion", optional = true }
@@ -42,7 +42,7 @@ serde = { version = "1.0", features = ["derive"], optional = true }
 
 [dev-dependencies]
 ctor = { version = "1.0" }
-rightkit-models = { version = "0.5.2", features = ["test-mode"], path = "../rightkit-models" }
+rightkit-models = { version = "0.5.3", features = ["test-mode"], path = "../rightkit-models" }
 
 [workspace]
 

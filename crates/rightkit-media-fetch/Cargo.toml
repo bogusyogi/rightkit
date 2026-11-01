@@ -17,7 +17,7 @@ path = "src/lib.rs"
 serde = { version = "1", features = ["derive"] }
 url = { version = "2.5.8" }
 rightkit-http = { version = "0.3.9", default-features = false, path = "../rightkit-http" }
-rightkit-ffmpeg = { version = "0.2.11", path = "../rightkit-ffmpeg" }
+rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 [dev-dependencies]
 tempfile = { version = "3.27.0" }

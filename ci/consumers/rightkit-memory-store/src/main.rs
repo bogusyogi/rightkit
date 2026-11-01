@@ -12,9 +12,15 @@ fn check(ok: bool, what: &str) {
 fn main() {
     let _db = MemDb::open_in_memory();
     println!("ok: an in-memory store opens");
-    let dir = std::env::temp_dir().join(format!("rightkit-memory-store-consumer-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "rightkit-memory-store-consumer-{}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).expect("temp dir");
-    check(MemDb::open(dir.join("memory.db")).is_ok(), "a file store opens under the temp directory");
+    check(
+        MemDb::open(dir.join("memory.db")).is_ok(),
+        "a file store opens under the temp directory",
+    );
     let _ = std::fs::remove_dir_all(&dir);
     println!("rightkit-memory-store consumer: all checks passed");
 }

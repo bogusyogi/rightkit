@@ -20,11 +20,11 @@ tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["rt", "sync", "time", "net", "io-util", "macros"] }
 url = "2"
-rightkit-child-process = { path = "../rightkit-child-process", version = "0.5.0" }
+rightkit-child-process = { path = "../rightkit-child-process", version = "0.5.7" }
 sha2 = "0.11"
 # Installer (feature `install`): vetted download via rightkit-models, SHA-256 + lock via rightkit-fs, zip extraction.
 rightkit-models = { path = "../rightkit-models", version = "0.5.3", default-features = false, optional = true }
-rightkit-fs = { path = "../rightkit-fs", version = "0.4.3", default-features = false, features = ["digest", "lock"], optional = true }
+rightkit-fs = { path = "../rightkit-fs", version = "0.4.9", default-features = false, features = ["digest", "lock"], optional = true }
 zip = { version = "9", default-features = false, features = ["deflate"], optional = true }
 
 [target.'cfg(any(target_os = "macos", windows))'.dependencies]
@@ -47,7 +47,7 @@ cookie-export = ["dep:rightkit-fs"]
 # `#[tokio::test(flavor = "multi_thread")]` in the e2e tests; production code needs no multi-thread runtime.
 tokio = { version = "1", features = ["rt-multi-thread"] }
 # `atomic::seams` write-failure injection for the cookie-export publish-failure test (test builds only).
-rightkit-fs = { path = "../rightkit-fs", version = "0.4.3", default-features = false, features = ["test-seams"] }
+rightkit-fs = { path = "../rightkit-fs", version = "0.4.9", default-features = false, features = ["test-seams"] }
 
 [package.metadata.rightkit]
 continuous = "held-resource"

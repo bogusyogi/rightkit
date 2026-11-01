@@ -20,9 +20,9 @@ blake3 = "1.8.7"
 getrandom = "0.4"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-rightkit-fs = {version = "0.4.8", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs", optional = true}
+rightkit-fs = {version = "0.4.9", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs", optional = true}
 rightkit-crypto = {version = "0.1.0", path = "../rightkit-crypto", optional = true}
-rightkit-time = {version = "0.1.0", path = "../rightkit-time", optional = true}
+rightkit-time = {version = "0.1.1", path = "../rightkit-time", optional = true}
 serde_yaml = {version = "0.9", optional = true}
 thiserror = {version = "2", optional = true}
 tracing = {version = "0.1", optional = true}

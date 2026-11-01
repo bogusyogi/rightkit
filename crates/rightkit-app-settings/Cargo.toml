@@ -21,23 +21,23 @@ agent_config-test-mode = ["agent_config", "rightkit-daemon/test-mode"]
 agent_config = ["dep:rightkit-daemon", "dep:rightkit-agent-policy", "dep:toml", "dep:dirs", "rightkit-fs/lock", "rightkit-fs/json", "rightkit-fs/digest", "rightkit-fs/transaction"]
 
 [dependencies]
-rightkit-db = { version = "0.5.0", path = "../rightkit-db", default-features = false, optional = true }
+rightkit-db = { version = "0.5.3", path = "../rightkit-db", default-features = false, optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["raw_value"] }
 thiserror = "2"
-rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
-rightkit-daemon = {version = "0.6.0", default-features = false, features = ["local"], path = "../rightkit-daemon", optional = true}
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs"] }
+rightkit-daemon = {version = "0.5.1", default-features = false, features = ["local"], path = "../rightkit-daemon", optional = true}
 rightkit-agent-policy = {version = "0.1.0", path = "../rightkit-agent-policy", optional = true}
 toml = {version = "1.1", optional = true}
 dirs = {version = "7", optional = true}
 
 [dev-dependencies]
 tempfile = "3"
-rightkit-db = { version = "0.5.0", path = "../rightkit-db", default-features = false, features = ["bundled"] }
+rightkit-db = { version = "0.5.3", path = "../rightkit-db", default-features = false, features = ["bundled"] }
 # Fault hook around the replace call (debug and test builds only): proves the configured replace
 # mode and flags reach the platform call.
-rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs", "testing"] }
-rightkit-daemon = {version = "0.6.0", default-features = false, features = ["local", "test-mode"], path = "../rightkit-daemon"}
+rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "testing"] }
+rightkit-daemon = {version = "0.5.1", default-features = false, features = ["local", "test-mode"], path = "../rightkit-daemon"}
 
 [package.metadata.rightkit]
 continuous = false
