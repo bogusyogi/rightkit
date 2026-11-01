@@ -5,7 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { cargoRecipe, nativeFixture, planRuns, parseRuns, executeRuns, cargoRunArgs, NATIVE_HELPER, planNativeHelper, stageNativeHelper, nativeHelperExecute } from "./consumer-recipes.mjs";
-const unit = { name: "rightkit-logs", version: "0.3.6" };
+const crateVersion = (name) => /^version\s*=\s*"([^"]+)"/m.exec(fs.readFileSync(new URL(`../../crates/${name}/Cargo.toml`, import.meta.url), "utf8"))[1];
+// The committed recipes pin the crate's current version; the fixture follows it.
+const unit = { name: "rightkit-logs", version: crateVersion("rightkit-logs") };
 const committedRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 // Committed recipes pin each crate's current version; read it from the manifest so a version bump never breaks these tests.
@@ -22,7 +24,7 @@ test("PK identity binds executable source, every file, exact dependency & select
   const { root, dir } = fixture(t); const recipe = cargoRecipe({ root, unit });
   assert.equal(recipe.evidence.id, "ci/consumers/rightkit-logs/src/main.rs");
   assert.equal(recipe.evidence.pkId, "PK11");
-  assert.deepEqual(recipe.evidence.dependency, { name: unit.name, version: "=0.3.6", defaultFeatures: false, features: [] });
+  assert.deepEqual(recipe.evidence.dependency, { name: unit.name, version: `=${unit.version}`, defaultFeatures: false, features: [] });
   assert.equal(Object.keys(recipe.evidence.files).length, 2);
   fs.appendFileSync(path.join(dir, "src/main.rs"), "// changed API prescription\n"); assert.throws(() => cargoRecipe({ root, unit }), /differs from reviewed PK11 inventory/);
 });
