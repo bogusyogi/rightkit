@@ -22,8 +22,8 @@ serde_json = { version = "1.0.154", features = ["preserve_order"] }
 sha2 = { version = "0.11.1" }
 hex = { version = "0.4.3" }
 regex = { version = "1.13.1" }
-thiserror = { version = "2.0.20" }
-tokio = { version = "1.53.3", features = ["full"] }
+thiserror = { version = "2.0.21" }
+tokio = { version = "1.54.1", features = ["full"] }
 tokio-util = { version = "0.7.20", features = ["rt"] }
 toml = { version = "1.1", optional = true }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto", optional = true }

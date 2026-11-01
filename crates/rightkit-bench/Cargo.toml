@@ -19,7 +19,7 @@ default = []
 sqlite = ["dep:rightkit-db"]
 
 [dependencies]
-scraper = { version = "0.27" }
+scraper = { version = "0.29" }
 serde = { version = "1.0.229", features = ["derive"] }
 rightkit-db = { version = "0.5.3", optional = true, path = "../rightkit-db" }
 [dev-dependencies]

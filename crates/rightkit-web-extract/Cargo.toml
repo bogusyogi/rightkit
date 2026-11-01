@@ -20,7 +20,7 @@ transport = ["dep:rightkit-http"]
 [dependencies]
 rightkit-http = { version = "0.3.10", path = "../rightkit-http", optional = true }
 regex = { version = "1.13.1" }
-scraper = { version = "0.27" }
+scraper = { version = "0.29" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154" }
 libloading = { version = "0.9" }

@@ -28,7 +28,7 @@ thiserror = "2"
 hound = "3"
 cpal = { version = "0.18.2", optional = true }
 rubato = { version = "5.0.1", optional = true }
-ringbuf = { version = "0.5", optional = true }
+ringbuf = { version = "0.6", optional = true }
 tracing = { version = "0.1", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -44,7 +44,7 @@ windows = { version = "0.62.2", optional = true, features = [
   "Win32_System_Power",
   "Win32_UI_WindowsAndMessaging",
 ] }
-windows-core = { version = "0.62.2", optional = true }
+windows-core = { version = "0.100.0", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

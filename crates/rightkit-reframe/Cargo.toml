@@ -30,7 +30,7 @@ rightkit-onnx = { version = "0.2.9", path = "../rightkit-onnx" }
 
 [dev-dependencies]
 rightkit-ffmpeg = { version = "0.2.13", default-features = false, features = ["dev-overrides"], path = "../rightkit-ffmpeg" }
-sha2 = { version = "0.10" }
+sha2 = { version = "0.11" }
 tempfile = { version = "3" }
 
 [workspace]

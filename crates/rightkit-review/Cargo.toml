@@ -29,8 +29,8 @@ rightkit-code-audit-provider-sdk = { version = "0.1.0", path = "../rightkit-code
 regex = { version = "1.13.1", optional = true }
 sha2 = { version = "0.11.1", optional = true }
 hex = { version = "0.4.3", optional = true }
-thiserror = { version = "2.0.20", optional = true }
-icu_normalizer = { version = "2.3.0", default-features = false, features = ["compiled_data"], optional = true }
+thiserror = { version = "2.0.21", optional = true }
+icu_normalizer = { version = "2.4.0", default-features = false, features = ["compiled_data"], optional = true }
 
 [package.metadata.rightkit]
 continuous = false

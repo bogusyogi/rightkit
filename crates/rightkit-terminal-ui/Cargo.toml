@@ -35,7 +35,7 @@ tracing = { version = "0.1", features = ["log"] }
 diffy = { version = "0.5" }
 supports-color = { version = "3" }
 serde_json = { version = "1", features = ["preserve_order"] }
-vt100 = { version = "0.16" }
+vt100 = { version = "0.18" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros", "sync", "time", "test-util"] }

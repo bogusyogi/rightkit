@@ -14,7 +14,7 @@ include = ["src/**", "tests/**", "CHANGELOG.md", "README.md", "rightkit-ownershi
 serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.11"
 # rsa 0.9 is built on digest 0.10, so its hash type must be sha2 0.10; used only for RSA verification.
-sha2-rsa = { package = "sha2", version = "0.10", features = ["oid"] }
+sha2-rsa = { package = "sha2", version = "0.11", features = ["oid"] }
 hex = "0.4"
 url = "2"
 sha1 = "0.11"

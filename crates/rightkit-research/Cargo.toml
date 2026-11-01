@@ -27,7 +27,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 hex = { version = "0.4.3" }
 sha2 = { version = "0.11.1" }
 reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "form", "json", "query", "rustls", "stream"] }
-zip = { version = "9.0.4", default-features = false, features = ["aes-crypto", "deflate64", "deflate-flate2", "deflate-zopfli", "lzma", "time", "zstd", "xz"] }
+zip = { version = "9.2.1", default-features = false, features = ["aes-crypto", "deflate64", "deflate-flate2", "deflate-zopfli", "lzma", "time", "zstd", "xz"] }
 
 [workspace]
 

@@ -19,7 +19,7 @@ serde_json = { version = "1.0.154", features = ["preserve_order"] }
 sha2 = { version = "0.11.1" }
 hex = { version = "0.4.3" }
 walkdir = { version = "2.5.0" }
-ed25519-dalek = { version = "=2.2.0" }
+ed25519-dalek = { version = "=3.0.0" }
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
 rightkit-code-audit-engine = { version = "0.1.0", path = "../rightkit-code-audit-engine" }
 rightkit-evidence-contracts = { version = "0.1.0", path = "../rightkit-evidence-contracts" }

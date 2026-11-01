@@ -23,7 +23,7 @@ rightkit-ffmpeg = { version = "0.2.13", default-features = false, features = ["n
 [dev-dependencies]
 tempfile = "3"
 blake3 = "1.8"
-quick-xml = "0.41"
+quick-xml = "0.42"
 
 [workspace]
 

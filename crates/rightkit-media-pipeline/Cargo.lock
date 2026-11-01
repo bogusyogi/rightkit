@@ -2284,6 +2284,8 @@ version = "0.2.2"
 dependencies = [
  "image",
  "rightkit-crypto",
+ "rightkit-fs",
+ "rightkit-time",
  "serde",
  "serde_json",
  "thiserror",
@@ -2366,6 +2368,7 @@ dependencies = [
 name = "rightkit-fs"
 version = "0.4.9"
 dependencies = [
+ "blake3",
  "libc",
  "serde",
  "serde_json",

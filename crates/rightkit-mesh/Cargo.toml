@@ -41,11 +41,11 @@ devicelink = [
 # no n0 relay, no n0 DNS or pkarr (src/endpoint.rs).
 iroh = { version = "=1.4.1", default-features = false, features = ["metrics", "portmapper", "tls-ring"] }
 # Local-network (mDNS) address lookup, so paired devices on one network connect directly with no relay. Depends on iroh ^1 (0.6.0 and 0.6.1 both declare ^1.0.0, so 0.6.0 stays).
-iroh-mdns-address-lookup = "=0.6.0"
+iroh-mdns-address-lookup = "=0.6.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "sync", "time", "signal"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-thiserror = "2.0.17"
+thiserror = "2.0.21"
 # HKDF-SHA256, ChaCha20-Poly1305 and the system RNG for the seal (src/seal.rs): ring only, no second crypto family.
 ring = "0.17"
 # Wipes mailbox keys on drop; already in the lock through pulse-core.
