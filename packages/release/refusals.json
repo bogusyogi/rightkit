@@ -1485,9 +1485,9 @@
       "reason": "an internal contract of the credential exec wrapper (absolute native child)"
     },
     {
-      "key": "protected-credentials.mjs::execWithUpdaterCredential::377e4555",
-      "class": "doctor-covered",
-      "doctorRow": "host-updater-credential"
+      "key": "protected-credentials.mjs::execWithUpdaterCredential::b0779c3d",
+      "class": "runtime-only",
+      "reason": "the PATH fallback's ENOENT, reached only where no managed data root exists (Linux, CI); a Mac or Windows host refuses earlier with the enrolled-provider text the host-updater-credential row reports"
     },
     {
       "key": "managed-host-secrets.mjs::refuseManagedEnvSecret::7be3bf21",

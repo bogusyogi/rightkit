@@ -5,6 +5,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { brokerManagedHost } from "./cargo-contract.mjs";
+import { CredentialProviderError, providerPlatformOf, updaterCredentialProvider } from "./credential-provider.mjs";
 import { ManagedHostEnvSecretError, isManagedHost } from "./managed-host-secrets.mjs";
 import { resolveMacosDeveloperIdIdentity } from "./macos-signing-identity.mjs";
 import { notarytoolAuthArgs } from "./notary-auth.mjs";
@@ -215,14 +216,17 @@ export const HOST_ROWS = Object.freeze([
     },
   },
   {
-    // protected-credentials.mjs execWithUpdaterCredential: the Windows updater key is read by rightkit-credentials, not by this tool.
+    // protected-credentials.mjs execWithUpdaterCredential: the updater key is read by the ENROLLED rightkit-credentials (credential-provider.mjs), not by this tool.
+    // A Mac or Windows host resolves it from its managed data root and re-hashes it; the finding is the very refusal execWithUpdaterCredential raises.
     id: "host-updater-credential",
     tier: "host",
     run(ctx) {
-      if (ctx.platform !== "win" || !signsUpdater(ctx)) return { na: "the target does not sign updater artifacts on Windows" };
-      if (ctx.hostPlatform !== "win32") return { notRun: "the updater credential provider is probed on the Windows host that signs" };
-      const result = probe(ctx, "rightkit-credentials", ["--version"]);
-      if (!result.found || result.error?.code === "ENOENT") return ["OS credential provider unavailable: install rightkit-credentials >=0.2.2 on PATH before updater signing"];
+      if (!signsUpdater(ctx)) return { na: "the target does not sign updater artifacts" };
+      if (providerPlatformOf(ctx.hostPlatform) !== ctx.platform) return { notRun: `the updater credential provider is resolved on the ${ctx.platform === "win" ? "Windows" : "Mac"} host that signs` };
+      try { updaterCredentialProvider({ env: ctx.env, hostPlatform: ctx.hostPlatform }); } catch (error) {
+        if (error instanceof CredentialProviderError) return [error.message];
+        throw error;
+      }
       return undefined;
     },
   },

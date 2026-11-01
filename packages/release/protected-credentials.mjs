@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { isManagedHost, refuseManagedEnvSecrets } from "./managed-host-secrets.mjs";
+import { CREDENTIAL_PROVIDER_INSTALL, updaterCredentialProvider } from "./credential-provider.mjs";
 
 // Protected credential loaders for release sites that previously read only
 // ambient environment variables. The storage pattern matches release-token.mjs:
@@ -35,13 +36,17 @@ export class ProtectedSecretMissingError extends Error {
 
 // One-line command the operator runs once per host. macOS prompts for the value
 // (-w with no argument); Windows prompts with Read-Host -AsSecureString.
-export function protectedSecretStoreCommand(name, platform = process.platform) {
+// `provider` is the enrolled rightkit-credentials a Windows store command runs (execWithUpdaterCredential's file); unset, the bare executable name.
+export function protectedSecretStoreCommand(name, platform = process.platform, { provider, env = process.env } = {}) {
   const spec = PROTECTED_SECRETS[name];
   if (!spec) throw new Error(`unknown protected secret: ${name}`);
   if (platform === "darwin" && spec.darwinFile) return null;
   if (platform === "darwin") return `security add-generic-password -a "$USER" -s ${spec.keychain} -U -w`;
   if (platform === "win32") {
-    if (spec.providerExec) return `$rightkitSecure = Read-Host -AsSecureString '${spec.label}'; $rightkitPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($rightkitSecure); try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($rightkitPointer) | & rightkit-credentials.exe set --namespace '${spec.keychain}' --account ([Environment]::UserName) --replace } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($rightkitPointer) }`;
+    if (spec.providerExec && !provider && platform === process.platform) {
+      try { provider = updaterCredentialProvider({ env, hostPlatform: platform }).file; } catch { /* not enrolled: the hint names the bare executable; signing itself refuses with the install command */ }
+    }
+    if (spec.providerExec) return `$rightkitSecure = Read-Host -AsSecureString '${spec.label}'; $rightkitPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($rightkitSecure); try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($rightkitPointer) | & ${provider ? `'${String(provider).replaceAll("'", "''")}'` : "rightkit-credentials.exe"} set --namespace '${spec.keychain}' --account ([Environment]::UserName) --replace } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($rightkitPointer) }`;
     return `powershell -NoProfile -Command "$s = Read-Host -AsSecureString '${spec.label}'; $d = Join-Path $env:APPDATA 'RightKit'; New-Item -ItemType Directory -Force -Path $d | Out-Null; [IO.File]::WriteAllText((Join-Path $d '${spec.file}'), [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)))"`;
   }
   return null;
@@ -120,9 +125,11 @@ export function resolveEnvBackedSecret({ name, envName, env = process.env, crede
 
 // M11 owns OS acquisition & secret lifetime. The release adapter supplies only
 // non-secret identity plus an absolute native child executable and literal argv.
+// The provider is the ENROLLED rightkit-credentials (credential-provider.mjs; installed by `rightkit-gate --to tool --unit cargo:rightkit-credentials`) on a Mac or
+// Windows host, resolved and re-hashed here; the bare PATH name is used only where no managed data root exists (Linux, CI). `provider` names a file explicitly.
 export function execWithUpdaterCredential(command, args, {
-  env = process.env, cwd = process.cwd(), run = spawnSync,
-  provider = process.platform === "win32" ? "rightkit-credentials.exe" : "rightkit-credentials",
+  env = process.env, cwd = process.cwd(), run = spawnSync, hostPlatform = process.platform, dataRoot,
+  provider,
   account = os.userInfo().username,
 } = {}) {
   for (const key of Object.keys(env)) {
@@ -131,10 +138,11 @@ export function execWithUpdaterCredential(command, args, {
     }
   }
   if (!path.isAbsolute(command)) throw new Error("credential provider child must be an absolute native executable");
+  provider ??= updaterCredentialProvider({ env, hostPlatform, dataRoot }).file;
   const result = run(provider, ["exec", "--namespace", PROTECTED_SECRETS["updater-signing-key"].keychain,
     "--account", account, "--env", "TAURI_SIGNING_PRIVATE_KEY", "--", command, ...args],
   { cwd, env: { ...env, TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "" }, stdio: "inherit", shell: false, windowsHide: true });
-  if (result.error?.code === "ENOENT") throw new Error("OS credential provider unavailable: install rightkit-credentials >=0.2.2 on PATH before updater signing");
+  if (result.error?.code === "ENOENT") throw new Error(`OS credential provider unavailable: install rightkit-credentials >=0.2.2 on PATH before updater signing (a Mac or Windows host installs it with \`${CREDENTIAL_PROVIDER_INSTALL}\`)`);
   return result;
 }
 

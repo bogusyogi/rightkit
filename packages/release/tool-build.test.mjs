@@ -28,7 +28,10 @@ test("the build argv is the one shape the broker admits as a compile and a carri
 });
 
 test("toolPlan: only a registered unit on a Mac or Windows host has a plan, and each refusal is typed", () => {
-  assert.deepEqual(Object.keys(TOOL_UNITS), ["cargo:rightkit-qa"]);
+  assert.deepEqual(Object.keys(TOOL_UNITS), ["cargo:rightkit-qa", "cargo:rightkit-credentials"]);
+  assert.deepEqual({ ...toolPlan({ selector: "cargo:rightkit-credentials", platform: "darwin" }) }, { selector: "cargo:rightkit-credentials", crate: "rightkit-credentials", bin: "rightkit-credentials", enrols: "credential-provider", cargoDir: "crates/rightkit-credentials", argv: toolBuildArgs("rightkit-credentials"), executable: "rightkit-credentials", runnerPlatform: "mac" });
+  assert.equal(toolPlan({ selector: "cargo:rightkit-credentials", platform: "win32" }).executable, "rightkit-credentials.exe");
+  assert.equal(toolPlan({ selector: "cargo:rightkit-credentials", platform: "win32" }).runnerPlatform, "win");
   const mac = toolPlan({ selector: "cargo:rightkit-qa", platform: "darwin" });
   assert.deepEqual({ ...mac }, { selector: "cargo:rightkit-qa", crate: "rightkit-qa", bin: "rightkit-qa", enrols: "qa-runner", cargoDir: "crates/rightkit-qa", argv: toolBuildArgs("rightkit-qa"), executable: "rightkit-qa", runnerPlatform: "mac" });
   const win = toolPlan({ selector: "cargo:rightkit-qa", platform: "win32" });

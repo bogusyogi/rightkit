@@ -12,6 +12,7 @@
 //      `--version`, a COPY recorded with its sha256 under the managed data root. The enrolled path and sha256 are printed so the owner can add the
 //      admission-policy entry (`right-release qa policy approve-runner`). Admission itself is unchanged and stays the owner's.
 //
+// `cargo:rightkit-credentials` takes the same route and is enrolled as the managed OS credential provider (credential-provider.mjs) that updater signing runs.
 // Only units named in TOOL_UNITS have this route. The route never uploads, signs or publishes, and it enrols only on a Mac or Windows host (the platforms
 // a runner is enrolled for: its bytes are executed here to read their version).
 import crypto from "node:crypto";
@@ -20,7 +21,8 @@ import path from "node:path";
 import { endRun, startRun } from "./gate-stages.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
 import { resolveManagedRoots } from "./managed-roots.mjs";
-import { QaRunnerError, enrollQaRunner, runnerExecutableName } from "./qa-runner.mjs";
+import { CredentialProviderError, enrollCredentialProvider } from "./credential-provider.mjs";
+import { QaRunnerError, enrollQaRunner } from "./qa-runner.mjs";
 import { knownRedEntry, resolveUnit } from "./unit-gate.mjs";
 
 export const TOOL_STAGE = "tool";
@@ -28,6 +30,7 @@ export const TOOL_REPORT_SCHEMA = "rightkit.tool-build-report/1";
 /** The units that have a tool route: the crate, the binary its manifest declares, and what the binary is enrolled as. */
 export const TOOL_UNITS = Object.freeze({
   "cargo:rightkit-qa": Object.freeze({ crate: "rightkit-qa", bin: "rightkit-qa", enrols: "qa-runner" }),
+  "cargo:rightkit-credentials": Object.freeze({ crate: "rightkit-credentials", bin: "rightkit-credentials", enrols: "credential-provider" }),
 });
 const HOST_PLATFORM = Object.freeze({ darwin: "mac", win32: "win" });
 const BUILD_TIMEOUT_MS = 30 * 60 * 1000;
@@ -49,7 +52,7 @@ export function toolPlan({ selector, platform }) {
   if (!unit) refuse("RK_TOOL_UNIT_UNSUPPORTED", `${JSON.stringify(selector ?? null)} has no tool route (${Object.keys(TOOL_UNITS).join(", ")}); \`--to tool\` builds only a unit named there`);
   const runnerPlatform = HOST_PLATFORM[platform];
   if (!runnerPlatform) refuse("RK_TOOL_HOST", `a ${unit.bin} runner is built and enrolled on a Mac or a Windows host (this is ${platform}): its bytes are executed there to read their version, and a runner is enrolled per platform`);
-  return { selector, ...unit, cargoDir: `crates/${unit.crate}`, argv: toolBuildArgs(unit.bin), executable: runnerExecutableName(runnerPlatform), runnerPlatform };
+  return { selector, ...unit, cargoDir: `crates/${unit.crate}`, argv: toolBuildArgs(unit.bin), executable: runnerPlatform === "win" ? `${unit.bin}.exe` : unit.bin, runnerPlatform };
 }
 
 /** The pinned target directory of the Cargo workspace that holds `cargoDir`: its own entry, else the nearest enclosing one (a crate that is a member of a parent workspace). Null when none is pinned. */
@@ -84,7 +87,7 @@ export function builtToolBinary({ outputDir, executable }) {
  */
 export async function runUnitTool({
   selector, root, commonDir, commit, tree, executor, env, platform, check, source = null, stageGuard = null, envExtra = {}, targetDirs = {},
-  resolve = resolveUnit, run = runCargoSync, enroll = enrollQaRunner, dataRoot = undefined, readKnownRed = null,
+  resolve = resolveUnit, run = runCargoSync, enroll = enrollQaRunner, enrollProvider = enrollCredentialProvider, dataRoot = undefined, readKnownRed = null,
   out = console.log, err = console.error, writeReport = null,
 }) {
   let plan; let unit;
@@ -126,8 +129,13 @@ export async function runUnitTool({
 
     stage = "enrol";
     let enrolled;
-    try { enrolled = enroll({ dataRoot: dataRoot ?? resolveManagedRoots({ env }).dataRoot, platform: plan.runnerPlatform, runner: built, version: unit.version }); }
-    catch (error) {
+    try {
+      const root_ = dataRoot ?? resolveManagedRoots({ env }).dataRoot;
+      enrolled = plan.enrols === "credential-provider"
+        ? enrollProvider({ dataRoot: root_, platform: plan.runnerPlatform, binary: built, version: unit.version })
+        : enroll({ dataRoot: root_, platform: plan.runnerPlatform, runner: built, version: unit.version });
+    } catch (error) {
+      if (error instanceof CredentialProviderError || error?.code?.startsWith?.("RK_CRED_PROVIDER_")) throw new Error(`${error.code}: ${error.message}\nthe built binary is ${built} (sha256 ${builtSha256}); a deliberate replacement of an enrolled version is \`node packages/release/credential-provider.mjs enroll --binary ${built} --version ${unit.version} --platform ${plan.runnerPlatform} --rotate\``);
       if (error instanceof QaRunnerError || error?.code?.startsWith?.("RK_QA_RUNNER_")) throw new Error(`${error.code}: ${error.message}\nthe built binary is ${built} (sha256 ${builtSha256}); a deliberate replacement of an enrolled version is \`right-release qa runner enroll --runner ${built} --version ${unit.version} --platform ${plan.runnerPlatform} --rotate\``);
       throw error;
     }
@@ -135,8 +143,9 @@ export async function runUnitTool({
     if (enrolled.entry.sha256 !== builtSha256) throw new Error(`RK_TOOL_DIGEST_DRIFT: the enrolled copy ${enrolled.runnerFile} has sha256 ${enrolled.entry.sha256}, the build produced ${builtSha256}; the binary changed while it was enrolled, so it is not trusted (enrol it again from a fresh build)`);
     report.stages.enrol = { ok: true, runner: enrolled.runnerFile, sha256: enrolled.entry.sha256, version: enrolled.entry.version, platform: plan.runnerPlatform, record: enrolled.file, rotated: enrolled.rotated };
     save();
-    out(`rightkit-gate: [tool] enrolled rightkit-qa ${enrolled.entry.version} for ${plan.runnerPlatform}: ${enrolled.runnerFile} sha256 ${enrolled.entry.sha256} (record ${enrolled.file})`);
-    out(`rightkit-gate: [tool] the owner admits it with: right-release qa policy approve-runner --runner ${enrolled.runnerFile} --version ${enrolled.entry.version} --platform ${plan.runnerPlatform} --set-by <name>`);
+    out(`rightkit-gate: [tool] enrolled ${plan.bin} ${enrolled.entry.version} for ${plan.runnerPlatform}: ${enrolled.runnerFile} sha256 ${enrolled.entry.sha256} (record ${enrolled.file})`);
+    if (plan.enrols === "credential-provider") out("rightkit-gate: [tool] updater signing and the admission check resolve this enrolled provider (credential-provider.mjs); PATH is not used on a Mac or Windows host");
+    else out(`rightkit-gate: [tool] the owner admits it with: right-release qa policy approve-runner --runner ${enrolled.runnerFile} --version ${enrolled.entry.version} --platform ${plan.runnerPlatform} --set-by <name>`);
     out(`rightkit-gate: [tool] ${selector} passed`);
     return 0;
   } catch (error) {

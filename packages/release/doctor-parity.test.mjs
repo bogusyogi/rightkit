@@ -211,9 +211,11 @@ export const PARITY_CASES = [
 export const UNIT_CASES = [
   { id: "host-updater-credential", rows: ["host-updater-credential"],
     async run() {
-      const winHost = { hostPlatform: "win32", env: { PATH: "C:\\bin", PATHEXT: ".EXE" }, fs: { existsSync: () => false, readFileSync: () => "", readdirSync: () => [] }, spawn: () => ({ status: 0 }) };
+      // No provider is enrolled under this data root: the row's finding is the refusal execWithUpdaterCredential raises on the same host.
+      const env = { PATH: "C:\\bin", PATHEXT: ".EXE", RUSTRIGHT_DATA_ROOT: tempRoot("parity-cred-") };
+      const winHost = { hostPlatform: "win32", env, fs: { existsSync: () => false, readFileSync: () => "", readdirSync: () => [] }, spawn: () => ({ status: 0 }) };
       const result = await runAdmission({ root: "/app", config: { app: "fixture" }, platform: "win", target: { updater: { artifacts: [{ file: "a.exe" }] } }, tiers: ["host"], rows: ADMISSION_ROWS.filter((row) => row.id === "host-updater-credential"), ...winHost });
-      const raised = (() => { try { execWithUpdaterCredential(path.resolve("/x"), [], { env: {}, run: () => ({ error: { code: "ENOENT" } }) }); } catch (error) { return error.message; } })();
+      const raised = (() => { try { execWithUpdaterCredential(path.resolve("/x"), [], { env, hostPlatform: "win32", run: () => ({ status: 0 }) }); } catch (error) { return error.message; } })();
       return { row: result.findings[0]?.row, found: result.findings.map((finding) => finding.detail), built: [raised] };
     } },
   { id: "host-signing-win", rows: ["host-signing-win"],

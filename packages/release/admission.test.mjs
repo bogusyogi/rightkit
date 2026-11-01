@@ -8,6 +8,7 @@ import test from "node:test";
 import { ADMISSION_ROWS, TIERS, describeRegistryError, formatAdmission, formatNotRun, runAdmission } from "./admission.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { ManagedHostEnvSecretError } from "./managed-host-secrets.mjs";
+import { enrollCredentialProvider } from "./credential-provider.mjs";
 import { execWithUpdaterCredential } from "./protected-credentials.mjs";
 import { RightKitRegistryError } from "./rightkit-registry-resolver.mjs";
 import { tempRoot } from "./test-support/temp-roots.mjs";
@@ -350,18 +351,29 @@ test("host-secret-env: the signing secrets are not taken from the shell, whateve
   assert.deepEqual((await unit("host-secret-env", { platform: "mac", target: notarize(), env: apple })).details, []);
 });
 
-test("host-updater-credential: the provider that holds the updater key is on PATH of the Windows host that signs", async () => {
+test("host-updater-credential: a Mac or Windows host resolves the ENROLLED provider (record + sha256), never PATH", async () => {
   const target = { updater: { artifacts: [{ file: "a.exe" }] } };
-  const winHost = (tools) => ({ hostPlatform: "win32", env: { PATH: "C:\\bin", PATHEXT: ".EXE;.CMD" }, fs: { existsSync: (file) => tools.includes(file), readFileSync: () => "", readdirSync: () => [] }, spawn: () => ({ status: 0, stdout: "", stderr: "" }) });
-  assert.deepEqual((await unit("host-updater-credential", { target, ...winHost(["C:\\bin\\rightkit-credentials.EXE"]) })).details, []);
-  // off PATH: the text execWithUpdaterCredential raises when it cannot start the provider
-  const absent = await unit("host-updater-credential", { target, ...winHost([]) });
-  const raised = (() => { try { execWithUpdaterCredential(path.resolve("/x"), [], { env: {}, run: () => ({ error: { code: "ENOENT" } }) }); } catch (error) { return error.message; } })();
-  assert.deepEqual(absent.details, [raised]);
-  assert.match(raised, /^OS credential provider unavailable: install rightkit-credentials >=0\.2\.2 on PATH before updater signing$/);
+  const host = (hostPlatform, dataRoot) => ({ hostPlatform, env: { PATH: "/bin", RUSTRIGHT_DATA_ROOT: dataRoot }, spawn: () => ({ status: 0, stdout: "", stderr: "" }) });
+  const enrolled = (platform, hostPlatform) => {
+    const dataRoot = tempRoot("admission-cred-");
+    const binary = path.join(dataRoot, "built"); writeFileSync(binary, "bytes", { mode: 0o755 });
+    enrollCredentialProvider({ dataRoot, platform, binary, version: "0.4.3", hostPlatform, spawn: () => ({ status: 1, stdout: '{"ok":false,"error":"invalid --namespace: required"}\n' }) });
+    return dataRoot;
+  };
+  for (const [platform, hostPlatform] of [["win", "win32"], ["mac", "darwin"]]) {
+    const dataRoot = enrolled(platform, hostPlatform);
+    assert.deepEqual((await unit("host-updater-credential", { platform, target, ...host(hostPlatform, dataRoot) })).details, [], `${platform}: enrolled`);
+    // an executable of that name on PATH changes nothing: the enrolment is the only source
+    const bare = tempRoot("admission-cred-bare-");
+    const absent = await unit("host-updater-credential", { platform, target, ...host(hostPlatform, bare) });
+    const raised = (() => { try { execWithUpdaterCredential(path.resolve("/x"), [], { env: { RUSTRIGHT_DATA_ROOT: bare }, hostPlatform, run: () => ({ status: 0 }) }); } catch (error) { return error.message; } })();
+    assert.deepEqual(absent.details, [raised], "the finding is the refusal signing raises");
+    assert.match(raised, /rightkit-gate --to tool --unit cargo:rightkit-credentials/);
+    writeFileSync(path.join(dataRoot, "credential-provider", platform, "0.4.3", platform === "win" ? "rightkit-credentials.exe" : "rightkit-credentials"), "tampered");
+    assert.match((await unit("host-updater-credential", { platform, target, ...host(hostPlatform, dataRoot) })).details[0], /RK_CRED_PROVIDER_DIGEST|changed after enrolment/);
+  }
   assert.equal((await unit("host-updater-credential", { target, hostPlatform: "linux", env: { PATH: "/bin" } })).row.status, "not-run");
-  assert.equal((await unit("host-updater-credential", { target: {}, ...winHost([]) })).row.status, "n/a");
-  assert.equal((await unit("host-updater-credential", { platform: "mac", target, ...winHost([]) })).row.status, "n/a");
+  assert.equal((await unit("host-updater-credential", { target: {}, ...host("win32", "/x") })).row.status, "n/a");
 });
 
 test("host-signing-win: signtool, the Azure Artifact Signing dlib and the account that signs, read as sign-windows.mjs reads them", async () => {

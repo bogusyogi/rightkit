@@ -120,7 +120,7 @@ test("updater provider rejects inherited secrets & relative child before launchi
 });
 
 test("missing updater provider explains required installation without credential lookup", () => {
-  assert.throws(() => execWithUpdaterCredential(process.execPath, [], { env: {}, run: () => ({ error: { code: "ENOENT" } }) }), /install rightkit-credentials >=0\.2\.2 on PATH/);
+  assert.throws(() => execWithUpdaterCredential(process.execPath, [], { env: {}, hostPlatform: "linux", run: () => ({ error: { code: "ENOENT" } }) }), /install rightkit-credentials >=0\.2\.2 on PATH/);
 });
 
 test("absent or blank store entries throw a typed error carrying the one-line store command", () => {

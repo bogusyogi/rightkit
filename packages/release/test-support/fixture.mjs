@@ -8,6 +8,7 @@ import path, { delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync } from "../background-process.mjs";
 import { admittedWorkerEnv, registryEnv } from "./admission.mjs";
+import { enrollCredentialProvider, providerPlatformOf, resolveCredentialProvider } from "../credential-provider.mjs";
 
 export const versions = JSON.parse(readFileSync(new URL("../rightkit-versions.json", import.meta.url), "utf8"));
 export const release = fileURLToPath(new URL("../release.mjs", import.meta.url));
@@ -182,6 +183,21 @@ export function withFakeTools(env, dir = (fakeToolsRoot ??= fakeTools({ shared: 
   };
 }
 
+// A Mac or Windows host signs an updater only with the ENROLLED provider (credential-provider.mjs), which the fixture hosts have none of: a stand-in is enrolled
+// under the test run's throwaway managed data root (the broker guard's RIGHTKIT_DATA_ROOT) once, so admission's host-updater-credential row is not the
+// subject of every fixture build. Its identity probe is a double; the file's bytes are never executed.
+let providerEnrolled = false;
+function ensureFixtureCredentialProvider() {
+  const platform = providerPlatformOf(process.platform);
+  const dataRoot = process.env.RIGHTKIT_DATA_ROOT;
+  if (providerEnrolled || !platform || !dataRoot || !path.isAbsolute(dataRoot)) return;
+  providerEnrolled = true;
+  try { resolveCredentialProvider({ dataRoot, platform }); return; } catch { /* not enrolled yet */ }
+  const binary = path.join(mkdtempSync(path.join(os.tmpdir(), "rightkit-fixture-provider-")), "rightkit-credentials");
+  writeFileSync(binary, "fixture provider", { mode: 0o755 });
+  enrollCredentialProvider({ dataRoot, platform, binary, version: "0.4.3", spawn: () => ({ status: 1, stdout: '{"ok":false,"error":"invalid --namespace: required"}\n' }) });
+}
+
 export function managedEnv(config, { worker = false, platform = "win", registry = {}, env = {}, tools = true } = {}) {
   // The doctor's free-space floor is about the machine running the tests, not the code under test.
   // The registries are answered offline from the fixture's own locks; a worker run carries the admitted state the
@@ -189,6 +205,7 @@ export function managedEnv(config, { worker = false, platform = "win", registry 
   // The host rows of the admission look for node, pnpm, cargo and rustc: the fake tools answer them the same on every host.
   // The registry observations a doctor or build caches go to a temp root, never to the user's cache.
   fakeCacheRoot ??= processRoot("right-release-cache-");
+  ensureFixtureCredentialProvider();
   return { ...process.env, ...(tools ? withFakeTools(process.env) : {}), RIGHT_RELEASE_MIN_FREE_GB: "1", RIGHT_RELEASE_CACHE_ROOT: fakeCacheRoot, ...(config ? registryEnv(path.dirname(config), registry) : {}), ...(config && worker ? admittedWorkerEnv(config, platform) : {}), ...env };
 }
 
