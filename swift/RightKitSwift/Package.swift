@@ -144,7 +144,7 @@ let package = Package(
         .testTarget(name: "RightKitDictationTests", dependencies: ["RightKitDictation"]),
         .target(name: "RightKitLibrary"),
         .testTarget(name: "RightKitLibraryTests", dependencies: ["RightKitLibrary"]),
-        .target(name: "RightKitAgent", dependencies: ["RightKitCloudSync", "RightKitLiveActivity"]),
+        .target(name: "RightKitAgent", dependencies: ["RightKitCloudSync", "RightKitCredentials", "RightKitLiveActivity", "RightKitSpeech", "RightKitUI"]),
         .testTarget(name: "RightKitAgentTests", dependencies: ["RightKitAgent"]),
         .target(name: "RightKitNotch", dependencies: ["RightKitDiagnostics", "RightKitFS", "RightKitOverlay"]),
         .testTarget(name: "RightKitNotchTests", dependencies: ["RightKitNotch"]),
