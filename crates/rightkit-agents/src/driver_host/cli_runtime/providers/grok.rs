@@ -74,7 +74,7 @@ pub const GROK_MODELS: &[&str] = &["grok-4", "grok-3", "grok-code"];
 
 /// Resume strategy for the Grok adapter. Per the architecture plan
 /// §12.5 and the hard ceiling on
-/// [`ResumeStrategy`](crate::driver_host::cli_runtime::ids::ResumeStrategy),
+/// [`ResumeStrategy`],
 /// "replay visible transcript into a new session" is **not** a
 /// permitted variant; Grok uses process restart with the vendor
 /// session id forwarded as `--resume <id>`.
@@ -566,11 +566,6 @@ fn reject_byok_string(
     }
     Ok(())
 }
-
-/// Cheap UTC ISO timestamp suitable for `observed_at` /
-/// `fetched_at`. Matches the `YYYY-MM-DDTHH:MM:SSZ` shape the
-/// qualification runner uses so SQL string comparisons stay
-/// correct.
 
 /// Translate one ACP inbound JSON-RPC 2.0 envelope into a
 /// [`NormalizedEvent`]. Grok's `session/update` notifications

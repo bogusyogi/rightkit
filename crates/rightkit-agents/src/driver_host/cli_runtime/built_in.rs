@@ -2,7 +2,7 @@
 //!
 //! PR 1 of the architecture plan. PR 1 only registers descriptors
 //! for the six providers so the registry can be queried for them;
-//! the actual [`CliProviderAdapter`] trait objects for Claude and
+//! the actual `CliProviderAdapter` trait objects for Claude and
 //! Codex are migrated from the existing bridge in PR 6, and the
 //! new providers (Grok, Cursor, Cline, Command Code) are wired in
 //! by PRs 8–11.

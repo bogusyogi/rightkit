@@ -73,7 +73,7 @@ pub const CURSOR_LOGIN_URL: &str = "https://cursor.com/login";
 pub const CURSOR_RESUME_STRATEGY: ResumeStrategy = ResumeStrategy::ProtocolLoadById;
 
 /// Cursor adapter. Implements the open
-/// [`CliProviderAdapter`](crate::driver_host::cli_runtime::adapter::CliProviderAdapter)
+/// [`CliProviderAdapter`]
 /// contract for the Cursor Agent CLI.
 ///
 /// The struct holds no per-call state; the adapter is stateless

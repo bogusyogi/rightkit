@@ -2,7 +2,7 @@
 //!
 //! PR 4 of the architecture plan. Two concrete executors live here:
 //!
-//! - [`CodeRightNativeExecutor`] wraps the existing the host app-native
+//! - `CodeRightNativeExecutor` wraps the existing the host app-native
 //!   session runtime. The root session is still launched by the
 //!   daemon's existing native spawner (later PRs migrate that path);
 //!   the executor is the new dispatch seam for child agents and is

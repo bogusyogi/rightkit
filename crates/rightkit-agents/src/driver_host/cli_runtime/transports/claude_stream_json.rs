@@ -51,7 +51,7 @@ impl ClaudeStreamJsonTransport {
     /// argv verbatim; future PRs may augment it (for example to
     /// attach process supervision flags) but every augmentation
     /// must be reflected in the byte-equivalence snapshot in
-    /// [`super::argv_snapshot`].
+    /// `super::argv_snapshot`.
     pub fn build_argv(launch: &CliLaunchSpec) -> Result<Vec<String>, CliRuntimeError> {
         Ok(launch.argv.clone())
     }

@@ -1,6 +1,11 @@
 //! No-SDK, no-HTTP, no-MCP scope invariant. Lifted from CodeRight's
 //! `driver_host/tests/cli_runtime_scope.rs` and adapted: this crate speaks vendor CLI
 //! protocols over stdio only. Changing a list below requires changing the design first.
+//!
+//! The optional `driver_host` feature is the one exception: it owns the async CLI runtime (tokio,
+//! the vendor harnesses that name their own API-key variables and MCP flags to refuse them), and
+//! `driver_host_cli_runtime_scope` pins that code instead. So this suite scans the core sources
+//! outside `src/driver_host/` and accepts `tokio` only as an optional dependency.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -69,6 +74,10 @@ fn forbidden_dependency_hits(manifest: &str) -> Vec<String> {
         } else {
             line.split('=').next().unwrap_or("").trim().to_string()
         };
+        // `tokio` backs the optional `driver_host` feature only.
+        if name == "tokio" && line.contains("optional = true") {
+            continue;
+        }
         if FORBIDDEN_DEPENDENCIES.contains(&name.as_str()) {
             hits.push(name);
         }
@@ -80,6 +89,10 @@ fn rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in fs::read_dir(dir).unwrap().flatten() {
         let path = entry.path();
         if path.is_dir() {
+            // `driver_host` is scanned by its own suite (see the module doc).
+            if path.file_name().and_then(|n| n.to_str()) == Some("driver_host") {
+                continue;
+            }
             rs_files(&path, out);
         } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
             out.push(path);

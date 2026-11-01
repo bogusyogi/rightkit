@@ -261,8 +261,8 @@ pub struct ControlRejection {
 pub struct ControlState {
     /// `capabilities` of `system/init`, such as `interrupt_receipt_v1`.
     pub capabilities: Vec<String>,
-    pub initialize: Option<rightkit_agents::claude::InitializeResponse>,
-    pub interrupt_receipt: Option<rightkit_agents::claude::InterruptReceipt>,
+    pub initialize: Option<crate::claude::InitializeResponse>,
+    pub interrupt_receipt: Option<crate::claude::InterruptReceipt>,
     pub rejected: Vec<ControlRejection>,
     /// Successful `set_model` / `set_permission_mode` answers, in order.
     pub acknowledged: Vec<(String, ControlKind)>,
@@ -519,8 +519,8 @@ impl ClaudeRootRuntime {
                 "interrupt requires an active turn, current status is {status:?}"
             )));
         }
-        let request_id = rightkit_agents::claude::next_request_id("interrupt");
-        let frame = rightkit_agents::claude::interrupt_frame(&request_id);
+        let request_id = crate::claude::next_request_id("interrupt");
+        let frame = crate::claude::interrupt_frame(&request_id);
         self.write_control(ControlKind::Interrupt, &request_id, frame.trim_end())?;
         {
             let mut steering = self
@@ -575,8 +575,8 @@ impl ClaudeRootRuntime {
     /// the request id; the typed answer lands in [`Self::control_state`] when it arrives.
     pub fn request_initialize(&self) -> Result<String, HarnessError> {
         self.require_live_session("initialize")?;
-        let request_id = rightkit_agents::claude::next_request_id("initialize");
-        let frame = rightkit_agents::claude::initialize_frame(&request_id, None);
+        let request_id = crate::claude::next_request_id("initialize");
+        let frame = crate::claude::initialize_frame(&request_id, None);
         self.write_control(ControlKind::Initialize, &request_id, frame.trim_end())?;
         Ok(request_id)
     }
@@ -585,8 +585,8 @@ impl ClaudeRootRuntime {
     /// by RightKit before it reaches the wire.
     pub fn set_model(&self, model: Option<&str>) -> Result<String, HarnessError> {
         self.require_live_session("set_model")?;
-        let request_id = rightkit_agents::claude::next_request_id("set_model");
-        let frame = rightkit_agents::claude::set_model_frame(&request_id, model)
+        let request_id = crate::claude::next_request_id("set_model");
+        let frame = crate::claude::set_model_frame(&request_id, model)
             .map_err(HarnessError::InvalidState)?;
         self.write_control(ControlKind::SetModel, &request_id, frame.trim_end())?;
         Ok(request_id)
@@ -595,8 +595,8 @@ impl ClaudeRootRuntime {
     /// Switch the running session's permission mode. `bypassPermissions` is refused.
     pub fn set_permission_mode(&self, mode: &str) -> Result<String, HarnessError> {
         self.require_live_session("set_permission_mode")?;
-        let request_id = rightkit_agents::claude::next_request_id("set_permission_mode");
-        let frame = rightkit_agents::claude::set_permission_mode_frame(&request_id, mode)
+        let request_id = crate::claude::next_request_id("set_permission_mode");
+        let frame = crate::claude::set_permission_mode_frame(&request_id, mode)
             .map_err(HarnessError::InvalidState)?;
         self.write_control(
             ControlKind::SetPermissionMode,
@@ -617,7 +617,7 @@ impl ClaudeRootRuntime {
     /// Match a `control_response` line to the request it answers. An answer to a request this
     /// runtime did not make (the `can_use_tool` replies are written elsewhere) is ignored.
     fn handle_control_response(&self, value: &Value) {
-        let Some(response) = rightkit_agents::claude::parse_control_response(value) else {
+        let Some(response) = crate::claude::parse_control_response(value) else {
             return;
         };
         let Some(kind) = self
@@ -632,22 +632,19 @@ impl ClaudeRootRuntime {
             return;
         };
         match response.outcome {
-            rightkit_agents::event::ControlOutcome::Success { payload } => match kind {
+            crate::event::ControlOutcome::Success { payload } => match kind {
                 ControlKind::Initialize => {
-                    state.initialize =
-                        Some(rightkit_agents::claude::parse_initialize_response(&payload));
+                    state.initialize = Some(crate::claude::parse_initialize_response(&payload));
                 }
                 ControlKind::Interrupt => {
-                    state.interrupt_receipt = rightkit_agents::claude::parse_interrupt_receipt(
-                        &payload,
-                        &state.capabilities,
-                    );
+                    state.interrupt_receipt =
+                        crate::claude::parse_interrupt_receipt(&payload, &state.capabilities);
                 }
                 ControlKind::SetModel | ControlKind::SetPermissionMode => {
                     state.acknowledged.push((response.request_id, kind));
                 }
             },
-            rightkit_agents::event::ControlOutcome::Error { message } => {
+            crate::event::ControlOutcome::Error { message } => {
                 state.rejected.push(ControlRejection {
                     request_id: response.request_id,
                     kind,

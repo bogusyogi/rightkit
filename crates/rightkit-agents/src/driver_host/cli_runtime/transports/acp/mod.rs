@@ -18,7 +18,7 @@
 //! The transport refuses to start a launch that does not carry
 //! exactly one the host app MCP server entry. The rule lives in
 //! [`AcpTransport::start`] and is repeated at
-//! [`AcpSessions::validate_single_mcp_server`] so the
+//! `AcpSessions::validate_single_mcp_server` so the
 //! session-layer cannot be called with an empty list either.
 
 use std::sync::Arc;

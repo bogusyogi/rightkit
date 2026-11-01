@@ -90,7 +90,7 @@ pub enum CodexMessage {
         method: String,
         params: Value,
     },
-    Notification(NormalizedEvent),
+    Notification(Box<NormalizedEvent>),
 }
 
 pub fn parse_codex_jsonrpc_line(
@@ -129,7 +129,7 @@ pub fn parse_codex_jsonrpc_line(
                 event.map(|mut event| {
                     event.event_key =
                         stable_event_key(DriverKind::Codex, method, &value, source_offset);
-                    CodexMessage::Notification(event)
+                    CodexMessage::Notification(Box::new(event))
                 })
             }),
         (None, None) => Err(invalid(DriverKind::Codex, "missing id and method")),
@@ -322,10 +322,7 @@ fn codex_rate_limit_kind(params: &Value) -> Option<NormalizedEventKind> {
         };
         let minutes = number(["windowDurationMins", "window_minutes"]);
         let resets_at = number(["resetsAt", "resets_at"]);
-        if best
-            .as_ref()
-            .map_or(true, |(current, _, _)| used > *current)
-        {
+        if best.as_ref().is_none_or(|(current, _, _)| used > *current) {
             best = Some((used, resets_at, codex_window_label(minutes, key)));
         }
     }
@@ -743,7 +740,7 @@ mod rate_limit_tests {
 
     fn notification(line: &str) -> NormalizedEvent {
         match parse_codex_jsonrpc_line(line, 1).unwrap() {
-            Some(CodexMessage::Notification(event)) => event,
+            Some(CodexMessage::Notification(event)) => *event,
             other => panic!("expected notification, got {other:?}"),
         }
     }

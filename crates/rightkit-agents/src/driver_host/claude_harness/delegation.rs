@@ -21,7 +21,7 @@
 //!    behind layer 1). The runtime counts every detection on the
 //!    persisted binding and projects a typed
 //!    `DelegationBypassDetected` progress event.
-//! 3. **Delegation gate** — [`delegate_through_coderight`] is the
+//! 3. **Delegation gate** — `delegate_through_coderight` is the
 //!    single entry a Claude root uses to spawn child work. It is a
 //!    thin authoritative wrapper over the donor resolver
 //!    `cli_runtime::policy::resolve_child_runtime` (registry check +
@@ -132,7 +132,7 @@ impl std::fmt::Display for LaunchPolicyViolation {
                 write!(f, "native tool surface must be removed (`--tools \"\"`), found: {found}")
             }
             LaunchPolicyViolation::AllowedToolsNotPinnedToCoderight { found } => {
-                write!(f, "allowed tools must be pinned to {RIGHTKIT_MCP_TOOL_SCOPE}, found: {found}")
+                write!(f, "allowed tools must be pinned to {HOST_MCP_TOOL_SCOPE}, found: {found}")
             }
             LaunchPolicyViolation::StrictMcpConfigMissing => {
                 f.write_str("--strict-mcp-config is required so no additional MCP server can be injected")

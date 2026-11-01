@@ -57,13 +57,15 @@ impl ClaudeLaunchOptions {
             include_partial_messages: true,
             ..rk::ClaudeOptions::default()
         };
-        let mut rk_extras = rk::ClaudeExtras::default();
-        rk_extras.tools = Some(Vec::new());
-        rk_extras.no_chrome = true;
-        rk_extras.fork_session = extras.fork_session;
-        rk_extras.resume_session_at = extras.resume_session_at.clone();
-        rk_extras.max_turns = extras.max_turns;
-        rk_extras.fallback_model = extras.fallback_model.clone();
+        let rk_extras = rk::ClaudeExtras {
+            tools: Some(Vec::new()),
+            no_chrome: true,
+            fork_session: extras.fork_session,
+            resume_session_at: extras.resume_session_at.clone(),
+            max_turns: extras.max_turns,
+            fallback_model: extras.fallback_model.clone(),
+            ..rk::ClaudeExtras::default()
+        };
         let mut args = rk::build_args_with(&options, &rk_extras)
             .map_err(|reason| invalid(DriverKind::Claude, reason))?;
         // RightKit's builder has no MCP-config field: the host app's gateway config is the only
@@ -122,7 +124,7 @@ fn set_flag_value(args: &mut Vec<String>, flag: &str, value: String) {
 
 /// Per-run `host app run` flags forwarded to the Claude Code CLI's own flags.
 ///
-/// Mapping (Claude Code CLI reference, https://code.claude.com/docs/en/cli-reference):
+/// Mapping (Claude Code CLI reference, <https://code.claude.com/docs/en/cli-reference>):
 /// `--max-turns`, `--max-budget-usd` (print mode only), `--system-prompt`,
 /// `--system-prompt-file`, `--append-system-prompt`, `--append-system-prompt-file`,
 /// `--mcp-config` (extra servers; the the host app gateway config and

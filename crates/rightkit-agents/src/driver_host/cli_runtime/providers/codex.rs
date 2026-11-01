@@ -202,7 +202,7 @@ impl CliProviderAdapter for CodexAdapter {
         let message = crate::driver_host::parse_codex_jsonrpc_line(&line, 0)
             .map_err(|error| adapter_error_from_parse_error(&self.provider_id, error))?;
         Ok(message.and_then(|msg| match msg {
-            crate::driver_host::CodexMessage::Notification(event) => Some(event),
+            crate::driver_host::CodexMessage::Notification(event) => Some(*event),
             crate::driver_host::CodexMessage::Response { .. }
             | crate::driver_host::CodexMessage::ServerRequest { .. } => None,
         }))

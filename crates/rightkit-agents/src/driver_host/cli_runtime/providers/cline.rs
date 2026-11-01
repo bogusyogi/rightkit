@@ -565,10 +565,6 @@ fn fingerprint_from_output(output: &str) -> String {
         .collect()
 }
 
-/// Cheap UTC ISO timestamp suitable for `observed_at` /
-/// `fetched_at`. Matches the `YYYY-MM-DDTHH:MM:SSZ` shape the daemon
-/// uses elsewhere so SQL string comparisons remain correct.
-
 /// Reject every BYOK-shaped field on the launch request. A
 /// `--key` flag, a non-Cline provider hint, or any other BYOK-shaped
 /// input is a launch refusal: Cline launches exclusively through the

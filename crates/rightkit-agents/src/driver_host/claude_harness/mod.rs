@@ -58,7 +58,7 @@
 //!    `DelegationBypassDetected` progress event, and
 //! 3. every child spawn is resolved through
 //!    `cli_runtime::policy::resolve_child_runtime` via
-//!    [`delegation::delegate_through_coderight`], which records a
+//!    `delegation::delegate_through_coderight`, which records a
 //!    receipt (backend, resolution source, session-policy digest) and
 //!    enforces the session's `max_parallel_children` budget
 //!    ([`delegation::DelegationLedger`]).

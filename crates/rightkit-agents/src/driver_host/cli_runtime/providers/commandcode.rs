@@ -18,7 +18,7 @@
 //!   [`crate::driver_host::contracts::NormalizedEvent`] shape.
 //!
 //! The adapter is **default-off** until the activation acceptance
-//! criteria pass. [`is_activation_passed`] returns `false`, so the
+//! criteria pass. `is_activation_passed` returns `false`, so the
 //! qualification runner reports the provider as `Unqualified` and
 //! the registry refuses to launch it. The activation gate is wired
 //! as a static method so callers (UI, registry, qualification
@@ -97,8 +97,8 @@ impl CommandCodeAdapter {
     ///
     /// Until then the adapter stays experimental. The qualification
     /// runner reflects the gate by reporting every probe as failed
-    /// (see [`qualification_suite`] with
-    /// [`is_activation_passed`] guard).
+    /// (see `qualification_suite` with
+    /// `is_activation_passed` guard).
     pub fn is_activation_passed() -> bool {
         false
     }

@@ -1,7 +1,7 @@
 //! Native login, status, and logout routes for vendor CLIs.
 //!
 //! PR 2 of the architecture plan. These routes are the only sanctioned
-//! path to attach an account to a managed [`CliAccountProfile`]:
+//! path to attach an account to a managed `CliAccountProfile`:
 //!
 //! - [`login`] launches the vendor CLI's own native login flow
 //!   (currently `codex login`; Claude sign-in is not in the product, R42)
@@ -83,7 +83,7 @@ pub enum LoginError {
     /// launched. The launch is aborted; the caller is expected to
     /// unset the offending variable and retry.
     ForbiddenEnvDetected(String),
-    /// The provider has no registered layout in [`PROFILE_LAYOUTS`]
+    /// The provider has no registered layout in `PROFILE_LAYOUTS`
     /// (or its equivalent in [`crate::driver_host::cli_runtime::profile`]) and is
     /// therefore not a launchable native-login target.
     NotRegistered(CliProviderId),
@@ -209,10 +209,6 @@ fn config_dir_variable(provider: &CliProviderId) -> Option<&'static str> {
     }
 }
 
-/// Cheap UTC ISO timestamp suitable for `observed_at`. Mirrors the
-/// shape used by the qualification runner so SQL string comparisons
-/// stay correct.
-
 /// Scan `text` for any deny-list prefix. Returns the first matched
 /// prefix as `Some(prefix)` so the caller can include it in the
 /// error; `None` means the text is safe to log or surface.
@@ -309,7 +305,7 @@ pub fn ambient_forbidden_env() -> Option<String> {
 ///    [`LoginError::NotRegistered`]; missing binaries return
 ///    [`LoginError::BinaryMissing`].
 /// 5. Spawn the vendor CLI under the managed `HOME`. Scan stdout
-///    and stderr through [`find_credential_match`]; any match aborts
+///    and stderr through `find_credential_match`; any match aborts
 ///    with [`LoginError::CredentialLeakSuspected`] before we
 ///    persist anything.
 /// 6. On exit success, flip `signed_in = true`, persist the profile,
