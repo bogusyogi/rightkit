@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-bot-messaging",
+  "capabilities": [
+    {
+      "capability": "bot-messaging",
+      "summary": "Bot messaging bridge: remote chat channels (Telegram, Slack, Discord style) relaying agent sessions with policy-checked commands; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}
