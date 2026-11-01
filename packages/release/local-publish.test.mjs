@@ -822,6 +822,20 @@ test('npm qualification bundles exact gated bytes without upload or feed mutatio
   assert.ok(!h.calls.some(({ command }) => command === 'cargo'));
 });
 
+test('a Linux direct origin qualifies npm packages (no upload, no Keychain), except the signed @rightkit/release (#1341)', async () => {
+  const root = workspace();
+  const feed = path.join(root, 'packages/release/rightkit-versions.json');
+  fs.mkdirSync(path.dirname(feed), { recursive: true });
+  const feedText = JSON.stringify({ stagedNpm: { '@rightkit/demo': '1.2.3' } });
+  fs.writeFileSync(feed, feedText);
+  const h = harness(root, 'npm', { platform: 'linux', git: (args) => args[0] === 'rev-parse' ? HEAD : args[0] === 'show' ? feedText : '' });
+  const result = await runLocalPublish('npm', ['--local', '--package', '@rightkit/demo', '--workspace', root, '--qualify-only', '--bundle', path.join(root, 'qualified')], h.deps);
+  assert.equal(result.qualifiedOnly, true);
+  assert.equal(JSON.parse(fs.readFileSync(result.evidencePath, 'utf8')).hostPolicy, 'linux-direct');
+  assert.deepEqual(h.published, []);
+  await refused(runLocalPublish('npm', ['--local', '--package', '@rightkit/release', '--workspace', root, '--qualify-only', '--bundle', path.join(root, 'q2')], harness(root, 'npm', { platform: 'linux' }).deps), /Mac only.*this host is linux/);
+});
+
 test('npm qualification refuses an uncommitted or unstaged feed before packing', async () => {
   const root = workspace();
   const feed = path.join(root, 'packages/release/rightkit-versions.json');
