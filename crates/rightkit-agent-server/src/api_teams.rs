@@ -35,7 +35,9 @@ use crate::api::DaemonState;
 fn peer_team_store_root() -> PathBuf {
     std::env::var_os("RIGHTKIT_PEER_TEAM_STORE_ROOT")
         .map(PathBuf::from)
-        .or_else(|| rightkit_app_settings::agent_config::state_root().map(|root| root.join("peer-teams")))
+        .or_else(|| {
+            rightkit_app_settings::agent_config::state_root().map(|root| root.join("peer-teams"))
+        })
         .unwrap_or_else(|| {
             std::env::current_dir()
                 .unwrap_or_else(|_| PathBuf::from("."))

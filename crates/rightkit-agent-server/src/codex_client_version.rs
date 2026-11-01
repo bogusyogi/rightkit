@@ -46,7 +46,8 @@ pub(crate) fn parse_npm_version(body: &str) -> Option<String> {
 async fn fetch_latest_from_npm() -> Result<String, String> {
     let client = rightkit_http::http_client::public_client(FETCH_TIMEOUT)?;
     let response =
-        rightkit_http::http_client::send_any(&client, &rightkit_http::Request::get(REGISTRY_URL)).await?;
+        rightkit_http::http_client::send_any(&client, &rightkit_http::Request::get(REGISTRY_URL))
+            .await?;
     if !rightkit_http::http_client::is_success(response.status) {
         return Err(format!("npm registry answered HTTP {}", response.status));
     }

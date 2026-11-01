@@ -32,7 +32,7 @@ fn render_cli_stream_event_wraps_protocol_event_contract() {
 
     let rendered = render_cli_stream_event(&event);
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../tests/fixtures/cli-json/stream-event.v1.json"
+        "../data/engine__bins__coderight__tests__fixtures__cli-json__stream-event.v1.json"
     ))
     .expect("parse stream event fixture");
     assert_eq!(rendered, fixture);

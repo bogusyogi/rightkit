@@ -31,7 +31,9 @@ pub struct Ed25519PackageVerifier {
 }
 
 impl Ed25519PackageVerifier {
-    pub fn from_config(keys: &[rightkit_app_settings::agent_config::WorkflowImportTrustedPublicKey]) -> Self {
+    pub fn from_config(
+        keys: &[rightkit_app_settings::agent_config::WorkflowImportTrustedPublicKey],
+    ) -> Self {
         let keys = keys
             .iter()
             .filter_map(|entry| {
@@ -125,8 +127,8 @@ impl WorkflowApiState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rightkit_workflow::import_export::PackageSignatureVerifier;
     use ed25519_dalek::{Signer, SigningKey};
+    use rightkit_workflow::import_export::PackageSignatureVerifier;
 
     #[test]
     fn empty_trust_roots_fail_closed() {

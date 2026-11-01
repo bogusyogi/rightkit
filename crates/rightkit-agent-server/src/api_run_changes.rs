@@ -1214,8 +1214,12 @@ impl rightkit_agent_engine_core::RunChangesSink for DaemonRunChangesSink {
                         ChangeClassification::Untracked
                     }
                 }
-                rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Modified => ChangeClassification::Tracked,
-                rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Deleted => ChangeClassification::Deleted,
+                rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Modified => {
+                    ChangeClassification::Tracked
+                }
+                rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Deleted => {
+                    ChangeClassification::Deleted
+                }
                 rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Renamed { .. } => {
                     ChangeClassification::Renamed
                 }
@@ -1230,11 +1234,13 @@ impl rightkit_agent_engine_core::RunChangesSink for DaemonRunChangesSink {
             let (additions, deletions) = diff_counts(&diff);
             let exists = mutation.path.exists();
             let undo = match &mutation.kind {
-                rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Created => Some(UndoBody {
-                    fingerprint: fingerprint_path(&mutation.path).unwrap_or_default(),
-                    body: "__RIGHTKIT_DELETE__".to_string(),
-                    note: "remove file created by this tool call".to_string(),
-                }),
+                rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Created => {
+                    Some(UndoBody {
+                        fingerprint: fingerprint_path(&mutation.path).unwrap_or_default(),
+                        body: "__RIGHTKIT_DELETE__".to_string(),
+                        note: "remove file created by this tool call".to_string(),
+                    })
+                }
                 rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Modified
                 | rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Deleted => mutation
                     .previous_content
@@ -1246,11 +1252,13 @@ impl rightkit_agent_engine_core::RunChangesSink for DaemonRunChangesSink {
                         body: content.clone(),
                         note: "restore the exact pre-effect file content".to_string(),
                     }),
-                rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Renamed { .. } => Some(UndoBody {
-                    fingerprint: fingerprint_path(&mutation.path).unwrap_or_default(),
-                    body: "__RIGHTKIT_RENAME__".to_string(),
-                    note: "move the renamed file back to its original path".to_string(),
-                }),
+                rightkit_agent_tools::coding_tools::WorkspaceMutationKind::Renamed { .. } => {
+                    Some(UndoBody {
+                        fingerprint: fingerprint_path(&mutation.path).unwrap_or_default(),
+                        body: "__RIGHTKIT_RENAME__".to_string(),
+                        note: "move the renamed file back to its original path".to_string(),
+                    })
+                }
             };
             entries.push(ChangeEntry {
                 mutation_id: format!("{run_id}:{tool_call_id}:{index}"),
@@ -2090,7 +2098,8 @@ fn dirs_default_home() -> PathBuf {
     }
     #[cfg(not(test))]
     {
-        rightkit_app_settings::agent_config::state_root().unwrap_or_else(|| PathBuf::from(".coderight"))
+        rightkit_app_settings::agent_config::state_root()
+            .unwrap_or_else(|| PathBuf::from(".coderight"))
     }
 }
 

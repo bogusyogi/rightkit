@@ -353,7 +353,9 @@ pub(crate) fn write_message_history_store(
     write_store_file(path, &raw)
 }
 
-pub(crate) fn load_team_store(path: &FsPath) -> HashMap<String, rightkit_agent_tools::coding_tools::TeamDefinition> {
+pub(crate) fn load_team_store(
+    path: &FsPath,
+) -> HashMap<String, rightkit_agent_tools::coding_tools::TeamDefinition> {
     let Ok(raw) = std::fs::read_to_string(path) else {
         return HashMap::new();
     };

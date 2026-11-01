@@ -174,7 +174,7 @@ mod tests {
             allow_mutating: false,
         };
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
-            "../../tests/fixtures/cli-json/mcp-server-row.v1.json"
+            "../../data/engine__bins__coderight__tests__fixtures__cli-json__mcp-server-row.v1.json"
         ))
         .expect("parse mcp server row fixture");
 

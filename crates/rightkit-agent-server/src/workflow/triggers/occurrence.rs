@@ -42,9 +42,7 @@ use rightkit_agent_engine_storage::{
     WorkflowTriggerEventRow, WorkflowTriggerRow, WorkflowTriggerWriter,
 };
 use rightkit_workflow::clock::{Clock, UnixMs};
-use rightkit_workflow::domain::{
-    occurrence_id, workflow_version_id, TriggerId, WorkflowVersionId,
-};
+use rightkit_workflow::domain::{occurrence_id, workflow_version_id, TriggerId, WorkflowVersionId};
 use rightkit_workflow::prelude::{DedupeStrategy, MisfirePolicy, OccurrencePolicy, OverlapPolicy};
 
 use super::event::NormalizedTriggerEvent;

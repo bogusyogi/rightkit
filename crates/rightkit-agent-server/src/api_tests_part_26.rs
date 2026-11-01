@@ -146,7 +146,7 @@ async fn live_session_row_matches_fixture_contract() {
     row["workspaceRoot"] = serde_json::json!("D:/work/.coderight/worktrees/session-fixture");
     row["createdAt"] = serde_json::json!("2026-06-24T01:02:03Z");
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../tests/fixtures/cli-json/session-row.v1.json"
+        "../data/engine__bins__coderight__tests__fixtures__cli-json__session-row.v1.json"
     ))
     .expect("parse session row fixture");
 

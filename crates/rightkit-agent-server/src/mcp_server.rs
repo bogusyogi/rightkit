@@ -54,8 +54,11 @@ impl SessionGateway {
             .trim_end_matches('/')
             .to_string();
         // No proxy, no redirects: the capability token goes to the daemon host only.
-        let client =
-            rightkit_http::http_client::daemon_client_probe(&daemon_url, CONNECT_TIMEOUT, REQUEST_TIMEOUT)?;
+        let client = rightkit_http::http_client::daemon_client_probe(
+            &daemon_url,
+            CONNECT_TIMEOUT,
+            REQUEST_TIMEOUT,
+        )?;
         Ok(Some(Self {
             daemon_url,
             capability_token: required("RIGHTKIT_GATEWAY_TOKEN")?,
@@ -894,7 +897,8 @@ mod eff001_mcp_ingress_tests {
         let stages = trace.stages_for(&trace_call_id);
         assert_eq!(
             stages,
-            rightkit_agent_engine_core::qualification_trace::EffectAdmissionStage::canonical_order()
+            rightkit_agent_engine_core::qualification_trace::EffectAdmissionStage::canonical_order(
+            )
         );
         assert!(trace.is_canonically_ordered(&trace_call_id));
         assert!(trace.reached_execute(&trace_call_id));

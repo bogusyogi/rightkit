@@ -27,6 +27,17 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use rightkit_agent_engine_protocol::ProtocolEvent;
+use rightkit_agent_engine_storage::{
+    DriverBindingRow, DriverEventClaim, DriverEventInboxRow, SessionCapabilityLeaseRow, Storage,
+    StorageError,
+};
+use rightkit_agent_orchestration::supervision::{
+    enter_worktree, exit_worktree, SystemGitWorktreeExecutor, WorktreeEnterRequest,
+};
+use rightkit_agent_tools::coding_tools::{
+    SpawnRuntimeKind, SubagentContinuity, SubagentSpawnOptions,
+};
 use rightkit_agents::driver_host::cli_runtime::{
     resolve_child_runtime, AgentKind, AgentResult, AgentResultStatus, AgentRuntimeBackend,
     AgentRuntimeExecutor, AgentTurnRequest, AgentTurnStatus, AuthenticatedCliExecutor,
@@ -34,15 +45,6 @@ use rightkit_agents::driver_host::cli_runtime::{
     CliMcpServerSpec, CliProviderId, DelegateTaskRequest, MutationPolicy, RegisteredProviders,
     RequestedRuntime, RuntimeResolution, RuntimeResolutionSource,
 };
-use rightkit_agent_orchestration::supervision::{
-    enter_worktree, exit_worktree, SystemGitWorktreeExecutor, WorktreeEnterRequest,
-};
-use rightkit_agent_engine_protocol::ProtocolEvent;
-use rightkit_agent_engine_storage::{
-    DriverBindingRow, DriverEventClaim, DriverEventInboxRow, SessionCapabilityLeaseRow, Storage,
-    StorageError,
-};
-use rightkit_agent_tools::coding_tools::{SpawnRuntimeKind, SubagentContinuity, SubagentSpawnOptions};
 use serde_json::{json, Value};
 
 use crate::api::DaemonState;
@@ -1123,7 +1125,9 @@ impl<'a> From<&'a SubagentContinuity> for ContinuityTarget<'a> {
 pub trait CliDelegationEnvironment: Send + Sync {
     fn cli_executor(&self) -> Option<Arc<AuthenticatedCliExecutor>>;
     fn cli_registry_provider_ids(&self) -> BTreeSet<CliProviderId>;
-    fn cli_delegation_policy(&self) -> rightkit_agents::driver_host::cli_runtime::CliDelegationPolicy;
+    fn cli_delegation_policy(
+        &self,
+    ) -> rightkit_agents::driver_host::cli_runtime::CliDelegationPolicy;
 }
 
 impl CliDelegationEnvironment for DaemonState {
@@ -1133,7 +1137,9 @@ impl CliDelegationEnvironment for DaemonState {
     fn cli_registry_provider_ids(&self) -> BTreeSet<CliProviderId> {
         self.cli_registry_provider_ids.clone()
     }
-    fn cli_delegation_policy(&self) -> rightkit_agents::driver_host::cli_runtime::CliDelegationPolicy {
+    fn cli_delegation_policy(
+        &self,
+    ) -> rightkit_agents::driver_host::cli_runtime::CliDelegationPolicy {
         self.cli_delegation_policy.clone()
     }
 }
@@ -1167,10 +1173,10 @@ pub fn _ensure_protocol_event_used(_event: &ProtocolEvent) -> serde_json::Value 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rightkit_agent_tools::coding_tools::SubagentWorktreeOptions;
     use rightkit_agents::driver_host::cli_runtime::{
         CliRuntimeSelection, MutationPolicy, RuntimeResolutionSource,
     };
-    use rightkit_agent_tools::coding_tools::SubagentWorktreeOptions;
 
     fn make_resolution(provider: &str) -> RuntimeResolution {
         RuntimeResolution {
@@ -1179,9 +1185,9 @@ mod tests {
                 provider_id: CliProviderId::new(provider),
                 model_id: None,
                 account_profile_id:
-                    rightkit_agents::driver_host::cli_runtime::ids::CliAccountProfileId::new(format!(
-                        "{provider}/default"
-                    )),
+                    rightkit_agents::driver_host::cli_runtime::ids::CliAccountProfileId::new(
+                        format!("{provider}/default"),
+                    ),
             },
             source: RuntimeResolutionSource::RoleRoute,
             rejected_hints: Vec::new(),

@@ -654,7 +654,8 @@ pub(crate) async fn create_session_handler(
     let permission_mode = match requested_permission_mode {
         // Strict: a misspelled mode is a 400, not a silent downgrade to `Ask`.
         Some(mode) => Some(
-            rightkit_agent_policy::parse_permission_mode_strict(mode).ok_or(StatusCode::BAD_REQUEST)?,
+            rightkit_agent_policy::parse_permission_mode_strict(mode)
+                .ok_or(StatusCode::BAD_REQUEST)?,
         ),
         None if workspace_config.permissions.mode.trim().is_empty() => None,
         None => Some(rightkit_agent_policy::parse_permission_mode(Some(

@@ -105,13 +105,12 @@ pub(crate) async fn resolve_tool_approval(
             .remove(&body.tool_call_id)
             .ok_or(StatusCode::NOT_FOUND)?
     };
-    let gate_response =
-        body.decision
-            .as_ref()
-            .map(|decision| rightkit_agent_engine_protocol::PermissionGateResponse {
-                allow: decision.is_approved(),
-                reason: format!("{decision:?}"),
-            });
+    let gate_response = body.decision.as_ref().map(|decision| {
+        rightkit_agent_engine_protocol::PermissionGateResponse {
+            allow: decision.is_approved(),
+            reason: format!("{decision:?}"),
+        }
+    });
     let mut policy_rule = None;
     let mut payload_grant: Option<String> = None;
     let approved = match body.decision.as_ref() {

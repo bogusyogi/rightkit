@@ -22,13 +22,13 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use rightkit_agent_engine_storage::DriverBindingRow;
 use rightkit_agents::driver_host::cli_runtime::recovery::{
     walk_active_bindings_for_resume, BindingResumeGuard, BindingSnapshot, DeferredApplyReport,
     DeferredBindingUpdate, DeferredBindingUpdates, DeferredUpdateKind, DriverBindingRecoveryRow,
     LiveContextEpoch, LiveProcessGeneration, RecoveryError, ResumeDecision, ResumeWalkOutcome,
 };
 use rightkit_agents::driver_host::cli_runtime::{ContextEpoch, ContextEpochReason};
-use rightkit_agent_engine_storage::DriverBindingRow;
 
 use crate::api::SharedStorage;
 

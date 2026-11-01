@@ -111,9 +111,11 @@ impl RunOriginSink for StorageRunOriginSink {
                     .append_event_at_seq(session_id, *seq, kind, &payload);
                 match outcome {
                     Ok(()) => return OriginWriteResult::Persisted(*seq),
-                    Err(rightkit_agent_engine_storage::PersistenceGapError::SeqAboveHighWater { .. })
-                        if tokio::time::Instant::now() < deadline =>
-                    {
+                    Err(
+                        rightkit_agent_engine_storage::PersistenceGapError::SeqAboveHighWater {
+                            ..
+                        },
+                    ) if tokio::time::Instant::now() < deadline => {
                         // Earlier Conduit events are persisted by the background writer. Release
                         // the SQLite mutex while it catches up, then reserve this exact sequence
                         // before allowing the effect. A failed/stalled writer reaches the deadline

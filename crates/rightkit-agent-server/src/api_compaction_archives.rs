@@ -7,8 +7,12 @@ use axum::{
     routing::get,
     Router,
 };
-use rightkit_agent_engine_core::compaction_archive::{serialize_archive_messages, CompactionArchiveError};
-use rightkit_agent_engine_core::{CompactionArchiveInput, CompactionArchiveReceipt, CompactionArchiveSink};
+use rightkit_agent_engine_core::compaction_archive::{
+    serialize_archive_messages, CompactionArchiveError,
+};
+use rightkit_agent_engine_core::{
+    CompactionArchiveInput, CompactionArchiveReceipt, CompactionArchiveSink,
+};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -19,7 +23,8 @@ static ARCHIVE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) struct SqliteCompactionArchiveSink {
     storage: SharedStorage,
-    snapshot_feed: std::sync::Arc<std::sync::RwLock<rightkit_agent_engine_core::CompactionSnapshotV1>>,
+    snapshot_feed:
+        std::sync::Arc<std::sync::RwLock<rightkit_agent_engine_core::CompactionSnapshotV1>>,
 }
 
 impl SqliteCompactionArchiveSink {
@@ -244,9 +249,9 @@ impl CompactionArchiveSink for SqliteCompactionArchiveSink {
                     return Err(rightkit_agent_engine_storage::StorageError::StaleSnapshot);
                 }
                 if let Some(decision) = input.federation_decision.as_ref() {
-                    let received = input
-                        .federation_request_started_at
-                        .ok_or_else(|| rightkit_agent_engine_storage::StorageError::StaleSnapshot)?;
+                    let received = input.federation_request_started_at.ok_or_else(|| {
+                        rightkit_agent_engine_storage::StorageError::StaleSnapshot
+                    })?;
                     if received.elapsed().as_millis() as u64 > decision.expires_after_elapsed_ms
                         || snapshot.binding_revision != Some(decision.restart_epoch)
                     {
@@ -561,13 +566,14 @@ mod tests {
             pinned: false,
             attachments: Vec::new(),
         }];
-        let carried = rightkit_agent_engine_core::compaction_archive::CompactionProjectionRecord::build(
-            "sess-1",
-            0,
-            1,
-            &live_side,
-            "live summary",
-        );
+        let carried =
+            rightkit_agent_engine_core::compaction_archive::CompactionProjectionRecord::build(
+                "sess-1",
+                0,
+                1,
+                &live_side,
+                "live summary",
+            );
         assert!(
             !carried.verify(&canonical_range),
             "precondition: storing the live hash verbatim must NOT verify -- if it did, \
@@ -611,7 +617,8 @@ mod tests {
             CompactionProjectionRecord, PROJECTION_EVENT_KIND,
         };
 
-        let storage = SharedStorage::new(rightkit_agent_engine_storage::Storage::open_in_memory().unwrap());
+        let storage =
+            SharedStorage::new(rightkit_agent_engine_storage::Storage::open_in_memory().unwrap());
         {
             let mut store = storage.lock().await;
             // `commit_compaction` fail-closes when the session row is
@@ -692,13 +699,14 @@ mod tests {
     #[test]
     fn rehashing_a_range_with_no_canonical_rows_is_an_error_not_an_empty_hash() {
         let store = rightkit_agent_engine_storage::Storage::open_in_memory().unwrap();
-        let carried = rightkit_agent_engine_core::compaction_archive::CompactionProjectionRecord::build(
-            "sess-missing",
-            0,
-            1,
-            &[],
-            String::new(),
-        );
+        let carried =
+            rightkit_agent_engine_core::compaction_archive::CompactionProjectionRecord::build(
+                "sess-missing",
+                0,
+                1,
+                &[],
+                String::new(),
+            );
         // An empty range must not silently produce a hash-of-nothing that a
         // later verify would happily match, authorizing deletion of rows this
         // record never actually covered.
@@ -707,7 +715,8 @@ mod tests {
 
     #[tokio::test]
     async fn failed_projection_rehash_leaves_archive_events_and_epoch_unchanged() {
-        let storage = SharedStorage::new(rightkit_agent_engine_storage::Storage::open_in_memory().unwrap());
+        let storage =
+            SharedStorage::new(rightkit_agent_engine_storage::Storage::open_in_memory().unwrap());
         storage
             .lock()
             .await
@@ -730,13 +739,14 @@ mod tests {
             .await
             .compaction_epoch("projection-failure")
             .unwrap();
-        let projection = rightkit_agent_engine_core::compaction_archive::CompactionProjectionRecord::build(
-            "projection-failure",
-            0,
-            1,
-            &[],
-            "summary",
-        );
+        let projection =
+            rightkit_agent_engine_core::compaction_archive::CompactionProjectionRecord::build(
+                "projection-failure",
+                0,
+                1,
+                &[],
+                "summary",
+            );
         let result = SqliteCompactionArchiveSink::new(storage.clone())
             .archive(CompactionArchiveInput {
                 session_id: "projection-failure".into(),
@@ -789,7 +799,8 @@ mod tests {
             CompactionLineageSegment, CompactionRolloutLineage, LINEAGE_EVENT_KIND,
         };
 
-        let storage = SharedStorage::new(rightkit_agent_engine_storage::Storage::open_in_memory().unwrap());
+        let storage =
+            SharedStorage::new(rightkit_agent_engine_storage::Storage::open_in_memory().unwrap());
         let sink = SqliteCompactionArchiveSink::new(storage.clone());
 
         let lineage = CompactionRolloutLineage {
@@ -855,7 +866,8 @@ mod tests {
     #[tokio::test]
     async fn archive_retrieval_requires_auth_and_returns_exact_messages() {
         const TOKEN: &str = "archive-test-token";
-        let storage = SharedStorage::new(rightkit_agent_engine_storage::Storage::open_in_memory().unwrap());
+        let storage =
+            SharedStorage::new(rightkit_agent_engine_storage::Storage::open_in_memory().unwrap());
         let messages = vec![rightkit_agent_engine_protocol::TranscriptMessage::User {
             id: "user-1".into(),
             created_at: "2026-07-17T00:00:00Z".into(),

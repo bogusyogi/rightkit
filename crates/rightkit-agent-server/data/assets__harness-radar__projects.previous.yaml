@@ -1,0 +1,21 @@
+- name: Awesome Agent Harness
+  repo_url: https://github.com/Picrew/awesome-agent-harness
+  category: Reference implementations
+  tags: [reference, ecosystem, evaluation]
+  summary: Curated agent-harness map used as the first CodeRight radar source.
+  updated_at: 2026-06-05
+  stars_snapshot: 268
+- name: Open Protocol
+  repo_url: https://github.com/example/open-protocol
+  category: Protocol contracts
+  tags: [protocol, contracts]
+  summary: External protocol-contract signal; tracks CodeRight interop compatibility.
+  updated_at: 2026-06-05
+  stars_snapshot: 0
+- name: DeerFlow
+  repo_url: https://github.com/bytedance/deer-flow
+  category: Execution / Sandbox
+  tags: [docker, workspace, sandbox, multi-agent]
+  summary: Docker-first long-running harness with task workspace and sandbox setup signals.
+  updated_at: 2026-06-08
+  stars_snapshot: 0

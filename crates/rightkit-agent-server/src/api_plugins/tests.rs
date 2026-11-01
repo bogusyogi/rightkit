@@ -42,7 +42,7 @@ mod tests {
             enabled: true,
         };
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
-            "../../tests/fixtures/cli-json/plugin-row.v1.json"
+            "../../data/engine__bins__coderight__tests__fixtures__cli-json__plugin-row.v1.json"
         ))
         .expect("parse plugin row fixture");
 

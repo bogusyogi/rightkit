@@ -35,7 +35,11 @@ impl ContinuationWorker {
     }
 }
 
-fn drive(storage: &SharedStorage, now_ms: i64, holder: &str) -> rightkit_agent_engine_storage::Result<()> {
+fn drive(
+    storage: &SharedStorage,
+    now_ms: i64,
+    holder: &str,
+) -> rightkit_agent_engine_storage::Result<()> {
     let storage = storage.blocking_lock();
     let repo = WorkflowRepository::new(storage.conn());
     for wait in repo.list_due_waits(now_ms, 64)? {

@@ -23,11 +23,11 @@
 
 use std::collections::BTreeMap;
 
+use rightkit_agent_engine_protocol::{TaskNode, TaskState};
 use rightkit_agent_orchestration::task_list_projection::{
     assign_owner, create_task, mark_active, mark_done, update_task, CreateTaskInput,
     ProjectionError, TaskPatch,
 };
-use rightkit_agent_engine_protocol::{TaskNode, TaskState};
 use serde::{Deserialize, Serialize};
 
 /// Version of the serialized observation ledger.

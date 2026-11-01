@@ -29,9 +29,11 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use rightkit_memory::membrane::{MembraneBackend, MembraneCli, TranscriptAppend};
 use rightkit_agent_engine_protocol::{ProtocolEvent, TranscriptMessage};
-use rightkit_agent_engine_storage::{AdaptObservationCursor, EventPersistenceState, TranscriptExportCursor};
+use rightkit_agent_engine_storage::{
+    AdaptObservationCursor, EventPersistenceState, TranscriptExportCursor,
+};
+use rightkit_memory::membrane::{MembraneBackend, MembraneCli, TranscriptAppend};
 use serde_json::{json, Value};
 
 use crate::api::{lock_recover, SharedStorage};

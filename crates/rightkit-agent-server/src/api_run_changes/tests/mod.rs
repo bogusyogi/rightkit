@@ -686,7 +686,9 @@ fn daemon_sink_records_observed_mutation_and_created_file_undo() {
     let store_dir = dir.path().join("store");
     std::fs::create_dir_all(&store_dir).unwrap();
     let store = Arc::new(RunChangeStore::open(store_dir).unwrap());
-    store.bind_file_service(Arc::new(rightkit_agent_tools::coding_tools::FileService::default()));
+    store.bind_file_service(Arc::new(
+        rightkit_agent_tools::coding_tools::FileService::default(),
+    ));
     let sink = DaemonRunChangesSink {
         store: Arc::clone(&store),
     };
@@ -750,7 +752,9 @@ fn daemon_sink_restores_exact_pre_effect_modified_content() {
     let store_dir = dir.path().join("store");
     std::fs::create_dir_all(&store_dir).unwrap();
     let store = Arc::new(RunChangeStore::open(store_dir).unwrap());
-    store.bind_file_service(Arc::new(rightkit_agent_tools::coding_tools::FileService::default()));
+    store.bind_file_service(Arc::new(
+        rightkit_agent_tools::coding_tools::FileService::default(),
+    ));
     let sink = DaemonRunChangesSink {
         store: Arc::clone(&store),
     };
@@ -869,7 +873,8 @@ fn two_runs_in_one_session_keep_distinct_records_and_latest_alias() {
         ("session-a--0001", "first.txt"),
         ("session-a--0002", "second.txt"),
     ] {
-        rightkit_agent_engine_core::RunChangesSink::begin_run(&sink, "session-a", run_id, &root).unwrap();
+        rightkit_agent_engine_core::RunChangesSink::begin_run(&sink, "session-a", run_id, &root)
+            .unwrap();
         let path = root.join(filename);
         std::fs::write(&path, filename).unwrap();
         rightkit_agent_engine_core::RunChangesSink::record_mutations(

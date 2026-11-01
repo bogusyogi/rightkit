@@ -283,17 +283,18 @@ async fn cancel_handler(
     let snapshot = tasks.clone();
     drop(tasks);
     let seq = live.conduit.next_seq();
-    live.conduit
-        .publish(rightkit_agent_engine_protocol::ProtocolEvent::TaskGraphUpdated {
+    live.conduit.publish(
+        rightkit_agent_engine_protocol::ProtocolEvent::TaskGraphUpdated {
             session_id: session_id.clone(),
             seq,
             created_at: now_iso(),
             summary: format!("Task {} cancelled by user", cancelled.id),
             tasks: snapshot,
-        });
+        },
+    );
     let seq = live.conduit.next_seq();
-    live.conduit
-        .publish(rightkit_agent_engine_protocol::ProtocolEvent::UserMessageSubmitted {
+    live.conduit.publish(
+        rightkit_agent_engine_protocol::ProtocolEvent::UserMessageSubmitted {
             session_id,
             seq,
             created_at: now_iso(),
@@ -304,7 +305,8 @@ async fn cancel_handler(
             nonce: None,
             trust: None,
             attachments: Vec::new(),
-        });
+        },
+    );
     Ok(Json(json!({ "task": cancelled })))
 }
 

@@ -427,7 +427,8 @@ async fn is_dead_holder(holder: &str) -> bool {
             context,
             env: Vec::new(),
         };
-        let Ok(mut child) = rightkit_sandbox::execution::ProcessLaunchAdapter::spawn(&adapter, spec).await
+        let Ok(mut child) =
+            rightkit_sandbox::execution::ProcessLaunchAdapter::spawn(&adapter, spec).await
         else {
             return false;
         };
@@ -467,8 +468,8 @@ mod tests {
 
     use rightkit_agent_engine_storage::{JournalAppend, ProjectionUpdate};
     use rightkit_agent_engine_storage::{Storage, WorkflowJournalWriter, WorkflowRepository};
-    use rightkit_workflow::clock::TestClock;
     use rightkit_db::rusqlite::{params, Connection};
+    use rightkit_workflow::clock::TestClock;
 
     fn open_storage() -> SharedStorage {
         SharedStorage::new(Storage::open_in_memory().expect("in-memory storage"))

@@ -1192,8 +1192,9 @@ pub(crate) async fn run_managed_process_with_timeout(
     use rightkit_sandbox::execution::ProcessLaunchAdapter;
     use rightkit_sandbox::execution::{CommandLaunchSpec, ProcessLaunchContext};
     #[cfg(test)]
-    let adapter: std::sync::Arc<dyn ProcessLaunchAdapter> =
-        std::sync::Arc::new(rightkit_agent_tools::coding_tools::process_launch::UnconfinedProcessLaunchAdapter);
+    let adapter: std::sync::Arc<dyn ProcessLaunchAdapter> = std::sync::Arc::new(
+        rightkit_agent_tools::coding_tools::process_launch::UnconfinedProcessLaunchAdapter,
+    );
     #[cfg(not(test))]
     let adapter = crate::main_runtime::governed_child_process_launcher()
         .map_err(|error| format!("managed process launch policy unavailable: {error}"))?;

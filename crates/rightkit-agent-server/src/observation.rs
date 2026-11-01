@@ -169,7 +169,8 @@ impl ProviderTurnRetentionV1 {
         {
             return Err("complete loaded context identity is empty");
         }
-        if submission_state != rightkit_logs::agent_telemetry::evidence::ProviderSubmissionStateV1::Submitted
+        if submission_state
+            != rightkit_logs::agent_telemetry::evidence::ProviderSubmissionStateV1::Submitted
             && (self.retained_representation_digest.coverage == HostObservationCoverageV1::Complete
                 || self.loaded_context_identities.coverage == HostObservationCoverageV1::Complete)
         {

@@ -39,7 +39,9 @@ pub(crate) async fn resolve_credential_request(
                 rightkit_agent_engine_core::credential_request::SecretValue::new(value),
             )
         }
-        "decline" | "cancel" => rightkit_agent_engine_core::credential_request::CredentialResume::Declined,
+        "decline" | "cancel" => {
+            rightkit_agent_engine_core::credential_request::CredentialResume::Declined
+        }
         _ => return Err(StatusCode::BAD_REQUEST),
     };
     let resolved = lock_recover(

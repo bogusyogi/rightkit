@@ -40,7 +40,8 @@ pub(crate) fn model_interface_from_config(
 /// Host-owned snapshot used by projection surfaces that only describe tools.
 /// Answered from the static capability table — no tool handler is
 /// constructed for a metadata query.
-pub(crate) fn default_tool_capabilities() -> Vec<rightkit_agent_tools::coding_tools::registry::ToolCapability> {
+pub(crate) fn default_tool_capabilities(
+) -> Vec<rightkit_agent_tools::coding_tools::registry::ToolCapability> {
     rightkit_agent_tools::coding_tools::registry::default_tool_capabilities()
 }
 
@@ -139,9 +140,9 @@ pub(crate) fn build_session_tool_registry_for_plugins(
     });
 
     if registry.get("run_program").is_some() {
-        registry.register(Box::new(rightkit_agent_tools::coding_tools::code_mode::RunProgramTool::new(
-            &registry,
-        )));
+        registry.register(Box::new(
+            rightkit_agent_tools::coding_tools::code_mode::RunProgramTool::new(&registry),
+        ));
     }
 
     // memory_save is host-owned because it carries selected backend/provenance.
@@ -153,11 +154,13 @@ pub(crate) fn build_session_tool_registry_for_plugins(
                 .any(|tool| tool == "memory_save"),
         };
         if allowed {
-            registry.register(Box::new(rightkit_memory::memory_save_tool::MemorySaveTool::new(
-                backend,
-                provenance,
-                workspace_root,
-            )));
+            registry.register(Box::new(
+                rightkit_memory::memory_save_tool::MemorySaveTool::new(
+                    backend,
+                    provenance,
+                    workspace_root,
+                ),
+            ));
         }
     }
 
@@ -413,9 +416,14 @@ mod live_plugin_catalog_tests {
             None,
         );
         assert_eq!(
-            serde_json::to_vec(&rightkit_agent_tools::coding_tools::registry::fixed_v1_tool_defs(&fixed)).unwrap(),
-            serde_json::to_vec(&rightkit_agent_tools::coding_tools::registry::fixed_v1_tool_defs(&fixed_again))
-                .unwrap(),
+            serde_json::to_vec(
+                &rightkit_agent_tools::coding_tools::registry::fixed_v1_tool_defs(&fixed)
+            )
+            .unwrap(),
+            serde_json::to_vec(
+                &rightkit_agent_tools::coding_tools::registry::fixed_v1_tool_defs(&fixed_again)
+            )
+            .unwrap(),
             "FixedV1 projection is stable across rebuilds"
         );
     }

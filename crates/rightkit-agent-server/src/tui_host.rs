@@ -150,7 +150,10 @@ fn request_denied_by_rules(kind: &ApprovalKind, rules: &[PermissionRuleView]) ->
 /// (the routes validate) aborts.
 async fn install_allow_rule(
     host: &impl TurnHost,
-    entry: Option<(rightkit_terminal_ui::render::allow_rule::AllowRule, ApprovalKind)>,
+    entry: Option<(
+        rightkit_terminal_ui::render::allow_rule::AllowRule,
+        ApprovalKind,
+    )>,
     session_id: &str,
 ) -> Result<(), String> {
     let (rule, kind) = entry.ok_or("no rule was offered for this request")?;
@@ -205,7 +208,10 @@ pub trait TurnHost: Send + Sync + 'static {
     }
 
     /// A070: take the input lease of a live interactive PTY process.
-    async fn pty_attach(&self, _id: &str) -> Result<rightkit_terminal_ui::pty_attach::PtyLease, String> {
+    async fn pty_attach(
+        &self,
+        _id: &str,
+    ) -> Result<rightkit_terminal_ui::pty_attach::PtyLease, String> {
         Err("Interactive PTY attach is unavailable for this host".into())
     }
 
@@ -1215,7 +1221,9 @@ fn approval_kind_for_call(
             let mut changes = std::collections::BTreeMap::new();
             changes.insert(
                 std::path::PathBuf::from(path.unwrap_or_else(|| "patch".to_string())),
-                rightkit_terminal_ui::render::diff::FileChange::update(clip_approval_payload(&diff)),
+                rightkit_terminal_ui::render::diff::FileChange::update(clip_approval_payload(
+                    &diff,
+                )),
             );
             return ApprovalKind::Patch {
                 changes,
@@ -1324,7 +1332,10 @@ struct SessionState {
     /// Exact allow rule each pending request's "always allow" option installs.
     approval_allow_rules: std::collections::HashMap<
         String,
-        (rightkit_terminal_ui::render::allow_rule::AllowRule, ApprovalKind),
+        (
+            rightkit_terminal_ui::render::allow_rule::AllowRule,
+            ApprovalKind,
+        ),
     >,
     /// Permission rules read when the latest approval arrived; `None` means
     /// unknown, and unknown withholds "always allow".
@@ -1565,7 +1576,9 @@ impl SessionState {
         }
         if let Some(pending) = &self.pending_elicitation {
             return Some(match &pending.mode {
-                rightkit_agent_engine_protocol::ElicitationRequest::Form { .. } if pending.form.is_some() => {
+                rightkit_agent_engine_protocol::ElicitationRequest::Form { .. }
+                    if pending.form.is_some() =>
+                {
                     let form = pending.form.as_ref().map(|f| f.render_lines().join("\n"));
                     format!(
                         "MCP request · {}\n{}\n{}",
@@ -1575,7 +1588,8 @@ impl SessionState {
                     )
                 }
                 rightkit_agent_engine_protocol::ElicitationRequest::Form {
-                    requested_schema, ..
+                    requested_schema,
+                    ..
                 } => format!(
                     "MCP request · {}\n{}\nSchema: {}\nJSON: {}\nEnter submit · Esc decline",
                     pending.server_name, pending.message, requested_schema, pending.content
@@ -1956,7 +1970,8 @@ impl SessionState {
             .enumerate()
             .skip(skip)
             .map(|(index, text)| {
-                let first = rightkit_terminal_ui::render::sanitize(text.lines().next().unwrap_or(""));
+                let first =
+                    rightkit_terminal_ui::render::sanitize(text.lines().next().unwrap_or(""));
                 let tag = format!("queued · {}", index + 1);
                 // Rail (2) + text + gap (2) + tag; drop the tag before
                 // clipping the text when the row is too narrow for both.
@@ -2065,11 +2080,12 @@ impl SessionState {
         let mut options = vec![ApprovalDecision::Approved];
         // "Always allow" is offered only for an eligible request that no
         // known deny rule blocks; unknown rules withhold it.
-        let allow_rule = rightkit_terminal_ui::render::allow_rule::derive_allow_rule(&kind, policy_source)
-            .filter(|_| match &self.deny_rules {
-                Some(rules) => !request_denied_by_rules(&kind, rules),
-                None => false,
-            });
+        let allow_rule =
+            rightkit_terminal_ui::render::allow_rule::derive_allow_rule(&kind, policy_source)
+                .filter(|_| match &self.deny_rules {
+                    Some(rules) => !request_denied_by_rules(&kind, rules),
+                    None => false,
+                });
         if allow_rule.is_some() {
             options.push(ApprovalDecision::ApprovedForPrefix);
         }
@@ -2351,7 +2367,8 @@ impl SessionState {
             DaemonEvent::Status(signal) => {
                 let view = rightkit_terminal_ui::render::status::signal_view(signal);
                 transcript.push(Message::system(view.notice));
-                if let rightkit_terminal_ui::transcript::timeline::RunSignal::Failed { .. } = signal {
+                if let rightkit_terminal_ui::transcript::timeline::RunSignal::Failed { .. } = signal
+                {
                     let elapsed = self.working_started.map_or(0, |s| s.elapsed().as_secs());
                     self.failed_hold = Some((signal.clone(), elapsed));
                 }
@@ -3560,7 +3577,9 @@ fn is_ctrl_c(key: &KeyEvent) -> bool {
 ///    closed input channel (EOF/error from the input thread) all exit
 ///    cleanly, restoring the terminal via `TerminalGuard`'s `Drop` on the
 ///    way out.
-fn tool_render_class_to_tui(class: rightkit_agent_tools::coding_tools::ToolRenderClass) -> RenderClass {
+fn tool_render_class_to_tui(
+    class: rightkit_agent_tools::coding_tools::ToolRenderClass,
+) -> RenderClass {
     match class {
         rightkit_agent_tools::coding_tools::ToolRenderClass::FileRead => RenderClass::FileRead,
         rightkit_agent_tools::coding_tools::ToolRenderClass::FileWrite => RenderClass::FileWrite,
@@ -3816,8 +3835,9 @@ pub async fn drive(host: impl TurnHost) -> i32 {
     let mut file_search: Option<
         std::pin::Pin<
             Box<
-                dyn std::future::Future<Output = (String, Vec<rightkit_terminal_ui::composer::FileMatch>)>
-                    + '_,
+                dyn std::future::Future<
+                        Output = (String, Vec<rightkit_terminal_ui::composer::FileMatch>),
+                    > + '_,
             >,
         >,
     > = None;
@@ -5679,12 +5699,14 @@ async fn handle_event(
             };
             let answer = match outcome {
                 FormOutcome::Continue => None,
-                FormOutcome::Decline => {
-                    Some((rightkit_agent_engine_protocol::ElicitationAction::Decline, None))
-                }
-                FormOutcome::Submit(value) => {
-                    Some((rightkit_agent_engine_protocol::ElicitationAction::Accept, Some(value)))
-                }
+                FormOutcome::Decline => Some((
+                    rightkit_agent_engine_protocol::ElicitationAction::Decline,
+                    None,
+                )),
+                FormOutcome::Submit(value) => Some((
+                    rightkit_agent_engine_protocol::ElicitationAction::Accept,
+                    Some(value),
+                )),
             };
             if let Some((action, content)) = answer {
                 if let Some(pending) = session.pending_elicitation.take() {
@@ -5729,9 +5751,9 @@ async fn handle_event(
                                 &pending.session_id,
                                 &pending.request_id,
                                 match pending.mode {
-                                    rightkit_agent_engine_protocol::ElicitationRequest::Url { .. } => {
-                                        rightkit_agent_engine_protocol::ElicitationAction::Cancel
-                                    }
+                                    rightkit_agent_engine_protocol::ElicitationRequest::Url {
+                                        ..
+                                    } => rightkit_agent_engine_protocol::ElicitationAction::Cancel,
                                     _ => rightkit_agent_engine_protocol::ElicitationAction::Decline,
                                 },
                                 None,
@@ -5757,12 +5779,16 @@ async fn handle_event(
                         })
                         .unwrap_or((false, String::new()));
                     let decision = if is_url {
-                        Some((rightkit_agent_engine_protocol::ElicitationAction::Accept, None))
+                        Some((
+                            rightkit_agent_engine_protocol::ElicitationAction::Accept,
+                            None,
+                        ))
                     } else if session.pending_elicitation.is_some() {
                         match serde_json::from_str::<serde_json::Value>(&form_content) {
-                            Ok(value) if value.is_object() => {
-                                Some((rightkit_agent_engine_protocol::ElicitationAction::Accept, Some(value)))
-                            }
+                            Ok(value) if value.is_object() => Some((
+                                rightkit_agent_engine_protocol::ElicitationAction::Accept,
+                                Some(value),
+                            )),
                             Ok(_) => {
                                 session.notice(transcript, "MCP response must be a JSON object.");
                                 None
@@ -8880,10 +8906,12 @@ fn agent_count(node: &AgentNode) -> usize {
 /// input box).
 fn composer_rule(width: u16, theme: &Theme) -> rightkit_terminal_ui::ratatui::text::Line<'static> {
     use rightkit_terminal_ui::ratatui::style::Style;
-    rightkit_terminal_ui::ratatui::text::Line::from(rightkit_terminal_ui::ratatui::text::Span::styled(
-        "\u{2500}".repeat(width as usize),
-        Style::default().fg(theme.color(rightkit_terminal_ui::component::Role::Dim)),
-    ))
+    rightkit_terminal_ui::ratatui::text::Line::from(
+        rightkit_terminal_ui::ratatui::text::Span::styled(
+            "\u{2500}".repeat(width as usize),
+            Style::default().fg(theme.color(rightkit_terminal_ui::component::Role::Dim)),
+        ),
+    )
 }
 
 /// One dim line for a reasoning block: its bold `**headings**` joined with
@@ -9549,8 +9577,10 @@ fn render(
                     });
                     #[cfg(not(windows))]
                     let old_top = old.y;
-                    let position =
-                        rightkit_terminal_ui::ratatui::layout::Position::new(0, old_top.min(rect.y));
+                    let position = rightkit_terminal_ui::ratatui::layout::Position::new(
+                        0,
+                        old_top.min(rect.y),
+                    );
                     if let Err(error) = term.clear_after_position(position) {
                         note_render_fault(
                             state,
@@ -10166,17 +10196,18 @@ mod tests {
                 },
                 env: vec![("RIGHTKIT_TERMINAL_TEST_CHILD".into(), kind.into())],
             };
-            let mut child = rightkit_agent_tools::coding_tools::process_launch::UnconfinedProcessLaunchAdapter
-                .spawn_channel(
-                    spec,
-                    ExecutionChannel::Pty(PtySize {
-                        cols: 100,
-                        rows: 30,
-                        ..PtySize::default()
-                    }),
-                )
-                .await
-                .unwrap();
+            let mut child =
+                rightkit_agent_tools::coding_tools::process_launch::UnconfinedProcessLaunchAdapter
+                    .spawn_channel(
+                        spec,
+                        ExecutionChannel::Pty(PtySize {
+                            cols: 100,
+                            rows: 30,
+                            ..PtySize::default()
+                        }),
+                    )
+                    .await
+                    .unwrap();
             let mut reader = child.take_stdout().unwrap();
             let output = tokio::spawn(async move {
                 let mut output = Vec::new();
@@ -10385,7 +10416,11 @@ mod tests {
         };
         resumed.seed_todo_from_tasks(&[
             node(0, "A", rightkit_agent_engine_protocol::TaskState::Done),
-            node(1, "B", rightkit_agent_engine_protocol::TaskState::InProgress),
+            node(
+                1,
+                "B",
+                rightkit_agent_engine_protocol::TaskState::InProgress,
+            ),
         ]);
         assert_eq!(resumed.todo_overlay.items().len(), 2);
         assert_eq!(resumed.todo_overlay.done_count(), 1);
@@ -13253,7 +13288,10 @@ mod tests {
         }
     }
 
-    fn git_status_entry() -> Option<(rightkit_terminal_ui::render::allow_rule::AllowRule, ApprovalKind)> {
+    fn git_status_entry() -> Option<(
+        rightkit_terminal_ui::render::allow_rule::AllowRule,
+        ApprovalKind,
+    )> {
         let kind = ApprovalKind::Exec {
             command: "git status".into(),
             cwd: None,

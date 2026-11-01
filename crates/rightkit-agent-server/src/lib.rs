@@ -156,7 +156,8 @@ pub fn run() {
 fn binary_resource_profile(
     command: Option<&std::ffi::OsStr>,
     local_override: Option<&str>,
-) -> Result<rightkit_agent_tools::coding_tools::process_resource_authority::ResourceProfile, String> {
+) -> Result<rightkit_agent_tools::coding_tools::process_resource_authority::ResourceProfile, String>
+{
     use rightkit_agent_tools::coding_tools::process_resource_authority::{
         local_resource_profile_from_value, ResourceProfile,
     };

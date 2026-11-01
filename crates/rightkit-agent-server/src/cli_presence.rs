@@ -200,9 +200,10 @@ impl Drop for PresenceGuard {
         let client_id = self.client_id.clone();
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             handle.spawn(async move {
-                if let Ok(client) =
-                    rightkit_http::http_client::daemon_client_with(&base_url, Duration::from_secs(2))
-                {
+                if let Ok(client) = rightkit_http::http_client::daemon_client_with(
+                    &base_url,
+                    Duration::from_secs(2),
+                ) {
                     let _ = client
                         .send_any(
                             &rightkit_http::Request::delete(format!(

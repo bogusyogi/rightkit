@@ -348,7 +348,7 @@ fn review_findings_body_matches_fixture_contract() {
         "content": "validated transcript-backed finding",
     });
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../tests/fixtures/cli-json/review-findings.v1.json"
+        "../data/engine__bins__coderight__tests__fixtures__cli-json__review-findings.v1.json"
     ))
     .expect("parse review findings fixture");
 

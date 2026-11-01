@@ -25,7 +25,10 @@ pub(crate) fn session_start_snapshot_block(workspace: &std::path::Path) -> Optio
         format!("Workspace root: {}", workspace.display()),
     ];
 
-    match rightkit_agent_tools::coding_tools::git_read::workspace_snapshot(workspace, MAX_GIT_STATUS_LINES) {
+    match rightkit_agent_tools::coding_tools::git_read::workspace_snapshot(
+        workspace,
+        MAX_GIT_STATUS_LINES,
+    ) {
         Some(snapshot) => {
             lines.push(format!("Git branch: {}", snapshot.branch));
             if snapshot.status_lines.is_empty() {
@@ -366,7 +369,10 @@ struct DaemonMemoryBlockProvider {
 }
 
 impl rightkit_agent_engine_core::compactor::MemoryBlockProvider for DaemonMemoryBlockProvider {
-    fn memory_block(&self, session: rightkit_agent_engine_core::compactor::SessionRef<'_>) -> Option<String> {
+    fn memory_block(
+        &self,
+        session: rightkit_agent_engine_core::compactor::SessionRef<'_>,
+    ) -> Option<String> {
         // Membrane is the single memory authority; the generic memory block
         // (and its post-compaction re-injection) no longer exists.
         let _ = (&self.state, &session);

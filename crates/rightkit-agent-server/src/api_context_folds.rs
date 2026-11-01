@@ -23,7 +23,10 @@ pub struct ContextFoldCommand {
     pub end_marker: String,
     pub summary: String,
     pub response: tokio::sync::oneshot::Sender<
-        Result<rightkit_agent_engine_core::FoldedTrajectory, rightkit_agent_engine_core::ContextFoldError>,
+        Result<
+            rightkit_agent_engine_core::FoldedTrajectory,
+            rightkit_agent_engine_core::ContextFoldError,
+        >,
     >,
 }
 

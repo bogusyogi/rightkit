@@ -29,7 +29,9 @@ use rightkit_agent_engine_api_workflows::route_types::{
     McpTaskUpdateRequest, MonitoringRequest, PageQuery, PromoteOptimizationRequest, StartRequest,
     TriggerPatch, TriggerRequest,
 };
-pub(crate) use rightkit_agent_engine_api_workflows::{LegacyTriggerDelivery, LegacyWorkflowAdmission};
+pub(crate) use rightkit_agent_engine_api_workflows::{
+    LegacyTriggerDelivery, LegacyWorkflowAdmission,
+};
 use rightkit_agent_engine_storage::{
     HmacAdmittedTriggerEnvelope, JournalAppend, ProjectionUpdate, TriggerRunAdmission,
     WorkflowCommandRow, WorkflowDefinitionWriter, WorkflowOccurrenceRow, WorkflowQueueRow,
@@ -92,7 +94,9 @@ impl WorkflowTriggerArtifactStore for LocalTriggerArtifactStore {
             .content_hash
             .strip_prefix("sha256:")
             .ok_or_else(|| {
-                rightkit_agent_engine_storage::StorageError::Serde("invalid trigger artifact hash".into())
+                rightkit_agent_engine_storage::StorageError::Serde(
+                    "invalid trigger artifact hash".into(),
+                )
             })?;
         let path = self.root.join(name);
         let created = !path.exists();
@@ -134,7 +138,9 @@ impl WorkflowTriggerArtifactStore for LocalTriggerArtifactStore {
             .content_hash
             .strip_prefix("sha256:")
             .ok_or_else(|| {
-                rightkit_agent_engine_storage::StorageError::Serde("invalid trigger artifact hash".into())
+                rightkit_agent_engine_storage::StorageError::Serde(
+                    "invalid trigger artifact hash".into(),
+                )
             })?;
         let expected = self.root.join(name);
         let uri = format!("file://{}", expected.display());
@@ -144,8 +150,9 @@ impl WorkflowTriggerArtifactStore for LocalTriggerArtifactStore {
             ));
         }
         if expected.exists() {
-            std::fs::remove_file(expected)
-                .map_err(|error| rightkit_agent_engine_storage::StorageError::Serde(error.to_string()))?;
+            std::fs::remove_file(expected).map_err(|error| {
+                rightkit_agent_engine_storage::StorageError::Serde(error.to_string())
+            })?;
         }
         Ok(())
     }
@@ -716,19 +723,21 @@ async fn submit_import(
     };
     let storage = wf.storage.lock().await;
     let repo = WorkflowRepository::new(storage.conn());
-    repo.insert_import_quarantine(&rightkit_agent_engine_storage::WorkflowImportQuarantineRow {
-        id: id.clone(),
-        raw_artifact_ref: req.raw_artifact_ref,
-        content_hash: req.package.manifest.content_hash.clone(),
-        signature_status: signature_status.into(),
-        manifest_json: serde_json::to_string(&req.package.manifest)
-            .map_err(|e| WorkflowApiError::bad_request(e.to_string()))?,
-        state: "disabled".into(),
-        reviewer: None,
-        reason: reason.clone(),
-        created_at: now,
-        reviewed_at: None,
-    })
+    repo.insert_import_quarantine(
+        &rightkit_agent_engine_storage::WorkflowImportQuarantineRow {
+            id: id.clone(),
+            raw_artifact_ref: req.raw_artifact_ref,
+            content_hash: req.package.manifest.content_hash.clone(),
+            signature_status: signature_status.into(),
+            manifest_json: serde_json::to_string(&req.package.manifest)
+                .map_err(|e| WorkflowApiError::bad_request(e.to_string()))?,
+            state: "disabled".into(),
+            reviewer: None,
+            reason: reason.clone(),
+            created_at: now,
+            reviewed_at: None,
+        },
+    )
     .map_err(WorkflowApiError::from)?;
     Ok((
         axum::http::StatusCode::ACCEPTED,
@@ -1046,17 +1055,19 @@ async fn promote_optimization(
             "activation and rollback must be distinct immutable published versions of proposal workflow",
         ));
     }
-    repo.insert_promotion_receipt(&rightkit_agent_engine_storage::WorkflowPromotionReceiptRow {
-        proposal_id: id.clone(),
-        approver: actor,
-        benchmark_id: req.benchmark_id,
-        activation_id,
-        rollback_id: req.rollback_id,
-        monitoring_id: req.monitoring_id,
-        state: "active".into(),
-        created_at: now.clone(),
-        updated_at: now,
-    })
+    repo.insert_promotion_receipt(
+        &rightkit_agent_engine_storage::WorkflowPromotionReceiptRow {
+            proposal_id: id.clone(),
+            approver: actor,
+            benchmark_id: req.benchmark_id,
+            activation_id,
+            rollback_id: req.rollback_id,
+            monitoring_id: req.monitoring_id,
+            state: "active".into(),
+            created_at: now.clone(),
+            updated_at: now,
+        },
+    )
     .map_err(WorkflowApiError::from)?;
     Ok(Json(json!({"id":id,"state":"active"})))
 }
@@ -1070,14 +1081,16 @@ async fn monitor_optimization(
     let now = now_string();
     let storage = wf.storage.lock().await;
     WorkflowRepository::new(storage.conn())
-        .record_monitoring(&rightkit_agent_engine_storage::WorkflowMonitoringReceiptRow {
-            id: format!("wfmon_{}", unique_suffix()),
-            proposal_id: id.clone(),
-            monitoring_id: req.monitoring_id,
-            passed: req.passed,
-            reason: req.reason,
-            created_at: now,
-        })
+        .record_monitoring(
+            &rightkit_agent_engine_storage::WorkflowMonitoringReceiptRow {
+                id: format!("wfmon_{}", unique_suffix()),
+                proposal_id: id.clone(),
+                monitoring_id: req.monitoring_id,
+                passed: req.passed,
+                reason: req.reason,
+                created_at: now,
+            },
+        )
         .map_err(WorkflowApiError::from)?;
     Ok(Json(
         json!({"id":id,"state":if req.passed {"active"} else {"rolled_back"}}),

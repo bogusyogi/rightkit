@@ -10,10 +10,16 @@ use crate::api::lock_recover;
 use crate::api::EngineConfig;
 use crate::observation::{provider_turn_evidence_observation, HostObservationProvenanceV1};
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use rightkit_agent_engine_core::llm::{
     LlmClient, LlmRequestMetadata, LlmResponse, LlmResponseStream, LlmStreamEvent,
 };
 use rightkit_agent_engine_protocol::TranscriptMessage;
+use rightkit_agent_tools::coding_tools::registry::{
+    tool_defs_for_messages_checked, PromotedToolState, ToolCatalogGenerationTracker,
+    ToolPromotionEvent,
+};
+use rightkit_agent_tools::coding_tools::ToolRegistry;
 use rightkit_llm::agent_providers::client::{
     ProviderRequestIdentityV1, RequestAuthorityBindingV1, RequestAuthorityErrorV1,
     RequestAuthorityInputV1, RequestAuthorityResponseV1, RequestAuthorityStateV1,
@@ -31,12 +37,6 @@ use rightkit_llm::agent_providers::{
     PreparedRequestGateV1,
 };
 use rightkit_llm::agent_providers::{ExtensionProviderRegistry, ExtensionRegistrationPolicy};
-use rightkit_agent_tools::coding_tools::registry::{
-    tool_defs_for_messages_checked, PromotedToolState, ToolCatalogGenerationTracker,
-    ToolPromotionEvent,
-};
-use rightkit_agent_tools::coding_tools::ToolRegistry;
-use futures_util::StreamExt;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -513,9 +513,9 @@ impl HostRequestAuthority {
                 vec![authorization_id.to_string()],
             ),
         };
-        if let Err(error) =
-            rightkit_logs::agent_telemetry::evidence::record_provider_turn_evidence(evidence.clone())
-        {
+        if let Err(error) = rightkit_logs::agent_telemetry::evidence::record_provider_turn_evidence(
+            evidence.clone(),
+        ) {
             tracing::warn!(?error, %authorization_id, "provider turn evidence rejected");
             return;
         }
@@ -923,7 +923,9 @@ impl DaemonSmallModelClient {
 }
 
 #[async_trait]
-impl rightkit_agent_orchestration::small_model_utility::SmallModelClient for DaemonSmallModelClient {
+impl rightkit_agent_orchestration::small_model_utility::SmallModelClient
+    for DaemonSmallModelClient
+{
     async fn run(
         &self,
         task: rightkit_agent_orchestration::small_model_utility::SmallModelTask,
@@ -1212,7 +1214,9 @@ impl ProviderLlmClient {
         )))
     }
 
-    fn submission_observer(&self) -> Option<rightkit_llm::agent_providers::transport::SubmissionObserver> {
+    fn submission_observer(
+        &self,
+    ) -> Option<rightkit_llm::agent_providers::transport::SubmissionObserver> {
         self.host_request_authority
             .as_ref()
             .filter(|authority| !authority.direct_context())
@@ -1315,12 +1319,14 @@ impl ProviderLlmClient {
             .map(|encoded| encoded.len())
             .unwrap_or_default();
         let (provider, model) = self.telemetry_attribution();
-        rightkit_logs::agent_telemetry::record_prompt_overhead(rightkit_logs::agent_telemetry::PromptOverheadEvent {
-            provider,
-            model,
-            system_prompt_bytes,
-            tool_prelude_bytes,
-        });
+        rightkit_logs::agent_telemetry::record_prompt_overhead(
+            rightkit_logs::agent_telemetry::PromptOverheadEvent {
+                provider,
+                model,
+                system_prompt_bytes,
+                tool_prelude_bytes,
+            },
+        );
     }
 
     /// Emit one C-2 observation for every schema that was actually placed in
@@ -1390,7 +1396,9 @@ impl ProviderLlmClient {
                     &schema_bytes,
                     !promoted_names.contains(name),
                     visible_turn_ids.clone(),
-                    rightkit_logs::agent_telemetry::CountObservationV1::observed(counts.invocations),
+                    rightkit_logs::agent_telemetry::CountObservationV1::observed(
+                        counts.invocations,
+                    ),
                     success_count,
                     failure_count,
                     result_bytes_total,
@@ -1685,7 +1693,9 @@ impl ProviderLlmClient {
     pub fn new_dynamic_with_compaction_policy(
         route: SharedProviderRoute,
         tools: Arc<ToolRegistry>,
-        compaction_policy_tx: tokio::sync::watch::Sender<rightkit_agent_engine_core::CompactionModelPolicy>,
+        compaction_policy_tx: tokio::sync::watch::Sender<
+            rightkit_agent_engine_core::CompactionModelPolicy,
+        >,
     ) -> Self {
         Self {
             inner: ProviderClientInner::Dynamic {
@@ -1710,7 +1720,9 @@ impl ProviderLlmClient {
     pub fn new_dynamic_with_compaction_policy_and_lineage_budget(
         route: SharedProviderRoute,
         tools: Arc<ToolRegistry>,
-        compaction_policy_tx: tokio::sync::watch::Sender<rightkit_agent_engine_core::CompactionModelPolicy>,
+        compaction_policy_tx: tokio::sync::watch::Sender<
+            rightkit_agent_engine_core::CompactionModelPolicy,
+        >,
         lineage_budget: Arc<rightkit_agent_engine_core::LineageBudget>,
     ) -> Self {
         Self {
@@ -1976,16 +1988,17 @@ pub(crate) fn compaction_policy_for_model(
 fn capacity_profile_for_inference_route(
     route: &crate::inference_runtime::ResolvedInferenceRoute,
 ) -> Result<CapacityProfileV1, ProviderError> {
-    let capability = rightkit_llm::agent_providers::compaction_capability(&route.selection.model_id)
-        .ok_or_else(|| {
-            ProviderError::Capacity(CapacityError::CapacityUnavailable {
-                route_id: route.fingerprint.clone(),
-                reason: format!(
-                    "loaded model catalog has no capacity profile for {}",
-                    route.selection.model_id
-                ),
-            })
-        })?;
+    let capability =
+        rightkit_llm::agent_providers::compaction_capability(&route.selection.model_id)
+            .ok_or_else(|| {
+                ProviderError::Capacity(CapacityError::CapacityUnavailable {
+                    route_id: route.fingerprint.clone(),
+                    reason: format!(
+                        "loaded model catalog has no capacity profile for {}",
+                        route.selection.model_id
+                    ),
+                })
+            })?;
     Ok(capability.capacity_profile(
         route.fingerprint.clone(),
         Some(
@@ -2066,9 +2079,12 @@ async fn build_checked_client(route: &ProviderRoute) -> Result<OpenAiCompatClien
     let port = url
         .port_or_known_default()
         .ok_or_else(|| ProviderError::Provider("provider URL has no port".into()))?;
-    let addresses = rightkit_agent_policy::resolve_provider_endpoint(host, port, route.approved_private)
-        .await
-        .map_err(|error| ProviderError::Provider(format!("provider egress rejected: {error}")))?;
+    let addresses =
+        rightkit_agent_policy::resolve_provider_endpoint(host, port, route.approved_private)
+            .await
+            .map_err(|error| {
+                ProviderError::Provider(format!("provider egress rejected: {error}"))
+            })?;
     if let Some(provider_slug) =
         rightkit_llm::agent_providers::token_plan_provider_for_base_url(&effective_base_url)
     {
@@ -2489,7 +2505,8 @@ fn priced_turn_cost_microusd(
     {
         return 0;
     }
-    let (prompt_price, completion_price) = rightkit_llm::agent_providers::price_per_1k(&route.model_id);
+    let (prompt_price, completion_price) =
+        rightkit_llm::agent_providers::price_per_1k(&route.model_id);
     let cost = (prompt_tokens as f64 / 1000.0) * prompt_price
         + (completion_tokens as f64 / 1000.0) * completion_price
         + (cache_read_tokens as f64 / 1000.0) * prompt_price * 0.1
@@ -3236,9 +3253,9 @@ impl LlmClient for ProviderLlmClient {
                         cache_read_tokens,
                         cache_creation_tokens,
                     },
-                    rightkit_llm::agent_providers::ProviderStreamEvent::UsageDetail { reasoning_tokens } => {
-                        LlmStreamEvent::UsageDetail { reasoning_tokens }
-                    }
+                    rightkit_llm::agent_providers::ProviderStreamEvent::UsageDetail {
+                        reasoning_tokens,
+                    } => LlmStreamEvent::UsageDetail { reasoning_tokens },
                     rightkit_llm::agent_providers::ProviderStreamEvent::Finished(reason) => {
                         LlmStreamEvent::Finished(reason)
                     }
@@ -3257,7 +3274,9 @@ impl LlmClient for ProviderLlmClient {
         *lock_recover(&self.tools, "tool registry") = tools;
     }
 
-    fn promoted_tool_state_snapshot(&self) -> rightkit_agent_tools::coding_tools::registry::PromotedToolState {
+    fn promoted_tool_state_snapshot(
+        &self,
+    ) -> rightkit_agent_tools::coding_tools::registry::PromotedToolState {
         lock_recover(&self.promoted_tools, "promoted tool state").clone()
     }
 
@@ -3301,7 +3320,9 @@ impl LlmClient for ProviderLlmClient {
         messages: &[TranscriptMessage],
         metadata: &LlmRequestMetadata,
     ) -> rightkit_agent_engine_core::image_eviction::ImageRequestAccounting {
-        use rightkit_agent_engine_core::image_eviction::{ImageAccountingBasis, ImageRequestAccounting};
+        use rightkit_agent_engine_core::image_eviction::{
+            ImageAccountingBasis, ImageRequestAccounting,
+        };
         let wire = messages.iter().filter_map(transcript_to_wire).collect();
         // Accounting-only path (image-eviction budget search), not a real
         // outbound turn: read the current promoted state without mutating
@@ -3458,7 +3479,8 @@ mod tests {
         );
     }
 
-    fn canonical_empty_selection_decision() -> rightkit_agent_engine_protocol::CompactionFederationDecisionV1 {
+    fn canonical_empty_selection_decision(
+    ) -> rightkit_agent_engine_protocol::CompactionFederationDecisionV1 {
         let selected = serde_json::Value::Array(Vec::new());
         let selection_hash = format!(
             "sha256:{}",
@@ -3910,12 +3932,16 @@ mod tests {
                 Ok(rightkit_llm::agent_providers::ProviderStreamEvent::Text(
                     " reasoning</think>Visible".into(),
                 )),
-                Ok(rightkit_llm::agent_providers::ProviderStreamEvent::Reasoning(
-                    "provider reasoning".into(),
-                )),
-                Ok(rightkit_llm::agent_providers::ProviderStreamEvent::Finished(Some(
-                    "stop".into(),
-                ))),
+                Ok(
+                    rightkit_llm::agent_providers::ProviderStreamEvent::Reasoning(
+                        "provider reasoning".into(),
+                    ),
+                ),
+                Ok(
+                    rightkit_llm::agent_providers::ProviderStreamEvent::Finished(Some(
+                        "stop".into(),
+                    )),
+                ),
             ]));
         let mut stream = normalize_provider_stream(raw);
         let mut events = Vec::new();
@@ -3930,7 +3956,9 @@ mod tests {
         let reasoning: String = events
             .iter()
             .filter_map(|event| match event {
-                rightkit_llm::agent_providers::ProviderStreamEvent::Reasoning(text) => Some(text.as_str()),
+                rightkit_llm::agent_providers::ProviderStreamEvent::Reasoning(text) => {
+                    Some(text.as_str())
+                }
                 _ => None,
             })
             .collect();
@@ -3948,9 +3976,11 @@ mod tests {
                 Ok(rightkit_llm::agent_providers::ProviderStreamEvent::Text(
                     "live".into(),
                 )),
-                Ok(rightkit_llm::agent_providers::ProviderStreamEvent::Finished(Some(
-                    "stop".into(),
-                ))),
+                Ok(
+                    rightkit_llm::agent_providers::ProviderStreamEvent::Finished(Some(
+                        "stop".into(),
+                    )),
+                ),
             ]));
         let mut stream = normalize_provider_stream(raw);
         assert!(matches!(
@@ -4794,7 +4824,8 @@ mod tests {
         });
         let _ = client.complete_with_metadata(&history, &metadata).await;
 
-        let snapshot = rightkit_agent_engine_core::llm::LlmClient::promoted_tool_state_snapshot(&client);
+        let snapshot =
+            rightkit_agent_engine_core::llm::LlmClient::promoted_tool_state_snapshot(&client);
         let wire_accumulated = {
             let promoted = lock_recover(&client.promoted_tools, "promoted tool state");
             promoted.promoted_names().clone()
@@ -4831,7 +4862,9 @@ mod tests {
     #[test]
     fn streamed_and_completed_turns_produce_the_same_budget_ledger_effect() {
         let route = priced_dynamic_route("openai/gpt-5.1", vec![]);
-        assert!(rightkit_llm::agent_providers::is_priced_model(&route.model_id));
+        assert!(rightkit_llm::agent_providers::is_priced_model(
+            &route.model_id
+        ));
 
         let completed_budget = rightkit_agent_engine_core::LineageBudget::from_usd(Some(1.0), 0.0);
         let completed_reservation = completed_budget.reserve_remaining().unwrap();

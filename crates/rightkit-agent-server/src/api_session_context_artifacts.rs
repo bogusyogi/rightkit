@@ -3,7 +3,9 @@ use super::*;
 /// Map a persisted `GoalRow` (SQLite) back to the engine's live `GoalState` on
 /// session resume. `cost_usd` resets to 0 — the daemon recomputes it from the
 /// SessionUsageRollup; everything else round-trips from the goals table.
-pub(crate) fn goal_state_from_row(row: rightkit_agent_engine_storage::GoalRow) -> rightkit_agent_engine_core::GoalState {
+pub(crate) fn goal_state_from_row(
+    row: rightkit_agent_engine_storage::GoalRow,
+) -> rightkit_agent_engine_core::GoalState {
     rightkit_agent_engine_core::GoalState {
         id: row.id,
         text: row.text,
@@ -184,7 +186,9 @@ pub(crate) fn discover_instruction_files(
     // Only `.claude/rules` is trust-gated; root files stay ungated (#131).
     let files = loader.discover_gated(|_| {
         !workspace_root.is_empty()
-            && rightkit_app_settings::agent_config::is_workspace_trusted(std::path::Path::new(workspace_root))
+            && rightkit_app_settings::agent_config::is_workspace_trusted(std::path::Path::new(
+                workspace_root,
+            ))
     });
     (loader, files)
 }
@@ -457,7 +461,8 @@ fn discover_mcp_entries(
         let Ok(raw) = std::fs::read_to_string(&path) else {
             continue;
         };
-        let Ok(config) = serde_json::from_str::<rightkit_mcp::agent_mcp::McpConfigFile>(&raw) else {
+        let Ok(config) = serde_json::from_str::<rightkit_mcp::agent_mcp::McpConfigFile>(&raw)
+        else {
             continue;
         };
         for (name, server) in config.mcp_servers {

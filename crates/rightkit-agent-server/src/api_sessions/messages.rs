@@ -18,7 +18,7 @@ use crate::api_permissions::{enforce_trusted_source_authority, lower_source_trus
 
 // Kept path-local so queue semantics stay in the engine crate's owned source
 // lane without widening the shared protocol or LiveSession shape.
-#[path = "../../../../crates/engine/src/steering.rs"]
+#[path = "../../data/engine__crates__engine__src__steering.rs"]
 mod steering;
 
 const EVT005_QUALIFICATION_FAULT_ENV: &str = "RIGHTKIT_QUAL_EVT005_FAULT";
@@ -375,15 +375,16 @@ pub(crate) async fn post_message(
                     handoff.phase.as_str(),
                     "quiescing" | "source_quiesced" | "resumed"
                 ) {
-                    let _ =
-                        store.retain_handoff_gap_message(&rightkit_agent_engine_storage::HandoffGapMessage {
+                    let _ = store.retain_handoff_gap_message(
+                        &rightkit_agent_engine_storage::HandoffGapMessage {
                             session_id,
                             controller_epoch: handoff.controller_epoch,
                             message_key: gap_id,
                             payload_json: payload,
                             delivered_at: None,
                             created_at: now_iso(),
-                        });
+                        },
+                    );
                 }
             }
         })
@@ -847,29 +848,30 @@ async fn set_goal_once(
             let _ = store.dismiss_goal(&prior.id, &now_iso());
         }
     }
-    *lock_recover(&live.goal_state, "session.goal_state") = Some(rightkit_agent_engine_core::GoalState {
-        id: goal_id.clone(),
-        text: body.text.clone(),
-        status: "active".into(),
-        budget_usd,
-        budget_tokens,
-        tokens_used: 0,
-        cost_usd: 0.0,
-        continuation_count: 0,
-        no_progress_count: 0,
-        gds_score: 0.0,
-        verification_present: false,
-        verification_approved: false,
-        started_at: started_at.clone(),
-        closed_at: None,
-        dismissed_at: None,
-        decomposition_state: "missing".into(),
-        plan_revision: 0,
-        now: None,
-        next: None,
-        steps: Vec::new(),
-        verification_state: "unverified".into(),
-    });
+    *lock_recover(&live.goal_state, "session.goal_state") =
+        Some(rightkit_agent_engine_core::GoalState {
+            id: goal_id.clone(),
+            text: body.text.clone(),
+            status: "active".into(),
+            budget_usd,
+            budget_tokens,
+            tokens_used: 0,
+            cost_usd: 0.0,
+            continuation_count: 0,
+            no_progress_count: 0,
+            gds_score: 0.0,
+            verification_present: false,
+            verification_approved: false,
+            started_at: started_at.clone(),
+            closed_at: None,
+            dismissed_at: None,
+            decomposition_state: "missing".into(),
+            plan_revision: 0,
+            now: None,
+            next: None,
+            steps: Vec::new(),
+            verification_state: "unverified".into(),
+        });
     lock_recover(&live.goal_gap_tracker, "session.goal_gap_tracker").reset();
     if let Some(storage) = &live.storage {
         let row = rightkit_agent_engine_storage::GoalRow {

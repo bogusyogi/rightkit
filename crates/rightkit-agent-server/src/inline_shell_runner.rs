@@ -7,10 +7,10 @@
 //! and `Deny` leave the command unrun and visible in the expanded text. This
 //! runner never approves anything itself.
 
+use coderight_skills::inline_shell::{ShellOutcome, ShellRunner};
 use rightkit_agent_policy::{
     PermissionDecision, PermissionEngine, PermissionMode, ShellDialect, WorkspaceTrust,
 };
-use coderight_skills::inline_shell::{ShellOutcome, ShellRunner};
 
 const MAX_OUTPUT_BYTES: usize = 64 * 1024;
 

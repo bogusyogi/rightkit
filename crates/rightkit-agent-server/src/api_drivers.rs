@@ -4,15 +4,15 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use rightkit_agents::driver_host::cli_runtime::AgentRuntimeExecutor;
-use rightkit_agents::driver_host::{
-    ClaudeLaunchOptions, CodexLaunchOptions, DriverCursor, DriverKind, NormalizedEvent,
-    NormalizedEventKind,
-};
 use rightkit_agent_engine_protocol::ToolCall;
 use rightkit_agent_tools::coding_tools::{
     SpawnRuntimeKind, SubagentContinuity, SubagentSpawnOptions, SubagentSpawner, ToolRegistry,
     ToolResult,
+};
+use rightkit_agents::driver_host::cli_runtime::AgentRuntimeExecutor;
+use rightkit_agents::driver_host::{
+    ClaudeLaunchOptions, CodexLaunchOptions, DriverCursor, DriverKind, NormalizedEvent,
+    NormalizedEventKind,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -91,10 +91,8 @@ const CODEX_DISABLED_VENDOR_FEATURES: &[&str] = &[
     "multi_agent_v2",
     "external_agent_memory_import",
 ];
-const DRIVER_MCP_SECRET_ENVIRONMENT: &[&str] = &[
-    "RIGHTKIT_GATEWAY_TOKEN",
-    "RIGHTKIT_DRIVER_INSTANCE_SECRET",
-];
+const DRIVER_MCP_SECRET_ENVIRONMENT: &[&str] =
+    &["RIGHTKIT_GATEWAY_TOKEN", "RIGHTKIT_DRIVER_INSTANCE_SECRET"];
 const DRIVER_MCP_FORWARDED_ENVIRONMENT: &[&str] = &[
     "RIGHTKIT_DAEMON_URL",
     "RIGHTKIT_GATEWAY_TOKEN",
@@ -603,7 +601,9 @@ struct DaemonQualificationObserver {
 }
 
 #[async_trait::async_trait]
-impl rightkit_agents::driver_host::cli_runtime::QualificationObserver for DaemonQualificationObserver {
+impl rightkit_agents::driver_host::cli_runtime::QualificationObserver
+    for DaemonQualificationObserver
+{
     async fn begin_probe(
         &self,
         binding_id: &str,
@@ -686,15 +686,17 @@ impl rightkit_agents::driver_host::cli_runtime::QualificationObserver for Daemon
         } else {
             !durable_effect_ids.is_empty()
         };
-        Ok(rightkit_agents::driver_host::cli_runtime::QualificationEvidence {
-            native_effect_observed,
-            native_denial_observed: !native_denial_event_ids.is_empty(),
-            coderight_mcp_discovered,
-            expected_coderight_effect_observed,
-            native_denial_event_ids,
-            durable_effect_ids,
-            detail: None,
-        })
+        Ok(
+            rightkit_agents::driver_host::cli_runtime::QualificationEvidence {
+                native_effect_observed,
+                native_denial_observed: !native_denial_event_ids.is_empty(),
+                coderight_mcp_discovered,
+                expected_coderight_effect_observed,
+                native_denial_event_ids,
+                durable_effect_ids,
+                detail: None,
+            },
+        )
     }
 }
 
@@ -957,7 +959,8 @@ async fn run_cli_runtime_matrix_cell(
     State(state): State<DaemonState>,
     Json(body): Json<CliRuntimeMatrixCellRequest>,
 ) -> Json<Value> {
-    let provider_id = rightkit_agents::driver_host::cli_runtime::CliProviderId::new(body.provider.clone());
+    let provider_id =
+        rightkit_agents::driver_host::cli_runtime::CliProviderId::new(body.provider.clone());
     let Some(adapter) = state.cli_registry.adapter(&provider_id) else {
         return Json(matrix_cell_receipt(
             &body,
@@ -1189,11 +1192,11 @@ async fn run_cli_runtime_matrix_cell(
         if let Some(executor) = state.cli_executor.as_ref() {
             if let Ok(before) = executor.handle_for(&agent_id) {
                 let before_id = before.vendor_session_id.clone();
-                let restarted = if body.scenario == "app_restart" {
-                    let vendor_session_id = before_id.clone().unwrap_or_default();
-                    match executor.shutdown_agent(&agent_id).await {
-                        Ok(()) => {
-                            executor
+                let restarted =
+                    if body.scenario == "app_restart" {
+                        let vendor_session_id = before_id.clone().unwrap_or_default();
+                        match executor.shutdown_agent(&agent_id).await {
+                            Ok(()) => executor
                                 .recover_agent(
                                     rightkit_agents::driver_host::cli_runtime::OpenAgentRequest {
                                         session_id: session_id.clone(),
@@ -1207,13 +1210,12 @@ async fn run_cli_runtime_matrix_cell(
                                     },
                                     &vendor_session_id,
                                 )
-                                .await
+                                .await,
+                            Err(error) => Err(error),
                         }
-                        Err(error) => Err(error),
-                    }
-                } else {
-                    executor.restart_agent(&before).await
-                };
+                    } else {
+                        executor.restart_agent(&before).await
+                    };
                 if let Ok(restarted) = restarted {
                     if let Some(storage) = state.storage.as_ref() {
                         let persisted = {
@@ -2115,10 +2117,7 @@ mod tests {
         assert!(!DRIVER_MCP_FORWARDED_ENVIRONMENT.contains(&"RIGHTKIT_DAEMON_TOKEN"));
         assert_eq!(
             DRIVER_MCP_SECRET_ENVIRONMENT,
-            [
-                "RIGHTKIT_GATEWAY_TOKEN",
-                "RIGHTKIT_DRIVER_INSTANCE_SECRET",
-            ]
+            ["RIGHTKIT_GATEWAY_TOKEN", "RIGHTKIT_DRIVER_INSTANCE_SECRET",]
         );
     }
 
@@ -2243,7 +2242,9 @@ mod tests {
     /// containing the given session rows, none of which are resumed into the
     /// in-memory session map. Mirrors `LiveSession` restored from Recents:
     /// present in storage, absent from `state.sessions`.
-    fn state_with_storage_only_sessions(rows: &[rightkit_agent_engine_storage::SessionRow]) -> DaemonState {
+    fn state_with_storage_only_sessions(
+        rows: &[rightkit_agent_engine_storage::SessionRow],
+    ) -> DaemonState {
         let store = rightkit_agent_engine_storage::Storage::open_in_memory().unwrap();
         for row in rows {
             store.create_session(row).unwrap();
@@ -2253,7 +2254,10 @@ mod tests {
         DaemonState::new("").with_storage(storage)
     }
 
-    fn dormant_session_row(id: &str, driver_kind_json: &str) -> rightkit_agent_engine_storage::SessionRow {
+    fn dormant_session_row(
+        id: &str,
+        driver_kind_json: &str,
+    ) -> rightkit_agent_engine_storage::SessionRow {
         rightkit_agent_engine_storage::SessionRow {
             id: id.to_string(),
             title: "Restored from Recents".to_string(),
@@ -2478,7 +2482,8 @@ mod tests {
 
     #[test]
     fn rate_limit_telemetry_keeps_status_and_projects_account_event() {
-        let who = rightkit_agents::driver_host::ClaudeAccountIdentity::api_key("claude", "team", "Team");
+        let who =
+            rightkit_agents::driver_host::ClaudeAccountIdentity::api_key("claude", "team", "Team");
         let capped = NormalizedEventKind::RateLimit {
             account: Some(who.clone()),
             status: "rejected".into(),

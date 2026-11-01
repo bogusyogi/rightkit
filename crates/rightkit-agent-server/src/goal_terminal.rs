@@ -5,8 +5,8 @@
 //! persistent `GoalStatus`. `Achieved` is reachable ONLY here — never from the
 //! engine's turn-end continuation loop, which can only `blocked`/`budget-limited`.
 
-use rightkit_agent_orchestration::CompletionState;
 use rightkit_agent_engine_storage::GoalStatus;
+use rightkit_agent_orchestration::CompletionState;
 
 pub fn goal_status_from_completion(state: CompletionState) -> GoalStatus {
     match state {

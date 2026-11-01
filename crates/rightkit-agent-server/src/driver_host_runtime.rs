@@ -216,9 +216,10 @@ impl DriverHostRuntime {
         let pid = child.pid();
         #[cfg(windows)]
         let windows_job = {
-            let job = rightkit_agent_tools::coding_tools::sandbox::shell_job().map_err(|error| {
-                DriverRuntimeError::Spawn(format!("Windows Job Object: {error}"))
-            })?;
+            let job =
+                rightkit_agent_tools::coding_tools::sandbox::shell_job().map_err(|error| {
+                    DriverRuntimeError::Spawn(format!("Windows Job Object: {error}"))
+                })?;
             let pid = pid
                 .ok_or_else(|| DriverRuntimeError::Spawn("child process id unavailable".into()))?;
             job.assign_process_id(pid).map_err(|error| {
@@ -395,8 +396,10 @@ impl DriverHostRuntime {
             // decline) is a deny. The original input is not retained here, so an allow must carry
             // its own `updatedInput` object; an allow without one is refused rather than run the
             // tool with empty arguments.
-            let mut decision =
-                rightkit_agents::driver_host::ClaudePermissionDecision::from_answer(&result, &json!({}));
+            let mut decision = rightkit_agents::driver_host::ClaudePermissionDecision::from_answer(
+                &result,
+                &json!({}),
+            );
             if matches!(
                 decision,
                 rightkit_agents::driver_host::ClaudePermissionDecision::Allow { .. }
@@ -414,7 +417,9 @@ impl DriverHostRuntime {
             }
             return write_json(
                 &process.stdin,
-                &rightkit_agents::driver_host::claude_permission_response_frame(request_id, &decision),
+                &rightkit_agents::driver_host::claude_permission_response_frame(
+                    request_id, &decision,
+                ),
             )
             .await;
         }
@@ -650,11 +655,13 @@ impl DaemonCliDriverBridge {
                 events,
             },
         );
-        Ok(rightkit_agents::driver_host::cli_runtime::StartedBridgeSession {
-            vendor_session_id,
-            model_id,
-            events: receiver,
-        })
+        Ok(
+            rightkit_agents::driver_host::cli_runtime::StartedBridgeSession {
+                vendor_session_id,
+                model_id,
+                events: receiver,
+            },
+        )
     }
 
     async fn prompt_generic(
@@ -811,13 +818,15 @@ impl rightkit_agents::driver_host::cli_runtime::CliDriverHostBridge for DaemonCl
                 }
             }
         });
-        Ok(rightkit_agents::driver_host::cli_runtime::StartedBridgeSession {
-            // Claude creates this lazily on first prompt; Codex replaces it
-            // with its native thread identity in persisted binding progress.
-            vendor_session_id,
-            model_id: None,
-            events: events_rx,
-        })
+        Ok(
+            rightkit_agents::driver_host::cli_runtime::StartedBridgeSession {
+                // Claude creates this lazily on first prompt; Codex replaces it
+                // with its native thread identity in persisted binding progress.
+                vendor_session_id,
+                model_id: None,
+                events: events_rx,
+            },
+        )
     }
 
     async fn prompt(
@@ -925,7 +934,10 @@ impl rightkit_agents::driver_host::cli_runtime::CliDriverHostBridge for DaemonCl
 fn driver_bridge_error(
     error: DriverRuntimeError,
 ) -> rightkit_agents::driver_host::cli_runtime::BridgeError {
-    rightkit_agents::driver_host::cli_runtime::BridgeError::new("driver_supervisor", error.to_string())
+    rightkit_agents::driver_host::cli_runtime::BridgeError::new(
+        "driver_supervisor",
+        error.to_string(),
+    )
 }
 
 fn cli_transport_bridge_error(

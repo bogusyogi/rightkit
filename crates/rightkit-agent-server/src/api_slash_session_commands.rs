@@ -435,23 +435,25 @@ pub(crate) async fn read_session_model(
         };
         let config: serde_json::Value =
             serde_json::from_str(&row.config_json).unwrap_or(serde_json::Value::Null);
-        Ok::<Option<SessionModelRow>, rightkit_agent_engine_storage::StorageError>(Some(SessionModelRow {
-            model: config
-                .get("model")
-                .and_then(|value| value.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            effort: config
-                .get("effort")
-                .and_then(|value| value.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            status: if row.status.is_empty() {
-                "stored".to_string()
-            } else {
-                row.status
+        Ok::<Option<SessionModelRow>, rightkit_agent_engine_storage::StorageError>(Some(
+            SessionModelRow {
+                model: config
+                    .get("model")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                effort: config
+                    .get("effort")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                status: if row.status.is_empty() {
+                    "stored".to_string()
+                } else {
+                    row.status
+                },
             },
-        }))
+        ))
     })
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
@@ -505,8 +507,9 @@ mod tests {
     ) {
         let dir = unique_temp_dir(label);
         std::fs::create_dir_all(&dir).unwrap();
-        let storage =
-            SharedStorage::new(rightkit_agent_engine_storage::Storage::open(dir.join("s.db")).unwrap());
+        let storage = SharedStorage::new(
+            rightkit_agent_engine_storage::Storage::open(dir.join("s.db")).unwrap(),
+        );
         let state = DaemonState::new("")
             .with_storage(storage.clone())
             .with_engine(engine_cfg());
@@ -615,8 +618,9 @@ mod tests {
     async fn effort_command_reports_missing_session() {
         let dir = unique_temp_dir("effort-missing");
         std::fs::create_dir_all(&dir).unwrap();
-        let storage =
-            SharedStorage::new(rightkit_agent_engine_storage::Storage::open(dir.join("s.db")).unwrap());
+        let storage = SharedStorage::new(
+            rightkit_agent_engine_storage::Storage::open(dir.join("s.db")).unwrap(),
+        );
         let state = DaemonState::new("")
             .with_storage(storage)
             .with_engine(engine_cfg());
@@ -668,8 +672,9 @@ mod tests {
     async fn effort_command_preserves_dormant_stored_provider_and_model() {
         let dir = unique_temp_dir("effort-dormant");
         std::fs::create_dir_all(&dir).unwrap();
-        let storage =
-            SharedStorage::new(rightkit_agent_engine_storage::Storage::open(dir.join("s.db")).unwrap());
+        let storage = SharedStorage::new(
+            rightkit_agent_engine_storage::Storage::open(dir.join("s.db")).unwrap(),
+        );
         {
             let s = storage.lock().await;
             s.create_session(&rightkit_agent_engine_storage::SessionRow {

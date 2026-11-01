@@ -350,7 +350,9 @@ mod tests {
 
     // ── Deterministic stub of BrowserWorkspaceServices for routing tests ───
 
-    use rightkit_agent_tools::coding_tools::browser::{BrowserObservationV1, BrowserStore, SemanticBoundsV1};
+    use rightkit_agent_tools::coding_tools::browser::{
+        BrowserObservationV1, BrowserStore, SemanticBoundsV1,
+    };
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::Arc;

@@ -1115,8 +1115,7 @@ fn materialize_control_children(
     for control in source.nodes.iter().filter(|node| {
         matches!(
             node.kind,
-            rightkit_workflow::prelude::NodeKind::Map
-                | rightkit_workflow::prelude::NodeKind::Loop
+            rightkit_workflow::prelude::NodeKind::Map | rightkit_workflow::prelude::NodeKind::Loop
         )
     }) {
         let Some(ids) = selections.get(&control.id) else {
@@ -1587,10 +1586,10 @@ mod tests {
 
     use async_trait::async_trait;
     use rightkit_agent_engine_storage::{Storage, WorkflowRepository};
+    use rightkit_db::rusqlite::{params, Connection};
     use rightkit_workflow::clock::TestClock;
     use rightkit_workflow::domain::{Capability, CapabilitySet, EdgeSpec, NodeKind, RetryPolicy};
     use rightkit_workflow::prelude::FeatureGate;
-    use rightkit_db::rusqlite::{params, Connection};
 
     fn open_storage() -> SharedStorage {
         SharedStorage::new(Storage::open_in_memory().expect("in-memory storage"))

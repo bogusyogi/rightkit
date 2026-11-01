@@ -1258,7 +1258,9 @@ pub(crate) fn undecodable_event_seqs(events: &[EventRow]) -> Vec<i64> {
     events
         .iter()
         .filter(|row| Some(row.seq) != last_seq)
-        .filter(|row| row.kind != rightkit_agent_engine_core::compaction_archive::PROJECTION_EVENT_KIND)
+        .filter(|row| {
+            row.kind != rightkit_agent_engine_core::compaction_archive::PROJECTION_EVENT_KIND
+        })
         .filter(|row| decode_row_event(row).is_none())
         .map(|row| row.seq)
         .collect()

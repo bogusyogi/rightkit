@@ -5,8 +5,8 @@ use axum::{
     routing::get,
     Router,
 };
-use rightkit_agent_engine_protocol::TranscriptMessage;
 use coderight_skills::{CommandAction, CommandResult};
+use rightkit_agent_engine_protocol::TranscriptMessage;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
@@ -898,7 +898,7 @@ mod tests {
         let mut payload = session_handoff_payload(&state, "s1", session_metadata);
         payload.created_at = "2099-01-02T03:04:06Z".to_string();
         let fixture: Value = serde_json::from_str(include_str!(
-            "../tests/fixtures/cli-json/session-handoff.v1.json"
+            "../data/engine__bins__coderight__tests__fixtures__cli-json__session-handoff.v1.json"
         ))
         .expect("parse handoff fixture");
         let actual = serde_json::to_value(&payload).expect("serialize handoff payload");

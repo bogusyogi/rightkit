@@ -1,7 +1,7 @@
 use axum::{http::StatusCode, response::Json, routing::get, Router};
-use rightkit_app_settings::agent_config::{RightKitConfig, ToolsetConfig};
 #[cfg(test)]
 use rightkit_agent_tools::coding_tools::registry::ToolRegistry;
+use rightkit_app_settings::agent_config::{RightKitConfig, ToolsetConfig};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashSet};
@@ -795,7 +795,9 @@ mod tests {
                 // needs `pwsh` off Windows. Those may be absent here without
                 // being a mistake; anything else missing is a typo or a stale
                 // reference, which is what this test is for.
-                if tool == "powershell" && !rightkit_agent_tools::coding_tools::shell::powershell_available() {
+                if tool == "powershell"
+                    && !rightkit_agent_tools::coding_tools::shell::powershell_available()
+                {
                     continue;
                 }
                 assert!(

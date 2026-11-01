@@ -85,7 +85,10 @@ fn clean(content: &str) -> String {
         .to_string()
 }
 
-fn render_markdown(id: &str, messages: &[rightkit_agent_engine_protocol::TranscriptMessage]) -> String {
+fn render_markdown(
+    id: &str,
+    messages: &[rightkit_agent_engine_protocol::TranscriptMessage],
+) -> String {
     let visible = visible_messages(messages);
     let mut out = format!(
         "# Session export: {id}\n\nMessages: {} visible of {}\n",

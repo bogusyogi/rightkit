@@ -27,8 +27,8 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 
-use rightkit_agent_orchestration::registry::AgentDescriptor;
 use rightkit_agent_engine_protocol::{ModelRouteDecisionPayload, PriceSnapshot};
+use rightkit_agent_orchestration::registry::AgentDescriptor;
 use rightkit_llm::agent_router::{
     BudgetCeiling, PinContext, RouteDecision, RoutingPolicy, TaskSignal, TaskSignalBuilder,
     TurnType,
@@ -234,7 +234,8 @@ pub fn apply_capability_routing(
             if !stalled {
                 if let Ok(map) = cache.lock() {
                     if let Some(cached) = map.get(&key).filter(|model| {
-                        rightkit_llm::agent_providers::model_metadata::capability_of(model).is_some()
+                        rightkit_llm::agent_providers::model_metadata::capability_of(model)
+                            .is_some()
                     }) {
                         let model_id = cached.clone();
                         descriptor.model_id = model_id.clone();
@@ -622,10 +623,14 @@ fn runtime_task_signals_from_slices(
         .map(|message| match message {
             rightkit_agent_engine_protocol::TranscriptMessage::System { content, .. }
             | rightkit_agent_engine_protocol::TranscriptMessage::User { content, .. }
-            | rightkit_agent_engine_protocol::TranscriptMessage::Assistant { content, .. } => content.len(),
+            | rightkit_agent_engine_protocol::TranscriptMessage::Assistant { content, .. } => {
+                content.len()
+            }
             rightkit_agent_engine_protocol::TranscriptMessage::Tool { summary, .. }
             | rightkit_agent_engine_protocol::TranscriptMessage::Compact { summary, .. }
-            | rightkit_agent_engine_protocol::TranscriptMessage::Fold { summary, .. } => summary.len(),
+            | rightkit_agent_engine_protocol::TranscriptMessage::Fold { summary, .. } => {
+                summary.len()
+            }
         })
         .sum::<usize>();
     let (tool_call_density, current_context_tokens) = (recent_tools, bytes.div_ceil(4) as u64);

@@ -15,7 +15,9 @@ use rightkit_agent_engine_core::adapt_consumer::{
     InMemoryApplicationReceiptLog, InMemoryGuidanceStore, NewGuidanceRecord, ProjectionRegistry,
     SealedRemediationProposalV1,
 };
-use rightkit_agent_engine_storage::{AdaptApplicationReceiptRow, AdaptGuidanceRow, AdaptGuidanceWrite};
+use rightkit_agent_engine_storage::{
+    AdaptApplicationReceiptRow, AdaptGuidanceRow, AdaptGuidanceWrite,
+};
 
 /// One coherent application surface: guidance, policy, projections & receipt
 /// log have identical daemon lifetime.
@@ -238,7 +240,9 @@ pub fn daemon_adapt_application_host() -> &'static AdaptApplicationHost {
 #[cfg(test)]
 mod pl011_host_tests {
     use super::*;
-    use rightkit_agent_engine_core::adapt_consumer::{ApplicationOutcome, MutationKind, RejectionKind};
+    use rightkit_agent_engine_core::adapt_consumer::{
+        ApplicationOutcome, MutationKind, RejectionKind,
+    };
     use rightkit_agent_engine_storage::Storage;
 
     fn shared_storage() -> SharedStorage {

@@ -217,7 +217,7 @@ mod bot_profile_v1_fixture_tests {
 
     use super::*;
 
-    const FIXTURE_JSON: &str = include_str!("../../../fixtures/bots/bot-profile-v1.json");
+    const FIXTURE_JSON: &str = include_str!("../data/engine__fixtures__bots__bot-profile-v1.json");
 
     /// fixture → deserializes → revalidates.
     #[test]

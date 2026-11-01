@@ -23,7 +23,8 @@ pub(crate) async fn issue_capability_lease(
         .get_session(&session_id)
         .ok_or(StatusCode::NOT_FOUND)?;
     let driver_kind = body.driver_kind.trim().to_ascii_lowercase();
-    let provider_id = rightkit_agents::driver_host::cli_runtime::CliProviderId::new(driver_kind.clone());
+    let provider_id =
+        rightkit_agents::driver_host::cli_runtime::CliProviderId::new(driver_kind.clone());
     if state.cli_registry.adapter(&provider_id).is_none()
         || body.binary_version.trim().is_empty()
         || body.schema_hash.trim().is_empty()
@@ -584,7 +585,13 @@ pub(crate) async fn authorize_lease(
     state: &DaemonState,
     session_id: &str,
     headers: &HeaderMap,
-) -> Result<(rightkit_agent_engine_storage::SessionCapabilityLeaseRow, Vec<String>), StatusCode> {
+) -> Result<
+    (
+        rightkit_agent_engine_storage::SessionCapabilityLeaseRow,
+        Vec<String>,
+    ),
+    StatusCode,
+> {
     let token = headers
         .get(CAPABILITY_HEADER)
         .and_then(|value| value.to_str().ok())

@@ -679,7 +679,8 @@ fn post_http_hook(url: String, payload: HttpHookPayload) {
     tokio::spawn(async move {
         // Fire-and-forget: the hook URL is operator-configured, so its host alone may
         // resolve privately; the call is bounded to 5s and any failure is ignored.
-        let Ok(client) = rightkit_http::http_client::endpoint_client(&url, Duration::from_secs(5)) else {
+        let Ok(client) = rightkit_http::http_client::endpoint_client(&url, Duration::from_secs(5))
+        else {
             return;
         };
         let Ok(request) = rightkit_http::Request::post(url).json(&payload) else {
@@ -773,7 +774,8 @@ async fn run(cmd: &str, payload: &HttpHookPayload, confine: bool) {
         rightkit_agent_tools::coding_tools::process_resource_authority::ResourceKind::ChildProcess,
         true,
     );
-    let Ok(mut child) = rightkit_sandbox::execution::ProcessLaunchAdapter::spawn(&launcher, spec).await
+    let Ok(mut child) =
+        rightkit_sandbox::execution::ProcessLaunchAdapter::spawn(&launcher, spec).await
     else {
         // A hook cannot bypass native launch policy; unavailable launch is
         // recorded as no execution rather than falling back to raw spawn.

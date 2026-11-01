@@ -42,7 +42,9 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-use rightkit_agent_engine_storage::{HandoffAdvance, HandoffRow, HandoffTerminalState, QuiescenceOutcome};
+use rightkit_agent_engine_storage::{
+    HandoffAdvance, HandoffRow, HandoffTerminalState, QuiescenceOutcome,
+};
 
 /// Durable checkpoint operations the saga drives. Implemented for
 /// [`rightkit_agent_engine_storage::Storage`] in production; unit tests below use an

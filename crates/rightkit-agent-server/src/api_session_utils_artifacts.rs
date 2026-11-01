@@ -157,7 +157,8 @@ pub(crate) fn spawn_event_persister(
             let durable = ev.is_durable_fact();
             let meta = ev.meta();
             let durable_envelope = if durable {
-                match rightkit_agent_engine_protocol::event::EventEnvelopeV1::canonical(ev.clone()) {
+                match rightkit_agent_engine_protocol::event::EventEnvelopeV1::canonical(ev.clone())
+                {
                     Ok(envelope) => Some(envelope),
                     Err(error) => {
                         conduit_for_commit.latch_persistence_failure(format!(
@@ -165,11 +166,15 @@ pub(crate) fn spawn_event_persister(
                             meta.seq
                         ));
                         let previous = persistence_state.snapshot();
-                        persistence_state.update(rightkit_agent_engine_storage::EventPersistenceSnapshot {
-                            last_published_seq: previous.last_published_seq,
-                            last_persisted_seq: previous.last_persisted_seq,
-                            last_error: Some(format!("invalid durable event envelope: {error}")),
-                        });
+                        persistence_state.update(
+                            rightkit_agent_engine_storage::EventPersistenceSnapshot {
+                                last_published_seq: previous.last_published_seq,
+                                last_persisted_seq: previous.last_persisted_seq,
+                                last_error: Some(format!(
+                                    "invalid durable event envelope: {error}"
+                                )),
+                            },
+                        );
                         continue;
                     }
                 }
@@ -275,11 +280,13 @@ pub(crate) fn spawn_event_persister(
                     );
                     conduit_for_commit.publish_committed(ev);
                     let previous = persistence_state.snapshot();
-                    persistence_state.update(rightkit_agent_engine_storage::EventPersistenceSnapshot {
-                        last_published_seq: meta.seq.max(previous.last_published_seq),
-                        last_persisted_seq: previous.last_persisted_seq,
-                        last_error: None,
-                    });
+                    persistence_state.update(
+                        rightkit_agent_engine_storage::EventPersistenceSnapshot {
+                            last_published_seq: meta.seq.max(previous.last_published_seq),
+                            last_persisted_seq: previous.last_persisted_seq,
+                            last_error: None,
+                        },
+                    );
                 }
                 continue;
             }
@@ -348,12 +355,14 @@ pub(crate) fn spawn_latch_cancel(
         // Tell live clients. PersistenceFailed is a live projection: it takes
         // no durable seq and never enters the (failed) persistence queue.
         if let Some(conduit) = weak_conduit.upgrade() {
-            conduit.publish(rightkit_agent_engine_protocol::ProtocolEvent::PersistenceFailed {
-                session_id,
-                seq: 0,
-                created_at: now_iso(),
-                reason: reason.clone(),
-            });
+            conduit.publish(
+                rightkit_agent_engine_protocol::ProtocolEvent::PersistenceFailed {
+                    session_id,
+                    seq: 0,
+                    created_at: now_iso(),
+                    reason: reason.clone(),
+                },
+            );
         }
         LatchCancelOutcome::InFlightCancelled { reason }
     })
@@ -463,7 +472,8 @@ mod evt003_tests {
         Arc<Conduit>,
         rightkit_agent_engine_storage::EventPersistenceState,
     ) {
-        let store = SharedStorage::new(rightkit_agent_engine_storage::Storage::open_in_memory().unwrap());
+        let store =
+            SharedStorage::new(rightkit_agent_engine_storage::Storage::open_in_memory().unwrap());
         let conduit = Arc::new(Conduit::new(16));
         let state = rightkit_agent_engine_storage::EventPersistenceState::new();
         spawn_event_persister(

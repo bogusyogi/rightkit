@@ -154,14 +154,22 @@ pub(crate) async fn session_spec_completion_summary(
             .findings
             .iter()
             .filter(|finding| {
-                matches!(finding.severity, rightkit_evidence::specs::FindingSeverity::Critical)
+                matches!(
+                    finding.severity,
+                    rightkit_evidence::specs::FindingSeverity::Critical
+                )
             })
             .cloned()
             .collect::<Vec<_>>();
         let warnings = run
             .findings
             .iter()
-            .filter(|finding| matches!(finding.severity, rightkit_evidence::specs::FindingSeverity::Warning))
+            .filter(|finding| {
+                matches!(
+                    finding.severity,
+                    rightkit_evidence::specs::FindingSeverity::Warning
+                )
+            })
             .cloned()
             .collect::<Vec<_>>();
         let status = run.status.clone();

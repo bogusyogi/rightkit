@@ -37,7 +37,11 @@ async fn get_local_model_hardware(
         network_required: false,
     };
     Ok(Json(
-        rightkit_models::agent_local_models::probe_hardware_with_adapter(adapter.as_ref(), &context).await,
+        rightkit_models::agent_local_models::probe_hardware_with_adapter(
+            adapter.as_ref(),
+            &context,
+        )
+        .await,
     ))
 }
 
@@ -55,7 +59,11 @@ async fn get_local_model_catalog(
         network_required: false,
     };
     Ok(Json(rightkit_models::agent_local_models::model_catalog(
-        rightkit_models::agent_local_models::probe_hardware_with_adapter(adapter.as_ref(), &context).await,
+        rightkit_models::agent_local_models::probe_hardware_with_adapter(
+            adapter.as_ref(),
+            &context,
+        )
+        .await,
     )))
 }
 
@@ -371,9 +379,9 @@ async fn add_local_model_provider(
             })
             .await
             .unwrap_or_else(|e| {
-                Err(rightkit_app_settings::agent_config::ConfigError::Io(format!(
-                    "config writer stopped: {e}"
-                )))
+                Err(rightkit_app_settings::agent_config::ConfigError::Io(
+                    format!("config writer stopped: {e}"),
+                ))
             })
             .map_err(|err| {
                 route_error(
@@ -388,24 +396,25 @@ async fn add_local_model_provider(
             let target = workspace.clone();
             let (result, read_failed) = tokio::task::spawn_blocking(move || {
                 let read_failed = std::cell::Cell::new(false);
-                let result = rightkit_app_settings::agent_config::ConfigLoader::new().update_workspace_from(
-                    &target,
-                    || {
-                        load_workspace_config_only(&target).map_err(|err| {
-                            read_failed.set(true);
-                            err
-                        })
-                    },
-                    apply,
-                );
+                let result = rightkit_app_settings::agent_config::ConfigLoader::new()
+                    .update_workspace_from(
+                        &target,
+                        || {
+                            load_workspace_config_only(&target).map_err(|err| {
+                                read_failed.set(true);
+                                err
+                            })
+                        },
+                        apply,
+                    );
                 (result.map(|_| ()), read_failed.get())
             })
             .await
             .unwrap_or_else(|e| {
                 (
-                    Err(rightkit_app_settings::agent_config::ConfigError::Io(format!(
-                        "config writer stopped: {e}"
-                    ))),
+                    Err(rightkit_app_settings::agent_config::ConfigError::Io(
+                        format!("config writer stopped: {e}"),
+                    )),
                     false,
                 )
             });
@@ -458,8 +467,10 @@ fn user_config_path() -> Option<std::path::PathBuf> {
     rightkit_app_settings::agent_config::state_root().map(|root| root.join("config.toml"))
 }
 
-fn load_user_config_only(
-) -> Result<rightkit_app_settings::agent_config::RightKitConfig, rightkit_app_settings::agent_config::ConfigError> {
+fn load_user_config_only() -> Result<
+    rightkit_app_settings::agent_config::RightKitConfig,
+    rightkit_app_settings::agent_config::ConfigError,
+> {
     let Some(path) = user_config_path() else {
         return Ok(rightkit_app_settings::agent_config::RightKitConfig::default());
     };
@@ -468,24 +479,28 @@ fn load_user_config_only(
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             Ok(rightkit_app_settings::agent_config::RightKitConfig::default())
         }
-        Err(err) => Err(rightkit_app_settings::agent_config::ConfigError::Io(err.to_string())),
+        Err(err) => Err(rightkit_app_settings::agent_config::ConfigError::Io(
+            err.to_string(),
+        )),
     }
 }
 
 async fn probe_openai_models_endpoint(base_url: &str) -> ProbeEndpointResponse {
     let trimmed = base_url.trim().trim_end_matches('/');
     let models_url = format!("{trimmed}/models");
-    let outcome =
-        match rightkit_http::http_client::endpoint_client(&models_url, std::time::Duration::from_secs(5)) {
-            Ok(client) => {
-                rightkit_http::http_client::send_any(
-                    &client,
-                    &rightkit_http::Request::get(models_url.clone()),
-                )
-                .await
-            }
-            Err(error) => Err(error),
-        };
+    let outcome = match rightkit_http::http_client::endpoint_client(
+        &models_url,
+        std::time::Duration::from_secs(5),
+    ) {
+        Ok(client) => {
+            rightkit_http::http_client::send_any(
+                &client,
+                &rightkit_http::Request::get(models_url.clone()),
+            )
+            .await
+        }
+        Err(error) => Err(error),
+    };
     match outcome {
         Ok(resp) => {
             let status = resp.status;
@@ -570,14 +585,16 @@ async fn chat_smoke_openai_endpoint(base_url: &str, model: &str) -> ChatSmokeRes
         "temperature": 0,
         "stream": false
     });
-    let outcome =
-        match rightkit_http::http_client::endpoint_client(&chat_url, std::time::Duration::from_secs(10)) {
-            Ok(client) => match rightkit_http::Request::post(chat_url.clone()).json(&body) {
-                Ok(request) => rightkit_http::http_client::send_any(&client, &request).await,
-                Err(error) => Err(error.to_string()),
-            },
-            Err(error) => Err(error),
-        };
+    let outcome = match rightkit_http::http_client::endpoint_client(
+        &chat_url,
+        std::time::Duration::from_secs(10),
+    ) {
+        Ok(client) => match rightkit_http::Request::post(chat_url.clone()).json(&body) {
+            Ok(request) => rightkit_http::http_client::send_any(&client, &request).await,
+            Err(error) => Err(error.to_string()),
+        },
+        Err(error) => Err(error),
+    };
     match outcome {
         Ok(resp) => {
             let status = resp.status;
@@ -699,14 +716,19 @@ fn workspace_config_path(workspace: &std::path::Path) -> std::path::PathBuf {
 
 fn load_workspace_config_only(
     workspace: &std::path::Path,
-) -> Result<rightkit_app_settings::agent_config::RightKitConfig, rightkit_app_settings::agent_config::ConfigError> {
+) -> Result<
+    rightkit_app_settings::agent_config::RightKitConfig,
+    rightkit_app_settings::agent_config::ConfigError,
+> {
     let path = workspace_config_path(workspace);
     match std::fs::read_to_string(&path) {
         Ok(content) => rightkit_app_settings::agent_config::ConfigLoader::new().load_str(&content),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             Ok(rightkit_app_settings::agent_config::RightKitConfig::default())
         }
-        Err(err) => Err(rightkit_app_settings::agent_config::ConfigError::Io(err.to_string())),
+        Err(err) => Err(rightkit_app_settings::agent_config::ConfigError::Io(
+            err.to_string(),
+        )),
     }
 }
 

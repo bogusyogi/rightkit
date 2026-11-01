@@ -154,7 +154,9 @@ pub(crate) fn workspace_trust_label(trust: rightkit_agent_policy::WorkspaceTrust
     }
 }
 
-pub(crate) fn parse_workspace_trust_label(raw: &str) -> Option<rightkit_agent_policy::WorkspaceTrust> {
+pub(crate) fn parse_workspace_trust_label(
+    raw: &str,
+) -> Option<rightkit_agent_policy::WorkspaceTrust> {
     match raw.trim().to_ascii_lowercase().as_str() {
         "untrusted" => Some(rightkit_agent_policy::WorkspaceTrust::Untrusted),
         "trusted" => Some(rightkit_agent_policy::WorkspaceTrust::Trusted),
@@ -297,7 +299,8 @@ pub(crate) fn web_search_config_from_config(
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .or_else(|| {
-            let tinyfish_available = rightkit_llm::agent_providers::load_api_key("tinyfish").is_some()
+            let tinyfish_available = rightkit_llm::agent_providers::load_api_key("tinyfish")
+                .is_some()
                 || std::env::var("TINYFISH_API_KEY").is_ok();
             tinyfish_available.then(|| "tinyfish".to_string())
         })?;

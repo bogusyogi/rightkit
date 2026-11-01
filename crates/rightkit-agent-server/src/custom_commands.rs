@@ -16,11 +16,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
 use coderight_skills::custom_commands::{
     discover, expand_file_references, listing, resolve, substitute_arguments, CommandScope,
     CustomCommand,
 };
+use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
 
 /// Per-turn settings from a command's frontmatter, tied to the prompt it expanded to.
 /// `allowed_tools` holds RightKit tool names (already mapped from Claude Code names).
@@ -170,7 +170,8 @@ pub(crate) fn roots_for(
 /// Load commands visible from `workspace` using the persisted trust store and
 /// the real user state root.
 pub(crate) fn load(workspace: &Path) -> Vec<CustomCommand> {
-    let trusted = rightkit_app_settings::agent_config::workspace_trust::is_workspace_trusted(workspace);
+    let trusted =
+        rightkit_app_settings::agent_config::workspace_trust::is_workspace_trusted(workspace);
     discover(&roots_for(
         workspace,
         trusted,
@@ -205,10 +206,11 @@ pub(crate) fn expand_by_name(
     workspace: &Path,
 ) -> Option<TurnOverrides> {
     let command = resolve(commands, name)?;
-    let catalog: Vec<String> = rightkit_agent_tools::coding_tools::registry::default_tool_capabilities()
-        .into_iter()
-        .map(|capability| capability.name)
-        .collect();
+    let catalog: Vec<String> =
+        rightkit_agent_tools::coding_tools::registry::default_tool_capabilities()
+            .into_iter()
+            .map(|capability| capability.name)
+            .collect();
     let (allowed_tools, mut warnings) = map_allowed_tools(&command.allowed_tools, &catalog);
     // Fail open to the normal toolset (with a warning) rather than an empty
     // allowlist, which the run path would read as "restrict to nothing usable".

@@ -318,7 +318,11 @@ impl RuntimeNodeDispatcher {
                 )
                 .await;
         }
-        let session_id = format!("workflow-{}-{}", spec.id, rightkit_agent_engine_protocol::uuid_v7());
+        let session_id = format!(
+            "workflow-{}-{}",
+            spec.id,
+            rightkit_agent_engine_protocol::uuid_v7()
+        );
         let workspace = ctx.workspace_root.as_str();
         let (live, prompt) =
             if runtime == "recipe" || spec.kind == NodeKind::Recipe {

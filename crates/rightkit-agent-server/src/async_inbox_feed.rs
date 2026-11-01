@@ -37,7 +37,8 @@ mod tests {
         let _lease = rightkit_agent_tools::coding_tools::async_inbox::activate_session(session);
         let id = feed_session_message(session, "s-sender", "team", "build is green").unwrap();
 
-        let (messages, dropped) = rightkit_agent_tools::coding_tools::async_inbox::read(session, 10);
+        let (messages, dropped) =
+            rightkit_agent_tools::coding_tools::async_inbox::read(session, 10);
         assert_eq!(dropped, 0);
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].id, id);
@@ -59,6 +60,9 @@ mod tests {
         let _lease = rightkit_agent_tools::coding_tools::async_inbox::activate_session(session);
         rightkit_agent_tools::coding_tools::async_inbox::retire_session(session);
         assert_eq!(feed_session_message(session, "s", "c", "late"), None);
-        assert_eq!(rightkit_agent_tools::coding_tools::async_inbox::pending_count(session), 0);
+        assert_eq!(
+            rightkit_agent_tools::coding_tools::async_inbox::pending_count(session),
+            0
+        );
     }
 }

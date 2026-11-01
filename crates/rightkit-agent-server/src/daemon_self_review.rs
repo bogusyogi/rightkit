@@ -15,7 +15,10 @@ pub struct DaemonSelfReviewFork {
 }
 
 impl DaemonSelfReviewFork {
-    pub fn new(llm: Arc<dyn LlmClient>, conduit: Arc<rightkit_agent_engine_core::conduit::Conduit>) -> Self {
+    pub fn new(
+        llm: Arc<dyn LlmClient>,
+        conduit: Arc<rightkit_agent_engine_core::conduit::Conduit>,
+    ) -> Self {
         Self::with_learning_sink(llm, conduit, global_self_review_fork())
     }
 

@@ -131,13 +131,13 @@ pub fn resolve_builtin_role_pack_for_spawn(
 fn builtin_role_pack_source(role: &str) -> Option<&'static str> {
     match role {
         "orchestrator" => Some(include_str!(
-            "../../../../fixtures/role-packs/orchestrator.v1.toml"
+            "../../data/engine__fixtures__role-packs__orchestrator.v1.toml"
         )),
         "coder" => Some(include_str!(
-            "../../../../fixtures/role-packs/coder.v1.toml"
+            "../../data/engine__fixtures__role-packs__coder.v1.toml"
         )),
         "verifier" => Some(include_str!(
-            "../../../../fixtures/role-packs/verifier.v1.toml"
+            "../../data/engine__fixtures__role-packs__verifier.v1.toml"
         )),
         _ => None,
     }

@@ -116,7 +116,9 @@ fn mcp_command_manager(servers: &[McpCommandServer]) -> rightkit_mcp::agent_mcp:
     manager
 }
 
-fn mcp_command_transport(server: &McpCommandServer) -> Arc<dyn rightkit_mcp::agent_mcp::McpTransport> {
+fn mcp_command_transport(
+    server: &McpCommandServer,
+) -> Arc<dyn rightkit_mcp::agent_mcp::McpTransport> {
     // Workspace-sourced stdio servers must pass the same persisted first-use
     // trust gate the canonical session loader applies
     // (crates/mcp/src/config.rs::load_with_trust_gate_pooled_impl) before a
@@ -131,7 +133,8 @@ fn mcp_command_transport(server: &McpCommandServer) -> Arc<dyn rightkit_mcp::age
         if let rightkit_mcp::agent_mcp::McpServerConfig::Stdio(stdio) = &server.config {
             match workspace_stdio_trust_decision(&server.workspace_root, &server.name, stdio) {
                 rightkit_mcp::agent_mcp::TrustDecision::Approved => {}
-                rightkit_mcp::agent_mcp::TrustDecision::Pending | rightkit_mcp::agent_mcp::TrustDecision::Denied => {
+                rightkit_mcp::agent_mcp::TrustDecision::Pending
+                | rightkit_mcp::agent_mcp::TrustDecision::Denied => {
                     return Arc::new(rightkit_mcp::agent_mcp::StubTransport::new(Vec::new()));
                 }
             }
@@ -181,7 +184,10 @@ fn mcp_command_transport(server: &McpCommandServer) -> Arc<dyn rightkit_mcp::age
     }
 }
 
-fn command_channel_denial(manager: &rightkit_mcp::agent_mcp::McpManager, server: &str) -> Option<String> {
+fn command_channel_denial(
+    manager: &rightkit_mcp::agent_mcp::McpManager,
+    server: &str,
+) -> Option<String> {
     if manager.is_channel_allowed(server, "desktop") {
         return None;
     }

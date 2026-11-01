@@ -13,9 +13,9 @@
 //! the decomposition as its own slice if spawn grows further.
 
 use rightkit_agent_engine_core::conduit::ConduitReceive;
-use rightkit_agent_orchestration::subagent_routing::{resolve_invocation, Profile, TaskSpec};
 use rightkit_agent_engine_protocol::ProtocolEvent;
 use rightkit_agent_engine_runtime_middleware::MiddlewarePhase;
+use rightkit_agent_orchestration::subagent_routing::{resolve_invocation, Profile, TaskSpec};
 
 use crate::api::DaemonSubagentSupervisor;
 use crate::api::{
@@ -337,8 +337,9 @@ impl DaemonState {
             // child `driver_bindings` row with `parent_agent_id` set,
             // and returns the structured `AgentResult` projected onto
             // its `final_text`.
-            if let Some(rightkit_agent_tools::coding_tools::SpawnRuntimeKind::AuthenticatedCli { .. }) =
-                &options.runtime
+            if let Some(rightkit_agent_tools::coding_tools::SpawnRuntimeKind::AuthenticatedCli {
+                ..
+            }) = &options.runtime
             {
                 if state.cli_executor.is_none() {
                     return Err(
@@ -358,8 +359,9 @@ impl DaemonState {
             // Codex's continuation form re-attaches to an existing child
             // instead of creating a second transcript. Validate ownership
             // before enqueueing so a parent cannot steer a foreign child.
-            if let Some(rightkit_agent_tools::coding_tools::SubagentContinuity::ContinueAgent { continue_agent_id }) =
-                &options.continuity
+            if let Some(rightkit_agent_tools::coding_tools::SubagentContinuity::ContinueAgent {
+                continue_agent_id,
+            }) = &options.continuity
             {
                 let child = state
                     .get_session(continue_agent_id)
@@ -623,11 +625,16 @@ impl DaemonState {
             // remain authoritative). The model override here wins over the
             // inherited model when present, mirroring the per-agent
             // override precedence already used in the spawn-seam router.
-            let agent_mcp_cfg = rightkit_app_settings::agent_config::find_agents_dir(std::path::Path::new(&workspace));
-            let agent_mcp = rightkit_app_settings::agent_config::AgentMcpConfig::load_or_err(&agent_mcp_cfg, &role)
-                .map_err(|error| {
-                    format!("agent TOML config failed for role '{role}': {error}; refusing spawn")
-                })?;
+            let agent_mcp_cfg = rightkit_app_settings::agent_config::find_agents_dir(
+                std::path::Path::new(&workspace),
+            );
+            let agent_mcp = rightkit_app_settings::agent_config::AgentMcpConfig::load_or_err(
+                &agent_mcp_cfg,
+                &role,
+            )
+            .map_err(|error| {
+                format!("agent TOML config failed for role '{role}': {error}; refusing spawn")
+            })?;
             let agent_model_override = agent_mcp
                 .and_then(|cfg| cfg.model)
                 .filter(|m| !m.trim().is_empty());
@@ -1288,10 +1295,12 @@ mod tests {
     #[test]
     fn native_task_spec_keeps_explicit_route_outside_profile_state() {
         let options = rightkit_agent_tools::coding_tools::SubagentSpawnOptions {
-            runtime: Some(rightkit_agent_tools::coding_tools::SpawnRuntimeKind::RightKitNative {
-                provider_id: Some("anthropic".into()),
-                model_id: "claude-haiku".into(),
-            }),
+            runtime: Some(
+                rightkit_agent_tools::coding_tools::SpawnRuntimeKind::RightKitNative {
+                    provider_id: Some("anthropic".into()),
+                    model_id: "claude-haiku".into(),
+                },
+            ),
             ..Default::default()
         };
         let task = native_spawn_task_spec("child".into(), "inspect".into(), &options, 1);
@@ -1765,20 +1774,21 @@ mod tests {
         let storage = crate::api::SharedStorage::new(
             rightkit_agent_engine_storage::Storage::open_in_memory().expect("in-memory storage"),
         );
-        let row: rightkit_agent_engine_storage::SessionRow = serde_json::from_value(serde_json::json!({
-            "id": "child",
-            "title": "child",
-            "workspace_root": "/tmp",
-            "created_at": "2026-01-01T00:00:00Z",
-            "updated_at": "2026-01-01T00:00:00Z",
-            "parent_session_id": null,
-            "role": null,
-            "status": "running",
-            "config_json": "{}",
-            "tags": "",
-            "recovery_marker": null
-        }))
-        .expect("session row");
+        let row: rightkit_agent_engine_storage::SessionRow =
+            serde_json::from_value(serde_json::json!({
+                "id": "child",
+                "title": "child",
+                "workspace_root": "/tmp",
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
+                "parent_session_id": null,
+                "role": null,
+                "status": "running",
+                "config_json": "{}",
+                "tags": "",
+                "recovery_marker": null
+            }))
+            .expect("session row");
         storage
             .lock()
             .await

@@ -70,10 +70,11 @@ pub(crate) async fn start_driver(
     {
         return Err(StatusCode::FORBIDDEN);
     }
-    let live_digest = rightkit_agents::driver_host::cli_runtime::recovery::compute_executable_digest(
-        std::path::Path::new(&executable),
-    )
-    .map_err(|_| StatusCode::CONFLICT)?;
+    let live_digest =
+        rightkit_agents::driver_host::cli_runtime::recovery::compute_executable_digest(
+            std::path::Path::new(&executable),
+        )
+        .map_err(|_| StatusCode::CONFLICT)?;
     if binding.executable_sha256.as_deref() != Some(live_digest.as_str()) {
         return Err(StatusCode::CONFLICT);
     }
@@ -133,7 +134,8 @@ pub(crate) async fn start_driver(
         }
     })
     .to_string();
-    let mut claude_account_identity: Option<rightkit_agents::driver_host::ClaudeAccountIdentity> = None;
+    let mut claude_account_identity: Option<rightkit_agents::driver_host::ClaudeAccountIdentity> =
+        None;
     let mut spec = match binding.driver_kind.as_str() {
         "codex" => {
             let mut spec = CodexLaunchOptions {
@@ -442,8 +444,8 @@ pub(crate) async fn prompt_driver(
             },
         );
         let seq = live.conduit.next_seq();
-        live.conduit
-            .publish(rightkit_agent_engine_protocol::ProtocolEvent::UserMessageSubmitted {
+        live.conduit.publish(
+            rightkit_agent_engine_protocol::ProtocolEvent::UserMessageSubmitted {
                 session_id: session_id.clone(),
                 seq,
                 created_at,
@@ -451,7 +453,8 @@ pub(crate) async fn prompt_driver(
                 nonce: None,
                 trust: None,
                 attachments: Vec::new(),
-            });
+            },
+        );
     }
     Ok(Json(json!({"accepted": true, "requestId": request_id})))
 }
@@ -565,7 +568,9 @@ pub(crate) fn driver_kind_from_config_json(config_json: &str) -> String {
 /// Per-binding rate-limit availability (#346). Held in process memory: it is telemetry about the
 /// live driver, rebuilt from the next `rate_limit_event`, so it is not persisted.
 static DRIVER_RATE_LIMITS: std::sync::OnceLock<
-    std::sync::Mutex<std::collections::HashMap<String, rightkit_agents::driver_host::RateLimitState>>,
+    std::sync::Mutex<
+        std::collections::HashMap<String, rightkit_agents::driver_host::RateLimitState>,
+    >,
 > = std::sync::OnceLock::new();
 
 fn driver_rate_limits() -> std::sync::MutexGuard<
@@ -1035,14 +1040,15 @@ pub(crate) async fn apply_normalized_driver_event(
     }
     match event.kind {
         NormalizedEventKind::AssistantDelta { text } => {
-            live.conduit
-                .emit(|seq| rightkit_agent_engine_protocol::ProtocolEvent::AssistantDelta {
+            live.conduit.emit(|seq| {
+                rightkit_agent_engine_protocol::ProtocolEvent::AssistantDelta {
                     session_id: session_id.to_string(),
                     seq,
                     created_at: now,
                     text,
                     is_reasoning: false,
-                });
+                }
+            });
         }
         NormalizedEventKind::AssistantCompleted { text } => {
             if text.trim().is_empty() {
@@ -1068,13 +1074,14 @@ pub(crate) async fn apply_normalized_driver_event(
         }
         NormalizedEventKind::TurnInterrupted => {
             let seq = live.conduit.next_seq();
-            live.conduit
-                .publish(rightkit_agent_engine_protocol::ProtocolEvent::RunInterrupted {
+            live.conduit.publish(
+                rightkit_agent_engine_protocol::ProtocolEvent::RunInterrupted {
                     session_id: session_id.to_string(),
                     seq,
                     created_at: now,
                     reason: Some("vendor driver interrupted".into()),
-                });
+                },
+            );
         }
         NormalizedEventKind::TurnFailed { message } => {
             publish_driver_failure(state, session_id, message)
@@ -1124,24 +1131,25 @@ pub(crate) fn account_protocol_event(
     created_at: &str,
     kind: &NormalizedEventKind,
 ) -> Option<rightkit_agent_engine_protocol::ProtocolEvent> {
-    let label = |account: &Option<rightkit_agents::driver_host::ClaudeAccountIdentity>| match account {
-        Some(who) => AccountStamp {
-            provider: who.provider_id.clone(),
-            display: who.display(),
-            account_id: who.account_id.clone(),
-            kind: who.kind.clone(),
-            email: who.email.clone(),
-            organization: who.organization.clone(),
-        },
-        None => AccountStamp {
-            provider: "claude".to_string(),
-            display: "unknown".to_string(),
-            account_id: None,
-            kind: None,
-            email: None,
-            organization: None,
-        },
-    };
+    let label =
+        |account: &Option<rightkit_agents::driver_host::ClaudeAccountIdentity>| match account {
+            Some(who) => AccountStamp {
+                provider: who.provider_id.clone(),
+                display: who.display(),
+                account_id: who.account_id.clone(),
+                kind: who.kind.clone(),
+                email: who.email.clone(),
+                organization: who.organization.clone(),
+            },
+            None => AccountStamp {
+                provider: "claude".to_string(),
+                display: "unknown".to_string(),
+                account_id: None,
+                kind: None,
+                email: None,
+                organization: None,
+            },
+        };
     match kind {
         NormalizedEventKind::RateLimit {
             account,
@@ -1153,23 +1161,25 @@ pub(crate) fn account_protocol_event(
             error_code,
         } => {
             let who = label(account);
-            Some(rightkit_agent_engine_protocol::ProtocolEvent::AccountRateLimited {
-                session_id: session_id.to_string(),
-                seq,
-                created_at: created_at.to_string(),
-                provider: who.provider,
-                account: who.display,
-                account_id: who.account_id,
-                account_kind: who.kind,
-                email: who.email,
-                organization: who.organization,
-                status: status.clone(),
-                rate_limit_type: rate_limit_type.clone(),
-                resets_at: *resets_at,
-                utilization: *utilization,
-                overage_status: overage_status.clone(),
-                error_code: error_code.clone(),
-            })
+            Some(
+                rightkit_agent_engine_protocol::ProtocolEvent::AccountRateLimited {
+                    session_id: session_id.to_string(),
+                    seq,
+                    created_at: created_at.to_string(),
+                    provider: who.provider,
+                    account: who.display,
+                    account_id: who.account_id,
+                    account_kind: who.kind,
+                    email: who.email,
+                    organization: who.organization,
+                    status: status.clone(),
+                    rate_limit_type: rate_limit_type.clone(),
+                    resets_at: *resets_at,
+                    utilization: *utilization,
+                    overage_status: overage_status.clone(),
+                    error_code: error_code.clone(),
+                },
+            )
         }
         NormalizedEventKind::TurnCostReported {
             account,
@@ -1179,30 +1189,32 @@ pub(crate) fn account_protocol_event(
             model_usage,
         } => {
             let who = label(account);
-            Some(rightkit_agent_engine_protocol::ProtocolEvent::AccountUsageReported {
-                session_id: session_id.to_string(),
-                seq,
-                created_at: created_at.to_string(),
-                provider: who.provider,
-                account: who.display,
-                account_id: who.account_id,
-                account_kind: who.kind,
-                email: who.email,
-                total_cost_usd: *total_cost_usd,
-                duration_ms: *duration_ms,
-                num_turns: *num_turns,
-                input_tokens: model_usage.iter().map(|row| row.input_tokens).sum(),
-                output_tokens: model_usage.iter().map(|row| row.output_tokens).sum(),
-                cache_read_tokens: model_usage
-                    .iter()
-                    .map(|row| row.cache_read_input_tokens)
-                    .sum(),
-                cache_creation_tokens: model_usage
-                    .iter()
-                    .map(|row| row.cache_creation_input_tokens)
-                    .sum(),
-                models: model_usage.iter().map(|row| row.model.clone()).collect(),
-            })
+            Some(
+                rightkit_agent_engine_protocol::ProtocolEvent::AccountUsageReported {
+                    session_id: session_id.to_string(),
+                    seq,
+                    created_at: created_at.to_string(),
+                    provider: who.provider,
+                    account: who.display,
+                    account_id: who.account_id,
+                    account_kind: who.kind,
+                    email: who.email,
+                    total_cost_usd: *total_cost_usd,
+                    duration_ms: *duration_ms,
+                    num_turns: *num_turns,
+                    input_tokens: model_usage.iter().map(|row| row.input_tokens).sum(),
+                    output_tokens: model_usage.iter().map(|row| row.output_tokens).sum(),
+                    cache_read_tokens: model_usage
+                        .iter()
+                        .map(|row| row.cache_read_input_tokens)
+                        .sum(),
+                    cache_creation_tokens: model_usage
+                        .iter()
+                        .map(|row| row.cache_creation_input_tokens)
+                        .sum(),
+                    models: model_usage.iter().map(|row| row.model.clone()).collect(),
+                },
+            )
         }
         _ => None,
     }
@@ -1276,8 +1288,8 @@ pub(crate) fn publish_verification_result(
         return;
     };
     let seq = live.conduit.next_seq();
-    live.conduit
-        .publish(rightkit_agent_engine_protocol::ProtocolEvent::VerificationFinished {
+    live.conduit.publish(
+        rightkit_agent_engine_protocol::ProtocolEvent::VerificationFinished {
             session_id: session_id.to_string(),
             seq,
             created_at: crate::api::now_iso(),
@@ -1286,7 +1298,8 @@ pub(crate) fn publish_verification_result(
             tool: "shell".into(),
             issue_count: if result.is_error { 1 } else { 0 },
             issues: Vec::new(),
-        });
+        },
+    );
 }
 
 pub(crate) fn binding_driver_label(driver: DriverKind) -> &'static str {

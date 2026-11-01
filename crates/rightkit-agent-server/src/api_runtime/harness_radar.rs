@@ -144,7 +144,7 @@ struct RuntimeHarnessRadarSnapshot {
 
 fn current_harness_radar_snapshot() -> RuntimeHarnessRadarSnapshot {
     let sources = rightkit_adapt::parse_harness_radar_sources(include_str!(
-        "../../../../../assets/harness-radar/sources.toml"
+        "../../data/assets__harness-radar__sources.toml"
     ));
     let source_id = sources
         .first()
@@ -152,11 +152,11 @@ fn current_harness_radar_snapshot() -> RuntimeHarnessRadarSnapshot {
         .unwrap_or("awesome-agent-harness");
     let entries = rightkit_adapt::import_harness_radar_yaml(
         source_id,
-        include_str!("../../../../../assets/harness-radar/projects.snapshot.yaml"),
+        include_str!("../../data/assets__harness-radar__projects.snapshot.yaml"),
     );
     let previous_entries = rightkit_adapt::import_harness_radar_yaml(
         source_id,
-        include_str!("../../../../../assets/harness-radar/projects.previous.yaml"),
+        include_str!("../../data/assets__harness-radar__projects.previous.yaml"),
     );
     let changes =
         rightkit_adapt::diff_harness_radar_entries(source_id, &previous_entries, &entries);

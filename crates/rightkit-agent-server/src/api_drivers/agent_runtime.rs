@@ -50,8 +50,9 @@ pub(crate) async fn open_agent_runtime(
     let live = state
         .get_session(&session_id)
         .ok_or(StatusCode::NOT_FOUND)?;
-    let provider_id =
-        rightkit_agents::driver_host::cli_runtime::CliProviderId::new(body.runtime.provider_id.clone());
+    let provider_id = rightkit_agents::driver_host::cli_runtime::CliProviderId::new(
+        body.runtime.provider_id.clone(),
+    );
     let adapter = state
         .cli_registry
         .adapter(&provider_id)
@@ -311,7 +312,9 @@ pub(crate) async fn prompt_agent_runtime(
         binding.vendor_turn_id = current.vendor_turn_id.clone();
         binding.status = match result.status {
             rightkit_agents::driver_host::cli_runtime::AgentTurnStatus::Completed => "completed",
-            rightkit_agents::driver_host::cli_runtime::AgentTurnStatus::Interrupted => "interrupted",
+            rightkit_agents::driver_host::cli_runtime::AgentTurnStatus::Interrupted => {
+                "interrupted"
+            }
             rightkit_agents::driver_host::cli_runtime::AgentTurnStatus::WaitingForApproval => {
                 "waiting_for_approval"
             }
@@ -741,7 +744,8 @@ pub(crate) async fn agent_runtime_status(
         .provider_id
         .clone()
         .unwrap_or_else(|| binding.driver_kind.clone());
-    let provider = rightkit_agents::driver_host::cli_runtime::CliProviderId::new(provider_id.clone());
+    let provider =
+        rightkit_agents::driver_host::cli_runtime::CliProviderId::new(provider_id.clone());
     let harness_eligibility = match (
         binding.executable_sha256.as_deref(),
         state.cli_registry.adapter(&provider),

@@ -11,7 +11,9 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use rightkit_llm::agent_providers::credential_broker::{CredentialBroker, ProviderCredentialConfig};
+use rightkit_llm::agent_providers::credential_broker::{
+    CredentialBroker, ProviderCredentialConfig,
+};
 use rightkit_llm::agent_providers::subscription_auth::ModelAuth;
 use rightkit_llm::agent_providers::subscription_auth::{
     AuthError, AuthEvent, AuthInteraction, AuthPrompt, AuthSignal, BoxFuture, ProcessAuthContext,
@@ -39,9 +41,11 @@ struct PendingDisk {
 }
 
 fn pending_path() -> std::path::PathBuf {
-    std::path::PathBuf::from(rightkit_llm::agent_providers::subscription_auth::expand_tilde(
-        "~/.coderight/provider-auth-pending.json",
-    ))
+    std::path::PathBuf::from(
+        rightkit_llm::agent_providers::subscription_auth::expand_tilde(
+            "~/.coderight/provider-auth-pending.json",
+        ),
+    )
 }
 fn persist_pending(map: &HashMap<String, Arc<PendingLogin>>) {
     let rows: Vec<PendingDisk> = map
@@ -64,7 +68,8 @@ fn persist_pending(map: &HashMap<String, Arc<PendingLogin>>) {
 impl PendingLogin {
     fn new() -> Self {
         Self {
-            deadline_ms: rightkit_llm::agent_providers::subscription_auth::now_ms() + 10 * 60 * 1000,
+            deadline_ms: rightkit_llm::agent_providers::subscription_auth::now_ms()
+                + 10 * 60 * 1000,
             prompt: Mutex::new(None),
             events: Mutex::new(Vec::new()),
         }
@@ -129,15 +134,16 @@ fn broker() -> &'static Arc<CredentialBroker> {
                 // The subscription leg is RightKit's `Resolver` over the keychain token
                 // store. Store failures surface at use (status reports `unavailable`),
                 // never as a fallback credential.
-                let leg = rightkit_llm::agent_providers::subscription_auth::open_subscription_store()
-                    .ok()
-                    .and_then(|store| {
-                        rightkit_llm::agent_providers::subscription_auth::subscription_leg(
-                            provider.id,
-                            store,
-                            oauth_lock_dir(),
-                        )
-                    });
+                let leg =
+                    rightkit_llm::agent_providers::subscription_auth::open_subscription_store()
+                        .ok()
+                        .and_then(|store| {
+                            rightkit_llm::agent_providers::subscription_auth::subscription_leg(
+                                provider.id,
+                                store,
+                                oauth_lock_dir(),
+                            )
+                        });
                 if let Some(leg) = leg {
                     config = config.with_subscription(leg);
                 }
@@ -581,8 +587,9 @@ pub(crate) async fn fetch_chatgpt_account_models(
         "{}/codex/models?client_version={client_version}",
         base.trim_end_matches('/')
     );
-    let client = rightkit_http::http_client::endpoint_client(&url, std::time::Duration::from_secs(10))
-        .map_err(|error| format!("could not build an HTTP client: {error}"))?;
+    let client =
+        rightkit_http::http_client::endpoint_client(&url, std::time::Duration::from_secs(10))
+            .map_err(|error| format!("could not build an HTTP client: {error}"))?;
     let mut request = rightkit_http::Request::get(url).bearer(&token);
     for (name, value) in auth.headers.unwrap_or_default() {
         request = request.header(name, value);

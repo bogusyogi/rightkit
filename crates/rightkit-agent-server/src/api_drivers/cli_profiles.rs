@@ -39,7 +39,9 @@ pub(crate) fn default_cli_profile(
 
 pub(crate) fn cli_auth_mode(value: &str) -> rightkit_agents::driver_host::cli_runtime::CliAuthMode {
     match value {
-        "native_cli_account" => rightkit_agents::driver_host::cli_runtime::CliAuthMode::NativeCliAccount,
+        "native_cli_account" => {
+            rightkit_agents::driver_host::cli_runtime::CliAuthMode::NativeCliAccount
+        }
         "byok_or_external_api" => {
             rightkit_agents::driver_host::cli_runtime::CliAuthMode::ByokOrExternalApi
         }
@@ -87,8 +89,7 @@ pub(crate) fn missing_default_profile_is_allowed_current(
     provider_id: &rightkit_agents::driver_host::cli_runtime::CliProviderId,
     profile_id: &str,
 ) -> Result<bool, CliLaunchRouteError> {
-    let mode =
-        parse_cli_route_mode(&std::env::var("RIGHTKIT_CLI_ROUTE_MODE").unwrap_or_default())?;
+    let mode = parse_cli_route_mode(&std::env::var("RIGHTKIT_CLI_ROUTE_MODE").unwrap_or_default())?;
     Ok(missing_default_profile_is_allowed(
         mode,
         provider_id,
@@ -168,7 +169,8 @@ pub(crate) async fn resolve_cli_launch_route(
     parse_cli_route_mode(&std::env::var("RIGHTKIT_CLI_ROUTE_MODE").unwrap_or_default())?;
     let native_hash = rightkit_agents::driver_host::cli_runtime::native_profile_hash(&profile);
     if !profile.signed_in
-        || profile.auth_mode != rightkit_agents::driver_host::cli_runtime::CliAuthMode::NativeCliAccount
+        || profile.auth_mode
+            != rightkit_agents::driver_host::cli_runtime::CliAuthMode::NativeCliAccount
     {
         return Err(CliLaunchRouteError::NativeLoginRequired);
     }
@@ -186,30 +188,32 @@ pub(crate) fn current_launch_attestation_inputs(
     discovery: &rightkit_agents::driver_host::cli_runtime::CliDiscovery,
     adapter: &dyn rightkit_agents::driver_host::cli_runtime::CliProviderAdapter,
 ) -> Result<rightkit_agents::driver_host::cli_runtime::AttestationInputs, StatusCode> {
-    Ok(rightkit_agents::driver_host::cli_runtime::AttestationInputs {
-        provider_id: provider_id.clone(),
-        executable_sha256: discovery
-            .executable_sha256
-            .clone()
-            .ok_or(StatusCode::CONFLICT)?,
-        binary_version: discovery
-            .binary_version
-            .clone()
-            .ok_or(StatusCode::CONFLICT)?,
-        protocol_version: discovery
-            .protocol_version
-            .clone()
-            .unwrap_or_else(|| adapter.transport_kind().label().to_string()),
-        profile_hash: row.profile_hash.clone(),
-        policy_hash: rightkit_fs::digest::sha256_bytes(AsRef::<[u8]>::as_ref(
-            &rightkit_agents::driver_host::RUN_SCOPED_POLICY.as_bytes(),
-        )),
-        tool_schema_hash: gateway_tool_schema_hash()
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-        operating_system: std::env::consts::OS.to_string(),
-        architecture: std::env::consts::ARCH.to_string(),
-        isolation_mode: adapter.capabilities().isolation_mode,
-    })
+    Ok(
+        rightkit_agents::driver_host::cli_runtime::AttestationInputs {
+            provider_id: provider_id.clone(),
+            executable_sha256: discovery
+                .executable_sha256
+                .clone()
+                .ok_or(StatusCode::CONFLICT)?,
+            binary_version: discovery
+                .binary_version
+                .clone()
+                .ok_or(StatusCode::CONFLICT)?,
+            protocol_version: discovery
+                .protocol_version
+                .clone()
+                .unwrap_or_else(|| adapter.transport_kind().label().to_string()),
+            profile_hash: row.profile_hash.clone(),
+            policy_hash: rightkit_fs::digest::sha256_bytes(AsRef::<[u8]>::as_ref(
+                &rightkit_agents::driver_host::RUN_SCOPED_POLICY.as_bytes(),
+            )),
+            tool_schema_hash: gateway_tool_schema_hash()
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+            operating_system: std::env::consts::OS.to_string(),
+            architecture: std::env::consts::ARCH.to_string(),
+            isolation_mode: adapter.capabilities().isolation_mode,
+        },
+    )
 }
 
 pub(crate) fn gateway_tool_schema_hash() -> Result<String, serde_json::Error> {

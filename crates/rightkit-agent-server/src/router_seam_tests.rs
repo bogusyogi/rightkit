@@ -251,7 +251,8 @@ mod router_seam_tests {
             .as_deref()
             .expect("stall pivot must select a model");
         assert_eq!(
-            rightkit_llm::agent_providers::model_metadata::capability_of(pivoted_model).map(|row| row.tier),
+            rightkit_llm::agent_providers::model_metadata::capability_of(pivoted_model)
+                .map(|row| row.tier),
             Some(rightkit_llm::agent_providers::model_metadata::ModelTier::Capable),
             "stall pivot must leave cached cheap tier for a capable model"
         );
@@ -385,10 +386,10 @@ mod router_seam_tests {
     // (the no-taste default path that run_conductor relies on today).
     #[test]
     fn duration_aware_router_forwards_to_inner_when_no_taste_data() {
+        use rightkit_agent_engine_protocol::{TaskNode, TaskState};
         use rightkit_agent_orchestration::evolution::{DurationAwareRouter, DurationBucket};
         use rightkit_agent_orchestration::registry::AgentRegistry;
         use rightkit_agent_orchestration::router::AgentRouter;
-        use rightkit_agent_engine_protocol::{TaskNode, TaskState};
 
         let registry = AgentRegistry::with_builtins();
         let task = TaskNode {

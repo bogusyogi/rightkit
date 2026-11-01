@@ -12,12 +12,12 @@ use crate::{
     observation, scheduler, telegram_task, trajectory,
 };
 use clap::{CommandFactory, Parser};
-use rightkit_agent_orchestration::registry::AgentRegistry;
 use coderight_recipes::{
     build_recipe_deeplink, recipe_checksum, render_recipe, stable_recipe_id,
     validate_recipe_with_catalog, InstalledRecipe, Recipe, RecipeRun, RecipeRunStatus,
     RecipeSource, RecipeStore, RecipeVerdict,
 };
+use rightkit_agent_orchestration::registry::AgentRegistry;
 use rightkit_daemon::loopback::{LoopbackRecord, RecordLabels};
 use std::io::{BufRead, Write};
 use std::sync::Arc;

@@ -11,7 +11,9 @@
 
 use axum::http::StatusCode;
 use axum::response::Json;
-use rightkit_agent_policy::{CapabilityClass, PermissionDecision, PermissionEngine, PermissionMode};
+use rightkit_agent_policy::{
+    CapabilityClass, PermissionDecision, PermissionEngine, PermissionMode,
+};
 use rightkit_agent_tools::coding_tools::browser::{
     browser_navigation_reject_reason_with_allowlist, BrowserNavigationTrustV1,
 };
