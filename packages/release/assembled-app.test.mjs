@@ -114,7 +114,8 @@ test("the macOS bundle is laid out from the xcodebuild product, nested app, help
   const { bound } = assembleMacBundle({ root: f.root, spec, profile: "dev", out, outerApp: path.join(f.root, "Products", "Demo.app"), nestedApps: [path.join(f.root, "hub", "bundle", "DemoHub.app")], receipt, deps: { run: fakeRun(log), log: () => {} } });
   for (const file of spec.require) assert.ok(fs.existsSync(path.join(out, ...file.split("/"))), file);
   assert.ok(fs.existsSync(path.join(out, "Contents/Library/LaunchAgents/engine.plist")));
-  assert.equal(fs.statSync(path.join(out, "Contents/Helpers/democli")).mode & 0o111, 0o111, "helpers are executable");
+  // A Windows file system holds no POSIX mode bits; the bundle is a macOS one and its modes are asserted where they exist.
+  if (process.platform !== "win32") assert.equal(fs.statSync(path.join(out, "Contents/Helpers/democli")).mode & 0o111, 0o111, "helpers are executable");
   assert.equal(fs.existsSync(path.join(out, "Contents/Helpers/DemoHub.app/Contents/MacOS/ffmpeg")), false, "an optional row that is not staged is skipped");
   assert.equal(fs.existsSync(path.join(out, "Contents/Resources/ffmpeg")), false, "ifStaged resources follow their row");
   assert.deepEqual(bound.map((entry) => entry.dest).sort(), ["Contents/Helpers/democli", "Contents/Helpers/smartctl"]);
@@ -166,8 +167,8 @@ test("a Tauri bundle is found through Cargo's target directory by profile", (t) 
   f.put("target/aarch64-apple-darwin/debug/bundle/macos/DemoHub.app/Contents/Info.plist");
   f.put("target/aarch64-apple-darwin/release/bundle/macos/DemoHub.app/Contents/Info.plist");
   const deps = { resolveTargetRoot: (manifest) => { assert.equal(manifest, path.join(f.root, "hub/src-tauri/Cargo.toml")); return path.join(f.root, "target"); } };
-  assert.match(resolveNestedApp({ root: f.root, entry, spec, profile: "dev", deps }), /debug\/bundle\/macos\/DemoHub\.app$/);
-  assert.match(resolveNestedApp({ root: f.root, entry, spec, profile: "release", deps }), /release\/bundle\/macos\/DemoHub\.app$/);
+  assert.match(resolveNestedApp({ root: f.root, entry, spec, profile: "dev", deps }), /debug[\\/]bundle[\\/]macos[\\/]DemoHub\.app$/);
+  assert.match(resolveNestedApp({ root: f.root, entry, spec, profile: "release", deps }), /release[\\/]bundle[\\/]macos[\\/]DemoHub\.app$/);
   fs.rmSync(path.join(f.root, "target/aarch64-apple-darwin/release"), { recursive: true });
   assert.throws(() => resolveNestedApp({ root: f.root, entry, spec, profile: "release", deps }), /not found/);
 });

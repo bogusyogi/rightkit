@@ -128,8 +128,10 @@ test("pnpm subprocess preserves JSON arguments and dev environment without compi
     writeFileSync(path.join(root, "pnpm-workspace.yaml"), "verifyDepsBeforeRun: false\n");
     const code = "process.stdout.write(JSON.stringify({args:process.argv.slice(1),profile:process.env.RIGHTKIT_CARGO_PROFILE,incremental:process.env.CARGO_INCREMENTAL??null}))";
     let output = "";
+    const stepEnv = { PATH: process.env.PATH ?? "", CARGO_INCREMENTAL: "1", ...suitePnpm };
     runDevelopment({
-      door: (command, args) => ({ command, args }), root, platform: nativePlatform, buildOnly: true,
+      // The door launches pnpm by name; on Windows that name is a .cmd shim a no-shell spawn cannot start, so the fixture's door hands back the JavaScript entry under this node.
+      door: (command, args) => (process.platform === "win32" && command === "pnpm" ? resolveCommand(command, args, { root, env: stepEnv }) : { command, args }), root, platform: nativePlatform, buildOnly: true,
       config: { development: { targets: { [nativePlatform]: { build: [{ cmd: "pnpm", args: ["exec", "node", "-e", code, "a \"quoted\" value"] }] } } } },
       env: { PATH: process.env.PATH ?? "", CARGO_INCREMENTAL: "1", ...suitePnpm },
       run: (command, args, options) => {

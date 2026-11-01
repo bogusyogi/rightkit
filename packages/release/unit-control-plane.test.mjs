@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { tempRoot } from "./test-support/temp-roots.mjs";
 import { controlPlaneProblem, loadInGatePipeline, releaseUnit, runUnitGate, trustedCoordinator } from "./unit-gate.mjs";
 
@@ -16,6 +16,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const commit = "a".repeat(40), tree = "b".repeat(40);
 const unit = { kind: "npm", name: "@rightkit/demo", version: "1.0.0" };
 const artifact = { artifactSha256: "1".repeat(64) };
+// The harness releases on the host's own platform: its fixtures are real paths of this machine, judged by this machine's path rules.
+const PLATFORM = process.platform === "win32" ? "win32" : "darwin";
 const INSTALLED = path.resolve(HERE, "..", "..", "scripts", "ci", "rk-pipeline.mjs");
 
 test("[GB-07] the trusted coordinator is the running gate's own installed rk-pipeline, found from this module's location with its digest, never from a root or checkout argument", () => {
@@ -24,7 +26,7 @@ test("[GB-07] the trusted coordinator is the running gate's own installed rk-pip
   assert.equal(found.sha256, createHash("sha256").update(fs.readFileSync(INSTALLED)).digest("hex"));
   assert.throws(() => trustedCoordinator({ exists: () => false }), /installed coordinator/);
   // A module somewhere else resolves ITS own coordinator: the location of the gate is the identity, not the repository being released.
-  const elsewhere = trustedCoordinator({ moduleUrl: "file:///opt/rightkit/current/packages/release/unit-gate.mjs", exists: () => true, readFile: () => Buffer.from("x") });
+  const elsewhere = trustedCoordinator({ moduleUrl: pathToFileURL(path.resolve("/opt/rightkit/current/packages/release/unit-gate.mjs")).href, exists: () => true, readFile: () => Buffer.from("x") });
   assert.equal(elsewhere.file, path.resolve("/opt/rightkit/current/scripts/ci/rk-pipeline.mjs"));
 });
 
@@ -64,7 +66,7 @@ function harness({ states, checkoutFiles = {}, env = {} } = {}) {
     return { status: 0, stdout: "", stderr: args[1] === "canary" ? "" : "" };
   };
   const readJson = () => ({ dispatches: { k: states[Math.min(reads++, states.length - 1)] } });
-  const base = { unit, root, checkout, commit, tree, executor: { kind: "broker" }, env: { RK_GATE_RUN: "x", ...env }, artifact, qualification, platform: "darwin", out: () => {}, scratch: tempRoot("gb07-scratch-"), run, readJson, registryBytes: async () => ({ shasum: "s1", sha256: "2".repeat(64) }) };
+  const base = { unit, root, checkout, commit, tree, executor: { kind: "broker" }, env: { RK_GATE_RUN: "x", ...env }, artifact, qualification, platform: PLATFORM, out: () => {}, scratch: tempRoot("gb07-scratch-"), run, readJson, registryBytes: async () => ({ shasum: "s1", sha256: "2".repeat(64) }) };
   return { base, calls, checkout, root, qualification };
 }
 const dispatched = { unit: unit.name, sha: commit, registry: "npm", runId: 10, runAttempt: 1, requestId: "req", tree, artifactSha256: artifact.artifactSha256 };
@@ -136,8 +138,8 @@ test("[GB-07] the in-gate entry: dispatch, canary, preflight and watch run as in
   for (const e of g.entries) {
     assert.equal(e.root, h.checkout, "the control-plane checkout is the root the coordinator judges, not the installed coordinator's own checkout and not the snapshot");
     assert.notEqual(e.root, h.root);
-    assert.equal(e.platform, "darwin");
-    assert.equal(e.stateFile, "/Volumes/D/scratch/rk-pipeline/state.json");
+    assert.equal(e.platform, PLATFORM);
+    assert.equal(e.stateFile, PLATFORM === "win32" ? "D:\\scratch\\rk-pipeline\\state.json" : "/Volumes/D/scratch/rk-pipeline/state.json");
     assert.equal(e.env.RK_GATE_RUN, "x", "the release run's environment rides the call");
   }
   for (const e of g.entries.filter((x) => ["canary", "preflight", "dispatch"].includes(x.argv[0]))) { const at = e.argv.indexOf("--sha"); assert.ok(at > 0 && e.argv[at + 1] === commit, `${e.argv[0]} carries the explicit commit`); }
@@ -178,7 +180,7 @@ test("[GB-07] loadInGatePipeline imports the installed coordinator into the gate
   const seen = [];
   const fake = (extra = {}) => ({ coordinator: descriptor, importModule: async (url) => { seen.push(url); return { runPipeline: async () => ({ status: 0 }) }; }, ...extra });
   const ok = await loadInGatePipeline(fake({ expectedSha256: descriptor.sha256 }));
-  assert.equal(seen[0], new URL(`file://${INSTALLED}`).href, "imported by the installed file's own URL");
+  assert.equal(seen[0], pathToFileURL(INSTALLED).href, "imported by the installed file's own URL");
   assert.equal(typeof ok.runPipeline, "function");
   await assert.rejects(loadInGatePipeline(fake({ expectedSha256: "0".repeat(64) })), /not the pinned 000000000000.*registered/s);
   await assert.rejects(loadInGatePipeline(fake({ coordinator: { file: INSTALLED, sha256: "short" } })), /sha256 of its bytes/);
