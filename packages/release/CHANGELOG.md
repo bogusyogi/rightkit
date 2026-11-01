@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.6.20 (unpublished)
+## 0.6.21 (unpublished)
+
+- **A carried cargo call that never got a request reference now says why (HeardRight Mac package through the broker, 2026-11-02):** in capture mode (a right-release step's `rustright cargo`, e.g. stage-sidecar's sidecar build) the gate kept the RustRight client's stderr but reported only "no request reference", so a client or broker refusal before acceptance read as a bare exit 125. The outcome now ends with the client's own `rustright: <reason>` lines (a bare `rustright: request <id>` line is not a reason), and `right-release stage-sidecar` prints the tail of a failed tool's captured stderr.
+
+## 0.6.20
 
 - **The credential provider's execute-bit check reads the real file system's bit only where it has one (publish.yml Windows verify):** `enrollCredentialProvider` refused every non-Windows provider as "not executable" when the host was simulated on a Windows file system, which has no execute bit. Three tests also assumed a POSIX host (a darwin PATHEXT case, the direct multi-workspace wrapper drift row, which exists on POSIX only) or a tight timer (B1 queued ceiling: 148 ms seen against a 150 ms floor).
 - **A gate started inside another gate's scan finds the toolchain cargo (0.6.18 and 0.6.19 Linux qualify, completing d30055a8e):** the nested gate's own executor resolution (`gate-executor.mjs`, direct route) now also takes an outer gate's runtime cargo wrapper off the PATH it hands its children (`directCargoPath({ gateWrappers: true })`); unit discovery ran plain `cargo metadata` through that wrapper and was refused `RK_CARGO_UNBOUND_WORKSPACE ... (none)`. Only rightkit-gate's own executor resolutions pass it (`gateResolveExecutor`); `build-launch`, which right-release's children use inside a stage, does not, so they keep the stage's wrapper first on PATH, the binding they must go through. `realCargoOf` also follows a wrapper to the toolchain cargo its map records, because a `which` lookup names only the first match (two #1325 tests were BLOCKED "no cargo on PATH to wrap").

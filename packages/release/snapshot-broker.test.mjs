@@ -140,6 +140,16 @@ test("data: [7.20] the declared inputs of a carried request are the snapshot's m
   assert.deepEqual(carrierLeft(h.fx), []);
 });
 
+test("data: a carried call that got no request reference carries the RustRight client's own reason in its outcome, not just the missing reference (HeardRight Mac 2026-11-02)", { skip: POSIX }, (t) => {
+  const h = host(t);
+  const spawn = recording({ status: 125, stdout: "", stderr: "rustright: request 3b3ff2fe-617a-469f-b8d8-cc4ea548e9e9\nrustright: attestation: the client would rewrite this invocation\n" });
+  const r = h.carry(["build", "--locked"], { spawn, stdio: "capture" });
+  assert.equal(r.outcome.status, "unverified");
+  assert.match(r.outcome.message, /no request reference/);
+  assert.match(r.outcome.message, /the RustRight client said \(exit 125\): rustright: attestation: the client would rewrite this invocation/);
+  assert.doesNotMatch(r.outcome.message, /said[^|]*request 3b3ff2fe/, "a bare request line is not a reason");
+});
+
 test("data: [7.10] a refused wrapper call fails its unit even when the test swallows cargo's exit status; the unit that does not reach cargo passes; no refused call reaches the client", { skip: POSIX }, async (t) => {
   const h = host(t);
   fs.mkdirSync(path.join(h.fx.root, "outside"), { recursive: true }); fs.writeFileSync(path.join(h.fx.root, "outside", "Cargo.toml"), "[workspace]\n");

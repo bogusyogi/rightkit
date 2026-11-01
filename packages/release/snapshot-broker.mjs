@@ -424,6 +424,13 @@ function carryBrokerCargoOnce({ words, cwd, env, section, workspace, checkoutWor
       const seen = operationOutcomeInOutput(`${out.stdout}\n${out.stderr}`) ?? (r.error?.code === "ETIMEDOUT" ? { code: "operation-deadline", deadlineMs: null, requestId: ref?.requestId ?? null, cancelConfirmed: null, terminalState: null, guard: true } : null);
       if (seen) outcome = { status: "unverified", code: seen.code, message: seen.code === "operation-deadline" ? `the operation deadline${seen.deadlineMs ? ` of ${seen.deadlineMs} ms` : ""} passed${seen.guard ? " and the client was stopped by the gate's outer guard" : ""}; request ${seen.requestId ?? ref?.requestId ?? "unknown"}: cancelConfirmed: ${seen.cancelConfirmed ?? "unknown"}, terminal state: ${seen.terminalState ?? "not observed"}; the job is neither abandoned nor resubmitted and ownership stays UNKNOWN until every sub-handle is REAPED` : seen.code === "broker-busy" ? "every broker connection was busy (RK_BROKER_BUSY: a wait, not an outage); nothing was admitted" : "the broker was unavailable (RK_BROKER_UNAVAILABLE)", ...(ref ? { requestId: ref.requestId, workspace: ref.workspace } : {}) };
     }
+    // The client's own account of a call that never got a request reference (it refused the carrier, or the broker refused the request before
+    // accepting it): its `rustright: <reason>` lines, which capture mode would otherwise drop (HeardRight Mac package 2026-11-02: exit 125 with
+    // no reason in the gate log). A bare `rustright: request <id>` line is not a reason.
+    if (outcome.status === "unverified" && capture && ref === null) {
+      const said = out.stderr.split(/\r?\n/).map((line) => line.trim()).filter((line) => /^rustright(?:[: ]|-)/.test(line) && !/^rustright: request [0-9a-f-]+$/.test(line));
+      if (said.length) outcome = { ...outcome, message: `${outcome.message}; the RustRight client said (exit ${r.status ?? "none"}): ${said.slice(-3).join(" | ").slice(0, 600)}` };
+    }
     if (outcome.status === "unverified" && outcome.code === "operation-deadline") {
       const settled = reconcileAfterCancel({ section, callHandle: made.carrier.ownership.handle, childEnv });
       outcome = { ...outcome, message: `${outcome.message}; ${settled.note}`, reaped: settled.reaped, subHandle: settled.subHandle };

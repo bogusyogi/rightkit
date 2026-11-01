@@ -74,5 +74,11 @@ async function main() {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  main().catch((error) => { console.error(`right-release stage-sidecar: ${error.code ? `[${error.code}] ` : ""}${error.message}`); process.exitCode = 1; });
+  main().catch((error) => {
+    console.error(`right-release stage-sidecar: ${error.code ? `[${error.code}] ` : ""}${error.message}`);
+    // The failed tool's own last words (a captured rustright or cargo stderr), which the message alone does not carry.
+    const tail = String(error.details?.stderr ?? "").trim().split(/\r?\n/).slice(-8).join("\n");
+    if (tail) console.error(`right-release stage-sidecar: its stderr ended:\n${tail}`);
+    process.exitCode = 1;
+  });
 }
