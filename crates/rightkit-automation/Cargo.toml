@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-automation"
-version = "0.6.4"
+version = "0.6.5"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Brand-neutral desktop automation: observe and act on any app (macOS AX, Windows UIA) through a four-tier input ladder with safety, focus guard, and evidence receipts."
@@ -39,7 +39,20 @@ desktop-context = [
   "dep:objc2-foundation",
 ]
 
+# `desktop::delivery`: the real text-delivery backend (clipboard stage, paste chord, Enter, stop
+# destination validation) with its Windows UI Automation, WezTerm and macOS input helpers.
+desktop-delivery = [
+  "desktop-context",
+  "dep:rightkit-child-process",
+  "dep:rightkit-dictation-core",
+  "dep:rightkit-transcript-library",
+  "dep:rightkit-dictation-telemetry",
+]
+
 [dependencies]
+rightkit-dictation-core = { version = "0.2.0", path = "../rightkit-dictation-core", optional = true }
+rightkit-transcript-library = { version = "0.1.1", path = "../rightkit-transcript-library", optional = true }
+rightkit-dictation-telemetry = { version = "0.1.0", path = "../rightkit-dictation-telemetry", optional = true }
 rightkit-daemon = { version = "0.5.1", path = "../rightkit-daemon", optional = true }
 
 [dev-dependencies]
@@ -62,11 +75,17 @@ windows = { version = "0.62", features = [
   "Win32_UI_Accessibility",
   "Win32_UI_HiDpi",
   "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
 
 # Real-app gates. `harness = false`: the macOS gate must run on the main thread
 # (NSWorkspace state is published through the main run loop).
+[target.'cfg(windows)'.dependencies.rightkit-child-process]
+version = "0.5.7"
+path = "../rightkit-child-process"
+optional = true
+
 [target.'cfg(windows)'.dependencies.windows-sys]
 version = "0.61.2"
 optional = true
@@ -82,6 +101,8 @@ features = [
   "Win32_System_Memory",
   "Win32_System_Ole",
   "Win32_System_SystemInformation",
+  "Win32_System_Kernel",
+  "Win32_System_ProcessStatus",
   "Win32_System_Threading",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_Accessibility",

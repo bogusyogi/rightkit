@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.5 (unreleased)
+
+- New `desktop-delivery` feature and `desktop::delivery` module, moved from HeardRight (`delivery/backend.rs`, `delivery/targets.rs`, `windows_uia`, `windows_wezterm`, `macos_input`, `paste_event_probe`): `RealDeliveryBackend`, stop-destination capture and validation, paste chord and Enter, plus the Windows UI Automation worker, WezTerm pane binding and macOS input helpers. Compiled only on macOS and Windows. The delivery method setting comes from `delivery::set_delivery_method_provider`. NOT BUILT: written without a compiler.
+
 ## 0.6.4 (unreleased)
 
 - New `desktop-context` feature and `desktop` module, moved from HeardRight `heardright_platform`: stop-time focus continuity capture and validation, clipboard staging with exact generation tracking and full-format restore, frontmost-window identity through an isolated helper, window text harvest and native text writes (macOS, Windows). `macos::set_own_window_owner_prefix` names the host's own windows. Existing API unchanged.

@@ -13,6 +13,33 @@ pub mod macos;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
+#[cfg(all(
+    feature = "desktop-delivery",
+    any(target_os = "macos", target_os = "windows")
+))]
+pub mod delivery;
+#[cfg(all(feature = "desktop-delivery", target_os = "macos"))]
+pub mod input_macos;
+#[cfg(all(feature = "desktop-delivery", target_os = "macos"))]
+pub mod paste_event_probe_macos;
+#[cfg(all(feature = "desktop-delivery", target_os = "windows"))]
+pub mod uia_win;
+#[cfg(all(feature = "desktop-delivery", target_os = "windows"))]
+pub mod wezterm_win;
+
+/// A Windows known folder of the current user, asked of the shell (never an environment variable,
+/// which can be absent or redirected).
+#[cfg(all(feature = "desktop-delivery", target_os = "windows"))]
+pub(crate) fn windows_known_folder(id: &windows::core::GUID) -> Option<std::path::PathBuf> {
+    use windows::Win32::System::Com::CoTaskMemFree;
+    use windows::Win32::UI::Shell::{SHGetKnownFolderPath, KNOWN_FOLDER_FLAG};
+    let p = unsafe { SHGetKnownFolderPath(id, KNOWN_FOLDER_FLAG(0), None) }.ok()?;
+    let path = unsafe { p.to_string() }.ok();
+    unsafe { CoTaskMemFree(Some(p.0 as *const _)) };
+    path.filter(|path| !path.trim().is_empty())
+        .map(std::path::PathBuf::from)
+}
+
 #[cfg(target_os = "macos")]
 mod macos_focus_continuity;
 #[cfg(target_os = "windows")]
