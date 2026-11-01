@@ -47,7 +47,6 @@ let package = Package(
         .library(name: "RightKitAgent", targets: ["RightKitAgent"]),
         .library(name: "RightKitNotch", targets: ["RightKitNotch"]),
         .library(name: "RightKitSystemUI", targets: ["RightKitSystemUI"]),
-        .library(name: "RightKitClipboardHistory", targets: ["RightKitClipboardHistory"]),
         .library(name: "RightKitPresentation", targets: ["RightKitPresentation"]),
         .library(name: "RightKitNotchCore", targets: ["RightKitNotchCore"]),
         .library(name: "RightKitWebExtract", targets: ["RightKitWebExtract"]),
@@ -68,13 +67,6 @@ let package = Package(
         // macOS CloudKit helper for rightkit-sync (rightkit#1302). Apps build it with
         // `swift build --product rightkit-cloudkit-helper`; the body is compiled on macOS only.
         .executable(name: "rightkit-cloudkit-helper", targets: ["rightkit-cloudkit-helper"]),
-    ],
-    dependencies: [
-        .package(url: "https://github.com/alexeichhorn/YouTubeKit.git", exact: "0.4.8"),
-        .package(url: "https://github.com/pointfreeco/swift-composable-architecture", exact: "1.26.1"),
-        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui.git", exact: "2.0.2"),
-        .package(url: "https://github.com/simonbs/Runestone.git", exact: "0.5.1"),
-        .package(url: "https://github.com/simonbs/TreeSitterLanguages.git", exact: "0.1.10"),
     ],
     targets: [
         // Keychain-backed secret store (namespace = service, key = account); RightKitLicense persists through it.
@@ -169,19 +161,17 @@ let package = Package(
         .testTarget(name: "RightKitDictationTests", dependencies: ["RightKitDictation"]),
         .target(name: "RightKitLibrary", dependencies: ["RightKitCloudSync", "RightKitFS", "RightKitStore", "RightKitTextPolish"]),
         .testTarget(name: "RightKitLibraryTests", dependencies: ["RightKitLibrary"]),
-        .target(name: "RightKitAgent", dependencies: ["RightKitCloudSync", "RightKitCredentials", "RightKitLiveActivity", "RightKitSpeech", "RightKitUI", .product(name: "ComposableArchitecture", package: "swift-composable-architecture"), .product(name: "MarkdownUI", package: "swift-markdown-ui"), .product(name: "Runestone", package: "runestone"), .product(name: "TreeSitterBashRunestone", package: "treesitterlanguages"), .product(name: "TreeSitterCSSRunestone", package: "treesitterlanguages"), .product(name: "TreeSitterHTMLRunestone", package: "treesitterlanguages"), .product(name: "TreeSitterJSONRunestone", package: "treesitterlanguages"), .product(name: "TreeSitterJavaScriptRunestone", package: "treesitterlanguages"), .product(name: "TreeSitterMarkdownRunestone", package: "treesitterlanguages"), .product(name: "TreeSitterPythonRunestone", package: "treesitterlanguages"), .product(name: "TreeSitterSwiftRunestone", package: "treesitterlanguages"), .product(name: "TreeSitterTOMLRunestone", package: "treesitterlanguages"), .product(name: "TreeSitterTSXRunestone", package: "treesitterlanguages"), .product(name: "TreeSitterTypeScriptRunestone", package: "treesitterlanguages"), .product(name: "TreeSitterYAMLRunestone", package: "treesitterlanguages"), "RightKitPresentation"]),
+        .target(name: "RightKitAgent", dependencies: ["RightKitCloudSync", "RightKitCredentials", "RightKitLiveActivity", "RightKitSpeech", "RightKitUI", "RightKitPresentation"]),
         .testTarget(name: "RightKitAgentTests", dependencies: ["RightKitAgent"]),
         .target(name: "RightKitNotch", dependencies: ["RightKitDiagnostics", "RightKitFS", "RightKitOverlay", "RightKitNotchCore", "RightKitPresentation"]),
         .testTarget(name: "RightKitNotchTests", dependencies: ["RightKitNotch"]),
         .target(name: "RightKitSystemUI", dependencies: ["RightKitHub", "RightKitEngineClient"]),
         .testTarget(name: "RightKitSystemUITests", dependencies: ["RightKitSystemUI"]),
-        .target(name: "RightKitClipboardHistory", dependencies: ["RightKitAccessibility", "RightKitDesktopTweaks", "RightKitLauncher"]),
-        .testTarget(name: "RightKitClipboardHistoryTests", dependencies: ["RightKitClipboardHistory"]),
         .target(name: "RightKitPresentation"),
         .testTarget(name: "RightKitPresentationTests", dependencies: ["RightKitPresentation"]),
         .target(name: "RightKitNotchCore"),
         .testTarget(name: "RightKitNotchCoreTests", dependencies: ["RightKitNotchCore"]),
-        .target(name: "RightKitWebExtract", dependencies: ["RightKitImportQueue", .product(name: "YouTubeKit", package: "youtubekit")]),
+        .target(name: "RightKitWebExtract", dependencies: ["RightKitImportQueue"]),
         .testTarget(name: "RightKitWebExtractTests", dependencies: ["RightKitWebExtract"]),
         .target(name: "RightKitMesh", dependencies: ["RightKitAccount", "RightKitUI"]),
         .testTarget(name: "RightKitMeshTests", dependencies: ["RightKitMesh"]),
