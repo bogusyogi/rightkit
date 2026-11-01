@@ -1,0 +1,10 @@
+[package]
+name = "rightkit-mesh-devicelink-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-mesh = { version = "=0.1.1", default-features = false, features = ["devicelink"] }
