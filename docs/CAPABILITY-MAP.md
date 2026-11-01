@@ -8,7 +8,7 @@ Owners come from `packages/release/rightkit-ownership.json`, which the ownership
 - Detection: `fingerprinted` when the owner declares dependency or source fingerprints; `declaration-only` when it declares ownership without a precise fingerprint. A declared dependency alone does not prove integration.
 - Published availability: `published` means a registry version is recorded. `staged` means a version is prepared and unverified on the registry.
 
-Capabilities: 192 (58 with fingerprints, 134 declaration-only). Internal owners that are not application capabilities are excluded.
+Capabilities: 195 (58 with fingerprints, 137 declaration-only). Internal owners that are not application capabilities are excluded.
 
 | Capability | Owner | Tier | Detection | Fingerprints | Published availability |
 |---|---|---|---|---|---|
@@ -56,17 +56,20 @@ Capabilities: 192 (58 with fingerprints, 134 declaration-only). Internal owners 
 | channel-memory | `rightkit-channel-memory` | none | declaration-only | 0 | rightkit-channel-memory: published 0.2.1 (crates.io) |
 | cloud-sync | `rightkit-sync` | none | declaration-only | 0 | rightkit-sync: published 0.2.2 (crates.io) |
 | code-audit-commands | `rightkit-code-audit-commands` | none | declaration-only | 0 | rightkit-code-audit-commands: staged 0.1.0, not published |
+| code-audit-engine | `rightkit-code-audit-engine` | none | declaration-only | 0 | rightkit-code-audit-engine: staged 0.1.0, not published |
 | code-audit-provider-sdk | `rightkit-code-audit-provider-sdk` | none | declaration-only | 0 | rightkit-code-audit-provider-sdk: staged 0.1.0, not published |
 | composition-model | `rightkit-compose` | none | declaration-only | 0 | rightkit-compose: published 0.2.0 (crates.io) |
 | content-contracts | `rightkit-contracts` | none | declaration-only | 0 | rightkit-contracts: published 0.1.7 (crates.io) |
 | content-plan | `rightkit-content-plan` | none | declaration-only | 0 | rightkit-content-plan: staged 0.1.0, not published |
 | content-proof | `rightkit-content-proof` | none | declaration-only | 0 | rightkit-content-proof: staged 0.1.0, not published |
 | content-review | `rightkit-review` | none | declaration-only | 0 | rightkit-review: published 0.4.0 (crates.io) |
+| context | `rightkit-context` | none | declaration-only | 0 | rightkit-context: staged 0.1.0, not published |
 | context-budget | `rightkit-context-core` | none | declaration-only | 0 | rightkit-context-core: staged 0.1.0, not published |
 | context-client | `rightkit-context-client` | none | declaration-only | 0 | rightkit-context-client: staged 0.1.0, not published |
 | context-federation | `rightkit-context-federation` | none | declaration-only | 0 | rightkit-context-federation: staged 0.1.0, not published |
 | context-protocol | `rightkit-context-protocol` | none | declaration-only | 0 | rightkit-context-protocol: staged 0.1.0, not published |
 | context-provider-sdk | `rightkit-context-provider-sdk` | none | declaration-only | 0 | rightkit-context-provider-sdk: staged 0.1.0, not published |
+| context-runtime | `rightkit-context-runtime` | none | declaration-only | 0 | rightkit-context-runtime: staged 0.1.0, not published |
 | crash-reporting | `rightkit-crash` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-crash: published 0.3.6 (crates.io) |
 | crypto-primitives | `rightkit-crypto` | none | declaration-only | 0 | rightkit-crypto: published 0.1.0 (crates.io) |
 | dependency-updates | `@rightkit/outdated` | none | declaration-only | 0 | @rightkit/outdated: published 0.3.0 (npm) |

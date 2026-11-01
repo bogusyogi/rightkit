@@ -944,6 +944,17 @@
       ]
     },
     {
+      "package": "rightkit-code-audit-engine",
+      "capability": "code-audit-engine",
+      "summary": "Repository code audit engine: native providers, DAG and scheduler, evidence issuers, findings history and review runtime; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-code-audit-provider-sdk",
       "capability": "code-audit-provider-sdk",
       "summary": "Code audit provider SDK: provider registry, source and effect interfaces for audit providers; declaration-only detection (no precise implementation fingerprint)",
@@ -1010,6 +1021,17 @@
       ]
     },
     {
+      "package": "rightkit-context",
+      "capability": "context",
+      "summary": "Context, memory and repository-graph commands for coding agents: the membrane CLI, hook entry points and the resident a host app supervises.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-context-client",
       "capability": "context-client",
       "summary": "Transport-injected client for canonical context v1 operation envelopes.; declaration-only detection (no precise implementation fingerprint)",
@@ -1057,6 +1079,17 @@
       "package": "rightkit-context-provider-sdk",
       "capability": "context-provider-sdk",
       "summary": "Context provider SDK: the typed Provider trait, the canonical Fixture shape and the run_conformance harness for adapters implementing context operations.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-context-runtime",
+      "capability": "context-runtime",
+      "summary": "Context runtime: pull/push context packets, durable memory service, ledger, freshness, planning, background review and the resident service.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [

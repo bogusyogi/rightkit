@@ -1,0 +1,104 @@
+[package]
+name = "rightkit-context-runtime"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Context runtime: pull/push context packets, durable memory service, ledger, freshness, planning, background review and the resident service."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE", "build.rs", "assets/**"]
+
+[lib]
+name = "rightkit_context_runtime"
+path = "src/lib.rs"
+
+[features]
+default = []
+llmlingua-onnx = ["dep:tokenizers", "dep:rightkit-onnx"]
+test-support = []
+
+[dependencies]
+rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
+rightkit-memory-store = { version = "0.1.0", path = "../rightkit-memory-store" }
+rightkit-memory-core = { version = "0.1.0", path = "../rightkit-memory-core" }
+rightkit-context-protocol = { version = "0.1.0", path = "../rightkit-context-protocol" }
+rightkit-repo-graph = { version = "0.1.0", path = "../rightkit-repo-graph" }
+rightkit-context-core = { version = "0.1.0", path = "../rightkit-context-core" }
+rightkit-context-federation = { version = "0.1.0", path = "../rightkit-context-federation" }
+rightkit-context-provider-sdk = { version = "0.1.0", path = "../rightkit-context-provider-sdk" }
+rightkit-adapt-taste = { version = "0.1.0", path = "../rightkit-adapt-taste" }
+rightkit-agent-transcript = { version = "0.1.0", path = "../rightkit-agent-transcript" }
+rightkit-db = { version = "0.5.3", features = ["bundled", "hooks"], path = "../rightkit-db" }
+rightkit-embed = { version = "0.6.2", path = "../rightkit-embed" }
+rightkit-logs = { version = "0.3.7", default-features = false, path = "../rightkit-logs" }
+rightkit-fs = { version = "0.4.9", features = ["lock", "digest", "app-dirs"], path = "../rightkit-fs" }
+rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
+rightkit-daemon = { version = "0.5.1", path = "../rightkit-daemon" }
+rightkit-sync = { version = "0.2.2", path = "../rightkit-sync" }
+rightkit-file-watch = { version = "0.4.2", path = "../rightkit-file-watch" }
+rightkit-hooks = { version = "0.2.1", path = "../rightkit-hooks" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+thiserror = { version = "2" }
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "macros"] }
+tokio-util = { version = "0.7" }
+getrandom = { version = "0.4" }
+flate2 = { version = "1" }
+ring = { version = "0.17.14" }
+comrak = { version = "0.56", default-features = false }
+ignore = { version = "=0.4.33" }
+unicode-normalization = { version = "0.1" }
+tree-sitter = { version = "0.27" }
+tree-sitter-rust = { version = "0.24" }
+tree-sitter-python = { version = "0.25" }
+tree-sitter-javascript = { version = "0.25" }
+tree-sitter-typescript = { version = "0.23" }
+tokenizers = { version = "0.23", optional = true }
+tempfile = { version = "3" }
+rightkit-onnx = { version = "0.2.9", optional = true, features = ["ndarray"], path = "../rightkit-onnx" }
+
+[dev-dependencies]
+# Path-only self reference (stripped on publish) so the crate's own tests see the `test-support` items.
+rightkit-context-runtime = { path = ".", features = ["test-support"] }
+rightkit-daemon = { version = "0.5.1", features = ["test-mode"], path = "../rightkit-daemon" }
+
+[build-dependencies]
+serde_json = { version = "1" }
+rightkit-fs = { version = "0.4.9", features = ["digest"], path = "../rightkit-fs" }
+
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

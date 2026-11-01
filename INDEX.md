@@ -12,7 +12,7 @@ Flagged mismatches: 0.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (165)
+## Rust crates (168)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
@@ -61,17 +61,20 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-channel-memory` | crates.io | 0.2.2 | 0.2.1 | 0.2.2 | staged, not yet published | channel-memory | Channel memory for the content pipeline: the channel-memory.v1 schema with serde types, validation, version gate, proof citation rules, and scope checks for PostRight P3 and GenRight G7. |
 | `rightkit-child-process` | crates.io | 0.5.7 | 0.5.7 | 0.5.7 | ok | owned-processes | Ownership-safe child lifecycle, restart, and health primitives for Right Suite apps. |
 | `rightkit-code-audit-commands` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | code-audit-commands | Code audit command logic (audit, assurance, coverage, minimize, report, review, rules, verify) as library modules for a host CLI |
+| `rightkit-code-audit-engine` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | code-audit-engine | Repository code audit engine: native providers, DAG and scheduler, evidence issuers, findings history and review runtime |
 | `rightkit-code-audit-provider-sdk` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | code-audit-provider-sdk | Code audit provider SDK: provider registry, source and effect interfaces for audit providers |
 | `rightkit-color` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | video-color | Colour grading for Right Suite video apps: grade parameters, LUTs and FFmpeg filter rendering, and video scopes (waveform, vectorscope, histogram). |
 | `rightkit-compose` | crates.io | 0.2.1 | 0.2.0 | 0.2.1 | staged, not yet published | composition-model | Product-neutral evaluated composition model: layered video, stills, cursor sprites, backgrounds, clipping, shadows, motion blur, overlays and keyframed tracks, with one pure per-frame evaluation shared by preview and export |
 | `rightkit-compositor` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | video-compositor | Native wgpu layer compositor for Right Suite video apps: GPU context, layer blending, effect passes and SDF mask feathering, rendering evaluated frame descriptors. Adapted from OpenCut Classic (MIT). |
 | `rightkit-content-plan` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | content-plan | Store-free content planning rules: manual draft approval gate, first-sentence disclosure check and per-platform posted-link host table. |
 | `rightkit-content-proof` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | content-proof | Exact claim-number reading for content proof review: currency, thousands separators, k/m/bn suffixes, percentages and number words as exact decimals, with tokenization. |
+| `rightkit-context` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | context | Context, memory and repository-graph commands for coding agents: the membrane CLI, hook entry points and the resident a host app supervises. |
 | `rightkit-context-client` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | context-client | Transport-injected client for canonical context v1 operation envelopes. |
 | `rightkit-context-core` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | context-budget | Context budget and lane reconciliation: one cross-provider attention budget whose explicit lanes reconcile every receipt's selected and delivered tokens. |
 | `rightkit-context-federation` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | context-federation | Context federation coordinator: immutable provider registry, fan-out of context operations across providers, and skill ranking. |
 | `rightkit-context-protocol` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | context-protocol | Context protocol contract: typed scope-grant, candidate-set, packet, receipt and knowledge-emission shapes, their canonical JSON Schemas, and the canonical byte/digest contract. |
 | `rightkit-context-provider-sdk` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | context-provider-sdk | Context provider SDK: the typed Provider trait, the canonical Fixture shape and the run_conformance harness for adapters implementing context operations. |
+| `rightkit-context-runtime` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published | context-runtime | Context runtime: pull/push context packets, durable memory service, ledger, freshness, planning, background review and the resident service. |
 | `rightkit-contracts` | crates.io | 0.1.8 | 0.1.7 | 0.1.8 | staged, not yet published | content-contracts | Versioned content-pipeline contracts for the Right Suite: content brief, delivery envelope, record session and event, demo plan and daemon API. JSON Schema validation, serde types, and major-version negotiation. |
 | `rightkit-crash` | crates.io | 0.3.6 | 0.3.6 | 0.3.6 | ok | crash-reporting | Privacy-first panic capture, redacted crash reports, native dumps and support bundles for Right Suite apps. |
 | `rightkit-credentials` | crates.io | 0.4.3 | 0.4.2 | 0.4.3 | staged, not yet published | os-credential-store | Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager / Linux Secret Service / Android Keystore, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration. |
