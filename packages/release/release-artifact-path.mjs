@@ -26,6 +26,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { shimMapOfEnv } from "./cargo-target-shim.mjs";
 import { resolveTargetRoot as cargoResolveTargetRoot } from "./cargo-target.mjs";
 import { expandRecipeBuildCommands } from "./recipe-build.mjs";
 import { SourceSplitError, readSourceSplit } from "./source-split.mjs";
@@ -123,10 +124,17 @@ export function splitArtifactContext({
   if (!root) { try { root = readSourceSplit({ env, cwd: appRoot })?.snapshot ?? null; } catch (error) { if (!(error instanceof SourceSplitError)) throw error; } }
   const snapshot = canonical(root ?? appRoot);
   const pinned = typeof env.CARGO_TARGET_DIR === "string" && path.isAbsolute(env.CARGO_TARGET_DIR) ? canonical(env.CARGO_TARGET_DIR) : null;
+  // Under the per-call wrapper of SEVERAL workspaces (cargo-target-shim.mjs) CARGO_TARGET_DIR is no binding: the wrapper binds each call's
+  // workspace to its own checkout target, and any CARGO_TARGET_DIR in this process is ambient or a scan sentinel. The binding of a manifest
+  // is then the wrapper's map entry for the workspace that holds it. One workspace (or no wrapper) keeps the process-wide value.
+  const wrapperMap = resolve ? multiWorkspaceWrapperMap(env) : null;
   const cache = new Map();
   const boundTargets = declared.map(({ prefix, manifest }) => {
     if (!resolve) return Object.freeze({ prefix, manifest, dir: null });
-    if (!cache.has(manifest)) cache.set(manifest, bindManifest({ manifest, appRoot, snapshot, pinned, resolveTargetRoot, exists }));
+    if (!cache.has(manifest)) {
+      const mapped = wrapperMap ? wrapperBindingOf(wrapperMap, manifest) : null;
+      cache.set(manifest, bindManifest({ manifest, appRoot, snapshot, pinned: wrapperMap ? (mapped?.target ?? null) : pinned, workspace: mapped?.workspace ?? null, resolveTargetRoot, exists }));
+    }
     return Object.freeze({ prefix, manifest, dir: cache.get(manifest) });
   });
   return Object.freeze({
@@ -135,7 +143,25 @@ export function splitArtifactContext({
   });
 }
 
-function bindManifest({ manifest, appRoot, snapshot, pinned, resolveTargetRoot, exists }) {
+/** The wrapper map of this process when it binds more than one workspace; null for no wrapper or a single workspace (CARGO_TARGET_DIR binds that). */
+function multiWorkspaceWrapperMap(env) {
+  const map = shimMapOfEnv(env);
+  return map && Object.keys(map.workspaces).length > 1 ? map : null;
+}
+
+/** The wrapper's binding for the workspace holding `manifest`: the deepest mapped workspace that contains it, as `{ workspace, target }`; null when none does. */
+function wrapperBindingOf(map, manifest) {
+  const dir = canonical(path.dirname(manifest));
+  let best = null;
+  for (const [workspace, target] of Object.entries(map.workspaces)) {
+    if (typeof target !== "string" || !path.isAbsolute(target)) continue;
+    const root = canonical(workspace);
+    if (insideCanonical(dir, root) && (!best || root.length > best.root.length)) best = { root, workspace, target: canonical(target) };
+  }
+  return best ? { workspace: best.workspace, target: best.target } : null;
+}
+
+function bindManifest({ manifest, appRoot, snapshot, pinned, workspace = null, resolveTargetRoot, exists }) {
   if (!exists(manifest)) throw new ArtifactPathError(SPLIT_TARGET_UNRESOLVED_CODE, `the Cargo manifest ${manifest} is not in the snapshot, so its target directory cannot be bound; a split never falls back to a snapshot-relative target/`);
   let dir;
   try { dir = resolveTargetRoot(manifest); } catch (error) {
@@ -146,7 +172,7 @@ function bindManifest({ manifest, appRoot, snapshot, pinned, resolveTargetRoot, 
   if (insideCanonical(real, snapshot) || insideCanonical(real, canonical(appRoot))) {
     throw new ArtifactPathError(SPLIT_TARGET_UNRESOLVED_CODE, `the Cargo target of ${manifest} resolves inside the snapshot (${dir}); the gate binds a split's target outside it (CARGO_TARGET_DIR, row 7.09) and never to a snapshot-relative target/`);
   }
-  if (pinned && real !== pinned) throw new ArtifactPathError(SPLIT_TARGET_DRIFT_CODE, `the Cargo target of ${manifest} is ${dir}, not the CARGO_TARGET_DIR the gate bound for this stage`);
+  if (pinned && real !== pinned) throw new ArtifactPathError(SPLIT_TARGET_DRIFT_CODE, `the Cargo target of ${manifest} is ${dir}, not the CARGO_TARGET_DIR the gate bound for this stage (expected ${pinned}${workspace ? `, the cargo wrapper's target for workspace ${workspace}` : ""})`);
   return path.resolve(dir);
 }
 

@@ -230,12 +230,32 @@ export function locateWorkspaceByWalk(manifestPath, cwd, { read = (f) => fs.read
 }
 
 /** The wrapper itself: `cargo-target-shim.mjs --map <file> -- <cargo args>`. Returns the exit status. */
+/** The wrapper's own reader of its map file (runShim reads it through this): throws when the file is unreadable or is another schema. */
+export function readShimMap(file) {
+  const map = JSON.parse(fs.readFileSync(file, "utf8"));
+  if (map?.schema !== SHIM_MAP_SCHEMA) throw new Error(`schema ${JSON.stringify(map?.schema)}`);
+  return map;
+}
+
+/**
+ * The per-call wrapper this process runs under, from its environment: CARGO names the wrapper (`<dir>/bin/cargo`) and the map it reads
+ * is `<dir>/cargo-target-map.json`. Returns the map only for a direct-mode wrapper whose own `shim` is that CARGO (a stale or foreign CARGO
+ * is no wrapper), else null. `map.workspaces` is { [real snapshot workspace]: the checkout's target directory }.
+ */
+export function shimMapOfEnv(env = process.env, { read = readShimMap } = {}) {
+  const cargo = env?.CARGO;
+  if (typeof cargo !== "string" || !path.isAbsolute(cargo)) return null;
+  let map;
+  try { map = read(path.join(path.dirname(path.dirname(cargo)), "cargo-target-map.json")); } catch { return null; }
+  return map?.mode === "direct" && map.shim === cargo && map.workspaces && typeof map.workspaces === "object" ? map : null;
+}
+
 export function runShim(argv, { env = process.env, cwd = process.cwd(), spawn = spawnSync, err = (m) => process.stderr.write(`${m}\n`) } = {}) {
   const sep = argv.indexOf("--");
   const mapAt = argv.indexOf("--map");
   if (mapAt < 0 || sep < 0 || mapAt > sep) { err("rightkit-gate: RK_CARGO_SHIM_ERROR: usage: cargo-target-shim.mjs --map <file> -- <cargo args>"); return SHIM_REFUSAL_STATUS; }
   let map;
-  try { map = JSON.parse(fs.readFileSync(argv[mapAt + 1], "utf8")); if (map?.schema !== SHIM_MAP_SCHEMA) throw new Error(`schema ${JSON.stringify(map?.schema)}`); }
+  try { map = readShimMap(argv[mapAt + 1]); }
   catch (error) { err(`rightkit-gate: RK_CARGO_SHIM_ERROR: the cargo target map cannot be read (${error.message}); nothing ran`); return SHIM_REFUSAL_STATUS; }
   const words = argv.slice(sep + 1);
   const token = env[SCAN_TOKEN_ENV];

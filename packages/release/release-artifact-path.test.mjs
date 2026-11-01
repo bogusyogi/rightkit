@@ -187,6 +187,38 @@ test("[N6] a target that differs from the CARGO_TARGET_DIR the gate bound is RK_
   }
 });
 
+// A multi-workspace per-call wrapper (cargo-target-shim.mjs installCargoShim) as the package stage's child sees it: CARGO names it, its map is beside it.
+function wrapperEnv(t, w, workspaces) {
+  const dir = tmp(t, "rk-cargo-shim-"); const shim = path.join(dir, "bin", "cargo");
+  fs.mkdirSync(path.dirname(shim));
+  fs.writeFileSync(path.join(dir, "cargo-target-map.json"), JSON.stringify({ schema: "rightkit.cargo-target-shim/3", mode: "direct", shim, realCargo: "/x/cargo", workspaces }));
+  return { CARGO: shim };
+}
+
+test("[N6 wrapper] under a two-workspace cargo wrapper the drift check compares with that manifest's workspace binding, never CARGO_TARGET_DIR (ambient or a sentinel)", (t) => {
+  const w = world(t);
+  const other = path.join(w.root, "another-generation");
+  const workspaces = { [path.join(w.snapshot, "src-tauri")]: w.bound, [path.join(w.snapshot, "qa-e2e")]: other };
+  const env = wrapperEnv(t, w, workspaces);
+  // The resolved target equals the mapped one: no drift, with no CARGO_TARGET_DIR, an ambient one and a sentinel in the environment.
+  assert.doesNotThrow(() => w.make({ env }), "no CARGO_TARGET_DIR");
+  assert.doesNotThrow(() => w.make({ env: { ...env, CARGO_TARGET_DIR: other } }), "an ambient value is not the binding");
+  assert.doesNotThrow(() => w.make({ env: { ...env, CARGO_TARGET_DIR: path.join(w.root, "unbound") } }), "a sentinel is not the binding");
+  // It differs from the mapped one: drift, naming the expected value and the workspace.
+  const swapped = wrapperEnv(t, w, { [path.join(w.snapshot, "src-tauri")]: other, [path.join(w.snapshot, "qa-e2e")]: w.bound });
+  assert.throws(() => w.make({ env: { ...swapped, CARGO_TARGET_DIR: w.bound } }), refusal(SPLIT_TARGET_DRIFT_CODE, new RegExp(`expected ${other.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}, the cargo wrapper's target for workspace .*src-tauri`)));
+  // A CARGO that is not the wrapper the map names is no wrapper: the process-wide value binds again.
+  assert.throws(() => w.make({ env: { CARGO: path.join(env.CARGO, "..", "elsewhere"), CARGO_TARGET_DIR: other } }), refusal(SPLIT_TARGET_DRIFT_CODE, /expected .*another-generation\)/));
+});
+
+test("[N6 wrapper] a one-workspace wrapper keeps the process-wide CARGO_TARGET_DIR as the binding; the drift message prints the expected value", (t) => {
+  const w = world(t);
+  const other = path.join(w.root, "another-generation");
+  const env = wrapperEnv(t, w, { [path.join(w.snapshot, "src-tauri")]: w.bound });
+  assert.throws(() => w.make({ env: { ...env, CARGO_TARGET_DIR: other } }), refusal(SPLIT_TARGET_DRIFT_CODE, /not the CARGO_TARGET_DIR the gate bound for this stage \(expected .*another-generation\)/));
+  assert.doesNotThrow(() => w.make({ env: { ...env, CARGO_TARGET_DIR: w.bound } }));
+});
+
 // ---- A. R-T4: the command scan ------------------------------------------------------------------------------------------------------
 
 test("[N1] a step the app owns that names a target-relative path is RK_SPLIT_TARGET_PATH: argv, --x=, JSON-embedded, env, ./, backslashes, after : and ,", (t) => {
