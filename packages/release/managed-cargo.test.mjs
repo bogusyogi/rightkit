@@ -178,3 +178,19 @@ test("the cargo a gate wraps skips an outer gate's runtime wrapper on PATH and t
     assert.equal(realCargoOf(["cargo", toolchain]), toolchain, "a relative entry is never taken");
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });
+
+test("only the gate's own executor takes an outer gate's cargo wrapper off PATH; build-launch's executor keeps it (Oracle on f6f708277)", { skip: process.platform === "win32" }, async () => {
+  const { resolveExecutor } = await import("./gate-executor.mjs");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "rk-exec-wrap-"));
+  try {
+    const snap = path.join(base, "snap"); fs.mkdirSync(snap);
+    const toolchainDir = path.join(base, "toolchain"); fs.mkdirSync(toolchainDir);
+    fs.writeFileSync(path.join(toolchainDir, "cargo"), BODY, { mode: 0o755 });
+    const outer = installCargoShim({ base, snapshotRoot: snap, targetDirs: {}, realCargo: path.join(toolchainDir, "cargo") });
+    const env = { PATH: `${outer.bin}:${toolchainDir}` };
+    const gate = resolveExecutor({ env, platform: "linux", gateWrappers: true });
+    assert.equal(gate.env?.PATH, toolchainDir, "the gate's executor drops the outer wrapper");
+    const child = resolveExecutor({ env, platform: "linux" });
+    assert.equal(child.env, undefined, "a child's executor (build-launch) keeps the wrapper first on PATH");
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
+});

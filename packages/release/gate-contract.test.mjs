@@ -157,7 +157,7 @@ console.log(JSON.stringify({ code, out: out.join("\\n").slice(-8000) }));\n`.rep
   const fixed = runAs("fixed", null);
   assert.equal(fixed.shim, false, `the RustRight shim was never launched (${JSON.stringify(fixed)})`);
   assert.equal(fixed.direct, true, `the direct cargo answered cargo metadata (${JSON.stringify(fixed)})`);
-  assert.match(fixed.out ?? "", /RustRight shims and outer gate cargo wrappers taken off PATH for direct cargo/);
+  assert.match(fixed.out ?? "", /RustRight shims(?: and outer gate cargo wrappers)? taken off PATH for direct cargo/);
   // Control: the route label alone (direct, bare cargo, PATH unchanged) launches the shim, so the sentinels tell the two apart.
   const labelOnly = runAs("label-only", `{ kind: "direct", cargo: ["cargo"] }`);
   assert.equal(labelOnly.shim, true, `control: with PATH unchanged the shim answers (${JSON.stringify(labelOnly)})`);

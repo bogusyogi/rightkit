@@ -19,13 +19,15 @@ export const EXECUTOR_KINDS = Object.freeze(["broker", "refuse", "direct"]);
  * @param {{ forceDirect?: boolean, env?: object, platform?: string, exists?: (p: string) => boolean, which: (cmd: string) => string[], readFile: (p: string) => string, fsOps?: object }} o
  * @returns {{ kind: "broker" | "refuse" | "direct", cargo: string[] | null, problem?: string, code?: string, route?: "linux-broker", client?: string, socket?: string, clientSha256?: string, env?: { PATH?: string, RUSTRIGHT_BUILD_BROKER_SOCKET?: string }, note?: string }}
  */
-export function resolveExecutor({ env = process.env, platform = process.platform, exists, which, readFile, fsOps, forceDirect = false }) {
+export function resolveExecutor({ env = process.env, platform = process.platform, exists, which, readFile, fsOps, forceDirect = false, gateWrappers = false }) {
   // Every Linux (and any other non-Mac, non-Windows) execution host runs direct, whatever is on PATH or in the environment: WSL2, a VM,
   // a cloud or CI runner, or Linux hosted on the Dell (GATE-CONTRACT §1 "One entry"; joint plan step 4), unless the host explicitly declared
   // the optional Linux broker route (below). Adrian's Mac and Windows hosts use the broker as before.
   // `cargo` there must be a real toolchain: RustRight shim directories are taken off the PATH the gate hands its children (`env`).
   // `forceDirect` is the one documented exception (broker-exception.mjs, validated by the gate before it is passed): a Mac or Dell run
   // outside the broker, by Adrian's recorded approval. It takes the direct route with the same shim scrub, never the Linux broker route.
+  // `gateWrappers`: only rightkit-gate resolving its OWN executor also takes an outer gate's cargo wrapper off PATH (a gate inside another gate's scan).
+  // build-launch never passes it: a right-release child inside a stage must keep the stage's wrapper first, the binding it goes through.
   if (forceDirect || directPlatform(platform)) {
     const linux = forceDirect ? { declared: false } : resolveLinuxBrokerRoute({ env, platform, fsOps });
     if (linux.declared) {
@@ -39,8 +41,8 @@ export function resolveExecutor({ env = process.env, platform = process.platform
       };
     }
     const pathKey = platform === "win32" ? Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "PATH" : "PATH";
-    const direct = directCargoPath({ env: { ...env, PATH: env[pathKey] }, exists, platform, gateWrappers: true });
-    return { kind: "direct", cargo: ["cargo"], ...(direct.dropped.length ? { env: { [pathKey]: direct.path }, note: `RustRight shims and outer gate cargo wrappers taken off PATH for direct cargo: ${direct.dropped.join(", ")}` } : {}), ...(direct.cargo ? {} : { note: `no direct cargo on PATH${direct.dropped.length ? ` (RustRight shims and gate wrappers skipped: ${direct.dropped.join(", ")})` : ""}; cargo scans fail as a missing tool` }) };
+    const direct = directCargoPath({ env: { ...env, PATH: env[pathKey] }, exists, platform, gateWrappers });
+    return { kind: "direct", cargo: ["cargo"], ...(direct.dropped.length ? { env: { [pathKey]: direct.path }, note: `${gateWrappers ? "RustRight shims and outer gate cargo wrappers" : "RustRight shims"} taken off PATH for direct cargo: ${direct.dropped.join(", ")}` } : {}), ...(direct.cargo ? {} : { note: `no direct cargo on PATH${direct.dropped.length ? ` (RustRight shims and gate wrappers skipped: ${direct.dropped.join(", ")})` : ""}; cargo scans fail as a missing tool` }) };
   }
   if (which("rustright").length) return { kind: "broker", cargo: ["rustright", "cargo"] };
   const first = which("cargo")[0];
