@@ -180,23 +180,124 @@ pub fn all() -> Vec<(&'static str, Probe)> {
     v
 }
 
-/// Run one probe; a panic inside it is a failure, never a crash of the engine.
+/// A probe's error that starts with `host_missing:<need>:` means this host lacks something the crate needs (a model, a
+/// runtime, an OS permission, a service), not that the crate is broken. It is reported as its own state, and it is a
+/// failure when the host profile says the need is provisioned (`RKE2E_PROVISIONED`, a comma list of needs).
+pub const HOST_MISSING: &str = "host_missing:";
+
+fn provisioned(need: &str) -> bool {
+    std::env::var("RKE2E_PROVISIONED")
+        .map(|v| v.split(',').any(|n| n.trim() == need))
+        .unwrap_or(false)
+}
+
+/// The result row of one probe: `state` is `pass`, `fail` or `host_missing` (with `need`); `ok` is `state == pass`.
+fn row(name: &str, ms: u64, outcome: Result<Value, String>) -> Value {
+    let error = match outcome {
+        Ok(detail) => {
+            return serde_json::json!({ "name": name, "state": "pass", "ok": true, "ms": ms, "detail": detail })
+        }
+        Err(error) => error,
+    };
+    match error
+        .strip_prefix(HOST_MISSING)
+        .and_then(|rest| rest.split_once(':'))
+    {
+        Some((need, why)) if !provisioned(need) => serde_json::json!({
+            "name": name, "state": "host_missing", "ok": false, "ms": ms, "need": need, "error": why.trim()
+        }),
+        Some((need, why)) => serde_json::json!({
+            "name": name, "state": "fail", "ok": false, "ms": ms, "need": need,
+            "error": format!("{} (the host profile provisions {need})", why.trim())
+        }),
+        None => {
+            serde_json::json!({ "name": name, "state": "fail", "ok": false, "ms": ms, "error": error })
+        }
+    }
+}
+
+/// Run one probe in this process; a panic inside it is a failure, never a crash of the engine.
 pub fn run(ctx: &Ctx, name: &str) -> Value {
     let Some((_, probe)) = all().into_iter().find(|(n, _)| *n == name) else {
-        return serde_json::json!({ "name": name, "ok": false, "error": "no such probe" });
+        return row(name, 0, Err("no such probe".into()));
     };
     let started = std::time::Instant::now();
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| probe(ctx)));
     let ms = started.elapsed().as_millis() as u64;
-    match outcome {
-        Ok(Ok(detail)) => {
-            serde_json::json!({ "name": name, "ok": true, "ms": ms, "detail": detail })
+    row(
+        name,
+        ms,
+        outcome.unwrap_or_else(|_| Err("the probe panicked".into())),
+    )
+}
+
+/// How long one probe may run in `probe all` before its process tree is killed (`RKE2E_PROBE_DEADLINE_SECS`, default 180).
+fn deadline() -> std::time::Duration {
+    let secs = std::env::var("RKE2E_PROBE_DEADLINE_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(180);
+    std::time::Duration::from_secs(secs)
+}
+
+/// Run one probe in its own engine process (`probe run`) under a deadline, through rightkit-child-process: a native abort,
+/// a hang or a blocking OS prompt costs that probe's row, never the other probes'.
+pub fn run_isolated(name: &str) -> Value {
+    let started = std::time::Instant::now();
+    let ms = || started.elapsed().as_millis() as u64;
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => {
+            return row(
+                name,
+                0,
+                Err(format!("cannot locate the engine executable: {e}")),
+            )
         }
-        Ok(Err(error)) => {
-            serde_json::json!({ "name": name, "ok": false, "ms": ms, "error": error })
+    };
+    let input = serde_json::json!({ "name": name }).to_string();
+    let options = rightkit_child_process::RunOptions::new(deadline()).stdout_cap(8 * 1024 * 1024);
+    let args = ["probe", "run", "--input", input.as_str()];
+    let out = match rightkit_child_process::run(&exe, args, &options) {
+        Ok(out) => out,
+        Err(e) => return row(name, ms(), Err(format!("cannot start `probe run`: {e}"))),
+    };
+    let stderr = String::from_utf8_lossy(&out.stderr.bytes);
+    let mut tail: Vec<&str> = stderr.lines().rev().take(8).collect();
+    tail.reverse();
+    let tail = tail.join(" | ");
+    if out.timed_out {
+        let secs = deadline().as_secs();
+        return row(
+            name,
+            ms(),
+            Err(format!(
+                "timed out after {secs}s and was killed; stderr: {tail}"
+            )),
+        );
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout.bytes);
+    let found = stdout
+        .lines()
+        .rev()
+        .filter_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
+        .map(|v| match v.get("result") {
+            Some(inner) if v.get("state").is_none() => inner.clone(),
+            _ => v,
+        })
+        .find(|v| v.get("state").is_some());
+    match found {
+        Some(mut v) => {
+            v["ms"] = serde_json::json!(ms());
+            v
         }
-        Err(_) => {
-            serde_json::json!({ "name": name, "ok": false, "ms": ms, "error": "the probe panicked" })
-        }
+        None => row(
+            name,
+            ms(),
+            Err(format!(
+                "`probe run` exited {:?} with no result; stderr: {tail}",
+                out.status
+            )),
+        ),
     }
 }

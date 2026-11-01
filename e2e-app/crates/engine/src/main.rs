@@ -123,13 +123,26 @@ impl CommandSet for DomainCommands {
                 Ok(probes::run(&ctx()?, name))
             }
             "probe.all" => {
-                let ctx = ctx()?;
+                ctx()?;
                 let results: Vec<Value> = probes::all()
                     .into_iter()
-                    .map(|(name, _)| probes::run(&ctx, name))
+                    .map(|(name, _)| probes::run_isolated(name))
                     .collect();
-                let failed = results.iter().filter(|r| r["ok"] != json!(true)).count();
-                Ok(json!({ "total": results.len(), "failed": failed, "results": results }))
+                let count = |state: &str| {
+                    results
+                        .iter()
+                        .filter(|r| r["state"] == json!(state))
+                        .count()
+                };
+                let (passed, host_missing) = (count("pass"), count("host_missing"));
+                let failed = results.len() - passed - host_missing;
+                Ok(json!({
+                    "total": results.len(),
+                    "passed": passed,
+                    "failed": failed,
+                    "host_missing": host_missing,
+                    "results": results
+                }))
             }
             other => Err(JobError::new(
                 "unknown_method",
