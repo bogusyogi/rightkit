@@ -42,7 +42,7 @@ pub const RECEIPT_FILES_CAP: usize = 500;
 /// A receipt list not written for this long is removed.
 pub const RECEIPT_FILE_MAX_AGE: Duration = Duration::from_secs(7 * 24 * 3600);
 /// Refused held message ids kept per chat.
-/// The chats that have been handed a the host app Chat message (a JSON set of chat ids).
+/// The chats that have been handed a host app Chat message (a JSON set of chat ids).
 const CHATS_MET_FILE: &str = "chats-met.json";
 const REFUSED_CAP: usize = 1_000;
 /// At most this many undelivered replies wait in the outbound queue.
@@ -476,7 +476,7 @@ const POLICY_FLAGS: [&str; 11] = [
     "chatSocketFallback",
 ];
 
-/// The window in which a the host app Claude plugin hook run counts as "hooks running" when
+/// The window in which a host app Claude plugin hook run counts as "hooks running" when
 /// `claudeHookDelivery` is absent. Same as `deliver_codex`'s `HOOKS_RUNNING_WITHIN` (7 days).
 const CLAUDE_HOOK_RUNNING_WITHIN_SECS: u64 = 7 * 24 * 3600;
 
@@ -1786,7 +1786,7 @@ impl Store {
 
     /// Whether a message for a busy Claude chat goes through the host app plugin's hook
     /// (`policy.json` key `claudeHookDelivery`). An explicit `true`/`false` decides; when the key
-    /// is absent it is on once a the host app Claude plugin hook ran on this computer within
+    /// is absent it is on once a host app Claude plugin hook ran on this computer within
     /// `CLAUDE_HOOK_RUNNING_WITHIN_SECS`; a policy file that cannot be trusted is off.
     pub fn claude_hook_delivery(&self) -> bool {
         match self.claude_hook_delivery_mode() {
@@ -1796,7 +1796,7 @@ impl Store {
         }
     }
 
-    /// Whether a the host app Claude plugin hook ran on this computer within the window `auto` uses.
+    /// Whether a host app Claude plugin hook ran on this computer within the window `auto` uses.
     pub fn claude_plugin_hook_recent(&self) -> bool {
         claude_hook_running()
     }
@@ -2060,7 +2060,7 @@ impl Store {
         read_json(&self.activity_path()).unwrap_or_default()
     }
 
-    /// Whether a chat has already been handed a the host app Chat message. The first one carries the
+    /// Whether a chat has already been handed a host app Chat message. The first one carries the
     /// full introduction; later ones carry the short header only. An unreadable record counts
     /// as not met.
     pub fn chat_met(&self, session: &str) -> bool {
@@ -2069,7 +2069,7 @@ impl Store {
         met.contains(session)
     }
 
-    /// Record that a chat has been handed a the host app Chat message (see `chat_met`).
+    /// Record that a chat has been handed a host app Chat message (see `chat_met`).
     pub fn note_chat_met(&self, session: &str) {
         let _ = self.update_state(
             CHATS_MET_FILE,

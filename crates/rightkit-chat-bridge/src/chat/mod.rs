@@ -804,7 +804,7 @@ fn claims_this_computer(store: &Store, env: &Envelope) -> bool {
     env.from.device.trim().eq_ignore_ascii_case(&me) && sender_link(store, env).is_none()
 }
 
-/// Whether the chat `session` has not yet been handed a the host app Chat message, so the message
+/// Whether the chat `session` has not yet been handed a host app Chat message, so the message
 /// for it carries the full introduction. A store that cannot be read counts as not yet met.
 pub fn first_contact_pending(session: &str) -> bool {
     !Store::open_default().is_ok_and(|store| store.chat_met(session))

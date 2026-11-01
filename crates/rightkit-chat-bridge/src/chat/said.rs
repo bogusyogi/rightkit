@@ -17,7 +17,7 @@
 //!   `isVisibleInTranscriptOnly`, no `toolUseResult`, `origin.kind` absent or `human` (a
 //!   peer or system origin is not typed), and content that is a string or has text parts and
 //!   no `tool_result` part. Text that is only `<system-reminder>` blocks, a `<command-...>` /
-//!   `<local-command-...>` wrapper, a cross-session message, a the host app header, a task
+//!   `<local-command-...>` wrapper, a cross-session message, a host app header, a task
 //!   notification or an interruption marker is dropped.
 //!   An answer to a pop-up question is a `user` line whose content has a `tool_result` part
 //!   and whose `toolUseResult.answers` is an object: question text to answer, a string (or
