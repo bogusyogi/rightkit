@@ -163,7 +163,10 @@ pub fn role_output_authority(role: &str) -> Option<RoleAuthority> {
     })
 }
 
-const ARTIFACT_KEYS: &[(&str, fn(&RoleAuthority) -> bool)] = &[
+/// Reads one artifact's authority flag off a role.
+type AuthorityFlag = fn(&RoleAuthority) -> bool;
+
+const ARTIFACT_KEYS: &[(&str, AuthorityFlag)] = &[
     ("security-candidates", |a| a.candidates),
     ("attack-path-hypotheses", |a| a.hypotheses),
     ("security-verdicts", |a| a.verdicts),
