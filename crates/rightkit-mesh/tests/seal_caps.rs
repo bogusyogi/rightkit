@@ -1,14 +1,24 @@
 //! Pure-logic tests of the mesh: the end-to-end seal (round trip, tamper, wrong peer, padding) and
 //! the relay caps. No network, no iroh endpoint.
-use rightkit_mesh::caps::{check_small, month_key, RelayBudget, MB, SMALL_ITEM_MAX};
-use rightkit_mesh::seal::{open, peek_seq, seal, PairKeys};
+use rightkit_mesh::caps::{MB, RelayBudget, SMALL_ITEM_MAX, check_small, month_key};
+use rightkit_mesh::seal::{PairKeys, open, peek_seq, seal};
 
 fn pair() -> (PairKeys, PairKeys, [u8; 32], [u8; 32]) {
     let (a, b) = ([1u8; 32], [2u8; 32]);
     let (ab, ba) = ([7u8; 32], [9u8; 32]);
     // a sends with ab, b opens with ab (its recv); and the reverse.
-    let a_keys = PairKeys { peer: b, epoch: 1, send: ab, recv: ba };
-    let b_keys = PairKeys { peer: a, epoch: 1, send: ba, recv: ab };
+    let a_keys = PairKeys {
+        peer: b,
+        epoch: 1,
+        send: ab,
+        recv: ba,
+    };
+    let b_keys = PairKeys {
+        peer: a,
+        epoch: 1,
+        send: ba,
+        recv: ab,
+    };
     (a_keys, b_keys, a, b)
 }
 
@@ -36,20 +46,34 @@ fn a_tampered_item_or_another_record_does_not_open() {
     let (a_keys, b_keys, a, b) = pair();
     let record = [5u8; 16];
     let mut sealed = seal(&a_keys, &a, &record, 3, b"secret").unwrap();
-    assert!(open(&[b_keys.clone()], &a, &b, &[6u8; 16], &sealed).is_err(), "bound to its record id");
+    assert!(
+        open(&[b_keys.clone()], &a, &b, &[6u8; 16], &sealed).is_err(),
+        "bound to its record id"
+    );
     let last = sealed.len() - 1;
     sealed[last] ^= 1;
-    assert!(open(&[b_keys], &a, &b, &record, &sealed).is_err(), "tag check");
+    assert!(
+        open(&[b_keys], &a, &b, &record, &sealed).is_err(),
+        "tag check"
+    );
 }
 
 #[test]
 fn the_wrong_peer_cannot_open() {
     let (a_keys, _, a, b) = pair();
-    let stranger = PairKeys { peer: a, epoch: 1, send: [0u8; 32], recv: [3u8; 32] };
+    let stranger = PairKeys {
+        peer: a,
+        epoch: 1,
+        send: [0u8; 32],
+        recv: [3u8; 32],
+    };
     let sealed = seal(&a_keys, &a, &[1u8; 16], 1, b"for b only").unwrap();
     assert!(open(&[stranger], &a, &b, &[1u8; 16], &sealed).is_err());
     assert!(open(&[], &a, &b, &[1u8; 16], &sealed).is_err());
-    assert!(open(&[], &a, &b, &[1u8; 16], &[0u8; 4]).is_err(), "malformed");
+    assert!(
+        open(&[], &a, &b, &[1u8; 16], &[0u8; 4]).is_err(),
+        "malformed"
+    );
 }
 
 #[test]
@@ -70,7 +94,10 @@ fn relay_budget_reserves_refunds_and_persists() {
     let mut budget = RelayBudget::open(path.clone(), 10 * MB, now).unwrap();
     budget.reserve(now, 4 * MB).unwrap();
     assert_eq!(budget.remaining(now), 6 * MB);
-    assert!(budget.reserve(now, 7 * MB).is_err(), "over the monthly limit");
+    assert!(
+        budget.reserve(now, 7 * MB).is_err(),
+        "over the monthly limit"
+    );
     budget.refund(MB).unwrap();
     assert_eq!(budget.used(now), 3 * MB);
     let mut reopened = RelayBudget::open(path, 10 * MB, now).unwrap();

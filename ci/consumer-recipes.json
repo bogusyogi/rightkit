@@ -1558,7 +1558,7 @@
       "files": {
         "Cargo.toml": "05e56432f0bd77701fd96135da887d2cd19c963fc85bf656287f0c11a3b6adaf",
         "README.md": "3adc75dad4484961284b9a5bbd7797fcc36021ed4cf3e6fd74642e398fd68f48",
-        "src/main.rs": "d7d11f131211e5c691a17bd95892baaa6b5fcac123c1e754daa58a2fc53633eb"
+        "src/main.rs": "22f7c68ad8e7ca19860d4f53a85274898ea0a229520faac5c18740c47e2f673f"
       }
     }
   }
