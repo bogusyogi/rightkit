@@ -1,7 +1,8 @@
 //! Approval of paid drafts and of assets for delivery. The host registers each draft kind it
 //! approves with [`register_kind`] (for example recipes, video templates, training plans, or a
 //! human-eyes release whose draft id is the hex of the asset's content hash); `blender_finish`
-//! (a Blender product spec's finish confirmation) is built in.
+//! (a Blender product spec's finish confirmation) and `eyes` (the human-eyes release of an asset
+//! for delivery, [`eyes`]) are built in.
 //!
 //! Preflight issues a single-use challenge (a random nonce from the operating system's generator,
 //! the SHA-256 of the draft's canonical inputs, an expiry). If the OS random source fails, no
@@ -63,6 +64,8 @@ use rightkit_media_gen::{Context, GenError, GenResult};
 /// The token primitives (mint, verify, input hash, challenge and receipt files) shared by the
 /// shell that mints and the engine that verifies.
 pub use rightkit_media_gen::host::approval as token;
+
+pub mod eyes;
 
 pub const COMMANDS: &[&str] = &[
     "studio.approvals.challenge",
@@ -558,7 +561,8 @@ fn resolvers() -> &'static std::sync::Mutex<std::collections::BTreeMap<String, I
 }
 
 /// Register the inputs resolver of a host draft kind (`recipes`, `eyes`, ...). A later
-/// registration of the same kind replaces the earlier one. `blender_finish` is built in.
+/// registration of the same kind replaces the earlier one. `blender_finish` and `eyes` are built
+/// in.
 pub fn register_kind(kind: &str, resolver: InputsResolver) {
     resolvers()
         .lock()
@@ -579,6 +583,8 @@ fn handle_challenge(ctx: &Context, input: &Value) -> GenResult<Value> {
     let params = input.get("params").unwrap_or(&Value::Null);
     let (inputs, legacy) = if kind == proto::BLENDER_KIND {
         blender_inputs(params, id).map(|(_, inputs, hash)| (inputs, hash))?
+    } else if kind == eyes::KIND {
+        eyes::approval_inputs(ctx, params, id)?
     } else {
         let resolver = resolvers()
             .lock()
@@ -595,6 +601,7 @@ fn handle_challenge(ctx: &Context, input: &Value) -> GenResult<Value> {
                     .cloned()
                     .collect();
                 known.push(proto::BLENDER_KIND.to_string());
+                known.push(eyes::KIND.to_string());
                 return Err(GenError::new(
                     "invalid_input",
                     format!("unknown approval kind \"{kind}\" ({})", known.join(", ")),
