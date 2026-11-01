@@ -699,6 +699,8 @@ test("[rightkit#1350] a Windows broker host's wrapper is a copy of the RustRight
     assert.equal(fs.existsSync(told), false, `${why}: nothing is left behind`);
   }
   assert.throws(() => installCargoShim({ base: path.join(dir, "shim"), snapshotRoot: snap, targetDirs: { ".": path.join(dir, "t") }, platform: "win32", realCargo: "C:\\cargo.exe" }), (e) => e.code === "RK_CARGO_SHIM_UNSUPPORTED", "a direct Windows host still has no wrapper");
+});
+
 // Regression (qualify 41330530379): two wrappers over the same workspace map have the same identity and so the same directory name.
 // The unit stage's outer wrapper and the class A wrapper of the same unit bind the same closure; if both were installed under one base,
 // the class A cleanup removed the directory the compile stage's PATH still named, cargo ran unwrapped and wrote target/ into the snapshot.
