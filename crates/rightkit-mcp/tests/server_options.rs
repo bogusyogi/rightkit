@@ -1,5 +1,5 @@
 //! Wire contracts for opt-in hosting & a Membrane-shaped adapter fixture.
-//! Fixtures exercise host behavior without depending on the host app's runtime.
+//! Fixtures exercise host behavior without depending on CodeRight's runtime.
 
 use std::io::{self, BufRead, Cursor, Read, Write};
 use std::sync::{Arc, Mutex};

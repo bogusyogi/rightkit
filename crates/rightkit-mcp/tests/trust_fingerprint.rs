@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use rightkit_mcp::{fingerprint, ServerSpec, TrustDecision, TrustStore};
 
-const SECRET: &str = concat!("sk", "-live-canary-7f3a9c2e51");
+const SECRET: &str = "sk-live-canary-7f3a9c2e51";
 
 #[test]
 fn only_a_missing_file_is_an_empty_store() {

@@ -1,5 +1,5 @@
 //! The loopback host (`remote-loopback`, PK06-5) over real TCP: bounded parser, loopback bind,
-//! Host/Origin/CSRF policy, bearer and capability verification, the host app's presence routes and
+//! Host/Origin/CSRF policy, bearer and capability verification, CodeRight's presence routes and
 //! discovery record.
 
 use rightkit_daemon::loopback::*;
@@ -597,7 +597,7 @@ fn the_global_token_bucket_answers_429() {
 }
 
 #[test]
-fn presence_follows_host_and_the_host_may_exit_when_the_last_client_leaves() {
+fn presence_follows_coderight_and_the_host_may_exit_when_the_last_client_leaves() {
     let idle = Arc::new(AtomicBool::new(false));
     let flag = idle.clone();
     let config = base_config()

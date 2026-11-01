@@ -1,15 +1,15 @@
-//! Parity with the the host app support-bundle redactor
+//! Parity with the CodeRight support-bundle redactor
 //! (`engine/crates/support_bundle/src/lib.rs`, `redact_text`): every
 //! free-text pattern it applies has a positive and a no-false-positive case
 //! here. Owner gap M15 O5.
 //!
 //! Expected strings name the placeholders `scrub.rs` emits. Patterns that
-//! the host app covers but `scrub_text` deliberately does not (absolute paths
+//! CodeRight covers but `scrub_text` deliberately does not (absolute paths
 //! outside a user directory) are pinned as shape-preserving.
 
 use rightkit_logs::scrub::{redact_quoted, scrub_text, scrub_text_with, scrub_value, ScrubOptions};
 
-// Bearer: the host app drops the token after a `Bearer` marker.
+// Bearer: CodeRight drops the token after a `Bearer` marker.
 
 #[test]
 fn bearer_token_after_marker_is_dropped() {
@@ -41,7 +41,7 @@ fn telegram_shape_without_long_secret_or_long_id_is_kept() {
     assert_eq!(scrub_text(text), text);
 }
 
-// API keys: the host app's `csk-` and `or-` prefixes.
+// API keys: CodeRight's `csk-` and `or-` prefixes.
 
 #[test]
 fn csk_api_key_is_redacted() {
@@ -71,7 +71,7 @@ fn or_hyphenated_words_without_digits_are_kept() {
     assert_eq!(scrub_text(text), text);
 }
 
-// Email: the host app redacts any local@domain.tld token.
+// Email: CodeRight redacts any local@domain.tld token.
 
 #[test]
 fn email_address_is_redacted() {
@@ -87,7 +87,7 @@ fn email_shape_without_dotted_domain_is_kept() {
     assert_eq!(scrub_text(text), text);
 }
 
-// Paths: the host app redacts absolute paths whole. `scrub_text` masks only the
+// Paths: CodeRight redacts absolute paths whole. `scrub_text` masks only the
 // user segment of a home directory and keeps the rest of the shape, so
 // reports stay diagnosable (scrub.rs module contract). This test pins that
 // divergence.
@@ -106,7 +106,7 @@ fn non_user_absolute_path_keeps_shape() {
     assert_eq!(scrub_text(text), text);
 }
 
-// Opt-in full-path redaction (`ScrubOptions::redact_paths`), the host app parity:
+// Opt-in full-path redaction (`ScrubOptions::redact_paths`), CodeRight parity:
 // every absolute path token becomes `[path]`. The default keeps path shape.
 
 fn redact_paths() -> ScrubOptions {

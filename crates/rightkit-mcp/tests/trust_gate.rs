@@ -86,16 +86,13 @@ fn pending_approval_names_the_fingerprint_and_no_env_values() {
     let spec = ServerSpec::Stdio {
         command: "node".into(),
         args: vec!["a.js".into()],
-        env: BTreeMap::from([(
-            "TOKEN".to_string(),
-            concat!("sk", "-secret-value").to_string(),
-        )]),
+        env: BTreeMap::from([("TOKEN".to_string(), "sk-secret-value".to_string())]),
         cwd: None,
     };
     let pending = TrustStore::new().pending_approval("/p", "s", &spec);
     assert_eq!(pending.env_keys, vec!["TOKEN"]);
     assert!(pending.fingerprint.starts_with("sha256:"));
-    assert!(!format!("{pending:?}").contains(concat!("sk", "-secret-value")));
+    assert!(!format!("{pending:?}").contains("sk-secret-value"));
 }
 
 #[test]

@@ -570,7 +570,7 @@ fn real_local_artifacts_and_locks_match_their_catalog_records() {
 
     for (lib, lock) in [
         (NativeLibrary::SqliteVec, "mailright/src-tauri/Cargo.lock"),
-        (NativeLibrary::Libgit2, "rightkit-agent/engine/Cargo.lock"),
+        (NativeLibrary::Libgit2, "coderight/engine/Cargo.lock"),
     ] {
         let path = root.join(lock);
         if !path.is_file() {

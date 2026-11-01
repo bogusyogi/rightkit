@@ -54,7 +54,7 @@ case "$mode" in
     sleep 300 ;;
   fail)
     cat >/dev/null
-    echo concat!("boom sk", "-ant-api03-ABCDEFGHIJKLMNOP123456 token=hunter2") >&2
+    echo "boom sk-ant-api03-ABCDEFGHIJKLMNOP123456 token=hunter2" >&2
     exit 3 ;;
   signedout)
     cat >/dev/null
@@ -486,14 +486,8 @@ fn missing_program_is_not_installed() {
 fn environment_is_allow_listed_and_secrets_never_reach_the_child() {
     let fx = Fixture::new();
     std::env::set_var("RK_CLI_TEST_PLANTED", "planted-value");
-    std::env::set_var(
-        "ANTHROPIC_API_KEY",
-        concat!("sk", "-ant-planted-key-0123456789"),
-    );
-    std::env::set_var(
-        "OPENAI_API_KEY",
-        concat!("sk", "-planted-openai-0123456789"),
-    );
+    std::env::set_var("ANTHROPIC_API_KEY", "sk-ant-planted-key-0123456789");
+    std::env::set_var("OPENAI_API_KEY", "sk-planted-openai-0123456789");
     let mut spec = fx.spec("env", OutputFormat::Text);
     spec.env_set.push(("RK_FIXED".into(), "fixed".into()));
     let out = fx.provider(spec).complete(&req("x")).unwrap().text();

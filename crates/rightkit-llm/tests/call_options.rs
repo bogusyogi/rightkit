@@ -12,7 +12,7 @@ use rightkit_llm::credentials::{CredentialSource, StaticCredentials};
 use rightkit_llm::openai::OpenAiCompatProvider;
 use rightkit_llm::{Attempt, AttemptBilling, ChatRequest, LlmError, Provider, StreamEvent};
 
-const SENTINEL: &str = concat!("sk", "-SENTINEL-do-not-leak-7f3a9c");
+const SENTINEL: &str = "sk-SENTINEL-do-not-leak-7f3a9c";
 
 fn client() -> Client {
     Client::new(ClientConfig {

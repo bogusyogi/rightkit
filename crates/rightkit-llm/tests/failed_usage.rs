@@ -19,7 +19,7 @@ fn client() -> Client {
 }
 
 fn creds(id: &str) -> Arc<dyn CredentialSource> {
-    Arc::new(StaticCredentials::default().with(id, concat!("sk", "-test-failed-usage")))
+    Arc::new(StaticCredentials::default().with(id, "sk-test-failed-usage"))
 }
 
 fn truncated() -> MockResponse {
