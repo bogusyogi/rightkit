@@ -1954,3 +1954,33 @@ test("the plan exposes the Linux-required units to the workflow and refuses an u
   assert.equal(pins.platforms.linux64.sha256, "e6c94490f0b6b337225aeb2d2a5034858516b7017356980ba94f5176d8774a50", "linux64 uses the exact reviewed qa-chrome installer pin");
   assert.equal(pinFor(pins, "linux64").sha256, pins.platforms.linux64.sha256);
 });
+
+test("upload (crates) waits out a new-crate rate limit until the time crates.io names, then sends the same upload again; a longer wait fails as before", async () => {
+  const sealed = sealCrates(["rightkit-a"]);
+  const receiptsDir = receipts(sealed.dir, sealed.manifest);
+  const unit = sealed.manifest.units[0];
+  const now = Date.parse("Sun, 01 Nov 2026 13:27:51 GMT");
+  const limited = (after) => JSON.stringify({ errors: [{ detail: `You have published too many new crates in a short period of time. Please try again after ${after} and see https://crates.io/docs/rate-limits for more details.` }] });
+  const run = async (answers) => {
+    const puts = []; const waits = []; let indexReads = 0;
+    const fetchImpl = async (url, options = {}) => {
+      if (String(url) === CRATES_PUBLISH_URL) { puts.push(options.body); const [status, body] = answers.shift(); return { status, ok: status < 400, text: async () => body }; }
+      return indexReads++ === 0 ? { status: 404, ok: false, text: async () => "" } : { status: 200, ok: true, text: async () => JSON.stringify({ vers: "0.1.0", cksum: unit.sha256 }) };
+    };
+    const env = actionsEnv({ PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: "rightkit-a", CARGO_REGISTRY_TOKEN: "crate-secret-token" });
+    const result = executeUpload({ env, packDir: sealed.dir, receiptsDir, outDir: tmp("out"), dryRun: false, spawn: spy().spawn, fetchImpl, pause: 1, now: () => now, wait_: async (ms) => { waits.push(ms); } });
+    return { result, puts, waits };
+  };
+  const ok = await run([[429, limited("Sun, 01 Nov 2026 13:36:08 GMT")], [200, JSON.stringify({ warnings: {} })]]);
+  const doc = await ok.result;
+  assert.deepEqual(ok.waits, [8 * 60_000 + 17_000 + 5_000], "until the named instant plus a five-second margin");
+  assert.equal(ok.puts.length, 2);
+  assert.ok(ok.puts[0].equals(ok.puts[1]), "the same sealed bytes are sent again");
+  assert.deepEqual(doc.receipts.map((r) => [r.unit, r.published, r.registryVerified]), [["rightkit-a", true, true]]);
+  const far = await run([[429, limited("Sun, 01 Nov 2026 14:27:51 GMT")]]);
+  await assert.rejects(far.result, /HTTP 429/);
+  assert.deepEqual(far.waits, [], "a wait longer than the bound is left to the relay");
+  const plain = await run([[429, "slow down"]]);
+  await assert.rejects(plain.result, /HTTP 429/);
+  assert.deepEqual(plain.waits, []);
+});
