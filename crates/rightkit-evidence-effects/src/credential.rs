@@ -77,10 +77,12 @@ fn decode_blob(bytes: &[u8]) -> Option<String> {
     if bytes.is_empty() {
         return None;
     }
-    if bytes.len() % 2 == 0 && bytes.iter().skip(1).step_by(2).all(|b| *b == 0) {
+    if bytes.len().is_multiple_of(2) && bytes.iter().skip(1).step_by(2).all(|b| *b == 0) {
         let units: Vec<u16> = bytes
-            .chunks_exact(2)
-            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| u16::from_le_bytes(*pair))
             .collect();
         return String::from_utf16(&units).ok();
     }
