@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T10:17:32Z",
-  "rightkitHead": "8df3c35",
+  "generatedAt": "2026-11-01T10:17:58Z",
+  "rightkitHead": "6406adc",
   "legend": [
     {
       "state": "adopted",
@@ -20331,7 +20331,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-demo-mode"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -21334,7 +21336,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-gateway"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -23236,7 +23240,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "chat-bridge"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -24810,7 +24816,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "device-link-types"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -25616,7 +25624,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "doctor"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -28580,7 +28590,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "owner-approvals"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -29468,7 +29480,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "remote-agent-gateway"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -31839,7 +31853,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "web-session"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",

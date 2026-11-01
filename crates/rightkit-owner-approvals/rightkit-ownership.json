@@ -2,7 +2,7 @@
   "package": "rightkit-owner-approvals",
   "capabilities": [
     {
-      "capability": "approvals",
+      "capability": "owner-approvals",
       "summary": "Signed owner approvals for privileged and reserved actions: owner-check and approver keys, key bindings, secret redaction and the security audit trail.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
