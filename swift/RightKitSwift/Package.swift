@@ -95,7 +95,7 @@ let package = Package(
         .target(name: "RightKitOverlay"),
         .testTarget(name: "RightKitOverlayTests", dependencies: ["RightKitOverlay"]),
         // FSEvents file watcher (macOS only; the target is empty on iOS). CoreServices from the SDK.
-        .target(name: "RightKitWatch"),
+        .target(name: "RightKitWatch", dependencies: ["RightKitWatchBridge"]),
         .testTarget(name: "RightKitWatchTests", dependencies: ["RightKitWatch"]),
         .target(name: "RightKitUI", dependencies: ["RightKitLicense", "RightKitPurchases"]),
         .testTarget(name: "RightKitUITests", dependencies: ["RightKitUI"]),
