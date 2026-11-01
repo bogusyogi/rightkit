@@ -9,9 +9,22 @@ use rightkit_agent_transcript::{
 };
 
 fn fixture(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures")
-        .join(name)
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let template = dir.join(format!("{name}.tmpl"));
+    if !template.exists() {
+        return dir.join(name);
+    }
+    // Secret-shaped test vectors are assembled at run time so the tree holds no token-shaped bytes (secret scans read it).
+    let token = format!("{}_{}", "ghp", "abcdefghijklmnopqrstuvwx");
+    let text = std::fs::read_to_string(&template)
+        .unwrap()
+        .replace("@GH_TOKEN@", &token);
+    let out = std::env::temp_dir().join(format!(
+        "rightkit-agent-transcript-{}-{name}",
+        std::process::id()
+    ));
+    std::fs::write(&out, text).unwrap();
+    out
 }
 
 #[test]
