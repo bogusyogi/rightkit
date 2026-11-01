@@ -137,6 +137,7 @@ test("pnpm subprocess preserves JSON arguments and dev environment without compi
       run: (command, args, options) => {
         const result = spawnSync(command, args, { ...options, stdio: "pipe", encoding: "utf8" });
         output = result.stdout;
+        if (result.status !== 0) process.stderr.write(`# pnpm subprocess exited ${result.status} (${result.error?.message ?? "no spawn error"}) running ${command} ${JSON.stringify(args)}\n# stdout: ${String(result.stdout).slice(0, 1500)}\n# stderr: ${String(result.stderr).slice(0, 1500)}\n`);
         return result;
       },
     });

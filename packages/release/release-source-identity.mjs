@@ -76,6 +76,7 @@ export function resolveReleaseSource({ cwd = process.cwd(), env = process.env, g
   let detail = "";
   try { repoRoot = plainGit(git, cwd, ["rev-parse", "--show-toplevel"]).trim(); } catch (error) { detail = ` (${error.message})`; }
   if (!repoRoot) throw new ReleaseSourceError(`${cwd} is not inside a Git repository${detail}`, NO_REPOSITORY_CODE);
+  repoRoot = path.normalize(repoRoot); // git prints C:/dir on Windows; every other path here is in the platform's own spelling
   const commit = plainGit(git, repoRoot, ["rev-parse", "HEAD"]).trim();
   const tree = plainGit(git, repoRoot, ["rev-parse", `${commit}^{tree}`]).trim();
   if (!OBJECT_ID.test(commit) || !OBJECT_ID.test(tree)) throw new Error("the checkout's HEAD is not a commit");
