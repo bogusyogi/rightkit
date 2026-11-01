@@ -28,7 +28,7 @@
 // overridden the value the gate passed: a residual of the trusted per-user model, not refused (map 7.12).
 import fs from "node:fs";
 import path from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { spawnSync } from "./background-process.mjs";
 import { spawnBrokerClient } from "./broker-client.mjs";
 import { fileURLToPath } from "node:url";
@@ -176,7 +176,9 @@ export function installCargoShim({ base, snapshotRoot, targetDirs, broker = null
   const bin = path.join(dir, "bin");
   const shim = path.join(bin, "cargo");
   const mapFile = path.join(dir, "cargo-target-map.json");
-  const ledgerDir = path.join(dir, "ledger");
+  // The wrapper directory is identity-keyed and outlives a killed run, so each install gets its own ledger: a dead run's
+  // pending record is never read as this run's call.
+  const ledgerDir = path.join(dir, `ledger-${process.pid}-${randomBytes(6).toString("hex")}`);
   // The caller learns the directory before anything is written into it (its cleanup owns it from here), and a failed install removes
   // what it wrote before it throws.
   onDir(dir);

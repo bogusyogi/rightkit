@@ -642,3 +642,18 @@ test("[behavior] item 7 row 7.10 real cargo, nested $CARGO (F7): a build script'
   assert.ok(result.notes.includes(UNOBSERVED_NESTED_CARGO_NOTE), `the scan result notes the nested call as unobserved: ${JSON.stringify(result.notes)}`);
   assert.match(UNOBSERVED_NESTED_CARGO_NOTE, /unobserved/);
 });
+
+test("a reinstalled wrapper (same identity, a killed run's directory left behind) gets a fresh ledger: a dead run's pending record is never read as this run's", { skip: POSIX }, (t) => {
+  const dir = tmp(t);
+  const snap = path.join(dir, "snap"); fs.mkdirSync(snap, { recursive: true });
+  const realCargo = path.join(dir, "cargo"); fs.writeFileSync(realCargo, "#!/bin/sh\nexit 0\n"); fs.chmodSync(realCargo, 0o755);
+  const args = { base: path.join(dir, "shim"), snapshotRoot: snap, targetDirs: { ".": path.join(dir, "target") }, realCargo };
+  const first = installCargoShim(args);
+  // The killed run: its pending record stays in its ledger, and its directory is never cleaned up.
+  fs.writeFileSync(path.join(first.ledgerDir, "0123456789abcdef.jsonl"), `${JSON.stringify({ schema: "rightkit.cargo-ledger/1", id: "x", status: "pending" })}\n`);
+  const second = installCargoShim(args);
+  assert.equal(second.dir, first.dir, "same identity, same wrapper directory");
+  assert.notEqual(second.ledgerDir, first.ledgerDir);
+  assert.deepEqual(fs.readdirSync(second.ledgerDir), [], "the new run's ledger starts empty");
+  assert.equal(JSON.parse(fs.readFileSync(second.mapFile, "utf8")).ledgerDir, second.ledgerDir, "the map names this install's ledger");
+});
