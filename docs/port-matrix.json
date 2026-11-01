@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T11:01:31Z",
-  "rightkitHead": "9167b88",
+  "generatedAt": "2026-11-01T11:01:47Z",
+  "rightkitHead": "b955b68",
   "legend": [
     {
       "state": "adopted",
@@ -26300,7 +26300,7 @@
       "private": false,
       "source": "0.1.2",
       "registry": "",
-      "staged": "0.1.1",
+      "staged": "0.1.2",
       "dir": "crates/rightkit-document-workspace",
       "toMoveFrom": {},
       "cells": {
@@ -32797,7 +32797,7 @@
       "private": false,
       "source": "0.1.2",
       "registry": "",
-      "staged": "0.1.1",
+      "staged": "0.1.2",
       "dir": "crates/rightkit-web-extract",
       "toMoveFrom": {},
       "cells": {

@@ -775,7 +775,7 @@
       "pkId": "PK12",
       "id": "ci/consumers/rightkit-browser/src/main.rs",
       "files": {
-        "Cargo.toml": "66f19240a9234d4f80a96278c572334001169febaa6137455e4e18ed3ac5f903",
+        "Cargo.toml": "4bc9cc66df5c1270b8b56177b1086d00da90adaa0cddbdbd5808703a4e9bf7c9",
         "README.md": "8515f8481c8a4fb81582afc0acfa1638aaafe61364656e050bd1e5abb920bc82",
         "src/main.rs": "a719e9badfca191c21ee3491b4f184a342eea93140f514050897cd0af8d520e9"
       },
@@ -1457,7 +1457,7 @@
       "pkId": "PK40",
       "id": "ci/consumers/rightkit-search/src/main.rs",
       "files": {
-        "Cargo.toml": "56582f8553af4e59299ef4e6f656285d730e885a1d92a535d39230e2ea4e6c51",
+        "Cargo.toml": "d7c32b60fef012bad82e2486687db30df3c51f82fa6a64a21ed7f3660f810dc3",
         "README.md": "0ebdf7d0077620309017a5e663f35d5cdf67a44b1080e62ebccb2428e77a342e",
         "src/main.rs": "4aadf55d19cb48b083d6efa2ee6a6aa5d1c964ae40ead25c4652060218cca4ee"
       }
@@ -1898,7 +1898,7 @@
       "pkId": "PK93",
       "id": "ci/consumers/rightkit-document-workspace/src/main.rs",
       "files": {
-        "Cargo.toml": "6549ab2552dab8968395d8ca42bc0451c0a127f756df30164a6690cb18761f56",
+        "Cargo.toml": "774e75f90d43a1258f07abb98379c323698dbf073e20ddc1df554c02858d14f5",
         "README.md": "5ede4146ed109cea16010d109b35430fbd8ca3b34e90e5539d78372f956c7fa8",
         "src/main.rs": "3d2631f7ac19447109b6ee3b58534719431df2d862f6585e0afd180728a65182"
       }
@@ -2168,7 +2168,7 @@
       "pkId": "PK123",
       "id": "ci/consumers/rightkit-web-extract/src/main.rs",
       "files": {
-        "Cargo.toml": "8f393ee2a4e72c0d1eaf193650dc2a274af50ea76c08eb6326bddff1cc127e2a",
+        "Cargo.toml": "1cefed25005be8a6af0dfab320f6bb7d5f7f019ffa420d3d0f3b1c7f4def6130",
         "README.md": "392b6edb079216c67e9855e783b222724a4d4cf99bff35f66bc2086c02b07db7",
         "src/main.rs": "bf8263a408ba7d0131e15c983eae2d152d088537da336c30473968aaeaf6d1d0"
       }
