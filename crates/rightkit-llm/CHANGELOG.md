@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0 (unreleased)
+
+- Features `agent_providers` (provider clients, credential broker, subscription auth, model metadata, replay harness; `-os-keyring`, `-host-env`, `-replay-record`) and `agent_router` (cheap/capable routing policy) moved from CodeRight `coderight-providers` and `coderight-router`.
+
 ## 0.3.1 (unpublished staging)
 
 - **Fixed: `LlmError::billing()` reported `Spend::Unknown` for failures that never reached the provider.** A `HttpError::Transport` or `HttpError::Timeout` whose phase is `Phase::Connect` (name lookup, TCP connect, TLS handshake) and a `HttpError::InvalidRequest` are now `Spend::NotSpent`, as the method's own documentation says ("`NotSpent` when nothing was sent"). Headers, body and redirect phases stay `Unknown`. Reported by HeardRight (its provider ladder had to override this in `l3_cleanup/transport.rs`).

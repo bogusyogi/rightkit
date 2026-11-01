@@ -21,6 +21,10 @@
 //! - Credentials come from a [`credentials::CredentialSource`]; production wiring
 //!   uses `rightkit-credentials` through the `SecretStore` trait.
 
+#[cfg(feature = "agent_providers")]
+pub mod agent_providers;
+#[cfg(feature = "agent_router")]
+pub mod agent_router;
 pub mod anthropic;
 pub mod breaker;
 pub mod cache;

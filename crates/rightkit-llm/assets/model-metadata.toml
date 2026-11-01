@@ -1,0 +1,390 @@
+# Bundled model pricing + capability registry for CodeRight.
+#
+# One row per model slug. Ships compiled into the binary via `include_str!`
+# (offline-safe default) and can be overridden wholesale by a matching file at
+# `<config-dir>/model-metadata.toml` (see providers::model_metadata::load()).
+#
+# Fields:
+#   slug                 — provider-native or OpenRouter-style "vendor/model" id
+#   prompt_per_m         — USD per 1,000,000 prompt tokens
+#   completion_per_m     — USD per 1,000,000 completion tokens
+#   context_window_tokens — max context window in tokens
+#   compaction_trigger_percent — automatic compaction ratio for this model
+#   compaction_reserve_tokens — minimum context headroom retained before a turn
+#   compaction_max_output_tokens — provider output cap for the summary request
+#   tier                 — "cheap" | "capable" (coarse cost/capability bucket the
+#                          router consults; NOT the same as escalation_tier)
+#   reasoning            — 0-3, coarse reasoning-depth rating (higher = deeper)
+#   tool_schema_class    — tool-calling schema family this model was verified
+#                          against ("openai-tools" covers OpenAI-compatible
+#                          function-calling used by every provider we route to
+#                          today)
+#   vision               — true if the model accepts image inputs
+#
+# CRA-10 (semantic-contracts.md "Model-aware capacity & final insertion"):
+# `context_window_tokens` and `compaction_reserve_tokens` above are the exact
+# two fields `ModelCapability::capacity_profile()` uses as H8
+# `window_tokens`/`reserve_tokens` for the `o200k_base/1` Estimated capacity
+# gate. `compaction_trigger_percent` and `compaction_max_output_tokens` never
+# substitute for `context_window_tokens` as the effective limit.
+#
+# Pricing sources are cited in the commit that introduced/changed each row;
+# where a provider publishes tiered pricing (e.g. context-length breakpoints),
+# the flagship/most representative published rate is used and noted below.
+# Unlisted models fall back to the conservative $1/$3 per-1M default in
+# `pricing.rs` — never edit that fallback here.
+
+[[model]]
+slug = "deepseek/deepseek-v4-pro"
+prompt_per_m = 0.435
+completion_per_m = 0.87
+context_window_tokens = 1048576
+compaction_trigger_percent = 85
+compaction_reserve_tokens = 65536
+compaction_max_output_tokens = 32768
+tier = "capable"
+reasoning = 2
+tool_schema_class = "openai-tools"
+vision = false
+# Source: https://openrouter.ai/deepseek/deepseek-v4-pro (verified 2026-07-04).
+# Supersedes the earlier 0.50/1.50/131072 placeholder in pricing.rs, which
+# disagreed with docs/archive/BREWS-superseded.md's own 0.27/0.40/65536
+# row for the same slug — both were stale; this is the reconciled value.
+
+[[model]]
+slug = "deepseek/deepseek-v4-flash"
+prompt_per_m = 0.09
+completion_per_m = 0.18
+context_window_tokens = 1048576
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 65536
+compaction_max_output_tokens = 32768
+tier = "cheap"
+reasoning = 1
+tool_schema_class = "openai-tools"
+vision = false
+# Source: https://openrouter.ai/deepseek/deepseek-v4-flash (verified 2026-07-04).
+# Supersedes the earlier 0.10/0.20/131072 placeholder.
+
+[[model]]
+slug = "deepseek/deepseek-v4"
+prompt_per_m = 0.435
+completion_per_m = 0.87
+context_window_tokens = 1048576
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 65536
+compaction_max_output_tokens = 32768
+tier = "capable"
+reasoning = 2
+tool_schema_class = "openai-tools"
+vision = false
+# Onboarding-surfaced bare slug (apps/coderight-tauri/src/lib/providerPresets.ts).
+# No independently published "deepseek-v4" (untiered) listing was found as of
+# 2026-07-04; priced at the flagship Pro tier's published rate as the closest
+# verifiable non-fabricated number. Doc-asserted mapping, not a separately
+# confirmed price for this exact slug — reconcile if OpenRouter lists it directly.
+
+[[model]]
+slug = "xiaomi/mimo-v2.5"
+prompt_per_m = 0.14
+completion_per_m = 0.28
+context_window_tokens = 1048576
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 65536
+compaction_max_output_tokens = 32768
+tier = "cheap"
+reasoning = 1
+tool_schema_class = "openai-tools"
+vision = false
+
+[[model]]
+slug = "xiaomi/mimo-v2.5-pro"
+prompt_per_m = 0.435
+completion_per_m = 0.87
+context_window_tokens = 1048576
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 65536
+compaction_max_output_tokens = 32768
+tier = "capable"
+reasoning = 2
+tool_schema_class = "openai-tools"
+vision = false
+
+[[model]]
+slug = "llama-3.3-70b-versatile"
+prompt_per_m = 0.59
+completion_per_m = 0.79
+context_window_tokens = 131072
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 16384
+compaction_max_output_tokens = 8192
+tier = "cheap"
+reasoning = 1
+tool_schema_class = "openai-tools"
+vision = false
+
+[[model]]
+slug = "z-ai/glm-5.3-flash"
+prompt_per_m = 0.0
+completion_per_m = 0.0
+context_window_tokens = 131072
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 16384
+compaction_max_output_tokens = 8192
+tier = "cheap"
+reasoning = 1
+tool_schema_class = "openai-tools"
+vision = false
+
+[[model]]
+slug = "moonshotai/kimi-k2.6"
+prompt_per_m = 0.68
+completion_per_m = 3.41
+context_window_tokens = 262144
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 49152
+compaction_max_output_tokens = 32768
+tier = "capable"
+reasoning = 2
+tool_schema_class = "openai-tools"
+vision = false
+
+[[model]]
+slug = "moonshotai/kimi-k2.5"
+prompt_per_m = 0.375
+completion_per_m = 2.025
+context_window_tokens = 262144
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 49152
+compaction_max_output_tokens = 32768
+tier = "capable"
+reasoning = 2
+tool_schema_class = "openai-tools"
+vision = false
+
+[[model]]
+slug = "qwen/qwen3.7-max"
+prompt_per_m = 1.20
+completion_per_m = 6.00
+context_window_tokens = 131072
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 32768
+compaction_max_output_tokens = 16384
+tier = "capable"
+reasoning = 3
+tool_schema_class = "openai-tools"
+vision = false
+
+[[model]]
+slug = "qwen/qwen3.7-plus"
+prompt_per_m = 0.40
+completion_per_m = 1.20
+context_window_tokens = 131072
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 32768
+compaction_max_output_tokens = 16384
+tier = "cheap"
+reasoning = 1
+tool_schema_class = "openai-tools"
+vision = false
+
+[[model]]
+slug = "qwen/qwen3-vl-235b-a22b-instruct"
+prompt_per_m = 0.20
+completion_per_m = 0.88
+context_window_tokens = 131072
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 32768
+compaction_max_output_tokens = 16384
+tier = "cheap"
+reasoning = 1
+tool_schema_class = "openai-tools"
+vision = true
+
+[[model]]
+slug = "z-ai/glm-4.7"
+prompt_per_m = 0.30
+completion_per_m = 1.00
+context_window_tokens = 128000
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 32000
+compaction_max_output_tokens = 16000
+tier = "cheap"
+reasoning = 1
+tool_schema_class = "openai-tools"
+vision = false
+
+[[model]]
+slug = "z-ai/glm-5.2"
+prompt_per_m = 0.98
+completion_per_m = 3.08
+context_window_tokens = 203000
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 48000
+compaction_max_output_tokens = 32000
+tier = "capable"
+reasoning = 3
+tool_schema_class = "openai-tools"
+vision = false
+# Renamed from the stale "z-ai/glm-5.1" row (pricing.rs / COST-MANAGEMENT.md):
+# the builtin roster's conductor (builtins/roster/core.rs), review_panel
+# catalog, and CONDUCTOR_RUNTIME_MODEL_IDS (orchestrator/worker.rs) all use
+# "z-ai/glm-5.2" — the priced slug never matched the live roster. Pricing
+# figures carried over unchanged pending a live-rate reconciliation; flagged
+# doc-asserted.
+
+[[model]]
+slug = "minimax/minimax-m2"
+prompt_per_m = 0.30
+completion_per_m = 1.10
+context_window_tokens = 1000000
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 65536
+compaction_max_output_tokens = 32768
+tier = "cheap"
+reasoning = 1
+tool_schema_class = "openai-tools"
+vision = false
+
+[[model]]
+slug = "minimax/minimax-m3"
+prompt_per_m = 0.25
+completion_per_m = 1.00
+context_window_tokens = 205000
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 48000
+compaction_max_output_tokens = 32000
+tier = "cheap"
+reasoning = 2
+tool_schema_class = "openai-tools"
+vision = false
+
+[[model]]
+slug = "stepfun/step-3.7-flash"
+prompt_per_m = 0.20
+completion_per_m = 0.80
+context_window_tokens = 256000
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 49152
+compaction_max_output_tokens = 32768
+tier = "cheap"
+reasoning = 1
+tool_schema_class = "openai-tools"
+vision = false
+
+[[model]]
+slug = "x-ai/grok-build-0.1"
+prompt_per_m = 1.00
+completion_per_m = 2.00
+context_window_tokens = 256000
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 49152
+compaction_max_output_tokens = 32768
+tier = "capable"
+reasoning = 2
+tool_schema_class = "openai-tools"
+vision = false
+
+[[model]]
+slug = "anthropic/claude-sonnet-4.5"
+prompt_per_m = 3.00
+completion_per_m = 15.00
+context_window_tokens = 200000
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 48000
+compaction_max_output_tokens = 32000
+tier = "capable"
+reasoning = 3
+tool_schema_class = "openai-tools"
+vision = true
+# Source: https://platform.claude.com/docs/en/about-claude/pricing (verified
+# 2026-07-04): $3/$15 per MTok base input/output.
+
+[[model]]
+slug = "openai/gpt-5.1"
+prompt_per_m = 1.25
+completion_per_m = 10.00
+context_window_tokens = 400000
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 65536
+compaction_max_output_tokens = 32768
+tier = "capable"
+reasoning = 3
+tool_schema_class = "openai-tools"
+vision = true
+# Doc-asserted: GPT-5.1 official pricing page not independently re-verified
+# this pass; carried from prior published OpenAI GPT-5.1 API rates
+# ($1.25/$10 per MTok, 400K context). Reconcile against
+# https://platform.openai.com/docs/pricing if this drifts.
+
+[[model]]
+slug = "google/gemini-3-pro"
+prompt_per_m = 2.00
+completion_per_m = 12.00
+context_window_tokens = 1048576
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 65536
+compaction_max_output_tokens = 32768
+tier = "capable"
+reasoning = 3
+tool_schema_class = "openai-tools"
+vision = true
+# Source: https://ai.google.dev/gemini-api/docs/pricing (verified 2026-07-04):
+# $2/$12 per MTok base tier (<=200K context); tiered pricing doubles beyond
+# 200K context ($4/$18) — this row carries the base tier as the representative
+# rate.
+
+[[model]]
+slug = "anthropic/claude-sonnet-5"
+prompt_per_m = 2.00
+completion_per_m = 10.00
+context_window_tokens = 1000000
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 65536
+compaction_max_output_tokens = 32768
+tier = "capable"
+reasoning = 3
+tool_schema_class = "openai-tools"
+vision = true
+# Released 2026-06-30. Source: https://platform.claude.com/docs/en/about-claude/pricing
+# (verified 2026-07-04): introductory pricing $2/$10 per MTok through
+# 2026-08-31, then $3/$15 standard. This row carries the CURRENT introductory
+# rate; revisit after 2026-08-31.
+
+[[model]]
+slug = "openai/gpt-5.6"
+prompt_per_m = 2.50
+completion_per_m = 15.00
+context_window_tokens = 1500000
+compaction_trigger_percent = 70
+compaction_reserve_tokens = 98304
+compaction_max_output_tokens = 65536
+tier = "capable"
+reasoning = 3
+tool_schema_class = "openai-tools"
+vision = true
+# Released 2026-06-28 (limited preview, per OpenAI's "Previewing GPT-5.6 Sol"
+# announcement: https://openai.com/index/previewing-gpt-5-6-sol/). GPT-5.6
+# ships as three durable-capability tiers (Luna/Terra/Sol); no first-party
+# per-token price table was found for the bare "gpt-5.6" slug as of
+# 2026-07-04. DOC-ASSERTED: priced at the mid ("Terra") tier
+# ($2.50/$15 per MTok) per secondary aggregator reporting
+# (https://www.aipricing.guru/openai-pricing/) as the closest verifiable
+# general-purpose default; reconcile against OpenAI's official pricing page
+# once the model is out of limited preview.
+
+[[model]]
+slug = "openai/gpt-6.1-sol"
+# https://developers.openai.com/api/docs/models/gpt-6.1-sol (2026-10-01)
+supported_efforts = ["low", "medium", "high", "xhigh", "max"]
+prompt_per_m = 2.00
+completion_per_m = 10.00
+context_window_tokens = 272000
+tier = "capable"
+reasoning = 3
+tool_schema_class = "openai-tools"
+vision = true
+# OpenAI's model documentation reports API pricing of $2/$10 per MTok and a
+# 1.05M API maximum: https://developers.openai.com/api/docs/models/gpt-6.1-sol
+# CodeRight uses the current native model-cache context value (272K) as the
+# effective window; this is below the published API maximum.

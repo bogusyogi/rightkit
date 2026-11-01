@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-llm"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline, plus an opt-in provider for installed command-line assistants."
@@ -9,21 +9,47 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["llm", "anthropic", "openai", "streaming"]
 categories = ["api-bindings"]
-include = ["src/**", "tests/**", "assets/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "assets/**", "fixtures/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 default = []
 # Provider that drives an installed, signed-in CLI assistant as a bounded child process.
 cli = ["dep:rightkit-child-process"]
+agent_providers-os-keyring = ["agent_providers", "dep:rightkit-credentials", "rightkit-oauth/secrets"]
+agent_providers-host-env = ["agent_providers", "rightkit-app-settings/agent_config-host-env"]
+agent_providers-replay-record = ["agent_providers", "agent_providers-host-env"]
+agent_providers = ["dep:rightkit-logs", "dep:rightkit-agent-engine-protocol", "dep:rightkit-agent-policy", "dep:rightkit-app-settings", "dep:thiserror", "dep:tokio", "dep:futures", "dep:rightkit-oauth", "rightkit-http/untrusted", "rightkit-http/async", "dep:rightkit-crypto", "dep:rightkit-fs", "dep:rightkit-time", "dep:url", "dep:bytes", "dep:async-stream", "dep:toml", "dep:dirs", "dep:tiktoken-rs", "agent_providers-os-keyring"]
+agent_router-os-keyring = ["agent_router", "agent_providers-os-keyring"]
+agent_router = ["agent_providers", "dep:thiserror", "dep:toml", "agent_router-os-keyring"]
 
 [dependencies]
 rightkit-http = { version = "0.3.0", path = "../rightkit-http", features = ["gzip"] }
 rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+rightkit-logs = {version = "0.4.0", default-features = false, features = ["tracing"], path = "../rightkit-logs", optional = true}
+rightkit-agent-engine-protocol = {version = "0.1.0", path = "../rightkit-agent-engine-protocol", optional = true}
+rightkit-agent-policy = {version = "0.1.0", path = "../rightkit-agent-policy", optional = true}
+rightkit-app-settings = {version = "0.4.0", path = "../rightkit-app-settings", features = ["agent_config"], optional = true}
+thiserror = {version = "2", optional = true}
+tokio = {version = "1", features = ["full"], optional = true}
+futures = {version = "0.3", optional = true}
+rightkit-credentials = {version = "0.4.2", path = "../rightkit-credentials", optional = true}
+rightkit-oauth = {version = "0.10.0", default-features = false, path = "../rightkit-oauth", optional = true}
+rightkit-crypto = {version = "0.1.0", path = "../rightkit-crypto", optional = true}
+rightkit-fs = {version = "0.4.8", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs", optional = true}
+rightkit-time = {version = "0.1.0", path = "../rightkit-time", optional = true}
+url = {version = "2", optional = true}
+bytes = {version = "1", optional = true}
+async-stream = {version = "0.3", optional = true}
+toml = {version = "1.1", optional = true}
+dirs = {version = "7", optional = true}
+tiktoken-rs = {version = "0.12", optional = true}
 
 [dev-dependencies]
 rightkit-http = { version = "0.3.0", path = "../rightkit-http", features = ["gzip", "testing"] }
+rightkit-app-settings = {version = "0.4.0", path = "../rightkit-app-settings", features = ["agent_config", "agent_config-host-env", "agent_config-test-mode"]}
+tempfile = {version = "3"}
 
 [package.metadata.rightkit]
 continuous = false
@@ -64,3 +90,7 @@ incremental = false
 [profile.test.build-override]
 debug = false
 opt-level = 0
+[[test]]
+name = "agent_providers_native_openai_probe"
+path = "tests/agent_providers_native_openai_probe.rs"
+required-features = ["agent_providers"]

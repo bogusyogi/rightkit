@@ -21,7 +21,7 @@ rightkit-transcript = { version = "0.4.0", path = "../rightkit-transcript" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 thiserror = { version = "2.0" }
-rightkit-llm = { version = "0.3.1", path = "../rightkit-llm" }
+rightkit-llm = { version = "0.4.0", path = "../rightkit-llm" }
 rightkit-credentials = { version = "0.4.2", path = "../rightkit-credentials" }
 
 [dev-dependencies]
