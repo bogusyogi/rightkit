@@ -53,7 +53,7 @@
 //! the build has the `test-overrides` feature, so a dev or release engine never trusts one.
 
 use crate::{Refusal, Result};
-use rightkit_device_link_types::KeyBinding;
+pub use rightkit_device_link_types::KeyBinding;
 use rightkit_fs::digest::hex;
 use ring::signature::{
     ECDSA_P256_SHA256_ASN1, ECDSA_P256_SHA256_FIXED, RSA_PKCS1_2048_8192_SHA256, UnparsedPublicKey,
