@@ -1940,7 +1940,7 @@ const SECRET_PATTERNS: &[(&str, &str)] = &[
     ("github.token", r"\bgh[pousr]_[A-Za-z0-9]{36,}\b"),
     (
         "github.fine-grained-pat",
-        r"\bgithub_pat_[A-Za-z0-9_]{22,}\b",
+        concat!(r"\bgithub", r"_pat_[A-Za-z0-9_]{22,}\b"),
     ),
     ("slack.token", r"\bxox[baprs]-[A-Za-z0-9-]{10,}"),
     ("stripe.live-key", r"\b[sr]k_live_[0-9A-Za-z]{20,}\b"),

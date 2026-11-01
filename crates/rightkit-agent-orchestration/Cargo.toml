@@ -1,0 +1,111 @@
+[package]
+name = "rightkit-agent-orchestration"
+version = "0.1.1"
+edition = "2021"
+rust-version = "1.98.0"
+description = "Agent orchestration runtime: plans, routes, tasks, budgets, grants, escalation, scheduling, delivery, inventories and platform layers"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_agent_orchestration"
+path = "src/lib.rs"
+
+[dependencies]
+async-trait = { version = "0.1.92" }
+rightkit-evidence-contracts = { version = "0.1.0", path = "../rightkit-evidence-contracts" }
+rightkit-code-audit-provider-sdk = { version = "0.1.0", path = "../rightkit-code-audit-provider-sdk" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+sha2 = { version = "0.11.1" }
+hex = { version = "0.4.3" }
+regex = { version = "1.13.1" }
+thiserror = { version = "2.0.20" }
+tokio = { version = "1.53.3", features = ["full"] }
+tokio-util = { version = "0.7.20", features = ["rt"] }
+toml = { version = "1.1", optional = true }
+rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto", optional = true }
+rightkit-agent-engine-tasks = { version = "0.1.0", path = "../rightkit-agent-engine-tasks", optional = true }
+rightkit-cache = { version = "0.2.3", path = "../rightkit-cache", optional = true }
+rightkit-agent-engine-protocol = { version = "0.1.0", path = "../rightkit-agent-engine-protocol", optional = true }
+rightkit-agent-host-traits = { version = "0.1.0", path = "../rightkit-agent-host-traits", optional = true }
+rightkit-llm = { version = "0.3.2", path = "../rightkit-llm", features = ["agent_providers", "agent_router"], optional = true }
+rightkit-repo-graph = { version = "0.1.0", path = "../rightkit-repo-graph", optional = true }
+rightkit-logs = { version = "0.3.7", path = "../rightkit-logs", features = ["agent_telemetry"], optional = true }
+rightkit-sandbox = { version = "0.6.2", path = "../rightkit-sandbox", features = ["execution"], optional = true }
+rightkit-agent-tools = { version = "0.3.1", path = "../rightkit-agent-tools", features = ["coding_tools"], optional = true }
+rightkit-db = { version = "0.5.3", path = "../rightkit-db", features = ["bundled", "statement-cache"], optional = true }
+rightkit-fs = { version = "0.4.8", path = "../rightkit-fs", features = ["fs", "lock", "json", "digest", "transaction"], optional = true }
+
+[features]
+default = []
+# Multi-agent orchestration for coding agents (module `coding`): registry, router, conductor,
+# jury, governance, teams, recovery and the proof harnesses. Skills come from the host through
+# `rightkit-agent-host-traits`, never from this crate.
+coding = [
+    "dep:toml",
+    "dep:rightkit-crypto",
+    "dep:rightkit-agent-engine-tasks",
+    "dep:rightkit-cache",
+    "dep:rightkit-agent-engine-protocol",
+    "dep:rightkit-agent-host-traits",
+    "dep:rightkit-llm",
+    "dep:rightkit-repo-graph",
+    "dep:rightkit-logs",
+    "dep:rightkit-sandbox",
+    "dep:rightkit-agent-tools",
+    "dep:rightkit-db",
+    "dep:rightkit-fs",
+]
+coding-host = ["coding", "rightkit-agent-tools/coding_tools-host"]
+coding-os-keyring = ["coding", "rightkit-llm/agent_providers-os-keyring", "rightkit-llm/agent_router-os-keyring"]
+
+[dev-dependencies]
+tempfile = { version = "3" }
+
+[[test]]
+name = "coding_dispatch"
+path = "tests/coding_dispatch.rs"
+required-features = ["coding"]
+
+[[test]]
+name = "coding_router_proof"
+path = "tests/coding_router_proof.rs"
+required-features = ["coding"]
+
+[workspace]
+
+# Canonical build profiles, one copy per crate workspace (rightkit#1285); the managed broker forbids
+# .cargo/config.toml, so manifest profiles are the only place build cost is shaped.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+debug = false
+opt-level = 0
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.release-iterate]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+incremental = true
+strip = "none"
+
+[profile.release-iterate.package."*"]
+incremental = false
+
+[profile.test.build-override]
+debug = false
+opt-level = 0

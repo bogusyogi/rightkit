@@ -1554,7 +1554,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-tools"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rightkit-daemon",
  "serde",

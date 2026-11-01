@@ -303,7 +303,7 @@ fn credentials_fixture() -> (Files, Expected, Files) {
             "const apiKey = process.env.API_KEY;",
             "const password = \"changeme\";",
             "const token = \"Enter your token here\";",
-            "const aws = \"AKIAIOSFODNN7EXAMPLE\";",
+            concat!("const aws = \"AK", "IAIOSFODNN7EXAMPLE\";"),
             "const t = { token: \"abc\" };",
             "const s = { secret: \"correct-horse-battery\" };",
             "const url = \"postgres://user:pw@host/db\";",

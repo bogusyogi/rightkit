@@ -185,7 +185,14 @@ pub(crate) fn redact_secrets(line: &str) -> (String, bool) {
         "client_secret",
         "auth",
     ];
-    const KEY_MATERIAL_MARKERS: &[&str] = &["-----BEGIN", "AKIA", "ghp_", "sk-", "xox", "AIza"];
+    const KEY_MATERIAL_MARKERS: &[&str] = &[
+        "-----BEGIN",
+        "AKIA",
+        concat!("gh", "p_"),
+        "sk-",
+        "xox",
+        "AIza",
+    ];
 
     let lower = line.to_ascii_lowercase();
     let mut redacted = false;

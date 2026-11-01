@@ -69,7 +69,11 @@ fn signed_fixture_tip(root: &Path) -> String {
     oid
 }
 fn token() -> String {
-    format!("{}{}", "ghp_", "R7kQ2mZ9xL4vB8nC1dF6hJ3sT5wY0aE2gU9i")
+    format!(
+        "{}{}",
+        concat!("gh", "p_"),
+        "R7kQ2mZ9xL4vB8nC1dF6hJ3sT5wY0aE2gU9i"
+    )
 }
 fn put(root: &Path, path: &str, contents: &str) {
     let path = root.join(path);

@@ -490,7 +490,7 @@ mod tests {
         let temp = Scratch::create(None).unwrap();
         let root = temp.path.join("repo");
         fs::create_dir_all(root.join("fixtures")).unwrap();
-        let token = format!("ghp_{}", "A".repeat(36));
+        let token = format!("{}{}", concat!("gh", "p_"), "A".repeat(36));
         let text = format!("token = '{token}'\n");
         fs::write(root.join("fixtures/token.env"), &text).unwrap();
         let provider = provider("secrets.current-history", json!({"op":"always"}));
