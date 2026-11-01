@@ -323,6 +323,7 @@
       "surface": [
         "./bin/rightkit-agent-hook.mjs",
         "./bin/rightkit-gate.mjs",
+        "./bin/rightkit-linux-setup.mjs",
         "./cargo-contract.mjs",
         "./cargo-target.mjs",
         "./cli/right-release.mjs",
@@ -334,6 +335,7 @@
         "./engine-locator.mjs",
         "./github-release.mjs",
         "./legal-contract.mjs",
+        "./linux-setup.mjs",
         "./macos-file-evidence.mjs",
         "./macos-notarization.mjs",
         "./macos-signing-identity.mjs",
