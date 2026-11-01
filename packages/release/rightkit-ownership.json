@@ -25,6 +25,17 @@
       ]
     },
     {
+      "package": "rightkit-agent-engine-api-integrations",
+      "capability": "agent-api-integrations",
+      "summary": "Agent engine integrations HTTP API: plugin discovery, manifest projection and plugin middleware wiring; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-agent-engine-api-platform",
       "capability": "agent-api-platform",
       "summary": "Agent engine platform HTTP API types; declaration-only detection (no precise implementation fingerprint)",
@@ -168,9 +179,31 @@
       ]
     },
     {
+      "package": "rightkit-agent-plugins",
+      "capability": "agent-plugins",
+      "summary": "Agent plugin manifests, discovery and loader; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-agent-policy",
       "capability": "agent-policy",
       "summary": "Agent tool-use policy: permission modes, command classification, path and network rules for agent hosts; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-agent-recipes",
+      "capability": "agent-recipes",
+      "summary": "Agent recipes: reusable, parameterised task recipes with validation; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
@@ -209,6 +242,17 @@
       "policyNotes": [
         "Declaration-only: vendor CLI protocol handling is not a dependency fingerprint.",
         "0.2.0 adds the session lifecycle (feature session) over rightkit-child-process; the API backend lands in a later release."
+      ]
+    },
+    {
+      "package": "rightkit-ai-accounts",
+      "capability": "ai-accounts",
+      "summary": "Claude account management; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
       ]
     },
     {
@@ -266,6 +310,17 @@
       ]
     },
     {
+      "package": "rightkit-app-host",
+      "capability": "app-host",
+      "summary": "Host services for companion crates; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-app-manager",
       "capability": "app-manager",
       "summary": "Installed-app management; declaration-only detection (no precise implementation fingerprint)",
@@ -301,6 +356,28 @@
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
+      "package": "rightkit-apple-ops",
+      "capability": "apple-ops",
+      "summary": "Apple ops: App Store Connect API and upload, build analysis, preflight, profiling and SwiftUI traces; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-approvals",
+      "capability": "approvals",
+      "summary": "Launch-secret approval challenges and tokens; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
       ]
     },
     {
@@ -867,6 +944,28 @@
       ]
     },
     {
+      "package": "rightkit-content-plan",
+      "capability": "content-plan",
+      "summary": "Store-free content planning rules: manual draft approval gate, first-sentence disclosure check and per-platform posted-link host table.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-content-proof",
+      "capability": "content-proof",
+      "summary": "Exact claim-number reading for content proof review: currency, thousands separators, k/m/bn suffixes, percentages and number words as exact decimals, with tokenization.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-context-client",
       "capability": "context-client",
       "summary": "Transport-injected client for canonical context v1 operation envelopes.; declaration-only detection (no precise implementation fingerprint)",
@@ -1169,9 +1268,97 @@
       ]
     },
     {
+      "package": "rightkit-dictation-app-runtime",
+      "capability": "dictation-app-runtime",
+      "summary": "Dictation app runtime: the shell-side engine supervisor (spawn, launch frame, health, restart, sidecar logs) and engine process handle for a dictation app.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-dictation-command-host",
+      "capability": "dictation-command-host",
+      "summary": "Dictation command host: voice command dispatch (keys, app launch, Shortcuts, power with confirmation), text delivery and insertion, focus checks and screen capture for a dictation app.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-dictation-core",
       "capability": "dictation",
       "summary": "Dictation core: engine wire protocol and validation, provider key handoff, recording session state machine and controller, wake word state, mic selection and audio conditioning.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-dictation-engine",
+      "capability": "dictation-engine",
+      "summary": "Dictation engine: the speech engine sidecar binary and library facade over the dictation runtime, inference, text pipeline and command host, with engine contract tests and fixtures.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-dictation-inference",
+      "capability": "dictation-inference",
+      "summary": "Dictation inference: Parakeet TDT on CoreML and ONNX Runtime, Whisper, keyword spotting, VAD, calibration, file transcription and the ASR timeline, for a push-to-talk dictation engine.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-dictation-models",
+      "capability": "dictation-models",
+      "summary": "Dictation model store: speech model catalog, shared model leases and paths, downloads with grants and verification, on top of rightkit-models.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-dictation-runtime",
+      "capability": "dictation-runtime",
+      "summary": "Dictation engine runtime: the JSON-RPC sidecar worker (recording, finalize, polish, delivery decisions), speech service, IPC, crash capture and engine paths for a push-to-talk dictation engine.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-dictation-telemetry",
+      "capability": "dictation-telemetry",
+      "summary": "Dictation telemetry: local utterance timelines, telemetry writer, crash dump capture, feedback and HTTP client for diagnostics, redacted before anything is written.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
+      "package": "rightkit-dictation-text-pipeline",
+      "capability": "dictation-text-pipeline",
+      "summary": "Dictation text pipeline: LLM cleanup (L1-L3) with provider transports and policy, provider keys, runtime settings, screen-context vocabulary and the text polish orchestration.; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
@@ -1444,6 +1631,17 @@
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
+      "package": "rightkit-engine-host",
+      "capability": "engine-host",
+      "summary": "Engine CLI and stdio sidecar framework; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
       ]
     },
     {
@@ -3102,6 +3300,17 @@
       ]
     },
     {
+      "package": "rightkit-policy-rules",
+      "capability": "policy-rules",
+      "summary": "Agent policy model and rule evaluator; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "rightkit-privileged-helper",
       "capability": "privileged-helper",
       "summary": "Elevation broker for privileged-helper moves; declaration-only detection (no precise implementation fingerprint)",
@@ -3324,7 +3533,7 @@
     {
       "package": "rightkit-repo-graph",
       "capability": "repo-graph",
-      "summary": "Repository code graph: tree-sitter extraction across 30+ languages, symbol/reference graph store, freshness tracking, watch and query.; declaration-only detection (no precise implementation fingerprint)",
+      "summary": "Repository skeletonization: compact structural outlines of source files for agent context; declaration-only detection (no precise implementation fingerprint)",
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
@@ -3404,6 +3613,17 @@
       "policyNotes": [
         "landlock/seccompiler indicate Linux-only usage, not macOS/Windows replacement paths; shutdown repair remains P1.",
         "Fingerprints identify review candidates; published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
+      "package": "rightkit-scheduler",
+      "capability": "scheduler",
+      "summary": "Agent schedule model; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
       ]
     },
     {
@@ -3631,6 +3851,17 @@
       "policyNotes": [
         "Package contract retained; dependency declarations do not verify integration.",
         "Fingerprints identify review candidates (competing dependencies and distinctive implementation code); published two-host replacement qualification is not recorded."
+      ]
+    },
+    {
+      "package": "rightkit-social-analytics",
+      "capability": "social-analytics",
+      "summary": "Store-free social campaign analytics pieces: tracked short links with public-https destination checks, UTM tagging, deterministic link ids and redirect-route rules.; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
       ]
     },
     {

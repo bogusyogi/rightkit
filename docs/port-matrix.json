@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-01T09:14:10Z",
-  "rightkitHead": "a728f20",
+  "generatedAt": "2026-11-01T09:14:44Z",
+  "rightkitHead": "7f55a22",
   "legend": [
     {
       "state": "adopted",
@@ -20331,7 +20331,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-api-integrations"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -21267,7 +21269,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-plugins"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -21399,7 +21403,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "agent-recipes"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -21679,7 +21685,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "ai-accounts"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -21878,7 +21886,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "app-host"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -22091,7 +22101,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "apple-ops"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -22156,7 +22168,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "approvals"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -23245,7 +23259,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "content-plan"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -23310,7 +23326,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "content-proof"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -24262,7 +24280,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "dictation-app-runtime"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -24327,7 +24347,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "dictation-command-host"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -24459,7 +24481,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "dictation-engine"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -24524,7 +24548,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "dictation-inference"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -24589,7 +24615,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "dictation-models"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -24654,7 +24682,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "dictation-runtime"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -24719,7 +24749,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "dictation-telemetry"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -24784,7 +24816,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "dictation-text-pipeline"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -25121,7 +25155,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "engine-host"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -28221,7 +28257,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "policy-rules"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -29040,7 +29078,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "scheduler"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
@@ -29387,7 +29427,9 @@
       "domain": "other",
       "mandatoryRows": [],
       "pendingRows": [],
-      "capabilities": [],
+      "capabilities": [
+        "social-analytics"
+      ],
       "private": false,
       "source": "0.1.0",
       "registry": "",
