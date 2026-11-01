@@ -242,7 +242,7 @@ pub fn sign_in_device(
 
 pub fn device_sign_in_with_terminal() -> Result<(), String> {
     use std::io::{self, Write};
-    let mut show = |device: &DeviceAuthorization| {
+    let show = |device: &DeviceAuthorization| {
         let mut out = io::stdout().lock();
         let _ = writeln!(out, "GitHub sign-in: {}", device.verification_uri);
         let _ = writeln!(out, "Enter code: {}", device.user_code);
