@@ -16,6 +16,7 @@
 //! - [`jobs`]: the [`jobs::PublishJobStore`] trait the host implements over its job table.
 //! - [`accounts`]: connected platform accounts, readiness, pause and disconnect over an [`accounts::AccountStore`].
 //! - [`deletion`]: deletion requests and the Meta callback over a [`deletion::DeletionStore`].
+//! - [`machine`]: the publish phase machine (`step_once`, `reconcile_once`) over a [`machine::MachineStore`].
 //! - [`resolve`]: a person closes an `outcome_unknown` job by hand.
 //! - [`calendar_time`]: UTC instants and local-time conversion for the supported zones.
 //! - [`util`]: error constructors, input checks and the channel lookup the store-bound modules share.
@@ -29,6 +30,7 @@ pub mod calendar_time;
 pub mod deletion;
 pub mod http;
 pub mod jobs;
+pub mod machine;
 pub mod media;
 pub mod platform;
 pub mod platforms;
