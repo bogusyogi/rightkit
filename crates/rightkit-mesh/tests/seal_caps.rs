@@ -47,7 +47,7 @@ fn a_tampered_item_or_another_record_does_not_open() {
     let record = [5u8; 16];
     let mut sealed = seal(&a_keys, &a, &record, 3, b"secret").unwrap();
     assert!(
-        open(&[b_keys.clone()], &a, &b, &[6u8; 16], &sealed).is_err(),
+        open(std::slice::from_ref(&b_keys), &a, &b, &[6u8; 16], &sealed).is_err(),
         "bound to its record id"
     );
     let last = sealed.len() - 1;
