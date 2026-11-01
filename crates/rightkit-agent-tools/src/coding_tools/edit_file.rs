@@ -10,7 +10,7 @@
 use crate::coding_tools::context::ToolContext;
 use crate::coding_tools::edit_helpers::apply_single_edit;
 use crate::coding_tools::tool_trait::{Tool, ToolResult, WorkspaceMutation, WorkspaceMutationKind};
-use rightkit_agent_engine_history::{unified_diff, HistoryStore};
+use rightkit_agent_engine_history::unified_diff;
 use rightkit_agent_policy::{CapabilityClass, PermissionDecision, PermissionEngine};
 use serde_json::{json, Value};
 
@@ -43,6 +43,16 @@ impl Tool for EditFileTool {
                 "replace_all": { "type": "boolean", "description": "Replace every occurrence (default false)" }
             }
         })
+    }
+
+    fn write_targets(&self, args: &Value, ctx: &ToolContext) -> Vec<std::path::PathBuf> {
+        args["path"]
+            .as_str()
+            .and_then(|path| {
+                crate::coding_tools::read_file::resolve_in_workspace(path, &ctx.workspace_root).ok()
+            })
+            .into_iter()
+            .collect()
     }
 
     async fn execute(&self, args: Value, ctx: &ToolContext) -> ToolResult {
@@ -157,9 +167,8 @@ impl Tool for EditFileTool {
                 Err(e) => return ToolResult::error(e),
             };
 
-        // Snapshot prior content before writing.
-        let store = HistoryStore::new(&ctx.workspace_root);
-        let _ = store.snapshot(&path, &content);
+        // The restore point was written by the engine before this call ran
+        // (`write_targets`, sessions rule 41).
 
         match ctx.file_service.write_with_receipt_intent(
             crate::coding_tools::file_service::MutationIntentKind::Update,

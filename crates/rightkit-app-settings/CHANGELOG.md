@@ -2,6 +2,8 @@
 
 ## 0.3.1 (unreleased)
 
+- `agent_config` follows CodeRight: instruction discovery adds the project walk (`add_project_walk`, `find_project_root`), `AGENTS.override.md`, byte caps with a marker entry and gates every Project/Local file on workspace trust (`discover` is gone; use `discover_gated`); `[hooks]` and `[turn]` config (`HooksConfig`, `TurnConfig`); `MemoryConfig` and the budget keys `global_monthly_max_usd`, `warning_at`, `max_jury_calls_per_run`, `max_escalation_depth` are removed, spend caps default to 0 (no cap) and `max_wall_clock_minutes` to 10; workspace trust keys fold case on Windows, drop trailing separators and fall back to the nearest ancestor record (`trust_lookup_keys`, `nearest_trust_record`); `workspace_trust_store_path` returns `Option` and the trust store env override is read only in test builds (`qa_path_override`, `TEST_MODE`); `state_root_required` and `os_home_dir_required`.
+
 - Feature `agent_config` (+ `agent_config-host-env`, `agent_config-test-mode`): agent host configuration, state root, workspace trust store and permissions config moved from CodeRight `coderight-config`; the state folder name is set with `agent_config::set_app_name`.
 
 ## 0.3.0 — 2026-10-20

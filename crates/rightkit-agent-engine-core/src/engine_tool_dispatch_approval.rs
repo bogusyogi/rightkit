@@ -262,6 +262,7 @@ impl SessionEngine {
                     created_at: now_iso(),
                     tool_call_id: call_id,
                     approved,
+                    reason: (!approved).then(|| "user".to_string()),
                 });
 
                 if !approved {

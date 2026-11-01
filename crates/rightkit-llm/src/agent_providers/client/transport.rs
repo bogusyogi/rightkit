@@ -402,7 +402,10 @@ fn prepare_actual_chat_request(
         return Err(ProviderError::Capacity(
             CapacityError::CapacityUnavailable {
                 route_id: client.base_url.clone(),
-                reason: format!("no loaded model metadata for {}", client.model_id),
+                reason: format!(
+                    "model `{}` has no entry in the model metadata table, so its context window is unknown; choose a model from the catalog",
+                    client.model_id
+                ),
             },
         ));
     };

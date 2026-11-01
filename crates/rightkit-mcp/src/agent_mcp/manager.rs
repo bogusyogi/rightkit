@@ -156,12 +156,6 @@ pub fn tool_glob_matches(pattern: &str, value: &str) -> bool {
 
 type InflightListing = tokio::task::JoinHandle<Result<Vec<McpToolDef>, McpError>>;
 
-/// Default bound on how long discovery waits for a server that is not ready.
-pub const DEFAULT_MCP_STARTUP_BOUND: std::time::Duration = std::time::Duration::from_secs(3);
-
-/// Default single total deadline for one MCP tool call.
-pub const DEFAULT_MCP_CALL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(120);
-
 impl Default for McpManager {
     fn default() -> Self {
         Self::new()
@@ -202,8 +196,8 @@ impl McpManager {
             canonical_membrane_endpoint: None,
             canonical_membrane_caller: None,
             elicitation_session: Mutex::new(None),
-            startup_bound: DEFAULT_MCP_STARTUP_BOUND,
-            call_deadline: DEFAULT_MCP_CALL_DEADLINE,
+            startup_bound: crate::agent_mcp::limits::MCP_STARTUP_BOUND,
+            call_deadline: crate::agent_mcp::limits::MCP_CALL_DEADLINE,
             inflight_listings: Mutex::new(HashMap::new()),
             tool_name_filter: None,
             list_changed_seen: Mutex::new(HashMap::new()),

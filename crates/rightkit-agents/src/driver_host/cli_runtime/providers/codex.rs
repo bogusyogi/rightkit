@@ -32,7 +32,7 @@ use std::path::PathBuf;
 
 use crate::driver_host::cli_runtime::adapter::{
     CliAdapterError, CliAuthenticationStatus, CliDiscovery, CliLaunchRequest, CliLaunchSpec,
-    CliModelCatalog, CliProviderAdapter, NativeLoginUi,
+    CliModelCatalog, CliProviderAdapter,
 };
 use crate::driver_host::cli_runtime::ids::{
     CliAccountProfile, CliProviderCapabilities, CliProviderId, CliTransportKind,
@@ -115,68 +115,6 @@ impl CliProviderAdapter for CodexAdapter {
             source_label: "managed Codex CLI profile".into(),
             observed_at: profile.last_verified_at.clone().unwrap_or_default(),
         })
-    }
-
-    async fn begin_native_login(
-        &self,
-        profile: &CliAccountProfile,
-        ui: &dyn NativeLoginUi,
-    ) -> Result<(), CliAdapterError> {
-        let executable = find_binary("codex").ok_or_else(|| {
-            CliAdapterError::new(
-                self.provider_id.clone(),
-                "codex_binary_not_found",
-                "Codex CLI is not installed",
-            )
-        })?;
-        ui.report_progress("Starting Codex native login").await?;
-        let adapter = rightkit_agent_tools::coding_tools::shell::NativeCommandSandboxAdapter;
-        let context = rightkit_sandbox::execution::ProcessLaunchContext {
-            workspace_root: profile.managed_home.to_string_lossy().into_owned(),
-            sandbox_profile: Some("codex-login".into()),
-            sandbox_required: true,
-            network_required: true,
-        };
-        let spec = rightkit_sandbox::execution::CommandLaunchSpec {
-            program: executable.display().to_string(),
-            argv: vec!["login".into()],
-            cwd: context.workspace_root.clone(),
-            context,
-            env: vec![
-                (
-                    "HOME".into(),
-                    profile.managed_home.to_string_lossy().into_owned(),
-                ),
-                (
-                    "CODEX_HOME".into(),
-                    profile.managed_home.to_string_lossy().into_owned(),
-                ),
-            ],
-        };
-        let mut child = rightkit_sandbox::execution::ProcessLaunchAdapter::spawn(&adapter, spec)
-            .await
-            .map_err(|error| {
-                CliAdapterError::new(
-                    self.provider_id.clone(),
-                    "codex_login_spawn",
-                    format!("{error:?}"),
-                )
-            })?;
-        let status = child.wait().await.map_err(|error| {
-            CliAdapterError::new(
-                self.provider_id.clone(),
-                "codex_login_wait",
-                format!("{error:?}"),
-            )
-        })?;
-        if status != 0 {
-            return Err(CliAdapterError::new(
-                self.provider_id.clone(),
-                "codex_login_failed",
-                format!("Codex login exited with status {status}"),
-            ));
-        }
-        Ok(())
     }
 
     async fn list_models(

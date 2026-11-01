@@ -65,28 +65,6 @@ impl ProjectTrust {
     }
 }
 
-/// Built-in default MCP servers, present in every session unless a user or
-/// workspace config overrides the same name. context7 gives agents current,
-/// version-correct library docs with no setup. Spawning still passes through
-/// CR's normal MCP trust/approval gate before any tool runs.
-pub fn default_mcp_servers() -> Vec<(String, McpServerConfig)> {
-    // Test-wide knob: hermetic e2e runs must not spawn `npx` on every session.
-    #[cfg(any(test, feature = "agent_mcp-host-env"))]
-    {
-        if std::env::var("RIGHTKIT_DISABLE_DEFAULT_MCP").is_ok_and(|v| v == "1") {
-            return Vec::new();
-        }
-    }
-    vec![(
-        "context7".to_string(),
-        McpServerConfig::Stdio(StdioConfig {
-            command: "npx".to_string(),
-            args: vec!["-y".to_string(), "@upstash/context7-mcp".to_string()],
-            env: HashMap::new(),
-        }),
-    )]
-}
-
 /// Build an `McpManager` from all discoverable config files.
 /// Pass `workspace_root = None` to skip workspace-level config.
 ///
@@ -270,12 +248,9 @@ async fn load_with_trust_gate_pooled_impl(
 ) -> McpManager {
     // Project-scoped declarations load only for a trusted workspace.
     let project_config_allowed = project_trust.permits(workspace_root);
-    // Seed built-in defaults first so user/workspace config overrides by name.
-    // Defaults are exempt from the workspace trust gate — the host app ships them.
+    // There is no built-in server: nothing starts a package until the user installs one
+    // (`mcp install <name>`, an explicit action that records a pinned entry).
     let mut merged = McpConfigFile::default();
-    for (name, cfg) in default_mcp_servers() {
-        merged.mcp_servers.insert(name, cfg);
-    }
 
     let workspace_config_paths = workspace_root
         .map(|root| {
@@ -299,6 +274,7 @@ async fn load_with_trust_gate_pooled_impl(
                     // (servers, channel permissions, trust presets, OAuth) and
                     // cannot shadow a user-level server of the same name.
                     for name in file.mcp_servers.keys() {
+                        tracing::info!(event = "mcp.server.load", server = %name, outcome = "refused_untrusted_workspace");
                         eprintln!(
                             "[mcp] workspace server '{name}' needs trust approval before it can run — project config in {} is ignored until the workspace is trusted (run `rightkit-agent trust`); not spawned",
                             path.display()
@@ -346,8 +322,27 @@ async fn load_with_trust_gate_pooled_impl(
     expand_config_env(&mut merged, &env_vars);
     refresh_and_attach_oauth_tokens(&mut merged).await;
 
+    // Contract R4 / D16: a stdio server whose script no longer exists is not spawned; its name
+    // still resolves to a zero-tool stub so the settings list can show why.
+    let mut unreachable_names: Vec<String> = Vec::new();
+    for (name, cfg) in merged.mcp_servers.iter() {
+        if let McpServerConfig::Stdio(stdio) = cfg {
+            if let Some(reason) = crate::agent_mcp::stale::stdio_unreachable_reason(stdio) {
+                tracing::info!(event = "mcp.server.load", server = %name, outcome = "unreachable");
+                eprintln!("[mcp] server '{name}' {reason}; not spawned");
+                unreachable_names.push(name.clone());
+            }
+        }
+    }
+    for name in &unreachable_names {
+        merged.mcp_servers.remove(name);
+    }
+
     if workspace_stdio_servers.is_empty() {
-        return build_manager_pooled(merged, pool, workspace_root, process_launcher.as_ref()).await;
+        let mut manager =
+            build_manager_pooled(merged, pool, workspace_root, process_launcher.as_ref()).await;
+        register_unreachable_stubs(&mut manager, &unreachable_names);
+        return manager;
     }
 
     let workspace_key = workspace_root
@@ -364,6 +359,7 @@ async fn load_with_trust_gate_pooled_impl(
         // pending set itself is intentionally NOT persisted here (only
         // approve/deny decisions are), so it is recomputed fresh every load
         // and never silently disappears.
+        tracing::info!(event = "mcp.trust", server = %approval.server, outcome = "approval_pending");
         eprintln!(
             "[mcp] workspace server '{}' ({} {}) needs trust approval before it can run — not spawned",
             approval.server,
@@ -393,7 +389,15 @@ async fn load_with_trust_gate_pooled_impl(
         let stub: Arc<dyn McpTransport> = Arc::new(StubTransport::new(Vec::new()));
         manager.register(&name, stub);
     }
+    register_unreachable_stubs(&mut manager, &unreachable_names);
     manager
+}
+
+fn register_unreachable_stubs(manager: &mut McpManager, names: &[String]) {
+    for name in names {
+        let stub: Arc<dyn McpTransport> = Arc::new(StubTransport::new(Vec::new()));
+        manager.register(name, stub);
+    }
 }
 
 /// Expand `${ENV_VAR}` placeholders in stdio MCP environment values.
@@ -418,11 +422,21 @@ pub fn attach_stored_oauth_tokens(
         if !token.token_type.eq_ignore_ascii_case("bearer") {
             continue;
         }
-        match server {
-            McpServerConfig::Http(_) | McpServerConfig::Sse(_) => {
-                attach.push((name.clone(), token.clone()))
-            }
-            McpServerConfig::Stdio(_) => {}
+        // Contract R2: the token goes only to the origin it was issued for, so a config
+        // that reuses the server's name with another URL gets no token.
+        let url = match server {
+            McpServerConfig::Http(http) => http.url.as_str(),
+            McpServerConfig::Sse(sse) => sse.url.as_str(),
+            McpServerConfig::Stdio(_) => continue,
+        };
+        if token.issued_for_server(url) {
+            tracing::info!(event = "mcp.oauth.token", server = %name, outcome = "attached");
+            attach.push((name.clone(), token.clone()));
+        } else {
+            tracing::info!(event = "mcp.oauth.token", server = %name, outcome = "refused_origin_mismatch");
+            eprintln!(
+                "[mcp] stored OAuth token for '{name}' was issued for another origin; not attached"
+            );
         }
     }
     config.mcp_oauth_tokens.extend(attach);
@@ -450,14 +464,24 @@ async fn refresh_and_attach_oauth_tokens(config: &mut McpConfigFile) {
         let Some(oauth) = oauth else {
             continue;
         };
+        if !existing.may_refresh_with(&oauth.resource, &oauth.token_url) {
+            eprintln!(
+                "[mcp] OAuth refresh for '{name}' refused: the configured endpoints differ from the ones that issued the token"
+            );
+            continue;
+        }
         match refresh_oauth_tokens(oauth, &existing).await {
             Ok(refreshed) => {
+                tracing::info!(event = "mcp.oauth.refresh", server = %name, outcome = "ok");
                 if let Err(e) = McpOAuthCredentialStore::set(name, &refreshed) {
                     eprintln!("[mcp] failed to persist refreshed OAuth token for '{name}': {e}");
                 }
                 tokens.insert(name.clone(), refreshed);
             }
-            Err(e) => eprintln!("[mcp] OAuth refresh failed for '{name}': {e}"),
+            Err(e) => {
+                tracing::info!(event = "mcp.oauth.refresh", server = %name, outcome = "failed");
+                eprintln!("[mcp] OAuth refresh failed for '{name}': {e}")
+            }
         }
     }
 

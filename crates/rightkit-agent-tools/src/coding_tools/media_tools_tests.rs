@@ -16,7 +16,7 @@
 //      without requiring ffmpeg / tesseract installed locally. The tool
 //      layer reports the result; we assert the result is a real
 //      `ToolResult` (no panic), is_error is set, and content is non-empty.
-//   4. Invalid args (e.g. transcribe with an unknown engine) trigger
+//   4. Invalid args (e.g. web_extract without a url) trigger
 //      `command_spec()`'s `Err(MediaToolResult)` path, which the adapter
 //      translates to a `ToolResult { is_error: true, .. }`.
 //   5. Every media tool's `input_schema()` is well-formed JSON Schema
@@ -87,7 +87,6 @@ fn every_media_tool_declares_dedicated_capability() {
     for kind in [
         MediaToolKind::Ocr,
         MediaToolKind::OcrOnnx,
-        MediaToolKind::Transcribe,
         MediaToolKind::WebExtract,
         MediaToolKind::MediaFetch,
         MediaToolKind::FfmpegExtract,
@@ -179,7 +178,7 @@ async fn valid_args_execute_against_a_real_binary_and_return_a_tool_result() {
 
 #[tokio::test]
 async fn invalid_args_surface_as_failed_tool_call_not_panic() {
-    // `transcribe` only accepts `engine = "whisper" | "parakeet"`.
+    // `web_extract` requires `url`.
     // Anything else trips `command_spec()`'s `Err(MediaToolResult)` path,
     // which the adapter translates to `ToolResult { is_error: true, .. }`.
     //
@@ -188,12 +187,9 @@ async fn invalid_args_surface_as_failed_tool_call_not_panic() {
     // -> `ToolResult { is_error: true, .. }`, not just the inherent
     // method on `NativeMediaTool`.
     let tool: Box<dyn Tool> = Box::new(rightkit_ffmpeg::agent_media::NativeMediaTool::new(
-        MediaToolKind::Transcribe,
+        MediaToolKind::WebExtract,
     ));
-    let args = json!({
-        "media_path": "a.wav",
-        "engine": "not-a-real-engine",
-    });
+    let args = json!({});
     let ctx = ToolContext::new(
         "ws7-invalid",
         PathBuf::from("."),
@@ -203,11 +199,11 @@ async fn invalid_args_surface_as_failed_tool_call_not_panic() {
     let result = tool.execute(args, &ctx).await;
     assert!(
         result.is_error,
-        "invalid engine should produce a failed ToolResult, not a panic, got: {result:?}"
+        "missing url should produce a failed ToolResult, not a panic, got: {result:?}"
     );
     assert!(
-        result.content.contains("whisper") && result.content.contains("parakeet"),
-        "error should mention the valid engine options, got: {}",
+        result.content.contains("url"),
+        "error should name the missing argument, got: {}",
         result.content
     );
 }
@@ -222,7 +218,6 @@ fn every_media_input_schema_is_well_formed_json_schema() {
     for kind in [
         MediaToolKind::Ocr,
         MediaToolKind::OcrOnnx,
-        MediaToolKind::Transcribe,
         MediaToolKind::WebExtract,
         MediaToolKind::MediaFetch,
         MediaToolKind::FfmpegExtract,

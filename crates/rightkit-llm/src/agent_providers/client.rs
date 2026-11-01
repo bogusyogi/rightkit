@@ -36,8 +36,9 @@ use wire::{ChatRequest, ReasoningRequest, StreamOptions};
 // list, and this file's own `#[cfg(test)]` modules.
 pub use catalog::{
     find_provider, find_provider_by_base_url, is_subscription_billed_route, provider_model_id,
-    token_plan_provider_for_base_url, ProviderInfo, PROVIDERS,
+    ProviderInfo, PROVIDERS,
 };
+pub use credentials::load_api_key;
 pub use credentials::{
     account_key_name, account_key_present_with, delete_account_key_with, load_account_key_with,
     store_account_key_with, ACCOUNT_KEY_SERVICE,
@@ -46,7 +47,6 @@ pub use credentials::{
 pub use credentials::{
     account_key_present, delete_account_key, load_account_key, store_account_key,
 };
-pub use credentials::{env_api_key, load_api_key};
 pub use wire::{strip_think_tags, transcript_to_wire};
 
 pub(crate) use breaker::{
@@ -300,7 +300,7 @@ pub mod capacity {
     /// a best-effort send.
     #[derive(Debug, Clone, thiserror::Error)]
     pub enum CapacityError {
-        #[error("CRA-10 capacity unavailable for route {route_id}: {reason}")]
+        #[error("model capacity unavailable for route {route_id}: {reason}")]
         CapacityUnavailable { route_id: String, reason: String },
         #[error(
             "CRA-10 final insertion over budget: measured {measured_tokens} tokens exceeds effective budget {effective_budget_tokens} tokens"

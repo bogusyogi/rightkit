@@ -42,7 +42,7 @@ use std::time::Duration;
 use crate::driver_host::cli_runtime::adapter::CliMcpServerSpec;
 use crate::driver_host::cli_runtime::adapter::{
     CliAdapterError, CliAuthenticationStatus, CliDiscovery, CliLaunchRequest, CliLaunchSpec,
-    CliModelCatalog, CliProviderAdapter, CliRuntimeError, NativeLoginUi,
+    CliModelCatalog, CliProviderAdapter, CliRuntimeError,
 };
 use crate::driver_host::cli_runtime::ids::{
     CliAccountProfile, CliProviderCapabilities, CliProviderId, CliTransportKind,
@@ -219,35 +219,6 @@ impl CliProviderAdapter for CommandCodeAdapter {
             source_label: "commandcode auth status".into(),
             observed_at: now_iso(),
         })
-    }
-
-    async fn begin_native_login(
-        &self,
-        profile: &CliAccountProfile,
-        _ui: &dyn NativeLoginUi,
-    ) -> Result<(), CliAdapterError> {
-        // Begin the vendor's native login flow. The adapter spawns
-        // `commandcode login` and lets the user complete the
-        // browser/device flow themselves. We do NOT capture
-        // credentials; the vendor writes them into the managed
-        // profile directory.
-        let executable = resolve_commandcode_executable().ok_or_else(|| {
-            CliAdapterError::new(
-                self.provider_id.clone(),
-                "commandcode_discover_failed",
-                "commandcode binary not found on PATH or in well-known locations",
-            )
-        })?;
-        run_login_command(&executable, profile)
-            .await
-            .map_err(|err| {
-                CliAdapterError::new(
-                    self.provider_id.clone(),
-                    "commandcode_login_failed",
-                    format!("commandcode login failed: {err}"),
-                )
-            })?;
-        Ok(())
     }
 
     async fn list_models(

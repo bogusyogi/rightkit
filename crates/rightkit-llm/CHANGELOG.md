@@ -2,7 +2,9 @@
 
 ## 0.3.2 (unreleased)
 
-- Features `agent_providers` (provider clients, credential broker, subscription auth, model metadata, replay harness; `-os-keyring`, `-host-env`, `-replay-record`) and `agent_router` (cheap/capable routing policy) moved from CodeRight `coderight-providers` and `coderight-router`.
+- `agent_providers` follows CodeRight: provider keys are never read from the process environment on a host with an OS credential store; new `host_credentials` module probes the store once and, on a no-store host, reads the environment then `<state root>/.env` (`HostCredentials`, `HostKeyStore`, `probe_credential_store`, `KeySource::{Environment, DotEnv}`, `CredentialSourceKind::DotEnvFile`, `CredentialBroker::with_host_credentials`). Breaking: `CredentialBroker::new` loses its `AuthContext` argument; `ProviderCredentialConfig::with_env_vars`, `AuthContext::env`, `EnvMapAuthContext`, `ProviderInfo::api_key_env`, `env_api_key`, `KeySource::Env`, `AuthMode::TokenPlan` and the `token_plan_auth` module are removed; `agent_providers-host-env` is replaced by the test-only `agent_providers-test-mode` (keychain kill switch, replay corpus directory, context-inspection hook); the OAuth callback host override is gone. Model metadata gains the Claude 5.5 rows and resolves a provider-native id to its single `vendor/<id>` row.
+
+- Features `agent_providers` (provider clients, credential broker, subscription auth, model metadata, replay harness; `-os-keyring`, `-test-mode`, `-replay-record`) and `agent_router` (cheap/capable routing policy) moved from CodeRight `coderight-providers` and `coderight-router`.
 
 ## 0.3.1 (unpublished staging)
 

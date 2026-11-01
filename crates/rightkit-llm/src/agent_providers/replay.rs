@@ -241,7 +241,7 @@ pub fn is_record_mode() -> bool {
 /// 4. Relative `engine/fixtures/replay-corpus` from current dir
 /// 5. Relative `fixtures/replay-corpus`
 pub fn corpus_dir() -> PathBuf {
-    #[cfg(any(test, feature = "agent_providers-host-env"))]
+    #[cfg(any(test, feature = "agent_providers-test-mode"))]
     {
         if let Ok(dir) = std::env::var(CORPUS_ENV_DIR_OVERRIDE) {
             let t = dir.trim();

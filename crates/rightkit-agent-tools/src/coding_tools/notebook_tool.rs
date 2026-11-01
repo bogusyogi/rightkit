@@ -52,6 +52,22 @@ impl Tool for NotebookTool {
         }
     }
 
+    fn write_targets(&self, args: &Value, ctx: &ToolContext) -> Vec<std::path::PathBuf> {
+        // Claude-compatible mode always edits; legacy mode only for mutating operations.
+        let raw = if args.get("notebook_path").is_some() {
+            args.get("notebook_path").and_then(Value::as_str)
+        } else if is_mutation_operation(args.get("operation").and_then(Value::as_str)) {
+            args.get("path").and_then(Value::as_str)
+        } else {
+            None
+        };
+        raw.and_then(|raw| {
+            crate::coding_tools::read_file::resolve_in_workspace(raw, &ctx.workspace_root).ok()
+        })
+        .into_iter()
+        .collect()
+    }
+
     fn description(&self) -> &str {
         "Cell-aware .ipynb editing. Legacy mode uses path/operation/index/kind/source; Claude-compatible mode uses notebook_path/cell_id/new_source/cell_type/edit_mode (replace, insert, delete). Preserves nbformat."
     }

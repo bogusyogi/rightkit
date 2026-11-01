@@ -114,7 +114,7 @@ impl Tool for UndoEditTool {
             }
         }
 
-        let store = HistoryStore::new(&ctx.workspace_root);
+        let store = HistoryStore::new(&ctx.workspace_root, &ctx.session_id);
         match store.peek_latest(&path) {
             Err(e) => ToolResult::error(format!(
                 "Failed to access history for '{}': {}",
@@ -238,7 +238,7 @@ mod tests {
         std::fs::write(&f, "original\n").unwrap();
 
         // Simulate snapshot taken by edit_file.
-        let store = HistoryStore::new(dir.path());
+        let store = HistoryStore::new(dir.path(), "s1");
         store.snapshot(&f, "original\n").unwrap();
 
         // File is now in its "after edit" state.
@@ -274,7 +274,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let f = dir.path().join("missing-receipt.txt");
         std::fs::write(&f, "original\n").unwrap();
-        let store = HistoryStore::new(dir.path());
+        let store = HistoryStore::new(dir.path(), "s1");
         store.snapshot(&f, "original\n").unwrap();
         std::fs::write(&f, "edited without receipt\n").unwrap();
 
@@ -301,7 +301,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let f = dir.path().join("newer-bytes.txt");
         std::fs::write(&f, "original\n").unwrap();
-        let store = HistoryStore::new(dir.path());
+        let store = HistoryStore::new(dir.path(), "s1");
         store.snapshot(&f, "original\n").unwrap();
         let context = ctx(dir.path());
         agent_update(&context, &f, "agent edit\n");
@@ -329,7 +329,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let f = dir.path().join("recreated.txt");
         std::fs::write(&f, "original\n").unwrap();
-        let store = HistoryStore::new(dir.path());
+        let store = HistoryStore::new(dir.path(), "s1");
         store.snapshot(&f, "original\n").unwrap();
         let context = ctx(dir.path());
         context.file_service.record_read(&f, true).unwrap();
@@ -371,7 +371,7 @@ mod tests {
         let f = dir.path().join("c.txt");
         std::fs::write(&f, "v1\n").unwrap();
 
-        let store = HistoryStore::new(dir.path());
+        let store = HistoryStore::new(dir.path(), "s1");
         store.snapshot(&f, "v1\n").unwrap();
         let context = ctx(dir.path());
         agent_update(&context, &f, "v2\n");
@@ -404,7 +404,7 @@ mod tests {
         std::fs::write(&f, "v1\n").unwrap();
         let ctx = ctx(dir.path());
 
-        let store = HistoryStore::new(dir.path());
+        let store = HistoryStore::new(dir.path(), "s1");
         store.snapshot(&f, "v1\n").unwrap();
         agent_update(&ctx, &f, "v2\n");
         let stale_receipt_id = crate::coding_tools::effect_receipt_store::record_effect(
@@ -445,7 +445,7 @@ mod tests {
         std::fs::write(&f, "v1\n").unwrap();
         let ctx = ctx(dir.path());
 
-        let store = HistoryStore::new(dir.path());
+        let store = HistoryStore::new(dir.path(), "s1");
         store.snapshot(&f, "v1\n").unwrap();
         agent_update(&ctx, &f, "v2\n");
         crate::coding_tools::effect_receipt_store::record_effect(

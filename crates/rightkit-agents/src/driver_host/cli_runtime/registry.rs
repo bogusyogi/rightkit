@@ -315,13 +315,6 @@ mod tests {
         > {
             unimplemented!()
         }
-        async fn begin_native_login(
-            &self,
-            _profile: &crate::driver_host::cli_runtime::ids::CliAccountProfile,
-            _ui: &dyn crate::driver_host::cli_runtime::adapter::NativeLoginUi,
-        ) -> Result<(), crate::driver_host::cli_runtime::adapter::CliAdapterError> {
-            unimplemented!()
-        }
         async fn list_models(
             &self,
             _profile: &crate::driver_host::cli_runtime::ids::CliAccountProfile,

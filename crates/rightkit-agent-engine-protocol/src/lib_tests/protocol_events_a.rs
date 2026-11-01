@@ -37,6 +37,7 @@ fn protocol_event_meta_accessors_share_common_fields() {
         created_at: "2026-06-28T00:00:00Z".into(),
         tool_call_id: "tc1".into(),
         approved: true,
+        reason: None,
     };
 
     let meta = ev.meta();
@@ -172,6 +173,7 @@ fn protocol_event_tool_approval_resolved_kind() {
         created_at: "t".into(),
         tool_call_id: "tc1".into(),
         approved: true,
+        reason: None,
     };
     let json = serde_json::to_string(&ev).unwrap();
     assert!(

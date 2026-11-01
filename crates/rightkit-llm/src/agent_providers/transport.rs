@@ -81,15 +81,14 @@ pub fn provider_context_fingerprint(bytes: &[u8], key: &[u8]) -> String {
 /// Domain-separation prefix of the HCTX-001 commitment (the MAC covers prefix then wire bytes).
 const PROVIDER_CONTEXT_DOMAIN: &[u8] = b"coderight.provider-context.v1\0";
 
-/// Fixture-only inspection hook: present in `host-env` and test builds, absent
-/// from the mobile runtime.
-#[cfg(not(any(test, feature = "agent_providers-host-env")))]
+/// Fixture-only inspection hook: present in test builds only, absent from release builds.
+#[cfg(not(any(test, feature = "agent_providers-test-mode")))]
 fn record_context_inspection(
     _prepared: &crate::agent_providers::client::PreparedProviderRequestV1,
 ) {
 }
 
-#[cfg(any(test, feature = "agent_providers-host-env"))]
+#[cfg(any(test, feature = "agent_providers-test-mode"))]
 fn record_context_inspection(prepared: &crate::agent_providers::client::PreparedProviderRequestV1) {
     // Explicit fixture opt-in only: no ordinary prompt log or shadow history.
     let Some(path) = std::env::var_os("RIGHTKIT_CONTEXT_INSPECTION_PATH") else {

@@ -55,5 +55,5 @@ pub use token_store::{
 pub use types::{
     account_fingerprint, expand_tilde, now_ms, ApiKeyAuth, ApiKeyCredential, AuthContext,
     AuthError, AuthErrorCode, AuthEvent, AuthInfoLink, AuthInteraction, AuthPrompt, AuthResult,
-    AuthSignal, BoxFuture, EnvMapAuthContext, ModelAuth, ProcessAuthContext, ProviderEnv, REDACTED,
+    AuthSignal, BoxFuture, ModelAuth, ProcessAuthContext, ProviderEnv, REDACTED,
 };

@@ -53,6 +53,10 @@ impl Tool for WebSearchTool {
         true
     }
 
+    fn capability_class(&self) -> Option<rightkit_agent_policy::CapabilityClass> {
+        Some(rightkit_agent_policy::CapabilityClass::Network)
+    }
+
     fn description(&self) -> &str {
         "Search the web via keyless DuckDuckGo by default, or configured Brave/Tavily/Exa/TinyFish (default 10 results, max 20). Returns title+snippet+url."
     }

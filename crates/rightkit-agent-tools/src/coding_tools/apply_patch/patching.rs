@@ -10,7 +10,6 @@
 
 use crate::coding_tools::context::ToolContext;
 use crate::coding_tools::tool_trait::{Tool, ToolResult, WorkspaceMutation, WorkspaceMutationKind};
-use rightkit_agent_engine_history::HistoryStore;
 use rightkit_agent_policy::{CapabilityClass, PermissionDecision, PermissionEngine};
 use serde_json::{json, Value};
 use std::path::PathBuf;

@@ -2,7 +2,7 @@
 
 ## 0.2.13 (unreleased)
 
-- Feature `agent_media`: agent media capture/transcode helpers gated by agent policy, moved from CodeRight `coderight-media`.
+- Feature `agent_media`: agent media capture/transcode helpers gated by agent policy, moved from CodeRight `coderight-media`. The `transcribe` tool (`MediaToolKind::Transcribe`) is removed.
 
 ## 0.2.11 — unpublished staging
 

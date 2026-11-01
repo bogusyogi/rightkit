@@ -159,12 +159,15 @@ mod tests {
         // session-scoped FileService the writer used; production binds one
         // service per engine, so the two contexts share it here.
         let file_service = crate::coding_tools::file_service::FileService::new();
-        let result = tool
-            .execute(
-                json!({"patch": patch}),
-                &ctx(dir.path()).with_file_service(file_service.clone()),
-            )
-            .await;
+        let writer_ctx = ctx(dir.path()).with_file_service(file_service.clone());
+        // The engine writes the restore point from `write_targets` before the call runs;
+        // the tool never snapshots itself.
+        let store = rightkit_agent_engine_history::HistoryStore::new(dir.path(), "sess1");
+        for target in tool.write_targets(&json!({"patch": patch}), &writer_ctx) {
+            let prior = std::fs::read_to_string(&target).unwrap();
+            store.snapshot(&target, &prior).unwrap();
+        }
+        let result = tool.execute(json!({"patch": patch}), &writer_ctx).await;
 
         assert!(!result.is_error, "error: {}", result.content);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "after\n");

@@ -72,8 +72,49 @@ pub struct HostConfig {
     pub remote: RemoteConfig,
     pub orchestration: OrchestrationConfig,
     pub prompt: PromptConfig,
-    pub memory: MemoryConfig,
     pub tui: TuiConfig,
+    pub turn: TurnConfig,
+    pub hooks: HooksConfig,
+}
+
+/// Lifecycle hooks (`[hooks]` in `config.toml`; tools rule 58). One table keyed by event name
+/// (the host hook chain's event names), each value an ordered list of entries:
+///
+/// ```toml
+/// [hooks]
+/// PreToolUse = [{ matcher = "shell|write_file", command = "audit.sh", timeout-secs = 10 }]
+/// PostToolUse = [{ type = "url", command = "https://example.test/hook" }]
+/// ```
+///
+/// Event names stay in their own case. The workspace layer's `[hooks]` is honoured only in a
+/// trusted workspace (rule 13); the user layer always.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(transparent)]
+pub struct HooksConfig(pub serde_json::Map<String, serde_json::Value>);
+
+impl HooksConfig {
+    /// The table as one JSON document, or `None` when no hook is configured.
+    pub fn as_document(&self) -> Option<serde_json::Value> {
+        (!self.0.is_empty()).then(|| serde_json::Value::Object(self.0.clone()))
+    }
+}
+
+/// Root-turn limits (`[turn]` in `config.toml`; sessions rule 32).
+///
+/// ```toml
+/// [turn]
+/// max-wall-clock-minutes = 90   # optional; unset means no wall-clock cap
+/// ```
+///
+/// No peer caps a turn by wall clock, so there is no default: the idle and
+/// no-progress limits and the `repeated_call` bound end a hung turn. This is a
+/// different key from `orchestration.budget.max-wall-clock-minutes`, the
+/// sub-agent run-length bound (orchestration rule 43).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct TurnConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_wall_clock_minutes: Option<u32>,
 }
 
 /// Terminal UI preferences (`[tui]` in `config.toml`).
@@ -521,10 +562,6 @@ pub struct BudgetConfig {
     pub per_goal_max_usd: f64,
     pub per_session_max_usd: f64,
     pub per_agent_call_max_usd: f64,
-    pub global_monthly_max_usd: f64,
-    pub warning_at: f64,
-    pub max_jury_calls_per_run: u32,
-    pub max_escalation_depth: u32,
     pub max_retries_per_role: u32,
     pub max_wall_clock_minutes: u32,
     pub max_iterations: u32,
@@ -534,16 +571,16 @@ pub struct BudgetConfig {
 impl Default for BudgetConfig {
     fn default() -> Self {
         Self {
-            per_task_max_usd: 0.1,
-            per_goal_max_usd: 5.0,
-            per_session_max_usd: 10.0,
-            per_agent_call_max_usd: 0.1,
-            global_monthly_max_usd: 100.0,
-            warning_at: 0.8,
-            max_jury_calls_per_run: 10,
-            max_escalation_depth: 3,
+            // Every dollar key defaults to zero: no ceiling, nothing gated
+            // (orchestration rule 43, sessions rule 38). A user may set one.
+            per_task_max_usd: 0.0,
+            per_goal_max_usd: 0.0,
+            per_session_max_usd: 0.0,
+            per_agent_call_max_usd: 0.0,
             max_retries_per_role: 2,
-            max_wall_clock_minutes: 60,
+            // Sub-agent run-length bound (orchestration rule 43); the root turn
+            // has its own optional key, `turn.max-wall-clock-minutes`.
+            max_wall_clock_minutes: 10,
             max_iterations: 100,
             max_workers: 4,
         }
@@ -576,68 +613,6 @@ impl PromptConfig {
     /// Effective value of `brief-default`.
     pub fn brief_default(&self) -> bool {
         self.brief_default.unwrap_or(Self::BRIEF_DEFAULT_DEFAULT)
-    }
-}
-
-/// Memory retrieval routing configuration (FM-071).
-///
-/// Controls the three-tier `RoutingPolicy` bandit: `Low` → lexical only,
-/// `Mid` → hybrid, `High` → full hybrid with wider candidate set.
-/// The bandit adapts per-tier rewards from run outcomes; when the embedder
-/// is unavailable the router falls back to lexical (`Low`).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(default, rename_all = "kebab-case")]
-pub struct MemoryConfig {
-    /// Default retrieval tier when bandit is disabled: `low` | `mid` | `high` | `auto`.
-    /// `auto` (default) lets the bandit choose.
-    pub retrieval_tier: String,
-    /// Whether the bandit is enabled. When false, `retrieval_tier` is used verbatim.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bandit_enabled: Option<bool>,
-    /// Epsilon for epsilon-greedy exploration in [0, 0.5]. Default 0.10.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bandit_epsilon: Option<f64>,
-    /// EMA learning rate in (0, 1). Default 0.30.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bandit_alpha: Option<f64>,
-}
-
-impl Default for MemoryConfig {
-    fn default() -> Self {
-        Self {
-            retrieval_tier: "auto".to_string(),
-            bandit_enabled: None,
-            bandit_epsilon: None,
-            bandit_alpha: None,
-        }
-    }
-}
-
-impl MemoryConfig {
-    pub const BANDIT_ENABLED_DEFAULT: bool = true;
-    pub const BANDIT_EPSILON_DEFAULT: f64 = 0.10;
-    pub const BANDIT_ALPHA_DEFAULT: f64 = 0.30;
-
-    pub fn bandit_enabled(&self) -> bool {
-        self.bandit_enabled.unwrap_or(Self::BANDIT_ENABLED_DEFAULT)
-    }
-
-    pub fn bandit_epsilon(&self) -> f64 {
-        self.bandit_epsilon.unwrap_or(Self::BANDIT_EPSILON_DEFAULT)
-    }
-
-    pub fn bandit_alpha(&self) -> f64 {
-        self.bandit_alpha.unwrap_or(Self::BANDIT_ALPHA_DEFAULT)
-    }
-
-    /// Resolve an explicit tier string to a `Tier` when bandit is disabled.
-    /// Returns `None` for `auto` or unknown values (caller should use bandit).
-    pub fn explicit_tier(&self) -> Option<String> {
-        let v = self.retrieval_tier.trim().to_ascii_lowercase();
-        match v.as_str() {
-            "low" | "mid" | "high" => Some(v),
-            _ => None,
-        }
     }
 }
 
@@ -686,37 +661,7 @@ impl HostConfig {
     pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
         let mut errors = Vec::new();
 
-        // Memory bandit epsilon in [0, 0.5]
-        if let Some(eps) = self.memory.bandit_epsilon {
-            if !(0.0..=0.5).contains(&eps) || !eps.is_finite() {
-                errors.push(ValidationError {
-                    field: "memory.bandit_epsilon".into(),
-                    message: format!("must be in [0, 0.5], got {eps}"),
-                });
-            }
-        }
-        // Memory bandit alpha in (0, 1)
-        if let Some(alpha) = self.memory.bandit_alpha {
-            if !(0.0..1.0).contains(&alpha) || !alpha.is_finite() {
-                errors.push(ValidationError {
-                    field: "memory.bandit_alpha".into(),
-                    message: format!("must be in (0, 1), got {alpha}"),
-                });
-            }
-        }
-        // retrieval_tier must be one of low|mid|high|auto
-        let tier = self.memory.retrieval_tier.trim().to_ascii_lowercase();
-        if !matches!(tier.as_str(), "low" | "mid" | "high" | "auto") {
-            errors.push(ValidationError {
-                field: "memory.retrieval_tier".into(),
-                message: format!(
-                    "must be one of low|mid|high|auto, got '{}'",
-                    self.memory.retrieval_tier
-                ),
-            });
-        }
-
-        // Budget ceilings must be positive and finite.
+        // Budget ceilings are finite and not negative; zero means no cap.
         let budget = &self.orchestration.budget;
         for (field, value) in [
             (
@@ -731,26 +676,22 @@ impl HostConfig {
                 "orchestration.budget.per_session_max_usd",
                 budget.per_session_max_usd,
             ),
-            (
-                "orchestration.budget.per_agent_call_max_usd",
-                budget.per_agent_call_max_usd,
-            ),
-            (
-                "orchestration.budget.global_monthly_max_usd",
-                budget.global_monthly_max_usd,
-            ),
         ] {
-            if !value.is_finite() || value <= 0.0 {
+            if !value.is_finite() || value < 0.0 {
                 errors.push(ValidationError {
                     field: field.into(),
-                    message: format!("must be finite and > 0, got {value}"),
+                    message: format!("must be finite and >= 0 (0 = no cap), got {value}"),
                 });
             }
         }
-        if !(0.0..=1.0).contains(&budget.warning_at) || !budget.warning_at.is_finite() {
+        // The per-child cap is optional: zero means none.
+        if !budget.per_agent_call_max_usd.is_finite() || budget.per_agent_call_max_usd < 0.0 {
             errors.push(ValidationError {
-                field: "orchestration.budget.warning_at".into(),
-                message: format!("must be in [0, 1], got {}", budget.warning_at),
+                field: "orchestration.budget.per_agent_call_max_usd".into(),
+                message: format!(
+                    "must be finite and >= 0 (0 = no cap), got {}",
+                    budget.per_agent_call_max_usd
+                ),
             });
         }
 

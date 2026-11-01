@@ -22,6 +22,22 @@ pub mod test_isolation;
 mod types;
 pub mod workspace_trust;
 
+/// True in `test-mode` builds (and this crate's own tests); always false in a release build. QA and
+/// test harnesses select env seams (the client-API R32 daemon URL and token) behind it only.
+pub const TEST_MODE: bool = cfg!(any(test, feature = "agent_config-test-mode"));
+
+/// A store or directory location named by the environment variable `name`, for test and QA runs
+/// only. A release build never reads the variable (storage contract rule 17), so a stray name in
+/// the user's environment cannot redirect durable state. Empty values count as unset.
+pub fn qa_path_override(name: &str) -> Option<std::path::PathBuf> {
+    if !TEST_MODE {
+        return None;
+    }
+    std::env::var_os(name)
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from)
+}
+
 pub use agent_config::{find_agents_dir, AgentMcpConfig, AgentMcpServer};
 pub use instructions::{Frontmatter, InstructionFile, InstructionLoader, InstructionScope};
 pub use loader::{ConfigError, ConfigLoader};
@@ -33,17 +49,19 @@ pub use okf::{
     OkfBundleStats, OkfConcept, OkfEmitOptions, OkfError, OkfLink, OKF_VERSION,
 };
 pub use state_root::{
-    app_name, os_home_dir, set_app_name, state_root, state_root_is_isolated, APP_NAME,
+    app_name, os_home_dir, os_home_dir_required, set_app_name, state_root, state_root_is_isolated,
+    state_root_required, APP_NAME,
 };
 pub use types::{
     AgentOverride, BooleanSetting, BudgetConfig, ChannelProfileConfig, ConfigSource, FeatureConfig,
-    HostConfig, MemoryConfig, ModelConfig, ModelToolInterfaceConfig, OrchestrationConfig,
+    HooksConfig, HostConfig, ModelConfig, ModelToolInterfaceConfig, OrchestrationConfig,
     PermissionsConfig, PreGateCheckConfig, PromptConfig, Provenance, ProviderRouteConfig,
-    RemoteConfig, RoutingConfig, SessionConfig, ToolsConfig, ToolsetConfig, TuiConfig,
+    RemoteConfig, RoutingConfig, SessionConfig, ToolsConfig, ToolsetConfig, TuiConfig, TurnConfig,
     ValidationError, WorkflowImportTrustedPublicKey,
 };
 pub use workspace_trust::{
-    is_workspace_trusted, is_workspace_trusted_in, workspace_trust_key, workspace_trust_store_path,
+    is_workspace_trusted, is_workspace_trusted_in, nearest_trust_record, trust_lookup_keys,
+    workspace_trust_key, workspace_trust_store_path,
 };
 
 #[cfg(test)]
@@ -72,8 +90,8 @@ mod tests {
         assert!(c.model.fallback_models.is_empty());
         assert_eq!(c.model.max_tokens, 0);
         assert!(c.tools.web_search_provider.is_none());
-        assert_eq!(c.orchestration.budget.per_task_max_usd, 0.1);
-        assert_eq!(c.orchestration.budget.per_agent_call_max_usd, 0.1);
+        assert_eq!(c.orchestration.budget.per_task_max_usd, 0.0);
+        assert_eq!(c.orchestration.budget.per_agent_call_max_usd, 0.0);
     }
 
     #[test]

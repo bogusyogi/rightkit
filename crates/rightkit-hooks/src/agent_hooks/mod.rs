@@ -2,21 +2,6 @@
 //! `host_hooks` — lifecycle hook bus, destructive-action guard, and
 //! runtime hook registration helpers.
 
-/// A legacy hook env-var name, present only where hooks may be configured from the
-/// environment (`host-env` and tests). The mobile build carries no such name.
-#[cfg(any(test, feature = "agent_hooks-host-env"))]
-macro_rules! hook_var {
-    ($name:literal) => {
-        Some($name)
-    };
-}
-#[cfg(not(any(test, feature = "agent_hooks-host-env")))]
-macro_rules! hook_var {
-    ($name:literal) => {
-        None::<&'static str>
-    };
-}
-
 pub mod bus;
 pub mod chain;
 pub mod guard;
@@ -26,17 +11,14 @@ pub use bus::{
     HookBus, HookEvent, HookOutcome, HookSubscription, PreToolUseOutcome, PreToolUseReport,
     ProcessLaunchAdapter,
 };
-pub use chain::{ChainReport, HookDecision, HookResult, HookSpec};
+pub use chain::{ChainReport, ConfiguredHooks, HookDecision, HookKind, HookResult, HookSpec};
 pub use guard::{DestructiveGuard, DestructiveGuardDecision};
-#[cfg(test)]
-pub use registry::dry_run_hook;
-pub use registry::{dry_run_hook_with_adapter, HookDryRunReport, HookRegistry};
+pub use registry::{dry_run_hook_with_adapter, HookDryRunReport, HookRegistry, IdentifiedHook};
 
-/// Read one operator-supplied hook command / hook-config variable.
+/// Read the JSON-form hook configuration variable (`RIGHTKIT_HOOKS_JSON`).
 ///
-/// Hook commands arrive from the environment only in desktop, daemon and test
-/// builds (`host-env`). A build without that feature (the iOS mobile runtime)
-/// reads no environment variable here and runs no environment-selected command.
+/// It is read only in desktop, daemon and test builds (`host-env`). A build without that
+/// feature (the iOS mobile runtime) reads no environment variable here.
 #[cfg(any(test, feature = "agent_hooks-host-env"))]
 pub(crate) fn hook_env(name: &str) -> Option<String> {
     std::env::var(name)

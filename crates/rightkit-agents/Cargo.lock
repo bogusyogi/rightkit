@@ -2310,7 +2310,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-time",
  "serde",
@@ -2391,7 +2391,6 @@ dependencies = [
  "rightkit-crypto",
  "rightkit-daemon",
  "rightkit-db",
- "rightkit-embed",
  "rightkit-ffmpeg",
  "rightkit-fs",
  "rightkit-http",
@@ -2434,6 +2433,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -2529,15 +2529,6 @@ dependencies = [
  "rusqlite",
  "thiserror 2.0.21",
  "zeroize",
-]
-
-[[package]]
-name = "rightkit-embed"
-version = "0.6.2"
-dependencies = [
- "rightkit-db",
- "rusqlite",
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -2679,7 +2670,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sandbox"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "async-trait",
  "libc",

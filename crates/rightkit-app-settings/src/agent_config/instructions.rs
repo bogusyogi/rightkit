@@ -97,6 +97,28 @@ pub struct InstructionFile {
 #[derive(Debug, Clone)]
 pub struct InstructionLoader {
     roots: HashMap<InstructionScope, PathBuf>,
+    /// Directories from the project root down to the parent of the Project root (the working
+    /// directory), outermost first, whose instruction files load before the Project root's own.
+    walk_dirs: Vec<PathBuf>,
+}
+
+/// Instruction text read from one scope is capped at this many bytes (tools rule 66). The
+/// project walk's directories count toward the Project scope's cap.
+pub const INSTRUCTION_ROOT_CAP_BYTES: usize = 32 * 1024;
+/// Instruction text handed to the prompt in total is capped at this many bytes (tools rule 66).
+pub const INSTRUCTION_TOTAL_CAP_BYTES: usize = 96 * 1024;
+/// The per-directory override of `AGENTS.md` (Codex parity): read instead of it when present.
+pub const AGENTS_OVERRIDE_FILE: &str = "AGENTS.override.md";
+/// Path of the synthetic entry that carries the "files were dropped" marker into the prompt.
+pub const INSTRUCTION_CAP_MARKER_PATH: &str = "rightkit:instruction-cap";
+
+/// The nearest ancestor of `cwd` (or `cwd` itself) that holds a `.git` entry: the project root
+/// (Codex's project-root marker). `None` when there is none within 64 levels.
+pub fn find_project_root(cwd: &Path) -> Option<PathBuf> {
+    cwd.ancestors()
+        .take(64)
+        .find(|dir| dir.join(".git").exists())
+        .map(Path::to_path_buf)
 }
 
 impl InstructionLoader {
@@ -104,6 +126,7 @@ impl InstructionLoader {
     pub fn new() -> Self {
         InstructionLoader {
             roots: HashMap::new(),
+            walk_dirs: Vec::new(),
         }
     }
 
@@ -113,98 +136,169 @@ impl InstructionLoader {
         self.roots.insert(scope, dir);
     }
 
+    /// Also read the instruction files of every directory from the project root (the nearest
+    /// ancestor with a `.git` entry) down to `cwd`, outermost first, so a monorepo package's
+    /// `AGENTS.md` and the repository's both reach the prompt (Codex: project root down to the
+    /// cwd; pi: the cwd and its parents). `cwd` itself is the registered Project root. They are
+    /// Project scope, so they stay withheld in an untrusted workspace and count toward the
+    /// Project scope's cap. Does nothing when `cwd` has no project root above it.
+    pub fn add_project_walk(&mut self, cwd: &Path) {
+        self.walk_dirs.clear();
+        let Some(root) = find_project_root(cwd) else {
+            return;
+        };
+        let mut dirs: Vec<PathBuf> = cwd
+            .ancestors()
+            .skip(1)
+            .take_while(|dir| dir.starts_with(&root))
+            .map(Path::to_path_buf)
+            .collect();
+        dirs.reverse();
+        self.walk_dirs = dirs;
+    }
+
     /// Discover all instruction files under registered roots.
     ///
-    /// Searches for:
-    /// - `CLAUDE.md` at root level
-    /// - `AGENTS.md` at root level
-    /// - `right.md` at root level
+    /// Searches, per root, for:
+    /// - `CLAUDE.md`, `AGENTS.md` and `right.md` at root level
     /// - `.claude/rules/*.md` (all files)
     /// - `.claude/instructions/*.md` (all files)
     ///
+    /// Trust gate (rules 13 and 67): the Project and Local roots are read only when
+    /// `workspace_trusted(root)` is true, every file kind alike (Codex skips every project
+    /// `AGENTS.md` of an untrusted project, `agents_md.rs:63-65`); the Managed and User roots
+    /// always load. A file that cannot be read is skipped with one logged line naming it.
+    ///
+    /// Caps (rule 66): at most [`INSTRUCTION_ROOT_CAP_BYTES`] per scope and
+    /// [`INSTRUCTION_TOTAL_CAP_BYTES`] in total, scope order first. A file that would pass a cap
+    /// is dropped whole, and one marker entry ([`INSTRUCTION_CAP_MARKER_PATH`]) names every
+    /// dropped file, so the prompt and the session list show what was left out.
+    ///
     /// Returns files sorted by scope (managed -> local).
-    pub fn discover(&self) -> Vec<InstructionFile> {
-        self.discover_gated(|_| true)
-    }
-
-    /// Like [`discover`](Self::discover) but `.claude/rules/*.md` under Project
-    /// and Local roots is read only when `workspace_trusted(root)` is true.
-    /// Root-level files (CLAUDE.md, AGENTS.md, right.md) and
-    /// `.claude/instructions` stay ungated to match the workspace-trust lane
-    /// (#131); Managed and User roots always load rules.
     pub fn discover_gated(
         &self,
         workspace_trusted: impl Fn(&Path) -> bool,
     ) -> Vec<InstructionFile> {
         let mut files = Vec::new();
 
-        for (scope, root) in &self.roots {
-            let rules_allowed =
-                !matches!(scope, InstructionScope::Project | InstructionScope::Local)
-                    || workspace_trusted(root);
-            // Check for CLAUDE.md
-            let claude_path = root.join("CLAUDE.md");
-            if claude_path.exists() {
-                if let Some(file) = Self::load_context_file(*scope, &claude_path) {
-                    files.push(file);
-                }
+        // Registered roots, scope order; the project walk's directories come before the Project
+        // root (outermost directory first).
+        let mut scopes: Vec<_> = self.roots.iter().collect();
+        scopes.sort_by_key(|(scope, _)| **scope);
+        let mut ordered: Vec<(InstructionScope, &PathBuf)> = Vec::new();
+        for (scope, root) in scopes {
+            if *scope == InstructionScope::Project {
+                ordered.extend(self.walk_dirs.iter().map(|dir| (*scope, dir)));
             }
+            ordered.push((*scope, root));
+        }
 
-            // Check for AGENTS.md
-            let agents_path = root.join("AGENTS.md");
-            if agents_path.exists() {
-                if let Some(file) = Self::load_context_file(*scope, &agents_path) {
-                    files.push(file);
-                }
+        for (scope, root) in ordered {
+            let scope = &scope;
+            let allowed = !matches!(scope, InstructionScope::Project | InstructionScope::Local)
+                || workspace_trusted(root);
+            if !allowed {
+                continue;
             }
-
-            // Check for right.md
-            let right_path = root.join("right.md");
-            if right_path.exists() {
-                if let Some(file) = Self::load_context_file(*scope, &right_path) {
-                    files.push(file);
-                }
-            }
-
-            // Check for .claude/rules/*.md
-            let rules_dir = root.join(".claude").join("rules");
-            if rules_allowed && rules_dir.exists() {
-                if let Ok(entries) = std::fs::read_dir(&rules_dir) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if path.extension().is_some_and(|ext| ext == "md") {
-                            if let Some(file) = Self::load_context_file(*scope, &path) {
-                                files.push(file);
-                            }
-                        }
+            for name in ["CLAUDE.md", "AGENTS.md", "right.md"] {
+                // Codex parity: in each directory `AGENTS.override.md`, when present, is read
+                // instead of `AGENTS.md`.
+                let override_path = root.join(AGENTS_OVERRIDE_FILE);
+                let path = if name == "AGENTS.md" && override_path.exists() {
+                    override_path
+                } else {
+                    root.join(name)
+                };
+                if path.exists() {
+                    if let Some(file) = Self::load_context_file(*scope, &path) {
+                        files.push(file);
                     }
                 }
             }
-
-            // Check for .claude/instructions/*.md
-            let instructions_dir = root.join(".claude").join("instructions");
-            if instructions_dir.exists() {
-                if let Ok(entries) = std::fs::read_dir(&instructions_dir) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if path.extension().is_some_and(|ext| ext == "md") {
-                            if let Some(file) = Self::load_context_file(*scope, &path) {
-                                files.push(file);
+            for sub in ["rules", "instructions"] {
+                let dir = root.join(".claude").join(sub);
+                if !dir.exists() {
+                    continue;
+                }
+                match std::fs::read_dir(&dir) {
+                    Ok(entries) => {
+                        // Directory order is not defined: sort by file name (rule 65 order).
+                        let mut paths: Vec<PathBuf> =
+                            entries.flatten().map(|entry| entry.path()).collect();
+                        paths.sort();
+                        for path in paths {
+                            if path.extension().is_some_and(|ext| ext == "md") {
+                                if let Some(file) = Self::load_context_file(*scope, &path) {
+                                    files.push(file);
+                                }
                             }
                         }
+                    }
+                    Err(error) => {
+                        eprintln!(
+                            "[instructions] skipped {}: cannot read the directory: {error}",
+                            dir.display()
+                        );
                     }
                 }
             }
         }
 
-        // Sort by scope: managed < user < project < local
+        // Sort by scope: managed < user < project < local (stable: order within a scope holds).
         files.sort_by_key(|f| f.scope);
 
-        files
+        Self::apply_caps(files)
+    }
+
+    /// Rule 66: drop whole files past the per-scope and total caps and name them in one marker.
+    fn apply_caps(files: Vec<InstructionFile>) -> Vec<InstructionFile> {
+        let mut kept = Vec::with_capacity(files.len());
+        let mut per_scope: HashMap<InstructionScope, usize> = HashMap::new();
+        let mut total = 0usize;
+        let mut dropped: Vec<String> = Vec::new();
+        let mut last_scope = InstructionScope::Project;
+        for file in files {
+            let len = file.body.len();
+            let used = per_scope.entry(file.scope).or_default();
+            if *used + len > INSTRUCTION_ROOT_CAP_BYTES || total + len > INSTRUCTION_TOTAL_CAP_BYTES
+            {
+                eprintln!(
+                    "[instructions] dropped {} ({len} bytes): over the instruction size cap",
+                    file.path
+                );
+                last_scope = file.scope;
+                dropped.push(file.path);
+                continue;
+            }
+            *used += len;
+            total += len;
+            kept.push(file);
+        }
+        if !dropped.is_empty() {
+            kept.push(InstructionFile {
+                scope: last_scope,
+                path: INSTRUCTION_CAP_MARKER_PATH.to_string(),
+                frontmatter: Frontmatter::default(),
+                body: format!(
+                    "[Instruction files dropped: over the {} KiB per-scope or {} KiB total cap: {}]",
+                    INSTRUCTION_ROOT_CAP_BYTES / 1024,
+                    INSTRUCTION_TOTAL_CAP_BYTES / 1024,
+                    dropped.join(", ")
+                ),
+            });
+            kept.sort_by_key(|f| f.scope);
+        }
+        kept
     }
 
     fn load_context_file(scope: InstructionScope, path: &Path) -> Option<InstructionFile> {
-        let content = std::fs::read_to_string(path).ok()?;
+        let content = match std::fs::read_to_string(path) {
+            Ok(content) => content,
+            Err(error) => {
+                eprintln!("[instructions] skipped {}: {error}", path.display());
+                return None;
+            }
+        };
         let content = Self::sanitize_context_file_content(path, content);
         let (frontmatter, body) = Self::parse_frontmatter(&content);
         Some(InstructionFile {
@@ -702,7 +796,7 @@ Body"#;
     }
 
     #[test]
-    fn claude_rules_load_only_for_trusted_project_scope() {
+    fn project_instructions_load_only_for_trusted_project_scope() {
         // Claude Code memory/rules: https://code.claude.com/docs/en/memory
         let dir = tempfile::tempdir().unwrap();
         let rules = dir.path().join(".claude").join("rules");
@@ -711,11 +805,9 @@ Body"#;
         std::fs::write(dir.path().join("CLAUDE.md"), "root file").unwrap();
         let mut loader = InstructionLoader::new();
         loader.add_root(InstructionScope::Project, dir.path().to_path_buf());
-        assert_eq!(loader.discover().len(), 2);
-        // Untrusted: rules dropped, CLAUDE.md still loads (matches #131).
-        let untrusted = loader.discover_gated(|_| false);
-        assert_eq!(untrusted.len(), 1);
-        assert!(untrusted[0].body.contains("root file"));
+        assert_eq!(loader.discover_gated(|_| true).len(), 2);
+        // Untrusted: every Project file is withheld, root-level files included.
+        assert!(loader.discover_gated(|_| false).is_empty());
         let trusted = loader.discover_gated(|_| true);
         assert_eq!(trusted.len(), 2);
         assert!(trusted.iter().any(|f| f.body.contains("use tabs")));
@@ -746,7 +838,7 @@ Body"#;
 
         let mut loader = InstructionLoader::new();
         loader.add_root(InstructionScope::Project, root.clone());
-        let files = loader.discover();
+        let files = loader.discover_gated(|_| true);
         let names = files
             .iter()
             .map(|file| {
@@ -773,7 +865,7 @@ Body"#;
         let mut loader = InstructionLoader::new();
         loader.add_root(InstructionScope::Local, local.path().to_path_buf());
         loader.add_root(InstructionScope::Managed, managed.path().to_path_buf());
-        let files = loader.discover();
+        let files = loader.discover_gated(|_| true);
 
         assert_eq!(files.len(), 2);
         assert_eq!(files[0].scope, InstructionScope::Managed);
@@ -796,7 +888,7 @@ Body"#;
 
         let mut loader = InstructionLoader::new();
         loader.add_root(InstructionScope::Project, root.clone());
-        let files = loader.discover();
+        let files = loader.discover_gated(|_| true);
 
         assert_eq!(files.len(), 1);
         assert_eq!(
@@ -1232,7 +1324,7 @@ Body"#;
 
         let mut loader = InstructionLoader::new();
         loader.add_root(InstructionScope::Project, root.path().to_path_buf());
-        let files = loader.discover();
+        let files = loader.discover_gated(|_| true);
 
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].frontmatter.globs, vec!["src/**/*.rs"]);
