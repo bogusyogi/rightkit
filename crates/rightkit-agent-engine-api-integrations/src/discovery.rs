@@ -2,33 +2,75 @@
 
 use std::path::{Path, PathBuf};
 
-pub fn discover_plugins(dir: &Path) -> Result<Vec<rightkit_agent_plugins::PluginManifest>, String> {
-    let mut loader = rightkit_agent_plugins::PluginLoader::new(dir.to_path_buf());
-    loader.discover().map_err(|error| error.to_string())?;
-    let mut plugins = loader
-        .enabled_plugins()
-        .into_iter()
-        .cloned()
-        .collect::<Vec<_>>();
-    for entry in std::fs::read_dir(dir).map_err(|error| error.to_string())? {
+/// A plugin folder whose `plugin.json` could not be read or parsed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrokenPlugin {
+    pub path: PathBuf,
+    pub error: String,
+}
+
+/// Every plugin folder under the plugin directory: the manifests that parse, and the ones
+/// that do not, each with its path and error (contract R10: one bad file never hides the
+/// others). Hidden folders are not plugins. A missing directory holds no plugins.
+#[derive(Debug, Clone, Default)]
+pub struct PluginDiscovery {
+    pub plugins: Vec<rightkit_agent_plugins::PluginManifest>,
+    pub broken: Vec<BrokenPlugin>,
+}
+
+pub fn discover_plugin_report(dir: &Path) -> Result<PluginDiscovery, String> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(PluginDiscovery::default())
+        }
+        Err(error) => return Err(error.to_string()),
+    };
+    let mut report = PluginDiscovery::default();
+    for entry in entries {
         let entry = entry.map_err(|error| error.to_string())?;
-        let manifest_path = entry.path().join("plugin.json");
+        let root = entry.path();
+        let hidden = entry.file_name().to_string_lossy().starts_with('.');
+        if hidden || !root.is_dir() {
+            continue;
+        }
+        let manifest_path = root.join("plugin.json");
         if !manifest_path.exists() {
             continue;
         }
-        let raw = std::fs::read_to_string(&manifest_path).map_err(|error| error.to_string())?;
-        let manifest = rightkit_agent_plugins::PluginManifest::from_json(&raw)
-            .map_err(|error| error.to_string())?;
-        if plugins.iter().all(|plugin| plugin.id != manifest.id) {
-            plugins.push(manifest);
+        let parsed = std::fs::read_to_string(&manifest_path)
+            .map_err(|error| error.to_string())
+            .and_then(|raw| {
+                rightkit_agent_plugins::PluginManifest::from_json(&raw)
+                    .map_err(|error| error.to_string())
+            });
+        match parsed {
+            Ok(manifest) => {
+                if report.plugins.iter().all(|plugin| plugin.id != manifest.id) {
+                    report.plugins.push(manifest);
+                }
+            }
+            Err(error) => report.broken.push(BrokenPlugin {
+                path: manifest_path,
+                error,
+            }),
         }
     }
-    plugins.sort_by(|left, right| {
+    report.plugins.sort_by(|left, right| {
         left.id
             .cmp(&right.id)
             .then_with(|| left.version.cmp(&right.version))
     });
-    Ok(plugins)
+    report
+        .broken
+        .sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(report)
+}
+
+/// The plugins whose manifests parse. A broken manifest is skipped here and reported by
+/// [`discover_plugin_report`].
+pub fn discover_plugins(dir: &Path) -> Result<Vec<rightkit_agent_plugins::PluginManifest>, String> {
+    Ok(discover_plugin_report(dir)?.plugins)
 }
 
 pub fn plugin_manifests_with_roots(
