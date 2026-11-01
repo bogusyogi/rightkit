@@ -15,5 +15,7 @@ update their bindings.
 - `rightkit_dictation_detokenize_json` / `rightkit_dictation_owned_bytes_free`: SentencePiece pieces
   to text with the canonical Rust policy.
 
-The streaming keyword-spotter C surface (`kws_ffi`) is not included: it needs `rightkit_asr::kws`,
-which is not yet in a published `rightkit-asr`.
+- `kws`: streaming keyword spotting over `rightkit_asr::kws` (`rightkit_dictation_kws_*`): bind
+  ONNX Runtime once (`rightkit_dictation_kws_runtime_init`), then create spotters and streams,
+  feed 16 kHz PCM and read Sherpa-shaped JSON results. The model payload is the Zipformer2
+  transducer files named by `kws::ENCODER_FILE` and friends.

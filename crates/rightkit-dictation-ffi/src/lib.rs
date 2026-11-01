@@ -1,6 +1,8 @@
 //! Stable C surface for native Apple shells. It keeps native shells on the exact same
 //! implementation desktop hosts call instead of maintaining regex copies in Swift.
 
+pub mod kws;
+
 use std::ffi::{c_char, CStr, CString};
 
 /// Owned UTF-8 bytes returned by a shared-core FFI function. The buffer is
