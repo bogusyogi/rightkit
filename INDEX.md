@@ -12,7 +12,7 @@ Flagged mismatches: 0.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
-## Rust crates (76)
+## Rust crates (77)
 
 | Crate | Registry | Source | Published | Staged | Flag | Owns | What it is |
 |---|---|---|---|---|---|---|---|
@@ -71,6 +71,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-qa` | crates.io | 0.10.1 | 0.9.1 | 0.10.1 | staged, not yet published | desktop-qa | Rust QA harness for Right Suite apps: engine black-box scenarios, hidden native UI driving (the in-app control server is the dev-only `control` feature), Rust-test scenario wrapper, dynamic paid-provider mocks, loudness/WAV/PNG/frame validators, run lock, orphan sweep, hashed evidence. |
 | `rightkit-qa-driver` | crates.io | 0.7.0 | 0.7.0 | 0.7.0 | ok | desktop-control | Deprecated shim: use rightkit-qa (`control` feature) for the in-app QA control server and rightkit-automation for background input. Keeps the old rightkit-qa-driver paths, the WebDriver bridge and the macOS CLI. |
 | `rightkit-record` | crates.io | 0.3.3 | 0.3.3 | 0.3.3 | ok | screen-recording | Per-window screen capture for any app, chosen by window id and pid: ScreenCaptureKit on macOS, Windows.Graphics.Capture on Windows. Record lifecycle, session bundles, redaction, verification and frame reader. Never sends input; needs Screen Recording permission. |
+| `rightkit-reframe` | crates.io | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | Tracked 9:16 reframe for Right Suite video apps: ONNX face detection (YuNet; CoreML, DirectML or CPU), subject tracking, a smoothed crop path, and approval-gated crop plans. |
 | `rightkit-review` | crates.io | 0.4.0 | 0.4.0 | 0.4.0 | ok | content-review | Shared review capability for the content pipeline: deterministic checks over a media or text description, declared holds, a capped repair loop, an advisory judge interface, and versioned verdict records. |
 | `rightkit-sandbox` | crates.io | 0.6.1 | 0.6.1 | 0.6.1 | ok | os-sandbox | Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps. |
 | `rightkit-search` | crates.io | 0.4.1 | 0.4.0 | 0.4.1 | staged, not yet published | search | Product-neutral search query language: lexer, AST, operator values, SQL/FTS5 predicate compiler, snippets, and an in-memory filename index. |

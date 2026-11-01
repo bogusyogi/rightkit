@@ -1614,6 +1614,15 @@
         "README.md": "4d624735601c73cb0dcf9e334975cc497333a32290165ab43caf23eb8207a3a8",
         "src/main.rs": "055a52c095cb14ee41bcb54422d17cd60f10e9856b3cfea73277646a7ac2f16b"
       }
+    },
+    "rightkit-reframe": {
+      "pkId": "PK58",
+      "id": "ci/consumers/rightkit-reframe/src/main.rs",
+      "files": {
+        "Cargo.toml": "174acacaeb756855ff0c3e329bc16d2c7b5cafde15d12618d1143fbc8eba6290",
+        "README.md": "375309718b38c6fac678d543e50013cc1b6cd598a4f1c9124912ef70063957a0",
+        "src/main.rs": "d496b52275c2f1d8ff2e810bf8061672f337e100d751165486932271395ba5c7"
+      }
     }
   }
 }
