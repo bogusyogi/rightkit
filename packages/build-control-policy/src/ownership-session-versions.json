@@ -467,6 +467,7 @@
     "rightkit-channel-memory": "0.2.2",
     "rightkit-child-process": "0.5.7",
     "rightkit-compose": "0.2.0",
+    "rightkit-compositor": "0.1.0",
     "rightkit-contracts": "0.1.8",
     "rightkit-crash": "0.3.6",
     "rightkit-credentials": "0.4.2",
