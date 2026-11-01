@@ -17,7 +17,7 @@ fn metadata() -> BundleMetadata {
 #[test]
 fn consumer_stems_retention_and_declared_bundle_sources() {
     let dir = tempfile::tempdir().unwrap();
-    // CodeRight & ViewRight both keep events.jsonl at 4 MiB.
+    // the host app & ViewRight both keep events.jsonl at 4 MiB.
     let config = JsonlStoreConfig::from_stem(dir.path(), "events", 4 * 1024 * 1024).unwrap();
     assert_eq!(config.path, dir.path().join("events.jsonl"));
     assert_eq!(config.generations, 1);
@@ -25,7 +25,7 @@ fn consumer_stems_retention_and_declared_bundle_sources() {
     let mut config = config;
     config.generations = 2;
     config.max_file_bytes = 1;
-    // CodeRight names this source renderer; ViewRight names it app.
+    // the host app names this source renderer; ViewRight names it app.
     config.bundle_sources = vec![LogSource::new("renderer", &config.path)];
     config
         .collection
