@@ -305,7 +305,7 @@ fn child_name(keep: Option<&str>) -> Option<&str> {
 }
 
 /// Test entry point with no named child; the command always goes through [`scan_dir_keeping`].
-#[cfg(test)]
+#[cfg(all(test, unix))]
 fn scan_dir(dir: &str, cap: usize) -> Result<(Vec<RawEntry>, bool), WorkspaceError> {
     scan_dir_keeping("Test", dir, cap, None)
 }

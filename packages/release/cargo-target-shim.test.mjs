@@ -700,3 +700,27 @@ test("[rightkit#1350] a Windows broker host's wrapper is a copy of the RustRight
   }
   assert.throws(() => installCargoShim({ base: path.join(dir, "shim"), snapshotRoot: snap, targetDirs: { ".": path.join(dir, "t") }, platform: "win32", realCargo: "C:\\cargo.exe" }), (e) => e.code === "RK_CARGO_SHIM_UNSUPPORTED", "a direct Windows host still has no wrapper");
 });
+
+// Regression (qualify 41330530379): two wrappers over the same workspace map have the same identity and so the same directory name.
+// The unit stage's outer wrapper and the class A wrapper of the same unit bind the same closure; if both were installed under one base,
+// the class A cleanup removed the directory the compile stage's PATH still named, cargo ran unwrapped and wrote target/ into the snapshot.
+test("two wrappers over the same workspaces share a directory name, so the gate's class A wrapper is installed under a base of its own", () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-cargo-shim-collide-")));
+  try {
+    const snap = path.join(dir, "snap"); fs.mkdirSync(path.join(snap, "crates", "a"), { recursive: true });
+    const targets = { "crates/a": path.join(dir, "checkout", "crates", "a", "target") };
+    const realCargo = path.join(dir, "cargo");
+    const one = installCargoShim({ base: path.join(dir, "base"), snapshotRoot: snap, targetDirs: targets, realCargo });
+    const two = installCargoShim({ base: path.join(dir, "base"), snapshotRoot: snap, targetDirs: targets, realCargo });
+    assert.equal(one.dir, two.dir, "same map, same base: the same directory (removing one removes the other)");
+    const own = installCargoShim({ base: fs.mkdtempSync(path.join(dir, "rk-gate-shim-")), snapshotRoot: snap, targetDirs: targets, realCargo });
+    assert.notEqual(own.dir, one.dir, "a base of its own keeps the directories apart");
+    fs.rmSync(path.dirname(own.dir), { recursive: true, force: true });
+    assert.ok(fs.existsSync(one.shim), "removing the class A wrapper's base leaves the outer wrapper in place");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  const gate = fs.readFileSync(new URL("./bin/rightkit-gate.mjs", import.meta.url), "utf8");
+  const classA = gate.slice(gate.indexOf("const bindCargoWrapper = async"), gate.indexOf("const bindCargoWrapper = async") + 8000);
+  assert.match(classA, /const shimBase = fs\.mkdtempSync\(/, "the class A wrapper gets a fresh base");
+  assert.match(classA, /installCargoShim\(\{ base: shimBase,/, "and is installed under it");
+  assert.doesNotMatch(classA, /installCargoShim\(\{ base: os\.tmpdir\(\)/, "never directly under the shared temp directory");
+});

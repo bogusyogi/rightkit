@@ -34,12 +34,12 @@ thiserror = "2"
 rightkit-compositor = { version = "0.1.0", path = "../rightkit-compositor", optional = true }
 rightkit-timeline = { version = "0.1.0", path = "../rightkit-timeline", optional = true }
 rightkit-video-project = { version = "0.1.0", path = "../rightkit-video-project", optional = true }
-rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg", default-features = false, optional = true }
+rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg", default-features = false, features = ["native"], optional = true }
 rightkit-fs = { version = "0.4.9", path = "../rightkit-fs", default-features = false, features = ["fs", "blake3"], optional = true }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time", optional = true }
 
 [dev-dependencies]
-rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg", default-features = false, features = ["dev-overrides"] }
+rightkit-ffmpeg = { version = "0.2.13", path = "../rightkit-ffmpeg", default-features = false, features = ["native", "dev-overrides"] }
 tempfile = "3"
 
 # Citationberg is pulled by rightkit-typeset through rightkit-captions (video-project); see the vendored fix.

@@ -1348,7 +1348,9 @@ export function planScans({
   // A package that depends on another workspace package is therefore checked through a generated project that maps each sibling's
   // exported entry points to its committed sources (TSC_PROJECT, built by the runner); every other package keeps its own tsconfig.
   // `--noEmit` stays on the command line as well as in the project: the class A launch guard judges a tsc launch by its argv alone.
-  const workspaceDirs = (npmMap ? [...npmMap.values()].map((u) => u.dir) : listDir(path.join(liveRoot, "packages")).map((n) => `packages/${n}`)).sort();
+  // Every workspace package is a possible sibling, whatever subset this plan checks (a publication plans only its units, and their
+  // siblings' sources must still be mapped: publish scans of @rightkit/workspace-ui could not resolve @rightkit/mail-ui/*).
+  const workspaceDirs = [...new Set([...(npmMap ? [...npmMap.values()].map((u) => u.dir) : []), ...listDir(path.join(liveRoot, "packages")).map((n) => `packages/${n}`)])].sort();
   const manifestOf = (dir) => { try { return JSON.parse(readFile(path.join(liveRoot, dir, "package.json")).replace(/^﻿/, "")); } catch { return null; } };
   const workspaceNames = new Map(workspaceDirs.map((d) => [manifestOf(d)?.name, d]).filter(([n]) => typeof n === "string"));
   const usesWorkspaceSibling = (dir) => {
@@ -2596,7 +2598,9 @@ export async function runScans(plan, options = {}) {
           // generated outside the checked tree and removed after the run, so the check reads nothing a commit lacks and writes nothing.
           let tscProject = null;
           if (args.includes(TSC_PROJECT)) {
-            try { tscProject = writeTscProject({ contentRoot, packageDir: path.join(rootDir(s.root), s.cwd ?? ""), workspace: s.tscWorkspace ?? [] }); }
+            // The siblings are mapped in the same tree tsc runs in (a publication scans a content checkout and a live checkout of
+            // one verified commit; mixing them puts the package outside the project's rootDir, TS6059).
+            try { tscProject = writeTscProject({ contentRoot: rootDir(s.root), packageDir: path.join(rootDir(s.root), s.cwd ?? ""), workspace: s.tscWorkspace ?? [] }); }
             catch (e) { advisory?.cleanup?.(); return { ...row, status: "fail", code: "TSC_PROJECT", detail: `${s.id}: the check project could not be built from the committed workspace: ${e.message}` }; }
             args = args.map((a) => (a === TSC_PROJECT ? tscProject.file : a));
           }

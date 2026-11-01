@@ -245,8 +245,10 @@ fn timeout_error_and_panic_become_typed_results_with_exit_zero() {
         m("panic", |_, _| panic!("kaboom")),
         m("fine", |_, _| Ok(ModuleOutput::context("still here"))),
     ];
+    // Long enough for a panicking module to unwind and be caught even when the panic hook prints a backtrace
+    // (RUST_BACKTRACE set): at 30 ms the panic module itself timed out under the gate (qualify of rightkit-hooks).
     let opts = DispatchOptions {
-        module_deadline: Duration::from_millis(30),
+        module_deadline: Duration::from_millis(500),
         ..Default::default()
     };
     let r = dispatch(event(Wire::Claude, "claude_session_start"), &mods, &opts);
