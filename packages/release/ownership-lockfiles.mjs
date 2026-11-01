@@ -286,7 +286,10 @@ function pnpmGraph(text, manifests, lockDir, workspaceBytes) {
     if (/^(?:link:|workspace:)/.test(ref)) {
       if (!ref.startsWith("link:")) throw new LockError("lockfile-unresolved-dependency", ref);
       const importer = node.id.replace(/^importer:/, "");
-      return g.nodes.get(`importer:${path.posix.normalize(path.posix.join(importer, ref.slice(5)))}`);
+      const target = path.posix.normalize(path.posix.join(importer, ref.slice(5)));
+      // A link out of the lock's own workspace (a self-rooted template linking ../packages/<x>) is a local package, not a lock entry.
+      if (!g.nodes.has(`importer:${target}`) && (target === ".." || target.startsWith("../"))) g.add(`importer:${target}`, name, "0.0.0", `path:${target}`, true);
+      return g.nodes.get(`importer:${target}`);
     }
     const candidates = [ref, `${name}@${ref}`, `/${name}@${ref}`];
     const exact = candidates.map((id) => g.nodes.get(id)).find(Boolean);
