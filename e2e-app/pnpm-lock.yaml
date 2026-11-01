@@ -163,6 +163,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
+  katex: ^0.18.2
   '@rightkit/tauri@0.3.0>@rightkit/logs': 0.1.6
   '@rightkit/qa@0.6.1>@rightkit/qa-chrome': 0.1.12
 

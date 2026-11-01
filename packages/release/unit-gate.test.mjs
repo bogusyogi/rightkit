@@ -248,6 +248,11 @@ test("writeQualification binds the passed local stages and the one artifact sha2
   assert.throws(() => write({ contentExcluded: [] }, swap), /archive to hold/);
   const swapWritten = []; writeQualification({ report, artifact: { ...artifact, contentExcluded: [...helper].reverse() }, unit: swap, commit, tree: "b".repeat(40), runtime: "r", executor: { kind: "broker" }, write: (f, text) => swapWritten.push(JSON.parse(text)) });
   assert.deepEqual(swapWritten[0].contentExcluded, helper);
+  // A direct (Linux) origin builds and signs no helper: its @rightkit/release archive holds neither entry and records [] (the Mac rule above is unchanged).
+  const directWrite = (a) => { const out = []; writeQualification({ report, artifact: { ...artifact, ...a }, unit: swap, commit, tree: "b".repeat(40), runtime: "r", executor: { kind: "direct" }, directOrigin: { schema: 1 }, write: (f, text) => out.push(JSON.parse(text)) }); return out[0]; };
+  assert.deepEqual(directWrite({ contentExcluded: [] }).contentExcluded, []);
+  assert.throws(() => directWrite({}), /must hold neither/);
+  assert.throws(() => directWrite({ contentExcluded: helper }), /must hold neither/);
   // A crate carries no content digest.
   assert.doesNotThrow(() => write({ contentSha256: undefined }, { kind: "cargo", name: "rightkit-demo", version: "1.0.0" }));
   void t;
