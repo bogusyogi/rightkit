@@ -55,7 +55,7 @@ jobs:
               if grep -qF "$title|completed|success|" relayed.txt; then continue; fi
               if [ "$(grep -cF "$title|completed|" relayed.txt || true)" -ge 6 ]; then continue; fi
               # crates.io answers 429 for about ten minutes after its new-crate burst: wait that long after a failed upload.
-              last=$(grep -F "$title|completed|" relayed.txt | cut -d'|' -f4 | sort | tail -1)
+              last=$(grep -F "$title|completed|" relayed.txt | cut -d'|' -f4 | sort | tail -1 || true)
               if [ -n "$last" ] && [ $(( $(date -u +%s) - $(date -u -d "$last" +%s) )) -lt 600 ]; then waiting=1; continue; fi
               if grep -qxF "$title $(grep -cF "$title|completed|" relayed.txt || true)" dispatched.txt; then continue; fi
               echo "relay publish run $id attempt $attempt at $sha"
