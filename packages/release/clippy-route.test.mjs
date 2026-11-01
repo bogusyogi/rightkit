@@ -488,7 +488,8 @@ test("item 8 row 8.8: a sidecar-bound package in the requested scope refuses the
   // The pure helper.
   const scope = { members: [{ name: "a", dir: "crates/a" }, { name: "s", dir: "crates/s" }], all: [], unresolved: [] };
   const files = { "crates/s/tauri.conf.json": '{"bundle":{"externalBin":["b/h"]}}', "crates/a/tauri.conf.json": '{"bundle":{}}' };
-  const args = { scope, dirOf: (p) => p.dir, exists: (f) => f in files, readFile: (f) => files[f] };
+  const fwd = (f) => String(f).replaceAll("\\", "/"); // the helper joins with the platform separator; the fixture is keyed by forward slashes
+  const args = { scope, dirOf: (p) => p.dir, exists: (f) => fwd(f) in files, readFile: (f) => files[fwd(f)] };
   assert.deepEqual(sidecarBoundMembers(args), ["s"]);
   assert.deepEqual(sidecarBoundMembers({ ...args, scope: null }), []);
   assert.equal("splitForSidecars" in (await import("./clippy-route.mjs")), false, "the rewrite no longer exists");

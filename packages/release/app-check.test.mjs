@@ -1717,7 +1717,7 @@ test("the packed tarball ships app-check.mjs and no tests, and its rightkit-gate
   assert.deepEqual(names.filter((n) => n.endsWith(".test.mjs")), [], "no test file ships");
   const root = path.join(out, "node_modules", "@rightkit", "release");
   fs.mkdirSync(root, { recursive: true });
-  const untar = spawnSync("tar", ["-xzf", path.join(out, info.filename), "-C", root, "--strip-components=1"], { encoding: "utf8" });
+  const untar = spawnSync("tar", ["-xzf", info.filename, "-C", root.replaceAll("\\", "/"), "--strip-components=1"], { cwd: out, encoding: "utf8" });
   if (untar.error || untar.status !== 0) { t.skip(`tar is unavailable here: ${untar.error?.message ?? untar.stderr.trim().slice(0, 200)}`); return; }
   const { repo } = appRepo(t, FIXTURE);
   const run = (...args) => spawnSync(process.execPath, [path.join(root, "bin", "rightkit-gate.mjs"), "check", "--repo", repo, ...args], { cwd: out, env: { ...process.env, GITHUB_ACTIONS: "true" }, encoding: "utf8" });

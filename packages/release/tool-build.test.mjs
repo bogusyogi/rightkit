@@ -10,6 +10,9 @@ import { carriedRequestOf } from "./snapshot-request.mjs";
 import { enrollQaRunner, resolveManagedQaRunner } from "./qa-runner.mjs";
 import { TOOL_UNITS, ToolBuildError, builtToolBinary, pinnedTargetDir, runUnitTool, toolBuildArgs, toolPlan } from "./tool-build.mjs";
 
+// Enrolling a Mac runner reads POSIX exec bits from the file; a Windows file system holds none.
+const noModeBits = process.platform === "win32" ? "a Windows file system holds no POSIX mode bits (the Mac enrolment reads them)" : false;
+
 const commit = "a".repeat(40), tree = "b".repeat(40);
 const SHA = /^[0-9a-f]{64}$/;
 
@@ -88,7 +91,7 @@ function setup({ version = "0.10.0", platform = "darwin", reported = `rightkit-q
   return { args, calls, outLines, errLines, reports, guard, data, binary, target, fakeSpawn, spawned };
 }
 
-test("class A first, then the build, then the enrolment; the enrolled copy is the built bytes and its path and sha256 are printed", async () => {
+test("class A first, then the build, then the enrolment; the enrolled copy is the built bytes and its path and sha256 are printed", { skip: noModeBits }, async () => {
   const s = setup();
   assert.equal(await runUnitTool(s.args), 0, s.errLines.join("\n"));
   assert.deepEqual(s.calls, ["check:compile", "cargo build --release --locked --bin rightkit-qa", "enroll"]);
@@ -110,7 +113,7 @@ test("class A first, then the build, then the enrolment; the enrolled copy is th
   assert.equal(last.stages.enrol.version, "0.10.0");
 });
 
-test("the carried receipt's output directory is the one used on a broker host (no pinned target needed)", async () => {
+test("the carried receipt's output directory is the one used on a broker host (no pinned target needed)", { skip: noModeBits }, async () => {
   const s = setup({ output: "carried" });
   assert.equal(await runUnitTool(s.args), 0, s.errLines.join("\n"));
   assert.ok(s.calls.includes("enroll"));
@@ -158,14 +161,14 @@ test("a ledger or snapshot problem after the build (the stage guard) fails the r
   assert.equal(s.calls.includes("enroll"), false);
 });
 
-test("the binary must answer --version as the committed version: a mismatch is refused and nothing is recorded", async () => {
+test("the binary must answer --version as the committed version: a mismatch is refused and nothing is recorded", { skip: noModeBits }, async () => {
   const s = setup({ reported: "rightkit-qa 0.9.9" });
   assert.equal(await runUnitTool(s.args), 1);
   assert.match(s.errLines.join("\n"), /RK_QA_RUNNER_VERSION_MISMATCH/);
   assert.equal(fs.existsSync(path.join(s.data, "qa-runners", "mac", "record.json")), false);
 });
 
-test("an already-enrolled version is not replaced silently: the refusal names the built binary, its sha256 and the deliberate rotation", async () => {
+test("an already-enrolled version is not replaced silently: the refusal names the built binary, its sha256 and the deliberate rotation", { skip: noModeBits }, async () => {
   const s = setup();
   assert.equal(await runUnitTool(s.args), 0);
   s.errLines.length = 0; s.outLines.length = 0;
@@ -178,7 +181,7 @@ test("an already-enrolled version is not replaced silently: the refusal names th
   assert.equal(fs.readFileSync(path.join(s.data, "qa-runners", "mac", "0.10.0", "rightkit-qa"), "utf8"), "built-bytes", "the enrolled runner is unchanged");
 });
 
-test("a binary changed between its digest and the enrolled copy is not trusted", async () => {
+test("a binary changed between its digest and the enrolled copy is not trusted", { skip: noModeBits }, async () => {
   const s = setup();
   const code = await runUnitTool({ ...s.args, enroll: (a) => { fs.writeFileSync(s.binary, "swapped", { mode: 0o755 }); return enrollQaRunner({ ...a, spawn: s.fakeSpawn, hostPlatform: "darwin" }); } });
   assert.equal(code, 1);

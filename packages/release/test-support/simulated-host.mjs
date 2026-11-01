@@ -6,10 +6,10 @@
 //   simulateHostPlatform(t, "darwin")              this process reads `process.platform` as that host until the test ends
 //   simulatedHostChild("darwin")                   { execArgv, env } for a child node process (`spawnSync(process.execPath, [...execArgv, script])`, env merged) that does the same
 // Only the managed-host decision is exercised through these; every command a test would run on that host is still a stub or a fixture. Tests of what a host DOES (paths, shells, real tools) never use it.
-import { fileURLToPath } from "node:url";
 
 export const SIMULATED_PLATFORM_ENV = "RK_TEST_SIMULATED_PLATFORM";
-const PRELOAD = fileURLToPath(new URL("./simulated-host-preload.mjs", import.meta.url));
+// Node resolves an --import specifier as a URL: a bare Windows path (D:\...) reads as a scheme.
+const PRELOAD = new URL("./simulated-host-preload.mjs", import.meta.url).href;
 
 /** Makes `process.platform` read as `platform` until `t` ends (node:test context), then restores the real descriptor. */
 export function simulateHostPlatform(t, platform) {

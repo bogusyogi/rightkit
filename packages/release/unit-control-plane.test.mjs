@@ -58,7 +58,7 @@ function harness({ states, checkoutFiles = {}, env = {} } = {}) {
   const run = (cmd, args, options = {}) => {
     calls.push({ cmd, args, cwd: options.cwd, env: options.env });
     if (cmd === "git") return { status: 0, stdout: args[0] === "rev-parse" ? `${commit}\n` : "", stderr: "" };
-    const base = path.basename(cmd);
+    const base = path.basename(cmd, ".exe");
     if (base === "gh") {
       if (args[0] === "api") return { status: 0, stdout: JSON.stringify({ artifacts: [{ name: "publication-receipt-10-1-1" }] }) };
       const dir = args[args.indexOf("--dir") + 1]; fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, "publication-receipt.json"), JSON.stringify({ ...meta, receipts: [row] })); return { status: 0, stdout: "" };

@@ -8,6 +8,8 @@ import test from "node:test";
 import { assertRealWindowsRoot, expandInstallDirectory, installAssembledMac, installAssembledWindows, outerBuildCommands, resolveAssembledMacDescriptor } from "./install-assembled-app.mjs";
 import { validateMacAssembly, validateWindowsAssembly } from "./assembled-app.mjs";
 
+const macOnly = process.platform === "win32" ? "a macOS bundle flow through POSIX paths; it runs on Linux and macOS" : false;
+
 const sha = (text) => createHash("sha256").update(text).digest("hex");
 const REQ = 'identity "Developer ID Application: Orthic Labs (6KLGD3LLKF)"';
 const DEST = "/Applications/Demo.app";
@@ -84,7 +86,7 @@ function macHarness(t, { existing = false, failStaged = false, mismatchInstalled
   return { w, events, deps, realDest, run: (extra = {}) => installAssembledMac({ root: w.root, config: macConfig, descriptor: macConfig.development.targets.mac.install, spec: macSpec(), env: { DEMO_QA: "1" }, deps: { ...deps, ...extra } }) };
 }
 
-test("mac: build, sign, verify the STAGED bundle, assert the requirement, install in place, verify the installed copy, in that order", async (t) => {
+test("mac: build, sign, verify the STAGED bundle, assert the requirement, install in place, verify the installed copy, in that order", { skip: macOnly }, async (t) => {
   const h = macHarness(t, { existing: true });
   const result = await h.run();
   assert.deepEqual(h.events, [
@@ -118,7 +120,7 @@ test("mac: a changed designated requirement stops before the install; ad hoc sig
   assert.ok(!adhoc.events.some((line) => line.startsWith("install")));
 });
 
-test("mac: an installed copy that differs from the signed staged copy is removed (no old copy kept)", async (t) => {
+test("mac: an installed copy that differs from the signed staged copy is removed (no old copy kept)", { skip: macOnly }, async (t) => {
   const h = macHarness(t, { existing: true, mismatchInstalled: true });
   await assert.rejects(h.run(), (error) => /installed Contents\/Helpers\/democli does not match the signed staged copy/.test(error.message) && error.rolledBack === "removed-failed-install");
   assert.equal(fs.existsSync(h.realDest), false);

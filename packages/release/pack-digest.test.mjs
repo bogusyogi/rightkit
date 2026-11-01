@@ -27,7 +27,7 @@ test("the content digest ignores entry order, mtimes and gzip, and reads exactly
   try {
     for (const e of BASE) { fs.mkdirSync(path.dirname(path.join(dir, e.path)), { recursive: true }); fs.writeFileSync(path.join(dir, e.path), e.data, { mode: e.mode ?? 0o644 }); fs.chmodSync(path.join(dir, e.path), e.mode ?? 0o644); }
     const out = path.join(dir, "real.tgz");
-    const made = spawnSync("tar", ["-czf", out, "-C", dir, "package/lib/a.mjs", "package/bin/cli.mjs", "package/package.json"], { encoding: "utf8" });
+    const made = spawnSync("tar", ["-czf", path.basename(out), "-C", dir.replaceAll("\\", "/"), "package/lib/a.mjs", "package/bin/cli.mjs", "package/package.json"], { cwd: dir, encoding: "utf8" });
     if (made.status === 0) assert.equal(npmContentDigest(out).contentSha256, base.contentSha256, "a tarball written by the system tar");
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

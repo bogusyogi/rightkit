@@ -73,7 +73,7 @@ test("release stage: the gate owns pre-flight, broker dispatch, the wait and the
     const f = { canaryError, dispatches };
     let reads = 0;
     const run = (cmd, args) => {
-      const key = args[0] === "/repo/scripts/ci/rk-pipeline.mjs" ? args[1] : path.basename(cmd) === "gh" ? `gh:${args[0]}` : path.basename(cmd);
+      const key = args[0] === "/repo/scripts/ci/rk-pipeline.mjs" ? args[1] : path.basename(cmd, ".exe") === "gh" ? `gh:${args[0]}` : path.basename(cmd);
       calls.push(key === "gh:run" ? `gh:${args.join(" ")}` : key);
       if (key === "dispatch") dispatches.push(args.slice(1));
       if (key === "gh:api") return { status: 0, stdout: JSON.stringify({ artifacts: artifacts.map((name) => ({ name })) }) };
@@ -389,7 +389,7 @@ test("[M5] releaseUnit runs the INSTALLED coordinator with the PRIMARY CHECKOUT 
     if (cmd === "git") return { status: 0, stdout: `${head}\n` };
     return { status: 1, stdout: "", stderr: "stop here" };
   };
-  const base = { unit, root: snapshot, checkout, commit, executor: { kind: "broker" }, env: {}, artifact: {}, qualification, platform: "darwin", out: () => {}, readJson: () => ({ dispatches: { k: dispatched } }) };
+  const base = { unit, root: snapshot, checkout, commit, executor: { kind: "broker" }, env: {}, artifact: {}, qualification, platform: process.platform === "win32" ? "win32" : "darwin", out: () => {}, readJson: () => ({ dispatches: { k: dispatched } }) };
   await assert.rejects(releaseUnit({ ...base, run: make(commit) }), /canary.*failed/);
   const pipelineCalls = calls.filter((c) => c.cmd !== "git");
   assert.ok(pipelineCalls.length >= 1);

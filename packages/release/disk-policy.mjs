@@ -338,9 +338,9 @@ export const BUDGET_PARTS = ["targets", "sccache", "cargoHome", "toolchains", "t
 
 /** RustRight's build budget (`buildBudget` of `rustright doctor --json --no-scan`, all parts in bytes), or null when RustRight is
  * missing, fails, times out or answers with anything else. Nothing is cached and no shell is used. */
-export function readRustrightBudget({ run = spawnSync } = {}) {
+export function readRustrightBudget({ run = spawnSync, platform = process.platform } = {}) {
   try {
-    const launch = brokerClientInvocation("rustright", ["doctor", "--json", "--no-scan"], { encoding: "utf8", timeout: 20_000, shell: false, maxBuffer: 1 << 24 }, { probe: run });
+    const launch = brokerClientInvocation("rustright", ["doctor", "--json", "--no-scan"], { encoding: "utf8", timeout: 20_000, shell: false, maxBuffer: 1 << 24 }, { probe: run, platform });
     const r = run(launch.command, launch.args, launch.options);
     if (!r || r.error || r.status !== 0) return null;
     const budget = JSON.parse(String(r.stdout)).buildBudget;

@@ -269,7 +269,7 @@ function splitFixture(t) {
   const snap = path.join(tmp(t, "rk-pkg-snap-"), "snapshot"); fs.mkdirSync(snap);
   const archive = path.join(path.dirname(snap), "c1.tar");
   assert.equal(spawnSync("git", ["-C", repo, "archive", "-o", archive, c1]).status, 0);
-  assert.equal(spawnSync("tar", ["-xf", archive, "-C", snap]).status, 0);
+  assert.equal(spawnSync("tar", ["-xf", path.basename(archive), "-C", snap.replaceAll("\\", "/")], { cwd: path.dirname(archive) }).status, 0);
   const real = fs.realpathSync(repo);
   const nonce = "ab".repeat(16);
   const runsDir = path.join(real, ".git", "rightkit-gate", "runs"); fs.mkdirSync(runsDir, { recursive: true });
