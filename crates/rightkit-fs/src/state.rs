@@ -756,6 +756,8 @@ mod sys {
         unsafe { *libc::__errno_location() = 0 };
     }
 
+    // `S_IFMT` and friends are `u32` on Linux but `u16` on macOS: the casts are needed there.
+    #[allow(clippy::unnecessary_cast)]
     fn kind_of(mode: u32) -> EntryKind {
         match mode & libc::S_IFMT as u32 {
             m if m == libc::S_IFREG as u32 => EntryKind::File,

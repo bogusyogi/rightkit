@@ -347,8 +347,6 @@ impl Registry {
     }
 }
 
-/// The registry file. Owner-only, replaced atomically and durably.
-
 /// Decodes exactly 32 bytes of lowercase or uppercase hex.
 fn unhex32(text: &str) -> Option<[u8; 32]> {
     let bytes = text.as_bytes();
