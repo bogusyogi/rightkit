@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-content-proof"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Exact claim-number reading for content proof review: currency, thousands separators, k/m/bn suffixes, percentages and number words as exact decimals, with tokenization."
@@ -13,6 +13,12 @@ include = ["src/**", "tests/**", "data/**", "README.md", "CHANGELOG.md", "LICENS
 name = "rightkit_content_proof"
 path = "src/lib.rs"
 
+[dependencies]
+rightkit-social-publish = { version = "0.1.1", path = "../rightkit-social-publish" }
+rightkit-db = { version = "0.5.3", path = "../rightkit-db" }
+rightkit-fs = { version = "0.4.9", default-features = false, features = ["digest"], path = "../rightkit-fs" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
 
 [workspace]
 
